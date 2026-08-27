@@ -649,6 +649,71 @@ pub const TILE_CACHE_COLL_PLANES = 2                                      // pat
 pub const TILE_CACHE_MARGIN_H    = 20                                     // horizontal margin (columns each side)
 pub const TILE_CACHE_MARGIN_V    = 16                                     // vertical margin (rows each side)
 
+// -----------------------------------------------
+// STREAMING REACH — the fill window's far edge, and the guards that hold it
+// against the viewport. Added 2026-08-27 by the fg-left-edge derivation (see
+// docs/DEFERRED_WORK.md, "FOREGROUND: the two leftmost plane-A columns"). The
+// two literals below used to be bare `327` / `231` inline in section.emp's and
+// tile_cache.emp's `addi.w`s, so the claim "the fill window covers the whole
+// viewport" was a claim about four hand-copied magic numbers and nothing checked
+// it. Naming them changes no byte (327 == 320+7, 231 == 224+7) and makes the
+// ensures below real.
+//
+// THE NEAR EDGE HAS NO CONSTANT, AND THAT IS THE POINT. Both fills take their
+// near edge as `Camera >> 3` with nothing subtracted and nothing masked off —
+// the camera word IS the viewport's left/top pixel, so the first column the fill
+// covers is the column that contains screen x = 0. There is no left margin to be
+// wrong. Any future edit that introduces one (a block-align mask, a `subq`, a
+// margin term) breaks a property no ensure here can see, because an absent term
+// cannot be asserted; it can only be documented, and this is where.
+//
+// THE FAR EDGE, DERIVED. The last visible pixel is Camera + SCREEN_* - 1. Adding
+// one further tile (+8) and truncating gives `(Camera + REACH) >> 3` == (the
+// column holding the last visible pixel) + 1 — one column of deliberate
+// conservative overdraw, on both axes. With Camera's sub-tile fraction f in
+// 0..7 the reach in WHOLE COLUMNS above the camera's own column is therefore
+// (7 + REACH) >> 3, which is what the *_COLS_MAX / *_ROWS_MAX pair names: 41
+// columns and 29 rows.
+pub const SECTION_H_REACH_PX = SCREEN_WIDTH  + 7    // 327 — camera-relative far edge, X
+pub const SECTION_V_REACH_PX = SCREEN_HEIGHT + 7    // 231 — camera-relative far edge, Y
+pub const SECTION_H_REACH_COLS_MAX = (7 + SECTION_H_REACH_PX) >> 3   // 41
+pub const SECTION_V_REACH_ROWS_MAX = (7 + SECTION_V_REACH_PX) >> 3   // 29
+// The viewport's own far column/row, camera-relative, same worst-case fraction.
+pub const SCREEN_LAST_COL_MAX = (7 + SCREEN_WIDTH  - 1) >> 3         // 40
+pub const SCREEN_LAST_ROW_MAX = (7 + SCREEN_HEIGHT - 1) >> 3         // 27
+
+// (1) The fill must reach at least the viewport's far edge. Paired with the
+//     absent near margin documented above, this IS "the fill window covers the
+//     full visible viewport" — the property the fg-left-edge booking doubted.
+ensure(SECTION_H_REACH_COLS_MAX >= SCREEN_LAST_COL_MAX,
+       "the column fill's far reach ({SECTION_H_REACH_COLS_MAX} cols past the camera's own column) no longer covers the viewport's last partially-visible column ({SCREEN_LAST_COL_MAX}) — the right edge of the screen would stream one or more columns short and show whatever the plane ring last left there")
+ensure(SECTION_V_REACH_ROWS_MAX >= SCREEN_LAST_ROW_MAX,
+       "the row fill's far reach ({SECTION_V_REACH_ROWS_MAX} rows past the camera's own row) no longer covers the viewport's last partially-visible row ({SCREEN_LAST_ROW_MAX}) — the bottom of the screen would stream short")
+
+// (2) The streamed window must FIT THE PLANE RING measured from the viewport's
+//     own near column/row. Section_UpdateColumns clamps its far tracker to
+//     `visible_near + PLANE_*_CELLS - 1` precisely so the far edge can never lap
+//     the ring and overwrite the NEAR edge with the wrap twin (the world content
+//     PLANE_*_CELLS away). If the reach ever exceeded that clamp, the clamp —
+//     not the reach — would decide the far edge, and the fill would silently
+//     stop covering the viewport. 41 <= 63 and 29 <= 63 today: 22 and 34 columns
+//     of slack, which is the number the derivation needed and could not find
+//     written down anywhere.
+ensure(SECTION_H_REACH_COLS_MAX <= PLANE_H_CELLS - 1,
+       "the column fill reaches {SECTION_H_REACH_COLS_MAX} columns past the camera's own column, but the plane ring is only {PLANE_H_CELLS} cells wide — Section_UpdateColumns' wrap clamp (visible_left + {PLANE_H_CELLS}-1) would now bind before the reach does, so the far edge stops short AND the leftmost visible column risks being rewritten with the wrap twin")
+ensure(SECTION_V_REACH_ROWS_MAX <= PLANE_V_CELLS - 1,
+       "the row fill reaches {SECTION_V_REACH_ROWS_MAX} rows past the camera's own row, but the plane ring is only {PLANE_V_CELLS} cells tall — the vertical wrap clamp would bind before the reach does")
+
+// (3) The tile cache must be able to hold the whole streamed window PLUS its
+//     margin, or Tile_Cache_Fill's `desired_right = min(camera + reach + margin,
+//     desired_left + COLS-1)` clamp binds and Cache_Head_Col never reaches the
+//     column the plane fill wants — Draw_TileColumn's cache-range gate then drops
+//     the write and the far edge shows stale ring content.
+ensure(TILE_CACHE_COLS >= TILE_CACHE_MARGIN_H + SECTION_H_REACH_COLS_MAX + 1,
+       "TILE_CACHE_COLS ({TILE_CACHE_COLS}) cannot span the left margin ({TILE_CACHE_MARGIN_H}) plus the column fill's reach ({SECTION_H_REACH_COLS_MAX}) plus the camera's own column — Cache_Head_Col can never reach the plane fill's right edge and Draw_TileColumn drops those columns")
+ensure(TILE_CACHE_ROWS >= TILE_CACHE_MARGIN_V + SECTION_V_REACH_ROWS_MAX + 1,
+       "TILE_CACHE_ROWS ({TILE_CACHE_ROWS}) cannot span the top margin ({TILE_CACHE_MARGIN_V}) plus the row fill's reach ({SECTION_V_REACH_ROWS_MAX}) plus the camera's own row — Cache_Bottom_Row can never reach the plane fill's bottom edge")
+
 // Raw block layout: [512B nametable][128B collision plane A][128B collision plane B].
 pub const BLOCK_TILE_SIZE       = 16    // 16x16 tiles per block
 pub const BLOCK_TILE_SHIFT      = 4     // lsr #4 = / 16

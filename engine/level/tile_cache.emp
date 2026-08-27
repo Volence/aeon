@@ -15,6 +15,7 @@ use engine.constants.{BLOCK_COLL_SIZE, BLOCK_RAW_SIZE, BLOCK_STAGE_SLOTS, BLOCK_
 use engine.constants.{BLOCK_SPEC_LEAD_TICKS, BLOCK_SPEC_REARM}
 use engine.constants.{STALL_WATCHDOG_FRAMES}
 use engine.constants.{CLAMP_MARGIN_TILES, SCREEN_TILES_W, SCREEN_TILES_H, ART_HOLD_X_BIT, ART_HOLD_Y_BIT}
+use engine.constants.{SECTION_H_REACH_PX, SECTION_V_REACH_PX}
 
 // S4LZ_DecompressDict is .emp-owned (engine.s4lz) and resolves at link — no
 // decl; its contract (a4=dict base, d4.w=dict len preserved, clobbers
@@ -1145,7 +1146,7 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
         // --- compute desired right edge ---
         move.l  Camera_X, d6
         swap    d6
-        addi.w  #327, d6
+        addi.w  #SECTION_H_REACH_PX, d6
         lsr.w   #3, d6
         move.w  d6, d0                         // d0 = world tile col
         addi.w  #TILE_CACHE_MARGIN_H, d0
@@ -1234,7 +1235,7 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
         // --- compute desired bottom edge ---
         move.l  Camera_Y, d6
         swap    d6
-        addi.w  #231, d6
+        addi.w  #SECTION_V_REACH_PX, d6
         lsr.w   #3, d6
         move.w  d6, d0                         // d0 = world tile row
         addi.w  #TILE_CACHE_MARGIN_V, d0
