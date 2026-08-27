@@ -263,6 +263,15 @@ pub const SND_PSG_TONE_LATCH      = $80                    // +(ch<<5) : tone fr
 pub const SND_PSG_VOL_LATCH       = $90                    // +(ch<<5)|atten : channel attenuation ($0F = silent)
 pub const SND_PSG_NOISE_CTRL      = $E0                    // |(mode<<2)|rate : noise control byte
 pub const SND_PSG_NOISE_VOL       = $F0                    // |atten : noise channel attenuation
+// NOTE (B5): the rate-3 NOISE CLOCK latch — tone channel 3's frequency register, $C0 =
+// SND_PSG_TONE_LATCH|(2<<5) — has deliberately NOT been given a name here. sigil's
+// seam-1 carries a HARD-CODED per-module const-name allowlist (sigil
+// crates/sigil-harness/src/seam1.rs, `psg_const_names()`), so a new name in this file is
+// invisible to sound_psg.emp and lowers as an unresolved LABEL: "[lower.z80-unsupported]
+// a symbolic operand is only supported as the 16-bit immediate of `ld rr, Label`"
+// (measured 2026-08-26). Naming it therefore needs a PAIRED sigil change. Both users
+// (Psg_EmitDivisor's noise-route latch and Psg_EmitNoiseClock) spell the literal $C0
+// with a comment instead — which is what Psg_EmitNoiseClock already did.
 pub const SND_PSG_ATTEN_SILENT    = $0F                    // 4-bit attenuation = silence
 // PSG silence-all: max attenuation on tone1/tone2/tone3/noise.
 pub const SND_PSG_SILENCE_T1      = $9F

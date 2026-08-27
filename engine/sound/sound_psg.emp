@@ -38,11 +38,16 @@
 //     preserving de.
 //
 // --- CHANNEL-INDEX DERIVATION (route -> hardware ch / command bytes) -------
+// (route numbers are CHROUTE_* from sound_constants.emp — this table read 5/6/7/8
+//  until 2026-08-26, one short of the real values; CHROUTE_PSG1 has been 6 since
+//  CHROUTE_FM6 was inserted at 5.)
 //   route  CHROUTE_  hw ch  tone latch  vol latch   used bytes
-//     5      PSG1       0      $80         $90       tone freq + atten
-//     6      PSG2       1      $A0         $B0        "
-//     7      PSG3       2      $C0         $D0        "
-//     8      PSGN     (noise)   —          $F0        noise ctrl ($E0..) + atten
+//     6      PSG1       0      $80         $90       tone freq + atten
+//     7      PSG2       1      $A0         $B0        "
+//     8      PSG3       2      $C0         $D0        "
+//     9      PSGN     (noise)   —          $F0        noise ctrl ($E0..) + atten
+//                                                    + tone-3's $C0 as the rate-3
+//                                                      noise CLOCK (B5)
 // For the three tone channels the hardware ch index = route - CHROUTE_PSG1
 // (0..2); ch<<5 gives the latch/vol base offset. PSGN is the dedicated noise
 // channel (its own control + volume bytes), routed to Psg_Noise by the hook.
@@ -66,8 +71,13 @@
 //     in rate-3 mode Psg_Noise writes that note's divisor to tone-ch2's frequency
 //     latch ($C0) = the noise clock, so the hat tracks pitch (S3K-faithful). Each hit
 //     is shaped by the per-note PSG volume envelope (the LFSR free-runs).
-//   SFX: the SFX transcoder drops smpsPSGform, so a noise note's low 3 bits ARE the
-//     mode/rate -> control byte = $E0|(note&7) (legacy; fixed rate, no tone-ch2 clock).
+//   SFX: IDENTICAL since B5. The transcoder emits the source's smpsPSGform as
+//     MEV_PSGNOISE, so the control byte arrives out of band and the note is a PITCH.
+//     Psg_Noise's SFX arm is a plain `jp Psg_NoteOn`: the divisor emit lands on the
+//     noise clock (Psg_EmitDivisor's CHROUTE_PSGN latch), sc_base_freq is latched and
+//     modulation armed, so a source smpsModSet SWEEPS the noise pitch (S3K's $E7
+//     "pshhew" — dash $B6, insta-shield $42, ground slide $7E). The two arms differ
+//     only in what music needs extra: the sc_noise_mode latch and the preset-rate skip.
 // Both: note-on sets the noise VOLUME from sc_volume; a rest sets it silent ($FF).
 //
 // --- ix PRESERVATION (project-critical contract) --------------------------
@@ -390,9 +400,12 @@ section sound_psg (cpu: z80) {
     // of Mod_ApplyVibrato: both call the SHARED Mod_Advance triangle core
     // (sound_sequencer.asm). The only difference is the WRITE TARGET: Mod_Advance
     // returns the modulated 16-bit word = sc_base_freq + sc_mod_accum, and here that
-    // word is the PSG tone DIVISOR (10 bits used), re-latched WITHOUT re-keying.
-    // Tone routes only (noise has no divisor).
-    // In: ix = PSG TONE channel (SFX), sc_mod_ctrl != 0.
+    // word is the PSG DIVISOR (10 bits used), re-latched WITHOUT re-keying.
+    // Tone routes AND the rate-3 noise route: Psg_EmitDivisor (which this falls into)
+    // picks the latch base per route, so a CHROUTE_PSGN sweep re-latches tone-3's
+    // frequency — the noise clock — instead of the noise control register (B5). No
+    // noise special case is needed here; that is deliberate, not an omission.
+    // In: ix = PSG channel (SFX), sc_mod_ctrl != 0.
     // Falls into Psg_EmitDivisor (tail; no inserted jump — byte-critical).
     // ------------------------------------------------------------------
     // Contract: clobbers af, bc, de, hl; preserves ix (inherited — Mod_Advance
@@ -426,13 +439,29 @@ section sound_psg (cpu: z80) {
     }
 
     // ------------------------------------------------------------------
-    // Psg_EmitDivisor — write a 10-bit tone DIVISOR to the SN76489 tone register for
-    // the current channel (latch + data bytes), WITHOUT keying/volume. Shared by
-    // Psg_NoteOn (fresh note) and Psg_ApplyMod (per-frame pitch sweep) so the
-    // divisor-split exists once.
-    //   latch byte = $80 | (ch<<5) | (div & $0F);   data byte = (div >> 4) & $3F.
-    // In: ix = PSG tone channel, d = div hi, e = div lo.
+    // Psg_EmitDivisor — write a 10-bit DIVISOR to the SN76489 frequency register that
+    // owns the current channel's pitch (latch + data bytes), WITHOUT keying/volume.
+    // Shared by Psg_NoteOn (fresh note) and Psg_ApplyMod (per-frame pitch sweep) so
+    // the divisor-split exists once.
+    //   latch byte = base | (div & $0F);   data byte = (div >> 4) & $3F.
+    // In: ix = PSG channel, d = div hi, e = div lo.
     // Falls into Psg_EmitDivisorTo (tail; c = latch base, de = divisor).
+    //
+    // --- THE NOISE-ROUTE LATCH (B5) -----------------------------------------------
+    // On a TONE route the latch base is $80|(ch<<5). On CHROUTE_PSGN it is NOT: the
+    // noise channel has no frequency register of its own, and Psg_ChBase would return
+    // (8-5)<<5 = $60, so the tone-latch OR yields $E0 — the NOISE CONTROL register.
+    // Writing a swept divisor there re-triggers the LFSR and walks the mode/rate bits
+    // every frame; that is exactly the D1 corruption, and it is why a rate-3 noise
+    // sweep was impossible before this branch existed. In rate-3 noise mode the chip
+    // clocks the LFSR from TONE 3's frequency, so tone-3's latch ($C0) IS this
+    // channel's pitch register. Selecting it here fixes BOTH callers at once:
+    // Psg_ApplyMod falls straight into this proc, so the per-frame sweep needs no
+    // noise special case of its own, and Psg_NoteOn's base + portamento re-latches
+    // land on the noise clock too — which is what makes Psg_Noise's SFX arm a plain
+    // `jp Psg_NoteOn`. (Preset-rate noise, $E4-$E6, ignores tone 3, so the write is
+    // inert there rather than wrong; no S3K source emits one — every smpsPSGform in
+    // skdisasm, music and SFX alike, is $E7.)
     // ------------------------------------------------------------------
     // Contract: clobbers a, c, f (latch scratch) + b (the tail's data-byte split
     // writes it, `ld b, a` in Psg_EmitDivisorTo); preserves de (push/pop-bracketed
@@ -440,9 +469,18 @@ section sound_psg (cpu: z80) {
     // falls_into Psg_EmitDivisorTo.
     pub proc Psg_EmitDivisor () clobbers(a, b, c, f) preserves(de, hl) falls_into Psg_EmitDivisorTo {
         push    de                     // save divisor across Psg_ChBase
+        ld      a, (ix+sc_route)
+        cp      CHROUTE_PSGN
+        ld      a, $C0                 // tone-3 freq latch = the rate-3 noise clock (the
+                                       //   literal, not a named const: sigil's seam-1
+                                       //   const allowlist is per-module and hard-coded —
+                                       //   see the NOTE beside SND_PSG_NOISE_VOL. Same
+                                       //   spelling as Psg_EmitNoiseClock's `ld c, $C0`.)
+        jr      z, .have_base          // (the `ld` above leaves the cp's Z flag intact)
         call    Psg_ChBase             // a = ch<<5 ($00/$20/$40)
         or      SND_PSG_TONE_LATCH     // a = $80 | (ch<<5)
-        ld      c, a                   // c = tone latch base
+    .have_base:
+        ld      c, a                   // c = latch base
         pop     de                     // e = div lo, d = div hi
         // fall into Psg_EmitDivisorTo (c = latch base, de = divisor)
     }
@@ -648,8 +686,17 @@ section sound_psg (cpu: z80) {
     //     (S3K-faithful timbre that tracks the note), then set the noise volume. The
     //     PSG vol-env shapes each hit. Preset rates ($E4/$E5/$E6) ignore tone-2, so the
     //     $C0 write is skipped.
-    //   SFX: legacy — the SFX transcoder drops smpsPSGform, so the note's low 3 bits
-    //     ARE the mode/rate; write $E0|(note&7) as the control + set the noise volume.
+    //   SFX: the note is a real PITCH too (B5). The transcoder now emits the source's
+    //     smpsPSGform as MEV_PSGNOISE, so the control byte arrives out of band exactly
+    //     as it does for music, and the note can be a pitch. Psg_NoteOn does the whole
+    //     job: its divisor emit lands on the noise clock ($C0) via Psg_EmitDivisor's
+    //     noise-route latch, it latches sc_base_freq and arms Mod_ReArm (so the source
+    //     smpsModSet sweeps the noise pitch — the S3K "pshhew"), and its Psg_SetVolume
+    //     tail takes the $F0 noise-volume branch. The pre-B5 arm read the note's low 3
+    //     bits AS the mode/rate ($E0|(note&7)) because the transcoder dropped
+    //     smpsPSGform; that encoding is gone, and nothing can produce it — every
+    //     smpsPSGform in skdisasm is $E7 and no S3K SFX declares a cNoise channel, so
+    //     the noise route is only ever reached through the smpsPSGform reroute.
     // In: ix = SeqChannel, a = note value. Sets SCF_KEYED.
     // ------------------------------------------------------------------
     // Contract: clobbers af, bc, de, hl; preserves ix (inherited — Snd_ChanClass,
@@ -671,14 +718,9 @@ section sound_psg (cpu: z80) {
         ld      a, (ix+sc_volume)
         jp      Psg_SetVolume          // noise volume ($F0) + envelope fold (preserves ix; ret)
     .sfx:
-        ld      a, b                   // legacy: note low 3 bits = mode<<2 | rate
-        and     7
-        or      SND_PSG_NOISE_CTRL     // $E0 | (note & 7)
-        ld      (SND_Z80_PSG), a       // noise control byte (stays latched)
-        set     SCF_KEYED_B, (ix+sc_flags)
-        call    Psg_EnvCursorReset
-        ld      a, (ix+sc_volume)
-        jp      Psg_SetVolume          // noise volume path (preserves ix; ret)
+        ld      a, b                   // a = pitch; Psg_NoteOn emits the divisor to the
+        jp      Psg_NoteOn             // noise clock ($C0), latches base_freq + arms mod,
+                                       // and tails into the $F0 noise-volume branch
     }
 
     // ------------------------------------------------------------------
