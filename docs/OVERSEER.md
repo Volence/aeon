@@ -508,7 +508,32 @@ hosted-halt merge `3fb9f4a` verified reachable there. Their local `target/releas
 was relinked **2026-08-27 05:59**, so the served binary is current with that source — checked
 separately, because a source claim and the binary a tool actually dials are two artifacts.
 Oracle's own run against the rebuilt binary reports **52 methods** and all five breakpoint
-methods present. *Historical note kept deliberately: this bullet previously read "do not exist …
+methods present. **CONFIRMED INDEPENDENTLY HERE 2026-08-27** by spawning
+`target/release/oracle-aether` through `tools/aether_instance.py` against our own
+`s4.debug.bin` and reading the handshake: `implementation` `'oracle-rs'`, `serverName`
+`'oracle-next'`, `serverBuild` `{dirty: False, source: 'vcs', id: '614736b6…+profile=release'}`,
+`capabilities.breakpoints` `True`, **52** methods, all five of `breakpoint_{add,clear,list,
+set_enabled}` + `wait_for_break`.
+  **⚠ WHY THAT CONFIRMATION IS RECORDED WITH ITS PROVENANCE, AND THE LESSON IS ABOUT THIS FILE
+  RATHER THAN ABOUT ORACLE** (2026-08-27; the amendment is oracle's, against this lane's own
+  remedy, and it is the sharper rule). The 52 originated with **oracle**, was relayed here,
+  was written into an earlier revision of this file **without attribution**, and oracle then
+  **read it back firsthand out of this committed blob** and let it outrank their own
+  five-instrument static measurement of their own binary. **Their claim completed a circuit and
+  returned to them wearing this lane's confidence.** It happened to point at the truth — their
+  binary is current — while their correctly-executed measurement pointed at a falsehood, so two
+  defective inputs cancelled. That is luck, not method.
+  **The remedy this lane first proposed — "say whose measurement it is when you repeat it in a
+  message" — WOULD NOT HAVE CAUGHT IT, because no message was involved.** Oracle read the
+  durable record, which is this suite's primary defence. **Verify-firsthand confirms the
+  TRANSCRIPTION, never the CLAIM**: a faithfully-copied number is indistinguishable from an
+  independently-measured one, and a reader cannot recover what the writer did not record.
+  **So the attribution has to survive into the DURABLE RECORD, not merely into correspondence.**
+  *Sharpened by this lane's own audit of the two sites: the figure at the "Two capability facts"
+  block DID carry "Oracle's own run"; the one ~200 lines below did NOT, and sat beside a
+  41-method figure explicitly labelled "Measured, both binaries as shipped". **Attributed in one
+  place and bare in another is worse than uniformly bare**, because a reader who spot-checks the
+  attributed site is reassured about the one they actually quote.* Both sites now carry it. *Historical note kept deliberately: this bullet previously read "do not exist …
 `capabilities.breakpoints: false`", which was true when written and would have sent a future
 session to `run_to{symbol}` as the only option. `run_to{symbol}` still works and is still the
 right tool where a symbol is what you have.*
@@ -703,7 +728,9 @@ yet.** Oracle committed it (`bc2cddd`, 2026-08-26) but both release binaries her
 lane. Measured, both binaries as shipped: Rust `serverName "oracle-next"` / `serverVersion
 "0.0.0"` / 41 methods / `capabilities.breakpoints: false` **(a MEASUREMENT DATED 2026-08-26 —
 kept as the record of why the assertion has two rungs, NOT as current fact: the same server
-reports 52 methods and `breakpoints: true` after the 08-27 05:59 relink)**; legacy `serverName "oracle"` /
+reports 52 methods and `breakpoints: true` after the 08-27 05:59 relink — **that 52 was
+ORACLE'S measurement, relayed; independently confirmed HERE 2026-08-27 by this lane's own live
+spawn**, see the identity block below)**; legacy `serverName "oracle"` /
 `"2.1-linux"` / 53 methods / no `breakpoints` key. So: `implementation` when present is the
 only thing consulted; when absent, `serverName == "oracle-next"` stands in. **Delete rung 2
 the day oracle's release binaries are rebuilt.** **⚠ THAT DAY HAS ARRIVED —
