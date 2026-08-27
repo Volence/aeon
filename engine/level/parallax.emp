@@ -96,7 +96,10 @@ pub struct band_entry {
 //
 // 3.1's rule: "no-new-capability scenes lower to the EXISTING 28-byte header + 10-byte
 // entries BYTE-IDENTICALLY; extended records exist only in games whose mask includes
-// MULTI_DEFORM_TABLE." With BAND_EXT_N at 0 the trailing array field emits NOTHING and
+// MULTI_DEFORM_TABLE." (The quote is 3.1's own wording and its "28-byte" is now stale by
+// two: the header became 30 bytes on 2026-08-27 when `pcfg_layer_mask` widened to a u16
+// for MAX_PARALLAX_BANDS = 16. The rule this passage cites is about the BAND record, which
+// did not move.) With BAND_EXT_N at 0 the trailing array field emits NOTHING and
 // sizeof(band_record) IS sizeof(band_entry), so every stride, displacement and reservation
 // derived from it is unchanged byte for byte — the four-shape CRC pairs are in
 // docs/benchmarks/scanline-p3/EXTENDED-RECORD.md.
@@ -306,9 +309,11 @@ pub const BAND_OP_BIT_B = 1
 // The peek-ahead form exists because the .field-in-disp sugar does not compose in
 // displacement arithmetic (row 1068), so the neighbour offset must be a named const.
 // Parallax_State clear span in longwords — a NAMED comptime mirror for the
-// Init moveq, drift-locked to the ram.asm layout. (moveq link-deferral exists
-// — the ImmSigned8 fixup — but the named count + drift-lock reads better than
-// inline extern arithmetic; keeping the mirror is the chosen spelling.)
+// Init loop counter, drift-locked to the ram.asm layout. (The counter was a
+// `moveq` until the 2026-08-27 ceiling raise made the count exceed a signed
+// byte; see the note below. moveq link-deferral exists — the ImmSigned8 fixup
+// — but the named count + drift-lock reads better than inline extern
+// arithmetic; keeping the mirror is the chosen spelling.)
 //
 // IT MOVED DOWN HERE IN P3 TASK 8 so it can carry the extension term: the shadow-band array
 // lives inside this span, so a wider record widens the wipe. The extension term is DERIVED
@@ -331,12 +336,18 @@ pub const BAND_OP_BIT_B = 1
 // Both terms are checked against the resolved RAM span by the drift ensure below, so this
 // arithmetic is a spelling of that layout and not a second authority on it.
 //
-// NOTE FOR A CEILING RAISE: `Parallax_Init` loads this count with a `moveq`, whose
-// immediate is a SIGNED BYTE. The count stays inside 127 up to MAX_PARALLAX_BANDS = 14
-// (7 * M + 25 <= 127 at the shipped capability set); at 15 and above the moveq must become
-// a `move.w`. sigil refuses the out-of-range moveq by name rather than truncating it
-// ("moveq data 137 does not fit in a signed byte", measured at MAX = 16), so this is a
-// build error and never a 65418-iteration clear.
+// THE CEILING RAISE HAPPENED (2026-08-27, MAX_PARALLAX_BANDS 8 -> 16) AND THIS IS WHAT IT
+// COST HERE: `Parallax_Init` used to load this count with a `moveq`, whose immediate is a
+// SIGNED BYTE. The count is `7 * M + 25` at the shipped capability set, so the moveq form
+// survives only to MAX = 14; at 15 and above sigil refuses it by name rather than
+// truncating it ("moveq data 137 does not fit in a signed byte", measured at MAX = 16), so
+// it was a loud build error and never a 65,418-iteration clear. Init now loads it with a
+// `move.w` — +2 ROM bytes and +4 cycles, once, at level init. Do NOT "optimise" it back to
+// a moveq: it fits again only if the ceiling ever drops below 15.
+//
+// THE SPAN AT MAX 16 IS 552 BYTES (138 longs), up from 328 (82) at MAX 8 — +224 B, the
+// whole RAM cost of the raise. Nothing here needed to change for it: both terms are
+// derived, and the drift ensure below checks them against the resolved RAM span.
 ensure(((sizeof(band_ext) * BAND_EXT_N + sizeof(band_curve) * BAND_CURVE_N) * MAX_PARALLAX_BANDS) % 4 == 0,
        "the band tails add {(sizeof(band_ext) * BAND_EXT_N + sizeof(band_curve) * BAND_CURVE_N) * MAX_PARALLAX_BANDS} bytes to Parallax_State, which is not a whole number of longs — Parallax_Init clears in LONGS, so a non-multiple would under-clear the tail")
 // The trailing `+ BAND_CURVE_N` is the two-word curve carry (P3 Task 10) — one long, in
@@ -487,7 +498,13 @@ comptime fn copy_band_entry_back(cur: Reg) -> Code {
 // ----------------------------------------------------------------------
 pub proc Parallax_Init () clobbers(d0-d7/a0-a6) {
         lea     Parallax_State, a1                          // (Parallax_State).w
-        moveq   #PARALLAX_STATE_LONGS-1, d0
+        // `move.w`, NOT `moveq`: a moveq immediate is a SIGNED BYTE and this count is
+        // `7 * MAX_PARALLAX_BANDS + 25` at the shipped capability set — 81 at MAX 8, but
+        // 137 at MAX 16, which sigil refuses by name ("moveq data 137 does not fit in a
+        // signed byte"). A loud build error, never a 65,418-iteration clear; the fix costs
+        // +2 ROM bytes and +4 cycles ONCE, at level init. See the note at
+        // PARALLAX_STATE_LONGS. (The moveq form survives up to MAX = 14.)
+        move.w  #PARALLAX_STATE_LONGS-1, d0
         moveq   #0, d1
     .zero:
         move.l  d1, (a1)+
@@ -931,8 +948,15 @@ pub proc Parallax_Update () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
         lea     Parallax_Current_Scroll_A, a2       // (Parallax_Current_Scroll_A).w
         lea     Parallax_Current_Scroll_B, a3       // (Parallax_Current_Scroll_B).w
 
+        // THE LOAD IS A `move.w` AND THAT IS THE WHOLE POINT OF THE 2026-08-27 RAISE.
+        // `btst d5, d6` already reaches bits 0..15 (it is a register-to-register bit test,
+        // modulo 32), so the ONLY thing that made bands 8..15 dead at MAX_PARALLAX_BANDS = 8
+        // was this load being a `move.b`: bits 8..15 of d6 were structurally zero, every
+        // such band took `.band_disabled`, and it inherited the band above it. Green build,
+        // silently wrong picture. Same 12 cycles either way — a widened mask costs nothing
+        // per frame. `moveq #0, d6` still clears the upper word, which the btst needs.
         moveq   #0, d6
-        move.b  parallax_config.pcfg_layer_mask(a0), d6            // d6 = layer mask
+        move.w  parallax_config.pcfg_layer_mask(a0), d6            // d6 = layer mask (16 bands)
         moveq   #0, d5                              // d5 = band index
         move.w  d0, d3                              // d3 = previous-band current_a seed = -camX:
         neg.w   d3                                  //   a disabled band 0 must still hard-lock the

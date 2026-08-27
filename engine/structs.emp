@@ -1,6 +1,6 @@
 // Shared engine struct definitions — Act (the 40-byte act descriptor), Sec
 // (the 66-byte section descriptor), DMAEntry (the 14-byte DMA-queue entry),
-// parallax_config (the 28-byte parallax ROM config header), and VdpShadow (the
+// parallax_config (the 30-byte parallax ROM config header), and VdpShadow (the
 // 19-byte RAM mirror of VDP registers $00-$12).
 // All are TYPE-ONLY: this module emits ZERO bytes. It gives every consumer
 // (act_descriptor.emp, section.emp, tile_cache.emp, entity_window.emp,
@@ -153,41 +153,87 @@ pub struct DMAEntry {
 }
 
 // -----------------------------------------------
-// Parallax config (§4.6) — 28-byte header + N × band_entry inline, ROM data.
+// Parallax config (§4.6) — 30-byte header + N × band_entry inline, ROM data.
 // Pointed-to by Sec.sec_parallax_config; one config per section (or shared).
 // Shared consumers: engine.parallax (the whole pipeline) + engine.buffers
 // (Enqueue_Dirty_Buffers keys the HScroll DMA length off the deform-table
 // fields). band_entry stays parallax-private (single consumer).
+//
+// 28 -> 30 ON 2026-08-27, WHEN MAX_PARALLAX_BANDS WENT 8 -> 16. `pcfg_layer_mask` is one
+// bit per band and `Parallax_Update` selects with `btst d5, d6`, so at a u8 every band
+// from index 8 up tested a bit that was structurally ZERO, took `.band_disabled`, and
+// inherited the band above it — a build that is green and a picture that is silently
+// wrong. There is no guard-only workaround: an all-enabled 12-band scene needs $FFF.
+//
+// WHY THE SIZE GREW RATHER THAN THE MASK ABSORBING pcfg_v_factor_fg (the rejected option).
+// Absorbing byte $02 would have held sizeof at 28 and moved no other field, but it deletes
+// a LIVE contract field: games/sonic4/test/poison/poison_scene_vfactor_range.emp exists
+// solely to guard its range, scene_equiv_proof.emp's differ compares it, tools/
+// effects_gen.py lists it in SCENE_SCALARS, and empyrean retyped it deliberately on
+// 2026-08-23 (a32bcb0, CR-1). Deleting a live field across three repos to save 40 ROM
+// bytes (2 B x 20 configs) is the wrong trade.
+//
+// WHAT THE SIZE ACTUALLY HAS TO SATISFY IS *EVEN*, NOT 28 — the older comment here
+// overstated it. engine/level/parallax.emp:445 `ensure(sizeof(parallax_config) % 2 == 0,
+// ...)`: this size IS the band array's base offset, so an odd one starts copy_band_entry's
+// `move.l` run on an odd address. 30 is even and passes; nothing in the tree requires 28.
+//
+// FIELD ORDER — the mask sits at $02 rather than in the new tail, deliberately:
+//   * $02 is EVEN, which `move.w` / `btst` on a 68000 require (an odd word address faults).
+//   * The mask's LOW byte lands at $03, exactly where the u8 mask was, and its HIGH byte
+//     lands on $02, which every shipped config left at 0 (`v_factor_fg` is authored
+//     nowhere in games/sonic4/data/effects/). So bytes $00..$1B of every shipped header
+//     are UNCHANGED by this widening; the record grows by two tail bytes and the band
+//     array that follows it shifts by two. That is the whole ROM diff per config.
+//   * It keeps the mask adjacent to `pcfg_band_count` — the two fields that between them
+//     describe the band set — instead of stranding it 26 bytes away behind a dead pad.
+// `pcfg_v_factor_fg` moves to the tail because it is the only field with NO runtime
+// reader (see its note), so it is the one that pays for being relocated.
+//
+// THE OFFSET COMMENTS ARE A GATE, NOT DECORATION: tools/parallax_crossing_gate.py's
+// struct_offsets() accumulates the offsets from the field TYPES and compares every
+// trailing `// $HH` against that accumulation, raising a setup error on disagreement. A
+// field inserted without renumbering stops that gate instead of sliding every read.
 // -----------------------------------------------
 pub struct parallax_config {
-    pcfg_band_count:        u8,
-    pcfg_v_factor_bg:       u8,    // whole-plane Plane B vshift (used when v_deform_table_bg = 0)
-    pcfg_v_factor_fg:       u8,    // RESERVED — v1 pipeline always sets fg_vscroll = camY
-    pcfg_layer_mask:        u8,    // bit per band; 1 = active
-    pcfg_v_center_y:        u16,   // section's "natural" camera Y
-    pcfg_v_offset:          u16,   // vscroll BG value at center_y
-    pcfg_transition:        u8,    // 0 = smooth lerp (default), 1 = instant snap
-    pcfg_deform_speed_fg:   u8,    // FG H-deform table phase increment per frame
-    pcfg_deform_speed_bg:   u8,    // BG H-deform table phase increment per frame
+    pcfg_band_count:        u8,    // $00
+    pcfg_v_factor_bg:       u8,    // $01 — whole-plane Plane B vshift (used when v_deform_table_bg = 0)
+    pcfg_layer_mask:        u16,   // $02 — bit per band; 1 = active. u16 since MAX_PARALLAX_BANDS = 16
+    pcfg_v_center_y:        u16,   // $04 — section's "natural" camera Y
+    pcfg_v_offset:          u16,   // $06 — vscroll BG value at center_y
+    pcfg_transition:        u8,    // $08 — 0 = smooth lerp (default), 1 = instant snap
+    pcfg_deform_speed_fg:   u8,    // $09 — FG H-deform table phase increment per frame
+    pcfg_deform_speed_bg:   u8,    // $0A — BG H-deform table phase increment per frame
     // World-anchored deform overlay (Parcel W). PARALLAX_ANCHOR_NONE ($FF) = no overlay;
     // otherwise a patch channel whose Effects_World_Y[] anchor places a SCREEN LINE at
     // which the band under it is split, with every band from there down taking the two
-    // shifts below. Claimed from the former pcfg_pad — the overlay costs ZERO bytes and
-    // sizeof(parallax_config) stays 28, which is required: parallax.emp ensures it stays
-    // EVEN or copy_band_entry's move.l run address-errors on odd-indexed entries.
-    pcfg_anchor_ch:         u8,
-    pcfg_deform_table_fg:   *u8,   // ROM ptr to 256-byte signed FG H-deform (0 = none)
-    pcfg_deform_table_bg:   *u8,   // ROM ptr to 256-byte signed BG H-deform (0 = none)
-    pcfg_v_deform_table_bg: *u8,   // ROM ptr to 256-byte signed BG V-column (0 = whole-plane)
-    pcfg_v_deform_speed_bg: u8,    // 0 = static column shape, >0 = animated
-    pcfg_v_deform_shift_bg: u8,    // amplitude shift on V-column samples
+    // shifts below. Claimed from the former pcfg_pad — the overlay costs ZERO bytes.
+    pcfg_anchor_ch:         u8,    // $0B
+    pcfg_deform_table_fg:   *u8,   // $0C — ROM ptr to 256-byte signed FG H-deform (0 = none)
+    pcfg_deform_table_bg:   *u8,   // $10 — ROM ptr to 256-byte signed BG H-deform (0 = none)
+    pcfg_v_deform_table_bg: *u8,   // $14 — ROM ptr to 256-byte signed BG V-column (0 = whole-plane)
+    pcfg_v_deform_speed_bg: u8,    // $18 — 0 = static column shape, >0 = animated
+    pcfg_v_deform_shift_bg: u8,    // $19 — amplitude shift on V-column samples
     // The deform shifts the overlay writes into every band at or below the anchored line
     // (15 = no deform on that plane, same sentinel as band_deform_shift_a/b). Claimed from
     // the former pcfg_pad2 — see pcfg_anchor_ch above. Bands keep their own SCROLL factors;
     // only the wave amplitude is overridden, which is what lets structure below a water
     // surface survive instead of being flattened onto one band.
-    pcfg_anchor_dsa:        u8,    // Plane A deform shift below the anchored line
-    pcfg_anchor_dsb:        u8,    // Plane B deform shift below the anchored line
+    pcfg_anchor_dsa:        u8,    // $1A — Plane A deform shift below the anchored line
+    pcfg_anchor_dsb:        u8,    // $1B — Plane B deform shift below the anchored line
+    // RESERVED — the v1 pipeline always sets fg_vscroll = camY, so NOTHING reads this at
+    // runtime; its only consumers are the two lowerings and scene_equiv_proof's differ.
+    // Moved from $02 to the tail on 2026-08-27 to free an even slot for the widened mask
+    // (see the banner). It is kept, not deleted: it is a live authoring + schema field.
+    pcfg_v_factor_fg:       u8,    // $1C
+    // The one byte the even-size requirement costs. Not a natural pad — 29 payload bytes
+    // simply do not round to an even record — and CLAIMABLE the way pcfg_anchor_ch and
+    // pcfg_anchor_dsa/dsb were claimed from the two former pads. It has NO default on
+    // purpose: both constructors (scene_dsl.emp's scene_hdr and scene_equiv_proof.emp's
+    // hdr) spell it, so a third constructor cannot forget it, and tools/
+    // left_col_mask_probe.py's field parser skips any field carrying `= <default>` and
+    // would silently under-report sizeof if this one did.
+    pcfg_pad_29:            u8,    // $1D
 }
 
 // -----------------------------------------------

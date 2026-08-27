@@ -599,7 +599,28 @@ pub const SOLID_ALL  = 3
 // -----------------------------------------------
 // Parallax (§4.6).
 // -----------------------------------------------
-pub const MAX_PARALLAX_BANDS    = 8
+// RAISED 8 -> 16 on 2026-08-27. Three facts make the raise affordable and one makes it
+// possible; all four are measurements, not estimates (docs/DEFERRED_WORK.md's band-ceiling
+// row carries the full derivation):
+//   * COST TO A SCENE THAT DOES NOT USE THE EXTRA BANDS IS ZERO CYCLES. Every per-frame
+//     parallax walk is bounded by `pcfg_band_count`, never by this constant — the only
+//     O(MAX) loop in engine/level/parallax.emp is `Parallax_Init`'s one-time state wipe.
+//   * A SCENE THAT DOES use sixteen pays 4664 + 15 x 854 = 17,474 cyc = 13.7% of the
+//     128,000-cycle NTSC frame (SB_WALK_BAND_PERLINE_X100, scene_dsl.emp).
+//   * RAM: Parallax_State = 100 + 20 x MAX + 4 -> 328 B at 8, 552 B at 16 (+224).
+//   * `pcfg_layer_mask` HAD TO BECOME A u16 (engine/structs.emp). At a u8 every band from
+//     index 8 up read a structurally-zero bit, took `.band_disabled`, and inherited the
+//     band above it: a build that is green and a picture that is silently wrong.
+// A RAISE IS NOT A ONE-LINE EDIT. Whatever moves this number must also move: the
+// `ensure(MAX_PARALLAX_BANDS == N)` pin and the inlined literals it guards in
+// engine/level/scene_dsl.emp (an imported constant named inside a comptime body a GAME
+// module elaborates resolves to NOTHING, silently — see EMP_PITFALLS), the SceneCfgN /
+// lowerN shape set in games/sonic4/data/effects/scene_registry.emp (derived and named by
+// tools/test_scene_band_shape_coverage.py), tools/effects_gen.py's pinned mirror, every
+// `scene()` call site's fixed-size pad array, and the anchored-at-ceiling poison
+// (games/sonic4/test/poison/poison_scene_capacity.emp + tools/emp_expect_fail.py, whose
+// count pin now fails LOUDLY and names this constant instead of going quietly vacuous).
+pub const MAX_PARALLAX_BANDS    = 16
 // pcfg_anchor_ch sentinel: this config has NO world-anchored deform overlay (Parcel W).
 // $FF and not 0, because 0 is a legal patch channel — the same reason RASTER_ARM_PARK is
 // a value no real arm can take rather than a zero.

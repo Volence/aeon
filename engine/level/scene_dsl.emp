@@ -51,7 +51,7 @@ use engine.effects.raster_dsl.{RASTER_MAX_PATCH}
 //
 // TWO SPECIES OF PIN, kept apart on purpose. These three watch constants owned by OTHER
 // modules, where drift is a real event nobody editing this file would see:
-ensure(MAX_PARALLAX_BANDS == 8, "scene_dsl's inlined band ceiling (8) drifted from MAX_PARALLAX_BANDS")
+ensure(MAX_PARALLAX_BANDS == 16, "scene_dsl's inlined band ceiling (16) drifted from MAX_PARALLAX_BANDS — every literal 16 governed by this pin is listed in the constant's own comment block in engine/system/constants.emp; move them together or the fixed-size layer arrays and the ceiling disagree")
 ensure(PARALLAX_ANCHOR_NONE == $FF, "scene_dsl's inlined no-anchor sentinel ($FF) drifted from PARALLAX_ANCHOR_NONE")
 ensure(RASTER_MAX_PATCH == 4, "scene_dsl's inlined patch-channel width (4) drifted from RASTER_MAX_PATCH")
 // P3 Task 7 added three more of the same species. PLANE_B_SPAN and the two op bits are
@@ -622,9 +622,10 @@ pub comptime fn layer(world_y: int, fa: int, fb: int, dsa: int = 15, dsb: int = 
                        ly_deform: deform, ly_curve: curve, ly_vsplit: vsplit }
 }
 
-// no_layer — the padding element. `Scene.sc_layers` is a FIXED [SceneLayer; 8] (a
+// no_layer — the padding element. `Scene.sc_layers` is a FIXED [SceneLayer; 16] (a
 // struct field needs a concrete type; `array` is a parameter type only), so an author
-// with four real layers still spells eight elements. This is the fifth through eighth:
+// with four real layers still spells sixteen elements. This is the fifth through
+// sixteenth:
 // dormant, factor-locked, at world-Y 0. It is never lowered — scene_band() only ever
 // indexes 0..sc_count — so its field values are inert with ONE exception: `ly_fa == 0`
 // is load-bearing, and it is what scene()'s pad guard discriminates on. Every FACTOR_*
@@ -645,7 +646,7 @@ pub comptime fn no_layer() -> SceneLayer {
 // the one failure this pair of call sites exists to make impossible.
 //
 // Takes the ARRAY, not a Scene: scene() has no Scene yet when it needs this.
-pub comptime fn derived_mask(layers: [SceneLayer; 8], count: int) -> int {
+pub comptime fn derived_mask(layers: [SceneLayer; 16], count: int) -> int {
     comptime var mask = 0
     for i in 0..count {
         let l = layers[i]
@@ -666,7 +667,7 @@ pub comptime fn derived_mask(layers: [SceneLayer; 8], count: int) -> int {
 //
 // STOPS AT `count`, like every other fold here: the pad slots past it are no_layer()s
 // (scene()'s pad guard proves it) and are lowered by nothing.
-pub comptime fn derived_own(layers: [SceneLayer; 8], count: int) -> int {
+pub comptime fn derived_own(layers: [SceneLayer; 16], count: int) -> int {
     comptime var any = 0
     // The one-dot rule — field, then index, then field (see scene_caps()).
     for i in 0..count {
@@ -686,7 +687,7 @@ pub comptime fn derived_own(layers: [SceneLayer; 8], count: int) -> int {
 // impossible. Takes the ARRAY, because scene() has no Scene yet when it needs this.
 //
 // STOPS AT `count`: the pad slots past it are no_layer()s, whose ly_curve is None anyway.
-pub comptime fn derived_curve(layers: [SceneLayer; 8], count: int) -> int {
+pub comptime fn derived_curve(layers: [SceneLayer; 16], count: int) -> int {
     comptime var any = 0
     // The one-dot rule — field, then index, then field (see scene_caps()).
     for i in 0..count {
@@ -707,7 +708,7 @@ pub comptime fn derived_curve(layers: [SceneLayer; 8], count: int) -> int {
 // because scene() has no Scene yet when it needs this.
 //
 // STOPS AT `count`: the pad slots past it are no_layer()s, whose ly_vsplit is None anyway.
-pub comptime fn derived_vsplit(layers: [SceneLayer; 8], count: int) -> int {
+pub comptime fn derived_vsplit(layers: [SceneLayer; 16], count: int) -> int {
     comptime var any = 0
     // The one-dot rule — field, then index, then field (see scene_caps()).
     for i in 0..count {
@@ -963,7 +964,7 @@ pub comptime fn scene_anchor_dsb(a: SceneAnchor) -> int {
 // raster_dsl.emp:90.
 // -----------------------------------------------
 pub struct Scene {
-    sc_layers:             [SceneLayer; 8],  // padded to 8; sc_count says how many are real
+    sc_layers:             [SceneLayer; 16], // padded to MAX_PARALLAX_BANDS; sc_count says how many are real
     sc_count:              u8,
     sc_v_factor:           u8,               // whole-plane Plane-B vshift (pcfg_v_factor_bg)
     sc_v_center:           u16,             // WORLD Y, 0 .. $7FFF (scene() bounds it; the camera never leaves that span)
@@ -1012,7 +1013,31 @@ pub struct Scene {
     // per sigil 6fae4d6a — `@align(N)` is the `vars` cursor-mover and is refused here by
     // name). Scene is comptime-only TODAY, so nothing faults yet; this guards the day
     // something emits one, when a move.w to an odd word field is a 68000 address error.
-    sc_mask_raw:           i16 (align: 2),   // -1 = derive from ly_enabled (bridge, see above)
+    // i16 -> i32 ON 2026-08-27, AND THIS IS THE SENTINEL COLLISION THE OLD COMMENT
+    // PREDICTED, ARRIVING. `-1` means "derive". At an 8-bit mask the widest legal raw value
+    // was $FF, comfortably clear of the sentinel. At a 16-bit mask $FFFF is not an exotic
+    // value — it is exactly the all-sixteen-enabled mask an author writes — and it
+    // round-trips through an i16 to -1 and reads back as "derive", SILENTLY, at the
+    // `mask_raw >= 0` test in scene_hdr(). Widening the range guard alone would have
+    // re-armed precisely the failure the guard's own comment warned about.
+    //
+    // WIDENING THE FIELD, NOT MOVING THE SENTINEL, and the reason is that -1 has to stay
+    // OUTSIDE the value space rather than merely outside the values seen so far. An i32
+    // holds every 16-bit mask AND -1 with 15 bits of daylight between them, so the next
+    // ceiling raise (a 32-bit mask would need MAX_PARALLAX_BANDS = 32, itself far past the
+    // 224-line shadow view) inherits a bridge that still cannot collide. A re-spelled
+    // sentinel — say $10000, or a companion "is authored" flag — would have worked too and
+    // was rejected as strictly more moving parts for the same guarantee: the flag adds a
+    // second field two constructors must keep consistent, and a magic non-negative sentinel
+    // makes every `>= 0` reader wrong instead of every `== -1` reader.
+    //
+    // `(align: 2)` AND NOT 4: the claim exists so that the day something EMITS a Scene an
+    // odd word/long field is not a 68000 address error, and a 68000 long access requires an
+    // EVEN address, not a multiple of four. Widening this field by two bytes shifts
+    // sc_v_deform_shift_raw by two and therefore does not re-parity it; sc_pad_5D's
+    // hand-computed width is likewise untouched, because sc_layers grew by 8 x
+    // sizeof(SceneLayer), and eight of anything is even.
+    sc_mask_raw:           i32 (align: 2),   // -1 = derive from ly_enabled (bridge, see above)
     sc_v_deform_shift_raw: i16 (align: 2),   // -1 = derive from sc_v_deform (bridge, see above)
 }
 
@@ -1023,10 +1048,10 @@ pub struct Scene {
 // ceiling. All three compare INTS, extracted through the accessors above, for the
 // reason stated in their banner.
 //
-// The `layers` array is always eight elements; pad with no_layer(). `count` is the
+// The `layers` array is always sixteen elements; pad with no_layer(). `count` is the
 // authority on how many are real — sc_layers is never scanned past it.
 // -----------------------------------------------
-pub comptime fn scene(layers: [SceneLayer; 8], count: int,
+pub comptime fn scene(layers: [SceneLayer; 16], count: int,
                       v_factor: int, v_center: int = 0, v_offset: int = 0,
                       v_factor_fg: int = 0,
                       deform_fg: SceneDeform = SceneDeform.None,
@@ -1037,17 +1062,17 @@ pub comptime fn scene(layers: [SceneLayer; 8], count: int,
                       transition: int = 0,
                       layer_mask_raw: int = -1,
                       v_deform_shift_raw: int = -1) -> Scene {
-    // 8 = MAX_PARALLAX_BANDS, 0 = TRANS_SMOOTH: inlined per the pin block at the top of
+    // 16 = MAX_PARALLAX_BANDS, 0 = TRANS_SMOOTH: inlined per the pin block at the top of
     // this file (the first is imported and would not travel; the other is a default,
     // evaluated wherever the call site puts it).
-    ensure(count >= 1 && count <= 8,
-           "scene(): {count} layers exceeds MAX_PARALLAX_BANDS (8) — the shadow view is sized for eight entries and a ninth writes past Parallax_Shadow_Bands")
+    ensure(count >= 1 && count <= 16,
+           "scene(): {count} layers exceeds MAX_PARALLAX_BANDS (16) — the shadow view is sized for sixteen entries and a seventeenth writes past Parallax_Shadow_Bands")
     let anchor_ch = scene_anchor_ch(anchor)
     // Ported hdr() guard 1: an anchored scene SPLITS a layer at runtime, so the shadow
     // view needs count+1 entries. Same reasoning, same ceiling, same failure mode as
     // configs.emp's hdr(); this is one of the two pairs Task 7 proves equal.
-    ensure(anchor_ch == $FF || count + 1 <= 8,
-           "scene(): an anchored scene SPLITS a layer at runtime, so the shadow view needs count+1 entries — {count}+1 exceeds MAX_PARALLAX_BANDS (8) and the split would write past Parallax_Shadow_Bands")
+    ensure(anchor_ch == $FF || count + 1 <= 16,
+           "scene(): an anchored scene SPLITS a layer at runtime, so the shadow view needs count+1 entries — {count}+1 exceeds MAX_PARALLAX_BANDS (16) and the split would write past Parallax_Shadow_Bands")
     // Ported hdr() guard 2: the anchor channel must index the patch bank.
     ensure(anchor_ch == $FF || anchor_ch < 4,
            "scene(): anchor ch {anchor_ch} is not a patch channel — the overlay indexes Effects_World_Y[RASTER_MAX_PATCH] (4), so a wider index reads past the anchor bank")
@@ -1060,7 +1085,7 @@ pub comptime fn scene(layers: [SceneLayer; 8], count: int,
     // shape: OJZ_LockedClouds (configs.emp:299) is five real layers with layer 0 dormant,
     // so a masked-off REAL layer inside the count must keep passing. `ly_fa == 0` is what
     // separates the two — no authored layer can have it (see no_layer()'s note).
-    for i in count..8 {
+    for i in count..16 {
         let p = layers[i]
         ensure(p.ly_enabled == 0 && p.ly_fa == 0 && p.ly_fb == 0,
                "scene(): slot {i} is past count {count} but is not a no_layer() pad — count is the authority on how many layers are real, and a real layer beyond it is lowered by nothing and masked by nothing")
@@ -1072,12 +1097,17 @@ pub comptime fn scene(layers: [SceneLayer; 8], count: int,
     // is a mask the lowering emits while the model says otherwise.
     ensure(layer_mask_raw < 0 || (layer_mask_raw | derived_mask(layers, count)) == layer_mask_raw,
            "scene(): layer_mask_raw {layer_mask_raw} CLEARS a bit the enabled layers set — the raw mask is a byte-identity bridge that may only ADD bits the model cannot derive; to disable a layer, author it with enabled: 0")
-    // Width AND sentinel in one range. pcfg_layer_mask is a u8 (structs.emp:165), and the
-    // i16 sentinel field is only safe BECAUSE the mask is 8 bits: a raw $FFFF would
-    // round-trip through i16 to -1 and read back as "derive", silently. Any negative other
-    // than -1 is caught for the same reason — it would also read as "derive".
-    ensure(layer_mask_raw >= -1 && layer_mask_raw <= $FF,
-           "scene(): layer_mask_raw {layer_mask_raw} outside -1 (derive) .. $FF — pcfg_layer_mask is a u8, and a wider value would wrap through the i16 bridge field and silently read back as derive")
+    // Width AND sentinel in one range. pcfg_layer_mask is a u16 since 2026-08-27
+    // (engine/structs.emp) — one bit per band at MAX_PARALLAX_BANDS = 16 — so the width
+    // half is now $FFFF. THE SENTINEL HALF IS THE INTERESTING ONE AND IT MOVED: while the
+    // mask was 8 bits, the i16 bridge field could not collide with -1 because $FFFF was not
+    // a legal mask. It is now the all-enabled mask, so the bridge field was widened to i32
+    // (see Scene.sc_mask_raw's note). Without that widening this guard would admit $FFFF,
+    // the field would store -1, and scene_hdr()'s `mask_raw >= 0` would silently DERIVE
+    // instead of bridging. Any negative other than -1 is still caught here for the original
+    // reason — it would also read as "derive".
+    ensure(layer_mask_raw >= -1 && layer_mask_raw <= $FFFF,
+           "scene(): layer_mask_raw {layer_mask_raw} outside -1 (derive) .. $FFFF — pcfg_layer_mask is a u16 (one bit per band at MAX_PARALLAX_BANDS 16), and a wider value would wrap through the i32 bridge field")
     // Same shape, same reason. The runtime samples with `asr.w d3, d5` (parallax.emp:1038),
     // so a shift past 15 saturates to the sign bit: a wrong picture, not a fault, which is
     // exactly the class of error that belongs to the build.
@@ -1977,11 +2007,11 @@ pub comptime fn scene_sample_term_x100(s: Scene) -> int {
 //
 // THE CLAMP MIRRORS scene_curve_bands()'s, for the same measured reason: these folds are
 // reached from the axis-1 term for EVERY scene, including poison_budget_axis1's back-door
-// fixtures whose sc_count (115/116) exceeds the 8-element layer array.
+// fixtures whose sc_count (115/116) exceeds the 16-element layer array.
 pub comptime fn scene_max_shift_a(s: Scene) -> int {
     comptime var m = 0
     let ls  = s.sc_layers
-    let cnt = if s.sc_count > 8 { 8 } else { s.sc_count }
+    let cnt = if s.sc_count > 16 { 16 } else { s.sc_count }
     for i in 0..cnt {
         let l = ls[i]
         if l.ly_dsa != 15 {
@@ -2002,7 +2032,7 @@ pub comptime fn scene_max_shift_a(s: Scene) -> int {
 pub comptime fn scene_max_shift_b(s: Scene) -> int {
     comptime var m = 0
     let ls  = s.sc_layers
-    let cnt = if s.sc_count > 8 { 8 } else { s.sc_count }
+    let cnt = if s.sc_count > 16 { 16 } else { s.sc_count }
     for i in 0..cnt {
         let l = ls[i]
         if l.ly_dsb != 15 {
@@ -2043,14 +2073,14 @@ pub comptime fn scene_curve_bands(s: Scene) -> int {
     // The one-dot rule — field, then index, then field (see scene_caps()).
     let ls = s.sc_layers
     // CLAMPED TO THE ARRAY, and the clamp is not defensive programming — it is required, and
-    // it was MEASURED. `scene()` ensures count <= 8, but `Scene{ .. }` type-checks and skips
+    // it was MEASURED. `scene()` ensures count <= 16, but `Scene{ .. }` type-checks and skips
     // every guard (see that struct's banner), and games/sonic4/test/poison/poison_budget_axis1
     // uses exactly that door to declare a 116-layer scene so the axis-1 ensure fires. Every
     // OTHER fold in this file survives that fixture only by accident: `scene_live_amp_a/b`
     // are reached through `if scene_has_table(s) == 1`, which that scene fails. This one is
     // called unconditionally from the axis-1 term, so it meets the back-door count head on —
     // 216 `[index.out-of-bounds]` diagnostics, measured 2026-08-20 when it was not clamped.
-    let cnt = if s.sc_count > 8 { 8 } else { s.sc_count }
+    let cnt = if s.sc_count > 16 { 16 } else { s.sc_count }
     for i in 0..cnt {
         let l = ls[i]
         if scene_curve_is_none(l.ly_curve) == 0 {
@@ -2291,7 +2321,7 @@ pub comptime fn scene_budget_max_axis5_table_slots(scenes: array) -> int {
 // below is hdr()'s default, transcribed, not re-derived.
 // =====================================================================
 
-// scene_hdr — the 28-byte parallax_config header.
+// scene_hdr — the 30-byte parallax_config header (28 until the 2026-08-27 mask widening).
 pub comptime fn scene_hdr(s: Scene) -> parallax_config {
     let n        = s.sc_count
     let mask_raw = s.sc_mask_raw
@@ -2316,7 +2346,6 @@ pub comptime fn scene_hdr(s: Scene) -> parallax_config {
     return parallax_config{
         pcfg_band_count:        n,
         pcfg_v_factor_bg:       s.sc_v_factor,
-        pcfg_v_factor_fg:       s.sc_v_factor_fg,
         pcfg_layer_mask:        mask,
         pcfg_v_center_y:        s.sc_v_center,
         pcfg_v_offset:          vo_word,
@@ -2331,6 +2360,12 @@ pub comptime fn scene_hdr(s: Scene) -> parallax_config {
         pcfg_v_deform_shift_bg: vds,
         pcfg_anchor_dsa:        scene_anchor_dsa(s.sc_anchor),
         pcfg_anchor_dsb:        scene_anchor_dsb(s.sc_anchor),
+        pcfg_v_factor_fg:       s.sc_v_factor_fg,
+        // Spelt, not defaulted — the field carries no `= 0` in engine/structs.emp
+        // deliberately, so that a third constructor cannot forget the even-size pad byte
+        // and so that tools/left_col_mask_probe.py's field parser (which skips any field
+        // with a default) keeps seeing the real sizeof.
+        pcfg_pad_29:            0,
     }
 }
 
