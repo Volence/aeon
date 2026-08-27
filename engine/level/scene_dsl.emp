@@ -720,6 +720,27 @@ pub comptime fn derived_vsplit(layers: [SceneLayer; 16], count: int) -> int {
     return any
 }
 
+// scene_vsplit_count — HOW MANY layers carry `vsplit: At(..)`, where `derived_vsplit`
+// answers only WHETHER any does. Added 2026-08-27 because a consumer wanted to assert
+// "the fold returned one fire per authoring layer" and had no way to say it: the only
+// available helper was a 0/1 presence flag, so the assertion was written as a LITERAL
+// count while its comment claimed to be derived. A scene that gains a vsplit is an
+// authoring act; a scene whose fold returns FEWER fires than its layers author is a lost
+// attachment. Only the second is a defect, and only a real count can tell them apart.
+pub comptime fn scene_vsplit_count(s: Scene) -> int {
+    // The one-dot rule — field, then index, then field (see scene_caps()).
+    let ls = s.sc_layers
+    let n  = s.sc_count
+    comptime var seen = 0
+    for i in 0..n {
+        let l = ls[i]
+        if scene_vsplit_is_none(l.ly_vsplit) == 0 {
+            seen = seen + 1
+        }
+    }
+    return seen
+}
+
 // =====================================================================
 // Attachment accessors — the ONLY way a body reads an enum payload.
 //

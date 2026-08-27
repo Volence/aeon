@@ -675,11 +675,23 @@ const OJZ_DEPTH_VSPLIT_PROG = scene_vsplit_fires(Scene_Editor_ojz_act1_depth)
 // fires here rather than through a literal op list.
 ensure(raster_program(OJZ_DEPTH_VSPLIT_PROG)[0] == 0,
        "OJZ_DepthVSplit: pal_dirty_mask is {raster_program(OJZ_DEPTH_VSPLIT_PROG)[0]}, not 0 — a VSRAM op must dirty no palette line, and this program is two vscroll splits and nothing else")
-// TWO FIRES, DERIVED. The scene authors a split on its two lower layers, so the fold must
-// return two — one is a lost attachment, three is a mechanism that grew. This is a count
-// over the SCENE's own layers, not a transcription of the program's word length.
-ensure(OJZ_DEPTH_VSPLIT_PROG.len == 2,
-       "OJZ_DepthVSplit: scene_vsplit_fires() built {OJZ_DEPTH_VSPLIT_PROG.len} fire(s) from Scene_Editor_ojz_act1_depth, not the 2 its two lower layers author — either a `vsplit` was dropped from the editor JSON or a third layer gained one")
+// ONE FIRE PER AUTHORING LAYER — NOW ACTUALLY DERIVED. This assertion used to read
+// `== 2` while its own comment claimed to be "a count over the SCENE's own layers".
+// It was a literal, and on 2026-08-27 it stopped the OWNER mid-authoring: he toggled
+// vsplit on a third layer in Aurora, the editor allowed it (correctly — no engine rule
+// forbids three), and this line refused the build.
+//
+// The two halves it was written to catch are not the same thing. A fold returning FEWER
+// fires than its layers author is a LOST ATTACHMENT — a real defect, and the reason this
+// assertion exists. A fold returning MORE is a person adding a split on purpose, which is
+// authoring, and this file has no standing to refuse it: `scene_vsplit_fires()` already
+// enforces the invariants that actually matter (at least one layer carries a split, and
+// the splits are strictly ordered down the screen), and there is NO cap on how many —
+// `raster_words()` sizes the array from the program.
+//
+// So it is derived now, and the comment is true. Adding a fourth needs no edit here.
+ensure(OJZ_DEPTH_VSPLIT_PROG.len == scene_vsplit_count(Scene_Editor_ojz_act1_depth),
+       "OJZ_DepthVSplit: scene_vsplit_fires() built {OJZ_DEPTH_VSPLIT_PROG.len} fire(s) from Scene_Editor_ojz_act1_depth, but {scene_vsplit_count(Scene_Editor_ojz_act1_depth)} of its layers author a `vsplit: At(..)` — a fire was lost between the scene and the fold, which is the attachment bug this line exists to catch")
 pub data OJZ_DepthVSplit: [u16; raster_words(OJZ_DEPTH_VSPLIT_PROG)] = raster_program(OJZ_DEPTH_VSPLIT_PROG)
 
 // ===========================================================================
