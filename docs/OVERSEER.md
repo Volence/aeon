@@ -839,6 +839,37 @@ deferring to "something else owns this", confirm the something else exists.
   failing test and show the path it could not resolve.
 - `SIGIL_BUILD`/`SIGIL_EMIT` point at the sigil repo's release binaries; missing =
   BLOCKED report, never a workaround.
+- **A PREBUILT BINARY IS A SNAPSHOT OF ITS SOURCE AT LINK TIME, AND IT CARRIES THAT SNAPSHOT
+  SILENTLY IN EVERY DIMENSION AT ONCE** (added 2026-08-27; both instances this lane's, on one
+  night, generalised by the sigil lane from them). Twice, *"invoke the prebuilt binary rather
+  than `cargo run`"* was **individually correct and wrong in composition**:
+  1. It sent a freeze into sigil's **shared checkout**. `refreeze.rs` bakes
+     `env!("CARGO_MANIFEST_DIR")`, so the tool writes where the binary you ran was **compiled**,
+     not where you invoke it — voiding the dedicated-worktree remedy entirely. Presented as *the
+     worktree remedy does not work*.
+  2. It **refused `--attest`** — *"unknown argument"* — because that binary was linked at 01:41
+     and the feature landed later. Source had it; the binary did not. Presented as *a usage
+     error*.
+  **Neither presented as what it was: the binary is older than the question you are asking it.**
+  A prebuilt binary snapshots its paths, its features, its flags and its defaults together, and
+  a stale one answers confidently in all four.
+  **Note WHY the mitigation was adopted, because this is the durable half:** it was correct
+  practice, taken to honour a peer's hold on relinking. **A precaution whose cost is paid in a
+  dimension nobody is watching looks free.** Same shape as the baked-path finding it caused.
+  **Operational rule: when a tool's BEHAVIOUR is what you are reasoning about, run it from source
+  or check what it was built from — a version banner or an mtime, never an assumption.**
+  *Which is precisely what the assembler's version banner exists to answer, and both lanes spent
+  the same night arguing about that banner while neither applied it to the harness tools.*
+- **Sigil's banner is GAINING FIELDS (announced 2026-08-27, landing behind chain 174).** `tree:`
+  will report **`clean-sources`** when the only uncommitted changes are outside the assembler's
+  compiled sources, and the banner gains `closure:`, `closure-revision:` and `closure-paths:`.
+  **`build.sh`'s guard is safe by construction** — since `4b43bdda` it matches *positively*
+  against clean and reads every unrecognised state word as dirty, which is exactly the case
+  `clean-sources` would otherwise have silenced. Expect the new fields rather than meeting them.
+  **The ledger tooling is also changing:** `--freeze`/`--attest` will validate prose BEFORE the
+  write, escape quotes rather than refuse them, and use temp-and-rename. **Retire this lane's
+  temporary pre-parse of the `ab = "…"` line only after a freeze has actually RUN through the new
+  path — not when it merges** (a fix existing and a fix having fired are different facts).
 - The committed ab_runner scenes hardcode the MAIN tree's `s4.debug.lst` — run against
   repointed copies in a worktree. `ab_runner --new` needs ABSOLUTE paths (relative
   resolves against the emulator's cwd and reports a convincing false verdict on
