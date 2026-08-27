@@ -1038,6 +1038,35 @@ path, for the same reason the protocol is read that way.
   "I cannot locate the mechanism" to "does any caller on this path supply a non-constant closure",
   which is a sharper and differently-shaped question. Narrowing is worth reporting. Reporting it
   as closure is not.)*
+- **A CLAIM ABOUT ANOTHER LANE'S TREE, LIVING IN YOURS, CAN NEVER MEET ITS CONTRADICTION — AND A
+  DOC HAS NO `updatedAt`** (added 2026-08-27; the oracle lane's, banked from their third instance
+  in one day, and it lands on this file harder than on theirs).
+  **Their timeline, which is the finding rather than the incident.** A claim about
+  `evict_witness.py` landed in their doc at 03:11 and was **true at that moment**. This lane fixed
+  the underlying code at **03:51**. Their doc re-cited it at 04:45, 04:48 and 06:39, and exported
+  it to this lane at ~13:00 **as a live exposure**. **Nobody re-read the source at any point in
+  that chain** — every re-citation was a faithful copy of a sentence that had been true. The
+  coordinate rotted with it: the cited `:97` is now a comment line and the code sits at `:109`.
+  **Why every existing bar missed it.** *Verify firsthand* was satisfied — the author really did
+  read the file. SHA class was fine. **Bar 22 (re-read at SEND time) is closest and does not
+  reach it, because bar 22 is written for peer STATUS files, which carry a timestamp that
+  announces their own staleness.** Committed prose carries none, **and it reads as settled fact
+  precisely because it is yours and you wrote it.**
+  **Remedy, and it is the protocol's verified-at anchor pointed INWARD: when a doc here asserts
+  anything about a sibling repo's code, record the peer revision inline** — `(sigil 8dc62906,
+  read 2026-08-27)`. That converts an unfalsifiable sentence into a one-command currency check.
+  And re-read the peer's **tip** before exporting a claim, never the doc that quotes it.
+  **⚠ THIS FILE'S OWN EXPOSURE, MEASURED: 176 lines mention `sigil`/`oracle`/`aurora`; 11 carry a
+  peer revision.** *(That 176 is mentions, not claims — an upper bound, and the sweep is one
+  spelling axis. The ratio is the signal, not the number.)* **Retrofitting all of them is not
+  proposed; the rule binds NEW assertions**, and an old one gets its anchor the next time anyone
+  relies on it.
+  **And the second half is this lane's, banked by oracle in these words: a peer's warning about
+  YOUR OWN tree is the class you must verify before acting on, and it is the one that feels least
+  like it needs checking** — it arrives as help, about your own code, from someone with no motive
+  to be wrong. **Their confident claim nearly became this lane's agent brief**, and it was caught
+  by opening the file to locate line numbers rather than by suspecting anything. **That is luck,
+  and it is not a method.**
 - **A GREP HIT THAT CONFIRMS WHAT YOU SET OUT TO FIND IS THE ONE YOU ARE LEAST LIKELY TO READ THE
   CONTEXT OF — THE SEARCH ITSELF SELECTED FOR AGREEMENT** (added 2026-08-27; this lane's error,
   and the sigil lane asked for it as a bar rather than an apology). Shared-protocol bar 11 says
