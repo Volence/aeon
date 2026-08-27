@@ -52,6 +52,50 @@ Every item here had a stated blocker that **no longer holds**. This is the pick-
 by leverage, not by section. Each links back to its full entry below; read the entry (and its
 correction) before planning — several carry caveats that shrink the win.
 
+### A SECOND ACT'S BG ANIMATION HAS NOWHERE TO LIVE — the emitter takes an act, the ROM has one slot — booked 2026-08-27
+
+**What landed (parcel EFFECTS-W2, `tools/inject_editor_bg.py`).** The act is a parameter.
+`BgActNames` derives the output directory, the override file, the emitted module name and the
+`embed(...)` path from project.json's zone/act ids; `--zone`/`--act` are project.json INDICES,
+the same signature `tools/effects_gen.py` uses. The no-argument call site
+(`tools/regenerate-level.sh:94`) resolves zone 0 / act 0 and its output is byte-identical.
+Gate: `tools/test_bg_emit.py::TestActIsAParameter` (four tests, run by build.sh's pytest lane),
+whose expectations are all written against an act id *derived* from the declared one, and whose
+load-bearing assertion is that the default act's id appears nowhere in a second act's module.
+
+**What is still blocked, and it is placement, not naming.** `BgActNames.section` is derived
+from the ZONE only — `ojz_bg_anim` — because that section is ONE blob for the whole act,
+placed by the `BgAnim_Table` row in `games/sonic4/map.toml` and bounded by
+`BGANIM_SECTION_CEILING` (decision d-9). So two acts of the same zone emit two modules that
+declare the SAME section and the SAME `pub BgAnim_Table` / `pub BgAnim_Banks` symbols. Baking
+a second act today writes correct artifacts into `data/generated/<zone>/<act>/`; linking both
+into one ROM does not work and was not attempted. `tools/effects_gen.py`'s own `ActNames`
+docstring flagged this ("a latent hazard in the `bg_anim.emp` precedent, whose section name
+carries no act suffix — noted, not fixed here"); it is now named at the site too.
+
+**What making it work needs — an owner ruling first, because it is a ROM-layout question.**
+Either a per-act section (`<zone>_bg_anim_<act>`, a new `map.toml` row and a re-derived
+ceiling per act, since the d-9 budget is what one act may spend), or an act-selected pointer
+so only the loaded act's table is resident. NOT parked as d-31 — **d-31 is a different
+question entirely** (background height vs act height: anchor and wrap). Nothing in
+`docs/decisions.jsonl` (49 entries as of 2026-08-27) asks about multi-act BG-anim residency.
+The nearest booked material is §"Animated bands per theme" further down this file, which
+proposes an *active-table-pointer indirection* for BG theme seams — the same mechanism this
+would want, aimed at a different problem.
+
+**Also grandfathered, deliberately.** Act 1's override keeps the un-suffixed filename
+`games/sonic4/data/editor_bg_override.json` (`LEGACY_OVERRIDE_ACT` in the emitter); every
+other act resolves `editor_bg_override_<zone>_<act>.json`. The mapping is act → path, decided
+before any I/O and with no on-disk probing, so a second act can never silently bake act 1's
+background — `test_the_legacy_override_filename_belongs_to_exactly_one_act` pins both halves,
+including that the act holding the legacy name really is project.json's first act. Renaming
+the file to the per-act spelling means sweeping eight other readers (`tools/bg_override_io.py`,
+`tools/png_to_bg_override.py`, `tools/forest_bg_gen.py`, `tools/level_staleness.py`'s scan
+list, `tools/test_bg_tile_budget.py`, `tools/test_bg_emit.py`, the fixture
+`test/fixtures/bg-override/editor_bg_override.b0e5a661.json`) **and** amending
+`tools/EFFECTS_CONSUMER_CONTRACT.md`, which calls that path FIXED. That is a contract change,
+not a rename; it was kept out of a zero-byte parcel on purpose.
+
 ### SIGIL'S 5-RED BAR AGAINST aeon 415e0b6a — class (A) is the HARNESS, not this tree — booked 2026-08-25
 
 **Provenance:** sigil lane log 2026-08-24T23:57Z (sigil `docs/OVERSEER.md` "Full suite bar":
