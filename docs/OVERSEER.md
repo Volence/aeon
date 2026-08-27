@@ -590,6 +590,21 @@ deferring to "something else owns this", confirm the something else exists.
   if a lane wedges anyway, kill only PIDs whose `/proc/<pid>/cmdline` carries YOUR
   worktree's ROM path.
 
+## Changed-parameter moves — POINTER, not a copy
+
+When you need to vary the enumeration parameter (bar 19) and have no move to hand — which
+bar 21 says is the actual failure, not ignorance of the principle — the list lives in
+**sigil**, deliberately in one place so it cannot fork:
+
+```sh
+git -C ../sigil fetch -q origin && git -C ../sigil show \
+  origin/master:docs/superpowers/notes/2026-08-27-changed-parameter-moves.md
+```
+
+Ten moves, four of them from this lane's instances. **Do not copy rows into this file** — ask
+the sigil lane to edit theirs. Read it at the committed revision, never through the sibling
+path, for the same reason the protocol is read that way.
+
 ## Aeon-specific review bars (beyond the protocol's)
 
 - **A green log and an absent run are the same artifact** — **SHARED PROTOCOL bar 25**
