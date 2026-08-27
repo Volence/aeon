@@ -10653,3 +10653,37 @@ the per-scene roster, two-sided so a scene that STOPS raising a bit is caught to
 compiled into `parallax.emp` and `preset.emp` are present for every scene in the table, and none
 needs skipping or special-casing. The declared superset (`$0040 CAP_FACTOR_CURVE`, `$0020`
 headroom) is the editor scenes' contribution and costs the hotkey nothing.
+
+### 6. Verification evidence for this parcel (2026-08-26)
+
+Four canonical shapes, all green, `./build.sh` (never `FAST=1`):
+
+| shape | CRC32 | bytes | vs master `e967de57` |
+|---|---|---|---|
+| `s4.bin` | `f81c6811` | 718,741 | **byte-identical** |
+| `s4.debug.bin` | `6f79f855` | 735,146 | was `090c6f35` / 734,640 (**+506 B**) |
+| `demo.bin` | `8bd3d11b` | 96,372 | **byte-identical** |
+| `demo.debug.bin` | `ec71a5a4` | 101,080 | **byte-identical** |
+
+The two demo rows are a real A/B, not an argument from "I did not touch `games/demo/`": the three
+`.emp` files were reverted to `e967de57` and the demo pair rebuilt, giving the same two CRCs.
+
+pytest (build lane): **1412 passed, 8 skipped, 49 subtests passed**. The five new tests account
+for five of the six passes gained over the pre-build baseline of 1406/9; the sixth is a
+skip→pass flip *independent of this parcel*, proven by re-running with
+`--ignore=tools/test_scene_cycle_table_lint.py` (1407 passed, 8 skipped) — it is a fresh-worktree
+artifact where the first build populated an artifact a test needs. The eight remaining skips each
+name the path they could not resolve (`AEON_SONIC_HACK_DIR` donor tree, deleted `main.asm`, an
+editor dir a fresh worktree has none of, a vacuous label-set half).
+
+`tools/effects_gates.py --rom s4.debug.bin --lst s4.debug.lst`: **14/14 segments PASS, 27 gates,
+exit 0**. This parcel does NOT touch `engine/effects/*`, `engine/level/bg_anim.emp` or
+`engine/system/buffers.emp`, so the effects-gate ritual was not triggered — the lane was run
+anyway because the debug ROM's bytes moved and several of those gates read debug-shape addresses.
+Notable within it: `parallax_crossing` PASS, which is the gate over the very proc this hotkey
+reuses.
+
+Zero-release-byte proof, direct rather than inferred: in `s4.lst` all three of
+`Debug_CharacterHotkey`, `Debug_SceneCycleHotkey` and `Debug_Warp_Consume` resolve to the SAME
+address (`$A44EE`), which is what convsym dedupes in the deb2 appendix. `Game_RAM_End` reads
+`$FFFFE50E` in the debug shape both before and after, because the cursor took the pad byte.
