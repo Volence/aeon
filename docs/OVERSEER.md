@@ -502,6 +502,42 @@ deferring to "something else owns this", confirm the something else exists.
   landing-lane stanza above.
 
 
+- **THE "CONFIRM THE GATE'S NAME APPEARS IN ITS OWN LOG" CORRECTIVE IS UNRUNNABLE AGAINST
+  THIS REPO'S PYTEST LANE, AND I MEASURED IT** (added 2026-08-27; the class is the sigil
+  lane's, found against their own `zero skip:` bar; **this instance is aeon's and measured
+  firsthand here**). Bar 25's corrective (1) says confirm the gate's NAME appears in the run's
+  own log rather than merely that the run was green. Good rule. It cannot be run here.
+  **Measured, one command:** `python3 -m pytest tools/test_gen_vram_map.py -q --no-header
+  -p no:cacheprovider` on a fully passing file prints `..................` and `34 passed`;
+  grepping that output for the file's own name returns **0**. `build.sh:432` runs the tool
+  suite with exactly `-q`, so **a fully green aeon pytest lane contains no gate names at all**
+  — there is nothing in it to confirm.
+  **The saving grace, and it is structural rather than lucky: `build.sh` gates on the EXIT
+  CODE** (`if ! python3 -m pytest …`), which is capture-independent. So the *did the suite
+  run* question is soundly answered here and the sigil-side defect (a flag present whose
+  output is discarded) does not reach it. What is NOT answered is *did THIS gate run* — a
+  test silently dropped from the suite leaves the exit code green and the log a row of
+  identical dots. That is the effects-lane `OK — 27 gates` shape exactly: a count derived from
+  rows that actually appeared, shrinking silently while every printed row says PASS.
+  **The remedy is an ENUMERATION, not a better grep** — and it is bar-cheap:
+  `python3 -m pytest tools/ --collect-only -q --no-header -p no:cacheprovider` lists every
+  test id and **cost 0.19 s for 1451 ids** when measured. Diff the collected id set across the
+  revisions in question; that answers "which gates exist to be run" from a source that cannot
+  quietly shrink, where a log grep answers it from a source that can. Same shape as the
+  generator-enumeration bar above: enumerate the population from something that emits it, not
+  from an artifact that merely mentions it.
+  *(Do not read 1451 as a pass count — it is what COLLECTS. The older `1262 → 1290 passed`
+  figure elsewhere in this file was measured differently and the two are not reconciled.)*
+  **Reciprocal finding from the sigil lane, worth knowing before you trust any Rust-side
+  skip claim** (their measurement, relayed, not verified here): libtest **captures a passing
+  test's output**, so `cargo test … | grep skip` sees nothing from passing tests — their
+  documented hand-run "zero `skip:` lines" bar has never been able to observe the thing it
+  asserts. Their automated `scripts/nightly_source_gates.sh` passes `-- --nocapture` and is
+  fine; the hand bar is the blind one. **If a rule here ever spells a `cargo test` whose
+  OUTPUT you then grep, it needs `--nocapture`.** This lane's landing-lane `cargo test` is
+  safe on that count because its bar is aggregate totals from the summary line, which prints
+  under capture — but check it again if that bar ever grows a grep.
+
 - **Cross-repo claims verify against the described repo AT AUTHORING TIME, citing the SHA
   verified at** — now the shared protocol's rule too (empyrean `00334b6`, 2026-08-22), with
   this repo's effects-schema arc as its precedent, so put it in agent briefs that survey a
