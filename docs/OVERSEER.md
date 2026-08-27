@@ -186,6 +186,17 @@ rulings live in the session memory and the most recent `docs/superpowers/*handof
   field that reads as a signal and is a constant. The discriminating half is inside the same
   string (`0 modified` vs `N modified`); the summary word is what over-warns, which is the
   `GOLDEN-DIRTY-BANNER` item already booked to the sigil lane.
+  **⚠ STANDING TWO-WAY CONTRACT WITH THE SIGIL LANE ON THIS BANNER — agreed 2026-08-27, banked
+  here because it was agreed in MAIL and would not have survived a `/clear`.** Neither lane
+  changes the banner unilaterally: **sigil does not move `revision:`, `source:`, `tree:` or the
+  `dirty` prefix without agreeing it here first, and this lane tells sigil before anything of
+  ours that PARSES the banner moves.** Reaffirmed by the sigil lane unprompted at the chain-173
+  handover, with the explicit reason that *"if it lives only in this thread it does not survive
+  your next `/clear`"* — which is shared-protocol bar 20's sending-side half, correctly applied
+  by the receiving lane rather than the sending one. **The obligation binds THIS repo across
+  session boundaries, so it is a fact about the file and not about whoever is running the lane
+  today.** Nothing else is owed between the lanes on the banner: as of that handover neither
+  `ISLAND-PIECE-2` nor `VERSION-DIRT-CLASSIFY` has an aeon dependency.
   *Note the shape, because it happened to a rule ONE HOUR OLD: adopting a provenance field
   wholesale, without asking which of its components can move, is how a constant gets quoted as
   evidence. The rule was right and its first operational form was already carrying a
@@ -710,6 +721,36 @@ deferring to "something else owns this", confirm the something else exists.
 - The effects gate lane self-segments with per-segment timeouts and scoped reaping;
   if a lane wedges anyway, kill only PIDs whose `/proc/<pid>/cmdline` carries YOUR
   worktree's ROM path.
+- **A BACKGROUND WAITER THAT `pgrep`s FOR THE PROCESS IT IS WAITING ON SELF-MATCHES AND CAN
+  NEVER EXIT** (measured 2026-08-27; the mechanism is the sigil lane's, the population and the
+  ownership are this lane's correction of it). `until ! pgrep -f "refreeze --attest"; do sleep
+  20; done` **never terminates**, because the waiting shell's own command line contains the
+  literal `refreeze --attest`, so `pgrep -f` matches at least itself on every pass. Three such
+  shells sat sleeping from 03:55/03:59/04:01 until reaped at 09:44 — 1h45m each — and their
+  three background tasks then died together with the exact titles that named them, which is the
+  clean confirmation that the population was three.
+  **Two corrections to how this was first reported, and both are the reusable half.**
+  (a) **It was THREE, not two, and the third waits on a DIFFERENT pattern** (`refreeze
+  --freeze`), so an enumeration run as `pgrep -f "refreeze --attest"` structurally cannot see
+  it — a sweep whose own search term is one of the values being swept for. Enumerate the loop
+  CONDITION out of `/proc/<pid>/cmdline` (`grep -o "until ![^;]*;"`), never the pattern you
+  happen to have in hand. (b) **"The spawning session is gone" was wrong**: all three were
+  children of PID 286960, which is **this lane's own live `claude` process** — a `/clear`
+  retires the SESSION and keeps the PROCESS, so orphans from earlier sessions are still your
+  own children and are yours to reap. A peer reasonably read a dead session id as a dead
+  process; the check is `/proc/<ppid>` and your own shell's ancestry, not the session id in a
+  scratchpad path.
+  **Why it earns a bullet rather than a shrug: the failure is silent and inverted.** The shells
+  report nothing, block nothing and consume nothing, so there is no artifact to be suspicious
+  of — and a handover that says *"they will fire against your run and report on the wrong
+  worktree"* and one that says *"they can never fire at all"* call for different responses,
+  while producing the identical empty evidence (bar 16(d)).
+  **And the shared-machine half, which is why the kill is by PID and never by pattern:** at the
+  moment of reaping, a real `cargo test --workspace --no-fail-fast` was running — **oracle's**,
+  in `oracle/.claude/worktrees/agent-a6f38c56c54c36360`, verified by `/proc/<pid>/cwd`. Any
+  pattern-shaped kill aimed at the waiters would have been one careless regex away from taking
+  another lane's verification with it. Check ownership in the same command that kills
+  (`ppid` + a cmdline token), and re-assert the innocent process is still up afterwards.
 
 ## Changed-parameter moves — POINTER, not a copy
 
