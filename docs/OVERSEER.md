@@ -1360,6 +1360,23 @@ path, for the same reason the protocol is read that way.
   elsewhere, which is precisely why it drifted silently. A consumer-side sweep finds the class
   *values nothing would notice being wrong*; the two sets are not supersets of each other.
 
+- **⚠ AND THE PROSE SWEEP HAS ITS OWN BLIND SPOT: A PARCEL MOVES ADDRESSES IT NEVER TOUCHES**
+  (added 2026-08-27; found by the sigil lane in THIS tree, a day after this lane swept its own
+  prose and reported it clean). `games/sonic4/data/sound/dac_banks.emp`'s header described the
+  blip bank at `$48000` (bank `$9`) and the shared drum bank at `$50000` (bank `$A`). The
+  2026-08-26 re-layout moved them — `map.toml` records `dac_banks = 0x90000` (bank `$12`, shared
+  `0x98000` = `$13`) and the `.lst` puts `Dac_Temp_Blip` at `0x90000`. **Four sites, wrong in both
+  address and bank id, and no gate could contradict them because nothing executes a header.**
+  **THE SWEEP'S RULE IS "GREP THE VALUES THIS PARCEL MOVED" AND THAT IS THE HOLE.** A prose sweep
+  naturally enumerates from the diff — the values you changed. **This file was never edited. It
+  started lying when something else moved underneath it.** Addresses a parcel **MOVES** are a
+  different population from addresses a parcel **TOUCHES**, and only the second is reachable by
+  grepping your own change.
+  **Operational form: after a parcel that RELOCATES anything, sweep the OLD values too** — grep
+  the addresses as they were *before*, across the whole tree, not the addresses as they are now.
+  The stale prose says the old number by definition, so the new number cannot find it.
+  *And fix it by DELETING the number, not by re-typing today's: a fresh literal goes stale on the
+  identical clock, which is exactly how these got there.*
 - **PROSE BOUNDS ARE A POPULATION THE "IS IT DERIVED?" SWEEP DOES NOT REACH** (added
   2026-08-27; same source). After a sweep across every code consumer, one literal `8` survived
   in an agent-facing tool **description string**. Help text, `argparse` descriptions, docstrings,
