@@ -148,7 +148,22 @@ pub const PHYS_AIR_ACCEL        = $18
 pub const PHYS_JUMP_RELEASE_CAP = -$400
 pub const PHYS_SKID_MIN         = $400   // min |gsp| to trigger a skid
 pub const PHYS_JUMP_BUFFER      = 2      // jump-input buffer window (frames)
-pub const PHYS_FALL_CAP         = $1000  // terminal fall speed
+// Terminal fall speed — DERIVED, not chosen (owner ruling 2026-08-26, d-18-answered,
+// queue row FALL-CAP-15). The floor probe reads collision CELLS, so the thinnest
+// floor the world can express is one cell; a per-frame Y step of a whole cell can
+// begin the frame flush on a slab's surface and end it below the slab, stepping
+// clean over it. The largest step that can never do that is one pixel short of a
+// cell, in 8.8 fixed point. Flat `$1000` was exactly one cell — one pixel hot — and
+// that was the shipped 1px tunnelling hole this closes. Do not re-type the value:
+// it follows COLLISION_CELL_SHIFT (declared below in the collision section).
+pub const PHYS_FALL_CAP         = ((1 << COLLISION_CELL_SHIFT) - 1) << 8
+// The ruling, executable. Tautological against the derivation directly above and
+// deliberately so: its job is to survive someone re-typing that derivation as a
+// flat literal later. It fires in BOTH directions — a cap raised back to a whole
+// cell, and a COLLISION_CELL_SHIFT lowered under a cap that stayed put — which a
+// check written against a fixed number could not do.
+ensure((PHYS_FALL_CAP >> 8) < (1 << COLLISION_CELL_SHIFT),
+       "PHYS_FALL_CAP must stay STRICTLY below one collision cell: a per-frame fall step of a whole cell can begin flush on the thinnest floor the world can express and end below it, tunnelling through")
 pub const PHYS_SLOPE_WALK       = $20    // walking slope-factor magnitude
 pub const PHYS_SLOPE_ROLL_DOWN  = $50    // rolling downhill slope factor
 pub const PHYS_SLOPE_ROLL_UP    = $14    // rolling uphill slope factor
