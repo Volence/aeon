@@ -171,8 +171,17 @@ rulings live in the session memory and the most recent `docs/superpowers/*handof
   genuinely clean now. But `tree:` is a **build-time snapshot** — cargo has no trigger for
   uncommitted state — so **the banner keeps reporting `-dirty` until the binary is relinked.**
   It has therefore moved from *stuck* to *stale*, which is a different defect with the same
-  reading: still do not quote it, but expect it to start telling the truth after the next
-  sigil rebuild rather than after a fix landing. So the word `dirty` sits beside every CRC this repo quotes and
+  reading: still do not quote it.
+  **THE TEST THAT THE FIX HAS REACHED THE BANNER IS A `revision:` THAT IS NOT `fbf60abd` — NOT
+  THE DIRTY FLAG CLEARING** (aurora's, their `8e2056a6`, amending their own bar which had
+  written the test as *"until sigil fixes it"*). Any wording of that shape inherits the defect:
+  a future session reads the stale value, sees `-dirty`, and concludes the fix never landed.
+  **The general form, and it is the durable output — a provenance record is not ONE claim, it
+  is several, and they do not share a clock.** `revision:` follows git refs; `tree:` follows a
+  build. Same line of output, two different freshnesses, and **nothing in the formatting says
+  so.** Before quoting any provenance line as evidence, ask which of its components can move
+  and on whose schedule — quoting it wholesale is how a constant, or a value frozen at an
+  unrelated moment, gets cited as a signal. So the word `dirty` sits beside every CRC this repo quotes and
   **cannot vary**, which makes it exactly the thing this file has spent the night naming: a
   field that reads as a signal and is a constant. The discriminating half is inside the same
   string (`0 modified` vs `N modified`); the summary word is what over-warns, which is the
