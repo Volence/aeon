@@ -29,5 +29,9 @@
     }
   ],
   "objectLibrary": "games/sonic4/data/editor/objects.json",
-  "chunkLibrary": "games/sonic4/data/editor/ojz/chunks.json"
+  "chunkLibrary": "games/sonic4/data/editor/ojz/chunks.json",
+  "buildEnv": {
+    "SIGIL_BUILD": "/home/volence/sonic_hacks/sigil/target/release/sigil",
+    "SIGIL_EMIT": "/home/volence/sonic_hacks/sigil/target/release/emit_sound_blob"
+  }
 }
