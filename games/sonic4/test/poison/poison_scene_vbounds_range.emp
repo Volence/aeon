@@ -65,28 +65,60 @@ use engine.structs.*
 const POISON_VO_SCENE_A: Scene = scene(
     layers: [ layer(world_y: 0, fa: FACTOR_1, fb: FACTOR_1_2),
               no_layer(), no_layer(), no_layer(),
-              no_layer(), no_layer(), no_layer(), no_layer() ],
+              no_layer(), no_layer(), no_layer(), no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer() ],
     count: 1, v_factor: 15, v_offset: -32768)
 
 // FIXTURE B — the top of the signed word. Control, must stay legal.
 const POISON_VO_SCENE_B: Scene = scene(
     layers: [ layer(world_y: 0, fa: FACTOR_1, fb: FACTOR_1_2),
               no_layer(), no_layer(), no_layer(),
-              no_layer(), no_layer(), no_layer(), no_layer() ],
+              no_layer(), no_layer(), no_layer(), no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer() ],
     count: 1, v_factor: 15, v_offset: 32767)
 
 // FIXTURE C — one below the word. The v_offset guard fires.
 const POISON_VO_SCENE_C: Scene = scene(
     layers: [ layer(world_y: 0, fa: FACTOR_1, fb: FACTOR_1_2),
               no_layer(), no_layer(), no_layer(),
-              no_layer(), no_layer(), no_layer(), no_layer() ],
+              no_layer(), no_layer(), no_layer(), no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer() ],
     count: 1, v_factor: 15, v_offset: -32769)
 
 // FIXTURE D — one above the word. The v_offset guard fires.
 const POISON_VO_SCENE_D: Scene = scene(
     layers: [ layer(world_y: 0, fa: FACTOR_1, fb: FACTOR_1_2),
               no_layer(), no_layer(), no_layer(),
-              no_layer(), no_layer(), no_layer(), no_layer() ],
+              no_layer(), no_layer(), no_layer(), no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer() ],
     count: 1, v_factor: 15, v_offset: 32768)
 
 // FIXTURE I — THE DEFECT'S OWN VALUE. `v_offset: -8` is what the booking quotes dying at
@@ -94,7 +126,15 @@ const POISON_VO_SCENE_D: Scene = scene(
 const POISON_VO_SCENE_I: Scene = scene(
     layers: [ layer(world_y: 0, fa: FACTOR_1, fb: FACTOR_1_2),
               no_layer(), no_layer(), no_layer(),
-              no_layer(), no_layer(), no_layer(), no_layer() ],
+              no_layer(), no_layer(), no_layer(), no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer() ],
     count: 1, v_factor: 15, v_offset: -8)
 
 // ---- PAIR 2: v_center, the world Y ----
@@ -103,28 +143,60 @@ const POISON_VO_SCENE_I: Scene = scene(
 const POISON_VC_SCENE_E: Scene = scene(
     layers: [ layer(world_y: 0, fa: FACTOR_1, fb: FACTOR_1_2),
               no_layer(), no_layer(), no_layer(),
-              no_layer(), no_layer(), no_layer(), no_layer() ],
+              no_layer(), no_layer(), no_layer(), no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer() ],
     count: 1, v_factor: 15, v_center: 0)
 
 // FIXTURE F — the top of the engine's act-axis span. Control, must stay legal.
 const POISON_VC_SCENE_F: Scene = scene(
     layers: [ layer(world_y: 0, fa: FACTOR_1, fb: FACTOR_1_2),
               no_layer(), no_layer(), no_layer(),
-              no_layer(), no_layer(), no_layer(), no_layer() ],
+              no_layer(), no_layer(), no_layer(), no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer() ],
     count: 1, v_factor: 15, v_center: $7FFF)
 
 // FIXTURE G — one above the world's top edge. The v_center guard fires.
 const POISON_VC_SCENE_G: Scene = scene(
     layers: [ layer(world_y: 0, fa: FACTOR_1, fb: FACTOR_1_2),
               no_layer(), no_layer(), no_layer(),
-              no_layer(), no_layer(), no_layer(), no_layer() ],
+              no_layer(), no_layer(), no_layer(), no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer() ],
     count: 1, v_factor: 15, v_center: -1)
 
 // FIXTURE H — the first value the sub.w would read as negative. The v_center guard fires.
 const POISON_VC_SCENE_H: Scene = scene(
     layers: [ layer(world_y: 0, fa: FACTOR_1, fb: FACTOR_1_2),
               no_layer(), no_layer(), no_layer(),
-              no_layer(), no_layer(), no_layer(), no_layer() ],
+              no_layer(), no_layer(), no_layer(), no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer() ],
     count: 1, v_factor: 15, v_center: $8000)
 
 // ---- THE PASSING HALVES (must stay green, and are MEASURED) ----

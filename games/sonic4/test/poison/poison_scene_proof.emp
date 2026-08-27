@@ -2,7 +2,10 @@
 //
 // TARGETS: `cfg_eq()` in games/sonic4/test/scene_equiv_proof.emp — the field-wise
 // comparator the permanent equivalence witness is built on (spec §8.1).
-// EXPECTED FRAGMENT: "differs at cfg field 4 (band field -1)"
+// EXPECTED FRAGMENT: "differs at cfg field 3 (band field -1)"
+// (It was field 4 until 2026-08-27: `pcfg_layer_mask` became a u16 and took byte $02,
+//  which shifted every index above 1 down one place. The number is quoted on purpose —
+//  see below — so it moves whenever the record does.)
 //
 // WHAT THIS POISON CAN AND CANNOT DO. The witness's own twenty `ensure`s live in a module
 // no poison may edit, and they are already exercised red-first on an ordinary
@@ -14,11 +17,11 @@
 //
 // ONE FIELD, AND THE FRAGMENT PINS WHICH. The fixture scene declares `v_center: 512`; the
 // oracle `hdr()` call is transcribed correctly in every argument EXCEPT `v_center: 256`.
-// `pcfg_v_center_y` is field 4 (the index table at the top of scene_equiv_proof.emp), so a
-// working comparator must report exactly 4 — and the lane's expected fragment quotes the
+// `pcfg_v_center_y` is field 3 (the index table at the top of scene_equiv_proof.emp), so a
+// working comparator must report exactly 3 — and the lane's expected fragment quotes the
 // number. That is not decoration. `cfg_eq` tests fields in REVERSE order so the lowest
 // differing index survives, which means any additional mismatch at a HIGHER index would be
-// masked by field 4 and this poison would go red for a reason that looks identical to the
+// masked by field 3 and this poison would go red for a reason that looks identical to the
 // intended one. The control build below is what closes that hole, and the band half closes
 // the rest of it.
 //
@@ -37,8 +40,9 @@
 // THE ORACLE'S FREE NAMES RESOLVE HERE. `hdr()`'s body reads `PARALLAX_ANCHOR_NONE`,
 // `MAX_PARALLAX_BANDS` and `RASTER_MAX_PATCH` — a comptime fn's free names resolve at the
 // CALL SITE — and its `anchor_ch` DEFAULT is `PARALLAX_ANCHOR_NONE`. Left unimported, that
-// default would degrade silently and the oracle would differ at field 9 as well as field
-// 4, which field 4 would then mask. All three are named below for that reason.
+// default would degrade silently and the oracle would differ at field 8 (pcfg_anchor_ch)
+// as well as field 3, which field 3 would then mask. All three are named below for that
+// reason.
 //
 // TASK 9 LANDED: `hdr` and `cfg_band` moved out of games/sonic4/data/parallax/configs.emp
 // (deleted with the whole directory) and into scene_equiv_proof.emp, so this module's two
@@ -64,10 +68,18 @@ use games.sonic4.scene_equiv_proof.{cfg_eq, band_eq, hdr, cfg_band}
 const POISON_PROOF_SCENE: Scene = scene(
     layers: [ layer(world_y: 512, fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15),
               no_layer(), no_layer(), no_layer(),
-              no_layer(), no_layer(), no_layer(), no_layer() ],
+              no_layer(), no_layer(), no_layer(), no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer() ],
     count: 1, v_factor: 3, v_center: 512, v_offset: 0)
 
-// THE PLANTED FIELD: `v_center: 256` against the fixture's 512 — pcfg_v_center_y, field 4.
+// THE PLANTED FIELD: `v_center: 256` against the fixture's 512 — pcfg_v_center_y, field 3.
 const POISON_PROOF_H = cfg_eq(scene_hdr(POISON_PROOF_SCENE),
     hdr(band_count: 1, layer_mask: $01, v_factor_bg: 3, v_center: 256, v_offset: 0))
 // The correct half: an identical band entry, which `band_eq` must call equal (-1).
@@ -75,4 +87,4 @@ const POISON_PROOF_B = band_eq(scene_band(POISON_PROOF_SCENE, 0),
     cfg_band(cell: 0, fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15))
 
 ensure(POISON_PROOF_H == -1 && POISON_PROOF_B == -1,
-       "poison_scene_proof: the one-field-off oracle differs at cfg field {POISON_PROOF_H} (band field {POISON_PROOF_B}) — the header oracle plants v_center 256 against the fixture's 512, which is pcfg_v_center_y (field 4); the band oracle is transcribed correctly and must stay -1. Any other pair of numbers means cfg_eq/band_eq is reporting something other than the planted difference")
+       "poison_scene_proof: the one-field-off oracle differs at cfg field {POISON_PROOF_H} (band field {POISON_PROOF_B}) — the header oracle plants v_center 256 against the fixture's 512, which is pcfg_v_center_y (field 3); the band oracle is transcribed correctly and must stay -1. Any other pair of numbers means cfg_eq/band_eq is reporting something other than the planted difference")

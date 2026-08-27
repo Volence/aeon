@@ -2,59 +2,104 @@
 //
 // TARGETS: engine/level/scene_dsl.emp's ANCHORED capacity ceiling in `scene()` — the
 // first of the two guards ported by name from configs.emp's `hdr()` (spec §3.1).
-// EXPECTED FRAGMENT: "the shadow view needs count+1 entries — 8+1"
+// EXPECTED FRAGMENT: "the shadow view needs count+1 entries — <MAX_PARALLAX_BANDS>+1",
+// COMPUTED by tools/emp_expect_fail.py from the engine constant. See the derivation note
+// below — that fragment used to be the literal "8+1" and it was a defect.
 //
-// EIGHT REAL LAYERS PLUS AN ANCHOR. Eight layers alone is legal — it is exactly
-// MAX_PARALLAX_BANDS — and an anchor alone is legal. The pair is not: a world-anchored
-// scene SPLITS whichever layer holds the anchored line at runtime, so the shadow view
-// needs count+1 entries and the ninth writes past `Parallax_Shadow_Bands`.
+// MAX_PARALLAX_BANDS REAL LAYERS PLUS AN ANCHOR. `count` at the ceiling alone is legal —
+// it is exactly MAX_PARALLAX_BANDS — and an anchor alone is legal. The pair is not: a
+// world-anchored scene SPLITS whichever layer holds the anchored line at runtime, so the
+// shadow view needs count+1 entries and the (MAX+1)th writes past `Parallax_Shadow_Bands`.
+//
+// ---------------------------------------------------------------------------
+// THE COUNT IS DERIVED FROM THE CONSTANT, AND THAT IS THE WHOLE POINT OF THE 2026-08-27
+// REWRITE. This fixture used to spell EIGHT layers and `count: 8`, against a lane fragment
+// that spelled the literal "8+1". Both were hardcoded, on both sides, with no pin.
+//
+// THAT SHAPE IS ONLY LOUD IN ONE DIRECTION, WHICH IS WORSE THAN IT LOOKS. When the ceiling
+// moved UP to 16, an eight-layer anchored scene became LEGAL, `scene()` stopped refusing
+// it, the fragment never appeared, and the lane reported "poison failed to fire" — the
+// correct direction, loud, and easy to fix. Had the ceiling ever moved DOWN — to 4, say —
+// the same fixture would have stayed comfortably OVER the new bound, the guard would have
+// fired, the "8+1" fragment would still have matched the message, and the case would have
+// reported GREEN while testing a bound that no longer existed. A fixed count is not a test
+// of the ceiling. It is a test of one number that happens to sit above it today.
+//
+// So `count` reads MAX_PARALLAX_BANDS and the lane computes its fragment from the same
+// constant. The poison now tracks the ceiling in BOTH directions and is a one-unit poison
+// at whatever the ceiling is: anchored-at-(MAX-1) must be ADMITTED and anchored-at-MAX
+// refused, which is the property the row's red-first evidence records.
+//
+// WHAT IS STILL SPELT OUT, AND WHY IT CANNOT GO STALE SILENTLY. The layer array is a
+// literal of MAX_PARALLAX_BANDS elements because `Scene.sc_layers` is a FIXED-SIZE type
+// (`[SceneLayer; 16]`) and `.emp` has no way to synthesise an array of a computed length.
+// That is not a second hardcoded bound: the array TYPE is itself sized by the ceiling, so
+// a literal of the wrong length is an `array length mismatch` at the call, and any move of
+// MAX_PARALLAX_BANDS in either direction first trips
+// `ensure(MAX_PARALLAX_BANDS == 16, ...)` at engine/level/scene_dsl.emp:54, which refuses
+// the whole tree by name. Every `scene()` call site in the repo shares that property.
+// ---------------------------------------------------------------------------
 //
 // EVERY OTHER GUARD IN scene() PASSES, deliberately, so the lane's diagnostic count means
 // something:
-//   - `count >= 1 && count <= 8` — 8 is the ceiling, not past it.
+//   - `count >= 1 && count <= MAX` — the count is AT the ceiling, not past it.
 //   - `anchor_ch < 4` — channel 0 indexes the patch bank fine (the OTHER ported hdr()
 //     guard; tripping it too would put two anchor diagnostics in one build).
-//   - the pad-slot loop — `for i in 8..8` is empty, so no slot is checked and none needs
-//     to be a no_layer().
-//   - every `layer()` — all eight tops are inside the engine's $8000 act-axis ceiling
+//   - the pad-slot loop — `for i in count..16` is empty at count = MAX, so no slot is
+//     checked and none needs to be a no_layer().
+//   - every `layer()` — all sixteen tops are inside the engine's $8000 act-axis ceiling
 //     (P3 Task 7 retired the old 8-px-grid ensure and the typed 512-px span: off-grid is
 //     legal now and the per-line fill places it exactly — the forcer arm that used to
 //     accompany that went with the per-cell path, 2026-08-26 — while the tight span bound
 //     moved to the registry-level assert_act_relative_tagged(), which this module never
 //     calls. See poison_scene_actspan.emp for that guard's own row.)
-//
-// P3 TASK 15 RE-VERIFIED THIS ROW AGAINST THE RE-GLUED TREE: Task 7 kept this guard
-// byte-for-byte (capacity stays 8, the ruling in its own step list), so the P1 fixture —
-// EIGHT layers PLUS an anchor, needing nine shadow entries, exactly ONE over the ceiling
-// — is still the one-unit poison for "capacity under re-glue plus an anchor" and a second
-// module here would be a duplicate row, not new coverage.
 //   - both raw bridges default to -1 (derive) and both selectors default to 0.
-// The ONLY thing wrong with this scene is that it wants nine shadow entries.
+// The ONLY thing wrong with this scene is that it wants MAX+1 shadow entries.
+//
+// NOT COVERED HERE, AND BOOKED RATHER THAN BODGED: the PLAIN over-long case
+// (`count: MAX_PARALLAX_BANDS + 1`, no anchor) against `scene()`'s other ceiling guard.
+// `ensure` is non-aborting, so scene() walks on and calls `derived_mask(layers, count)`,
+// which indexes the fixed array past its end and adds a spray of
+// `[index.out-of-bounds]` diagnostics to the one the guard raises — an expected-count that
+// is a property of the walk rather than of the guard. See docs/DEFERRED_WORK.md.
 //
 // THE ELABORATION HOOK. A comptime fn is only elaborated when it is CALLED and an
 // unreferenced const is inert, so the guard under test runs because this module-level
 // ensure reads the const and forces `scene()`'s body. The predicate is trivially true
 // against what `scene()` returns ANYWAY (`ensure` is non-aborting, so the constructor
 // still hands back the Scene it built); this ensure's own message is what you would see
-// if the poison ever stopped reaching its target.
+// if the poison ever stopped reaching its target — and it is written against the CONSTANT,
+// so it is the second half of the both-directions property, not decoration.
 //
 // THE GLOB IMPORTS ARE THE AUTHOR'S OWN SPELLING — see README.md ("Why every scene poison globs").
+// MAX_PARALLAX_BANDS is named explicitly on top of them because this module's own
+// expressions read it: a comptime fn's free names resolve at the CALL SITE, and this file
+// IS the call site (same reason poison_scene_proof.emp imports it).
 module games.sonic4.test.poison.poison_scene_capacity
 
+use engine.constants.{MAX_PARALLAX_BANDS}
 use engine.level.scene_dsl.*
 use engine.level.parallax_dsl.*
 
 const POISON_CAPACITY_SCENE: Scene = scene(
-    layers: [ layer(world_y: 0,  fa: FACTOR_1, fb: FACTOR_1_2),
-              layer(world_y: 8,  fa: FACTOR_1, fb: FACTOR_1_2),
-              layer(world_y: 16, fa: FACTOR_1, fb: FACTOR_1_2),
-              layer(world_y: 24, fa: FACTOR_1, fb: FACTOR_1_2),
-              layer(world_y: 32, fa: FACTOR_1, fb: FACTOR_1_2),
-              layer(world_y: 40, fa: FACTOR_1, fb: FACTOR_1_2),
-              layer(world_y: 48, fa: FACTOR_1, fb: FACTOR_1_2),
-              layer(world_y: 56, fa: FACTOR_1, fb: FACTOR_1_2) ],
-    count: 8, v_factor: 3,
+    layers: [ layer(world_y: 0,   fa: FACTOR_1, fb: FACTOR_1_2),
+              layer(world_y: 8,   fa: FACTOR_1, fb: FACTOR_1_2),
+              layer(world_y: 16,  fa: FACTOR_1, fb: FACTOR_1_2),
+              layer(world_y: 24,  fa: FACTOR_1, fb: FACTOR_1_2),
+              layer(world_y: 32,  fa: FACTOR_1, fb: FACTOR_1_2),
+              layer(world_y: 40,  fa: FACTOR_1, fb: FACTOR_1_2),
+              layer(world_y: 48,  fa: FACTOR_1, fb: FACTOR_1_2),
+              layer(world_y: 56,  fa: FACTOR_1, fb: FACTOR_1_2),
+              layer(world_y: 64,  fa: FACTOR_1, fb: FACTOR_1_2),
+              layer(world_y: 72,  fa: FACTOR_1, fb: FACTOR_1_2),
+              layer(world_y: 80,  fa: FACTOR_1, fb: FACTOR_1_2),
+              layer(world_y: 88,  fa: FACTOR_1, fb: FACTOR_1_2),
+              layer(world_y: 96,  fa: FACTOR_1, fb: FACTOR_1_2),
+              layer(world_y: 104, fa: FACTOR_1, fb: FACTOR_1_2),
+              layer(world_y: 112, fa: FACTOR_1, fb: FACTOR_1_2),
+              layer(world_y: 120, fa: FACTOR_1, fb: FACTOR_1_2) ],
+    count: MAX_PARALLAX_BANDS, v_factor: 3,
     anchor: SceneAnchor.At(0, 15, 2))
 
-ensure(POISON_CAPACITY_SCENE.sc_count == 8,
-       "poison_scene_capacity: the fixture scene no longer carries eight real layers — this poison no longer reaches the guard it targets")
+ensure(POISON_CAPACITY_SCENE.sc_count == MAX_PARALLAX_BANDS,
+       "poison_scene_capacity: the fixture scene carries {POISON_CAPACITY_SCENE.sc_count} real layers, not MAX_PARALLAX_BANDS ({MAX_PARALLAX_BANDS}) — this poison is the ANCHORED one-unit case and only reaches the guard it targets when the count sits exactly AT the ceiling")

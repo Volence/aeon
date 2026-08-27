@@ -63,7 +63,15 @@ use engine.level.parallax_dsl.*
 const POISON_VF_SCENE_A: Scene = scene(
     layers: [ layer(world_y: 0, fa: FACTOR_1, fb: FACTOR_1_2),
               no_layer(), no_layer(), no_layer(),
-              no_layer(), no_layer(), no_layer(), no_layer() ],
+              no_layer(), no_layer(), no_layer(), no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer() ],
     count: 1, v_factor: 15)
 
 // FIXTURE B — byte-for-byte fixture A with the packed FACTOR_0 value in the raw-shift
@@ -71,7 +79,15 @@ const POISON_VF_SCENE_A: Scene = scene(
 const POISON_VF_SCENE_B: Scene = scene(
     layers: [ layer(world_y: 0, fa: FACTOR_1, fb: FACTOR_1_2),
               no_layer(), no_layer(), no_layer(),
-              no_layer(), no_layer(), no_layer(), no_layer() ],
+              no_layer(), no_layer(), no_layer(), no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer() ],
     count: 1, v_factor: 255)
 
 // ---- PAIR 2: v_factor_fg, the RESERVED FG twin ----
@@ -80,14 +96,30 @@ const POISON_VF_SCENE_B: Scene = scene(
 const POISON_VFFG_SCENE_C: Scene = scene(
     layers: [ layer(world_y: 0, fa: FACTOR_1, fb: FACTOR_1_2),
               no_layer(), no_layer(), no_layer(),
-              no_layer(), no_layer(), no_layer(), no_layer() ],
+              no_layer(), no_layer(), no_layer(), no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer() ],
     count: 1, v_factor: 15, v_factor_fg: 0)
 
 // FIXTURE D — byte-for-byte fixture C with the same packed value on the twin field.
 const POISON_VFFG_SCENE_D: Scene = scene(
     layers: [ layer(world_y: 0, fa: FACTOR_1, fb: FACTOR_1_2),
               no_layer(), no_layer(), no_layer(),
-              no_layer(), no_layer(), no_layer(), no_layer() ],
+              no_layer(), no_layer(), no_layer(), no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer() ],
     count: 1, v_factor: 15, v_factor_fg: 255)
 
 // ---- THE PASSING HALVES (must stay green, and are MEASURED) ----

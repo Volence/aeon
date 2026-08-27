@@ -384,10 +384,18 @@ class TestRendering(SceneShapeBase):
         path = self.write("ojz_bg", _scene(**over))
         return effects_gen.render_scene(path, effects_gen.load_scene(path))
 
-    def test_layers_array_is_always_eight_slots_padded_with_no_layer(self):
-        """`scene()` indexes a [SceneLayer; 8]; the hand idiom pads with no_layer()."""
+    def test_layers_array_is_always_max_bands_slots_padded_with_no_layer(self):
+        """`scene()` indexes a [SceneLayer; MAX_PARALLAX_BANDS]; the hand idiom pads.
+
+        THE PAD COUNT IS DERIVED, NOT TYPED, and it used to be the literal 7. A fixed pad
+        count is only loud when the ceiling moves UP (the generator emits more pads than
+        the test expects, as this one did on the 2026-08-27 8 -> 16 raise). Move the
+        ceiling DOWN and a literal that happens to be below the new width would keep
+        passing while testing nothing. MAX - 1 tracks it in both directions.
+        """
         out = self.render(layers=[{"world_y": 512, "fa": "FACTOR_1", "fb": "FACTOR_1_2"}])
-        self.assertEqual(out.count("no_layer()"), 7)
+        self.assertEqual(out.count("no_layer()"),
+                         effects_gen.MAX_PARALLAX_BANDS - 1)
         self.assertEqual(out.count("layer(world_y"), 1)
 
     def test_count_is_the_authored_layer_count_not_the_padded_width(self):
@@ -706,13 +714,36 @@ class TestRendering(SceneShapeBase):
         self.assertIn("curve", msg)
         self.assertIn("to", msg)
 
-    def test_nine_layers_is_refused_before_padding_arithmetic(self):
-        layers = [{"world_y": i, "fa": "FACTOR_1", "fb": "FACTOR_1"} for i in range(9)]
+    def test_one_layer_over_the_ceiling_is_refused_before_padding_arithmetic(self):
+        """MAX + 1, DERIVED — it was the literal 9 until 2026-08-27.
+
+        A fixed over-long count only tests the ceiling from one side. Raise the ceiling
+        and the fixture stops being over-long and the test goes red (which is what
+        happened here at 8 -> 16, correctly). LOWER the ceiling and a literal that is
+        still above the new bound keeps passing while asserting nothing about where the
+        bound actually is. MAX + 1 is the one-unit case at whatever the ceiling is.
+        """
+        n = effects_gen.MAX_PARALLAX_BANDS + 1
+        layers = [{"world_y": i, "fa": "FACTOR_1", "fb": "FACTOR_1"} for i in range(n)]
         path = self.write("ojz_bg", _scene(layers=layers))
         scene = effects_gen.load_scene(path)
         with self.assertRaises(effects_gen.SceneShapeError) as ctx:
             effects_gen.render_scene(path, scene)
         self.assertIn("MAX_PARALLAX_BANDS", str(ctx.exception))
+
+    def test_exactly_the_ceiling_is_accepted_with_no_padding(self):
+        """The other side of the one-unit pair, and the half that makes it a bound test.
+
+        Without this, `test_one_layer_over_the_ceiling_...` passes for any refusal at any
+        count at or below MAX + 1 — including a generator that refused everything. At
+        exactly MAX the scene must render, and with zero no_layer() pads.
+        """
+        n = effects_gen.MAX_PARALLAX_BANDS
+        layers = [{"world_y": i * 8, "fa": "FACTOR_1", "fb": "FACTOR_1"} for i in range(n)]
+        out = self.render(layers=layers)
+        self.assertEqual(out.count("no_layer()"), 0)
+        self.assertEqual(out.count("layer(world_y"), n)
+        self.assertIn("count: %d" % n, out)
 
 
 # =============================================================================

@@ -53,14 +53,30 @@ use games.sonic4.scene_registry.{SCENE_ACT_SPAN_Y}
 const POISON_AS_SCENE_A: Scene = scene(
     layers: [ layer(world_y: 6143, fa: FACTOR_1, fb: FACTOR_1_2),
               no_layer(), no_layer(), no_layer(),
-              no_layer(), no_layer(), no_layer(), no_layer() ],
+              no_layer(), no_layer(), no_layer(), no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer() ],
     count: 1, v_factor: 4)
 
 // FIXTURE B — byte-for-byte fixture A except the top: one act pixel past the span.
 const POISON_AS_SCENE_B: Scene = scene(
     layers: [ layer(world_y: 6144, fa: FACTOR_1, fb: FACTOR_1_2),
               no_layer(), no_layer(), no_layer(),
-              no_layer(), no_layer(), no_layer(), no_layer() ],
+              no_layer(), no_layer(), no_layer(), no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer() ],
     count: 1, v_factor: 4)
 
 // ---- THE PASSING HALF (must stay green, and is MEASURED) ----
