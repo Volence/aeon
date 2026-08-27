@@ -272,7 +272,28 @@ ASSERTION, and a reap in a `finally` with PR_SET_PDEATHSIG behind it.
   in both. **⚠ THAT FAILURE IS GONE — do not carry it forward (measured 2026-08-26).** The
   `parcel/boot-override-witness` parcel rewrote that gate hours after this row was written,
   and this line was never re-derived. On merged master at `s4.debug.bin` crc `f8d06cae`,
-  `--only boot_override` is **PASS, exit 0**, and a full lane is **28 gates OK, exit 0**.
+  `--only boot_override` is **PASS, exit 0**, and a full lane was **28 gates OK, exit 0**.
+  **⚠ THAT COUNT NO LONGER REPRODUCES — measured 27 on 2026-08-27, and it is UNRECONCILED.**
+  On merged master `e4eee42c` at `s4.debug.bin` crc `9732c56a`, a full lane is **`effects_gates: OK
+  — 27 gates`, exit 0**, all 27 PASS. Enumerated so the next run can diff rather than re-count:
+  `scene`×8, `scanline_spans`×8, and eleven singletons — `boot_override`, `cost_model`,
+  `demo_witness`, `dense`, `palette_variant`, `parallax_crossing`, `raster_off`, `raster_source`,
+  `snapshot_poison`, `vsplit_landing`, `warp_mailbox`.
+  **What is ESTABLISHED, so nobody re-derives it:** the newest gate (`parallax_crossing`,
+  `6164d7d5`, 10:55) already existed when the 28 was written (`6fbcd186`, 11:26), so 28 was the
+  count *with* it; **no gate registration was removed** between that commit and `0da00a33`
+  (diffed, empty); the only intervening lane commit is `e82807e0` (scene symbol resolution); and
+  the band-ceiling parcel **never touched `effects_gates.py`**. So the missing gate is
+  PRE-EXISTING and is not the parcel's. The count is `len(results)`, i.e. derived from gates that
+  actually produced a row — which is exactly why one going missing shows up as a smaller green
+  rather than as a failure.
+  **This is bar 25 on the lane that proposed it**: a green log and an absent run are the same
+  artifact, and a lane whose own count drops by one while every printed row says PASS is the
+  friendliest possible presentation of a gate that stopped running. **Do not read `OK — 27
+  gates` as clean until the 28th is named.** Next step is one `--emit-results` run per segment
+  against `0da00a33` and against `6fbcd186`, diffing the row sets; the lane has no registry
+  enumeration (`--help` confirms), which is itself worth fixing so a count can never drift
+  silently again.
   **This lane's overseer put the stale claim into two agent briefs before measuring it**, and
   it fails in the PERMISSIVE direction: it licences an agent to see a real `boot_override`
   failure and write it off as somebody else's. A "known pre-existing failure" note is the most
