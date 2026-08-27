@@ -12,8 +12,20 @@
 // golden gate (dac_bank_port) runs `ensure_generated` first (emit-first).
 //
 // The two banks live one $8000 window apart so a single Z80 bank id covers each
-// and FILL never re-banks mid-sample: the blip bank at $48000 (bank $9), the
-// shared drum bank at $50000 (bank $A). Both LMAs are fixed Z80-SetBank latches
+// and FILL never re-banks mid-sample: the blip bank sits at the `dac_banks` map
+// anchor and the shared drum bank one 0x8000 window above it. Both LMAs are fixed
+// Z80-SetBank latches.
+//
+// ⚠ THE ADDRESSES AND BANK IDS ARE DELIBERATELY NOT WRITTEN HERE (2026-08-27). This
+// header carried `$48000`/`$50000` and banks `$9`/`$A` until the 2026-08-26 re-layout
+// moved them, and it kept saying so afterwards because NOTHING EXECUTES A HEADER
+// COMMENT — no gate could contradict it. Re-typing today's values would go stale on
+// the identical clock. The live derivation lives in `games/sonic4/map.toml` (search
+// `dac_banks  = align_up`), which records both the rule and the measured result; the
+// `.lst` is the instrument for where they actually landed.
+// Found by the sigil lane during the SIGIL-DECOUPLE constraint audit, and it survived
+// this repo's own prose sweep because it describes addresses the re-layout parcel
+// MOVED rather than addresses that parcel TOUCHED
 // (declared map anchors, when="sound_on"). The `align $8000` between them is the
 // inter-bank pad (the intervening bytes are $00 fill, matching the reference). One section, one head label Dac_Temp_Blip (the section head +
 // the map-order/frozen boundary key) — the shared-bank labels are mid-section.
@@ -35,14 +47,14 @@ module games.sonic4.dac_banks in dac_banks
 const _blip   = embed("engine/sound/generated/dac_blip_bank.bin")
 const _shared = embed("engine/sound/generated/dac_shared_bank.bin")
 
-// The blip bring-up sample — alone in its $8000 window (bank $9 @ $48000).
+// The blip bring-up sample — alone in its own 0x8000 window at the `dac_banks` anchor.
 pub data Dac_Temp_Blip = _blip
 
-// Pad to the next $8000 bank boundary ($50000): the shared drum bank starts on
+// Pad to the next 0x8000 bank boundary: the shared drum bank starts on
 // its own bank id ($A) so FILL never re-banks mid-sample.
 align $8000
 
-// The shared RAW 8-bit PCM drum bank (bank $A @ $50000). Dac_SharedBank_Start and
+// The shared RAW 8-bit PCM drum bank, one 0x8000 window above the anchor. Dac_SharedBank_Start and
 // Dac_Kick coincide at the bank head (the first drum is the kick).
 pub data Dac_SharedBank_Start = Data.empty
 pub data Dac_Kick = _shared
