@@ -174,6 +174,22 @@ rulings live in the session memory and the most recent `docs/superpowers/*handof
   wholesale, without asking which of its components can move, is how a constant gets quoted as
   evidence. The rule was right and its first operational form was already carrying a
   non-signal.*
+  *Reached independently by the aurora lane within minutes (their `c45f3313`), from the
+  instrument rather than from sigil's report — two derivations over different parameters, so
+  corroboration rather than echo. They add the sharpest argument for making this MECHANICAL
+  rather than a habit, and it is worth more than the incident:* **a vigilance rule protects the
+  people who least need it.** *Of tonight's three assembler-moved-under-a-measurement instances,
+  the two that were caught were caught by parties who already suspected the assembler; the one
+  that escaped escaped because its author had no reason to think about it at all. Vigilance is
+  distributed exactly opposite to exposure.*
+  *Their cross-lane datum, useful and not visible from inside sigil: `docs/lane-status.json` is
+  TRACKED in aeon, oracle, seraph and empyrean, untracked-but-ignored in aurora, and
+  untracked-and-not-ignored in **sigil alone** — so the stuck flag is sigil-only and either
+  arrangement the other five use would clear it. **Do not build this bar on it clearing.***
+  *Local consequence worth knowing: because aeon TRACKS that file and this lane edits it all
+  session without committing, the aeon main tree is effectively always dirty — which is why
+  every freeze here needs a clean worktree rather than the main checkout. That is a property of
+  our own status discipline, not of the freeze tooling.*
   **⚠ AND THE TRAP THIS LANE FELL INTO, which is the durable half.** Asked whether the drift
   was in aeon's tree, this lane compared 23 regenerated artifacts in a fresh worktree against
   the live tree, got **23/23 MATCH**, and reported the exposure closed as "fixture
