@@ -1691,8 +1691,19 @@ and holds in its mirror. Exactly **four angles** in the table are decided by thi
 rounding asymmetry — `$90`, `$91`, `$EF`, `$F0`. The minimal fix is to take the
 absolute value BEFORE the shift (`(|sin|)>>3` instead of `|sin>>3|`), which leaves
 every symmetric case bit-identical and only affects those four.
-**Cost:** it is an S3K divergence and touches shared ground physics, so it needs a
-**replay-fixture re-record** (the Sonic fixtures hash the player window).
+**Cost:** it is an S3K divergence and touches shared ground physics, so it may move the
+replay net's checkpoints (the Sonic fixtures hash the player window).
+**⚠ "RE-RECORD" IS THE WRONG WORD AND WOULD SEND SOMEONE DOWN AN IMPOSSIBLE PATH (corrected
+2026-08-27).** Re-RECORDING these fixtures is **not possible**: `ojz_fixture` needs `BUTTON_C`
+spindash ticks that the oracle driver cannot press, which is the whole reason
+`replay_runner --restamp` exists. The move is a **re-STAMP**, which rewrites hash payloads only,
+leaves fixture length and `EndOfRom` alone, and therefore **needs no sigil repin**.
+**And whether it is needed at all is an empirical question, not an assumption** — the fall-cap
+parcel (2026-08-27) predicted a fixture would move and it did not, because the window it
+reasoned about ran in a different gravity regime. **Measure with `--restamp` (a dry run without
+`--out`), and fire `--negative-control` on each fixture FIRST** so a zero is a measurement rather
+than an instrument that manufactured an absence. Re-stamping runs a headless emulator, so it is
+the controller's foreground job, never a background agent's.
 **When to revisit:** ~~only on a user ruling that mirrored slopes must behave alike.~~
 **⚠ THAT RULING EXISTS — the owner made it, and this line did not know (corrected 2026-08-27).**
 The trigger has FIRED: mirrored slopes are to behave alike, and the item is queued as
