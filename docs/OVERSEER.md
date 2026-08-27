@@ -1017,6 +1017,19 @@ path, for the same reason the protocol is read that way.
 - Raster spins are SOLVED (`raster_dsl.emp`'s solver from the measured window anchor);
   a parcel that hand-adjusts a spin or a cost-gate expectation is wrong by definition.
 - `.emp` comptime work: `docs/EMP_PITFALLS.md` first, every time.
-- Cross-seam `Game.*`/`CAP_*` references: a FIRST reference in a module sigil's port
-  harness compiles standalone breaks its `*_port` tests silently — extend the
-  contract-env helpers in sigil's `test_support.rs`, values parsed from aeon source.
+- Cross-seam references: **a FIRST reference, in a module sigil's port harness compiles
+  standalone, breaks that module's `*_port` test** — extend the contract-env helpers in
+  sigil's `test_support.rs`, values parsed from aeon source.
+  **⚠ THE WORD "SILENTLY" IS NOW WRONG AND I HAVE DELETED IT (measured 2026-08-27).** The
+  sprite-owner parcel put the first cross-seam reference to `Sprite_Owner` (`engine/ram.emp`)
+  into `engine/objects/sprites.emp` and tripped exactly this, and the diagnostic was:
+  *"unresolved symbolic absolute operand in section sprites references symbol `Sprite_Owner`
+  not defined in this link — **expected when compiling a cross-seam module standalone; supply
+  the map/harness composition that defines it**"*. It names the condition, the cause AND the
+  remedy. Whatever changed on sigil's side since this note was written earned its keep; a
+  warning that still said "silently" would have sent the next reader hunting for an invisible
+  failure while a self-describing one sat in the log.
+  **The class is worth keeping even though the symptom improved:** a `*_port` test compiles ONE
+  module standalone, so a reference that is fine in the linked ROM is a hard failure there.
+  Any parcel adding a first cross-seam name to a ported module owes the harness a composition,
+  and this is a *paired* cost — the aeon change is correct and the sigil side still has to move.
