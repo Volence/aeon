@@ -311,15 +311,37 @@ pub const BAND_OP_BIT_B = 1
 // inline extern arithmetic; keeping the mirror is the chosen spelling.)
 //
 // IT MOVED DOWN HERE IN P3 TASK 8 so it can carry the extension term: the shadow-band array
-// lives inside this span, so a wider record widens the wipe. 61 is the capability-off count
-// and stays exactly that while BAND_EXT_N is 0; the extension term is DERIVED from the
-// record rather than hand-added, so widening ram.emp's BAND_ENTRY_LEN is the one edit a
-// capability flip needs and this count follows it.
+// lives inside this span, so a wider record widens the wipe. The extension term is DERIVED
+// from the record rather than hand-added, so widening ram.emp's BAND_ENTRY_LEN is the one
+// edit a capability flip needs and this count follows it.
+//
+// THE CAPABILITY-OFF TERM IS DERIVED FROM MAX_PARALLAX_BANDS TOO (2026-08-27), and it used
+// to be the literal `61`. That literal was NOT a constant of the layout — it was 244/4, and
+// 244 is `100 + 18 * 8`. Five of ram.emp's Parallax_State fields are sized by the band
+// ceiling, so raising the ceiling moved the real span and left the mirror behind: measured
+// at MAX_PARALLAX_BANDS = 16 the drift guard below fired with "expected 102 longs" against
+// a true span of 138. The guard caught it — this spelling means there is nothing to catch.
+//
+//   100 = the ceiling-INDEPENDENT bytes: 3 phase words (6) + Current_Vscroll_BG (2) +
+//         two config longs (8) + Transition_Frames/Snap_Pending/Prev_Sec_X/Prev_Sec_Y (4)
+//         + Vscroll_Column_Buf (80).
+//    18 = the PER-BAND bytes at the capability-off record: Current_Scroll_A + _B (4) +
+//         BAND_ENTRY_LEN (10) + Shadow_Scroll_A + _B (4).
+//
+// Both terms are checked against the resolved RAM span by the drift ensure below, so this
+// arithmetic is a spelling of that layout and not a second authority on it.
+//
+// NOTE FOR A CEILING RAISE: `Parallax_Init` loads this count with a `moveq`, whose
+// immediate is a SIGNED BYTE. The count stays inside 127 up to MAX_PARALLAX_BANDS = 14
+// (7 * M + 25 <= 127 at the shipped capability set); at 15 and above the moveq must become
+// a `move.w`. sigil refuses the out-of-range moveq by name rather than truncating it
+// ("moveq data 137 does not fit in a signed byte", measured at MAX = 16), so this is a
+// build error and never a 65418-iteration clear.
 ensure(((sizeof(band_ext) * BAND_EXT_N + sizeof(band_curve) * BAND_CURVE_N) * MAX_PARALLAX_BANDS) % 4 == 0,
        "the band tails add {(sizeof(band_ext) * BAND_EXT_N + sizeof(band_curve) * BAND_CURVE_N) * MAX_PARALLAX_BANDS} bytes to Parallax_State, which is not a whole number of longs — Parallax_Init clears in LONGS, so a non-multiple would under-clear the tail")
 // The trailing `+ BAND_CURVE_N` is the two-word curve carry (P3 Task 10) — one long, in
 // the state span and therefore cleared by Parallax_Init, present only under the capability.
-const PARALLAX_STATE_LONGS = 61 + ((sizeof(band_ext) * BAND_EXT_N + sizeof(band_curve) * BAND_CURVE_N) * MAX_PARALLAX_BANDS) / 4 + BAND_CURVE_N
+const PARALLAX_STATE_LONGS = (100 + 18 * MAX_PARALLAX_BANDS) / 4 + ((sizeof(band_ext) * BAND_EXT_N + sizeof(band_curve) * BAND_CURVE_N) * MAX_PARALLAX_BANDS) / 4 + BAND_CURVE_N
 ensure(extern("Parallax_Shadow_Bands") - extern("Parallax_Curve_Carry") == 4 * BAND_CURVE_N,
        "the curve carry reserves {extern(\"Parallax_Shadow_Bands\") - extern(\"Parallax_Curve_Carry\")} bytes, not the {4 * BAND_CURVE_N} this capability needs — set CURVE_CARRY_WORDS in engine/ram.emp (it is derived from BAND_CURVE_BYTES, so the real edit is that mirror). A short reservation makes the fill's cross-band carry alias the shadow band array")
 ensure((extern("Parallax_State_End") - extern("Parallax_State"))/4 == PARALLAX_STATE_LONGS, "Parallax_State clear span drifted from ram.asm: expected {PARALLAX_STATE_LONGS} longs")
