@@ -159,7 +159,16 @@ def test_owner_clear_covers_exactly_the_whole_array():
     )
     # Evaluate the source expression with the source constant. `dbf` runs bound+1 times,
     # each pass clearing one long = 2 u16 entries.
-    iterations = eval(expr, {"__builtins__": {}}, {"MAX_VDP_SPRITES": bound}) + 1
+    #
+    # `/` is TRUNCATING in .emp/68000 and FLOAT in Python — evaluated with Python's `/`
+    # an odd bound gives 39.5 iterations covering "79.0" entries and the pin passes,
+    # which is exactly the under-clear it exists to catch. (Measured: this file's first
+    # draft did that. Poisoning MAX_VDP_SPRITES to 79 is what found it.)
+    py_expr = expr.replace("/", "//")
+    iterations = eval(py_expr, {"__builtins__": {}}, {"MAX_VDP_SPRITES": bound}) + 1
+    assert isinstance(iterations, int), (
+        f"the clear bound {expr!r} did not evaluate to an integer — the gate cannot "
+        "measure the coverage it is supposed to check")
     assert iterations * 2 == bound, (
         f"the clear covers {iterations * 2} entries but the SAT holds {bound}. With "
         f"MAX_VDP_SPRITES={bound} an even bound is required: an odd one clears one "
