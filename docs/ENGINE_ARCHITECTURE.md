@@ -2483,18 +2483,28 @@ Each frame, after Step 4a's rotation, `L = Effects_World_Y[ch] − Camera_Y` is 
 - **Layer tops are authored in ACT space.** `scene_plane_line()` maps act Y to a plane line at comptime through the scene's own vertical mapping — `((world_y − v_center) >> v_factor) + v_offset`, the same expression Step 5 applies to the camera — with `v_factor == 15` (locked plane) treated as the identity, which is what 18 of the 20 shipped scenes are.
 - **This is NOT the anchor's mapping.** A patch anchor is a level feature and maps 1:1 (`world_y − Camera_Y`); a static layer top is a BG-art feature and maps through the plane's depth. The same authored Y lands on different screen lines, which is parallax rather than an inconsistency.
 - **Off-grid tops are legal.** `layer()`'s 8-px grid `ensure` is gone; the per-line filler places a top whose PLANE image is off the cell grid on its exact line. (Between P3 Task 7 and 2026-08-26 such a top also *forced* the per-line pipeline through `scene_forces_per_line()` arm 5; with the per-cell path deleted there is nothing to force.)
-- **Capacity is unchanged**: `MAX_PARALLAX_BANDS = 8`, Step 4a stays copy-all. Windowed re-glue over >8 declared layers remains a §9 future.
+- **Capacity is unchanged**: `MAX_PARALLAX_BANDS = 8`, Step 4a stays copy-all. Windowed re-glue over >8 declared layers remains a §9 future. **"Copy-all" means all LIVE bands, not all MAX** — priced 2026-08-27 and the distinction is the whole cost question: `Parallax_Step4_Fill`'s `.copy_band` is a `dbf` over `d7 = pcfg_band_count`, and so are `.find_k`, the curve hoist's `.curve_band`, `Parallax_Update`'s `.band_loop` and `Parallax_Fill_PerLine`'s `.next_band`. `MAX_PARALLAX_BANDS` appears **nowhere in a code body** in `engine/level/parallax.emp` (only the import, two `ensure`s and `PARALLAX_STATE_LONGS`), so raising the ceiling costs a scene that does not use the extra bands **zero per-frame cycles** — the emitted instructions are unchanged. The ceiling prices RAM only. See `docs/DEFERRED_WORK.md`'s band-ceiling row for the full derivation and the blockers.
 - Full write-up + evidence: `docs/benchmarks/scanline-p3/REGLUE.md`.
 
 **Layer enable mask.** `pcfg_layer_mask` disables individual bands; a disabled band's **BG** scroll inherits the previous band's value (or zero if first band, = locked). The **FG** word of a disabled band stays hard-locked to -Camera_X — the inheritance seed is -camX, never zero — because the FG streaming engine draws a camera-anchored 64-col window and any FG scroll offset drags the plane-wrap seam into view (bug found 2026-06-11: zero-seeded FG froze Plane A's top 32 lines under LockedClouds). `LAYER_MASK = $1E` locks the cloud band while mountains/hills/ground continue scrolling.
 
-**RAM footprint:** `Parallax_State` ≈ 126 B in `$FF000000`-range RAM:
-- `Parallax_Deform_Phase_FG/BG/V_BG` (3 × ds.w 1 = 6 B)
-- `Parallax_Current_Scroll_A/B[8 bands]` (2 × 16 = 32 B)
-- `Parallax_Current_Vscroll_BG` (2 B)
-- `Parallax_Current_Config / Target_Config` (8 B pointers)
-- `Parallax_Transition_Frames / Snap_Pending` (2 B)
-- `Parallax_Vscroll_Column_Buf` (80 B for 20 VSRAM column-pairs)
+**RAM footprint:** `Parallax_State` is **328 B** in `$FF000000`-range RAM — re-derived 2026-08-27 off `engine/ram.emp` and cross-checked against `PARALLAX_STATE_LONGS` (82 longs), which `engine/level/parallax.emp`'s drift `ensure` holds to the resolved span on every build. (This list read "≈ 126 B" until then; it predated the shadow view and the curve tail and had drifted by 202 B.)
+
+| Field | Bytes | Sized by the band ceiling? |
+|---|---|---|
+| `Parallax_Deform_Phase_FG/BG/V_BG` | 6 | no |
+| `Parallax_Current_Scroll_A/B[MAX]` | 32 | **yes** (2 × 2 × MAX) |
+| `Parallax_Current_Vscroll_BG` | 2 | no |
+| `Parallax_Current_Config / Target_Config` | 8 | no |
+| `Parallax_Transition_Frames / Snap_Pending` | 2 | no |
+| `Parallax_Prev_Sec_X/Y` | 2 | no |
+| `Parallax_Vscroll_Column_Buf` | 80 | no |
+| `Parallax_Curve_Carry[CURVE_CARRY_WORDS]` | 4 | no (capability) |
+| `Parallax_Shadow_Bands[sizeof(band_record) × MAX]` | 160 | **yes** (20 × MAX) |
+| `Parallax_Shadow_Scroll_A/B[MAX]` | 32 | **yes** (2 × 2 × MAX) |
+| **total** | **328** | |
+
+Ceiling-independent bytes total **100**; the per-band cost is **18 B** at the capability-off record and **20 B** with the shipped curve tail, so `Parallax_State` = `100 + 20 × MAX_PARALLAX_BANDS + 4`. At `MAX = 16` that is **552 B (+224)**.
 
 **ROM cost per section:** 28-byte `parallax_config` header + 10-byte `band_entry` per band (the world-anchored overlay added no bytes — it claimed the header's three spare pad bytes). 5-band default = 78 B per section. Deform tables (256 B each) are shared across sections that use the same wave shape.
 
