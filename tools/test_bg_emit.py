@@ -1340,5 +1340,188 @@ class TestBgAnimPlacerArmRetired(unittest.TestCase):
             self.assertEqual((hits, names), ([], []), f"tools/{rel}: {hits} {names}")
 
 
+class TestActIsAParameter(unittest.TestCase):
+    """`inject_editor_bg` takes an act; nothing in its emission knows act 1's name.
+
+    WHY A FIXTURE PINNED TO `act1` WOULD BE WORTHLESS HERE. Every assertion below is
+    written against a SECOND act id derived from the declared one (`_next_act_id`),
+    and the load-bearing assertion is the negative: the default act's id must not
+    appear ANYWHERE in the module emitted for that second act. A test that spelled
+    `act1` in its own expectations would pass against the fully-hardcoded emitter
+    this replaced — which is exactly the failure mode being gated.
+
+    Red-first evidence (2026-08-27): with the module line restored to the literal
+    `module games.sonic4.ojz_bg_anim_act1 in ojz_bg_anim`,
+    `test_a_second_act_gets_its_own_module_and_embed_path` fails on
+    `'module games.sonic4.ojz_bg_anim_act2 in ojz_bg_anim' not found`, and
+    `test_no_emitted_name_is_hardcoded_to_the_default_act` fails naming the line.
+
+    Runner: build.sh's pre-build pytest lane runs tools/ (`Running the tool-suite
+    unit tests...`), which is what executes this file on every canonical build.
+    """
+
+    AEON = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                         ".."))
+
+    @staticmethod
+    def _next_act_id(act_id):
+        """A DIFFERENT, symbol-safe act id derived from the declared one.
+
+        "The next act of the same zone": bump a trailing integer (`act1` -> `act2`),
+        or suffix when there is no trailing integer. Derived rather than typed so
+        this test keeps testing the PARAMETER if project.json's act ids are ever
+        renamed, instead of testing a literal that no longer names anything.
+        """
+        m = re.match(r"^(.*?)(\d+)$", act_id)
+        return f"{m.group(1)}{int(m.group(2)) + 1}" if m else act_id + "2"
+
+    @staticmethod
+    def _one_band_override():
+        """A minimal legal override, built from the FORMAT rather than copied.
+
+        cols x rows = 2 x 2 so column bytes (rows*32 = 64) is a power of two and
+        pattern_px (cols*8 = 16) matches, which is what `main()` asserts. Band
+        coherence requires phases[0] to BE the static tiles it covers, so phase 0 is
+        the tile list itself.
+        """
+        tiles = [[(t * 7 + p) & 0xF for p in range(64)] for t in range(4)]
+        return {
+            "layout": [0] * 4096,
+            "tiles": tiles,
+            "anims": [{
+                "cols": 2, "rows": 2, "pattern_px": 16,
+                "driver": "timer", "rate_shift": 2,
+                "phases": [tiles] + [[list(t) for t in tiles] for _ in range(7)],
+            }],
+        }
+
+    def _bake(self, act):
+        """Run the real `main()` for `act` and return its emitted `bg_anim.emp`."""
+        os.makedirs(act.out_dir(), exist_ok=True)
+        with open(act.override_path(), "w") as f:
+            json.dump(self._one_band_override(), f)
+        with ceiling_lifted():
+            inject_editor_bg.main(act)
+        with open(os.path.join(act.out_dir(), "bg_anim.emp"), encoding="utf-8") as f:
+            return f.read()
+
+    def test_a_second_act_gets_its_own_module_and_embed_path(self):
+        default = inject_editor_bg.ACT
+        other_id = self._next_act_id(default.act_id)
+        self.assertNotEqual(other_id, default.act_id,
+                            "_next_act_id produced the declared act — nothing is "
+                            "being varied, so this test measures nothing")
+        with tempfile.TemporaryDirectory() as tmp:
+            other = inject_editor_bg.BgActNames(default.zone_id, other_id, repo=tmp)
+            os.makedirs(os.path.dirname(other.override_path()), exist_ok=True)
+            emp = self._bake(other)
+
+        self.assertIn(
+            f"module games.sonic4.{default.zone_id}_bg_anim_{other_id} "
+            f"in {default.zone_id}_bg_anim", emp,
+            "the emitted module name does not carry the act it was baked for")
+        self.assertIn(
+            f'embed("games/sonic4/data/generated/{default.zone_id}/{other_id}/'
+            f'bg_anim_banks.bin")', emp,
+            "the emitted embed() path does not point at this act's bank blob")
+
+    def test_no_emitted_name_is_hardcoded_to_the_default_act(self):
+        """The negative that a `act1`-shaped fixture could never make."""
+        default = inject_editor_bg.ACT
+        other_id = self._next_act_id(default.act_id)
+        with tempfile.TemporaryDirectory() as tmp:
+            other = inject_editor_bg.BgActNames(default.zone_id, other_id, repo=tmp)
+            os.makedirs(os.path.dirname(other.override_path()), exist_ok=True)
+            emp = self._bake(other)
+            # Nothing may have been written for the DEFAULT act either: a leaked
+            # OUT_DIR would have created its directory under this tmp repo.
+            leaked = os.path.join(tmp, "games", "sonic4", "data", "generated",
+                                  default.zone_id, default.act_id)
+            self.assertFalse(os.path.exists(leaked),
+                             f"baking {other.label} wrote into {default.label}'s "
+                             f"output directory")
+            for name in ("bg_anim_banks.bin", "zone_bg.bin", "bg_tiles.bin"):
+                self.assertTrue(os.path.exists(os.path.join(other.out_dir(), name)),
+                                f"{name} was not written under {other.label}")
+
+        offenders = [ln for ln in emp.splitlines() if default.act_id in ln]
+        self.assertEqual(
+            offenders, [],
+            f"the module emitted for {other.label} still names the default act "
+            f"{default.act_id!r}: " + " | ".join(offenders) +
+            ". Some emitted name is a constant rather than derived from the act.")
+
+    def test_the_legacy_override_filename_belongs_to_exactly_one_act(self):
+        """The grandfathered un-suffixed override name maps to ONE act, by ids.
+
+        Two things this pins. (1) The act holding the legacy name really is the
+        act the no-argument call site bakes — if project.json ever grows a zone
+        ahead of this one, act 1 would otherwise silently stop finding its own
+        background and bake the generated zone BG instead. (2) A different act
+        never resolves to that file, so the second act's absent override is a
+        missing-file failure rather than a silent bake of act 1's art.
+        """
+        default = inject_editor_bg.ACT
+        self.assertEqual(
+            (default.zone_id, default.act_id), inject_editor_bg.LEGACY_OVERRIDE_ACT,
+            "project.json's first act is no longer the act that owns the legacy "
+            "un-suffixed override filename (inject_editor_bg.LEGACY_OVERRIDE_ACT). "
+            "Move the file to the per-act spelling, or move the constant.")
+        legacy = os.path.join(self.AEON, *inject_editor_bg.LEGACY_OVERRIDE_REL)
+        self.assertEqual(os.path.normpath(default.override_path()),
+                         os.path.normpath(legacy))
+
+        other_id = self._next_act_id(default.act_id)
+        other = inject_editor_bg.BgActNames(default.zone_id, other_id, repo=self.AEON)
+        self.assertNotEqual(os.path.normpath(other.override_path()),
+                            os.path.normpath(legacy),
+                            f"{other.label} resolves to {default.label}'s override "
+                            f"file — a second act would bake the first act's art")
+        self.assertIn(f"{default.zone_id}_{other_id}",
+                      os.path.basename(other.override_path()))
+
+    def test_the_source_carries_no_stray_default_act_literal(self):
+        """`act1` may appear in exactly one place in the emitter: the legacy pair.
+
+        AST string constants only, so prose in comments and docstrings is exempt —
+        the gate is on what the tool can EMIT or RESOLVE, not on what it explains.
+        """
+        import ast
+        default_act = inject_editor_bg.ACT.act_id
+        src = open(os.path.join(self.AEON, "tools", "inject_editor_bg.py"),
+                   encoding="utf-8").read()
+        tree = ast.parse(src)
+
+        doc_ids = set()
+        for node in ast.walk(tree):
+            body = getattr(node, "body", None)
+            if (isinstance(body, list) and body and isinstance(body[0], ast.Expr)
+                    and isinstance(body[0].value, ast.Constant)
+                    and isinstance(body[0].value.value, str)):
+                doc_ids.add(id(body[0].value))
+
+        allowed = set()
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.Assign)
+                    and any(isinstance(t, ast.Name) and t.id == "LEGACY_OVERRIDE_ACT"
+                            for t in node.targets)):
+                allowed |= {id(c) for c in ast.walk(node.value)
+                            if isinstance(c, ast.Constant)}
+        self.assertTrue(allowed, "LEGACY_OVERRIDE_ACT assignment not found — this "
+                                 "gate lost its subject and would pass vacuously")
+
+        offenders = sorted(
+            n.lineno for n in ast.walk(tree)
+            if isinstance(n, ast.Constant) and isinstance(n.value, str)
+            and id(n) not in doc_ids and id(n) not in allowed
+            and default_act in n.value)
+        self.assertEqual(
+            offenders, [],
+            f"tools/inject_editor_bg.py names the default act {default_act!r} in a "
+            f"string constant at line(s) {offenders}. The act is a parameter: derive "
+            f"the name from BgActNames instead. The only licensed occurrence is "
+            f"LEGACY_OVERRIDE_ACT.")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1,15 +1,25 @@
 #!/usr/bin/env python3
 """Inject an editor-authored background over the generated zone BG.
 
-Reads data/editor_bg_override.json ({"layout": [2048 words, blob-local
-tile indices], "tiles": [[64 px]...]}) and rewrites
-data/generated/ojz/act1/zone_bg.bin + bg_tiles.bin in the engine's
+Reads the act's override file ({"layout": [2048 words, blob-local tile
+indices], "tiles": [[64 px]...]}) and rewrites that act's
+data/generated/<zone>/<act>/zone_bg.bin + bg_tiles.bin in the engine's
 conventions (VRAM-absolute indices at BG_TILE_BASE_SLOT, 2-byte BE
 byte-length tile blob header).
 
-Run by build.sh after ojz_strip_gen.py when the override file exists.
+THE ACT IS A PARAMETER, NOT A CONSTANT (2026-08-27). Every act-dependent name
+and path — the output directory, the override file, the emitted module name,
+the `embed(...)` path — is derived by `BgActNames` from the zone/act ids in
+project.json. `--zone`/`--act` are INDICES into project.json, exactly the
+signature tools/effects_gen.py already uses, so an act that is not declared
+there is a refusal rather than a silently-empty bake. Defaults are zone 0 /
+act 0, which is what the no-argument call site in tools/regenerate-level.sh
+gets, so its output is unchanged.
+
+Run by tools/regenerate-level.sh after ojz_strip_gen.py when the act's
+override file exists.
 """
-import json, struct, os, sys
+import argparse, json, struct, os, sys
 
 # LOCKSTEP: the per-band record layout this tool emits (6 dc.w fields + 8
 # bank pointers = 44 bytes) is mirrored by the `bganim_band` struct in
@@ -183,8 +193,11 @@ def bganim_section_bytes(n_bands, total_slots):
             + total_slots * BGANIM_BYTES_PER_SLOT)
 
 
-def check_bganim_section_fits(anims):
+def check_bganim_section_fits(anims, section=None):
     """Refuse an over-ceiling act BEFORE the build, naming the limit.
+
+    `section` is the section name the refusal must name (`BgActNames.section`);
+    it defaults to the default act's, which is what every existing caller gets.
 
     Replaces the diagnostic an author used to get instead:
         sections `test_mappings` [...] and `ojz_bg_anim` [...] overlap (colliding pins)
@@ -193,6 +206,7 @@ def check_bganim_section_fits(anims):
     Raises SystemExit (the emitter runs as a build step, so this is a build failure
     with a message, not a traceback).
     """
+    section = section or ACT.section
     n_bands = len(anims)
     total_slots = sum(a['cols'] * a['rows'] for a in anims)
     size = bganim_section_bytes(n_bands, total_slots)
@@ -206,7 +220,7 @@ def check_bganim_section_fits(anims):
                // BGANIM_BYTES_PER_SLOT)
     why = (
         f"  The limit is the owner's ruled authoring budget (decision d-9, 12 KiB).\n"
-        f"  `ojz_bg_anim` grows into the room before the `dac_banks` anchor, which the\n"
+        f"  `{section}` grows into the room before the `dac_banks` anchor, which the\n"
         f"  BANK PLACEMENT RULE in games/sonic4/map.toml keeps at >= 16 KiB in every\n"
         f"  shape; the ceiling is the budget INSIDE that room, and raising it is an\n"
         f"  owner ruling, not an edit. Run `python3 tools/bganim_room.py --lst\n"
@@ -214,7 +228,7 @@ def check_bganim_section_fits(anims):
     raise SystemExit(
         f"[inject_editor_bg] REFUSED: this act's BG animation does not fit its section.\n"
         f"  {n_bands} band(s), {total_slots} slots total ({per_band})\n"
-        f"  -> ojz_bg_anim would be {size} B "
+        f"  -> {section} would be {size} B "
         f"({BGANIM_COUNT_BYTES} + {BGANIM_RECORD_BYTES}x{n_bands} + "
         f"{total_slots}x{BGANIM_BYTES_PER_SLOT})\n"
         f"  -> the ceiling is {ceiling} B (BGANIM_SECTION_CEILING, the ruled authoring\n"
@@ -225,14 +239,27 @@ def check_bganim_section_fits(anims):
         f"  To fit: shrink or drop bands until the total is {fits} slots or fewer.")
 
 
-def live_section_bytes(aeon=None):
-    """Size of the `ojz_bg_anim` section this tree's override file currently produces.
+def live_section_bytes(aeon=None, act=None):
+    """Size of the bg-anim section this tree's override file currently produces.
 
     Reads the same override the emitter reads, so the gate in tools/bganim_room.py
     measures the shipping content rather than assuming the stub.
+
+    `aeon` is a repo ROOT to resolve the path against; `act` is a `BgActNames`.
+    With neither, the module-level `OVERRIDE` is used, which is what lets
+    tools/test_bg_emit.py redirect this the same way it redirects `main()`.
+
+    `aeon` RE-ROOTS A PATH, IT DOES NOT SELECT AN ACT. The ids still come from this
+    tree's project.json (via `ACT`), because tools/bganim_room.py's own tests call
+    this with a synthetic room directory that holds a listing and an art blob and no
+    project.json at all — reading ids from `aeon` turned eight of those into
+    FileNotFoundError. Which act's background this measures is a property of the
+    project; `aeon` only says where on disk to look for it.
     """
-    path = OVERRIDE if aeon is None else os.path.join(
-        aeon, 'games', 'sonic4', 'data', 'editor_bg_override.json')
+    if act is None:
+        act = ACT
+    path = act.override_path(aeon) if aeon is not None else (
+        OVERRIDE if act is ACT else act.override_path())
     if not os.path.exists(path):
         return bganim_section_bytes(0, 0)          # no override -> the disabled stub
     with open(path) as f:
@@ -246,8 +273,100 @@ def live_section_bytes(aeon=None):
                                 sum(a['cols'] * a['rows'] for a in anims))
 
 
-OUT_DIR = os.path.join(os.path.dirname(__file__), '..', 'games', 'sonic4', 'data', 'generated', 'ojz', 'act1')
-OVERRIDE = os.path.join(os.path.dirname(__file__), '..', 'games', 'sonic4', 'data', 'editor_bg_override.json')
+REPO = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
+
+#: The one act whose override file predates this tool taking an act, and which
+#: therefore keeps the un-suffixed spelling `games/sonic4/data/editor_bg_override.json`.
+#: NOT a fallback and NOT probed on disk: the mapping is act -> path, decided before
+#: any I/O, so a second act can never silently read act 1's background.
+#:
+#: WHY IT IS GRANDFATHERED RATHER THAN RENAMED. That filename is spelled in eight
+#: other places — tools/bg_override_io.py, tools/png_to_bg_override.py,
+#: tools/forest_bg_gen.py, tools/level_staleness.py (the staleness scan list),
+#: tools/test_bg_tile_budget.py, tools/test_bg_emit.py, the fixture
+#: test/fixtures/bg-override/editor_bg_override.b0e5a661.json, and
+#: tools/EFFECTS_CONSUMER_CONTRACT.md §"Input file", which calls the path FIXED.
+#: Renaming it is a contract amendment plus a sweep of those readers; it is booked in
+#: docs/DEFERRED_WORK.md instead of being smuggled into this parcel.
+LEGACY_OVERRIDE_ACT = ('ojz', 'act1')
+LEGACY_OVERRIDE_REL = ('games', 'sonic4', 'data', 'editor_bg_override.json')
+
+
+class BgActNames:
+    """Every act-dependent name and path this emitter needs, derived from the ids.
+
+    Constructed from project.json's zone/act ids by `act_names()` below, which
+    reuses tools/effects_gen.py's reader so the ids have ONE authority and ONE
+    symbol-safety check (they become `.emp` module-name components here too).
+
+    THE SECTION NAME CARRIES NO ACT AND THAT IS DELIBERATE. `ojz_bg_anim` is one
+    section holding the band table and bank blob for the whole act (the d-9 block at
+    the head of this file), placed by the `BgAnim_Table` row in games/sonic4/map.toml.
+    So `section` is derived from the ZONE only, and two acts of the same zone name
+    the same section and the same `pub` symbols. Making several acts resident at once
+    is a ROM-PLACEMENT change (a per-act section and a re-derived d-9 ceiling, or an
+    act-selected pointer) and needs an owner ruling; it is booked in
+    docs/DEFERRED_WORK.md, "A SECOND ACT'S BG ANIMATION HAS NOWHERE TO LIVE". It is
+    NOT decision d-31 — d-31 asks about background height versus act height, and no
+    decision in docs/decisions.jsonl asks about multi-act residency. This class does
+    the plumbing and does not pre-empt the ruling. effects_gen.py's own `ActNames`
+    docstring flagged the hazard here ("a latent hazard in the `bg_anim.emp`
+    precedent, whose section name carries no act suffix — noted, not fixed here");
+    it is now named at the site rather than only next door.
+    """
+
+    def __init__(self, zone_id, act_id, repo=None):
+        #: The repo root this act's on-disk paths hang off. Defaults to REPO; the
+        #: unit tests pass a tmpdir so a second act can be baked end-to-end without
+        #: writing into games/sonic4/data/generated/.
+        self.repo = repo or REPO
+        self.zone_id, self.act_id = zone_id, act_id
+        self.label = f'{zone_id}/{act_id}'                       # ojz/act1
+        self.module = f'games.sonic4.{zone_id}_bg_anim_{act_id}'  # ..ojz_bg_anim_act1
+        self.section = f'{zone_id}_bg_anim'                      # zone-scoped: see above
+        #: repo-relative, forward-slashed — it goes into an `embed(...)` in the
+        #: emitted `.emp`, which sigil resolves against the repo root, NOT against
+        #: `out_dir` (which the unit tests redirect to a tmpdir).
+        self.banks_embed = (f'games/sonic4/data/generated/'
+                            f'{zone_id}/{act_id}/bg_anim_banks.bin')
+
+    def out_dir(self, repo=None):
+        return os.path.join(repo or self.repo, 'games', 'sonic4', 'data', 'generated',
+                            self.zone_id, self.act_id)
+
+    def override_path(self, repo=None):
+        if (self.zone_id, self.act_id) == LEGACY_OVERRIDE_ACT:
+            return os.path.join(repo or self.repo, *LEGACY_OVERRIDE_REL)
+        return os.path.join(repo or self.repo, 'games', 'sonic4', 'data',
+                            f'editor_bg_override_{self.zone_id}_{self.act_id}.json')
+
+    def __repr__(self):
+        return f'BgActNames({self.zone_id!r}, {self.act_id!r})'
+
+
+def act_names(repo=REPO, zone=0, act=0, paths_repo=None):
+    """`BgActNames` for project.json's zone/act INDICES (effects_gen's signature).
+
+    Delegates the project.json read AND the symbol-safety check to
+    tools/effects_gen.py: the ids become `.emp` symbol components in both tools, so
+    a second reader here would be a second place for `ojz-1` to be accepted. An
+    index that names no act raises straight out of that reader (IndexError/KeyError)
+    rather than resolving to a plausible-looking empty act.
+    """
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from effects_gen import act_names as _effects_act_names
+    n = _effects_act_names(repo, zone, act)
+    return BgActNames(n.zone_id, n.act_id, paths_repo or repo)
+
+
+#: The default act — project.json's first act of its first zone. DERIVED, so this
+#: module has no `act1` literal outside LEGACY_OVERRIDE_ACT above. `OUT_DIR` and
+#: `OVERRIDE` stay module-level names because tools/test_bg_emit.py rebinds them
+#: around `main()` to redirect a run into a tmpdir; `main()` reads them at call time
+#: for exactly that reason.
+ACT = act_names()
+OUT_DIR = ACT.out_dir()
+OVERRIDE = ACT.override_path()
 
 def validate_band_coherence(anims, tiles):
     """Assert each band's slots really are the front of the static tile blob.
@@ -283,8 +402,19 @@ def validate_band_coherence(anims, tiles):
         cursor += n
 
 
-def main():
-    with open(OVERRIDE) as f:
+def main(act=None):
+    """Bake one act's editor background. `act` is a `BgActNames`.
+
+    `act=None` means the module-level defaults (`ACT`/`OUT_DIR`/`OVERRIDE`), read
+    HERE and not captured at import, because tools/test_bg_emit.py rebinds those two
+    globals around this call to redirect a run into a tmpdir. Passing an `act`
+    bypasses them entirely and takes every path from the act.
+    """
+    if act is None:
+        act, out_dir, override = ACT, OUT_DIR, OVERRIDE
+    else:
+        out_dir, override = act.out_dir(), act.override_path()
+    with open(override) as f:
         data = json.load(f)
     layout, tiles = data['layout'], data['tiles']
 
@@ -311,7 +441,7 @@ def main():
         # BGANIM_SECTION_CEILING block at the head of this file). Deliberately ahead of
         # any emission: an over-ceiling act must fail with a sentence naming the limit,
         # not by writing artifacts that make sigil report a section collision.
-        section_bytes = check_bganim_section_fits(anims)
+        section_bytes = check_bganim_section_fits(anims, act.section)
         banks = bytearray()
         bands = []
         slot_cursor = 0
@@ -345,7 +475,7 @@ def main():
                 'slot_base': slot_base,
                 'bank_offsets': [strip_off + ph * n * 32 for ph in range(len(a['phases']))],
             })
-        with open(os.path.join(OUT_DIR, 'bg_anim_banks.bin'), 'wb') as f:
+        with open(os.path.join(out_dir, 'bg_anim_banks.bin'), 'wb') as f:
             f.write(banks)
         # Parcel K3 run B: BgAnim_Table is a natively-placed `.emp` section
         # (ojz_bg_anim). Per band, a 44-byte record contiguous in the section:
@@ -377,12 +507,12 @@ def main():
         for b in bands:
             assert len(b['bank_offsets']) == 8, \
                 'bganim_band.banks is [*u8; 8]: each band needs exactly 8 phases'
-        with open(os.path.join(OUT_DIR, 'bg_anim.emp'), 'w') as f:
+        with open(os.path.join(out_dir, 'bg_anim.emp'), 'w') as f:
             f.write('// AUTO-GENERATED by tools/inject_editor_bg.py — DO NOT EDIT.\n')
-            f.write('// OJZ Act 1 BG tile-band animation table (HCZ-pillar technique).\n')
+            f.write(f'// {act.label} BG tile-band animation table (HCZ-pillar technique).\n')
             f.write('// Mirrors engine/level/bg_anim.emp `struct bganim_band` (LOCKSTEP).\n')
-            f.write('// Natively placed at the ojz_bg_anim section.\n')
-            f.write('module games.sonic4.ojz_bg_anim_act1 in ojz_bg_anim\n\n')
+            f.write(f'// Natively placed at the {act.section} section.\n')
+            f.write(f'module {act.module} in {act.section}\n\n')
             f.write(f'pub data BgAnim_Table: u16 = {len(bands)}   // band count\n')
             for i, b in enumerate(bands):
                 vram_dest = BG_TILE_BASE_VRAM + b['slot_base'] * 32
@@ -397,8 +527,7 @@ def main():
                 banks_list = ', '.join(f'extern("BgAnim_Banks") + {off}'
                                        for off in b['bank_offsets'])
                 f.write(f'data _BgAnim_Band{i}_banks: [*u8; 8] = [{banks_list}]\n')
-            f.write('pub data BgAnim_Banks = '
-                    'embed("games/sonic4/data/generated/ojz/act1/bg_anim_banks.bin")\n')
+            f.write(f'pub data BgAnim_Banks = embed("{act.banks_embed}")\n')
         assert section_bytes == BGANIM_COUNT_BYTES + BGANIM_RECORD_BYTES * len(bands) + len(banks), (
             f'bganim_section_bytes predicted {section_bytes} B but the emitted artifacts are '
             f'{BGANIM_COUNT_BYTES + BGANIM_RECORD_BYTES * len(bands) + len(banks)} B — the '
@@ -408,14 +537,14 @@ def main():
     else:
         # no animation: emit the disabled stub as a natively-placed `.emp` section
         # (Parcel K3 run B). band_count = 0 disables the whole system.
-        with open(os.path.join(OUT_DIR, 'bg_anim.emp'), 'w') as f:
+        with open(os.path.join(out_dir, 'bg_anim.emp'), 'w') as f:
             f.write('// AUTO-GENERATED by tools/inject_editor_bg.py — DO NOT EDIT.\n')
-            f.write('// OJZ Act 1 BG tile-band animation table (HCZ-pillar technique).\n')
+            f.write(f'// {act.label} BG tile-band animation table (HCZ-pillar technique).\n')
             f.write('// The engine contract (engine/level/bg_anim.emp, BgAnim_Update):\n')
             f.write('// every act supplies BgAnim_Table; band_count = 0 disables the whole\n')
             f.write('// system. This act has no BG animation, so it is the disabled stub.\n')
-            f.write('// Natively placed at the ojz_bg_anim section.\n')
-            f.write('module games.sonic4.ojz_bg_anim_act1 in ojz_bg_anim\n\n')
+            f.write(f'// Natively placed at the {act.section} section.\n')
+            f.write(f'module {act.module} in {act.section}\n\n')
             f.write('pub data BgAnim_Table: u16 = 0              // band_count = 0 (disabled)\n')
             f.write('pub data BgAnim_Banks = Data.empty         // bank-blob base (empty in the stub)\n')
         print('[inject_editor_bg] anim: disabled stub (band_count = 0)')
@@ -439,7 +568,7 @@ def main():
                 idx = word & 0x7FF
                 word = (word & ~0x7FF) | ((idx + BG_TILE_BASE_SLOT) & 0x7FF)
             struct.pack_into('>H', nt, (col * ROWS + row) * 2, word)
-    with open(os.path.join(OUT_DIR, 'zone_bg.bin'), 'wb') as f:
+    with open(os.path.join(out_dir, 'zone_bg.bin'), 'wb') as f:
         f.write(nt)
 
     # tile blob: BE byte-length header + raw 4bpp tiles
@@ -455,7 +584,7 @@ def main():
     # Tiles are 32 bytes each, so this holds by construction; assert it anyway so
     # a format change can never feed the move.l loop a sub-longword remainder.
     assert len(blob) % 4 == 0, f'BG tile blob must be 4-byte granular for move.l, got {len(blob)}'
-    with open(os.path.join(OUT_DIR, 'bg_tiles.bin'), 'wb') as f:
+    with open(os.path.join(out_dir, 'bg_tiles.bin'), 'wb') as f:
         f.write(struct.pack('>H', len(blob)))
         f.write(blob)
     print(f'[inject_editor_bg] wrote zone_bg.bin ({len(nt)}B) + bg_tiles.bin ({len(tiles)} tiles)')
@@ -472,7 +601,7 @@ def main():
         # source line = cram_line - 1. The BG nametable references CRAM line 2.
         file_line = cram_line - 1
         assert file_line >= 0, 'BG palette maps to CRAM line >=1'
-        pal_path = os.path.join(OUT_DIR, 'ojz_palette.bin')
+        pal_path = os.path.join(out_dir, 'ojz_palette.bin')
         pal = bytearray(open(pal_path, 'rb').read())
         for i, w in enumerate(words):
             struct.pack_into('>H', pal, file_line * 32 + i * 2, w & 0xFFFF)
@@ -480,5 +609,25 @@ def main():
             f.write(pal)
         print(f'[inject_editor_bg] stamped CRAM line {cram_line} (file line {file_line}, {len(words)} colours)')
 
+def parse_args(argv=None):
+    """`--zone`/`--act` as project.json INDICES — tools/effects_gen.py's signature.
+
+    Indices rather than free-text ids on purpose: an id typed at the command line
+    that names no declared act would resolve to a plausible directory and an
+    override file that does not exist, i.e. a confusing FileNotFoundError instead of
+    "project.json has no such act". The index goes through the same reader that
+    validates the ids, so the failure names project.json.
+    """
+    p = argparse.ArgumentParser(
+        description='Bake one act\'s editor-authored background over its generated '
+                    'zone BG. Defaults to project.json\'s first act of its first zone.')
+    p.add_argument('--zone', type=int, default=0,
+                   help='zone INDEX in project.json (default: 0)')
+    p.add_argument('--act', type=int, default=0,
+                   help='act INDEX within that zone (default: 0)')
+    return p.parse_args(argv)
+
+
 if __name__ == '__main__':
-    main()
+    _args = parse_args()
+    main(act_names(REPO, _args.zone, _args.act))
