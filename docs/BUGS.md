@@ -1505,10 +1505,15 @@ clean.) **Fix (transcoder):** pre-scan a PSG channel for `smpsPSGform`; if prese
 `CHROUTE_PSGN`/`SFXEL_NOISE` and emit a fixed white-noise mode note (`$E6`, clk/2048), dropping the
 tone-only modulation. **Verified on hardware:** the dash now writes the noise control `$E6` + ch3 noise
 volume fading `5→15`, ZERO ch2 tone writes; rendered audio spectral-flatness `0.667` = broadband noise (was
-tonal), fading to silence. **Refinement deferred (DEFERRED_WORK B5):** S&K's `$E7` is white noise *tracking
-PSG3's swept tone frequency* (a descending-pitch "pshhew"); reproducing that needs the engine to drive PSG3's
-frequency as the noise clock (or a tone-clock + noise channel split). The fixed-rate noise is the right
-*character*; the pitch sweep is the remaining nuance.
+tonal), fading to silence. ~~**Refinement deferred (DEFERRED_WORK B5):**~~ **B5 CLOSED 2026-08-26**
+(`parcel/sfx-noise-tracked`): S&K's `$E7` is white noise *tracking PSG3's swept tone frequency* (a
+descending-pitch "pshhew"), and the engine now drives exactly that. `Psg_EmitDivisor` picks its latch base
+per route, so on `CHROUTE_PSGN` the divisor lands on tone-3's frequency register (`$C0` — the rate-3 noise
+CLOCK) instead of `$E0`; `Psg_Noise`'s SFX arm became `jp Psg_NoteOn` (the note is a real pitch);
+`Seq_Op_PsgNoise` carries the control byte on SFX too. The transcoder no longer bakes the fixed `$E6` mode
+into the note nor drops the `smpsModSet` — so the sweep is back on `$B6`, `$42` and `$7E`. Net **-1 resident
+Z80 byte**. **Listening check still owed** (this was fixed and verified statically, never by ear) — see the
+B5 entry in `DEFERRED_WORK.md` for what to fire and what "right" sounds like.
 
 ### "A few others" (user can't reliably trigger)
 ~~Most likely further instances of the 1-byte-mailbox collision (A2) — any frame that fires two SFX (e.g.
