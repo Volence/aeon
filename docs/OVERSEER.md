@@ -157,9 +157,23 @@ rulings live in the session memory and the most recent `docs/superpowers/*handof
   **`build.sh:266` already prints `Assembler: sigil <rev>` for exactly this class** (the
   three-days-behind incident in its own header). The gap is that nobody records the banner
   beside the CRC they cite.
-  **OPERATIONAL FORM, adopted: quote the `Assembler:` banner beside every CRC you hand to
+  **OPERATIONAL FORM, adopted: quote the assembler REVISION beside every CRC you hand to
   anyone, and treat a cross-session CRC comparison as MEANINGLESS unless both sides carry the
-  same assembler revision.** Costs nothing; the banner already exists.
+  same revision.** Costs nothing; `build.sh:266` already computes it.
+  **⚠ QUOTE THE REVISION, NOT THE WHOLE BANNER — one half of it is a stuck constant** (caught
+  by the sigil lane within the hour of this rule being written; verified firsthand here).
+  `build.sh` prints `Assembler: sigil <rev> (<tree>)`, and that parenthesised `tree` field
+  currently reads **`dirty at capture — 0 modified, 1 untracked`** on every invocation. The one
+  untracked file is `docs/lane-status.json` — untracked **by design in every lane**, read by no
+  build, permanently present. So the word `dirty` sits beside every CRC this repo quotes and
+  **cannot vary**, which makes it exactly the thing this file has spent the night naming: a
+  field that reads as a signal and is a constant. The discriminating half is inside the same
+  string (`0 modified` vs `N modified`); the summary word is what over-warns, which is the
+  `GOLDEN-DIRTY-BANNER` item already booked to the sigil lane.
+  *Note the shape, because it happened to a rule ONE HOUR OLD: adopting a provenance field
+  wholesale, without asking which of its components can move, is how a constant gets quoted as
+  evidence. The rule was right and its first operational form was already carrying a
+  non-signal.*
   **⚠ AND THE TRAP THIS LANE FELL INTO, which is the durable half.** Asked whether the drift
   was in aeon's tree, this lane compared 23 regenerated artifacts in a fresh worktree against
   the live tree, got **23/23 MATCH**, and reported the exposure closed as "fixture
