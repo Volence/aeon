@@ -679,7 +679,14 @@ kept as the record of why the assertion has two rungs, NOT as current fact: the 
 reports 52 methods and `breakpoints: true` after the 08-27 05:59 relink)**; legacy `serverName "oracle"` /
 `"2.1-linux"` / 53 methods / no `breakpoints` key. So: `implementation` when present is the
 only thing consulted; when absent, `serverName == "oracle-next"` stands in. **Delete rung 2
-the day oracle's release binaries are rebuilt.** Proof it is not vacuous:
+the day oracle's release binaries are rebuilt.** **⚠ THAT DAY HAS ARRIVED —
+`target/release/oracle-aether` was relinked 2026-08-27 05:59, past oracle's `bc2cddd` which put
+`implementation` on the wire. Rung 2 is now deletable, and leaving it is not free: a fallback
+that can never fire is a branch nobody will ever watch fail, so it rots silently while its
+presence argues the field is still absent.** Do NOT delete it blind — assert `implementation` is
+actually present on a live handshake first, because the rung exists precisely on the principle
+that a committed field and a shipped binary are two artifacts. Booked with the
+`WAITFORBREAK-SPELLING-HOLD` flip parcel, which touches this same client seam. Proof it is not vacuous:
 `tools/test_aether_instance.py` (stubbing the assertion to `return` turns 3 of 7 red) plus
 `python3 tools/aether_instance.py --poison-legacy`, which boots a REAL `oracle_gui` and
 fails if its handshake is accepted — run 2026-08-26, assertion fired.
