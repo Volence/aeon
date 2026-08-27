@@ -11303,3 +11303,65 @@ BACKGROUND**, and what is on screen is **sixteen pixels on the FOREGROUND with t
 out** — the thing he independently reported as a bug. A ruling taken on a materially understated
 description does not carry over. `SceneLeftColMask.Factor0Lock` reasons about plane B and cannot
 save plane A; the `SpriteMask` arm is refused by the build (d-27-corrected).
+
+## SPRITE-OWNER — click a hardware sprite, get the object that drew it (ACCEPTED 2026-08-27, not yet built)
+
+Oracle's ask, ruled ACCEPTED by this lane (engine call, `DEBUG`-only, zero release cost). Their
+full reasoning and the rejected per-object `first_sprite_index` alternative: oracle
+`docs/2026-08-27-obj-join-recon.md` §3 (their `f1e3484`, amended after the exchange below).
+
+**Shape:** `Sprite_Owner: [u16; MAX_VDP_SPRITES]` in `ram.emp` beside `Sprites_Rendered`,
+`DEBUG` only. Entry *i* = the SST address word that emitted SAT entry *i*; `$0000` none,
+`$0001` ring, `$0002` mask. ~160 B, ~2,000 cycles (~1.6% of a DEBUG frame), zero in release.
+
+**TWO DEFECTS WERE FOUND AND FIXED IN THE DESIGN BEFORE ANY CODE EXISTED. Both would have
+assembled cleanly and produced a CONFIDENT WRONG OBJECT NAME — the exact outcome the feature
+exists to avoid, and the one oracle said they would rather ship nothing than ship.**
+
+1. **A post-increment cursor desynchronises at the first ring** (found here). `size_link`
+   (`engine/objects/sprites.emp:578`) has exactly ONE call site (`:678`) and is a genuine choke
+   point *for object pieces* — but `engine/objects/rings.emp:231-240` writes the SAT directly on
+   its own `(a4)+` run and never reaches it (`grep size_link rings.emp` → zero hits). A cursor
+   advancing only in `size_link` falls one entry behind at the first ring and stays behind
+   cumulatively, misattributing every later sprite. **Oracle's VRAM-vs-buffer proof cannot catch
+   this**: the SAT is correct, so `Sprite_Table_Buffer[i]` still matches VRAM and only the
+   ownership array is skewed — the proof survives and certifies the wrong name.
+   **Fix: write at the sprite INDEX, not through a cursor.** All three writers (`size_link`
+   yflip `:582-584`, `size_link` unflipped `:588-590`, ring `rings.emp:233-234`) increment `d5`
+   and *then* stamp it as the link, so link = next index and **pre-increment `d5` = this entry's
+   index on every path**. That agreement is what makes an indexed write correct regardless of
+   which path emitted the entry. Rings write `$0001` at their own index; mask `$0002`.
+2. **`(a6,d5.w*2)` is not a 68000 addressing mode** (found by oracle, correcting this lane).
+   Scale factors are 68020+; `grep -rE '\([a-z]+[0-9],\s*[a-z]+[0-9]\.[wl]\*[248]\)' engine/`
+   returns nothing. Legal form: `move.w d5,d0` / `add.w d0,d0` / `move.w a1,(a6,d0.w)`.
+   **Use `d0`, NOT `d1`** — `clobbers(d0-d1/d4/a0/a3)` (`:709`) frees both by contract, but
+   `size_link`'s unflipped branch holds `size<<8|pad` in `d1` across the insertion point, so
+   `d1` corrupts the size/link word. *The illegal mode would have been refused loudly by sigil;
+   the `d1` collision would have assembled fine and drawn wrong — the dangerous one of the two.*
+
+**⚠ THE REGISTER CHOICE IS BOUND TO THE PLACEMENT, NOT TO THE PROCEDURE** — oracle's own
+correction of their own reason, and the part most likely to be lost. `d0` is NOT "dead after the
+flip dispatch": the four variants take **comptime** flip ints so `d0` is dead as the *parameter*,
+but `d0` is then heavily reused as scratch — `y_term` builds the Y word in it (`:566-568`) and
+`tile_term` the tile-attrs word (`:601-604`). It is safe at `size_link` **only** because the loop
+order is `y_term` → `size_link` → `tile_term` (`:675-679`), `y_term` ENDS by consuming `d0` into
+`(a4)+`, and `tile_term` BEGINS with a fresh `move.w (a3)+,d0` that kills any prior value. So
+there is a real dead window and `size_link` sits inside it. **Relocate the owner write into
+`tile_term`, `x_term`, or anywhere after `tile_term`'s load and `d0` becomes a live-range
+collision that assembles cleanly and corrupts the Y or tile-attrs word** — defect 2's shape
+again. Put this constraint in a comment AT the write site when building.
+
+**Flags are safe** (oracle, checked): `cmpi.b #MAX_VDP_SPRITES,d5` sits after `x_term` and
+immediately before `dbeq` (`:680-681`), so the condition codes the loop exit depends on are set
+after the insert; nothing between reads flags. `move.w`/`add.w` disturbing flags is harmless.
+
+**Staleness: clear the WHOLE array at `Render_Sprites` entry** (oracle's ruling, adopted with its
+reasoning). Not `[0..Sprites_Rendered)` — the bound at frame start is last frame's value, and the
+clear's correctness must not depend on a stale number. The real reason is stronger than the
+bound: a future emit path that forgets to write an owner leaves a stale VALID address in range,
+i.e. defect 1 all over again. A cleared array turns that same mistake into a visible `$0000` and
+an honest "unknown". ~200 DEBUG cycles.
+
+**Build note:** re-verify the `d0` live range from source rather than from this booking — oracle
+reached the right answer from a wrong reason once on this very question, which is the shape that
+survives review. Byte-mover in the DEBUG shape, so it pairs with a sigil freeze.
