@@ -261,6 +261,52 @@ class ForestBgGenNoClobber(unittest.TestCase):
         return subprocess.run([sys.executable, self.TOOL], env=env,
                               capture_output=True, text=True)
 
+    def test_refuses_to_destroy_aurora_authored_bands(self):
+        """The `anims` direction, which nothing covered until 2026-08-26.
+
+        This tool used to DECLARE `anims` as its own, so read_existing_override saw
+        nothing foreign and returned cleanly: a routine regeneration overwrote
+        Aurora-authored bands with no refusal and no signal. Owner decision d-14 gave
+        band art a second author (Aurora saves tiles[i] pixels plus the eight phase
+        banks into this same file), and the ownership map moved underneath the
+        assumption without anything here noticing.
+
+        Found by the aurora lane by CALLING the guard rather than reading it, which is
+        the only way this was ever going to surface: every tool involved looked correct.
+        """
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "override.json")
+            payload = {"layout": [0], "tiles": [],
+                       "anims": {"band0": {"phases": [1, 2, 3]}}}
+            with open(p, "w") as f:
+                json.dump(payload, f)
+            before = open(p, "rb").read()
+
+            r = self._run(p)
+            self.assertNotEqual(r.returncode, 0,
+                                "a destination carrying bands must be refused, not overwritten")
+            self.assertIn("anims", r.stdout + r.stderr,
+                          "the refusal must NAME the key it is protecting")
+            self.assertEqual(open(p, "rb").read(), before,
+                             "the file must be byte-identical after a refusal")
+
+    def test_a_bandless_destination_is_still_allowed(self):
+        """The control, so the fix above cannot decay into a blanket refusal.
+
+        Without this, someone could satisfy the test above by refusing unconditionally,
+        which would break every legitimate regeneration and look like a passing suite.
+        """
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "override.json")
+            with open(p, "w") as f:
+                json.dump({"layout": [0], "tiles": []}, f)
+            r = self._run(p)
+            self.assertEqual(r.returncode, 0,
+                             "a file this tool genuinely owns must still regenerate:\n"
+                             + r.stdout + r.stderr)
+
     def test_refuses_to_destroy_a_stamped_palette(self):
         import tempfile
         with tempfile.TemporaryDirectory() as d:

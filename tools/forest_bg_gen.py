@@ -17,7 +17,34 @@ from bg_override_io import atomic_write_json, read_existing_override
 # palette/palette_line that png_to_bg_override.py stamps) belongs to another
 # tool and would be destroyed here: hence a loud refusal, with BG_OUT as the
 # escape hatch. See tools/bg_override_io.py and docs/BUGS.md TOOL-01.
-OWNED_KEYS = frozenset(("layout", "tiles", "anims"))
+# `anims` was removed from this set on 2026-08-26. It is NOT a statement that this
+# tool stopped writing bands — it still writes all three. It is a statement that
+# `anims` ACQUIRED A SECOND AUTHOR: owner decision d-14 (2026-08-26) put band art
+# authoring in Aurora, and Aurora has been saving `tiles[i]` pixels plus the eight
+# phase banks into this very file since that day. Before d-14 this tool was the only
+# author of `anims`, so owning it unconditionally was correct; the ownership map moved
+# underneath that assumption.
+#
+# The consequence of the old set was silent: with `anims` owned, read_existing_override
+# saw nothing it did not author and returned cleanly, so a routine background
+# regeneration would overwrite Aurora-authored bands with NO refusal and no signal.
+# Verified behaviourally 2026-08-26 (aurora-b1 found it; reproduced here firsthand
+# against the live file, which carries `anims` and is 110,660 B).
+#
+# Removing the key makes the EXISTING guard fire instead: a destination that already
+# carries `anims` is now refused by name, with BG_OUT as the documented escape for a
+# deliberate regeneration that is then merged by hand. That is deliberately the
+# conservative reading — this tool cannot tell WHO authored the bands it finds, so it
+# treats any existing bands as somebody else's. A wrong refusal is loud and has an
+# escape hatch; a wrong overwrite destroys the owner's work silently, which is exactly
+# how OJZ's two BgAnim bands were lost at dd93a840 (docs/BUGS.md TOOL-01).
+#
+# The PERMANENT shape is an owner decision, filed as d-30: refuse (this), merge with an
+# assert, or retire the tool now that Aurora authors bands. Note this file's own
+# refusal text argues against merging: bands DMA over the front of the static tile
+# blob, so regenerating layout/tiles while retaining anims bakes cleanly and ships
+# SILENTLY CORRUPT art.
+OWNED_KEYS = frozenset(("layout", "tiles"))
 
 OUT = os.environ.get('BG_OUT', os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
