@@ -72,6 +72,17 @@ rulings live in the session memory and the most recent `docs/superpowers/*handof
   *Blast radius was bounded by the exact-path staging rule even with the branch check defeated —
   their commit touched only their own lane-log — which is evidence that rule earns its keep
   beyond the reason it was written for.*
+  **Two mechanical traps in the fix itself, contributed by the sigil lane who hit both while
+  applying it — and they land on THIS lane now that freezes run from a dedicated worktree:**
+  (1) `git worktree add <path> master` **fails outright** when the shared checkout is itself on
+  `master` (*"'master' is already used by worktree at …"*) — which is the NORMAL state under the
+  rule above, so the fix creates the trap. Use `--detach` and push with
+  `git push origin HEAD:master`. (2) `git worktree remove` run from **inside** that worktree
+  deletes your cwd, and every later command in the chain dies with *"Unable to read current
+  working directory"* — which in their case made a chain report a push that had never happened,
+  i.e. it fails in the direction of a FALSE SUCCESS. `cd` out first, and never trust a push
+  reported by a chain whose cwd may have been removed mid-run.
+  *Cross-check: sigil's own write-up of both correctives is at their `1d1e3dc0`.*
 - One byte-mover per branch. Serialize refreezes. When any session is live-editing
   content in the main tree, build + freeze from a CLEAN CHECKOUT of the merge SHA.
   **The clean checkout must be threaded through ALL THREE legs explicitly** (lived
