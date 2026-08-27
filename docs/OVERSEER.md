@@ -135,6 +135,27 @@ rulings live in the session memory and the most recent `docs/superpowers/*handof
   i.e. it fails in the direction of a FALSE SUCCESS. `cd` out first, and never trust a push
   reported by a chain whose cwd may have been removed mid-run.
   *Cross-check: sigil's own write-up of both correctives is at their `1d1e3dc0`.*
+- **A PAIRED LANDING CITES TWO AEON SHAs AND THEY ANSWER DIFFERENT QUESTIONS — LABEL WHICH IS
+  WHICH, OR THE TREE-STATE PIN GETS READ AS THE CODE ANCHOR** (added 2026-08-27; caught by the
+  oracle lane, turning this repo's own SHA-class bar back on it, and they were right about the
+  defect while wrong about the substitute — which is why you check rather than swap).
+  A freeze records `aeon_rev`: **the tree state the ROM was built from**. That is the correct
+  anchor for *reproducibility* and it is frequently a **docs-only commit**, because the tip at
+  freeze time is whatever landed last. It is NOT the commit carrying the feature. Chain 173's
+  lane-log wrote the pairing as *"aeon `33d905b8` / sigil `4648c579`"* with no label, and
+  `33d905b8` is `DEFERRED_WORK.md` + `OVERSEER.md`, two files. A reader chasing it for the
+  sprite-owner byte guarantee lands in a docs diff — the exact failure this repo booked when a
+  lint fixup stood in for a feature merge.
+  **The code anchor for that chain is `cbd04ba8`** (`engine/objects/sprites.emp` +121,
+  `engine/ram.emp` +20, `tools/test_sprite_owner.py` +281; 532 insertions), `--stat`-verified.
+  *(Note for anyone re-deriving: `212b2a06` is NOT it either — it is a 509-line measurement
+  write-up, also docs. Two of the three plausible-looking SHAs in that chain are docs commits,
+  which is precisely why the label is needed and why guessing from a subject line fails.)*
+  **Operational form: write a paired landing as `code <SHA> · frozen at aeon_rev <SHA> / sigil
+  <SHA>`.** Both SHAs are correct for their own question; the prose is what has to say which
+  question each answers. This is not the SHA-class bar repeating — that one is about citing the
+  *wrong* SHA. This is about citing the *right* one for an unstated question, which no
+  `--stat` check catches, because the commit you land in is genuinely the one named.
 - One byte-mover per branch. Serialize refreezes. When any session is live-editing
   content in the main tree, build + freeze from a CLEAN CHECKOUT of the merge SHA.
   **The clean checkout must be threaded through ALL THREE legs explicitly** (lived
