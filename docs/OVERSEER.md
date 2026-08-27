@@ -126,6 +126,20 @@ rulings live in the session memory and the most recent `docs/superpowers/*handof
   ordinary failure — a missing ROM is loud, a stale one is silent and ships four perfect
   CRCs as proof. **Standing hazard as of `98100905`:** that parcel edited `project.json`, so
   *every* fresh checkout of any tree containing it trips the staleness gate on mtime alone;
+  **⚠ THE WORD "FRESH" IS WRONG — corrected 2026-08-27 by the sigil lane, who MEASURED it on two
+  worktrees where this note predicted a stop and none occurred.** The gate compares
+  `newest mtime(editor sources) > newest mtime(generated tree)`, and `git worktree add` writes
+  **every** file within the same second, so `>` is false and a fresh worktree does NOT trip it.
+  What trips it is an **in-place `git checkout` into an existing tree**, which rewrites only the
+  changed files and leaves `project.json` newer than an untouched generated tree. Read "checkout
+  into an existing tree", never "fresh checkout" — and running `regenerate-level.sh`
+  prophylactically on a fresh worktree is **pure cost plus `DONOR_PROVENANCE.json` churn**. (This
+  lane paid exactly that cost on the chain-172 landing, before the correction arrived.) *Note the
+  direction of the error: the old wording caused unnecessary work rather than missed work, so
+  nothing was ever going to surface it — a hazard note that OVER-predicts a stop is
+  self-confirming, because the prophylactic runs and the stop duly never comes. It took a lane
+  that skipped the prophylactic and measured what happened.* The rest of this stanza stands;
+  only the population it bites is narrower than written:
   `tools/regenerate-level.sh` clears it (level bytes unchanged — revert the
   `DONOR_PROVENANCE.json` churn, since unchanged level bytes mean the existing stamp still
   describes them).
