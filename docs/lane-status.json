@@ -1,9 +1,9 @@
 {
-  "focus": "Knuckles' and the insta-shield sounds are in and freezing. Two of them sound wrong for one known reason.",
+  "focus": "Left-edge glitch solved - it is the background wobble effects, and it needs your call. Three sounds fixed, awaiting your ears.",
   "inFlight": [
     {
-      "what": "final gate on the sound-effects landing, then pushing both repos",
-      "where": "master b56a683b + the assembler repo",
+      "what": "the sound fix is merged but HELD from pushing - it needs a one-line paired change in the assembler repo first",
+      "where": "master 5073e4d8, asked the sigil lane",
       "agent": false
     }
   ],
@@ -27,34 +27,18 @@
       "id": "d-31",
       "what": "how to buy room for the background: slow its scroll, redraw the art to join top-to-bottom, or let backgrounds exceed the hardware plane",
       "since": "2026-08-26"
+    },
+    {
+      "id": "d-32",
+      "what": "whether the left-edge strip stays shipped now that it is the foreground losing its ground, not eight background pixels",
+      "since": "2026-08-27"
     }
   ],
-  "nextBoundary": "When the hotkey agent reports and the reference tree finishes rebuilding.",
+  "nextBoundary": "When the assembler lane re-pins the blob length and both repos push.",
   "queue": [
-    {
-      "id": "FG-LEFT-EDGE",
-      "title": "The left edge of the terrain never gets drawn - a two-column strip pinned to the side of the screen, which is why that sliver looks detached. Measured tonight off your save state; it is a boundary constant, not a deep bug.",
-      "state": "next",
-      "size": "S",
-      "blockedBy": null
-    },
-    {
-      "id": "SFX-NOISE",
-      "title": "The insta-shield and the ground slide sound wrong for one shared reason: both get pushed onto the noise channel at a fixed rate instead of following pitch. Fixing it also improves the dash sound that already ships.",
-      "state": "open",
-      "size": "M",
-      "blockedBy": null
-    },
     {
       "id": "SOUND-ARTIFACTS",
       "title": "The dull sound was the emulator's own hardware filter, not our music - you confirmed unfiltered sounds better. The panning is faithful to the original Batman & Robin track (measured against a capture of it). Still open: the occasional 1-2 ms stall, and whether a melody voice is too quiet.",
-      "state": "next",
-      "size": "S",
-      "blockedBy": null
-    },
-    {
-      "id": "SOUND-ARTIFACTS",
-      "title": "Three things you heard, now known to be ONE thing: the sound is dull and lifeless, not out of tune. Booked with a cheap test each; the emulator's own chip model is a prime suspect.",
       "state": "open",
       "size": "S",
       "blockedBy": null
@@ -116,7 +100,7 @@
       "blockedBy": null
     }
   ],
-  "awaiting": null,
+  "awaiting": "d-32 (the left-edge strip), and a listening pass on the three swept sounds",
   "atBoundary": false,
-  "updatedAt": "2026-08-27T01:31:11Z"
+  "updatedAt": "2026-08-27T02:34:14Z"
 }
