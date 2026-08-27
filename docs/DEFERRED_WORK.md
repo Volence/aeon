@@ -10591,6 +10591,29 @@ smaller rows wait for a scene that needs them. If any becomes a project, the hub
 
 ### `MAX_PARALLAX_BANDS` 8 -> 16 — PRICED 2026-08-27, NOT LANDED (blocked on one ROM-header decision)
 
+**PROVENANCE — the owner's ask, transcribed verbatim (banked 2026-08-27 at the hub's request).**
+The empyrean lane raised its writer schema's `layers` cap 8 -> 16 for this
+(empyrean `277bc15`, verified here as a contract/schema commit and an ancestor of their
+`origin/main`) and correctly noted it was acting on aeon's *relayed* account of the owner's
+ask, with no transcribed utterance anywhere in this tree to cite. That gap was this lane's:
+a cross-lane commitment asserted in mail with no in-tree artifact behind it is exactly
+shared-protocol bar 20's sending-side half, and mail is the one artifact class no tree
+reader can ever meet a contradiction in. So, in his own words, aeon overseer session
+2026-08-27T04:0xZ:
+
+> Let's do the increase bands to 16 for scenes
+
+**That is the whole utterance, and the interpretation is this lane's, not his.** He said
+"bands ... for scenes"; this lane read it as `MAX_PARALLAX_BANDS`, the scene-layer ceiling,
+rather than as `BGANIM_MAX_BANDS` (= 4, the animated BG strips per act, `engine/system/constants.emp`),
+which is the other thing called a "band" in this engine. The reading rests on "for scenes" —
+scenes are the parallax/raster DSL and `MAX_PARALLAX_BANDS` is the ceiling `scene()` enforces —
+and on 16 being the number aurora's S3K survey attaches to scene layers ("MGZ2 puts 16 on
+screen", the row above). It has NOT been confirmed back with him. Anyone citing this ask
+should cite it as an interpreted utterance, and if the parcel ever looks like it is solving
+the wrong problem, this paragraph is the first thing to re-check.
+
+
 **The cost question the booking asked is answered, and the answer is the good one.**
 
 **Every per-frame parallax walk is O(live band count), not O(MAX).** Enumerated by reading
