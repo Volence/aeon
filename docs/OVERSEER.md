@@ -197,6 +197,27 @@ rulings live in the session memory and the most recent `docs/superpowers/*handof
   session boundaries, so it is a fact about the file and not about whoever is running the lane
   today.** Nothing else is owed between the lanes on the banner: as of that handover neither
   `ISLAND-PIECE-2` nor `VERSION-DIRT-CLASSIFY` has an aeon dependency.
+  **THE BOUNDARY, drawn 2026-08-27 and narrower than the contract above reads on its own —
+  read this before blocking any banner work.** The contract binds the banner's SHAPE, not the
+  judgement made from it. **A change that only decides differently about data the banner ALREADY
+  prints needs no agreement from this lane**; a new field, a rename, or a change to when `tree:`
+  starts with `dirty` does. The distinction matters because the contract read alone would have
+  this lane gate a sigil-internal classifier it has no stake in, which is a cost with no reader
+  (shared-protocol bar 18) and the failure mode a broadly-worded contract produces by default.
+  *Concretely: the banner already emits `0 modified, 1 untracked`, so the discriminating data was
+  never missing — only the decision about what it means. That reframes `GOLDEN-DIRTY-BANNER` from
+  "measure more" to "decide correctly about what is already measured", which is both a smaller
+  change and one that stays entirely on sigil's side of this contract.*
+  **Recorded as this lane's half of a bar-19 POSITIVE CONTROL, which is the rarer artifact.**
+  Both lanes reached that reframe independently and by different enumeration parameters — this
+  lane from **quoting discipline** (which components of a provenance line can move, and on whose
+  clock), sigil from **classifier design** (what data the fix actually needs) — with neither
+  raising it before writing it down. That is corroboration rather than echo. Sigil banked their
+  half at `d279a912` (verified reachable at their `origin/master` here, and `--stat`-checked as a
+  notes commit — cite it for the *reasoning*, never as a code anchor). Most instances in both
+  repos are one lane's synthesis with a second's endorsement, discussed first; **this one is
+  not, and the difference is worth preserving, because otherwise the weak instances borrow
+  credibility from the strong one.**
   *Note the shape, because it happened to a rule ONE HOUR OLD: adopting a provenance field
   wholesale, without asking which of its components can move, is how a constant gets quoted as
   evidence. The rule was right and its first operational form was already carrying a
