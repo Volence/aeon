@@ -584,6 +584,40 @@ deferring to "something else owns this", confirm the something else exists.
   offering a commit as evidence about a TREE STATE, ask what the commit would look like if the
   claim were false; if the answer is "the same", the artifact is not the witness. Reach for a
   count, a timestamp, or any figure produced by something other than the hand making the claim.
+- **A BOUND TEST THAT FIXES ITS INPUT IS ONE-DIRECTIONAL, and the direction it cannot see
+  is the one that leaves it GREEN** (added 2026-08-27; found by the aurora lane during the
+  matching half of the 16-layer raise, relayed by the hub). Their instance: a test asserted an
+  over-long fixture of length 9 against a max of 8. It went red when the ceiling moved UP to 16
+  — correctly, and that is the trap, because the red **looks like the test working**. Had the
+  ceiling moved DOWN, 9 would have sat under the new bound and the test would have kept
+  **passing**, green about a bound that no longer existed. A fixed count is not a test of the
+  ceiling; it is a test of one number that happens to sit above it today.
+  **Why it is booked here specifically: this lane wrote the defect into a dispatch brief.** The
+  brief for the band-ceiling raise told the agent to re-author `poison_scene_capacity.emp` from
+  8 layers to 16 and to move `emp_expect_fail.py`'s literal fragment `"count+1 entries — 8+1"`
+  to `16+1` — i.e. to **reproduce the fixed count one ceiling higher**, having already noticed
+  and flagged that the poison was hardcoded with no pin. Noticing that a number is unpinned and
+  then re-typing it at a new value is not a fix; it is the same defect with a fresher date.
+  **The corrective is bar 1 (derived, never copied) pointed at FIXTURES rather than at
+  expectations** — the over-long case is `MAX+1`, not `9` and not `17` — plus a test the
+  one-directional version cannot pass: **prove it red at a ceiling moved DOWN as well as up.**
+  A derived fixture tracks the constant in both directions; a re-authored one tracks it in
+  neither.
+- **PROSE BOUNDS ARE A POPULATION THE "IS IT DERIVED?" SWEEP DOES NOT REACH** (added
+  2026-08-27; same source). After a sweep across every code consumer, one literal `8` survived
+  in an agent-facing tool **description string**. Help text, `argparse` descriptions, docstrings,
+  refusal and error messages that state a bound in words, and comments asserting a number are
+  reached by **neither** an identifier grep nor a quoted-key grep — the two this repo already
+  requires running together, on the standing finding that neither is a superset of the other.
+  Prose is a third population outside both.
+  **Why it is worse than a stale code constant rather than more benign:** a stale bound in code
+  eventually fails a gate; a stale bound in prose **teaches the next reader something false and
+  is never executed**, so nothing can ever contradict it. It is the perishable-claim-in-a-comment
+  hazard (shared protocol's bar preamble) arriving in the one place a completeness sweep is
+  structurally not looking. An interpolated message carrying `{MAX_PARALLAX_BANDS}` is fine; the
+  target is the hardcoded kind.
+  **Operational form:** when a constant moves, grep the prose — help/usage strings, descriptions,
+  docstrings, refusal text, comments — as a named third pass, and say you ran it.
 - Cycle claims near VDP ports: the bus absorbs adjacent OPERAND accesses but not
   instruction-stream fetches — nominal tables mispriced three consecutive parcels.
   Measure with the cost lane; the F-series/dense rows re-derive from shipped constants.
