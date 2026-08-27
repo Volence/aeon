@@ -1038,6 +1038,24 @@ path, for the same reason the protocol is read that way.
   "I cannot locate the mechanism" to "does any caller on this path supply a non-constant closure",
   which is a sharper and differently-shaped question. Narrowing is worth reporting. Reporting it
   as closure is not.)*
+- **A GREP HIT THAT CONFIRMS WHAT YOU SET OUT TO FIND IS THE ONE YOU ARE LEAST LIKELY TO READ THE
+  CONTEXT OF — THE SEARCH ITSELF SELECTED FOR AGREEMENT** (added 2026-08-27; this lane's error,
+  and the sigil lane asked for it as a bar rather than an apology). Shared-protocol bar 11 says
+  read the lines AROUND a cited line before accepting what it proves. **This is the sharper
+  form: when the hit CONFIRMS your hypothesis, the confirmation is the reason you stop reading —
+  so the danger is highest exactly where the evidence looks best.**
+  Lived: hunting for step 2's remaining gap, this lane grepped `bganim_room`, read the hit at
+  `build.sh:224` — *"bganim_room (the BG-anim ceiling is NOT checked)"* — and reported the gate
+  as unarmed to two lanes. **That line is inside the `FAST=1` SKIP BANNER**, an accurate statement
+  about what fast mode omits. The gate runs unconditionally at `build.sh:664` with `--rom`,
+  `--built-after` and `--fixture`, and its own comment calls it *the only enforcement of
+  `BGANIM_SECTION_CEILINGS` against a real listing*. **Four lines of context, unread.**
+  **And note WHY it caught a session running that exact theme all day: the theme made a vacuous
+  gate the expected find, and the search obligingly produced one.** A day spent removing
+  announce-but-do-not-run gates is a day primed to see one. **The prior did not make the reader
+  more careful; it made the confirming hit more convincing.**
+  **Corrective: when a hit confirms what you were looking for, read its enclosing block BEFORE
+  reporting it** — and if the hit is a printed string, find out what prints it.
 - **HOLDING A RULE AND APPLYING IT TO YOUR OWN OUTPUT ARE SEPARATE ACTS — and the gap between
   them is measured in MINUTES, not days** (added 2026-08-27; the formulation is the sigil lane's,
   the instance count is mostly this lane's). This is the frame that explains why almost every
