@@ -399,9 +399,31 @@ def main() -> int:
     ok, why, elapsed = run_one("sentinel", sentinel_path, sentinel_expect, sentinel_count)
     print(f"  {'PASS' if ok else 'FAIL'}  sentinel ({elapsed:.2f}s): {why}")
     if not ok:
-        print("emp_expect_fail: FAIL — the sentinel did not fire. `sigil build "
-              "--extra-entry` is not evaluating the module it is given, so every case "
-              "below would be vacuous; this run stops here.")
+        # The verdict (something is wrong) and the REASON are separately checkable, and
+        # this branch used to assert the reason unconditionally. run_one() returns False
+        # for THREE different worlds and only the first of them means the mechanism is
+        # broken:
+        #   (a) BUILT CLEAN            -> --extra-entry really is not evaluating the module
+        #   (b) fired, wrong fragment  -> wording drift, or a different guard caught it
+        #   (c) fired, right fragment,
+        #       wrong diagnostic count -> the tree itself is red for an unrelated reason
+        # Lived 2026-08-27 (found by the aurora lane against a poisoned real tree): a
+        # leaked poison made every --extra-entry build red, the sentinel fired CORRECTLY
+        # reporting `got 5 [Error] diagnostic(s), expected 1`, and this tool announced
+        # that --extra-entry was not evaluating its module at all. A sound verdict with a
+        # fabricated justification, and the justification is what a reader carries away —
+        # it sends them to debug the harness instead of their own tree.
+        if why.startswith("BUILT CLEAN"):
+            print("emp_expect_fail: FAIL — the sentinel BUILT CLEAN. `sigil build "
+                  "--extra-entry` is not evaluating the module it is given, so every case "
+                  "below would be vacuous; this run stops here.")
+        else:
+            print("emp_expect_fail: FAIL — the sentinel did not report as expected, but it "
+                  "DID fail the build, so --extra-entry is evaluating the module. Suspect "
+                  "the TREE before the harness: an unrelated error already present in the "
+                  "sources reaches every --extra-entry build and changes what the sentinel "
+                  "sees. Reason given above; this run stops here because the cases below "
+                  "would inherit the same noise.")
         return 1
 
     for path, entry, expect, expect_count in CASES:

@@ -1991,6 +1991,22 @@ conditional move; shifts cost 2 cycles/bit): sign-mask ~68 cyc, `Scc`+merge
 (S.C.E. clamps in memory, twice — we have ONE site because `PState_AirShared`
 is shared). Best remaining win is 2 cycles by inverting the branch; not worth it.
 
+### `emp_helper_closure.py` assumes sigil sits BESIDE aeon, and falls through to a path it never found — 2026-08-27, aurora lane
+
+`sigil_native_rs()` builds two candidates — `<root>/sigil` and `dirname(aeon)/sigil` — and if
+neither exists **returns the last candidate anyway** (`tools/emp_helper_closure.py:216`) rather
+than refusing. So any aeon checkout not placed next to a `sigil/` directory fails **four tool
+tests before the assembler is ever invoked**, with the failure surfacing downstream as something
+else entirely. The aurora lane's first baseline went red on exactly this and **it looked like a
+scene failure**.
+
+**The defect is the fall-through, not the sibling assumption.** A layout convention is fine; a
+resolver that cannot find its input and returns a plausible-looking path anyway converts "I could
+not locate sigil" into an unrelated error somewhere else. Refuse by name instead — the same
+loud-on-unmeasurable rule this repo applies to gates. Cheap.
+
+---
+
 ### Parallax v_factor: the lock SENTINEL and the top of the magnitude range are the same value — found 2026-08-27 by the aurora lane
 
 **The collision.** `engine/level/parallax.emp:1661` — *"Returns 0 if s1 == 15 (locked)"* — and
