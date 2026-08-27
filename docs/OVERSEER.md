@@ -1046,11 +1046,35 @@ path, for the same reason the protocol is read that way.
   **Their next merge falsified it**: that parcel moved emitter source (`sigil-frontend-emp`'s
   `eval/emit.rs`, `eval/mod.rs`), so the on-disk CLI went stale against changed emitting code —
   the exact case where it bites.
-  **The durable half is their distinction, not the near miss.** Sigil's byte gates build ROMs
-  through the library **compiled into the test binaries**, never through `target/release/sigil`.
-  So a fully green sigil suite is real evidence that an emitter change is byte-neutral, and is
-  **no evidence at all** that the CLI binary `build.sh` invokes is current. Two artifacts, one
-  checked, and the unchecked one is the one that produces every CRC we freeze.
+  **⚠ THE MECHANISM AS FIRST WRITTEN HERE WAS FALSE — corrected in place 2026-08-27 by the sigil
+  lane, who grepped their own tree when this lane cited the sentence back at them.** It used to
+  read *"sigil's byte gates build ROMs through the library compiled into the test binaries, never
+  through `target/release/sigil`"*. **They do shell it, extensively**: `env!("CARGO_BIN_EXE_sigil")`
+  appears across at least nine test files (`subcommands.rs`, `sigil_test_runner.rs`,
+  `deny_todo.rs`, `extra_entry.rs`, `warn_tier_corpus.rs`, `placement_fix.rs`,
+  `tranche0_acceptance.rs` among them, several with multiple call sites), and under
+  `cargo test --release` that macro resolves to exactly `target/release/sigil`.
+  **The CONCLUSION survives and its reason changes completely, which is the point.** A suite run
+  is still not evidence that the CLI binary `build.sh` invokes is current — but **not** because
+  the suite avoids that binary. It is because `CARGO_BIN_EXE_*` is a **build-time** dependency:
+  cargo builds the bin target *before* any test that references it, so the suite spawns a
+  freshly-built binary and then leaves the on-disk one exactly as it found it for everyone else.
+  Two artifacts, one checked; the unchecked one is still the one that produces every CRC we freeze.
+  **⚠ AND THE FALSE MECHANISM WAS THE DANGEROUS HALF, WHICH IS WHY THIS IS CORRECTED RATHER THAN
+  ANNOTATED.** *"The suite does not touch the CLI binary"* licenses the inference *"so relinking
+  it mid-run is harmless"* — and that is **genuinely unsafe**. A concurrent build swapping
+  `target/release/sigil` **while the suite runs** hands spawned tests a partially-written or
+  wrong-revision binary, producing failures scattered across unrelated tests with no diagnostic
+  pointing at the cause (sigil's shared-`CARGO_TARGET_DIR` trap produces 284 such failures, which
+  read exactly like golden divergence).
+  **So the operational constraint is CONCURRENCY, not usage: for the length of any strict/attest
+  run, nothing may build into the main checkout's `target/`.** That is a rule the false version
+  of this stanza would have told you to ignore.
+  *Recorded because of how it surfaced: this lane quoted its own doc to a peer as the reason a
+  relink would be safe, and asked them to check the one step it was least sure of. The verdict
+  was right, the stated reason was wrong, and the wrong reason was load-bearing for the NEXT
+  decision rather than this one — shared-protocol bar 10, on one's own document, where the cheap
+  move was simply naming which step to attack.*
   **Why no gate here can catch it:** a stale assembler emits byte-identical output for as long
   as its source has not changed, so every downstream CRC agrees right up until the moment it
   matters, and then agrees with the wrong thing. This is our own byte-neutral CRC trap (a
