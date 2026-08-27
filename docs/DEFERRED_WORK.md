@@ -11070,3 +11070,43 @@ TRANSPARENT, and the boundary must MOVE with `Camera_Y` as `8 * ((((Camera_Y+231
 mechanism is refuted by derivation and by the controller's negative; the replacement mechanism
 is a hypothesis with an exact one-read discriminator that this lane cannot run. Fixing on the
 hypothesis alone would be the precise failure mode the booking warned about.
+
+### ✅ DISCRIMINATOR RUN 2026-08-27 — BIT 2 IS SET. The mechanism is CONFIRMED.
+
+The controller ran the one read the section above specifies, and then the correlation it
+implies. `VDP` reg `$0B` bit 2 is **0** at boot and **1** on scenes 10-15 — exactly the six the
+registry documents as attaching `SceneVDeform.Columns` (`Rocking_*`, `Perspective_*`), reachable
+via the effects-lab hotkey. With bit 2 set and ground across the screen at `Camera_Y = 461`, the
+two leftmost columns go transparent across **every** ground row while `x >= 16` keeps the band,
+breaking at screen row **152** — the same row the owner's own table breaks at. The control at the
+same camera Y with bit 2 clear is clean.
+
+**Correlation across all twenty scenes at one camera position**, signature defined as a TOTAL
+WIPE (0 of 7 ground rows opaque in the two leftmost columns, against 6-7 elsewhere): all five of
+scenes 10/12/13/14/15, and **none** of the fourteen bit-2-clear scenes. Scene 11 is `Rocking` at a
+wobble phase passing through zero, so a single sample misses it — the artifact's visibility
+oscillates with the deform.
+
+**The exact boundary formula in the section above is NOT confirmed.** It predicts the split at
+`y = 184` for `Camera_Y = 461`; measured, x=0 breaks at 152 and x=8 at 160. The mechanism class is
+confirmed; that arithmetic is not, and should not be quoted as though the run validated it.
+
+**"Exactly two columns" was never a fill quantity.** Per-column V-scroll works in 16-px columns,
+and 16 px is two 8-px tile columns — one VSRAM column. Every attempt to derive the 2 from a block
+size or an off-by-one was looking in the wrong place.
+
+**Two instruments manufacture the absence, and both did.** The DEBUG warp clears `$0B` bit 2 as
+well as rebuilding the column ring, so a warp-then-sample run reports clean for two independent
+reasons. And travelling **re-applies the section's own scene**: select scene 10, drive right, and
+`Debug_Scene_Index` still reads 10 while bit 2 has gone back to 0. Two of the controller's first
+A/B attempts compared two bit-2-clear states and returned a confident null. **Read bit 2 at the
+sample point; never trust the scene cursor.** Full tables, and the twelve-position negative that
+preceded all this: `docs/research/2026-08-27-fg-left-edge-reproduction.md`; probe
+`tools/fg_left_edge_probe.py`.
+
+**OWNER DECISION d-32 FILED — not closed until he rules.** This is the same silicon as **d-27**,
+which he answered "keep shipping the artifact". But that card describes **eight pixels on the
+BACKGROUND**, and what is on screen is **sixteen pixels on the FOREGROUND with the ground wiped
+out** — the thing he independently reported as a bug. A ruling taken on a materially understated
+description does not carry over. `SceneLeftColMask.Factor0Lock` reasons about plane B and cannot
+save plane A; the `SpriteMask` arm is refused by the build (d-27-corrected).
