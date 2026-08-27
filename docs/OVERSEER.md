@@ -1011,6 +1011,33 @@ path, for the same reason the protocol is read that way.
   target is the hardcoded kind.
   **Operational form:** when a constant moves, grep the prose — help/usage strings, descriptions,
   docstrings, refusal text, comments — as a named third pass, and say you ran it.
+  **⚠ NO LONGER RELAYED — THIS LANE NOW HAS TWO FIRSTHAND INSTANCES, BOTH FROM ONE PARCEL**
+  (2026-08-27, the sprite-owner landing). The bar above was banked from sigil's mail and explicitly
+  marked *not verified firsthand*. It is verified now, and the instances arrived from opposite
+  directions, which is worth more than either alone.
+  **(a) Found by the sigil lane, in THEIR tree, caused by OUR parcel.** `sprites_port.rs`'s header
+  asserted the sprites region is *"same-LENGTH ($420 both)"*. The parcel grew the DEBUG shape and
+  made it false. Nothing could have caught it: a bound stated in a doc comment is executed by
+  nothing, so no gate can contradict it and the next reader simply learns something untrue.
+  **They fixed it the right way and that half is the one people skip: they DELETED the number and
+  pointed at where numbers live** (`pins::SPRITES.{plain,debug}_len`) rather than re-typing a fresh
+  `$420`-shaped literal that would go stale on the identical clock. **Re-authoring a hardcoded bound
+  one value later is the same defect with a newer date** — the fixture-vs-ceiling bar above, arriving
+  in prose.
+  **(b) Found HERE, in our tree, BEFORE it went stale.** `games/sonic4/player/player_common.emp`'s
+  bound comment says `(PHYS_FALL_CAP = 16px)`. The owner's ruling takes that constant to 15. The
+  `ensure` on the line below is DERIVED (`PBOUND_BOTTOM_MARGIN > (PHYS_FALL_CAP >> 8)`) and would
+  keep passing correctly at 15 — **so the executable check survives and only the sentence goes
+  wrong.** That is the class in its purest form: the gate stays green precisely while the prose
+  starts lying. Booked into the `FALL-CAP-15` queue row so the comment is fixed in the same change.
+  **The technique that found (a), contributed by the sigil lane and cheap enough to be a habit:
+  when you touch a file, re-read the claims ADJACENT to your edit, not just the lines you changed.**
+  They only looked at that header because they were checking whether their own edit had made a
+  neighbouring claim staler. Name it as method rather than luck.
+  **And the discipline that makes an empty prose sweep reportable at all:** grep each moved value in
+  THREE forms — bare hex (`0x4DA`), the `$`-prefixed assembler spelling (`$4DA`), and decimal — and
+  **report the patterns, not just the verdict.** An empty sweep and a pattern that never could have
+  matched are the same artifact (bar 16(d) turned on the sweep itself).
 - Cycle claims near VDP ports: the bus absorbs adjacent OPERAND accesses but not
   instruction-stream fetches — nominal tables mispriced three consecutive parcels.
   Measure with the cost lane; the F-series/dense rows re-derive from shipped constants.

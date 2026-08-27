@@ -1693,7 +1693,18 @@ absolute value BEFORE the shift (`(|sin|)>>3` instead of `|sin>>3|`), which leav
 every symmetric case bit-identical and only affects those four.
 **Cost:** it is an S3K divergence and touches shared ground physics, so it needs a
 **replay-fixture re-record** (the Sonic fixtures hash the player window).
-**When to revisit:** only on a user ruling that mirrored slopes must behave alike.
+**When to revisit:** ~~only on a user ruling that mirrored slopes must behave alike.~~
+**⚠ THAT RULING EXISTS — the owner made it, and this line did not know (corrected 2026-08-27).**
+The trigger has FIRED: mirrored slopes are to behave alike, and the item is queued as
+`SLOPE-SYMMETRY` (three characters on four angles, recorded as a deliberate S3K divergence,
+replay fixtures re-stamped). **The defect worth keeping is the shape, not the slope:** a
+booking whose revisit condition is an owner ruling goes stale SILENTLY the moment the ruling
+lands, because nothing walks back to the booking to tell it. A fresh session reads this and
+concludes the item is still waiting on a decision that was already made — so the work looks
+blocked when it is merely unstarted, which is the permissive direction again.
+**Standing corrective: when the owner rules, grep DEFERRED_WORK for the condition text that
+ruling discharges, in the same sitting.** The ledger in `docs/decisions.jsonl` records that a
+ruling happened; nothing has ever propagated it into the bookings that were waiting on it.
 
 ### Glide / slide / climb SFX are unwired placeholders — 2026-08-12 — **CLOSED 2026-08-26**
 **Surfaced during:** Knuckles C4.
