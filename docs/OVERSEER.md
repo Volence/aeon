@@ -22,10 +22,32 @@ rulings live in the session memory and the most recent `docs/superpowers/*handof
   rebuild all four shapes → re-verify on the merged tree → effects-gate ritual (if
   `engine/effects/*`, `engine/level/bg_anim.emp`, or `engine/system/buffers.emp`
   moved) → sigil `refreeze --freeze NAME --ab <prose evidence>` → full sigil suite
-  (`cargo test --release --workspace --no-fail-fast`, aggregate totals; the fully-green
-  bar moves — derive it, don't quote this file) → push both. `refreeze --check` is NOT
-  the goldens. The hand-typed baseline test (`repin_pins.rs`) demands a per-parcel
-  term with its story when assembled lengths move.
+  (`SIGIL_STRICT_GATE=1 AEON_DIR=<clean> cargo test --release --workspace
+  --no-fail-fast`, aggregate totals; the fully-green bar moves — derive it, don't quote
+  this file) → push both. `refreeze --check` is NOT the goldens. The hand-typed
+  baseline test (`repin_pins.rs`) demands a per-parcel term with its story when
+  assembled lengths move.
+  **`SIGIL_STRICT_GATE=1` IS LOAD-BEARING AND THIS FILE OMITTED IT UNTIL 2026-08-27 —
+  the omission is why two chains landed unverified.** Sigil's port and co-link gates
+  guard on `strict_gate()` (`std::env::var("SIGIL_STRICT_GATE").is_ok()`) and
+  **early-return without it**, so the command as previously written here runs a suite
+  that structurally CANNOT execute the very gates a paired refreeze exists to move. A
+  session following this file faithfully got a green that was silent about the port
+  layer. Lived: chains 169 (`c8e87ecb`) and 170 (`174f4300`) both landed through this
+  lane with no strict full-suite run logged for either — found 2026-08-27 by the sigil
+  lane after chain 171's strict run went red on `SFX_BODY_LEN`, a constant that had
+  been stale since chain 170 (2046 = `SFX_BANK_BLOB.plain_len` at chain 169, against a
+  region that grew to 0x8DA at 170). Under strict that assertion is 2266 == 2046, so no
+  strict run survives it — **the staleness was not hidden, it was never asked.**
+  *This lane's own first hypothesis was that the gate had silently skipped; that was
+  refuted (it cannot take the skip path under strict) and the real answer was worse —
+  there was no run at all. Note the shape: "the check was weaker than we thought" and
+  "the check never ran" produce the identical artifact, a green log with nothing in it
+  about the subject.*
+  **Standing commitment to the sigil lane (`REFREEZE-NEEDS-STRICT`, agreed
+  2026-08-27): every paired refreeze clears the full strict suite before push, whoever
+  lands it.** It is one suite run on top of a landing this lane is already doing, and
+  it is not a courtesy — it is the run that should have happened at 169 and 170.
 - One byte-mover per branch. Serialize refreezes. When any session is live-editing
   content in the main tree, build + freeze from a CLEAN CHECKOUT of the merge SHA.
   **The clean checkout must be threaded through ALL THREE legs explicitly** (lived
