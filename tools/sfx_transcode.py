@@ -89,6 +89,14 @@ SFXPRI_SPINDASH = 0x40
 SFXPRI_DASH     = 0x40
 SFXPRI_DEATH    = 0x60
 SFXPRI_RINGLOSS = 0x60
+# Knuckles/Sonic ability tier additions (2026-08-26). SFXPRI_SLIDE sits in the
+# FLY basement for the SAME reason SFXPRI_FLY does: the ground slide retriggers
+# on a fixed 8-frame cadence for as long as the state is held, so it must lose
+# arbitration rather than win it by asking most often. See sound_ids.emp.
+SFXPRI_INSTASHIELD = 0x20
+SFXPRI_GRAB        = 0x30
+SFXPRI_GLIDE_LAND  = 0x30
+SFXPRI_SLIDE       = 0x08
 
 # SHF_* flag bits (mirror sound_constants.asm)
 SHF_CONTINUOUS = 1 << 0
@@ -108,6 +116,10 @@ _SFX_PRIORITY = {
     0xB9: SFXPRI_RINGLOSS,
     0xBA: SFXPRI_FLY,
     0xBB: SFXPRI_FLY,
+    0x42: SFXPRI_INSTASHIELD,
+    0x4A: SFXPRI_GRAB,
+    0x4C: SFXPRI_GLIDE_LAND,
+    0x7E: SFXPRI_SLIDE,
 }
 
 # S3K channel id -> (our CHROUTE_*, eligibility kind)
@@ -126,7 +138,8 @@ _S3K_CHAN_MAP = {
 _RESERVED_ROUTES = {CHROUTE_FM1, CHROUTE_FM2, CHROUTE_FM6, CHROUTE_DAC}
 
 # SFX id -> filename prefix (for the core set)
-_CORE_SFX_IDS = [0x33, 0x34, 0x35, 0x36, 0x3C, 0x62, 0xAB, 0xB6, 0xB9, 0xBA, 0xBB]
+_CORE_SFX_IDS = [0x33, 0x34, 0x35, 0x36, 0x3C, 0x42, 0x4A, 0x4C, 0x62, 0x7E,
+                 0xAB, 0xB6, 0xB9, 0xBA, 0xBB]
 
 # S3K note enum: nRst=$80, nC0=$81, nCs0=$82, ..., sequential chromatically
 # The enum starts at $80 for nRst, then $81 for nC0, $82 for nCs0, etc.
@@ -216,6 +229,31 @@ def _parse_signed_byte(tok: str) -> int:
 _STONE_TO_ENV = {
     'sTone_03': 0x03, 'sTone_0D': 0x0D, 'sTone_0E': 0x0E,
     'sTone_0F': 0x0F, 'sTone_11': 0x11, 'sTone_1D': 0x1D,
+    # --- ONE DELIBERATE EXCEPTION to "the id IS the sTone number" -------------
+    # sTone_17 (the insta-shield's PSG envelope) resolves to the ALREADY-SHIPPED
+    # env $0A, because S3K's VolEnv_16 (= sTone_17's body) is BYTE-IDENTICAL to
+    # VolEnv_09 (= sTone_0A's body): both are
+    #   1,0,0,0,0,1,1,1,2,2,2,3,3,3,3,4,4,4,5,5,$81
+    # ("Z80 Sound Driver.asm" :4538-4539 vs :4520-ish). What the engine's env id
+    # names is a BODY, not a source-file enum value, so two sTones that ARE the
+    # same body legitimately share one shipped body. The audio is identical by
+    # construction, and test_sfx_transcode.TestSTone17AliasPremise re-derives the
+    # equality from the skdisasm driver source, so the alias breaks LOUD if the
+    # premise ever stops holding.
+    #
+    # WHY ALIAS INSTEAD OF SHIPPING A 12th ENV: PsgVolEnv_Ids/_Ptrs/bodies live
+    # inside SoundTablesZ80_Head, which is a HARD ORG at VMA $8000 whose size is
+    # walled by soundbankhead.emp (`ensure(_sound_tables.len == $357)`). A new env
+    # adds 1 id byte + 2 ptr bytes + a 21-byte body and slides every downstream
+    # head off its fixed banked-carrier VMA — six address literals baked into the
+    # SHIPPED resident Z80 driver's operand bytes (sigil seam1.rs
+    # `banked_carriers`), of which THREE (PsgVolEnv_Ptrs, FmVolEnv_Ids,
+    # FmVolEnv_Ptrs) are documented there as "hand-maintained and unchecked". That
+    # is a silent-corruption path traded for zero audible difference. If a future
+    # sTone with a genuinely NEW body is imported, that head growth has to be done
+    # properly (and the sigil carriers updated in the same pair) — this alias does
+    # not make it any harder.
+    'sTone_17': 0x0A,
 }
 
 
@@ -261,6 +299,14 @@ def _note_from_token(tok: str) -> int:
         }
         if tok == 'nRst':
             return S3K_NOTE_REST
+        # The PSG ceiling aliases (_smps2asm_inc.asm :53-59). Under the S3K driver
+        # (SonicDriverVer >= 3) the else-branch is live: nMaxPSG1 EQU nBb6 and
+        # nMaxPSG2 EQU nB6. nMaxPSG itself is `nBb6 - psgdelta`, a driver-version
+        # correction term this transcoder has no model for, so it is deliberately
+        # NOT mapped — it falls through to the loud "cannot parse" below rather
+        # than being guessed. (It is an S1/S2-era spelling; no S3K SFX uses it.)
+        if tok in ('nMaxPSG1', 'nMaxPSG2'):
+            return _note_from_token('nBb6' if tok == 'nMaxPSG1' else 'nB6')
         # parse octave: nXXn (e.g. nC5, nBb3)
         # Find octave digit(s) at the end
         m = re.match(r'^n([A-Z][a-z]?)(\d+)$', tok)
@@ -389,6 +435,34 @@ def _vol_for_atten(atten: int) -> int:
         if d < best_d or (d == best_d and k > best_k):
             best_d, best_k = d, k
     return best_k
+
+
+# --- PSG attenuation model (mirror of Psg_VolToAtten, engine/sound/sound_psg.emp) --
+# The engine converts a PSG channel's sc_volume (0..127, higher = louder) to the
+# SN76489's 4-bit attenuation with exactly three instructions:
+#     xor SND_FM_TL_MAX ($7F) / rrca x3 / and $0F   ==>  atten = ((vol ^ $7F) >> 3) & $F
+# so ONE attenuation step is EXACTLY 8 sc_volume units. smpsPSGAlterVol ($EC,vol)
+# is a RELATIVE change in those attenuation units (S3K cfChangePSGVolume ADDS to the
+# track attenuation; higher = quieter), so it is applied by round-tripping through
+# this conversion rather than through a hand-picked scale factor.
+#
+# NOT retro-applied to the header init-vol map above (`127 - vol_raw * 7`): that
+# approximation is baked into all eleven previously-shipped SFX blobs, and correcting
+# it would re-voice sounds this parcel has no mandate to touch. Flagged, not fixed.
+_PSG_ATTEN_STEP = 8          # derived: the `rrca` x3 in Psg_VolToAtten
+_PSG_ATTEN_MAX  = 0x0F       # derived: the `and $0F` in Psg_VolToAtten
+
+
+def _psg_atten_of(vol: int) -> int:
+    """sc_volume (0..127) -> the 4-bit attenuation the engine would emit."""
+    return ((max(0, min(127, vol)) ^ 0x7F) >> 3) & _PSG_ATTEN_MAX
+
+
+def _psg_vol_for_atten(atten: int) -> int:
+    """The LOUDEST sc_volume that renders `atten` (the exact inverse of the
+    3-instruction conversion; eight sc_volume values map to each attenuation)."""
+    atten = max(0, min(_PSG_ATTEN_MAX, atten))
+    return 0x7F - atten * _PSG_ATTEN_STEP
 
 
 class _SmpsVoiceBuilder:
@@ -1290,6 +1364,19 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
                     # it to a faithful per-pass fade (or it's finalized to one Vol if
                     # it turns out not to be inside a loop).
                     events.append(_AlterVol(delta))
+                elif macro == 'smpsPSGAlterVol':
+                    # $EC,vol — S3K cfChangePSGVolume: ADD `vol` to this track's PSG
+                    # ATTENUATION (higher = quieter). Unlike smpsFMAlterVol this is not
+                    # a per-loop-pass fade in any core source, so it resolves here and
+                    # now to one absolute Vol event: convert the running sc_volume to
+                    # attenuation with the engine's own Psg_VolToAtten arithmetic, add
+                    # the delta, saturate at $0F (the `and $0F` cannot express more),
+                    # and convert back.
+                    args = _split_args(arg_str)
+                    delta = _parse_signed_byte(args[0]) if args else 0
+                    cur_vol = _find_last_vol(events, default=80)
+                    new_atten = _psg_atten_of(cur_vol) + delta
+                    events.append(Vol(_psg_vol_for_atten(new_atten)))
                 elif macro == 'smpsNoAttack':
                     noattack_pending = True
                 elif macro in ('smpsHeaderStartSong', 'smpsHeaderVoice',
@@ -1819,7 +1906,11 @@ _CORE_SFX_FILENAMES = {
     0x35: '35 - Death.asm',
     0x36: '36 - Skid.asm',
     0x3C: '3C - Roll.asm',
+    0x42: '42 - Insta Shield Attack.asm',
+    0x4A: '4A - Grab.asm',
+    0x4C: '4C - Glide Land.asm',
     0x62: '62 - Jump.asm',
+    0x7E: '7E - Ground Slide.asm',
     0xAB: 'AB - Spin Dash.asm',
     0xB6: 'B6 - Dash.asm',
     0xB9: 'B9 - Ring Loss.asm',
