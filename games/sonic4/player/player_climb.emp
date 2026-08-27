@@ -74,6 +74,7 @@ use engine.constants.{ST_XFLIP, ST_ON_OBJECT, SOLID_LRB, SOLID_TOP,
         BUTTON_UP_BIT, BUTTON_DOWN_BIT}
 use games.sonic4.constants.{PSTATE_JUMP, PSTATE_GROUND, PSTATE_CLIMB, PSTATE_LEDGE, PSTATE_GLIDEFALL, CHEAT_DEBUG_FLY}
 use games.sonic4.player_common.{PlayerV, BUTTON_JUMP_MASK, BUTTON_JUMP_MASK_NO_B, set_standing_size}
+use games.sonic4.sound_ids.{SFXID_GRAB}
 
 // KNUX_ABILITY_RADIUS lives on CharDef_Knuckles (knuckles.emp); the climb box is the
 // 10x10 ability box, so the probe offsets are literals here matching that radius. A
@@ -609,8 +610,17 @@ pub proc Knuckles_Gliding_WallCatch (a0: *Sst) clobbers(d0-d7/a1-a2) {
 // In:  a0 = player SST.  Clobbers: d0-d7, a1-a2
 // -----------------------------------------------
 proc Climb_Catch (a0: *Sst) clobbers(d0-d7/a1-a2) {
-        // TODO(user): S3K plays sfx_Grab ($4A) here — no grab SFX exists in our bank yet
-        // (sourcing audio is the user's decision), so the catch is silent.
+        if SOUND_DRIVER_ENABLED == 1 {
+                // S3K's own catch sound (sonic3k.asm:30803, sfx_Grab). Fires ONCE per
+                // catch because its ONLY two call sites are the both-sensors-flush test
+                // and the floor-lip fallback inside Knuckles_Gliding_WallCatch, which is
+                // itself the one-frame `.hit_wall` branch of PState_Glide and leaves the
+                // glide state either way (CLIMB on success, GLIDEFALL on the fallback's
+                // `.fail`). Nothing calls it per-frame. Sound_PlaySFX preserves a0; only
+                // d0 is clobbered, and d0 is dead here (next written below).
+                move.b  #SFXID_GRAB, d0 as SfxId
+                jbsr    Sound_PlaySFX
+        }
         clr.w   x_vel(a0)
         clr.w   y_vel(a0)
         clr.w   PlayerV.ground_speed(a0)
