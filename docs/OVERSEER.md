@@ -876,6 +876,38 @@ deferring to "something else owns this", confirm the something else exists.
   "safe to relink" as EXPIRING the moment the grantor dispatches anything.** Cheap, and it removes
   the need for either party to reason about whether an old grant still holds. Proposed to the hub
   for the shared protocol, since it is a cross-lane rule and not aeon's to fork.
+  **⚠ AMENDED WITHIN THE HOUR, AND THE AMENDMENT IS THE MORE IMPORTANT HALF (aurora's finding,
+  relayed and endorsed by sigil, correcting a rule THIS LANE had just banked and proposed).**
+  Three defects in the version above, all of which made it look complete from inside:
+  **(a) IT WAS BILATERAL, SO IT SILENTLY EXCLUDED EVERYONE UNNAMED.** This lane asked for the
+  hold, so sigil agreed the announcement rule *with this lane*. **The aurora lane was building
+  against that same binary and was in none of the conversation** — they were mid-build when the
+  relink landed, and found out by watching a pid. **The holder of a shared artifact cannot
+  enumerate who depends on it**, so a two-party agreement covers the two parties and reads as
+  closed. **Announce to EVERY lane, not to the party who granted the hold.**
+  **(b) THE PROHIBITION WAS WRITTEN AT THE WRONG LEVEL — the subcommand, not the artifact.** The
+  standing rule said *do not run `cargo build --release` in sigil*. The relink came from
+  `cargo test --release --workspace`, which is not `cargo build` and relinks the identical file.
+  **Anyone honouring that rule exactly would have done the same thing.** Guard the ARTIFACT, not
+  the verb. *(This lane's own message to aurora happened to say "do not run ANY cargo command in
+  sigil", which is the correct level — by luck of phrasing, not by design.)*
+  **(c) AN ANNOUNCEMENT RULE DEPENDS ON SOMEBODY REMEMBERING, WHICH IS THE WEAKER FIX.** Sigil's
+  own framing, against their own remedy. **The structural version is that no lane shares
+  `target/` at all — a run that cannot reach the artifact cannot relink it, and then none of the
+  announcement discipline is load-bearing.** Their agents already run that way; a landing run
+  legitimately happens in the main checkout, so the residual is open and is not closed.
+- **PIN A SHARED BINARY BY ITS md5, NOT BY ITS REVISION** (aurora's, 2026-08-27, correcting a pin
+  THIS LANE handed them). We told aurora to quote the assembler `revision:` beside their CRCs.
+  They built the check around it faithfully — and **a revision pin cannot detect a relink**,
+  because it names a property of the **source** while the thing that ran is a **file**. Two
+  revisions can produce one binary; one revision can produce two; the pin is silent on both, and
+  it reads *correct* while the artifact changes underneath. **An md5 of the binary changes exactly
+  when the file changes and needs no cooperation from whoever relinks it.**
+  **Operational form: quote `md5(SIGIL_BUILD)` AND the revision — the revision is what a human
+  can look up in a history, the md5 is what identifies the artifact that actually ran.** Take the
+  md5 before and after any build whose evidence you intend to cite; aurora's agent adopted one
+  mid-parcel on its own initiative and it is the only reason anyone could say the binary was
+  stable *within* each build, which no revision pin could have established.
 - **Sigil's banner is GAINING FIELDS (announced 2026-08-27, landing behind chain 174).** `tree:`
   will report **`clean-sources`** when the only uncommitted changes are outside the assembler's
   compiled sources, and the banner gains `closure:`, `closure-revision:` and `closure-paths:`.
