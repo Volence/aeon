@@ -814,6 +814,39 @@ deferring to "something else owns this", confirm the something else exists.
 
 ## Worktree quirks (agents hit all of these)
 
+- **A SHARED DIRECTORY IS NOT A SHARED NAMESPACE — "it is in my repo's worktree list" is a fact
+  about BOOKKEEPING, not about who it belongs to** (added 2026-08-27; this lane's error, disclosed
+  unprompted). Pruning leftover worktrees on the owner's directive, this lane swept aeon's
+  worktree list for **merged + detached + no-branch** trees under `~/sonic_hacks/` and removed
+  eleven. **One was the sigil lane's standing reference tree**, `.aeon-ref-a6a7c23d`, declared in
+  **their** `docs/OVERSEER.md:1028` and kept deliberately because four built shapes matching a tip
+  is the expensive half of any artifact-dependent run.
+  **It matched every mechanical criterion, and it had to**: a reference tree holding aeon shapes is
+  an *aeon* worktree by construction, and it lives at the shared root. **The only thing that
+  distinguished it was a declaration in another lane's file, which was not consulted.**
+  **The tell that it was a heuristic rather than a rule: `/tmp` scratchpads WERE carved out** as
+  "another session's, not mine to remove". So the concept was present and applied **by path
+  prefix** — protecting the two obvious cases and missing the one that was actually documented.
+  **A heuristic that happens to cover the visible instances reads as a rule until it meets the
+  invisible one.**
+  **Operational form: before removing ANYTHING under `~/sonic_hacks/`, grep the other lanes'
+  `OVERSEER.md` for the path.** Cheap, and it is the only instrument that can see a declaration.
+- **AND CHECK WHETHER SOMETHING IS RUNNING IN IT** (aurora's, relayed by the hub the same hour,
+  after they removed a fixture directory the owner's live Aurora window had open — his next build
+  died with `spawn ./build.sh ENOENT`). **A running tool does not appear in `git worktree list`.**
+  Check `/proc/<pid>/cwd` or `lsof` before removing a directory. *(Checked here after the fact —
+  no process held any removed path — which is the wrong order and is the reason this line exists.)*
+  Their two companion rules, both adopted: test merged-ness by **HEAD with
+  `merge-base --is-ancestor`**, never by branch name; and **look at uncommitted files** before
+  removing a worktree that has them.
+- **A WORKTREE CAN HOLD THE ONLY COPY OF SOMETHING — check before deleting, not after.** Two of
+  the four unmerged trees in this sweep carried content that exists nowhere else:
+  `diag/warp-parallax-reresolve` holds a diagnosis with **zero hits in `DEFERRED_WORK.md`** plus
+  `tools/warp_arrival_stability_probe.py`, and `diag/showcase-invisible` holds
+  `tools/showcase_diag_*.py` whose findings are banked while the tools are not. **Deleting either
+  would have lost work with nothing to announce it.** The owner's directive was explicitly to
+  report a verdict per tree rather than delete on a guess, and that is why.
+
 - Export `AEON_SKDISASM_DIR=/home/volence/sonic_hacks/skdisasm`; the worktree root's
   PARENT DIRECTORY may carry a `sigil` symlink — **never the checkout itself, and this
   matters** (lived 2026-08-26 by the sigil lane, against this very line). They read "the
