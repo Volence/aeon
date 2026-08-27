@@ -10704,11 +10704,27 @@ forces every `scene()` call site to pad to sixteen `no_layer()`s: `ojz_scenes.em
 thirteen poison fixtures, and the generated `effects_scenes.emp` (the generator auto-pads to
 `MAX_PARALLAX_BANDS`, so that one is free).
 
-**The anchored-at-ceiling refusal is derived and survives the raise.** `scene()`'s guard is
-`anchor_ch == $FF || count + 1 <= <ceiling>` — at 16 it must refuse anchored-16 and admit
-anchored-15, which is what the inlined literal at `:1049` does once moved with the rest. Its twin
-in `games/sonic4/test/scene_equiv_proof.emp:196` already spells the bound as the imported
-`MAX_PARALLAX_BANDS` and needs no edit.
+**The anchored-at-ceiling refusal — three spellings, and only one of them is derived.** Checked
+directly, because "the refusal must survive at 16" is the kind of claim a hardcoded 8 passes by
+accident:
+
+- `games/sonic4/test/scene_equiv_proof.emp:196` (the `hdr()` twin) is **fully derived** —
+  `band_count + 1 <= MAX_PARALLAX_BANDS`, with `{MAX_PARALLAX_BANDS}` interpolated into the
+  message. No edit needed at any ceiling.
+- `engine/level/scene_dsl.emp:1049-1050` (the DSL guard `scene()` actually runs) spells the
+  ceiling as the **inlined literal 8**, in both the predicate and the message text, and is held
+  to the constant by the pin at `:54`. That is deliberate and correct — EMP_PITFALLS: an imported
+  constant named inside a comptime body a GAME module elaborates resolves to nothing, *silently*.
+  The `{count}` half IS interpolated, so the refusal fires correctly at whatever ceiling the
+  literal carries. It moves with the other twelve inlined `8`s.
+- **The POISON that proves the refusal is hardcoded on BOTH sides and has no pin.**
+  `games/sonic4/test/poison/poison_scene_capacity.emp` is authored with exactly eight layers plus
+  an anchor, and `tools/emp_expect_fail.py:114` matches the literal fragment
+  `"the shadow view needs count+1 entries — 8+1"`. At MAX 16 an eight-layer anchored scene becomes
+  *legal*, so `scene()` would not refuse it, the fragment would not appear, and the lane reports
+  the case as a poison that failed to fire. That is the **correct failure direction** — loud, not
+  silently green — but it means the raise must re-author the fixture to sixteen layers and move
+  the matcher fragment to `16+1`. Anchored-15 must then be admitted and anchored-16 refused.
 
 **Downstream (NOT aeon's to change):** empyrean's
 `contract/schema/aurora-effects-scene.schema.json` pins `layers maxItems 8` and Aurora derives its
