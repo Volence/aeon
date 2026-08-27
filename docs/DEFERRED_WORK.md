@@ -1851,7 +1851,43 @@ together or the player will outrun streaming / tunnel through geometry:
 Do not re-add the `-$FC0` cap silently. The separate `$FC0` cap in the
 steep-landing conversion is a different, retained mechanism.
 
-### Fall cap `PHYS_FALL_CAP = $1000` — S3K deviation, PARKED with a known 1px hole (§2.1 FEEL DEVIATION) — 2026-08-03
+### Fall cap — RULED AND LANDED: the 1px tunnelling hole is CLOSED (§2.1 FEEL DEVIATION) — booked 2026-08-03, ruled + landed 2026-08-27
+**RULING (owner, 2026-08-26 — `docs/decisions.jsonl` `d-18-answered`, queue row
+`FALL-CAP-15`).** Terminal fall speed drops one pixel per frame, taking the cheap
+option below. The Axis-A tunnelling hole described in this entry is **gone from the
+shipped build** — it is no longer a known defect, and this entry is no longer a park.
+
+**What landed (branch `parcel/fall-cap-15`).** `PHYS_FALL_CAP` is no longer a chosen
+literal. It is **derived** in `engine/system/constants.emp` from
+`COLLISION_CELL_SHIFT`: the largest per-frame Y step that cannot skip the thinnest
+floor the world can express is one pixel short of a collision cell, so the cap is
+`((1 << COLLISION_CELL_SHIFT) - 1) << 8`. At today's 16px cell that is `$0F00`. An
+`ensure` beside it states the ruling executably — it fires both if the cap is
+re-typed back up to a whole cell AND if the cell size is lowered under a cap that
+stayed put, which is the direction a check written against a fixed number misses.
+The three clamp sites (`PState_AirShared`, `PState_Fly`, `PState_GlideFall`) and the
+`PBOUND_BOTTOM_MARGIN` `ensure` in `player_common.emp` all consume the constant and
+needed no edit; the prose bound above that `ensure`, which spelled the value out in
+words, did — the `ensure` would have kept passing correctly while the sentence taught
+something false.
+
+**The uncapped, originals-faithful shape stays on the card** (`d-18-uncapped-option`):
+no fall limit, camera capped, collision sensing following the player rather than the
+camera. It is NOT an alternative to what landed — it is the swept-collision item under
+"the real shape is" below PLUS a streaming parcel, because at an uncapped 32 px/frame
+the probe skips any floor thinner than 32 and sub-stepping becomes mandatory.
+
+**One consumer by VALUE, deliberately left alone.** `TERMINAL_VELOCITY = $1000` in
+`games/sonic4/objects/test_player.emp` is a private constant with its own clamp in
+`TestPlayer_Main` — a second copy of this quantity that no `PHYS_FALL_CAP` grep finds.
+It was NOT changed: its own header declares it an S2/S.C.E. *reference value*, and
+moving it to a non-reference number would make that header false — the same defect
+class this parcel exists to fix. TestPlayer borrows `Player_SensorFloor`, so the 1px
+hole is still open *for the debug test object*. Whether that matters folds into the
+existing "**`test_player` as a unit**" booking (§ below) rather than being re-decided
+here.
+
+**Original booking, preserved for the analysis (do not re-derive it):**
 **Surfaced by:** Volence noticed falls feel slower than S3K. Researched + parked
 the same day ("doesn't seem like something I want to get into right now") — this
 entry exists so the analysis is not re-derived. Sibling of the up-velocity-cap
@@ -1878,10 +1914,13 @@ entry above; the two share the same coupling set.
 - *Axis A — thin-floor tunneling (camera-irrelevant).* The probe examines two
   16px cells, so max safe per-frame Y step = `min_floor_thickness − 1`. OJZ act 1's
   thinnest floor is 16px → **safe step = 15px**, and 224 pixel-columns are that
-  thin. **The shipped `$1000` (16px) is therefore ONE PIXEL HOT**: a frame ending
-  with feet exactly on a 16px slab's surface (dist 0 → `bpl .no_land`) plus a full
-  16px step skips the slab. Needs 577px of prior fall + exact alignment, so it is
-  narrow but real, and it is in the shipped build today.
+  thin. **The then-shipped `$1000` (16px) was therefore ONE PIXEL HOT**: a frame
+  ending with feet exactly on a 16px slab's surface (dist 0 → `bpl .no_land`) plus
+  a full 16px step skips the slab. Narrow — it needed a long prior fall plus exact
+  alignment — but real, and it was in the shipped build until 2026-08-27. This is
+  the axis the ruling closed, and the axis the derived cap now tracks
+  automatically: `min_floor_thickness` is one collision cell by construction, so
+  the cap is defined as one pixel under it rather than compared against it.
 - *Axis B — collision residency (camera-coupled).* Collision reads
   `Tile_Cache_Collision`, an 80×30-cell RAM ring bounded by `Cache_Top_Row`/
   `Cache_Bottom_Row` which follow the camera; outside it every probe returns air
@@ -1925,23 +1964,75 @@ and it gets weaker exactly as levels get taller (cf. the mega-act goal).
    is mostly unspent — **premise unverified, check it before betting on it.**
    Alternative (more expensive): raise `CAM_MAX_Y_STEP` + `VFILL_ROWS_PER_FRAME`
    together, which is the §4 streaming budget.
-3. Housekeeping: `player_common.emp:662`'s `ensure(PBOUND_BOTTOM_MARGIN > ...)`
-   references the constant and must be re-expressed if it is removed; import
-   lists in `player_air.emp:12` / `player_common.emp:25`.
+3. Housekeeping: the `ensure(PBOUND_BOTTOM_MARGIN > ...)` beside `PBOUND_BOTTOM_MARGIN`
+   in `player_common.emp` references the constant and must be re-expressed if it is
+   removed; so must the `ensure` beside `PHYS_FALL_CAP` itself. Import lists: the
+   `use engine.constants.{...}` heads of `player_air.emp`, `player_fly.emp`,
+   `player_glide.emp` and `player_common.emp`. **Cite symbols, never line numbers** —
+   this list previously carried `player_common.emp:662` for that `ensure` and the
+   coordinate had rotted by ~700 lines before anyone read it again.
 
-**Cheap option available anytime (NOT taken — user parked the topic):** set
-`PHYS_FALL_CAP = $0F00` (15px/f). One-constant change, closes the Axis-A hole,
-imperceptible in feel (only reached after ~540px of fall; the act's deepest
-floor-terminated drop is 592px). Strictly safer than today.
+**~~Cheap option available anytime (NOT taken — user parked the topic)~~ — TAKEN,
+2026-08-26 ruling, landed 2026-08-27:** `PHYS_FALL_CAP` at 15px/f. One-constant
+change, closes the Axis-A hole, strictly safer than what it replaced. Reached only
+after a long fall, so it is imperceptible in normal play — no pixel figure is quoted
+for that distance here, because it is `(cap/gravity)` frames of free fall and both
+operands are constants that can move.
 
 **Micro-optimisation dead end (checked, do not retry):** the clamp cannot be
-replaced by a bitwise op. `ori`/`andi`/`bclr` give WRAP, not saturation —
-`andi.b #$0F` on the high byte turns `$1000` into `$0000`, producing a mid-air
-sawtooth. Saturation needs a comparison. Branchless forms lose on 68000 (no
+replaced by a bitwise op. `ori`/`andi`/`bclr` give WRAP, not saturation — masking
+the high byte of a cap that is a power of two turns it into zero, producing a mid-air
+sawtooth (the worked example was `andi.b #$0F` against the old `$1000`; the *current*
+cap is not a power of two, which changes the arithmetic but not the conclusion —
+wrapping is still not saturating). Saturation needs a comparison. Branchless forms
+lose on 68000 (no
 conditional move; shifts cost 2 cycles/bit): sign-mask ~68 cyc, `Scc`+merge
 ~30 cyc, vs 18 for the current `cmpi.w`+`ble`. We already clamp in a register
 (S.C.E. clamps in memory, twice — we have ONE site because `PState_AirShared`
 is shared). Best remaining win is 2 cycles by inverting the branch; not worth it.
+
+### Replay net owes a RE-STAMP for the fall cap — OPEN, needs a foreground emulator run — 2026-08-27
+**Why it is open and not done:** re-stamping runs `replay_runner`, a headless
+emulator, and the parcel that moved the cap was a background lane forbidden to
+touch one. This entry exists so the debt is visible rather than discovered by a
+red `test.sh` §8.
+
+**What the net will say.** `Replay_Hash` hashes `x_pos/y_pos/x_vel/y_vel` every 64
+ticks, so any tick on which the fall clamp actually BINDS changes that checkpoint
+and every checkpoint after it. The clamp binds only after a long unbroken fall, and
+the two builds are bit-identical until it does — which makes the affected set
+derivable from the input streams without running anything:
+- `PHYS_GRAVITY` is `$38` = 56 per frame, so the OLD `$1000` cap first bound on
+  frame `ceil(4096/56)` = 74 of unbroken free fall and the NEW cap first binds on
+  frame `ceil(3840/56)` = 69. **The two ROMs can only diverge from the 69th
+  consecutive gravity frame onward** (~513 px of fall). A replay whose longest
+  airborne stretch is shorter than that is provably unaffected.
+- **`ojz_slide_fixture` WILL move.** Its last two runs are `$10` ×3 — `BUTTON_B`,
+  the debug free-fly toggle — followed by `$00` (no input) ×454. That is free-fly
+  switched off at altitude and then 454 ticks of unobstructed plunge, six times the
+  threshold. Expect the checkpoints from the first ring boundary at or after tick
+  1965 (i.e. tick 1984) to the end to move, and check tick 1920 too.
+- **`ojz_fixture` is predicted NOT to move.** Its longest airborne stretch is a jump
+  arc: `PHYS_JUMP_FORCE` `$680` = 1664 subpixels, so ~30 frames to apex and a
+  symmetric descent back to launch height ending near `y_vel` 1664 — far under
+  either cap, and nowhere near 69 frames. **Predicted, not measured.** A run is what
+  settles it, and if it DOES move that is a finding: it would mean there is a drop
+  in that stream nobody has accounted for.
+
+**Recipe (`docs/superpowers/plans/2026-08-13-replay-net-restamp.md` is the runbook).**
+`replay_runner --restamp` finds every stale checkpoint in ONE pass, is a dry run
+until given `--out`, and then re-runs the re-stamped image clean plus the negative
+control before emitting anything. Use it, never `replay_pack.py` — repacking loses
+the `BUTTON_C` spindash ticks that `ojz_fixture` needs and that the oracle driver
+cannot press, which is why re-RECORDING is impossible and re-STAMPING is the only
+move. A pure re-stamp rewrites hash payloads only, so the fixture length and
+`EndOfRom` do not move and **no sigil repin is needed for it**. Afterwards
+`tools/test_replay_fixture.py` must still be green — its size assertions are exactly
+the tripwire that tells a legitimate re-stamp from an accidental re-record.
+
+**Coupling:** the `SLOPE-SYMMETRY` queue row also owes a re-stamp. Landing both
+before either re-stamp saves a pass but destroys the ability to attribute a moved
+checkpoint to one change or the other.
 
 ### §5 Deferred Items — Player/Character Follow-Up Work — 2026-06-14 (updated 2026-06-15)
 **Status:** §5 (player-system branch) shipped Sonic-only, physics-first, on OJZ

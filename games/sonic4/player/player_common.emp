@@ -1352,8 +1352,12 @@ pub proc Player_SnapToSurface (a0: *Sst) clobbers(d0/d2) {
 // Classic Sonic_LevelBound margins: the player center may approach the left
 // playable edge to 16px and the right edge to 24px (asymmetric in the originals
 // — kept verbatim). Bottom margin: detection slack below the playable bottom;
-// must exceed the per-frame fall cap (PHYS_FALL_CAP = 16px) so a single frame's
-// fall can never overshoot the guard transiently.
+// must exceed the per-frame fall cap so a single frame's fall can never
+// overshoot the guard transiently. That bound is the `ensure` below, and it
+// reads PHYS_FALL_CAP itself — the cap's VALUE is not restated here, because a
+// sentence that names it goes stale the moment the constant moves while the
+// `ensure` keeps passing. PHYS_FALL_CAP lives in engine/system/constants.emp,
+// derived there from COLLISION_CELL_SHIFT.
 const PBOUND_LEFT_MARGIN   = 16
 const PBOUND_RIGHT_MARGIN  = 24
 const PBOUND_BOTTOM_MARGIN = 48

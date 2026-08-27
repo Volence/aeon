@@ -179,12 +179,15 @@ pub proc PState_Fly (a0: *Sst) clobbers(d0-d7/a1-a2) {
         move.w  y_vel(a0), d0
         addi.w  #FLY_COAST_GRAVITY, d0
         // ENGINE SAFETY CLAMP — not S3K. S3K's flight is uncapped, which is
-        // survivable there because its acts are short; at +8/frame an
-        // uninterrupted coast passes the 16px/frame the 32px sensors can resolve
-        // after ~512 frames, and a tired Tails coasts until he lands. Capping at
-        // the shared PHYS_FALL_CAP costs nothing any real fall can observe (it
-        // needs ~4,000px of unbroken descent) and removes a tunnelling class the
-        // mega-act work would eventually find.
+        // survivable there because its acts are short; at FLY_COAST_GRAVITY per
+        // frame an uninterrupted coast eventually passes the per-frame step the
+        // floor probe can resolve, and a tired Tails coasts until he lands.
+        // Capping at the shared PHYS_FALL_CAP costs nothing any real fall can
+        // observe — the coast takes PHYS_FALL_CAP / FLY_COAST_GRAVITY frames and
+        // thousands of pixels of unbroken descent just to REACH the cap — and it
+        // removes a tunnelling class the mega-act work would eventually find.
+        // No figure is spelled out here on purpose: both operands are constants
+        // one scroll apart, and a restated arithmetic result is what goes stale.
         cmpi.w  #PHYS_FALL_CAP, d0
         ble     .coast_store
         move.w  #PHYS_FALL_CAP, d0
