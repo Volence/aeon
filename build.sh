@@ -270,13 +270,41 @@ else
     # read here, because the question is "was this binary built from that tree's
     # current state", which only the tip can answer. (Contrast the recovery direction,
     # where a pin is correct; see docs/OVERSEER.md.)
-    if [[ -n "${SIGIL_SRC}" && -d "${SIGIL_SRC}/.git" ]]; then
+    # FAIL CLOSED ON ALL THREE COUNTS (2026-08-27). Every arm below used to fall
+    # through silently, so "I could not tell" and "it is fine" produced the same
+    # exit code — and SIGIL_VERSION_STRICT=1 passed having compared nothing.
+    #
+    #   (1) `-d "${SIGIL_SRC}/.git"` is FALSE in a linked git worktree, where .git
+    #       is a FILE ("gitdir: ...") and not a directory. Found by the sigil lane,
+    #       reproduced here. That skipped the whole revision check in exactly the
+    #       configuration our own OVERSEER.md prescribes for reference and landing
+    #       runs, i.e. the runs where you most want this alarm armed.
+    #       `rev-parse --git-dir` resolves in both layouts, so ask git, not the
+    #       filesystem.
+    #   (2) An unresolvable/absent SIGIL_SRC, or an unreadable HEAD, is now the
+    #       distinct state `unknown` rather than silence.
+    #   (3) The tree-state word is matched POSITIVELY against the known-clean
+    #       spelling; ANY other word — including one sigil has not invented yet —
+    #       reads as dirty. The old `== dirty*` prefix test silently went quiet on
+    #       any third state word (sigil's pending `clean-sources` is the first, and
+    #       would have been the first of many).
+    if [[ -z "${SIGIL_SRC}" ]]; then
+        _sigil_stale="unknown"
+    elif ! git -C "${SIGIL_SRC}" rev-parse --git-dir >/dev/null 2>&1; then
+        _sigil_stale="unknown"
+    else
         _src_head="$(git -C "${SIGIL_SRC}" rev-parse HEAD 2>/dev/null || true)"
-        if [[ -n "${_src_head}" && -n "${SIGIL_REV}" && "${_src_head}" != "${SIGIL_REV}" ]]; then
+        if [[ -z "${_src_head}" || -z "${SIGIL_REV}" ]]; then
+            _sigil_stale="unknown"
+        elif [[ "${_src_head}" != "${SIGIL_REV}" ]]; then
             _sigil_stale="revision"
         fi
     fi
-    [[ "${SIGIL_TREE}" == dirty* ]] && _sigil_stale="${_sigil_stale:+${_sigil_stale}+}dirty"
+    # Positive match on clean; anything unrecognised is treated as dirty.
+    case "${SIGIL_TREE}" in
+        clean|clean\ *) ;;
+        *) _sigil_stale="${_sigil_stale:+${_sigil_stale}+}dirty" ;;
+    esac
 
     if [[ -n "${_sigil_stale}" ]]; then
         echo "############################################################################"
@@ -287,6 +315,11 @@ else
         echo "##   ${SIGIL_SRC} HEAD : ${_src_head}"; }
         [[ "${_sigil_stale}" == *dirty* ]] && \
         echo "##   tree at capture   : ${SIGIL_TREE}"
+        [[ "${_sigil_stale}" == *unknown* ]] && {
+        echo "##   COULD NOT CHECK the assembler against its source."
+        echo "##   source dir        : ${SIGIL_SRC:-<not reported by the binary>}"
+        echo "##   This is NOT a clean bill of health. It is reported because a check"
+        echo "##   that cannot run must never be indistinguishable from one that passed."; }
         echo "##"
         echo "##   A stale assembler emits a byte-IDENTICAL ROM whenever the source has"
         echo "##   not changed, so no CRC, pin or golden downstream of here can detect"

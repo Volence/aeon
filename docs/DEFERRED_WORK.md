@@ -1991,11 +1991,44 @@ conditional move; shifts cost 2 cycles/bit): sign-mask ~68 cyc, `Scc`+merge
 (S.C.E. clamps in memory, twice — we have ONE site because `PState_AirShared`
 is shared). Best remaining win is 2 cycles by inverting the branch; not worth it.
 
-### Replay net owes a RE-STAMP for the fall cap — OPEN, needs a foreground emulator run — 2026-08-27
-**Why it is open and not done:** re-stamping runs `replay_runner`, a headless
+### ✅ CLOSED 2026-08-27 — the replay net needed NO re-stamp, and the reason is a coverage gap
+**MEASURED, not predicted: 0 of 27 stale in `ojz_fixture` and 0 of 37 stale in
+`ojz_slide_fixture`**, one `--restamp` pass each (4.04 s / 5.12 s) against merged-tree
+`s4.debug.bin` crc `9670be95` at assembler `fbf60abd`. Both fixtures unchanged, nothing
+emitted, `test.sh` §8 is GREEN as delivered — the prediction below that it would be RED was
+wrong.
+**The instrument was poison-tested before the zero was believed**, because an instrument that
+reports an absence can manufacture it: `--negative-control` on BOTH fixtures corrupts a
+checkpoint to `$DEADBEEF` and requires the trap to fire. Both fired (`REPLAY DESYNC` at
+Logic_Tick 2, actual `$1D375066`), so the gate demonstrably fails when it should and the zero
+is a measurement.
+**⚠ WHY THE DERIVATION BELOW WAS WRONG, AND IT IS THE PART WORTH KEEPING — IT USED THE WRONG
+GRAVITY.** The 69-vs-74 frame threshold is correct for `PHYS_GRAVITY` `$38` (56/frame). But
+`ojz_slide_fixture`'s 454-tick window follows `BUTTON_B`, the free-fly toggle, and that window
+runs in **fly coast**, where `FLY_COAST_GRAVITY` is **8** — flight is 1/7 g
+(`games/sonic4/player/player_fly.emp`). So the clamp binds at frame **512 under the old cap and
+480 under the new**, and the window is **454 ticks**. **454 < 480 < 512: the clamp is never
+reached in EITHER build**, which is exactly why every checkpoint matched.
+**The 512 figure was in the parcel's own report** — it corrected a stale "after ~512 frames"
+comment in `player_fly.emp` in the same change — and was not connected to its own prediction.
+The arithmetic was right and applied to the wrong regime; the derivation named a threshold
+without naming which gravity produced it.
+**⚠ THE REAL FINDING, AND IT IS A COVERAGE GAP: NEITHER FIXTURE EVER REACHES TERMINAL FALL
+VELOCITY, IN EITHER MODE.** `PHYS_FALL_CAP` therefore has **no replay coverage at all**, which
+corroborates from a second direction the parcel's own sweep result that **no physics regression
+test anywhere asserts a Y velocity, fall distance or landing frame**. The only executable checks
+on this constant are its two comptime `ensure`s. A fixture that exercised a genuine terminal-
+velocity fall would have caught this parcel; nothing we own would have.
+**And the margin is thin enough to be a trap: 454 against 480 is 26 ticks.** Extending that
+fixture by ~6% would silently start moving checkpoints, so a future session lengthening it will
+meet a desync with no obvious cause. Booked as `REPLAY-TERMINAL-FALL-COVERAGE`.
+**Kept below, unedited, is the original derivation** — right method, wrong regime — because the
+failure mode is more instructive than a corrected paragraph would be.
+
+~~**Why it is open and not done:** re-stamping runs `replay_runner`, a headless
 emulator, and the parcel that moved the cap was a background lane forbidden to
 touch one. This entry exists so the debt is visible rather than discovered by a
-red `test.sh` §8.
+red `test.sh` §8.~~
 
 **What the net will say.** `Replay_Hash` hashes `x_pos/y_pos/x_vel/y_vel` every 64
 ticks, so any tick on which the fall clamp actually BINDS changes that checkpoint
