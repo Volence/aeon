@@ -285,9 +285,14 @@ rulings live in the session memory and the most recent `docs/superpowers/*handof
   rebuild, so existence proves freshness**, and check mtimes. Note the asymmetry with the
   ordinary failure — a missing ROM is loud, a stale one is silent and ships four perfect
   CRCs as proof. **Standing hazard as of `98100905`:** that parcel edited `project.json`, so
-  *every* fresh checkout of any tree containing it trips the staleness gate on mtime alone;
-  **⚠ THE WORD "FRESH" IS WRONG — corrected 2026-08-27 by the sigil lane, who MEASURED it on two
-  worktrees where this note predicted a stop and none occurred.** The gate compares
+  **an in-place `git checkout` into an EXISTING tree** containing it trips the staleness gate on
+  mtime alone. **A fresh `git worktree add` does NOT** — measured three times by the sigil lane,
+  who each time got `ok (generated >= editor)` where an earlier wording of this bullet predicted
+  a stop. *(That earlier wording said "every fresh checkout" and was left standing here with a
+  retraction underneath it; it is corrected in place now, because a claim asserted first and
+  withdrawn second is still the claim a skimming reader carries away. Third report from the same
+  lane is what it took, which is itself the argument for fixing the sentence rather than
+  appending to it.)* The gate compares
   `newest mtime(editor sources) > newest mtime(generated tree)`, and `git worktree add` writes
   **every** file within the same second, so `>` is false and a fresh worktree does NOT trip it.
   What trips it is an **in-place `git checkout` into an existing tree**, which rewrites only the
