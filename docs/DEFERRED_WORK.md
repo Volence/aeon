@@ -11410,6 +11410,42 @@ an honest "unknown". ~200 DEBUG cycles.
 reached the right answer from a wrong reason once on this very question, which is the shape that
 survives review. Byte-mover in the DEBUG shape, so it pairs with a sigil freeze.
 
+### RATIFIED / REJECTED (overseer, 2026-08-27) — the deviations both parcels flagged
+
+Recorded explicitly because a deviation nobody rules on is a deviation that becomes precedent
+by default.
+
+**sprite-owner — all three RATIFIED.**
+1. **RAM at the tail, not beside `Sprites_Rendered`** (deviation from this booking). Ratified,
+   and the agent's reason is better than the booking's: beside `Sprites_Rendered` would slide
+   every engine-RAM field below the sprite block in the DEBUG shape, where the tail ripples
+   **zero** existing addresses. Genesis RAM has no locality cost and the array is reached
+   through one `lea`, so the booking's placement bought nothing and cost a shape divergence.
+2. **`d0` stack-borrowed in `InsertSpriteMasks`** rather than widening that proc's `clobbers()`.
+   Ratified. Both its data registers are genuinely live across the loop, and widening a
+   **release** contract to serve a **DEBUG-only** write is the wrong direction — it would put a
+   cost on the shipping shape for an instrument the shipping shape does not have. ~40 DEBUG
+   cycles per mask sprite is the right price.
+3. **`ensure` that `MAX_VDP_SPRITES` is even**, rather than a bound-agnostic clear. Ratified: a
+   long-wise loop plus a loud build failure beats a remainder path that nobody would ever
+   exercise and that would therefore rot unobserved. The `ensure` costs zero bytes.
+
+**sprite-owner — one correction to this booking's own reasoning, ACCEPTED.** The booking rejected
+`d1` because `size_link`'s unflipped branch holds `size<<8|pad` across the insertion point. That
+is true only if the splice is *inside* `size_link`; at the chosen splice point `d1` is also free.
+**`d0` remains correct, for a different reason than the one written here** — its dead window is
+wider. The booking warned that a right answer from a wrong reason survives review, and then
+supplied one.
+
+**GATES-EXPECTED-ROWSET — RATIFIED, including the one that mattered most.** The agent found the
+shared `sigil` binary had been rebuilt by another lane **mid-parcel** (01:41:19 → 03:14:00),
+which confounds a one-assembler A/B. Rather than report the confounded number it re-derived the
+master baseline under the *current* assembler and showed all three build sets agree. **That is
+the correct call and it is the one a brief cannot mandate** — my instruction said "record the
+mtime", which would have shipped a silently confounded number with a truthful-looking provenance
+line. Ratified, and the general form goes in the landing lane: **recording an input's identity is
+not the same as noticing it changed.**
+
 ### RUNTIME WITNESS (2026-08-27, `tools/sprite_owner_probe.py`) — positive, and THIN, and the thinness is the finding
 
 The source pins (`tools/test_sprite_owner.py`) would all still pass if the emitted code
