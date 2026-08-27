@@ -860,12 +860,38 @@ deferring to "something else owns this", confirm the something else exists.
   or check what it was built from — a version banner or an mtime, never an assumption.**
   *Which is precisely what the assembler's version banner exists to answer, and both lanes spent
   the same night arguing about that banner while neither applied it to the harness tools.*
+- **A GRANTED PERMISSION GOES STALE LIKE A STATUS FILE, AND HAS NO TIMESTAMP AT ALL** (added
+  2026-08-27; the sigil lane's formulation, against their own lapse). This lane said *"safe to
+  relink"* at a boundary with nothing measuring — true when said. **Then it dispatched a parcel**,
+  and from that moment a running build depended on the binary again. The grant never expired in
+  words; **the conditions under it changed**, and neither lane re-read it. The relink was then
+  found in an `mtime` rather than in a message.
+  **This is the snapshot problem (shared-protocol bar 22) arriving on PERMISSIONS.** Both lanes
+  had spent the night being careful that a peer's *status file* goes stale in minutes. A granted
+  permission is the same class and is worse in one respect: a status file at least carries an
+  `updatedAt`, so a reader can weigh it. **A permission reads as a standing state because it was
+  phrased as one, and carries nothing to date it.**
+  **Rule adopted, both directions and symmetric: announce a relink of the shared
+  `target/release/sigil` at the time, every time, regardless of standing permission — and treat
+  "safe to relink" as EXPIRING the moment the grantor dispatches anything.** Cheap, and it removes
+  the need for either party to reason about whether an old grant still holds. Proposed to the hub
+  for the shared protocol, since it is a cross-lane rule and not aeon's to fork.
 - **Sigil's banner is GAINING FIELDS (announced 2026-08-27, landing behind chain 174).** `tree:`
   will report **`clean-sources`** when the only uncommitted changes are outside the assembler's
   compiled sources, and the banner gains `closure:`, `closure-revision:` and `closure-paths:`.
   **`build.sh`'s guard is safe by construction** — since `4b43bdda` it matches *positively*
   against clean and reads every unrecognised state word as dirty, which is exactly the case
   `clean-sources` would otherwise have silenced. Expect the new fields rather than meeting them.
+  **⚠ CONFIRMED IN THE WILD 2026-08-27, AND RECORD IT AS A NEAR-MISS RATHER THAN A SUCCESS.** The
+  banner now reads `clean-sources at capture — 1 uncommitted change(s), none of them in the
+  sources this binary is compiled from`, the guard takes its unrecognised arm, and `build.sh`
+  prints `(revision+dirty)` — over-warning, the direction chosen. **But the SEQUENCING was luck.**
+  The guard fix landed hours before the word that would have silenced the old `dirty*` prefix
+  test. **Had the order been reversed the warning would simply have gone quiet, and nothing would
+  have announced it** — a fail-open created by a peer's ordinary, well-intentioned field addition,
+  invisible to both lanes. *(The sigil lane insisted on this framing against this lane's first
+  wording, which had called it a success. A fix that arrives before its trigger by accident is a
+  near-miss; treating it as a win teaches the wrong lesson about why it held.)*
   **The ledger tooling is also changing:** `--freeze`/`--attest` will validate prose BEFORE the
   write, escape quotes rather than refuse them, and use temp-and-rename. **Retire this lane's
   temporary pre-parse of the `ab = "…"` line only after a freeze has actually RUN through the new
