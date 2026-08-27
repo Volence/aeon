@@ -10687,3 +10687,41 @@ Zero-release-byte proof, direct rather than inferred: in `s4.lst` all three of
 `Debug_CharacterHotkey`, `Debug_SceneCycleHotkey` and `Debug_Warp_Consume` resolve to the SAME
 address (`$A44EE`), which is what convsym dedupes in the deb2 appendix. `Game_RAM_End` reads
 `$FFFFE50E` in the debug shape both before and after, because the cursor took the pad byte.
+
+## The 512-px background has a HEIGHT×DEPTH budget, and nothing checks it (found 2026-08-26, owner's question)
+
+**The rule, derived from the shipped formula rather than measured at one point:** the BG plane is
+512 px and `bg_scroll = ((camY - v_center_y) >> v_factor_bg) + v_offset`, so a 512-px-tall
+background can cover an act of **at most `512 << v_factor_bg`** pixels. Act height and parallax
+depth are therefore not independent — 512 px buys a fixed budget and you spend it on one or the
+other:
+
+| v_factor | BG moves | max act height |
+|---|---|---|
+| 2 | 1/4  |  2,048 px |
+| 3 | 1/8  |  4,096 px |
+| 4 | 1/16 |  8,192 px |
+| 5 | 1/32 | 16,384 px |
+
+OJZ act 1 is **6,144 px** (GRID_H 3 × 2048) running **v_factor 3**, whose ceiling is 4,096 — so it
+is **2,048 px past the limit** and needs 740 px of art against a 512-px plane. That is why the wrap
+is STRUCTURAL and not an anchoring mistake: re-anchoring moves the seam from the top of the act to
+the bottom and cannot remove it. Owner decision d-31 carries the three ways out.
+
+**The durable half is that this will recur silently every time.** The owner's own framing
+(2026-08-26): *"we're probably gonna shoot for bgs at 512px when this size will always be over it
+right?"* — correct for any act taller than `512 << factor`. Nothing in the build says so. The
+symptom is a seam somebody notices by eye months later, and the number that would have explained
+it is available at BUILD time from two constants that already exist in the tree.
+
+**Proposed guard (not yet built): a comptime `ensure` pairing each act's height with each scene's
+`v_factor_bg`** — roughly `ensure(((GRID_H << SECTION_SIZE_SHIFT) - SCREEN_HEIGHT) >> v_factor_bg
+<= PLANE_B_SPAN, ...)`, naming the act, the scene, the required span and the ceiling. Derive both
+sides from the existing constants (`GRID_H`, `SECTION_SIZE_SHIFT`, `PLANE_B_SPAN` — all already
+declared and already `ensure`d elsewhere), never from a measured pin. Must be poison-tested by
+raising GRID_H or lowering the factor. Note the 18 locked scenes (`v_factor 15`) are exempt by
+construction and the guard must not fire on them.
+
+**Second, smaller gap found alongside it:** nothing CLAMPS the scroll value either, so a scene
+whose numbers leave the range wraps with no signal at all. A clamp would turn a bad config into
+the background visibly sticking rather than tearing. Independent of which d-31 option is chosen.
