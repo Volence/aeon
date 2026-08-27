@@ -10779,3 +10779,28 @@ construction and the guard must not fire on them.
 **Second, smaller gap found alongside it:** nothing CLAMPS the scroll value either, so a scene
 whose numbers leave the range wraps with no signal at all. A clamp would turn a bad config into
 the background visibly sticking rather than tearing. Independent of which d-31 option is chosen.
+
+## Red-first poison over a `.py` tool can report FALSE GREEN via stale `__pycache__` (found 2026-08-26)
+
+**Instance, in the parcel that found it:** the Knuckles/insta-shield SFX agent's first red-first
+pass reported **four false greens**. Its mutations were minimal and surgical — each preserved the
+file's byte length — and landed in the same second as the original. CPython validates cached
+bytecode on source **size + mtime-to-the-second**, so a same-size edit inside the same second is
+indistinguishable from no edit, and the unmutated module is served from `.pyc`. The guard was
+never removed; the harness reported that removing it changed nothing.
+
+**Why this is booked rather than left as a tooling footnote:** it fails in the PERMISSIVE
+direction and produces the full shape of success — mutation applied, test run, test passed — so
+it reads as *"this guard is not load-bearing"* rather than *"nothing was tested"*. Red-first is
+the single discipline the review bars lean on hardest (bar 2), and this defeats it precisely when
+the operator is being careful, since a minimal same-length mutation is what a disciplined poison
+pass produces.
+
+**Operational form, for every poison pass over a Python tool in this tree:** run with
+`PYTHONDONTWRITEBYTECODE=1` and clear `__pycache__` between cases; better, make the mutation
+CHANGE THE FILE'S LENGTH, which is self-validating and survives someone forgetting the flag.
+
+**Standing exposure:** every `tools/test_*.py` gate whose red-first proof was taken with a
+same-length mutation is, strictly, unproven. Not a claim that any of them is vacuous — a claim
+that their proofs did not establish what they were taken to establish, and re-running one costs
+a single command.
