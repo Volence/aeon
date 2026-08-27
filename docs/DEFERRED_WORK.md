@@ -10875,3 +10875,112 @@ HScroll value the plane is drawn at versus the column index the fill starts from
 load the committed state, sample the same five columns, and confirm the two-wide screen-pinned
 band before changing a constant. The failure is quiet and a plausible-looking off-by-one could
 "fix" the sample while moving the seam somewhere less visible.
+
+### DERIVATION FROM SOURCE, 2026-08-27 — THE FILL WINDOW IS NOT SHORT. The booked mechanism is REFUTED.
+
+Reproduction obligation discharged by derivation, not by the emulator (this lane has no
+emulator). The question asked was the exact one the booking poses: at `Camera_X = 195`, which
+plane-A columns does the fill actually write, and which does the display actually show?
+
+**The arithmetic.** Write `cam = Camera_X >> 3` (the column holding screen x = 0) and
+`f = Camera_X & 7` (the sub-tile fraction). At `Camera_X = 195`: `cam = 24`, `f = 3`.
+
+| quantity | expression in source | at Camera_X=195 | camera-relative |
+|---|---|---|---|
+| viewport's near column | — | 24 | `cam` |
+| viewport's far column | `(Camera_X + 319) >> 3` | 64 | `cam + 40` |
+| `Section_UpdateColumns` LEFT target | `Camera_X >> 3` (`section.emp` `.left` block) | 24 | `cam + 0` |
+| `Section_UpdateColumns` RIGHT target | `(Camera_X + 327) >> 3` | 65 | `cam + 41` |
+| right wrap clamp | `(Camera_X >> 3) + 63` | 87 | `cam + 63` |
+| `Cache_Left_Col` (steady state) | `cam - TILE_CACHE_MARGIN_H` | 4 | `cam - 20` |
+| `Cache_Head_Col` (steady state) | `min(cam+41+20, Cache_Left_Col+79)` | 83 | `cam + 59` |
+
+**The left edge of the fill window IS the viewport origin.** `Section_UpdateColumns`'s left
+target is `Camera_X >> 3` with nothing subtracted, nothing masked, and no block quantisation
+anywhere on that path (`.left_cache_ok` only raises it toward `Cache_Left_Col`, which sits 20
+columns further left; `.left_wrap_ok` only raises it toward `cam - 22`). `Tile_Cache_Fill`'s
+left target is the same expression less the margin. **There is no 16-px block in the horizontal
+fill path at all** — `BLOCK_TILE_SIZE` is 16 *tiles* (a 128-px chunk), not 16 px; the only 16-px
+grain in `engine/level/` is the collision cell, which `Cache_Top_Row`'s evenness serves and
+which never touches column selection. So the booking's "the region the fill covers begins ~16 px
+right of where the viewport begins" has no term in the source that could produce it.
+
+**The plane-wrap / twin question is also clean, and by a derivable margin.** `Draw_TileRow_
+FromCache` picks, for each nametable column, the world column in `[R-63, R]` with
+`R = Section_Right_Col_Written`; the leftmost visible column `cam` gets the CORRECT twin rather
+than the wrap twin `cam+64` exactly while `R <= cam + 63`. The wrap clamp pins `R <= cam+63`
+and the reach only ever asks for `cam+41`, so there are **22 columns of slack** on the property
+the booking suspected. That slack is now machine-checked — see the guards below.
+
+**Reconciliation with the controller's twelve-position negative (`docs/research/2026-08-27-fg-
+left-edge-reproduction.md`, master 69e5a407 + d10d79f6).** The two results agree and are the
+same fact seen from two ends: a fill-window margin defect is camera-INDEPENDENT, the source
+contains no such margin, and twelve sampled camera positions show no such symptom. Neither is
+evidence about the owner's state; both are evidence against the mechanism booked for it.
+
+**What the derivation DID turn up, and it is not the reported bug.** `Draw_TileRow_FromCache`'s
+source window `[R-63, R]` extends to `cam-22`, while `Cache_Left_Col` is `cam-20`. Two world
+columns of every streamed ROW are therefore sourced from outside the cache and emit a stale
+physical-column word — and that is DELIBERATE (the routine's own banner prices it against a
+per-cell zero-write on the grounds that those columns are never visible). The derivation
+confirms the grounds: those cells land at nametable columns `(cam+42)&63` and `(cam+43)&63`,
+i.e. **two and three columns past the last visible column** `cam+40`, and the right-edge column
+streaming rewrites them with real content before the camera can bring them into view. It is a
+correct design with two columns of slack, not a defect — but the slack was undocumented, which
+is how the booking's "exactly two columns" intuition found a real 2 and put it on the wrong edge.
+
+**GUARDS LANDED** (`engine/system/constants.emp`, byte-neutral — s4.debug crc `9f9c0126`
+unchanged across the change, which is itself the proof that `327 == SCREEN_WIDTH+7` and
+`231 == SCREEN_HEIGHT+7`). The four hand-copied reach literals in `section.emp` (3) and
+`tile_cache.emp` (2) are now `SECTION_H_REACH_PX` / `SECTION_V_REACH_PX`, and six `ensure`s hold
+them against the viewport and the plane ring: (1) the reach covers the viewport's last
+partially-visible column/row, (2) the reach cannot lap the plane ring (the wrap-clamp property
+above), (3) the tile cache can span margin + reach + the camera's own column. All three families
+proven red with length-changing mutations (guard 1: reach 127 px → "16 cols … does not cover 40";
+guard 2: reach 519 px → "reaches 65 columns … ring is only 64 cells wide"; guard 3:
+`TILE_CACHE_MARGIN_H` 40 → "TILE_CACHE_COLS (80) cannot span the left margin (40) plus …").
+The near edge deliberately has NO constant — an absent margin term cannot be asserted, only
+documented, and the constants block says so at the point a future edit would add one.
+
+### THE OPEN LEAD THIS REPLACES IT WITH: plane A's leftmost 16 px under per-column V-scroll. UNCONFIRMED — one memory read settles it.
+
+The measured cells fit a **V-scroll = 0** render of the leftmost 16-px VDP column, and the fit is
+derived rather than tuned. `Vscroll_Write`'s own banner (`engine/level/parallax.emp`) documents
+the silicon: with per-column V-scroll on (VDP reg $0B bit 2), the leftmost partial column — the
+sliver before HScroll's first 16-px boundary — renders at V-scroll 0 regardless of VSRAM[0].
+**The banner analyses this as a Plane B problem only.** It is worse on Plane A: plane A's HScroll
+is HARD-LOCKED to `-Camera_X` (same file, `.band_loop`), so it is a multiple of 16 in one camera
+position out of sixteen and the partial column essentially always exists.
+
+Working the owner's numbers: `Camera_Y = 429` → `Section_Bottom_Row_Written = (429+231)>>3 = 82`,
+so the plane ring holds world rows `[19, 82]` and nametable row `r` holds world row `r+64` for
+`r <= 18` and `r` for `r >= 19`. A column rendered at V-scroll 0 shows nametable row `y>>3`
+directly, so it is OPAQUE (world rows 64…82, ground and below) for screen `y <= 151` and
+TRANSPARENT (world rows 19…27, open sky at that world position) for screen `y >= 152`.
+**The measured table's transition is exactly there** — x=0/x=8 carry content at y=104 and y=136
+and are transparent at y=152, 168, 176, 184. The "solid above, empty below" shape that no
+horizontal mechanism explains naturally falls out of the ring wrap for free.
+
+Standing against it: the controller found the two columns clean at twelve camera positions,
+including a warp to the owner's own player coordinates, which a live static VDP artifact should
+have shown. So either the config carrying the column table was not installed on those routes, or
+the fit is a coincidence. `Game.SCANLINE_CAPS` = $005E DECLARES `CAP_PER_COL_VSRAM` ($0002) and
+six registered scenes attach a column table (`Rocking_Slow/Rocking/Rocking_Fast`,
+`Perspective_Subtle/Perspective/Perspective_Dramatic`) — so the in-code claims in
+`parallax.emp` that "No config attaches a column table, so VDP reg $0B bit 2 is never set and
+the test is dead" (two sites: `.update_mode`, `Vscroll_Write`) are **STALE AND WRONG for this
+game**, independent of whether they explain this bug. That correction is owed either way.
+
+**THE DISCRIMINATOR, one read on the owner's loaded state:** read `VDP_Shadow_Table +
+VDP_MODE3_OFF` (or VDP reg $0B). **Bit 2 SET → per-column V-scroll is live → this mechanism is
+confirmed** and the fix is the `left_column_mask` policy extended to plane A (the existing
+`Factor0Lock` arm reasons about plane B's HScroll and cannot save plane A). **Bit 2 CLEAR →
+refuted**, and the next question is what else could render 16 screen-pinned pixels of plane A at
+a V-scroll the program never wrote. Second, sharper check if bit 2 is set: sample screen y=144
+in the bad columns — this model predicts it OPAQUE (nametable row 18 → world row 82) and y=152
+TRANSPARENT, and the boundary must MOVE with `Camera_Y` as `8 * ((((Camera_Y+231)>>3) & 63) + 1)`.
+
+**STILL OPEN / BLOCKED:** no fix landed for the owner's symptom, deliberately. The booked
+mechanism is refuted by derivation and by the controller's negative; the replacement mechanism
+is a hypothesis with an exact one-read discriminator that this lane cannot run. Fixing on the
+hypothesis alone would be the precise failure mode the booking warned about.

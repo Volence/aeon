@@ -8,6 +8,7 @@ module engine.section in section
 use engine.constants.{SECTION_SIZE_SHIFT, PLANE_H_CELLS, VRAM_PLANE_B_BYTES, MAX_ACT_SECTIONS}
 use engine.constants.{TILE_CACHE_COLS, TILE_CACHE_ROWS, TILE_CACHE_STRIDE, TILE_CACHE_NT_SIZE}
 use engine.constants.{VRAM_PLANE_A, PLANE_V_CELLS, PLANE_BUFFER_SIZE, VDP_DATA, VDP_CTRL}
+use engine.constants.{SECTION_H_REACH_PX, SECTION_V_REACH_PX}
 use engine.structs.{Act, Sec, Act_grid_w_lo, Act_grid_h_lo}
 use engine.vdp.{VdpTarget, VdpOp, vdp_comm, vdp_comm_reg}
 use engine.z80_bus.{z80_stopped}
@@ -499,8 +500,8 @@ pub proc Section_UpdateColumns () clobbers(d0-d7/a0-a3/a5-a6) {
 
         // -------- right side --------
         move.w  d6, d7
-        addi.w  #327, d7
-        lsr.w   #3, d7                          // d7 = right_needed world col
+        addi.w  #SECTION_H_REACH_PX, d7
+        lsr.w   #3, d7                          // d7 = right_needed world col (= last visible col + 1)
 
         // clamp to act boundary
         movea.l Current_Act_Ptr, a0
@@ -571,7 +572,7 @@ pub proc Section_UpdateColumns () clobbers(d0-d7/a0-a3/a5-a6) {
     .left_cache_ok:
         // clamp to VDP plane wrap: min left = visible_right_world - 63
         move.w  d6, d0
-        addi.w  #327, d0                        // visible_right_px = Camera_X + screen−1
+        addi.w  #SECTION_H_REACH_PX, d0        // visible_right_px = Camera_X + screen−1, rounded up one tile
         lsr.w   #3, d0
         subi.w  #63, d0                         // min left = visible_right − 63 VDP cells
         cmp.w   d0, d7
@@ -614,7 +615,7 @@ pub proc Section_UpdateColumns () clobbers(d0-d7/a0-a3/a5-a6) {
         move.l  Camera_Y, d6
         swap    d6
         move.w  d6, d7
-        addi.w  #231, d7                        // 224 + 7
+        addi.w  #SECTION_V_REACH_PX, d7        // SCREEN_HEIGHT + 7
         lsr.w   #3, d7                          // d7 = bottom_needed world row
 
         // clamp to cache bounds
