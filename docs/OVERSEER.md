@@ -48,6 +48,30 @@ rulings live in the session memory and the most recent `docs/superpowers/*handof
   2026-08-27): every paired refreeze clears the full strict suite before push, whoever
   lands it.** It is one suite run on top of a landing this lane is already doing, and
   it is not a courtesy — it is the run that should have happened at 169 and 170.
+- **NEVER LEAVE A SHARED CHECKOUT ON A PRIVATE BRANCH — a repoint silently invalidates
+  every other session's already-correct branch check** (added 2026-08-27; this lane's defect,
+  disclosed by the sigil lane who bore the cost). Landing chain 172, this overseer committed the
+  paired freeze in sigil's **shared main checkout**, switching it from `master` to
+  `parcel/band-ceiling-16-pair` and leaving it there. Four minutes later the sigil lane committed
+  a lane-log entry onto that branch. They repaired it (cherry-picked to master, `reset --hard`
+  back), disclosed it unprompted, and asked to be verified rather than trusted — verified here,
+  content and not just SHAs, since `reset --hard` on someone else's branch is precisely what
+  could destroy a freeze while leaving the SHA looking right.
+  **Their branch check did not fail — it was INVALIDATED RETROACTIVELY.** They had verified the
+  branch at boot and no event on their side could have told them it moved, because this lane
+  moved it. That is the shape worth keeping: **repointing a shared checkout changes what
+  `git commit` means for every session using it, silently and after the fact.** Framing it as
+  the committer's carelessness lets the real defect escape, and the party who can prevent it
+  most cheaply is the one repointing, not the one committing.
+  **Two correctives at opposite ends, both live:** the committer verifies the branch **in the
+  same command that commits**, never at boot (sigil's, and it is the one that protects you
+  against a peer doing this to you); and **this lane does freeze work in a dedicated worktree,
+  leaving the shared checkout on `master`** — done, `/home/volence/sonic_hacks/.sigil-pair-172`.
+  This repo's own protocol already says worktrees are why a shared main tree never matters;
+  committing in the shared tree is the one act that makes it matter again.
+  *Blast radius was bounded by the exact-path staging rule even with the branch check defeated —
+  their commit touched only their own lane-log — which is evidence that rule earns its keep
+  beyond the reason it was written for.*
 - One byte-mover per branch. Serialize refreezes. When any session is live-editing
   content in the main tree, build + freeze from a CLEAN CHECKOUT of the merge SHA.
   **The clean checkout must be threaded through ALL THREE legs explicitly** (lived
