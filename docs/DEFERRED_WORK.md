@@ -10609,6 +10609,18 @@ reader can ever meet a contradiction in. So, in his own words, aeon overseer ses
 
 > Let's do the increase bands to 16 for scenes
 
+**RULED 2026-08-27 BY THE HUB UNDER THE OWNER'S OVERNIGHT DELEGATION — and cite it as the
+hub's ruling, NOT as his words.** The owner went to bed having delegated decisions he would
+normally take ("if anything needs decision that they can't make you make it for them",
+transcribed at empyrean `091ac59`). The hub ruled the reading below CORRECT: "bands" means
+`MAX_PARALLAX_BANDS`, the scene-layer ceiling; `BGANIM_MAX_BANDS` stays 4. Grounds given:
+"for scenes" names the scene DSL, and 16 is the MGZ2 layer count. **If he corrects it on
+return, both halves revert** — this repo's raise and empyrean's schema bump. Recorded as a
+delegated ruling rather than as owner intent precisely because the distinction is the thing
+that lets it be cheaply reversed: an interpretation ratified by a delegate is still an
+interpretation, and writing it down as "the owner decided" would erase the only marker
+saying it is safe to overturn.
+
 **That is the whole utterance, and the interpretation is this lane's, not his.** He said
 "bands ... for scenes"; this lane read it as `MAX_PARALLAX_BANDS`, the scene-layer ceiling,
 rather than as `BGANIM_MAX_BANDS` (= 4, the animated BG strips per act, `engine/system/constants.emp`),
