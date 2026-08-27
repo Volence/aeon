@@ -3731,47 +3731,110 @@ A1 (SFX steal silence-gap). Everything else below is the durable backlog so noth
   banking then recovered to $1618 / 216 free, and later phases spent it back to 10 free (2026-07-01);
   the 2026-07-02 budget phase recovered ~790 B and ended at **$175A / $18F0 → $196 (406) free,
   DEBUG=1** after spending on fidelity + portamento — see F1/F5.)
-- **B5 — `smpsPSGform $E7` tone-FREQUENCY-TRACKED noise sweep** (refinement; the fixed-rate fix is done — see
-  `docs/BUGS.md` BUG-003). The dash `$B6` (and any `smpsPSGform $E7` SFX) is now correctly rerouted to the
-  NOISE channel, but plays a FIXED white-noise rate (`$E6`, clk/2048). S&K's `$E7` is white noise whose shift
-  rate TRACKS PSG3's tone frequency — so as the channel's tone sweeps (its `smpsModSet`), the noise pitch
-  descends (a "pshhew"). Reproducing it needs the engine to drive PSG3's frequency register as the noise clock
-  + apply the modulation to it, with the audio on the noise channel — either (a) a `Psg_Noise` `$E7` path that
-  writes PSG3's freq from the note+mod, or (b) the transcoder splitting the source channel into a silenced
-  tone-clock (PSG3) + a noise channel (the engine + hardware then sync via the `$E7` track bit). Option (b) is
-  engine-change-free but adds a 3rd SFX channel + needs the clock pinned to PSG3 (no voice substitution). The
-  fixed-rate noise is the right character; the descending sweep is the nuance. Re-evaluate by ear.
-  *(Status check 2026-07-01: STILL OPEN for SFX — `tools/sfx_transcode.py` still emits the fixed `$E6`
-  approximation. Note the MUSIC path has since shipped tone-tracked noise — `MEV_PSGNOISE` clocks rate-3
-  noise from tone-2, S3K-faithful, HCZ2 hi-hats — so the engine mechanism for option (a) now part-exists.)*
+- ~~**B5 — `smpsPSGform $E7` tone-FREQUENCY-TRACKED noise sweep**~~ **DONE 2026-08-26
+  (`parcel/sfx-noise-tracked`)** — engine-side, at a resident cost of **MINUS ONE BYTE**.
+  S&K's `$E7` is white noise whose shift rate TRACKS PSG3's tone frequency, so a channel's
+  `smpsModSet` makes the noise pitch DESCEND (the "pshhew"). Three shipped SFX are `$E7`
+  sources — `$B6` dash, `$42` insta-shield, `$7E` ground slide — and all three played the
+  v1 approximation: a FIXED white rate (`$E6`, clk/2048) with the sweep dropped.
+  The fix is the `Psg_Noise` + `Psg_ApplyMod` **route-shape change** the entry recommended,
+  but it lands in a different place and costs nothing:
 
-  > **STILL OPEN after package 4 (2026-08-10) — the plan's own Step-2B fallback was taken, deliberately.**
-  > Package 4's Task 6 required answering, first, whether the shipped music mechanism REACHES SFX. It does
-  > not: `Psg_Noise` branches on `Snd_ChanClass` and the rate-3 tone-2 clock (`Psg_EmitNoiseClock`) lives
-  > ONLY on the MUSIC arm; the SFX arm is the legacy `$E0 | (note & 7)` path with no `$C0` write. The plan
-  > sanctioned the fallback if un-gating cost more than ~12 B. Costed, it is far more than that — THREE
-  > coupled changes, not one:
-  >
-  > 1. **The SFX channel cannot carry a noise-mode byte.** S3K's `$E7` semantics need the note to be a
-  >    PITCH plus a cached mode/rate, but `sc_noise_mode` (+57) ALIASES `SfxChannel.sx_priority`, and
-  >    `_validate_no_aliasing_ops` rejects `MEV_PSGNOISE` on SFX for exactly that reason. The shared prefix
-  >    may not grow (standing sound-banking invariant), so the carrier would have to be a new `sx_kind`
-  >    value (+63, SFX-private) plus a tone-clock branch in `Psg_Noise`'s SFX arm — ~18 B before sharing,
-  >    ~11 B net if the `SCF_KEYED`/`Psg_EnvCursorReset` prologue is hoisted out of both arms first.
-  > 2. **The sweep itself is broken on the noise route.** The dash's descent is a `smpsModSet`, and
-  >    `Psg_ApplyMod` re-latches through `Psg_EmitDivisor` -> `Psg_ChBase`, which for `CHROUTE_PSGN`
-  >    computes latch `$80|$60` = `$E0` — the NOISE CONTROL register. That is precisely the **D1**
-  >    corruption this same package just closed producer-side. A tone-clocked noise SFX therefore ALSO
-  >    needs a noise-route special case in `Psg_ApplyMod` that writes tone-3's frequency latch (`$C0`),
-  >    plus a carve-out in the brand-new D1 rule so the sweep is legal on exactly that channel shape.
-  > 3. Only then does the transcoder change (drop the `$E6` approximation, emit pitch notes + the `$E7`
-  >    kind) become meaningful.
-  >
-  > Estimated ≳ 40 B resident plus a re-plumb of the D1 rule — well past the ceiling, and it re-opens a
-  > corruption path the same session closed. **Recommendation: give B5 its own scoped parcel** (it is a
-  > `Psg_Noise` + `Psg_ApplyMod` route-shape change, not a transcoder tweak), and sequence it AFTER any
-  > log-domain pitch work (triage R3), which changes how modulation reaches the divisor anyway. The
-  > fixed-rate `$E6` character remains correct; only the descending nuance is missing.
+  1. **`Psg_EmitDivisor` picks its latch base per route.** On `CHROUTE_PSGN` the old
+     `Psg_ChBase` math gave `$80|$60` = `$E0`, the NOISE CONTROL register — the D1
+     corruption. In rate-3 mode the SN76489 clocks the LFSR from tone 3, so tone-3's freq
+     latch (`$C0`) IS that channel's pitch register. Selecting it there fixes BOTH callers
+     at once: **`Psg_ApplyMod` falls into `Psg_EmitDivisor`, so the per-frame sweep needed
+     no noise case of its own** (the entry costed one), and `Psg_NoteOn`'s base +
+     portamento re-latches land on the noise clock too. **+9 B.**
+  2. **`Psg_Noise`'s SFX arm collapses to `ld a,b / jp Psg_NoteOn`.** Because (1) makes
+     `Psg_NoteOn` correct on the noise route, the SFX arm needs no code of its own:
+     `Psg_NoteOn` latches `sc_base_freq`, arms `Mod_ReArm` and tails into
+     `Psg_SetVolume`'s `$F0` noise branch. The pre-B5 arm read the note's low 3 bits AS
+     the mode/rate; **nothing can produce that encoding** (every `smpsPSGform` in
+     skdisasm — 36 SFX + 33 music — is `$E7`, and no S3K SFX declares a `cNoise`
+     channel), so it is deleted. **-17 B.**
+  3. **`Seq_Op_PsgNoise` branches on `Snd_ChanClass`.** The entry's costed carrier — a new
+     SFX-private `sx_kind` value at +63 — turned out **unnecessary**. The MEV_PSGNOISE
+     hazard was never the opcode, it was the STORE `ld (ix+sc_noise_mode), a`, which
+     through an `SfxChannel`'s ix hits `sx_priority` (+57). The SFX arm simply does not
+     do that store, and never needs the byte: the rate-3 per-note gate is MUSIC-only (an
+     SFX noise note is always a pitch now) and `Sfx_Restore` re-arms from the MUSIC
+     channel's own `sc_noise_mode`. **+7 B.**
+
+  Net **-1 B** in both shapes (blob 6164 → 6163 plain, 6294 → 6293 debug).
+  `Z80_SOUND_SIZE` is UNCHANGED at 6164/6294 — `boot_data`'s in-bracket `align 2` absorbs
+  the odd byte — so headroom below `SND_STATE_BASE` stays **220 B (plain) / 90 B (DEBUG)**.
+  The 2026-08-10 estimate of "≳ 40 B resident plus a re-plumb of the D1 rule" was wrong in
+  both directions: the cost is negative, and the D1 corruption path is closed **at its
+  source** rather than routed around.
+
+  Producer side (`tools/sfx_transcode.py`): a `smpsPSGform` channel now emits
+  `MEV_PSGNOISE` + real pitch notes + the source's `ModSet`. **Exactly one carve-out per
+  rule**, each keyed on the narrowest safe property — `_validate_no_aliasing_ops` admits
+  `MEV_PSGNOISE` on `CHROUTE_PSGN` only (never on another SFX route, where it would reset
+  the LFSR and silence tone 3 behind whatever owns them; `MEV_DETUNE` gets none), and
+  `_validate_no_modset_on_noise` admits a `ModSet` on the noise route only when the SAME
+  channel carries a **rate-3** `MEV_PSGNOISE` (a preset rate `$E4-$E6` does not clock from
+  tone 3, so the `$C0` write is inert and a sweep would move a register nothing reads).
+  `song_packer`'s music-side `ModSet.validate` stays ABSOLUTE. A preset-rate `smpsPSGform`
+  is now a loud `TranscodeError`, not a silent half-conversion.
+
+  The shipped pin `TestPsgFormNoise::test_note_is_noise_mode_not_tone` asserted BOTH
+  halves of the approximation. **Ruled and REPLACED, not deleted:** three tests now assert
+  the opposite of each half. 10 gates added / 1 removed, all 9 poison cases red-first with
+  length-changing mutations. Suite 1442 passed / 8 skipped / 49 subtests, all four build
+  shapes green.
+
+  > **The sequencing advice in the old entry ("sequence AFTER log-domain pitch work,
+  > triage R3") was over-cautious and is now moot.** The modulation path was not rewritten
+  > and did not need to be — `Mod_Advance` returns a 16-bit word and the only thing this
+  > parcel changed is which LATCH that word is written to.
+
+  **OPEN riders from this parcel:**
+  - **Blob-length re-pin owed (controller, cross-repo).** sigil's `BLOB_LEN_PLAIN` /
+    `BLOB_LEN_DEBUG` (`crates/sigil-harness/src/seam1.rs:36,~40`) still expect 6164/6294;
+    the shapes are now 6163/6293. Every build in this parcel ran with
+    `SIGIL_BLOB_LEN_DRIFT=warn`, the same way package 4 did. The **`Z80_SOUND_SIZE` mirrors
+    do NOT move** (the align pad absorbs it), so this is a 2-constant edit plus a sigil
+    release rebuild. NOT done here: the shared `sigil` binary is one commit stale
+    (`c8e87ecb`, HEAD `174f4300`) and rebuilding it would change the assembler under every
+    other parallel lane.
+  - **LISTENING CHECK owed (foreground, controller).** This parcel CANNOT be finished by
+    ear from a background agent and was not attempted. Fire each SFX and listen for a
+    DESCENDING/rising noise pitch rather than a flat hiss:
+    - **`$B6` dash** — release a charged spindash (`player_spindash.emp:148`). The PSG
+      component should "pshhew" DOWNWARD over ~79 ticks under the FM "duh". Source sweep
+      is `smpsModSet $01,$02,$05,$FF` on a `nE6` base.
+    - **`$42` insta-shield** — the double-jump attack (`player_instashield.emp:186`). Two
+      pitches (`nCs6` 4 ticks, then `nE5` 16) with the sweep armed on the SECOND. Also
+      listen for the new `$10` header transpose (see the rider below).
+    - **`$7E` ground slide** — Knuckles' glide landing slide (`player_glide.emp:577`).
+      `nMaxPSG2` then `nG6`, sweep `$01,$01,$01,$01`.
+    - **Regression:** every OTHER PSG SFX (ring `$33`/`$34`, skid `$36`, jump `$62`, roll
+      `$3C`, spindash rev `$AB`) — their blobs are byte-identical, but `Psg_EmitDivisor`
+      is on their path, so confirm no pitch change. And check the plain shape as well as
+      DEBUG; plain-shape SFX regressions have bitten this lane before.
+  - **Tone-3 collateral while a rate-3 noise SFX runs.** `Seq_Op_PsgNoise`'s SFX arm writes
+    `$DF` (tone-3 volume silent) exactly as the music arm does, and the SFX then sweeps
+    tone-3's FREQUENCY. If music has a live PSG3 tone it goes silent for the SFX's
+    duration and is only restored by its own next note (`Sfx_Restore`'s noise arm restores
+    the music NOISE channel, whose route is what the SFX owned — it does not know about
+    tone 3). This is intrinsic to rate-3 noise on the SN76489 and S3K has the same
+    constraint (its `$E7` SFX are authored on `cPSG3` and steal that voice outright), but
+    OUR allocation gives the SFX `CHROUTE_PSGN` and leaves PSG3 nominally free. Not
+    reachable in the canonical shapes (they carry no music); re-evaluate against
+    `sigil build --native --config-a` if a song is ever authored with a PSG3 tone.
+  - **`$42` insta-shield now applies its `$10` header transpose.** The v1 note was a baked
+    mode byte, so the channel transpose was inert; the pitch is now real and the transcoder
+    bakes transpose into it (`pack_sfx` emits no transpose, so there is no double
+    application). Faithful to S3K, but it is a +16-semitone change to how that sound reads.
+  - **`SND_PSG_NOISE_CLOCK` could not be a named constant.** sigil's seam-1 carries a
+    HARD-CODED per-module const-name allowlist (`seam1.rs`, `psg_const_names()`), so a new
+    `pub const` in `sound_constants.emp` is invisible to `sound_psg.emp` and lowers as an
+    unresolved LABEL (`[lower.z80-unsupported] a symbolic operand is only supported as the
+    16-bit immediate of ld rr, Label`). Both users spell the literal `$C0` with a comment.
+    Naming it needs a paired sigil change. Noted beside `SND_PSG_NOISE_VOL`.
 
 #### C. DAC sample path — ✅ largely RESOLVED by the DAC-format revision (2026-06-25)
 *(The "ONE format revision" this block asked for SHIPPED as the DAC drum phase — see
@@ -3804,6 +3867,22 @@ The multi-sample descriptor table, per-sample banking, and the one-shot state ma
   Spec: music-expr format-validity §(d)4. **Deliberately a BACKSTOP, not a re-shape, on the SFX side:** the
   parser already DROPS `smpsModSet` when it reroutes a channel to noise and a shipped test pins that drop, so
   erroring at the emission point would reject real S3K sources we do not control.
+  **RE-SCOPED 2026-08-26 by B5 — read this before touching either validator.** The
+  corruption is now closed AT ITS SOURCE, not routed around: `Psg_EmitDivisor` picks its
+  latch base per route, so on `CHROUTE_PSGN` a swept word lands on tone-3's frequency
+  latch (`$C0`, the rate-3 noise CLOCK), never on `$E0`. Consequences:
+  (a) the runtime route gate this entry once wanted at the `Psg_ApplyMod` call site would
+  now be **the bug** — that sweep is S3K's `$E7` "pshhew" and three shipped SFX depend on
+  it; (b) the MUSIC rule stays ABSOLUTE (`song_packer`'s `ModSet.validate` still refuses
+  `CHROUTE_PSGN` outright — a music noise channel never latches `sc_base_freq`, so a sweep
+  there would walk from a stale base); (c) the SFX rule has **exactly one carve-out**:
+  `_validate_no_modset_on_noise` admits a `ModSet` on the noise route only when the SAME
+  channel carries a `MEV_PSGNOISE` whose rate bits are 3. A preset rate (`$E4-$E6`) does
+  not clock from tone 3, so the `$C0` write is inert there and a sweep would move a
+  register nothing reads — still refused; (d) the parser's `smpsModSet` DROP on a rerouted
+  noise channel is GONE (it WAS the v1 approximation), so this validator is now the only
+  producer-side gate on the shape — load-bearing, not belt-and-braces. The pinned test
+  that asserted the drop was ruled on and replaced, not deleted.
 - ~~**D2** note before any set-duration reloads from a zeroed `sc_dur_default` → 255-tick stuck note
   (`sound_sequencer.asm` 536; init `sc_dur_default` to 1).~~ **✅ DONE — verified 2026-08-05.**
   The seed-to-1 the entry prescribes is in place at **both** init sites:
@@ -5405,7 +5484,10 @@ Package 4 (`plans/2026-07-03-sound-correctness-batch.md`) EXECUTED. Closed:
 producer rule), **B3** (AM-enable bit lands on YM bit 7), **E5-runtime**
 (RegDelta group 6 = `$90` SSG-EG, +1 B). Ride-along: **triage R1**, the DAC DRAIN
 underrun guard (24 T / 6 B, zero net cycles). **B5 took the plan's own Step-2B
-fallback** — see the costed finding on the B5 entry itself. Verification pass on
+fallback** — see the costed finding on the B5 entry itself. *(Superseded
+2026-08-26: B5 is DONE, and the package-4 costing that justified the fallback was
+wrong in both directions — the fix is byte-NEGATIVE and needed no new `sx_kind`
+carrier. The corrected accounting is on the B5 entry.)* Verification pass on
 the plan's "already fixed" list: D2/D3/D5 confirmed done, F4 three-quarters done
 and re-classified, F3 NOT closed (two thirds still unconfirmed).
 
@@ -5417,6 +5499,10 @@ Open items this execution creates or leaves:
 - **Blob length re-pin owed (controller).** Every package-4 build ran with
   `SIGIL_BLOB_LEN_DRIFT=warn`; `BLOB_LEN_PLAIN` / `BLOB_LEN_DEBUG` and the
   `Z80_SOUND_SIZE` mirrors still expect the pre-Task-0 6255/6381.
+  *(Update 2026-08-26: the sigil pins were re-pinned to 6164/6294 at some point after
+  this was written, and the `Z80_SOUND_SIZE` mirrors are fine. B5 moves them again —
+  the shapes are now 6163/6293 and `Z80_SOUND_SIZE` does NOT move. Same owed action,
+  new numbers; see the B5 entry.)*
 - **Oracle gates owed (controller, foreground).** (a) **D4** — force the
   spindash-rev SFX after several rev pings and confirm the PSG component's divisor
   writes now RISE with rev, as the FM component already did. (b) **R1** — if the
