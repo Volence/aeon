@@ -163,9 +163,16 @@ rulings live in the session memory and the most recent `docs/superpowers/*handof
   **⚠ QUOTE THE REVISION, NOT THE WHOLE BANNER — one half of it is a stuck constant** (caught
   by the sigil lane within the hour of this rule being written; verified firsthand here).
   `build.sh` prints `Assembler: sigil <rev> (<tree>)`, and that parenthesised `tree` field
-  currently reads **`dirty at capture — 0 modified, 1 untracked`** on every invocation. The one
-  untracked file is `docs/lane-status.json` — untracked **by design in every lane**, read by no
-  build, permanently present. So the word `dirty` sits beside every CRC this repo quotes and
+  reads **`dirty at capture — 0 modified, 1 untracked`** on every invocation. The one untracked
+  file was `docs/lane-status.json` — read by no build, incapable of moving a byte.
+  **⚠ STATUS AS OF 2026-08-27: the CAUSE is fixed and the SYMPTOM is not, and the difference
+  matters to a reader.** sigil gitignored that file at their `e5bd4a4f` (verified reachable at
+  their `origin/master` here, and `.gitignore:13` confirmed in the blob), so their tree is
+  genuinely clean now. But `tree:` is a **build-time snapshot** — cargo has no trigger for
+  uncommitted state — so **the banner keeps reporting `-dirty` until the binary is relinked.**
+  It has therefore moved from *stuck* to *stale*, which is a different defect with the same
+  reading: still do not quote it, but expect it to start telling the truth after the next
+  sigil rebuild rather than after a fix landing. So the word `dirty` sits beside every CRC this repo quotes and
   **cannot vary**, which makes it exactly the thing this file has spent the night naming: a
   field that reads as a signal and is a constant. The discriminating half is inside the same
   string (`0 modified` vs `N modified`); the summary word is what over-warns, which is the
