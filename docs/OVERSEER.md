@@ -401,6 +401,22 @@ ASSERTION, and a reap in a `finally` with PR_SET_PDEATHSIG behind it.
   root: the real diff adds **exactly one** `results.append` (the scene-not-resolvable error path)
   and removes no registration, so **the original conclusion holds and its evidence did not** —
   bar 10 on one's own evidence, and bar 16(d) with `cd` as the manufacturing mechanism.
+  **THE REMEDY IS `:(top)` AND IT BELONGS IN ANYTHING SCRIPTED** (sigil's, reproduced in their
+  repo, verified firsthand here from both cwds): `git diff --stat A B -- ':(top)tools/x.py'`
+  returns the same correct answer from the repo root and from `tools/`, where the bare pathspec
+  returns 0 from `tools/`. **Prefer it in every script**, because a script cannot know where it
+  will be invoked from — the interactive case at least has a human who might notice.
+  **Why this is nastier than the suppression cases, stated so nobody files it as a git
+  footnote:** with `2>/dev/null` or the `eza` alias something is destroyed or something errors,
+  so there is a missing artifact to be suspicious of. Here **nothing is suppressed, nothing
+  errors, the command is correct, the shell is correct, the revisions are correct**, and only
+  the composition of two path conventions is wrong. And the tell that was nearly missed
+  generalises past git entirely: **the conclusion being checked happened to be TRUE, so the
+  empty diff confirmed a prior.** An empty result that agrees with what you already believe is
+  the hardest case there is — there is no dissonance to trigger a second look. It was caught
+  only because blob hashes from an unrelated command sat on screen contradicting it, i.e. bar
+  19's changed-parameter mechanism firing **by accident rather than by intent**, which is
+  precisely what bar 21 says will keep happening until someone invokes it deliberately.
   **(b) `len(results)` is RUNTIME-VARIABLE BY DESIGN, so `OK — N gates` was never capable of
   being a witness.** Read the scene loop: each scene appends a determinism row, and
   `if not ok: continue` **skips the shape row**. So a scene emits **2 rows when it passes and 1
