@@ -79,6 +79,7 @@ Usage:
 import argparse
 import asyncio
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -154,8 +155,42 @@ CFG_V_FACTOR_FG     = 28    # pcfg_v_factor_fg           u8   (was 2; RESERVED, 
 CFG_PAD_29          = 29    # pcfg_pad_29                u8   (even-size pad)
 CFG_SIZE            = 30    # sizeof(parallax_config)
 
-# engine/system/constants.emp:602,606
-MAX_PARALLAX_BANDS = 8
+# READ FROM THE ENGINE, NOT TYPED. This sizes the three Parallax_Shadow_* reads below,
+# so a stale value here does not fail — it reads the wrong NUMBER OF BANDS out of a live
+# emulator and derives a shadow view against them. It was the literal 8 until 2026-08-27,
+# when MAX_PARALLAX_BANDS went to 16 and it would have silently measured half the view.
+def _emp_const(rel, name):
+    txt = (Path(__file__).resolve().parent.parent / rel).read_text()
+    m = re.search(rf"^\s*(?:pub\s+)?const\s+{re.escape(name)}\s*=\s*(\$[0-9A-Fa-f]+|\d+)",
+                  txt, re.M)
+    if not m:
+        raise SystemExit(f"parallax_hscroll_probe: cannot find `const {name}` in {rel} — "
+                         "the shadow-view arity is derived from it and a guess would "
+                         "mis-size every band read")
+    v = m.group(1)
+    return int(v[1:], 16) if v.startswith("$") else int(v)
+
+
+MAX_PARALLAX_BANDS = _emp_const("engine/system/constants.emp", "MAX_PARALLAX_BANDS")
+# THE SHADOW ARRAY'S STRIDE IS band_record, NOT band_entry, AND THEY ARE NOT THE SAME
+# NUMBER. BE_SIZE above is the 10-byte LEGACY PREFIX, which is the right size for reading
+# a band's fields (the prefix sits at the start of every record) and the WRONG size for
+# stepping to the next one: `Parallax_Shadow_Bands` reserves
+# `(BAND_ENTRY_LEN + BAND_EXT_BYTES + BAND_CURVE_BYTES) * MAX_PARALLAX_BANDS`, and this
+# game declares CAP_FACTOR_CURVE, so the live stride is 20. Striding by 10 reads every
+# band from index 1 on out of the middle of the previous record.
+#
+# FOUND 2026-08-27 in this probe's sibling, tools/left_col_mask_probe.py, where the same
+# mistake produced 15 claim failures against a correct ROM — all at band >= 1, because
+# band 0 is the one index a wrong stride cannot corrupt, which is exactly what made it
+# look plausible for so long. Derived from ram.emp's three mirrors rather than from
+# `band_record`, whose `(size: <expression>)` is over capability constants.
+SHADOW_STRIDE = (_emp_const("engine/ram.emp", "BAND_ENTRY_LEN")
+                 + _emp_const("engine/ram.emp", "BAND_EXT_BYTES")
+                 + _emp_const("engine/ram.emp", "BAND_CURVE_BYTES"))
+assert SHADOW_STRIDE >= BE_SIZE, (
+    "derived shadow stride %d is smaller than sizeof(band_entry) %d — ram.emp's mirrors "
+    "and parallax.emp's struct disagree" % (SHADOW_STRIDE, BE_SIZE))
 ANCHOR_NONE        = 0xFF
 NO_DEFORM          = 15     # the shift sentinel: this plane takes no deform on this band
 
@@ -615,7 +650,8 @@ async def sample_state(b, sym, rom: bytes, frozen=True):
             else:
                 tab_bg = t
 
-    shadow_raw = await _read(b, sym["Parallax_Shadow_Bands"], BE_SIZE * MAX_PARALLAX_BANDS)
+    shadow_raw = await _read(b, sym["Parallax_Shadow_Bands"],
+                             SHADOW_STRIDE * MAX_PARALLAX_BANDS)
     shadow_a = await _words(b, sym["Parallax_Shadow_Scroll_A"], MAX_PARALLAX_BANDS)
     shadow_b = await _words(b, sym["Parallax_Shadow_Scroll_B"], MAX_PARALLAX_BANDS)
     hs = await _read(b, sym["Hscroll_Buffer"], HSCROLL_BYTES)
@@ -636,7 +672,8 @@ def stage_a(st):
     bad = []
     raw = st["shadow_raw"]
     for i in range(sh.n):
-        got = raw[i * BE_SIZE:(i + 1) * BE_SIZE]
+        # Step by the RECORD, read the legacy PREFIX: the two are different lengths.
+        got = raw[i * SHADOW_STRIDE:i * SHADOW_STRIDE + BE_SIZE]
         # THE TOP IS A WORD AND THE OTHER THREE ARE BYTES (P3 Task 7). Comparing the top
         # byte-wise would read its always-zero high half against `want & 0xFF` and pass for
         # every top in 0..224 — a check that cannot fail is worse than no check.

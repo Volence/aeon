@@ -168,7 +168,7 @@ class TestBandCountCoverage(unittest.TestCase):
 
     def test_no_shape_exceeds_the_engine_ceiling(self):
         """The other direction, and the reason an anchored 8-band scene is NOT a case
-        for a ninth shape: an anchored scene SPLITS a layer at runtime and so needs
+        for one shape PAST the ceiling: an anchored scene SPLITS a layer at runtime and so needs
         count+1 shadow entries (scene_dsl.emp:1062). `Parallax_Shadow_Bands` is sized
         for MAX_PARALLAX_BANDS entries, so that refusal is a real engine limit. A
         `SceneCfg9` added to route around it would emit a record the shadow view cannot

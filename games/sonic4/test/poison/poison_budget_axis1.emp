@@ -32,7 +32,7 @@
 //
 // ---- WHY THIS POISON USES THE `Scene{ .. }` BACK DOOR, AND WHY THAT IS THE HONEST SHAPE ----
 //
-// `scene()` caps `count` at MAX_PARALLAX_BANDS (8), so NO scene built through the
+// `scene()` caps `count` at MAX_PARALLAX_BANDS, so NO scene built through the
 // constructor can reach 94 — and at 8 bands the worst possible constructor scene (both
 // planes sampling at shift 14, a curve layer, V-deform, anchored, every worst-case charge
 // stacked) costs 67549.93 cyc against the 103743 budget, i.e. 65%. THAT IS A REAL PROPERTY
@@ -54,7 +54,7 @@
 // which is what "every poison must perturb the SUBJECT and name the specific mismatch"
 // requires.
 //
-// ---- WHY THE LAYER ARRAY IS EIGHT ELEMENTS WHILE sc_count SAYS 93/94 ----
+// ---- WHY THE LAYER ARRAY IS MAX_PARALLAX_BANDS ELEMENTS WHILE sc_count SAYS 93/94 ----
 //
 // `sc_layers` is a fixed `[SceneLayer; 16]`; the count is a separate field, which is exactly
 // how the back door produces an inconsistent value in the first place. Nothing in the axis-1

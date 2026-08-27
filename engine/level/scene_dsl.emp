@@ -2384,7 +2384,7 @@ pub comptime fn scene_hdr(s: Scene) -> parallax_config {
 // instead of at the camera, and Step 4a's whole per-frame job is the subtraction of the
 // two. Folding it at comptime rather than at runtime is deliberate: v_factor/v_center/
 // v_offset are scene constants, so a runtime mapping would recompute an invariant up to
-// eight times a frame to reach the same number.
+// MAX_PARALLAX_BANDS times a frame to reach the same number.
 //
 // WHY THIS IS A DIFFERENT MAPPING FROM THE ANCHOR'S, WHICH IS ALSO ACT-SPACE AND ALSO
 // LANDS ON A SCREEN LINE. `Effects_LatchWorldLines` maps `Effects_World_Y[ch]` to a
