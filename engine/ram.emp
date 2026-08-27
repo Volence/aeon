@@ -1125,6 +1125,26 @@ pub vars upper_ram {
         Replay_Check_Log:       [u8; 256 * 8],               // 256 × (Logic_Tick u32, hash u32) pairs
     }
 
+    // --- Sprite ownership map (engine/objects/sprites.emp, DEBUG only) ---
+    // Entry i = the SST address WORD of the object that emitted SAT entry i this
+    // frame. Sentinels: $0000 = none / unknown, $0001 = ring (DrawRings), $0002 =
+    // X=0 mask sprite (InsertSpriteMasks). Lets the emulator join a clicked
+    // hardware sprite back to the object that drew it (SPRITE-OWNER, DEFERRED_WORK).
+    // Sized FROM MAX_VDP_SPRITES — one entry per SAT slot, by construction.
+    //
+    // Placed at the RAM TAIL, AFTER the replay block, and @shape_divergent
+    // (size-varying group — REQUIRED by the region lowerer, [vars.shape-divergent]):
+    // the DEBUG-shape addition ripples ZERO existing engine-RAM addresses (not even
+    // the replay ring's) — only Engine_RAM_End and the game RAM chained after it
+    // move, and only in the DEBUG shape, which is already shape-divergent.
+    // DEVIATION FROM THE BOOKING, deliberate: it asked for this "beside
+    // Sprites_Rendered", which would have slid every engine-RAM field below the
+    // sprite block in the DEBUG shape for no gain — Genesis RAM has no locality
+    // cost and the array is reached through a single `lea` held in a6.
+    if DEBUG == 1 @shape_divergent {
+        Sprite_Owner:           [u16; MAX_VDP_SPRITES],  // 160 B today (80 slots)
+    }
+
     // Engine RAM ends here — game RAM continues from Engine_RAM_End
     // (games/<game>/config/ram.emp declares `game_ram @ after(upper_ram)`).
     mark Engine_RAM_End,
