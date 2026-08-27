@@ -229,7 +229,34 @@ rulings live in the session memory and the most recent `docs/superpowers/*handof
   never missing — only the decision about what it means. That reframes `GOLDEN-DIRTY-BANNER` from
   "measure more" to "decide correctly about what is already measured", which is both a smaller
   change and one that stays entirely on sigil's side of this contract.*
-  **Recorded as this lane's half of a bar-19 POSITIVE CONTROL, which is the rarer artifact.**
+  **⚠ RETRACTED 2026-08-27, AND THE RETRACTION IS WORTH MORE THAN THE CLAIM WAS — READ THIS
+  BEFORE THE PARAGRAPH BELOW.** This was banked as a bar-19 positive control. **The conclusion
+  it certified is FALSE**, refuted by the sigil lane's classifier agent (their `2b26419c`), which
+  measured what neither derivation had: the banner's `N modified, M untracked` discriminates
+  **tracked-vs-untracked**, which is a different axis from **material-vs-immaterial**. The very
+  case that motivated the item — the noise in sigil's own `OVERSEER.md` — is a *modified tracked*
+  file, i.e. the bucket any "decide better from the counts" rule must call material; and
+  `1 modified` is equally consistent with a docs edit. The `where` was never in the string. The
+  revision half fails the same way: one SHA cannot say which of 19 commits reach the binary.
+  **What survives, and it SHARPENS bar 19 rather than weakening it: the bar's test PASSED and the
+  answer was still wrong.** The enumeration parameters genuinely differed (quoting discipline
+  here, classifier design there), neither lane raised it before writing it down, and the
+  convergence was real. **So independent derivation raises CONFIDENCE and does not establish
+  TRUTH.** Two sound methods applied to the same *unmeasured* question converge on the same
+  plausible answer and supply no new evidence, while feeling exactly like corroboration. The
+  shared defect was not a shared frame in bar 8's sense — it was a **shared untested premise**
+  (that the discriminating information was in the string), and **neither derivation had performed
+  the one cheap refuting act**: compare the string against the failing case.
+  **Operational form, adopted here as well as there:** corroboration moves a claim from *guess*
+  to *worth measuring*, never from *guess* to *established*. On any convergence, ask **what
+  measurement would refute this, and did either derivation perform it** — and if the answer is
+  no, the agreement is a hypothesis with two authors.
+  *Kept in full rather than deleted, so the wrong reasoning stays legible beside what refuted it.
+  Note also the cost the sigil lane booked against their own item: the mid-build relink incident
+  was caught ONLY by the banner shifting `(dirty)` → `(revision+dirty)`, so a quieter banner must
+  never later be read as that hazard being closed.*
+
+  ~~**Recorded as this lane's half of a bar-19 POSITIVE CONTROL, which is the rarer artifact.**~~
   Both lanes reached that reframe independently and by different enumeration parameters — this
   lane from **quoting discipline** (which components of a provenance line can move, and on whose
   clock), sigil from **classifier design** (what data the fix actually needs) — with neither
