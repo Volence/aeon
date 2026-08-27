@@ -986,6 +986,25 @@ path, for the same reason the protocol is read that way.
 
 ## Aeon-specific review bars (beyond the protocol's)
 
+- **FINDING THE MACHINERY IS NOT FINDING IT RUN — shared-protocol bar 16 (name / presence /
+  behaviour) arriving on a CODE PATH** (added 2026-08-27; this lane's over-claim, named by the
+  sigil lane). Tracing why one `embed()` in `engine/system/math.emp` resolves when the resolver's
+  boundary check says it should not, this lane found a **per-module `embed_base` override** in
+  sigil's `resolve/mod.rs` — real code, with a comment naming the exact puzzle — and reported it
+  as *the mechanism you could not locate*. **It is a mechanism. Nothing established that it is
+  the one that fires**: `embed_base_for` is a caller-supplied closure, and every caller either
+  lane could find is **module-INDEPENDENT** (`&|_| opts.embed_base.clone()`, `move |_id|
+  Some(aeon_root.clone())`), so on the ROM path the override may be present and never exercised.
+  **The presence of a code path that WOULD explain a behaviour is not evidence that it DID.**
+  It reads as an explanation because it is specific, it is real, and it is exactly the shape the
+  question was looking for — which is precisely the trap: a plausible mechanism found while
+  hunting for one is the hardest kind to hold at arm's length.
+  **The corrective is the same as bar 16's everywhere else — convert it to behaviour**: find the
+  invocation, not the definition; check the closure that is actually passed, not the parameter it
+  is passed to. *(Recorded with its useful half intact: the find still moved the question from
+  "I cannot locate the mechanism" to "does any caller on this path supply a non-constant closure",
+  which is a sharper and differently-shaped question. Narrowing is worth reporting. Reporting it
+  as closure is not.)*
 - **HOLDING A RULE AND APPLYING IT TO YOUR OWN OUTPUT ARE SEPARATE ACTS — and the gap between
   them is measured in MINUTES, not days** (added 2026-08-27; the formulation is the sigil lane's,
   the instance count is mostly this lane's). This is the frame that explains why almost every
