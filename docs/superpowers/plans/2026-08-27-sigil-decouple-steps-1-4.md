@@ -53,9 +53,19 @@ omits, and I read it as a statement about the build. **Shared-protocol bar 11 ex
 lines AROUND a cited line before accepting what it proves.** I did this while the day's running
 theme was that precise failure, and propagated it to two lanes before checking.
 **So step 2 may be COMPLETE.** Anchors and order: asserted by `validate_placement` every build.
-The BG-anim ceiling: asserted by `bganim_room --gate` every canonical build. **What remains is
-whether "room guarantees" plural covers more than the BG-anim ceiling — that is an open question,
-not a known gap, and it must be established by enumeration rather than by either lane's memory.**
+**ENUMERATED 2026-08-27, and step 2 IS COMPLETE.** Three room guarantees exist and all three
+are gated:
+1. **`BGANIM_SECTION_CEILINGS`** — the ruled 12,288 B animation budget. Gated by
+   `bganim_room.py --gate` at `build.sh:664`, both canonical shapes.
+2. **`DATA_GROWTH_RESERVE`** (0x4000, two 8 KB bands) — the room under the `dac_banks` anchor.
+   Gated by **the same** invocation: `map.toml:211` — *"it FAILS naming the new anchor when the
+   room under `dac_banks` drops below `DATA_GROWTH_RESERVE`"*.
+3. **The object-bank window** (64 KB). Gated sigil-side by `native_object_bank_budget.rs`,
+   observed passing in this chain's own attest log (`object bank used = 0x2314 / 0x10000`).
+**Enumeration method, stated so the limit is visible: searched `room|reserve|guarantee|_CEILING`
+across `tools/`, `map.toml`, `engine/` and `config/`.** That is ONE spelling axis — a guarantee
+phrased in none of those words would not appear. **Three found and all enforced, NOT proof there
+are exactly three.** Given the day's record, treat it as a floor.
 
 ~~So step 2's remainder is `bganim_room` — the ROOM gate — and nothing else that either lane can
 measure today. Not *order + anchors + gate*, not *anchors + gate*. **Gate only.**~~ The residual
