@@ -410,6 +410,21 @@ fails if its handshake is accepted — run 2026-08-26, assertion fired.
   `tools/engine_baseline_probe.py`, `tools/streaming_choke_probe.py`.
 - Subagents NEVER touch emulator MCP tools (deadlock); headless bus scripts are the
   sanctioned instrument everywhere.
+- **The MCP shim's `emulator_status` now prefixes a BANNER text block before the JSON when the
+  served ROM does not verify against `romPath` (stale, missing, or cannot-tell)** — oracle-old
+  `58b6f81`, relayed by the hub 2026-08-27 from oracle-03, picked up at the next tool start. A
+  reader that takes `content[0]` and parses it as JSON breaks **exactly when the ROM is stale**,
+  i.e. in the one state the banner exists to announce.
+  **Measured here, so the next session does not re-derive it: this lane's tools are structurally
+  unexposed.** Zero hits for `content[0]` / `"content"` anywhere in `tools/` (positive control:
+  12 files match `aether_instance|jsonrpc`, so the grep was live), and the seam
+  `tools/aether_instance.py` reaches the emulator through `from aether import BusClient` — a
+  direct bus client, **not the MCP shim**. The exposure is to an INTERACTIVE session calling
+  `mcp__oracle__emulator_status` by hand, which reads the blocks as text anyway.
+  **Re-check this if a tool is ever written against the MCP shim rather than the bus** — the
+  hub flagged us as the lane most likely to trip it because we rebuild `s4.bin` many times a
+  night, and that reasoning is sound about our REBUILD RATE while being wrong about our
+  TRANSPORT. Read the last block, never the first, if it ever applies.
 
 ## ⚠ THE AUTO-COMMIT DAEMON IS DEAD — stage the editor tree normally (2026-08-22)
 
@@ -673,6 +688,42 @@ deferring to "something else owns this", confirm the something else exists.
   one-directional version cannot pass: **prove it red at a ceiling moved DOWN as well as up.**
   A derived fixture tracks the constant in both directions; a re-authored one tracks it in
   neither.
+- **ENUMERATE A CONSTANT POPULATION BY ITS GENERATOR, NEVER BY ITS SPELLING — AND A VALUE
+  SPELLED AS A SYMBOL LOOKS MORE DERIVED THAN A LITERAL, NOT LESS** (added 2026-08-27; the
+  finding and the whole method are the sigil lane's, from their OFFCANON-ROT parcel; **relayed
+  here from mail and NOT verified firsthand in their tree** — treat the mechanism as theirs to
+  certify and re-ground it before citing it onward).
+  Their sweep for stale off-canonical lengths reported three; it was **four**. The miss was
+  spelled `assembled_len: pins::ASSEMBLED_LEN` — a wrong value wearing a symbol — and the
+  original sweep could not see it because that sweep enumerated large hex **literals**. A second
+  drifted for 28 days after being *correct when typed*, with nothing able to say so.
+  **The transferable half is NOT "also grep for symbols", and this lane proposed exactly that
+  wrong generalisation before being corrected.** Spelling was irrelevant to how it was actually
+  found: every value was **recomputed from its own generator and diffed against the checked-in
+  artifact**, so the symbol-spelled one got recomputed like the literals and could not hide. A
+  sweep for "constants that look pinned rather than computed" has to guess what that looks
+  like, and the point of the finding is that **it does not look like anything.**
+  **Operational form:** enumerate the population from the TOOLS that write it — every value some
+  generator emits into a checked-in artifact — recompute each, and diff. The blind spot becomes
+  "a value no generator produces", which is small and nameable, instead of "a value spelled in a
+  way I did not anticipate", which is neither. In sigil that population was three tools writing
+  the same ROM address into three artifacts; **this repo's equivalent is any address or length a
+  generator writes and a human also transcribes**, and finding that set is the sweep.
+  **Price the result honestly, per row** (their own caveat, volunteered against their own gate
+  after their agent overstated it and corrected itself): recomputation makes every value
+  checked, but the COMPARISONS differ in kind. Where two tools independently produce the value,
+  it is a second witness; where one artifact holds a **copy** of another taken at freeze time,
+  the comparison is **temporal, not independent** — it catches a half-done landing, which is
+  worth catching, and is not corroboration. Do not report such a gate as "N independent
+  witnesses"; say which rows are independent and which are temporal.
+  **The complementary parameter, if you want corroboration rather than a copy of their sweep**
+  (bar 19: the parameter must differ, and a second sweep that is a worse version of the first
+  varies nothing): they enumerated by **generator** — what WRITES the value. Enumerate by
+  **consumer** — what READS it and would notice it being wrong. Their fourth value had **no
+  reader at all**, its only consumer an `unwrap_or` fallback made unreachable by a loud error
+  elsewhere, which is precisely why it drifted silently. A consumer-side sweep finds the class
+  *values nothing would notice being wrong*; the two sets are not supersets of each other.
+
 - **PROSE BOUNDS ARE A POPULATION THE "IS IT DERIVED?" SWEEP DOES NOT REACH** (added
   2026-08-27; same source). After a sweep across every code consumer, one literal `8` survived
   in an agent-facing tool **description string**. Help text, `argparse` descriptions, docstrings,
