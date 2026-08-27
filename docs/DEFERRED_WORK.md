@@ -1991,6 +1991,49 @@ conditional move; shifts cost 2 cycles/bit): sign-mask ~68 cyc, `Scc`+merge
 (S.C.E. clamps in memory, twice — we have ONE site because `PState_AirShared`
 is shared). Best remaining win is 2 cycles by inverting the branch; not worth it.
 
+### Replay net owes a RE-STAMP for the fall cap — OPEN, needs a foreground emulator run — 2026-08-27
+**Why it is open and not done:** re-stamping runs `replay_runner`, a headless
+emulator, and the parcel that moved the cap was a background lane forbidden to
+touch one. This entry exists so the debt is visible rather than discovered by a
+red `test.sh` §8.
+
+**What the net will say.** `Replay_Hash` hashes `x_pos/y_pos/x_vel/y_vel` every 64
+ticks, so any tick on which the fall clamp actually BINDS changes that checkpoint
+and every checkpoint after it. The clamp binds only after a long unbroken fall, and
+the two builds are bit-identical until it does — which makes the affected set
+derivable from the input streams without running anything:
+- `PHYS_GRAVITY` is `$38` = 56 per frame, so the OLD `$1000` cap first bound on
+  frame `ceil(4096/56)` = 74 of unbroken free fall and the NEW cap first binds on
+  frame `ceil(3840/56)` = 69. **The two ROMs can only diverge from the 69th
+  consecutive gravity frame onward** (~513 px of fall). A replay whose longest
+  airborne stretch is shorter than that is provably unaffected.
+- **`ojz_slide_fixture` WILL move.** Its last two runs are `$10` ×3 — `BUTTON_B`,
+  the debug free-fly toggle — followed by `$00` (no input) ×454. That is free-fly
+  switched off at altitude and then 454 ticks of unobstructed plunge, six times the
+  threshold. Expect the checkpoints from the first ring boundary at or after tick
+  1965 (i.e. tick 1984) to the end to move, and check tick 1920 too.
+- **`ojz_fixture` is predicted NOT to move.** Its longest airborne stretch is a jump
+  arc: `PHYS_JUMP_FORCE` `$680` = 1664 subpixels, so ~30 frames to apex and a
+  symmetric descent back to launch height ending near `y_vel` 1664 — far under
+  either cap, and nowhere near 69 frames. **Predicted, not measured.** A run is what
+  settles it, and if it DOES move that is a finding: it would mean there is a drop
+  in that stream nobody has accounted for.
+
+**Recipe (`docs/superpowers/plans/2026-08-13-replay-net-restamp.md` is the runbook).**
+`replay_runner --restamp` finds every stale checkpoint in ONE pass, is a dry run
+until given `--out`, and then re-runs the re-stamped image clean plus the negative
+control before emitting anything. Use it, never `replay_pack.py` — repacking loses
+the `BUTTON_C` spindash ticks that `ojz_fixture` needs and that the oracle driver
+cannot press, which is why re-RECORDING is impossible and re-STAMPING is the only
+move. A pure re-stamp rewrites hash payloads only, so the fixture length and
+`EndOfRom` do not move and **no sigil repin is needed for it**. Afterwards
+`tools/test_replay_fixture.py` must still be green — its size assertions are exactly
+the tripwire that tells a legitimate re-stamp from an accidental re-record.
+
+**Coupling:** the `SLOPE-SYMMETRY` queue row also owes a re-stamp. Landing both
+before either re-stamp saves a pass but destroys the ability to attribute a moved
+checkpoint to one change or the other.
+
 ### §5 Deferred Items — Player/Character Follow-Up Work — 2026-06-14 (updated 2026-06-15)
 **Status:** §5 (player-system branch) shipped Sonic-only, physics-first, on OJZ
 with real collision, the full sensor layer, ground/air/roll/spindash, the loop,
