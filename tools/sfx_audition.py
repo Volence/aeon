@@ -106,7 +106,11 @@ def main():
     ap.add_argument("sounds", nargs="*", help="names (see --list) or numeric ids like 0x42")
     ap.add_argument("--socket", default=DEFAULT_SOCKET)
     ap.add_argument("--lst", default=DEFAULT_LST)
-    ap.add_argument("--gap", type=float, default=1.2, help="seconds between sounds")
+    ap.add_argument("--gap", type=float, default=1.2, help="seconds between different sounds")
+    ap.add_argument("--repeat", type=int, default=1,
+                    help="fire each sound this many times, at --every-frames spacing")
+    ap.add_argument("--every-frames", type=int, default=8,
+                    help="frames between repeats (8 = the ground slide's own S3K cadence)")
     ap.add_argument("--list", action="store_true")
     args = ap.parse_args()
 
@@ -140,9 +144,24 @@ def main():
         was_running = bool(st.get("running"))
         if not was_running:
             print("note: the machine is PAUSED — resume it or you will hear nothing")
+        # A CADENCE SOUND JUDGED FROM ONE SHOT IS THE WRONG TEST. $7E fires from
+        # Slide_Terrain on S3K's `Frame_Counter+1 & 7` cadence — every 8 frames, ~7.5×/s —
+        # so in play it is a continuous scrape, not the single scrape a one-shot audition
+        # gives you. Spacing is wall-clock (frames / 60), which is an APPROXIMATION of the
+        # engine's frame cadence, not the engine's own timer: each post pauses and resumes
+        # the machine, so expect jitter. It is much closer to the real thing than one shot,
+        # and it is not the real thing.
+        period = args.every_frames / 60.0
         for name, i in ids:
-            slot = await post(c, sym, i, was_running)
-            print(f"  posted 0x{i:02X} ({name}) into ring slot {slot}")
+            for n in range(args.repeat):
+                slot = await post(c, sym, i, was_running)
+                if args.repeat == 1:
+                    print(f"  posted 0x{i:02X} ({name}) into ring slot {slot}")
+                elif n == 0:
+                    print(f"  posting 0x{i:02X} ({name}) ×{args.repeat} every "
+                          f"{args.every_frames} frames (~{period*1000:.0f} ms, wall-clock)")
+                if n + 1 < args.repeat:
+                    time.sleep(period)
             if len(ids) > 1:
                 time.sleep(args.gap)
 
