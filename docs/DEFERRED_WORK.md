@@ -10845,7 +10845,33 @@ LEADING-EDGE column count when the camera moves left. The shape of the symptom �
 columns, at the edge the camera advances into — is the shape of an off-by-one in how many columns
 a fill covers, or of a fill margin that is one column short of the viewport.
 
-**Cheap discriminator nobody has run yet:** step the camera by a few pixels and re-capture. If the
-bad columns hold a fixed WORLD position, the plane content is wrong (a bad fill). If they hold a
-fixed SCREEN position, the fill index or the HScroll is wrong. One capture pair settles it and
-neither reading requires understanding the fill code first.
+**DISCRIMINATOR RUN, 2026-08-26 — the answer is SCREEN-FIXED, which kills the stale-world-content
+reading.** Ground-row occupancy of the first five columns, stepping the camera:
+
+```
+camera_X=195   x=0 '....'   x=8 '....'   x=16 '.###'   x=24 '####'   x=32 '.###'
+camera_X=199   x=0 '....'   x=8 '....'   x=16 '.###'   x=24 '####'   x=32 '####'
+camera_X=210   x=0 '....'   x=8 '....'   x=16 '.###'   x=24 '.###'   x=32 '####'
+camera_X=227   x=0 '....'   x=8 '....'   x=16 '.###'   x=24 '####'   x=32 '####'
+```
+
+Across 32 px of camera travel — four whole tile columns — the occupancy at x=16/24/32 **changes**
+as world content scrolls through, while **x=0 and x=8 stay empty at every position.** A defect
+that held a world position would have marched leftward and off the screen within those 32 px.
+
+**So the affected band is two columns wide and pinned to the LEFT EDGE OF THE VIEWPORT**, which
+makes this a fill-window margin problem rather than bad or stale content: the region the fill
+covers begins ~16 px right of where the viewport begins, so the first two columns are never
+written and show whatever the ring last left there (which is why the owner sees a detached sliver
+of terrain rather than clean black — his capture shows grass and trunk at the far left, separated
+from the main ground by a gap).
+
+**That narrows the hunt to a boundary constant, not a logic bug:** in `Tile_Cache_Fill` /
+`Section_UpdateColumns`, the left margin of the fill window against the viewport origin, or the
+HScroll value the plane is drawn at versus the column index the fill starts from. Two columns is
+16 px is exactly one 16-px block, which is a suspicious quantity in a block-addressed fill.
+
+**Do not fix it from this description alone — reproduce it first**, which is now cheap and exact:
+load the committed state, sample the same five columns, and confirm the two-wide screen-pinned
+band before changing a constant. The failure is quiet and a plausible-looking off-by-one could
+"fix" the sample while moving the seam somewhere less visible.
