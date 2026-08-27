@@ -407,6 +407,16 @@ deferring to "something else owns this", confirm the something else exists.
 
 ## Aeon-specific review bars (beyond the protocol's)
 
+- **PROPOSED TO THE HUB 2026-08-27 (sigil endorsing): a green log and an absent run are the
+  same artifact.** *"The check was weaker than we thought"* and *"the check never ran"*
+  produce identical evidence — a green log with nothing in it about the subject. This is the
+  absence surface (shared bar 16d) arriving on a **positive** artifact instead of an empty
+  command output, which is what makes it harder: 16d trains suspicion of emptiness, and this
+  hands you a full page of passes. Instance and correctives are in the landing-lane stanza
+  above. **Status: proposed, not ratified — do not cite it as a shared bar until the hub lands
+  it.** Recorded here because a position that lives only in mail does not survive a `/clear`.
+
+
 - **Cross-repo claims verify against the described repo AT AUTHORING TIME, citing the SHA
   verified at** — now the shared protocol's rule too (empyrean `00334b6`, 2026-08-22), with
   this repo's effects-schema arc as its precedent, so put it in agent briefs that survey a
