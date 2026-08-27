@@ -66,7 +66,7 @@ Key rules that are easy to forget:
 - `struct (size: N)` for ALL data structures — no manual `const`/`equ` chains (AS `struct`/`endstruct` is residual `.asm` only)
 - `region`/`vars` for RAM layout — compiler catches overflow (AS `phase`/`dephase` is residual `.asm` only)
 - PascalCase for routines and global variables, ALL_CAPS for constants, .lowercase for locals
-- No `mulu`/`divu` — use shifts, adds, or lookup tables
+- No `mulu`/`divu` **casually** — shifts, adds, and lookup tables are the default, and `mul_const`/`mul_bounded` pick between them for you. A hardware multiply or divide is allowed only with the four-point argument in `CODING_CONVENTIONS.md` §2.1 written at the instruction (divisor non-zero structurally · quotient cannot overflow · alternative named and rejected · cost and executions per frame). Nothing lints this — the comment is the enforcement
 - No unstopped Z80 during VDP access
 
 ## Architecture

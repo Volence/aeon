@@ -282,14 +282,42 @@ These are hard rules, not guidelines. The 68000 at 7.67 MHz has no margin for sl
 
 | Slow | Fast | Savings |
 |------|------|---------|
-| `mulu #8, d0` (70 cycles) | `lsl.w #3, d0` (12 cycles) | 58 cycles |
-| `mulu #10, d0` (70 cycles) | `move.w d0,d1; lsl.w #2,d0; add.w d1,d0; add.w d1,d0` (20 cycles) | 50 cycles |
-| `divu #4, d0` (140 cycles) | `lsr.w #2, d0` (10 cycles) | 130 cycles |
-| `mulu` for table index | Lookup table or shift | 50-130 cycles |
+| `mulu.w #8, d0` (44 cycles) | `lsl.w #3, d0` (12 cycles) | 32 cycles |
+| `mulu.w #10, d0` (46 cycles) | `move.w d0,d1; lsl.w #2,d0; add.w d1,d0; add.w d1,d0` (22 cycles) | 24 cycles |
+| `divu.w #4, d0` (≤144 cycles) | `lsr.w #2, d0` (10 cycles) | ≥134 cycles |
+| `mulu.w` for table index (≤70 cycles) | Lookup table or shift (8-22 cycles) | up to ~60 cycles |
+| `divs.w Dn, Dn` (≤158 cycles) | No general shift form — this is the priciest instruction the engine ships, and the form its two blessed divides use | — |
 
-**Rule:** No `mulu`/`muls`/`divu`/`divs` in any code that runs per-frame. Use shifts, adds, or lookup tables. The ONLY exception is code that runs once (level load, init).
+**Exact vs ceiling — the distinction matters when you cost an alternative.** `MULU.W` is `38 + 2n` where `n` is the number of set bits in the source, so a **known immediate prices exactly** (`#8` → one bit → `38 + 2 + 4` fetch = 44) while a **register** source can only be bounded (`≤ 70`). `MULS.W` is bounded at 70 regardless — the transition count is not modelled. `DIVU.W` (`≤ 140`) and `DIVS.W` (`≤ 158`) are data-dependent and have no exact form. Numbers above carry `≤` exactly where the form is data-dependent; these agree with sigil's cost table (the `sigil` repo, `crates/sigil-isa/src/m68k_cycles.rs`), which is the authority the `mul_const`/`mul_bounded` election below prices against. Where the engine budgets worst frames it compares ceiling against ceiling — but do not quote a ceiling as if it were the cost of a specific immediate.
 
-**Technique — shift-add fraction decomposition.** Any fractional scaling `p/q` where `q` is a power of 2 reduces to ≤2 shift-add operations. The supported set: `0`, `1`, `1/q`, `(q-1)/q`, `3/q`, `5/q` for q in {1, 2, 4, 8, 16, 32, ...}. Examples:
+**Rule: never casually — and where one is right, prove it at the site.**
+
+`mulu`/`muls`/`divu`/`divs` are not banned; they are **unbudgeted until argued**. Reach for shifts, adds, and lookup tables first, and expect to land there nearly every time. Where the hardware instruction is genuinely the right answer, the cost of using it is a comment **at the instruction** carrying all four of:
+
+1. **The divisor is non-zero — structurally.** Name the branch or clamp that guarantees it. "Can't happen in practice" is not an argument; the proof must be that the divide is *unreachable* with a zero divisor. Divides only: a zero divisor takes trap vector `$14` → `ZeroDivide` (`engine/system/vectors.emp`, `engine/debug/error_handler.emp`), which is the crash screen — and the release shape ships that screen, so this is a player-visible hard stop, not a debug-only concern.
+2. **The quotient cannot overflow the destination** (or, for a multiply, the product cannot). State the bound on the dividend and name the widening step (`ext.l`, or `lsl.l` over a cleared high word) that makes it well-formed. This one carries the heavier burden precisely because it fails *quietly*: 68000 quotient overflow raises no exception — it sets `V` and leaves the destination **unchanged**, so the code runs on with a stale value. Zero-divide is loud; overflow is silent.
+3. **The divide-free alternative, named and rejected.** Not "there isn't one" — say which one you costed and why it lost. Rebut the obvious reply specifically; "use a lookup table" is not answered by ignoring it.
+4. **The cost, and how many times it executes per frame** — including whether it sits inside a loop. This is the number §8.1 budgets.
+
+**The per-frame/once distinction does not survive.** It was the wrong axis on both counts. It does not track correctness: a zero-divide at level load crashes exactly as hard as one in the game loop, and load-time code is the *least* exercised code in the ROM, so blanket permission there is backwards. It does not track cost either — what costs is how many times the instruction executes per frame, which is a property of loops, not of a file. The shipped justifications already count executions rather than classifying code: `engine/system/math.emp` argues "~140 cycles, once, on a path that is not a loop", and `engine/level/section.emp` argues "one call per section lookup, off the per-frame streaming path". Requirement 4 asks for that number directly.
+
+**Worked examples — the arguments that passed.** These are the shape to match; read them before writing a new one.
+
+| Site | Instruction | What the argument establishes |
+|---|---|---|
+| `engine/system/math.emp` `GetArcTan` | `divu.w` ×2 | Divisor is `max(|x|,|y|)` and the both-zero case exits earlier, so it is ≥ 1; the `cmp`/`bcc` routes each case so the *smaller* magnitude is the dividend, bounding the quotient under `$100`. Rejects the alternative by name, and pre-empts the obvious reply: the table is indexed by the **ratio**, so a lookup does not make it division-free. Exactness is the stated reason — the approximation lands on a visibly different frame than the reference. |
+| `engine/level/parallax.emp` `Parallax_Update` | `divs.w` | Reached only past `tst.b`/`beq`, so `frames_remaining` is 1..`PARALLAX_TRANS_DEFAULT`, never 0 — "structurally unreachable". Gap is `ext.l`'d, so `|quotient| ≤ |gap| ≤ $7FFF` fits a word. Exactness again: the ramp converges on the last window frame, so there is no end-of-transition pop. |
+| `engine/level/parallax.emp` `Parallax_Step4_Fill` | `divs.w` | Explicitly argued "the same way the transition ramp's is", and sharpens the point: a zero-span band is a state the code **reaches**, "which is why the test is a real branch and not an assertion". Also names what would break the overflow bound — widening the dividend to the 8.8 step the design rejected. |
+
+Three properties of those arguments are the ones worth copying: they are **structural** (a named branch, not a probability), they say **what would break them**, and they justify the divide on **exactness** — a wrong pixel or a visible pop — rather than on convenience.
+
+**What does not count:** an assertion instead of a branch where the bad input is reachable; a bound asserted without the widening step that establishes it; "it's only called once"; a cost figure with no execution count; and silence about the alternative.
+
+**For multiplies, the answer is usually neither.** Do not hand-write `mulu` *or* a hand shift-add chain for a constant or bounded stride — use `mul_const` / `mul_bounded`, which elect between the two at build time on worst-case cycles (the word-form repeated-add loop costs `24 + 14·M` and wins through `M = 3`; `mulu`'s ceiling wins from `M = 4` up). That election is why real `mulu` instructions ship from sites whose source contains no `mulu` at all, and it is the reason this rule is written about the arithmetic rather than about the mnemonic. A hand-written `muls` still needs the four-point argument above — see the `muls.w`/`asr.l #8` fixed-point idiom in `games/sonic4/player/`.
+
+> **`// lint: disable=E002` is decorative today — do not read it as a waiver.** `s4lint.py`'s E002 fires only for paths under `engine/` or `objects/`, and `build.sh` runs it against `games/<game>/game_root.asm`, whose only substantive include is the vendored `engine/debug/debugger.asm`. Sigil has no E002 lint, so the pragma in `.emp` source is read by nothing. Nothing mechanical enforces this rule: the comment **is** the enforcement.
+
+**Technique — shift-add fraction decomposition.** Fractional scaling `p/q` with `q` a power of 2 reduces to ≤2 shift-add operations **for the fractions listed below**, not for every `p` — a numerator needing three or more set bits (`7/16`, `11/16`) needs a term per bit and drops out of the technique. The set that fits in two operations: `0`, `1`, `1/q`, `(q-1)/q`, `3/q`, `5/q` for q in {1, 2, 4, 8, 16, 32, ...}. Examples:
 
 | Fraction | Decomposition | Cost |
 |---|---|---|
@@ -300,7 +328,7 @@ These are hard rules, not guidelines. The 68000 at 7.67 MHz has no margin for sl
 | `7/8` | `x - (x >> 3)` | 24 cycles |
 | `5/8` | `(x >> 1) + (x >> 3)` | 28 cycles |
 
-Encode bands' factors as `(shift1, shift2, op)` byte triples in ROM data; runtime decodes via `asr.w Dn,Dm` with the shift count in a data register. A sentinel value (e.g., `shift1=15`) means "factor = 0" (locked). For arbitrary fractions outside this set (e.g., `2/3`), build a lookup table at compile time — never `mulu` for fractional scaling.
+Encode bands' factors as `(shift1, shift2, op)` byte triples in ROM data; runtime decodes via `asr.w Dn,Dm` with the shift count in a data register. A sentinel value (e.g., `shift1=15`) means "factor = 0" (locked). For arbitrary fractions outside this set (e.g., `2/3`), build a lookup table at compile time. Fractional scaling is the case where the shift-add or table answer nearly always wins, so a `mulu` here is the least likely reach to survive the four-point argument above — but it is that argument, not a blanket "never", that decides it.
 
 ### 2.2 Branching
 
