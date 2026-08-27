@@ -64,7 +64,11 @@ pub const SFXID_RING_LEFT  : SfxId = $34
 pub const SFXID_DEATH      : SfxId = $35
 pub const SFXID_SKID       : SfxId = $36
 pub const SFXID_ROLL       : SfxId = $3C
+pub const SFXID_INSTASHIELD : SfxId = $42
+pub const SFXID_GRAB       : SfxId = $4A
+pub const SFXID_GLIDE_LAND : SfxId = $4C
 pub const SFXID_JUMP       : SfxId = $62
+pub const SFXID_GROUND_SLIDE : SfxId = $7E
 pub const SFXID_SPINDASH   : SfxId = $AB
 pub const SFXID_DASH       : SfxId = $B6
 pub const SFXID_RINGLOSS   : SfxId = $B9
@@ -91,11 +95,27 @@ pub const SFXID_REV_LOOP   : SfxId = SFXID_SPINDASH
 // otherwise win an arbitration purely by asking most often. Losing a flap to a
 // ring or a jump costs nothing — the cadence hands it another attempt 16 frames
 // later — whereas the reverse would let a held button mute the pickups.
+// SFXPRI_SLIDE shares the flight basement, and for the same reason spelled out
+// above rather than by analogy: Knuckles' belly slide retriggers sfx_GroundSlide
+// every 8 frames for as long as the slide is held (S3K's own cadence,
+// sonic3k.asm:31017-31022), so it is the second SFX in the set that would win an
+// arbitration purely by asking most often. Losing one repeat to a ring costs
+// nothing — the cadence hands it another 8 frames later.
 pub const SFXPRI_FLY      = $08    // flight flap/tired — below everything; see above
+pub const SFXPRI_SLIDE    = $08    // Knuckles' ground slide — cadence-driven; see above
 pub const SFXPRI_RING     = $10    // ring/UI — lowest; never ducks (authored sfh_duck = 0)
 pub const SFXPRI_JUMP     = $20
+// The insta-shield is a jump-family action — it fires ONLY from the airborne
+// double-tap that would otherwise have been a plain jump, so it inherits the jump's
+// rank rather than claiming a new one.
+pub const SFXPRI_INSTASHIELD = $20
 pub const SFXPRI_ROLL     = $30
 pub const SFXPRI_SKID     = $30
+// The two Knuckles one-shots are terrain-CONTACT events (a wall caught, a glide
+// stopped) — the same class of "the world just answered you" as skid/roll, and
+// rare enough that ranking them there costs the tiers below nothing.
+pub const SFXPRI_GRAB       = $30
+pub const SFXPRI_GLIDE_LAND = $30
 pub const SFXPRI_SPINDASH = $40
 pub const SFXPRI_DASH     = $40
 pub const SFXPRI_DEATH    = $60    // death/ring-loss — highest
@@ -104,5 +124,5 @@ pub const SFXPRI_RINGLOSS = $60
 // Guard: every priority tier MUST fit in 7 bits so bit 7 stays free as the
 // non-latching flag (and stays non-negative under signed compares). Mirrored by a
 // test in tools/sfx_transcode.py.
-ensure(((SFXPRI_FLY | SFXPRI_RING | SFXPRI_JUMP | SFXPRI_ROLL | SFXPRI_SKID | SFXPRI_SPINDASH | SFXPRI_DASH | SFXPRI_DEATH | SFXPRI_RINGLOSS) & $80) == 0,
+ensure(((SFXPRI_FLY | SFXPRI_SLIDE | SFXPRI_RING | SFXPRI_JUMP | SFXPRI_INSTASHIELD | SFXPRI_ROLL | SFXPRI_SKID | SFXPRI_GRAB | SFXPRI_GLIDE_LAND | SFXPRI_SPINDASH | SFXPRI_DASH | SFXPRI_DEATH | SFXPRI_RINGLOSS) & $80) == 0,
        "an SFXPRI_* tier has bit 7 set — priorities must be 7-bit ($00-$7F); bit 7 is the non-latching flag")

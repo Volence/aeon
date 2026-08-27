@@ -61,6 +61,7 @@ use engine.constants.{PHYS_GRAVITY, PHYS_FALL_CAP, ST_XFLIP, ST_ON_OBJECT, SOLID
 use games.sonic4.constants.{PSTATE_GROUND, PSTATE_GLIDE, PSTATE_GLIDEFALL, PSTATE_SLIDE, CHEAT_DEBUG_FLY}
 use games.sonic4.player_common.{PlayerV, BUTTON_JUMP_MASK, BUTTON_JUMP_MASK_NO_B, dist_to_fix}
 use games.sonic4.ram.{PlayerBlock}
+use games.sonic4.sound_ids.{SFXID_GLIDE_LAND, SFXID_GROUND_SLIDE}
 
 // GetSineCosine (engine.math), ObjectMove (engine.objects), Player_SetState /
 // Player_SensorFloor / Air_WallProbeLeft / Air_WallProbeRight / Air_XInput (the
@@ -418,8 +419,15 @@ pub proc PState_GlideFall (a0: *Sst) clobbers(d0-d7/a1-a2) {
         clr.w   x_vel(a0)
         clr.w   y_vel(a0)
         clr.w   PlayerV.ground_speed(a0)
-        // TODO(user): S3K plays sfx_GlideLand ($4C) here — no glide SFX exists in our
-        // bank yet (sourcing audio is the user's decision), so the land is silent.
+        if SOUND_DRIVER_ENABLED == 1 {
+                // S3K's glide-land thud (sonic3k.asm:30932, sfx_GlideLand). One-shot by
+                // construction: this is the frame GLIDEFALL stops being airborne, and the
+                // Player_SetState below leaves the state, so the next frame cannot come
+                // back through here without a whole new glide. Sound_PlaySFX preserves
+                // a0 and clobbers only d0, which the moveq below reloads.
+                move.b  #SFXID_GLIDE_LAND, d0 as SfxId
+                jbsr    Sound_PlaySFX
+        }
         moveq   #PSTATE_GROUND, d0
         jbra    Player_SetState
 .airborne:
@@ -540,9 +548,36 @@ proc Slide_Terrain (a0: *Sst) clobbers(d0-d7/a1-a2) {
         dist_to_fix(d0)
         add.l   d0, y_pos(a0)
         move.b  d3, angle(a0)
-        // TODO(user): S3K plays sfx_GroundSlide ($7E) every 8 frames here — no slide SFX
-        // exists in our bank yet (sourcing audio is the user's decision), so it is silent.
-        // The visual slide DUST (cadence 4) is emitted display-side in Dust_Tick.
+        if SOUND_DRIVER_ENABLED == 1 {
+                // The slide scrape, on S3K's own 8-frame cadence (sonic3k.asm:31017-31022,
+                // `move.b (Level_frame_counter+1).w,d0 / andi.b #7,d0 / bne.s`). This is a
+                // REPEAT, not a one-shot: Slide_Terrain runs every frame of the slide, and
+                // one in eight of those frames posts the sound.
+                //
+                // IDIOM, not a new timer. The engine already answers "retrigger an SFX on a
+                // fixed cadence" with a mask on the global frame counter — Fly_TickSfx
+                // (player_fly.emp) does exactly this at #$F for Tails' flap. A per-slide
+                // countdown byte would need a PlayerV field, an enter-hook reset and a reason
+                // to differ; free-running phase is what S3K ships and what the engine already
+                // has. (Sfx_Frame's SFXID_REV_LOOP retrigger is NOT the idiom to reach for:
+                // that is a Z80-side re-arm of one held spindash charge, not a cadence.)
+                //
+                // The consequence is deliberate and is why SFXPRI_SLIDE sits in the flight
+                // basement (sound_ids.emp): a sound that asks every 8 frames for as long as
+                // a state is held must lose arbitration rather than win it by frequency.
+                //
+                // The visual slide DUST (cadence 4) is emitted display-side in Dust_Tick and
+                // is deliberately NOT synchronised to this — same independence S3K has.
+                //
+                // d0/d1/d3 are all dead from here to the rts, so the counter read and
+                // Sound_PlaySFX's d0 clobber cost nothing.
+                move.b  Frame_Counter+1, d0     // the global counter's low byte
+                andi.b  #7, d0
+                bne     .no_sfx
+                move.b  #SFXID_GROUND_SLIDE, d0 as SfxId
+                jbsr    Sound_PlaySFX
+        .no_sfx:
+        }
         rts
 .ledge_drop:
         // Slid off a ledge — enter the fall (S3K :31027 `.fail`, radii restored by the

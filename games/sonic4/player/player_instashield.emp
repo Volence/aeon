@@ -56,6 +56,7 @@ use engine.objects.dplc.{dplc_peak_tiles, dplc_peak_entries, DPLC_ENTRY_RESERVE}
 use engine.constants.{RF_PRIORITY_SHIFT, TILE_SIZE, AF_DELETE, AF_SET_FIELD,
                       ST_XFLIP, DMA_DEFERRABLE_SLOTS}
 use games.sonic4.player_common.{PlayerV}
+use games.sonic4.sound_ids.{SFXID_INSTASHIELD}
 use games.sonic4.constants.{PSTATE_JUMP, PSTATE_ROLLJUMP,
                             VRAM_INSTA_SHIELD, VRAM_TEST_SONIC,
                             EFFECT_INSTA_SHIELD_BAND,
@@ -163,13 +164,30 @@ pub proc Ability_InstaShield (a0: *Sst) clobbers(d0-d2/a1-a2) preserves(a0) {
         instashield_suppressed(a0, d1)
         bne     .done
 
-        // (4) ATTACKING, then (5) the flash. S3K also plays sfx_InstaAttack ($42)
-        // here; that id is absent from this game's transcoded SFX bank
-        // (data/sound/sfx/sfx_bank.emp carries 11 effects and $42 is not one), so the
-        // sound is BLOCKED on a sound-lane import rather than faked with a wrong id.
-        // Booked in docs/DEFERRED_WORK.md.
+        // (4) ATTACKING, (5) the flash, (6) the sound — S3K's own order at
+        // Sonic_InstaShield (sonic3k.asm:23477-23483: `move.b #1,(Shield+anim).w` /
+        // `move.b #1,double_jump_flag(a0)` / `move.w #sfx_InstaAttack,d0` /
+        // `jmp (Play_SFX).l`), i.e. state first, spawn second, sound as the tail.
+        //
+        // ONCE PER ACTIVATION, and the guarantee is step (1) above, not this line: the
+        // `tst.b PlayerV.instashield / bne .done` one-shot lets ONLY the READY value
+        // reach here, and the very next instruction writes ATTACKING. The flash's own
+        // last animation frame writes SPENT, and only a landing (PHook_GroundEnter /
+        // PHook_RollEnter) writes READY again — so between one landing and the next,
+        // exactly one press can ever get past (1), and therefore exactly one SFX post
+        // can ever happen. It is NOT per-animation-frame: InstaShield_Main, which runs
+        // every frame of the flash, does not go through here at all.
+        //
+        // Sound_PlaySFX preserves a0 and clobbers only d0 — inside this proc's declared
+        // d0-d2/a1-a2, and d0 is dead after InstaShield_Spawn returns.
         move.b  #INSTASHIELD_ATTACKING, PlayerV.instashield(a0)
+        if SOUND_DRIVER_ENABLED == 1 {
+        jbsr    InstaShield_Spawn               // clobbers d0-d2/a1, preserves a0
+        move.b  #SFXID_INSTASHIELD, d0 as SfxId
+        jbra    Sound_PlaySFX                   // tail, exactly as S3K's `jmp (Play_SFX).l`
+        } else {
         jbra    InstaShield_Spawn               // tail — clobbers d0-d2/a1, preserves a0
+        }
     .done:
         rts
 }

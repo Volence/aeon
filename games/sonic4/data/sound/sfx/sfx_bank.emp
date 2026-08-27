@@ -1,8 +1,8 @@
 // ===========================================================================
 // data/sound/sfx/sfx_bank.emp — the SFX block DATA
 // ===========================================================================
-// The SFX block from `Sfx_33` through the id->blob table: the 9 core SFX blobs,
-// their 9 FM-patch banks (two zero-length, PSG-only), and the sparse id->blob
+// The SFX block from `Sfx_33` through the id->blob table: the 15 core SFX blobs,
+// their 15 FM-patch banks (four zero-length, PSG-only), and the sparse id->blob
 // `SfxTable`, as ONE `table` construct. The block CONTENT is byte-identical in
 // BOTH build shapes (no DEBUG members — the SFX set is the same plain and debug);
 // only the block's BASE address shifts, because it sits AFTER the shape-dependent
@@ -23,12 +23,13 @@
 //
 // The `table` construct:
 //   * one `table` row per SFX id (ascending, contiguous). Adding an SFX = one row.
-//   * `item_align: 2` is a self-adjusting pad after every emitted part. Only the
-//     two ODD blobs (Sfx_3C 267 B, Sfx_B6 71 B) fire one $00; every patch bank is
+//   * `item_align: 2` is a self-adjusting pad after every emitted part. The ODD
+//     blobs (Sfx_3C 267 B, Sfx_B6 71 B, Sfx_42 25 B, Sfx_7E 25 B, Sfx_4C 53 B)
+//     each fire one $00; every patch bank is
 //     32/0 B (even) so its pad folds to nothing. Regen-safe: a future odd-length
 //     blob re-pads automatically.
-//   * `cell: *u8, key: $33..=$B9, hole: 0` is the sparse id->blob table,
-//     SfxTable[id - $33] over [$33..$B9], 0 = unused id. `SfxTable` anchors to the
+//   * `cell: *u8, key: $33..=$BB, hole: 0` is the sparse id->blob table,
+//     SfxTable[id - $33] over [$33..$BB], 0 = unused id. `SfxTable` anchors to the
 //     FIRST CELL (no header), so `Table[id - SFX_ID_BASE]` indexed reads are correct.
 //   * `body: before` places the blob payload BEFORE the cell table (blobs then the
 //     id->blob table) — written explicitly so the one byte-layout fact correctness
@@ -39,8 +40,8 @@
 //   * co-residency: the single `ensure(...)` below (spelled against the LABEL
 //     `MovingTrucks_Bank_Start`, the bankid-label idiom — bare cross-seam equ reads
 //     don't exist).
-//   * table length: STRUCTURAL — the cell count derives from `key: $33..=$B9`
-//     ($B9-$33+1 = 135 cells), and a key outside that range is a comptime error.
+//   * table length: STRUCTURAL — the cell count derives from `key: $33..=$BB`
+//     ($BB-$33+1 = 137 cells), and a key outside that range is a comptime error.
 //     `SfxTable.len` is the derived cell-count fact.
 //
 // No `_End` labels: every cross-seam consumer reads a `Sfx_NN` label or a blob's
@@ -58,16 +59,16 @@ module data.sfx_bank
 // SFX_TABLE_LEN carrier). No self-referential
 // ensure(extern("SFX_*") == …): the derivation IS the truth, nothing external to
 // cross-check. The one surviving guard that reads this contract is a CONSUMER's —
-// sfx_blob_win_tab.emp's span guard (its 135-cell hand body vs SFX_TABLE_LEN).
+// sfx_blob_win_tab.emp's span guard (its 137-cell hand body vs SFX_TABLE_LEN).
 pub const SFX_ID_BASE   = SfxTable.min_key   // $33
-pub const SFX_COUNT     = SfxTable.count     // 9
-pub const SFX_TABLE_LEN = SfxTable.len       // 135  (max_id - min_id + 1)
+pub const SFX_COUNT     = SfxTable.count     // 15
+pub const SFX_TABLE_LEN = SfxTable.len       // 137  (max_id - min_id + 1)
 
 // ONE `bank: $8000` section — the bank alignment + the always-on no-straddle
 // link assert.
 section sfx_bank (cpu: m68000, bank: $8000) {
-    // 9 SFX: one row per id. Payload (blob, pad, patches, pad) emits first
-    // (body: before), then the sparse id->blob cell table (135 cells, holes 0).
+    // 15 SFX: one row per id. Payload (blob, pad, patches, pad) emits first
+    // (body: before), then the sparse id->blob cell table (137 cells, holes 0).
     // Blob order == id order == ascending key order (the ascending-key rule), so
     // the payload stream is deterministic.
     table SfxTable (cell: *u8, key: $33..=$BB, hole: 0, item_align: 2, body: before) {
@@ -76,7 +77,16 @@ section sfx_bank (cpu: m68000, bank: $8000) {
         $35: Sfx_35 = embed("sfx_35.bin"), Sfx_35_Patches = embed("sfx_35_patches.bin"),
         $36: Sfx_36 = embed("sfx_36.bin"), Sfx_36_Patches = embed("sfx_36_patches.bin"),
         $3C: Sfx_3C = embed("sfx_3C.bin"), Sfx_3C_Patches = embed("sfx_3C_patches.bin"),
+        // $42/$4A/$4C/$7E — the Knuckles ability + insta-shield set (2026-08-26).
+        // All four fall INSIDE the existing $33..$BB key range, so they fill holes
+        // rather than extending it: SfxTable.len (and therefore SFX_TABLE_LEN and
+        // SfxBlobWinTab's span) is unchanged at 137. $42 and $7E are PSG-only, so
+        // their patch banks are zero-length like $33's.
+        $42: Sfx_42 = embed("sfx_42.bin"), Sfx_42_Patches = embed("sfx_42_patches.bin"),
+        $4A: Sfx_4A = embed("sfx_4A.bin"), Sfx_4A_Patches = embed("sfx_4A_patches.bin"),
+        $4C: Sfx_4C = embed("sfx_4C.bin"), Sfx_4C_Patches = embed("sfx_4C_patches.bin"),
         $62: Sfx_62 = embed("sfx_62.bin"), Sfx_62_Patches = embed("sfx_62_patches.bin"),
+        $7E: Sfx_7E = embed("sfx_7E.bin"), Sfx_7E_Patches = embed("sfx_7E_patches.bin"),
         $AB: Sfx_AB = embed("sfx_AB.bin"), Sfx_AB_Patches = embed("sfx_AB_patches.bin"),
         $B6: Sfx_B6 = embed("sfx_B6.bin"), Sfx_B6_Patches = embed("sfx_B6_patches.bin"),
         $B9: Sfx_B9 = embed("sfx_B9.bin"), Sfx_B9_Patches = embed("sfx_B9_patches.bin"),
@@ -106,7 +116,11 @@ equ SFX_WIN_34 = winptr(Sfx_34)
 equ SFX_WIN_35 = winptr(Sfx_35)
 equ SFX_WIN_36 = winptr(Sfx_36)
 equ SFX_WIN_3C = winptr(Sfx_3C)
+equ SFX_WIN_42 = winptr(Sfx_42)
+equ SFX_WIN_4A = winptr(Sfx_4A)
+equ SFX_WIN_4C = winptr(Sfx_4C)
 equ SFX_WIN_62 = winptr(Sfx_62)
+equ SFX_WIN_7E = winptr(Sfx_7E)
 equ SFX_WIN_AB = winptr(Sfx_AB)
 equ SFX_WIN_B6 = winptr(Sfx_B6)
 equ SFX_WIN_B9 = winptr(Sfx_B9)

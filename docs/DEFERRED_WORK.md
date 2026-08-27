@@ -1199,6 +1199,20 @@ Recorded so nobody burns another pass trying to re-verify these by reading code.
 genuinely open; none of them can be closed from the tree alone.
 
 **Needs a live emulator run (oracle):**
+- **The four new ability SFX have never been HEARD** (NEW 2026-08-26,
+  `parcel/knux-instashield-sfx`). `$42` insta-shield, `$4A` grab, `$4C` glide-land,
+  `$7E` ground-slide are all statically verified end to end (blob transcoded, bank row,
+  win-tab cell at the right index, id reaching `Sound_PlaySFX` in the shipped ROM
+  bytes) and NOTHING more. Three things in particular can only be judged by ear:
+  (a) `$42` and `$7E` are PSG-tone sources carrying `smpsPSGform $E7`, so the
+  transcoder's standing v1 approximation reroutes them to the NOISE channel at a
+  FIXED white rate `$E6` instead of S3K's tone-frequency-TRACKED noise — the same
+  approximation the dash `$B6` already ships under, and the reason both sounds also
+  lose their `smpsModSet` sweep; (b) `$7E`'s `smpsPSGAlterVol $04` step is
+  reproduced through the engine's own `Psg_VolToAtten` arithmetic, which is EXACT,
+  but the header init-volume it steps down from still uses the old `127 - vol*7`
+  approximation (see the flag in `sfx_transcode.py`); (c) whether `SFXPRI_SLIDE`
+  in the flight basement lets the slide be heard often enough in practice.
 - **A2 — two SFX in one 68k frame.** The 8-deep ring shipped; the *runtime* check (jump+ring,
   skid+ring, death+ring-loss in one frame, both SFX reaching the chip) has never been run. Partly
   discharged by the Stage-A fix-3 live debugging, but not formally.
@@ -1626,14 +1640,52 @@ every symmetric case bit-identical and only affects those four.
 **replay-fixture re-record** (the Sonic fixtures hash the player window).
 **When to revisit:** only on a user ruling that mirrored slopes must behave alike.
 
-### Glide / slide / climb SFX are unwired placeholders — 2026-08-12
+### Glide / slide / climb SFX are unwired placeholders — 2026-08-12 — **CLOSED 2026-08-26**
 **Surfaced during:** Knuckles C4.
-**Status:** TODO markers at the code. S3K plays `sfx_Grab` ($4A) at the wall catch,
-`sfx_GlideLand` ($4C) on the fall landing, and `sfx_GroundSlide` ($7E) every 8
-frames while sliding. None exist in our SFX bank yet, so all three sites are
-silent with a `TODO(user)` note. Sourcing audio is the **user's** decision.
-**When to revisit:** when the user sources the audio; the call sites are already
-in place and each is a one-line add.
+**Status:** CLOSED by `parcel/knux-instashield-sfx` (owner request: "add the sound
+effects for knuckles glide ... and the insta shield"). All three S3K sounds are
+transcoded into the bank and wired at the sites the `TODO(user)` markers named,
+and those markers are gone:
+  - `sfx_Grab` `$4A` -> `SFXID_GRAB` / `SFXPRI_GRAB $30`, fired in `Climb_Catch`
+    (`games/sonic4/player/player_climb.emp`).
+  - `sfx_GlideLand` `$4C` -> `SFXID_GLIDE_LAND` / `SFXPRI_GLIDE_LAND $30`, fired at
+    `PState_GlideFall`'s `.dead_stop` (`player_glide.emp`).
+  - `sfx_GroundSlide` `$7E` -> `SFXID_GROUND_SLIDE` / `SFXPRI_SLIDE $08`, fired in
+    `Slide_Terrain` on S3K's own 8-frame `Frame_Counter+1 & 7` cadence — the same
+    idiom `Fly_TickSfx` uses, not a new timer. `SFXPRI_SLIDE` sits below the ring/UI
+    floor for the reason `sound_ids.emp` gives for `SFXPRI_FLY`: a cadence-driven SFX
+    must lose arbitration rather than win it by asking most often.
+**NOT closed by this, and still owed:** the LISTENING test. Everything verified is
+static (blob transcoded, `SfxTable` row, `SfxBlobWinTab` cell at the right index,
+id reaching `Sound_PlaySFX` in the ROM bytes). Nothing has heard them.
+
+### Adding a NEW PSG volume envelope costs a cross-repo head move — 2026-08-26
+**Surfaced during:** `parcel/knux-instashield-sfx`, importing SFX `$42`, whose source
+asks for `smpsPSGvoice sTone_17` — an envelope the engine does not ship.
+**The constraint.** `PsgVolEnv_Ids` / `_Ptrs` / the bodies live inside
+`SoundTablesZ80_Head`, which is a HARD ORG at VMA `$8000` walled by
+`ensure(_sound_tables.len == $357)` in `games/sonic4/data/sound/soundbankhead.emp`. A
+12th envelope adds 1 id byte + 2 pointer bytes + a body, and slides every downstream
+head off the fixed VMA the resident Z80 driver reads it at. Those VMAs are hand-written
+literals in **the sigil repo** (`crates/sigil-harness/src/seam1.rs`, `banked_carriers`):
+six would move — `SndDefaultPitchTable`, `SfxBlobWinTab`, `SeqOpcodeTable`,
+`PsgVolEnv_Ptrs`, `FmVolEnv_Ids`, `FmVolEnv_Ptrs` — and seam1.rs's own comment records
+that only the first three are cross-checked against the derivation, the other three
+being "hand-maintained and unchecked". A stale unchecked one is silent corruption that
+a refreeze would bless.
+**What this parcel did instead, and why it was legitimate HERE.** S3K's `VolEnv_16`
+(= `sTone_17`'s body) is BYTE-IDENTICAL to `VolEnv_09` (= `sTone_0A`'s), which we
+already ship. The engine's env id names a BODY, not a source enum value, so
+`_STONE_TO_ENV['sTone_17'] = 0x0A` is exact, not approximate — and
+`test_sfx_transcode.TestSTone17AliasPremise` re-derives that byte equality from the
+skdisasm driver source, so it fails loud if the premise ever stops holding.
+**When this bites for real:** the FIRST sTone with a genuinely new body. Then the head
+growth has to be done properly, as an aeon+sigil pair, updating all six carriers and
+the `_sound_tables.len` wall in the same change. Budget it as a pair, not a one-liner.
+**Worth considering at that point:** teaching `gen_sound_tables.py` to dedupe identical
+bodies (it would already have collapsed `sTone_17`/`sTone_0A` into one body and 3 bytes
+of table), and/or moving the vol-env bodies out of the fixed-VMA head entirely so only
+the two tiny id/pointer arrays are org-sensitive.
 
 > **Correction (2026-08-13, character lens sweep, seat A2).** This entry used to
 > close with "(the same reason Tails' flight SFX `$BA`/`$BB` are unwired)". That
@@ -1912,14 +1964,15 @@ following are deliberately **deferred to follow-up plans** (not bugs):
     state the expansion needs already ships: `PlayerV.instashield` with S3K's exact
     14-frame window, and the attacking predicate is the single comparison
     `cmpi.b #INSTASHIELD_ATTACKING, PlayerV.instashield(<player>)`.
-  - **The SFX is not wired — blocked on a sound-lane import.** S3K plays
-    `sfx_InstaAttack` = SFX `$42` (`sonic3k.constants.asm:1193`). Aeon's transcoded
-    bank (`games/sonic4/data/sound/sfx/sfx_bank.emp`) holds 11 effects
-    (`$33 $34 $35 $36 $3C $62 $AB $B6 $B9`, plus `$BA $BB` in DEBUG) and `$42` is not
-    one. Adding it: run `tools/sfx_transcode.py` over the S3K source, add the
-    `SfxTable` row, a `SFXID_INSTA_ATTACK` in `config/sound_ids.emp` and a
-    priority-ladder tier, then re-pin the sound blob's frozen goldens. A wrong id was
-    deliberately NOT substituted.
+  - **~~The SFX is not wired~~ — DONE 2026-08-26 (`parcel/knux-instashield-sfx`).**
+    S3K's `sfx_InstaAttack` = SFX `$42` is transcoded and shipped as
+    `SFXID_INSTASHIELD` / `SFXPRI_INSTASHIELD $20`, fired from `Ability_InstaShield`
+    in S3K's own order (ATTACKING, spawn, then the sound as the tail `jbra`, matching
+    `sonic3k.asm:23477-23483`). It fires exactly once per activation because the
+    proc's opening `tst.b PlayerV.instashield / bne .done` one-shot lets only the
+    READY value through and the next instruction writes ATTACKING; only a landing
+    re-arms. The bank now holds 15 effects in both shapes. Still owed: nobody has
+    HEARD it.
   - **The roll-jump cancel lands one frame late.** S3K's `bclr #Status_RollJump` takes
     effect the same frame (`Sonic_ChgJumpDir` re-tests the bit after
     `Sonic_JumpHeight` returns). Here the lockout is `AIRF_INPUT_LOCK`, already latched
@@ -5802,12 +5855,13 @@ recorded: the glide wall-catch needs "both sensors flush" and
 twice, the idiom `Player_AtLedgeEdge` already documents.
 → §2 of the research doc
 
-### Glide/slide/climb SFX do not exist in our bank — SCOPE DECISION OWED
-S3K uses `sfx_GlideLand $4C`, `sfx_GroundSlide $7E`, `sfx_Grab $4A`. Our SFX
-bank has none of them, so Task 10/11 either opens a sound-side parcel (bank
-entry + priority-ladder row each) or ships the abilities silent. The plan is
-silent about being silent. Same class as, and can ride with, the flight-SFX
-range work if that is still open.
+### ~~Glide/slide/climb SFX do not exist in our bank — SCOPE DECISION OWED~~ — RESOLVED 2026-08-26
+The scope decision was taken by the owner ("add the sound effects for knuckles
+glide ... and the insta shield") and executed as `parcel/knux-instashield-sfx`:
+`$4A`/`$4C`/`$7E` (plus Sonic's insta-shield `$42`) are transcoded, banked, given
+priority tiers and wired. See the closed entry "Glide / slide / climb SFX are
+unwired placeholders" above for the per-sound detail and the one thing still
+owed (a listening pass).
 
 ### S3K's `Disable_wall_grab` has no counterpart — object-side hook, RECORDED
 Two S3K gates (`:30777-30778`, `:31039-31040`) let specific walls refuse a
