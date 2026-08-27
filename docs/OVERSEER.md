@@ -388,6 +388,38 @@ ASSERTION, and a reap in a `finally` with PR_SET_PDEATHSIG behind it.
   PRE-EXISTING and is not the parcel's. The count is `len(results)`, i.e. derived from gates that
   actually produced a row — which is exactly why one going missing shows up as a smaller green
   rather than as a failure.
+  **⚠ RECONCILED 2026-08-27 — AND THE ANSWER IS THAT THE COUNT CANNOT BE RECONCILED, BY
+  CONSTRUCTION.** Two findings, the second of which retires the question rather than answering
+  it.
+  **(a) The "diffed, empty" evidence above was MANUFACTURABLE and has been re-derived.** This
+  stanza cited an empty diff between `6fbcd186` and `0da00a33` as proof no gate registration was
+  removed. Running that same diff today returned empty **at exit 0 while the two blobs differed
+  by 87 insertions** — because `git diff … -- <path>` takes a **CWD-relative pathspec** while
+  `git show <rev>:<path>` takes a **root-relative** one, and this session had `cd`-ed into
+  `tools/` earlier in the same investigation. Mixing the two forms in one investigation yields a
+  clean empty diff and a zero exit with nothing to be suspicious of. Re-derived from the repo
+  root: the real diff adds **exactly one** `results.append` (the scene-not-resolvable error path)
+  and removes no registration, so **the original conclusion holds and its evidence did not** —
+  bar 10 on one's own evidence, and bar 16(d) with `cd` as the manufacturing mechanism.
+  **(b) `len(results)` is RUNTIME-VARIABLE BY DESIGN, so `OK — N gates` was never capable of
+  being a witness.** Read the scene loop: each scene appends a determinism row, and
+  `if not ok: continue` **skips the shape row**. So a scene emits **2 rows when it passes and 1
+  when it fails**, and `scanline_spans` emits a data-dependent number. The count is therefore a
+  function of outcomes, not of population — 28 and 27 can both be correct for the same registry.
+  Chasing the missing 28th was chasing a number that does not denote what the stanza assumed.
+  **The corrective is the third leg of the absent-and-silent family** (aeon's, contributed to
+  sigil's note `ffa76f7d`): evidence can discriminate perfectly and still witness nothing when
+  **no expectation stands beside it**. `gate_registry()` already exists (15 entries) and
+  `check_registry_drift` already proves registry and body agree — *(so this file's earlier claim
+  that "the lane has no registry enumeration" is WRONG; `--help` not exposing it is not the same
+  as it not existing, which is bar 16's name-versus-presence one layer down)*. **The fix is to
+  assert the emitted ROW SET against a registry-derived expected set, and never to report a
+  count**: a set can be diffed, which is an assertion; a count can only be read. Booked as
+  `GATES-EXPECTED-ROWSET`. Until it exists, **do not read `OK — N gates` as evidence of
+  anything but exit status** — and note the sibling instance in sigil's `refreeze --attest`,
+  which refuses on `strict_bodies == 0`, a **floor rather than an expectation**, so a deleted
+  strict gate takes the witness 29 → 28 and still attests (their `ATTEST-EXPECTED-BODIES`).
+
   **This is bar 25 on the lane that proposed it**: a green log and an absent run are the same
   artifact, and a lane whose own count drops by one while every printed row says PASS is the
   friendliest possible presentation of a gate that stopped running. **Do not read `OK — 27
