@@ -144,6 +144,36 @@ rulings live in the session memory and the most recent `docs/superpowers/*handof
   with lengths unchanged; the tell for a dirty-tree suite is broad `*_port`
   region-diff failures at embedded addresses. A fresh clean worktree also needs one
   `./build.sh` + `DEBUG=1 ./build.sh` first — repin resolves but does not generate.
+- **A CRC IS MEANINGLESS ACROSS SESSIONS WITHOUT THE ASSEMBLER REVISION BESIDE IT — and the
+  toolchain is the one build input this repo does NOT pin** (added 2026-08-27; found by the
+  aurora lane, whose first explanation AND this lane's confident refutation of it were BOTH
+  wrong; their corrected packet is aurora `b1c15d0`).
+  `build.sh` takes `SIGIL_BUILD` (`:558`) and `SIGIL_EMIT` (`:317`) **from the environment**.
+  Nothing in a checkout pins either, and `SIGIL_EMIT` *writes* `engine/sound/generated/` — one
+  of the directories whose drift was being investigated. So a pinned tracked tree, `git status`
+  clean throughout, can build a different ROM tomorrow with **no cause visible in the tree at
+  all**. Lived: a `git clone` fixture built `4b4f1b5b` at 00:58 and `f33b157e` at 03:35, and the
+  only thing that changed was that `emit_sound_blob` and `sigil` were rebuilt underneath it.
+  **`build.sh:266` already prints `Assembler: sigil <rev>` for exactly this class** (the
+  three-days-behind incident in its own header). The gap is that nobody records the banner
+  beside the CRC they cite.
+  **OPERATIONAL FORM, adopted: quote the `Assembler:` banner beside every CRC you hand to
+  anyone, and treat a cross-session CRC comparison as MEANINGLESS unless both sides carry the
+  same assembler revision.** Costs nothing; the banner already exists.
+  **⚠ AND THE TRAP THIS LANE FELL INTO, which is the durable half.** Asked whether the drift
+  was in aeon's tree, this lane compared 23 regenerated artifacts in a fresh worktree against
+  the live tree, got **23/23 MATCH**, and reported the exposure closed as "fixture
+  construction". The measurement was sound and answered **a different question**: both trees
+  were built *at the same moment with the same binaries*, so the comparison **held the varying
+  quantity fixed by construction** and could not detect an input that varies over TIME. A clean
+  constant across varied inputs is evidence of a confound (bar 5) — here the inputs only looked
+  varied. **Before reporting a green comparison as closing an exposure, name the quantity the
+  exposure is about and check your design actually varied it.**
+  *Three instances of the assembler moving under a measurement in one night: this lane's own
+  sprite-owner A/B (re-derived after asking sigil to rebuild), the gates parcel's agent
+  (caught it mid-run and re-derived its baseline unprompted), and aurora's fixture (not caught,
+  and it produced a wrong CRC plus two wrong explanations). Two of three were caught by
+  vigilance rather than by any gate, which is the argument for the banner rule.*
 - Zero-byte parcels (tools/docs) are aeon-only; verify CRC identity anyway —
   byte-count-neutral is not byte-identical, and DEBUG-only procs can still move the
   release deb2 appendix.
