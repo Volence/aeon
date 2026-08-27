@@ -1991,6 +1991,33 @@ conditional move; shifts cost 2 cycles/bit): sign-mask ~68 cyc, `Scc`+merge
 (S.C.E. clamps in memory, twice — we have ONE site because `PState_AirShared`
 is shared). Best remaining win is 2 cycles by inverting the branch; not worth it.
 
+### Parallax v_factor: the lock SENTINEL and the top of the magnitude range are the same value — found 2026-08-27 by the aurora lane
+
+**The collision.** `engine/level/parallax.emp:1661` — *"Returns 0 if s1 == 15 (locked)"* — and
+`CODING_CONVENTIONS.md` §2.1's byte-triple encoding both give `shift1 = 15` the meaning **factor
+= 0, band locked**. 15 is also the **top of the 0..15 magnitude range**. So any tool that derives
+a shift count and **saturates** lands exactly on the sentinel.
+
+**The instance, and it is live rather than hypothetical.** Aurora derives `v_factor` from the
+layer count. At the raised ceiling of `MAX_PARALLAX_BANDS = 16` that overflows a 0..15 control,
+and a clamp folds it onto 15 — which is simultaneously the sentinel **and** the new-scene
+default. The authored band then does not move at all, and **presents as an engine bug rather
+than a bad derivation**: silent, and in the direction where the author blames the wrong layer of
+the stack. Aurora wrapped into range rather than clamping, which is the correct local fix and is
+theirs; the collision is OURS.
+
+**Why it is booked rather than fixed here:** the robust fix is to move the sentinel off the top
+of the range so saturation cannot reach it, and that moves bytes (encoding change, every
+committed scene's triples, the decode path). The cheap fix is a contract note telling every
+producer never to clamp — which is the "ask every tool to remember this" shape that this file
+distrusts on principle, since it fails silently for whoever does not read it.
+
+**Note the general form, which is worth more than the instance:** a sentinel sharing its value
+with the extreme of the range it lives in is safe exactly until some producer saturates, and
+saturation is the *default* behaviour of a clamp. The raised ceiling did not create the defect;
+it made a previously-unreachable value reachable. **Any constant raise should ask which sentinels
+just became reachable.**
+
 ### ✅ CLOSED 2026-08-27 — the replay net needed NO re-stamp, and the reason is a coverage gap
 **MEASURED, not predicted: 0 of 27 stale in `ojz_fixture` and 0 of 37 stale in
 `ojz_slide_fixture`**, one `--restamp` pass each (4.04 s / 5.12 s) against merged-tree
