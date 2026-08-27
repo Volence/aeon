@@ -10804,3 +10804,48 @@ CHANGE THE FILE'S LENGTH, which is self-validating and survives someone forgetti
 same-length mutation is, strictly, unproven. Not a claim that any of them is vacuous — a claim
 that their proofs did not establish what they were taken to establish, and re-running one costs
 a single command.
+
+## FOREGROUND: the two leftmost plane-A columns lose their ground (owner-reported, MEASURED 2026-08-26)
+
+**Long-standing — the owner has been seeing this "for a while" and only reported it tonight.** He
+caught it with an F2 save state on request, which is what made a precise measurement possible;
+the state is preserved at `docs/research/reference_captures/2026-08-26-fg-left-edge-glitch.state0`
+(load it in `oracle-frontend` with F4 against the ROM it was taken on, `s4.debug` crc `9f9c0126`).
+
+**What was measured**, by `emulator/pixel_attribution` cell-by-cell over the left edge, at
+`Camera_X = 195`, `Camera_Y = 429`, player at (355, 573), frame 8421:
+
+```
+        x=0    x=8    x=16   x=24   x=32   x=40   x=48   x=56
+y=104   6      19     -      -      -      -      -      -
+y=136   46     52     26     -      -      -      -      -
+y=152   -      -      26     -      -      -      -      -
+y=168   -      -      4      31     17     4      4      31
+y=176   -      -      28     5      18     5      5      28
+y=184   -      -      19     6      19     6      6      19
+```
+
+**The two leftmost columns carry content in the upper rows and are TRANSPARENT across every
+ground row (y=168..184), while every column from x=16 rightwards carries the ground band.** The
+ground does not simply end — those columns hold *different* content higher up. So this is not
+"the level has a hole there"; it is two columns showing something other than what belongs at
+their world position.
+
+**Attribution is firm on two points and open on the third.** (1) It is **plane A** — the layer
+solo puts the affected pixels there, and the sampled cells are plane-A opaque/transparent as
+tabulated. (2) It is **not** the effects/parallax work and not the scene hotkey: proved by a
+frame-exact three-way capture earlier the same session (pre-parcel ROM / new ROM unpressed / new
+ROM after cycling scenes 0-14-0) coming back **pixel-identical by sha256**. (3) **Open:** whether
+the columns are STALE (never refilled, so showing ring content from 512 px away) or filled with
+the WRONG source. The tabulated upper-row content is the evidence that would distinguish them and
+it has not been chased to a source column yet.
+
+**Where to look:** `Tile_Cache_Fill` and `Section_UpdateColumns` in `engine/level/`, at the
+LEADING-EDGE column count when the camera moves left. The shape of the symptom — exactly two
+columns, at the edge the camera advances into — is the shape of an off-by-one in how many columns
+a fill covers, or of a fill margin that is one column short of the viewport.
+
+**Cheap discriminator nobody has run yet:** step the camera by a few pixels and re-capture. If the
+bad columns hold a fixed WORLD position, the plane content is wrong (a bad fill). If they hold a
+fixed SCREEN position, the fill index or the HScroll is wrong. One capture pair settles it and
+neither reading requires understanding the fill code first.
