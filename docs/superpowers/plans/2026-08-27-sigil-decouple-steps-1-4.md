@@ -31,7 +31,34 @@ paired with sigil chain 168). It is not.
   plural. **Anchors**: nothing aeon-side asserts them; every `$48000` occurrence in `build.sh`
   and `tools/` is a comment or a derivation. **Four mentions, zero assertions.**
 
-### ⚠ AMENDED SAME DAY — the boundary is NARROWER than "the tables place the bytes"
+### ⚠⚠ SETTLED, AND IT GOES THE OTHER WAY — step 2(a) and 2(b) are DONE
+
+**Read this before anything below it; two amendments in one day and this is the one that holds.**
+Sigil settled the contradiction in their source and the answer reverses the finding: **`map.toml`
+is neither cosmetic nor unvalidated.** Verified firsthand here in `native.rs` — `── K5: THE MAP
+DRIVES ORDER ──`, *"the declared `order` list is the AUTHORITY for the byte-emitting section
+sequence"*, *"nothing but the declared anchors can ever be held absolute"* — and
+`validate_placement()` runs from `build_rom_chained_with_listing` on the **real build path**,
+asserting every build that the declared sequence holds, the declared anchors hold, and **every
+byte-emitting section is declared** (completeness — the one neither lane knew existed).
+
+**So step 2's remainder is `bganim_room` — the ROOM gate — and nothing else that either lane can
+measure today.** Not *order + anchors + gate*, not *anchors + gate*. **Gate only.** The residual
+coupling step 1 would pin is narrow: `SizeSource::Frozen` supplies *provisional bases*, used to
+identify islands and as measurement input, not to place bytes.
+
+**BOTH LANES WERE PLANNING FROM STALE PROSE, IN TWO INDEPENDENTLY-MAINTAINED DOCUMENTS.** This
+lane's `DEFERRED_WORK` booking (*"the FROZEN TABLES are the placement authority"*) and sigil's own
+`SizeSource::Frozen` doc comment said the same superseded thing, and **neither could be
+contradicted by anything, because neither is executed.** We were an hour from shaping eight
+constraints against it.
+**That is the prose-bounds class at PROJECT-PLANNING scale**, and it is worse than the code-comment
+version this repo swept this morning: **a stale sentence in a plan does not merely misinform a
+reader, it gets executed as a work order.** The morning's sweep covered comments, docstrings and
+help text. **It did not cover planning docs and bookings, and that is the population it missed.**
+Both lanes are correcting their own; the aeon booking is fixed at the point of statement.
+
+### ~~AMENDED SAME DAY — the boundary is NARROWER than "the tables place the bytes"~~ (superseded by the block above)
 
 Confirmed by the sigil lane in their own source, and it shrinks step 2's remainder materially.
 `SizeSource::Frozen` is live and every shipped profile uses it, **but what it freezes is ORDER

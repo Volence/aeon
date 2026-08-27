@@ -10711,7 +10711,27 @@ listing is the instrument — and `test_generator_accepts_the_minimum_across_sha
 PURPOSE when the two rows agree (it says so in its own failure text). `bganim_room --gate` must
 report a margin in BOTH shapes, not 0 B.
 
-**Constraints already ruled.** The FROZEN TABLES are the placement authority, not `map.toml`
+**⚠ THE CLAIM BELOW IS STALE AND WAS PLANNED FROM BY TWO LANES — corrected 2026-08-27.**
+It read *"The FROZEN TABLES are the placement authority, not `map.toml`"*. **That was true when
+written and sigil's parcel K5 superseded it.** Verified firsthand in their source: `native.rs`
+carries `── K5: THE MAP DRIVES ORDER ──`, *"the declared `order` list is the AUTHORITY for the
+byte-emitting section sequence"*, and *"nothing but the declared anchors can ever be held
+absolute"* — and `validate_placement()` is called from `build_rom_chained_with_listing` on the
+**real build path**, asserting three things every build: the declared sequence is honoured, the
+declared island anchors are honoured, and **every byte-emitting section is declared**
+(completeness). Eight tests exercise its failure modes.
+**So `map.toml` is neither cosmetic nor unvalidated, and step 2(a) and 2(b) of SIGIL-DECOUPLE are
+DONE.** The residual coupling is much narrower: `SizeSource::Frozen` still supplies *provisional
+bases*, used to IDENTIFY which sections are islands and as measurement input — not to place bytes.
+**How this was caught, because it is the lesson rather than the fact.** Two lanes spent an hour
+scoping step 2 against two stale sentences — this one, and sigil's own `SizeSource::Frozen` doc
+comment saying order and anchors come from the frozen table. **Two independently-maintained
+documents, the same superseded premise, neither contradictable by anything, because neither is
+executed.** This is the prose-bounds class at PROJECT-PLANNING scale: a stale sentence in a
+booking does not merely misinform a reader, **it gets executed as a work order.** The morning's
+prose sweep covered code comments and help text; it did not cover planning docs, and this is the
+population it missed.
+~~The FROZEN TABLES are the placement authority, not `map.toml`~~
 (ROM re-layout ruling, memory `project_rom_relayout_ruling`; measured per shape off the placer's
 own error, `reference_frozen_table_ruling_method`): a re-layout is a refreeze of sigil's
 `golden/` boundary tables in every shape, paired aeon+sigil, with the byte-changing parcel ritual
@@ -10771,8 +10791,12 @@ a mismatch is silent/garbled audio with no other symptom. LANDING REQUIREMENT: p
 table of every moved row (old/new base, old/new quantum) with differences preserved by address
 choice or justified from content; and seam2 predicted bases vs `.lst` for every sound label.
 Rule-ification ruling (joint): declare what the CONTENT needs; never transcribe accidental quanta.
-Sigil's finding, in force for ROM-RELAYOUT: under `SizeSource::Frozen` map.toml anchors are
-COSMETIC (native.rs, four sites) — the table island rows move the bytes; verify from the `.lst`.
+~~Sigil's finding, in force for ROM-RELAYOUT: under `SizeSource::Frozen` map.toml anchors are
+COSMETIC (native.rs, four sites) — the table island rows move the bytes; verify from the `.lst`.~~
+**⚠ SUPERSEDED BY K5 — see the correction above.** The anchors are declared, they are the only
+thing held absolute, and `validate_placement()` asserts them on every build. Sigil is fixing the
+`SizeSource::Frozen` doc comment on their side, which said the same superseded thing.
+*Verify from the `.lst` still stands — that half was never about authority.*
 
 Accepted costs (stated to the owner before the yes): assembler regressions surface nightly rather
 than at the next aeon landing; one-time medium/large plumbing spend; step-2 sequencing risk above.
