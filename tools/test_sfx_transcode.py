@@ -1476,5 +1476,222 @@ class TestUnknownVoiceMacro(unittest.TestCase):
             b.apply("smpsVcBogus", ["$01"])
 
 
+class TestSTone17AliasPremise(unittest.TestCase):
+    """_STONE_TO_ENV maps sTone_17 to engine env $0A instead of a 12th shipped
+    envelope, on the premise that S3K's VolEnv_16 and VolEnv_09 are the SAME
+    BYTES. That premise is re-derived here from the skdisasm Z80 driver source
+    rather than asserted, so the alias fails LOUD if it ever stops holding —
+    which is the only way this shortcut can go wrong.
+
+    (Why the alias exists at all: the shipped envelope table lives inside
+    SoundTablesZ80_Head, a hard org whose size is walled by soundbankhead.emp.
+    A 12th envelope slides every downstream head off its fixed banked-carrier
+    VMA — six address literals baked into the shipped resident Z80 driver, three
+    of which sigil's seam1.rs documents as unchecked. See the comment at
+    _STONE_TO_ENV.)
+    """
+
+    _SK = os.environ.get(
+        "AEON_SKDISASM_DIR",
+        os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                      "..", "..", "skdisasm")))
+    _DRIVER = os.path.join(_SK, "Sound", "Z80 Sound Driver.asm")
+
+    @classmethod
+    def _volenv_bodies(cls):
+        """Parse `VolEnv_NN: db ...` (+ its unlabelled continuation lines) out of
+        the S3K Z80 driver. Returns {NN: [bytes]}."""
+        import re as _re
+        with open(cls._DRIVER, encoding='utf-8', errors='replace') as f:
+            lines = f.read().splitlines()
+        out, cur = {}, None
+
+        def _b(tok):
+            tok = tok.strip()
+            if not tok:
+                return None
+            if tok.lower().endswith('h'):
+                return int(tok[:-1], 16)
+            return int(tok, 10)
+
+        for ln in lines:
+            m = _re.match(r'^VolEnv_([0-9A-F]{2}):\s*db\s+(.*)$', ln)
+            if m:
+                cur = m.group(1)
+                out[cur] = [v for v in (_b(t) for t in m.group(2).split(',')) if v is not None]
+                continue
+            m = _re.match(r'^\s+db\s+(.*)$', ln)
+            if m and cur is not None:
+                out[cur].extend(v for v in (_b(t) for t in m.group(1).split(',')) if v is not None)
+                continue
+            if ln.strip() and not ln.startswith((' ', '\t')):
+                cur = None                      # any new label ends the body
+        return out
+
+    def test_volenv_16_and_09_are_the_same_bytes(self):
+        bodies = self._volenv_bodies()
+        self.assertIn('16', bodies, "VolEnv_16 not found in the S3K Z80 driver")
+        self.assertIn('09', bodies, "VolEnv_09 not found in the S3K Z80 driver")
+        self.assertEqual(
+            bodies['16'], bodies['09'],
+            "sTone_17 is aliased to engine env $0A ONLY because S3K's VolEnv_16 "
+            "and VolEnv_09 are byte-identical. They are no longer identical, so "
+            "the alias now changes the insta-shield's envelope: ship sTone_17 as "
+            "its own env (and update sigil seam1.rs banked_carriers for the head "
+            "growth), or re-point the alias.")
+
+    def test_alias_target_is_the_env_we_actually_ship(self):
+        """The alias is only sound if the SHIPPED env $0A body is the S3K body
+        the source asked for. Derived from the generator's table, not restated."""
+        from gen_sound_tables import _PSG_VOL_ENVS
+        shipped = {eid: body for (eid, _lbl, body) in _PSG_VOL_ENVS}
+        target = sfx_transcode._STONE_TO_ENV['sTone_17']
+        self.assertIn(target, shipped,
+                      f"sTone_17 aliases env ${target:02X}, which is not shipped")
+        self.assertEqual(
+            shipped[target], self._volenv_bodies()['16'],
+            "the shipped body for the alias target no longer equals S3K VolEnv_16")
+
+    def test_insta_shield_stream_carries_the_alias_id(self):
+        """END-TO-END: the $42 blob's PsgEnv event must carry the alias id."""
+        desc = transcode_sfx_source(_SFX_42_FIXTURE, 0x42)
+        envs = [e for e in desc['channels'][0]['events'] if isinstance(e, PsgEnv)]
+        self.assertEqual(len(envs), 1, "insta-shield should emit exactly one PsgEnv")
+        self.assertEqual(envs[0].env_id, sfx_transcode._STONE_TO_ENV['sTone_17'])
+
+
+# The insta-shield source, verbatim from skdisasm "42 - Insta Shield Attack.asm".
+_SFX_42_FIXTURE = """\
+Sound_42_Header:
+\tsmpsHeaderStartSong 3
+\tsmpsHeaderVoice     Sound_42_Voices
+\tsmpsHeaderTempoSFX  $01
+\tsmpsHeaderChanSFX   $01
+
+\tsmpsHeaderSFXChannel cPSG3, Sound_42_PSG3,\t$10, $00
+
+Sound_42_PSG3:
+\tsmpsPSGform         $E7
+\tsmpsPSGvoice        sTone_17
+\tdc.b\tnCs6, $04
+\tsmpsModSet          $02, $01, $06, $07
+\tdc.b\tnE5, $10
+\tsmpsStop
+
+Sound_42_Voices:
+"""
+
+# The ground slide, verbatim from skdisasm "7E - Ground Slide.asm".
+_SFX_7E_FIXTURE = """\
+Sound_7E_Header:
+\tsmpsHeaderStartSong 3
+\tsmpsHeaderVoice     Sound_7E_Voices
+\tsmpsHeaderTempoSFX  $01
+\tsmpsHeaderChanSFX   $01
+
+\tsmpsHeaderSFXChannel cPSG3, Sound_7E_PSG3,\t$00, $03
+
+Sound_7E_PSG3:
+\tsmpsPSGform         $E7
+\tsmpsModSet          $01, $01, $01, $01
+\tdc.b\tnMaxPSG2, $09
+\tsmpsPSGAlterVol     $04
+\tdc.b\tnG6, $06
+\tsmpsStop
+
+Sound_7E_Voices:
+"""
+
+
+class TestPsgAlterVolIsTheEngineConversion(unittest.TestCase):
+    """smpsPSGAlterVol ($EC) is a relative change in SN76489 ATTENUATION units.
+    The engine turns sc_volume into attenuation with `xor $7F / rrca x3 / and $F`
+    (Psg_VolToAtten, engine/sound/sound_psg.emp), so one attenuation step is
+    exactly 8 sc_volume units — the transcoder must round-trip through that
+    arithmetic, not through a hand-picked scale factor."""
+
+    def test_conversion_matches_psg_voltoatten_over_the_whole_domain(self):
+        from sfx_transcode import _psg_atten_of
+        for vol in range(128):
+            self.assertEqual(_psg_atten_of(vol), ((vol ^ 0x7F) >> 3) & 0x0F,
+                             f"vol {vol}: mirror diverged from Psg_VolToAtten")
+
+    def test_inverse_is_exact_and_picks_the_loudest_representative(self):
+        from sfx_transcode import _psg_atten_of, _psg_vol_for_atten
+        for atten in range(16):
+            v = _psg_vol_for_atten(atten)
+            self.assertEqual(_psg_atten_of(v), atten)
+            self.assertTrue(v == 127 or _psg_atten_of(v + 1) != atten,
+                            f"atten {atten}: {v} is not the loudest representative")
+
+    def test_ground_slide_alter_vol_lands_on_the_derived_volume(self):
+        """$7E's channel vol $03 then smpsPSGAlterVol $04: the second Vol event
+        must be the one that renders (init attenuation + 4)."""
+        from sfx_transcode import _psg_atten_of, _psg_vol_for_atten
+        desc = transcode_sfx_source(_SFX_7E_FIXTURE, 0x7E)
+        vols = [e.vol for e in desc['channels'][0]['events'] if isinstance(e, Vol)]
+        self.assertEqual(len(vols), 2, f"expected init + AlterVol, got {vols}")
+        self.assertEqual(vols[1], _psg_vol_for_atten(_psg_atten_of(vols[0]) + 4))
+
+    def test_alter_vol_saturates_at_full_attenuation(self):
+        from sfx_transcode import _psg_vol_for_atten
+        self.assertEqual(_psg_vol_for_atten(99), _psg_vol_for_atten(0x0F))
+
+
+class TestMaxPsgNoteAliases(unittest.TestCase):
+    """nMaxPSG1/nMaxPSG2 are EQUs, not parseable note names. Under the S3K driver
+    (_smps2asm_inc.asm :57-59, the SonicDriverVer>=3 branch) they are nBb6 and
+    nB6. nMaxPSG itself carries a `psgdelta` correction this transcoder does not
+    model and must stay a loud parse failure rather than a guess."""
+
+    def test_maxpsg2_is_nB6(self):
+        from sfx_transcode import _note_from_token
+        self.assertEqual(_note_from_token('nMaxPSG2'), _note_from_token('nB6'))
+
+    def test_maxpsg1_is_nBb6(self):
+        from sfx_transcode import _note_from_token
+        self.assertEqual(_note_from_token('nMaxPSG1'), _note_from_token('nBb6'))
+
+    def test_bare_maxpsg_still_raises(self):
+        from sfx_transcode import _note_from_token
+        with self.assertRaises(TranscodeError):
+            _note_from_token('nMaxPSG')
+
+
+class TestNewAbilitySfxPriorities(unittest.TestCase):
+    """The four 2026-08-26 additions, and the one ordering claim that carries a
+    design argument rather than a taste."""
+
+    def test_new_tiers_are_7bit(self):
+        for name in ('SFXPRI_INSTASHIELD', 'SFXPRI_GRAB', 'SFXPRI_GLIDE_LAND',
+                     'SFXPRI_SLIDE'):
+            val = getattr(sfx_transcode, name)
+            self.assertEqual(val & 0x80, 0,
+                             f"{name}={val:#04x} has bit 7 set (non-latching flag)")
+
+    def test_cadence_driven_sfx_sit_below_ring(self):
+        """The stated rule in sound_ids.emp: an SFX that retriggers on a fixed
+        cadence for as long as a state is held must LOSE arbitration rather than
+        win it by asking most often. Both such SFX (flight, ground slide) are
+        below the ring/UI floor; nothing else is."""
+        from sfx_transcode import (SFXPRI_FLY, SFXPRI_SLIDE, SFXPRI_RING,
+                                   _SFX_PRIORITY)
+        self.assertLess(SFXPRI_SLIDE, SFXPRI_RING)
+        self.assertLess(SFXPRI_FLY, SFXPRI_RING)
+        below = {sid for sid, p in _SFX_PRIORITY.items() if p < SFXPRI_RING}
+        self.assertEqual(below, {0xBA, 0xBB, 0x7E},
+                         "only the cadence-driven SFX (flight x2, ground slide) "
+                         "may sit below the ring/UI floor")
+
+    def test_new_ids_transcode_without_reserved_channels(self):
+        """FM1/FM2/FM6/DAC are not stealable; assert the two FM sources land on
+        FM5 as their headers ask."""
+        for fixture, sid in ((_SFX_42_FIXTURE, 0x42), (_SFX_7E_FIXTURE, 0x7E)):
+            desc = transcode_sfx_source(fixture, sid)
+            for ch in desc['channels']:
+                self.assertNotIn(ch['route'],
+                                 (CHROUTE_FM1, CHROUTE_FM2, CHROUTE_FM6, CHROUTE_DAC))
+
+
 if __name__ == '__main__':
     unittest.main()
