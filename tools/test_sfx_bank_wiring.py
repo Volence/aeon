@@ -209,3 +209,66 @@ def test_every_shipped_blob_header_carries_its_declared_priority():
         assert got & 0x80 == 0, (
             f"{fname} sfh_priority ${got:02X} has bit 7 set — that bit is the "
             f"non-latching flag, not part of the rank")
+
+
+def test_psgform_sfx_ship_the_tracked_noise_shape():
+    """END-TO-END (B5): every shipped blob whose S3K SOURCE carries smpsPSGform must
+    contain that form byte as MEV_PSGNOISE, and must NOT contain the pre-B5 baked
+    fixed-rate note. The SET of such ids is DISCOVERED by scanning the skdisasm
+    sources the transcoder reads — nothing here is a copied id list, so a new
+    smpsPSGform SFX is covered the moment it is added to _CORE_SFX_IDS.
+
+    This is the only test that reads the SHIPPED bytes for the noise shape. It is the
+    producer end of the chain the engine closes: MEV_PSGNOISE -> Seq_Op_PsgNoise's SFX
+    arm (control byte + tone-3 silence, no sc_noise_mode store) -> a noise NOTE that is
+    a PITCH -> Psg_NoteOn -> Psg_EmitDivisor's CHROUTE_PSGN latch ($C0 = the rate-3
+    noise clock) -> Psg_ApplyMod sweeping that same latch."""
+    import sys
+    sys.path.insert(0, HERE)
+    import sfx_transcode as T
+    from song_packer import MEV_PSGNOISE, MEV_MODSET
+
+    skd = os.environ.get("AEON_SKDISASM_DIR") or T.SKDISASM_SFX_DIR
+    sfx_src_dir = skd if os.path.basename(skd).upper() == "SFX" else \
+        os.path.join(skd, "Sound", "SFX")
+    if not os.path.isdir(sfx_src_dir):
+        # LOUD, not green: the discovery scan cannot run without the sources.
+        raise AssertionError(
+            f"cannot read the S3K SFX sources at {sfx_src_dir} — this gate DISCOVERS "
+            f"its subject set by scanning them, so it cannot be evaluated. Set "
+            f"AEON_SKDISASM_DIR.")
+
+    _, _, rows = parse_bank_rows()
+    tracked = {}
+    for sfx_id in sorted(rows):
+        fname = T._CORE_SFX_FILENAMES.get(sfx_id)
+        if fname is None:
+            continue
+        path = os.path.join(sfx_src_dir, fname)
+        if not os.path.exists(path):
+            raise AssertionError(f"missing S3K source {path} for ${sfx_id:02X}")
+        src = _read(path)
+        forms = re.findall(r'smpsPSGform\s+\$([0-9A-Fa-f]{2})', src)
+        if forms:
+            tracked[sfx_id] = ([int(f, 16) for f in forms], 'smpsModSet' in src)
+
+    assert tracked, (
+        "no shipped SFX source carries smpsPSGform — the scan found nothing to "
+        "check, so this gate would be vacuous")
+
+    for sfx_id, (forms, src_has_modset) in sorted(tracked.items()):
+        blob = open(os.path.join(SFX_DIR, rows[sfx_id]), "rb").read()
+        for form in forms:
+            assert form & 3 == 3, (
+                f"${sfx_id:02X} source carries smpsPSGform ${form:02X}, a PRESET rate; "
+                f"the engine has no SFX path for one (B5)")
+            assert bytes([MEV_PSGNOISE, form]) in blob, (
+                f"{rows[sfx_id]} does not carry MEV_PSGNOISE ${form:02X} — the source's "
+                f"smpsPSGform was dropped (the pre-B5 v1 approximation). Re-run "
+                f"`python3 tools/sfx_transcode.py generate --emit-bin`")
+        # The pre-B5 shape baked the fixed rate into a NoteDur and DROPPED the sweep.
+        # $B6/$42/$7E all carry a smpsModSet, so its absence is the same regression.
+        if src_has_modset:
+            assert MEV_MODSET in blob, (
+                f"{rows[sfx_id]} carries no MEV_MODSET though its source has a "
+                f"smpsModSet — the noise reroute dropped the sweep (pre-B5 behaviour)")

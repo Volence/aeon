@@ -42,7 +42,7 @@ except ImportError:
 try:
     from song_packer import (
         End, Note, NoteDur, Rest, SetDur, Patch, Vol, Pan, PsgEnv, ModSet,
-        SpinRev, LoopPoint, Jump,
+        PsgNoise, SpinRev, LoopPoint, Jump,
         RepeatStart, RepeatEnd,
         CHROUTE_FM1, CHROUTE_FM2, CHROUTE_FM3, CHROUTE_FM4, CHROUTE_FM5,
         CHROUTE_FM6, CHROUTE_PSG1, CHROUTE_PSG2, CHROUTE_PSG3, CHROUTE_PSGN,
@@ -54,7 +54,7 @@ try:
 except ImportError:
     from tools.song_packer import (  # type: ignore
         End, Note, NoteDur, Rest, SetDur, Patch, Vol, Pan, PsgEnv, ModSet,
-        SpinRev, LoopPoint, Jump,
+        PsgNoise, SpinRev, LoopPoint, Jump,
         RepeatStart, RepeatEnd,
         CHROUTE_FM1, CHROUTE_FM2, CHROUTE_FM3, CHROUTE_FM4, CHROUTE_FM5,
         CHROUTE_FM6, CHROUTE_PSG1, CHROUTE_PSG2, CHROUTE_PSG3, CHROUTE_PSGN,
@@ -702,11 +702,20 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
         # A PSG TONE channel that switches to NOISE mode (smpsPSGform) must be played
         # on the NOISE channel, not as the audible descending TONE the tone path
         # produced (the dash "duh"). Pre-scan this channel's data for smpsPSGform and,
-        # if present, reroute to PSGN/NOISE. v1 approximation: a FIXED white-noise rate
-        # ($E6 = white clk/2048, the closest fixed rate to the source's tone-tracked
-        # pitch); the faithful tone-frequency-TRACKED sweep ($E7) is a documented
-        # refinement (needs the engine to drive PSG3's freq as the noise clock).
-        noise_form = None
+        # if present, reroute to PSGN/NOISE.
+        #
+        # B5 (2026-08-26): the v1 approximation is GONE. It pinned a FIXED white-noise
+        # rate ($E6 = white clk/2048) as the single note byte and dropped both the pitch
+        # and the smpsModSet, because the engine's SFX noise arm read the note's low 3
+        # bits AS the mode/rate and Psg_ApplyMod would have swept the noise CONTROL
+        # register. Both of those are fixed engine-side: MEV_PSGNOISE now carries the
+        # control byte on SFX too, and Psg_EmitDivisor latches tone-3's frequency ($C0,
+        # the rate-3 noise clock) on CHROUTE_PSGN. So a smpsPSGform channel is now
+        # transcoded FAITHFULLY: real pitch notes + the source's ModSet, giving S3K's
+        # descending "pshhew" instead of a flat hiss.
+        #
+        # noise_ctrl holds the source's form byte ($E0-$EF) once rerouted.
+        noise_ctrl = None
         if route in (CHROUTE_PSG1, CHROUTE_PSG2, CHROUTE_PSG3):
             _boundary = {h[1] for h in chan_headers}
             if voices_label:
@@ -719,8 +728,26 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
                 if _s.endswith(':') and _s[:-1].strip() in _boundary and _s[:-1].strip() != data_lbl:
                     break
                 if _s.startswith('smpsPSGform'):
+                    _args = _split_args(_s[len('smpsPSGform'):])
+                    _form = _parse_int(_args[0]) if _args else 0
+                    if not (0xE0 <= _form <= 0xEF):
+                        raise TranscodeError(
+                            f"sfx ${sfx_id:02X} ch ${chanid:02X}: smpsPSGform "
+                            f"${_form:02X} is not a noise control byte ($E0-$EF)")
+                    if (_form & 3) != 3:
+                        # A PRESET-rate form ($E4-$E6) would need the pre-B5 encoding,
+                        # whose engine arm no longer exists. Nothing in skdisasm emits
+                        # one (all 69 smpsPSGform sites, music + SFX, are $E7), so this
+                        # is a loud stop rather than a silent half-conversion.
+                        raise TranscodeError(
+                            f"sfx ${sfx_id:02X} ch ${chanid:02X}: smpsPSGform "
+                            f"${_form:02X} selects a PRESET noise rate (control bits "
+                            f"D1-D0 = {_form & 3}, not 3). The engine's SFX noise arm "
+                            f"treats every noise note as a PITCH for the rate-3 tone-3 "
+                            f"clock (B5); a preset-rate SFX has no engine path. Add one "
+                            f"before transcoding this source.")
                     route, kind = CHROUTE_PSGN, SFXEL_NOISE
-                    noise_form = 0x06   # $E6: white noise, fixed clk/2048
+                    noise_ctrl = _form
                     break
 
         if route in _RESERVED_ROUTES:
@@ -1016,13 +1043,10 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
             (zPrepareModulation never runs without an attack), so fade tails ride
             the sweep instead of snapping back to base."""
             nonlocal noattack_pending
-            if noise_form is not None:
-                # Noise channel: the engine reads the NOTE's low 3 bits as the SN76489
-                # noise mode (control = $E0|(pitch&7)); the source tone pitch and the
-                # no-attack flag don't apply. Emit the fixed noise mode.
-                events.append(NoteDur(noise_form, dur))
-                noattack_pending = False
-                return
+            # B5: a rerouted noise channel is NO LONGER special-cased here. Its note is
+            # a real pitch (the control byte rides MEV_PSGNOISE), so it takes the same
+            # path as a tone note, smpsNoAttack included — the engine's Psg_NoteOn
+            # writes the divisor to the rate-3 noise clock.
             if noattack_pending:
                 pitch |= 0x80                 # held: engine skips the $28 re-attack
             events.append(NoteDur(pitch, dur))
@@ -1272,8 +1296,12 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
                     env_id = _stone_to_env_id(tone_tok)
                     events.append(PsgEnv(env_id))
                 elif macro == 'smpsModSet':
-                    if noise_form is not None:
-                        continue            # noise channel: no tone freq to modulate
+                    # B5: NO LONGER dropped on a rerouted noise channel. The rate-3
+                    # noise clock IS tone-3's frequency divisor, and the engine sweeps
+                    # exactly that (Psg_ApplyMod -> Psg_EmitDivisor's CHROUTE_PSGN
+                    # latch), so the source's modSet is what produces S3K's descending
+                    # "pshhew". _validate_no_modset_on_noise still refuses a ModSet on
+                    # any noise channel that does NOT carry a rate-3 MEV_PSGNOISE.
                     # Pitch modulation: emit MEV_MODSET with the raw .asm operands
                     # (wait, speed, change, step). The engine applies S3K's own
                     # srl-on-init (Mod_ReArm seeds steps = raw>>1) — do NOT re-encode
@@ -1297,11 +1325,23 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
                 elif macro == 'smpsResetSpindashRev':
                     pass                     # rev reset is dispatch-folded (see above)
                 elif macro == 'smpsPSGform':
+                    # B5: emit the noise control byte as MEV_PSGNOISE. Pre-B5 this was
+                    # DROPPED (an [info] line) and the prescan baked a fixed $E6 into
+                    # the note instead. The engine's Seq_Op_PsgNoise is class-aware now,
+                    # so on an SFX slot it writes the control byte + silences tone-3 and
+                    # never touches sc_noise_mode (which aliases sx_priority) — the exact
+                    # hazard _validate_no_aliasing_ops exists to stop. The prescan has
+                    # already validated the range and the rate-3 requirement, and has
+                    # rerouted the channel to PSGN; assert that pairing here.
                     args = _split_args(arg_str)
                     form_val = _parse_int(args[0]) if args else 0
-                    print(f"  [info] sfx ${sfx_id:02X} ch ${chanid:02X}: smpsPSGform "
-                          f"${form_val:02X} (noise mode; handled by engine via sx_kind)",
-                          file=sys.stderr)
+                    if noise_ctrl is None or route != CHROUTE_PSGN:
+                        raise TranscodeError(
+                            f"sfx ${sfx_id:02X} ch ${chanid:02X}: smpsPSGform "
+                            f"${form_val:02X} reached emission on route {route} without "
+                            f"the noise reroute — the prescan and the emission pass "
+                            f"disagree about this channel")
+                    events.append(PsgNoise(form_val))
                 elif macro == 'smpsLoop':
                     args = _split_args(arg_str)
                     loops = max(1, min(255, _parse_int(args[1]) if len(args) > 1 else 1))
@@ -1543,9 +1583,21 @@ def _validate_no_aliasing_ops(events, sfx_id=0, route=None):
     checking rather than asserting. Zero Z80 bytes: a stream that cannot contain
     the opcode needs no runtime guard. The layout half of the invariant (that the
     two fields really do still alias) is pinned by ensures in sound_constants.emp.
+
+    ONE CARVE-OUT (B5, 2026-08-26) — MEV_PSGNOISE on route CHROUTE_PSGN only.
+    The alias hazard is not the opcode, it is the STORE: `ld (ix+sc_noise_mode), a`
+    through an SFX slot's ix. Seq_Op_PsgNoise now branches on Snd_ChanClass and does
+    that store on the MUSIC arm only, so on an SFX channel the opcode writes the chip
+    (control byte + the tone-3 silence) and touches no SfxChannel field at all. The
+    carve-out is deliberately keyed on the ROUTE, not on "SFX", because the noise route
+    is the only one where the opcode means anything: on an SFX PSG1/PSG2/PSG3 or FM
+    channel it would reset the LFSR and silence tone-3 behind whatever owns them, so
+    those stay refused. MEV_DETUNE has no carve-out — sx_pad must stay 0 on every route.
     """
     for ev in events:
         name = type(ev).__name__
+        if name == 'PsgNoise' and route == CHROUTE_PSGN:
+            continue                    # B5 carve-out (see docstring)
         if name in ('PsgNoise', 'Detune'):
             which = ('MEV_PSGNOISE ($F2), which aliases sx_priority'
                      if name == 'PsgNoise'
@@ -1560,28 +1612,48 @@ def _validate_no_aliasing_ops(events, sfx_id=0, route=None):
 def _validate_no_modset_on_noise(events, sfx_id=0, route=None):
     """SFX D1 — reject MEV_MODSET on a NOISE-routed channel.
 
-    The noise channel has no tone divisor. Psg_ApplyMod sums the modulation
-    accumulator onto sc_base_freq and re-latches it, so on the noise route the
-    swept word lands on the SN76489 NOISE CONTROL register instead of a frequency
-    latch: it re-triggers the LFSR and walks the mode/rate bits. The runtime gate
-    was written and REVERTED for Z80 space (the note lives at the Psg_ApplyMod call
-    site in sound_sequencer.emp), which left the rule as a CONVENTION — "the
-    transcoder never emits MEV_MODSET on a noise track".
+    A noise channel has no frequency register of its OWN. Psg_ApplyMod sums the
+    modulation accumulator onto sc_base_freq and re-latches it through
+    Psg_EmitDivisor, and for CHROUTE_PSGN Psg_ChBase used to make the latch base
+    $80|$60 = $E0 — the SN76489 NOISE CONTROL register. A sweep there re-triggers the
+    LFSR and walks the mode/rate bits every frame. The runtime gate was written and
+    REVERTED for Z80 space, which left the rule as a CONVENTION; this is the pack-time
+    backstop that made it a checked rule at zero Z80 bytes. The music half of the same
+    rule lives in song_packer's ModSet.validate and stays ABSOLUTE.
 
-    The parser does drop smpsModSet when it reroutes a channel to noise, but that
-    is a source-shaped transform on data we do not control, not a guarantee. This
-    is the pack-time backstop that makes the convention a checked rule, at zero Z80
-    bytes. The music half of the same rule lives in song_packer's ModSet.validate.
+    ONE CARVE-OUT (B5, 2026-08-26) — a channel carrying a RATE-3 MEV_PSGNOISE.
+    In rate-3 noise mode ($xB/$xF) the chip clocks the LFSR from TONE 3's frequency, so
+    that channel DOES have a frequency register: tone-3's, latch $C0. Psg_EmitDivisor
+    now selects $C0 for CHROUTE_PSGN, so the swept word lands on the noise CLOCK and
+    the corruption path is closed at its source rather than routed around. Sweeping it
+    is the whole point — it is S3K's descending "pshhew" ($B6 dash, $42 insta-shield,
+    $7E ground slide), which the pre-B5 fixed-$E6 approximation could not produce.
+
+    The carve-out is as narrow as the shape it admits, and it is narrower than "SFX
+    noise": it requires the SAME channel to carry a MEV_PSGNOISE whose control byte
+    actually selects rate 3. A noise channel with no PsgNoise, or one with a preset
+    rate ($E4-$E6, where tone 3 does not clock the LFSR and the $C0 write is inert),
+    is still refused — in those shapes a sweep would move a register nothing reads
+    while the noise pitch sat still, which is a silent authoring bug, not a sound.
+
+    The parser no longer drops smpsModSet on a rerouted channel (that drop WAS the
+    v1 approximation), so this backstop is now the only producer-side gate on the
+    shape — it is load-bearing rather than belt-and-braces.
     """
     if route != CHROUTE_PSGN:
+        return
+    tracked = any(type(ev).__name__ == 'PsgNoise' and (ev.ctrl & 3) == 3
+                  for ev in events)
+    if tracked:
         return
     for ev in events:
         if type(ev).__name__ == 'ModSet':
             raise TranscodeError(
-                f"SFX ${sfx_id:02X} emits MEV_MODSET on the noise route — pitch "
-                f"modulation has no tone divisor to sweep there and the modulated "
-                f"word would corrupt the SN76489 noise control register (D1). Author "
-                f"the noise mode/rate with smpsPSGform instead.")
+                f"SFX ${sfx_id:02X} emits MEV_MODSET on the noise route with no "
+                f"rate-3 MEV_PSGNOISE on the same channel — there is no frequency "
+                f"register for the sweep to move, and the modulated word would reach "
+                f"the SN76489 noise control register (D1). Either author the sweep on "
+                f"a rate-3 noise channel (smpsPSGform $E7) or drop the smpsModSet.")
 
 
 def _validate_sfx_repeat(events, sfx_id=0):

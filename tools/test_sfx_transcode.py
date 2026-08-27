@@ -16,6 +16,7 @@ Test coverage per Task 4 spec:
 
 import unittest
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -32,6 +33,7 @@ from sfx_transcode import (
     _smps_note_to_pitch, FM_SFX_OCTAVE_SHIFT, PSG_OCTAVE_FIXUP,
     _LOG_VOLUME_LUT, _vol_for_atten, _validate_sfx_repeat,
     _validate_no_modset_on_noise,
+    _validate_no_aliasing_ops,
     S3K_NOTE_BASE,
     CHROUTE_FM3, CHROUTE_FM4, CHROUTE_FM5,
     CHROUTE_PSG1, CHROUTE_PSG2, CHROUTE_PSG3, CHROUTE_PSGN,
@@ -1376,9 +1378,29 @@ Sound_FF_Voices:
 """
 
 
+# A PRESET-rate form. No skdisasm source emits one (all 69 smpsPSGform sites, music
+# and SFX, are $E7), and the engine's SFX noise arm has no path for it since B5 — so
+# the transcoder must STOP rather than half-convert.
+PSGFORM_PRESET_SRC = PSGFORM_SRC.replace('smpsPSGform         $E7',
+                                         'smpsPSGform         $E6')
+
+
 class TestPsgFormNoise(unittest.TestCase):
     """A cPSG3 channel with smpsPSGform (noise mode) must be rerouted to the NOISE
-    channel so it plays as noise, not an audible descending tone (the dash "duh")."""
+    channel so it plays as noise, not an audible descending tone (the dash "duh"),
+    AND — since B5 — must be transcoded FAITHFULLY: real pitch notes, the source's
+    smpsModSet kept, and the form byte carried as MEV_PSGNOISE.
+
+    RULING on the test this class used to hold (2026-08-26). `test_note_is_noise_mode_
+    not_tone` pinned the v1 APPROXIMATION: one note byte baked to a fixed white-noise
+    rate ($E6) and the smpsModSet DROPPED. Both halves of that pin were descriptions
+    of an engine limitation, not of correct output — S3K's $E7 is white noise whose
+    shift rate tracks PSG3's tone frequency, so the source's modSet is exactly what
+    makes the noise pitch descend (the "pshhew"). The engine limitation is gone
+    (Psg_EmitDivisor latches tone-3's frequency on CHROUTE_PSGN; Seq_Op_PsgNoise is
+    class-aware), so the pin now asserts the bug. It is REPLACED, not deleted: the
+    two tests below assert the opposite of each half, so the old behaviour cannot
+    come back silently."""
 
     def setUp(self):
         from song_packer import CHROUTE_PSGN
@@ -1390,15 +1412,47 @@ class TestPsgFormNoise(unittest.TestCase):
                          "smpsPSGform channel must route to PSGN (noise), not PSG3 (tone)")
         self.assertEqual(self.ch['kind'], SFXEL_NOISE)
 
-    def test_note_is_noise_mode_not_tone(self):
-        # the engine reads NoteDur pitch low-3 as the SN76489 noise mode; bit 2 set =
-        # white noise. Tone modulation must be dropped (no ModSet on a noise channel).
-        from song_packer import ModSet
+    def test_form_becomes_psgnoise_and_note_stays_a_pitch(self):
+        # B5. The form byte rides MEV_PSGNOISE (out of band, exactly as music does it),
+        # so the NOTE is a real pitch. Expected pitch is DERIVED by asking the
+        # transcoder's own note-token map for the source's token, not copied.
+        from song_packer import PsgNoise
+        from sfx_transcode import _note_from_token
+        # PSGFORM_SRC's channel header declares transpose $00, so the expected pitch is
+        # the transcoder's own raw-note -> pitch map on the PSG side, transpose 0.
+        want_pitch = _smps_note_to_pitch(_note_from_token('nE6'), is_psg=True, transpose=0)
+        pn = [e for e in self.ch['events'] if isinstance(e, PsgNoise)]
+        self.assertEqual(len(pn), 1, "the source's one smpsPSGform must emit one MEV_PSGNOISE")
+        self.assertEqual(pn[0].ctrl, 0xE7)
+        self.assertEqual(pn[0].ctrl & 3, 3,
+                         "$E7's rate bits must be 3 — that is what clocks the noise from tone 3")
         nd = [e for e in self.ch['events'] if isinstance(e, NoteDur)]
         self.assertEqual(len(nd), 1)
-        self.assertEqual(nd[0].pitch & 0x04, 0x04, "noise note must select WHITE noise")
-        self.assertEqual([e for e in self.ch['events'] if isinstance(e, ModSet)], [],
-                         "noise channel has no tone freq -> modSet must be dropped")
+        self.assertEqual(nd[0].pitch, want_pitch,
+                         "the noise note must carry the SOURCE PITCH, not a baked noise mode")
+        self.assertGreater(want_pitch, 0x07,
+                           "derivation sanity: the pitch must be outside the 0..7 range the "
+                           "pre-B5 encoding used for mode bytes, or this test cannot tell "
+                           "a pitch from a baked noise mode")
+
+    def test_modset_survives_the_noise_reroute(self):
+        # B5. The rate-3 noise clock IS tone-3's divisor, so the sweep is the point.
+        # Operands are read from PSGFORM_SRC's own smpsModSet line.
+        from song_packer import ModSet
+        m = re.search(r'smpsModSet\s+(\$[0-9A-Fa-f]+),\s*(\$[0-9A-Fa-f]+),'
+                      r'\s*(\$[0-9A-Fa-f]+),\s*(\$[0-9A-Fa-f]+)', PSGFORM_SRC)
+        self.assertIsNotNone(m, "PSGFORM_SRC lost its smpsModSet — this test is vacuous")
+        want = [int(g[1:], 16) for g in m.groups()]
+        mods = [e for e in self.ch['events'] if isinstance(e, ModSet)]
+        self.assertEqual(len(mods), 1,
+                         "the source's smpsModSet must survive the noise reroute (B5)")
+        self.assertEqual([mods[0].wait, mods[0].speed, mods[0].change, mods[0].step], want)
+
+    def test_preset_rate_form_is_refused(self):
+        # A form whose rate bits are not 3 has no engine path (the pre-B5 arm that read
+        # the note as a mode byte is deleted). It must be a loud stop.
+        with self.assertRaisesRegex(TranscodeError, "PRESET noise rate"):
+            transcode_sfx_source(PSGFORM_PRESET_SRC, 0xFF)
 
 
 class TestRepeatBodyBackstop(unittest.TestCase):
@@ -1432,15 +1486,16 @@ class TestRepeatBodyBackstop(unittest.TestCase):
 
 
 class TestModSetNoiseRouteBackstop(unittest.TestCase):
-    """D1 — pitch modulation must never reach a NOISE-routed SFX channel.
-
-    The parser already DROPS smpsModSet when it reroutes a channel to noise
-    (TestPSGFormNoiseReroute covers that), but that is a source-shaped transform,
-    not a guarantee. This is the pack-time backstop: whatever path built the event
-    list, a ModSet on the noise route is refused. Producer-side; zero Z80 bytes
-    (the runtime gate was implemented and reverted for space)."""
+    """D1 — pitch modulation must never reach a NOISE-routed SFX channel that has no
+    frequency register for it to move, with ONE carve-out (B5): a channel carrying a
+    RATE-3 MEV_PSGNOISE. In rate-3 mode the chip clocks the LFSR from tone 3, so
+    Psg_EmitDivisor latches $C0 there and the sweep moves the noise CLOCK — the S3K
+    "pshhew". The parser no longer drops smpsModSet on a rerouted channel (that drop
+    WAS the v1 approximation), so this backstop is now the only producer-side gate on
+    the shape. Producer-side; zero Z80 bytes."""
 
     def test_modset_on_noise_route_rejected(self):
+        # No PsgNoise on the channel at all -> still refused.
         from song_packer import ModSet
         events = [Vol(80), ModSet(4, 2, 8, 1), NoteDur(0x06, 4), End()]
         with self.assertRaisesRegex(TranscodeError, "noise route"):
@@ -1450,6 +1505,24 @@ class TestModSetNoiseRouteBackstop(unittest.TestCase):
         from song_packer import ModSet
         events = [Vol(80), ModSet(4, 2, 8, 1), NoteDur(0x46, 4), End()]
         _validate_no_modset_on_noise(events, 0x99, CHROUTE_PSG3)   # must not raise
+
+    def test_modset_allowed_beside_a_rate3_psgnoise(self):
+        # B5 carve-out. $E7 & 3 == 3 -> the noise clock is tone 3's divisor.
+        from song_packer import ModSet, PsgNoise
+        self.assertEqual(0xE7 & 3, 3, "derivation: $E7's rate bits select the tone-3 clock")
+        events = [Vol(80), PsgNoise(0xE7), ModSet(4, 2, 8, 1), NoteDur(0x46, 4), End()]
+        _validate_no_modset_on_noise(events, 0x99, CHROUTE_PSGN)   # must not raise
+
+    def test_modset_still_refused_beside_a_preset_rate_psgnoise(self):
+        # The carve-out is keyed on the RATE bits, not on "there is a PsgNoise". A
+        # preset rate ($E4-$E6) does not clock from tone 3, so the $C0 write is inert
+        # and a sweep would move a register nothing reads.
+        from song_packer import ModSet, PsgNoise
+        for ctrl in (0xE4, 0xE5, 0xE6):
+            self.assertNotEqual(ctrl & 3, 3)
+            events = [Vol(80), PsgNoise(ctrl), ModSet(4, 2, 8, 1), NoteDur(0x46, 4), End()]
+            with self.assertRaisesRegex(TranscodeError, "rate-3"):
+                _validate_no_modset_on_noise(events, 0x99, CHROUTE_PSGN)
 
     def test_pack_sfx_refuses_noise_channel_carrying_modset(self):
         # The backstop is wired into pack_sfx, not just available beside it.
@@ -1463,6 +1536,46 @@ class TestModSetNoiseRouteBackstop(unittest.TestCase):
         }
         with self.assertRaisesRegex(TranscodeError, "noise route"):
             pack_sfx(desc, SFXPRI_RING)
+
+    def test_pack_sfx_accepts_the_tracked_noise_shape(self):
+        # ... and the carve-out reaches pack_sfx too, so the shipping path can build it.
+        from song_packer import ModSet, PsgNoise, MEV_PSGNOISE, MEV_MODSET
+        desc = {
+            'id': 0x99, 'flags': 0, 'voices': [],
+            'channels': [{
+                'route': CHROUTE_PSGN, 'kind': SFXEL_NOISE,
+                'events': [Vol(80), PsgNoise(0xE7), ModSet(4, 2, 8, 1),
+                           NoteDur(0x46, 4), End()],
+            }],
+        }
+        blob = pack_sfx(desc, SFXPRI_RING)
+        self.assertIn(bytes([MEV_PSGNOISE, 0xE7]), bytes(blob))
+        self.assertIn(bytes([MEV_MODSET, 4, 2, 8, 1]), bytes(blob))
+
+
+class TestAliasingCarveOut(unittest.TestCase):
+    """SFX B4 + the B5 carve-out. MEV_PSGNOISE's hazard is the STORE
+    `ld (ix+sc_noise_mode), a`, which through an SfxChannel's ix hits sx_priority
+    (+57). Seq_Op_PsgNoise now branches on Snd_ChanClass and skips that store on the
+    SFX arm, so the opcode is safe — but ONLY on the noise route, where it means
+    something. Everywhere else it would reset the LFSR and silence tone 3 behind
+    whatever owns them, so it stays refused. MEV_DETUNE has no carve-out at all."""
+
+    def test_psgnoise_accepted_on_the_noise_route(self):
+        from song_packer import PsgNoise
+        _validate_no_aliasing_ops([Vol(80), PsgNoise(0xE7), End()], 0x99, CHROUTE_PSGN)
+
+    def test_psgnoise_still_refused_on_every_other_route(self):
+        from song_packer import PsgNoise
+        for route in (CHROUTE_FM3, CHROUTE_FM5, CHROUTE_PSG1, CHROUTE_PSG2, CHROUTE_PSG3):
+            with self.assertRaisesRegex(TranscodeError, "MEV_PSGNOISE"):
+                _validate_no_aliasing_ops([Vol(80), PsgNoise(0xE7), End()], 0x99, route)
+
+    def test_detune_has_no_carve_out_even_on_the_noise_route(self):
+        from song_packer import Detune
+        for route in (CHROUTE_FM5, CHROUTE_PSG3, CHROUTE_PSGN):
+            with self.assertRaisesRegex(TranscodeError, "MEV_DETUNE"):
+                _validate_no_aliasing_ops([Vol(80), Detune(3), End()], 0x99, route)
 
 
 class TestUnknownVoiceMacro(unittest.TestCase):
