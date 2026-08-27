@@ -474,10 +474,25 @@ still stands — but stop repeating that raster work cannot be gated on pixels.
 cross-checked with `run_to{symbol}` + `read_memory`. **`run_to` takes a `symbol`** — that is
 the piece nobody had noticed, and it is what makes this composable rather than new work.
 
-**Two capability facts that bite:** breakpoints and `wait_for_break` **do not exist** on the
-Rust server (`capabilities.breakpoints: false`) — for an arm→wait→clear flow use
-`run_to{symbol}` today; the real parcel is breakpoints + `wait_for_break` shipping together
-and has no date. And **we are already driving the Rust server headlessly** — 8 of our tools
+**⚠ THE BREAKPOINT GAP IS CLOSED — corrected in place 2026-08-27, and the sentence it replaces
+said the opposite.** The Rust server **serves breakpoints**: `"breakpoints": true` at
+`crates/oracle-aether/src/engine.rs:1694`, read at oracle `origin/main` (`227b0c8`), with their
+hosted-halt merge `3fb9f4a` verified reachable there. Their local `target/release/oracle-aether`
+was relinked **2026-08-27 05:59**, so the served binary is current with that source — checked
+separately, because a source claim and the binary a tool actually dials are two artifacts.
+Oracle's own run against the rebuilt binary reports **52 methods** and all five breakpoint
+methods present. *Historical note kept deliberately: this bullet previously read "do not exist …
+`capabilities.breakpoints: false`", which was true when written and would have sent a future
+session to `run_to{symbol}` as the only option. `run_to{symbol}` still works and is still the
+right tool where a symbol is what you have.*
+**What this unblocks here, stated so it is not re-derived:** the `arm → wait → clear` flow this
+lane could not express is now expressible, which is what takes `WAITFORBREAK-SPELLING-HOLD` from
+a hold to a scheduled parcel, and it makes the widened `Sprite_Owner` witness reachable — arm on
+a gameplay address, resume into it, and the SAT is populated at the stop, including the `$0002`
+mask sentinel that has never been exercised. **Oracle's caveat, carried because it is theirs and
+it is load-bearing:** the *windowed* halt rests on an in-process fixture, not on a windowed run —
+they could not drive a window without touching the owner's or aurora's. Treat the first windowed
+use as the confirmation, not as a regression test. And **we are already driving the Rust server headlessly** — 8 of our tools
 reference `oracle-aether`/`--no-pace` (verified: `boot_override_gate`, `effects_gates`,
 `hblank_window_sweep`, `sh_probe`, `staging_lifetime_timeline`, `tick_variance_probe`,
 `vsplit_landing_gate`, `warp_mailbox_gate`). **The cutover is partial and IN PROGRESS, not
@@ -639,11 +654,14 @@ ASSERTION, and a reap in a `finally` with PR_SET_PDEATHSIG behind it.
    because the Rust core resets to a stopped machine.
 2. The bus is **24 bits**: `0xFFFF0000` is -32004. `parse_lst` already yields 24-bit
    addresses, so nothing here needed masking — but a hand-written probe will.
-3. **No breakpoints, no `wait_for_break`** (`capabilities.breakpoints: false`). Use
-   `emulator/run_to {"addr"|"symbol", "maxFrames"}` and CHECK `reached` — it parks at an
-   instruction boundary with the target instruction not yet executed, which is the same stop
-   rule the breakpoint gates were written against (proved: `snapshot_poison` captures the
-   same mask %0101 at the same PC on both servers).
+3. **Breakpoints ARE served as of 2026-08-27** (`capabilities.breakpoints: true`; this line
+   read "no breakpoints, no `wait_for_break`" until then, and that is why the four converted
+   gates are written against `run_to`). `emulator/run_to {"addr"|"symbol", "maxFrames"}` remains
+   correct and is still preferable where a **symbol** is what you have: CHECK `reached`, and it
+   parks at an instruction boundary with the target instruction not yet executed — the same stop
+   rule the breakpoint gates were written against (proved: `snapshot_poison` captures the same
+   mask %0101 at the same PC on both servers). Reach for a breakpoint when you need
+   arm→run→**halt on a hit you did not schedule**, which `run_to` structurally cannot express.
 4. **THE QUIET ONE.** `read_memory` returns hex WITH a `0x` prefix; the legacy server
    returned it bare. `int(x, 16)` survives; anything that SLICES positionally
    (`raw[i*4:i*4+4]`) reads two characters off and reports a confident wrong answer with
@@ -656,7 +674,9 @@ assert `implementation == "oracle-rs"` from the handshake — **that field is no
 yet.** Oracle committed it (`bc2cddd`, 2026-08-26) but both release binaries here were built
 2026-08-25 21:03, so a single-rung assertion would refuse the CORRECT server and block the
 lane. Measured, both binaries as shipped: Rust `serverName "oracle-next"` / `serverVersion
-"0.0.0"` / 41 methods / `capabilities.breakpoints: false`; legacy `serverName "oracle"` /
+"0.0.0"` / 41 methods / `capabilities.breakpoints: false` **(a MEASUREMENT DATED 2026-08-26 —
+kept as the record of why the assertion has two rungs, NOT as current fact: the same server
+reports 52 methods and `breakpoints: true` after the 08-27 05:59 relink)**; legacy `serverName "oracle"` /
 `"2.1-linux"` / 53 methods / no `breakpoints` key. So: `implementation` when present is the
 only thing consulted; when absent, `serverName == "oracle-next"` stands in. **Delete rung 2
 the day oracle's release binaries are rebuilt.** Proof it is not vacuous:
