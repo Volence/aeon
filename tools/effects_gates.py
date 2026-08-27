@@ -382,40 +382,162 @@ def run_segmented(args) -> int:
         dt = time.monotonic() - t0
         if wedged:
             reap_oracle(args.rom)
-            rows.append([f"{label} — WEDGED after retry "
-                         f"(no result for: {', '.join(names)})", False,
-                         f"two {eff_to}s attempts produced no result; this is the oracle "
-                         f"stop-race, and these gates are UNMEASURED — not passing"])
+            # ONE ROW PER GATE THE SEGMENT LEFT UNMEASURED, each tagged with that gate. This
+            # is what keeps a wedge from reading as a missing gate: the gate DOES produce a
+            # row (so R1 is satisfied) and that row FAILS (so R3 is satisfied by the failure),
+            # and the reader is told which of the two states they are looking at by the text.
+            for n in names:
+                rows.append(row(n, f"{label} — WEDGED after retry (no result for `{n}`)", False,
+                                f"two {eff_to}s attempts produced no result; this is the oracle "
+                                f"stop-race, and this gate is UNMEASURED — not passing"))
             print(f"{head} WEDGED     {dt:6.1f}s  <- reported as a failure, not silence",
                   flush=True)
             continue
         if got is None:
             # Ran, but produced no result rows: a setup problem (exit 2 territory), not a
-            # gate verdict. It must not be silent either.
+            # gate verdict. It must not be silent either — and, as above, one row per gate so
+            # the row set stays complete and the failure is attributed rather than aggregate.
             setup_problem = setup_problem or rc != 0
-            rows.append([f"{label} — produced NO results (exit {rc})", False, tail])
+            for n in names:
+                rows.append(row(n, f"{label} — produced NO results (exit {rc}); `{n}` is "
+                                   f"UNMEASURED", False, tail))
             print(f"{head} NO RESULTS {dt:6.1f}s  (exit {rc}) {tail}", flush=True)
             continue
         rows.extend(got)
-        bad = sum(1 for r in got if not r[1])
+        bad = sum(1 for r in got if not r[ROW_OK])
         status = "PASS" if not bad else f"FAIL x{bad}"
-        print(f"{head} {status:<11}{dt:6.1f}s  {len(got)} gate(s)", flush=True)
+        # "rows", not "gates": a segment's row count is not its gate count, which is the whole
+        # subject of the ROW SET block. The gate accounting is `report`'s closing line.
+        print(f"{head} {status:<11}{dt:6.1f}s  {len(got)} row(s) for {len(names)} gate(s)",
+              flush=True)
     print()
-    rc = report(rows)
+    # The expectation is the partition this run actually scheduled. In production that IS the
+    # registry — `segments()` derives from `gate_registry()` and
+    # `test_effects_gates_segments.py::test_segments_cover_the_registry_exactly_and_in_order`
+    # pins the two equal, build-fatally — and taking it from `segs` keeps the check coherent
+    # when a caller (a test) schedules a subset.
+    rc = report(rows, {n for _, names, _ in segs for n in names})
     return 2 if (setup_problem and rc == 1) else rc
 
 
-def report(results: list) -> int:
-    """The output contract — identical for the segmented and the `--only` shapes."""
+# ---------------------------------------------------------------------------
+# THE ROW SET — every result row is TAGGED WITH THE GATE THAT PRODUCED IT.
+#
+# WHY THE OLD WITNESS WAS NOT ONE. This lane used to end with `effects_gates: OK — N gates`,
+# where N was `len(results)` — a count of ROWS, not of gates (there are 15 registry entries and
+# a green run prints 27 rows), and variable for two independent reasons:
+#
+#   * OUTCOME. A scene appends its determinism row and then `continue`s past its shape row when
+#     that determinism failed, so one scene is 2 rows passing and 1 failing; `cost_model` is 2
+#     rows on a good probe and 1 on a bad one; the dense scene the same.
+#   * POPULATION. `scanline_spans` emits one row PER DECLARED `CAP_*` BIT, so retiring a
+#     capability legitimately removes a row from a fully green lane.
+#
+# The second one is what actually happened, and it is worth stating because the outcome story
+# alone cannot explain it: EVERY row-suppressing path in the body appends a FAILING row before
+# it skips, so outcome variability can only ever produce a smaller count WITH RED IN IT. The
+# unreconciled 28 -> 27 drop of 2026-08-26/27, all rows PASS, was `309d937a` retiring
+# CAP_PER_LINE — 7 declared bits at `6fbcd186` (the 28 run) against 6 at `e4eee42c` (the 27
+# run), and `309d937a` is an ancestor of the second and not of the first. So the count was
+# never a witness, and it was not lying either; it was answering a different question.
+#
+# WHAT REPLACES IT. Rows carry `gate`, and the run asserts a SET against an expectation DERIVED
+# from `wanted()` — i.e. from `gate_registry()`, filtered by whatever `--only` selected. There
+# is no expected row COUNT anywhere in this file, because there is no honest way to derive one:
+# a gate's row count is a function of its own outcome and of source-declared populations.
+# Three rules, and the second and third are what keep it from being vacuous:
+#
+#   R1 POPULATION — every gate this run scheduled produced at least one row. This catches the
+#      silent shape, and it is the one `check_registry_drift` structurally cannot: that check
+#      compares the names the body ASKS ABOUT against the registry, so a gate whose
+#      `if wanted(...)` still evaluates but whose body no longer appends passes it cleanly.
+#   R2 NO STRAYS — no row is attributed to a gate this run did not schedule. A `--only` run
+#      emitting somebody else's row means a `wanted()` guard is not guarding its emit.
+#   R3 COMPLETENESS — a gate whose rows are ALL PASS must have reached its `final=True` emit,
+#      the last row on its fully-successful path. This is the rule that separates the two
+#      states the count conflated. A scene that fails determinism legitimately emits 1 row
+#      instead of 2, and R3 is satisfied BY ITS FAILING ROW. A gate that quietly stopped
+#      emitting its terminal assertion emits fewer rows with nothing failing — R3 fires. A
+#      segment WEDGED twice is the first shape, not the second: `run_segmented` tags its
+#      "WEDGED after retry" row with each gate it left unmeasured, so a wedge reads as a named
+#      failure and never as a missing gate, and a missing gate reads as R1 and never as a wedge.
+#
+# WHAT R3 DOES NOT CATCH, said plainly rather than left for someone to discover: a gate that
+# drops a MIDDLE row while still reaching its final one. Catching that needs a per-gate
+# expected row count, and every honest source for one is a number somebody types — which is
+# the defect this replaced. The `final` marker lives AT the emit site, so it travels when the
+# code moves; a new gate that forgets one turns the lane red under R3 rather than quiet.
+ROW_GATE, ROW_LABEL, ROW_OK, ROW_MSG, ROW_FINAL = range(5)
+
+
+def row(gate: str, label: str, ok, msg, final: bool = False) -> list:
+    """One result row: `[gate, label, ok, msg, final]`.
+
+    `gate` MUST be a `gate_registry()` name — `check_row_coverage` R2 refuses anything else.
+    `final` marks the LAST row a gate emits on its fully-successful path (R3). A list, not a
+    tuple, because rows cross the parent/child seam as JSON.
+    """
+    return [gate, label, bool(ok), msg, bool(final)]
+
+
+def check_row_coverage(scheduled, results: list) -> list[tuple[str, str]]:
+    """(gate, why) for every expectation the emitted row SET fails to meet — R1/R2/R3 above.
+
+    `scheduled` is derived, never listed: in-process it is what `wanted()` returned True for,
+    and in `run_segmented` it is the union of the segment partition, which `segments()` derives
+    from `gate_registry()` (and `test_effects_gates_segments.py` pins to it exactly).
+    """
+    problems: list[tuple[str, str]] = []
+    by_gate: dict[str, list] = {}
+    for r in results:
+        by_gate.setdefault(r[ROW_GATE], []).append(r)
+    for gate in sorted(scheduled):
+        rows = by_gate.get(gate, [])
+        if not rows:                                                            # R1
+            problems.append((gate, f"gate `{gate}` PRODUCED NO ROW. It was scheduled and its "
+                                   f"`if wanted(...)` ran, but nothing was appended — so this "
+                                   f"lane cannot say whether it passed, and it did not pass. "
+                                   f"(A count could not see this: it just got smaller.)"))
+            continue
+        if not any(r[ROW_FINAL] for r in rows) and all(r[ROW_OK] for r in rows):  # R3
+            problems.append((gate, f"gate `{gate}` emitted {len(rows)} row(s), EVERY ONE PASS, "
+                                   f"and never reached its terminal (final=True) assertion — "
+                                   f"an INCOMPLETE row set. A gate that stops early because it "
+                                   f"FAILED carries a failing row; this one carries none, so "
+                                   f"something between its first row and its last went silent."))
+    for gate in sorted(by_gate):                                                # R2
+        if gate not in scheduled:
+            problems.append((gate, f"{len(by_gate[gate])} row(s) attributed to `{gate}`, which "
+                                   f"this run did not schedule — a `wanted()` guard is not "
+                                   f"guarding its emit."))
+    return problems
+
+
+def report(results: list, scheduled) -> int:
+    """The output contract — identical for the segmented and the `--only` shapes.
+
+    The final line names the GATE SET and never a row count; the row count is printed beside
+    it, labelled as the non-witness it is. `check_row_coverage` runs HERE rather than at the
+    call sites so that no path can print a verdict without it.
+    """
+    scheduled = set(scheduled)
+    covered = sorted({r[ROW_GATE] for r in results} & scheduled)
+    rows = list(results) + [row(g, f"ROW-SET COVERAGE — {g}", False, why)
+                            for g, why in check_row_coverage(scheduled, results)]
     bad = 0
-    for label, ok, msg in results:
-        print(f"  {'PASS' if ok else 'FAIL'}  {label}\n        {msg}")
-        bad += 0 if ok else 1
+    for r in rows:
+        print(f"  {'PASS' if r[ROW_OK] else 'FAIL'}  {r[ROW_LABEL]}\n        {r[ROW_MSG]}")
+        bad += 0 if r[ROW_OK] else 1
     print()
     if bad:
-        print(f"effects_gates: FAIL — {bad} of {len(results)} gate(s)")
+        print(f"effects_gates: FAIL — {bad} of {len(rows)} row(s), over {len(covered)} of "
+              f"{len(scheduled)} scheduled gate(s)")
         return 1
-    print(f"effects_gates: OK — {len(results)} gates")
+    print(f"effects_gates: OK — all {len(scheduled)} scheduled gate(s) produced a complete "
+          f"row set: {covered}")
+    print(f"  ({len(rows)} result rows — a COUNT, and NOT the witness: a gate's row count "
+          f"varies with its own outcome and with source-declared populations. The witness is "
+          f"the gate set above.)")
     return 0
 
 
@@ -604,10 +726,17 @@ def main() -> int:
         print(f"effects_gates: ROM not found: {rom} — build it first", file=sys.stderr)
         return 2
     queried: set = set()
+    # `queried` is every name the body ASKS about (the registry-drift check); `ran` is the
+    # subset `--only` actually selected, and it is the row-set expectation. Two sets because
+    # they answer two different questions and one of them was already being asked.
+    ran: set = set()
 
     def wanted(n: str) -> bool:
         queried.add(n)
-        return want is None or n in want
+        if want is None or n in want:
+            ran.add(n)
+            return True
+        return False
 
     # The bands, read from the game source rather than restated. patchable(..., lo, hi) in SCREEN
     # lines; the first two calls in ojz_effects.emp are channels 0 and 1 of OJZ_TwoChannel.
@@ -642,21 +771,27 @@ def main() -> int:
         try:
             resolved = resolve_scene(name, lst, out)
         except (ValueError, FileNotFoundError) as e:
-            results.append((f"scene:{name} determinism", False, f"scene not resolvable: {e}"))
+            results.append(row(f"scene:{name}", f"scene:{name} determinism", False,
+                               f"scene not resolvable: {e}"))
             continue
         ok, msg = run(["python3", str(HARNESS / "ab_runner.py"), "--old", rom, "--new", rom,
                        "--scene", str(resolved),
                        "--out", str(out), "--selfcheck"], name)
-        results.append((f"scene:{name} determinism", ok, msg))
+        results.append(row(f"scene:{name}", f"scene:{name} determinism", ok, msg))
         if not ok:
+            # The row-suppressing `continue` the old count could not distinguish from a gate
+            # going dark. It is safe because the row above FAILS: R3 reads that failure as the
+            # reason this gate stops one row short.
             continue
         w1, w3, setreg = derive_arms(name, bands)
         cmd = ["python3", str(AEON / "tools/effects_scene_assert.py"), str(out / "new/hashes.json"),
                "--expect-word", f"1={hex(w1)}", "--expect-word", f"3={hex(w3)}",
                "--expect-present" if setreg else "--expect-absent", "0x8C89"]
         ok2, msg2 = run(cmd, name)
-        results.append((f"scene:{name} shape (word1={w1:#06x} word3={w3:#06x}, "
-                        f"$8C89 {'present' if setreg else 'absent'})", ok2, msg2))
+        results.append(row(f"scene:{name}",
+                           f"scene:{name} shape (word1={w1:#06x} word3={w3:#06x}, "
+                           f"$8C89 {'present' if setreg else 'absent'})", ok2, msg2,
+                           final=True))
 
     # ------------------------------------------------------------------
     # 2b. THE DENSE TIER (Tier-3 item 3). Two halves, and the second is the one that had
@@ -690,9 +825,9 @@ def main() -> int:
                 stream = int(line[4:].split(" :", 1)[0].split("/", 1)[1], 16) & 0xFFFFFF
                 break
         if stream is None:
-            results.append((f"scene:{DENSE_SCENE}", False,
-                            f"OJZ_GradientStream not in {lst} — every expectation below "
-                            f"would be guesswork"))
+            results.append(row(f"scene:{DENSE_SCENE}", f"scene:{DENSE_SCENE}", False,
+                               f"OJZ_GradientStream not in {lst} — every expectation below "
+                               f"would be guesswork"))
         else:
             # The VDP CRAM-write command longword: type/rwd 3 in the top two bits, the
             # address split A13-A0 into bits 16-29 and A15-A14 into bits 0-1 (engine.vdp's
@@ -706,7 +841,8 @@ def main() -> int:
                                "--out", str(out), "--selfcheck"], DENSE_SCENE)
             except (ValueError, FileNotFoundError) as e:
                 ok, msg = False, f"scene not resolvable: {e}"
-            results.append((f"scene:{DENSE_SCENE} determinism", ok, msg))
+            results.append(row(f"scene:{DENSE_SCENE}", f"scene:{DENSE_SCENE} determinism",
+                               ok, msg))
             if ok:
                 end = stream + glines * dense_words * 2
                 cmd_args = [
@@ -725,59 +861,69 @@ def main() -> int:
                 ]
                 ok2, msg2 = run(["python3", str(AEON / "tools/effects_scene_assert.py"),
                                  str(out / "new/hashes.json")] + cmd_args, DENSE_SCENE)
-                results.append((
+                results.append(row(
+                    f"scene:{DENSE_SCENE}",
                     f"scene:{DENSE_SCENE} dense tier (run {top}..{top + glines - 1}; "
                     f"cursor ends at {end:#08x} = stream + {glines} * {dense_words} words, "
                     f"which is true only if the dense body ran exactly {glines} times)",
-                    ok2, msg2))
+                    ok2, msg2, final=True))
 
     if wanted("raster_off"):
         ok, msg = run(["python3", str(AEON / "tools/raster_off_gate.py"),
                        "--rom", rom, "--lst", lst], "raster_off")
-        results.append(("raster_off (EFX-7 teardown)", ok, msg))
+        results.append(row("raster_off", "raster_off (EFX-7 teardown)", ok, msg, final=True))
 
     if wanted("raster_source"):
         ok, msg = run(["python3", str(AEON / "tools/raster_source_gate.py"),
                        "--rom", rom, "--lst", lst], "raster_source")
-        results.append(("raster_source (handler streams from the encoded address)", ok, msg))
+        results.append(row("raster_source",
+                           "raster_source (handler streams from the encoded address)",
+                           ok, msg, final=True))
 
     if wanted("vsplit_landing"):
         ok, msg = run(["python3", str(AEON / "tools/vsplit_landing_gate.py"),
                        "--rom", rom, "--lst", lst], "vsplit_landing")
-        results.append(("vsplit_landing (the two-writer ruling: the mid-frame split governs "
-                        "from its landing row down, the VBlank writer keeps the rows above)",
-                        ok, msg))
+        results.append(row("vsplit_landing",
+                           "vsplit_landing (the two-writer ruling: the mid-frame split governs "
+                           "from its landing row down, the VBlank writer keeps the rows above)",
+                           ok, msg, final=True))
 
     if wanted("palette_variant"):
         ok, msg = run(["python3", str(AEON / "tools/palette_variant_gate.py"),
                        "--rom", rom, "--lst", lst], "palette_variant")
-        results.append(("palette_variant (B2: the palette_dsl mirror actually checks the asm)",
-                        ok, msg))
+        results.append(row("palette_variant",
+                           "palette_variant (B2: the palette_dsl mirror actually checks the "
+                           "asm)", ok, msg, final=True))
 
     if wanted("snapshot_poison"):
         ok, msg = run(["python3", str(AEON / "tools/snapshot_poison_gate.py"),
                        "--rom", rom, "--lst", lst], "snapshot_poison")
-        results.append(("snapshot_poison (E-B: splices copy what the captured mask says)",
-                        ok, msg))
+        results.append(row("snapshot_poison",
+                           "snapshot_poison (E-B: splices copy what the captured mask says)",
+                           ok, msg, final=True))
 
     if wanted("warp_mailbox"):
         ok, msg = run(["python3", str(AEON / "tools/warp_mailbox_gate.py"),
                        "--rom", rom, "--lst", lst], "warp_mailbox")
-        results.append(("warp_mailbox (the DEBUG warp lands the walked reference; a bare "
-                        "camera poke does not)", ok, msg))
+        results.append(row("warp_mailbox",
+                           "warp_mailbox (the DEBUG warp lands the walked reference; a bare "
+                           "camera poke does not)", ok, msg, final=True))
 
     if wanted("boot_override"):
         ok, msg = run(["python3", str(AEON / "tools/boot_override_gate.py"),
                        "--rom", rom, "--lst", lst], "boot_override")
-        results.append(("boot_override (the DEBUG boot mailbox puts the FIRST painted frame "
-                        "at the cursor, matching a warp to the same place)", ok, msg))
+        results.append(row("boot_override",
+                           "boot_override (the DEBUG boot mailbox puts the FIRST painted "
+                           "frame at the cursor, matching a warp to the same place)",
+                           ok, msg, final=True))
 
     if wanted("parallax_crossing"):
         ok, msg = run(["python3", str(AEON / "tools/parallax_crossing_gate.py"),
                        "--rom", rom, "--lst", lst], "parallax_crossing")
-        results.append(("parallax_crossing (a WALKED section crossing installs the config "
-                        "Effects_ResolveParallax names for the section entered — section "
-                        "beats preset beats act)", ok, msg))
+        results.append(row("parallax_crossing",
+                           "parallax_crossing (a WALKED section crossing installs the config "
+                           "Effects_ResolveParallax names for the section entered — section "
+                           "beats preset beats act)", ok, msg, final=True))
 
     if wanted("cost_model"):
         base = emp_int("engine/effects/raster_dsl.emp", "RASTER_FIRE_BASE_CYC")
@@ -917,8 +1063,9 @@ def main() -> int:
                             "--out", str(jf)],
                            capture_output=True, text=True)
         if p.returncode != 0 or not jf.exists():
-            results.append(("cost_model vs hardware", False,
-                            (p.stdout + p.stderr).strip().splitlines()[-1:] or ["probe failed"]))
+            results.append(row("cost_model", "cost_model vs hardware", False,
+                               (p.stdout + p.stderr).strip().splitlines()[-1:]
+                               or ["probe failed"]))
         else:
             d = json.loads(jf.read_text())
             got_f0 = d["F0"]["cycles"][0]
@@ -929,7 +1076,8 @@ def main() -> int:
             got_f8 = d["F8"]["cycles"][0]
             ok = (got_f0 == f0 and got_f1 == expect_f1 and got_f3 == expect_f3
                   and got_f4 == expect_f4 and got_f5 == expect_f5 and got_f8 == expect_f8)
-            results.append((f"cost_model vs hardware (F0 {f0}, F1 {expect_f1}, F3 {expect_f3}, "
+            results.append(row("cost_model",
+                            f"cost_model vs hardware (F0 {f0}, F1 {expect_f1}, F3 {expect_f3}, "
                             f"F4 {expect_f4}, F5 {expect_f5}, F8 {expect_f8} — all computed from "
                             f"the shipped constants; F1/F5 carry the register write, the one op "
                             f"dispatched by the zero pre-test rather than by the chain, "
@@ -958,13 +1106,15 @@ def main() -> int:
                            for f in (d1, d2))
             ok_d = calls_ok and slope == dense_line
             shape = f"lines + {dense_fire_count(0)}"
-            results.append((
+            results.append(row(
+                "cost_model",
                 f"dense cost row (RASTER_DENSE_LINE_GRAD_CYC = {dense_line}; the slope "
                 f"(FD2 - FD1) / {dl} lines, with both fires counts derived as {shape})",
                 ok_d,
                 f"measured FD1={d1['cycles'][0]}/{d1['calls'][0]} fires, "
                 f"FD2={d2['cycles'][0]}/{d2['calls'][0]} fires -> {slope:.1f} cyc/line"
-                + ("" if calls_ok else f"  !! a fire count is not {shape}")))
+                + ("" if calls_ok else f"  !! a fire count is not {shape}"),
+                final=True))
 
     # ------------------------------------------------------------------
     # 6. Scanline capability spans — the §8.2 two-fixture differential.
@@ -983,9 +1133,11 @@ def main() -> int:
     # is a list of span names; a hand list is the copied-expectation defect.
     if wanted("scanline_spans"):
         if not Path(args.demo_lst).is_file():
-            results.append(("scanline_spans (two-fixture differential)", False,
-                            f"demo listing not found: {args.demo_lst} — run "
-                            f"`DEBUG=1 ./build.sh demo`. A one-fixture run is not this gate."))
+            results.append(row("scanline_spans", "scanline_spans (two-fixture differential)",
+                               False,
+                               f"demo listing not found: {args.demo_lst} — run "
+                               f"`DEBUG=1 ./build.sh demo`. A one-fixture run is not this "
+                               f"gate."))
         else:
             bits = capability_bits()
             caps_s4, caps_demo = game_caps("sonic4"), game_caps("demo")
@@ -995,7 +1147,8 @@ def main() -> int:
             # single `_begin` walked straight through the first version of this gate.
             for fixture, path in (("sonic4", lst), ("demo", args.demo_lst)):
                 unpaired = lst_unpaired_spans(path)
-                results.append((
+                results.append(row(
+                    "scanline_spans",
                     f"scanline_spans {fixture} boundary pairing",
                     not unpaired,
                     "every emitted span carries both _begin and _end" if not unpaired
@@ -1006,6 +1159,9 @@ def main() -> int:
             # than a pile of span names. §8.2's three depths are all carried by spans,
             # so the scoping that matters at this layer is the capability itself.
             src_by_cap = source_spans_by_cap()
+            # Which declared bits the loop below actually asked about — the subject of this
+            # gate's terminal row, and the thing its old floor could not see.
+            covered_caps: set = set()
             for cap in sorted(bits):
                 spans = {s for s in (want_s4 | got_s4 | got_demo)
                          if s.startswith(cap[len("CAP_"):].lower())}
@@ -1033,7 +1189,9 @@ def main() -> int:
                     #    2026-08-22), so this state FAILS rather than informs.
                     src = sorted(src_by_cap.get(cap, ()))
                     if src:
-                        results.append((
+                        covered_caps.add(cap)
+                        results.append(row(
+                            "scanline_spans",
                             f"scanline_spans {cap} — GATED IN SOURCE, RAISED BY "
                             f"NEITHER FIXTURE ({len(src)} span(s) elided from both: "
                             f"{src})",
@@ -1041,7 +1199,9 @@ def main() -> int:
                             "adoption pending (PARK-1); the differential has no "
                             "subject until a game raises the bit"))
                     else:
-                        results.append((
+                        covered_caps.add(cap)
+                        results.append(row(
+                            "scanline_spans",
                             f"scanline_spans {cap} — NOT GATED ANYWHERE (no bracketed "
                             f"span in the engine sources or either fixture)",
                             False,
@@ -1062,26 +1222,47 @@ def main() -> int:
                 want_diff = sorted(exp_s4 ^ exp_demo)
                 got_diff = sorted(have_s4 ^ have_demo)
                 ok = ok and want_diff == got_diff
-                results.append((
+                covered_caps.add(cap)
+                results.append(row(
+                    "scanline_spans",
                     f"scanline_spans {cap} (sonic4 {'raised' if raised_s4 else 'clear'}, "
                     f"demo {'raised' if raised_demo else 'clear'}) — differential "
                     f"{want_diff}",
                     ok,
                     f"sonic4 {sorted(have_s4)} vs expected {sorted(exp_s4)}; "
                     f"demo {sorted(have_demo)} vs expected {sorted(exp_demo)}"))
-            # The anti-vacuity floor: if no capability produced a row, every check above
-            # was over an empty set and the gate would report success having asked nothing.
-            if not any(r[0].startswith("scanline_spans ") for r in results):
-                results.append(("scanline_spans (two-fixture differential)", False,
-                                "no capability has a bracketed span in either fixture — "
-                                "this gate measured nothing"))
+            # THE CAPABILITY COVERAGE ROW — this gate's terminal (final=True) assertion, and
+            # the reason its row count is POPULATION-variable at all.
+            #
+            # IT REPLACES A FLOOR THAT COULD NOT FIRE. The old check was
+            # `if not any(r[0].startswith("scanline_spans ") for r in results)`, and the two
+            # boundary-pairing rows appended a few lines above both begin with exactly that
+            # string — so the condition was False on every reachable path and the anti-vacuity
+            # check was itself vacuous. (It also read `r[0]` as a LABEL, which rows no longer
+            # are.) This asserts the SET instead: every bit `capability_bits()` declares in
+            # scene_dsl.emp must have produced a row from the loop above. Retiring a bit
+            # legitimately drops a row — and that is exactly what took the whole lane from 28
+            # rows to 27 on 2026-08-26 with everything still green — so the population belongs
+            # in a row that SAYS the number, not in a total nobody can diff.
+            missing = sorted(set(bits) - covered_caps)
+            results.append(row(
+                "scanline_spans",
+                f"scanline_spans capability coverage — {len(covered_caps)} of {len(bits)} "
+                f"`pub const CAP_*` bits declared in scene_dsl.emp produced a row",
+                bool(bits) and not missing,
+                "every declared capability was asked about" if (bits and not missing)
+                else f"declared but never asked about: {missing}" if missing
+                else "NO capability bits declared at all — every check above ran over an "
+                     "empty set and this gate measured nothing",
+                final=True))
 
     # ------------------------------------------------------------------
     # 7. The demo witness (Task 8): span absence + the committed per-proc image pin.
     if wanted("demo_witness"):
         ok, msg = run(["python3", str(AEON / "tools/demo_specialization_witness.py"),
                        "--sonic4-lst", lst, "--demo-lst", args.demo_lst], "demo_witness")
-        results.append(("demo_witness (span absence + image pin)", ok, msg))
+        results.append(row("demo_witness", "demo_witness (span absence + image pin)", ok, msg,
+                           final=True))
 
     # The registry has to describe the body, or the segmentation silently drops a gate. Checked
     # from every invocation, because every invocation evaluates every `if wanted(...)`.
@@ -1096,7 +1277,10 @@ def main() -> int:
         Path(args.emit_results).write_text(json.dumps(results))
 
     print()
-    return report(results)
+    # `ran`, not the registry: an `--only` run legitimately emits a subset, and the
+    # expectation must be exactly what this invocation scheduled. The parent re-checks the
+    # aggregate against the whole partition, so a child that dropped a row is caught twice.
+    return report(results, ran)
 
 
 if __name__ == "__main__":
