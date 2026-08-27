@@ -92,3 +92,86 @@ camera position".
 Reaching the state by PLAY, with vertical camera motion in it — or the owner loading his own
 `.state0` in `oracle-frontend`, which already exposes an aether socket, so the same probe can
 attach and sample the true state directly.
+
+---
+
+# REPRODUCED — it is the per-column V-scroll hardware limitation, on the FOREGROUND
+
+**Measured 2026-08-27 on `s4.debug.bin` after the fg-left-edge merge (`6e26471a`), all four
+CRCs unchanged from `9f9c0126`.** The subagent's replacement lead was right in *class*: this is
+per-column vertical scroll. It is not reachable by any route that holds the effect scene at its
+default, which is why four earlier routes and twelve camera positions all came back clean.
+
+## The condition
+
+`VDP` register `$0B` bit 2 (per-column V-scroll) is **0** at boot and **1** on scenes 10-15 —
+`Rocking_Slow/Rocking/Rocking_Fast` and `Perspective_Subtle/Perspective/Perspective_Dramatic`,
+exactly the six the scene registry documents as attaching `SceneVDeform.Columns`. The effects-lab
+hotkey (START + RIGHT) is what reaches them.
+
+## The A/B, at Camera_Y=461 with ground continuous across the screen
+
+```
+CONTROL scene 0  bit2=0        TEST scene 10  bit2=1
+  x=0  x=8  x=16                 x=0  x=8  x=16
+y=144  #    #    #             y=144  #    #    #
+y=152  #    #    #             y=152  .    #    #
+y=160  #    #    #             y=160  .    .    #
+y=168  #    #    #             y=168  .    .    #
+ ...   #    #    #              ...   .    .    #
+y=208  #    .    .             y=208  .    .    #
+count 11   10    9             count  3    4   11
+```
+
+**That is the owner's signature exactly**: the two leftmost columns carry content in the upper
+rows and go transparent across every ground row, while x>=16 carries the band. His own table
+breaks at y=152; this one breaks at y=152 (x=0) and y=160 (x=8).
+
+## The correlation, across all twenty scenes at one camera position
+
+Sampling the ground rows only and calling the signature a **total wipe** (0 of 7 ground rows
+opaque in the two leftmost columns, against 6-7 everywhere else):
+
+| scenes | reg `$0B` | bit 2 | total wipe |
+|---|---|---|---|
+| 0-9, 16-19 (fourteen) | `0x03` | 0 | **none** |
+| 10, 12, 13, 14, 15 | `0x07` | 1 | **all five** |
+| 11 | `0x07` | 1 | not at this sample |
+
+Scene 11 is `Rocking` at a wobble phase where the column offset passes through zero — the
+artifact's visibility oscillates with the deform, so a single sample can miss it. **Five of six
+per-column scenes, none of the fourteen others.**
+
+*(An earlier looser threshold — "x=0 shorter than x=16 by more than one row" — also flagged scene
+17. That is terrain: 5 rows against 7, not a wipe. The threshold is stated here so the count is
+reproducible rather than eyeballed.)*
+
+## Why "exactly two columns", the detail nobody could explain
+
+Per-column V-scroll on this hardware works in **16-pixel** columns. Sixteen pixels is **two
+8-pixel tile columns**. The "two columns" everybody kept trying to derive from a block size or an
+off-by-one is simply one VSRAM column — it was never a fill-window quantity at all.
+
+## Two instruments that manufacture the absence — both bit me
+
+1. **The warp rebuilds the column ring** (already noted above), and additionally **clears
+   `$0B` bit 2**: warping after selecting scene 10 puts the mode back to `0x03`. So a
+   warp-then-sample run reports clean *twice over*, for two independent reasons.
+2. **Travelling re-applies the section's own scene.** Selecting scene 10 and *then* driving right
+   leaves `Debug_Scene_Index` reading 10 while bit 2 has gone back to 0 — the cursor and the live
+   mode disagree. Both of my first two A/B attempts compared two scenes with the mode off and
+   reported a null result with nothing visibly wrong. **Read `$0B` bit 2 at the sample point;
+   never trust the scene cursor.**
+
+## The connection to a ruling already taken
+
+**This is `d-27`.** That card asks about "a hardware limitation ... when a background layer
+scrolls vertically per column, the leftmost eight pixels of the screen render at the wrong
+vertical offset", and the owner answered: keep shipping it. But the card describes **eight
+pixels on the background**, and what is actually on screen is **sixteen pixels on the
+foreground, wiping the ground**. The engine already models the policy —
+`SceneLeftColMask.{SpriteMask|Factor0Lock|Accept}` is mandatory on any scene attaching
+`SceneVDeform.Columns` — and `Factor0Lock` reasons about plane B, so it cannot save plane A.
+
+**The ruling was taken on a materially understated description, so it goes back to him** rather
+than being treated as settled. Filed as its own decision card.
