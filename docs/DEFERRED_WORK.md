@@ -1851,7 +1851,43 @@ together or the player will outrun streaming / tunnel through geometry:
 Do not re-add the `-$FC0` cap silently. The separate `$FC0` cap in the
 steep-landing conversion is a different, retained mechanism.
 
-### Fall cap `PHYS_FALL_CAP = $1000` — S3K deviation, PARKED with a known 1px hole (§2.1 FEEL DEVIATION) — 2026-08-03
+### Fall cap — RULED AND LANDED: the 1px tunnelling hole is CLOSED (§2.1 FEEL DEVIATION) — booked 2026-08-03, ruled + landed 2026-08-27
+**RULING (owner, 2026-08-26 — `docs/decisions.jsonl` `d-18-answered`, queue row
+`FALL-CAP-15`).** Terminal fall speed drops one pixel per frame, taking the cheap
+option below. The Axis-A tunnelling hole described in this entry is **gone from the
+shipped build** — it is no longer a known defect, and this entry is no longer a park.
+
+**What landed (branch `parcel/fall-cap-15`).** `PHYS_FALL_CAP` is no longer a chosen
+literal. It is **derived** in `engine/system/constants.emp` from
+`COLLISION_CELL_SHIFT`: the largest per-frame Y step that cannot skip the thinnest
+floor the world can express is one pixel short of a collision cell, so the cap is
+`((1 << COLLISION_CELL_SHIFT) - 1) << 8`. At today's 16px cell that is `$0F00`. An
+`ensure` beside it states the ruling executably — it fires both if the cap is
+re-typed back up to a whole cell AND if the cell size is lowered under a cap that
+stayed put, which is the direction a check written against a fixed number misses.
+The three clamp sites (`PState_AirShared`, `PState_Fly`, `PState_GlideFall`) and the
+`PBOUND_BOTTOM_MARGIN` `ensure` in `player_common.emp` all consume the constant and
+needed no edit; the prose bound above that `ensure`, which spelled the value out in
+words, did — the `ensure` would have kept passing correctly while the sentence taught
+something false.
+
+**The uncapped, originals-faithful shape stays on the card** (`d-18-uncapped-option`):
+no fall limit, camera capped, collision sensing following the player rather than the
+camera. It is NOT an alternative to what landed — it is the swept-collision item under
+"the real shape is" below PLUS a streaming parcel, because at an uncapped 32 px/frame
+the probe skips any floor thinner than 32 and sub-stepping becomes mandatory.
+
+**One consumer by VALUE, deliberately left alone.** `TERMINAL_VELOCITY = $1000` in
+`games/sonic4/objects/test_player.emp` is a private constant with its own clamp in
+`TestPlayer_Main` — a second copy of this quantity that no `PHYS_FALL_CAP` grep finds.
+It was NOT changed: its own header declares it an S2/S.C.E. *reference value*, and
+moving it to a non-reference number would make that header false — the same defect
+class this parcel exists to fix. TestPlayer borrows `Player_SensorFloor`, so the 1px
+hole is still open *for the debug test object*. Whether that matters folds into the
+existing "**`test_player` as a unit**" booking (§ below) rather than being re-decided
+here.
+
+**Original booking, preserved for the analysis (do not re-derive it):**
 **Surfaced by:** Volence noticed falls feel slower than S3K. Researched + parked
 the same day ("doesn't seem like something I want to get into right now") — this
 entry exists so the analysis is not re-derived. Sibling of the up-velocity-cap
@@ -1878,10 +1914,13 @@ entry above; the two share the same coupling set.
 - *Axis A — thin-floor tunneling (camera-irrelevant).* The probe examines two
   16px cells, so max safe per-frame Y step = `min_floor_thickness − 1`. OJZ act 1's
   thinnest floor is 16px → **safe step = 15px**, and 224 pixel-columns are that
-  thin. **The shipped `$1000` (16px) is therefore ONE PIXEL HOT**: a frame ending
-  with feet exactly on a 16px slab's surface (dist 0 → `bpl .no_land`) plus a full
-  16px step skips the slab. Needs 577px of prior fall + exact alignment, so it is
-  narrow but real, and it is in the shipped build today.
+  thin. **The then-shipped `$1000` (16px) was therefore ONE PIXEL HOT**: a frame
+  ending with feet exactly on a 16px slab's surface (dist 0 → `bpl .no_land`) plus
+  a full 16px step skips the slab. Narrow — it needed a long prior fall plus exact
+  alignment — but real, and it was in the shipped build until 2026-08-27. This is
+  the axis the ruling closed, and the axis the derived cap now tracks
+  automatically: `min_floor_thickness` is one collision cell by construction, so
+  the cap is defined as one pixel under it rather than compared against it.
 - *Axis B — collision residency (camera-coupled).* Collision reads
   `Tile_Cache_Collision`, an 80×30-cell RAM ring bounded by `Cache_Top_Row`/
   `Cache_Bottom_Row` which follow the camera; outside it every probe returns air
@@ -1925,19 +1964,28 @@ and it gets weaker exactly as levels get taller (cf. the mega-act goal).
    is mostly unspent — **premise unverified, check it before betting on it.**
    Alternative (more expensive): raise `CAM_MAX_Y_STEP` + `VFILL_ROWS_PER_FRAME`
    together, which is the §4 streaming budget.
-3. Housekeeping: `player_common.emp:662`'s `ensure(PBOUND_BOTTOM_MARGIN > ...)`
-   references the constant and must be re-expressed if it is removed; import
-   lists in `player_air.emp:12` / `player_common.emp:25`.
+3. Housekeeping: the `ensure(PBOUND_BOTTOM_MARGIN > ...)` beside `PBOUND_BOTTOM_MARGIN`
+   in `player_common.emp` references the constant and must be re-expressed if it is
+   removed; so must the `ensure` beside `PHYS_FALL_CAP` itself. Import lists: the
+   `use engine.constants.{...}` heads of `player_air.emp`, `player_fly.emp`,
+   `player_glide.emp` and `player_common.emp`. **Cite symbols, never line numbers** —
+   this list previously carried `player_common.emp:662` for that `ensure` and the
+   coordinate had rotted by ~700 lines before anyone read it again.
 
-**Cheap option available anytime (NOT taken — user parked the topic):** set
-`PHYS_FALL_CAP = $0F00` (15px/f). One-constant change, closes the Axis-A hole,
-imperceptible in feel (only reached after ~540px of fall; the act's deepest
-floor-terminated drop is 592px). Strictly safer than today.
+**~~Cheap option available anytime (NOT taken — user parked the topic)~~ — TAKEN,
+2026-08-26 ruling, landed 2026-08-27:** `PHYS_FALL_CAP` at 15px/f. One-constant
+change, closes the Axis-A hole, strictly safer than what it replaced. Reached only
+after a long fall, so it is imperceptible in normal play — no pixel figure is quoted
+for that distance here, because it is `(cap/gravity)` frames of free fall and both
+operands are constants that can move.
 
 **Micro-optimisation dead end (checked, do not retry):** the clamp cannot be
-replaced by a bitwise op. `ori`/`andi`/`bclr` give WRAP, not saturation —
-`andi.b #$0F` on the high byte turns `$1000` into `$0000`, producing a mid-air
-sawtooth. Saturation needs a comparison. Branchless forms lose on 68000 (no
+replaced by a bitwise op. `ori`/`andi`/`bclr` give WRAP, not saturation — masking
+the high byte of a cap that is a power of two turns it into zero, producing a mid-air
+sawtooth (the worked example was `andi.b #$0F` against the old `$1000`; the *current*
+cap is not a power of two, which changes the arithmetic but not the conclusion —
+wrapping is still not saturating). Saturation needs a comparison. Branchless forms
+lose on 68000 (no
 conditional move; shifts cost 2 cycles/bit): sign-mask ~68 cyc, `Scc`+merge
 ~30 cyc, vs 18 for the current `cmpi.w`+`ble`. We already clamp in a register
 (S.C.E. clamps in memory, twice — we have ONE site because `PState_AirShared`
