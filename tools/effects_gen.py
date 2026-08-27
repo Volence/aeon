@@ -185,7 +185,7 @@ LEFT_COL_MASK_NAMES = {
 # until the band-count-range parcel: nothing compared the two, so this could drift from
 # the engine silently in either direction. tools/test_scene_band_shape_coverage.py now
 # reads the engine constant and pins this against it.
-MAX_PARALLAX_BANDS = 8
+MAX_PARALLAX_BANDS = 16
 
 
 class SceneShapeError(Exception):
@@ -670,8 +670,10 @@ def render_scene(path: str, scene: dict, tables: TableRegistry = None) -> str:
                       f"generator would have to pad past the array to reach it.")
     rendered = [render_layer(path, l, f"layers[{i}]", tables)
                 for i, l in enumerate(layers)]
-    # The array is ALWAYS eight slots, padded with no_layer() — the hand-authored
-    # idiom (games/sonic4/data/effects/ojz_scenes.emp) and what scene() indexes.
+    # The array is ALWAYS MAX_PARALLAX_BANDS slots, padded with no_layer() — the
+    # hand-authored idiom (games/sonic4/data/effects/ojz_scenes.emp) and what scene()
+    # indexes. Sixteen since 2026-08-27; the generator has always derived the width from
+    # the mirror below, so the raise cost this function nothing.
     rendered += ["no_layer()"] * (MAX_PARALLAX_BANDS - len(rendered))
 
     body = ["    layers: [ " + ",\n              ".join(rendered) + " ]",

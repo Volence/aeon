@@ -81,6 +81,7 @@ Usage:
 import argparse
 import asyncio
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -104,12 +105,13 @@ from parallax_hscroll_probe import (          # noqa: E402
     derive_shadow, resolve_anchor_line)
 
 
-# ---- the config's wire layout (engine/structs.emp, parallax_config; 28 bytes) ----
+# ---- the config's wire layout (engine/structs.emp, parallax_config; 30 bytes since the
+# 2026-08-27 MAX_PARALLAX_BANDS 8 -> 16 raise widened pcfg_layer_mask to a u16) ----
 # Offsets, not a re-declaration: the probe edits fields of a config it COPIED, so it only needs
 # to know where they sit. sizeof is pinned below against the shipped header the copy came from.
 CFG_BAND_COUNT      = 0    # u8
 CFG_V_FACTOR_BG     = 1    # u8   (15 = locked: Step 5 skips the lerp)
-CFG_LAYER_MASK      = 3    # u8
+CFG_LAYER_MASK      = 2    # u16 (was a u8 at 3 until the mask widening)
 CFG_TRANSITION      = 8    # u8
 CFG_DEFORM_SPEED_FG = 9    # u8
 CFG_DEFORM_SPEED_BG = 10   # u8
@@ -120,7 +122,8 @@ CFG_V_DEFORM_TAB_BG = 20   # u32
 CFG_V_DEFORM_SHIFT  = 25   # u8
 CFG_ANCHOR_DSA      = 26   # u8
 CFG_ANCHOR_DSB      = 27   # u8
-CFG_SIZE            = 28
+CFG_V_FACTOR_FG     = 28   # u8   (was 2; RESERVED, no runtime reader)
+CFG_SIZE            = 30
 
 # band_entry (engine/level/parallax.emp), 10 bytes. RESHAPED (not resized) by P3 Task 7:
 # the top is a u16 PLANE LINE (0..511) where it was a u8 plane CELL row, and the two 1-bit
@@ -152,7 +155,24 @@ CFG_V_OFFSET        = 6    # i16
 ANCHOR_NONE = 0xFF
 NO_DEFORM   = 15          # the shift sentinel: 15 = this plane takes no deform
 
-MAX_SHADOW    = 8         # MAX_PARALLAX_BANDS (engine/system/constants.emp)
+# THE SHADOW-VIEW ARITY, READ FROM THE ENGINE RATHER THAN TYPED. This sizes every
+# Parallax_Shadow_* read below, so a stale literal here does not fail — it reads the
+# wrong number of bytes out of a live emulator and reports them as bands. It was the
+# literal `8` until 2026-08-27, when MAX_PARALLAX_BANDS went to 16 and it would have
+# silently kept measuring the first half of the shadow view.
+def _emp_const(rel: str, name: str) -> int:
+    txt = (Path(__file__).resolve().parent.parent / rel).read_text()
+    m = re.search(rf"^\s*(?:pub\s+)?const\s+{re.escape(name)}\s*=\s*(\$[0-9A-Fa-f]+|\d+)",
+                  txt, re.M)
+    if not m:
+        raise SystemExit(f"parallax_cost_probe: cannot find `const {name}` in {rel} — the "
+                         "shadow-view arity is derived from it and a guess would mis-size "
+                         "every band read")
+    v = m.group(1)
+    return int(v[1:], 16) if v.startswith("$") else int(v)
+
+
+MAX_SHADOW    = _emp_const("engine/system/constants.emp", "MAX_PARALLAX_BANDS")
 VDP_MODE3_OFF = 0x0B      # engine/vdp.emp — the shadow byte Parallax_Update owns
 RASTER_MAX_PATCH = 4      # raster_dsl.emp:1989 — Effects_Screen_L / Effects_World_Y arity
 PATCH_ENTRY_SIZE = 10     # raster.emp:1783-1812 — the record Raster_GetChannelBand walks
@@ -202,7 +222,10 @@ def build(base: bytes, *, bands: int = 1, tab_fg: int = 0, tab_bg: int = 0,
     h[CFG_BAND_COUNT] = bands
     h[CFG_V_FACTOR_BG] = NO_DEFORM       # locked: Step 5 pins BG and skips the lerp, so the
                                          # vscroll half is constant across every fixture
-    h[CFG_LAYER_MASK] = 0xFF
+    # A WORD NOW, NOT A BYTE. All-bands-enabled is $FFFF at MAX_PARALLAX_BANDS = 16;
+    # writing 0xFF into the low byte alone would leave bands 8..15 disabled, which is
+    # precisely the defect the widening fixed.
+    h[CFG_LAYER_MASK:CFG_LAYER_MASK + 2] = (0xFFFF).to_bytes(2, "big")
     h[CFG_TRANSITION] = 0
     h[CFG_DEFORM_SPEED_FG] = speed_fg
     h[CFG_DEFORM_SPEED_BG] = speed_bg

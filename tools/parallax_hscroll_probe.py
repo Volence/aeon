@@ -129,11 +129,14 @@ def be_top(entry: bytes) -> int:
     """The band top, u16 big-endian. One reader, so the width lives in one place."""
     return int.from_bytes(entry[BE_TOP:BE_TOP + 2], "big")
 
-# `pub struct parallax_config` — engine/structs.emp:161-190. 28 bytes.
+# `pub struct parallax_config` — engine/structs.emp. 30 bytes since 2026-08-27, when
+# MAX_PARALLAX_BANDS went 8 -> 16 and pcfg_layer_mask had to widen to a u16 (a u8 mask
+# made every band from index 8 up structurally disabled). The mask took the even slot at
+# $02 and pcfg_v_factor_fg — the only field with no runtime reader — moved to the tail,
+# so bytes $00..$1B are unchanged and only the size and those two fields moved.
 CFG_BAND_COUNT      = 0     # pcfg_band_count            u8
 CFG_V_FACTOR_BG     = 1     # pcfg_v_factor_bg           u8
-CFG_V_FACTOR_FG     = 2
-CFG_LAYER_MASK      = 3     # pcfg_layer_mask            u8
+CFG_LAYER_MASK      = 2     # pcfg_layer_mask            u16  (was a u8 at 3)
 CFG_V_CENTER_Y      = 4     # pcfg_v_center_y            u16
 CFG_V_OFFSET        = 6     # pcfg_v_offset              u16
 CFG_TRANSITION      = 8     # pcfg_transition            u8
@@ -147,7 +150,9 @@ CFG_V_DEFORM_SPEED  = 24
 CFG_V_DEFORM_SHIFT  = 25
 CFG_ANCHOR_DSA      = 26    # pcfg_anchor_dsa            u8
 CFG_ANCHOR_DSB      = 27    # pcfg_anchor_dsb            u8
-CFG_SIZE            = 28    # sizeof(parallax_config)
+CFG_V_FACTOR_FG     = 28    # pcfg_v_factor_fg           u8   (was 2; RESERVED, unread)
+CFG_PAD_29          = 29    # pcfg_pad_29                u8   (even-size pad)
+CFG_SIZE            = 30    # sizeof(parallax_config)
 
 # engine/system/constants.emp:602,606
 MAX_PARALLAX_BANDS = 8
