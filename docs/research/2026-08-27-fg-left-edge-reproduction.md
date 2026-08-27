@@ -50,15 +50,32 @@ the warp. That is precisely the shape this workspace's own review bar warns abou
 constant across varied inputs is evidence of a **confound**, and the confound here is the
 variable the owner's capture differs in.
 
-**3. The owner's capture was taken MID-VERTICAL-MOTION, which is new information.** He
-reported `Camera_Y = 429` with the player at y=573. Warping the player to exactly (355, 573)
-and letting the machine settle puts the camera at **(195, 461)** and it stays there through
-240 further frames — 461 is the *resting* camera Y for that player position, and 573 - 144 =
-429 is the exactly-centred one. So his camera was 32 px above where it rests, i.e. still
-travelling vertically when he pressed F2. Combined with the booked discriminator (once in the
-bad state, horizontal travel does **not** repair it), the shape becomes: **something during
-vertical camera movement leaves the two leftmost columns unwritten, and nothing afterwards
-rewrites them.**
+**3. The owner's camera sits 32 px off the position a warp can produce — CORRECTED, see
+below.** He reported `Camera_Y = 429` with the player at y=573; warping the player to exactly
+(355, 573) lands the camera at **(195, 461)**, where it stays through 240 further frames.
+
+> **CORRECTION, same session, before this doc was an hour old.** The first version of this
+> row read 461 as the *resting* value and concluded his capture was taken **mid-vertical
+> motion**. A further measurement refutes that. The camera is `player - (160, 112)` at
+> **every** warp — three points, (355,300) -> (195,188), (355,420) -> (195,308), (355,573) ->
+> (195,461), all exact. 112 is half the 224-line screen, so a warp always lands
+> screen-centred. The owner's state is `player_y - 144`, a **different offset**, not a
+> transient of this one.
+>
+> What produces the extra 32 px is **not established** — a vertical camera deadzone whose
+> phase depends on how the position was arrived at is the obvious candidate, and it is
+> consistent with 144 being half the 288-px plane rather than half the screen, but nothing
+> here measures it. Stated as an open question rather than a mechanism, because the mechanism
+> story in the first version was wrong and this doc's whole value is the measurements.
+>
+> **What survives, and it is the operationally important half:** his camera/player phase is
+> **not reachable by warping**, so his state carries streaming history a warp cannot
+> reconstruct. That strengthens rather than weakens the conclusion below.
+
+**A route that was tried and does not work:** dropping the player from above the ground to
+force vertical camera travel. Warped to (355, 300) and (355, 420), the camera goes straight to
+`y - 112` and **stays there for 130 frames with no fall** — in this scene the player does not
+descend under gravity from a warp, so there is no play-reachable vertical motion to sample.
 
 ## The methodological catch, stated because it limits row 5 above
 
