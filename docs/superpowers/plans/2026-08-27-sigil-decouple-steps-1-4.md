@@ -31,6 +31,30 @@ paired with sigil chain 168). It is not.
   plural. **Anchors**: nothing aeon-side asserts them; every `$48000` occurrence in `build.sh`
   and `tools/` is a comment or a derivation. **Four mentions, zero assertions.**
 
+### ⚠ AMENDED SAME DAY — the boundary is NARROWER than "the tables place the bytes"
+
+Confirmed by the sigil lane in their own source, and it shrinks step 2's remainder materially.
+`SizeSource::Frozen` is live and every shipped profile uses it, **but what it freezes is ORDER
+and the ORG-ISLAND ANCHORS — not all placement.** Non-island section bases are *"PACKED from
+live-measured sizes … so a size-changing `.emp` parcel shifts downstream sections automatically
+instead of colliding with stale pins."* **Everything that is not an island already floats.**
+
+So the thing to bring home is **anchors and order**, not placement wholesale.
+
+**And one contradiction inside that, unresolved, which step 2 trips over before sigil does.**
+Their variant doc says ORDER comes from the frozen table. But `packed_true_bases` takes
+`map_order` and `anchor_addrs` as *separate* inputs, and `map_order` is read from `map.toml` —
+with live comments describing sections *"placed between load_art and bg per map.toml `order`"*.
+**So either that doc comment is stale and order has ALREADY come home while anchors have not, or
+there are two order authorities and one silently wins.** Sigil is settling it and has explicitly
+declined to assert which. **It changes step 2's size**: if order is already home, the remainder
+is *anchors + the gate*, not *order + anchors + the gate*.
+
+*(Worth noting how this surfaced: sigil's own status memory said "frozen table retired" — a
+different, narrower table — and they nearly planned from it. Third time in one day that a lane's
+claim about its own tree needed checking, which is the direction that gets asserted as context
+rather than verified as a claim.)*
+
 **Consequence for sequencing, and it is the reason this was worth checking:** sigil's eight
 undeclared constraints are **step 2's remaining input, not step 1's**. The ruling says so
 explicitly — *every constraint the frozen tables encode today must be recaptured as an explicit
