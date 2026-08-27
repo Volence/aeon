@@ -21,33 +21,85 @@ rulings live in the session memory and the most recent `docs/superpowers/*handof
 - Byte-moving parcels land as aeon+sigil PAIRS through THIS repo's overseer: merge →
   rebuild all four shapes → re-verify on the merged tree → effects-gate ritual (if
   `engine/effects/*`, `engine/level/bg_anim.emp`, or `engine/system/buffers.emp`
-  moved) → sigil `refreeze --freeze NAME --ab <prose evidence>` → full sigil suite
-  (`SIGIL_STRICT_GATE=1 AEON_DIR=<clean> cargo test --release --workspace
-  --no-fail-fast`, aggregate totals; the fully-green bar moves — derive it, don't quote
-  this file) → push both. `refreeze --check` is NOT the goldens. The hand-typed
-  baseline test (`repin_pins.rs`) demands a per-parcel term with its story when
-  assembled lengths move.
-  **`SIGIL_STRICT_GATE=1` IS LOAD-BEARING AND THIS FILE OMITTED IT UNTIL 2026-08-27 —
-  the omission is why two chains landed unverified.** Sigil's port and co-link gates
-  guard on `strict_gate()` (`std::env::var("SIGIL_STRICT_GATE").is_ok()`) and
-  **early-return without it**, so the command as previously written here runs a suite
-  that structurally CANNOT execute the very gates a paired refreeze exists to move. A
-  session following this file faithfully got a green that was silent about the port
-  layer. Lived: chains 169 (`c8e87ecb`) and 170 (`174f4300`) both landed through this
-  lane with no strict full-suite run logged for either — found 2026-08-27 by the sigil
-  lane after chain 171's strict run went red on `SFX_BODY_LEN`, a constant that had
-  been stale since chain 170 (2046 = `SFX_BANK_BLOB.plain_len` at chain 169, against a
-  region that grew to 0x8DA at 170). Under strict that assertion is 2266 == 2046, so no
-  strict run survives it — **the staleness was not hidden, it was never asked.**
-  *This lane's own first hypothesis was that the gate had silently skipped; that was
-  refuted (it cannot take the skip path under strict) and the real answer was worse —
-  there was no run at all. Note the shape: "the check was weaker than we thought" and
-  "the check never ran" produce the identical artifact, a green log with nothing in it
-  about the subject.*
-  **Standing commitment to the sigil lane (`REFREEZE-NEEDS-STRICT`, agreed
-  2026-08-27): every paired refreeze clears the full strict suite before push, whoever
-  lands it.** It is one suite run on top of a landing this lane is already doing, and
-  it is not a courtesy — it is the run that should have happened at 169 and 170.
+  moved) → sigil `refreeze --freeze NAME --ab <prose evidence>` → **commit the freeze** →
+  `refreeze --attest` on the committed tree (see the block below — this REPLACES the
+  hand-run strict suite, and the tool sets the flag so the rule no longer has to carry a
+  token nobody audits) → commit `provenance.toml` → push both. Aggregate totals only, never
+  a tail; the fully-green bar moves, so derive it and do not quote this file.
+  `refreeze --check` is NOT the goldens.
+  The hand-typed baseline test (`repin_pins.rs`) demands a per-parcel term with its story
+  when assembled lengths move.
+
+  **⚠ THE MANUAL STRICT SUITE IS SUPERSEDED — RUN THE TOOL (2026-08-27).** Where this file
+  previously told you to run `SIGIL_STRICT_GATE=1 AEON_DIR=<clean> cargo test --release
+  --workspace --no-fail-fast` by hand, **do this instead**, after the freeze is committed:
+
+  ```sh
+  AEON_DIR=<clean checkout of the frozen aeon SHA> \
+    cargo run --release -p sigil-harness --bin refreeze -- --attest \
+      [--expect-test <a-test-this-parcel-added>]
+  ```
+
+  Transcribed from sigil's own source header (`crates/sigil-harness/src/bin/refreeze.rs`,
+  read at their `origin/master`), not from their message. *Note: the source header spells the
+  attest form without `--release`; their landing note spells it with. `--release` is what this
+  lane runs everywhere else and is the safer default — if the distinction ever matters, ask
+  them rather than guessing.*
+
+  The tool **sets `SIGIL_STRICT_GATE=1` itself**, adds `--nocapture`, runs the same suite, and
+  appends `[entry.strict]` to `provenance.toml` on success (commit `provenance.toml` only). A
+  red run records `outcome = "failed"`, names the failing tests, and exits 1.
+  **`--expect-test <name>` refuses if a test your parcel added did not execute** — use it for
+  every parcel that adds one, because it is the only step that closes bar 25 at the level of
+  *this* gate rather than *the suite*.
+  It REFUSES on: a dirty sigil tree (commit the freeze first), `AEON_DIR` unset/dirty/not the
+  tip's `aeon_rev`, zero strict bodies reached, or HEAD moving mid-run.
+
+  **Why the tool sets the flag rather than the rule asking you to — this is the durable
+  lesson and it is about rules, not about sigil's tool.** Chains 169 and 170 landed following
+  a rule that was **complete in its steps and inert in its spelling**: one missing token,
+  `SIGIL_STRICT_GATE=1`, and the suite structurally could not execute the gates the refreeze
+  exists to move. `SFX_BODY_LEN` was stale from chain 169 (2046 against a region that grew to
+  0x8DA) and rode through both, surfacing only when chain 171 ran strict. **The staleness was
+  never hidden; it was never asked.** Both lanes' first hypothesis was a silent skip — the
+  more comfortable reading, because it means the check existed — and sigil refuted it from
+  source: there was no run at all. **A rule cannot be trusted to carry a token nobody audits**,
+  which is why the remedy is a tool that cannot omit it and not a more emphatic sentence.
+
+  **A `ratchet:` line you will see and must NOT misread.** Until this lane's first `--attest`,
+  a strict run emits exactly one: *"no entry in this chain records a strict run yet … the rule
+  is not yet in force."* The zero-`skip:` bar is unaffected (it prints `ratchet:`, never
+  `skip:`). **Do not read it as the old `aeon_rev` pairing ratchet returning** — that one
+  disarmed at chain 167 and its reappearance WOULD be a defect. Two self-disarming ratchets
+  now exist saying different things: **read the sentence, not the word.** Ours disarms
+  permanently at our first attest.
+
+  **If a strict run legitimately goes RED and the fix moves bytes**, that entry can never be
+  attested — expected, not a bug. The next freeze passes `--supersede-tip "<why>"` naming its
+  successor. **Abandonment also requires a recorded red run**: "must name a successor" alone is
+  defeated by serial supersession (freeze, abandon, freeze, abandon, and the suite never runs),
+  so you cannot abandon an entry you never tested. That guard is sigil's addition to this
+  lane's own scenario.
+
+  **Anchors, and one citation correction made in passing.** The feature merge is sigil
+  `74793994` (`Merge branch 'feat/refreeze-attest'`), `--stat`-verified here as the commit that
+  carries the code — it touches the harness plus every `*_port.rs`. The code-carrying commit
+  under it is `e435333f`. Docs are `9040dc36` (their `origin/master` tip at the time of
+  writing). **Sigil's message cited `729cd642` for "REFREEZE-NEEDS-STRICT is in"; that SHA is
+  reachable and does touch `refreeze.rs`, but it is a `clippy -D warnings` fixup (2 files,
+  8+/8-)** — a lint cleanup standing in for a feature merge. Exactly the SHA-class bar, caught
+  by `--stat`-ing a citation from a lane that has been rigorous all night, which is the whole
+  argument for checking every citation rather than suspecting particular peers.
+
+  **Standing commitment to the sigil lane (`REFREEZE-NEEDS-STRICT`, agreed 2026-08-27, landed
+  their `74793994`): every paired refreeze clears the full strict suite before push, whoever
+  lands it.** It is one command on top of a landing this lane is already doing, and it is not
+  a courtesy — it is the run that should have happened at 169 and 170.
+  **Their declared bar moves to 3990 / 0 / 4 (3994 declared).** Derive it at the time rather
+  than quoting this line; it has moved twice in two days. *(Recorded because it is the shape
+  this file keeps meeting: their agent claimed a delta of 53 new tests; the measured delta was
+  40. The tree was self-consistent, the claimed delta was not.)*
+
 - **NEVER LEAVE A SHARED CHECKOUT ON A PRIVATE BRANCH — a repoint silently invalidates
   every other session's already-correct branch check** (added 2026-08-27; this lane's defect,
   disclosed by the sigil lane who bore the cost). Landing chain 172, this overseer committed the
