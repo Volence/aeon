@@ -389,6 +389,68 @@ intervals. Two rigid groups that overlap each other are still refused, and that 
 
 ---
 
+## 5a. Prior art — the corpus has no paired CRAM band, and one pairing mechanism
+
+Sweep run 2026-08-28 over all eight reference trees plus `the_chaos_layer`. **Findings relayed
+from a dispatched read-only sweep; I did not open every cited line myself, and the file:line
+citations below are the sweep's, offered so the next reader can check them rather than take
+them from me.**
+
+**The headline is a negative result, and it is a real one: no reference game in this corpus
+does a paired mid-screen CRAM band at all.** Every CRAM HInt found disarms itself as its first
+or last act — S3K `sonic3k.asm:1015` (`#$8AFF`), S2 `s2.asm:1253`, S.C.E.
+`Engine/Core/Interrupt Handler.asm:393`, sonic_hack `code/engines/dma_plc.asm:213`. The "off
+edge" is always the *next VBlank's* full-palette DMA, never a second mid-frame event. Our
+snapshot-and-restore band (R1's `Palette_Ship_Snap`) has no ancestor here.
+
+Consequences for this design, in descending usefulness:
+
+1. **The one ON/OFF pairing mechanism in the corpus declares its pairing too, and that is
+   worth the sentence.** Ristar chains HBlank handlers through a self-modifying `jmp` in RAM at
+   `$FFEA70`/`$FFEA72`: the ON handler writes the OFF handler's own address into `$EA72` before
+   returning (`ristar_disasm/code/disasm.asm:102581-102629`, two pairs — one display-enable,
+   one VSRAM). **Ownership is not inferred from anything; the ON event installs its OFF event.**
+   And the structure that makes it safe is exactly this design's `open` scalar: *at most one
+   OFF is live at a time*, so no id matching is needed at runtime. That is independent
+   corroboration of §3's ruling — the only shipped engine anywhere in reach that expresses a
+   paired raster event does so by declaration, not by span inference.
+2. **Ristar also re-arms reg $0A inside the handler for the *next* event of the pair**
+   (`disasm.asm:102616`, `#$8a80` — schedules the OFF 128 lines later; also `:14561` `#$8a07`).
+   That is the band height, computed at runtime. Ours is computed at build time into the arm
+   chain, which is strictly better and needs no defending — but it is why our arm chain is
+   *relative* and why a suppressed record must not break it (`check_intervals`' `$8AFF` note).
+3. **Restore sources across the corpus:** a whole-palette VBlank DMA from a RAM buffer
+   (S3K/S2/S.C.E./sonic_hack); a *second* RAM palette buffer selected at HInt time
+   (sonic_hack `dma_plc.asm:205-207` — the closest thing to our snapshot, but used for the
+   whole frame); hardcoded ROM tables per CRAM line (Ristar `$E37E/$E3BE/$E3DE/$E3FE`);
+   recomputed from the live source rather than saved (Ristar's VSRAM pair, `$f024 ± $e6f2`);
+   or no restore at all (Alien Soldier). **Nobody snapshots a colour range and streams it back
+   at a lower scanline.** R1's mechanism is ours.
+4. **Alien Soldier is the only tree that writes one CRAM entry many times mid-frame**
+   (`aliensoldier_disasm/code/disasm.asm:15557` onward — the debug CPU-load bar, ~12
+   hardcoded immediates interleaved with the main loop's `jsr`s). It has **no pairing concept
+   whatsoever**: the scanline is wherever the CPU happens to be. It is a demonstration that
+   repeated mid-frame CRAM traffic is cheap on this hardware, and nothing more.
+5. **Raster scripts exist but none expresses a pair.** S3K's `WaterTransition_*`
+   (`sonic3k.asm:9315`) is a list of CRAM offsets consumed one per consecutive scanline inside
+   ONE handler; Ristar's `$56150`/`$56174` maps a section id to a handler pointer. Neither has
+   a (line, action) record with an owner field.
+
+**Coverage gap, recorded rather than papered over:** the Thunder Force IV disassembly does not
+cover its HBlank handler at all — the vector is `$0000C000` (RAM-patched per level) and no
+`loc_00C0xx` exists in `thunderforce4_disasm/code/disasm.asm`, which also contains zero
+`#$8Axx` writes. TF4's multi-band raster work is the one place in the checklist that might
+have contradicted the headline negative, and **this corpus cannot answer it.** Vectorman and
+Gunstar were searched and do only VSRAM/scroll raster work (Gunstar's per-line stub is at
+`gunstar_disasm/code/disasm.asm:1237-1241`, armed `#$8a02`); Batman's three handlers write
+VSRAM/VRAM only. Those three are genuine negatives, not gaps.
+
+**Nothing in this section changes a decision above.** It corroborates §3 (pairing is declared)
+and it tells Aurora that the capability being built has no 1990s precedent to be measured
+against — which is worth knowing before someone goes looking for one.
+
+---
+
 ## 6. Guard 11 and the parallax overlay
 
 GUARD 11 (`raster_dsl.emp:2505-2530`) refuses two patchable records on one channel, because
@@ -754,4 +816,5 @@ raster tier can go.
 | C-2 | A band is **16** program words, not R1 v6 §6.3's 14 (the spin word); the buffer caps N at **THREE**; three bands ≈ 3.6 % of the axis-4b budget | word count high — re-derived from the shipped `op_size` at `:1409-1419`. Budget share medium — **rides CLAIM 9, still UNVERIFIED** | an `op_size` change; measurement 1 |
 | C-3 | `Raster_BuildSchedule` deltas ~+8 / ~+18 cyc | **NOMINAL, UNMEASURED** | measurement 3 |
 | SEQ-1 | N bands does NOT gate moving bands; the shared prerequisite is P1 | high — a moving band is N=1 | — |
+| ART-1 | No reference tree in the corpus does a paired mid-screen CRAM band; the only paired raster events (Ristar) declare their pairing by installing the OFF handler | high for the eight trees searched; **TF4's handler region is not in its disassembly** | a TF4 handler dump; any handler in the corpus that schedules a second mid-frame CRAM event |
 | — | *KILLED by this design:* "the equal-span-partner guard is single-restore by construction" (it is single-restore because the pairing was inferred, not because span equality is inherently singular); "moving bands need N-bands first" | — | — |
