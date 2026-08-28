@@ -6507,7 +6507,10 @@ claim from **exercised**.
 > `check_band_ownership` now run on shipped content on every build. **The admitted/exercised
 > distinction is retired for BUILD-TIME claims and retained in full for RUNTIME ones**: no
 > band has been seen on a screen by anything yet — the parcel could not run an emulator and
-> tagged the capture instead. The band program's emitted HInt schedule IS decoded and pinned
+> tagged the capture instead. **It also answers the seven-shape prediction recorded at master
+> `5d2f5c32`: 4 right, 3 wrong — `s4`, `config_b` and `lean` all MOVED where the prediction
+> said unchanged, because the band program is content and only the installer is DEBUG-gated
+> (design §16.4a). That is not a leak, and a freeze must not read it as one.** The band program's emitted HInt schedule IS decoded and pinned
 > to the six authored screen lines at comptime (design §16.3, PIN 5), which is the strongest
 > claim available without pixels and is still not a pixel. And every claim in P2a is comptime: a second restore's pixel landing
 (design §7.5 measurement 2) is still untaken, and it is now the most valuable of the outstanding

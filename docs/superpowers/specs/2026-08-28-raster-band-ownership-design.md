@@ -1391,12 +1391,51 @@ only the installing hotkey is `DEBUG`-gated. Gating the data too would have comp
 different set of band guards into the two shapes. Both demo shapes are byte-identical, as
 predicted before measuring — `games/demo` links no sonic4 module.
 
+#### 16.4a THE PRE-REGISTERED SEVEN-SHAPE PREDICTION — 4 right, 3 wrong, one premise falsified
+
+Master commit `5d2f5c32` ("predict: the first-consumer parcel's seven-shape table, BEFORE the
+build") recorded a prediction about *this* parcel before any build output existed, explicitly
+so it could come back **no**. It does. All seven measured here — the four canonical shapes via
+`./build.sh`, and the three off-canonical sigil profiles built at `fe87bb7b` and at this
+parcel's HEAD (builds only; **nothing frozen, nothing pinned, the sigil repo untouched**):
+
+| target | before | after | predicted | actual |
+|---|---|---|---|---|
+| `s4_debug` | `fee02557` | `ac752821` | MOVES | **MOVES** ✓ |
+| `config_a` | `a1f48e8f` | `827fe50a` | MOVES | **MOVES** ✓ |
+| `s4` | `0261de2b` | `72251171` | unchanged | **MOVED** ✗ |
+| `config_b` | `93c63d25` | `4cedfeeb` | unchanged | **MOVED** ✗ |
+| `lean` | `3a307f1f` | `0d930a0d` | unchanged | **MOVED** ✗ |
+| `demo` | `3415e3ef` | `3415e3ef` | unchanged | unchanged ✓ |
+| `demo_debug` | `7599953e` | `7599953e` | unchanged | unchanged ✓ |
+
+**The premise it named is falsified, and cleanly.** The prediction's stated premise was "the
+band is authored into the DEBUG-gated effects scene cycle, so only debug-family shapes should
+carry its bytes." **Both halves are wrong, for one reason each:** the band could not be
+authored into the scene cycle at all (§16.1 — a scene is a `parallax_config` and carries no
+raster program), and the band program is **content**, emitted unconditionally, so every
+sonic4-rooted shape carries it. Only the *installer* is DEBUG-gated. The whole plain family
+moved together, which is the coherent signature of content rather than of a leak.
+
+**This is not a leak, and the freeze should not read it as one.** The literal falsifier as
+written — "`config_b` or `lean` move while plain `s4` does not" — did **not** occur: plain
+`s4` moved too. Nothing reached a plain-family build through an unintended path; the data was
+authored into a plain-family path deliberately, and §16.2 says why.
+
+**`lean` is the case the prediction's own control flagged:** 674830 bytes **before and after**,
+different CRCs — byte-count-neutral, catchable only by a content compare. The prediction named
+exactly this hazard (citing the ring-fix freeze, chain 176) and it is what happened here.
+
 **The file-size deltas are SMALLER than the emitted content and this parcel did not decompose
-them.** `OJZ_BandDemo` is 55 words = 110 bytes and appears in both sonic4 shapes; the DEBUG
-hotkey adds ~56 bytes of code to `s4.debug.bin` only. The files grew 14 and 142. Stated as a
-measurement and not explained: the ROM's end address is set by layout that includes padding
-and the deb2 appendix, so a file delta is not a content delta, and working out which slack
-absorbed what was not needed for this parcel's claims. **What IS verified** is that the plain
+them.** They also differ per profile (`s4` +14, `s4_debug` +142, `config_a` +142, `config_b`
++126, `lean` +0-with-different-bytes) for the same 110 bytes of program, which is the clearest
+evidence that a file delta here is a layout artefact and not a content measurement.
+
+`OJZ_BandDemo` is 55 words = 110 bytes and appears in every sonic4-rooted shape; the DEBUG
+hotkey adds ~56 bytes of code to the debug-family shapes only. Stated as a measurement and not
+explained: a ROM's end address is set by layout that includes padding and the deb2 appendix, so
+a file delta is not a content delta, and working out which slack absorbed what in each of five
+profiles was not needed for any claim this parcel makes. **What IS verified** is that the plain
 shape emits the program (`OJZ_BandDemo` at `$131CE` in `s4.lst`) and emits **zero** bytes for
 the hotkey — in the release listing `Debug_BandDemoHotkey`, `Debug_CharacterHotkey`,
 `Debug_SceneCycleHotkey` and `Debug_Warp_Consume` all resolve to the same address (`$A45E8`),
