@@ -109,10 +109,24 @@ x 614   surface y=544  | x=605: AIR             | x=623: attr=$01 h[15]=0
 x 1060..1063, 1111..1112, x 6  (same shape, at other edges)
 ```
 
-**Correction:** repaint the floor with base shape **255** (or **251**), both of
-which are all-16 and are already in the owner's palette (used 232 and 832 times
-respectively elsewhere in the same section). Shape 114 has no business under a
-walkable surface.
+**Correction:** repaint the floor with base shape **255**. Shape 114 has no
+business under a walkable surface.
+
+> **CORRECTION (2026-08-28, `parcel/collision-consistency-gate`): this line
+> originally read "base shape 255 (or 251), both of which are all-16". Taking the
+> "or 251" would have installed a *second* bug across the whole floor.** Both
+> shapes are all-16 in their height profile, but their **angle bytes differ**:
+> shape 255 carries `$FF` (odd — the "no usable angle" sentinel, harmless), while
+> **shape 251 carries `$E0`** — a 45-degree slope on a flat block. That is exactly
+> the pathology `docs/GLIDE_LANDING_ANGLE_DIAGNOSIS.md` diagnoses as the glide
+> momentum trap. The two investigations ran as separate lanes and neither noticed
+> that the fix recommended by one creates the bug diagnosed by the other.
+>
+> S&K's own data settles which is intended: across its 28 zone collision indexes,
+> shape **255 is used 11,493 times** (it is *the* full-solid block of the game),
+> while shapes 251/252/253/254 — the four full blocks carrying even 45-degree
+> angles `$E0`/`$20`/`$A0`/`$60` — are used **184 times in total**, always
+> sparsely, as isolated corner/loop fillers. Only **255** is correct here.
 
 ## Defect 2 — the main floor is a jump-through platform
 
@@ -173,10 +187,35 @@ margin, though, and it is spent.
   checkout is the ROM's own inputs; this worktree's committed copies differ and
   were **not** used.
 
+## The check that makes this unrepeatable (added 2026-08-28)
+
+`tools/collision_consistency.py` **RULE B** now refuses any floor gap narrower
+than the floor sensor pair separation (`2 * PLAYER_X_RADIUS` = 18 px, read from
+`engine/system/constants.emp` at runtime). The threshold is derived, not fitted:
+`Player_SensorFloor` straddles 18 px and keeps the closer sensor, so a gap
+narrower than that can never detach a standing player — but `Player_AtLedgeEdge`
+probes a *single* point and does see it. Any gap under 18 px is therefore a
+disagreement between two engine consumers of the same bytes whose only observable
+effect is the false teeter. It is wired into `build.sh` (sonic4 only) and into the
+build-fatal `pytest tools` lane via `tools/test_collision_consistency.py`.
+
+Measured against the owner's live tree it reports **71 pinholes**, every one 1 px
+wide at world X ≡ 15 (mod 16) — the defect above, found from the geometry alone.
+
 ## Recommended fixes (data — for the owner, not applied here)
+
+**These are prepared and held in `tools/repaint_ojz_collision.py`.** It runs in
+CHECK MODE BY DEFAULT and writes nothing; `--apply` performs the repaint. It
+matches cells by their *resolved geometry*, not by cell word, so it stays correct
+on a tree that has moved, and it defines success by the verified end state rather
+than a count of cells touched — a run that matches nothing on a tree that still
+violates is a loud REFUSAL, never a clean run. Fix 1 below is what it paints
+(shape 255, flips cleared, **solidity preserved** — fix 2 is a gameplay ruling it
+deliberately does not make).
 
 1. Repaint the 300 floor cells from base shape **114** to **255**, dropping the
    X-flip. Removes the 1-px holes, the false teeter, and all 12 fall-through spots.
+   (**Not** 251 — see the correction under Defect 1.)
 2. Reconsider `SOL_TOP` on the primary ground; `SOL_ALL` is the classic choice.
 3. Paint collision into the drawn ground body below y = 592, or accept a
    one-pixel-of-margin floor and never let anything exceed `PHYS_FALL_CAP`.

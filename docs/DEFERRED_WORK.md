@@ -12087,6 +12087,65 @@ it is wrong**.
 
 Independent of the d-31 v_factor ruling; do not sequence behind it.
 
+## COLLISION-CONSISTENCY — the height/angle gate is LANDED; the two repaints it exempts are HELD (booked 2026-08-28)
+
+**Parcel `parcel/collision-consistency-gate`. The GATE IS DONE AND WIRED. What is open is DATA.**
+
+Two gameplay defects reported by the owner on 2026-08-28 both turned out to be OJZ act-1 collision
+data that nothing validated:
+
+* a flat floor slab of uniformly-full 16x16 cells carrying angle `$E0`, a 45-degree slope
+  (`docs/GLIDE_LANDING_ANGLE_DIAGNOSIS.md`, branch `diag/glide-momentum` — the doc does not exist
+  on master until that branch merges);
+* 300 floor cells painted with S&K base shape 114 X-flipped, a full block missing its leftmost
+  pixel column, giving a 1 px hole at every world X = 15 (mod 16)
+  (`docs/2026-08-28-ojz-act1-floor-collision-defects.md`).
+
+**Landed:** `tools/collision_consistency.py` — two rules, both derived from what
+`player_sensors.emp`'s `probe_core` actually does with the (heightmap, angle) pair, neither a list
+of known-bad values. RULE A: a horizontal run of floor-exposed full blocks is a flat surface and
+cannot carry an even non-zero angle. RULE B: a floor gap narrower than the floor sensor pair
+separation (`2 * PLAYER_X_RADIUS`, read out of `engine/system/constants.emp` at runtime) is
+invisible to the pair but visible to the single-point ledge probe, so it is an authoring slip.
+Runners: `build.sh` (sonic4 only, every canonical build) and the build-fatal `pytest tools` lane via
+`tools/test_collision_consistency.py`.
+
+**Answering GATE-VACUITY directly, since it was booked the same day:** this gate REFUSES to pass on
+an empty population — no section files, no non-air cells, or no floor-class surface all exit
+non-zero rather than green — and every green line carries the counts it examined. What a green
+result rules out, and the five things it explicitly does NOT cover (buried blocks, wall/ceiling
+readings, partial-shape angles, `sec{N}_blocks.bin`, `games/demo`), are written out in the module
+docstring rather than left to be inferred.
+
+**OPEN — the data.** Both repaints are prepared and HELD in `tools/repaint_ojz_collision.py`
+(CHECK MODE BY DEFAULT, `--apply` to write). They land in the OWNER'S LIVE EDITOR TREE, which no
+lane may write. Measured 2026-08-28 against `/home/volence/sonic_hacks/aeon`: 574 cells to repaint,
+clearing 11 rule-A and 71 rule-B violations, verified clean afterwards in simulation. Applying it
+needs `tools/regenerate-level.sh` (donors) and a rebuild, and it MOVES ROM BYTES.
+
+**OPEN — the baseline must shrink to nothing.** `tools/collision_baseline.json` exempts the 8
+rule-A violations already committed on this branch, so the gate ratchets (new bad data fails) rather
+than blocking every build while the repaint is held. `test_baseline_has_no_stale_entries` tells you
+which entries to delete as they clear. When the list is empty, delete the file and `build.sh`'s
+`--baseline` flag.
+
+**NOT CLOSED by this parcel — the code half of the glide bug.** The gate closes the DATA half. The
+glide diagnosis's F2 remains: `Glide_Collide` (`player_glide.emp:380`) is the only floor consumer
+that writes `angle(a0)` from a RAW probe, bypassing the odd-flag + divergence resolution every other
+consumer applies. Its odd-flag half is unambiguous and unfixed; its divergence half is an owner
+ruling about 45-degree glide landings. **With the data repainted the reported bug stops, but the
+bypass stays**, and any future act that legitimately places one of S&K's four 45-degree full blocks
+(251/252/253/254 — which this gate deliberately PERMITS in isolation, as S&K uses them 184 times)
+re-arms it.
+
+**A correction the parcel found, worth reading before repainting.** The shape-114 diagnosis
+originally advised repainting to "shape 255 (or 251), both of which are all-16". Both are all-16,
+but 251 carries angle `$E0` — taking the "or 251" would have installed the glide bug across the
+whole floor. Corrected in place in that doc. Two lanes, and the fix recommended by one created the
+bug diagnosed by the other; the gate now catches that composition regardless of who recommends it.
+
+---
+
 ## GATE-VACUITY — a "transitions cover every differing cell" gate can pass because the feature is UNUSED (booked 2026-08-28)
 
 **Aurora's finding, relayed by them 2026-08-28 and banked here because it arrived in MAIL and no

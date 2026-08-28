@@ -532,6 +532,32 @@ if ! python3 "${TOOLS}/effects_gen.py" check; then
     echo "Editor-effects drift — re-bake with tools/regenerate-level.sh, then rebuild."
     exit 1
 fi
+
+# Collision height/angle consistency (2026-08-28). Two shipped defects were
+# invisible to every other check here: a flat floor slab whose angle byte claimed
+# 45 degrees (the glide momentum trap), and floor cells with a 1 px hole in their
+# height profile (the false-ledge teeter). Both are contradictions between a
+# cell's GEOMETRY and its METADATA, derived from what player_sensors.emp's
+# probe_core actually does with the pair — not a list of known-bad values.
+#
+# Reads only committed artifacts (the baked sec*_strips_a.bin plus the interned
+# collision tables), so it runs on every canonical build rather than only at
+# re-bake time, and it REFUSES to pass on an empty population.
+#
+# --baseline exempts the violations already in the tree, whose repaint is HELD
+# (it lands in the owner's live editor tree — tools/repaint_ojz_collision.py).
+# NEW violations still fail. Delete entries from that file as they are cleared;
+# when it reaches an empty list, drop the file and this flag.
+# sonic4 only: games/demo has no collision data, and running it there would be a
+# vacuous pass on another game's tree.
+if [[ "${GAME}" == "sonic4" ]]; then
+    if ! python3 "${TOOLS}/collision_consistency.py" \
+             --baseline "${TOOLS}/collision_baseline.json"; then
+        echo "Collision data is inconsistent — see above."
+        echo "  Held repaint:  python3 tools/repaint_ojz_collision.py   (check mode)"
+        exit 1
+    fi
+fi
 fi
 
 # Art-pool ROM budget report + gate (art-streaming Phase 2). Level art is now
