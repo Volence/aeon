@@ -11823,3 +11823,48 @@ DERIVED-AND-BUILT, not observed: that entry *i* names the object whose sprite oc
 mean an unstamped writer exists). A foreground session with oracle can settle all three in one
 scene: read `Sprite_Owner`, read `Sprite_Table_Buffer`, and check that every slot below
 `Sprites_Rendered` has a nonzero owner whose SST is a live object at the sprite's position.
+
+---
+
+## OJZ act 1 floor collision — three authored-data defects (2026-08-28, NOT FIXED)
+
+Diagnosed on `diag/knux-falls-through` from the owner's `s4.debug.state0`; full evidence in
+`docs/2026-08-28-ojz-act1-floor-collision-defects.md`. **Verdict: the level data, not the
+engine** — every engine path checked reads the collision it is given, correctly (RAM tile
+cache vs baked strips: 4800 cells, 0 differ; ROM collision tables byte-identical to
+`data/collision/*.bin`; `Cache_Top_Row` parity invariant held; `SOLID_*` vs `SOL_*` aligned;
+odd-angle flag handled; `PHYS_FALL_CAP` = 15 px/frame gives 0 tunnelling trajectories).
+
+**Left unfixed deliberately: this is the owner's editor content** (`games/sonic4/data/editor/**`),
+which he is actively authoring. It needs repainting in Aurora, not a script rewriting his level.
+
+1. **The main ground is painted with a 15-pixel-wide block.** 300 cells carry editor word
+   `$1472` = base shape **114** + X-flip + `SOL_TOP`. S&K shape 114 is `[0, 16×15]` (a faithful
+   import — verified against the skdisasm donor), so X-flipped it is `[16×15, 0]`: a 1-pixel
+   air column at every world X ≡ 15 (mod 16). It interns as runtime attr `$01`, the only entry
+   in the act's table with a zeroed height column.
+   *Symptom:* `Player_AtLedgeEdge` probes a single point at `x ± 11`, so at `x & 15 == 10`
+   facing left (and `== 4` facing right) it lands in the hole and reports a ledge — Knuckles
+   teeters on flat ground. That is exactly the `anim = $06 ANIM_BALANCE` in the save state.
+   Near a real ground edge, where the other sensor is already past the edge, both floor sensors
+   miss: **12 (x, surface) positions across the act** genuinely drop the player.
+   *Fix:* repaint to base shape 255 (or 251) with no X-flip — both are all-16 and already in
+   the palette (232 and 832 uses elsewhere in the same section).
+
+2. **The primary ground is `SOL_TOP` (jump-through), not `SOL_ALL`.** 62 of the 63 tile columns
+   at y=576. Standing works, but nothing can wall- or ceiling-collide with the act's main floor.
+
+3. **1260 drawn-but-air tiles in 56 columns.** The art draws ground from y=576 down past y=728;
+   collision stops after one 16 px cell. Deepest run 32 tiles (256 px) at x=768. Nothing tunnels
+   today only because `PHYS_FALL_CAP` is exactly one pixel under the cell height — the margin is
+   fully spent, and anything that ever exceeds the cap falls through the visible ground forever.
+
+**Instrument shipped with this:** `tools/state_ram.py` reads the 68K work RAM out of an
+oracle-frontend `.state` file with **no emulator** (refuses on wrong ROM, bad payload checksum,
+or a `System` bincode layout change), and `tools/test_state_ram.py` gates it in build.sh's
+`pytest tools` lane.
+
+**NOT VERIFIED AT RUNTIME.** No emulator was used. Every number above is read from
+`s4.debug.bin` (2026-08-27 18:11), the save state, and the editor/generated trees that share
+its timestamp. A foreground session can settle the one thing static analysis cannot: whether
+the drop the owner saw was one of the 12 edge positions, or a fourth mechanism this missed.
