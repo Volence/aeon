@@ -23,7 +23,7 @@
 // The second is the CONSEQUENCE stated in the timeline's own terms, not a cascade: it is
 // what an author would see on screen.
 //
-// NO IMPORTS — see poison_two_restores.emp's note.
+// NO IMPORTS — see poison_four_bands.emp's note.
 module games.sonic4.test.poison.poison_band_span_mismatch
 
 const POISON_BSM_BAND = band(100, 140, stream_cram($48, [$0EEE, $0AAA]), 0)

@@ -25,13 +25,24 @@
 // ONE-WORD BANDS, deliberately: the walk carries one `poisoned` flag per CRAM entry, so a
 // three-word nest would say the same true thing three times.
 //
-// COUNT 2: the nesting sentence on entry 36, plus the P1 one-band-per-program count, which
-// every two-band poison necessarily trips until parcel P2a deletes it. The nesting
-// sentence appearing ONCE rather than twice is itself the evidence that the per-entry
-// poison flag works — without it, the inner ON would also report that entry 36 no longer
-// holds base, which is a true statement that is a consequence of the first one.
+// COUNT 1, AND IT WAS 2 UNTIL PARCEL P2a — which is the useful part of this fixture's
+// history rather than a bookkeeping note. At P1 every two-band poison necessarily also
+// tripped `restore_n <= 1`, so this file's count carried a second error that said nothing
+// about nesting. P2a deleted that count and the row dropped to 1 exactly as the lane's
+// comment predicted it would, which is a small piece of evidence that the deletion removed
+// what it was supposed to remove and nothing else.
 //
-// NO IMPORTS — see poison_two_restores.emp's note.
+// The nesting sentence appearing ONCE rather than twice is a different fact and is the
+// evidence that the per-entry poison flag works — without it, the inner ON would also
+// report that entry 36 no longer holds base, which is a true statement that is a
+// consequence of the first one.
+//
+// SO THIS IS NOW THE FIXTURE THAT MATTERS MOST TO P2a. It is a TWO-BAND program that must
+// still be REFUSED, standing beside two two-band programs that must now BUILD. Lifting a
+// refusal is where a guard quietly stops guarding, and this case is what says the walk did
+// not simply start admitting everything with two restores in it.
+//
+// NO IMPORTS — see poison_four_bands.emp's note.
 module games.sonic4.test.poison.poison_band_nested
 
 const POISON_BAND_NESTED = compose([

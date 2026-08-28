@@ -25,7 +25,7 @@
 // one that cannot be dodged, running on every program in the tree whether or not
 // it has a band.
 //
-// NO IMPORTS — see poison_two_restores.emp's note.
+// NO IMPORTS — see poison_four_bands.emp's note.
 module games.sonic4.test.poison.poison_direct_8a
 
 const POISON_DIRECT_8A = [

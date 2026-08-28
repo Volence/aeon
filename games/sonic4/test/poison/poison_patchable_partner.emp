@@ -28,7 +28,7 @@
 // poison_patchable_band_fire: an unowned hand-authored restore is refused earlier now and
 // would never reach this guard.
 //
-// NO IMPORTS — see poison_two_restores.emp's note.
+// NO IMPORTS — see poison_four_bands.emp's note.
 module games.sonic4.test.poison.poison_patchable_partner
 
 const POISON_PP_BAND = band(60, 140, stream_cram($48, [$0EEE, $0AAA, $0666]), 0)

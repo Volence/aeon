@@ -95,7 +95,24 @@ SENTINEL: tuple[str, str, int] = (
 # never wrote. A drop to 1 on either case means one of the two stopped firing; the
 # constructor's is the one that matters.
 CASES: list[tuple[str, str, str, int]] = [
-    (f"{POISON}/poison_two_restores.emp",         "8a",         "one band per program", 1),
+    # RENAMED AND RE-AIMED BY PARCEL P2a, which deleted the refusal this row used to hold.
+    # It was `poison_two_restores` / "one band per program": two well-formed bands over
+    # disjoint spans whose only defect was the count. Admitting exactly that program IS
+    # P2a, so the case could not survive as written — and dropping it would have been a
+    # silent coverage loss at the one spot where a lifted refusal is most likely to stop
+    # guarding. It is re-aimed at the refusal that INHERITED the job of capping N: the
+    # 64-word program buffer. Its old body did not disappear either — it is now a POSITIVE
+    # fixture in engine/effects/raster_dsl.emp (`zz_disjoint`) that must BUILD through
+    # raster_program on every build. The two are the before and after of one deletion.
+    #
+    # THE FRAGMENT'S 142 IS THE FIXTURE'S OWN SIZE, NOT THE CEILING, which is what makes it
+    # loud in the direction `emp_const`'s note above warns about. Four 1-word-cram bands are
+    # 7 + 4 x 16 = 71 words = 142 bytes, derived from the shipped `op_size`; if a band's wire
+    # cost changes, 142 moves and this row goes red. The OTHER direction — a buffer that
+    # shrank, leaving this poison failing for a bound that no longer exists — is caught in
+    # raster_dsl.emp instead, by a THREE-band program that must build. Neither half suffices:
+    # this lane can only prove a refusal, and a refusal for a vanished bound reports green.
+    (f"{POISON}/poison_four_bands.emp",           "P2a buffer cap", "142 bytes exceeds RASTER_BUF_SIZE", 1),
     (f"{POISON}/poison_band_buried_tint.emp",     "P1 OWN-1 bury",  "would bury", 2),
     (f"{POISON}/poison_patchable_band_fire.emp",  "8b rule6 half1", "must be static", 1),
     (f"{POISON}/poison_patchable_partner.emp",    "8b rule6 half2", "must be static — a patchable partner", 1),
@@ -114,13 +131,19 @@ CASES: list[tuple[str, str, str, int]] = [
     # drifts UP means the poison flag stopped suppressing a cascade; a count that drifts
     # DOWN means a guard stopped firing.
     #
-    # EVERY TWO-BAND FIXTURE ALSO TRIPS 8a's count, because `restore_n <= 1` is still in
-    # force at P1 — that is why poison_band_nested is 2 and not 1. Parcel P2a deletes that
-    # count and this row drops to 1 with it.
+    # PARCEL P2a MOVED EXACTLY ONE OF THESE COUNTS, and it was predicted here before it
+    # happened. At P1 every TWO-BAND fixture also tripped `restore_n <= 1`, so its count
+    # carried a second error that had nothing to do with its own subject. P2a deleted that
+    # count, so `poison_band_nested` — the only two-band fixture in this block — drops 2 -> 1
+    # and now reports the nesting sentence ALONE. The other four each carry exactly ONE
+    # restore op, so the deleted count never contributed to them and their counts are
+    # unchanged; `poison_band_span_mismatch` in particular looks like two restores and is
+    # not, because it takes only index [0] of its band (the ON fire) and supplies the
+    # restore by hand.
     (f"{POISON}/poison_band_no_owner.emp",        "P1 OWN-2 no owner",  "carries no band id", 1),
     (f"{POISON}/poison_band_orphan_restore.emp",  "P1 OWN-2 orphan",    "has 0 ON op(s) carrying its id", 2),
     (f"{POISON}/poison_band_span_mismatch.emp",   "P1 OWN-2 span",      "must name the SAME span", 2),
-    (f"{POISON}/poison_band_nested.emp",          "P1 OWN-1 nested",    "two bands are live on CRAM entry", 2),
+    (f"{POISON}/poison_band_nested.emp",          "P1 OWN-1 nested",    "two bands are live on CRAM entry", 1),
     (f"{POISON}/poison_band_base_above.emp",      "P1 OWN-1 base",      "does not hold this frame's base palette", 1),
     (f"{POISON}/poison_regset_8f.emp",            "8d D-C",     "assumes stride 2", 1),
     (f"{POISON}/poison_direct_8f.emp",            "8d E-D",     "cannot be dodged", 1),

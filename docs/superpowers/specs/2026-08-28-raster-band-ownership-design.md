@@ -1,10 +1,12 @@
 # Raster palette bands — ENTRY OWNERSHIP. Design draft r1.
 
 **Date:** 2026-08-28
-**Status:** **PARCEL P1 LANDED 2026-08-28** (branch `parcel/band-ownership-p1`) — see §14.
-P2a / P2b / P3 remain design-only. The r1 body below is unedited except where §14 supersedes
-it; read §14 first for what is now source rather than plan — it carries three corrections to
-this document, including one hole in §3.2's own rule table.
+**Status:** **PARCELS P1 AND P2a LANDED 2026-08-28** (branches `parcel/band-ownership-p1`,
+`parcel/band-ownership-p2a`) — see §14 and §15. **N BANDS IS SHIPPED**, capped at three by
+the program buffer. P2b / P3 remain design-only. The r1 body below is unedited except where
+§14 and §15 supersede it; read those two first for what is now source rather than plan —
+between them they carry five corrections to this document, including a hole in §3.2's own
+rule table (§14.2a) and a wrong claim about which guards CLAIM 9 gates (§15.2).
 **Closes (as a design):** `docs/DEFERRED_WORK.md` "R1 booking: N bands (more than one restore
 per program)" and "R1 booking: moving bands (patchable ON and/or OFF edges)". Both bookings
 name the same blocker and this document treats them as one.
@@ -947,10 +949,10 @@ CRAM word wide on purpose to make that product 1 or 2.
 | `poison_band_no_owner` (new) | `carries no band id` | 1 |
 | `poison_band_orphan_restore` (new) | `has 0 ON op(s) carrying its id` | 2 |
 | `poison_band_span_mismatch` (new) | `must name the SAME span` | 2 |
-| `poison_band_nested` (new) | `two bands are live on CRAM entry` | 2 |
+| `poison_band_nested` (new) | `two bands are live on CRAM entry` | 2 | ← **1 after P2a**, the deleted count having been its second error. §15.5 |
 | `poison_band_base_above` (new) | `does not hold this frame's base palette` | 1 |
 | `poison_band_buried_tint` (rewritten) | `would bury` | 2 |
-| `poison_two_restores` (rewritten) | `one band per program` | 1 |
+| `poison_two_restores` (rewritten) | `one band per program` | 1 | ← **superseded by P2a**: this case's subject was deleted, so the file was renamed `poison_four_bands` and re-aimed at the buffer cap; its body became a positive fixture. §15.5 |
 | `poison_patchable_band_fire` (rewritten) | `must be static` | 1 |
 | `poison_patchable_partner` (rewritten) | `must be static — a patchable partner` | 1 |
 | `poison_setreg_on_restore` (rewritten) | `carries the restore ONLY` | 1 |
@@ -1025,3 +1027,197 @@ content. Tree-wide grep at implementation time: three sites, all in poison fixtu
 (`poison_direct_8f`, `poison_direct_8a`, `poison_deep_four_words`). The first two build
 `SetReg`, which gains no field. The third builds `PalRegion` directly and took a literal `0`.
 No content module constructs a `RasterOp` variant.
+
+---
+
+## 15. PARCEL P2a — LANDED. N bands, the fixture P1 could not write, and two corrections
+
+**Date:** 2026-08-28. **Branch:** `parcel/band-ownership-p2a`. **Scope:** §8's P2a row only —
+delete the `restore_n <= 1` refusal so more than one band may live in one program. P2b (rule 6
+half 2) and P3 (the moving-band runtime) are untouched, and `LO_SUPPRESS` remains **unbuilt**,
+per the standing ruling.
+
+### 15.1 CLAIM 9 — re-derived from today's numbers, and it did not need to be measured
+
+§11 Q3 (as amended) says P2a owes a **re-derivation** of `op_work_cyc`, not a measurement: the
+2026-08-17 closure was anchored to `s4.debug.bin` crc `04882b94`, and five substrate parcels
+have rebuilt the handler since. The eight F-series fixtures were re-measured on 2026-08-28
+against crc `fee02557`, and today's total was taken against **today's** decomposition. **Not one
+2026-08-17 component (302 / 8 / 82 / 90 / 10) appears in the arithmetic.**
+
+```
+F8 = 674 = 280 RASTER_FIRE_BASE_CYC        (from today's F0: (588 - 2*30)/2 + 16)
+         +   8 RASTER_OP_FETCH_CYC
+         +  90 dispatch  (ZERO_MISS 8 + RUNG 16 * RASTER_DEPTH_RESTORE 4 + HIT 18)
+         + WORK
+         +  90 RASTER_STREAM_WORD_DEEP_CYC 30 * 3 words
+         +  10 RASTER_OP_TAIL_CYC
+WORK = 674 - 478 = 196 = base + spin_cyc(11) = base + 124   =>   base = 72
+```
+
+**`op_work_cyc(PalRestore, spin) = 72 + 10·spin + 14`. Spinless base 72; 196 at the shipped
+solved spin of 11.** That is `RASTER_WORK_RESTORE_BASE_CYC` as it already stands in the tree —
+so the shipped model was current and **today's measurement confirms it with zero residual on
+all eight fixtures**, F0 included. A cross-check that never names the restore's constant:
+`F8 - F4 = 8 = 3*16 + (W_RESTORE - W_REGION) - 40`, so the restore's spinless base **equals**
+the region's, exactly, from two of today's measurements and no borrowed term.
+
+**What could not be separated, said plainly.** Eight fixtures against ~13 constants and 7
+solved spins is underdetermined: **the F-series cannot split dispatch depth from work base**
+(the F8 − F4 identity pins their sum, which is why it yields a difference and not two values).
+That split rests on the instruction lists beside the constants, not on the fixtures. And the
+raw slopes are **contaminated by the solver**, which re-centres each shape's spin — F3 − F2
+reads as 11 cycles per word where the true word is 26 (the spin fell three iterations), and
+F6 − F2 is a whole op at spin 0 less the first op's six-iteration drop. Full arithmetic and both
+traps: `docs/benchmarks/effects-r1/GATE-EVIDENCE.md`, CLAIM 9, re-closed at crc `fee02557`.
+
+### 15.2 CORRECTION — §7.3 is wrong about which guards CLAIM 9 gates
+
+> §7.3 says *"Every band-height minimum in `band()` is cost-keyed to it (`:669, :704`)"*, and
+> §11 Q3 recommends gating P2a on the measurement because *"three bands make the minima
+> load-bearing where one did not"*.
+
+**The source at those two lines refutes it.** Both minima call `fire_cost_cycles` on the **ON**
+fire (`f_on`, `f_on_sh`), whose op is a `stream_cram` or `stream_pal_region`. The restore fire's
+cost appears in neither — a band's height is bounded by how long its ON op takes, not by its
+restore. `op_work_cyc(PalRestore, …)` reaches only `check_density` and `check_hint_total`, and
+**both consume the whole fire total**, which today's F8 measures **directly at 674**.
+
+So the quantity N bands multiplies is a **measured fire total**, not a decomposed constant, and
+§15.1's decomposition is corroboration rather than the load-bearing step. Q3's recommendation
+was still the right call — the re-derivation caught a stale document and a wrong dependency —
+but the reason it gave was not the true one.
+
+### 15.3 What actually changed in the source
+
+The deletion is four lines, exactly as `raster_program`'s own note predicted. **The gate around
+the two guards below it was WIDENED, not removed, and that is the trap in this parcel:**
+
+- **D-B** (the restore's fire is single-op) is per-fire and vacuous at `restore_n == 0`, so it
+  would be safe ungated.
+- **CLAIM 6** (no band in a program that ships) is **not**. It refuses `offscreen_ship` on
+  *every fire in the program*, and that is only correct for a program containing a band —
+  `games/sonic4/data/effects/ojz_effects.emp:858` declares `offscreen_ship: 1` on shipped
+  content. Lifting it out of the gate would have refused the tree.
+
+So `if restore_n == 1` became `if restore_n >= 1`, and `restore_n` survives the deletion of the
+`ensure` that used to read it. §8's P2a row ("delete the `restore_n <= 1` refusal **and the
+`if restore_n == 1` gate**") is wrong on its second half.
+
+### 15.4 The positive fixture P1 was structurally unable to write
+
+§14.3 records that P1's two new admissions could only be pinned **against the walks directly**,
+on derived visit counts, because `restore_n <= 1` refused every two-band program. That is a real
+gap, not a formality: a guard the walks admit and a later `ensure` refuses is indistinguishable,
+from inside those pins, from a guard that works.
+
+P2a promotes them. `zz_band_ownership_fixtures` in `engine/effects/raster_dsl.emp` now puts the
+same two programs — and a third — through **`raster_program` itself**, where they must BUILD:
+
+| fixture | program | words | derived from |
+|---|---|---:|---|
+| `zz_disjoint` | two bands, disjoint spans (3w at `$48`, 2w at `$68`) | 42 | `7 + (2+8) + (2+6) + (2+7) + (2+6)` |
+| `zz_sequential` | two bands, SAME span, sequential (40..60 then 80..100) | 43 | `7 + 2 × ((2+8) + (2+6))` |
+| `zz_three` | three bands, 1-word crams — **the cap** | 55 | `7 + 3 × 16` |
+
+**The cap is derived, never quoted.** §7.1's "N is capped at THREE" is re-derived every build
+from the shipped `op_size`: a `band(sh: 0)` over a 1-word `stream_cram` is `2 + op_size(Cram,1)`
+= 8 for the ON record and `2 + op_size(PalRestore)` = 8 for the restore, so 16 words; three is
+`7 + 48 = 55` against the 64-word buffer, four is `7 + 64 = 71` and does not fit. Both directions
+are pinned (`raster_words(zz_three) <= RASTER_BUF_WORDS`,
+`raster_words(zz_four) > RASTER_BUF_WORDS`), and the refusal at N+1 is an actual build failure
+in `games/sonic4/test/poison/poison_four_bands.emp`. §7.1's four-band table is confirmed exactly.
+
+**Red-first, each assertion perturbed and restored:**
+
+| perturbation | result |
+|---|---|
+| `raster_words(zz_four) == 71` → `70` | RED, its own sentence |
+| `raster_program(zz_three).len == 55` → `54` | RED, its own sentence |
+| **`ensure(restore_n <= 1, …)` put BACK** | RED **three times** — once per multi-band fixture. This is the fixtures' real job: they force `raster_program` to be *called* on three multi-band programs, so a refusal re-introduced anywhere inside it fires at build time, not merely a length mismatch |
+| `poison_four_bands` cut to THREE bands | **BUILDS CLEAN**, crc `0261de2b` unchanged — so the poison's refusal is the cap at exactly four and not some other property of the file |
+
+### 15.5 The poison lane, before and after — full totals
+
+**40/40 before, 40/40 after** (`tools/emp_expect_fail.py`, run build-fatally by `build.sh`; the
+before-total is from the release and debug shapes of a clean-tree build at the branch point).
+Two rows moved, **both derived ahead of the run and both correct on the first attempt**:
+
+| row | before | after | why |
+|---|---|---|---|
+| `poison_two_restores` → **`poison_four_bands`** | `"one band per program"`, 1 | `"142 bytes exceeds RASTER_BUF_SIZE"`, 1 | its subject was deleted — see below |
+| `poison_band_nested` | `"two bands are live on CRAM entry"`, **2** | same fragment, **1** | it is the only two-band fixture in the block, so it was the only one also tripping the deleted count. The lane's own comment predicted this drop before P2a existed |
+
+The other nine band poisons are **unchanged in fragment and count**. Each carries exactly one
+restore op, so the deleted count never contributed to them — `poison_band_span_mismatch` looks
+like two restores and is not, because it takes only index `[0]` of its band and supplies the
+restore by hand.
+
+**`poison_two_restores` could not survive, and that is worth stating rather than burying.** Its
+whole content was two well-formed bands over disjoint spans whose only defect was the count —
+**admitting exactly that program is what P2a is.** The two options were to drop the case (a
+silent coverage loss at the one spot where a lifted refusal is most likely to stop guarding) or
+to re-aim it at the refusal that inherited its job. It was renamed to `poison_four_bands` and
+re-aimed at the buffer; its old body is now the `zz_disjoint` positive fixture. **The same
+program moved from the expect-fail lane to the must-build lane, and both halves are still
+tested.** `poison_band_nested` is what stops the lifted refusal from becoming no refusal: a
+two-band program that must still be REFUSED, standing beside two that must now BUILD.
+
+### 15.6 G5 — byte identity
+
+Assembler `SIGIL_BUILD` md5 `85ba502f096773780cbbac17b5d77890`, unchanged across the parcel.
+All four canonical shapes, full `./build.sh` (never `FAST=1`):
+
+| shape | before | after |
+|---|---|---|
+| `s4.bin` | `0261de2b` | `0261de2b` |
+| `s4.debug.bin` | `fee02557` | `fee02557` |
+| `demo.bin` | `3415e3ef` | `3415e3ef` |
+| `demo.debug.bin` | `7599953e` | `7599953e` |
+
+**Zero-byte is structural here, not lucky:** every guard touched is comptime and emits nothing,
+and — per §14.5 — the tree ships no band for the deleted count to have been counting. `restore_n`
+is 0 in every shipped program, so the deleted `ensure` was never going to fire and the widened
+gate was never going to be entered.
+
+### 15.7 THE VACUITY, NARROWED AND STILL OPEN
+
+§14.5 said the tree ships **zero bands**. **That is still true after P2a.** `band()` and
+`pal_restore` appear only in poison fixtures and in `raster_dsl.emp`'s own pins; no OJZ scene
+and no test scene gained a band, and authoring one is the owner's content decision, explicitly
+out of scope here.
+
+**What P2a's green now rules out:**
+
+- that `raster_program` refuses a two-band program with disjoint spans, or two bands sequential
+  over one span, or three bands — all three are built end-to-end, through the real build profile,
+  on every build;
+- that the cap is anything other than three, in both directions, derived from the shipped
+  `op_size` rather than from any table;
+- that lifting the count also lifted the ownership rules — `poison_band_nested` still refuses a
+  two-band program, and the other nine band poisons are unchanged in fragment and count;
+- that a re-introduced one-band refusal could pass unnoticed — three fixtures go red on it;
+- that today's F8 contradicts the shipped cost model, at any of the eight fixtures.
+
+**What it still does NOT rule out, and this is the honest limit:**
+
+- **Nothing about content.** A fixture is not shipped content. The first real band anyone
+  authors is still the first time these walks run on something a player sees, exactly as §14.5
+  said. **Do not describe N bands as exercised — it is admitted, which is a different claim.**
+- **Nothing at runtime.** Every claim in this parcel is comptime. Whether a SECOND restore's
+  solved spin actually lands is §7.5 measurement 2 and is untaken; §1(3)'s finding that
+  `Raster_BuildSchedule` "has no notion of a pair" is untouched, and it is why P3 exists. Two
+  STATIC bands do not need it — neither record is patchable, so nothing can be suppressed — but
+  that is an argument, not a capture.
+- **Nothing in §3.4** — VSRAM, registers, landing, density, budget, runtime palette binding, or
+  whether a band is visible at all.
+
+### 15.8 Runtime TAGs — owed, and none of them by this parcel
+
+Nothing in P2a needs an emulator; §15.1 re-derived CLAIM 9 from a measurement already taken.
+Still owed from §7.5: **measurement 2** (a second restore's pixel landing — now the one that
+matters most, because P2a is what makes a second restore expressible), and measurements 3 and 4
+(P3's). Measurement 5 is done (§14.6). **The effects-gate ritual** — `python3
+tools/effects_gates.py --rom s4.debug.bin --lst s4.debug.lst` — is owed before merge by the
+owner ruling of 2026-08-18, since this parcel touches `engine/effects/*`; it boots a headless
+emulator per gate and so could not be run from this lane.

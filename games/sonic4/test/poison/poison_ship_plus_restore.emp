@@ -25,7 +25,7 @@
 // cram/restore pair: an unowned restore is refused earlier now (it carries no band id)
 // and the poison would report that instead of CLAIM 6.
 //
-// NO IMPORTS — see poison_two_restores.emp's note.
+// NO IMPORTS — see poison_four_bands.emp's note.
 module games.sonic4.test.poison.poison_ship_plus_restore
 
 const POISON_SHIP_PLUS_RESTORE = compose([
