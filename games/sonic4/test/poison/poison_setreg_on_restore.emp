@@ -3,27 +3,36 @@
 // TARGETS: D-B — the restore's fire carries the restore ONLY (spec §4.2a).
 // EXPECTED FRAGMENT: "carries the restore ONLY"
 //
-// A well-formed band — static ON op at line 100, equal-span restore at 140 — with a
-// register write bolted onto the restore's own fire. It passes every OTHER guard,
-// which is the point: the ops are in prefix order (check_mixed_fire), two ops is
-// inside the per-fire ceiling of four, one stream op is inside the ceiling of two,
-// and three words is exactly RASTER_BURST_MAX_DEEP, a restore's ceiling.
+// A well-formed band with a register write COMPOSED onto its restore's own line. It
+// passes every OTHER guard, which is the point: the ops come out in prefix order (compose
+// emits every SetReg before every stream op, so check_mixed_fire is satisfied by
+// construction), two ops is inside the per-fire ceiling of four, one stream op is inside
+// the ceiling of two, three words is exactly RASTER_BURST_MAX_DEEP, and the band's
+// ownership is intact — same id on both records, equal spans, ON above the restore.
 //
-// It is still wrong, and item 1c sharpened rather than removed the reason. The spin
-// solver would re-time this restore rather than mis-time it — but a restore is the
-// deepest-dispatch op with the widest legal burst, so it starts with the least slack
-// of anything in the DSL, and a 110-cycle register write ahead of it clamps its solved
-// spin to ZERO: it lands inside the window off-centre with no iteration left to spend.
-// The de-mix pair for an S/H band is a reg_set a line ABOVE and the restore alone on
-// the bottom line, which keeps that placement unconditional.
+// It is still wrong, and item 1c sharpened rather than removed the reason. The spin solver
+// would re-time this restore rather than mis-time it — but a restore is the deepest-dispatch
+// op with the widest legal burst, so it starts with the least slack of anything in the DSL,
+// and a register write ahead of it halves its solved spin. The de-mix pair for an S/H band
+// is a reg_set a line ABOVE and the restore alone on the bottom line, which keeps that
+// placement unconditional.
+//
+// IT IS ALSO THE STANDING WITNESS THAT THE BAND ID SURVIVES `compose` (band-ownership
+// design §2.1). compose REBUILDS every merged fire, so a mark carried on the FIRE would be
+// lost here — the merged record at line 140 is a fresh RasterFire.Fire. The mark is on the
+// OP, and ops are copied verbatim by both of compose's passes, so the restore arrives at
+// the ownership walk still carrying its band's id. If that ever stopped being true this
+// poison would report an ownership sentence beside D-B's, and the count below would say so.
+//
+// COUNT 1: D-B alone.
 //
 // NO IMPORTS — see poison_two_restores.emp's note.
 module games.sonic4.test.poison.poison_setreg_on_restore
 
-const POISON_SETREG_ON_RESTORE = [
-    fire(100, [stream_cram($48, [$0EEE, $0AAA, $0666])]),
-    fire(140, [reg_set($8C81), pal_restore($48, 3)]),
-]
+const POISON_SETREG_ON_RESTORE = compose([
+    band(100, 140, stream_cram($48, [$0EEE, $0AAA, $0666]), 0),
+    [ fire(140, [reg_set($8C81)]) ],
+])
 
 ensure(raster_program(POISON_SETREG_ON_RESTORE).len > 0,
        "poison_setreg_on_restore: raster_program returned nothing — this poison no longer reaches the guard it targets")

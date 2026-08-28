@@ -177,6 +177,16 @@ relaxes); sweep 5 traced the double-violation case to two clean diagnostics with
 
 ### 4.2 The composition guard — CLAIM C-A + rule 6 (E-A)
 
+> **SUPERSEDED 2026-08-28 — C-A IS DELETED FROM THE SOURCE.** Parcel P1 of
+> `docs/superpowers/specs/2026-08-28-raster-band-ownership-design.md` replaced the
+> equal-span-partner INFERENCE described below with a declared band id on the op plus two
+> walks (`check_band_pairing`, `check_band_ownership` in `engine/effects/raster_dsl.emp`).
+> Every refusal described below is still made — verified as a 14-case differential with
+> zero divergences, that design's §14.3 — and one refusal is ADDED: a band hand-authored
+> as an unowned cram/`pal_restore` pair, which this guard admitted, is now refused. **Rule
+> 6 (E-A), both halves, survives unchanged** and is enforced in `check_band_pairing`. Read
+> the section below for the ARGUMENT; do not expect to find the code it describes.
+
 Carried: `op_cram_span(o)` total (`(-1,0)` for SetReg/Vsram — address-keyed); for the single
 restore, every CRAM-span op at an earlier-or-same fire line intersecting the restore's span
 is refused unless it is the **unique strictly-earlier op with an exactly equal span** (the

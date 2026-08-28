@@ -96,10 +96,32 @@ SENTINEL: tuple[str, str, int] = (
 # constructor's is the one that matters.
 CASES: list[tuple[str, str, str, int]] = [
     (f"{POISON}/poison_two_restores.emp",         "8a",         "one band per program", 1),
-    (f"{POISON}/poison_band_buried_tint.emp",     "8b C-A",     "would bury", 2),
+    (f"{POISON}/poison_band_buried_tint.emp",     "P1 OWN-1 bury",  "would bury", 2),
     (f"{POISON}/poison_patchable_band_fire.emp",  "8b rule6 half1", "must be static", 1),
     (f"{POISON}/poison_patchable_partner.emp",    "8b rule6 half2", "must be static — a patchable partner", 1),
     (f"{POISON}/poison_setreg_on_restore.emp",    "8c D-B",     "carries the restore ONLY", 1),
+    # ---- band ENTRY OWNERSHIP, parcel P1 (design 2026-08-28 §3, rules OWN-1/2/3) ----
+    # These five replace guard C-A's coverage and extend it. C-A inferred a band's pairing
+    # from span equality and fire order; ownership is now DECLARED on the op, so the guards
+    # can refuse things C-A could not see (an ownerless restore, an id naming no ON, a
+    # hand-built restore whose span differs from its ON's, two bands nested on one entry)
+    # and can name the program rather than its own bookkeeping when they refuse.
+    #
+    # THE COUNTS ARE DERIVED FROM THE WALK, not observed and pasted. OWN-1 carries one
+    # `poisoned` flag PER CRAM ENTRY and reports at most one sentence for each, so a
+    # fixture's count is (entries the fault covers) x (guards that see it). Three of these
+    # fixtures are deliberately ONE CRAM WORD wide so that product is 1 or 2. A count that
+    # drifts UP means the poison flag stopped suppressing a cascade; a count that drifts
+    # DOWN means a guard stopped firing.
+    #
+    # EVERY TWO-BAND FIXTURE ALSO TRIPS 8a's count, because `restore_n <= 1` is still in
+    # force at P1 — that is why poison_band_nested is 2 and not 1. Parcel P2a deletes that
+    # count and this row drops to 1 with it.
+    (f"{POISON}/poison_band_no_owner.emp",        "P1 OWN-2 no owner",  "carries no band id", 1),
+    (f"{POISON}/poison_band_orphan_restore.emp",  "P1 OWN-2 orphan",    "has 0 ON op(s) carrying its id", 2),
+    (f"{POISON}/poison_band_span_mismatch.emp",   "P1 OWN-2 span",      "must name the SAME span", 2),
+    (f"{POISON}/poison_band_nested.emp",          "P1 OWN-1 nested",    "two bands are live on CRAM entry", 2),
+    (f"{POISON}/poison_band_base_above.emp",      "P1 OWN-1 base",      "does not hold this frame's base palette", 1),
     (f"{POISON}/poison_regset_8f.emp",            "8d D-C",     "assumes stride 2", 1),
     (f"{POISON}/poison_direct_8f.emp",            "8d E-D",     "cannot be dodged", 1),
     (f"{POISON}/poison_direct_8a.emp",            "8d E-D $0A", "detonates the relative-arm chain", 1),

@@ -80,6 +80,13 @@ Do not `use` a module merely to silence the warning (the warning text says so it
 a zero-emitting witness module becomes reachable via a whole-path `use` from an
 already-placed module.
 
+**That baseline COUNT is stale and should be treated as a shape, not a number:** measured
+again 2026-08-28 (sonic4 DEBUG) the list is **45 modules** before that day's band-ownership
+parcel and **50** after it, and every name is still in the two explained classes (37 poison
+fixtures, 12 seam-lowered Z80/sound, `games.demo.constants`). Nobody re-baselined it as the
+poison directory grew, which is exactly how a "a NEW name is a real signal" rule goes quiet.
+Compare NAMES against a run on the same tree without your change, not the count against 25.
+
 ## 4. `d0`–`d7` / `a0`–`a7` are register tokens — even in comptime code
 
 **Trap:** `let d0 = 5` in comptime code binds a **register**, not an int. Passing it on

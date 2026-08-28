@@ -44,7 +44,7 @@
 module games.sonic4.test.poison.poison_deep_four_words
 
 const POISON_DEEP_FOUR = [
-    RasterFire.Fire(100, [RasterOp.PalRegion($22, 0, 1, 1, 4)]),
+    RasterFire.Fire(100, [RasterOp.PalRegion($22, 0, 1, 1, 4, 0)]),
 ]
 
 // THE ELABORATION HOOK — see poison_two_restores.emp's note. Trivially-true predicate;

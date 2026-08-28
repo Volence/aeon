@@ -1,34 +1,38 @@
 // games/sonic4/test/poison/poison_band_buried_tint.emp — POISON (see README).
 //
-// TARGETS: C-A, the equal-span-partner composition guard (spec §4.2).
+// TARGETS: OWN-1's bury rule — an op with no band id writing an entry a band is live on
+//          (band-ownership design §3.2; the successor to guard C-A's "would bury").
 // EXPECTED FRAGMENT: "would bury"
 //
-// A band whose OFF edge would bury an unrelated earlier tint. The restore at line
-// 140 writes BASE over CRAM $48..$4D. Two earlier fires touch that span:
+// A band whose OFF edge would bury an unrelated tint. The band runs 100..140 over CRAM
+// $48..$4D; at line 120, INSIDE it, an unbanded fire writes $4A..$4D. From line 140 down
+// those two colours are replaced by the frame's base palette, so an effect the author
+// scheduled for the bottom of the screen silently stops at 140 — and nothing at runtime
+// can report that, because the restore is doing exactly what a restore does.
 //
-//   line 100  stream_cram($48, 3 words)  -> $48..$4D  — EQUAL span: the band's own
-//                                                       ON op, the legal partner
-//   line 120  stream_cram($4A, 2 words)  -> $4A..$4D  — intersects, NOT equal
+// WHAT CHANGED AT PARCEL P1, and it is worth reading before editing this file. The old
+// spelling was three hand-authored fires — an equal-span "partner" at 100, this
+// intersecting tint at 120, and a bare `pal_restore` at 140 — and the guard had to work
+// out which of the first two was the partner by comparing spans. The unequal span was
+// LOAD-BEARING then: an intersecting op with the SAME span was a partner candidate and
+// tripped a different ensure. It is no longer load-bearing at all. The band declares its
+// own two ops now, so ANY op without that band's id writing an entry the band is live on
+// is buried, equal span or not. The unequal span is kept because it is the shape the
+// original defect had, not because the guard needs it.
 //
-// The second is the defect. From line 140 down its two colours are replaced by the
-// frame's base palette, so an effect the author scheduled for the bottom of the
-// screen silently stops at 140 — and nothing at runtime can report that, because
-// the restore is doing exactly what a restore does.
-//
-// THE UNEQUAL SPAN IS DELIBERATE and the poison does not work without it. An
-// intersecting op with the SAME span is a partner candidate, so a second $48-span
-// 3-word fire would trip the partners == 1 count instead and never reach the
-// sentence this poison is for. $4A..$4D intersects $48..$4D and cannot be anyone's
-// equal-span partner, which is exactly the shape the guard is written against.
+// COUNT 2, and the derivation is the walk's: the intersecting write covers CRAM entries
+// 37 and 38, the walk carries one `poisoned` flag PER ENTRY, and so it says the same true
+// thing once for each entry it is true of. (The old count of 2 was two DIFFERENT guards —
+// the bury ensure and an intersecting-op tally — firing once each. Same number, different
+// reason.)
 //
 // NO IMPORTS — see poison_two_restores.emp's note.
 module games.sonic4.test.poison.poison_band_buried_tint
 
-const POISON_BAND_BURIED_TINT = [
-    fire(100, [stream_cram($48, [$0EEE, $0AAA, $0666])]),
-    fire(120, [stream_cram($4A, [$0E00, $0A00])]),
-    fire(140, [pal_restore($48, 3)]),
-]
+const POISON_BAND_BURIED_TINT = compose([
+    band(100, 140, stream_cram($48, [$0EEE, $0AAA, $0666]), 0),
+    [ fire(120, [stream_cram($4A, [$0E00, $0A00])]) ],
+])
 
 ensure(raster_program(POISON_BAND_BURIED_TINT).len > 0,
        "poison_band_buried_tint: raster_program returned nothing — this poison no longer reaches the guard it targets")
