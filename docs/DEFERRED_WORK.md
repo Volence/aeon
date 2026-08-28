@@ -11823,3 +11823,49 @@ DERIVED-AND-BUILT, not observed: that entry *i* names the object whose sprite oc
 mean an unstamped writer exists). A foreground session with oracle can settle all three in one
 scene: read `Sprite_Owner`, read `Sprite_Table_Buffer`, and check that every slot below
 `Sprites_Rendered` has a nonzero owner whose SST is a live object at the sprite's position.
+
+---
+
+## Character ball-sprite / collision-box seating (2026-08-28, `parcel/char-size-audit`)
+
+Full audit and arithmetic: **`docs/CHARACTER_BOX_AUDIT.md`**. Re-measure with
+`python3 tools/measure_character_boxes.py`.
+
+**Nothing was changed.** Every collision box, every curl y-shift and every sensor radius audited
+against skdisasm S3K and found correct — 29 of the 36 reachable grounded states put the lowest
+opaque art pixel exactly on the collision floor. The reported symptom is real but is an ART fact:
+
+**1. Rolling Tails floats 1 px; rolling Knuckles overlaps the ground by 2 px.** Both balls are a
+single 32×32 mapping piece, as Sonic's is; the difference is entirely which pixels inside the cell
+are opaque (Tails' ball is 28 px in a 29 px box; Knuckles' fills the cell and its piece sits 1 px
+lower). Both are stock S3K art and stock S3K has the same deltas. Our Sonic looks flush only
+because his art is S2/`sonic_hack`, not S3K — stock S3K's own Sonic ball overlaps by 1 px.
+
+**Open decision, owner's to make** (it is a content ruling, not an engine one — which is why no
+fix was landed): leave it S3K-faithful, or adopt "all balls seat flush" as a project convention
+and shift Tails' `$96-$98` `+1` and Knuckles' `$96-$9A` `−2` in their mapping piece `y_off`. If
+adopted, the change belongs in `games/sonic4/data/characters_staging/gen_characters.py`, which
+ships those blobs — editing the `.bin`s directly would be silently reverted by the next
+regenerate. Picking `+1` without adopting the rule would be tuning a magic number to hide a
+symptom, so it was deliberately not done.
+
+**2. No gate was added, deliberately.** The only honest invariant would be `delta = 0` for
+grounded poses, and it is false BY DESIGN for get-up crouches, Tails' tucked flight legs and
+Knuckles' glide/climb poses, and false in stock S3K for two of three balls. A fixture asserting
+today's measured deltas would be a snapshot that cannot distinguish a regression from an
+intentional re-export. `tools/measure_character_boxes.py` prints the table instead; run it after
+any character art/mapping/DPLC re-export or any `*_RADIUS` change.
+
+**3. Three deliberate divergences from S3K, all in our favour, none runtime-confirmed.**
+`PHook_EnsureBall`/`EnsureStanding` derive the feet-planted shift uniformly, where S3K applies
+none on Knuckles' wall-jump (sonic3k.asm:31430), none on his glide button-release
+(:30730) and none on `LetGoOfWall` (:31461) — S3K absorbs those with its next-grounded-frame
+floor re-snap, which does not run while airborne. Ours should land smoother; **nobody has watched
+it**. A foreground session should check Knuckles glide→release→land and climb→jump-off for a
+vertical pop.
+
+**4. The debug-fly box (16×16) is the only even-sized box in the game.** Every other box is
+`2r+1`, which is what makes `PHook_*`'s `>>1` of a height difference exact. `Player_DebugExit`
+sets the standing box before any hook can see the 16, so it is currently safe — but the safety is
+call-order, not arithmetic, and nothing guards it. Worth converting to `2r+1` (17) if the debug
+marker is ever touched.
