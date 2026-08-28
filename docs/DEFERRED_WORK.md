@@ -12187,3 +12187,56 @@ through the same tool are two of them. Aurora is measuring the gesture
 classes that truncate on their own field and will send the list; it is the part nobody guesses
 correctly from first principles. **If that test fails, Route P needs a different field and the
 "no format change" argument dies with it** — worth knowing while it is still a proposal.
+
+---
+
+## CLAIM 9 IS NOT "UNVERIFIED" — IT IS VERIFIED AND STALE, WHICH NEITHER DOCUMENT CAN SAY (measured 2026-08-28)
+
+**Three states, and our vocabulary has two.** The band-ownership design records CLAIM 9
+(`op_work_cyc == 64`) as *"still UNVERIFIED at `5b09649c`"*, and this overseer repeated that to
+the hub and to the aurora lane. **It is wrong.** `docs/benchmarks/effects-r1/GATE-EVIDENCE.md:8`
+has read **"CLAIM 9 — the restore's `op_work_cyc` — MEASURED, CLOSED (2026-08-17)"** for eleven
+days, with the full derivation: `556 − 302 − 8 − 82 − 90 − 10 = 64`, the derived constant equal to
+the measured one.
+
+**Where the false claim came from, because that is the durable half.** The R1 v6 spec at
+`docs/superpowers/specs/2026-08-16-parcel-r1-palette-bands-v6.md:263` still reads
+*"**UNVERIFIED, CLAIM 9**"*. The spec was never updated when the benchmark closed it. The design
+agent read the spec — the natural authority — and propagated it faithfully. **Nothing could
+contradict it: a spec is not executed, and the benchmark that refutes it is a different file
+nobody had reason to open.** Same class as the prose-bounds family already booked here, arriving
+on a *claim's status* rather than on a number.
+
+**AND THE FRESH MEASUREMENT SAYS THE CLOSURE NO LONGER APPLIES.** Re-run 2026-08-28 against
+`s4.debug.bin` crc `fee02557` len 735500 (clean worktree of `55e0858f`), 3 boots, 30-frame
+samples, `load average 4.69`, `up 3 days 8:29`:
+
+| fixture | 2026-08-17 (crc `04882b94`, len 712732) | 2026-08-28 (crc `fee02557`) | moved |
+|---|---:|---:|---|
+| F0 floor (absolute) | 572 | **588** | +16 |
+| F1 reg_set | 412.0 | **320.0** | **−92** |
+| F5 reg_set + cram3 | 628.0 | **646.0** | +18 |
+| F8 pal_restore 3w | 556.0 | **674.0** | **+118** |
+
+**The movement is not uniform — F1 went DOWN while F8 went UP** — so it is not a global shift in
+the fire base; the model's components have moved relative to one another. The 08-17 closure was
+sound *for a ROM that no longer exists* (different length, different branch, before the ROM
+re-layout and the effects parcels).
+
+**So the honest state is a third one: MEASURED, and STALE.** "Unverified" understates it — the
+measurement was taken and the method is good. "Closed" overstates it — its subject is gone.
+A closure is a claim about an artifact, and **an artifact-anchored closure expires when the
+artifact moves, silently, with nothing to announce it.**
+
+**What is owed, and it is bounded:** re-derive `op_work_cyc` from today's F8 = 674 against
+today's component decomposition (fire base, fetch, dispatch depth, per-word stream, tail — the
+08-17 figures 302/8/82/90/10 were themselves derived at `RUNGS=5` and may have moved too). Do
+**not** subtract the old components from the new total; that is the arithmetic that looks like a
+derivation and is a mixture of two revisions.
+
+**Operational form, and it generalises past this claim: a closed gate-evidence entry must record
+the artifact it closed against, and any consumer must check that artifact is still current before
+quoting the closure.** `GATE-EVIDENCE.md` does record its ROM crc and length, which is exactly why
+this was catchable in one command — the discipline worked; nobody ran it. And the spec that still
+says UNVERIFIED must be corrected to point at the benchmark rather than restating a status,
+because a status restated in two places drifts by construction.
