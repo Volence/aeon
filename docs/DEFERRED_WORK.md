@@ -1284,6 +1284,32 @@ genuinely open; none of them can be closed from the tree alone.
   not an Aeon one.
 
 **Needs an owner ruling (product decision, not an engineering answer):**
+- **Glide landings on genuine ≥45° slopes — the divergence half of the glide angle
+  resolution** (NEW 2026-08-28, `parcel/glide-angle-resolution`). The odd-flag half shipped
+  (BUGS.md CHAR-9): `Glide_Collide` now substitutes the down cardinal for the "no usable
+  angle" sentinel, which is **exactly and only** what S3K does at that site
+  (`Knux_DoLevelCollision_CheckRet` `loc_179B4` → `sub_11FD6` → `Sonic_CheckFloor`'s
+  `loc_F7F0`, `sonic3k.asm:32665` / `:24131` / `:19890-19893`).
+  The **divergence** half — `|angle − surface| ≥ $20` → substitute the cardinal, which
+  `Player_SensorFloor` applies to every *other* floor query in this engine — was deliberately
+  NOT added, and this is the ruling:
+  * **S3K does not have it on any airborne landing path.** It lives solely in the grounded
+    per-frame update `Player_Angle` (`sonic3k.asm:18854`, `loc_ED5E`). Neither the glide's
+    `Knux_DoLevelCollision_CheckRet` nor the ordinary air landing
+    `SonicKnux_DoLevelCollision` (`loc_11F6E`, `:24080`) applies it. So adding it is a
+    divergence *from* S3K, not a port of it.
+  * **It would change behaviour on correctly-labelled terrain.** During a glide `angle(a0)`
+    is 0 (`Ability_KnuxGlide` clears it), so the rule would reject **every** glide landing on
+    a genuine ≥45° slope and route it to `PSTATE_SLIDE` instead of `PSTATE_GROUND` with
+    `x_vel = ground_speed`. Knuckles only — but real terrain, not just bad data.
+  * **What it would buy:** the engine currently has no code-side defence against a
+    *mislabelled* full block (uniformly-full heightmap + even non-flat angle) reaching
+    `angle(a0)` through a glide landing. Neither does S3K. `tools/collision_consistency.py`
+    Rule A is the defence, and it deliberately permits S&K's four full-block 45° shapes
+    (251 `$E0`, 252 `$20`, 253 `$A0`, 254 `$60`) when placed sparsely, so a future act can
+    legitimately reintroduce the hazard. Choosing the divergence rule is choosing
+    "internally consistent with our own sensors" over "faithful to S3K"; the owner ruled
+    *"match S3K"* on 2026-08-28, so it stays out until that is revisited.
 - The **diagonal streaming budget** tradeoff (A: accept the dip / B: cap combined diagonal step /
   C: cut BgAnim bands during fast scroll). Recommendation on file is (A).
 - **`test_player` as a unit** — whether the test object set should ship in release at all.
@@ -12258,6 +12284,46 @@ ruling about 45-degree glide landings. **With the data repainted the reported bu
 bypass stays**, and any future act that legitimately places one of S&K's four 45-degree full blocks
 (251/252/253/254 — which this gate deliberately PERMITS in isolation, as S&K uses them 184 times)
 re-arms it.
+
+> **UPDATE 2026-08-28, `parcel/glide-angle-resolution` — the code half is now HALF closed, and the
+> owner ruled on the other half.**
+> * **Odd-flag half: SHIPPED.** `Glide_Collide` substitutes the down cardinal for the "no usable
+>   angle" sentinel, matching S3K's `Sonic_CheckFloor` tail (`sonic3k.asm:19890-19893`) consumed by
+>   the glide's own `Knux_DoLevelCollision_CheckRet` (`:32665` / `:24131` / `:32674`). Evidence,
+>   reproduction and the measured `$FF` population are in `docs/BUGS.md` CHAR-9; gate is
+>   `tools/test_glide_angle_resolution.py`.
+> * **Divergence half: RULED OUT, not deferred.** Owner 2026-08-28: *"I don't think we should have
+>   anything that auto makes knuckles run in a direction... How does s3k handle it?"* — re-derived
+>   answer: **S3K applies the divergence rule on NO airborne landing path**, glide or otherwise; it
+>   is grounded-only (`Player_Angle`, `:18854`). So the paragraph above is right that the bypass
+>   "re-arms" on a future legitimate 251/252/253/254 placement — and **S3K is equally exposed
+>   there.** No S3K-faithful code change closes it. Booked under "Needs an owner ruling" above.
+> * **The data is still bad on master.** The paragraph above is the current state, not history:
+>   `python3 tools/collision_consistency.py` (no `--baseline`) FAILS today with 8 rule-A runs of
+>   attr `$0E` (full 16×16, angle `$E0`) totalling 64–128 px each in section 0, both planes. The
+>   owner's reported auto-run is therefore STILL REPRODUCIBLE at HEAD by gliding onto that slab.
+>   Anyone reading "the data fix landed" has been misinformed — only the *gate* landed; the
+>   repaint is held.
+> * **Our slide was already S3K-correct** and needed no change: `Slide_Terrain` re-reads the floor
+>   through `Player_SensorFloor` and writes `angle(a0)` every frame, matching
+>   `Knuckles_Sliding.continueSliding` (`sonic3k.asm:30997`, `:31014`). Ours resolves *more* than
+>   S3K's does there (divergence as well as odd-flag); recorded, not changed.
+> * **Riders left open, citations re-verified 2026-08-28** (not taken — each is a separate
+>   behaviour change and none falls out of the angle fix):
+>   `PState_GlideFall.dead_stop` omits S3K's `move_lock = $F` **and** its flat-vs-slope split —
+>   S3K sets the lock plus `anim $23` on the FLAT branch only (`sonic3k.asm:30939-30944`, the lock
+>   at `:30943`) and jumps straight to `Knux_TouchFloor` on the slope branch, whereas ours has one
+>   unconditional dead stop; `Player_SlopeRepel` nudges `ground_speed` on the detach path where
+>   S3K (`:23911`) does not; `Player_DebugExit` does not clear `move_lock`.
+> * **Runtime TAGs for this change** (no emulator available to the lane): TAG-A — glide onto
+>   ordinary OJZ floor (attr `$01`) and read `Player_1 + $1F`; *expect `$00`, was `$FF`*.
+>   TAG-B — then jump on the FIRST grounded frame and read `x_vel` (`+$0A`) at launch from rest;
+>   *expect exactly 0, was `-36`* (`KNUX_JUMP_FORCE $600 × cos($BF) −6 >> 8`; Knuckles' force is
+>   `$600`, not the shared `PHYS_JUMP_FORCE $680`). TAG-C — while airborne after that jump, watch `+$1F` frame by
+>   frame; *expect it to decay to `$00` and stay, instead of cycling `$FF`/`$01`*.
+>   These supersede TAG-3 in `docs/GLIDE_LANDING_ANGLE_DIAGNOSIS.md`, whose predicted odd angle is
+>   `$01`; the current interned tables carry `$FF` (attrs `$01` and `$03`), so that doc's section 6
+>   is right in mechanism and stale in the specific byte.
 
 **A correction the parcel found, worth reading before repainting.** The shape-114 diagnosis
 originally advised repainting to "shape 255 (or 251), both of which are all-16". Both are all-16,
