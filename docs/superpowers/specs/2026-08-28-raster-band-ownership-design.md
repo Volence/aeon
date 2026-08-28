@@ -415,20 +415,35 @@ solve that speculatively.
 - **Band identity: 0 bytes.** The id is a comptime payload field; `op_words`
   (`raster_dsl.emp:1356`) does not emit it and `op_size` (`:1409`) does not count it.
 - **The ownership walk: 0 bytes.** Comptime only.
-- **A second band's wire cost is what R1 v6 §6.3 already priced: 14 words** for a `pal_region`
-  or 1-word-`cram` ON (15-16 for a 2-3 word `cram` ON). Against `raster_words`' fixed 7 words
-  (`:2428`) and the 64-word ceiling enforced at `:2706`:
+- **A band's wire cost is 16 words**, and this is a CORRECTION to the parent spec. R1 v6 §5
+  gives `op_size` 5 for the restore and §6.3 prices a band at 14 words; both predate substrate
+  item 1, which moved the solved spin into the program. At `5b09649c` the shipped
+  `op_size` (`raster_dsl.emp:1409-1419`) reads `PalRegion => 6` and `PalRestore => 6`, with
+  `op_words` (`:1356-1383`) emitting the matching `[op][cmd hi][cmd lo][SPIN][count-1][…]`.
+  So the ON record is `2 + 6 = 8` words and the restore record is `2 + 6 = 8`.
+
+  | shape | words |
+  |---|---|
+  | `band(sh: 0)`, `pal_region` or 1-word `cram` ON | **16** |
+  | `band(sh: 0)`, 3-word `cram` ON | 18 |
+  | `band(sh: 1)` (ON+reg merged, de-mix fire, restore) | **22** |
+
+  Against `raster_words`' fixed 7 words (`:2428`) and the 64-word ceiling enforced at `:2706`:
 
   | bands | words | free |
   |---|---|---|
-  | 1 | 21 | 43 |
-  | 2 | 35 | 29 |
-  | 3 | 49 | 15 |
-  | 4 | 63 | 1 |
+  | 1 | 23 | 41 |
+  | 2 | 39 | 25 |
+  | 3 | 55 | 9 |
+  | 4 | **71 — REFUSED** | — |
 
-  **The program buffer, not the budget, is what caps N: four bands and nothing else, or three
-  bands plus one modest effect.** Derived here from §6.3's per-band word count and the
-  `out.len * 2 <= 128` ensure — *not* copied from a nearby figure.
+  > **N is capped at THREE, not four.** Three bands leave 9 words: enough for a `reg_set` fire
+  > (4 words) or a 1-word `vsram` fire (8), not for a fourth band. Two bands leave 25, which is
+  > comfortable. **The program buffer, not the HInt budget, is what caps N.**
+  >
+  > Derived here from the shipped `op_size` and the `out.len * 2 <= 128` ensure, *not* copied
+  > from §6.3 — which is exactly how the stale 14 was caught. Anyone re-deriving this after a
+  > wire-format change must go back to `op_size`, never to this table.
 - **The patch table (P3 only): +2 bytes per record** for the bias word, ~8 bytes for OJZ
   section 0.
 
@@ -439,9 +454,9 @@ lines (R1 v6 §7.1), so N bands share it with no growth. The moving half adds no
 `Effects_World_Y` / `Effects_Screen_L` are `[u16; 4]` each (`engine/ram.emp:471`) and **a rigid
 group consumes ONE channel, not two or three** — that is what the bias buys.
 
-The real ceiling is `RASTER_MAX_PATCH = 4` (`raster_dsl.emp:1989`): at most four moving bands
-in a program, which the 64-word buffer already caps at four anyway. The two limits coincide;
-neither is the binding one alone.
+`RASTER_MAX_PATCH = 4` (`raster_dsl.emp:1989`) would allow four moving bands, but the 64-word
+program buffer caps N at **three** (§7.1) — so the buffer is the binding limit and the channel
+count has one slot to spare for an ordinary `patchable` record beside three bands.
 
 ### 7.3 Per-frame cycles
 
@@ -463,8 +478,9 @@ not make them measured. See §7.5.
 `fire_cost_cycles` against `RASTER_HINT_FRAME_CYC - RASTER_HINT_RESERVATION_CYC = 84,595`
 model cycles (`:2477-2487`). Transcribing R1 v6 §6.2's own figures: a 1-word `pal_region` ON
 fire is 506 model cycles and the restore fire is 496 at `op_work_cyc = 64`, so a band is
-**~1,002 model cyc/frame**; four bands ≈ **4,008 cyc ≈ 4.7 % of the axis-4b budget**. For scale
-the whole shipped OJZ section-0 sparse program is 1,878 measured cyc/frame (`:2483-2485`).
+**~1,002 model cyc/frame**; the buffer's maximum of three bands ≈ **3,006 cyc ≈ 3.6 % of the
+axis-4b budget**. For scale the whole shipped OJZ section-0 sparse program is 1,878 measured
+cyc/frame (`:2483-2485`).
 
 > **The restore side of that number rides CLAIM 9, which R1 v6 §12 still marks UNVERIFIED**
 > (`op_work_cyc == 64`, "measure FIRST, before minima freeze"). Every band-height minimum in
@@ -627,7 +643,7 @@ Written for someone who is not going to read `raster_dsl.emp`.
 at a lower one, over at most 3 palette colours. Both lines are fixed at build time. If the
 band needs to move with the world, it cannot be a band.
 
-**After P1/P2a.** *Up to four bands per program*, each with its own two lines and its own
+**After P1/P2a.** *Up to three bands per program*, each with its own two lines and its own
 colours, authored exactly as today:
 
 ```
@@ -639,8 +655,9 @@ The four numbers Aurora has to respect, all build-time errors with sentences if 
 
 1. **Height.** A 1-colour tint band needs `bot - top >= 2`; its Shadow/Highlight form needs 3.
    (R1 v6 §6.2 — unchanged by this design.)
-2. **Count.** Four bands fill the 64-word program buffer exactly (§7.1). Three bands plus one
-   other effect is the practical ceiling.
+2. **Count.** Three bands is the ceiling — a band is 16 program words against a 64-word buffer
+   with 7 fixed (§7.1). Three bands leave room for one register-only fire and nothing more;
+   two bands leave comfortable room for another effect.
 3. **Colours.** At most 3 CRAM entries per band, never on palette line 0.
 4. **Sharing colours.** Two bands may use the same colours **only if they do not overlap
    vertically**. Two bands at different heights over the same colours: fine. One inside the
@@ -693,7 +710,7 @@ raster tier can go.
    does not create that debt but N bands multiplies it by N. Should P2a be gated on measurement
    1, or is the existing single-band evidence enough to admit a second band at the same shape?
    My recommendation: gate P2a on measurement 1, because the minima freeze is what P2a makes
-   load-bearing for four bands instead of one.
+   load-bearing for three bands instead of one.
 4. **Should the ownership walk be trimmed to touched entries?** (§7.4) Only if measurement 5
    says the 64-entry sweep costs real build time. Do not pre-optimise a comptime loop.
 5. **Is `PAIR` at the `lo` edge ever wanted?** The `LO_SUPPRESS` bit is new runtime code (a
@@ -715,8 +732,8 @@ raster tier can go.
   (`raster_dsl.emp:1106-1198`); a second restore's spin is *solved*, and if it does not land the
   remedy is R1 v6 §3.2's ladder (narrow the stream count), never a hand-adjusted constant.
 - **No cost-gate expectation adjusted to match a number.** §7.1's four-band table is derived
-  from `raster_words`' fixed 7 and R1 v6 §6.3's 14; §7.3's 4.7 % is derived from §6.2's 506/496
-  against `:2477-2487`'s 84,595.
+  from `raster_words`' fixed 7 and the SHIPPED `op_size` (which corrected R1 v6 §6.3's stale 14
+  to 16); §7.3's 3.6 % is derived from §6.2's 506/496 against `:2477-2487`'s 84,595.
 
 ---
 
@@ -734,7 +751,7 @@ raster tier can go.
 | DEN-1 | Gap within a group is exactly `H` | high — follows LOCK-1 | as ORD-1 |
 | G11-1 | First table match is the group's ON record, which is the boundary the overlay wants | high for bands; **an open call for a bottom-edge consumer** | a consumer that needs the bottom edge |
 | C-1 | 0 ROM, 0 RAM for P1/P2a/P2b; +2 B/record for P3 | high — the id is not emitted; the snapshot and anchors already exist | an emitted image that changes under P1 |
-| C-2 | Four bands ≈ 4.7 % of the axis-4b budget; the buffer caps at four | medium — **rides CLAIM 9, still UNVERIFIED** | measurement 1 |
+| C-2 | A band is **16** program words, not R1 v6 §6.3's 14 (the spin word); the buffer caps N at **THREE**; three bands ≈ 3.6 % of the axis-4b budget | word count high — re-derived from the shipped `op_size` at `:1409-1419`. Budget share medium — **rides CLAIM 9, still UNVERIFIED** | an `op_size` change; measurement 1 |
 | C-3 | `Raster_BuildSchedule` deltas ~+8 / ~+18 cyc | **NOMINAL, UNMEASURED** | measurement 3 |
 | SEQ-1 | N bands does NOT gate moving bands; the shared prerequisite is P1 | high — a moving band is N=1 | — |
 | — | *KILLED by this design:* "the equal-span-partner guard is single-restore by construction" (it is single-restore because the pairing was inferred, not because span equality is inherently singular); "moving bands need N-bands first" | — | — |

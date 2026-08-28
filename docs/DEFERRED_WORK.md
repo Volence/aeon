@@ -6482,7 +6482,11 @@ fire-level mark, its own note at `raster_dsl.emp:484-488`), and a per-CRAM-entry
 sentence above:** the equal-span-partner guard is single-restore because the pairing was
 INFERRED, not because span equality is inherently singular — with the pairing declared, N bands
 is `restore_n <= 1` deleted and nothing else, zero ROM and zero runtime (design §8, parcels
-P1/P2a). N is capped at FOUR by the 64-word program buffer, not by the HInt budget (§7.1).
+P1/P2a). **N is capped at THREE by the 64-word program buffer, not by the HInt budget** — and
+that number is itself a correction the design makes to R1 v6: §5's `op_size 5` and §6.3's
+"a band is 14 words" both predate substrate item 1's spin word, and the shipped `op_size`
+(`raster_dsl.emp:1409-1419`) makes a band **16** words. 7 fixed + 3 x 16 = 55; a fourth band
+would be 71 against the 64-word ceiling at `:2706`. Re-derive from `op_size`, never from §6.3.
 The design's own open item: CLAIM 9 (`op_work_cyc == 64`) is still UNVERIFIED at `5b09649c` and
 every band-height minimum rides it — measure before a second band's minima freeze.
 
