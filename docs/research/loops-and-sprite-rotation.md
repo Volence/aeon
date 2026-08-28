@@ -86,7 +86,7 @@ Line numbers are as-committed in that tree today.
 ### 2.1 Sprite orientation: four art sets plus both flip bits
 
 The routine is **`Animate_Sonic`, `sonic3k.asm:24737`**. Its walk/run branch begins at
-`loc_126A4` (`:24805`). The load-bearing part, verbatim:
+`loc_126A4` (`:24808`). The load-bearing part, verbatim:
 
 ```asm
 loc_126A4:
@@ -138,12 +138,14 @@ loc_12742:
         add.b   d3,mapping_frame(a0)    ; <-- THE ANGLE OFFSET. That is the whole trick.
 ```
 
-And the two animation scripts it indexes
-(`General/Sprites/Sonic/Anim - Sonic S3.asm:38-39`):
+And the two animation scripts it indexes. The tree carries two variants — the S&K one
+that actually ships (`General/Sprites/Sonic/Anim - Sonic.asm:38-39`) and a Sonic-3-only
+twin (`Anim - Sonic S3.asm`) whose walk cycle starts at frame 1 instead of 7:
 
 ```asm
-AniSonic00:     dc.b  $FF,   1,   2,   3,   4,   5,   6,   7,   8, $FF
+AniSonic00:     dc.b  $FF,   7,   8,   1,   2,   3,   4,   5,   6, $FF
 AniSonic01:     dc.b  $FF, $21, $22, $23, $24, $FF, $FF, $FF, $FF, $FF
+AniSonic02:     dc.b  $FE, $96, $97, $96, $98, $96, $99, $96, $9A, $FF   ; roll — $FE, not $FF
 ```
 
 **So the answer, precisely:**
@@ -168,14 +170,19 @@ is what routes into this path at all — `move.b (a1),d0; bmi.s loc_126A4` at `:
 `addq.b #1,d0; bne.w loc_12A2A` at `:24808`. Only walk and run (and their Super twins)
 carry it; every other script is angle-blind. **Our `DUR_DYNAMIC` is `$FF`**
 (`engine/system/constants.emp:73`) and sits at byte 0 of exactly our Walk and Run scripts —
-the same sentinel in the same position. That is not a coincidence worth building on
-directly, though: our Roll script *also* carries `DUR_DYNAMIC`, and S3K explicitly routes
-roll away from the angle path. **The tilt must key on the animation id (`ANIM_WALK` /
+the same sentinel in the same position.
+
+That is not a coincidence worth building on directly, though, and the reason is a concrete
+byte. S3K's roll script heads with **`$FE`**, which routes to `loc_12A2A` — a speed-picked
+roll path with no angle involvement. **Ours heads with `DUR_DYNAMIC` = `$FF`**, because we
+reused the sentinel for "speed-scaled hold" rather than for "angle-dependent". So the two
+meanings that S3K keeps separate are merged in our data, and keying the tilt on the header
+byte would tilt the rolling ball. **The tilt must key on the animation id (`ANIM_WALK` /
 `ANIM_RUN`), not on the duration sentinel.**
 
 **A naming trap worth recording.** S3K's `flip_angle` is *not* the running tilt. It is
 the somersault/tumble counter used when Sonic is launched off a spring or a ramp;
-`Anim_Tumble` (`sonic3k.asm:24928`) reads it, does `divu.w #$16` (22° steps) and lands on
+`Anim_Tumble` (`sonic3k.asm:24932`) reads it, does `divu.w #$16` (22° steps) and lands on
 mapping frames `$31`+. Our own `PlayerV.flip_angle`, commented "reserved (visual
 rotation)", is named after that field and is a poor home for the running tilt — the tilt
 needs no state at all, it is a pure function of `angle` and `status`.
@@ -210,7 +217,7 @@ Player_AnglePos:
         move.l  (Secondary_collision_addr).w,(Collision_addr).w
 ```
 
-The switcher is **`Obj_PathSwap`, `sonic3k.asm:39702`**, worker `sub_1CDDA` at `:39796`.
+The switcher is **`Obj_PathSwap`, `sonic3k.asm:39702`**, worker `sub_1CDDA` at `:39799`.
 Its full subtype map, read out of the code:
 
 | subtype bit | meaning |
@@ -252,7 +259,7 @@ both velocities, sets `ground_vel = $800` and walks the player down a hardcoded 
 list. Neither is involved in an ordinary loop.
 
 **A second layer of indirection I nearly missed.** The 2-bit-per-plane solidity in the
-block word is only half of S3K's layer system. `sub_F264` (`sonic3k.asm:19236`) then does
+block word is only half of S3K's layer system. `sub_F264` (`sonic3k.asm:19218`) then does
 `movea.l (Collision_addr).w,a2; move.b (a2,d0.w),d0` — the **block ID resolves through a
 per-layer index array to a heightmap id**, so the *same block* can present a completely
 different shape and angle on each plane. `LoadSolids` (`:9539`) sets that up two ways: the
@@ -326,8 +333,12 @@ Walk:     [DUR_DYNAMIC, 7, 8, 1, 2, 3, 4, 5, 6, AF_END],
 Run:      [DUR_DYNAMIC, $21, $22, $23, $24, AF_END],
 ```
 
-— the same frame numbers as S3K's `AniSonic00`/`AniSonic01`, at the same block strides
-(8 and 4), with the tilted blocks sitting at exactly the offsets S3K's `add.b d3` lands on.
+— and these are not merely *similar* to S3K's. Our Walk script's frame sequence
+`7, 8, 1, 2, 3, 4, 5, 6` is **byte-identical to S&K's shipped `AniSonic00`**
+(`General/Sprites/Sonic/Anim - Sonic.asm:38`), and our Run to `AniSonic01`. Same frames,
+same order, same block strides (8 and 4), with the tilted blocks sitting at exactly the
+offsets S3K's `add.b d3, mapping_frame(a0)` lands on. The donor data arrived intact; only
+the code that uses the second half of it was never written.
 
 **Dead-but-paid-for art in the ROM today: 640 tiles = 20,480 bytes for Sonic** (21% of his
 art budget). The same four-block structure is present in Tails' and Knuckles' shipped
@@ -338,7 +349,7 @@ nothing.**
 **And there is more rotation art than that.** S3K also carries **three full-360° tumble
 sets** for the somersault Sonic does off springs and ramps — 12 frames each at base frames
 `$31`, `$3D`, `$49`, selected by `flip_angle` through a `divu.w #$16` (30° steps),
-`Anim_Tumble` at `sonic3k.asm:24928`. Measuring the same frame ranges in *our* shipped
+`Anim_Tumble` at `sonic3k.asm:24932`. Measuring the same frame ranges in *our* shipped
 sheet gives 171 / 165 / 183 tiles against S3K's 171 / 165 / 184 — the one-tile difference
 is our optimiser's dedupe. **So our art blob is S3K's Sonic sheet wholesale, and a further
 519 tiles (16,608 bytes) of full-circle tumble art is also present and referenced by
@@ -393,7 +404,7 @@ ids rather than direct frame writes, `player_common.emp:719-722`) and **before
 One caution the code must respect: `Sst.frame_off` is a render cache and the struct
 comment is explicit — "MUST be refreshed on every `mapping_frame`/`mappings` write"
 (`engine/objects/sst.emp`). Anything that adds an offset to `mapping_frame` must re-run
-`refresh_piece_count` (`engine/objects/frames.emp:54`) or the sprite draws the wrong
+`refresh_piece_count` (`engine/objects/frames.emp:53`) or the sprite draws the wrong
 frame's pieces.
 
 ---
@@ -488,7 +499,7 @@ player's `art_tile` comes from `CharacterDef.cd_vrambase` with the bit clear
 (`player/characters.emp:87`). It is a `bclr`/`bset` pair on `art_tile(a1)`.
 
 **Gap 2 — no horizontal swapper.** S3K's subtype bit 2 selects a swapper that compares
-`y_pos` instead of `x_pos` (`loc_1CEF2`). Ours only ever compares X
+`y_pos` instead of `x_pos` (`loc_1CEF2`, `:39895`). Ours only ever compares X
 (`PathSwap_Main`). Vertical loops, corkscrews entered from above, and any layer change
 across a horizontal boundary are unbuildable.
 
@@ -555,11 +566,18 @@ built.
 
 #### 4.5.1 The runtime decision is irreducible. The authoring is not.
 
-Which surface the player is on **is a function of history, not of position.** At a loop's
-base, the same cell must mean "riding the near arc" when you arrive along the ground and
-"back on the ground" when you come down the far arc. The geometry at that cell is identical
-in both cases. No purely positional bake can distinguish them, because the distinguishing
-fact is not in the level — it is in where the player has been.
+Which surface the player is on **is a function of history, not of position**, and the proof
+is one sentence long: **a loop is traversable in both directions.**
+
+Take a loop split the classic way — one layer carries "ground → right arc → top", the other
+"top → left arc → ground". Run it rightward and, at the top of the loop, you are finishing
+the right arc and must be on the first layer. Run the *same loop leftward* and, at that
+*same cell at the top*, you are finishing the left arc and must be on the second. Same
+position, same geometry, opposite requirement. The only thing that differs is which way you
+came.
+
+So no purely positional bake can be correct for a two-way loop, and any design that claims
+to eliminate the runtime decision is either wrong or has quietly made loops one-way.
 
 So the engine will keep making a per-frame layer decision on the player, whatever we do.
 That part does not move to build time and a design that claims it does is wrong.
@@ -616,10 +634,21 @@ makes the tooling route cheap rather than aspirational.
 The sensors probe many cells per frame and most probes are speculative — both sensors of a
 pair, the ±16 extension probes, the ceiling checks. **A transition must never fire from a
 speculative probe.** So the read is not on the probe path at all: it is one lookup per
-frame, of the cell the player actually resolved onto, at the point where the ground state
-is already settled (the `Ground_PostMove` seam, `player_ground.emp:449-460`, immediately
-before `Player_SlopeRepel`). Edge-trigger on "the standing cell changed" and the whole
-mechanism is roughly ten instructions and one 256-byte table.
+frame, of the cell the player actually resolved onto. Edge-trigger on "the standing cell
+changed" and the whole mechanism is roughly ten instructions and one 256-byte table.
+
+**Where it must *not* go, and this is a trap.** The obvious home is the
+`Ground_PostMove` fall-through, right after the floor snap writes `angle` and just before
+`Player_SlopeRepel`. That spot is **explicitly guarded against exactly this**
+(`player_ground.emp:453-460`): *"SEAM GUARD: … `Player_SlopeRepel` must stay IMMEDIATELY
+below, and nothing state-specific may be inserted here."* The guard exists because GROUND
+and ROLL share the fall-through and SPINDASH deliberately bypasses it.
+
+The correct home is the **shared per-frame player tail** in `Player_Main`, alongside the
+quadrant derive (`player_common.emp:606-612`) — a first-class derived value computed once
+per frame from last frame's angle, which is precisely the shape a layer update has. That
+placement also gets it for free on every state, not only the grounded ones, which matters
+because you can enter a loop's far side airborne.
 
 A variant worth naming: because S3K's swapper is a *line* (one column, with a vertical
 band), the transition is arguably more natural as a thin **per-section transition list** —
@@ -882,12 +911,14 @@ Written plainly, because these are trades, not implementation details.
    onto the loop with the same brush you draw the loop with, so the two can never come
    apart and the build can *check* them. I recommend the painted version and it needs no
    change to any file format — the room for it is already there, unused. **Two things I
-   want you to know before you pick it:** it will not remove the need for the game to make
-   a decision while you play (that part cannot be precomputed, because which side you are
-   on depends on where you have been, not just where you are), and it cannot do the clever
-   cases — a switch that only fires when you are on the ground, or one a boss moves. So I
-   would keep the old marker around as a rarely-used backup rather than delete it. **Are
-   you happy with "painted by default, marker kept for special cases"?**
+   want you to know before you pick it:** it will not remove the need for the game to
+   decide something while you play. That part genuinely cannot be worked out in advance,
+   and here is the reason in one line — you can run a loop in either direction, so at the
+   very top of the loop the game needs opposite answers depending on which way you came in.
+   Nothing about the spot itself can tell it that. Second, painted data cannot do the
+   clever cases — a switch that only fires when you are on the ground, or one a boss moves
+   around. So I would keep the old marker around as a rarely-used backup rather than delete
+   it. **Are you happy with "painted by default, marker kept for the special cases"?**
 
 5. **Should the tools work loops out for us?** A further step is possible: the build tool
    looks at a loop you have drawn and figures out the side-switching by itself, so you
@@ -1074,8 +1105,19 @@ Binary data parsed directly: `games/sonic4/data/dplc/{,optimized/}{sonic,tails,k
 `games/sonic4/data/mappings/sonic.bin`, `art/optimized/characters/sonic.bin`,
 `games/sonic4/data/editor/ojz/act1/section_*.collattr{,b}.bin` (read-only).
 
-**S3K:** `/home/volence/sonic_hacks/skdisasm/sonic3k.asm` (`Animate_Sonic` :24737,
-`Anim_Tumble` :24928, `Player_AnglePos` :18732, `Obj_PathSwap` :39702, `sub_1CDDA` :39796),
-`sonic3k.constants.asm:77-78`, `General/Sprites/Sonic/Anim - Sonic S3.asm:38-39`.
+Measurements were taken with throwaway parsers over the shipped binaries (DPLC frame table,
+mapping frame table, attribute-set tables, and the two editor collision planes). Every
+number in §3.2, §3.3, §4.2 and §4.5.2 is reproducible from the files named above; none
+came from an emulator.
+
+**S3K (read first-hand):** `/home/volence/sonic_hacks/skdisasm/sonic3k.asm` —
+`Animate_Sonic` :24737, its walk/run branch `loc_126A4` :24808, the offset write
+`loc_12742` :24870, `Anim_Tumble` :24932, `Player_AnglePos` :18732 and its
+`stick_to_convex` guard :19019, the per-layer shape resolve `sub_F264` :19218,
+`LoadSolids` :9539, `Obj_PathSwap` :39702 with worker `sub_1CDDA` :39799 and the
+horizontal variant `loc_1CEF2` :39895, `Player_SlopeRepel` :23911, `Obj_AutoSpin` :42298,
+`Obj_AutomaticTunnel` :57183; `sonic3k.constants.asm:77-78`;
+`General/Sprites/Sonic/Anim - Sonic.asm:38-40` (the S&K scripts that ship) and
+`Anim - Sonic S3.asm` (the S3-only twin).
 
 **Other references and online sources:** see §8 and §10.
