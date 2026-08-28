@@ -11823,3 +11823,91 @@ DERIVED-AND-BUILT, not observed: that entry *i* names the object whose sprite oc
 mean an unstamped writer exists). A foreground session with oracle can settle all three in one
 scene: read `Sprite_Owner`, read `Sprite_Table_Buffer`, and check that every slot below
 `Sprites_Rendered` has a nonzero owner whose SST is a live object at the sprite's position.
+
+---
+
+## RESOLVED — debug-fly collected rings; the gate is at `RingCollision`'s CALL SITE (2026-08-28, `parcel/debug-rings-gate`)
+
+**The defect.** In debug free-flight the player banked every ring he flew through — and not
+just for the frame: the collect path runs `Collected_MarkRing`, which writes
+`Ring_Collected_Window`, the RESPAWN MEMORY. The ring did not come back on leaving debug mode.
+
+**Why it survived: two comments said it could not happen.** `player_common.emp`'s escape hatch
+was annotated "skips physics, dispatch, **rings**, and display tail", and
+`ojz_scroll_test.emp`'s `Debug_CharacterHotkey` header said the hatch "sits BEFORE the jump
+latch, the physics, the state dispatch **and the rings**". Both were false in the same word.
+`Player_Main`'s hatch suspends everything reached THROUGH the player object; `RingCollision` is
+not one of those things. It is a level-state pass that walks the ring buffer and reads the
+player slots from OUTSIDE (`lea Player_1, a2`), called by `GameState_OJZScroll_Update`. A hatch
+cannot suppress a caller it is not called from. Both comments are corrected in place.
+
+**Where the gate went, and why not the two obvious alternatives.**
+
+1. *Not inside `RingCollision`.* `debug_flag` is a byte in **games/sonic4**'s `PlayerV` overlay
+   of the SST custom window. `engine/objects/rings.emp` has no name for debug-fly and must not
+   grow one (ENGINE_ARCHITECTURE, "Engine/game contract" — the seam is the typed `Game`
+   interface, nothing else).
+2. *Not through `Game.ring_collected` either*, which is the one hook that touches this path.
+   It fires AFTER the ring is marked, counted and removed — it is the collect VISUAL (sonic4
+   binds `RingSparkle_Spawn`). A hook with no return channel, invoked past the point of no
+   return, cannot veto anything. If a future game needs a *conditional* collect, that is a new
+   contract member (a predicate hook), not a reinterpretation of this one.
+3. *Not `if DEBUG == 1`.* Debug-fly is a runtime **cheat** (`CHEAT_DEBUG_FLY` in `Cheat_Flags`,
+   ruled 2026-08-05, §"debug-fly is a CHEAT"). The payload ships in every shape and is merely
+   unreachable until the bit is armed, so a build-time gate would leave the bug live in exactly
+   the shape where a cheat code arms it. The four instructions are release code, and that is
+   correct.
+
+Shipped: `lea Player_1, a0` / `tst.b PlayerV.debug_flag(a0)` / `bne .skip_rings` around the
+`jbsr RingCollision` in `GameState_OJZScroll_Update`. This is the file's existing idiom — the
+`Debug_Scene_Freeze` skips of `EntityWindow_Scan` and `Camera_Update` sit at the same seam, for
+the same reason: the engine offers a pass as a service, the state decides when to run it.
+
+**Cost:** +30 bytes in `s4.bin` (`34c67ea6`/718999 -> `0261de2b`/719029), measured as a
+base-vs-fix control build on the same assembler. ~10 of those are the three instructions; the
+rest is the new local label's entry in the deb2 symbol appendix. `demo.bin` is BYTE-IDENTICAL
+(`3415e3ef` both sides) — the change is sonic4-only, and the control proves it.
+
+### OPEN RIDER — the gate tests the LEADER, which is a per-player gate only while one player spawns
+
+`RingCollision` loops `NUM_PLAYERS` (= 2) slots and skips any with `code_addr == 0`. This state
+spawns `Player_1` only (the same single-slot fact `Debug_CharacterHotkey`'s `lea Player_1, a0`
+already rests on), so testing the leader is today EXACTLY equivalent to a per-player gate. The
+day a state spawns `Player_2`, it stops being equivalent in the wrong direction: P1 in
+free-flight would stop P2 collecting.
+
+**Fix when that day comes** — and it should not be done speculatively now. The gate moves inside
+the engine's player loop, behind a generic per-SST predicate the engine can name without
+learning what debug-fly is: a free `status` bit (bit 0 is unused; `ST_XFLIP` is bit 1) meaning
+roughly "this actor does not pick things up", set by `Player_DebugEnter` and cleared by
+`Player_DebugExit`. Two things to check before doing it: `status` sits below the SST custom
+window, so confirm what `engine/system/replay.emp` hashes before adding a per-frame writer to
+it; and `TouchResponse` has the same shape and the same question (see below), so the bit should
+be ruled for both at once rather than fitted to rings.
+
+### NOT INVESTIGATED — `TouchResponse` runs in free-flight too
+
+Out of this parcel's scope, stated so it is not rediscovered as a surprise: `TouchResponse` is
+called from the same three lines of `GameState_OJZScroll_Update` and got NO gate here. It has
+the identical structure (level-state pass, reads the player slots from outside, unreachable from
+`Player_Main`'s hatch), so a flying player is presumably still eligible for whatever its
+handlers do. Whether that matters depends on how many of those handlers are still stubs — not
+measured. Anyone taking the rider above should settle rings and touch together.
+
+### NO AUTOMATED GATE — deliberately, and here is the honest reason
+
+None was shipped, because none that this lane can run would be able to fail for the right
+reason. The behavioural claim is "a player with `debug_flag` set does not increment
+`Ring_Counter`", and proving it needs an emulator running a scene with a ring under a flying
+player; emulator work is barred from background lanes. What IS reachable offline is the `.lst`,
+and `s4.lst` is a label/address listing, not a byte disassembly — so the strongest check
+available is "the label `$games.sonic4.ojz_scroll_test$GameState_OJZScroll_Update$skip_rings`
+exists", which asserts the presence of the source line just written. It would go red on a
+deletion and green on every wrong version of the gate, which makes it a tripwire wearing a
+gate's clothes, and this tree has paid for those before. Shipped without.
+
+**FOR THE FOREGROUND — the runtime check nobody has run.** Arm `CHEAT_DEBUG_FLY`, enter
+free-flight with B, fly through a ring cluster, read `Ring_Counter` (unchanged) and confirm the
+rings are still drawn; then B out and collect one normally to prove the pass is not disabled
+outright. The verified-so-far claim is only: it builds in all four shapes, `demo.bin` is
+untouched, and the gate emitted into both sonic4 shapes.

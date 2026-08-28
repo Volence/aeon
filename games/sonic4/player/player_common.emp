@@ -595,8 +595,15 @@ pub proc Player_Main (a0: *Sst) clobbers(d0-d6/a1-a4) preserves(d7.w) falls_into
 .no_toggle:
         tst.b   PlayerV.debug_flag(a0)
         bne     Player_DebugMove                // obj_control escape hatch:
-                                                // skips physics, dispatch,
-                                                // rings, and display tail
+                                                // skips physics, dispatch and
+                                                // the display tail. NOT rings:
+                                                // RingCollision is a level-state
+                                                // pass that reads the player
+                                                // slots from outside, so this
+                                                // hatch cannot reach it — the
+                                                // debug-fly ring gate lives at
+                                                // its CALL SITE (see
+                                                // test/ojz_scroll_test.emp)
 
         player_block(a0, a4)                    // a4 = THIS SLOT's working block —
                                                 // resolved once, held for the whole
