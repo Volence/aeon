@@ -6502,17 +6502,32 @@ claim from **exercised**.
 > **CLOSED ON THE CONTENT AXIS 2026-08-28, `parcel/band-first-consumer` (design §16).** The
 > paragraph above described the tree for about a day. `OJZ_BandDemo` —
 > **three** bands over OJZ's dominant ground colour at CRAM `$4A`, screen lines 120..147,
-> 156..183, 192..219 — is emitted in both canonical shapes
-> (`games/sonic4/data/effects/ojz_effects.emp`), so `check_band_pairing` and
-> `check_band_ownership` now run on shipped content on every build. **The admitted/exercised
-> distinction is retired for BUILD-TIME claims and retained in full for RUNTIME ones**: no
-> band has been seen on a screen by anything yet — the parcel could not run an emulator and
-> tagged the capture instead. **It also answers the seven-shape prediction recorded at master
-> `5d2f5c32`: 4 right, 3 wrong — `s4`, `config_b` and `lean` all MOVED where the prediction
-> said unchanged, because the band program is content and only the installer is DEBUG-gated
-> (design §16.4a). That is not a leak, and a freeze must not read it as one.** The band program's emitted HInt schedule IS decoded and pinned
-> to the six authored screen lines at comptime (design §16.3, PIN 5), which is the strongest
-> claim available without pixels and is still not a pixel. And every claim in P2a is comptime: a second restore's pixel landing
+> 156..183, 192..219 (`games/sonic4/data/effects/ojz_effects.emp`). `check_band_pairing` and
+> `check_band_ownership` now run on shipped content **on every build of every shape** — the
+> program constant and all seven pins are unconditional; only the EMISSION is `DEBUG`-gated
+> (design §16.2a), so the release shape gets the full non-vacuity without carrying 110 bytes
+> it cannot install. **The admitted/exercised distinction is retired for BUILD-TIME claims
+> and retained in full for RUNTIME ones**: no band has been seen on a screen by anything yet
+> — the parcel could not run an emulator and tagged the capture instead. The emitted HInt
+> schedule IS decoded and pinned to the six authored screen lines at comptime (design §16.3,
+> PIN 5), which is the strongest claim available without pixels and is still not a pixel.
+>
+> **Two findings a freeze must not misread** (design §16.4a/§16.4b). (1) The seven-shape
+> prediction at master `5d2f5c32` scores **5 of 7** against the shipped parcel; `s4` and
+> `config_b` moved where it said unchanged, and in both the difference is **the deb2 symbol
+> appendix and the header checksum ONLY** — every non-header differing byte lies above the
+> highest emitted symbol. Zero emitted release bytes. Not a leak. (2) **`lean` is
+> byte-identical to baseline**, and it is the one shape that ships without the debugger's
+> symbol table — an independent confirmation of (1) from a direction the byte-diff could not
+> see.
+>
+> **AND A TREE CLAIM THAT DID NOT REPRODUCE:** `Debug_SceneCycleHotkey`'s header states that
+> parking a zero-byte label in the shared zero-release-byte run makes the release ROM
+> byte-identical (citing `s4.bin f81c6811` before and after). Both of this parcel's new
+> labels ARE parked on already-occupied addresses and the release CRC moved anyway. The
+> "a zero-byte release LABEL still lands in the appendix and moves the CRC" half is
+> confirmed; the "parking dedupes it away" half is **unreproduced and worth one measurement**
+> by whoever next parks one, because the header reads as a general technique. And every claim in P2a is comptime: a second restore's pixel landing
 (design §7.5 measurement 2) is still untaken, and it is now the most valuable of the outstanding
 runtime measurements because P2a is what makes a second restore expressible.
 

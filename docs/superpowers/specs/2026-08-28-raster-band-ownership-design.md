@@ -1439,71 +1439,135 @@ not 184"). **No spin was authored or adjusted anywhere in this parcel** — the 
 
 ### 16.4 Bytes
 
-Measured under `SIGIL_BUILD` md5 `85ba502f096773780cbbac17b5d77890`, four full `./build.sh`
-runs before and four after (never `FAST=1`):
+Measured under `SIGIL_BUILD` md5 `85ba502f096773780cbbac17b5d77890` (unchanged before and
+after), four full `./build.sh` runs per column, never `FAST=1`. **Three columns, because the
+payload gate of §16.2a landed between the second and third:**
 
-| artifact | before | after | bytes | moved |
-|---|---|---|---|---|
-| `s4.bin` | `0261de2b` | `72251171` | 719029 → 719043 (+14) | **yes** |
-| `s4.debug.bin` | `fee02557` | `ac752821` | 735500 → 735642 (+142) | **yes** |
-| `demo.bin` | `3415e3ef` | `3415e3ef` | 96372 (unchanged) | no |
-| `demo.debug.bin` | `7599953e` | `7599953e` | 101113 (unchanged) | no |
+| artifact | baseline `fe87bb7b` | v1 (payload ungated) | **v2 (payload gated, shipped)** |
+|---|---|---|---|
+| `s4.bin` | `0261de2b` 719029 | `72251171` 719043 | **`a2acd485` 719029** |
+| `s4.debug.bin` | `fee02557` 735500 | `ac752821` 735642 | **`ac752821` 735642** |
+| `demo.bin` | `3415e3ef` 96372 | `3415e3ef` | **`3415e3ef` unchanged** |
+| `demo.debug.bin` | `7599953e` 101113 | `7599953e` | **`7599953e` unchanged** |
 
-The dispatch expected the plain shape might not move. It does, and §16.2 says why: the band
-program is **content**, emitted unconditionally like every other program in `ojz_effects.emp`;
-only the installing hotkey is `DEBUG`-gated. Gating the data too would have compiled a
-different set of band guards into the two shapes. Both demo shapes are byte-identical, as
-predicted before measuring — `games/demo` links no sonic4 module.
+**The DEBUG shape is byte-identical across the gate (`ac752821` in both v1 and v2), which is
+the gate proving itself a no-op where it should be one:** in `DEBUG` both arms of the
+conditional emit the same 55 words, so gating the payload changed nothing the debug ROM
+contains. Every byte the gate removed came out of the release shape only.
 
-#### 16.4a THE PRE-REGISTERED SEVEN-SHAPE PREDICTION — 4 right, 3 wrong, one premise falsified
+#### 16.4a `s4.bin` DID NOT RETURN TO `0261de2b`, AND THE REASON IS NOT THE PAYLOAD
+
+The expectation on gating was that the release ROM would go back to baseline. **Its LENGTH
+did — 719029, exactly baseline — but its CRC did not.** Same length, different bytes: the
+byte-count-neutral case, caught only by a content compare. So one was done, against a
+freshly rebuilt baseline at `fe87bb7b`:
+
+- **2241 differing bytes in 1005 runs**, and they occupy exactly **two** regions.
+- **Region 1: `0x18E`, 2 bytes** — the Genesis header checksum word, which necessarily
+  follows any content change downstream of it.
+- **Region 2: `0xA6127` .. `0xAF861`, 2239 bytes.** The highest ROM-space symbol emitted in
+  this shape is **`0xA5C90`**, so *every* non-header difference lies **above the last emitted
+  byte** — i.e. entirely inside the appended deb2 symbol table.
+- **Nothing in between differs.** The run enumeration jumps straight from `0x18E` to
+  `0xA6127`; there is no third region.
+
+**So the release ROM's emitted content IS restored to baseline.** What moved is the symbol
+appendix, because the two new labels still *exist* in the release shape as zero-length
+symbols:
+
+| symbol | release address | shares it with |
+|---|---|---|
+| `OJZ_BandDemo` | `$131CE` | `OJZ_TestPal` |
+| `Debug_BandDemoHotkey` | `$A45E8` | `Debug_CharacterHotkey`, `Debug_SceneCycleHotkey`, `Debug_Warp_Consume`, `OJZ_SectionMarkerColors` |
+
+Both collapse onto an address another symbol already occupies — the "park it in the
+zero-release-byte run" technique — and **both still moved the release CRC anyway.**
+
+**THIS CONTRADICTS A CLAIM IN THE TREE, and it is flagged rather than resolved here.**
+`Debug_SceneCycleHotkey`'s own header states the technique and reports it working:
+
+> both canonical shapes append the convsym deb2 symbol table, so a zero-byte release LABEL
+> still lands in the appendix and moves the ROM CRC plus the header ROM-end/checksum words.
+> Parked as the THIRD member of this zero-release-byte run, this proc's release label
+> coincides with an address the appendix already carries and dedupes away. Re-measured for
+> this parcel: s4.bin CRC32 f81c6811 before and after, byte-identical.
+
+The first half of that is confirmed by this parcel. **The second half — that parking makes it
+byte-identical — did not reproduce here.** Two possibilities, and this parcel distinguishes
+neither: the dedupe removes a *duplicate address entry* but not the *name*, so a new name in
+the table still changes its content; or the claim was true for one label in one position and
+does not generalise to two. **Worth one measurement by whoever next parks a zero-byte label**,
+because the header currently reads as a general technique.
+
+**What this does and does not mean for the dormant-scaffold ruling:** the ruling is satisfied
+in full. The release ROM contains **zero emitted bytes** for the band feature — no program, no
+installer. What it contains is two names in a debug symbol table that both canonical shapes
+carry by the 2026-08-04 crash-report ruling. A byte-identical release CRC is not reachable
+while any new label exists in either shape, short of eliding the symbols themselves, which
+would deviate from the pattern the four existing zero-byte debug procs already follow.
+
+**The per-shape file deltas in v1 (`s4` +14, `s4_debug` +142, `config_a` +142, `config_b`
++126, `lean` +0-with-different-bytes) for one 110-byte program were the first sign of this**:
+a file delta in this ROM is a layout-plus-appendix artefact, not a content measurement. That
+is why §16.4a reports sizes as measured and declines to decompose them.
+
+#### 16.4b THE PRE-REGISTERED SEVEN-SHAPE PREDICTION — 5 of 7 right as shipped
 
 Master commit `5d2f5c32` ("predict: the first-consumer parcel's seven-shape table, BEFORE the
 build") recorded a prediction about *this* parcel before any build output existed, explicitly
-so it could come back **no**. It does. All seven measured here — the four canonical shapes via
-`./build.sh`, and the three off-canonical sigil profiles built at `fe87bb7b` and at this
-parcel's HEAD (builds only; **nothing frozen, nothing pinned, the sigil repo untouched**):
+so it could come back **no**. Measured against **v2, the shipped shape** — the four canonical
+shapes via `./build.sh`, and the three off-canonical sigil profiles built at `fe87bb7b` and at
+this parcel's HEAD (builds only; **nothing frozen, nothing pinned, the sigil repo untouched**):
 
-| target | before | after | predicted | actual |
+| target | baseline | **v2 shipped** | predicted | actual |
 |---|---|---|---|---|
 | `s4_debug` | `fee02557` | `ac752821` | MOVES | **MOVES** ✓ |
 | `config_a` | `a1f48e8f` | `827fe50a` | MOVES | **MOVES** ✓ |
-| `s4` | `0261de2b` | `72251171` | unchanged | **MOVED** ✗ |
-| `config_b` | `93c63d25` | `4cedfeeb` | unchanged | **MOVED** ✗ |
-| `lean` | `3a307f1f` | `0d930a0d` | unchanged | **MOVED** ✗ |
-| `demo` | `3415e3ef` | `3415e3ef` | unchanged | unchanged ✓ |
-| `demo_debug` | `7599953e` | `7599953e` | unchanged | unchanged ✓ |
+| `lean` | `3a307f1f` | `3a307f1f` | unchanged | **unchanged** ✓ |
+| `demo` | `3415e3ef` | `3415e3ef` | unchanged | **unchanged** ✓ |
+| `demo_debug` | `7599953e` | `7599953e` | unchanged | **unchanged** ✓ |
+| `s4` | `0261de2b` | `a2acd485` | unchanged | **moved — appendix only** ✗ |
+| `config_b` | `93c63d25` | `117b5347` | unchanged | **moved — appendix only** ✗ |
 
-**The premise it named is falsified, and cleanly.** The prediction's stated premise was "the
-band is authored into the DEBUG-gated effects scene cycle, so only debug-family shapes should
-carry its bytes." **Both halves are wrong, for one reason each:** the band could not be
-authored into the scene cycle at all (§16.1 — a scene is a `parallax_config` and carries no
-raster program), and the band program is **content**, emitted unconditionally, so every
-sonic4-rooted shape carries it. Only the *installer* is DEBUG-gated. The whole plain family
-moved together, which is the coherent signature of content rather than of a leak.
+**`lean` IS THE CONTROL THAT PROVES §16.4a, and nobody designed it to be.** It is the one
+profile that ships **without** the MD Debugger island and its deb2 symbol table
+(`CLAUDE.md`: *"The one shape without the debugger is the opt-in LEAN profile"*). It is also
+the **only** sonic4-rooted shape that came back **byte-identical**. A payload leaking into
+plain-family builds would have moved `lean` too; an appendix-only difference cannot. That is
+an independent confirmation of the byte-diff in §16.4a, from a direction the diff could not
+see.
 
-**This is not a leak, and the freeze should not read it as one.** The literal falsifier as
-written — "`config_b` or `lean` move while plain `s4` does not" — did **not** occur: plain
-`s4` moved too. Nothing reached a plain-family build through an unintended path; the data was
-authored into a plain-family path deliberately, and §16.2 says why.
+**Scoring it honestly against v1 as well.** The prediction was originally answered at **4 of
+7** against the ungated v1, where the payload really did reach all five sonic4-rooted shapes.
+The §16.2a gate moved `lean` from *moved* to *unchanged* and reduced `s4` and `config_b` to
+appendix-only. **The prediction did not become more true because it was re-scored — the
+parcel changed, for the dormant-scaffold reason in §16.2a and for no other.** The v1 table is
+kept below precisely so the change is auditable rather than quietly improved:
 
-**`lean` is the case the prediction's own control flagged:** 674830 bytes **before and after**,
-different CRCs — byte-count-neutral, catchable only by a content compare. The prediction named
-exactly this hazard (citing the ring-fix freeze, chain 176) and it is what happened here.
+| target | baseline | v1 (ungated) | v2 (gated, shipped) |
+|---|---|---|---|
+| `s4` | `0261de2b` | `72251171` (+14 B) | `a2acd485` (same length as baseline) |
+| `config_b` | `93c63d25` | `4cedfeeb` (+126 B) | `117b5347` (+2 B) |
+| `lean` | `3a307f1f` | `0d930a0d` (+0 B, different bytes) | `3a307f1f` (**identical**) |
+| `config_a` | `a1f48e8f` | `827fe50a` | `827fe50a` (**unchanged by the gate**) |
+| `s4_debug` | `fee02557` | `ac752821` | `ac752821` (**unchanged by the gate**) |
 
-**The file-size deltas are SMALLER than the emitted content and this parcel did not decompose
-them.** They also differ per profile (`s4` +14, `s4_debug` +142, `config_a` +142, `config_b`
-+126, `lean` +0-with-different-bytes) for the same 110 bytes of program, which is the clearest
-evidence that a file delta here is a layout artefact and not a content measurement.
+**The two debug-family shapes are byte-identical across the gate**, which is the gate proving
+itself a no-op where it should be one, measured in two profiles rather than argued.
 
-`OJZ_BandDemo` is 55 words = 110 bytes and appears in every sonic4-rooted shape; the DEBUG
-hotkey adds ~56 bytes of code to the debug-family shapes only. Stated as a measurement and not
-explained: a ROM's end address is set by layout that includes padding and the deb2 appendix, so
-a file delta is not a content delta, and working out which slack absorbed what in each of five
-profiles was not needed for any claim this parcel makes. **What IS verified** is that the plain
-shape emits the program (`OJZ_BandDemo` at `$131CE` in `s4.lst`) and emits **zero** bytes for
-the hotkey — in the release listing `Debug_BandDemoHotkey`, `Debug_CharacterHotkey`,
-`Debug_SceneCycleHotkey` and `Debug_Warp_Consume` all resolve to the same address (`$A45E8`),
-which is the zero-release-byte run this proc was deliberately parked in.
+**The premise the prediction named was still wrong, and that stands.** It read: *"the band is
+authored into the DEBUG-gated effects scene cycle, so only debug-family shapes should carry
+its bytes."* The band could not be authored into the scene cycle at all (§16.1), and a
+DEBUG-gated trigger does not imply a DEBUG-gated payload (§16.2a) — which is exactly the
+defect v1 shipped and v2 fixes. The prediction's *conclusion* is now nearly right; its
+*reasoning* named a mechanism that does not exist, and the first version of this parcel is
+the evidence that the gap between them is real.
+
+**And the falsifier as literally written still did not fire.** It read "if `config_b` or
+`lean` move while plain `s4` does not". In v1 all three moved together; in v2 `s4` and
+`config_b` move together and `lean` does not. Neither is the asymmetric signature it was
+watching for, and in both versions the honest reading is the same: no payload reached a
+plain-family build by an unintended path.
 
 ### 16.5 What this parcel's green rules out, and what it does not
 
