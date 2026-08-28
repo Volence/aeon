@@ -736,7 +736,53 @@ pub proc GameState_OJZScroll_Update () clobbers(d0-d7/a0-a6) {
 
         // -- collision detection --
         jbsr    TouchResponse
+
+        // -- DEBUG-FLY RING GATE. In free flight the player is a camera, not a
+        //    character: he passes through terrain and is exempt from the state
+        //    machine, so flying across a ring must not bank it (and, worse,
+        //    permanently mark it collected in Ring_Collected_Window — the ring
+        //    does not come back when you leave debug mode).
+        //
+        //    WHY HERE AND NOT IN Player_Main. Player_Main's escape hatch
+        //    (`tst.b PlayerV.debug_flag(a0); bne Player_DebugMove`) suspends the
+        //    player's OWN physics, state dispatch and display tail — everything
+        //    reached THROUGH the player object. Ring collection is not one of
+        //    those things: RingCollision is a level-state pass that walks the ring
+        //    buffer and reads the player slots from the outside, so it runs no
+        //    matter what the player object does with its own frame. The hatch
+        //    cannot suppress a caller it is not called from; the suppression has
+        //    to happen at the call.
+        //
+        //    WHY HERE AND NOT INSIDE RingCollision. debug-fly is a SONIC 4
+        //    concept: `debug_flag` is a byte in games/sonic4's PlayerV overlay of
+        //    the SST custom window, and the engine has no name for it and must not
+        //    grow one (ENGINE_ARCHITECTURE, "Engine/game contract" — the seam is
+        //    the typed Game interface, and there is no hook here that could carry
+        //    it: Game.ring_collected fires AFTER the collect is already banked, so
+        //    it is a visual hook, not a veto). The engine offers the ring pass as
+        //    a service; deciding when this game wants it run is the game's call,
+        //    exactly like the Debug_Scene_Freeze skips above.
+        //
+        //    NOT `if DEBUG == 1`. Debug-fly is a runtime CHEAT, not build-time
+        //    debug equipment (player_common.emp's Player_Main gate: the payload
+        //    ships in every shape behind CHEAT_DEBUG_FLY in Cheat_Flags). A
+        //    build-time gate would leave the bug live in exactly the shape where
+        //    a cheat code arms the bit. These four instructions are release code.
+        //
+        //    ONE SLOT IS THE WHOLE ANSWER HERE, and that is derived, not assumed:
+        //    RingCollision loops NUM_PLAYERS slots but skips any with code_addr
+        //    == 0, and this state spawns the leader only (Player_1 — the same
+        //    single-slot fact Debug_CharacterHotkey's `lea Player_1, a0` rests
+        //    on). So testing the leader is exactly a per-player gate today. The
+        //    day this state spawns Player_2, this becomes too broad: P1 flying
+        //    would stop P2 collecting, and the gate then has to move inside the
+        //    engine loop behind a generic per-SST "does not pick up" status bit
+        //    the game sets. Booked in DEFERRED_WORK. --
+        lea     Player_1, a0
+        tst.b   PlayerV.debug_flag(a0)
+        bne     .skip_rings
         jbsr    RingCollision
+    .skip_rings:
 
         // -- build sprite table from priority bands + ring sprites.
         //    (Render_Sprites manages Sprite_Table_Dirty itself, including the
@@ -898,8 +944,11 @@ pub proc GameState_OJZScroll_Update () clobbers(d0-d7/a0-a6) {
 //
 // WHY A IS FREE — AND ONLY IN DEBUG MODE. Player_Main's debug escape hatch
 // (`tst.b PlayerV.debug_flag(a0); bne Player_DebugMove`) sits BEFORE the jump
-// latch, the physics, the state dispatch and the rings, so while debug_flag is
-// set none of those ever see the pad. What does run is Player_DebugMove, and it
+// latch, the physics and the state dispatch, so while debug_flag is set none of
+// those ever see the pad. (It does NOT reach ring collection — this comment used
+// to claim it did, and that claim is what let debug-fly bank rings for as long as
+// it did. RingCollision is a level-state pass; its gate is at its call site in
+// GameState_OJZScroll_Update.) What does run is Player_DebugMove, and it
 // reads Ctrl_1_Held and tests LEFT/RIGHT/UP/DOWN only — A and C do nothing
 // whatsoever in free flight. That is the whole safety argument, and it is why
 // the gate is on debug_flag rather than on some free button: outside debug mode
