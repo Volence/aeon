@@ -12018,3 +12018,58 @@ or a `System` bincode layout change), and `tools/test_state_ram.py` gates it in 
 `s4.debug.bin` (2026-08-27 18:11), the save state, and the editor/generated trees that share
 its timestamp. A foreground session can settle the one thing static analysis cannot: whether
 the drop the owner saw was one of the 12 edge positions, or a fourth mechanism this missed.
+
+---
+
+## PARALLAX-SCROLL-CLAMP — nothing clamps the scroll, so bad numbers wrap silently (booked 2026-08-28)
+
+Named in the d-31 card's detail as *"SEPARATE and worth doing regardless of this choice"*, and the
+hub confirmed under delegation 2026-08-28 that it is wanted whichever way d-31 goes. **It was not
+booked anywhere until now — I checked rather than assumed.**
+
+Nothing clamps the parallax scroll, so a scene whose numbers go out of range **wraps silently with
+no signal**. A clamp would make a bad number present as the background *sticking* — visible,
+attributable, and obviously wrong — rather than tearing, which reads as a rendering bug in some
+other subsystem.
+
+Note the class this belongs to: it is the same absence-surface family this file keeps recording.
+A wrap produces a *plausible picture*, so there is no artifact to be suspicious of; the failure is
+silent and the author's natural conclusion is that something else is broken. The clamp's value is
+not correctness (the wrap is arithmetically fine) but **making a wrong input legible at the point
+it is wrong**.
+
+Independent of the d-31 v_factor ruling; do not sequence behind it.
+
+## GATE-VACUITY — a "transitions cover every differing cell" gate can pass because the feature is UNUSED (booked 2026-08-28)
+
+**Aurora's finding, relayed by them 2026-08-28 and banked here because it arrived in MAIL and no
+tree of ours would ever have surfaced it** (shared-protocol bar 20). Not verified firsthand here —
+it is reasoning about a gate that does not exist yet, and the measurement it rests on is our own.
+
+The loops research (`docs/research/loops-and-sprite-rotation.md`) proposes a build-time assertion
+for Route P: *"every cell where plane A and plane B differ is reachable from a transition"*. Aurora
+points out it **can pass vacuously on today's content**, and the reason is our own measurement:
+section 0 has **644 cells solid on A and air on B, and ZERO the other way**, with no cell anywhere
+in OJZ where plane B provides a surface plane A does not. So there may be very few cells that
+differ *in the direction the gate is about*.
+
+**A gate that is green because the feature is unused is indistinguishable from a gate that is green
+because the content is correct.** This repo's oldest failure mode, arriving before the gate is even
+written — which is the cheapest possible moment to catch it.
+
+Binding on whoever builds it: **state what a green result actually ruled out**, and **plant a
+malformed loop and prove the gate fires on it** before trusting a green. A pass count is not a
+witness; the poison is.
+
+Related, same parcel: Aurora's warning that **bits which survive a round trip are not the same as
+bits a tool preserves**. Route P's "no format change" argument rests on cell-word bits 15:14 being
+free and already travelling end to end — one source (the research agent's), re-derived but not
+verified independently. Their own tree carried the exact defect this month: a nametable word whose
+flip/priority bits round-tripped through load, copy, paste and save while being destroyed by an
+ordinary paint gesture, invisible because nothing rendered the bit. The precondition for anyone
+writing to those bits is a red-first test that sets them on a real cell and asserts survival across
+**every gesture that touches a collision cell** — paint, marquee copy, paste, undo — not a
+load/save round trip, which is the cheap test that proves less. Aurora is measuring the gesture
+classes that truncate on their own field and will send the list; it is the part nobody guesses
+correctly from first principles. **If that test fails, Route P needs a different field and the
+"no format change" argument dies with it** — worth knowing while it is still a proposal.
