@@ -6473,6 +6473,19 @@ before the guard set generalizes past `restore_n == 1`. Until that representatio
 the equal-span-partner guard is single-restore by construction, and adding a second band is
 a refusal, not a silent bug.
 
+**DESIGNED 2026-08-28 — `docs/superpowers/specs/2026-08-28-raster-band-ownership-design.md`
+(r1, UNSWEPT, nothing built).** The design lands an explicit pairing rather than an inference:
+a band id derived as `top * 128 + start_addr`, carried as a comptime-only payload field on the
+CRAM-span op variants (on the OP, not the fire — `compose` rebuilds fires and would drop a
+fire-level mark, its own note at `raster_dsl.emp:484-488`), and a per-CRAM-entry ownership walk
+(`holds_base`, `open`) replacing C-A's span-equality inference. **One correction to the
+sentence above:** the equal-span-partner guard is single-restore because the pairing was
+INFERRED, not because span equality is inherently singular — with the pairing declared, N bands
+is `restore_n <= 1` deleted and nothing else, zero ROM and zero runtime (design §8, parcels
+P1/P2a). N is capped at FOUR by the 64-word program buffer, not by the HInt budget (§7.1).
+The design's own open item: CLAIM 9 (`op_work_cyc == 64`) is still UNVERIFIED at `5b09649c` and
+every band-height minimum rides it — measure before a second band's minima freeze.
+
 ## R1 booking: moving bands (patchable ON and/or OFF edges)
 
 Both directions are explicitly refused by rule 6 (CLAIM E-A, spec §4.2): a band's ON fire
@@ -6495,6 +6508,36 @@ recording path that drops a record outside its authored band each VBlank) is the
 analysis record the design inherits — any relaxation of rule 6 must re-derive why a suppressed
 partner or a suppressed restore can no longer desync silently, not merely re-permit the
 spelling.
+
+**DESIGNED 2026-08-28 — `docs/superpowers/specs/2026-08-28-raster-band-ownership-design.md`
+(r1, UNSWEPT, nothing built).** Two corrections to the text above, both from reading the
+shipped source at `5b09649c`:
+
+1. **The `.suppress` line number has moved.** The path is `engine/effects/raster.emp:1673`
+   (`bgt .suppress`, inside `Raster_BuildSchedule`) with the arm itself at `:1721`; the 2026-08-19
+   priming-interlock insertion shifted the old `~1083`. `:1083` at this revision is inside the
+   `.priming` frame-rewind-interlock comment in `Raster_HInt` — a different thing entirely, and
+   a citation nobody will resolve by hand.
+2. **The two directions are NOT symmetric and should not be re-opened together.** R1 v6 §4.2
+   already classifies a suppressed ON as *benign, base-over-base*; the measured failure was the
+   suppressed RESTORE. So rule 6 half 2 (patchable *partner*) is a PRECAUTIONARY refusal, and
+   the design ships it as its own parcel (P2b): **moving-top with a static bottom needs no
+   runtime change at all** — only the ownership walk plus `check_intervals` already proving the
+   ON's `band_hi` sits above the static restore's line.
+
+The design's answer to the `.suppress` requirement is that suppression becomes a property of the
+BAND, not of a record: a rigid group's members are driven from ONE latched anchor by constant
+biases, so `clamp(x+H, lo+H, hi+H) == clamp(x, lo, hi) + H` exactly, the members are always
+exactly H lines apart, and both edges' suppress predicates are the SAME predicate on the SAME
+input. Under the recommended `CLAMP` policy no member is ever suppressed; under `PAIR` all are,
+together. **Sweep 5's failure mode is arithmetically unreachable rather than guarded against**
+(design §4.3, claims SUP-1/LOCK-1). Costs: +2 bytes per patch-table record, ~+8 NOMINAL cycles
+per patchable record per VBlank (unmeasured — the design names the profiler row to read), zero
+RAM, one anchor channel per moving band (not one per edge). Requires a NAMED relaxation of
+`check_intervals` (INT-1, envelope test for a rigid group only) which the design discharges
+against a new named invariant ORD-1 rather than by weakening the guard — without it a moving
+band must be TALLER than its travel range, which for OJZ channel 0's `3..120` band is
+impossible.
 
 ## Effects tail Part A — runtime patchable-overlap resolution (BANKED 2026-08-17, owner ruling: demand-pull)
 
