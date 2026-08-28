@@ -1,12 +1,17 @@
 # Raster palette bands — ENTRY OWNERSHIP. Design draft r1.
 
 **Date:** 2026-08-28
-**Status:** **PARCELS P1 AND P2a LANDED 2026-08-28** (branches `parcel/band-ownership-p1`,
-`parcel/band-ownership-p2a`) — see §14 and §15. **N BANDS IS SHIPPED**, capped at three by
-the program buffer. P2b / P3 remain design-only. The r1 body below is unedited except where
-§14 and §15 supersede it; read those two first for what is now source rather than plan —
-between them they carry five corrections to this document, including a hole in §3.2's own
-rule table (§14.2a) and a wrong claim about which guards CLAIM 9 gates (§15.2).
+**Status:** **PARCELS P1, P2a AND THE FIRST CONSUMER LANDED 2026-08-28** (branches
+`parcel/band-ownership-p1`, `parcel/band-ownership-p2a`, `parcel/band-first-consumer`) —
+see §14, §15 and §16. **N BANDS IS SHIPPED AND NOW EXERCISED**: `OJZ_BandDemo` (three bands)
+is emitted content in both canonical shapes, so the ownership walks run on a real program on
+every build. The cap is three, from the program buffer. P2b / P3 remain design-only. The r1
+body below is unedited except where §14, §15 and §16 supersede it; read those three first for
+what is now source rather than plan — between them they carry six corrections to this
+document, including a hole in §3.2's own rule table (§14.2a), a wrong claim about which
+guards CLAIM 9 gates (§15.2), and — new in §16 — a **wrong assumption about where a band
+can be put on screen**, which §16.1 documents because it is the one thing a reader of this
+document would otherwise get wrong twice.
 **Closes (as a design):** `docs/DEFERRED_WORK.md` "R1 booking: N bands (more than one restore
 per program)" and "R1 booking: moving bands (patchable ON and/or OFF edges)". Both bookings
 name the same blocker and this document treats them as one.
@@ -988,6 +993,14 @@ group suppression). None is in P1's scope; all three need runtime that does not 
 
 ### 14.5 THE TREE SHIPS ZERO BANDS — say this out loud
 
+> **SUPERSEDED 2026-08-28 by §16 (parcel `parcel/band-first-consumer`).** This section is now
+> a historical statement about the tree between P1 and the first consumer. `OJZ_BandDemo`
+> — three bands — is shipped content in both canonical shapes, so the ownership walks run on
+> a real program on every build. The paragraph below is left unedited because §16's whole
+> claim is measured against it. What survives verbatim is the last bullet's *shape*: the
+> first band was indeed the first time the walk ran on shipped content, and §16 is that
+> event.
+
 Measured at this revision: `band()` and `pal_restore` appear **only** in poison fixtures and
 in `raster_dsl.emp`'s own pins. The three shipped sparse programs (`OJZ_TestRaster`,
 `OJZ_WaterRaster`, `OJZ_TestVsram`) contain no restore op. So:
@@ -1180,7 +1193,19 @@ and — per §14.5 — the tree ships no band for the deleted count to have been
 is 0 in every shipped program, so the deleted `ensure` was never going to fire and the widened
 gate was never going to be entered.
 
+> **Read as history after §16 (2026-08-28).** The reasoning above was correct at P2a and is
+> what made P2a's zero-byte result unsurprising. It stopped describing the tree the moment
+> `OJZ_BandDemo` landed: `restore_n` is 3 in that program, the widened gate IS entered on
+> every build, and the parcel that authored it moved ROM bytes — see §16.4 for which shapes
+> and by how much.
+
 ### 15.7 THE VACUITY, NARROWED AND STILL OPEN
+
+> **SUPERSEDED 2026-08-28 by §16 (parcel `parcel/band-first-consumer`).** The first paragraph
+> below and the "Nothing about content" bullet are the two statements that parcel exists to
+> falsify, and both are now false: the tree ships `OJZ_BandDemo`. **The second bullet
+> ("Nothing at runtime") is NOT superseded and stands unchanged** — §16 adds a build-time
+> decode of the emitted schedule, which is a stronger comptime claim, not a runtime one.
 
 §14.5 said the tree ships **zero bands**. **That is still true after P2a.** `band()` and
 `pal_restore` appear only in poison fixtures and in `raster_dsl.emp`'s own pins; no OJZ scene
@@ -1221,3 +1246,236 @@ matters most, because P2a is what makes a second restore expressible), and measu
 tools/effects_gates.py --rom s4.debug.bin --lst s4.debug.lst` — is owed before merge by the
 owner ruling of 2026-08-18, since this parcel touches `engine/effects/*`; it boots a headless
 emulator per gate and so could not be run from this lane.
+
+---
+
+## 16. PARCEL `parcel/band-first-consumer` — THE FIRST BAND IN THE TREE (2026-08-28)
+
+**Branch:** `parcel/band-first-consumer` (off `fe87bb7b`).
+**What it is:** the parcel §14.5 and §15.7 both asked for by name. P1 made multi-band
+ownership correct, P2a lifted the one-band limit, and **both were zero-byte, because there was
+no band in the tree for either to act on**. This one authors the band.
+
+**Supersedes:** §14.5 in full; §15.6's zero-byte reasoning (as history); §15.7's first
+paragraph and its "Nothing about content" bullet. §15.7's "Nothing at runtime" bullet and
+§15.8's list of owed measurements are **NOT** superseded — see §16.5.
+
+### 16.1 THE CORRECTION THIS PARCEL OWES THE DOCUMENT: where a band can be put
+
+The parcel was dispatched to add the band as **a new entry in the DEBUG effects-lab scene
+cycle** — the twenty-name list `Debug_Scene_Index` drives. **That is not possible, and the
+reason is a fact about this engine that nothing in §1-§15 states.**
+
+**A scene IS a `parallax_config`. It is not an effects bundle.** The palette, the palette
+cycle, the variants and *the raster program* are channels of an `EffectsPreset`, and an
+`EffectsPreset` is bound **per SECTION**, never per scene. `Debug_SceneCycleHotkey`
+(`games/sonic4/test/ojz_scroll_test.emp`) says so in its own header, deliberately:
+
+> PALETTE AND RASTER ARE NOT TOUCHED, and that is correct rather than a shortcut: a scene IS
+> a parallax_config. Palette, cycle, variants and the raster program are the EffectsPreset's
+> channels, bound per SECTION, not per scene. Cycling scenes must not repaint the act.
+
+So the three candidate placements, and why each of the first three is wrong:
+
+1. **A twenty-first row in `.scene_table`** — would add a parallax config and display **no
+   band at all**. It also drags `SCENE_CYCLE_COUNT`, the `assert.w` range check and
+   `tools/test_scene_cycle_table_lint.py` along with it, for a row that cannot show the thing.
+2. **Driving the raster channel off `Debug_Scene_Index`** — would give all twenty existing
+   scenes a raster side effect they do not have today. The scenes are what the owner is
+   *already* evaluating; a review tool that changes its own subjects is worse than no tool.
+3. **Binding `OJZ_BandDemo` to a section preset** — puts it in the default boot, which the
+   dispatch forbade. It is *also* independently impossible for section 0: **CLAIM 6** refuses
+   a band in any program carrying an `offscreen_ship` fire, and section 0 is `OJZ_TwoChannel`.
+
+**What shipped is (4): a second chord on the same modifier.** `Debug_BandDemoHotkey`, polled
+beside the scene cycle, both inside `if DEBUG == 1 {}`:
+
+```
+START held + UP   pressed  ->  Raster_Install(OJZ_BandDemo)        bands ON
+START held + DOWN pressed  ->  Raster_Install(Raster_Program_None) bands OFF
+```
+
+The two chords are independent by construction — scene cycling never touches raster, this
+never touches parallax — and `START + UP/DOWN` was free (the scene cycle's own enumeration
+found START to be the only unclaimed bit on a 3-button pad and spends only its LEFT/RIGHT
+pair). **The default boot is untouched**: nothing runs unless the chord is pressed, and the
+override expires at the next section crossing exactly as the scene cycle's does.
+
+**The lesson for the next reader of this document:** "put a band in a scene" is not a thing
+you can do. A band lives in a raster program; a raster program is a preset channel; a preset
+is section-scoped. Anything else is a debug install.
+
+### 16.2 What was authored
+
+`OJZ_BandDemo`, in `games/sonic4/data/effects/ojz_effects.emp` — **three** bands, which is the
+shipped cap and therefore the strongest available exercise of what P2a unlocked:
+
+| band | screen lines (inclusive) | `band(top, bot, …)` | CRAM | colour |
+|---|---|---|---|---|
+| 1 | 120..147 | `band(120, 148, …, 0)` | `$4A` | `$0224` (shade) |
+| 2 | 156..183 | `band(156, 184, …, 0)` | `$4A` | `$048C` (lit) |
+| 3 | 192..219 | `band(192, 220, …, 0)` | `$4A` | `$06AE` (sun) |
+
+- **One CRAM entry, three bands, vertically disjoint** — the §10 rule-4 shape ("two bands may
+  share colours only if they do not overlap vertically"), and the same admission
+  `zz_sequential` proves, extended to three. All three `band()` calls are `sh: 0` and static:
+  rule 6 (both halves) is still in force and P2b is unbuilt.
+- **`$4A` is not a new fact.** It is `OJZ_TEST_CRAM_ADDR`, reused rather than respelled — the
+  address `OJZ_TestRaster` already measured as OJZ's single most-used ground colour (~54% of
+  lower-screen pixels) and already pinned against `vdp_comm`'s encoding.
+- **The colours are the act's own ground ramp** (`ojz_palette.bin` CRAM line 2 entries 3..7:
+  `$0224 $0248 $026A $048C $06AE`), with the banded entry 5 (`$026A`) as its midpoint. Read
+  top to bottom the ground goes shade → base → lit → base → sun. A pure-red band would be
+  easier to measure and would look like exactly what §15.7 warned against.
+- **The 8-line seams are load-bearing, not styling.** Contiguous bands put a restore and an ON
+  op on one fire line, which `check_landings` refuses ("two bursts in one fire span at least
+  116 cycles against a 122.9-cycle window"). Measured while proving the pins red: collapsing a
+  seam makes `compose` **merge** the two records, 6 fires becoming 5. The seams double as the
+  negative control that lives *inside* the effect.
+
+**It emits in both canonical shapes on purpose.** Only the installing hotkey is shape-gated.
+Gating the data too would mean the release shape compiled a different set of band guards from
+the DEBUG shape, which is the opposite of what a first consumer is for.
+
+### 16.3 The pins, and the one that is new in kind
+
+Five `ensure`s in `ojz_effects.emp`, all build-fatal in every shape. **Every one was proven red
+by perturbing the source and restored byte-exactly (md5 before == md5 after).**
+
+| pin | claim | proven red by | diagnostic |
+|---|---|---|---|
+| seam | the two seams are 8 lines | band 2 top 156 → 148 | "the two seams are 0 and 8 lines, not the 8 …" |
+| 1 | three `sh:0` bands compose to 6 fires | delete the third band | "composed to 4 fires, not the 6 …" |
+| 2 | 55 words, derived from `op_size` | delete the third band | "raster_words says 39 … where op_size gives 7 + 3 × (2+6, 2+6) = 55" |
+| 3 | encoder length == sizer length | (structural; rides 1/2) | — |
+| 4 | `pal_dirty_mask` names line 2 only | band 3 → CRAM `$6A` | "pal_dirty_mask is 12, not the 4 that CRAM byte 74 … requires" |
+| **5** | **the emitted schedule lands on the six authored lines** | 3 independent perturbations | "band 1 turns ON at emitted screen line 121, not the authored 120" |
+
+**PIN 5 is the new kind, and it is the only pin here that checks the property the owner will
+be looking at.** Pins 1-4 measure size and shape; a program can be exactly 55 words with a
+correct dirty mask and six fires while walking the beam to the wrong six rows. The runtime
+never reads a screen line — `Raster_HInt` publishes each record's arm word into VDP reg `$0A`
+and the next interrupt arrives that many lines later — so the absolute rows are an *emergent
+property of the whole relative chain*. PIN 5 decodes the emitted arm bytes and reconstructs
+them:
+
+```
+line[0] = 0, line[1] = 1                       (VBlank leaves reg $0A = 0)
+line[k+2] = line[k+1] + (arm[k] & $FF) + 1     (record k arms the gap k+1 -> k+2)
+effect lands on line[k] + 1
+```
+
+Emitted, and decoded from `s4.debug.bin`: arms `117, 27, 7, 27, 7, 27, 255, 255` give fires at
+`119, 147, 155, 183, 191, 219` and effects at **120, 148, 156, 184, 192, 220** — the six
+authored constants. The three perturbations that proved it live: shifting the decode origin
+(→ "121, not 120"), shrinking the record stride 8 → 7 (→ the stride `ensure` fires first,
+naming `op_size`), and pointing one arm index at the wrong record (→ "band 2 restores at 164,
+not 184"). **No spin was authored or adjusted anywhere in this parcel** — the emitted spins
+(22 on each ON op, 14 on each restore) are the solver's, read back, never written.
+
+### 16.4 Bytes
+
+Measured under `SIGIL_BUILD` md5 `85ba502f096773780cbbac17b5d77890`, four full `./build.sh`
+runs before and four after (never `FAST=1`):
+
+| artifact | before | after | bytes | moved |
+|---|---|---|---|---|
+| `s4.bin` | `0261de2b` | `72251171` | 719029 → 719043 (+14) | **yes** |
+| `s4.debug.bin` | `fee02557` | `ac752821` | 735500 → 735642 (+142) | **yes** |
+| `demo.bin` | `3415e3ef` | `3415e3ef` | 96372 (unchanged) | no |
+| `demo.debug.bin` | `7599953e` | `7599953e` | 101113 (unchanged) | no |
+
+The dispatch expected the plain shape might not move. It does, and §16.2 says why: the band
+program is **content**, emitted unconditionally like every other program in `ojz_effects.emp`;
+only the installing hotkey is `DEBUG`-gated. Gating the data too would have compiled a
+different set of band guards into the two shapes. Both demo shapes are byte-identical, as
+predicted before measuring — `games/demo` links no sonic4 module.
+
+**The file-size deltas are SMALLER than the emitted content and this parcel did not decompose
+them.** `OJZ_BandDemo` is 55 words = 110 bytes and appears in both sonic4 shapes; the DEBUG
+hotkey adds ~56 bytes of code to `s4.debug.bin` only. The files grew 14 and 142. Stated as a
+measurement and not explained: the ROM's end address is set by layout that includes padding
+and the deb2 appendix, so a file delta is not a content delta, and working out which slack
+absorbed what was not needed for this parcel's claims. **What IS verified** is that the plain
+shape emits the program (`OJZ_BandDemo` at `$131CE` in `s4.lst`) and emits **zero** bytes for
+the hotkey — in the release listing `Debug_BandDemoHotkey`, `Debug_CharacterHotkey`,
+`Debug_SceneCycleHotkey` and `Debug_Warp_Consume` all resolve to the same address (`$A45E8`),
+which is the zero-release-byte run this proc was deliberately parked in.
+
+### 16.5 What this parcel's green rules out, and what it does not
+
+**Rules out:**
+
+- that the ownership walks are vacuous on the tree. They are not, any more:
+  `check_band_pairing` and `check_band_ownership` run over a real three-band program on every
+  build of every shape. §14.5's "the first real band anyone authors is the first time this
+  walk runs on shipped content" is now a past event.
+- that three bands is admitted but unbuildable as content — 55 words, at the cap, through the
+  real build profile, in both canonical shapes.
+- that the emitted HInt schedule might not land on the authored lines. PIN 5 decodes it.
+- that the guards would refuse a legal sequential three-band program over one CRAM entry.
+
+**Does NOT rule out — and this is the honest limit:**
+
+- **Nothing about pixels.** No emulator ran in this parcel (standing invariant). Nobody has
+  seen a band. PIN 5 proves what the VDP will be *told*, not what the beam draws: it cannot
+  see a solved spin that misses the blanking window, a CRAM write that lands a line late, the
+  restore failing to put the base colour back, or the bands being invisible because the ground
+  art is not on those rows in the camera state the owner happens to be in.
+- **§15.7's "Nothing at runtime" bullet stands in full.** §7.5 measurement 2 — a second
+  restore's pixel landing — is still untaken, and it is now *more* pointed, not less: this
+  program has three restores.
+- **Nothing about the hotkey working.** `Debug_BandDemoHotkey` is code that builds. Whether
+  the chord fires, whether `Raster_Install` is reached, and whether the override behaves at a
+  section crossing are all runtime claims and all untested.
+- **Nothing about the interaction with section 0's patched program.** The argument that a
+  static install cleanly evicts a patched one is read off `Raster_VBlank`'s `.copy_program`
+  arm (it clears `Raster_Patch_Tab` and `Effects_Offscreen_Entry` before repointing
+  `Raster_Active_Buf`). That is an argument, not a capture.
+
+### 16.6 Runtime TAGs — the capture this parcel owes and could not take
+
+Written to be executed without interpretation. All against **`s4.debug.bin`**, and **verify
+`romBytes` against the file on disk before believing any measurement** (a stale shim serves a
+previous freeze under a correct-looking `romPath`).
+
+**Symbols** (this build): `OJZ_BandDemo` ROM `$13A22` · `Raster_Program_None` ROM `$8026` ·
+`Raster_Pending` `$FFFF8AD0` · `Raster_Program` `$FFFF8AC8` · `Ctrl_1_Held` `$FFFF8028` ·
+`Input_Source` `$FFFF8036`.
+
+**TAG A — the primary witness: CRAM entry `$4A` by scanline.**
+Boot, install the bands (chord `START`+`UP`, or write `$00013A22` to `Raster_Pending` and run
+one frame if the press path wedges), then sample CRAM byte `$4A` (palette line 2, entry 5) at
+each scanline:
+
+| scanline | expect | why |
+|---|---|---|
+| 100 | `$026A` | above every band — negative control |
+| 119 | `$026A` | last line before band 1 — **edge** |
+| 120 | `$0224` | first line of band 1 — **edge** |
+| 130 | `$0224` | inside band 1 |
+| 147 | `$0224` | last line of band 1 — **edge** |
+| 148 | `$026A` | restore — **edge**, and the seam |
+| 152 | `$026A` | inside seam 1 — interior negative control |
+| 170 | `$048C` | inside band 2 |
+| 188 | `$026A` | inside seam 2 — interior negative control |
+| 200 | `$06AE` | inside band 3 |
+| 222 | `$026A` | below band 3, after the restore at 220 |
+
+**THE VACUITY CHECK, RUN IT FIRST:** if scanlines 130, 170 and 200 all read the *same* value,
+the CRAM instrument is frame-latched and cannot see mid-frame state — in which case TAG A
+measures nothing and must be reported as UNMEASURABLE, not as green. The discriminator is
+those three reading three different values.
+
+**TAG B — pixel capture, the fallback and the real proof.** `emulator_scanlines` over rows
+100..223 with the bands installed. Ground pixels drawn from palette-2 entry 5 must differ
+between rows 130 / 170 / 200 and match between 152 / 188 / 222. Capture the same rows with
+the bands OFF (`START`+`DOWN`) as the A/B.
+
+**TAG C — the hotkey itself.** Before the chord, `Raster_Program` holds the current section's
+program; after `START`+`UP` and one frame it must read `$00013A22`; after `START`+`DOWN` it
+must read `$00008026` (`Raster_Program_None`) — and `Raster_VBlank`'s empty-program arm should
+then have cleared `Raster_Program` to 0 and uninstalled the HBlank handler on the frame after.
+
+**TAG D — the standing ritual.** `python3 tools/effects_gates.py --rom <abs>/s4.debug.bin
+--lst <abs>/s4.debug.lst`, absolute paths, before merge.

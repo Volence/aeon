@@ -635,6 +635,22 @@ pub proc GameState_OJZScroll_Update () clobbers(d0-d7/a0-a6) {
                 jbsr    Debug_SceneCycleHotkey
         }
 
+        // -- DEBUG effects-lab RASTER tier (START held + UP/DOWN pressed): install or
+        //    remove OJZ_BandDemo, the tree's first palette-band program. Polled beside
+        //    the scene cycle because it is the same modifier and the same review
+        //    session; independent of it because a scene is a parallax config and the
+        //    raster program is a preset channel (see Debug_BandDemoHotkey's header).
+        //    Ordering is not load-bearing against the scene cycle — the two write
+        //    disjoint state (Parallax_Active_Config vs. Raster_Pending) — but it IS
+        //    load-bearing against Parallax_CheckBoundary later in the frame, exactly as
+        //    the scene cycle's is: staged here, the install is consumed by the next
+        //    Raster_VBlank, so a boundary crossing in the same frame re-decides the
+        //    channel through Effects_InstallPreset and the override ends where it is
+        //    documented to end. Emits nothing in the plain shape. --
+        if DEBUG == 1 {
+                jbsr    Debug_BandDemoHotkey
+        }
+
         // -- initialize sprite system for this frame --
         jbsr    InitSpriteSystem
 
@@ -1473,6 +1489,116 @@ proc Debug_SceneCycleHotkey () clobbers(d0-d2/a0-a1) {
         dc.l    ParallaxConfig_SkyHaze              // 17
         dc.l    ParallaxConfig_OJZ_Caves            // 18
         dc.l    ParallaxConfig_OJZ_LockedClouds     // 19
+    }
+}
+
+// -----------------------------------------------
+// Debug_BandDemoHotkey — THE EFFECTS LAB'S RASTER TIER. Install OJZ_BandDemo, the
+// tree's first palette-band program (games/sonic4/data/effects/ojz_effects.emp), so
+// the three bands can be looked at without binding them to a section.
+//
+//   START held + UP   pressed  -> install OJZ_BandDemo        (bands ON)
+//   START held + DOWN pressed  -> install Raster_Program_None (bands OFF)
+//
+// ---- WHY THIS IS A SECOND CHORD AND NOT A TWENTY-FIRST SCENE ----
+// It was specified as "a new entry in the scene cycle", and it cannot be one. A scene
+// in this engine IS a parallax_config, and Debug_SceneCycleHotkey's own header states
+// the reason in its own words: "PALETTE AND RASTER ARE NOT TOUCHED, and that is correct
+// rather than a shortcut ... Palette, cycle, variants and the raster program are the
+// EffectsPreset's channels, bound per SECTION, not per scene. Cycling scenes must not
+// repaint the act." Adding a row to `.scene_table` therefore could not put a band on
+// screen; it would add a parallax config that looks like the one beside it. Making the
+// cursor ALSO drive the raster channel would give every one of the twenty existing
+// scenes a raster side effect it does not have today, which is the one thing a review
+// tool must never do to the scenes the owner is already evaluating.
+//
+// So the raster tier gets its own chord on the same modifier, and the two are
+// independent by construction: cycling scenes never touches raster, and this never
+// touches parallax. START + UP/DOWN is free — Debug_SceneCycleHotkey's enumeration
+// found START to be the only unclaimed bit on a 3-button pad and spends only its
+// LEFT/RIGHT pair, and no reader anywhere pairs START with UP or DOWN. The cost is the
+// same one that chord already accepts and documents: UP/DOWN still look up and duck
+// while the chord is held, which for a background review (player standing still, or in
+// debug free-flight) is nothing.
+//
+// ---- SCOPE, AND WHY IT IS A FEATURE ----
+// Identical to the scene cycle's: the override survives until the camera crosses a
+// section boundary, at which point Parallax_CheckBoundary -> Effects_InstallPreset
+// installs that section's own raster channel again. A debug override can never leave
+// the act permanently mis-configured, and the owner's default boot is untouched because
+// nothing here runs unless the chord is pressed.
+//
+// ---- INSTALLING OVER A PATCHED SECTION IS SAFE, AND IT TAKES OVER ----
+// Section 0 binds OJZ_TwoChannel on the PATCHED channel. Raster_VBlank's
+// `.copy_program` arm clears Raster_Patch_Tab and Effects_Offscreen_Entry before
+// pointing Raster_Active_Buf at Buf_A, so a static install cleanly evicts a patched
+// program rather than racing the schedule builder for its buffer. What the owner sees
+// in section 0 is therefore the bands INSTEAD OF the two water boundaries, not both and
+// not corruption. This is also why OJZ_BandDemo could never simply be bound to section
+// 0 as content: CLAIM 6 refuses a band in any program carrying an `offscreen_ship`
+// fire, which excludes OJZ_TwoChannel's section outright.
+//
+// ---- BANDS OFF IS AN EMPTY PROGRAM, NOT A ZERO ----
+// `Raster_Install` documents a0 = 0 as "nothing staged this frame", i.e. KEEP whatever
+// is live — so passing 0 to turn the tier off silently leaves the bands running. The
+// OFF arm installs Raster_Program_None, the empty program Raster_VBlank recognises and
+// answers by uninstalling the HBlank handler outright.
+//
+// DEBUG-shape only: the body — the rts included — sits inside `if DEBUG == 1 {}`, so
+// the whole proc emits ZERO bytes in the plain shape. Parked as the FOURTH member of
+// this module's zero-release-byte run for the reason Debug_SceneCycleHotkey's header
+// records: both canonical shapes append the convsym deb2 symbol table, so a zero-byte
+// release LABEL still lands in the appendix, and a label parked in this run coincides
+// with an address the appendix already carries and dedupes away.
+//
+// In:  none (reads Ctrl_1_Held / Ctrl_1_Press / Input_Source)
+// Out: Raster_Pending staged with OJZ_BandDemo or Raster_Program_None, iff the chord
+//      fired this frame. Takes effect at the next Raster_VBlank.
+// Clobbers: d0-d1 (the two input latches), a0 (the program pointer handed to
+//           Raster_Install, which itself clobbers nothing).
+// -----------------------------------------------
+proc Debug_BandDemoHotkey () clobbers(d0-d1/a0) {
+    if DEBUG == 1 {
+        // Gate 1: live input only. Same gate, same reason, as the two hotkeys above —
+        // START rides in the main controller byte that engine/system/replay.emp records
+        // and replays whole, so a fixture holding START across a UP/DOWN press would
+        // install a raster program mid-playback and desync every downstream check.
+        // INPUT_LIVE is 0, so a `tst.b` is the whole test.
+        tst.b   Input_Source                    // (Input_Source).w
+        bne     .done
+
+        // Gate 2: the modifier. HELD, not press — START is the chord's shift key.
+        move.b  Ctrl_1_Held, d0                 // tick-stable held latch
+        andi.b  #BUTTON_START, d0
+        beq     .done
+
+        // Gate 3: the direction, EDGE-triggered so holding the pad does not re-stage
+        // the same program every frame. Both directions are read from ONE fetch of the
+        // press latch into two registers: a second `move.b Ctrl_1_Press` would be a
+        // second read of a byte the input tick has already latched, which is harmless
+        // but says the value might change between them.
+        move.b  Ctrl_1_Press, d0                // tick-stable press latch
+        move.b  d0, d1                          // d1 = the DOWN copy; d0 masked for UP
+        andi.b  #BUTTON_UP, d0
+        beq     .not_on
+
+        // -- BANDS ON. Tail call (§2.8): Raster_Install clobbers nothing, is inside
+        //    this proc's declared set, and nothing follows it on this arm.
+        lea     OJZ_BandDemo, a0                // (OJZ_BandDemo).l — the three-band program
+        jbra    Raster_Install
+
+    .not_on:
+        // UP wins a same-frame UP+DOWN chord, by falling through first. An opposing
+        // pair is not a direction, and landing on ON is the half a second press undoes.
+        andi.b  #BUTTON_DOWN, d1
+        beq     .done
+
+        // -- BANDS OFF. The EMPTY program, never 0 — see the header.
+        lea     Raster_Program_None, a0         // (Raster_Program_None).l
+        jbra    Raster_Install
+
+    .done:
+        rts
     }
 }
 

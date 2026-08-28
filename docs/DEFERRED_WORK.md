@@ -6497,7 +6497,19 @@ or in the design:**
 tree still ships **zero bands** (design §14.5, unchanged by P2a). Every scrap of evidence is
 fixtures and poisons; no OJZ or test scene gained a band, and authoring one is an owner content
 decision. What is proven is that multi-band programs are **admitted**, which is a different
-claim from **exercised**. And every claim in P2a is comptime: a second restore's pixel landing
+claim from **exercised**.
+
+> **CLOSED ON THE CONTENT AXIS 2026-08-28, `parcel/band-first-consumer` (design §16).** The
+> paragraph above described the tree for about a day. `OJZ_BandDemo` —
+> **three** bands over OJZ's dominant ground colour at CRAM `$4A`, screen lines 120..147,
+> 156..183, 192..219 — is emitted in both canonical shapes
+> (`games/sonic4/data/effects/ojz_effects.emp`), so `check_band_pairing` and
+> `check_band_ownership` now run on shipped content on every build. **The admitted/exercised
+> distinction is retired for BUILD-TIME claims and retained in full for RUNTIME ones**: no
+> band has been seen on a screen by anything yet — the parcel could not run an emulator and
+> tagged the capture instead. The band program's emitted HInt schedule IS decoded and pinned
+> to the six authored screen lines at comptime (design §16.3, PIN 5), which is the strongest
+> claim available without pixels and is still not a pixel. And every claim in P2a is comptime: a second restore's pixel landing
 (design §7.5 measurement 2) is still untaken, and it is now the most valuable of the outstanding
 runtime measurements because P2a is what makes a second restore expressible.
 
@@ -6548,6 +6560,11 @@ poison fixtures and `raster_dsl.emp`'s own pins, so the ownership walk's whole-t
 vacuous by construction and every scrap of evidence for it is the eleven expect-fail cases and
 the two positive fixtures (design §14.5). The first band anyone authors is the first time this
 runs on shipped content.
+
+> **THAT FIRST BAND LANDED 2026-08-28** — `parcel/band-first-consumer`, design §16.
+> `OJZ_BandDemo` is three bands of shipped content, so the ownership walk's whole-tree green
+> is no longer vacuous by construction. It is still vacuous about PIXELS: see the note above
+> for exactly which half of the caveat is retired and which half is not.
 
 **DESIGNED 2026-08-28 — `docs/superpowers/specs/2026-08-28-raster-band-ownership-design.md`
 (r1, UNSWEPT, nothing built).** The design lands an explicit pairing rather than an inference:

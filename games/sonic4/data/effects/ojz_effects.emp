@@ -197,6 +197,216 @@ ensure(first_mismatch(raster_program(OJZ_TEST_PROG), OJZ_TEST_HAND) == -1,
 
 pub data OJZ_TestRaster: [u16; raster_words(OJZ_TEST_PROG)] = raster_program(OJZ_TEST_PROG)
 
+// ===========================================================================
+// OJZ_BandDemo — THE FIRST PALETTE BAND IN THIS TREE.
+// ===========================================================================
+//
+// The band-ownership design (docs/superpowers/specs/2026-08-28-raster-band-ownership-
+// design.md) §14.5 and §15.7 both say it out loud: `band()` and `pal_restore` appear
+// ONLY in poison fixtures and in raster_dsl.emp's own pins, so every ownership walk in
+// the engine has, until this data statement, run exclusively over test material. §15.7's
+// closing bullet is the standing instruction this module is answering:
+//
+//     "The first real band anyone authors is still the first time these walks run on
+//      something a player sees. Do not describe N bands as exercised — it is admitted,
+//      which is a different claim."
+//
+// This is that first band, and it is THREE of them, because "more than one restore per
+// program" is the capability parcel P2a unlocked and a single band would exercise only
+// what P1 already had.
+//
+// ---- WHAT IT LOOKS LIKE, AND WHY IT IS SHAPED THIS WAY ----------------------
+// Three broad horizontal bands across the lower screen, each repainting OJZ's dominant
+// ground colour to a different step of the act's OWN ground ramp, with the base colour
+// showing through in the seams between them. Read top to bottom the ground goes
+// shade -> base -> lit -> base -> full sun: a staged light wash, not a stripe test.
+//
+// THE COLOURS ARE THE ACT'S, NOT INVENTED. games/sonic4/data/generated/ojz/act1/
+// ojz_palette.bin's CRAM line 2 carries a five-step ground ramp at entries 3..7 —
+// $0224, $0248, $026A, $048C, $06AE — and entry 5 ($026A) is its midpoint AND the
+// address OJZ_TestRaster already measured as OJZ's single most-used ground colour
+// (~54% of the lower-screen pixels; see OJZ_TEST_CRAM_ADDR's note above). Banding the
+// midpoint entry to the ramp's other steps is therefore both the most VISIBLE possible
+// choice and a palette-native one, which is what keeps it reading as art direction
+// rather than as a diagnostic. A band of $000E-style pure red would be easier to
+// measure and would look like exactly what §15.7 warns against.
+//
+// ---- THE ADDRESS IS SHARED, NOT TRANSCRIBED --------------------------------
+// OJZ_TEST_CRAM_ADDR is reused rather than respelled: there is one fact ("OJZ's
+// dominant ground colour lives at CRAM byte $4A") and it has one source in this file.
+// It is already pinned against vdp_comm's encoding above, so this program inherits that
+// pin for free. $4A >> 5 = palette line 2, which is what makes these bands legal at all
+// — stream_cram and pal_restore both refuse line 0, the character's line.
+//
+// ---- WHY THE SEAMS ARE NOT OPTIONAL ----------------------------------------
+// The bands do NOT touch. Contiguous bands (band N's `bot` == band N+1's `top`) put a
+// restore and an ON op on the SAME fire line, and raster_dsl's per-fire stream ceiling
+// of 2 is documented as unreachable in practice: "two bursts in one fire span at least
+// 116 cycles against a 122.9-cycle window, and the two margins want 30 more, so a
+// second stream op cannot be placed at all — check_landings will refuse it by name."
+// So the eight-line seams below are a hardware fact wearing a visual justification, and
+// they earn their keep twice: they are also the NEGATIVE CONTROL that lives inside the
+// effect, where a witness can sample base colour between two bands rather than only
+// outside all of them.
+//
+// ---- THE CAP IS THREE, AND IT IS DERIVED -----------------------------------
+// Not quoted from §7.1's table — §7.1 itself forbids that ("anyone re-deriving this
+// after a wire-format change must go back to op_size, never to this table"). The
+// arithmetic is re-stated in the word-count ensure below and is held every build by
+// raster_dsl.emp's own zz_band_ownership_fixtures in BOTH directions (three must
+// build, four must overflow). This program is exactly at the ceiling.
+//
+// ---- WHAT THIS PROGRAM DELIBERATELY IS NOT ---------------------------------
+//   * NOT S/H (`sh: 0` on all three). A Shadow/Highlight band emits a third fire and
+//     costs a de-mix write; it is a separate capability and mixing it in would make a
+//     failure ambiguous between the band machinery and the S/H machinery.
+//   * NOT patchable. Design rule 6, both halves, is still in force (P2b is unbuilt):
+//     neither a band's ON fire nor its restore fire may be patchable. These are static.
+//   * NOT carrying an `offscreen_ship` fire. CLAIM 6 refuses a band in any program that
+//     has one, which is what excludes section 0's OJZ_TwoChannel from bands entirely.
+//   * NOT hand-pinned word-for-word, and that is a decision rather than an omission.
+//     OJZ_TestRaster carries an OJZ_TEST_HAND twin, but every stream op in a program
+//     also carries a SOLVED spin word that the lowering derives from the op's position
+//     in its fire (raster_dsl.emp's window-anchor solver). A hand twin for this program
+//     would mean me transcribing six solved spins, which is not an independent check of
+//     the encoder — it is a copy of it — and a hand-adjusted spin is wrong by
+//     definition. The pins below check STRUCTURE (fire count, word count from op_size,
+//     dirty mask) and leave the spins to the solver that owns them.
+//
+// ---- IT EMITS IN BOTH SHAPES, ON PURPOSE -----------------------------------
+// Only the DEBUG hotkey that INSTALLS it is shape-gated (games/sonic4/test/
+// ojz_scroll_test.emp, Debug_BandDemoHotkey). The program itself is content and is
+// emitted unconditionally, exactly like every other program in this file. Gating the
+// data too would mean the release shape compiled a different set of band guards from
+// the one the DEBUG shape ships, which is the opposite of what a first consumer is for.
+// Cost: raster_words(...) words = 110 bytes in each of s4.bin and s4.debug.bin.
+// ---------------------------------------------------------------------------
+
+// The three ramp steps, named for what they do to the ground rather than for their
+// index in the palette file. Base (the colour the seams show) is $026A and is NOT
+// spelled here: it is whatever the act palette holds at OJZ_TEST_CRAM_ADDR, and the
+// restore streams it back from Palette_Ship_Snap rather than from a literal — which is
+// precisely the property that makes a band a band and not a pair of pokes.
+const OJZ_BAND_SHADE = $0224        // line 2 entry 3 — two ramp steps below base
+const OJZ_BAND_LIT   = $048C        // line 2 entry 6 — one ramp step above base
+const OJZ_BAND_SUN   = $06AE        // line 2 entry 7 — the ramp's bright end
+
+// The six authored screen lines. A band covers `top` .. `bot - 1` inclusive: the ON
+// op's writes land ON line `top` and the restore's land ON line `bot`, so the height
+// band() charges (`bot - top`) and the number of banded rows are the same number.
+// All six sit inside fire()'s 3..223 and all three bands clear the height minimum by
+// an order of magnitude (28 rows against the 2 a one-word cram band needs).
+const OJZ_BAND_1_TOP = 120
+const OJZ_BAND_1_BOT = 148
+const OJZ_BAND_2_TOP = 156
+const OJZ_BAND_2_BOT = 184
+const OJZ_BAND_3_TOP = 192
+const OJZ_BAND_3_BOT = 220
+
+// Seam width is stated once and checked, so "the bands do not touch" is a build-time
+// fact rather than something a reader has to subtract by hand. A seam of 0 is the
+// contiguous case check_landings refuses, and it would refuse it with a message about
+// stream ops rather than about bands — this ensure is the earlier, clearer diagnosis.
+const OJZ_BAND_SEAM = 8
+ensure(OJZ_BAND_2_TOP - OJZ_BAND_1_BOT == OJZ_BAND_SEAM && OJZ_BAND_3_TOP - OJZ_BAND_2_BOT == OJZ_BAND_SEAM,
+       "OJZ_BandDemo: the two seams are {OJZ_BAND_2_TOP - OJZ_BAND_1_BOT} and {OJZ_BAND_3_TOP - OJZ_BAND_2_BOT} lines, not the {OJZ_BAND_SEAM} this program is documented and witnessed at. A seam of 0 puts a restore and an ON op on one fire line, which check_landings refuses for a per-fire reason that never mentions bands.")
+
+const OJZ_BAND_DEMO_PROG = compose([
+    band(OJZ_BAND_1_TOP, OJZ_BAND_1_BOT, stream_cram(OJZ_TEST_CRAM_ADDR, [OJZ_BAND_SHADE]), 0),
+    band(OJZ_BAND_2_TOP, OJZ_BAND_2_BOT, stream_cram(OJZ_TEST_CRAM_ADDR, [OJZ_BAND_LIT]),   0),
+    band(OJZ_BAND_3_TOP, OJZ_BAND_3_BOT, stream_cram(OJZ_TEST_CRAM_ADDR, [OJZ_BAND_SUN]),   0),
+])
+
+// PIN 1 — SIX FIRES. band(sh: 0) emits TWO fires (the ON and its restore) and compose
+// merges nothing here because all six lines are distinct, so three bands must arrive as
+// six records. This is the pin that notices a band() that silently dropped a restore:
+// the program would still build, still fit the buffer, and still look right at the top
+// edge of each band while never putting the colour back.
+ensure(OJZ_BAND_DEMO_PROG.len == 6,
+       "OJZ_BandDemo: composed to {OJZ_BAND_DEMO_PROG.len} fires, not the 6 that three sh:0 bands must emit (one ON + one restore each, on six distinct lines so compose merges none of them).")
+
+// PIN 2 — THE WORD COUNT, DERIVED FROM op_size AND NOTHING ELSE.
+// A band over a 1-word stream_cram is two records: the ON record is 2 + op_size(Cram,1)
+// = 2 + 6 = 8 words, and the restore record is 2 + op_size(PalRestore) = 2 + 6 = 8, so
+// 16 words per band. raster_words adds 7 fixed words (the pal_dirty_mask header, the two
+// priming records, and the terminator). Three bands: 7 + 3*16 = 55, against the 64-word
+// RASTER_BUF_WORDS buffer — nine words of headroom, and a fourth band would need
+// sixteen. This program therefore sits EXACTLY at the shipped cap, which is the whole
+// reason it is three bands and not two.
+ensure(raster_words(OJZ_BAND_DEMO_PROG) == 7 + 3 * 16,
+       "OJZ_BandDemo: raster_words says {raster_words(OJZ_BAND_DEMO_PROG)} words where op_size gives 7 fixed + 3 bands x (2+6 ON, 2+6 restore) = 55. If this moved, the wire format moved and the three-band cap must be re-derived from op_size before this number is touched.")
+
+// PIN 3 — THE ENCODER AGREES WITH THE SIZER. raster_program re-derives the total through
+// a second path and holds itself to raster_words; pinning the emitted length here makes
+// that agreement visible at the call site too, and makes a buffer overflow show up as a
+// named number rather than as raster_program's generic ceiling message.
+ensure(raster_program(OJZ_BAND_DEMO_PROG).len == raster_words(OJZ_BAND_DEMO_PROG),
+       "OJZ_BandDemo: raster_program emitted {raster_program(OJZ_BAND_DEMO_PROG).len} words where raster_words counted {raster_words(OJZ_BAND_DEMO_PROG)}.")
+
+// PIN 4 — THE DIRTY MASK NAMES LINE 2, AND ONLY LINE 2. Raster_VBlank ORs this into
+// Palette_Dirty every frame so the base palette is re-asserted under the bands; a mask
+// naming the WRONG line is the observed P1 bug (a mask of %0001 against ops writing line
+// 2 left the tint latched over the whole ground instead of only inside the band). All
+// three bands write OJZ_TEST_CRAM_ADDR, so the mask is one bit and the bit is derived
+// from the address rather than spelled: $4A >> 5 = 2.
+ensure(raster_program(OJZ_BAND_DEMO_PROG)[0] == 1 << (OJZ_TEST_CRAM_ADDR >> 5),
+       "OJZ_BandDemo: pal_dirty_mask is {raster_program(OJZ_BAND_DEMO_PROG)[0]}, not the {1 << (OJZ_TEST_CRAM_ADDR >> 5)} that CRAM byte {OJZ_TEST_CRAM_ADDR} (palette line {OJZ_TEST_CRAM_ADDR >> 5}) requires. A wrong line here leaves a band's colour latched past its restore.")
+
+// PIN 5 — THE EMITTED SCHEDULE LANDS ON THE AUTHORED LINES.
+//
+// This is the pin that matters, and it is the only one here that checks the property
+// the owner will actually be looking at: not "a band program was built" but "the bands
+// arrive at lines 120/148/156/184/192/220". Pins 1-4 all measure SIZE and SHAPE, and a
+// program can be exactly 55 words with a correct dirty mask and six fires while its
+// HInt schedule walks the beam to the wrong six rows.
+//
+// It is a DECODE of the emitted words, not a restatement of the authored ones. The
+// runtime never reads a screen line: `Raster_HInt` publishes each record's arm word into
+// VDP reg $0A and the NEXT interrupt arrives that many lines later, so the schedule is a
+// chain of relative gaps and the absolute rows are an emergent property of the whole
+// chain. Reconstructing them here from the emitted arm bytes is therefore an independent
+// path to the same fact — a lowering that mis-encoded one gap would still satisfy every
+// other pin in this file.
+//
+// THE CONVENTION, spelled out because it is off-by-one in two places at once and
+// OJZ_TestRaster's header is the only other statement of it in the tree: VBlank leaves
+// reg $0A = 0, so priming records 0 and 1 fire on lines 0 and 1; record i's arm word
+// schedules the gap from fire i+1 to fire i+2 (Raster_HInt publishes FIRST, then runs
+// its ops); a reload of N lands the next fire N+1 lines later; and a fire's writes land
+// on the line AFTER the one it fires on. Hence `+ 1` twice, in different places.
+//
+// THE WORD INDICES ARE DERIVED FROM THE RECORD STRIDE, not counted off a hexdump. Every
+// real record here is one 1-word `stream_cram` or one `pal_restore`, both of which are
+// 2 + 6 = 8 words; the two priming records are 2 words each and carry no ops. So the arm
+// words sit at 1, 3, then 5 + 8k. If a band ever gains an op this stride is wrong — and
+// PIN 2's word count is what goes red first, naming op_size.
+const OJZ_BAND_REC_WORDS = 8
+ensure(raster_words(OJZ_BAND_DEMO_PROG) == 7 + 6 * OJZ_BAND_REC_WORDS,
+       "OJZ_BandDemo: the {OJZ_BAND_REC_WORDS}-word record stride PIN 5 decodes with does not reconstruct the {raster_words(OJZ_BAND_DEMO_PROG)}-word program (7 fixed + 6 records). PIN 5's arm-word indices are derived from this stride, so a record that grew an op would make it decode the wrong words and compare them confidently.")
+
+comptime fn ojz_band_demo_effect_lines() -> array {
+    let p = raster_program(OJZ_BAND_DEMO_PROG)
+    // The arm byte is the low 8 bits of $8Axx — the reg $0A write the record publishes.
+    let s = OJZ_BAND_REC_WORDS
+    let f2 = 1  + (p[1]             & $FF) + 1   // first real fire: from the line-1 priming record
+    let f3 = f2 + (p[3]             & $FF) + 1
+    let f4 = f3 + (p[5]             & $FF) + 1
+    let f5 = f4 + (p[5 + s]         & $FF) + 1
+    let f6 = f5 + (p[5 + s * 2]     & $FF) + 1
+    let f7 = f6 + (p[5 + s * 3]     & $FF) + 1
+    // A fire's writes land on the line after it fires on.
+    return [f2 + 1, f3 + 1, f4 + 1, f5 + 1, f6 + 1, f7 + 1]
+}
+
+ensure(ojz_band_demo_effect_lines()[0] == OJZ_BAND_1_TOP, "OJZ_BandDemo: band 1 turns ON at emitted screen line {ojz_band_demo_effect_lines()[0]}, not the authored {OJZ_BAND_1_TOP}.")
+ensure(ojz_band_demo_effect_lines()[1] == OJZ_BAND_1_BOT, "OJZ_BandDemo: band 1 restores at emitted screen line {ojz_band_demo_effect_lines()[1]}, not the authored {OJZ_BAND_1_BOT}.")
+ensure(ojz_band_demo_effect_lines()[2] == OJZ_BAND_2_TOP, "OJZ_BandDemo: band 2 turns ON at emitted screen line {ojz_band_demo_effect_lines()[2]}, not the authored {OJZ_BAND_2_TOP}.")
+ensure(ojz_band_demo_effect_lines()[3] == OJZ_BAND_2_BOT, "OJZ_BandDemo: band 2 restores at emitted screen line {ojz_band_demo_effect_lines()[3]}, not the authored {OJZ_BAND_2_BOT}.")
+ensure(ojz_band_demo_effect_lines()[4] == OJZ_BAND_3_TOP, "OJZ_BandDemo: band 3 turns ON at emitted screen line {ojz_band_demo_effect_lines()[4]}, not the authored {OJZ_BAND_3_TOP}.")
+ensure(ojz_band_demo_effect_lines()[5] == OJZ_BAND_3_BOT, "OJZ_BandDemo: band 3 restores at emitted screen line {ojz_band_demo_effect_lines()[5]}, not the authored {OJZ_BAND_3_BOT}.")
+
+pub data OJZ_BandDemo: [u16; raster_words(OJZ_BAND_DEMO_PROG)] = raster_program(OJZ_BAND_DEMO_PROG)
+
 // OJZ_TestPal — a deliberately unmistakable palette for the adjacent section, so
 // "did sec_pal load on the crossing?" is answerable from one CRAM read or
 // screenshot. Not a tinted copy of the real palette: a subtle shift would make a
