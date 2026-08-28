@@ -12115,8 +12115,16 @@ verified independently. Their own tree carried the exact defect this month: a na
 flip/priority bits round-tripped through load, copy, paste and save while being destroyed by an
 ordinary paint gesture, invisible because nothing rendered the bit. The precondition for anyone
 writing to those bits is a red-first test that sets them on a real cell and asserts survival across
-**every gesture that touches a collision cell** — paint, marquee copy, paste, undo — not a
-load/save round trip, which is the cheap test that proves less. Aurora is measuring the gesture
+**every gesture CLASS that touches a collision cell, INCLUDING THE DRAG VARIANT OF EACH TOOL** —
+paint, paint-drag, marquee copy, paste, undo — not a load/save round trip, which is the cheap
+test that proves less.
+**SHARPENED 2026-08-28 by aurora's measured result, and the correction is to MY wording.** I banked
+this as "every gesture", and "every" is the word that let two sites hide. Their nametable audit
+found the truncation in **FOUR** places, not the two found by reading: **the two extra were the
+DRAG branches**, reachable only by a real gesture and invisible to ~5,300 unit tests. The bits had
+survived every round trip for the feature's whole life while being destroyed on every stroke.
+So the enumeration is not "gestures" but "code paths a gesture can take", and a click and a drag
+through the same tool are two of them. Aurora is measuring the gesture
 classes that truncate on their own field and will send the list; it is the part nobody guesses
 correctly from first principles. **If that test fails, Route P needs a different field and the
 "no format change" argument dies with it** — worth knowing while it is still a proposal.
