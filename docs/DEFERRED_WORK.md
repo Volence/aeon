@@ -12377,3 +12377,44 @@ carries the re-derivation with the 08-17 section explicitly marked SUPERSEDED an
 identified as one that no longer exists. **Re-open this the next time a substrate parcel touches
 `Raster_HInt`'s prologue, its dispatch chain, or `RASTER_HBLANK_END_CYC`** — five edits since
 08-17 each moved a fixture, and each is documented in `raster_dsl.emp`'s re-derivation chain.
+
+---
+
+## PREDICTION RECORDED BEFORE THE BUILD — the first-consumer parcel's seven-shape shape (2026-08-28T22:10:18Z)
+
+**Written before any build output from `parcel/band-first-consumer` has reached this overseer.**
+That is the whole point: sigil's framing, and it is right — *a prediction recorded afterwards is
+indistinguishable from a description.* Timestamped and committed so it cannot be edited into
+agreement later.
+
+**The premise under test:** the band is authored into the **DEBUG-gated effects scene cycle**, so
+only debug-family shapes should carry its bytes.
+
+**The seven targets the freeze pins split into two families** (`capture_goldens.sh:137-143`,
+relayed by sigil and to be verified firsthand at freeze time): `config_a` builds with
+`--config-a` and writes `s4.debug.bin` — **debug family**; `config_b` and `lean` build with
+`--config-b` / `--lean` and both write `s4.bin` — **plain family**.
+
+| target | prediction |
+|---|---|
+| `s4_debug` | **MOVES** |
+| `config_a` | **MOVES** |
+| `s4` | unchanged |
+| `config_b` | unchanged |
+| `lean` | unchanged |
+| `demo` | unchanged |
+| `demo_debug` | unchanged |
+
+**THE FALSIFIER, which is the reason to write this down at all: if `config_b` or `lean` move
+while plain `s4` does not, the DEBUG-only premise is WRONG** — something reached a plain-family
+build through a path nobody intended. Four CRCs agreeing with expectations can only confirm; this
+table can come back *no*.
+
+**The control** is the ring-fix freeze (chain 176): that parcel was **not** debug-gated and moved
+all five sonic4-rooted shapes, including `lean` at the **same length with different bytes** — the
+byte-count-neutral case only a content compare catches.
+
+**And one outcome that is not a tool failure:** `plan_freeze` computes `byte_neutral` across all
+seven targets, so if nothing moves anywhere it returns `Fixpoint` and **appends nothing** — no
+entry, no error, a git-clean tree. For a parcel believed to move bytes that reads as "the freeze
+did nothing". It is not. It means **the parcel did not move bytes**, and that is the finding.
