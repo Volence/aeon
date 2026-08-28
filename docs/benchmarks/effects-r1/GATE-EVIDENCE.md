@@ -5,10 +5,138 @@ this project). ROM identified by CRC per section.
 
 ---
 
-## CLAIM 9 — the restore's `op_work_cyc` — MEASURED, CLOSED (2026-08-17)
+## CLAIM 9 — the restore's `op_work_cyc` — RE-DERIVED AND RE-CLOSED (2026-08-28, parcel P2a)
+
+> **⚠ READ THIS BEFORE THE 2026-08-17 SECTION BELOW. That closure EXPIRED, silently, and the
+> way it expired is the transferable lesson.** Nothing about it was wrong when it was
+> written; it was anchored to an artifact — `s4.debug.bin` crc `04882b94`, a 712,732-byte
+> ROM on a since-merged feature branch — and five substrate parcels then rebuilt the very
+> handler it measured. The document kept saying CLOSED while every number in it went stale,
+> because a benchmark file has no way to notice that its subject moved. **An
+> artifact-anchored closure needs the artifact's identity in its own headline, and a
+> re-check whenever that identity changes.** The 08-17 numbers below are kept verbatim as
+> history; **not one of them may be subtracted from a present-day total.**
+
+**What was owed, and it was not a measurement.** The eight F-series fixtures were
+re-measured on 2026-08-28 against `s4.debug.bin` crc `fee02557` (3 boots, 30-frame samples,
+load 4.69). Four of them had moved a long way from 08-17 — F0 572→588, F1 412→**320**, F5
+628→**646**, F8 556→**674** — and **not in the same direction**, so the components had moved
+relative to one another and no arithmetic could bridge the two revisions. What P2a owed was
+therefore a **re-derivation of the constant from today's total against today's
+decomposition**, which needs no emulator because the measurement was already taken.
+
+**Today's eight measurements, and the shipped model against them.** Every component below is
+read out of `engine/effects/raster_dsl.emp` at this revision. **No 2026-08-17 component
+(302 fire base / 8 fetch / 82 dispatch / 90 stream / 10 tail) appears anywhere in it** — those
+were derived at `RUNGS=5` on a ROM 22 KB shorter, and three of the five have since moved
+(the fire base to 280, the dispatch to 90 via the zero pre-test).
+
+| fixture | shape | measured 2026-08-28 | model | residual |
+|---|---|---:|---:|---:|
+| F0 | two priming records | 588 (absolute) | 588 | 0 |
+| F1 | `reg_set` | 320.0 | 320 | 0 |
+| F2 | `stream_cram` 1w | 624.0 | 624 | 0 |
+| F3 | `stream_cram` 3w | 646.0 | 646 | 0 |
+| F4 | `stream_pal_region` 3w | 666.0 | 666 | 0 |
+| F5 | `reg_set` + `stream_cram` 3w | 646.0 | 646 | 0 |
+| F6 | two 1-word crams, one fire | 688.0 | 688 | 0 |
+| F7 | `stream_vsram` 1w | 624.0 | 624 | 0 |
+| F8 | `pal_restore` 3w | **674.0** | **674** | **0** |
+
+**The derivation, from F8 = 674 alone.** `op_cost_cycles` is
+`RASTER_OP_FETCH_CYC + op_dispatch_cyc + op_work_cyc + op_stream_word_cyc × words +
+RASTER_OP_TAIL_CYC`, and `fire_cost_cycles` adds `RASTER_FIRE_BASE_CYC` once:
+
+```
+674 = 280 (RASTER_FIRE_BASE_CYC)
+    +   8 (RASTER_OP_FETCH_CYC)
+    +  90 (dispatch: ZERO_MISS 8 + RUNG 16 × RASTER_DEPTH_RESTORE 4 + HIT 18)
+    + WORK
+    +  90 (RASTER_STREAM_WORD_DEEP_CYC 30 × 3 words)
+    +  10 (RASTER_OP_TAIL_CYC)
+
+WORK = 674 − 478 = 196
+     = RASTER_WORK_RESTORE_BASE_CYC + spin_cyc(11)      spin_cyc(n) = 10n + 14
+     = base + 124
+base = 196 − 124 = 72
+```
+
+**`op_work_cyc(PalRestore, spin) = 72 + 10·spin + 14`; spinless base 72; 196 at the shipped
+solved spin of 11.** That is the value in the tree — `RASTER_WORK_RESTORE_BASE_CYC = 72` —
+so **the shipped model was already current and today's measurement confirms it with zero
+residual on all eight fixtures.** The F-series `ensure`s pin model-against-literal on every
+build; what they cannot do is pin model-against-hardware, and that is exactly what this run
+supplies.
+
+**Where each input to that arithmetic comes from, so none of it is borrowed:**
+
+- `RASTER_FIRE_BASE_CYC = 280` — from **today's F0**: `(588 − 2×30)/2 + 16`, the two priming
+  records less the frame-rewind interlock only they pay, plus the 16 a record with ops pays
+  over a no-op one. That identity is a module-level `ensure` and is checked every build.
+- `FETCH 8 + ZERO_HIT 10 + WORK_REG 12 + TAIL 10 = 40` — from **today's F1**: 320 − 280.
+  F1 carries no delay site, so it is the one fixture with no spin term and no free parameter.
+- dispatch 90 and the deep word 30 — instruction-level, from `Raster_HInt`'s own compare
+  chain and `.restore_loop`, transcribed beside the constants in `raster_dsl.emp`.
+- spin 11 — the **solver's** answer for this shape, and it is emitted DATA (the `SPIN` word
+  in the op's wire body), not a fitted parameter.
+
+**An independent cross-check that never names the restore's constant at all.** F8 and F4 are
+the same shape — one leading op, three deep-stream words — differing only in dispatch depth
+and work base:
+
+```
+F8 − F4 = 674 − 666 = 8
+        = 3 × RUNG(16) + (W_RESTORE − W_REGION) + 10 × (11 − 15)
+        = 48 + (W_RESTORE − W_REGION) − 40
+  ⇒  W_RESTORE − W_REGION = 0
+```
+
+The restore's spinless work base **equals** the region's, exactly — which is what
+`raster_dsl.emp` asserts in prose ("the restore body: region's shape, spinless base") and
+what the two 72s say. Two of today's measurements, and not one borrowed constant.
+
+**What could NOT be separated, stated rather than papered over.** Today's eight fixtures are
+eight equations in roughly thirteen constants plus seven solved spins; the system is
+underdetermined and **the F-series cannot split dispatch depth from work base on its own**
+(the F8 − F4 identity above pins their *sum*, which is why it yields a difference and not two
+values). That split is instruction-level evidence, not fixture evidence, and it is recorded
+as such at each constant. Anyone re-deriving after a change to `Raster_HInt`'s prologue must
+go back to the instruction list, not to this table.
+
+**And a trap for the next person who reaches for the "obvious" slope.** The fixtures' raw
+differences are **contaminated by the solver**, because each shape's spin is re-centred for
+that shape:
+
+| naive reading | value | what it actually is |
+|---|---:|---|
+| F3 − F2 as "per streamed word" | 22 / 2 = **11** | `2 × 26 − 10 × (22 − 19)` = 22. The true word is **26**; the spin fell 3 iterations. |
+| F6 − F2 as "per extra op" | **64** | a whole 1-word cram op at spin 0 (124) less the first op's 6-iteration spin drop (60). |
+
+Neither raw slope is a component of anything. Use the model and the solved spins, or use
+F1/F0, which are the only two fixtures with no spin term in them.
+
+**Status: CLOSED at `s4.debug.bin` crc `fee02557`.** Re-open it the next time a substrate
+parcel touches `Raster_HInt`'s prologue, its dispatch chain, or `RASTER_HBLANK_END_CYC` — the
+five edits since 08-17 each moved a fixture, and each one is documented in `raster_dsl.emp`'s
+re-derivation chain.
+
+**What P2a actually needed from this number — and it is less than the design claimed.**
+Design §7.3 says "every band-height minimum in `band()` is cost-keyed to it (`:669, :704`)".
+**That is wrong, and the source at those two lines is the refutation:** both minima call
+`fire_cost_cycles` on the **ON** fire (`f_on`, `f_on_sh`), whose op is a `stream_cram` or
+`stream_pal_region`. `op_work_cyc(PalRestore, …)` appears in neither. The restore's cost
+enters `check_density` and `check_hint_total` instead — and both consume the **whole fire
+total**, which today's F8 measures **directly at 674**. So the quantity N bands multiplies is
+a measured fire total, not a decomposed constant, and the decomposition above is
+corroboration rather than the load-bearing step.
+
+---
+
+## CLAIM 9 — the restore's `op_work_cyc` — MEASURED, CLOSED (2026-08-17) — **SUPERSEDED, see above**
 
 **ROM:** `s4.debug.bin` crc=`04882b94` len=712732 (branch `feature/parcel-r1-palette-bands`
-@ `25bad462` — encoder + constructor landed, guards not yet).
+@ `25bad462` — encoder + constructor landed, guards not yet). **This ROM no longer exists in
+any shipped shape; every figure in this section describes it and not the tree.**
 
 **Command:**
 ```

@@ -34,7 +34,7 @@ const POISON_CRAM_FOUR = [
     RasterFire.Fire(100, [stream_cram($42, [$0E0E, $0E0E, $0E0E, $0E0E])]),
 ]
 
-// THE ELABORATION HOOK — see poison_two_restores.emp's note. Trivially-true predicate;
+// THE ELABORATION HOOK — see poison_four_bands.emp's note. Trivially-true predicate;
 // the diagnostic under test comes from inside the call.
 ensure(raster_words(POISON_CRAM_FOUR) > 0,
        "poison_cram_four_words: raster_words returned nothing — this poison no longer reaches the guard it targets")

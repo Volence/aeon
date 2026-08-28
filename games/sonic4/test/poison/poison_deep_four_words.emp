@@ -47,7 +47,7 @@ const POISON_DEEP_FOUR = [
     RasterFire.Fire(100, [RasterOp.PalRegion($22, 0, 1, 1, 4, 0)]),
 ]
 
-// THE ELABORATION HOOK — see poison_two_restores.emp's note. Trivially-true predicate;
+// THE ELABORATION HOOK — see poison_four_bands.emp's note. Trivially-true predicate;
 // the diagnostic under test comes from inside the call.
 ensure(raster_program(POISON_DEEP_FOUR).len > 0,
        "poison_deep_four_words: raster_program returned nothing — this poison no longer reaches the guard it targets")

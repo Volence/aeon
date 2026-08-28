@@ -26,7 +26,7 @@
 //
 // COUNT 1: D-B alone.
 //
-// NO IMPORTS — see poison_two_restores.emp's note.
+// NO IMPORTS — see poison_four_bands.emp's note.
 module games.sonic4.test.poison.poison_setreg_on_restore
 
 const POISON_SETREG_ON_RESTORE = compose([

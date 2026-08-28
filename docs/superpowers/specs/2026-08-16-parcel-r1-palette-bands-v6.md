@@ -270,7 +270,7 @@ stream-class), layout checks. `check_intervals` untouched — now C-A's stated g
 | `op_mask` | `1 << (addr >> 5)` — exact under C-D |
 | `op_is_reg` | 0 |
 | `op_dispatch_cyc` | `RASTER_DEPTH_RESTORE` |
-| `op_work_cyc` | **64** = 122 − 58 (spin 54 + its `moveq` 4) — **UNVERIFIED, CLAIM 9**; v5's 68 kept the moveq and contradicted its own §6.2; fifth arithmetic slip, pre-replicated correction |
+| `op_work_cyc` | ~~**64** = 122 − 58 (spin 54 + its `moveq` 4) — **UNVERIFIED, CLAIM 9**~~ **STALE — see CLAIM 9 below.** Measured and closed 2026-08-17, then re-derived 2026-08-28: the spinless base is **72** (`RASTER_WORK_RESTORE_BASE_CYC`) and the whole work term is `72 + spin_cyc(spin)`. v5's 68 kept the moveq and contradicted its own §6.2; fifth arithmetic slip, pre-replicated correction |
 | `op_cram_span` | `(addr, 2*count)` |
 | `op_is_restore` | 1 |
 
@@ -459,7 +459,7 @@ poisoned neighbours and pick deterministic representatives.
 | 6 | Ship refusal complete (encoder + runtime); Sec0 doubly excluded | high, sweep-5-extended | a second publish site |
 | 7 | Committer registry enforcing form | UNVERIFIED | attempt in design pass |
 | 8 | Snapshot ~176/~704 ≈ 3.8%; per-routine rows | ESTIMATE | §7.2 measurement |
-| 9 | Restore `op_work_cyc` = **64** (corrected) | UNVERIFIED — **measure FIRST, before minima freeze** | `raster_cost_probe` |
+| 9 | Restore `op_work_cyc` — spinless base **72**, whole term `72 + spin_cyc(spin)`, **196** at the shipped solved spin of 11 (was written here as 64, which was this spec's PRE-SPLIT value) | **MEASURED, CLOSED 2026-08-17; the closure then EXPIRED with its ROM and was RE-DERIVED AND RE-CLOSED 2026-08-28** at `s4.debug.bin` crc `fee02557`, zero residual on all eight F-series fixtures. This row read "UNVERIFIED" for eleven days after it was first closed, and two lanes were briefed off it — **`docs/benchmarks/effects-r1/GATE-EVIDENCE.md` is the authority for this claim, not this table** | `raster_cost_probe`; full arithmetic in GATE-EVIDENCE.md |
 | C-A | Equal-span-partner + `check_intervals` grounding | survived sweeps 4-5 | a passing program that buries a live effect; an intervals relaxation |
 | C-B | Own delay knob; bracket start; complete ladder incl. straddle arm | mechanism thrice-confirmed | the §7.3 capture |
 | C-D | Wrap guard + line-0 refusal, re-spelled for `(addr,count)` | re-derivation | — |

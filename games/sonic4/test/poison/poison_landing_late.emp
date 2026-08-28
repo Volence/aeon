@@ -57,7 +57,7 @@ const POISON_LANDING_LATE = [
                           reg_set($8C81), stream_pal_region($22, 0, 1, 1, 3)]),
 ]
 
-// THE ELABORATION HOOK — see poison_two_restores.emp's note. Trivially-true predicate;
+// THE ELABORATION HOOK — see poison_four_bands.emp's note. Trivially-true predicate;
 // the diagnostic under test comes from inside the call.
 ensure(raster_program(POISON_LANDING_LATE).len > 0,
        "poison_landing_late: raster_program returned nothing — this poison no longer reaches the guard it targets")

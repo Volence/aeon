@@ -34,7 +34,7 @@ const POISON_LANDING_EARLY = [
     fire(100, [stream_cram($22, [$0EEE]), stream_cram($26, [$0AAA])]),
 ]
 
-// THE ELABORATION HOOK — see poison_two_restores.emp's note. Trivially-true predicate;
+// THE ELABORATION HOOK — see poison_four_bands.emp's note. Trivially-true predicate;
 // the diagnostic under test comes from inside the call.
 ensure(raster_program(POISON_LANDING_EARLY).len > 0,
        "poison_landing_early: raster_program returned nothing — this poison no longer reaches the guard it targets")

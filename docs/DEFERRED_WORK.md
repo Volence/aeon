@@ -6456,7 +6456,56 @@ REFERENCES (lea/abs/extern), which also flags readers and needs an allowlist —
 needs a sweep. Until then: the advisory census (buffers.emp) + the reference-count lint
 (tools/test_palette_census_lint.py) are the floor, and both are red-first-verified.
 
-## R1 booking: N bands (more than one restore per program)
+## ~~R1 booking: N bands (more than one restore per program)~~ — **CLOSED 2026-08-28, parcel P2a**
+
+**N BANDS IS SHIPPED, capped at THREE by the 64-word program buffer.** Branch
+`parcel/band-ownership-p2a`, design §15. `raster_program`'s `ensure(restore_n <= 1, …)` is
+deleted; three multi-band programs are pinned as positive fixtures that must BUILD through
+`raster_program` on every build (two bands disjoint = 42 words, two bands sequential over one
+span = 43, three bands = 55), and the cap is refused at N+1 by
+`games/sonic4/test/poison/poison_four_bands.emp`. All four canonical ROMs byte-identical
+(`0261de2b` / `fee02557` / `3415e3ef` / `7599953e`); expect-fail lane **40/40 before and after**.
+
+**Four things the closure is worth reading for, because each corrects something written below
+or in the design:**
+
+1. **The gate was WIDENED, not deleted, and the note below is wrong to say otherwise.** "unwrap
+   the `if restore_n == 1` block (D-B and CLAIM 6 are already per-fire and N-safe)" is right
+   about D-B and **wrong about CLAIM 6**: CLAIM 6 refuses `offscreen_ship` on *every fire in the
+   program*, which is only correct for a program that contains a band —
+   `games/sonic4/data/effects/ojz_effects.emp:858` declares `offscreen_ship: 1` on shipped
+   content, so unwrapping it would have refused the tree. It became `if restore_n >= 1`.
+2. **CLAIM 9 does NOT gate the band minima, and the design was wrong that it does.** §7.3's
+   "every band-height minimum in `band()` is cost-keyed to it (`:669, :704`)" is refuted by the
+   source at those lines: both minima price the **ON** fire, whose op is a `stream_cram` or
+   `stream_pal_region`. `op_work_cyc(PalRestore, …)` reaches only `check_density` and
+   `check_hint_total`, and both consume the whole fire total — which today's F8 measures
+   directly. The quantity N multiplies is a measured fire total, not a decomposed constant.
+3. **CLAIM 9 re-derived and re-closed** at `s4.debug.bin` crc `fee02557`: spinless base **72**,
+   whole term `72 + spin_cyc(spin)`, **196** at the shipped solved spin of 11, with **zero
+   residual on all eight F-series fixtures**. Not one 2026-08-17 component is used in the
+   arithmetic. `docs/benchmarks/effects-r1/GATE-EVIDENCE.md` is the authority.
+4. **One poison could not survive the deletion, and the record says so rather than hiding it.**
+   `poison_two_restores` was two well-formed disjoint bands whose only defect was the count —
+   admitting exactly that program IS P2a. It was renamed to `poison_four_bands` and re-aimed at
+   the buffer (the refusal that inherited the job of capping N); its old body became the
+   `zz_disjoint` positive fixture. `poison_band_nested` dropped 2 → 1 errors, as the lane's own
+   comment had predicted, and it is now the case that stops the lifted refusal from becoming no
+   refusal. The other nine band poisons are unchanged in fragment and count.
+
+**THE VACUITY IS NARROWED, NOT CLOSED — do not read this as "N bands works on content".** The
+tree still ships **zero bands** (design §14.5, unchanged by P2a). Every scrap of evidence is
+fixtures and poisons; no OJZ or test scene gained a band, and authoring one is an owner content
+decision. What is proven is that multi-band programs are **admitted**, which is a different
+claim from **exercised**. And every claim in P2a is comptime: a second restore's pixel landing
+(design §7.5 measurement 2) is still untaken, and it is now the most valuable of the outstanding
+runtime measurements because P2a is what makes a second restore expressible.
+
+**STILL OPEN and NOT touched by P2a:** P2b (rule 6 half 2 — moving top, static bottom) and P3
+(the moving-band runtime, `Raster_BuildSchedule`'s per-entry suppress). `LO_SUPPRESS` remains
+unbuilt by standing ruling. The original booking follows, kept for its history.
+
+---
 
 Parcel R1 shipped exactly one band per program (`docs/superpowers/specs/
 2026-08-16-parcel-r1-palette-bands-v6.md` §1, §9) — `raster_program` refuses a second
@@ -12277,3 +12326,54 @@ quoting the closure.** `GATE-EVIDENCE.md` does record its ROM crc and length, wh
 this was catchable in one command — the discipline worked; nobody ran it. And the spec that still
 says UNVERIFIED must be corrected to point at the benchmark rather than restating a status,
 because a status restated in two places drifts by construction.
+
+---
+
+### DISCHARGED 2026-08-28 by parcel P2a — re-derived, re-closed, and both stale documents fixed
+
+**`op_work_cyc(PalRestore, spin) = 72 + 10·spin + 14`.** Spinless base **72**
+(`RASTER_WORK_RESTORE_BASE_CYC`), **196** at the shipped solved spin of 11. Derived from today's
+F8 = 674 against **today's** decomposition, with **no 2026-08-17 component anywhere in the
+arithmetic**:
+
+```
+674 = 280 fire base (from today's F0: (588 - 2*30)/2 + 16)  +  8 fetch
+    +  90 dispatch (ZERO_MISS 8 + RUNG 16 * DEPTH_RESTORE 4 + HIT 18)
+    + WORK  +  90 (30 * 3 deep words)  +  10 tail
+WORK = 674 - 478 = 196 = base + spin_cyc(11) = base + 124   =>   base = 72
+```
+
+**Three results worth carrying forward beyond the number itself:**
+
+1. **The shipped model was already current.** All eight F-series fixtures reproduce today's
+   measurements with **zero residual** — F0 588, F1 320, F2 624, F3 646, F4 666, F5 646, F6 688,
+   F7 624, F8 674 — and every one of those is also the literal in `raster_dsl.emp`'s pins. The
+   pins check model-against-literal on every build; what they cannot do is check
+   model-against-hardware, and that is exactly what the re-measurement supplied. **The document
+   was stale, the source was not.** Worth knowing before the next "the constant must be wrong".
+2. **The raw fixture slopes are a trap, and the obvious ones are wrong.** Each shape's spin is
+   re-centred by the solver, so `F3 - F2` reads as 11 cycles per streamed word where the true
+   word is 26 (`2 x 26 - 10 x (22 - 19) = 22`), and `F6 - F2` is a whole 1-word op at spin 0
+   (124) less the first op's six-iteration spin drop (60). Only **F0 and F1 have no spin term**
+   and can be read directly. Anyone deriving a component from a difference of two fixtures must
+   subtract the spins first.
+3. **Eight fixtures cannot separate dispatch depth from work base.** `F8 - F4 = 8 = 3*16 +
+   (W_RESTORE - W_REGION) - 40` pins their *sum*, which is why it yields the difference
+   (`W_RESTORE - W_REGION = 0`, the restore's body is the region's body exactly) and not two
+   values. That split is instruction-level evidence, recorded beside each constant, **not**
+   fixture evidence. Stated so the next re-derivation does not try and quietly fit it.
+
+**AND THE CONSUMER THIS CLAIM WAS BLOCKING DID NOT NEED IT.** Design §7.3 said every band-height
+minimum in `band()` is cost-keyed to `op_work_cyc`; the source at the two lines it cites refutes
+that — both minima price the **ON** fire (`stream_cram` / `stream_pal_region`), and the restore's
+cost reaches only `check_density` and `check_hint_total`, which consume the **whole fire total**
+that F8 measures directly. **A blocking dependency that was never real, on a claim that was
+already closed, in a document that could not say so.** That is the compound failure, and it is
+worth more than the constant.
+
+**Both stale documents corrected in the same change:** the R1 v6 spec's `:263` and `:462` now
+point at `GATE-EVIDENCE.md` as the authority instead of restating a status, and `GATE-EVIDENCE.md`
+carries the re-derivation with the 08-17 section explicitly marked SUPERSEDED and its ROM
+identified as one that no longer exists. **Re-open this the next time a substrate parcel touches
+`Raster_HInt`'s prologue, its dispatch chain, or `RASTER_HBLANK_END_CYC`** — five edits since
+08-17 each moved a fixture, and each is documented in `raster_dsl.emp`'s re-derivation chain.

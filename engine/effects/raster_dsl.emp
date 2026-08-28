@@ -2797,18 +2797,31 @@ comptime fn check_band_ownership(fires: array) -> int {
 // ---- THE POSITIVE FIXTURES, and why they are here and not in the poison lane ------
 // The expect-fail lane can only prove a guard REFUSES. A walk that refused everything
 // would pass every poison in the set, so the admissions have to be pinned too — and the
-// two admissions this design adds are both TWO-BAND programs, which raster_program still
-// refuses in P1 on the `restore_n <= 1` count. So they are pinned against the walk
-// DIRECTLY, which is the only place they can be pinned until P2a deletes that count.
+// two admissions this design adds are both TWO-BAND programs.
+//
+// PARCEL P2a PROMOTED THESE FROM WALK-LEVEL TO PROGRAM-LEVEL, and that promotion is the
+// half of P2a worth more than the deletion. At P1 `restore_n <= 1` refused every two-band
+// program, so the two new admissions could only be pinned against `check_band_pairing`
+// and `check_band_ownership` CALLED DIRECTLY — which proves the walks admit, and proves
+// nothing about whether `raster_program` does. A guard the walks pass and some later
+// ensure refuses is indistinguishable, from inside those pins, from a guard that works.
+// With the count gone, the same two programs are now put through `raster_program` itself
+// and must BUILD. The walk-level pins are KEPT beside them, because the visit counts are
+// the non-vacuity witness and `raster_program` does not return them.
 //
 // THE VISIT COUNTS ARE DERIVED, not measured and pasted. A band over `w` CRAM words emits
 // two ops each covering the same `w` entries, so it contributes 2w visits; a program of
 // independent bands contributes the sum.
+//
+// THE WORD COUNTS ARE DERIVED TOO, from the shipped `op_size` through `raster_words`, and
+// never from design §7.1's table — which is exactly how §7.1 caught the parent spec's
+// stale 14. A `band(sh: 0)` is one ON record (2 + op_size(ON)) plus one restore record
+// (2 + op_size(PalRestore) = 8).
 comptime fn zz_band_ownership_fixtures() -> int {
-    // (1) TWO BANDS, DISJOINT SPANS — still refused by raster_program's `restore_n <= 1`
-    // count at P1, and refused by guard C-A for a second reason it could not see past: two
-    // restores made "the restore's partner" name a set. The WALK admits it, because the two
-    // spans share no entry and the two per-entry timelines never meet. 3 words at $48
+    // (1) TWO BANDS, DISJOINT SPANS — refused at P1 by `restore_n <= 1`, and refused by
+    // guard C-A for a second reason it could not see past: two restores made "the
+    // restore's partner" name a set. The WALK admits it, because the two spans share no
+    // entry and the two per-entry timelines never meet. 3 words at $48
     // (entries 36..38) + 2 words at $68 (entries 52..53) = 2*3 + 2*2 = 10 visits.
     let zz_disjoint = compose([ band(100, 140, stream_cram($48, [$0EEE, $0AAA, $0666]), 0),
                                 band(160, 200, stream_cram($68, [$0E00, $0A00]), 0) ])
@@ -2847,6 +2860,64 @@ comptime fn zz_band_ownership_fixtures() -> int {
            "the first band's restore carries id {op_band_id(fire_ops(zz_sequential[1])[0])}, not the {40 * 128 + $48} that design §2.2's `top * 128 + sa` gives for its authored top (40) and CRAM start ($48)")
     ensure(op_band_id(fire_ops(zz_sequential[3])[0]) == 80 * 128 + $48,
            "the second band's restore carries id {op_band_id(fire_ops(zz_sequential[3])[0])}, not the {80 * 128 + $48} that design §2.2's `top * 128 + sa` gives for its authored top (80) and CRAM start ($48)")
+
+    // ---- PARCEL P2a: THE SAME TWO PROGRAMS THROUGH raster_program ITSELF -------
+    // THIS IS THE FIXTURE P1 COULD NOT WRITE. Everything above pins the two WALKS; these
+    // two pin the whole entry point, which is the thing an author actually calls and the
+    // only place the deleted count could have refused them. If `restore_n <= 1` ever came
+    // back — or if any later guard grew a singular phrase — these go red here, in this
+    // module, on every build, rather than showing up as an author's build error.
+    //
+    // THE LENGTHS ARE DERIVED FROM op_size, not observed. `raster_words` is 7 fixed (mask,
+    // two priming records, terminator) plus, per fire, 2 + sum of its ops' op_size.
+    //   disjoint:   [2 + (5+3)] + [2+6] + [2 + (5+2)] + [2+6] = 10 + 8 + 9 + 8 = 35, +7 = 42
+    //   sequential: 2 x ([2 + (5+3)] + [2+6])                 = 2 x 18       = 36, +7 = 43
+    // raster_program re-derives the same total through a second path and holds itself to
+    // `out.len == raster_words(fires)`, so these pins are checking the pair, not one path.
+    ensure(raster_program(zz_disjoint).len == 42,
+           "band ownership fixture 1 (two bands, disjoint spans) MUST BUILD: raster_program emitted {raster_program(zz_disjoint).len} words where op_size gives 7 + (2+8) + (2+6) + (2+7) + (2+6) = 42. A REFUSAL here is the parcel-P2a regression this fixture exists for — the one-band-per-program count, or a successor to it, is refusing a program the ownership walks admit.")
+    ensure(raster_program(zz_sequential).len == 43,
+           "band ownership fixture 2 (two bands, one span, sequential) MUST BUILD: raster_program emitted {raster_program(zz_sequential).len} words where op_size gives 7 + 2 x ((2+8) + (2+6)) = 43. This is the harder of the two admissions — both bands' ON ops are equal-span candidates for both restores, which is precisely what guard C-A could not adjudicate.")
+
+    // ---- THE CAP IS THREE, AND IT IS THE BUFFER — derived, not quoted ---------
+    // Design §7.1 says the 64-word program buffer caps N at three. That number is re-derived
+    // HERE from the shipped `op_size` every build, in both directions, because §7.1's own
+    // note says anyone re-deriving it after a wire-format change must go back to `op_size`
+    // and never to the table.
+    //
+    // The cheapest band shape is the one that sets the ceiling: a 1-word `stream_cram` ON
+    // (op_size 5+1 = 6) with its restore (op_size 6), so 2+6 + 2+6 = 16 words per band.
+    // Three of them is 7 + 48 = 55, which fits the 64-word buffer with 9 words to spare;
+    // four is 7 + 64 = 71, which does not. Nothing in this module may spell 3 as a literal
+    // ceiling — the two pins below ARE the ceiling.
+    let zz_three = compose([ band(20,  40,  stream_cram($40, [$0EEE]), 0),
+                             band(60,  80,  stream_cram($44, [$0AAA]), 0),
+                             band(100, 120, stream_cram($48, [$0666]), 0) ])
+    ensure(check_band_pairing(zz_three) == 3,
+           "band cap fixture: check_band_pairing counted {check_band_pairing(zz_three)} bands where the fixture spells three band() calls")
+    ensure(raster_words(zz_three) == 55 && raster_words(zz_three) <= RASTER_BUF_WORDS,
+           "band cap fixture: THREE bands are {raster_words(zz_three)} words against the {RASTER_BUF_WORDS}-word buffer. op_size gives a 1-word-cram band 16 words (2+6 for the ON record, 2+6 for the restore), so three is 7 + 48 = 55. If this went OVER, the cap fell below three and design §7.1's authoring advice — and §10's 'three bands is the ceiling' — are wrong in the direction that silently refuses content.")
+    ensure(raster_program(zz_three).len == 55,
+           "band cap fixture: THREE bands MUST BUILD, and raster_program emitted {raster_program(zz_three).len} words. This is the fixture that says N is capped by the BUFFER and not by a count — if it refuses, something other than `out.len * 2 <= 128` is limiting N.")
+
+    // The other direction, and it is the one the poison lane cannot state as arithmetic.
+    // FOUR bands overflow, so `raster_program`'s `out.len * 2 <= 128` refuses them — which
+    // is what games/sonic4/test/poison/poison_four_bands.emp proves as an actual build
+    // failure with a sentence. Here we pin only the arithmetic that makes that poison
+    // MEAN something: that the fixture is over the line, and by how much.
+    //
+    // WHY BOTH: if the buffer ever grew, the poison would build clean and its lane row
+    // would go loudly red — but so would this pin, first, naming the number. If the buffer
+    // ever SHRANK below 55, the poison would still fail for a bound that no longer exists
+    // and would report green about it; the `zz_three` pins above are what catch that, and
+    // they catch it as a build error in this module rather than as a lane pass. The pair is
+    // loud in both directions and neither half is enough alone.
+    let zz_four = compose([ band(20,  40,  stream_cram($40, [$0EEE]), 0),
+                            band(60,  80,  stream_cram($44, [$0AAA]), 0),
+                            band(100, 120, stream_cram($48, [$0666]), 0),
+                            band(140, 160, stream_cram($4C, [$0222]), 0) ])
+    ensure(raster_words(zz_four) == 71 && raster_words(zz_four) > RASTER_BUF_WORDS,
+           "band cap fixture: FOUR bands are {raster_words(zz_four)} words, which must EXCEED the {RASTER_BUF_WORDS}-word buffer — 7 + 4 x 16 = 71. If this fits, N is no longer capped at three and poison_four_bands has stopped testing its subject; re-derive the cap from op_size and re-size that poison before touching this number.")
     return 1
 }
 ensure(zz_band_ownership_fixtures() == 1, "the band ownership positive fixtures stopped elaborating")
@@ -2924,24 +2995,34 @@ pub comptime fn raster_program(fires: array) {
     check_band_pairing(fires)
     check_band_ownership(fires)
 
-    // ---- 8a: ONE BAND PER PROGRAM (spec §4.1) --------------------------------
-    // WHAT THIS COUNT NOW IS, and what it stopped being. It used to be load-bearing:
-    // every guard that followed was written in the singular ("the restore", "its
-    // partner", "the restore's line"), so with two restores those phrases named nothing
-    // and the composition guard had to be gated on the count rather than adjudicate a
-    // set. That is no longer true of the ownership walks above, which run unconditionally
-    // and are total over N bands. What survives is the RUNTIME half of the refusal, which
-    // this parcel does not touch: Raster_BuildSchedule decides emit-or-suppress per
-    // patch-table entry with no notion of a pair (design §1(3), §4), and the ROM-side
-    // budget in design §7.1 caps N at three whatever the guards allow. Deleting this
-    // count is parcel P2a and it is a deletion of these four lines plus the gate below —
-    // deliberately not taken here, because P1's whole claim is that it moves no byte.
+    // ---- 8a: N BANDS PER PROGRAM (parcel P2a) --------------------------------
+    // `ensure(restore_n <= 1)` IS DELETED HERE. It was spec §4.1's one-band-per-program
+    // refusal and it was load-bearing exactly once: while every guard that followed was
+    // written in the singular ("the restore", "its partner"), two restores made those
+    // phrases name a set. The ownership walks above replaced that inference with a
+    // declared band id (parcel P1), and they are total over N bands, so the count had
+    // nothing left to protect. This is P2a and it is the deletion of those four lines.
+    //
+    // WHAT NOW CAPS N, and it is not a count: the 64-word program buffer, enforced
+    // unchanged at `out.len * 2 <= 128` at the bottom of this function. A `band(sh: 0)`
+    // whose ON op is a `pal_region` or a 1-word `cram` is 16 words against
+    // raster_words' fixed 7, so THREE bands fit (55 words) and four do not (71). That
+    // ceiling is DERIVED from the shipped `op_size`, pinned in
+    // zz_band_ownership_fixtures above, and poisoned at N+1 by
+    // games/sonic4/test/poison/poison_four_bands.emp — never quoted as a number here.
+    //
+    // WHAT DOES *NOT* CHANGE, and it is the reason `restore_n` survives the deletion:
+    // CLAIM 6 below is a fact about a program that CONTAINS A BAND, not about every
+    // program. Lifting it out of this gate would refuse `offscreen_ship` tree-wide —
+    // games/sonic4/data/effects/ojz_effects.emp:858 declares it on shipped content — so
+    // the gate is relaxed from `== 1` to `>= 1` rather than removed. The D-B guard
+    // beside it is per-fire and already vacuous at restore_n == 0 (`has_r == 0` for
+    // every fire), so for D-B the gate is a no-op either way and it stays here only
+    // because splitting the block would say less than keeping it whole.
     comptime var restore_n = 0
     for f in fires { for o in fire_ops(f) { restore_n = restore_n + op_is_restore(o) } }
-    ensure(restore_n <= 1,
-           "raster_program: {restore_n} restore ops — one band per program (spec §4.1, still in force at parcel P1). The ownership walk above has already checked each band's pairing on its own id, so any sentence it printed is real and independent of this count; this refusal is about the RUNTIME, which has no notion of a pair yet, and about the 64-word program buffer, which caps N at three.")
 
-    if restore_n == 1 {
+    if restore_n >= 1 {
         // WHAT IS LEFT INSIDE THIS GATE, now that C-A is gone. Guard C-A — find the first
         // restore, find its unique strictly-earlier equal-span partner, refuse every other
         // intersecting op — was DELETED here and replaced by check_band_pairing /
@@ -2951,9 +3032,9 @@ pub comptime fn raster_program(fires: array) {
         // than from a pairing reconstructed out of span equality and fire order.
         //
         // The two guards below are NOT part of that succession and are untouched by it.
-        // Both are per-fire and already total over N bands; they stay inside the count gate
-        // only because P1 changes no behaviour it does not have to. P2a lifts them out with
-        // the gate.
+        // Both are per-fire and already total over N bands. P2a widened the gate from
+        // `== 1` to `>= 1` rather than deleting it, and the reason is CLAIM 6: see the
+        // note above the gate. D-B would be safe ungated; CLAIM 6 would not.
 
         // ---- D-B: the restore's fire is a SINGLE-OP fire (spec §4.2a) ----------
         // Not a tidiness rule and not covered by the per-fire ceilings above: two ops

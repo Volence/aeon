@@ -16,7 +16,7 @@
 // list without running the scan, so the only thing that can fail here is the
 // constructor's own ensure.
 //
-// NO IMPORTS — see poison_two_restores.emp's note.
+// NO IMPORTS — see poison_four_bands.emp's note.
 module games.sonic4.test.poison.poison_regset_8f
 
 const POISON_REGSET_8F = [

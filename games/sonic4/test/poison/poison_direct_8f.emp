@@ -13,7 +13,7 @@
 // gives an author a good sentence at the call site; this scan is the one that cannot
 // be dodged, and it runs on every program in the tree whether or not it has a band.
 //
-// NO IMPORTS — see poison_two_restores.emp's note.
+// NO IMPORTS — see poison_four_bands.emp's note.
 module games.sonic4.test.poison.poison_direct_8f
 
 const POISON_DIRECT_8F = [

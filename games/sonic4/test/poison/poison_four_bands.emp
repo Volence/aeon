@@ -1,0 +1,72 @@
+// games/sonic4/test/poison/poison_four_bands.emp — POISON (see README).
+//
+// TARGETS: raster_program's 64-word program buffer (`out.len * 2 <= 128`), which is what
+//          caps the number of bands in one program now that parcel P2a has deleted the
+//          `restore_n <= 1` count.
+// EXPECTED FRAGMENT: "142 bytes exceeds RASTER_BUF_SIZE"
+//
+// THIS FILE IS THE SUCCESSOR OF poison_two_restores.emp, renamed rather than deleted, and
+// the rename is the honest record of what P2a did. That poison's whole content was TWO
+// WELL-FORMED BANDS OVER DISJOINT SPANS whose only defect was the count — and admitting
+// exactly that program is what P2a is. A poison cannot survive the deletion of the refusal
+// it targets; the only two options were to drop the case (a silent coverage loss at the
+// exact spot where a lifted refusal is most likely to stop guarding) or to re-aim it at the
+// refusal that INHERITED its job. That refusal is the buffer, and this is that case.
+//
+// Its old body did not disappear: it is now a POSITIVE fixture in
+// engine/effects/raster_dsl.emp (`zz_disjoint`), where it must BUILD through
+// raster_program on every build. The two files together are the before and after of one
+// deletion — the same program, moved from the expect-fail lane to the must-build lane.
+//
+// WHY FOUR AND NOT SOME LARGER NUMBER. The cap has to be poisoned at N+1 or it is not
+// poisoned at all: a twenty-band fixture would fail for a bound nobody could locate, and
+// would keep failing long after the real ceiling had moved. Four is the smallest count the
+// buffer refuses, so this case fails if and only if three is the true cap.
+//
+// THE ARITHMETIC, and it is DERIVED FROM THE SHIPPED op_size rather than from design
+// §7.1's table (which is exactly how that table caught the parent spec's stale 14):
+// `raster_words` is 7 fixed words — the mask, two priming records, the terminator — plus,
+// per fire, 2 + the op_size of its ops. A `band(sh: 0)` over a 1-word `stream_cram` is its
+// cheapest possible shape: the ON record is 2 + op_size(Cram, 1 col) = 2 + 6 = 8 and the
+// restore record is 2 + op_size(PalRestore) = 2 + 6 = 8, so 16 words per band.
+//
+//     three bands   7 + 3 x 16 = 55 words = 110 bytes   FITS   (9 words spare)
+//     four  bands   7 + 4 x 16 = 71 words = 142 bytes   REFUSED
+//
+// so the fragment's 142 is this fixture's OWN size and tracks `op_size` in both
+// directions, not the 128-byte ceiling. Both halves of that table are pinned as comptime
+// facts in engine/effects/raster_dsl.emp's zz_band_ownership_fixtures — including a THREE
+// band program that must build through raster_program — so a buffer that GREW would make
+// this poison build clean (loud here) and a buffer that SHRANK would break those pins
+// (loud there, first). Neither half is sufficient alone: this lane can only prove a
+// refusal, and a refusal for a bound that has silently moved reports green.
+//
+// FOUR TEXTBOOK BANDS. Disjoint one-word CRAM spans at entries 32, 34, 36 and 38, heights
+// of 20 lines against a 2-line minimum, eight strictly ascending fire lines 20 apart. The
+// ownership walks say NOTHING about this program and that is deliberate: it is the same
+// property the file had as poison_two_restores — the only thing wrong with it is the size —
+// so a walk that started refusing legal bands would show up as a count of 2 here.
+//
+// COUNT 1: the buffer ensure alone. Everything else in raster_program passes — the
+// intervals are ascending and disjoint, each fire is far under its density gap (20 lines =
+// 9760 cycles against ~650 per fire), the frame total is ~5,000 against 84,595, no fire is
+// patchable or ships, every restore's fire is single-op, and every band is well formed.
+//
+// NO IMPORTS, like every ordinary author's module: raster_dsl and engine.vdp are
+// COMPTIME_HELPERS members, glob-injected into every module by the real build.
+module games.sonic4.test.poison.poison_four_bands
+
+const POISON_FOUR_BANDS = compose([
+    band(20,  40,  stream_cram($40, [$0EEE]), 0),
+    band(60,  80,  stream_cram($44, [$0AAA]), 0),
+    band(100, 120, stream_cram($48, [$0666]), 0),
+    band(140, 160, stream_cram($4C, [$0222]), 0),
+])
+
+// THE ELABORATION HOOK. A comptime fn is only elaborated when it is CALLED and an
+// unreferenced const is inert, so the guard under test runs only because this
+// module-level ensure forces raster_program's body. The predicate is deliberately
+// trivially-true: the diagnostic under test comes from INSIDE the call, and this
+// ensure's own message is what you would see if the poison ever stopped reaching it.
+ensure(raster_program(POISON_FOUR_BANDS).len > 0,
+       "poison_four_bands: raster_program returned nothing — this poison no longer reaches the guard it targets")
