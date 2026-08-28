@@ -771,7 +771,25 @@ raster tier can go.
 2. **Pack the bias, or grow the table?** (§4.4) I recommend the sixth word on a NOMINAL cycle
    argument. Measurement 3 in §7.5 settles it. If the measured `Raster_BuildSchedule` row has
    no headroom concern at all, packing is strictly better (zero ROM, byte-identical images).
-3. **CLAIM 9 is still unverified at `5b09649c`** and every band minimum rides it. This design
+3. **⚠ CORRECTED 2026-08-28 — CLAIM 9 IS NOT UNVERIFIED. IT IS MEASURED AND STALE, WHICH IS A
+   THIRD STATE THIS DOCUMENT DID NOT HAVE A WORD FOR.** It was closed on 2026-08-17 —
+   `docs/benchmarks/effects-r1/GATE-EVIDENCE.md:8`, *"MEASURED, CLOSED"*, with the derivation
+   `556 − 302 − 8 − 82 − 90 − 10 = 64`. This design read the R1 v6 spec (`:263`, still reading
+   "UNVERIFIED"), which was never updated when the benchmark closed it; the overseer then
+   repeated the error to two lanes. **A spec is not executed, and the benchmark that refutes it
+   is a file nobody had reason to open.**
+   **But the closure has since expired, so the practical instruction below still stands and only
+   its REASON changes.** Re-measured 2026-08-28 on `s4.debug.bin` crc `fee02557`: F8 (pal_restore
+   3w) **556 → 674**, F1 (reg_set) **412 → 320**, F0 floor **572 → 588**. The movement is **not
+   uniform** — F1 fell while F8 rose — so the model's components have moved relative to one
+   another and the 08-17 closure describes a ROM that no longer exists.
+   **What P2a owes is therefore a RE-DERIVATION, not a measurement:** take today's F8 = 674
+   against **today's** component decomposition. **Do NOT subtract the 08-17 components
+   (302/8/82/90/10, themselves derived at `RUNGS=5`) from the new total** — that is the
+   arithmetic that looks like a derivation while mixing two revisions. Full booking, with the
+   generalisation about artifact-anchored closures expiring silently, is in
+   `docs/DEFERRED_WORK.md`.
+   ~~CLAIM 9 is still unverified at `5b09649c`~~ and every band minimum rides it. This design
    does not create that debt but N bands multiplies it by N. Should P2a be gated on measurement
    1, or is the existing single-band evidence enough to admit a second band at the same shape?
    My recommendation: gate P2a on measurement 1, because the minima freeze is what P2a makes
