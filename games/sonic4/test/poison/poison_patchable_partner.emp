@@ -1,41 +1,39 @@
 // games/sonic4/test/poison/poison_patchable_partner.emp — POISON (see README).
 //
-// TARGETS: rule 6 half 2 — the restore's PARTNER's carrying fire must be static
-//          (spec §4.2, Task 8 review — gate rule 6 half 2).
+// TARGETS: rule 6 half 2 — the band's ON record must be static too
+//          (spec §4.2, Task 8 review; carried into check_band_pairing at parcel P1).
 // EXPECTED FRAGMENT: "must be static — a patchable partner"
 //
-// poison_patchable_band_fire.emp already covers rule 6 half 1 (the RESTORE's own
-// carrying fire marked patchable). This poison is the other half: the PARTNER —
-// the equal-span ON op the restore's diagnostics are written in the singular
-// against — marked patchable instead.
+// poison_patchable_band_fire.emp covers rule 6 half 1 (the RESTORE's carrying fire marked
+// patchable). This is the other half: the band's ON record marked patchable instead.
 //
-// A legal-looking band: a patchable ON op at line 60 (band 40..100, channel 0)
-// writing $48..$4D, and its equal-span static restore at line 140. Every span
-// check passes — the partner's span is $48..$4D and so is the restore's, and
-// check_intervals sees two disjoint fire-line intervals (39<60's reachable range,
-// which tops out at 99; the restore's own line 140 starts at 139 in fire-line
-// space) so nothing upstream refuses the shape on ordering grounds.
+// A textbook band, ON at line 60 and restore at 140 over $48..$4D, with the ON fire handed
+// to `patchable` (channel 0, band 40..100). Every ownership check passes — same id, same
+// span, ON above the restore — and check_intervals sees two disjoint fire-line intervals
+// (39..99 for the moving record, 139 for the static one), so nothing upstream refuses the
+// shape on ordering grounds.
 //
-// What it spells is a band whose TOP edge moves. Past `lo` (40), Raster_BuildSchedule
-// does not emit the record at all (engine/effects/raster.emp, .suppress) — so the
-// restore at line 140 still runs and turns the tint off, but the ON op that was
-// supposed to turn it on never fired that frame. That is the base-over-base
-// authoring nonsense the composition guard exists to keep out, arrived at through
-// a runtime clamp instead of an authoring mistake — which is exactly why rule 6
-// refuses it at BUILD time rather than leaving it to be found on hardware.
+// What it spells is a band whose TOP edge moves. Past `lo` (40), Raster_BuildSchedule does
+// not emit the record at all (engine/effects/raster.emp, .suppress) — so the restore at
+// line 140 still runs and turns the tint off, but the ON op that was supposed to turn it
+// on never fired that frame. That is base-over-base, arrived at through a runtime clamp
+// instead of an authoring mistake, which is exactly why rule 6 refuses it at BUILD time.
 //
-// THE EQUAL SPAN IS DELIBERATE and load-bearing, same as poison_band_buried_tint's
-// note: an unequal-span intersecting op never reaches rule 6 at all — it trips the
-// "would bury" ensure first (the {isect_earlier} count ensure just below it does
-// NOT fire here, because this poison's only strictly-earlier intersecting op IS the
-// equal-span partner — the count is exactly 1).
+// THIS IS THE CHEAPEST THING PARCEL P2b DELETES. The design's §8 argues that a suppressed
+// ON is benign (base over base) where a suppressed RESTORE is the measured sweep-5 defect,
+// so rule 6 half 2 is precautionary rather than load-bearing once ownership is declared.
+// It is kept in force at P1 on purpose: P1 changes no behaviour it does not have to.
+//
+// PARCEL-P1 NOTE. Built with `band()` and split with an index, for the same reason as
+// poison_patchable_band_fire: an unowned hand-authored restore is refused earlier now and
+// would never reach this guard.
 //
 // NO IMPORTS — see poison_two_restores.emp's note.
 module games.sonic4.test.poison.poison_patchable_partner
 
-const POISON_PATCHABLE_PARTNER = patchable([
-    fire(60, [stream_cram($48, [$0EEE, $0AAA, $0666])]),
-], ch: 0, lo: 40, hi: 100) ++ [fire(140, [pal_restore($48, 3)])]
+const POISON_PP_BAND = band(60, 140, stream_cram($48, [$0EEE, $0AAA, $0666]), 0)
+
+const POISON_PATCHABLE_PARTNER = patchable([ POISON_PP_BAND[0] ], ch: 0, lo: 40, hi: 100) ++ [ POISON_PP_BAND[1] ]
 
 ensure(raster_program(POISON_PATCHABLE_PARTNER).len > 0,
        "poison_patchable_partner: raster_program returned nothing — this poison no longer reaches the guard it targets")

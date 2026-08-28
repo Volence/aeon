@@ -1,0 +1,36 @@
+// games/sonic4/test/poison/poison_band_base_above.emp — POISON (see README).
+//
+// TARGETS: OWN-1's base rule — a band opening on an entry that no longer holds this
+//          frame's base-DMA value (band-ownership design §3.2 / §3.3's last row).
+// EXPECTED FRAGMENT: "does not hold this frame's base palette"
+//
+// An unbanded tint at line 50 writes CRAM entry 36, and a band at 100..140 then opens over
+// the same entry. Everything about the band is well-formed; the fault is entirely in what
+// was there before it.
+//
+// A `pal_restore` streams this frame's BASE palette back, not "this band's contribution
+// removed". So from line 140 down, entry 36 reverts to BASE — not to the line-50 colour
+// the author put there. The line-50 effect silently stops at 140.
+//
+// THIS IS THE ROW WHERE THE NEW RULE EARNS ITS KEEP AS DOCUMENTATION. C-A refused this
+// program too, by counting two strictly-earlier ops intersecting the restore's span and
+// reporting "2 strictly-earlier op(s) intersect the restore's span" — a sentence about the
+// guard's own bookkeeping, from which the author had to reconstruct what would go wrong.
+// The walk can say the true thing instead, naming the entry, the line and the mechanism.
+// Keep that property in mind before rewording the guard: the fragment this case matches is
+// the half of the sentence that describes the PROGRAM.
+//
+// ONE WORD, so the walk reports one sentence rather than one per covered entry.
+//
+// COUNT 1.
+//
+// NO IMPORTS — see poison_two_restores.emp's note.
+module games.sonic4.test.poison.poison_band_base_above
+
+const POISON_BAND_BASE_ABOVE = compose([
+    [ fire(50, [stream_cram($48, [$0EEE])]) ],
+    band(100, 140, stream_cram($48, [$0AAA]), 0),
+])
+
+ensure(raster_program(POISON_BAND_BASE_ABOVE).len > 0,
+       "poison_band_base_above: raster_program returned nothing — this poison no longer reaches the guard it targets")

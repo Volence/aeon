@@ -1,0 +1,37 @@
+// games/sonic4/test/poison/poison_band_span_mismatch.emp — POISON (see README).
+//
+// TARGETS: OWN-2's equal-span rule — a band's two records must name the SAME span
+//          (band-ownership design §3.2, rule OWN-2).
+// EXPECTED FRAGMENT: "must name the SAME span"
+//
+// A real band's ON op — `band(100, 140, stream_cram($48, [2 words]), 0)` — with its own
+// restore discarded and a HAND-BUILT one put in its place, carrying the band's id but
+// three words instead of two. The extra word writes base over CRAM entry 38, which the ON
+// op never touched.
+//
+// WHY THE GUARD RE-CHECKS SOMETHING band() GUARANTEES. `band()` derives the restore from
+// the ON op's own span (`pal_restore(sa, sb / 2)`), so a band built through the front door
+// cannot have mismatched spans — there is no second place to write the fact. But
+// `RasterOp` is `pub` and its arms are the wire contract, so a hand-built PalRestore
+// carrying a real band's id is a spelling the language admits. Trusting the constructor
+// here would be the same mistake the $8F/$8A scans exist to avoid: constructor-only
+// refusals are not refusals (spec §4.2b).
+//
+// COUNT 2, and the two sentences are from opposite ends of the fault. OWN-2 says the two
+// records disagree about the span. OWN-1, walking CRAM entry 38 — the entry the restore
+// covers and the ON does not — sees a restore closing band 12872 where no band is live.
+// The second is the CONSEQUENCE stated in the timeline's own terms, not a cascade: it is
+// what an author would see on screen.
+//
+// NO IMPORTS — see poison_two_restores.emp's note.
+module games.sonic4.test.poison.poison_band_span_mismatch
+
+const POISON_BSM_BAND = band(100, 140, stream_cram($48, [$0EEE, $0AAA]), 0)
+
+const POISON_BAND_SPAN_MISMATCH = [
+    POISON_BSM_BAND[0],
+    fire(140, [RasterOp.PalRestore($48, 3, 100 * 128 + $48)]),
+]
+
+ensure(raster_program(POISON_BAND_SPAN_MISMATCH).len > 0,
+       "poison_band_span_mismatch: raster_program returned nothing — this poison no longer reaches the guard it targets")

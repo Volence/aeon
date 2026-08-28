@@ -1,28 +1,32 @@
 // games/sonic4/test/poison/poison_patchable_band_fire.emp — POISON (see README).
 //
 // TARGETS: rule 6 half 1 / claim E-A — the restore's carrying fire must be static
-//          (spec §4.2).
+//          (spec §4.2; carried into check_band_pairing at parcel P1).
 // EXPECTED FRAGMENT: "must be static"
 //
-// THE SWEEP-5 K1 WITNESS. A legal-looking band — a static ON op at line 50 and its
-// equal-span restore — with the restore's fire marked `patchable`. Every span check
-// passes: the partner's span is $48..$4D and so is the restore's.
+// THE SWEEP-5 K1 WITNESS. A textbook band — ON at line 50, its own restore at 100 — with
+// the RESTORE'S fire handed to `patchable`. Every ownership check passes: the two records
+// carry the same id, the same span, and the ON is above the restore. The band is
+// well-formed; what is wrong is that its OFF edge can move.
 //
-// What it spells is a band whose BOTTOM edge moves, and local removal makes that a
-// silent failure rather than a clamped one. Past band_hi, Raster_BuildSchedule does
-// not emit the record at all (engine/effects/raster.emp, .suppress) — so the ON op
-// at line 50 still runs and the restore simply never does, and the tint runs to the
-// bottom of the screen with nothing to turn it off. A moving-bottom band is spelled
-// by moving the ON op instead, which keeps the OFF edge where the restore can always
-// reach it.
+// Past band_hi, Raster_BuildSchedule does not emit the record at all (engine/effects/
+// raster.emp, .suppress) — so the ON op at line 50 still runs and the restore simply never
+// does, and the tint runs to the bottom of the screen with nothing to turn it off. A
+// moving-bottom band is spelled by moving the ON op instead, which keeps the OFF edge
+// where the restore can always reach it. (That is the runtime half the ownership
+// representation does NOT fix; it is design §4's SUP-1 and it belongs to parcel P3.)
+//
+// PARCEL-P1 NOTE. The band is now built by `band()` and split with an index, rather than
+// hand-authored as an unowned cram/restore pair. That is not cosmetic: an unowned restore
+// is refused for a different reason now (it carries no band id), so the old spelling would
+// never have reached the guard this poison is for.
 //
 // NO IMPORTS — see poison_two_restores.emp's note.
 module games.sonic4.test.poison.poison_patchable_band_fire
 
-const POISON_PATCHABLE_BAND_FIRE = compose([
-    [ fire(50, [stream_cram($48, [$0EEE, $0AAA, $0666])]) ],
-    patchable([ fire(100, [pal_restore($48, 3)]) ], ch: 0, lo: 100, hi: 150),
-])
+const POISON_PBF_BAND = band(50, 100, stream_cram($48, [$0EEE, $0AAA, $0666]), 0)
+
+const POISON_PATCHABLE_BAND_FIRE = [ POISON_PBF_BAND[0] ] ++ patchable([ POISON_PBF_BAND[1] ], ch: 0, lo: 100, hi: 150)
 
 ensure(raster_program(POISON_PATCHABLE_BAND_FIRE).len > 0,
        "poison_patchable_band_fire: raster_program returned nothing — this poison no longer reaches the guard it targets")

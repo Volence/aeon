@@ -3,24 +3,32 @@
 // TARGETS: raster_program's one-band-per-program count (spec §4.1).
 // EXPECTED FRAGMENT: "one band per program"
 //
-// Two fires, each carrying its own pal_restore. Every OTHER guard in the module
-// passes: the fires ascend, the intervals are disjoint, and 40 scanlines of gap is
-// far more than a 556-cycle restore fire needs. The ONLY thing wrong here is that
-// the program declares two band OFF edges, and the whole §4.2 composition argument
-// (which op is the restore's partner, which ops would be buried) is written against
-// exactly one — so the count is refused before the composition guard runs. The
-// restore_n == 1 block is skipped for this program deliberately: a poison should
-// name ONE guard, not trip four.
+// TWO WELL-FORMED BANDS, and that is the parcel-P1 change to this fixture. It used to
+// be two bare `pal_restore` fires with no ON ops at all — a shape that only ever tripped
+// the count because every other band guard was gated behind the count. With ownership
+// declared on the op (band-ownership design §2, parcel P1) the guards no longer need
+// that gate, so a poison for the count has to be a program the ownership walks ADMIT:
+// two textbook bands over DISJOINT CRAM spans, which is one of the two cases the design
+// identifies as newly legal and which the walks pass by name.
+//
+// So the only thing wrong here is the count itself — the P1 refusal that survives, and
+// the one parcel P2a deletes. What that count is now about is the RUNTIME, which decides
+// emit-or-suppress per patch-table entry with no notion of a pair, and the 64-word
+// program buffer, which caps N at three (design §7.1). It is no longer about the guards
+// being written in the singular.
+//
+// COUNT 1: exactly the count. The ownership walks say nothing — which is the half of
+// this poison that would go silent if they started refusing legal bands, and the reason
+// this file is a better fixture than the one it replaces.
 //
 // NO IMPORTS, like every ordinary author's module: raster_dsl and engine.vdp are
-// COMPTIME_HELPERS members, glob-injected into every module by the real build. See
-// the README on why the lane cannot reproduce that injection yet.
+// COMPTIME_HELPERS members, glob-injected into every module by the real build.
 module games.sonic4.test.poison.poison_two_restores
 
-const POISON_TWO_RESTORES = [
-    fire(100, [pal_restore($48, 3)]),
-    fire(140, [pal_restore($68, 2)]),
-]
+const POISON_TWO_RESTORES = compose([
+    band(100, 140, stream_cram($48, [$0EEE, $0AAA, $0666]), 0),
+    band(160, 200, stream_cram($68, [$0E00, $0A00]), 0),
+])
 
 // THE ELABORATION HOOK. A comptime fn is only elaborated when it is CALLED and an
 // unreferenced const is inert, so the guard under test runs only because this

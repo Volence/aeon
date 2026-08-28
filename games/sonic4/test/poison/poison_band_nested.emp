@@ -1,0 +1,43 @@
+// games/sonic4/test/poison/poison_band_nested.emp — POISON (see README).
+//
+// TARGETS: OWN-1's two-bands-live rule (band-ownership design §3.2, the "two bands nested
+//          over the same span" row of §3.3).
+// EXPECTED FRAGMENT: "two bands are live on CRAM entry"
+//
+// Two bands over the SAME one-entry span, one nested inside the other: 100..180 and
+// 120..160 over CRAM $48. Both are individually textbook — same id on both of each band's
+// records, equal spans, ON above restore, heights far past the density minima, four
+// strictly ascending disjoint fire lines.
+//
+// The defect is only visible per entry, which is the whole reason OWN-1 walks entries.
+// A `pal_restore` writes this frame's BASE palette, not "this band's contribution
+// removed" — so the INNER band's restore at 160 does not hand entry 36 back to the outer
+// band's tint, it hands it back to base. The outer band's tint ends at 160 instead of 180,
+// and the outer restore at 180 then restores base over base. Nothing at runtime can report
+// it.
+//
+// THE COMPLEMENT OF THE TWO ADMISSIONS. The same two bands over the same span at
+// NON-overlapping heights (40..60 then 80..100) are LEGAL and are pinned as a positive
+// fixture in engine/effects/raster_dsl.emp — the first restore puts the entry back to base
+// before the second band opens, so `holds_base` is 1 again. This poison and that fixture
+// are the two halves of one rule and neither means much without the other.
+//
+// ONE-WORD BANDS, deliberately: the walk carries one `poisoned` flag per CRAM entry, so a
+// three-word nest would say the same true thing three times.
+//
+// COUNT 2: the nesting sentence on entry 36, plus the P1 one-band-per-program count, which
+// every two-band poison necessarily trips until parcel P2a deletes it. The nesting
+// sentence appearing ONCE rather than twice is itself the evidence that the per-entry
+// poison flag works — without it, the inner ON would also report that entry 36 no longer
+// holds base, which is a true statement that is a consequence of the first one.
+//
+// NO IMPORTS — see poison_two_restores.emp's note.
+module games.sonic4.test.poison.poison_band_nested
+
+const POISON_BAND_NESTED = compose([
+    band(100, 180, stream_cram($48, [$0EEE]), 0),
+    band(120, 160, stream_cram($48, [$0AAA]), 0),
+])
+
+ensure(raster_program(POISON_BAND_NESTED).len > 0,
+       "poison_band_nested: raster_program returned nothing — this poison no longer reaches the guard it targets")

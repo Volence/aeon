@@ -1,0 +1,35 @@
+// games/sonic4/test/poison/poison_band_no_owner.emp — POISON (see README).
+//
+// TARGETS: OWN-2's ownerless-restore refusal (band-ownership design §2.2 / §3.2, P1).
+// EXPECTED FRAGMENT: "carries no band id"
+//
+// THE LEGACY SPELLING, AND THIS POISON IS THE RECORD THAT IT STOPPED BEING LEGAL. Until
+// parcel P1 a band could be hand-authored as two independent fires — a stream op and, some
+// lines below it, a bare `pal_restore` over the same span — and guard C-A would work out
+// that they belonged together by finding the unique strictly-earlier equal-span op. Every
+// band poison in this directory used to be written that way.
+//
+// That inference is what P1 deletes. A restore now says which band it closes, and a
+// restore that says nothing closes nothing: it streams this frame's BASE palette over its
+// span with no declared ON edge above it, and no guard can tell the difference between
+// "the author meant the op at line 100" and "the author forgot the ON op entirely". The
+// program below is exactly the shape C-A ADMITTED, kept as a fixture precisely because it
+// is the one behaviour change P1 makes that is not a pure succession — it is a refusal
+// C-A did not make. Spell it `band(100, 140, stream_cram($48, [...]), 0)` instead.
+//
+// COUNT 1: the ownerless-restore sentence alone. The per-entry walk says nothing, and that
+// is correct rather than lucky — with both ops carrying id 0 the walk sees an ordinary
+// unbanded write followed by a restore that closes the nothing that is open, which is a
+// consistent (if pointless) timeline. OWN-2 is the layer that knows a restore is only
+// meaningful as half of a pair.
+//
+// NO IMPORTS — see poison_two_restores.emp's note.
+module games.sonic4.test.poison.poison_band_no_owner
+
+const POISON_BAND_NO_OWNER = [
+    fire(100, [stream_cram($48, [$0EEE, $0AAA, $0666])]),
+    fire(140, [pal_restore($48, 3)]),
+]
+
+ensure(raster_program(POISON_BAND_NO_OWNER).len > 0,
+       "poison_band_no_owner: raster_program returned nothing — this poison no longer reaches the guard it targets")

@@ -4,13 +4,13 @@
 //          (spec §4.3).
 // EXPECTED FRAGMENT: "offscreen_ship"
 //
-// EVERYTHING HERE IS INDIVIDUALLY LEGAL, which is the whole point: this is a
-// composition refusal, not a malformed anything. The band is textbook — a static
-// equal-span partner at line 100 and its single-op restore at 140, CRAM $48..$4D.
-// The shipping fire is OJZ's own shape (a patchable tint band declaring
-// offscreen_ship) on palette line 3, CRAM $68..$6D, banded 30..60. The two spans are
-// DISJOINT and the two line intervals are disjoint, so C-A has nothing to say and
-// the refusal under test is the only thing left that can fire.
+// EVERYTHING HERE IS INDIVIDUALLY LEGAL, which is the whole point: this is a composition
+// refusal, not a malformed anything. The band is textbook — built by band(), so its two
+// records carry one id and one span, CRAM $48..$4D. The shipping fire is OJZ's own shape
+// (a patchable tint band declaring offscreen_ship) on palette line 3, CRAM $68..$6D,
+// banded 30..60. The two spans are DISJOINT and the two line intervals are disjoint, so
+// the ownership walks have nothing to say and the refusal under test is the only thing
+// left that can fire.
 //
 // The incompatibility is about FRAME STATE, not overlap. On a shipping frame the
 // frame-top DMA has already put VARIANT colours in CRAM while Palette_Ship_Snap —
@@ -21,14 +21,17 @@
 // channel-0 record declares offscreen_ship AND its [3,220] band leaves no legal
 // interval for a second pair (spec §4.3).
 //
+// PARCEL-P1 NOTE. The band half is now one band() call instead of a hand-authored
+// cram/restore pair: an unowned restore is refused earlier now (it carries no band id)
+// and the poison would report that instead of CLAIM 6.
+//
 // NO IMPORTS — see poison_two_restores.emp's note.
 module games.sonic4.test.poison.poison_ship_plus_restore
 
 const POISON_SHIP_PLUS_RESTORE = compose([
     patchable(fx_tint_band(line: 40, slot: 0, pal_line: 3, entry: 4, count: 3, sh: 0),
               ch: 0, lo: 30, hi: 60, offscreen_ship: 1),
-    [ fire(100, [stream_cram($48, [$0EEE, $0AAA, $0666])]) ],
-    [ fire(140, [pal_restore($48, 3)]) ],
+    band(100, 140, stream_cram($48, [$0EEE, $0AAA, $0666]), 0),
 ])
 
 ensure(raster_program(POISON_SHIP_PLUS_RESTORE).len > 0,

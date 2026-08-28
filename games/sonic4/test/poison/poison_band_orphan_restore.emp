@@ -1,0 +1,38 @@
+// games/sonic4/test/poison/poison_band_orphan_restore.emp — POISON (see README).
+//
+// TARGETS: OWN-2's ON-op count — a restore whose id names no ON op
+//          (band-ownership design §3.2, the "restore with no ON op" row of §3.3).
+// EXPECTED FRAGMENT: "has 0 ON op(s) carrying its id"
+//
+// A restore built DIRECTLY as the enum variant, carrying a plausible band id (the one
+// `band(100, ..., stream_cram($48, ...))` would derive, 100 * 128 + $48) and no ON op
+// anywhere. It streams this frame's BASE palette over CRAM entry 36 at line 140, undoing
+// something nothing ever did.
+//
+// WHY THE HAND-BUILT VARIANT, and it is the same argument the $8F/$8A scans rest on:
+// `RasterOp` is `pub` (its arms are the wire contract), so `RasterOp.PalRestore(a, n, id)`
+// is a spelling the language admits and `band()` cannot see. Constructor-only refusals are
+// not refusals. This is the layer that cannot be dodged.
+//
+// C-A REFUSED THIS TOO, by a different route — its `isect_earlier == 0` count — and that
+// row of the design's succession table is what this poison holds. The difference is that
+// C-A's version of the sentence described the guard ("0 strictly-earlier ops intersect the
+// restore's span") where this one describes the program.
+//
+// ONE WORD, not three, and the count below is why: the walk carries one `poisoned` flag
+// PER CRAM ENTRY, so a three-word orphan would say the same true thing three times over.
+// A one-entry span makes the fixture report exactly one sentence per guard.
+//
+// COUNT 2: OWN-2's ON-op count, plus OWN-1 seeing the same fact from the other side — a
+// restore closing band 12872 on an entry where no band is live. Both are real and neither
+// is a cascade of the other; they are the pairing layer and the timeline layer agreeing.
+//
+// NO IMPORTS — see poison_two_restores.emp's note.
+module games.sonic4.test.poison.poison_band_orphan_restore
+
+const POISON_BAND_ORPHAN_RESTORE = [
+    fire(140, [RasterOp.PalRestore($48, 1, 100 * 128 + $48)]),
+]
+
+ensure(raster_program(POISON_BAND_ORPHAN_RESTORE).len > 0,
+       "poison_band_orphan_restore: raster_program returned nothing — this poison no longer reaches the guard it targets")
