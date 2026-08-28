@@ -12453,3 +12453,45 @@ byte-count-neutral case only a content compare catches.
 seven targets, so if nothing moves anywhere it returns `Fixpoint` and **appends nothing** — no
 entry, no error, a git-clean tree. For a parcel believed to move bytes that reads as "the freeze
 did nothing". It is not. It means **the parcel did not move bytes**, and that is the finding.
+
+---
+
+## FREE AT BOTH ENDS IS NOT A PATH BETWEEN THEM (booked 2026-08-28; aurora's framing, their instance and mine)
+
+**The rule we agreed was: confirm the reserved bits are free at each end INDEPENDENTLY — read your
+own reader, not the other lane's writer, and not one inferred from the other.** Both lanes ran it.
+Aurora measured their writers; this lane measured the pipeline's reader. Both answers were correct.
+
+**And the field still has nowhere to go.** `bake_plane_cell`
+(`tools/collision_pipeline.py:209-231`) ends `return attrset.intern(heights, angle, solidity)` — an
+interned attribute **byte**, whose key is those three things and nothing else. So bits 15:14 are not
+*dropped* by the bake; they are **absent from the identity of a cell**. Two cells differing only in a
+transition are the same cell as far as the pipeline is concerned, and no amount of freeness at
+either end creates a route through the middle.
+
+**The frame was wrong, not the measurements.** "Free at both ends" describes two endpoints and says
+nothing about the transport between them. Aurora put it best: *"I checked my writer and your reader
+and neither of us checked the thing in between."*
+
+**Operational form for the next reserved-field question, and there will be one:** ask for the
+**path**, not the endpoints — name every stage a value must survive from the tool that writes it to
+the code that reads it, and check each. An endpoint audit that comes back clean at both ends is
+consistent with a field that cannot travel at all.
+
+*Also recorded: this lane repeated "Route P needs no format change" from the research doc into a peer
+message and a hub report. It is true of the editor word and false of the pipeline, and nobody had
+read the bake — including the lane that insisted on the independent-endpoint discipline. A claim can
+survive careful review by being true of the part everyone checked.*
+
+## GATE VACUITY ON AN UNUSED FIELD — the converse control is mandatory (aurora's, same exchange)
+
+Every cell in every shipped act holds **zeros** in 15:14 today. So on real content **a correct
+preservation implementation and a completely broken one emit the identical artifact**, and a test
+over real cells passes forever either way.
+
+Binding on both lanes' gates here, including any aeon gate on the intern question: **author a
+destination with non-zero reserved bits deliberately**, and pair it with a **converse control**
+proving the writer still changes the bits it *does* own — or "preserve everything" degenerates into
+"paint nothing" and stays green. Same family as `GATE-VACUITY` booked earlier today, and it bites
+harder here because the field's emptiness is not a coincidence to be fixed later; it is the
+starting state of every act.
