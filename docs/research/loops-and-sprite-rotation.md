@@ -1162,9 +1162,15 @@ in an unlabelled dump, not proof of absence.**
   entry rather than a loose intention. Route G belongs there too, explicitly blocked on
   Route P.
 
-`DEFERRED_WORK.md` is **not modified by this parcel.** The amendments above belong with
-whoever lands the corresponding work, so that the entry and the code move together — and
-Route P's entry should not be written until it is a decision, not a proposal.
+**`DEFERRED_WORK.md` IS amended by this parcel, on the two points above only** — the
+"closed is not the same as exercised" note and the re-counted attr-set figure, both in the
+"Path-B collision content" entry. Those are corrections to facts already asserted there, so
+they belong with the entry now rather than with future work.
+
+**Everything else is deliberately left out of it.** The DPLC ratchet comment belongs with
+whoever lands Parcel 1, so entry and code move together. Route P and Route G should not be
+booked until the owner has answered §7's decisions 4 and 5 — a proposal in the deferred
+ledger reads as a commitment, and neither is one yet.
 
 ---
 
