@@ -35,9 +35,13 @@ loop.
 
 **(2b) And the owner wants the object gone.** He is right that the authoring should move
 into the tooling, and the format already has the spare room to do it with no format change
-at all (§4.5.2). But the runtime decision itself is irreducible — which surface you are on
-depends on where you have *been* — so the honest goal is "stop needing the object for the
-common case", not "delete the object" (§4.5.1).
+at all (§4.5.2). Two corrections he should have with that: the runtime decision itself is
+**irreducible** — a loop is traversable in both directions, so the same cell at the top of
+the loop needs opposite answers depending on which way you came, and nothing about the cell
+can say which (§4.5.1). And the **two-plane representation itself is not the legacy part**:
+Sonic Mania's engine still uses two planes, in the same four bits the Mega Drive used
+(§10.1). So the honest goal is "stop needing the object for the common case", not "replace
+the scheme".
 
 ---
 
@@ -407,6 +411,24 @@ comment is explicit — "MUST be refreshed on every `mapping_frame`/`mappings` w
 `refresh_piece_count` (`engine/objects/frames.emp:53`) or the sprite draws the wrong
 frame's pieces.
 
+**And the idiom already exists in this file.** Knuckles' glide pose selection
+(`player_common.emp:814-822`) is the same octant computation pointed at a different angle:
+
+```
+        move.b  PlayerV.glide_angle(a0), d1
+        addi.b  #$10, d1
+        lsr.b   #5, d1                          // low-byte >> 5 -> 0..7
+        andi.w  #7, d1
+        lea     Glide_Pose_Table8(pc), a1
+        move.b  (a1,d1.w), d1
+```
+
+Same `+$10` round-to-nearest bias, same shift-and-mask to an octant, same
+symmetric-table-plus-facing-flip trick that halves the pose count. The ground tilt is this
+with `angle` instead of `glide_angle`, four sets instead of five poses, and *both* flip
+bits instead of one. Whoever writes it should read that block first — the house style for
+this exact computation is already settled.
+
 ---
 
 ## 4. What our engine has today — question 2 (track crossover)
@@ -476,6 +498,14 @@ all, on either plane.** The swappers are flipping a layer over empty space.
 need at least one place where plane B provides a surface plane A does not. There is no
 such place. So plane B in section 0 is partial authoring, not a designed crossover.
 
+**And that partial authoring is a predictable failure, not carelessness.** The two planes
+are painted *independently*, so ordinary ground — which is solid on both — has to be drawn
+twice. A plane B that is a partial copy of plane A is exactly what you get when an author
+paints the common geometry into the second plane and stops partway. Sonic Worlds Next
+solves this with a **third state — "solid on both"** — so shared geometry is authored once
+(§10.4). That is directly relevant to Route P (§5.2) and it should be designed in from the
+start rather than discovered later.
+
 **No loop geometry exists anywhere in OJZ act 1 today.** The mechanism is complete and
 untested by real content. Note that these are files the owner is actively editing —
 measured 2026-08-28, files timestamped 14:41 the same day. **[TAG-RUNTIME]** this table is
@@ -520,7 +550,23 @@ Two more, smaller:
 **Deliberately different, and defensibly so:** we dropped S3K's `|dx| < $40` proximity
 gate. The header explains why — spawn-time re-arming plus the teleport rebase shifting
 object and player by the same delta covers what the gate was for. I agree with that call;
-it is documented at the site, which is the right place.
+it is documented at the site, which is the right place. Worth knowing though: **Sonic 2 had
+no such gate either** (S3K added it), and **Mania kept one** (`abs(dx) < TO_FIXED(24)`), so
+the design space has been visited in both directions by people who shipped.
+
+**One risk our design carries that another engine found the hard way.** Our swapper
+despawns when the camera leaves and re-arms `prev_side` on respawn — deliberate, and
+documented in the file header as "re-armable by construction". Core Framework's
+documentation warns that plane switchers must have "inactive if too far from window"
+**disabled**, or players get stuck in loops (§10.4). Our re-arming is exactly the mitigation
+that warning implies is needed, so the design looks right — but it is the configuration
+another engine found to be a bug source, so it deserves a deliberate test on a real loop
+rather than an assumption. **[TAG-RUNTIME]**
+
+**Two upgrades from Mania worth considering when this is touched** (§10.2): the side test
+uses `position + velocity` rather than bare position, a one-frame lookahead that removes a
+class of fast-player edge cases; and the switcher carries an angle so it need not be
+axis-aligned. Neither is required for a first loop.
 
 ### 4.4 The physics half is already S3K-exact
 
@@ -722,9 +768,15 @@ subdivide further than 45° if art ever allows.
 
 **What it buys.** Removes the snap *timing* artefact — the visual angle stops jittering
 when the collision angle flickers between two adjacent tiles, which is a real thing on
-hand-drawn slopes. Sonic Mania does something in this family. It also gives a natural home
-for "keep the last tilt for a few frames after leaving the ground", which reads better on
-launch off a ramp.
+hand-drawn slopes. It also gives a natural home for "keep the last tilt for a few frames
+after leaving the ground", which reads better on launch off a ramp.
+
+**This is not speculative — Sonic Mania does exactly this and the source is public.**
+`Player_HandleGroundRotation` keeps a `rotation` field separate from `angle` and
+exponentially lerps it toward `angle << 1`, **at a rate that depends on ground speed**
+(`>>2` when slow, `>>1` when fast), with a ±4.5° upright deadzone and a ±22.5°
+don't-tilt-at-all gate. §10.3 has the code. If this option is taken, that is the shape to
+copy, and the speed-dependent rate is the part I would not have invented.
 
 **What it costs.** One byte of player state (`flip_angle` is already reserved, though it
 would be better renamed), ~10 more instructions, and a decision about the easing rate that
@@ -788,6 +840,12 @@ chunk clipboard already carries both collision planes with a stamp). And it beco
 a transition" is a bake assertion, which turns a class of silent playtest bugs into build
 failures. Deletes the object, its entity slots and its per-frame cost for static loops.
 
+**Buys, second and nearly as important.** The same spare bits can carry a **"solid on both
+planes" state** (Sonic Worlds Next's third state, §10.4), so shared geometry is painted
+once instead of twice. That removes the exact failure §4.2 measured — a plane B that is a
+half-finished copy of plane A — and it roughly halves the authoring burden for every level,
+loop or no loop. **This should be part of Route P from the start, not a follow-up.**
+
 **Costs.** ~256 bytes ROM for a transition table, ~10 instructions per frame, a modest
 attr-set expansion (21 of 256 used, so there is room), an Aurora paint mode, and a bake
 step. No format change — the bits are already there and already travel. Call it a
@@ -841,11 +899,27 @@ and "a circle painted on a wall". Do it in `path_swap.emp` now (it is the only m
 today, and the subtype bit is already reserved for it), and carry it into Route P when
 that lands.
 
-**Parcel 3 — Route P: paint the transition into the collision cell.** This is the owner's
-steer and I agree with it. The clinching argument is not elegance, it is that **the spare
-bits already exist and already travel end to end** (§4.5.2), so this is a feature parcel,
-not a format migration. The payoff is that a loop becomes checkable at build time instead
-of at playtest time, which is the thing the engine's principles are actually for.
+**Parcel 3 — Route P: paint the transition into the collision cell, *and* add a
+"solid on both planes" state.** This is the owner's steer and I agree with it. The
+clinching argument is not elegance, it is that **the spare bits already exist and already
+travel end to end** (§4.5.2), so this is a feature parcel, not a format migration. The
+payoff is that a loop becomes checkable at build time instead of at playtest time, which is
+what the engine's principles are actually for.
+
+The "solid on both" state rides along in the same bits and I would not ship Route P without
+it. §4.2 measured a plane B that is a half-finished copy of plane A, and that is the
+predictable result of making authors paint shared geometry twice. Sonic Worlds Next's
+three-state model (§10.4) fixes it at the representation level and pays off on every
+level, loop or not.
+
+**A note on confidence.** I went looking for a modern engine that had found a better answer
+than the 1992 one, because that is what the owner's instinct was reaching for. **Sonic
+Mania's engine still defines `CPATH_COUNT = 2` and still puts plane A's solidity in bits
+12/13 and plane B's in 14/15 — the same four bits as the Mega Drive** (§10.1). The
+polygon-with-normals alternative fails on its own terms: a track crossover is a
+self-intersection, which chain-shape collision explicitly does not support (§10.5). So the
+two-plane representation is not a legacy compromise we are inheriting — it is the answer,
+and what we are changing is only who writes it and when.
 
 **Where I push back on the owner.** "Get away from the object" cannot mean "delete the
 object". Two reasons, and he should hear both before choosing:
@@ -919,6 +993,14 @@ Written plainly, because these are trades, not implementation details.
    clever cases — a switch that only fires when you are on the ground, or one a boss moves
    around. So I would keep the old marker around as a rarely-used backup rather than delete
    it. **Are you happy with "painted by default, marker kept for the special cases"?**
+
+   *One thing I would bundle in and want you to know about:* right now the level has two
+   copies of its solid ground — a main one and an alternate one for the far side of loops —
+   and ordinary ground has to be drawn into **both**. That is why the alternate copy in the
+   level you are working on is a half-finished duplicate of the main one. I would add a
+   third option, "solid in both", so ordinary ground is drawn once and only the genuinely
+   loop-specific parts get drawn twice. It costs nothing extra to build alongside the rest
+   and it makes every level cheaper to author, not just the ones with loops.
 
 5. **Should the tools work loops out for us?** A further step is possible: the build tool
    looks at a loop you have drawn and figures out the side-switching by itself, so you
@@ -1086,6 +1168,228 @@ Route P's entry should not be written until it is a decision, not a proposal.
 
 ---
 
+## 10. Online sources and the modern answer
+
+The most valuable finding in the whole survey is here, and it is a negative one for anybody
+hoping the modern engine found a better idea.
+
+### 10.1 Sonic Mania kept the two-plane scheme — and kept the same bits
+
+RSDKv5 (Mania's engine) and RSDKv4 (Sonic 1/2 2013) both still define
+**`#define CPATH_COUNT (2)`**, and `Entity` still carries a single `uint8 collisionPlane`
+([RSDKv5 `Scene.hpp`](https://github.com/RSDKModding/RSDKv5-Decompilation/blob/master/RSDKv5/RSDK/Scene/Scene.hpp),
+[RSDKv4 `Scene.hpp`](https://github.com/Rubberduckycooly/Sonic-1-2-2013-Decompilation/blob/master/RSDKv4/Scene.hpp)).
+And the tile-layout word's bit layout, from
+[RSDKv5 `Collision.cpp`](https://github.com/RSDKModding/RSDKv5-Decompilation/blob/master/RSDKv5/RSDK/Scene/Collision.cpp):
+
+```c
+solid = collisionEntity->collisionPlane ? (1 << 14) : (1 << 12);   // floor
+solid = collisionEntity->collisionPlane ? (1 << 15) : (1 << 13);   // wall / roof
+```
+
+**Bits 12/13 = plane A top / left-right-bottom, bits 14/15 = plane B — literally the same
+four bits the Mega Drive used.** A 2017 engine running on modern hardware, with no reason
+to economise, chose to keep the 1992 representation. That is about as strong an
+endorsement of the design as exists, and it is the answer to "is there a better way that
+modern engines found": for the loop problem specifically, no.
+
+Two things RSDKv5 *did* change, both small and both worth copying:
+
+* **Top-solid and LRB-solid are separate bits, not a 2-bit enum.** That lets
+  `TILECOLLISION_UP` (inverted gravity) swap which one means "floor". Our attribute set
+  stores a 2-bit enum (`SOL_NONE/TOP/LRB/ALL`); the bits are equivalent in expressive
+  power but the split form makes gravity inversion a mask change rather than a table.
+* **An orthogonal second axis.** `Entity.collisionLayers` is a bitmask over up to 8 tile
+  layers, and a standard zone runs both foreground layers as collision every frame
+  ([`Zone.c`](https://github.com/RSDKModding/Sonic-Mania-Decompilation/blob/master/SonicMania/Objects/Global/Zone.c)).
+  So Mania is **layers ⊗ planes**: the plane bit is still the loop mechanism, the layer
+  mask is for independently-scrolling or destructible foreground. Not something we need.
+
+### 10.2 Mania's switcher, and three things worth stealing
+
+[`PlaneSwitch.c`](https://github.com/RSDKModding/Sonic-Mania-Decompilation/blob/master/SonicMania/Objects/Global/PlaneSwitch.c)
+is recognisably the same object as `Obj_PathSwap`, with flags
+`HIGHLAYER_LEFT=1, PLANEB_LEFT=2, HIGHLAYER_RIGHT=4, PLANEB_RIGHT=8` — **one plane bit and
+one priority bit per crossing side**, exactly S3K's subtype bits 3/4 and 5/6. Three
+upgrades:
+
+1. **The switcher can be rotated** (`Zone_RotateOnPivot` with a stored `angle`), so it is
+   not axis-aligned. Ours is X-only; S3K's is X-or-Y; Mania's is any angle.
+2. **Velocity anticipation.** The side test is `pivotPos.x + pivotVel.x >= self->position.x`
+   — one frame of lookahead, not bare position. Cheap, and it removes a class of
+   fast-player edge cases.
+3. **It is applied to non-player entities too** (`CheckerBall`, `RollerMKII`, `HeavyRider`),
+   and the plane is propagated to the sidekick, to spawned dust and to lost rings. **Our
+   `Sst.layer` is already per-object, so we are structurally ready for this and S3K was
+   not** — a point in our design's favour.
+
+Note also that RSDKv4's *loop* switcher (`PSwitch_Loop`) writes **only the plane**, while
+`PSwitch_H`/`PSwitch_V` write plane *and* draw order — i.e. even in the classics' own
+reimplementation, priority-switching is a separate concern from plane-switching.
+
+### 10.3 Mania *does* have a separate visual angle — this validates Option C
+
+The classics have one `angle` field. Mania has two, and
+[`Player.c`'s `Player_HandleGroundRotation`](https://github.com/RSDKModding/Sonic-Mania-Decompilation/blob/master/SonicMania/Objects/Global/Player.c)
+is the reference implementation for what §5.1's Option C describes:
+
+```c
+if (self->angle <= 0x04 || self->angle >= 0xFC) { self->rotation = 0; }       // upright deadzone
+else {
+    int32 targetRotation = 0;
+    if (self->angle > 0x10 && self->angle < 0xE8) targetRotation = self->angle << 1;   // don't tilt below 22.5 deg
+    int32 rotate = targetRotation - self->rotation;
+    int32 shift  = (abs(self->groundVel) <= 0x60000) + 1;    // slow: >>2, fast: >>1
+    ... wrap-aware shortest-way-around ...
+    self->rotation &= 0x1FF;
+}
+```
+
+An exponential lerp toward a target derived from the collision angle, **at a rate that
+depends on ground speed**, with a ±4.5° upright deadzone and a ±22.5° don't-tilt-at-all
+gate. If Option C is ever taken, this is the shape to copy — and the speed-dependent rate
+is the detail I would not have thought of.
+
+And the draw-time snap in
+[`Drawing.cpp`](https://github.com/RSDKModding/RSDKv5-Decompilation/blob/master/RSDKv5/RSDK/Graphics/Drawing.cpp)
+includes **`ROTSTYLE_45DEG: rotation = (entity->rotation + 0x20) & 0x1C0`** — the same
+octant snap, round-to-nearest, as `Animate_Sonic`'s `(angle + $10) >> 4 & 6`. And
+`ROTSTYLE_STATICFRAMES` is *literally* the Genesis scheme: N logical frames, 2N sprites,
+the second half pre-drawn diagonals selected by octant. The modern engine kept the classic
+technique as a first-class render mode.
+
+*Caveat carried from the reader:* which `rotationStyle` Mania's walk/run animations actually
+use lives in binary sprite data, not source. **Unverified.**
+
+### 10.4 The one idea that would genuinely improve our design
+
+**Sonic Worlds Next** (the official Sonic Worlds successor, on Godot) uses **three states,
+not two**: always-solid, high-layer-only, low-layer-only —
+["a player on the Low layer will only interact with normal layer and lower layer"](https://github.com/Techokami/SonicWorldsNext/wiki/Collision-Layers-and-Masks).
+
+**That directly diagnoses what I measured in §4.2.** Our two planes are painted
+*independently*, so ordinary ground has to be drawn twice — and OJZ section 0's plane B
+being a strict subset of plane A, with 644 cells solid on A and none on B, is exactly the
+failure mode you would predict from "the author has to paint everything twice and stopped
+partway". A third "solid on both" state, authored once, removes that whole class of
+mistake — and it is expressible in the spare cell-word bits Route P would use anyway
+(§4.5.2). **If Route P is built, this should be built into it from the start**, not bolted
+on later.
+
+Corroborating the same complaint from a different direction: **Core Framework**
+(a Clickteam Sonic engine) is the only source that names the two-layer scheme's limits
+outright, adding layers 2 and 3 for *"more complex level layouts, like S3 Angel Island Loop
+closer to the tree, or Sandopolis loop gimmick"*
+([DOCUMENTATION.md](https://github.com/niilisto/Core-Framework/blob/dev/DOCUMENTATION.md)).
+So two planes is a floor, not a ceiling — worth knowing before the format is set.
+
+Core Framework also carries a practical warning that **applies to us directly**: plane
+switchers must have "inactive if too far from window" **disabled**, or players get stuck in
+loops. Our `path_swap.emp` explicitly *does* despawn when the camera leaves and re-arms
+`prev_side` on respawn (its header documents this as deliberate). That is a defensible
+design — but it is precisely the configuration another engine found to be a bug source, so
+it deserves a deliberate test rather than an assumption. **[TAG-RUNTIME]**
+
+### 10.5 The "surfaces with normals" alternative does not survive contact
+
+The natural modern instinct is to abandon tile layers for polygon edges with normals. It
+does not work, and Box2D's own documentation supplies the reason: chain shapes
+**"only support one-sided collision"** and **"self-intersection of chain shapes is not
+supported"** ([collision.md](https://github.com/erincatto/box2d/blob/main/docs/collision.md),
+[simulation.md](https://github.com/erincatto/box2d/blob/main/docs/simulation.md)).
+**A track crossover *is* a self-intersection.** So the polygon representation does not
+dissolve the problem — you still split the world into two non-self-intersecting chains and
+pick one at runtime. That is the two-layer scheme wearing `categoryBits`.
+
+Related negatives, all firm:
+
+* **SRB2** cannot do loops at all — *"loops require running on walls, something that the
+  Doom engine can't do"* ([thread](https://mb.srb2.org/threads/why-there-is-no-loop-physics-in-srb2.33855/)).
+  Its substitute is the **zoom tube**: waypoint Things, player forced onto a fixed path.
+  Community verdict is that it looks wrong. That is the honest ceiling of the "make the
+  loop a scripted rail" idea, and it is the same thing S3K's `Obj_AutomaticTunnel` is.
+* **No SGDK or 68000 homebrew implements Sonic-style loops.** No prior art at our hardware
+  level outside the Sonic games themselves.
+* **No public GalaxyTrail postmortem on Freedom Planet's collision exists.**
+
+### 10.6 Hardware confirmation on rotation, and a correction to the brief
+
+* [plutiedev.com/rotating-sprites](https://plutiedev.com/rotating-sprites), verbatim:
+  *"the Mega Drive isn't able to rotate sprites in hardware **and the CPU certainly isn't
+  up to it**."* Its entire prescription is pre-drawn frames plus H/V flip.
+* [segaretro.org — Sega Mega Drive/Sprites](https://segaretro.org/Sega_Mega_Drive/Sprites):
+  the sprite attribute entry is `PR | PL(2) | VF | HF | GFX(11)`. **There is no rotation
+  field.** H-flip and V-flip are the only transforms.
+
+Together with the eight-tree source sweep in §8.2, that closes the question.
+
+**A correction to a figure in the dispatch brief:** it estimated "6×6 = 36 tiles worst case"
+for a Sonic frame. The measured S2 maximum is **28 tiles** for a gameplay frame (31
+including Super Sonic) against a 32-tile VRAM window — and our own shipped sheet peaks at
+**29** (§3.2). DPLC gives a **1.71×** dedup on S2's sheet (4,415 referenced tile-slots
+resolving to 2,576 unique). The independently-measured S2 rotation surcharge is **610
+tiles ≈ 19.5 KB**, against the 640 tiles / 20,480 bytes I measured in our own optimised
+sheet — two different methods, two files, agreeing to within 5%.
+
+### 10.7 Sonic 1 solved it a third way, and the disassembly's comments are wrong about it
+
+Worth recording because it is the only genuinely different classic approach, and because a
+misleading comment has propagated. Sonic 1 and CD have **no layers**. Bit 7 of the chunk
+byte marks a "loop chunk", and `FindNearestTile` substitutes **the next chunk in the list**
+when a per-object render flag is set
+([s1disasm](https://github.com/sonicretro/s1disasm/blob/master/_incObj/sub%20FindNearestTile%20%26%20FindFloor%20%26%20FindWall.asm)):
+
+```asm
+.specialtile:
+        andi.w  #$7F,d1
+        btst    #sprite_looping_bit,obRender(a0)
+        beq.s   .treatasnormal
+        addq.w  #1,d1                   ; use the NEXT chunk
+```
+
+`Sonic_Loops` sets and clears that bit, hardcoded to GHZ and SLZ only, keyed on chunk id,
+Sonic's X within the chunk, and whether `angle` has crossed `$80`. **The reader grepped the
+whole tree and found `sprite_looping_bit` read by exactly one routine, and Sonic 1 never
+touches `art_tile`'s priority bit** — so the disassembly's own comment that the flag "sends
+Sonic to the low plane" is misleading, and Sonic 1's behind-the-loop look is *static art
+priority*, not a runtime switch. S2 replacing this with the two-layer scheme was a real
+generalisation, not a rewrite for its own sake.
+
+### 10.8 Community documentation vs. what I read in source
+
+The community record **agrees** with everything I established first-hand, and adds three
+details:
+
+* [SCHG: Sonic 2 Level Editing](https://info.sonicretro.org/SCHG:Sonic_the_Hedgehog_2_(16-bit)/Level_Editing)
+  gives the block word as **`SSTT YXII IIII IIII`** — `TT` = normal layer solidity,
+  `SS` = alternate layer, each `00` none / `01` top / `10` LRB / `11` all. Exactly the bits
+  I read out of `sub_F264`, and exactly the encoding `tools/collision_pipeline.py` uses.
+* **Sonic 1's walk used 6 frames per orientation set, not 8** (offsets 0/6/12/18 via
+  `d0 + (d0>>1)` then `×2`); S2 changed it to 8. The s1disasm calls the result *"the octant
+  modifier"* verbatim, and marks the `subq.b #1` bias `if FixBugs` with the note *"Fix
+  off-by-one-radian error (this was implemented in S2/S3K)"*. So the bias I quoted in §2.1
+  is a *bug fix*, not an arbitrary constant.
+* Angle `$FF` is a **flag**, not an angle: *"A 360° (255) Angle is used as a flag to notify
+  an object to use its own angle to the nearest 90°"*
+  ([SPG: Solid Tiles](https://info.sonicretro.org/SPG:Solid_Tiles)). Our pipeline already
+  preserves this — `collision_pipeline.py`'s flip helpers are asserted to keep odd angles
+  odd (`"odd-flag must stay odd through xflip"`), which is the same convention.
+
+**And one negative worth stating:** the Sonic Physics Guide **does not document sprite
+orientation at all.** Its Animations page covers timing only. So anyone looking for the
+tilt mechanism in the community's canonical reference will not find it — which is probably
+why the folklore exists.
+
+### 10.9 Not covered
+
+One reader in the online lane did not return. **68000 rotation cycle-cost figures, VBlank
+DMA byte budgets, SpritesMind rotation threads, md.railgun.works, and Hidden Palace
+prototype material are NOT COVERED** by this document. The rotation question (§10.6) was
+answered from other sources instead; the rest is simply absent, and none of the
+recommendations in §6 depend on it.
+
+---
+
 ## 11. Sources actually opened
 
 **Ours (at `42e70bea`):** `engine/objects/sst.emp`, `engine/objects/animate.emp`,
@@ -1120,4 +1424,19 @@ horizontal variant `loc_1CEF2` :39895, `Player_SlopeRepel` :23911, `Obj_AutoSpin
 `General/Sprites/Sonic/Anim - Sonic.asm:38-40` (the S&K scripts that ship) and
 `Anim - Sonic S3.asm` (the S3-only twin).
 
-**Other references and online sources:** see §8 and §10.
+**Other reference disassemblies:** surveyed in §8 with per-project citations — s2disasm,
+sonic_hack, S.C.E., and the five raw capstone trees under
+`The Adventures of Batman and Robin/` (Batman & Robin, Vectorman, Gunstar Heroes, Alien
+Soldier, Thunder Force IV, Ristar).
+
+**Online sources:** cited inline in §10 with URLs — the RSDKv5, RSDKv4, Sonic Mania and
+RSDKv4-Script decompilations; s1disasm; Sonic Retro's SPG and SCHG pages; SonLVL's manual;
+Hatch Game Engine; Sonic Worlds Next; Core Framework; Box2D's collision and simulation
+docs; Godot and Unity layer/mask docs; the SRB2 forums and wiki; plutiedev; segaretro.
+
+**Caveats on sourcing, carried forward rather than buried.** The five `*_disasm/` trees are
+raw capstone dumps with entirely auto-generated labels, so absences there are absence of
+evidence, not proof (§8). Sonic Retro sits behind a proof-of-work wall; the SPG/SCHG quotes
+in §10.8 were fetched first-hand through it, but a report on the same topic that could not
+get through would be quoting a search-index paraphrase. And one reader in the online lane
+never returned, so §10.9's topics are simply not covered.
