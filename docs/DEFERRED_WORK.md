@@ -6473,6 +6473,33 @@ before the guard set generalizes past `restore_n == 1`. Until that representatio
 the equal-span-partner guard is single-restore by construction, and adding a second band is
 a refusal, not a silent bug.
 
+**THE REPRESENTATION NOW EXISTS — parcel P1 LANDED 2026-08-28** (branch
+`parcel/band-ownership-p1`; design §14). Guard C-A is DELETED. `RasterOp`'s `Cram`,
+`PalRegion` and `PalRestore` carry a comptime-only band id, `band()` derives it as
+`top * 128 + sa` through `op_with_band` (the authoring surface is unchanged — an author can
+never type an id), and two new totals in `raster_dsl.emp` replace the inference:
+`check_band_pairing` (OWN-2/OWN-3 plus both halves of rule 6) and `check_band_ownership`
+(OWN-1, the per-CRAM-entry walk over `holds_base`/`open`). Both run OUTSIDE the count gate,
+which is what makes **this booking a four-line deletion now**: remove the `restore_n <= 1`
+ensure and unwrap the `if restore_n == 1` block (D-B and CLAIM 6 are already per-fire and
+N-safe). All four canonical ROMs byte-identical; the acceptance property was measured as a
+14-case differential of C-A against OWN with zero divergences (design §14.3), and the two new
+admissions are pinned against the walks directly because `raster_program` still refuses them
+on the count until P2a lands.
+
+**WHAT P2a STILL OWES, and it is not the guards.** (1) CLAIM 9 (`op_work_cyc == 64`) is still
+UNVERIFIED, and design §11 Q3's recommendation stands — gate P2a on that measurement, because
+three bands are what make the height minima load-bearing. P1 did NOT need it (design §14.6).
+(2) The runtime still decides emit-or-suppress per patch-table entry with no notion of a pair
+(design §1(3)) — that is P3's, and it is the other half of what `restore_n <= 1` is now
+protecting. (3) The 64-word program buffer caps N at three whatever the guards allow.
+
+**AND THE HONEST CAVEAT:** the tree ships ZERO bands. `band()`/`pal_restore` appear only in
+poison fixtures and `raster_dsl.emp`'s own pins, so the ownership walk's whole-tree green is
+vacuous by construction and every scrap of evidence for it is the eleven expect-fail cases and
+the two positive fixtures (design §14.5). The first band anyone authors is the first time this
+runs on shipped content.
+
 **DESIGNED 2026-08-28 — `docs/superpowers/specs/2026-08-28-raster-band-ownership-design.md`
 (r1, UNSWEPT, nothing built).** The design lands an explicit pairing rather than an inference:
 a band id derived as `top * 128 + start_addr`, carried as a comptime-only payload field on the
@@ -6516,6 +6543,16 @@ spelling.
 **DESIGNED 2026-08-28 — `docs/superpowers/specs/2026-08-28-raster-band-ownership-design.md`
 (r1, UNSWEPT, nothing built).** Two corrections to the text above, both from reading the
 shipped source at `5b09649c`:
+
+0. **P1 LANDED 2026-08-28 — this booking's shared prerequisite is DONE.** See the N-bands
+   booking above and design §14. What is left here is P2b (delete rule 6 half 2 —
+   moving-TOP with a static bottom, no runtime change) and P3 (the bias word, `HI_CLAMP`,
+   SUP-1/INT-1/DEN-1, the GUARD-11 relaxation). Rule 6 BOTH halves are still in force and both
+   are now enforced by `check_band_pairing` rather than by C-A's partner scan; their two
+   poison fixtures (`poison_patchable_band_fire`, `poison_patchable_partner`) were rebuilt
+   around `band()` and still pass with their original fragments. **`LO_SUPPRESS` was ruled OUT
+   2026-08-28** (owner): P3 ships `HI_CLAMP` only until a consumer exists — a dormant scaffold
+   is worse than a booking.
 
 1. **The `.suppress` line number has moved.** The path is `engine/effects/raster.emp:1673`
    (`bgt .suppress`, inside `Raster_BuildSchedule`) with the arm itself at `:1721`; the 2026-08-19

@@ -1,7 +1,10 @@
 # Raster palette bands — ENTRY OWNERSHIP. Design draft r1.
 
 **Date:** 2026-08-28
-**Status:** DESIGN ONLY — no engine code written, no bytes moved, nothing built.
+**Status:** **PARCEL P1 LANDED 2026-08-28** (branch `parcel/band-ownership-p1`) — see §14.
+P2a / P2b / P3 remain design-only. The r1 body below is unedited except where §14 supersedes
+it; read §14 first for what is now source rather than plan — it carries three corrections to
+this document, including one hole in §3.2's own rule table.
 **Closes (as a design):** `docs/DEFERRED_WORK.md` "R1 booking: N bands (more than one restore
 per program)" and "R1 booking: moving bands (patchable ON and/or OFF edges)". Both bookings
 name the same blocker and this document treats them as one.
@@ -818,3 +821,189 @@ raster tier can go.
 | SEQ-1 | N bands does NOT gate moving bands; the shared prerequisite is P1 | high — a moving band is N=1 | — |
 | ART-1 | No reference tree in the corpus does a paired mid-screen CRAM band; the only paired raster events (Ristar) declare their pairing by installing the OFF handler | high for the eight trees searched; **TF4's handler region is not in its disassembly** | a TF4 handler dump; any handler in the corpus that schedules a second mid-frame CRAM event |
 | — | *KILLED by this design:* "the equal-span-partner guard is single-restore by construction" (it is single-restore because the pairing was inferred, not because span equality is inherently singular); "moving bands need N-bands first" | — | — |
+
+
+---
+
+## 14. PARCEL P1 — LANDED. What was built, what the design got wrong, what a green proves
+
+**Date:** 2026-08-28. **Branch:** `parcel/band-ownership-p1`. **Scope:** §2 (representation)
+and §3 (OWN-1/2/3 replacing C-A) only. `restore_n <= 1` is **still in force** — P2a, P2b and
+P3 are untouched, and `LO_SUPPRESS` was **not** built (owner ruling: ship `HI_CLAMP` only when
+P3 comes; a dormant scaffold is worse than a booking, and this repo deletes old paths rather
+than leaving them inert).
+
+### 14.1 The four CRCs — G5 green
+
+Assembler `SIGIL_BUILD` md5 `85ba502f096773780cbbac17b5d77890`, unchanged across the parcel.
+All four canonical shapes, full `./build.sh` (never `FAST=1`), before and after:
+
+| shape | before | after |
+|---|---|---|
+| `s4.bin` | `0261de2b` | `0261de2b` |
+| `s4.debug.bin` | `fee02557` | `fee02557` |
+| `demo.bin` | `3415e3ef` | `3415e3ef` |
+| `demo.debug.bin` | `7599953e` | `7599953e` |
+
+**What that green rules out:** that a representation change adding a payload field to three
+enum variants moved a byte. **What it does NOT rule out:** that the walk does anything at all
+— §14.4 is what proves that, and the two are complementary exactly as §9's G5 says.
+
+### 14.2 Three corrections to this design, found by building it
+
+**(a) §3.2's restore rule has a hole at `band_id == 0`, and it is the load-bearing one.**
+The rule as written is *"restore of band B: refuse if `open != B`"*. With `B == 0` and nothing
+open, `open == B` is `0 == 0` and the restore is **admitted** — so an ownerless restore, and
+the whole legacy hand-authored ON/restore pair, slip through the walk silently. §3.3's row
+*"restore with no ON op → refused: `open != B` at the restore"* is only true for `B != 0`, and
+§2.1's parenthetical "never 0" is an assumption the walk cannot enforce on itself.
+**Closed by** lifting the nonzero-id requirement out of the per-entry walk and into OWN-2 as
+an explicit per-restore refusal (`check_band_pairing`'s first `ensure`). It belongs there
+anyway: it is a fact about a band's records, not about a CRAM entry's timeline, and putting it
+per-entry would print the same sentence once per covered entry.
+
+**(b) Consequence: P1 is NOT a pure succession of C-A. It adds exactly one refusal.**
+A band hand-authored as two independent fires — a stream op and, lines below, a bare
+`pal_restore` over the same span — was **admitted** by C-A (that inference was its whole job)
+and is **refused** now. This is the one row where the design's "reproduces every C-A refusal
+while additionally admitting two cases" understates what happens. It is the right call: that
+spelling is precisely what makes ownership inferable-only, and the tree contains no such
+content (§14.5). It is recorded as its own fixture, `poison_band_no_owner.emp`, so the
+behaviour change is a named case rather than a surprise.
+
+**(c) §2's enum sketch does not say which constructor writes the id, and the obvious answer
+is the wrong one.** Adding a `band` parameter to `stream_cram` / `stream_pal_region` /
+`pal_restore` would put an id in the authoring surface, which contradicts §2.2's own
+"derived, never authored". What shipped instead: **every constructor builds with id 0 and the
+authoring surface is unchanged**, and `band()` — the only writer of a nonzero id — retags its
+ON op and its restore through one new total, `op_with_band(o, id)`. An author can never type
+an id, so two bands cannot share one by a typo; the derivation `top * 128 + sa` lives in
+exactly one place; and a hand-built `RasterOp.PalRestore(a, n, id)` stays expressible, which
+is what makes OWN-2's re-checks testable at all.
+
+### 14.3 The acceptance property, measured both directions
+
+A differential harness built **the same fourteen programs** twice: once under guard C-A
+(`engine/effects/raster_dsl.emp` restored from HEAD for the duration) and once under
+OWN-1/2/3, each as a `--extra-entry` module, recording refuse/admit and the message.
+
+| case | C-A | OWN | |
+|---|---|---|---|
+| C1 restore with no ON op | REFUSE | REFUSE | |
+| C2 one earlier equal-span partner | ADMIT | ADMIT | |
+| C3 intersecting unequal op inside the band | REFUSE | REFUSE | |
+| C4 op on the restore's own line | REFUSE | REFUSE | |
+| C5 two bands, disjoint spans | REFUSE | REFUSE | **by `restore_n <= 1` in both** — see below |
+| C6 two bands, same span, sequential | REFUSE | REFUSE | **by `restore_n <= 1` in both** |
+| C7 two bands, same span, NESTED | REFUSE | REFUSE | C-A by the count; OWN by the count **and by name** |
+| C8 unbanded write above a band, same entry | REFUSE | REFUSE | |
+| C9 patchable restore (rule 6 half 1) | REFUSE | REFUSE | |
+| C10 patchable ON (rule 6 half 2) | REFUSE | REFUSE | |
+| C11 intersecting op AFTER the restore | ADMIT | ADMIT | |
+| C12 band + disjoint-span third-party op | ADMIT | ADMIT | |
+| C13 a program with no band at all | ADMIT | ADMIT | |
+| C14 SetReg on the restore's fire (D-B) | REFUSE | REFUSE | |
+
+**Zero divergences.** Every C-A refusal is reproduced and every C-A admission is preserved.
+
+**C5 and C6 need the second half of the proof, and this is where §9's G1 is easy to fool.**
+At P1 both are still refused *by the count*, so `raster_program` cannot demonstrate the two
+new admissions — the design's positive fixture "must BUILD" cannot be written until P2a. They
+are therefore pinned **against the walks directly**, in `raster_dsl.emp`, where the count does
+not apply: `check_band_pairing` must see 2 bands and `check_band_ownership` must visit a
+DERIVED number of `(entry, op)` pairs with no refusal. Visit counts 10 (3 words at `$48` +
+2 words at `$68`, two ops each) and 12 (3 words at `$48`, four ops). Both perturbed and
+confirmed red.
+
+### 14.4 Gates, and what each green rules out
+
+**G1 — the ownership walk (expect-fail lane, `tools/emp_expect_fail.py`, run build-fatally by
+`build.sh`).** Eleven band cases, **40/40 lane total**. Every expected `[Error]` count was
+derived from the walk's own shape before the run and every one matched on the first attempt:
+OWN-1 carries one `poisoned` flag per CRAM entry and reports at most one sentence for each, so
+a case's count is (entries the fault covers) x (guards that see it), and three fixtures are one
+CRAM word wide on purpose to make that product 1 or 2.
+
+| poison | fragment | errors |
+|---|---|---|
+| `poison_band_no_owner` (new) | `carries no band id` | 1 |
+| `poison_band_orphan_restore` (new) | `has 0 ON op(s) carrying its id` | 2 |
+| `poison_band_span_mismatch` (new) | `must name the SAME span` | 2 |
+| `poison_band_nested` (new) | `two bands are live on CRAM entry` | 2 |
+| `poison_band_base_above` (new) | `does not hold this frame's base palette` | 1 |
+| `poison_band_buried_tint` (rewritten) | `would bury` | 2 |
+| `poison_two_restores` (rewritten) | `one band per program` | 1 |
+| `poison_patchable_band_fire` (rewritten) | `must be static` | 1 |
+| `poison_patchable_partner` (rewritten) | `must be static — a patchable partner` | 1 |
+| `poison_setreg_on_restore` (rewritten) | `carries the restore ONLY` | 1 |
+| `poison_ship_plus_restore` (rewritten) | `offscreen_ship` | 1 |
+
+*A green rules out*, for every CRAM entry any band touches in any program in the tree: an
+ownerless restore; a restore whose id names no ON op; a band whose two records disagree about
+their span; a restore ordered at or above its own ON; two bands live on one entry; a non-band
+write buried by a pending restore; a band opening over an entry that no longer holds base; and
+a band whose restore does not cover every entry its ON writes.
+*A green does NOT rule out* anything in §3.4 — VSRAM, registers, landing, density, budget,
+runtime palette binding, or whether the band is visible.
+
+**The five rewritten cases are a behaviour change worth flagging, not a tidy-up.** All five
+used to be hand-authored cram/restore pairs; under correction (b) every one of them would now
+fail on `carries no band id` and stop testing its own subject. They are rebuilt around
+`band()`. `poison_setreg_on_restore` additionally became the standing witness that the band id
+**survives `compose`** — it composes a band with a foreign fire on the restore's own line, so
+if the mark were ever moved from the op to the fire that case would gain an ownership sentence
+and its count of 1 would say so.
+
+**G5 — byte identity.** §14.1.
+
+**G2 / G3 / G4 are P3's** (rigid-group linkage, the bias reaching the schedule, no partial
+group suppression). None is in P1's scope; all three need runtime that does not exist yet.
+
+**Two vacuity traps, both named rather than papered over.**
+1. *The whole-tree green is vacuous.* §14.5.
+2. *`check_band_ownership`'s return value is the non-vacuity witness and is itself checkable.*
+   A walk that visited nothing would return 0 and refuse nothing; the fixtures pin the visit
+   count, not the absence of a refusal, and perturbing 10 to 11 and 12 to 13 was confirmed red
+   with the exact sentence.
+
+### 14.5 THE TREE SHIPS ZERO BANDS — say this out loud
+
+Measured at this revision: `band()` and `pal_restore` appear **only** in poison fixtures and
+in `raster_dsl.emp`'s own pins. The three shipped sparse programs (`OJZ_TestRaster`,
+`OJZ_WaterRaster`, `OJZ_TestVsram`) contain no restore op. So:
+
+- G5's byte-identity result was **never in doubt** and is weak evidence on its own — there was
+  no band for the representation to move.
+- G1's vacuity trap (§9: "the walk visits nothing in a program with no bands") is not
+  hypothetical here, it is **the current state of the tree**. Every scrap of non-vacuity in
+  this parcel comes from the eleven poison cases and the two positive fixtures. Nothing else.
+- The first real band anyone authors is the first time this walk runs on shipped content.
+
+### 14.6 Open question 4, answered; CLAIM 9, not needed
+
+**Q4 — should the walk be trimmed to touched entries?** No. Measured (design §7.5
+measurement 5, and the one measurement in that list that needs no emulator): sigil-only build,
+HEAD's `raster_dsl.emp` versus P1's, alternated, 5 rounds each after a discarded warm-up, load
+average 3.0 before / 2.7 after on an otherwise-shared machine. Median **1.464 s -> 1.469 s,
++0.005 s (+0.3 %)** — inside the run-to-run spread. Do not pre-optimise it.
+
+**CLAIM 9 (`op_work_cyc == 64`) was NOT needed by P1, and that is worth recording as a
+result rather than an absence.** P1 touches no cost model: it adds no fire, changes no
+`op_size`, `op_words`, `fire_cost_cycles` or spin, and every band-height minimum in `band()`
+is untouched. The parcel would have built identically at any value of that constant. It is
+still UNVERIFIED and it still gates P2a for the reason §11 Q3 gives — three bands make the
+minima load-bearing where one did not.
+
+### 14.7 Runtime TAGs — nothing in P1 needs an emulator
+
+Not one claim in this parcel is a runtime claim, which is what "zero-byte by design" buys.
+The design's §7.5 list is unchanged and still owed: measurement 1 (CLAIM 9) gates P2a,
+measurements 2/3/4 are P3's. Measurement 5 is done (§14.6).
+
+### 14.8 Question 6, answered
+
+§11 Q6 asked whether the new field disturbs any hand-built `RasterOp.` construction in
+content. Tree-wide grep at implementation time: three sites, all in poison fixtures
+(`poison_direct_8f`, `poison_direct_8a`, `poison_deep_four_words`). The first two build
+`SetReg`, which gains no field. The third builds `PalRegion` directly and took a literal `0`.
+No content module constructs a `RasterOp` variant.
