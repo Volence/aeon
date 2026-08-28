@@ -2911,8 +2911,10 @@ objects), alongside the §3 SST field audit.
 > `games/sonic4/data/editor/ojz/act1/section_N.collattr.bin` / `.collattrb.bin` — 16-bit
 > big-endian cell words, one plane per file) **baked via `collision_pipeline.bake_plane_cell`
 > against the imported S&K shape/height/angle bank** (`data/collision/base/`, written by
-> `import_sk_collision.py`) **into a shared, sparse interned attr-set** (13/255 combos used
-> today, ~242 slots headroom) — only combos actually painted reach the ROM tables.
+> `import_sk_collision.py`) **into a shared, sparse interned attr-set** (~~13/255 combos used
+> today, ~242 slots headroom~~ — **re-counted 2026-08-28 at `42e70bea`: 21 used, 235 free**;
+> the conclusion survives, the figure had drifted) — only combos actually painted reach the
+> ROM tables.
 >
 > aeon's half of this (consumption) has needed **zero code changes** since 2026-07-02 (per
 > `docs/superpowers/specs/2026-07-02-editor-collision-authoring-design.md` §3). Today's
@@ -2932,6 +2934,24 @@ objects), alongside the §3 SST field audit.
 > real two-path loop is placed in level data (`OJZ_Sec1_Objects`, `entity_data.emp:41`, type 1
 > = `ObjDef_PathSwap`, two instances). **No collision-content work remains deferred here** —
 > author → bake → consume → runtime swap is closed end-to-end.
+>
+> **⚠ AMENDED 2026-08-28 (`docs/research/loops-and-sprite-rotation.md`, read at `42e70bea`):
+> closed is not the same as exercised.** The chain above is complete, but **no divergent
+> path-B geometry has been authored anywhere in OJZ act 1**, so it has never carried real
+> content. Measured over all nine sections' `section_N.collattr{,b}.bin`: section 1 — which
+> holds both `ObjDef_PathSwap` instances — has **zero** solid cells on either plane, and
+> section 0's plane B is a **strict subset** of plane A (644 cells solid on A and air on B,
+> **zero** solid on B and air on A). A loop needs at least one cell where plane B is solid
+> and plane A is not; there is none. Sections 2-8 are empty on both planes.
+>
+> That subset shape is a predictable authoring failure, not carelessness: the two planes are
+> painted independently, so shared ground must be drawn twice. The research doc's §5.2
+> Route P proposes fixing it at the representation level (a "solid on both" state in the
+> cell word's already-unused bits 14/15). **Two further gaps that entry does not mention:**
+> `path_swap.emp`'s sprite-priority swap (subtype bit 5) is reserved and unimplemented — it
+> is what draws the player behind the loop art, and without it a loop reads flat — and there
+> is no horizontal-line orientation (S3K's subtype bit 2). Neither is collision *content*,
+> so this entry stays closed; they are tracked in the research doc's §4.3.
 >
 > Older correction, kept for provenance:
 > **⚠ CORRECTED 2026-08-05 — this entry asked for two things and BOTH shipped.**
