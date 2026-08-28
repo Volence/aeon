@@ -405,7 +405,44 @@ ensure(ojz_band_demo_effect_lines()[3] == OJZ_BAND_2_BOT, "OJZ_BandDemo: band 2 
 ensure(ojz_band_demo_effect_lines()[4] == OJZ_BAND_3_TOP, "OJZ_BandDemo: band 3 turns ON at emitted screen line {ojz_band_demo_effect_lines()[4]}, not the authored {OJZ_BAND_3_TOP}.")
 ensure(ojz_band_demo_effect_lines()[5] == OJZ_BAND_3_BOT, "OJZ_BandDemo: band 3 restores at emitted screen line {ojz_band_demo_effect_lines()[5]}, not the authored {OJZ_BAND_3_BOT}.")
 
-pub data OJZ_BandDemo: [u16; raster_words(OJZ_BAND_DEMO_PROG)] = raster_program(OJZ_BAND_DEMO_PROG)
+// ---- THE EMISSION IS DEBUG-GATED; EVERY PIN ABOVE IS NOT --------------------
+//
+// CORRECTED 2026-08-28, and the first version of this parcel had it wrong. The program
+// was emitted unconditionally on the argument that "the band program is content, only
+// the installer is equipment". That argument does not survive its own consequence: the
+// installer emits ZERO bytes in the release shape (`Debug_BandDemoHotkey` collapses onto
+// the shared zero-byte address in `s4.lst`), so an unconditional emission puts a 110-byte
+// raster program in the ROM the owner ships that **nothing in that shape can install**.
+// That is a dormant scaffold, and this tree deletes those — the same ruling that kept
+// `LO_SUPPRESS` unbuilt rather than built "for later".
+//
+// THIS FILE ALREADY RECORDS THE PRECEDENT, thirty lines below at OJZ_Preset_Sec0: "No
+// patched program had RENDERED since Parcel C2 ... Every P-a guard was therefore proving
+// properties of a program nothing could display." Unreachable effect data is a defect
+// here, with a name, in this module. Emitting a second one would have been incoherent.
+//
+// WHAT IS **NOT** GATED, AND THIS IS THE WHOLE POINT OF SPELLING IT THIS WAY: the program
+// CONSTANT and all seven `ensure`s above it are untouched by this gate. `ensure` is
+// comptime and emits nothing, so `raster_program(OJZ_BAND_DEMO_PROG)` — and through it
+// `check_band_pairing`, `check_band_ownership`, `check_landings`, `check_density` and the
+// whole guard stack — still runs on this three-band program in **every shape, on every
+// build**, release included. PIN 5's arm-chain decode is likewise unconditional.
+//
+// So the trade the gate would otherwise force is NOT taken: nothing here becomes a
+// DEBUG-only gate. What changes is only which shapes carry the BYTES. The ownership
+// walks stop being vacuous in the release shape too, which is the claim §14.5 asked for
+// and which a `pub data` gate alone would have quietly narrowed to one shape.
+//
+// THE LENGTH IS SHAPE-DEPENDENT, the `SongTable` / `SONG_COUNT` spelling from
+// games/sonic4/data/sound/mt_bank.emp. A bare `Data.empty` else-arm was tried first and
+// sigil refuses it here — "data `OJZ_BandDemo` needs a type annotation (its initializer
+// does not name a type)" — because `raster_program` returns an untyped comptime array and
+// the `[u16; N]` annotation is what makes these words rather than bytes. So the WIDTH
+// stays declared in both shapes and only the COUNT collapses to zero. The symbol still
+// exists in release, emits no bytes, and its label collapses onto its neighbour's address
+// exactly as the four zero-byte debug procs do.
+const OJZ_BAND_DEMO_EMIT_WORDS = if DEBUG == 1 { raster_words(OJZ_BAND_DEMO_PROG) } else { 0 }
+pub data OJZ_BandDemo: [u16; OJZ_BAND_DEMO_EMIT_WORDS] = if DEBUG == 1 { raster_program(OJZ_BAND_DEMO_PROG) } else { [] }
 
 // OJZ_TestPal — a deliberately unmistakable palette for the adjacent section, so
 // "did sec_pal load on the crossing?" is answerable from one CRAM read or

@@ -1333,9 +1333,73 @@ shipped cap and therefore the strongest available exercise of what P2a unlocked:
   seam makes `compose` **merge** the two records, 6 fires becoming 5. The seams double as the
   negative control that lives *inside* the effect.
 
-**It emits in both canonical shapes on purpose.** Only the installing hotkey is shape-gated.
-Gating the data too would mean the release shape compiled a different set of band guards from
-the DEBUG shape, which is the opposite of what a first consumer is for.
+**The emission is DEBUG-gated. The guards are not.** See §16.2a — the first version of this
+parcel emitted the program in both shapes and that was a defect, corrected before landing.
+
+
+### 16.2a A DEBUG-GATED TRIGGER DOES NOT IMPLY A DEBUG-GATED PAYLOAD
+
+**This is the correction the parcel needed, and it is worth more than the parcel.** The first
+version emitted `OJZ_BandDemo` in **both** canonical shapes, on the argument that "the program
+is content, only the installer is equipment". The argument does not survive its own
+consequence:
+
+> `Debug_BandDemoHotkey` emits **zero** bytes in the release shape. So an unconditional
+> emission puts a 110-byte raster program in the ROM the owner ships **that nothing in that
+> shape can ever install.**
+
+That is a dormant scaffold, and this tree deletes those. It is the same ruling that kept
+`LO_SUPPRESS` unbuilt earlier the same day rather than built "for later" — and applying the
+rule to one and not the other would have been incoherent.
+
+**This module already carried the precedent, thirty lines from where the mistake was made.**
+`OJZ_Preset_Sec0`'s header records it by name: *"No patched program had RENDERED since Parcel
+C2 ... Every P-a guard was therefore proving properties of a program nothing could display."*
+Unreachable effect data is a defect **here**, with a history, in **this file**.
+
+**THE GENERAL LESSON, and the reason this subsection exists rather than a commit line:** a
+DEBUG-gated **trigger** and a DEBUG-gated **payload** are separable, and the next person
+authoring a debug-only effect will assume they travel together. They do not. `if DEBUG == 1 {}`
+around a *proc* removes the code that installs a thing; it does nothing whatsoever to the
+`pub data` the thing is made of. **Gate both, or justify the gap out loud.** The failure is
+silent in the direction that matters: the build is green, the debug shape behaves correctly,
+and the only symptom is bytes in a release artifact that no code path can reach.
+
+**What is gated, precisely:**
+
+```
+const OJZ_BAND_DEMO_PROG = compose([ band(...), band(...), band(...) ])   // NOT gated
+ensure(... PIN 1..5, seam, stride ...)                                    // NOT gated
+const OJZ_BAND_DEMO_EMIT_WORDS = if DEBUG == 1 { raster_words(...) } else { 0 }
+pub data OJZ_BandDemo: [u16; OJZ_BAND_DEMO_EMIT_WORDS]
+       = if DEBUG == 1 { raster_program(OJZ_BAND_DEMO_PROG) } else { [] }  // gated
+```
+
+**AND THE TRADE THE GATE WOULD OTHERWISE FORCE IS NOT TAKEN — this is the load-bearing half.**
+`ensure` is comptime and emits nothing, so the program constant and **all seven guards stay
+unconditional**. `raster_program(OJZ_BAND_DEMO_PROG)` — and through it `check_band_pairing`,
+`check_band_ownership`, `check_landings` and `check_density` — still runs on this three-band
+program **in every shape, on every build, release included**. PIN 5's arm-chain decode is
+likewise unconditional. So no gate became DEBUG-only; a gate that runs in one shape is a
+weaker gate than one that runs everywhere, and that weakening did not happen.
+
+**PROVEN, not asserted** (2026-08-28, plain shape, perturb-and-restore, md5 identical after):
+
+| perturbation | plain-shape build | diagnostic |
+|---|---|---|
+| PIN 5 decode origin `1` → `2` | **rc=1** | "band 1 turns ON at emitted screen line 121, not the authored 120" |
+| delete the third `band()` | **rc=1** | "composed to 4 fires, not the 6 that three sh:0 bands must emit" |
+| (control, unperturbed) | rc=0 | — |
+
+The release shape therefore still gets the full non-vacuity §14.5 asked for. What it no longer
+gets is 110 bytes it cannot use.
+
+**A note on the `else` arm.** `Data.empty` was tried first and sigil refuses it here — *"data
+`OJZ_BandDemo` needs a type annotation (its initializer does not name a type)"* — because
+`raster_program` returns an untyped comptime array and the `[u16; N]` annotation is what makes
+these words rather than bytes. So the shape-dependent **length** spelling from
+`mt_bank.emp`'s `SongTable` / `SONG_COUNT` is used instead: the width stays declared in both
+shapes and only the count collapses to zero.
 
 ### 16.3 The pins, and the one that is new in kind
 
