@@ -326,6 +326,32 @@ CASES: list[tuple[str, str, str, int]] = [
     (f"{POISON}/poison_scene_actspan.emp",        "P3 T7 act span",       "a world-Y layer top (6144) is outside this act's vertical span (6144)", 1),
     (f"{POISON}/poison_scene_lcm_undeclared.emp", "P3 T12 lcm undeclared", "a scene with 1 layer(s) attaching a per-column V-deform table (SceneVDeform.Columns, sample speed 0, amplitude shift 2) declares NO left_column_mask policy", 1),
     (f"{POISON}/poison_scene_own_only_table.emp", "P3 own-only table",    "attaches NO plane-shared table on either plane", 2),
+    # ---- FACTOR0LOCK: the five halves of the verified claim, one module, count 5 ----
+    # FIVE ROWS AGAINST ONE MODULE, for the VFACTOR rows' reason and one more. The module
+    # holds a passing control plus five poisons, each differing from it in exactly the
+    # field its guard reads, so one build yields five diagnostics and each row asserts
+    # that ITS half produced one of them. The shared count is half of every row's
+    # assertion: a 6 means the CONTROL stopped passing (Factor0Lock became unclaimable
+    # even for a genuinely locked scene — an over-fire, not a stricter gate), a 4 or less
+    # means one half went dead and every row says so.
+    #
+    # THE EXTRA REASON, and it is why FB and DSB are here at all: three of these halves
+    # (FA, CV, DSA) were added 2026-08-28 when the verification was extended from plane B
+    # to both planes, and a guard rewritten to look at plane A must not have stopped
+    # looking at plane B. FB and DSB are the converse rows — they fail on bare master too,
+    # which is exactly what makes them the control on the rewrite rather than on the
+    # feature. (Measured on the pre-change tree: this module yields 2 errors, FB and DSB;
+    # on the post-change tree, 5.)
+    #
+    # THE FRAGMENTS ARE NOT INTERCHANGEABLE. All five messages open with the same
+    # "left_column_mask: Factor0Lock claims" clause, so matching that would pass against
+    # any of them; each fragment below quotes the one clause only its own guard says, and
+    # each was verified to occur exactly once in the tree.
+    (f"{POISON}/poison_scene_lcm_factor0.emp", "P3 T12 f0 plane-A factor", "PLANE A is not locked", 5),
+    (f"{POISON}/poison_scene_lcm_factor0.emp", "P3 T12 f0 plane-B factor", "PLANE B is not locked", 5),
+    (f"{POISON}/poison_scene_lcm_factor0.emp", "P3 T12 f0 curve far end",  "RAMPS its plane-B factor", 5),
+    (f"{POISON}/poison_scene_lcm_factor0.emp", "P3 T12 f0 plane-A deform", "live H-deform on PLANE A", 5),
+    (f"{POISON}/poison_scene_lcm_factor0.emp", "P3 T12 f0 plane-B deform", "live H-deform on PLANE B", 5),
     # ---- VFACTOR: the two whole-plane vertical-shift range guards ----
     # TWO ROWS AGAINST ONE MODULE, and the pairing is the point: the module holds two
     # control/poison pairs (v_factor 15 vs 255, v_factor_fg 0 vs 255), so a single build

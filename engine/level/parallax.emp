@@ -667,9 +667,13 @@ pub proc Parallax_StartTransition () clobbers(d0-d1) {
         //              with the per-cell fill and its 112-byte DMA.
         //   bit 2    = VScroll mode: 0 whole-plane, 1 per-column (still per config)
         moveq   #%11, d0                            // per-line HScroll
-        // CAP_PER_COL_VSRAM span (P2 §3.3) — the register half. No config attaches a
-        // column table, so VDP reg $0B bit 2 is never set and the test is dead. Falls
-        // through to `.v_done`, which is where the `beq` went anyway.
+        // CAP_PER_COL_VSRAM span (P2 §3.3) — the register half. Bit 2 goes up for exactly
+        // the configs that attach a column table, which is an AUTHORING property of the
+        // installed scene and not a fact this file may pin: a census of what the game
+        // currently authors goes stale on the same clock as the scenes. (One stood here
+        // until 2026-08-28 claiming bit 2 was never set and the test dead, while six
+        // registry scenes attached a table and this branch ran.) Falls through to
+        // `.v_done`, which is where the `beq` went anyway.
     if (Game.SCANLINE_CAPS & CAP_PER_COL_VSRAM) != 0 {
     .cap_per_col_vsram_mode_begin:
         move.l  parallax_config.pcfg_v_deform_table_bg(a0), d1
@@ -766,20 +770,26 @@ pub proc Parallax_Active_Config () clobbers() out(d0, zero: inert) {
 // Clobbers: d0, a0, a5
 //
 // HARDWARE QUIRK (per-column branch): the VDP's per-column V-scroll grain
-// is 16 px (one VSRAM entry per column-pair). When Plane B has non-zero
-// HScroll AND per-column V-scroll is on, the leftmost partial column
-// (the screen sliver before HScroll's first 16-px boundary) renders at
-// V-scroll = 0 regardless of VSRAM[0]. There is no register to fix this —
-// it's silicon. Mitigations: (a) sprite mask the leftmost strip (SpriteMask
-// — declaration exists, engine emission still pending, see DEFERRED_WORK.md
-// "Sprite mask for per-column V-scroll"), (b) lock Plane B HScroll to 0
-// (factor_b = FACTOR_0 AND no live plane-B deform — deform re-adds per-line
-// HScroll on top of a locked factor), or (c) live with it. SINCE P3 TASK 12
-// THE CHOICE IS AUTHORED, NOT IMPLIED: any scene attaching a per-column
-// V-deform table must declare `left_column_mask:` (SceneLeftColMask in
-// engine/level/scene_dsl.emp — Factor0Lock is VERIFIED against both
-// conditions in (b), Accept is (c) spelled out, SpriteMask is refused until
-// its emission lands) and the build fails an undeclared one.
+// is 16 px (one VSRAM entry per column-pair). When a plane has non-zero
+// HScroll AND per-column V-scroll is on, that plane's leftmost partial
+// column (the screen sliver before its HScroll's first 16-px boundary)
+// renders at V-scroll = 0 regardless of VSRAM[0]. There is no register to
+// fix this — it's silicon. IT IS PER PLANE: the mode bit is one bit for the
+// screen, but each plane has its own HScroll word, so plane A suffers it
+// independently of plane B and a locked B says nothing about A (this is
+// what the FOREGROUND strip on the six per-column scenes is — see
+// docs/research/2026-08-28-deform-scene-left-edge-triage.md).
+// Mitigations: (a) sprite mask the leftmost strip (SpriteMask — declaration
+// exists, engine emission still pending, see DEFERRED_WORK.md "Sprite mask
+// for per-column V-scroll"), (b) lock BOTH planes' HScroll to 0 (factor_a
+// and factor_b = FACTOR_0, no plane-B factor curve, AND no live deform on
+// either plane — deform re-adds per-line HScroll on top of a locked
+// factor), or (c) live with it. SINCE P3 TASK 12 THE CHOICE IS AUTHORED,
+// NOT IMPLIED: any scene attaching a per-column V-deform table must declare
+// `left_column_mask:` (SceneLeftColMask in engine/level/scene_dsl.emp —
+// Factor0Lock is VERIFIED against every condition in (b), Accept is (c)
+// spelled out, SpriteMask is refused until its emission lands) and the
+// build fails an undeclared one.
 // ----------------------------------------------------------------------
 pub proc Vscroll_Write () clobbers(d0/a0/a5) requires(vblank) {
         lea     VDP_CTRL, a5                        // (VDP_CTRL).l
@@ -790,9 +800,12 @@ pub proc Vscroll_Write () clobbers(d0/a0/a5) requires(vblank) {
         // committed to at frame 0 (transition mode-contract).
         jbsr    Parallax_Active_Config              // d0 = active config; Z reflects d0
         beq     .whole_plane
-        // CAP_PER_COL_VSRAM span (P2 §3.3). No scene attaches a v-deform column table,
-        // so pcfg_v_deform_table_bg is NULL for every config this game can install and
-        // the emitter is unreachable. `.whole_plane` is the structural fallthrough.
+        // CAP_PER_COL_VSRAM span (P2 §3.3). The emitter runs for exactly the configs whose
+        // pcfg_v_deform_table_bg is non-NULL; which configs those are is an authoring
+        // question this file must not answer for the reason the register half above gives.
+        // (The claim that stood here until 2026-08-28 — no scene attaches one, the emitter
+        // is unreachable — was wrong on both halves, and it was the first thing a reader
+        // chasing the left-edge strip met.) `.whole_plane` is the structural fallthrough.
     if (Game.SCANLINE_CAPS & CAP_PER_COL_VSRAM) != 0 {
     .cap_per_col_vsram_emit_begin:
         movea.l d0, a0
