@@ -1114,6 +1114,19 @@ path, for the same reason the protocol is read that way.
      mid-ritual state. Kept as a warning; the flip to refusal is gated on the state ceasing to be
      normal, and that has to be **computed from the ledger**, not remembered (see the
      push-before-attest ritual above).
+     **⚠ THIS INSTANCE IS NOT A CLEAN DECLINE AND AN EARLIER WORDING HERE IMPLIED IT WAS**
+     (corrected 2026-08-29 on the sigil lane's reading of this lane's own account, against this
+     lane's credit). What actually happened: **this lane proposed the flip as a remembered
+     three-chain count AND asserted that this made it "checkable rather than remembered" — the
+     assertion being the only thing supplying the property — and withdrew it after the sigil lane
+     objected.** So the instance is not *aeon declined an over-refusal*; it is *aeon talked itself
+     into one, a peer showed the safety property was self-asserted, aeon withdrew.*
+     **Kept in the corrected form because it is a BETTER instance that way**: a clean decline shows
+     the rule being followed, while this shows it catching something a lane had already convinced
+     itself of — which is the only evidence that matters for a bar about checks that look stronger
+     than they are. *A correction that reduces the corrector's credit is the one worth trusting;
+     note that the peer offered to take this lane's version instead, and this lane's version was
+     the flattering one and the wrong one.*
   3. **A completed freeze journal surviving a kill** — reported as a NOTE rather than a fault,
      because the alternative fires on a run that actually succeeded.
   **Why it earns a bar: the cost is not the false stop, it is what the operator does next.** A
