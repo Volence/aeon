@@ -53,7 +53,8 @@ set -euo pipefail
 # EMIT ROM-consumed bytes) + the sigil build + its checksum/deb2 appendix, and drops
 # s4lint, effects_budget_check, the pytest sweep, the expect-fail lane,
 # verify_level_bin, art_rom_report, s4budget, the post-sigil listing gates
-# (effects_seam_gate, bganim_room, sprite_tilt_gate) and the ctags reindex. None of those write a
+# (effects_seam_gate, bganim_room, sprite_tilt_gate, instashield_gate) and the ctags
+# reindex. None of those write a
 # byte the ROM contains, so a FAST ROM is byte-identical to the canonical ROM on
 # the same tree — that identity is the contract, and skipping a lane that changed
 # the artifact would be a bug in the lane.
@@ -222,7 +223,8 @@ if [[ "$FAST" == "1" ]]; then
     echo "   skipped: s4lint · effects_budget_check · pytest tools · emp_expect_fail"
     echo "            verify_level_bin · art_rom_report · s4budget · effects_seam_gate"
     echo "            bganim_room (the BG-anim ceiling is NOT checked) · sprite_tilt_gate"
-    echo "            (the tilt is NOT executed) · ctags"
+    echo "            (the tilt is NOT executed) · instashield_gate (the insta-shield"
+    echo "            precondition is NOT executed) · ctags"
     echo "   run:     emit_sound_blob · gen_compression_vectors · sigil build (+checksum,"
     echo "            +deb2 symbols) · level re-bake IF STALE"
     echo "   Re-run without FAST=1 before you land, merge, freeze, or quote a number."
@@ -724,6 +726,25 @@ if [[ "$FAST" == "0" ]]; then
             echo "Sprite-tilt gate failed — see above (tools/sprite_tilt_gate.py)."
             exit 1
         fi
+
+        # Sonic's insta-shield precondition, checked the same way and for a sharper
+        # reason: the claim is a REFUSAL — "a jump press made after walking off a ledge
+        # must NOT fire the insta-shield" — and the recorded replay net demonstrably
+        # cannot see it. That net is byte-identical across the parcel that added this
+        # gate (measured, both fixtures), because every airborne press it holds was
+        # already made out of a real jump. So the subject is the ROUTINE: extent from
+        # THIS listing, bytes from THIS ROM, capstone as an independent decoder, and a
+        # sweep over all 256 player_state values x the three one-shot values x the
+        # suppression bits, compared against S3K's Sonic_JumpHeight -> Sonic_ShieldMoves
+        # rule (sonic3k.asm:23368-23486). The allowed set it must produce is exactly
+        # {PSTATE_JUMP, PSTATE_ROLLJUMP}. Same post-sigil placement and same --fixture
+        # discipline as the two gates above. sonic4-only: `demo` has no player.
+        if ! python3 "${TOOLS}/instashield_gate.py" --lst "${ROM_NAME}.lst" \
+                --rom "${ROM_NAME}.bin" --built-after "${SIGIL_T0}" \
+                --fixture "${TOOLS}/fixtures/instashield_cut.json" --gate; then
+            echo "Insta-shield gate failed — see above (tools/instashield_gate.py)."
+            exit 1
+        fi
     fi
 fi
 
@@ -743,7 +764,8 @@ if [[ "$FAST" == "1" ]]; then
     echo "   VERIFICATION LANES WERE SKIPPED: s4lint · effects_budget_check · pytest tools"
     echo "   · emp_expect_fail · verify_level_bin · art_rom_report · s4budget"
     echo "   · effects_seam_gate · bganim_room (BG-anim ceiling NOT checked)"
-    echo "   · sprite_tilt_gate (the tilt routine is NOT executed) · ctags."
+    echo "   · sprite_tilt_gate (the tilt routine is NOT executed)"
+    echo "   · instashield_gate (the insta-shield precondition is NOT executed) · ctags."
     echo "   This is a DEV artifact. It is byte-identical to the canonical ROM on this"
     echo "   tree, but NOTHING here checked that — run ./build.sh before you land it."
     echo "================================================================================"
