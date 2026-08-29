@@ -1620,13 +1620,42 @@ path, for the same reason the protocol is read that way.
   **Freeze worktrees on the SIGIL side are transient and are NOT declared**: `.sigil-pair-180` was
   created for chain 180's freeze and removed once both halves were pushed, because it held nothing
   that is not now at `origin/master`. Declare a tree for what it would COST to recreate, not for
-  having existed. **The mechanism that makes a sigil freeze worktree work is
-  `SIGIL_HARNESS_ROOT`** (`harness_root.rs`'s `ROOT_OVERRIDE`, read at sigil `81040fc2`), which
-  points the prebuilt binary at another tree: `refreeze` has no `--harness-root` flag of its own
-  and otherwise operates on the tree it was COMPILED in, which is the shared checkout. Set it and
-  `SIGIL_BUILD` (it defaults to `<root>/target/release/sigil`, which a fresh worktree does not
-  have) and the freeze lands in the worktree while the shared checkout stays on `master`,
-  untouched.
+  having existed.
+  **⚠ THE MECHANISM I WROTE HERE WAS WRONG, AND IT PROPAGATED FURTHER THAN THE MEASUREMENT DID —
+  corrected 2026-08-29 by the sigil lane (sigil `1c595038`, verified reachable at their
+  `origin/master` here, and `resolve_harness_root(&cwd, ROOT_OVERRIDE)` read firsthand at
+  `src/bin/refreeze.rs:1037` at that tip).** This stanza said `refreeze` "has no `--harness-root`
+  flag of its own and otherwise operates on the tree it was COMPILED in". **The first clause is
+  true and the second is FALSE.** `refreeze` resolves its root from the **CURRENT WORKING
+  DIRECTORY** (`git rev-parse --show-toplevel`), with `SIGIL_HARNESS_ROOT` as an *override*, not
+  as the only steering. `--harness-root` is absent from the parent because it is the parent→child
+  protocol *to* `repin`: refreeze derives the root and passes it down so the child cannot resolve
+  a different one. Its absence is the design, not a gap.
+  **What actually works is simpler than what I wrote: stand in the tree you mean to freeze.**
+  Setting `SIGIL_HARNESS_ROOT` as well is harmless and still fine. **`SIGIL_BUILD` is the one that
+  genuinely must be set** when aiming a prebuilt refreeze at a fresh worktree — it defaults to
+  `<root>/target/release/sigil`, which a new worktree does not have, and `capture_goldens.sh`
+  exits naming the path, so that one is friction rather than silence.
+  **HOW I GOT IT WRONG, which is the reusable half.** Chain 180's freeze ran with the cwd **and**
+  `SIGIL_HARNESS_ROOT` pointing at the same worktree. Both candidate causes were held equal **by
+  construction**, so the run could not discriminate between them, and I credited the variable I
+  had deliberately set. That is bar 5 — a clean result across inputs that only *looked* varied —
+  arriving on a causal story rather than on a number. The sigil lane discriminated it in one
+  command I never ran: the same binary, `--check`, from two directories, reading two different
+  provenance chains (`ball-seating`/180 from the shared checkout, `migmask`/51 from
+  `.worktrees/lane-c`).
+  **AND THE COST WAS NEARLY REAL, WHICH IS WHY THIS IS A BAR AND NOT A FOOTNOTE.** My counts were
+  exact and reproduced (`harness-root`: zero hits in `refreeze.rs`, two in `repin.rs`). **The
+  explanation attached to them reached the sigil lane's own `OVERSEER.md`, a hub ruling, and an
+  authorized fix inside one day** — a fix that would have made `refreeze` *refuse when
+  `SIGIL_HARNESS_ROOT` is unset*, turning the normal invocation into a refusal in the middle of an
+  unattended overnight freeze, guarding a hazard that does not exist. It was stopped only because
+  that lane measured before implementing what it had been told.
+  **The general form, theirs and kept in their words: an explanation propagates in a way a number
+  does not.** A count travels as a count; a mechanism travels as a fact, gets built on, and turns
+  into rulings and dispatch orders. **So report the measurement and flag the cause as the softer
+  half of the message**, explicitly, every time — the asymmetry is not in how carefully each is
+  checked, but in how far each travels once unchecked.
   **AND THE BINARY ANNOUNCES THE MISMATCH LOUDLY, WHICH IS A FEATURE TO USE RATHER THAN A WARNING
   TO WAVE PAST** — it prints *built from X, operating on Y … if it predates what you are about to
   ask it, rebuild it*. The check that discharges it is two commands, not a rebuild: `git log
