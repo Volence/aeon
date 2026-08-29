@@ -1273,6 +1273,40 @@ path, for the same reason the protocol is read that way.
 
 ## Aeon-specific review bars (beyond the protocol's)
 
+- **A STALE SENTENCE IN A PLANNING DOCUMENT IS EXECUTED AS A WORK ORDER — and nothing can
+  contradict it, because the thing that superseded it is a commit in ANOTHER REPO** (added
+  2026-08-29; three instances in one exchange, framing jointly with the sigil lane, the
+  no-edge-to-walk diagnosis theirs).
+  **The instances.** (1) This lane's SIGIL-DECOUPLE booking said *"the FROZEN TABLES are the
+  placement authority, not `map.toml`"* — true when written, superseded by sigil's K5 parcel, and
+  **two lanes spent an hour scoping step 2 against it** before anyone opened sigil's source.
+  (2) Sigil's own `SizeSource::Frozen` doc comment carried the same superseded premise
+  independently. (3) The same booking's R1 audit still names `$48000`/`$50000` for the DAC banks,
+  which the 2026-08-26 re-layout moved — `map.toml` now DERIVES them
+  (`align_up(packed_data_end + DATA_GROWTH_RESERVE, 0x8000)`, `dac_banks = 0x90000`), and
+  `$48000` survives only as commentary about an anchor that is no longer there.
+  **Why this is worse than the code-comment class the prose sweep was scoped for.** A stale code
+  comment misinforms a reader who is already looking at the code. **A stale booking is read as an
+  instruction**: it names work, it sits in the queue, and a session picks it up and starts. The
+  morning's prose-bounds sweep covered comments and help text; **planning and booking documents
+  are the population it missed**, and they are the population with the highest blast radius.
+  **The mechanism, and this is the part neither lane has a fix for (sigil's diagnosis, kept in
+  their words): the artifact that supersedes a booking is a commit in a DIFFERENT REPO, so there
+  is no edge for anything to walk.** Both documents were correct when written; nothing in either
+  tree notices when a landing elsewhere invalidates a sentence in a plan. **Named rather than
+  patched — neither of us would maintain a checker for it, and proposing one would be the
+  announce-but-do-not-run shape this file is full of.**
+  **What IS cheap and is adopted: when a booking asserts a fact about a sibling repo, cite the
+  peer revision inline** — the same rule this file already carries for claims, now pointed at
+  PLANS. That converts *"the frozen tables are the authority"* into *"…(sigil `<rev>`, read
+  `<date>`)"*, which a reader can check in one command instead of inheriting.
+  **And the operational form for the reader, which needs no tooling: take a booking's SHAPE and
+  re-derive its NUMBERS.** The R1 audit's eight requirements are still exactly right as a shape —
+  object bank, hard-org'd sound banks, DAC banks, `error_handler` last, OJZ islands contiguous,
+  vectors and header — and two of its addresses are wrong. **Shape ages well; coordinates do
+  not.** That is the same split as *anchor to the SYMBOL, let the SHA date the CLAIM*, arriving
+  on plans instead of on citations.
+
 - **REPORT THE REASONING, NOT THE VERDICT — A CONCLUSION IS NOT REFUTABLE AND READS AS MORE
   COMPETENT THAN AN ARGUMENT** (added 2026-08-29; the sigil lane's formulation, offered against
   this lane's own attempt to credit them for two catches).
