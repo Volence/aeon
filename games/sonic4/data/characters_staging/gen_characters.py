@@ -3,10 +3,18 @@
 
 Design #3 (character-dispatch) asset PREP. Reads stock Sonic 3 & Knuckles
 character assets out of the read-only skdisasm tree and emits them in Aeon's
-sprite formats (mirroring our custom-Sonic pipeline exactly), plus intermediate
-JSON for the animation scripts (whose 11-universal-id .emp table authoring is a
-character-plan decision, deferred here). See README.md for provenance and the
-full list of decisions made vs deferred.
+sprite formats (mirroring our custom-Sonic pipeline, with the ONE documented
+divergence below), plus intermediate JSON for the animation scripts (whose
+11-universal-id .emp table authoring is a character-plan decision, deferred
+here). See README.md for provenance and the full list of decisions made vs
+deferred.
+
+BALL SEATING IS THE ONE GEOMETRIC TRANSFORM (2026-08-29, owner ruling d-36).
+Every mapping frame is converted verbatim EXCEPT the rolling-ball frames, whose
+piece `y_off` is moved by a shift DERIVED from BALL_Y_RADIUS so the ball seats on
+the collision floor. See the "Ball seating" section below; asserted by
+tools/test_ball_seating.py. Sonic's ball is not produced here and already seats
+flush (verified, not assumed).
 
 Source of truth for the Aeon formats this mirrors:
   tools/convert_s2_mappings.py  -> mapping VDP-order binary + flip-invariant bbox

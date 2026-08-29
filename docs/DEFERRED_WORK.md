@@ -12459,32 +12459,55 @@ untouched, and the gate emitted into both sonic4 shapes.
 ## Character ball-sprite / collision-box seating (2026-08-28, `parcel/char-size-audit`)
 
 Full audit and arithmetic: **`docs/CHARACTER_BOX_AUDIT.md`**. Re-measure with
-`python3 tools/measure_character_boxes.py`.
+`python3 tools/measure_character_boxes.py` — where that tool and any number written here
+disagree, the tool is right.
 
-**Nothing was changed.** Every collision box, every curl y-shift and every sensor radius audited
-against skdisasm S3K and found correct — 29 of the 36 reachable grounded states put the lowest
-opaque art pixel exactly on the collision floor. The reported symptom is real but is an ART fact:
+**Points 1 and 2 are CLOSED (2026-08-29, `parcel/ball-seating`). Points 3 and 4 remain open.**
 
-**1. Rolling Tails floats 1 px; rolling Knuckles overlaps the ground by 2 px.** Both balls are a
-single 32×32 mapping piece, as Sonic's is; the difference is entirely which pixels inside the cell
-are opaque (Tails' ball is 28 px in a 29 px box; Knuckles' fills the cell and its piece sits 1 px
-lower). Both are stock S3K art and stock S3K has the same deltas. Our Sonic looks flush only
-because his art is S2/`sonic_hack`, not S3K — stock S3K's own Sonic ball overlaps by 1 px.
+Every collision box, every curl y-shift and every sensor radius was audited against skdisasm S3K
+and found correct. The reported symptom was real and was an ART fact.
 
-**Open decision, owner's to make** (it is a content ruling, not an engine one — which is why no
-fix was landed): leave it S3K-faithful, or adopt "all balls seat flush" as a project convention
-and shift Tails' `$96-$98` `+1` and Knuckles' `$96-$9A` `−2` in their mapping piece `y_off`. If
-adopted, the change belongs in `games/sonic4/data/characters_staging/gen_characters.py`, which
-ships those blobs — editing the `.bin`s directly would be silently reverted by the next
-regenerate. Picking `+1` without adopting the rule would be tuning a magic number to hide a
-symptom, so it was deliberately not done.
+**1. CLOSED — the balls all seat flush now.** Rolling Tails floated 1 px and rolling Knuckles
+overlapped the ground by 2 px; both balls are a single 32×32 mapping piece, as Sonic's is, and
+the difference was entirely which pixels inside the cell are opaque. Both are stock S3K art and
+stock S3K has the same deltas. Our Sonic looks flush only because his art is S2/`sonic_hack` —
+stock S3K's own Sonic ball overlaps by 1 px.
 
-**2. No gate was added, deliberately.** The only honest invariant would be `delta = 0` for
-grounded poses, and it is false BY DESIGN for get-up crouches, Tails' tucked flight legs and
+**The owner ruled `flush` (d-36, 2026-08-28: "theyy should all be flush").** Shipped in
+`games/sonic4/data/characters_staging/gen_characters.py` as required, so a regenerate cannot
+silently revert it. The shift is **derived, not typed** —
+`BALL_Y_RADIUS − max(lowest opaque art row over the ball frames)`, with the radius read from
+`engine/system/constants.emp`, the frame set from the character's `.emp` `Roll` row and the
+pixels from the art this same run produces. It reproduced the audited numbers exactly (Tails
+`$96-$98` `+1`, Knuckles `$96-$9A` `−2`); Sonic was verified already flush and is untouched.
+Mapping blob lengths did not move — only `y_off` values.
+
+*Found while deriving it, and NOT resolvable by any rigid shift:* a character's ball frames do
+not share one lowest row. Knuckles' `$96` reaches 1 px lower than his other four, and our
+already-accepted Sonic's `$9A` stops 1 px short of his. `max` is the statistic Sonic already
+satisfies, so it is the one adopted. **Open aesthetic call, foreground-only:** Knuckles at `−2`
+ends with 1 frame flush and 4 floating 1 px, where `−1` would give 4 flush and 1 overlapping.
+`−2` is what the rule derives; `−1` may read better in motion. See CHARACTER_BOX_AUDIT §5.
+
+*Also deliberate:* the twin-tails appendage was **not** shifted. Its roll frames are drawn at
+one of four runtime orientations selected from the parent's velocity angle, half of them with
+both axes flipped, so a uniform mapping-space shift would move half of them the **wrong way**
+on screen. Its seating is not a static property. Consequence: the tails now sit 1 px higher
+relative to Tails' ball than before — expected invisible on a spinning blur, unverified.
+
+**2. CLOSED — one narrow gate, and only one.** `tools/test_ball_seating.py` asserts
+`delta == 0` for the `Roll` row of all three characters, run build-fatally by `build.sh`'s
+tool-suite lane (`python3 -m pytest tools/`). Red-first proven; loud on unmeasurable (a missing
+`Roll` row, an unreadable radius, an empty art blob or a frame past the end of the mapping set
+all FAIL, none renders as 0).
+
+The original reasoning for adding no gate still stands for **everything else**: `delta = 0` for
+grounded poses generally is false BY DESIGN for get-up crouches, Tails' tucked flight legs and
 Knuckles' glide/climb poses, and false in stock S3K for two of three balls. A fixture asserting
-today's measured deltas would be a snapshot that cannot distinguish a regression from an
-intentional re-export. `tools/measure_character_boxes.py` prints the table instead; run it after
-any character art/mapping/DPLC re-export or any `*_RADIUS` change.
+today's whole measured table would be a snapshot that cannot distinguish a regression from an
+intentional re-export. What changed is narrow: the ruling promoted the three ball rows from
+observation to convention, and only those are asserted. `measure_character_boxes.py` still
+prints the rest; run it after any character art/mapping/DPLC re-export or any `*_RADIUS` change.
 
 **3. Three deliberate divergences from S3K, all in our favour, none runtime-confirmed.**
 `PHook_EnsureBall`/`EnsureStanding` derive the feet-planted shift uniformly, where S3K applies
