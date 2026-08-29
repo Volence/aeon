@@ -781,27 +781,47 @@ pub proc Parallax_Active_Config () clobbers() out(d0, zero: inert) {
 // Out: VSRAM written
 // Clobbers: d0, a0, a5
 //
-// HARDWARE QUIRK (per-column branch): the VDP's per-column V-scroll grain
-// is 16 px (one VSRAM entry per column-pair). When a plane has non-zero
-// HScroll AND per-column V-scroll is on, that plane's leftmost partial
-// column (the screen sliver before its HScroll's first 16-px boundary)
-// renders at V-scroll = 0 regardless of VSRAM[0]. There is no register to
-// fix this — it's silicon. IT IS PER PLANE: the mode bit is one bit for the
-// screen, but each plane has its own HScroll word, so plane A suffers it
-// independently of plane B and a locked B says nothing about A (this is
-// what the FOREGROUND strip on the six per-column scenes is — see
-// docs/research/2026-08-28-deform-scene-left-edge-triage.md).
-// Mitigations: (a) sprite mask the leftmost strip (SpriteMask — declaration
-// exists, engine emission still pending, see DEFERRED_WORK.md "Sprite mask
-// for per-column V-scroll"), (b) lock BOTH planes' HScroll to 0 (factor_a
-// and factor_b = FACTOR_0, no plane-B factor curve, AND no live deform on
-// either plane — deform re-adds per-line HScroll on top of a locked
-// factor), or (c) live with it. SINCE P3 TASK 12 THE CHOICE IS AUTHORED,
-// NOT IMPLIED: any scene attaching a per-column V-deform table must declare
-// `left_column_mask:` (SceneLeftColMask in engine/level/scene_dsl.emp —
-// Factor0Lock is VERIFIED against every condition in (b), Accept is (c)
-// spelled out, SpriteMask is refused until its emission lands) and the
-// build fails an undeclared one.
+// HARDWARE QUIRK (per-column branch) — AND IT IS FIXED SINCE 2026-08-29, by
+// the column-19 borrow in Parallax_Step5_Vscroll's fill. This banner said
+// something stronger and less precise until then, and the imprecision cost a
+// decision: it asserted the sliver "renders at V-scroll = 0 regardless of
+// VSRAM[0]" and that "there is no register to fix this — it's silicon". The
+// second half is still true of REGISTERS and was read as "unfixable"; it was
+// quoted forward into a triage doc and then into a decision card, where it
+// became the reason to cover the strip rather than repair it.
+//
+// WHAT THE RULE ACTUALLY IS. The per-column V-scroll grain is 16 px (one
+// VSRAM entry pair per column-pair). When a plane's HScroll is not a multiple
+// of 16 AND per-column V-scroll is on, that plane's leading sliver — `hscroll
+// & 15` pixels wide, not a full column — renders at `VSRAM[$4C] & VSRAM[$4E]`:
+// the bitwise AND of column-pair 19's two words, THE SAME VALUE FOR BOTH
+// PLANES, in H40 only (in H32 it is pinned to 0 and no VSRAM address reaches
+// it). That is Eke-Eke's dedicated hardware test, PAL MD2 2010 — the only
+// controlled hardware result on record — and it is what Genesis Plus GX and
+// Oracle both implement. Sources, tiers and what would refute them:
+// docs/research/2026-08-29-vsram-column19-borrow.md.
+//
+// IT IS PER PLANE: the mode bit is one bit for the screen, but each plane has
+// its own HScroll word, so plane A gets a sliver independently of plane B and
+// a locked B says nothing about A. That is what the FOREGROUND strip on the
+// six per-column scenes was — see
+// docs/research/2026-08-28-deform-scene-left-edge-triage.md.
+//
+// SO THE MITIGATION LIST IS NOW FOUR, AND THE FIRST IS THE ONE IN FORCE:
+//   (a) the COLUMN-19 BORROW — write plane A's V-scroll into column-pair 19's
+//       plane-B word, making the AND `camY & camY = camY`. Unconditional in
+//       the fill span; costs plane B 16 px at the screen's right edge, where
+//       that same entry renders. This is what ships.
+//   (b) lock BOTH planes' HScroll to 0 (factor_a and factor_b = FACTOR_0, no
+//       plane-B factor curve, AND no live deform on either plane — deform
+//       re-adds per-line HScroll on top of a locked factor). Then no plane
+//       has a sliver at all. Still verified by SceneLeftColMask.Factor0Lock.
+//   (c) sprite-mask the strip. RULED OUT by the owner, d-40 2026-08-29: he
+//       rejected covering it and asked for the repair.
+//   (d) live with it. Also ruled out by d-40.
+// The `left_column_mask:` declaration on a per-column scene survives (a) and
+// is re-scoped by it — see the SceneLeftColMask banner in
+// engine/level/scene_dsl.emp for what it now declares and what it does not.
 // ----------------------------------------------------------------------
 pub proc Vscroll_Write () clobbers(d0/a0/a5) requires(vblank) {
         lea     VDP_CTRL, a5                        // (VDP_CTRL).l
