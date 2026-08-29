@@ -1008,6 +1008,24 @@ deferring to "something else owns this", confirm the something else exists.
   absolute — and **do all landing, freezing and committing from a dedicated worktree**, which this
   lane's rules already require for freezes and which extends to ordinary doc commits. A stale branch
   ref in that tree is visible and harmless; the shortcut that removes it is neither.
+  **⚠ AND I BROKE THE RESTATED RULE WITHIN TWO MINUTES OF RESTATING IT — recorded because this file
+  says these instances are always produced by a session actively rehearsing the rule.** Having just
+  written *"do all landing, freezing and committing from a dedicated worktree"*, this overseer
+  committed that very correction from the **main checkout**. Not caught by a gate; caught by reading
+  back what had just been written.
+  **The honest resolution is a SCOPE correction, not a mea culpa, and the two must be separated.**
+  The worktree extension was reasoned from the stale-index hazard, and that hazard had exactly one
+  cause: a tree that could not take merges accumulating index drift under `update-ref`. **A tree
+  whose index is current cannot exhibit it.** So the extension's premise is discharged by the same
+  ruling as the rest of the stanza, and the surviving scope is the one that was never conditional:
+  **freezes and paired landings run from a dedicated worktree** (their reason is artifact
+  cleanliness, not index drift, and it stands on its own); **ordinary doc commits from the main
+  checkout are fine while it is level with `origin/master`** — verified with `git show --stat` and
+  its deletion count read, every time, which is the check that would actually have caught the 988.
+  **What I am NOT claiming: that I reasoned this out before committing.** I did not; I wrote a
+  broader rule than its reason supported and then acted on the narrower one by reflex. The scope
+  correction is right on the merits and it is also post-hoc, and saying only the first half would be
+  this file's own most-pleasing-part tell.
 
 - **⚠⚠ `git update-ref` ON A CHECKED-OUT BRANCH DOES NOT REFRESH THAT TREE'S INDEX, AND THE NEXT
   EXACT-PATH COMMIT THERE SILENTLY DELETES EVERYTHING THE INDEX HAS NOT SEEN** (added 2026-08-29,
