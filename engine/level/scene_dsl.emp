@@ -133,8 +133,13 @@ pub const LAYER_WORLD_Y_MAX = $8000
 // lowering did not happen". It landed, and the row still says NOT GATED ANYWHERE, for the
 // reason above: the bit has a lowering (`curve: SceneCurve.To(..)`) and THREE bracketed code
 // sites (`cap_factor_curve_hoist` and `cap_factor_curve_split` in Parallax_Step4_Fill,
-// `cap_factor_curve_band` in Parallax_Fill_PerLine), and neither shipped game raises it —
-// adopting a ramping factor on a shipped scene is owner-gated, and it moves every ROM image.
+// `cap_factor_curve_band` in Parallax_Fill_PerLine).
+// ⚠ THE CLAUSE THAT USED TO SIT HERE — "and neither shipped game raises it" — IS FALSE AND WAS
+// TRUE WHEN WRITTEN (corrected 2026-08-29; the editor lane measured it). sonic4's SCANLINE_CAPS
+// is $005E (games/sonic4/config/game.emp) and CAP_FACTOR_CURVE is $0040; $005E & $0040 = $0040,
+// so sonic4 DOES raise it. Adopting a ramping factor on a shipped scene remains owner-gated and
+// still moves every ROM image — that half stands; only the "neither game" half rotted, when the
+// bit was raised somewhere this comment could not see and nothing executes a comment.
 // The bracket's own witness is the capability-raised instrument build recorded in
 // docs/benchmarks/scanline-p3/CURVES.md, where all three span pairs appear in the listing.
 //

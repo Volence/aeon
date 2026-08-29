@@ -11789,7 +11789,13 @@ build, no emulator. Headline numbers, all re-derived rather than copied:
   (`bg.emp`, `docs/research/teleport-rebase.md`). A tall map removes it: at `v_factor 3` a `$1000`
   shift keeps the SCROLL invariant (512 px = one wrap) but not the CONTENT. Needs a windowed
   repaint or a build guard on the shift. **This is the item that could make it two parcels.**
-- **This guard's proposed `ensure` names `PLANE_B_SPAN`, which is not a constant that exists.**
+- ~~**This guard's proposed `ensure` names `PLANE_B_SPAN`, which is not a constant that exists.**~~
+  **FALSE, corrected 2026-08-29 (the editor lane measured it; verified firsthand here).** It exists at
+  `engine/level/parallax.emp` as `pub const PLANE_B_SPAN = PLANE_B_CELL_ROWS * 8`, with its own
+  `ensure(PLANE_B_SPAN == 512, ...)` on the next line and a mirror pin. Whether it existed when this
+  bullet was written is not established; what is established is that the bullet has been telling
+  every reader of this booking to design around a constant that is sitting in the engine. The
+  proposed guard can name it directly.
   Under option 3 it becomes `<= bg_map_span` anyway; the guard changes shape rather than dying.
 
 **Verdict on the 448-tile ceiling — it is NOT dissolved, and streaming makes it bite harder.**
