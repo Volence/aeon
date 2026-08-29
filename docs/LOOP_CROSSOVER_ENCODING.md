@@ -1,8 +1,11 @@
 # Loop crossover encoding — the cross-repo anchor
 
-**Status:** design anchor. Nothing here is implemented. This document exists so Aurora's
-paint tool and Aeon's engine parcel can be built against the same contract without either
-waiting for the other.
+**Status:** design anchor. This document exists so Aurora's paint tool and Aeon's engine
+parcel can be built against the same contract without either waiting for the other. Nothing
+here is implemented **except** the one piece that could not wait: the named `XOVER_*`
+constants and §6 change (6)'s preservation rule, landed on `fix/repaint-preserve-crossover`
+because the violator it names is a committed tool that writes the owner's live tree and
+would have silently eaten the first painted crossover. See §3.4 and §7 R4.
 
 **Measured against:** aeon `fde35b2f` (`data(ojz): repaint the collision cells that made
 Knuckles fall through the floor`), worktree clean for
@@ -210,21 +213,34 @@ symmetrically into both.
 `XOVER_NONE` = `0`. Bits 15:14 clear. That is the current content of every cell in every
 shipped act (§2.1) and the value Aurora must write for "erase crossover".
 
-**Preservation rule, and it already has a violator on our side of the wall.** Any producer
-that *rewrites* a per-plane cell word must preserve bits 15:14 rather than rebuild the word.
-`tools/repaint_ojz_collision.py::repaint_word` currently does:
+**Preservation rule, and it had a violator on our side of the wall — now FIXED.** Any
+producer that *rewrites* a per-plane cell word must preserve bits 15:14 rather than rebuild
+the word. `tools/repaint_ojz_collision.py::repaint_word` used to do:
 
 ```python
 sol = (word >> cp.PATH_A_SOL_SHIFT) & 3
 return (sol << cp.PATH_A_SOL_SHIFT) | SAFE_FULL_SHAPE
 ```
 
-— it reconstructs the word from solidity and shape alone and **discards bits 15:14
+— it reconstructed the word from solidity and shape alone and **discarded bits 15:14
 unconditionally**. This is the same class of defect Aurora already measured on their side
-(`CollisionPalette.tsx` / `MapViewport.tsx` writing words wholesale), and it is in a
-committed tool that was run against section 0 as recently as `fde35b2f`. It is harmless
-today only because the field is empty everywhere. It must be fixed in the same parcel (§6,
-change (6)) and pinned by a test (§7 rule R4).
+(`CollisionPalette.tsx` / `MapViewport.tsx` writing words wholesale), and it was in a
+committed tool that was run against section 0 as recently as `fde35b2f`. It was harmless
+only because the field is empty everywhere.
+
+> **DONE**, ahead of the rest of this parcel, on branch `fix/repaint-preserve-crossover`:
+> `repaint_word` now carries `(word >> cp.XOVER_SHIFT) & cp.XOVER_MASK` through, and
+> `tools/collision_pipeline.py` gained the named `XOVER_*` constants (§6 change (0), the
+> `XOVER_SHIFT` half) so no rewriter has to spell the field as a literal. Pinned by two
+> tests, both non-vacuous by a deliberately authored mark (§8.1) — see §7 R4.
+>
+> It **preserves rather than refuses.** A refusal was considered and rejected: §4 Q4 rules
+> geometry and path membership independent axes with all four combinations legal, §6 change
+> (1) deliberately keeps a crossover alive on a cell with *no* geometry at all, and a
+> whole-tree refusal would block the repaint of a loop's bottom-centre column — flat ground,
+> exactly what rule A polices — over a field the repaint does not model. Repainting to shape
+> 255 only makes a marked cell more solid, so it can make the mark fire more reliably and
+> cannot lose it. A marked target is reported as a **NOTICE** in the tool's output instead.
 
 ---
 
@@ -326,6 +342,9 @@ cell must not re-fire. This needs one word of per-object state (last resolved ce
 it is the encoding, and it should carry an `ensure` tying the two.
 
 **(6) `tools/repaint_ojz_collision.py::repaint_word` must preserve bits 15:14** (§3.4).
+**DONE** — landed ahead of the rest of this parcel; see the callout in §3.4. Change (0)'s
+`XOVER_SHIFT` / `XOVER_MASK` landed with it (the `PLANE_SOL_SHIFT` rename did not — it
+touches `bake_plane_cell` and belongs with the baker work).
 
 **(7) `path_swap.emp` survives.** Painted cells cannot be conditional, spawned, moved, or
 carried by a boss. Route P takes the common case; the object remains the escape hatch. This
@@ -348,7 +367,7 @@ paying for.* Every rule in this document, with its enforcement site:
 | **R1** | `XOVER == 3` is illegal | `tools/collision_pipeline.py` `bake_plane_cell` — raise, do not clamp, do not warn | **NEW** |
 | **R2** | plane-A word must not carry `XOVER_TO_A`; plane-B must not carry `XOVER_TO_B` | `tools/ojz_strip_gen.py` `apply_editor_collision_overlay` (the only site that knows *which* plane a word came from — `bake_plane_cell` does not) | **NEW** |
 | **R3** | bit 14 means path-B solidity in the donor word and `XOVER` in the per-plane word, and no caller crosses them | `tools/test_collision_consistency.py` — a currency test asserting `bake_cell` and `bake_plane_cell` disagree on the same 16-bit input in the documented way | **NEW** |
-| **R4** | every rewriter of a per-plane cell word preserves bits 15:14 | `tools/test_collision_consistency.py`, extending the existing `test_repaint_word_preserves_solidity_and_clears_flips` | test exists, **the assertion is NEW** and the code under it is currently **in violation** (§3.4) |
+| **R4** | every rewriter of a per-plane cell word preserves bits 15:14 | `tools/test_collision_consistency.py::test_repaint_word_preserves_the_loop_crossover_mark` (the function) and `::test_repaint_write_path_preserves_the_crossover_on_a_synthetic_plane` (the tool's real write path, incl. `Section.set_word`'s two tile rows) | **DONE** — both tests green, both red before the fix; the only rewriter on our side is now compliant |
 | **R5** | the emitted `crossover.bin` matches the painted cells | `tools/collision_consistency.py` — a new rule in the existing gate, run over the **baked artifact** like rules A and B | **NEW** |
 | **R6** | the engine's layer mapping matches the encoding | `.emp` `ensure` at the read site (see `docs/EMP_PITFALLS.md` §3 — the guard must be in a **reachable** module or it is dead) | **NEW** |
 | — | loop-shaped reachability | **Aurora**, at paint time (§8) | **NEW, and not ours** |

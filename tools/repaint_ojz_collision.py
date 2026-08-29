@@ -41,6 +41,14 @@ The repaint itself preserves each cell's SOLIDITY bits. Whether the main floor
 should be SOL_TOP or SOL_ALL is Defect 2 of the shape-114 diagnosis and is a
 gameplay ruling for the owner, not something this tool decides.
 
+It also preserves each cell's LOOP CROSSOVER mark (bits 15:14,
+cp.XOVER_SHIFT — docs/LOOP_CROSSOVER_ENCODING.md §3.4). That field is empty in
+every shipped plane file today, so this is a rule ahead of its content: the
+moment Aurora's brush paints one, a re-run of this tool must not eat it. A
+marked cell among the targets is reported as a NOTICE below the summary — it is
+NOT a refusal, because the anchor rules geometry and path membership
+independent axes (§4 Q4).
+
 -----------------------------------------------------------------------------
 WHY AN ABSENCE CANNOT READ AS SUCCESS
 -----------------------------------------------------------------------------
@@ -133,9 +141,30 @@ def resolve_word(word, hm, an):
 
 
 def repaint_word(word):
-    """Same solidity, shape 255, no flips."""
+    """Same solidity, same crossover mark, shape 255, no flips.
+
+    This function REBUILDS the word, so every field it does not name is a field
+    it silently destroys. Two are named and carried through:
+
+      solidity (bits 13:12) — the owner's gameplay ruling (Defect 2), not this
+        tool's to decide.
+      XOVER (bits 15:14, cp.XOVER_SHIFT) — the loop crossover mark, which is a
+        property of the PATH, not of the surface's geometry. This tool paints
+        geometry; docs/LOOP_CROSSOVER_ENCODING.md §3.4 makes preserving the mark
+        a rule (§6 change 6, rule R4) and names this very function as its only
+        violator on our side of the wall. Carried, not refused: §4 Q4 rules the
+        two axes independent and all four combinations legal, and §6 change (1)
+        goes out of its way to keep a crossover alive on a cell with NO geometry
+        at all. Repainting to shape 255 only makes such a cell more solid, so it
+        can make the mark fire more reliably and cannot lose it.
+
+    Anything added to this word in future must be added here too, or the next
+    run of this tool erases it.
+    """
     sol = (word >> cp.PATH_A_SOL_SHIFT) & 3
-    return (sol << cp.PATH_A_SOL_SHIFT) | SAFE_FULL_SHAPE
+    xover = (word >> cp.XOVER_SHIFT) & cp.XOVER_MASK
+    return ((xover << cp.XOVER_SHIFT) | (sol << cp.PATH_A_SOL_SHIFT) |
+            SAFE_FULL_SHAPE)
 
 
 def is_pinhole_profile(heights):
@@ -270,6 +299,7 @@ def run(root=None, apply_changes=False, out=sys.stdout):
     before_a = before_b = 0
     after_a = after_b = 0
     written = []
+    marked = []     # target cells carrying a loop crossover mark
 
     for path in paths:
         sec = Section(path, hm, an)
@@ -288,7 +318,11 @@ def run(root=None, apply_changes=False, out=sys.stdout):
 
         # Simulate (or perform) the repaint, then RE-VERIFY on the result.
         for (col, cr) in targets:
-            sec.set_word(col, cr, repaint_word(sec.word(col, cr)))
+            w = sec.word(col, cr)
+            x = (w >> cp.XOVER_SHIFT) & cp.XOVER_MASK
+            if x != cp.XOVER_NONE:
+                marked.append((os.path.basename(path), col, cr, x))
+            sec.set_word(col, cr, repaint_word(w))
         _res2, _t2, va2, vb2 = analyse(sec, solid_top, min_gap_px)
         after_a += len(va2)
         after_b += len(vb2)
@@ -310,6 +344,21 @@ def run(root=None, apply_changes=False, out=sys.stdout):
     print(f"  violations before: rule A {before_a}, rule B {before_b}", file=out)
     print(f"  violations after:  rule A {after_a}, rule B {after_b}", file=out)
     print(f"  cells targeted:    {total_targets}", file=out)
+
+    if marked:
+        print(file=out)
+        print(f"  NOTICE: {len(marked)} target cell(s) carry a loop crossover "
+              f"mark (bits 15:14).", file=out)
+        print("    The mark is PRESERVED — this tool repaints geometry, and "
+              "docs/LOOP_CROSSOVER_ENCODING.md", file=out)
+        print("    §4 Q4 rules geometry and path membership independent axes. "
+              "Listed so the repaint of a", file=out)
+        print("    loop's marked column is never a surprise. This is not a "
+              "refusal.", file=out)
+        for name, col, cr, x in marked[:16]:
+            print(f"      {name} col {col} row {cr} XOVER={x}", file=out)
+        if len(marked) > 16:
+            print(f"      ... and {len(marked) - 16} more", file=out)
 
     if total_cells == 0:
         print("REFUSED: not one solid collision cell in the whole editor tree. "

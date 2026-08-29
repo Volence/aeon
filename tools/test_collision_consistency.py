@@ -322,6 +322,108 @@ def test_repaint_word_preserves_solidity_and_clears_flips():
             assert (out >> cp.PATH_A_SOL_SHIFT) & 3 == sol
 
 
+def _plane_file(tmp_path, cells, name="section_0.collattr.bin"):
+    """Write a synthetic 256x256 editor plane file. cells = {(col, cr): word},
+    addressed the way rp.Section does (cr = 16 px collision row = 2 tile rows).
+    Every cell not named is air. Returns the path."""
+    data = bytearray(rp.EDITOR_W * rp.EDITOR_W * 2)
+    for (col, cr), w in cells.items():
+        for tile_row in (cr * 2, cr * 2 + 1):
+            o = 2 * (tile_row * rp.EDITOR_W + col)
+            data[o] = (w >> 8) & 0xFF
+            data[o + 1] = w & 0xFF
+    path = tmp_path / name
+    path.write_bytes(bytes(data))
+    return str(path)
+
+
+def test_repaint_word_preserves_the_loop_crossover_mark():
+    """R4 of docs/LOOP_CROSSOVER_ENCODING.md §7: every rewriter of a per-plane
+    cell word must PRESERVE bits 15:14, not rebuild the word without them.
+
+    Non-vacuity, which is the whole difficulty here (anchor §8.1): bits 15:14
+    are zero in all 18 shipped plane files, so no test over real content can
+    fail. The mark is therefore AUTHORED DELIBERATELY below.
+
+    Converse control, per anchor §8.1's R4 entry: repaint_word must still do its
+    job on the same words — shape 255, flips cleared, solidity kept — so this
+    cannot pass by turning repaint_word into the identity function. And a cell
+    whose mark is XOVER_NONE must come back XOVER_NONE, so it cannot pass by
+    setting the field unconditionally either.
+
+    Bit positions come from cp.XOVER_SHIFT / cp.XOVER_MASK, never from a typed
+    literal: the last sweep of this field missed a live use because it searched
+    for the literal and the pipeline only ever spells the name.
+    """
+    import collision_pipeline as cp
+    for xover in (cp.XOVER_TO_A, cp.XOVER_TO_B):
+        for sol in (SOLID_TOP, 2, SOLID_ALL):
+            for flips in (0, cp.CHUNK_XFLIP_BIT, cp.CHUNK_YFLIP_BIT,
+                          cp.CHUNK_XFLIP_BIT | cp.CHUNK_YFLIP_BIT):
+                word = ((xover << cp.XOVER_SHIFT) |
+                        (sol << cp.PATH_A_SOL_SHIFT) | flips | 114)
+                out = rp.repaint_word(word)
+                # positive: the deliberately-authored mark survives
+                assert (out >> cp.XOVER_SHIFT) & cp.XOVER_MASK == xover, (
+                    f"repaint_word dropped the crossover mark of "
+                    f"${word:04X}: got ${out:04X}")
+                # converse: it is still the repaint, not the identity
+                assert out & cp.BLOCK_ID_MASK == rp.SAFE_FULL_SHAPE
+                assert not (out & (cp.CHUNK_XFLIP_BIT | cp.CHUNK_YFLIP_BIT))
+                assert (out >> cp.PATH_A_SOL_SHIFT) & 3 == sol
+
+    # converse: an unmarked cell must not acquire a mark
+    unmarked = (SOLID_ALL << cp.PATH_A_SOL_SHIFT) | 114
+    out = rp.repaint_word(unmarked)
+    assert (out >> cp.XOVER_SHIFT) & cp.XOVER_MASK == cp.XOVER_NONE
+    assert out & cp.BLOCK_ID_MASK == rp.SAFE_FULL_SHAPE
+
+
+def test_repaint_write_path_preserves_the_crossover_on_a_synthetic_plane(tmp_path):
+    """R4 again, through the tool's ACTUAL write path rather than one function.
+
+    repaint_word is only half the rewriter: Section.set_word stamps the result
+    into both tile rows of the 16 px cell. A synthetic plane with two shape-114
+    pinhole cells is run through rp.analyse + the repaint loop exactly as
+    rp.run does.
+
+    Positive: the marked cell keeps XOVER_TO_B in BOTH tile rows.
+    Converse control: the neighbouring cell, identical but for XOVER_NONE,
+    is repainted normally and stays unmarked — so the test cannot pass by the
+    tool refusing to touch anything.
+    """
+    import collision_pipeline as cp
+    hm, an = rp.base_bank_for()
+    solid_top = cc.read_emp_const(cc.CONSTANTS_EMP, "SOLID_TOP")
+    min_gap = 2 * cc.read_emp_const(cc.CONSTANTS_EMP, "PLAYER_X_RADIUS")
+
+    base = (SOLID_ALL << cp.PATH_A_SOL_SHIFT) | 114     # a pinhole floor cell
+    marked = (cp.XOVER_TO_B << cp.XOVER_SHIFT) | base
+    path = _plane_file(tmp_path, {(10, 20): marked, (12, 20): base})
+
+    sec = rp.Section(path, hm, an)
+    _resolved, targets, _va, _vb = rp.analyse(sec, solid_top, min_gap)
+    assert (10, 20) in targets and (12, 20) in targets, (
+        f"the fixture must be repaint TARGETS or it proves nothing: {targets}")
+
+    for (col, cr) in targets:
+        sec.set_word(col, cr, rp.repaint_word(sec.word(col, cr)))
+
+    out_marked = sec.word(10, 20)
+    out_plain = sec.word(12, 20)
+    assert (out_marked >> cp.XOVER_SHIFT) & cp.XOVER_MASK == cp.XOVER_TO_B, (
+        f"the tool's write path erased the crossover: ${out_marked:04X}")
+    assert out_marked & cp.BLOCK_ID_MASK == rp.SAFE_FULL_SHAPE
+    assert (out_plain >> cp.XOVER_SHIFT) & cp.XOVER_MASK == cp.XOVER_NONE
+    assert out_plain & cp.BLOCK_ID_MASK == rp.SAFE_FULL_SHAPE
+
+    # both tile rows of the marked cell, since set_word stamps two
+    for tile_row in (40, 41):
+        o = 2 * (tile_row * rp.EDITOR_W + 10)
+        w = (sec.data[o] << 8) | sec.data[o + 1]
+        assert w == out_marked, f"tile row {tile_row} disagrees: ${w:04X}"
+
+
 def test_the_safe_full_shape_really_is_safe():
     """Shape 255 must be all-16 AND carry a flat/odd angle. Shape 251 is all-16
     but carries $E0 — the shape-114 diagnosis recommends '255 or 251' and that
