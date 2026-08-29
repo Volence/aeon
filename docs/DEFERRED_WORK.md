@@ -11582,6 +11582,82 @@ construction and the guard must not fire on them.
 whose numbers leave the range wraps with no signal at all. A clamp would turn a bad config into
 the background visibly sticking rather than tearing. Independent of which d-31 option is chosen.
 
+### SCOPED AND PRICED 2026-08-29 — d-31 option 3 (background art taller than the plane)
+
+**Full design: `docs/research/2026-08-29-tall-background-map.md`.** The owner clarified d-31 is
+about background ART height, not level height, and cited Sky Sanctuary. Priced design-only, no
+build, no emulator. Headline numbers, all re-derived rather than copied:
+
+- **SSZ1's S3K background is 2,816 px tall as authored, ~2,530 px scrolled in one continuous run**
+  (his "2.6k" recollection is right). Re-derived independently of the 2026-08-26 addendum to
+  `docs/research/2026-08-08-bg-seam-streaming.md`, twice: `skdisasm/Levels/SSZ/Layout/1.bin` opens
+  `0036 003c 0020 0016` -> BG 60 x 22 chunks, and the file size closes exactly
+  (`8 + 128 + 32*54 + 22*60 = 3,184`). skdisasm `2fcd861c`, verified an ancestor of `origin/master`.
+- **SSZ does not use a band table at all.** There is no `SSZ*_BGDrawArray` in `sonic3k.asm` (seven
+  acts have one; SSZ is not among them) — the label near the line the aurora survey cites is
+  `SSZ1_BGDeformArray`, a *horizontal* per-line HScroll array that adds no height. SSZ1 calls plain
+  `DrawBGAsYouMove`, i.e. exactly the simple row-streaming mechanism recommended here.
+- **The reframe that matters: S3K's planes are 512x256, not 512x512** (`$9001`). 27 playable acts
+  stream a taller-than-plane background into a 256-px window. **Ours already holds twice that.**
+  This is the reference engine's ordinary behaviour, attempted from a 2x better starting position.
+- **And SSZ needed 2,816 px because its BG runs at 1:1 with the FG** (`BG_Y = FG_Y + $160`, no
+  parallax division). Required map height is `travel >> v_factor`, so **OJZ at `v_factor 3` needs
+  740 px — a quarter of SSZ's — out of a plane twice the size.**
+- **Caveat before anyone cites the runner-up:** LRZ1's 2,560 px is NOT one tall image. `LRZ1_Deform`
+  runs the BG at 1/8 and `sub_56DAC` jumps the BG camera by player region — it is an *atlas* of
+  separate pictures. SSZ1 is the genuine article among regular acts. S3K's own hard layout ceiling
+  is 4,096 px (32 rows, `Layout_row_index_mask = $7C`).
+- **Engine cost is small and mostly built.** `VInt_DrawLevel`'s row mode already accepts an
+  arbitrary VRAM address, so a Plane-B row entry needs ZERO drain changes; the FG top/bottom row
+  fill in `Section_UpdateColumns` is the template. New: a `Draw_BG_TileRow` producer + scheduler
+  (~350 B ROM), **4 bytes RAM**, **no new VRAM**. `Parallax_Step5_Vscroll` is untouched — plane row
+  `R & 63` and scroll mod 512 already agree, so the feature is purely additive on plane content.
+- **DMA is 2^v_factor cheaper than the foreground's**: BG crosses a row once per 4 frames at
+  `v_factor 3` (132 B/entry -> **33 B/frame amortized, 0.54% of `DMA_BUDGET_NTSC`**) vs the FG's
+  2 rows/frame. The BG streamer also has **2,304 camera px of catch-up slack** where the FG has
+  exactly zero (`CAM_MAX_Y_STEP == VFILL_ROWS_PER_FRAME*8` at equality).
+- **Byte-order finding:** the shipped BG blob is column-major, which is pessimal for the ROW
+  producer this needs (1,920 vs 960 cycles) and optimal for the COLUMN producer that still has
+  **zero callers** (re-verified by grep across every `.emp`/`.asm`/`.toml`). Storing the tall blob
+  row-major is a net DELETION — it also drops `BG_Init`'s `$8F80` autoinc excursion and its
+  `IPL >= 6` assert, and `inject_editor_bg.py` stops transposing.
+- **What breaks, sharpest first:** `Section_RedrawPlanes`' Plane-B pass is commented *"BG layout is
+  act-wide, not position-dependent"* — that invariant is what makes **teleports free** today
+  (`bg.emp`, `docs/research/teleport-rebase.md`). A tall map removes it: at `v_factor 3` a `$1000`
+  shift keeps the SCROLL invariant (512 px = one wrap) but not the CONTENT. Needs a windowed
+  repaint or a build guard on the shift. **This is the item that could make it two parcels.**
+- **This guard's proposed `ensure` names `PLANE_B_SPAN`, which is not a constant that exists.**
+  Under option 3 it becomes `<= bg_map_span` anyway; the guard changes shape rather than dying.
+
+**Verdict on the 448-tile ceiling — it is NOT dissolved, and streaming makes it bite harder.**
+448 = `($B800 - $8000)/32`, VRAM address space between `BG_TILE_BASE_VRAM` and the relocated SAT;
+nametable streaming allocates zero new tiles. It raises the area each tile must cover by
+`map_span/512` = **1.45x for OJZ** (320 static tiles over 5,952 cells instead of 4,096 — holding
+today's density would need 465 tiles, more than the whole region). The only thing that dissolves
+448 is BG *tile* paging (the FG art pool's mechanism applied to `bg_region`), a much larger and
+separate project. **The real price of a tall background is paid in art, not code.**
+
+**RECORD CORRECTION — the 448 band-editor card is aurora `d-1`, not `d-2`.** Verified at aurora
+`origin/master` `93f78707` (reachable, not local-only): d-2 is a *push-authorization* decision,
+superseded by d-4. **d-1** is the 448 card, and its own detail is the best statement of the wall
+in the suite: *"448 = (0xB800-0x8000)/32 exactly; the SAT at $B800 is the wall, tile 449 sprays
+into it"*, with dedup/blank/flip reclaim measured exhausted. It was closed by **d-9/d-10** (art
+simplification to 320/320, freeing the 128-tile `band_reserve`) — not by any engine feature.
+A brief relayed it as d-2; anyone citing it should cite d-1.
+
+**Aurora survey drift (minor, one row):** `docs/reviews/2026-08-26-bg-capability-survey-s1-s2-s3k.md`
+row 4 still says the layer cap is 8 and calls 16 "a RAM + cycle question". That landed 2026-08-27
+(`MAX_PARALLAX_BANDS = 16`). Row 19 and summary point (2) are accurate as relayed.
+
+**Recommendation:** take it as **step (2) only** of the booked build order in
+`docs/research/2026-08-08-bg-seam-streaming.md` (vertical seam streaming), and explicitly decline
+steps 1/3/4/5 — those five together are the *per-section-theme* feature, which is not what was
+asked. Horizontal is separately unattractive: §1b.3 of that spec establishes there is no single
+horizontal BG camera, so vertical is the only axis where the seam is well-defined. Engine half is
+one parcel; the whole is a small cross-lane project (aeon engine + aeon importer + aurora canvas/
+preview/band-editor coordinates), plus an art pass that is the owner's call. Gates, TAGs and the
+open items are in the design doc §8-9.
+
 ## Red-first poison over a `.py` tool can report FALSE GREEN via stale `__pycache__` (found 2026-08-26)
 
 **Instance, in the parcel that found it:** the Knuckles/insta-shield SFX agent's first red-first

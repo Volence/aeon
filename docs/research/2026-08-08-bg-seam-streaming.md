@@ -251,3 +251,39 @@ streamed row-by-row into a 256-tall wrapping plane, like the FG. S3K therefore h
 height choice: BG height is arbitrary, the resident window is 256. Aeon's 64x64 planes already
 hold twice that. Bearing on Q1: the precedent argues for streaming into a fixed window rather
 than for a chunk size; 256-px chunks buy two looks visibly coexisting, nothing else.
+
+## Addendum 2026-08-29 — step (2) scoped and priced on its own, for d-31
+
+The owner clarified d-31 as *background art height* (not level height) and asked for backgrounds
+taller than the plane. That is **step (2) of §4's build order — vertical seam streaming — and
+nothing else**: steps 1/3/4/5 exist to serve per-section THEMES, which he did not ask for.
+
+Priced separately in `docs/research/2026-08-29-tall-background-map.md`. Its findings against this
+doc: §2 Pattern A's "no ratio arithmetic in the drawer" is confirmed and quantified (the BG crosses
+rows `2^v_factor` times more slowly — 8x at OJZ's factor 3, so 33 B/frame amortized); §3's
+"`Draw_BG_TileColumn` ships with zero callers" re-verified today by grep across the whole tree;
+§4.2's Plane_Buffer transport choice confirmed — `VInt_DrawLevel`'s ROW mode already accepts an
+arbitrary VRAM address, so a Plane-B row entry needs **zero** drain changes.
+
+Three things this doc did not say that step (2) needs:
+
+1. **The blob byte order is on the wrong axis for step (2).** The layout is column-major, which is
+   optimal for the zero-caller COLUMN producer and pessimal for the ROW producer step (2) requires
+   (1,920 vs 960 cycles per row). Storing a tall blob row-major is a net deletion.
+2. **Teleports stop being free.** `Section_RedrawPlanes` is commented "BG layout is act-wide, not
+   position-dependent"; that is precisely the invariant a tall map removes, and it is what
+   `teleport-rebase.md` rests on for Plane B.
+3. **Q1 is answered by this doc's own 2026-08-26 addendum.** S3K's planes are 512x256, so its
+   2,816-px SSZ1 background streams into a window HALF ours. The precedent argues for streaming
+   into a fixed window and says nothing for a particular slice height — recommend 512 as §4 Q1
+   already leaned.
+
+**One correction to §2's band-table framing, for this doc's own record:** SSZ is not a band-table
+act. There is no `SSZ*_BGDrawArray` in `sonic3k.asm` — seven acts have one (AIZ1, MGZ2, LBZ1,
+MHZ2 x3, SOZ2, LRZ1, HPZ, DEZ3) and SSZ is not among them. SSZ1 calls plain `DrawBGAsYouMove`
+(`Draw_TileColumn`/`Draw_TileRow` off `Camera_{X,Y}_pos_BG_copy`) at a **1:1** vertical rate
+(`BG_Y = FG_Y + $160`). So the tallest background in S3K is produced by the SIMPLEST mechanism
+available — which is the one step (2) builds. Bands buy horizontal multi-speed parallax and add
+zero height. Also worth flagging against the 2026-08-26 addendum's table: **LRZ1's 2,560 px is an
+atlas, not a tall image** — `sub_56DAC` jumps the BG camera to a different region of the map by
+player position. Re-read at skdisasm `2fcd861c` (ancestor of `origin/master`).
