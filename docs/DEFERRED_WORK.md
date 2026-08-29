@@ -2284,14 +2284,83 @@ following are deliberately **deferred to follow-up plans** (not bugs):
     state the expansion needs already ships: `PlayerV.instashield` with S3K's exact
     14-frame window, and the attacking predicate is the single comparison
     `cmpi.b #INSTASHIELD_ATTACKING, PlayerV.instashield(<player>)`.
+  - **~~It fired out of ANY air state, including an uncurled ledge fall~~ — FIXED
+    2026-08-28 (`parcel/instashield-jump-gate`), on the owner's report "sonic can
+    still insta shield when not in ball form".** `Ability_InstaShield` had no
+    came-from-a-jump precondition at all; the only airborne gate was the call site's
+    (`PState_AirShared` step 1b), which admits *any* air state. S3K's does not:
+    `Sonic_ShieldMoves` (`sonic3k.asm:23401`) has exactly one caller,
+    `Sonic_JumpHeight`, whose first two instructions are `tst.b jumping(a0) / beq.s
+    Sonic_UpVelCap` (`:23369-23370`) — so `jumping != 0` is a hard precondition, and
+    the rule it produces is player-visible: **spring → no** (`clr.b jumping`, `:47728
+    / :48144 / :48218 / :48307`), **hurt → no** (`HurtCharacter` → `Player_TouchFloor`,
+    `:21093 → :24373`), **ledge walk-off → no** (never set), **roll-jump → yes**
+    (`Sonic_Jump` sets it at `:23335` ahead of the roll branch), **monitor break
+    mid-jump → yes** (`Touch_Monitor` never touches it). Aeon needs no `jumping` byte:
+    `PlayerV.player_state` already discriminates, and `{PSTATE_JUMP, PSTATE_ROLLJUMP}`
+    IS `jumping` — established by enumerating every WRITER of `player_state`
+    (`Player_SetState` is the sole transition writer; `Player_Jump`
+    `player_ground.emp:1047/1050` and `Climb_JumpOff` `player_climb.emp:380` are the
+    only two sites that install either, and S3K sets `jumping` at its climb jump-off
+    too, `:31428`). The gate is 16 bytes at the TOP of `Ability_InstaShield`, ahead of
+    the one-shot, which is S3K's own order; a refused press writes nothing, so the
+    landing re-arm set (`PHook_GroundEnter` / `PHook_RollEnter`) stays complete.
+    **The replay net does not move** — both fixtures and the negative control pass
+    unchanged, because every airborne press they hold was already made out of a real
+    jump. That is why the parcel ships `tools/instashield_gate.py`, which executes the
+    routine's own ROM bytes over all 256 `player_state` values x 3 one-shot values x
+    the suppression bits (6,912 executions) against the S3K model; pre-fix it reports
+    all 13 states firing, post-fix exactly `PSTATE_JUMP, PSTATE_ROLLJUMP`. Wired into
+    `build.sh` beside `sprite_tilt_gate`, with `tools/test_instashield_gate.py` over a
+    committed cut in the pytest lane.
+  - **NOT FIXED — the RISING window, and the insta-shield is the ONLY one of the three
+    abilities missing it.** `Sonic_JumpHeight` reaches `Sonic_ShieldMoves` only past
+    `cmp.w y_vel(a0),d1 / ble.w` with `d1 = -$400` (`-$200` underwater): S3K refuses
+    the insta-shield while Sonic is still rising faster than the release cap, roughly
+    the first ~12 frames of a jump at our `PHYS_JUMP_FORCE`/gravity. **Both siblings
+    already have this gate.** `Ability_TailsFlight` and `Ability_KnuxGlide` open with
+    `move.w y_vel(a0),d1 / cmp.w PBLK_RELEASE_CAP(a4),d1 / blt` and both banners cite
+    `Tails_JumpHeight`/`Knux_JumpHeight :32520-32522` for it — so this is not an
+    engine-wide simplification, it is an omission specific to the insta-shield. It is
+    ~10 bytes (`a4` is already an AbilityHook input and `PBLK_RELEASE_CAP` is already
+    in scope in the sibling files). **NOT built in `parcel/instashield-jump-gate`
+    because it is an unreported feel change that would almost certainly move the
+    owner's replay net**: `ojz_fixture`'s airborne press at tick 1282 is ~11 ticks
+    after its jump, i.e. right on the boundary of that ~12-frame window, and
+    re-stamping is the owner's call (d-14). Owner's ruling wanted. Meanwhile
+    `tools/test_instashield_gate.py::test_routine_reads_only_the_three_playerv_bytes...`
+    makes it impossible to land silently: the routine reads exactly three `PlayerV`
+    bytes today, and a `y_vel` read appearing without `instashield_gate.MODEL_RISING_GATE`
+    growing with it is a named failure rather than a model/routine divergence.
+  - **TAILS' FLIGHT AND KNUCKLES' GLIDE STILL LACK THE `jumping` GATE — deliberately
+    left for the owner to rule.** In S3K all three abilities hang off the identical
+    `tst.b jumping(a0) / beq` preamble (`Sonic_JumpHeight :23369`, `Tails_JumpHeight
+    :28596`, `Knux_JumpHeight :32513`), so a spring or a ledge walk-off denies flight
+    and glide exactly as it denies the insta-shield. In Aeon they do not:
+    `Ability_TailsFlight` and `Ability_KnuxGlide` carry S3K's *second* gate (the rising
+    window, above) but not its first, and take the call site's "any air state" rule
+    instead. `player_fly.emp:305-312` records the widening as a CHOICE — "we have no
+    `jumping` bit (ST_ROLLING is close but marks a rolled-off-a-ledge AIRBALL too), and
+    the broader rule is the forgiving direction". **The premise of that justification
+    is now known to be wrong** — `player_state` discriminates on its own, no new RAM
+    byte is needed, and Sonic's fix proves it costs 16 bytes — but the RULING may still
+    be right, so nothing was changed here beyond correcting the comment.
+    **Recommendation: tighten Tails, leave Knuckles.** Tails' flight out of a non-jump
+    fall is the one that reads as a bug in play (he can convert any fall into
+    indefinite flight, which S3K never allows, and it makes ledges free); Knuckles'
+    glide off a ledge walk-off is close to a modern-platformer coyote affordance and
+    reads as generous rather than broken. Either way it is one `cmpi.b` pair inside the
+    ability's own hook, exactly as Sonic's — never at the call site, which would change
+    all three at once. `tools/instashield_gate.py` generalises to them by name (the
+    routine, the stub table and the allowed set are all parameters).
   - **~~The SFX is not wired~~ — DONE 2026-08-26 (`parcel/knux-instashield-sfx`).**
     S3K's `sfx_InstaAttack` = SFX `$42` is transcoded and shipped as
     `SFXID_INSTASHIELD` / `SFXPRI_INSTASHIELD $20`, fired from `Ability_InstaShield`
     in S3K's own order (ATTACKING, spawn, then the sound as the tail `jbra`, matching
     `sonic3k.asm:23477-23483`). It fires exactly once per activation because the
-    proc's opening `tst.b PlayerV.instashield / bne .done` one-shot lets only the
-    READY value through and the next instruction writes ATTACKING; only a landing
-    re-arms. The bank now holds 15 effects in both shapes. Still owed: nobody has
+    proc's `tst.b PlayerV.instashield / bne .done` one-shot (step 1, now behind the
+    came-from-a-jump gate added 2026-08-28) lets only the READY value through and the
+    next instruction writes ATTACKING; only a landing re-arms. The bank now holds 15 effects in both shapes. Still owed: nobody has
     HEARD it.
   - **The roll-jump cancel lands one frame late.** S3K's `bclr #Status_RollJump` takes
     effect the same frame (`Sonic_ChgJumpDir` re-tests the bit after

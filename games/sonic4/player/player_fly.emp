@@ -307,9 +307,21 @@ proc Fly_TickFuel (a0: *Sst) clobbers() {
 //     which only PState_AirShared calls, and only from an air state. Note this
 //     is BROADER than S3K, whose `tst.b jumping(a0)` in Tails_JumpHeight admits
 //     only airborne frames that came from an actual jump — walking off a ledge
-//     there gets you no flight. We have no `jumping` bit (ST_ROLLING is close
-//     but marks a rolled-off-a-ledge AIRBALL too), and the broader rule is the
-//     forgiving direction, so it stands rather than being approximated.
+//     there gets you no flight.
+//
+//     CORRECTION 2026-08-28 (parcel/instashield-jump-gate), COMMENT ONLY — this
+//     line's justification used to read "we have no `jumping` bit (ST_ROLLING is
+//     close but marks a rolled-off-a-ledge AIRBALL too)", and that premise is
+//     WRONG. PlayerV.player_state discriminates without any new bit:
+//     {PSTATE_JUMP, PSTATE_ROLLJUMP} IS S3K's `jumping` (established by enumerating
+//     every writer of the byte — see player_instashield.emp's module header), and
+//     the same widening produced a real reported bug for Sonic's insta-shield,
+//     fixed there for 16 bytes. The WIDENING ITSELF STANDS HERE, unchanged and
+//     deliberately: the broader rule is the forgiving direction and nobody has
+//     reported flight-off-a-ledge as wrong. It is now a live question for the
+//     owner rather than a settled impossibility — booked in docs/DEFERRED_WORK.md
+//     under the insta-shield riders, with a recommendation. Do NOT close it at the
+//     call site in player_air.emp: that gate is shared with Knuckles' glide.
 //   * y_vel >= the jump release cap — S3K's -$400, which is our per-character
 //     PHYS_JUMP_RELEASE_CAP read out of the slot's physics row. It is what stops
 //     a double-tap at launch from converting the whole jump into flight: the
