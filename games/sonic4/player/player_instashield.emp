@@ -13,11 +13,65 @@
 // FRESH jump press while already airborne, with the jump buffer unspent so the
 // launch press cannot trigger it); CharDef_Sonic.cd_ability owns WHAT fires.
 //
+// AIRBORNE IS NOT ENOUGH — THE PRESS MUST HAVE COME FROM A JUMP, and that gate is
+// this proc's own step (0). It is not optional garnish: `Sonic_ShieldMoves` is
+// reachable in S3K from exactly ONE place, `Sonic_JumpHeight`, whose first two
+// instructions are
+//
+//      Sonic_JumpHeight:
+//              tst.b   jumping(a0)     ; is Sonic jumping?
+//              beq.s   Sonic_UpVelCap  ; if not, branch      (sonic3k.asm:23369-23370)
+//
+// and `Sonic_UpVelCap` rts's without ever reaching the shield moves. So in the
+// reference, `jumping != 0` is a HARD PRECONDITION of the insta-shield, and the rule
+// it produces is player-visible: launched by a spring, no insta-shield (the spring
+// does `clr.b jumping(a1)`, :47728 / :48144 / :48218 / :48307); knocked back by a hit,
+// no insta-shield (`HurtCharacter` calls `Player_TouchFloor`, which clears it,
+// :21093 -> :24373); walked off a ledge, no insta-shield (nothing ever set it);
+// roll-jumped, YES (`Sonic_Jump` sets `jumping` at :23335 BEFORE the roll branch);
+// broke a monitor mid-jump, YES (`Touch_Monitor` reverses y_vel and never touches
+// `jumping`). The owner's report — "sonic can still insta shield when not in ball
+// form" — is the ledge case, and it is what this gate closes.
+//
+// THIS ENGINE HAS NO `jumping` BYTE AND NEEDS NONE. `PlayerV.player_state` already
+// discriminates: PSTATE_JUMP is "airborne curled FROM A JUMP" and PSTATE_ROLLJUMP is
+// the same with the air-control lockout, while the two air states that are NOT from a
+// jump carry their own values — PSTATE_AIR (uncurled: ledge walk-off, debug-fly exit,
+// Player_Init) and PSTATE_AIRBALL (curled but rolled off a ledge, or the spindash's
+// floor-vanish). The pair {PSTATE_JUMP, PSTATE_ROLLJUMP} is therefore S3K's `jumping`
+// exactly, and the equivalence was established by enumerating every WRITER of
+// player_state rather than every reader: `Player_SetState` (player_common.emp:1247)
+// is the sole transition writer — its own header says so — plus `Player_Init`'s boot
+// `clr.b` (:516, which writes PSTATE_GROUND). The complete set of sites that install
+// one of the two is Player_Jump (player_ground.emp:1047/1050, the real jump) and
+// Climb_JumpOff (player_climb.emp:380, Knuckles-only, and S3K sets `jumping` there
+// too, :31428). Nothing else installs them, so no non-jump launcher can smuggle a
+// player into the allowed set. That is a fact about TODAY's tree and it is cheap to
+// keep true: springs, badnik bounces and knockback are all `rts` stubs in
+// engine/objects/collision.emp — when they are built they must install PSTATE_AIR /
+// PSTATE_AIRBALL (S3K's launchers clear `jumping`; only BubbleShield_Bounce, :24421,
+// deliberately sets it), and a launcher that reaches for PSTATE_JUMP is choosing to
+// grant the insta-shield.
+//
+// ONE S3K GATE IS STILL MISSING, and it is stated rather than hidden: the same
+// `Sonic_JumpHeight` reaches `Sonic_ShieldMoves` only past `cmp.w y_vel(a0),d1 /
+// ble.w`, with d1 = -$400 (-$200 underwater) — i.e. the insta-shield is unavailable
+// while still rising faster than the release cap, roughly the first 12 frames of a
+// jump at our PHYS_JUMP_FORCE/gravity. BOTH SIBLING ABILITIES ALREADY HAVE IT
+// (Ability_TailsFlight and Ability_KnuxGlide open with `move.w y_vel(a0),d1 / cmp.w
+// PBLK_RELEASE_CAP(a4),d1 / blt`, citing Knux_JumpHeight :32520-32522), so this is an
+// omission specific to the insta-shield rather than an engine-wide simplification —
+// and a4 is already an AbilityHook input, so it costs ~10 bytes. Not built here
+// because it is a FEEL change nobody reported, and one that would move the owner's
+// recorded replay net (ojz_fixture's airborne press sits ~11 ticks after its jump,
+// right on the window's edge) — and re-stamping that net is his call, not a parcel's.
+// Booked in docs/DEFERRED_WORK.md with the arithmetic.
+//
 // WHAT THE REFERENCE DOES THAT IS NOT HERE, and why: S3K reaches `Sonic_InstaShield`
 // only after a branch tree — Super/Hyper transform, hyper dash, and the
 // fire/lightning/bubble double jumps — each of which takes the press instead and sets
 // `double_jump_flag = 1` itself. None of that exists in this engine (no shields, no
-// Super), so the whole tree collapses to ONE thing: the suppression predicate below,
+// Super), so that whole tree collapses to ONE thing: the suppression predicate below,
 // which asks "does the player carry a barrier?" and today always answers no. When
 // shields land they become the branches; the gate does not move.
 //
@@ -115,9 +169,12 @@ comptime fn instashield_suppressed(sst: Reg, dest: Reg) -> Code {
 // -----------------------------------------------
 // Ability_InstaShield — CharDef_Sonic.cd_ability.
 //
-// S3K's order is preserved exactly, including the fact that the roll-jump cancel
-// happens BEFORE the suppression test and so still happens when the insta-shield
-// itself is suppressed.
+// S3K's order is preserved exactly — the `jumping` precondition ahead of everything,
+// then the one-shot, then the roll-jump cancel, then the suppression test — including
+// the fact that the cancel happens BEFORE the suppression test and so still happens
+// when the insta-shield itself is suppressed, and AFTER the one-shot and so does NOT
+// happen on a second press in the same airborne stretch (S3K's `tst.b
+// double_jump_flag / bne` sits ahead of its `bclr`, sonic3k.asm:23402/23408).
 //
 // THE ROLL-JUMP CANCEL IS A STATE CHANGE, NOT A BIT CLEAR. S3K writes
 // `bclr #Status_RollJump,status(a0)`; this engine has no such bit — the air-control
@@ -141,10 +198,34 @@ comptime fn instashield_suppressed(sst: Reg, dest: Reg) -> Code {
 // In:  a0 = player SST, a4 = the slot's player block (unused here, preserved)
 // Out: none
 // Clobbers: d0-d2, a1-a2 — the AbilityHook contract verbatim (Player_SetState's
-//           d1-d2/a1-a2, plus d0 which carries the target state into it and d1
-//           which the suppression predicate uses).
+//           d1-d2/a1-a2, plus d0 which carries the target state into it; d1 carries
+//           the player_state byte from step (0) to step (2) and is then reused by the
+//           suppression predicate).
 // -----------------------------------------------
 pub proc Ability_InstaShield (a0: *Sst) clobbers(d0-d2/a1-a2) preserves(a0) {
+        // (0) S3K's `tst.b jumping(a0) / beq` — the airborne frame must have come
+        // from a JUMP, not from a ledge walk-off, a launcher or a knockback. See the
+        // module header for the derivation and for why {JUMP, ROLLJUMP} IS `jumping`.
+        //
+        // FIRST, ahead of the one-shot, because that is where the reference puts it:
+        // `Sonic_JumpHeight` refuses before `Sonic_ShieldMoves` is even entered, so
+        // the `jumping` test outranks `double_jump_flag`, the press test and the
+        // roll-jump cancel alike. Refusing here leaves PlayerV.instashield untouched,
+        // which is what keeps the one-shot's re-arm set complete: a refused press
+        // writes nothing, so nothing can be left stuck for the landing to clear.
+        //
+        // Two explicit compares rather than an unsigned range test on
+        // PSTATE_JUMP..PSTATE_ROLLJUMP: the range form would silently start admitting
+        // a third state the day somebody renumbers, and this pair is 2 bytes dearer.
+        // d1 holds the state byte across to step (2), which used to re-read it.
+        move.b  PlayerV.player_state(a0), d1
+        cmpi.b  #PSTATE_JUMP, d1
+        beq     .from_jump
+        cmpi.b  #PSTATE_ROLLJUMP, d1
+        bne     .done                           // AIR / AIRBALL / anything else: the
+                                                // press did not come out of a jump
+    .from_jump:
+
         // (1) THE ONE-SHOT. Any non-READY value refuses: ATTACKING means a flash is
         // already running, SPENT means this airborne stretch already had its one.
         // Only a landing re-arms it (PHook_GroundEnter / PHook_RollEnter).
@@ -152,8 +233,10 @@ pub proc Ability_InstaShield (a0: *Sst) clobbers(d0-d2/a1-a2) preserves(a0) {
         bne     .done
 
         // (2) S3K's `bclr #Status_RollJump` — unconditional in the reference, so it
-        // sits ahead of the suppression test here too.
-        cmpi.b  #PSTATE_ROLLJUMP, PlayerV.player_state(a0)
+        // sits ahead of the suppression test here too. d1 still carries the state
+        // byte from step (0); Player_SetState clobbers d1, but d1 is dead after this
+        // (step 3 writes it before reading it).
+        cmpi.b  #PSTATE_ROLLJUMP, d1
         bne     .not_rolljump
         moveq   #PSTATE_JUMP, d0
         jbsr    Player_SetState                 // enter hook is PHook_AirBallEnter for
