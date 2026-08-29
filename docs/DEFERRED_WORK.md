@@ -93,6 +93,47 @@ Every item here had a stated blocker that **no longer holds**. This is the pick-
 by leverage, not by section. Each links back to its full entry below; read the entry (and its
 correction) before planning — several carry caveats that shrink the win.
 
+### LIVE-OBJECTS — the engine half is a DEBUG mailbox, and four design questions are ALREADY ANSWERED — booked 2026-08-29
+
+**Scoping input only; the card is owed after the canopy work. Booked now so nobody re-asks what the
+owner has already settled.** Project `LIVE-OBJECTS` (declared at empyrean `origin/main`
+`contract/projects.json`, lanes oracle/aeon/empyrean — aurora came off the list).
+
+**His ask:** *"is there a possibilty to have some sort of mouse control where we can select items or
+something and click places to spawn them in?"*
+
+**ANSWERED BY HIM — do not re-open these in the card:**
+- **Throwaway, not content.** *"tbh the click to place is just for debug/throwaway, wasn't planned
+  for permanent."* So spawned objects are **ordinary slots with NO survival requirement** across
+  reset, warp or a section boundary. That removes the expensive half of the design outright.
+- **DEBUG-only**, which means it may cost zero release bytes and should.
+- **Type comes from a picker on oracle's window**, so **no `typeId` → slot map is needed** — the
+  vocabulary join that looked like the hard part does not exist in this scope.
+- **Full-table policy: refuse.** Adequate for a debug tool; no eviction design required.
+
+**ANSWERED BY MEASUREMENT (oracle, their `39329af` / CR-F `1413356`), so the engine does NO
+hit-test:** a click already resolves pixel → sprite → `Sprite_Owner` → SST → slot → object, all
+over the bus, read-only. Their measured sentinel set: `0` no owner, `1` ring (`DrawRings` writes a
+bare `#1`), `2` X=0 mask, else an SST address. Click-to-world is exact (`Camera_X` + dot equals the
+object's own decoded x).
+
+**What is left for the card: the mailbox itself** — spawn type X at world (x,y), move slot N,
+delete slot N — consumed at a frame boundary on the warp-mailbox pattern, plus its costing.
+
+**TWO FACTS FROM THIS LANE THAT THE CARD MUST CARRY, both measured here:**
+1. **`Sprite_Owner` is ABSENT from the release build entirely** (0 occurrences in `s4.lst`;
+   `$FFFFE1EE` in `s4.debug.lst`). That is the absence detector oracle asked for — **provided a
+   consumer resolves BY SYMBOL.** Their ask is withdrawn on that basis; no engine change.
+2. **`Camera_X`/`Camera_Y` exist in BOTH shapes at DIFFERENT addresses** — measured same-tree,
+   listings 100 s apart at `f901d988`: release `$FFFFA576`/`$FFFFA57A`, debug
+   `$FFFFA604`/`$FFFFA608`. **A consumer holding the debug address reads a plausible wrong number
+   from live RAM on a release ROM — no fault, no zero, nothing to be suspicious of.** Worse than
+   `Sprite_Owner`, which at least fails to resolve.
+   **DO NOT record the delta as a constant.** It is a fact about one tree: that RAM is
+   `@shape_divergent`, and anything landing ahead of these symbols moves it — which happened this
+   very session when the drift accumulator entered `Parallax_State`. **Resolve by symbol, per
+   shape, per build.**
+
 ### DMA SPLIT-REJECT NEEDS TWO FREE IMPORTANT SLOTS, AND NOTHING COUNTS PER-FRAME STRADDLES — booked 2026-08-29
 
 **The sigil lane's finding** (their `parcel/declare-section-alignment`, merged sigil `15cf396c`,
