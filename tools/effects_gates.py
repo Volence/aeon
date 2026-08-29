@@ -52,6 +52,12 @@ WHAT IT RUNS
   7. demo specialisation witness (P2 Task 8) — span absence PLUS the committed per-proc image
      pin. Lives in its own tool because its two halves fail on different things; run from here
      because this is the post-build command and the pytest lane runs before sigil.
+  8. section-streamer promise — `tile_cache_fill_gate`, the third non-effects member (see the
+     registry note beside it). The four `Section_*_{Col,Row}_Written` trackers say a cell will
+     not be revisited for tens of seconds of travel, so a cell recorded but drawn from cache
+     the fill had not populated is a PERMANENT hole on screen. This asserts plane A against the
+     tile cache over exactly the recorded window, and asserts that the fill's pending partial
+     is never inside it.
 
 Gates 6 and 7 boot no emulator, but they need a listing, so they cannot go in build.sh either
 (build.sh runs pytest BEFORE the build — a listing read there is the previous build's).
@@ -213,6 +219,15 @@ def gate_registry() -> list[tuple[str, bool, int]]:
         # ordinary emulator budget, ~600x that, and is a wedge ceiling and not a performance
         # assertion.
         ("parallax_crossing", True, GATE_EMU_BUDGET),
+        # tile_cache_fill rides here for warp_mailbox's stated reason and is the third
+        # non-effects member: it is the section streamer's own invariant (a cell RECORDED
+        # as written was actually written), and this lane is still the tree's only
+        # emulator-gate runner with segmentation, a wedge timeout and ROM-scoped reaping.
+        # It sits beside warp_mailbox/boot_override's neighbourhood on purpose — all three
+        # read the streaming state after camera motion. It is far too slow for build.sh's
+        # inline lane (a headless boot plus 30 settled samples), which is exactly why it is
+        # here and in the nightly.
+        ("tile_cache_fill", True, GATE_EMU_BUDGET),
         ("cost_model", True, 900),
         ("scanline_spans", False, 120),
         ("demo_witness", False, 120),
@@ -924,6 +939,16 @@ def main() -> int:
                            "parallax_crossing (a WALKED section crossing installs the config "
                            "Effects_ResolveParallax names for the section entered — section "
                            "beats preset beats act)", ok, msg, final=True))
+
+    if wanted("tile_cache_fill"):
+        ok, msg = run(["python3", str(AEON / "tools/tile_cache_fill_gate.py"),
+                       "--rom", rom, "--lst", lst,
+                       "--samples", "30", "--step", "10", "--post", "30"],
+                      "tile_cache_fill")
+        results.append(row("tile_cache_fill",
+                           "tile_cache_fill (every plane-A cell the section streamer RECORDS "
+                           "as written matches the tile cache, and no partially filled column "
+                           "or row is ever inside the recorded window)", ok, msg, final=True))
 
     if wanted("cost_model"):
         base = emp_int("engine/effects/raster_dsl.emp", "RASTER_FIRE_BASE_CYC")

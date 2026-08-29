@@ -472,7 +472,36 @@ pub proc Section_RedrawPlanes () clobbers(d0-d4/d6/a0-a6/sr.ccr) out(d5: u16, d7
 // value ± 63 (the VDP 64-cell plane-wrap span). So streaming the right edge
 // pulls the left tracker forward (right − 63) and vice-versa — the trackers
 // bound each other to one wrap window; the .{left,right,top,bottom} clamp-skips
-// write the sibling tracker, not their own.
+// write the sibling tracker, not their own. Every cross-clamp only ever SHRINKS
+// its sibling's claim (LW/TW rise, RW/BW fall), so the four loops below are the
+// only sites that can widen one — which is why the filled-extent stop lives in
+// them and nowhere else.
+//
+// THE TRACKERS ARE A PROMISE (2026-08-29). A cell inside
+// Section_{Left,Right}_Col_Written × Section_{Top,Bottom}_Row_Written is not
+// revisited until the 64-cell plane ring wraps onto it, tens of seconds of
+// travel later. So the invariant these four loops must keep is exactly: A CELL
+// RECORDED AS WRITTEN WAS ACTUALLY WRITTEN. Anything drawn from cache the fill
+// had not populated, and then recorded, is a permanent hole on screen.
+//
+// DECLARED IS NOT FILLED. Tile_Cache_Fill commits Cache_Head_Col /
+// Cache_Left_Col / Cache_Bottom_Row / Cache_Top_Row BEFORE running the fill for
+// the column/row it just added (the resume machinery is keyed by that committed
+// coordinate). A budget-out or a demand stall therefore leaves the DECLARED
+// window advertising one column and/or one row the fill only partly wrote. At
+// most one of each can be outstanding — a partial exhausts the frame budget,
+// which stops all further work on that axis, and the two resume preambles finish
+// it before any new extension — and the fill publishes precisely which one:
+// Cache_Fill_Resume_Col and Cache_Fill_RowResume_Row, both $FFFF when there is
+// none. That pair IS the filled extent (declared minus the pending partial); it
+// needs no parallel bookkeeping, because the same instruction that creates a
+// partial is the one that names it.
+//
+// So each loop STOPS at a partial rather than drawing it, and stops WITHOUT
+// advancing its tracker. The cell is drawn a frame or two later, once the resume
+// preamble has completed it. Declining inside Draw_TileColumn instead would not
+// work and is the shape of the original defect: the callee's decline is silent
+// and the caller records the column either way.
 // In:  none
 // Out: none
 // Clobbers: d0–d7, a0–a3, a5–a6 (a5/a6 only when Plane_Dirty triggers redraw)
@@ -482,6 +511,20 @@ pub proc Section_UpdateColumns () clobbers(d0-d7/a0-a3/a5-a6) {
         tst.b   Section_Plane_Dirty
         beq     .not_dirty
         clr.b   Section_Plane_Dirty
+    if DEBUG == 1 {
+        // Section_RedrawPlanes draws the WHOLE declared cache window and the four
+        // tracker writes below record all of it, so a pending partial here would be
+        // recorded as written — the very thing the four loops now refuse. It cannot
+        // happen today: the only two Section_Plane_Dirty setters (level init and the
+        // DEBUG warp) both run immediately after Tile_Cache_Init → TileCache_FillAll,
+        // which is unbudgeted, runs with the display off and stores the $FFFF
+        // no-partial sentinel on both axes. Assert it rather than leave the redraw
+        // path's correctness resting on where the flag happens to be set from.
+        move.w  Cache_Fill_Resume_Col, d0
+        assert.w d0, eq, #$FFFF
+        move.w  Cache_Fill_RowResume_Row, d0
+        assert.w d0, eq, #$FFFF
+    }
         jbsr    Section_RedrawPlanes
         move.w  d7, Section_Right_Col_Written
         move.w  d5, Section_Left_Col_Written
@@ -536,6 +579,12 @@ pub proc Section_UpdateColumns () clobbers(d0-d7/a0-a3/a5-a6) {
         // a column split at the NT row 63/0 seam emits two entries
         cmpi.w  #PLANE_BUFFER_SIZE - 2 - (8 + PLANE_V_CELLS*2), Plane_Buffer_Ptr
         bhi     .right_done
+        // filled, not merely declared (see the header): stop before a column the
+        // tile-cache fill left half-written, so .right_done does not record it
+        move.w  d5, d0
+        addq.w  #1, d0
+        cmp.w   Cache_Fill_Resume_Col, d0
+        beq     .right_done
         addq.w  #1, d5
 
         // convert world col → nametable position (world_col & 63)
@@ -588,6 +637,12 @@ pub proc Section_UpdateColumns () clobbers(d0-d7/a0-a3/a5-a6) {
         // a column split at the NT row 63/0 seam emits two entries
         cmpi.w  #PLANE_BUFFER_SIZE - 2 - (8 + PLANE_V_CELLS*2), Plane_Buffer_Ptr
         bhi     .left_done
+        // filled, not merely declared (see the header) — the left fill commits
+        // Cache_Left_Col before filling it, so the partial can sit on this edge too
+        move.w  d5, d0
+        subq.w  #1, d0
+        cmp.w   Cache_Fill_Resume_Col, d0
+        beq     .left_done
         subq.w  #1, d5
 
         move.w  d5, d0
@@ -631,6 +686,13 @@ pub proc Section_UpdateColumns () clobbers(d0-d7/a0-a3/a5-a6) {
         bge     .bot_done
         cmpi.w  #PLANE_BUFFER_SIZE - 2 - (4 + PLANE_H_CELLS*2), Plane_Buffer_Ptr
         bhi     .bot_done
+        // filled, not merely declared (see the header). IDENTICAL exposure on the row
+        // axis: .v_bottom_fill commits Cache_Bottom_Row before calling TileCache_FillRow,
+        // whose partial leaves the cols from Cache_Fill_RowResume_Col rightward unwritten
+        move.w  d5, d0
+        addq.w  #1, d0
+        cmp.w   Cache_Fill_RowResume_Row, d0
+        beq     .bot_done
         addq.w  #1, d5
 
         // convert world row → nametable row (world_row & 63)
@@ -671,6 +733,12 @@ pub proc Section_UpdateColumns () clobbers(d0-d7/a0-a3/a5-a6) {
         ble     .top_done
         cmpi.w  #PLANE_BUFFER_SIZE - 2 - (4 + PLANE_H_CELLS*2), Plane_Buffer_Ptr
         bhi     .top_done
+        // filled, not merely declared (see the header) — .v_top_fill commits
+        // Cache_Top_Row before filling the new top row, same as the bottom edge
+        move.w  d5, d0
+        subq.w  #1, d0
+        cmp.w   Cache_Fill_RowResume_Row, d0
+        beq     .top_done
         subq.w  #1, d5
 
         move.w  d5, d0
