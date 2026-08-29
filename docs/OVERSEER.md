@@ -984,13 +984,30 @@ deferring to "something else owns this", confirm the something else exists.
   something the receiver can EVALUATE rather than something they must BELIEVE. Same family as
   quoting the assembler revision beside a CRC, and as never typing a hash into a message.*
 
-- **THE MAIN CHECKOUT IS DELIBERATELY BEHIND `origin/master` AND MUST STAY THAT WAY UNTIL `d-44`
-  IS RULED.** Its working tree holds the owner's unruled `d-44` edit on
+- **✅ DISCHARGED 2026-08-29T21:06:34Z — THE MAIN CHECKOUT IS LEVEL WITH `origin/master` AGAIN, and
+  the stanza below is kept only for the rule its last two sentences carry.** `d-44` was ruled by the
+  owner (*"I'm just testing things idc really about my edits you can discard"*, `decisions.jsonl`
+  `d-44-answered`, 2026-08-29T14:03:10Z), the edit was discarded, and the tree could take the merge.
+  Fast-forwarded `f901d988 → 95752842` with `git merge --ff-only origin/master` — **which updates the
+  working tree AND the index**, and is therefore the correct instrument where `update-ref` was the
+  defect. Verified after: `git rev-parse HEAD` equals `git rev-parse origin/master`, and the only
+  working-tree residue is `docs/lane-status.json` (this lane's own, edited every session) plus the
+  2-byte `object-bindings.json` already triaged on 2026-08-22.
+  **Why this correction is made in place rather than left standing with a note underneath:** this
+  file's own bar says *a stale sentence in a planning document is executed as a work order*, and the
+  paragraph below is written as a standing prohibition with its condition buried in a subordinate
+  clause. A session skimming it would keep a checkout stale for a reason that expired six hours
+  before this was written. **The cost-accounting in the `update-ref` stanza above is the whole
+  argument: the unanswered question was upstream of the outage** — so discharging the question is
+  what actually closes the hazard, and letting the workaround outlive it re-creates the condition.
+  ~~**THE MAIN CHECKOUT IS DELIBERATELY BEHIND `origin/master` AND MUST STAY THAT WAY UNTIL `d-44`
+  IS RULED.**~~ Its working tree held the owner's unruled `d-44` edit on
   `games/sonic4/data/generated/ojz/act1/effects_scenes.emp`, which the band parcel regenerates, so
-  it cannot take that merge. **Do not sync it with `git update-ref`** — that is the defect above.
-  **Do all landing, freezing and committing from a dedicated worktree**, which this lane's rules
-  already require for freezes and which now extends to ordinary doc commits. A stale branch ref in
-  that tree is visible and harmless; the shortcut that removes it is neither.
+  it could not take that merge. **The two rules that survive and are NOT conditional on `d-44`:**
+  **do not sync a checked-out branch with `git update-ref`** — that is the defect above, and it is
+  absolute — and **do all landing, freezing and committing from a dedicated worktree**, which this
+  lane's rules already require for freezes and which extends to ordinary doc commits. A stale branch
+  ref in that tree is visible and harmless; the shortcut that removes it is neither.
 
 - **⚠⚠ `git update-ref` ON A CHECKED-OUT BRANCH DOES NOT REFRESH THAT TREE'S INDEX, AND THE NEXT
   EXACT-PATH COMMIT THERE SILENTLY DELETES EVERYTHING THE INDEX HAS NOT SEEN** (added 2026-08-29,
