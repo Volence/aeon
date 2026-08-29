@@ -13074,3 +13074,85 @@ feature is authoring, exactly as research §7 decision 3 says.**
   `PlayerV.flip_angle` is still reserved, still has no reader and no writer; the tilt needs no
   state and did not give it one.
 
+---
+
+## RASTER BANDS ARE AUTHORABLE AND UNBINDABLE — the seam `parcel/effects-gen-raster-band` opened and did not close (2026-08-29)
+
+**What landed.** `tools/effects_gen.py` reads a **preset document** —
+`games/sonic4/data/editor/effects/presets/<id>.json`, the directory `empyrean`
+`docs/AURORA_EFFECTS_SCHEMA.md` §7 reserves for "preset composition documents" — and lowers
+its `bands` key to `compose([band(...)])` → `raster_program(...)` → a `pub data
+EditorRaster_<ACT>_<id>` in the generated effects module. The field contract, with the
+enforcing assertion named per field, is `tools/EFFECTS_CONSUMER_CONTRACT.md` §2.4. Measured
+end to end on a real `sigil build`: three one-colour bands emit 110 bytes (55 words) at
+`$1323C`, and every out-of-range value is refused by `raster_dsl.emp`'s own ensure rather
+than by the generator.
+
+**The seam that is OPEN, and it is the one that decides whether anyone SEES a band.** The
+generator emits the program's words. It does **not** bind them. A raster program is an
+`EffectsPreset` channel (`ep_raster`) and a preset is bound **per SECTION**
+(band-ownership design §16.1), so installing an editor-authored program means a
+hand-authored `preset()` call in `games/sonic4/data/effects/ojz_effects.emp` naming the
+generated label. Consequences, stated rather than left to be discovered:
+
+- an authored preset document costs ROM whether or not anything installs it, and **no
+  assertion anywhere says so** — the honest counterpart to the "unassigned scene emits
+  NOTHING" behaviour on the scene arm, which the raster arm cannot copy because there is no
+  assignment mechanism to key it on;
+- `effectsRef` — the per-section sidecar key §7 reserves for exactly this — is **not
+  implemented**, in either repo;
+- the always-emitted-binding pattern the scene arm uses (`ojz_act1_sec_scene(sec, hand)`,
+  design §9 Q-c) is the obvious shape for it, but a third `pub comptime fn` that nothing
+  calls would be a dormant scaffold with dead guards (EMP_PITFALLS §3), so it was **not**
+  emitted. It should land together with its call site, not before it.
+
+**Why it was not closed here.** Wiring the binding means editing nine shipped `preset()`
+calls, which is a change to what boots — a content decision with a picture attached, and the
+`BAND-FIRST-CONSUMER` ruling already reserved that class of change. Flagged for the owner
+rather than decided.
+
+**And the writer half.** `bands` is a NEW key, not one of §7's reserved three (`fires`,
+`variants`, `cycles` — all three are refused **by name** by the generator). The empyrean
+schema pair does not spell it at `origin/main`; amending it and re-pinning Aurora's golden is
+the other half of this change series, per the drift rule at the top of the consumer contract.
+
+---
+
+## STALE-COMMENT CORRECTION — "there is no map.toml order row" was false for three days (found 2026-08-29)
+
+`tools/effects_gen.py`'s block comment above `render_module()` and the banner it emits into
+`games/sonic4/data/generated/ojz/act1/effects_scenes.emp` both said the editor-effects
+section carried **no** `map.toml` `order` row, and that map.toml held "a reserved-slot COMMENT
+at the intended position instead of a guessed row". Both were written before Aurora's first
+saved scene (2026-08-26) made that section emit; `games/sonic4/map.toml` has carried
+`"section:ojz_effects_editor_act1"` — a SECTION-NAME row, which resolves to the head label at
+placement and therefore does not rot with content — ever since.
+
+**Why it is worth a booking rather than a silent fix.** The false paragraph sits at the top of
+the function that emits the module, so it out-argues map.toml itself for anyone extending the
+generator; the raster-band parcel above was written against it, and it would have sent that
+author to solve a placement problem that was already solved. Same class as the module
+docstring's own warning about dated comments — corrected in both places, and the corrected
+text now states the CONSEQUENCE ("new byte-emitting content here needs no map.toml edit")
+rather than only the fact.
+
+---
+
+## PRE-EXISTING RED AT `aa2a9f29` — a self-declaredly-obsolete collision test fails the canonical build (found 2026-08-29, NOT this lane's)
+
+`./build.sh` fails at the tool-suite gate on a clean checkout of master's tip:
+
+```
+FAILED tools/test_collision_consistency.py::test_held_repaint_clears_every_violation_in_this_tree
+E   AssertionError: section 0 plane A is already clean, so this test proves nothing. If the
+    repaint has landed, delete this test along with the baseline.
+1 failed, 1568 passed, 10 skipped, 49 subtests passed
+```
+
+The repaint HAS landed — `fde35b2f data(ojz): repaint the collision cells that made Knuckles
+fall through the floor` is an ancestor of `aa2a9f29`. The test is doing exactly what it
+promised: telling its author to delete it. Until someone does, **every canonical
+`./build.sh` on master is red before it reaches the assembler**, and the only paths to a ROM
+are `FAST=1` or a direct `sigil build`. Belongs to the repaint parcel, not to whoever trips
+over it next.
+
