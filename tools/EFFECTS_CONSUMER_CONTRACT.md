@@ -359,12 +359,21 @@ which reads `effects_gen.py`'s raster arm and fails if it spells one of those nu
   `fx_tint_band` header states this as a standing, booked limitation.
 - **Nothing checks that a band is VISIBLE** — that the CRAM entry it repaints is used by
   pixels on those rows, or that the colour differs from the base. Design §3.4.
-- **No writer-side schema exists yet.** This section is the aeon consumer half only; the
-  `empyrean` schema pair does not spell `bands` at the revision this was written against
-  (verified: `git -C ../empyrean show origin/main:contract/schema/aurora-effects-scene.schema.json`
-  contains no band/raster/cram/tint token). Per the drift rule at the top of this file,
-  amending the empyrean schema pair and re-pinning Aurora's golden is the other half of
-  this change series.
+- ~~**No writer-side schema exists yet.**~~ **IT EXISTS NOW — corrected 2026-08-29, hours after
+  this bullet was written, which is why it is corrected in place rather than left to be
+  discovered.** The writer-side half is `contract/schema/aurora-effects-preset.schema.json`
+  in `empyrean`, added at `6664b61` (verified reachable at their `origin/main` here; blob
+  `29c1c5ee6197`, read firsthand rather than taken from the message announcing it).
+  It is a **new** document rather than a `bands` key added to the scene schema — the original
+  bullet's own check, run against `aurora-effects-scene.schema.json`, would therefore still
+  come back empty today and still be reporting the truth about the wrong file. **A staleness
+  check that names a specific artifact goes stale when the answer moves to a different
+  artifact**, and it fails silently in the reassuring direction: the grep stays empty, so
+  nothing prompts a re-read.
+  It transcribes §2.4 at `c03b9812`, restates **no** numeric bound (each row's description
+  points at its `raster_dsl.emp` symbol instead), is closed everywhere, refuses `fires` /
+  `variants` / `cycles` by name, and carries the four no-assertion limits above in its own
+  description — so a reader of either half meets them. Aurora pins its golden against both.
 
 ## 3. Error-handling posture — normative for BOTH halves
 
