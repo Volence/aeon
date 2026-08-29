@@ -79,6 +79,15 @@ DEFAULT_SK = Path("/home/volence/sonic_hacks/skdisasm")
 # aeon repo root — this file is at <root>/games/sonic4/data/characters_staging/.
 AEON_ROOT = Path(__file__).resolve().parents[4]
 
+# tools/measure_character_boxes.py owns the .emp const reader and the .emp animation
+# table parser. Import them rather than re-implementing: the ball seating below is
+# derived from the SAME BALL_Y_RADIUS and the SAME `Roll` frame list that the report
+# tool and tools/test_ball_seating.py measure against, and two parsers that can drift
+# apart would let the generator seat the ball against a frame set nothing else agrees
+# with. Import is side-effect free (its os.chdir is under __main__).
+sys.path.insert(0, str(AEON_ROOT / "tools"))
+import measure_character_boxes as mcb                       # noqa: E402
+
 # The two 16-colour CRAM lines the remap bridges (32 bytes = 16 big-endian words).
 AEON_PLAYER_PAL = "art/palettes/SonicAndTails.bin"          # relative to AEON_ROOT
 S3K_PLAYER_PAL = "General/Sprites/Sonic/Palettes/SonicAndTails.bin"  # rel. to skdisasm
@@ -218,6 +227,15 @@ def remap_art_indices(art, table, tag):
         raise AssertionError(f"{tag}: remap table is not injective — two S3K "
                              "colours would collapse onto one of ours")
 
+    # Index 0 is TRANSPARENT on the VDP, so a remap that moved it would change
+    # which pixels are drawn at all — silently, and it would take the ball-seating
+    # derivation (which reads opacity out of this art) with it.
+    if table.get(0) != 0:
+        raise AssertionError(
+            f"{tag}: remap sends index 0 -> {table.get(0)}. Index 0 is the VDP's "
+            "transparent slot; permuting it changes the sprite's silhouette, not "
+            "just its colours.")
+
     # 256-entry byte LUT indexed by the packed pixel pair. Unmapped indices only
     # ever reach here in byte positions the assert above proved do not occur.
     nib = [table.get(i, 0) for i in range(16)]
@@ -345,6 +363,140 @@ def frames_from_asm(path, kind):
                 pos += 2
         frames.append(items)
     return frames
+
+
+# ---------------------------------------------------------------------------
+# Ball seating  —  owner ruling d-36 (2026-08-28): "they should all be flush"
+# ---------------------------------------------------------------------------
+#
+# Stock S3K does NOT seat its three rolling balls consistently: measured against
+# the shared 14 px ball radius, its Tails floats 1 px, its Sonic overlaps 1 and
+# its Knuckles overlaps 2 (docs/CHARACTER_BOX_AUDIT.md §5). Our Sonic's ball is
+# S2 art and lands flush, which made the two S3K-sourced characters read as bugs
+# beside him. The owner ruled that all three seat flush, so this generator moves
+# the S3K balls onto the floor as it converts them.
+#
+# THE SHIFT IS DERIVED, NEVER TYPED. For each character:
+#
+#     shift = BALL_Y_RADIUS - max(lowest opaque art row, over the ball frames)
+#
+# Both inputs are read from source on every run: BALL_Y_RADIUS from
+# engine/system/constants.emp, the ball frame list from the character's `Roll`
+# animation row, and the pixels from the art + DPLC blobs this same run produces.
+# So a radius change, an animation-table edit or a re-export of the art all
+# re-derive the shift instead of silently invalidating a pinned number.
+#
+# WHY `max` AND NOT A PER-FRAME SHIFT. The ball frames of a character do NOT all
+# have the same lowest opaque row — Knuckles' $96 reaches 1 px lower than his
+# other four, and our (already-accepted, untouched) Sonic's $9A stops 1 px short
+# of his other four. That variation is inside the drawn art; no rigid vertical
+# shift of a whole frame can remove it, and shifting frames INDIVIDUALLY would
+# change the ball's silhouette from frame to frame rather than seat it. `max` is
+# the statistic our reference character already satisfies (Sonic: max lowest row
+# 14 == BALL_Y_RADIUS 14, verified, not assumed), so adopting it makes the two
+# S3K characters match the roster's own reference rather than a new invention.
+# It means: the ball's deepest pixel rests exactly on the collision floor and no
+# ball frame ever sinks into it.
+#
+# tools/test_ball_seating.py asserts the result on the SHIPPED blobs, measuring
+# them with tools/measure_character_boxes.py's independent decoder.
+
+# Where the ball frame list is read from, per generated set. A set absent from
+# this table is not a playable character and is not seated (the Tails appendage:
+# its roll frames are drawn at one of four runtime orientations selected from the
+# parent's velocity angle, half of them with BOTH axes flipped, so a uniform
+# mapping-space shift would move half of them the WRONG WAY on screen. Its
+# seating is not a static property and is deliberately out of scope here).
+BALL_ANIM_SOURCE = {
+    "tails":    ("games/sonic4/data/animations/tails_anims.emp", "Ani_Tails"),
+    "knuckles": ("games/sonic4/data/animations/knuckles_anims.emp", "Ani_Knuckles"),
+}
+# The animation row whose frames ARE the ball. Same name the engine's ANIM_ROLL
+# ordinal binds and the same row measure_character_boxes.py maps to the roll box.
+BALL_ANIM_STATE = "Roll"
+BALL_RADIUS_SOURCE = ("engine/system/constants.emp", "BALL_Y_RADIUS")
+
+
+def _frame_tiles(dplc_frame):
+    """The frame's DPLC tile list — what a mapping piece's tile field indexes."""
+    tiles = []
+    for start, count in dplc_frame:
+        tiles.extend(range(start, start + count))
+    return tiles
+
+
+def _lowest_opaque_row(art, tiles, pieces, tag):
+    """Lowest opaque art pixel row of one frame, relative to y_pos.
+
+    `pieces` are S3K-parsed (y, size, tile, x) with `size` the 4-bit VDP code.
+    Index 0 is transparent. Raises if the frame draws nothing — a ball frame with
+    no pixels is a broken conversion, not a zero.
+    """
+    low = None
+    for y, size, tile, _x in pieces:
+        w = ((size >> 2) & 3) + 1
+        h = (size & 3) + 1
+        k = 0
+        for _cx in range(w):
+            for cy in range(h):
+                idx = tile + k
+                k += 1
+                if idx >= len(tiles):
+                    raise AssertionError(
+                        f"{tag}: mapping piece indexes DPLC entry {idx} but the "
+                        f"frame's tile list holds {len(tiles)} — mappings and DPLC "
+                        "are out of sync")
+                base = tiles[idx] * TILE_SIZE
+                t = art[base:base + TILE_SIZE]
+                if len(t) < TILE_SIZE:
+                    raise AssertionError(
+                        f"{tag}: DPLC references tile {tiles[idx]} past the end of "
+                        f"the art ({len(art) // TILE_SIZE} tiles)")
+                for ry in range(8):
+                    if any(t[ry * 4 + c] for c in range(4)):
+                        row = y + cy * 8 + ry
+                        low = row if low is None else max(low, row)
+    if low is None:
+        raise AssertionError(f"{tag}: frame has no opaque pixels — cannot be seated")
+    return low
+
+
+def derive_ball_shift(name, map_frames, dplc_frames, art):
+    """Derive the vertical shift that seats `name`'s ball on the collision floor.
+
+    Returns (frames, shift, per_frame_lowest) or None if the set has no ball.
+    Every input is read from source; nothing here is a tuned constant.
+    """
+    src = BALL_ANIM_SOURCE.get(name)
+    if src is None:
+        return None
+    anim_path, anim_table = src
+    ball_y = mcb.read_const(*BALL_RADIUS_SOURCE)
+    anims = mcb.read_anim_frames(anim_path, anim_table)
+    if BALL_ANIM_STATE not in anims:
+        raise AssertionError(
+            f"{name}: `{anim_table}` in {anim_path} has no `{BALL_ANIM_STATE}` row "
+            "with frame bytes — the ball frame list cannot be derived. Do NOT "
+            "hardcode it; fix the table or the parser.")
+    frames = sorted(set(anims[BALL_ANIM_STATE]))
+    for f in frames:
+        if f >= len(map_frames):
+            raise AssertionError(
+                f"{name}: `{BALL_ANIM_STATE}` names frame ${f:02X} but the converted "
+                f"mapping set has only {len(map_frames)} frames — the .emp animation "
+                "table and the S3K mapping source disagree on frame indexing")
+    lows = {f: _lowest_opaque_row(art, _frame_tiles(dplc_frames[f]),
+                                  map_frames[f], f"{name} ball frame ${f:02X}")
+            for f in frames}
+    shift = ball_y - max(lows.values())
+    return frames, shift, lows
+
+
+def apply_ball_shift(map_frames, frames, shift):
+    """Move each named frame's pieces by `shift` rows. In place."""
+    for f in frames:
+        map_frames[f] = [(y + shift, size, tile, x)
+                         for (y, size, tile, x) in map_frames[f]]
 
 
 # ---------------------------------------------------------------------------
@@ -585,6 +737,15 @@ def process_set(sk, name, art_rel, map_rel, dplc_rel, anim_rel, out_dir, report,
             f"{name}: mapping frame count {len(map_frames)} != "
             f"DPLC frame count {len(dplc_frames)} — sources out of sync")
 
+    # Ball seating (owner ruling d-36) — derived from BALL_Y_RADIUS, the `Roll`
+    # animation row and THIS art, then applied to the mapping frames before they
+    # are emitted. See the "Ball seating" section above. Sets with no ball row in
+    # BALL_ANIM_SOURCE pass through untouched.
+    ball = derive_ball_shift(name, map_frames, dplc_frames, art)
+    if ball is not None:
+        ball_frames, ball_shift, ball_lows = ball
+        apply_ball_shift(map_frames, ball_frames, ball_shift)
+
     # Raw source DPLC (S3K pointer format) — provenance / re-optimizable.
     raw_dplc = write_dplc(dplc_frames)
 
@@ -641,6 +802,10 @@ def process_set(sk, name, art_rel, map_rel, dplc_rel, anim_rel, out_dir, report,
         "remapped": remap is not None,
         "hist_before": hist_before,
         "hist_after": hist_after,
+        "ball_frames": [f"${f:02X}" for f in ball[0]] if ball else None,
+        "ball_shift": ball[1] if ball else None,
+        "ball_lows": {f"${f:02X}": v for f, v in ball[2].items()} if ball else None,
+        "ball_radius": mcb.read_const(*BALL_RADIUS_SOURCE) if ball else None,
     })
 
 
@@ -797,6 +962,12 @@ def main():
               f"(pre-split)")
         print(f"  Aeon mappings          : {r['map_bin_bytes']:,} bytes  "
               f"sha={r['map_sha']}")
+        if r['ball_shift'] is not None:
+            print(f"  ball seating           : frames {' '.join(r['ball_frames'])}  "
+                  f"shift {r['ball_shift']:+d} px")
+            print(f"    derived as           : BALL_Y_RADIUS {r['ball_radius']} - "
+                  f"max(lowest opaque row {r['ball_lows']}) "
+                  f"= {r['ball_shift']:+d}")
     for name, jpath, _ in anim_specs:
         obj = json.loads(jpath.read_text())
         print(f"\n[{name} anims]  {obj['anim_count']} scripts -> "
