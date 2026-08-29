@@ -896,6 +896,37 @@ deferring to "something else owns this", confirm the something else exists.
 
 ## Worktree quirks (agents hit all of these)
 
+- **A KILLED FREEZE LEAVES A HALF-STATE THAT `git status` CANNOT SEE, BECAUSE THE MISSING
+  ARTIFACT IS GITIGNORED — the tool everyone checks is the one that cannot report it** (added
+  2026-08-29, chain 182; this lane's instance, and the sigil lane rates it above their own
+  motivating case for the freeze-journal parcel).
+  `refreeze --freeze` runs `capture_goldens.sh --write`, which **deletes and rebuilds the
+  canonical aeon ROMs and restores them at the END**. Chain 182's first attempt was killed during
+  the very first capture. Result: **`s4.bin` was gone from the aeon landing worktree, and
+  `git status` reported the tree CLEAN throughout** — ROMs are gitignored, so version control is
+  structurally incapable of mentioning it. The sigil worktree was also clean, because the kill
+  landed before any golden was written.
+  **So the state looked recoverable-by-inspection in the one place anybody inspects.** Had this
+  lane trusted the clean tree and simply re-run, the freeze would have captured all seven goldens
+  against a tree with a ROM missing, and the resulting entry would have been well-formed.
+  **It was caught only by going to look for the specific half-state the chain-180 write-up
+  documents**, which is the entire value of that write-up existing — and note that chain 180's
+  own instance was DIFFERENT (five half-captured goldens, i.e. artifacts PRESENT and wrong). The
+  note generalised to a case it had not seen.
+  **Procedure after ANY killed freeze, in this order:** (1) check the sigil worktree for
+  half-written goldens; (2) **check the aeon `AEON_DIR` tree for MISSING ROMs — by hashing all
+  four, never by `git status`**; (3) rebuild whatever is absent and verify its CRC against the
+  pin before re-running anything. `git checkout -- .` in the sigil worktree covers (1) and is
+  silent about (2).
+  *Why the sigil lane rates it: their motivating case was fresh goldens beside stale size tables —
+  bad, but every artifact is PRESENT and a reader can compare them. Here the artifact is absent
+  and the absence is unreportable by the usual instrument, which is bar 16(d)'s family arriving on
+  a build tree instead of on a command's output.*
+  *This is also the argument this lane used to CLEAR their freeze-journal parcel to land ahead of
+  chain 184's freeze rather than holding it: the hazard is real, measured, and hit once already —
+  and the parcel's `--freeze` deliberately announces-and-replaces instead of refusing, so the
+  recovery detector cannot brick the recovery.*
+
 - **A SHARED DIRECTORY IS NOT A SHARED NAMESPACE — "it is in my repo's worktree list" is a fact
   about BOOKKEEPING, not about who it belongs to** (added 2026-08-27; this lane's error, disclosed
   unprompted). Pruning leftover worktrees on the owner's directive, this lane swept aeon's
