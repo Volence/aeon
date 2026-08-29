@@ -51,7 +51,28 @@ BLOCK_ID_MASK = 0x03FF      # bits 9:0 of a chunk entry word
 CHUNK_XFLIP_BIT = 0x0400    # bit 10
 CHUNK_YFLIP_BIT = 0x0800    # bit 11
 PATH_A_SOL_SHIFT = 12       # bits 13:12 (bit12=top, bit13=lrb)
-PATH_B_SOL_SHIFT = 14       # bits 15:14
+PATH_B_SOL_SHIFT = 14       # bits 15:14 — DONOR chunk-entry word ONLY (bake_cell)
+
+# ---------------------------------------------------------------------------
+# XOVER — the loop crossover mark. docs/LOOP_CROSSOVER_ENCODING.md §3.1/§3.2.
+#
+# Bits 15:14 of AURORA'S PER-PLANE CELL WORD ONLY — the word bake_plane_cell
+# consumes. That is a DIFFERENT word space from the donor chunk-entry word
+# bake_cell consumes, where the same two bits are path-B solidity
+# (PATH_B_SOL_SHIFT above). The two constants share a value; they must never
+# share a name, because crossing them is the d-39 failure the anchor records.
+#
+# Nothing bakes this yet (anchor §5 rows 5-8 are the engine parcel's work). It
+# is named here so that every producer which REWRITES a per-plane cell word can
+# preserve the field by name instead of by a typed literal — anchor §3.4's
+# preservation rule, enforced as rule R4.
+# ---------------------------------------------------------------------------
+XOVER_SHIFT = 14            # per-plane cell word ONLY (bake_plane_cell)
+XOVER_MASK = 3
+XOVER_NONE = 0              # no crossover; the value every shipped cell holds
+XOVER_TO_A = 1              # set the resolving object's Sst.layer to 0
+XOVER_TO_B = 2              # set the resolving object's Sst.layer to 1
+XOVER_RESERVED = 3          # illegal — reserved against the clamp-to-top trap
 
 PROFILE_LEN = 16            # one height byte per 16x16-block column
 MAX_PROFILES = 256          # one byte indexes the attr-set
