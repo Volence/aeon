@@ -1019,6 +1019,29 @@ path, for the same reason the protocol is read that way.
 
 ## Aeon-specific review bars (beyond the protocol's)
 
+- **A RULING RELAYED ON THE OWNER'S BEHALF CAN CARRY CONSTRAINTS HE NEVER STATED, AND THEY ARRIVE
+  WEARING HIS AUTHORITY** (added 2026-08-29; the hub's error, withdrawn by them unprompted and
+  banked there as a hub error; this lane caught it by measuring the tool rather than by suspecting
+  the message).
+  Relaying the owner's d-37 ruling, the hub added *"keep the script's refusal (exactly the expected
+  cells carrying `$1472`, nothing else) as is"*. **That constraint was the relayer's invention.**
+  The tool does the opposite by design — its docstring says *nothing here is a literal cell word*
+  and it matches on **resolved geometry** — and the invented constraint was also WRONG: measured
+  here, 300 cells carry the literal word, the tool targets 150 pinholes, and only 146 of those are
+  tops of `$1472` columns, so **four repaired cells are not that word at all**. A refusal narrowed
+  to the literal would have left four holes in the owner's floor and reported success.
+  **This lane receives most owner rulings through that relay** (d-36, d-38, d-40, d-37 all arrived
+  that way), so the exposure is structural rather than one bad message.
+  **The remedy already exists and is the hub's own practice: they quote his words VERBATIM** —
+  *"theyy should all be flush"*, *"1"*. **Read a relay as two separable things: the quoted ruling,
+  which is his, and the operational scaffolding around it, which is the relayer's and is
+  checkable like any other peer claim.** An operational constraint arriving without quoted words
+  behind it has an author, and it is not him.
+  **What actually caught it was not suspicion — it was doing the measurement anyway.** The
+  discrepancy surfaced from a read-only check run against the live tree before touching anything,
+  which is the general lesson: **a gate you run before you have any reason to distrust the
+  instruction is the only one that can catch an instruction you had no reason to distrust.**
+
 - **A SILENT ROUTE-AROUND LEAVES THE BROKEN FORM FULLY INTACT — WHEN YOU ROUTE AROUND A BAD
   CITATION, SAY THAT YOU DID** (added 2026-08-29, chain 180; **the sigil lane's finding against
   themselves**, banked at sigil `326fe095`, verified reachable at their `origin/master` here and
