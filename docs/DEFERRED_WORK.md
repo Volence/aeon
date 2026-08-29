@@ -13934,3 +13934,60 @@ reads as a live property of an assertion that has none. The band-drift parcel ad
 to its disjunct list for correctness but **could not prove it red**, and says so rather than
 claiming the flip. Reopening it means asking what that witness is actually for now that the game it
 guards declares a tail unconditionally.
+
+---
+
+### BLOCK-STREAM DEDUP IS ~21 KB, AND IT LANDS IN THE BUDGET d-47 OPTION B NEEDS — booked 2026-08-29
+
+`tools/ojz_block_gen.py` does whole-blob content dedup (sha256, `sec4` aliases `sec2` at zero
+bytes) but **no per-block dedup inside a blob**. Measured firsthand from the on-disk blobs by
+parsing the format out of the generator and `tools/s4lz.py` — every section reconstructs to its
+exact byte count, zero unaccounted bytes:
+
+- Block data today, 8 shipped sections: **46,602 B** = 8,192 index + 6,144 dict + 32,266 streams.
+- 443 non-empty index entries reach the ROM (435 compressed streams + 8 raw-direct);
+  **73 distinct compressed streams = 11,280 B**.
+- **Recoverable: 20,986 B**, with **zero new metadata** — `engine/level/tile_cache.emp:461-468`
+  reads a 31-bit offset from the section's own index base and never writes a ROM stream, so two
+  index entries may simply carry the same offset. Pointer aliasing is already the pattern there
+  (`.empty_block`, `.raw_direct`).
+- Counter-intuitive: **act-wide dedup with one shared dictionary is 930 B WORSE** than
+  within-section sharing. Eight per-section dictionaries beat one shared across the act. Only
+  **one** of the 74 distinct blocks appears in more than one section, so ~99.2% of the
+  duplication is within-section anyway.
+- Adjacent, not counted: `u16` index entries fit (max offset 8,560, offsets word-even) for a
+  further **4,096 B** — but that one needs an engine change and an unpriced cycle cost.
+
+**Why it matters beyond the bytes.** The block blobs sit UPSTREAM of `Art_Sonic` in
+`games/sonic4/map.toml`'s `order`, in the same packed data run the `dac_banks` anchor bounds
+(`OJZ_Sec0_Blocks` `0x173B0` … `Art_Sonic` `0x72DA0` … `Dac_Temp_Blip` `0x90000`, debug shape).
+Removing N bytes slides `Art_Sonic` down by N and grows the room under `dac_banks` by N.
+Binding-shape room today is **21,920 B** with a **16,384 B** `DATA_GROWTH_RESERVE` floor, so
+only 5,536 B is spendable — and d-47 option B's +24,020 B both fails the gate by 18,484 B and
+physically overruns the anchor by 2,100 B. **After this dedup, option B fits with 2,502 B above
+the reserve, with no anchor move and no change to the ruled 12,288 B BG-animation ceiling.**
+Order is load-bearing: the dedup must land FIRST. The margin is thin (10% of option B's cost)
+and both listings on disk predate master, so **re-derive from a fresh `./build.sh` of both
+canonical shapes before committing option B on this basis.**
+
+Full evidence, the twelve+two peer findings this came out of, and the two settled hypotheses:
+`docs/reviews/2026-08-29-painted-regions-findings-audit.md`.
+
+Riders booked in the same audit, smaller:
+
+- **`OJZ_Sec4_LocalMap` does not dedup though `OJZ_Sec4_Blocks` does** — `sec2_local_map.bin`
+  and `sec4_local_map.bin` are byte-identical (202 B, md5 `f51e8069c75be9a1aac8d376e30711fc`).
+  `ojz_block_gen.py` has content dedup; `ojz_strip_gen.py:842-853` emits local maps from an
+  unconditional loop with no content comparison. **~202 B, mechanism already exists next door.**
+- **Nine dead `Sec` fields, 32 of 66 bytes (288 B on act 1)** — and `act_descriptor.emp:186-193`
+  contains the work order ("deleting them is Task 13's job, once reachability of the preset path
+  is established"). Task 13 (`e6b016e5`) established exactly that reachability in its own commit
+  message and deleted only the installers; the constructor arguments and fields are untouched,
+  and `sec_pal:` is still a REQUIRED argument. This is skipped work, not deliberate residue.
+- **`ojz_sec()`'s `effects:` argument defaults to 0**, and the `sec_effects == 0` guard in
+  `engine/level/parallax.emp:723-728` is inside `if DEBUG == 1`. Release calls
+  `Effects_InstallPreset` unconditionally and would read the 68000 vector table as an
+  `EffectsPreset`. Unreachable today — enumerated: exactly one `[Sec; N]` array tree-wide, all
+  nine rows pass a non-zero preset, and `Parallax_CheckBoundary`'s only callers are in sonic4's
+  scroll test. The real fix is a build-time `ensure`, or making `effects:` required the way
+  `pal:` already is — not a release-side runtime guard.
