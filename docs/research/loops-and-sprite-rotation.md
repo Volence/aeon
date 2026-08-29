@@ -8,7 +8,108 @@ that revision — those age fastest and nothing here re-checks them for you.
 build run, no emulator touched. Items needing runtime confirmation are marked
 **[TAG-RUNTIME]**.
 
----
+> ## PARCEL 1 (THE TILT) HAS SHIPPED — 2026-08-28, branch `parcel/sprite-tilt`
+>
+> §6 recommended Option A first. It is built. **The rest of this document is
+> unchanged research and its §3.3/§5.1 cost estimates are now superseded by
+> measurement**; §§4-5.2 (loop layering, Route P) and Parcel 2 (the priority swap)
+> are untouched and still open.
+>
+> **What shipped.** `Player_ApplyTilt` in `games/sonic4/player/player_common.emp`,
+> called from `Player_Display` between `AnimateSprite` and `Player_LoadArt`. **Zero
+> engine changes** — the engine already carries `angle`, `status`, `anim` and
+> `mapping_frame` on the SST, and `RefreshSpritePieceCount` is already `pub`, so the
+> whole policy is expressible game-side. The frame-selection rule (which anim ids
+> tilt, the $01/$21 block bases, the 8/4 strides) is Sonic 4 data and stays in the
+> game; `AnimateSprite` learns nothing about ground angle. Making the engine
+> understand terrain would have been the wrong seam, and it was not needed.
+>
+> **Corrections to this document's own numbers, all measured:**
+>
+> | §  | this document said | measured |
+> |----|---|---|
+> | 3.3, 5.1 | "~40-60 bytes", "~50 bytes" | **110 bytes** of routine + 2 at the call site; **+132 B** total ROM in both sonic4 shapes |
+> | 3.3 | VRAM zero | **holds.** RAM also unchanged (89.9% both sides) |
+> | 3.3 | one frame (`$0E`) reaches 12 Important entries | **holds, and it is exactly one frame wide** — the next-worst newly-reachable frame is 10, so nothing sits between 10 and the cap |
+> | 3.4 | apply after `AnimateSprite`, before `Player_LoadArt` | **holds** |
+>
+> **The byte overrun has one cause and it is stated here because §3.4 missed it.**
+> §3.4 says to apply the offset after `AnimateSprite`. It does not say that
+> `AnimateSprite` **early-outs** (`subq.b #1,anim_timer / bpl .done`) and therefore
+> does *not* rewrite `mapping_frame` on the frames a script does not advance. S3K's
+> `Animate_Sonic` does, which is why it can `add.b d3,mapping_frame(a0)`. A
+> transcribed `add` here would compound the block every frame and walk off the end
+> of the sheet — and even a correct add would leave the tilt lagging the angle by up
+> to the animation hold (8 frames at a slow walk). The routine re-reads the running
+> script's own frame byte instead, which is idempotent by construction. **That is
+> ~26 of the 110 bytes and it is the whole gap against the estimate.**
+>
+> This tree had already solved exactly this problem, in exactly this way, and this
+> document does not cite it: `games/sonic4/objects/tails_appendage.emp:340-356`, the
+> ball-spin direction bank, carries the reasoning in full. It is the house precedent
+> and the tilt follows it. (Its own facing fold is NOT the model to copy — it adds
+> `$80` when facing left because it works on an arctan of travel, where
+> `Animate_Sonic` simply skips the `not`. Copying the wrong one of the two is the
+> "mirrors on one side only" bug, and it is now a permanent test.)
+>
+> **Three further deviations from S3K, all forced and all documented at the routine:**
+> no tumble gate (we have no tumble mechanism; the 519 tiles of full-360 art §3.2
+> found are still referenced by nothing and are a separate follow-up, selected by a
+> counter and a `divu #$16`, not by an octant of the ground angle — it does NOT fall
+> out of this selection); push suppression is structural rather than a `btst`
+> (`Player_Animate` classifies `ANIM_PUSH` ahead of walk/run, so the tilt gate never
+> sees a pushing frame); and no walk/run re-derive from `|ground_vel|`, because
+> `Player_Animate` has already made that decision via `ANIM_RUN_THRESHOLD`.
+>
+> **§3.1's claim that `PlayerV.flip_angle` has no reader and no writer SURVIVES, and
+> the tilt did not give it one.** §2.1 was right that the running tilt needs no
+> state; it is a pure function of `angle`, `status`, `anim` and `anim_frame`.
+>
+> **How it is checked.** `tools/sprite_tilt_gate.py`, wired into `build.sh`'s
+> post-sigil block (build-fatal, sonic4-only): it takes the routine's extent from
+> the listing this build emitted and its bytes from the ROM this build emitted,
+> decodes them with capstone, **executes them**, and compares 4,994 results against
+> the S3K model re-derived from `sonic3k.asm:24808-24862` — a full 256-angle × 2-facing
+> sweep plus every octant boundary and its neighbours, over all 14 animation cursors
+> of all three characters' shipped scripts. The executor models one instruction form
+> per line the routine contains and **raises on anything else**, so a future edit
+> reaching for a new addressing mode stops the build rather than being skipped.
+> `tools/test_sprite_tilt.py` (31 tests, in `build.sh`'s pytest lane) runs the same
+> sweep over a committed cut of both build shapes, asserts structural invariants of
+> the model rather than a copy of its output, and byte-poisons the cut four ways to
+> prove the sweep is not vacuous. Red-first evidence: inverting the facing fold in
+> source and rebuilding turned the build red with the two facings visibly swapped.
+>
+> **[TAG-RUNTIME] §3.2's tag stands and this parcel did NOT close it.** Nobody has
+> looked at the pixels. The four blocks are established structurally and by matching
+> S3K's code and scripts; *which* orientation each block holds is still unverified.
+> A wrong block-to-angle assignment would be invisible to every gate above, because
+> every gate compares against S3K's arithmetic and not against the art.
+>
+> **[TAG-RUNTIME] What a play-test can actually show today — measured, and it is
+> less than it sounds.** Reading `games/sonic4/data/collision/angles.bin` and
+> `solidity.bin` (the committed, interned surface-angle set for OJZ act 1: 20 live
+> attribute slots), the steepest authored surface is `$E0` = -45°, and **exactly four
+> attributes exceed the first band boundary at ±22.5°** — `$E0`, `$E8`, `$EC`, `$EC`.
+> All four land in **block 1**. So shipped content reaches **two of the eight
+> orientations**: upright, and one 45° step. **Blocks 2 and 3 and every 180°-flipped
+> orientation are unreachable in OJZ act 1** — nothing drawn can put the character
+> upside down, because §4.2's finding still holds and no loop exists. The tilt is
+> visible today only as a single step on the handful of steep downhill-right slopes.
+> That is a content ceiling, not a code one, and it is the same authoring bottleneck
+> §7 decision 3 asks the owner about.
+>
+> **The replay net will diverge, and that is a finding, not a fixture to update.**
+> `engine/system/replay.emp` hashes `render_flags` ($0E) and `mapping_frame` ($23) —
+> both of the two bytes this routine writes. Every tick where the player is in
+> `ANIM_WALK`/`ANIM_RUN` standing on one of those four attributes now hashes
+> differently. Flat ground is byte-identical (angle 0 selects block 0 with no flip,
+> in both facings, and the routine's write is then a no-op), so the divergence is
+> bounded to those cells. The net has **no automated runner** — it needs the emulator
+> and a human (`tools/test_replay_fixture.py`'s own docstring) — so this lane could
+> not run it and did not re-stamp it. Both fixtures traverse OJZ act 1.
+>
+> ---
 
 ## 0. The two questions, and the one-line answers
 
