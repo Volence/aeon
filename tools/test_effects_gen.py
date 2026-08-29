@@ -1238,3 +1238,508 @@ class TestSignedVerticalScalarsAreForwardedVerbatim(SceneShapeBase):
         out = self.render(v_factor=3, v_center=512, v_offset=0)
         self.assertIn("v_center: 512", out)
         self.assertIn("v_offset: 0", out)
+
+
+# =============================================================================
+# RASTER BANDS — the preset-document arm.
+# =============================================================================
+#
+# THE VACUITY THIS BLOCK EXISTS TO AVOID, stated first because it is the trap the whole
+# effects lane has paid for repeatedly (band-ownership design §14.5 / §15.7): NO SHIPPED
+# PRESET DOCUMENT EXISTS. `games/sonic4/data/editor/effects/presets/` is not in the tree.
+# So a gate written over existing content could not fail, and would read as coverage while
+# asserting nothing.
+#
+# Every test below therefore AUTHORS a band deliberately, in a fixture, and asserts on
+# that. `TestPresetConverseControl` is the other half: it asserts that a repo with NO
+# preset document lowers to nothing at all — no program, no empty program, and byte-for-byte
+# the module that was committed before this arm existed.
+
+def _preset(**over):
+    """A minimal preset document that PASSES, so each test perturbs exactly one thing.
+
+    THE NUMBERS ARE OJZ_BandDemo's FIRST BAND, not invented: top 120 / bot 148, CRAM byte
+    74 ($4A, OJZ's most-used ground colour, palette line 2), colour 548 ($0224, the act's
+    own ground ramp two steps below base). Copying a band the tree has already built and
+    pinned means this fixture is known to satisfy every raster_dsl guard, so a test that
+    goes red here is red about the GENERATOR rather than about a band nobody could author.
+    """
+    preset = {
+        "schema": 1,
+        "id": "ojz_ground_wash",
+        "bands": [{"top": 120, "bot": 148, "sh": False,
+                   "on": {"cram": {"addr": 74, "colours": [548]}}}],
+    }
+    preset.update(over)
+    return preset
+
+
+def _band(**over):
+    band = {"top": 120, "bot": 148, "sh": False,
+            "on": {"cram": {"addr": 74, "colours": [548]}}}
+    band.update(over)
+    return band
+
+
+class PresetShapeBase(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = os.path.join(self.tmp.name, "games", "sonic4", "data", "editor",
+                                "effects", "presets")
+        os.makedirs(self.dir)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def write(self, stem, body):
+        path = os.path.join(self.dir, f"{stem}.json")
+        with open(path, "w") as f:
+            if isinstance(body, str):
+                f.write(body)
+            else:
+                json.dump(body, f)
+        return path
+
+    def refuse(self, stem, body):
+        path = self.write(stem, body)
+        with self.assertRaises(effects_gen.SceneShapeError) as ctx:
+            effects_gen.load_preset(path)
+        return str(ctx.exception)
+
+
+class TestPresetDiscovery(PresetShapeBase):
+    def test_absent_presets_directory_is_not_an_error(self):
+        """The scene-directory posture, one level down: absence means 'no presets'.
+        This is the state of the real tree, and it is why this arm moves zero bytes."""
+        with tempfile.TemporaryDirectory() as empty:
+            self.assertEqual(effects_gen.discover_preset_files(repo=empty), [])
+            self.assertEqual(effects_gen.load_all_presets(repo=empty), {})
+
+    def test_the_real_repo_ships_no_preset_documents(self):
+        """THE ANTI-VACUITY DECLARATION, executable. If this ever goes red, every test in
+        this block that says 'authored deliberately' has to be re-read: content exists and
+        the converse control below is no longer measuring an empty tree."""
+        self.assertEqual(effects_gen.load_all_presets(repo=effects_gen.REPO), {})
+
+    def test_presets_are_discovered_and_keyed_by_id(self):
+        self.write("a_wash", _preset(id="a_wash"))
+        self.write("b_wash", _preset(id="b_wash"))
+        found = effects_gen.load_all_presets(repo=self.tmp.name)
+        self.assertEqual(sorted(found), ["a_wash", "b_wash"])
+
+    def test_a_malformed_preset_raises_rather_than_degrading(self):
+        path = self.write("ojz_ground_wash", "{not json")
+        with self.assertRaises(json.JSONDecodeError):
+            effects_gen.load_preset(path)
+
+    def test_duplicate_preset_ids_are_refused(self):
+        self.write("a_wash", _preset(id="a_wash"))
+        second = os.path.join(self.dir, "b_wash.json")
+        with open(second, "w") as f:
+            json.dump(_preset(id="a_wash"), f)
+        with self.assertRaises(effects_gen.SceneShapeError) as ctx:
+            effects_gen.load_all_presets(repo=self.tmp.name)
+        self.assertIn("a_wash", str(ctx.exception))
+
+
+class TestPresetShape(PresetShapeBase):
+    def test_the_baseline_fixture_passes(self):
+        """The control for every refusal below: perturbing one key is only meaningful if
+        the unperturbed document is accepted."""
+        path = self.write("ojz_ground_wash", _preset())
+        self.assertEqual(effects_gen.load_preset(path)["id"], "ojz_ground_wash")
+
+    def test_wrong_schema_version_is_refused_and_names_both_versions(self):
+        msg = self.refuse("ojz_ground_wash", _preset(schema=2))
+        self.assertIn("2", msg)
+        self.assertIn(str(effects_gen.SCHEMA_VERSION), msg)
+
+    def test_id_must_match_the_filename_stem(self):
+        msg = self.refuse("ojz_ground_wash", _preset(id="something_else"))
+        self.assertIn("something_else", msg)
+        self.assertIn("ojz_ground_wash", msg)
+
+    def test_a_hyphenated_id_is_refused_because_it_becomes_a_label(self):
+        msg = self.refuse("ojz-wash", _preset(id="ojz-wash"))
+        self.assertIn("EditorRaster", msg)
+
+    def test_an_unknown_top_level_key_is_refused_and_named(self):
+        msg = self.refuse("ojz_ground_wash", _preset(tint="blue"))
+        self.assertIn("tint", msg)
+
+    def test_the_reserved_wave2_keys_are_refused_BY_NAME_not_as_unknown(self):
+        """`fires` / `variants` / `cycles` are names empyrean's schema doc §7 already
+        reserves. An author who spells one has not made a typo — they have reached for a
+        channel this generator did not build — so the refusal must say that rather than
+        sending them to file a contract change for a field the contract already has."""
+        for key in ("fires", "variants", "cycles"):
+            with self.subTest(key=key):
+                msg = self.refuse("ojz_ground_wash", _preset(**{key: []}))
+                self.assertIn(key, msg)
+                self.assertIn("reserved", msg)
+                self.assertIn("§7", msg)
+
+    def test_name_is_accepted_and_ignored(self):
+        path = self.write("ojz_ground_wash", _preset(name="Ground wash"))
+        self.assertEqual(len(effects_gen.load_preset(path)["bands"]), 1)
+
+    def test_missing_bands_is_refused(self):
+        body = _preset()
+        del body["bands"]
+        msg = self.refuse("ojz_ground_wash", body)
+        self.assertIn("bands", msg)
+
+    def test_bands_must_be_a_list(self):
+        msg = self.refuse("ojz_ground_wash", _preset(bands={"top": 1}))
+        self.assertIn("list", msg)
+
+    def test_EMPTY_bands_is_refused_rather_than_emitting_an_empty_program(self):
+        """THE CONVERSE CONTROL'S SIBLING. An empty band list would lower to
+        `compose([])` and then to a program with no fires — the engine refuses it one
+        layer down, but with a message about `compose`, naming a function the author never
+        wrote. Refused here, where the file is."""
+        msg = self.refuse("ojz_ground_wash", _preset(bands=[]))
+        self.assertIn("empty", msg)
+        self.assertIn("compose", msg)
+
+    def test_a_band_that_is_not_an_object_is_refused_with_its_index(self):
+        msg = self.refuse("ojz_ground_wash", _preset(bands=[7]))
+        self.assertIn("bands[0]", msg)
+
+    def test_EVERY_one_of_the_four_band_fields_is_required(self):
+        """All four, none with a default — `band()` has none either, and `sh`'s
+        defaultlessness is a ruling (raster_dsl.emp, region_boundary's note)."""
+        for key in effects_gen.BAND_KEYS:
+            with self.subTest(missing=key):
+                band = _band()
+                del band[key]
+                msg = self.refuse("ojz_ground_wash", _preset(bands=[band]))
+                self.assertIn(key, msg)
+                self.assertIn("bands[0]", msg)
+
+    def test_an_unknown_band_key_is_refused(self):
+        msg = self.refuse("ojz_ground_wash", _preset(bands=[_band(height=28)]))
+        self.assertIn("height", msg)
+
+
+class TestBandOnArm(PresetShapeBase):
+    """The ON op is checked at RENDER time, not at LOAD time, and that is the scene
+    arm's own split: `load_scene` checks KEYS and `render_*` checks the spellings inside
+    an attachment. It is safe here for a reason it is not safe there — every preset
+    document is rendered, where an unassigned scene is not — so nothing can slip through
+    by never being reached."""
+
+    def on(self, value):
+        names = effects_gen.ActNames("ojz", "act1")
+        preset = _preset(bands=[_band(on=value)])
+        with self.assertRaises(effects_gen.SceneShapeError) as ctx:
+            effects_gen.render_preset("<fixture>", preset, names)
+        return str(ctx.exception)
+
+    def band(self, **over):
+        names = effects_gen.ActNames("ojz", "act1")
+        preset = _preset(bands=[_band(**over)])
+        with self.assertRaises(effects_gen.SceneShapeError) as ctx:
+            effects_gen.render_preset("<fixture>", preset, names)
+        return str(ctx.exception)
+
+    def test_the_on_op_must_be_an_object(self):
+        self.assertIn("cram", self.on("stream_cram"))
+
+    def test_an_unknown_arm_is_refused_and_lists_the_legal_ones(self):
+        msg = self.on({"vsram": {"addr": 2, "values": [67]}})
+        self.assertIn("vsram", msg)
+        self.assertIn("cram", msg)
+        self.assertIn("pal_region", msg)
+
+    def test_the_vsram_refusal_says_WHY_rather_than_only_that(self):
+        """A band's restore is derived from the ON op's CRAM span, so a VSRAM ON op has
+        nothing to restore — `band()` says exactly that. The generator's refusal points at
+        the same fact instead of a bare 'not in the list'."""
+        self.assertIn("CRAM span", self.on({"vsram": {"addr": 2, "values": [67]}}))
+
+    def test_zero_arms_is_refused(self):
+        self.assertIn("exactly ONE", self.on({}))
+
+    def test_TWO_arms_is_refused(self):
+        msg = self.on({"cram": {"addr": 74, "colours": [548]},
+                       "pal_region": {"addr": 74, "slot": 0, "pal_line": 2,
+                                      "entry": 5, "count": 1}})
+        self.assertIn("exactly ONE", msg)
+
+    def test_an_arm_body_that_is_not_an_object_is_refused(self):
+        self.assertIn("addr", self.on({"cram": [74, 548]}))
+
+    def test_a_missing_arm_field_is_refused_and_names_the_full_set(self):
+        msg = self.on({"cram": {"addr": 74}})
+        self.assertIn("colours", msg)
+
+    def test_an_extra_arm_field_is_refused(self):
+        msg = self.on({"cram": {"addr": 74, "colours": [548], "count": 1}})
+        self.assertIn("count", msg)
+
+    def test_colours_must_be_a_list(self):
+        msg = self.on({"cram": {"addr": 74, "colours": 548}})
+        self.assertIn("list of integers", msg)
+
+    def test_a_STRING_colour_is_refused_because_it_would_become_a_SYMBOL(self):
+        """The `_render_int` defect, one nesting level further in: a string in a colour
+        slot is interpolated verbatim and lands in generated `.emp` as a bare symbol."""
+        msg = self.on({"cram": {"addr": 74, "colours": ["OJZ_BAND_SHADE"]}})
+        self.assertIn("SYMBOL", msg)
+
+    def test_a_STRING_addr_is_refused(self):
+        self.assertIn("SYMBOL", self.on({"cram": {"addr": "$4A", "colours": [548]}}))
+
+    def test_a_STRING_top_is_refused(self):
+        self.assertIn("SYMBOL", self.band(top="120"))
+
+    def test_a_STRING_sh_is_refused(self):
+        """`sh` translates a JSON boolean and accepts an integer synonym; a STRING is
+        neither, and would land in `.emp` as a bare symbol like every other scalar."""
+        self.assertIn("SYMBOL", self.band(sh="on"))
+
+
+class TestBandLowering(PresetShapeBase):
+    """THE DELIBERATELY-AUTHORED FIXTURE. Every assertion here is about a band that this
+    test wrote; none of them can pass because a field is absent somewhere."""
+
+    def render(self, preset):
+        names = effects_gen.ActNames("ojz", "act1")
+        return effects_gen.render_preset("<fixture>", preset, names)
+
+    def test_a_one_band_cram_preset_lowers_to_the_hand_idiom(self):
+        out = self.render(_preset())
+        self.assertIn("band(top: 120, bot: 148, "
+                      "on: stream_cram(addr: 74, colours: [548]), sh: 0)", out)
+        self.assertIn("const EditorRasterSrc_OJZ_Act1_ojz_ground_wash = compose([", out)
+        self.assertIn("pub data EditorRaster_OJZ_Act1_ojz_ground_wash: "
+                      "[u16; raster_words(EditorRasterSrc_OJZ_Act1_ojz_ground_wash)] = "
+                      "raster_program(EditorRasterSrc_OJZ_Act1_ojz_ground_wash)", out)
+
+    def test_the_src_const_is_referenced_TWICE_so_the_fold_is_not_inert(self):
+        """docs/EMP_PITFALLS.md §3: an unreferenced top-level `const X = f(..)` is
+        comptime-INERT. Both `raster_words` and `raster_program` must name it, or every
+        guard inside `band()` would be declared and never run."""
+        out = self.render(_preset())
+        self.assertEqual(out.count("EditorRasterSrc_OJZ_Act1_ojz_ground_wash"), 3)
+
+    def test_sh_true_lowers_to_1_and_false_to_0(self):
+        """The writer spells a JSON boolean; `band()` takes an int. Forwarding the JSON
+        value would emit the bare word `True`, which is not an `.emp` integer."""
+        self.assertIn("sh: 1", self.render(_preset(bands=[_band(sh=True)])))
+        self.assertIn("sh: 0", self.render(_preset(bands=[_band(sh=False)])))
+        self.assertIn("sh: 1", self.render(_preset(bands=[_band(sh=1)])))
+
+    def test_three_bands_compose_into_ONE_program(self):
+        """OJZ_BandDemo's shape: three vertically disjoint bands over one CRAM entry."""
+        out = self.render(_preset(bands=[
+            _band(top=120, bot=148, on={"cram": {"addr": 74, "colours": [548]}}),
+            _band(top=156, bot=184, on={"cram": {"addr": 74, "colours": [1164]}}),
+            _band(top=192, bot=220, on={"cram": {"addr": 74, "colours": [1710]}}),
+        ]))
+        self.assertEqual(out.count("band(top:"), 3)
+        self.assertEqual(out.count("compose(["), 1)
+        self.assertEqual(out.count("pub data EditorRaster_"), 1)
+        self.assertIn("band(top: 192, bot: 220, "
+                      "on: stream_cram(addr: 74, colours: [1710]), sh: 0)", out)
+
+    def test_a_multi_colour_burst_emits_an_array_literal_in_order(self):
+        out = self.render(_preset(bands=[
+            _band(on={"cram": {"addr": 74, "colours": [548, 1164, 1710]}})]))
+        self.assertIn("colours: [548, 1164, 1710]", out)
+
+    def test_the_pal_region_arm_emits_its_five_parameters_in_the_constructors_order(self):
+        out = self.render(_preset(bands=[_band(on={"pal_region": {
+            "addr": 74, "slot": 0, "pal_line": 2, "entry": 5, "count": 3}})]))
+        self.assertIn("on: stream_pal_region(addr: 74, slot: 0, pal_line: 2, "
+                      "entry: 5, count: 3)", out)
+
+    def test_negative_and_zero_values_render_as_literals_not_tokens(self):
+        """A band label carries the PRESET id only, never a number, so `symbol_token`'s
+        `m8` spelling has no business here: every number in this arm is a VALUE."""
+        out = self.render(_preset(bands=[_band(top=-1)]))
+        self.assertIn("band(top: -1,", out)
+        self.assertNotIn("m1", out)
+
+
+class TestBandValuesAreNotValidatedHere(PresetShapeBase):
+    """REFUSE, DON'T CLAMP — and don't RESTATE either.
+
+    The module docstring's SHAPE-vs-VALUE rule, applied to the arm with the most numeric
+    bounds in the tool. Each value below is one the ENGINE refuses, with a measurement
+    behind the refusal. The generator must forward it UNCHANGED so the author reads
+    `raster_dsl.emp`'s own sentence — not clamp it into range (which authors something
+    nobody meant) and not refuse it here (which is a second copy of the bound that drifts
+    the day the measurement moves).
+    """
+
+    def render(self, **over):
+        names = effects_gen.ActNames("ojz", "act1")
+        return effects_gen.render_preset("<fixture>", _preset(**over), names)
+
+    def test_a_screen_line_past_the_bottom_of_the_screen_is_FORWARDED(self):
+        """fire()'s screen-line range is the authority — and its message is about the
+        priming records, which this file could not say."""
+        self.assertIn("band(top: 999,", self.render(bands=[_band(top=999)]))
+
+    def test_an_INVERTED_band_is_FORWARDED(self):
+        """`band: top {top} must be above bot {bot}` is band()'s."""
+        out = self.render(bands=[_band(top=200, bot=100)])
+        self.assertIn("band(top: 200, bot: 100,", out)
+
+    def test_a_burst_PAST_the_ceiling_is_FORWARDED_with_every_colour(self):
+        """The cram burst ceiling is three, and its ensure carries the measured refusal
+        of four (docs/benchmarks/scanline-p2/HBLANK-WINDOW-SWEEP-RESULTS.md). A generator
+        that truncated here would author a band the author did not write."""
+        out = self.render(bands=[_band(on={"cram": {
+            "addr": 74, "colours": [1, 2, 3, 4, 5]}})])
+        self.assertIn("colours: [1, 2, 3, 4, 5]", out)
+
+    def test_CRAM_LINE_ZERO_is_FORWARDED_so_the_engine_refuses_it_by_name(self):
+        """`stream_cram`/`pal_restore` both refuse line 0 — it is the character's line
+        (CharacterDef.cd_palette). That reason is not repeatable here."""
+        self.assertIn("addr: 0", self.render(bands=[_band(on={
+            "cram": {"addr": 0, "colours": [548]}})]))
+
+    def test_an_ODD_cram_address_is_FORWARDED(self):
+        self.assertIn("addr: 75", self.render(bands=[_band(on={
+            "cram": {"addr": 75, "colours": [548]}})]))
+
+    def test_a_band_TOO_SHORT_for_its_ON_op_is_FORWARDED(self):
+        """The height minimum is check_density's own arithmetic re-derived inside
+        `band()`, cost-keyed so it re-prices when the model moves. A literal here would
+        be exactly the drift that design forbids."""
+        self.assertIn("band(top: 120, bot: 121,",
+                      self.render(bands=[_band(top=120, bot=121)]))
+
+    def test_MORE_BANDS_THAN_THE_BUFFER_HOLDS_are_FORWARDED(self):
+        """The three-band cap is derived inside the engine from `op_size` against the
+        program buffer, and §7.1 of the ownership design explicitly forbids quoting its
+        table. Unlike MAX_PARALLAX_BANDS — which the generator must know because it PADS
+        an array to that width — nothing here pads, so nothing here has to know."""
+        out = self.render(bands=[_band(top=10 * i + 10, bot=10 * i + 18)
+                                 for i in range(9)])
+        self.assertEqual(out.count("band(top:"), 9)
+
+    def test_the_generator_source_carries_NO_raster_bound_literal(self):
+        """A structural check on the claim above, not a spot check: the raster arm of
+        effects_gen.py must not spell the engine's numbers. Reads the tool's own source
+        for the constants a copy would have to contain."""
+        with open(effects_gen.__file__) as f:
+            src = f.read()
+        raster = src[src.index("# RASTER BANDS"):]
+        for forbidden in ("223", "126", "RASTER_BURST", "RASTER_BUF"):
+            self.assertNotIn(forbidden, raster,
+                             f"the raster arm spells {forbidden!r} — a bound this file "
+                             f"does not own")
+
+
+class TestPresetsInTheGeneratedModule(AssignmentBase):
+    def setUp(self):
+        super().setUp()
+        self.presets = os.path.join(self.scenes, "presets")
+        os.makedirs(self.presets)
+
+    def write_preset(self, stem, **over):
+        with open(os.path.join(self.presets, f"{stem}.json"), "w") as f:
+            json.dump(_preset(id=stem, **over), f)
+
+    def render(self):
+        return effects_gen.render_module(
+            effects_gen.load_all_scenes(repo=self.repo),
+            effects_gen.load_act_scene_ref(self.repo),
+            effects_gen.load_section_scene_refs(self.repo),
+            effects_gen.act_section_count(self.repo),
+            effects_gen.act_names(self.repo),
+            effects_gen.load_all_presets(repo=self.repo))
+
+    def test_an_authored_preset_reaches_the_module_as_a_pub_data(self):
+        """`pub data` and not `const`: only a data item mints a ROM label and emits
+        words. This is the whole 'reaches the ROM' step, in one assertion."""
+        self.write_preset("ojz_ground_wash")
+        out = self.render()
+        self.assertIn("pub data EditorRaster_OJZ_Act1_ojz_ground_wash:", out)
+        self.assertIn("raster_program(", out)
+
+    def test_a_preset_needs_NO_scene_and_NO_assignment_to_emit(self):
+        """A raster program is an EffectsPreset channel; a scene is a parallax_config.
+        The two are independent by design (band-ownership design §16.1), so a preset must
+        emit with no scene in the tree at all."""
+        self.write_preset("ojz_ground_wash")
+        out = self.render()
+        self.assertNotIn("pub const Scene_Editor_", out)
+        self.assertIn("pub data EditorRaster_OJZ_Act1_ojz_ground_wash:", out)
+
+    def test_presets_render_in_sorted_id_order_so_the_bake_is_deterministic(self):
+        self.write_preset("b_wash")
+        self.write_preset("a_wash")
+        out = self.render()
+        self.assertLess(out.index("EditorRaster_OJZ_Act1_a_wash"),
+                        out.index("EditorRaster_OJZ_Act1_b_wash"))
+        self.assertEqual(out, self.render())
+
+    def test_the_banner_states_that_the_generator_does_not_BIND_the_program(self):
+        """The §16.1 fact has to survive into the generated file, because the file is
+        what the next author reads. Emitting a program and binding it to a section are
+        different acts and only the first is this tool's."""
+        self.write_preset("ojz_ground_wash")
+        out = self.render()
+        self.assertIn("does NOT bind it", out)
+
+
+class TestPresetConverseControl(AssignmentBase):
+    """THE CONVERSE CONTROL. A tree with no preset document must lower to NOTHING —
+    not to an empty program, not to a banner, not to a blank line."""
+
+    def render_without_presets(self):
+        return effects_gen.render_module(
+            effects_gen.load_all_scenes(repo=self.repo),
+            effects_gen.load_act_scene_ref(self.repo),
+            effects_gen.load_section_scene_refs(self.repo),
+            effects_gen.act_section_count(self.repo),
+            effects_gen.act_names(self.repo),
+            effects_gen.load_all_presets(repo=self.repo))
+
+    def test_no_presets_emits_no_raster_text_of_any_kind(self):
+        self.write_scene("ojz_bg")
+        self.write_sidecar(0, {"sceneRef": "ojz_bg"})
+        out = self.render_without_presets()
+        for token in ("EditorRaster", "raster_program", "raster_words", "compose(",
+                      "band(top:", "AURORA-AUTHORED RASTER BANDS"):
+            self.assertNotIn(token, out)
+
+    def test_no_presets_is_TEXT_IDENTICAL_to_the_pre_arm_renderer(self):
+        """The zero-byte claim, made checkable rather than argued: with no preset
+        documents `render_module` returns exactly what it returned before the `presets`
+        parameter existed, so the committed generated artifact does not change and the
+        four ROM CRCs cannot move."""
+        self.write_scene("ojz_bg")
+        self.write_sidecar(0, {"sceneRef": "ojz_bg"})
+        with_arm = self.render_without_presets()
+        without_arm = effects_gen.render_module(
+            effects_gen.load_all_scenes(repo=self.repo),
+            effects_gen.load_act_scene_ref(self.repo),
+            effects_gen.load_section_scene_refs(self.repo),
+            effects_gen.act_section_count(self.repo),
+            effects_gen.act_names(self.repo))
+        self.assertEqual(with_arm, without_arm)
+
+    def test_the_committed_module_is_unchanged_by_this_arm(self):
+        """The real repo, not a fixture: `generate()` now walks the preset loader on
+        every call, and its output must still equal the committed artifact byte for byte
+        (which is also what the build's `effects_gen.py check` drift gate enforces)."""
+        out_path, text = effects_gen.generate(effects_gen.REPO)
+        with open(out_path) as f:
+            self.assertEqual(text, f.read())
+
+    def test_a_scene_file_carrying_a_band_key_is_REFUSED(self):
+        """The other half of §16.1, enforced: a band is not a scene channel, so `bands`
+        on a SCENE file is an unknown key and the scene loader refuses it. Without this
+        the two authoring surfaces would silently overlap."""
+        path = os.path.join(self.scenes, "ojz_bg.json")
+        with open(path, "w") as f:
+            json.dump(_scene(id="ojz_bg", bands=[_band()]), f)
+        with self.assertRaises(effects_gen.SceneShapeError) as ctx:
+            effects_gen.load_scene(path)
+        self.assertIn("bands", str(ctx.exception))

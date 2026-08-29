@@ -18,10 +18,11 @@
 // Label fails the clone-injection re-evaluation, both verified against sigil.
 //
 // Placed at the `ojz_effects_editor_act1` section
-// (module `games.sonic4.ojz_effects_editor_act1`). While the block above emits no
-// bytes there is no map.toml `order` row: the row must name the section's
-// content-derived HEAD LABEL, and sigil stops the build by name the moment there is
-// one to write.
+// (module `games.sonic4.ojz_effects_editor_act1`). Its ROM position is declared in
+// games/sonic4/map.toml by SECTION NAME (`"section:ojz_effects_editor_act1"`) rather
+// than by label, because this block's head label is content-derived — whatever the
+// generator emits first, which moves as scenes, deform tables and raster programs come
+// and go. So new byte-emitting content here needs NO map.toml edit.
 
 module games.sonic4.ojz_effects_editor_act1 in ojz_effects_editor_act1
 

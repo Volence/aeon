@@ -7,10 +7,15 @@ contract; the NORMATIVE read set it is built to is `tools/EFFECTS_CONSUMER_CONTR
 that section does not list: adding one is a CONTRACT change that amends that file and
 the empyrean schema pair in the same series, and Aurora re-pins its writer golden.
 
+TWO INPUT CLASSES, and they are not the same thing: **scene files** (§2.1, a scene IS a
+`parallax_config`) and **preset documents** (§2.4, `presets/<id>.json`, whose `bands` key
+lowers to a raster program). The band arm is the second one and lives further down under
+its own banner; a band on a SCENE file is refused, and §2.4 carries the ruling.
+
 What this file does, end to end: it discovers the editor scene files, refuses a
 malformed one, renders each into a `scene()` / `layer()` call, reads the per-section
-`sceneRef` sidecars, and emits the generated binding module that `act_descriptor.emp`
-imports. The descriptor seam is ALWAYS EMITTED — the bindings exist with no editor
+`sceneRef` sidecars, discovers the preset documents and lowers their bands into raster
+programs, and emits the generated binding module that `act_descriptor.emp` imports. The descriptor seam is ALWAYS EMITTED — the bindings exist with no editor
 content at all, which is the owner's ruling on design §9's Q-c and the reason a scene
 can be added without touching the seam. `build.sh` runs `effects_gen.py check` on every
 canonical build (a re-bake in memory, compared against the committed module), and
@@ -187,6 +192,113 @@ LEFT_COL_MASK_NAMES = {
 # reads the engine constant and pins this against it.
 MAX_PARALLAX_BANDS = 16
 
+# =============================================================================
+# RASTER BANDS — the preset-document arm (contract §2.4).
+# =============================================================================
+#
+# A BAND IS NOT A SCENE FIELD, AND THAT IS A RULING, NOT A PREFERENCE. The parcel that
+# built this arm was dispatched to put the band on the scene file. It is not there, and
+# the two reasons are both written down at committed revisions rather than reasoned out
+# here:
+#
+#   1. `docs/superpowers/specs/2026-08-28-raster-band-ownership-design.md` §16.1 — "A
+#      scene IS a `parallax_config`. It is not an effects bundle. The palette, the palette
+#      cycle, the variants and *the raster program* are channels of an `EffectsPreset`,
+#      and an `EffectsPreset` is bound per SECTION, never per scene." Its closing line is
+#      addressed to exactly this reader: "'put a band in a scene' is not a thing you can
+#      do."
+#   2. `empyrean` origin/main `docs/AURORA_EFFECTS_SCHEMA.md` §7 already RESERVES the
+#      right place: `games/sonic4/data/editor/effects/presets/` — "preset composition
+#      documents" — for "raster preset composition (tint bands, vscroll splits, …)". A
+#      band field on the scene file would have contradicted a reservation the suite had
+#      already committed to.
+#
+# So the input is a PRESET DOCUMENT in the reserved directory, and a scene file that
+# carries a band key is refused by the scene loader's ordinary unknown-key path.
+#
+# WHAT IT LOWERS TO, and where each half's guards live:
+#
+#     const EditorRasterSrc_OJZ_Act1_x = compose([ band(top: .., bot: .., on: .., sh: ..) ])
+#     pub data EditorRaster_OJZ_Act1_x: [u16; raster_words(EditorRasterSrc_OJZ_Act1_x)]
+#                                     = raster_program(EditorRasterSrc_OJZ_Act1_x)
+#
+# The `pub data` is what puts words in the ROM, and it is also what makes every guard in
+# `engine/effects/raster_dsl.emp` a REAL error surface for authored content: a data item
+# in a lowered module is elaborated unconditionally, so `band()`, `stream_cram()`,
+# `fire()`, `compose()`, `raster_program()` and the ownership walks all run on the
+# author's numbers (docs/EMP_PITFALLS.md §3 is about the module that is NOT lowered; this
+# one is — `act_descriptor.emp` imports its bindings).
+#
+# NOT ONE NUMERIC BOUND IS RESTATED HERE. That is the whole design of this arm and it is
+# checkable by reading it: there is no screen-line range, no CRAM address range, no burst
+# ceiling, no band count, no height minimum, and no palette-line-0 rule anywhere in this
+# file. Every one of them exists as an `ensure` in `raster_dsl.emp` with a paragraph of
+# measurement behind it, and a copy down here is a copy that drifts (the module docstring's
+# SHAPE-vs-VALUE paragraph is the standing rule; `MAX_PARALLAX_BANDS` above is the one
+# mirror this file carries, and it exists only because the generator PADS an array to that
+# width and would run off the end before the engine could speak). A band list is passed
+# straight through to `compose`, so nothing here has to know how many is too many.
+#
+# ZERO BYTES UNTIL A PRESET DOCUMENT EXISTS. With no `presets/` directory the emitted
+# module is BYTE-IDENTICAL to what it was before this arm existed — not "unchanged in
+# effect", literally the same text: nothing below appends so much as a comment line when
+# `presets` is empty, which is what makes the four-CRC check a real check rather than a
+# ritual.
+PRESET_SUBDIR = "presets"
+
+# --- contract §2.4, top level -------------------------------------------------
+PRESET_KEYS = frozenset({"schema", "id", "bands"})
+
+# `name` for the scene files' reason: a writer-owned display label.
+PRESET_IGNORED_KEYS = frozenset({"name"})
+
+# The rest of empyrean §7's reserved wave-2 vocabulary. These are NOT unknown keys — they
+# are names the suite has agreed on and this generator has not built — so they get a
+# refusal that says which, rather than the generic "unknown key" sentence that would send
+# an author to file a contract change for a field the contract already reserves.
+PRESET_REFUSED_KEYS = {
+    "fires": "a reserved wave-2 preset key (empyrean AURORA_EFFECTS_SCHEMA.md §7) that "
+             "this generator does not implement. Only `bands` is built: a band lowers to "
+             "the two or three fires band() derives, and a general fire list would need "
+             "the vscroll/register/patchable vocabulary as well",
+    "variants": "a reserved wave-2 preset key (empyrean AURORA_EFFECTS_SCHEMA.md §7) — "
+                "palette variants are a different EffectsPreset channel and this "
+                "generator does not implement them",
+    "cycles": "a reserved wave-2 preset key (empyrean AURORA_EFFECTS_SCHEMA.md §7) — "
+              "palette cycling is a different EffectsPreset channel and this generator "
+              "does not implement it",
+}
+
+# --- contract §2.4, per band ---------------------------------------------------
+# ALL FOUR REQUIRED, IN `band()`'s OWN ARGUMENT ORDER. `sh` has no default here because it
+# has none in the engine either, and raster_dsl.emp says why at `region_boundary`: "whether
+# an effect changes a mode register is worth stating at the call site". Giving it a default
+# in the JSON would restore exactly the silence that ruling removed.
+BAND_KEYS = ("top", "bot", "on", "sh")
+
+# The ON op's legal arms: JSON spelling -> (the `.emp` constructor, its parameters IN THE
+# CONSTRUCTOR'S ORDER). A SPELLING table, like FACTOR_NAMES: it exists so a typo'd arm is a
+# generator refusal naming the legal ones instead of a sigil "unknown function" pointing at
+# generated code. The authority is raster_dsl.emp.
+#
+# WHY `pal_region` TAKES `addr` EXPLICITLY rather than deriving it from pal_line/entry the
+# way `fx_tint_band` does: that derivation is a formula, and a copy of it here would be a
+# second source for it (raster_dsl holds its own copy against `pal_stage_off` with a
+# module-level ensure — this file has no such pin available). Spelled out, the address and
+# the staging coordinates arrive at `stream_pal_region`, whose three agreement ensures
+# refuse a mismatch with the engine's own sentence. Two facts, checked against each other,
+# beats one fact computed twice.
+#
+# `stream_vsram` is deliberately ABSENT: `band()` refuses a VSRAM ON op ("the ON op has no
+# CRAM span"), so an arm for it would exist only to be refused one layer down.
+BAND_ON_ARMS = {
+    "cram":       ("stream_cram",       ("addr", "colours")),
+    "pal_region": ("stream_pal_region", ("addr", "slot", "pal_line", "entry", "count")),
+}
+
+# Arm fields that are JSON ARRAYS of integers rather than scalars.
+BAND_ON_ARRAY_FIELDS = frozenset({"colours"})
+
 
 class SceneShapeError(Exception):
     """A scene file that the generator refuses. Raised, never swallowed."""
@@ -298,6 +410,107 @@ def load_all_scenes(game: str = "sonic4", repo: str = REPO) -> dict:
             _refuse(path, f"duplicate scene id {scene['id']!r}")
         scenes[scene["id"]] = scene
     return scenes
+
+
+def preset_dir(game: str = "sonic4", repo: str = REPO) -> str:
+    """The reserved wave-2 preset-document directory (empyrean schema doc §7)."""
+    return os.path.join(scene_dir(game, repo), PRESET_SUBDIR)
+
+
+def discover_preset_files(game: str = "sonic4", repo: str = REPO):
+    """Preset documents, sorted by id. An ABSENT directory means 'no presets'.
+
+    Same permissiveness as `discover_scene_files`, for the same contract §3 reason and
+    with the same limit: absent is fine, unreadable is not. Today this directory does
+    not exist in the tree at all, which is why adding this arm moves no bytes.
+    """
+    d = preset_dir(game, repo)
+    if not os.path.isdir(d):
+        return []
+    return sorted(
+        os.path.join(d, n) for n in os.listdir(d) if n.endswith(".json")
+    )
+
+
+def load_preset(path: str) -> dict:
+    """Load and SHAPE-validate one preset document. Raises on anything malformed.
+
+    SHAPE ONLY, and the line falls exactly where `load_scene`'s does: this function asks
+    "is `top` an integer" and never "is 240 a legal screen line" — `fire()` owns that, and
+    says so in a sentence with the priming records in it. The one place it looks like a
+    value check is the empty-`bands` refusal, which is the `layers` precedent: an authored
+    document with no content in it is a SHAPE fact about the document, and the engine's
+    backstop (`compose: nothing to compose`) would name a function the author never wrote.
+    """
+    with open(path, "r") as f:
+        preset = json.load(f)
+
+    if not isinstance(preset, dict):
+        _refuse(path, f"top level must be a JSON object, got {type(preset).__name__}")
+
+    if "schema" not in preset:
+        _refuse(path, "no `schema` key. Every preset document declares its schema "
+                      f"version; this generator accepts {SCHEMA_VERSION}.")
+    if preset["schema"] != SCHEMA_VERSION:
+        _refuse(path, f"`schema` is {preset['schema']!r}, this generator implements "
+                      f"{SCHEMA_VERSION}. Refusing rather than guessing at a version it "
+                      f"was not built against.")
+
+    stem = os.path.splitext(os.path.basename(path))[0]
+    if "id" not in preset:
+        _refuse(path, f"no `id` key (expected `{stem}`, matching the filename stem)")
+    if preset["id"] != stem:
+        _refuse(path, f"`id` is {preset['id']!r} but the filename stem is {stem!r}. "
+                      f"They must match: the id becomes a generated symbol component "
+                      f"and the filename is how a human finds the file.")
+    if not SCENE_ID_RE.match(stem):
+        _refuse(path, f"id {stem!r} is not symbol-safe. Preset ids become `.emp` label "
+                      f"components (`EditorRaster_OJZ_Act1_<id>`), so they must match "
+                      f"{SCENE_ID_RE.pattern} (lowercase, digits and underscore; no "
+                      f"hyphens, no leading digit).")
+
+    _check_keys(path, preset, PRESET_KEYS, PRESET_IGNORED_KEYS, PRESET_REFUSED_KEYS,
+                "preset")
+
+    if "bands" not in preset:
+        _refuse(path, "no `bands` key. `bands` is the only channel this generator "
+                      "implements; the other names empyrean's schema doc §7 reserves "
+                      "(`fires`, `variants`, `cycles`) are refused by name above.")
+    bands = preset["bands"]
+    if not isinstance(bands, list):
+        _refuse(path, f"`bands` must be a list, got {type(bands).__name__}")
+    if not bands:
+        _refuse(path, "`bands` is empty. A preset document with no bands would lower to "
+                      "`compose([])` and then to an EMPTY raster program, which the "
+                      "engine refuses one layer down with a message about `compose` "
+                      "rather than about this file — and a document that emits a "
+                      "zero-band program is a document that should not exist. If the "
+                      "intent is 'no raster here', delete the file.")
+
+    for i, band in enumerate(bands):
+        if not isinstance(band, dict):
+            _refuse(path, f"bands[{i}] must be an object, got {type(band).__name__}")
+        _check_keys(path, band, frozenset(BAND_KEYS), frozenset(), None, f"bands[{i}]")
+        for required in BAND_KEYS:
+            if required not in band:
+                _refuse(path, f"bands[{i}] has no `{required}`. A band is exactly "
+                              f"{', '.join(BAND_KEYS)} — all four, none with a default. "
+                              f"`sh` has none in the engine either: raster_dsl.emp's "
+                              f"`region_boundary` note is that whether an effect changes "
+                              f"a mode register is worth stating at the call site.")
+
+    return preset
+
+
+def load_all_presets(game: str = "sonic4", repo: str = REPO) -> dict:
+    """All preset documents for a game, keyed by id. Empty dict when none exist."""
+    presets = {}
+    for path in discover_preset_files(game, repo):
+        preset = load_preset(path)
+        if preset["id"] in presets:
+            _refuse(path, f"duplicate preset id {preset['id']!r}")
+        presets[preset["id"]] = preset
+    return presets
 
 
 def render_factor(path: str, value, where: str) -> str:
@@ -705,6 +918,94 @@ def render_scene(path: str, scene: dict, tables: TableRegistry = None) -> str:
             + ",\n".join(body) + ")")
 
 
+def render_band_on(path: str, value, where: str) -> str:
+    """One band's ON op → its `.emp` constructor call.
+
+    Single-armed like the scene attachments, but over TWO legal arms rather than one, so
+    it cannot reuse `_single_arm` (whose whole shape is "the only arm here is `x`").
+    """
+    if not isinstance(value, dict):
+        _refuse(path, f"{where}: the ON op must be an object with exactly one of "
+                      f"{', '.join(sorted(BAND_ON_ARMS))}, got "
+                      f"{type(value).__name__}")
+    arms = sorted(set(value) & set(BAND_ON_ARMS))
+    extra = sorted(set(value) - set(BAND_ON_ARMS))
+    if extra:
+        _refuse(path, f"{where}: unknown ON-op arm(s) {', '.join(extra)}. The legal arms "
+                      f"are {', '.join(sorted(BAND_ON_ARMS))} — the two raster_dsl stream "
+                      f"constructors that carry a CRAM span. `vsram` is absent on "
+                      f"purpose: band() refuses a VSRAM ON op, because a band's restore "
+                      f"is DERIVED from the ON op's CRAM span and a VSRAM op has none.")
+    if len(arms) != 1:
+        _refuse(path, f"{where}: an ON op is exactly ONE arm, got "
+                      f"{', '.join(arms) or '(none)'}. Two arms would be two writes and "
+                      f"therefore two restores, which is two bands.")
+    arm = arms[0]
+    fn, fields = BAND_ON_ARMS[arm]
+    body = value[arm]
+    if not isinstance(body, dict):
+        _refuse(path, f"{where}.{arm}: must be an object with "
+                      f"{', '.join(fields)}, got {type(body).__name__}")
+    vals = _fields(path, body, fields, f"{where}.{arm}")
+    args = []
+    for field, v in zip(fields, vals):
+        if field in BAND_ON_ARRAY_FIELDS:
+            if not isinstance(v, list):
+                _refuse(path, f"{where}.{arm}.{field}: must be a list of integers, got "
+                              f"{type(v).__name__}. It becomes an `.emp` array literal, "
+                              f"and how many entries are legal is "
+                              f"{fn}'s question — see its burst-ceiling ensure.")
+            items = ", ".join(_render_int(path, c, f"{where}.{arm}.{field}[{j}]")
+                              for j, c in enumerate(v))
+            args.append(f"{field}: [{items}]")
+        else:
+            args.append(f"{field}: "
+                        + _render_int(path, v, f"{where}.{arm}.{field}"))
+    return f"{fn}(" + ", ".join(args) + ")"
+
+
+def render_band(path: str, band: dict, where: str) -> str:
+    """One authored band → its `band(top:, bot:, on:, sh:)` call.
+
+    Every number here is forwarded VERBATIM. Whether `top` is a legal screen line, whether
+    the band is tall enough for its ON op's measured cost, whether the ON op's colours fit
+    the burst window, whether the CRAM address is on the character's palette line — all
+    four are `raster_dsl.emp` ensures with measurements behind them, and none of them is
+    repeated here. REFUSE, DON'T CLAMP is therefore automatic for the ranges: this
+    function has no range to clamp against.
+    """
+    return ("band(top: " + _render_int(path, band["top"], where + ".top")
+            + ", bot: " + _render_int(path, band["bot"], where + ".bot")
+            + ", on: " + render_band_on(path, band["on"], where + ".on")
+            + ", sh: " + _render_bool_int(path, band["sh"], where + ".sh")
+            + ")")
+
+
+def render_preset(path: str, preset: dict, names) -> str:
+    """One preset document → the two declarations that put its program in the ROM.
+
+    `compose([...])` even for a single band, which is the shipped hand idiom
+    (`OJZ_BandDemo`) and not decoration: compose is what merges two bands that share a
+    line and what enforces the ascending order `fire_lines` requires, so a one-band
+    program that skipped it would take a different path through the encoder than a
+    two-band one — the last thing a generator wants is for band count to change the
+    lowering shape.
+
+    The `const` half is REFERENCED TWICE below and that is load-bearing: an unreferenced
+    top-level `const X = f(..)` is comptime-INERT and would fold nothing
+    (docs/EMP_PITFALLS.md §3, the same trap `scene_budget_enforce`'s reference exists for).
+    Here `raster_words()` and `raster_program()` both name it, so both folds run and every
+    guard inside them fires on the authored numbers.
+    """
+    pid = preset["id"]
+    src, label = names.raster_src(pid), names.raster(pid)
+    bands = [render_band(path, b, f"bands[{i}]")
+             for i, b in enumerate(preset["bands"])]
+    return (f"const {src} = compose([\n    "
+            + ",\n    ".join(bands) + ",\n])\n"
+            + f"pub data {label}: [u16; raster_words({src})] = raster_program({src})")
+
+
 # =============================================================================
 # SLICE 5 — assignments, the generated binding module, and the descriptor seam.
 # =============================================================================
@@ -767,18 +1068,22 @@ def render_scene(path: str, scene: dict, tables: TableRegistry = None) -> str:
 # a poisoned `ensure(1 == 0)` in this module fails the build with the seam in place
 # and builds GREEN with an unchanged CRC when the `use` line is removed.
 #
-# ---- WHAT IS NOT DONE HERE, DELIBERATELY ----
+# ---- THE map.toml ROW — SETTLED, and this paragraph used to say otherwise ----
 #
-# No `games/sonic4/map.toml` `order` row is authored for this module's section. The
-# row must name the section's HEAD LABEL (sigil keys the order check on the
-# lowest-offset label, native.rs:3194-3203), and the head label of this block is
-# CONTENT-DERIVED — in the fixture build it was `EditorDeform_probe`, a deduped
-# table name that depends on which scenes exist. There is nothing correct to write
-# before the first editor scene exists, the section emits zero bytes until then so a
-# row would be inert AND unverifiable, and the day content lands sigil stops the
-# build loudly and by name (`[map.order-undeclared] byte-emitting section
-# `<head>` is not in the declared `order``). map.toml carries a reserved-slot
-# COMMENT at the intended position instead of a guessed row.
+# CORRECTED 2026-08-29. What stood here said "no `order` row is authored for this module's
+# section … map.toml carries a reserved-slot COMMENT instead of a guessed row." That has
+# been false since Aurora's first saved scene made the block emit (2026-08-26):
+# `games/sonic4/map.toml` carries `"section:ojz_effects_editor_act1"`, a SECTION-NAME row,
+# which resolves to the section's head label at placement time. The name row is the answer
+# to the problem the old paragraph correctly identified — sigil keys the order check on the
+# lowest-offset label, and this block's head label is CONTENT-DERIVED (whatever the
+# generator emits first, which changes as scenes, deform tables and now raster programs come
+# and go) — so a LABEL row would rot with content and the NAME row does not.
+#
+# The consequence for anyone extending this generator, which is why the correction matters:
+# NEW BYTE-EMITTING CONTENT IN THIS MODULE NEEDS NO map.toml EDIT. The raster-band arm below
+# was written against this file, and the stale paragraph would have sent its author to
+# invent a placement problem that had already been solved.
 
 ACT_SCENE_REF_KEY = "sceneRef"
 PROJECT_JSON = "project.json"
@@ -883,6 +1188,7 @@ class ActNames:
         self.zone_id, self.act_id = zone_id, act_id
         stem = f"{zone_id}_{act_id}"                      # ojz_act1
         cap = f"{zone_id.upper()}_{act_id.capitalize()}"  # OJZ_Act1
+        self.cap = cap
         self.module = f"games.sonic4.{zone_id}_effects_editor_{act_id}"
         self.section = f"{zone_id}_effects_editor_{act_id}"
         self.fn_act_default = f"{stem}_act_default"
@@ -895,6 +1201,21 @@ class ActNames:
     def binding_sec(self, i: int) -> str:
         return f"EditorSceneBinding_{self.zone_id.upper()}_" \
                f"{self.act_id.capitalize()}_Sec{i}"
+
+    def raster(self, preset_id: str) -> str:
+        """The emitted raster-program LABEL for one preset document.
+
+        ACT-QUALIFIED even though preset documents are a game-level library, for the
+        reason `ActNames`' own docstring gives about `bg_anim.emp`: the generator emits
+        one module PER ACT, and an unqualified name would collide the day a second act's
+        module renders the same library. The cost is that two acts binding the same
+        preset each carry a copy of its words — visible, and cheaper to fix than a
+        duplicate-symbol error nobody predicted.
+        """
+        return f"EditorRaster_{self.cap}_{preset_id}"
+
+    def raster_src(self, preset_id: str) -> str:
+        return f"EditorRasterSrc_{self.cap}_{preset_id}"
 
     def out_path(self, repo: str = REPO) -> str:
         return os.path.join(repo, "games", "sonic4", "data", "generated",
@@ -937,7 +1258,7 @@ def _lowering(path: str, scene: dict) -> tuple:
 
 
 def render_module(scenes: dict, act_ref, sec_refs: dict, sections: int,
-                  names: ActNames) -> str:
+                  names: ActNames, presets: dict = None) -> str:
     """The whole generated `.emp` module, for any content state including none.
 
     Deterministic for a given input: scenes are walked in sorted-id order and the
@@ -1027,6 +1348,19 @@ def render_module(scenes: dict, act_ref, sec_refs: dict, sections: int,
                        f"{lower}({names.scene_array}[{used.index(bound[i])}])")
         out.append("")
 
+    # ---- the raster BANDS from the preset documents ----
+    # APPENDS NOTHING AT ALL when there are none — not a banner, not a blank line. That is
+    # what makes "adding this capability moved zero bytes" checkable by CRC rather than
+    # merely argued: with no preset documents this function returns the same TEXT it
+    # returned before the arm existed, so the committed generated artifact does not even
+    # have to be re-emitted.
+    if presets:
+        out.append(RASTER_BANNER)
+        for pid in sorted(presets):
+            out.append(render_preset(
+                os.path.join(preset_dir(), pid + ".json"), presets[pid], names))
+            out.append("")
+
     # ---- the witness equates (zero ROM bytes, link-visible) ----
     out.append(WITNESS_BLOCK.format(
         equ_scenes=names.equ_scenes, scenes=len(used),
@@ -1079,10 +1413,11 @@ HEADER = """\
 // Label fails the clone-injection re-evaluation, both verified against sigil.
 //
 // Placed at the `{section}` section
-// (module `{module}`). While the block above emits no
-// bytes there is no map.toml `order` row: the row must name the section's
-// content-derived HEAD LABEL, and sigil stops the build by name the moment there is
-// one to write.
+// (module `{module}`). Its ROM position is declared in
+// games/sonic4/map.toml by SECTION NAME (`"section:{section}"`) rather
+// than by label, because this block's head label is content-derived — whatever the
+// generator emits first, which moves as scenes, deform tables and raster programs come
+// and go. So new byte-emitting content here needs NO map.toml edit.
 """
 
 WITNESS_BLOCK = """\
@@ -1137,6 +1472,27 @@ ensure(({array}_CapsFolded & ~Game.SCANLINE_CAPS) == 0,
        "editor scenes: the folded capability mask {{{array}_CapsFolded}} is NOT a subset of Game.SCANLINE_CAPS {{Game.SCANLINE_CAPS}}; the UNDECLARED bits are {{{array}_CapsFolded & ~Game.SCANLINE_CAPS}} — an Aurora-authored scene demands a scanline service this game does not declare. Either widen SCANLINE_CAPS in games/sonic4/config/game.emp, or stop authoring the capability in the scene that raises it")\
 """
 
+RASTER_BANNER = """\
+// ---- AURORA-AUTHORED RASTER BANDS, through the REAL constructors ----
+//
+// One `pub data` per preset document in games/sonic4/data/editor/effects/presets/. These
+// are the ONLY bytes an editor-authored raster effect contributes, and the section they
+// land in is declared in games/sonic4/map.toml by NAME (`"section:ojz_effects_editor_act1"`)
+// precisely because its head label is content-derived — so a program appearing here needs
+// no map.toml edit.
+//
+// A BAND IS NOT A SCENE CHANNEL. A `Scene` IS a parallax_config; the raster program is an
+// EffectsPreset channel, bound per SECTION (band-ownership design §16.1). This generator
+// therefore EMITS the program under a stable name and does NOT bind it: which section
+// installs it is a `preset()` call in the game's own effects library, and choosing that is
+// a content decision with a picture attached.
+//
+// Every `ensure` in band()/stream_cram()/fire()/compose()/raster_program() and both
+// ownership walks fire on authored content HERE — a `pub data` in a lowered module is
+// elaborated unconditionally. The generator validates SHAPE only and repeats not one of
+// those bounds (tools/effects_gen.py, the RASTER BANDS banner).\
+"""
+
 BINDING_BANNER = """\
 // =====================================================================
 // THE BINDINGS — the seam act_descriptor.emp calls. ALWAYS BOTH, ALWAYS LIVE.
@@ -1157,7 +1513,8 @@ def generate(repo: str = REPO, zone: int = 0, act: int = 0) -> tuple:
         load_act_scene_ref(repo, zone, act),
         load_section_scene_refs(repo, zone, act),
         act_section_count(repo, zone, act),
-        names)
+        names,
+        load_all_presets("sonic4", repo))
 
 
 def _atomic_write(path: str, text: str) -> None:
@@ -1208,12 +1565,16 @@ if __name__ == "__main__":
             print("effects_gen: OK — generated effects module matches its inputs")
         else:
             found = load_all_scenes()
-            if not found:
-                print("effects_gen: no editor scenes (absent directory or no "
-                      ".json files)")
+            presets = load_all_presets()
+            if not found and not presets:
+                print("effects_gen: no editor scenes or preset documents (absent "
+                      "directory or no .json files)")
                 sys.exit(0)
             for sid, scene in sorted(found.items()):
                 print(f"effects_gen: {sid} — {len(scene['layers'])} layer(s), "
+                      f"shape OK")
+            for pid, preset in sorted(presets.items()):
+                print(f"effects_gen: preset {pid} — {len(preset['bands'])} band(s), "
                       f"shape OK")
     except SceneShapeError as e:
         print(f"effects_gen: REFUSED — {e}")
