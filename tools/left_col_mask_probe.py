@@ -13,23 +13,30 @@ TWO ARMS, VERY DIFFERENT STANDINGS:
              no oracle bus, runnable anywhere. Verifies:
                1. DeformTable_Zero is 256 zero bytes and DeformTable_Shimmer is not —
                   the two facts the comptime guards CANNOT see (a table is a Label), and
-                  exactly why Rocking spells Accept instead of Factor0Lock.
+                  one of the two reasons Rocking spells Accept rather than Factor0Lock.
+                  (The other, since 2026-08-28, is plane A: Rocking's `fa: FACTOR_1` and
+                  `dsa: 4` fail the lock outright, so Accept is the only answer available
+                  to it whatever the table contains.)
                2. Every Rocking record: per-column table attached (DeformTable_Rocking),
                   BG H-table is the ZERO table, band 0's plane-B factor is FACTOR_0
-                  (s1 = 15) with dsb live (4). Conclusion the probe certifies: plane-B
-                  HScroll is identically zero at runtime, the leftmost-partial-column
-                  artifact CANNOT occur, and Accept is the conservative spelling of a
-                  true factor0 claim.
+                  (s1 = 15) with dsb live (4). Conclusion the probe certifies, AND ITS
+                  SCOPE: plane-B HScroll is identically zero at runtime, so the artifact
+                  cannot occur ON PLANE B. It says NOTHING about plane A, which scrolls
+                  with the camera and does show the sliver — this conclusion was written
+                  as an unqualified "the artifact CANNOT occur" until 2026-08-28, which
+                  is the plane-blind reading the policy guards carried too.
                3. Every Perspective record: per-column table attached
                   (DeformTable_Perspective), BG H-table is SHIMMER (non-zero), every
                   band's plane-B factor is FACTOR_0, dsb live on the hills/ground bands
                   ({15,15,15,4,2}). Conclusion: the artifact IS reachable on the
                   dsb-live rows — Accept is a real ship-the-artifact decision, exactly
                   as the authoring comment states.
-               4. The two INSTALLABLE configs (OJZ_Default — the act descriptor's
+               4. The two ACT-INSTALLED configs (OJZ_Default — the act descriptor's
                   fallback; OJZ_Underwater — the water preset) attach NO per-column
-                  table: the shipped game never enters per-column mode, so the artifact
-                  currently has no runtime subject at all.
+                  table: normal play never enters per-column mode. NOT "no subject at
+                  all", which is what this said until 2026-08-28 — the DEBUG scene cycle
+                  installs the registry configs directly, and reg $0B bit 2 was measured
+                  at 1 on scenes 10-15, which is where the reported artifact lives.
              Field offsets are DERIVED from the shipped struct declarations
              (engine/structs.emp parallax_config, engine/level/parallax.emp band_entry),
              never typed — a struct edit moves this probe automatically or fails it
@@ -215,13 +222,15 @@ def claims(rom_path: pathlib.Path, lst_path: pathlib.Path) -> int:
                     failures.append(f"{n} band {i}: deform_shift_b {dsb} != authored {dsb_want}")
         print(f"  {', '.join(n.removeprefix('ParallaxConfig_') for n in names)}: {verdict}")
 
-    # (2) Rocking: locked factor + live dsb against the ZERO table => artifact impossible.
+    # (2) Rocking: locked factor + live dsb against the ZERO table => artifact impossible
+    #     ON PLANE B. Plane A is untouched by this check and by these records' fb/dsb
+    #     fields: `fa: FACTOR_1` with dsa 4 is where the reported strip comes from.
     check_family(["ParallaxConfig_Rocking_Slow", "ParallaxConfig_Rocking",
                   "ParallaxConfig_Rocking_Fast"],
                  "DeformTable_Rocking", "DeformTable_Zero", [4],
                  "per-column ON, fb locked, dsb 4 vs ALL-ZERO table -> plane-B HScroll "
-                 "identically 0, artifact impossible; Accept = conservative spelling of a "
-                 "true factor0 claim (comptime cannot see table contents)")
+                 "identically 0, artifact impossible ON PLANE B (plane A scrolls and does "
+                 "show it); Accept is the only spelling available, twice over")
 
     # (3) Perspective: locked factor + live dsb against SHIMMER => artifact reachable.
     check_family(["ParallaxConfig_Perspective_Subtle", "ParallaxConfig_Perspective",
@@ -230,15 +239,18 @@ def claims(rom_path: pathlib.Path, lst_path: pathlib.Path) -> int:
                  "per-column ON, fb locked, dsb live on hills/ground vs a LIVE table -> "
                  "artifact reachable on those rows; Accept = a real ship-it decision")
 
-    # (4) The installable configs never enter per-column mode.
+    # (4) The ACT-DESCRIPTOR-installed configs never enter per-column mode. This is a
+    #     claim about the normal-play path ONLY: the DEBUG scene cycle installs the
+    #     registry configs directly, so the artifact does have a runtime subject there
+    #     (measured 2026-08-27/28 — reg $0B bit 2 reads 1 on scenes 10-15).
     for n in ("ParallaxConfig_OJZ_Default", "ParallaxConfig_OJZ_Underwater"):
         v = field(rom, syms[n], cfg, "pcfg_v_deform_table_bg")
         if v != 0:
-            failures.append(f"{n}: pcfg_v_deform_table_bg ${v:X} != 0 — an INSTALLABLE "
-                            "config entered per-column mode; the 'no runtime subject' "
-                            "claim in DEFERRED_WORK is stale")
-    print("  OJZ_Default, OJZ_Underwater (the installable set): no per-column table — "
-          "the shipped game never enters per-column mode; no runtime artifact subject")
+            failures.append(f"{n}: pcfg_v_deform_table_bg ${v:X} != 0 — an ACT-INSTALLED "
+                            "config entered per-column mode; the 'normal play never "
+                            "enters per-column mode' claim in DEFERRED_WORK is stale")
+    print("  OJZ_Default, OJZ_Underwater (the act-installed set): no per-column table — "
+          "normal play never enters per-column mode (the DEBUG scene cycle does)")
 
     if failures:
         print(f"FAIL — {len(failures)} claim(s) do not hold against {rom_path.name}:")
