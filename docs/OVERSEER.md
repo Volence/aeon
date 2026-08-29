@@ -204,6 +204,40 @@ rulings live in the session memory and the most recent `docs/superpowers/*handof
   **Operational rule taken from it: before rebasing anything whose SHAs a freeze or attest has
   already recorded, either do not rebase or record the mapping in the same commit.** The window
   is narrow and it is exactly the moment a landing feels finished.
+- **RITUAL, IN FORCE FROM CHAIN 182: PUSH THE FREEZE COMMIT BEFORE `--attest`** (ruled here
+  2026-08-29 on the sigil lane's finding; banked by them at sigil `1253036e` as this lane's
+  ruling, and amended within the hour by them against the half of it that was weak).
+  **A revision already in `origin/master` cannot be orphaned by a later rebase.** That is exactly
+  what chain 181 lacked, and it is the structural fix rather than a detection: it costs one
+  `git push` in an order this lane was performing anyway. Pushing the freeze before attesting is
+  now part of the landing sequence, not a nicety.
+  **`AHEAD OF REMOTE` at attest time stays a WARNING and does not refuse**, because that is the
+  honest mid-ritual state today and refusing it would refuse the correct case — the same shape as
+  the `SIGIL_HARNESS_ROOT` fix that would have refused when the variable was unset, guarding a
+  hazard that did not exist, stopped only because the implementing lane measured before building
+  what it had been told. **A refusal is safe exactly when the state it refuses has stopped being
+  normal, and that is measurable rather than a judgement.**
+  **⚠ THE FLIP CONDITION AS THIS LANE FIRST STATED IT WAS REMEMBERED, NOT MEASURED — and the
+  correction is the durable half.** It was written as *"three consecutive chains attested with
+  the freeze already pushed and no warning fired"*, with the claim that this made the flip
+  checkable rather than remembered. **It did not.** Warnings go to stderr and nothing durable
+  records that one did or did not appear, so verifying the condition means counting three chains
+  **and recalling** whether a warning fired in any of them — evidence that lives only in session
+  context. **This lane's session was rotated tonight while holding exactly that class of state**,
+  which is how the mapping write nearly got done twice and how the reasoning for *not*
+  re-attesting nearly died with it.
+  **The condition is therefore not armed until the ledger can answer it.** Sigil has queued
+  `ATTEST-RECORDS-REACHABILITY` — `--attest` records the reachability state it observed into the
+  entry it writes — after which "three consecutive clean chains" is **computed from the ledger by
+  the walk that already reports orphans**, in one command, surviving every rotation on both sides
+  and auditable after the fact rather than asserted. **Do not flip the refusal on a count anyone
+  had to remember.**
+  *The general form, and it is the same preference that killed the opt-out flag and the exception
+  list: prefer the assertion that needs nothing maintained. A remembered condition is a
+  population of one, kept in a place that gets cleared.*
+  *Recorded here rather than left in mail because it is a cross-lane COMMITMENT, and protocol bar
+  20's sending-side half says state that lives only in correspondence does not survive a `/clear`.
+  This lane made the ruling in a message and had to be reminded by its own file to bank it.*
 - One byte-mover per branch. Serialize refreezes. When any session is live-editing
   content in the main tree, build + freeze from a CLEAN CHECKOUT of the merge SHA.
   **The clean checkout must be threaded through ALL THREE legs explicitly** (lived
