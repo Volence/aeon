@@ -1488,3 +1488,68 @@ path, for the same reason the protocol is read that way.
   module standalone, so a reference that is fine in the linked ROM is a hard failure there.
   Any parcel adding a first cross-seam name to a ported module owes the harness a composition,
   and this is a *paired* cost — the aeon change is correct and the sigil side still has to move.
+
+- **TWO PARCELS INSIDE ONE A/B RANGE CANNOT BE SEPARATED BY DIFFERENCING ITS ENDS — AND BOTH
+  LANES WILL REACH FOR THE ENDS** (added 2026-08-29, chain 179; the shared error, found by the
+  sigil lane auditing this lane's pin description and resolved here with a third revision).
+  Chain 179 froze aeon `4ba7cb92` against chain 178's pin at `b12c0141`, and **two byte-movers
+  sat inside that range** — the sprite tilt and the insta-shield jump gate. Both lanes
+  differenced 178 against 179, independently, and neither could attribute a single byte to
+  either parcel, because attribution by differencing endpoints is *structurally* unavailable
+  when more than one mover is inside. Each of us then reasoned about which parcel produced
+  which delta, and both readings were wrong in different ways.
+  **The resolution is one more revision, not one more argument.** `e1f412ed` is tilt-landed and
+  shield-not, and reading `CharacterDefs` at all three settles it in one table:
+  plain `0x11EA0 → 0x11F10 (+0x70 tilt) → 0x11F20 (+0x10 shield)`;
+  debug `0x11FC0 → 0x12030 (+0x70 tilt) → 0x12030 (+0x00)`.
+  **Operational form: before attributing bytes to a parcel, count the movers in the range. If
+  it is more than one, the intermediate merge SHA IS the instrument** — it exists, it is free,
+  and it is the only thing that can answer. The landing lane's own "serialize byte-movers,
+  never batch two in one branch" rule exists for exactly this and says nothing about a FREEZE
+  that spans two already-serialized branches, which is how the gap opened.
+  *Note the shape: this was not carelessness on either side. Two lanes ran a sound method on a
+  range that could not support it, and the method's failure is silent — differencing two
+  endpoints always yields a number.*
+
+- **A PIN FIELD MEASURES WHERE PINS ARE, NOT WHERE CODE IS — and its silence is an absence in
+  the INSTRUMENT** (added 2026-08-29, same chain; the sigil lane's instance, against
+  themselves, banked here because this lane's own instruments have the same property).
+  Auditing chain 179, that lane measured that the debug shape's pin field never shows the
+  insta-shield's bytes — max debug delta `+0x72` where plain reaches `+0x80` — and wrote it as
+  *"the debug shape never receives the insta-shield's bytes."* **The bytes are there.** What was
+  measured is that the *pin field* does not show them; slack before the next pinned symbol
+  absorbs local growth, so the field is structurally blind to a change that does not push a pin.
+  **This is bar 16(d) — absence-and-failure produce the same artifact — arriving on a POSITIVE,
+  QUANTITATIVE instrument rather than an empty grep**, which is why it did not present as an
+  inference needing a check. A field of real hex deltas reads as a measurement of the ROM; it is
+  a measurement of the pin set.
+  **What settled it was three witnesses of different kinds**, and the behavioural one is the only
+  one that is not an inference: the new label present in BOTH listings at `+$10`; the routine's
+  immediate neighbours moving `+14` in debug (`InstaShield_Spawn $1175C → $1176A`); and
+  `tools/instashield_gate.py` decoding the DEBUG ROM's own bytes over 6,912 executions and
+  reporting only `PSTATE_JUMP`/`PSTATE_ROLLJUMP` firing. **When an instrument reports an absence,
+  ask what it is a census OF before reporting what is missing from the subject.**
+  **Sub-finding, and it is the one most likely to recur: TWO CORRECT NUMBERS FOR TWO DIFFERENT
+  QUANTITIES, WITH NOTHING SAYING WHICH.** This lane wrote 14 in a message and 16 in a commit and
+  the discrepancy looked like an error in one of them. Both were right: **16** is the gate block
+  (`.from_jump`'s offset, and what plain's tier delta `0x80−0x70` measures), **14** is the
+  routine's NET growth (48 → 62 bytes), because the fix also lets `d1` carry the state byte into
+  the roll-jump cancel that previously re-read it. The defect was never a wrong number — it was
+  shipping two quantities under one name.
+
+- **⚠ CHAIN 179's FREEZE COMMIT CARRIES A WRONG DESCRIPTION OF ITS OWN PIN MOVEMENT — DO NOT
+  QUOTE IT; THE CORRECTION IS HERE AND OWES A LINE IN THE NEXT ENTRY'S PROSE.** `13a6d3c8`'s
+  message says the field is *"uniform +0x80 plain / +0x70 debug"* with `PLAYER_SNAP_TO_SURFACE`
+  as the single straddler. Measured over all 134 changed entries it is **three-tiered**: 21
+  entries at `+0x70` in both shapes (the 13 `P_STATE_*` pins, 6 `PLAYER_*` regions, 2 bare
+  u32s — plus `PLAYER_COMMON`, whose base does not move while its LENGTH grows `+0x70`, which is
+  the tilt landing inside it); **2** straddlers at `+0x72` in both shapes — `PLAYER_SNAP_TO_SURFACE`
+  **and `PLAYER_SET_STATE`**, and only the first was named; and 112 entries at `+0x80` plain /
+  `+0x70` debug. The ROMs, the suite and the pins are all correct; only the prose is wrong.
+  **The cause is worth more than the correction: that sentence was written from the TAIL of
+  refreeze's output**, which shows the largest tier and the exception, and the visible sample was
+  described as the field. That is this file's `head -N` bar with a scrolled terminal as the
+  truncating instrument, and it is bar 23 (a commit message is a claim about a diff and nothing
+  checks it) landing on a message written while thinking carefully about that exact diff.
+  Repair by a note in the next chain entry's prose naming `13a6d3c8` — **never by rewriting a
+  pushed freeze.**
