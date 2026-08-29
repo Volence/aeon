@@ -99,6 +99,88 @@ build run, no emulator touched. Items needing runtime confirmation are marked
 > That is a content ceiling, not a code one, and it is the same authoring bottleneck
 > §7 decision 3 asks the owner about.
 >
+> ### [TAG-RUNTIME] The four confirmations this lane could not run, written to be executed
+>
+> All addresses are `s4.debug.bin` **crc=88212b4f**. If the ROM has moved, take them from
+> `emulator_lookup_symbol` instead of adjusting them by hand — `Player_ApplyTilt` and
+> `Player_1` are both in the deb2 table.
+>
+> ```
+> Player_ApplyTilt   $010272   (its rts: $0102DE)
+> Player_1 (SST 0)   $FFFF8ED6
+>   +$0E render_flags  $FFFF8EE4      +$1F angle          $FFFF8EF5
+>   +$18 anim          $FFFF8EEE      +$21 anim_frame     $FFFF8EF7
+>   +$1E status        $FFFF8EF4      +$23 mapping_frame  $FFFF8EF9
+> ANIM_WALK = 0   ANIM_RUN = 1   ANIM_SKID = 9
+> status bit 1 = ST_XFLIP (set = facing LEFT); render_flags bits 1-2 = X-flip, Y-flip
+> ```
+>
+> **TAG-R1 — the frame is a function of the angle (the parcel's actual claim).**
+> Do NOT try to reach these angles by driving the player onto terrain: nothing authored
+> in OJZ reaches past band 1 (see the coverage note below), so most of the table is
+> unreachable that way. Drive the routine directly instead.
+>
+> 1. Boot, reach gameplay, hold RIGHT until the player is walking (`anim` reads 0 or 1).
+> 2. Breakpoint at `Player_ApplyTilt` ($010272). On each hit: write the angle under test
+>    to `$FFFF8EF5`, write the facing bit to `$FFFF8EF4` (`$00` = right, `$02` = left),
+>    run to `$0102DE` (the `rts`), then read `mapping_frame` ($FFFF8EF9) and
+>    `render_flags` ($FFFF8EE4).
+> 3. Let **F** be the value `mapping_frame` holds at the breakpoint (the untilted frame
+>    AnimateSprite left). The expected results, in full:
+>
+> | angle | facing RIGHT (`status` $00) | facing LEFT (`status` $02) |
+> |---|---|---|
+> | `$00` | `F`,    flags bits1-2 = `$00` | `F`,    `$02` |
+> | `$20` | `F+24`, `$06` | `F+8`,  `$02` |
+> | `$40` | `F+16`, `$06` | `F+16`, `$02` |
+> | `$60` | `F+8`,  `$06` | `F+24`, `$02` |
+> | `$80` | `F`,    `$06` | `F`,    `$04` |
+> | `$A0` | `F+24`, `$00` | `F+8`,  `$04` |
+> | `$C0` | `F+16`, `$00` | `F+16`, `$04` |
+> | `$E0` | `F+8`,  `$00` | `F+24`, `$04` |
+>
+>    (Those offsets are the WALK strides. If `anim` reads 1 the animation is RUN and every
+>    offset halves: 0/4/8/12 instead of 0/8/16/24.)
+>
+>    **Boundary spot-checks, the part a 45-degree-apart table cannot show:** at facing
+>    RIGHT, `$10` must still give `F`/`$00` and `$11` must give `F+24`/`$06`; `$EF` must
+>    give `F+8`/`$00` and `$F0` must give `F`/`$00`. A boundary off by one unit is the
+>    `subq.b #1` round bias being wrong.
+>
+> **TAG-R1-NEG — the two negative controls. Run both; a green R1 without them is worthless.**
+> - *Flat ground is the identity:* angle `$00`, facing RIGHT — `mapping_frame` and
+>   `render_flags` must come out of the routine **exactly as they went in**. If they move,
+>   every flat-ground frame in the game has changed and the replay divergence below is
+>   unbounded rather than confined to slopes.
+> - *A non-tilting animation is untouched:* write `anim` = 9 (`ANIM_SKID`) and angle `$40`
+>   — the steepest case — and confirm `mapping_frame` and `render_flags` are **unchanged**
+>   across the routine. Skid has no tilted art; if it moves, the gate on the anim id is
+>   admitting animations it must not.
+>
+> **TAG-R2 — the pixels (this closes §3.2's tag, which nothing else can).**
+> Force `mapping_frame` to `$09`, `$11`, `$19` in turn (write $FFFF8EF9 and let the frame
+> render) and screenshot each. Expect three DISTINCT poses, each roughly 45 degrees rotated
+> from the last, all recognisably the same walk pose. **What would be wrong:** three
+> identical images (the blocks are not what we think), or poses that do not advance by a
+> consistent 45 degrees (the block-to-angle assignment is transposed). Every gate in this
+> parcel compares the routine against S3K's arithmetic and would pass either way.
+>
+> **TAG-R3 — the replay net (see the divergence note below).**
+> Run `ojz_fixture.bin` and `ojz_slide_fixture.bin` against `s4.debug.bin`. Expect
+> checkpoint divergence to begin at the first checkpoint after the player stands on one of
+> the four sloped attributes, and to be **absent** for every checkpoint where the player is
+> on flat ground or airborne with a decayed angle. **A divergence on a flat-ground
+> checkpoint is a bug in this parcel, not a stale fixture** — that is the discriminator,
+> and it is why the fixtures should not be re-stamped before it is checked.
+>
+> **TAG-R4 — the DMA cost that got one frame worse (rider 2).**
+> Watch the Important queue while the player runs on a slope. On the single frame where
+> `mapping_frame` reads `$0E`, expect 12 Important enqueues (the whole queue) and
+> `PageIn_EnqueueLanding` deferred for that frame only. **What would be wrong:** the
+> deferral persisting past that one frame, or a 13th enqueue returning carry-set — that is
+> the PERMANENT-drop failure mode `engine/objects/dplc.emp` describes, and it must not be
+> reachable.
+>
 > **The replay net will diverge, and that is a finding, not a fixture to update.**
 > `engine/system/replay.emp` hashes `render_flags` ($0E) and `mapping_frame` ($23) —
 > both of the two bytes this routine writes. Every tick where the player is in
