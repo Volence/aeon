@@ -153,6 +153,32 @@ Every item here had a stated blocker that **no longer holds**. This is the pick-
 by leverage, not by section. Each links back to its full entry below; read the entry (and its
 correction) before planning — several carry caveats that shrink the win.
 
+### CANOPY GAP — NEXT SUSPECT, AND IT IS A DESK CHECK (do this before any emulator run) — booked 2026-08-29
+
+**Hub ruled this goes FIRST because it costs no instrument.** Derived from source by the panel's code
+seat, NOT run — treat it as a hypothesis with a cheap test, not a finding.
+
+`Tile_Cache_Init` (`engine/level/tile_cache.emp:700`) sets `Cache_Left_Col = max(0, cam_col - 20)` and
+`Cache_Head_Col = Left + 79`. But `Section_RedrawPlanes`' `.pla_fill` walks exactly **64** columns from
+`Camera_X >> 3` (`engine/level/section.emp:262-268`), and `:462` returns `d7 = Cache_Head_Col`
+unconditionally into `Section_Right_Col_Written` at `:486`.
+
+**So when `cam_col < 20` — i.e. `Camera_X < 160` — `Head` is `79`, which exceeds `cam_col + 63`, and
+world columns `cam_col+64 .. 79` are RECORDED AS WRITTEN AND NEVER DRAWN.** That is the exact shape of
+the reported symptom: a column the engine believes it painted, which stays blank until the ring wraps.
+
+**Why this suspect is better than the ones booked with it:** it needs no partial fill, so it survives
+the measurement that killed the previous root cause — `Cache_Fill_Resume_Col` read `$FFFF` at all 150
+settled samples, which rules out partial-fill mechanisms and does NOT rule this one out. It is a
+**count mismatch (64 vs 80)**, not a race.
+
+**The test, in order, and stop at the first that fails:** (1) does OJZ act 1 start below `Camera_X`
+160? If not, this cannot be his sighting at the act start and drops to a latent bug. (2) At a camera
+below 160, do world cols `cam_col+64..79` read written-but-blank? (3) Only then reach for the emulator.
+
+**This was booked "harmless today" on partial-fill grounds. That argument does not cover the column
+COUNT gap** — which is why it survived the refutation that killed everything else.
+
 ### LIVE-OBJECTS — the engine half is a DEBUG mailbox, and four design questions are ALREADY ANSWERED — booked 2026-08-29
 
 **Scoping input only; the card is owed after the canopy work. Booked now so nobody re-asks what the
@@ -193,6 +219,55 @@ delete slot N — consumed at a frame boundary on the warp-mailbox pattern, plus
    `@shape_divergent`, and anything landing ahead of these symbols moves it — which happened this
    very session when the drift accumulator entered `Parallax_State`. **Resolve by symbol, per
    shape, per build.**
+
+### ⚠ THE STRADDLE PREMISE ABOVE IS REFUTED — and what it was found under is BIGGER — corrected 2026-08-29
+
+**Two panel seats refuted it independently, by different evidence, and the hub ruled it closed.**
+- **By measurement (code seat, against the shipped `s4.lst` LMAs):** each character's art crosses
+  exactly one `$20000` boundary, and each boundary is hit by exactly **one** mapping frame — Sonic
+  `$71`, Tails `$AB`, Knuckles `$90`. Only one character is the player at a time and `Perform_DPLC`
+  runs only on a frame CHANGE, so **more than one straddle per frame is not reachable** and
+  `.split_reject` cannot fire in shipped play unless the queue is already full from something else.
+  The page-in path cannot straddle at all: every manifest entry is `pm_form: 0` (ZX0), sourced from
+  `Art_Staging_Buffer` in RAM.
+- **By precedent (precedent seat):** flamewing's ultra-dma-queue — which this queue is derived from —
+  **queues the first half and discards the second.** Aeon's whole-rejection is **stricter than every
+  precedent**, deliberately, because `page_in` marks RESIDENT on carry-clear and a half-landing would
+  publish a lie. **Do not "fix" toward flamewing.**
+**What does not survive is the reserve's stated justification**: *"~354 KB across the cast … so at
+least two boundary-straddling entries exist by construction"* reasons about **blobs in ROM**, not
+entries in a frame — and the two straddles live in different characters' sheets, which are never both
+the player. **The number 2 may still be right; its reason is wrong.**
+
+### ⚠⚠ NEW, AND IT OUTRANKS WHAT IT WAS FOUND UNDER: THE DPLC ENTRY BUDGET IS ALREADY BREACHED, WITH THE GUARD COMMENTED OUT — booked 2026-08-29
+
+**Verified firsthand here, not relayed.** `engine/objects/dplc.emp:13-32` records the measurement in
+its own header: **`optimized/sonic.bin` peaks at 13 entries** against `DMA_IMPORTANT_SLOTS = 12`
+(`engine/system/constants.emp:248`), and **the worst SCRIPT-REACHABLE frame — 196 (`$C4`, LookUp) —
+sits at 12, the whole queue.** Knuckles 5, Tails 2, tails_tail 1, dust 1.
+
+**The `ensure` that would make this a build failure is COMMENTED OUT** at `dplc.emp:76`:
+`// ensure(dplc_peak_entries(_dplc_x) + DPLC_ENTRY_RESERVE <= DMA_IMPORTANT_SLOTS, "...")`.
+
+**Consequence, in the header's own words: at 12/12 the Important queue is 100% player and
+`PageIn_EnqueueLanding` is DETERMINISTICALLY DROPPED — a streaming stall exactly when the camera pans
+up.** That is a reachable gameplay state, not a hypothetical: LookUp is entered by holding up.
+
+**Why it hid:** `dplc_peak_tiles` guards the VRAM footprint and nothing bounded ENTRIES against
+SLOTS. The header also records that two previous claims about this ("up to 6 entries", "well inside
+DMA_IMPORTANT_SLOTS") **were both wrong and disagreed with each other** — a field where every
+previous statement was false is a field nobody was measuring.
+
+**Two companions the hub ruled in with it, both verified here:**
+- **`DMA_Peak_Important` is declared at `engine/ram.emp:580` and written NOWHERE in the tree** — a
+  dead field exactly where the instrument for this should be.
+- **`.full` and `.split_reject` share one `DMA_Overflow_Count`** (`dma_queue.emp:170` and `:235`), so
+  even in DEBUG a straddle-reject is indistinguishable from queue-full. **The instrument cannot tell
+  the two failures apart**, which is why nobody could have measured the paragraph above.
+
+**Do NOT simply raise `DMA_IMPORTANT_SLOTS`.** The header names re-paging `sonic.bin` on the
+optimizer's output as the real remedy; raising the slot count spends RAM to hide a fixable data
+shape. Uncomment the `ensure` only once the data satisfies it, or it is a build that cannot build.
 
 ### DMA SPLIT-REJECT NEEDS TWO FREE IMPORTANT SLOTS, AND NOTHING COUNTS PER-FRAME STRADDLES — booked 2026-08-29
 
