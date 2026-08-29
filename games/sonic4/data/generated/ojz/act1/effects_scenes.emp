@@ -115,6 +115,30 @@ ensure((EditorScenes_OJZ_Act1_CapsFolded & ~Game.SCANLINE_CAPS) == 0,
 pub data EditorSceneBinding_OJZ_Act1_Sec0: SceneCfg5 = lower5(EditorScenes_OJZ_Act1[1])
 pub data EditorSceneBinding_OJZ_Act1_Sec4: SceneCfg5 = lower5(EditorScenes_OJZ_Act1[0])
 
+// ---- AURORA-AUTHORED RASTER BANDS, through the REAL constructors ----
+//
+// One `pub data` per preset document in games/sonic4/data/editor/effects/presets/. These
+// are the ONLY bytes an editor-authored raster effect contributes, and the section they
+// land in is declared in games/sonic4/map.toml by NAME (`"section:ojz_effects_editor_act1"`)
+// precisely because its head label is content-derived — so a program appearing here needs
+// no map.toml edit.
+//
+// A BAND IS NOT A SCENE CHANNEL. A `Scene` IS a parallax_config; the raster program is an
+// EffectsPreset channel, bound per SECTION (band-ownership design §16.1). This generator
+// therefore EMITS the program under a stable name and does NOT bind it: which section
+// installs it is a `preset()` call in the game's own effects library, and choosing that is
+// a content decision with a picture attached.
+//
+// Every `ensure` in band()/stream_cram()/fire()/compose()/raster_program() and both
+// ownership walks fire on authored content HERE — a `pub data` in a lowered module is
+// elaborated unconditionally. The generator validates SHAPE only and repeats not one of
+// those bounds (tools/effects_gen.py, the RASTER BANDS banner).
+const EditorRasterSrc_OJZ_Act1_authored_probe = compose([
+    band(top: 112, bot: 156, on: stream_cram(addr: 74, colours: [14]), sh: 0),
+    band(top: 172, bot: 216, on: stream_cram(addr: 74, colours: [3584]), sh: 0),
+])
+pub data EditorRaster_OJZ_Act1_authored_probe: [u16; raster_words(EditorRasterSrc_OJZ_Act1_authored_probe)] = raster_program(EditorRasterSrc_OJZ_Act1_authored_probe)
+
 // ---- REACHABILITY WITNESSES (tools/effects_seam_gate.py) ----
 //
 // `equ` and NOT `const`, and the distinction is the whole gate: an equ mints a
