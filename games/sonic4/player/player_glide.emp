@@ -375,6 +375,40 @@ proc Glide_Collide (a0: *Sst) clobbers(d0-d7/a1-a2) {
         // landed — snap onto the floor along +Y (S3K `add.w d1,y_pos`), take the floor
         // angle, kill the vertical.
         move.b  d1, d3                          // save the floor angle
+        // --- ODD-FLAG RESOLUTION. S3K parity, and the ONLY resolution S3K applies here.
+        // Collision_ProbeDown returns the AngleTable byte verbatim ("raw angle (odd flag
+        // passes through)", player_sensors.emp probe_core), and an odd byte is not an
+        // angle at all — it is the "no usable angle" sentinel. Every other floor consumer
+        // in this engine reaches the surface through Player_SensorFloor, which tests
+        // `btst #0, d1` before the value is ever used as a direction; this probe is the
+        // one site that did not, which made Glide_Collide the sole writer able to put an
+        // odd byte into angle(a0).
+        //
+        // S3K does exactly this substitution, at exactly this point in exactly this
+        // path. Its glide/glide-fall floor land is Knux_DoLevelCollision_CheckRet
+        // (sonic3k.asm:32629); its floor branch loc_179B4 (:32665) calls sub_11FD6
+        // (:24131 — a one-line trampoline into Sonic_CheckFloor under normal gravity)
+        // and then `move.b d3,angle(a0)` (:32674). Sonic_CheckFloor (:19843) ends at
+        //     loc_F7F0: btst #0,d3 / beq.s locret_F7F8 / move.b d2,d3     (:19890-19893)
+        // with d2 pre-set to 0 (:19879). So S3K's glide DOES consume a resolved angle —
+        // odd-flag-resolved, to the DOWN cardinal $00. That is what this reproduces.
+        //
+        // Deliberately NOT the divergence rule (|angle − surface| >= $20 → cardinal) that
+        // Player_SensorFloor also applies: S3K has no such rule on any airborne landing
+        // path — neither here nor in SonicKnux_DoLevelCollision (loc_11F6E, :24080) —
+        // it lives only in the GROUNDED per-frame update, Player_Angle (:18854, loc_ED5E).
+        // Adding it here would reroute every glide landing on a genuine >= 45-degree
+        // slope to PSTATE_SLIDE, which is a behaviour ruling, not a port. Booked in
+        // docs/DEFERRED_WORK.md.
+        //
+        // The cardinal is the literal 0 and not a quadrant lookup because this probe is
+        // fixed-DOWN by construction: it calls Collision_ProbeDown directly with no
+        // quadrant case table, exactly as S3K's is (see the SLIDE's matching note in
+        // PState_Slide). Quadrant 0's cardinal is $00.
+        btst    #0, d3
+        beq     .angle_usable
+        moveq   #0, d3                          // sentinel → the down cardinal (S3K d2 = 0)
+.angle_usable:
         dist_to_fix(d0)                         // d0 = dist << 16
         add.l   d0, y_pos(a0)
         move.b  d3, angle(a0)

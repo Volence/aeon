@@ -915,6 +915,56 @@ guards; the `PhysTable_*` guards name a table their condition never references
 (`sizeof(PhysTable_X)` is the fix); and the palette guard tests agreement rather than the grayness
 it exists to secure.
 
+### CHAR-9 — `Glide_Collide` installed a RAW probe angle — **FIXED 2026-08-28 (`parcel/glide-angle-resolution`)**
+*Fix:* the odd-flag substitution S3K applies at exactly this site, at exactly this point
+(`games/sonic4/player/player_glide.emp`, between the `Collision_ProbeDown` call and the
+`move.b d3, angle(a0)`). Gate: `tools/test_glide_angle_resolution.py` (5 tests, in the
+`pytest tools` lane build.sh already runs). 8 bytes; Knuckles-only — `demo.bin` /
+`demo.debug.bin` came back byte-identical.
+
+`Collision_ProbeDown` returns the `AngleTable` byte verbatim (`player_sensors.emp` `probe_core`:
+*"raw angle (odd flag passes through)"*). An **odd** byte is not an angle — it is the
+"no usable angle" sentinel, and every other floor consumer in the engine reaches the surface
+through `Player_SensorFloor`, which tests `btst #0, d1` before the value is ever used as a
+direction. `Glide_Collide` called the probe core directly and wrote the raw byte, making the
+glide the **sole site in the engine able to install an odd angle** — against an invariant
+`Air_Collide` states in a comment beside code that depends on it: *"Angles here are always even
+(the odd-flag sensors substitute cardinals), so ±2 lands exactly on 0."*
+
+**This was not exotic.** In the shipped interned tables, attr `$01` and `$03` — full 16×16
+blocks, the S&K shape-255 full block, the bulk floor of OJZ act 1 — carry angle **`$FF`**. So
+*every* glide landing on ordinary ground installed `$FF`.
+
+**Reproduction (traced, no emulator):** glide → release the jump button before touchdown →
+`PSTATE_GLIDEFALL` → `Glide_Collide` installs `$FF` → `.dead_stop` → `PSTATE_GROUND` still
+carrying `$FF`. `PState_Ground` runs its **jump check before the floor pair**
+(`player_ground.emp`), so a buffered jump on that frame launches through `Player_Jump`'s slope
+projection with `angle = $FF`: `d0 = $FF - $40 = $BF`, and from `engine/data/sine.bin`
+`cos($BF) = -6`, so `x_vel += (KNUX_JUMP_FORCE $600 × -6) >> 8 = **-36**` (≈ -0.14 px/frame; the
+force is Knuckles' own `$600`, *not* the shared `PHYS_JUMP_FORCE $680`) — a phantom **leftward** kick on a
+flat-ground jump, plus the `jump_headroom` carry suppressed by the `tst.b angle(a0)` gate and
+`y_vel` short by 6/1536. Airborne, `Air_Collide`'s ±2 decay then cycles `$FF → $01 → $FF`
+forever instead of reaching 0, so the landing divergence guard is measured from ±1: with
+`angle = $FF` a tile angle of `$E0` is **kept** (`|$E0−$FF| = $1F < $20`) where from `$00` it
+would be substituted (`|$E0−$00| = $20 ≥ $20`). Attr `$0E` in the same shipped tables is exactly
+that — full 16×16, angle `$E0`, across 8 flat runs of 64–128 px in section 0 — so an ordinary
+jump landing could install the phantom 45° slope **without ever gliding onto the bad tile**.
+
+**S3K citation, re-derived 2026-08-28.** S3K's glide/glide-fall floor land is
+`Knux_DoLevelCollision_CheckRet` (`sonic3k.asm:32629`); its floor branch `loc_179B4` (`:32665`)
+calls `sub_11FD6` (`:24131`, a trampoline into `Sonic_CheckFloor` under normal gravity) and then
+`move.b d3,angle(a0)` (`:32674`). `Sonic_CheckFloor` (`:19843`) ends at
+`loc_F7F0: btst #0,d3 / beq.s locret_F7F8 / move.b d2,d3` (`:19890-19893`) with `d2` pre-set to 0
+(`:19879`). So S3K's glide consumes an **odd-flag-resolved** angle — and *only* that: the
+divergence rule (`|Δ| ≥ $20`) lives solely in the grounded `Player_Angle` (`:18854`, `loc_ED5E`),
+not on any airborne landing path, not even `SonicKnux_DoLevelCollision`'s `loc_11F6E` (`:24080`).
+Deliberately **not** added here — see DEFERRED_WORK, "glide landings on genuine ≥45° slopes".
+
+**Our slide was already correct.** `Slide_Terrain` re-reads the floor every frame through
+`Player_SensorFloor` and writes `angle(a0)`, matching `Knuckles_Sliding.continueSliding`'s
+`sub_11FD6` + `move.b d3,angle(a0)` (`sonic3k.asm:30997`, `:31014`). Ours resolves *more* than
+S3K's there (divergence as well as odd-flag); recorded, not changed.
+
 ---
 
 ## 🚨 TRIAGE TRAP — A RED SCREEN NO LONGER MEANS BUG-001 — 2026-08-05
