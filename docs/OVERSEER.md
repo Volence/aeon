@@ -156,6 +156,54 @@ rulings live in the session memory and the most recent `docs/superpowers/*handof
   question each answers. This is not the SHA-class bar repeating — that one is about citing the
   *wrong* SHA. This is about citing the *right* one for an unstated question, which no
   `--stat` check catches, because the commit you land in is genuinely the one named.
+- **A REBASE ORPHANS THE SHAs A GENERATED LEDGER HAS ALREADY CAPTURED — AND THE CONSUMER YOU
+  MISS IS THE ARTIFACT, NOT THE PEER** (added 2026-08-29, chain 181; **the sigil lane's finding
+  against this lane's rebase**, and every particular of it verified firsthand here before being
+  written down).
+  **The record item first, because it is a permanent fact about chain 181 and nothing will
+  surface it later.** Chain 181's attest entry records
+  `sigil_rev = bfbedc11fb52183c08631034a0108be9df01f8bf`. **That commit is not reachable from
+  sigil `origin/master`.** Landing the chain, this lane rebased the sigil lane's six doc commits
+  underneath its own, which moved the freeze to `16b83c63`; the pre-rebase commit survives only
+  in local object stores and will eventually be gc-ed. Measured here in the shared sigil checkout
+  after `git fetch -q origin`, not taken from their message: `merge-base --is-ancestor bfbedc11
+  origin/master` exits 1, `cat-file -t` says `commit` (so it resolves locally and only locally),
+  `16b83c63` IS an ancestor, and the two trees genuinely differ —
+  `bfbedc11^{tree}` is `ed5a25acf48a9d7adc23b4fa6b5f79ca2f34cdf7` against `16b83c63^{tree}`
+  `7ccd5d3fe44414eadcb5324bf5bab12e43773903`. **So there is no reachable commit whose tree is the
+  one that attest run actually happened on.**
+  **THE MAPPING, which is the operative half of this bullet: `bfbedc11` → `16b83c63`, same work,
+  rebased.** A verifier who cannot resolve entry 181's `sigil_rev` should meet that sentence
+  rather than a mystery.
+  **RULED — document the mapping, do NOT re-attest** (this lane's call, reached independently by
+  the sigil lane, and ruled by the hub under the owner's overnight grant; banked for his review).
+  Re-attesting 181 would record a run that happened on tree `ed5a25ac` under an entry naming a
+  commit whose tree is `7ccd5d3f` — **trading a dangling anchor for a resolvable one that points
+  at the wrong tree.** That is strictly worse for the only question `sigil_rev` exists to answer
+  (`provenance.rs:125`: *tree identity, so an attestation cannot silently travel to a different
+  pair of trees*), and unlike a dangling anchor nothing downstream could ever detect it. **A
+  dangling anchor with a written reason beats a resolvable anchor that lies.** Neither lane
+  hand-edits a generated ledger, so the mapping lives here and in the lane log, never in
+  `provenance.toml`.
+  **THE REUSABLE HALF, and it is bar 8 arriving somewhere nobody points it:** before rebasing,
+  this lane enumerated the consumer set correctly for the question it asked — *had this SHA been
+  handed to any peer?* — and the answer was genuinely no. **The consumer was not a peer. It was
+  the ledger being written in the same operation, which had already captured the value.**
+  Enumerate by **what TOUCHES the value**, never by **whom you told**. A generated artifact is
+  the worst consumer to miss, because it is the one that cannot be sent a correction message and
+  the one that hardens into the permanent record.
+  **And nothing validates it.** The field's check is `is_full_sha` — forty hex characters — so a
+  **well-formed orphan passes forever**, and `--check` re-validates the chain without ever asking
+  whether a recorded revision resolves. This is the absence family on a POSITIVE artifact: the
+  entry is present, well-formed, inert, and indistinguishable from a good anchor. *(Sigil has
+  queued the systemic fix on their side — reachability rather than well-formedness. It is their
+  crate and their work; this lane's ask as its first consumer is that the red name the entry and
+  the unreachable rev, and distinguish `unreachable from origin` (permanent, this case) from
+  `not in this clone yet` (a missing fetch, transient), because those want different responses
+  from whoever meets it.)*
+  **Operational rule taken from it: before rebasing anything whose SHAs a freeze or attest has
+  already recorded, either do not rebase or record the mapping in the same commit.** The window
+  is narrow and it is exactly the moment a landing feels finished.
 - One byte-mover per branch. Serialize refreezes. When any session is live-editing
   content in the main tree, build + freeze from a CLEAN CHECKOUT of the merge SHA.
   **The clean checkout must be threaded through ALL THREE legs explicitly** (lived
