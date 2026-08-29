@@ -11799,6 +11799,52 @@ out** — the thing he independently reported as a bug. A ruling taken on a mate
 description does not carry over. `SceneLeftColMask.Factor0Lock` reasons about plane B and cannot
 save plane A; the `SpriteMask` arm is refused by the build (d-27-corrected).
 
+### OWNER RE-REPORTED IT 2026-08-28 across all twenty scenes — d-32 STILL OPEN, and the report adds two things
+
+He played the whole cycle and named **exactly the six bit-2 scenes** (`Rocking_Slow`/`Rocking`/
+`Rocking_Fast`, `Perspective_Subtle`/`Perspective`/`Perspective_Dramatic`) as breaking the
+foreground, and no others. **That is an independent human confirmation of the 2026-08-27
+correlation**, which had been a probe result over one camera position with scene 11 missed. d-32
+does not need more evidence that the mechanism is real; it needs the ruling.
+
+**Triage: `docs/research/2026-08-28-deform-scene-left-edge-triage.md`** (branch
+`diag/left-edge-deform-scenes`, source-derived, no emulator). Three things it adds:
+
+1. **The `Accept` was reasoned about plane B, and the symptom is plane A — so the artifact the
+   owner sees was never actually decided by anyone.** Sharper than "the policy cannot save plane
+   A": the whole guard family (`scene_dsl.emp:1322-1376`) consults `fb` and `dsb` and **never
+   `fa`/`dsa`**, and Rocking's banner (`ojz_scenes.emp:322-327`) accepts the artifact on the
+   grounds that plane-B HScroll is identically zero — true, and irrelevant, because `fa: FACTOR_1`
+   makes plane A's HScroll `-camX` and the partial column exists at fifteen camera positions in
+   sixteen. **This is a policy hole independent of the pixel ruling: a future scene could
+   truthfully declare `Factor0Lock`, pass the build, and still lose the foreground strip.**
+   Comptime-only fix (extend the guards to `fa`/`dsa`), zero ROM bytes, worth landing even if he
+   rules "keep shipping it". A `SpriteMask` emitter written for plane B would likewise land, pass
+   its gate, and leave his symptom untouched — spec it for **plane A**.
+2. **The default boot scene is UNAFFECTED, so this is DEBUG-lab-only.**
+   `act_descriptor.emp:157` installs `ParallaxConfig_OJZ_Default` = `lower4(SCENES[0])`, which
+   attaches no `SceneVDeform.Columns`; the mode-3 assertion, Step 5b's fill and `Vscroll_Write`'s
+   emit all gate on it, and bit 2 measured 0 at boot. Do not let it preempt queued byte-movers.
+3. **The relayed "~60 px" is not supported by anything measured** — the band is 16 px, one VSRAM
+   column-pair, and no mechanism in this class widens. Unresolved and worth one capture: the
+   report also claims the ground stops short on the **working** scenes, which contradicts the
+   2026-08-27 bit-2-clear control. If real, that is a THIRD phenomenon. TAGs 1-3 in the triage doc.
+
+**SEPARATE DEFECT, filed here because the owner's sentence fused the two: `Scene_Rocking_Slow` has
+no motion at all, and it is pure authoring.** `rocking_scene(speed: 0, shift: 0)`
+(`ojz_scenes.emp:351`) freezes the V-deform phase (`add.w d3, Parallax_V_Deform_Phase_BG` with
+`d3 = 0`), and its only other axis is `DeformTable_Zero` — 256 zeros — advanced at speed 1. **It is
+the only one of the twenty scenes with zero time-varying input on every axis.** The static tilt is
+deliberate and documented (`scene_registry.emp:372`); the bug is that the roster labels it
+"Rocking Slow", and every other family gives its slow member speed >= 1 (Shimmer 1/3/6, Haze
+1/2/4). Fix is `speed: 1` (optionally 1/2/4 for family cadence) or a rename to "Rocking Static" —
+a shipped record byte (`pcfg_v_deform_speed_bg`), so byte-mover + freeze ritual, and the values are
+owner taste. **Not fixed; not the strip.**
+
+**Still owed and still not done:** the two comments in `engine/level/parallax.emp` (`:670-672`,
+`:793-795`) claiming no config attaches a column table and the emitter is unreachable. Six do.
+Flagged 2026-08-27, re-confirmed present 2026-08-28. Comment-only, byte-neutral.
+
 ## SPRITE-OWNER — click a hardware sprite, get the object that drew it (BUILT 2026-08-27, branch `parcel/sprite-owner`)
 
 Oracle's ask, ruled ACCEPTED by this lane (engine call, `DEBUG`-only, zero release cost). Their
