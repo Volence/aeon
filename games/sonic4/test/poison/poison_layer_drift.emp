@@ -1,0 +1,130 @@
+// games/sonic4/test/poison/poison_layer_drift.emp — POISON (see README).
+//
+// TARGETS: engine/level/scene_dsl.emp's two `layer()` drift guards (band drift).
+//
+// THREE FIXTURES, ONE AUTHORED FIELD APART — the two-fixture differential run twice off
+// one control, so each poison differs from the passing shape in exactly the field its
+// guard reads:
+//
+//   FIXTURE OK — a one-layer scene whose layer drifts at `Rate(32)` (S3K AIZ1's cloud
+//                rate, and a legal one). It must pass BOTH guards. The control is not
+//                decoration: without it a guard that refused EVERY Rate would look
+//                identical to these two rows, and the attachment would be unauthorable
+//                while the lane reported green.
+//   FIXTURE Z  — OK with `Rate(0)`. Refused, and the message must name `None`: the two
+//                lower to the SAME four zero bytes, so a ROM image could no longer say
+//                which one the author wrote. This is the guard that makes
+//                `scene_drift_rate()`'s 0 default unambiguous, which is why it exists at
+//                all — scene_curve_to() had to pick $0FF instead of 0 for want of it.
+//   FIXTURE R  — OK with `Rate(9000)`. Outside the +/-4096 taste bound (35 px/frame
+//                against a corpus maximum of 6). DERIVED, not copied: 9000 > 4096 is the
+//                only property this fixture needs, and it is 2.2x the bound so a modest
+//                widening of the bound does not silently make this row vacuous. If the
+//                bound is ever raised past 9000 this row goes green and the lane says so.
+//
+// EXPECTED `[Error]` COUNT IS 2 — one per poisoned fixture, none from the control, and
+// neither poison trips a second guard: `Rate(0)` is inside the range bound and `Rate(9000)`
+// is non-zero, so the two guards are mutually exclusive on these inputs by construction.
+// A 3 means the CONTROL stopped passing — a legal rate became unauthorable, which is a
+// regression and not a stricter gate. A 1 means one guard went dead, and both rows report
+// it because they share the count.
+//
+// EXPECTED FRAGMENTS (one row each in tools/emp_expect_fail.py's CASES, both count 2):
+//   "is not a slow drift, it is no drift"   <- fixture Z
+//   "THIS IS A TASTE BOUND"                 <- fixture R
+//
+// THE TWO FRAGMENTS ARE NOT INTERCHANGEABLE, deliberately: both messages spell the unit
+// ("1/256 px PER FRAME") because that sentence is the mitigation for the one hazard no
+// assertion can catch — an author writing `Rate(1)` meaning one pixel per frame. Matching
+// the shared sentence would pass against either message, so each row quotes the clause
+// only its own guard says.
+//
+// NEITHER SCENE DECLARES A LEFT-COLUMN POLICY AND NONE IS NEEDED: the mandatory-policy
+// guard fires only for a scene attaching a per-column V-deform table, and none of these
+// three does. The Factor0Lock-and-drift interaction is a SCENE-level guard and is
+// differenced in poison_scene_lcm_factor0.emp (fixture DR), beside the four other scroll
+// sources that claim can not see.
+//
+// THE GLOB IMPORTS ARE THE AUTHOR'S OWN SPELLING — see README.md ("Why every scene poison globs").
+module games.sonic4.test.poison.poison_layer_drift
+
+use engine.level.scene_dsl.*
+use engine.level.parallax_dsl.*
+
+// FIXTURE OK — a legal drift. Must pass both guards.
+const POISON_DRIFT_SCENE_OK: Scene = scene(
+    layers: [ layer(world_y: 0, fa: FACTOR_1, fb: FACTOR_1_2,
+                    drift: SceneDrift.Rate(32)),
+              no_layer(), no_layer(), no_layer(),
+              no_layer(), no_layer(), no_layer(), no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer() ],
+    count: 1, v_factor: 15)
+
+// FIXTURE Z — a rate of zero, which is `None` spelled a second way.
+const POISON_DRIFT_SCENE_Z: Scene = scene(
+    layers: [ layer(world_y: 0, fa: FACTOR_1, fb: FACTOR_1_2,
+                    drift: SceneDrift.Rate(0)),
+              no_layer(), no_layer(), no_layer(),
+              no_layer(), no_layer(), no_layer(), no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer() ],
+    count: 1, v_factor: 15)
+
+// FIXTURE R — a rate past the taste bound.
+const POISON_DRIFT_SCENE_R: Scene = scene(
+    layers: [ layer(world_y: 0, fa: FACTOR_1, fb: FACTOR_1_2,
+                    drift: SceneDrift.Rate(9000)),
+              no_layer(), no_layer(), no_layer(),
+              no_layer(), no_layer(), no_layer(), no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer() ],
+    count: 1, v_factor: 15)
+
+// ---- THE ANTI-VACUITY HALF (must stay green, and is what FORCES elaboration) ----
+// An unreferenced top-level `const X = f(..)` is comptime-inert and proves nothing
+// (docs/EMP_PITFALLS.md §3). Naming each fixture here is what makes sigil elaborate its
+// scene() call, which elaborates the layer() call inside it, which is what fires the two
+// guards above.
+const POISON_DRIFT_FOLDED_OK = fold_caps([POISON_DRIFT_SCENE_OK])
+const POISON_DRIFT_FOLDED_Z  = fold_caps([POISON_DRIFT_SCENE_Z])
+const POISON_DRIFT_FOLDED_R  = fold_caps([POISON_DRIFT_SCENE_R])
+// The CONTROL's fold is the PASSING assertion and it is the two-sided one: $0080 is
+// CAP_BAND_DRIFT and nothing else, because this layer attaches no deform, the scene
+// attaches no table, no anchor and no V-deform, and one scene never raises
+// CAP_TRANSITIONS. A control that stopped raising the bit would mean drift no longer
+// folds a capability at all, and every row here would be measuring a scene with no
+// mechanism in it.
+ensure(POISON_DRIFT_FOLDED_OK == $0080,
+       "poison_layer_drift: the CONTROL folds to {POISON_DRIFT_FOLDED_OK}, not the hand-derived 128 ($0080 = CAP_BAND_DRIFT alone) — either a legal drift stopped raising the bit, or this scene grew a second capability and the fixtures are no longer one field apart")
+// FIXTURE Z folds ZERO, and that is the whole reason `Rate(0)` has to be refused rather
+// than tolerated: derived_drift() asks for a NON-ZERO rate, so a zero-rate layer is
+// indistinguishable from `None` to the capability fold as well as to the ROM image. If
+// this ever equals the control's $0080, the fold started raising a bit for a layer that
+// cannot move, and a game would pay the whole record-shape tax for nothing.
+ensure(POISON_DRIFT_FOLDED_Z == 0,
+       "poison_layer_drift: fixture Z folds to {POISON_DRIFT_FOLDED_Z}, not 0 — a Rate(0) layer raised CAP_BAND_DRIFT, so the capability fold now disagrees with the ROM image (which cannot tell Rate(0) from None) and a game would widen every band record for a layer that never moves")
+// FIXTURE R still folds the bit: `ensure` is non-aborting, so layer() builds the refused
+// layer anyway and the fold sees a drifting one. Same shape as poison_scene_curve_deform's
+// FIXTURE B assertion, and for the same reason — the two fixtures differ in a guard
+// firing, not in the mask.
+ensure(POISON_DRIFT_FOLDED_R == POISON_DRIFT_FOLDED_OK,
+       "poison_layer_drift: fixture R folds to {POISON_DRIFT_FOLDED_R} rather than the control's {POISON_DRIFT_FOLDED_OK} — the two are supposed to differ only in a guard firing, so its scene() call either never elaborated or the range guard started changing the lowered shape")

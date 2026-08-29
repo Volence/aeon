@@ -1,14 +1,15 @@
 // games/sonic4/test/poison/poison_scene_lcm_factor0.emp — POISON (see README).
 //
 // TARGETS: engine/level/scene_dsl.emp's `scene()` guard (3) — the Factor0Lock
-// VERIFICATION, all five halves, after the 2026-08-28 plane-A closure. The variant
+// VERIFICATION, all six halves: the 2026-08-28 plane-A closure plus the drift arm the
+// band-drift parcel added. The variant
 // certifies "the leftmost partial column CANNOT EXIST", which is a PER-PLANE claim: the
 // sliver appears on a plane exactly when THAT plane's HScroll is off the 16-px V-scroll
 // grain, and the two planes' HScroll words are independent sums. Until 2026-08-28 the
 // verification scanned `fb`/`dsb` only, so a scene could lock plane B, declare
 // Factor0Lock, pass the build, and still lose its leftmost 16 px on plane A.
 //
-// SIX FIXTURES, ONE AUTHORED FIELD APART — the two-fixture differential run five times
+// SEVEN FIXTURES, ONE AUTHORED FIELD APART — the two-fixture differential run six times
 // off one control, so every row's poison differs from the passing shape in exactly the
 // field its guard reads:
 //
@@ -34,28 +35,34 @@
 //                 factors stay locked; deform adds per-line plane-A HScroll on top.
 //   FIXTURE DSB — OK plus `dsb: 4` over a scene-level `deform_bg:` table. The plane-B
 //                 twin of DSA, and the liveness check for the half that already existed.
+//   FIXTURE DR  — OK plus `drift: SceneDrift.Rate(32)`. Every `fb` is still locked; the
+//                 accumulator walks plane-B HScroll away from zero EVERY FRAME and keeps
+//                 it there, which the `fb` scan cannot see. The same class as CV, in time
+//                 instead of in space. Drift is BG-only, so no plane-A twin.
 //
-// EXPECTED `[Error]` COUNT IS 5 — one per poisoned fixture, none from the control, and
+// EXPECTED `[Error]` COUNT IS 6 — one per poisoned fixture, none from the control, and
 // no fixture trips a second guard (checked against the full ensure list in scene():
-// none authors a pad, an anchor, a vsplit, an own() table, or an out-of-range field).
-// A 6 means the CONTROL stopped passing — the guard over-fires and Factor0Lock is
+// none authors a pad, an anchor, a vsplit, an own() table, or an out-of-range field; DR's
+// rate is inside layer()'s own bounds, so it is refused HERE and nowhere else).
+// A 7 means the CONTROL stopped passing — the guard over-fires and Factor0Lock is
 // unclaimable even for a genuinely locked scene, which would be a real regression, not
-// a stricter gate. A 4 or less means one of the five halves went dead, and since all
-// five rows share this count they all report it.
+// a stricter gate. A 5 or less means one of the six halves went dead, and since all
+// six rows share this count they all report it.
 //
-// EXPECTED FRAGMENTS (one row each in tools/emp_expect_fail.py's CASES, all count 5):
+// EXPECTED FRAGMENTS (one row each in tools/emp_expect_fail.py's CASES, all count 6):
 //   "PLANE A is not locked"        <- fixture FA
 //   "PLANE B is not locked"        <- fixture FB
 //   "RAMPS its plane-B factor"     <- fixture CV
 //   "live H-deform on PLANE A"     <- fixture DSA
 //   "live H-deform on PLANE B"     <- fixture DSB
+//   "but a layer DRIFTS"           <- fixture DR
 //
-// THE FIVE FRAGMENTS ARE NOT INTERCHANGEABLE, deliberately: all five messages open with
+// THE SIX FRAGMENTS ARE NOT INTERCHANGEABLE, deliberately: all six messages open with
 // the same "left_column_mask: Factor0Lock claims" clause, so matching that alone would
 // pass against any of them. Each row's fragment quotes the one clause only its own guard
 // says — "PLANE A is not locked", "PLANE B is not locked", "RAMPS its plane-B factor",
-// "live H-deform on PLANE A", "live H-deform on PLANE B" — each verified to occur
-// exactly once in the tree.
+// "live H-deform on PLANE A", "live H-deform on PLANE B", "but a layer DRIFTS" — each
+// verified to occur exactly once in the tree.
 //
 // THE TABLE LABEL IS 0, the same spelling every scene poison uses (see
 // poison_scene_own_caps.emp): the guards discriminate on the VARIANT and the shifts,
@@ -173,6 +180,28 @@ const POISON_LCM_F0_DSB: Scene = scene(
     v_deform: SceneVDeform.Columns(0, 0, 2),
     left_column_mask: SceneLeftColMask.Factor0Lock)
 
+// FIXTURE DR — both base factors locked, no curve, no deform, but the layer DRIFTS. The
+// scroll source in TIME rather than in space: the accumulator walks plane-B HScroll away
+// from zero every frame and keeps it there, which the `fb` scan can no more see than it
+// can see the curve. Drift is BG-only for the curve's reason (plane A is hard-locked to
+// -Camera_X), so there is no plane-A twin of this case either.
+const POISON_LCM_F0_DR: Scene = scene(
+    layers: [ layer(world_y: 0, fa: FACTOR_0, fb: FACTOR_0,
+                    drift: SceneDrift.Rate(32)),
+              no_layer(), no_layer(), no_layer(),
+              no_layer(), no_layer(), no_layer(), no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer() ],
+    count: 1, v_factor: 15,
+    v_deform: SceneVDeform.Columns(0, 0, 2),
+    left_column_mask: SceneLeftColMask.Factor0Lock)
+
 // ---- THE ANTI-VACUITY HALF (must stay green, and is what FORCES elaboration) ----
 // An unreferenced top-level `const X = f(..)` is comptime-inert and proves nothing
 // (docs/EMP_PITFALLS.md §3). Naming each fixture's own field here is what makes sigil
@@ -192,3 +221,5 @@ ensure(scene_lcm_is_factor0_lock(POISON_LCM_F0_DSA.sc_left_col_mask) == 1,
        "poison_scene_lcm_factor0: fixture DSA no longer declares Factor0Lock — the plane-A deform guard cannot fire on it and its row would prove nothing")
 ensure(scene_lcm_is_factor0_lock(POISON_LCM_F0_DSB.sc_left_col_mask) == 1,
        "poison_scene_lcm_factor0: fixture DSB no longer declares Factor0Lock — the plane-B deform guard cannot fire on it and its row would prove nothing")
+ensure(scene_lcm_is_factor0_lock(POISON_LCM_F0_DR.sc_left_col_mask) == 1,
+       "poison_scene_lcm_factor0: fixture DR no longer declares Factor0Lock — the drift guard cannot fire on it and its row would prove nothing")

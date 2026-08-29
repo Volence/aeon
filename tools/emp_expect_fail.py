@@ -347,11 +347,20 @@ CASES: list[tuple[str, str, str, int]] = [
     # "left_column_mask: Factor0Lock claims" clause, so matching that would pass against
     # any of them; each fragment below quotes the one clause only its own guard says, and
     # each was verified to occur exactly once in the tree.
-    (f"{POISON}/poison_scene_lcm_factor0.emp", "P3 T12 f0 plane-A factor", "PLANE A is not locked", 5),
-    (f"{POISON}/poison_scene_lcm_factor0.emp", "P3 T12 f0 plane-B factor", "PLANE B is not locked", 5),
-    (f"{POISON}/poison_scene_lcm_factor0.emp", "P3 T12 f0 curve far end",  "RAMPS its plane-B factor", 5),
-    (f"{POISON}/poison_scene_lcm_factor0.emp", "P3 T12 f0 plane-A deform", "live H-deform on PLANE A", 5),
-    (f"{POISON}/poison_scene_lcm_factor0.emp", "P3 T12 f0 plane-B deform", "live H-deform on PLANE B", 5),
+    # SIX halves since the band-drift parcel: drift is a plane-B scroll source in TIME
+    # that the fb scan cannot see, the same class as the curve far end. All six rows share
+    # the count, so a half going dead is reported by every one of them.
+    (f"{POISON}/poison_scene_lcm_factor0.emp", "P3 T12 f0 plane-A factor", "PLANE A is not locked", 6),
+    (f"{POISON}/poison_scene_lcm_factor0.emp", "P3 T12 f0 plane-B factor", "PLANE B is not locked", 6),
+    (f"{POISON}/poison_scene_lcm_factor0.emp", "P3 T12 f0 curve far end",  "RAMPS its plane-B factor", 6),
+    (f"{POISON}/poison_scene_lcm_factor0.emp", "P3 T12 f0 plane-A deform", "live H-deform on PLANE A", 6),
+    (f"{POISON}/poison_scene_lcm_factor0.emp", "P3 T12 f0 plane-B deform", "live H-deform on PLANE B", 6),
+    (f"{POISON}/poison_scene_lcm_factor0.emp", "drift f0 lock",            "but a layer DRIFTS", 6),
+    # BAND DRIFT — layer()'s two rate guards. Both messages spell the unit, because the
+    # 256x units error is the hazard no assertion can catch; each row quotes the clause
+    # only its own guard says, never the shared sentence.
+    (f"{POISON}/poison_layer_drift.emp", "drift Rate(0)",     "is not a slow drift, it is no drift", 2),
+    (f"{POISON}/poison_layer_drift.emp", "drift rate range",  "THIS IS A TASTE BOUND", 2),
     # ---- VFACTOR: the two whole-plane vertical-shift range guards ----
     # TWO ROWS AGAINST ONE MODULE, and the pairing is the point: the module holds two
     # control/poison pairs (v_factor 15 vs 255, v_factor_fg 0 vs 255), so a single build
