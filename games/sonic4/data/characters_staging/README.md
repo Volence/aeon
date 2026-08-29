@@ -157,6 +157,16 @@ already in our order and is untouched by any of this.
   piece is the only format difference vs S2's 8-byte input; tile attribute words
   and size codes copy straight through.) Spot-checked: emitted Tails frame 1
   matches the S3K source piece-for-piece.
+  **One exception, and only one (2026-08-29, owner ruling d-36):** the
+  rolling-ball frames' piece `y_off` is shifted so the ball seats flush on the
+  collision floor, because stock S3K's balls float/sink against our shared ball
+  radius. The shift is DERIVED from `BALL_Y_RADIUS` and the character's `Roll`
+  animation row on every run — nothing is typed — and asserted afterwards by
+  `tools/test_ball_seating.py`. It is derived against the ball **body**, not the
+  lowest opaque pixel: Knuckles' `$96` carries one stray pixel (a dreadlock tip)
+  a row below his whole cycle, and seating on it floats the actual ball. See
+  `derive_ball_shift`, `body_bottom_from_profile`, and
+  `docs/CHARACTER_BOX_AUDIT.md` §5. Every other frame is still verbatim.
 - **DPLC** — the S3K player-DPLC entry word (bits 15-12 = tile_count-1, bits 11-0
   = tile_offset) is **identical** to S2's, so `tools/dplc_layout.py`'s parser
   applies unchanged. Ran its contiguous-art + one-entry-per-frame optimization,
