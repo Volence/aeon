@@ -238,6 +238,44 @@ rulings live in the session memory and the most recent `docs/superpowers/*handof
   *Recorded here rather than left in mail because it is a cross-lane COMMITMENT, and protocol bar
   20's sending-side half says state that lives only in correspondence does not survive a `/clear`.
   This lane made the ruling in a message and had to be reminded by its own file to bank it.*
+- **⚠ AND THE PRE-FLIGHT ABOVE HAS A FALSE-POSITIVE CLASS I DID NOT SEE WHEN I WROTE IT: ON A
+  BYTE-MOVING PARCEL THE PORT TESTS FAIL FOR A REASON THE FREEZE ITSELF FIXES** (added
+  2026-08-29, within two hours of banking the bar it corrects; found by a diagnosis agent I
+  dispatched *because I had misread the evidence*).
+  **`refreeze --freeze` runs `repin` as its third step.** So a parcel that moves code makes every
+  address pin stale, the port tests read those pins, and pre-flighting them BEFORE the freeze
+  shows red **by construction** — then the freeze regenerates the pins and the attest is green.
+  Pre-flighting without knowing that turns a correct gate into a phantom defect at exactly the
+  moment you are trying to be careful.
+  **The two classes are distinguishable and the discriminator is one command:**
+  `cargo test -p sigil-harness --test repin_pins` — its `pins_rs_is_current` arm regenerates the
+  table in memory and diffs it; it is a READ-ONLY guard, not a repin. If it says
+  *"pins.rs is STALE against the live listings (N changed pin(s))"*, the port failures are
+  **stale-instrument** and the freeze will clear them. If pins are current and a port test still
+  fails, it is the **cross-seam symbol** class — a name the standalone scope cannot resolve — and
+  that one is real, needs a hand edit, and is what chains 182 and 184 hit.
+  **So the corrected pre-flight is: run `repin_pins` FIRST, and only read the port tests as a
+  finding once pins are current.**
+  *Lived: d-41 added a 4-byte write to `Parallax_Step5_Vscroll` and slid everything after parallax
+  by +4 — 29 stale pins, 26 of them outside parallax entirely. `parallax_port` was simply the
+  first gate to notice, and it was working perfectly.*
+  **AND THE TELL I WALKED PAST, which is the durable half: the plain ROM changed CRC at an
+  IDENTICAL LENGTH.** `Level_LoadArt` sits at the same address in both trees because the +4 was
+  absorbed inside the preset region. **A CRC change at an unchanged length is positive evidence
+  that bytes moved without the image growing — which is precisely the repin trigger — and I read
+  it as unremarkable.** Same length is the reassuring half of that pair and it is the half that
+  means nothing.
+  **A SECOND LESSON, ABOUT MY OWN EVIDENCE.** I identified the differing byte as a CMP register
+  field (`b2` vs `b6` = D1 vs D3) and handed that to the agent as a hypothesis. **It is a
+  coincidence and the agent refuted it from the listing:** the byte is the low half of a `bsr.w`
+  DISPLACEMENT (`0x10B6` → `Effects_InstallPreset` at `0x7406`, against the standalone's
+  `0x10B2` → `0x7402`). The `cmp.b`s whose encoding I matched are real and sit **0x20 bytes
+  earlier**. **A byte pattern that decodes plausibly is not an instruction** — opcode space is
+  dense enough that almost any byte reads as something. Decode from a known instruction boundary
+  or from the listing, never by matching a byte against an encoding table. *Flagging it as a
+  hypothesis is what stopped it becoming the brief's premise; had I asserted it, the agent would
+  have spent its run inside the wrong routine.*
+
 - **RUN THE STRICT SUITE BEFORE THE FREEZE, NOT AFTER — A NEW CROSS-SEAM SYMBOL GOES RED AT
   ATTEST EVERY TIME, AND NOTHING UPSTREAM WARNS** (added 2026-08-29, after chains 182 and 184
   both did it).
