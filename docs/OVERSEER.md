@@ -1798,6 +1798,36 @@ path, for the same reason the protocol is read that way.
   Repair by a note in the next chain entry's prose naming `13a6d3c8` — **never by rewriting a
   pushed freeze.**
 
+- **DECLARED TREE — `/home/volence/sonic_hacks/.aeon-land-182`, do not sweep it.** A clean
+  detached checkout of aeon `e99a2ca7`, the `aeon_rev` chain 182/183 is frozen at, carrying all
+  four built shapes. `AEON_DIR` points here for anything asking what chain 182 actually froze.
+  **`.aeon-land-180` and `.aeon-land-181` are RETIRED by this line** — say so here rather than
+  deleting the line. The sigil-side `.sigil-pair-182` was transient and is removed: it held
+  nothing that is not now at `origin/master`.
+
+- **PUSH-BEFORE-ATTEST HAS A COST NOBODY PRICED, AND IT SHOWED UP ON ITS FIRST USE: A RED STRICT
+  SUITE NOW LANDS ON MASTER BEFORE YOU KNOW IT IS RED** (added 2026-08-29, chain 182).
+  The ritual adopted this session — push the freeze commit before `--attest`, because a revision
+  already in `origin/master` cannot be orphaned by a later rebase — worked exactly as designed:
+  the reachability check confirmed both revisions were ancestors before the suite ran, which is
+  the property chain 181 lacked. **Then the suite went red, and sigil's `master` sat red between
+  the freeze commit and the fix.**
+  **The two hazards are traded against each other and the trade is not obviously correct.** An
+  orphaned `sigil_rev` is permanent, invisible and passes every check forever; a red master is
+  loud, temporary, and — because a freeze commit carries only goldens, size tables and pins —
+  blocks nobody's build. That argues for the trade. What argues against it is that it fired on
+  the FIRST use rather than eventually, so it is not a tail risk. **Flagged to the sigil lane as
+  something to weigh when they enumerate the flows; it may argue for pushing the freeze to a ref
+  that is not `master`.** Do not treat the ritual as settled until that is answered.
+  *Related and load-bearing for anyone who meets a red attest: an entry is FROZEN once it records
+  a strict run, so a red one is abandoned via `--supersede-tip`, never amended. **Abandonment
+  legally requires the recorded red run**, so COMMIT the failed `[entry.strict]` rather than
+  tidying it away — reverting that file to keep history clean locks you out of the only legal
+  path forward. Lived at 182: three red tests, all of them the ritual working (two
+  `act_descriptor_port` cross-seam link asserts wanting the parcel's new symbol supplied to the
+  standalone scope, and `repin_pins` wanting its per-parcel term), none moving a ROM byte —
+  proven independently by `FIXPOINT PASSED` on the supersede.*
+
 - **DECLARED TREE — `/home/volence/sonic_hacks/.aeon-land-180`, do not sweep it.** A clean
   detached checkout of aeon `03ed1f1c`, the `aeon_rev` chain 180 is frozen at, carrying all four
   built shapes. It is the tree `AEON_DIR` should point at for anything asking what chain 180
