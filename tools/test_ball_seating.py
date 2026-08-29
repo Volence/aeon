@@ -12,10 +12,15 @@ a regression from an intentional re-export.
 WHAT IS ASSERTED, precisely:
 
     for each of Sonic / Tails / Knuckles, over the frames its `Roll` animation
-    row names,   max(lowest opaque art pixel row)  ==  BALL_Y_RADIUS
+    row names,   max(BODY bottom row)  ==  BALL_Y_RADIUS
 
-i.e. `delta == 0` in that tool's language: the ball's deepest pixel rests
-exactly on the collision floor, and no ball frame sinks into it.
+The BODY bottom, not the lowest opaque pixel. Those are not the same row, and
+the difference is not academic: Knuckles' ball frame $96 carries a SINGLE
+opaque pixel one row below every other row of his whole roll cycle — a
+dreadlock tip. Seating the ball on that pixel lifts the actual 8 px-wide ball
+body 1 px off the floor on all five frames, which is exactly the symptom the
+owner reported on Tails. `measure_character_boxes.body_bottom_from_profile`
+defines the body rule and derives its one constant; read it there.
 
 DERIVED, NOT PINNED. Nothing here is a number copied out of a measurement:
 
@@ -37,9 +42,13 @@ its own tile decoder; this gate re-measures the result with
 measure_character_boxes.py's independent one. The two must agree.
 
 LOUD ON UNMEASURABLE. A missing blob, a missing `Roll` row, a frame index past
-the end of the mapping set, a frame with no opaque pixels, or a ball radius that
-cannot be read all FAIL here. None of them is allowed to render as 0 or as
-"couldn't measure".
+the end of the mapping set, a frame with no opaque pixels, a frame with no body
+row (every row a spur), or a ball radius that cannot be read all FAIL here. None
+of them is allowed to render as 0 or as "couldn't measure".
+
+The failure message reports each frame's body row AND the width of the run it
+measured, plus any spur it skipped, so the next reader can see a stray for what
+it is instead of re-deriving this from scratch.
 
 Run by: build.sh's tool-suite lane (`python3 -m pytest tools/ -q --no-header`,
 build.sh:466-472), build-fatally. It reads only committed source blobs, never a
@@ -85,39 +94,51 @@ class BallSeating(unittest.TestCase):
             frames = sorted(set(anims[mcb.BALL_STATE]))
             self.assertTrue(frames, "%s: `%s` names no frames" % (label, mcb.BALL_STATE))
 
-            lows = {}
+            bodies = {}
             for f in frames:
                 self.assertLess(
                     f, ch.frame_count,
                     "%s: `%s` names frame $%02X but the mapping set holds only %d "
                     "frames — the animation table and the mappings disagree"
                     % (label, mcb.BALL_STATE, f, ch.frame_count))
-                extent = ch.extent(f)
                 self.assertIsNotNone(
-                    extent,
+                    ch.extent(f),
                     "%s: ball frame $%02X decodes to NO opaque pixels — it cannot "
                     "be measured, and an unmeasurable ball is not a seated one"
                     % (label, f))
-                lows[f] = extent[1]
+                body = ch.body_bottom(f)
+                self.assertIsNotNone(
+                    body,
+                    "%s: ball frame $%02X has NO body row — every row is a spur "
+                    "under the body rule, so its geometry is not understood. This "
+                    "is a failure, not a zero." % (label, f))
+                bodies[f] = body
 
-            lowest = max(lows.values())
-            delta = lowest - radius
-            measured[label] = (frames, lows, radius, delta)
+            deepest = max(row for row, _run, _sk in bodies.values())
+            delta = deepest - radius
+            measured[label] = (frames, bodies, radius, delta)
 
             self.assertEqual(
                 delta, 0,
-                "%s's rolling ball is not flush: its lowest opaque art row is %+d "
-                "but the ball collision floor is at +%d (delta %+d, ball %s). "
-                "Frames $%s, per-frame lowest row %s. "
+                "%s's rolling ball is not flush: its BALL BODY reaches row %+d but "
+                "the ball collision floor is at +%d (delta %+d, ball %s).\n"
+                "  per frame (body row, run width, spurs skipped): %s\n"
+                "The measured quantity is the lowest row still carrying a run of "
+                "the silhouette, NOT the lowest opaque pixel — a single stray "
+                "pixel below the ball (a dreadlock tip) must not drag the seating "
+                "down. If a run width above looks tiny, or a spur was skipped that "
+                "you think is ball, that is the thing to look at first.\n"
                 "Owner ruling d-36 says all three balls seat flush. For Tails and "
                 "Knuckles the seating shift is derived in "
                 "games/sonic4/data/characters_staging/gen_characters.py "
                 "(derive_ball_shift) — re-run it rather than editing the .bin. "
                 "Sonic's ball art comes from tools/convert_s2_mappings.py."
-                % (label, lowest, radius, delta,
+                % (label, deepest, radius, delta,
                    'FLOATS %d px' % -delta if delta < 0 else 'OVERLAPS %d px' % delta,
-                   ' $'.join('%02X' % f for f in frames),
-                   {'$%02X' % f: v for f, v in lows.items()}))
+                   {'$%02X' % f: ('row %+d' % row, 'run %d px' % run,
+                                  ('skipped %s' % [('row %+d' % sr, 'run %d px' % sn)
+                                                   for sr, sn in sk]) if sk else 'no spurs')
+                    for f, (row, run, sk) in bodies.items()}))
 
         # The three characters share one ball box, so they must share one answer.
         # A per-character radius appearing here would silently make "flush" mean

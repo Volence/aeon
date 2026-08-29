@@ -24,17 +24,26 @@ and a human reads.
 
 The ONE exception, and the only thing anything asserts:
 
-    the `Roll` row of all three playable characters must read delta == 0.
+    for the `Roll` row of all three playable characters, the BALL BODY must
+    reach exactly BALL_Y_RADIUS.
 
 That is the owner's ruling d-36 (2026-08-28, "theyy should all be flush") — an
 adopted project convention for the rolling balls specifically, not an
-observation and not a claim about any other row. It is enforced by
-tools/test_ball_seating.py, which reuses build_cast() and read_anim_frames()
-below so it measures the same blobs against the same frame set this report
-does; it deliberately gates that row and nothing else. Tails' and Knuckles'
-halves of the ruling are implemented in
-games/sonic4/data/characters_staging/gen_characters.py, which DERIVES the
-mapping shift from BALL_Y_RADIUS rather than carrying a tuned number.
+observation and not a claim about any other row.
+
+NOTE THE QUANTITY. It is the body bottom, NOT this table's `delta` column,
+because those two differ wherever a stray pixel hangs below the ball: Knuckles'
+$96 has a single opaque pixel (a dreadlock tip) one row below his entire roll
+cycle, so his `delta` column reads +1 while his ball is flush. The Roll rows
+print both readings for exactly that reason. body_bottom_from_profile() below
+defines the body rule and derives its one constant.
+
+Enforced by tools/test_ball_seating.py, which reuses build_cast(),
+read_anim_frames() and body_bottom_from_profile() below so it measures the same
+blobs against the same frame set and the same rule this report does; it gates
+that row and nothing else. Tails' and Knuckles' halves of the ruling are
+implemented in games/sonic4/data/characters_staging/gen_characters.py, which
+DERIVES the mapping shift rather than carrying a tuned number.
 
 RUN IT after any character art / mapping / DPLC re-export
 (games/sonic4/data/characters_staging/gen_characters.py,
@@ -142,6 +151,71 @@ def _u16(b, o):
     return struct.unpack_from('>H', b, o)[0]
 
 
+def longest_run(columns):
+    """Longest run of horizontally adjacent columns in a set of x positions."""
+    best = run = 0
+    prev = None
+    for x in sorted(columns):
+        run = run + 1 if prev is not None and x == prev + 1 else 1
+        prev = x
+        best = max(best, run)
+    return best
+
+
+# ------------------------------------------------------- the ball BODY statistic
+#
+# WHY THIS IS NOT `max(lowest opaque row)`. That statistic is stray-sensitive by
+# construction, and one stray pixel was in fact driving the answer: Knuckles'
+# ball frame $96 carries a SINGLE opaque pixel one row below every other row of
+# every frame in his roll cycle — a dreadlock tip, not the ball. Seating the ball
+# on it put the actual 8 px-wide ball body 1 px above the floor on all five
+# frames, i.e. it shipped the exact symptom the owner reported on Tails. So the
+# quantity that matters is where the BODY ends, and a row is body only if it is
+# still part of the silhouette's edge rather than a spur hanging off it.
+#
+# THE RULE. Walking up from the lowest opaque row, a row belongs to the body if
+# its longest contiguous run is at least half the longest run of the row directly
+# above it. Rows failing that are spurs and are skipped; the first row that
+# passes is the body bottom.
+#
+# WHERE THE 1/2 COMES FROM — it is a geometric bound, not a number picked to make
+# today's art come out. Near the bottom of a convex silhouette of radius R the
+# half-width at height h above the bottom edge is sqrt(R^2 - (R-h)^2) ~= sqrt(2Rh),
+# i.e. width grows as sqrt(h). Two rows 1 px apart therefore stand in the ratio
+# sqrt(h / (h+1)). A row only rasterizes at all once its centre line is inside the
+# shape, so the coarsest case is h = 0.5, giving sqrt(0.5/1.5) = 0.577. Rounded
+# DOWN to the nearest simple fraction — because the art is a drawn curled
+# character, not a true disc, and does dip slightly below the convex bound — that
+# is 1/2.
+#
+# MEASURED AGAINST THE SHIPPED ART (2026-08-29, all 14 candidate bottom rows of
+# all three characters' roll cycles): 13 genuine body rows, ratios 0.533 .. 1.333,
+# every one accepted; 1 stray, ratio 0.125, rejected. The threshold sits 4.0x
+# above the stray and 6.7% below the tightest genuine row (Knuckles $97). That
+# accept-side margin is thin ON ONE FRAME, but the callers take `max` over the
+# whole cycle, so a single frame flipping cannot move the answer — Knuckles' other
+# four frames put the body bottom at the same row.
+BODY_MIN_RUN_RATIO_DEN = 2      # "at least 1/DEN of the run directly above"
+
+
+def body_bottom_from_profile(profile):
+    """(body_row, its run, [(skipped_row, its run), ...]) from {row: longest run}.
+
+    `profile` must be non-empty. Returns None only if EVERY row is a spur, which
+    is a frame whose geometry this rule does not understand — callers must treat
+    that as a hard failure, never as a zero.
+    """
+    skipped = []
+    for row in sorted(profile, reverse=True):
+        above = profile.get(row - 1)
+        # A row with nothing directly above it is detached from the body, not an
+        # edge of it. A row that more than halves the run above it is a spur.
+        if above is not None and profile[row] * BODY_MIN_RUN_RATIO_DEN >= above:
+            return row, profile[row], skipped
+        skipped.append((row, profile[row]))
+    return None
+
+
 class Character:
     def __init__(self, name, mappings, dplc, art):
         self.name = name
@@ -212,6 +286,60 @@ class Character:
                         lo = y if lo is None else min(lo, y)
                         hi = y if hi is None else max(hi, y)
         return None if lo is None else (lo, hi)
+
+    def row_profile(self, frame):
+        """{row relative to y_pos: longest contiguous opaque run, in px}.
+
+        The run, not the raw count: a row can carry pixels in two separate
+        clusters (Sonic's $9A does), and the silhouette's edge is the longest of
+        them, not their sum.
+        """
+        if frame >= self.frame_count:
+            return None
+        fo = _u16(self.m, 2 * frame)
+        count = _u16(self.m, fo + 4)
+        tiles = self._tiles_for(frame)
+        o, cols = fo + 6, {}
+        for _ in range(count):
+            dy = struct.unpack_from('>h', self.m, o)[0]
+            size = self.m[o + 2]
+            attr = _u16(self.m, o + 4)
+            dx = struct.unpack_from('>h', self.m, o + 6)[0]
+            o += 8
+            w = ((size >> 2) & 3) + 1
+            h = (size & 3) + 1
+            ti = attr & 0x7FF
+            xflip = (attr >> 11) & 1
+            yflip = (attr >> 12) & 1
+            k = 0
+            for cx in range(w):
+                for cy in range(h):
+                    idx = ti + k
+                    k += 1
+                    if idx >= len(tiles):
+                        continue
+                    rows = self._tile_rows(tiles[idx])
+                    if rows is None:
+                        continue
+                    for ry in range(8):
+                        sy = cy * 8 + ry
+                        if yflip:
+                            sy = h * 8 - 1 - sy
+                        for rx, v in enumerate(rows[ry]):
+                            if not v:
+                                continue
+                            sx = cx * 8 + rx
+                            if xflip:
+                                sx = w * 8 - 1 - sx
+                            cols.setdefault(dy + sy, set()).add(dx + sx)
+        return {y: longest_run(c) for y, c in cols.items()}
+
+    def body_bottom(self, frame):
+        """Where this frame's BALL BODY ends. See body_bottom_from_profile."""
+        prof = self.row_profile(frame)
+        if not prof:
+            return None
+        return body_bottom_from_profile(prof)
 
 
 # ------------------------------------------------------------ the state table
@@ -346,7 +474,22 @@ def main():
             if not grounded:
                 note += ('  ' if note else '') + '(pose is off the floor)'
             if state == BALL_STATE:
-                note += ('  ' if note else '') + '[GATED == 0 by test_ball_seating]'
+                # The gated quantity is the BODY bottom, not this row's raw
+                # lowest opaque pixel — they differ wherever a stray pixel hangs
+                # below the ball (Knuckles $96). Print both so the gap is visible
+                # rather than something the reader has to know about.
+                bodies = [ch.body_bottom(f) for f in sorted(set(frames))]
+                bodies = [b for b in bodies if b is not None]
+                if bodies:
+                    deep = max(b[0] for b in bodies)
+                    run = min(b[1] for b in bodies)
+                    spurs = sum(len(b[2]) for b in bodies)
+                    note += ('  ' if note else '')
+                    note += ('body row %+d (min run %d px%s) -> body delta %+d '
+                             '[GATED == 0 by test_ball_seating]'
+                             % (deep, run,
+                                ', %d spur row(s) skipped' % spurs if spurs else '',
+                                deep - r))
             print('  %-11s %-8s %-5d [%+d,%+d]%s  %+d   %s'
                   % (state, box, r, lo, hi, ' ' * max(0, 6 - len('[%+d,%+d]' % (lo, hi))),
                      d, note))

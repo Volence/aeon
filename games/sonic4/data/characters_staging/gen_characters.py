@@ -433,21 +433,30 @@ def _frame_tiles(dplc_frame):
     return tiles
 
 
-def _lowest_opaque_row(art, tiles, pieces, tag):
-    """Lowest opaque art pixel row of one frame, relative to y_pos.
+def _row_profile(art, tiles, pieces, tag):
+    """{row relative to y_pos: longest contiguous opaque run} for one frame.
 
-    `pieces` are S3K-parsed (y, size, tile, x) with `size` the 4-bit VDP code.
-    Index 0 is transparent. Raises if the frame draws nothing — a ball frame with
-    no pixels is a broken conversion, not a zero.
+    `pieces` are S3K-parsed (y, size, tile, x) with `size` the 4-bit VDP code and
+    `tile` the raw attribute word (bit 11 xflip, bit 12 yflip). Index 0 is
+    transparent. Raises if the frame draws nothing — a ball frame with no pixels
+    is a broken conversion, not a zero.
+
+    This is a SECOND decoder of the same pixels that
+    measure_character_boxes.Character.row_profile decodes off the emitted blob.
+    Keeping both is deliberate: the shift is derived here and re-measured there by
+    tools/test_ball_seating.py, so the two must agree or the gate goes red.
     """
-    low = None
-    for y, size, tile, _x in pieces:
+    cols = {}
+    for y, size, attr, x in pieces:
         w = ((size >> 2) & 3) + 1
         h = (size & 3) + 1
+        ti = attr & 0x7FF
+        xflip = (attr >> 11) & 1
+        yflip = (attr >> 12) & 1
         k = 0
-        for _cx in range(w):
+        for cx in range(w):
             for cy in range(h):
-                idx = tile + k
+                idx = ti + k
                 k += 1
                 if idx >= len(tiles):
                     raise AssertionError(
@@ -461,19 +470,47 @@ def _lowest_opaque_row(art, tiles, pieces, tag):
                         f"{tag}: DPLC references tile {tiles[idx]} past the end of "
                         f"the art ({len(art) // TILE_SIZE} tiles)")
                 for ry in range(8):
-                    if any(t[ry * 4 + c] for c in range(4)):
-                        row = y + cy * 8 + ry
-                        low = row if low is None else max(low, row)
-    if low is None:
+                    sy = cy * 8 + ry
+                    if yflip:
+                        sy = h * 8 - 1 - sy
+                    for rx in range(8):
+                        byte = t[ry * 4 + (rx >> 1)]
+                        if not ((byte >> 4) if rx % 2 == 0 else (byte & 0x0F)):
+                            continue
+                        sx = cx * 8 + rx
+                        if xflip:
+                            sx = w * 8 - 1 - sx
+                        cols.setdefault(y + sy, set()).add(x + sx)
+    if not cols:
         raise AssertionError(f"{tag}: frame has no opaque pixels — cannot be seated")
-    return low
+    return {row: mcb.longest_run(c) for row, c in cols.items()}
+
+
+def _body_bottom(art, tiles, pieces, tag):
+    """(body row, its run, [(skipped spur row, its run), ...]) for one frame.
+
+    The rule and the reason it is not `max(lowest opaque row)` live in
+    measure_character_boxes.body_bottom_from_profile — shared, so the generator
+    and the gate cannot drift onto two different definitions of "the ball body".
+    """
+    profile = _row_profile(art, tiles, pieces, tag)
+    found = mcb.body_bottom_from_profile(profile)
+    if found is None:
+        raise AssertionError(
+            f"{tag}: EVERY row of this frame is a spur under the body rule "
+            f"(row profile {dict(sorted(profile.items()))}) — its geometry is not "
+            "understood and it cannot be seated. Do not paper over this with a "
+            "fallback to the lowest opaque row; that is the statistic the body "
+            "rule exists to replace.")
+    return found
 
 
 def derive_ball_shift(name, map_frames, dplc_frames, art):
     """Derive the vertical shift that seats `name`'s ball on the collision floor.
 
-    Returns (frames, shift, per_frame_lowest) or None if the set has no ball.
-    Every input is read from source; nothing here is a tuned constant.
+    Returns (frames, shift, per_frame_body) or None if the set has no ball, where
+    per_frame_body maps frame -> (body row, its run, skipped spurs). Every input
+    is read from source; nothing here is a tuned constant.
     """
     src = BALL_ANIM_SOURCE.get(name)
     if src is None:
@@ -493,11 +530,16 @@ def derive_ball_shift(name, map_frames, dplc_frames, art):
                 f"{name}: `{BALL_ANIM_STATE}` names frame ${f:02X} but the converted "
                 f"mapping set has only {len(map_frames)} frames — the .emp animation "
                 "table and the S3K mapping source disagree on frame indexing")
-    lows = {f: _lowest_opaque_row(art, _frame_tiles(dplc_frames[f]),
-                                  map_frames[f], f"{name} ball frame ${f:02X}")
-            for f in frames}
-    shift = ball_y - max(lows.values())
-    return frames, shift, lows
+    bodies = {f: _body_bottom(art, _frame_tiles(dplc_frames[f]),
+                              map_frames[f], f"{name} ball frame ${f:02X}")
+              for f in frames}
+    # `max` over the cycle, of each frame's BODY bottom (spurs already removed).
+    # max and not min: a frame whose ball is genuinely drawn a pixel shorter must
+    # not lift the whole cycle off the floor — see Sonic's $9A in
+    # docs/DEFERRED_WORK.md. It is only strays that max must not see, and the body
+    # rule is what removes those before max ever runs.
+    shift = ball_y - max(row for row, _run, _skipped in bodies.values())
+    return frames, shift, bodies
 
 
 def apply_ball_shift(map_frames, frames, shift):
@@ -751,7 +793,7 @@ def process_set(sk, name, art_rel, map_rel, dplc_rel, anim_rel, out_dir, report,
     # BALL_ANIM_SOURCE pass through untouched.
     ball = derive_ball_shift(name, map_frames, dplc_frames, art)
     if ball is not None:
-        ball_frames, ball_shift, ball_lows = ball
+        ball_frames, ball_shift, ball_bodies = ball
         apply_ball_shift(map_frames, ball_frames, ball_shift)
 
     # Raw source DPLC (S3K pointer format) — provenance / re-optimizable.
@@ -812,7 +854,10 @@ def process_set(sk, name, art_rel, map_rel, dplc_rel, anim_rel, out_dir, report,
         "hist_after": hist_after,
         "ball_frames": [f"${f:02X}" for f in ball[0]] if ball else None,
         "ball_shift": ball[1] if ball else None,
-        "ball_lows": {f"${f:02X}": v for f, v in ball[2].items()} if ball else None,
+        "ball_bodies": ({f"${f:02X}": {"body_row": row, "run": run,
+                                       "spurs_skipped": skipped}
+                         for f, (row, run, skipped) in ball[2].items()}
+                        if ball else None),
         "ball_radius": mcb.read_const(*BALL_RADIUS_SOURCE) if ball else None,
     })
 
@@ -971,11 +1016,18 @@ def main():
         print(f"  Aeon mappings          : {r['map_bin_bytes']:,} bytes  "
               f"sha={r['map_sha']}")
         if r['ball_shift'] is not None:
+            b = r['ball_bodies']
             print(f"  ball seating           : frames {' '.join(r['ball_frames'])}  "
                   f"shift {r['ball_shift']:+d} px")
             print(f"    derived as           : BALL_Y_RADIUS {r['ball_radius']} - "
-                  f"max(lowest opaque row {r['ball_lows']}) "
-                  f"= {r['ball_shift']:+d}")
+                  f"max(BODY bottom row) = {r['ball_shift']:+d}")
+            for fk, v in b.items():
+                spur = ("  SPURS SKIPPED: "
+                        + ", ".join(f"row {sr:+d} (run {srun} px)"
+                                    for sr, srun in v['spurs_skipped'])
+                        ) if v['spurs_skipped'] else ""
+                print(f"      {fk}  body row {v['body_row']:+d}  "
+                      f"run {v['run']:2d} px{spur}")
     for name, jpath, _ in anim_specs:
         obj = json.loads(jpath.read_text())
         print(f"\n[{name} anims]  {obj['anim_count']} scripts -> "
