@@ -1101,6 +1101,31 @@ path, for the same reason the protocol is read that way.
 
 ## Aeon-specific review bars (beyond the protocol's)
 
+- **REPORT THE REASONING, NOT THE VERDICT — A CONCLUSION IS NOT REFUTABLE AND READS AS MORE
+  COMPETENT THAN AN ARGUMENT** (added 2026-08-29; the sigil lane's formulation, offered against
+  this lane's own attempt to credit them for two catches).
+  Twice this session a peer refuted a claim of this lane's that **every check either lane was
+  running had passed**: a flip condition whose safety property was supplied only by asserting it,
+  and a reachability green called "the instrument doing its job" when the ritual guaranteed that
+  green. Neither was a measurement error. Both were errors in the reasoning *about* an
+  instrument, made while the measurements were being handled carefully.
+  **The catches were possible only because the reasoning was WRITTEN DOWN in a form that could be
+  shown false.** *"Attest passed, reachability green"* would have been exactly as wrong, and
+  **unfalsifiable — and it would have read as more competent, not less**, because a bare verdict
+  carries no visible surface to attack.
+  **So the transferable habit is not "have a peer check you" — a peer cannot check a conclusion.
+  It is: state the argument, and state it in the form that can be refuted.** That is what a peer
+  review is *for*; the second pair of eyes is worthless against a report that only carries
+  outcomes. A checklist cannot carry this habit, which is why it is written as a bar and not as a
+  step.
+  **Corollary for anything this lane sends or banks: prefer the sentence that could be wrong.**
+  "Both revisions were ancestors before the suite ran" invites the question that killed it (could
+  it have been otherwise?); "reachability green" does not.
+  *And the three proposals this session produced turn out to be one finding at three sites — a
+  refusal that fires on correct work, a pointer that lives where it will be cleared, and a check
+  the fixing ritual made vacuous. **The artifact that reports success is not the artifact that
+  establishes it.** Three bars that reduce to one lesson is a stronger result than three bars.*
+
 - **A REFUSAL THAT CAN FIRE ON THE CORRECT CASE IS WORSE THAN THE SILENCE IT REPLACES — three
   declined in one night, which makes it a rule rather than three judgement calls** (added
   2026-08-29; instances split between this lane and the sigil lane, the pattern named here after
