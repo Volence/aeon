@@ -52,6 +52,60 @@ Every item here had a stated blocker that **no longer holds**. This is the pick-
 by leverage, not by section. Each links back to its full entry below; read the entry (and its
 correction) before planning — several carry caveats that shrink the win.
 
+### AN AUTHORED LOOP CROSSOVER REACHES THE FILE AND NEVER THE ROM — and every gate correctly reports nothing happened — booked 2026-08-29
+
+**Measured by the aurora lane** (their `2e24094`, `docs/reviews/2026-08-29-crossover-paint-loop.md`,
+instrument `scratchpad/crossover-paint-harness.mjs`), against aeon `4d86f5db`, in a throwaway
+worktree that was reset clean afterwards — nothing landed and nothing was offered for landing.
+Relayed here with their numbers, not re-derived; the pipeline read below IS re-derived.
+
+**Half of the path holds.** Document → file is exact: every painted cell written back with the
+word it already had plus the crossover mark, so geometry is constant *by construction* and bits
+15:14 are the only bits that CAN move. Exactly 16 words changed per plane across a 131,072-byte
+file, low 14 bits identical on every one, forming exactly two runs of 8 — so nothing bled
+sideways. Encoding values re-derived from `docs/LOOP_CROSSOVER_ENCODING.md` §3.2/§4 at
+`4f846e25` rather than taken from this lane's relay of them.
+
+**The other half cannot hold yet.** `tools/collision_pipeline.py` at `4d86f5db` defines the
+constants — `XOVER_SHIFT`, `XOVER_MASK`, `XOVER_NONE/TO_A/TO_B/RESERVED` at `:57-75`, so the
+hygiene step landed — but **`bake_plane_cell` (`:229`) never reads bits 15:14.** Its own
+docstring enumerates the bits it consumes (`9:0`, `10`, `11`, `13:12`) and 15:14 is not among
+them. The field is dropped at the bake. `s4.bin` is byte-identical across a full act's worth of
+painting — `06d2ccf6`/719,205 both sides, assembler md5 `504b0c0a…` hashed on both sides — and
+**that is the CORRECT result, not a failure.**
+
+**⚠ THE TRAP, AND IT IS WHY THIS IS BOOKED AS A HAZARD RATHER THAN AS A TODO.** An author can
+paint crossovers across an entire act today. The editor accepts it, the file records it
+faithfully, the bake runs clean, and the ROM does not move by a single byte. So every CRC gate,
+every byte-neutral witness and every golden downstream reports *nothing happened* — **correctly**.
+None of them can distinguish **"authored, and the bake has nowhere to put it yet"** from
+**"never authored"**. Editor data can therefore diverge arbitrarily far from the ROM with no
+signal anywhere, and the costume is a green build.
+
+**Two consequences, both binding on the LOOPS-P bake parcel:**
+1. **A CRC delta is not available as evidence for this feature in either direction** until the
+   bake reads the field. Do not design a gate around one. This is the byte-neutral CRC trap in
+   its purest form — the artifact cannot witness the thing, and agrees with the wrong answer.
+2. **There is a THIRD claim between the two this lane had already separated.** The pair was
+   *"the bytes arrive"* versus *"the crossover works"*. The bytes arriving in the **FILE** and
+   the bytes arriving in the **ROM** are now distinct, and only the first is true. Anyone citing
+   a paint result must say which.
+
+**Cheap work to fold into the bake parcel while in that function**, both the aurora lane's:
+make an authored-but-unbakeable crossover **visible rather than silent** — a count in the bake's
+own report would do it, and the shape already exists as the NOTICE block
+`tools/repaint_ojz_collision.py` prints for marked cells (`a0a5acff`); and note that of the
+anchor's six encoding rules, **R1 (`XOVER == 3` hard-errors) is exercised by nothing**, because
+nothing reads the field at all.
+
+**Fixture constraint for anyone writing a test here** (measured by aurora, section 0): there is
+**no** 4-cell run where both planes carry geometry AND differ — 198 runs have geometry on both
+and every one is identical. So no single fixture discriminates every row; expect to run two and
+report which rows each earns rather than quoting one total. Their own first draft passed 11/11
+with a genuinely broken instrument because its original coordinates were all-zero words —
+*"geometry held" cannot fail where there is no geometry to lose* — which is the anti-vacuous
+fixture rule earning its keep inside one edit.
+
 ### A SECOND ACT'S BG ANIMATION HAS NOWHERE TO LIVE — the emitter takes an act, the ROM has one slot — booked 2026-08-27
 
 **What landed (parcel EFFECTS-W2, `tools/inject_editor_bg.py`).** The act is a parameter.
