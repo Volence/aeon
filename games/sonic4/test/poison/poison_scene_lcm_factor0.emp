@@ -1,0 +1,194 @@
+// games/sonic4/test/poison/poison_scene_lcm_factor0.emp — POISON (see README).
+//
+// TARGETS: engine/level/scene_dsl.emp's `scene()` guard (3) — the Factor0Lock
+// VERIFICATION, all five halves, after the 2026-08-28 plane-A closure. The variant
+// certifies "the leftmost partial column CANNOT EXIST", which is a PER-PLANE claim: the
+// sliver appears on a plane exactly when THAT plane's HScroll is off the 16-px V-scroll
+// grain, and the two planes' HScroll words are independent sums. Until 2026-08-28 the
+// verification scanned `fb`/`dsb` only, so a scene could lock plane B, declare
+// Factor0Lock, pass the build, and still lose its leftmost 16 px on plane A.
+//
+// SIX FIXTURES, ONE AUTHORED FIELD APART — the two-fixture differential run five times
+// off one control, so every row's poison differs from the passing shape in exactly the
+// field its guard reads:
+//
+//   FIXTURE OK  — a one-layer per-column scene with BOTH planes locked (fa and fb
+//                 FACTOR_0), no curve, no deform amplitude on either plane, declaring
+//                 Factor0Lock. It must pass ALL FIVE halves. This control is not
+//                 decoration: it is the proof that the tightened guard did not make the
+//                 variant unclaimable in principle (see the consequence note at the
+//                 guard — it IS unclaimable for a side-scrolling scene, because such a
+//                 scene's `fa` tracks the camera; this fixture is the fixed-screen shape
+//                 that can still claim it).
+//   FIXTURE FA  — OK with `fa: FACTOR_1`. Plane A scrolls. THE HOLE THIS PARCEL CLOSED.
+//   FIXTURE FB  — OK with `fb: FACTOR_1_2`. Plane B scrolls. The converse of FA, and the
+//                 reason it is here: a guard rewritten to look at plane A must not have
+//                 stopped looking at plane B. A fixture that fixes its inputs tests one
+//                 number, not the rule.
+//   FIXTURE CV  — OK plus `curve: SceneCurve.To(FACTOR_1_2)`. Every `fb` is still locked;
+//                 the RAMP walks plane-B HScroll away from zero across the layer, which
+//                 the `fb` scan alone cannot see (parallax.emp's `.lp_curve` writes a
+//                 moving BG word under a constant FG one). Curves are BG-only by design,
+//                 so there is no plane-A twin of this case.
+//   FIXTURE DSA — OK plus `dsa: 4` over a scene-level `deform_fg:` table. Both base
+//                 factors stay locked; deform adds per-line plane-A HScroll on top.
+//   FIXTURE DSB — OK plus `dsb: 4` over a scene-level `deform_bg:` table. The plane-B
+//                 twin of DSA, and the liveness check for the half that already existed.
+//
+// EXPECTED `[Error]` COUNT IS 5 — one per poisoned fixture, none from the control, and
+// no fixture trips a second guard (checked against the full ensure list in scene():
+// none authors a pad, an anchor, a vsplit, an own() table, or an out-of-range field).
+// A 6 means the CONTROL stopped passing — the guard over-fires and Factor0Lock is
+// unclaimable even for a genuinely locked scene, which would be a real regression, not
+// a stricter gate. A 4 or less means one of the five halves went dead, and since all
+// five rows share this count they all report it.
+//
+// EXPECTED FRAGMENTS (one row each in tools/emp_expect_fail.py's CASES, all count 5):
+//   "PLANE A is not locked"        <- fixture FA
+//   "PLANE B is not locked"        <- fixture FB
+//   "RAMPS its plane-B factor"     <- fixture CV
+//   "live H-deform on PLANE A"     <- fixture DSA
+//   "live H-deform on PLANE B"     <- fixture DSB
+//
+// THE FIVE FRAGMENTS ARE NOT INTERCHANGEABLE, deliberately: all five messages open with
+// the same "left_column_mask: Factor0Lock claims" clause, so matching that alone would
+// pass against any of them. Each row's fragment quotes the one clause only its own guard
+// says — "PLANE A is not locked", "PLANE B is not locked", "RAMPS its plane-B factor",
+// "live H-deform on PLANE A", "live H-deform on PLANE B" — each verified to occur
+// exactly once in the tree.
+//
+// THE TABLE LABEL IS 0, the same spelling every scene poison uses (see
+// poison_scene_own_caps.emp): the guards discriminate on the VARIANT and the shifts,
+// never on the payload, and a real DeformTable_* name would tie this poison to another
+// module's emission.
+//
+// THE GLOB IMPORTS ARE THE AUTHOR'S OWN SPELLING — see README.md ("Why every scene poison globs").
+module games.sonic4.test.poison.poison_scene_lcm_factor0
+
+use engine.level.scene_dsl.*
+use engine.level.parallax_dsl.*
+
+// FIXTURE OK — both planes locked, no curve, no deform. Must pass all five halves.
+const POISON_LCM_F0_OK: Scene = scene(
+    layers: [ layer(world_y: 0, fa: FACTOR_0, fb: FACTOR_0),
+              no_layer(), no_layer(), no_layer(),
+              no_layer(), no_layer(), no_layer(), no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer() ],
+    count: 1, v_factor: 15,
+    v_deform: SceneVDeform.Columns(0, 0, 2),
+    left_column_mask: SceneLeftColMask.Factor0Lock)
+
+// FIXTURE FA — plane A scrolls. The plane the policy could not see until 2026-08-28.
+const POISON_LCM_F0_FA: Scene = scene(
+    layers: [ layer(world_y: 0, fa: FACTOR_1, fb: FACTOR_0),
+              no_layer(), no_layer(), no_layer(),
+              no_layer(), no_layer(), no_layer(), no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer() ],
+    count: 1, v_factor: 15,
+    v_deform: SceneVDeform.Columns(0, 0, 2),
+    left_column_mask: SceneLeftColMask.Factor0Lock)
+
+// FIXTURE FB — plane B scrolls. The converse: the pre-existing half must still fire.
+const POISON_LCM_F0_FB: Scene = scene(
+    layers: [ layer(world_y: 0, fa: FACTOR_0, fb: FACTOR_1_2),
+              no_layer(), no_layer(), no_layer(),
+              no_layer(), no_layer(), no_layer(), no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer() ],
+    count: 1, v_factor: 15,
+    v_deform: SceneVDeform.Columns(0, 0, 2),
+    left_column_mask: SceneLeftColMask.Factor0Lock)
+
+// FIXTURE CV — both base factors locked, but the plane-B factor RAMPS across the layer.
+const POISON_LCM_F0_CV: Scene = scene(
+    layers: [ layer(world_y: 0, fa: FACTOR_0, fb: FACTOR_0,
+                    curve: SceneCurve.To(FACTOR_1_2)),
+              no_layer(), no_layer(), no_layer(),
+              no_layer(), no_layer(), no_layer(), no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer() ],
+    count: 1, v_factor: 15,
+    v_deform: SceneVDeform.Columns(0, 0, 2),
+    left_column_mask: SceneLeftColMask.Factor0Lock)
+
+// FIXTURE DSA — both base factors locked, live plane-A deform amplitude over an FG table.
+const POISON_LCM_F0_DSA: Scene = scene(
+    layers: [ layer(world_y: 0, fa: FACTOR_0, fb: FACTOR_0, dsa: 4),
+              no_layer(), no_layer(), no_layer(),
+              no_layer(), no_layer(), no_layer(), no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer() ],
+    count: 1, v_factor: 15,
+    deform_fg: SceneDeform.Shared(0, 1),
+    v_deform: SceneVDeform.Columns(0, 0, 2),
+    left_column_mask: SceneLeftColMask.Factor0Lock)
+
+// FIXTURE DSB — the plane-B twin of DSA.
+const POISON_LCM_F0_DSB: Scene = scene(
+    layers: [ layer(world_y: 0, fa: FACTOR_0, fb: FACTOR_0, dsb: 4),
+              no_layer(), no_layer(), no_layer(),
+              no_layer(), no_layer(), no_layer(), no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer() ],
+    count: 1, v_factor: 15,
+    deform_bg: SceneDeform.Shared(0, 1),
+    v_deform: SceneVDeform.Columns(0, 0, 2),
+    left_column_mask: SceneLeftColMask.Factor0Lock)
+
+// ---- THE ANTI-VACUITY HALF (must stay green, and is what FORCES elaboration) ----
+// An unreferenced top-level `const X = f(..)` is comptime-inert and proves nothing
+// (docs/EMP_PITFALLS.md §3). Naming each fixture's own field here is what makes sigil
+// elaborate its `scene()` call, which is what fires the guards above. The predicate is
+// the one `lcm_f0` itself tests: a fixture that stopped declaring Factor0Lock would
+// silence every guard in the block while still building "clean", and this is what says
+// so instead.
+ensure(scene_lcm_is_factor0_lock(POISON_LCM_F0_OK.sc_left_col_mask) == 1,
+       "poison_scene_lcm_factor0: the CONTROL no longer declares Factor0Lock — it stopped being the passing shape the five poisons are differenced against")
+ensure(scene_lcm_is_factor0_lock(POISON_LCM_F0_FA.sc_left_col_mask) == 1,
+       "poison_scene_lcm_factor0: fixture FA no longer declares Factor0Lock — the plane-A lock guard cannot fire on it and its row would prove nothing")
+ensure(scene_lcm_is_factor0_lock(POISON_LCM_F0_FB.sc_left_col_mask) == 1,
+       "poison_scene_lcm_factor0: fixture FB no longer declares Factor0Lock — the plane-B lock guard cannot fire on it and its row would prove nothing")
+ensure(scene_lcm_is_factor0_lock(POISON_LCM_F0_CV.sc_left_col_mask) == 1,
+       "poison_scene_lcm_factor0: fixture CV no longer declares Factor0Lock — the curve far-end guard cannot fire on it and its row would prove nothing")
+ensure(scene_lcm_is_factor0_lock(POISON_LCM_F0_DSA.sc_left_col_mask) == 1,
+       "poison_scene_lcm_factor0: fixture DSA no longer declares Factor0Lock — the plane-A deform guard cannot fire on it and its row would prove nothing")
+ensure(scene_lcm_is_factor0_lock(POISON_LCM_F0_DSB.sc_left_col_mask) == 1,
+       "poison_scene_lcm_factor0: fixture DSB no longer declares Factor0Lock — the plane-B deform guard cannot fire on it and its row would prove nothing")

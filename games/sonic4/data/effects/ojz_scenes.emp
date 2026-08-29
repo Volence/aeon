@@ -309,8 +309,10 @@ pub const Scene_Haze_Uniform: Scene = haze_scene(speed: 2, gradient: 0)   // con
 
 // =====================================================================
 // Rocking — configs.emp:213-223. Plane B rocks via per-column V-scroll off a sine table;
-// BG H-scroll locked (FACTOR_0) to dodge the leftmost-partial-column VDP artifact, and
-// the all-zero BG H-table forces the per-line pipeline.
+// BG H-scroll locked (FACTOR_0) to dodge the leftmost-partial-column VDP artifact ON
+// PLANE B ONLY — the foreground still scrolls (fa: FACTOR_1) and still shows the sliver;
+// see the left-column policy note below — and the all-zero BG H-table forces the per-line
+// pipeline.
 //
 // All three shipped call sites take `shift`'s default 0, so the amplitude shift rides the
 // SceneVDeform payload (Columns' third slot) — NOT the v_deform_shift_raw bridge. The
@@ -318,17 +320,24 @@ pub const Scene_Haze_Uniform: Scene = haze_scene(speed: 2, gradient: 0)   // con
 // Rocking_Slow's v_speed 0 is a STATIC tilt, not "no V-deform": the table is attached,
 // so CAP_PER_COL_VSRAM is raised.
 //
-// LEFT-COLUMN POLICY (P3 Task 12): Accept — AND THE HONEST SPELLING IS NOT THE OBVIOUS
-// ONE. This family is the factor0_lock idea incarnate (the comment above says so), and
-// at runtime the artifact genuinely cannot occur: fb is FACTOR_0 and the only plane-B
-// H-deform source is DeformTable_Zero, whose every sample is 0, so plane-B HScroll is
-// identically zero. But scene()'s Factor0Lock is a VERIFIED claim and the verification
-// cannot see table CONTENTS (a table is a Label at comptime) — a live dsb (4, here)
-// against the zero table is indistinguishable from a live one against a real table, and
-// the guard refuses it. Accept is the conservative spelling of a true claim the build
-// cannot check. Re-authoring dsb: 15 would unlock Factor0Lock but changes a shipped
-// record byte (band_deform_shift_b) — owner territory, image-identity churn, booked in
-// DEFERRED_WORK's Task-12 restatement, not smuggled through here.
+// LEFT-COLUMN POLICY (P3 Task 12): Accept — AND IT IS A REAL SHIP-THE-ARTIFACT DECISION,
+// which is NOT what this note said until 2026-08-28. The old text argued Accept was only
+// a conservative spelling of a true factor0 claim, on the grounds that fb is FACTOR_0 and
+// the sole plane-B H-deform source is DeformTable_Zero (every sample 0), so plane-B
+// HScroll is identically zero. That much is still true AND STILL ONLY ABOUT PLANE B. The
+// artifact is per-plane: plane A here is `fa: FACTOR_1` (HScroll = -camX, off the 16-px
+// grain at fifteen camera positions in sixteen) with `dsa: 4` over the FG table, so the
+// FOREGROUND loses its leftmost 16 px — which is the strip the owner reports on scenes
+// 10-15 (docs/research/2026-08-28-deform-scene-left-edge-triage.md).
+//
+// TWO INDEPENDENT REASONS FACTOR0LOCK IS UNAVAILABLE HERE, and only the first was on the
+// record before: (1) scene()'s Factor0Lock cannot see table CONTENTS (a table is a Label
+// at comptime), so a live dsb (4, here) against the zero table is indistinguishable from
+// a live one against a real table; (2) plane A is not locked at all, and since 2026-08-28
+// the guard checks that too. Re-authoring dsb: 15 would clear reason (1) and NOT reason
+// (2) — it would leave this scene still refused, so the byte-moving change booked in
+// DEFERRED_WORK's Task-12 restatement no longer buys the Factor0Lock spelling. The only
+// upgrade path from Accept is SpriteMask, and it must cover PLANE A.
 // =====================================================================
 pub comptime fn rocking_scene(speed: int, shift: int) -> Scene {
     return scene(
@@ -355,19 +364,24 @@ pub const Scene_Rocking_Fast: Scene = rocking_scene(speed: 3, shift: 0)   // con
 // =====================================================================
 // Perspective — configs.emp:232-246. V-column floor curve plus a per-layer BG H-shimmer
 // that skips sky/mountains (dsb 15), goes faint on the hills (4) and strong on the
-// ground (2). Every layer is H-locked (FACTOR_0) for the same VDP quirk as Rocking, and
-// every layer carries dsa 4.
+// ground (2). Every layer's PLANE-B factor is H-locked (FACTOR_0) for the same VDP quirk
+// as Rocking; every layer's plane A is `fa: FACTOR_1` with dsa 4, i.e. not locked at all.
 //
-// LEFT-COLUMN POLICY (P3 Task 12): Accept — and unlike Rocking's, this Accept is a REAL
-// artifact decision, not a comptime-visibility concession. FACTOR_0 locks the BASE
-// factor, but the Shimmer table is live on plane B for the hills and ground layers
-// (dsb 4 / 2), and deform adds per-line plane-B HScroll on top of the lock — so on those
-// rows the leftmost partial column exists for most shimmer phases and renders at a
-// V-scroll the column buffer never wrote. That is what this family has ALWAYS shipped
-// (the "H-locked for the VDP quirk" note above was only ever true of the sky rows);
-// Task 12 makes the decision spelled instead of implied. The Gynoug answer. If the
-// sliver ever matters visually, the upgrade path is SpriteMask (emission pending — see
-// DEFERRED_WORK) — Factor0Lock is out of reach while the floor shimmers, by design.
+// LEFT-COLUMN POLICY (P3 Task 12): Accept — and unlike Rocking's, this Accept was ALWAYS
+// a REAL artifact decision rather than a comptime-visibility concession. FACTOR_0 locks
+// the BASE plane-B factor, but the Shimmer table is live on plane B for the hills and
+// ground layers (dsb 4 / 2), and deform adds per-line plane-B HScroll on top of the lock
+// — so on those rows the leftmost partial column exists for most shimmer phases and
+// renders at a V-scroll the column buffer never wrote. That is what this family has
+// ALWAYS shipped (the "H-locked for the VDP quirk" note above was only ever true of the
+// plane-B sky rows); Task 12 makes the decision spelled instead of implied. The Gynoug
+// answer. AND THE PLANE-A HALF IS LOUDER THAN THE SHIMMER: `fa: FACTOR_1` on every layer
+// means the foreground's own leftmost 16 px go too, on every row and at fifteen camera
+// positions in sixteen — the strip reported on scenes 13-15
+// (docs/research/2026-08-28-deform-scene-left-edge-triage.md). If the sliver matters
+// visually, the upgrade path is SpriteMask (emission pending — see DEFERRED_WORK) and it
+// must cover plane A. Factor0Lock is out of reach twice over — while the floor shimmers,
+// and while the foreground scrolls — by design.
 // =====================================================================
 pub comptime fn perspective_scene(v_shift: int, h_speed: int, v_speed: int) -> Scene {
     return scene(

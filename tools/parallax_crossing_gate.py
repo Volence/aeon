@@ -369,8 +369,12 @@ class RomAct:
         it installs: bits 1:0 = %11 ALWAYS (one HScroll mode since 2026-08-26,
         d-29-corrected — the per-cell %10 arm keyed off the H-deform table words is
         deleted), bit 2 set if a V-column table is attached. (That last arm sits behind the
-        CAP_PER_COL_VSRAM span and no shipped config attaches a column table, so it is inert
-        either way — restated rather than dropped so the derivation stays the source's.)
+        CAP_PER_COL_VSRAM span, and none of the CROSSING configs this gate compares attaches
+        a column table, so it is inert for this gate's candidates — restated rather than
+        dropped so the derivation stays the source's. Scoped to the candidates deliberately:
+        the tree DOES carry column-table configs, the six registry scenes that raise
+        CAP_PER_COL_VSRAM, and a blanket "no shipped config attaches one" was wrong here
+        until 2026-08-28.)
 
         CONSEQUENCE FOR THIS GATE: reg $0B no longer discriminates between the three
         candidate configs (they all derive %011); check 5 is now a consumed-at-all check

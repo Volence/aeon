@@ -65,11 +65,15 @@ ensure(BAND_OP_BIT_A == 0 && BAND_OP_BIT_B == 1, "scene_dsl's inlined band facto
 // numbers, which Decode_Factor_Curve and the fill's band hoist btst back out.
 ensure(CURVE_FLAG_OP_BIT == 0 && CURVE_FLAG_ACTIVE_BIT == 1, "scene_dsl's inlined curve flag bit positions (0, 1) drifted from engine.parallax.CURVE_FLAG_OP_BIT / CURVE_FLAG_ACTIVE_BIT — scene_band() packs both into band_curve.bc_flags and the runtime btsts them back out")
 // P3 Task 12 adds one of the same species. scene()'s factor0_lock verification spells the
-// locked plane-B factor as $0FF for the reason above; this holds that literal to
-// parallax_dsl's own encoding (FACTOR_0 = FACTOR_LOCKED = $0FF, s1 15 = "term zero").
+// locked factor as $0FF for the reason above; this holds that literal to parallax_dsl's
+// own encoding (FACTOR_0 = FACTOR_LOCKED = $0FF, s1 15 = "term zero"). ONE ENCODING FOR
+// BOTH PLANES: Decode_Factor_A and Decode_Factor_B are the same routine over different
+// record bytes (parallax.emp), so the same $0FF is what "this plane cannot H-scroll"
+// means on either of them — which is what lets the verification below scan `ly_fa`,
+// `ly_fb` and a curve's far end against a single literal.
 // FACTOR_0 resolves here without a `use`: parallax_dsl is a sigil COMPTIME_HELPERS member
 // and is glob-injected into every module (parallax_dsl.emp:9-10).
-ensure(FACTOR_0 == $0FF, "scene_dsl's inlined locked-factor encoding ($0FF) drifted from engine.level.parallax_dsl.FACTOR_0 — scene()'s factor0_lock verification compares every layer's ly_fb against it, and a drift would let a scrolling plane B claim the artifact cannot exist")
+ensure(FACTOR_0 == $0FF, "scene_dsl's inlined locked-factor encoding ($0FF) drifted from engine.level.parallax_dsl.FACTOR_0 — scene()'s factor0_lock verification compares every layer's ly_fa and ly_fb (and any curve's far end) against it, and a drift would let a scrolling plane claim the artifact cannot exist")
 
 // LAYER_WORLD_Y_MAX — the engine-wide ceiling on an act's vertical extent, and the bound
 // `layer()` replaced its `world_y < 512` with. It is NOT a parallax number and NOT a
@@ -396,13 +400,37 @@ pub comptime enum SceneVSplit {
 //                 the 1 the design priced — accepted against the measured reservation, see
 //                 the toml's axis5 rows.
 //   Factor0Lock   the artifact CANNOT OCCUR, and scene() VERIFIES the claim rather than
-//                 filing it: every real layer's plane-B factor must be FACTOR_0 (the
-//                 partial column exists only under non-zero plane-B HScroll), AND no live
-//                 plane-B H-deform amplitude may be reachable — deform adds per-line
-//                 HScroll ON TOP of the locked factor, so a locked base under a live dsb
-//                 brings the sliver back on exactly those rows. A scene that cannot pass
-//                 both (Rocking's zero-table dsb, Perspective's shimmer rows) spells
-//                 Accept; the claim stays checkable or it is not available.
+//                 filing it. THE CLAIM IS ABOUT BOTH PLANES, because the artifact is:
+//                 per-column V-scroll is one register bit for the whole screen, but the
+//                 partial column appears on a plane exactly when THAT plane's HScroll is
+//                 not a multiple of the 16-px grain, and each plane's HScroll is its own
+//                 sum (Decode_Factor_A/B plus that plane's deform sample). So the
+//                 verification is four conditions, symmetric across the planes: every
+//                 real layer's `fa` AND `fb` must be FACTOR_0, no layer may RAMP its
+//                 plane-B factor to a non-FACTOR_0 far end (`curve:`), and no live
+//                 H-deform amplitude may be reachable on EITHER plane — deform adds
+//                 per-line HScroll ON TOP of the locked factor, so a locked base under a
+//                 live `dsa`/`dsb` brings the sliver back on exactly those rows.
+//                 A scene that cannot pass all four (Rocking's zero-table dsb,
+//                 Perspective's shimmer rows, and BOTH families' `fa: FACTOR_1`
+//                 foreground) spells Accept; the claim stays checkable or it is not
+//                 available.
+//
+//                 EXPECT THIS TO BE HARD TO CLAIM, and read that as the answer rather
+//                 than as a defect in the guard. A side-scrolling scene's foreground
+//                 tracks the camera, so `fa` is FACTOR_1 and the lock is simply false
+//                 there; a truthful Factor0Lock needs a scene whose FOREGROUND does not
+//                 H-scroll either (a fixed arena, a locked cutscene backdrop). No scene
+//                 in this tree is one, and the two live answers for a scrolling
+//                 per-column scene are Accept and the unbuilt SpriteMask.
+//
+//                 UNTIL 2026-08-28 THE VERIFICATION READ `fb`/`dsb` ONLY. A scene could
+//                 lock plane B, declare Factor0Lock, pass the build, and still lose its
+//                 leftmost 16 px on plane A — the guard certifying a claim about the
+//                 plane nobody was looking at. Nothing shipped was mis-certified (both
+//                 per-column families spell Accept); the hole was in what the build
+//                 would have ADMITTED. Derivation:
+//                 docs/research/2026-08-28-deform-scene-left-edge-triage.md.
 //   Accept        ship the artifact. A REAL answer, not a loophole — it is what Gynoug
 //                 shipped and what both per-column families in this game ship today — and
 //                 making it spellable is what makes the mandatory declaration honest: the
@@ -1312,45 +1340,112 @@ pub comptime fn scene(layers: [SceneLayer; 16], count: int,
     //     finds one will believe the scene uses per-column VSRAM. Refused as noise.
     ensure(vdeform_on == 1 || lcm_undeclared == 1,
            "scene(): left_column_mask is declared but this scene attaches NO per-column V-deform table — the leftmost-partial-column artifact is a property of per-column VSRAM mode (VDP reg $0B bit 2), which this scene never enters, so the policy adjudicates an artifact that cannot occur. Remove the declaration; it would only mislead the next reader into believing this scene is a per-column one")
-    // (3) FACTOR0LOCK IS A VERIFIED CLAIM, both halves, or it is not available.
-    //     Half one: every real layer's plane-B factor is FACTOR_0 — the partial column
-    //     only exists under non-zero Plane-B HScroll. $0FF is inlined per the pin block
-    //     at the top of this file (FACTOR_0). The scan covers DORMANT layers too: a
-    //     disabled band inherits the PREVIOUS band's scroll words (the walker's
-    //     .band_disabled arm), so any non-locked factor inside the count can reach the
-    //     hardware and the conservative scan is the correct one.
+    // (3) FACTOR0LOCK IS A VERIFIED CLAIM, ON BOTH PLANES, or it is not available.
+    //
+    //     WHY BOTH. The variant certifies "the leftmost partial column CANNOT EXIST",
+    //     and that is a PER-PLANE fact. Per-column V-scroll (VDP reg $0B bit 2) is one
+    //     bit for the whole screen, but the sliver appears on a plane exactly when THAT
+    //     plane's HScroll is not a multiple of the 16-px V-scroll grain, and the two
+    //     planes' HScroll words are independent sums: Decode_Factor_A/B (the same
+    //     routine over different record bytes) plus that plane's own deform sample
+    //     (band_deform_shift_a/b against band_table_a/b). A locked plane B therefore
+    //     says nothing about plane A.
+    //
+    //     UNTIL 2026-08-28 THESE GUARDS SCANNED `fb`/`dsb` ONLY, and the omission was
+    //     not cosmetic: a scene could lock plane B, declare Factor0Lock, pass the build,
+    //     and still lose its leftmost 16 px on plane A. Nothing shipped was
+    //     mis-certified — both per-column families spell Accept — but the build would
+    //     have ADMITTED the false claim, which is the "gate certifies the plane nobody
+    //     is looking at" failure. Derivation and the measured signature:
+    //     docs/research/2026-08-28-deform-scene-left-edge-triage.md.
+    //
+    //     CONSEQUENCE, STATED SO IT IS NOT REDISCOVERED AS A BUG: a side-scrolling
+    //     scene's foreground tracks the camera (`fa: FACTOR_1`), so the lock is FALSE on
+    //     plane A for essentially every real scene, and Factor0Lock is out of reach for
+    //     them. That is the honest reading of the mechanism, not a guard to loosen. The
+    //     two live answers for a scrolling per-column scene are Accept and the unbuilt
+    //     SpriteMask (see the SceneLeftColMask banner).
+    //
+    //     HALF ONE — THE BASE FACTORS, one ensure per plane so the failure NAMES the
+    //     plane. $0FF is inlined per the pin block at the top of this file (FACTOR_0),
+    //     which holds it for both planes. The scan covers DORMANT layers too: a disabled
+    //     band inherits the PREVIOUS band's scroll words (the walker's .band_disabled
+    //     arm), so any non-locked factor inside the count can reach the hardware and the
+    //     conservative scan is the correct one.
+    //
+    //     THE CURVE IS A THIRD SCROLL SOURCE and it is scanned here as well. A
+    //     `curve: SceneCurve.To(fb2)` layer RAMPS the effective plane-B factor from its
+    //     own `fb` to `fb2` across the layer (parallax.emp's `.lp_curve` writes a moving
+    //     BG word under a constant FG one), so an all-FACTOR_0 `fb` scan passes while
+    //     plane-B HScroll leaves zero on every line below the layer top. Curves are BG
+    //     only by design (SceneCurve's banner: plane A is hard-locked to -Camera_X and
+    //     never lerped), so there is no plane-A twin of this one.
     let lcm_f0 = scene_lcm_is_factor0_lock(left_column_mask)
-    comptime var lcm_fb_unlocked = 0
+    // Flat accumulators over STATEMENT ifs, never nested if-expressions
+    // (docs/EMP_PITFALLS.md §1).
+    comptime var lcm_fa_unlocked    = 0
+    comptime var lcm_fb_unlocked    = 0
+    comptime var lcm_curve_unlocked = 0
     for i in 0..count {
         let l = layers[i]
+        if l.ly_fa != $0FF {
+            lcm_fa_unlocked = 1
+        }
         if l.ly_fb != $0FF {
             lcm_fb_unlocked = 1
         }
+        if scene_curve_is_none(l.ly_curve) == 0 {
+            if scene_curve_to(l.ly_curve) != $0FF {
+                lcm_curve_unlocked = 1
+            }
+        }
     }
+    ensure(lcm_f0 == 0 || lcm_fa_unlocked == 0,
+           "scene(): left_column_mask: Factor0Lock claims NEITHER plane can H-scroll, but PLANE A is not locked — a real layer's fa is not FACTOR_0. Plane A's HScroll is its own sum (Decode_Factor_A), and the leftmost partial column appears on a plane whenever THAT plane's HScroll is not a multiple of the 16-px V-scroll grain, so locking plane B does not save the foreground: it is the foreground strip the artifact eats. In a side-scrolling scene fa tracks the camera (FACTOR_1) and this claim is simply not available — lock every layer's fa to FACTOR_0 as well, or declare Accept / SpriteMask")
     ensure(lcm_f0 == 0 || lcm_fb_unlocked == 0,
-           "scene(): left_column_mask: Factor0Lock claims Plane B never H-scrolls, but a real layer's fb is not FACTOR_0 — the leftmost partial column exists on every line where Plane-B HScroll is non-zero, so this claim is false as authored. Lock every layer's fb to FACTOR_0, or declare Accept / SpriteMask")
-    //     Half two: no live plane-B H-deform amplitude with a table to sample. Deform adds
-    //     per-line Plane-B HScroll ON TOP of the locked factor (the fill's sample loop
-    //     writes fg|bg words), so a locked base under a live dsb brings the sliver back on
-    //     exactly those rows — Perspective's shimmer floor is the shipped example. The
-    //     test is CONSERVATIVE BY CONSTRUCTION and that is a documented cost, not an
-    //     oversight: table CONTENTS are Labels, invisible at comptime, so a live dsb
-    //     against the all-zero table (Rocking) is indistinguishable from a live one and
-    //     is refused with the rest. Rocking spells Accept for exactly this reason.
+           "scene(): left_column_mask: Factor0Lock claims NEITHER plane can H-scroll, but PLANE B is not locked — a real layer's fb is not FACTOR_0. The leftmost partial column exists on plane B on every line where its HScroll is non-zero, so this claim is false as authored. Lock every layer's fb to FACTOR_0, or declare Accept / SpriteMask")
+    ensure(lcm_f0 == 0 || lcm_curve_unlocked == 0,
+           "scene(): left_column_mask: Factor0Lock claims NEITHER plane can H-scroll, but a layer RAMPS its plane-B factor — curve: SceneCurve.To(..) with a far end that is not FACTOR_0. The ramp is a scroll source the fb scan cannot see: every fb can be locked while the curve walks plane-B HScroll away from zero across the layer, and the sliver comes back on those lines. Ramp to FACTOR_0, drop the curve, or declare Accept / SpriteMask")
+    //     HALF TWO — THE DEFORM AMPLITUDES, again one ensure per plane. Deform adds
+    //     per-line HScroll ON TOP of the locked factor (the fill's sample loop writes
+    //     fg|bg words from band_table_a/b under band_deform_shift_a/b), so a locked base
+    //     under a live dsa/dsb brings the sliver back on exactly those rows —
+    //     Perspective's shimmer floor is the shipped plane-B example, and both shipped
+    //     families carry `dsa: 4` over an FG table, which is the plane-A one.
+    //     The test is CONSERVATIVE BY CONSTRUCTION on both planes and that is a
+    //     documented cost, not an oversight: table CONTENTS are Labels, invisible at
+    //     comptime, so a live shift against the all-zero table (Rocking) is
+    //     indistinguishable from a live one against a real table and is refused with the
+    //     rest. Rocking spells Accept for exactly this reason.
+    comptime var lcm_a_amp = 0
     comptime var lcm_b_amp = 0
     for i in 0..count {
         let l = layers[i]
+        if l.ly_dsa != 15 {
+            lcm_a_amp = 1
+        }
         if l.ly_dsb != 15 {
             lcm_b_amp = 1
         }
     }
     if anchor_ch != $FF {
+        if scene_anchor_dsa(anchor) != 15 {
+            lcm_a_amp = 1
+        }
         if scene_anchor_dsb(anchor) != 15 {
             lcm_b_amp = 1
         }
     }
-    // A table that can reach plane B: the scene-level BG attachment, or any layer's own()
-    // table (an own table serves BOTH planes — see SceneDeform's banner).
+    // A table that can reach a plane: that plane's scene-level attachment (deform_fg for
+    // A, deform_bg for B — band_table_a/b resolve exactly this fallback), or any layer's
+    // own() table, which serves BOTH planes (see SceneDeform's banner).
+    comptime var lcm_a_table = 0
+    if scene_deform_is_none(deform_fg) == 0 {
+        lcm_a_table = 1
+    }
+    if any_own == 1 {
+        lcm_a_table = 1
+    }
     comptime var lcm_b_table = 0
     if scene_deform_is_none(deform_bg) == 0 {
         lcm_b_table = 1
@@ -1358,14 +1453,22 @@ pub comptime fn scene(layers: [SceneLayer; 16], count: int,
     if any_own == 1 {
         lcm_b_table = 1
     }
+    comptime var lcm_a_deform_live = 0
+    if lcm_a_amp == 1 {
+        if lcm_a_table == 1 {
+            lcm_a_deform_live = 1
+        }
+    }
     comptime var lcm_b_deform_live = 0
     if lcm_b_amp == 1 {
         if lcm_b_table == 1 {
             lcm_b_deform_live = 1
         }
     }
+    ensure(lcm_f0 == 0 || lcm_a_deform_live == 0,
+           "scene(): left_column_mask: Factor0Lock claims the leftmost partial column cannot exist, but this scene can put live H-deform on PLANE A — a layer or anchor dsa is not 15 while a table can reach that plane (the scene's deform_fg, or a layer's Own table, which serves both planes). Deform adds per-line plane-A HScroll on top of the locked factor, so the sliver comes back on the FOREGROUND on exactly those rows. Same conservatism as the plane-B half: table contents are Labels and invisible at comptime, so a live dsa against an all-zero table is refused too. Silence the plane-A amplitude, or declare Accept / SpriteMask")
     ensure(lcm_f0 == 0 || lcm_b_deform_live == 0,
-           "scene(): left_column_mask: Factor0Lock claims the leftmost partial column cannot exist, but this scene can put live H-deform on Plane B — a layer or anchor dsb is not 15 while a table can reach the plane (the scene's deform_bg, or a layer's Own table, which serves both planes). Deform adds per-line Plane-B HScroll on top of the locked factor, so the sliver comes back on exactly those rows. NOTE the check is conservative: table contents are Labels and invisible at comptime, so a live dsb against the all-zero table is refused too (Rocking spells Accept for this reason). Silence the B amplitude, or declare Accept / SpriteMask")
+           "scene(): left_column_mask: Factor0Lock claims the leftmost partial column cannot exist, but this scene can put live H-deform on PLANE B — a layer or anchor dsb is not 15 while a table can reach that plane (the scene's deform_bg, or a layer's Own table, which serves both planes). Deform adds per-line plane-B HScroll on top of the locked factor, so the sliver comes back on exactly those rows. NOTE the check is conservative: table contents are Labels and invisible at comptime, so a live dsb against the all-zero table is refused too (Rocking spells Accept for this reason). Silence the plane-B amplitude, or declare Accept / SpriteMask")
     // (4) SPRITEMASK IS REFUSED UNTIL ITS ENGINE EMISSION LANDS. The variant is spellable
     //     — the vocabulary is design §2's, complete — but an accepted declaration whose
     //     mechanism does not exist would ship the artifact while the build claims it is

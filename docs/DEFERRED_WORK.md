@@ -3566,6 +3566,8 @@ non-zero; intermittently they read zero.
 **What P3 Task 12 CLOSED (branch `p3/t12-left-column-mask`):**
 - The policy is now MANDATORY and authored, not implied: any scene attaching `SceneVDeform.Columns` must declare `left_column_mask: SceneLeftColMask.{SpriteMask|Factor0Lock|Accept}` or the build fails carrying the scene's authored signature (`scene()` in `engine/level/scene_dsl.emp`; a declaration on a non-per-column scene is refused as noise).
 - `factor0_lock` is a VERIFIED claim, both halves: every real layer `fb == FACTOR_0` AND no live plane-B deform amplitude with a table that can reach the plane — the second half because deform re-adds per-line HScroll on top of a locked factor (this booking's original "locking plane B HScroll to 0 eliminates the partial column" was only true table-free; Perspective's shimmer floor is the shipped counterexample).
+  - **SHARPENED 2026-08-28 (branch `parcel/leftcol-policy-plane-a`, byte-neutral): the verification was PLANE-BLIND and now covers both planes.** The artifact is per-plane — reg `$0B` bit 2 is one bit for the screen, but the sliver appears on a plane exactly when THAT plane's HScroll is off the 16-px grain, and the two planes' HScroll words are independent sums (`Decode_Factor_A/B` plus that plane's own deform sample). The guard consulted `fb`/`dsb` only, so a scene could lock plane B, declare `Factor0Lock`, pass the build, and still lose its leftmost 16 px on plane A. `scene()` now runs **five** halves: `fa` locked, `fb` locked, no plane-B factor curve ramping to a non-`FACTOR_0` far end (a third scroll source the `fb` scan could not see — `curve: SceneCurve.To(..)`), no live plane-A deform, no live plane-B deform. Each failure names its plane. Red-first: `games/sonic4/test/poison/poison_scene_lcm_factor0.emp` (one passing control + five poisons, five rows in `tools/emp_expect_fail.py`, count 5) yields **2** diagnostics on the pre-change tree and **5** on the post-change one.
+  - **CONSEQUENCE THE OWNER SHOULD KNOW: `Factor0Lock` is now effectively unreachable for any real side-scrolling scene.** A side-scroller's foreground tracks the camera (`fa: FACTOR_1`), so the plane-A lock is simply false for it. **Zero scenes in the tree declare `Factor0Lock`** (census: `effects_budget_check` reports `Accept:2`, `SpriteMask:0`, and the variant is spelled nowhere in any game data module), so nothing went red — but the remaining honest answers for a scrolling per-column scene are `Accept` and the unbuilt `SpriteMask`. That is the mechanism's answer, not a guard to loosen.
 - `accept` is spellable and is what both shipped per-column families now declare — Rocking because its factor0 truth (all-zero table) is comptime-invisible, Perspective because its artifact is genuinely reachable on the dsb-live rows.
 - The axis-5 price is measured, ruled and gated: **7 SAT table slots** full-height at the shipped 8×32 mask geometry (not the 1 design §2 priced), 1 sprite + 8 px on any line where the axis actually binds (per-line count) — accepted per `axis5_task12_resolution` in `tools/effects_budget_model.toml`, enforced every canonical build by `check_axis5_mask_pricing()` in `tools/effects_budget_check.py` (red-first both arms).
 - The claims are ROM-verified: `tools/left_col_mask_probe.py --claims` (static, .lst + ROM, offsets derived from the struct declarations).
@@ -3576,7 +3578,7 @@ non-zero; intermittently they read zero.
 3. **Mechanism ruling (RECORDED — the emission parcel must honour it):** the strip is OPAQUE sprites at screen X 0 (SAT X = 128), priority set, FIRST in the link chain (priority + exemption from per-line-limit drops). The VDP's X=0 sprite-MASKING feature CANNOT serve: it suppresses later sprites on covered lines and never repaints a plane pixel, and its first-sprite-on-line exemption makes it fail closed on top. The MD1-vs-MD2 partial-column fill value stays UNPINNED and is irrelevant to an opaque cover — it covers whatever was fetched. Capability: a NEW bit arriving WITH its gated block (per the promotion rule); `CAP_FG_SPRITE_STRIPS` is a different mechanism and stays reserved.
 4. **Runtime verification is staged:** `tools/left_col_mask_probe.py --mask` exits 2 (no subject) today and carries the full oracle-bus check list for the emission parcel's instrument build, including the per-line engagement check. Foreground/controller only.
 
-**When ready:** when a section uses per-column V-scroll *and* wants non-zero plane B HScroll (today NO installable config enters per-column mode — Rocking/Perspective are registry-only, probe-verified), or when Perspective's shimmer-floor sliver starts to matter visually. Cost when adopted: 7/77 table slots, 1/18 per-line sprites, 8/288 per-line pixels against the measured idle reservation. Side note for the same day: re-authoring Rocking's `dsb: 4` to 15 would unlock the verified `Factor0Lock` spelling at the cost of one shipped record byte per Rocking config (image-identity churn — owner call).
+**When ready:** when a section uses per-column V-scroll *and* wants non-zero HScroll on either plane (no ACT-INSTALLED config enters per-column mode — `OJZ_Default`/`OJZ_Underwater` attach no column table, probe-verified — but the DEBUG scene cycle installs the six registry configs directly, and reg `$0B` bit 2 was measured at 1 on scenes 10-15), or when the sliver starts to matter visually. **The emission must cover PLANE A**, not only plane B: the reported strip is on the foreground, and an emitter specified for plane B would land, pass its gate, and leave the symptom untouched. Cost when adopted: 7/77 table slots, 1/18 per-line sprites, 8/288 per-line pixels against the measured idle reservation. ~~Side note: re-authoring Rocking's `dsb: 4` to 15 would unlock the verified `Factor0Lock` spelling at the cost of one shipped record byte per Rocking config.~~ **WITHDRAWN 2026-08-28:** with the plane-A halves live, `dsb: 15` clears only one of the two reasons Rocking cannot claim `Factor0Lock` — its `fa: FACTOR_1` / `dsa: 4` foreground fails the lock regardless — so that byte-mover buys nothing and should not be spent.
 
 ## From §4.9 — Section-Local Entity Management
 
@@ -11867,9 +11869,52 @@ deliberate and documented (`scene_registry.emp:372`); the bug is that the roster
 a shipped record byte (`pcfg_v_deform_speed_bg`), so byte-mover + freeze ritual, and the values are
 owner taste. **Not fixed; not the strip.**
 
-**Still owed and still not done:** the two comments in `engine/level/parallax.emp` (`:670-672`,
+~~**Still owed and still not done:** the two comments in `engine/level/parallax.emp` (`:670-672`,
 `:793-795`) claiming no config attaches a column table and the emitter is unreachable. Six do.
-Flagged 2026-08-27, re-confirmed present 2026-08-28. Comment-only, byte-neutral.
+Flagged 2026-08-27, re-confirmed present 2026-08-28. Comment-only, byte-neutral.~~
+
+### ✅ THE POLICY HOLE AND THE STALE COMMENTS ARE CLOSED 2026-08-28 — branch `parcel/leftcol-policy-plane-a`, byte-neutral. **d-32 (the pixel ruling) IS STILL OPEN.**
+
+Item 1 above ("a policy hole independent of the pixel ruling") and the comment debt are both
+done; nothing about the owner's pixels changed and no scene data moved.
+
+- **`scene()`'s `Factor0Lock` verification now adjudicates BOTH planes**, five halves: `fa`
+  locked, `fb` locked, no plane-B factor curve ramping to a non-`FACTOR_0` far end, no live
+  plane-A deform, no live plane-B deform. Each message names its plane. The curve half was a
+  THIRD hole found while closing the first two and is plane B's own: a `curve: SceneCurve.To(..)`
+  layer ramps the effective plane-B factor across its span, so an all-`FACTOR_0` `fb` scan
+  passed while plane-B HScroll left zero on every line below the layer top.
+- **Nothing went red, because no scene in the tree declares `Factor0Lock`** — the two shipped
+  per-column families spell `Accept`, and `effects_budget_check`'s census reports `Accept:2` /
+  `SpriteMask:0` with the variant appearing in no game data module at all. **The consequence
+  worth stating to the owner: a correct `Factor0Lock` is now unreachable for any real
+  side-scrolling scene** (its foreground tracks the camera, so `fa` is never `FACTOR_0`). The
+  two live answers for a scrolling per-column scene are `Accept` and the unbuilt `SpriteMask`.
+- **Red-first, permanently:** `games/sonic4/test/poison/poison_scene_lcm_factor0.emp` — one
+  passing control (a fixed-screen scene that CAN still claim the variant, which is what proves
+  the guard did not over-fire) plus five poisons, each one authored field from the control.
+  Five rows in `tools/emp_expect_fail.py` (the lane `build.sh` runs build-fatally). Measured: the
+  module yields **2** `[Error]`s against the pre-change `scene_dsl.emp` (only `fb` and `dsb`
+  fire — the hole, demonstrated) and **5** after.
+- **The stale comments are gone from four sites, not two.** `parallax.emp`'s `.update_mode`
+  register half and `Vscroll_Write`'s emitter both had their census claim DELETED rather than
+  re-typed (a hardcoded claim about what the game currently authors goes stale on the same clock
+  that made these wrong); `Vscroll_Write`'s hardware-quirk banner now states the artifact is
+  per-plane and that mitigation (b) means locking BOTH planes; and the same plane-blind reading
+  was found and corrected in three more places the sweep turned up —
+  `tools/left_col_mask_probe.py` (its claim-2 conclusion asserted the artifact "CANNOT occur"
+  unqualified, and its claim-4 print said the game "never enters per-column mode" with no
+  DEBUG-cycle carve-out), `tools/parallax_crossing_gate.py` (a blanket "no shipped config
+  attaches a column table", now scoped to the crossing candidates it actually compares), and
+  both scene banners in `games/sonic4/data/effects/ojz_scenes.emp`.
+- **Verification:** all four shapes byte-identical against a pre-change build of the same tree
+  (sonic4 `55d4781e`/`0327c059`, demo `3415e3ef`/`7599953e`, assembler sigil `914846bf042b`);
+  `emp_expect_fail` 45/45; pytest 1549 passed / 8 skipped / 49 subtests, 0 failed; warn-tier
+  drift is exactly one added `module.unreachable` naming the new poison module (compared by
+  NAME, not count, per `docs/EMP_PITFALLS.md` §3).
+
+**WHAT IS STILL OPEN HERE:** d-32 itself — the owner's ruling on the sixteen foreground pixels —
+and the `SpriteMask` emission, which must be specified for **plane A**. Neither is touched.
 
 ## SPRITE-OWNER — click a hardware sprite, get the object that drew it (BUILT 2026-08-27, branch `parcel/sprite-owner`)
 
