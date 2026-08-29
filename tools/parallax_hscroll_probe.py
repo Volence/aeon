@@ -176,9 +176,15 @@ MAX_PARALLAX_BANDS = _emp_const("engine/system/constants.emp", "MAX_PARALLAX_BAN
 # NUMBER. BE_SIZE above is the 10-byte LEGACY PREFIX, which is the right size for reading
 # a band's fields (the prefix sits at the start of every record) and the WRONG size for
 # stepping to the next one: `Parallax_Shadow_Bands` reserves
-# `(BAND_ENTRY_LEN + BAND_EXT_BYTES + BAND_CURVE_BYTES) * MAX_PARALLAX_BANDS`, and this
-# game declares CAP_FACTOR_CURVE, so the live stride is 20. Striding by 10 reads every
-# band from index 1 on out of the middle of the previous record.
+# `(BAND_ENTRY_LEN + BAND_EXT_BYTES + BAND_CURVE_BYTES + BAND_DRIFT_BYTES) *
+# MAX_PARALLAX_BANDS`, and this game declares CAP_FACTOR_CURVE, so the live stride is 20
+# (24 on a band-drift instrument build). Striding by 10 reads every band from index 1 on
+# out of the middle of the previous record.
+#
+# THE SUM IS OVER EVERY TAIL MIRROR AND MUST GAIN EACH NEW ONE. BAND_DRIFT_BYTES was added
+# by the band-drift parcel; a tail left out of this sum is SILENT on a canonical build (the
+# mirror is 0) and wrong on the instrument build that measures the capability, which is the
+# worst possible place for it to be wrong.
 #
 # FOUND 2026-08-27 in this probe's sibling, tools/left_col_mask_probe.py, where the same
 # mistake produced 15 claim failures against a correct ROM — all at band >= 1, because
@@ -187,7 +193,8 @@ MAX_PARALLAX_BANDS = _emp_const("engine/system/constants.emp", "MAX_PARALLAX_BAN
 # `band_record`, whose `(size: <expression>)` is over capability constants.
 SHADOW_STRIDE = (_emp_const("engine/ram.emp", "BAND_ENTRY_LEN")
                  + _emp_const("engine/ram.emp", "BAND_EXT_BYTES")
-                 + _emp_const("engine/ram.emp", "BAND_CURVE_BYTES"))
+                 + _emp_const("engine/ram.emp", "BAND_CURVE_BYTES")
+                 + _emp_const("engine/ram.emp", "BAND_DRIFT_BYTES"))
 assert SHADOW_STRIDE >= BE_SIZE, (
     "derived shadow stride %d is smaller than sizeof(band_entry) %d — ram.emp's mirrors "
     "and parallax.emp's struct disagree" % (SHADOW_STRIDE, BE_SIZE))

@@ -3,6 +3,15 @@
 *2026-08-29. DESIGN ONLY — no engine code, no generator edits, no tests were written for this
 document. It is the contract the implementation parcel executes from.*
 
+> **IMPLEMENTED 2026-08-29, branch `band-drift`.** §4.3 has been REPLACED with fitted numbers and
+> §4.4/§4.5 added, per the re-measurement this document itself demanded. Everything else is left
+> as written, including the parts the implementation found to be wrong — those are annotated in
+> place with `⚠ CORRECTED AT IMPLEMENTATION` rather than edited away, because knowing what was
+> believed is load-bearing here. The corrections are: §2's `band_drift.bd_rate_1616(a1)` spelling
+> (§2), the "four gated spans" count (§7 row 7 / §8.2), the mirror set's missing fourth importer
+> (§8.2), `EFFECTS_AUTHORING.md` as the home for scene-field docs (§8.2 row 8), and §10.4's
+> expectation that the byte-identity ensure can be proven red (§10.4).
+
 **Written against aeon `aa2a9f297bcce77a0957aab0205b00e71607ad09`** (this worktree's base;
 verified reachable at `origin/master` with `git branch -r --contains HEAD`). Every aeon claim
 below was read out of the source at that revision. **No artifact was measured** — this worktree
@@ -193,6 +202,17 @@ One capability-gated block, in `Parallax_Update` (`engine/level/parallax.emp`), 
     .cap_band_drift_setup_end:
     }
 
+    // ⚠ CORRECTED AT IMPLEMENTATION — `band_drift.bd_rate_1616(a1)` IS A SILENT BUG.
+    // The .field-in-disp sugar does not compose through a CONTAINING struct: it assembles to
+    // offsetof(band_drift, bd_rate_1616) = 0, i.e. the RECORD BASE, and reads band_top_plane +
+    // band_factor_a as a 16.16 drift rate on every band of every frame with no diagnostic.
+    // The tail's displacement must be a named const built from BOTH offsetofs, exactly as
+    // band_curve_step / band_ext_table_a already are and for the reason their banner gives:
+    //     const band_drift_rate = offsetof(band_record, br_drift)
+    //                           + offsetof(band_drift, bd_rate_1616)
+    // What shipped is `move.l band_drift_rate(a1), d1`, plus an even-displacement ensure
+    // beside it (the read is a move.l).
+
     // … inside the enabled arm, immediately after `jbsr Decode_Factor_B`
     //     (d2 = -decode(camX, factor_b)), BEFORE the snap/lerp:
     if (Game.SCANLINE_CAPS & CAP_BAND_DRIFT) != 0 {
@@ -346,32 +366,91 @@ should be stated rather than discovered.
 Step 4b runs only on anchored scenes (one config in the tree carries `anchor_ch`), and only over
 the bands below the split. Not modelled; named.
 
-### 4.3 Totals against the real budget
+### 4.3 Totals against the real budget — **MEASURED 2026-08-29. THE MODEL HELD.**
 
-Using `tools/effects_budget_model.toml`: `axis1_budget_cycles = 103743`,
-`axis1_worst_scene_cycles = 42740.77`.
+> **§4.1 and §4.2 above are the DERIVATION and are kept as written**, because this section is
+> scored against them. What follows replaces §4.3's derived table with fitted numbers, per
+> `[parallax.cost_model]`'s standing rule. Full evidence, recipe and raw tables:
+> **`docs/benchmarks/scanline-p4/BAND-DRIFT.md` §4.**
 
-| scene shape | drift block | Step 4a rider | total/frame | % of axis-1 budget | % of worst shipped scene |
+**Three builds, not two, and the third was not in this design's plan.** §4.1 and §4.2 price two
+independent costs — the drift block and Step 4a's copy widening — and this document predicted them
+separately while conceding the probe would fold the second into "whichever term it attributes it
+to". That concession was avoidable: a build with the **widened record and the block elided**
+(`BAND_DRIFT_N = 1`, capability NOT declared) separates them exactly.
+
+| build | caps | `BAND_DRIFT_N` | record | drift spans | crc / len |
 |---|---|---|---|---|---|
-| 4 bands, all enabled, drift authored | 4×56 + 8 = 232 | 4×20 = 80 | **312** | 0.30% | 0.73% |
-| 4 bands, **no drift authored**, bit declared | 232 | 80 | **312** | 0.30% | 0.73% |
-| 8 bands | 456 | 160 | **616** | 0.59% | 1.44% |
-| 16 bands (the ceiling) | 904 | 320 | **1224** | 1.18% | 2.86% |
-| capability OFF | 0 | 0 | **0** | 0% | 0% |
+| canonical | `$005E` | 0 | 20 | 0 | `a9676c6b` / 735818 |
+| i3 | `$005E` | 1 | 24 | 0 | `6ad54642` / 735816 |
+| i2 | `$00DE` | 1 | 24 | 3 pairs | `c9767161` / 736010 |
 
-The second row is the honest one and is the reason the capability matters: **a game that declares
-the bit pays for it on every scene**, because both the accumulate (capability-gated, not
-rate-gated) and the copy widening (record shape) are unconditional under the bit. A game that does
-not declare it pays exactly zero cycles, zero ROM and zero RAM.
+`tools/parallax_cost_probe.py`, spread 0 on every fixture of all three runs, two independent
+band-count ladders giving **identical** marginals.
 
-**These are derivations, not measurements.** `[parallax.cost_model]`'s own standing rule — *"the
-next parcel that touches a `Parallax_*` routine re-measures per the P3 standing rule rather than
-carrying them"* — applies to this parcel. The implementation parcel must re-run
-`tools/parallax_cost_probe.py` on a capability-raised instrument build and replace the table above
-with fitted numbers. Predicted new column: a `band_drift_per_band_cycles` of **~56**, plus **~20**
-folded into whichever term the probe attributes Step 4a's copy to. Recording the prediction here
-is deliberate — if the measurement lands far from it, the model is wrong somewhere and that is
-worth finding.
+| quantity | **predicted here** | **measured** | gap |
+|---|---|---|---|
+| `band_drift_per_band_cycles` (block alone, `i2 − i3`) | **56** | **52** marginal (**56** exactly on band 1) | −4 marginal |
+| Step 4a copy widening per band (`i3 − canonical`) | **~20** | **16**, zero frame constant | −4 |
+| frame constant (the `lea`) | 8 | 12 | +4 |
+| **combined per band** | **76** | **68** | **−10.5%** |
+
+| scene shape | **predicted** | **MEASURED** | % axis-1 budget | % worst shipped scene |
+|---|---|---|---|---|
+| 4 bands, drift authored | 312 | **284** | 0.274% | 0.664% |
+| 4 bands, **no drift authored**, bit declared | 312 | **284** | 0.274% | 0.664% |
+| 8 bands | 616 | **556** | 0.536% | 1.301% |
+| 16 bands (the ceiling) | 1224 | **1100** | 1.060% | 2.574% |
+| capability OFF | 0 | **0** | 0% | 0% |
+
+The second row is the honest one and the measurement confirms it exactly: **a game that declares
+the bit pays for it on every scene**, drift authored or not, because the accumulate is
+capability-gated (not rate-gated) and the copy widening is a property of the GAME's record shape.
+A game that does not declare it pays zero cycles, zero ROM and zero RAM.
+
+**Every term is within 11% and the shape is exactly right** — linear in band count (`total = 12 +
+68n` on both ladders, n = 1..4), and zero movement on every other term in the walker. The model
+held.
+
+**The 4-cycle residual is NOT explained, and is recorded as measured rather than rationalised.**
+The emitted instructions (read out of `s4.i2.bin` at the span labels, not transcribed) price at
+exactly 56 nominal per enabled band, and band 1 measures exactly `56 + 8`. The *marginal* band
+measures 52. Something in the widened loop body is 4 cycles cheaper from the second band on and
+this measurement does not identify it. The same 4-cycle gap appears in the copy widening (16
+against a nominal 20 for one added `move.l (a1)+,(a4)+`), which is suggestive and is exactly the
+kind of suggestion that has been wrong in this tree before.
+
+### 4.4 ⚠ WHAT THE RE-MEASUREMENT FOUND THAT HAS NOTHING TO DO WITH DRIFT
+
+Two findings that outweigh the drift columns, both surfaced by making the instrument reach the
+subject:
+
+1. **`tools/parallax_cost_probe.py` was measuring a half-stride fixture.** It carried
+   `BE_SIZE = 10` as the band-record stride while the shipped record has been **20 bytes since
+   2026-08-26**. Every synthetic config it installed was laid out at half the stride the walker
+   advances by, so bands 1..n−1 were decoded out of the middle of their predecessors — band 0
+   being the one index a wrong stride cannot corrupt is exactly what let it look plausible. The
+   stride is DERIVED from the `.lst` now.
+2. **`[parallax.cost_model]`'s rows were stale by up to 13.7%** for a reason unrelated to this
+   parcel: they were fitted at a 10-byte record, the record widened three days later, and the
+   standing rule never fired because no parcel touched a `Parallax_*` routine. Re-measured on the
+   canonical ROM: `band_perline` 854 → **970.6**, `multiband` 20 → **39.1**, `anchor_ops` 60.77 →
+   **84.9**. **And the un-anchored residual went 0.00 → 67.56** — not noise, spread 0 — so a term
+   the additive model does not carry became non-negligible at the wider record. Booked.
+
+The drift columns are immune to both: they are differences between three builds measured by the
+same corrected instrument on the same day, so whatever the model is missing cancels.
+
+### 4.5 ⚠ THE ADOPTION RIDER THIS DESIGN MISSED
+
+With the drift block live, sigil's **contract-closure gate fails**: `[call.live-clobbered] (D1c)`,
+GONE firing `Parallax_Update @ Decode_Factor_B :: d2 (got 0, want 1)`. `add.w (a4), d2` reads d2
+immediately on return, making it a genuine live output where the analysis previously saw it dead.
+GONE is the destructive direction the gate is loudest about, so it is a hard failure. The baseline
+lives in the **sigil** repo (`crates/sigil-harness/src/contract_baseline.rs`) and must move in the
+same paired commit as any adoption. **It does not affect the canonical shapes** — they elide the
+block and build green with the gate on — so it is an adoption cost, not a landing one. Both
+instrument builds above used `SIGIL_CONTRACTS=0` and say so.
 
 ---
 
@@ -510,7 +589,7 @@ symbol. Where none exists, the row says NONE and that is the answer, not an omis
 | 4 | `BAND_DRIFT_N` | pinned literal, 0 or 1 | — | 0 = tail absent; record byte-identical to today | record shape | (a) the capability-off identity `ensure` in `engine/level/parallax.emp` gains a third disjunct; (b) **NEW** two-directional pin in `games/sonic4/data/effects/scene_registry.emp`, modelled on its `CAP_FACTOR_CURVE` pair |
 | 5 | `BAND_DRIFT_BYTES` | mirror const, `engine/ram.emp` | 0 or 4 | 0 | shadow reservation + `DRIFT_ACC_LONGS` | the `extern("Parallax_Shadow_Scroll_A") − extern("Parallax_Shadow_Bands") == sizeof(band_record) * MAX_PARALLAX_BANDS` `ensure` in `engine/level/parallax.emp` — its MESSAGE must gain the drift term or it will name the wrong constant |
 | 6 | `Parallax_Drift_Acc` | `[u32; DRIFT_ACC_LONGS * MAX_PARALLAX_BANDS]`, 16.16 px | wraps mod 2³² — seamless, §3.2 | zeroed by `Parallax_Init`'s long clear | RAM, inside `Parallax_State` | `ensure((extern("Parallax_State_End") − extern("Parallax_State"))/4 == PARALLAX_STATE_LONGS)` in `engine/level/parallax.emp` — `PARALLAX_STATE_LONGS` gains the drift terms; and the `% 4 == 0` tail ensure beside it |
-| 7 | `CAP_BAND_DRIFT` | `pub const`, `engine/level/scene_dsl.emp` | **`$0080`** — derived in §7.2, and the reserved comment block shifts up one bit in the same commit | bit clear = block elided, zero cost | the four gated spans of §2 | `tools/scene_spans.py` derives from the `pub const CAP_*` lines (no edit); `tools/test_scene_span_labels.py`'s gapless-run test is what **forces** `$0080`, and its declared-name-list test carries a literal that must gain the name. The span lane will report "NOT GATED ANYWHERE" until a game raises it (§10.1) |
+| 7 | `CAP_BAND_DRIFT` | `pub const`, `engine/level/scene_dsl.emp` | **`$0080`** — derived in §7.2, and the reserved comment block shifts up one bit in the same commit | bit clear = block elided, zero cost | the ~~four~~ **THREE** gated spans of §2 (⚠ CORRECTED: §2's own listing has three blocks — setup, accum, step — and three is what shipped; "four" appears here and in §8.2 and was never derivable from §2) | `tools/scene_spans.py` derives from the `pub const CAP_*` lines (no edit); `tools/test_scene_span_labels.py`'s gapless-run test is what **forces** `$0080`, and its declared-name-list test carries a literal that must gain the name. The span lane will report "NOT GATED ANYWHERE" until a game raises it (§10.1) |
 | 8 | `Factor0Lock` ∧ drift | — | refused | — | — | **NEW** arm in `scene()`, `engine/level/scene_dsl.emp` — §6.3 |
 | 9 | shipped-hand-scene adoption | — | refused | — | — | **NEW** `ensure((SceneRegistry_CapsFolded & CAP_BAND_DRIFT) == 0, …)` in `games/sonic4/data/effects/scene_registry.emp`, modelled on the `CAP_FACTOR_CURVE` owner gate at the same site — §11 card 1 |
 | 10 | schema `layer.drift: {"rate": int}` | JSON | as row 2 | absent = `None` | `tools/effects_gen.py` → `layer(drift: SceneDrift.Rate(r))` | **NONE TODAY on the aeon side.** `effects_gen.py` refuses unknown keys, so an unknown `drift` key is refused before the field lands; after it lands, the range is enforced by row 2's `ensure` at build time, not by the generator. The empyrean schema is the other half and is not this lane's file. |
@@ -595,8 +674,8 @@ Adding a third capability tail is not a local edit, because the tail pattern's c
 | 4 | `games/sonic4/data/effects/scene_registry.emp` | the import list (a partial import of `band_record` fails **at the declaration**, in `parallax.emp`, naming a type that file plainly declares — its own banner warns about this), the two-directional `BAND_DRIFT_N` pin, the shipped-hand-scene owner gate |
 | 5 | `games/sonic4/test/scene_equiv_proof.emp` | the import list and the capability-off byte-identity ensure |
 | 6 | `games/sonic4/config/game.emp` | `SCANLINE_CAPS` — **only on adoption**, §11 card 1 |
-| 7 | `tools/effects_gen.py` | the JSON `layer.drift` lowering (**owned by another parcel tonight — this document does not touch it**) |
-| 8 | `docs/EFFECTS_AUTHORING.md`, `docs/ENGINE_ARCHITECTURE.md` §4.6 | the field, and §6.4's composition |
+| 7 | `tools/effects_gen.py` | ⚠ **CORRECTED AT IMPLEMENTATION — THIS ROW IS NOT OPTIONAL AND IT IS NOT ABOUT THE FIELD.** The generator writes the `use engine.parallax.{...}` import list of `games/sonic4/data/generated/ojz/act1/effects_scenes.emp`, which is a **FOURTH** module re-elaborating `band_record` — `parallax.emp`'s own banner names three, and enumerating importers over the tree cannot find this one because it does not exist until the generator runs. Adding the tail to the three hand-authored importers left this list short and turned the WHOLE build red with `unknown type: band_drift` pointing at `parallax.emp`. That one line SHIPPED with this parcel. The JSON `layer.drift` lowering did not, and is still another parcel's. |
+| 8 | ~~`docs/EFFECTS_AUTHORING.md`~~, `docs/ENGINE_ARCHITECTURE.md` §4.6 | the field, and §6.4's composition. ⚠ **CORRECTED: `EFFECTS_AUTHORING.md` is the RASTER DSL's document** — `raster_words` / `band` / `patchable` — and contains no `layer()`, no `scene()` and no scene attachment. The scene vocabulary is documented in `scene_dsl.emp`'s own banners, ARCH §4.6, and the per-parcel `docs/benchmarks/scanline-p*/` records. This parcel put the field in ARCH §4.6 and `BAND-DRIFT.md`, and left a signpost in `EFFECTS_AUTHORING.md` saying where the scene vocabulary lives — two designs in a row have routed scene-field docs to the wrong file. |
 | 9 | `tools/effects_budget_model.toml` | the re-measured cost column (§4.3) |
 | 10 | fixtures | §10 |
 
@@ -696,6 +775,17 @@ each **shown** red rather than asserted red:
 | `poison_drift_cap_mismatch` (×2) | `BAND_DRIFT_N` raised without `CAP_BAND_DRIFT`, and the reverse |
 
 ### 10.4 The byte-identity proof must be extended AND proven red
+
+> **⚠ CORRECTED AT IMPLEMENTATION — THE SECOND HALF IS NOT OBTAINABLE.** The ensure is
+> `(SCANLINE_CAPS & (CAP_MULTI_DEFORM_TABLE | CAP_FACTOR_CURVE | CAP_BAND_DRIFT)) != 0 ||
+> sizeof(band_record) == sizeof(band_entry)`, and sonic4's `SCANLINE_CAPS` is `$005E`, which
+> already carries `CAP_FACTOR_CURVE`. The left disjunct is unconditionally true, so **the guard
+> cannot fire for this game and has been dead since the d-15 showcase on 2026-08-26** — flipping
+> `BAND_DRIFT_N` alone produces no "24 against 20", it produces the registry's reverse pin. The
+> "PROVEN RED (2026-08-20)" comment this section cites is provenance from when the guard could
+> still fire and now reads as a live property of an assertion that has none. The disjunct gained
+> `CAP_BAND_DRIFT` for correctness; the red flip is booked in `DEFERRED_WORK.md` rather than
+> claimed.
 
 `games/sonic4/test/scene_equiv_proof.emp`'s capability-off ensure must name `BAND_DRIFT_N`, and —
 following the precedent already recorded in that file's own comment (*"PROVEN RED (2026-08-20):

@@ -431,6 +431,120 @@ factor_curve_data_dependence_cycles = 132  # K1 with ONE thing changed, the far-
                                    # operand-timed on the 68000. So the per-line figure is a
                                    # CENTRE, not a constant: +-0.30 cyc/line across this range.
 factor_curve_status = "MEASURED ON A NON-CANONICAL, CAPABILITY-RAISED INSTRUMENT BUILD. tools/curve_probe.py --arm cost, which REFUSES a ROM whose band record is not the 20-byte curve shape rather than measuring the flat path and calling it a curve"
+
+# ---------------------------------------------------------------------------------------
+# ⚠ EVERY ROW IN [parallax.cost_model] ABOVE WAS RE-MEASURED 2026-08-29 AND MOVED.
+#
+# The rows above were fitted 2026-08-22 (T13) at a TEN-byte band record. The record became
+# TWENTY bytes on 2026-08-26 when the d-15 showcase adopted a curve, and this section's own
+# standing rule -- "the next parcel that touches a Parallax_* routine re-measures" -- never
+# fired, because no parcel touched one until now. They were stale by up to 13.7% and nothing
+# in the tree said so.
+#
+# WORSE, AND THE REASON IT WENT UNCAUGHT: tools/parallax_cost_probe.py carried `BE_SIZE = 10`
+# as the band-record STRIDE, so a re-measure would itself have been garbage -- every synthetic
+# fixture laid out at half the stride the walker advances by, with bands 1..n-1 decoded out of
+# the middle of their predecessors. Band 0 is the one index a wrong stride cannot corrupt,
+# which is exactly what let it look plausible. Same tell, same shape as the 2026-08-27 finding
+# in tools/left_col_mask_probe.py. The stride is DERIVED from the .lst under measure now
+# (`set_stride()`), and printed on every run.
+#
+# Re-measured on the CANONICAL debug ROM (record 20), spread 0 on every fixture, every window
+# preemption-free. Evidence + the three-build split: docs/benchmarks/scanline-p4/BAND-DRIFT.md §4.
+#
+#   term            was (record 10)   now (record 20)
+#   base                    4664.00           4719.1
+#   band_perline             854.00            970.6      <- +13.7%, the big mover
+#   multiband                 20.00             39.1
+#   line_fg_only              26.00             26.0
+#   line_bg_only              26.90             27.2
+#   line_both                124.53            125.3
+#   shift_lines                2.00              2.0
+#   band_sampling            154.00            167.2
+#   vdeform                 1472.00           1452.9
+#   anchor                    981.4           1024.5
+#   anchor_ops                60.77             84.9
+#
+# ⚠ AND THE UN-ANCHORED RESIDUAL WENT 0.00 -> 67.56, WHICH IS THE ROW TO LOOK AT. It is not
+# noise (spread 0 on all 26 fixtures). The additive model was EXACTLY identified at the 10-byte
+# record and is not at the 20-byte one, so a term the model does not carry became non-negligible
+# when the record widened. Naming it is a separate parcel; booked in docs/DEFERRED_WORK.md under
+# "Band drift". The rows above are NOT edited in place by this parcel -- doing that would have
+# hidden which measurement is which, and the drift columns below do not depend on them.
+remeasured_2026_08_29_base_cycles          = 4719.1
+remeasured_2026_08_29_band_perline_cycles  = 970.6
+remeasured_2026_08_29_multiband_cycles     = 39.1
+remeasured_2026_08_29_line_fg_only_cycles  = 26.0
+remeasured_2026_08_29_line_bg_only_cycles  = 27.2
+remeasured_2026_08_29_line_both_cycles     = 125.3
+remeasured_2026_08_29_shift_lines_cycles   = 2.0
+remeasured_2026_08_29_band_sampling_cycles = 167.2
+remeasured_2026_08_29_vdeform_cycles       = 1452.9
+remeasured_2026_08_29_anchor_cycles        = 1024.5
+remeasured_2026_08_29_anchor_ops_cycles    = 84.9
+remeasured_2026_08_29_residual_cycles              = 67.56   # un-anchored subset (18) -- was 0.00
+remeasured_2026_08_29_residual_cycles_all_fixtures = 64.2
+remeasured_2026_08_29_record_bytes         = 20
+remeasured_2026_08_29_status = "MEASURED on the canonical debug ROM a9676c6b/735818, record 20, spread 0. The rows at the head of this section are the SUPERSEDED 10-byte-record fit and are kept beside these so the two are distinguishable."
+
+# ---------------------------------------------------------------------------------------
+# CAP_BAND_DRIFT — time-driven plane-B scroll (band drift, 2026-08-29).
+#
+# SAME STANDING AS CAP_FACTOR_CURVE's ROWS: measured on NON-CANONICAL, capability-raised
+# instrument builds, because no canonical image contains the mechanism (sonic4 declares $005E,
+# BAND_DRIFT_N is 0, all three gated spans are elided).
+#
+# THREE BUILDS, NOT TWO, AND THE THIRD IS WHAT MAKES THIS A SPLIT RATHER THAN A LUMP. The
+# capability bundles two independent costs -- the drift block, and Step 4a's whole-record copy
+# widening 20 -> 24 -- and a two-build differential cannot separate them. The third build (i3)
+# has the WIDENED RECORD WITH THE BLOCK ELIDED, so each pair varies one thing:
+#
+#   canonical  caps $005E  BAND_DRIFT_N 0  record 20  0 spans   a9676c6b/735818
+#   i3         caps $005E  BAND_DRIFT_N 1  record 24  0 spans   6ad54642/735816
+#   i2         caps $00DE  BAND_DRIFT_N 1  record 24  3 spans   c9767161/736010
+#
+# Two independent band-count ladders (W0-W3 flat; W4/W5/W6/W24 with a NULL table), spread 0 on
+# every fixture of all three runs, IDENTICAL marginals on both ladders. Recipe + the raw table:
+# docs/benchmarks/scanline-p4/BAND-DRIFT.md §4.
+band_drift_per_band_cycles = 52.00   # i2 - i3, MARGINAL band. The block alone: MOVE.L
+                                     # (d16,A1),D1 + ADD.L D1,(A4) + ADD.W (A4),D2 + ADDQ.L
+                                     # #4,A4. Nominal 68000 for those four is 56, and band ONE
+                                     # measures exactly 56 + the 8-cycle setup LEA; the MARGINAL
+                                     # band measures 52. The 4-cycle gap is REAL (spread 0) and
+                                     # is NOT explained -- something in the widened loop body is
+                                     # cheaper from the second band on, and this measurement does
+                                     # not identify it. Recorded as measured, not rationalised.
+band_drift_record_copy_cycles = 16.00  # i3 - canonical, per band, ZERO frame constant. Step 4a's
+                                     # copy_run_longs goes 5 -> 6, i.e. ONE added
+                                     # move.l (a1)+,(a4)+ (nominal 20 on the datasheet; 16 on
+                                     # this instrument's IDEAL-CYCLE clock). It is paid on EVERY
+                                     # band of EVERY scene of a game that declares the bit,
+                                     # whether or not any layer drifts -- the record shape is a
+                                     # property of the GAME, not of the band.
+band_drift_frame_cycles = 12.00      # i2 - i3 at 1 band, less the per-band term. The setup
+                                     # `LEA ($8944).W, A4` is 8 nominal; measured 12.
+band_drift_total_per_band_cycles = 68.00   # 52 + 16 -- what a declaring game pays per band
+band_drift_residual_cycles = 0.00    # the ladders are EXACTLY linear: total = 12 + 68n on both,
+                                     # for n = 1..4, on two independently-varied fixture sets
+band_drift_status = "MEASURED ON THREE NON-CANONICAL BUILDS. tools/parallax_cost_probe.py with the DERIVED record stride; both instrument builds needed SIGIL_CONTRACTS=0 (see the adoption rider below)"
+# THE PREDICTION THIS WAS SCORED AGAINST, kept because a design that records one earns the
+# comparison: docs/superpowers/specs/2026-08-29-band-drift-design.md §4 predicted 56 per band for
+# the block plus ~20 for the copy, i.e. 76/band and 312 cyc for a 4-band scene. MEASURED 68/band
+# and 284. Every term within 11%, the SHAPE exactly right (linear in band count, zero on every
+# other term in the walker). THE MODEL HELD.
+band_drift_predicted_per_band_cycles = 76.00
+band_drift_predicted_4band_cycles = 312.00
+band_drift_measured_4band_cycles = 284.00       # 0.274% of axis1_budget_cycles
+band_drift_measured_8band_cycles = 556.00       # 0.536%
+band_drift_measured_16band_cycles = 1100.00     # 1.060% -- the MAX_PARALLAX_BANDS ceiling
+# ⚠ ADOPTION RIDER, MEASURED AND NOT IN THE DESIGN: with the drift block live, sigil's
+# contract-closure gate FAILS with a GONE row -- "Parallax_Update @ Decode_Factor_B :: d2
+# (got 0, want 1)" -- because `add.w (a4),d2` makes d2 a genuine live output of that call.
+# GONE is the destructive direction the gate is loudest about, so it is a hard failure. The
+# baseline is in the SIGIL repo (crates/sigil-harness/src/contract_baseline.rs) and must move in
+# the same paired commit as any adoption. It does NOT affect the canonical shapes, which elide
+# the block and build green with the gate ON.
+band_drift_adoption_needs_sigil_contract_baseline = true
 # ---------------------------------------------------------------------------------------
 
 # ANCHOR: P2's "TWO REGIMES" ARE REFUTED. They were the frame dilution above (W10/W12 caught
