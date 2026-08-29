@@ -13240,6 +13240,37 @@ boots still means a hand-authored `preset()` call, i.e. a programmer's edit. **D
 describe this as "authoring effects without a programmer"** — `docs/EDITOR_RASTER_PRESETS.md`
 §C is the sentence to use instead.
 
+**⚠ RULED BY THE LANE OVERSEER 2026-08-29 — GAP ACCEPTED, AND §16.2a IS SHARPENED RATHER THAN
+EXCEPTED.** The parcel was right to flag it and right not to decide it. The ruling:
+
+**§16.2a governs SCAFFOLDING, and this payload is CONTENT.** `OJZ_BandDemo` exists only to be
+looked at in the lab — it has no consumer outside DEBUG and never will, so gating its `pub data`
+costs nothing and is plainly right. An **editor-authored** preset document is the opposite: the
+entire purpose of the pipeline is that what an author writes reaches the ROM. Its install path is
+DEBUG-only **because the section-binding half has not landed yet**, which is a fact about the
+calendar, not about what the data is for.
+**So the discriminator is not "can anything install it today" — it is "is this data authored
+content or is it lab apparatus".** Gate the payload when it is apparatus. Never gate authored
+content on a build shape: doing so makes the GENERATOR's output shape depend on `DEBUG`, which
+manufactures the exact silent shape-divergence the parcel identified — a preset a programmer
+later binds into a section emitting a zero-length program in release only, invisible to every
+gate here.
+*The parcel's own argument reached the same place from the cost side; this ruling supplies the
+principle, so the next reader does not have to re-run the cost argument to know which way to go.*
+
+**BUT THE PROBE ITSELF IS APPARATUS WEARING CONTENT'S CLOTHES, AND THAT IS A SEPARATE FACT THE
+PARCEL DID NOT SEPARATE.** `authored_probe.json` is two saturated red/blue bands chosen to be
+unmistakable in a lab — nobody wants them in a shipped ROM. The ruling above says the *mechanism*
+must not gate content; it does not say this *document* has earned permanent residence. Today it
+costs 30 release bytes that nothing can install, which is cheap and reversible, and it buys the
+only end-to-end proof the seam works.
+**CLOSURE CONDITION, and it is a condition rather than a promise: when the section-binding half
+lands and a real authored band exists, `authored_probe.json` is deleted or replaced in that same
+parcel.** Whoever takes the binding work owns this. If the binding half is still unbuilt when the
+owner next reviews release contents, the probe is the first thing to justify — **a probe with no
+removal condition is how dormant test data becomes permanent**, and 30 bytes is exactly the size
+at which nobody argues.
+
 **AN ACCEPTED GAP AGAINST §16.2a, FLAGGED FOR THE OWNER RATHER THAN DECIDED QUIETLY.** The
 band-ownership design §16.2a ruled, one day before this parcel, that *a DEBUG-gated trigger
 does not imply a DEBUG-gated payload* — "gate both, or justify the gap out loud" — and gated
