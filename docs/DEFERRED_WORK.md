@@ -93,6 +93,68 @@ Every item here had a stated blocker that **no longer holds**. This is the pick-
 by leverage, not by section. Each links back to its full entry below; read the entry (and its
 correction) before planning — several carry caveats that shrink the win.
 
+### DMA SPLIT-REJECT NEEDS TWO FREE IMPORTANT SLOTS, AND NOTHING COUNTS PER-FRAME STRADDLES — booked 2026-08-29
+
+**The sigil lane's finding** (their `parcel/declare-section-alignment`, merged sigil `15cf396c`,
+tip `54fde158` — both verified reachable at their `origin/master` here), **found while chasing a
+hypothesis of theirs that turned out FALSE, and the false half is worth recording first.**
+
+**NOT a defect: the VDP's 128 KB DMA-source boundary is not held true by placement.**
+`engine/system/dma_queue.emp`'s `.transfer` core computes the crossing from the real source
+address and splits (`sub.w d3,d0; sub.w d1,d0; blo .split`), so **no placement can make it read
+the wrong data.** That is the reassuring result and it is theirs.
+
+**The exposure is one layer over, and it is ours.** `.split_reject` (`dma_queue.emp:198`,
+verified firsthand) rejects **BOTH halves** when only one Important slot is free — the comment at
+`:72` says why, and it is right: enqueuing half would publish half-landed data, since `page_in`
+marks pages RESIDENT on carry-clear. **So a straddling landing needs TWO free Important slots or
+it is dropped whole.**
+
+`DPLC_ENTRY_RESERVE = 2` (`engine/objects/dplc.emp:65`) is what reserves them, and **its own
+comment already states the hazard**: *"Two is the floor, not a comfortable margin. Raise it
+before adding another per-frame Important producer."*
+
+**WHAT SIGIL ADDED, AND IT IS THE PART THAT MAKES THIS A BOOKING RATHER THAN A KNOWN NOTE: the
+reserve is sized from total art VOLUME, which bounds EXISTENCE and not the per-frame COUNT.**
+Our own derivation reads *"~354 KB across the cast, i.e. ~2.7 x 128 KB, so at least two
+boundary-straddling entries exist by construction"* — that argues **at least two exist somewhere
+in the ROM**, and says nothing about how many can want slots in **one frame**. **How many
+transfers straddle a boundary in a given frame is a function of where art lands, and nothing
+measures it.**
+
+**Symptom if it bites: a DROPPED transfer** — a late or missing art update, a visible glitch.
+**Not corruption**, because the reject is the safe direction. That is also why it would be
+reported as "the sprite flickered" rather than as anything a gate would catch.
+
+**What would close it:** count straddling Important enqueues per frame over a real run and check
+the peak against `DMA_IMPORTANT_SLOTS - dplc_peak_entries()`. That is a measurement, not a
+comptime fact, because it depends on where art lands. **Do not raise the reserve without it** —
+raising a number nobody has measured trades a possible drop for a certain cost.
+
+### BASE-RESIDUE ASSUMPTIONS WITHOUT AN `ensure` ARE INVISIBLE TO THE ALIGNMENT DECLARATION — booked 2026-08-29
+
+**Stated by the sigil lane against their own new gate, which is the right direction for a caveat
+to travel.** Their alignment table declares a requirement per section with a cited source; 104 of
+107 rows declare 2 **by rule rather than by measurement**. They swept `ensure(` across all of
+`engine/` and `games/` and it raised the count by **zero** — but **that sweep can only find
+requirements that already have a comptime wall beside them.**
+
+**The near-miss is in OUR source and I verified it firsthand:**
+`engine/sound/z80_sound_driver.emp:1034-1037` records a 256-byte page-aligned optimisation
+**deliberately NOT taken**, because `ensure((DacSampleTable & $FF) == 0)` fails today — the table
+sits at `$85AD`, after the other engine-head tables. The note ends *"keep the ensure with it"*.
+
+**Had someone taken that optimisation without writing the `ensure`, the requirement would exist,
+sigil's table would declare 2, and the gate would pass green.** The alignment gate is sound and
+its blind spot is exactly the class its input cannot see: **a residue assumption that lives only
+in the instruction encoding.**
+
+**Sigil's proposed kill is an `.emp` lint for base-residue assumptions lacking an `ensure`; it is
+NOT built, and it is theirs.** Ours is the discipline it would enforce: **when you take an
+optimisation that depends on a base's low bits, write the `ensure` in the same commit** — not as
+belt-and-braces, but because it is the only artifact that makes the requirement visible to
+anything outside the routine.
+
 ### PER-SCENE BORROW SWITCH — deliberately NOT built; revival on the first real instance — booked 2026-08-29 (d-41)
 
 **The owner ruled the left-edge fix in after seeing both ROMs running side by side**, accepting
