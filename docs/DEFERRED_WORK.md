@@ -12541,3 +12541,40 @@ proving the writer still changes the bits it *does* own — or "preserve everyth
 "paint nothing" and stays green. Same family as `GATE-VACUITY` booked earlier today, and it bites
 harder here because the field's emptiness is not a coincidence to be fixed later; it is the
 starting state of every act.
+
+---
+
+## A CONSTANT REFERENCED ONLY BY NAME IS INVISIBLE TO A SEARCH FOR ITS VALUE (booked 2026-08-29; aurora's catch, my error)
+
+I reported bits 15:14 of the collision cell word as **free**, in a peer message, a hub report and a
+**filed owner decision card**. They are **`PATH_B_SOL_SHIFT`** — the second path's solidity —
+declared at `tools/collision_pipeline.py:54`, used in `bake_cell` at `:189`, self-tested at `:543`.
+
+**Three compounding mechanisms, and the middle one is the transferable rule:**
+
+1. **I read `:50-53` and stopped.** `PATH_B_SOL_SHIFT` is `:54`. The truncation family, with the
+   window ending exactly one line before the answer — and truncation leaves no mark, so the
+   listing looked complete.
+2. **My confirming grep searched for the LITERAL** — `0xC000`, `>> 14`, `<< 14`, `0x3FFF` — and
+   returned **zero hits**. That grep was correctly written and honestly run. The pipeline **never
+   spells the mask**: the declaration is `= 14` with the range only in a **comment**, and every use
+   is `<< PATH_B_SOL_SHIFT` through the name. **A search for a value cannot find a constant
+   referenced only by name. Grep the DECLARATION, not the literal** — and when a range is asserted
+   in a comment rather than in code, no value-search of any spelling will reach it.
+3. **My other grep enumerated the constant names I already believed in** (`BLOCK_ID_MASK`,
+   `CHUNK_XFLIP_BIT`, `CHUNK_YFLIP_BIT`, `PATH_A_SOL_SHIFT`, `SOL_NONE`) — a search that can only
+   confirm, never surprise. **Enumerate the block, do not enumerate your beliefs about it.**
+
+**What survives, narrower than what I claimed:** `bake_plane_cell` (`:219`) reads only
+`PATH_A_SOL_SHIFT`, and Aurora splits the paths into separate plane arrays, so nothing the editor
+writes reaches the single-word encoding. **Free with respect to Aurora's per-plane feed; NOT free in
+the cell word's own encoding.** Two different claims, and I asserted the wrong one.
+
+**Why it had to be corrected loudly rather than amended quietly** (aurora's argument): plane B is
+essentially unauthored — 644 cells solid on A and **zero** the other way — so anyone re-deriving
+"are 15:14 free" against real content gets an empty field and concludes *free*. **The emptiness that
+makes the field look unused is the same emptiness that makes a gate over it vacuous.** Their
+preservation parcel pins both halves so a future session cannot re-derive the wrong one.
+
+*Third time in one day that the unchecked thing was in the middle rather than at either end, and the
+first time the miss was in a grep rather than an assumption.*
