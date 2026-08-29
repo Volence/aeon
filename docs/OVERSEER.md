@@ -896,6 +896,51 @@ deferring to "something else owns this", confirm the something else exists.
 
 ## Worktree quirks (agents hit all of these)
 
+- **⚠⚠ `git update-ref` ON A CHECKED-OUT BRANCH DOES NOT REFRESH THAT TREE'S INDEX, AND THE NEXT
+  EXACT-PATH COMMIT THERE SILENTLY DELETES EVERYTHING THE INDEX HAS NOT SEEN** (added 2026-08-29,
+  chain 182; **this lane's defect, and the worst of the session** — it reverted a whole landed
+  parcel off master and nothing announced it).
+  **The mechanism.** Chain 182 was landed from a detached worktree and pushed. To bring the main
+  checkout's `master` level with it, this lane ran `git update-ref refs/heads/master <sha>` —
+  because the main tree could not take the merge, its working copy holding the owner's unruled
+  `d-44` edit on a file the parcel regenerates. **`update-ref` moves the ref and touches neither
+  the working tree nor the INDEX.** The next commit in that tree — `git add` on two enumerated
+  doc paths, then `git commit` — wrote a tree from the **stale index plus those two files**. Every
+  path added between the index's state and the new ref was recorded as **deleted**.
+  **Damage: 988 deletions.** The entire `editor-raster-preset` parcel — the preset document, the
+  generated program, `ram.emp`'s cursor, the hotkey cycle, both new test files, the Aurora
+  deliverable page, the contract corrections, the `DEFERRED_WORK` entry — all reverted off master
+  by a commit whose message said it was booking a lane-log entry.
+  **Why it is worse than losing work: the goldens are frozen at an `aeon_rev` that HAS the parcel,
+  and master did not.** So the frozen artifacts and master disagreed while every CRC in the ledger
+  stayed correct — and sigil's port gates read aeon master through `AEON_DIR`. A byte-perfect
+  freeze pointing at a tree that no longer matches it.
+  **EXACT-PATH STAGING DID NOT SAVE IT, AND THAT IS THE PART TO INTERNALISE.** This repo's staging
+  rule is written to bound blast radius, and it did bound it — for the paths NAMED. It says
+  nothing about paths the index believes are gone, because those are not staged, they are
+  *inherited from the index*. **A rule about what you add cannot protect what you do not add.**
+  **How it escaped every check that was running:** `git status` was clean-looking (the tree still
+  had the files on disk — only the INDEX disagreed), the push succeeded, the CRCs in the ledger
+  were correct, and the suite still passed on the *frozen worktree*, which was never affected.
+  **It surfaced only because the hub asked whether a peer had received a specific deliverable
+  file, and the file was not on master.** A question about a document, not about a build.
+  **RULES, and the first is absolute:**
+  1. **NEVER move a branch that is checked out somewhere with `update-ref`.** If the tree cannot
+     take the change, leave it behind and say so — a stale ref is visible and harmless; a stale
+     index is invisible and destructive. Prefer `git -C <tree> reset --keep <sha>` or simply do
+     not sync that tree.
+  2. **`git show --stat` YOUR OWN COMMIT, every time, and read the deletion count.** This is
+     shared-protocol bar 23 — a commit message is a claim about a diff and nothing checks it —
+     arriving with a 988-line disproof available in one command that was not run, on a commit
+     whose message described adding one line.
+  3. **After any repair of this shape, verify BOTH directions**: every restored path hash-equal to
+     the source revision, AND every path with legitimate later work hash-equal to the pre-repair
+     tip. One direction alone silently reverts the other half.
+  *Cost accounting, because it argues for rule 1 rather than for vigilance: the main checkout was
+  in this state only because the owner's `d-44` edit sits unruled on a file the parcel
+  regenerates. An unanswered decision created a tree that could not merge, which invited the
+  shortcut, which destroyed the parcel. **The unanswered question was upstream of the outage.***
+
 - **A KILLED FREEZE LEAVES A HALF-STATE THAT `git status` CANNOT SEE, BECAUSE THE MISSING
   ARTIFACT IS GITIGNORED — the tool everyone checks is the one that cannot report it** (added
   2026-08-29, chain 182; this lane's instance, and the sigil lane rates it above their own
