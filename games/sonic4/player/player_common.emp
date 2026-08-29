@@ -23,7 +23,7 @@ use engine.structs.{Act, CharacterDef, cd_stand_h_off, cd_roll_h_off}
 use engine.coords.{pixels_to_coord, abs_w}
 use engine.objects.objdef.{vram_art}
 use engine.constants.{NUM_PLAYERS,
-        RF_PRIORITY_SHIFT, RF_PRIORITY_MASK, ST_IN_AIR, BUTTON_LEFT, BUTTON_RIGHT, SECTION_SIZE_SHIFT, SCREEN_HEIGHT,
+        RF_PRIORITY_SHIFT, RF_PRIORITY_MASK, RF_XFLIP, RF_YFLIP, ST_IN_AIR, BUTTON_LEFT, BUTTON_RIGHT, SECTION_SIZE_SHIFT, SCREEN_HEIGHT,
         PHYS_SKID_MIN, PHYS_JUMP_BUFFER, PHYS_FALL_CAP,
         ST_ROLLING, ST_PUSHING, ST_XFLIP, COLLISION_NONE, EDGE_WRAP_V, EDGE_KILL, BUTTON_A, BUTTON_B, BUTTON_C,
         BUTTON_UP_BIT, BUTTON_B_BIT, BUTTON_DOWN_BIT, BUTTON_LEFT_BIT, BUTTON_RIGHT_BIT}
@@ -215,6 +215,52 @@ pub const BUTTON_JUMP_MASK      = BUTTON_A | BUTTON_B | BUTTON_C
 pub const BUTTON_JUMP_MASK_NO_B = BUTTON_A | BUTTON_C   // while the cheat owns B
 
 const PLAYER_DEBUG_FLY_SPEED = 16       // px/frame — matched to CAM_MAX_Y_STEP
+
+// -----------------------------------------------
+// GROUND-ANGLE SPRITE TILT — the frame geometry Player_ApplyTilt indexes.
+//
+// Every shipped character sheet carries the walk cycle FOUR times over and the
+// run cycle FOUR times over, at four stored orientations 45 deg apart; the other
+// four of the eight visual orientations are reached by flipping BOTH axes. This
+// is S3K's layout verbatim (Animate_Sonic, sonic3k.asm:24808-24872) and it
+// arrived with the donor art — the walk blocks occupy mapping frames $01-$08,
+// $09-$10, $11-$18, $19-$20 and the run blocks $21-$24, $25-$28, $29-$2C,
+// $2D-$30, which is exactly what our Walk/Run scripts' frame bytes (7 8 1..6 and
+// $21..$24, byte-identical to S&K's AniSonic00/AniSonic01) sit at the base of.
+//
+// TILT_SETS is not a free parameter: it is fixed at 4 by the `andi.w #3` that
+// extracts bits 5-6 of the biased angle, and the ensure below pins the block
+// arithmetic those two shift counts encode.
+const TILT_SETS         = 4                     // stored orientations per cycle
+const TILT_WALK_BASE    = $01                   // lowest WALK frame  (block 0)
+const TILT_WALK_LEN     = 8                     // frames per WALK block
+const TILT_RUN_BASE     = $21                   // lowest RUN frame   (block 0)
+const TILT_RUN_LEN      = 4                     // frames per RUN block
+const TILT_WALK_SHIFT   = 3                     // lsl to turn block 0..3 into a WALK offset
+const TILT_RUN_SHIFT    = 2                     // ... and into a RUN offset
+const TILT_BIAS         = $10                   // +22.5 deg: snap to NEAREST, not floor
+const TILT_FLIP_PAIR    = (1 << RF_XFLIP) | (1 << RF_YFLIP)     // 180 deg
+const TILT_FLIP_CLEAR   = $FF - TILT_FLIP_PAIR
+
+// The shift counts ARE the block lengths — spelled as shifts because the offset
+// is `block << shift` and a `mulu` here would be indefensible (§2.1). Pinned so a
+// re-paged sheet that changed a cycle length fails the build instead of indexing
+// into an unrelated frame.
+ensure(1 << TILT_WALK_SHIFT == TILT_WALK_LEN, "TILT_WALK_SHIFT no longer encodes TILT_WALK_LEN")
+ensure(1 << TILT_RUN_SHIFT  == TILT_RUN_LEN,  "TILT_RUN_SHIFT no longer encodes TILT_RUN_LEN")
+
+// The four walk blocks must tile the span that ENDS where the run blocks begin —
+// this is the one structural claim about the sheet the code depends on, and it is
+// checkable from the four constants alone.
+ensure(TILT_WALK_BASE + TILT_SETS * TILT_WALK_LEN == TILT_RUN_BASE,
+       "the WALK blocks no longer end where the RUN blocks begin — the character sheets were re-paged; re-cut TILT_*_BASE/LEN")
+
+// Player_ApplyTilt's gate is a single `cmpi.b #ANIM_RUN / bhi`, and its
+// walk-vs-run stride pick is a bare `tst.b` — both only work while WALK and RUN
+// are the two lowest, adjacent anim ids. Nothing else in the tree depends on
+// that, so it is pinned here rather than assumed.
+ensure(ANIM_WALK == 0, "ANIM_WALK is no longer 0 — Player_ApplyTilt's `tst.b` stride pick is invalid")
+ensure(ANIM_RUN == ANIM_WALK + 1, "ANIM_RUN is no longer ANIM_WALK+1 — Player_ApplyTilt's single-compare gate would admit or drop an anim")
 
 // player-block field displacements (a4-relative). File-local hand-typed literals,
 // matching the PBLK_* convention in player_ground/player_air; the ensures below
@@ -720,7 +766,170 @@ pub proc Player_Display (a0: *Sst) clobbers(d0-d6/a1-a3) {
                                                 // AnimateSprite, so Dust_Tick
                                                 // preserves it.
         jbsr    AnimateSprite
+        jbsr    Player_ApplyTilt                // AFTER AnimateSprite (it owns
+                                                // mapping_frame and the flip pair),
+                                                // BEFORE Player_LoadArt (it streams
+                                                // the art mapping_frame names)
         jbra    Player_LoadArt
+}
+
+// -----------------------------------------------
+// Player_ApplyTilt — turn the ground angle into a sprite orientation.
+//
+// S3K: Animate_Sonic's walk/run branch, `loc_126A4`-`loc_12742`
+// (sonic3k.asm:24808-24872), verified in the disassembly. The mechanism is
+// (a) pick one of FOUR stored tilted art blocks by the angle's octant, and
+// (b) set BOTH render flags for the upper half-turn, which is a 180 deg
+// rotation of the block the octant picked. Eight visual orientations, 45 deg
+// apart, snapped. It is NOT runtime rotation and it is NOT flips alone.
+//
+// The arithmetic, transcribed from that routine:
+//
+//   d = angle;  if (d > 0 && d < $80) d -= 1        // symmetric round bias
+//   if (facing RIGHT) d = ~d                        // fold facing INTO the angle
+//   d += $10                                        // snap to NEAREST, not floor
+//   if (d & $80) flip both axes                     // the upper half-turn
+//   block = (d >> 5) & 3                            // bits 5-6 = the octant
+//   mapping_frame = script_frame + (block << shift)
+//
+// The facing fold is the half that is easy to get wrong and hard to see: get the
+// `not` on the wrong side of the branch and the tilt is correct running one way
+// and mirrored running the other, which reads as correct in half of any test.
+// Derived boundary table (facing RIGHT, block/flip): $F0-$10 0/no, $11-$30 3/YES,
+// $31-$50 2/YES, $51-$70 1/YES, $71-$8F 0/YES, $90-$AF 3/no, $B0-$CF 2/no,
+// $D0-$EF 1/no. Facing LEFT is the mirror: 0,1,2,3 with the flip on the other
+// half. tools/test_sprite_tilt.py sweeps all 512 (angle, facing) pairs against
+// this and executes the built ROM's own bytes over the same sweep.
+//
+// FOUR DELIBERATE DEVIATIONS FROM S3K, all forced by our tree:
+//
+// 1. THE BASE FRAME IS RE-READ FROM THE SCRIPT, NOT ADDED TO. S3K can
+//    `add.b d3,mapping_frame(a0)` (:24872) because its Animate_Sonic reaches
+//    that write on EVERY frame. Ours does not: AnimateSprite early-outs at
+//    `subq.b #1,anim_timer / bpl .done` and leaves mapping_frame carrying last
+//    frame's block, so a plain add would compound it every frame and walk off
+//    the end of the sheet — and the tilt would also lag the angle by up to the
+//    animation hold (8 frames at a slow walk, since the hold is
+//    ($800-|gsp|)>>8). Reading the script's own byte back gives the unbanked
+//    base on every frame, advancing or not, which makes this idempotent by
+//    construction. This is the SAME deviation, for the same reason, that
+//    tails_appendage.emp's ball-spin bank already documents — that block is the
+//    house precedent and this follows it.
+//
+// 2. NO TUMBLE GATE. S3K checks flip_type/flip_angle first and diverts to
+//    Anim_Tumble (:24932), the somersault off springs and ramps. We have no
+//    tumble mechanism, so the gate would guard nothing. The full-360 tumble art
+//    IS in our sheets at frames $31/$3D/$49 (519 tiles, referenced by nothing);
+//    it falls out of a DIFFERENT selection (divu #$16 on a counter, not an
+//    octant of the ground angle) and is a follow-up, not part of this.
+//
+// 3. PUSH SUPPRESSION IS STRUCTURAL, NOT A TEST. S3K needs `btst #5,status ->
+//    loc_12A72` (:24838) because its Animate_Sonic is reached with the walk/run
+//    script still selected while pushing, and diverts to AniSonic04 there. Our
+//    Player_Animate classifies ANIM_PUSH ahead of walk/run (see its priority
+//    comment), so ANIM_WALK/ANIM_RUN are unreachable while ST_PUSHING — the
+//    equivalent decision, made one layer earlier. The gate below inherits it.
+//
+// 4. NO WALK/RUN RE-DERIVE. S3K re-picks AniSonic00 vs AniSonic01 here from
+//    |ground_vel| >= $600 and the speed-shoes doubling (:24845-24858). We read
+//    the anim id instead, because Player_Animate has ALREADY made that decision
+//    (ANIM_RUN_THRESHOLD) and re-deriving it would be a second, drift-prone
+//    copy of one rule.
+//
+// Child sprites do not rotate: Tails' appendage is a separate SST animated
+// through the object system on its own table, so it never reaches here. That is
+// S3K's shipped look too (a shielded Sonic running a loop has an upright
+// shield), not an omission.
+//
+// In:  a0 = player SST, AnimateSprite already run this frame
+// Out: mapping_frame biased into the tilted block and the flip pair re-derived,
+//      or both left exactly as AnimateSprite set them when the running anim has
+//      no tilted art behind it
+// Clobbers: d0-d2, a1 (d2 also via RefreshSpritePieceCount); a0 preserved for
+//           Player_LoadArt
+// -----------------------------------------------
+pub proc Player_ApplyTilt (a0: *Sst) clobbers(d0-d2/a1) preserves(a0) {
+        // Only WALK and RUN have tilted blocks behind them. Every other script —
+        // skid, duck, push, the idle poses, roll — stays upright on a slope, and
+        // S3K has the identical limitation. ANIM_WALK/ANIM_RUN are 0/1 (ensured
+        // above), so one unsigned compare is the whole gate.
+        //
+        // Keying on the ANIM ID and not on the script's duration byte is
+        // load-bearing. S3K routes into this path on the script header being
+        // $FF and keeps $FE for its speed-picked roll; we reused the one
+        // sentinel DUR_DYNAMIC ($FF) for BOTH meanings, so our Roll script heads
+        // with the same byte Walk does. Testing the header here would tilt the
+        // rolling ball.
+        move.b  anim(a0), d0
+        cmpi.b  #ANIM_RUN, d0
+        bhi     .done
+
+        // --- angle -> orientation (S3K :24811-24840) ---
+        moveq   #0, d1                          // d1 = the half-turn flip delta
+        move.b  angle(a0), d2
+        bmi     .biased                         // upper half: no bias
+        beq     .biased                         // exactly flat: no bias
+        subq.b  #1, d2                          // bias so the snap rounds symmetrically
+.biased:
+        move.b  status(a0), d0                  // d0 = the facing bit (anim id re-read below)
+        andi.b  #1 << ST_XFLIP, d0
+        bne     .faced                          // facing LEFT: the angle is already
+                                                // in the sense the art was drawn for
+        not.b   d2                              // facing RIGHT: mirror the angle
+.faced:
+        addi.b  #TILT_BIAS, d2
+        bpl     .flip_ready
+        moveq   #TILT_FLIP_PAIR, d1             // upper half-turn -> flip BOTH axes
+.flip_ready:
+        // Re-derive the flip pair rather than OR into what AnimateSprite left.
+        // For the tilt the horizontal flip is the facing XORed with the
+        // half-turn and the vertical one is the half-turn alone, so plain facing
+        // is not the answer on these two scripts. Same shape as S3K's
+        // `andi.b #$FC / eor / or` at :24833-24835.
+        andi.b  #TILT_FLIP_CLEAR, render_flags(a0)
+        eor.b   d1, d0
+        or.b    d0, render_flags(a0)
+
+        lsr.b   #5, d2
+        andi.w  #TILT_SETS - 1, d2              // d2 = orientation block 0..3
+                                                // (bits 5-6 of the biased angle)
+
+        // --- base frame: the byte the running script is on, re-read ---
+        // anim_frame indexes the byte AnimateSprite last resolved to a frame (it
+        // is post-incremented before the read, and both the AF_END wrap and the
+        // anim-change path clear it before re-reading), and that byte already
+        // passed AnimateSprite's control-code test — so it is always a real
+        // frame index, never a $F7+ command.
+        moveq   #0, d1
+        move.b  anim(a0), d1
+        movea.l anim_table(a0), a1
+        add.w   d1, d1
+        adda.w  (a1,d1.w), a1                   // a1 = the running script
+        moveq   #0, d1
+        move.b  anim_frame(a0), d1
+        move.b  1(a1,d1.w), d0                  // d0 = the UNTILTED frame
+
+        tst.b   anim(a0)                        // ANIM_WALK == 0 (ensured above)
+        bne     .run_stride
+        lsl.w   #TILT_WALK_SHIFT, d2            // walk blocks are 8 frames apart
+        jbra    .banked
+.run_stride:
+        lsl.w   #TILT_RUN_SHIFT, d2             // run blocks are 4 frames apart
+.banked:
+        add.b   d2, d0
+        move.b  d0, mapping_frame(a0)
+
+        // mapping_frame moved, so the H1 frame-data cache and the piece count
+        // must move with it (sst.emp: "MUST be refreshed on every
+        // mapping_frame/mappings write"). Without this the renderer draws the
+        // PRE-tilt frame's pieces from the stale offset, and the DEBUG staleness
+        // assert in Render_Sprites fires. Unconditional rather than guarded on
+        // "did the frame actually move": on flat ground the block is 0 and the
+        // write is a no-op, and the six bytes a compare would cost buy ~60
+        // cycles out of ~127,000 — the same trade tails_appendage.emp made.
+        jbsr    RefreshSpritePieceCount
+.done:
+        rts
 }
 
 // Glide_Pose_Table8 — S3K's RawAni_Knuckles_GlideTurn (sonic3k.asm:31588) expressed

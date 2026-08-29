@@ -48,10 +48,24 @@ ensure(VRAM_TEST_SONIC + dplc_peak_tiles(_dplc_sonic) <= VRAM_TEST_OBJ,
 //   - frames 193 ($C1) and 200 ($C8) carry 13 entries. Neither is referenced by
 //     any Ani_Sonic script today, so neither is reachable — the only thing
 //     keeping the permanent-drop failure off the table.
-//   - the worst REACHABLE frame is 196 ($C4), at 12 entries — exactly
-//     DMA_IMPORTANT_SLOTS, zero margin — and LookUp holds it
-//     (`[5, $C3, $C4, AF_BACK, 1]`) for as long as UP is held. On that frame the
-//     Important queue is 100% player and the art-page landing is dropped.
+//   - TWO frames reach 12 entries — exactly DMA_IMPORTANT_SLOTS, zero margin. On
+//     either, the Important queue is 100% player and the art-page landing is
+//     dropped for that frame.
+//       · 196 ($C4), held by LookUp (`[5, $C3, $C4, AF_BACK, 1]`) for as long as
+//         UP is held. Reachable since the anim scripts landed.
+//       · 14 ($0E), the second frame of WALK TILT BLOCK 1. Reachable since the
+//         ground-angle tilt shipped (Player_ApplyTilt, player_common.emp) made
+//         mapping frames $09-$20 and $25-$30 selectable during ordinary running.
+//         It is also the sheet's TILE peak (29, tied with $1E) — the same frame
+//         the VRAM guard above already measured, which is why that wall needed
+//         no change.
+//     The tilt is what makes this reachable WHILE THE LEVEL IS STREAMING rather
+//     than only while the camera pans up, which is the part that got worse. It is
+//     exactly one animation frame wide: measured over all 36 newly-reachable
+//     frames the next-worst is 10, so nothing sits between 10 and the cap.
+//     Measured, and re-measured on every build, by tools/test_sprite_tilt.py
+//     (test_the_tilt_does_not_worsen_sonics_important_queue_peak), which pins the
+//     set of tilted frames at the cap to exactly {$0E} so it cannot grow quietly.
 //
 // CLOSING IT means re-paging sonic.bin so no frame exceeds
 // DMA_IMPORTANT_SLOTS - DPLC_ENTRY_RESERVE (10), then replacing this ratchet

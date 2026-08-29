@@ -53,7 +53,7 @@ set -euo pipefail
 # EMIT ROM-consumed bytes) + the sigil build + its checksum/deb2 appendix, and drops
 # s4lint, effects_budget_check, the pytest sweep, the expect-fail lane,
 # verify_level_bin, art_rom_report, s4budget, the post-sigil listing gates
-# (effects_seam_gate, bganim_room) and the ctags reindex. None of those write a
+# (effects_seam_gate, bganim_room, sprite_tilt_gate) and the ctags reindex. None of those write a
 # byte the ROM contains, so a FAST ROM is byte-identical to the canonical ROM on
 # the same tree — that identity is the contract, and skipping a lane that changed
 # the artifact would be a bug in the lane.
@@ -221,7 +221,8 @@ if [[ "$FAST" == "1" ]]; then
     echo " FAST BUILD — VERIFICATION LANES SKIPPED. NOT a merge/ship artifact."
     echo "   skipped: s4lint · effects_budget_check · pytest tools · emp_expect_fail"
     echo "            verify_level_bin · art_rom_report · s4budget · effects_seam_gate"
-    echo "            bganim_room (the BG-anim ceiling is NOT checked) · ctags"
+    echo "            bganim_room (the BG-anim ceiling is NOT checked) · sprite_tilt_gate"
+    echo "            (the tilt is NOT executed) · ctags"
     echo "   run:     emit_sound_blob · gen_compression_vectors · sigil build (+checksum,"
     echo "            +deb2 symbols) · level re-bake IF STALE"
     echo "   Re-run without FAST=1 before you land, merge, freeze, or quote a number."
@@ -693,6 +694,36 @@ if [[ "$FAST" == "0" ]]; then
             echo "BG-animation section room — see above (tools/bganim_room.py, the post-sigil gate)."
             exit 1
         fi
+
+        # The ground-angle sprite tilt, checked by EXECUTING the routine this build
+        # just emitted. The claim the tilt parcel makes is not "it assembles" but
+        # "the selected mapping frame is a function of the terrain angle, at the S3K
+        # octant boundaries, with facing folded in the direction that does not mirror
+        # one side" — and no source-level check and no gate over shipped level content
+        # can answer that (nothing authored in OJZ reaches most of the octants; see
+        # docs/research/loops-and-sprite-rotation.md). So the gate takes
+        # Player_ApplyTilt's extent from THIS listing, its bytes from THIS ROM,
+        # decodes them with capstone (an independent decoder, not our own assembler's
+        # opinion of what it emitted), executes them over a sweep of angles, facings,
+        # animation cursors and all three characters' shipped scripts, and compares
+        # against the S3K model re-derived from sonic3k.asm:24808-24862.
+        #
+        # It runs HERE, below sigil, for the same reason bganim_room does: build.sh's
+        # pytest lane runs BEFORE the build, so a unit test opening s4.debug.bin would
+        # measure a previous build (build.sh:61-72 — that happened twice). The unit
+        # tests run over a COMMITTED cut instead, and --fixture makes a stale cut a
+        # named failure here rather than a green against the past.
+        #
+        # The executor models one instruction form per line the routine contains and
+        # RAISES on anything else, so a future edit reaching for a new addressing mode
+        # stops the build instead of being silently skipped. That refusal is the only
+        # reason its green is worth anything.
+        if ! python3 "${TOOLS}/sprite_tilt_gate.py" --lst "${ROM_NAME}.lst" \
+                --rom "${ROM_NAME}.bin" --built-after "${SIGIL_T0}" \
+                --fixture "${TOOLS}/fixtures/sprite_tilt_cut.json" --gate; then
+            echo "Sprite-tilt gate failed — see above (tools/sprite_tilt_gate.py)."
+            exit 1
+        fi
     fi
 fi
 
@@ -711,7 +742,8 @@ if [[ "$FAST" == "1" ]]; then
     fi
     echo "   VERIFICATION LANES WERE SKIPPED: s4lint · effects_budget_check · pytest tools"
     echo "   · emp_expect_fail · verify_level_bin · art_rom_report · s4budget"
-    echo "   · effects_seam_gate · bganim_room (BG-anim ceiling NOT checked) · ctags."
+    echo "   · effects_seam_gate · bganim_room (BG-anim ceiling NOT checked)"
+    echo "   · sprite_tilt_gate (the tilt routine is NOT executed) · ctags."
     echo "   This is a DEV artifact. It is byte-identical to the canonical ROM on this"
     echo "   tree, but NOTHING here checked that — run ./build.sh before you land it."
     echo "================================================================================"

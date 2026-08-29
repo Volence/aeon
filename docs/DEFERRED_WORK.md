@@ -12644,3 +12644,95 @@ preservation parcel pins both halves so a future session cannot re-derive the wr
 
 *Third time in one day that the unchecked thing was in the middle rather than at either end, and the
 first time the miss was in a grep rather than an assumption.*
+
+## GROUND-ANGLE SPRITE TILT — SHIPPED 2026-08-28 (`parcel/sprite-tilt`), with three riders
+
+`Player_ApplyTilt` (`games/sonic4/player/player_common.emp`) turns the terrain angle into a
+sprite orientation: S3K's `Animate_Sonic` walk/run branch (`sonic3k.asm:24808-24872`) — four
+stored tilted art blocks picked by the angle's octant, plus both render flags for the upper
+half-turn. 110 bytes, zero engine changes, zero new art, zero VRAM, zero RAM. Parcel 1 of
+`docs/research/loops-and-sprite-rotation.md` §6; that document's header now carries the
+measured corrections to its own estimates.
+
+Three things it deliberately did **not** do, each ledgered here rather than widened into:
+
+### RIDER 1 — the replay net has diverged and was NOT re-stamped
+
+`engine/system/replay.emp` hashes `render_flags` ($0E) and `mapping_frame` ($23), which are
+precisely the two bytes this routine writes. Any tick where the player walks or runs on a
+surface steeper than ±22.5° now hashes differently. Flat ground is byte-identical by
+construction (angle 0 selects block 0 with no flip in both facings, and the write becomes a
+no-op), so the divergence is bounded to the four OJZ attribute slots measured below.
+
+**This lane could not re-stamp it.** The net has no automated runner — it needs the emulator
+and a human, which `tools/test_replay_fixture.py`'s own docstring says — and this was a
+background lane with no emulator. Both committed fixtures (`ojz_fixture.bin`,
+`ojz_slide_fixture.bin`) traverse OJZ act 1. `tools/test_replay_fixture.py` still passes: it
+checks fixture STRUCTURE, not behaviour, so its green says nothing about this.
+
+**The re-stamp is owed before the net can be trusted again**, and it should be done knowing
+which cells caused it — a diff confined to the slope cells is the expected result, and a
+divergence on flat ground would be a bug in this parcel.
+
+### RIDER 2 — the Important-DMA-queue debt got one frame worse, deliberately
+
+`games/sonic4/data/collision/collision_data.emp`'s entry-count ratchet is unchanged (13, the
+two unreachable frames), but its "worst REACHABLE frame" note needed correcting and now names
+two: `$C4` (LookUp, pre-existing) and `$0E` (walk tilt block 1, new). Both sit at exactly
+`DMA_IMPORTANT_SLOTS`, and on either the art-page landing is deferred one frame.
+
+The new part is that it is now reachable **while the level is streaming** rather than only
+while the camera pans up. It is exactly one animation frame wide — measured over all 36
+newly-reachable frames the next-worst is 10, the figure `DPLC_ENTRY_RESERVE` allows, so
+nothing sits between 10 and the cap. Pinned by
+`tools/test_sprite_tilt.py::test_the_tilt_does_not_worsen_sonics_important_queue_peak`, which
+asserts the at-cap set is exactly `{$0E}` so it cannot grow quietly.
+
+**The fix is unchanged and still owed**: re-page `sonic.bin` so no frame exceeds
+`DMA_IMPORTANT_SLOTS - DPLC_ENTRY_RESERVE` (10), on the OPTIMIZER's output (the unoptimized
+source is worse, at 16), then replace the ratchet with the real assert. That wants a paging
+tool that respects an entry budget, which does not exist. **This parcel did not create the
+debt and the research's advice to ledger rather than fix it stands.**
+
+### RIDER 3 — nobody has looked at the pixels
+
+`docs/research/loops-and-sprite-rotation.md` §3.2's **[TAG-RUNTIME]** is NOT closed by this
+work and the gates cannot close it. The four walk/run blocks are established structurally
+(four disjoint contiguous runs at exactly S3K's strides) and by our animation scripts being
+byte-identical to `AniSonic00`/`AniSonic01` — but *which* orientation each block holds is
+unverified. Every gate this parcel added compares the routine against S3K's arithmetic; a
+block-to-angle assignment that is right in S3K's sheet and wrong in ours would pass all of
+them and look wrong on screen. A sprite viewer on mapping frames `$09`, `$11`, `$19` closes
+it in five seconds.
+
+### What shipped content can actually show — measured, and it is two of eight orientations
+
+From the committed interned surface-angle set (`games/sonic4/data/collision/angles.bin` +
+`solidity.bin`, 20 live attribute slots for OJZ act 1): the steepest authored surface is `$E0`
+= -45°, and exactly four attributes (`$E0`, `$E8`, `$EC`, `$EC`) pass the first band boundary
+at ±22.5°. All four land in **block 1**. Blocks 2 and 3, and every 180°-flipped orientation,
+are **unreachable in shipped content** — nothing drawn can put the character upside down,
+because no loop exists (research §4.2, still true).
+
+So: a green from `tools/sprite_tilt_gate.py` rules out the routine computing the wrong frame
+for **any** angle. It does not rule out the angle reaching it being wrong, the art being the
+wrong orientation, or the DPLC streaming it badly — and no gate over OJZ act 1 could fail on
+blocks 2/3 today, because nothing authored reaches them. **The bottleneck for seeing the
+feature is authoring, exactly as research §7 decision 3 says.**
+
+### Not widened into, on purpose
+
+- **The sprite priority swap** (Parcel 2). Without it a loop reads as a flat painted circle.
+  `PATHSWAP_BIT_PRIO` is still reserved and `PathSwap_Init` still raises on it.
+- **Route P** (Parcel 3), and the "solid on both planes" third state that should ride with it.
+- **The full-360 tumble art** — 519 tiles at frames `$31`/`$3D`/`$49`, still referenced by
+  nothing. It does **not** fall out of this selection: `Anim_Tumble` (`sonic3k.asm:24932`)
+  picks it from a counter through a `divu.w #$16`, not from an octant of the ground angle, and
+  it needs a somersault mechanism we do not have. Separate parcel, cheap art-wise (already
+  paid for), not free code-wise.
+- **Tilted art for skid/duck/push/balance** (research Option B) — an art commission for a
+  complaint nobody has made. S3K has the identical limitation.
+- **A smoothed visual angle** (research Option C, Mania's `Player_HandleGroundRotation`).
+  `PlayerV.flip_angle` is still reserved, still has no reader and no writer; the tilt needs no
+  state and did not give it one.
+
