@@ -2000,8 +2000,52 @@ path, for the same reason the protocol is read that way.
   a parcel that hand-adjusts a spin or a cost-gate expectation is wrong by definition.
 - `.emp` comptime work: `docs/EMP_PITFALLS.md` first, every time.
 - Cross-seam references: **a FIRST reference, in a module sigil's port harness compiles
-  standalone, breaks that module's `*_port` test** — extend the contract-env helpers in
-  sigil's `test_support.rs`, values parsed from aeon source.
+  standalone, breaks that module's `*_port` test.**
+  **⚠ THE MECHANISM, MEASURED 2026-08-29 — AND THE TWO SIGIL-SIDE FIELDS ANSWER DIFFERENT
+  QUESTIONS, WHICH IS WHERE THIS LANE GOT IT WRONG.** The harness does **not** resolve ram symbols
+  by region: every cross-seam address symbol is **hand-listed by name**, and each row becomes a
+  synthetic one-byte carrier pinned at a per-shape VMA. A name absent from that table is an
+  unresolved external, so **new names in an existing region get nothing for free** (the sigil lane's,
+  read out of `addr_labels()` in three port tests rather than reasoned from `test_support`).
+  Three sites per new symbol: a `[[symbol]]` block in `crates/sigil-harness/repin.toml`; a `pins.rs`
+  constant (`debug_only` symbols emit a bare `pub const`, pushed inside the `if debug { }` branch,
+  not wrapped in `pick()`); and **the label row in each consuming port test**.
+  **The two fields scale differently and only one tracks the lowering population.** `repin.toml`'s
+  `tests = [...]` stays SINGLE-test; the `addr_labels()` row is needed in **every test that lowers
+  the module**. Verified against the working precedent rather than derived: `DMA_Overflow_Count`
+  lists `tests = ["dma_queue_port"]` at `repin.toml:1888` while carrying label rows in **three**
+  tests — `dma_queue_port:139`, `dplc_port:471`, `bg_anim_port:404` — all off one shared pins
+  constant. `Dbg_PageIn_Preempts` is the same shape on the vblank side (`vblank_port:139`,
+  `game_loop_port:593`, `load_art_port`).
+  **ENUMERATE BY WHAT LOWERS THE MODULE, NOT BY WHAT NAMES IT** — and read the enclosing block,
+  because a path in a test file may be a mention. Measured populations: `engine/system/dma_queue.emp`
+  is lowered by **three** (`dma_queue_port`, `dplc_port:437`, `bg_anim_port:362`);
+  `engine/system/vblank.emp` by **three** (`vblank_port`, `game_loop_port:487`, `load_art_port:420`).
+  The sigil lane found `dplc_port` as a trap beyond the obvious one; `bg_anim_port` sat under it, so
+  the class had a third instance neither lane had named.
+  **AND THE CONTROL IS THE DURABLE HALF, because this lane's expansion of that finding was WRONG.**
+  Having enumerated three lowerers, this overseer was about to ask for
+  `tests = ["dma_queue_port", "dplc_port", "bg_anim_port"]` in `repin.toml` — a clean, satisfying
+  answer that the existing `DMA_Overflow_Count` row refutes outright, since it lists one test and its
+  consumers are green. **The check that killed it took one command and was run only because the
+  answer was pleasing enough to be suspicious of.** Same tell this file already carries twice: the
+  invented part was the part its author most liked. **Before asking a peer to change a config, find
+  an existing row that already does the thing and check your model predicts it.**
+  *Rule of thumb that falls out: when a peer hands you a mechanism with numbered steps, map your
+  finding onto the RIGHT step. This lane mapped a step-3 fact (label rows) onto step 1
+  (`repin.toml`), and everything downstream of that was confidently wrong while every measurement
+  under it was correct.*
+  **Sequencing, agreed with the sigil lane:** `repin.toml` rows can be written ahead; `pins.rs`
+  values **cannot**, because repin resolves addresses out of aeon's listings — so the aeon parcel
+  must build and emit listings first, and a paired landing of this shape is one ordered chain with
+  aeon as its back half.
+  **Region gates move too, not just symbol resolution:** a parcel growing a routine a port test
+  lowers will shift that test's region diff independently of any unresolved name. Lived: a ~71-line
+  addition inside `VInt_Level`, which `game_loop_port` and `load_art_port` both lower and both
+  annotate.
+  *Supersedes the original wording of this bullet, which said to extend the contract-env helpers
+  in sigil's `test_support.rs`. That is not where these symbols resolve; kept as a pointer
+  because a reader who met the old sentence needs to know it was replaced, not merely absent.*
   **⚠ THE WORD "SILENTLY" IS NOW WRONG AND I HAVE DELETED IT (measured 2026-08-27).** The
   sprite-owner parcel put the first cross-seam reference to `Sprite_Owner` (`engine/ram.emp`)
   into `engine/objects/sprites.emp` and tripped exactly this, and the diagnostic was:
