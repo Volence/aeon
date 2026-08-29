@@ -1554,7 +1554,37 @@ path, for the same reason the protocol is read that way.
   Repair by a note in the next chain entry's prose naming `13a6d3c8` — **never by rewriting a
   pushed freeze.**
 
-- **DECLARED TREE — `/home/volence/sonic_hacks/.aeon-freeze-179`, do not sweep it.** A clean
+- **DECLARED TREE — `/home/volence/sonic_hacks/.aeon-land-180`, do not sweep it.** A clean
+  detached checkout of aeon `03ed1f1c`, the `aeon_rev` chain 180 is frozen at, carrying all four
+  built shapes. It is the tree `AEON_DIR` should point at for anything asking what chain 180
+  actually froze, and rebuilding four shapes to recreate it is the expensive half of any
+  artifact-dependent run. **`.aeon-freeze-179` is RETIRED by this line** (chain 180 supersedes it)
+  — say so here rather than deleting the line, per the rule below.
+  **Freeze worktrees on the SIGIL side are transient and are NOT declared**: `.sigil-pair-180` was
+  created for chain 180's freeze and removed once both halves were pushed, because it held nothing
+  that is not now at `origin/master`. Declare a tree for what it would COST to recreate, not for
+  having existed. **The mechanism that makes a sigil freeze worktree work is
+  `SIGIL_HARNESS_ROOT`** (`harness_root.rs`'s `ROOT_OVERRIDE`, read at sigil `81040fc2`), which
+  points the prebuilt binary at another tree: `refreeze` has no `--harness-root` flag of its own
+  and otherwise operates on the tree it was COMPILED in, which is the shared checkout. Set it and
+  `SIGIL_BUILD` (it defaults to `<root>/target/release/sigil`, which a fresh worktree does not
+  have) and the freeze lands in the worktree while the shared checkout stays on `master`,
+  untouched.
+  **AND THE BINARY ANNOUNCES THE MISMATCH LOUDLY, WHICH IS A FEATURE TO USE RATHER THAN A WARNING
+  TO WAVE PAST** — it prints *built from X, operating on Y … if it predates what you are about to
+  ask it, rebuild it*. The check that discharges it is two commands, not a rebuild: `git log
+  --since=<binary mtime> -- crates/` and `--stat` on whatever it returns. For chain 180 both
+  intervening commits touched `golden/` data only, no Rust source, so the binary was current with
+  its source and the rebuild was correctly skipped. **Run that check every time rather than
+  remembering this result** — it is a fact about one night, not about the binary.
+  **⚠ `refreeze` OUTLIVES A 10-MINUTE FOREGROUND TIMEOUT.** Chain 180's first attempt was killed
+  at exactly 10m by the harness tool cap (a `timeout 1800` argument is clamped and does not help),
+  leaving the worktree holding five half-captured goldens — recoverable with `git checkout -- .`
+  in a *dedicated* worktree, which is one more reason not to do this in the shared checkout. Run
+  `--freeze` and `--attest` as BACKGROUND commands. Also: `cmd | tail; echo $?` reports **tail's**
+  exit status, not the tool's — redirect to a file and echo `$?` on the next line, or the one
+  number the whole ritual turns on is the one you did not measure.
+- **RETIRED — `/home/volence/sonic_hacks/.aeon-freeze-179`.** A clean
   detached checkout of aeon `4ba7cb92`, the `aeon_rev` chain 179 is frozen at, carrying all four
   built shapes and both `.lst` listings. It is the tree `AEON_DIR` should point at for anything
   asking what chain 179 actually froze, and rebuilding four shapes to recreate it is the
