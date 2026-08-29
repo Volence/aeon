@@ -231,8 +231,8 @@ only because the field is empty everywhere.
 > **DONE**, ahead of the rest of this parcel, on branch `fix/repaint-preserve-crossover`:
 > `repaint_word` now carries `(word >> cp.XOVER_SHIFT) & cp.XOVER_MASK` through, and
 > `tools/collision_pipeline.py` gained the named `XOVER_*` constants (§6 change (0), the
-> `XOVER_SHIFT` half) so no rewriter has to spell the field as a literal. Pinned by two
-> tests, both non-vacuous by a deliberately authored mark (§8.1) — see §7 R4.
+> `XOVER_SHIFT` half) so no rewriter has to spell the field as a literal. Pinned by three
+> tests, all non-vacuous by a deliberately authored mark (§8.1) — see §7 R4.
 >
 > It **preserves rather than refuses.** A refusal was considered and rejected: §4 Q4 rules
 > geometry and path membership independent axes with all four combinations legal, §6 change
@@ -367,7 +367,7 @@ paying for.* Every rule in this document, with its enforcement site:
 | **R1** | `XOVER == 3` is illegal | `tools/collision_pipeline.py` `bake_plane_cell` — raise, do not clamp, do not warn | **NEW** |
 | **R2** | plane-A word must not carry `XOVER_TO_A`; plane-B must not carry `XOVER_TO_B` | `tools/ojz_strip_gen.py` `apply_editor_collision_overlay` (the only site that knows *which* plane a word came from — `bake_plane_cell` does not) | **NEW** |
 | **R3** | bit 14 means path-B solidity in the donor word and `XOVER` in the per-plane word, and no caller crosses them | `tools/test_collision_consistency.py` — a currency test asserting `bake_cell` and `bake_plane_cell` disagree on the same 16-bit input in the documented way | **NEW** |
-| **R4** | every rewriter of a per-plane cell word preserves bits 15:14 | `tools/test_collision_consistency.py::test_repaint_word_preserves_the_loop_crossover_mark` (the function) and `::test_repaint_write_path_preserves_the_crossover_on_a_synthetic_plane` (the tool's real write path, incl. `Section.set_word`'s two tile rows) | **DONE** — both tests green, both red before the fix; the only rewriter on our side is now compliant |
+| **R4** | every rewriter of a per-plane cell word preserves bits 15:14 | `tools/test_collision_consistency.py::test_repaint_word_preserves_the_loop_crossover_mark` (the function) and `::test_repaint_write_path_preserves_the_crossover_on_a_synthetic_plane` (the tool's real write path, incl. `Section.set_word`'s two tile rows) and `::test_run_reports_a_marked_target_as_a_notice_and_still_succeeds` (the NOTICE, and that a mark does NOT change the exit code) | **DONE** — both tests green, both red before the fix; the only rewriter on our side is now compliant |
 | **R5** | the emitted `crossover.bin` matches the painted cells | `tools/collision_consistency.py` — a new rule in the existing gate, run over the **baked artifact** like rules A and B | **NEW** |
 | **R6** | the engine's layer mapping matches the encoding | `.emp` `ensure` at the read site (see `docs/EMP_PITFALLS.md` §3 — the guard must be in a **reachable** module or it is dead) | **NEW** |
 | — | loop-shaped reachability | **Aurora**, at paint time (§8) | **NEW, and not ours** |

@@ -424,6 +424,62 @@ def test_repaint_write_path_preserves_the_crossover_on_a_synthetic_plane(tmp_pat
         assert w == out_marked, f"tile row {tile_row} disagrees: ${w:04X}"
 
 
+def _fake_root(tmp_path, cells):
+    """A minimal tree rp.run() can be pointed at with --root: the committed S&K
+    base bank and constants.emp linked in read-only, plus ONE synthetic editor
+    plane file built from `cells`. Nothing is written into the repo."""
+    root = tmp_path / "root"
+    coll = root / "games" / "sonic4" / "data" / "collision" / "base"
+    edir = root / "games" / "sonic4" / "data" / "editor" / "ojz" / "act1"
+    sysd = root / "engine" / "system"
+    for d in (coll, edir, sysd):
+        d.mkdir(parents=True, exist_ok=True)
+    real_base = os.path.join(cc.coll_dir_for(), "base")
+    for name in ("heightmaps.bin", "angles.bin"):
+        (coll / name).symlink_to(os.path.join(real_base, name))
+    (sysd / "constants.emp").symlink_to(cc.CONSTANTS_EMP)
+    _plane_file(edir, cells)
+    return str(root)
+
+
+def test_run_reports_a_marked_target_as_a_notice_and_still_succeeds(tmp_path):
+    """The preserve-not-refuse ruling, at the level of the tool's OUTPUT.
+
+    docs/LOOP_CROSSOVER_ENCODING.md §3.4: a crossover mark on a cell whose
+    geometry is being repainted is reported, not refused — §4 Q4 rules the two
+    independent axes. So rp.run() must name the cell AND still exit 0.
+
+    Positive: a deliberately marked pinhole cell produces the NOTICE and
+    exit 0. Converse control: the identical tree with the mark cleared exits 0
+    with no NOTICE at all — otherwise the test would pass on a tool that
+    printed the notice unconditionally.
+    """
+    import collision_pipeline as cp
+    import io
+
+    base = (SOLID_ALL << cp.PATH_A_SOL_SHIFT) | 114
+    marked = (cp.XOVER_TO_A << cp.XOVER_SHIFT) | base
+
+    buf = io.StringIO()
+    rc = rp.run(root=_fake_root(tmp_path / "m", {(10, 20): marked}),
+                apply_changes=False, out=buf)
+    text = buf.getvalue()
+    assert rc == 0, f"a marked cell must not change the exit code:\n{text}"
+    assert "NOTICE" in text and "col 10 row 20" in text, text
+    assert f"XOVER={cp.XOVER_TO_A}" in text, text
+    assert "REFUSED" not in text, text
+
+    buf2 = io.StringIO()
+    rc2 = rp.run(root=_fake_root(tmp_path / "p", {(10, 20): base}),
+                 apply_changes=False, out=buf2)
+    text2 = buf2.getvalue()
+    assert rc2 == 0, text2
+    assert "NOTICE" not in text2, (
+        f"the notice fired on a tree with no crossover anywhere:\n{text2}")
+    assert "WOULD REPAINT 1 cells" in text2, (
+        f"the converse control must still be a real repaint target:\n{text2}")
+
+
 def test_the_safe_full_shape_really_is_safe():
     """Shape 255 must be all-16 AND carry a flat/odd angle. Shape 251 is all-16
     but carries $E0 — the shape-114 diagnosis recommends '255 or 251' and that
