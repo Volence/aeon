@@ -13,13 +13,28 @@ delta == 0  the sprite's bottom row sits exactly on the collision floor
 delta <  0  the sprite FLOATS |delta| px above its own collision box
 delta >  0  the sprite OVERLAPS the ground by delta px
 
-It is a REPORT, not a gate, and that is deliberate. There is no engine-wide
-invariant that delta must be 0 — stock S3K does not hold one (measured: its
-three ball frames give delta -1 / +1 / +2 for Tails / Sonic / Knuckles), and
-poses that are legitimately off the ground (get-up crouches, Tails' tucked
-flight legs, Knuckles' glide tumble) have large deltas by design. Asserting a
-table of measured deltas would just freeze today's art with no way to tell a
-regression from a re-export. So this prints; a human reads.
+MOSTLY A REPORT, WITH ONE ROW GATED. There is still no engine-wide invariant
+that delta must be 0, and there never will be: poses that are legitimately off
+the ground (get-up crouches, Tails' tucked flight legs, Knuckles' glide tumble)
+have large deltas by design, and stock S3K holds no such rule even for its
+balls (measured: its three ball frames give delta -1 / +1 / +2 for Tails /
+Sonic / Knuckles). Asserting the whole measured table would freeze today's art
+with no way to tell a regression from an intentional re-export. So this prints,
+and a human reads.
+
+The ONE exception, and the only thing anything asserts:
+
+    the `Roll` row of all three playable characters must read delta == 0.
+
+That is the owner's ruling d-36 (2026-08-28, "theyy should all be flush") — an
+adopted project convention for the rolling balls specifically, not an
+observation and not a claim about any other row. It is enforced by
+tools/test_ball_seating.py, which reuses build_cast() and read_anim_frames()
+below so it measures the same blobs against the same frame set this report
+does; it deliberately gates that row and nothing else. Tails' and Knuckles'
+halves of the ruling are implemented in
+games/sonic4/data/characters_staging/gen_characters.py, which DERIVES the
+mapping shift from BALL_Y_RADIUS rather than carrying a tuned number.
 
 RUN IT after any character art / mapping / DPLC re-export
 (games/sonic4/data/characters_staging/gen_characters.py,
@@ -238,20 +253,26 @@ STATE_BOX = {
 }
 
 
-def main():
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('--grounded', action='store_true',
-                    help='only states whose pose rests on the floor')
-    args = ap.parse_args()
+# The animation row whose frames ARE the ball, for every character. The one row
+# an outside gate asserts on (see the module docstring); named here so the gate
+# and this report cannot disagree about which state that is.
+BALL_STATE = 'Roll'
 
-    # radii, read from source
+
+def build_cast():
+    """The three playable characters, their blobs, their animation table and
+    their radii — every radius read from source.
+
+    Returns [(label, Character, (anim_path, anim_table), {box: y_radius}), ...].
+    Shared with tools/test_ball_seating.py so the gate measures exactly what this
+    report measures; a path or a radius that moves moves for both at once.
+    """
     stand_y = read_const('engine/system/constants.emp', 'PLAYER_Y_RADIUS')
     ball_y = read_const('engine/system/constants.emp', 'BALL_Y_RADIUS')
     tails_y = read_const('games/sonic4/player/tails.emp', 'TAILS_Y_RADIUS')
     knux_ability = read_const('games/sonic4/player/knuckles.emp', 'KNUX_ABILITY_RADIUS')
 
-    cast = [
+    return [
         ('SONIC', Character('sonic',
                             'games/sonic4/data/mappings/sonic.bin',
                             'games/sonic4/data/dplc/optimized/sonic.bin',
@@ -271,6 +292,20 @@ def main():
          ('games/sonic4/data/animations/knuckles_anims.emp', 'Ani_Knuckles'),
          {'stand': stand_y, 'roll': ball_y, 'ability': knux_ability}),
     ]
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument('--grounded', action='store_true',
+                    help='only states whose pose rests on the floor')
+    args = ap.parse_args()
+
+    cast = build_cast()
+    stand_y = read_const('engine/system/constants.emp', 'PLAYER_Y_RADIUS')
+    ball_y = read_const('engine/system/constants.emp', 'BALL_Y_RADIUS')
+    tails_y = read_const('games/sonic4/player/tails.emp', 'TAILS_Y_RADIUS')
+    knux_ability = read_const('games/sonic4/player/knuckles.emp', 'KNUX_ABILITY_RADIUS')
 
     print('radii read from source: standing y=%d, ball y=%d, '
           'Tails standing y=%d, Knuckles ability=%d'
@@ -310,6 +345,8 @@ def main():
                 note = 'OVERLAPS %d px' % d
             if not grounded:
                 note += ('  ' if note else '') + '(pose is off the floor)'
+            if state == BALL_STATE:
+                note += ('  ' if note else '') + '[GATED == 0 by test_ball_seating]'
             print('  %-11s %-8s %-5d [%+d,%+d]%s  %+d   %s'
                   % (state, box, r, lo, hi, ' ' * max(0, 6 - len('[%+d,%+d]' % (lo, hi))),
                      d, note))
