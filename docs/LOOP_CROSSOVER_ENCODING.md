@@ -196,8 +196,20 @@ the loop is solid on **both** — which is exactly why §2.1's "solid on both" m
 Same cells, same values, opposite outcomes, decided entirely by which plane the player was
 already on. A **toggle** value would produce the identical behaviour here, which is why it is
 redundant: a per-plane pair `{TO_B on A, TO_A on B}` *is* a toggle, and the pair
-`{TO_B, TO_B}` is an absolute one-way force that a toggle cannot express. The per-plane pair
-strictly dominates.
+`{TO_B on A, NONE on B}` is an absolute one-way force that a toggle cannot express — enter
+from plane A and you are sent to B; arrive already on B and nothing happens. The per-plane
+pair strictly dominates.
+
+> **⚠ CORRECTED 2026-08-29, hours after this section was written.** This paragraph first
+> spelled the one-way force as `{TO_B, TO_B}`, which is **a hard build error under the very
+> next paragraph**: the second element is plane B carrying `XOVER_TO_B`, a self-mark, which
+> R2 refuses. An author following the doc literally would have reddened their build, and the
+> illustrative example would have been the thing that did it. Found by the editor lane
+> reading the two paragraphs against each other while building their brush — which is the
+> only way it could have been found, since **nothing executes a document**. The *conclusion*
+> (per-plane pairs strictly dominate a toggle) was never in doubt and is unchanged; only the
+> example was wrong. Recorded rather than silently edited, because a spec that contradicts
+> itself four lines apart is worth knowing about even after it stops doing so.
 
 **Self-marks are illegal.** A plane-A cell carrying `XOVER_TO_A` (or plane-B carrying
 `XOVER_TO_B`) is provably a no-op: to read it you must already be on that plane. It is
