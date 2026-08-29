@@ -1310,16 +1310,47 @@ class PresetShapeBase(unittest.TestCase):
 class TestPresetDiscovery(PresetShapeBase):
     def test_absent_presets_directory_is_not_an_error(self):
         """The scene-directory posture, one level down: absence means 'no presets'.
-        This is the state of the real tree, and it is why this arm moves zero bytes."""
+
+        NO LONGER THE STATE OF THE REAL TREE — it was when this was written, and the
+        docstring said so; the real tree ships a preset document since 2026-08-29 (see
+        the declaration below). The behaviour is still the contract's (§2.4: an absent
+        directory is not an error) and is still worth a test, so it moved to a tmp dir
+        and stayed."""
         with tempfile.TemporaryDirectory() as empty:
             self.assertEqual(effects_gen.discover_preset_files(repo=empty), [])
             self.assertEqual(effects_gen.load_all_presets(repo=empty), {})
 
-    def test_the_real_repo_ships_no_preset_documents(self):
-        """THE ANTI-VACUITY DECLARATION, executable. If this ever goes red, every test in
-        this block that says 'authored deliberately' has to be re-read: content exists and
-        the converse control below is no longer measuring an empty tree."""
-        self.assertEqual(effects_gen.load_all_presets(repo=effects_gen.REPO), {})
+    def test_the_real_repo_SHIPS_preset_documents(self):
+        """THE ANTI-VACUITY DECLARATION, executable — and INVERTED, 2026-08-29.
+
+        It used to assert the real tree shipped NO preset document, with the note: "if
+        this ever goes red, every test in this block that says 'authored deliberately'
+        has to be re-read". It went red the moment the first document was authored,
+        exactly as designed, and the re-read was done: every other test in this file
+        builds its own tmp tree (`PresetShapeBase.dir`, `AssignmentBase.repo`), so none
+        of them was measuring the real directory and none of their claims changed.
+
+        What replaces it is the declaration in the direction that now matters. Editor
+        content EXISTS, and the tests below that describe an empty tree as the converse
+        control are still testing a tmp tree. If THIS goes red, the editor-authored
+        raster path has no content behind it and
+        `tools/test_raster_cycle_table_lint.py`'s coupling is measuring an empty set on
+        both sides — the vacuity that lint exists to prevent, arriving from the other
+        end. Nothing here spells a count or an id: the assertion is that the directory
+        the contract reserves is non-empty and that every document in it loads, which is
+        derived from the disk, not from a pin."""
+        presets = effects_gen.load_all_presets(repo=effects_gen.REPO)
+        self.assertTrue(
+            presets,
+            "games/sonic4/data/editor/effects/presets/ holds no loadable preset "
+            "document. An empty tree here makes the raster-cycle lint's editor-row "
+            "check vacuous and leaves the editor-authored raster path with nothing "
+            "behind it.")
+        for pid in presets:
+            self.assertTrue(
+                os.path.isfile(os.path.join(effects_gen.preset_dir(repo=effects_gen.REPO),
+                                            pid + ".json")),
+                f"preset id {pid!r} does not correspond to a file of the same stem")
 
     def test_presets_are_discovered_and_keyed_by_id(self):
         self.write("a_wash", _preset(id="a_wash"))
@@ -1743,3 +1774,83 @@ class TestPresetConverseControl(AssignmentBase):
         with self.assertRaises(effects_gen.SceneShapeError) as ctx:
             effects_gen.load_scene(path)
         self.assertIn("bands", str(ctx.exception))
+
+
+class TestEditorRasterPresetsDoc(unittest.TestCase):
+    """Hold the Aurora lane's page to the generator's own key constants.
+
+    WHY THIS EXISTS. `docs/EDITOR_RASTER_PRESETS.md` is the page a band panel is built
+    against, and a wrong field NAME there costs that lane a rebuild. It is also a third
+    restatement of a key list that already lives in two places (this repo's consumer
+    contract §2.4 and empyrean's writer schema), and a count or a name in prose rots —
+    this file's own subject has been bitten by exactly that. So the page carries its key
+    list inside a marked block and this test reads it back out and compares it against
+    `effects_gen`'s constants, which are what the loader actually enforces.
+
+    THE EXPECTATION IS THE IMPLEMENTATION'S OWN CONSTANTS, deliberately, and that is the
+    right direction here: the claim being checked is not "the generator reads the
+    contract's fields" (§2.4's tests above check that) but "the page names the fields the
+    generator reads". A doc that disagrees with the code is wrong about the code
+    whichever of them is at fault.
+    """
+
+    DOC = os.path.join(effects_gen.REPO, "docs", "EDITOR_RASTER_PRESETS.md")
+    OPEN = "<!-- KEYS-CHECKED-AGAINST-effects_gen.py -->"
+    CLOSE = "<!-- /KEYS-CHECKED-AGAINST-effects_gen.py -->"
+
+    def documented(self):
+        """{row label: [names]} parsed out of the marked block. Loud if absent."""
+        if not os.path.isfile(self.DOC):
+            self.fail(
+                f"{self.DOC} does not exist. It is the page the Aurora lane builds its "
+                "band panel against; if it was deliberately deleted, delete this test in "
+                "the same commit rather than letting it pass on a missing file.")
+        with open(self.DOC) as f:
+            text = f.read()
+        try:
+            block = text.split(self.OPEN, 1)[1].split(self.CLOSE, 1)[0]
+        except IndexError:
+            self.fail(
+                f"{self.DOC}: could not find the {self.OPEN} ... {self.CLOSE} block. That "
+                "block is the only machine-checked thing on the page; without it this "
+                "test measures nothing and must not pass.")
+        rows = {}
+        for line in block.splitlines():
+            line = line.strip()
+            if not line or line.startswith("```"):
+                continue
+            label, _, names = line.partition(":")
+            rows[label.strip()] = sorted(
+                n.strip() for n in names.split(",") if n.strip())
+        if not rows:
+            self.fail(f"{self.DOC}: the key block was found but parsed to zero rows.")
+        return rows
+
+    def test_the_block_covers_every_row_and_no_others(self):
+        self.assertEqual(
+            sorted(self.documented()),
+            ["band", "on-arms", "on.cram", "on.pal_region",
+             "preset", "preset-ignored", "preset-refused"],
+            "the key block in EDITOR_RASTER_PRESETS.md gained or lost a row. Each row is "
+            "one of the generator's key constants; a row with no constant behind it is "
+            "unchecked prose wearing the block's authority.")
+
+    def test_the_documented_preset_keys_are_the_generators(self):
+        doc = self.documented()
+        self.assertEqual(doc["preset"], sorted(effects_gen.PRESET_KEYS))
+        self.assertEqual(doc["preset-ignored"],
+                         sorted(effects_gen.PRESET_IGNORED_KEYS))
+        self.assertEqual(doc["preset-refused"],
+                         sorted(effects_gen.PRESET_REFUSED_KEYS))
+
+    def test_the_documented_band_keys_are_the_generators(self):
+        self.assertEqual(self.documented()["band"], sorted(effects_gen.BAND_KEYS))
+
+    def test_the_documented_on_arms_and_their_fields_are_the_generators(self):
+        doc = self.documented()
+        self.assertEqual(doc["on-arms"], sorted(effects_gen.BAND_ON_ARMS))
+        for arm, (_fn, fields) in effects_gen.BAND_ON_ARMS.items():
+            self.assertEqual(
+                doc[f"on.{arm}"], sorted(fields),
+                f"the documented fields of the `{arm}` ON arm are not the ones "
+                f"render_band_on passes to its constructor.")

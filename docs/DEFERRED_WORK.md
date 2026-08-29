@@ -13205,6 +13205,114 @@ rather than decided.
 schema pair does not spell it at `origin/main`; amending it and re-pinning Aurora's golden is
 the other half of this change series, per the drift rule at the top of the consumer contract.
 
+**⚠ TWO CLAUSES ABOVE ARE NOW STALE — corrected here, one day later (2026-08-29).**
+(a) The writer half **exists**: `contract/schema/aurora-effects-preset.schema.json` is
+reachable at empyrean `origin/main` (read firsthand at their tip `fabc788`, not taken from an
+announcement) and transcribes §2.4 including the four no-assertion limits. (b) The
+`$1323C`/110-byte measurement above is from a scratch three-band document that was never
+committed; the tree's first committed document is a **two**-band one, so do not expect that
+address or that span — re-derive from the build. See the follow-up below.
+
+---
+
+## RASTER BANDS — the DEBUG half of the seam closed, the SECTION half did not (2026-08-29, `lane/editor-raster-preset`)
+
+**What landed.** The first editor-authored raster program,
+`games/sonic4/data/editor/effects/presets/authored_probe.json` — two bands, saturated red and
+blue, over `OJZ_TEST_CRAM_ADDR` (`$4A`) at screen lines 112..155 and 172..215 — reachable
+from the DEBUG effects lab. `Debug_BandDemoHotkey` became a CYCLE: `START` held + `UP` now
+installs `.raster_table[cursor]` and advances a new DEBUG-only RAM byte
+(`Debug_Raster_Index`), row 0 being the hand-authored `OJZ_BandDemo` (so a cold boot's first
+press is unchanged) and row 1 the editor-authored program. `START` + `DOWN` is unchanged.
+The Aurora lane's page is `docs/EDITOR_RASTER_PRESETS.md`; the coupling gate is
+`tools/test_raster_cycle_table_lint.py` (four arms, all proven red).
+
+**A third chord was enumerated and does not exist.** The scene cycle spends `START`+LEFT/
+RIGHT and this one `START`+UP/DOWN, so the d-pad is gone; `START`+A collides with
+`Debug_CharacterHotkey` (A press while `debug_flag`, which this shape boots into),
+`START`+B with the `CHEAT_DEBUG_FLY` toggle, `START`+C with both jump masks *and* the
+C+UP/DOWN anchor nudge in the same module, and X/Y/Z/MODE are inert on a 3-button pad. The
+cursor is what a second row costs when there is no second button.
+
+**STILL OPEN, and it is the larger half.** Nothing binds a preset to a SECTION. `effectsRef`
+is unimplemented in both repos; installing an editor-authored program in the shape the owner
+boots still means a hand-authored `preset()` call, i.e. a programmer's edit. **Do not
+describe this as "authoring effects without a programmer"** — `docs/EDITOR_RASTER_PRESETS.md`
+§C is the sentence to use instead.
+
+**⚠ RULED BY THE LANE OVERSEER 2026-08-29 — GAP ACCEPTED, AND §16.2a IS SHARPENED RATHER THAN
+EXCEPTED.** The parcel was right to flag it and right not to decide it. The ruling:
+
+**§16.2a governs SCAFFOLDING, and this payload is CONTENT.** `OJZ_BandDemo` exists only to be
+looked at in the lab — it has no consumer outside DEBUG and never will, so gating its `pub data`
+costs nothing and is plainly right. An **editor-authored** preset document is the opposite: the
+entire purpose of the pipeline is that what an author writes reaches the ROM. Its install path is
+DEBUG-only **because the section-binding half has not landed yet**, which is a fact about the
+calendar, not about what the data is for.
+**So the discriminator is not "can anything install it today" — it is "is this data authored
+content or is it lab apparatus".** Gate the payload when it is apparatus. Never gate authored
+content on a build shape: doing so makes the GENERATOR's output shape depend on `DEBUG`, which
+manufactures the exact silent shape-divergence the parcel identified — a preset a programmer
+later binds into a section emitting a zero-length program in release only, invisible to every
+gate here.
+*The parcel's own argument reached the same place from the cost side; this ruling supplies the
+principle, so the next reader does not have to re-run the cost argument to know which way to go.*
+
+**BUT THE PROBE ITSELF IS APPARATUS WEARING CONTENT'S CLOTHES, AND THAT IS A SEPARATE FACT THE
+PARCEL DID NOT SEPARATE.** `authored_probe.json` is two saturated red/blue bands chosen to be
+unmistakable in a lab — nobody wants them in a shipped ROM. The ruling above says the *mechanism*
+must not gate content; it does not say this *document* has earned permanent residence. Today it
+costs 30 release bytes that nothing can install, which is cheap and reversible, and it buys the
+only end-to-end proof the seam works.
+**CLOSURE CONDITION, and it is a condition rather than a promise: when the section-binding half
+lands and a real authored band exists, `authored_probe.json` is deleted or replaced in that same
+parcel.** Whoever takes the binding work owns this. If the binding half is still unbuilt when the
+owner next reviews release contents, the probe is the first thing to justify — **a probe with no
+removal condition is how dormant test data becomes permanent**, and 30 bytes is exactly the size
+at which nobody argues.
+
+**AN ACCEPTED GAP AGAINST §16.2a, FLAGGED FOR THE OWNER RATHER THAN DECIDED QUIETLY.** The
+band-ownership design §16.2a ruled, one day before this parcel, that *a DEBUG-gated trigger
+does not imply a DEBUG-gated payload* — "gate both, or justify the gap out loud" — and gated
+`OJZ_BandDemo`'s `pub data` behind `if DEBUG == 1` for exactly this reason. The generated
+`EditorRaster_*` payload is **not** gated: it lands in `s4.bin`, where nothing can install
+it. That is the same shape of gap §16.2a corrected, and it is taken deliberately:
+
+- the generator cannot see binding. A `if DEBUG == 1` gate in `render_preset` would make a
+  preset that a programmer LATER binds into a section `preset()` call emit a **zero-length**
+  program in the release shape only — a silent, shape-divergent wrong picture that no gate in
+  the tree could catch, which is strictly worse than dormant bytes;
+- the emitted shape is pinned by `tools/test_effects_gen.py::TestBandLowering` and drawn in
+  the consumer contract's §2.4 end-to-end diagram, so changing it is a contract-adjacent
+  change, not a parcel decision;
+- the gap closes by itself the moment the SECTION half above lands, because then the release
+  shape *can* install it.
+
+If the owner would rather pay the shape-divergence risk than the dormant bytes, the change is
+one `if DEBUG == 1` in `render_preset` plus an unconditional `ensure` to keep the guards
+firing in both shapes — the `OJZ_BandDemo` idiom, transcribed.
+
+**Measured, four shapes, `./build.sh`, sigil `765c31fca91d`** (the sigil binary's md5 was
+identical before the first build and after the last, so the comparison is valid):
+
+| shape | CRC32 before → after | length before → after |
+|---|---|---|
+| `s4.bin` | `06d2ccf6` → `c9255279` | 719205 → 719235 (+30) |
+| `s4.debug.bin` | `a9676c6b` → `10916c8c` | 735818 → 736095 (+277) |
+| `demo.bin` | `3415e3ef` → `3415e3ef` | 96372 (byte-identical) |
+| `demo.debug.bin` | `7599953e` → `7599953e` | 101113 (byte-identical) |
+
+**Neither ROM delta is the program's size — measure the span, not the ROM.** The program is
+78 bytes, `$1323C`..`$1328A` in `s4.lst`, which is `raster_words` = 7 + 2×16 = 39 words
+exactly. Downstream labels shifted **80** bytes in both sonic4 shapes (measured off
+`tools/fixtures/sprite_tilt_cut.json`'s three animation-table addresses, which moved by
+exactly that in each shape with their bytes byte-identical — that fixture needed the refresh
+its own gate names, and a pure-relocation refresh is all it was). The +30 and +277 totals
+include padding absorbed downstream and, in the debug shape, the deb2 symbol-table rows for
+the new labels; do not quote either as a cost.
+
+The `demo` shapes being untouched is the useful control: this parcel adds no engine bytes.
+
 ---
 
 ## STALE-COMMENT CORRECTION — "there is no map.toml order row" was false for three days (found 2026-08-29)
