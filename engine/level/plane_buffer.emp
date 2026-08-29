@@ -51,6 +51,11 @@ pub proc Plane_Buffer_Reset () {
 // In:  d0.w = target VDP nametable column (0–63)
 //      d1.w = world tile column
 // Out: none (silently drops if buffer full)
+// PRECONDITION (caller's, not checked in release): d1 must be a FILLED column,
+//      not merely one inside the cache's declared window — i.e. d1 !=
+//      Cache_Fill_Resume_Col. Section_UpdateColumns' loops enforce it; the
+//      DEBUG assert below is the only thing that says so at runtime. See that
+//      proc's header for why the check cannot live here.
 // Clobbers: d0–d5, a0–a2 (a1 = zero source for the fill loops; d2 carries
 //           rows-before-physical-wrap across both parts for .copy_col_run)
 // -----------------------------------------------
@@ -65,6 +70,23 @@ pub proc Draw_TileColumn (d0: u16, d1: u16) clobbers(d0-d5/a0-a2) {
         blt     .done
         cmp.w   Cache_Head_Col, d1
         bgt     .done
+    if DEBUG == 1 {
+        // DECLARED IS NOT FILLED. The two guards above are the cache's DECLARED
+        // window, and Tile_Cache_Fill commits that window BEFORE filling the column
+        // it just added — so a budget-out or demand stall leaves one column inside it
+        // only partly written, named by Cache_Fill_Resume_Col ($FFFF = none). Copying
+        // it here puts a ring slot the fill never wrote into plane A, and the caller
+        // then RECORDS the column in Section_Right_Col_Written, so nothing ever
+        // redraws it — the canopy-gap defect, d-45.
+        //
+        // The fix is in the CALLER (Section_UpdateColumns' four loops stop at the
+        // partial and do not record it), deliberately: a silent decline here would be
+        // the same defect wearing a different hat, because the caller advances its
+        // tracker whether or not this routine drew anything. So this shape shouts and
+        // release pays nothing — it does not quietly paper over a broken caller.
+        move.w  Cache_Fill_Resume_Col, d3
+        assert.w d1, ne, d3
+    }
 
         // compute cache source pointer for cache[logical row 0][col]
         // = physical row Cache_Origin_Row (circular)
@@ -237,6 +259,9 @@ pub proc Draw_TileColumn (d0: u16, d1: u16) clobbers(d0-d5/a0-a2) {
 // In:  d0.w = target VDP nametable row (0–63)
 //      d1.w = world tile row
 // Out: none (silently drops if buffer full)
+// PRECONDITION (caller's, not checked in release): d1 must be a FILLED row —
+//      d1 != Cache_Fill_RowResume_Row. Same ruling and same reason as
+//      Draw_TileColumn's; Section_UpdateColumns' .bot_loop/.top_loop enforce it.
 // Clobbers: d0–d5, a0–a2
 // -----------------------------------------------
 pub proc Draw_TileRow_FromCache (d0: u16, d1: u16) clobbers(d0-d5/a0-a2) {
@@ -249,6 +274,15 @@ pub proc Draw_TileRow_FromCache (d0: u16, d1: u16) clobbers(d0-d5/a0-a2) {
         blt     .done
         cmp.w   Cache_Bottom_Row, d1
         bgt     .done
+    if DEBUG == 1 {
+        // The row axis carries the IDENTICAL exposure, by the identical mechanism:
+        // .v_bottom_fill / .v_top_fill commit Cache_Bottom_Row / Cache_Top_Row before
+        // calling TileCache_FillRow, whose partial leaves that row unwritten from
+        // Cache_Fill_RowResume_Col rightward. Same ruling as Draw_TileColumn above —
+        // the caller refuses to ask, this shape shouts if it ever does.
+        move.w  Cache_Fill_RowResume_Row, d3
+        assert.w d1, ne, d3
+    }
 
         lea     Plane_Buffer, a2
         adda.w  Plane_Buffer_Ptr, a2

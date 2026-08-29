@@ -48,6 +48,66 @@ against the AS-era tree and cite `.asm` paths and line numbers into files that *
 
 ## NOW UNBLOCKED — actionable (compiled 2026-08-05)
 
+### THE d-45 CANOPY-GAP MEASUREMENT WAS WRONG, THE DEFECT IT NAMED IS REAL, AND WHAT THE OWNER SEES IS STILL UNIDENTIFIED — booked 2026-08-29
+
+**Parcel:** `worktree-agent-a1a8f63b08a46803f`. **Ruling:** d-45 — the owner authorised "the fix for
+the canopy gap: the tile cache telling the drawing code a column is ready before it has filled it."
+That description is exactly the defect that was found and fixed. The *specific measurement* in the
+d-45 card's `detail` field is not, and this entry exists so nobody re-derives from it.
+
+**THE CARD'S MEASUREMENT IS REFUTED, by three independent instruments.** The card reads
+`Draw_TileColumn(world=96) at camX=448, Cache_Head_Col=115, 0 of 60 rows present` and concludes "the
+fill had reached 95 while Cache_Head_Col claimed 115". The cache is empty there because **OJZ act 1
+is empty there** — world columns 96-111 are a genuinely blank 16-column block between the canopy
+band and the ground at 112+, and the fill is doing its job:
+
+1. **Warp control.** A DEBUG warp re-runs `Tile_Cache_Init` → `TileCache_FillAll`, which is
+   unbudgeted and runs with the display off — the strongest available ground truth for "what should
+   be in the cache". Scrolled to camX 544 and warped to camX 544, the two caches are IDENTICAL for
+   all 80 columns, including 0 at 96-111 and 30 at 112+.
+2. **Plane A.** Over 120 settled samples of held-RIGHT (960 frames), every cell inside the recorded
+   window matched the cache. The cols-96-111 emptiness is present in VRAM too, i.e. faithfully
+   copied, not lost.
+3. **The level source.** `games/sonic4/data/editor/ojz/act1/section_0.tiles.bin`, read offline: at
+   world rows 2-61, columns 96-111 hold nothing but `$1000` (tile 0, vflip = blank), column 90 holds
+   3 real words, column 112 holds 30. Those are the runtime occupancies to the cell.
+
+The reading error was not the ring indexing the card warns about (that warning is correct and worth
+keeping) — it was treating "0 non-zero cache words" as "unfilled" when OJZ's canopy band is only 2-3
+rows thick and most of the cache is legitimately blank sky.
+
+**THE DEFECT IS REAL ANYWAY, and is what got fixed.** `Tile_Cache_Fill` commits
+`Cache_Head_Col` / `Cache_Left_Col` / `Cache_Bottom_Row` / `Cache_Top_Row` *before* running the fill
+for that column/row (the resume machinery is keyed by the committed coordinate), so a budget-out or
+demand stall leaves the DECLARED window advertising a cell run the fill only partly wrote.
+`Section_UpdateColumns` then drew it and RECORDED it in `Section_*_Written`, which means nothing
+redraws it until the 64-cell plane ring wraps. Permanent narrow hole — the owner's symptom shape
+exactly. See ARCH §4.7, "DECLARED ≠ FILLED", for the contract and the fix.
+
+**⚠ WHAT IS STILL OPEN: the owner's sighting is NOT accounted for.** Nothing in this parcel
+reproduced a hole at the shipped settings. The structural slack (`TILE_CACHE_COLS` 80 −
+`TILE_CACHE_MARGIN_H` 20 − reach 41 = 19 columns; rows 60 − 16 − 29 = 15) keeps the fill's frontier
+well ahead of the streamer on OJZ act 1, and the fill never partials there at all: 150 settled
+samples over 4800 px of travel showed `Cache_Fill_Resume_Col` = `$FFFF` every single time. The
+defect only fires once that slack is consumed, which took a deliberate 6x budget starvation to
+achieve. So one of these is true and this parcel cannot say which:
+
+  * the fix closes the owner's bug via a path that needs a condition not reached in a straight-line
+    right-scroll on flat ground (his camera Y never moved in any run here — OJZ act 1's opening is
+    flat, so **the vertical fill path was never exercised under load**, and it carries the identical
+    exposure);
+  * or the canopy gap has a second, different cause and is still live.
+
+**Next step when someone picks this up:** get a reproduction with real vertical camera motion (warp
+to a Y with terrain, or drive debug-fly) and run `tools/tile_cache_fill_gate.py` across it. The gate
+asserts the invariant on both axes already; it has simply never been pointed at a moving Y. If that
+is also clean at shipped settings, the next suspects in order are (a) `Draw_TileRow_FromCache`'s
+`Section_Right_Col_Written` anchor picking the wrong wrap twin for plane columns near the leading
+edge, and (b) `Section_RedrawPlanes` returning `d7 = Cache_Head_Col` unconditionally while its
+`.pla_fill` loop only walks 64 columns from the camera — harmless today because the only two
+`Section_Plane_Dirty` setters run straight after an unbudgeted `FillAll`, and now asserted, but it is
+the remaining place a tracker is written without a matching draw.
+
 ### THE COLUMN-19 BORROW'S PRICE HAS NEVER BEEN SEEN, AND `SceneLeftColMask` IS BOOKED FOR RETIREMENT BEHIND IT — booked 2026-08-29
 
 **Parcel:** `parcel/fg-left-edge-vsram`. **Ruling:** d-40 — the owner rejected the sprite bar and

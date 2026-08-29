@@ -1176,6 +1176,14 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
         jbsr    TileCache_HSlide
     .h_no_evict:
         move.w  d5, Cache_Head_Col         // commit before fill (resume is keyed by column)
+        // ⚠ THE DECLARED WINDOW NOW ADVERTISES A COLUMN THE FILL HAS NOT WRITTEN, and
+        // will keep advertising it if the call below returns partial. That is fine HERE
+        // — the resume preamble finishes it next frame — but it means Cache_Head_Col is
+        // NOT a filled extent, and consumers must subtract Cache_Fill_Resume_Col.
+        // Section_UpdateColumns is the one that must care (drawing a half-filled column
+        // and then RECORDING it is a permanent hole on screen; d-45, 2026-08-29). Same
+        // shape at .h_left_fill's Cache_Left_Col, .v_bottom_fill's Cache_Bottom_Row and
+        // .v_top_fill's Cache_Top_Row below.
 
         movem.l d5/d7, -(sp)
         jbsr    TileCache_FillColumn
