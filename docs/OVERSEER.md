@@ -2010,31 +2010,60 @@ path, for the same reason the protocol is read that way.
   Three sites per new symbol: a `[[symbol]]` block in `crates/sigil-harness/repin.toml`; a `pins.rs`
   constant (`debug_only` symbols emit a bare `pub const`, pushed inside the `if debug { }` branch,
   not wrapped in `pick()`); and **the label row in each consuming port test**.
-  **The two fields scale differently and only one tracks the lowering population.** `repin.toml`'s
-  `tests = [...]` stays SINGLE-test; the `addr_labels()` row is needed in **every test that lowers
-  the module**. Verified against the working precedent rather than derived: `DMA_Overflow_Count`
-  lists `tests = ["dma_queue_port"]` at `repin.toml:1888` while carrying label rows in **three**
-  tests — `dma_queue_port:139`, `dplc_port:471`, `bg_anim_port:404` — all off one shared pins
-  constant. `Dbg_PageIn_Preempts` is the same shape on the vblank side (`vblank_port:139`,
-  `game_loop_port:593`, `load_art_port`).
+  **BOTH FIELDS TAKE THE FULL LOWERING POPULATION. Write `repin.toml`'s `tests = [...]` with every
+  test that lowers the module, exactly like the `addr_labels()` rows.**
+  **⚠ THIS SENTENCE REPLACES ONE THAT SAID THE OPPOSITE AND STOOD FOR TWENTY MINUTES — the wrong
+  version was pushed, and the retraction is the most useful thing in this stanza.** It read *"the two
+  fields scale differently and only one tracks the lowering population; `repin.toml`'s `tests` stays
+  SINGLE-test"*, offering `DMA_Overflow_Count`'s one-test row at `repin.toml:1888` as a verified
+  working precedent against three label rows (`dma_queue_port:139`, `dplc_port:471`,
+  `bg_anim_port:404`).
+  **Every measurement in it was right and the conclusion was wrong, because the precedent is
+  UNFALSIFIABLE** (the sigil lane's, from reading what consumes the field — `repin.rs:167-186`).
+  `tests` is read in exactly one place, only after a pin has already drifted, and only to print a
+  *"rerun hint (affected binaries first…)"*. It does not gate, does not select what runs, does not
+  affect `pins.rs` generation, **and nothing fails if it is incomplete.** So that row is not correct
+  by design — it is **under-listed by two, in a field with no mechanism that could ever say so.**
+  **The lesson is this file's own vacuity bar arriving on a PRECEDENT rather than on a gate.** My
+  control fired correctly and I misread what it ruled out: I concluded *the field answers a different
+  question* when the truth was *the field has no teeth*. **A row that cannot be wrong is not a
+  validated example — and copying it propagates the defect**, which is what my four fresh rows were
+  about to do. The cost is deferred and lands on a person: when one of those pins drifts a year from
+  now, repin names one binary while three are affected, someone reruns the one, sees green, and two
+  stale port tests go unexamined.
+  **Test before adopting any precedent: name the mechanism that would have caught this row being
+  wrong. If there is none, it is a habit with a good track record, not evidence.**
+  *Scale, theirs and honestly bounded: their sweep finds 190 of 412 rows with a `tests` list omitting
+  at least one test binary carrying the label — an UPPER bound, since it matches a quoted name
+  anywhere in a test file, so some hits are comments. The mechanism and the `DMA_Overflow_Count`
+  instance are source-confirmed; the 190 is not. Booked on their board, not fixed under our parcel.*
+  `Dbg_PageIn_Preempts` is the same lowering shape on the vblank side (`vblank_port:139`,
+  `game_loop_port:593`, `load_art_port`) — cite it for the label population, never for its `tests`
+  row, which is in the same unfalsifiable population.
   **ENUMERATE BY WHAT LOWERS THE MODULE, NOT BY WHAT NAMES IT** — and read the enclosing block,
   because a path in a test file may be a mention. Measured populations: `engine/system/dma_queue.emp`
   is lowered by **three** (`dma_queue_port`, `dplc_port:437`, `bg_anim_port:362`);
   `engine/system/vblank.emp` by **three** (`vblank_port`, `game_loop_port:487`, `load_art_port:420`).
   The sigil lane found `dplc_port` as a trap beyond the obvious one; `bg_anim_port` sat under it, so
   the class had a third instance neither lane had named.
-  **AND THE CONTROL IS THE DURABLE HALF, because this lane's expansion of that finding was WRONG.**
-  Having enumerated three lowerers, this overseer was about to ask for
-  `tests = ["dma_queue_port", "dplc_port", "bg_anim_port"]` in `repin.toml` — a clean, satisfying
-  answer that the existing `DMA_Overflow_Count` row refutes outright, since it lists one test and its
-  consumers are green. **The check that killed it took one command and was run only because the
-  answer was pleasing enough to be suspicious of.** Same tell this file already carries twice: the
-  invented part was the part its author most liked. **Before asking a peer to change a config, find
-  an existing row that already does the thing and check your model predicts it.**
-  *Rule of thumb that falls out: when a peer hands you a mechanism with numbered steps, map your
-  finding onto the RIGHT step. This lane mapped a step-3 fact (label rows) onto step 1
-  (`repin.toml`), and everything downstream of that was confidently wrong while every measurement
-  under it was correct.*
+  **THE CONTROL FIRED CORRECTLY AND I DREW THE WRONG CONCLUSION FROM IT — that sequence is the
+  durable half, and it is worth more than either version of the answer.** Having enumerated three
+  lowerers, this overseer was about to ask for the full `tests` lists — which was RIGHT — then ran
+  `DMA_Overflow_Count`'s row as a positive control, found it single-test and green, and **withdrew a
+  correct proposal in favour of the precedent.** The retraction above is the sigil lane restoring the
+  original answer by reading `repin.rs` rather than reading another row.
+  **So the control was necessary and not sufficient, and the failure was in the inference, not the
+  measurement.** A control tells you your model disagrees with the world; it does not tell you which
+  of the two is wrong. **I assumed the artifact was right because it was committed, shipped and
+  green** — the three properties an unfalsifiable field has for free.
+  **Operational form: when a control refutes your model, the next question is what ENFORCES the
+  control's subject.** If nothing does, the control has told you about a habit, not about a rule, and
+  your model may be the correct half of the disagreement. One `grep` for where a config field is
+  consumed distinguishes them, and it is the step neither this lane nor the precedent's author ever
+  ran. *(Note also the direction the near-miss ran: the pleasing-invention tell this file carries
+  twice did NOT apply here — the satisfying answer was the true one, and deference to a committed
+  artifact is what nearly lost it. Suspicion of your own cleverness is not a general-purpose
+  instrument.)*
   **Sequencing, agreed with the sigil lane:** `repin.toml` rows can be written ahead; `pins.rs`
   values **cannot**, because repin resolves addresses out of aeon's listings — so the aeon parcel
   must build and emit listings first, and a paired landing of this shape is one ordered chain with
