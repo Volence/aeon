@@ -449,6 +449,28 @@ than no gate.
 
 - **Our build checks the encoding** — R1 through R6. Bytes, decidable, cheap, non-vacuous by
   fixture.
+
+  **⚠ THAT SENTENCE IS THE DESIGN, NOT THE STATE OF THE TREE — corrected 2026-08-29 after it
+  was read as a statement of fact.** It describes which side of the wall each check BELONGS on.
+  As of this correction, **exactly one of the six is built: R4.** R1, R2, R3, R5 and R6 are
+  **specified and not implemented**, exactly as the §7 table has always marked them (`NEW`
+  against `DONE`) — the table was right and this prose was ahead of it.
+  **Read the §7 table's status column for what exists; read this split for where it goes.**
+
+  **How it went wrong, because the mechanism matters more than the correction.** The present
+  tense is doing all the damage: *"our build checks"* is indistinguishable from a claim about
+  today, and it sat two hundred lines from the table that contradicted it. The aurora lane
+  **built an audit tier against this sentence** and asked the question that surfaced it; nothing
+  in the document would have corrected them, because the two statements never appear together.
+  A design split and a status report look identical in prose and are separated only by tense.
+  **Write a division of responsibility in the future tense, or put the status beside it.**
+
+  **And note what R1's absence costs specifically**, since it is the one with a live consequence:
+  R1 (`XOVER == 3` hard-errors) is exercised by nothing, because `bake_plane_cell` does not read
+  bits 15:14 at all (`tools/collision_pipeline.py:229`; its docstring enumerates `9:0`, `10`,
+  `11`, `13:12`). So the illegal value is not merely unchecked — it is undetectable on the bake
+  path, and an act painted full of `XOVER == 3` produces a byte-identical ROM and a green build.
+  Booked in `docs/DEFERRED_WORK.md` under the authored-crossover-never-reaches-the-ROM entry.
 - **Aurora checks the loop** — at paint time, where the *intent* is present. You know a
   stroke was a loop; the bake only knows it produced divergent cells. Refusing to author a
   loop that lacks its crossover is a better error than a build failure an hour later, and it
