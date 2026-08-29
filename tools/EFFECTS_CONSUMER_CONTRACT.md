@@ -220,6 +220,152 @@ surface.
   `..` segments, and must be exactly 256 bytes (signed i8 table), baked via `embed()`
   (the `inject_editor_bg.py` precedent).
 
+### 2.4 Preset documents — the RASTER BAND field contract (NEW, this series)
+
+`games/sonic4/data/editor/effects/presets/<preset_id>.json` — one preset document per
+file. An absent directory means "no presets" and is **not** an error; the directory does
+not exist in the tree today, which is why adding this read set moved zero ROM bytes.
+
+**⚠ A BAND IS NOT A SCENE FIELD, AND THIS IS THE PART TO READ BEFORE THE TABLE.** The
+parcel that built this arm was dispatched to put the band on the *scene* file. It is not
+there, and both reasons were already committed before the parcel started:
+
+1. `docs/superpowers/specs/2026-08-28-raster-band-ownership-design.md` **§16.1** — "A
+   scene IS a `parallax_config`. It is not an effects bundle. The palette, the palette
+   cycle, the variants and *the raster program* are channels of an `EffectsPreset`, and an
+   `EffectsPreset` is bound **per SECTION**, never per scene." Its closing sentence is
+   addressed to exactly this reader: *"'put a band in a scene' is not a thing you can
+   do."*
+2. `empyrean` origin/main `docs/AURORA_EFFECTS_SCHEMA.md` **§7** already RESERVES the right
+   place — `games/sonic4/data/editor/effects/presets/` ("preset composition documents"),
+   for "raster preset composition (tint bands, vscroll splits, patchable world-anchor
+   channels, palette variants, cycling)". Putting `bands` on the scene object would have
+   contradicted a reservation the suite had already agreed.
+
+So the editor's band panel edits a **preset document**, not a scene. A `bands` key on a
+scene file is refused by the scene loader's ordinary unknown-key path (asserted:
+`tools/test_effects_gen.py::TestPresetConverseControl::test_a_scene_file_carrying_a_band_key_is_REFUSED`).
+
+**Wave-2 status.** `bands` is a NEW key, not one of §7's reserved three. Its relation to
+the reserved `fires`: a band lowers to the two (or three, with `sh`) fires `band()`
+derives, so `bands` is the safe, closed subset and `fires` remains the open general form.
+The three reserved names are refused **by name** here rather than as unknown keys.
+
+#### What one band becomes, end to end
+
+```
+{"top": 120, "bot": 148, "sh": false,
+ "on": {"cram": {"addr": 74, "colours": [548]}}}
+        |
+        |  tools/effects_gen.py  render_band / render_band_on / render_preset
+        v
+band(top: 120, bot: 148, on: stream_cram(addr: 74, colours: [548]), sh: 0)
+        |
+        |  wrapped, per document, into one program
+        v
+const EditorRasterSrc_OJZ_Act1_<id> = compose([ <band>, ... ])
+pub data EditorRaster_OJZ_Act1_<id>: [u16; raster_words(EditorRasterSrc_OJZ_Act1_<id>)]
+                                   = raster_program(EditorRasterSrc_OJZ_Act1_<id>)
+        |
+        v
+words in `games/sonic4/data/generated/ojz/act1/effects_scenes.emp`, section
+`ojz_effects_editor_act1`, placed by the `"section:ojz_effects_editor_act1"` row in
+`games/sonic4/map.toml` (a NAME row precisely because the head label is content-derived —
+so a program appearing here needs no map.toml edit).
+```
+
+MEASURED, not asserted (2026-08-29, real `sigil build --native --game sonic4`, the three
+bands above): `EditorRaster_OJZ_Act1_ojz_ground_wash` lands at ROM `$1323C`, and the next
+label sits at `$132AA` — a span of `$6E` = **110 bytes = 55 words**, which is exactly
+`raster_words` for three one-colour bands (7 fixed + 3 × 16).
+
+#### Field table
+
+Every row names **where the rule is enforced**, file + symbol. Where a rule has **no**
+enforcing assertion, the row says so in those words rather than implying one exists.
+
+**Legend for the enforcement column.** `effects_gen.py` symbols are the SHAPE layer (is
+this a number, is this key known, is this arm spelled right); `raster_dsl.emp` symbols are
+the VALUE layer (is this number legal), and they fire at build time on the generated
+`.emp` because a `pub data` in a lowered module is elaborated unconditionally.
+
+| Field | Type / range | Meaning, incl. absent / zero | Lowers to | Enforced at (file + symbol) |
+|---|---|---|---|---|
+| `schema` | integer, `== 1` | Document format version. **Absent: refused.** | nothing | `tools/effects_gen.py` `load_preset` |
+| `id` | string, `^[a-z][a-z0-9_]{0,31}$`, `== ` filename stem | Becomes the `.emp` label component `EditorRaster_<ACT>_<id>`. **Absent: refused.** | the emitted label's name | `tools/effects_gen.py` `load_preset` (pattern `SCENE_ID_RE`) |
+| `name` | any | Writer-owned display label. **Read by nothing; whatever the value, it is dropped.** | nothing | not validated anywhere — deliberately, `PRESET_IGNORED_KEYS` |
+| `bands` | array, length ≥ 1 | The bands in this program. **Absent: refused. Empty: refused** (an empty program is not a program). | one `compose([...])` | `tools/effects_gen.py` `load_preset`; backstop `engine/effects/raster_dsl.emp` `compose` ("compose: nothing to compose") |
+| `fires`, `variants`, `cycles` | — | empyrean §7 reserved wave-2 keys. **Refused by name**, with the reason, not as unknown keys. | nothing | `tools/effects_gen.py` `_check_keys` via `PRESET_REFUSED_KEYS` |
+| any other key | — | **Refused.** Adding one is a CONTRACT change (see the drift rule at the top of this file). | nothing | `tools/effects_gen.py` `_check_keys` |
+| `bands[i].top` | integer | Screen line the effect turns **ON**. Its writes land on this line. **No default — required.** **0 is not "off"; it is line 0, which the engine refuses** (lines 0–2 belong to the priming records). | `band(top: …)` | shape: `tools/effects_gen.py` `_render_int` · value: `engine/effects/raster_dsl.emp` `fire` (screen-line range), `band` (`top < bot`), `band` (height vs `fire_cost_cycles`) |
+| `bands[i].bot` | integer | Screen line the effect turns **OFF** — the restore's line. The band covers `top .. bot-1` inclusive; `bot - top` is the height the engine charges. **No default — required.** | the derived `pal_restore` fire's line | shape: `_render_int` · value: `raster_dsl.emp` `fire`, `band` (`top < bot`), `band` (height, and the S/H height rule when `sh` is set) |
+| `bands[i].sh` | boolean, or integer `0`/`1` | Shadow/Highlight on for the band. **No default — required**, deliberately: `raster_dsl.emp`'s `region_boundary` note is that "whether an effect changes a mode register is worth stating at the call site". `false`/`0` = a two-fire band; `true`/`1` = the three-fire S/H shape. | `band(sh: 0\|1)` | shape (bool→int translation): `tools/effects_gen.py` `_render_bool_int` · value: `raster_dsl.emp` `band` ("band: sh must be 0 or 1") |
+| `bands[i].on` | object, **exactly one** of `cram` / `pal_region` | The ON op — the write the band turns on and the restore is derived from. **No default — required.** Zero arms, two arms, or an unknown arm: refused. `vsram` is deliberately not an arm: `band()` refuses a VSRAM ON op because a band's restore is derived from the ON op's CRAM span and VSRAM has none. | `stream_cram(…)` or `stream_pal_region(…)` | `tools/effects_gen.py` `render_band_on` (arm spelling, arity) |
+| `on.cram.addr` | integer | CRAM **byte** address the colours are written to. **`0` is a real address, not "absent" — and it is on palette line 0, the character's line, which both `stream_cram` and the derived `pal_restore` refuse.** | `stream_cram(addr: …)`, and the derived `pal_restore(addr, …)` | shape: `_render_int` · value: `raster_dsl.emp` `stream_cram` (range, even, line ≠ 0, span within the line) **and** `pal_restore` (the same four, on the restore `band()` derives) |
+| `on.cram.colours` | array of integers | The CRAM colour words, in order, starting at `addr`. Its **length** is also the restore's word count (`band()` derives `pal_restore(sa, sb / 2)` from this op's own span). **Empty: refused by the engine, not here.** | `stream_cram(colours: [ … ])` | shape (list, and each element an integer): `tools/effects_gen.py` `render_band_on` + `_render_int` · value: `raster_dsl.emp` `stream_cram` (burst ceiling), `pal_restore` (the DEEP-class ceiling the derived restore hits), `fire` (per-fire stream words) |
+| `on.pal_region.addr` | integer | CRAM byte address the staged variant colours land at. | `stream_pal_region(addr: …)` | shape: `_render_int` · value: `raster_dsl.emp` `stream_pal_region` (range, even, and the two agreement ensures against `pal_line`/`entry`), plus `pal_restore` on the derived restore |
+| `on.pal_region.slot` | integer | Which `Pal_Variant_Stage` slot the colours are streamed FROM. **Not the CRAM destination** — that is `addr`. | `stream_pal_region(slot: …)` | shape: `_render_int` · value: `raster_dsl.emp` `stream_pal_region` (slot range) |
+| `on.pal_region.pal_line` | integer | The staging source's palette line. Must agree with `addr`'s line. | `stream_pal_region(pal_line: …)` | shape: `_render_int` · value: `raster_dsl.emp` `stream_pal_region` (range, and the `addr >> 5 == pal_line` agreement) |
+| `on.pal_region.entry` | integer | The staging source's first entry. Must agree with `addr`'s entry. | `stream_pal_region(entry: …)` | shape: `_render_int` · value: `raster_dsl.emp` `stream_pal_region` (range, and the `(addr >> 1) & 15 == entry` agreement) |
+| `on.pal_region.count` | integer | How many colours are swapped. Also the derived restore's word count. | `stream_pal_region(count: …)` | shape: `_render_int` · value: `raster_dsl.emp` `stream_pal_region` (burst ceiling, `entry + count` within the line), `pal_restore`, `fire` |
+
+**Whole-program rules — no field carries them, and they are all the engine's.** Emitted by
+`raster_program()` over the composed fire list: band pairing and ownership
+(`check_band_pairing`, `check_band_ownership` — including "two bands may share colours only
+if they do not overlap vertically"), the blanking-window landing solve (`check_landings` —
+this is what refuses two contiguous bands, because band N's restore and band N+1's ON op
+would share a fire line), fire spacing and cost (`check_intervals`, `check_density`), the
+per-frame HInt total (`check_hint_total`), and the program-buffer ceiling inside
+`raster_program` itself (which is what makes three bands the cap). **All in
+`engine/effects/raster_dsl.emp`.**
+
+#### Not restated, not clamped — and what that buys the writer
+
+The generator holds **no** numeric bound from the raster tier: not the screen-line range,
+not the CRAM address range, not a burst ceiling, not the band count, not a height minimum,
+not the palette-line-0 rule. An out-of-range value is **forwarded verbatim** so the author
+reads `raster_dsl.emp`'s own sentence — which carries the measurement behind the rule,
+something a copy in a Python file could never carry. Clamping was explicitly rejected: a
+producer that clamps authors something the author did not write.
+
+Measured, on the real build (2026-08-29, `sigil build --native --game sonic4`, generated
+text only):
+
+| authored | the message the author gets |
+|---|---|
+| 4 colours in one band | `stream_cram: 4 colours exceeds RASTER_BURST_MAX_CRAM (3) — the per-fire CYCLE budget for the CHEAP burst class, not a FIFO limit. …` (+ `pal_restore`'s DEEP-class refusal on the derived restore, + `fire`'s per-fire ceiling) |
+| `addr: 4` (palette line 0) | `stream_cram: address 4 is on CRAM line 0, the character's line (CharacterDef.cd_palette) — a raster write there repaints the active character` |
+| `top: 999` | `fire: screen line 999 outside 3..223 (lines 0-2 belong to the priming records)` |
+| `top: 120, bot: 121` | `band: height 1 is below this ON op's minimum — the ON fire costs 624 cyc against 488 available` |
+
+The generator's own structural gate for this claim is
+`tools/test_effects_gen.py::TestBandValuesAreNotValidatedHere::test_the_generator_source_carries_NO_raster_bound_literal`,
+which reads `effects_gen.py`'s raster arm and fails if it spells one of those numbers.
+
+#### RULES WITH NO ENFORCING ASSERTION — stated because a silence is a claim
+
+- **Nothing checks that a preset document is BOUND.** The generator emits the program's
+  words; which section installs it is an `ep_raster` argument in a hand-authored `preset()`
+  call (`games/sonic4/data/effects/ojz_effects.emp`), and choosing that is a content
+  decision with a picture attached (§16.1: a preset is section-scoped). An authored but
+  unbound preset therefore costs ROM and shows nothing, and **no assertion anywhere says
+  so**. This is the open seam of this arm; see the DEFERRED_WORK entry.
+- **Nothing checks the total ROM cost of the preset set.** Each program is bounded by the
+  64-word program buffer; the number of programs is not bounded by anything.
+- **The runtime palette binding behind a `pal_region` band is unchecked, and cannot be
+  checked at build time.** The variant bound to `slot` must cover `pal_line` in its `lines`
+  mask or the band streams whatever the staging buffer holds. Binding is a runtime call
+  (`Palette_SetVariant`), so no comptime guard can see it — `raster_dsl.emp`'s
+  `fx_tint_band` header states this as a standing, booked limitation.
+- **Nothing checks that a band is VISIBLE** — that the CRAM entry it repaints is used by
+  pixels on those rows, or that the colour differs from the base. Design §3.4.
+- **No writer-side schema exists yet.** This section is the aeon consumer half only; the
+  `empyrean` schema pair does not spell `bands` at the revision this was written against
+  (verified: `git -C ../empyrean show origin/main:contract/schema/aurora-effects-scene.schema.json`
+  contains no band/raster/cram/tint token). Per the drift rule at the top of this file,
+  amending the empyrean schema pair and re-pinning Aurora's golden is the other half of
+  this change series.
+
 ## 3. Error-handling posture — normative for BOTH halves
 
 Written because of the asymmetry, which is the reason the section exists at all (ERRATUM 2
