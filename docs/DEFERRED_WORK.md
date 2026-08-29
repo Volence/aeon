@@ -243,6 +243,27 @@ before deriving another candidate.
 owner has already settled.** Project `LIVE-OBJECTS` (declared at empyrean `origin/main`
 `contract/projects.json`, lanes oracle/aeon/empyrean — aurora came off the list).
 
+**⚠ WIDENED AND DEFERRED BY THE OWNER 2026-08-29, relayed by the aurora lane.** His words,
+verbatim: *"I'm fine without live preview for now, I think that should be its own project btw the
+whole place objects with mouse, live preview changes etc"*
+
+Two things follow and only the first is unambiguous.
+
+- **Live preview is not wanted now, and it belongs to THIS project rather than to effects.** The
+  60 fps real-engine preview (Aether client + DEBUG RAM override) is booked at
+  `docs/superpowers/2026-07-02-design-week-queue.md:86`. The relay cited it as "D8 §8.2";
+  **that coordinate does not resolve in this tree** — `D8` here is a sound-review item (the
+  `song_packer` music-legal opcode gate) and ARCH §8.2 is the debug system architecture. Anchor to
+  the design-week-queue line, not to the relayed coordinate.
+- **AMBIGUOUS, flagged rather than resolved: whether this defers the WHOLE card or only its
+  preview half.** The relay read him as widening LIVE-OBJECTS to "live debug and build tools".
+  His sentence groups *"the whole place objects with mouse, live preview changes etc"* as the
+  thing that "should be its own project", which reads equally as deferring the mouse-placement
+  half too. **Held here as: LIVE-OBJECTS stays a project and stops being startable work for this
+  lane until he says otherwise.** One sentence from him settles it; no card opened, because he has
+  already spoken once and a tenth card would ask him to repeat himself.
+
+
 **His ask:** *"is there a possibilty to have some sort of mouse control where we can select items or
 something and click places to spawn them in?"*
 
@@ -13991,3 +14012,65 @@ Riders booked in the same audit, smaller:
   nine rows pass a non-zero preset, and `Parallax_CheckBoundary`'s only callers are in sonic4's
   scroll test. The real fix is a build-time `ensure`, or making `effects:` required the way
   `pal:` already is — not a release-side runtime guard.
+
+## DENSE PER-LINE VSRAM — ruled IN by the owner 2026-08-29. BOOK ONLY, DO NOT START.
+
+Relayed by the aurora lane. His words, verbatim:
+*"For the dense per line vsram effects I think we should include now so we don't forget later."*
+
+So a dense per-line VSRAM run op joins the effects definition of done. **Booked, not started** —
+the relaying lane asked that it not be started ahead of a ten-item list they will send once he
+confirms it, and this lane is at a boot stop regardless.
+
+**What is actually being asked for, stated precisely, because a shipped neighbour makes this easy
+to misread.** Per-COLUMN VSRAM already ships — `pcfg_v_deform_table_bg`, 20 column-pairs sampled
+per frame (ARCH §4.6) — and this file already records that *"vertical-boundary scroll effects are
+already free; it is only palette on the vertical axis that is unsolved."* What does not exist is a
+per-LINE VSRAM write from inside a dense-tier run body. **Different axes. The shipped one does not
+partially satisfy the new one**, and a planner who reads "VSRAM, already ships" will price this at
+zero.
+
+**Where it hangs, and it is NOT greenfield.** The dense tier exists: `OP_RUN_GRADIENT`, the
+`raster_gradient_program` constructor (`engine/effects/raster.emp`), a measured cost term
+`RASTER_DENSE_LINE_GRAD_CYC` (350) and the invariant that a dense line must fit inside a scanline.
+The new op is a second timed store inside the dense-run body — which is exactly the hook this file
+already named for it. Do not plan it as new machinery.
+
+**`CAP_DENSE_TIER` is genuinely reserved — and the VALUE in the reserved comment is a placeholder
+that will move.** Verified firsthand at `engine/level/scene_dsl.emp:215`, which lists it at
+`$0400`. But the promotion rule in that same file allocates one bit at a time from bit 0, enforced
+by `test_the_declared_and_retired_bits_are_a_gapless_run_from_bit_zero` — so at promotion the bit
+takes the NEXT free value (`$0100` today, after `CAP_BAND_DRIFT=$0080`) unless
+`CAP_FG_SPRITE_STRIPS` and `CAP_BGANIM_BOUND` are declared first. **The reserved-names test checks
+NAMES, not values.** Take the NAME from the relay; DERIVE the value at promotion time. Copying
+`$0400` out of this booking is the copied-expectation defect, and the file's own comment says so.
+
+**The "July non-goal is lifted" framing did not reproduce, and is corrected here rather than
+carried forward.** Grepped the tracked docs for every non-goal spelling; there is no July non-goal
+covering this. What exists is this file's own note that the effect is *"a set-piece effect, not a
+vocabulary op"* — expensive, artifact-bearing, spectacular — parked **on cost and taste, not
+dependencies**, and explicitly *"Unblocked already — nothing is missing."* That is a materially
+different starting position from a lifted prohibition: nothing has to be un-decided, and the open
+questions are budget and art direction. Correcting it because a booking is read as a work order,
+and "a prohibition was lifted" invites a first task that does not exist.
+
+**Open riders, both pre-existing:**
+- The HBlank budget check the relay names is the right shape. The dense tier's budget terms live
+  in `tools/effects_budget_model.toml` and `Raster_HInt`'s dense-body comment; derive from those,
+  do not re-type a number out of this booking.
+- **The dense-tier reserved stream register (item 6, "FLAGGED, needs user sign-off", 2026-08-12)
+  is still open and is adjacent to this.** Reserving a global stream register would buy ~thousands
+  of cycles/frame on a 224-line run, but it is an irreversible engine-wide register-convention bet
+  held for an owner ruling. A dense per-line VSRAM workload is precisely the thing that could push
+  the tier over budget and re-raise it. **Do not fold it in silently** — if this work needs it, it
+  becomes a card, not an implementation detail.
+
+**Reference named by the relay:** Batman & Robin's per-scanline handler in the workspace
+disassembly. Consistent with this repo's reference list and a reasonable starting point — but it
+is the relaying lane's suggestion, not the owner's words, and the standing research checklist
+(all eight disassemblies, online, modern) applies as usual rather than being satisfied by it.
+
+**Provenance:** the two quoted sentences are the owner's, relayed verbatim. Everything the relay
+said around them — the lifted non-goal, the bit, the reference, the sequencing — is the relaying
+lane's scaffolding and was checked here before being written down: bit CONFIRMED (with the value
+caveat above), reference reasonable, non-goal NOT REPRODUCED, sequencing accepted.
