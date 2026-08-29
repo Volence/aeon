@@ -238,6 +238,34 @@ rulings live in the session memory and the most recent `docs/superpowers/*handof
   *Recorded here rather than left in mail because it is a cross-lane COMMITMENT, and protocol bar
   20's sending-side half says state that lives only in correspondence does not survive a `/clear`.
   This lane made the ruling in a message and had to be reminded by its own file to bank it.*
+- **RUN THE STRICT SUITE BEFORE THE FREEZE, NOT AFTER — A NEW CROSS-SEAM SYMBOL GOES RED AT
+  ATTEST EVERY TIME, AND NOTHING UPSTREAM WARNS** (added 2026-08-29, after chains 182 and 184
+  both did it).
+  **Two for two, same night, same mechanism, different symbols.** 182 added
+  `EditorRaster_OJZ_Act1_authored_probe` and `act_descriptor_port` went red on *"link assertion
+  condition references symbol(s) … not defined in this link"*. 184 added `Parallax_Drift_Acc` and
+  both `parallax_port` tests went red on the identical diagnostic. **`build.sh` does not warn
+  about cross-seam refs** — it links the whole map, so the standalone-module case it never
+  exercises is exactly the case the port tests exist for.
+  **The cost is not the fix; the fix is a table row. The cost is WHERE it lands.** Discovering it
+  at `--attest` means the freeze has already run (a full seven-ROM capture), already been
+  committed, and already been pushed — so the entry is FROZEN with a red record and can only be
+  abandoned via `--supersede-tip`, which requires **a second full capture**. Two chains × two
+  captures ≈ 40 minutes of wall clock spent on a defect a two-minute check would have caught
+  before the first one.
+  **Operational form: after the merge and the four-shape verify, and BEFORE `--freeze`, run the
+  strict suite against the merged tree.** `AEON_DIR=<clean merge> cargo test --release
+  --workspace --no-fail-fast` with `SIGIL_STRICT_GATE=1` — or simply expect `--attest`'s failures
+  early by running the port targets alone, which is faster: the two that have bitten are
+  `-p sigil-cli --test act_descriptor_port` and `--test parallax_port`.
+  **A cheaper pre-flight that catches the whole class:** any parcel that adds a `pub` symbol which
+  a *different* module references — a `dc.l`, an `extern`, a link `ensure` — has added a
+  cross-seam ref. **Grep your own diff for new cross-module names before freezing**; that is the
+  population, and it is enumerable from the parcel rather than discovered by the suite.
+  *Note what this does NOT change: the port tests are right, the diagnostic is excellent (it names
+  the symbol and tells you to supply the composition), and the fix is documented and mechanical.
+  This is purely about ORDER — the same information arriving before the expensive step instead of
+  after it.*
 - One byte-mover per branch. Serialize refreezes. When any session is live-editing
   content in the main tree, build + freeze from a CLEAN CHECKOUT of the merge SHA.
   **The clean checkout must be threaded through ALL THREE legs explicitly** (lived
