@@ -1,5 +1,5 @@
 {
-  "focus": "Sprite naming is live in the game; its byte certification came back red, with two fixes owed by another lane.",
+  "focus": "The editor-authored colour band is in the ROM and certified. Next: backgrounds that drift on their own.",
   "inFlight": [],
   "blockedOnOwner": [
     {
@@ -18,97 +18,85 @@
       "since": "2026-08-26"
     },
     {
-      "id": "d-31",
-      "what": "how to buy room for the background: slow its scroll, redraw the art to join top-to-bottom, or let backgrounds exceed the hardware plane",
-      "since": "2026-08-26"
-    },
-    {
-      "id": "d-32",
-      "what": "whether the left-edge strip stays shipped now that it is the foreground losing its ground, not eight background pixels",
-      "since": "2026-08-27"
-    },
-    {
       "id": "d-33",
-      "what": "how a second act's animated background should live in the ROM - I told the hub this was already d-31 and it was not, so it had never been put to you",
+      "what": "how a second act's animated background should live in the ROM",
       "since": "2026-08-27"
+    },
+    {
+      "id": "d-34",
+      "what": "a second standstill drift, found while building your mirrored-slopes ruling",
+      "since": "2026-08-27"
+    },
+    {
+      "id": "d-35",
+      "what": "the shipped sine table is not perfectly mirror-symmetric - fix it or live with it",
+      "since": "2026-08-27"
+    },
+    {
+      "id": "d-31-scoped",
+      "what": "tall background art: build row streaming (small in the engine, real art and editor work), stay at half-rate, or repaint to tile. Your 2.6k memory was right and S3K's plane is HALF ours",
+      "since": "2026-08-29"
+    },
+    {
+      "id": "instashield-riders",
+      "what": "whether Tails gets the same came-from-a-jump gate (I recommend yes, and leaving Knuckles), and whether you want S3K's second insta-shield gate, which is a feel change",
+      "since": "2026-08-29"
+    },
+    {
+      "id": "d-41",
+      "what": "the left-edge fix works, but its cost is a 16-pixel strip at the RIGHT edge showing the background at a different height - bigger than d-40 told you. Look before I land it?",
+      "since": "2026-08-29"
+    },
+    {
+      "id": "d-44",
+      "what": "an unaccounted-for edit to your OJZ background scene, sitting in my working copy since at least the 28th - mine to preserve, yours to rule on",
+      "since": "2026-08-29"
     }
   ],
-  "nextBoundary": "Here. Everything of mine is landed and pushed; the open item is waiting on another lane.",
+  "nextBoundary": "Now - chain 182 is attested and pushed on both sides, and nothing is running.",
   "queue": [
     {
-      "id": "SPRITE-OWNER-CERT",
-      "title": "The sprite-naming change is landed and working in the game, but the assembler lane's certification of its bytes came back red on two of their own tests. One is a module that now references a name defined outside itself; the other is a hand-maintained baseline that wants a line explaining the size change. Both fixes are theirs to author; I re-certify after.",
+      "id": "BAND-DRIFT-BUILD",
+      "title": "Backgrounds that drift on their own. Designed, priced, and ruled ON in your place overnight - reversible. Builds after the re-bake and after the colour-band work frees the file it shares.",
       "state": "next",
-      "size": "S",
-      "blockedBy": "the sigil lane authoring two test-side fixes",
-      "project": null
+      "size": "L",
+      "blockedBy": null,
+      "project": "EFFECTS-W1"
     },
     {
-      "id": "SOUND-ARTIFACTS",
-      "title": "The dull sound was the emulator's own hardware filter, not our music - you confirmed unfiltered sounds better. The panning is faithful to the original Batman & Robin track (measured against a capture of it). Still open: the occasional 1-2 ms stall, and whether a melody voice is too quiet.",
+      "id": "BG-TALL-AND-PAGING",
+      "title": "Taller background art, then paging it. Both designed, priced and merged as docs; neither built. They are one sequence - paging does nothing until the streamer lands. Needs your d-31 ruling first.",
+      "state": "blocked",
+      "size": "L",
+      "blockedBy": "you - d-31-scoped",
+      "project": "EFFECTS-W1"
+    },
+    {
+      "id": "FG-LEFT-EDGE",
+      "title": "The left-edge foreground breakage you reported. You ruled for the real fix; it is built and verified. Its cost at the RIGHT edge is bigger than the card you ruled on said, so I stopped instead of landing it.",
+      "state": "blocked",
+      "size": "M",
+      "blockedBy": "you - d-41",
+      "project": "EFFECTS-W1"
+    },
+    {
+      "id": "PARALLAX-SCROLL-CLAMP",
+      "title": "Nothing clamps the background scroll, so a scene with out-of-range numbers wraps silently and looks like a bug somewhere else. Wanted regardless of the scroll-speed ruling.",
       "state": "open",
       "size": "S",
-      "blockedBy": null
+      "blockedBy": null,
+      "project": "EFFECTS-W1"
     },
     {
       "id": "SIGIL-DECOUPLE",
-      "title": "You said yes: take the certification harness off the assembler so adding content stops needing a paired freeze. Nominated to the hub for a project id; planned jointly with the assembler lane after the showcase lands.",
+      "title": "Taking the certification harness off the assembler. Step two is finished; step one retires the golden from being a fix's only witness.",
       "state": "open",
       "size": "L",
-      "blockedBy": "the showcase landing first (the project id is declared)",
+      "blockedBy": "your ruling on the chain count; the assembler lane's step 1",
       "project": "SIGIL-DECOUPLE"
-    },
-    {
-      "id": "GOLDEN-DIRTY-BANNER",
-      "title": "The assembler warns you when it might not match its own source. It fires on every paired landing, because refreezing dirties the tree it then builds in. The assembler lane is keeping it loud on purpose: a version that stays quiet during refreezes would also stay quiet if a real source edit rode along with one. Booked there, not here.",
-      "state": "open",
-      "size": "XS",
-      "blockedBy": "the sigil lane"
-    },
-    {
-      "id": "TEST-OBJECTS-DELETE",
-      "title": "You chose: delete the nine development test objects outright. Untangle the placeholder player from the real sensor code and the two test scenes first; bytes move, so it lands paired with the assembler.",
-      "state": "open",
-      "size": "M",
-      "blockedBy": null
-    },
-    {
-      "id": "PITCH-FORMAT",
-      "title": "You chose: the music driver stores musical pitch, not raw chip numbers, before the soundtrack grows. Needs a joint plan with the music tool lane; the one test track converts.",
-      "state": "open",
-      "size": "L",
-      "blockedBy": "a joint plan with the seraph lane; a project id from the hub"
-    },
-    {
-      "id": "FONT-PIPELINE",
-      "title": "You chose two faces. Build the font pipeline and the HUD numbers on the small face; the title card waits on you naming its display face.",
-      "state": "open",
-      "size": "M",
-      "blockedBy": "the title face is unnamed (HUD half is not blocked)"
-    },
-    {
-      "id": "SLOPE-SYMMETRY",
-      "title": "You chose: mirrored slopes behave the same. A three character physics change on four angles, recorded as a deliberate divergence; regression recordings re-stamped.",
-      "state": "open",
-      "size": "S",
-      "blockedBy": null
-    },
-    {
-      "id": "NO-DIV-RULE",
-      "title": "You chose: soften the no divide rule to 'not casually, prove it at the site'. Rewrite the rule in the coding law, cite the two shipped divides as the worked examples. Docs only.",
-      "state": "open",
-      "size": "S",
-      "blockedBy": null
-    },
-    {
-      "id": "FALL-CAP-15",
-      "title": "You chose: terminal fall speed 15, closing the thin-floor hole. One constant, three sites, recordings re-stamped.",
-      "state": "open",
-      "size": "S",
-      "blockedBy": null
     }
   ],
-  "awaiting": null,
+  "awaiting": "d-44 whenever you want it: an unaccounted-for edit to your OJZ background scene, which I have left untouched.",
   "atBoundary": true,
-  "updatedAt": "2026-08-27T08:05:07Z"
+  "updatedAt": "2026-08-29T11:48:08Z"
 }

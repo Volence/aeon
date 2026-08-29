@@ -223,19 +223,8 @@ surface.
 ### 2.4 Preset documents — the RASTER BAND field contract (NEW, this series)
 
 `games/sonic4/data/editor/effects/presets/<preset_id>.json` — one preset document per
-file. An absent directory means "no presets" and is **not** an error.
-
-**~~the directory does not exist in the tree today, which is why adding this read set moved
-zero ROM bytes~~ — CORRECTED IN PLACE 2026-08-29, one day later.** The directory exists and
-holds `authored_probe.json`, the first editor-authored raster program, and it moved all four
-sonic4 ROM bytes as a preset document is designed to. The zero-byte claim was true of the
-arm *without content* and is preserved above as the converse control
-(`tools/test_effects_gen.py::TestPresetConverseControl`); what is no longer true is the
-statement about the tree. The anti-vacuity test that guarded this sentence
-(`test_the_real_repo_ships_no_preset_documents`) went red the moment content arrived,
-exactly as its author intended, and is now inverted
-(`test_the_real_repo_SHIPS_preset_documents`). A worked example of a real document, and the
-Aurora lane's page, is `docs/EDITOR_RASTER_PRESETS.md`.
+file. An absent directory means "no presets" and is **not** an error; the directory does
+not exist in the tree today, which is why adding this read set moved zero ROM bytes.
 
 **⚠ A BAND IS NOT A SCENE FIELD, AND THIS IS THE PART TO READ BEFORE THE TABLE.** The
 parcel that built this arm was dispatched to put the band on the *scene* file. It is not
@@ -361,15 +350,6 @@ which reads `effects_gen.py`'s raster arm and fails if it spells one of those nu
   decision with a picture attached (§16.1: a preset is section-scoped). An authored but
   unbound preset therefore costs ROM and shows nothing, and **no assertion anywhere says
   so**. This is the open seam of this arm; see the DEFERRED_WORK entry.
-
-  **HALF OF IT IS NOW CHECKED, and stating which half is the point** (2026-08-29).
-  `tools/test_raster_cycle_table_lint.py` holds the DEBUG effects-lab's `.raster_table`
-  (`games/sonic4/test/ojz_scroll_test.emp`, `Debug_BandDemoHotkey`) to the preset documents
-  on disk in both directions, so a preset with no row — i.e. a program *nothing in either
-  shape can install* — fails the build's pytest lane. What is still unchecked, and is the
-  larger half: **binding to a SECTION**. A preset reachable only from a debug chord is not
-  content, and a preset named in a `preset()` call has no assertion at all. Do not read the
-  lint as closing this bullet.
 - **Nothing checks the total ROM cost of the preset set.** Each program is bounded by the
   64-word program buffer; the number of programs is not bounded by anything.
 - **The runtime palette binding behind a `pal_region` band is unchecked, and cannot be

@@ -222,47 +222,12 @@ pub vars game_ram {
         // scene for exactly one press; it is a cursor, not a mirror of the engine's
         // live config, and nothing reads it back.
         //
-        // IT CONSUMED THE PAD BYTE THAT WAS ALREADY HERE — when this field landed the
-        // DEBUG block grew by ZERO bytes. The pad existed only to keep Game_RAM_End
-        // even; a u8 in the same slot did the same job and carried a value. That is
-        // why this one sits at an ODD address ($FFFFE60D, measured in s4.debug.lst)
-        // and the raster cursor below sits at the even one, needing its own pad —
-        // "add another u8 and it is free" was never the rule; the rule is that
-        // Game_RAM_End stays even.
+        // IT CONSUMES THE PAD BYTE THAT WAS ALREADY HERE — this DEBUG block grows by
+        // ZERO bytes and Game_RAM_End does not move in either shape. The pad existed
+        // only to keep Game_RAM_End even; a u8 in the same slot does the same job and
+        // carries a value. If a field is ever added after this one, restore a pad(1)
+        // or add another even-sized field.
         Debug_Scene_Index:  u8,     // effects-lab cursor: index into SCENES[]
-
-        // -----------------------------------------------
-        // Effects-lab RASTER cursor (DEBUG shapes only)
-        // -----------------------------------------------
-        // The row of Debug_BandDemoHotkey's `.raster_table` that the NEXT START+UP
-        // press will install (games/sonic4/test/ojz_scroll_test.emp). Range
-        // 0..RASTER_CYCLE_COUNT-1; the hotkey asserts that before every table read,
-        // and tools/test_raster_cycle_table_lint.py holds the count to the rows.
-        //
-        // THE BOOT VALUE 0 IS MEANINGFUL, exactly as the scene cursor's is, and for a
-        // sharper reason: boot clears all of Work RAM (engine/system/boot.emp
-        // `.clear_ram`), so row 0 is what the FIRST press from a cold boot installs —
-        // and row 0 is OJZ_BandDemo, the hand-authored control. That is what keeps
-        // "START held + UP installs OJZ_BandDemo", the documented behaviour this
-        // cursor generalises, true for the press a reader actually makes first.
-        //
-        // IT IS A CURSOR, NOT A MIRROR of the live raster channel: a section crossing
-        // re-installs that section's own program through Effects_InstallPreset and
-        // never touches this byte, and START+DOWN (bands OFF) deliberately leaves it
-        // alone so OFF-then-ON resumes the cycle rather than restarting it. Nothing
-        // reads it back.
-        //
-        // THIS FIELD GROWS THE DEBUG BLOCK BY 2 BYTES (itself, plus the pad that puts
-        // Game_RAM_End back on an even address) and the RELEASE block by NONE: the
-        // whole group is `if DEBUG == 1 @shape_divergent` and sits at the RAM tail, so
-        // no address below it moves in either shape.
-        //
-        // MEASURED rather than argued, 2026-08-29: DEBUG Game_RAM_End $FFFFE60E ->
-        // $FFFFE610 with this field at $FFFFE60E, and the release shape built with and
-        // without this whole block is BYTE-IDENTICAL (crc c9255279, 719235 B both ways,
-        // release Game_RAM_End $FFFFBD02 both ways).
-        Debug_Raster_Index: u8,     // effects-lab cursor: row in .raster_table
-        pad(1),                     // keep Game_RAM_End even
     }
 
     mark Game_RAM_End,
