@@ -410,6 +410,18 @@ pub const PLANE_B_CELL_ROWS = 64
 pub const PLANE_B_SPAN      = PLANE_B_CELL_ROWS * 8
 ensure(PLANE_B_SPAN == 512, "PLANE_B_SPAN drifted from the 64x64 Plane-B geometry Step 4a's `and.w #PLANE_B_SPAN-1` masks against")
 
+// VSCROLL_COL19_* — the per-column V-scroll buffer's LAST column-pair, which is the entry
+// the VDP re-reads for the leftmost partial column (see the column-19 borrow in Step 5b).
+// Twenty pairs is an H40 fact and the quirk is 40-cell-only, so both the pair count and the
+// offset are derived from SCREEN_WIDTH rather than typed; the ensure is what stops a
+// narrower screen from silently leaving the store pointed at the wrong word.
+pub const VSCROLL_COL_PAIRS   = SCREEN_WIDTH / 16
+pub const VSCROLL_COL19_BG_OFF = (VSCROLL_COL_PAIRS - 1) * 4 + 2
+ensure(VSCROLL_COL_PAIRS == 20 && VSCROLL_COL19_BG_OFF == 78,
+       "the column-19 borrow is an H40 (40-cell) mechanism: SCREEN_WIDTH {SCREEN_WIDTH} gives {VSCROLL_COL_PAIRS} column-pairs, not 20. In H32 the leftmost partial column is pinned to V-scroll 0 and no VSRAM entry reaches it (Eke-Eke, hardware-tested), so the borrow must be re-derived or deleted rather than re-aimed")
+ensure(VSCROLL_COL19_BG_OFF + 2 <= 80,
+       "the column-19 borrow writes past Parallax_Vscroll_Column_Buf's 80 bytes — {VSCROLL_COL19_BG_OFF}+2 > 80; ram.emp and SCREEN_WIDTH disagree about how many column-pairs the buffer holds")
+
 // ---- THE THREE WHOLE-ENTRY COPIES, ALL GENERATED FROM ONE SIZE (P3 Task 8 Step 3) ----
 //
 // A whole band_entry moves in three places in this file and, before Task 8, only ONE of
@@ -1661,6 +1673,40 @@ proc Parallax_Step5_Vscroll () clobbers(d0-d7/a0-a6) {
         move.w  d0, (a2)+                           // BG word = base + offset
         addq.b  #1, d4
         dbf     d6, .col
+
+        // ---- THE COLUMN-19 BORROW (d-40, 2026-08-29) — the leftmost-partial-column fix ----
+        // The last column-pair's PLANE-B word is the one VSRAM entry the VDP re-reads for
+        // the leftmost partial column: with per-column V-scroll on and a plane's HScroll
+        // off the 16-px grain, that plane's leading sliver renders at
+        // `VSRAM[$4C] & VSRAM[$4E]` — the bitwise AND of column-pair 19's two words, the
+        // SAME value for both planes (Eke-Eke's dedicated hardware test, PAL MD2 2010; it
+        // is what Genesis Plus GX and Oracle both implement). Overwriting the plane-B word
+        // with the plane-A word makes that AND `camY & camY = camY`, which is exactly what
+        // the FOREGROUND wants, so the sliver renders correct level rows instead of a
+        // near-zero V-scroll. d1 is still camY here — the loop above never touches it, and
+        // it is the same register whose value went into all twenty FG words.
+        //
+        // WHAT IT COSTS, stated at the instruction because nothing else executes it: the
+        // plane-B word for column 19 is no longer plane B's own scroll, so plane B's
+        // RIGHTMOST 16 px render at the foreground's V-scroll. On this game's per-column
+        // scenes plane B is vertically LOCKED (v_factor 15 → Vscroll_BG = v_offset = 0)
+        // while plane A tracks camY, so that is a displacement of camY mod plane-height,
+        // not merely "the wobble is missing" — a background seam traded for a foreground
+        // one. It is 16 px because the two costs are conserved: give plane B a misaligned
+        // HScroll and its own leading sliver takes `hscroll & 15` of those pixels back off
+        // the right edge. UNCONDITIONAL ON PURPOSE — gating on `plane-A HScroll & 15 != 0`
+        // would spare the seam at one camera X in sixteen and make a 16-px background
+        // strip blink in and out as the camera walks, which reads worse than a steady one.
+        //
+        // Derivation, the sources, and what would refute it:
+        // docs/research/2026-08-29-vsram-column19-borrow.md.
+        //
+        // The offset is DERIVED, not typed: (SCREEN_WIDTH/16 - 1) * 4 + 2 is the twentieth
+        // column-pair's second word. Twenty pairs is an H40 fact, and the quirk is
+        // H40-only — in H32 the leading sliver is pinned to V-scroll 0 and no VSRAM write
+        // reaches it, so this store would be inert rather than wrong. The module-level
+        // VSCROLL_COL19_BG_OFF ensure above is what keeps both facts honest.
+        move.w  d1, Parallax_Vscroll_Column_Buf + VSCROLL_COL19_BG_OFF
     .cap_per_col_vsram_fill_end:
     }
 
