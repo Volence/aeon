@@ -320,29 +320,24 @@ pub const Scene_Haze_Uniform: Scene = haze_scene(speed: 2, gradient: 0)   // con
 // Rocking_Slow's v_speed 0 is a STATIC tilt, not "no V-deform": the table is attached,
 // so CAP_PER_COL_VSRAM is raised.
 //
-// LEFT-COLUMN POLICY: Accept — AND SINCE 2026-08-29 THAT MEANS ACCEPT THE RESIDUAL, NOT
-// SHIP THE ARTIFACT. The foreground strip this note described is FIXED: the engine's
-// column-19 borrow (Parallax_Step5_Vscroll) puts plane A's V-scroll into column-pair 19's
-// plane-B word, so this scene's leading sliver renders the foreground's own scroll on
-// every camera position. What Accept now records is the borrow's price — plane B's
-// rightmost 16 px carry plane A's V-scroll, and with `v_factor: 15` below that is a
-// displacement of camY mod 512, a background seam. Owner ruling d-40; derivation in
-// docs/research/2026-08-29-vsram-column19-borrow.md.
-//
-// The per-plane reading that got us here stands and is worth keeping: fb is FACTOR_0 and
+// LEFT-COLUMN POLICY (P3 Task 12): Accept — AND IT IS A REAL SHIP-THE-ARTIFACT DECISION,
+// which is NOT what this note said until 2026-08-28. The old text argued Accept was only
+// a conservative spelling of a true factor0 claim, on the grounds that fb is FACTOR_0 and
 // the sole plane-B H-deform source is DeformTable_Zero (every sample 0), so plane-B
-// HScroll is identically zero — TRUE, AND ONLY ABOUT PLANE B. Plane A here is
-// `fa: FACTOR_1` (HScroll = -camX, off the 16-px grain at fifteen camera positions in
-// sixteen) with `dsa: 4` over the FG table, which is why the FOREGROUND was the plane
-// losing its leading sliver (docs/research/2026-08-28-deform-scene-left-edge-triage.md).
+// HScroll is identically zero. That much is still true AND STILL ONLY ABOUT PLANE B. The
+// artifact is per-plane: plane A here is `fa: FACTOR_1` (HScroll = -camX, off the 16-px
+// grain at fifteen camera positions in sixteen) with `dsa: 4` over the FG table, so the
+// FOREGROUND loses its leftmost 16 px — which is the strip the owner reports on scenes
+// 10-15 (docs/research/2026-08-28-deform-scene-left-edge-triage.md).
 //
-// TWO INDEPENDENT REASONS FACTOR0LOCK IS UNAVAILABLE HERE: (1) scene()'s Factor0Lock
-// cannot see table CONTENTS (a table is a Label at comptime), so a live dsb (4, here)
-// against the zero table is indistinguishable from a live one against a real table;
-// (2) plane A is not locked at all, and since 2026-08-28 the guard checks that too.
-// Re-authoring dsb: 15 would clear reason (1) and NOT reason (2), so it still would not
-// buy the Factor0Lock spelling — and since the borrow, Factor0Lock would not buy this
-// scene anything anyway: the repair is unconditional and so is its price.
+// TWO INDEPENDENT REASONS FACTOR0LOCK IS UNAVAILABLE HERE, and only the first was on the
+// record before: (1) scene()'s Factor0Lock cannot see table CONTENTS (a table is a Label
+// at comptime), so a live dsb (4, here) against the zero table is indistinguishable from
+// a live one against a real table; (2) plane A is not locked at all, and since 2026-08-28
+// the guard checks that too. Re-authoring dsb: 15 would clear reason (1) and NOT reason
+// (2) — it would leave this scene still refused, so the byte-moving change booked in
+// DEFERRED_WORK's Task-12 restatement no longer buys the Factor0Lock spelling. The only
+// upgrade path from Accept is SpriteMask, and it must cover PLANE A.
 // =====================================================================
 pub comptime fn rocking_scene(speed: int, shift: int) -> Scene {
     return scene(
@@ -384,12 +379,9 @@ pub const Scene_Rocking_Fast: Scene = rocking_scene(speed: 3, shift: 0)   // con
 // means the foreground's own leftmost 16 px go too, on every row and at fifteen camera
 // positions in sixteen — the strip reported on scenes 13-15
 // (docs/research/2026-08-28-deform-scene-left-edge-triage.md). If the sliver matters
-// visually, it is now FIXED rather than masked: the engine's column-19 borrow makes the
-// leading sliver render the foreground's own V-scroll (owner ruling d-40; the sprite bar
-// was rejected). Accept here therefore records the borrow's price — 16 px of plane B, split
-// between the right edge and, on the shimmer rows where plane-B HScroll leaves the grain,
-// plane B's own leading sliver. Factor0Lock is out of reach twice over — while the floor
-// shimmers, and while the foreground scrolls — by design.
+// visually, the upgrade path is SpriteMask (emission pending — see DEFERRED_WORK) and it
+// must cover plane A. Factor0Lock is out of reach twice over — while the floor shimmers,
+// and while the foreground scrolls — by design.
 // =====================================================================
 pub comptime fn perspective_scene(v_shift: int, h_speed: int, v_speed: int) -> Scene {
     return scene(

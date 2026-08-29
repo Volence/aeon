@@ -502,34 +502,14 @@ def check_cut(rom, start, end, path, lst_path):
             "lane covers the other shape(s) only. Regenerate with --write-fixture."
             % (path, shape, ", ".join(sorted(doc["shapes"]))))
     cut = doc["shapes"][shape]
-    fresh = rom[start:end].hex()
-    moved = cut["start"] != start or cut["end"] != end
-    if moved or cut["bytes"] != fresh:
-        # SAY WHICH OF THE THREE DIFFERED. This message printed the two spans and nothing
-        # else until 2026-08-29, so a pure BYTE difference rendered as "it holds
-        # $01172C..$01176A but this build has $01172C..$01176A" — the same numbers twice,
-        # which reads as a tool fault rather than the finding. A byte-only difference is
-        # the COMMON case: the routine's tail branches to Sound_PlaySFX, so any parcel that
-        # moves that symbol changes one displacement byte here without moving the routine.
-        if moved:
-            why = ("the routine MOVED: cut $%06X..$%06X (%d bytes), build $%06X..$%06X (%d bytes)"
-                   % (cut["start"], cut["end"], cut["end"] - cut["start"],
-                      start, end, end - start))
-        else:
-            old_b, new_b = bytes.fromhex(cut["bytes"]), bytes.fromhex(fresh)
-            diffs = [i for i in range(len(old_b)) if old_b[i] != new_b[i]]
-            why = ("the routine is at the same $%06X..$%06X but its BYTES differ in %d of "
-                   "%d: %s" % (start, end, len(diffs), len(old_b),
-                               ", ".join("+%d ($%02X->$%02X)" % (i, old_b[i], new_b[i])
-                                         for i in diffs[:8])
-                               + (" ..." if len(diffs) > 8 else "")))
+    if cut["start"] != start or cut["end"] != end or \
+            cut["bytes"] != rom[start:end].hex():
         raise SystemExit(
-            "instashield_gate: %s shape %r is STALE — %s. The pytest lane is grading a "
-            "routine this build does not have. If the difference is displacement bytes "
-            "following a symbol move, that is expected of a byte-moving parcel and the "
-            "fixture is re-stamped; if it is opcode bytes, the ROUTINE changed and that "
-            "needs explaining before re-stamping. Regenerate with --write-fixture."
-            % (path, shape, why))
+            "instashield_gate: %s shape %r is STALE — it holds $%06X..$%06X (%d bytes) "
+            "but this build has $%06X..$%06X (%d bytes). The pytest lane is grading a "
+            "routine that no longer exists; regenerate with --write-fixture."
+            % (path, shape, cut["start"], cut["end"], cut["end"] - cut["start"],
+               start, end, end - start))
 
 
 # --------------------------------------------------------------------------

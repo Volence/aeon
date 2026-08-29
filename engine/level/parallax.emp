@@ -527,18 +527,6 @@ pub const PLANE_B_CELL_ROWS = 64
 pub const PLANE_B_SPAN      = PLANE_B_CELL_ROWS * 8
 ensure(PLANE_B_SPAN == 512, "PLANE_B_SPAN drifted from the 64x64 Plane-B geometry Step 4a's `and.w #PLANE_B_SPAN-1` masks against")
 
-// VSCROLL_COL19_* — the per-column V-scroll buffer's LAST column-pair, which is the entry
-// the VDP re-reads for the leftmost partial column (see the column-19 borrow in Step 5b).
-// Twenty pairs is an H40 fact and the quirk is 40-cell-only, so both the pair count and the
-// offset are derived from SCREEN_WIDTH rather than typed; the ensure is what stops a
-// narrower screen from silently leaving the store pointed at the wrong word.
-pub const VSCROLL_COL_PAIRS   = SCREEN_WIDTH / 16
-pub const VSCROLL_COL19_BG_OFF = (VSCROLL_COL_PAIRS - 1) * 4 + 2
-ensure(VSCROLL_COL_PAIRS == 20 && VSCROLL_COL19_BG_OFF == 78,
-       "the column-19 borrow is an H40 (40-cell) mechanism: SCREEN_WIDTH {SCREEN_WIDTH} gives {VSCROLL_COL_PAIRS} column-pairs, not 20. In H32 the leftmost partial column is pinned to V-scroll 0 and no VSRAM entry reaches it (Eke-Eke, hardware-tested), so the borrow must be re-derived or deleted rather than re-aimed")
-ensure(VSCROLL_COL19_BG_OFF + 2 <= 80,
-       "the column-19 borrow writes past Parallax_Vscroll_Column_Buf's 80 bytes — {VSCROLL_COL19_BG_OFF}+2 > 80; ram.emp and SCREEN_WIDTH disagree about how many column-pairs the buffer holds")
-
 // ---- THE THREE WHOLE-ENTRY COPIES, ALL GENERATED FROM ONE SIZE (P3 Task 8 Step 3) ----
 //
 // A whole band_entry moves in three places in this file and, before Task 8, only ONE of
@@ -898,47 +886,27 @@ pub proc Parallax_Active_Config () clobbers() out(d0, zero: inert) {
 // Out: VSRAM written
 // Clobbers: d0, a0, a5
 //
-// HARDWARE QUIRK (per-column branch) — AND IT IS FIXED SINCE 2026-08-29, by
-// the column-19 borrow in Parallax_Step5_Vscroll's fill. This banner said
-// something stronger and less precise until then, and the imprecision cost a
-// decision: it asserted the sliver "renders at V-scroll = 0 regardless of
-// VSRAM[0]" and that "there is no register to fix this — it's silicon". The
-// second half is still true of REGISTERS and was read as "unfixable"; it was
-// quoted forward into a triage doc and then into a decision card, where it
-// became the reason to cover the strip rather than repair it.
-//
-// WHAT THE RULE ACTUALLY IS. The per-column V-scroll grain is 16 px (one
-// VSRAM entry pair per column-pair). When a plane's HScroll is not a multiple
-// of 16 AND per-column V-scroll is on, that plane's leading sliver — `hscroll
-// & 15` pixels wide, not a full column — renders at `VSRAM[$4C] & VSRAM[$4E]`:
-// the bitwise AND of column-pair 19's two words, THE SAME VALUE FOR BOTH
-// PLANES, in H40 only (in H32 it is pinned to 0 and no VSRAM address reaches
-// it). That is Eke-Eke's dedicated hardware test, PAL MD2 2010 — the only
-// controlled hardware result on record — and it is what Genesis Plus GX and
-// Oracle both implement. Sources, tiers and what would refute them:
-// docs/research/2026-08-29-vsram-column19-borrow.md.
-//
-// IT IS PER PLANE: the mode bit is one bit for the screen, but each plane has
-// its own HScroll word, so plane A gets a sliver independently of plane B and
-// a locked B says nothing about A. That is what the FOREGROUND strip on the
-// six per-column scenes was — see
-// docs/research/2026-08-28-deform-scene-left-edge-triage.md.
-//
-// SO THE MITIGATION LIST IS NOW FOUR, AND THE FIRST IS THE ONE IN FORCE:
-//   (a) the COLUMN-19 BORROW — write plane A's V-scroll into column-pair 19's
-//       plane-B word, making the AND `camY & camY = camY`. Unconditional in
-//       the fill span; costs plane B 16 px at the screen's right edge, where
-//       that same entry renders. This is what ships.
-//   (b) lock BOTH planes' HScroll to 0 (factor_a and factor_b = FACTOR_0, no
-//       plane-B factor curve, AND no live deform on either plane — deform
-//       re-adds per-line HScroll on top of a locked factor). Then no plane
-//       has a sliver at all. Still verified by SceneLeftColMask.Factor0Lock.
-//   (c) sprite-mask the strip. RULED OUT by the owner, d-40 2026-08-29: he
-//       rejected covering it and asked for the repair.
-//   (d) live with it. Also ruled out by d-40.
-// The `left_column_mask:` declaration on a per-column scene survives (a) and
-// is re-scoped by it — see the SceneLeftColMask banner in
-// engine/level/scene_dsl.emp for what it now declares and what it does not.
+// HARDWARE QUIRK (per-column branch): the VDP's per-column V-scroll grain
+// is 16 px (one VSRAM entry per column-pair). When a plane has non-zero
+// HScroll AND per-column V-scroll is on, that plane's leftmost partial
+// column (the screen sliver before its HScroll's first 16-px boundary)
+// renders at V-scroll = 0 regardless of VSRAM[0]. There is no register to
+// fix this — it's silicon. IT IS PER PLANE: the mode bit is one bit for the
+// screen, but each plane has its own HScroll word, so plane A suffers it
+// independently of plane B and a locked B says nothing about A (this is
+// what the FOREGROUND strip on the six per-column scenes is — see
+// docs/research/2026-08-28-deform-scene-left-edge-triage.md).
+// Mitigations: (a) sprite mask the leftmost strip (SpriteMask — declaration
+// exists, engine emission still pending, see DEFERRED_WORK.md "Sprite mask
+// for per-column V-scroll"), (b) lock BOTH planes' HScroll to 0 (factor_a
+// and factor_b = FACTOR_0, no plane-B factor curve, AND no live deform on
+// either plane — deform re-adds per-line HScroll on top of a locked
+// factor), or (c) live with it. SINCE P3 TASK 12 THE CHOICE IS AUTHORED,
+// NOT IMPLIED: any scene attaching a per-column V-deform table must declare
+// `left_column_mask:` (SceneLeftColMask in engine/level/scene_dsl.emp —
+// Factor0Lock is VERIFIED against every condition in (b), Accept is (c)
+// spelled out, SpriteMask is refused until its emission lands) and the
+// build fails an undeclared one.
 // ----------------------------------------------------------------------
 pub proc Vscroll_Write () clobbers(d0/a0/a5) requires(vblank) {
         lea     VDP_CTRL, a5                        // (VDP_CTRL).l
@@ -1874,40 +1842,6 @@ proc Parallax_Step5_Vscroll () clobbers(d0-d7/a0-a6) {
         move.w  d0, (a2)+                           // BG word = base + offset
         addq.b  #1, d4
         dbf     d6, .col
-
-        // ---- THE COLUMN-19 BORROW (d-40, 2026-08-29) — the leftmost-partial-column fix ----
-        // The last column-pair's PLANE-B word is the one VSRAM entry the VDP re-reads for
-        // the leftmost partial column: with per-column V-scroll on and a plane's HScroll
-        // off the 16-px grain, that plane's leading sliver renders at
-        // `VSRAM[$4C] & VSRAM[$4E]` — the bitwise AND of column-pair 19's two words, the
-        // SAME value for both planes (Eke-Eke's dedicated hardware test, PAL MD2 2010; it
-        // is what Genesis Plus GX and Oracle both implement). Overwriting the plane-B word
-        // with the plane-A word makes that AND `camY & camY = camY`, which is exactly what
-        // the FOREGROUND wants, so the sliver renders correct level rows instead of a
-        // near-zero V-scroll. d1 is still camY here — the loop above never touches it, and
-        // it is the same register whose value went into all twenty FG words.
-        //
-        // WHAT IT COSTS, stated at the instruction because nothing else executes it: the
-        // plane-B word for column 19 is no longer plane B's own scroll, so plane B's
-        // RIGHTMOST 16 px render at the foreground's V-scroll. On this game's per-column
-        // scenes plane B is vertically LOCKED (v_factor 15 → Vscroll_BG = v_offset = 0)
-        // while plane A tracks camY, so that is a displacement of camY mod plane-height,
-        // not merely "the wobble is missing" — a background seam traded for a foreground
-        // one. It is 16 px because the two costs are conserved: give plane B a misaligned
-        // HScroll and its own leading sliver takes `hscroll & 15` of those pixels back off
-        // the right edge. UNCONDITIONAL ON PURPOSE — gating on `plane-A HScroll & 15 != 0`
-        // would spare the seam at one camera X in sixteen and make a 16-px background
-        // strip blink in and out as the camera walks, which reads worse than a steady one.
-        //
-        // Derivation, the sources, and what would refute it:
-        // docs/research/2026-08-29-vsram-column19-borrow.md.
-        //
-        // The offset is DERIVED, not typed: (SCREEN_WIDTH/16 - 1) * 4 + 2 is the twentieth
-        // column-pair's second word. Twenty pairs is an H40 fact, and the quirk is
-        // H40-only — in H32 the leading sliver is pinned to V-scroll 0 and no VSRAM write
-        // reaches it, so this store would be inert rather than wrong. The module-level
-        // VSCROLL_COL19_BG_OFF ensure above is what keeps both facts honest.
-        move.w  d1, Parallax_Vscroll_Column_Buf + VSCROLL_COL19_BG_OFF
     .cap_per_col_vsram_fill_end:
     }
 

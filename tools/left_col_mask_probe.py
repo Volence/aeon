@@ -42,14 +42,13 @@ TWO ARMS, VERY DIFFERENT STANDINGS:
              never typed — a struct edit moves this probe automatically or fails it
              loudly, both correct.
 
-  --mask     RUNTIME — NO SUBJECT, AND THERE NEVER WILL BE ONE (exit 2, loud). The
-             SpriteMask emission was CANCELLED 2026-08-29 by owner ruling d-40: he
-             rejected covering the strip, and the column-19 borrow
-             (Parallax_Step5_Vscroll) repairs it instead, so there is nothing left for a
-             sprite bar to cover. THE GATE FOR THE REPAIR IS tools/fg_left_edge_gate.py,
-             not this arm. What follows is retained as the record of what the emission
-             would have had to satisfy, because two of its items are rulings and this is
-             the only place the check list is written out:
+  --mask     RUNTIME — NO SUBJECT YET, AND IT SAYS SO (exit 2, loud). The SpriteMask
+             engine emission is refused by scene() until its parcel lands (see
+             docs/DEFERRED_WORK.md "Sprite mask for per-column V-scroll" — blocked on
+             the sprites.emp first-Game.*-reference sigil port flip and the game-owned
+             opaque tile). When that parcel exists, this arm grows the oracle-bus checks
+             (pattern: tools/engine_baseline_probe.py --sat) against its
+             capability-raised instrument build:
                * 7 strip entries FIRST in the SAT link chain (link order = priority, and
                  first-in-chain is also what exempts the strip from per-line sprite-limit
                  drops);

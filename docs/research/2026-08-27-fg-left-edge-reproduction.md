@@ -1,17 +1,5 @@
 # FG left edge: a reproduction attempt, and what it rules out
 
-> **FIXED 2026-08-29, and one reading below is an instrument artifact.** The defect this
-> document reproduced is repaired by the column-19 borrow — see
-> `docs/research/2026-08-29-vsram-column19-borrow.md` and owner ruling d-40. Two notes for a
-> re-reader: (1) §"Why 'exactly two columns'" concludes the affected band is a full 16-px
-> VSRAM column. Three independent sources (Genesis Plus GX's own linebuf arithmetic,
-> Plutiedev, Kabuto) say the true width is `hscroll & 15` px, sweeping 0..15 with camera X;
-> the flat 16 is Oracle's interim extent model, which it ledgers as divergence P4. The
-> measurement is real, its width is the instrument's. (2) The A/B tables' "renders at
-> V-scroll 0" is the AND rule `VSRAM[$4C] & VSRAM[$4E]` landing near zero because plane B is
-> vertically locked on these scenes — the signature is a prediction of that rule, which is
-> the best evidence on file that it is the right model for this ROM.
-
 **Run by the aeon overseer, 2026-08-27, on `s4.debug.bin` crc `9f9c0126` (735,386 B) — the
 same ROM the owner's save state was taken on**, rebuilt at master `aa186cc1` after `rm -f`ing
 the previous artifacts, so the ROM's existence witnesses its own freshness. The four-shape
