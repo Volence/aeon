@@ -1,5 +1,12 @@
 # Triage: the six deform scenes, the left-edge strip, and Rocking Slow's stillness
 
+> **SUPERSEDED IN PART, 2026-08-29.** Defect 1 (the left-edge strip) is FIXED — see
+> `docs/research/2026-08-29-vsram-column19-borrow.md` and owner ruling d-40. Two claims below
+> are wrong and are corrected in place: the §"The artifact is silicon" statement of the rule,
+> and proposed fix 3's premise. Defect 2 (Rocking Slow's stillness) and the runtime TAGs are
+> untouched and still open. Line-number citations in this document are as of 2026-08-28 and
+> have since rotted; the symbol names they carry are the durable half.
+
 **2026-08-28, branch `diag/left-edge-deform-scenes`. DIAGNOSIS ONLY — no engine behaviour changed,
 no scene data changed.** This lane has no emulator; every claim below is derived from source or
 quoted from a prior measured run, and each is labelled which.
@@ -41,11 +48,27 @@ The plane-A half of every entry is:
 arithmetic. **There is no expression on this path that could single out a column.** Whatever the
 owner sees at screen x < 16 is not produced by engine arithmetic.
 
-### The artifact is silicon, and it was measured, not inferred
+### The artifact is silicon, and it was measured, not inferred — BUT NOT UNFIXABLE, AND THIS PARAGRAPH'S RULE WAS WRONG
 
-With VDP reg `$0B` bit 2 set (per-column V-scroll), the leftmost partial 16-px column — the sliver
-before HScroll's first 16-px boundary — renders at **V-scroll = 0 regardless of VSRAM[0]**. There is
-no register that fixes it. `Vscroll_Write`'s own banner (`parallax.emp:768-782`) documents this.
+> **CORRECTED 2026-08-29.** What stood here — "renders at **V-scroll = 0 regardless of
+> VSRAM[0]**. There is no register that fixes it" — was quoted out of `Vscroll_Write`'s banner
+> without re-reading it at source, and it is a stronger and less precise claim than any tested
+> source makes. **The rule is:** the leading sliver (`hscroll & 15` px, not a full 16-px column)
+> renders at `VSRAM[$4C] & VSRAM[$4E]` — the bitwise AND of column-pair 19's two words, the same
+> value for both planes, H40 only. Eke-Eke's dedicated hardware test, PAL MD2 2010; what
+> Genesis Plus GX and Oracle both implement. "V-scroll = 0" is what that AND *looks like* when
+> plane B is locked near zero, which is this game's case exactly — so the measurement below is
+> right and only the mechanism sentence was wrong.
+>
+> **The consequence is the whole parcel:** no register fixes it, but a VSRAM VALUE does. Writing
+> plane A's V-scroll into column-pair 19's plane-B word makes the AND `camY & camY = camY`. That
+> is the column-19 borrow, and the "there is no fix" reading in this paragraph is what nearly
+> cost the owner it — it travelled from here into decision card d-40's framing. Full derivation
+> and source tiering: `docs/research/2026-08-29-vsram-column19-borrow.md`.
+
+With VDP reg `$0B` bit 2 set (per-column V-scroll), the leftmost partial column renders at a
+V-scroll the program did not write into that column's own entry. `Vscroll_Write`'s banner in
+`engine/level/parallax.emp` carries the corrected rule and the four mitigations.
 
 Measured 2026-08-27 (controller run, `docs/research/2026-08-27-fg-left-edge-reproduction.md`,
 `s4.debug` crc `9f9c0126`): reg `$0B` bit 2 is **0 at boot** and **1 on scenes 10-15**. Correlating a
@@ -183,7 +206,7 @@ phenomenon and nothing on file explains it.** It is the one item I would not let
 
 ---
 
-## Owed correction, independent of any ruling (comment-only, byte-neutral)
+## Owed correction, independent of any ruling (comment-only, byte-neutral) — ✅ DONE 2026-08-28
 
 `engine/level/parallax.emp` still carries two comments that are **stale and wrong for this game**:
 
@@ -197,20 +220,24 @@ present. A reader chasing this bug hits them first and is told the mechanism can
 
 ---
 
-## Proposed fixes — DESCRIBED, NOT APPLIED
+## Proposed fixes — DESCRIBED, NOT APPLIED (dispositions added 2026-08-29)
 
-1. **The strip, properly:** the `SpriteMask` arm, currently refused by `scene_dsl.emp:1375` pending
-   the strip emitter (aeon+sigil port-flip pair, plus a game-owned opaque mask tile). **It must be
-   specified for plane A, not plane B** — an emitter that covers only the plane-B case would land,
-   pass its gate, and leave the owner's symptom untouched.
-2. **The policy hole, cheaply and separately:** extend the `left_column_mask` guard family to test
-   `fa`/`dsa`, so `Factor0Lock` cannot be certified while plane A can H-scroll. Comptime-only, zero
-   ROM bytes. Worth doing even if the owner rules "ship the artifact", because today the guard
-   certifies a claim about a plane that is not the one at risk.
-3. **Considered and rejected:** quantising plane A's HScroll to a multiple of 16 while bit 2 is set
-   would remove the plane-A half outright, since plane A's V-scroll is already uniform across all
-   twenty entries. It costs sub-tile-smooth foreground scrolling on those scenes, which is a worse
-   artifact than the one it fixes. Recorded so the next reader does not re-derive it.
+1. ~~**The strip, properly:** the `SpriteMask` arm~~ — **RULED OUT.** The owner rejected covering
+   the strip (d-40). The emission is cancelled, not pending. Its scope note was right and the
+   repair honoured it: whatever fixed this had to cover **plane A**.
+2. **The policy hole:** ✅ **LANDED 2026-08-28** (merge `706100a4`) — the `left_column_mask` guard
+   family now tests `fa`/`dsa` as well as `fb`/`dsb`, five halves, each naming its plane.
+3. ~~**Considered and rejected:** quantising plane A's HScroll to a multiple of 16~~ — **still
+   rejected, and its premise is now beside the point.** The reason it was rejected stands: it
+   costs sub-tile-smooth foreground scrolling, a worse artifact than the one it fixes. But note
+   what it and this section both missed — the mechanism has a THIRD lever besides "mask it" and
+   "align the HScroll", and it is the VSRAM value the sliver actually reads. This list stopped at
+   two because the paragraph above told it the value was unreachable.
+4. ✅ **THE FIX, LANDED 2026-08-29** (`parcel/fg-left-edge-vsram`): the **column-19 borrow** — one
+   instruction at the end of `Parallax_Step5_Vscroll`'s Step-5b fill, writing plane A's V-scroll
+   into column-pair 19's plane-B word so the AND the VDP reads for the sliver is the foreground's
+   own scroll. Costs plane B 16 px at the right edge, where that same entry renders.
+   `docs/research/2026-08-29-vsram-column19-borrow.md`.
 4. **Rocking Slow:** `rocking_scene(speed: 0, ...)` -> `speed: 1`, optionally moving `Rocking` and
    `Rocking_Fast` to 2 and 4 for family cadence — or rename the roster entry to "Rocking Static".
    This changes `pcfg_v_deform_speed_bg`, a shipped record byte, so it is a byte-mover needing the

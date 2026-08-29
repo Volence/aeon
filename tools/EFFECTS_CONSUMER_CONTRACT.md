@@ -137,6 +137,40 @@ Validation posture (scanline design §7, restated): the generator validates SHAP
 when the generated `.emp` calls the constructors — raw ensure text is the v1 error
 surface.
 
+### 2.1b THE RIGHT-EDGE RULE — a scene using per-column mode owes its background's rightmost 16 px (owner ruling 2026-08-29, d-41)
+
+**Read this before authoring a per-column scene. It is a constraint on ART, not on the file
+format, so nothing in this contract can assert it and no build gate will catch you.**
+
+The engine repairs the leftmost partial column — the sliver the V-scroll grain leaves at
+x 0..15 — by **borrowing column-pair 19**, the rightmost one, and writing the FOREGROUND's
+V-scroll into it. On a per-column scene plane B is vertically locked, so after the borrow
+those rightmost 16 pixels show **the background at the camera's height instead of its own**.
+That is the price, it is permanent while the borrow is on, and the owner has seen it running
+and accepted it.
+
+**THE RULE: any scene that uses per-column mode must make the background's rightmost 16 px
+tolerate carrying the foreground's scroll.** Two ways, both with precedent:
+
+- **Make the borrowed slot correct by construction.** *Cutie Suzuki no Ringside Angel* lays its
+  VSRAM out so the borrowed column is the one that should carry that value anyway — the seam
+  costs nothing because the art was designed around it (SpritesMind thread t=737).
+- **Cover it.** *Battle Mania 2* hides the equivalent strip behind foreground art. If the
+  rightmost 16 px are never background-critical in your scene, the seam is invisible.
+
+The cheap general form: **a neutral strip at the right edge** — sky, a flat gradient, anything
+whose vertical position is not readable — costs nothing and makes the scene immune.
+
+**A per-scene switch to disable the borrow is NOT built and is deliberately not built.** It is
+booked in `docs/DEFERRED_WORK.md` as **revival on the first real instance**: the first scene
+whose art genuinely cannot satisfy this rule is the evidence that earns the switch. Do not
+build it speculatively — the owner's words were *"revisit if it actually comes into play"*.
+
+**What the build DOES still tell you:** `scene()`'s `Factor0Lock` guards now say in their own
+message that the engine repairs the sliver either way, so `Factor0Lock` asserts only that a
+scene never HAD one — **it does not exempt a scene from the borrow's right-edge cost.** That is
+a note in an error you may never see, which is exactly why the rule is written here as well.
+
 ### 2.2 Assignments
 
 - `games/sonic4/data/editor/ojz/act1/section_N.meta.json` (per act's `dataPath`): the
