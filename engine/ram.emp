@@ -69,6 +69,19 @@ const BAND_CURVE_BYTES      = 10    // sizeof(band_curve) * BAND_CURVE_N; pinned
 // tail means no carry and no bytes. The two-value pin is what keeps the division honest.
 ensure(BAND_CURVE_BYTES == 0 || BAND_CURVE_BYTES == 10, "BAND_CURVE_BYTES is {BAND_CURVE_BYTES}, which is neither 0 (no curve tail) nor sizeof(band_curve) = 10 — CURVE_CARRY_WORDS below divides it, and parallax.emp's reservation guard is what checks the 10")
 const CURVE_CARRY_WORDS     = BAND_CURVE_BYTES / 5
+// BAND_DRIFT_BYTES — the per-band DRIFT tail (band drift), a FOURTH constant for the reason
+// BAND_CURVE_BYTES is a third one: it mirrors a DIFFERENT capability bit (CAP_BAND_DRIFT), and
+// a game may declare any subset of the three. A shadow band occupies
+// BAND_ENTRY_LEN + BAND_EXT_BYTES + BAND_CURVE_BYTES + BAND_DRIFT_BYTES, and parallax.emp's
+// reservation guard names whichever one is short.
+const BAND_DRIFT_BYTES      = 0     // sizeof(band_drift) * BAND_DRIFT_N; pinned in parallax.emp
+// DRIFT_ACC_LONGS — the per-band 16.16 accumulators (Parallax_Drift_Acc), DERIVED from the
+// tail mirror above rather than being a fifth constant a capability flip would have to
+// remember. This copies CURVE_CARRY_WORDS' shape deliberately: A CAPABILITY FLIP MUST EDIT ONE
+// NUMBER ON THIS SIDE, NOT TWO. A drift tail (4 B) means one accumulator long per band; no
+// tail means no accumulator and no bytes. The two-value pin is what keeps the division honest.
+ensure(BAND_DRIFT_BYTES == 0 || BAND_DRIFT_BYTES == 4, "BAND_DRIFT_BYTES is {BAND_DRIFT_BYTES}, which is neither 0 (no drift tail) nor sizeof(band_drift) = 4 — DRIFT_ACC_LONGS below divides it, and parallax.emp's reservation guard is what checks the 4")
+const DRIFT_ACC_LONGS       = BAND_DRIFT_BYTES / 4
 ensure(extern("EntityScanState_len") == ENTITY_SCAN_STATE_LEN, "EntityScanState size drifted from ram.emp's mirror — update ENTITY_SCAN_STATE_LEN")
 ensure(extern("band_entry_len") == BAND_ENTRY_LEN, "band_entry size drifted from ram.emp's mirror — update BAND_ENTRY_LEN")
 
@@ -335,11 +348,14 @@ pub vars upper_ram {
     Vscroll_Factor:         u32,        // FG word + BG word
 
     // --- Parallax state (§4.6) — `104 + 28 * MAX_PARALLAX_BANDS` bytes at the shipped
-    // capability set (BAND_EXT_N 0, BAND_CURVE_N 1): 552 B at MAX 16, up from 328 B at
-    // MAX 8 (+224 on 2026-08-27). ---
+    // capability set (BAND_EXT_N 0, BAND_CURVE_N 1, BAND_DRIFT_N 0): 552 B at MAX 16, up
+    // from 328 B at MAX 8 (+224 on 2026-08-27). ---
     // (104 ceiling-independent = 3 phase words + vscroll word + 2 config longs +
     //  4 transition/section bytes + 80 B column buf + 4 B curve carry. 28 per band =
     //  2 current-scroll words + a 20 B shadow band + 2 shadow-scroll words.
+    //  RAISING BAND_DRIFT_N TO 1 TAKES THE PER-BAND TERM TO 36 and the span to 680 B at
+    //  MAX 16 (+128): +4 for the widened shadow band and +4 for the accumulator long. Both
+    //  terms are capability-sized, so a game that declares no drift pays zero.
     //  Marked by Parallax_State/_End; PARALLAX_STATE_LONGS in parallax.emp is the
     //  clear-count mirror and its drift `ensure` checks it against this span.)
     mark Parallax_State,
@@ -367,8 +383,20 @@ pub vars upper_ram {
     // accumulator, [1] its final Bresenham error. An anchored split resumes from these so
     // the ramp runs THROUGH the boundary instead of restarting at it. Zero words — and zero
     // bytes — in a game that declares no curves.
+    // The band-drift accumulators: ONE 16.16 long PER BAND, laid out [pixels:i16][fraction:u16]
+    // with the pixels in the HIGH word, indexed by CONFIG BAND INDEX exactly as
+    // Parallax_Current_Scroll_A/_B above are. It CANNOT live in the shadow band record: that
+    // view is re-copied from ROM every frame AND rotated, so an accumulator there would be
+    // both wiped and mis-attributed (engine/level/parallax.emp's band_drift banner has the
+    // two-reason derivation). Zero longs — and zero bytes — in a game that declares no drift.
+    //
+    // PLACED IMMEDIATELY BEFORE Parallax_Curve_Carry ON PURPOSE. parallax.emp pins both arrays
+    // by ADJACENT-SYMBOL DIFFERENCE (Curve_Carry - Drift_Acc, and Shadow_Bands - Curve_Carry),
+    // which is what lets a short reservation name ITSELF instead of only failing the total.
+    // Inserting a field between any two of these three breaks the pin it splits.
+    Parallax_Drift_Acc:          [u32; DRIFT_ACC_LONGS * MAX_PARALLAX_BANDS],
     Parallax_Curve_Carry:        [u16; CURVE_CARRY_WORDS],
-    Parallax_Shadow_Bands:       [u8; (BAND_ENTRY_LEN + BAND_EXT_BYTES + BAND_CURVE_BYTES) * MAX_PARALLAX_BANDS],
+    Parallax_Shadow_Bands:       [u8; (BAND_ENTRY_LEN + BAND_EXT_BYTES + BAND_CURVE_BYTES + BAND_DRIFT_BYTES) * MAX_PARALLAX_BANDS],
     Parallax_Shadow_Scroll_A:    [u16; MAX_PARALLAX_BANDS],
     Parallax_Shadow_Scroll_B:    [u16; MAX_PARALLAX_BANDS],
     mark Parallax_State_End,

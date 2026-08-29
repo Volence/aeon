@@ -28,7 +28,7 @@ module games.sonic4.ojz_effects_editor_act1 in ojz_effects_editor_act1
 
 use engine.constants.{MAX_ACT_SECTIONS}
 use engine.structs.{parallax_config}
-use engine.parallax.{band_entry, band_record, band_ext, BAND_EXT_N, band_curve, BAND_CURVE_N}
+use engine.parallax.{band_entry, band_record, band_ext, BAND_EXT_N, band_curve, BAND_CURVE_N, band_drift, BAND_DRIFT_N}
 use engine.level.scene_dsl.*
 use engine.level.parallax_dsl.*
 use games.sonic4.scene_registry.{SceneCfg5, lower5}

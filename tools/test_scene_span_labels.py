@@ -32,20 +32,23 @@ from scene_spans import (retired_capability_bits, SCENE_DSL, brackets, capabilit
 
 class TestCapabilityAuthority(unittest.TestCase):
 
-    def test_the_declared_bits_are_the_four_p1_survivors_plus_the_two_p3_promotions(self):
+    def test_the_declared_bits_are_the_p1_survivors_plus_the_p3_and_p4_promotions(self):
         """A sanity floor on the parse itself: if scene_dsl re-spells its consts,
         every derivation below would quietly resolve against an empty set.
 
         P3 Task 5 promoted CAP_MULTI_DEFORM_TABLE and CAP_FACTOR_CURVE out of the
         reserved comment so their gates become measurable AHEAD of the lowerings that
-        raise them (Tasks 7 and 10). CAP_PER_LINE was RETIRED 2026-08-26 (d-29-corrected)
-        when the per-cell HScroll path it selected against was deleted — it is parsed as
-        retired, never as declared. This list is the whole promotion contract: it is the
-        file that says which bits a span may name."""
+        raise them (Tasks 7 and 10). CAP_BAND_DRIFT was promoted by the band-drift parcel
+        WITH its lowering and its three bracketed spans in one commit, per the standing
+        rule in scene_dsl's own CAP_* block — and it took $0080, the next bit, which
+        shifted the five still-reserved names up one each. CAP_PER_LINE was RETIRED
+        2026-08-26 (d-29-corrected) when the per-cell HScroll path it selected against was
+        deleted — it is parsed as retired, never as declared. This list is the whole
+        promotion contract: it is the file that says which bits a span may name."""
         bits = capability_bits()
         self.assertEqual(
             sorted(bits),
-            ["CAP_ANCHORS", "CAP_DEFORM", "CAP_FACTOR_CURVE",
+            ["CAP_ANCHORS", "CAP_BAND_DRIFT", "CAP_DEFORM", "CAP_FACTOR_CURVE",
              "CAP_MULTI_DEFORM_TABLE", "CAP_PER_COL_VSRAM", "CAP_TRANSITIONS"])
         self.assertEqual(len(set(bits.values())), len(bits),
                          "two capabilities share a bit: %r" % (bits,))
@@ -133,7 +136,7 @@ class TestBracketConvention(unittest.TestCase):
 
     def test_longest_prefix_resolution_is_unambiguous(self):
         """`per_line` must not be able to claim a `per_line_...` span that a longer
-        capability name also matches. With today's seven bits it cannot; this fails
+        capability name also matches. With today's eight bits it cannot; this fails
         the day a new CAP_ makes it possible, which is when the rule needs revisiting.
 
         P3 Task 5 is exactly such a day and this check is why it is safe: CAP_DEFORM
