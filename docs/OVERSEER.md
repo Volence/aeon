@@ -1121,10 +1121,27 @@ path, for the same reason the protocol is read that way.
   **Corollary for anything this lane sends or banks: prefer the sentence that could be wrong.**
   "Both revisions were ancestors before the suite ran" invites the question that killed it (could
   it have been otherwise?); "reachability green" does not.
-  *And the three proposals this session produced turn out to be one finding at three sites — a
-  refusal that fires on correct work, a pointer that lives where it will be cleared, and a check
-  the fixing ritual made vacuous. **The artifact that reports success is not the artifact that
-  establishes it.** Three bars that reduce to one lesson is a stronger result than three bars.*
+  *~~And the three proposals this session produced turn out to be one finding at three sites…~~*
+  **⚠ THAT UNIFICATION IS WITHDRAWN — the sigil lane refuted it within the hour, and the refutation
+  is the more useful half.** The claim was that the over-refusal bar, the volatile-pointer class
+  and the vacuous-green bar reduce to *"the artifact that reports success is not the artifact that
+  establishes it."* **It fits two of the three and not the third.** The over-refusal bar is not an
+  uninformative success at all — it is a **RED on correct work**, whose harm is a false alarm that
+  trains a permanent route-around. Restating it to fit the unification turns it into *"the verdict
+  does not establish the fault"*, which **is shared-protocol bar 10** — so the merge either loses
+  the mechanism or duplicates a bar that already exists.
+  **And it would cost the property this file insists on elsewhere: state a rule as a bound, not a
+  slogan.** Each of the three is actionable BECAUSE each names its own check — *could this green
+  have come back dirty?*, *where does the pointer to the durable thing live?*, *can this refusal
+  fire on a correct run?* The unified sentence is memorable and answers none of them. **Three bars
+  that reduce to one lesson is a stronger result only if the lesson keeps the operations; this one
+  dropped them.**
+  **Recorded rather than deleted because of what it was: the most PLEASING thing this lane wrote
+  tonight, and the third of its claims the same peer had to withdraw.** All three were syntheses
+  rather than measurements, all three were reached while handling the measurements carefully, and
+  the tell each time was that the invented part was the part its author most liked. *Cross-
+  reference the three, never merge them — and note that three instances in one night between two
+  lanes in constant contact is a coincidence of attention, not a discovered unity.*
 
 - **A REFUSAL THAT CAN FIRE ON THE CORRECT CASE IS WORSE THAN THE SILENCE IT REPLACES — three
   declined in one night, which makes it a rule rather than three judgement calls** (added
