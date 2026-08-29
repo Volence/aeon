@@ -1553,3 +1553,16 @@ path, for the same reason the protocol is read that way.
   checks it) landing on a message written while thinking carefully about that exact diff.
   Repair by a note in the next chain entry's prose naming `13a6d3c8` — **never by rewriting a
   pushed freeze.**
+
+- **DECLARED TREE — `/home/volence/sonic_hacks/.aeon-freeze-179`, do not sweep it.** A clean
+  detached checkout of aeon `4ba7cb92`, the `aeon_rev` chain 179 is frozen at, carrying all four
+  built shapes and both `.lst` listings. It is the tree `AEON_DIR` should point at for anything
+  asking what chain 179 actually froze, and rebuilding four shapes to recreate it is the
+  expensive half of any artifact-dependent run.
+  **Declared here BECAUSE OF THIS LANE'S OWN DEFECT (2026-08-27):** sweeping merged+detached
+  worktrees under `~/sonic_hacks/`, this lane removed the sigil lane's standing reference tree,
+  which was declared in *their* `OVERSEER.md` and invisible to every mechanical criterion. The
+  remedy adopted then was "grep the other lanes' `OVERSEER.md` before removing anything under
+  the shared root" — which only works if trees worth keeping are actually declared. **This is
+  the other half of that remedy, and it is the half this lane had not yet done for itself.**
+  Retire it when a later chain supersedes it, and say so here rather than deleting the line.
