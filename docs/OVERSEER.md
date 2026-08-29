@@ -1810,7 +1810,26 @@ path, for the same reason the protocol is read that way.
   The ritual adopted this session — push the freeze commit before `--attest`, because a revision
   already in `origin/master` cannot be orphaned by a later rebase — worked exactly as designed:
   the reachability check confirmed both revisions were ancestors before the suite ran, which is
-  the property chain 181 lacked. **Then the suite went red, and sigil's `master` sat red between
+  the property chain 181 lacked.
+  **⚠ AND THIS LANE THEN CALLED THAT GREEN A SUCCESS FOR THE INSTRUMENT, WHICH IT IS NOT —
+  corrected 2026-08-29 by the sigil lane, against their own tool.** Push-before-attest **puts
+  both revisions on the remote first**, so REACHABLE was the only outcome available: the check
+  could not have come back dirty. **That is the identical vacuity this lane caught in its own
+  three-clean-chains flip condition an hour earlier, arriving on a peer's instrument and being
+  read as a win.** Second instance in one session of a by-construction green mistaken for
+  evidence, and the one this lane did NOT catch — the first was its own, this one needed the
+  tool's author.
+  **What the check still IS, stated so it is not now under-rated: a DEVIATION detector.** Green
+  means the ritual was followed. It can no longer catch an orphan prospectively, because the
+  ritual prevents the state rather than the check detecting it. **The discriminating half of that
+  same run was the HISTORICAL walk** — 181 entries, 33 revisions, one `DIVERGENT` — which ran
+  over a population nothing guaranteed clean. **Two different powers in one tool, and the
+  by-construction half is the one that looked like the win.**
+  *General form, and it is the sharpest thing in this file about gates: when a ritual is changed
+  to PREVENT a state, every check for that state goes vacuous at the same moment — and it goes
+  vacuous while continuing to print green, which reads as the fix being confirmed. Ask of any
+  green beside a new ritual: could this have come back dirty, given what the ritual now
+  guarantees? If not, it is witnessing compliance, not correctness.* **Then the suite went red, and sigil's `master` sat red between
   the freeze commit and the fix.**
   **The two hazards are traded against each other and the trade is not obviously correct.** An
   orphaned `sigil_rev` is permanent, invisible and passes every check forever; a red master is
