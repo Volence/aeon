@@ -48,6 +48,47 @@ against the AS-era tree and cite `.asm` paths and line numbers into files that *
 
 ## NOW UNBLOCKED — actionable (compiled 2026-08-05)
 
+### THE COLUMN-19 BORROW'S PRICE HAS NEVER BEEN SEEN, AND `SceneLeftColMask` IS BOOKED FOR RETIREMENT BEHIND IT — booked 2026-08-29
+
+**Parcel:** `parcel/fg-left-edge-vsram`. **Ruling:** d-40 — the owner rejected the sprite bar and
+acceptance and asked for the repair. **Landed:** the borrow, one instruction at the end of
+`Parallax_Step5_Vscroll`'s Step-5b fill, writing plane A's V-scroll into column-pair 19's plane-B
+word so the AND the VDP reads for the leading sliver is the foreground's own scroll.
+**Derivation:** `docs/research/2026-08-29-vsram-column19-borrow.md`.
+
+**ITEM 1 — the price, and it is the owner's to look at, not this tree's to decide.** Column-pair 19
+is also the entry that renders the screen's RIGHT edge, so plane B's rightmost 16 px now carry
+plane A's V-scroll. On all six per-column scenes plane B is vertically locked (`v_factor: 15,
+v_offset: 0`) while plane A tracks camY, so the displacement is camY mod 512 — a background seam,
+**not** the "loses its wobble on its rightmost 16 pixels" d-40 priced. That is the second ruling in
+this thread taken on a materially understated cost (d-27 was the first), and prose is not the
+remedy: put the DEBUG ROM at scene 12 in front of him and let him look at x = 304..319.
+Instrument: `tools/fg_left_edge_gate.py --pixels`; TAGs in the research doc §6.
+
+**ITEM 2 — `SceneLeftColMask` retires, but only after ITEM 1.** With the borrow unconditional, no
+arm of that declaration changes what the machine does: `Factor0Lock` and `Accept` differ only in
+what they assert about the scene, and both get identical VSRAM. A mandatory declaration that
+cannot change behaviour is ceremony that reads as coverage, so the end state is to delete the
+family — the enum, the `sc_left_col_mask` field, the mandatory ensure, the five `Factor0Lock`
+guards, `games/sonic4/test/poison/poison_scene_lcm_{factor0,undeclared}.emp` and their
+`tools/emp_expect_fail.py` rows, the axis-5 `SpriteMask` rows in
+`tools/effects_budget_model.toml` + `check_axis5_mask_pricing()`, the six `Accept` spellings in
+`games/sonic4/data/effects/ojz_scenes.emp`, and the schema key `tools/effects_gen.py` accepts from
+Aurora (**cross-repo: Aurora's scene schema owns that key too**).
+
+**Why it is not done in the same parcel, stated so it does not read as an unfinished job:** if the
+owner rejects the right-edge seam, the borrow becomes per-config — a `parallax_config` flag, a
+byte-moving paired landing — and `Accept` returns immediately as "decline the borrow" with a real
+mechanism behind it. Deleting an authoring surface and a cross-repo schema key the day before it
+might be needed is churn, not cleanliness. **ITEM 1's answer decides ITEM 2's shape**, and until it
+lands the family's banner and guard messages tell the truth about what each arm now means (done in
+this parcel) rather than the meanings they had before the repair.
+
+**Known wart while the family stands:** the borrow is unconditional, so a `Factor0Lock` scene — one
+with no sliver on either plane, needing no repair — still pays the right-edge seam. Zero scenes
+declare `Factor0Lock`, so this costs nothing today. Recorded rather than papered over.
+
+
 Every item here had a stated blocker that **no longer holds**. This is the pick-up list. Ordered
 by leverage, not by section. Each links back to its full entry below; read the entry (and its
 correction) before planning — several carry caveats that shrink the win.
