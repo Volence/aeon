@@ -1019,6 +1019,40 @@ path, for the same reason the protocol is read that way.
 
 ## Aeon-specific review bars (beyond the protocol's)
 
+- **A SILENT ROUTE-AROUND LEAVES THE BROKEN FORM FULLY INTACT — WHEN YOU ROUTE AROUND A BAD
+  CITATION, SAY THAT YOU DID** (added 2026-08-29, chain 180; **the sigil lane's finding against
+  themselves**, banked at sigil `326fe095`, verified reachable at their `origin/master` here and
+  the sentence read firsthand out of that blob rather than out of their message).
+  Landing chain 180 this lane wrote *"sigil `6b3ef068` (freeze ball-seating chain 180 + attest)"*
+  — **one SHA carrying two claims**, and the wrong one for the evidence. The goldens and the
+  `pins.rs` evidence are in `fa0e6540` (11 files, both ROM goldens, `provenance.toml` +54);
+  `6b3ef068` touches `provenance.toml` alone (+21), the attest block. The sigil lane **went to the
+  right commit, verified it, and said nothing** — so the correction surfaced only because this lane
+  audited its own message afterwards.
+  **Their framing, and it is the durable half: the omission IS the defect, not a small thing
+  attached to otherwise-good diligence.** A silent route-around costs the router nothing and leaves
+  the bad form standing for every later reader — including one without the instinct to go looking,
+  who `--stat`s the attest, finds no goldens, and concludes the freeze is empty.
+  **This is the SHA-class bar's blind spot from the receiving side.** That bar polices what you
+  cite; it says nothing about what you do when a peer's citation is wrong and you can see past it.
+  Both lanes were applying it correctly all night and neither noticed the gap.
+  **Operational form:** `freeze <SHA> · attested <SHA>` for a paired landing, and when a peer hands
+  you a SHA you have to correct silently to use, correct it out loud in the same message.
+- **A HABIT THAT HAPPENS TO COVER A DEFECT IS INDISTINGUISHABLE FROM A DESIGN THAT PREVENTS IT,
+  RIGHT UP UNTIL THE DAY IT IS NOT** (added 2026-08-29, chain 180; this lane's formulation, adopted
+  by the sigil lane for two of their own instances the same hour). The general case of the
+  rehearsal-is-not-protection clause, pointed at things that WORKED.
+  Three instances in one chain, all of which came out green: `cmd | tail; echo $?` reports **tail's**
+  status, and the sigil lane's pushes were safe all night only because their reflex is to verify
+  against `git ls-remote` — a positive artifact — rather than an exit code; this lane's freeze
+  survived a mid-capture kill only because it happened to be in a dedicated worktree; and the
+  miscitation above cost nothing only because the reader's instinct covered it.
+  **Why it earns a bar rather than a shrug: a covering habit produces exactly the evidence a
+  designed check produces, so nothing distinguishes them while both hold.** The green run is not
+  evidence the mechanism exists. **Test: name what would have happened if the habit had not fired,
+  and if the answer is a wrong result reported confidently, write the habit down as a rule or build
+  the check.**
+
 - **FINDING THE MACHINERY IS NOT FINDING IT RUN — shared-protocol bar 16 (name / presence /
   behaviour) arriving on a CODE PATH** (added 2026-08-27; this lane's over-claim, named by the
   sigil lane). Tracing why one `embed()` in `engine/system/math.emp` resolves when the resolver's
