@@ -1101,6 +1101,36 @@ path, for the same reason the protocol is read that way.
 
 ## Aeon-specific review bars (beyond the protocol's)
 
+- **A REFUSAL THAT CAN FIRE ON THE CORRECT CASE IS WORSE THAN THE SILENCE IT REPLACES — three
+  declined in one night, which makes it a rule rather than three judgement calls** (added
+  2026-08-29; instances split between this lane and the sigil lane, the pattern named here after
+  the third).
+  The three, all real and all declined deliberately:
+  1. **`SIGIL_HARNESS_ROOT`** — a fix that would have made `refreeze` refuse when the variable is
+     unset. The normal invocation does not set it, so the refusal would have fired **in the middle
+     of an unattended overnight freeze**, guarding a hazard that did not exist. Stopped only
+     because the implementing lane measured before building what it had been told.
+  2. **`AHEAD OF REMOTE` at attest time** — refusing an unpushed freeze would refuse the honest
+     mid-ritual state. Kept as a warning; the flip to refusal is gated on the state ceasing to be
+     normal, and that has to be **computed from the ledger**, not remembered (see the
+     push-before-attest ritual above).
+  3. **A completed freeze journal surviving a kill** — reported as a NOTE rather than a fault,
+     because the alternative fires on a run that actually succeeded.
+  **Why it earns a bar: the cost is not the false stop, it is what the operator does next.** A
+  refusal that fires on correct work trains a route-around — an env var someone always sets, a
+  flag someone always passes, a step someone always skips — and **the route-around is permanent
+  while the memory of why is not.** The next session inherits the workaround as ritual and cannot
+  reconstruct which cases it was suppressing. So a gate that over-refuses does not merely annoy;
+  it **converts itself into a disabled gate** by a path nobody records.
+  **Test before building any refusal: name a correct run that would trip it.** If you can, it is a
+  warning until the state it refuses has demonstrably stopped occurring — and *demonstrably* means
+  a query someone can run, not a count someone remembers.
+  *Composes with the opposite failure this file already carries in quantity — the gate that passes
+  for the wrong reason. Both are the same defect at different signs: a check whose firing is
+  uncorrelated with the thing it names. The vacuous-pass family is better represented here only
+  because a false green leaves no one arguing with it, while a false red gets routed around within
+  the hour and looks like it was fixed.*
+
 - **`stat` PRINTS LOCAL TIME AND YOUR EVIDENCE IS TIMESTAMPED IN UTC — THE OFFSET IS RIGHT
   THERE IN THE OUTPUT AND IS READ AS DECORATION** (added 2026-08-29; this lane's error, caught
   by the aurora lane after it had already reached three lanes).
