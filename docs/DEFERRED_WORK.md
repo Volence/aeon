@@ -91,6 +91,31 @@ signal anywhere, and the costume is a green build.
    the bytes arriving in the **ROM** are now distinct, and only the first is true. Anyone citing
    a paint result must say which.
 
+**⚠ R1 HAS A DETECTOR AND NO DEFENCE, WHICH IS WORSE THAN HAVING NEITHER** (added 2026-08-29;
+**the aurora lane's measurement of their own code**, aurora `d8c23f2`, relayed by the hub who
+also withdrew their own wrong verb in the same message — recorded as THEIRS and deliberately
+not re-derived here, since it is a claim about their tree).
+Three facts, and the middle one is the trap:
+1. **Aurora cannot AUTHOR an `XOVER == 3`.** `crossoverFor(brush, plane)` derives the value from
+   a `keep|clear|hand-off` enum, and bits 15:14 inside a supplied `words[]` are ignored by the
+   write path, so no call can produce one. Structural, not checked.
+2. **Aurora DETECTS a `3` or a self-mark in data** and reports `severity: 'error'` in an agent
+   reply (`crossover-audit.ts`, `agent-handler.ts:515`).
+3. **Nothing throws, blocks a write, or refuses a save** — not there, and not in the bake.
+**So a file hand-edited by any other tool carries a `3` straight through to a byte-identical ROM
+and a green build.** R1 has no line of defence today, only a report nobody is obliged to read.
+**The durable half: a detector that says `error` and blocks nothing is read as a refusal.** It is
+strictly more misleading than an absent check, because the word `error` in a severity field is
+exactly the artifact a reader takes as evidence the case is handled — the same family as this
+repo's `NOTICE` block, which is honest only because it says in its own text that it is not a
+refusal. **When booking a check, record whether it REFUSES or merely REPORTS, in those words.**
+*Note the shape it arrived in: the hub relayed this as a refusal, then measured and withdrew
+their own verb. Aurora found the identical disease in three of their own code comments and a
+tool description — "aeon's bake hard-errors on 3", true of the design and false of the build —
+and corrected them in the same commit. That is the present-tense defect from `199c9c86`
+reproducing independently in a second repo within the hour, which is what makes it a class
+rather than one bad sentence.*
+
 **Cheap work to fold into the bake parcel while in that function**, both the aurora lane's:
 make an authored-but-unbakeable crossover **visible rather than silent** — a count in the bake's
 own report would do it, and the shape already exists as the NOTICE block
