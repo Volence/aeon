@@ -1067,6 +1067,68 @@ path, for the same reason the protocol is read that way.
 
 ## Aeon-specific review bars (beyond the protocol's)
 
+- **`stat` PRINTS LOCAL TIME AND YOUR EVIDENCE IS TIMESTAMPED IN UTC — THE OFFSET IS RIGHT
+  THERE IN THE OUTPUT AND IS READ AS DECORATION** (added 2026-08-29; this lane's error, caught
+  by the aurora lane after it had already reached three lanes).
+  Investigating an unattributed dirty tree, this overseer read `stat -c '%y'` output —
+  `2026-08-29 04:25:04.693043247 **-0400**` — and transcribed the wall-clock half as Z in
+  messages to aurora, sigil and the hub. This box is EDT, so every one of those times was **four
+  hours early**. The true times were 08:25:04Z and 09:11:10Z.
+  **Why it mattered rather than being a pedantic slip: the error moved the event across a
+  decision boundary.** The owner's goodnight is 07:56:52Z. At the fabricated 04:25Z the edit sits
+  comfortably *before he went to sleep*, which makes "this is his authored work" the natural
+  reading; at the true 08:25Z he was already asleep and that reading is dead on timing alone. The
+  wrong number did not merely mislabel the event, it **supported a specific wrong conclusion about
+  whose work it was**, on a question that was about to become a card asking him to rule.
+  **The general shape: a timestamp is the one field where the units travel WITH the value and
+  still get dropped.** A byte count carries no unit and nobody assumes one; `%y` prints its offset
+  in the same string and the offset reads as trailing punctuation. It sits in the same
+  provenance-feeling class as a verified-at SHA — transcription rather than argument, so it gets
+  copied by a session applying real scrutiny two inches away.
+  **Operational form: use `TZ=UTC stat` or `date -u -r <file>` whenever a file time is going into
+  a message, a card or a doc**, and when quoting one, write the `Z`. Never hand a bare wall-clock
+  across a lane boundary — the receiver cannot tell which zone it was read in, and the failure is
+  silent in both directions.
+  *Note the asymmetry with the tooling this lane already has: `updatedAt` in `lane-status.json` is
+  protected by a rule that says take it from `date -u`, precisely because a hand-written time is
+  untrustworthy. That rule guards the field nobody reasons from and left unguarded the times this
+  lane actually builds arguments on.*
+
+- **A GATE WHOSE PASS AND FAIL EMIT THE SAME ARTIFACT IN YOUR ENVIRONMENT HAS NOT PASSED — IT
+  HAS NOT RUN** (added 2026-08-29; the aurora lane's formulation of an observation this lane made
+  about its own staleness gate, and their wording is the one to keep).
+  `tools/level_staleness.py` compares `newest mtime(editor sources) > newest mtime(generated
+  tree)`. In a fresh `git worktree add`, git writes **every** file within the same second, so `>`
+  is false **by construction** — the gate cannot fail there whatever the tree contains. That is
+  precisely why it could not see the floor fix missing from the ROM: a green sat beside the defect
+  the whole time.
+  **The reusable procedure, in their words: name the property, then ask what a GREEN would have
+  ruled out.** In a fresh worktree, nothing. So "staleness passed" is **unquotable as evidence
+  from a clean checkout** — not because the gate is wrong (it is correct in the tree it was
+  designed for) but because in that environment it is not an instrument at all.
+  **This is bar 25 (a green log and an absent run are the same artifact) with the absence created
+  by the ENVIRONMENT rather than by a missing flag** — and it is worse in one respect: a missing
+  flag is a fact about a command someone can inspect, while this is a fact about the *filesystem
+  state* the command met, which appears nowhere in its output. Ask it of any gate before quoting
+  a pass, and especially of one you are running somewhere other than where it was written for.
+
+- **A "KNOWN PRE-EXISTING FAILURE" NOTE ROTS INTO A LICENCE TO IGNORE RED — SECOND INSTANCE, AND
+  THIS ONE WAS IN A COMMIT MESSAGE** (added 2026-08-29, the repaint landing). This file already
+  carries the `boot_override` instance, which said a brief must never repeat one unmeasured. Same
+  class, new surface: `fix/repaint-preserve-crossover`'s own commit message declared its single
+  failure *"pre-existing, red on master since `fde35b2f`, out of scope"*. **Measured on clean
+  master at landing: `tools/test_collision_consistency.py` is 25 passed / 0 failed.** The floor
+  re-bake fixed it *after* the commit being blamed, so the note was true when written and false
+  when read, one day later.
+  **Why the commit-message surface is the worse one (protocol bar 23's family):** a brief is read
+  once by one agent and dies; a commit message is permanent, is what `git log` shows, and is the
+  first thing the next reader of that branch meets. **Nothing re-checks it, and its whole function
+  is to tell the reader that red is acceptable.** A stale-but-once-true note is more dangerous
+  than a wrong one, because it survives every check that looks for fabrication.
+  **Cost of the corrective: one `pytest` invocation on a clean checkout.** Pay it every time — and
+  note that the measurement is what MADE the landing safe, since a genuine new failure introduced
+  by that parcel would have been invisible behind the same sentence.
+
 - **A RULING RELAYED ON THE OWNER'S BEHALF CAN CARRY CONSTRAINTS HE NEVER STATED, AND THEY ARRIVE
   WEARING HIS AUTHORITY** (added 2026-08-29; the hub's error, withdrawn by them unprompted and
   banked there as a hub error; this lane caught it by measuring the tool rather than by suspecting
