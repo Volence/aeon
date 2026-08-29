@@ -1,11 +1,17 @@
 {
   "_comment": [
     "KNOWN, PRE-EXISTING collision consistency violations. Recorded 2026-08-28.",
-    "These are real defects, not false positives. Their repaint is HELD because it",
-    "lands in the owner's live editor tree: run tools/repaint_ojz_collision.py",
-    "(check mode by default), then tools/regenerate-level.sh, then delete the",
-    "entries it clears. This file is meant to shrink to an empty list and then be",
-    "removed along with build.sh's --baseline flag.",
+    "EMPTIED 2026-08-29: the repaint (fde35b2f) landed in the editor tree and the",
+    "re-bake (tools/regenerate-level.sh) carried it into games/sonic4/data/generated,",
+    "which is what this gate actually reads. All eight entries below were cleared and",
+    "deleted; the generated tree now measures 0 rule-A and 0 rule-B violations over",
+    "1446 non-air cells / 11506 floor pixels across 9 sections and 18 planes.",
+    "With the list empty this gate is a strict ZERO-violation ratchet: any new bad",
+    "collision cell fails build.sh's pytest lane immediately. Do NOT add entries back",
+    "to make a build pass — fix the editor data and re-bake, which is what happened",
+    "here. The file and build.sh's --baseline flag can now be removed outright; that",
+    "removal is tracked in docs/DEFERRED_WORK.md and was left out of the re-bake",
+    "parcel deliberately, since deleting it touches build.sh and three tests.",
     "Diagnoses: docs/GLIDE_LANDING_ANGLE_DIAGNOSIS.md (rule A),",
     "           docs/2026-08-28-ojz-act1-floor-collision-defects.md (rule B).",
     "Key format: rule A = [A, section, plane, row, col_start, col_end, [angles]]",
@@ -13,94 +19,5 @@
     "The attr index is deliberately NOT part of the key: the attr-set is",
     "content-addressed and renumbers on every bake."
   ],
-  "known_violations": [
-    [
-      "A",
-      0,
-      "A",
-      16,
-      112,
-      127,
-      [
-        224
-      ]
-    ],
-    [
-      "A",
-      0,
-      "A",
-      20,
-      136,
-      143,
-      [
-        224
-      ]
-    ],
-    [
-      "A",
-      0,
-      "A",
-      21,
-      128,
-      135,
-      [
-        224
-      ]
-    ],
-    [
-      "A",
-      0,
-      "A",
-      23,
-      114,
-      125,
-      [
-        224
-      ]
-    ],
-    [
-      "A",
-      0,
-      "B",
-      16,
-      112,
-      127,
-      [
-        224
-      ]
-    ],
-    [
-      "A",
-      0,
-      "B",
-      20,
-      136,
-      143,
-      [
-        224
-      ]
-    ],
-    [
-      "A",
-      0,
-      "B",
-      21,
-      128,
-      135,
-      [
-        224
-      ]
-    ],
-    [
-      "A",
-      0,
-      "B",
-      23,
-      114,
-      125,
-      [
-        224
-      ]
-    ]
-  ]
+  "known_violations": []
 }

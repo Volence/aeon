@@ -281,32 +281,25 @@ def test_baseline_has_no_stale_entries():
         f"from {path}: {sorted(map(list, stale), key=str)}")
 
 
-def test_held_repaint_clears_every_violation_in_this_tree():
-    """The green-after-fix half of the red-first evidence, locked in.
-
-    Runs tools/repaint_ojz_collision.py's analysis in memory over the committed
-    editor tree and asserts both rules reach zero. Writes nothing.
-    """
-    hm, an = rp.base_bank_for()
-    solid_top = cc.read_emp_const(cc.CONSTANTS_EMP, "SOLID_TOP")
-    min_gap = 2 * cc.read_emp_const(cc.CONSTANTS_EMP, "PLAYER_X_RADIUS")
-    edir = rp.editor_dir_for()
-    path = os.path.join(edir, "section_0.collattr.bin")
-    if not os.path.isfile(path):
-        pytest.skip(f"no editor collision tree at {edir}")
-
-    sec = rp.Section(path, hm, an)
-    resolved, targets, va, vb = rp.analyse(sec, solid_top, min_gap)
-    assert resolved, "section 0 plane A has no solid cells — nothing was measured"
-    assert va or vb, (
-        "section 0 plane A is already clean, so this test proves nothing. If the "
-        "repaint has landed, delete this test along with the baseline.")
-
-    for (col, cr) in targets:
-        sec.set_word(col, cr, rp.repaint_word(sec.word(col, cr)))
-    _r2, _t2, va2, vb2 = rp.analyse(sec, solid_top, min_gap)
-    assert va2 == [] and vb2 == [], (
-        f"repaint left {len(va2)} rule-A and {len(vb2)} rule-B violations")
+# test_held_repaint_clears_every_violation_in_this_tree lived here until
+# 2026-08-29. It asserted `va or vb` over the REAL editor tree — i.e. that the
+# tree still violated — so it could only stay green while the defect was still
+# unfixed, and it went red the moment the repaint landed (fde35b2f). It said so
+# in its own assertion message and it was deleted per that instruction, together
+# with the eight baseline entries the repaint cleared.
+#
+# What covers its two claims now:
+#   OUTCOME  — superseded and STRENGTHENED by
+#     test_committed_tree_has_no_violation_outside_the_baseline against an EMPTY
+#     tools/collision_baseline.json: that measures the real GENERATED tree the
+#     ROM actually consumes, and now demands zero violations rather than zero
+#     new ones. The deleted test only simulated the fix in memory.
+#   MECHANISM — rp.analyse's target selection and Section.set_word's write path
+#     are covered by the synthetic tests on branch fix/repaint-preserve-crossover
+#     (test_repaint_write_path_preserves_the_crossover_on_a_synthetic_plane and
+#     its _fake_root sibling). Those build their own dirty fixture, so unlike the
+#     test deleted here they stay red-able forever. THAT BRANCH IS UNMERGED: until
+#     it lands, rp.analyse has no direct test. See docs/DEFERRED_WORK.md.
 
 
 def test_repaint_word_preserves_solidity_and_clears_flips():

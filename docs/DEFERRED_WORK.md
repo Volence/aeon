@@ -12620,6 +12620,10 @@ Independent of the d-31 v_factor ruling; do not sequence behind it.
 
 ## COLLISION-CONSISTENCY — the height/angle gate is LANDED; the two repaints it exempts are HELD (booked 2026-08-28)
 
+> **DISCHARGED 2026-08-29** by `fix/rebake-after-repaint`. Both repaints have landed and the
+> baseline is empty. See "REBAKE-AFTER-REPAINT" at the end of this file — including the
+> structural finding that made this necessary: *a clean tree is not a current one*.
+
 **Parcel `parcel/collision-consistency-gate`. The GATE IS DONE AND WIRED. What is open is DATA.**
 
 Two gameplay defects reported by the owner on 2026-08-28 both turned out to be OJZ act-1 collision
@@ -13156,3 +13160,109 @@ promised: telling its author to delete it. Until someone does, **every canonical
 are `FAST=1` or a direct `sigil build`. Belongs to the repaint parcel, not to whoever trips
 over it next.
 
+
+**⚠ CLOSED BY THE RE-BAKE, and the two bookings below/above are one story.** The section
+immediately following (`REBAKE-AFTER-REPAINT`) is the closure: the red this booking found was
+not pre-existing in the sense of belonging to somebody else — it was **this overseer's**, from
+landing `fde35b2f` without its bake. The band parcel met it as an obstacle and booked it
+honestly as not-mine, which was correct from where it stood; the attribution is corrected here
+rather than in that paragraph, so the reader sees both what was observed and what it turned out
+to be.
+
+## REBAKE-AFTER-REPAINT — a commit landed without its bake, and nothing in the pipeline could see it (2026-08-29, `fix/rebake-after-repaint`)
+
+**CLOSED:** `fde35b2f` repainted 574 collision cells in the EDITOR tree and was committed without
+running `tools/regenerate-level.sh`. The gate, the collision tables and the ROM all read
+`games/sonic4/data/generated`, so the owner's floor fix was correct in the source of truth and
+absent from the artifact he was told was fixed. The re-bake landed in `ccc356c7`: 0 rule-A and
+0 rule-B violations over 9 sections / 18 planes / 1446 non-air cells / 11506 floor pixels, against
+8 rule-A before it. `tools/collision_baseline.json` is now an empty list — a strict zero-violation
+ratchet.
+
+### THE STRUCTURAL FINDING — clean says nothing about current
+
+The failure is not that someone forgot a command. It is that **no check in this repo can tell a
+tree whose generated half matches its source from one whose generated half is stale for it.**
+Master sat at a SHA where `git status` was empty throughout and the generated tree was two days
+behind its own editor data. A freeze verifies `AEON_DIR` is clean and committed; clean was true
+and meant nothing.
+
+**`tools/level_staleness.py` cannot close this**, and the reason is worth keeping: it compares
+`newest mtime(editor sources) > newest mtime(generated tree)`. In a fresh worktree or a fresh
+clone every file is written within the same second, so the comparison is false by construction and
+the gate passes on any tree, current or not. It answers "has anyone edited *in this working copy*
+since the last bake" — a question about a filesystem, not about the data. An absence of staleness
+and a proof of currency are different artifacts.
+
+**The positive witness that does work**, run on this branch: re-run the bake and byte-compare the
+result against what is committed.
+
+```
+rm -rf tools/.cache                       # nothing memoised can be the thing agreeing with you
+AEON_SKDISASM_DIR=... tools/regenerate-level.sh --no-cache
+git status --porcelain games/sonic4/data  # must be empty but for DONOR_PROVENANCE
+```
+
+Measured 2026-08-29 at `ccc356c7`: the only file differing after a cold-cache, `--no-cache` full
+recompute was `DONOR_PROVENANCE.json`, and its diff was only aeon's own HEAD sha and its
+self-referential modified-file count. Every level byte reproduced exactly. This claim cannot pass
+vacuously: the same command run *before* the bake named seven changed artifacts, which is exactly
+the red state it is meant to catch.
+
+**Not yet wired into anything.** This ran by hand. Making it a gate is a real decision (a cold
+full re-bake is not free, and it needs the two out-of-repo donors, so it cannot live in `build.sh`
+as-is) — the shape to consider is a freeze-time or nightly check rather than a per-build one.
+Until then, **a parcel that touches `games/sonic4/data/editor/**` owes a re-bake in the same
+commit**, and a reviewer should ask for the witness rather than for a clean `git status`.
+
+### RIDER — `rp.analyse` has no direct test until `fix/repaint-preserve-crossover` lands
+
+`test_held_repaint_clears_every_violation_in_this_tree` was deleted here, per the instruction in
+its own assertion message. It asserted `va or vb` over the real editor tree — that the tree still
+violated — so it could only stay green while the defect was unfixed, and it went red the moment
+the repaint landed. That is the whole reason a test written that way cannot survive its own fix.
+
+Its two claims now sit in different places:
+
+* **outcome** — superseded and *strengthened* by `test_committed_tree_has_no_violation_outside_the_baseline`
+  against the empty baseline. That measures the real generated tree the ROM consumes and demands
+  zero violations, where the deleted test only simulated the fix in memory over the editor tree.
+* **mechanism** — `rp.analyse`'s target selection and `Section.set_word`'s write path are covered
+  by the synthetic tests on branch **`fix/repaint-preserve-crossover`**
+  (`test_repaint_write_path_preserves_the_crossover_on_a_synthetic_plane` and its `_fake_root`
+  sibling, which drives `rp.run()` end to end). Those build their own dirty fixture, so unlike the
+  deleted test they stay red-able forever — they are the right replacement, not a stopgap.
+
+**That branch is UNMERGED.** Until it lands, `rp.analyse` is called by no test at all. This was
+left rather than duplicated on purpose: writing a near-identical synthetic test here would collide
+with that lane's own file region. **Sequence the crossover branch soon, or the coverage this
+records as "replaced" is replaced by something that has not shipped.**
+
+### RIDER — the baseline file and `build.sh --baseline` can now be deleted outright
+
+`tools/collision_baseline.json`'s own comment always said it was meant to shrink to an empty list
+and then be removed along with the flag. It is now empty. Removing it touches `build.sh` and three
+tests (`test_committed_tree_has_no_violation_outside_the_baseline`, `test_baseline_has_no_stale_entries`,
+`test_baseline_file_is_wellformed_json_with_a_provenance_comment`), so it was deliberately left out
+of a parcel whose job was to un-red the build. The empty list is exactly as strict in the meantime.
+
+### RIDER — the sonic_hack donor was DIRTY at bake time
+
+`DONOR_PROVENANCE.json` records `sonic_hack 858af72c` with 11 modified tracked files. **That SHA
+does not identify what was read**, so this bake is not reproducible from the stamp alone. skdisasm
+was clean (`2fcd861c`). Committing the donor would close it.
+
+### CONSEQUENCE — `tools/fixtures/sprite_tilt_cut.json` was re-stamped, addresses only
+
+The parcel moves ROM bytes by design, so `sec0_blocks.bin` grew 8154 -> 8560 B and everything
+after it shifted: the three anim tables moved +400 B (plain) / +416 B (debug). Six `addr` fields
+were refreshed. **No `bytes` field changed and `Player_ApplyTilt`'s own address did not move** —
+pure relocation, verified by diff, with precedent at `e1f412ed`. Total ROM length is unchanged in
+all four shapes: the growth is absorbed by the slack ahead of the fixed `dac_banks` anchor at
+`0x90000`.
+
+### TAG — nobody has watched the floor hold
+
+Zero violations is a claim about the data, not about the game. **No emulator ran in this lane.**
+Whether the player now stays on the OJZ act-1 floor is unverified, and it is the only question the
+owner actually asked.
