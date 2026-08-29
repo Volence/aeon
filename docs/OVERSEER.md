@@ -896,6 +896,36 @@ deferring to "something else owns this", confirm the something else exists.
 
 ## Worktree quirks (agents hit all of these)
 
+- **A TIME WINDOW IS A CLAIM ABOUT THE CLOCK; A BLOB COMPARISON IS A CLAIM ABOUT THE ARTIFACT —
+  AND ONLY ONE OF THEM CAN BE CHECKED AFTER THE FACT** (added 2026-08-29; the aurora lane's
+  formulation, against the remedy THIS lane handed them).
+  Disclosing that the band parcel had briefly been reverted off master, this lane told aurora
+  *"if you fetched aeon master between roughly 11:48Z and 12:20Z you got a tree without the
+  parcel — refetch."* **That is the wrong instrument and they declined it.** One of their two
+  reads fell inside the window; rather than doing arithmetic on my estimate they compared the
+  **blob at `origin/master` against the frozen `e99a2ca7`**, found them byte-identical, and
+  established their read was post-repair from the artifact itself.
+  **Why the window form is bad even when the numbers are right:** my boundaries were estimates,
+  from a lane that had already demonstrated a four-hour timezone error the same night, and
+  **nothing about them is verifiable by the receiver** — they can only trust or refetch. The
+  content check needs no trust, no clock, and no cooperation from the discloser, and it stays
+  answerable indefinitely.
+  **Operational form: when disclosing that a tree was briefly wrong, give the receiver a CONTENT
+  test, not a time window.** "Compare `<path>` at `origin/master` against `<frozen-rev>`; equal
+  means you have the repaired tree" beats any interval. Offer the window only as colour, never as
+  the check.
+  *Generalises past this incident: every remediation notice this lane sends should hand over
+  something the receiver can EVALUATE rather than something they must BELIEVE. Same family as
+  quoting the assembler revision beside a CRC, and as never typing a hash into a message.*
+
+- **THE MAIN CHECKOUT IS DELIBERATELY BEHIND `origin/master` AND MUST STAY THAT WAY UNTIL `d-44`
+  IS RULED.** Its working tree holds the owner's unruled `d-44` edit on
+  `games/sonic4/data/generated/ojz/act1/effects_scenes.emp`, which the band parcel regenerates, so
+  it cannot take that merge. **Do not sync it with `git update-ref`** — that is the defect above.
+  **Do all landing, freezing and committing from a dedicated worktree**, which this lane's rules
+  already require for freezes and which now extends to ordinary doc commits. A stale branch ref in
+  that tree is visible and harmless; the shortcut that removes it is neither.
+
 - **⚠⚠ `git update-ref` ON A CHECKED-OUT BRANCH DOES NOT REFRESH THAT TREE'S INDEX, AND THE NEXT
   EXACT-PATH COMMIT THERE SILENTLY DELETES EVERYTHING THE INDEX HAS NOT SEEN** (added 2026-08-29,
   chain 182; **this lane's defect, and the worst of the session** — it reverted a whole landed
