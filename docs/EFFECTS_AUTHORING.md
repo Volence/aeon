@@ -490,6 +490,29 @@ are the ones a call to `patchable`/`compose` can actually violate.
 
 ---
 
+## Where the SCENE vocabulary is documented, and why it is not here
+
+**This document is the RASTER DSL's** — `raster_words` / `raster_program` / `band` / `patchable`
+and the HBlank programs they compile to. The **scene** vocabulary (`layer()` / `scene()`, the
+attachment enums `SceneDeform` / `SceneCurve` / `SceneVSplit` / `SceneDrift`, the capability fold)
+lives in `engine/level/scene_dsl.emp` itself, where each attachment's banner is its reference, and
+per-mechanism in `docs/ENGINE_ARCHITECTURE.md` §4.6 and the `docs/benchmarks/scanline-p*/` records.
+
+Recorded because two designs in a row have routed scene-field documentation here and it is the
+wrong file: an author reaching for "how do I make the clouds move" gets the raster program
+vocabulary and no scene layer in sight.
+
+**One composition an author WILL meet and should meet as documented rather than as a surprise**,
+because it spans both halves: a per-column V-scroll scene that DRIFTS must declare a
+`left_column_mask` of `Accept` or `SpriteMask`. Three guards produce that jointly and none of them
+knows about the others — `scene()` already refuses a per-column-V-deform scene with no policy;
+drift makes plane-B HScroll non-zero so the leftmost-partial-column artefact is live; and the
+`Factor0Lock` escape is refused for a drifting layer (drift is a plane-B scroll source in TIME the
+`fb` scan cannot see). Nothing was added for this — it falls out — but the author who hits it
+deserves to find it written down.
+
+---
+
 ## Scope — what is and is not authorable in Phase 3
 
 **Sparse tier only.** The general constructors (`raster_words` / `raster_program`) cover the sparse tier:

@@ -19,7 +19,7 @@
 module engine.level.scene_dsl
 
 use engine.structs.{parallax_config}
-use engine.parallax.{band_entry, band_record, band_ext, BAND_EXT_N, band_curve, BAND_CURVE_N, CURVE_FLAG_OP_BIT, CURVE_FLAG_ACTIVE_BIT, PLANE_B_SPAN, BAND_OP_BIT_A, BAND_OP_BIT_B}
+use engine.parallax.{band_entry, band_record, band_ext, BAND_EXT_N, band_curve, BAND_CURVE_N, band_drift, BAND_DRIFT_N, CURVE_FLAG_OP_BIT, CURVE_FLAG_ACTIVE_BIT, PLANE_B_SPAN, BAND_OP_BIT_A, BAND_OP_BIT_B}
 use engine.constants.{MAX_PARALLAX_BANDS, PARALLAX_ANCHOR_NONE}
 use engine.effects.raster_dsl.{RASTER_MAX_PATCH}
 
@@ -96,7 +96,7 @@ pub const LAYER_WORLD_Y_MAX = $8000
 
 // ---- capability bits (spec §3: the per-game cap mask the lowering folds against) ----
 //
-// THESE SIX DECLARATIONS ARE THE AUTHORITY, and P2 makes that literal rather than
+// THESE SEVEN DECLARATIONS ARE THE AUTHORITY, and P2 makes that literal rather than
 // aspirational: tools/test_scene_span_labels.py and tools/effects_gates.py both PARSE
 // the `pub const CAP_*` lines below and derive their expectations from what they find.
 // Neither carries a copy of the mask, so adding a bit here (with a lowering and a
@@ -190,8 +190,29 @@ pub const CAP_TRANSITIONS    = $0010
 // P3 (Task 5): declared ahead of their lowerings — see the promotion note above.
 pub const CAP_MULTI_DEFORM_TABLE = $0020
 pub const CAP_FACTOR_CURVE       = $0040
-// Reserved (P4+): CAP_FG_SPRITE_STRIPS=$0080, CAP_BGANIM_BOUND=$0100,
-// CAP_DENSE_TIER=$0200, CAP_COMPUTED=$0400, CAP_DEGRADE=$0800
+// P4: BAND DRIFT — a layer whose plane-B scroll advances by a constant rate every frame, so
+// the background keeps moving while the player stands still. Promoted WITH its lowering and
+// its three bracketed spans in one commit, per the standing rule above.
+//
+// ---- WHY $0080 AND NOT THE FIRST BIT PAST THE RESERVED BLOCK ----
+//
+// The instinct is $1000 — the first free value that disturbs no comment line. It is WRONG, and
+// tools/test_scene_span_labels.py is what says so rather than taste:
+// `test_the_declared_and_retired_bits_are_a_gapless_run_from_bit_zero` asserts that
+// declared union retired is exactly [1 << i for i in range(N)]. Today that set is bits 0..6
+// ($0001 retired plus the six declarations), so a bit at $1000 leaves a five-bit hole and the
+// test fails. The mask is allocated one bit at a time from bit 0 and a new declaration takes
+// the NEXT one.
+//
+// So the reserved block shifts up one bit IN THIS COMMIT, and that is free rather than
+// disruptive: nothing lowers, raises, brackets or masks against any of the five, and the
+// reserved-names test checks NAMES, not values. Leaving the comment claiming $0080 for
+// CAP_FG_SPRITE_STRIPS while a declaration holds it is precisely the failure the gapless
+// test's own docstring names — "a value a still-reserved bit already claims in the comment
+// ... leaves the names right and the arithmetic wrong".
+pub const CAP_BAND_DRIFT         = $0080
+// Reserved (P4+): CAP_FG_SPRITE_STRIPS=$0100, CAP_BGANIM_BOUND=$0200,
+// CAP_DENSE_TIER=$0400, CAP_COMPUTED=$0800, CAP_DEGRADE=$1000
 //
 // THE LEFT-COLUMN POLICY (P3 Task 12) RAISES NO BIT, AND THAT IS A RULING, NOT AN
 // OVERSIGHT. Factor0Lock and Accept demand nothing of the runtime — one is a verified
@@ -199,7 +220,8 @@ pub const CAP_FACTOR_CURVE       = $0040
 // code. SpriteMask WILL need a bit (its strip emitter is engine code a non-per-column
 // game must elide), but its emission has not landed and scene() refuses the variant
 // until it does; per the promotion note above, the bit arrives WITH its gated block in
-// the emission parcel, never ahead of it. CAP_FG_SPRITE_STRIPS ($0080) is NOT that bit —
+// the emission parcel, never ahead of it. CAP_FG_SPRITE_STRIPS ($0100 since band drift took
+// $0080 — see that declaration for why a new bit takes the NEXT one) is NOT that bit —
 // it is design §2's FG parallax strips, a different mechanism, and stays reserved.
 
 // ---- attachment enums (spec §2) ----
@@ -292,6 +314,50 @@ pub comptime enum SceneAnchor {
 pub comptime enum SceneCurve {
     None,
     To(int),                    // packed FACTOR_* the BG factor ramps TO at the layer bottom
+}
+
+// SceneDrift — TIME-DRIVEN plane-B scroll. The background keeps moving while the player
+// stands still.
+//
+//   None      this layer's plane-B scroll is the camera term and nothing else. The default,
+//             and every shipped layer.
+//   Rate(r)   this layer's plane-B scroll advances by `r` every frame, on top of the camera
+//             term. Trips CAP_BAND_DRIFT.
+//
+// THE UNIT IS 1/256 px PER FRAME, SIGNED, and it is the top authoring hazard in this
+// attachment — see layer()'s guard, whose message is the documentation an author will
+// actually read. `Rate(256)` is one pixel per frame. Positive drifts the layer's content one
+// way, negative the other; which way on screen is a sign convention of the plane-B scroll word
+// and is worth eyeballing once rather than deriving.
+//
+// WHY 8.8 AND NOT SOMETHING FINER OR COARSER — derived, not adopted. Every autoscroll rate in
+// the S1/S2/S3K corpus is an EXACT multiple of 1/256 px/frame: S3K's are all multiples of $100
+// in its own 16.16 accumulators (AIZ1 $2000 = 32, MGZ1 $500 = 5, FBZ2 $8000 = 128), and
+// S1/S2's are power-of-two fractions (GHZ clouds 1 / 0.75 / 0.5 px/f = 256 / 192 / 128).
+// 8.8 represents 100% of that corpus exactly, with 21x headroom on the fastest observed
+// (S2 DEZ's stars at 6 px/frame = 1536). A coarser format (8.4) cannot spell $500 or $E00.
+//
+// BG ONLY, AND THAT IS A REFUSAL BY REPRESENTATION RATHER THAN A GUARD. Parallax_Update's own
+// banner records why plane A is hard-locked to -Camera_X and never lerped: the FG streaming
+// engine draws columns in a camera-anchored 64-column window, so ANY FG scroll offset from the
+// camera drags the plane-wrap seam into view at the screen edge — and a drift term is exactly
+// such an offset, unbounded and growing. There is no plane-A field, so the mistake is
+// unspellable instead of diagnosed. The whole surveyed corpus is background drift.
+//
+// A LOCKED LAYER WITH A DRIFT IS THE PRIMARY USE CASE, NOT AN EDGE CASE.
+// `layer(fb: FACTOR_0, drift: SceneDrift.Rate(n))` is a strip that scrolls ONLY by drift,
+// which is precisely S2 DEZ's camera-locked star rows and S3K SSZ1's camera-locked sky. There
+// is no guard against it and there should not be — Decode_Factor_B returns 0 for a locked
+// band and the accumulator supplies the whole scroll.
+//
+// NEVER A `0` SENTINEL — and here that is enforced rather than merely intended. `None` and
+// `Rate(0)` lower to the SAME four ROM bytes, so a runtime discriminator does not exist; the
+// answer is that `Rate(0)` is a BUILD ERROR naming `None` (layer()'s guard), which is what
+// makes the ROM image unambiguous. "Is this layer drifting?" is `scene_drift_is_none()`, a
+// VARIANT test, for SceneDeform's and SceneCurve's stated reason.
+pub comptime enum SceneDrift {
+    None,
+    Rate(int),                  // signed 1/256 px per frame; 0 is REFUSED, see layer()
 }
 
 // SceneVSplit — design §2's PER-LAYER VERTICAL DEPTH (P3 Task 11), and the only attachment
@@ -510,6 +576,12 @@ pub struct SceneLayer {
     // `fx_vscroll_split` fire — so it reaches no `band_entry` field at all and cannot move
     // a config byte. See the SceneVSplit banner for the two-writer ruling.
     ly_vsplit:   SceneVSplit,
+    // BAND DRIFT — the layer's TIME-DRIVEN plane-B scroll. `None` = the camera term and
+    // nothing else (every shipped layer); `Rate(r)` advances this layer's plane-B scroll by
+    // r/256 px every frame and is the ONLY thing that raises CAP_BAND_DRIFT. Comptime-only
+    // like the rest of this struct: it lowers into band_drift's single 16.16 long, pre-shifted
+    // from the authored 8.8 by scene_band().
+    ly_drift:    SceneDrift,
 }
 
 // -----------------------------------------------
@@ -542,7 +614,8 @@ pub comptime fn layer(world_y: int, fa: int, fb: int, dsa: int = 15, dsb: int = 
                       phase: int = 0, enabled: int = 1,
                       deform: SceneDeform = SceneDeform.None,
                       curve: SceneCurve = SceneCurve.None,
-                      vsplit: SceneVSplit = SceneVSplit.None) -> SceneLayer {
+                      vsplit: SceneVSplit = SceneVSplit.None,
+                      drift: SceneDrift = SceneDrift.None) -> SceneLayer {
     // $8000 is inlined per the pin block at the top of this file (LAYER_WORLD_Y_MAX).
     ensure(world_y >= 0 && world_y < $8000,
            "layer(): world_y {world_y} is outside the engine's act-axis span (0 .. $8000). Every act descriptor asserts (GRID_H << SECTION_SIZE_SHIFT) <= $8000 and the camera's world coordinates are signed words, so a top above it names a Y the camera can never reach. NOTE this is the ENGINE-WIDE ceiling: the tight bound is this game's own act span and it is checked at the registry by assert_act_relative_tagged()")
@@ -650,9 +723,44 @@ pub comptime fn layer(world_y: int, fa: int, fb: int, dsa: int = 15, dsb: int = 
     let split_off = scene_vsplit_offset(vsplit)
     ensure(scene_vsplit_is_none(vsplit) == 1 || (split_off >= 0 && split_off < 512),
            "layer(): vsplit: At({split_off}) is outside the Plane-B span (0 .. 511). The VDP reads a vertical scroll value modulo the plane's height, so a wider or negative value is not a bigger scroll — it is silently one of the 512 rows that already had a spelling. Author the row you mean")
+    // ---- BAND DRIFT: the two guards, and the FIRST ONE IS DOCUMENTATION ----
+    //
+    // (1) `Rate(0)` IS REFUSED, AND IT NAMES `None`. The two are indistinguishable in ROM —
+    //     both lower to four zero bytes — so there is no runtime discriminator and never can
+    //     be. Accepting `Rate(0)` would mean the record image no longer determines whether
+    //     the author asked for drift, which is the class of ambiguity every attachment in this
+    //     file refuses at the constructor. It also has the shape of the two guards above it:
+    //     a curve whose ends are equal and an own() table nothing samples are both refused for
+    //     costing a record tail to emit exactly what the default already emits.
+    //
+    // (2) THE RANGE GUARD IS A TASTE BOUND AND ITS MESSAGE SAYS SO. Nothing breaks at 100
+    //     px/frame — the accumulator is 32-bit, the wrap is seamless at any rate (§3.2's
+    //     65536 = 128 x 512 argument does not depend on the rate), and the arithmetic is one
+    //     add. 4096 is 16 px/frame, 2.7x the fastest rate in the entire surveyed S1/S2/S3K
+    //     corpus. A future author with a real reason should RAISE THE BOUND rather than work
+    //     around it, and the message has to say that or the guard becomes an obstacle to
+    //     route around instead of a question to answer.
+    //
+    // ---- THE HAZARD NEITHER GUARD CATCHES, WHICH IS WHY (1)'s MESSAGE IS SHAPED AS IT IS ----
+    //
+    // The top authoring hazard here is NOT an out-of-range rate. It is an author writing
+    // `drift: SceneDrift.Rate(1)` meaning ONE PIXEL PER FRAME and getting 1/256 px/frame — a
+    // 256x error that presents as "the drift doesn't work". No assertion can catch it: 1 is a
+    // perfectly legal rate, and S3K's slowest real rate ($500 = 5) is only five times larger.
+    // The mitigation is that the messages below STATE THE UNIT, give a worked conversion and
+    // name the corpus, so the author who hits either guard learns the unit at the moment they
+    // are looking. Treat them as the field's documentation, because they are the documentation
+    // that is guaranteed to be read.
+    let drift_none = scene_drift_is_none(drift)
+    let drift_rate = scene_drift_rate(drift)
+    ensure(drift_none == 1 || drift_rate != 0,
+           "layer(): drift: SceneDrift.Rate(0) is not a slow drift, it is no drift — and it is REFUSED because `None` and `Rate(0)` lower to the SAME four zero bytes, so the band record could no longer say which one you wrote. Spell it `drift: SceneDrift.None` (the default) if the layer does not drift. THE UNIT IS 1/256 px PER FRAME, SIGNED: `Rate(256)` is one pixel per frame, `Rate(32)` is S3K AIZ1's clouds, `Rate(5)` is S3K MGZ1's slowest row, and the fastest rate in the whole S1/S2/S3K corpus is S2 DEZ's stars at `Rate(1536)` = 6 px/frame. If you meant one pixel per frame, you want 256")
+    ensure(drift_none == 1 || (drift_rate >= -4096 && drift_rate <= 4096),
+           "layer(): drift: SceneDrift.Rate({drift_rate}) is outside +/-4096. THE UNIT IS 1/256 px PER FRAME, SIGNED, so 4096 is 16 px/frame — and if you meant 16 px/frame you want 4096, not 16. THIS IS A TASTE BOUND, NOT A CORRECTNESS ONE, and the distinction is the point: nothing breaks above it. The accumulator is 32-bit and its wrap is seamless at ANY rate (the pixel part wraps at 65536 px = 128 x 512-px plane widths exactly), and the per-frame arithmetic is one add. The bound is 2.7x the fastest rate in the entire surveyed S1/S2/S3K corpus (S2 DEZ's stars, 6 px/frame = 1536). If you have a real reason to go faster, RAISE THIS BOUND in engine/level/scene_dsl.emp and say why in the commit — do not work around the guard")
     return SceneLayer{ ly_world_y: world_y, ly_fa: fa, ly_fb: fb, ly_dsa: eff_dsa,
                        ly_dsb: eff_dsb, ly_phase: eff_phase, ly_enabled: enabled,
-                       ly_deform: deform, ly_curve: curve, ly_vsplit: vsplit }
+                       ly_deform: deform, ly_curve: curve, ly_vsplit: vsplit,
+                       ly_drift: drift }
 }
 
 // no_layer — the padding element. `Scene.sc_layers` is a FIXED [SceneLayer; 16] (a
@@ -668,7 +776,7 @@ pub comptime fn no_layer() -> SceneLayer {
     return SceneLayer{ ly_world_y: 0, ly_fa: 0, ly_fb: 0, ly_dsa: 15,
                        ly_dsb: 15, ly_phase: 0, ly_enabled: 0,
                        ly_deform: SceneDeform.None, ly_curve: SceneCurve.None,
-                       ly_vsplit: SceneVSplit.None }
+                       ly_vsplit: SceneVSplit.None, ly_drift: SceneDrift.None }
 }
 
 // derived_mask — the layer mask the model implies: bit i per enabled layer below count.
@@ -741,6 +849,34 @@ pub comptime fn derived_curve(layers: [SceneLayer; 16], count: int) -> int {
 // because scene() has no Scene yet when it needs this.
 //
 // STOPS AT `count`: the pad slots past it are no_layer()s, whose ly_vsplit is None anyway.
+// derived_drift — does ANY real layer drift? (Band drift.)
+//
+// SHARED BY scene() AND scene_caps() FOR derived_curve()'s REASON: scene()'s Factor0Lock arm
+// guards on the answer and the capability fold raises CAP_BAND_DRIFT on it, and two copies of
+// this walk could drift into a scene the guard approves and the fold does not classify.
+//
+// A NON-ZERO RATE, NOT MERELY A NON-`None` VARIANT, and the two compose without a hole only
+// because layer() refuses Rate(0): every Rate that survives layer() is non-zero, so the two
+// tests coincide today. It is written as the rate test anyway, because the Factor0Lock arm
+// below is a claim about whether plane B can move and a zero rate cannot move it — if the
+// Rate(0) refusal were ever relaxed, this would still be the correct question.
+// Takes the ARRAY, because scene() has no Scene yet when it needs this.
+//
+// STOPS AT `count`: the pad slots past it are no_layer()s, whose ly_drift is None anyway.
+pub comptime fn derived_drift(layers: [SceneLayer; 16], count: int) -> int {
+    comptime var any = 0
+    // The one-dot rule — field, then index, then field (see scene_caps()).
+    for i in 0..count {
+        let l = layers[i]
+        if scene_drift_is_none(l.ly_drift) == 0 {
+            if scene_drift_rate(l.ly_drift) != 0 {
+                any = 1
+            }
+        }
+    }
+    return any
+}
+
 pub comptime fn derived_vsplit(layers: [SceneLayer; 16], count: int) -> int {
     comptime var any = 0
     // The one-dot rule — field, then index, then field (see scene_caps()).
@@ -878,6 +1014,26 @@ pub comptime fn scene_curve_to(c: SceneCurve) -> int {
     return match c {
         None      => $0FF,
         To(fb2)   => fb2,
+    }
+}
+
+// THE DRIFT QUESTION, asked of the VARIANT. 1 when this layer's plane-B scroll is the camera
+// term and nothing else — i.e. when the band lowers with a zero drift tail.
+pub comptime fn scene_drift_is_none(d: SceneDrift) -> int {
+    return match d {
+        None    => 1,
+        Rate(r) => 0,
+    }
+}
+// The authored rate in 1/256 px per frame. The None arm returns 0, which is BOTH the inert
+// emitted value and a legal one to compute with — and it is unambiguous only because
+// `Rate(0)` is refused at layer(). That refusal is what makes this the one accessor in this
+// file whose default may safely coincide with a representable payload: scene_curve_to() had
+// to pick $0FF instead of 0 precisely because a curve's far end has no such refusal.
+pub comptime fn scene_drift_rate(d: SceneDrift) -> int {
+    return match d {
+        None    => 0,
+        Rate(r) => r,
     }
 }
 
@@ -1411,6 +1567,26 @@ pub comptime fn scene(layers: [SceneLayer; 16], count: int,
            "scene(): left_column_mask: Factor0Lock claims NEITHER plane can H-scroll, but PLANE B is not locked — a real layer's fb is not FACTOR_0. The leftmost partial column exists on plane B on every line where its HScroll is non-zero, so this claim is false as authored. Lock every layer's fb to FACTOR_0, or declare Accept / SpriteMask")
     ensure(lcm_f0 == 0 || lcm_curve_unlocked == 0,
            "scene(): left_column_mask: Factor0Lock claims NEITHER plane can H-scroll, but a layer RAMPS its plane-B factor — curve: SceneCurve.To(..) with a far end that is not FACTOR_0. The ramp is a scroll source the fb scan cannot see: every fb can be locked while the curve walks plane-B HScroll away from zero across the layer, and the sliver comes back on those lines. Ramp to FACTOR_0, drop the curve, or declare Accept / SpriteMask")
+    //
+    //     HALF ONE-B — DRIFT IS A FOURTH SCROLL SOURCE, AND IT IS THE SAME CLASS AS THE CURVE
+    //     ARM ABOVE, IN TIME INSTEAD OF IN SPACE. A drifting layer's plane-B scroll advances
+    //     by a constant rate every frame ON TOP OF a camera term that may well be locked, so
+    //     an all-FACTOR_0 fb scan passes while plane-B HScroll walks away from zero and stays
+    //     away. Without this arm a scene could declare Factor0Lock — a VERIFIED IMPOSSIBILITY
+    //     CLAIM, "plane B provably never H-scrolls" — pass the build, drift plane B, and bring
+    //     back exactly the artefact the claim says cannot exist.
+    //
+    //     IT REFUSES A NON-ZERO RATE, NOT MERELY A NON-`None` VARIANT (derived_drift()'s own
+    //     note has the reason), and that composes with layer()'s Rate(0) refusal without a
+    //     hole: there is no legal spelling of a drifting layer that this arm lets through.
+    //
+    //     NOTE THAT THE LOCKED-fb + DRIFT COMBINATION ITSELF IS NOT REFUSED ANYWHERE AND MUST
+    //     NOT BE — `layer(fb: FACTOR_0, drift: Rate(n))` is a strip that scrolls ONLY by
+    //     drift, which is S2 DEZ's star rows and S3K SSZ1's sky and is the canonical spelling
+    //     of a pure autoscroll layer. What is refused is the SCENE-level claim that nothing
+    //     scrolls, made over a layer that does.
+    ensure(lcm_f0 == 0 || derived_drift(layers, count) == 0,
+           "scene(): left_column_mask: Factor0Lock claims NEITHER plane can H-scroll, but a layer DRIFTS — drift: SceneDrift.Rate(..) with a non-zero rate. Drift is a plane-B scroll source in TIME that the fb scan cannot see: every fb can be locked while the accumulator walks plane-B HScroll away from zero and keeps it there, and the leftmost partial column comes back for good. This is the same class as the curve arm above. Drop the drift, or declare left_column_mask: SceneLeftColMask.Accept / .SpriteMask — Factor0Lock is a claim about the scene, not a preference")
     //     HALF TWO — THE DEFORM AMPLITUDES, again one ensure per plane. Deform adds
     //     per-line HScroll ON TOP of the locked factor (the fill's sample loop writes
     //     fg|bg words from band_table_a/b under band_deform_shift_a/b), so a locked base
@@ -1542,6 +1718,7 @@ pub comptime fn scene_caps(s: Scene) -> int {
     // Bit literals, not the CAP_* names: this fn is elaborated at a game call site and
     // only a glob import puts those names there. See the pin block at the top.
     //   $0002 CAP_PER_COL_VSRAM  $0004 CAP_DEFORM  $0008 CAP_ANCHORS  ($0001 retired)
+    //   $0020 CAP_MULTI_DEFORM_TABLE  $0040 CAP_FACTOR_CURVE  $0080 CAP_BAND_DRIFT
     // NESTED `if`-EXPRESSIONS DO NOT EVALUATE HERE. The first spelling of this was
     // `if a { 1 } else { if b { 1 } else { 0 } }` and it returned 0 whenever only the
     // INNER test was true — measured: a BG-only deform scene folded to caps 0, so
@@ -1628,6 +1805,19 @@ pub comptime fn scene_caps(s: Scene) -> int {
     // A VARIANT TEST, THROUGH derived_curve() — the same walk scene()'s anchor guard uses.
     if derived_curve(ls, n) == 1 {
         caps = caps | $0040
+    }
+    // $0080 CAP_BAND_DRIFT — band drift. THE ONE THING THAT RAISES IT: a layer carrying
+    // `drift: Rate(..)`. It is a property of the LAYER, never of the scene: there is no
+    // scene-level drift slot, because a rate is a statement about one layer's own scroll.
+    // All twenty shipped scenes are drift-free, so this arm folds 0 across the registry and
+    // games/sonic4/data/effects/scene_registry.emp pins that — the bit staying clear is what
+    // keeps BAND_DRIFT_N at 0 and the four canonical images byte-identical.
+    //
+    // A VARIANT-AND-RATE TEST, THROUGH derived_drift() — the same walk scene()'s Factor0Lock
+    // arm uses, so a scene that arm approved cannot fold to a different shape than the one it
+    // checked.
+    if derived_drift(ls, n) == 1 {
+        caps = caps | $0080
     }
     // MULTI_DEFORM_TABLE IMPLIES CAP_DEFORM, and the implication is STRUCTURAL, not
     // hopeful — which is what makes it worth pinning rather than asserting in a comment:
@@ -2690,6 +2880,19 @@ pub comptime fn scene_band(s: Scene, i: int) -> band_record {
     if scene_curve_is_none(l.ly_curve) == 0 {
         curve_flags = curve_flags | 2
     }
+    // The drift tail's ONE value (band drift). The authored rate is signed 8.8 in 1/256
+    // px/frame; the field is the 16.16 image the accumulator adds, so the alignment is a
+    // comptime `<< 8`.
+    //
+    // TWO'S COMPLEMENT AT COMPTIME, AND THE PRECEDENT IS scene_hdr()'s pcfg_v_offset: the
+    // emitted field is declared u32 and carries the IMAGE of a signed long, because what the
+    // runtime does with it is `add.l`, which does not care. A statement `if`, not an
+    // if-expression (docs/EMP_PITFALLS.md §1). layer() has already bounded |rate| to 4096, so
+    // |rate << 8| <= $100000 and this single add is total — it can never wrap past 0.
+    comptime var drift_1616 = scene_drift_rate(l.ly_drift) << 8
+    if drift_1616 < 0 {
+        drift_1616 = drift_1616 + $100000000
+    }
     return band_record{
         br_base: band_entry{
             band_top_plane:      scene_plane_line(s, wy),
@@ -2722,6 +2925,15 @@ pub comptime fn scene_band(s: Scene, i: int) -> band_record {
                                                        bc_step:  0,
                                                        bc_rem:   0,
                                                        bc_span:  0 } ] } else { [] },
+        // THE DRIFT TAIL (band drift). ONE authored long, and the 8.8 -> 16.16 alignment is
+        // done HERE rather than at runtime: an `lsl.l #8` costs 24 cycles per band per frame
+        // on the 68000 (8 + 2n) and this costs nothing. See drift_1616 above for the
+        // two's-complement encode and why the field is a u32.
+        //
+        // Same single-level if-expression as br_ext / br_curve above, and for the same
+        // reason: a NESTED if-expression yields unit silently (docs/EMP_PITFALLS.md §1),
+        // which here would fold the tail away with no diagnostic.
+        br_drift: if BAND_DRIFT_N == 1 { [ band_drift{ bd_rate_1616: drift_1616 } ] } else { [] },
     }
 }
 

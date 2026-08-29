@@ -45,7 +45,7 @@ use engine.effects.preset.{Effects_InstallPreset}
 // code, and Task 9 adds the first CODE site for the bit — the per-band table reload in
 // Parallax_Fill_PerLine. A comptime CONDITION resolves at the call site and fails LOUDLY
 // when it cannot (measured 2026-08-20 on the buffers.emp twin, since deleted), so this import is load-bearing.
-use engine.level.scene_dsl.{CAP_PER_COL_VSRAM, CAP_DEFORM, CAP_ANCHORS, CAP_TRANSITIONS, CAP_MULTI_DEFORM_TABLE, CAP_FACTOR_CURVE}
+use engine.level.scene_dsl.{CAP_PER_COL_VSRAM, CAP_DEFORM, CAP_ANCHORS, CAP_TRANSITIONS, CAP_MULTI_DEFORM_TABLE, CAP_FACTOR_CURVE, CAP_BAND_DRIFT}
 
 // The a5-relative data-port derive (a5 = VDP_CTRL, so VDP_DATA_OFF(a5) hits
 // VDP_DATA). Port bases + their drift locks live in engine.vdp.
@@ -248,27 +248,112 @@ pub struct band_curve (size: 10) {
 // record too. Both images move; both are rebuilt and gated by this parcel.
 pub const BAND_CURVE_N = 1
 
+// ============== THE DRIFT TAIL (band drift, design §1.3 / §2) =====================
+//
+// A layer may DRIFT: its plane-B scroll advances by a constant rate every frame, on top of
+// whatever the camera term already gives it. Clouds that keep moving while the player stands
+// still. THIRD capability-selected tail, selected by CAP_BAND_DRIFT, and deliberately not
+// folded into either of the other two for band_curve's stated reason — a game may declare
+// any subset of the three, and one merged tail would make each pay for the others.
+//
+// THE AUTHORED UNIT IS 1/256 px PER FRAME (signed 8.8); THIS FIELD IS 16.16. The shift is
+// done in the LOWERING (`scene_band()`: `rate << 8`), not at runtime. An 8.8 rate must be
+// aligned to the 16.16 accumulator before it can be added to it, and doing that with an
+// `lsl.l #8` costs 24 cycles per band per frame on the 68000 (8 + 2n); doing it at comptime
+// costs 2 ROM bytes per band and nothing per frame.
+//
+// ---- WHY THE ACCUMULATOR IS NOT IN THIS TAIL, WHICH IS THE WHOLE DESIGN ----
+//
+// The obvious shape — rate here, accumulator beside it — CANNOT BE BUILT, for two
+// independent reasons, both properties of the shadow view this record also lives in:
+//
+//   (a) THE SHADOW VIEW IS DESTROYED AND REBUILT FROM ROM EVERY FRAME. Step 4a walks every
+//       band and calls copy_band_entry_fwd(), which copies the WHOLE record, tails included.
+//       An accumulator in a shadow tail is overwritten with its ROM image (zero) before it is
+//       ever read. band_curve's three derived words survive only because they are RE-DERIVED
+//       after the copy by `.cap_factor_curve_hoist`; a value that must ACCUMULATE has no such
+//       escape.
+//   (b) THE SHADOW VIEW IS ROTATED, so slot index != layer index. Step 4a's `.find_k` starts
+//       the copy at the band containing the current plane-space V-scroll and wraps. A per-slot
+//       accumulator would be attributed to a DIFFERENT layer the moment Vscroll_BG crossed a
+//       band top, and the drift phase would jump between layers as the camera moved.
+//
+// So the rate (authored, constant, read through the ROM cursor a1) lives HERE, and the
+// accumulator lives in `Parallax_Drift_Acc` — a RAM array indexed by CONFIG BAND INDEX,
+// exactly as Parallax_Current_Scroll_A/_B are, folded into the plane-B target inside
+// Parallax_Update's band loop BEFORE Step 4a ever runs.
+//
+// THAT PLACEMENT IS ALSO WHY THE ANCHORED OVERLAY NEEDS NOTHING. The curve tail had to invent
+// CURVE_FLAG_CONT_BIT and Parallax_Curve_Carry so a Step-4b split would CONTINUE its ramp.
+// Drift is already folded into Parallax_Current_Scroll_B[i] before Step 4a copies it into the
+// shadow, so Step 4b's `move.w (a5), 2(a5)` hands the manufactured entry an already-drifted
+// scroll word by the mechanism that already exists. Zero flags, zero carry state.
+//
+// THE DUAL COST, STATED PLAINLY RATHER THAN HIDDEN (band_curve's own convention for its four
+// dead ROM bytes): THE RATE'S SHADOW COPY IS NEVER READ. Step 4a copies these 4 bytes per band
+// per frame and nothing consumes them. The alternative that avoids it — a parallel ROM rate
+// array reached through a new parallax_config word — was costed and rejected: it widens the
+// config from 30 to 34 bytes, moves every config record in the tree, pulls engine/system/
+// buffers.emp into the parcel, and invents a per-band data shape that exists for one field.
+//
+// FOUR BYTES, AND THE SIZE IS LOAD-BEARING. It keeps sizeof(band_record) a multiple of 4
+// (20 -> 24), so copy_run_longs()' `% 4 == 0` fast path survives and no trailing move.w
+// appears in the whole-entry copy; and it keeps the record EVEN, which
+// tools/parallax_crossing_gate.py and copy_band_entry's address-error argument both need.
+//
+// LAST IN THE RECORD, so raising BAND_DRIFT_N alone moves neither br_ext nor br_curve and the
+// two existing offsetof ensures stay true without being edited. The new one is additive.
+//
+// ALIGNMENT, BECAUSE THE INSTINCT IS WRONG HERE. br_drift sits at record offset 20 and band
+// i's base is `config + 30 + 24i`, so this long lands on an EVEN but not 4-aligned address.
+// On a 68000 that is legal and free: only ODD addresses fault, and a long access is two word
+// accesses on the 16-bit bus regardless. No padding is needed and none should be added.
+//
+// THE FIELD IS u32 AND NOT i32, AND THAT IS THE TREE'S PRECEDENT RATHER THAN A PREFERENCE.
+// parallax_config.pcfg_v_offset is "the u16 IMAGE of a signed word", two's-complement encoded
+// at comptime by scene_hdr(), for the same reason: the emitted image is what matters and the
+// runtime consumes it with a size-tagged add that does not care. scene_band() does the same
+// encode here. (band_curve's i16 fields prove nothing about negative emission — they are
+// DERIVED words whose ROM image is always zero.)
+pub struct band_drift (size: 4) {
+    bd_rate_1616: u32,   // px/frame in 16.16 — the u32 image of a SIGNED rate; see the banner
+}
+
+// BAND_DRIFT_N — 1 in a game whose SCANLINE_CAPS include CAP_BAND_DRIFT, else 0. A PINNED
+// LITERAL for exactly BAND_EXT_N's and BAND_CURVE_N's reason (BAND_EXT_N's banner above has
+// the full evidence): the context that lays out an emitted `data` binding's record type binds
+// no contract members, so `Game.SCANLINE_CAPS` here is `unknown name`. The capability is still
+// the authority — games/sonic4/data/effects/scene_registry.emp carries the two-directional
+// pin, where both names are visible.
+//
+// IT IS ENGINE-WIDE, NOT PER-GAME. Flipping it to 1 widens band_record for BOTH games,
+// including `demo`, whose SCANLINE_CAPS is 0 and which will never drift, and every ROM image
+// in the tree moves. That is owner-gated (scene_registry.emp carries the refusal), and it is
+// why the mechanism lands at 0: the mechanism moves no byte, adoption does.
+pub const BAND_DRIFT_N = 0
+
 // band_record — WHAT A BAND OCCUPIES, in ROM and in the shadow view. This is the type the
 // registry emits arrays of, the type `scene_band()` builds, and the STRIDE every walker
 // loop advances by. The legacy prefix sits at offset 0, which is why every field reference
 // in this file is still spelled `band_entry.<field>(aN)`.
 //
 // A MODULE THAT IMPORTS `band_record` MUST IMPORT `band_entry`, `band_ext`, `BAND_EXT_N`,
-// `band_curve` AND `BAND_CURVE_N` TOO. The declaration is re-elaborated in the importing
+// `band_curve`, `BAND_CURVE_N`, `band_drift` AND `BAND_DRIFT_N` TOO. The declaration is re-elaborated in the importing
 // module's own name environment, so a partial import fails there — and it fails pointing AT
 // THIS DECLARATION, in this file, naming a type this file plainly declares. Three importers
 // do it: engine.level.scene_dsl, games.sonic4.scene_registry, games.sonic4.scene_equiv_proof.
-pub struct band_record (size: sizeof(band_entry) + sizeof(band_ext) * BAND_EXT_N + sizeof(band_curve) * BAND_CURVE_N) {
+pub struct band_record (size: sizeof(band_entry) + sizeof(band_ext) * BAND_EXT_N + sizeof(band_curve) * BAND_CURVE_N + sizeof(band_drift) * BAND_DRIFT_N) {
     br_base:  band_entry,
     br_ext:   [band_ext; BAND_EXT_N],
     br_curve: [band_curve; BAND_CURVE_N],
+    br_drift: [band_drift; BAND_DRIFT_N],
 }
 ensure(offsetof(band_record, br_base) == 0,
        "band_record's legacy prefix is at offset {offsetof(band_record, br_base)}, not 0 — every `band_entry.<field>(aN)` displacement in this file addresses through the record base, so a non-zero prefix offset silently mis-addresses all ten legacy fields")
 // THE CAPABILITY-OFF IDENTITY, as an assertion rather than a comment: with no extension the
 // record IS the legacy entry. Design section 8.1's claim, checked where it is decided.
-ensure(BAND_EXT_N != 0 || BAND_CURVE_N != 0 || sizeof(band_record) == sizeof(band_entry),
-       "both capability tails are absent (BAND_EXT_N {BAND_EXT_N}, BAND_CURVE_N {BAND_CURVE_N}) but band_record ({sizeof(band_record)}) is not the legacy band_entry ({sizeof(band_entry)}) — a no-new-capability game must lower byte-identically")
+ensure(BAND_EXT_N != 0 || BAND_CURVE_N != 0 || BAND_DRIFT_N != 0 || sizeof(band_record) == sizeof(band_entry),
+       "all three capability tails are absent (BAND_EXT_N {BAND_EXT_N}, BAND_CURVE_N {BAND_CURVE_N}, BAND_DRIFT_N {BAND_DRIFT_N}) but band_record ({sizeof(band_record)}) is not the legacy band_entry ({sizeof(band_entry)}) — a no-new-capability game must lower byte-identically")
 
 // THE SHADOW RESERVATION IS A MIRROR THIS MODULE HOLDS TO THE RECORD, for the same reason
 // BAND_EXT_N is: engine/ram.emp is lowered by a focused, CONTRACT-BLIND build, so it cannot
@@ -277,7 +362,7 @@ ensure(BAND_EXT_N != 0 || BAND_CURVE_N != 0 || sizeof(band_record) == sizeof(ban
 // record without widening ram.emp and the build fails naming the constant, instead of the
 // shadow view running off the end of its array at runtime.
 ensure(extern("Parallax_Shadow_Scroll_A") - extern("Parallax_Shadow_Bands") == sizeof(band_record) * MAX_PARALLAX_BANDS,
-       "Parallax_Shadow_Bands reserves fewer bytes than the shadow view needs: sizeof(band_record) x MAX_PARALLAX_BANDS = {sizeof(band_record) * MAX_PARALLAX_BANDS} — set BAND_EXT_BYTES (the deform tail, sizeof(band_ext) = 10) and/or BAND_CURVE_BYTES (the curve tail, sizeof(band_curve) = 10) in engine/ram.emp to match the tails this game's capabilities select. Do NOT widen BAND_ENTRY_LEN: it mirrors the LEGACY band_entry, which sigil harvests ambiently, and the extern(\"band_entry_len\") pin beside it would go red")
+       "Parallax_Shadow_Bands reserves fewer bytes than the shadow view needs: sizeof(band_record) x MAX_PARALLAX_BANDS = {sizeof(band_record) * MAX_PARALLAX_BANDS} — set BAND_EXT_BYTES (the deform tail, sizeof(band_ext) = 10), BAND_CURVE_BYTES (the curve tail, sizeof(band_curve) = 10) and/or BAND_DRIFT_BYTES (the drift tail, sizeof(band_drift) = 4) in engine/ram.emp to match the tails this game's capabilities select. Do NOT widen BAND_ENTRY_LEN: it mirrors the LEGACY band_entry, which sigil harvests ambiently, and the extern(\"band_entry_len\") pin beside it would go red")
 
 // The two op bits, named once. Decode_Factor_A/B and the lowering are the only readers.
 pub const BAND_OP_BIT_A = 0
@@ -348,13 +433,28 @@ pub const BAND_OP_BIT_B = 1
 // THE SPAN AT MAX 16 IS 552 BYTES (138 longs), up from 328 (82) at MAX 8 — +224 B, the
 // whole RAM cost of the raise. Nothing here needed to change for it: both terms are
 // derived, and the drift ensure below checks them against the resolved RAM span.
-ensure(((sizeof(band_ext) * BAND_EXT_N + sizeof(band_curve) * BAND_CURVE_N) * MAX_PARALLAX_BANDS) % 4 == 0,
-       "the band tails add {(sizeof(band_ext) * BAND_EXT_N + sizeof(band_curve) * BAND_CURVE_N) * MAX_PARALLAX_BANDS} bytes to Parallax_State, which is not a whole number of longs — Parallax_Init clears in LONGS, so a non-multiple would under-clear the tail")
+ensure(((sizeof(band_ext) * BAND_EXT_N + sizeof(band_curve) * BAND_CURVE_N + sizeof(band_drift) * BAND_DRIFT_N) * MAX_PARALLAX_BANDS) % 4 == 0,
+       "the band tails add {(sizeof(band_ext) * BAND_EXT_N + sizeof(band_curve) * BAND_CURVE_N + sizeof(band_drift) * BAND_DRIFT_N) * MAX_PARALLAX_BANDS} bytes to Parallax_State, which is not a whole number of longs — Parallax_Init clears in LONGS, so a non-multiple would under-clear the tail")
 // The trailing `+ BAND_CURVE_N` is the two-word curve carry (P3 Task 10) — one long, in
 // the state span and therefore cleared by Parallax_Init, present only under the capability.
-const PARALLAX_STATE_LONGS = (100 + 18 * MAX_PARALLAX_BANDS) / 4 + ((sizeof(band_ext) * BAND_EXT_N + sizeof(band_curve) * BAND_CURVE_N) * MAX_PARALLAX_BANDS) / 4 + BAND_CURVE_N
+// `+ BAND_DRIFT_N * MAX_PARALLAX_BANDS` is Parallax_Drift_Acc, the band-drift accumulator
+// array: ONE LONG PER BAND, not one per config, because it is indexed by config band index
+// exactly as Parallax_Current_Scroll_A/_B are. It is inside this span deliberately —
+// Parallax_Init clears the whole span in longs, so the accumulators zero themselves at level
+// init with no new code. The shadow-widening half of the drift cost rides in the tails term
+// above (sizeof(band_drift) * BAND_DRIFT_N), which is where every tail's shadow cost lives.
+const PARALLAX_STATE_LONGS = (100 + 18 * MAX_PARALLAX_BANDS) / 4 + ((sizeof(band_ext) * BAND_EXT_N + sizeof(band_curve) * BAND_CURVE_N + sizeof(band_drift) * BAND_DRIFT_N) * MAX_PARALLAX_BANDS) / 4 + BAND_CURVE_N + BAND_DRIFT_N * MAX_PARALLAX_BANDS
 ensure(extern("Parallax_Shadow_Bands") - extern("Parallax_Curve_Carry") == 4 * BAND_CURVE_N,
        "the curve carry reserves {extern(\"Parallax_Shadow_Bands\") - extern(\"Parallax_Curve_Carry\")} bytes, not the {4 * BAND_CURVE_N} this capability needs — set CURVE_CARRY_WORDS in engine/ram.emp (it is derived from BAND_CURVE_BYTES, so the real edit is that mirror). A short reservation makes the fill's cross-band carry alias the shadow band array")
+// The drift accumulator's own reservation, the exact twin of the curve-carry pin above and
+// for the same reason: the total-span ensure below can only say the sum is wrong, never
+// WHICH array is short, and a short accumulator array makes the band loop's `addq.l #4, a4`
+// walk off the end into Parallax_Curve_Carry and then into the shadow bands — a silent
+// corruption of the thing Step 4a is about to read. Parallax_Drift_Acc is placed immediately
+// BEFORE Parallax_Curve_Carry in engine/ram.emp precisely so both pins are adjacent-symbol
+// differences; inserting anything between them breaks whichever one it splits.
+ensure(extern("Parallax_Curve_Carry") - extern("Parallax_Drift_Acc") == 4 * BAND_DRIFT_N * MAX_PARALLAX_BANDS,
+       "the band-drift accumulator reserves {extern(\"Parallax_Curve_Carry\") - extern(\"Parallax_Drift_Acc\")} bytes, not the {4 * BAND_DRIFT_N * MAX_PARALLAX_BANDS} this capability needs (one 16.16 long per band, MAX_PARALLAX_BANDS of them) — set BAND_DRIFT_BYTES in engine/ram.emp (DRIFT_ACC_LONGS is derived from it, so the real edit is that one mirror). A short reservation makes Parallax_Update's accumulator cursor walk into Parallax_Curve_Carry and the shadow band array")
 ensure((extern("Parallax_State_End") - extern("Parallax_State"))/4 == PARALLAX_STATE_LONGS, "Parallax_State clear span drifted from ram.asm: expected {PARALLAX_STATE_LONGS} longs")
 
 // The peek-ahead strides by the RECORD, not by the legacy prefix — the neighbour band is
@@ -401,7 +501,24 @@ ensure(BAND_CURVE_N == 0 || offsetof(band_record, br_curve) == sizeof(band_entry
 // address error at runtime, not a wrong picture.
 ensure(BAND_CURVE_N == 0 || (band_curve_step % 2 == 0 && band_curve_rem % 2 == 0 && band_curve_span % 2 == 0),
        "a curve tail word lands on an ODD displacement from the record base (step {band_curve_step}, rem {band_curve_rem}, span {band_curve_span}) — the per-frame hoist writes all three with move.w and would address-error")
-
+// The drift tail's ONE displacement FROM THE RECORD BASE, named for band_curve_*'s reason and
+// NOT optional sugar: `band_drift.bd_rate_1616(a1)` would assemble to displacement 0 — the
+// field's offset WITHIN band_drift — and read band_top_plane + band_factor_a as a rate, every
+// band, every frame, with no diagnostic. The .field-in-disp sugar does not compose through a
+// containing struct. Folds to a constant whatever BAND_DRIFT_N is (a zero-length array still
+// has a position), and its only reader is the CAP_BAND_DRIFT-gated accumulate in
+// Parallax_Update, which does not exist when the array is empty.
+const band_drift_rate = offsetof(band_record, br_drift) + offsetof(band_drift, bd_rate_1616)
+// THE DRIFT TAIL SITS AFTER THE LEGACY PREFIX AND BOTH OTHER TAILS — it is LAST by design, so
+// that raising BAND_DRIFT_N alone moves neither br_ext nor br_curve and the two pins above
+// stay true without being edited. This is the additive third.
+ensure(BAND_DRIFT_N == 0 || offsetof(band_record, br_drift) == sizeof(band_entry) + sizeof(band_ext) * BAND_EXT_N + sizeof(band_curve) * BAND_CURVE_N,
+       "band_record's drift tail starts at {offsetof(band_record, br_drift)}, not immediately after the legacy prefix plus the deform and curve tails ({sizeof(band_entry) + sizeof(band_ext) * BAND_EXT_N + sizeof(band_curve) * BAND_CURVE_N}) — Parallax_Update reads the rate by a constant displacement from the record base, so a gap or an overlap there reads two legacy or curve fields as a 16.16 drift rate and moves the background by garbage every frame")
+// The rate is read with `move.l`, so its displacement from an even record base must itself be
+// EVEN or every band's read is a 68000 address error. Same claim as the curve tail's odd-word
+// pin below, for the field that is read as a LONG rather than written as three words.
+ensure(BAND_DRIFT_N == 0 || band_drift_rate % 2 == 0,
+       "the drift tail's rate lands on an ODD displacement from the record base ({band_drift_rate}) — Parallax_Update reads it with move.l and would address-error on every band")
 // PLANE_B_SPAN — the Plane-B vertical span in pixels, the modulus Step 4a's rotation
 // works in and the ceiling every lowered `band_top_plane` must sit under. 64 rows of
 // 8-px cells: the engine's plane geometry, not a parallax choice, which is why it is
@@ -961,6 +1078,18 @@ pub proc Parallax_Update () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
         lea     Parallax_Current_Scroll_A, a2       // (Parallax_Current_Scroll_A).w
         lea     Parallax_Current_Scroll_B, a3       // (Parallax_Current_Scroll_B).w
 
+        // BAND DRIFT — the accumulator cursor. a4 IS FREE HERE and that is checked, not
+        // assumed: this proc uses a0 (config), a1 (ROM band record), a2/a3 (the two
+        // current-scroll cursors) and nothing else above a3 until the `jbra
+        // Parallax_Step5_Vscroll` tail. Decode_Factor_A/_B declare clobbers(d1-d2)
+        // preserves(d3), so no address register crosses them either. Parallax_Update
+        // already declares clobbers(d0-d7/a0-a6), so no proc contract moves for this.
+        if (Game.SCANLINE_CAPS & CAP_BAND_DRIFT) != 0 {
+        .cap_band_drift_setup_begin:
+                lea     Parallax_Drift_Acc, a4      // (Parallax_Drift_Acc).w
+        .cap_band_drift_setup_end:
+        }
+
         // THE LOAD IS A `move.w` AND THAT IS THE WHOLE POINT OF THE 2026-08-27 RAISE.
         // `btst d5, d6` already reaches bits 0..15 (it is a register-to-register bit test,
         // modulo 32), so the ONLY thing that made bands 8..15 dead at MAX_PARALLAX_BANDS = 8
@@ -1003,6 +1132,49 @@ pub proc Parallax_Update () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
 
         // -- factor_b: lerp during transition, else lock --
         jbsr    Decode_Factor_B                     // out: d2 = -decode(camX, factor_b)
+
+        // BAND DRIFT — advance this band's 16.16 accumulator and fold its PIXEL part into
+        // the plane-B TARGET, before the snap/lerp.
+        //
+        // BEFORE the lerp and not after, deliberately. Outside a transition `.snap_b` writes
+        // the target straight through, so drift appears at full value every frame; inside one
+        // the lerp's step is recomputed every frame against a target that now moves by `rate`,
+        // and the ramp still converges (at frames_remaining == 1 the step is the whole
+        // residual against THAT frame's target). Folding it in after the lerp is arguably
+        // cleaner semantically but it is a behaviour change nobody asked for AND it forces the
+        // accumulate into Step 4a's copy loop — the loop that is the band-count scaling risk.
+        //
+        // NO PER-BAND `tst` ON THE RATE. A zero rate costs 48 cycles; testing for it costs
+        // ~30 to save ~40 and adds a data-dependent branch. band_ext's gated block takes the
+        // same position for the same reason: unconditional under the capability keeps the
+        // cost a clean per-band constant for the walker's fitted model instead of a
+        // content-dependent one.
+        //
+        // THE ENABLED ARM ONLY. A disabled band inherits the band above's scroll words and
+        // emits nothing of its own, so accumulating for it would be spending cycles on a
+        // value nothing reads. Its accumulator slot is still STEPPED at `.band_done`, on both
+        // arms, so slot index never desyncs from band index. Layer masks are comptime per
+        // config, so a band cannot toggle at runtime and there is no resume discontinuity.
+        //
+        // d1 IS THE RIGHT SCRATCH: it is dead between Decode_Factor_B's return and the lerp's
+        // `move.w (a3), d1` below. A memory-to-memory add does not exist on the 68000, so the
+        // rate must land in a data register on its way to the accumulator.
+        //
+        // `add.w (a4), d2` READS THE HIGH WORD, which is the whole reason the accumulator is
+        // laid out [pixels:i16][fraction:u16] with the pixels HIGH: on a big-endian 68000 the
+        // first word of the long IS the pixel part, so the extraction is a word read and not
+        // a shift. The wrap is seamless for the same layout: the pixel part wraps mod 65536,
+        // Plane B is 512 px wide at reg $10 = $11, and 65536 = 128 x 512 exactly, so the wrap
+        // is a whole number of plane widths. A 16-bit 8.8 accumulator would wrap its pixel
+        // part at 256, and 256 mod 512 != 0 — a visible snap every ~43 s at 6 px/frame.
+        if (Game.SCANLINE_CAPS & CAP_BAND_DRIFT) != 0 {
+        .cap_band_drift_accum_begin:
+                move.l  band_drift_rate(a1), d1     // ROM rate, 16.16 px/frame
+                add.l   d1, (a4)                    // acc += rate
+                add.w   (a4), d2                    // target_b += acc's PIXEL part (high word)
+        .cap_band_drift_accum_end:
+        }
+
         tst.b   Parallax_Snap_Pending               // (Parallax_Snap_Pending).w
         bne     .snap_b
         tst.b   Parallax_Transition_Frames          // (Parallax_Transition_Frames).w
@@ -1043,6 +1215,15 @@ pub proc Parallax_Update () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
         adda.l  #sizeof(band_record), a1
         addq.l  #2, a2
         addq.l  #2, a3
+        // BAND DRIFT — step the accumulator cursor. ON BOTH ARMS (this label is where
+        // `.band_disabled` joins), because the array is indexed by BAND index and a disabled
+        // band still owns its slot. Skipping it here would shift every subsequent band's
+        // accumulator by one and hand a drifting layer the phase of a different one.
+        if (Game.SCANLINE_CAPS & CAP_BAND_DRIFT) != 0 {
+        .cap_band_drift_step_begin:
+                addq.l  #4, a4
+        .cap_band_drift_step_end:
+        }
         addq.w  #1, d5
         cmp.w   d7, d5
         blo     .band_loop

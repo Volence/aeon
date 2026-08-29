@@ -136,7 +136,58 @@ BE_B_S2       = 5
 BE_OPS        = 6    # bit 0 = plane A op, bit 1 = plane B op
 BE_DSHIFT_A   = 7
 BE_DSHIFT_B   = 8
-BE_SIZE       = 10
+LEGACY_BE_SIZE = 10  # sizeof(band_entry) — the PREFIX, which never grows (design §3.1)
+
+# ---- THE RECORD STRIDE, AND WHY IT IS NO LONGER THE LITERAL 10 --------------------
+#
+# `BE_SIZE` is the stride every fixture in this file is laid out at and every shadow read
+# steps by. It is `sizeof(band_record)` — the legacy prefix PLUS whatever capability tails
+# this build's game selects — and it has NOT equalled sizeof(band_entry) since 2026-08-26,
+# when the d-15 showcase adopted a curve and BAND_CURVE_N went to 1.
+#
+# MEASURED 2026-08-29, on master: this module still carried `BE_SIZE = 10` while
+# `Parallax_Shadow_Scroll_A - Parallax_Shadow_Bands` in s4.debug.lst reads 320 over 16
+# bands = 20. Every synthetic config this probe installs was therefore laid out at HALF
+# the stride the walker advances by, so bands 1..n-1 were decoded out of the middle of
+# their predecessors. Band 0 is the one index a wrong stride cannot corrupt, which is
+# exactly what let it look plausible — the same tell, in the same shape, as the 2026-08-27
+# finding in tools/left_col_mask_probe.py that its sibling
+# tools/parallax_hscroll_probe.py's SHADOW_STRIDE banner records at length. That sibling
+# learned it; this file did not, and its `[parallax.cost_model]` rows were fitted BEFORE
+# the record widened (2026-08-22, T13 promotion, when 10 was correct).
+#
+# IT IS DERIVED FROM THE BUILD, NOT FROM A FLAG AND NOT FROM A LITERAL — `set_stride()` is
+# called from main() with the symbols of the .lst being measured, exactly as
+# tools/deform_own_cost_probe.py's derive_stride() and tools/curve_probe.py's main() do.
+# The module-level value stays None so that a caller who imports this module and forgets to
+# set it gets an immediate TypeError rather than a plausible number: a probe that measures
+# the wrong bytes and prints a clean fit is the failure mode this whole comment exists for.
+BE_SIZE = None       # sizeof(band_record); set by set_stride() from the .lst under measure
+
+
+def set_stride(sym: dict) -> int:
+    """Derive and install `sizeof(band_record)` from the build being measured.
+
+    `Parallax_Shadow_Bands` reserves one record per MAX_PARALLAX_BANDS and the next symbol
+    starts immediately after it; engine/level/parallax.emp pins that span to
+    `sizeof(band_record) * MAX_PARALLAX_BANDS` on EVERY build, so this is the same number
+    the walker's own displacement arithmetic used. Never typed, never inferred.
+    """
+    global BE_SIZE
+    span = sym["Parallax_Shadow_Scroll_A"] - sym["Parallax_Shadow_Bands"]
+    if span % MAX_SHADOW:
+        raise SystemExit(
+            f"parallax_cost_probe: shadow span {span} is not a multiple of "
+            f"MAX_PARALLAX_BANDS ({MAX_SHADOW}) — the symbols moved, or this .lst is not "
+            f"this ROM's. Refusing to guess a stride.")
+    stride = span // MAX_SHADOW
+    if stride < LEGACY_BE_SIZE:
+        raise SystemExit(
+            f"parallax_cost_probe: derived record stride {stride} is smaller than "
+            f"sizeof(band_entry) ({LEGACY_BE_SIZE}) — ram.emp's mirrors and parallax.emp's "
+            f"struct disagree, and every fixture below would be short.")
+    BE_SIZE = stride
+    return stride
 
 
 def be_top(raw: bytes, i: int, base: int = 0) -> int:
@@ -1627,6 +1678,15 @@ def main() -> int:
     if missing:
         print(f"symbols missing: {', '.join(missing)}", file=sys.stderr)
         return 3
+
+    # THE RECORD STRIDE, INSTALLED BEFORE ANY FIXTURE IS BUILT. See set_stride()'s banner:
+    # this was a hard-coded 10 until 2026-08-29 and the shipped record has been 20 since
+    # 2026-08-26, so every fixture below was laid out at half the walker's stride. It is
+    # printed because it is the one number that silently invalidates every row if it is
+    # wrong, and a reader comparing two runs needs to see it agreed.
+    stride = set_stride(sym)
+    print(f"band_record stride (derived from {Path(args.lst).name}): {stride} bytes"
+          f"  [legacy prefix {LEGACY_BE_SIZE} + {stride - LEGACY_BE_SIZE} of capability tails]")
 
     if args.sweep and args.transition:
         print("--sweep and --transition are separate runs: one moves the camera (values),"

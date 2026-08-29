@@ -1296,15 +1296,23 @@ def render_module(scenes: dict, act_ref, sec_refs: dict, sections: int,
     out.append(f"module {names.module} in {names.section}\n")
     out.append("use engine.constants.{MAX_ACT_SECTIONS}")
     if used:
-        # The same four imports scene_registry.emp carries, for the same four
-        # reasons — see its banner. `band_entry`/`band_ext`/BAND_EXT_N/`band_curve`/
-        # BAND_CURVE_N are load-bearing even though nothing here spells them: a
-        # struct's declaration is re-elaborated in every module that imports it
+        # The same imports scene_registry.emp carries, for the same reasons — see its
+        # banner. `band_entry`/`band_ext`/BAND_EXT_N/`band_curve`/BAND_CURVE_N/
+        # `band_drift`/BAND_DRIFT_N are load-bearing even though nothing here spells
+        # them: a struct's declaration is re-elaborated in every module that imports it
         # (docs/EMP_PITFALLS.md §8), and a partial import fails pointing at
         # engine/level/parallax.emp.
+        #
+        # THIS LIST GROWS WITH EVERY CAPABILITY TAIL band_record COMPOSES, and the
+        # generated module is the FOURTH importer — the one a mirror-set enumeration
+        # written from the hand-authored sources misses, because it is not in the tree
+        # until this generator writes it. Measured on the band-drift parcel: adding
+        # band_drift to the three hand importers left THIS list short and the whole
+        # build red with `unknown type: band_drift` pointing at parallax.emp, exactly as
+        # §8 predicts. If you are adding a tail, this line is part of the parcel.
         out.append("use engine.structs.{parallax_config}")
         out.append("use engine.parallax.{band_entry, band_record, band_ext, "
-                   "BAND_EXT_N, band_curve, BAND_CURVE_N}")
+                   "BAND_EXT_N, band_curve, BAND_CURVE_N, band_drift, BAND_DRIFT_N}")
         # GLOBS, MANDATORY. A comptime fn's free names resolve at the CALL SITE, so
         # scene()/layer()/lowerN reach their helpers through what is in scope HERE;
         # a selective import is LOUD on the function axis and SILENT on the constant

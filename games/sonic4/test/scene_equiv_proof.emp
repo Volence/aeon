@@ -68,7 +68,7 @@
 module games.sonic4.scene_equiv_proof
 
 use engine.structs.{parallax_config}
-use engine.parallax.{band_entry, band_record, band_ext, BAND_EXT_N, band_curve, BAND_CURVE_N}
+use engine.parallax.{band_entry, band_record, band_ext, BAND_EXT_N, band_curve, BAND_CURVE_N, band_drift, BAND_DRIFT_N}
 // Named for the two `hdr()` guards that fire inside the ORACLE's body when it is called
 // from here: a comptime fn's free names resolve at the call site. Both modules are sigil
 // COMPTIME_HELPERS (so these would also arrive glob-injected), and both are named anyway —
@@ -337,8 +337,8 @@ pub comptime fn band_eq(a: band_record, b: band_entry) -> int {
 // curve game's 20-byte record slip past this witness with no diagnostic — measured here,
 // because raising BAND_CURVE_N alone (the Task-10 build-order control) fired the OLD
 // message, which named the wrong capability.
-ensure((Game.SCANLINE_CAPS & (CAP_MULTI_DEFORM_TABLE | CAP_FACTOR_CURVE)) != 0 || sizeof(band_record) == sizeof(band_entry),
-       "scene equivalence witness: this game declares neither CAP_MULTI_DEFORM_TABLE nor CAP_FACTOR_CURVE, but the lowered band record is {sizeof(band_record)} bytes against the legacy entry's {sizeof(band_entry)} — design 3.1 requires the zero-capability path to emit legacy bytes, and the field-wise proofs below run through .br_base and cannot see a trailing tail. Check BAND_EXT_N and BAND_CURVE_N in engine/level/parallax.emp")
+ensure((Game.SCANLINE_CAPS & (CAP_MULTI_DEFORM_TABLE | CAP_FACTOR_CURVE | CAP_BAND_DRIFT)) != 0 || sizeof(band_record) == sizeof(band_entry),
+       "scene equivalence witness: this game declares none of CAP_MULTI_DEFORM_TABLE, CAP_FACTOR_CURVE or CAP_BAND_DRIFT, but the lowered band record is {sizeof(band_record)} bytes against the legacy entry's {sizeof(band_entry)} — design 3.1 requires the zero-capability path to emit legacy bytes, and the field-wise proofs below run through .br_base and cannot see a trailing tail. Check BAND_EXT_N, BAND_CURVE_N and BAND_DRIFT_N in engine/level/parallax.emp")
 
 // =====================================================================
 // THE TWENTY PROOFS. Order is configs.emp's declaration order, which is also the registry

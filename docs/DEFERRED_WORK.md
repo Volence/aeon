@@ -13459,3 +13459,98 @@ all four shapes: the growth is absorbed by the slack ahead of the fixed `dac_ban
 Zero violations is a claim about the data, not about the game. **No emulator ran in this lane.**
 Whether the player now stays on the OJZ act-1 floor is unverified, and it is the only question the
 owner actually asked.
+
+---
+
+## Band drift — time-driven parallax scroll. MECHANISM LANDED, ADOPTION IS THE OWNER'S
+
+**Landed 2026-08-29** at `BAND_DRIFT_N = 0`, so it moves no engine byte and no scene uses it.
+Design: `docs/superpowers/specs/2026-08-29-band-drift-design.md`. Evidence:
+`docs/benchmarks/scanline-p4/BAND-DRIFT.md`.
+
+### ⚠ THE NAME COLLIDES WITH THE RASTER PAIR ABOVE AND THE MECHANISMS DO NOT
+
+This file already carries **"R1 booking: moving bands"** and the closed **"R1 booking: N bands"**.
+Those are `engine/effects/raster.emp`'s compiled HBlank programs — their "band" is a **palette /
+tint band on a scanline program**, with `Raster_BuildSchedule`, rule 6 / CLAIM E-A,
+`check_band_pairing`, anchor channels and the `HI_CLAMP` bias word. **This entry shares no file,
+no struct, no RAM and no capability bit with them.**
+
+The naming rule, so a future reader does not have to rediscover it: **this one is BAND DRIFT and
+is never "moving bands"; the raster pair keeps "moving bands".** A grep for `drift` in this file
+also finds constant drift-guards, camera drift and doc drift — none of them this.
+
+### What is open
+
+- **ADOPTION — owner card, not a task.** Raising `CAP_BAND_DRIFT` widens `band_record` 20 -> 24
+  for **both** games (`BAND_DRIFT_N` is a pinned engine-wide literal; `demo` pays it too and will
+  never drift) and adds 128 B to `Parallax_State`. Every ROM image in the tree moves.
+  `games/sonic4/data/effects/scene_registry.emp` carries the refusal so it cannot happen by
+  accident. Landing the mechanism needed no card; adopting it does.
+- **⚠ ADOPTION ALSO NEEDS A PAIRED SIGIL EDIT, AND THIS IS NOT IN THE DESIGN.** Measured
+  2026-08-29 building the instrument: with the drift block live, sigil's contract-closure gate
+  fails with a **GONE** row — `Parallax_Update @ Decode_Factor_B :: d2 (got 0, want 1)` — because
+  `add.w (a4), d2` makes d2 a genuine live output of that call where the analysis previously saw
+  it dead. GONE is the destructive direction the gate is loudest about, so it is a hard failure,
+  not a warning. The baseline lives in the **sigil** repo
+  (`crates/sigil-harness/src/contract_baseline.rs`) and must be adjudicated and updated in the
+  same paired commit. It does **not** affect the canonical shapes — they elide the block and build
+  green with the gate on — so it is an adoption cost, not a landing one.
+- **Aurora's field unit.** The wire unit is 1/256 px per frame; the editor should present
+  **px/frame** and multiply by 256 on export, because the 256x units error is the one hazard no
+  guard can catch (`layer()`'s two messages are the only mitigation). Editor lane's call.
+- **`tools/effects_gen.py`'s `layer.drift` JSON lowering.** The generator's *import list* moved
+  with this parcel (it is a load-bearing fourth importer of `band_record` — see below); the field
+  lowering did not, and no schema key exists yet. `effects_gen.py` refuses unknown keys, so an
+  authored `drift` key is refused today rather than silently dropped.
+- **The runtime numeric witness is UNRUN and TAGGED.** With the camera frozen, `Parallax_Drift_Acc[i]`
+  at frame N and N+K must equal exactly `K * (rate << 8)`, and the band's HScroll longword's BG half
+  must have moved by the accumulator's high word. Nothing in this parcel executed the drift block;
+  the cost measurement below runs the WALKER, and a walker that accumulates into a slot nothing
+  displays would cost the same. **This is the check that catches a green-but-dead implementation
+  and it has not been run.**
+
+### What does NOT ride on this — survey row 15's vertical bob
+
+The BG capability survey files S3K FBZ / SSZ1's time-driven vertical bob as riding on this parcel.
+**It does not.** Plane B's vertical scroll is a **whole-plane** quantity: `Parallax_Step5_Vscroll`
+computes one `Parallax_Current_Vscroll_BG` from `camY` and the config's `v_factor_bg` /
+`v_center_y` / `v_offset`, and `Vscroll_Write` ships it. There is no per-band vertical field for a
+per-band bob to live in, and per-column VSRAM is per-**column**, not per-row. What FBZ and SSZ1
+actually do — one sine on the whole BG Y — is a **scene-level** term folded into Step 5: a
+different field, a different code site, a different capability bit. Worth building; not this.
+
+### CLOSED BY THIS PARCEL, recorded because they were latent defects and not features
+
+- **`tools/parallax_cost_probe.py` was measuring a half-stride fixture.** It carried
+  `BE_SIZE = 10` as the band-record stride while the shipped record has been **20 bytes since
+  2026-08-26** (the d-15 showcase adopted a curve). Every synthetic config it installed was laid
+  out at half the stride the walker advances by, so bands 1..n-1 were decoded out of the middle of
+  their predecessors — band 0 being the one index a wrong stride cannot corrupt is exactly what let
+  it look plausible. **The same tell, in the same shape, as the 2026-08-27 finding in
+  `tools/left_col_mask_probe.py`** whose lesson its sibling `parallax_hscroll_probe.py` wrote down
+  and this file never learned. The stride is now DERIVED from the `.lst` under measure
+  (`set_stride()`), matching `curve_probe.py` and `deform_own_cost_probe.py`.
+- **`[parallax.cost_model]`'s rows were stale by up to 13.7% and nothing said so.** They were
+  fitted 2026-08-22 at a 10-byte record. The record widened three days later and the standing rule
+  — *"the next parcel that touches a `Parallax_*` routine re-measures"* — was never triggered,
+  because no parcel touched one. The re-measured rows are in the model file and in
+  `BAND-DRIFT.md`; the largest movers are `band_perline` 854 -> 970.6 and `multiband` 20 -> 39.1.
+- **`band_record`'s "three importers" banner undercounted by one.** The generated
+  `games/sonic4/data/generated/ojz/act1/effects_scenes.emp` is a **fourth** module that
+  re-elaborates the declaration, and its import list is written by `tools/effects_gen.py`. A tail
+  added to the three hand-authored importers turns the whole build red with `unknown type:` naming
+  a type `parallax.emp` plainly declares. Enumerating importers over the tree cannot find it,
+  because it does not exist until the generator runs.
+
+### TAG — `scene_equiv_proof.emp`'s capability-off identity ensure is VACUOUS for sonic4
+
+`ensure((Game.SCANLINE_CAPS & (CAP_MULTI_DEFORM_TABLE | CAP_FACTOR_CURVE | CAP_BAND_DRIFT)) != 0
+|| sizeof(band_record) == sizeof(band_entry), ...)` cannot fire in this tree: sonic4's
+`SCANLINE_CAPS` is `$005E` and `$005E & CAP_FACTOR_CURVE != 0`, so the left disjunct is
+unconditionally true. It has been dead since the d-15 showcase on 2026-08-26. Its own comment still
+advertises a "PROVEN RED (2026-08-20)" from when the guard could still fire, and that provenance now
+reads as a live property of an assertion that has none. The band-drift parcel added `CAP_BAND_DRIFT`
+to its disjunct list for correctness but **could not prove it red**, and says so rather than
+claiming the flip. Reopening it means asking what that witness is actually for now that the game it
+guards declares a tail unconditionally.

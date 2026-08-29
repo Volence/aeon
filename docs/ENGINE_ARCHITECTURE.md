@@ -2496,6 +2496,62 @@ Each frame, after Step 4a's rotation, `L = Effects_World_Y[ch] − Camera_Y` is 
 - **`Parallax_Init`'s clear counter is a `move.w`, not a `moveq`.** The count is `7 x MAX + 25` = 137 at MAX 16 and a moveq immediate is a signed byte; sigil refuses the overflow by name, so this is a loud build error and never a 65,418-iteration clear. The moveq form survives only to MAX = 14.
 - **Downstream HAS moved (corrected at merge time, 2026-08-27).** Both halves landed while this parcel was being implemented, so the line that stood here — *"empyrean still pins `layers maxItems 8`"* — expired underneath the agent that wrote it. **Verified firsthand at merge time:** empyrean's `contract/schema/aurora-effects-scene.schema.json` reads `layers minItems 1 / maxItems 16` at their `origin/main` (moved by `277bc15`, a contract/schema commit, ancestor of `origin/main`), and aurora re-vendored it in `d54d386` (the CODE commit; `cc891e97` beside it is roadmap docs), reachable at their `origin/master`. Aurora also verified the previously-unverified claim that their Add-layer cap derives from the schema, across four code consumers plus a live render. **So a 9..16-layer scene is authorable, not merely lowerable.**
 
+**Band drift — time-driven plane-B scroll (2026-08-29, `CAP_BAND_DRIFT`).** A layer may carry
+`drift: SceneDrift.Rate(r)`, and its plane-B scroll then advances by `r`/256 px **every frame** on
+top of whatever the camera term gives it. Clouds that keep moving while the player stands still.
+`layer(fb: FACTOR_0, drift: SceneDrift.Rate(n))` — a strip that scrolls ONLY by drift — is the
+canonical spelling and is what S2 DEZ's camera-locked star rows and S3K SSZ1's sky are.
+
+- **The authored unit is 1/256 px per frame, signed**, and the choice is derived rather than
+  adopted: every autoscroll rate in the S1/S2/S3K corpus is an exact multiple of 1/256 (S3K's are
+  multiples of `$100` in its own 16.16 accumulators, S1/S2's are power-of-two fractions), so 8.8
+  represents 100% of the corpus exactly with 21x headroom on the fastest observed (S2 DEZ, 6
+  px/frame). The 8.8 -> 16.16 alignment is a comptime `<< 8` in `scene_band()`; doing it at
+  runtime would be an `lsl.l #8` = 24 cycles per band per frame.
+- **THE RATE AND THE ACCUMULATOR LIVE IN DIFFERENT PLACES, AND THAT IS THE DESIGN.** The rate is
+  an authored constant in a third capability-selected `band_record` tail (`band_drift`, 4 bytes,
+  LAST, taking the record 20 -> 24). The accumulator **cannot** live beside it: the shadow view is
+  re-copied from ROM by Step 4a every frame AND rotated, so an accumulator there would be wiped
+  before it was read and attributed to a different layer the moment `Vscroll_BG` crossed a band
+  top. It lives one stage upstream in `Parallax_Drift_Acc`, a RAM array indexed by **config band
+  index** exactly as `Parallax_Current_Scroll_A/_B` are, folded into the plane-B **target** inside
+  `Parallax_Update`'s band loop before Step 4a ever runs.
+- **Which is why the anchored overlay needs nothing.** Step 4b's split inherits an
+  already-drifted scroll word by the mechanism that already exists — none of the
+  `CURVE_FLAG_CONT_BIT` / `Parallax_Curve_Carry` machinery the curve tail required. The dual cost,
+  stated rather than hidden (`band_curve`'s convention for its own dead bytes): the rate's shadow
+  copy is never read, so Step 4a copies 4 bytes per band per frame that nothing consumes.
+- **The accumulator is a `u32` laid out `[pixels:i16][fraction:u16]`, pixels HIGH, and the wrap is
+  seamless BY ARITHMETIC.** The pixel part wraps mod 65536, Plane B is 512 px wide at reg `$10` =
+  `$11`, and 65536 = 128 x 512 exactly — a whole number of plane widths. A 16-bit 8.8 accumulator
+  would wrap its pixel part at 256, and 256 mod 512 != 0: a visible 256-px snap every ~43 s at 6
+  px/frame. The high-word layout is also what makes the pixel read a single `move.w (a4),Dn` on a
+  big-endian 68000 rather than a shift.
+- **There is no plane-A rate, and that is a refusal by representation.** Plane A is hard-locked to
+  `-Camera_X` because the FG streaming engine draws a camera-anchored 64-column window and any FG
+  offset drags the plane-wrap seam on screen — a drift term is exactly such an offset, unbounded
+  and growing. No field exists, so the mistake is unspellable rather than guarded. The whole
+  surveyed corpus is background drift.
+- **`Factor0Lock` and drift are refused together.** That variant is a verified impossibility claim
+  ("plane B provably never H-scrolls") and drift is a plane-B scroll source in TIME that the `fb`
+  scan cannot see — the same class as the curve arm beside it. The LAYER combination stays legal;
+  it is the SCENE-level claim that is refused.
+- **Cost, MEASURED on a capability-raised instrument build** (`tools/parallax_cost_probe.py`,
+  `docs/benchmarks/scanline-p4/BAND-DRIFT.md`): **68 cycles per band plus a 12-cycle frame
+  constant**, so a 4-band scene pays **284 cyc/frame = 0.27% of the axis-1 budget**. That is the
+  cost of DECLARING the bit, not of authoring a rate: the accumulate is capability-gated (not
+  rate-gated) and the record widening is a property of the GAME. A game that does not declare it
+  pays zero cycles, zero ROM and zero RAM.
+- **RAM: +128 B** at `MAX_PARALLAX_BANDS = 16` — `Parallax_State` 552 -> 680, measured from the
+  instrument listing's own `Parallax_State`/`_End` span. +64 is the shadow widening, +64 the
+  accumulator array. Both terms are capability-sized.
+- **ADOPTION IS OWNER-GATED AND HAS A SIGIL RIDER.** `BAND_DRIFT_N` is a pinned engine-wide
+  literal, so raising it widens the record for `demo` too and moves every ROM image;
+  `scene_registry.emp` carries the refusal. It ALSO fails sigil's contract-closure gate with a GONE
+  row (`Parallax_Update @ Decode_Factor_B :: d2`), because `add.w (a4), d2` makes d2 a live output
+  of that call — the baseline in the sigil repo must move in the same paired commit. See
+  `docs/DEFERRED_WORK.md`, "Band drift".
+
 **Layer enable mask.** `pcfg_layer_mask` is a **u16** (one bit per band at `MAX_PARALLAX_BANDS = 16`) and disables individual bands; a disabled band's **BG** scroll inherits the previous band's value (or zero if first band, = locked). The **FG** word of a disabled band stays hard-locked to -Camera_X — the inheritance seed is -camX, never zero — because the FG streaming engine draws a camera-anchored 64-col window and any FG scroll offset drags the plane-wrap seam into view (bug found 2026-06-11: zero-seeded FG froze Plane A's top 32 lines under LockedClouds). `LAYER_MASK = $1E` locks the cloud band while mountains/hills/ground continue scrolling.
 
 **RAM footprint:** `Parallax_State` is **552 B** in `$FF000000`-range RAM at `MAX_PARALLAX_BANDS = 16` — `104 + 28 x MAX`, cross-checked against `PARALLAX_STATE_LONGS` (138 longs), which `engine/level/parallax.emp`'s drift `ensure` holds to the resolved span on every build. (It was 328 B at MAX 8, and this list read "≈ 126 B" until 2026-08-27; that figure predated the shadow view and the curve tail and had drifted by 202 B.)
@@ -2510,6 +2566,7 @@ Each frame, after Step 4a's rotation, `L = Effects_World_Y[ch] − Camera_Y` is 
 | `Parallax_Prev_Sec_X/Y` | 2 | no |
 | `Parallax_Vscroll_Column_Buf` | 80 | no |
 | `Parallax_Curve_Carry[CURVE_CARRY_WORDS]` | 4 | no (capability) |
+| `Parallax_Drift_Acc[DRIFT_ACC_LONGS × MAX]` | 0 (64 under `CAP_BAND_DRIFT`) | **yes** (4 × MAX, capability) |
 | `Parallax_Shadow_Bands[sizeof(band_record) × MAX]` | 160 | **yes** (20 × MAX) |
 | `Parallax_Shadow_Scroll_A/B[MAX]` | 32 | **yes** (2 × 2 × MAX) |
 | **total** | **328** | |
