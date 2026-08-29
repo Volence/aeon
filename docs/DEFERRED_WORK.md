@@ -254,7 +254,14 @@ Two things follow and only the first is unambiguous.
   `docs/superpowers/2026-07-02-design-week-queue.md:86`. The relay cited it as "D8 §8.2";
   **that coordinate does not resolve in this tree** — `D8` here is a sound-review item (the
   `song_packer` music-legal opcode gate) and ARCH §8.2 is the debug system architecture. Anchor to
-  the design-week-queue line, not to the relayed coordinate.
+  the design-week-queue line. **⚠ AND MY "does not resolve" WAS WRONG — corrected 2026-08-29.**
+  "D8" is the audit's own label for
+  `docs/superpowers/specs/2026-07-02-raster-parallax-authoring-design.md`, whose §8.2 is
+  *"DEBUG RAM override block (engine)"* — precisely the 60 fps preview. The coordinate resolved;
+  I looked "D8" up in aeon's sound-review namespace and ARCH's §8.2 instead of asking what the
+  label named. **A citation in a peer's numbering is not a broken citation.** The design-week-queue
+  anchor is still the better one for this repo (the aurora lane adopted it), so keep both: their
+  §8.2 for the design, ours for the booking.
 - **AMBIGUOUS, flagged rather than resolved: whether this defers the WHOLE card or only its
   preview half.** The relay read him as widening LIVE-OBJECTS to "live debug and build tools".
   His sentence groups *"the whole place objects with mouse, live preview changes etc"* as the
@@ -14045,14 +14052,32 @@ takes the NEXT free value (`$0100` today, after `CAP_BAND_DRIFT=$0080`) unless
 NAMES, not values.** Take the NAME from the relay; DERIVE the value at promotion time. Copying
 `$0400` out of this booking is the copied-expectation defect, and the file's own comment says so.
 
-**The "July non-goal is lifted" framing did not reproduce, and is corrected here rather than
-carried forward.** Grepped the tracked docs for every non-goal spelling; there is no July non-goal
-covering this. What exists is this file's own note that the effect is *"a set-piece effect, not a
-vocabulary op"* — expensive, artifact-bearing, spectacular — parked **on cost and taste, not
-dependencies**, and explicitly *"Unblocked already — nothing is missing."* That is a materially
-different starting position from a lifted prohibition: nothing has to be un-decided, and the open
-questions are budget and art direction. Correcting it because a booking is read as a work order,
-and "a prohibition was lifted" invites a first task that does not exist.
+**⚠ THE NON-GOAL IS REAL AND THIS BOOKING FIRST SAID IT WAS NOT — corrected 2026-08-29 within the
+hour, and the retraction is worth more than the claim was.** The aurora lane's audit was RIGHT.
+`docs/superpowers/specs/2026-07-02-raster-parallax-authoring-design.md:37` (§1, "Goal &
+user-ratified scope") reads: *"**Non-goals:** dense per-line effects (Overdrive-class — future
+op)"*. That doc is the audit's "D8", and its §8.2 is *"DEBUG RAM override block (engine)"* — the
+60 fps live preview. **Both relayed coordinates resolved exactly.** So the owner's ruling does lift
+a real, user-ratified non-goal, and the rejected alternative C in that same section — *"dense
+demo-grade per-line polled engine"* — is the thing now being partially readmitted. Read §1 before
+planning: it also records that the sparse op set **deliberately reserves a dense-path op for
+future set-pieces**, which is why the hook already exists.
+
+**HOW THIS BOOKING GOT IT WRONG, kept because the mechanism is this repo's own and I walked
+straight into it.** The sweep was `git grep -i -E "non-goal|..." -- docs/ | head -12`. The hit is
+**line 36 of that output**. `head` truncated it away, and **a truncated listing is
+indistinguishable from a complete one** — no ellipsis, no exit code, nothing to be suspicious of.
+This file already carries that exact bar (`head -N` on an enum definition, 5 of 7 variants shown).
+Two aggravations specific to this instance: the truncated verdict was an **absence** ("no such
+non-goal exists"), which leaves no artifact to re-examine; and it was **exported to the lane that
+was right**, who offered to amend a correct audit on the strength of it. **A completeness claim
+made off a `head` is not a finding.** Count first (`| wc -l`), or do not claim closure.
+
+*What survives of the wrong version, because it is independently true and still worth knowing: the
+park recorded elsewhere in this file is on cost and taste, and says "Unblocked already — nothing is
+missing". Both things hold at once — the v1 SCOPE excluded it by ratified decision, and no
+DEPENDENCY blocks it. The open questions really are budget and art direction. That is the useful
+half; "there was nothing to un-decide" was the false half, and there was.*
 
 **Open riders, both pre-existing:**
 - The HBlank budget check the relay names is the right shape. The dense tier's budget terms live
