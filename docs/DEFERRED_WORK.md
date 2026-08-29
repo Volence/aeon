@@ -153,31 +153,89 @@ Every item here had a stated blocker that **no longer holds**. This is the pick-
 by leverage, not by section. Each links back to its full entry below; read the entry (and its
 correction) before planning — several carry caveats that shrink the win.
 
-### CANOPY GAP — NEXT SUSPECT, AND IT IS A DESK CHECK (do this before any emulator run) — booked 2026-08-29
+### CANOPY GAP — the 64-vs-80 head-column suspect is REFUTED (desk check, 2026-08-29)
 
-**Hub ruled this goes FIRST because it costs no instrument.** Derived from source by the panel's code
-seat, NOT run — treat it as a hypothesis with a cheap test, not a finding.
+**VERDICT: REFUTED as the cause of the reported canopy gap. The over-claim is REAL but it is undone
+inside the same frame it is created, and the camera at OJZ act 1's start is nowhere near the regime
+where it could survive.** Kept in full because the derivation is what makes the next suspect
+falsifiable, and because a genuine latent defect fell out of it (bottom of this entry).
 
-`Tile_Cache_Init` (`engine/level/tile_cache.emp:700`) sets `Cache_Left_Col = max(0, cam_col - 20)` and
-`Cache_Head_Col = Left + 79`. But `Section_RedrawPlanes`' `.pla_fill` walks exactly **64** columns from
-`Camera_X >> 3` (`engine/level/section.emp:262-268`), and `:462` returns `d7 = Cache_Head_Col`
-unconditionally into `Section_Right_Col_Written` at `:486`.
+**Every coordinate in the original booking still resolves** (nothing rotted in `839d600d`) except one:
+the tracker write is `engine/level/section.emp:529`, not `:486`. The two numbers the claim rests on
+are both correct in source: `TILE_CACHE_COLS = 80` and `TILE_CACHE_MARGIN_H = 20`
+(`engine/system/constants.emp:240`, `:685`), and `.pla_fill` really does walk exactly 64 columns
+(`section.emp:262` `moveq #0,d3` → `:386` `cmpi.w #64,d3`).
 
-**So when `cam_col < 20` — i.e. `Camera_X < 160` — `Head` is `79`, which exceeds `cam_col + 63`, and
-world columns `cam_col+64 .. 79` are RECORDED AS WRITTEN AND NEVER DRAWN.** That is the exact shape of
-the reported symptom: a column the engine believes it painted, which stays blank until the ring wraps.
+**What is true.** `Tile_Cache_Init` (`tile_cache.emp:700`, `:702`) sets `Left = max(0, cam_col-20)`,
+`Head = Left + 79`. `Section_RedrawPlanes` draws world cols `cam_col .. cam_col+63` intersected with
+`[Left, Head]`, then `:462` assigns `d7 = Cache_Head_Col` — an **assignment, not a clamp**, unlike the
+`d5` half three lines above it, which is a real `max` against `Cache_Left_Col`. So for
+`cam_col < 16` (**not** `< 20` — at `cam_col` 16..19 the drawn extent `cam_col+63` already reaches or
+passes `Head = 79`, so there is no over-claim) `Section_Right_Col_Written` is seeded `79` while the
+drawn extent is only `cam_col+63`. Width of the over-claim is `16 - cam_col` columns.
 
-**Why this suspect is better than the ones booked with it:** it needs no partial fill, so it survives
-the measurement that killed the previous root cause — `Cache_Fill_Resume_Col` read `$FFFF` at all 150
-settled samples, which rules out partial-fill mechanisms and does NOT rule this one out. It is a
-**count mismatch (64 vs 80)**, not a race.
+**Why it cannot reach the screen — the cross-clamp.** `Section_UpdateColumns` runs its right half
+then its left half in one call, and `.left_done` (`section.emp:664-666`) writes
+`Section_Right_Col_Written = min(Right, Left_Col_Written + 63)`. The left loop's target is exactly
+`cam_col` (`:632`-ish: `max(cam_col, Cache_Left_Col, visible_right-63)`, and both other terms are
+`<= cam_col`), so as soon as the left loop reaches `cam_col`, `Right` collapses to `cam_col + 63` —
+**precisely the drawn extent**. The redraw's own call site returns before the streaming loops
+(`:531` `rts`), so the first frame that runs the loops is the first frame that heals it.
 
-**The test, in order, and stop at the first that fails:** (1) does OJZ act 1 start below `Camera_X`
-160? If not, this cannot be his sighting at the act start and drops to a latent bug. (2) At a camera
-below 160, do world cols `cam_col+64..79` read written-but-blank? (3) Only then reach for the emulator.
+Modelled instruction-for-instruction from the source (both loops, the shared `Plane_Buffer_Ptr`
+budget, the act and wrap clamps): the left loop must drain `16 - cam_col` columns and the buffer
+guard (`PLANE_BUFFER_SIZE 1536`, `1536-2-136 = 1398`, 136 B/column) affords **11 columns per frame**,
+so the heal completes in ONE frame for `cam_col >= 5` and two for `cam_col < 5`. A visible wrong
+column requires the camera to be travelling right at **>= 8 px/frame during that window**, and then
+only for `cam_col <= 4`. Sweep over `cam_col` 0..20 × speed 0..16: defects only at `cam_col` 0..4 and
+speed >= 8; every `cam_col >= 5` is clean at every speed.
 
-**This was booked "harmless today" on partial-fill grounds. That argument does not cover the column
-COUNT gap** — which is why it survived the refutation that killed everything else.
+**OJZ act 1 starts at `Camera_X = 96`.** `Camera_Init` (`engine/level/camera.emp:156-166`):
+`(start_sec_x << 11) + start_local_x - CAM_SCREEN_HALF_W` = `0 + $0100 - 160` = **96**, `cam_col = 12`
+— four columns to drain, one frame, and clean at every camera speed. Step 1 of the booked test
+therefore fails on its own terms: 96 IS below 160, but 160 was the wrong threshold; the real one is
+128 for the over-claim to exist at all and ~40 for it to be able to outlive a frame.
+
+**And the camera is at rest at every redraw.** Both `Section_Plane_Dirty` setters
+(`games/sonic4/test/ojz_scroll_test.emp:515` level init, `:1284` `Debug_Warp_Consume`) guarantee zero
+velocity at that instant: init spawns the leader at the camera centre with `x_vel = 0` inside the
+deadzone, and the warp explicitly `clr.w`s `x_vel`, `y_vel` and `ground_speed` (`:1227-1232`). There
+is no reachable path that puts a moving camera at `cam_col <= 4` on a redraw frame.
+
+**Why `tools/tile_cache_fill_gate.py` was never going to see this, and is not at fault.** Its
+assertion-1 window (`tested_cols`, :234-238) intersects with the ON-SCREEN span
+`[cam_col, cam_col + SCREEN_LAST_COL_MAX]`. The over-claimed columns are `cam_col+64 .. 79`, at least
+24 columns beyond the last visible one, so they are off screen for the whole time the over-claim
+exists — and by the time they scroll on, the cross-clamp has corrected the tracker. The gate is blind
+to this class for a structural reason, and the reason is also why the class is harmless.
+
+**THE RESIDUAL LATENT DEFECT — worth one instruction, but it is NOT the canopy gap.**
+`section.emp:462` should be a clamp, not an assignment:
+
+    // INVARIANT: the recorded head never exceeds the extent .pla_fill actually drew.
+    move.w  d5, d7
+    addi.w  #63, d7
+    cmp.w   Cache_Head_Col, d7
+    ble     .track_right_ok
+    move.w  Cache_Head_Col, d7
+  .track_right_ok:
+
+The proc header's `Out:` block already documents `d7.w = start_world_col + 63` — **the header is
+right and the code is wrong**; they have disagreed since the clamp comment at `:455` was written
+("Clamp to cache range", but only `d5` is clamped). Today the mismatch is masked by the cross-clamp
+plus the at-rest guarantee. It goes live the moment a THIRD `Section_Plane_Dirty` setter appears —
+the header at `:168` already advertises "cache-recovery path", which does not exist yet; a recovery
+redraw fired mid-traversal at speed near the act's left edge is exactly the uncovered case. Fix it
+when something moves bytes in `section.emp` anyway; it is a byte-moving change with no observable
+behaviour delta today, so it was deliberately NOT landed with this verdict.
+
+**WHAT IS STILL OPEN: the canopy gap itself.** Both booked suspects are now dead — partial-fill
+(killed 2026-08-29 by `Cache_Fill_Resume_Col == $FFFF` at all 150 settled samples, and the fix in
+`839d600d` explicitly did not reproduce the hole) and this count mismatch. Neither the vertical axis
+nor a non-streaming mechanism (art pool page eviction, BG/parallax, palette, `BgAnim`) has been
+examined for it. Next suspect should come from a SIGHTING, not from source: the owner has seen this
+"for a long time", so the cheapest next move is to pin down where and when on screen it appears
+before deriving another candidate.
 
 ### LIVE-OBJECTS — the engine half is a DEBUG mailbox, and four design questions are ALREADY ANSWERED — booked 2026-08-29
 
