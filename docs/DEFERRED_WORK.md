@@ -3719,6 +3719,100 @@ transitions (palette blackout first, FG occlusion as level-design tooling),
 contracts + budget validation.
 **When ready:** next major BG work block; (a) any time.
 
+### SPEC: BG tile paging — the 448 region as a residency cache (step 2b)
+**Surfaced during:** the owner's follow-on to d-31 option 3, 2026-08-29 —
+*"is there a way to have it dynamic like we have for forground, where at most
+loaded in there's x tiles"*.
+**Full design + measurements:** `docs/research/2026-08-29-bg-tile-paging.md`.
+Its direct predecessor is `docs/research/2026-08-29-tall-background-map.md`
+(the nametable streamer, i.e. step (2) above), which this is strictly
+downstream of.
+
+**Verdict: YES, and the working set does not kill it.** Measured on the shipped
+`games/sonic4/data/editor_bg_override.json` (4096 cells / 320 tiles, verified):
+a 29-row (232 px) window needs **268 distinct tiles worst, 167 mean** against a
+320-tile static budget. Tile vertical span is median 8 rows / p90 24, and only 5
+of 320 tiles span more than 32 rows — the locality a residency cache needs is
+already there. New-tile introduction is 4.42-6.22 /row, so a 2,816-px map is
+**1,592-2,111 authored tiles** (3.6-4.7x the whole region) at a **constant ~268
+resident** — a **6-8x multiplier**. The 744-px figure (448-500) independently
+confirms the sibling doc's 465.
+
+**It dissolves the 448 for AUTHORED art.** The new binding limits, in order:
+(1) ~320 distinct tiles in any 29-row window — local, height-independent;
+(2) ROM, ~75-85 KB/act for a 2,816-px background (the layout blob dominates);
+(3) **the 11-bit nametable field, 2047** — a 2,816-px map brushes it at the loose
+end of the extrapolation; solved the FG's way (per-band local index spaces);
+(4) `PAGE_TABLE_MAX` 256, not close.
+**It buys nothing for horizontal variety:** the shipped art uses ≤16 distinct
+tiles per 64-cell row; art that is horizontally unique needs 1,856 tiles/window
+and no cache in this VRAM map holds that.
+
+**Three findings that change the cost picture:**
+1. **The dest arithmetic already addresses the BG region exactly.**
+   `dest = frame << ART_POOL_PAGE_BYTES_SHIFT` (`page_in.emp:246`) gives frame 16
+   -> `$8000` == `BG_TILE_BASE_VRAM`, frame 23 -> `$B800` == `VRAM_SPRITE_TABLE`.
+   448 = 7 x 64 exactly. **No new destination math.**
+2. **CORRECTION — the FG's local map is NOT an eviction shield.** Both planes'
+   nametable cells carry *physical* tile indices (`PageCache_PatchRun_Seq`'s own
+   header: *"local->global … global->physical"*; ARCH §9.7: *"the 11-bit
+   nametable field only ever carries the physical index"*). What protects the FG
+   is the refcount + `AllocFrame`'s refusal to evict a referenced frame. Plane B
+   is therefore not structurally disadvantaged.
+3. **Plane B's refcount is 3 orders cheaper than plane A's.** Its content is a
+   pure function of the map row, so the build emits **one page bitmask per row**
+   (2 B/row ROM) instead of the FG's 9,600-byte `Tile_Cache_Nametable`.
+
+**Hard dependency, not an optimisation:** on a statically-blitted plane every
+cell is permanently referenced, so nothing is ever `PF_EVICTABLE` and the cache
+degenerates to today's behaviour. **Paging cannot be taken before the streamer.**
+
+**Cost:** ~320 B new engine ROM; ~75 B RAM (`PAGE_FRAMES_MAX` 15->23 — a
+RAM-LAYOUT change that owes the pin/goldens ritual per `constants.emp:278-291`);
+**zero new VRAM**; ~100 B/frame DMA = 1.6% of `DMA_BUDGET_NTSC` at `v_factor 3`.
+
+**Where the advantage disappears** (the BG scrolls at 1/2^v_factor, so it has
+~140 frames of prefetch lead at `v_factor 3` against the FG's zero):
+- **`v_factor 0` / 1:1 (Sky Sanctuary's own case):** lead collapses to ~17
+  frames, DMA to ~940 B/frame (15% of budget), and it contends for the SINGLE
+  `Art_Staging_Buffer` slot with FG demand. Not free; needs its own conversation.
+- **Teleport:** at `v_factor 3` a `$1000` shift is exactly one plane of BG, so
+  the whole working set turns over. Page identity stays position-independent, so
+  `PageIn_Flush` correctly still is not called — but the storm is 8-13 frames
+  without a `PGRQ_BULK` pre-arm at teleport-arm time (~40 B), 3-4 with it. **This
+  is what decides one parcel vs two.**
+- **Scene switch:** same storm, NOT pre-armable. Bound it at build time.
+- **BG per-column V-scroll** (NOT previously flagged anywhere): a non-null
+  `pcfg_v_deform_table_bg` sets reg `$0B` bit 2, so columns show different map
+  rows — `[i8; 256]` at the shipped `shift: 0` is ±127 px = **±16 rows**, widening
+  the refcounted window from 29 to ~61 and the working set from 268 to 320 (the
+  entire dynamic budget). **The shipped art dodges this by coincidence:** all six
+  v-deform scenes (`Rocking` x3, `Perspective` x3) are `v_factor: 15`, and both
+  `v_factor: 3` scenes attach no BG v-deform. Owes an `ensure`.
+
+**Design move worth keeping:** write each plane row TWICE — content just before
+it enters view, blank just after it leaves — so refcounts drop early and the
+resident window is the visible 29 rows, not the plane's 64. Costs +33 B/frame.
+
+**Shape:** 4 aeon parcels + 1 tools parcel BEHIND the streamer (P1 arena-scoped
+frames + `PAGE_FRAMES_MAX` raise; P2 row translate + bitmask refcounts + scrub;
+P3 prefetch + teleport pre-arm; T1 the two importers). Gates G1
+`bg_window_budget` (pytest lane + comptime backstop, W derived from the deform
+amplitude), G2 `bg_vdeform_vs_vfactor` (comptime `ensure`, negative control = the
+eighteen locked scenes), G3 `bg_frame_arena_disjoint` (extends `PageCache_Audit`).
+TAGs T1-T4 in §9 of the research doc.
+
+**Record correction (affects the sibling doc, not this spec):** the two unlocked
+OJZ scenes are **`Scene_OJZ_Default`** and `Scene_OJZ_Underwater`
+(`ojz_scenes.emp:123,137` / `:152,166`), not "`OJZ_Depth`" — `OJZ_Depth*` names
+effects objects, and `Scene_Editor_ojz_act1_depth` is `v_factor 15`, i.e. one of
+the LOCKED eighteen. Also `constants.emp:272-274`'s comment says
+`POOL_TILE_CEILING(960)` -> 15 frames; the value is 896 -> **14**. The `ensure`
+is right; only the prose is stale.
+
+**When ready:** after step (2), the nametable streamer. Not before — see the hard
+dependency above.
+
 ## From Vertical Entity Window — Task 6 (2026-06-11)
 
 ### ~~Teleport keep-range tests pre-shift coords against the post-rebase camera~~ — DISSOLVED 2026-06-12
