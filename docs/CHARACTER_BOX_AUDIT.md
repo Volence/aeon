@@ -17,8 +17,15 @@ disagree, the tool is right** — it measures, this file records.
 > `games/sonic4/data/characters_staging/gen_characters.py` as ruled — but with the shift
 > **derived** (`BALL_Y_RADIUS − max(lowest opaque art row over the ball frames)`) rather than
 > typed, so a radius change, an animation-table edit or an art re-export re-derives it. The
-> derivation reproduced the audited numbers exactly: **Tails `$96-$98` `+1`, Knuckles
-> `$96-$9A` `−2`**, Sonic untouched.
+> derivation gives **Tails `$96-$98` `+1`** (as audited) and **Knuckles `$96-$9A` `−1`**,
+> Sonic untouched.
+>
+> **The audited `−2` for Knuckles was wrong, and so was the `+2` this file reports for him
+> below.** Both were measured with `max(lowest opaque row)`, which one stray pixel was
+> driving: his frame `$96` carries a SINGLE opaque pixel one row below his entire roll
+> cycle — a dreadlock tip, not the ball. **By the ball BODY he sank 1 px, not 2**, and `−2`
+> would have left the body floating 1 px on all five frames. See §5's per-frame table, which
+> now carries run widths, since the widths are the whole reason the aggregate misled.
 >
 > §8's *"no gate was added either"* is superseded for one row only:
 > `tools/test_ball_seating.py` now asserts `delta == 0` for the three `Roll` rows, run
@@ -136,7 +143,7 @@ found, not a live reading, and only the tool re-measures.
 | Character | State | box | y_rad | art rows | delta | reading |
 |---|---|---|---|---|---|---|
 | **Tails** | **Roll** | roll | 14 | [−14,+13] | **−1** | **THE REPORTED SYMPTOM.** Ball art 28 px in a 29 px box. **FIXED 2026-08-29 → [−13,+14], delta 0.** |
-| Knuckles | Roll | roll | 14 | [−15,+16] | +2 | ball art 32 px in a 29 px box — overlaps the ground. **FIXED 2026-08-29 → [−17,+14], delta 0.** |
+| Knuckles | Roll | roll | 14 | [−15,+16] | +2 | **THIS ROW IS MISLEADING — see below.** The `+16` is one stray pixel; the ball BODY ended at `+15`, so it sank **1 px, not 2**. **FIXED 2026-08-29 → body flush**; the raw row now reads `[−15,+15] +1` because the stray sinks 1. |
 | Sonic | Roll | roll | 14 | [−15,+14] | 0 | flush — **because his art is S2, not S3K.** Untouched by the fix. |
 | Sonic | GetUp | stand | 19 | [−15,+15] | −4 | crouched get-up pose; by design |
 | Tails | GetUp | stand | 15 | [−17,+13] | −2 | crouched get-up pose; by design |
@@ -160,7 +167,7 @@ Bottom row is the union over each set's ball frames — the same statistic the t
 |---|---|---|---|---|
 | our Sonic | 30 px | +14 → +14 (untouched) | **flush** | S2 / `sonic_hack` (`tools/convert_s2_mappings.py` over `sonic_hack/mappings/sprite/Sonic.bin` reproduces our blob byte-for-byte) |
 | **our Tails** | **28 px** | **+13 → +14** | floated 1, now **flush** | stock S3K, shifted `+1` by `gen_characters.py` |
-| our Knuckles | 32 px | +16 → +14 | overlapped 2, now **flush** | stock S3K, shifted `−2` by `gen_characters.py` |
+| our Knuckles | 32 px | +15 → +14 | overlapped **1**, now **flush** | stock S3K, shifted `−1` by `gen_characters.py`. His raw lowest row was `+16`, but that is one stray pixel — the body was at `+15`. |
 | **stock S3K Sonic** | **32 px** | **+15** | **overlaps 1** | measured directly from skdisasm `Map - Sonic.asm` + `Art/Sonic.bin`, frames `$96-$9A` — S3K's own `AniSonic02` roll list. Donor, not ours; unchanged. |
 
 **Stock S3K does not hold a `delta = 0` invariant for balls at all.** Its three characters give
@@ -169,28 +176,55 @@ side, which is why he was the one that read wrong — and our Sonic being flush 
 gave him a neighbour that looked planted, which stock S3K never did. Ruling d-36 adopts the
 invariant S3K lacks, for the balls only.
 
-### The ball frames are not uniform *within* a character (found 2026-08-29)
+### Row POSITION is not enough — you must measure row WIDTH (found 2026-08-29)
 
-The row above is a union, and the union hides this. Per ball frame, lowest opaque row:
+The row above is a union over frames, and the union hides a stray. Per ball frame, the
+**lowest opaque row and the longest contiguous run in it** — the run, not the raw pixel count,
+because a row can carry two separate clusters and the silhouette's edge is the longest of them:
 
-| set | `$96` | `$97` | `$98` | `$99` | `$9A` | frames in its `Roll` row |
+| set | `$96` | `$97` | `$98` | `$99` | `$9A` | `Roll` frames |
 |---|---|---|---|---|---|---|
-| our Sonic (before = after) | 14 | 14 | 14 | 14 | **13** | `$96-$9A` |
-| our Tails (before) | 13 | 13 | 13 | — | — | `$96-$98` |
-| our Tails (after `+1`) | 14 | 14 | 14 | — | — | |
-| our Knuckles (before) | **16** | 15 | 15 | 15 | 15 | `$96-$9A` |
-| our Knuckles (after `−2`) | 14 | 13 | 13 | 13 | 13 | |
+| our Sonic (untouched) | +14, run 8 | +14, run 7 | +14, run 5 | +14, run 8 | **+13, run 4** | `$96-$9A` |
+| our Tails (before) | +13, run 4 | +13, run 3 | +13, run 4 | — | — | `$96-$98` |
+| our Knuckles (before) | **+16, run 1** | +15, run 8 | +15, run 8 | +15, run 8 | +15, run 8 | `$96-$9A` |
 
-So **"flush" cannot mean per-frame flush for a rigid shift**: Knuckles' `$96` reaches 1 px
-lower than his other four, and Sonic's `$9A` — untouched, and already accepted — stops 1 px
-short of his other four. That variation is inside the drawn pixels. The shipped rule is the
-one our reference character already satisfies: **the deepest ball pixel rests on the floor and
-none sinks past it**, i.e. `max == BALL_Y_RADIUS`.
+**Knuckles' `+16` is a single pixel.** Every one of his five frames has an **8 px-wide** ball
+body ending at exactly `+15`; the lone pixel at `+16` on `$96` is a dreadlock tip. (`$98`
+carries the mirror-image stray at the top, which is why its height reads 31.) Seating the ball
+on that pixel — which `max(lowest opaque row)` does by construction — gives `−2` and puts the
+**body at `+13` on all five frames, floating 1 px**: the exact symptom the owner reported on
+Tails, shipped across Knuckles' whole cycle with only a dreadlock touching the floor. Seating
+on the body gives `−1` and puts the 8 px row at `+14` on **every** frame.
 
-**Open, for the owner's eye rather than a measurement** (§9): Knuckles at `−2` has 1 frame
-flush and 4 floating 1 px, where `−1` would give 4 flush and 1 overlapping 1 px. `−2` is what
-the rule derives and what d-36 named; `−1` may read better in motion. Flipping it is a
-one-line change of the statistic in `derive_ball_shift`, not a magic number.
+So the earlier conclusion that *"no rigid shift can seat all five"* was **wrong**. The body is
+uniform across the cycle; `−1` seats it uniformly, with no per-frame shifting and no statistic
+to choose between. Tails, by contrast, is clean either way: his bottom rows run 4, 3 and 4 px —
+a genuine taper rather than a spike — and all three frames agree, so `+1` is correct and stands.
+
+**The shipped rule.** Walking up from the lowest opaque row, a row belongs to the body if its
+longest run is at least **half** the longest run of the row directly above it; rows failing
+that are spurs and are skipped. The body bottom of the cycle is then `max` over frames — `max`
+and not `min`, so that a frame whose ball is genuinely drawn a pixel shorter (Sonic's `$9A`)
+cannot lift the cycle off the floor. The `1/2` is geometric, not fitted: near the bottom of a
+convex silhouette of radius R the half-width at height h is `sqrt(R² − (R−h)²) ≈ sqrt(2Rh)`, so
+rows 1 px apart stand in ratio `sqrt(h/(h+1))`, and a row only rasterizes once its centre line
+is inside the shape, giving `sqrt(0.5/1.5) = 0.577` as the coarsest case — rounded down to the
+nearest simple fraction because the art is a drawn curled character, not a true disc. Scored
+against all 14 candidate bottom rows above: 13 genuine rows (ratios 0.533 ‥ 1.333) all
+accepted, 1 stray (ratio 0.125) rejected — **4.0× headroom above the stray, 6.7% margin below
+the tightest genuine row**. That accept-side margin is thin on one frame, but `max` over the
+cycle means a single frame flipping cannot move the answer.
+
+Definition and derivation in code: `body_bottom_from_profile` in
+`tools/measure_character_boxes.py`, shared by the generator and the gate.
+
+**After the fix, all three ball bodies sit at `+14 == BALL_Y_RADIUS`:**
+
+| set | piece `y_off` | body row, every frame | raw lowest row |
+|---|---|---|---|
+| our Sonic | −16 | +14 (`$9A` is +13 — see §10) | +14 |
+| our Tails | −15 | +14 | +14 |
+| our Knuckles | −16 | +14 | +15 on `$96` (the stray), +14 elsewhere |
 
 Verified at the byte level, because this is the load-bearing claim. **Every ball frame in all
 four sets is a single 32×32 piece with tile 0 and no flip** — the mappings are structurally
@@ -201,7 +235,7 @@ field that does:
 |---|---|---|
 | our Sonic (S2) | −16 → −16 | 1‥30 — a 30 px ball, centred, 1 px inset top and bottom |
 | our Tails (S3K) | −16 → **−15** | 2‥29 — a 28 px ball, centred, 2 px inset |
-| our Knuckles (S3K) | −15 → **−17** | 0‥31 — fills the cell |
+| our Knuckles (S3K) | −15 → **−16** | 0‥31 — fills the cell |
 | stock S3K Sonic | −16 | 0‥31 — fills the cell |
 
 (S3K Sonic's frame `$96` reads `dc.w 1` / `dc.b $F0,$F,0,0,$FF,$F0` in
@@ -286,7 +320,9 @@ content decision, not an engine one.
 **The owner adopted it (d-36), so it is now a rule and not a tuned number** — and it is
 implemented as a rule: `derive_ball_shift` in `gen_characters.py` computes
 `BALL_Y_RADIUS − max(lowest opaque art row over the ball frames)` from source on every run.
-There is no `+1` or `−2` typed anywhere; those are outputs.
+There is no `+1` or `−1` typed anywhere; those are outputs — and the statistic itself had to
+be corrected once (`max(lowest opaque row)` → the body rule) precisely because a derived shift
+is only as good as the quantity it is derived from. See §5.
 
 **The gate is narrow, for the reason this section gave.** `delta = 0` for *grounded poses* is
 still **false by design** — get-up crouches, flight, glide — and a gate over today's whole
@@ -310,13 +346,38 @@ Static analysis cannot see the screen. To confirm on the emulator:
    half of them the wrong way on screen): the tails now sit 1 px higher relative to the ball
    than before. Expected to be invisible on a spinning blur; nobody has looked.
 2. **Knuckles, rolling, flat ground.** ~~Expect his ball to sink 2 px into the ground~~ —
-   **superseded by the fix.** Now expect his deepest ball frame flush and the other four
-   floating **1 px** (see §5's per-frame table). If that 1 px reads wrong, `−1` instead of
-   `−2` is the alternative, and it is a change of statistic in `derive_ball_shift`, not a
-   magic number. **This is the one open aesthetic question left by the fix.**
+   **superseded twice.** He sank **1 px** by the body, not 2 (the `+2` was one stray pixel;
+   §5). After the fix expect his 8 px ball body flush on **all five** frames, with the single
+   dreadlock pixel on `$96` 1 px into the floor — invisible, and the only alternative would be
+   lifting the whole ball off the ground to accommodate it.
 3. **Knuckles, glide → release → land** and **climb → jump off.** These are the two deliberate
    divergences from S3K (§6.2, §6.3). Expect a smooth landing with no vertical pop; a visible
    pop means the derived shift is wrong for a path I could only read statically.
 4. **Tails, debug mode enter/exit while rolling.** Expect the standing box restored and no
    vertical jump. The 16×16 debug box is the only even-sized box in the game; `Player_DebugExit`
    is supposed to set the standing box before any hook can see it.
+
+---
+
+## 10. Sonic's ball frame `$9A` — open, and NOT part of the d-36 fix
+
+Booked 2026-08-29. Measured on the shipped blob:
+
+| frame | lowest opaque row | longest run in it |
+|---|---|---|
+| `$96` | +14 | 8 px |
+| `$97` | +14 | 7 px |
+| `$98` | +14 | 5 px |
+| `$99` | +14 | 8 px |
+| **`$9A`** | **+13** | **4 px** |
+
+This is **not** a stray — the body rule accepts `$9A`'s bottom row (ratio 4/5 = 0.800). It is a
+genuine 1 px shorter ball on one frame of the cycle, so Sonic's roll visibly loses a pixel of
+ground contact for one frame in five. The `max` over the cycle means it does not affect his
+seating, which is why the gate is green.
+
+It is **out of scope for `parcel/ball-seating`**: Sonic's ball art comes from
+`tools/convert_s2_mappings.py` over `sonic_hack/mappings/sprite/Sonic.bin`, a different
+pipeline from the one this parcel touches, and fixing it means either editing S2-donor art or
+adding a per-frame correction — neither of which is a mapping-offset change. Tracked in
+`docs/DEFERRED_WORK.md`.

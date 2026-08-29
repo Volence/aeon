@@ -379,7 +379,8 @@ def frames_from_asm(path, kind):
 #
 # Stock S3K does NOT seat its three rolling balls consistently: measured against
 # the shared 14 px ball radius, its Tails floats 1 px, its Sonic overlaps 1 and
-# its Knuckles overlaps 2 (docs/CHARACTER_BOX_AUDIT.md §5). Our Sonic's ball is
+# its Knuckles overlaps 1 (docs/CHARACTER_BOX_AUDIT.md §5 — the "+2" in the
+# original audit was one stray pixel, see the body statistic below). Our Sonic's ball is
 # S2 art and lands flush, which made the two S3K-sourced characters read as bugs
 # beside him. The owner ruled that all three seat flush, so this generator moves
 # the S3K balls onto the floor as it converts them.
