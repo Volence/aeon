@@ -1,0 +1,7 @@
+line   8 out $0000
+line  20 out $0000
+line  40 wb  $0000
+line  56 wb  $0000
+line  72 wb  $0000
+line  96 out $0000
+line 150 out $0000

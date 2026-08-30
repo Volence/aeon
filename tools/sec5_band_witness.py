@@ -49,7 +49,9 @@ USAGE
     python3 tools/sec5_band_witness.py --rom s4.debug.bin --lst s4.debug.lst \
         --label bound-A --out-dir docs/research/reference_captures/2026-08-30-sec5-band
     python3 tools/sec5_band_witness.py --rom s4.debug.control.bin --lst s4.debug.control.lst \
-        --label control --expect-unbound --out-dir ...
+        --label control --expect-unbound --control-preset ojz_sec5_showcase --out-dir ...
+    (the control is built from a tree whose section_5.meta.json carries `rasterRef: null`;
+     `--control-preset` names the document whose CRAM entry is sampled, parsed not typed)
 
 Exit codes: 0 measured and every line matched its derived expectation; 1 measured and at
 least one line did not; 2 REFUSED (unmeasurable — nothing about the band follows).
@@ -224,7 +226,7 @@ async def warp(c: BusClient, syms: dict, px: int, py: int) -> int:
 
 # ----------------------------------------------------------------------------- the run
 
-async def measure(sock: str, a, blob: bytes, exp: dict | None, label_name: str | None,
+async def measure(sock: str, a, blob: bytes, exp: dict | None, ctrl: dict | None, label_name: str | None,
                   geo: dict, lines: list[int], out: dict) -> int:
     c = BusClient(socket_path=sock, client_id="sec5w", client_name="sec5_band_witness")
     await c.connect()
@@ -281,7 +283,8 @@ async def measure(sock: str, a, blob: bytes, exp: dict | None, label_name: str |
                      f"chooser binds (Raster_Program_None is ${syms['Raster_Program_None']:06X})")
 
     # ---- the CRAM table ----
-    cram_line, entry = (exp["cram_line"], exp["cram_entry"]) if exp else (a.cram_line, a.cram_entry)
+    src = exp if exp is not None else ctrl
+    cram_line, entry = src["cram_line"], src["cram_entry"]
     top, bot = (exp["top"], exp["bot"]) if exp else (None, None)
     samples = []
     for ln in lines:
@@ -295,7 +298,9 @@ async def measure(sock: str, a, blob: bytes, exp: dict | None, label_name: str |
                          f"{cram_line}/{entry}")
         raw = _hex(ent["raw"])
         in_band = (top is not None) and (top <= ln < bot)
-        samples.append({"line": ln, "frame": await frame_no(c), "in_band": in_band, "raw": raw})
+        would_be = (ctrl is not None) and (ctrl["top"] <= ln < ctrl["bot"])
+        samples.append({"line": ln, "frame": await frame_no(c), "in_band": in_band,
+                        "would_be_band": would_be, "raw": raw})
 
     outside = [s["raw"] for s in samples if not s["in_band"]]
     inside = [s["raw"] for s in samples if s["in_band"]]
@@ -325,7 +330,8 @@ async def measure(sock: str, a, blob: bytes, exp: dict | None, label_name: str |
         mism += 0 if ok else 1
         s["expect"] = want
         s["ok"] = ok
-        print(f"      {s['line']:>4}  {s['frame']:>5}  {'IN-BAND ' if s['in_band'] else 'outside '}  "
+        region = "IN-BAND " if s["in_band"] else ("would-be" if s["would_be_band"] else "outside ")
+        print(f"      {s['line']:>4}  {s['frame']:>5}  {region}  "
               f"${s['raw']:04X}   ${want:04X}   {'OK' if ok else 'MISMATCH'}")
     out["base"] = base
     out["samples"] = samples
@@ -364,9 +370,9 @@ def main() -> int:
     ap.add_argument("--out-dir", required=True)
     ap.add_argument("--expect-unbound", action="store_true",
                     help="CONTROL run: the sidecar must carry no rasterRef and the chooser no arm")
-    ap.add_argument("--cram-line", type=int, default=None,
-                    help="control only: CRAM line to sample (default: the bound preset's, if it still exists)")
-    ap.add_argument("--cram-entry", type=int, default=None)
+    ap.add_argument("--control-preset", default=None,
+                    help="control only: the preset id the sidecar USED to bind; its document is parsed for the "
+                         "CRAM line/entry to sample (never typed) and every line must read the base")
     ap.add_argument("--lines", default=DEFAULT_LINES)
     ap.add_argument("--settle", type=int, default=240)
     ap.add_argument("--post-warp", type=int, default=4,
@@ -398,12 +404,18 @@ def main() -> int:
     print(f"BIND  {os.path.relpath(sidecar_path, a.repo)} {RASTER_REF_KEY}={ref!r}; generated chooser arms {arms}")
     out.update({"geometry": geo, "sidecar_rasterRef": ref, "chooser_arms": arms})
     exp = None
+    ctrl = None       # control: the would-be band, parsed from the unbound preset, for the table's region column
     if a.expect_unbound:
         if ref is not None or label_name is not None:
             raise refuse(f"--expect-unbound but the sidecar says {ref!r} and the chooser binds {label_name!r}")
-        if a.cram_line is None or a.cram_entry is None:
-            raise refuse("control run needs --cram-line/--cram-entry (there is no preset to parse them from)")
-        print(f"CTRL  unbound: sampling CRAM line {a.cram_line} entry {a.cram_entry}; every line must read the base")
+        if not a.control_preset:
+            raise refuse("control run needs --control-preset ID (the CRAM line/entry are parsed, never typed)")
+        preset, ppath = load_preset(a.repo, a.control_preset)
+        ctrl = expectation(preset, os.path.relpath(ppath, a.repo))
+        print(f"CTRL  unbound: sampling the CRAM entry {os.path.relpath(ppath, a.repo)} names (byte "
+              f"${ctrl['cram_addr']:02X} = line {ctrl['cram_line']} entry {ctrl['cram_entry']}); its would-be "
+              f"band is {ctrl['top']}..{ctrl['bot'] - 1}; EVERY line must read the base")
+        out["control_preset"] = ctrl
     else:
         if ref is None or label_name is None:
             raise refuse(f"the sidecar says {ref!r} and the chooser binds {label_name!r} — not a bound section "
@@ -423,7 +435,7 @@ def main() -> int:
     sock = inst.start()
     rc = EXIT_REFUSED
     try:
-        rc = asyncio.run(measure(sock, a, blob, exp, label_name, geo, lines, out))
+        rc = asyncio.run(measure(sock, a, blob, exp, ctrl, label_name, geo, lines, out))
     except Refused as r:
         out["refused"] = r.why
         rc = EXIT_REFUSED
@@ -439,7 +451,7 @@ def main() -> int:
     tpath = os.path.join(a.out_dir, f"{a.label}-sec{a.section}.cram.txt")
     with open(tpath, "w", encoding="utf-8") as fh:
         for s in out.get("samples", []):
-            fh.write(f"line {s['line']:>3} {'in ' if s['in_band'] else 'out'} ${s['raw']:04X}\n")
+            fh.write(f"line {s['line']:>3} {'in ' if s['in_band'] else ('wb ' if s['would_be_band'] else 'out')} ${s['raw']:04X}\n")
     print(f"\n      wrote {jpath}\n      wrote {tpath}")
     verdict = {EXIT_OK: "MEASURED — every sampled line matched its derived expectation",
                EXIT_MISMATCH: "MEASURED — at least one line did NOT match (see table)",
