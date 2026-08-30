@@ -8655,6 +8655,31 @@ block (engine/effects/raster_dsl.emp, GUARD 2) now point here and at r3.1 — a 
 hitting the overlap build error lands on this trail. DO NOT relax the guard ad hoc; three
 adjudications exist because every naive relaxation was proven unsound.
 
+**⚠ WHAT PART A DOES NOT DO, AND THE BREADCRUMB ABOVE DOES NOT REACH — added 2026-08-30 on the
+aurora lane's reading, verified here.** The paragraph above is accurate and was still read by a
+consumer as *"Part A is what will let abutting bands build"*. **It is not, for the case they
+had.** `band()` is **static by construction** (spec §4.2 rule 6 — it emits BOTH fires and is not
+handable to `patchable`), and a preset document lowers to `band()` through `render_band`. **So a
+pair of authored preset bands is a static-vs-static pair, which Part A explicitly leaves
+sacrosanct.** A lane waiting on Part A to unblock authored abutting bands would wait for
+something that is never going to arrive.
+
+**And the guard such a pair actually reaches is NOT `check_intervals`** — which is where the
+only breadcrumb sits. After `compose` merges the two fires into one record, the ensure that
+fires is **`raster_program`'s restore-alone guard** (`engine/effects/raster_dsl.emp`, the
+`has_r == 0 || n_ops == 1` ensure citing spec §4.2a claim D-B). Verified firsthand here at
+`2e976223`, not taken from the report. **That guard carries no pointer to this entry or to
+r3.1**, so an author who hits it lands nowhere — the breadcrumb was placed at the guard we
+expected to trip, and the real path runs through a different one.
+
+**Consequence, unresolved and deliberately not decided here:** if there is a route to
+overlapping *authored* bands at all, it runs through the restore-alone guard's argument (a fire
+carrying the restore may carry nothing else) rather than through Part A's disjointness work.
+Whether that argument admits any relaxation is an engine question nobody has asked yet, and the
+standing rule above still holds: **do not relax it ad hoc.** Booked as a rider rather than
+answered. *Found by the aurora lane reading this tree rather than by anything either lane said
+— and the shallow sentence was mine.*
+
 **Part B (VSRAM op-class split) is separately banked inside r3.1** — net +26 cyc/op loss
 today, payoff gated on an instrument that can bind mid-frame VSRAM visibility to hardware
 (none exists; the emulator-model known-unknown is recorded in
