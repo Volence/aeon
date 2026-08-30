@@ -15678,7 +15678,31 @@ said around them — the lifted non-goal, the bit, the reference, the sequencing
 lane's scaffolding and was checked here before being written down: bit CONFIRMED (with the value
 caveat above), reference reasonable, non-goal NOT REPRODUCED, sequencing accepted.
 
-## ⏳ OPEN PREDICTION, BANKED BEFORE THE BUILD THAT TESTS IT — step 5's freeze, 2026-08-30
+## ✅ RESOLVED PREDICTION — the rebuild changed nothing, and the outcome is recorded because the entry demanded it
+
+**RESULT, 2026-08-30: THE PREDICTION HELD. All four CRCs unchanged under a nameable assembler.**
+`36adb158`/719329, `eadd7175`/736331, `9223a60d`/96450, `d30c3636`/101333 — identical to the
+figures measured under `d5967f87-dirty`.
+
+**Assembler:** `/home/volence/sonic_hacks/.sigil-freeze-bin/sigil-474a5c03`, reporting revision
+`474a5c03012db345d2919eb55a9ccbd0e6fbe3e8`, **no `-dirty`**, write-protected. Identity verified
+before use by `crc32 669ed658` / `size 7756904` rather than by trusting the path — the filename
+carries the revision precisely so a stale reference names itself.
+
+**The measurement had exactly one free variable, checked BEFORE building rather than argued
+afterwards:** `git diff --name-only 14de0893..master` was `docs/DEFERRED_WORK.md` and
+`docs/lane-log.jsonl` and nothing else. Fresh detached worktree, `git status --porcelain` empty,
+all four artifacts deleted before building. 1774 passed / 6 skipped / 0 failed both sonic4 shapes.
+
+**What this does and does not license.** It licenses the freeze. It does **not** retroactively make
+freezing against a dirty binary safe — the reason the rebuild was worth one build is that the
+*failure* case would have been permanently undetectable afterwards, and that asymmetry is unchanged
+by this particular answer coming back clean. **A future reader must not cite this result as
+evidence that the check is unnecessary; it is evidence that the check is cheap.**
+
+*The original entry, with the prediction as it was banked before the build, follows.*
+
+## ⏳ THE PREDICTION AS BANKED, BEFORE THE BUILD THAT TESTED IT — step 5's freeze, 2026-08-30
 
 **The sigil lane ruled: do not freeze step 5 against the on-disk assembler; rebuild first. This
 lane agrees and is holding.** Recorded here because they asked to be held to a prediction in
@@ -15738,6 +15762,34 @@ Sigil is itself blocked on the owner's go to spend that build. **Whoever resolve
 outcome against this entry — a banked prediction with no recorded result is worse than none**,
 because the next reader assumes it passed.
 
+## SHOULD THE SEAM GATE SURVIVE `FAST=1`? — booked 2026-08-30, deliberately NOT decided here
+
+**The measured facts.** `effects_seam_gate.py` sits inside `build.sh`'s `FAST == 0` block and the
+FAST banner names it among the skipped lanes. The hazard it refuses — an author binds a
+`rasterRef` to a section nothing threads, and gets no error and no picture — **is an authoring-loop
+event**, and `FAST=1` is the authoring loop (~1.3 s against the canonical build). So the guard is
+absent from precisely the run where its failure occurs.
+
+**Why this is not a one-line fix.** `FAST=1`'s whole contract is *"runs only what produces the
+artifact, skips every verification lane"*, with a loud banner at both ends and a standing
+instruction to re-run the canonical build before landing, merging, freezing or quoting a number.
+Adding one gate back makes the banner a lie in the other direction and invites the next exception.
+There is also a mechanical question: the gate reads the `.lst`, and FAST's listing handling is
+guarded separately (`if [[ "$FAST" == "0" && ! -f "${ROM_NAME}.lst" ]]`).
+
+**Three candidate shapes, none chosen:** (a) leave it, and rely on the canonical build before
+anything ships — cheapest, and consistent with FAST's contract, but the author meets the defect
+first and the build tells them nothing; (b) run this one gate under FAST because its subject IS the
+authoring loop, and say so in the banner; (c) make the *editor-facing* half a separate, cheap check
+that does not need a listing, so FAST's contract is untouched. **(c) is this lane's instinct** — it
+puts the check where the mistake is made rather than arguing about which build runs it — but it is
+a real parcel, not an edit.
+
+**The general lesson, and it is the third instance today:** *a guard everybody pictures as watching
+is downstream of a run that mostly does not happen.* Sigil measured the same shape this morning (the
+strict gate runs only at landings); the tail-vs-exit-status pair is a third. **Ask of every new gate
+not "is it wired" but "into which runs, and are those the runs where the failure occurs".**
+
 ## A LANDING HAZARD FOR EVERY BYTE-MOVER: THE SOUND TABLES SIT ON THE `abs.w` CEILING — booked 2026-08-30
 
 **The invariant, which is what to carry; the coordinate below it is what to re-measure.**
@@ -15783,6 +15835,15 @@ its +38 moves neither symbol at all, in either direction.
 sidecar names a `rasterRef`, if no preset threads `<fn>(sec: N)`, it fails with *"the generator
 would emit the binding row and nothing would read it, which presents to the author as an
 assignment that did nothing."* Exactly the sentence this row asked for.
+
+**⚠ ONE QUALIFIER, FOUND BY THE AURORA LANE AND VERIFIED HERE — THE CLOSURE IS NARROWER THAN THIS
+ENTRY FIRST CLAIMED.** `build.sh` runs `effects_seam_gate.py` only inside `if [[ "$FAST" == "0" ]]`,
+and the `FAST=1` banner lists `effects_seam_gate` among the lanes it skips. **So the refusal exists
+in the canonical build and NOT in `FAST=1`, which is the content-authoring loop an author actually
+lives in.** This lane reported the unqualified version to two peers before checking; aurora checked
+`build.sh` themselves rather than accepting the summary, which is the only reason the sentence they
+ship to authors is true. Booked as its own row below — whether this gate should be one of the few
+that survives FAST is a change to FAST's contract and is not decided here.
 
 **Two properties that make the closure real rather than nominal.** (1) The threaded set is
 DERIVED by parsing `ojz_effects.emp`, not a written list — the hand-maintained-list failure this
