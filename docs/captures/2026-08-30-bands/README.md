@@ -68,3 +68,21 @@ pins exact transition lines, not this.
 
 Reproduce: `python3 tools/band_capture.py s4.debug.bin s4.debug.lst docs/captures/2026-08-30-bands`
 Gate (the pass/fail one): `python3 tools/band_witness.py s4.debug.bin s4.debug.lst` — PASS.
+
+## `poison-entry-4A.png` — an orphaned capture, kept with its provenance stated
+
+This frame was left uncommitted by the session that made it and is banked here rather than
+lost. **Its role is INFERRED from its filename and its content, not from any record that
+session left** — treat the reading below as a later session's best guess.
+
+What it shows: OJZ Act 1 with palette entry `$4A` — line 2 index 5, the same entry
+`band_witness.py` samples — apparently forced to a loud colour. That is the shape of a
+**poison for the 1.64% claim above**: recolour the entry garishly and the pixels that
+actually use it announce themselves, which turns "1173 of 71680" from an assertion into
+something a reader can see.
+
+**Do not quote it as evidence for that number without re-deriving it.** The frame is not
+labelled with its ROM, its frame index, or the poisoned value, and the scene's native
+palette is itself green — so a reader cannot separate poisoned pixels from native ones by
+eye, which is the one thing the capture would need to do to earn the role inferred for it.
+It is kept as a lead, not as a result.
