@@ -180,6 +180,38 @@ edge, and (b) `Section_RedrawPlanes` returning `d7 = Cache_Head_Col` uncondition
 `Section_Plane_Dirty` setters run straight after an unbudgeted `FillAll`, and now asserted, but it is
 the remaining place a tracker is written without a matching draw.
 
+### SUITE-HOME-PATHS — baked absolute paths, and the ones that PASS when the path is absent
+(booked 2026-08-30 from the hub's row; counts reproduced here, not taken)
+
+**Measured at this tip:** `git grep -l '/home/volence'` names **194 files**; **30** are
+test/gate/probe/witness scripts under `tools/` (the hub's row says 28 — a glob difference, not a
+disagreement worth resolving before the classification runs).
+
+**The defect is NOT the baked path. It is a baked path PLUS a silent pass when the target is
+absent** — found independently by two other lanes tonight: seraph's F32 (two tests green having
+checked nothing) and aurora's O11 (32 occurrences of an s1disasm path). A hardcoded path that makes
+a script *refuse* on another machine is merely unportable; one that makes it *pass* is a gate
+reporting on a file it never opened.
+
+**⚠ THE CLASSIFICATION CANNOT BE DONE BY GREP, and this lane proved that on itself within a minute
+of booking the row.** A heuristic over `exit 2` / `SetupError` / `CANNOT MEASURE` flagged
+`tools/band_capture.py` — written tonight — as having no refusal path. **Poisoning it showed the
+opposite twice:** a nonexistent ROM raises `SpawnError: cannot spawn oracle-aether: ROM does not
+exist: /nonexistent/rom.bin`, and a nonexistent client path raises `ImportError: No module named
+'aether'`. It refuses loudly through machinery it calls rather than through a phrase it contains.
+**A grep over refusal spellings is a count of a spelling, not of a population** — the same lesson
+the sigil lane hit tonight counting `lst` in prose. **So the discriminator is the poison, one file
+at a time: make the input absent and see whether the script notices.**
+
+**Method when this is picked up:** classify the 30 by what they do with an absent target — refuse
+loudly (fine), refuse obscurely (fix the message), or **pass (the defect)**. Poison at least one
+from each apparent class rather than trusting the classification that produced the classes. Docs
+mentions are not defects and should be excluded from the population before it is counted, or the
+194 becomes a headline nobody can act on.
+
+**Not started. Bug tier, tag EFFECTS-W1 by his reorder. Sequences after the freeze and the replay
+restamp** — it touches test files broadly and should not move while a chain is superseding.
+
 ### THE REPLAY FIXTURE NEEDS RE-STAMPING AFTER THE CLAMPS — MEASURED, AND NOBODY HAD BOOKED IT
 (2026-08-30; the oracle lane found the symptom, the mechanism is measured here)
 
