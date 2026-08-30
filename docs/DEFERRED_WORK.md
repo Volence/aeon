@@ -436,6 +436,50 @@ it converts *"we cannot know"* into a confident wrong answer. **The cheap move t
 exercise the candidate with a KNOWN writer and see whether it moves. An artifact that does not
 move under a known cause is not evidence about that cause.**
 
+**⚑ THE SIX WERE FOUR, AND THE VERIFICATION THAT MISSED IT WAS THIS LANE'S (retracted 2026-08-30;
+oracle retracted their half at `06d6ec6`).** Four of the six cited memory-path sites are
+`has()`-guarded and answer `ErrorReply` on a missing key — `:348` and `:782` inside
+`if`/`else if (req.has("addr"))`, `:615` and `:739` inside `else if (req.has("value"))`. Only
+`:702` / `:726` (`z80_read`, `z80_write`) were right. **Two genuinely unguarded sites were missed
+by both lanes:** `:2110` / `:2140`, `read_vram` / `write_vram`, `getU32("addr", 0)` with nothing
+above them. True set: `{read_vram.addr, write_vram.addr, z80_read.addr, z80_write.addr}`.
+
+**THE DURABLE FINDING SURVIVES AND IS STRONGER THAN THE RETRACTED VERSION: the guards cover
+ABSENCE, NEVER TYPE.** `{"addr":"0xZZZZ"}` passes `has()`, throws inside `stoll`, and
+`catch (...)` returns 0 — at **every** site including all four guarded ones. So the retraction
+narrows which keys must be *missing* and narrows **nothing** about malformed values. The gate's
+second axis is doing more work than either lane thought when it was agreed.
+
+**⚑ THE BAR CANDIDATE, AND IT IS THIS LANE'S OWN DEFECT — A VERIFICATION AIMED ONE INCH OFF THE
+CLAIM.** This lane told oracle their account "holds line for line", having read the six cited
+lines and found them exactly as described. **It verified that the lines EXISTED; the claim rested
+on their being UNGUARDED.** The check could only ever confirm, and it was run by a session
+applying every other bar correctly in the same hour. It is not a stale anchor, not a wrong
+alphabet, not a narrow property — **the citation was accurate, the reading was accurate, and the
+proposition tested was the neighbouring one.** What caught it was an agent deriving guards from
+enclosing blocks and never reading the cited lines at all.
+*Oracle's own error the same day was orthogonal and worth pairing with it: they enumerated sites
+with **no explicit default** and treated that as **unguarded** — orthogonal properties, which gave
+four false positives and **excluded the two real sites by construction**, since both carry an
+explicit `, 0`. Their third instance in one day: first the alphabet, then the access mechanism,
+now the property itself. And their same document had already applied the read-around-the-cited-line
+check correctly to its `getBool` sites — they ran the right check on one half of their own document
+and not the other, in one sitting.*
+
+**A SECOND INVERSION CLASS, worse than the `enabled` one.** `getBool`'s string arm returns the
+comparison result, **not the caller's default**. Identical for the three `enabled` sites (default
+false), but the five `getBool(k, true)` sites — `:465`, `:871`, `:1366`, `:1377`, `:1710`
+(`reset.run`, `reload_rom.reset`/`wait`, `hold.down`, `watchpoint_add.write`) — read **false** on
+`"on"`, not their stated default true. **The caller's declared default is what makes it look
+safe**, which is why it is the worse of the two.
+
+**AND WE ARE NOT CLEAN — a live instance of the silent-ignore class, ours.** Twelve legacy-seam
+sites send `emulator/reset {"wait": true, "run": false}` and `OpReset` **never reads `wait`**; it
+blocks unconditionally. Harmless only by luck: `wait: false` would read as non-blocking and get
+blocking. Not fixed — Rider 3 couples the change to a migration — but **registered in the gate
+with the count pinned at 12**, so a thirteenth fails the build. *The earlier "14 memory-path calls
+across three files" was a three-file grep; the real figure is 131 across 12 files.*
+
 **THIS LANE'S POSITION ON THEIR OPEN QUESTION (default = refusal, or fallback?): REFUSE.** A
 fallback to a hardcoded live checkout is protocol bar 15 exactly — the permissive option is the
 one structurally incapable of announcing its own failure, and the gitignore removes the last
