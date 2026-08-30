@@ -414,8 +414,57 @@ computed the ten-payload repair, **re-ran the re-stamped image clean end to end 
 all 27 compared and matched, 10.66 s) and re-ran the negative control on it (still trips)** before
 emitting anything. The recorded INPUTS are untouched and the stream still runs to completion, so
 this is the same class of repair as the 2026-08-26 insta-shield re-stamp: **a re-record is NOT
-required.** *Nothing was re-stamped by this parcel — it is a diagnosis, and the ruling above
-(restamp checkpoint 0 only) still stands until the owner extends it.*
+required.** *Nothing was re-stamped by this parcel — it is a diagnosis.* **⚠ THE "restamp checkpoint 0 only"
+RULING NO LONGER STANDS — SUPERSEDED THE SAME NIGHT, and this sentence outlived it by long enough
+to mislead a reader (2026-08-30T09:28Z).** `d-49-restamp-scope-answered` (2026-08-30T07:43:11Z) put
+the question again once the nine had a measured cause, and the hub ruled **`all_ten`** under the
+owner's standing delegation — provisional and reversible on his read-back. The reason the original
+ruling gave for excluding the nine ("an older and unexplained cause") was refuted by a byte
+identity, not an argument. **Chain 189 restamped all ten and was authorised to.** *Left as a struck
+correction rather than a clean edit: this lane read this very sentence hours later, saw ten payloads
+in the shipped diff, and briefly concluded the restamp had exceeded its scope. The decisions ledger
+had the answer; the planning document did not point at it.*
+
+### THE 188→189 DELTA, ACCOUNTED FOR TO THE BYTE — CHAIN 189 CARRIES NO ENGINE CODE
+(this lane, 2026-08-30T09:28Z; prompted by oracle's chain-189 A/B returning an empty moved set.
+Read out of sigil's COMMITTED golden blobs, not from either lane's working tree.)
+
+**The two candidate ROMs differ in exactly 40 bytes, and every one is explained:**
+
+    0x18E–0x18F   header checksum word                                    2 bytes
+    0xA6C46       standing fixture checkpoint 0   1D->0D  (FF01 1D375066 003F)   1 byte
+    0xA6CDC CE6 CF6 CFE D08 D14 D1E D26 D30   checkpoints 18-26, 4B each  36 bytes
+    0xA6D56       SLIDE fixture checkpoint 0     1D->0D  (FF01 1D375066 083F)    1 byte
+
+`e38295d2` → sha256 `951cf960…`, `39c34fd2` → `4ee7ac79…`, both 736315 B; CRC32 `3aa7cb12` on the
+189 blob, matching sigil's independently-reported table. The nine payloads read out of the image are
+`607BF6C4 3750A813 AF65AF6A 1F8422C5 93161A26 F3185259 5B1CF76D 5B22F780 2FA77A39` — **byte-identical
+and in order to the values this lane's archaeology derived from the stale side**, a third instrument
+agreeing with the first two.
+
+**Three consequences worth keeping.**
+1. **Chain 189 is a pure fixture re-record — no engine code is in the diff.** Anything reasoning
+   about 188→189 as a behavioural boundary is reasoning about a boundary that is not there.
+2. **The two single bytes are why the slide fixture reports 1 of 37 and the standing one 10 of 27.**
+   Checkpoint 0's payload is present in BOTH embedded fixtures; only its high byte moved, so a
+   byte-level diff shows one byte per fixture rather than a 4-byte word, and it is easy to mistake
+   for noise bracketing the "real" block. It is not noise; it is the clamps' only mover, twice.
+3. **The hybrid build oracle offered to make ALREADY EXISTS as a committed blob.** "New clamps over
+   the pre-re-record fixture" IS chain 188's candidate, `e38295d2:crates/sigil-harness/golden/
+   s4.debug.bin`. The `cam_col < 16` falsifier was therefore stated in advance, applied, and
+   **survived** — moved set `{0}`, `logic_tick` 2, at `cam_col` 6. The chain-189 A/B could not test
+   it, which oracle correctly refused to call confirmation; but the honest reading is *"nothing NEW
+   bears on the prediction"*, not *"there is no set to judge it by."* **No new build is needed, and
+   none should be spent.** *(If one ever is: no `.lst` is tracked in sigil at `e38295d2` — checked
+   with `ls-tree -r` — so a listing would have to be regenerated from the paired `aeon_rev`.)*
+
+**⚠ MEASUREMENT TRAP HIT TWICE WHILE TAKING THIS, and it fails toward a confident wrong answer.**
+In zsh, `git cat-file -p $rev:crates/…` **silently mangles the pathspec**: `:c` is a history
+modifier, so it expands to `<rev>rates/…`, git fails to **stderr**, and a pipeline into `sha256sum`
+hashes empty input and returns `e3b0c44298fc1c14…` — the sha256 of the empty string — which reads
+as a result. Two ROMs "hashing identically" this way looked like a finding. Brace it:
+`"${rev}:crates/…"`. `git -C` is NOT the culprit and an earlier note here blaming it was wrong.
+*Caught only because `e3b0c442` was familiar, which is not a control.*
 
 **⚠ PRECISION LIMIT, STATED SO NOBODY OVER-READS THE TICK: checkpoints fire every 64 ticks, so
 "checkpoint 18 / `Logic_Tick` 1154" bounds the true divergence to ticks 1091-1154. It does not
