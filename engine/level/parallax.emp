@@ -8,12 +8,25 @@
 
 module engine.parallax in parallax
 
-use engine.constants.{SECTION_SIZE_SHIFT, SCREEN_WIDTH, SCREEN_HEIGHT, PARALLAX_TRANS_DEFAULT, PARALLAX_LERP_SHIFT, VDP_DATA, VDP_CTRL, PARALLAX_ANCHOR_NONE, MAX_PARALLAX_BANDS}
+use engine.constants.{SECTION_SIZE_SHIFT, SCREEN_WIDTH, SCREEN_HEIGHT, PARALLAX_TRANS_DEFAULT, PARALLAX_LERP_SHIFT, VDP_DATA, VDP_CTRL, PARALLAX_ANCHOR_NONE, MAX_PARALLAX_BANDS, SINE_AMPLITUDE, SINE_CYCLE_ENTRIES}
 use engine.structs.{Sec, parallax_config}
 use engine.vdp.{VdpTarget, VdpOp, vdp_comm, VDP_MODE3_OFF}
 use engine.z80_bus.{z80_stopped}
 use engine.irq.{ints_off, vblank}
 use engine.effects.preset.{Effects_InstallPreset}
+// The sine table (engine/system/math.emp). The vertical bob samples it directly rather
+// than calling GetSineCosine: the bob wants ONE value, not the sin/cos PAIR that routine's
+// four extra instructions exist to produce, and Step 5 is not allowed to spend a `jbsr` +
+// `rts` (34 cycles) on a lookup it can do in one indexed `move.w`.
+//
+// ONLY THE DATA LABEL IS IMPORTED. `SINE_AMPLITUDE` / `SINE_CYCLE_ENTRIES` — the two
+// numbers the BOB_* derivations below are built from — live in engine.constants, not in
+// math.emp beside the table, because math.emp opens a section and is therefore not a
+// COMPTIME_HELPERS module: `use engine.math.{SINE_AMPLITUDE}` resolves to a LINK EXTERN
+// and every arithmetic use of it fails with `>> not defined for label and int`. Measured
+// here, 2026-08-30, 69 errors deep. engine.constants is glob-injected, so the two names
+// below need no `use` line.
+use engine.math.{Sine_Table}
 // The capability bits the P2 specialisation gates test against (§3.3). Imported by
 // NAME rather than inlined as literals: the inline-the-number rule in scene_dsl.emp
 // exists because a `comptime fn` body resolves its free names at the CALL site, and
@@ -553,6 +566,147 @@ ensure(PLANE_B_SPAN == 512, "PLANE_B_SPAN drifted from the 64x64 Plane-B geometr
 pub const VSCROLL_BG_MAX = PLANE_B_SPAN - SCREEN_HEIGHT
 ensure(VSCROLL_BG_MAX > 0,
        "PLANE_B_SPAN {PLANE_B_SPAN} is not taller than SCREEN_HEIGHT {SCREEN_HEIGHT}, so there is no Plane-B window origin that avoids the vertical wrap seam and Step 5's BG V-scroll clamp has an empty range to clamp into")
+
+// ---- THE SCENE-LEVEL VERTICAL BOB (EFFECTS-W1 item 7) — its bounds, DERIVED ----
+//
+// Step 5's `.v_pack` adds `Sine_Table[(tick >> p) & (BOB_SINE_ENTRIES-1)] >> a` to the BG
+// V-scroll, with `a` and `p` packed one nibble each into pcfg_bob (engine/structs.emp).
+// Both nibbles have a legal span, and NEITHER of them is picked: each is the answer to a
+// question about a constant that already exists, so the three fns below compute them and
+// the `ensure`s underneath state what the answers have to look like. If the sine table is
+// replaced, or the plane geometry moves, or the tick counter changes width, these move
+// with them and the guards in scene() go red naming the new numbers.
+//
+// THE FNS TAKE THEIR INPUTS AS ARGUMENTS rather than reading the constants as free names:
+// a `comptime fn`'s free names resolve at its CALL site (docs/EMP_PITFALLS.md §2), so
+// passing them is what makes these three independent of where they are called from.
+
+// BOB_SHIFT_MIN — the LARGEST bob a scene may express, as the smallest legal shift.
+//
+// The bob's PEAK-TO-PEAK travel is `2 * (amp >> a)` pixels. The clamp at `.v_pack` bounds
+// the BG V-scroll to [0, VSCROLL_BG_MAX] — 289 seam-free window origins — so a bob whose
+// travel exceeds that span cannot fit ANYWHERE in the range no matter what base it rides
+// on: somewhere in every cycle it hits an end and STICKS, turning the sway into a stutter
+// against the seam guard. This is the "a scene must not be able to express a bob that
+// drives the scroll out of range" bound, and it is a bound on the AMPLITUDE alone, which
+// is why it can be comptime at all: the base is a camera quantity and is not.
+//
+// It is a NECESSARY condition, not a sufficient one — a legal amplitude riding a base
+// near either end still clamps. That residual is the seam guard doing its job (a scene
+// that authors a bob at the top of its plane has authored the wrong v_offset) and is
+// deliberately NOT a runtime clamp on the bob: the clamp is already there, once, at the
+// one site the whole pipeline's BG origin flows through.
+comptime fn bob_shift_min(amp: int, origins: int) -> int {
+    comptime var s = 0
+    for i in 0..16 {
+        if (amp >> i) * 2 > origins {
+            s = i + 1
+        }
+    }
+    return s
+}
+
+// BOB_SHIFT_MAX — the SMALLEST bob that is still a bob.
+//
+// `asr.w #a` of a table whose peak is `amp` yields a peak of `amp >> a`. The largest `a`
+// with a nonzero positive peak is the last one before the table is annihilated; one past
+// it, `asr.w` returns 0 across the whole positive half-cycle and -1 across the whole
+// negative one, i.e. a 1-px DC droop and NO motion — a scene that reads as "the bob is
+// broken" rather than "the bob is subtle".
+comptime fn bob_shift_max(amp: int) -> int {
+    comptime var s = 0
+    for i in 0..16 {
+        if (amp >> i) >= 1 {
+            s = i
+        }
+    }
+    return s
+}
+
+// BOB_PERIOD_SHIFT_MAX — the SLOWEST sway that still closes its cycle.
+//
+// The phase index is `(tick >> p) & (entries-1)` over a counter that is `width` bits wide,
+// so one full sway spans `entries << p` ticks. While that is <= `1 << width` the index
+// walks the cycle once (or several times) per counter pass and the wrap is invisible — the
+// index is back at 0 exactly when the counter is. One shift further and the index has only
+// reached half the table when the counter wraps, and the sine JUMPS by its full amplitude
+// at that instant, once every counter pass. That is the bound: not taste, a discontinuity.
+comptime fn bob_period_shift_max(entries: int, width: int) -> int {
+    comptime var p = 0
+    for i in 0..32 {
+        if (entries << i) <= (1 << width) {
+            p = i
+        }
+    }
+    return p
+}
+
+// ---- THE SINE FACTS ARE SPELLED AS LITERALS HERE AND PINNED, and the reason is a
+//      MEASURED sigil constraint, not taste (2026-08-30, this parcel) ----
+//
+// A `pub const` whose initializer calls a MODULE-PRIVATE `comptime fn` is folded to a
+// literal at its DEFINITION SITE before it is injected into an importing module — sigil
+// resolves it against this file alone (`fold_const_literal`, crates/sigil-frontend-emp/
+// src/resolve/mod.rs). If that fold does not produce an integer, the importing module
+// receives the ORIGINAL EXPRESSION instead, re-evaluates it in its own scope, and cannot
+// see the private fn: `[Error] unknown function `bob_shift_min``, reported at
+// engine/level/scene_dsl.emp's `use`, pointing at a span in THIS file, naming nothing that
+// explains itself. An IMPORTED name is invisible to that definition-site fold — it is
+// exactly the "name the probe's narrower scope cannot see" case — so writing
+// `bob_shift_min(SINE_AMPLITUDE, VSCROLL_BG_MAX)` breaks the fold and therefore breaks the
+// consumer, while `bob_shift_max(SINE_AMPLITUDE)` in the line beside it did not, because
+// nothing imports... it is not worth the reconstruction: the RULE is that a `pub const`
+// meant to travel must fold from THIS FILE'S OWN NAMES.
+//
+// So the two sine facts are literals with `ensure` pins, which is the same shape
+// docs/EMP_PITFALLS.md §2 prescribes for comptime-fn bodies, reached here by a different
+// road. VSCROLL_BG_MAX and BOB_TICK_BITS need no such treatment — both are declared in
+// this file and fold fine.
+//
+// Measured red-first: `bob_shift_min(SINE_AMPLITUDE, VSCROLL_BG_MAX)` is a hard build
+// failure on this tree, and the pins below are what stop the literals from drifting away
+// from engine.constants silently once they are not derived any more.
+const BOB_SINE_AMP     = $100
+const BOB_SINE_ENTRIES = $100
+// VSCROLL_BG_MAX gets the same treatment for the same reason, and it is the one that
+// makes the rule unmistakable: it IS declared in this file — but as
+// `PLANE_B_SPAN - SCREEN_HEIGHT`, and SCREEN_HEIGHT is imported, so the definition-site
+// fold cannot reach it either. "Declared locally" is not the test; "folds from literals"
+// is. Measured: with `bob_shift_min(BOB_SINE_AMP, VSCROLL_BG_MAX)` the build was down to
+// exactly one `unknown function`, this one.
+const BOB_VSCROLL_ORIGINS = 288
+ensure(BOB_SINE_AMP == SINE_AMPLITUDE,
+       "parallax's inlined sine amplitude ({BOB_SINE_AMP}) drifted from engine.constants.SINE_AMPLITUDE ({SINE_AMPLITUDE}) — the vertical bob's amplitude ladder is derived from it, so a drift moves BOB_SHIFT_MIN/BOB_SHIFT_MAX and every scene's authored bob_shift changes meaning. It is a literal here rather than the import because a pub const that calls a module-private comptime fn must fold from this file's own names or its importers get the raw expression")
+ensure(BOB_VSCROLL_ORIGINS == VSCROLL_BG_MAX,
+       "parallax's inlined seam-free V-scroll span ({BOB_VSCROLL_ORIGINS}) drifted from VSCROLL_BG_MAX ({VSCROLL_BG_MAX}) — that span is what bounds the bob's peak-to-peak travel, so a drift silently admits a sway that spends part of every cycle stuck against Step 5's clamp")
+ensure(BOB_SINE_ENTRIES == SINE_CYCLE_ENTRIES,
+       "parallax's inlined sine cycle length ({BOB_SINE_ENTRIES}) drifted from engine.constants.SINE_CYCLE_ENTRIES ({SINE_CYCLE_ENTRIES}) — Step 5's bob masks its phase index with BOB_SINE_ENTRIES-1 to stay inside one cycle, so a drift either walks into the table's quarter-cycle cosine overlap or truncates the sway")
+
+pub const BOB_SHIFT_MIN        = bob_shift_min(BOB_SINE_AMP, BOB_VSCROLL_ORIGINS)
+pub const BOB_SHIFT_MAX        = bob_shift_max(BOB_SINE_AMP)
+// 16 = the width of the time source Step 5 reads. `Logic_Tick` is a u32 and the bob reads
+// its LOW WORD (`Logic_Tick+2`, the spelling engine/level/bg_anim.emp:173 already uses for
+// the same purpose), so the counter the phase index rides is 16 bits, not 32.
+pub const BOB_TICK_BITS        = 16
+pub const BOB_PERIOD_SHIFT_MAX = bob_period_shift_max(BOB_SINE_ENTRIES, BOB_TICK_BITS)
+// The authoring sentinel, and it is 15 because 15 is ALREADY the "no deform on this plane"
+// sentinel three fields along in the same struct (pcfg_anchor_dsa/dsb) and on both
+// band_deform_shift_a/b. A scene spells 15; the lowering turns it into the packed byte 0,
+// which is what the runtime tests and what every shipped record already emits.
+pub const BOB_SHIFT_NONE       = 15
+
+// The ladder must be NON-EMPTY and the sentinel must sit OUTSIDE it, or the field is
+// unauthorable and the guards in scene() are vacuous.
+ensure(BOB_SHIFT_MIN <= BOB_SHIFT_MAX,
+       "the vertical bob's amplitude ladder is EMPTY: the smallest bob that fits the seam-free V-scroll span ({VSCROLL_BG_MAX} origins) is shift {BOB_SHIFT_MIN}, but the largest shift the sine table survives is {BOB_SHIFT_MAX}. Either the plane geometry shrank (PLANE_B_SPAN / SCREEN_HEIGHT) or the table's amplitude ({BOB_SINE_AMP}) did — with no legal shift left, scene()'s bob_shift guard admits nothing and the feature is unauthorable")
+ensure(BOB_SHIFT_NONE > BOB_SHIFT_MAX,
+       "the vertical bob's no-bob sentinel ({BOB_SHIFT_NONE}) has been overtaken by the legal amplitude ladder (up to {BOB_SHIFT_MAX}) — a scene authoring the widest legal shift would be read as authoring NO bob, silently")
+ensure(BOB_SHIFT_MIN >= 1,
+       "the vertical bob's amplitude ladder now admits shift 0, i.e. a peak excursion of the full sine amplitude ({BOB_SINE_AMP} px) against a {VSCROLL_BG_MAX}-origin seam-free span. The packed nibble encoding depends on shift 0 being ILLEGAL: pcfg_bob = 0 is the no-bob sentinel for the whole byte, so a legal shift-0 bob with period shift 0 would pack to 0 and be read as no bob at all")
+ensure(BOB_PERIOD_SHIFT_MAX >= 0 && BOB_PERIOD_SHIFT_MAX <= 15,
+       "the vertical bob's period ladder ({BOB_PERIOD_SHIFT_MAX}) does not fit the low nibble of pcfg_bob — the field packs the period shift into four bits, so a ladder past 15 is unrepresentable and scene()'s guard would admit values the lowering silently truncates")
+ensure(BOB_SHIFT_MAX <= 15,
+       "the vertical bob's amplitude ladder ({BOB_SHIFT_MAX}) does not fit the high nibble of pcfg_bob")
 
 // VSCROLL_COL19_* — the per-column V-scroll buffer's LAST column-pair, which is the entry
 // the VDP re-reads for the leftmost partial column (see the column-19 borrow in Step 5b).
@@ -1854,6 +2008,120 @@ proc Parallax_Step5_Vscroll () clobbers(d0-d7/a0-a6) {
         // grid-clamped to [0, grid_h*SECTION_SIZE - SCREEN_HEIGHT].
         move.w  parallax_config.pcfg_v_offset(a0), d2
     .v_pack:
+        // ---- THE SCENE-LEVEL VERTICAL BOB (EFFECTS-W1 item 7) ----
+        // The whole background sways over time. One term, added to the BG V-scroll here,
+        // once per frame.
+        //
+        // WHY THIS SITE AND NOT ONE OF THE THREE ARMS ABOVE. `.v_pack` is where the snap,
+        // the transition lerp and the `.v_locked` pin all converge, so ONE insertion bobs
+        // all three; and it is upstream of the clamp and the store, so the bob inherits
+        // the seam guard AND reaches every downstream consumer of the BG origin — Step 4a's
+        // band rotation, Step 5b's per-column base, the deform phase — through
+        // `Parallax_Current_Vscroll_BG` rather than only the whole-plane VSRAM word. A bob
+        // applied after the store would sway a per-column scene not at all (that path never
+        // reads Vscroll_Factor's low half) and would leave the bands standing still while
+        // the art under them moved.
+        //
+        // WHAT THAT COSTS, stated because nothing else states it: the stored value now
+        // carries the bob, and the transition lerp reads that value back as its
+        // accumulator. So during a section transition — Parallax_Transition_Frames nonzero,
+        // a handful of frames at a boundary, and only in a game that declares
+        // CAP_TRANSITIONS — the sway runs through the lerp's low-pass and is briefly
+        // attenuated. Bounded by the bob's own amplitude, self-correcting the frame the
+        // transition ends. The exact alternative (subtract the previous frame's bob from
+        // the accumulator at the lerp site) costs a register held across the whole block
+        // and a second read of pcfg_bob, to remove a transient nobody can see.
+        //
+        // FG IS NOT BOBBED, and that is the feature, not an omission: Plane A is the
+        // gameplay plane and d1 still holds camY untouched below. "The background sways"
+        // means the background.
+        //
+        // TIME SOURCE: `Logic_Tick`'s low word — the lag-immune per-tick counter, read with
+        // the spelling engine/level/bg_anim.emp:173 already uses for exactly this job (the
+        // BgAnim band driver's `2 = Logic_Tick (low word)` arm). REJECTED: `Frame_Counter`,
+        // the VBlank count. It is a word, so it is marginally cheaper to read, and it paces
+        // to wall clock under lag — but every other animated term in this pipeline
+        // (Parallax_Deform_Phase_FG/BG, Parallax_V_Deform_Phase_BG) advances ONCE PER
+        // UPDATE, i.e. per logic tick, so a Frame_Counter bob would be the only parallax
+        // animation in the engine that visibly desynchronises from the H-deform wave the
+        // moment a frame is dropped. Also rejected: a fourth phase accumulator word in
+        // Parallax_State, the shape the three deform phases use. It buys a non-power-of-two
+        // rate, and it costs 2 bytes of RAM inside a span whose reservations are pinned by
+        // adjacent-symbol difference — a real edit to PARALLAX_STATE_LONGS and its drift
+        // ensure — for a term that already has a counter ticking underneath it.
+        //
+        // NO MULTIPLY, per CODING_CONVENTIONS §2.1: both the period and the amplitude are
+        // SHIFTS, which is also why both fit in a nibble. The price is a power-of-two
+        // ladder in each — peak 128/64/32/16/8/4/2/1 px, period 256/512/1024/... ticks —
+        // and for a background sway both rungs land where an author wants them. A finer
+        // amplitude (1.5x via `(s>>a) + (s>>(a+1))`) is booked in DEFERRED_WORK, not built.
+        //
+        // COST, COUNTED RATHER THAN ESTIMATED (68000 timings; a is the amplitude shift, p
+        // the period shift, both 0..8 so both variable shifts are cheap).
+        //
+        // A NON-BOBBING SCENE PAYS 26 CYCLES A FRAME, NOT ZERO:
+        //     moveq #0,d3                                    4
+        //     move.b (d16,a0),d3          4 + EA(d16,An) 8 = 12
+        //     beq   .v_bob_none  TAKEN                      10
+        //                                                 = 26
+        // That is 0.02% of an NTSC frame's 128,000 cycles, and it buys the bob being a
+        // per-SCENE property instead of a per-GAME one. The alternative that reaches zero
+        // is a CAP_* bit, which elides this whole block in a game that authors no bob —
+        // deliberately NOT taken: the bits past $0080 are a declared GAPLESS reservation
+        // with an allocation order, and spending one plus its scene_caps() fold, both
+        // games' SCANLINE_CAPS redeclarations, a span-bracket discriminator pair, a
+        // demo_specialization_witness row and a [parallax.cost_model] row to save 26
+        // cycles is the wrong trade. Booked in DEFERRED_WORK with its trigger.
+        //
+        // A BOBBING SCENE PAYS 112 + 2*(a + p):
+        //     moveq #0,d3                       4     lea (xxx).W,a1              8
+        //     move.b (d16,a0),d3               12     move.w (d8,a1,d4.w),d4     14
+        //     beq NOT taken                     8     lsr.w #4,d3      6 + 2*4 = 14
+        //     move.w d3,d0                      4     asr.w d3,d4        6 + 2*a
+        //     andi.w #$0F,d0                    8     add.w d4,d2                 4
+        //     move.w (xxx).W,d4                12
+        //     lsr.w d0,d4                 6 + 2*p     fixed sum                 100
+        //     andi.w #imm,d4                    8     + the two variable shifts  12 + 2(a+p)
+        //     add.w d4,d4                       4
+        // = 114 at the widest/fastest rung (a 1, p 0), 144 at the narrowest/slowest (8, 8),
+        // 124 for a 16-px sway every 1024 ticks (a 4, p 2). Under 0.12% of a frame at the
+        // worst rung. The `lea` is 8 and not 12 because Sine_Table lowers to ABSOLUTE SHORT
+        // in every shape today (the math section sits under $8000); it costs 4 more cycles
+        // and 2 more bytes the day ROM growth pushes it past.
+        //
+        // `moveq #0, d3` IS LOAD-BEARING: `move.b` into a data register writes bits 0-7 and
+        // leaves 8-31 as they were, and `lsr.w #4, d3` below would then shift four dirty
+        // bits down into the amplitude nibble. `move.b` still sets Z from the byte it
+        // moved, so the `beq` reads the sentinel and not the moveq.
+        //
+        // d0/d3/d4 are all reloaded by Step 5b below; d1 (camY) and d2 (the scroll) are not
+        // touched except by the one `add.w` this block exists for.
+        moveq   #0, d3
+        move.b  parallax_config.pcfg_bob(a0), d3    // packed (amp << 4) | period; 0 = no bob
+        beq     .v_bob_none
+        move.w  d3, d0
+        and.w   #$0F, d0                            // d0 = period shift p
+        move.w  Logic_Tick+2, d4                    // (Logic_Tick+2).w — the lag-immune tick
+        lsr.w   d0, d4
+        and.w   #BOB_SINE_ENTRIES-1, d4           // one full cycle; never the $40 overlap
+        add.w   d4, d4                              // the table's entries are WORDS
+        // `lea` FIRST, AND NOT `Sine_Table(pc,d4.w)` — engine/system/math.emp indexes the
+        // table exactly that way, thirty bytes from it, and copying the spelling here is a
+        // BUILD FAILURE, measured: `(d8,PC,Xn) displacement to Sine_Table out of range
+        // (-20794) in section parallax`. The 68000's PC-relative INDEXED mode carries an
+        // 8-bit displacement (-128..127); only the unindexed `(d16,PC)` gets sixteen. So a
+        // cross-section indexed read of a ROM table has to load the base into an address
+        // register, whatever the two sections' distance happens to be — the reach is 128
+        // bytes, not 32 KB, and no ROM layout was ever going to satisfy it.
+        //
+        // a1 is free here and is reloaded by Step 5b below (`movea.l d0, a1`); Step 4, this
+        // proc's tail call, sets up its own a1/a2/a3.
+        lea     Sine_Table, a1
+        move.w  (a1,d4.w), d4                       // -BOB_SINE_AMP .. +BOB_SINE_AMP
+        lsr.w   #4, d3                              // d3 = amplitude shift a
+        asr.w   d3, d4                              // ARITHMETIC: the wave is signed
+        add.w   d4, d2
+    .v_bob_none:
         // ---- THE PLANE-B WINDOW CLAMP (PARALLAX-SCROLL-CLAMP) ----
         // Bound the BG V-scroll to [0, VSCROLL_BG_MAX] — the window origins whose 224 lines
         // lie inside one pass of the 512-line plane (derivation at VSCROLL_BG_MAX above).

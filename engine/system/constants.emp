@@ -653,6 +653,40 @@ pub const PARALLAX_TRANS_DEFAULT = 16   // default boundary lerp duration (frame
 // window frame with no residual.
 pub const PARALLAX_LERP_SHIFT   = 4
 
+// ---- The sine table's encoding (engine/system/math.emp `Sine_Table`, engine/data/sine.bin) ----
+//
+// The two numbers that module's header has always stated in prose, as constants, so that a
+// CONSUMER can DERIVE a bound from them instead of re-typing 256 twice.
+//
+//   SINE_AMPLITUDE      sin(90 deg) = $100. A reader takes a table entry and shifts it
+//                       RIGHT to scale it, so this is the numerator of every amplitude
+//                       ladder built on the table: peak = SINE_AMPLITUDE >> shift, and the
+//                       largest shift that still yields a nonzero peak is 8.
+//   SINE_CYCLE_ENTRIES  $100 entries is ONE FULL CYCLE. The blob is $280 BYTES = 320
+//                       WORDS: the cycle plus the $40-entry quarter overlap GetSineCosine
+//                       reads for cosine. A consumer that wants the cycle and not the
+//                       overlap masks its index to this count.
+//
+// The two are numerically equal and are NOT the same fact — one is a range, the other a
+// length — so they are two constants.
+//
+// HERE AND NOT IN math.emp BESIDE THE TABLE, for a mechanical reason worth knowing before
+// the next constant is placed: math.emp opens a ROM section, so it is not a sigil
+// COMPTIME_HELPERS module, so its `pub const`s are not glob-injected and a `use
+// engine.math.{SINE_AMPLITUDE}` yields a LINK EXTERN — a Label — that fails arithmetic at
+// the consumer with a message naming neither module. Measured 2026-08-30. This module is a
+// helper, so both names reach every module with no `use` line at all.
+//
+// HELD TO THE BLOB by tools/test_vertical_bob.py (build.sh's pytest lane), which
+// re-derives both from engine/data/sine.bin — the peak magnitude for the amplitude, the
+// smallest repeating period for the cycle length — and fails naming these two constants.
+// That gate is not decoration: every `ensure` in engine/level/parallax.emp's bob ladder
+// compares this constant against itself one indirection removed, so a table swapped for
+// one of a different amplitude would leave the whole engine green while every authored
+// bob_shift silently came to mean a different number of pixels.
+pub const SINE_AMPLITUDE        = $100
+pub const SINE_CYCLE_ENTRIES    = $100
+
 // -----------------------------------------------
 // Act art-pool VRAM ceiling + per-act section grid cap.
 // -----------------------------------------------

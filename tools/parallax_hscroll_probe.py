@@ -154,7 +154,10 @@ CFG_V_DEFORM_SHIFT  = 25
 CFG_ANCHOR_DSA      = 26    # pcfg_anchor_dsa            u8
 CFG_ANCHOR_DSB      = 27    # pcfg_anchor_dsb            u8
 CFG_V_FACTOR_FG     = 28    # pcfg_v_factor_fg           u8   (was 2; RESERVED, unread)
-CFG_PAD_29          = 29    # pcfg_pad_29                u8   (even-size pad)
+CFG_BOB             = 29    # pcfg_bob                   u8   (vertical bob, (amp<<4)|period;
+                            #                                 0 = no bob. Was the even-size
+                            #                                 pad pcfg_pad_29 until
+                            #                                 EFFECTS-W1 item 7 claimed it)
 CFG_SIZE            = 30    # sizeof(parallax_config)
 
 # READ FROM THE ENGINE, NOT TYPED. This sizes the three Parallax_Shadow_* reads below,

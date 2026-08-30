@@ -226,14 +226,36 @@ pub struct parallax_config {
     // Moved from $02 to the tail on 2026-08-27 to free an even slot for the widened mask
     // (see the banner). It is kept, not deleted: it is a live authoring + schema field.
     pcfg_v_factor_fg:       u8,    // $1C
-    // The one byte the even-size requirement costs. Not a natural pad — 29 payload bytes
-    // simply do not round to an even record — and CLAIMABLE the way pcfg_anchor_ch and
-    // pcfg_anchor_dsa/dsb were claimed from the two former pads. It has NO default on
-    // purpose: both constructors (scene_dsl.emp's scene_hdr and scene_equiv_proof.emp's
-    // hdr) spell it, so a third constructor cannot forget it, and tools/
-    // left_col_mask_probe.py's field parser skips any field carrying `= <default>` and
-    // would silently under-report sizeof if this one did.
-    pcfg_pad_29:            u8,    // $1D
+    // THE SCENE-LEVEL VERTICAL BOB (EFFECTS-W1 item 7). Two nibbles in one byte:
+    //
+    //   bits 7-4  amplitude shift a — peak excursion = SINE_AMPLITUDE >> a pixels
+    //   bits 3-0  period shift p    — one full sway = SINE_CYCLE_ENTRIES << p ticks
+    //   the WHOLE BYTE 0            — NO BOB. Not a nibble value: the sentinel is the
+    //                                 byte, and that is what makes this field free.
+    //
+    // CLAIMED FROM pcfg_pad_29, the even-size pad, exactly the way pcfg_anchor_ch was
+    // claimed from the former pcfg_pad and pcfg_anchor_dsa/dsb from pcfg_pad2. THE BOB
+    // THEREFORE COSTS ZERO CONFIG BYTES: sizeof stays 30, the band array that follows the
+    // header does not shift, and every one of the twenty shipped records — all of which
+    // author no bob and so emit 0 here, the same byte the pad emitted — is unchanged.
+    // That is why the sentinel had to be the byte and could not be a nibble: `a = 0` is a
+    // 256-px sway and `a = 15` (the house "no deform" sentinel, pcfg_anchor_dsa's) packs
+    // to $F0, so either spelling would have moved twenty records for nothing.
+    //
+    // TWO NIBBLES AND NOT TWO BYTES, deliberately: a second byte takes sizeof to 31, which
+    // is odd, which takes it to 32 — +2 bytes on every config AND a two-byte shift of
+    // every band array behind every header. The price of the pack is one `lsr.w #4` (14
+    // cycles) on a BOBBING scene's frame and nothing at all on any other.
+    //
+    // Read once per frame by Parallax_Step5_Vscroll at `.v_pack`, which is the single site
+    // the whole pipeline's BG vertical origin flows through — so one term there sways the
+    // plane, the band rotation, the per-column base and the deform phase together.
+    //
+    // NO DEFAULT, for pcfg_pad_29's two reasons unchanged: both constructors
+    // (scene_dsl.emp's scene_hdr and scene_equiv_proof.emp's hdr) must spell it so a third
+    // cannot forget it, and tools/left_col_mask_probe.py's field parser skips any field
+    // carrying `= <default>` and would silently under-report sizeof if this one did.
+    pcfg_bob:               u8,    // $1D
 }
 
 // -----------------------------------------------

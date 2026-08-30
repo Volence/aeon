@@ -329,9 +329,26 @@ Uses circular horizontal indexing. Slides at most 1 column/row per frame to amor
 
 ## 7. Parallax Config Format
 
-### parallax_config header — 28 bytes
+### parallax_config header — 30 bytes
 
-**Struct definition:** `engine/structs.emp` (`pub struct parallax_config`)
+**Struct definition:** `engine/structs.emp` (`pub struct parallax_config`) — and THAT is the
+authority, not the table below.
+
+> ⚠ **THE TABLE BELOW IS STALE AND HAS BEEN SINCE 2026-08-27.** It still shows the pre-widening
+> layout: `pcfg_layer_mask` is a **u16 at $02** (not a byte at $03) since `MAX_PARALLAX_BANDS` went
+> 8 → 16, `pcfg_v_factor_fg` moved to **$1C** to free that even slot, the `$0B` and `$1A` "pad"
+> rows were claimed years-of-parcels ago by `pcfg_anchor_ch` and `pcfg_anchor_dsa`/`pcfg_anchor_dsb`,
+> and the record is **30 bytes**, not 28. The band count reads 1–8 and is 1–16. Left uncorrected
+> here rather than swept into an unrelated parcel's diff — the correction is a documentation
+> parcel of its own, and `engine/structs.emp` carries the live layout with a per-field offset
+> comment that `tools/parallax_crossing_gate.py` checks against the field types.
+>
+> The one row worth stating because it is NEW and this table has no slot for it at all:
+> **`$1D` byte `pcfg_bob`** — the scene-level vertical bob (EFFECTS-W1 item 7, 2026-08-30).
+> `(amplitude_shift << 4) | period_shift`, and the WHOLE BYTE 0 means no bob. Authored as
+> `scene(bob_shift: …, bob_period: …)`, amplitude shift 1–8 (peak = 256 >> shift px) or 15 for no
+> bob, period shift 0–8 (one sway = 256 << shift logic ticks). It took the slot of the former
+> even-size pad, so this field costs the record nothing.
 
 | Offset | Size | Field | Description |
 |--------|------|-------|-------------|

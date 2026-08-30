@@ -111,6 +111,14 @@ const POISON_A1_SCENE_A: Scene = Scene{
     // None — Undeclared is legal here because neither fixture attaches a v-deform table.
     sc_left_col_mask:      SceneLeftColMask.Undeclared,
     sc_transition:         0,
+    // NO BOB — spelled, not defaulted, because engine/level/scene_dsl.emp gives
+    // sc_bob_shift / sc_bob_period no field default on purpose: this back door bypasses
+    // scene() and every guard in it, so a Scene literal has to STATE the vertical bob the
+    // way it already states its left-column policy. 15 is the no-bob sentinel. Both
+    // fields are inert to this poison, which measures the walker's main-loop cycle cost —
+    // the bob's 26 cycles a frame live in Step 5, not in the walker.
+    sc_bob_shift:          15,
+    sc_bob_period:         0,
     sc_pad_5D:             default,
     sc_mask_raw:           -1,
     sc_v_deform_shift_raw: -1,
@@ -132,6 +140,14 @@ const POISON_A1_SCENE_B: Scene = Scene{
     // None — Undeclared is legal here because neither fixture attaches a v-deform table.
     sc_left_col_mask:      SceneLeftColMask.Undeclared,
     sc_transition:         0,
+    // NO BOB — spelled, not defaulted, because engine/level/scene_dsl.emp gives
+    // sc_bob_shift / sc_bob_period no field default on purpose: this back door bypasses
+    // scene() and every guard in it, so a Scene literal has to STATE the vertical bob the
+    // way it already states its left-column policy. 15 is the no-bob sentinel. Both
+    // fields are inert to this poison, which measures the walker's main-loop cycle cost —
+    // the bob's 26 cycles a frame live in Step 5, not in the walker.
+    sc_bob_shift:          15,
+    sc_bob_period:         0,
     sc_pad_5D:             default,
     sc_mask_raw:           -1,
     sc_v_deform_shift_raw: -1,

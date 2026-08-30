@@ -13399,7 +13399,7 @@ red-first by making one comment lie by a byte):
 | `pcfg_v_factor_fg` | $02 | **$1C** |
 | `pcfg_layer_mask` | $03 (u8) | **$02 (u16)** |
 | `pcfg_v_center_y` .. `pcfg_anchor_dsb` | $04 .. $1B | unchanged |
-| `pcfg_pad_29` | — | **$1D** |
+| `pcfg_pad_29` | — | **$1D** |  ← claimed by `pcfg_bob` on 2026-08-30 (EFFECTS-W1 item 7); the slot and the size are unchanged
 | `sizeof` | 28 | **30** |
 
 The mask's LOW byte lands at $03 exactly where the `u8` sat and its high byte on $02, which
@@ -16043,11 +16043,63 @@ Item 2 is the only one that does not.
 | 4 | Moving bands: P2b moving-top + time-driven anchor mover | **L** | yes, paired | The anchor mover is the owner's addition and the DoD calls it *"a gap in every prior plan"* — so it needs a DESIGN pass before implementation, not just a parcel. P3 (both edges) only on his ask. |
 | 5 | `variants` / `cycles` lowering | **M** | yes, paired | Needs the item-13 contract CR before aurora can author against it. |
 | 6 | Dense per-line VSRAM | **L** | yes, paired | Booked in full in the DENSE PER-LINE VSRAM entry above. **Not blocked by the stream-register card** — the conservative model ships today and the item can start on it; the ruling only decides whether the faster path is taken. Surface the card before the budget check concludes, not before the item starts. |
-| 7 | Vertical bob | **S-M** | yes, paired | Cheapest of the motion items: a scene-level term on an existing step (`Parallax_Step5_Vscroll`, `parallax.emp:1268`). |
+| 7 | Vertical bob | **S-M** | yes, paired | **BUILT — `parcel/vertical-bob`, 2026-08-30, unlanded.** A scene-level term on `Parallax_Step5_Vscroll`'s `.v_pack`. 40 bytes of code, ZERO config bytes (the packed nibble pair claimed `pcfg_pad_29`), EndOfRom unmoved in all four shapes. Riders booked below. |
 | 8 | BgAnim vertical band motion | **M** | yes, paired | BgAnim procs are live and driven today. |
 | 9 | Hydrocity row remap | **L** | yes, paired | Zone-specific by the survey's own estimate; he wants it; sequenced last by his preference. |
 | 10 | Reels / plane-role swap / window as third layer | **L** | yes, paired | **BLOCKED — see item 0 below.** |
 | 11 | Nametable-base changes (frame swap, Plane Z, Batman mid-frame) | **L** | yes, paired | **BLOCKED — same item 0.** |
+
+### Item 7's riders — what `parcel/vertical-bob` found and did NOT build (2026-08-30)
+
+The bob shipped as item 7 and nothing more. Five things surfaced while building it. Each is
+recorded here rather than folded into the parcel, and each says what would trigger it.
+
+**A finer amplitude ladder than powers of two.** `bob_shift` is an `asr` count, so the peak
+excursion ladder is 128 / 64 / 32 / 16 / 8 / 4 / 2 / 1 px and nothing between. A 1.5x rung is
+`(s >> a) + (s >> (a + 1))` — one extra variable shift and one add, about 20 cycles on a bobbing
+scene's frame, plus a third nibble the current byte has no room for. **Trigger:** an author asking
+for an amplitude the ladder skips. Not before: 8 and 16 px are both on the ladder and both are
+where a background sway wants to be.
+
+**`CAP_VERTICAL_BOB`.** A non-bobbing scene pays **26 cycles a frame** (`moveq` 4 + `move.b`
+displacement 12 + `beq` taken 10; a bobbing one pays 112 + 2·(shift + period), so 114..144) testing
+a byte that is 0 in every shipped config, and demo — which
+authors no scenes at all — pays the same. A capability bit would elide the whole 40-byte block for a
+game that declares no bob. **Deliberately not taken**, and the reasons are cost-of-mechanism rather
+than cost-of-cycles: the bits past `$0080` are a declared GAPLESS reservation with an allocation
+order (`CAP_FG_SPRITE_STRIPS` holds `$0100`), and spending one costs the bit, its `scene_caps()`
+fold, `SCANLINE_CAPS` redeclarations in both games, a span-bracket discriminator pair, a
+`demo_specialization_witness` row and a `[parallax.cost_model]` row — for 0.02% of an NTSC frame.
+**Trigger:** a profile in which Step 5 is on the critical path, or a second unconditional per-scene
+term landing beside this one (two of them start to be a pattern; one is a term).
+
+**The scene budget walker does not model the bob.** `engine/level/scene_dsl.emp`'s `SB_*` cost model
+(fitted, pinned against sigil's `[parallax.cost_model]` in `tools/effects_budget_model.toml`) has no
+term for the 26/112 cycles this adds. **It is exact today** — every shipped scene authors no bob, so
+the un-modelled term is zero for all of them — and it under-reports by ~112 cycles the moment one
+does. The model is a CROSS-REPO pin: adding a term is a paired aeon+sigil edit, which is why it is
+not in this parcel. **Trigger:** the first scene that authors a bob, and it should land in the same
+parcel that authors it.
+
+**The JSON surface accepts `bob_shift` / `bob_period`; the writer does not send them.**
+`tools/effects_gen.py` learned both keys ahead of empyrean's `AURORA_EFFECTS_SCHEMA`, in the one
+direction that is safe (accepting an unsent key costs nothing; refusing a sent one breaks every
+saved scene). **Empyrean owns the schema row and Aurora owns the editor control.** Until both land,
+a bob is authorable only in hand-written `.emp` scenes. **Trigger:** item 12 / item 13, or an owner
+asking to author a sway in the editor.
+
+**Two sigil facts this parcel measured, both recorded at their sites and neither reported upstream.**
+(1) A PC-relative INDEXED read — `Table(pc,dN.w)` — carries an EIGHT-bit displacement on the 68000,
+so a cross-section table read needs `lea` first whatever the distance; copying `math.emp`'s own
+spelling for `Sine_Table` is a hard link failure (`out of range (-20794)`). (2) A `pub const` whose
+initializer calls a MODULE-PRIVATE `comptime fn` is folded at its DEFINITION SITE against its own
+file alone; if that fold does not yield an integer — because the expression names an IMPORTED
+constant, or a local const that is itself derived from one — the importing module receives the RAW
+EXPRESSION and fails with `unknown function <the private fn>`, reported at the importer's `use` and
+pointing at a span in the defining file. Neither is a sigil bug exactly, and both are the kind of
+thing `docs/EMP_PITFALLS.md` exists for. **Trigger:** the next parcel that hits either; a
+PITFALLS entry apiece is the right size, and (2) in particular deserves the "a pub const that must
+travel has to fold from literals" one-liner.
 
 ### ⚠ ITEM 0 — the prerequisite for 10 and 11 that is not on the list, and it is L
 

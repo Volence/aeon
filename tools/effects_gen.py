@@ -70,6 +70,21 @@ SCHEMA_VERSION = 1
 SCENE_KEYS = frozenset({
     "schema", "id", "layers",
     "v_factor", "v_center", "v_offset", "v_factor_fg",
+    # The vertical bob (EFFECTS-W1 item 7): two scene-level shifts, amplitude and period.
+    # BOTH OPTIONAL AND BOTH OMITTED BY EVERY SAVED SCENE TODAY — the generator renders a
+    # scalar only when the key is present, so `scene()`'s own defaults (bob_shift 15 = no
+    # bob) are what an editor scene takes and the emitted .emp is byte-identical to what
+    # it was before this key existed.
+    #
+    # ACCEPTED HERE AHEAD OF THE WRITER, deliberately and in the one direction that is
+    # safe. empyrean's AURORA_EFFECTS_SCHEMA is the JSON surface's authority and is not
+    # this repo's to edit, so Aurora cannot emit these yet; without the two names in this
+    # set, the day it does, every saved scene in the tree is REFUSED with "unknown key"
+    # and the editor stops round-tripping. Accepting a key the writer does not yet send
+    # costs nothing and refuses nothing. (The reverse — a writer key this generator does
+    # not know — is exactly the `precision` situation documented under
+    # SCENE_IGNORED_KEYS.) The schema row is booked in docs/DEFERRED_WORK.md.
+    "bob_shift", "bob_period",
     "deform_fg", "deform_bg", "v_deform",
     "anchor", "left_column_mask", "transition", "budget_class",
 })
@@ -169,7 +184,8 @@ TABLE_BIN_BYTES = 256
 # into the u16 config word by scene_hdr()) and `v_center` is a world Y (0 .. $7FFF).
 # Both ranges are `scene()`'s ensures, not this tool's — see _render_int. The only
 # thing this tool owes them is to emit a negative as a negative literal.
-SCENE_SCALARS = ("v_factor", "v_center", "v_offset", "v_factor_fg")
+SCENE_SCALARS = ("v_factor", "v_center", "v_offset", "v_factor_fg",
+                 "bob_shift", "bob_period")
 LAYER_SCALARS = ("dsa", "dsb", "phase", "enabled")
 
 # Enum-valued scene fields: the schema spells these as lowercase strings and the

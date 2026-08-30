@@ -36,6 +36,19 @@ pub proc GetSineCosine (d0: Angle) clobbers() out(d0: fixed<8,8>, d1: fixed<8,8>
 // -----------------------------------------------
 pub data Sine_Table: [u8; $280] = embed("../data/sine.bin")
 
+// SINE_AMPLITUDE / SINE_CYCLE_ENTRIES — the two numbers the header above states in prose
+// live in engine/system/constants.emp, NOT here beside the table they describe, and the
+// reason is mechanical rather than editorial. This module opens a ROM section
+// (`module engine.math in math`), so it is not one of sigil's COMPTIME_HELPERS: its
+// `pub const`s are not glob-injected, and a consumer that spells `use engine.math.{...}`
+// gets a LINK EXTERN for the name — a Label, not an int — which then fails arithmetic with
+// `>> not defined for label and int` at the consumer, several modules away from anything
+// that mentions the sine table. MEASURED at this parcel (2026-08-30), trying exactly that
+// import from engine/level/parallax.emp: 69 errors, none of them saying "not importable".
+// engine.constants IS a helper, so the same two names reach every module without a `use`.
+// The values are held to THIS blob by tools/test_vertical_bob.py, which re-derives both
+// from engine/data/sine.bin rather than trusting either declaration.
+
 // -----------------------------------------------
 // GetArcTan — the angle of the vector (x, y), i.e. atan2(y, x)
 //
