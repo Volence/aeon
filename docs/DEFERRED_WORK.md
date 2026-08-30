@@ -266,6 +266,28 @@ provisioning, same bytes.
 Recommended value and the two ordering traps are in `docs/DRIFT_RECORD.md`. **Until they set it the
 job still reports `NOTHING MEASURED` — which remains correct behaviour and still is not a result.**
 
+**⚑ OPEN AND NOT MINE TO DECIDE — THE `aeon_rev` KEY HAS THE EXACT DEFECT SIGIL FIXED ON THEIR OWN
+SIDE, MIRRORED.** They key their half on `closure-revision` precisely because `revision` *"moves on
+every commit in the repository including ones no compilation can see; a docs-only commit makes two
+byte-identical assemblers look like two different ones, and keying on it manufactures case-2 misses
+that carry no evidence."* **The job keys OUR half on `git rev-parse origin/master`, raw — and this
+lane commits docs all night.** Measured while this parcel was open: `origin/master` moved
+`d27ceba6 → 07a97317` in three commits touching only `docs/DEFERRED_WORK.md`, `docs/lane-log.jsonl`
+and `docs/lane-status.json`. **Zero ROM-bearing paths, identical bytes, and a `lookup-aeon` MISS.**
+So the steady state is `unverified` most nights, N never advances, and **the watch accumulates no
+evidence while looking like it is running.**
+
+**Why I did NOT fix it, and this is the load-bearing half.** The obvious fix — have the reader
+resolve a queried `aeon_rev` to its own ROM-path closure revision and match on that — **widens every
+expectation to cover revisions nobody built, and its error direction is toward MORE chains counting
+as evidence-bearing.** That is the bias this whole record is built to resist, and it is not a call
+this lane may make alone. It also cannot be done in the reader without git access to a tree, which
+turns a pure file read into an operation with a new failure mode. *The current behaviour fails SAFE:
+`unverified`, N unmoved, never quiet, never a false red.* **The question for sigil and the owner:
+should the engine half of the key be a ROM-path closure revision, computed by whom, and what is the
+argument that widening an expectation is sound?** Until answered, the ritual in
+`docs/DRIFT_RECORD.md` compensates by hand — an entry per landing — and that is a cost, not a fix.
+
 ### THE RESTAMP A/B RETURNED — MECHANISM SUPPORTED, AND THE NET IS SILENTLY BROKEN AT 9 OF 27
 (oracle's measurement 2026-08-30, write-up at oracle `docs/2026-08-30-restamp-ab.md`; the
 structural half verified firsthand here)

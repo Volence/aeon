@@ -161,6 +161,23 @@ The landed SHA does not exist until after the build. That is fine — the *tree*
 produces the bytes, and a docs-and-tools-only merge does not move them. What is not fine
 is recording a SHA whose tree differs from the one you built.
 
+### ⚑ Why this ritual is a cost and not yet a fix
+
+The job keys our half of the pair on `git rev-parse origin/master`, raw. **That is the same defect
+sigil identified and fixed on their own half** — `revision` moves on commits no compilation can see —
+**mirrored onto us, and unaddressed.** This lane commits docs all night. Measured 2026-08-30 while
+this file was being written: `origin/master` moved `d27ceba6 → 07a97317` in three commits touching
+only `docs/`. Identical bytes, and a `lookup-aeon` **miss**.
+
+So without an entry per landing the steady state is `unverified` every night: N never advances and
+the watch accumulates no evidence while appearing to run. The failure is **safe** — never quiet,
+never a false red — but it is a real cost.
+
+The obvious repair (resolve the queried `aeon_rev` to its ROM-path closure revision and match on
+that) **widens every expectation to cover revisions nobody built, and errs toward more chains
+counting as evidence-bearing** — the exact bias this record exists to resist. It is not this lane's
+call. See `docs/DEFERRED_WORK.md` for the question as put to sigil and the owner.
+
 ## When the assembler legitimately moves bytes
 
 Do **not** edit the old entry. It is a true statement about a build that happened. Land
