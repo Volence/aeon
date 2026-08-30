@@ -1,6 +1,12 @@
 {
-  "focus": "The replay safety net is repaired, frozen and certified; sigil is unblocked behind it.",
-  "inFlight": [],
+  "focus": "Building the binding that unblocks aurora's whole remaining queue, while the contract half is adjudicated.",
+  "inFlight": [
+    {
+      "what": "item 1's zero-byte arm - the mechanism proof, the generator, and the lint that would have falsified the feature",
+      "where": "branch parcel/effects-ref-arm",
+      "agent": true
+    }
+  ],
   "blockedOnOwner": [
     {
       "id": "d-34",
@@ -33,10 +39,10 @@
     },
     {
       "id": "SIGIL-R7-ALIGNMENT-FLIP",
-      "title": "Sigil's alignment flip is ready and waits on my sequencing. Moves bytes across many sections in both shapes; ruled to get its own freeze range, not a shared one.",
-      "state": "open",
+      "title": "CORRECTED 2026-08-30: my board said 'ready and waits on my sequencing'. FALSE - sigil retracted it against their own tree. What landed is the PRECONDITION (the declaration table and its gate); the flip itself is future-tense in their source. Do NOT open a paired-freeze window for it. It is a parcel to WRITE, then land with its own freeze range - never riding another parcel's, per the chain-179 lesson.",
+      "state": "blocked",
       "size": "M",
-      "blockedBy": null,
+      "blockedBy": "sigil - the parcel does not exist yet",
       "project": "EFFECTS-W1"
     },
     {
@@ -329,8 +335,8 @@
     }
   ],
   "awaiting": null,
-  "atBoundary": true,
-  "updatedAt": "2026-08-30T08:51:19Z",
+  "atBoundary": false,
+  "updatedAt": "2026-08-30T08:56:57Z",
   "resume": "Chain 189 is frozen/attested/pushed (sigil origin/master 39c34fd2, aeon 3f143178). Sigil is rebasing behind it. NEXT: EFFECTS-W1 item 1 is the PROJECT'S CRITICAL PATH - aurora's every remaining feature row waits on it. Its design + CR are LANDED on branch design/effects-ref-binding (2cf29126, unmerged) and carry three corrections to the brief: item 1's sigil pairing is UNDER-PRICED (expect a repin, not a deletion), a cycle-table lint would ship the feature falsified by its own build lane, and authored_probe has NINE sites not five. File the effectsRef CR with empyrean at the START of the parcel. Byte-movers ahead of item 1: the DPLC re-cut and block-stream dedup, which are COUPLED - whichever lands second re-runs dplc_straddle --recut Art_Sonic on the merged tree. Open questions NOT ours to answer: DRIFT-KEY-CLOSURE-REV (sigil ruled the reporting half; the population half is the owner's and touches d-48).",
   "parkedQuestions": [
     {
