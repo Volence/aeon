@@ -1,14 +1,9 @@
 {
-  "focus": "Two agents still out on the bug list. Everything else tonight is landed and pushed.",
+  "focus": "One agent left on the clamps. The DPLC measurement landed and found two 'separate' jobs are coupled.",
   "inFlight": [
     {
       "what": "the two clamps - parallax scroll and the section one that only looks like a clamp",
       "where": "branch parcel/scroll-and-section-clamps",
-      "agent": true
-    },
-    {
-      "what": "the measurement the DPLC ruling is conditioned on",
-      "where": "branch measure/dplc-append-risk",
       "agent": true
     },
     {
@@ -29,14 +24,6 @@
     {
       "id": "SCROLL-AND-SECTION-CLAMPS",
       "title": "The two clamps: the parallax scroll that wraps silently on a bad number, and a line in the section code that says it clamps and does not. One parcel, agent running.",
-      "state": "doing",
-      "size": "S",
-      "blockedBy": null,
-      "project": "EFFECTS-W1"
-    },
-    {
-      "id": "DPLC-APPEND-RISK-MEASURE",
-      "title": "The measurement the DPLC ruling is conditioned on: that appending art disturbs nothing else. A measurement, not the argument. Agent running.",
       "state": "doing",
       "size": "S",
       "blockedBy": null,
@@ -212,7 +199,7 @@
     },
     {
       "id": "DPLC-ENTRY-BUDGET",
-      "title": "Sonic's heaviest frames need thirteen art transfers against twelve slots. RULED: the targeted re-cut. Measure the append-disturbs-nothing risk before any art ships.",
+      "title": "Sonic's heaviest frames need 13 art transfers against 12 slots. The append risk is MEASURED and clear (margin 5,188 B), and the measurement found this is coupled to the block-stream slimming - whichever lands second must re-measure. A build gate now catches it.",
       "state": "open",
       "size": "M",
       "blockedBy": null,
@@ -268,7 +255,7 @@
     },
     {
       "id": "BLOCK-STREAM-DEDUP",
-      "title": "We store 443 copies of 73 distinct level blocks. About 21 KB freed for no behaviour change. Now its own separate win rather than a prerequisite for the art fix.",
+      "title": "About 21 KB freed for no behaviour change. NOT as independent as ruled: it moves the same art base the DPLC fix depends on, by four times that fix's margin. Safe inside a measured band; re-measure whichever lands second.",
       "state": "open",
       "size": "M",
       "blockedBy": null,
@@ -277,7 +264,7 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-08-30T02:03:22Z",
+  "updatedAt": "2026-08-30T02:08:49Z",
   "resume": "Your go is RECORDED (empyrean 7149b39) - do NOT boot into a stop. Start with EFFECTS-W1-SHOW-A-BAND: run tools/band_witness.py against master, no bytes moved. EFFECTS-W1 now has a SECOND HALF - the owner ruled the side-effect bugs must be fixed before the project is done (DoD items 14-17). The canopy is no longer backgroundable and its plan is to INSTRUMENT for the next sighting, not derive a third explanation - two are already refuted. d-47-revised is ruled 'targeted'; measure the append risk before art ships. Everything is in DEFERRED_WORK.md.",
   "parkedQuestions": [
     {
