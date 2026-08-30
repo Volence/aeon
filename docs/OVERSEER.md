@@ -472,8 +472,25 @@ rulings live in the session memory and the most recent `docs/superpowers/*handof
   abandoned via `--supersede-tip`, which requires **a second full capture**. Two chains × two
   captures ≈ 40 minutes of wall clock spent on a defect a two-minute check would have caught
   before the first one.
-  **Operational form: after the merge and the four-shape verify, and BEFORE `--freeze`, run the
-  strict suite against the merged tree.** `AEON_DIR=<clean merge> cargo test --release
+  **⚠ SUPERSEDED BY A COMMAND, 2026-08-30 — RUN `tools/freeze_preflight.sh`.** The prose form
+  below was complete, correct, and truncated on chain 187: this lane ran step 1 (`repin_pins`),
+  found exactly what step 1 exists to find, and went straight to the freeze. **The sigil lane's
+  diagnosis is why this is now a script and not a better sentence: step 1 is genuinely useful on
+  its own, so COMPLETING IT FELT LIKE COMPLETING THE PRE-FLIGHT.** A two-step ritual whose first
+  step is independently satisfying will keep being truncated there, and no amount of emphasis in
+  prose fixes that — it is the same lesson as spelling an invocation inside the command span
+  rather than beside it, arriving on a ritual instead of on a flag.
+  Proven red-first against the very failure it was written for: run on the chain-187 tree it
+  names `Cache_Fill_Resume_Col`, verdicts *"pins were current, so these are REAL. Supply the
+  composition BEFORE freezing"*, and exits 1 — in about two minutes, against the twenty that
+  discovering it at `--attest` cost.
+  *The script also carries the discriminator's meaning so a reader cannot invert it: pins STALE
+  means the port reds are stale-instrument and the freeze clears them; pins CURRENT with a port
+  still red is the cross-seam class and is real. It refuses on a `repin_pins` failure that is not
+  staleness, rather than reading that as either.*
+
+  **Operational form (what the script does): after the merge and the four-shape verify, and
+  BEFORE `--freeze`, run the strict suite against the merged tree.** `AEON_DIR=<clean merge> cargo test --release
   --workspace --no-fail-fast` with `SIGIL_STRICT_GATE=1` — or simply expect `--attest`'s failures
   early by running the port targets alone, which is faster: the two that have bitten are
   `-p sigil-cli --test act_descriptor_port` and `--test parallax_port`.
