@@ -16847,3 +16847,35 @@ green, and exactly ONE seam in this tree has a positive-witness gate against tha
 (NOT taken here, it widens the parcel): have `build.sh` run `SIGIL_WARNINGS=full` and fail on
 any `module.unreachable` outside an explicit allow-list — the classification above is the
 allow-list's first draft.
+
+## EFFECTS-W1 ITEM 1 STEP 6 — THE BAND IS SEEN ON SCREEN (2026-08-30, `measure/sec5-band-witness`)
+
+Step 6 (`c9a462be`) landed with *"NOT VERIFIED: nothing has been seen on screen"*. **Measured,
+in the agreed shape (empyrean OVERSEER.md 14:42Z): picture + control + five CRAM samples, two
+bound instances required to agree byte for byte. VERDICT: BAND SEEN.**
+
+- **Bound ROM** `s4.debug.bin` 736391 B crc32 `476e220f` (canonical `DEBUG=1`, aeon `6e2495a5`,
+  sigil `8951389a18c3`). Warped to player `(5120, 3072)` = camera `(4960, 2960)`, camera-centre
+  section `(2, 1)` = flat 5, engine `Parallax_Prev_Sec` `(2, 1)`; `Raster_Pending` 0,
+  `Raster_Program` = `$013ACE` = `EditorRaster_OJZ_Act1_ojz_sec5_showcase`. CRAM line 2 entry 8
+  (byte `$50`, parsed from the preset): lines 40/56/72 read **`$0EA4`**, lines 8/20/96/150 read
+  `$0000`, all in frame 259. Runs A and B (fresh private `oracle-aether` each) — tables, JSON
+  and PNGs byte-identical (frame md5 `49c4d504…`, crop `04f021e7…`). Vacuity check passed
+  (in-band != out-of-band), so a frame-latched palette cannot be the explanation.
+- **Control ROM** (aeon `7c7c5981`, `rasterRef: null`, regenerated; reverted at `2ebcd76a`)
+  736391 B crc32 `3ceb094d`. Differs from bound in exactly 5 bytes: the checksum and
+  `OJZ_Preset_Sec5.ep_raster` (`$013ACE` -> `$008204` Raster_Program_None). Same warp, same
+  section, `Raster_Program` = 0, every sampled line `$0000`; frame md5 `b5768d0b…`.
+- **The canonical build REFUSES the control tree** — three tests
+  (`test_section_5_is_the_bound_one_and_its_id_is_the_shipped_document`,
+  `test_the_bound_sections_are_exactly_the_threaded_ones`,
+  `test_every_preset_document_is_REACHABLE`) fail by design once the only binding is removed, and
+  no ROM is produced (the stale on-disk one still read `476e220f`). The control artifact is a
+  `FAST=1 DEBUG=1` build; the 5-byte diff is its provenance.
+- Instrument: `tools/sec5_band_witness.py` (refuses on ROM mismatch, sidecar/chooser drift,
+  clamped/unacked warp, pending install, wrong `Raster_Program`, section mismatch,
+  `reached: false`, vacuity, non-raster frame; every expectation parsed, never typed). Evidence:
+  `docs/research/reference_captures/2026-08-30-sec5-band/README.md` (+6 PNGs, 3 JSON, 3 tables).
+- **NOT established:** exact transition lines (polling `run_to_scanline`; PIN 5 owns those), other
+  CRAM entries, other camera positions, a WALKED crossing in/out of section 5, motion, hardware,
+  and the aurora `SectionMeta` SHA the step-6 evidence was to cite (the commit does not name it).

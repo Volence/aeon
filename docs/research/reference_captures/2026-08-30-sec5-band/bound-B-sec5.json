@@ -1,0 +1,139 @@
+{
+ "base": 0,
+ "binding_label": "EditorRaster_OJZ_Act1_ojz_sec5_showcase",
+ "camera": [
+  4960,
+  2960
+ ],
+ "camera_section": [
+  2,
+  1
+ ],
+ "chooser_arms": {
+  "5": "EditorRaster_OJZ_Act1_ojz_sec5_showcase"
+ },
+ "engine_prev_sec": [
+  2,
+  1
+ ],
+ "exit": 0,
+ "expectation": {
+  "bot": 80,
+  "colour": 3748,
+  "cram_addr": 80,
+  "cram_entry": 8,
+  "cram_line": 2,
+  "preset_id": "ojz_sec5_showcase",
+  "top": 32
+ },
+ "flat_section": 5,
+ "frame_captured_at": 260,
+ "frame_png": {
+  "bound-B-sec5-full.png": "49c4d5047e7137b1fc7daae28b6ac70c",
+  "bound-B-sec5-rows16-95-x80-143-6x.png": "04f021e760674d3832bf20b1eb1f2b4a"
+ },
+ "geometry": {
+  "grid_h": 3,
+  "grid_w": 3,
+  "screen_h": 224,
+  "screen_w": 320,
+  "shift": 11,
+  "size": 2048
+ },
+ "label": "bound-B",
+ "lines": [
+  8,
+  20,
+  40,
+  56,
+  72,
+  96,
+  150
+ ],
+ "lst": "/home/volence/sonic_hacks/aeon/.claude/worktrees/agent-ad2da776bae165908/s4.debug.bound.lst",
+ "player": [
+  5120,
+  3072
+ ],
+ "raster_pending": "$00000000",
+ "raster_program": "$013ACE",
+ "raster_program_want": "$013ACE",
+ "rom": "/home/volence/sonic_hacks/aeon/.claude/worktrees/agent-ad2da776bae165908/s4.debug.bound.bin",
+ "rom_bytes": 736391,
+ "rom_crc32": "476e220f",
+ "samples": [
+  {
+   "expect": 0,
+   "frame": 259,
+   "in_band": false,
+   "line": 8,
+   "ok": true,
+   "raw": 0
+  },
+  {
+   "expect": 0,
+   "frame": 259,
+   "in_band": false,
+   "line": 20,
+   "ok": true,
+   "raw": 0
+  },
+  {
+   "expect": 3748,
+   "frame": 259,
+   "in_band": true,
+   "line": 40,
+   "ok": true,
+   "raw": 3748
+  },
+  {
+   "expect": 3748,
+   "frame": 259,
+   "in_band": true,
+   "line": 56,
+   "ok": true,
+   "raw": 3748
+  },
+  {
+   "expect": 3748,
+   "frame": 259,
+   "in_band": true,
+   "line": 72,
+   "ok": true,
+   "raw": 3748
+  },
+  {
+   "expect": 0,
+   "frame": 259,
+   "in_band": false,
+   "line": 96,
+   "ok": true,
+   "raw": 0
+  },
+  {
+   "expect": 0,
+   "frame": 259,
+   "in_band": false,
+   "line": 150,
+   "ok": true,
+   "raw": 0
+  }
+ ],
+ "section": 5,
+ "sidecar_rasterRef": "ojz_sec5_showcase",
+ "symbols": {
+  "Camera_X": "$FFA604",
+  "Camera_Y": "$FFA608",
+  "EditorRaster_OJZ_Act1_ojz_sec5_showcase": "$013ACE",
+  "Parallax_Prev_Sec_X": "$FF88F2",
+  "Parallax_Prev_Sec_Y": "$FF88F3",
+  "Raster_Pending": "$FF8AD0",
+  "Raster_Program": "$FF8AC8",
+  "Raster_Program_None": "$008204",
+  "Warp_Req_Flag": "$FFE606",
+  "Warp_Req_X": "$FFE602",
+  "Warp_Req_Y": "$FFE604"
+ },
+ "vacuity": "1 distinct in-band value(s) vs base $0000 \u2014 not vacuous",
+ "warp_ack_frames": 15
+}
