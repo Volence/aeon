@@ -12017,6 +12017,50 @@ deliberately left:
   **2.29 s** wall, not minutes — headless `oracle-aether` with `--no-pace` runs ~100 frames in
   negligible time, and the lane's old "3 m 12.65 s" figure is the FULL gate set, not this one.
 
+### ⚑ RIDER 3'S BLOCKER IS DISCHARGED — THE MIGRATION IS UNBLOCKED, THE FLIP STILL IS NOT INDEPENDENT (2026-08-30)
+
+**Oracle signalled the close of the player-path breakpoint gap**, which is the condition the
+probe migrations were waiting on. Anchor, verified firsthand here rather than taken from the
+message: oracle `4501c8b020dbb152b004ed6bdb6cdf5326126bc4`, `merge-base --is-ancestor
+4501c8b origin/main` → **yes**, and `--stat`-checked as the CODE merge that carries the
+mechanism (not a docs commit standing in for one).
+
+**What was broken and is not any more, in their words and checkable in their tree:** the
+breakpoint sink now rides the hosted player's own run loop, attached bare beside the capture.
+Before it, a client that armed a breakpoint and let the player free-run got
+`wait_for_break → {"timeoutReached": true}` with `hits: 0` — **a false negative
+indistinguishable from "the ROM never reached that address"**, and every bounded run that
+does carry a sink was refused `-32005 machineRunning` while the player played.
+
+**⚠ THIS DOES NOT MAKE THE SPELLING FLIP A STANDALONE PARCEL, and that is the whole content
+of Rider 3.** The owner's ruling above stands unchanged: convert a probe's spelling **in the
+same commit as its migration to the Rust core, never before**. What changed is that the
+migration is now possible; the flip is still not separable from it.
+`tools/test_wait_for_break_spelling.py` is that ruling made mechanical and will hold the line
+either way — it pins each send site's spelling to the seam that file actually dials.
+
+**The live send sites, measured here** (`grep -rn timeout_ms tools/`, exit 0):
+`tools/parallax_hscroll_probe.py:599` (120000), `tools/raster_frame_epoch_probe.py:228`
+(6000), and the `evict_witness.py:97` comment. **The danger is asymmetric and runs the safe
+way for once:** the Rust core declares `unevaluatedProperties: false` and refuses an unknown
+key with `-32602`, so a premature flip fails loudly. The legacy server's tolerant
+`getInt(key, 30000)` is the hazardous direction — a flip *away* from the legacy seam silently
+replaces every hand-chosen budget with 30 s, which is protocol bar 15 exactly: the permissive
+implementation is the one incapable of reporting its own failure.
+
+**Sequenced behind the d-8 tier, not started.** It is not a frozen-tier row, and its
+verification half needs the emulator in the controller's foreground (probes cannot be
+verified from a subagent — MCP deadlocks), so it does not parallelise with the tier work.
+
+**One caveat oracle volunteered against themselves, banked because we would otherwise
+misattribute it:** resume-past-a-breakpoint depends on their sink suppressing a re-fire at
+the PC the run started on. **A machine that halts and cannot be stepped past its own
+breakpoint is THEIR bug, not our tool's** — report it rather than working around it.
+
+*Their message also hedged that its account of OUR state (that we are still holding three
+fixes) was three days old and unverified. Checked here: we are. The two send sites above are
+live on the legacy spelling. The hedge was correct to make and the claim happened to hold.*
+
 ## From the delete-percell-hscroll parcel (2026-08-26, `parcel/delete-percell-hscroll`)
 
 ### Per-cell HScroll fill — DELETED 2026-08-26 (d-29-corrected), how to restore
