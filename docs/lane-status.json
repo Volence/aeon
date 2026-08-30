@@ -1,12 +1,6 @@
 {
-  "focus": "The replay safety net runs green end to end for the first time since it broke.",
-  "inFlight": [
-    {
-      "what": "four-shape rebuild on the merged tree, then the paired freeze with sigil for the restamp",
-      "where": "master, foreground",
-      "agent": false
-    }
-  ],
+  "focus": "The replay safety net is repaired, frozen and certified; sigil is unblocked behind it.",
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "d-34",
@@ -19,11 +13,11 @@
       "since": "2026-08-29"
     }
   ],
-  "nextBoundary": "After the paired freeze lands. The restamp is committed and pushed; the freeze is the remaining half.",
+  "nextBoundary": "Here. Chain 189 frozen, attested and pushed on both sides; no agent holds a branch; nothing half-applied.",
   "queue": [
     {
       "id": "REPLAY-RESTAMP",
-      "title": "RESTAMPED and pushed: both fixtures repaired, the net runs green end to end for the first time since chain 181, control still trips so the green is not vacuous. Four shapes green; the two sonic4 ROMs moved at identical lengths and both demo shapes are untouched. REMAINING: the paired freeze with sigil.",
+      "title": "DONE - chain 189 frozen, attested (4170 passed / 0 failed / 0 skips / 29 strict bodies) and pushed both sides. pins.rs unchanged as predicted. The demo goldens did NOT move, which is the discriminator: those shapes carry no fixture, so a move there would have meant the restamp touched something it had no business touching.",
       "state": "open",
       "size": "M",
       "blockedBy": null,
@@ -335,9 +329,9 @@
     }
   ],
   "awaiting": null,
-  "atBoundary": false,
-  "updatedAt": "2026-08-30T08:22:10Z",
-  "resume": "Both bug-tier rows are LANDED (replay-net answered, home-paths fixed) and both canonical shapes are green on the merged tree: s4 719315 B / 6e2f9b22, s4.debug 736315 B / 6516fc68, fresh mtimes, exit 0. Next in d-8 order: the checkpoint-0 restamp (RULED, oracle's A/B reported, restamp mechanically proven by our own agent - nothing restamped yet), then the listing freeze, then DPLC re-cut and block-stream dedup as SERIALIZED byte-movers paired with sigil - they are COUPLED, whichever lands second must re-run dplc_straddle --recut Art_Sonic on the merged tree. Then the decouple's three pieces, then item 1 with its CR filed at the start. Two asks are open with oracle (the three-item replay-net ask; the parameter-contract emitter, which is queued on THEIR owner's word - do not chase it, nothing of ours blocks on it). LEGACY-SEAM-KEY-GATE is unblocked now that tools/ is free of agents; it needs TWO axes, key spelling AND accepted value shape per method - a spelling-only gate would pass the case that matters.",
+  "atBoundary": true,
+  "updatedAt": "2026-08-30T08:51:19Z",
+  "resume": "Chain 189 is frozen/attested/pushed (sigil origin/master 39c34fd2, aeon 3f143178). Sigil is rebasing behind it. NEXT: EFFECTS-W1 item 1 is the PROJECT'S CRITICAL PATH - aurora's every remaining feature row waits on it. Its design + CR are LANDED on branch design/effects-ref-binding (2cf29126, unmerged) and carry three corrections to the brief: item 1's sigil pairing is UNDER-PRICED (expect a repin, not a deletion), a cycle-table lint would ship the feature falsified by its own build lane, and authored_probe has NINE sites not five. File the effectsRef CR with empyrean at the START of the parcel. Byte-movers ahead of item 1: the DPLC re-cut and block-stream dedup, which are COUPLED - whichever lands second re-runs dplc_straddle --recut Art_Sonic on the merged tree. Open questions NOT ours to answer: DRIFT-KEY-CLOSURE-REV (sigil ruled the reporting half; the population half is the owner's and touches d-48).",
   "parkedQuestions": [
     {
       "id": "d-16",
