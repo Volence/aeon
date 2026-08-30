@@ -114,7 +114,7 @@
       "title": "Taking the certification harness off the assembler. Step two is finished; step one retires the golden from being a fix's only witness.",
       "state": "open",
       "size": "L",
-      "blockedBy": "the sigil lane - it is their project and their board front, not a call you owe",
+      "blockedBy": "the sigil lane - their project, their board front",
       "project": "EFFECTS-W1"
     },
     {
@@ -152,7 +152,7 @@
   ],
   "awaiting": null,
   "atBoundary": true,
-  "updatedAt": "2026-08-30T01:02:31Z",
+  "updatedAt": "2026-08-30T01:02:47Z",
   "resume": "Your go is RECORDED (empyrean 7149b39) - do NOT boot into a stop. Start with EFFECTS-W1-SHOW-A-BAND: run tools/band_witness.py against master, no bytes moved. EFFECTS-W1 now has a SECOND HALF - the owner ruled the side-effect bugs must be fixed before the project is done (DoD items 14-17). The canopy is no longer backgroundable and its plan is to INSTRUMENT for the next sighting, not derive a third explanation - two are already refuted. d-47-revised is ruled 'targeted'; measure the append risk before art ships. Everything is in DEFERRED_WORK.md.",
   "parkedQuestions": [
     {
