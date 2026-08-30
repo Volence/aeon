@@ -1,0 +1,367 @@
+{
+ "_generated_by": "tools/decisions_conformance.py --emit-ruled-fixture (never hand-typed)",
+ "generated_at_aeon_sha": "525d8eba5d7b510168ab6fc5ff1234f7f3ac39fc",
+ "generated_at": "2026-08-30T18:11:30Z",
+ "ledger": "docs/decisions.jsonl",
+ "line_count": 98,
+ "ids_by_physical_line": [
+  "d-1",
+  "d-2",
+  "d-4",
+  "d-5",
+  "d-6",
+  "d-7",
+  "d-8",
+  "d-9",
+  "d-10",
+  "d-11",
+  "d-12",
+  "d-13",
+  "d-14",
+  "d-14-answered",
+  "d-15",
+  "d-16",
+  "d-17",
+  "d-18",
+  "d-19",
+  "d-20",
+  "d-21",
+  "d-22",
+  "d-23",
+  "d-24",
+  "d-25",
+  "d-26",
+  "d-27",
+  "d-15-answered",
+  "d-27-corrected",
+  "d-28",
+  "d-28-corrected",
+  "d-29",
+  "d-29-corrected",
+  "d-28-answered",
+  "d-19-answered",
+  "d-20-answered",
+  "d-18-corrected",
+  "d-21-answered",
+  "d-22-answered",
+  "d-24-answered",
+  "d-25-answered",
+  "d-26-answered",
+  "d-27-answered",
+  "d-18-uncapped-option",
+  "d-18-answered",
+  "d-30",
+  "d-31",
+  "d-32",
+  "d-30-answered",
+  "d-33",
+  "d-34",
+  "d-35",
+  "d-36",
+  "d-37",
+  "d-38",
+  "d-39",
+  "d-39-corrected",
+  "d-40",
+  "d-36-answered",
+  "d-38-answered",
+  "d-31-refiled",
+  "d-31-scoped",
+  "d-40-answered",
+  "d-36-correction",
+  "d-41",
+  "d-42",
+  "d-43",
+  "d-42-answered",
+  "d-43-answered",
+  "d-44",
+  "d-44-revised",
+  "d-42-answered",
+  "d-43-answered",
+  "d-44-answered",
+  "d-45-answered",
+  "d-35-closed",
+  "d-32-closed",
+  "d-46",
+  "d-47",
+  "d-47-revised",
+  "vram-replan",
+  "instashield-riders",
+  "d-47-revised-answered",
+  "vram-replan-deferred",
+  "d-46-downgraded",
+  "instashield-riders",
+  "d-1",
+  "d-2",
+  "d-37",
+  "d-36-correction",
+  "d-41",
+  "d-41",
+  "d-48-decouple-n",
+  "d-48-decouple-n",
+  "d-49-restamp-scope",
+  "d-49-restamp-scope-answered",
+  "d-34",
+  "d-50-left-edge-price"
+ ],
+ "ruled_unrepaired": [
+  {
+   "line": 3,
+   "id": "d-4",
+   "reasons": [
+    "option missing key",
+    "option missing name",
+    "option missing key",
+    "option missing name",
+    "option missing key",
+    "option missing name",
+    "recommend must be an object"
+   ]
+  },
+  {
+   "line": 4,
+   "id": "d-5",
+   "reasons": [
+    "option missing key",
+    "option missing name",
+    "option missing key",
+    "option missing name",
+    "option missing key",
+    "option missing name",
+    "recommend must be an object"
+   ]
+  },
+  {
+   "line": 35,
+   "id": "d-19-answered",
+   "reasons": [
+    "options must list two or more"
+   ]
+  },
+  {
+   "line": 36,
+   "id": "d-20-answered",
+   "reasons": [
+    "options must list two or more"
+   ]
+  },
+  {
+   "line": 38,
+   "id": "d-21-answered",
+   "reasons": [
+    "options must list two or more"
+   ]
+  },
+  {
+   "line": 39,
+   "id": "d-22-answered",
+   "reasons": [
+    "options must list two or more"
+   ]
+  },
+  {
+   "line": 40,
+   "id": "d-24-answered",
+   "reasons": [
+    "options must list two or more"
+   ]
+  },
+  {
+   "line": 41,
+   "id": "d-25-answered",
+   "reasons": [
+    "options must list two or more"
+   ]
+  },
+  {
+   "line": 42,
+   "id": "d-26-answered",
+   "reasons": [
+    "options must list two or more"
+   ]
+  },
+  {
+   "line": 43,
+   "id": "d-27-answered",
+   "reasons": [
+    "options must list two or more"
+   ]
+  },
+  {
+   "line": 45,
+   "id": "d-18-answered",
+   "reasons": [
+    "options must list two or more"
+   ]
+  },
+  {
+   "line": 48,
+   "id": "d-32",
+   "reasons": [
+    "option missing key",
+    "option missing name",
+    "option missing key",
+    "option missing name",
+    "option missing key",
+    "option missing name",
+    "recommend must be an object"
+   ]
+  },
+  {
+   "line": 49,
+   "id": "d-30-answered",
+   "reasons": [
+    "options must list two or more"
+   ]
+  },
+  {
+   "line": 59,
+   "id": "d-36-answered",
+   "reasons": [
+    "options must list two or more"
+   ]
+  },
+  {
+   "line": 60,
+   "id": "d-38-answered",
+   "reasons": [
+    "options must list two or more"
+   ]
+  },
+  {
+   "line": 63,
+   "id": "d-40-answered",
+   "reasons": [
+    "options must list two or more"
+   ]
+  },
+  {
+   "line": 64,
+   "id": "d-36-correction",
+   "reasons": [
+    "options must list two or more"
+   ]
+  },
+  {
+   "line": 68,
+   "id": "d-42-answered",
+   "reasons": [
+    "options must list two or more"
+   ]
+  },
+  {
+   "line": 69,
+   "id": "d-43-answered",
+   "reasons": [
+    "options must list two or more"
+   ]
+  },
+  {
+   "line": 72,
+   "id": "d-42-answered",
+   "reasons": [
+    "options must list two or more"
+   ]
+  },
+  {
+   "line": 73,
+   "id": "d-43-answered",
+   "reasons": [
+    "options must list two or more"
+   ]
+  },
+  {
+   "line": 74,
+   "id": "d-44-answered",
+   "reasons": [
+    "options must list two or more"
+   ]
+  },
+  {
+   "line": 75,
+   "id": "d-45-answered",
+   "reasons": [
+    "options must list two or more"
+   ]
+  },
+  {
+   "line": 76,
+   "id": "d-35-closed",
+   "reasons": [
+    "options must list two or more"
+   ]
+  },
+  {
+   "line": 77,
+   "id": "d-32-closed",
+   "reasons": [
+    "options must list two or more"
+   ]
+  },
+  {
+   "line": 81,
+   "id": "vram-replan",
+   "reasons": [
+    "option missing key",
+    "option missing name",
+    "option missing key",
+    "option missing name",
+    "option missing key",
+    "option missing name",
+    "option missing key",
+    "option missing name",
+    "recommend must be an object"
+   ]
+  },
+  {
+   "line": 82,
+   "id": "instashield-riders",
+   "reasons": [
+    "option missing key",
+    "option missing name",
+    "option missing key",
+    "option missing name",
+    "option missing key",
+    "option missing name",
+    "recommend.key names no option in this entry"
+   ]
+  },
+  {
+   "line": 83,
+   "id": "d-47-revised-answered",
+   "reasons": [
+    "options missing",
+    "recommend missing"
+   ]
+  },
+  {
+   "line": 84,
+   "id": "vram-replan-deferred",
+   "reasons": [
+    "options missing",
+    "recommend missing"
+   ]
+  },
+  {
+   "line": 85,
+   "id": "d-46-downgraded",
+   "reasons": [
+    "options missing",
+    "recommend missing"
+   ]
+  },
+  {
+   "line": 86,
+   "id": "instashield-riders",
+   "reasons": [
+    "option missing key",
+    "option missing name",
+    "option missing key",
+    "option missing name",
+    "option missing key",
+    "option missing name",
+    "recommend.key names no option in this entry"
+   ]
+  }
+ ]
+}

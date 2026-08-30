@@ -108,37 +108,112 @@ def reject_reasons(d: dict) -> list[str]:
     return e
 
 
-def main() -> int:
-    path = sys.argv[1] if len(sys.argv) > 1 else LEDGER
+def measure(path: str) -> list[tuple[int, object, list[str]]]:
+    """Every non-blank PHYSICAL line of the ledger as (line, id, reasons); reasons is empty
+    when the line parses for the reader.
+
+    A line that is not JSON is REJECTED AS A LINE (id None), never a reason to abandon the
+    file. Dominion does exactly this (`:615-619`: push kind 'json', then `continue`), and the
+    first version of this tool returned 2 for the whole ledger instead — so a single bad
+    line made the file unmeasurable here while remaining perfectly measurable to the
+    reader, and it failed in the "we cannot know" direction. Found by the sigil lane
+    running this tool against their own red-first fixture.
+
+    Raises OSError if the file cannot be read; returns [] for a file with no entries. This
+    is the ONE walk over the ledger: main(), `--emit-ruled-fixture`, the write site
+    (decisions_append.py) and the pytest gate (test_decisions_ledger.py) all import it, so
+    none of them can disagree about which lines are rejected."""
+    out: list[tuple[int, object, list[str]]] = []
+    with open(path) as fh:
+        for n, line in enumerate(fh, 1):
+            if not line.strip():
+                continue
+            try:
+                d = json.loads(line)
+            except json.JSONDecodeError as ex:
+                out.append((n, None, [f"not valid JSON: {ex}"]))
+                continue
+            if not isinstance(d, dict):
+                out.append((n, None, ["not a JSON object"]))
+                continue
+            out.append((n, d.get("id"), reject_reasons(d)))
+    return out
+
+
+def physical_ids(path: str) -> list[object]:
+    """The id on every PHYSICAL line, in order (index+1 is the line number); a blank or
+    non-JSON line is None. The append-only gate compares a recorded prefix of this against
+    the live file, so a deleted or reordered line moves it."""
+    ids: list[object] = []
+    with open(path) as fh:
+        for line in fh:
+            try:
+                d = json.loads(line)
+                ids.append(d.get("id") if isinstance(d, dict) else None)
+            except json.JSONDecodeError:
+                ids.append(None)
+    return ids
+
+
+def emit_ruled_fixture(path: str, out_path: str) -> int:
+    """Write the ruled-not-to-repair set AS THIS TOOL MEASURES IT — never hand-typed — with
+    the aeon SHA and clock time it was generated at. test_decisions_ledger.py holds the live
+    ledger to exactly this: the same lines carrying the same ids rejected for the same
+    reasons, nothing NEW rejected, nothing deleted. Regenerate ONLY on a hub ruling that
+    changes the ruled set; a regeneration that is not accompanied by one is a repair by
+    another route."""
+    import subprocess
     try:
-        raw = [(n, line) for n, line in enumerate(open(path), 1) if line.strip()]
+        rows = measure(path)
     except OSError as ex:
         print(f"CANNOT MEASURE: {path}: {ex}")
         return 2
-    if not raw:
+    if not rows:
+        print(f"CANNOT MEASURE: {path} holds no entries")
+        return 2
+    sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=AEON, capture_output=True,
+                         text=True, check=True).stdout.strip()
+    stamp = subprocess.run(["date", "-u", "+%Y-%m-%dT%H:%M:%SZ"], capture_output=True,
+                           text=True, check=True).stdout.strip()
+    ids = physical_ids(path)
+    fixture = {
+        "_generated_by": "tools/decisions_conformance.py --emit-ruled-fixture (never hand-typed)",
+        "generated_at_aeon_sha": sha,
+        "generated_at": stamp,
+        "ledger": os.path.relpath(path, AEON),
+        "line_count": len(ids),
+        "ids_by_physical_line": ids,
+        "ruled_unrepaired": [{"line": n, "id": i, "reasons": e} for n, i, e in rows if e],
+    }
+    with open(out_path, "w") as fh:
+        json.dump(fixture, fh, indent=1)
+        fh.write("\n")
+    print(f"{out_path}: {len(fixture['ruled_unrepaired'])} ruled line(s) over "
+          f"{len(ids)} physical line(s), generated at aeon {sha[:8]} {stamp}")
+    return 0
+
+
+def main() -> int:
+    argv = sys.argv[1:]
+    if argv and argv[0] == "--emit-ruled-fixture":
+        if len(argv) < 2:
+            print("usage: decisions_conformance.py --emit-ruled-fixture OUT.json [LEDGER]")
+            return 2
+        return emit_ruled_fixture(argv[2] if len(argv) > 2 else LEDGER, argv[1])
+    path = argv[0] if argv else LEDGER
+    try:
+        rows = measure(path)
+    except OSError as ex:
+        print(f"CANNOT MEASURE: {path}: {ex}")
+        return 2
+    if not rows:
         print(f"CANNOT MEASURE: {path} holds no entries — refusing to report a ledger clean "
               f"against an empty file")
         return 2
-
-    # A line that is not JSON is REJECTED AS A LINE, never a reason to abandon the file.
-    # Dominion does exactly this (`:615-619`: push kind 'json', then `continue`), and the
-    # first version of this tool returned 2 for the whole ledger instead — so a single bad
-    # line made the file unmeasurable here while remaining perfectly measurable to the
-    # reader, and it failed in the "we cannot know" direction. Found by the sigil lane
-    # running this tool against their own red-first fixture.
-    rows, bad = [], []
-    for n, line in raw:
-        try:
-            rows.append((n, json.loads(line)))
-        except json.JSONDecodeError as ex:
-            bad.append((n, None, [f"not valid JSON: {ex}"]))
-
-    bad += [(n, d.get("id"), reject_reasons(d)) for n, d in rows
-            if reject_reasons(d)]
-    bad.sort(key=lambda b: b[0])
+    bad = [(n, i, e) for n, i, e in rows if e]
 
     print(f"{path}")
-    total = len(raw)
+    total = len(rows)
     print(f"  {total} lines · {total-len(bad)} parse · {len(bad)} REJECTED "
           f"(counted per LINE, never by id)")
     if bad:
