@@ -233,6 +233,23 @@ same-runner, same-code, 186 vs candidate, delta per checkpoint rather than one p
   lane's mechanism predicts the movers are the checkpoints where `cam_col < 16` — the early ones —
   and that checkpoints past column 16 HOLD. **If checkpoints deep into the run also moved, the
   mechanism is incomplete and the restamp must not proceed on it.**
+- **AND THE FALSIFIER IS TESTABLE RATHER THAN REPORTABLE, because of a field oracle checked before
+  promising it.** `StaleCheckpoint` (`oracle crates/oracle-replay/src/restamp.rs:432`) carries
+  `index`, **`logic_tick`**, `ring`, `payload`, `fixture_offset`, `expected`, `actual`; `RestampPlan`
+  (`:447`) carries the stale set in stream order plus `total_checkpoints` for the *"n of 27"*.
+  **Index alone would have left "early" as a category to be argued. `logic_tick` is the tick at the
+  stop, so each mover can be checked against the CAMERA'S ACTUAL POSITION at that tick** — the
+  prediction becomes a boundary someone can point at, and a mover on the wrong side of it is a
+  refutation rather than a discussion. *Note the manner: they verified this in their own tree before
+  confirming an offer they had already made about it — a claim about one's own tree, checked at the
+  moment it became load-bearing, which is the exact failure this file has recorded four times
+  tonight in the other direction.*
+- **They have booked, in the imperative and against themselves, that the set is reported VERBATIM
+  and never summarised into a verdict that agrees with us.** Their reasoning, adopted here: a
+  confirming summary is what would let an incomplete mechanism authorise a restamp, and by this
+  file's own argument that is the expensive failure — the fold is address-free, so a desync means
+  real behaviour moved, and a restamp on a wrong mechanism restores green while destroying the only
+  claim the net makes.
 
 *Why the falsifier is written here rather than carried: the mechanism was believed by both lanes
 before it was checked, and a shared belief is the thing an A/B cannot correct unless it was told in
