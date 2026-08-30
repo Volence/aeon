@@ -180,6 +180,42 @@ edge, and (b) `Section_RedrawPlanes` returning `d7 = Cache_Head_Col` uncondition
 `Section_Plane_Dirty` setters run straight after an unbudgeted `FillAll`, and now asserted, but it is
 the remaining place a tracker is written without a matching draw.
 
+### d-32 RE-MEASURE — RETRACTED THE SAME NIGHT IT WAS MADE, AND THE FAILURE IS INSTRUCTIVE (2026-08-30)
+
+**Claimed:** the left-edge foreground loss is repaired, because a per-column scene showed the
+leftmost 16 px carrying plane A exactly like its neighbours. **Retracted within the hour. Both legs
+were unsound and each alone would have been enough.**
+
+**Leg 1 — the fix I credited is NOT ON MASTER.** The d-41 column-19 borrow was REVERTED at
+`48eded35` (*"the go was a misunderstanding — back out the fix, keep the pictures"*): the owner's
+approval had conflated d-41 with the floor repaint, and he asked to SEE the right-edge cost before
+deciding. **What made this easy to get wrong is worth recording: the revert took out the fix and left
+the scaffolding.** `VSCROLL_COL19_BG_OFF` and its `ensure` still stand in `parallax.emp:530-538`, and
+the banner above `Vscroll_Write` still reads *"AND IT IS FIXED SINCE 2026-08-29, by the column-19
+borrow"* and lists the borrow as *"(a) … This is what ships."* **It does not ship.** I read the
+banner, not the instruction stream, and a banner survived the revert of the thing it describes.
+*Grep for the WRITE, not for the vocabulary: the constants and the prose are present in both worlds
+and cannot discriminate.*
+
+**Leg 2 — I sampled where the defect cannot exist.** The sliver is `hscroll & 15` px wide. My frozen
+sample sat at `Camera_X = 3984`, which is `249 × 16`. **A 16-aligned camera has a zero-pixel sliver
+by construction**, so the measurement could only come back clean, fix or no fix.
+
+**THE PART THAT IS ACTUALLY WORTH KEEPING, because the instinct fired and still missed.** The result
+was five bands at *exactly* 50.0%, which is this file's own tell for a confound, and **I did stop and
+check it** — confirming that plane A wins rows 112-223 contiguously, a real horizon at the halfway
+line. That check was correct and it was aimed at the wrong candidate. **Verifying one confound
+retires the suspicion, not the population**, and having done the ritual made the number feel earned.
+The clean-constant rule needs the second half stated: enumerate what ELSE could hold the value fixed,
+and specifically ask whether the sample sits at a boundary the mechanism is defined in terms of.
+
+**What a correct measurement needs, since the retry did not get there either:** a camera X that is
+NOT 16-aligned (a 60-frame nudge loop landed on 1472, aligned again — camera X may only ever settle
+16-aligned in this test harness, which is itself worth establishing) AND plane A content present at
+the left edge (at 1472 the foreground is empty across x 0-23, so even a correct alignment would have
+measured nothing). Both conditions, in one frame. Until then **d-32's status is UNKNOWN**, exactly as
+it was before, and the DoD item-15 entry for it is NOT discharged.
+
 ### CANOPY GAP — THE VERTICAL FILL PATH IS NOW EXERCISED, PLAIN AND STARVED, AND IT IS CLEAN (measured 2026-08-30)
 
 **This discharges the booked next step** ("get a reproduction with real vertical camera motion and

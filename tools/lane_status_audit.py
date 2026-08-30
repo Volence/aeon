@@ -55,6 +55,24 @@ OWNER_PHRASES = [
 OWNER_RE = re.compile("|".join(OWNER_PHRASES), re.I)
 
 
+# The seven entries closed OUT OF SHAPE before rule 8c was being followed, and RULED
+# 2026-08-30 by the hub as "do not repair" — rule 8 forbids rewriting, Dominion builds
+# owner-facing cards only from `blockedOnOwner` joined by id so these reach him nowhere,
+# and the first-class `answered` field supersedes the whole question. Full write-up in
+# docs/OVERSEER.md, section "SEVEN LEDGER ENTRIES ARE CLOSED OUT OF SHAPE".
+#
+# They are EXEMPTED FROM CHECK 2 AND REPORTED ANYWAY, never silently skipped: an audit that
+# hides what it forgave is an audit nobody can review. Adding an id here requires a RULING,
+# not a judgement that it looks settled — the whole failure mode this list guards is a lane
+# quietly deciding its own board is fine.
+RULED_NOT_TO_REPAIR = {
+    "d-45", "d-45-answered",
+    "d-46", "d-46-downgraded",
+    "d-47-revised", "d-47-revised-answered",
+    "vram-replan", "vram-replan-deferred",
+}
+
+
 def load():
     try:
         status = json.load(open(STATUS))
@@ -116,9 +134,14 @@ def main() -> int:
     surfaced = {b.get("id") for b in status.get("blockedOnOwner", [])}
     surfaced |= {p.get("id") for p in status.get("parkedQuestions", [])}
     opens = open_card_ids(cards)
-    missing = sorted(opens - surfaced)
+    unsurfaced = opens - surfaced
+    exempt = sorted(unsurfaced & RULED_NOT_TO_REPAIR)
+    missing = sorted(unsurfaced - RULED_NOT_TO_REPAIR)
     print(f"check 2 — still-open cards: {len(opens)}; surfaced to him: "
-          f"{len(opens & surfaced)}; unsurfaced: {len(missing)}")
+          f"{len(opens & surfaced)}; unsurfaced: {len(unsurfaced)} "
+          f"({len(exempt)} ruled not-to-repair, {len(missing)} to answer for)")
+    for e in exempt:
+        print(f"  known {e!r}: closed out of shape, hub-ruled 2026-08-30 not to repair")
     for m in missing:
         fails.append(f"check 2: card {m!r} is open but is on neither blockedOnOwner nor "
                      f"parkedQuestions — he is never shown it")

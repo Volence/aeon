@@ -1,9 +1,19 @@
 {
-  "focus": "Cut your decision list from ten to two, and cleared five stale blockers that were hiding in row text.",
+  "focus": "Retracted a wrong all-clear on your left-edge glitch. Prose sweep landed. Two agents still out.",
   "inFlight": [
     {
-      "what": "the sprite-art queue instrument: built, green, and committed on its branch - parked, not lost",
-      "where": "branch parcel/dplc-entry-instrument, waiting on a rebuilt assembler",
+      "what": "the two clamps - parallax scroll and the section one that only looks like a clamp",
+      "where": "branch parcel/scroll-and-section-clamps",
+      "agent": true
+    },
+    {
+      "what": "the measurement the DPLC ruling is conditioned on",
+      "where": "branch measure/dplc-append-risk",
+      "agent": true
+    },
+    {
+      "what": "the sprite-art queue instrument: built, green, committed - parked, not lost",
+      "where": "branch parcel/dplc-entry-instrument",
       "agent": false
     }
   ],
@@ -12,19 +22,142 @@
       "id": "d-34",
       "what": "a second standstill drift, found while building your mirrored-slopes ruling",
       "since": "2026-08-27"
-    },
-    {
-      "id": "instashield-riders",
-      "what": "whether Tails gets the same came-from-a-jump gate (I recommend yes, and leaving Knuckles), and whether you want S3K's second insta-shield gate, which is a feel change",
-      "since": "2026-08-29"
     }
   ],
-  "nextBoundary": "This is it. Everything is committed and pushed; no agent is running; a fresh session loses nothing.",
+  "nextBoundary": "When the three agents return and their branches are landed or parked. Three agents hold branches right now.",
   "queue": [
     {
+      "id": "SCROLL-AND-SECTION-CLAMPS",
+      "title": "The two clamps: the parallax scroll that wraps silently on a bad number, and a line in the section code that says it clamps and does not. One parcel, agent running.",
+      "state": "doing",
+      "size": "S",
+      "blockedBy": null,
+      "project": "EFFECTS-W1"
+    },
+    {
+      "id": "DPLC-APPEND-RISK-MEASURE",
+      "title": "The measurement the DPLC ruling is conditioned on: that appending art disturbs nothing else. A measurement, not the argument. Agent running.",
+      "state": "doing",
+      "size": "S",
+      "blockedBy": null,
+      "project": "EFFECTS-W1"
+    },
+    {
+      "id": "EFFECTS-W1-MOVING-BANDS",
+      "title": "DoD item 4: bands whose edges move over time while the player stands still. Needs a design pass first - the anchor mover is new.",
+      "state": "open",
+      "size": "L",
+      "blockedBy": null,
+      "project": "EFFECTS-W1"
+    },
+    {
+      "id": "EFFECTS-W1-VARIANTS-CYCLES",
+      "title": "DoD item 5: palette variants and palette cycling, authorable. Waits on the contract change for the new keys.",
+      "state": "blocked",
+      "size": "M",
+      "blockedBy": null,
+      "project": "EFFECTS-W1"
+    },
+    {
+      "id": "EFFECTS-W1-VERTICAL-BOB",
+      "title": "DoD item 7: the whole background sways over time. Cheapest of the motion items - one term on a step that already exists.",
+      "state": "open",
+      "size": "S",
+      "blockedBy": null,
+      "project": "EFFECTS-W1"
+    },
+    {
+      "id": "EFFECTS-W1-BGANIM-BAND-MOTION",
+      "title": "DoD item 8: vertical band motion for the animated background. The mechanism is live and driven today.",
+      "state": "open",
+      "size": "M",
+      "blockedBy": null,
+      "project": "EFFECTS-W1"
+    },
+    {
+      "id": "EFFECTS-W1-ROW-REMAP",
+      "title": "DoD item 9: Hydrocity-style background rows re-ordered from a table. He wants it; sequenced last by his own preference.",
+      "state": "open",
+      "size": "L",
+      "blockedBy": null,
+      "project": "EFFECTS-W1"
+    },
+    {
+      "id": "EFFECTS-W1-PLANE-TRICKS",
+      "title": "DoD item 10: reels, swapping which plane is the background, and the window as a third layer. Needs the spare nametable first.",
+      "state": "blocked",
+      "size": "L",
+      "blockedBy": "the VRAM re-plan - no spare nametable region exists",
+      "project": "EFFECTS-W1"
+    },
+    {
+      "id": "EFFECTS-W1-NAMETABLE-BASE",
+      "title": "DoD item 11: swapping the picture by register, mid-frame and per-frame. Same spare-nametable prerequisite.",
+      "state": "blocked",
+      "size": "L",
+      "blockedBy": "the VRAM re-plan - no spare nametable region exists",
+      "project": "EFFECTS-W1"
+    },
+    {
+      "id": "BUG-D34-STANDSTILL-DRIFT",
+      "title": "A second standstill drift: overhangs at 135 and 225 degrees behave differently. PARKED for you - the card says in terms that it cannot be judged for you. One character to change whenever you say; pinned meanwhile so it cannot spread.",
+      "state": "blocked",
+      "size": "S",
+      "blockedBy": null,
+      "project": "EFFECTS-W1"
+    },
+    {
+      "id": "BUG-D32-LEFT-EDGE-REMEASURE",
+      "title": "Left-edge ground glitch. My 2026-08-30 'it is gone' is RETRACTED: the fix I credited is reverted on master, and I sampled on a 16px boundary where the glitch cannot show. Status UNKNOWN; needs an off-grid camera with foreground at the left edge.",
+      "state": "open",
+      "size": "S",
+      "blockedBy": null,
+      "project": "EFFECTS-W1"
+    },
+    {
+      "id": "BUG-INSTASHIELD-RIDERS",
+      "title": "RULED: Tails gets the came-from-a-jump gate, Knuckles is left alone, the second gate is not taken. Ready to build.",
+      "state": "open",
+      "size": "S",
+      "blockedBy": null,
+      "project": "EFFECTS-W1"
+    },
+    {
+      "id": "BUG-LOOP-CROSSOVER",
+      "title": "An authored loop crossover reaches the file and never the ROM. This is what blocks loops working at all.",
+      "state": "open",
+      "size": "M",
+      "blockedBy": null,
+      "project": "EFFECTS-W1"
+    },
+    {
+      "id": "BUG-DMA-SPLIT-RESERVE",
+      "title": "The DMA split-reject reserve is sized from art volume rather than per-frame count. Measure before changing it.",
+      "state": "open",
+      "size": "M",
+      "blockedBy": null,
+      "project": "EFFECTS-W1"
+    },
+    {
+      "id": "BUG-BASE-RESIDUE-ENSURES",
+      "title": "Assumptions about alignment with nothing asserting them, invisible to the assembler's own gate. Discipline plus a lint on the sigil side.",
+      "state": "open",
+      "size": "S",
+      "blockedBy": null,
+      "project": "EFFECTS-W1"
+    },
+    {
+      "id": "ORACLE-DEFAULT-AEON",
+      "title": "Point the last emulator-spawning scripts at the new Oracle. The gate lane is already there; eleven standalone probes and two gate entries still spawn the legacy one.",
+      "state": "open",
+      "size": "M",
+      "blockedBy": null,
+      "project": "ORACLE-DEFAULT"
+    },
+    {
       "id": "EFFECTS-W1-SHOW-A-BAND",
-      "title": "Show you a colour band on screen. Nobody has ever seen one. The tool already exists, so this returns an answer without changing a byte.",
-      "state": "next",
+      "title": "ANSWERED 2026-08-30: all three bands do reach the screen, and they own 1.64% of the frame - which is why nobody had seen one. Capture committed.",
+      "state": "open",
       "size": "S",
       "blockedBy": null,
       "project": "EFFECTS-W1"
@@ -71,7 +204,7 @@
     },
     {
       "id": "CANOPY-GAP",
-      "title": "The canopy losing a strip. He has now said the project is not done until this is found and fixed. Two code-read explanations are dead, so the plan is to instrument for the next sighting rather than guess a third time.",
+      "title": "The up-and-down test is built and run, twice, both clean - so the explanation we were hoping for is dead and the gap likely has a second, still-live cause. Two suspects promoted; the detector is still the plan.",
       "state": "open",
       "size": "S",
       "blockedBy": null,
@@ -126,14 +259,6 @@
       "project": "EFFECTS-W1"
     },
     {
-      "id": "STALE-DAC-ANCHOR-PROSE",
-      "title": "Our own notes name a sound-bank address that moved. Fix by deleting the number, not retyping today's. Nothing is editing that file.",
-      "state": "open",
-      "size": "S",
-      "blockedBy": null,
-      "project": "EFFECTS-W1"
-    },
-    {
       "id": "PAINTED-REGIONS-FINDINGS",
       "title": "Fourteen defects a peer study found, now verified and booked. Ten real, one refuted, three already known. Fixing them is not started.",
       "state": "open",
@@ -151,8 +276,8 @@
     }
   ],
   "awaiting": null,
-  "atBoundary": true,
-  "updatedAt": "2026-08-30T01:02:47Z",
+  "atBoundary": false,
+  "updatedAt": "2026-08-30T01:59:44Z",
   "resume": "Your go is RECORDED (empyrean 7149b39) - do NOT boot into a stop. Start with EFFECTS-W1-SHOW-A-BAND: run tools/band_witness.py against master, no bytes moved. EFFECTS-W1 now has a SECOND HALF - the owner ruled the side-effect bugs must be fixed before the project is done (DoD items 14-17). The canopy is no longer backgroundable and its plan is to INSTRUMENT for the next sighting, not derive a third explanation - two are already refuted. d-47-revised is ruled 'targeted'; measure the append risk before art ships. Everything is in DEFERRED_WORK.md.",
   "parkedQuestions": [
     {
