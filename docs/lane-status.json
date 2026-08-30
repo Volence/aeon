@@ -1,10 +1,10 @@
 {
-  "focus": "Re-running the strict attest after a killed one looked alive for 35 minutes. Suite was green.",
+  "focus": "Your background-wrap fix is landed, frozen and certified green. Sigil is released.",
   "inFlight": [
     {
-      "what": "the strict attest on the supersede, re-run after the freeze commit was made reachable",
-      "where": "sigil e38295d2, aeon_rev ec6a4791, chain 188",
-      "agent": true
+      "what": "the sprite-art queue instrument: built, green, committed - parked, not lost",
+      "where": "branch parcel/dplc-entry-instrument",
+      "agent": false
     }
   ],
   "blockedOnOwner": [
@@ -19,12 +19,12 @@
       "since": "2026-08-29"
     }
   ],
-  "nextBoundary": "After the attest records. Sigil holds three parcels on it.",
+  "nextBoundary": "Here. Chain 188 is attested green and pushed; nothing is half-applied and no agent holds a branch.",
   "queue": [
     {
       "id": "SCROLL-AND-SECTION-CLAMPS",
-      "title": "Both clamps built and checked on screen: the parallax one removes a real artifact where the bottom of the background art appears above the top of it. Waiting on a paired freeze slot.",
-      "state": "doing",
+      "title": "DONE: landed, frozen (chain 188) and certified green. The background no longer draws its own bottom edge above its top.",
+      "state": "open",
       "size": "S",
       "blockedBy": null,
       "project": "EFFECTS-W1"
@@ -271,8 +271,8 @@
     }
   ],
   "awaiting": "your look at the right-edge pictures, and one number for sigil's plan - both already on your list",
-  "atBoundary": false,
-  "updatedAt": "2026-08-30T05:15:27Z",
+  "atBoundary": true,
+  "updatedAt": "2026-08-30T05:20:41Z",
   "resume": "Your go is RECORDED (empyrean 7149b39) - do NOT boot into a stop. Start with EFFECTS-W1-SHOW-A-BAND: run tools/band_witness.py against master, no bytes moved. EFFECTS-W1 now has a SECOND HALF - the owner ruled the side-effect bugs must be fixed before the project is done (DoD items 14-17). The canopy is no longer backgroundable and its plan is to INSTRUMENT for the next sighting, not derive a third explanation - two are already refuted. d-47-revised is ruled 'targeted'; measure the append risk before art ships. Everything is in DEFERRED_WORK.md.",
   "parkedQuestions": [
     {
