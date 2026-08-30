@@ -105,7 +105,7 @@ use games.sonic4.scene_registry.{DeformTable_Zero, DeformTable_OJZ_Calm, DeformT
 //   2 pcfg_layer_mask          8 pcfg_anchor_ch          14 pcfg_anchor_dsa
 //   3 pcfg_v_center_y          9 pcfg_deform_table_fg    15 pcfg_anchor_dsb
 //   4 pcfg_v_offset           10 pcfg_deform_table_bg    16 pcfg_v_factor_fg
-//   5 pcfg_transition         11 pcfg_v_deform_table_bg  17 pcfg_pad_29
+//   5 pcfg_transition         11 pcfg_v_deform_table_bg  17 pcfg_bob
 //
 // BAND FIELD INDEX — the same for `band_entry` (engine/level/parallax.emp). RENUMBERED
 // BY P3 TASK 7, which made the top a u16 plane line and packed the two 1-bit factor op
@@ -198,7 +198,14 @@ pub comptime fn hdr(band_count: int, layer_mask: int, v_factor_bg: int, v_center
                 deform_speed_fg: int = 1, deform_speed_bg: int = 1,
                 v_deform_bg: Label = 0, v_deform_speed_bg: int = 0, v_deform_shift_bg: int = 4,
                 anchor_ch: int = PARALLAX_ANCHOR_NONE,
-                anchor_dsa: int = 15, anchor_dsb: int = 15) -> parallax_config {
+                anchor_dsa: int = 15, anchor_dsb: int = 15,
+                // The vertical bob's PACKED byte, not its two authored nibbles. This is the
+                // BYTE-LEVEL oracle: scene_hdr() reaches this field through
+                // scene_bob_packed(), and if the oracle took the same two nibbles and did
+                // the same fold, the two sides would share the packing rule and the proof
+                // would stop testing it. 0 = no bob, which is what the pad this field was
+                // claimed from emitted and what all twenty shipped records still emit.
+                bob: int = 0) -> parallax_config {
     // Both guards compare INTS inside a comptime fn CALLED from this file, so both actually
     // evaluate. The rejected alternative — "an anchored config must declare a deform table" —
     // would have compared a `Label` to an integer, which preset.emp:105-111 proves is
@@ -226,10 +233,12 @@ pub comptime fn hdr(band_count: int, layer_mask: int, v_factor_bg: int, v_center
         pcfg_anchor_dsa:        anchor_dsa,
         pcfg_anchor_dsb:        anchor_dsb,
         pcfg_v_factor_fg:       v_factor_fg,
-        // Spelt, not defaulted — engine/structs.emp deliberately gives pcfg_pad_29 no
-        // `= 0`, so both constructors have to name it and neither can drift into emitting
-        // a 29-byte record the band array then starts on an odd byte after.
-        pcfg_pad_29:            0,
+        // Spelt, not defaulted — engine/structs.emp deliberately gives pcfg_bob no `= 0`,
+        // so both constructors have to name it and neither can drift into emitting a
+        // 29-byte record the band array then starts on an odd byte after. (It was the
+        // even-size pad pcfg_pad_29 until EFFECTS-W1 item 7 claimed it for the bob; the
+        // no-default reasoning is unchanged and the default VALUE is still 0.)
+        pcfg_bob:               bob,
     }
 }
 
@@ -259,13 +268,15 @@ pub comptime fn hdr(band_count: int, layer_mask: int, v_factor_bg: int, v_center
 // ---------------------------------------------------------------------
 pub comptime fn cfg_eq(a: parallax_config, b: parallax_config) -> int {
     comptime var idx = -1
-    // THE PAD IS COMPARED TOO, AT THE TOP OF THE INDEX RANGE. It is a hole in the record,
-    // not a hole in the proof: both constructors spell it 0 today, so this row can only
-    // ever fire if a third constructor appears or one of the two starts writing junk into
-    // a byte that ships. Comparing it costs one comptime `if` and makes the differ TOTAL
-    // over the declaration, which is what lets the index table above be read as "count the
-    // fields in structs.emp" rather than "count the fields the differ happens to know".
-    if a.pcfg_pad_29 != b.pcfg_pad_29 { idx = 17 }
+    // FIELD 17 IS LIVE AGAIN. It was the even-size PAD, compared for totality against two
+    // constructors that both spelled it 0; EFFECTS-W1 item 7 claimed the byte for the
+    // vertical bob, so this row now compares a value the two sides reach by DIFFERENT
+    // routes — the oracle takes the packed byte as an argument, the lowering folds it out
+    // of scene_bob_packed(sc_bob_shift, sc_bob_period). That fold is exactly the kind of
+    // rule this file exists to hold: a scene authoring a bob whose lowering packs the
+    // nibbles the wrong way round reports field 17 here instead of shipping a background
+    // that sways at the wrong speed. Every shipped record still lowers to 0 on both sides.
+    if a.pcfg_bob != b.pcfg_bob { idx = 17 }
     if a.pcfg_v_factor_fg != b.pcfg_v_factor_fg { idx = 16 }
     if a.pcfg_anchor_dsb != b.pcfg_anchor_dsb { idx = 15 }
     if a.pcfg_anchor_dsa != b.pcfg_anchor_dsa { idx = 14 }

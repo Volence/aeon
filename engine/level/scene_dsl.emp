@@ -19,7 +19,7 @@
 module engine.level.scene_dsl
 
 use engine.structs.{parallax_config}
-use engine.parallax.{band_entry, band_record, band_ext, BAND_EXT_N, band_curve, BAND_CURVE_N, band_drift, BAND_DRIFT_N, CURVE_FLAG_OP_BIT, CURVE_FLAG_ACTIVE_BIT, PLANE_B_SPAN, BAND_OP_BIT_A, BAND_OP_BIT_B}
+use engine.parallax.{band_entry, band_record, band_ext, BAND_EXT_N, band_curve, BAND_CURVE_N, band_drift, BAND_DRIFT_N, CURVE_FLAG_OP_BIT, CURVE_FLAG_ACTIVE_BIT, PLANE_B_SPAN, BAND_OP_BIT_A, BAND_OP_BIT_B, BOB_SHIFT_MIN, BOB_SHIFT_MAX, BOB_PERIOD_SHIFT_MAX, BOB_SHIFT_NONE}
 use engine.constants.{MAX_PARALLAX_BANDS, PARALLAX_ANCHOR_NONE}
 use engine.effects.raster_dsl.{RASTER_MAX_PATCH}
 
@@ -54,6 +54,17 @@ use engine.effects.raster_dsl.{RASTER_MAX_PATCH}
 ensure(MAX_PARALLAX_BANDS == 16, "scene_dsl's inlined band ceiling (16) drifted from MAX_PARALLAX_BANDS — every literal 16 governed by this pin is listed in the constant's own comment block in engine/system/constants.emp; move them together or the fixed-size layer arrays and the ceiling disagree")
 ensure(PARALLAX_ANCHOR_NONE == $FF, "scene_dsl's inlined no-anchor sentinel ($FF) drifted from PARALLAX_ANCHOR_NONE")
 ensure(RASTER_MAX_PATCH == 4, "scene_dsl's inlined patch-channel width (4) drifted from RASTER_MAX_PATCH")
+// The vertical bob's three bounds and its sentinel (EFFECTS-W1 item 7). Same species as
+// the three above: parallax.emp DERIVES all four from the sine table's encoding, the
+// Plane-B seam-free span and the tick counter's width, and scene()'s guards spell the
+// resulting NUMBERS because an imported name in a comptime fn body resolves to nothing at
+// a game call site. If the derivation moves, these fire and name the new ladder.
+ensure(BOB_SHIFT_MIN == 1 && BOB_SHIFT_MAX == 8,
+       "scene_dsl's inlined bob amplitude ladder (1 .. 8) drifted from engine.parallax.BOB_SHIFT_MIN/BOB_SHIFT_MAX ({BOB_SHIFT_MIN} .. {BOB_SHIFT_MAX}) — those are DERIVED from the sine table's amplitude and the seam-free V-scroll span, so this firing means one of those moved and scene()'s bob_shift guard is now admitting or refusing the wrong shifts")
+ensure(BOB_PERIOD_SHIFT_MAX == 8,
+       "scene_dsl's inlined bob period ceiling (8) drifted from engine.parallax.BOB_PERIOD_SHIFT_MAX ({BOB_PERIOD_SHIFT_MAX}) — it is DERIVED from the sine cycle length and the width of the tick counter Step 5 reads, and a scene past it sways through a full-amplitude JUMP once per counter wrap")
+ensure(BOB_SHIFT_NONE == 15,
+       "scene_dsl's inlined no-bob sentinel (15) drifted from engine.parallax.BOB_SHIFT_NONE — it is the same 15 that means \"no deform on this plane\" on pcfg_anchor_dsa/dsb and band_deform_shift_a/b, and scene_bob_packed() turns it into the packed byte 0 every shipped record already emits")
 // P3 Task 7 added three more of the same species. PLANE_B_SPAN and the two op bits are
 // parallax's; LAYER_WORLD_Y_MAX is defined here because it is a property of the AUTHORED
 // coordinate space, not of the walker.
@@ -1186,6 +1197,30 @@ pub comptime fn scene_anchor_dsb(a: SceneAnchor) -> int {
     }
 }
 
+// scene_bob_packed — the two authored bob nibbles become the one emitted byte.
+//
+//   pcfg_bob = 0                       no bob
+//   pcfg_bob = (shift << 4) | period   a bob
+//
+// THE SENTINEL CHANGES SPELLING HERE, ON PURPOSE. The AUTHOR writes 15, which is what
+// "no deform on this plane" already means on pcfg_anchor_dsa/dsb and on both
+// band_deform_shift fields — one vocabulary for the reader. The ROM byte is 0, which is
+// what pcfg_bob's predecessor (the even-size pad pcfg_pad_29) emitted in all twenty
+// shipped records, so claiming the byte moves no bytes. Neither spelling works at both
+// ends: 15 packs to $F0 and would have moved twenty records; 0 as an amplitude shift is a
+// 256-px sway, which BOB_SHIFT_MIN refuses.
+//
+// A single-level if-expression, per docs/EMP_PITFALLS.md §1 — nesting one would fold to
+// unit silently and emit a byte nobody wrote.
+//
+// The `& $0F` on the period is not decoration: it is what makes "the byte is 0 iff there
+// is no bob" TRUE rather than merely usual. scene()'s guard already bounds the period, so
+// this can only ever be a no-op — and if that guard is ever relaxed, an over-wide period
+// truncates into its own nibble here instead of carrying into the amplitude one.
+pub comptime fn scene_bob_packed(shift: int, period: int) -> int {
+    return if shift == 15 { 0 } else { (shift << 4) | (period & $0F) }
+}
+
 // -----------------------------------------------
 // Scene — one authored world-Y scene (comptime-only, never emitted).
 //
@@ -1242,6 +1277,20 @@ pub struct Scene {
     // Undeclared themselves, the same way they spell every other attachment's None.
     sc_left_col_mask:      SceneLeftColMask,
     sc_transition:         u8,               // TRANS_SMOOTH / TRANS_INSTANT
+    // The vertical bob (EFFECTS-W1 item 7) — a scene-level term on Step 5's BG V-scroll.
+    // TWO authored fields, ONE emitted byte: scene_bob_packed() folds them into the two
+    // nibbles of pcfg_bob. Kept apart here because they are two independent quantities
+    // (how far, how fast) and the guards that bound them are derived from two different
+    // constants; packing at the authoring surface would make the author do the lowering's
+    // arithmetic and would make both guard messages talk about a byte instead of a sway.
+    //
+    // sc_bob_shift = 15 (BOB_SHIFT_NONE) is NO BOB and is the default, so every scene in
+    // the tree that does not mention the bob emits the same byte it emitted before this
+    // field existed. TWO BYTES, so the parity of the two `(align: 2)` bridges below is
+    // unchanged by their insertion — and that claim is not trusted by eye, it is what
+    // those two annotations assert (see sc_pad_5D's banner).
+    sc_bob_shift:          u8,               // amplitude shift, 1 .. 8; 15 = no bob
+    sc_bob_period:         u8,               // period shift, 0 .. 8
     // Pad so the two i16 bridges below land on EVEN offsets. `Scene` is comptime-only —
     // it never reaches ROM, so an odd 2-byte field could not fault a 68000 today, and
     // sigil's [layout.odd-field] is a false positive here in the strict sense. Padded
@@ -1319,6 +1368,8 @@ pub comptime fn scene(layers: [SceneLayer; 16], count: int,
                       anchor: SceneAnchor = SceneAnchor.None,
                       left_column_mask: SceneLeftColMask = SceneLeftColMask.Undeclared,
                       transition: int = 0,
+                      bob_shift: int = 15,
+                      bob_period: int = 0,
                       layer_mask_raw: int = -1,
                       v_deform_shift_raw: int = -1) -> Scene {
     // 16 = MAX_PARALLAX_BANDS, 0 = TRANS_SMOOTH: inlined per the pin block at the top of
@@ -1711,6 +1762,23 @@ pub comptime fn scene(layers: [SceneLayer; 16], count: int,
     //     build claimed it was covered; nothing was ever mis-certified through it.
     ensure(scene_lcm_is_sprite_mask(left_column_mask) == 0,
            "scene(): left_column_mask: SpriteMask is declared, and it is RULED OUT — the owner rejected covering the strip and asked for it to be repaired instead (d-40, 2026-08-29). The strip emission is cancelled, not pending: since the column-19 borrow the sliver renders the foreground's own V-scroll on every per-column scene, so there is nothing left for a sprite bar to cover. Declare Factor0Lock or Accept. The never-built emitter's two rulings survive as knowledge only, in docs/DEFERRED_WORK.md §'Sprite mask for per-column V-scroll' (opaque strip at screen X 0 first in the link chain — NOT the VDP's X=0 sprite-masking feature, which suppresses later sprites and cannot repaint a plane pixel; and 7 SAT entries at 8x32, not 1)")
+    // (5) THE VERTICAL BOB'S TWO RANGE GUARDS (EFFECTS-W1 item 7).
+    //
+    // Both bounds are DERIVED in engine/level/parallax.emp (bob_shift_min / bob_shift_max /
+    // bob_period_shift_max) and both numbers are spelled here as LITERALS, held to those
+    // derivations by the pins at the top of this file — the call-site resolution rule
+    // (docs/EMP_PITFALLS.md 2), same as every other bound in this function.
+    //
+    // WITHOUT THESE THE FIELD IS UNGUARDED IN BOTH DIRECTIONS, and both directions are
+    // silent. `sc_bob_shift` is a u8, so 0 and 200 both fit the type: 0 packs to $0x, which
+    // is a 256-px sway on a plane with 289 legal origins (it would spend most of every
+    // cycle stuck against the seam clamp), and anything from 16 up overflows the high
+    // nibble into nothing — `(shift << 4)` truncated to a byte turns shift 16 into the
+    // packed byte 0, i.e. a scene that asks for a bob and gets silence.
+    ensure(bob_shift == 15 || (bob_shift >= 1 && bob_shift <= 8),
+           "scene(): bob_shift {bob_shift} outside 1 .. 8, and it is not the no-bob sentinel 15. The bob's peak excursion is the sine table's amplitude shifted right by this count, so 1 is 128 px and 8 is 1 px. Shift 0 (256 px peak, 512 px of travel) cannot fit the 289 seam-free Plane-B window origins Parallax_Step5_Vscroll clamps to — it would spend most of every cycle stuck against that clamp — and 9 or more annihilates the table, leaving a 1-px DC droop and no motion at all. 15 means NO BOB, the same 15 that means no deform on pcfg_anchor_dsa/dsb; it is the default, so a scene that does not sway simply omits both arguments")
+    ensure(bob_period >= 0 && bob_period <= 8,
+           "scene(): bob_period {bob_period} outside 0 .. 8. One full sway is 256 << bob_period logic ticks — 256 ticks (about 4.3 s at 60 Hz) at 0, up to 65,536 ticks at 8. 8 is the ceiling because Parallax_Step5_Vscroll indexes the sine with `(Logic_Tick.low >> bob_period) & $FF` over a SIXTEEN-BIT counter: at 8 the index returns to 0 exactly when the counter wraps, and one shift further it has only reached half the table when the counter wraps, so the background JUMPS by the full bob amplitude once per wrap. This field is ignored when bob_shift is 15")
     return Scene{
         sc_layers:             layers,
         sc_count:              count,
@@ -1724,6 +1792,8 @@ pub comptime fn scene(layers: [SceneLayer; 16], count: int,
         sc_anchor:             anchor,
         sc_left_col_mask:      left_column_mask,
         sc_transition:         transition,
+        sc_bob_shift:          bob_shift,
+        sc_bob_period:         bob_period,
         sc_pad_5D:             default,
         sc_mask_raw:           layer_mask_raw,
         sc_v_deform_shift_raw: v_deform_shift_raw,
@@ -2734,10 +2804,12 @@ pub comptime fn scene_hdr(s: Scene) -> parallax_config {
         pcfg_anchor_dsb:        scene_anchor_dsb(s.sc_anchor),
         pcfg_v_factor_fg:       s.sc_v_factor_fg,
         // Spelt, not defaulted — the field carries no `= 0` in engine/structs.emp
-        // deliberately, so that a third constructor cannot forget the even-size pad byte
-        // and so that tools/left_col_mask_probe.py's field parser (which skips any field
-        // with a default) keeps seeing the real sizeof.
-        pcfg_pad_29:            0,
+        // deliberately, so that a third constructor cannot forget the byte the record's
+        // even size depends on, and so that tools/left_col_mask_probe.py's field parser
+        // (which skips any field with a default) keeps seeing the real sizeof. It is the
+        // vertical bob's packed nibble pair since EFFECTS-W1 item 7 claimed the pad; a
+        // scene that authors no bob lowers to the same 0 the pad emitted.
+        pcfg_bob:               scene_bob_packed(s.sc_bob_shift, s.sc_bob_period),
     }
 }
 
