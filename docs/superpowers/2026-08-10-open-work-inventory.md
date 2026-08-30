@@ -160,8 +160,12 @@ pause-all — which are **engine-complete and waiting on the screens/HUD package
    slab. A one-constant fix (`$0F00`) is on file. **User parked the topic**, so
    it stands as a known live hole.
 2. **Mega-act ROM layout — the pre-DAC hole.** All act data links before the
-   hard `$48000` DAC bank anchor, leaving ~21 KB of slack. A real act **will
-   not link**. Needs a layout decision, not a patch.
+   DAC bank anchor, and a real act **will not link** in the room ahead of it.
+   Needs a layout decision, not a patch. *(Corrected 2026-08-30: this said "the
+   hard `$48000` anchor". That address moved in the 2026-08-26 re-layout and the
+   anchor is DERIVED by `map.toml`'s bank placement rule, not fixed — so the
+   headroom is a derived quantity too. Read the rule; the "~21 KB" that stood
+   here was a snapshot.)*
 3. **STRESS_EVICT page famine** — root-caused this session as capacity
    arithmetic (4 pinned + 6 concurrent transients vs 9 frames). No fix, by
    ruling; folds into the C4-3 famine design. Best option on file: have the
@@ -255,8 +259,14 @@ Collected because they are scattered and each one has already cost something:
   RAM claim, and B5.
 - **Only DATA may be banked; all in-frame code stays resident.** Banked-window
   code fetches corrupt under bus contention.
-- **The `$48000` DAC sample-bank anchor cannot move** — it is a Z80 `SetBank`
-  latch.
+- **The DAC sample-bank anchor is DERIVED, not fixed** — `map.toml`'s bank
+  placement rule puts banks after data, so growing the data moves the anchor.
+  *(Corrected 2026-08-30. This line read "the `$48000` DAC sample-bank anchor
+  cannot move — it is a Z80 `SetBank` latch". Both halves were wrong after the
+  2026-08-26 re-layout, and this is the file people read to decide what is
+  POSSIBLE, so a false immovability claim here rules out designs that are
+  actually available. The Z80 SetBank latch is real; it is not what pins the
+  address.)*
 - **`MEV_EXT` sub-ops 0/1/2 are claimed** (COMM, PUMPSET, GHOSTSET). New tenants
   start at 3.
 - **Any resident Z80 addition needs its reclaim identified first** — even with

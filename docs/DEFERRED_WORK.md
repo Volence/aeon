@@ -1779,9 +1779,14 @@ largest cluster of small, well-specified, independent sound work in the file.
 
 ### 7. Mega-act ROM layout — OJZ's pre-DAC hole caps in-order act data at ~21 KB slack — 2026-08-09
 **Discovered building the P2c Task 11 stress-art fixture.** OJZ's map order places ALL act data
-(art pool, block blobs, local maps, the 116 KB `collision_data`/heightmaps) BEFORE the HARD DAC
-sample-bank anchor at `$48000` (a Z80 `SetBank` latch — cannot move). `collision_data` alone ends
-at `$42D90` canonically, so the in-order act data has only **~21 KB of slack** before the anchor.
+(art pool, block blobs, local maps, the 116 KB `collision_data`/heightmaps) BEFORE the DAC
+sample-bank anchor. **⚠ THE PARENTHETICAL THAT STOOD HERE — `$48000`, "a Z80 `SetBank` latch —
+cannot move" — WAS WRONG IN BOTH HALVES BY 2026-08-30 AND IS THE KIND OF WRONGNESS THAT MISLEADS A
+PLANNER RATHER THAN A BUILD.** The address moved in the 2026-08-26 re-layout, and the anchor is not
+immovable: `games/sonic4/map.toml`'s BANK PLACEMENT RULE **derives** it (banks are placed after data,
+by rule), so growing the data ahead of it moves it. Read the rule for today's value; do not retype a
+number here, which is how the old one got in. The slack figure below is likewise a snapshot of a
+derived quantity, not a constant.
 A real act whose art/block data exceeds that overruns the anchor and will not link in order.
 
 The stress fixture works around this with **fixture-only relocation** (the growable OJZ sections
