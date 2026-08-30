@@ -18,7 +18,8 @@ hand default is what the binding resolves to today anyway — the ROM would be c
 and the gate coverage would be gone.
 
 WHAT IT OBSERVES, AND WHY THAT OBSERVATION IS POSITIVE. The generated module declares
-two `pub equ` witnesses. An equ mints a link-level symbol that reaches the build's
+three `pub equ` witnesses (the third, the raster-binding count, arrived with the
+`rasterRef` arm and is legitimately 0 until a sidecar carries the key). An equ mints a link-level symbol that reaches the build's
 listing (the mechanism scene_registry.emp's budget ledger rows use), and it is
 defined ONLY if the module is lowered — so its PRESENCE in `s4.lst` is direct
 evidence that the module is inside the target's `use` closure. Presence is also what
@@ -155,7 +156,16 @@ def main() -> int:
         fail(f"project.json's act sceneRef {act_ref!r} names no scene in "
              f"{effects_gen.scene_dir()}")
 
-    expected = {names.equ_scenes: want_scenes, names.equ_bindings: want_bindings}
+    # THE RASTER BINDING WITNESS, third of three. Zero today and that is the state it
+    # has to be able to express: an equate is minted whether or not any section binds a
+    # raster program, so a value of 0 is positive evidence that the module was lowered
+    # and carries no binding — which is a DIFFERENT observation from the symbol being
+    # absent, and absence is what a dropped seam looks like. Derived from the sidecars
+    # through the generator's own reader, never read out of the generated `.emp`.
+    want_raster = len(effects_gen.load_section_raster_refs(REPO))
+
+    expected = {names.equ_scenes: want_scenes, names.equ_bindings: want_bindings,
+                names.equ_raster_bindings: want_raster}
     for sym, want in expected.items():
         if sym not in equs:
             fail(f"witness `{sym}` is ABSENT from {lst}. An equ is defined only if "
@@ -167,12 +177,14 @@ def main() -> int:
         if equs[sym] != want:
             fail(f"witness `{sym}` is {equs[sym]} in {lst}, but the editor inputs "
                  f"say {want} (scenes reached by an assignment: {want_scenes}; "
-                 f"bindings: {want_bindings}). The built artifact does not carry "
+                 f"scene bindings: {want_bindings}; raster bindings: {want_raster}). "
+                 f"The built artifact does not carry "
                  f"what project.json + the section sidecars declare — re-bake with "
                  f"tools/regenerate-level.sh.")
 
     print(f"effects_seam_gate: OK — binding seam reached "
           f"({names.equ_scenes}={want_scenes}, {names.equ_bindings}={want_bindings}, "
+          f"{names.equ_raster_bindings}={want_raster}, "
           f"{calls} section call site(s), {len(equs)} equates parsed from {lst})")
     return 0
 

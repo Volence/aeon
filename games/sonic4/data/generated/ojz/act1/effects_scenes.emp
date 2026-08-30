@@ -8,10 +8,10 @@
 // STATE OF THIS BAKE: 2 editor scene(s) reached by an assignment,
 // 2 binding(s), 9 act sections. Authored but unassigned: none.
 //
-// THE TWO `pub comptime fn`s AT THE BOTTOM ARE EMITTED FOR EVERY ACT, ALWAYS —
+// THE THREE `pub comptime fn`s AT THE BOTTOM ARE EMITTED FOR EVERY ACT, ALWAYS —
 // owner ruling 2026-08-22 (design §9 Q-c, the always-emitted default). With no
-// editor content they return the `hand:` fallback the descriptor passes; with
-// editor content they return the lowered record above. The descriptor therefore
+// editor content they return the `hand:` fallback their caller passes; with
+// editor content they return the lowered record above. The caller therefore
 // has ONE path, always live, and never a conditional. They are functions and not
 // Labels for a measured reason: see the block comment above `render_module()` in
 // tools/effects_gen.py — `pub equ` is not importable and a `pub const` carrying a
@@ -155,6 +155,7 @@ pub data EditorRaster_OJZ_Act1_authored_probe: [u16; raster_words(EditorRasterSr
 // `ensure(1 == 0)` here built GREEN with an unchanged CRC.
 pub equ EditorScenes_OJZ_Act1_Count = 2
 pub equ EditorScenes_OJZ_Act1_Bindings = 2
+pub equ EditorRaster_OJZ_Act1_Bindings = 0
 
 // The binding table's domain, held against the engine's flat-section ceiling. The
 // literal below is repeated inside `sec_scene`'s ensure ON PURPOSE — a comptime fn's
@@ -165,7 +166,7 @@ ensure(9 <= MAX_ACT_SECTIONS,
        "this act declares 9 sections in project.json, past the engine's MAX_ACT_SECTIONS ceiling ({MAX_ACT_SECTIONS}) — the binding table has slots the section grid cannot address")
 
 // =====================================================================
-// THE BINDINGS — the seam act_descriptor.emp calls. ALWAYS BOTH, ALWAYS LIVE.
+// THE SCENE BINDINGS — the seam act_descriptor.emp calls. ALWAYS BOTH, ALWAYS LIVE.
 //
 // `hand:` is the descriptor's own fallback, carried as a PARAMETER rather than
 // named here: a comptime fn's free names resolve at the call site, so the hand
@@ -181,5 +182,28 @@ pub comptime fn ojz_act1_sec_scene(sec: int, hand: Label = 0) -> Label {
     comptime var out = hand
     if sec == 0 { out = EditorSceneBinding_OJZ_Act1_Sec0 }
     if sec == 4 { out = EditorSceneBinding_OJZ_Act1_Sec4 }
+    return out
+}
+
+// ---- THE RASTER BINDING — the seam the GAME'S EFFECTS LIBRARY calls ----
+//
+// The third always-emitted chooser, and the one that does NOT go to
+// act_descriptor.emp: a raster program is an `EffectsPreset` channel, not a scene
+// channel, so its call site is the section's own `preset()` in
+// games/sonic4/data/effects/ojz_effects.emp — `raster: <this>(sec: N, hand: ...)`.
+//
+// `hand:` IS THE CALLER'S, AND ON A PATCHED SECTION IT MUST BE `0`. `preset()` asserts
+// `ep_raster == 0 || ep_patched == 0` and that assert DOES read this function's result
+// (measured 2026-08-30, both arms). So a section that binds `patched:` must pass
+// `hand: 0`, because `Raster_Program_None` is a real non-zero label and would fire the
+// exclusivity ensure for a section that bound nothing at all. Every other section
+// passes `hand: Raster_Program_None`, since NULL cannot mean "off" while it also means
+// "keep" (ARCH §7.12).
+//
+// With no `rasterRef` in any sidecar the body below is `return hand` and this whole
+// block is zero ROM bytes — a `pub comptime fn` emits nothing.
+pub comptime fn ojz_act1_sec_raster(sec: int, hand: Label = 0) -> Label {
+    ensure(sec >= 0 && sec < 9, "ojz_act1_sec_raster(sec: {sec}): this act has 9 sections, so there is no binding slot for that index — the section preset and project.json's grid have drifted apart")
+    comptime var out = hand
     return out
 }

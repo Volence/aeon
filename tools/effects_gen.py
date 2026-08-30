@@ -1086,6 +1086,20 @@ def render_preset(path: str, preset: dict, names) -> str:
 # invent a placement problem that had already been solved.
 
 ACT_SCENE_REF_KEY = "sceneRef"
+# THE RASTER BINDING KEY, AND THIS LINE IS THE ONLY PLACE THE WIRE SPELLING IS WRITTEN.
+#
+# Adjudicated by the empyrean CR (docs/2026-08-30-effectsref-contract-change.md), carried
+# at empyrean da91abce as OPTION B: a NEW key takes the narrow raster-channel binding and
+# `effectsRef` stays reserved, unspent, for the total binding it was named for. Option A
+# (narrow `effectsRef` in place) was refused because it leaves a name outliving its
+# meaning; option C (grow the preset document to total) because it makes this arm depend
+# on DoD item 5 and inverts the ratified sequence.
+#
+# NOTHING ELSE IN THE TREE HARDCODES IT. The sidecar reader, the resolution error, the
+# tests, tools/effects_seam_gate.py and tools/test_raster_cycle_table_lint.py all read
+# THIS constant, so a re-spelling is a one-line change. That property is load-bearing and
+# not decoration: this key spent a day un-adjudicated with an arm being built against it.
+ACT_RASTER_REF_KEY = "rasterRef"
 PROJECT_JSON = "project.json"
 
 
@@ -1096,32 +1110,39 @@ def _act_entry(repo: str = REPO, zone: int = 0, act: int = 0) -> dict:
     return project["zones"][zone]["acts"][act], project["zones"][zone]
 
 
-def _scene_ref(path: str, value, where: str):
-    """One `sceneRef` value → a scene id string, or None for absent.
+def _scene_ref(path: str, value, where: str, key: str = ACT_SCENE_REF_KEY):
+    """One sidecar/project ref value → an id string, or None for absent.
 
     Contract §2.2, stated in the contract's own words: "`sceneRef` is a string id or
     null, NEVER a numeric index" — because AURORA's parser nulls a non-string
     SILENTLY (`section-meta.ts:29-30`), so `sceneRef: 3` presents as "the assignment
     didn't stick". The generator refuses it instead: the one writer that can still
     see the mistake is the build.
+
+    `key` IS A PARAMETER AND NOT A LITERAL because `rasterRef` reuses this validator
+    whole — same shape, same id regex, same numeric ban, same reason — and the empyrean
+    §3.1 obligation is that a refusal names the key it refused. A shared message that
+    said "sceneRef" while refusing a `rasterRef` would send the author to the wrong
+    line of the wrong file.
     """
     if value is None:
         return None
     if not isinstance(value, str):
-        _refuse(path, f"{where}: sceneRef must be a scene-id STRING or null, got "
+        _refuse(path, f"{where}: {key} must be an id STRING or null, got "
                       f"{type(value).__name__} ({value!r}). A numeric index is "
                       f"refused on purpose — Aurora's sidecar parser nulls a "
                       f"non-string value silently, so this would present as an "
                       f"assignment that did not stick.")
     if not SCENE_ID_RE.match(value):
-        _refuse(path, f"{where}: sceneRef {value!r} is not a legal scene id "
+        _refuse(path, f"{where}: {key} {value!r} is not a legal id "
                       f"({SCENE_ID_RE.pattern}) — ids become `.emp` symbol "
                       f"components.")
     return value
 
 
-def load_section_scene_refs(repo: str = REPO, zone: int = 0, act: int = 0) -> dict:
-    """`{section_index: scene_id}` from the per-section sidecars.
+def _load_section_refs(key: str, repo: str = REPO, zone: int = 0,
+                      act: int = 0) -> dict:
+    """`{section_index: id}` for ONE sidecar ref key.
 
     THE MISSING/UNREADABLE SPLIT IS THE POINT (contract §2.2/§3). A sidecar that is
     absent is all-refs-null — Aurora only writes one when a ref is non-null, so the
@@ -1129,6 +1150,16 @@ def load_section_scene_refs(repo: str = REPO, zone: int = 0, act: int = 0) -> di
     not parse fails the bake loudly: "degrade gracefully" must not collapse those
     two, because all-null is exactly the state that triggers Aurora's destructive
     cleared-overwrite.
+
+    SHARED RATHER THAN COPIED, and that is the point of the shape. `rasterRef` and
+    `sceneRef` differ in exactly one thing — which key they pull — and the split above
+    is the part that is easy to get subtly wrong. A near-copy would let the two readers
+    drift on the failure that has no symptom.
+
+    NO UNKNOWN-KEY CHECK IS APPLIED HERE, deliberately and by ruling (empyrean §3.1):
+    the sidecar is Aurora's document and it will grow keys this generator does not read.
+    `_check_keys` guards the scene and preset DOCUMENTS, where a stray key is an author's
+    typo; here it would make every future Aurora key a build break.
     """
     entry, _zone = _act_entry(repo, zone, act)
     data_path = os.path.join(repo, entry["dataPath"])
@@ -1142,10 +1173,26 @@ def load_section_scene_refs(repo: str = REPO, zone: int = 0, act: int = 0) -> di
         if not isinstance(meta, dict):
             _refuse(path, f"sidecar top level must be a JSON object, got "
                           f"{type(meta).__name__}")
-        ref = _scene_ref(path, meta.get(ACT_SCENE_REF_KEY), f"section {i}")
+        ref = _scene_ref(path, meta.get(key), f"section {i}", key)
         if ref is not None:
             out[i] = ref
     return out
+
+
+def load_section_scene_refs(repo: str = REPO, zone: int = 0, act: int = 0) -> dict:
+    """`{section_index: scene_id}` from the per-section sidecars."""
+    return _load_section_refs(ACT_SCENE_REF_KEY, repo, zone, act)
+
+
+def load_section_raster_refs(repo: str = REPO, zone: int = 0, act: int = 0) -> dict:
+    """`{section_index: preset_id}` from the per-section sidecars.
+
+    The raster half of §2.2's assignment set: a section names one Aurora-authored PRESET
+    DOCUMENT and gets that document's raster program on its `preset()` call's `raster:`
+    channel. Absent / null = "this section keeps its hand-authored raster channel", which
+    is the majority case and the reason this arm can cost nothing (design §3.4).
+    """
+    return _load_section_refs(ACT_RASTER_REF_KEY, repo, zone, act)
 
 
 def load_act_scene_ref(repo: str = REPO, zone: int = 0, act: int = 0):
@@ -1193,10 +1240,16 @@ class ActNames:
         self.section = f"{zone_id}_effects_editor_{act_id}"
         self.fn_act_default = f"{stem}_act_default"
         self.fn_sec_scene = f"{stem}_sec_scene"
+        self.fn_sec_raster = f"{stem}_sec_raster"
         self.binding_default = f"EditorSceneBinding_{cap}_Default"
         self.scene_array = f"EditorScenes_{cap}"
         self.equ_scenes = f"EditorScenes_{cap}_Count"
         self.equ_bindings = f"EditorScenes_{cap}_Bindings"
+        # The RASTER binding witness. Capital `_Bindings` where a preset id is
+        # `^[a-z]...` by SCENE_ID_RE, so it cannot collide with `raster(pid)` below —
+        # the near-miss is deliberate (the prefix is what makes it read as the raster
+        # channel's witness) and the regex is what makes it safe.
+        self.equ_raster_bindings = f"EditorRaster_{cap}_Bindings"
 
     def binding_sec(self, i: int) -> str:
         return f"EditorSceneBinding_{self.zone_id.upper()}_" \
@@ -1258,7 +1311,8 @@ def _lowering(path: str, scene: dict) -> tuple:
 
 
 def render_module(scenes: dict, act_ref, sec_refs: dict, sections: int,
-                  names: ActNames, presets: dict = None) -> str:
+                  names: ActNames, presets: dict = None,
+                  sec_raster_refs: dict = None) -> str:
     """The whole generated `.emp` module, for any content state including none.
 
     Deterministic for a given input: scenes are walked in sorted-id order and the
@@ -1279,6 +1333,22 @@ def render_module(scenes: dict, act_ref, sec_refs: dict, sections: int,
         raise SceneShapeError(
             f"{PROJECT_JSON}: act sceneRef {act_ref!r} names no scene in "
             f"{scene_dir()}. Known ids: {', '.join(sorted(scenes)) or '(none)'}.")
+
+    # The RASTER half of the same resolution, symmetric with the scene half above by
+    # construction: same class, same "names no X, here are the known ids" shape. A
+    # `rasterRef` naming no document is an author's typo and the build is the last
+    # place it can still be seen — after the bake it is simply a section with no band.
+    raster_bound = {}                       # section index -> preset id
+    for i in sorted(sec_raster_refs or {}):
+        if (sec_raster_refs[i] not in (presets or {})):
+            raise SceneShapeError(
+                f"section_{i}.meta.json: {ACT_RASTER_REF_KEY} "
+                f"{sec_raster_refs[i]!r} names no preset document in "
+                f"{preset_dir()} — a {ACT_RASTER_REF_KEY} binds one Aurora-authored "
+                f"preset document's raster program, so it cannot name a "
+                f"hand-authored `.emp` program. Known ids: "
+                f"{', '.join(sorted(presets or {})) or '(none)'}.")
+        raster_bound[i] = sec_raster_refs[i]
 
     used = sorted(set(bound.values()) | ({act_ref} if act_ref else set()))
     unused = sorted(set(scenes) - set(used))
@@ -1373,7 +1443,9 @@ def render_module(scenes: dict, act_ref, sec_refs: dict, sections: int,
     out.append(WITNESS_BLOCK.format(
         equ_scenes=names.equ_scenes, scenes=len(used),
         equ_bindings=names.equ_bindings,
-        bindings=len(bound) + (1 if act_ref else 0)))
+        bindings=len(bound) + (1 if act_ref else 0),
+        equ_raster_bindings=names.equ_raster_bindings,
+        raster_bindings=len(raster_bound)))
     out.append("")
     out.append(SECTION_PIN.format(sections=sections))
     out.append("")
@@ -1397,6 +1469,19 @@ def render_module(scenes: dict, act_ref, sec_refs: dict, sections: int,
         out.append(f"    if sec == {i} {{ out = {names.binding_sec(i)} }}")
     out.append("    return out")
     out.append("}")
+    out.append("")
+    out.append(RASTER_BINDING_BANNER)
+    out.append(f"pub comptime fn {names.fn_sec_raster}(sec: int, hand: Label = 0) "
+               f"-> Label {{")
+    out.append(f'    ensure(sec >= 0 && sec < {sections}, "{names.fn_sec_raster}(sec: '
+               f'{{sec}}): this act has {sections} sections, so there is no binding '
+               f'slot for that index — the section preset and project.json\'s grid '
+               f'have drifted apart")')
+    out.append("    comptime var out = hand")
+    for i in sorted(raster_bound):
+        out.append(f"    if sec == {i} {{ out = {names.raster(raster_bound[i])} }}")
+    out.append("    return out")
+    out.append("}")
     return "\n".join(out) + "\n"
 
 
@@ -1411,10 +1496,10 @@ HEADER = """\
 // STATE OF THIS BAKE: {scenes} editor scene(s) reached by an assignment,
 // {bindings} binding(s), {sections} act sections. Authored but unassigned: {unused}.
 //
-// THE TWO `pub comptime fn`s AT THE BOTTOM ARE EMITTED FOR EVERY ACT, ALWAYS —
+// THE THREE `pub comptime fn`s AT THE BOTTOM ARE EMITTED FOR EVERY ACT, ALWAYS —
 // owner ruling 2026-08-22 (design §9 Q-c, the always-emitted default). With no
-// editor content they return the `hand:` fallback the descriptor passes; with
-// editor content they return the lowered record above. The descriptor therefore
+// editor content they return the `hand:` fallback their caller passes; with
+// editor content they return the lowered record above. The caller therefore
 // has ONE path, always live, and never a conditional. They are functions and not
 // Labels for a measured reason: see the block comment above `render_module()` in
 // tools/effects_gen.py — `pub equ` is not importable and a `pub const` carrying a
@@ -1444,7 +1529,8 @@ WITNESS_BLOCK = """\
 // on this very module (2026-08-22): with the descriptor's `use` line removed, an
 // `ensure(1 == 0)` here built GREEN with an unchanged CRC.
 pub equ {equ_scenes} = {scenes}
-pub equ {equ_bindings} = {bindings}\
+pub equ {equ_bindings} = {bindings}
+pub equ {equ_raster_bindings} = {raster_bindings}\
 """
 
 SECTION_PIN = """\
@@ -1503,13 +1589,34 @@ RASTER_BANNER = """\
 
 BINDING_BANNER = """\
 // =====================================================================
-// THE BINDINGS — the seam act_descriptor.emp calls. ALWAYS BOTH, ALWAYS LIVE.
+// THE SCENE BINDINGS — the seam act_descriptor.emp calls. ALWAYS BOTH, ALWAYS LIVE.
 //
 // `hand:` is the descriptor's own fallback, carried as a PARAMETER rather than
 // named here: a comptime fn's free names resolve at the call site, so the hand
 // default has to arrive from the caller — and that is the better contract anyway,
 // since the descriptor keeps owning its hand bindings and this module only chooses.
 // =====================================================================\
+"""
+
+
+RASTER_BINDING_BANNER = """\
+// ---- THE RASTER BINDING — the seam the GAME'S EFFECTS LIBRARY calls ----
+//
+// The third always-emitted chooser, and the one that does NOT go to
+// act_descriptor.emp: a raster program is an `EffectsPreset` channel, not a scene
+// channel, so its call site is the section's own `preset()` in
+// games/sonic4/data/effects/ojz_effects.emp — `raster: <this>(sec: N, hand: ...)`.
+//
+// `hand:` IS THE CALLER'S, AND ON A PATCHED SECTION IT MUST BE `0`. `preset()` asserts
+// `ep_raster == 0 || ep_patched == 0` and that assert DOES read this function's result
+// (measured 2026-08-30, both arms). So a section that binds `patched:` must pass
+// `hand: 0`, because `Raster_Program_None` is a real non-zero label and would fire the
+// exclusivity ensure for a section that bound nothing at all. Every other section
+// passes `hand: Raster_Program_None`, since NULL cannot mean "off" while it also means
+// "keep" (ARCH §7.12).
+//
+// With no `rasterRef` in any sidecar the body below is `return hand` and this whole
+// block is zero ROM bytes — a `pub comptime fn` emits nothing.\
 """
 
 
@@ -1522,7 +1629,8 @@ def generate(repo: str = REPO, zone: int = 0, act: int = 0) -> tuple:
         load_section_scene_refs(repo, zone, act),
         act_section_count(repo, zone, act),
         names,
-        load_all_presets("sonic4", repo))
+        load_all_presets("sonic4", repo),
+        load_section_raster_refs(repo, zone, act))
 
 
 def _atomic_write(path: str, text: str) -> None:

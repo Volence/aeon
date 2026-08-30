@@ -182,9 +182,9 @@ a note in an error you may never see, which is exactly why the rule is written h
 ### 2.2 Assignments
 
 - `games/sonic4/data/editor/ojz/act1/section_N.meta.json` (per act's `dataPath`): the
-  generator reads **one key**: `sceneRef` — string scene id or `null`/absent (= act
-  default). It does not read `bgLayoutRef`/`paletteRef` (those belong to the BG/palette
-  pipeline). **Write condition and round-trip (contract-level; ERRATUM 1 of
+  generator reads **two keys**: `sceneRef` — string scene id or `null`/absent (= act
+  default) — and `rasterRef` (below). It does not read `bgLayoutRef`/`paletteRef` (those
+  belong to the BG/palette pipeline). **Write condition and round-trip (contract-level; ERRATUM 1 of
   `docs/research/2026-08-22-aurora-effects-authoring-assessment.md`, verified firsthand
   in aurora source at master `e731214` and independently re-verified):** the sidecar is
   written only when at least one ref is non-null — the all-default case legitimately has
@@ -251,6 +251,66 @@ a note in an error you may never see, which is exactly why the rule is written h
   does not land in sidecars until Aurora's meta-gating fix is on their master (fix SHA:
   **`a88db05`**, aurora master — merged, re-verified on the merged tree, pushed;
   see the wave-1 design doc §4).
+- **`rasterRef` — the per-section RASTER binding (NEW, EFFECTS-W1 item 1; amends
+  together with empyrean `docs/AURORA_EFFECTS_SCHEMA.md` §3.1, and per §8 the two are a
+  matched set Aurora re-pins against both SHAs).** A **string preset-document id, or
+  `null`, or absent — NEVER a numeric index.** The id space is the preset document's own
+  (`^[a-z][a-z0-9_]{0,31}$`, matching the document's `id` and its filename stem). Absent
+  == `null` == "this section keeps its hand-authored raster channel", which is the
+  majority case and is why the arm costs nothing until a section uses it.
+
+  **The shape is `sceneRef`'s in every particular, deliberately**, including the numeric
+  ban and its reason: Aurora's parser nulls a non-string value **silently**
+  (`section-meta.ts:29-30`), so `rasterRef: 3` presents to the author as an assignment
+  that did not stick — the build is the one reader that can still see the mistake, and it
+  refuses, naming the key.
+
+  **What the generator does, normatively:** reads the key with the **missing/unreadable
+  split intact** (an absent sidecar is all-refs-null and is NOT an error; a sidecar that
+  exists and does not parse **fails the bake** and must never collapse to all-null);
+  **refuses a non-string, non-null value by name**; **refuses an id naming no preset
+  document, listing the known ids** (symmetric with the `sceneRef` resolution error);
+  emits the binding as an **always-present, zero-byte `pub comptime fn` chooser**, so
+  that with no `rasterRef` anywhere the generated module gains the chooser and nothing
+  else and the ROM is byte-identical — checkable by CRC rather than argued. It restates
+  **no numeric bound from the raster tier** (the band constructors hold those, and
+  duplicating one here would be §2.1's anti-pattern), and it applies **no unknown-key
+  refusal to the sidecar**, so a future Aurora key is not a build break.
+
+  **The write condition widens.** `rasterRef` joins the ref set whose any-non-null
+  triggers a sidecar write: a section whose ONLY non-null ref is `rasterRef` **must** get
+  a file. All-null still writes no file, and the cleared-overwrite body carries the key.
+
+  **Older consumers — named, and ACCEPTED rather than guarded against (ruled).** An older
+  `effects_gen.py` **silently ignores** the key: green build, no band, and it presents as
+  "my assignment did nothing". An older Aurora **erases** the key on its next save, by the
+  same closed-`SectionMeta` mechanism as `sceneRef`'s thirteen-site hazard above. Neither
+  is defended against here: an unknown-key refusal on the sidecar would make every future
+  Aurora key a build break, which is the opposite of what a sidecar is for.
+
+  **Sequencing precondition — DISCHARGED 2026-08-30.** `rasterRef` could not land in any
+  sidecar until the `SectionMeta` extension carrying it was on aurora's master, because
+  an older Aurora erases the key on its next save and the author's first save would
+  delete their own assignment. `sceneRef` needed aurora **`a88db05`**; `rasterRef`'s
+  extension is aurora master **`7b1d15a0`**, merged and verified. The ban is lifted.
+
+  **Its site enumeration was re-derived, and MIND THE UNIT:** **thirteen SITES across five
+  files**, by this section's own definition of a site (a place that hardcodes the ref
+  SET), against **sixteen FILES that merely mention `sceneRef`**. Both numbers are right
+  and they count different things; neither is the other.
+
+  ⚠ **AND THE RE-DERIVATION METHOD ABOVE HAS A KNOWN HOLE — do not read it as complete.**
+  Following the sibling key finds the code that HANDLES the ref set and misses the prose
+  that DESCRIBES it: six further prose sites hardcode the set, and one of them
+  (`PRESET_LIMITS.unbound`) is **author-facing and mentions `sceneRef` zero times**, so no
+  `sceneRef`-shaped search could ever surface it. An amendment to the enumeration rule is
+  booked with the hub. Until it lands, enumerate prose separately from code rather than
+  trusting a search keyed on the sibling name.
+
+  **The channel it binds is `ep_raster` only** — a preset document carries a raster
+  program and nothing else, so `rasterRef` is a NARROW binding. empyrean §7's `effectsRef`
+  stays reserved and unspent for the total binding it was named for (CR adjudication
+  2026-08-30, option B).
 - `project.json` (repo root): per act entry, the generator reads **one key**: `sceneRef`
   — string scene id or `null`/absent (= the hand-authored engine default in
   `act_descriptor.emp` stands). The dangling `parallax` key is deleted in the same parcel
