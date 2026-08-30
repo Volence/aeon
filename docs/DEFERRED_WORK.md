@@ -387,6 +387,50 @@ every address by name, so the blob must be reproduced rather than taken.
 
 ### SUITE-HOME-PATHS — baked absolute paths, and the ones that PASS when the path is absent
 
+**⚑ SIGIL'S SUITE CAN WRITE INTO OUR LIVE TREE, GITIGNORED — MEASURED HERE, AND IT IS NARROWER
+THAN IT LOOKS (2026-08-30).** Their finding: `AEON_DIR` falls back to a hardcoded
+`/home/volence/sonic_hacks/aeon` in **93 files / 113 occurrences**, and `ensure_generated` drives
+**seven** emitters into `$AEON_DIR/engine/sound/generated` — which is **gitignored here**
+(`.gitignore:26`, verified). So any sigil run with `AEON_DIR` unset writes into the owner's live
+checkout and `git status` shows nothing. Confirmed: 19 untracked files, 0 tracked.
+
+**MEASURED CONSEQUENCE — NONE, THIS TIME, AND THE TEST WAS DECISIVE RATHER THAN REASSURING.**
+Snapshotted all 19 blobs (`cp -a` + sha256), rebuilt the DEBUG shape, compared:
+
+    s4.debug.bin CRC before  6516fc68   (the figure this lane reported)
+    s4.debug.bin CRC after   6516fc68   <- reproduces exactly
+    the 19 generated blobs   BYTE-IDENTICAL before and after
+
+So whatever wrote at 03:28:22 produced exactly what our own build produces, and **no evidence
+this lane has reported tonight is contaminated.**
+
+**⚑ AND THE MITIGATION THAT NARROWS THE WHOLE EXPOSURE, WHICH CUTS AGAINST THIS LANE'S OWN ASK:
+our build REGENERATES ALL NINETEEN UNCONDITIONALLY.** Every mtime moved from 03:28:22 to
+03:39:52 on a single `DEBUG=1 ./build.sh`. **An aeon build is therefore self-healing against a
+foreign write**, and the real hazard is not "our tree is silently corrupted" but the narrower
+"a process that READS these blobs without regenerating them first gets whatever last wrote
+them". That is a materially smaller claim than the one this lane was about to make, and it is
+recorded first because the measurement deflates our own side of the argument.
+
+**A CANDIDATE FORENSIC RECORD, TESTED AND RULED OUT.** Sigil stated that nothing records who
+wrote the files. The directory shows a **9 `uucp` / 10 `volence` group split at one identical
+timestamp**, which looked like a writer discriminator. **It is not.** The split survived a build
+whose writer is known — ours — completely unchanged (9/10 before, 9/10 after). Group ownership is
+set at *creation* and preserved by in-place writes, so it records the file's first writer and
+says nothing about the most recent one. **Sigil's "nothing records who did" is confirmed, by a
+control rather than by agreement** — the candidate record was tested against a known writer and
+failed to move.
+
+**THIS LANE'S POSITION ON THEIR OPEN QUESTION (default = refusal, or fallback?): REFUSE.** A
+fallback to a hardcoded live checkout is protocol bar 15 exactly — the permissive option is the
+one structurally incapable of announcing its own failure, and the gitignore removes the last
+surface where a reader could notice. A refusal turns every unset-env caller into a named error at
+its own call site. *Stated with the deflation above attached: our builds' self-healing makes this
+lower urgency than the raw 93/113 figure suggests, and the recommendation should be weighed on
+the invisibility rather than on an imminent-corruption story we cannot evidence.*
+
+
+
 **⚑ SIGIL'S GENERALISING HAZARD, TESTED AGAINST THIS TREE — WE ARE NOT EXPOSED (2026-08-30).**
 The sigil lane found that **a poison/absent-tree scenario is not stable across repeated runs in
 one session**, because the suite's own write makes run 2 a different scenario than run 1. Their
