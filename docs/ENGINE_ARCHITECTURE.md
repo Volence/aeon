@@ -4116,7 +4116,7 @@ Oscillator System (7.5)
 > **SHIPPED — effects P3 Parcel C2, 2026-08-14.**
 
 A section binds every visual effect through ONE pointer: `Sec.sec_effects`
-(offset `$34`) names an `EffectsPreset` (`engine/effects/preset.emp`, 32 bytes),
+(offset `$34`) names an `EffectsPreset` (`engine/effects/preset.emp`, **38 bytes**),
 and `Effects_InstallPreset` writes **every channel** on the crossing.
 
 ```
@@ -4127,8 +4127,9 @@ EffectsPreset      $00 ep_pal            required — the preset CARRIES the pal
                    $0C ep_patched         patched template (water / world-anchored gradient)
                    $10 ep_cycle           0 illegal, use Pal_Cycle_None
                    $14 ep_variants[2]     unused slots 0 = clear
-                   $1C ep_patch_world_y   meaningful only with ep_patched
-                   $1E ep_transition      cross-fade arm (reserved; see §7.1)
+                   $1C ep_patch_world_ys[RASTER_MAX_PATCH]
+                                          one authored world Y per patch channel
+                   $24 ep_transition      cross-fade arm (reserved; see §7.1)
 ```
 
 **Why total binding, and what it fixed.** The three predecessors
