@@ -1,0 +1,20 @@
+{
+  "bands": [
+    {
+      "bot": 80,
+      "on": {
+        "cram": {
+          "addr": 80,
+          "colours": [
+            3748
+          ]
+        }
+      },
+      "sh": false,
+      "top": 32
+    }
+  ],
+  "id": "ojz_sec5_showcase",
+  "name": "OJZ act 1 section 5 - moonlit canopy void",
+  "schema": 1
+}

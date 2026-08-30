@@ -1608,6 +1608,46 @@ least two boundary-straddling entries exist by construction"* reasons about **bl
 entries in a frame — and the two straddles live in different characters' sheets, which are never both
 the player. **The number 2 may still be right; its reason is wrong.**
 
+### ⚠ OWNER SIGHTING, MEASURED BUT NOT EXPLAINED: THE LEFT EDGE STRIP ANIMATES FASTER THAN THE BODY — booked 2026-08-30
+
+**His words, at the keyboard, looking at the effects lab on master's build (romBytes 736391,
+verified against the file on disk):** *"this looks so much better, but I want to say the area
+that's like stuck in the bg is animating differently and super fast"*, with a red arrow pointing
+at the **LEFT edge** of the screen.
+
+**What was measured**, over his own window on the shared socket (`/run/user/1000/oracle.sock`),
+scene 14, six consecutive frames, per-column percentage of pixels changing per frame:
+
+| band | mean change/frame |
+|---|---|
+| columns 0-15 (**left edge**) | **13.4%** (max column 17.5%) |
+| columns 16-31 | 11.6% |
+| columns 32-299 (body) | **10.6%** (median 10.2%) |
+| columns 304-319 (right edge) | **6.4%** |
+
+**THE LEFT EDGE IS REAL BUT MODEST IN THIS SAMPLE — 13.4% against a 10.6% body, ~1.27x.** That is
+elevated and consistent (it changed in 5 of 5 transitions), but it is **not** the order-of-
+magnitude difference "super fast" suggests, and **the per-column profile shows no sharp
+discontinuity** — x=0 reads 16.7% but x=2 reads 11.3%, inside the body's own spread.
+
+**SO THE SIGHTING IS NOT YET REPRODUCED AND MUST NOT BE RECORDED AS EXPLAINED.** Three live
+possibilities, none eliminated:
+1. the effect is in the *content/phase* of the strip rather than its change RATE — a strip
+   showing the right amount of motion from the wrong source would read as "animating
+   differently" while measuring as ordinary;
+2. six frames at one camera position is a small sample and he was watching it move;
+3. the scene had advanced to **14** by the time of measurement, and his sighting may have been
+   on a different scene.
+
+**The right instrument is NOT another screenshot diff.** The left strip's content is a VSRAM
+question — which V-scroll value the leading sliver reads — so the measurement that would settle
+it samples VSRAM's first entries across frames and compares them against plane A's own scroll.
+That is a small parcel and it is the next step, not a guess.
+
+**Also relevant and NOT yet checked against this sighting:** the right edge measures **6.4%**,
+markedly LOWER than the body — which is consistent with d-41's own description (plane B's
+rightmost 16 px carrying a vertically-locked background) but was not the thing he was pointing at.
+
 ### ~~⚠⚠ THE DPLC ENTRY BUDGET IS ALREADY BREACHED~~ — CLOSED 2026-08-30 (`parcel/dplc-entry-recut`) — booked 2026-08-29
 
 **The breach is paid, the ratchet is now the real assert, and the producer is gated.**

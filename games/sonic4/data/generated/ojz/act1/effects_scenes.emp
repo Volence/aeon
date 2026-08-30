@@ -139,6 +139,11 @@ const EditorRasterSrc_OJZ_Act1_authored_probe = compose([
 ])
 pub data EditorRaster_OJZ_Act1_authored_probe: [u16; raster_words(EditorRasterSrc_OJZ_Act1_authored_probe)] = raster_program(EditorRasterSrc_OJZ_Act1_authored_probe)
 
+const EditorRasterSrc_OJZ_Act1_ojz_sec5_showcase = compose([
+    band(top: 32, bot: 80, on: stream_cram(addr: 80, colours: [3748]), sh: 0),
+])
+pub data EditorRaster_OJZ_Act1_ojz_sec5_showcase: [u16; raster_words(EditorRasterSrc_OJZ_Act1_ojz_sec5_showcase)] = raster_program(EditorRasterSrc_OJZ_Act1_ojz_sec5_showcase)
+
 // ---- REACHABILITY WITNESSES (tools/effects_seam_gate.py) ----
 //
 // `equ` and NOT `const`, and the distinction is the whole gate: an equ mints a
@@ -155,7 +160,7 @@ pub data EditorRaster_OJZ_Act1_authored_probe: [u16; raster_words(EditorRasterSr
 // `ensure(1 == 0)` here built GREEN with an unchanged CRC.
 pub equ EditorScenes_OJZ_Act1_Count = 2
 pub equ EditorScenes_OJZ_Act1_Bindings = 2
-pub equ EditorRaster_OJZ_Act1_Bindings = 0
+pub equ EditorRaster_OJZ_Act1_Bindings = 1
 
 // The binding table's domain, held against the engine's flat-section ceiling. The
 // literal below is repeated inside `sec_scene`'s ensure ON PURPOSE — a comptime fn's
@@ -205,5 +210,6 @@ pub comptime fn ojz_act1_sec_scene(sec: int, hand: Label = 0) -> Label {
 pub comptime fn ojz_act1_sec_raster(sec: int, hand: Label = 0) -> Label {
     ensure(sec >= 0 && sec < 9, "ojz_act1_sec_raster(sec: {sec}): this act has 9 sections, so there is no binding slot for that index — the section preset and project.json's grid have drifted apart")
     comptime var out = hand
+    if sec == 5 { out = EditorRaster_OJZ_Act1_ojz_sec5_showcase }
     return out
 }
