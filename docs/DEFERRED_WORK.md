@@ -12061,6 +12061,50 @@ breakpoint is THEIR bug, not our tool's** — report it rather than working arou
 fixes) was three days old and unverified. Checked here: we are. The two send sites above are
 live on the legacy spelling. The hedge was correct to make and the claim happened to hold.*
 
+### F-LEGACY-SILENT-DEFAULT — THE EXPOSURE IS REAL, WE ARE CLEAN TODAY, AND THAT IS NOT A GATE (2026-08-30)
+
+**Oracle went looking after an aside in one of our messages and found the defect is wider than
+the key we named.** Their booking: oracle `docs/2026-08-30-legacy-silent-default.md` at
+`d987540d638503dce99f7e20f24b3a227c8c9da3` — verified here as reachable from their
+`origin/main` and `--stat`-checked as the code-and-docs commit that carries it.
+
+**Verified firsthand in `oracle-old/linux-port/gui/ControlSocket.cpp`, not taken from their
+message:** the accessor at `:130`, `getInt(const std::string& k, long long d = 0)`, returns the
+default on an absent key, on an unparseable string (`catch (...)`), and on an unhandled JSON
+type. **The defect is the ACCESSOR, not the one key we named**, and there is no unknown-key
+rejection anywhere in that file. Six unguarded sites sit on memory paths, each read back here
+line by line: `:348`, `:702`, `:726`, `:782` (`getU32("addr")`) and `:615`, `:739`
+(`getInt("value")`).
+
+**So a client that misspells `addr` on a legacy-server memory write does not get an error — it
+writes to address zero and receives a success reply.** `addr: "0xZZZZ"` reaches the same place
+through the `catch`. Our 30-second-timeout case was the mild version of this.
+
+**THE GREP THEY HANDED US, RUN — AND WE ARE CLEAN.** All three tools that dial the legacy seam
+(`evict_witness.py`, `parallax_hscroll_probe.py`, `raster_frame_epoch_probe.py`) make 14
+memory-path calls between them, and **every one spells `addr`, `value`, `len`, `bytes` and
+`width` correctly.** Cross-checked against the server's own vocabulary, derived by enumerating
+every `get*("key")` in `ControlSocket.cpp` rather than assumed. No incident.
+
+**⚠ AND "WE ARE CLEAN TODAY" IS EXACTLY THE ARTIFACT THIS FILE DISTRUSTS.** It is one grep
+against a seam that is structurally incapable of ever reporting a regression — the next
+misspelling lands silently and the tool keeps returning success. **A clean grep is not a gate.**
+Booked as the actual work: extend `test_wait_for_break_spelling.py`'s pattern from one key to
+the whole vocabulary, pinning every legacy-seam send site's key spellings against the set
+derived from `ControlSocket.cpp`, so the derivation cannot rot into folklore either.
+**Not dispatched yet on purpose** — two agents are live in `tools/` and a third would collide.
+
+**Oracle's own scope caveat, kept as theirs:** they did not audit any consumer for an actually
+misspelled key. *This is the exposure, not an incident* — and our grep above is the consumer
+half they said they had not run.
+
+**The point they make that outranks the finding, and it corrects our own reasoning:** Rider 3
+is better-founded than the rationale we gave it. We justified it on the timeout budget silently
+becoming 30 s. **The real property is that the legacy seam validates NOTHING**, so *any*
+parameter rename against a legacy-seam probe is unvalidated — not merely that one. If a future
+session is ever tempted to relax Rider 3 for a parameter that "obviously cannot be misread",
+this is the reason not to, and it is a stronger reason than the one we wrote down.
+
 ## From the delete-percell-hscroll parcel (2026-08-26, `parcel/delete-percell-hscroll`)
 
 ### Per-cell HScroll fill — DELETED 2026-08-26 (d-29-corrected), how to restore
