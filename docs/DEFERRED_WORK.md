@@ -204,7 +204,19 @@ the sigil lane hit tonight counting `lst` in prose. **So the discriminator is th
 at a time: make the input absent and see whether the script notices.**
 
 **Method when this is picked up:** classify the 30 by what they do with an absent target — refuse
-loudly (fine), refuse obscurely (fix the message), or **pass (the defect)**. Poison at least one
+loudly (fine), refuse obscurely (fix the message), **pass (the defect)**, or the fourth bucket
+below.
+
+**⚠ THE FOURTH BUCKET IS THE EXPENSIVE ONE AND THE POISON ONLY FINDS IT IF YOU READ *WHERE* THE RED
+LANDS: baked-and-loud-ELSEWHERE** (sigil's, paid for tonight). A missing input neither goes quiet
+nor fails at the point of use: **a lookup returns `None`, no label is pushed, and the failure
+surfaces later in an unrelated test under a misleading name.** Their instance: a missing `s4.lst`
+became *"unresolved symbol `RingSparkle_Spawn` for fixup in section rings"* — a red in `rings`,
+which has nothing to do with listings, **and it cost three reverts of code that was fine.**
+**So "did the poison produce a red?" is NOT the question. The question is "did the red land where
+the input was missing?"** A poison that reddens the suite somewhere plausible looks like a pass for
+the classification and is the worst of the four, because it converts a missing file into a false
+attribution against whatever parcel is in hand. Poison at least one
 from each apparent class rather than trusting the classification that produced the classes. Docs
 mentions are not defects and should be excluded from the population before it is counted, or the
 194 becomes a headline nobody can act on.
