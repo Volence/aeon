@@ -307,8 +307,18 @@ Checkpoint 0 is taken at `Logic_Tick` **2**, the earliest in the stream, deep in
 did not choose** — which is the difference between a mechanism and a fit.
 
 **⚠ AND THE RAW SET WOULD HAVE REFUTED A CORRECT MECHANISM. THIS IS THE LESSON OF THE WHOLE
-EXERCISE.** Chain 188's raw set contains nine movers at ticks **1154-1666**, far past the column-16
-crossing — which meets this lane's stated falsifier **word for word**. An honest report from a run
+EXERCISE.** Chain 188's raw set contains nine STALE CHECKPOINTS at ticks **1154-1666**, far past the
+column-16 crossing — which meets this lane's stated falsifier **word for word** if the falsifier's
+"movers" is read as "stale in the candidate".
+
+**⚠ WORDING CORRECTION (2026-08-30T09:31Z, oracle's catch and a fair one): this paragraph
+originally called those nine "movers", and the falsifier is stated over MOVERS.** Using the word
+for the raw candidate set in one sentence and for the candidate-minus-control differential in the
+next is exactly the ambiguity the control exists to remove, and it is what let a careful reader
+conclude the falsifier FIRED. **It did not.** `stale(188) = {0,18..26}`, `stale(186) = {18..26}`,
+`moved = stale(188) \ stale(186) = {0}`. Terminology fixed here: **STALE** = recorded value does
+not match this ROM's behaviour; **MOVED** = stale in the candidate and not in the control. The
+falsifier is over MOVED, always. An honest report from a run
 without a control is *"your mechanism is incomplete; do not restamp."* **It would have been wrong:**
 those nine are stale on chain 186 as well, with **byte-identical `old` and `new` on both ROMs**.
 They did not move; they were already stale.
