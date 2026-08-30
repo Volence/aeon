@@ -186,7 +186,7 @@ def anchor_addr(map_toml, name=ANCHOR_NAME):
                 return int(m.group(1), 0)
     raise Unmeasurable(
         f"{map_toml} declares no `[[anchor]]` named {name!r} with an `at =` address. "
-        f"That anchor is the fixed end of the data region (a Z80 SetBank latch); without "
+        f"That anchor is the end of the data region this section grows into; without "
         f"it there is no room figure to report.")
 
 
@@ -419,8 +419,7 @@ def report(lst_path, aeon=AEON, gate=False, out=sys.stdout, rom_path=None,
             f"are reachable in this shape ({r['room']} B free before the 0x{r['anchor']:X} "
             f"`{ANCHOR_NAME}` anchor, plus the {live} B ojz_bg_anim already holds).\n"
             f"  The likely cause is that {os.path.relpath(r['art_blob'], aeon)} grew: it is "
-            f"{r['art_blob_len']} B and it is the last packed blob before a HARDWARE anchor "
-            f"that cannot move (a Z80 SetBank latch).\n"
+            f"{r['art_blob_len']} B and it is the last packed blob before the anchor.\n"
             f"  Since the ROM re-layout (2026-08-26) the anchor is DERIVED by the bank "
             f"placement rule and the reserve exceeds this ceiling, so the rule arm above "
             f"should have fired first: apply the rule (move both anchors, refreeze) rather "

@@ -693,7 +693,8 @@ def emit_emp_z80_data_only() -> str:
           module to `engine/sound/generated/sound_tables_z80.bin`, and a .bin
           embed is inherently label-free. Add the embed as the FIRST data item
           of the DAC-bank placement module (`games/sonic4/data/sound/
-          dac_banks.emp`, the `Dac_Temp_Blip` section at map anchor $48000 —
+          dac_banks.emp`, the `Dac_Temp_Blip` section at the `dac_banks` map
+          anchor, whose address the bank placement rule derives —
           the sample payloads then shift up by the table span, and
           `dac_samples.emp`'s winptr()-derived SND_*_PTR equs re-fold), or as
           the head of a new dedicated COPY bank anchored in

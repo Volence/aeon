@@ -669,7 +669,9 @@ if [[ "$FAST" == "0" ]]; then
 
         # The BG-animation section's ROOM, re-derived from THIS build's listing
         # (decision d-9). `ojz_bg_anim` grows into the hole that ends
-        # at the `dac_banks` hardware anchor ($48000), which is also the only room
+        # at the `dac_banks` map anchor — DERIVED by the bank placement rule since the
+        # 2026-08-26 re-layout, not the hard `$48000` this comment used to name — which
+        # is also the only room
         # `Art_Sonic` has to grow into — so the ceiling authors are held to has to be
         # re-checked against the layout, not pinned once and trusted.
         #
