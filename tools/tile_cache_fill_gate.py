@@ -206,6 +206,24 @@ STATE = ["Cache_Left_Col", "Cache_Head_Col", "Cache_Origin_Col", "Cache_Origin_R
 NO_PARTIAL = 0xFFFF     # the sentinel TileCache_Fill{Column,Row} store on completion
 
 
+def cheat_debug_fly_bit() -> int:
+    """The debug-fly cheat bit, DERIVED from the game's own constant, never hardcoded.
+
+    `games/sonic4/config/constants.emp` declares it as `1 << 0`. Parsing it means a lane that
+    renumbers the cheat bits breaks this gate loudly instead of arming the wrong cheat and
+    reporting a clean vertical run that never entered free-flight — which would be a green
+    result off a drive that never happened.
+    """
+    src = os.path.join(AEON, "games/sonic4/config/constants.emp")
+    with open(src) as fh:
+        for line in fh:
+            m = re.match(r"\s*pub const CHEAT_DEBUG_FLY\s*=\s*1\s*<<\s*(\d+)", line)
+            if m:
+                return 1 << int(m.group(1))
+    raise SetupError(f"CHEAT_DEBUG_FLY is not declared as `1 << N` in {src} — refusing to "
+                     f"guess which bit arms debug-fly")
+
+
 def word_at(buf: bytes, i: int) -> int:
     return (buf[i] << 8) | buf[i + 1]
 
@@ -366,11 +384,48 @@ async def body(sock, rom, lst, blob, args, k):
     unmeasured = 0
     measured = 0
     first_x = last_x = None
+    first_y = last_y = None
     printed_control = False
 
-    for i in range(args.samples):
+    # --- arm the vertical drive, if that is what was asked for -----------------
+    #
+    # WHY THIS MODE EXISTS. Every run of this gate before 2026-08-30 held RIGHT, so the
+    # camera's Y never moved and THE VERTICAL FILL PATH WAS NEVER EXERCISED UNDER LOAD.
+    # It carries the identical DECLARED-before-FILLED exposure as the column path
+    # (`Tile_Cache_Fill` commits `Cache_Top_Row`/`Cache_Bottom_Row` before filling, exactly
+    # as it commits `Cache_Head_Col`), and the row half of both assertions has therefore
+    # never been given anything to find. The booked next step for the canopy gap is
+    # precisely this run; see DEFERRED_WORK's canopy entry.
+    #
+    # Debug-fly is a CHEAT, not build-time equipment: the payload ships in every shape and
+    # is unreachable until `Cheat_Flags` bit 0 is set (CODING_CONVENTIONS 1.7), so arming it
+    # from the bus is the supported route and needs no special build.
+    if args.drive == "fly":
+        if "Cheat_Flags" not in sym:
+            raise SetupError("Cheat_Flags did not resolve — cannot arm debug-fly")
+        cur = await _c(b, "emulator/read_memory", {"addr": hex(sym["Cheat_Flags"]), "len": 1})
+        await _c(b, "emulator/write_memory",
+                 {"addr": hex(sym["Cheat_Flags"]),
+                  "value": int(cur["bytes"], 16) | cheat_debug_fly_bit(), "width": 1})
+        # B is edge-triggered off Ctrl_1_Press, so it needs a real press-and-release.
         await _c(b, "emulator/play_input",
-                 {"rows": [{"start": 0, "end": args.step, "buttons": ["right"]}],
+                 {"rows": [{"start": 0, "end": 2, "buttons": ["b"]}], "maxFrames": 2})
+        await _c(b, "emulator/release_all", {})
+        await _c(b, "emulator/run_frames", {"frames": 2})
+
+    for i in range(args.samples):
+        # In fly mode sweep the camera DOWN then UP in alternating blocks, so the run
+        # exercises both row directions rather than only the one the act happens to start
+        # against. `right` is held alongside so columns keep streaming too — a vertical-only
+        # run would leave the column half of the assertion measuring nothing, which this
+        # gate reports as unmeasured rather than green, but which would still waste the run.
+        if args.drive == "fly":
+            vert = "down" if (i // max(1, args.flip)) % 2 == 0 else "up"
+            buttons = [vert] if args.no_right else [vert, "right"]
+        else:
+            buttons = ["right"]
+        await _c(b, "emulator/play_input",
+                 {"rows": [{"start": 0, "end": args.step, "buttons": buttons}],
                   "maxFrames": args.step})
         await _c(b, "emulator/release_all", {})
         await _c(b, "emulator/run_frames", {"frames": args.post})
@@ -378,7 +433,9 @@ async def body(sock, rom, lst, blob, args, k):
         s = await take_sample(b, sym, k)
         if first_x is None:
             first_x = s.cam_x
+            first_y = s.cam_y
         last_x = s.cam_x
+        last_y = s.cam_y
         if s.st["Cache_Fill_Resume_Col"] != NO_PARTIAL or \
                 s.st["Cache_Fill_RowResume_Row"] != NO_PARTIAL:
             partial_seen += 1
@@ -409,7 +466,20 @@ async def body(sock, rom, lst, blob, args, k):
             print(f"      stopping early: {len(failures)} failures reached the report cap")
             break
 
-    if first_x is None or last_x == first_x:
+    # The anti-vacuity guard is about the axis this run actually DRIVES. A fly run whose
+    # camY never moved has not exercised the row path, and reporting it green would be the
+    # exact "couldn't measure rendered as pass" failure this gate refuses elsewhere.
+    if first_x is None:
+        raise SetupError("no sample was taken at all")
+    if args.drive == "fly":
+        if last_y == first_y:
+            raise SetupError(
+                f"the camera's Y never moved (camY stayed {first_y}) across "
+                f"{args.samples} samples of held UP/DOWN with debug-fly armed. The vertical "
+                f"fill path was NOT exercised, so this run proves nothing about the row axis "
+                f"- which is the only reason to run --drive fly. Check that Cheat_Flags bit 0 "
+                f"took and that B entered free-flight")
+    elif last_x == first_x:
         raise SetupError(
             f"the camera did not move (camX stayed {first_x}). Holding RIGHT produced no "
             f"travel, so no column was ever streamed and this run proves nothing")
@@ -421,8 +491,8 @@ async def body(sock, rom, lst, blob, args, k):
             f"with the camera on this ROM — refusing to report a verdict off a run that measured "
             f"nothing")
 
-    print(f"      camera travelled {first_x} -> {last_x} px over {args.samples} samples "
-          f"x {args.step}+{args.post} frames")
+    print(f"      camera travelled X {first_x} -> {last_x}, Y {first_y} -> {last_y} px over "
+          f"{args.samples} samples x {args.step}+{args.post} frames (drive={args.drive})")
     print(f"      {total_cells} recorded on-screen cells compared against the tile cache "
           f"at {measured} sample points")
     if unmeasured:
@@ -447,6 +517,14 @@ def main() -> int:
                     help="frames with the buttons released before sampling, so the plane "
                          "buffer drains; 0 reintroduces the drain-lag false positive")
     ap.add_argument("--max-failures", type=int, default=12)
+    ap.add_argument("--drive", choices=("right", "fly"), default="right",
+                    help="right: hold RIGHT (the original horizontal run). fly: arm the "
+                         "debug-fly cheat and sweep the camera vertically, which is the "
+                         "axis this gate had never been pointed at")
+    ap.add_argument("--flip", type=int, default=6,
+                    help="fly mode: samples per vertical direction before reversing")
+    ap.add_argument("--no-right", action="store_true",
+                    help="fly mode: sweep vertically ONLY, without holding RIGHT")
     ap.add_argument("--control", action="store_true",
                     help="print the neighbour control that proves the ring indexing")
     args = ap.parse_args()

@@ -108,6 +108,75 @@ edge, and (b) `Section_RedrawPlanes` returning `d7 = Cache_Head_Col` uncondition
 `Section_Plane_Dirty` setters run straight after an unbudgeted `FillAll`, and now asserted, but it is
 the remaining place a tracker is written without a matching draw.
 
+### CANOPY GAP — THE VERTICAL FILL PATH IS NOW EXERCISED, PLAIN AND STARVED, AND IT IS CLEAN (measured 2026-08-30)
+
+**This discharges the booked next step** ("get a reproduction with real vertical camera motion and
+run `tools/tile_cache_fill_gate.py` across it") in the entry above. It does not find the bug. What
+it does is **kill the more comfortable of the two open explanations**, which is the useful outcome.
+
+**What was missing and why it mattered.** Every run of that gate before today held RIGHT. The
+camera's Y never moved, so the vertical fill path was **never exercised under load** — and it
+carries the identical DECLARED-before-FILLED exposure as the column path (`Tile_Cache_Fill` commits
+`Cache_Top_Row`/`Cache_Bottom_Row` before filling, exactly as it commits `Cache_Head_Col`). The row
+half of both assertions had therefore never been given anything to find. `--drive fly` was added to
+the gate for this: it arms the debug-fly cheat from the bus (`Cheat_Flags` bit 0, **derived by
+parsing `constants.emp`**, not hardcoded — a renumbered cheat bit must break the gate loudly rather
+than arm the wrong cheat and report a clean run that never entered free-flight) and sweeps the
+camera down and up in alternating blocks while still holding RIGHT, so the column half keeps
+measuring too.
+
+**Run 1 — shipped settings, `s4.debug.bin` crc `2404d825`, assembler sigil `85a5726c`.** GREEN.
+Camera X 100 -> 2272, **Y 144 -> 3013 px** (2869 px of vertical travel), 47560 recorded on-screen
+cells compared at 40 sample points. A partial fill was outstanding at **1** of 40 sample points.
+Worth noting against the prior horizontal runs, which saw `Cache_Fill_Resume_Col` = `$FFFF` at all
+150 samples: driving vertically reaches the partial regime at all, where driving right never did.
+
+**Run 2 — the row-axis poison, crc `aebcfabb`.** The poison recipe in the gate's docstring is
+written for `TileCache_FillColumn`; this is its mirror on `TileCache_FillRow`, which had never been
+run. Both edits, as the docstring requires (either alone is insufficient): `BLOCK_DECOMP_BUDGET`
+6 -> 1, and the three-line budget charge moved to before `jbsr TileCache_FindStagedBlock` in
+`TileCache_FillRow` so every block VISITED is charged rather than only a decompress.
+**The starved regime was genuinely entered: a partial fill was outstanding at 29 of 30 sample
+points** (against 1 of 40 unpoisoned). **The invariant still held — GREEN**, 5084 cells compared,
+zero violations, no partial ever inside the recorded window.
+Both poison edits restored afterwards and the tree re-verified byte-identical (crc back to
+`2404d825`).
+
+**⚠ THE HONEST LIMIT, stated because it is what a reader would otherwise have to catch: only 5 of
+the 30 poisoned samples measured anything.** The other 25 had the recorded window fall entirely off
+screen — which is what a hard-starved fill is SUPPOSED to look like once the loops refuse to record
+what they did not write, i.e. it is the landed fix behaving correctly, and the gate counts it as a
+caveat rather than a pass. So run 2's evidence is thinner than run 1's. It is not nothing: the
+column poison produced 14 violations **within its first 5 samples** pre-fix, so 5 measured points
+was sufficient resolution to catch that defect. But a reader should weigh run 2 as "the row path did
+not fail where the column path failed loudly", not as "the row path is proven".
+
+**WHAT THIS CHANGES.** The booking above left two possibilities and said the parcel could not choose
+between them. It can now:
+
+  * ~~the fix closes the owner's bug via a path needing a condition not reached in a straight-line
+    right-scroll, the vertical fill path never having been exercised under load~~ — **EXERCISED NOW,
+    plain and starved, clean both times.** This is no longer the leading explanation.
+  * **the canopy gap has a second, different cause and is still live** — now carrying the weight.
+
+**So the next suspects named in that booking are promoted from "next in order" to "the live
+candidates":** (a) `Draw_TileRow_FromCache`'s `Section_Right_Col_Written` anchor picking the wrong
+wrap twin for plane columns near the leading edge, and (b) `Section_RedrawPlanes` returning
+`d7 = Cache_Head_Col` unconditionally.
+
+**Note the convergence on (b), which was not planned:** that is exactly SECTION-HEAD-CLAMP, booked
+separately as a latent defect ("an assignment, not a clamp") and dispatched today on
+`parcel/scroll-and-section-clamps` as small tidy-up work. It is currently held harmless only by a
+cross-clamp in `Section_UpdateColumns`. Two independent routes arriving at the same line is worth
+more than either route alone — but it is **not** evidence that (b) is the canopy cause, and it must
+not be written up as though the clamp fix closed the canopy gap. If the fix lands and a sighting
+still occurs, that is informative; if no sighting occurs, that proves nothing, because sightings
+were already rare.
+
+**The detector remains the plan.** Item 17 requires a found cause and a fix, and two code-read
+explanations are already refuted, so derivation is the approach with a demonstrated failure rate
+here. This run narrows the search; it does not replace instrumenting for the next sighting.
+
 ### THE COLUMN-19 BORROW'S PRICE HAS NEVER BEEN SEEN, AND `SceneLeftColMask` IS BOOKED FOR RETIREMENT BEHIND IT — booked 2026-08-29
 
 **Parcel:** `parcel/fg-left-edge-vsram`. **Ruling:** d-40 — the owner rejected the sprite bar and
