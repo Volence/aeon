@@ -167,6 +167,28 @@ rulings live in the session memory and the most recent `docs/superpowers/*handof
   i.e. it fails in the direction of a FALSE SUCCESS. `cd` out first, and never trust a push
   reported by a chain whose cwd may have been removed mid-run.
   *Cross-check: sigil's own write-up of both correctives is at their `1d1e3dc0`.*
+- **SEVEN LEDGER ENTRIES ARE CLOSED OUT OF SHAPE — DO NOT REPAIR THEM** (added 2026-08-30; hub-ruled
+  after this lane's boundary audit surfaced them).
+  `docs/decisions.jsonl` closes a decision per `contract/DECISIONS.md` rule 8c: append an entry with
+  `supersedes` set to the settled id and the question/options/recommend reproduced identically.
+  **These four closures did not do that.** Each was filed as a NEW id with `supersedes: null` and the
+  resolution written into the `question` field as a statement: `d-45-answered`, `d-46-downgraded`,
+  `d-47-revised-answered`, `vram-replan-deferred` — leaving their originals `d-45`, `d-46`,
+  `d-47-revised`, `vram-replan` unsuperseded too. **So each closure leaves TWO open-looking cards
+  instead of zero**, seven entries in total.
+  **RULED: no repair appends.** Rule 8 forbids rewriting; Dominion builds owner-facing cards ONLY
+  from `blockedOnOwner` joined by id (`decisionQueue.ts` at dominion `796bc1e`, read by the hub in
+  their own tree), so every entry no live blocker claims goes to `settled` and **these reach him
+  nowhere**. The harm is confined to future ledger readers and to the history view. Eight lanes
+  repairing eight ways is precisely what 8c exists to prevent, and the first-class `answered` field
+  is now the front of the hub's queue and supersedes the whole question.
+  **Rule 8c stands unchanged for every closure from here.** The instashield-riders close (`39b400bc`)
+  is the conforming example to copy.
+  *Worth keeping, because it argues for the fix rather than against the authors: the malformed shape
+  is MORE readable to a human — "RESOLVED, not a question any more" in the question field tells a
+  person the answer at a glance, where 8c's identical-question reproduction reads as an open card
+  until you notice `supersedes`. Whoever wrote these was solving a real legibility problem. That is
+  the case for the `answered` field, not for tolerating drift.*
 - **THE SHA BAR HAS ONLY EVER BEEN WRITTEN FOR THE RECEIVING SIDE, AND THE FAILURE LIVES ON THE
   EMITTING SIDE** (added 2026-08-30; this lane's own defect, caught by the hub within minutes).
   This file's existing SHA rules all say the same thing: `--stat` a citation you RECEIVE. That is
