@@ -53,6 +53,19 @@ use engine.effects.palette_dsl.{cycle_channel, cycle_script1, variant}
 // EffectsPreset / preset() — the Phase-3 total-binding format Task 12 switches
 // OJZ act 1's sections onto (engine/effects/preset.emp).
 use engine.effects.preset.{EffectsPreset, preset}
+// THE RASTER CHOOSER — the generated seam this file calls (EFFECTS-W1 item 1 step 5).
+// `ojz_act1_sec_raster(sec:, hand:)` is a `pub comptime fn` emitted for every act by
+// tools/effects_gen.py; it returns the `EditorRaster_*` program a section's sidecar
+// `rasterRef` names, or the caller's `hand:` when no sidecar names one. Today no sidecar
+// in this tree carries the key, so every call returns `hand` and the chooser is zero ROM
+// bytes — see the RASTER BINDING banner in the generated module.
+//
+// SELECTIVE IMPORT ONLY, mirroring act_descriptor.emp:55 — that is the shipped spelling for
+// this module's other two choosers and it is what places its bytes. The whole-path closure
+// edge (`use games.sonic4.scene_registry` below) is NOT needed here: the editor module is
+// already in the closure through act_descriptor, and a second whole-path edge would only
+// re-state it.
+use games.sonic4.ojz_effects_editor_act1.{ojz_act1_sec_raster}
 // Parcel W: section 0 binds its parallax config through the PRESET (ep_parallax) rather
 // than inheriting the act default, because the overlay's anchor channel has to be the same
 // channel the patched palette boundary rides. This is also the first ep_parallax binding in
@@ -964,8 +977,13 @@ pub data OJZ_DepthVSplit: [u16; raster_words(OJZ_DEPTH_VSPLIT_PROG)] = raster_pr
 // should be section-scoped is a content question for a later parcel, not
 // something to change while converting the binding mechanism.
 //
-// Sections 4-8 are identical (OJZ_Palette, no raster, no cycle), so they share
-// ONE preset instance (OJZ_Preset_Plain) instead of five copies.
+// Sections 6-8 are identical (OJZ_Palette, no raster, no cycle), so they share
+// ONE preset instance (OJZ_Preset_Plain) instead of three copies. This line said
+// "sections 4-8 / five copies" and had been stale twice over: section 4 took
+// OJZ_Preset_Depth at owner decision d-15, and section 5 took OJZ_Preset_Sec5 at
+// EFFECTS-W1 item 1 step 5. Sharing is still the DEFAULT — a section leaves the
+// shared instance only when it needs a channel of its own, and each departure is
+// priced at one 38-byte record below.
 //
 // NOT NAMED Preset_None: a preset always carries a palette (EffectsPreset.ep_pal
 // is a required, non-defaulted field — see preset()'s signature), and a palette
@@ -1022,6 +1040,37 @@ pub data OJZ_Preset_Plain: EffectsPreset = preset(pal: OJZ_Palette, raster: Rast
 // first section whose raster channel was Raster_Program_None, i.e. the first one where the
 // showcase can take the channel without taking it from something.
 pub data OJZ_Preset_Depth: EffectsPreset = preset(pal: OJZ_Palette, raster: OJZ_DepthVSplit,     cycle: Pal_Cycle_None,    variants: [Variant_Water_Deep, 0])
+// SECTION 5 IS THE SPLIT (EFFECTS-W1 item 1 step 5). It is OJZ_Preset_Plain in every
+// respect that a byte can see today — same palette, same variant, no cycle, and a raster
+// channel that resolves to Raster_Program_None — and it exists ONLY so that section 5 has a
+// preset of its own to bind a `rasterRef` through.
+//
+// WHY A SPLIT IS NEEDED AT ALL: `Sec.sec_effects` is a per-section POINTER to a shared
+// record, and sections 5-8 all pointed at OJZ_Preset_Plain. The chooser is keyed on a
+// SECTION INDEX, so threading `ojz_act1_sec_raster(sec: 5, ...)` into the shared record
+// would have given sections 6, 7 and 8 the same band. The friction is `sec_effects`'s, not
+// this mechanism's — any per-section binding inherits it. Paid once, here: from now on a
+// band on section 5 is a JSON-only change.
+//
+// WHY SECTION 5 AND NOT SECTION 4: section 4 already owns its preset and would need no
+// split, but its raster channel carries the d-15 showcase (OJZ_DepthVSplit) and preset()'s
+// exclusivity ensure makes ep_raster/ep_patched a hard either/or — binding a rasterRef there
+// would EVICT the showcase. Section 5 is the first Plain section whose raster channel is
+// Raster_Program_None, so it takes a band without taking one from anything, and it sits one
+// section past the showcase so the two are comparable by scrolling.
+//
+// THE `hand:` IS Raster_Program_None AND NOT 0. `ep_raster`'s "off" is the parked program,
+// never NULL — a NULL cannot mean "off" while it also means "keep" (ARCH §7.12). 0 is the
+// correct `hand:` only for a section that binds `patched:` (section 0), where a non-zero
+// hand would fire preset()'s exclusivity ensure for a section that bound nothing at all.
+//
+// TODAY THIS COSTS 38 BYTES AND CHANGES NOTHING ELSE. No sidecar in this tree carries a
+// `rasterRef`, so the chooser's body is `return hand` and this record is byte-identical to
+// OJZ_Preset_Plain — deliberately, because it makes the step's whole ROM delta one
+// EffectsPreset (`struct EffectsPreset (size: 38)`) and nothing else.
+pub data OJZ_Preset_Sec5:  EffectsPreset = preset(pal: OJZ_Palette,
+                                                  raster: ojz_act1_sec_raster(sec: 5, hand: Raster_Program_None),
+                                                  cycle: Pal_Cycle_None,    variants: [Variant_Water_Deep, 0])
 
 // ===========================================================================
 // OJZ_TwoChannel — the Parcel P-a gate. TWO independently patchable boundaries in ONE
