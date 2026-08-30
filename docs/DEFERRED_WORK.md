@@ -14222,3 +14222,53 @@ same failure with the *other* party rotated: the analysis was never in a tree, a
 holding it is gone, so **the only surviving copy is a peer's paraphrase of our own reasoning**.
 A lane's own derivation, quoted back to it by someone else, is not a record. **Bank a derivation
 in the tree at the moment it becomes load-bearing for a peer** — not when the parcel lands.
+
+## EFFECTS-W1 IS NOT DONE UNTIL THE SIDE-EFFECT BUGS ARE FIXED (owner, 2026-08-30)
+
+**His words, verbatim, recorded at empyrean `origin/main` in `contract/projects.json` under
+EFFECTS-W1 `completionRequires` and as DoD items 14-17** (both read firsthand out of
+`git show origin/main:<path>`, not from the relay):
+
+> *"Let's also actually add this to the parallax project as some are side effects and I want them
+> all fixed before we consider this project complete. the sigil decouple (your instruction), aeon's
+> lingering bugs and the DPLC budget breach, the canopy gap in the background"*
+
+So the project's definition of done now has a **second half**: the eleven features AND the bugs the
+feature work sits on top of. Item 17 is explicit — *"The canopy gap has a found cause and a fix,
+not a backgrounded card."*
+
+**The nine lingering-bug items are enumerated in the DoD itself (item 15)**, which matters more than
+it looks: that list was written by a session that no longer exists, and this lane does not hold it.
+**It survived because it was written into a spec at a committed revision rather than left in a
+lane's context** — the same lesson as the lost `+$60` derivation two entries up, with the opposite
+outcome. The list: scroll clamp, d-34, d-35, d-32 (re-measure after d-41), insta-shield riders, loop
+crossover to ROM, DMA split-reject reserve, base-residue `ensure`s, scene readout.
+
+### d-47-revised — RULED `targeted`
+
+Ruled by the hub in the owner's place under his standing delegation (empyrean `7149b39`, verified
+reachable). **Checked rather than accepted: the ruling takes this lane's own recommendation.** The
+card's `recommend.key` is literally `targeted`, and its stated reason — *"take the deduplication
+too, but as two separate wins rather than as one sequence"* — is what the relay conveys. A hub
+ruling that matches the card it rules on is the cheap case; it was still worth the one command,
+because "taking your recommendation" is exactly the sentence nobody checks.
+
+**BLOCK-STREAM-DEDUP proceeds as its own separate win, not a prerequisite.** He can overturn on
+read-back.
+
+**⚠ A CONDITION ON THE RULING, AND IT IS THE PART TO NOT LOSE: before any art ships, MEASURE the
+risk this lane flagged as unmeasured — that appending art disturbs nothing else. A measurement, not
+the argument.** The card raised it as a risk and then reasoned about it; reasoning is what produced
+two wrong numbers in the original d-47. Whoever takes this item owes a measurement first.
+
+### The canopy gap — a plan, not a wait
+
+Item 17 makes it non-backgroundable, and `d-46` asks the owner for a sighting. **Those are not in
+tension if the next sighting is CAPTURED rather than described.** Two explanations derived from
+reading the code have already been refuted, so a third derivation is the one approach with a
+demonstrated failure rate. **The plan: instrument for it instead** — a detector that plays the act
+and asserts the canopy strip is never blank, so the next occurrence produces a frame and a position
+rather than a memory. That converts `d-46` from a blocking question into a nice-to-have, and it is
+the only approach here that does not require either the owner's attention or a fourth guess.
+Booked as the canopy item's next step; the card stays open because his sighting would still be
+faster if it arrives.
