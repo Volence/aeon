@@ -318,7 +318,28 @@ next is exactly the ambiguity the control exists to remove, and it is what let a
 conclude the falsifier FIRED. **It did not.** `stale(188) = {0,18..26}`, `stale(186) = {18..26}`,
 `moved = stale(188) \ stale(186) = {0}`. Terminology fixed here: **STALE** = recorded value does
 not match this ROM's behaviour; **MOVED** = stale in the candidate and not in the control. The
-falsifier is over MOVED, always. An honest report from a run
+falsifier is over MOVED, always.
+
+**CLOSED BY AN INDEPENDENT SECOND LANE (2026-08-30T09:33Z).** Oracle re-derived the same
+comparison in their own tree — **11 of 11 checkpoint sites identical between 186 and 188** — and
+retracted their "the falsifier fired" reading in full (oracle `3a9c44d`). `moved = {0}`, `cam_col`
+6, inside the window. **Three lanes, three instruments, one answer.**
+
+**⚠ AND THE EPISODE IS BETTER EVIDENCE FOR THIS ENTRY'S OWN LESSON THAN THE ORIGINAL WRITE-UP WAS,
+so it is kept rather than tidied.** This entry already named the uncontrolled reading as the trap
+and called it the lesson of the exercise. A second lane then **walked into it independently, with
+the control booked, measured, and in hand** — and had already written the disproof themselves
+(*"the clamps changed nothing observable at these nine checkpoints"*, carefully bounded) two
+sections above the argument they went on to build against it. Their own diagnosis, kept in their
+words because it is sharper than the original framing: **"I reasoned about a raw count from a later
+run instead of the differential I already held. A differential is not a count, and holding the
+control is not the same as using it."**
+
+*Both catches landed where they belonged: the two-meanings-of-"movers" wording defect was this
+lane's and is fixed above; the count-for-differential conflation was theirs and is retracted. Note
+that the ambiguity in this lane's prose is what made their reading reachable — a term without its
+definition is the same decay class as a CRC without its baseline, one level up, and prose has no
+obvious slot to hang the referent on the way a figure does.* An honest report from a run
 without a control is *"your mechanism is incomplete; do not restamp."* **It would have been wrong:**
 those nine are stale on chain 186 as well, with **byte-identical `old` and `new` on both ROMs**.
 They did not move; they were already stale.
