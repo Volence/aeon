@@ -210,6 +210,23 @@ exists — and by the time they scroll on, the cross-clamp has corrected the tra
 to this class for a structural reason, and the reason is also why the class is harmless.
 
 **THE RESIDUAL LATENT DEFECT — worth one instruction, but it is NOT the canopy gap.**
+
+> **LANDED 2026-08-29** by `parcel/scroll-and-section-clamps` (SECTION-HEAD-CLAMP), which was
+> already moving bytes in the engine, so the "fix it when something moves bytes anyway"
+> condition below was met. The snippet was taken essentially as written, with ONE derived
+> change: **it is computed BEFORE the `d5` clamp, from the UNCLAMPED `d5`.** The snippet as
+> drafted sits after the left clamp, where `d5` is already `max(start_world_col,
+> Cache_Left_Col)`, so `d5 + 63` would over-claim by `Cache_Left_Col - start_world_col`
+> on exactly the redraws the left clamp exists for (a redraw whose camera column is below the
+> cache's left edge). `.pla_fill`'s right end is set by its own 64-column run's start, not by
+> where the cache cut the left edge, so the correct bound is
+> `min(start_world_col + 63, Cache_Head_Col)`. Reordering is also the cheap way to get it —
+> `d5` still holds the unclamped start col there, so no register has to be saved.
+> Net +12 bytes (+16 downstream after the alignment pad). The proc header's `Out:` block was
+> rewritten to state both halves as clamps, since it now documents `d5` as a `max` too.
+> **No observable behaviour delta today**, exactly as predicted below; nothing was run on an
+> emulator for this and nothing needed to be.
+
 `section.emp:462` should be a clamp, not an assignment:
 
     // INVARIANT: the recorded head never exceeds the extent .pla_fill actually drew.
