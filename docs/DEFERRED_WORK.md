@@ -243,7 +243,14 @@ plain unstubbed run exits 2 and desyncs at `Logic_Tick` 1154, checkpoint 18. **N
 cause is structural rather than anyone's oversight.** Verified firsthand in oracle's tree:
 `crates/oracle-replay/tests/replay_real_artifacts.rs:519,525` — `the_standing_fixture_runs_green`
 and `the_slide_fixture_runs_green` are **`#[ignore]`d** (*"full playthrough: ~34 s / ~49 s
-unoptimized"*), 4 of 24 tests in that file are ignored, **and everything that runs by default
+unoptimized"*), **3 of 16** tests in that file are ignored *(corrected 2026-08-30 — this entry
+said "4 of 24" and was wrong on both numbers, measured at the very revision it cites, oracle
+`70ac3a7`: the file holds 16 `#[test]` and 3 `#[ignore]` attributes. The fourth grep hit is the
+module doc-comment at `:30` describing the practice — **a count of a spelling, not of a
+population**, which is the SUITE-HOME-PATHS lesson landing inside the entry written the same
+night. The two test names and the qualitative claim survive; only the arithmetic was folklore.
+There is also a THIRD ignored playthrough at `:716` that neither this entry nor the relay named)*,
+**and everything that runs by default
 parses the stream, walks it statically, or drives the negative control. None of them play it.**
 **A stream that desyncs at checkpoint 18 reads as a green suite on both sides of the fence** — the
 vacuous-gate class, found in this lane's own safety equipment, which is the thing it would have
