@@ -470,6 +470,47 @@ every address by name, so the blob must be reproduced rather than taken.
 
 ### SUITE-HOME-PATHS — baked absolute paths, and the ones that PASS when the path is absent
 
+**⚑ A FREEZE MOVES THE BASELINE UNDER EVERY IN-FLIGHT AGENT, AND THEIR REPORTS GO
+CORRECT-AND-STALE WITH NO FAILING CHECK ANYWHERE (sigil's finding, 2026-08-30).**
+
+Chain 189's freeze moved two of the four golden CRCs (`s4 6e2f9b22 → 63451f96`,
+`s4.debug 6516fc68 → 3aa7cb12`) **under a sigil agent already running**, whose brief carried the
+old four as *"the current goldens, which you should match"*.
+
+**Nothing in that agent's run becomes wrong, which is exactly the hazard.** Its worktree predates
+the freeze; their provisioning script defaults to the aeon revision pinned by the LAST entry of
+its *own* `provenance.toml` — the pre-freeze one — so it builds the old revision, compares against
+the old goldens, and **correctly reports a match**. Self-consistent, correctly derived, citing
+numbers that are no longer current, **with no failing check in the agent, the wrapper, or the
+goldens.**
+
+**The compact statement, theirs: byte-neutrality proven against a baseline is a claim about THAT
+BASELINE, not about master.** A parcel that moves no bytes *should* reproduce the new goldens at
+the new revision — but that is an **inference**, and inference is the thing a byte gate exists to
+replace.
+
+**Their handling is the subtle part and is worth copying: they deliberately did NOT re-target the
+running agent.** Its fixed baseline is what makes its report a clean byte-neutrality control;
+moving the target under a running agent buys a re-run and *destroys the control*. The correction
+belongs at the merge, and they wrote it into `inFlight` as merge debt so a rotation cannot lose it.
+
+**APPLIED HERE IMMEDIATELY, because this lane had the same exposure.** The item-1 design agent
+derived its byte estimates from `s4.lst` label spans **before** the freeze. Re-checked against the
+post-freeze listing rather than reasoned about:
+
+    EditorRaster_OJZ_Act1_authored_probe $1324C -> OJZ_TestRaster $1329A = $4E = 78 bytes   HOLDS
+    OJZ_Preset_Sec0 $1363A -> OJZ_Preset_Sec1 $13660 = $26 = 38 bytes                       HOLDS
+
+They hold — a restamp rewrites payloads at fixed offsets with invariant lengths, so no label
+moved. **The reasoning was sound and it was still worth the two commands**, because "my change
+could not have moved that" is the identical inference this entry exists to distrust.
+
+**Standing consequence for this lane: when a freeze lands, every in-flight agent's numeric claims
+are stale until re-checked at the new revision — and the re-check belongs to the LANDER, not to
+the agent.** Do not message a running agent to re-target it.
+
+
+
 **⚑ SIGIL'S SUITE CAN WRITE INTO OUR LIVE TREE, GITIGNORED — MEASURED HERE, AND IT IS NARROWER
 THAN IT LOOKS (2026-08-30).** Their finding: `AEON_DIR` falls back to a hardcoded
 `/home/volence/sonic_hacks/aeon` in **93 files / 113 occurrences**, and `ensure_generated` drives
