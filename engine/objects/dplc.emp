@@ -17,23 +17,36 @@
 // shipped blobs (dplc_peak_entries below, corroborated by
 // tools/verify_sprites.py):
 //
-//     optimized/sonic.bin   13 entries (frames 193/200) — worst SCRIPT-REACHABLE
-//                              frame is 196 ($C4, LookUp) at 12 = the whole queue
-//     knuckles.bin           5      optimized/tails.bin        2
-//     optimized/tails_tail.bin  1   generated/dust/dplc_dust.bin  1
+//     optimized/sonic.bin   10 entries    knuckles.bin              5
+//     optimized/tails.bin    2            optimized/tails_tail.bin  1
+//     generated/dust/dplc_dust.bin  1
+//
+// Every one of those is now walled by a real `ensure` at the module that embeds
+// it — `dplc_peak_entries(x) + DPLC_ENTRY_RESERVE <= DMA_IMPORTANT_SLOTS`. Sonic
+// was the last holdout: it shipped at 13 behind a RATCHET, and d-47 `targeted`
+// (parcel/dplc-entry-recut) re-cut the sheet to 10 = the wall exactly, so the
+// ratchet became the assert. collision_data.emp carries the method.
 //
 // This header previously claimed "up to 6 entries (ObjectTest oracle soak)" and
 // knuckles_data.emp claimed "well inside DMA_IMPORTANT_SLOTS ... (DPLC_Sonic
 // carries up to 13)". Both were wrong, and they disagreed with each other.
 // dplc_peak_tiles guards only the VRAM footprint, so nothing bounded entries
-// against slots at all.
+// against slots at all — which is why nobody noticed the 13.
 //
-// Consequence at 12/12: the frame LookUp is entered, the Important queue is
-// 100% player and PageIn_EnqueueLanding is deterministically dropped — a
-// streaming stall exactly when the camera pans up. At 13 it is worse and
-// PERMANENT: perform_dplc enqueues 12, the 13th returns carry-set, and the
-// `bcs .done` bails BEFORE committing prev_frame — so every subsequent frame
+// WHY THE WALL IS WORTH ITS PRICE, since 10 + 2 == 12 leaves nothing spare. At
+// 12/12 the Important queue is 100% player and PageIn_EnqueueLanding is
+// deterministically dropped — a streaming stall on exactly the frames the player
+// holds (LookUp; the walk-tilt frames, during ordinary running). At 13 it is
+// worse and PERMANENT: perform_dplc enqueues 12, the 13th returns carry-set, and
+// the `bcs .done` bails BEFORE committing prev_frame — so every subsequent frame
 // re-enqueues all 12 and drops the 13th forever. That entry's tiles never load.
+//
+// ⚠ AND THE `ensure` STILL CANNOT SEE THE WHOLE COST. A transfer whose ROM source
+// straddles a $20000 boundary is SPLIT BY QueueDMA INTO TWO entries, so a frame
+// really costs `entries + straddles`, and whether an entry straddles depends on
+// where the art LANDED — a link-time fact no comptime parser of the blob can
+// reach. tools/dplc_straddle.py --gate measures SLOTS and runs in build.sh; the
+// comptime walls here are necessary and not sufficient.
 //
 // Cross-module: QueueDMA_Important / QueueDMA_Deferrable live in
 // engine.dma_queue and resolve at link.

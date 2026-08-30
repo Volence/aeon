@@ -308,32 +308,46 @@ def test_every_tilted_frame_fits_the_character_vram_window(name):
 
 
 def test_the_tilt_does_not_worsen_sonics_important_queue_peak():
-    """RATCHET, in the same spirit as collision_data.emp's. Sonic's sheet is ALREADY
-    over the Important-queue budget (13 entries on two frames, neither script-reachable;
-    the worst reachable was 12, on the LookUp pose). Turning the tilt on makes 36 more
-    frames reachable, so the question is whether any of them is worse than what was
-    already reachable. Measured, not assumed."""
+    """The tilt makes 36 more mapping frames selectable during ordinary running, so
+    the question is whether any of them costs more Important queue slots than what was
+    already reachable. Measured, not assumed.
+
+    HISTORY, because this assertion INVERTED and the reason matters. It used to be a
+    ratchet: Sonic's sheet was over budget (13 entries on two frames, neither
+    script-reachable), the worst reachable was 12 on LookUp, and the tilt added a
+    second 12 at $0E — so this test pinned `at_cap == [$0E]` to keep that debt from
+    growing. The d-47 `targeted` re-cut (parcel/dplc-entry-recut) paid the debt: no
+    frame in the sheet exceeds DMA_IMPORTANT_SLOTS - DPLC_ENTRY_RESERVE any more.
+    So the pin now asserts the debt is GONE rather than bounded, and $0E going back
+    over the wall fails here as well as at collision_data.emp's `ensure`."""
     frames = _dplc_frames(ROOT / DPLCS["sonic"])
     new_peak = max(frames[f][0] for f in NEWLY_REACHABLE)
     old_peak = max(frames[f][0] for f in UPRIGHT_FRAMES)
+    wall = DMA_IMPORTANT_SLOTS - DPLC_ENTRY_RESERVE
     assert old_peak <= 8, "upright walk/run peak moved from 8 to %d" % old_peak
-    assert new_peak <= 12, (
-        "a tilted frame now costs %d Important slots, past DMA_IMPORTANT_SLOTS (%d) — "
-        "at 13 the DPLC drop is PERMANENT (engine/objects/dplc.emp), not one frame"
-        % (new_peak, DMA_IMPORTANT_SLOTS))
-    # The debt this parcel adds, pinned so it cannot grow silently: exactly one tilted
-    # frame reaches the whole queue, and it is the same frame that carries the tile peak.
+    assert new_peak <= wall, (
+        "a tilted frame now costs %d Important slots, past the budget wall "
+        "DMA_IMPORTANT_SLOTS - DPLC_ENTRY_RESERVE (%d - %d = %d) — the art-page "
+        "landing is dropped on that frame, and at %d the DPLC drop is PERMANENT "
+        "(engine/objects/dplc.emp), not one frame"
+        % (new_peak, DMA_IMPORTANT_SLOTS, DPLC_ENTRY_RESERVE, wall,
+           DMA_IMPORTANT_SLOTS + 1))
+    # The debt is paid, and this is what says so: NO tilted frame reaches the whole
+    # queue any more. $0E — the second frame of WALK TILT BLOCK 1, and the sheet's
+    # tile peak — was the one that did, at exactly DMA_IMPORTANT_SLOTS.
     at_cap = [f for f in NEWLY_REACHABLE if frames[f][0] >= DMA_IMPORTANT_SLOTS]
-    assert at_cap == [0x0E], (
-        "the set of tilted frames at the Important-slot cap changed: %s (was [$0E])"
-        % ["$%02X" % f for f in at_cap])
-    # ... and it is exactly ONE frame wide: the next-worst tilted frame is 10, the
-    # figure DPLC_ENTRY_RESERVE actually allows. Nothing sits in between, so the debt
-    # this parcel adds is a single animation frame and not a band of near-misses.
-    rest = sorted((frames[f][0] for f in NEWLY_REACHABLE if f not in at_cap), reverse=True)
-    assert rest[0] == DMA_IMPORTANT_SLOTS - DPLC_ENTRY_RESERVE, (
-        "the second-worst tilted frame moved to %d entries (was 10 = "
-        "DMA_IMPORTANT_SLOTS - DPLC_ENTRY_RESERVE)" % rest[0])
+    assert at_cap == [], (
+        "a tilted frame is back at the Important-slot cap: %s. The d-47 re-cut took "
+        "every frame to <= %d; re-cut the sheet (tools/dedup_art.py --entry-cap %d), "
+        "do not raise DMA_IMPORTANT_SLOTS"
+        % (["$%02X" % f for f in at_cap], wall, wall))
+    # The peak is AT the wall, not comfortably under it: 10 == 12 - 2 exactly. Assert
+    # that too, so a re-cut that silently stopped short of the wall (or a re-export
+    # that crept back up to it from below) is visible here as a changed number rather
+    # than as a still-passing `<=`.
+    assert new_peak == wall, (
+        "the worst tilted frame is %d entries, not the wall %d — the sheet's peak "
+        "moved; re-derive it before adopting the new number" % (new_peak, wall))
 
 
 def test_constants_still_match_their_source():

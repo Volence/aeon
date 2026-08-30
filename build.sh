@@ -482,8 +482,17 @@ if [[ "${NO_LINT:-0}" == "0" ]]; then
     #
     # A missing pytest is a WARNING, not a failure: it is a dev-machine dependency, and
     # hard-failing here would make the build unrunnable on a box that only wants a ROM.
+    #
+    # BAR 25 — "does the gate's own name appear in the build's own log?" For this lane
+    # the answer was NO: `-q --no-header` prints dots and "N passed", so no test FILE is
+    # ever named on a green run. A file that silently stopped being collected — renamed,
+    # moved, or shadowed by an import error in a sibling — is indistinguishable from one
+    # that ran and passed. Collection here is a DIRECTORY SWEEP, so the cheap honest
+    # check is the sweep's extent: the count below is computed by the same rule pytest
+    # collects by, and a file dropping out of the lane moves it.
     if python3 -c "import pytest" 2>/dev/null; then
         echo "Running the tool-suite unit tests..."
+        echo "  sweeping $(find "${TOOLS}" -maxdepth 1 -name 'test_*.py' | wc -l) test file(s) under ${TOOLS}"
         if ! python3 -m pytest "${TOOLS}" -q --no-header -p no:cacheprovider; then
             echo "Tool-suite tests failed — the build tooling is broken, not just the ROM."
             exit 1

@@ -1608,7 +1608,105 @@ least two boundary-straddling entries exist by construction"* reasons about **bl
 entries in a frame — and the two straddles live in different characters' sheets, which are never both
 the player. **The number 2 may still be right; its reason is wrong.**
 
-### ⚠⚠ NEW, AND IT OUTRANKS WHAT IT WAS FOUND UNDER: THE DPLC ENTRY BUDGET IS ALREADY BREACHED, WITH THE GUARD COMMENTED OUT — booked 2026-08-29
+### ~~⚠⚠ THE DPLC ENTRY BUDGET IS ALREADY BREACHED~~ — CLOSED 2026-08-30 (`parcel/dplc-entry-recut`) — booked 2026-08-29
+
+**The breach is paid, the ratchet is now the real assert, and the producer is gated.**
+Peak entries **13 → 10**, peak SLOTS **13 → 10** = `DMA_IMPORTANT_SLOTS - DPLC_ENTRY_RESERVE`
+exactly, on both canonical sonic4 shapes. `collision_data.emp` carries
+`ensure(dplc_peak_entries(_dplc_sonic) + DPLC_ENTRY_RESERVE <= DMA_IMPORTANT_SLOTS)` — the
+same spelling `tails_data.emp` and `knuckles_data.emp` have always had, so Sonic is no longer
+the exception. `DMA_IMPORTANT_SLOTS` was **not** raised.
+
+**HOW, and the method is the reusable part.** `tools/dedup_art.py` is the producer of the two
+Sonic blobs — **proven, not assumed**: re-running it reproduces both committed files
+byte-identically. Dedup trades ENTRIES for BYTES (a frame assembled from many scattered pool
+runs is cheap in ROM, expensive in the queue). The new `--entry-cap N` gives that trade back on
+**only** the frames over the wall — `$0E, $BE, $BF, $C1, $C4, $C8`, six of 224 — appending each
+one's tiles to the pool as a fresh contiguous run. Appending is what makes it safe: no pool
+index moves, so no frame it does not rewrite can change, and the tiles are byte-copies, so
+every frame still loads identical bytes into VRAM (which is why the mappings needed no change).
+
+**THE CARD'S PRICE REPRODUCES EXACTLY** — re-derived from the shipped blobs, not inherited:
+112 tiles · art 97,472 → 101,056 B (+3,584) · DPLC 2,368 → 2,244 B (−124) · **+3,460 B net** ·
+`Art_Sonic` 3,046 → 3,158 tiles, tile_start headroom 1,050 → 938. `dplc_peak_tiles` unmoved at
+29 (the re-cut changes where tiles come from, never which or in what order).
+
+**FOUR PLACES THE BOOKING IS NOW WRONG, each re-measured on this tree.** The card's figures were
+right when written; the tree moved under them.
+
+1. **The line cite rotted.** The `ensure` was **not** "commented out at `dplc.emp:76`". Line 76
+   is mid-narrative in the `DPLC_TILE_START_BITS` block. The commented text is at
+   **`dplc.emp:141`** and is a **doc TEMPLATE** (`_dplc_x`), not a disabled guard. The live
+   guard was the **ratchet** `ensure(dplc_peak_entries(_dplc_sonic) <= 13)` at
+   **`collision_data.emp:88`** — which is why the build was green, not because nothing checked.
+2. **`$C4`/LookUp was not the worst reachable frame.** `$0E`, the second frame of WALK TILT
+   BLOCK 1, also sat at 12 and is reachable during **ordinary running** (since
+   `Player_ApplyTilt` shipped) — i.e. while the level is STREAMING, which is strictly worse than
+   a camera pan. `collision_data.emp` already knew this; the booking did not.
+3. **"Zero frames gained or lost a straddle" is FALSE on this tree.** The DEBUG shape had **no**
+   straddling Sonic entry before and gains one at **`$6C`** after (1 → 2 slots, harmless — the
+   bar is 10). Release keeps its single straddle at `$71`, unchanged. The card's claim that
+   sonic `$6C` straddles *today* also no longer holds: at HEAD it did not.
+4. **The margins are TIGHTER than the card's 5,188 B.** Re-swept with `dplc_straddle --sweep`:
+   the base can move **5,220 B earlier (DEBUG) / 2,980 B earlier (RELEASE)** before peak SLOTS
+   goes to 11. **Release binds at 2,980 B.** Corroborated independently by
+   `dplc_straddle --selftest`, whose searched red proof lands at −5,221 B on DEBUG.
+
+**ROOM, re-derived with `tools/bganim_room.py` rather than trusted.** The spend is real but the
+ROM FILE did not grow: `s4.bin` is 719,355 B and `s4.debug.bin` 736,357 B **before and after** —
+the +3,460 B was absorbed into the free run below the `0x90000` anchor, which is what "room"
+measures and what actually shrank.
+
+| shape | room before | room after | spendable before (room − 16,384) | spendable after |
+|---|---|---|---|---|
+| DEBUG (binding) | 21,888 B | 18,428 B | 5,504 B | **2,044 B** |
+| release | 24,128 B | 20,668 B | 7,744 B | 4,284 B |
+
+`DATA_GROWTH_RESERVE` (16,384 B) is confirmed a **separate floor, not inside** the raw room
+figure (`bganim_room.py:398` compares room against it). So the fix consumed **62.9% of all
+remaining spendable data room** in the binding shape — the card said 62.5% off a room of 21,920 B;
+today's room is 21,888 B, 32 B (one tile) lower. The ruled 12,288 B BG-anim ceiling is untouched
+(26,666 B available, DEBUG).
+
+**⚠ THE COUPLING WITH `BLOCK-STREAM-DEDUP` IS RE-MEASURED AND THE BAND MOVED.** Dedup shifts the
+same base by **−20,986 B**. On today's tree that is **SAFE in both shapes**, but inside a
+narrower window than the card's `[−29,796, −15,300]`:
+
+| shape | safe band containing −20,986 | slack below | slack above |
+|---|---|---|---|
+| DEBUG | [−29,828, −15,332] | 8,842 B | 5,654 B |
+| release | [−27,588, −13,092] | 6,602 B | 7,894 B |
+
+**Intersection — the band that binds: [−27,588, −15,332].** The dedup's saving must land between
+**15,332 B and 27,588 B**. 20,986 B sits inside with **5,654 B slack above** and **6,602 B below**.
+**Whichever parcel lands SECOND must re-run `dplc_straddle --recut Art_Sonic` on the merged tree**
+— the build gate catches it either way, which is the point of it being a gate and not a note.
+
+**GATES.** `tools/test_dplc_recut.py` (10 tests, build.sh's pytest lane, build-fatal) re-runs the
+producer and requires the committed bytes to match, so a hand-edit or a stale copy is now caught
+at the *source* rather than at the output. Its load-bearing test is
+`test_the_entry_cap_is_load_bearing`: with the cap OFF the sheet must be OVER the wall, so the
+byte-identity tests cannot pass vacuously. `dplc_straddle.py`'s bar is no longer a literal — it
+is **derived** as `DMA_IMPORTANT_SLOTS - DPLC_ENTRY_RESERVE` from the two owning files, prints
+its own provenance, and stays loud (not green) if neither wall spelling is found in source.
+
+**PARTIAL RESOLUTION OF A SEPARATE OPEN QUESTION, measured on the way past.** `test.sh` carried
+"optimized-art reproduction is unverified — `dplc_layout.py` is not the producer". It is right
+about `dplc_layout.py` and stopped too early: **the producers are MIXED per character**, which is
+why one blanket comparison could never go green. sonic = `dedup_art.py` (both blobs, exact, now
+gated). tails = `dplc_layout.py` reproduces the **DPLC** exactly, the **ART** matches neither
+producer — **still open**. tails_tail = neither producer reproduces either blob — **still open**.
+
+**THE TWO COMPANIONS ARE BOOKED, NOT BUILT — the re-cut did not need them, and they need the
+emulator to mean anything.** `DMA_Peak_Important` (declared `engine/ram.emp:580`, written
+nowhere) and `.full`/`.split_reject` sharing one `DMA_Overflow_Count` are RUNTIME instruments;
+this parcel is entirely static, so building them here would have shipped two mechanisms with no
+measurement behind them. They remain the right kill for the **page-in landing** half, which is
+still unmeasured (see the d-47 entry below).
+
+---
+
+**Original booking follows.**
 
 **Verified firsthand here, not relayed.** `engine/objects/dplc.emp:13-32` records the measurement in
 its own header: **`optimized/sonic.bin` peaks at 13 entries** against `DMA_IMPORTANT_SLOTS = 12`
@@ -16261,6 +16359,14 @@ here that measures SLOTS rather than ENTRIES.
 **Three straddling DPLC entries ALREADY SHIP, unmeasured until now** — sonic frame `$6C`,
 tails `$A5`, knuckles `$8C` (debug shape; `$71`/`$AA`/`$90` in release). Knuckles' costs
 4 entries → **5 slots**. Harmless today only because they land on light frames: luck, not design.
+
+**⚠ SUPERSEDED IN PART, 2026-08-30 — the re-cut LANDED (`parcel/dplc-entry-recut`) and four of
+the figures below moved with the tree.** Corrections 1/3/4 and the safe bands were re-derived on
+the merged tree and the current numbers live in the CLOSED entry above; read that one first.
+Specifically: this tree's DEBUG shape had **no** Sonic straddle before the re-cut and gains one
+at `$6C` after (so "zero frames gained or lost a straddle" no longer holds), the margin binds at
+**2,980 B on RELEASE** rather than 5,188 B, and the combined dedup band is **[−27,588, −15,332]**
+rather than [−29,796, −15,300]. The price (112 tiles / +3,584 / −124 / +3,460) reproduced exactly.
 
 **The ruled `targeted` re-cut is SAFE — measured, both canonical shapes.** Peak entries 13 → 10,
 peak SLOTS 13 → 10 (exactly `DMA_IMPORTANT_SLOTS - DPLC_ENTRY_RESERVE`), zero frames gained or

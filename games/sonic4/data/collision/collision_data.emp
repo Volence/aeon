@@ -6,8 +6,9 @@ module games.sonic4.collision_data in collision_data
 // The character DPLC window + its hard wall (games.sonic4.constants) and the
 // comptime DPLC parser that measures a table's worst frame (engine.objects.dplc).
 use games.sonic4.constants.{VRAM_TEST_SONIC, VRAM_TEST_OBJ}
-use engine.constants.{TILE_SIZE}
-use engine.objects.dplc.{dplc_peak_tiles, dplc_peak_entries, DPLC_ADDRESSABLE_TILES}
+use engine.constants.{TILE_SIZE, DMA_IMPORTANT_SLOTS}
+use engine.objects.dplc.{dplc_peak_tiles, dplc_peak_entries, DPLC_ADDRESSABLE_TILES,
+                         DPLC_ENTRY_RESERVE}
 
 const _heightmaps     = embed("games/sonic4/data/collision/heightmaps.bin")
 const _heightmaps_rot = embed("games/sonic4/data/collision/heightmaps_rot.bin")
@@ -28,10 +29,10 @@ ensure(_dplc_sonic.len <= $7FFF, "DPLC_Sonic exceeds signed word-offset range")
 // has tiles no entry can reach — and the generator that tries wraps into the low
 // indices SILENTLY (see the long note at the constants in engine/objects/dplc.emp
 // for why the shipped table cannot testify to this and the art sheet has to).
-// Measured today: 3,046 tiles, 1,050 (33,600 B) of headroom. The straddle re-cut
-// booked in docs/DEFERRED_WORK.md takes Art_Sonic to 3,158 and the headroom to 938
-// — still the roomiest of the three characters by two orders of magnitude, and
-// Knuckles at 4 tiles is the one that actually binds.
+// Measured after the d-47 entry re-cut: 3,158 tiles, 938 (30,016 B) of headroom
+// (it was 3,046 / 1,050 before the re-cut appended 112 tiles) — still the roomiest
+// of the three characters by two orders of magnitude, and Knuckles at 4 tiles is
+// the one that actually binds.
 ensure(_art_sonic.len / TILE_SIZE <= DPLC_ADDRESSABLE_TILES,
        "Art_Sonic is {_art_sonic.len / TILE_SIZE} tiles; a DPLC entry's tile_start can only name 0..{DPLC_ADDRESSABLE_TILES - 1}, so the tiles above that would be addressed by a WRAPPED index and load early-frame art — re-page or shrink the sheet, do not raise the field")
 
@@ -45,48 +46,54 @@ ensure(VRAM_TEST_SONIC + dplc_peak_tiles(_dplc_sonic) <= VRAM_TEST_OBJ,
        "Sonic's peak DPLC frame overruns the character VRAM window into VRAM_TEST_OBJ — widen the window or re-page the art")
 
 // -----------------------------------------------
-// ENTRY-COUNT RATCHET — Sonic is over the Important-queue budget TODAY.
+// THE ENTRY-COUNT BUDGET — the real assert, no longer a ratchet (d-47 `targeted`,
+// closed by parcel/dplc-entry-recut).
 //
 // Entries are queue slots (one QueueDMA_Important enqueue each), a different
-// quantity from the tiles guarded above. The real bound is
+// quantity from the tiles guarded above. The bound is the one the sibling
+// characters have always asserted (tails_data.emp, knuckles_data.emp):
 //
 //     dplc_peak_entries(_dplc_sonic) + DPLC_ENTRY_RESERVE <= DMA_IMPORTANT_SLOTS
-//         i.e.  13 + 2 <= 12                                      -- FALSE
+//         i.e.  10 + 2 <= 12                                       -- TRUE, exactly
 //
-// so asserting it would fail the build. This is a RATCHET at the measured value
-// instead: it pins the debt in source, keeps it from growing, and fails loudly
-// the moment a re-export or a newly-scripted frame makes it worse.
+// This used to be a RATCHET pinned at 13 because the shipped sheet was OVER the
+// budget and asserting the truth would have failed the build. What that debt was,
+// so the shape of the fix is legible:
+//   - frames $C1 and $C8 carried 13 entries. At 13 the drop is PERMANENT, not
+//     one frame: perform_dplc enqueues 12, the 13th returns carry-set, and the
+//     `bcs .done` bails BEFORE committing prev_frame, so every later frame
+//     re-enqueues all 12 and drops the 13th forever. Neither was script-reachable,
+//     which is the only reason it never shipped as a visible bug.
+//   - $C4 (LookUp, held for as long as UP is held) and $0E (the second frame of
+//     WALK TILT BLOCK 1, reachable during ordinary running since Player_ApplyTilt
+//     shipped) both sat at 12 — the WHOLE queue. On either, the Important queue is
+//     100% player and PageIn_EnqueueLanding is deterministically dropped: a
+//     streaming stall, on $0E while the level is streaming.
 //
-// The debt, precisely:
-//   - frames 193 ($C1) and 200 ($C8) carry 13 entries. Neither is referenced by
-//     any Ani_Sonic script today, so neither is reachable — the only thing
-//     keeping the permanent-drop failure off the table.
-//   - TWO frames reach 12 entries — exactly DMA_IMPORTANT_SLOTS, zero margin. On
-//     either, the Important queue is 100% player and the art-page landing is
-//     dropped for that frame.
-//       · 196 ($C4), held by LookUp (`[5, $C3, $C4, AF_BACK, 1]`) for as long as
-//         UP is held. Reachable since the anim scripts landed.
-//       · 14 ($0E), the second frame of WALK TILT BLOCK 1. Reachable since the
-//         ground-angle tilt shipped (Player_ApplyTilt, player_common.emp) made
-//         mapping frames $09-$20 and $25-$30 selectable during ordinary running.
-//         It is also the sheet's TILE peak (29, tied with $1E) — the same frame
-//         the VRAM guard above already measured, which is why that wall needed
-//         no change.
-//     The tilt is what makes this reachable WHILE THE LEVEL IS STREAMING rather
-//     than only while the camera pans up, which is the part that got worse. It is
-//     exactly one animation frame wide: measured over all 36 newly-reachable
-//     frames the next-worst is 10, so nothing sits between 10 and the cap.
-//     Measured, and re-measured on every build, by tools/test_sprite_tilt.py
-//     (test_the_tilt_does_not_worsen_sonics_important_queue_peak), which pins the
-//     set of tilted frames at the cap to exactly {$0E} so it cannot grow quietly.
+// HOW IT WAS CLOSED, because the method is the reusable part. Dedup
+// (tools/dedup_art.py, which IS the producer of the two blobs above — proven by
+// byte-identical regeneration) trades ENTRIES for BYTES: a frame assembled from
+// many scattered pool runs is cheap in ROM and expensive in the queue. The re-cut
+// gives that trade back on the SIX frames over the wall and on no others
+// ($0E, $BE, $BF, $C1, $C4, $C8), appending each one's tiles to the pool as a
+// fresh contiguous run so it becomes ceil(tiles/16) entries. Because the run is
+// APPENDED, no pool index moves and no other frame can change; because the tiles
+// are byte-copies, every frame still loads identical bytes into VRAM (the tool
+// proves that per frame, and it is why the mappings needed no change).
 //
-// CLOSING IT means re-paging sonic.bin so no frame exceeds
-// DMA_IMPORTANT_SLOTS - DPLC_ENTRY_RESERVE (10), then replacing this ratchet
-// with the real assert above. Note the UNOPTIMIZED source is worse still (16),
-// so the re-page has to be done on the optimizer's output.
+// Price, re-derived from the shipped blobs: 112 tiles, art 97,472 -> 101,056 B
+// (+3,584), DPLC 2,368 -> 2,244 B (-124), +3,460 B net. Peak entries 13 -> 10,
+// peak SLOTS 13 -> 10.
+//
+// ⚠ ENTRIES ARE NOT SLOTS, AND THIS ensure CANNOT SEE THE DIFFERENCE. QueueDMA
+// splits any transfer whose ROM source straddles a $20000 boundary into TWO queue
+// entries, so a frame's true cost is `entries + straddles` — a LINK-TIME fact that
+// depends on where Art_Sonic lands, which a comptime parser of the blob can never
+// learn. tools/dplc_straddle.py --gate is what measures SLOTS; it runs on both
+// sonic4 shapes in build.sh. Do not read a green build here as a slot guarantee.
 // -----------------------------------------------
-ensure(dplc_peak_entries(_dplc_sonic) <= 13,
-       "DPLC_Sonic's peak entry count grew past the known 13 — it is ALREADY over the Important-queue budget (12 slots); re-page the art, do not raise this ratchet")
+ensure(dplc_peak_entries(_dplc_sonic) + DPLC_ENTRY_RESERVE <= DMA_IMPORTANT_SLOTS,
+       "DPLC_Sonic's peak DPLC frame costs more Important queue slots than the budget leaves — re-cut the art (tools/dedup_art.py --entry-cap), do not raise DMA_IMPORTANT_SLOTS")
 
 pub data HeightMaps    = _heightmaps
 pub data HeightMapsRot = _heightmaps_rot
