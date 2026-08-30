@@ -1,5 +1,5 @@
 {
-  "focus": "Classified the tests that could pass without checking anything. Five of six fail loudly; one row skips silently.",
+  "focus": "The replay measurement came back: my prediction held, and it uncovered that the net has been blind two thirds of the way through.",
   "inFlight": [
     {
       "what": "the replay checkpoint A/B - oracle runs it, my falsifier is stated in advance",
@@ -27,9 +27,17 @@
   "nextBoundary": "Here. Nothing half-applied; the only open thread is a measurement another lane runs when it chooses.",
   "queue": [
     {
+      "id": "REPLAY-NET-BLIND",
+      "title": "Our replay regression net reports green while the recording desyncs two thirds of the way through - the only checks that actually play it are switched off by default for being slow. Outranks the restamp.",
+      "state": "next",
+      "size": "M",
+      "blockedBy": null,
+      "project": "EFFECTS-W1"
+    },
+    {
       "id": "REPLAY-RESTAMP",
-      "title": "The recorded replay inside the ROM disagrees with the game after the clamps. Oracle is measuring which checkpoints moved; my prediction is written down so their answer can refute it.",
-      "state": "doing",
+      "title": "RULED: restamp checkpoint 0 only - the clamps moved exactly one of 27, exactly where predicted. The other nine were already stale before the clamps existed.",
+      "state": "open",
       "size": "M",
       "blockedBy": null,
       "project": "EFFECTS-W1"
@@ -309,7 +317,7 @@
   ],
   "awaiting": "your look at the right-edge pictures, and one number for sigil's plan - both already on your list",
   "atBoundary": true,
-  "updatedAt": "2026-08-30T06:09:56Z",
+  "updatedAt": "2026-08-30T06:25:32Z",
   "resume": "Your go is RECORDED (empyrean 7149b39) - do NOT boot into a stop. Start with EFFECTS-W1-SHOW-A-BAND: run tools/band_witness.py against master, no bytes moved. EFFECTS-W1 now has a SECOND HALF - the owner ruled the side-effect bugs must be fixed before the project is done (DoD items 14-17). The canopy is no longer backgroundable and its plan is to INSTRUMENT for the next sighting, not derive a third explanation - two are already refuted. d-47-revised is ruled 'targeted'; measure the append risk before art ships. Everything is in DEFERRED_WORK.md.",
   "parkedQuestions": [
     {

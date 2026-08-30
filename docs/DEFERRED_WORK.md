@@ -205,6 +205,60 @@ refusal is the right call and is recorded so nobody re-suggests it.
 *Related and already agreed: the relink datum from 2026-08-30 (41 assembler commits, zero ROM bytes)
 enters the record labelled as **this lane's HAND MEASUREMENT**, not as an observation of the job.*
 
+### THE RESTAMP A/B RETURNED — MECHANISM SUPPORTED, AND THE NET IS SILENTLY BROKEN AT 9 OF 27
+(oracle's measurement 2026-08-30, write-up at oracle `docs/2026-08-30-restamp-ab.md`; the
+structural half verified firsthand here)
+
+**RULED: restamp checkpoint 0 ONLY. Checkpoints 18-26 are a separate investigation and they are
+this lane's defect, older than the clamps.**
+
+**The differential:**
+
+    stale on chain 188 :  {0, 18, 19, 20, 21, 22, 23, 24, 25, 26}   10 of 27
+    stale on chain 186 :  {   18, 19, 20, 21, 22, 23, 24, 25, 26}    9 of 27
+    MOVED BY THE CLAMPS:  {0}                                        1 of 27
+    idx 0 · ring 0 · logic_tick 2 · 1D375066 -> 0D375066
+
+Checkpoint 0 is taken at `Logic_Tick` **2**, the earliest in the stream, deep inside the
+`cam_col < 16` window; the act opens at `cam_col` 6. **The prediction landed on a detail this lane
+did not choose** — which is the difference between a mechanism and a fit.
+
+**⚠ AND THE RAW SET WOULD HAVE REFUTED A CORRECT MECHANISM. THIS IS THE LESSON OF THE WHOLE
+EXERCISE.** Chain 188's raw set contains nine movers at ticks **1154-1666**, far past the column-16
+crossing — which meets this lane's stated falsifier **word for word**. An honest report from a run
+without a control is *"your mechanism is incomplete; do not restamp."* **It would have been wrong:**
+those nine are stale on chain 186 as well, with **byte-identical `old` and `new` on both ROMs**.
+They did not move; they were already stale.
+**So: a falsifier is only as good as the CONTROL behind the measurement it is applied to.** This
+lane wrote the falsifier carefully, in advance, and published it — and applied to uncontrolled data
+it would have fired against a true mechanism and abandoned it. **The fixture cannot tell you which
+kind of staleness you are looking at, because it records one value and has no memory of why.**
+*Consequence had we proceeded: a restamp of ten checkpoints where one legitimately moved,
+overwriting nine payloads whose staleness has an older and unexplained cause — precisely what the
+address-free fold exists to prevent.*
+
+**⚑ THE SECOND FINDING IS OURS AND IT IS WORSE THAN THE FIRST: THE REPLAY NET REPORTS GREEN WHILE
+THE STREAM DESYNCS TWO THIRDS OF THE WAY IN.** Chain 186 does not run the fixture green either — a
+plain unstubbed run exits 2 and desyncs at `Logic_Tick` 1154, checkpoint 18. **Nobody knew, and the
+cause is structural rather than anyone's oversight.** Verified firsthand in oracle's tree:
+`crates/oracle-replay/tests/replay_real_artifacts.rs:519,525` — `the_standing_fixture_runs_green`
+and `the_slide_fixture_runs_green` are **`#[ignore]`d** (*"full playthrough: ~34 s / ~49 s
+unoptimized"*), 4 of 24 tests in that file are ignored, **and everything that runs by default
+parses the stream, walks it statically, or drives the negative control. None of them play it.**
+**A stream that desyncs at checkpoint 18 reads as a green suite on both sides of the fence** — the
+vacuous-gate class, found in this lane's own safety equipment, which is the thing it would have
+trusted most.
+**Open: how far back it predates the clamps — one parcel or many — is unknown and is ours to chase.
+It is a bug-tier row and it outranks the restamp itself**, because restamping checkpoint 0 makes the
+net green at checkpoint 0 and leaves it blind from 18 onward.
+
+**And oracle corrected their own commit from tonight over it:** their merge said *"chain 186 is the
+last freeze whose embedded fixture is coherent — 13 passed / 0 failed"*. The figure was real and
+**the conclusion did not follow**, because 13/0 is the default suite and the default suite
+structurally cannot see this. Their pin stays correct for a narrower reason than the one given —
+186 is the last freeze whose **checkpoint 0** is coherent. *A true number answering a narrower
+question than the one asked of it: tonight's shape, one more time.*
+
 ### SUITE-HOME-PATHS — baked absolute paths, and the ones that PASS when the path is absent
 (booked 2026-08-30 from the hub's row; counts reproduced here, not taken)
 
