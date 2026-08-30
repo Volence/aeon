@@ -316,18 +316,18 @@ def report(lst_path, out=sys.stdout, sweep=None, sweep_range=(-512, 512),
                                f"known: {', '.join(x['art_label'] for x in subs)}")
         report_recut(s, slots - reserve, tile_size, boundary, slots, reserve, out=out)
 
-    ratchet = ratchet_from_source()
+    ratchet, provenance = ratchet_from_source(slots, reserve)
     print(f"\n  worst peak SLOT cost over all subjects: {worst}", file=out)
-    print(f"  the committed entry ratchet (collision_data.emp) is {ratchet}", file=out)
+    print(f"  the committed bar is {ratchet} — from {provenance}", file=out)
     if gate:
         if worst > ratchet:
             print(f"\ndplc_straddle: FAIL — peak SLOT cost {worst} exceeds the committed "
-                  f"entry ratchet {ratchet}. A frame costs more queue slots than its "
+                  f"entry bar {ratchet}. A frame costs more queue slots than its "
                   f"entry count, because at least one of its transfers straddles a "
                   f"0x{boundary:X} source boundary and QueueDMA splits it in two.",
                   file=out)
             return 1
-        print("\ndplc_straddle: OK — no frame's SLOT cost exceeds its entry ratchet", file=out)
+        print(f"\ndplc_straddle: OK — no frame's SLOT cost exceeds the bar {ratchet}", file=out)
     return 0
 
 
@@ -411,15 +411,43 @@ def report_recut(sub, wall, tile_size, boundary, slots, reserve, out=sys.stdout)
     return ps_a
 
 
-def ratchet_from_source():
-    """The committed `dplc_peak_entries(_dplc_sonic) <= N` ratchet."""
+def ratchet_from_source(slots, reserve):
+    """The bar this gate compares peak SLOT cost against, READ OUT OF THE SOURCE.
+
+    Two spellings are legal in collision_data.emp and they mean different things,
+    so this returns which one it found rather than just a number:
+
+      * the REAL budget assert —
+        `ensure(dplc_peak_entries(_dplc_sonic) + DPLC_ENTRY_RESERVE <= DMA_IMPORTANT_SLOTS)`
+        — the wall is then `slots - reserve`, DERIVED from the two constants
+        parsed out of their own defining files, never typed here. This is what
+        ships since the d-47 re-cut.
+      * a literal RATCHET `... <= N`, which is what stood while the sheet was over
+        budget. Its N is the bar, because a ratchet's whole job is to pin a debt.
+
+    Neither present is UNMEASURABLE, not a default: with no committed wall in
+    source there is no number for this gate to mean anything against.
+
+    Returns (bar, provenance_string).
+    """
     text = _read("games/sonic4/data/collision/collision_data.emp")
-    m = re.search(r'ensure\(dplc_peak_entries\(_dplc_sonic\)\s*<=\s*(\d+)', text)
-    if not m:
-        raise Unmeasurable(
-            "collision_data.emp no longer carries the `dplc_peak_entries(_dplc_sonic) <= N` "
-            "ratchet — the number this gate compares against is gone; re-derive it")
-    return int(m.group(1))
+    real = re.search(
+        r'ensure\(dplc_peak_entries\(_dplc_sonic\)\s*\+\s*DPLC_ENTRY_RESERVE'
+        r'\s*<=\s*DMA_IMPORTANT_SLOTS', text)
+    if real:
+        return (slots - reserve,
+                f"the real budget assert in collision_data.emp, so the bar is "
+                f"DMA_IMPORTANT_SLOTS - DPLC_ENTRY_RESERVE = {slots} - {reserve}")
+    ratchet = re.search(r'ensure\(dplc_peak_entries\(_dplc_sonic\)\s*<=\s*(\d+)', text)
+    if ratchet:
+        n = int(ratchet.group(1))
+        return (n, f"a literal ratchet `<= {n}` in collision_data.emp — the sheet is "
+                   f"over budget and this pins the debt")
+    raise Unmeasurable(
+        "collision_data.emp carries NEITHER the real "
+        "`dplc_peak_entries(_dplc_sonic) + DPLC_ENTRY_RESERVE <= DMA_IMPORTANT_SLOTS` "
+        "assert NOR a literal `<= N` ratchet — the number this gate compares against "
+        "is gone; re-derive it")
 
 
 def selftest(lst_path, out=sys.stdout):
@@ -442,10 +470,11 @@ def selftest(lst_path, out=sys.stdout):
     slots = const_from_emp("engine/system/constants.emp", "DMA_IMPORTANT_SLOTS")
     reserve = const_from_emp("engine/objects/dplc.emp", "DPLC_ENTRY_RESERVE")
     boundary = boundary_from_source()
-    ratchet = ratchet_from_source()
+    ratchet, provenance = ratchet_from_source(slots, reserve)
     labels = lst_labels(lst_path)
     subs = load_subjects(labels)
     fails = []
+    print(f"  [0] the bar is {ratchet} — from {provenance}", file=out)
 
     def peak_slots(sub, shift, frames=None):
         c = frame_costs(frames or sub["frames"], sub["art_base"] + shift, tile_size, boundary)
