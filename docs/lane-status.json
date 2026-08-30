@@ -1,11 +1,6 @@
 {
-  "focus": "Chasing how long our replay safety net has been quietly broken, and fixing a test that passes without checking anything.",
+  "focus": "The replay net's blind spot is explained and fixable; still fixing a test that passes without checking anything.",
   "inFlight": [
-    {
-      "what": "how far back the replay net has been blind - the archaeology, no bytes moved",
-      "where": "branch diag/replay-net-blind-archaeology",
-      "agent": true
-    },
     {
       "what": "the test row that skips instead of failing, plus the baked home paths under it",
       "where": "branch parcel/home-paths-fix",
@@ -33,8 +28,8 @@
   "queue": [
     {
       "id": "REPLAY-NET-BLIND",
-      "title": "Our replay regression net reports green while the recording desyncs two thirds of the way through - the only checks that actually play it are switched off by default for being slow. Outranks the restamp.",
-      "state": "doing",
+      "title": "ANSWERED: one commit, two collision files, and the net was green 18 hours earlier. Chain 181, culprit fde35b2f, attributed by a byte identity not an inference; restamp mechanically proven, nothing restamped. A three-item ask is filed with oracle - and un-ignoring their tests alone would NOT clear it, because their fixtures are separately pinned at chain 186.",
+      "state": "open",
       "size": "M",
       "blockedBy": null,
       "project": "EFFECTS-W1"
@@ -338,7 +333,7 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-08-30T06:52:17Z",
+  "updatedAt": "2026-08-30T06:59:04Z",
   "resume": "Two agents live (replay-net archaeology, home-paths fix). EFFECTS-W1 item 2 SHOW-A-BAND is DONE and committed at 162b50d9 - the previous resume line telling you to start there was written 38 minutes BEFORE that spike landed and is stale; do not re-run it. Home-paths CLASSIFICATION is likewise done (b7cce19d); only the fix remains. Order after these two: the checkpoint-0 restamp, then the listing freeze, then DPLC re-cut and block-stream dedup as SERIALIZED byte-movers paired with sigil (they are coupled - whichever lands second re-runs dplc_straddle --recut Art_Sonic on the merged tree), then the decouple's three pieces, then item 1 with its CR filed at the start. Anchors: empyrean origin/main 59a4943 (d-8 clarified2), 7149b39 (owner's go).",
   "parkedQuestions": [
     {
