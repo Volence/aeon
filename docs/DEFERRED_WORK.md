@@ -15678,6 +15678,44 @@ said around them — the lifted non-goal, the bit, the reference, the sequencing
 lane's scaffolding and was checked here before being written down: bit CONFIRMED (with the value
 caveat above), reference reasonable, non-goal NOT REPRODUCED, sequencing accepted.
 
+## ⏳ OPEN PREDICTION, BANKED BEFORE THE BUILD THAT TESTS IT — step 5's freeze, 2026-08-30
+
+**The sigil lane ruled: do not freeze step 5 against the on-disk assembler; rebuild first. This
+lane agrees and is holding.** Recorded here because they asked to be held to a prediction in
+writing, and because a prediction that can only be checked BEFORE the freeze is worthless once
+the freeze happens.
+
+**The argument is "unnameable", not "old".** `d5967f87` is a real ancestor commit; the **`-dirty`
+suffix** is the problem. Uncommitted changes existed in their tree at 05:40, their tree has moved
+21 commits since, and **that delta is unrecoverable — nobody can ever say what that binary
+contained.** Freezing against it would pin permanent numbers to a toolchain no one can
+reconstruct.
+
+**THE PREDICTION (theirs, banked 2026-08-30 before any rebuild): rebuilding the assembler leaves
+step 5's four CRCs UNCHANGED** — `36adb158`/719329, `eadd7175`/736331, `9223a60d`/96450,
+`d30c3636`/101333.
+
+**Grounds, VERIFIED INDEPENDENTLY HERE** rather than taken from their message (their own file
+classification was corrected three times today by re-derivation, so this one was re-derived):
+across `d5967f87..d6dab4ca`, 21 commits, **zero touch any codegen crate** — none of
+`sigil-backend-m68k/src`, `sigil-backend-z80/src`, `sigil-ir/src`, `sigil-isa/src`,
+`sigil-link/src`, `sigil-frontend-emp/src`, `sigil-frontend-as/src`, `sigil-s4lz/src`. The only
+non-test source in the `sigil` binary's own closure is `crates/sigil-cli/src/tree_class.rs` — the
+binary's **self-reporting** path, not its emission path.
+
+**WHY THE ASYMMETRY DECIDES IT, and this is the durable half:**
+- **If the CRCs hold** — the freeze proceeds, step 5's deltas stand as measured, and we gain a
+  nameable toolchain. Cost: one build.
+- **If they MOVE** — that is the most important finding of the day. It would mean the dirty delta
+  contained an emission-affecting change **existing in no commit**, and every number in step 5's
+  report came from an assembler nobody can reconstruct. **Freezing against the on-disk binary
+  makes that case permanently undetectable.** One build buys the only chance to detect it.
+
+**Status: aeon is HOLDING.** No freeze until sigil hands over a binary with a clean revision.
+Sigil is itself blocked on the owner's go to spend that build. **Whoever resolves this: record the
+outcome against this entry — a banked prediction with no recorded result is worse than none**,
+because the next reader assumes it passed.
+
 ## A LANDING HAZARD FOR EVERY BYTE-MOVER: THE SOUND TABLES SIT ON THE `abs.w` CEILING — booked 2026-08-30
 
 **The invariant, which is what to carry; the coordinate below it is what to re-measure.**
