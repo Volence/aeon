@@ -1,12 +1,6 @@
 {
-  "focus": "Building the binding that unblocks aurora's whole remaining queue, now that the key has a ruled name.",
-  "inFlight": [
-    {
-      "what": "item 1's zero-byte arm - the mechanism proof, the generator, and the lint that would have falsified the feature. Agent re-briefed with the rasterRef ruling mid-flight; its dispatch brief said effectsRef.",
-      "where": "branch parcel/effects-ref-arm",
-      "agent": true
-    }
-  ],
+  "focus": "Item 1's binding is in - the thing aurora's whole remaining queue was waiting on.",
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "d-34",
@@ -19,7 +13,7 @@
       "since": "2026-08-29"
     }
   ],
-  "nextBoundary": "NOT here. An agent holds parcel/effects-ref-arm; a rotation now would kill it mid-parcel. Everything landed tonight outside that branch is docs plus one warning-only build.sh arm - no ROM byte has moved since the chain-189 freeze, so nothing is half-applied.",
+  "nextBoundary": "Here. Item 1's arm is merged and re-verified on the merged tree; no agent holds a branch; nothing half-applied. Steps 5-7 remain, and step 5 is blocked only on your section/band pick (BLOCKED-2).",
   "queue": [
     {
       "id": "REPLAY-RESTAMP",
@@ -159,8 +153,8 @@
     },
     {
       "id": "EFFECTS-W1-BIND-PRESETS",
-      "title": "DoD item 1, and the PROJECT'S CRITICAL PATH: aurora's bug tier is empty and every one of its remaining feature rows waits on an aeon item, starting with this one. CR ADJUDICATED 2026-08-30 by empyrean da91abcee6fa71fa49116b32be77c6c6eee92196: option B, the key is rasterRef (empyrean AURORA_EFFECTS_SCHEMA.md 3.1, new, shaped like sceneRef); effectsRef stays reserved and UNSPENT for the total binding it was named for. A refused (name outlives its meaning), C refused (would make item 1 depend on item 5 and invert the ratified order). BINDING PRECONDITION: no rasterRef in any aeon sidecar until aurora's SectionMeta extension is on aurora's master - cite that SHA in step 4's evidence. Step 3 is arm-only so it is not blocked by this. Zero-byte tier rows run BESIDE item 1, not before it. STEP-4 PRECONDITION DISCHARGED 2026-08-30: rasterRef is on aurora master (merge 7b1d15a0); cite it WITH its count unit - thirteen SITES in five files (our contract's definition) against sixteen FILES mentioning sceneRef, both right, different units. Empyrean fbd8ef89 adds the producer bullet: site enumeration has TWO populations (code that HANDLES the set, prose that DESCRIBES it) and neither may define a site as 'wherever the sibling key appears' - our EFFECTS_CONSUMER_CONTRACT.md 2.2 must agree with that sentence.",
-      "state": "doing",
+      "title": "DoD item 1. STEPS 2-4 MERGED 4aa2abc0, zero-byte and re-verified on the merged tree by this lane: all four shapes CRC-identical to sigil's committed goldens (63451f96 / 3aa7cb12 / 9223a60d / d30c3636), 1742 passed / 3 skipped / 0 failed on each of the four canonical builds. The key is rasterRef; the wire spelling exists in exactly one place (ACT_RASTER_REF_KEY) after review removed a copied expectation. BLOCKED-3 is PROVEN, so the design's +38 B unconditional fallback is dropped. Aurora has a WRITER now (f98824ac) and their SectionMeta precondition landed (7b1d15a0). LEFT: step 5 (+38 B split, sigil pair) blocked only on the owner's section/band pick; step 6 (band + rasterRef + delete authored_probe), its aurora precondition now discharged; step 7 (EDITOR_RASTER_PRESETS.md C/D).",
+      "state": "open",
       "size": "M",
       "blockedBy": null,
       "project": "EFFECTS-W1"
@@ -323,7 +317,7 @@
       "size": "M",
       "blockedBy": "sigil + owner ruling",
       "project": "EFFECTS-W1",
-      "title": "Should the drift job key our half on a ROM-path closure revision instead of the raw branch tip? Deliberately unfixed: the obvious fix errs toward MORE chains counting as evidence, which is the bias this record exists to resist in a decision about retiring a safety check. Fails safe today."
+      "title": "Should a clean-closure build count as identifying evidence? STILL THE OWNER'S and deliberately unfixed - the obvious fix errs toward MORE chains counting, the bias this record exists to resist. NEW 2026-08-30: there are now TWO independent silent mechanisms by which N fails to advance while the watch reads healthy - our docs-only-commit key miss, and sigil's drift_report treating clean-sources as non-identifying. Sigil is reporting the state by name rather than folding it, per their own MISS-must-name-itself ruling, and neither lane is moving the counting. Our half of the falsehood is fixed (7a207cd7): we were MINTING clean-sources as 'dirty', which was a false record and is separable because nothing keys on that field. ALSO MEASURED by sigil: systemctl --user is-enabled sigil-ref-drift.timer is NOT-FOUND, so the job accumulates nothing nightly regardless of what either lane lands."
     },
     {
       "id": "RASTER-ARM-GAP-ENSURE",
@@ -334,9 +328,9 @@
       "title": "Aurora's find: two records on one fire line store a gap whose byte IS the park value, killing every later fire silently. Measured HARDENING not tier - check_intervals already refuses it and every one of the five shipped programs is emitted through the checked path. Residual is defence in depth for a future path."
     }
   ],
-  "awaiting": null,
-  "atBoundary": false,
-  "updatedAt": "2026-08-30T09:42:24Z",
+  "awaiting": "which section gets the band, and what it looks like - step 5 is the only thing item 1 still needs from you (the design recommends section 5: a 38-byte split that evicts nothing, against section 4 which evicts the d-15 showcase)",
+  "atBoundary": true,
+  "updatedAt": "2026-08-30T09:54:30Z",
   "resume": "Chain 189 is frozen/attested/pushed (sigil origin/master 39c34fd2, aeon 3f143178). Master has moved four DOCS-ONLY commits past that point (verified: git diff --name-only 3f143178..bfdd28e6 is five files, all docs/), so the byte baseline is UNMOVED and the chain-189 goldens remain the right ones. NEXT: EFFECTS-W1 item 1 is the PROJECT'S CRITICAL PATH. Its CR is ADJUDICATED - the key is rasterRef, not effectsRef (empyrean da91abcee6fa71fa49116b32be77c6c6eee92196, option B); the design branch design/effects-ref-binding (2cf29126, unmerged) predates the ruling and says effectsRef throughout. BLOCKED-1 in that design is now CLOSED; BLOCKED-2 (which section, owner's) and BLOCKED-3 (the comptime chooser-result argument, ten minutes in step 2) stand. Design's other three corrections to the brief stand: sigil pairing is UNDER-PRICED (expect a repin, not a deletion), a cycle-table lint would ship the feature falsified by its own build lane, and authored_probe has NINE sites not five. Steps 5-7 wait on sigil's refusal parcel; sigil will re-run the four shapes against the chain-189 goldens and send CRCs or a BLOCKED report. R7 is NOT ready (sigil retracted it against their own tree; what landed was the precondition only) and the hub has WITHDRAWN its routing of R7 onto item 1's byte-mover. Byte-movers ahead of item 1: the DPLC re-cut and block-stream dedup, COUPLED - whichever lands second re-runs dplc_straddle --recut Art_Sonic on the merged tree. Open questions NOT ours: DRIFT-KEY-CLOSURE-REV (sigil ruled the reporting half; the population half is the owner's and touches d-48) - note it now has a live instance, the four docs-only commits above read to sigil's drift job as four misses on a tree whose ROM never moved.",
   "parkedQuestions": [
     {
