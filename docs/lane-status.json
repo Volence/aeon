@@ -1,10 +1,15 @@
 {
-  "focus": "The replay measurement came back: my prediction held, and it uncovered that the net has been blind two thirds of the way through.",
+  "focus": "Chasing how long our replay safety net has been quietly broken, and fixing a test that passes without checking anything.",
   "inFlight": [
     {
-      "what": "the replay checkpoint A/B - oracle runs it, my falsifier is stated in advance",
-      "where": "oracle's runner against aeon ec6a4791 / chain-188 golden",
-      "agent": false
+      "what": "how far back the replay net has been blind - the archaeology, no bytes moved",
+      "where": "branch diag/replay-net-blind-archaeology",
+      "agent": true
+    },
+    {
+      "what": "the test row that skips instead of failing, plus the baked home paths under it",
+      "where": "branch parcel/home-paths-fix",
+      "agent": true
     },
     {
       "what": "the sprite-art queue instrument: built, green, committed - parked, not lost",
@@ -24,12 +29,12 @@
       "since": "2026-08-29"
     }
   ],
-  "nextBoundary": "Here. Nothing half-applied; the only open thread is a measurement another lane runs when it chooses.",
+  "nextBoundary": "When both agents report and their work is landed - not before; two branches are live.",
   "queue": [
     {
       "id": "REPLAY-NET-BLIND",
       "title": "Our replay regression net reports green while the recording desyncs two thirds of the way through - the only checks that actually play it are switched off by default for being slow. Outranks the restamp.",
-      "state": "next",
+      "state": "doing",
       "size": "M",
       "blockedBy": null,
       "project": "EFFECTS-W1"
@@ -37,7 +42,7 @@
     {
       "id": "REPLAY-RESTAMP",
       "title": "RULED: restamp checkpoint 0 only - the clamps moved exactly one of 27, exactly where predicted. The other nine were already stale before the clamps existed.",
-      "state": "open",
+      "state": "next",
       "size": "M",
       "blockedBy": null,
       "project": "EFFECTS-W1"
@@ -45,7 +50,7 @@
     {
       "id": "SUITE-HOME-PATHS-FIX",
       "title": "CLASSIFIED: the six build-fatal tests gate 188 rows; five fail loudly, one leaves a row as a silent skip. Fixing that one row, and the 46 harness files, is what remains.",
-      "state": "open",
+      "state": "doing",
       "size": "S",
       "blockedBy": null,
       "project": "EFFECTS-W1"
@@ -313,12 +318,20 @@
       "size": "S",
       "blockedBy": null,
       "project": "EFFECTS-W1"
+    },
+    {
+      "id": "PROBE-MIGRATION-RUST-CORE",
+      "title": "UNBLOCKED 2026-08-30: oracle closed the player-path breakpoint gap. Two probes still dial the legacy emulator; each migrates to the Rust core with its timeout spelling flipped in the SAME commit, never before. Needs the emulator in the foreground, so it does not run beside the tier.",
+      "state": "open",
+      "size": "M",
+      "blockedBy": null,
+      "project": "EFFECTS-W1"
     }
   ],
-  "awaiting": "your look at the right-edge pictures, and one number for sigil's plan - both already on your list",
-  "atBoundary": true,
-  "updatedAt": "2026-08-30T06:25:32Z",
-  "resume": "Your go is RECORDED (empyrean 7149b39) - do NOT boot into a stop. Start with EFFECTS-W1-SHOW-A-BAND: run tools/band_witness.py against master, no bytes moved. EFFECTS-W1 now has a SECOND HALF - the owner ruled the side-effect bugs must be fixed before the project is done (DoD items 14-17). The canopy is no longer backgroundable and its plan is to INSTRUMENT for the next sighting, not derive a third explanation - two are already refuted. d-47-revised is ruled 'targeted'; measure the append risk before art ships. Everything is in DEFERRED_WORK.md.",
+  "awaiting": null,
+  "atBoundary": false,
+  "updatedAt": "2026-08-30T06:41:41Z",
+  "resume": "Two agents live (replay-net archaeology, home-paths fix). EFFECTS-W1 item 2 SHOW-A-BAND is DONE and committed at 162b50d9 - the previous resume line telling you to start there was written 38 minutes BEFORE that spike landed and is stale; do not re-run it. Home-paths CLASSIFICATION is likewise done (b7cce19d); only the fix remains. Order after these two: the checkpoint-0 restamp, then the listing freeze, then DPLC re-cut and block-stream dedup as SERIALIZED byte-movers paired with sigil (they are coupled - whichever lands second re-runs dplc_straddle --recut Art_Sonic on the merged tree), then the decouple's three pieces, then item 1 with its CR filed at the start. Anchors: empyrean origin/main 59a4943 (d-8 clarified2), 7149b39 (owner's go).",
   "parkedQuestions": [
     {
       "id": "d-16",
