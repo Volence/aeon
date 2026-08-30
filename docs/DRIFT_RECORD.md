@@ -175,8 +175,22 @@ has already recorded an assembler-caused move.
 `DRIFT_RECORD_READER` is empty in `sigil/scripts/drift-nightly.conf`. The value:
 
 ```sh
-DRIFT_RECORD_READER="python3 /home/volence/sonic_hacks/.aeon-ref-drift/tools/drift_record.py"
+DRIFT_RECORD_READER="/home/volence/sonic_hacks/.aeon-ref-drift/tools/drift_record.py"
 ```
+
+**Not `"python3 <path>"`, and this is a real constraint rather than a preference.** Their
+own harness — `crates/sigil-cli/tests/drift_nightly_harness.rs`,
+`the_record_seam_is_empty_and_absence_is_not_a_pass` — asserts
+
+```rust
+reader.is_empty() || Path::new(&reader).exists() || reader.starts_with('/')
+```
+
+A `python3 …` string satisfies none of the three and fails that test: *"names nothing
+runnable; an unusable reader must be empty rather than half-configured"*. So the reader is
+committed **mode 755 with a `#!/usr/bin/env python3` shebang** and is invoked directly.
+Their `_reader()` does `record_reader.split()`, so a bare absolute path becomes `argv[0]`
+and the verbs append after it, exactly as intended.
 
 **Read the reader out of the drift job's own reference tree** (`DRIFT_AEON_TREE`), not out
 of `../aeon`. That tree is a peer's live working directory; the reference tree is a

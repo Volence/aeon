@@ -128,6 +128,22 @@ def test_the_reader_has_no_verb_that_counts_chains_or_observations():
     assert not [v for v in drift_record.VERBS if v in banned]
 
 
+def test_the_reader_is_directly_executable_with_a_shebang():
+    # sigil's own harness — crates/sigil-cli/tests/drift_nightly_harness.rs,
+    # `the_record_seam_is_empty_and_absence_is_not_a_pass` — asserts of the configured
+    # value: `reader.is_empty() || Path::new(&reader).exists() || reader.starts_with('/')`.
+    # So `DRIFT_RECORD_READER` must be a bare absolute path, not "python3 <path>", and
+    # this file must therefore run as argv[0]. Losing the mode bit would break their
+    # side with an error naming their config rather than this file.
+    assert open(READER, encoding="utf-8").readline().startswith("#!"), "no shebang"
+    assert os.access(READER, os.X_OK), (
+        "the reader is not executable; sigil's config must name it as a bare absolute "
+        "path, so it runs as argv[0] rather than as an argument to an interpreter")
+    p = subprocess.run([READER, "--record", RECORD, "shapes"],
+                       capture_output=True, text=True, cwd=os.sep, timeout=120)
+    assert p.returncode == EXIT_OK and p.stdout.strip(), p.stderr
+
+
 def test_the_reader_never_opens_the_record_for_writing():
     src = open(READER, encoding="utf-8").read()
     for bad in ('"w"', "'w'", '"a"', "'a'", '"w+"', "'a+'"):
