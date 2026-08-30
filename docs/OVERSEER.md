@@ -308,6 +308,41 @@ rulings live in the session memory and the most recent `docs/superpowers/*handof
   wins".** Stating it as vigilance would teach a habit nobody can perform on demand; stating it as
   a live class list is a thing this file can actually be.
 
+- **AN UNATTESTED COMMIT'S CROSS-SEAM DEBT IS PAID BY WHOEVER FREEZES NEXT — AND GETS ATTRIBUTED
+  TO THEM** (established 2026-08-30 after chain 187's red was blamed on the wrong parcel TWICE, once
+  by this lane and once by sigil).
+  **The measured facts**, from valid readings only (see the zsh trap below):
+  `Cache_Fill_Resume_Col` occurrences in `section.emp` + `plane_buffer.emp` — at `def98ee5`, the last
+  GREEN attest: **0**. At `2718cf0a`, the clamps merge: **7** (4 + 3). **`839d600d` — the d-45 canopy
+  fix, merged to master at `42cb5781` — added all seven** (`git show 839d600d -- <both files>` counts
+  7 added lines; pickaxe over `def98ee5..2718cf0a` names it and only it). **The clamps parcel's own
+  two commits, `d3b3ab5a` and `9ba11115`, added ZERO.**
+  **Forty-nine commits sat on master between the d-45 merge and the clamps merge, with no attest
+  among them.** So the cross-seam reference was introduced by one parcel, went unattested because no
+  freeze ran, and went red under the *next* parcel to freeze — which was mine, and which had nothing
+  to do with it.
+  **THREE STORIES WERE TOLD ABOUT THIS AND THE FIRST TWO WERE BOTH WRONG.** Mine: *"the reference
+  pre-existed, my byte movement pulled it into a compiled span"* — wrong, it did not pre-exist the
+  last green attest. Sigil's correction: *"your parcel introduced it"* — also wrong, my commits add
+  none. **The truth is neither: a third parcel introduced it and mine merely arrived at the till.**
+  **The structural lesson, and it is about the ritual rather than about anyone's care: attest debt
+  accrues silently and is charged to a stranger.** A freeze attributes every strict failure to the
+  parcel being frozen, because that is the only parcel it knows about. The longer the gap between
+  attests, the more of someone else's debt the next freezer inherits — and the natural reading of the
+  red, by everyone including the person who caused it, is that the current parcel did it.
+  **Operational form: `freeze_preflight.sh` run at the START of a parcel, not only before its
+  freeze, tells you whether you are inheriting a red.** If it is already red before you touch
+  anything, the debt is not yours and the diagnosis starts elsewhere. That is one cheap run and it
+  partitions the population that this whole episode failed to partition.
+  **⚠ AND THE INSTRUMENT THAT PRODUCED BOTH WRONG STORIES: `git show $rev:path` IS BROKEN IN ZSH.**
+  `$rev:engine/level/section.emp` parses as the history modifier `${rev:e}` followed by
+  `ngine/level/section.emp`, so git fails with *"ambiguous argument"* — and a piped `grep -c` then
+  prints **`0`**, which is a plausible count rather than an error. Three separate loops tonight
+  returned confident zeros this way, and one of them is what produced this lane's "4 before and 4
+  after" reading. **Use `git show "$rev:$path"` with BOTH sides as variables (no modifier applies), or
+  `git cat-file -e` first, and never let `grep -c` stand in for a read that may not have happened.**
+  *Same class as everything else this night: absent rendered as a number.*
+
 - **THE SHA BAR HAS ONLY EVER BEEN WRITTEN FOR THE RECEIVING SIDE, AND THE FAILURE LIVES ON THE
   EMITTING SIDE** (added 2026-08-30; this lane's own defect, caught by the hub within minutes).
   This file's existing SHA rules all say the same thing: `--stat` a citation you RECEIVE. That is
