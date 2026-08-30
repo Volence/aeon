@@ -303,9 +303,18 @@ else
             _sigil_stale="revision"
         fi
     fi
-    # Positive match on clean; anything unrecognised is treated as dirty.
+    # Positive match on the known-clean words; anything unrecognised is treated as dirty.
+    # Vocabulary is exactly {clean, clean-sources, dirty, unknown}, read from sigil's source
+    # (crates/sigil-cli/src/tree_class.rs state_and_detail, asserted in
+    # crates/sigil-cli/tests/version_provenance.rs:823) at sigil d5967f87, 2026-08-30.
+    # `clean-sources` = uncommitted changes exist but NONE in the sources this binary is compiled
+    # from, so the binary DOES match its source and warning here is a false alarm. It was one:
+    # `clean-sources` has a hyphen, missed the old `clean\ *` arm, and hit the catch-all.
+    # Their contract says a consumer should key on the `dirty` PREFIX; we keep the positive match
+    # instead so an unrecognised future word still warns (`unknown` included) — fail-safe is ours
+    # to keep, the vocabulary is theirs to define, and this arm is what has to move if they add one.
     case "${SIGIL_TREE}" in
-        clean|clean\ *) ;;
+        clean|clean\ *|clean-sources|clean-sources\ *) ;;
         *) _sigil_stale="${_sigil_stale:+${_sigil_stale}+}dirty" ;;
     esac
 
