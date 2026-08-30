@@ -242,8 +242,45 @@ listing reproduce from the recorded revisions?* — which is a real gate where n
 and which needs option 1 to have something to check against. So the two compose; picking 1 does
 not foreclose 2, it supplies its subject.
 
-**Open:** which shapes. The four canonical ones are the obvious set; whether the off-canonical
-profiles need theirs is sigil's call, since their gates are the consumer.
+**SHAPES — SETTLED, measured by sigil across `crates/` and `scripts/`:** `s4.lst` 41 references,
+`s4.debug.lst` 26, `demo.lst` 1, `demo.debug.lst` 1, and **`config_a` / `config_b` / `lean`: ZERO**.
+Positive control: three `listing_symbol_addr` call sites, so the instrument sees real consumers.
+**Freeze the four canonical listings only.** A consumer for an off-canonical profile can be added
+when one exists and will arrive with a name attached, rather than being provisioned on speculation.
+
+**⚠ SEQUENCING CONSTRAINT — THE NATURAL PLACE TO ADD THIS CAPTURE IS THE WRONG ONE, AND IT WOULD
+BAKE A TRANSIENT HAZARD INTO A PERMANENT ARTIFACT** (sigil's finding, from their build-order sweep
+landing on the change they had just recommended; every particular verified firsthand here in
+`golden/capture_goldens.sh`).
+
+**The off-canonical passes write their listings under the CANONICAL names.** Measured at `:157-163`:
+`capture_config config_a … s4.debug.lst`, `capture_config config_b … s4.lst`, and
+`capture_config lean … s4.lst`. The script's own header states the consequence for the transient
+case — *"a leftover off-canonical listing is read as the canonical shape's and judged against the
+canonical shape's budget"* — and clears both listings before its restore for exactly that reason.
+
+**And `freeze_commit` runs BEFORE that restore** (`:169`, deliberately: sequencing it after would
+discard a good seven-target capture whenever a restore build failed). **So at the moment the
+goldens are committed, `s4.lst` on disk holds LEAN's listing and `s4.debug.lst` holds CONFIG_A's.**
+Adding the listing capture at `freeze_commit`, or anywhere beside the restore — which is the most
+natural place to put it — **freezes an off-canonical listing under a canonical name, permanently,
+into the artifact set everyone is being told to depend on instead of a working tree.**
+
+**Today that mistake lives in a transient tree and the next build clears it. Frozen, it becomes a
+durable wrong answer with a correct-looking name**, and every consumer resolving symbols through it
+gets plausible addresses from the wrong shape. **It would have no failing mode at all** — the
+listing parses, resolves, and answers confidently.
+
+**Operational form: capture the four listings inside the same "canonical FIRST" window the four
+canonical ROMs are already captured in (`:149-152`), before Config-A/B/lean run.** The `capture`
+function already receives the listing path, so the copy happens where the file is still the shape
+its name claims.
+
+*Two lines from that header worth carrying beyond this change, because they are the same asymmetry
+this file keeps recording: "Clearing both listings first is what makes the two restore builds
+order-independent; sequencing them so the survivor happens to be correct would leave the same
+hazard armed behind a working build." And, on why the ROMs are deleted too: "Absent fails loudly;
+stale does not fail at all."*
 
 **Superseded options paragraph:** Options: freeze the `.lst` beside each golden ROM (cheap, and the obvious
 one); or record enough in `provenance.toml` that a listing can be regenerated identically (needs
