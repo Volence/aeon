@@ -10285,7 +10285,12 @@ remain open and would address the mechanism itself rather than alarming on it.
 - **D9** — DPLC `tile_start` silently masked to 12 bits while `tile_count` on the SAME LINE
   had a loud assert. Now asserted. `knuckles_data.emp` records 25 entries that already
   wrapped silently in an earlier layout — the wrap is how that was discovered, not how it
-  was caught.
+  was caught. **Extended 2026-08-30 (`parcel/dplc-tilestart-ensure`):** those two asserts
+  are in OFFLINE staging tools that `build.sh` never runs, so the tree still shipped with
+  nothing checking the ceiling on any build. Six build-fatal `ensure`s, a pytest sweep and
+  an `emp_expect_fail` poison now do — see the closed rider under the d-47 DPLC
+  measurement, including why an `ensure` over the *shipped blob's* `tile_start` cannot
+  fail and Knuckles' four-tile headroom.
 - **D10** — 18 orphans (240 KB) deleted and the missing direction added to
   `verify_level_bin`: it checked embed→file and never file→embed. **NOT deleted and not to
   be: `knuckles.bin`** has no producer AND no input (`art/uncompressed/characters/knuckles.bin`
@@ -16073,9 +16078,66 @@ lost a straddle, `dplc_peak_tiles` 29 → 29, no anchor moves. The card's 112 ti
    all remaining spendable data room.** It still fits and no anchor moves; the ruled 12,288 B
    BG-anim ceiling is untouched (26,698 B available).
 
-**RIDER, nothing guards it:** the `tile_start` field is 12 bits (`dplc.emp:166`, max 4,095).
-`Art_Sonic` goes 3,046 → 3,158 tiles, leaving **938 tiles (30,016 B)** before overflow.
-`knuckles_data.emp:17` knows this in a comment; **no `ensure` checks it for Sonic.**
+**~~RIDER, nothing guards it~~ — CLOSED 2026-08-30 (`parcel/dplc-tilestart-ensure`), and the
+rider named the wrong character.** Original text: *the `tile_start` field is 12 bits
+(`dplc.emp:166`, max 4,095). `Art_Sonic` goes 3,046 → 3,158 tiles, leaving 938 tiles
+(30,016 B) before overflow. `knuckles_data.emp:17` knows this in a comment; no `ensure`
+checks it for Sonic.* Both line cites re-grounded and correct at the time
+(`dplc.emp:166` was `andi.l #$0FFF, d0`; `knuckles_data.emp:17` the "only TWELVE bits
+(max 4095)" sentence). Zero ROM bytes: `s4.bin` and `s4.debug.bin` byte-identical across
+the parcel.
+
+**THE MEASUREMENT THAT CHANGED THE DESIGN — the obvious guard cannot fail.** "Walk the
+shipped DPLC blob, take the largest `tile_start`, assert it is ≤ 4,095" is **vacuous by
+construction**: the stored field IS 12 bits, so `word & $FFF` is under the bound for
+every one of the 65,536 possible entry words. No blob — valid, corrupt or hand-edited —
+can drive it red. **The overflow happens upstream of the blob**: a producer computes a
+tile index ≥ 4,096, packs it into 12 bits, and what lands on disk is the *wrapped*,
+legal-looking low index. That is exactly how the Knuckles `_opt` defect shipped, and why
+it was found by reconstructing frames from the ART rather than by reading the table. So
+the checkable precondition is a property of the **art sheet** — every tile at an index a
+`tile_start` can name — and it is stated where each sheet is embedded. The reasoning is
+written at the constants in `engine/objects/dplc.emp` so the vacuous version is not
+re-added as an improvement, and `test_the_blob_side_check_is_vacuous` states it as a
+machine fact.
+
+**MEASURED HEADROOM, every sheet** (`pytest tools/test_dplc_tile_start.py -s -k headroom`
+re-derives it):
+
+| sheet | tiles | headroom | bytes |
+|---|---|---|---|
+| `Art_Knuckles` | 4,092 | **4** | 128 |
+| `Art_Tails` | 3,635 | 461 | 14,752 |
+| `Art_Sonic` | 3,046 | 1,050 | 33,600 |
+| `Art_TailsAppendage` | 278 | 3,818 | 122,176 |
+| `Art_Dust` | 88 | 4,008 | 128,256 |
+| `Art_InstaShield` | 52 | 4,044 | 129,408 |
+
+The rider watched Sonic, who has **1,050 tiles spare today and 938 after the re-cut above
+— the second-roomiest sheet in the tree.** *Knuckles has four.* Five more tiles in
+`art/optimized/characters/knuckles.bin` fails the build, which is the guard working: the
+raw pair ships precisely because the contiguous one was 4,383 and wrapped. Anyone
+planning a Knuckles art pass should read this row first.
+
+**What landed.** `DPLC_TILE_START_BITS = 12` is the one name in `engine/objects/dplc.emp`;
+`DPLC_TILE_START_MAX`, `DPLC_ADDRESSABLE_TILES` and `DPLC_MAX_TILES_PER_ENTRY` fold from
+it, `perform_dplc`'s runtime mask is `andi.l #DPLC_TILE_START_MAX` (byte-identical), and a
+width pin holds the 4+12=16 split against the literals the two comptime parsers must
+inline (EMP_PITFALLS §2). Six build-fatal `ensure`s, one per DPLC-fed sheet.
+`tools/test_dplc_tile_start.py` (13 tests, build.sh's pytest lane) is the generic site the
+`.emp` side does not have — it enumerates the DPLC-embedding modules, sweeps their sheets,
+and separately requires each sheet to carry its own `ensure`, so a seventh character
+cannot arrive without one. `games/sonic4/test/poison/poison_dplc_tile_start.emp` +
+`emp_expect_fail` make the red-first permanent (two fixtures: the real Knuckles sheet must
+PASS, a sheet sized from the ceiling at one tile over must FAIL).
+
+**Follow-on, NOT done here (small, and it needs its own red-first):** nothing checks that a
+DPLC's furthest reference lands *inside* its paired sheet. Measured today: Sonic 3,046 of
+3,046 · Tails 3,635 of 3,635 · TailsApp 278 of 278 · InstaShield 52 of 52 · Dust 72 of 88 ·
+**Knuckles 4,076 of 4,092 — 16 unreferenced tail tiles.** All safe, none guarded; a
+DPLC/art pair that drifted out of step would DMA past the sheet. The pairing is ambiguous
+in `tails_data.emp` (two pairs in one module), which is the only reason it is not folded
+into the sweep above.
 
 **⚠ STILL UNMEASURED, and it needs the emulator:** `DPLC_ENTRY_RESERVE = 2` exists for
 `PageIn_EnqueueLanding`, whose landings can ALSO straddle. This measurement covers DPLC entries

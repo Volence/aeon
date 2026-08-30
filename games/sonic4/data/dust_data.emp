@@ -10,7 +10,8 @@
 module games.sonic4.dust_data in dust_data
 
 use engine.constants.{TILE_SIZE, DMA_IMPORTANT_SLOTS}
-use engine.objects.dplc.{dplc_peak_tiles, dplc_peak_entries, DPLC_ENTRY_RESERVE}
+use engine.objects.dplc.{dplc_peak_tiles, dplc_peak_entries, DPLC_ENTRY_RESERVE,
+                         DPLC_ADDRESSABLE_TILES}
 
 const _map_spindash = embed("games/sonic4/data/generated/dust/map_dust_spindash.bin")
 const _map_puff     = embed("games/sonic4/data/generated/dust/map_dust_puff.bin")
@@ -32,6 +33,15 @@ ensure(dplc_peak_entries(_dplc_dust) + DPLC_ENTRY_RESERVE <= DMA_IMPORTANT_SLOTS
 
 ensure(dplc_peak_tiles(_dplc_dust) <= 12,
        "the charge DPLC's peak frame exceeds its 12-tile window (VRAM_DUST_SPINDASH)")
+
+// THE 12-BIT tile_start CEILING. Vacuously true for an 88-tile sheet (4,008 of
+// headroom) and stated anyway: the property is "every DPLC-fed art sheet carries
+// this", and tools/test_dplc_tile_start.py refuses a module that skips it. Stated
+// against the WHOLE blob, not the 72-tile charge block — the puff tail is DMA'd
+// resident today, but a re-export that folded it into the DPLC would still be
+// indexing off Art_Dust's base. See engine/objects/dplc.emp.
+ensure(_art_dust.len / TILE_SIZE <= DPLC_ADDRESSABLE_TILES,
+       "Art_Dust is {_art_dust.len / TILE_SIZE} tiles; a DPLC entry's tile_start can only name 0..{DPLC_ADDRESSABLE_TILES - 1}, so the tiles above that would be addressed by a WRAPPED index and load early-frame art — re-page or shrink the sheet, do not raise the field")
 
 pub data Map_DustSpindash = _map_spindash
 pub data Map_DustPuff     = _map_puff

@@ -65,6 +65,14 @@ def emp_const(rel: str, name: str) -> int:
 # The engine's band ceiling, for the two scene-capacity fragments below.
 MAX_PARALLAX_BANDS = emp_const("engine/system/constants.emp", "MAX_PARALLAX_BANDS")
 
+# The DPLC entry word's tile_start width, for the tile_start-ceiling fragment below.
+# Folded here exactly as engine/objects/dplc.emp folds it, from the ONE name — never
+# typed as 12 or 4095, so the fixture and the fragment track the field in both
+# directions (see emp_const's note above for why that matters).
+DPLC_TILE_START_BITS = emp_const("engine/objects/dplc.emp", "DPLC_TILE_START_BITS")
+DPLC_TILE_START_MAX = (1 << DPLC_TILE_START_BITS) - 1
+DPLC_ADDRESSABLE_TILES = DPLC_TILE_START_MAX + 1
+
 # The anti-vacuity sentinel: (module path relative to AEON, expected fragment, expected
 # [Error] count). Its guard names nothing outside its own file, so a failure isolates the
 # mechanism — module resolved, module-level `ensure`s evaluated — from every question
@@ -417,6 +425,19 @@ CASES: list[tuple[str, str, str, int]] = [
     # ARGUMENT is a legal frame index. The fragment quotes the folded 3, so a walker that
     # counted that argument (printing 4) fails the case rather than passing it.
     (f"{POISON}/poison_instashield_frames.emp", "insta-shield frames", "INSTASHIELD_POISON: a 3-frame script shows 3 display frames", 1),
+    # ---- DPLC tile_start ceiling (2026-08-30): the 12-bit field's one machine check ----
+    # A two-fixture module, and the COUNT OF 1 IS HALF THE ASSERTION. Fixture A is the real
+    # Knuckles sheet (4,092 tiles, the tightest in the tree) and must PASS; fixture B is a
+    # sheet sized FROM the ceiling at exactly one tile over and must FAIL. A count of 2 means
+    # A stopped passing — a ceiling that moved DOWN, which a refusal-only lane cannot see;
+    # a count of 0 means B stopped firing.
+    # BOTH SIDES OF THE FRAGMENT ARE COMPUTED. The tile count and the "0..max" are
+    # DPLC_ADDRESSABLE_TILES and DPLC_TILE_START_MAX folded here from DPLC_TILE_START_BITS,
+    # the same single name the poison and the six shipped ensures fold from, so moving the
+    # width moves the fixture and the fragment together in both directions.
+    (f"{POISON}/poison_dplc_tile_start.emp", "DPLC tile_start ceiling",
+     f"DPLC_TILE_START_POISON: a {DPLC_ADDRESSABLE_TILES + 1}-tile art sheet cannot be "
+     f"addressed by a DPLC entry's tile_start, which names only 0..{DPLC_TILE_START_MAX}", 1),
 ]
 
 
