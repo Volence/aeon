@@ -697,6 +697,28 @@ if [[ "$FAST" == "0" ]]; then
             exit 1
         fi
 
+        # The DPLC Important-queue SLOT cost, which is NOT the entry count the
+        # `dplc_peak_entries` ensures bound. A transfer whose ROM source crosses a
+        # $20000 boundary is SPLIT into two queue entries by QueueDMA
+        # (engine/system/dma_queue.emp `.split`), so a frame costs
+        # entries + straddles slots, and whether an entry straddles depends on
+        # where the art LANDED — a link-time fact no comptime `ensure` can see,
+        # because `dplc_peak_entries` parses the blob and never learns the base.
+        #
+        # It runs HERE, after sigil, for exactly that reason: the base addresses
+        # only exist in the listing. The gate holds the measured peak slot cost at
+        # or under the committed `dplc_peak_entries(_dplc_sonic) <= N` ratchet in
+        # collision_data.emp, so a placement change that pushes a peak frame onto a
+        # boundary is a named build failure instead of a silent extra slot charged
+        # against DPLC_ENTRY_RESERVE. The ratchet is READ from that ensure, not
+        # copied here. --selftest (not run in the build) proves the gate red by
+        # searching for a shift that trips it. sonic4-only: `demo` has no player.
+        # Measured and reasoned in docs/2026-08-30-dplc-append-disturbance.md.
+        if ! python3 "${TOOLS}/dplc_straddle.py" --lst "${ROM_NAME}.lst" --gate; then
+            echo "DPLC straddle gate failed — see above (tools/dplc_straddle.py)."
+            exit 1
+        fi
+
         # The ground-angle sprite tilt, checked by EXECUTING the routine this build
         # just emitted. The claim the tilt parcel makes is not "it assembles" but
         # "the selected mapping frame is a function of the terrain angle, at the S3K
