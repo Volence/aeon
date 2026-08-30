@@ -1,5 +1,5 @@
 {
-  "focus": "Triggered the replay measurement with oracle. Holding the rest until the morning.",
+  "focus": "Classified the tests that could pass without checking anything. Five of six fail loudly; one row skips silently.",
   "inFlight": [
     {
       "what": "the replay checkpoint A/B - oracle runs it, my falsifier is stated in advance",
@@ -31,6 +31,14 @@
       "title": "The recorded replay inside the ROM disagrees with the game after the clamps. Oracle is measuring which checkpoints moved; my prediction is written down so their answer can refute it.",
       "state": "doing",
       "size": "M",
+      "blockedBy": null,
+      "project": "EFFECTS-W1"
+    },
+    {
+      "id": "SUITE-HOME-PATHS-FIX",
+      "title": "CLASSIFIED: the six build-fatal tests gate 188 rows; five fail loudly, one leaves a row as a silent skip. Fixing that one row, and the 46 harness files, is what remains.",
+      "state": "open",
+      "size": "S",
       "blockedBy": null,
       "project": "EFFECTS-W1"
     },
@@ -301,7 +309,7 @@
   ],
   "awaiting": "your look at the right-edge pictures, and one number for sigil's plan - both already on your list",
   "atBoundary": true,
-  "updatedAt": "2026-08-30T05:37:09Z",
+  "updatedAt": "2026-08-30T06:09:56Z",
   "resume": "Your go is RECORDED (empyrean 7149b39) - do NOT boot into a stop. Start with EFFECTS-W1-SHOW-A-BAND: run tools/band_witness.py against master, no bytes moved. EFFECTS-W1 now has a SECOND HALF - the owner ruled the side-effect bugs must be fixed before the project is done (DoD items 14-17). The canopy is no longer backgroundable and its plan is to INSTRUMENT for the next sighting, not derive a third explanation - two are already refuted. d-47-revised is ruled 'targeted'; measure the append risk before art ships. Everything is in DEFERRED_WORK.md.",
   "parkedQuestions": [
     {
