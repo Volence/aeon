@@ -36,6 +36,7 @@ import sys
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.normpath(os.path.join(_HERE, "..", "..", "..", "..", "tools")))
 
+from suite_paths import require_suite_path                      # noqa: E402
 from song_packer import write_asm, write_bin, bin_path_for      # noqa: E402
 from smps_import import (                                       # noqa: E402
     convert_song, emit_patch_table, pack_patch_table,
@@ -43,7 +44,8 @@ from smps_import import (                                       # noqa: E402
 )
 
 # The S3K source for HCZ2 (Hydrocity Zone Act 2), straight from the skdisasm.
-HCZ2_SRC = "/home/volence/sonic_hacks/skdisasm/Sound/Music/HCZ2.asm"
+HCZ2_SRC = str(require_suite_path("skdisasm", "Sound", "Music", "HCZ2.asm",
+                                  what="the S3K HCZ2 source this song is built from"))
 
 # HCZ2's four in-body smpsSetvoice ids -> dense 0-based HCZ2_Patches indices.
 # (Same mapping build_patch_remap([0x03,0x06,0x0E,0x15]) yields; spelled out for

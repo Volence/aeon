@@ -28,9 +28,12 @@ COMPOSER = os.path.join(AEON, "games", "sonic4", "test", "compose_ring.py")
 RING_ART = os.path.join(AEON, "games", "sonic4", "test", "ring_art.bin")
 SPARKLE_ART = os.path.join(AEON, "games", "sonic4", "test", "ring_sparkle_art.bin")
 
-SONIC_HACK = os.environ.get(
-    "AEON_SONIC_HACK_DIR",
-    os.path.normpath(os.path.join(AEON, "..", "sonic_hack")))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # tools/, for suite_paths
+from suite_paths import suite_path  # noqa: E402
+# The donor sits BESIDE this checkout at the suite root. Spelled through suite_paths
+# because `<checkout>/../sonic_hack` resolves to `.claude/worktrees/sonic_hack` from a worktree,
+# and the rows below then SKIP for a resolution bug that reads as "donor not installed".
+SONIC_HACK = os.environ.get("AEON_SONIC_HACK_DIR", str(suite_path("sonic_hack")))
 DONOR = os.path.join(SONIC_HACK, "art", "nemesis", "Ring.bin")
 NEMDEC = os.path.join(SONIC_HACK, "tools", "nemdec")
 

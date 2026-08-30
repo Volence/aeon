@@ -49,7 +49,11 @@ Real voice translation is T2; pan + volume dynamics are T4.
 """
 
 import json
+import os
 import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # tools/, for suite_paths
+from suite_paths import suite_path  # noqa: E402
 
 
 # --- Calibration constants (pinned now; T5 re-calibrates against the VGM) ---
@@ -516,9 +520,9 @@ _FM_ROUTES = [CHROUTE_FM1, CHROUTE_FM1 + 1, CHROUTE_FM1 + 2,
 # The Zyrinx global voice bank (Moving Trucks = bank 1). Default location; the
 # CLI / build pass it explicitly so this is only a fallback for in-tree calls.
 import os as _os
-VOICES_JSON_DEFAULT = (
-    "/home/volence/sonic_hacks/The Adventures of Batman and Robin/"
-    "disasm/sound/decoded_full/voices.json")
+VOICES_JSON_DEFAULT = str(suite_path(
+    "The Adventures of Batman and Robin", "disasm", "sound", "decoded_full",
+    "voices.json"))
 
 
 def build_songdesc(raw: dict, voices_json: str = None) -> SongDesc:

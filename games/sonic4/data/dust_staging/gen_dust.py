@@ -23,13 +23,18 @@ loudly instead of silently baking wrong-coloured dust.
 Deterministic: no timestamps, no RNG. Running twice is byte-identical.
 
 Usage:
-  ./gen_dust.py --out <dir> [--skdisasm /home/volence/sonic_hacks/skdisasm]
+  ./gen_dust.py --out <dir> [--skdisasm <suite>/skdisasm]
 """
 
 import argparse
 import importlib.util
 import struct
+import sys
 from pathlib import Path
+
+# aeon repo root — this file is at <root>/games/sonic4/data/dust_staging/.
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / 'tools'))
+from suite_paths import suite_path                            # noqa: E402
 
 TILE_SIZE = 32
 ART_FIRST, ART_LAST = 0x062, 0x0B9          # donor tile span we ship (inclusive)
@@ -180,7 +185,7 @@ def remap_art(raw):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--out', required=True)
-    ap.add_argument('--skdisasm', default='/home/volence/sonic_hacks/skdisasm')
+    ap.add_argument('--skdisasm', default=str(suite_path('skdisasm')))
     args = ap.parse_args()
 
     src = Path(args.skdisasm) / 'General' / 'Sprites' / 'Dash Dust'

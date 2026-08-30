@@ -1,11 +1,12 @@
 import os, subprocess, sys
 
 HERE = os.path.dirname(__file__)
-# Honor the same donor override the tool itself honors (worktree checkouts sit
-# under .claude/worktrees/, where the ../../skdisasm default resolves wrong).
-_SK_ROOT = os.environ.get(
-    "AEON_SKDISASM_DIR",
-    os.path.normpath(os.path.join(HERE, "..", "..", "skdisasm")))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # tools/, for suite_paths
+from suite_paths import suite_path  # noqa: E402
+# The donor sits BESIDE this checkout at the suite root. Spelled through suite_paths
+# because `<checkout>/../skdisasm` resolves to `.claude/worktrees/skdisasm` from a worktree,
+# and the rows below then SKIP for a resolution bug that reads as "donor not installed".
+_SK_ROOT = os.environ.get("AEON_SKDISASM_DIR", str(suite_path("skdisasm")))
 SK = os.path.join(_SK_ROOT, "Levels", "Misc")
 
 # NOTE: this test writes to a TMPDIR, never to games/sonic4/data/collision.

@@ -52,8 +52,10 @@ import json
 import sys
 from pathlib import Path
 
-HARNESS = "/home/volence/sonic_hacks/oracle-old/linux-port/harness"
-sys.path.insert(0, "/home/volence/sonic_hacks/empyrean/clients/python")
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # tools/, for suite_paths
+from suite_paths import add_client_path, harness_path  # noqa: E402
+add_client_path()  # the Aether client, resolved from the suite root; loud if absent
+HARNESS = str(harness_path())  # legacy oracle_gui launcher; loud if absent
 sys.path.insert(0, HARNESS)
 from aether import BusClient          # noqa: E402
 from launcher import headless_emulator  # noqa: E402

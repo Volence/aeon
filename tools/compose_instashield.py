@@ -54,6 +54,7 @@ AEON = os.path.normpath(os.path.join(HERE, ".."))
 sys.path.insert(0, HERE)
 
 from convert_s2_mappings import convert_mappings  # noqa: E402
+from suite_paths import suite_path  # noqa: E402
 
 DONOR_MAP = os.path.join("mappings", "sprite", "Instashield.asm")
 DONOR_DPLC = os.path.join("mappings", "spriteDPLC", "Instashield.asm")
@@ -277,7 +278,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--donor", default=os.environ.get(
-        "AEON_SONIC_HACK_DIR", os.path.normpath(os.path.join(AEON, "..", "sonic_hack"))))
+        "AEON_SONIC_HACK_DIR", str(suite_path("sonic_hack"))))
     ap.add_argument("--out-root", default=AEON)
     ap.add_argument("--check", action="store_true",
                     help="write nothing; compare against the existing files")

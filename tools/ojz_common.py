@@ -17,6 +17,10 @@ ojz_strip_gen — only what both sides need is here.
 
 import os
 import struct
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # tools/, for suite_paths
+from suite_paths import suite_path  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Paths (sonic_hack reference project — shared by strip gen + collision).
@@ -25,7 +29,7 @@ import struct
 # the location with AEON_SONIC_HACK_DIR; absence is caught loudly at re-bake
 # entry (ojz_strip_gen.require_donor()), not silently.
 # ---------------------------------------------------------------------------
-SONIC_HACK = os.environ.get("AEON_SONIC_HACK_DIR") or "/home/volence/sonic_hacks/sonic_hack"
+SONIC_HACK = os.environ.get("AEON_SONIC_HACK_DIR") or str(suite_path("sonic_hack"))
 LAYOUT_DIR = os.path.join(SONIC_HACK, "level/layout")
 CHUNK_MAP_PATH = os.path.join(SONIC_HACK, "mappings/128x128/OJZ.bin")
 BLOCK_MAP_PATH = os.path.join(SONIC_HACK, "mappings/16x16/OJZ.bin")
@@ -46,8 +50,9 @@ def skdisasm_root() -> str:
     Resolved as a function, not a module constant, because the tests need to
     vary AEON_SKDISASM_DIR within one process.
     """
-    return os.environ.get("AEON_SKDISASM_DIR") or os.path.normpath(
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "skdisasm"))
+    # NOT `<this file>/../../skdisasm`: that spelling resolved to
+    # `.claude/worktrees/skdisasm` from a worktree checkout, which does not exist.
+    return os.environ.get("AEON_SKDISASM_DIR") or str(suite_path("skdisasm"))
 
 # ---------------------------------------------------------------------------
 # Block / chunk geometry (needed by the loaders below)

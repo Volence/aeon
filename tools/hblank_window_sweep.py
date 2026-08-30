@@ -123,7 +123,9 @@ import time
 from pathlib import Path
 
 AEON = Path(__file__).resolve().parent.parent
-sys.path.insert(0, "/home/volence/sonic_hacks/empyrean/clients/python")
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # tools/, for suite_paths
+from suite_paths import add_client_path, suite_path  # noqa: E402
+add_client_path()  # the Aether client, resolved from the suite root; loud if absent
 sys.path.insert(0, str(AEON / "tools"))
 
 from aether import BusClient  # noqa: E402
@@ -136,7 +138,7 @@ from raster_cost_probe import (  # noqa: E402
 
 # oracle-next's aether server. The OLD oracle harness launcher is deliberately NOT used:
 # that build predates `emulator/scanlines` and would fail on the method, not on the physics.
-SERVER = "/home/volence/sonic_hacks/oracle-next/target/release/oracle-aether"
+SERVER = str(suite_path("oracle-next", "target", "release", "oracle-aether"))
 # AF_UNIX paths cap at 108 bytes and the scratchpad path is longer than that (the trap
 # recorded in tools/sh_probe.py). Short, and unlinked before each launch.
 # PER-PROCESS, because this tree runs parallel lanes in parallel worktrees and a shared path

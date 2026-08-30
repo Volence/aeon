@@ -9,11 +9,13 @@ Decisive datum: the per-candidate `priority` flag above vs below line 120.
 """
 import asyncio, json, os, subprocess, sys, time
 
-sys.path.insert(0, "/home/volence/sonic_hacks/empyrean/clients/python")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # tools/, for suite_paths
+from suite_paths import add_client_path, repo_path, suite_path  # noqa: E402
+add_client_path()  # the Aether client, resolved from the suite root; loud if absent
 from aether import BusClient, BusError
 
-ROM = "/home/volence/sonic_hacks/aeon/s4.debug.bin"
-BIN = "/home/volence/sonic_hacks/oracle-next/target/release/oracle-aether"
+ROM = str(repo_path("s4.debug.bin"))
+BIN = str(suite_path("oracle-next", "target", "release", "oracle-aether"))
 SOCK = "/tmp/aeon_shprobe.sock"  # AF_UNIX paths cap at 108 bytes; scratchpad path is longer
 
 ROWS = [40, 80, 110, 118, 119, 120, 121, 125, 150, 190, 215]

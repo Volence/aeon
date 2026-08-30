@@ -32,9 +32,12 @@ sys.path.insert(0, HERE)
 
 import compose_instashield as ci  # noqa: E402
 
-SONIC_HACK = os.environ.get(
-    "AEON_SONIC_HACK_DIR",
-    os.path.normpath(os.path.join(AEON, "..", "sonic_hack")))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # tools/, for suite_paths
+from suite_paths import suite_path  # noqa: E402
+# The donor sits BESIDE this checkout at the suite root. Spelled through suite_paths
+# because `<checkout>/../sonic_hack` resolves to `.claude/worktrees/sonic_hack` from a worktree,
+# and the rows below then SKIP for a resolution bug that reads as "donor not installed".
+SONIC_HACK = os.environ.get("AEON_SONIC_HACK_DIR", str(suite_path("sonic_hack")))
 
 MAP = os.path.join(AEON, ci.OUT_MAP)
 DPLC = os.path.join(AEON, ci.OUT_DPLC)

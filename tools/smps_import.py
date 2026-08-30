@@ -3,6 +3,8 @@ import os, sys, re
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
 
+from suite_paths import require_suite_path, suite_path  # noqa: E402
+
 from song_packer import (
     Note, Rest, SetDur, NoteDur, Vol, Patch, Pan, ModSet, PsgEnv, NoteFill, RegWrite,
     PsgNoise, Detune, Dac, End, LoopPoint, Jump, MEV_NOTE_BASE, MAX_DUR,
@@ -1362,7 +1364,7 @@ from zyrinx_port import FMPATCH_LEN                          # noqa: E402
 HCZ2_USED_VOICE_IDS = (0x03, 0x06, 0x0E, 0x15)
 
 # Path to the S3K Z80 driver holding the FM Universal Voice Bank.
-S3K_Z80_DRIVER = "/home/volence/sonic_hacks/skdisasm/Sound/Z80 Sound Driver.asm"
+S3K_Z80_DRIVER = str(suite_path("skdisasm", "Sound", "Z80 Sound Driver.asm"))
 
 # The UVB label in the S3K Z80 driver (z80_UniVoiceBank:). HCZ2's header is
 # smpsHeaderVoiceUVB, which points the song at this bank.
@@ -1596,7 +1598,8 @@ def _emit_bin_hcz2(out_dir=None):
         repo_root = os.path.dirname(_HERE)
         out_dir = os.path.join(repo_root, "games", "sonic4", "data", "sound")
 
-    hcz2_src = "/home/volence/sonic_hacks/skdisasm/Sound/Music/HCZ2.asm"
+    hcz2_src = str(require_suite_path("skdisasm", "Sound", "Music", "HCZ2.asm",
+                                      what="the S3K HCZ2 source this import reads"))
     with open(hcz2_src) as f:
         src_lines = f.readlines()
 

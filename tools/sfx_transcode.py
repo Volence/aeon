@@ -1966,10 +1966,10 @@ def transcode_sfx_source(src: str, sfx_id: int) -> dict:
 # CLI: generate all core SFX to data/sound/sfx/
 # ---------------------------------------------------------------------------
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # tools/, for suite_paths
+from suite_paths import suite_path  # noqa: E402
 # Path to the skdisasm SFX directory
-SKDISASM_SFX_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    '..', 'skdisasm', 'Sound', 'SFX')
+SKDISASM_SFX_DIR = str(suite_path('skdisasm', 'Sound', 'SFX'))
 
 # Core SFX id -> filename prefix map
 _CORE_SFX_FILENAMES = {

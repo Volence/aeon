@@ -27,7 +27,9 @@
 #
 # Exit: 0 pre-flight clear · 1 a real (cross-seam) failure · 2 could not run.
 set -uo pipefail
-SIGIL="${SIGIL_DIR:-/home/volence/sonic_hacks/sigil}"
+# Derived from this script's own location, never baked to one machine's $HOME.
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SIGIL="${SIGIL_DIR:-$(dirname "$(dirname "$HERE")")/sigil}"
 [ -d "$SIGIL" ] || { echo "freeze_preflight: no sigil tree at $SIGIL (set SIGIL_DIR)"; exit 2; }
 cd "$SIGIL" || exit 2
 

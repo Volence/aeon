@@ -4,7 +4,7 @@
 # section; this is the half that fires when the ritual gets skipped.
 #
 # Runs against current aeon master in a DETACHED checkout at
-# ~/sonic_hacks/.aeon-nightly so it never races an overnight session or the
+# <suite root>/.aeon-nightly so it never races an overnight session or the
 # auto-commit daemon in the main tree, and never appears inside the main
 # repo directory (a worktree under the repo root double-counts every module
 # in tools/emp_helper_closure.py's tree scan).
@@ -16,15 +16,22 @@
 # --selftest-fail exercises the notification path without running anything.
 set -uo pipefail
 
-MAIN=/home/volence/sonic_hacks/aeon
-NIGHTLY=/home/volence/sonic_hacks/.aeon-nightly
+# Every path below is DERIVED from this script's own location, never baked to one
+# machine's $HOME (SUITE-HOME-PATHS, 2026-08-30). MAIN is resolved through
+# --git-common-dir rather than `dirname $0`/..: this file may be running from a
+# worktree copy, and the whole point of NIGHTLY is that it is cut from the MAIN
+# checkout's master.
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+MAIN="$(dirname "$(git -C "$HERE" rev-parse --path-format=absolute --git-common-dir)")" \
+    || { echo "nightly: $HERE is not inside a git checkout"; exit 2; }
+SUITE="$(dirname "$MAIN")"
+NIGHTLY="$SUITE/.aeon-nightly"
 STATE=${XDG_STATE_HOME:-$HOME/.local/state}/aeon-nightly
 LOG="$STATE/nightly.log"
 mkdir -p "$STATE"
 
-export SIGIL_BUILD=/home/volence/sonic_hacks/sigil/target/release/sigil
-export SIGIL_EMIT=/home/volence/sonic_hacks/sigil/target/release/emit_sound_blob
-
+export SIGIL_BUILD="$SUITE/sigil/target/release/sigil"
+export SIGIL_EMIT="$SUITE/sigil/target/release/emit_sound_blob"
 note() {
     echo "$(date -Is) $1" >> "$LOG"
     notify-send -u critical "aeon effects gates" "$1" 2>/dev/null || true
@@ -34,6 +41,12 @@ if [[ ${1:-} == --selftest-fail ]]; then
     note "SELFTEST: the failure-notification path works"
     exit 1
 fi
+
+# A derived path that resolves to nothing must say so HERE, naming the file. Without
+# this the nightly reports "DEBUG build failed", which is loud but points at the ROM.
+for b in "$SIGIL_BUILD" "$SIGIL_EMIT"; do
+    [ -x "$b" ] || { note "COULD NOT RUN: no sigil binary at $b (suite root $SUITE)"; exit 2; }
+done
 
 if [[ ! -d "$NIGHTLY" ]]; then
     git -C "$MAIN" worktree add --detach "$NIGHTLY" master >> "$LOG" 2>&1 \

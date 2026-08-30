@@ -30,8 +30,8 @@ Two tests, deliberately split:
 
   1. `test_wait_for_break_key_matches_seam` — self-contained, always runs. The regression net.
   2. `test_expected_spellings_are_derived_from_the_real_servers` — reads the two peer sources
-     and re-derives the constants below, so they cannot rot into folklore. Skips when a peer
-     repo is absent, because a missing peer checkout must not fail this repo's build.
+     and re-derives the constants below, so they cannot rot into folklore. It FAILS when a
+     peer source is absent; see the note under the peer paths for why it no longer skips.
 """
 import json
 import re
@@ -40,6 +40,9 @@ from pathlib import Path
 
 import pytest
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # tools/, for suite_paths
+from suite_paths import suite_path  # noqa: E402
+
 TOOLS = Path(__file__).resolve().parent
 
 # Spelling required by each server. Re-derived from both servers' own sources by the second
@@ -47,10 +50,33 @@ TOOLS = Path(__file__).resolve().parent
 KEY_LEGACY = "timeout_ms"
 KEY_RUST = "timeoutMs"
 
-# Peer sources the derivation test reads.
-RUST_SCHEMA = Path("/home/volence/sonic_hacks/oracle/crates/oracle-aether/tests/contract/"
-                   "bus-protocol.schema.json")
-LEGACY_CPP = Path("/home/volence/sonic_hacks/oracle-old/linux-port/gui/ControlSocket.cpp")
+# The two peer sources the derivation test reads, spelled RELATIVE TO THE SUITE ROOT
+# (SUITE-HOME-PATHS, 2026-08-30 — they used to be absolute literals under one $HOME).
+RUST_SCHEMA_PARTS = ("oracle", "crates", "oracle-aether", "tests", "contract",
+                     "bus-protocol.schema.json")
+LEGACY_CPP_PARTS = ("oracle-old", "linux-port", "gui", "ControlSocket.cpp")
+RUST_SCHEMA = suite_path(*RUST_SCHEMA_PARTS)
+LEGACY_CPP = suite_path(*LEGACY_CPP_PARTS)
+
+# WHY THE DERIVATION ROW FAILS RATHER THAN SKIPS WHEN A PEER IS ABSENT.
+#
+# It used to `pytest.skip("a peer emulator checkout is absent")`, reasoning that a missing
+# peer must not fail this repo's build. The 2026-08-30 classification
+# (`docs/2026-08-30-suite-home-paths-classification.md`) found that this was the ONE row in
+# the whole suite that a missing donor turned into a skip, and a skip is indistinguishable
+# from a deliberate one: a reader seeing `1 failed, 1 passed, 1 skipped` learns nothing about
+# whether the skip was chosen or caused.
+#
+# The stated rationale was also already false in practice. Six suite files gate 188 rows on
+# donor trees outside this repo, and FIVE of them — test_smps_import (skdisasm),
+# test_zyrinx_port (the B&R tree), test_effects_gates_segments, test_aether_instance and
+# palette_variant_gate — already error or die at collection when their donor is absent. This
+# tree's actual policy is "the donors are part of the checkout"; this row was the anomaly, not
+# the policy. Failing here makes the row agree with its five siblings.
+#
+# The escape hatch is `AEON_SUITE_ROOT`, which relocates the whole suite for every tool at
+# once. There is deliberately no per-row opt-out: an opt-out would restore exactly the silent
+# skip this replaced.
 
 # A line that actually SENDS the method, as opposed to naming it in a comment, a docstring or a
 # capability list. Both call shapes in this tree: `b.call("emulator/wait_for_break", {...})` and
@@ -118,9 +144,21 @@ def test_wait_for_break_key_matches_seam():
 
 
 def test_expected_spellings_are_derived_from_the_real_servers():
-    """Re-derive KEY_RUST and KEY_LEGACY from the two servers' own sources."""
-    if not RUST_SCHEMA.exists() or not LEGACY_CPP.exists():
-        pytest.skip("a peer emulator checkout is absent; nothing to derive against")
+    """Re-derive KEY_RUST and KEY_LEGACY from the two servers' own sources.
+
+    Absent peer source => FAIL, never skip. See the block comment above the peer paths.
+    """
+    absent = [p for p in (RUST_SCHEMA, LEGACY_CPP) if not p.exists()]
+    if absent:
+        pytest.fail(
+            "cannot re-derive the wait_for_break timeout spelling: "
+            + ", ".join(str(p) for p in absent)
+            + " is absent.\n\nThis row FAILS rather than skipping, deliberately: while the "
+              "peer source is unreadable, KEY_RUST/KEY_LEGACY above are unchecked folklore "
+              "and this file's regression net is pinning constants nothing re-derives. "
+              "A skip here would report that as a deliberate choice.\n"
+              "Fix by restoring the peer checkout beside this one, or point AEON_SUITE_ROOT "
+              "at the directory that holds them.")
 
     schema = json.loads(RUST_SCHEMA.read_text())
     params = schema["methods"]["emulator/wait_for_break"]["params"]

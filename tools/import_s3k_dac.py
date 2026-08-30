@@ -10,11 +10,15 @@
 # The 4 toms (ids $82..$85) are the SAME 82-85.wav at four S3K rate multipliers
 # (1.0 / 0.80 / 0.67 / 0.58); passing those as pitch_ratio reproduces the real
 # relative tom tuning. See HCZ2 import Phase 5.
+import os
+import sys
 import wave
 
 import numpy as np
 
-from dac_encode import encode_raw8
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # tools/, for suite_paths
+from dac_encode import encode_raw8  # noqa: E402
+from suite_paths import suite_path  # noqa: E402
 
 # Engine fixed DAC loop rate (Hz). All samples are resampled to this; pitch is
 # baked in via pitch_ratio (the engine ignores ds_rate).
@@ -88,7 +92,7 @@ def main(argv=None):
     import os
 
     ap = argparse.ArgumentParser(description="Encode the 6 S3K HCZ2 drums to raw-8-bit .pcm")
-    ap.add_argument("--src-dir", default="/home/volence/sonic_hacks/skdisasm/Sound/DAC",
+    ap.add_argument("--src-dir", default=str(suite_path("skdisasm", "Sound", "DAC")),
                     help="directory holding 81.wav / 82-85.wav / 86.wav")
     ap.add_argument("--out-dir", default="data/sound/dac",
                     help="output directory for the .pcm files")
