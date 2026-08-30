@@ -11,6 +11,29 @@ protocol doc. This file is what's aeon-specific.
 
 ## The queue
 
+> ### RESUME BRIEF FOR THE NEXT AEON SESSION (written 2026-08-30T00:38Z)
+> **DO NOT BOOT INTO A STOP AND WAIT FOR A PICK.** The owner's go is recorded — empyrean
+> `origin/main` `7149b39`, verified reachable here, and his standing instruction in it reads
+> *"Do not boot into a stop and wait for a pick: his pick is this paragraph."* The hub pushes
+> lanes continuously through the ratified plan and rules in his place where a lane is blocked.
+> **This overrides the `/overseer` skill's boot stop, which is exactly the exception that skill
+> names.**
+>
+> **START WITH:** `EFFECTS-W1-SHOW-A-BAND` — run `tools/band_witness.py` against master and find
+> out whether a colour band can be shown at all. It moves NO bytes, so it is safe ahead of
+> everything, and it answers the owner's *"nobody has ever seen one"* directly rather than after
+> the binding work. Then items 1, 3, 5 in that order.
+>
+> **THE PLAN:** `docs/DEFERRED_WORK.md` → *"EFFECTS-W1 — the owner-ratified definition of done,
+> priced and sequenced"*. All eleven aeon items priced S/M/L with byte status, the sequence, and
+> **item 0** — the spare-nametable prerequisite that items 10 and 11 both need and that is on
+> nobody's list. Card `vram-replan` is filed; his answer is not needed until 10/11 are reached.
+>
+> **RE-MEASURE, DO NOT INHERIT:** the sigil binary's staleness (rebuilt at their `85a5726c` as of
+> 2026-08-30T00:33Z — but re-derive at the moment you need it, never from this line); and the
+> lost `+$60` derivation described under *"AN OPEN MEASUREMENT THREAD WITH SIGIL"* in
+> `DEFERRED_WORK.md`, which must be re-derived and never reconstructed from a peer's paraphrase.
+
 **`docs/DEFERRED_WORK.md` is the living queue** — check it at the start of every
 planning phase; it books everything with provenance. The current arc and any owner
 rulings live in the session memory and the most recent `docs/superpowers/*handoff*` /
