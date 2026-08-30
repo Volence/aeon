@@ -15673,6 +15673,44 @@ said around them — the lifted non-goal, the bit, the reference, the sequencing
 lane's scaffolding and was checked here before being written down: bit CONFIRMED (with the value
 caveat above), reference reasonable, non-goal NOT REPRODUCED, sequencing accepted.
 
+## A LANDING HAZARD FOR EVERY BYTE-MOVER: THE SOUND TABLES SIT ON THE `abs.w` CEILING — booked 2026-08-30
+
+**The invariant, which is what to carry; the coordinate below it is what to re-measure.**
+Something in the sound region sits hard against `0x8000`, the `abs.w` addressing boundary. A parcel
+that **shrinks** the image upstream of it drags it below the line, every absolute reference in that
+neighbourhood re-encodes, and lengths cascade. **Growth is the safe direction; shrink is the
+dangerous one.**
+
+**Why this class costs a diagnosis when it bites:** it moves labels in regions nobody edited, so it
+does not present as *"my parcel broke something"* — it presents as **an unrelated test failure
+somewhere you did not touch.**
+
+**Measured 2026-08-30 in `.aeon-chain189/s4.lst`** (the clean frozen tree at `3f143178`, not a live
+one): `SoundTablesZ80_Head` at **`0x8000` exactly — margin ZERO**, `Sound_PlaySFX` at `0x8024`,
+margin 36. **A shrink of ONE byte upstream is enough.** 14 real transfer sites reference
+`Sound_PlaySFX` (`jbsr`/`jsr`/`jbra`/`jmp`); 36 total occurrences of the name, the rest being the
+declaration, an error string and comments.
+
+**THE COMMAND IS THE DURABLE HALF — run it, do not quote this entry's numbers:**
+
+```sh
+grep -nE "SoundTablesZ80_Head|Sound_PlaySFX" s4.lst
+```
+
+`SoundTablesZ80_Head` at `8000` or above = clear. Below = every `abs.w`/`abs.l` decision in that
+neighbourhood has flipped and your measured byte delta is not the whole story.
+
+**Provenance, and it is the reason this entry is written in this shape.** The sigil lane carried a
+row naming `Sound_PlaySFX` as the binding constraint at 36 bytes' margin; re-measuring found the
+actually tightest symbol is `SoundTablesZ80_Head` at zero. The row was measured once and restated since —
+the same failure this lane suffered with the lost `+$5A/+$60` derivation the same night. **Both
+times the SHAPE of the claim stayed true and the COORDINATE rotted.** Hence: name the invariant in
+the row, put the coordinate in a command.
+
+**Not a concern for item 1 step 5**, checked rather than assumed: `OJZ_Preset_Plain` is at
+`0x136D2` and the whole editor-raster neighbourhood with it — ~77 KB downstream of the boundary — so
+its +38 moves neither symbol at all, in either direction.
+
 ## MEASURED: NOTHING REFUSES A `rasterRef` ON A SECTION NOTHING CONSUMES — booked 2026-08-30
 
 **The question came from the hub (empyrean `c723dd6`) off aurora's O55; the answer is measured
