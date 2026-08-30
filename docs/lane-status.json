@@ -1,10 +1,10 @@
 {
-  "focus": "The replay net's blind spot is explained and fixable; still fixing a test that passes without checking anything.",
+  "focus": "Both bug-tier rows landed: the replay net is explained, and the test that passed without checking now fails.",
   "inFlight": [
     {
-      "what": "the test row that skips instead of failing, plus the baked home paths under it",
-      "where": "branch parcel/home-paths-fix",
-      "agent": true
+      "what": "confirming the two canonical builds are green on the merged tree - the new check is build-fatal",
+      "where": "master, foreground",
+      "agent": false
     },
     {
       "what": "the sprite-art queue instrument: built, green, committed - parked, not lost",
@@ -44,8 +44,8 @@
     },
     {
       "id": "SUITE-HOME-PATHS-FIX",
-      "title": "CLASSIFIED: the six build-fatal tests gate 188 rows; five fail loudly, one leaves a row as a silent skip. Fixing that one row, and the 46 harness files, is what remains.",
-      "state": "doing",
+      "title": "LANDED: the silent row now fails loudly, 43 harness files converted off baked home paths, and a build-fatal gate stops the class returning. A SECOND silent-skip class was found and fixed on the way - four rows had reported 'donor absent' while the donor sat one directory over, in every worktree run this tree has ever done. Open: the outward-facing half (peers reach in by absolute path).",
+      "state": "open",
       "size": "S",
       "blockedBy": null,
       "project": "EFFECTS-W1"
@@ -333,7 +333,7 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-08-30T06:59:04Z",
+  "updatedAt": "2026-08-30T07:10:00Z",
   "resume": "Two agents live (replay-net archaeology, home-paths fix). EFFECTS-W1 item 2 SHOW-A-BAND is DONE and committed at 162b50d9 - the previous resume line telling you to start there was written 38 minutes BEFORE that spike landed and is stale; do not re-run it. Home-paths CLASSIFICATION is likewise done (b7cce19d); only the fix remains. Order after these two: the checkpoint-0 restamp, then the listing freeze, then DPLC re-cut and block-stream dedup as SERIALIZED byte-movers paired with sigil (they are coupled - whichever lands second re-runs dplc_straddle --recut Art_Sonic on the merged tree), then the decouple's three pieces, then item 1 with its CR filed at the start. Anchors: empyrean origin/main 59a4943 (d-8 clarified2), 7149b39 (owner's go).",
   "parkedQuestions": [
     {
