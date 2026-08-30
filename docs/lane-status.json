@@ -22,6 +22,11 @@
       "id": "d-41",
       "what": "the right-edge price of your left-edge fix - the pictures you asked for are ready and waiting for your look",
       "since": "2026-08-29"
+    },
+    {
+      "id": "d-48-decouple-n",
+      "what": "one number: how many landings the byte-check runs advisory before we judge whether to retire it. Sigil's whole remaining plan is stopped on it",
+      "since": "2026-08-30"
     }
   ],
   "nextBoundary": "When the clamps parcel and the DPLC measurement return. Two agents hold branches; nothing else is half-applied.",
@@ -267,9 +272,9 @@
       "project": "EFFECTS-W1"
     }
   ],
-  "awaiting": "your look at the right-edge pictures for the left-edge fix - they are committed and ready",
+  "awaiting": "two things: your look at the right-edge pictures, and one number that unblocks sigil's whole remaining plan",
   "atBoundary": false,
-  "updatedAt": "2026-08-30T02:10:23Z",
+  "updatedAt": "2026-08-30T02:14:27Z",
   "resume": "Your go is RECORDED (empyrean 7149b39) - do NOT boot into a stop. Start with EFFECTS-W1-SHOW-A-BAND: run tools/band_witness.py against master, no bytes moved. EFFECTS-W1 now has a SECOND HALF - the owner ruled the side-effect bugs must be fixed before the project is done (DoD items 14-17). The canopy is no longer backgroundable and its plan is to INSTRUMENT for the next sighting, not derive a third explanation - two are already refuted. d-47-revised is ruled 'targeted'; measure the append risk before art ships. Everything is in DEFERRED_WORK.md.",
   "parkedQuestions": [
     {
