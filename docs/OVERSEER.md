@@ -167,6 +167,72 @@ rulings live in the session memory and the most recent `docs/superpowers/*handof
   i.e. it fails in the direction of a FALSE SUCCESS. `cd` out first, and never trust a push
   reported by a chain whose cwd may have been removed mid-run.
   *Cross-check: sigil's own write-up of both correctives is at their `1d1e3dc0`.*
+- **THIRTY-ONE LEDGER LINES DO NOT PARSE FOR THE OWNER'S READER — DO NOT REPAIR THEM** (measured
+  2026-08-30 by running Dominion's own predicate over the file; hub-ruled not to repair).
+  **This supersedes the "seven" figure this file carried for one hour.** Seven was the output of
+  *this lane's board audit* — entries both unsuperseded AND unsurfaced — reported as though it were
+  the population that fails the READER. It is a strictly narrower set, and the difference is 24
+  lines. *The correction came from the hub refusing a recalled number and asking for a measurement;
+  the first measurement I ran off my own paraphrase of the predicate gave 23, and only transcribing
+  the reader's actual predicate gave the true figure.*
+  **MEASURED: 86 lines · 55 parse · 31 REJECTED**, counted per LINE. Predicate transcribed from
+  dominion `796bc1e` `server/src/decisions.ts`. Reasons (collected, so one line carries several):
+   22  options must list two or more
+   19  option missing key
+   19  option missing name
+    4  recommend must be an object
+    3  options missing
+    3  recommend missing
+    2  recommend.key names no option
+  **⚠ COUNT BY LINE, NOT BY ID.** My first run keyed results by `id` and reported 28, because
+  `d-42-answered`, `d-43-answered` and `instashield-riders` each appear TWICE and a dict silently
+  collapsed them. Three lines vanished into a container that deduplicates without saying so — the
+  same class as every other miss of that night. Rule 8c makes repeated ids NORMAL, so any tooling
+  over this file must be line-addressed.
+  **THE RULED-NOT-TO-REPAIR SET, by line:**
+  line   3  `d-4` — option missing key; option missing name; recommend must be an object
+  line   4  `d-5` — option missing key; option missing name; recommend must be an object
+  line  35  `d-19-answered` — options must list two or more
+  line  36  `d-20-answered` — options must list two or more
+  line  38  `d-21-answered` — options must list two or more
+  line  39  `d-22-answered` — options must list two or more
+  line  40  `d-24-answered` — options must list two or more
+  line  41  `d-25-answered` — options must list two or more
+  line  42  `d-26-answered` — options must list two or more
+  line  43  `d-27-answered` — options must list two or more
+  line  45  `d-18-answered` — options must list two or more
+  line  48  `d-32` — option missing key; option missing name; recommend must be an object
+  line  49  `d-30-answered` — options must list two or more
+  line  59  `d-36-answered` — options must list two or more
+  line  60  `d-38-answered` — options must list two or more
+  line  63  `d-40-answered` — options must list two or more
+  line  64  `d-36-correction` — options must list two or more
+  line  68  `d-42-answered` — options must list two or more
+  line  69  `d-43-answered` — options must list two or more
+  line  72  `d-42-answered` — options must list two or more
+  line  73  `d-43-answered` — options must list two or more
+  line  74  `d-44-answered` — options must list two or more
+  line  75  `d-45-answered` — options must list two or more
+  line  76  `d-35-closed` — options must list two or more
+  line  77  `d-32-closed` — options must list two or more
+  line  81  `vram-replan` — option missing key; option missing name; recommend must be an object
+  line  82  `instashield-riders` — option missing key; option missing name; recommend.key names no option
+  line  83  `d-47-revised-answered` — options missing; recommend missing
+  line  84  `vram-replan-deferred` — options missing; recommend missing
+  line  85  `d-46-downgraded` — options missing; recommend missing
+  line  86  `instashield-riders` — option missing key; option missing name; recommend.key names no option
+  **RULED: no repair appends** (hub, 2026-08-30; rule 8 forbids rewriting, and 8d says explicitly
+  that nothing is rewritten). Dominion builds owner-facing cards ONLY from `blockedOnOwner` joined
+  by id, so a rejected line no live blocker claims reaches him nowhere; the harm is to future ledger
+  readers and the history view. **Rule 8d's `answered` field is the forward fix** — every closure
+  from here carries it.
+  **⚠ AND A TRAP IN 8c ITSELF, worth more than the list: `instashield-riders` is rejected — INCLUDING
+  the conforming closure I appended for it on 2026-08-30.** 8c requires reproducing the settled
+  card's question, options and recommend IDENTICALLY. When the settled card does not parse (this one
+  has options lacking `key` and `name`), **a faithful 8c closure reproduces the defect and creates a
+  second rejected line.** Closing a malformed card correctly makes the file worse by exactly one
+  line. Flagged to the hub; do not "fix" it by editing either line.
+
 - **SEVEN LEDGER ENTRIES ARE CLOSED OUT OF SHAPE — DO NOT REPAIR THEM** (added 2026-08-30; hub-ruled
   after this lane's boundary audit surfaced them).
   `docs/decisions.jsonl` closes a decision per `contract/DECISIONS.md` rule 8c: append an entry with
