@@ -2,7 +2,7 @@
   "_note": "Ability_InstaShield's bytes, per BUILD SHAPE, and the constants each was built with. The two canonical shapes place the routine at different addresses, so one cut cannot serve both. Regenerate with tools/instashield_gate.py --write-fixture (it preserves the other shape).",
   "shapes": {
     "s4.debug.lst": {
-      "bytes": "122800320c01000867060c01000a662c4a28004a66260c01000a660670086100ed5e12280033020100736610117c0001004a610a103c0042600097e44e75",
+      "bytes": "122800320c01000867060c01000a662c4a28004a66260c01000a660670086100ed5e12280033020100736610117c0001004a610a103c0042600097f44e75",
       "constants": {
         "INSTASHIELD_ATTACKING": 1,
         "INSTASHIELD_READY": 0,
@@ -43,13 +43,13 @@
       "sst_custom": 48,
       "start": 71468,
       "stubs": {
-        "00AF4A": "Sound_PlaySFX",
+        "00AF5A": "Sound_PlaySFX",
         "0104AA": "Player_SetState",
         "01176A": "InstaShield_Spawn"
       }
     },
     "s4.lst": {
-      "bytes": "122800320c01000867060c01000a662e4a28004a66280c01000a660670086100eda812280033020100736612117c0001004a610c103c00424ef9000080044e75",
+      "bytes": "122800320c01000867060c01000a662e4a28004a66280c01000a660670086100eda812280033020100736612117c0001004a610c103c00424ef9000080144e75",
       "constants": {
         "INSTASHIELD_ATTACKING": 1,
         "INSTASHIELD_READY": 0,
@@ -90,7 +90,7 @@
       "sst_custom": 48,
       "start": 71200,
       "stubs": {
-        "008004": "Sound_PlaySFX",
+        "008014": "Sound_PlaySFX",
         "0103E8": "Player_SetState",
         "011660": "InstaShield_Spawn"
       }

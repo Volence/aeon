@@ -12223,6 +12223,10 @@ construction and the guard must not fire on them.
 **Second, smaller gap found alongside it:** nothing CLAMPS the scroll value either, so a scene
 whose numbers leave the range wraps with no signal at all. A clamp would turn a bad config into
 the background visibly sticking rather than tearing. Independent of which d-31 option is chosen.
+**CLOSED 2026-08-29** by `parcel/scroll-and-section-clamps` — see PARALLAX-SCROLL-CLAMP at the end
+of this file for the derivation, and note that it makes OJZ act 1's overrun visible as the BG
+sticking rather than as a seam. The comptime `ensure` proposed just above is still OPEN and cannot
+land before d-31: it would fail the build on the very act it describes.
 
 ### SCOPED AND PRICED 2026-08-29 — d-31 option 3 (background art taller than the plane)
 
@@ -13093,6 +13097,46 @@ the drop the owner saw was one of the 12 edge positions, or a fourth mechanism t
 ---
 
 ## PARALLAX-SCROLL-CLAMP — nothing clamps the scroll, so bad numbers wrap silently (booked 2026-08-28)
+
+> **LANDED 2026-08-29** by `parcel/scroll-and-section-clamps`. The clamp is in
+> `Parallax_Step5_Vscroll` at `.v_pack`, on `Parallax_Current_Vscroll_BG`, bounding it to
+> `[0, VSCROLL_BG_MAX]` where `VSCROLL_BG_MAX = PLANE_B_SPAN - SCREEN_HEIGHT` (= 288) is a new
+> derived const in `engine/level/parallax.emp` beside `PLANE_B_SPAN`. Two compares once per
+> frame; the ROM grew 18 code bytes and all four shapes are green.
+>
+> **THE AXIS IS VERTICAL AND THAT IS THE FINDING, not an implementation detail.** The booking
+> says "the parallax scroll" without naming an axis, and only one of the two can be clamped:
+> * **Horizontal — MUST NOT BE CLAMPED.** Plane B's 64 columns are fully populated and the BG
+>   art is authored to repeat, so an HScroll wrap is the *mechanism* an infinitely-wide
+>   background is built out of, not a failure. A 16-bit wrap is invisible there in any case:
+>   `65536 mod PLANE_B_SPAN == 0`, so a word overflow lands on the same plane column. Plane A
+>   is exempt on both axes — it is the STREAMED plane, a ring the world wraps through by
+>   construction, and its scroll is hard-locked to the camera for exactly that reason.
+> * **Vertical — IS the wrap the booking describes.** The BG art does not tile vertically
+>   (which is why the overrun shows as a seam at all), and `((camY - v_center_y) >> v_factor_bg)
+>   + v_offset` had no bound of any kind.
+>
+> **The range is derived, not picked.** The VDP shows `SCREEN_HEIGHT` plane lines starting at the
+> VSRAM value `v`, i.e. lines `v .. v + SCREEN_HEIGHT - 1` mod `PLANE_B_SPAN`. That window lies
+> inside one pass of the plane exactly when `0 <= v` and `v + SCREEN_HEIGHT <= PLANE_B_SPAN`, so
+> the legal origins are `[0, PLANE_B_SPAN - SCREEN_HEIGHT]` and nothing else. **It costs nothing
+> a correct scene wanted:** every plane row stays reachable (origin 0 shows lines 0..223, origin
+> 288 shows lines 288..511) — only the seam-crossing windows are excluded, and those are the
+> failure. The one thing it forecloses is a vertically-tiling background, which is not what this
+> engine's BG art is.
+>
+> **⚠ IT CHANGES THE PICTURE ON A SHIPPED SCENE, ON PURPOSE — needs an eyes-on confirmation.**
+> OJZ_Default / OJZ_Underwater run `v_factor 3 / v_center 512 / v_offset 0` in a 6,144-px act, so
+> the unclamped scroll runs **-64 .. 676** against a 0..511 plane and wraps at BOTH ends. With the
+> clamp the BG is pinned at the top of its art for the act's top 512 px, tracks from act Y 512 to
+> 2,816, and sticks at the bottom above that. **That is the intended signal** — the act is 2,048 px
+> past its `PLANE_B_SPAN << v_factor_bg` budget (see "The 512-px background has a HEIGHT x DEPTH
+> budget") and the sticking is what makes it legible. But it is a visible change to the showcase
+> scene and no emulator was run for this parcel, so someone should look at it.
+>
+> **NOT closed by this:** the comptime `ensure` proposed in the HEIGHT x DEPTH budget entry. That
+> guard would fail the build on OJZ act 1 today, so it cannot land until d-31 resolves; the runtime
+> clamp is what makes the same fact visible in the meantime.
 
 Named in the d-31 card's detail as *"SEPARATE and worth doing regardless of this choice"*, and the
 hub confirmed under delegation 2026-08-28 that it is wanted whichever way d-31 goes. **It was not
