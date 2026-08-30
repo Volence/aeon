@@ -386,6 +386,28 @@ rulings live in the session memory and the most recent `docs/superpowers/*handof
   commit was also UNPUSHED, so even a correct hash would have failed for them. A mistyped-but-pushed
   SHA fails loudly; a fabricated one on an unpushed commit fails as a mystery. Push before you cite,
   and verify the push with `merge-base --is-ancestor` rather than the push command's own output.*
+- **MEASURED 2026-08-30: A 41-COMMIT ASSEMBLER CHANGE MOVED ZERO ROM BYTES — and the stuck banner
+  field is FIXED.** The sigil lane relinked `target/release/sigil` from `85a5726c` to `ec4c368d`
+  while this lane sat at a boundary. Rebuilt to see whether the night's quoted CRCs still reproduce:
+  at the same `aeon_rev ec6a4791`, **both assemblers produce `s4.debug.bin crc=6516fc68
+  len=736315`** — byte-identical, matching the chain-188 golden.
+  **This is a CASE 2 row in the drift record's own terms — same `aeon_rev`, new `sigil_rev`,
+  expectation from a genuinely earlier build — QUIET AND EVIDENCE-BEARING**, and it arrived by
+  accident. Worth keeping because it is the population sigil correctly observed that ordinary
+  activity almost never produces, which is why their nightly job will MANUFACTURE it by holding
+  `aeon_rev` pinned.
+  **The cheap discriminator agreed and was still not sufficient on its own:**
+  `git diff --stat <old>..<new> -- crates/sigil-frontend-emp/src crates/sigil-link/src
+  crates/sigil-cli/src crates/sigil-frontend-as/src` is EMPTY — the byte-producing code did not
+  move; the 27 changed files are harness and *test* code. So the source-level prediction was "no
+  byte change" and the build confirmed it. **"The code did not change" and "the bytes did not
+  change" are different claims, and only the second is the one a record stores.** Predict from the
+  diff if you like; store the build.
+  **AND: `build.sh` now prints `Assembler: sigil ec4c368d6a37 (clean at capture — no uncommitted
+  changes)`.** The stuck/stale `-dirty` field this file has warned about twice is gone. Note the
+  test that was banked for it — *a `revision:` that is not `fbf60abd`*, not the flag clearing — and
+  both halves now hold, so the warning above is **discharged** rather than merely quiet.
+
 - **`sigil --version` DIFFERING FROM SIGIL'S `HEAD` IS THIS REPO'S NORMAL STEADY STATE, NOT A
   SIGNAL** (added 2026-08-30; the sigil lane's sharpening of a diagnostic this lane ran correctly).
   The binary self-reports the revision it was linked at. After any docs-only commit over there —
