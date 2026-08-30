@@ -1,5 +1,5 @@
 {
-  "focus": "The gate against oracle's permissive server is in - and it corrected two things I had told them were verified.",
+  "focus": "Building the record that makes sigil's nightly drift job able to observe anything at all.",
   "inFlight": [],
   "blockedOnOwner": [
     {
@@ -16,14 +16,6 @@
   "nextBoundary": "Here. Nothing in flight; the restamp waits on sigil's CRCs, the drift record is next to dispatch.",
   "queue": [
     {
-      "id": "REPLAY-NET-BLIND",
-      "title": "ANSWERED: one commit, two collision files, and the net was green 18 hours earlier. Chain 181, culprit fde35b2f, attributed by a byte identity not an inference; restamp mechanically proven, nothing restamped. A three-item ask is filed with oracle - and un-ignoring their tests alone would NOT clear it, because their fixtures are separately pinned at chain 186.",
-      "state": "open",
-      "size": "M",
-      "blockedBy": null,
-      "project": "EFFECTS-W1"
-    },
-    {
       "id": "REPLAY-RESTAMP",
       "title": "RULED all_ten by the hub in his place, reversible on read-back. Repair all ten fingerprints, not the one originally scoped - the exclusion's premise was refuted by a byte identity. SERIALIZED behind sigil's byte-adjacent landing; do not start until they report their four CRCs.",
       "state": "next",
@@ -32,17 +24,9 @@
       "project": "EFFECTS-W1"
     },
     {
-      "id": "SUITE-HOME-PATHS-FIX",
-      "title": "LANDED: the silent row now fails loudly, 43 harness files converted off baked home paths, and a build-fatal gate stops the class returning. A SECOND silent-skip class was found and fixed on the way - four rows had reported 'donor absent' while the donor sat one directory over, in every worktree run this tree has ever done. Open: the outward-facing half (peers reach in by absolute path).",
-      "state": "open",
-      "size": "S",
-      "blockedBy": null,
-      "project": "EFFECTS-W1"
-    },
-    {
       "id": "DRIFT-RECORD-LOOKUP-AEON",
       "title": "Build the record sigil's nightly drift job reads. Until it exists that job reports NOTHING MEASURED - it is landed and blind.",
-      "state": "open",
+      "state": "doing",
       "size": "M",
       "blockedBy": null,
       "project": "EFFECTS-W1"
@@ -52,14 +36,6 @@
       "title": "Sigil's alignment flip is ready and waits on my sequencing. Moves bytes across many sections in both shapes; ruled to get its own freeze range, not a shared one.",
       "state": "open",
       "size": "M",
-      "blockedBy": null,
-      "project": "EFFECTS-W1"
-    },
-    {
-      "id": "SCROLL-AND-SECTION-CLAMPS",
-      "title": "DONE: landed, frozen (chain 188) and certified green. The background no longer draws its own bottom edge above its top.",
-      "state": "open",
-      "size": "S",
       "blockedBy": null,
       "project": "EFFECTS-W1"
     },
@@ -174,14 +150,6 @@
       "size": "M",
       "blockedBy": null,
       "project": "ORACLE-DEFAULT"
-    },
-    {
-      "id": "EFFECTS-W1-SHOW-A-BAND",
-      "title": "ANSWERED 2026-08-30: all three bands do reach the screen, and they own 1.64% of the frame - which is why nobody had seen one. Capture committed.",
-      "state": "open",
-      "size": "S",
-      "blockedBy": null,
-      "project": "EFFECTS-W1"
     },
     {
       "id": "EFFECTS-W1-BIND-PRESETS",
@@ -312,17 +280,41 @@
       "project": "EFFECTS-W1"
     },
     {
-      "id": "LEGACY-SEAM-KEY-GATE",
-      "title": "LANDED: two-axis gate, 8 rows, build-fatal. It CORRECTED me twice - four of the six 'unguarded' sites were guarded and two others were missed, and we are NOT clean: 12 sites send a reset key the legacy server never reads. Open: the reset.wait removal needs the Rider 3 migration, and the gate is source-only until a foreground run confirms a misspelled key really is accepted.",
+      "id": "HOME-PATHS-OUTWARD",
       "state": "open",
-      "size": "M",
+      "size": "S",
       "blockedBy": null,
-      "project": "EFFECTS-W1"
+      "project": "EFFECTS-W1",
+      "title": "The inward half is fixed; peers still reach INTO this tree by absolute path from their own harnesses. Nothing was moved or renamed so nothing is broken, but the consumer enumeration has not been done and AEON_SUITE_ROOT is new that nothing outside aeon knows about. Suite-level, not ours alone."
+    },
+    {
+      "id": "RESET-WAIT-KEY-x12",
+      "state": "open",
+      "size": "S",
+      "blockedBy": null,
+      "project": "EFFECTS-W1",
+      "title": "Twelve of our sites send a reset key the legacy server never reads - harmless only by luck, since the useful value is the one that would break. Registered with the count pinned so a thirteenth fails the build; REMOVAL is coupled to the Rider 3 migration and cannot land alone."
+    },
+    {
+      "id": "SEAM-GATE-RUNTIME-PROOF",
+      "state": "open",
+      "size": "S",
+      "blockedBy": null,
+      "project": "EFFECTS-W1",
+      "title": "The seam gate reasons from the peer's SOURCE and has never confirmed against a running legacy server that a misspelled key really is accepted. Five foreground minutes; no legacy server is currently up and launching one is not covered by this lane's auto-launch permission, so it waits for a window."
+    },
+    {
+      "id": "BAND-PALETTE-ENTRY-CHOICE",
+      "state": "open",
+      "size": "S",
+      "blockedBy": null,
+      "project": "EFFECTS-W1",
+      "title": "The bands work and are near-invisible: they recolour ONE palette entry and only 1.64% of the scene is drawn with it. Anything meant to read as staged light needs an entry the scene uses broadly, or several at once. A content/authoring call, not a mechanism defect."
     }
   ],
   "awaiting": null,
-  "atBoundary": true,
-  "updatedAt": "2026-08-30T07:48:57Z",
+  "atBoundary": false,
+  "updatedAt": "2026-08-30T07:55:15Z",
   "resume": "Both bug-tier rows are LANDED (replay-net answered, home-paths fixed) and both canonical shapes are green on the merged tree: s4 719315 B / 6e2f9b22, s4.debug 736315 B / 6516fc68, fresh mtimes, exit 0. Next in d-8 order: the checkpoint-0 restamp (RULED, oracle's A/B reported, restamp mechanically proven by our own agent - nothing restamped yet), then the listing freeze, then DPLC re-cut and block-stream dedup as SERIALIZED byte-movers paired with sigil - they are COUPLED, whichever lands second must re-run dplc_straddle --recut Art_Sonic on the merged tree. Then the decouple's three pieces, then item 1 with its CR filed at the start. Two asks are open with oracle (the three-item replay-net ask; the parameter-contract emitter, which is queued on THEIR owner's word - do not chase it, nothing of ours blocks on it). LEGACY-SEAM-KEY-GATE is unblocked now that tools/ is free of agents; it needs TWO axes, key spelling AND accepted value shape per method - a spelling-only gate would pass the case that matters.",
   "parkedQuestions": [
     {
