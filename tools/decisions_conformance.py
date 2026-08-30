@@ -142,9 +142,35 @@ def main() -> int:
     print(f"  {total} lines · {total-len(bad)} parse · {len(bad)} REJECTED "
           f"(counted per LINE, never by id)")
     if bad:
-        print("\n  reasons in the DATA (this tool collects all; the reader stops at the first\n  options failure and emits one, so these totals exceed its output — the LINE count above\n  is the figure that matches it):")
-        for reason, n in Counter(x for _, _, e in bad for x in e).most_common():
-            print(f"    {n:3d}  {reason}")
+        # EVERY ROW CARRIES ITS OWN AUTHORITY, because a qualifier one line away from a value
+        # is not beside it: headers do not survive quotation, and a histogram is exactly the
+        # shape that gets pasted into a message alone. This tool's own earlier "31 reasons"
+        # figure reached a peer stripped of its context that way, in a relay that was
+        # otherwise careful. A self-qualifying value beats a qualified section — a reader who
+        # quotes the row quotes the correction with it, and a reader who quotes the bare
+        # number has to DELETE text to be wrong. (The sigil lane's, refining a fix of mine
+        # that had put the qualifier in the header.)
+        print("\n  reasons — each row says whose count it is:")
+        # PER-MEMBER reasons are the only ones this tool can over-count: they are raised
+        # inside the options loop, which Dominion exits on the first failure. The
+        # options-level checks ("missing", "not an array", "must list two or more") are
+        # raised once per line by both implementations, so labelling THEM as over-counted
+        # would be a fresh wrong qualifier introduced while fixing a missing one.
+        PER_MEMBER = ("option missing ", "option is not an object", "repeated option key")
+        counts = Counter(x for _, _, e in bad for x in e)
+        per_line = Counter()
+        for _, _, e in bad:
+            for r in set(x for x in e if x.startswith(PER_MEMBER)):
+                per_line[r] += 1
+        for reason, n in counts.most_common():
+            if reason.startswith(PER_MEMBER):
+                # Dominion's parseOptions returns on the first failing member, so it emits at
+                # most ONE options-error per line; this count is over fields in the data.
+                lines_with = per_line[reason]
+                print(f"    {n:3d}  {reason}   (fields in the data; the reader reports at most "
+                      f"one per line, and {lines_with} line(s) carry this)")
+            else:
+                print(f"    {n:3d}  {reason}   (one per line; matches the reader)")
         print("\n  rejected lines:")
         for n, i, e in bad:
             print(f"    line {n:3d}  {i!r} — {'; '.join(sorted(set(e)))}")
