@@ -2738,7 +2738,7 @@ path, for the same reason the protocol is read that way.
   the other half of that remedy, and it is the half this lane had not yet done for itself.**
   Retire it when a later chain supersedes it, and say so here rather than deleting the line.
 
-### 2026-08-30T16:27Z — CORRECTION: the d-41 left-edge fix has been ON MASTER since 2026-08-29 11:20 (def98ee5), not on a branch
+### 2026-08-30T16:25Z — CORRECTION: the d-41 left-edge fix has been ON MASTER since 2026-08-29 11:20 (def98ee5), not on a branch
 
 Three records in this lane and one in the hub said the fix was "reverted on master" and needed restoring: the d-32 retraction
 (`043cf485`), the two d-41 `answered` entries of 2026-08-30 02:05Z/02:10Z, the resume brief this session handed its look-build
@@ -2749,4 +2749,4 @@ store at `s4.debug.lst` `cap_per_col_vsram_fill_begin` 7C6C..7CB2. The agent sen
 and reported that instead of committing nothing, which is the behaviour the escape hatch exists for. **Bar:** a claim about what is
 on master is checked with `git log -S <the fix's own symbol> -- <file>` before it goes in a brief; a revert's existence says
 nothing about what happened after it. The owner's window (master build) therefore already carried band + fix; it was stepped to
-scene 13 and left running at 16:27Z.
+scene 13 and left running at 16:25Z (this heading and this time are from the commit clock; the first version of this note wrote 16:27Z from memory).
