@@ -123,12 +123,13 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from suite_paths import harness_path  # noqa: E402
 from scene_spans import (capability_bits, expected_spans,  # noqa: E402
                          game_caps, lst_spans, lst_unpaired_spans,
                          source_spans_by_cap)
 
 AEON = Path(__file__).resolve().parent.parent
-HARNESS = Path("/home/volence/sonic_hacks/oracle-old/linux-port/harness")
+HARNESS = harness_path()
 # The SPARSE-tier scenes: three anchor states of one patched two-channel schedule, all
 # asserted through derive_arms below.
 SCENES = ("mid_band", "suppressed", "above_screen")
@@ -591,7 +592,7 @@ def emp_int(rel: str, name: str) -> int:
 #
 # ab_runner resolves every `symbol:` poke and capture through the file the scene's top-level
 # `symbols` key names (`emulator/load_symbols`). Until 2026-08-26 that key was the MAIN
-# tree's `/home/volence/sonic_hacks/aeon/s4.debug.lst`, spelled absolutely in all four
+# tree's `<suite>/aeon/s4.debug.lst`, spelled absolutely in all four
 # scenes — so a gate run in a worktree resolved its symbols from whatever listing master
 # happened to have. Measured on parcel/showcase-effects-r2: the parcel moves
 # `Raster_Buf_A/_B/Raster_Active_Buf` by +84 B (`BAND_CURVE_BYTES x MAX_PARALLAX_BANDS +

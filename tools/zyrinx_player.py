@@ -37,10 +37,15 @@ The driver model (verified against the driver binary, see comments):
 """
 
 import json
+import os
 import struct
 import sys
 
-ROM_PATH = "/home/volence/sonic_hacks/The Adventures of Batman and Robin/Adventures of Batman & Robin, The (USA).md"
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # tools/, for suite_paths
+from suite_paths import suite_path  # noqa: E402
+
+ROM_PATH = str(suite_path("The Adventures of Batman and Robin",
+                          "Adventures of Batman & Robin, The (USA).md"))
 # Moving Trucks = music-test 13 = game-song-index id 13 = B&R Bank2 song4.
 # (The OLD targets — Bank1 song3 $1E886F / seqtbl $1E91E3 / voicetbl $1ECC8C — were
 #  the WRONG song; their PITCH points were in the wrong octave (40/52 etc). Bank2
@@ -767,8 +772,8 @@ except ImportError:  # pragma: no cover - alternate import path
     from tools.zyrinx_port import (  # type: ignore
         translate_voice, FMPATCH_LEN, emit_patch_bank_asm)
 
-VOICES_JSON = ("/home/volence/sonic_hacks/The Adventures of Batman and Robin/"
-               "disasm/sound/decoded_full/voices.json")
+VOICES_JSON = str(suite_path("The Adventures of Batman and Robin",
+                             "disasm", "sound", "decoded_full", "voices.json"))
 
 # ch0..5 -> FM1..FM6 (1:1; ch5 -> FM6 via the adaptive FM6 slot, CHROUTE_FM6 = 5).
 NATIVE_FM_ROUTES = [CHROUTE_FM1, CHROUTE_FM1 + 1, CHROUTE_FM1 + 2,

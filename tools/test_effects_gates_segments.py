@@ -18,6 +18,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import effects_gates as eg  # noqa: E402
+from suite_paths import suite_path  # noqa: E402
 
 TOOL = Path(__file__).resolve().parent / "effects_gates.py"
 
@@ -72,9 +73,12 @@ def test_drift_check_names_a_registry_entry_the_body_dropped():
 # The real pair of paths this tree runs concurrently. A bare `pkill oracle_gui` kills both, and
 # so does any substring test on the shorter one — which is how another session's measurement
 # got killed twice on 2026-08-19.
-MAIN_ROM = b"/home/volence/sonic_hacks/aeon/s4.debug.bin"
-TREE_ROM = b"/home/volence/sonic_hacks/aeon/.claude/worktrees/agent-x/s4.debug.bin"
-GUI = b"/home/volence/sonic_hacks/oracle-old/linux-port/build/oracle_gui"
+# Fixture argv, not paths anyone opens — but built from the suite root anyway, so the
+# prefix trap below stays REAL wherever the suite lives.
+MAIN_ROM = str(suite_path("aeon", "s4.debug.bin")).encode()
+TREE_ROM = str(suite_path("aeon", ".claude", "worktrees", "agent-x",
+                          "s4.debug.bin")).encode()
+GUI = str(suite_path("oracle-old", "linux-port", "build", "oracle_gui")).encode()
 
 
 def _argv(rom: bytes) -> list[bytes]:
@@ -356,7 +360,7 @@ def test_resolve_scene_refuses_a_hardcoded_listing_and_a_missing_one(tmp_path, m
     because ab_runner would then poke nothing and still report ALL EQUAL."""
     stale = tmp_path / "effects_raster_stale.json"
     sc = json.loads(eg.scene_path("mid_band").read_text())
-    sc["symbols"] = "/home/volence/sonic_hacks/aeon/s4.debug.lst"
+    sc["symbols"] = str(suite_path("aeon", "s4.debug.lst"))
     stale.write_text(json.dumps(sc))
     monkeypatch.setattr(eg, "scene_path", lambda name: stale)
     lst = tmp_path / "x.lst"

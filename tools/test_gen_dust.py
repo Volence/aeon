@@ -2,9 +2,12 @@ import os, subprocess, sys, struct
 
 HERE = os.path.dirname(__file__)
 GEN = os.path.join(HERE, "..", "games", "sonic4", "data", "dust_staging", "gen_dust.py")
-_SK_ROOT = os.environ.get(
-    "AEON_SKDISASM_DIR",
-    os.path.normpath(os.path.join(HERE, "..", "..", "skdisasm")))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # tools/, for suite_paths
+from suite_paths import suite_path  # noqa: E402
+# The donor sits BESIDE this checkout at the suite root. Spelled through suite_paths
+# because `<checkout>/../skdisasm` resolves to `.claude/worktrees/skdisasm` from a worktree,
+# and the rows below then SKIP for a resolution bug that reads as "donor not installed".
+_SK_ROOT = os.environ.get("AEON_SKDISASM_DIR", str(suite_path("skdisasm")))
 
 # NOTE: every test here writes to tmp_path. NEVER default the importer's output
 # into the repo — see tools/test_import_sk_collision.py:14 for the incident that

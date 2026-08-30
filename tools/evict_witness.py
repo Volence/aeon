@@ -43,7 +43,9 @@ import time
 import zlib
 from pathlib import Path
 
-sys.path.insert(0, "/home/volence/sonic_hacks/empyrean/clients/python")
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # tools/, for suite_paths
+from suite_paths import add_client_path  # noqa: E402
+add_client_path()  # the Aether client, resolved from the suite root; loud if absent
 from aether import BusClient  # noqa: E402
 
 SOCK = "/run/user/1000/oracle.sock"

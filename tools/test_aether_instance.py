@@ -8,7 +8,7 @@ driven here against handshakes RECORDED FROM BOTH REAL SERVERS, and the legacy o
 refused.
 
 Recorded 2026-08-26 on this machine, from the binaries as shipped that day:
-  * Rust:   /home/volence/sonic_hacks/oracle/target/release/oracle-aether  (built 08-25 21:03)
+  * Rust:   <suite>/oracle/target/release/oracle-aether  (built 08-25 21:03)
   * legacy: oracle-old/linux-port/build/oracle_gui, spawned by launcher.headless_emulator
 
 These are RECORDINGS, and a recording can go stale. `python3 tools/aether_instance.py

@@ -8,7 +8,8 @@ set -euo pipefail
 # only exist on an authoring machine:
 #
 #   sonic_hack  (level layouts / Kosinski art / chunk+block maps) — override
-#               with AEON_SONIC_HACK_DIR; default /home/volence/sonic_hacks/sonic_hack
+#               with AEON_SONIC_HACK_DIR; default <suite>/sonic_hack, beside this
+#               aeon checkout
 #   skdisasm    (S&K collision shape vocabulary) — override with
 #               AEON_SKDISASM_DIR; default ../skdisasm relative to this repo
 #

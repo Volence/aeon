@@ -47,7 +47,7 @@ identically to his art and his palette (a lossless relabel). See README.md.
 
 Usage:
   ./gen_characters.py [skdisasm_root]
-  (default skdisasm_root = /home/volence/sonic_hacks/skdisasm)
+  (default skdisasm_root = <suite>/skdisasm, beside this aeon checkout)
 """
 
 import hashlib
@@ -82,10 +82,12 @@ AF_NAME = {
     0xF8: "AF_COLLISION", 0xF7: "AF_SET_FIELD",
 }
 
-DEFAULT_SK = Path("/home/volence/sonic_hacks/skdisasm")
-
 # aeon repo root — this file is at <root>/games/sonic4/data/characters_staging/.
 AEON_ROOT = Path(__file__).resolve().parents[4]
+sys.path.insert(0, str(AEON_ROOT / "tools"))
+from suite_paths import suite_path                           # noqa: E402
+
+DEFAULT_SK = suite_path("skdisasm")
 
 # tools/measure_character_boxes.py owns the .emp const reader and the .emp animation
 # table parser. Import them rather than re-implementing: the ball seating below is

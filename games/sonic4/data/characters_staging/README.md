@@ -12,7 +12,7 @@ no dependency on the session that created it. Regenerate with:
 
 ```
 cd games/sonic4/data/characters_staging
-./gen_characters.py [skdisasm_root]   # default /home/volence/sonic_hacks/skdisasm
+./gen_characters.py [skdisasm_root]   # default <suite>/skdisasm, beside this checkout
 ```
 
 The generator also **ships** the build-consumed Tails trio into the real data

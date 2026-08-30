@@ -33,7 +33,9 @@ read it directly.
 """
 import asyncio, sys
 from pathlib import Path
-sys.path.insert(0, "/home/volence/sonic_hacks/empyrean/clients/python")
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # tools/, for suite_paths
+from suite_paths import add_client_path  # noqa: E402
+add_client_path()  # the Aether client, resolved from the suite root; loud if absent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from aether import BusClient
 from aether_instance import aether_emulator

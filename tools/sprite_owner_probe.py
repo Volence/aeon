@@ -49,7 +49,9 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 # Same seam aether_instance uses; the client lives in the contract repo, not here.
-sys.path.insert(0, "/home/volence/sonic_hacks/empyrean/clients/python")
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # tools/, for suite_paths
+from suite_paths import add_client_path  # noqa: E402
+add_client_path()  # the Aether client, resolved from the suite root; loud if absent
 
 from aether import BusClient                                    # noqa: E402
 from aether_instance import AetherInstance, SpawnError, read_bytes, WrongServerError  # noqa: E402

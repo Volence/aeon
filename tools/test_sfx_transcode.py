@@ -1604,10 +1604,11 @@ class TestSTone17AliasPremise(unittest.TestCase):
     _STONE_TO_ENV.)
     """
 
-    _SK = os.environ.get(
-        "AEON_SKDISASM_DIR",
-        os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                      "..", "..", "skdisasm")))
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # tools/, for suite_paths
+    from suite_paths import suite_path  # noqa: E402
+    # Suite-root resolved: see tools/suite_paths.py (a `../../skdisasm` default resolves
+    # to `.claude/worktrees/skdisasm` from a worktree checkout).
+    _SK = os.environ.get("AEON_SKDISASM_DIR", str(suite_path("skdisasm")))
     _DRIVER = os.path.join(_SK, "Sound", "Z80 Sound Driver.asm")
 
     @classmethod

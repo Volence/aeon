@@ -354,8 +354,74 @@ inflate the count or, worse, get "fixed".
 rows**. A count of occurrences ranks the work wrongly and makes a one-line fix look like a
 one-row win.
 
-**Not started. Bug tier, tag EFFECTS-W1 by his reorder. Sequences after the freeze and the replay
-restamp** — it touches test files broadly and should not move while a chain is superseding.
+~~**Not started. Bug tier, tag EFFECTS-W1 by his reorder. Sequences after the freeze and the replay
+restamp** — it touches test files broadly and should not move while a chain is superseding.~~
+
+#### CLOSED 2026-08-30 — `parcel/home-paths-fix` (63 files; zero ROM bytes moved)
+
+**Counts re-derived at `fa806c49`, not carried forward, and both matched the classification:**
+`git grep -l '/home/volence' -- tools/ engine/ games/ build.sh` = **52 files**, split by
+`grep -q 'def test_'` into **6 suite / 46 harness**. The 194-vs-52 gap in the entry above is the
+docs half, excluded by path.
+
+**Two corrections to the classification, both from re-running its own poison.**
+
+1. **The classification's `test_wait_for_break_spelling.py` row is wrong about the failure, and
+   the truth is worse.** Its table records `1 fail · 1 pass · 1 skip` under poison, and reads the
+   failure (`test_send_sites_are_found_at_all`) as a completeness guard doing its job. That row's
+   subject is `Path(__file__).parent.glob("*.py")` — **the aeon tools dir, which has nothing to do
+   with the peer tree.** It went red because the poisoned copy was run from outside `tools/`.
+   Run IN PLACE with the peer sources absent, master's file reports **`2 passed, 1 skipped`**: a
+   pure silent skip with **no failing row at all**. The instrument's own location changed the
+   verdict — the same shape as `$?`-after-a-pipe in that document's method note.
+2. **The file count is right and the population is not.** The 52 include two `README.md` and one
+   generated `DONOR_PROVENANCE.json`; only **43** are executable harness/suite code.
+
+**What changed.** `tools/suite_paths.py` is the single resolver: `REPO_ROOT` from this file's own
+location, `suite_root()` from `AEON_SUITE_ROOT` (absolute, no fall-back) else a marker walk, and
+**two deliberately non-interchangeable shapes** — `suite_path()`/`repo_path()` resolve, while
+`require_suite_path()`/`require_repo_path()`/`add_client_path()`/`harness_path()` raise
+`MissingSuitePath` naming the target **at the call site**. The walk is the hazard this entry warns
+about, and the mitigation the entry asks for is implemented: a wrong `AEON_SUITE_ROOT` is a hard
+error, never a silent fall-back to the real tree. Every one of the 43 code files is converted; the
+provenance `.json` keeps its absolute path because recording which donor a run actually read *is*
+the record.
+
+**The silent row now fails, and the escape hatch was deliberately not built.** The old rationale
+("a missing peer must not fail this repo's build") was already false in practice: five of the six
+suite files error or die at collection when their donor is absent. This row was the anomaly, not
+the policy. Under the same poison it now reports **`1 failed, 2 passed`** with
+`cannot re-derive the wait_for_break timeout spelling: <path> is absent`.
+
+**A SECOND silent-skip class, found while reading the skip reasons and not in the brief:
+`<checkout>/../<peer>` relative anchors.** Nine files resolved a donor as a sibling of the
+checkout, which from a worktree is `.claude/worktrees/<peer>` — nonexistent. Three of them already
+carried comments *documenting* the bug and telling the operator to set an env var, rather than
+fixing the default. Measured on the tools suite in a worktree: **1659 passed / 10 skipped →
+1663 passed / 6 skipped.** Four rows had been reporting "donor absent" while the donor sat one
+directory over, in every worktree run this tree has ever done. `git grep` cannot see this class —
+it has no literal — which is why the entry above is right that the discriminator is the poison.
+
+**The gate: `tools/test_no_baked_home_paths.py`**, run by `python3 -m pytest "${TOOLS}"` in
+`build.sh` (build-fatal). Two rules — the home prefix, and the suite directory's own name in any
+spelling, because `~/` and `"$HOME/"` in front of that name are exactly as baked and rule 1 alone
+misses both. Both needles are built by concatenation so **the gate scans itself**; a gate that has
+to exempt itself has a hole the shape of its own rule. Red-first, each rule proven to fire alone:
+a `/home/...` plant reddens rule 1 only, a `~/<suite>/...` plant reddens rule 2 only, and with
+rule 1's assertion neutered the `/home/` plant goes **completely undetected (6 passed)** — so the
+red came from the rule under test and not from a neighbour.
+
+**Whole-suite poison (`AEON_SUITE_ROOT` at a directory with `aeon/` and `empyrean/` and nothing
+else — the entry's "present but empty" assay):** collection dies in 4 files, **1669 rows collected
+→ 1585**, and pytest exits `Interrupted: 4 errors during collection`. Rows COLLECTED is the datum,
+per this entry's own warning; the difference from before is that the error now names the absent
+path and says where the suite root came from.
+
+**Still open, and it is the outward-facing half of this entry:** aurora and sigil reach into this
+tree by absolute path from their own harnesses, and nothing here has been done about that. This
+parcel moved no file and renamed nothing, so it cannot have broken them — but the consumer
+enumeration this entry demands of any `tools/` reorganisation has not been performed and is not
+closed by this row.
 
 ### THE REPLAY FIXTURE NEEDS RE-STAMPING AFTER THE CLAMPS — MEASURED, AND NOBODY HAD BOOKED IT
 (2026-08-30; the oracle lane found the symptom, the mechanism is measured here)

@@ -41,7 +41,9 @@ import os
 import sys
 import zlib
 
-sys.path.insert(0, "/home/volence/sonic_hacks/empyrean/clients/python")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # tools/, for suite_paths
+from suite_paths import add_client_path  # noqa: E402
+add_client_path()  # the Aether client, resolved from the suite root; loud if absent
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__))))
 
 from aether import BusClient  # noqa: E402

@@ -42,7 +42,7 @@ import sys
 
 # --------------------------------------------------------------------------
 # The model — S3K Animate_Sonic, walk/run branch loc_126A4 (sonic3k.asm:24808-24862),
-# read first-hand out of /home/volence/sonic_hacks/skdisasm/.
+# read first-hand out of the suite's skdisasm/ checkout.
 #
 #   moveq   #0,d1                       ; d1 = the half-turn flip delta
 #   move.b  angle(a0),d0

@@ -107,14 +107,16 @@ import time
 from pathlib import Path
 
 AEON = Path(__file__).resolve().parent.parent
-sys.path.insert(0, "/home/volence/sonic_hacks/empyrean/clients/python")
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # tools/, for suite_paths
+from suite_paths import add_client_path, suite_path  # noqa: E402
+add_client_path()  # the Aether client, resolved from the suite root; loud if absent
 sys.path.insert(0, str(AEON / "tools"))
 
 from aether import BusClient            # noqa: E402
 from aether_instance import assert_rust_server  # noqa: E402
 from raster_cost_probe import parse_lst  # noqa: E402
 
-SERVER = "/home/volence/sonic_hacks/oracle-next/target/release/oracle-aether"
+SERVER = str(suite_path("oracle-next", "target", "release", "oracle-aether"))
 SOCK = f"/tmp/aeon_warpbox_{os.getpid()}.sock"     # short + per-process: AF_UNIX caps at 108
 
 SETTLE_FRAMES = 180          # boot -> gameplay (the tree-wide constant; no buttons are pressed:

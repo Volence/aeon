@@ -104,15 +104,17 @@ import sys
 import time
 from pathlib import Path
 
-sys.path.insert(0, "/home/volence/sonic_hacks/empyrean/clients/python")
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # tools/, for suite_paths
+from suite_paths import add_client_path, suite_path  # noqa: E402
+add_client_path()  # the Aether client, resolved from the suite root; loud if absent
 from aether import BusClient  # noqa: E402
 
 # The NEW oracle (Rust). `oracle-next` is a symlink to `oracle`; the OLD C++ harness at
 # oracle-old/linux-port/harness is deliberately NOT importable from here — this probe's
 # whole point is that it does not consume those rows.
-SERVER = "/home/volence/sonic_hacks/oracle/target/release/oracle-aether"
+SERVER = str(suite_path("oracle", "target", "release", "oracle-aether"))
 # The corpus A/B's ROM, recovered from sigil's committed golden rather than rebuilt.
-CORPUS_GOLDEN = ("/home/volence/sonic_hacks/sigil", "7b46f075",
+CORPUS_GOLDEN = (str(suite_path("sigil")), "7b46f075",
                  "crates/sigil-harness/golden/s4.debug.bin")
 CORPUS_CRC, CORPUS_LEN = 0xD22DDA85, 713295
 

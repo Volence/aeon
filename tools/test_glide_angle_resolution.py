@@ -45,8 +45,12 @@ runtime confirmations are TAG-2 and TAG-3 in the diagnosis document.
 
 import os
 import re
+import sys
 
 import pytest
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # tools/, for suite_paths
+from suite_paths import suite_path  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.normpath(os.path.join(HERE, ".."))
@@ -58,12 +62,11 @@ KNUCKLES_EMP = os.path.join(ROOT, "games", "sonic4", "player", "knuckles.emp")
 CONSTANTS_EMP = os.path.join(ROOT, "engine", "system", "constants.emp")
 COLLISION_DIR = os.path.join(ROOT, "games", "sonic4", "data", "collision")
 
-# A worktree checkout sits under .claude/worktrees/, where ../../skdisasm
-# resolves wrong — honour the same override the collision importers honour.
+# The donor sits BESIDE this checkout at the suite root. Spelled through suite_paths
+# because `<checkout>/../skdisasm` resolves to `.claude/worktrees/skdisasm` from a worktree,
+# and the rows below then SKIP for a resolution bug that reads as "donor not installed".
 SK_ASM = os.path.join(
-    os.environ.get("AEON_SKDISASM_DIR",
-                   os.path.normpath(os.path.join(ROOT, "..", "skdisasm"))),
-    "sonic3k.asm")
+    os.environ.get("AEON_SKDISASM_DIR", str(suite_path("skdisasm"))), "sonic3k.asm")
 
 
 # --------------------------------------------------------------------------

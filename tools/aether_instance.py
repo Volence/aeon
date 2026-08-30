@@ -92,12 +92,14 @@ import tempfile
 import time
 from pathlib import Path
 
-sys.path.insert(0, "/home/volence/sonic_hacks/empyrean/clients/python")
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # tools/, for suite_paths
+from suite_paths import add_client_path, harness_path, suite_path  # noqa: E402
+add_client_path()  # the Aether client, resolved from the suite root; loud if absent
 from aether import BusClient  # noqa: E402
 
 # `oracle-next` is a SYMLINK to `oracle` on this machine, so the three already-aether gates
 # that spell the path the other way run the same binary. Spelled the owner-ruled way here.
-SERVER = Path("/home/volence/sonic_hacks/oracle/target/release/oracle-aether")
+SERVER = suite_path("oracle", "target", "release", "oracle-aether")
 
 READY_TIMEOUT_S = 15.0    # generous: measured ready time is ~0.06 s
 READY_POLL_S = 0.05
@@ -371,7 +373,7 @@ def _poison_legacy(rom: str) -> int:
     the recording is not a fiction. Kept out of pytest deliberately: it boots the legacy
     server under xvfb-run and takes ~15 s.
     """
-    sys.path.insert(0, "/home/volence/sonic_hacks/oracle-old/linux-port/harness")
+    sys.path.insert(0, str(harness_path()))
     from launcher import headless_emulator  # noqa: E402
 
     async def shake(sock):

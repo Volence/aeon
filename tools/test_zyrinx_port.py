@@ -19,6 +19,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+from suite_paths import suite_path
 import zyrinx_port
 from zyrinx_port import (
     zyrinx_note_to_pitch, zyrinx_tempo_to_byte, wait_to_dur,
@@ -30,8 +31,8 @@ from zyrinx_port import (
 
 # The global Zyrinx voice bank (Moving Trucks = bank1). The transcoder indexes
 # this with the song's absolute VOICE indices.
-_VOICES_JSON = ("/home/volence/sonic_hacks/The Adventures of Batman and Robin/"
-                "disasm/sound/decoded_full/voices.json")
+_VOICES_JSON = str(suite_path("The Adventures of Batman and Robin",
+                              "disasm", "sound", "decoded_full", "voices.json"))
 
 import song_packer
 from song_packer import (
@@ -43,8 +44,8 @@ from song_packer import (
 )
 
 # The decoded source JSON (the transcoder input).
-_BR_DIR = ("/home/volence/sonic_hacks/The Adventures of Batman and Robin/"
-           "disasm/sound/megadaw_export")
+_BR_DIR = str(suite_path("The Adventures of Batman and Robin",
+                         "disasm", "sound", "megadaw_export"))
 _JSON = os.path.join(_BR_DIR, "05_Moving_Trucks.json")
 
 

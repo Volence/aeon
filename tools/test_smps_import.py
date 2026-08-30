@@ -1,5 +1,10 @@
 # tools/test_smps_import.py
 from smps_import import tokenize_line, NOTE_BYTES, PAN_BYTES, DAC_IDS, FLAG_BYTES, resolve_const, HCZ2_DAC_REMAP
+from suite_paths import suite_path
+
+# The S3K donor these tests read. Resolved from the suite root, never baked: a wrong
+# literal here would make every row below open nothing.
+_HCZ2 = str(suite_path("skdisasm", "Sound", "Music", "HCZ2.asm"))
 
 def test_tokenize_macro_with_args():
     assert tokenize_line("\tsmpsHeaderFM\tSnd_HCZ2_FM1, $18, $0F  ; comment") == \
@@ -197,7 +202,7 @@ def test_hcz2_dcb_symbol_coverage():
     raise for any of them.
     Skips: raw numbers ($xx / decimal), labels (Snd_*), sTone_* voice names.
     """
-    hcz2_path = "/home/volence/sonic_hacks/skdisasm/Sound/Music/HCZ2.asm"
+    hcz2_path = _HCZ2
     with open(hcz2_path) as f:
         lines = f.readlines()
 
@@ -442,7 +447,7 @@ def test_call_depth_guard():
 # ── Task 2.3 end-to-end: real HCZ2 FM + DAC convert without raising ──────────
 
 def _hcz2_blocks_and_cfg():
-    path = "/home/volence/sonic_hacks/skdisasm/Sound/Music/HCZ2.asm"
+    path = _HCZ2
     with open(path) as f:
         lines = f.read().splitlines()
     cfg = parse_header(lines)
@@ -620,7 +625,7 @@ def test_convert_song_unmapped_dac_raises():
 def test_convert_song_real_hcz2_packs():
     # END-TO-END: read REAL HCZ2.asm, build remaps covering every drum + voice,
     # convert, and prove the whole song packs.
-    path = "/home/volence/sonic_hacks/skdisasm/Sound/Music/HCZ2.asm"
+    path = _HCZ2
     with open(path) as f:
         src = f.read().splitlines()
     # The 6 S3K drum ids HCZ2 uses (raw, 1-based): dSnareS3=1, dHighTom=2,
@@ -872,7 +877,7 @@ def test_convert_song_fm_header_vol_in_correct_range():
     # (LogVolumeLutZ inverse of S3K TL attenuations 0x0A..0x13), which places FM
     # volume correctly in the log domain so drums are not buried.
     from song_packer import Vol, Note, NoteDur
-    path = "/home/volence/sonic_hacks/skdisasm/Sound/Music/HCZ2.asm"
+    path = _HCZ2
     with open(path) as f:
         src = f.read().splitlines()
     dac_remap = {1: 6, 2: 7, 3: 8, 4: 9, 5: 10, 6: 5}
@@ -913,7 +918,7 @@ from song_packer import CHROUTE_PSGN
 
 def test_convert_song_psg_noise_channel_routed_to_psgn():
     from song_packer import Note, NoteDur
-    path = "/home/volence/sonic_hacks/skdisasm/Sound/Music/HCZ2.asm"
+    path = _HCZ2
     with open(path) as f:
         src = f.read().splitlines()
     dac_remap = {1: 6, 2: 7, 3: 8, 4: 9, 5: 10, 6: 5}
@@ -938,7 +943,7 @@ def test_convert_song_psg_noise_channel_routed_to_psgn():
 
 def test_convert_song_psg_tone_channels_keep_melody():
     from song_packer import Note, NoteDur
-    path = "/home/volence/sonic_hacks/skdisasm/Sound/Music/HCZ2.asm"
+    path = _HCZ2
     with open(path) as f:
         src = f.read().splitlines()
     dac_remap = {1: 6, 2: 7, 3: 8, 4: 9, 5: 10, 6: 5}
@@ -975,7 +980,7 @@ def test_noise_note_carries_real_pitch():
 
 def test_convert_song_real_hcz2_packs_with_psgn():
     # The whole HCZ2 song still packs end-to-end with the noise channel on PSGN.
-    path = "/home/volence/sonic_hacks/skdisasm/Sound/Music/HCZ2.asm"
+    path = _HCZ2
     with open(path) as f:
         src = f.read().splitlines()
     dac_remap = {1: 6, 2: 7, 3: 8, 4: 9, 5: 10, 6: 5}
@@ -1011,7 +1016,7 @@ def test_hcz2_all_channels_equal_loop_period():
     # The decisive regression: every HCZ2 channel must loop at the SAME tick
     # period (2688). Before the standalone-dur fix the DAC (2546) and PSG-noise
     # (2100) channels looped short and drifted ahead of the melody.
-    path = "/home/volence/sonic_hacks/skdisasm/Sound/Music/HCZ2.asm"
+    path = _HCZ2
     with open(path) as f:
         src = f.read().splitlines()
     dac_remap = {1: 6, 2: 7, 3: 8, 4: 9, 5: 10, 6: 5}

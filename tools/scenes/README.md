@@ -24,7 +24,7 @@ resolve it first:
 
 ```bash
 SCENE=$(python3 tools/effects_gates.py --resolve-scene suppressed --lst /ABS/PATH/s4.debug.lst)
-python3 /home/volence/sonic_hacks/oracle-old/linux-port/harness/ab_runner.py \
+python3 "$(python3 -c 'import sys; sys.path.insert(0, "tools"); from suite_paths import harness_path; print(harness_path())')/ab_runner.py" \
   --old OLD.bin --new NEW.bin --scene "$SCENE" --out /tmp/abgate --selfcheck
 ```
 
