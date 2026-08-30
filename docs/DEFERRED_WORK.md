@@ -180,6 +180,33 @@ edge, and (b) `Section_RedrawPlanes` returning `d7 = Cache_Head_Col` uncondition
 `Section_Plane_Dirty` setters run straight after an unbudgeted `FillAll`, and now asserted, but it is
 the remaining place a tracker is written without a matching draw.
 
+### LEDGER CONFORMANCE IS CHECKED OVER THE HISTORY AND NEEDS CHECKING AT THE WRITE SITE (booked 2026-08-30)
+
+`tools/decisions_conformance.py` measures how many ledger lines the owner's reader rejects. It
+found 31 of 94 in this repo. **It cannot stop the next one**, and over-the-history checking is the
+shape that produced the 31 in the first place.
+
+**The argument, which is this repo's own and already proven once:** `refreeze` has teeth because it
+sits where the write happens and cannot be omitted — the remedy adopted at chains 169 and 170 after
+a rule that was *"complete in its steps and inert in its spelling"* let `SIGIL_STRICT_GATE=1` go
+unrun for two chains. **A rule cannot be trusted to carry a token nobody audits**, and "run the
+conformance tool before you append" is exactly such a token.
+
+**The sharpest statement of the class is the sigil lane's, from their own ledger:** their `d-15` was
+a closure filed *specifically to repair a schema defect* in `d-14`. It repaired the thing it aimed
+at — and still does not render, because every option is missing `name`. **It was written against the
+contract prose a person reads rather than against the implementation that decides whether he sees
+the card. Conforming to a written rule and conforming to the enforcing implementation are two
+different claims, and only one of them has a consumer.**
+
+That lands on this lane too: the six closures appended on 2026-08-30 parse because the tool was run
+*afterwards*, not because they were written against the reader.
+
+**What to build:** the check at the append, not over the file — a helper every closure goes through,
+or a hook, so a non-conforming entry cannot reach the ledger. Until it exists, every lane's
+conformance rests on remembering to run something, which is the property this file has twice
+recorded as not surviving a rotation. Not started; not wired unilaterally while a byte-mover is out.
+
 ### d-32 RE-MEASURE — RETRACTED THE SAME NIGHT IT WAS MADE, AND THE FAILURE IS INSTRUCTIVE (2026-08-30)
 
 **Claimed:** the left-edge foreground loss is repaired, because a per-column scene showed the

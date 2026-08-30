@@ -265,11 +265,19 @@
       "size": "M",
       "blockedBy": null,
       "project": "EFFECTS-W1"
+    },
+    {
+      "id": "LEDGER-WRITE-SITE-CHECK",
+      "title": "Check decision entries as they are written, not after. The measurement tool exists and found 31 bad lines; it cannot stop the next one.",
+      "state": "open",
+      "size": "S",
+      "blockedBy": null,
+      "project": "EFFECTS-W1"
     }
   ],
   "awaiting": "your look at the right-edge pictures for the left-edge fix - they are committed and ready",
   "atBoundary": false,
-  "updatedAt": "2026-08-30T02:15:42Z",
+  "updatedAt": "2026-08-30T02:18:29Z",
   "resume": "Your go is RECORDED (empyrean 7149b39) - do NOT boot into a stop. Start with EFFECTS-W1-SHOW-A-BAND: run tools/band_witness.py against master, no bytes moved. EFFECTS-W1 now has a SECOND HALF - the owner ruled the side-effect bugs must be fixed before the project is done (DoD items 14-17). The canopy is no longer backgroundable and its plan is to INSTRUMENT for the next sighting, not derive a third explanation - two are already refuted. d-47-revised is ruled 'targeted'; measure the append risk before art ships. Everything is in DEFERRED_WORK.md.",
   "parkedQuestions": [
     {
