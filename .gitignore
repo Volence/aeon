@@ -9,6 +9,14 @@
 # the STRESS_ART=1 build shape was dead with it. Negate explicitly rather than
 # force-add, so the intent is visible the next time someone reads this file.
 !games/sonic4/data/editor/ojz_tiles.bin
+# The BG library bodies Aurora writes IN PLACE into this tree (2026-08-30). These are
+# NOT derived: Aurora keeps no library store of its own — its only userData file is a
+# list of recent project PATHS — so it is a lens on this filesystem and cannot re-export
+# them. Untracked, they existed on one disk with no history. Deliberately scoped to the
+# authored bodies and their tile blobs; the `.pre-*-backup/`, `.reset-backup-*/` and
+# `export/` trees stay ignored, being supersedable or regenerable.
+!games/sonic4/data/editor/ojz_bg_*.bin
+!games/sonic4/data/editor/ojz_act1_bg*.bin
 *.lst
 # ...but the s4budget test fixtures ARE listings, on purpose. They are excerpts
 # cut from real `sigil build --emit-lst` output (tools/fixtures/make_listing_excerpt.py)
