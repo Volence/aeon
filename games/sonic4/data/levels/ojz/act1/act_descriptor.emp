@@ -19,7 +19,11 @@ use engine.structs.{Act, Sec}
 // (games/sonic4/data/effects/ojz_effects.emp).
 use games.sonic4.ojz_effects.{OJZ_TestRaster, OJZ_TestPal, OJZ_TestGradient, OJZ_TestVsram, OJZ_TestRamp}
 // Parcel C2 Task 12 — total-binding presets. One per distinct section (0-3),
-// one shared instance for the five identical plain sections (4-8).
+// one shared instance for the three identical plain sections (6-8). This line said
+// "five ... (4-8)" and was stale twice over — section 4 took OJZ_Preset_Depth at d-15,
+// section 5 took OJZ_Preset_Sec5 at EFFECTS-W1 item 1 step 5. The twin of this sentence
+// in ojz_effects.emp was corrected in the same parcel; this copy was missed, which is
+// why the rule is to grep the COMMENTS of anything built against a ruling that moved.
 use games.sonic4.ojz_effects.{OJZ_Preset_Sec0, OJZ_Preset_Sec1, OJZ_Preset_Sec2, OJZ_Preset_Sec3, OJZ_Preset_Plain, OJZ_Preset_Depth, OJZ_Preset_Sec5}
 // The act-default parallax record (`act_parallax_config` below — the fallback for sections
 // that declare none). NAMED rather than left to resolve as a link extern (scanline-P1
