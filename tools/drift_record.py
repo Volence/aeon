@@ -165,7 +165,18 @@ LOCAL_VERBS = ("validate", "measure")
 REQUIRED_KEYS = ("schema", "aeon_rev", "sigil_linked_rev", "sigil_closure_rev",
                  "sigil_tree_state", "origin", "measured_on", "build", "shapes", "note")
 
-TREE_STATES = frozenset({"clean", "dirty", "unknown"})
+# sigil's tree-state vocabulary, pinned by their own test
+# (crates/sigil-cli/tests/version_provenance.rs:823) and defined in
+# crates/sigil-cli/src/tree_class.rs `state_and_detail`, read at sigil 1c7fe7f9.
+# `clean-sources` means uncommitted changes exist but NONE in the closure this binary
+# is compiled from, so the binary IS reproducible from `closure-revision` and the row
+# is honest. It was previously mapped to `dirty` here, which recorded a false state.
+# WHETHER `clean-sources` should COUNT as identifying evidence is a separate and OPEN
+# question - DRIFT-KEY-CLOSURE-REV, parked for the owner, touching d-48 - and nothing
+# in this file keys on this field, so recording it truthfully decides nothing.
+# A fifth word sigil adds without telling us fails LOUD here: the validator at
+# `_check` rejects it and minting stops. That is the intended direction.
+TREE_STATES = frozenset({"clean", "clean-sources", "dirty", "unknown"})
 
 EXIT_OK = 0
 EXIT_COULD_NOT_ANSWER = 2
@@ -356,8 +367,10 @@ def verb_measure(_entries, args, out):
         return m.group(1) if m else None
 
     linked, closure = field("revision"), field("closure-revision")
-    tree_state = "clean" if "clean at capture" in ver.stdout else \
-                 ("dirty" if "tree:" in ver.stdout else "unknown")
+    # Parse the producer's own first token rather than sniffing for a substring: the old
+    # `"clean at capture" in stdout` test silently mapped `clean-sources at capture ...` to
+    # `dirty`, because the hyphen breaks the phrase. Same fourth-word defect as build.sh had.
+    tree_state = field("tree") or "unknown"
     if not linked:
         _bad("measure", "`sigil --version` reported no linked revision")
     names = {"s4": "s4.bin", "s4_debug": "s4.debug.bin",
