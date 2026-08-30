@@ -1648,6 +1648,23 @@ That is a small parcel and it is the next step, not a guess.
 markedly LOWER than the body — which is consistent with d-41's own description (plane B's
 rightmost 16 px carrying a vertically-locked background) but was not the thing he was pointing at.
 
+**→ EXPLAINED 2026-08-30, branch `measure/left-edge-vsram`, by the VSRAM + H-scroll sample:
+`docs/research/2026-08-30-left-edge-vsram-sample.md`** (instrument `tools/left_edge_vsram_probe.py`,
+captures `docs/research/reference_captures/2026-08-30-left-edge-vsram/`; ROM `0f6b1359`,
+736,391 B, no byte changed). The strip is **plane B's own leading sliver on the Perspective
+scenes' shimmer rows** (13/14/15 — `dsb 4`/`dsb 2` from world_y 112), rendering at the
+foreground's V-scroll because the d-41 borrow makes `VSRAM[$4C] & VSRAM[$4E] = camY`, on a set
+of 70–87 lines that re-cuts by 5–6 (scene 13) / 10–12 (scene 14) lines **every frame** as the
+shimmer phase advances — while every VSRAM word sits still. Displacement `camY − Vscroll_BG`
+= 154–395 px at the sampled positions. Plane A is NOT the strip: the sliver's AND value
+equalled pair 0's plane-A word on 288/288 frames, at rest and with the camera descending.
+Scene 12 (Rocking) has zero off-grain plane-B lines and is the control. It is the LEFT-edge
+half of the borrow's price, which the borrow note priced as sixteen static pixels — the
+per-frame re-cut is what makes it "super fast". **d-32 re-measure bundled and discharged:
+ABSENT** — at `Camera_X & 15 == 8` with ground present (rows 200–216), all sixteen leftmost
+pixels opaque like x=16/24, three scenes; grids in the note §3. Owner decision needed on the
+price (keep / grain-lock plane B's shimmer rows / per-scene borrow); the note's §5 lists them.
+
 ### ~~⚠⚠ THE DPLC ENTRY BUDGET IS ALREADY BREACHED~~ — CLOSED 2026-08-30 (`parcel/dplc-entry-recut`) — booked 2026-08-29
 
 **The breach is paid, the ratchet is now the real assert, and the producer is gated.**
