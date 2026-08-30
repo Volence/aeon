@@ -98,10 +98,18 @@ discharge is a wave-1 aeon lane item.
 
 ## 2. `tools/effects_gen.py` — normative read set (build-to; P5)
 
-`effects_gen.py` does not exist yet (verified at `08f01b73`). This section is the
-NORMATIVE read set the P5 implementation is built to; it is enumerated NOW so Aurora's
-writer golden and the generator are written against the same list, rather than the
-consumer growing ad-hoc readers (the exact failure the sprite-export ruling names).
+This section is the NORMATIVE read set `effects_gen.py` is built to. It was enumerated
+BEFORE the generator existed, so that Aurora's writer golden and the generator would be
+written against the same list rather than the consumer growing ad-hoc readers (the exact
+failure the sprite-export ruling names). The status table at the top of this file is the
+authority on whether the generator exists; do not restate it here.
+
+*⚠ A sentence stood here from before the generator landed — "`effects_gen.py` does not
+exist yet" — while the table at the top of this same file said BUILT AND WIRED. **One
+document asserted both, and the Aurora lane quoted the wrong half for eight days**, which
+is where a false claim in their manual came from. Deleted rather than re-stated: a fresh
+"it exists now" would go stale on the identical clock, and a status that lives in two places
+will disagree again. Found by the Aurora lane, 2026-08-30.*
 
 ### 2.1 Scene definition files
 
