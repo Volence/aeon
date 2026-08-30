@@ -1,5 +1,5 @@
 {
-  "focus": "Retracted a wrong all-clear on your left-edge glitch. Prose sweep landed. Two agents still out.",
+  "focus": "Two agents still out on the bug list. Everything else tonight is landed and pushed.",
   "inFlight": [
     {
       "what": "the two clamps - parallax scroll and the section one that only looks like a clamp",
@@ -24,7 +24,7 @@
       "since": "2026-08-27"
     }
   ],
-  "nextBoundary": "When the three agents return and their branches are landed or parked. Three agents hold branches right now.",
+  "nextBoundary": "When the clamps parcel and the DPLC measurement return. Two agents hold branches; nothing else is half-applied.",
   "queue": [
     {
       "id": "SCROLL-AND-SECTION-CLAMPS",
@@ -277,7 +277,7 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-08-30T01:59:44Z",
+  "updatedAt": "2026-08-30T02:03:22Z",
   "resume": "Your go is RECORDED (empyrean 7149b39) - do NOT boot into a stop. Start with EFFECTS-W1-SHOW-A-BAND: run tools/band_witness.py against master, no bytes moved. EFFECTS-W1 now has a SECOND HALF - the owner ruled the side-effect bugs must be fixed before the project is done (DoD items 14-17). The canopy is no longer backgroundable and its plan is to INSTRUMENT for the next sighting, not derive a third explanation - two are already refuted. d-47-revised is ruled 'targeted'; measure the append risk before art ships. Everything is in DEFERRED_WORK.md.",
   "parkedQuestions": [
     {
