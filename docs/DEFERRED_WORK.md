@@ -211,7 +211,41 @@ their own diagnosis in the same message: the failing test pins no hash at all, i
 out of the ROM, and it broke because the replay fixture is embedded IN our ROM. Their plan worked
 for a different reason than the one they gave.
 
-**Open, not started.** Options: freeze the `.lst` beside each golden ROM (cheap, and the obvious
+**RULED 2026-08-30 — OPTION 1 NOW, OPTION 2 LATER AS ITS VERIFIER.** Freeze the `.lst` beside
+each golden ROM. The cost lands in this lane's ritual and the benefit lands in sigil's gates, so
+the cost was measured here rather than accepted from the recommender — who declared the interest
+unprompted and asked to be weighed knowing it, which is why the recommendation is trustworthy.
+
+**Measured cost:** `s4.debug.lst` is 322 KB raw and **65 KB compressed** (20%), against a
+`golden/` already at 6.7 MB of ROMs that are rewritten at every freeze. Listings are TEXT, so they
+delta far better across freezes than the binaries already committed beside them. A few hundred KB
+per freeze, on an artifact set that already commits megabytes.
+
+**Measured benefit, and it is a live failure class rather than a hypothetical consumer's
+convenience** (sigil's, from their own night): several of their port gates resolve cross-region
+symbols through `listing_symbol_addr(s4.lst, sym)`. **A missing listing does not error — the
+lookup returns `None`, no label is pushed, and the failure surfaces later as `unresolved symbol
+… for fixup in section rings`, in a test with nothing to do with listings.** It cost them a false
+attribution and three needless reverts in one night: `rings` reverted for a defect it did not
+have, then `entity_window` and `children` against a poisoned run. **That is the absence family
+again — a missing input rendering as a plausible failure somewhere else** — and freezing the
+listing deletes the class rather than detecting it.
+It also deletes the two full builds `provision-aeon-ref.sh` performs purely to obtain a listing,
+shrinking that recipe to a copy.
+
+**Option 2 is the SUCCESSOR, not the rival, and its missing ingredient arrives free from work
+already agreed.** Regenerating a listing identically needs the assembler revision pinned, which
+this repo does not do — but the drift record settled tonight keys `sigil_rev` on the **closure
+revision the binary was linked at**, precisely because a HEAD-derived or dirty key is
+non-identifying. Once that exists, option 2 becomes **a CHECK on option 1** — *does the frozen
+listing reproduce from the recorded revisions?* — which is a real gate where none exists today,
+and which needs option 1 to have something to check against. So the two compose; picking 1 does
+not foreclose 2, it supplies its subject.
+
+**Open:** which shapes. The four canonical ones are the obvious set; whether the off-canonical
+profiles need theirs is sigil's call, since their gates are the consumer.
+
+**Superseded options paragraph:** Options: freeze the `.lst` beside each golden ROM (cheap, and the obvious
 one); or record enough in `provenance.toml` that a listing can be regenerated identically (needs
 the assembler revision pinned, which this repo already knows it does not pin). **Whichever, it is
 sigil's tool and this lane's ritual, so it wants agreeing rather than deciding alone.** Oracle is
