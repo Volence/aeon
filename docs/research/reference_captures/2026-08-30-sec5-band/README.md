@@ -135,8 +135,12 @@ unoccluded. The yellow 16x16 square at screen centre is the player marker.
 - **The control was not built canonically** — see above; the 5-byte diff is what stands in for
   the verification lanes on that artifact.
 - **The aurora `SectionMeta` SHA** that `docs/DEFERRED_WORK.md` says step-6 evidence must cite
-  (`sceneRef`'s was aurora `a88db05`; `rasterRef` needs its successor) is not cited here: the
-  step-6 commit does not name it and this lane did not have aurora's tree.
+  (`sceneRef`'s was aurora `a88db05`; `rasterRef` needs its successor) was not known when this
+  was measured: the step-6 commit does not name it and the measuring agent did not have aurora's
+  tree. **Supplied by the aurora lane 2026-08-30 16:4xZ and `--stat`-checked here as a code commit:
+  the `rasterRef` sidecar writer is aurora `7b1d15a0` ("sidecar: rasterRef, the per-section
+  raster-preset binding"); the two handover files were produced at aurora `40e7ec1e` (merge of
+  `cf35f6df`), the revision the writer ran at.**
 
 ## Reproduce
 
