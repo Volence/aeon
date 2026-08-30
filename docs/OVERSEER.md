@@ -343,6 +343,25 @@ rulings live in the session memory and the most recent `docs/superpowers/*handof
   `git cat-file -e` first, and never let `grep -c` stand in for a read that may not have happened.**
   *Same class as everything else this night: absent rendered as a number.*
 
+- **THE EXIT CODE YOU READ IS OFTEN NOT THE ONE YOU WANT — echo the REAL one INSIDE the log**
+  (added 2026-08-30; five instances across two lanes in one night, none of them subtle in hindsight
+  and all of them silent).
+  Measured here: `cmd | tail -3; echo "EXIT=${PIPESTATUS[0]}"` printed **`EXIT=`** (empty) more than
+  once, and `cmd | head -2; echo $?` reported **head's** status, not the command's — which turned a
+  real `exit 1` into a green-looking `0` while I was verifying a red-first proof. Sigil's three:
+  a backgrounded run reported *"completed (exit code 0)"* while cargo was still executing (the `&`
+  shell had exited, not the suite); a clean run reported *"failed with exit code 1"* because of a
+  trailing `grep -c` finding no matches; and the same `grep -c` class again.
+  **Operational form: have the process write its own exit code INTO its own log**, and read that.
+  `{ cmd; echo "REAL_EXIT=$?"; } > log 2>&1` — then the number you read is the one the command
+  produced, not the one the last stage of your pipeline produced. Sigil's note is the sharp version:
+  *the only reason any of the three was caught is that the real exit code was echoed inside the log.*
+  **And when the process is backgrounded, an exit code says nothing about the WORK.** The tell that
+  saved them was the log's mtime still advancing — which is this file's own *check the artifact, not
+  the process* rule doing the work under a different name.
+  *Same family as the four instrument faults above: a value that is real, adjacent, and about
+  something other than what you asked.*
+
 - **`pgrep -f "<cmd>"` MATCHES YOUR OWN WATCHER, so an until-loop waiting on a process can never
   exit — and it reports the process as ALIVE long after you killed it** (added 2026-08-30; cost 35
   minutes of a landing believing a strict attest was still running when it had been dead the whole
