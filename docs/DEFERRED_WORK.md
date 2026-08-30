@@ -3541,14 +3541,27 @@ the abs/shift order goes red naming `$10`/`$11`/`$EF`/`$F0`). Neither is a super
 the other: comptime cannot read the instructions it guards, and the pytest cannot see
 the elaborated constants.
 
-**TWO AUTHENTIC S3K ASYMMETRIES ARE KNOWINGLY LEFT IN, pinned by count, and are the
-open riders on this item:**
-- **The ceiling band is half-open.** `addi.b #$60 / cmpi.b #$C0 / bhs` skips `[$60,$A0)`,
+**TWO AUTHENTIC S3K ASYMMETRIES WERE KNOWINGLY LEFT IN, pinned by count, as the open
+riders on this item — the first is now CLOSED, the second remains:**
+- ~~**The ceiling band is half-open.** `addi.b #$60 / cmpi.b #$C0 / bhs` skips `[$60,$A0)`,
   and a half-open interval's mirror is the other half-open interval, so its two endpoints
   — `$60` and `$A0`, i.e. 135° and 225° overhangs — behave differently from their mirrors.
   **Narrowing the compare to `cmpi.b #$C1` makes the band `[$61,$9F]`, which IS symmetric**
   — a one-nibble change, measured. Not done: it is a second, unbooked S3K divergence at two
-  angles the ruling did not name. **Needs the owner's call.**
+  angles the ruling did not name. **Needs the owner's call.**~~
+  **CLOSED 2026-08-30 by `parcel/d34-ceiling-band-symmetry`** on the owner's ruling
+  `d-34` (2026-08-30 15:29Z, "d-34 I think we fix", transcribed at empyrean `7a1717f`).
+  `cmpi.b #$C0` -> `#$C1` at BOTH spellings of the skip — `PState_Ground`'s walking slope
+  factor AND `PState_Roll`'s rolling slope factor, which the card's "one character" did
+  not count (the gates only ever read the walk block). The skip is now the closed
+  `[$61,$9F]`, its own mirror; `$60`/`$A0` both receive the slope factor. Two immediate
+  bytes changed in place, zero length change. The comptime pin moved from `== 2` to
+  `== 0` band-edge angles (still DERIVED from the modelled band, never a written pair)
+  and was proven red-first against the closed model; `tools/test_slope_symmetry.py` was
+  proven red-first against the real `cmpi.b` (it named `$60`/`$A0`), now pins the walk
+  band symmetric AND pins the roll block's band equal to it. Registered in
+  `docs/ENGINE_ARCHITECTURE.md` §5.3. **Feel at the two overhang angles is the owner's
+  to judge in motion — TAGGED, not measured; no emulator was run by the parcel.**
 - **The shipped sine table is not exactly antisymmetric.** Four rows (`$13`/`$6D`/`$93`/`$ED`)
   hold |115| in one half and |117| at the mirror. Authentic: `engine/data/sine.bin` is
   byte-identical to skdisasm's `Levels/Misc/sine.bin` (re-verified 2026-08-27, and the

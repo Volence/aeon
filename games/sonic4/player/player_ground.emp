@@ -593,7 +593,9 @@ pub proc PState_Roll (a0: *Sst) clobbers(d0-d7/a1-a2) {
         // quartered to $14·sin>>8 when the factor's sign opposes gsp
         // (rolling uphill). NEVER gsp==0-gated (research §2) — gsp == 0
         // counts as positive, the exact classic sign test. Same ceiling-
-        // band skip as walking. Shift forms (no muls): 5·sin asr 4 ≡
+        // band skip as walking — the CLOSED [$61,$9F] (d-34), pinned equal
+        // to the walk block's by tools/test_slope_symmetry.py. Shift forms
+        // (no muls): 5·sin asr 4 ≡
         // ($50·sin)>>8 exactly, one more asr 2 ≡ ($14·sin)>>8 exactly —
         // consecutive arithmetic shifts compose; constants asserted at
         // file top ---
@@ -601,8 +603,8 @@ pub proc PState_Roll (a0: *Sst) clobbers(d0-d7/a1-a2) {
         beq     .no_slope                       // flat: factor 0 (fast path)
         move.b  d0, d1
         addi.b  #$60, d1
-        cmpi.b  #$C0, d1
-        bhs     .no_slope                       // ceiling band $60-$9F
+        cmpi.b  #$C1, d1                        // S3K: #$C0 (d-34, roll)
+        bhs     .no_slope                       // ceiling band $61-$9F
         jbsr    GetSineCosine                   // d0.w = sin(angle)·$100
         move.w  d0, d1
         asl.w   #2, d0
