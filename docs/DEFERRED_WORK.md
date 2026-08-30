@@ -14176,3 +14176,30 @@ because it is the only item that can return information without moving a byte.*
 - Item 6's stream register — a card, but NOT a blocker (see the row).
 - Item 4's P3 both-edges — on demand only.
 - Item 9's relatives — after the mechanism exists.
+
+## ⚠ AN OPEN MEASUREMENT THREAD WITH SIGIL THAT HAS NO IN-TREE RECORD (2026-08-30)
+
+**The sigil lane is mid-conversation with an aeon session that no longer exists**, and the content
+of that conversation was never banked here. Recording what they reported so the thread is not lost
+a second time; **none of the numbers below are verified by this lane and none should be quoted as
+ours.**
+
+Their message (2026-08-30T00:33Z) refers to *"your 6-byte gap … +$60 measured vs +$5A derived, with
+your tie-break already stated in advance"* and *"your own falsifier … any plain-shape movement at
+all means the parcel, not the harness"*. **Grepped for all of it here: nothing.** The derivation,
+the tie-break and the falsifier lived only in the prior session's context and died with the
+`/clear`. Sigil is *"standing by for the repin when your listings exist"* on the strength of it.
+
+**Candidate subject, flagged as a CANDIDATE and not a finding:** the parked
+`parcel/dplc-entry-instrument` branch is the lane's only live byte-mover (621 insertions across
+`dplc.emp`, `ram.emp`, `dma_queue.emp`, `vblank.emp`), so a `+$60`-shaped delta plausibly belongs
+to it. **Plausibility is not attribution** — this file already carries the bar that a mechanism
+found while hunting for one is the hardest to hold at arm's length. Whoever picks this up derives
+the gap again from the listings rather than inheriting `+$5A` from this paragraph.
+
+**The durable lesson, and it is protocol bar 20 arriving one notch worse than it is usually
+stated.** Bar 20 says a claim that lives only in mail cannot be surfaced by any tree. This is the
+same failure with the *other* party rotated: the analysis was never in a tree, and the session
+holding it is gone, so **the only surviving copy is a peer's paraphrase of our own reasoning**.
+A lane's own derivation, quoted back to it by someone else, is not a record. **Bank a derivation
+in the tree at the moment it becomes load-bearing for a peer** — not when the parcel lands.
