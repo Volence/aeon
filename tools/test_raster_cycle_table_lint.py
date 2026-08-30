@@ -20,10 +20,23 @@ would make the cursor fetch a pointer from past the table's end and hand it to
 IT CLOSES A SEAM THE CONTRACT NAMES AS OPEN. `tools/EFFECTS_CONSUMER_CONTRACT.md` §2.4,
 "RULES WITH NO ENFORCING ASSERTION", opens with: *"Nothing checks that a preset document
 is BOUND ... An authored but unbound preset therefore costs ROM and shows nothing, and no
-assertion anywhere says so."* This says it for the DEBUG lab — the only place an
-editor-authored program is reachable today. It does NOT close the general case: a preset
-bound into a section `preset()` call is still unchecked, and a preset reachable ONLY from
-this table is still not content. See docs/EDITOR_RASTER_PRESETS.md §C.
+assertion anywhere says so."* It now says it for BOTH installers.
+
+RELAXED 2026-08-30, AND THE RELAXATION IS THE DANGEROUS DIRECTION SO READ WHY.
+The reachability arm used to be a HARD EQUALITY: the table's editor rows were exactly the
+preset documents on disk. That was correct while the DEBUG chord was the ONLY installer —
+a document with no row was ROM nobody could reach. The `rasterRef` arm (EFFECTS-W1 item 1)
+adds a SECOND installer: a section sidecar names a document and the generated chooser
+threads its program into that section's `preset()` call. Under the old equality, authoring
+a band through Aurora would STILL have required a hand-typed `dc.l` here plus a
+`RASTER_CYCLE_COUNT` bump — a programmer's edit, which is the exact thing item 1 exists to
+remove. The gate would have falsified its own feature's headline claim.
+
+So the arm is now a DISJUNCTION and nothing weaker: every preset document must be reachable
+by (a) a `.raster_table` row, or (b) a `rasterRef` binding in some section sidecar. A
+document reachable by NEITHER is still ROM nobody can install, and that is still red. The
+converse direction did NOT relax — a row naming no document is still a silent link extern
+and is still red, in its own test now that the equality is gone.
 
 EVERY EXPECTATION IS DERIVED. There is no `2` in this file and no generated symbol name
 spelled out. The editor rows are reconstructed by asking `tools/effects_gen.py` — the
@@ -43,6 +56,24 @@ PROVEN RED (2026-08-29), all four arms, by editing the sources and restoring:
   * set RASTER_CYCLE_COUNT to 3         -> test_cycle_count_matches_table_length
   * drop the editor name from `use`     -> test_every_table_row_is_imported
   * delete the preset .json             -> test_the_editor_rows_are_exactly_the_presets
+
+RE-PROVEN RED (2026-08-30) after the relaxation, every arm firing ALONE — because a gate
+that was loosened has to be shown to still catch what it caught, not merely to permit the
+new case:
+  * delete the editor `dc.l` row        -> test_every_preset_document_is_REACHABLE
+  * add a row naming no document        -> test_every_editor_row_has_a_preset_document
+  * two docs, rows in the wrong order   -> test_the_editor_rows_are_in_emission_order
+  * swap row 0 for the editor row       -> test_row_zero_is_a_hand_authored_program
+  * set RASTER_CYCLE_COUNT to 3         -> test_cycle_count_matches_table_length
+  * drop the editor name from `use`     -> test_every_table_row_is_imported
+
+THE DISJUNCTION ITSELF is proven by `unreachable_presets()`'s own unit tests below, over
+all four combinations of (row, binding). It is decided by a pure function precisely so
+that the "reachable by a binding" arm can be tested WITHOUT writing a `rasterRef` into a
+real sidecar — which is forbidden until aurora's `SectionMeta` extension is on their
+master (empyrean §3.1's sequencing precondition; `sceneRef`'s precedent is aurora
+`a88db05` and `rasterRef` needs its successor). A gate whose new arm could only be
+exercised by violating a contract precondition would never be exercised at all.
 """
 
 import re
@@ -79,16 +110,39 @@ def _read(path: Path) -> str:
     return path.read_text()
 
 
-def expected_editor_rows() -> list[str]:
-    """The generated label for every preset document, in the generator's emission order.
+def bound_preset_ids() -> set[str]:
+    """Every preset id a section sidecar binds through `rasterRef`.
 
-    `render_module` walks `sorted(presets)` and emits one `pub data names.raster(pid)`
-    each; this reconstructs that list through the same two calls, so the expectation
-    cannot drift from the emission by being restated.
+    Read through `effects_gen`'s own loader, so this gate and the generator cannot
+    disagree about what a binding is, and NOTHING here spells the wire key — it lives
+    once, as `effects_gen.ACT_RASTER_REF_KEY`.
     """
-    presets = effects_gen.load_all_presets(repo=str(REPO))
-    names = effects_gen.act_names(str(REPO))
-    return [names.raster(pid) for pid in sorted(presets)]
+    return set(effects_gen.load_section_raster_refs(repo=str(REPO)).values())
+
+
+def unreachable_presets(preset_ids, row_ids, bound_ids) -> list[str]:
+    """The documents no installer can reach: NOT in a table row and NOT bound.
+
+    A PURE FUNCTION taking three sets, and that is deliberate. The disjunction is the
+    part of this gate that was loosened, so it is the part that has to be tested in
+    every combination — including "reachable only by a binding", which cannot be staged
+    on the real tree because no `rasterRef` may be written into a sidecar until aurora's
+    SectionMeta extension lands. Passing the three sets in makes that arm testable
+    without violating the precondition it is waiting on.
+
+    `row_ids` and `bound_ids` are PRESET IDS, not labels — the caller converts, so this
+    function has no opinion about symbol spelling.
+    """
+    return sorted(set(preset_ids) - set(row_ids) - set(bound_ids))
+
+
+def row_preset_ids(rows) -> list[str]:
+    """The preset id behind each editor-authored table row, in table order.
+
+    Derived by stripping the generator's own prefix rather than by re-deriving the name,
+    so a row that is NOT a generated label simply is not an editor row.
+    """
+    return [r[len(GENERATED_PREFIX):] for r in rows if r.startswith(GENERATED_PREFIX)]
 
 
 def hand_authored_programs() -> set[str]:
@@ -162,17 +216,63 @@ def test_row_zero_is_a_hand_authored_program():
     )
 
 
-def test_the_editor_rows_are_exactly_the_presets():
-    """Every preset document has a row, every editor row has a document, same order."""
-    expected = expected_editor_rows()
-    got = [r for r in table_rows() if r.startswith(GENERATED_PREFIX)]
-    assert got == expected, (
-        "the editor-authored rows of the DEBUG raster table do not match the preset "
-        "documents in games/sonic4/data/editor/effects/presets/. Table has "
-        f"{got}; the generator emits {expected} (sorted by preset id, which is "
-        "`render_module`'s own emission order). A preset with no row costs ROM for a "
-        "program nothing in either shape can install; a row with no preset is a name "
-        "sigil resolves as a silent link extern."
+def test_every_preset_document_is_REACHABLE():
+    """A row OR a `rasterRef` binding. Neither alone, and NEITHER IS STILL RED.
+
+    This is the relaxed arm. It is not "reachability is now optional": a document that
+    no `.raster_table` row names and that no section sidecar binds is a raster program
+    in the ROM that nothing in either shape can install, which is precisely the waste
+    this gate was built to catch. What changed is that a SECOND installer now counts.
+    """
+    presets = effects_gen.load_all_presets(repo=str(REPO))
+    rows = row_preset_ids(table_rows())
+    bound = bound_preset_ids()
+    orphans = unreachable_presets(presets, rows, bound)
+    assert not orphans, (
+        f"these preset documents in games/sonic4/data/editor/effects/presets/ are "
+        f"reachable by NOTHING: {orphans}. A preset document reaches the running game "
+        f"through one of exactly two installers — a `dc.l` row in "
+        f"{HOTKEY.name}'s `.raster_table` (the DEBUG lab chord), or a "
+        f"`{effects_gen.ACT_RASTER_REF_KEY}` in a section sidecar, which the generated "
+        f"chooser threads into that section's `preset()` call. With neither, the "
+        f"program's bytes are in the ROM and no code path can ever point the raster "
+        f"engine at them. Table rows name {sorted(rows)}; sidecar bindings name "
+        f"{sorted(bound)}."
+    )
+
+
+def test_every_editor_row_has_a_preset_document():
+    """The converse direction, and it did NOT relax.
+
+    Split out of the old equality rather than dropped with it: a row naming a document
+    that does not exist is a name `.emp` resolves as a SILENT LINK EXTERN, so the table
+    would point at nothing the build ever complains about. Adding a second installer
+    changes nothing about that — it is still one-directional and still hard.
+    """
+    presets = effects_gen.load_all_presets(repo=str(REPO))
+    ghosts = sorted(set(row_preset_ids(table_rows())) - set(presets))
+    assert not ghosts, (
+        f"these editor-authored rows of the DEBUG raster table name preset documents "
+        f"that do not exist: {ghosts}. An unresolved name in a Label position does not "
+        f"error in `.emp` — it becomes a link extern — so the row would point at "
+        f"whatever the linker resolves it to, or at nothing. Known documents: "
+        f"{sorted(presets)}."
+    )
+
+
+def test_the_editor_rows_are_in_emission_order():
+    """The rows that DO exist stay in `render_module`'s own order (sorted preset id).
+
+    Kept from the equality it was folded into. The value is small and real: the table is
+    read by a human stepping a cursor through it, and rows in a different order from the
+    generator's emission make the listing and the chord disagree about which band is
+    which.
+    """
+    rows = row_preset_ids(table_rows())
+    assert rows == sorted(rows), (
+        f"the editor-authored rows of the DEBUG raster table are in the order {rows}, "
+        f"which is not the generator's emission order ({sorted(rows)} — "
+        f"`render_module` walks `sorted(presets)`)."
     )
 
 
@@ -211,3 +311,36 @@ def test_every_table_row_is_imported():
         f"list: {missing}. Unimported, a misspelled one would resolve as a link extern and "
         "the table would point at nothing the build ever complains about."
     )
+
+
+# ---------------------------------------------------------------------------
+# THE DISJUNCTION, IN ALL FOUR COMBINATIONS.
+#
+# `unreachable_presets` is the one piece of judgement the relaxation added, so it is the
+# one piece that gets exhaustive coverage. These are unit tests over sets and touch no
+# file: the "reachable only by a binding" case cannot be staged on the real tree, because
+# writing a `rasterRef` into a sidecar is forbidden until aurora's SectionMeta extension
+# is on their master (empyrean §3.1). A relaxed arm that could not be exercised at all
+# would be the vacuity this file's header warns about, arriving through the new door.
+# ---------------------------------------------------------------------------
+
+def test_a_document_reachable_by_a_ROW_ONLY_is_reachable():
+    assert unreachable_presets({"a"}, ["a"], set()) == []
+
+
+def test_a_document_reachable_by_a_BINDING_ONLY_is_reachable():
+    assert unreachable_presets({"a"}, [], {"a"}) == []
+
+
+def test_a_document_reachable_by_BOTH_is_reachable():
+    assert unreachable_presets({"a"}, ["a"], {"a"}) == []
+
+
+def test_a_document_reachable_by_NEITHER_is_REPORTED():
+    """The whole point of keeping a gate here. If this ever passes, the relaxation
+    turned the arm off instead of widening it."""
+    assert unreachable_presets({"a"}, [], set()) == ["a"]
+
+
+def test_only_the_unreachable_ones_are_reported():
+    assert unreachable_presets({"a", "b", "c"}, ["a"], {"b"}) == ["c"]

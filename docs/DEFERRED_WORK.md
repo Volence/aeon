@@ -15911,3 +15911,118 @@ A binding on a **patched** section is refused at build time by `preset()`'s exis
 `patched: OJZ_TwoChannel`, so it is unbindable by construction. **No new guard should be
 written for this** — duplicating a raster-tier bound in the generator is the consumer contract's
 own anti-pattern.
+
+---
+
+## EFFECTS-W1 ITEM 1 — STEPS 2/3/4 LANDED, ZERO ROM BYTES; STEPS 5/6/7 REMAIN (2026-08-30, `parcel/effects-ref-arm`)
+
+**The key's name is adjudicated: `rasterRef`.** empyrean ruled the CR **option B** (the design's
+own recommendation) at empyrean `da91abce`: a new key takes the narrow raster-channel binding
+and **`effectsRef` stays reserved and unspent** for the total binding it was named for. Option A
+(narrow `effectsRef` in place) refused — a name outliving its meaning; option C (grow the preset
+document to total) refused — it makes item 1 depend on item 5 and inverts the ratified DoD
+order. The key's shape is empyrean `docs/AURORA_EFFECTS_SCHEMA.md` §3.1, mirroring `sceneRef`.
+**BLOCKED-1 is CLOSED.**
+
+**The wire spelling lives in exactly ONE place:** `ACT_RASTER_REF_KEY` in
+`tools/effects_gen.py`, beside `ACT_SCENE_REF_KEY`. The sidecar reader, the resolution error,
+`tools/effects_seam_gate.py`, `tools/test_raster_cycle_table_lint.py` and every one of the
+twenty-odd new tests read the constant; **no test spells the key**. That is not tidiness — the
+arm was built for a day against an unadjudicated name, and a literal sprinkled through a test
+file is what turns a one-line re-spelling into a twenty-file one.
+
+### STEP 2 — BLOCKED-3 IS PROVEN, AND IT PROVED MORE THAN IT WAS ASKED
+
+A throwaway chooser in the generated module, threaded into `preset()`'s `raster:` from
+`ojz_effects.emp`, built `FAST=1 DEBUG=1` and reverted. **It composes.** Not merely "it built":
+the emitted `ep_raster` longwords were read back out of `s4.debug.bin` at the listing's own
+addresses —
+
+```
+OJZ_Spike_Unbound  (sec 5, unbound)  ep_raster = $0081DC = Raster_Program_None
+OJZ_Spike_Bound    (sec 3, bound)    ep_raster = $013A80 = EditorRaster_OJZ_Act1_authored_probe
+```
+
+— so both arms of the chooser reach the ROM as the right address. **And the `ensure` genuinely
+READS the chooser's result**: the same call with `patched:` also bound fails the build with
+`preset()`'s exclusivity sentence, while a control with two plain hand labels fails identically.
+The guard is not one of this tree's vacuous Label-vs-integer comparisons. **The fallback the
+design held in reserve — emit a whole `EffectsPreset` per bound section, +38 B unconditionally
+and a materially larger CR — is not needed and can be dropped.**
+
+**⚠ ONE DESIGN CORRECTION, MEASURED.** Design §3.2 says *"`hand:` must be `Raster_Program_None`,
+not `0`"*, flatly. **On a `patched:` section it must be `0`.** `Raster_Program_None` is a real
+non-zero label, so an *unbound* chooser call with `hand: Raster_Program_None` fires the
+exclusivity ensure on a patched section — measured, spike E. Design §3.3(a) is right that a
+patched section refuses a binding; it is the **`hand:` fallback** that also has to be `0` there,
+and the §3.2 rule as written would break section 0 the moment step 5 threads a chooser into it.
+Recorded in the generated module's own banner so the step-5 author reads it at the call site.
+
+### STEP 3 — THE ARM, AND THE ZERO-BYTE CLAIM IS MEASURED NOT ASSERTED
+
+`tools/effects_gen.py`: the key constant; `_load_section_refs(key, ...)` — the sidecar walk
+**shared** by `load_section_scene_refs` and the new `load_section_raster_refs` rather than
+copied, because the missing/unreadable split is the part that is easy to get subtly wrong and a
+near-copy would let the two readers drift on the failure with no symptom; `_scene_ref` gains the
+`key` it is validating so a refusal **names the key it refused** (empyrean §3.1); the resolution
+refusal for an id naming no document, listing the known ids; and the always-emitted chooser
+`ojz_act1_sec_raster`. `tools/effects_seam_gate.py` grows the **third witness**,
+`EditorRaster_OJZ_Act1_Bindings` — 0 today, and 0 is the state it must be able to express, since
+*absent* is what a dropped seam looks like and *zero* is a lowered module carrying no binding.
+
+**FOUR-SHAPE CRC, before and after, against the goldens read from
+`sigil/crates/sigil-harness/golden/provenance.toml`'s last entry at comparison time:**
+
+| shape | before | after | golden |
+|---|---|---|---|
+| `s4.bin` | `63451f96`/719315 | `63451f96`/719315 | `63451f96`/719315 |
+| `s4.debug.bin` | `3aa7cb12`/736315 | `3aa7cb12`/736315 | `3aa7cb12`/736315 |
+| `demo.bin` | `9223a60d`/96450 | `9223a60d`/96450 | `9223a60d`/96450 |
+| `demo.debug.bin` | `d30c3636`/101333 | `d30c3636`/101333 | `d30c3636`/101333 |
+
+The generated module's whole text delta is the chooser block, one `pub equ` line, and two
+comment corrections (`THE TWO` → `THE THREE`, and the scene banner saying which bindings it
+means). Nothing byte-emitting. `TestRasterArmIsINERT` holds the property the CRCs depend on:
+the chooser's body must be **exactly** `comptime var out = hand` / `return out`, and cutting the
+arm's banner+chooser and its witness line out of the module must leave **no trace of the arm** —
+so a future banner or blank line slipped into the general path goes red. All three new guards
+proven red by poisoning the generator (a stray key mention in the general path; an extra line in
+the chooser body; making the chooser conditional on content).
+
+### STEP 4 — THE LINT IS RELAXED, AND RELAXING IS THE DANGEROUS DIRECTION
+
+`test_the_editor_rows_are_exactly_the_presets`' hard two-way equality is replaced by three
+narrower arms: **every preset document is reachable by a `.raster_table` row OR a `rasterRef`
+binding** (a document reachable by neither is still red — that is the waste the gate exists
+for); **every editor row still names a real document** (unrelaxed — an unresolved Label is a
+silent link extern); and **the rows that exist stay in emission order**.
+
+The disjunction is decided by a **pure function**, `unreachable_presets(presets, rows, bound)`,
+for a reason worth keeping: the "reachable only by a binding" arm **cannot** be staged on the
+real tree, because no `rasterRef` may be written into a sidecar until aurora's `SectionMeta`
+extension is on their master (empyrean §3.1; `sceneRef`'s precedent is aurora `a88db05`). A
+relaxed arm exercisable only by violating the precondition it waits on would never be exercised
+at all. Its four combinations (row-only / binding-only / both / neither) are unit-tested, and
+stubbing the function to "always reachable" turns two of them red.
+
+**Every arm re-proven red AFTER the relaxation, each firing ALONE** (delete the editor row;
+add a row naming no document; two documents with rows out of order; swap row 0; `CYCLE_COUNT`
+3; drop the name from `use`). The row-0 probe came back **green on its first attempt** and the
+probe was the fault, not the guard — it had swapped the two rows' trailing comments and left
+the labels in place. Re-run as a whole-line swap, it is red. *Suspect the probe before the
+guard.*
+
+### WHAT REMAINS — steps 5, 6, 7, and none of it is blocked on this parcel
+
+- **Step 5** — split `OJZ_Preset_Plain` → `OJZ_Preset_Sec5` and thread the chooser into its
+  `raster:`. **+38 B**, pairs with sigil (new symbol; `ojz_effects`'s `[[region]]` byte-gate
+  moves). Blocked on BLOCKED-2 (the owner's section choice).
+- **Step 6** — the authored band + its `rasterRef`, and `authored_probe` deleted. **Blocked on
+  aurora's `SectionMeta` extension**, whose SHA the step-6 evidence must cite; `sceneRef`'s was
+  aurora `a88db05` and `rasterRef` needs its successor.
+- **Step 7** — `docs/EDITOR_RASTER_PRESETS.md` §C/§D rewritten against the replacement document.
+  §2.2 of the consumer contract is **already amended in this parcel**, since empyrean §8 makes it
+  and their §3.1 a matched pair Aurora re-pins against both SHAs.
+- **Still open, unchanged:** empyrean §7.1's *"nothing checks that a preset document is BOUND"*
+  sentence, which their lane will amend once this gate exists — this parcel's SHA is the one to
+  route.
