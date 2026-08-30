@@ -106,17 +106,28 @@ ensure(PHYS_SLOPE_ROLL_UP == $14, "roll uphill factor (downhill asr 2) assumes P
 // being true, the divergence has become moot and the code should return to
 // the reference form rather than carry an unexplained departure.
 //
-// TWO AUTHENTIC S3K ASYMMETRIES ARE OUT OF SCOPE AND PINNED BY COUNT rather
-// than fixed. The ruling was about the ROUNDING artifact; these are not it,
-// and neither can flip a standstill decision on its own:
+// THE CEILING BAND IS CLOSED — THE SECOND DIVERGENCE, owner ruling d-34
+// 2026-08-30 ("d-34 I think we fix"). S3K's band test is `addi.b #$60 /
+// cmpi.b #$C0 / bhs`, which skips the HALF-OPEN interval [$60,$A0). The
+// mirror of a half-open interval is the other half-open interval ($60,$A0],
+// so its two endpoints $60 and $A0 (135° and 225° — past-vertical
+// overhangs) landed on opposite sides of the skip from their mirrors. Our
+// compare is `cmpi.b #$C1`: the skip is the CLOSED interval [$61,$9F],
+// which is its own mirror ($61 <-> $9F), and $60/$A0 both now receive the
+// slope factor, like each other. One immediate byte, zero length change.
+// The band is pinned SYMMETRIC below: SLOPE_BAND_EDGE_N counts the angles
+// the modelled skip treats differently from their mirrors and must be 0 —
+// derived from SLOPE_REACHES_GATE, never a written pair. Proven red-first
+// both ways on 2026-08-30 (the old `== 2` pin against the closed model;
+// the pytest's endpoint pin against the real `cmpi.b`). The same skip is
+// spelt again in PState_Roll (rolling slope factor); the comptime model
+// cannot see either literal (see SLOPE_REACHES_GATE), so
+// tools/test_slope_symmetry.py parses BOTH blocks and pins them equal.
 //
-//   * THE CEILING BAND IS HALF-OPEN. `addi.b #$60 / cmpi.b #$C0 / bhs`
-//     skips [$60,$A0), and the mirror of a half-open interval is the other
-//     half-open interval ($60,$A0], so exactly its two ENDPOINTS land on
-//     opposite sides of the skip from their mirrors. $60 and $A0 are 135°
-//     and 225° — past-vertical overhangs. Fixing this would be a SECOND,
-//     unbooked divergence, so it is excluded from the walk and its size is
-//     pinned at 2 (SLOPE_BAND_EDGE_N) so it cannot quietly widen.
+// ONE AUTHENTIC S3K ASYMMETRY IS OUT OF SCOPE AND PINNED BY COUNT rather
+// than fixed. The ruling was about the ROUNDING artifact; this is not it,
+// and it cannot flip a standstill decision on its own:
+//
 //   * THE SHIPPED SINE TABLE IS NOT EXACTLY ANTISYMMETRIC. Four rows have
 //     |sin| = 115 in the first half and 117 at the mirror index. This is
 //     authentic: engine/data/sine.bin is byte-identical to skdisasm's
@@ -159,17 +170,20 @@ comptime fn SLOPE_TABLE_ASYM_COUNT(tbl: array) -> int {
 // so a comptime pin has nothing to compare to (EMP_PITFALLS §2's rule leads
 // to the same place). That means moving the band in the code would leave this
 // fn behind, silently. `tools/test_slope_symmetry.py` closes exactly that
-// hole: it PARSES the two operands out of the block and re-derives from them,
-// and it was proven red against a one-nibble widening of the real `cmpi.b`.
+// hole: it PARSES the two operands out of the block and re-derives from them.
+// Proven red against a one-nibble widening of the real `cmpi.b` (2026-08-27)
+// and again against d-34's `#$C0` -> `#$C1` narrowing (2026-08-30), which
+// this fn — as predicted — did NOT see until its own literal was moved.
 comptime fn SLOPE_REACHES_GATE(a: int) -> int {
     if a == 0 { return 0 }                          // `beq .no_slope`
-    if ((a + $60) & $FF) >= $C0 { return 0 }        // ceiling band $60-$9F
+    if ((a + $60) & $FF) >= $C1 { return 0 }        // ceiling band $61-$9F (closed; d-34)
     return 1
 }
 
-// An angle the ceiling-band skip treats differently from its mirror — i.e.
-// one of the half-open interval's endpoints. DERIVED from SLOPE_REACHES_GATE,
-// never a written-down pair, so moving the band moves this with it.
+// An angle the ceiling-band skip treats differently from its mirror. Since
+// d-34 closed the band there must be NONE; counted rather than assumed, and
+// DERIVED from SLOPE_REACHES_GATE, never a written-down pair, so reshaping
+// the modelled band moves this with it.
 comptime fn SLOPE_IS_BAND_EDGE(a: int) -> int {
     if SLOPE_REACHES_GATE(a) != SLOPE_REACHES_GATE((256 - a) & $FF) { return 1 }
     return 0
@@ -211,13 +225,12 @@ comptime fn SLOPE_SLIDES(tbl: array, a: int, min: int, s3k: int) -> int {
     return 0
 }
 
-// First angle (excluding the band endpoints) whose standstill decision
-// disagrees with its mirror's, or -1 when the whole circle agrees.
+// First angle whose standstill decision disagrees with its mirror's, or -1
+// when the whole circle agrees. All 256 angles, nothing excluded: the band
+// endpoints used to be skipped here while the band was half-open (d-34).
 comptime fn SLOPE_FIRST_ASYM(tbl: array, min: int, s3k: int) -> int {
     for a in 0..256 {
-        if SLOPE_IS_BAND_EDGE(a) == 0 {
-            if SLOPE_SLIDES(tbl, a, min, s3k) != SLOPE_SLIDES(tbl, (256 - a) & $FF, min, s3k) { return a }
-        }
+        if SLOPE_SLIDES(tbl, a, min, s3k) != SLOPE_SLIDES(tbl, (256 - a) & $FF, min, s3k) { return a }
     }
     return -1
 }
@@ -227,8 +240,8 @@ const SLOPE_BAND_EDGE_N  = SLOPE_BAND_EDGE_COUNT()
 const SLOPE_ASYM_SHIPPED = SLOPE_FIRST_ASYM(_sine_bin, PHYS_SLOPE_STAND_MIN, 0)
 const SLOPE_ASYM_S3K     = SLOPE_FIRST_ASYM(_sine_bin, PHYS_SLOPE_STAND_MIN, 1)
 
-ensure(SLOPE_BAND_EDGE_N == 2,
-       "slope symmetry gate: the ceiling-band skip now treats {SLOPE_BAND_EDGE_N} angles differently from their mirrors, not the 2 endpoints a half-open interval must have. The band moved or changed shape — re-read the header's first bullet before excluding anything new from the walk")
+ensure(SLOPE_BAND_EDGE_N == 0,
+       "slope symmetry gate: the ceiling-band skip treats {SLOPE_BAND_EDGE_N} angles differently from their mirrors. The owner ruled the band symmetric (d-34, 2026-08-30) and it is closed to [$61,$9F] by `cmpi.b #$C1`; SLOPE_REACHES_GATE's modelled band has been reshaped into something that is not its own mirror — re-read the header before excluding anything from the walk")
 ensure(SLOPE_TABLE_ASYM_N == 4,
        "slope symmetry gate: engine/data/sine.bin now has {SLOPE_TABLE_ASYM_N} rows where sin(-a) != -sin(a), not the 4 S3K ships. The table was re-derived or replaced — re-verify it against skdisasm's Levels/Misc/sine.bin and re-check that no row crossed PHYS_SLOPE_STAND_MIN")
 ensure(SLOPE_ASYM_SHIPPED == -1,
@@ -296,16 +309,19 @@ pub proc PState_Ground (a0: *Sst) clobbers(d0-d7/a1-a2) falls_into Ground_PostMo
         // --- slope factor on gsp — BEFORE input, with LAST frame's angle
         // (classic Sonic_SlopeResist, research physics-classics §2).
         // Applied on floor and both wall quadrants; skipped in the
-        // ceiling band: apply only when (angle+$60)&$FF < $C0 unsigned
-        // (band $60-$9F skips). Ground_Move's ±PHYS_GSP_CAP runs after
+        // ceiling band: apply only when (angle+$60)&$FF < $C1 unsigned
+        // (band $61-$9F skips — CLOSED and its own mirror. S3K's `#$C0`
+        // skipped the half-open [$60,$A0) and broke the mirror at $60/$A0;
+        // owner ruling d-34 2026-08-30, see the gate header at file top).
+        // Ground_Move's ±PHYS_GSP_CAP runs after
         // this AND after input, so the cap bounds the post-slope sum.
         // (ROLL applies its own $50/$14 asymmetric factor — PState_Roll.) ---
         move.b  angle(a0), d0 as Angle          // GetSineCosine takes d0: Angle
         beq     .no_slope                       // flat: factor 0 (fast path)
         move.b  d0, d1
         addi.b  #$60, d1
-        cmpi.b  #$C0, d1
-        bhs     .no_slope                       // ceiling band $60-$9F
+        cmpi.b  #$C1, d1                        // S3K: #$C0 (d-34)
+        bhs     .no_slope                       // ceiling band $61-$9F
         jbsr    GetSineCosine                   // d0.w = sin(angle)·$100
         tst.w   PlayerV.ground_speed(a0)
         bne     .slope_factor
@@ -577,7 +593,9 @@ pub proc PState_Roll (a0: *Sst) clobbers(d0-d7/a1-a2) {
         // quartered to $14·sin>>8 when the factor's sign opposes gsp
         // (rolling uphill). NEVER gsp==0-gated (research §2) — gsp == 0
         // counts as positive, the exact classic sign test. Same ceiling-
-        // band skip as walking. Shift forms (no muls): 5·sin asr 4 ≡
+        // band skip as walking — the CLOSED [$61,$9F] (d-34), pinned equal
+        // to the walk block's by tools/test_slope_symmetry.py. Shift forms
+        // (no muls): 5·sin asr 4 ≡
         // ($50·sin)>>8 exactly, one more asr 2 ≡ ($14·sin)>>8 exactly —
         // consecutive arithmetic shifts compose; constants asserted at
         // file top ---
@@ -585,8 +603,8 @@ pub proc PState_Roll (a0: *Sst) clobbers(d0-d7/a1-a2) {
         beq     .no_slope                       // flat: factor 0 (fast path)
         move.b  d0, d1
         addi.b  #$60, d1
-        cmpi.b  #$C0, d1
-        bhs     .no_slope                       // ceiling band $60-$9F
+        cmpi.b  #$C1, d1                        // S3K: #$C0 (d-34, roll)
+        bhs     .no_slope                       // ceiling band $61-$9F
         jbsr    GetSineCosine                   // d0.w = sin(angle)·$100
         move.w  d0, d1
         asl.w   #2, d0

@@ -80,6 +80,29 @@ def slope_block():
     return code
 
 
+@pytest.fixture(scope="module")
+def roll_band():
+    """The ceiling-band operands of PState_Roll's rolling slope-factor block.
+
+    Same skip as the walking block, spelt a second time. Bounded the same way
+    (its own header, its own `.no_slope:`) so the two blocks cannot be confused;
+    only the band is read here — the roll factor's shift form is different and
+    is not this file's subject.
+    """
+    src = open(GROUND_EMP, encoding="utf-8").read().splitlines()
+    starts = [i for i, ln in enumerate(src) if "--- roll slope factor" in ln]
+    assert len(starts) == 1, (
+        "player_ground.emp: expected exactly one '--- roll slope factor' header "
+        f"marking PState_Roll's slope block, found {len(starts)}.")
+    ends = [i for i, ln in enumerate(src) if i > starts[0] and ln.strip() == ".no_slope:"]
+    assert ends, "player_ground.emp: no '.no_slope:' label after the roll slope-factor header"
+    body = src[starts[0]:ends[0] + 1]
+    code = [c.strip() for c in (_strip_comment(ln) for ln in body) if c.strip()]
+    _, m_add = _find_one(code, r"addi\.b\s+#(\$?[0-9A-Fa-f]+),\s*d1$", "roll ceiling-band bias")
+    _, m_cmp = _find_one(code, r"cmpi\.b\s+#(\$?[0-9A-Fa-f]+),\s*d1$", "roll ceiling-band compare")
+    return dict(band_add=_int(m_add.group(1)), band_cmp=_int(m_cmp.group(1)))
+
+
 def _find_one(code, pattern, what):
     hits = [(i, m) for i, m in ((i, re.match(pattern, ln)) for i, ln in enumerate(code)) if m]
     assert len(hits) == 1, (
@@ -205,9 +228,11 @@ def _mag_s3k(s, n):
 def _band_edges(shape):
     """Angles the ceiling band treats differently from their mirrors.
 
-    Derived from the parsed band, never written down: the skip is a half-open
-    interval, and the mirror of a half-open interval is the other one, so its
-    two endpoints necessarily disagree with their mirrors.
+    Derived from the parsed band, never written down. S3K's `cmpi.b #$C0` made
+    the skip the half-open interval [$60,$A0), whose mirror is the OTHER
+    half-open interval, so its two endpoints disagreed with their mirrors. The
+    owner ruled the band symmetric (d-34, 2026-08-30): `cmpi.b #$C1` makes the
+    skip the closed [$61,$9F], its own mirror, and this set must be empty.
     """
     return {a for a in range(256) if _reaches(a, shape) != _reaches(_mirror(a), shape)}
 
@@ -219,20 +244,46 @@ def _slides(a, sine, shape, mag):
 
 
 def _asymmetric(sine, shape, mag):
-    edges = _band_edges(shape)
+    """All 256 angles, nothing excluded (the band endpoints were, while the
+    band was half-open — d-34 closed it)."""
     return sorted(a for a in range(256)
-                  if a not in edges
-                  and _slides(a, sine, shape, mag) != _slides(_mirror(a), sine, shape, mag))
+                  if _slides(a, sine, shape, mag) != _slides(_mirror(a), sine, shape, mag))
 
 
-def test_band_edges_are_the_two_endpoints(shape):
-    """The one asymmetry we knowingly do NOT fix — pinned so it cannot widen."""
+def test_ceiling_band_is_mirror_symmetric(shape):
+    """The second divergence (d-34): the band skip must agree with its own mirror.
+
+    Pinned as a derived COUNT of disagreeing angles, so it goes red on any
+    reshaping of the parsed band — including a revert to S3K's `#$C0`, which
+    was the red-first proof on 2026-08-30 (2 angles, $60 and $A0).
+    """
     edges = _band_edges(shape)
-    assert len(edges) == 2, (
-        f"the ceiling-band skip now disagrees with its own mirror at {len(edges)} "
-        f"angles ({sorted(hex(a) for a in edges)}), not the 2 endpoints a half-open "
-        "interval must have. The band changed shape — the exclusion below is no "
-        "longer the small authentic S3K artifact it was scoped to be.")
+    assert len(edges) == 0, (
+        f"the ceiling-band skip disagrees with its own mirror at {len(edges)} "
+        f"angle(s) ({sorted(hex(a) for a in edges)}). The owner ruled the band "
+        "symmetric (d-34, 2026-08-30) — player_ground.emp's walking slope block "
+        f"spells it as addi.b #${shape['band_add']:X} / cmpi.b #${shape['band_cmp']:X}, "
+        "which is not its own mirror. The ruled form is #$60 / #$C1 (skip [$61,$9F]).")
+
+
+def test_roll_block_skips_the_same_closed_band(shape, roll_band):
+    """d-34 applies to both spellings of the skip, and they must not drift apart.
+
+    The card counted "one character"; the tree has the band test twice (walking
+    and rolling slope factors). Pinned equal to the walk block, then pinned
+    symmetric in its own right by the same derived count — so a one-sided
+    revert is red twice over.
+    """
+    walk = dict(band_add=shape["band_add"], band_cmp=shape["band_cmp"])
+    assert roll_band == walk, (
+        "player_ground.emp: PState_Roll's ceiling band (addi.b "
+        f"#${roll_band['band_add']:X} / cmpi.b #${roll_band['band_cmp']:X}) differs from "
+        f"PState_Ground's (#${walk['band_add']:X} / #${walk['band_cmp']:X}). The owner "
+        "ruled the band symmetric (d-34, 2026-08-30) and it is one band, spelt twice.")
+    edges = _band_edges(roll_band)
+    assert len(edges) == 0, (
+        f"PState_Roll's ceiling-band skip disagrees with its own mirror at {len(edges)} "
+        f"angle(s) ({sorted(hex(a) for a in edges)}) — see d-34.")
 
 
 def test_shipped_rule_is_mirror_symmetric(sine, shape):
