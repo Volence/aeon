@@ -236,12 +236,55 @@ from scene_spans import (AEON, capability_bits, expected_spans, game_caps,
 # asserted by anything. This row's said 144 when the listing said 148 (corrected above with
 # the +18), and `Parallax_Fill_PerLine`'s says 792 where the tool prints 782. Left alone
 # rather than swept into an unrelated parcel's diff; the tool's own output is authoritative.
+# RE-DERIVATION LOG — 2026-08-30, THE SCENE-LEVEL VERTICAL BOB (`parcel/vertical-bob`,
+# EFFECTS-W1 item 7). The pin FAILED and was right to. ONE row moved:
+# Parallax_Step5_Vscroll, demo 80 -> 120 (+40), sonic4 166 -> 206 (+40). Derived from the
+# source change BEFORE the number was touched, and the two derivations agree exactly.
+#
+# The bob is a term on the BG V-scroll at `.v_pack`, and like the scroll clamp above it, it
+# is UNGATED — it sits in the instruction stream outside every
+# `if (Game.SCANLINE_CAPS & CAP_*)` block, because the bob is a per-SCENE property (a byte
+# in each parallax_config) and not a per-GAME capability. A game with a zero mask emits it
+# in full and pays 26 cycles a frame testing a byte that is always 0. That is a stated,
+# deliberate cost, argued at the instruction in engine/level/parallax.emp; the CAP_* bit
+# that would elide it is named there and rejected.
+#
+# Instruction for instruction, read off demo.debug.bin $5B94..$5BBB (the `.v_pack` ->
+# `.v_bob_none` span), not off the source:
+#     moveq   #0, d3                        76 00                    2
+#     move.b  pcfg_bob(a0), d3              16 28 00 1D              4
+#     beq     .v_bob_none                   67 20                    2   (bra.s reach)
+#     move.w  d3, d0                        30 03                    2
+#     and.w   #$0F, d0                      C0 7C 00 0F              4   (andi.w)
+#     move.w  Logic_Tick+2, d4              38 38 80 06              4   (abs.w)
+#     lsr.w   d0, d4                        E0 6C                    2
+#     and.w   #BOB_SINE_ENTRIES-1, d4       C8 7C 00 FF              4   (andi.w)
+#     add.w   d4, d4                        D8 44                    2
+#     lea     Sine_Table, a1                43 F8 12 58              4   (abs.W — see below)
+#     move.w  (a1,d4.w), d4                 38 31 40 00              4
+#     lsr.w   #4, d3                        E8 4B                    2
+#     asr.w   d3, d4                        E6 64                    2
+#     add.w   d4, d2                        D4 44                    2
+#                                                                 = 40 B, in BOTH games.
+#
+# ONE OF THOSE FORTY IS RELAXATION-DEPENDENT AND WORTH KNOWING BEFORE THE NEXT REPIN. The
+# `lea` lowers to ABSOLUTE SHORT (4 B) because Sine_Table sits at $1258 in demo.debug and
+# $2B08 in s4.debug — both inside the sign-extended $0000..$7FFF that `.w` reaches. It
+# becomes absolute long (6 B, so 42 here) the day the math section is pushed past $7FFF by
+# ROM growth ahead of it. Nothing needs to change when that happens; the row moves by 2 and
+# this note is why. It CANNOT go back to `Sine_Table(pc,d4.w)`: PC-relative INDEXED carries
+# an 8-bit displacement on the 68000 and the math section is ~20 KB away, which is a hard
+# link failure, measured (`(d8,PC,Xn) displacement to `Sine_Table` out of range (-20794)`).
+#
+# The other six rows are unchanged — measured, not assumed: this tool's own image
+# differential printed 6 / 100 / 78 / 192 / 8 / 26 against pins of 6 / 100 / 78 / 192 / 8 /
+# 26 on the same run that failed this one. That is the corroboration this banner asks for.
 DEMO_SPECIALISED_PROCS = {
     "Parallax_Active_Config":     6,   # CAP_TRANSITIONS            (sonic4  18)
     "Parallax_Fill_PerLine":    100,   # CAP_DEFORM, CAP_MULTI_DEFORM_TABLE, CAP_FACTOR_CURVE (sonic4 792 with the curve raised) — the flat filler
     "Parallax_StartTransition":  78,   # CAP_PER_COL_VSRAM, CAP_TRANSITIONS  (sonic4 106)
     "Parallax_Step4_Fill":      192,   # CAP_ANCHORS, CAP_FACTOR_CURVE  (sonic4 662; 20 B record stride)
-    "Parallax_Step5_Vscroll":    80,   # CAP_PER_COL_VSRAM, CAP_TRANSITIONS  (sonic4 166)
+    "Parallax_Step5_Vscroll":   120,   # CAP_PER_COL_VSRAM, CAP_TRANSITIONS  (sonic4 206)
     "Raster_GetChannelBand":      8,   # CAP_ANCHORS                (sonic4  50)
     "Vscroll_Write":             26,   # CAP_PER_COL_VSRAM          (sonic4 118)
 }

@@ -2552,6 +2552,57 @@ canonical spelling and is what S2 DEZ's camera-locked star rows and S3K SSZ1's s
   of that call — the baseline in the sigil repo must move in the same paired commit. See
   `docs/DEFERRED_WORK.md`, "Band drift".
 
+**Vertical bob — a scene-level sway on the whole background (2026-08-30, EFFECTS-W1 item 7).** A
+scene may carry `bob_shift` and `bob_period`, and Plane B's V-scroll then sways
+`SINE_AMPLITUDE >> bob_shift` pixels either side of wherever the camera term puts it, over
+`SINE_CYCLE_ENTRIES << bob_period` logic ticks. FBZ's outdoors and SSZ1 are the reference cases. It
+is a term on `Parallax_Step5_Vscroll`'s `.v_pack`, and there is no new step, no new state and no new
+capability bit.
+
+- **One site, three arms, everything downstream.** `.v_pack` is where the snap, the transition lerp
+  and the `.v_locked` pin converge, so ONE insertion bobs all three; and it is upstream of both the
+  Plane-B window clamp and the store of `Parallax_Current_Vscroll_BG`, so the bob inherits the seam
+  guard rather than needing its own AND reaches every consumer of the BG vertical origin — Step 4a's
+  band rotation, Step 5b's per-column base, the deform phase — instead of only the whole-plane VSRAM
+  word. A bob applied after the store would not move a per-column scene at all (that path never
+  reads `Vscroll_Factor`'s low half) and would leave the bands standing still while the art under
+  them moved. The residual it accepts: during a section transition the stored value carries the bob
+  and the lerp reads it back, so the sway runs through that low-pass for a handful of frames.
+- **`pcfg_bob` COSTS ZERO CONFIG BYTES.** Amplitude and period are one nibble each in a single byte
+  claimed from the even-size pad `pcfg_pad_29`, exactly as `pcfg_anchor_ch` and `pcfg_anchor_dsa/dsb`
+  were claimed from the two former pads. `sizeof(parallax_config)` stays **30**, no band array
+  shifts, and all twenty shipped records emit the byte they already emitted. The **whole byte 0** is
+  the no-bob sentinel — it has to be the byte and not a nibble, because shift 0 is a 256-px sway and
+  shift 15 (the house "no deform" sentinel) packs to `$F0`, so either nibble spelling would have
+  moved twenty records for nothing. The AUTHOR still spells 15; `scene_bob_packed()` folds it to 0.
+- **Both ladders are DERIVED, and each is the answer to a question about a constant that already
+  exists.** `bob_shift` runs **1..8**: the floor is the smallest shift whose peak-to-peak travel
+  fits the 289 seam-free Plane-B window origins (`VSCROLL_BG_MAX`), because a wider sway cannot fit
+  the range on ANY base and would spend part of every cycle stuck against the clamp; the ceiling is
+  the largest shift the sine table survives, since one further `asr.w` returns 0 across the positive
+  half-cycle and −1 across the negative one — a 1-px DC droop and no motion. `bob_period` runs
+  **0..8**: the phase index is `(Logic_Tick.low >> bob_period) & $FF` over a SIXTEEN-BIT counter, so
+  at 8 the index returns to 0 exactly when the counter wraps and at 9 it has reached half the table
+  when the counter wraps — the background jumps by the full amplitude once every 65,536 ticks.
+- **No multiply, so a power-of-two ladder.** Peak 128/64/32/16/8/4/2/1 px, period 256/512/1024/…
+  ticks (256 ticks ≈ 4.3 s at 60 Hz). Both rungs land where a background sway wants to be; a 1.5x
+  amplitude rung is booked, not built.
+- **Time source is `Logic_Tick`'s low word** — `engine/level/bg_anim.emp`'s own driver spelling, and
+  the cadence the three deform phase accumulators already advance on. `Frame_Counter` (the VBlank
+  count) was rejected: it paces to wall clock under lag, which would make the bob the only parallax
+  animation in the engine that visibly desynchronises from the H-deform wave when a frame drops.
+- **It is NOT capability-gated, and a non-bobbing scene therefore pays 26 cycles a frame** — `moveq`
+  4 + `move.b` displacement 12 + `beq` taken 10 — including in `demo`, which authors no scenes at
+  all. That is 0.02% of an NTSC frame, and it buys the bob being a per-SCENE property rather than a
+  per-GAME one. A bobbing scene pays ~112 cycles (~132 at the ladders' extremes). The `CAP_*` bit
+  that would elide the 40-byte block is named and rejected in `docs/DEFERRED_WORK.md` with its
+  trigger; the bits past `$0080` are a gapless reservation and the mechanism costs more than the
+  cycles.
+- **Zero new RAM, zero new VRAM, zero new state.** `Parallax_State` is unmoved. The engine grew 40
+  bytes of code and **`EndOfRom` did not move in any of the four shapes** — the block is absorbed by
+  the slack ahead of the next frozen provisional base.
+- **The FOREGROUND is not bobbed**, and that is the feature. Plane A is the gameplay plane.
+
 **Layer enable mask.** `pcfg_layer_mask` is a **u16** (one bit per band at `MAX_PARALLAX_BANDS = 16`) and disables individual bands; a disabled band's **BG** scroll inherits the previous band's value (or zero if first band, = locked). The **FG** word of a disabled band stays hard-locked to -Camera_X — the inheritance seed is -camX, never zero — because the FG streaming engine draws a camera-anchored 64-col window and any FG scroll offset drags the plane-wrap seam into view (bug found 2026-06-11: zero-seeded FG froze Plane A's top 32 lines under LockedClouds). `LAYER_MASK = $1E` locks the cloud band while mountains/hills/ground continue scrolling.
 
 **RAM footprint:** `Parallax_State` is **552 B** in `$FF000000`-range RAM at `MAX_PARALLAX_BANDS = 16` — `104 + 28 x MAX`, cross-checked against `PARALLAX_STATE_LONGS` (138 longs), which `engine/level/parallax.emp`'s drift `ensure` holds to the resolved span on every build. (It was 328 B at MAX 8, and this list read "≈ 126 B" until 2026-08-27; that figure predated the shadow view and the curve tail and had drifted by 202 B.)
