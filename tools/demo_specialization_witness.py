@@ -210,12 +210,38 @@ from scene_spans import (AEON, capability_bits, expected_spans, game_caps,
 #                                            log predicted (+16 there, on 20 B records
 #                                            through the anchored overlay; +4 here, the
 #                                            flat copy only).
+#
+# RE-DERIVATION LOG — 2026-08-29, PARALLAX-SCROLL-CLAMP (`parcel/scroll-and-section-clamps`).
+# The pin FAILED and was right to. ONE row moved: Parallax_Step5_Vscroll, demo 62 -> 80
+# (+18), sonic4 148 -> 166 (+18). Derived from the source change BEFORE the number was
+# touched, and the two derivations agree exactly:
+#
+#   The BG V-scroll clamp added at `.v_pack` is UNGATED — it sits in the instruction stream
+#   outside every `if (Game.SCANLINE_CAPS & CAP_*)` block, so it emits identically in a game
+#   with a zero mask. Instruction for instruction:
+#       tst.w   d2                       2
+#       bge     .v_clamp_hi              2   (bra.s reach)
+#       moveq   #0, d2                   2
+#       jbra    .v_pack_store            2   (bra.s reach)
+#       cmpi.w  #VSCROLL_BG_MAX, d2      4
+#       ble     .v_pack_store            2
+#       move.w  #VSCROLL_BG_MAX, d2      4
+#                                    = 18 B, in BOTH games. Same delta both shapes.
+#
+# The other six rows are unchanged — measured, not assumed: every pinned proc was diffed
+# head-to-next-head between the pre- and post-change plain listings and only this one moved.
+# That is the corroboration this banner asks for.
+#
+# NOTED WHILE HERE, NOT FIXED: the parenthetical `(sonic4 N)` numbers are commentary, not
+# asserted by anything. This row's said 144 when the listing said 148 (corrected above with
+# the +18), and `Parallax_Fill_PerLine`'s says 792 where the tool prints 782. Left alone
+# rather than swept into an unrelated parcel's diff; the tool's own output is authoritative.
 DEMO_SPECIALISED_PROCS = {
     "Parallax_Active_Config":     6,   # CAP_TRANSITIONS            (sonic4  18)
     "Parallax_Fill_PerLine":    100,   # CAP_DEFORM, CAP_MULTI_DEFORM_TABLE, CAP_FACTOR_CURVE (sonic4 792 with the curve raised) — the flat filler
     "Parallax_StartTransition":  78,   # CAP_PER_COL_VSRAM, CAP_TRANSITIONS  (sonic4 106)
     "Parallax_Step4_Fill":      192,   # CAP_ANCHORS, CAP_FACTOR_CURVE  (sonic4 662; 20 B record stride)
-    "Parallax_Step5_Vscroll":    62,   # CAP_PER_COL_VSRAM, CAP_TRANSITIONS  (sonic4 144)
+    "Parallax_Step5_Vscroll":    80,   # CAP_PER_COL_VSRAM, CAP_TRANSITIONS  (sonic4 166)
     "Raster_GetChannelBand":      8,   # CAP_ANCHORS                (sonic4  50)
     "Vscroll_Write":             26,   # CAP_PER_COL_VSRAM          (sonic4 118)
 }

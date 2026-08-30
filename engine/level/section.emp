@@ -196,8 +196,11 @@ pub proc Section_GetSecPtrXY (d2: GridX, d3: GridY, a2: *Act) clobbers(d1-d2) ou
 //
 // In:  none (reads Camera_X, Cache_*, Current_Act_Ptr; Plane B derives the
 //      on-screen section from the world camera for the BG layout ptr)
-// Out: d5.w = start_world_col (for tracker reset by caller)
-//      d7.w = start_world_col + 63 (for tracker reset by caller)
+// Out: d5.w = max(start_world_col, Cache_Left_Col)          (tracker reset by caller)
+//      d7.w = min(start_world_col + 63, Cache_Head_Col)      (tracker reset by caller)
+//      i.e. EXACTLY the extent `.pla_fill` drew: the 64-column run from
+//      start_world_col, intersected with the cache range. Both halves are
+//      clamps; d7's was an ASSIGNMENT until 2026-08-29 (see the tail).
 //      Both are WORDS and nothing above them is a result: d5's high word is
 //      whatever `swap` left there (Camera_X's sub-pixel fraction), so a caller
 //      that reads either long reads garbage.
@@ -452,14 +455,48 @@ pub proc Section_RedrawPlanes () clobbers(d0-d4/d6/a0-a6/sr.ccr) out(d5: u16, d7
         move.w  (sp)+, sr
 
         // -- return tracker bounds in d5/d7 for caller --
-        // Clamp to cache range so Section_UpdateColumns streams any
+        // Clamp BOTH to the cache range so Section_UpdateColumns streams any
         // columns we skipped (outside cache at redraw time).
+        //
+        // SECTION-HEAD-CLAMP (2026-08-29). The d7 half used to be a bare
+        // `move.w Cache_Head_Col, d7` — an ASSIGNMENT where the d5 half beside it
+        // is a real `max`, and the comment above has said "clamp" since the day
+        // only one of the two was one. INVARIANT: the recorded head never exceeds
+        // the extent `.pla_fill` actually drew. `.pla_fill` walks exactly 64
+        // columns from start_world_col (`moveq #0,d3` .. `cmpi.w #64,d3`) and
+        // skips those outside [Cache_Left_Col, Cache_Head_Col], so the drawn
+        // extent is `[start_world_col, start_world_col+63] ∩ [Left, Head]` and its
+        // right end is `min(start_world_col + 63, Head)`. Head alone over-claims
+        // by `16 - cam_col` columns whenever `cam_col < 16` (at cam_col 16..19 the
+        // drawn extent already reaches Head, so there is no over-claim there —
+        // Tile_Cache_Init sets Left = max(0, cam_col-20), Head = Left + 79).
+        //
+        // COMPUTED BEFORE THE d5 CLAMP, FROM THE UNCLAMPED d5, and that ordering is
+        // the derivation and not a convenience: the fill's right end is set by the
+        // 64-column run's own start, not by where the cache cut its left edge, so
+        // `Cache_Left_Col + 63` would over-claim again on exactly the redraws the
+        // left clamp exists for (cam_col below the cache's left edge).
+        //
+        // IT CANNOT REACH THE SCREEN TODAY and it is fixed anyway. The redraw's
+        // call site returns before the streaming loops, and the first frame that
+        // runs them cross-clamps Right down to the drawn extent at `.left_done`
+        // below; on top of that, both Section_Plane_Dirty setters guarantee a
+        // camera at rest. It goes live the moment the cache-recovery path this
+        // proc's own header advertises actually exists — a recovery redraw fired
+        // mid-traversal, at speed, near the act's left edge is the uncovered case.
+        // Desk-checked in full at DEFERRED_WORK "CANOPY GAP", which refuted the
+        // over-claim as that bug's cause and booked this residual.
+        move.w  d5, d7
+        addi.w  #63, d7                         // d7 = start_world_col + 63 (.pla_fill's 64 cols)
+        cmp.w   Cache_Head_Col, d7
+        ble     .track_right_ok
+        move.w  Cache_Head_Col, d7
+    .track_right_ok:
         move.w  Cache_Left_Col, d0
         cmp.w   d0, d5
         bge     .track_left_ok
         move.w  d0, d5
     .track_left_ok:
-        move.w  Cache_Head_Col, d7
         rts
 }
 

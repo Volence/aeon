@@ -527,6 +527,33 @@ pub const PLANE_B_CELL_ROWS = 64
 pub const PLANE_B_SPAN      = PLANE_B_CELL_ROWS * 8
 ensure(PLANE_B_SPAN == 512, "PLANE_B_SPAN drifted from the 64x64 Plane-B geometry Step 4a's `and.w #PLANE_B_SPAN-1` masks against")
 
+// ---- VSCROLL_BG_MAX — the last Plane-B window origin that does NOT cross the wrap seam ----
+//
+// PARALLAX-SCROLL-CLAMP (booked 2026-08-28, landed 2026-08-29). The BG V-scroll is
+// `((camY - v_center_y) >> v_factor_bg) + v_offset` and NOTHING bounded it, so a scene whose
+// act is taller than `PLANE_B_SPAN << v_factor_bg` drives the value straight past the plane
+// and the VDP silently takes it mod 512. That wrap is arithmetically fine and it is exactly
+// the problem: the screen keeps showing background art, so there is no artifact to be
+// suspicious of — the seam reads as somebody else's bug. OJZ act 1 is the live case (6,144 px
+// at v_factor 3, ceiling 4,096 — see DEFERRED_WORK "The 512-px background has a HEIGHT x DEPTH
+// budget"): its scroll runs -64 .. 676 against a 0..511 plane, so it wraps at BOTH ends.
+//
+// THE RANGE IS DERIVED, NOT PICKED. The VDP shows SCREEN_HEIGHT plane lines starting at the
+// VSRAM value v, i.e. plane lines `v .. v + SCREEN_HEIGHT - 1` taken mod PLANE_B_SPAN. That
+// window lies inside ONE pass of the plane exactly when `0 <= v` and
+// `v + SCREEN_HEIGHT <= PLANE_B_SPAN`. So the legal origins are [0, PLANE_B_SPAN -
+// SCREEN_HEIGHT] and nothing else: 289 origins, 288 = 512 - 224.
+//
+// WHAT THE CLAMP DOES NOT COST. Every plane ROW stays reachable — origin 0 shows lines 0..223,
+// origin 288 shows lines 288..511 — so a scene that fits its art in the plane loses nothing.
+// The only views excluded are the ones that CROSS the seam, which is the failure being made
+// legible. The one legitimate use it forecloses is a vertically-TILING background; ours is not
+// one (that is why the wrap shows as a seam at all), and horizontally, where the BG plane IS
+// built to repeat forever, no clamp is applied — see Step 5's clamp site.
+pub const VSCROLL_BG_MAX = PLANE_B_SPAN - SCREEN_HEIGHT
+ensure(VSCROLL_BG_MAX > 0,
+       "PLANE_B_SPAN {PLANE_B_SPAN} is not taller than SCREEN_HEIGHT {SCREEN_HEIGHT}, so there is no Plane-B window origin that avoids the vertical wrap seam and Step 5's BG V-scroll clamp has an empty range to clamp into")
+
 // VSCROLL_COL19_* — the per-column V-scroll buffer's LAST column-pair, which is the entry
 // the VDP re-reads for the leftmost partial column (see the column-19 borrow in Step 5b).
 // Twenty pairs is an H40 fact and the quirk is 40-cell-only, so both the pair count and the
@@ -1827,6 +1854,45 @@ proc Parallax_Step5_Vscroll () clobbers(d0-d7/a0-a6) {
         // grid-clamped to [0, grid_h*SECTION_SIZE - SCREEN_HEIGHT].
         move.w  parallax_config.pcfg_v_offset(a0), d2
     .v_pack:
+        // ---- THE PLANE-B WINDOW CLAMP (PARALLAX-SCROLL-CLAMP) ----
+        // Bound the BG V-scroll to [0, VSCROLL_BG_MAX] — the window origins whose 224 lines
+        // lie inside one pass of the 512-line plane (derivation at VSCROLL_BG_MAX above).
+        // A scene that outruns its HEIGHT x DEPTH budget now shows the BACKGROUND STICKING
+        // at the top or bottom of its art: visible, obviously wrong, and attributable to the
+        // v_factor/act-height pair that produced it, instead of a wrap seam that reads as a
+        // rendering bug somewhere else. THIS IS A LEGIBILITY FIX, NOT A CORRECTNESS ONE — the
+        // wrap was arithmetically fine; what it was not is DIAGNOSABLE.
+        //
+        // ON EVERY PATH INCLUDING `.v_locked`, deliberately: a locked plane pins the scroll to
+        // the authored v_offset, and an out-of-range v_offset crosses the seam in exactly the
+        // same way a runaway camera does. All 20 shipped scenes author v_offset 0, so the
+        // locked arm is inert today and this is a guard, not a behaviour change, for them.
+        //
+        // ONCE PER FRAME, not per band and not per line — this is the single site the whole
+        // pipeline's BG vertical origin flows through (Vscroll_Factor's low half, Step 5b's
+        // per-column base, Step 4a's rotation modulus and the deform phase all read it from
+        // here), so bounding it here bounds all four for two compares.
+        //
+        // SIGNED COMPARES, and the low half is not optional: OJZ_Default's scroll is
+        // `(camY - 512) >> 3`, which is NEGATIVE for the whole top 512 px of the act. An
+        // unsigned single-sided test would read those as huge and clamp them to the BOTTOM of
+        // the art — the plane's opposite end, the most convincing wrong picture available.
+        //
+        // NOT DONE HORIZONTALLY, and that asymmetry is the point: Plane B's 64 columns are
+        // fully populated and the BG art is authored to repeat, so an HScroll wrap is the
+        // mechanism rather than a failure, and a word wrap is invisible there anyway
+        // (65536 mod PLANE_B_SPAN == 0). Plane A is clamped on neither axis — it is the
+        // STREAMED plane, a ring the world wraps through by construction.
+        tst.w   d2
+        bge     .v_clamp_hi
+        moveq   #0, d2                              // above the art — stick at the plane top
+        jbra    .v_pack_store
+    .v_clamp_hi:
+        cmpi.w  #VSCROLL_BG_MAX, d2
+        ble     .v_pack_store
+        move.w  #VSCROLL_BG_MAX, d2                 // below the art — stick at the last
+                                                    //   seam-free window origin
+    .v_pack_store:
         move.w  d2, Parallax_Current_Vscroll_BG     // (Parallax_Current_Vscroll_BG).w
 
         // pack into Vscroll_Factor (used by Vscroll_Write whole-plane branch)
