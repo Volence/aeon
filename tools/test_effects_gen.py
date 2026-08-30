@@ -840,7 +840,12 @@ class TestAssignmentReading(AssignmentBase):
         self.write_sidecar(1, {"sceneRef": "deep-forest-v16-1781232789593"})
         with self.assertRaises(effects_gen.SceneShapeError) as ctx:
             effects_gen.load_section_scene_refs(self.repo)
-        self.assertIn("not a legal scene id", str(ctx.exception))
+        # "scene id" became "id" when `rasterRef` began sharing this validator — and
+        # the refusal now NAMES THE KEY it refused, which empyrean §3.1 requires and
+        # which is what makes a shared message safe. Asserting both is strictly
+        # stronger than the sentence this replaced.
+        self.assertIn("not a legal id", str(ctx.exception))
+        self.assertIn(effects_gen.ACT_SCENE_REF_KEY, str(ctx.exception))
 
     def test_only_sidecars_inside_the_grid_are_read(self):
         """The domain is grid_w*grid_h. A sidecar for a section the act does not
@@ -1732,12 +1737,24 @@ class TestPresetConverseControl(AssignmentBase):
             effects_gen.act_names(self.repo),
             effects_gen.load_all_presets(repo=self.repo))
 
-    def test_no_presets_emits_no_raster_text_of_any_kind(self):
+    def test_no_presets_emits_no_raster_BAND_text_of_any_kind(self):
+        """NARROWED, 2026-08-30, and the narrowing is the point rather than a retreat.
+
+        `EditorRaster` on its own stopped being a band-content token when the
+        `rasterRef` arm landed: the always-emitted witness equate is
+        `EditorRaster_<CAP>_Bindings` and the chooser's banner names the channel. Those
+        two are zero ROM bytes and are emitted for EVERY act by ruling, so a test
+        forbidding the substring would be asserting the arm does not exist rather than
+        that no band was lowered. The tokens below are the ones only a LOWERED BAND can
+        produce — the declaration prefixes and the constructor calls — so the claim
+        ("a tree with no preset document lowers no band, not even an empty one") is
+        unchanged and is now stated in terms that cannot be satisfied by a comment."""
         self.write_scene("ojz_bg")
         self.write_sidecar(0, {"sceneRef": "ojz_bg"})
         out = self.render_without_presets()
-        for token in ("EditorRaster", "raster_program", "raster_words", "compose(",
-                      "band(top:", "AURORA-AUTHORED RASTER BANDS"):
+        for token in ("EditorRasterSrc_", "pub data EditorRaster_", "raster_program(",
+                      "raster_words(", "compose(", "band(top:",
+                      "AURORA-AUTHORED RASTER BANDS"):
             self.assertNotIn(token, out)
 
     def test_no_presets_is_TEXT_IDENTICAL_to_the_pre_arm_renderer(self):
@@ -1774,6 +1791,263 @@ class TestPresetConverseControl(AssignmentBase):
         with self.assertRaises(effects_gen.SceneShapeError) as ctx:
             effects_gen.load_scene(path)
         self.assertIn("bands", str(ctx.exception))
+
+
+# =============================================================================
+# THE `rasterRef` ARM — the per-section raster binding (EFFECTS-W1 item 1, step 3)
+#
+# NOT ONE TEST BELOW SPELLS THE WIRE KEY. Every one reads
+# `effects_gen.ACT_RASTER_REF_KEY`, which is the single place in the tree the spelling
+# lives. That is not tidiness: the key was built against an UNADJUDICATED name for a
+# day (empyrean's CR ruled it `rasterRef` on 2026-08-30, option B), and a literal
+# sprinkled through a test file is exactly what makes a one-line re-spelling a
+# twenty-file one.
+# =============================================================================
+
+RASTER_KEY = effects_gen.ACT_RASTER_REF_KEY
+
+
+class RasterRefBase(AssignmentBase):
+    """AssignmentBase + the preset-document directory the raster refs resolve against."""
+
+    def setUp(self):
+        super().setUp()
+        self.presets = os.path.join(self.scenes, effects_gen.PRESET_SUBDIR)
+        os.makedirs(self.presets)
+
+    def write_preset(self, stem, **over):
+        with open(os.path.join(self.presets, f"{stem}.json"), "w") as f:
+            json.dump(_preset(id=stem, **over), f)
+
+    def refs(self):
+        return effects_gen.load_section_raster_refs(self.repo)
+
+    def render(self):
+        return effects_gen.render_module(
+            effects_gen.load_all_scenes(repo=self.repo),
+            effects_gen.load_act_scene_ref(self.repo),
+            effects_gen.load_section_scene_refs(self.repo),
+            effects_gen.act_section_count(self.repo),
+            effects_gen.act_names(self.repo),
+            effects_gen.load_all_presets(repo=self.repo),
+            self.refs())
+
+    def arm_footprint(self, text):
+        """Every character this arm contributes to the module: banner + chooser.
+
+        Separate from `chooser()` because the two tests want different subjects — one
+        asserts the chooser's body EXACTLY, the other asserts that cutting the whole
+        arm out leaves no trace of it. A banner is part of a footprint and not part of
+        a body, and conflating them is how the "nothing else" claim would go soft.
+        """
+        head = effects_gen.RASTER_BINDING_BANNER.splitlines()[0]
+        start = text.find(head)
+        if start < 0:
+            self.fail(f"the generated module carries no {head!r} — the raster "
+                      "binding's banner is missing, so this test cannot locate the "
+                      "arm it is meant to cut out.")
+        return text[start:text.index(self.chooser(text)) + len(self.chooser(text))]
+
+    def chooser(self, text):
+        """The whole `sec_raster` function block, or a loud failure.
+
+        Extracted rather than searched-for so the tests below can assert on its ENTIRE
+        text: "the body is exactly the fallback" is a claim about what is absent, and a
+        substring check cannot make it.
+        """
+        head = f"pub comptime fn {effects_gen.act_names(self.repo).fn_sec_raster}("
+        start = text.find(head)
+        if start < 0:
+            self.fail(f"the generated module carries no {head!r} — the raster chooser "
+                      "is emitted for EVERY act, always, exactly like the two scene "
+                      "bindings. If it is missing the whole arm is dead and every "
+                      "assertion below is measuring nothing.")
+        end = text.find("\n}", start)
+        self.assertGreater(end, start, "the chooser block has no closing brace.")
+        return text[start:end + 2]
+
+
+class TestRasterRefReading(RasterRefBase):
+    """§2.2's assignment reading, raster half. Shape mirrors TestAssignmentReading
+    because the contract says the key's shape mirrors `sceneRef` in every particular."""
+
+    def test_no_sidecars_at_all_is_no_raster_assignments(self):
+        self.assertEqual(self.refs(), {})
+
+    def test_a_sidecar_without_the_key_is_null(self):
+        self.write_sidecar(1, {"bgLayoutRef": "x", "paletteRef": None,
+                               "sceneRef": None})
+        self.assertEqual(self.refs(), {})
+
+    def test_an_explicit_null_is_null(self):
+        self.write_sidecar(1, {RASTER_KEY: None})
+        self.assertEqual(self.refs(), {})
+
+    def test_an_unreadable_sidecar_fails_the_bake(self):
+        """The missing/unreadable split, restated for this key because collapsing it is
+        what triggers Aurora's destructive cleared-overwrite (contract §2.2/§3)."""
+        self.write_sidecar(1, "{ this is not json")
+        with self.assertRaises(json.JSONDecodeError):
+            self.refs()
+
+    def test_a_numeric_index_is_REFUSED_and_the_refusal_NAMES_THE_KEY(self):
+        """empyrean §3.1: refuse a non-string, non-null value BY NAME. Aurora's parser
+        nulls a non-string silently, so `<key>: 3` presents to the author as an
+        assignment that did not stick — this build is the last reader that can see it."""
+        self.write_sidecar(2, {RASTER_KEY: 3})
+        with self.assertRaises(effects_gen.SceneShapeError) as ctx:
+            self.refs()
+        self.assertIn(RASTER_KEY, str(ctx.exception))
+        self.assertIn("numeric index", str(ctx.exception))
+
+    def test_a_non_symbol_safe_id_is_REFUSED(self):
+        self.write_sidecar(2, {RASTER_KEY: "Not-An-Id"})
+        with self.assertRaises(effects_gen.SceneShapeError) as ctx:
+            self.refs()
+        self.assertIn(RASTER_KEY, str(ctx.exception))
+
+    def test_a_bound_ref_reads_back_under_its_section_index(self):
+        self.write_sidecar(5, {RASTER_KEY: "ojz_ground_wash"})
+        self.assertEqual(self.refs(), {5: "ojz_ground_wash"})
+
+    def test_the_two_REF_KEYS_ARE_INDEPENDENT(self):
+        """A sidecar carrying only one of them must not leak into the other reader.
+        Both readers now share one walk, so this is the test that the sharing did not
+        merge the two channels."""
+        self.write_sidecar(3, {RASTER_KEY: "ojz_ground_wash"})
+        self.write_sidecar(4, {"sceneRef": "ojz_bg"})
+        self.assertEqual(self.refs(), {3: "ojz_ground_wash"})
+        self.assertEqual(effects_gen.load_section_scene_refs(self.repo),
+                         {4: "ojz_bg"})
+
+    def test_an_UNKNOWN_sidecar_key_is_IGNORED_by_ruling(self):
+        """empyrean §3.1, explicit: NO unknown-key refusal on the sidecar. The sidecar
+        is Aurora's document and it will grow keys this generator does not read; a
+        refusal here would make every future Aurora key a build break."""
+        self.write_sidecar(1, {"someFutureAuroraKey": "whatever",
+                               RASTER_KEY: None})
+        self.assertEqual(self.refs(), {})
+
+
+class TestRasterRefResolution(RasterRefBase):
+    def test_a_ref_naming_no_document_is_REFUSED_listing_the_known_ids(self):
+        self.write_preset("ojz_ground_wash")
+        self.write_sidecar(5, {RASTER_KEY: "no_such_document"})
+        with self.assertRaises(effects_gen.SceneShapeError) as ctx:
+            self.render()
+        msg = str(ctx.exception)
+        self.assertIn("no_such_document", msg)
+        self.assertIn("ojz_ground_wash", msg)     # the known ids, named
+        self.assertIn(RASTER_KEY, msg)
+
+    def test_a_ref_with_NO_documents_at_all_is_REFUSED(self):
+        """The vacuous direction: an empty library must refuse, not quietly bind."""
+        self.write_sidecar(5, {RASTER_KEY: "ojz_ground_wash"})
+        with self.assertRaises(effects_gen.SceneShapeError):
+            self.render()
+
+    def test_a_bound_ref_emits_exactly_one_chooser_row(self):
+        self.write_preset("ojz_ground_wash")
+        self.write_sidecar(5, {RASTER_KEY: "ojz_ground_wash"})
+        names = effects_gen.act_names(self.repo)
+        body = self.chooser(self.render())
+        rows = [l for l in body.splitlines() if l.strip().startswith("if sec ==")]
+        self.assertEqual(
+            rows, [f"    if sec == 5 {{ out = {names.raster('ojz_ground_wash')} }}"])
+
+    def test_the_raster_witness_counts_the_bindings(self):
+        self.write_preset("ojz_ground_wash")
+        self.write_sidecar(5, {RASTER_KEY: "ojz_ground_wash"})
+        self.write_sidecar(7, {RASTER_KEY: "ojz_ground_wash"})
+        names = effects_gen.act_names(self.repo)
+        self.assertIn(f"pub equ {names.equ_raster_bindings} = 2", self.render())
+
+
+class TestRasterArmIsINERT(RasterRefBase):
+    """THE ZERO-BYTE CLAIM, made checkable rather than argued (design §3.4/§10).
+
+    The four-CRC comparison is the real proof and it lives in the parcel's evidence;
+    what these hold is the property the CRCs depend on — that with no `rasterRef`
+    anywhere, the module gains the chooser and the witness and NOTHING ELSE, and the
+    chooser's body is the caller's own fallback.
+    """
+
+    def test_no_ref_emits_a_chooser_whose_body_is_EXACTLY_the_fallback(self):
+        self.write_preset("ojz_ground_wash")
+        names = effects_gen.act_names(self.repo)
+        sections = effects_gen.act_section_count(self.repo)
+        body = self.chooser(self.render())
+        expected = (
+            f"pub comptime fn {names.fn_sec_raster}(sec: int, hand: Label = 0) "
+            f"-> Label {{\n"
+            f'    ensure(sec >= 0 && sec < {sections}, "{names.fn_sec_raster}(sec: '
+            f'{{sec}}): this act has {sections} sections, so there is no binding slot '
+            f"for that index — the section preset and project.json's grid have drifted "
+            f'apart")\n'
+            f"    comptime var out = hand\n"
+            f"    return out\n"
+            f"}}")
+        self.assertEqual(body, expected)
+
+    def test_the_chooser_is_emitted_with_NO_preset_documents_at_all(self):
+        """Always-emitted, exactly like the two scene bindings (ruling Q-c). An arm
+        that appeared only when content existed would give the call site two shapes."""
+        self.chooser(self.render())
+
+    def test_the_arms_ONLY_footprint_is_the_chooser_and_its_witness(self):
+        """"and no other text change" (design §3.4), stated as a measurement.
+
+        Cut the two blocks this arm contributes out of the rendered module and NOTHING
+        the arm introduced may remain. If a future edit slips a banner, a header count
+        or a blank line into the general path, it survives the cut and this goes red.
+        """
+        self.write_preset("ojz_ground_wash")
+        names = effects_gen.act_names(self.repo)
+        text = self.render()
+        rest = text.replace(self.arm_footprint(text), "")
+        rest = rest.replace(
+            f"pub equ {names.equ_raster_bindings} = 0\n", "")
+        for token in (names.fn_sec_raster, names.equ_raster_bindings, RASTER_KEY):
+            self.assertNotIn(
+                token, rest,
+                f"{token!r} survives the removal of the raster chooser and its "
+                "witness — the arm has a third footprint in the generated module and "
+                "the zero-byte claim is no longer the two blocks it says it is.")
+
+
+class TestTheConsumerContractNamesTheKey(unittest.TestCase):
+    """§2.2 and the constant must agree, and the CONSTANT is the authority.
+
+    The contract is the file Aurora's lane implements against, and empyrean §8 makes it
+    and their §3.1 a matched pair re-pinned by SHA. A key name that drifted between this
+    tree's reader and this tree's contract would cost that lane a rebuild for no visible
+    reason. Derived, never typed: the expectation is `effects_gen.ACT_RASTER_REF_KEY`,
+    which is the single place in this repo the wire spelling exists.
+    """
+
+    DOC = os.path.join(effects_gen.REPO, "tools", "EFFECTS_CONSUMER_CONTRACT.md")
+
+    def test_the_contract_names_the_raster_ref_key(self):
+        if not os.path.isfile(self.DOC):
+            self.fail(f"{self.DOC} does not exist — it is the normative read set for "
+                      "tools/effects_gen.py. If it was deliberately deleted, delete "
+                      "this test in the same commit rather than passing on a missing "
+                      "file.")
+        with open(self.DOC) as f:
+            text = f.read()
+        self.assertIn(
+            f"`{effects_gen.ACT_RASTER_REF_KEY}`", text,
+            f"tools/EFFECTS_CONSUMER_CONTRACT.md never names "
+            f"{effects_gen.ACT_RASTER_REF_KEY!r}, which is the key "
+            f"tools/effects_gen.py actually reads out of every section sidecar. The "
+            f"contract is what Aurora's writer is built against; a reader and a "
+            f"contract that disagree about a key name cost that lane a rebuild.")
+        self.assertIn(
+            "rasterRef", text.split("### 2.2 Assignments", 1)[-1].split("### 2.3", 1)[0],
+            "the raster ref key is named somewhere in the contract but not inside "
+            "§2.2 Assignments, which is the section that enumerates the sidecar's read "
+            "set — a reader looking up 'what does the generator read from a sidecar' "
+            "would not find it.")
 
 
 class TestEditorRasterPresetsDoc(unittest.TestCase):
