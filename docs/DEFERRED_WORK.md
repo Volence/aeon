@@ -15673,6 +15673,41 @@ said around them — the lifted non-goal, the bit, the reference, the sequencing
 lane's scaffolding and was checked here before being written down: bit CONFIRMED (with the value
 caveat above), reference reasonable, non-goal NOT REPRODUCED, sequencing accepted.
 
+## THE BUILD NAMES ITS ASSEMBLER BY PATH AND NEVER CHECKS WHAT FILLED IT — booked 2026-08-30
+
+**Found while building chain 189's listings for the oracle lane, and the near-miss that surfaced it
+was somebody else's.** `SIGIL_BUILD` and `SIGIL_EMIT` name **paths**, and the path they name is a
+mutable artifact in another repo's `target/release/`. `build.sh` never records, prints or checks
+what actually occupied that path for the build it just ran.
+
+**The identity is already available and nothing consumes it.** `sigil --version` prints the
+revision and a `-dirty` marker. Measured today: the binary on this machine reports
+`d5967f87-dirty`, while chain 189's `provenance.toml` records `sigil_rev = 5552bccb`. So the
+listings I built to reproduce chain 189 were assembled by a binary that **corresponds to no commit
+at all** — and the only reason anyone knows is that this lane thought to ask.
+
+**The live near-miss, disclosed by the sigil lane 2026-08-30T~10:02Z and independently corroborated
+here.** A nightly job of theirs relinks that exact binary; a guessed flag started it while this
+lane's four builds were in flight. It was killed inside two minutes and nothing was relinked (their
+mtimes; and independently, all four of this lane's ROMs reproduced chain 189's committed goldens
+byte-for-byte, which a relink mid-flight could not have hidden). **The window was bounded by luck of
+timing, not by any control**, and their formulation is the one to keep: had it run twenty minutes
+earlier, this lane's build would have produced bytes from an assembler it did not name, **and
+nothing in either lane would have reported it.**
+
+**What to build, and its deliberate limit.** `build.sh` records the assembler's self-reported
+revision beside the artifacts, and a **dirty** assembler is NAMED in the output rather than passing
+silently. **Not** a refusal on dirty — local iteration legitimately runs dirty binaries all day, and
+a gate that fires on the normal case gets disabled. The bar is only that *"you built with a binary
+that corresponds to no commit"* stops being something a lander has to think to ask. Freeze and
+attest are the places where it should be loud, since those are the runs whose numbers outlive the
+binary.
+
+**Falsifier for anyone who implements it:** point `SIGIL_BUILD` at a binary built from a clean
+checkout and confirm the output says so; then dirty that checkout, rebuild, and confirm the output
+changes. A recorder that reports the same string in both cases is reading something that is not the
+identity.
+
 ## EFFECTS-W1 — the owner-ratified definition of done, priced and sequenced (2026-08-29)
 
 **Source:** empyrean `docs/superpowers/specs/2026-08-29-effects-definition-of-done.md`, commit
