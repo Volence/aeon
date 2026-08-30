@@ -52,7 +52,7 @@ at = 0x10000
 
 [[hole]]
 after = "Z80_IdleProgram"
-at = 0x3F8   # was 0x3FE; stale since 2026-08-01, see games/sonic4/map.toml's hole note
+at = 0x3F0   # the idle packs flush after boot_head (0x3C8 plain / 0x3CC debug, 40 B); post-hole data resumes at 0x3F0 plain / 0x3F4 debug — this row is the LOWER bound across the sound-off shapes
 filled_by = "engine.z80_init"
 when = "sound_off"
 
