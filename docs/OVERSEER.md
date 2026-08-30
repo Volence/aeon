@@ -29,6 +29,15 @@ protocol doc. This file is what's aeon-specific.
 > **item 0** — the spare-nametable prerequisite that items 10 and 11 both need and that is on
 > nobody's list. Card `vram-replan` is filed; his answer is not needed until 10/11 are reached.
 >
+> **⚠ THE PROJECT GREW A SECOND HALF (owner, 2026-08-30).** EFFECTS-W1 is not done until the
+> side-effect bugs are fixed too — his words and the enumeration are at empyrean `origin/main`
+> (`contract/projects.json` → EFFECTS-W1 `completionRequires`; DoD items 14-17). **The canopy gap
+> is no longer backgroundable** (item 17: *"a found cause and a fix, not a backgrounded card"*).
+> **Its plan is to INSTRUMENT for the next sighting, not to derive a third explanation** — two
+> code-read explanations are already refuted, so derivation is the approach with a demonstrated
+> failure rate here. `d-47-revised` is RULED `targeted`; **measure the append-disturbs-nothing risk
+> before any art ships — a measurement, not the argument.**
+>
 > **RE-MEASURE, DO NOT INHERIT:** the sigil binary's staleness (rebuilt at their `85a5726c` as of
 > 2026-08-30T00:33Z — but re-derive at the moment you need it, never from this line); and the
 > lost `+$60` derivation described under *"AN OPEN MEASUREMENT THREAD WITH SIGIL"* in
