@@ -277,6 +277,25 @@ because the walk succeeds from wherever the test happens to run. **An override p
 directory does not stop it.** Catching it needs an **fs-level trace** showing which paths were
 actually opened, not a source read.
 
+**⚠ THREE MORE FROM AURORA'S O39, and the first is the sharpest thing in this whole entry: A TEST
+FILE CAN DIE AT COLLECTION, SO ITS ROWS LEAVE THE TOTALS WITH NO FAILING ROW.** Under a missing
+subtree the file never imports, its tests are never collected, and the suite reports a smaller total
+that is entirely green. **Counting failures finds nothing; the evidence is in the count of rows
+COLLECTED.** So compare **rows collected between scenarios**, not only rows failed — a poison that
+silently shrinks the denominator is invisible to every check that reads the numerator.
+*This is "aggregate totals, never a tail" with a new face: the aggregate itself moved, and nothing
+about a green total announces that it is now a green total over fewer things.*
+
+**AND ONE SCENARIO IS NOT ENOUGH — WHICH rows misdirect depends on WHICH part is missing.** Aurora's
+four scenarios found **14 / 5 / 3 / 20** misdirected rows and their **union is 22**, so no single
+scenario reaches even the largest count, and the one that finds 3 would read as "almost clean".
+**Report per scenario and union them**; a single-poison audit produces a number that is true and
+badly incomplete.
+
+**AND some rows fail on purpose: those whose SUBJECT IS the tree's completeness.** They keep failing
+under every poison and are not defects — classify them out explicitly rather than letting them
+inflate the count or, worse, get "fixed".
+
 **Size the population by ROWS GATED, not by literals.** One literal in aurora's tree gated **51
 rows**. A count of occurrences ranks the work wrongly and makes a one-line fix look like a
 one-row win.
