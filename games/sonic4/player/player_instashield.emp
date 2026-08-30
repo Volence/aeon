@@ -106,7 +106,8 @@ module games.sonic4.player_instashield in player_instashield
 
 use engine.objects.sst.{Sst}
 use engine.objects.objdef.{vram_art, vram_bytes}
-use engine.objects.dplc.{dplc_peak_tiles, dplc_peak_entries, DPLC_ENTRY_RESERVE}
+use engine.objects.dplc.{dplc_peak_tiles, dplc_peak_entries, DPLC_ENTRY_RESERVE,
+                         DPLC_ADDRESSABLE_TILES}
 use engine.constants.{RF_PRIORITY_SHIFT, TILE_SIZE, AF_DELETE, AF_SET_FIELD,
                       ST_XFLIP, DMA_DEFERRABLE_SLOTS}
 use games.sonic4.player_common.{PlayerV}
@@ -475,6 +476,13 @@ ensure(VRAM_INSTA_SHIELD + dplc_peak_tiles(_dplc_insta) <= VRAM_TEST_SONIC,
 // charge dust and whatever else slips there on a busy frame.
 ensure(dplc_peak_entries(_dplc_insta) + DPLC_ENTRY_RESERVE <= DMA_DEFERRABLE_SLOTS,
        "the insta-shield DPLC's peak frame costs more Deferrable queue slots than the budget leaves — re-page the art")
+
+// THE 12-BIT tile_start CEILING. Vacuously true for a 52-tile sheet (4,044 of
+// headroom) and stated anyway, because the property is "every DPLC-fed art sheet
+// carries this", not "the big ones do" — tools/test_dplc_tile_start.py enumerates
+// the modules and refuses one that skips it. See engine/objects/dplc.emp.
+ensure(_art_insta.len / TILE_SIZE <= DPLC_ADDRESSABLE_TILES,
+       "Art_InstaShield is {_art_insta.len / TILE_SIZE} tiles; a DPLC entry's tile_start can only name 0..{DPLC_ADDRESSABLE_TILES - 1}, so the tiles above that would be addressed by a WRAPPED index and load early-frame art — re-page or shrink the sheet, do not raise the field")
 
 // -----------------------------------------------
 // The follower's own sst_custom overlay — just the player it tracks. NOT parent_ptr;

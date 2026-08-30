@@ -14,11 +14,17 @@
 // deliberately differs from Sonic's and Tails'. The contiguous ("optimized")
 // rearrange copies every frame's tiles in full, duplicates included, so it makes
 // the art strictly LARGER: 4383 tiles against the raw 4092. A DPLC entry's
-// tile_start field is only TWELVE bits (max 4095), so the contiguous form is not
+// tile_start field is only TWELVE bits, so the contiguous form is not
 // addressable and 25 of its entries across frames 234-250 silently wrapped to
 // low tile indices — those frames DMA'd early-frame art. `write_dplc` now refuses
 // to emit it (see the tile_start assert there), and the raw pair is both correct
-// and 8,702 bytes smaller. Its only cost is up to 5 DPLC entries per frame
+// and 8,702 bytes smaller. THE "max 4095" THAT USED TO SIT IN THIS PARAGRAPH IS
+// GONE ON PURPOSE: the ceiling is now DPLC_ADDRESSABLE_TILES in
+// engine/objects/dplc.emp and it is CHECKED against this file's sheet, by the
+// ensure beside the VRAM wall below. The paragraph is kept because it is the only
+// record of WHY Knuckles ships the raw pair while Sonic and Tails ship `_opt` —
+// history a machine check cannot carry — but it no longer restates the number, so
+// it cannot drift away from it. Its only cost is up to 5 DPLC entries per frame
 // instead of 2 — genuinely inside DMA_IMPORTANT_SLOTS, and now ENFORCED by the
 // dplc_peak_entries guard below rather than asserted here. Moving the same 29
 // tiles either way. See docs/DEFERRED_WORK.md.
@@ -41,7 +47,8 @@ module games.sonic4.knuckles_data in knuckles_data
 // below is stated against. Sole authority is games.sonic4.constants.
 use games.sonic4.constants.{VRAM_TEST_SONIC, VRAM_TEST_OBJ}
 use engine.constants.{TILE_SIZE, DMA_IMPORTANT_SLOTS}
-use engine.objects.dplc.{dplc_peak_tiles, dplc_peak_entries, DPLC_ENTRY_RESERVE}
+use engine.objects.dplc.{dplc_peak_tiles, dplc_peak_entries, DPLC_ENTRY_RESERVE,
+                         DPLC_ADDRESSABLE_TILES}
 
 const _map_knux  = embed("games/sonic4/data/mappings/knuckles.bin")
 const _dplc_knux = embed("games/sonic4/data/dplc/knuckles.bin")
@@ -147,6 +154,28 @@ ensure(VRAM_TEST_SONIC + dplc_peak_tiles(_dplc_knux) <= VRAM_TEST_OBJ,
 // bound, so this is a true guard rather than a ratchet.
 ensure(dplc_peak_entries(_dplc_knux) + DPLC_ENTRY_RESERVE <= DMA_IMPORTANT_SLOTS,
        "Knuckles' peak DPLC frame costs more Important queue slots than the budget leaves — re-page the art or raise DMA_IMPORTANT_SLOTS")
+
+// -----------------------------------------------
+// THE 12-BIT tile_start CEILING — the machine check the header paragraph used to
+// be, and THE TIGHTEST BOUND ON ANY SHEET IN THIS TREE.
+//
+// 4,092 tiles against DPLC_ADDRESSABLE_TILES = 4,096: FOUR TILES of headroom, 128
+// bytes. Sonic has 1,050 and Tails 461. Any Knuckles re-export that adds five tiles
+// fails the build — which is the guard working, not the guard being wrong: the raw
+// pair ships precisely because the contiguous one was 4,383 and wrapped.
+//
+// The check is on the SHEET, not on the table, and that is not an approximation of
+// something better — the shipped table's tile_start field is 12 bits wide, so its
+// largest value is <= 4,095 for every possible input and an ensure over it could
+// never fire. The wrap happens in the producer, before the file exists. Full
+// reasoning at the constants block in engine/objects/dplc.emp.
+//
+// (Of his 4,092 tiles the DPLC's furthest reach is 4,076, so 16 tail tiles are
+// unreferenced. The bound is stated on the sheet anyway: a producer may start a run
+// at any tile it likes, so only "every tile is nameable" is safe against a re-layout.)
+// -----------------------------------------------
+ensure(_art_knux.len / TILE_SIZE <= DPLC_ADDRESSABLE_TILES,
+       "Art_Knuckles is {_art_knux.len / TILE_SIZE} tiles; a DPLC entry's tile_start can only name 0..{DPLC_ADDRESSABLE_TILES - 1}, so the tiles above that would be addressed by a WRAPPED index and load early-frame art — this is the 4,383-tile `_opt` defect the module header records, arriving through the raw pair. Re-page or shrink the sheet, do not raise the field")
 
 pub data Map_Knuckles   = _map_knux
 pub data DPLC_Knuckles  = _dplc_knux
