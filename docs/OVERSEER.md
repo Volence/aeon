@@ -1688,6 +1688,49 @@ path, for the same reason the protocol is read that way.
 
 ## Aeon-specific review bars (beyond the protocol's)
 
+- **A MEASUREMENT RECORDED WITHOUT THE THING IT WAS TAKEN AGAINST DECAYS INTO A FALSE CLAIM —
+  SILENTLY, BECAUSE THE NUMBER ITSELF NEVER CHANGES** (added 2026-08-30T09:35Z; developed jointly
+  with the sigil lane, four instances in one evening, three of them this lane's).
+  **The four, and they are one statement rather than a list:** a **CRC without its freeze**
+  (sigil's — true against the baseline standing when measured, false the moment aeon froze);
+  a **self-observation without its clock** (this lane's — "this session has zero Skill calls",
+  present tense, falsified by **this lane's own next action eight seconds later**); an **address
+  without its shape** (this lane's — `0xA6CDC…` quoted with no `s4.debug.bin` named, while sigil
+  measured the plain shape and got a constant `0x22B0` difference); and a **term without its
+  definition** (this lane's, and the worst — "movers" used for the raw candidate set one sentence
+  before the candidate-minus-control differential, in the entry whose falsifier turns on that word).
+  **WHY CARE CANNOT FIX IT.** In the address case this lane had the shape in hand, read that blob
+  deliberately, and did not carry it into the sentence. So it is not an attention failure — it is a
+  **completion-signal failure** (sigil's reframe): **the number arriving IS the signal that the work
+  is done, and the referent is not part of what that signal measures.** Diligence already fired and
+  returned satisfied. The remedy must therefore be a mechanical clause attached to the figure and
+  can never be a standard of care. Generalised: **a referent is the part of a claim its author has
+  already resolved, which is exactly why it is the part they cannot see is missing.**
+  **WHY PROSE IS THE WORSE CASE, and it is mechanical rather than cultural (sigil's):** a number
+  must be **RE-TYPED** at every use, so each use re-opens the slot where its baseline goes; a term
+  is **RE-USED BY REFERENCE** and re-opens nothing. *This lane's refinement: the axis is **restated
+  vs referenced**, not number vs term — a figure pointed at as "the CRC above" or "the same hash" is
+  a pointer too and decays identically. The trigger is not "is this prose?" but "is this use a
+  restatement or a pointer?"*
+  **THE OPERATIONS.** (1) Every figure carries its referent in the same sentence: CRC + baseline
+  SHA, self-observation + clock, address + shape, count + unit (**sites vs files** — both right,
+  different things). (2) **Date** a decayed figure, never overwrite it: it was true, it lacked a
+  bound. (3) **Where a claim TURNS on a term — a falsifier, a gate, a count stated over it —
+  restate the definition INLINE AT THAT USE**, not in a glossary and not at first use. "Define your
+  terms" is advice nobody can act on; this is narrow enough to do. (4) When two lanes' numbers
+  differ by a **constant**, test the offset hypothesis before reporting a conflict — a systematic
+  delta is a shape difference, and testing it turns a disagreement into a doubled measurement.
+  (5) Prefer an **expected-immobile witness** to "constant across every address": **uniformity is
+  what a systematic error and a real shift have in common; immobility is what only the real shift
+  has.** (6) A structure whose **total** is right can still be wrong — `2+36+2 = 40` summed
+  correctly while describing one mover where there are two, in two different fixtures; a structure
+  that cannot account for a downstream observation is wrong even when its arithmetic checks out.
+  **AND THE ATTRIBUTION RULE THAT GOES WITH IT, which matters more than the bar:** when a defective
+  record misleads a careful reader, **the reader behaved correctly and the defect is the record's.**
+  Reading it the other way is how a defective record survives — **it recruits its own victims as
+  the explanation.** *The flattering reading was available to this lane all evening and it would
+  have had no reason to notice it had taken it.*
+
 - **A STALE SENTENCE IN A PLANNING DOCUMENT IS EXECUTED AS A WORK ORDER — and nothing can
   contradict it, because the thing that superseded it is a commit in ANOTHER REPO** (added
   2026-08-29; three instances in one exchange, framing jointly with the sigil lane, the
