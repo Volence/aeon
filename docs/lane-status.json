@@ -1,89 +1,111 @@
 {
-  "focus": "The editor-authored colour band is in the ROM and certified. Next: backgrounds that drift on their own.",
-  "inFlight": [],
+  "focus": "Cut your decision list from ten to two, and cleared five stale blockers that were hiding in row text.",
+  "inFlight": [
+    {
+      "what": "the sprite-art queue instrument: built, green, and committed on its branch - parked, not lost",
+      "where": "branch parcel/dplc-entry-instrument, waiting on a rebuilt assembler",
+      "agent": false
+    }
+  ],
   "blockedOnOwner": [
-    {
-      "id": "d-16",
-      "what": "how tall one background chunk should be in a travelling act",
-      "since": "2026-08-26"
-    },
-    {
-      "id": "d-17",
-      "what": "whether side by side areas can each bring their own background",
-      "since": "2026-08-26"
-    },
-    {
-      "id": "d-23",
-      "what": "whether to shrink the terrain lookahead buffer for speed",
-      "since": "2026-08-26"
-    },
-    {
-      "id": "d-33",
-      "what": "how a second act's animated background should live in the ROM",
-      "since": "2026-08-27"
-    },
     {
       "id": "d-34",
       "what": "a second standstill drift, found while building your mirrored-slopes ruling",
       "since": "2026-08-27"
     },
     {
-      "id": "d-35",
-      "what": "the shipped sine table is not perfectly mirror-symmetric - fix it or live with it",
-      "since": "2026-08-27"
-    },
-    {
-      "id": "d-31-scoped",
-      "what": "tall background art: build row streaming (small in the engine, real art and editor work), stay at half-rate, or repaint to tile. Your 2.6k memory was right and S3K's plane is HALF ours",
-      "since": "2026-08-29"
-    },
-    {
       "id": "instashield-riders",
       "what": "whether Tails gets the same came-from-a-jump gate (I recommend yes, and leaving Knuckles), and whether you want S3K's second insta-shield gate, which is a feel change",
       "since": "2026-08-29"
-    },
-    {
-      "id": "d-41",
-      "what": "the left-edge fix works, but its cost is a 16-pixel strip at the RIGHT edge showing the background at a different height - bigger than d-40 told you. Look before I land it?",
-      "since": "2026-08-29"
-    },
-    {
-      "id": "d-44",
-      "what": "an unaccounted-for edit to your OJZ background scene, sitting in my working copy since at least the 28th - mine to preserve, yours to rule on",
-      "since": "2026-08-29"
     }
   ],
-  "nextBoundary": "Now - chain 182 is attested and pushed on both sides, and nothing is running.",
+  "nextBoundary": "This is it. Everything is committed and pushed; no agent is running; a fresh session loses nothing.",
   "queue": [
     {
-      "id": "BAND-DRIFT-BUILD",
-      "title": "Backgrounds that drift on their own. Designed, priced, and ruled ON in your place overnight - reversible. Builds after the re-bake and after the colour-band work frees the file it shares.",
+      "id": "EFFECTS-W1-SHOW-A-BAND",
+      "title": "Show you a colour band on screen. Nobody has ever seen one. The tool already exists, so this returns an answer without changing a byte.",
       "state": "next",
+      "size": "S",
+      "blockedBy": null,
+      "project": "EFFECTS-W1"
+    },
+    {
+      "id": "EFFECTS-W1-BIND-PRESETS",
+      "title": "Bind an editor preset to a section so an authored band costs ROM and actually shows. The key it needs does not exist yet outside our notes.",
+      "state": "open",
+      "size": "M",
+      "blockedBy": null,
+      "project": "EFFECTS-W1"
+    },
+    {
+      "id": "EFFECTS-W1-DRIFT-ON",
+      "title": "Switch the drifting-cloud mechanism on and author one layer with it. The engine half landed already and is sitting inert.",
+      "state": "open",
+      "size": "M",
+      "blockedBy": null,
+      "project": "EFFECTS-W1"
+    },
+    {
+      "id": "EFFECTS-W1-VRAM-REPLAN",
+      "title": "Free a spare nametable region. Video memory is measured full to the top. Ruled to wait until the two set-piece items are reached, so nothing is stopped on it today.",
+      "state": "open",
       "size": "L",
       "blockedBy": null,
       "project": "EFFECTS-W1"
     },
     {
-      "id": "BG-TALL-AND-PAGING",
-      "title": "Taller background art, then paging it. Both designed, priced and merged as docs; neither built. They are one sequence - paging does nothing until the streamer lands. Needs your d-31 ruling first.",
-      "state": "blocked",
+      "id": "DENSE-PERLINE-VSRAM",
+      "title": "Per-line vertical-scroll effects, the Batman pseudo-3D floors. You ruled it in tonight. The dense tier it hangs off already exists.",
+      "state": "open",
       "size": "L",
-      "blockedBy": "you - d-31-scoped",
-      "project": "EFFECTS-W1"
-    },
-    {
-      "id": "FG-LEFT-EDGE",
-      "title": "The left-edge foreground breakage you reported. You ruled for the real fix; it is built and verified. Its cost at the RIGHT edge is bigger than the card you ruled on said, so I stopped instead of landing it.",
-      "state": "blocked",
-      "size": "M",
-      "blockedBy": "you - d-41",
+      "blockedBy": null,
       "project": "EFFECTS-W1"
     },
     {
       "id": "PARALLAX-SCROLL-CLAMP",
-      "title": "Nothing clamps the background scroll, so a scene with out-of-range numbers wraps silently and looks like a bug somewhere else. Wanted regardless of the scroll-speed ruling.",
+      "title": "Nothing clamps the background scroll, so a scene with out-of-range numbers wraps silently and looks like a bug somewhere else.",
       "state": "open",
       "size": "S",
+      "blockedBy": null,
+      "project": "EFFECTS-W1"
+    },
+    {
+      "id": "CANOPY-GAP",
+      "title": "The canopy losing a strip. He has now said the project is not done until this is found and fixed. Two code-read explanations are dead, so the plan is to instrument for the next sighting rather than guess a third time.",
+      "state": "open",
+      "size": "S",
+      "blockedBy": null,
+      "project": "EFFECTS-W1"
+    },
+    {
+      "id": "DPLC-ENTRY-BUDGET",
+      "title": "Sonic's heaviest frames need thirteen art transfers against twelve slots. RULED: the targeted re-cut. Measure the append-disturbs-nothing risk before any art ships.",
+      "state": "open",
+      "size": "M",
+      "blockedBy": null,
+      "project": "EFFECTS-W1"
+    },
+    {
+      "id": "LIVE-OBJECTS",
+      "title": "Placing and moving objects from the editor while the game runs. The spawn half is a paused project; oracle has your go on the select-and-inspect half.",
+      "state": "blocked",
+      "size": "L",
+      "blockedBy": null,
+      "project": "LIVE-OBJECTS"
+    },
+    {
+      "id": "SCENE-READOUT",
+      "title": "Nothing tells you which of the twenty effects is on screen. You counted button presses to find scene 13. A gap, not a preference.",
+      "state": "open",
+      "size": "M",
+      "blockedBy": null,
+      "project": "EFFECTS-W1"
+    },
+    {
+      "id": "BG-TALL-AND-PAGING",
+      "title": "Taller background art, then paging it. Both designed and priced; parked with the regions project rather than waiting on you.",
+      "state": "blocked",
+      "size": "L",
       "blockedBy": null,
       "project": "EFFECTS-W1"
     },
@@ -92,11 +114,66 @@
       "title": "Taking the certification harness off the assembler. Step two is finished; step one retires the golden from being a fix's only witness.",
       "state": "open",
       "size": "L",
-      "blockedBy": "your ruling on the chain count; the assembler lane's step 1",
-      "project": "SIGIL-DECOUPLE"
+      "blockedBy": "the sigil lane - it is their project and their board front, not a call you owe",
+      "project": "EFFECTS-W1"
+    },
+    {
+      "id": "SECTION-HEAD-CLAMP",
+      "title": "A line that says it clamps and does not. Harmless today, wrong the moment anyone adds the cache-recovery path the code's own comments already promise.",
+      "state": "open",
+      "size": "S",
+      "blockedBy": null,
+      "project": "EFFECTS-W1"
+    },
+    {
+      "id": "STALE-DAC-ANCHOR-PROSE",
+      "title": "Our own notes name a sound-bank address that moved. Fix by deleting the number, not retyping today's. Nothing is editing that file.",
+      "state": "open",
+      "size": "S",
+      "blockedBy": null,
+      "project": "EFFECTS-W1"
+    },
+    {
+      "id": "PAINTED-REGIONS-FINDINGS",
+      "title": "Fourteen defects a peer study found, now verified and booked. Ten real, one refuted, three already known. Fixing them is not started.",
+      "state": "open",
+      "size": "M",
+      "blockedBy": null,
+      "project": "EFFECTS-W1"
+    },
+    {
+      "id": "BLOCK-STREAM-DEDUP",
+      "title": "We store 443 copies of 73 distinct level blocks. About 21 KB freed for no behaviour change. Now its own separate win rather than a prerequisite for the art fix.",
+      "state": "open",
+      "size": "M",
+      "blockedBy": null,
+      "project": "EFFECTS-W1"
     }
   ],
-  "awaiting": "d-44 whenever you want it: an unaccounted-for edit to your OJZ background scene, which I have left untouched.",
+  "awaiting": null,
   "atBoundary": true,
-  "updatedAt": "2026-08-29T11:48:08Z"
+  "updatedAt": "2026-08-30T01:02:31Z",
+  "resume": "Your go is RECORDED (empyrean 7149b39) - do NOT boot into a stop. Start with EFFECTS-W1-SHOW-A-BAND: run tools/band_witness.py against master, no bytes moved. EFFECTS-W1 now has a SECOND HALF - the owner ruled the side-effect bugs must be fixed before the project is done (DoD items 14-17). The canopy is no longer backgroundable and its plan is to INSTRUMENT for the next sighting, not derive a third explanation - two are already refuted. d-47-revised is ruled 'targeted'; measure the append risk before art ships. Everything is in DEFERRED_WORK.md.",
+  "parkedQuestions": [
+    {
+      "id": "d-16",
+      "note": "a real question, in the decisions ledger, but nothing in the current plan waits on it"
+    },
+    {
+      "id": "d-17",
+      "note": "a real question, in the decisions ledger, but nothing in the current plan waits on it"
+    },
+    {
+      "id": "d-23",
+      "note": "a real question, in the decisions ledger, but nothing in the current plan waits on it"
+    },
+    {
+      "id": "d-31-scoped",
+      "note": "a real question, in the decisions ledger, but nothing in the current plan waits on it"
+    },
+    {
+      "id": "d-33",
+      "note": "a real question, in the decisions ledger, but nothing in the current plan waits on it"
+    }
+  ]
 }
