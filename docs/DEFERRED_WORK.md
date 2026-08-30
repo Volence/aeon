@@ -480,6 +480,56 @@ blocking. Not fixed — Rider 3 couples the change to a migration — but **regi
 with the count pinned at 12**, so a thirteenth fails the build. *The earlier "14 memory-path calls
 across three files" was a three-file grep; the real figure is 131 across 12 files.*
 
+**⚑ TWO MORE CLASSES FROM ORACLE'S EMITTER, BOTH VERIFIED HERE — AND OUR STANDING EXAMPLE WAS THE
+SAFE ONE (2026-08-30).** Their tool (oracle `a08e0d2`, table pinned at oracle-old `58b6f81`) found
+two hazards a full day of two lanes checking each other did not.
+
+**Class 3 — SILENT PARTIAL PARSE, which is neither the value nor the default.** All three `stoll`
+calls at `:143-146` pass **`nullptr`** as the position out-param and full consumption is never
+checked; no position out-param is used anywhere in the file. So trailing garbage is accepted.
+**All day both lanes reasoned in terms of "the value" or "the default" — this is a third outcome
+and no check either lane designed would trip on it.**
+
+**⚑ AND OUR STANDING EXAMPLE HAD IT BACKWARDS — MEASURED, by compiling the accessor's exact logic
+rather than reasoning about `stoll`'s contract:**
+
+    "12abc"   -> 12      partial parse
+    "0x12ZZ"  -> 18      partial parse
+    "$12ZZ"   -> 18      partial parse
+    "0xZZZZ"  -> default   <- THROWS. the example both lanes quoted all day is the SAFE case
+    "abc"     -> default
+
+`"0xZZZZ"` has no valid hex prefix, so `stoll` performs no conversion, throws `invalid_argument`,
+and the `catch (...)` returns the default. **The dangerous shape is a VALID PREFIX FOLLOWED BY
+GARBAGE, not garbage.** And it is worse than the defaulting case in kind: a defaulted `addr` of 0
+is at least a consistent wrong value someone may recognise, whereas `0x12ZZ` yields address 18 —
+plausible, arbitrary, and unrecognisable as a failure. *Every write-up on both sides should swap
+the example.*
+
+**Class 4 — THE WHOLE-REQUEST DEFAULT, which fires ABOVE the key layer.** `:2873`:
+`json params = msg.contains("params") && msg["params"].is_object() ? msg["params"] : json::object();`
+The envelope check immediately above rejects a bad `jsonrpc`, a missing `method` and a non-string
+`method` with `-32600`, and **does not check `params`' type at all**. So a `params` sent as an
+array, string or number silently becomes `{}` and **every key in the request reads its default**,
+after which the call dispatches and answers success.
+
+**⚠ THIS IS INVISIBLE TO OUR GATE BY CONSTRUCTION** — it fires above the key layer, so a per-key
+check cannot see it. **Consumer exposure measured here: 383 emulator send sites parsed by AST,
+ZERO passing a non-dict `params`.** Clean today; the undecidable set (a `params` held in a
+variable) is exactly the gap the gate already declares.
+
+**What the gate needs, booked:** `accepted_shapes` must constrain string values for `getInt`-read
+keys to **fully-parseable forms** rather than to the type `string` — a shape check that admits
+strings admits `"12abc"`. And class 4 needs its own row asserting every send site passes an object
+literal, since no per-key axis reaches it.
+
+**Their tool's numbers supersede every hand count either lane produced:** 55 methods · 42 distinct
+keys · 67 parameter reads · 15 guard sites · 43 unguarded reads (34 with an explicit default, 9
+without) · 27 guards covering absence but not type. *Their 64 vs the tool's 67 is a population
+difference, not a fifth miss — the tool adds four envelope reads outside `JsonObj`, which are the
+one layer that does type-check. Their stated defect is the better lesson: claiming a complete
+enumeration without naming what it was complete OVER.*
+
 **THIS LANE'S POSITION ON THEIR OPEN QUESTION (default = refusal, or fallback?): REFUSE.** A
 fallback to a hardcoded live checkout is protocol bar 15 exactly — the permissive option is the
 one structurally incapable of announcing its own failure, and the gitignore removes the last
