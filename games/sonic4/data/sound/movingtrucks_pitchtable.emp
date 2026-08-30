@@ -7,8 +7,10 @@
 //
 // The exact Zyrinx "Moving Trucks" 132-entry chromatic fnum table
 // (/tmp/zyrinx_re_timing_pitch.md §2.4). BANKED at the engine-table head
-// (soundBankHead, VMA $8357, physically in the $58000 bank); sigil lowers
-// this to movingtrucks_pitchtable.bin and soundBankHead BINCLUDE's it.
+// (soundBankHead, VMA $8357, physically in the `sound_bank` bank — that
+// anchor's LMA is DERIVED by the bank placement rule in games/sonic4/map.toml,
+// not fixed); sigil lowers this to movingtrucks_pitchtable.bin and
+// soundBankHead BINCLUDE's it.
 // SHAPE-INVARIANT (264 bytes both shapes); soundBankHead's size wall + the
 // whole-ROM byte gate cover body-length drift.
 //

@@ -173,7 +173,8 @@ section dac_sample_tab (cpu: z80, vma: $8000) {
     // $5BAE8/$5D558 ≡ 0 mod 8 excluding 16). The alignment is enforced in two
     // comptime steps: THIS pad rounds the head total to ≡ 0 (mod 8) (so the
     // MT bank — whose seam-2 lowering baseline assumes an aligned section
-    // base — starts ≡ 0 mod 8 at the 8-aligned $58000 map anchor), and
+    // base — starts ≡ 0 mod 8 at the `sound_bank` map anchor, which is 8-aligned
+    // for free because the placement rule aligns it to 0x8000), and
     // mt_bank.emp's tail pad keeps the MT total ≡ 0 (mod 8). A source
     // `align` CANNOT do this job here: seam-2 lowers these modules against
     // baseline/vma positions that differ from final placement, so `align`'s

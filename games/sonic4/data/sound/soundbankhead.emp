@@ -5,8 +5,10 @@
 // The `soundBankHead` macro (engine/sound/sound_bank.inc — DELETED in 1afa9aa;
 // the contract is now this module plus the `sound_bank` anchor in map.toml) emitted the 5 engine-
 // table heads inside the `phase 08000h` bracket at fixed $8000-window VMAs. This
-// module places them NATIVELY as a PHASE-BANK section (vma $8000, lma $58000 via
-// the map `sound_bank` anchor) embedding the seam-2-emitted artifacts — the P2 path
+// module places them NATIVELY as a PHASE-BANK section (vma $8000; the lma is the map
+// `sound_bank` anchor, DERIVED by the bank placement rule in `games/sonic4/map.toml`
+// rather than fixed — this line named a hard $58000 until the 2026-08-26 re-layout
+// moved it) embedding the seam-2-emitted artifacts — the P2 path
 // (spec §6): the emit-tool architecture is untouched; this module places the bytes.
 //
 // THE PHASE-BANK-ANCHOR RULE (armed): this is a labeled $8000-window head, so it is
@@ -75,7 +77,8 @@ ensure(_dacsamp.len == $7F, "DacSampleTable wrong size (must be DAC_SAMPLE_COUNT
 // folds require its base ≡ 0 (mod 8) — the placement chainer 8-aligns that
 // section's base while the fold packs contiguously, so a misaligned base means
 // silent short pointers. Both hold ONLY if this head's total is ≡ 0 (mod 8)
-// (the sound_bank anchor $58000 is 8-aligned). The pad lives at the head tail
+// (the sound_bank anchor is 8-aligned for free: the placement rule aligns it to
+// 0x8000). The pad lives at the head tail
 // (dac_sample_tab.emp, comptime-sized off the four fixed head sizes + the table
 // span); THIS wall is the loud tripwire if any head resizes without
 // re-satisfying the invariant.

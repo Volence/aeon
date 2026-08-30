@@ -5,7 +5,7 @@
 // The ROM-streamed DAC sample banks were the flat BINCLUDE island in
 // games/sonic4/main.asm's gameSoundDataIncludes. This module places them
 // NATIVELY by EMBEDDING the seam-2-emitted artifacts (dac_blip_bank.bin /
-// dac_shared_bank.bin) at their fixed bank LMAs — the P2 path (spec §6): the
+// dac_shared_bank.bin) at their bank-aligned LMAs — the P2 path (spec §6): the
 // emit-tool architecture is untouched (`ensure_generated` still lowers
 // dac_samples.emp → the .bin; this module just places those bytes natively
 // instead of via AS BINCLUDE). The .bin are gitignored build artifacts, so the
@@ -13,8 +13,14 @@
 //
 // The two banks live one $8000 window apart so a single Z80 bank id covers each
 // and FILL never re-banks mid-sample: the blip bank sits at the `dac_banks` map
-// anchor and the shared drum bank one 0x8000 window above it. Both LMAs are fixed
-// Z80-SetBank latches.
+// anchor and the shared drum bank one 0x8000 window above it. Both are declared map
+// anchors (when="sound_on"). What is FIXED about them is the 0x8000 alignment — one
+// Z80 `SetBank` window — and their order; the LMAs themselves are DERIVED from the
+// packed-data end by the bank placement rule, so they move when the data grows. The
+// `align $8000` between the two banks is the inter-bank pad (the intervening bytes
+// are $00 fill, matching the reference). One section, one head label Dac_Temp_Blip
+// (the section head + the map-order/frozen boundary key) — the shared-bank labels
+// are mid-section.
 //
 // ⚠ THE ADDRESSES AND BANK IDS ARE DELIBERATELY NOT WRITTEN HERE (2026-08-27). This
 // header carried `$48000`/`$50000` and banks `$9`/`$A` until the 2026-08-26 re-layout
@@ -25,10 +31,7 @@
 // `.lst` is the instrument for where they actually landed.
 // Found by the sigil lane during the SIGIL-DECOUPLE constraint audit, and it survived
 // this repo's own prose sweep because it describes addresses the re-layout parcel
-// MOVED rather than addresses that parcel TOUCHED
-// (declared map anchors, when="sound_on"). The `align $8000` between them is the
-// inter-bank pad (the intervening bytes are $00 fill, matching the reference). One section, one head label Dac_Temp_Blip (the section head +
-// the map-order/frozen boundary key) — the shared-bank labels are mid-section.
+// MOVED rather than addresses that parcel TOUCHED.
 //
 // STRUCTURAL EXCLUSIVITY (spec §6, the ruled mechanism): this native section is
 // the SOLE DAC placement — the AS BINCLUDE arm is DELETED, so it can't double-
@@ -51,7 +54,9 @@ const _shared = embed("engine/sound/generated/dac_shared_bank.bin")
 pub data Dac_Temp_Blip = _blip
 
 // Pad to the next 0x8000 bank boundary: the shared drum bank starts on
-// its own bank id ($A) so FILL never re-banks mid-sample.
+// its own bank id — one window above the blip bank's, whatever the rule placed
+// that at — so FILL never re-banks mid-sample. (`bankid()` folds the id at link
+// from the placed LMA; nothing here is hand-typed. See the ⚠ note in the header.)
 align $8000
 
 // The shared RAW 8-bit PCM drum bank, one 0x8000 window above the anchor. Dac_SharedBank_Start and

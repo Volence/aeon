@@ -23,11 +23,22 @@
 //
 // Placement is HONEST: neither `bank:` section carries a `vma:` (a `bank:`
 // section WITH `vma:` is now a compile error), so labels follow the PLACED LMA —
-// VMA == LMA. The map regions pin `dac_blip_bank` at $48000 and `dac_shared_bank`
-// at $50000 (the current baseline, per aeon's s4.lst); `bankid()` folds to $9 / $A
-// because the bytes are GENUINELY in those banks, not because a `vma:` phase
-// decoupled the label address from the physical placement. A re-baseline moves
-// the pins via the harness PROVENANCE flow (regions place BY SECTION NAME).
+// VMA == LMA. `bankid()` folds to the real bank id because the bytes are GENUINELY
+// in that bank, not because a `vma:` phase decoupled the label address from the
+// physical placement.
+//
+// ⚠ NO ADDRESSES OR BANK IDS ARE WRITTEN HERE, DELIBERATELY (2026-08-29) — and note
+// that the mechanism, not just the numbers, is what went stale. This header used to
+// say the map REGIONS pinned `dac_blip_bank`/`dac_shared_bank` at fixed addresses.
+// Both halves are dead: 4bc2d62f (2026-08-01) deleted those regions when the DAC
+// banks went native — map.toml has named neither section since — and the 2026-08-26
+// re-layout then moved the addresses too. Today these two sections are lowered by
+// seam-2 to `dac_blip_bank.bin` / `dac_shared_bank.bin`, and
+// `games/sonic4/data/sound/dac_banks.emp` embeds those blobs at the `dac_banks` map
+// anchor. That anchor is DERIVED, not fixed: `games/sonic4/map.toml` (search
+// `dac_banks  = align_up`) carries the rule and the measured result, and the build's
+// `.lst` is the instrument for where the bytes actually landed. Re-typing today's
+// values here would go stale on the identical clock that produced this note.
 //
 // The blobs bind to `const` first because a blob's `.len` is only a readable
 // comptime int off a const binding (the `data K = embed(...)` readability gate);
@@ -82,8 +93,8 @@ ensure(0 < S3kKickBlob.len   && S3kKickBlob.len   < $8000, "S3K DAC drum length 
 
 // ===========================================================================
 // The blip bank — the single 1B bring-up sample, alone in a $8000 window so one
-// bank id covers it and the Z80 never re-banks mid-sample. Pinned at $48000 by
-// the map (bank $9).
+// bank id covers it and the Z80 never re-banks mid-sample. Placed at the `dac_banks`
+// map anchor (see the ⚠ note in the header for where that address is derived).
 // ===========================================================================
 section dac_blip_bank (cpu: m68000, bank: $8000) {
     data Dac_Temp_Blip = BlipBlob
@@ -94,7 +105,8 @@ section dac_blip_bank (cpu: m68000, bank: $8000) {
 // The shared RAW 8-bit PCM drum bank — all nine drums (the 3 original
 // kick/snare/hat + the 6 S3K HCZ2 drums, ~30908 bytes) packed contiguously into
 // one $8000 window so a single bank id covers the whole region and FILL never
-// re-banks mid-sample. Pinned at $50000 by the map (bank $A). Order matches the
+// re-banks mid-sample. Placed one 0x8000 window above the blip bank, on its own bank
+// id (see the ⚠ note in the header for the derivation). Order matches the
 // .asm exactly. Drums are raw 8-bit PCM, not DPCM: the shared bank makes
 // compression moot, and raw is higher-rate and cleaner.
 // ===========================================================================

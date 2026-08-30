@@ -1,11 +1,20 @@
 // ===========================================================================
 // data/sound/mt_bank.emp — the MT streaming-bank DATA (sound-migration T2)
 // ===========================================================================
-// This module carries the MT streaming-bank DATA: from `Song_MovingTrucks`
-// ($58628) through `SongPatchTable_End`. The engine-table head (`soundBankHead`,
-// the Z80 phase-0 blob at $58000..$58628, incl. `MovingTrucks_Bank_Start` and the
+// This module carries the MT streaming-bank DATA: from `Song_MovingTrucks` through
+// `SongPatchTable_End`. The engine-table head (`soundBankHead`, the Z80 phase-0 blob
+// that opens the bank, incl. `MovingTrucks_Bank_Start` and the
 // `SND_ENGINE_TABLE_BANK` equ) precedes it; this module picks up right after it,
 // in the SAME bank-aligned 32KB window.
+//
+// NO LMA IS WRITTEN HERE (2026-08-29). The bank opens at the `sound_bank` map anchor,
+// which is DERIVED from the packed-data end rather than fixed — see the BANK
+// PLACEMENT RULE in `games/sonic4/map.toml` (search `sound_bank = dac_banks`) for the
+// rule and its measured result, and the build's `.lst` for where it actually landed.
+// This header named a hard `$58000`/`$58628` until the 2026-08-26 re-layout moved the
+// anchor; a fresh literal would go stale the same way. What matters to THIS module is
+// relative and holds at any anchor: the head precedes it, both share one $8000 window,
+// and the anchor is 8-aligned (see below).
 //
 // Shape input: `-D DEBUG=0|1`. Plain shape (DEBUG=0) carries only Moving Trucks
 // (song id 1); DEBUG shape (DEBUG=1) additionally carries the DrumTest (id 2)
@@ -13,9 +22,8 @@
 // DEBUG-only ones' value
 // folding to `Data.empty` (zero bytes, label still defined) when DEBUG=0.
 //
-// Placed at $58628: the map's sound_bank anchor ($58000) + contiguous pack
-// after the soundBankHead. Re-pin via the harness PROVENANCE flow on any
-// re-baseline.
+// Placed at the map's `sound_bank` anchor + contiguous pack after the
+// soundBankHead. Re-pin via the harness PROVENANCE flow on any re-baseline.
 //
 // The invariants this bank enforces:
 //   * No-straddle: the section's `bank: $8000` property is an always-on
@@ -128,7 +136,8 @@ ensure(SongBlob.len == MT_PITCHTAB_OFFSET,
 // three always-on blobs + the DEBUG members + their two self-adjusting odd-length
 // align-2 pads ((len % 2) is exactly that conditional pad's size). The pad
 // rounds it to ≡ 0 (mod 8); with the section base ≡ 0 (mod 8) (head padded to 8
-// in dac_sample_tab.emp + the 8-aligned $58000 anchor) and the pointer tables
+// in dac_sample_tab.emp + the `sound_bank` anchor, 8-aligned because the placement
+// rule aligns it to 0x8000) and the pointer tables
 // 8*SONG_COUNT B (≡ 0 mod 8), the section END — the SFX block's base — is then
 // ≡ 0 (mod 8) by construction, for any song regen or shape.
 const _MT_DEBUG_EXTRA = if DEBUG == 1 { DrumTestBlob.len + (DrumTestBlob.len % 2) + Hcz2Blob.len + (Hcz2Blob.len % 2) + Hcz2PatchBlob.len } else { 0 }
@@ -197,8 +206,9 @@ section mt_bank (cpu: m68000, bank: $8000) {
     // the placed base is misaligned — its D2.29 congruence assert catches
     // that loudly (how this was learned). Instead the base IS forced ≡ 0
     // (mod 8) upstream (the dac_sample_tab.emp head-tail pad rounds the
-    // engine-table head to 8, and the sound_bank map anchor $58000 is
-    // 8-aligned), which ALSO makes the baseline-0 comptime arithmetic here
+    // engine-table head to 8, and the sound_bank map anchor is 8-aligned for
+    // free — the placement rule aligns it to 0x8000), which ALSO makes the
+    // baseline-0 comptime arithmetic here
     // exact. The pad sits BEFORE the two pointer tables so it lands in the
     // BODY split-bin (the SONG_COUNT*4 table-size walls stay exact); the
     // tables are 8*SONG_COUNT bytes (always ≡ 0 mod 8), so padding here

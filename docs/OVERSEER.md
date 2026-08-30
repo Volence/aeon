@@ -2017,6 +2017,19 @@ path, for the same reason the protocol is read that way.
   The stale prose says the old number by definition, so the new number cannot find it.
   *And fix it by DELETING the number, not by re-typing today's: a fresh literal goes stale on the
   identical clock, which is exactly how these got there.*
+  **✅ CLOSED 2026-08-29** by `fix/stale-dac-anchor-prose` — full write-up in `docs/DEFERRED_WORK.md`
+  ("THE STALE DAC/SOUND-BANK ANCHOR PROSE, SWEPT BY THE *OLD* VALUES"). Note for anyone reading this
+  bullet as the record: **the header fix it describes (`28c9ee02`, 2026-08-27) was not the sweep.**
+  It fixed the four sites in `dac_banks.emp`'s header and nothing else, and this bullet went on
+  reading as fully open, so the operational rule it states had never been run. Running it found **20
+  more live sites across 10 files** (enumerated in the DEFERRED_WORK entry so the count is
+  checkable) — one of them eight lines below `28c9ee02`'s own ⚠ warning. Two
+  classes the rule as written would still miss: (a) prose whose **mechanism** was deleted rather than
+  moved (`dac_samples.emp` described map regions removed 25 days *earlier*; the wrong-looking address
+  was the *less* wrong half), and (b) a **generator diverged from its own `DO NOT EDIT BY HAND`
+  output**, so regenerating would have reintroduced stale text. Add both to the sweep: after
+  relocating anything, also grep for mechanisms recently *deleted*, and re-run every generator to
+  confirm it round-trips against its checked-in output.
 - **PROSE BOUNDS ARE A POPULATION THE "IS IT DERIVED?" SWEEP DOES NOT REACH** (added
   2026-08-27; same source). After a sweep across every code consumer, one literal `8` survived
   in an agent-facing tool **description string**. Help text, `argparse` descriptions, docstrings,

@@ -48,6 +48,78 @@ against the AS-era tree and cite `.asm` paths and line numbers into files that *
 
 ## NOW UNBLOCKED — actionable (compiled 2026-08-05)
 
+### ✅ CLOSED — THE STALE DAC/SOUND-BANK ANCHOR PROSE, SWEPT BY THE *OLD* VALUES — closed 2026-08-29
+
+**Parcel:** `fix/stale-dac-anchor-prose`. Closes the `docs/OVERSEER.md` bullet beginning
+**"AND THE PROSE SWEEP HAS ITS OWN BLIND SPOT: A PARCEL MOVES ADDRESSES IT NEVER TOUCHES"**, and
+the `argparse`/refusal-message half of the bullet immediately after it. **Zero ROM bytes moved:**
+all four canonical shapes byte-identical before and after (`s4` `1907233572`/719,235 · `s4.debug`
+`2925804542`/736,235 · `demo` `3903192784`/96,372 · `demo.debug` `2688213723`/101,255).
+
+**The booking was already half-closed and said so nowhere.** `28c9ee02` (2026-08-27) fixed the four
+sites in `dac_banks.emp`'s *header* that the bullet names. It did not sweep anything else, and the
+bullet still reads as fully open — so the finding's own operational rule ("sweep the OLD values
+tree-wide") had never actually been run. Running it turned up **20 more live sites across 10
+files**, including one in the very file `28c9ee02` edited (`dac_banks.emp`'s inline `bank id ($A)`
+comment, eight lines below the ⚠ note warning that those numbers are stale).
+
+**The 20 sites** (`git show` the fix commit and count the removed lines to check this number —
+some sites span two lines): `dac_banks.emp` ×3 (`:8` "fixed bank LMAs", `:16` "Both LMAs are fixed
+Z80-SetBank latches", `:54` "bank id (`$A`)") · `dac_samples.emp` ×3 (`:26`, `:85`, `:97`) ·
+`mt_bank.emp` ×4 (`:4`, `:16`, `:131`, `:200`) · `soundbankhead.emp` ×2 (`:8`, `:78`) ·
+`dac_sample_tab.emp` ×1 (`:176`) · `movingtrucks_pitchtable.emp` ×1 (`:10`) · `zyrinx_player.py` ×2
+(`:221`, `:224`) · `bganim_room.py` ×2 (`:189`, `:423`) · `gen_sound_tables.py` ×1 (`:696`) ·
+`build.sh` ×1 (`:672`).
+
+**The sweep's shape, which is the transferable half.** Enumerate the *pre-move* values from
+`git show` on the mover's diff, not from the current tree: `dac_banks` `$48000` (bank `$9`), shared
+`$50000` (`$A`), `sound_bank` `$58000` (`$B`), and the retired `z80_moving_trucks_bank` `$60000`.
+Stale prose states the OLD number by definition, so the new number cannot find it.
+
+**Two findings the booking did not anticipate, both worse than the one it did:**
+
+1. **The mechanism went stale before the numbers did, and the numbers hid it.**
+   `dac_samples.emp`'s header said *"The map regions pin `dac_blip_bank` at `$48000` and
+   `dac_shared_bank` at `$50000` (**the current baseline**, per aeon's s4.lst)"*. `4bc2d62f`
+   (2026-08-01) **deleted those regions** when the DAC banks went native — `map.toml` has named
+   neither section since — so the sentence was already false 25 days *before* the re-layout falsified
+   its addresses. Nothing moved underneath it; the mechanism it described was removed and the
+   sentence survived. Fixing only the digits would have left a reader looking for map regions that
+   do not exist. **A relocation sweep that greps addresses will not find a deleted mechanism** —
+   the address is the part that looks wrong, and it is the less wrong part.
+
+2. **A generator had diverged from its own output, so regenerating would have *reintroduced* stale
+   prose.** `tools/zyrinx_player.py`'s `emit_pitchtable_emp()` still emitted *"the AS-side size guard
+   in `sound_bank.inc`"* — a file deleted in `1afa9aa` — while the checked-in
+   `movingtrucks_pitchtable.emp` carried a hand-corrected line naming the real guard. The file says
+   `DO NOT EDIT BY HAND`, so the correction was applied where it could not survive. Both sides now
+   carry identical text and the generator round-trips exactly against the checked-in file
+   (asserted). **Any "generated, do not edit" file that has been hand-corrected is a latent
+   regression** — the fix must land in the generator or it is not landed.
+
+**Also fixed (the refusal-message population).** `tools/bganim_room.py`'s gate failure text called
+the anchor *"a HARDWARE anchor that cannot move (a Z80 SetBank latch)"* — **in the same message**
+whose next sentence tells the operator to move both anchors per the placement rule. An operator
+who believed the first clause could not act on the second. `build.sh`'s gate comment likewise still
+called it *"the `dac_banks` hardware anchor (`$48000`)"*. Post-re-layout the LMAs are **derived**;
+only the `0x8000` alignment and the bank ordering are fixed.
+
+**How every site was fixed:** by deleting the number and naming the authority that computes it —
+`map.toml`'s BANK PLACEMENT RULE (`dac_banks = align_up(...)` / `sound_bank = dac_banks + 0x10000`)
+and the build's `.lst` for where the bytes actually landed. Alignment claims that only needed
+*8-aligned* now derive it from the rule's `0x8000` alignment, which holds at any anchor value. Every
+surviving `$48000`/`$50000`/`$58000` in the tree is now explicitly past-tense or a dated record.
+
+**Files:** `games/sonic4/data/sound/{dac_banks,dac_samples,mt_bank,soundbankhead,movingtrucks_pitchtable}.emp`,
+`engine/sound/dac_sample_tab.emp`, `tools/{zyrinx_player,bganim_room,gen_sound_tables}.py`, `build.sh`.
+
+**Left alone deliberately:** `map.toml:64,165`, `docs/ENGINE_ARCHITECTURE.md:169,232`,
+`tools/inject_editor_bg.py:71,80,81,128`, `tools/bganim_room.py:25`, `tools/test_bg_emit.py:877`,
+and the append-only records (`decisions.jsonl`, `lane-log.jsonl`, `docs/superpowers/*`, the
+`OVERSEER.md`/`DEFERRED_WORK.md` bookings themselves). All are correctly framed as history — they
+say what the anchor *was*, with the correction adjacent. **Rewriting those would destroy the record
+of why the defect happened**, which this repo treats as load-bearing.
+
 ### THE d-45 CANOPY-GAP MEASUREMENT WAS WRONG, THE DEFECT IT NAMED IS REAL, AND WHAT THE OWNER SEES IS STILL UNIDENTIFIED — booked 2026-08-29
 
 **Parcel:** `worktree-agent-a1a8f63b08a46803f`. **Ruling:** d-45 — the owner authorised "the fix for
