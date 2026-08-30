@@ -237,7 +237,24 @@ neither.*
 
 **The classification template the lanes converged on**, for when this is picked up: exclude docs and
 comment lines **by construction** rather than by filtering afterwards; split harness from suite; and
-audit the suite half by making the input absent and **reading where the red lands**.
+audit the suite half by poisoning the input and **reading where the red lands**.
+
+**⚠ CORRECTION TO THE POISON ITSELF, and it inverts the obvious scenario (aurora, measured over
+their 306 rows at `9f3e4d22`): DELETING THE INPUT FINDS THE LEAST.** With the tree **absent**: **0**
+misdirected of 306. With the tree **present but EMPTY**: **43 rows failed without naming the
+input.** An absent directory is loud almost everywhere, because something early in the stack throws
+a recognisable error; an empty one satisfies every existence check and then produces nothing, which
+is the state that reads as a legitimate zero. **Run BOTH scenarios; the empty one is the assay.**
+
+**And a class the poison misses entirely: WALK-UP PATH FINDERS.** A helper that climbs parents
+looking for a marker *looks* converted — no literal in sight — and still opens the real tree,
+because the walk succeeds from wherever the test happens to run. **An override pointed at an absent
+directory does not stop it.** Catching it needs an **fs-level trace** showing which paths were
+actually opened, not a source read.
+
+**Size the population by ROWS GATED, not by literals.** One literal in aurora's tree gated **51
+rows**. A count of occurrences ranks the work wrongly and makes a one-line fix look like a
+one-row win.
 
 **Not started. Bug tier, tag EFFECTS-W1 by his reorder. Sequences after the freeze and the replay
 restamp** — it touches test files broadly and should not move while a chain is superseding.
