@@ -51,7 +51,7 @@ echo
 echo "freeze_preflight: step 2/2 — the port targets (the standalone-module case build.sh never exercises)"
 OUT=/tmp/fp_ports.$$
 cargo test --release -p sigil-cli --no-fail-fast 2>&1 | tee "$OUT" | grep -E "^test result:|FAILED|panicked at" | tail -25
-FAILED=$(grep -cE "^test .* FAILED" "$OUT" 2>/dev/null || echo 0)
+FAILED=$(grep -cE "^test .* FAILED" "$OUT" 2>/dev/null; true)
 echo
 echo "freeze_preflight: $FAILED port test failure(s)"
 if [ "$FAILED" -gt 0 ]; then
