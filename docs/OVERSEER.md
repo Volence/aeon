@@ -282,6 +282,32 @@ rulings live in the session memory and the most recent `docs/superpowers/*handof
   the build started its inputs were written — is the shape that solves this, and this witness has no
   equivalent.* Booked: give the witness a freshness assertion of its own.
 
+- **A RECOMMENDATION SHOULD CARRY ITS IMPLEMENTATION CONSTRAINTS WHEN THE RECOMMENDER IS THE
+  BENEFICIARY** (added 2026-08-30; the sigil lane's self-correction, and this lane is the party it
+  protects).
+  They recommended freezing the `.lst` beside each golden ROM. They priced the benefit precisely —
+  their own failure class, their own two wasted builds — declared the interest unprompted, argued it
+  hard enough to move a ruling, and **did not look at how it would be implemented until after the
+  ruling existed.** The implementation had a trap in it that would have frozen an off-canonical
+  listing under a canonical name, deterministically, on the first run. **The cost of that would have
+  landed in THIS lane's ritual, on their argument.**
+  **The bar: when you recommend a change whose cost lands on someone else, the implementation
+  constraints are part of the recommendation, not a follow-up.** Declaring the interest — which they
+  did, and which is why the recommendation was trustworthy — covers the *motive* and says nothing
+  about the *feasibility*. A beneficiary who has not costed the implementation is asking the payer to
+  discover it.
+  **This lane's own corrective, since it is the receiving side: measure the cost yourself (done —
+  65 KB compressed against 6.7 MB) AND ask what the implementation touches, before ruling.** I did
+  the first and not the second; the trap was found by the recommender, not by me.
+  **⚠ AND A CREDIT CORRECTION THAT IS THE ACTUAL LESSON, theirs, refusing praise for the wrong
+  mechanism.** I wrote that their build-order sweep "ran against the change they had just
+  recommended", i.e. that they audited their own win. **False: the sweep had finished hours earlier.**
+  What happened is smaller and reproducible — they were *holding a named class* (**correctness that
+  depends on invocation order, with no failing mode to observe**) and the new proposal walked into
+  it. **The transferable form is "keep the class list where you will meet it", NOT "audit your own
+  wins".** Stating it as vigilance would teach a habit nobody can perform on demand; stating it as
+  a live class list is a thing this file can actually be.
+
 - **THE SHA BAR HAS ONLY EVER BEEN WRITTEN FOR THE RECEIVING SIDE, AND THE FAILURE LIVES ON THE
   EMITTING SIDE** (added 2026-08-30; this lane's own defect, caught by the hub within minutes).
   This file's existing SHA rules all say the same thing: `--stat` a citation you RECEIVE. That is

@@ -1,5 +1,5 @@
 {
-  "focus": "The clamps are frozen and pushed. The strict suite after it went red on one symbol; fix is with sigil.",
+  "focus": "Clamps landed and frozen. Waiting on sigil's eight fixes before the superseding freeze.",
   "inFlight": [
     {
       "what": "the clamps: merged, frozen, pushed - but the post-freeze strict suite is RED on one cross-seam symbol, so the freeze entry needs superseding once fixed",
@@ -24,7 +24,7 @@
       "since": "2026-08-29"
     }
   ],
-  "nextBoundary": "Here, once sigil answers who takes the composition fix. Everything is committed and pushed; nothing is half-applied.",
+  "nextBoundary": "Here. Everything is committed and pushed; the only open thread is sigil's fix, which is theirs.",
   "queue": [
     {
       "id": "SCROLL-AND-SECTION-CLAMPS",
@@ -275,9 +275,9 @@
       "project": "EFFECTS-W1"
     }
   ],
-  "awaiting": "your look at the right-edge pictures for the left-edge fix - they are committed and ready",
+  "awaiting": "your look at the right-edge pictures, and one number for sigil's plan - both already on your list",
   "atBoundary": true,
-  "updatedAt": "2026-08-30T03:11:47Z",
+  "updatedAt": "2026-08-30T03:25:26Z",
   "resume": "Your go is RECORDED (empyrean 7149b39) - do NOT boot into a stop. Start with EFFECTS-W1-SHOW-A-BAND: run tools/band_witness.py against master, no bytes moved. EFFECTS-W1 now has a SECOND HALF - the owner ruled the side-effect bugs must be fixed before the project is done (DoD items 14-17). The canopy is no longer backgroundable and its plan is to INSTRUMENT for the next sighting, not derive a third explanation - two are already refuted. d-47-revised is ruled 'targeted'; measure the append risk before art ships. Everything is in DEFERRED_WORK.md.",
   "parkedQuestions": [
     {
