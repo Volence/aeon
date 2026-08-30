@@ -15673,6 +15673,46 @@ said around them — the lifted non-goal, the bit, the reference, the sequencing
 lane's scaffolding and was checked here before being written down: bit CONFIRMED (with the value
 caveat above), reference reasonable, non-goal NOT REPRODUCED, sequencing accepted.
 
+## MEASURED: NOTHING REFUSES A `rasterRef` ON A SECTION NOTHING CONSUMES — booked 2026-08-30
+
+**The question came from the hub (empyrean `c723dd6`) off aurora's O55; the answer is measured
+here, on master `5fc778c4`, and it is "nothing refuses and nothing warns".**
+
+`effects_gen.py` validates one thing about a `rasterRef` and one thing only: that it **names a
+known preset document** (`:1342-1351`, a typo refusal that lists the known ids, symmetric with the
+`sceneRef` half). **There is no check anywhere that the named section's preset is chooser-threaded.**
+
+**The generator's own output is not the problem — it is already complete.** `:1481-1482` emits
+`if sec == <i> { out = <program> }` for **every** bound section, so `sec_raster(6)` would return the
+right program today. The witness counts them all too (`raster_bindings=len(raster_bound)`, `:1448`).
+**The gap is entirely on the consumer side:** only a preset whose `raster:` argument is hand-threaded
+through `sec_raster(...)` ever asks. After step 5 that is section 5 alone. So the generator answers
+a question nobody asks, correctly, and nothing anywhere notices.
+
+**⚠ THIS DEFECT IS CREATED BY STEP 5, NOT REVEALED BY IT.** Before step 5 no section is threaded, so
+the state is uniform and honest: bindings do nothing, for everyone, and aurora's disclosure says so.
+Step 5 makes it **non-uniform** — one section works, eight do not, and no instrument on either side
+of the seam can tell an author which. That is the too-optimistic direction both lanes spent
+2026-08-30 naming: the editor accepts it, the build accepts it, a counter goes up, no picture.
+
+**The remedy is a LINT, not a generator refusal, and the distinction matters.** The generator cannot
+see who calls its chooser — that is a fact about hand-authored `.emp`. A lint over
+`ojz_effects.emp` can, and **the precedent is already ours**:
+`tools/test_raster_cycle_table_lint.py` parses that same hand-authored file today. Shape: for every
+section in `raster_bound`, assert the act's `.emp` threads `sec_raster(<i>)` into that section's
+`preset()` `raster:`; a binding on an unthreaded section is red, naming the section and listing the
+threaded ones. **Derive the threaded set by parsing, never by a written list** — a hand-maintained
+list of wired sections is the snapshot-wearing-a-check this whole thread is about.
+
+**Note this is aeon-side only and does NOT ask aurora to change.** Their refusal to gate stands and
+is correct; this is the machine-readable half living where the knowledge lives.
+
+**SEQUENCING, and it is a hard precondition rather than a preference: this must land before any
+document tells an author they can bind sections — i.e. before item 1 step 7.** Step 5 alone is safe
+to land without it (no sidecar carries a `rasterRef`, so the population of misled authors is empty).
+The moment step 6 lands a real `<REF>`, or step 7's docs say "bind a section", the empty population
+stops being empty. Sized **S**.
+
 ## WHICH SECTIONS CAN ACCEPT A RASTER BINDING IS KNOWN AT BUILD TIME AND PUBLISHED NOWHERE — booked 2026-08-30
 
 **Raised by the aurora lane as the thing that would let them gate properly, and explicitly NOT asked
