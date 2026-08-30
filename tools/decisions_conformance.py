@@ -18,6 +18,15 @@ recorded only as prose in OVERSEER.md, which made the number unreproducible by a
 author — the same "deliverables are committed" rule this repo applies to everything else.
 Caught by the sigil lane.
 
+⚠ THE HISTOGRAM DESCRIBES THE DATA, NOT THE READER'S OUTPUT — and that distinction has teeth.
+Dominion's `parseOptions` RETURNS ON THE FIRST FAILING MEMBER (`796bc1e:server/src/decisions.ts`
+`:232-239`), so the reader emits at most ONE options-error per line. This tool collects every
+reason instead, deliberately, because as a REPAIR LIST that is the useful shape. The line counts
+are identical either way — a line with one error and a line with nine are both rejected — but
+anyone reading the histogram as "what the reader would say" will over-count, and anyone using it
+to size a repair will get the true figure. Caught by the sigil lane, whose implementation returns
+early like the reader's.
+
 ⚠ COUNT LINES, NEVER KEY BY ID. Rule 8c closures carry the settled id, and lanes have reused
 ids outright, so ids repeat by design. The first run of this measurement keyed a dict on `id`
 and reported 28 of 31 — three lines vanished into three existing keys, silently, and 28 looked
@@ -34,9 +43,12 @@ from collections import Counter
 
 AEON = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LEDGER = os.path.join(AEON, "docs/decisions.jsonl")
-# Stand-in for the reader's `parseContractAt`. Deliberately strict: an `at` this rejects that
-# Dominion accepts is a drift between the two implementations and wants re-transcribing, not
-# loosening here.
+# Stand-in for the reader's `parseContractAt`. Deliberately strict, and the message says the
+# EXACT SHAPE rather than "unparseable ISO-8601": `2026-08-24T01:38:39+00:00` is perfectly good
+# ISO-8601 and is still rejected, by Dominion and here alike. Calling that "not parseable" sent
+# a peer looking for a leniency difference that does not exist (their probe found identical
+# verdicts; only my wording diverged). An `at` this rejects that Dominion accepts is a drift
+# between the two implementations and wants re-transcribing, not loosening here.
 AT_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$")
 
 
@@ -54,7 +66,7 @@ def reject_reasons(d: dict) -> list[str]:
     if not nonempty(d.get("at")):
         e.append("at is missing or empty")
     elif not AT_RE.match(d["at"]):
-        e.append("at is not parseable ISO-8601 UTC")
+        e.append("at is not the exact `date -u +%Y-%m-%dT%H:%M:%SZ` shape")
     if not nonempty(d.get("question")):
         e.append("question is missing or empty")
 
@@ -108,22 +120,29 @@ def main() -> int:
               f"against an empty file")
         return 2
 
-    rows = []
+    # A line that is not JSON is REJECTED AS A LINE, never a reason to abandon the file.
+    # Dominion does exactly this (`:615-619`: push kind 'json', then `continue`), and the
+    # first version of this tool returned 2 for the whole ledger instead — so a single bad
+    # line made the file unmeasurable here while remaining perfectly measurable to the
+    # reader, and it failed in the "we cannot know" direction. Found by the sigil lane
+    # running this tool against their own red-first fixture.
+    rows, bad = [], []
     for n, line in raw:
         try:
             rows.append((n, json.loads(line)))
         except json.JSONDecodeError as ex:
-            print(f"CANNOT MEASURE: {path} line {n} is not JSON: {ex}")
-            return 2
+            bad.append((n, None, [f"not valid JSON: {ex}"]))
 
-    bad = [(n, d.get("id"), reject_reasons(d)) for n, d in rows]
-    bad = [b for b in bad if b[2]]
+    bad += [(n, d.get("id"), reject_reasons(d)) for n, d in rows
+            if reject_reasons(d)]
+    bad.sort(key=lambda b: b[0])
 
     print(f"{path}")
-    print(f"  {len(rows)} lines · {len(rows)-len(bad)} parse · {len(bad)} REJECTED "
+    total = len(raw)
+    print(f"  {total} lines · {total-len(bad)} parse · {len(bad)} REJECTED "
           f"(counted per LINE, never by id)")
     if bad:
-        print("\n  reasons (collected, so a line can carry several):")
+        print("\n  reasons in the DATA (this tool collects all; the reader stops at the first\n  options failure and emits one, so these totals exceed its output — the LINE count above\n  is the figure that matches it):")
         for reason, n in Counter(x for _, _, e in bad for x in e).most_common():
             print(f"    {n:3d}  {reason}")
         print("\n  rejected lines:")

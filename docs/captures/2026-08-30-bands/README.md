@@ -38,14 +38,29 @@ pins exact transition lines, not this.
    colour for all 702 band pixels while the framebuffer held the band colours. **Read `cramIndex`
    from attribution and the colour from the png.**
 
-   **CONFIRMED FROM ORACLE'S SOURCE, not just inferred from this measurement** (reported to the
-   oracle lane, who reached it independently from the other end; verified firsthand here at oracle
-   `fcefc04`): `crates/oracle-core/src/render.rs:1897` builds the reply with
-   `rgb: self.cram_rgb_state(winner.cram_index, winner.state)` beside
-   `cram_index: winner.cram_index`, and `cram_rgb_state` (`:1205`) reads `self.cram()` — the live
-   table. Oracle has taken it as a fix rather than a doc note; until it lands, the workaround above
-   is the method. Two derivations from opposite ends — a 71,680-pixel sweep against a screenshot,
-   and a read of the assignment — which is corroboration rather than echo.
+   **THIS IS DELIBERATE AND DOCUMENTED — and the workaround above is the PRESCRIBED PATH, not a
+   workaround** (established 2026-08-30 by the oracle lane, who reproduced it independently on a
+   different ROM with a different instrument, then read the method's own contract). Aether
+   `protocol.md` §11.3 says a server answers this method by resolving the scanline from live VDP
+   state and **MUST NOT read a framebuffer**, and about this exact disagreement: *"This is not a
+   defect in either method and a server MUST NOT try to paper over it; a client that needs the two
+   to agree needs a per-scanline capability — `emulator/scanlines`."* So reading `cramIndex` from
+   attribution and the colour from the raster is what the contract asks for. It is booked as
+   F-SCANLINE-INDEX.
+
+   **What IS broken is that nothing in the reply says any of this**, which is the whole cost: the
+   two fields disagree silently inside one object, and a caller with one instrument cannot tell.
+   Oracle is drafting a contract change to name which moment each answer belongs to — always true,
+   rather than a heuristic that tries to detect mid-frame CRAM writes, which would be wrong in both
+   directions — and to point a caller at `emulator/scanlines` rather than merely flagging the
+   hazard. They have landed an anti-fix pin asserting `rgb` follows LIVE CRAM, whose recorded
+   mutation is the framebuffer read, because they built that fix, got a green suite, and reverted
+   it on reading the contract.
+
+   *Correction to this file's earlier text, which said Oracle "has taken it as a fix". That was my
+   summary of their first lean and it was superseded within the hour. The mechanism I measured is
+   real and the numbers below stand; the conclusion that it was a defect to be fixed was wrong.*
+
 2. **The core's Genesis->RGB is truncating, not rounding.** `$0224` renders `(72,36,36)`,
    not the `(73,36,36)` a `round()` gives. Counting pixels against a hand-written formula
    scored bands 1 and 2 at ZERO and read exactly like "the band does not render". Compare
