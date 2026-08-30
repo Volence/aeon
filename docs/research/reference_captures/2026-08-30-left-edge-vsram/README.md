@@ -4,7 +4,7 @@ Captured 2026-08-30 by `tools/left_edge_vsram_probe.py` for the owner's sighting
 that's like stuck in the bg is animating differently and super fast"* (left edge, effects lab).
 **These are corroboration for a measurement, not a gate.** The measurement is
 `docs/research/2026-08-30-left-edge-vsram-sample.md`; the raw output of the run that produced
-every file here is `probe.log`, and every raw sample (VSRAM, both H-scroll tables, the column
+every file here is `probe-output.txt`, and every raw sample (VSRAM, both H-scroll tables, the column
 buffer, camera, per-line off-grain sets, the attribution grids) is `probe.json`.
 
 The probe refuses rather than guessing: the served ROM is checked against the file on disk, the
@@ -44,9 +44,9 @@ same background as the body; from line 112 down, 70–87 lines per frame are off
 each of those the leftmost 16 px (Oracle's width) render plane B at the foreground's V-scroll
 (400 px away at the warp position, 176 at the default) instead of the background's — a strip
 cut along horizontal seams that the body to its right does not have. In the 6x crop the lower
-half does read as more broken than the upper half, but the reader should trust `probe.log`'s
+half does read as more broken than the upper half, but the reader should trust `probe-output.txt`'s
 per-line `hsB` column over an eyeballed seam. Which rows are cut changes every frame; a still
-cannot show that, `probe.log`'s `in/out` column does (5–6 lines per frame on 13, 10–12 on 14).
+cannot show that, `probe-output.txt`'s `in/out` column does (5–6 lines per frame on 13, 10–12 on 14).
 
 **Scene 12, `planeB-stateRender-left`** — the control. No seams: plane B's H-scroll is `0000`
 on all 224 lines, so no plane-B sliver exists.

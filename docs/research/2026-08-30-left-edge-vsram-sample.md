@@ -8,7 +8,7 @@ arrow at the LEFT edge, effects lab, scene 14 at the time of the first measureme
 **Nothing here changes a ROM byte.** The deliverables are the instrument
 (`tools/left_edge_vsram_probe.py`), this note, and the captures under
 `docs/research/reference_captures/2026-08-30-left-edge-vsram/` (with their own README and
-the run's complete raw output, `probe.log`, and every raw sample, `probe.json`).
+the run's complete raw output, `probe-output.txt`, and every raw sample, `probe.json`).
 
 | item | value |
 |---|---|
@@ -91,7 +91,7 @@ plane-A/plane-B words (what the first full column of each plane reads; `B0` show
 11-bit); `#offB` = lines where plane B's H-scroll `& 15 != 0`; `in/out` = lines entering /
 leaving that set between consecutive frames; widths = lines per `hscroll & 15` on the last
 frame (the hardware sliver width). All from `probe.json`; the full per-frame tables are in
-`probe.log`.
+`probe-output.txt`.
 
 ### Scene 12 — Rocking_Fast
 
