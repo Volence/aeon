@@ -17,6 +17,11 @@
       "id": "d-41",
       "what": "the right-edge price of your left-edge fix - the pictures you asked for are ready and waiting for your look",
       "since": "2026-08-29"
+    },
+    {
+      "id": "d-49-restamp-scope",
+      "what": "whether repairing the replay recording covers all ten broken fingerprints or only the one you scoped, now that the other nine are explained",
+      "since": "2026-08-30"
     }
   ],
   "nextBoundary": "Here. Both tier rows landed and pushed, both shapes green on the merged tree, no agent holds a branch.",
@@ -326,9 +331,9 @@
       "project": "EFFECTS-W1"
     }
   ],
-  "awaiting": null,
+  "awaiting": "your call on how much of the replay recording to repair - the reason your ruling excluded the other nine turned out to be false",
   "atBoundary": true,
-  "updatedAt": "2026-08-30T07:12:19Z",
+  "updatedAt": "2026-08-30T07:27:12Z",
   "resume": "Both bug-tier rows are LANDED (replay-net answered, home-paths fixed) and both canonical shapes are green on the merged tree: s4 719315 B / 6e2f9b22, s4.debug 736315 B / 6516fc68, fresh mtimes, exit 0. Next in d-8 order: the checkpoint-0 restamp (RULED, oracle's A/B reported, restamp mechanically proven by our own agent - nothing restamped yet), then the listing freeze, then DPLC re-cut and block-stream dedup as SERIALIZED byte-movers paired with sigil - they are COUPLED, whichever lands second must re-run dplc_straddle --recut Art_Sonic on the merged tree. Then the decouple's three pieces, then item 1 with its CR filed at the start. Two asks are open with oracle (the three-item replay-net ask; the parameter-contract emitter, which is queued on THEIR owner's word - do not chase it, nothing of ours blocks on it). LEGACY-SEAM-KEY-GATE is unblocked now that tools/ is free of agents; it needs TWO axes, key spelling AND accepted value shape per method - a spelling-only gate would pass the case that matters.",
   "parkedQuestions": [
     {
