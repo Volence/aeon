@@ -1,5 +1,5 @@
 {
-  "focus": "One agent left on the clamps. The DPLC measurement landed and found two 'separate' jobs are coupled.",
+  "focus": "One agent left on the clamps. Everything else is landed, pushed, and the board audit is clean.",
   "inFlight": [
     {
       "what": "the two clamps - parallax scroll and the section one that only looks like a clamp",
@@ -24,7 +24,7 @@
       "since": "2026-08-29"
     }
   ],
-  "nextBoundary": "When the clamps parcel and the DPLC measurement return. Two agents hold branches; nothing else is half-applied.",
+  "nextBoundary": "When the clamps parcel returns. It is the only thing in flight; a fresh session would lose only that branch, which is recorded.",
   "queue": [
     {
       "id": "SCROLL-AND-SECTION-CLAMPS",
@@ -269,7 +269,7 @@
   ],
   "awaiting": "your look at the right-edge pictures for the left-edge fix - they are committed and ready",
   "atBoundary": false,
-  "updatedAt": "2026-08-30T02:15:08Z",
+  "updatedAt": "2026-08-30T02:15:42Z",
   "resume": "Your go is RECORDED (empyrean 7149b39) - do NOT boot into a stop. Start with EFFECTS-W1-SHOW-A-BAND: run tools/band_witness.py against master, no bytes moved. EFFECTS-W1 now has a SECOND HALF - the owner ruled the side-effect bugs must be fixed before the project is done (DoD items 14-17). The canopy is no longer backgroundable and its plan is to INSTRUMENT for the next sighting, not derive a third explanation - two are already refuted. d-47-revised is ruled 'targeted'; measure the append risk before art ships. Everything is in DEFERRED_WORK.md.",
   "parkedQuestions": [
     {
