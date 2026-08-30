@@ -343,6 +343,30 @@ rulings live in the session memory and the most recent `docs/superpowers/*handof
   `git cat-file -e` first, and never let `grep -c` stand in for a read that may not have happened.**
   *Same class as everything else this night: absent rendered as a number.*
 
+- **`pgrep -f "<cmd>"` MATCHES YOUR OWN WATCHER, so an until-loop waiting on a process can never
+  exit — and it reports the process as ALIVE long after you killed it** (added 2026-08-30; cost 35
+  minutes of a landing believing a strict attest was still running when it had been dead the whole
+  time).
+  `until ! pgrep -f "refreeze --attest"; do sleep 15; done` run through the shell puts that exact
+  string on the WATCHER's own command line, so `pgrep -f` finds the watcher, the condition never
+  goes false, and every later `pgrep -f` check from the session **also** matches it. Two independent
+  symptoms, both confidently wrong: the loop never fires, and every manual "is it still running?"
+  answers yes.
+  **What made it survive scrutiny is that the kill had ALREADY WORKED.** A `kill -TERM`/`pkill -9`
+  earlier in the chain did land on the real binary; the process was gone; and the checks kept saying
+  running. So the evidence read as *"the kill failed and the tool is stubborn"* — a coherent story
+  that explains the same observation and is entirely false. The attest had died mid-run, its suite
+  log was complete and GREEN (357 suites, 4156 passed, 0 failed, 0 `skip:`), and `provenance.toml`
+  was never written because the process was killed before the write.
+  **Use `pgrep -x <name>`** — it matches the executable name, so a `zsh` running your loop cannot
+  match a binary called `refreeze`. Where `-x` will not do (a script run under an interpreter),
+  match on something the watcher cannot contain, or check for the ARTIFACT rather than the process:
+  *did `provenance.toml` change* is a question about the world, and *is the process alive* is a
+  question your own command line can answer wrongly.
+  *The family: an instrument that includes itself in its own population. Same night as a `grep -c`
+  counting a spelling, a `grep -c` printing 0 for a failed read, and a `git show $rev:path` eaten by
+  a zsh history modifier — all four rendered ABSENCE or SELF as a confident value.*
+
 - **THE SHA BAR HAS ONLY EVER BEEN WRITTEN FOR THE RECEIVING SIDE, AND THE FAILURE LIVES ON THE
   EMITTING SIDE** (added 2026-08-30; this lane's own defect, caught by the hub within minutes).
   This file's existing SHA rules all say the same thing: `--stat` a citation you RECEIVE. That is

@@ -1,10 +1,10 @@
 {
-  "focus": "Supersede landed and byte-identical. Committing and attesting it now.",
+  "focus": "Re-running the strict attest after a killed one looked alive for 35 minutes. Suite was green.",
   "inFlight": [
     {
-      "what": "the supersede: freeze done, goldens byte-identical, being committed and attested",
-      "where": "sigil worktree .sigil-clamps, chain 188",
-      "agent": false
+      "what": "the strict attest on the supersede, re-run after the freeze commit was made reachable",
+      "where": "sigil e38295d2, aeon_rev ec6a4791, chain 188",
+      "agent": true
     }
   ],
   "blockedOnOwner": [
@@ -19,7 +19,7 @@
       "since": "2026-08-29"
     }
   ],
-  "nextBoundary": "NOT NOW. After the supersede is committed, pushed and attested.",
+  "nextBoundary": "After the attest records. Sigil holds three parcels on it.",
   "queue": [
     {
       "id": "SCROLL-AND-SECTION-CLAMPS",
@@ -272,7 +272,7 @@
   ],
   "awaiting": "your look at the right-edge pictures, and one number for sigil's plan - both already on your list",
   "atBoundary": false,
-  "updatedAt": "2026-08-30T04:35:22Z",
+  "updatedAt": "2026-08-30T05:15:27Z",
   "resume": "Your go is RECORDED (empyrean 7149b39) - do NOT boot into a stop. Start with EFFECTS-W1-SHOW-A-BAND: run tools/band_witness.py against master, no bytes moved. EFFECTS-W1 now has a SECOND HALF - the owner ruled the side-effect bugs must be fixed before the project is done (DoD items 14-17). The canopy is no longer backgroundable and its plan is to INSTRUMENT for the next sighting, not derive a third explanation - two are already refuted. d-47-revised is ruled 'targeted'; measure the append risk before art ships. Everything is in DEFERRED_WORK.md.",
   "parkedQuestions": [
     {
