@@ -255,6 +255,33 @@ rulings live in the session memory and the most recent `docs/superpowers/*handof
   person the answer at a glance, where 8c's identical-question reproduction reads as an open card
   until you notice `supersedes`. Whoever wrote these was solving a real legibility problem. That is
   the case for the `answered` field, not for tolerating drift.*
+- **A PARCEL THAT MOVES AN IMAGE PIN CANNOT BE VERIFIED BY A CANONICAL BUILD FROM A CLEAN
+  STATE — THE GATE READS ON-DISK LISTINGS AND THE BUILD REFUSES BEFORE REGENERATING THEM**
+  (added 2026-08-30, hit landing the clamps parcel; the escape is `FAST=1`).
+  `build.sh` runs the tool-suite pytest **before** it builds ("*the build tooling is broken, not
+  just the ROM*"). `tools/demo_specialization_witness.py` — reached through
+  `test_effects_gates_segments.py` — reads `s4.debug.lst` and `demo.debug.lst` **from disk**. So on
+  a merge that both moves code and updates that pin: the listings on disk are still PRE-change, the
+  pin in source is POST-change, the witness fails, the build refuses, and **the listings are never
+  regenerated.** A deadlock, and it looks exactly like the parcel being wrong.
+  **THE ESCAPE, and it is the documented one:** `FAST=1 DEBUG=1 ./build.sh` (and the `demo` shape)
+  skips the verification lanes, regenerates both listings, and then a canonical build passes.
+  `FAST=1` prints its own banner saying it is not a ship artifact, which is exactly right — it is
+  being used here to BOOTSTRAP the instrument, not to skip the check. **Re-run canonically
+  afterwards; that is the run whose totals you quote.** Measured: 1660 passed / 0 failed on all
+  four shapes after the refresh, against `1 failed` before it.
+  **THIS IS THE SAME GATE'S FALSE-GREEN, SEEN FROM THE OTHER SIDE, AND THAT IS THE DURABLE HALF.**
+  The building agent independently found that a build order leaving either listing stale lets all
+  four shapes go green *before* the pin is updated. So stale listings make this gate **false-green
+  when the pin is old and false-RED when the pin is new**, and **neither state is distinguishable
+  from a real result by reading the gate's output.** A gate whose subject is a file on disk rather
+  than the tree is reporting on whatever the last build left behind.
+  *Generalisation worth carrying beyond this gate: when a check reads a GENERATED ARTIFACT rather
+  than regenerating it, its verdict is about the artifact's freshness as much as about the code, and
+  it cannot tell you which. `bganim_room`'s provenance line — which prints how many seconds after
+  the build started its inputs were written — is the shape that solves this, and this witness has no
+  equivalent.* Booked: give the witness a freshness assertion of its own.
+
 - **THE SHA BAR HAS ONLY EVER BEEN WRITTEN FOR THE RECEIVING SIDE, AND THE FAILURE LIVES ON THE
   EMITTING SIDE** (added 2026-08-30; this lane's own defect, caught by the hub within minutes).
   This file's existing SHA rules all say the same thing: `--stat` a citation you RECEIVE. That is
