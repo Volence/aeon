@@ -14099,3 +14099,80 @@ is the relaying lane's suggestion, not the owner's words, and the standing resea
 said around them — the lifted non-goal, the bit, the reference, the sequencing — is the relaying
 lane's scaffolding and was checked here before being written down: bit CONFIRMED (with the value
 caveat above), reference reasonable, non-goal NOT REPRODUCED, sequencing accepted.
+
+## EFFECTS-W1 — the owner-ratified definition of done, priced and sequenced (2026-08-29)
+
+**Source:** empyrean `docs/superpowers/specs/2026-08-29-effects-definition-of-done.md`, commit
+`1a8b2c9` — verified here as reachable from empyrean `origin/main` and `--stat`-checked as a spec
+commit (79-line spec + `contract/projects.json`), i.e. the right CLASS for a scope anchor. Read
+firsthand out of `git show origin/main:<path>`, not from the relay. **13 items total; 1-11 are
+aeon's, 12 is aurora's, 13 is empyrean's** — the relay's "eleven" and the commit subject's
+"13 items" are both correct and describe different sets.
+
+His test, verbatim: *"not only does it have all the features we added and enjoyed like the library
+and what we can draw out, but also that everything in the sonic games and batman and such can be
+done with our system"*.
+
+### Pricing
+
+Every one of 1 and 3-11 moves bytes, so every one pairs with sigil until SIGIL-DECOUPLE lands.
+Item 2 is the only one that does not.
+
+| # | Item | Size | Bytes | Notes grounded in the tree |
+|---|---|---|---|---|
+| 1 | `effectsRef` binding + delete `authored_probe` | **M** | yes, paired | `effectsRef` has **zero** hits outside docs (4 files, all prose) — the sidecar key and its `effects_gen.py` support are UNBUILT, not half-wired. Deleting the probe REMOVES the cross-seam symbol chain 182 added, so sigil drops a composition row rather than adding one. |
+| 2 | Show him a band on screen | **S** | **no** | `tools/band_witness.py` already exists. Pure verification. |
+| 3 | Drift on and authored | **M** | yes, paired | Mechanism is landed and inert: `CAP_BAND_DRIFT` is DECLARED at `$0080` with three capability-gated tails in `parallax.emp` (`:1119`, `:1202`, `:1254`) and a pinned `BAND_DRIFT_N`. Raising it in `Game.SCANLINE_CAPS` flips that pin 0→1 and lights all three. **Documented trap:** `effects_gen.py:1301-1311` records that adding `band_drift` to the three hand importers while leaving the generator's own list short turns the whole build red with `unknown type: band_drift` pointing at `parallax.emp`. |
+| 4 | Moving bands: P2b moving-top + time-driven anchor mover | **L** | yes, paired | The anchor mover is the owner's addition and the DoD calls it *"a gap in every prior plan"* — so it needs a DESIGN pass before implementation, not just a parcel. P3 (both edges) only on his ask. |
+| 5 | `variants` / `cycles` lowering | **M** | yes, paired | Needs the item-13 contract CR before aurora can author against it. |
+| 6 | Dense per-line VSRAM | **L** | yes, paired | Booked in full in the DENSE PER-LINE VSRAM entry above. **Not blocked by the stream-register card** — the conservative model ships today and the item can start on it; the ruling only decides whether the faster path is taken. Surface the card before the budget check concludes, not before the item starts. |
+| 7 | Vertical bob | **S-M** | yes, paired | Cheapest of the motion items: a scene-level term on an existing step (`Parallax_Step5_Vscroll`, `parallax.emp:1268`). |
+| 8 | BgAnim vertical band motion | **M** | yes, paired | BgAnim procs are live and driven today. |
+| 9 | Hydrocity row remap | **L** | yes, paired | Zone-specific by the survey's own estimate; he wants it; sequenced last by his preference. |
+| 10 | Reels / plane-role swap / window as third layer | **L** | yes, paired | **BLOCKED — see item 0 below.** |
+| 11 | Nametable-base changes (frame swap, Plane Z, Batman mid-frame) | **L** | yes, paired | **BLOCKED — same item 0.** |
+
+### ⚠ ITEM 0 — the prerequisite for 10 and 11 that is not on the list, and it is L
+
+**Measured, not assumed** (`engine/system/constants.emp:386-388, 498-499, 504`): Plane A
+nametable `$C000`, Plane B `$E000`, SAT `$B800` (relocated from `$D800` to free plane rows 48-63),
+HScroll `$BC00` (relocated from `$DC00`, formerly inside Plane A's 64x64 nametable), BG tile pool
+`$8000-$B7FF` = 448 slots. Two 64x64 planes are `$2000` each, so Plane B runs `$E000-$FFFF`.
+**VRAM is full to the top and there is no spare nametable region.**
+
+The DoD says item 10 *"needs a VRAM re-plan"* and item 11 *"costs a spare nametable region"*.
+**Those are the same prerequisite**, it is not itself an item, and nothing sequences it. It is L on
+its own, it is the kind of change the art pool's 448-slot sizing is derived from, and it lands
+underneath two L items. **Sequencing 10 and 11 without booking item 0 first is how a wave stalls
+two-thirds through.** Existing prior art: the VRAM linker / build-time allocation design.
+
+### HUD = sprites — CONCUR, with the cost stated
+
+The DoD asks aeon to say so if it disagrees. **No disagreement: aeon has no HUD today, and sprites
+is what the Sonic games do.** The cost worth recording rather than discovering later is that a
+sprite HUD spends SAT entries and per-line sprite budget that gameplay objects also want, on every
+line the HUD occupies — so it trades against the sprite-heavy set-pieces items 10 and 11 exist to
+enable. Cheap to accept now; note it in the VRAM re-plan so the trade is made once.
+
+### Proposed sequence (his preference honoured, two refinements)
+
+- **Wave A — make the built thing visible.** **2 first, as a spike, before any code**: run
+  `band_witness.py` against what is on master today and find out whether a band can be shown at all.
+  If it can, his "nobody has ever seen one" is answered this week rather than after item 1. Then
+  1 → 3 → 5.
+- **Wave B — time-driven motion.** 7 (cheapest, proves the Step-5 term), then 8, then 4 — 4 last in
+  its wave because its anchor mover needs a design pass the other two do not.
+- **Wave C — the expensive axes.** 6, then **item 0**, then 10, 11.
+- **Wave D.** 9.
+
+*Refinement 1: his ordering lists item 4 in both the 1-5 group and the motion group. Read as motion,
+which is where its work actually is. Refinement 2: item 2 is promoted ahead of item 1 as a spike,
+because it is the only item that can return information without moving a byte.*
+
+### Needs a ruling before it can START
+
+- **Item 0 / the VRAM re-plan** — his, and it is the only genuinely blocking one. Moving the art
+  pool or a plane is not reversible by a revert once content is baked against it.
+- Item 6's stream register — a card, but NOT a blocker (see the row).
+- Item 4's P3 both-edges — on demand only.
+- Item 9's relatives — after the mechanism exists.
