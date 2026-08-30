@@ -310,9 +310,19 @@ else
     # `clean-sources` = uncommitted changes exist but NONE in the sources this binary is compiled
     # from, so the binary DOES match its source and warning here is a false alarm. It was one:
     # `clean-sources` has a hyphen, missed the old `clean\ *` arm, and hit the catch-all.
-    # Their contract says a consumer should key on the `dirty` PREFIX; we keep the positive match
-    # instead so an unrecognised future word still warns (`unknown` included) — fail-safe is ours
-    # to keep, the vocabulary is theirs to define, and this arm is what has to move if they add one.
+    # Their doc USED to tell consumers to key on the `dirty` PREFIX. We declined: that fails OPEN,
+    # because any word the vocabulary does not yet contain — a new state, a typo, an empty capture —
+    # does not begin `dirty` and so reads as trustworthy. A positive match on the trusted words
+    # fails CLOSED. The sigil lane agreed and amended their source (sigil `1c7fe7f9`, on their
+    # origin/master, verified here): the advice is reversed at the definition, and the division is
+    # written in beside the vocabulary — "the vocabulary is this function's to define; the
+    # fail-safe direction is the consumer's to keep, and a consumer enumerating the trusted words
+    # MUST BE TOLD WHEN A WORD IS ADDED."
+    # SO THIS ARM HAS A LIVE CROSS-REPO COUPLING, and it fails in the loud direction: if sigil adds
+    # a fifth state word and we are not told, this build starts warning (and under
+    # SIGIL_VERSION_STRICT=1, REFUSING) on a tree that is fine. That is the trade taken knowingly —
+    # noisy beats silent for a check no CRC, pin or golden downstream can back up. If that warning
+    # ever appears with an unfamiliar word in it, the fix is to add the arm, not to remove the check.
     case "${SIGIL_TREE}" in
         clean|clean\ *|clean-sources|clean-sources\ *) ;;
         *) _sigil_stale="${_sigil_stale:+${_sigil_stale}+}dirty" ;;
