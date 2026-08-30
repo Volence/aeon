@@ -11,7 +11,7 @@ protocol doc. This file is what's aeon-specific.
 
 ## The queue
 
-> ### RESUME BRIEF FOR THE NEXT AEON SESSION (written 2026-08-30T00:38Z)
+> ### RESUME BRIEF FOR THE NEXT AEON SESSION (first written 2026-08-30T00:38Z; **partly superseded, revised 2026-08-30T09:07Z** — read the strikes, they are the point)
 > **DO NOT BOOT INTO A STOP AND WAIT FOR A PICK.** The owner's go is recorded — empyrean
 > `origin/main` `7149b39`, verified reachable here, and his standing instruction in it reads
 > *"Do not boot into a stop and wait for a pick: his pick is this paragraph."* The hub pushes
@@ -19,10 +19,27 @@ protocol doc. This file is what's aeon-specific.
 > **This overrides the `/overseer` skill's boot stop, which is exactly the exception that skill
 > names.**
 >
-> **START WITH:** `EFFECTS-W1-SHOW-A-BAND` — run `tools/band_witness.py` against master and find
-> out whether a colour band can be shown at all. It moves NO bytes, so it is safe ahead of
-> everything, and it answers the owner's *"nobody has ever seen one"* directly rather than after
-> the binding work. Then items 1, 3, 5 in that order.
+> **⚠ THE PREVIOUS `START WITH` IS SPENT — DO NOT EXECUTE IT.** It said *"run
+> `tools/band_witness.py` and find out whether a colour band can be shown at all"*. That was
+> answered: the tool landed at `235ef669` (*"the first evidence a palette band reaches the
+> screen"*), a band **does** reach the screen, and the finding turned into a different row —
+> `BAND-PALETTE-ENTRY-CHOICE`: the bands work and are near-invisible, because they recolour ONE
+> palette entry that only **1.64%** of the scene is drawn with. That is a content/authoring call
+> (which entry, or several), not a mechanism defect, and it is the owner's. Left here as a struck
+> instruction rather than deleted, because this file's own first review bar is that **a stale
+> sentence in a planning document is executed as a work order** — and this one survived 8.5 hours
+> of being exactly that.
+>
+> **START WITH:** whatever `docs/lane-status.json` `resume` says — it is written from the clock
+> and this block is not. As of 2026-08-30T09:07Z that is **EFFECTS-W1 item 1**, the project's
+> critical path, with its zero-byte arm in flight on `parcel/effects-ref-arm`. Its contract
+> question is **ADJUDICATED**: the sidecar key is **`rasterRef`**, not `effectsRef` (empyrean
+> `da91abce`, option B — verified reachable from `origin/main` here, and §3.1 read firsthand
+> rather than relayed). The design branch `design/effects-ref-binding` (`2cf29126`, unmerged)
+> **predates the ruling and says `effectsRef` throughout** — that is a stale planning document
+> too, and the same bar applies to it. Then items 3 and 5 — but note **item 5 is NOT unblocked by
+> item 1's ruling**: option C, the one that would have carried item 5's keys, was refused
+> precisely because it would have inverted the ratified order. Item 5 needs its own, unwritten CR.
 >
 > **THE PLAN:** `docs/DEFERRED_WORK.md` → *"EFFECTS-W1 — the owner-ratified definition of done,
 > priced and sequenced"*. All eleven aeon items priced S/M/L with byte status, the sequence, and
@@ -42,6 +59,15 @@ protocol doc. This file is what's aeon-specific.
 > 2026-08-30T00:33Z — but re-derive at the moment you need it, never from this line); and the
 > lost `+$60` derivation described under *"AN OPEN MEASUREMENT THREAD WITH SIGIL"* in
 > `DEFERRED_WORK.md`, which must be re-derived and never reconstructed from a peer's paraphrase.
+>
+> **SHELF LIFE — treat every coordinate in this block as expired and every SHAPE as sound.**
+> The shapes above (there is a ratified plan; the project grew a second half; re-measure rather
+> than inherit) age well. The specific rows, SHAs and next-actions do not, and the two that went
+> stale here both went stale because work landed *elsewhere* — one in this repo, one in empyrean.
+> That is this file's own diagnosis of the class: **the artifact that supersedes a booking is a
+> commit in a different tree, so there is no edge for anything to walk.** Nothing will notice for
+> you. `lane-status.json` carries the current answer and is rewritten from the clock at every
+> dispatch, ruling and landing; this block is rewritten only when someone remembers to.
 
 **`docs/DEFERRED_WORK.md` is the living queue** — check it at the start of every
 planning phase; it books everything with provenance. The current arc and any owner
