@@ -32,11 +32,20 @@ pins exact transition lines, not this.
 ## Two instrument traps, both cost real time here
 
 1. **`emulator/pixel_attribution` is authoritative for `cramIndex`, NOT for `rgb`.** Its
-   rgb resolves against end-of-frame CRAM, so it reported the BASE colour for all 702 band
-   pixels while the framebuffer held the band colours. Read `cramIndex` from attribution
-   and the colour from the png. Same frame-latched hazard `band_witness.py`'s header warns
-   about for CRAM reads — it applies to this method's rgb too. **Worth reporting to oracle:
-   the field reads as a measurement and is silently a different frame's answer.**
+   rgb resolves against **live** CRAM at the moment you ask, while `cramIndex` comes from the
+   line as it was rendered — so on any frame where a raster program rewrites CRAM mid-frame the
+   two fields describe different moments, and nothing in the reply says so. It reported the BASE
+   colour for all 702 band pixels while the framebuffer held the band colours. **Read `cramIndex`
+   from attribution and the colour from the png.**
+
+   **CONFIRMED FROM ORACLE'S SOURCE, not just inferred from this measurement** (reported to the
+   oracle lane, who reached it independently from the other end; verified firsthand here at oracle
+   `fcefc04`): `crates/oracle-core/src/render.rs:1897` builds the reply with
+   `rgb: self.cram_rgb_state(winner.cram_index, winner.state)` beside
+   `cram_index: winner.cram_index`, and `cram_rgb_state` (`:1205`) reads `self.cram()` — the live
+   table. Oracle has taken it as a fix rather than a doc note; until it lands, the workaround above
+   is the method. Two derivations from opposite ends — a 71,680-pixel sweep against a screenshot,
+   and a read of the assignment — which is corroboration rather than echo.
 2. **The core's Genesis->RGB is truncating, not rounding.** `$0224` renders `(72,36,36)`,
    not the `(73,36,36)` a `round()` gives. Counting pixels against a hand-written formula
    scored bands 1 and 2 at ZERO and read exactly like "the band does not render". Compare
