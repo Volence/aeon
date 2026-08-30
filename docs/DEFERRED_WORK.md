@@ -15711,6 +15711,28 @@ binary's **self-reporting** path, not its emission path.
   report came from an assembler nobody can reconstruct. **Freezing against the on-disk binary
   makes that case permanently undetectable.** One build buys the only chance to detect it.
 
+**⚖ THIS LANE'S ANSWER IF SIGIL IS PARKED, DECIDED COLD AND ON THE RECORD BEFORE THE MOMENT
+ARRIVES.** Sigil has said that if the owner parks them, whether to freeze against the dirty binary
+becomes aeon's call. **The answer is NO — do not freeze; hold indefinitely.** Written now, while
+nothing is pressing, because a decision taken at the moment of pressure is taken by whoever is
+tired:
+
+- **A freeze is permanent and an unfrozen merge is not.** Step 5 sitting merged-but-unfrozen is a
+  stable state that costs nothing and can be resolved any day. A freeze against an unnameable
+  toolchain writes a coordinate into the ledger that **no future revision can repair** — the
+  provenance-rev work already carries one such entry (chain 181, DIVERGENT, deliberately not
+  repaired because re-attesting would record a different tree's run under its name).
+- **Nothing is blocked behind it.** No aeon work waits on this freeze. "We need to freeze to keep
+  moving" would be false if anyone says it.
+- **The asymmetry does not change when the waiting gets long.** Freezing against the dirty binary
+  makes an emission-affecting change that exists in no commit **permanently undetectable**. That
+  is exactly as true tomorrow as today, so patience costs nothing and impatience costs the only
+  chance to detect it.
+
+**The forbidden reading:** *"aeon eventually froze against it, so it must have been fine."* If a
+future entry shows this frozen against `d5967f87-dirty`, that was a decision made against this
+one, and it needs its own recorded reasoning — not an inference from the fact that it happened.
+
 **Status: aeon is HOLDING.** No freeze until sigil hands over a binary with a clean revision.
 Sigil is itself blocked on the owner's go to spend that build. **Whoever resolves this: record the
 outcome against this entry — a banked prediction with no recorded result is worse than none**,
