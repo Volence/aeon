@@ -1084,9 +1084,19 @@ same-runner, same-code, 186 vs candidate, delta per checkpoint rather than one p
 - **Deliverable (theirs):** the moved SET per checkpoint index, not a count. The count is the
   headline; the set is the evidence, and prove-then-restamp turns on saying *why each mover moved*.
 - **⚠ THE FALSIFIER, STATED BEFORE THE RUN so the A/B can refute rather than accommodate:** this
-  lane's mechanism predicts the movers are the checkpoints where `cam_col < 16` — the early ones —
-  and that checkpoints past column 16 HOLD. **If checkpoints deep into the run also moved, the
+  lane's mechanism predicts the movers **[MOVED = stale in the candidate AND NOT stale in the
+  control; NOT the candidate's raw stale set — gloss added 2026-08-30T09:34Z, see below]** are the
+  checkpoints where `cam_col < 16` — the early ones — and that checkpoints past column 16 HOLD.
+  **If checkpoints deep into the run also moved [same sense: moved, not merely stale], the
   mechanism is incomplete and the restamp must not proceed on it.**
+  *The gloss is retrofitted and the sentence is otherwise unchanged — this is the exact use that
+  misled a second lane, and it is the use the term is load-bearing at. Per the sigil lane's rule
+  (2026-08-30): where a claim TURNS on a term — a falsifier, a gate, a count stated over it —
+  restate the definition inline AT THAT USE, not in a glossary and not at first use. The mechanism
+  behind the rule: **a number must be re-typed at every use and so gets a free checkpoint where its
+  baseline can be re-attached; a term is re-used by reference and never gets one.** Refinement from
+  this lane: the real axis is **restated vs referenced**, not number vs term — a figure referred to
+  as "the same hash" or "the CRC above" decays identically, because it is then a pointer too.*
 - **AND THE FALSIFIER IS TESTABLE RATHER THAN REPORTABLE, because of a field oracle checked before
   promising it.** `StaleCheckpoint` (`oracle crates/oracle-replay/src/restamp.rs:432`) carries
   `index`, **`logic_tick`**, `ring`, `payload`, `fixture_offset`, `expected`, `actual`; `RestampPlan`
