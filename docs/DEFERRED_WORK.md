@@ -12125,6 +12125,43 @@ appears to be the counterexample is not one.**
 — access mechanism instead of accessor name — which is the invocation bar 21 says almost never
 happens deliberately. Recorded as one instance, not as a practice.*
 
+**⚑ THE POPULATION IS CLOSED AT 64, AND A SECOND HAZARD AXIS OPENED (2026-08-30).** Oracle swept
+by a third parameter — every function RECEIVING the params object (59 `const JsonObj&`
+signatures) — and closed the thread we left open: `ParseButtons` is the only helper of its
+shape, `JsonObj` exposes exactly one member plus the four accessors, so **64 = 63 + 1 is a
+complete enumeration, not a floor** (oracle `2ec56dc`).
+
+**THE SHARPER FINDING IS THEIRS AND IT IS A TYPE HAZARD, NOT A SPELLING ONE.** `has()` at `:117`
+returns true for **any** present non-null value, while `getBool()` at `:156` accepts only
+`"true"` / `"1"` / `"yes"` from a string and otherwise falls through to its default. Three sites
+take `getBool("enabled")` and two feed `*flag = !on`. So:
+
+    {"layer":"plane_a","enabled":"on"}  -> passes the has() guard, reads FALSE,
+                                        -> executes *flag = !false  -> PLANE A IS MUTED
+                                           when the caller asked to ENABLE it
+
+`"True"`, `"TRUE"`, an array or an object all do the same. Partial mitigation, stated so it is
+not over-read: the reply echoes its own decision (`addBool("enabled", on)`), so a caller that
+reads the echo can detect it — **the only place in that file where the server says what it
+decided.** That is detection, not validation.
+*Kept because it is the better half of their message: they nearly published this as a silent
+inversion and it is NOT one for the missing-key case — all three sites carry an explicit
+`if (!req.has("enabled")) return ErrorReply(...)` a line or two above. Reading the lines AROUND
+the cited line is what caught it, which is protocol bar 11's remedy doing its job.*
+
+**CONSUMER CHECK RUN HERE — CLEAN, AND FOR A BETTER REASON THAN LUCK.** All 18 emulator-bound
+`enabled` sends in `tools/` pass Python `True`/`False`, which serialise to JSON booleans and
+never reach `getBool`'s string path; and **we have zero callers of `set_layer_enabled`**, which
+is the inverting method. The remaining `"enabled"` hits are our own build-time effects DSL, not
+wire traffic. Negative result taken under a positive control (the same grep finds 31 hits
+overall, exit 0), so the empty set is a finding rather than a failed command.
+
+**⚠ THIS CHANGES THE BOOKED GATE, and it is the reason to build it before we need it.** The gate
+was scoped to key spelling per method. **A spelling gate would pass the inverting case, because
+`enabled` is spelled correctly there.** The pinned set needs a second axis — **accepted value
+shape per key** — or it checks the cheaper half of the hazard and reports green on the
+expensive half.
+
 **Oracle's own scope caveat, kept as theirs:** they did not audit any consumer for an actually
 misspelled key. *This is the exposure, not an incident* — and our grep above is the consumer
 half they said they had not run.
