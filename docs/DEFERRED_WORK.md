@@ -219,6 +219,33 @@ behavioural change the net sees — the parallax half should prove *neutral*, wh
 prediction the proof can falsify — then re-stamp only the checkpoints that legitimately moved, and
 say how many of 27.
 
+**THE A/B IS ARRANGED WITH ORACLE — trigger, deliverable and FALSIFIER agreed 2026-08-30.**
+Their replay runner already reconciles the 27 `Ojz` checkpoints (and 37 for `OjzSlide`) as a side
+effect of walking the stream, and they now hold a frozen attributable chain-186 copy, so the A/B is
+same-runner, same-code, 186 vs candidate, delta per checkpoint rather than one pass/fail.
+
+- **Trigger (ours):** message them an `aeon_rev` + freeze SHA with the words *"candidate for the
+  restamp A/B"*. Built from a branch carrying the re-record work — **not** the supersede and not
+  master, since the point is to measure the delta before deciding what legitimately moved.
+- **Deliverable (theirs):** the moved SET per checkpoint index, not a count. The count is the
+  headline; the set is the evidence, and prove-then-restamp turns on saying *why each mover moved*.
+- **⚠ THE FALSIFIER, STATED BEFORE THE RUN so the A/B can refute rather than accommodate:** this
+  lane's mechanism predicts the movers are the checkpoints where `cam_col < 16` — the early ones —
+  and that checkpoints past column 16 HOLD. **If checkpoints deep into the run also moved, the
+  mechanism is incomplete and the restamp must not proceed on it.**
+
+*Why the falsifier is written here rather than carried: the mechanism was believed by both lanes
+before it was checked, and a shared belief is the thing an A/B cannot correct unless it was told in
+advance what would count as refutation.*
+
+**⚠ AND THE INVERSION ORACLE FOUND, which is the durable half and applies to any consumer of our
+freezes: DO NOT PIN A SUPERSEDE ON THE ASSUMPTION THAT SUPERSEDING FIXED THIS.** The natural reflex
+— wait for the attested freeze, then pin it — would reintroduce the exact desync a parcel was just
+spent removing, **with a fresher-looking revision attached**, which is what makes it hard to catch.
+Newer-is-safer has to be actively disbelieved here. They have written it into their provenance note
+as a *consequence* rather than a preference, so a later reader meets the reasoning instead of a
+choice.
+
 **And the hash header names the trap that makes this worth doing carefully:** the fold is
 deliberately ADDRESS-FREE so that *"a behaviour-neutral parcel that merely shifts addresses
 reproduces recorded checkpoint hashes and the committed fixture stays a valid regression net."*
