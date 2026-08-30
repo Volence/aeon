@@ -386,6 +386,26 @@ alone is not enough**: it commits `s4.debug.bin` but **no `.lst`**, and `replay_
 every address by name, so the blob must be reproduced rather than taken.
 
 ### SUITE-HOME-PATHS — baked absolute paths, and the ones that PASS when the path is absent
+
+**⚑ SCOPE LIMIT ON THE NEW GATE, FOUND BY THE OVERSEER'S OWN RED-FIRST PROBE (2026-08-30).**
+`tools/test_no_baked_home_paths.py` enumerates via `git ls-files`, so **it sees TRACKED files
+only.** A newly written file carrying a baked `/home/...` path passes the gate until it is
+`git add`ed. Measured here, not reasoned: an untracked poison returned **6 passed**; the
+identical file staged returned **1 failed, 5 passed** with `AssertionError: 1 baked absolute
+home path(s) in tracked source`. Both rules were then proven to fire alone and the tree restored
+clean.
+
+**This is a scope limit, not a defect — and it is written down because of HOW it was found.**
+The first probe came back green and the tempting reading was "the gate is vacuous". The actual
+cause was that the *poison* could not reach the subject, which is the poison-side twin of the
+matcher rule: **when a red-first probe comes back green, suspect the probe's reach before you
+suspect the guard.** The gate is sound; an unstaged file is simply outside what it enumerates,
+and in practice a baked path reaches the build through a commit, where the gate does see it.
+
+*Worth stating for whoever extends this: widening it to the working tree would make the gate
+fire on scratch files and transient probes — including the one that found this — so the tracked
+scope is a defensible choice rather than an oversight. Change it only with that cost accepted.*
+
 (booked 2026-08-30 from the hub's row; counts reproduced here, not taken)
 
 **Measured at this tip:** `git grep -l '/home/volence'` names **194 files**; **30** are
