@@ -15673,6 +15673,47 @@ said around them — the lifted non-goal, the bit, the reference, the sequencing
 lane's scaffolding and was checked here before being written down: bit CONFIRMED (with the value
 caveat above), reference reasonable, non-goal NOT REPRODUCED, sequencing accepted.
 
+## WHICH SECTIONS CAN ACCEPT A RASTER BINDING IS KNOWN AT BUILD TIME AND PUBLISHED NOWHERE — booked 2026-08-30
+
+**Raised by the aurora lane as the thing that would let them gate properly, and explicitly NOT asked
+for — recorded here because their refusal to guess is what makes the gap worth closing.**
+
+After item 1 step 5, a `rasterRef` binding is honoured for **one** section and silently ignored for
+every other. Three distinct cases, none of them distinguishable by an author:
+
+1. **Threaded** (section 5 after step 5) — the chooser resolves the ref and it plays.
+2. **Not threaded** (sections 4, 6, 7, 8 share the unsplit `OJZ_Preset_Plain`; 1-3 carry
+   hand-authored raster labels) — the key is read, the witness counts it, **nothing consumes it**.
+   No error, no warning, no picture.
+3. **Structurally refused** (section 0) — `OJZ_Preset_Sec0` binds `patched:`, and `preset()`'s
+   comptime ensure makes `ep_raster`/`ep_patched` mutually exclusive. Not a gap step 6 closes; a
+   contradiction the format rejects.
+
+**Case 2 is the expensive one** and it is the failure direction both lanes agreed is worse than a
+too-pessimistic warning: the editor accepts it, the build accepts it, a counter goes up, and the
+author cannot tell "I mis-authored it" from "this section is not wired yet".
+
+**Aurora's position, and it is correct — do not read this row as an ask from them.** They refuse to
+gate on their side, because being patched or threaded is a property of hand-authored `.emp` content
+they do not parse and should not start parsing. Any editor-side gate would hardcode one act's
+current content layout, be silently wrong for the next act, and read to an author as authoritative —
+*"a check that looks like knowledge and is a copy of a snapshot"*. Their instrument stays a
+disclosure naming the section number.
+
+**What closes it, and the reason it is cheap:** `effects_gen.py` already resolves the sidecars,
+already emits the chooser, and therefore already knows which presets carry a chooser-threaded
+`raster:` and which do not. The missing piece is publishing that as data rather than keeping it in
+the generator's head — a machine-readable per-section capability statement Aurora can read instead
+of guessing. **A generated statement is right for exactly the reason a hardcoded one is wrong**: it
+is re-derived per act on every build, so it cannot describe a layout that has moved.
+
+**Sequence, and it is not now.** Blocked behind step 5 landing (nothing to publish until at least
+one section is genuinely threaded) and behind the item-13 contract half if it becomes a wire format
+rather than a build artifact. **Drafting rule adopted from this exchange, and it applies to any
+prose written about this before the data exists: name the SECTION NUMBER, not the property.** "A
+bound section plays" has no expiry and goes wrong silently the first time someone binds section 6;
+"section 5 is wired, the others are not yet" expires loudly when a section number changes.
+
 ## THE BUILD NAMES ITS ASSEMBLER BY PATH AND NEVER CHECKS WHAT FILLED IT — booked 2026-08-30
 
 **Found while building chain 189's listings for the oracle lane, and the near-miss that surfaced it
