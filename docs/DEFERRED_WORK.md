@@ -1242,7 +1242,20 @@ sigil's tool and this lane's ritual, so it wants agreeing rather than deciding a
 freezing their own listing beside their own ROM copy meanwhile, which is correct for them and does
 not close this.
 
-### LEDGER CONFORMANCE IS CHECKED OVER THE HISTORY AND NEEDS CHECKING AT THE WRITE SITE (booked 2026-08-30)
+### ~~LEDGER CONFORMANCE IS CHECKED OVER THE HISTORY AND NEEDS CHECKING AT THE WRITE SITE~~ (booked 2026-08-30; CLOSED 2026-08-30T18:14:34Z)
+
+> **CLOSED (LEDGER-WRITE-SITE-CHECK, `parcel/ledger-write-site-check`).** The write site is
+> `tools/decisions_append.py`: it imports `decisions_conformance.reject_reasons` (never a copy),
+> stamps `at` from the clock with `--now`, and refuses with every reason printed when the reader
+> would reject the line, when `supersedes` names no existing id, when an id is reused without
+> superseding it, when an 8c closure alters or drops a settled field (first differing field named),
+> or when `answered` is in a shape the reader would drop silently; rule 8's heal-append-remeasure
+> recipe is built in. The backstop is `tools/test_decisions_ledger.py` in build.sh's pytest lane
+> against a GENERATED fixture (`tools/fixtures/decisions_ruled_unrepaired.json`, emitted by
+> `decisions_conformance.py --emit-ruled-fixture` at aeon `525d8eba`, 31 lines): a new rejected
+> line, a repaired ruled line, a deleted line, or a missing fixture all fail by name. Red-first on
+> all four, restored after each. The status-board row `LEDGER-WRITE-SITE-CHECK` in
+> `docs/lane-status.json` is the parent's to move. The text below is kept as the argument.
 
 `tools/decisions_conformance.py` measures how many ledger lines the owner's reader rejects. It
 found 31 of 94 in this repo. **It cannot stop the next one**, and over-the-history checking is the
