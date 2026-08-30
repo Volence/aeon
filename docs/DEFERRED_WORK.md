@@ -12094,6 +12094,37 @@ the whole vocabulary, pinning every legacy-seam send site's key spellings agains
 derived from `ControlSocket.cpp`, so the derivation cannot rot into folklore either.
 **Not dispatched yet on purpose** — two agents are live in `tools/` and a third would collide.
 
+**⚑ AMENDMENT — THE FAMILY IS 63, AND THERE IS A 64th PARAMETER READ OUTSIDE IT (2026-08-30).**
+Oracle corrected their own published 34 to **63** after our vocabulary sweep used a wider
+alphabet than their `getInt|getU32`: `get` 18, `getInt` 23, `getU32` 11, `getBool` 11, every one
+`if (!has(k)) return d;`. Their correction is right and their self-audit is the honest reading —
+they enumerated by too narrow an alphabet and a second pass of their own would have agreed every
+time.
+
+**Our re-count of 63 is ECHO, not corroboration, and it is recorded as such.** We got 18/23/11/11
+independently, but they derived their corrected figure *by turning our alphabet on their file*,
+so both passes now share the enumeration. Agreement between them tests nothing. *(By contrast our
+independent re-read of the six memory-path sites IS corroboration — different session, different
+reason, read from source rather than from their table — and that headline is now confirmed twice.
+Reporting the two together as "aeon confirmed the finding" would have laundered the weaker half.)*
+
+**So we enumerated by a DIFFERENT PARAMETER — by how the params object is touched at all, rather
+than by accessor name — and it finds a site both passes miss:** `ControlSocket.cpp:1576-1583`,
+`ParseButtons`, reads `(*req.p)["buttons"]` directly. Guarded by `contains("buttons")`,
+`.is_array()`, and a per-element `is_string()`, so it is **the only parameter read in the file
+that type-checks its input.** Verified under a positive control proving the grep can find the
+form (4 hits for `p->at(`), not read off empty output.
+
+**And it is not the exception it looks like.** A misspelled `buttons` key fails `contains` and
+yields an **empty vector**, so a `press` with a mistyped key presses nothing and returns success
+— the same silent-default failure as the other 63, arrived at by a different route. **The
+"validates nothing" headline survives the correction; only the count moves, and the one site that
+appears to be the counterexample is not one.**
+
+*This is protocol bar 19 with the enumeration parameter varied ON PURPOSE rather than by accident
+— access mechanism instead of accessor name — which is the invocation bar 21 says almost never
+happens deliberately. Recorded as one instance, not as a practice.*
+
 **Oracle's own scope caveat, kept as theirs:** they did not audit any consumer for an actually
 misspelled key. *This is the exposure, not an incident* — and our grep above is the consumer
 half they said they had not run.
