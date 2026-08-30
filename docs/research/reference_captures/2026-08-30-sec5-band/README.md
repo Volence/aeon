@@ -36,8 +36,9 @@ exited 1 in the pytest lane with three failures and produced no ROM (the on-disk
 was still the bound one, crc32 `476e220f`, which is why the crc32 is recorded beside every
 measurement):
 
-- `tools/test_effects_seam_gate.py::TestRasterSeamAgainstTheRealTree::test_section_5_is_the_bound_one_and_its_id_is_the_shipped_document` — `no sidecar carries a rasterRef — step 6's band is gone`
-- `tools/test_effects_seam_gate.py::TestRasterSeamAgainstTheRealTree::test_the_bound_sections_are_exactly_the_threaded_ones` — `the bound sections are [], not [5]`
+- `tools/test_effects_seam_gate.py::TestRasterSeamAgainstTheRealTree::test_section_5_is_the_bound_one_and_its_id_is_the_shipped_document` — `the bound sections are [], not [5]`
+- `tools/test_effects_seam_gate.py::TestRasterSeamAgainstTheRealTree::test_the_bound_sections_are_exactly_the_threaded_ones` — `no sidecar carries a rasterRef — step 6's band is gone`
+  *(Attribution corrected 2026-08-30 after the aurora lane read the tests at 027ec162: the first version of this list had the two messages swapped. Note also that deleting the preset document does NOT make an unbound tree buildable: `:331` asserts the bound set is non-empty and `:358` asserts it is exactly `[5]`, so both refuse regardless of the document.)*
 - `tools/test_raster_cycle_table_lint.py::test_every_preset_document_is_REACHABLE` — `these preset documents ... are reachable by NOTHING: ['ojz_sec5_showcase']`
 
 Those are step 5/6's own content assertions doing their job. The control artifact was therefore
