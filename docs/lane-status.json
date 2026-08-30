@@ -1,12 +1,6 @@
 {
-  "focus": "Both bug-tier rows landed: the replay net is explained, and the test that passed without checking now fails.",
-  "inFlight": [
-    {
-      "what": "the two-axis gate against oracle's permissive server - key spelling AND value shape",
-      "where": "branch parcel/legacy-seam-key-gate",
-      "agent": true
-    }
-  ],
+  "focus": "The gate against oracle's permissive server is in - and it corrected two things I had told them were verified.",
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "d-34",
@@ -19,7 +13,7 @@
       "since": "2026-08-29"
     }
   ],
-  "nextBoundary": "After the gate agent reports. The restamp waits on your d-49 answer, and sigil is landing a byte-mover ahead of it by agreement.",
+  "nextBoundary": "Here. Nothing in flight; the restamp waits on sigil's CRCs, the drift record is next to dispatch.",
   "queue": [
     {
       "id": "REPLAY-NET-BLIND",
@@ -319,8 +313,8 @@
     },
     {
       "id": "LEGACY-SEAM-KEY-GATE",
-      "title": "Oracle's legacy server accepts a misspelled parameter silently, and a WRONGLY TYPED one too - {'enabled':'on'} mutes the layer the caller asked to enable. We are clean on both today, measured. The gate needs two axes, key spelling AND accepted value shape per method; a spelling-only gate would pass the inverting case. Held only because two agents are already in tools/.",
-      "state": "doing",
+      "title": "LANDED: two-axis gate, 8 rows, build-fatal. It CORRECTED me twice - four of the six 'unguarded' sites were guarded and two others were missed, and we are NOT clean: 12 sites send a reset key the legacy server never reads. Open: the reset.wait removal needs the Rider 3 migration, and the gate is source-only until a foreground run confirms a misspelled key really is accepted.",
+      "state": "open",
       "size": "M",
       "blockedBy": null,
       "project": "EFFECTS-W1"
@@ -328,7 +322,7 @@
   ],
   "awaiting": null,
   "atBoundary": true,
-  "updatedAt": "2026-08-30T07:43:11Z",
+  "updatedAt": "2026-08-30T07:48:57Z",
   "resume": "Both bug-tier rows are LANDED (replay-net answered, home-paths fixed) and both canonical shapes are green on the merged tree: s4 719315 B / 6e2f9b22, s4.debug 736315 B / 6516fc68, fresh mtimes, exit 0. Next in d-8 order: the checkpoint-0 restamp (RULED, oracle's A/B reported, restamp mechanically proven by our own agent - nothing restamped yet), then the listing freeze, then DPLC re-cut and block-stream dedup as SERIALIZED byte-movers paired with sigil - they are COUPLED, whichever lands second must re-run dplc_straddle --recut Art_Sonic on the merged tree. Then the decouple's three pieces, then item 1 with its CR filed at the start. Two asks are open with oracle (the three-item replay-net ask; the parameter-contract emitter, which is queued on THEIR owner's word - do not chase it, nothing of ours blocks on it). LEGACY-SEAM-KEY-GATE is unblocked now that tools/ is free of agents; it needs TWO axes, key spelling AND accepted value shape per method - a spelling-only gate would pass the case that matters.",
   "parkedQuestions": [
     {
