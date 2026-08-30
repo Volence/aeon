@@ -190,10 +190,33 @@ parcel.** It moves bytes and pairs with whichever byte-mover this lane takes nex
 and still standing: it gets its OWN freeze range, not a shared one** — mixing it with a small parcel
 destroys attribution for both, which is the chain-179 lesson.
 
-**2. The drift job is landed and CANNOT OBSERVE ANYTHING until this lane builds the record.** The
-harness exists; the record with `lookup-aeon <aeon_rev>` (exit 0 hit / 3 no entry / 2 could not
-answer) is aeon's and is **not built**. Until it exists the job reports **`NOTHING MEASURED`** and
-credits no chain — correct behaviour, and not a result.
+**2. ~~The drift job is landed and CANNOT OBSERVE ANYTHING until this lane builds the record.~~
+BUILT 2026-08-30 — `tools/drift_record.py` + `tools/drift_record.jsonl`, documented at
+`docs/DRIFT_RECORD.md`, gated by `tools/test_drift_record.py` (43 rows in build.sh's build-fatal
+tool-suite lane; 21 mutations proven red-first, each firing alone).** Verified end to end against
+sigil's ACTUAL caller — `scripts/drift_report.py` read at their committed `8acee94a`, run against
+this reader — producing case 1 QUIET, case 2 `quiet-sigil-moved` (the evidence-bearing population),
+case 2 `drift-sigil-moved` RED, an unknown engine revision as UNVERIFIED, and a broken record as
+NOTHING MEASURED naming the failing verb. **`DRIFT_RECORD_READER` is still empty on their side; the
+one-line conf edit is theirs, and the job reports `NOTHING MEASURED` until they make it.**
+
+**⚠ THE BRIEF FOR THIS PARCEL UNDERSTATED THE CONTRACT AND IT IS WORTH KNOWING WHY.** It quoted one
+verb, `lookup-aeon`. There are **four** — `shapes`, `lookup`, `lookup-aeon`, `has-sigil` — and a
+reader implementing only the quoted one fails the job's `shapes` call before ever reaching it.
+`lookup-aeon` is the verb *case 2* runs on, which is why it is the one anybody remembers; it is not
+the interface. **And `shapes` has no miss code**: their `record_shapes()` discards the hit flag, so
+an exit 3 there becomes "the record covers no shapes" — coverage read out of an absence, silently.
+*The general form: a summary of a protocol names the verb that carries the meaning and drops the
+ones that carry the plumbing, and the dropped ones are exactly where a partial implementation dies.*
+
+**AND THE SIGIL REVISION IN THE KEY IS THE `closure-revision`, NOT `HEAD` AND NOT `revision:`.**
+Their caller runs `classify(cmd, aeon_rev, a.sigil_closure_rev, measured)`. `revision` moves on every
+commit in that repository including docs-only ones no compilation can see, so keying on it makes two
+byte-identical assemblers key as two and **manufactures case-2 misses that carry no evidence**. This
+reader matches `lookup`/`has-sigil` on the closure revision only; an entry whose closure revision is
+genuinely unknown carries `null`, is never matched by those two, and is still served by
+`lookup-aeon` — which costs nothing, because that verb uses the revision for grouping and display
+rather than as a key.
 
 **⚠ AND SIGIL REFUSED A HUB SUGGESTION THAT WOULD HAVE CORRUPTED N AT ENTRY ONE, in the direction
 that flatters the answer everyone expects.** The suggestion was that **chain 188 counts as chain one
@@ -204,6 +227,66 @@ authorise.** A miscount here is not neutral; it makes retirement look justified 
 refusal is the right call and is recorded so nobody re-suggests it.
 *Related and already agreed: the relink datum from 2026-08-30 (41 assembler commits, zero ROM bytes)
 enters the record labelled as **this lane's HAND MEASUREMENT**, not as an observation of the job.*
+
+**HOW THE SCHEMA MAKES AN UNOBSERVED CHAIN STRUCTURALLY UNCOUNTABLE, rather than conventionally so.**
+Three properties, and the first is the one that does the work:
+
+1. **This record holds EXPECTATIONS and cannot hold an observation.** N is counted by
+   `drift_report.py report` over sigil's **ledger** (`$XDG_STATE_HOME/sigil-ref-drift/`), which only
+   the job writes and which lives outside every repository. **Nothing in this repo can append to
+   it.** An entry here can only turn an observation the job actually makes from `unverified` into
+   evidence-bearing; it can never *be* one. *That is also the answer to a question worth separating:
+   chain 188's engine revision may appear here as an expectation — that is what makes the first real
+   observation at it evidence-bearing — and that is not the same act as crediting chain 188, which
+   would need a ledger row only the job can write.*
+2. **`origin` is a required field with a closed domain and no member means "observed".**
+   `ORIGIN_IS_JOB_OBSERVATION` maps every member to `False`; the names someone would reach for —
+   `sigil-nightly-drift-job`, `drift-job-observation`, `nightly-observation`, `observed`,
+   **`chain-188`** — are refused **by name**. Writing one does not yield a wrong answer: the whole
+   record fails to load, the reader exits 2, and the job reports NOTHING MEASURED. *Measured against
+   their real caller, not asserted.*
+3. **Nothing automated writes the record.** There is no write verb; `measure` prints a candidate row
+   for a human to fill in and commit. That is the enforceable half of sigil's one constraint on our
+   format — *"the record must not mint an entry for a pair from the build that pair is about to be
+   judged against"* — because a file only a reviewed commit can change cannot be regenerated by the
+   run about to be graded by it.
+
+**WHAT IS IN THE RECORD, AND WHAT THIS LANE REFUSED TO PUT IN IT.** Two `aeon-hand-measurement`
+entries: the relink datum at `ec6a4791` (`s4_debug` only, the one shape that build produced) and a
+four-shape build at `origin/master` `d27ceba6`. **A row for the earlier assembler `85a5726c` was
+NOT written.** Its CRC is known — it is the chain-188 golden — but that figure is **sigil's
+artifact**, and mirroring their goldens into this record would launder sigil's own expectations back
+into the job that exists to be checked against ours. *That is the same failure as a self-generated
+expectation, one repository further away, and it would have been invisible: the numbers are correct.*
+**The cross-check that replaced it:** the four-shape build at `d27ceba6` reproduced `s4_debug` at
+`6516fc68/736315`, identical to the relink datum at `ec6a4791` — two revisions apart, independent
+provisioning, same bytes.
+
+**STILL OPEN, and it is theirs:** `DRIFT_RECORD_READER=""` in `sigil/scripts/drift-nightly.conf`.
+Recommended value and the two ordering traps are in `docs/DRIFT_RECORD.md`. **Until they set it the
+job still reports `NOTHING MEASURED` — which remains correct behaviour and still is not a result.**
+
+**⚑ OPEN AND NOT MINE TO DECIDE — THE `aeon_rev` KEY HAS THE EXACT DEFECT SIGIL FIXED ON THEIR OWN
+SIDE, MIRRORED.** They key their half on `closure-revision` precisely because `revision` *"moves on
+every commit in the repository including ones no compilation can see; a docs-only commit makes two
+byte-identical assemblers look like two different ones, and keying on it manufactures case-2 misses
+that carry no evidence."* **The job keys OUR half on `git rev-parse origin/master`, raw — and this
+lane commits docs all night.** Measured while this parcel was open: `origin/master` moved
+`d27ceba6 → 07a97317` in three commits touching only `docs/DEFERRED_WORK.md`, `docs/lane-log.jsonl`
+and `docs/lane-status.json`. **Zero ROM-bearing paths, identical bytes, and a `lookup-aeon` MISS.**
+So the steady state is `unverified` most nights, N never advances, and **the watch accumulates no
+evidence while looking like it is running.**
+
+**Why I did NOT fix it, and this is the load-bearing half.** The obvious fix — have the reader
+resolve a queried `aeon_rev` to its own ROM-path closure revision and match on that — **widens every
+expectation to cover revisions nobody built, and its error direction is toward MORE chains counting
+as evidence-bearing.** That is the bias this whole record is built to resist, and it is not a call
+this lane may make alone. It also cannot be done in the reader without git access to a tree, which
+turns a pure file read into an operation with a new failure mode. *The current behaviour fails SAFE:
+`unverified`, N unmoved, never quiet, never a false red.* **The question for sigil and the owner:
+should the engine half of the key be a ROM-path closure revision, computed by whom, and what is the
+argument that widening an expectation is sound?** Until answered, the ritual in
+`docs/DRIFT_RECORD.md` compensates by hand — an entry per landing — and that is a cost, not a fix.
 
 ### THE RESTAMP A/B RETURNED — MECHANISM SUPPORTED, AND THE NET IS SILENTLY BROKEN AT 9 OF 27
 (oracle's measurement 2026-08-30, write-up at oracle `docs/2026-08-30-restamp-ab.md`; the
