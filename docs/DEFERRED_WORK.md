@@ -14454,3 +14454,66 @@ rather than a memory. That converts `d-46` from a blocking question into a nice-
 the only approach here that does not require either the owner's attention or a fourth guess.
 Booked as the canopy item's next step; the card stays open because his sighting would still be
 faster if it arrives.
+
+### THE d-47 APPEND CONDITION IS DISCHARGED — AND THE MEASUREMENT CONTRADICTS THE CARD IN FOUR PLACES — booked 2026-08-30
+
+**The condition two entries up is closed by a measurement, not an argument:**
+`docs/2026-08-30-dplc-append-disturbance.md`, instrument `tools/dplc_straddle.py`
+(gated in `build.sh` on both sonic4 shapes, unit tests `tools/test_dplc_straddle.py`).
+Zero ROM bytes moved — proven, not asserted: `s4.bin` and `s4.debug.bin` are byte-identical
+with and without the gate wired in.
+
+**THE FINDING THAT OUTRANKS THE ANSWER: a frame's cost against the Important queue is
+`entries + straddles`, not `entries`.** `QueueDMA`'s `.transfer` core splits any transfer whose
+ROM source crosses a `$20000` boundary into TWO queue entries (`dma_queue.emp` `.split`), and
+whether an entry straddles is a function of **where the art landed** — a link-time fact.
+**`dplc_peak_entries` parses the blob and never learns the base address, so every `ensure` in
+this tree is structurally blind to it.** `tools/dplc_straddle.py --gate` is the first check
+here that measures SLOTS rather than ENTRIES.
+
+**Three straddling DPLC entries ALREADY SHIP, unmeasured until now** — sonic frame `$6C`,
+tails `$A5`, knuckles `$8C` (debug shape; `$71`/`$AA`/`$90` in release). Knuckles' costs
+4 entries → **5 slots**. Harmless today only because they land on light frames: luck, not design.
+
+**The ruled `targeted` re-cut is SAFE — measured, both canonical shapes.** Peak entries 13 → 10,
+peak SLOTS 13 → 10 (exactly `DMA_IMPORTANT_SLOTS - DPLC_ENTRY_RESERVE`), zero frames gained or
+lost a straddle, `dplc_peak_tiles` 29 → 29, no anchor moves. The card's 112 tiles / +3,584 B /
+−124 B DPLC / +3,460 B net all reproduce exactly from the shipped blobs.
+
+**FOUR CORRECTIONS, each measured:**
+
+1. **"Appending art disturbs nothing" is FALSE as a general claim.** Sweeping `Art_Sonic`'s base
+   one byte at a time across ±64 KB: **2,773 of 131,073 shifts fail**, in 43 disjoint bands
+   (min/median width 31 B = one tile minus one byte; max 415 B), worst peak SLOTS **17**. This
+   append is safe *because of where it lands*, and the margin is **5,188 B** of base movement
+   earlier / 36,092 B later. Not "nothing".
+
+2. **An append is not a pure tail operation.** `DPLC_Sonic` sits immediately before `Art_Sonic`
+   in one section (`collision_data.emp:82-84`), so the re-cut's −124 B DPLC shrink **moves
+   `Art_Sonic`'s base** and every DMA source with it. The card treated the append as tail-only.
+
+3. **⚠ THE TWO PARCELS RULED INDEPENDENT ARE COUPLED.** Block-stream dedup removes ~20,986 B
+   from a run UPSTREAM of `Art_Sonic`, shifting the same base by **−20,986 B — four times the
+   5,188 B margin, in the dangerous direction.** Both land safe (dedup+re-cut → peak SLOTS 10),
+   but only inside a combined safe band of **[−29,796, −15,300]**: the dedup's saving must fall
+   between 15,300 B and 29,796 B. The quoted 20,986 B sits inside with 5,686 B slack above,
+   8,810 B below. **Whichever lands SECOND must re-run `dplc_straddle --recut Art_Sonic` on the
+   merged tree.** The build gate catches it either way.
+
+4. **THE CARD'S "about 20 KB of room to spare" IS WRONG — the same misreading it corrected for
+   option B and left standing for option A.** That is the RAW room; `DATA_GROWTH_RESERVE`
+   (16,384 B) is a separate floor never inside it. Binding DEBUG shape: room 21,920 B →
+   **spendable 5,536 B**; the fix costs 3,460 B → **margin 2,076 B**, i.e. it consumes **62.5% of
+   all remaining spendable data room.** It still fits and no anchor moves; the ruled 12,288 B
+   BG-anim ceiling is untouched (26,698 B available).
+
+**RIDER, nothing guards it:** the `tile_start` field is 12 bits (`dplc.emp:166`, max 4,095).
+`Art_Sonic` goes 3,046 → 3,158 tiles, leaving **938 tiles (30,016 B)** before overflow.
+`knuckles_data.emp:17` knows this in a comment; **no `ensure` checks it for Sonic.**
+
+**⚠ STILL UNMEASURED, and it needs the emulator:** `DPLC_ENTRY_RESERVE = 2` exists for
+`PageIn_EnqueueLanding`, whose landings can ALSO straddle. This measurement covers DPLC entries
+only. How many page-in landings straddle in one frame is a run-time property. **What would close
+it:** the d-47 instrument half — `DMA_Split_Reject_Count` split out of `DMA_Overflow_Count`, plus
+`DMA_Peak_Important` (declared `engine/ram.emp:580`, **written nowhere**) — sampled over a real
+act run. No emulator was used in this parcel.
