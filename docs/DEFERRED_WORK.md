@@ -180,6 +180,44 @@ edge, and (b) `Section_RedrawPlanes` returning `d7 = Cache_Head_Col` uncondition
 `Section_Plane_Dirty` setters run straight after an unbudgeted `FillAll`, and now asserted, but it is
 the remaining place a tracker is written without a matching draw.
 
+### THE FREEZE CAPTURES ROMs AND NOT LISTINGS, SO A FROZEN ROM IS NOT A REPRODUCIBLE SUBJECT
+(found by the oracle lane 2026-08-30, verified firsthand here)
+
+**Measured:** `sigil/crates/sigil-harness/golden/` holds seven `.bin` files and **zero `.lst`
+files**, and `provenance.toml` records ROM CRCs, sizes and anchor ends — nothing listing-shaped.
+The golden `s4.debug.bin` at freeze `dd371e3b` is byte-identical to this tree's copy
+(sha256 `951cf9604f3249d7…`), so the ROM half of the freeze is exactly what it claims.
+
+**Why that is only half a freeze.** Almost nothing in this repo measures a ROM without also
+needing its listing: `band_witness.py`, `tile_cache_fill_gate.py`, `effects_gates.py`,
+`demo_specialization_witness.py` and every `--lst`-taking probe resolve symbols out of
+`s4.debug.lst`. **That file lives only in a working tree and moves with every build.** So a
+consumer who freezes our golden ROM — which is the thing we tell people to depend on instead of
+our working tree — gets a stable subject they cannot address, and must rebuild to obtain the
+listing, which requires the same assembler revision and reintroduces the coupling the freeze
+existed to remove.
+
+**The shape, and it is why it went unnoticed: the freeze froze the artifact that is EASY to
+compare and not the one that is needed to ASK A QUESTION.** A ROM CRC answers *are these the same
+bytes*; a listing answers *where is anything*. Only the first was ever the freeze's stated job, so
+nothing was wrong — but everyone downstream reads "frozen" as "reproducible", and for any
+symbol-addressed measurement it is not.
+
+**How it surfaced, which is the part worth keeping.** The oracle lane's tests broke when this tree
+rebuilt, and their first fix was to depend on our goldens instead. Digging before executing, they
+found the ROM-only freeze would have left half the coupling in place **and looked complete** — a
+fix that passes, ends the visible symptom, and silently retains the dependency. They also corrected
+their own diagnosis in the same message: the failing test pins no hash at all, it reads the value
+out of the ROM, and it broke because the replay fixture is embedded IN our ROM. Their plan worked
+for a different reason than the one they gave.
+
+**Open, not started.** Options: freeze the `.lst` beside each golden ROM (cheap, and the obvious
+one); or record enough in `provenance.toml` that a listing can be regenerated identically (needs
+the assembler revision pinned, which this repo already knows it does not pin). **Whichever, it is
+sigil's tool and this lane's ritual, so it wants agreeing rather than deciding alone.** Oracle is
+freezing their own listing beside their own ROM copy meanwhile, which is correct for them and does
+not close this.
+
 ### LEDGER CONFORMANCE IS CHECKED OVER THE HISTORY AND NEEDS CHECKING AT THE WRITE SITE (booked 2026-08-30)
 
 `tools/decisions_conformance.py` measures how many ledger lines the owner's reader rejects. It
