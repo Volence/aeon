@@ -15597,3 +15597,105 @@ only. How many page-in landings straddle in one frame is a run-time property. **
 it:** the d-47 instrument half — `DMA_Split_Reject_Count` split out of `DMA_Overflow_Count`, plus
 `DMA_Peak_Important` (declared `engine/ram.emp:580`, **written nowhere**) — sampled over a real
 act run. No emulator was used in this parcel.
+
+## EFFECTS-W1 ITEM 1 IS DESIGNED AND THE CR IS WRITTEN — implementation is BLOCKED on empyrean (2026-08-30, `design/effects-ref-binding`)
+
+**Deliverables, both committed, zero ROM bytes moved (a documents-only parcel):**
+`docs/superpowers/specs/2026-08-30-effects-ref-binding-design.md` (the design, the site
+enumeration, the byte derivations, the seven-step plan) and
+`docs/2026-08-30-effectsref-contract-change.md` (the empyrean CR text, ready to file).
+
+**The design in three sentences.** A section names a preset document in a new
+`section_N.meta.json` key; `effects_gen.py` resolves it and emits one more always-emitted
+zero-byte `pub comptime fn` — the same Q-c chooser the scene arm already ships — which the
+section's `preset()` call threads into its `raster:` argument. A section with no ref hits the
+`hand:` fallback, so the generated module's text is unchanged and the common case costs
+nothing, CRC-checkable rather than argued. `authored_probe` is deleted and replaced in the same
+parcel, because the closure condition above requires it and because
+`test_the_real_repo_SHIPS_preset_documents` goes red if `presets/` empties.
+
+### ⚠ THE CONTRACT AMBIGUITY THAT BLOCKS THE START, AND IT IS NOT A DETAIL
+
+empyrean §7 reserves `effectsRef` for **"total-binding preset assignment"**. A preset document
+is `{schema, id, name, bands}` — a raster program and nothing else — while `EffectsPreset` has
+eight channels and `ep_pal` is **required and non-defaulted**. **The reserved name promises a
+binding its referent structurally cannot deliver.** Three ways out; aeon cannot pick one alone
+because the name is reserved in the suite contract: narrow `effectsRef`; adopt `rasterRef` and
+keep `effectsRef` unspent (**this lane's recommendation**); or grow the document to total —
+which needs `variants`/`cycles`, i.e. **DoD item 5**, and so inverts the owner-ratified
+sequence. Filed as the CR's single adjudication question. **Nothing else blocks the arm.**
+
+### THE LINT THAT WOULD HAVE SHIPPED THE FEATURE FALSIFIED BY ITS OWN BUILD LANE
+
+`tools/test_raster_cycle_table_lint.py::test_the_editor_rows_are_exactly_the_presets` asserts a
+**hard two-way equality** between the DEBUG hotkey's `.raster_table` rows and the preset
+documents. It was right when the chord was the only installer. **The moment a section can bind
+a preset it is a bug**, because authoring one would still require a hand-typed `dc.l` plus a
+`RASTER_CYCLE_COUNT` bump — a programmer's edit, which is the exact thing item 1 removes. Must
+be relaxed to "reachable by a cycle row **OR** a section binding" in the same wave; a document
+reachable by neither must keep failing. **This is why item 1 is M and not S.**
+
+### THREE CLAIMS IN THE DoD/BRIEF CORRECTED, EACH MEASURED
+
+1. **The probe costs 78 release bytes, not 30.** `s4.lst` (release, 2026-08-30 03:10):
+   `EditorRaster_OJZ_Act1_authored_probe` `$1324C` → next label `OJZ_TestRaster` `$1329A`,
+   span `$4E` = 78 = `raster_words` 7 + 2x16 for its two bands. **Corroborated independently**
+   by sigil's own pin comment at `ad0a8243` — *"pushed that whole region +0x4E"*. The "30
+   release bytes" in the RASTER BANDS entry above is wrong; it is the number a deletion parcel
+   would otherwise carry into its evidence, and 30 is exactly the size at which nobody argues.
+2. **"Sigil drops a composition row rather than adding one" is true of the deletion and false
+   of the parcel.** Verified at sigil `ad0a8243`: the probe occupies **four** sites —
+   `repin.toml` `[[symbol]]`, `pins.rs` const, `act_descriptor_port.rs` row, and
+   `provenance.toml` entry 182 (**frozen; do not touch**). Three drop. But the *replacement*
+   band, bound through a `preset()` call, is a new cross-seam ref needing its own pin by exact
+   analogy with `EditorSceneBinding_OJZ_Act1_Sec4`, **and** splitting a shared preset moves
+   `ojz_effects`'s `[[region]]` byte-gate (`start = "OJZ_TestRaster"`). Expect a repin, not a
+   deletion. Pricing item 1 as a row-drop under-prices the pairing.
+3. **The brief's five `authored_probe` sites are the right five and the parcel has nine.** The
+   four it did not enumerate: `tools/test_effects_gen.py`'s anti-vacuity test (**goes RED** if
+   `presets/` empties — which is what forces replacement rather than deletion), the cycle-table
+   lint, `docs/OVERSEER.md:620` (history — leave it), and this file's three sites. Inside
+   `ojz_scroll_test.emp` the "one site" is four edits: the `use`, the `dc.l`, the
+   `RASTER_CYCLE_COUNT` 2→1, and two comment blocks.
+
+*The brief's four-`effectsRef`-files claim is **correct** (worktree copies excluded).*
+
+### ⚠ RIDER — `docs/ENGINE_ARCHITECTURE.md` §7.12 IS STALE ABOUT `EffectsPreset`, AND THE DOC IS THE WRONG ONE
+
+§7.12 says the struct is **32 bytes** and lays it out `$1C ep_patch_world_y` (singular) /
+`$1E ep_transition`. Three measurements say 38: `engine/effects/preset.emp:56` declares
+`struct EffectsPreset (size: 38)` with `ep_patch_world_ys: [u16; RASTER_MAX_PATCH] @ $1C` and
+`ep_transition @ $24`; the field arithmetic is 4+4+4+4+4+8+8+2 = 38; and the listing span
+`OJZ_Preset_Sec0` `$1363A` → `OJZ_Preset_Sec1` `$13660` is `$26` = 38. Almost certainly left
+behind by Parcel W0, which made the anchors an inline four-entry array — a change §7.12's own
+prose elsewhere describes. **Not fixed here**: fixing an architecture doc inside a binding
+parcel is how a diff stops being reviewable. Booked as its own one-line change.
+
+### THE OPEN CALLS, EACH WITH WHAT WOULD CLOSE IT
+
+- **BLOCKED-1 — the key's name/semantics.** empyrean's, and it is the CR. Blocks step 1.
+- **BLOCKED-2 — which section, and what the band looks like.** The owner's, `BAND-FIRST-CONSUMER`
+  class. Section 4 needs no preset split but its raster channel carries the d-15 showcase, which
+  `preset()`'s exclusivity ensure makes a hard either/or; **section 5 is recommended** — first
+  `Raster_Program_None` section, evicts nothing, costs the 38-byte split. One sentence overturns
+  it.
+- **BLOCKED-3 — one unproven `.emp` step.** `raster: <chooser>(sec: 5, hand: Raster_Program_None)`
+  as a `preset()` argument that a later `ensure` reads is *precedent-backed*
+  (`sec_parallax_config: ojz_act1_sec_scene(sec: sec)` ships) but **not proven** — the precedent
+  is a struct field, this is a comptime-fn argument on the left of `raster == 0 || patched == 0`.
+  **Closes in ten minutes**: a throwaway `preset()` call under `FAST=1 DEBUG=1 ./build.sh`, and
+  it is deliberately step 2 so it fails before anything is built on it. Fallback if it fails —
+  the generator emits a whole `EffectsPreset` per bound section, +38 B unconditionally and a
+  materially larger CR.
+- **TAGGED, not blocked — runtime confirmation that a bound band renders.** Needs the emulator;
+  no MCP call was made from this lane and none may be. It is DoD **item 2**'s job
+  (`tools/band_witness.py`), which the ratified sequence already promotes *ahead* of item 1 as a
+  spike for exactly this reason.
+
+### One documented property worth not re-deriving
+
+A binding on a **patched** section is refused at build time by `preset()`'s existing
+`raster == 0 || patched == 0` ensure, with its existing measured sentence. Section 0 binds
+`patched: OJZ_TwoChannel`, so it is unbindable by construction. **No new guard should be
+written for this** — duplicating a raster-tier bound in the generator is the consumer contract's
+own anti-pattern.
