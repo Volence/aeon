@@ -429,18 +429,27 @@ had the answer; the planning document did not point at it.*
 (this lane, 2026-08-30T09:28Z; prompted by oracle's chain-189 A/B returning an empty moved set.
 Read out of sigil's COMMITTED golden blobs, not from either lane's working tree.)
 
-**The two candidate ROMs differ in exactly 40 bytes, and every one is explained:**
+**Both candidate ROMs differ in exactly 40 bytes IN EACH SHAPE, and every one is explained.
+⚠ THE ADDRESSES ARE SHAPE-SPECIFIC — an address without its shape is a CRC without its baseline,
+and this entry originally quoted the debug column with no shape named (corrected 2026-08-30T09:29Z,
+sigil's catch; they measured the plain shape, got a constant `0x22B0` difference, and tested the
+offset hypothesis instead of reporting a conflict). Both columns re-derived here:**
 
-    0x18E–0x18F   header checksum word                                    2 bytes
-    0xA6C46       standing fixture checkpoint 0   1D->0D  (FF01 1D375066 003F)   1 byte
-    0xA6CDC CE6 CF6 CFE D08 D14 D1E D26 D30   checkpoints 18-26, 4B each  36 bytes
-    0xA6D56       SLIDE fixture checkpoint 0     1D->0D  (FF01 1D375066 083F)    1 byte
+    role                                          s4.bin (plain)   s4.debug.bin (debug)
+    header checksum word                          0x18E–0x18F      0x18E–0x18F        2 B
+    standing fixture ckpt 0  1D->0D  (…003F)      0xA4996          0xA6C46            1 B
+    checkpoints 18-26, nine 4-byte payloads       0xA4A2C…0xA4A83  0xA6CDC…0xA6D33   36 B
+    SLIDE fixture ckpt 0     1D->0D  (…083F)      0xA4AA6          0xA6D56            1 B
+                                                  ── 40 ──         ── 40 ──
 
-`e38295d2` → sha256 `951cf960…`, `39c34fd2` → `4ee7ac79…`, both 736315 B; CRC32 `3aa7cb12` on the
-189 blob, matching sigil's independently-reported table. The nine payloads read out of the image are
+    debug = plain + 0x22B0 for every payload/single address; the checksum word does not move.
+
+**Debug blobs:** `e38295d2` → sha256 `951cf960…`, `39c34fd2` → `4ee7ac79…`, both 736315 B; CRC32
+`3aa7cb12` on the 189 blob. **Plain blobs:** CRC32 `63451f96`, 719315 B. Both CRCs match sigil's
+independently-reported table, re-derived here from the committed blobs rather than accepted. The nine payloads read out of the image are
 `607BF6C4 3750A813 AF65AF6A 1F8422C5 93161A26 F3185259 5B1CF76D 5B22F780 2FA77A39` — **byte-identical
-and in order to the values this lane's archaeology derived from the stale side**, a third instrument
-agreeing with the first two.
+and in order to the values this lane's archaeology derived from the stale side, AND identical between
+the two shapes**, a third and fourth instrument agreeing with the first two.
 
 **Three consequences worth keeping.**
 1. **Chain 189 is a pure fixture re-record — no engine code is in the diff.** Anything reasoning
