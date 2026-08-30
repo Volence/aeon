@@ -16200,6 +16200,8 @@ Item 2 is the only one that does not.
 | 10 | Reels / plane-role swap / window as third layer | **L** | yes, paired | **BLOCKED — see item 0 below.** |
 | 11 | Nametable-base changes (frame swap, Plane Z, Batman mid-frame) | **L** | yes, paired | **BLOCKED — same item 0.** |
 
+**Item 5's DEMAND ARTIFACT exists (2026-08-30, `docs/item5-key-shapes`, documents only):** `docs/superpowers/specs/2026-08-30-item5-variants-cycles-key-shapes.md` transcribes from engine source the `cycles` / `variants` key shapes a preset document would carry (one script of 1..4 channels; two positional variant slots; every field 1:1 with `pal_cycle_channel` / `pal_variant`), what `effects_gen.py` would emit, the byte-golden against `OJZ_ShimmerCycle` / `Variant_Water_Deep`, and ten open questions (Q1 one-ref-or-three is the hub's) — the source the item-13 contract CR is drafted from.
+
 ### Item 7's riders — what `parcel/vertical-bob` found and did NOT build (2026-08-30)
 
 The bob shipped as item 7 and nothing more. Five things surfaced while building it. Each is
