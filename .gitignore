@@ -118,6 +118,19 @@ engine/debug/generated/
 # .*-backup/ dirs and dead timestamped bg experiments stay ignored.
 !games/sonic4/data/editor/ojz/act1/section_*.tiles.bin
 !games/sonic4/data/editor/ojz/act1/section_*.coll.bin
+
+# The background layout the project NAMES. `ojz_bglib.json` is tracked and
+# `ojz/act1/section_0.meta.json` binds `bgLayoutRef` to this id — so without the
+# negation a clean clone carries the manifest and the binding and NOT the picture,
+# and the editor silently authors against the act default instead of the background
+# the repo says it uses. That is the `*.bin` blanket two rules up catching source
+# data again, which is the exact case the comment there already records for
+# ojz_tiles.bin, with the same remedy: negate explicitly.
+# Scoped to the REFERENCED layout only. The other sixteen (deep-forest-v1..v16) are
+# the owner's experiments and whether they are dead is his call, not this lane's —
+# parked as a question rather than resolved by a wildcard.
+!games/sonic4/data/editor/ojz_bg_ingame-forest-v15-1786630615596.bin
+!games/sonic4/data/editor/ojz_bg_ingame-forest-v15-1786630615596_tiles.bin
 !games/sonic4/data/editor/ojz/act1/section_*.collattr.bin
 !games/sonic4/data/editor/ojz/act1/section_*.collattrb.bin
 !games/sonic4/data/editor/ojz/chunks_tiles.bin
