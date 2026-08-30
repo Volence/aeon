@@ -15708,6 +15708,27 @@ checkout and confirm the output says so; then dirty that checkout, rebuild, and 
 changes. A recorder that reports the same string in both cases is reading something that is not the
 identity.
 
+**THE GAP IS SYMMETRIC ACROSS THE SEAM, AND BOTH LANES HAVE AGREED WHO FIXES WHICH HALF
+(2026-08-30).** Sigil's goldens record *what the ROM bytes were*, not *which assembler produced
+them*, so a lander comparing CRCs learns nothing about provenance from their side either. They have
+said they will **read** this record rather than duplicate it once it lands — so the aeon-side
+implementation is the one that closes both halves, and shipping it without telling them leaves the
+duplicate they were trying to avoid.
+
+**And the artifact itself can never answer the question**, which is what makes the build-side record
+non-optional rather than a convenience. Measured by the oracle lane while pinning chain 189: **a
+listing embeds no assembler version marker at all** — every `dirty` hit in `s4.debug.lst` is a game
+symbol (`Enqueue_Dirty_Buffers`, `Palette_Dirty`, `not_dirty`). The identity exists only in the
+running binary's `--version` output, at build time, and vanishes the moment the build ends.
+
+**A worked instance of the residue, so nobody re-derives it as reassurance.** Chain 189's listings
+were rebuilt here at `d5967f87-dirty` against a recorded `sigil_rev` of `5552bccb`. Enumerating
+sigil's committed source narrows it — 19 commits, ancestor, no listing or symbol path touched (the
+one pipeline binary in the range, `emit_sound_blob`, changed only in where it may WRITE, not in what
+it emits) — but **`-dirty` is uncommitted state at build time that no revision recovers**, and
+reading sigil's tree afterwards bounds nothing about then. Narrowed, never closed. That irreducible
+residue is the argument for recording at build time rather than reconstructing afterwards.
+
 ## EFFECTS-W1 — the owner-ratified definition of done, priced and sequenced (2026-08-29)
 
 **Source:** empyrean `docs/superpowers/specs/2026-08-29-effects-definition-of-done.md`, commit
