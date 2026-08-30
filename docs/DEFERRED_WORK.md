@@ -180,6 +180,31 @@ edge, and (b) `Section_RedrawPlanes` returning `d7 = Cache_Head_Col` uncondition
 `Section_Plane_Dirty` setters run straight after an unbudgeted `FillAll`, and now asserted, but it is
 the remaining place a tracker is written without a matching draw.
 
+### TWO THINGS WAITING ON THIS LANE FROM SIGIL, both ready on their side (2026-08-30)
+
+**1. R7's alignment flip is READY and needs this lane's sequencing.** The declaration half landed
+long ago; what remains is handing the packer each section's DECLARED alignment instead of the one
+inferred from where it happens to sit. **Most sections require 2 and are handed 16 today, so expect
+movement across MANY sections in BOTH shapes — a materially bigger blast radius than a localised
+parcel.** It moves bytes and pairs with whichever byte-mover this lane takes next. **Ruled earlier
+and still standing: it gets its OWN freeze range, not a shared one** — mixing it with a small parcel
+destroys attribution for both, which is the chain-179 lesson.
+
+**2. The drift job is landed and CANNOT OBSERVE ANYTHING until this lane builds the record.** The
+harness exists; the record with `lookup-aeon <aeon_rev>` (exit 0 hit / 3 no entry / 2 could not
+answer) is aeon's and is **not built**. Until it exists the job reports **`NOTHING MEASURED`** and
+credits no chain — correct behaviour, and not a result.
+
+**⚠ AND SIGIL REFUSED A HUB SUGGESTION THAT WOULD HAVE CORRUPTED N AT ENTRY ONE, in the direction
+that flatters the answer everyone expects.** The suggestion was that **chain 188 counts as chain one
+of the watch**. It does not: *the job did not observe it, because the job is not installed.*
+Crediting an unobserved chain would advance N with no observation behind it — **and it errs toward
+"the byte-identity gate is spent", which is precisely the conclusion the owner is being asked to
+authorise.** A miscount here is not neutral; it makes retirement look justified sooner. Their
+refusal is the right call and is recorded so nobody re-suggests it.
+*Related and already agreed: the relink datum from 2026-08-30 (41 assembler commits, zero ROM bytes)
+enters the record labelled as **this lane's HAND MEASUREMENT**, not as an observation of the job.*
+
 ### SUITE-HOME-PATHS — baked absolute paths, and the ones that PASS when the path is absent
 (booked 2026-08-30 from the hub's row; counts reproduced here, not taken)
 

@@ -35,6 +35,22 @@
       "project": "EFFECTS-W1"
     },
     {
+      "id": "DRIFT-RECORD-LOOKUP-AEON",
+      "title": "Build the record sigil's nightly drift job reads. Until it exists that job reports NOTHING MEASURED - it is landed and blind.",
+      "state": "open",
+      "size": "M",
+      "blockedBy": null,
+      "project": "EFFECTS-W1"
+    },
+    {
+      "id": "SIGIL-R7-ALIGNMENT-FLIP",
+      "title": "Sigil's alignment flip is ready and waits on my sequencing. Moves bytes across many sections in both shapes; ruled to get its own freeze range, not a shared one.",
+      "state": "open",
+      "size": "M",
+      "blockedBy": null,
+      "project": "EFFECTS-W1"
+    },
+    {
       "id": "SCROLL-AND-SECTION-CLAMPS",
       "title": "DONE: landed, frozen (chain 188) and certified green. The background no longer draws its own bottom edge above its top.",
       "state": "open",
@@ -285,7 +301,7 @@
   ],
   "awaiting": "your look at the right-edge pictures, and one number for sigil's plan - both already on your list",
   "atBoundary": true,
-  "updatedAt": "2026-08-30T05:36:23Z",
+  "updatedAt": "2026-08-30T05:37:09Z",
   "resume": "Your go is RECORDED (empyrean 7149b39) - do NOT boot into a stop. Start with EFFECTS-W1-SHOW-A-BAND: run tools/band_witness.py against master, no bytes moved. EFFECTS-W1 now has a SECOND HALF - the owner ruled the side-effect bugs must be fixed before the project is done (DoD items 14-17). The canopy is no longer backgroundable and its plan is to INSTRUMENT for the next sighting, not derive a third explanation - two are already refuted. d-47-revised is ruled 'targeted'; measure the append risk before art ships. Everything is in DEFERRED_WORK.md.",
   "parkedQuestions": [
     {
