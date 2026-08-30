@@ -33,6 +33,19 @@ and `effects_gen.py check` (the drift gate) fail for different reasons: drift me
 the committed module does not match its inputs; a value mismatch here means the
 ARTIFACT does not carry what the inputs say it should.
 
+THE RASTER SEAM IS A SECOND CALL SITE, IN A DIFFERENT FILE (EFFECTS-W1 item 1 step 5).
+The two scene choosers are called from `act_descriptor.emp`; the third — the raster
+chooser — is called from `games/sonic4/data/effects/ojz_effects.emp`, because a raster
+program is an `EffectsPreset` channel and not a `Sec` field. It needs its own check for
+the reason above AND for one more: `Sec.sec_effects` is a per-section POINTER to a record
+several sections may share, so threading a SECTION-KEYED chooser into a SHARED preset
+would silently give every one of those sections the same band. Step 2b checks that a
+preset which chooses on sec N is bound by exactly one section, and that it is N.
+
+Both halves are silent-and-green failures today: with no sidecar carrying a `rasterRef`
+the chooser resolves to `hand`, so deleting the call and typing the literal back leaves
+every witness value and every ROM byte identical.
+
 USAGE:  python3 tools/effects_seam_gate.py [--lst s4.lst]
 """
 
@@ -46,11 +59,147 @@ import effects_gen  # noqa: E402
 REPO = effects_gen.REPO
 DESCRIPTOR = os.path.join("games", "sonic4", "data", "levels", "ojz", "act1",
                           "act_descriptor.emp")
+# The RASTER chooser's call site is NOT the descriptor. A raster program is an
+# `EffectsPreset` channel, not a `Sec` field, so the third generated `pub comptime fn`
+# is threaded into the section's own `preset()` in the game's effects library.
+EFFECTS_LIB = os.path.join("games", "sonic4", "data", "effects", "ojz_effects.emp")
 
 # `EQU NAME = $0000001F` — the listing's equate table (sigil 0df77f83).
 EQU_RE = re.compile(r"^EQU\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*\$([0-9A-Fa-f]+)\s*$",
                     re.MULTILINE)
 MODULE_RE = re.compile(r"^module\s+([a-z0-9_.]+)\s+in\s+([a-z0-9_]+)\s*$", re.MULTILINE)
+
+# `pub data OJZ_Preset_Sec5: EffectsPreset = preset(` — the head of one preset record.
+# The body is taken by paren balance, not by a regex, because the shipped records wrap
+# across up to three lines and a line-anchored pattern would silently see half of one.
+PRESET_HEAD_RE = re.compile(
+    r"^pub\s+data\s+([A-Za-z_][A-Za-z0-9_]*)\s*:\s*EffectsPreset\s*=\s*preset\s*\(",
+    re.MULTILINE)
+
+
+def preset_records(src: str) -> dict:
+    """{preset name: the text between preset('s parens} for one effects library.
+
+    Paren-balanced rather than line-based. Comments cannot contain an unbalanced
+    paren in the shipped file and `.emp` has no paren-bearing string literals in a
+    `preset()` argument list, so a balance scan is exact here; it is also the only
+    reading that survives the three-line wrap the shipped records already use.
+    """
+    out = {}
+    for m in PRESET_HEAD_RE.finditer(src):
+        depth, i = 1, m.end()
+        while i < len(src) and depth:
+            if src[i] == "(":
+                depth += 1
+            elif src[i] == ")":
+                depth -= 1
+            i += 1
+        out[m.group(1)] = src[m.end():i - 1]
+    return out
+
+
+def raster_call_sites(src: str, fn: str) -> dict:
+    """{preset name: (sec index, whether a `hand:` argument was passed)}.
+
+    Only presets whose `raster:` channel is a call to the generated chooser appear.
+    A preset that hands `raster:` a literal program is not a fault — most of them do,
+    and that is what an unbound section looks like.
+    """
+    call_re = re.compile(r"raster\s*:\s*" + re.escape(fn) +
+                         r"\s*\(\s*sec\s*:\s*(\d+)\s*(,\s*hand\s*:)?")
+    out = {}
+    for name, body in preset_records(src).items():
+        m = call_re.search(body)
+        if m:
+            out[name] = (int(m.group(1)), bool(m.group(2)))
+    return out
+
+
+def descriptor_effects_bindings(desc: str) -> dict:
+    """{sec index: the preset name that section's `ojz_sec(...)` binds}.
+
+    Sections that bind no `effects:` are absent rather than mapped to None — the
+    field defaults to 0 = "no preset" and that is a legal state, not a fault here.
+    """
+    out = {}
+    chunks = re.split(r"ojz_sec\s*\(\s*sec\s*:\s*(\d+)", desc)
+    for i in range(1, len(chunks), 2):
+        m = re.search(r"effects\s*:\s*([A-Za-z_][A-Za-z0-9_]*)", chunks[i + 1])
+        if m:
+            out[int(chunks[i])] = m.group(1)
+    return out
+
+
+def raster_seam_faults(calls: dict, bindings: dict, sections: int,
+                       raster_refs: dict, fn: str) -> list:
+    """Every way the raster seam can be wrong, as sentences. Empty == the seam holds.
+
+    PURE, and separated from `main` for the same reason step 4's `unreachable_presets`
+    was: the combinations that matter (a shared preset, a mismatched index, a duplicate
+    index, a missing `hand:`) cannot all be produced by editing the real tree without
+    breaking the build, so the arms have to be exercisable on synthetic inputs.
+
+    THE INVARIANT, in one sentence: a preset whose raster channel is chosen BY SECTION
+    INDEX must belong to exactly one section, and to that index. `Sec.sec_effects` is a
+    per-section POINTER to a shared record (sections 6-8 share one today), so threading
+    `<fn>(sec: N)` into a record two sections point at silently gives BOTH the band —
+    the design's §3.3(b) hazard, which has no other symptom.
+    """
+    faults = []
+    if not calls:
+        faults.append(
+            f"no `preset()` in the effects library threads {fn} into its `raster:` — "
+            f"the chooser is generated for every act but nothing calls it, so no "
+            f"section can carry an editor-authored raster band and every raster "
+            f"channel is hand-typed again. Bind one section's preset through it.")
+    seen = {}
+    for name in sorted(calls):
+        sec, has_hand = calls[name]
+        if not has_hand:
+            faults.append(
+                f"{name} calls {fn}(sec: {sec}) with NO `hand:` argument. The "
+                f"parameter defaults to 0, and 0 in ep_raster means \"keep\", not "
+                f"\"off\" (ARCH §7.12) — an unbound section would inherit the previous "
+                f"section's program instead of clearing it. Pass "
+                f"`hand: Raster_Program_None` (or `hand: 0` on a section that binds "
+                f"`patched:`, where a non-zero hand fires preset()'s exclusivity ensure).")
+        if not 0 <= sec < sections:
+            faults.append(
+                f"{name} calls {fn}(sec: {sec}) but this act has {sections} sections "
+                f"(0-{sections - 1}). The chooser's own `ensure` would catch it at "
+                f"build time; it is caught here so the message names the preset.")
+        if sec in seen:
+            faults.append(
+                f"{name} and {seen[sec]} both choose on sec {sec}. Two presets keyed "
+                f"on one section index means one of them can never receive its band.")
+        else:
+            seen[sec] = name
+        owners = sorted(i for i, p in bindings.items() if p == name)
+        if not owners:
+            faults.append(
+                f"{name} threads the chooser but NO section binds it in "
+                f"{DESCRIPTOR}. A preset nothing points at is a record the crossing "
+                f"never installs.")
+        elif owners != [sec]:
+            faults.append(
+                f"{name} chooses on sec {sec} but is bound by section(s) "
+                f"{owners} in {DESCRIPTOR}. "
+                + (f"A preset SHARED by {len(owners)} sections cannot carry a "
+                   f"section-keyed band: every one of them would get sec {sec}'s "
+                   f"program. Split it first (one 38-byte EffectsPreset per section "
+                   f"that needs its own channel)."
+                   if len(owners) > 1 else
+                   f"The index and the binding disagree, so this section would "
+                   f"receive another section's band."))
+    chosen = {s for s, _ in calls.values()}
+    for sec in sorted(raster_refs):
+        if sec not in chosen:
+            faults.append(
+                f"section {sec}'s sidecar names rasterRef {raster_refs[sec]!r}, but no "
+                f"preset threads {fn}(sec: {sec}) — the generator would emit the "
+                f"binding row and nothing would read it, which presents to the author "
+                f"as an assignment that did nothing.")
+    return faults
 
 
 def fail(msg: str) -> None:
@@ -132,6 +281,46 @@ def main() -> int:
              f"sharing one binding slot. Neither has any other symptom.")
     calls = len(passed)
 
+    # ---- 2b. THE RASTER SEAM — a SECOND call site, in a different file ----
+    #
+    # The scene choosers are called from the descriptor; the raster chooser is called
+    # from the game's effects library, because a raster program is an `EffectsPreset`
+    # channel rather than a `Sec` field. Step 2 above cannot see it, and until this
+    # block existed nothing in the tree did: dropping the `raster:` call and typing a
+    # literal back in its place would have left every witness value unchanged and every
+    # byte identical, because the chooser resolves to `hand` while no sidecar binds.
+    # That is the same silent-and-green shape step 3's witnesses exist for, one tier
+    # down.
+    lib_path = os.path.join(REPO, EFFECTS_LIB)
+    if not os.path.isfile(lib_path):
+        fail(f"the effects library {EFFECTS_LIB} is missing — it is the raster "
+             f"chooser's only call site.")
+    with open(lib_path, "r") as f:
+        lib = f.read()
+    lib_use = re.search(r"^\s*use\s+" + re.escape(names.module) + r"\s*\.\s*(\*|\{([^}]*)\})",
+                        lib, re.MULTILINE)
+    if not lib_use:
+        fail(f"{EFFECTS_LIB} carries no `use {names.module}...` line. The raster "
+             f"chooser is generated for every act, but a preset can only thread one "
+             f"it imports.")
+    if lib_use.group(1) == "*":
+        fail(f"{EFFECTS_LIB} imports {names.module} as a GLOB. Name list, never a "
+             f"glob — same rule as the descriptor's seam.")
+    if names.fn_sec_raster not in {n.strip() for n in lib_use.group(2).split(",")}:
+        fail(f"{EFFECTS_LIB}'s import of {names.module} does not name "
+             f"{names.fn_sec_raster}. That function is the raster channel's whole "
+             f"binding route.")
+    raster_calls = raster_call_sites(lib, names.fn_sec_raster)
+    want_raster_refs = effects_gen.load_section_raster_refs(REPO)
+    faults = raster_seam_faults(raster_calls,
+                                descriptor_effects_bindings(desc),
+                                sections,
+                                want_raster_refs,
+                                names.fn_sec_raster)
+    if faults:
+        fail(f"the raster binding seam is broken in {EFFECTS_LIB}:\n  - "
+             + "\n  - ".join(faults))
+
     # ---- 3. THE REACHABILITY EVIDENCE: the witnesses reached the artifact ----
     if not os.path.isfile(lst_path):
         fail(f"listing {lst} not found — this gate reads the build's own artifact "
@@ -162,7 +351,7 @@ def main() -> int:
     # and carries no binding — which is a DIFFERENT observation from the symbol being
     # absent, and absence is what a dropped seam looks like. Derived from the sidecars
     # through the generator's own reader, never read out of the generated `.emp`.
-    want_raster = len(effects_gen.load_section_raster_refs(REPO))
+    want_raster = len(want_raster_refs)
 
     expected = {names.equ_scenes: want_scenes, names.equ_bindings: want_bindings,
                 names.equ_raster_bindings: want_raster}
@@ -186,6 +375,14 @@ def main() -> int:
           f"({names.equ_scenes}={want_scenes}, {names.equ_bindings}={want_bindings}, "
           f"{names.equ_raster_bindings}={want_raster}, "
           f"{calls} section call site(s), {len(equs)} equates parsed from {lst})")
+    # The raster seam's own line, and it names the presets rather than counting them:
+    # "1 call site" would read the same whether it were section 5's or section 3's, and
+    # WHICH section owns a section-keyed chooser is the entire property being checked.
+    threaded = ", ".join(f"{n}(sec: {raster_calls[n][0]})" for n in sorted(raster_calls))
+    print(f"effects_seam_gate: OK — raster seam threaded in {EFFECTS_LIB} "
+          f"[{threaded}]; {len(want_raster_refs)} sidecar rasterRef(s)"
+          + (" — the sidecar arm is VACUOUS today and says so rather than reading green"
+             if not want_raster_refs else ""))
     return 0
 
 
