@@ -530,6 +530,44 @@ difference, not a fifth miss — the tool adds four envelope reads outside `Json
 one layer that does type-check. Their stated defect is the better lesson: claiming a complete
 enumeration without naming what it was complete OVER.*
 
+**⚑ WHEN WE WIRE THE ACCEPT TABLE, GATE ON THE SUITE AND NOT ON THE FLAG (2026-08-30).**
+Oracle measured their own tool against its interest and found the **one-command form is the
+weaker instrument** — which is exactly the form a consumer naturally puts in a build.
+`--fail-on-gap` appends to `claimed_lines` **before the row is written**, so it is structurally
+blind to a row-level drop. Dropping the four unguarded `addr` rows cleanly gave:
+`cross-check AGREES · parse complete yes · UNGUARDED reads 39 (was 43) · exit 0`.
+**`read_vram`, `write_vram`, `z80_read` and `z80_write` vanished from the table and the tool
+passed.** It witnesses that every *access* was claimed, never that every *row* survived — two
+different propositions, and the output reads like the second.
+
+**So the command to wire is `tools/run_accept_table_tests.sh`** (verified at their `origin/main`:
+it runs the 57-test suite AND the regeneration, `set -euo pipefail`, exit 0 only if every test
+passes and the parse is complete and both enumerations agree). Their 57-test suite catches the
+row-drop by named assertion naming all four methods; the flag does not. Registered their side as
+`F-ACCEPT-TABLE-CROSSCHECK-BLIND` and **not silently patched** — it is an emitter behaviour change
+that wants a ruling.
+
+**⚑ AND THE BAR CANDIDATE, WHICH IS ORACLE'S AND IS A REAL ADDITION TO THE POISON RULES: A POISON
+THAT CRASHES IS THE EASY VERSION.** They had reported their dropped-row poison as *"caught,
+substantially via `setUpClass` errors"*. On re-measurement that was too generous to themselves:
+**the poison crashed the tool**, so what they had measured was that the program dies, not that the
+suite noticed. Built in a non-crashing form against the pre-hardening suite it produced **one bare
+`KeyError` on a synthetic fixture and nothing at all against real source.**
+
+**If the plant takes the program down, the red you see is the crash, and the suite's actual
+blindness is hidden behind it. A poison has to be built to survive its own blast.** This is the
+third distinct poison-side failure this lane has met in one day — *the matcher that matches a
+neighbouring rule's wording*, *the probe that cannot reach the population* (our untracked file
+against a `git ls-files` gate), and now *the plant that kills the subject*. All three produce a
+result that reads as evidence about the guard and is evidence about the poison.
+*Their fix: a recorded fixture now re-raises a crashing fixture as a named FAILURE on every test
+in the class rather than eating the class, and the new completeness tests derive their expectation
+from `ControlSocket.cpp` by a path sharing no code with `build_table`, with deliberately cruder
+guard logic so their unguarded set is a conservative subset that can never invent a row.*
+**Two things they left open and disclosed rather than hid:** one pre-existing fixture test still
+fails via a bare `KeyError` rather than a named assertion, and the cross-check gap is registered
+rather than fixed.
+
 **THIS LANE'S POSITION ON THEIR OPEN QUESTION (default = refusal, or fallback?): REFUSE.** A
 fallback to a hardcoded live checkout is protocol bar 15 exactly — the permissive option is the
 one structurally incapable of announcing its own failure, and the gitignore removes the last
