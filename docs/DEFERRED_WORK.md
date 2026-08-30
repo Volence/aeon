@@ -421,6 +421,21 @@ says nothing about the most recent one. **Sigil's "nothing records who did" is c
 control rather than by agreement** — the candidate record was tested against a known writer and
 failed to move.
 
+**REFINEMENT FROM SIGIL, VERIFIED HERE, AND IT SHARPENS THE RULING-OUT RATHER THAN SOFTENING
+IT.** The directory is **not setgid** — `drwxr-xr-x volence:uucp`, an `x` and not an `s` in the
+group-execute slot — so a new file takes the **creating process's primary group** rather than
+inheriting the directory's. Checked further here: the owner's primary group is `volence` and
+`uucp` is a *supplementary* group he belongs to. So the split does record something real — two
+processes with **different primary groups** each created part of the set — while still being
+unable to answer the only question anyone will ask it, because in-place writes preserve it.
+*Loose thread neither lane needs today: `uucp` as a PRIMARY group is unusual and unexplained.*
+
+**THE SHAPE WORTH KEEPING, and it is sigil's formulation of our joint episode: a candidate record
+that is sitting right there and LOOKS probative is more dangerous than no record at all**, because
+it converts *"we cannot know"* into a confident wrong answer. **The cheap move that settles it:
+exercise the candidate with a KNOWN writer and see whether it moves. An artifact that does not
+move under a known cause is not evidence about that cause.**
+
 **THIS LANE'S POSITION ON THEIR OPEN QUESTION (default = refusal, or fallback?): REFUSE.** A
 fallback to a hardcoded live checkout is protocol bar 15 exactly — the permissive option is the
 one structurally incapable of announcing its own failure, and the gitignore removes the last
