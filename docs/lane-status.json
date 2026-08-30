@@ -1,10 +1,10 @@
 {
-  "focus": "One agent left on the clamps. Everything else is landed, pushed, and the board audit is clean.",
+  "focus": "The clamps are built and checked; holding their freeze until sigil's instrument change lands.",
   "inFlight": [
     {
-      "what": "the two clamps - parallax scroll and the section one that only looks like a clamp",
-      "where": "branch parcel/scroll-and-section-clamps",
-      "agent": true
+      "what": "the two clamps - built, verified, and looked at on screen; waiting on a paired freeze slot",
+      "where": "branch parcel/scroll-and-section-clamps, not merged",
+      "agent": false
     },
     {
       "what": "the sprite-art queue instrument: built, green, committed - parked, not lost",
@@ -24,11 +24,11 @@
       "since": "2026-08-29"
     }
   ],
-  "nextBoundary": "When the clamps parcel returns. It is the only thing in flight; a fresh session would lose only that branch, which is recorded.",
+  "nextBoundary": "After the clamps freeze lands. The branch is complete and recorded; a fresh session would resume from it.",
   "queue": [
     {
       "id": "SCROLL-AND-SECTION-CLAMPS",
-      "title": "The two clamps: the parallax scroll that wraps silently on a bad number, and a line in the section code that says it clamps and does not. One parcel, agent running.",
+      "title": "Both clamps built and checked on screen: the parallax one removes a real artifact where the bottom of the background art appears above the top of it. Waiting on a paired freeze slot.",
       "state": "doing",
       "size": "S",
       "blockedBy": null,
@@ -277,7 +277,7 @@
   ],
   "awaiting": "your look at the right-edge pictures for the left-edge fix - they are committed and ready",
   "atBoundary": false,
-  "updatedAt": "2026-08-30T02:18:29Z",
+  "updatedAt": "2026-08-30T02:23:31Z",
   "resume": "Your go is RECORDED (empyrean 7149b39) - do NOT boot into a stop. Start with EFFECTS-W1-SHOW-A-BAND: run tools/band_witness.py against master, no bytes moved. EFFECTS-W1 now has a SECOND HALF - the owner ruled the side-effect bugs must be fixed before the project is done (DoD items 14-17). The canopy is no longer backgroundable and its plan is to INSTRUMENT for the next sighting, not derive a third explanation - two are already refuted. d-47-revised is ruled 'targeted'; measure the append risk before art ships. Everything is in DEFERRED_WORK.md.",
   "parkedQuestions": [
     {
