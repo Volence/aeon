@@ -343,6 +343,36 @@ rulings live in the session memory and the most recent `docs/superpowers/*handof
   `git cat-file -e` first, and never let `grep -c` stand in for a read that may not have happened.**
   *Same class as everything else this night: absent rendered as a number.*
 
+- **`emulator/screen_text` READS THE DEBUGGER'S CHROME, NOT THE GAME'S PICTURE — and its `F`
+  COUNTER MUST NEVER BE JOINED TO A BUS FIELD** (added 2026-08-30; served at oracle build
+  `52815f2`, contract Aether §11.29, vectors `cb1201b`).
+  It returns `surfaces[]` — `statusLine | toast | palette | lens | titleBar` — each with `text`
+  (what the player composed), `rendered` (what fits on the glass), `truncated`, and
+  `unrenderable[]`. **Both `text` and `rendered` are served deliberately:** reading only `rendered`
+  loses the reason inside a truncated message; reading only `text` reports strings that are **not on
+  screen**. *Did the window tell the user X* wants `rendered`; *what did the player mean to say*
+  wants `text`.
+  **⚠ THE TRAP, and it is exactly the shape this file keeps recording: the status line's `F` is a UI
+  COUNTER, NOT THE MACHINE'S FRAME.** It is bumped after every run iteration whether or not a frame
+  completed, so a mid-frame breakpoint stop leaves a **permanent +1** and a state load diverges it
+  **without bound**. **Joining it to any bus field produces a plausible number that is about
+  something else.** Use `emulator/status`'s `frame`. *A value that is real, adjacent, and answering a
+  different question — the same family as `pgrep -f` matching its own watcher and `$?` reporting the
+  last pipe stage.*
+  **⚠ AND WHAT IT DOES NOT DO, stated because the offer was framed as ending eyeball requests:
+  it reads the emulator's own overlay, not the rendered game.** Everything this lane has asked the
+  owner to LOOK at — the right-edge price, the background wrap, the colour bands — is game pixels,
+  and `screen_text` cannot see them. Where it does help is anything drawn as debugger chrome, and
+  the booked SCENE-READOUT item is the first candidate **if** that readout is chrome rather than
+  game graphics — which is unmeasured and must be checked before the item is planned around it.
+  `unrenderable[]` exists because the player has no glyph for a backtick or an em dash and draws a
+  hollow box; an assertion against a literal containing either finds out through that field rather
+  than by eye.
+  **Open and named by oracle rather than skipped: it has never run against a real window.** Every
+  path is unit-tested and the headless refusal is a genuine end-to-end capture, but the windowed
+  case is unobserved — they will not put a window on the owner's desktop while he is logged in. **On
+  the windowed path, suspect it before suspecting your own code.**
+
 - **THE EXIT CODE YOU READ IS OFTEN NOT THE ONE YOU WANT — echo the REAL one INSIDE the log**
   (added 2026-08-30; five instances across two lanes in one night, none of them subtle in hindsight
   and all of them silent).
