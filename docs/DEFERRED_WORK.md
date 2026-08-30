@@ -303,9 +303,20 @@ Their replay runner already reconciles the 27 `Ojz` checkpoints (and 37 for `Ojz
 effect of walking the stream, and they now hold a frozen attributable chain-186 copy, so the A/B is
 same-runner, same-code, 186 vs candidate, delta per checkpoint rather than one pass/fail.
 
-- **Trigger (ours):** message them an `aeon_rev` + freeze SHA with the words *"candidate for the
-  restamp A/B"*. Built from a branch carrying the re-record work — **not** the supersede and not
-  master, since the point is to measure the delta before deciding what legitimately moved.
+- **Trigger (ours) — FIRED 2026-08-30, and CORRECTED in the firing, because the original wording
+  would have deadlocked both lanes.** It said the candidate comes *"from a branch carrying the
+  re-record work, not the supersede and not master"*. **That is right for the RESTAMP phase and
+  wrong for the PROOF phase, which comes first.** Prove-then-restamp means the measurement decides
+  *what* to re-record — so the candidate is the ROM carrying the clamps and the OLD fixture, i.e.
+  **master's**. A branch carrying re-record work cannot exist until oracle's answer does. **Had they
+  waited on the original wording, they would have been waiting for something only their own output
+  could unblock.**
+  Fired against the chain-188 golden so they need nothing from this lane's working tree:
+  `aeon_rev ec6a4791` · sigil `e38295d2` · `s4.debug.bin crc 6516fc68 / 736315 /
+  sha256 951cf960…62707d`, taken from `golden/s4.debug.bin`.
+  *Class: a trigger written from the shape of the FINISHED work rather than the shape of the NEXT
+  step. It reads correctly, it is precise, and it names a precondition that the step it gates is the
+  only thing that can satisfy.*
 - **Deliverable (theirs):** the moved SET per checkpoint index, not a count. The count is the
   headline; the set is the evidence, and prove-then-restamp turns on saying *why each mover moved*.
 - **⚠ THE FALSIFIER, STATED BEFORE THE RUN so the A/B can refute rather than accommodate:** this
