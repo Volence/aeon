@@ -167,6 +167,40 @@ rulings live in the session memory and the most recent `docs/superpowers/*handof
   i.e. it fails in the direction of a FALSE SUCCESS. `cd` out first, and never trust a push
   reported by a chain whose cwd may have been removed mid-run.
   *Cross-check: sigil's own write-up of both correctives is at their `1d1e3dc0`.*
+- **THE SHA BAR HAS ONLY EVER BEEN WRITTEN FOR THE RECEIVING SIDE, AND THE FAILURE LIVES ON THE
+  EMITTING SIDE** (added 2026-08-30; this lane's own defect, caught by the hub within minutes).
+  This file's existing SHA rules all say the same thing: `--stat` a citation you RECEIVE. That is
+  the half with a rule. Landing the band-spike capture, this overseer reported the commit as
+  `8b23f0f` — **a hash typed from memory of a commit it had made itself four minutes earlier**,
+  resolving in no object store anywhere. The hub could not open it and said so.
+  **Why this is not the same bar arriving again.** Every prior instance was a citation to somebody
+  else's work, checked or not. This one was never checked because it was never DOUBTED: it was my
+  own commit, made by me, minutes old, and the feeling attached to it was memory rather than
+  inference. **The receiving-side rule is structurally incapable of catching it — there is no
+  incoming artifact to `--stat`.**
+  **Operational form: EMIT every SHA from the command that proves it, in the same invocation as the
+  thing it anchors.** `git branch --show-current && git rev-parse HEAD && git show --stat HEAD` —
+  then quote what came back, never what you remember. Costs one command; the alternative is a
+  plausible-looking hash that sends a reader hunting for a clone that does not exist.
+  *And the second defect underneath it, which the hub's diagnosis found and mine had missed: the
+  commit was also UNPUSHED, so even a correct hash would have failed for them. A mistyped-but-pushed
+  SHA fails loudly; a fabricated one on an unpushed commit fails as a mystery. Push before you cite,
+  and verify the push with `merge-base --is-ancestor` rather than the push command's own output.*
+- **`sigil --version` DIFFERING FROM SIGIL'S `HEAD` IS THIS REPO'S NORMAL STEADY STATE, NOT A
+  SIGNAL** (added 2026-08-30; the sigil lane's sharpening of a diagnostic this lane ran correctly).
+  The binary self-reports the revision it was linked at. After any docs-only commit over there —
+  and their lane-log, decisions and OVERSEER writes are constant — that revision trails `HEAD`
+  while the binary is byte-for-byte what `HEAD` would produce. **A reader who compares `--version`
+  against `HEAD` gets STALE on a current binary, every time, and the natural response is a
+  needless rebuild or, worse, distrust of a measurement that was fine.**
+  **The witness that actually discriminates is a diff scoped to the code:**
+  `git -C ../sigil diff --stat <binary-rev>..HEAD -- crates/` — empty means behaviourally current.
+  A rebuild landing on the identical md5 is the other one.
+  **The composition, which is the durable half:** `--version` is a positive witness that the binary
+  carries A revision and is **silent on behavioural equivalence to tip**; the crates-diff witnesses
+  equivalence and is **silent on which binary you actually invoked**. Neither is sufficient and they
+  fail in opposite directions — the same shape as the off-canonical table witnessing that a build
+  ran while saying nothing about its source. Run both, or state which question you did not ask.
 - **A PAIRED LANDING CITES TWO AEON SHAs AND THEY ANSWER DIFFERENT QUESTIONS — LABEL WHICH IS
   WHICH, OR THE TREE-STATE PIN GETS READ AS THE CODE ANCHOR** (added 2026-08-27; caught by the
   oracle lane, turning this repo's own SHA-class bar back on it, and they were right about the
