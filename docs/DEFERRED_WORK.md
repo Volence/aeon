@@ -15673,6 +15673,181 @@ said around them — the lifted non-goal, the bit, the reference, the sequencing
 lane's scaffolding and was checked here before being written down: bit CONFIRMED (with the value
 caveat above), reference reasonable, non-goal NOT REPRODUCED, sequencing accepted.
 
+## A LANDING HAZARD FOR EVERY BYTE-MOVER: THE SOUND TABLES SIT ON THE `abs.w` CEILING — booked 2026-08-30
+
+**The invariant, which is what to carry; the coordinate below it is what to re-measure.**
+Something in the sound region sits hard against `0x8000`, the `abs.w` addressing boundary. A parcel
+that **shrinks** the image upstream of it drags it below the line, every absolute reference in that
+neighbourhood re-encodes, and lengths cascade. **Growth is the safe direction; shrink is the
+dangerous one.**
+
+**Why this class costs a diagnosis when it bites:** it moves labels in regions nobody edited, so it
+does not present as *"my parcel broke something"* — it presents as **an unrelated test failure
+somewhere you did not touch.**
+
+**Measured 2026-08-30 in `.aeon-chain189/s4.lst`** (the clean frozen tree at `3f143178`, not a live
+one): `SoundTablesZ80_Head` at **`0x8000` exactly — margin ZERO**, `Sound_PlaySFX` at `0x8024`,
+margin 36. **A shrink of ONE byte upstream is enough.** 14 real transfer sites reference
+`Sound_PlaySFX` (`jbsr`/`jsr`/`jbra`/`jmp`); 36 total occurrences of the name, the rest being the
+declaration, an error string and comments.
+
+**THE COMMAND IS THE DURABLE HALF — run it, do not quote this entry's numbers:**
+
+```sh
+grep -nE "SoundTablesZ80_Head|Sound_PlaySFX" s4.lst
+```
+
+`SoundTablesZ80_Head` at `8000` or above = clear. Below = every `abs.w`/`abs.l` decision in that
+neighbourhood has flipped and your measured byte delta is not the whole story.
+
+**Provenance, and it is the reason this entry is written in this shape.** The sigil lane carried a
+row naming `Sound_PlaySFX` as the binding constraint at 36 bytes' margin; re-measuring found the
+actually tightest symbol is `SoundTablesZ80_Head` at zero. The row was measured once and restated since —
+the same failure this lane suffered with the lost `+$5A/+$60` derivation the same night. **Both
+times the SHAPE of the claim stayed true and the COORDINATE rotted.** Hence: name the invariant in
+the row, put the coordinate in a command.
+
+**Not a concern for item 1 step 5**, checked rather than assumed: `OJZ_Preset_Plain` is at
+`0x136D2` and the whole editor-raster neighbourhood with it — ~77 KB downstream of the boundary — so
+its +38 moves neither symbol at all, in either direction.
+
+## MEASURED: NOTHING REFUSES A `rasterRef` ON A SECTION NOTHING CONSUMES — booked 2026-08-30
+
+**The question came from the hub (empyrean `c723dd6`) off aurora's O55; the answer is measured
+here, on master `5fc778c4`, and it is "nothing refuses and nothing warns".**
+
+`effects_gen.py` validates one thing about a `rasterRef` and one thing only: that it **names a
+known preset document** (`:1342-1351`, a typo refusal that lists the known ids, symmetric with the
+`sceneRef` half). **There is no check anywhere that the named section's preset is chooser-threaded.**
+
+**The generator's own output is not the problem — it is already complete.** `:1481-1482` emits
+`if sec == <i> { out = <program> }` for **every** bound section, so `sec_raster(6)` would return the
+right program today. The witness counts them all too (`raster_bindings=len(raster_bound)`, `:1448`).
+**The gap is entirely on the consumer side:** only a preset whose `raster:` argument is hand-threaded
+through `sec_raster(...)` ever asks. After step 5 that is section 5 alone. So the generator answers
+a question nobody asks, correctly, and nothing anywhere notices.
+
+**⚠ THIS DEFECT IS CREATED BY STEP 5, NOT REVEALED BY IT.** Before step 5 no section is threaded, so
+the state is uniform and honest: bindings do nothing, for everyone, and aurora's disclosure says so.
+Step 5 makes it **non-uniform** — one section works, eight do not, and no instrument on either side
+of the seam can tell an author which. That is the too-optimistic direction both lanes spent
+2026-08-30 naming: the editor accepts it, the build accepts it, a counter goes up, no picture.
+
+**The remedy is a LINT, not a generator refusal, and the distinction matters.** The generator cannot
+see who calls its chooser — that is a fact about hand-authored `.emp`. A lint over
+`ojz_effects.emp` can, and **the precedent is already ours**:
+`tools/test_raster_cycle_table_lint.py` parses that same hand-authored file today. Shape: for every
+section in `raster_bound`, assert the act's `.emp` threads `sec_raster(<i>)` into that section's
+`preset()` `raster:`; a binding on an unthreaded section is red, naming the section and listing the
+threaded ones. **Derive the threaded set by parsing, never by a written list** — a hand-maintained
+list of wired sections is the snapshot-wearing-a-check this whole thread is about.
+
+**Note this is aeon-side only and does NOT ask aurora to change.** Their refusal to gate stands and
+is correct; this is the machine-readable half living where the knowledge lives.
+
+**SEQUENCING, and it is a hard precondition rather than a preference: this must land before any
+document tells an author they can bind sections — i.e. before item 1 step 7.** Step 5 alone is safe
+to land without it (no sidecar carries a `rasterRef`, so the population of misled authors is empty).
+The moment step 6 lands a real `<REF>`, or step 7's docs say "bind a section", the empty population
+stops being empty. Sized **S**.
+
+## WHICH SECTIONS CAN ACCEPT A RASTER BINDING IS KNOWN AT BUILD TIME AND PUBLISHED NOWHERE — booked 2026-08-30
+
+**Raised by the aurora lane as the thing that would let them gate properly, and explicitly NOT asked
+for — recorded here because their refusal to guess is what makes the gap worth closing.**
+
+After item 1 step 5, a `rasterRef` binding is honoured for **one** section and silently ignored for
+every other. Three distinct cases, none of them distinguishable by an author:
+
+1. **Threaded** (section 5 after step 5) — the chooser resolves the ref and it plays.
+2. **Not threaded** (sections 4, 6, 7, 8 share the unsplit `OJZ_Preset_Plain`; 1-3 carry
+   hand-authored raster labels) — the key is read, the witness counts it, **nothing consumes it**.
+   No error, no warning, no picture.
+3. **Structurally refused** (section 0) — `OJZ_Preset_Sec0` binds `patched:`, and `preset()`'s
+   comptime ensure makes `ep_raster`/`ep_patched` mutually exclusive. Not a gap step 6 closes; a
+   contradiction the format rejects.
+
+**Case 2 is the expensive one** and it is the failure direction both lanes agreed is worse than a
+too-pessimistic warning: the editor accepts it, the build accepts it, a counter goes up, and the
+author cannot tell "I mis-authored it" from "this section is not wired yet".
+
+**Aurora's position, and it is correct — do not read this row as an ask from them.** They refuse to
+gate on their side, because being patched or threaded is a property of hand-authored `.emp` content
+they do not parse and should not start parsing. Any editor-side gate would hardcode one act's
+current content layout, be silently wrong for the next act, and read to an author as authoritative —
+*"a check that looks like knowledge and is a copy of a snapshot"*. Their instrument stays a
+disclosure naming the section number.
+
+**What closes it, and the reason it is cheap:** `effects_gen.py` already resolves the sidecars,
+already emits the chooser, and therefore already knows which presets carry a chooser-threaded
+`raster:` and which do not. The missing piece is publishing that as data rather than keeping it in
+the generator's head — a machine-readable per-section capability statement Aurora can read instead
+of guessing. **A generated statement is right for exactly the reason a hardcoded one is wrong**: it
+is re-derived per act on every build, so it cannot describe a layout that has moved.
+
+**Sequence, and it is not now.** Blocked behind step 5 landing (nothing to publish until at least
+one section is genuinely threaded) and behind the item-13 contract half if it becomes a wire format
+rather than a build artifact. **Drafting rule adopted from this exchange, and it applies to any
+prose written about this before the data exists: name the SECTION NUMBER, not the property.** "A
+bound section plays" has no expiry and goes wrong silently the first time someone binds section 6;
+"section 5 is wired, the others are not yet" expires loudly when a section number changes.
+
+## THE BUILD NAMES ITS ASSEMBLER BY PATH AND NEVER CHECKS WHAT FILLED IT — booked 2026-08-30
+
+**Found while building chain 189's listings for the oracle lane, and the near-miss that surfaced it
+was somebody else's.** `SIGIL_BUILD` and `SIGIL_EMIT` name **paths**, and the path they name is a
+mutable artifact in another repo's `target/release/`. `build.sh` never records, prints or checks
+what actually occupied that path for the build it just ran.
+
+**The identity is already available and nothing consumes it.** `sigil --version` prints the
+revision and a `-dirty` marker. Measured today: the binary on this machine reports
+`d5967f87-dirty`, while chain 189's `provenance.toml` records `sigil_rev = 5552bccb`. So the
+listings I built to reproduce chain 189 were assembled by a binary that **corresponds to no commit
+at all** — and the only reason anyone knows is that this lane thought to ask.
+
+**The live near-miss, disclosed by the sigil lane 2026-08-30T~10:02Z and independently corroborated
+here.** A nightly job of theirs relinks that exact binary; a guessed flag started it while this
+lane's four builds were in flight. It was killed inside two minutes and nothing was relinked (their
+mtimes; and independently, all four of this lane's ROMs reproduced chain 189's committed goldens
+byte-for-byte, which a relink mid-flight could not have hidden). **The window was bounded by luck of
+timing, not by any control**, and their formulation is the one to keep: had it run twenty minutes
+earlier, this lane's build would have produced bytes from an assembler it did not name, **and
+nothing in either lane would have reported it.**
+
+**What to build, and its deliberate limit.** `build.sh` records the assembler's self-reported
+revision beside the artifacts, and a **dirty** assembler is NAMED in the output rather than passing
+silently. **Not** a refusal on dirty — local iteration legitimately runs dirty binaries all day, and
+a gate that fires on the normal case gets disabled. The bar is only that *"you built with a binary
+that corresponds to no commit"* stops being something a lander has to think to ask. Freeze and
+attest are the places where it should be loud, since those are the runs whose numbers outlive the
+binary.
+
+**Falsifier for anyone who implements it:** point `SIGIL_BUILD` at a binary built from a clean
+checkout and confirm the output says so; then dirty that checkout, rebuild, and confirm the output
+changes. A recorder that reports the same string in both cases is reading something that is not the
+identity.
+
+**THE GAP IS SYMMETRIC ACROSS THE SEAM, AND BOTH LANES HAVE AGREED WHO FIXES WHICH HALF
+(2026-08-30).** Sigil's goldens record *what the ROM bytes were*, not *which assembler produced
+them*, so a lander comparing CRCs learns nothing about provenance from their side either. They have
+said they will **read** this record rather than duplicate it once it lands — so the aeon-side
+implementation is the one that closes both halves, and shipping it without telling them leaves the
+duplicate they were trying to avoid.
+
+**And the artifact itself can never answer the question**, which is what makes the build-side record
+non-optional rather than a convenience. Measured by the oracle lane while pinning chain 189: **a
+listing embeds no assembler version marker at all** — every `dirty` hit in `s4.debug.lst` is a game
+symbol (`Enqueue_Dirty_Buffers`, `Palette_Dirty`, `not_dirty`). The identity exists only in the
+running binary's `--version` output, at build time, and vanishes the moment the build ends.
+
+**A worked instance of the residue, so nobody re-derives it as reassurance.** Chain 189's listings
+were rebuilt here at `d5967f87-dirty` against a recorded `sigil_rev` of `5552bccb`. Enumerating
+sigil's committed source narrows it — 19 commits, ancestor, no listing or symbol path touched (the
+one pipeline binary in the range, `emit_sound_blob`, changed only in where it may WRITE, not in what
+it emits) — but **`-dirty` is uncommitted state at build time that no revision recovers**, and
+reading sigil's tree afterwards bounds nothing about then. Narrowed, never closed. That irreducible
+residue is the argument for recording at build time rather than reconstructing afterwards.
+
 ## EFFECTS-W1 — the owner-ratified definition of done, priced and sequenced (2026-08-29)
 
 **Source:** empyrean `docs/superpowers/specs/2026-08-29-effects-definition-of-done.md`, commit
