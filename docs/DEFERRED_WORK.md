@@ -15716,7 +15716,25 @@ the row, put the coordinate in a command.
 `0x136D2` and the whole editor-raster neighbourhood with it — ~77 KB downstream of the boundary — so
 its +38 moves neither symbol at all, in either direction.
 
-## MEASURED: NOTHING REFUSES A `rasterRef` ON A SECTION NOTHING CONSUMES — booked 2026-08-30
+## ~~MEASURED: NOTHING REFUSES A `rasterRef` ON A SECTION NOTHING CONSUMES~~ — **CLOSED 2026-08-30 by `14de0893`**
+
+**Closed by the step-5 parcel itself, ahead of the step-7 precondition this was booked as.**
+`tools/effects_seam_gate.py`'s `raster_seam_faults` carries the arm: for every section whose
+sidecar names a `rasterRef`, if no preset threads `<fn>(sec: N)`, it fails with *"the generator
+would emit the binding row and nothing would read it, which presents to the author as an
+assignment that did nothing."* Exactly the sentence this row asked for.
+
+**Two properties that make the closure real rather than nominal.** (1) The threaded set is
+DERIVED by parsing `ojz_effects.emp`, not a written list — the hand-maintained-list failure this
+row named is not present. (2) The arm is **VACUOUS today** (no sidecar carries the key until step
+6) **and says so in its own output** rather than reading green: *"0 sidecar rasterRef(s) — the
+sidecar arm is VACUOUS today and says so rather than reading green"*. It is unit-tested as a pure
+function on synthetic inputs, because the real tree cannot produce the case yet, and stubbing the
+function always-healthy is proven to turn its own tests red.
+
+*Original entry retained below for its measurement and its reasoning.*
+
+## THE ORIGINAL MEASUREMENT — booked 2026-08-30
 
 **The question came from the hub (empyrean `c723dd6`) off aurora's O55; the answer is measured
 here, on master `5fc778c4`, and it is "nothing refuses and nothing warns".**
