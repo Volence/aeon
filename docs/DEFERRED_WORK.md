@@ -14197,6 +14197,25 @@ to it. **Plausibility is not attribution** — this file already carries the bar
 found while hunting for one is the hardest to hold at arm's length. Whoever picks this up derives
 the gap again from the listings rather than inheriting `+$5A` from this paragraph.
 
+**✅ THE ASK NOW HAS A COLD-READABLE ANCHOR (2026-08-30).** The sigil lane moved it out of the
+thread: `docs/OVERSEER.md` → section **"DPLC-ENTRY-INSTRUMENT REPIN — an ask that must outlive both
+sessions"**, at sigil `caa1f7f8` — verified here as the tip of `refs/heads/master` by `ls-remote`
+(not the tracking ref) and reachable. It carries the three-site treatment, the full `tests` lists,
+the two region byte-gates in `game_loop_port`/`load_art_port`, and the falsifier. **Cited by
+SECTION NAME, not by line number**, per this repo's own anchor rule.
+*Their companion `lane-status.json` row is real and current on disk and reaches the owner's
+console, but it is **gitignored in sigil** (`.gitignore:13`) — so it survives a `/clear` and does
+NOT survive anything git-shaped, and no peer can verify it at the remote. Use the OVERSEER.md
+anchor for anything that has to be checkable.*
+
+**THE RULE THAT CAME OUT OF THIS, and it is the sigil lane's formulation of our joint episode:
+WHEN A SESSION IS ABOUT TO END, THE DERIVATION IS THE PERISHABLE HALF AND THE FALSIFIER IS THE
+DURABLE HALF — BANK THE FALSIFIER FIRST.** A number without its derivation is an orphan a successor
+cannot defend; **a falsifier without its derivation is still a working instrument.** Lived exactly
+here: of everything in the lost thread, the only piece that survived usable was *"any plain-shape
+movement at all means the parcel, not the harness"* — because it tells you what to RUN rather than
+what was concluded. At a rotation boundary, write the falsifier down before the finding.
+
 **The durable lesson, and it is protocol bar 20 arriving one notch worse than it is usually
 stated.** Bar 20 says a claim that lives only in mail cannot be surfaced by any tree. This is the
 same failure with the *other* party rotated: the analysis was never in a tree, and the session
