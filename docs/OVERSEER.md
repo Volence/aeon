@@ -105,8 +105,15 @@ rulings live in the session memory and the most recent `docs/superpowers/*handof
   token nobody audits) → commit `provenance.toml` → push both. Aggregate totals only, never
   a tail; the fully-green bar moves, so derive it and do not quote this file.
   `refreeze --check` is NOT the goldens.
-  The hand-typed baseline test (`repin_pins.rs`) demands a per-parcel term with its story
-  when assembled lengths move.
+  ~~The hand-typed baseline test (`repin_pins.rs`) demands a per-parcel term with its story
+  when assembled lengths move.~~ **STRUCK 2026-08-30, measured, not assumed.** That test is
+  RETIRED: `secondary_pin_classes_match_the_hand_typed_baseline` reports
+  `ignored, RETIRED by Wave-B B-0 (packed placement): this test asserts literal pin VALUES`.
+  Chain 190 moved assembled lengths (+38 in `ojz_effects`, 204/207 symbols sliding +32) and
+  **owed no per-parcel term**; `repin_pins` ran 2 passed / 0 failed / 1 ignored. Left struck
+  rather than deleted because this file's own first bar is that a stale sentence in a planning
+  document is executed as a work order — and a lander following this one would have hand-written
+  a term into a test that cannot read it.
 
   **⚠ THE MANUAL STRICT SUITE IS SUPERSEDED — RUN THE TOOL (2026-08-27).** Where this file
   previously told you to run `SIGIL_STRICT_GATE=1 AEON_DIR=<clean> cargo test --release

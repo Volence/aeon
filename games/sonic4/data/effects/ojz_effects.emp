@@ -62,9 +62,16 @@ use engine.effects.preset.{EffectsPreset, preset}
 //
 // SELECTIVE IMPORT ONLY, mirroring act_descriptor.emp:55 — that is the shipped spelling for
 // this module's other two choosers and it is what places its bytes. The whole-path closure
-// edge (`use games.sonic4.scene_registry` below) is NOT needed here: the editor module is
-// already in the closure through act_descriptor, and a second whole-path edge would only
-// re-state it.
+// edge (`use games.sonic4.scene_registry` below) is NOT needed here, and the reason is
+// LOCAL TO THIS FILE rather than routed through another's closure: line 104 below already
+// selectively imports `Scene_Editor_ojz_act1_depth` from this same module, so the line above
+// adds a NAME to an edge this file already has rather than creating one.
+//
+// The earlier wording said the module was "already in the closure through act_descriptor".
+// Same conclusion, worse ground: it made this edge's safety contingent on act_descriptor
+// continuing to import that module, so it would have gone stale silently the day that
+// changed. Corrected on the sigil lane's reading (2026-08-30) — they refused to take the
+// justification and re-derived it from this file.
 use games.sonic4.ojz_effects_editor_act1.{ojz_act1_sec_raster}
 // Parcel W: section 0 binds its parallax config through the PRESET (ep_parallax) rather
 // than inheriting the act default, because the overlay's anchor channel has to be the same
