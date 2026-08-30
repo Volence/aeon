@@ -67,13 +67,22 @@ new case:
   * set RASTER_CYCLE_COUNT to 3         -> test_cycle_count_matches_table_length
   * drop the editor name from `use`     -> test_every_table_row_is_imported
 
-THE DISJUNCTION ITSELF is proven by `unreachable_presets()`'s own unit tests below, over
-all four combinations of (row, binding). It is decided by a pure function precisely so
-that the "reachable by a binding" arm can be tested WITHOUT writing a `rasterRef` into a
-real sidecar — which is forbidden until aurora's `SectionMeta` extension is on their
-master (empyrean §3.1's sequencing precondition; `sceneRef`'s precedent is aurora
-`a88db05` and `rasterRef` needs its successor). A gate whose new arm could only be
-exercised by violating a contract precondition would never be exercised at all.
+THE DISJUNCTION ITSELF is proven twice, at two levels.
+
+  * `unreachable_presets()` is a PURE FUNCTION over three sets, unit-tested below in all
+    four combinations of (row, binding). It is a pure function so that the arm can be
+    exercised without a sidecar at all — which mattered when it was written, because
+    `rasterRef` was then forbidden in any sidecar until aurora's `SectionMeta` extension
+    landed, and a relaxed arm exercisable only by violating the precondition it waits on
+    would never be exercised.
+  * ON THE REAL TREE, 2026-08-30, once that precondition was DISCHARGED (aurora master
+    `7b1d15a0`, "sidecar: rasterRef, the per-section raster-preset binding"): the editor
+    `dc.l` row was deleted and `authored_probe` bound instead through a real
+    `section_5.meta.json` — **11 passed**. Removing only that sidecar, leaving everything
+    else identical, turns `test_every_preset_document_is_REACHABLE` **red**. The single
+    file is the whole difference between the two runs, which is what makes the (b) arm a
+    measurement rather than a unit-test analogy. Both states were reverted; no sidecar in
+    this tree carries the key, which is what step 3's four-CRC byte-identity rests on.
 """
 
 import re

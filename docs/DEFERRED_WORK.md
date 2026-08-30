@@ -15998,12 +15998,29 @@ for); **every editor row still names a real document** (unrelaxed — an unresol
 silent link extern); and **the rows that exist stay in emission order**.
 
 The disjunction is decided by a **pure function**, `unreachable_presets(presets, rows, bound)`,
-for a reason worth keeping: the "reachable only by a binding" arm **cannot** be staged on the
-real tree, because no `rasterRef` may be written into a sidecar until aurora's `SectionMeta`
-extension is on their master (empyrean §3.1; `sceneRef`'s precedent is aurora `a88db05`). A
-relaxed arm exercisable only by violating the precondition it waits on would never be exercised
-at all. Its four combinations (row-only / binding-only / both / neither) are unit-tested, and
-stubbing the function to "always reachable" turns two of them red.
+and its four combinations (row-only / binding-only / both / neither) are unit-tested; stubbing
+it to "always reachable" turns two of them red. It is a pure function so the arm could be
+exercised with no sidecar at all — which mattered when it was written, because a relaxed arm
+exercisable only by violating the precondition it waits on would never be exercised.
+
+**THE SEQUENCING PRECONDITION IS NOW DISCHARGED, and the (b) arm is proven on the REAL tree.**
+`rasterRef` is on aurora master at **`7b1d15a0`** ("sidecar: rasterRef, the per-section
+raster-preset binding"), so the ban on writing the key into an aeon sidecar is lifted. Probe:
+delete the editor `dc.l` row and bind `authored_probe` through a real `section_5.meta.json`
+instead — **11 passed**; remove only that sidecar and leave everything else identical —
+`test_every_preset_document_is_REACHABLE` **red**. The single file is the entire difference
+between the two runs. Both states reverted: **no sidecar in this tree carries the key**, which
+is what step 3's four-CRC byte-identity rests on, and the two must not be folded.
+
+**MIND THE UNIT when citing aurora's enumeration.** Thirteen **SITES** across five files (by
+this repo's own definition — a place that hardcodes the ref SET) against sixteen **FILES** that
+merely mention `sceneRef`. Both numbers are right, they count different things, and neither is
+the other. ⚠ The enumeration METHOD in `EFFECTS_CONSUMER_CONTRACT.md` §2.2 has a known hole
+that aurora's lane found: following the sibling key finds the code that HANDLES the ref set and
+misses the prose that DESCRIBES it — six further prose sites hardcode the set and one
+(`PRESET_LIMITS.unbound`) is author-facing and names `sceneRef` zero times, so no
+`sceneRef`-shaped search could reach it. Flagged in §2.2 in this parcel; the rule's amendment
+is the hub's row, not this one's.
 
 **Every arm re-proven red AFTER the relaxation, each firing ALONE** (delete the editor row;
 add a row naming no document; two documents with rows out of order; swap row 0; `CYCLE_COUNT`
@@ -16026,3 +16043,25 @@ guard.*
 - **Still open, unchanged:** empyrean §7.1's *"nothing checks that a preset document is BOUND"*
   sentence, which their lane will amend once this gate exists — this parcel's SHA is the one to
   route.
+
+### RIDER, MEASURED NOT ARGUED — can a build.sh lane go green over what a stricter checker rejects?
+
+Asked because aurora found their instance (vitest strips types, so `npm test` stayed green at
+6041 passed while `tsc` reported 23 errors). **Our analogue exists as a MECHANISM and today has
+ZERO unexplained instances.** `build.sh` never runs sigil with warnings enumerated or fatal —
+`grep -c SIGIL_WARNINGS build.sh` is **0** — and a canonical-content `SIGIL_WARNINGS=full FAST=1
+DEBUG=1` build exits **0** while reporting **142 warnings**, of which `module.unreachable` is
+**52 modules carrying 119 `ensure` guards that are never evaluated for this target**. An
+unreached `.emp` module gets zero body elaboration, so those guards build green while asserting
+nothing — the trap `docs/EMP_PITFALLS.md` §3 names and the reason `tools/effects_seam_gate.py`
+exists at all.
+
+**Classified, all 52 have a standing explanation and the residue is empty:** 39 modules / 68
+ensures are poison + expect-fail fixtures that are unreachable **by design**; 12 / 42 are sound
+modules lowered through seam-1/seam-2 rather than this closure; 1 / 9 is the other game. **No
+module lacks an explanation.** So: no live defect, but the shape of the gap is real — a change
+that made a currently-reachable module unreachable would silently kill its guards and stay
+green, and exactly ONE seam in this tree has a positive-witness gate against that. Candidate row
+(NOT taken here, it widens the parcel): have `build.sh` run `SIGIL_WARNINGS=full` and fail on
+any `module.unreachable` outside an explicit allow-list — the classification above is the
+allow-list's first draft.

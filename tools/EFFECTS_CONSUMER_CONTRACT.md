@@ -288,10 +288,24 @@ a note in an error you may never see, which is exactly why the rule is written h
   is defended against here: an unknown-key refusal on the sidecar would make every future
   Aurora key a build break, which is the opposite of what a sidecar is for.
 
-  **Sequencing precondition, inherited from `sceneRef` and binding:** `rasterRef` does not
-  land in any sidecar until the `SectionMeta` extension carrying it is on aurora's master.
-  `sceneRef` needed aurora **`a88db05`**; `rasterRef` needs that commit's successor.
-  Landing the key early means the author's first save deletes their own assignment.
+  **Sequencing precondition — DISCHARGED 2026-08-30.** `rasterRef` could not land in any
+  sidecar until the `SectionMeta` extension carrying it was on aurora's master, because
+  an older Aurora erases the key on its next save and the author's first save would
+  delete their own assignment. `sceneRef` needed aurora **`a88db05`**; `rasterRef`'s
+  extension is aurora master **`7b1d15a0`**, merged and verified. The ban is lifted.
+
+  **Its site enumeration was re-derived, and MIND THE UNIT:** **thirteen SITES across five
+  files**, by this section's own definition of a site (a place that hardcodes the ref
+  SET), against **sixteen FILES that merely mention `sceneRef`**. Both numbers are right
+  and they count different things; neither is the other.
+
+  ⚠ **AND THE RE-DERIVATION METHOD ABOVE HAS A KNOWN HOLE — do not read it as complete.**
+  Following the sibling key finds the code that HANDLES the ref set and misses the prose
+  that DESCRIBES it: six further prose sites hardcode the set, and one of them
+  (`PRESET_LIMITS.unbound`) is **author-facing and mentions `sceneRef` zero times**, so no
+  `sceneRef`-shaped search could ever surface it. An amendment to the enumeration rule is
+  booked with the hub. Until it lands, enumerate prose separately from code rather than
+  trusting a search keyed on the sibling name.
 
   **The channel it binds is `ep_raster` only** — a preset document carries a raster
   program and nothing else, so `rasterRef` is a NARROW binding. empyrean §7's `effectsRef`
