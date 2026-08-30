@@ -259,6 +259,125 @@ structurally cannot see this. Their pin stays correct for a narrower reason than
 186 is the last freeze whose **checkpoint 0** is coherent. *A true number answering a narrower
 question than the one asked of it: tonight's shape, one more time.*
 
+### REPLAY-NET-BLIND CLOSED — ONE COMMIT, TWO COLLISION FILES, AND THE NET WAS GREEN 18 HOURS EARLIER
+(this lane's measurement 2026-08-30, on branch `diag/replay-net-blind-archaeology`; answers the
+"Open:" line of THE RESTAMP A/B RETURNED above, and corrects two of its numbers)
+
+**ANSWER: ONE cause, one commit — `fde35b2f` (2026-08-29 03:43 -0400), *"data(ojz): repaint the
+collision cells that made Knuckles fall through the floor"*, whose entire diff is two files:
+`games/sonic4/data/editor/ojz/act1/section_0.collattr.bin` and `.collattrb.bin`.** It reached the
+ROM as chain **181** (`rebake-after-repaint`, aeon `544e6e57`), via the bake committed at
+`ccc356c7` (`collision/{angles,heightmaps,heightmaps_rot,solidity}.bin` +
+`generated/ojz/act1/sec0_blocks.bin`). **It is NOT "stale since recorded" and it is NOT many
+parcels.** It predates the clamps by six chain entries and **17.8 hours** (chain 181 froze
+2026-08-29 09:14 UTC, chain 187 at 2026-08-30 03:05 UTC).
+
+**The sweep, and every point carries its own control.** For each chain: build the paired
+`sigil_rev` from `provenance.toml`, build that entry's `aeon_rev` (`FAST=1 DEBUG=1 ./build.sh`),
+**verify the built `s4.debug.bin` CRC against the frozen `full_crc` for that entry** — a build that
+does not reproduce the frozen artifact is reported UNTRUSTED, never counted — then
+`replay_runner --restamp` for the full stale set. Any chain reporting ZERO stale ALSO runs
+`--negative-control`, because a green that has never been shown capable of red is the exact defect
+this row is about.
+
+    chain  aeon_rev   s4.debug crc   pinned?   stale set              negative control
+    173    33d905b8   8c01d7ed       EXACT     (none)                 TRIPPED
+    174    4b43bdda   9670be95       EXACT     (none)                 TRIPPED
+    175    9bba8700   406db07d       EXACT     (none)                 TRIPPED
+    176    55e0858f   fee02557       EXACT     (none)                 TRIPPED
+    177    b42141bc   ac752821       EXACT     (none)                 TRIPPED
+    178    b12c0141   e1f02631       EXACT     (none)                 TRIPPED
+    179    4ba7cb92   bcf682b5       EXACT     (none)                 TRIPPED
+    180    03ed1f1c   5785610a       EXACT     (none)                 TRIPPED
+    181    544e6e57   a9676c6b       EXACT     18 19 20 21 22 23 24 25 26
+    183    e99a2ca7   10916c8c       EXACT     18 19 20 21 22 23 24 25 26
+    185    1aa2b242   10916c8c       EXACT     18 19 20 21 22 23 24 25 26
+    186    def98ee5   839bafaf       EXACT     18 19 20 21 22 23 24 25 26
+    tip    fa806c49   6516fc68       == 188    0 18 19 20 21 22 23 24 25 26
+
+**THE KEYSTONE IS THE LAST TWO ROWS OF THE COMMIT-LEVEL PROBE, AND IT IS A BYTE IDENTITY, NOT AN
+INFERENCE.** `ee254589` (the repaint's parent) builds to **0 of 27 stale, negative control
+TRIPPED**. `fde35b2f` — two collision files later, nothing else — builds to **9 of 27 stale**, and
+its ROM CRC is **`a9676c6b`, which is chain 181's frozen `s4.debug` golden to the byte.** So the
+one commit that flips the net is also the *only* ROM-affecting content in the entire
+`03ed1f1c..544e6e57` range: the repaint alone reproduces the frozen artifact that first went stale.
+*(`FAST=1` auto-re-bakes a stale editor tree, which is why `fde35b2f` — whose canonical build would
+refuse on staleness — reaches the ROM at all under this rig. That is the mechanism, and it is why
+the bake at `ccc356c7` was needed for the canonical path.)*
+
+**ONE CAUSE, PROVEN BY THE PAYLOADS AND NOT BY THE COUNT.** The nine `new` hashes are **byte-identical
+at `fde35b2f`, 181, 183, 185, 186 and master tip** — `607BF6C4 3750A813 AF65AF6A 1F8422C5 93161A26
+F3185259 5B1CF76D 5B22F780 2FA77A39`. A second behavioural cause landing after 181 would have moved
+them again and did not. Two corollaries fall out: **the five chains of band/editor/left-edge work
+between 181 and 186 are behaviourally inert on this path**, and **the clamps moved checkpoint 0 and
+nothing else even though 18-26 were already broken** — which corroborates oracle's `cam_col < 16`
+mechanism from a direction their own A/B could not reach.
+
+**⚠ AND THE NET IS NOT UNIFORMLY BLIND, WHICH THE 9-OF-27 HEADLINE HIDES: THE SLIDE FIXTURE IS
+CLEAN.** `ojz_slide_fixture` at master tip is **1 of 37 stale — checkpoint 0 only**, the clamps'
+mover. The repaint touched cells only the standing fixture's path crosses. So "the net is broken"
+is true of one of the two committed fixtures; the other has been correct throughout and would have
+reported green honestly — *if anything had run it.*
+
+**RESTAMPABLE — mechanically proven, not judged.** `replay_runner --restamp` on the master-tip image
+computed the ten-payload repair, **re-ran the re-stamped image clean end to end (Logic_Tick 1723,
+all 27 compared and matched, 10.66 s) and re-ran the negative control on it (still trips)** before
+emitting anything. The recorded INPUTS are untouched and the stream still runs to completion, so
+this is the same class of repair as the 2026-08-26 insta-shield re-stamp: **a re-record is NOT
+required.** *Nothing was re-stamped by this parcel — it is a diagnosis, and the ruling above
+(restamp checkpoint 0 only) still stands until the owner extends it.*
+
+**⚠ PRECISION LIMIT, STATED SO NOBODY OVER-READS THE TICK: checkpoints fire every 64 ticks, so
+"checkpoint 18 / `Logic_Tick` 1154" bounds the true divergence to ticks 1091-1154. It does not
+locate it.** The fixture records one hash per 64 ticks and has no memory of why; that is the same
+limitation that made the raw stale set uninterpretable without a control in the entry above.
+
+**TWO NUMBERS IN THE ENTRY ABOVE ARE WRONG, measured at the revision it cites (oracle `70ac3a7`,
+`crates/oracle-replay/tests/replay_real_artifacts.rs`).** It says *"4 of 24 tests in that file are
+ignored"*. The file has **16 `#[test]` functions and 3 `#[ignore]`d** —
+`the_standing_fixture_runs_green`, `the_slide_fixture_runs_green`,
+`one_pass_repairs_four_stale_checkpoints_and_reproduces_the_pristine_image`. The fourth `#[ignore]`
+`grep` finds is **prose in the module doc-comment** (line 30, *"the two full playthroughs are
+`#[ignore]`d"*) — a count of a spelling rather than of a population, which is the SUITE-HOME-PATHS
+lesson landing inside the entry that was written the same night. **The qualitative claim survives
+intact and was re-verified here by symbol name**: both playthroughs are ignored, and no
+default-running test plays a stream to completion.
+
+**⚠ THE THIRD LAYER NOBODY HAS BOOKED, AND IT OUTLIVES THE `#[ignore]`: ORACLE'S TESTS DO NOT READ
+OUR TREE AT ALL.** Since oracle `090784a` (2026-08-30) `aeon_dir()` defaults to **their** frozen
+`fixtures/aeon/`, pinned at **chain 186** — the last ROM before the clamps. So even un-ignoring the
+playthroughs would not have caught the clamps' checkpoint-0 move, and un-ignoring them *today*
+would red their suite against a ROM that is 18 hours older than the defect it is testing. **Two
+independent reasons the net cannot see a regression, and removing either one alone still leaves a
+blind net.**
+
+**CROSS-FENCE ASK, FILED (controller to oracle) — three items, in dependency order:**
+1. **Run the playthroughs somewhere.** Not necessarily in `cargo test --workspace`: a
+   `--release --ignored` lane on a timer, or a merge-gate job, is enough. ~9 s in release for both
+   fixtures. Un-ignoring them into the default debug suite costs ~83 s and will be reverted.
+2. **Make the fixture pin's staleness visible.** `fixtures/aeon/PROVENANCE.md` records which build
+   is pinned; nothing reports when master has moved past it. A pin that silently ages is the same
+   failure mode as an ignored test, one layer out.
+3. **Say which artifact a green refers to.** Their 2026-08-30 merge said *"chain 186 is the last
+   freeze whose embedded fixture is coherent"* on the strength of a 13/0 default suite; they have
+   already corrected that themselves. The durable fix is that the suite name the pinned chain in
+   its output, so a green cannot be read as a statement about master.
+
+**REPRODUCING THIS (no script is committed — an unwired probe in `tools/` would be one more dormant
+gate, which is the class this row is about).** Per chain, from `provenance.toml`'s `sigil_rev` /
+`aeon_rev` / `targets.s4_debug.full_crc`:
+
+    build sigil at <sigil_rev>            -> SIGIL_BUILD / SIGIL_EMIT
+    checkout aeon at <aeon_rev>; FAST=1 DEBUG=1 ./build.sh
+    crc32 s4.debug.bin  MUST equal full_crc     <- the control; UNTRUSTED otherwise
+    replay_runner --rom s4.debug.bin --lst s4.debug.lst --fixture ojz_fixture --restamp
+    on a ZERO-stale result, also --negative-control     <- or the green is vacuous
+
+Historic aeon **cannot** be built with current sigil (chain 165 fails the sound-blob size tripwire,
+then the chainer's alignment guard) — the paired `sigil_rev` is mandatory. And **sigil's golden tree
+alone is not enough**: it commits `s4.debug.bin` but **no `.lst`**, and `replay_runner` resolves
+every address by name, so the blob must be reproduced rather than taken.
+
 ### SUITE-HOME-PATHS — baked absolute paths, and the ones that PASS when the path is absent
 (booked 2026-08-30 from the hub's row; counts reproduced here, not taken)
 
