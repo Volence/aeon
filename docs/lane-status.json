@@ -1,6 +1,17 @@
 {
-  "focus": "Item 1's binding is in - the thing aurora's whole remaining queue was waiting on.",
-  "inFlight": [],
+  "focus": "Building the band's home section now that the last question on it was answered for you.",
+  "inFlight": [
+    {
+      "what": "item 1 step 5 - splitting the preset so section 5 can carry a band of its own",
+      "where": "branch parcel/preset-sec5-split",
+      "agent": true
+    },
+    {
+      "what": "the unguarded art-size ceiling under the DPLC fix - a compile-time check so it cannot be crossed silently",
+      "where": "branch parcel/dplc-tilestart-ensure",
+      "agent": true
+    }
+  ],
   "blockedOnOwner": [
     {
       "id": "d-34",
@@ -13,7 +24,7 @@
       "since": "2026-08-29"
     }
   ],
-  "nextBoundary": "Here. Item 1's arm is merged and re-verified on the merged tree; no agent holds a branch; nothing half-applied. Steps 5-7 remain, and step 5 is blocked only on your section/band pick (BLOCKED-2).",
+  "nextBoundary": "When both agents report and whichever is sound is merged and re-verified on the merged tree. The byte-mover (step 5) also needs its sigil pairing before it is really down.",
   "queue": [
     {
       "id": "REPLAY-RESTAMP",
@@ -58,7 +69,7 @@
     {
       "id": "EFFECTS-W1-VERTICAL-BOB",
       "title": "DoD item 7: the whole background sways over time. Cheapest of the motion items - one term on a step that already exists.",
-      "state": "open",
+      "state": "next",
       "size": "S",
       "blockedBy": null,
       "project": "EFFECTS-W1"
@@ -154,7 +165,7 @@
     {
       "id": "EFFECTS-W1-BIND-PRESETS",
       "title": "DoD item 1. STEPS 2-4 MERGED 4aa2abc0, zero-byte and re-verified on the merged tree by this lane: all four shapes CRC-identical to sigil's committed goldens (63451f96 / 3aa7cb12 / 9223a60d / d30c3636), 1742 passed / 3 skipped / 0 failed on each of the four canonical builds. The key is rasterRef; the wire spelling exists in exactly one place (ACT_RASTER_REF_KEY) after review removed a copied expectation. BLOCKED-3 is PROVEN, so the design's +38 B unconditional fallback is dropped. Aurora has a WRITER now (f98824ac) and their SectionMeta precondition landed (7b1d15a0). LEFT: step 5 (+38 B split, sigil pair) blocked only on the owner's section/band pick; step 6 (band + rasterRef + delete authored_probe), its aurora precondition now discharged; step 7 (EDITOR_RASTER_PRESETS.md C/D).",
-      "state": "open",
+      "state": "doing",
       "size": "M",
       "blockedBy": null,
       "project": "EFFECTS-W1"
@@ -201,11 +212,19 @@
     },
     {
       "id": "DPLC-ENTRY-BUDGET",
-      "title": "Sonic's heaviest frames need 13 art transfers against 12 slots. The append risk is MEASURED and clear (margin 5,188 B), and the measurement found this is coupled to the block-stream slimming - whichever lands second must re-measure. A build gate now catches it.",
+      "title": "Sonic's heaviest frames need 13 art transfers against 12 slots. The append risk is MEASURED and clear (margin 5,188 B), and the measurement found this is coupled to the block-stream slimming - whichever lands second must re-measure. A build gate now catches it. NOT the row in flight: the agent is on its RIDER (DPLC-TILESTART-ENSURE), not the re-cut. The re-cut itself is still unstarted.",
       "state": "open",
       "size": "M",
       "blockedBy": null,
       "project": "EFFECTS-W1"
+    },
+    {
+      "id": "DPLC-TILESTART-ENSURE",
+      "state": "doing",
+      "size": "S",
+      "blockedBy": null,
+      "project": "EFFECTS-W1",
+      "title": "The rider under DPLC-ENTRY-BUDGET: the art-index field is 12 bits and nothing checks it. One character's file records the ceiling in a COMMENT and no machine check enforces it for any of them. Zero-byte compile-time ensure, red-first proof required; the bound must be derived from whatever names the field width, never typed in."
     },
     {
       "id": "LIVE-OBJECTS",
@@ -328,10 +347,10 @@
       "title": "Aurora's find: two records on one fire line store a gap whose byte IS the park value, killing every later fire silently. Measured HARDENING not tier - check_intervals already refuses it and every one of the five shipped programs is emitted through the checked path. Residual is defence in depth for a future path."
     }
   ],
-  "awaiting": "which section gets the band, and what it looks like - step 5 is the only thing item 1 still needs from you (the design recommends section 5: a 38-byte split that evicts nothing, against section 4 which evicts the d-15 showcase)",
-  "atBoundary": true,
-  "updatedAt": "2026-08-30T09:54:30Z",
-  "resume": "Chain 189 is frozen/attested/pushed (sigil origin/master 39c34fd2, aeon 3f143178). Master has moved four DOCS-ONLY commits past that point (verified: git diff --name-only 3f143178..bfdd28e6 is five files, all docs/), so the byte baseline is UNMOVED and the chain-189 goldens remain the right ones. NEXT: EFFECTS-W1 item 1 is the PROJECT'S CRITICAL PATH. Its CR is ADJUDICATED - the key is rasterRef, not effectsRef (empyrean da91abcee6fa71fa49116b32be77c6c6eee92196, option B); the design branch design/effects-ref-binding (2cf29126, unmerged) predates the ruling and says effectsRef throughout. BLOCKED-1 in that design is now CLOSED; BLOCKED-2 (which section, owner's) and BLOCKED-3 (the comptime chooser-result argument, ten minutes in step 2) stand. Design's other three corrections to the brief stand: sigil pairing is UNDER-PRICED (expect a repin, not a deletion), a cycle-table lint would ship the feature falsified by its own build lane, and authored_probe has NINE sites not five. Steps 5-7 wait on sigil's refusal parcel; sigil will re-run the four shapes against the chain-189 goldens and send CRCs or a BLOCKED report. R7 is NOT ready (sigil retracted it against their own tree; what landed was the precondition only) and the hub has WITHDRAWN its routing of R7 onto item 1's byte-mover. Byte-movers ahead of item 1: the DPLC re-cut and block-stream dedup, COUPLED - whichever lands second re-runs dplc_straddle --recut Art_Sonic on the merged tree. Open questions NOT ours: DRIFT-KEY-CLOSURE-REV (sigil ruled the reporting half; the population half is the owner's and touches d-48) - note it now has a live instance, the four docs-only commits above read to sigil's drift job as four misses on a tree whose ROM never moved.",
+  "awaiting": null,
+  "atBoundary": false,
+  "updatedAt": "2026-08-30T10:01:08Z",
+  "resume": "Item 1 step 5 is UNBLOCKED and in flight. BLOCKED-2 (which section) was ruled in the owner's place by the hub: SECTION 5, the 38-byte split that evicts nothing; section 4 was rejected because it evicts the d-15 showcase. Carrying commit empyrean e874427decc99c3717892a68a583f5a9bafc6dcc, docs/OVERSEER.md - VERIFIED FIRSTHAND in their tree but NOT yet reachable from origin/main (hub had not pushed at 10:00Z), so re-check reachability before citing it as an anchor. The look of the band stays the owner's: ship a legible default and PARK A CAPTURE naming the section. The design branch design/effects-ref-binding (2cf29126, unmerged) still says effectsRef throughout and is stale - the key is rasterRef, and the landed arm on master is the authority on spellings. Steps 0-4 are landed; 6 needs aurora's SectionMeta extension, 7 is docs. Second agent: the 12-bit tile_start ceiling rider booked under the d-47 DPLC measurement - zero-byte ensure, red-first required.",
   "parkedQuestions": [
     {
       "id": "d-16",

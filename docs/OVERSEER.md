@@ -31,11 +31,31 @@ protocol doc. This file is what's aeon-specific.
 > of being exactly that.
 >
 > **START WITH:** whatever `docs/lane-status.json` `resume` says — it is written from the clock
-> and this block is not. As of 2026-08-30T09:07Z that is **EFFECTS-W1 item 1**, the project's
-> critical path, with its zero-byte arm in flight on `parcel/effects-ref-arm`. Its contract
-> question is **ADJUDICATED**: the sidecar key is **`rasterRef`**, not `effectsRef` (empyrean
-> `da91abce`, option B — verified reachable from `origin/main` here, and §3.1 read firsthand
-> rather than relayed). The design branch `design/effects-ref-binding` (`2cf29126`, unmerged)
+> and this block is not. **The 09:07Z sentence that stood here is SPENT: the arm is MERGED**
+> (`4aa2abc0`, steps 0-4, re-verified on the merged tree), so `parcel/effects-ref-arm` is no
+> longer in flight and a reader who executes that line will re-do landed work. As of
+> 2026-08-30T10:01Z the live piece is **item 1 STEP 5** on `parcel/preset-sec5-split`. Its
+> contract question is **ADJUDICATED**: the sidecar key is **`rasterRef`**, not `effectsRef`
+> (empyrean `da91abce`, option B — verified reachable from `origin/main` here, and §3.1 read
+> firsthand rather than relayed).
+>
+> **AND ITS SECOND BLOCKER IS RULED — BLOCKED-2, the owner's call, taken in his place by the hub
+> under the standing instruction: the band goes on SECTION 5** (the 38-byte split that evicts
+> nothing; section 4 was rejected because it evicts the d-15 showcase he asked to see). What the
+> band LOOKS like stays his: a legible default ships with a parked capture naming the section,
+> and he moves or recolours it in aurora once `assign_section_preset` lands. Carrying commit
+> empyrean `e874427decc99c3717892a68a583f5a9bafc6dcc`, `docs/OVERSEER.md`, found with
+> `git log -1 -S 'SECTION 5, look parked' -- docs/OVERSEER.md`. **Reachable from `origin/main`,
+> re-verified here at 10:03Z after the hub pushed on this lane's catch.** The interval is recorded
+> because it was real: at 10:00Z the commit was present in the hub's clone and NOT an ancestor of
+> `origin/main` — sigil's `AHEAD OF REMOTE`, structurally the same sentence as an orphan to
+> anyone reading later, and actionable here only because the blob was readable in their tree. The
+> bar it instances is **push before you ask anyone to cite it**, the same one this lane took for
+> `--attest`. Re-check reachability anyway: this line ages, the check does not.
+>
+> **The falsifier travels with the ruling**, because the ruling rests on a number: if section 5's
+> split is not 38 bytes, or evicts anything when built, the ground under the choice is gone —
+> report the true cost and stop rather than proceeding on a different one. The design branch `design/effects-ref-binding` (`2cf29126`, unmerged)
 > **predates the ruling and says `effectsRef` throughout** — that is a stale planning document
 > too, and the same bar applies to it. Then items 3 and 5 — but note **item 5 is NOT unblocked by
 > item 1's ruling**: option C, the one that would have carried item 5's keys, was refused
