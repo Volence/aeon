@@ -914,3 +914,43 @@ enforce it (Sigil ledger S2-D11(c)).
   (always word). Absolute addressing likewise defaults to the BARE symbol (the width rule
   picks the asl-identical, optimal encoding); the explicit `(X).w`/`(X).l` spelling exists
   for AS parity and self-modified/patched fields.
+
+## ⚠ DOES THIS PARCEL MOVE A *NAME*? — the checklist, earned three times on 2026-08-30
+
+**Every byte instrument this workspace owns is blind to a renamed or newly-referenced symbol.**
+On one day, three parcels shipped whose real risk was a NAME rather than a byte, and in every
+case the byte evidence was flawless:
+
+| parcel | the name | what it broke | what the byte evidence said |
+|---|---|---|---|
+| DPLC ceiling (**zero-byte**) | new cross-seam const `DPLC_ADDRESSABLE_TILES` | `collision_data_port` — its hand-filter admits two comptime fns BY NAME | 4 shapes green, 1774 tests green, CRCs identical |
+| vertical bob | new cross-seam refs `Logic_Tick`, `Sine_Table` | `parallax_port` — explicit symbol list | 4 shapes green, EndOfRom unmoved |
+| vertical bob | **renamed** `pcfg_pad_29` → `pcfg_bob` | the supply fixture, BOTH directions | `sizeof` unchanged at 30, no record moved, +40 derived twice |
+
+**What was green while each of these was broken:** four ROM shapes, byte-identical builds under
+two different assemblers, 1790 python tests, six comptime `ensure`s, and a ROM delta accounted
+for to the byte by two independent derivations. **All of it blind.** The byte instruments are
+excellent and they answer a different question.
+
+**ASK BEFORE LANDING, byte-moving or not:**
+
+1. **Does it add a `use`, an `ensure` referencing another module, or any new cross-seam symbol?**
+   If yes it pairs with sigil regardless of byte count — `./build.sh` cannot see it and will not
+   warn. **"Zero-byte" is a claim about BYTES and says nothing about NAMES.**
+2. **Does it RENAME a struct field, const, or label?** A rename is the case that slips furthest:
+   the field count never moves and every individual assertion still has something to point at.
+3. **Which standalone `*_port` scopes lower a module this parcel touched?** Those hand-supply a
+   filtered subset of the closure; a new name is absent there while the full build resolves it.
+4. **Prefer widening a port filter by CATEGORY over by NAME** where the category emits nothing
+   (`Item::Const`) — a by-name filter stays one aeon edit behind forever.
+
+**WHY A ONE-DIRECTIONAL CHECK MISSES A RENAME** *(sigil's formulation, kept verbatim because it
+is the design rule and not the anecdote)*: one direction asks *does the fixture carry every
+declared field* and catches the **new name missing**; the other asks *does the fixture supply
+anything that no longer exists* and catches the **old name gone dead**. **A rename passes a
+one-directional check silently.** That is an *addition* detector versus a *rename* detector, and
+the difference is only visible once somebody renames something.
+
+**And it survives a re-baseline** — these read field DECLARATIONS, not goldens, so regenerating
+the goldens cannot absorb them. Aurora's bar: *a diff surviving a self-generated baseline is very
+hard to argue away.*
