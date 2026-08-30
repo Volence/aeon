@@ -221,6 +221,24 @@ from each apparent class rather than trusting the classification that produced t
 mentions are not defects and should be excluded from the population before it is counted, or the
 194 becomes a headline nobody can act on.
 
+**⚠ AND THE HALF THAT POINTS THE OTHER WAY: TWO PEER LANES REACH INTO THIS TREE BY ABSOLUTE PATH,
+AND NOTHING IN THIS TREE SAYS SO.** Aurora's largest non-s1disasm target is **aeon**, reached by
+absolute path from their tests and harnesses; sigil carries 115 distinct paths at 425 sites across
+139 sources. **So a reorganisation of `games/sonic4/data/editor`, or of the `tools/` those
+harnesses point at, breaks two other lanes silently — on their side, where this lane never sees the
+red.**
+**Operational form, and it is bar 8 pointed outward: ANY parcel that moves or renames under
+`games/sonic4/data/editor/` or `tools/` names aurora and sigil as consumers IN ITS BRIEF.** Not as
+a courtesy — because the failure lands in a repo whose tests this lane does not run, so nothing
+here can detect it, and the enumeration has to happen before the move rather than after the report.
+*This is the same shape as the oracle coupling found tonight — a peer's green depending on this
+tree's shape, arriving as a path constant rather than as prose, with citation discipline applied to
+neither.*
+
+**The classification template the lanes converged on**, for when this is picked up: exclude docs and
+comment lines **by construction** rather than by filtering afterwards; split harness from suite; and
+audit the suite half by making the input absent and **reading where the red lands**.
+
 **Not started. Bug tier, tag EFFECTS-W1 by his reorder. Sequences after the freeze and the replay
 restamp** — it touches test files broadly and should not move while a chain is superseding.
 
