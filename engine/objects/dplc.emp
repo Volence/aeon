@@ -4,6 +4,7 @@
 //   Offset table: word per frame (offset from file start to frame data)
 //   Frame data:   word entry_count, then entry_count words
 //   Entry word:   bits 15-12 = tile_count-1 (1-16), bits 11-0 = tile_start
+//                 (DPLC_TILE_COUNT_BITS / DPLC_TILE_START_BITS below name the split)
 //
 // A frame may carry 1..N entries (each a separate DMA), so the entry loop
 // below is load-bearing — NOT dead generality. If a single-DMA guarantee is
@@ -63,6 +64,70 @@ use engine.objects.sst.{Sst}
 // per-frame Important producer.
 // -----------------------------------------------
 pub const DPLC_ENTRY_RESERVE = 2
+
+// -----------------------------------------------
+// THE ENTRY WORD'S FIELD WIDTHS — named ONCE, here, and derived from nowhere else.
+//
+// The entry word is 16 bits split `[count-1 : 4][tile_start : 12]`. Until this
+// block existed the split lived only in prose: the header comment at the top of
+// this file, `knuckles_data.emp`'s "only TWELVE bits (max 4095)", two Python
+// asserts, and the `andi.l` mask in perform_dplc below — five restatements, no
+// name, and nothing that fails when one of them drifts. `4095` is now spelled
+// exactly nowhere: it is `(1 << DPLC_TILE_START_BITS) - 1`.
+//
+// DPLC_ADDRESSABLE_TILES is the number this engine's callers actually need. A
+// tile_start names a tile INDEX into a character's art sheet, so a sheet with
+// more than `DPLC_TILE_START_MAX + 1` tiles has tiles no entry can point at —
+// and the producer that tries silently wraps into the low indices instead of
+// failing (games/sonic4/data/characters/knuckles_data.emp records the one time
+// that happened: 25 entries across frames 234-250 loaded early-frame art).
+// -----------------------------------------------
+pub const DPLC_TILE_COUNT_BITS   = 4
+pub const DPLC_TILE_START_BITS   = 12
+pub const DPLC_TILE_START_MAX    = (1 << DPLC_TILE_START_BITS) - 1      // 4095
+pub const DPLC_ADDRESSABLE_TILES = DPLC_TILE_START_MAX + 1              // 4096
+pub const DPLC_MAX_TILES_PER_ENTRY = 1 << DPLC_TILE_COUNT_BITS          // 16
+
+// The two fields are the WHOLE word — widening one has to narrow the other, and
+// this is the guard that says so. It is also the pin for the literals inlined in
+// dplc_peak_tiles / dplc_peak_entries below: a comptime fn's free names resolve at
+// its CALL site (docs/EMP_PITFALLS.md §2), so those bodies cannot spell the
+// constants above and hold `$F` / `>> 12` as literals instead. Move a width here
+// and this ensure fires, naming the bodies that have to move with it.
+ensure(DPLC_TILE_COUNT_BITS + DPLC_TILE_START_BITS == 16,
+       "the DPLC entry word is 16 bits: {DPLC_TILE_COUNT_BITS} count bits + {DPLC_TILE_START_BITS} tile_start bits do not fill it. Widening one field narrows the other — and the `>> 12` / `& $F` literals in dplc_peak_tiles and dplc_peak_entries, and the `andi.l`/`lsr.w` pair in perform_dplc, all encode this split")
+
+// -----------------------------------------------
+// ⚠ THERE IS NO `dplc_max_tile_start()` HERE, AND ADDING ONE WOULD BE A GATE THAT
+// CANNOT FAIL. Read this before writing the obvious guard.
+//
+// The obvious guard is "walk the shipped blob, take the largest tile_start, assert
+// it is <= DPLC_TILE_START_MAX". It is VACUOUS BY CONSTRUCTION: a stored tile_start
+// is the low 12 bits of a 16-bit word, so `word & $FFF` is <= 4095 for every
+// possible input. There is no blob, valid or corrupt, hand-edited or generated,
+// that can make that ensure fire. Measured over all six shipped tables (max
+// tile_start 3045 / 3621 / 272 / 4070 / 39 / 60): all under, all necessarily under.
+//
+// The overflow happens UPSTREAM OF THE BLOB. A producer computes a tile index >=
+// 4096 for a run, packs it into a 12-bit field, and the value that lands in the
+// file is the WRAPPED one — a legal-looking low index. By the time anything parses
+// the emitted file the evidence is gone; that is exactly how the Knuckles `_opt`
+// defect was shipped and then found by reconstructing frames from art, not by
+// reading the DPLC.
+//
+// So the checkable precondition is a property of the ART SHEET, not of the table:
+//
+//     art tiles <= DPLC_ADDRESSABLE_TILES
+//
+// i.e. no tile in the sheet sits at an index a tile_start cannot name, so no layout
+// a producer might choose can wrap. Each art blob's own module states it (the art
+// blob is not visible from here), and tools/test_dplc_tile_start.py enumerates the
+// modules so a new character cannot arrive without one. It is deliberately the
+// CONSERVATIVE form of the bound: an entry legally reaches `tile_start + 15`, so a
+// sheet of up to 4111 tiles could in principle be addressed if every run above 4080
+// happened to start low enough — a layout accident no producer promises, and the
+// remedy when this fires ("re-page or shrink the sheet") is the same either way.
+// -----------------------------------------------
 
 // -----------------------------------------------
 // dplc_peak_entries — COMPTIME: the largest per-frame ENTRY count in a DPLC
@@ -163,7 +228,7 @@ comptime fn perform_dplc(queue: Label) -> Code {
         lsr.w   #4, d3                           // d3 = tile_count - 1
         addq.w  #1, d3                           // d3 = tile_count
 
-        andi.l  #$0FFF, d0                       // tile_start_index
+        andi.l  #DPLC_TILE_START_MAX, d0         // tile_start_index — THE 12-bit field, from its one name
         lsl.l   #5, d0                           // byte offset (x32 = engine.constants.TILE_SIZE, forced by the 8x8 4bpp tile format)
         move.l  a3, d1                           // art base
         add.l   d0, d1                           // d1.l = source address

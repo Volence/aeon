@@ -1,0 +1,57 @@
+// games/sonic4/test/poison/poison_dplc_tile_start.emp — POISON (see README).
+//
+// TARGETS: the 12-bit tile_start ceiling — DPLC_ADDRESSABLE_TILES in
+// engine/objects/dplc.emp, and the `art tiles <= ceiling` ensure that six art
+// modules state against it (collision_data, tails_data x2, knuckles_data,
+// player_instashield, dust_data).
+// EXPECTED FRAGMENT: "DPLC_TILE_START_POISON" + the interpolated "0..<max>",
+// which tools/emp_expect_fail.py COMPUTES from DPLC_TILE_START_BITS.
+// EXPECTED [Error] COUNT: 1 — and the count is half the assertion (see below).
+//
+// WHY A POISON AND NOT JUST THE SHIPPED ENSURES. The shipped ensures pass today
+// and would also pass with the bound written wrong in the loose direction; only a
+// fixture over the line proves the predicate refuses anything. And the ceiling is
+// the kind of number that gets "fixed" by raising it the first time an art
+// re-export trips it — this lane is what makes that raise loud.
+//
+// THE TWO FIXTURES, and why the count of 1 carries the differential:
+//
+//   A (must PASS) — the REAL Knuckles sheet, the tightest in the tree at 4,092
+//     tiles against a 4,096 ceiling. It is the positive half: a ceiling that moved
+//     DOWN would fail here (count 2), and this lane can otherwise only prove a
+//     refusal — a refusal for a bound that has vanished reports green.
+//   B (must FAIL) — a sheet sized FROM the ceiling at exactly one tile over,
+//     whatever the ceiling is. Nothing here is typed: raise or lower
+//     DPLC_TILE_START_BITS and B stays exactly one over, so the case cannot go
+//     green about a ceiling that has moved underneath it (emp_expect_fail's own
+//     `emp_const` note).
+//
+// A count of 2 means fixture A stopped passing — the predicate is no longer proven
+// able to pass and fail on the same property. A count of 0 means B stopped firing.
+//
+// NOTE what is deliberately NOT here: a poison over a DPLC blob's own maximum
+// tile_start. That guard cannot be driven red by any input, because the stored
+// field is 12 bits wide and its value is therefore under the bound by construction.
+// The long note at the constants in engine/objects/dplc.emp has the full reasoning.
+//
+// TILE_SIZE and DPLC_ADDRESSABLE_TILES are imported here the way an author's module
+// imports them — this poison models an art module, so it is spelled like one.
+//
+// Zero bytes, ensures-only (a `const` embed contributes nothing) — unreachable from
+// any real entry; evaluated only by tools/emp_expect_fail.py via `--extra-entry`.
+module games.sonic4.test.poison.poison_dplc_tile_start
+
+use engine.constants.{TILE_SIZE}
+use engine.objects.dplc.{DPLC_ADDRESSABLE_TILES}
+
+// ---- FIXTURE A: the real sheet, four tiles under the ceiling. MUST PASS. ----
+const _art_knux = embed("art/optimized/characters/knuckles.bin")
+
+ensure(_art_knux.len / TILE_SIZE <= DPLC_ADDRESSABLE_TILES,
+       "DPLC_TILE_START_POISON FIXTURE A REGRESSED: the real Knuckles sheet is {_art_knux.len / TILE_SIZE} tiles and no longer fits 0..{DPLC_ADDRESSABLE_TILES - 1}. This half must PASS — with it failing, fixture B's refusal proves nothing about a bound that still exists")
+
+// ---- FIXTURE B: one tile over the ceiling, sized from the ceiling. MUST FAIL. ----
+const POISON_SHEET_BYTES = (DPLC_ADDRESSABLE_TILES + 1) * TILE_SIZE
+
+ensure(POISON_SHEET_BYTES / TILE_SIZE <= DPLC_ADDRESSABLE_TILES,
+       "DPLC_TILE_START_POISON: a {POISON_SHEET_BYTES / TILE_SIZE}-tile art sheet cannot be addressed by a DPLC entry's tile_start, which names only 0..{DPLC_ADDRESSABLE_TILES - 1} — the tile above the ceiling would be reached through a WRAPPED index and load early-frame art")

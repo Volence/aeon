@@ -6,7 +6,8 @@ module games.sonic4.collision_data in collision_data
 // The character DPLC window + its hard wall (games.sonic4.constants) and the
 // comptime DPLC parser that measures a table's worst frame (engine.objects.dplc).
 use games.sonic4.constants.{VRAM_TEST_SONIC, VRAM_TEST_OBJ}
-use engine.objects.dplc.{dplc_peak_tiles, dplc_peak_entries}
+use engine.constants.{TILE_SIZE}
+use engine.objects.dplc.{dplc_peak_tiles, dplc_peak_entries, DPLC_ADDRESSABLE_TILES}
 
 const _heightmaps     = embed("games/sonic4/data/collision/heightmaps.bin")
 const _heightmaps_rot = embed("games/sonic4/data/collision/heightmaps_rot.bin")
@@ -21,6 +22,18 @@ const _art_sonic      = embed("art/optimized/characters/sonic.bin")
 // walls; now comptime facts).
 ensure(_map_sonic.len <= $7FFF, "Map_Sonic exceeds signed word-offset range")
 ensure(_dplc_sonic.len <= $7FFF, "DPLC_Sonic exceeds signed word-offset range")
+
+// THE 12-BIT tile_start CEILING. A DPLC entry names a tile by INDEX into the sheet
+// below, in a 12-bit field, so a sheet with more than DPLC_ADDRESSABLE_TILES tiles
+// has tiles no entry can reach — and the generator that tries wraps into the low
+// indices SILENTLY (see the long note at the constants in engine/objects/dplc.emp
+// for why the shipped table cannot testify to this and the art sheet has to).
+// Measured today: 3,046 tiles, 1,050 (33,600 B) of headroom. The straddle re-cut
+// booked in docs/DEFERRED_WORK.md takes Art_Sonic to 3,158 and the headroom to 938
+// — still the roomiest of the three characters by two orders of magnitude, and
+// Knuckles at 4 tiles is the one that actually binds.
+ensure(_art_sonic.len / TILE_SIZE <= DPLC_ADDRESSABLE_TILES,
+       "Art_Sonic is {_art_sonic.len / TILE_SIZE} tiles; a DPLC entry's tile_start can only name 0..{DPLC_ADDRESSABLE_TILES - 1}, so the tiles above that would be addressed by a WRAPPED index and load early-frame art — re-page or shrink the sheet, do not raise the field")
 
 // Sonic's worst frame must fit the character VRAM window (960 up to the
 // VRAM_TEST_OBJ wall at 992). Measured 29 tiles, ending 989 — three to spare.

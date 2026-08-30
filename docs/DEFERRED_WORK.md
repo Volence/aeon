@@ -10285,7 +10285,12 @@ remain open and would address the mechanism itself rather than alarming on it.
 - **D9** — DPLC `tile_start` silently masked to 12 bits while `tile_count` on the SAME LINE
   had a loud assert. Now asserted. `knuckles_data.emp` records 25 entries that already
   wrapped silently in an earlier layout — the wrap is how that was discovered, not how it
-  was caught.
+  was caught. **Extended 2026-08-30 (`parcel/dplc-tilestart-ensure`):** those two asserts
+  are in OFFLINE staging tools that `build.sh` never runs, so the tree still shipped with
+  nothing checking the ceiling on any build. Six build-fatal `ensure`s, a pytest sweep and
+  an `emp_expect_fail` poison now do — see the closed rider under the d-47 DPLC
+  measurement, including why an `ensure` over the *shipped blob's* `tile_start` cannot
+  fail and Knuckles' four-tile headroom.
 - **D10** — 18 orphans (240 KB) deleted and the missing direction added to
   `verify_level_bin`: it checked embed→file and never file→embed. **NOT deleted and not to
   be: `knuckles.bin`** has no producer AND no input (`art/uncompressed/characters/knuckles.bin`
@@ -16073,9 +16078,66 @@ lost a straddle, `dplc_peak_tiles` 29 → 29, no anchor moves. The card's 112 ti
    all remaining spendable data room.** It still fits and no anchor moves; the ruled 12,288 B
    BG-anim ceiling is untouched (26,698 B available).
 
-**RIDER, nothing guards it:** the `tile_start` field is 12 bits (`dplc.emp:166`, max 4,095).
-`Art_Sonic` goes 3,046 → 3,158 tiles, leaving **938 tiles (30,016 B)** before overflow.
-`knuckles_data.emp:17` knows this in a comment; **no `ensure` checks it for Sonic.**
+**~~RIDER, nothing guards it~~ — CLOSED 2026-08-30 (`parcel/dplc-tilestart-ensure`), and the
+rider named the wrong character.** Original text: *the `tile_start` field is 12 bits
+(`dplc.emp:166`, max 4,095). `Art_Sonic` goes 3,046 → 3,158 tiles, leaving 938 tiles
+(30,016 B) before overflow. `knuckles_data.emp:17` knows this in a comment; no `ensure`
+checks it for Sonic.* Both line cites re-grounded and correct at the time
+(`dplc.emp:166` was `andi.l #$0FFF, d0`; `knuckles_data.emp:17` the "only TWELVE bits
+(max 4095)" sentence). Zero ROM bytes: `s4.bin` and `s4.debug.bin` byte-identical across
+the parcel.
+
+**THE MEASUREMENT THAT CHANGED THE DESIGN — the obvious guard cannot fail.** "Walk the
+shipped DPLC blob, take the largest `tile_start`, assert it is ≤ 4,095" is **vacuous by
+construction**: the stored field IS 12 bits, so `word & $FFF` is under the bound for
+every one of the 65,536 possible entry words. No blob — valid, corrupt or hand-edited —
+can drive it red. **The overflow happens upstream of the blob**: a producer computes a
+tile index ≥ 4,096, packs it into 12 bits, and what lands on disk is the *wrapped*,
+legal-looking low index. That is exactly how the Knuckles `_opt` defect shipped, and why
+it was found by reconstructing frames from the ART rather than by reading the table. So
+the checkable precondition is a property of the **art sheet** — every tile at an index a
+`tile_start` can name — and it is stated where each sheet is embedded. The reasoning is
+written at the constants in `engine/objects/dplc.emp` so the vacuous version is not
+re-added as an improvement, and `test_the_blob_side_check_is_vacuous` states it as a
+machine fact.
+
+**MEASURED HEADROOM, every sheet** (`pytest tools/test_dplc_tile_start.py -s -k headroom`
+re-derives it):
+
+| sheet | tiles | headroom | bytes |
+|---|---|---|---|
+| `Art_Knuckles` | 4,092 | **4** | 128 |
+| `Art_Tails` | 3,635 | 461 | 14,752 |
+| `Art_Sonic` | 3,046 | 1,050 | 33,600 |
+| `Art_TailsAppendage` | 278 | 3,818 | 122,176 |
+| `Art_Dust` | 88 | 4,008 | 128,256 |
+| `Art_InstaShield` | 52 | 4,044 | 129,408 |
+
+The rider watched Sonic, who has **1,050 tiles spare today and 938 after the re-cut above
+— the second-roomiest sheet in the tree.** *Knuckles has four.* Five more tiles in
+`art/optimized/characters/knuckles.bin` fails the build, which is the guard working: the
+raw pair ships precisely because the contiguous one was 4,383 and wrapped. Anyone
+planning a Knuckles art pass should read this row first.
+
+**What landed.** `DPLC_TILE_START_BITS = 12` is the one name in `engine/objects/dplc.emp`;
+`DPLC_TILE_START_MAX`, `DPLC_ADDRESSABLE_TILES` and `DPLC_MAX_TILES_PER_ENTRY` fold from
+it, `perform_dplc`'s runtime mask is `andi.l #DPLC_TILE_START_MAX` (byte-identical), and a
+width pin holds the 4+12=16 split against the literals the two comptime parsers must
+inline (EMP_PITFALLS §2). Six build-fatal `ensure`s, one per DPLC-fed sheet.
+`tools/test_dplc_tile_start.py` (13 tests, build.sh's pytest lane) is the generic site the
+`.emp` side does not have — it enumerates the DPLC-embedding modules, sweeps their sheets,
+and separately requires each sheet to carry its own `ensure`, so a seventh character
+cannot arrive without one. `games/sonic4/test/poison/poison_dplc_tile_start.emp` +
+`emp_expect_fail` make the red-first permanent (two fixtures: the real Knuckles sheet must
+PASS, a sheet sized from the ceiling at one tile over must FAIL).
+
+**Follow-on, NOT done here (small, and it needs its own red-first):** nothing checks that a
+DPLC's furthest reference lands *inside* its paired sheet. Measured today: Sonic 3,046 of
+3,046 · Tails 3,635 of 3,635 · TailsApp 278 of 278 · InstaShield 52 of 52 · Dust 72 of 88 ·
+**Knuckles 4,076 of 4,092 — 16 unreferenced tail tiles.** All safe, none guarded; a
+DPLC/art pair that drifted out of step would DMA past the sheet. The pairing is ambiguous
+in `tails_data.emp` (two pairs in one module), which is the only reason it is not folded
+into the sweep above.
 
 **⚠ STILL UNMEASURED, and it needs the emulator:** `DPLC_ENTRY_RESERVE = 2` exists for
 `PageIn_EnqueueLanding`, whose landings can ALSO straddle. This measurement covers DPLC entries
@@ -16164,7 +16226,9 @@ parcel is how a diff stops being reviewable. Booked as its own one-line change.
   class. Section 4 needs no preset split but its raster channel carries the d-15 showcase, which
   `preset()`'s exclusivity ensure makes a hard either/or; **section 5 is recommended** — first
   `Raster_Program_None` section, evicts nothing, costs the 38-byte split. One sentence overturns
-  it.
+  it. **CLOSED on section 5** at step 5 below (the split is landed and measured; the *band* is
+  still the owner's and still unauthored). The 38 survived the measurement as the RECORD's size;
+  it is not the ROM's — see step 5's table, which is the number to quote.
 - **BLOCKED-3 — one unproven `.emp` step.** `raster: <chooser>(sec: 5, hand: Raster_Program_None)`
   as a `preset()` argument that a later `ensure` reads is *precedent-backed*
   (`sec_parallax_config: ojz_act1_sec_scene(sec: sec)` ships) but **not proven** — the precedent
@@ -16188,7 +16252,7 @@ own anti-pattern.
 
 ---
 
-## EFFECTS-W1 ITEM 1 — STEPS 2/3/4 LANDED, ZERO ROM BYTES; STEPS 5/6/7 REMAIN (2026-08-30, `parcel/effects-ref-arm`)
+## EFFECTS-W1 ITEM 1 — STEPS 2/3/4/5 LANDED; STEPS 6/7 REMAIN (2026-08-30, `parcel/effects-ref-arm` + `parcel/preset-sec5-split`)
 
 **The key's name is adjudicated: `rasterRef`.** empyrean ruled the CR **option B** (the design's
 own recommendation) at empyrean `da91abce`: a new key takes the narrow raster-channel binding
@@ -16303,11 +16367,93 @@ probe was the fault, not the guard — it had swapped the two rows' trailing com
 the labels in place. Re-run as a whole-line swap, it is red. *Suspect the probe before the
 guard.*
 
-### WHAT REMAINS — steps 5, 6, 7, and none of it is blocked on this parcel
+### STEP 5 — THE SPLIT IS IN, AND THE "+38 ROM BYTES" PRICE WAS THREE DIFFERENT NUMBERS
 
-- **Step 5** — split `OJZ_Preset_Plain` → `OJZ_Preset_Sec5` and thread the chooser into its
-  `raster:`. **+38 B**, pairs with sigil (new symbol; `ojz_effects`'s `[[region]]` byte-gate
-  moves). Blocked on BLOCKED-2 (the owner's section choice).
+`OJZ_Preset_Sec5` exists, section 5's `ojz_sec` binds it, and its `raster:` is
+`ojz_act1_sec_raster(sec: 5, hand: Raster_Program_None)`. **BLOCKED-2 is closed on section 5**
+(evicts nothing; section 4 was refused because a `rasterRef` there would evict the d-15
+showcase — `preset()`'s exclusivity ensure makes it a hard either/or). No sidecar carries a
+`rasterRef`, so the chooser still returns `hand` and the split is the ONLY delta.
+
+**THE FALSIFIER DID NOT FIRE, BUT THE DESIGN'S ONE PUBLISHED NUMBER IS THREE NUMBERS AND ONLY
+ONE OF THEM IS 38.** Derived from the built listings + the ROMs, both shapes, never from the
+design's table:
+
+| what | release | debug | delta |
+|---|---|---|---|
+| the `EffectsPreset` record itself (`OJZ_Preset_Sec5` → the next label) | `$01371E`→`$013744` | `$013FC0`→`$013FE6` | **+38** = `$26` = `struct EffectsPreset (size: 38)` |
+| the `ojz_effects` SECTION (= the `[[region]]` byte-gate's span) | 1320 → 1358 B | 1430 → 1468 B | **+38** |
+| the next section's head (`ObjDef_Static`) | `$0137D0`→`$0137F0` | `$014070`→`$014090` | **+32** |
+| the assembled image (`EndOfRom`) | `$0A5C90` unchanged | `$0A7F40` unchanged | **0** |
+| the ROM FILE on disk | 719315 → 719329 | 736315 → 736331 | **+14 / +16** |
+
+**Why they differ, measured not reasoned.** The section is 16-byte aligned, and its tail already
+carried pad (release 14 B, debug 12 B — the last content word is `$8C89`, so trimming trailing
+zeros back from the next section head is exact). The 38-byte record ate 6 of it in both shapes,
+so downstream data moves **+32**, not +38. That +32 is then absorbed again by the slack ahead of
+the Z80 banks: **the shift stops dead at `$090000`** (`Dac_Temp_Blip`) — 204 release / 207 debug
+symbols move +32, everything from the first bank onward moves **0**, and `EndOfRom` does not
+move at all. **The assembled image does not grow.** What grows on disk is the deb2 symbol
+appendix, by the one new symbol's entry: +14 release, +16 debug.
+
+**So "+38 B" is right about the record and wrong about the ROM, and the direction of the error
+is the safe one.** Quote 38 at the `[[region]]`, 0 at the image, and the file deltas above at a
+CRC. Nothing was evicted: exactly one symbol was added and **zero removed**, in both shapes.
+
+**The gate that was missing, and it was missing before this step too.** `tools/effects_seam_gate.py`
+checked the SCENE seam in `act_descriptor.emp` and nothing at all in `ojz_effects.emp` — where
+the raster chooser's only call site lives, because a raster program is an `EffectsPreset` channel
+and not a `Sec` field. Deleting that call and typing the literal back left every witness value
+and every ROM byte identical, so the tree could lose the mechanism silently. New **step 2b**
+closes it, and carries one check the scene seam does not need: **a preset that chooses on
+section index N must be bound by exactly one section, and by N.** `Sec.sec_effects` is a pointer
+to a record several sections may share, so a section-keyed chooser in a shared preset gives all
+of them one band — design §3.3(b), which has no other symptom and is exactly what this step
+paid 38 bytes to avoid.
+
+**Eight arms proven red on the real tree, each firing ALONE, each restored** (drop the `use`
+line · glob it · type the literal back over the call · drop `hand:` · `sec: 4` instead of `5` ·
+`sec: 9` out of range · point section 6 at `OJZ_Preset_Sec5` too · point section 5 back at
+`Plain`). Two more arms cannot be produced by editing this tree — a duplicate index needs two
+chooser-threaded presets, and the sidecar arm needs a `rasterRef`, which nothing here carries and
+must not until step 6 — so `raster_seam_faults` is a **pure function** unit-tested on synthetic
+inputs, and stubbing it to always-healthy is proven to turn its own fault tests red.
+`tools/test_effects_seam_gate.py`: **29 passed**. The sidecar arm's vacuity is **printed**, not
+hidden: the OK line ends *"0 sidecar rasterRef(s) — the sidecar arm is VACUOUS today and says so
+rather than reading green"*. Runner: `build.sh` already runs `effects_seam_gate.py --lst` in both
+canonical shapes, build-fatally.
+
+**RIDER PAID, NOT BOOKED — `tools/fixtures/sprite_tilt_cut.json` re-stamped.** Six anim-table
+anchors, all +32, **zero byte-content change**; the gate re-found the routine and all three
+script slabs byte-identical afterwards. That fixture is address-pinned and goes stale on any
+byte move in the data region, which is the established ritual (`e1f412ed`, `5d13ab89`) rather
+than a defect — but note that it is *the build's own* staleness detector firing, so a byte-moving
+parcel that does not re-stamp it cannot reach green.
+
+**⚠ TAGGED FOR A FOREGROUND LANE — `tools/effects_gates.py` was NOT run.** It boots `oracle_gui`
+per gate and no emulator may be driven from a background agent. This parcel does not touch
+`engine/effects/*`, so the 2026-08-18 ritual's letter does not trigger; its spirit does, since
+section 5's preset pointer is what a crossing installs. **Nothing here has been confirmed at
+runtime** — the split's byte-level neutrality is a listing measurement, not a rendered frame.
+
+**WHAT THE SIGIL REPIN NEEDS** (this lane touched no sigil file and ran no freeze):
+- **New symbol `OJZ_Preset_Sec5`** — release `$01371E`, debug `$013FC0`. It needs the same three
+  rows every other `OJZ_Preset_*` has, because `act_descriptor.emp` now names it cross-seam:
+  `repin.toml` `[[symbol]]` with `tests = ["act_descriptor_port"]`, the `OJZ_PRESET_SEC5`
+  constant in `pins.rs`, and its row in `act_descriptor_port.rs`'s list.
+- **`[[region]] name = "ojz_effects"`** (`start = "OJZ_TestRaster"`, `end = "section:ojz_effects"`)
+  — start UNMOVED (`$01329A` / `$013ACE`), **length 1320 → 1358 (release) and 1430 → 1468
+  (debug), +38 in both**. That is far past the align-pad tolerance the row's own comment records
+  (`< 16 bytes`), so it must be re-measured; it will not pass on tolerance.
+- **No `ojz_effects_port.rs` exists**, so the region gate is that section's whole coverage.
+- **One thing to look at rather than assume:** `ojz_effects.emp` gained a `use` edge to
+  `games.sonic4.ojz_effects_editor_act1`. It adds no new cross-seam *symbol* (the chooser is a
+  `pub comptime fn` returning `Raster_Program_None`, which the file already imported), but
+  cross-seam refs break `*_port` scopes silently, so sigil's lane should confirm rather than
+  infer.
+
+### WHAT REMAINS — steps 6 and 7, and neither is blocked on this parcel
+
 - **Step 6** — the authored band + its `rasterRef`, and `authored_probe` deleted. **Blocked on
   aurora's `SectionMeta` extension**, whose SHA the step-6 evidence must cite; `sceneRef`'s was
   aurora `a88db05` and `rasterRef` needs its successor.

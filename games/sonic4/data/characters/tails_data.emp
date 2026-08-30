@@ -26,7 +26,8 @@ module games.sonic4.tails_data in tails_data
 // below are stated against. Sole authority is games.sonic4.constants.
 use games.sonic4.constants.{VRAM_TEST_SONIC, VRAM_TEST_OBJ, VRAM_TAILS_APPENDAGE}
 use engine.constants.{VRAM_HSCROLL_TABLE, TILE_SIZE, DMA_IMPORTANT_SLOTS}
-use engine.objects.dplc.{dplc_peak_tiles, dplc_peak_entries, DPLC_ENTRY_RESERVE}
+use engine.objects.dplc.{dplc_peak_tiles, dplc_peak_entries, DPLC_ENTRY_RESERVE,
+                         DPLC_ADDRESSABLE_TILES}
 
 // ---- body ----
 const _map_tails  = embed("games/sonic4/data/mappings/tails.bin")
@@ -59,6 +60,19 @@ ensure((_map_tail.len & 1) == 0 && (_dplc_tail.len & 1) == 0 && (_art_tail.len &
 // embed would otherwise surface only as garbage in a frame's last DMA.
 ensure((_art_tails.len % TILE_SIZE) == 0, "Art_Tails is not a whole number of tiles")
 ensure((_art_tail.len % TILE_SIZE) == 0, "Art_TailsAppendage is not a whole number of tiles")
+
+// THE 12-BIT tile_start CEILING, one per sheet. A DPLC entry names a tile by INDEX
+// into its sheet in a 12-bit field, so a sheet above DPLC_ADDRESSABLE_TILES has
+// tiles no entry can reach and the generator wraps into the low indices SILENTLY.
+// The shipped table cannot testify to that (its stored field is 12 bits wide and
+// therefore always in range) — the sheet size is the checkable precondition. See
+// the constants block in engine/objects/dplc.emp.
+// Measured: body 3,635 tiles (461 of headroom), appendage 278 (3,818). The body is
+// the second-tightest sheet in the tree after Knuckles — Sonic sits at 3,046.
+ensure(_art_tails.len / TILE_SIZE <= DPLC_ADDRESSABLE_TILES,
+       "Art_Tails is {_art_tails.len / TILE_SIZE} tiles; a DPLC entry's tile_start can only name 0..{DPLC_ADDRESSABLE_TILES - 1}, so the tiles above that would be addressed by a WRAPPED index and load early-frame art — re-page or shrink the sheet, do not raise the field")
+ensure(_art_tail.len / TILE_SIZE <= DPLC_ADDRESSABLE_TILES,
+       "Art_TailsAppendage is {_art_tail.len / TILE_SIZE} tiles; a DPLC entry's tile_start can only name 0..{DPLC_ADDRESSABLE_TILES - 1}, so the tiles above that would be addressed by a WRAPPED index and load early-frame art — re-page or shrink the sheet, do not raise the field")
 
 // -----------------------------------------------
 // THE VRAM WALLS — the peak comes from the DATA, not from a comment.

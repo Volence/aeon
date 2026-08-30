@@ -126,5 +126,214 @@ class TestGateAgainstTheRealTree(unittest.TestCase):
         self.assertEqual(passed, list(range(effects_gen.act_section_count(REPO))))
 
 
+class TestPresetRecordParse(unittest.TestCase):
+    """`preset_records` — paren balance, not a line regex.
+
+    The shipped records wrap across three lines and a line-anchored pattern would see
+    half of one, so the parse is the arm to break first.
+    """
+
+    SRC = (
+        "pub data OJZ_Preset_Sec1: EffectsPreset = preset(pal: P, raster: R)\n"
+        "pub data OJZ_Preset_Sec0:  EffectsPreset = preset(pal: P, patched: T,\n"
+        "                                                  parallax: X,\n"
+        "                                                  patch_world_ys: [1, 2, 3, 4])\n"
+        "pub data NotAPreset: [u16; 3] = raster_program(preset(nope))\n"
+    )
+
+    def test_it_takes_the_whole_wrapped_record(self):
+        recs = effects_seam_gate.preset_records(self.SRC)
+        self.assertEqual(sorted(recs), ["OJZ_Preset_Sec0", "OJZ_Preset_Sec1"])
+        # the third line of the wrap is inside the record, and the nested [] survives
+        self.assertIn("patch_world_ys: [1, 2, 3, 4]", recs["OJZ_Preset_Sec0"])
+        self.assertIn("parallax: X", recs["OJZ_Preset_Sec0"])
+        # ...and the record STOPS at its own closing paren
+        self.assertNotIn("NotAPreset", recs["OJZ_Preset_Sec0"])
+
+    def test_a_preset_call_that_is_not_a_pub_data_EffectsPreset_is_not_a_record(self):
+        self.assertNotIn("NotAPreset", effects_seam_gate.preset_records(self.SRC))
+
+
+class TestRasterCallSiteParse(unittest.TestCase):
+    """`raster_call_sites` — which presets thread the chooser, on which index."""
+
+    FN = "ojz_act1_sec_raster"
+
+    def test_a_literal_raster_channel_is_not_a_call_site(self):
+        src = "pub data P: EffectsPreset = preset(pal: A, raster: Raster_Program_None)\n"
+        self.assertEqual(effects_seam_gate.raster_call_sites(src, self.FN), {})
+
+    def test_it_reads_the_index_and_notices_the_hand_argument(self):
+        src = ("pub data P: EffectsPreset = preset(pal: A,\n"
+               f"    raster: {self.FN}(sec: 5, hand: Raster_Program_None),\n"
+               "    cycle: C)\n")
+        self.assertEqual(effects_seam_gate.raster_call_sites(src, self.FN),
+                         {"P": (5, True)})
+
+    def test_a_missing_hand_argument_is_VISIBLE_and_not_assumed(self):
+        src = f"pub data P: EffectsPreset = preset(pal: A, raster: {self.FN}(sec: 5))\n"
+        self.assertEqual(effects_seam_gate.raster_call_sites(src, self.FN),
+                         {"P": (5, False)})
+
+    def test_the_chooser_on_some_OTHER_channel_is_not_a_raster_call_site(self):
+        """`patched:` is the exclusive twin of `raster:`; a chooser threaded there is a
+        different (and build-fatal) mistake, and this parse must not launder it into a
+        raster binding the gate then reports as healthy."""
+        src = f"pub data P: EffectsPreset = preset(pal: A, patched: {self.FN}(sec: 5, hand: 0))\n"
+        self.assertEqual(effects_seam_gate.raster_call_sites(src, self.FN), {})
+
+
+class TestDescriptorBindingParse(unittest.TestCase):
+    """`descriptor_effects_bindings` — which section points at which preset."""
+
+    SRC = ("    ojz_sec(sec: 4, blocks: B4,\n"
+           "            effects: OJZ_Preset_Depth,\n"
+           "            dict_len: L),\n"
+           "    ojz_sec(sec: 5, blocks: B5,\n"
+           "            effects: OJZ_Preset_Sec5,\n"
+           "            dict_len: L),\n"
+           "    ojz_sec(sec: 6, blocks: B6,\n"
+           "            dict_len: L),\n")
+
+    def test_it_pairs_each_index_with_its_preset(self):
+        got = effects_seam_gate.descriptor_effects_bindings(self.SRC)
+        self.assertEqual(got, {4: "OJZ_Preset_Depth", 5: "OJZ_Preset_Sec5"})
+
+    def test_a_section_binding_no_preset_is_ABSENT_not_None(self):
+        """`sec_effects` defaults to 0 = no preset and that is legal, so section 6 must
+        not appear at all — mapping it to None would make an `owners` lookup match it."""
+        self.assertNotIn(6, effects_seam_gate.descriptor_effects_bindings(self.SRC))
+
+
+class TestRasterSeamFaults(unittest.TestCase):
+    """`raster_seam_faults` — every combination, on synthetic inputs.
+
+    PURE ON PURPOSE. Two of these states cannot be produced by editing the real tree:
+    a duplicate index needs two chooser-threaded presets (the tree has one), and the
+    sidecar arm needs a `rasterRef` in a sidecar, which nothing in this tree carries
+    (that is step 6's landing, and step 3's four-CRC byte-identity depends on it staying
+    that way). An arm exercisable only by violating the precondition it waits on would
+    never be exercised, so it is exercised here instead.
+    """
+
+    FN = "ojz_act1_sec_raster"
+
+    def faults(self, calls, bindings, sections=9, refs=None):
+        return effects_seam_gate.raster_seam_faults(
+            calls, bindings, sections, refs or {}, self.FN)
+
+    # ---- the healthy state, which is also the committed one ----
+    def test_the_committed_shape_has_NO_faults(self):
+        self.assertEqual(
+            self.faults({"OJZ_Preset_Sec5": (5, True)}, {5: "OJZ_Preset_Sec5"}), [])
+
+    def test_a_section_bound_to_a_preset_that_does_NOT_choose_is_fine(self):
+        """Most sections hand `raster:` a literal. That is what unbound looks like and
+        it must not be a fault, or the gate would demand a chooser everywhere."""
+        self.assertEqual(
+            self.faults({"OJZ_Preset_Sec5": (5, True)},
+                        {5: "OJZ_Preset_Sec5", 6: "OJZ_Preset_Plain",
+                         7: "OJZ_Preset_Plain", 8: "OJZ_Preset_Plain"}), [])
+
+    # ---- one arm each, firing ALONE ----
+    def test_no_call_site_at_all_is_a_fault(self):
+        f = self.faults({}, {5: "OJZ_Preset_Sec5"})
+        self.assertEqual(len(f), 1)
+        self.assertIn("nothing calls it", f[0])
+
+    def test_a_missing_hand_argument_is_a_fault(self):
+        f = self.faults({"OJZ_Preset_Sec5": (5, False)}, {5: "OJZ_Preset_Sec5"})
+        self.assertEqual(len(f), 1)
+        self.assertIn("NO `hand:`", f[0])
+
+    def test_an_out_of_range_index_is_a_fault(self):
+        f = self.faults({"P": (9, True)}, {9: "P"}, sections=9)
+        self.assertEqual(len(f), 1)
+        self.assertIn("this act has 9 sections", f[0])
+
+    def test_a_SHARED_preset_is_a_fault_and_the_message_says_split_it(self):
+        """§3.3(b), the hazard the whole split exists for: a section-keyed chooser in a
+        record two sections point at gives BOTH of them sec 5's band."""
+        f = self.faults({"OJZ_Preset_Sec5": (5, True)},
+                        {5: "OJZ_Preset_Sec5", 6: "OJZ_Preset_Sec5"})
+        self.assertEqual(len(f), 1)
+        self.assertIn("SHARED by 2 sections", f[0])
+        self.assertIn("Split it first", f[0])
+
+    def test_an_index_that_disagrees_with_the_binding_is_a_fault(self):
+        f = self.faults({"OJZ_Preset_Sec5": (4, True)}, {5: "OJZ_Preset_Sec5"})
+        self.assertEqual(len(f), 1)
+        self.assertIn("chooses on sec 4 but is bound by section(s) [5]", f[0])
+
+    def test_a_preset_no_section_binds_is_a_fault(self):
+        f = self.faults({"OJZ_Preset_Sec5": (5, True)}, {5: "OJZ_Preset_Plain"})
+        self.assertEqual(len(f), 1)
+        self.assertIn("NO section binds it", f[0])
+
+    def test_two_presets_on_ONE_index_is_a_fault(self):
+        """Unreachable from the real tree today — there is one chooser-threaded preset."""
+        f = self.faults({"A": (5, True), "B": (5, True)}, {5: "A", 3: "B"})
+        self.assertIn("both choose on sec 5", " | ".join(f))
+
+    def test_a_sidecar_rasterRef_with_no_call_site_is_a_fault(self):
+        """THE ARM THAT GOES LIVE AT STEP 6, exercised now because no sidecar in this
+        tree carries the key. An author's assignment that reaches the generator but no
+        `preset()` presents as an assignment that did nothing."""
+        f = self.faults({"OJZ_Preset_Sec5": (5, True)}, {5: "OJZ_Preset_Sec5"},
+                        refs={7: "kelp_shimmer"})
+        self.assertEqual(len(f), 1)
+        self.assertIn("section 7's sidecar names rasterRef 'kelp_shimmer'", f[0])
+
+    def test_a_sidecar_rasterRef_WITH_its_call_site_is_not_a_fault(self):
+        self.assertEqual(
+            self.faults({"OJZ_Preset_Sec5": (5, True)}, {5: "OJZ_Preset_Sec5"},
+                        refs={5: "kelp_shimmer"}), [])
+
+    # ---- the inversion: stub the checker green and the arms above must go red ----
+    def test_stubbing_the_checker_to_ALWAYS_HEALTHY_breaks_these_tests(self):
+        """The countermeasure of docs/EMP_PITFALLS.md §10, applied to this gate: if
+        `raster_seam_faults` always returned [], every fault test above would pass a
+        `[] == []` comparison it never intended. Proven here rather than assumed."""
+        real = effects_seam_gate.raster_seam_faults
+        try:
+            effects_seam_gate.raster_seam_faults = lambda *a, **k: []
+            self.assertEqual(self.faults({}, {}), [])          # would have been a fault
+            with self.assertRaises(AssertionError):
+                self.test_a_SHARED_preset_is_a_fault_and_the_message_says_split_it()
+            with self.assertRaises(AssertionError):
+                self.test_a_sidecar_rasterRef_with_no_call_site_is_a_fault()
+        finally:
+            effects_seam_gate.raster_seam_faults = real
+        # and the real function is back
+        self.assertEqual(len(self.faults({}, {})), 1)
+
+
+class TestRasterSeamAgainstTheRealTree(unittest.TestCase):
+    """The committed effects library really does thread the chooser. No build needed."""
+
+    def test_the_committed_effects_library_threads_the_chooser_for_one_owned_section(self):
+        names = effects_gen.act_names(REPO)
+        with open(os.path.join(REPO, effects_seam_gate.EFFECTS_LIB)) as f:
+            lib = f.read()
+        with open(os.path.join(REPO, effects_seam_gate.DESCRIPTOR)) as f:
+            desc = f.read()
+        calls = effects_seam_gate.raster_call_sites(lib, names.fn_sec_raster)
+        self.assertTrue(calls, "no preset threads the raster chooser")
+        self.assertEqual(
+            effects_seam_gate.raster_seam_faults(
+                calls,
+                effects_seam_gate.descriptor_effects_bindings(desc),
+                effects_gen.act_section_count(REPO),
+                effects_gen.load_section_raster_refs(REPO),
+                names.fn_sec_raster),
+            [])
+
+    def test_NO_sidecar_in_this_tree_carries_a_rasterRef(self):
+        """Step 5's declared precondition, asserted rather than remembered: the split is
+        the ONLY delta, which requires the chooser to still resolve to `hand`. When step
+        6 lands its band this test is the one that must be changed, deliberately."""
+        self.assertEqual(effects_gen.load_section_raster_refs(REPO), {})
+
+
 if __name__ == "__main__":
     unittest.main()
