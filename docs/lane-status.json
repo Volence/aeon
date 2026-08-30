@@ -1,15 +1,10 @@
 {
-  "focus": "Clamps landed and frozen. Waiting on sigil's eight fixes before the superseding freeze.",
+  "focus": "Superseding freeze running. Do not rotate this lane until it lands.",
   "inFlight": [
     {
-      "what": "the clamps: merged, frozen, pushed - but the post-freeze strict suite is RED on one cross-seam symbol, so the freeze entry needs superseding once fixed",
-      "where": "aeon ec6a4791 / sigil freeze dd371e3b, attest 6d665688",
-      "agent": false
-    },
-    {
-      "what": "the sprite-art queue instrument: built, green, committed - parked, not lost",
-      "where": "branch parcel/dplc-entry-instrument",
-      "agent": false
+      "what": "THE SUPERSEDING FREEZE IS RUNNING - seven ROMs, mid-ritual. Interrupting leaves a journal to recover from",
+      "where": "sigil worktree .sigil-clamps, aeon_rev ec6a4791",
+      "agent": true
     }
   ],
   "blockedOnOwner": [
@@ -24,7 +19,7 @@
       "since": "2026-08-29"
     }
   ],
-  "nextBoundary": "Here. Everything is committed and pushed; the only open thread is sigil's fix, which is theirs.",
+  "nextBoundary": "NOT NOW. After the supersede is committed, pushed and attested.",
   "queue": [
     {
       "id": "SCROLL-AND-SECTION-CLAMPS",
@@ -276,8 +271,8 @@
     }
   ],
   "awaiting": "your look at the right-edge pictures, and one number for sigil's plan - both already on your list",
-  "atBoundary": true,
-  "updatedAt": "2026-08-30T03:25:26Z",
+  "atBoundary": false,
+  "updatedAt": "2026-08-30T03:47:31Z",
   "resume": "Your go is RECORDED (empyrean 7149b39) - do NOT boot into a stop. Start with EFFECTS-W1-SHOW-A-BAND: run tools/band_witness.py against master, no bytes moved. EFFECTS-W1 now has a SECOND HALF - the owner ruled the side-effect bugs must be fixed before the project is done (DoD items 14-17). The canopy is no longer backgroundable and its plan is to INSTRUMENT for the next sighting, not derive a third explanation - two are already refuted. d-47-revised is ruled 'targeted'; measure the append risk before art ships. Everything is in DEFERRED_WORK.md.",
   "parkedQuestions": [
     {
