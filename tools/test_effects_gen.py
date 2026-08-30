@@ -2043,7 +2043,8 @@ class TestTheConsumerContractNamesTheKey(unittest.TestCase):
             f"contract is what Aurora's writer is built against; a reader and a "
             f"contract that disagree about a key name cost that lane a rebuild.")
         self.assertIn(
-            "rasterRef", text.split("### 2.2 Assignments", 1)[-1].split("### 2.3", 1)[0],
+            effects_gen.ACT_RASTER_REF_KEY,
+            text.split("### 2.2 Assignments", 1)[-1].split("### 2.3", 1)[0],
             "the raster ref key is named somewhere in the contract but not inside "
             "§2.2 Assignments, which is the section that enumerates the sidecar's read "
             "set — a reader looking up 'what does the generator read from a sidecar' "
