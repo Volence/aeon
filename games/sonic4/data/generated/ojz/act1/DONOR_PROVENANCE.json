@@ -26,11 +26,11 @@
   },
   "generator": {
     "dirty": true,
-    "head": "befbae65e0c6b8a4e847c7647dcf85262b24773c",
-    "modified_tracked": 2,
+    "head": "fa99b25706d16ff017566f7c55aed79959ed88ed",
+    "modified_tracked": 4,
     "repo": "aeon",
     "status": "git",
-    "untracked": 0
+    "untracked": 1
   },
   "mode": "rebake",
   "schema": 1
