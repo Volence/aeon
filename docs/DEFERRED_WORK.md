@@ -12482,6 +12482,91 @@ parameter rename against a legacy-seam probe is unvalidated — not merely that 
 session is ever tempted to relax Rider 3 for a parameter that "obviously cannot be misread",
 this is the reason not to, and it is a stronger reason than the one we wrote down.
 
+**⚑ CLOSED AS A GATE — `tools/test_legacy_seam_keys.py`, 8 rows, build-fatal (2026-08-30,
+`parcel/legacy-seam-key-gate`).** The booked work above is done, on BOTH axes: the pinned
+contract is `{method: {key: (accessor, default, guarded_by)}}` for all 34 parameter-taking
+legacy methods, derived out of `ControlSocket.cpp` at run time and compared to the pin, so
+neither half can rot. `guarded_by` is emitted because without it the unguarded memory sites and
+the `has()`-guarded `enabled` sites render identically. The value axis is enforced from the
+four accessors' own type branches (also re-derived, `getBool`'s `("true","1","yes")` literal
+set included), so `{"enabled": "on"}` is RED while `enabled` is spelled perfectly. Collected by
+`build.sh`'s `python3 -m pytest "${TOOLS}"` lane at line 468 — **measured, not assumed: the lane
+goes 1663 -> 1671 with the file present, and a misspelled `addr` planted in `evict_witness.py`
+takes that exact invocation to `1 failed, 1670 passed`, exit 1.** Every rule proven red-first;
+where a poison could only be applied to the peer source, it was applied to a COPY of it under
+`AEON_SUITE_ROOT` and the real `oracle-old` checkout was never written to.
+
+**⚠ THREE FACTS IN THE BOOKING ABOVE ARE WRONG, AND ONE OF THEM IS THE HEADLINE.**
+
+  * **"Six unguarded sites sit on memory paths: `:348`, `:702`, `:726`, `:782`, `:615`, `:739`"
+    — FOUR OF THE SIX ARE GUARDED.** Re-derived structurally (brace-matched blocks, not a line
+    grep): `:348` sits inside `if (req.has("addr"))` in `ResolveAddrDetailed`; `:782` inside
+    `else if (req.has("addr"))` in `OpLookupSymbol`; `:615` and `:739` inside
+    `else if (req.has("value"))`. A MISSPELLED key at any of those four never reaches the
+    accessor — the helper falls through and answers `ErrorReply("need addr or symbol")` /
+    `"need bytes or value"`. It is LOUD. Only `:702` and `:726` (`OpZ80Read`/`OpZ80Write`) were
+    correctly named as unguarded. **And the booking MISSED two that are:** `:2110` and `:2140`,
+    `read_vram`/`write_vram`, both `getU32("addr", 0)` with nothing above them. So the true
+    unguarded memory-addr set is `{read_vram.addr, write_vram.addr, z80_read.addr,
+    z80_write.addr}` — pinned in the gate as `UNGUARDED_MEMORY_ADDR`, and the full 46-entry
+    unguarded inventory as `UNGUARDED_READS`. **The headline sentence survives** — "misspell
+    `addr` on a legacy memory write and it writes to address zero and replies ok" is true, of
+    `write_vram` and `z80_write`, not of `write_memory`. *The guard only covers ABSENCE: the
+    TYPE hazard is undiminished at all six, `{"addr": "0xZZZZ"}` passes `has()`, throws inside
+    `stoll`, is swallowed by `catch (...)` and reads 0 everywhere.*
+
+  * **"All three tools that dial the legacy seam make 14 memory-path calls between them" — the
+    population is 12 files and 131 calls.** `evict_witness.py` / `parallax_hscroll_probe.py` /
+    `raster_frame_epoch_probe.py` are 15 of those 131; the other 116 are in `curve_probe.py`,
+    `engine_baseline_probe.py`, `pagecache_audit_poison.py`, `parallax_cost_probe.py` (63 on its
+    own), `parallax_hscroll_identity.py`, `raster_cost_probe.py`, `sfx_audition.py`,
+    `staging_index_poison.py` and `streaming_choke_probe.py`. The old figure came from a
+    three-file grep; the gate enumerates by AST over all of `tools/` and classifies each file's
+    seam from its imports and spawned binaries rather than from substrings. *(A substring
+    classifier gets `tick_variance_probe.py` wrong: it says in a COMMENT that
+    `oracle-old/linux-port/harness` is "deliberately NOT importable from here". The gate also
+    follows local imports, because `staging_lifetime_timeline.py` has no seam marker of its own
+    and borrows `Server` — an `oracle-aether` spawn — from `tick_variance_probe`.)*
+
+  * **"Our send sites are clean" — they are not, by the honoured-key contract.** Twelve
+    legacy-seam sites send `emulator/reset {"wait": True, "run": False}` and **`OpReset` never
+    reads `wait`**: it blocks on the main-thread drain unconditionally (5 s deadline) whenever
+    `ctx.pendingReset` is wired. Harmless as written — `wait: True` asks for what already
+    happens — but it is a live instance of exactly the silent-ignore class, and a future
+    `wait: False` would read as a non-blocking reset and get a blocking one. The Rust core
+    REFUSES the key (`emulator/reset` declares no properties under
+    `unevaluatedProperties: false`), which is why every rust-seam site sends `{}`.
+    **NOT FIXED HERE, on Rider 3** — a legacy-seam probe's parameters change only in the commit
+    that migrates it. Carried in the gate as `UNHONOURED_KEYS_REGISTERED` with the count PINNED
+    at 12: the registration forgives the twelve sites that exist, and a thirteenth is red.
+
+**What DID hold, re-derived independently:** the accessor family is 63 (`get` 18, `getInt` 23,
+`getU32` 11, `getBool` 11) and `ParseButtons` is the 64th parameter, read through two
+`(*req.p)["buttons"]` expressions; all 18 emulator-bound `enabled` sends pass Python `True`/
+`False`; there are zero callers of `set_layer_enabled` (and zero of `set_channel_enabled`).
+
+**⚑ AND THE GATE FOUND ITS OWN BLIND SPOT BEFORE IT FOUND ANYTHING ELSE.** The first extractor
+read the method name from `args[0]`, which is right for `b.call("emulator/read_memory", {...})`
+and wrong for the retry wrapper `_c(b, "emulator/read_memory", {...}, 60.0)` — so it measured
+**ZERO send sites in `raster_frame_epoch_probe.py`**, one of the three files the booking above
+names as the legacy seam, and reported green. The fix is `test_no_method_literal_escapes_the_
+extractor`, which accounts for every `"emulator/<method>"` STRING LITERAL in `tools/`
+one by one, independently of call shape: 481 extracted, 30 in enumerated non-sending positions
+(capability tuples, message text, the sibling test reasoning about a method), zero unaccounted.
+A literal anywhere else — an assignment, a dict value — is red, because a method name travelling
+in a variable is a send whose keys this gate cannot read. *This is the same lesson as the
+untracked-poison instance: a gate that enumerates the wrong population is green about files it
+never opened, and the only defence is to count the subject by a second, independent parameter.*
+
+**Still open, none of it blocking:** (1) `reset.wait` is registered, not removed — it needs the
+Rider 3 migration commit. (2) A value that is not a literal (`name:`, a `BinOp`) is not
+statically decidable and the value row passes it; `hex(...)` is modelled because it provably
+yields `"0x..."`, nothing else is. Today every `getBool`-read value in the tree IS a literal
+bool, so the undecidable set never touches the inverting hazard, but that is a property of the
+tree and not of the gate. (3) The gate is source-only — it never dials a server, so the claim
+"this key is honoured" is derived from the C++ and NOT confirmed against a running
+`oracle_gui`. **TAGGED for foreground runtime confirmation.**
+
 ## From the delete-percell-hscroll parcel (2026-08-26, `parcel/delete-percell-hscroll`)
 
 ### Per-cell HScroll fill — DELETED 2026-08-26 (d-29-corrected), how to restore
