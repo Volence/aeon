@@ -2056,15 +2056,38 @@ proc Parallax_Step5_Vscroll () clobbers(d0-d7/a0-a6) {
         // and for a background sway both rungs land where an author wants them. A finer
         // amplitude (1.5x via `(s>>a) + (s>>(a+1))`) is booked in DEFERRED_WORK, not built.
         //
-        // COST. A NON-BOBBING SCENE PAYS 26 CYCLES A FRAME, NOT ZERO: `moveq` 4 + `move.b`
-        // (d16,a0) 12 + `beq` taken 10. That is 0.02% of an NTSC frame's 128,000 cycles and
-        // it buys the field being a per-scene property instead of a per-GAME one. The
-        // alternative that reaches zero is a CAP_* bit, which elides this code in a game
-        // that authors no bob — deliberately NOT taken: the bits past $0080 are a declared
-        // gapless reservation with an allocation order, and spending one plus its
-        // scene_caps() fold, its SCANLINE_CAPS redeclaration and its span-bracket
-        // discriminator to save 26 cycles is the wrong trade. Booked, with the trigger.
-        // A BOBBING scene pays ~112 cycles (~132 at the ladder's slow/small extremes).
+        // COST, COUNTED RATHER THAN ESTIMATED (68000 timings; a is the amplitude shift, p
+        // the period shift, both 0..8 so both variable shifts are cheap).
+        //
+        // A NON-BOBBING SCENE PAYS 26 CYCLES A FRAME, NOT ZERO:
+        //     moveq #0,d3                                    4
+        //     move.b (d16,a0),d3          4 + EA(d16,An) 8 = 12
+        //     beq   .v_bob_none  TAKEN                      10
+        //                                                 = 26
+        // That is 0.02% of an NTSC frame's 128,000 cycles, and it buys the bob being a
+        // per-SCENE property instead of a per-GAME one. The alternative that reaches zero
+        // is a CAP_* bit, which elides this whole block in a game that authors no bob —
+        // deliberately NOT taken: the bits past $0080 are a declared GAPLESS reservation
+        // with an allocation order, and spending one plus its scene_caps() fold, both
+        // games' SCANLINE_CAPS redeclarations, a span-bracket discriminator pair, a
+        // demo_specialization_witness row and a [parallax.cost_model] row to save 26
+        // cycles is the wrong trade. Booked in DEFERRED_WORK with its trigger.
+        //
+        // A BOBBING SCENE PAYS 112 + 2*(a + p):
+        //     moveq #0,d3                       4     lea (xxx).W,a1              8
+        //     move.b (d16,a0),d3               12     move.w (d8,a1,d4.w),d4     14
+        //     beq NOT taken                     8     lsr.w #4,d3      6 + 2*4 = 14
+        //     move.w d3,d0                      4     asr.w d3,d4        6 + 2*a
+        //     andi.w #$0F,d0                    8     add.w d4,d2                 4
+        //     move.w (xxx).W,d4                12
+        //     lsr.w d0,d4                 6 + 2*p     fixed sum                 100
+        //     andi.w #imm,d4                    8     + the two variable shifts  12 + 2(a+p)
+        //     add.w d4,d4                       4
+        // = 114 at the widest/fastest rung (a 1, p 0), 144 at the narrowest/slowest (8, 8),
+        // 124 for a 16-px sway every 1024 ticks (a 4, p 2). Under 0.12% of a frame at the
+        // worst rung. The `lea` is 8 and not 12 because Sine_Table lowers to ABSOLUTE SHORT
+        // in every shape today (the math section sits under $8000); it costs 4 more cycles
+        // and 2 more bytes the day ROM growth pushes it past.
         //
         // `moveq #0, d3` IS LOAD-BEARING: `move.b` into a data register writes bits 0-7 and
         // leaves 8-31 as they were, and `lsr.w #4, d3` below would then shift four dirty

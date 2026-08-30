@@ -16062,7 +16062,8 @@ for an amplitude the ladder skips. Not before: 8 and 16 px are both on the ladde
 where a background sway wants to be.
 
 **`CAP_VERTICAL_BOB`.** A non-bobbing scene pays **26 cycles a frame** (`moveq` 4 + `move.b`
-displacement 12 + `beq` taken 10) testing a byte that is 0 in every shipped config, and demo — which
+displacement 12 + `beq` taken 10; a bobbing one pays 112 + 2·(shift + period), so 114..144) testing
+a byte that is 0 in every shipped config, and demo — which
 authors no scenes at all — pays the same. A capability bit would elide the whole 40-byte block for a
 game that declares no bob. **Deliberately not taken**, and the reasons are cost-of-mechanism rather
 than cost-of-cycles: the bits past `$0080` are a declared GAPLESS reservation with an allocation

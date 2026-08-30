@@ -2594,7 +2594,9 @@ capability bit.
 - **It is NOT capability-gated, and a non-bobbing scene therefore pays 26 cycles a frame** — `moveq`
   4 + `move.b` displacement 12 + `beq` taken 10 — including in `demo`, which authors no scenes at
   all. That is 0.02% of an NTSC frame, and it buys the bob being a per-SCENE property rather than a
-  per-GAME one. A bobbing scene pays ~112 cycles (~132 at the ladders' extremes). The `CAP_*` bit
+  per-GAME one. A bobbing scene pays **112 + 2·(bob_shift + bob_period)** — 114 cycles at the
+  widest/fastest rung, 144 at the narrowest/slowest, 124 for a 16-px sway every 1024 ticks; both
+  counts are derived instruction by instruction at the site. The `CAP_*` bit
   that would elide the 40-byte block is named and rejected in `docs/DEFERRED_WORK.md` with its
   trigger; the bits past `$0080` are a gapless reservation and the mechanism costs more than the
   cycles.
