@@ -205,9 +205,11 @@ def _mag_s3k(s, n):
 def _band_edges(shape):
     """Angles the ceiling band treats differently from their mirrors.
 
-    Derived from the parsed band, never written down: the skip is a half-open
-    interval, and the mirror of a half-open interval is the other one, so its
-    two endpoints necessarily disagree with their mirrors.
+    Derived from the parsed band, never written down. S3K's `cmpi.b #$C0` made
+    the skip the half-open interval [$60,$A0), whose mirror is the OTHER
+    half-open interval, so its two endpoints disagreed with their mirrors. The
+    owner ruled the band symmetric (d-34, 2026-08-30): `cmpi.b #$C1` makes the
+    skip the closed [$61,$9F], its own mirror, and this set must be empty.
     """
     return {a for a in range(256) if _reaches(a, shape) != _reaches(_mirror(a), shape)}
 
@@ -219,20 +221,26 @@ def _slides(a, sine, shape, mag):
 
 
 def _asymmetric(sine, shape, mag):
-    edges = _band_edges(shape)
+    """All 256 angles, nothing excluded (the band endpoints were, while the
+    band was half-open — d-34 closed it)."""
     return sorted(a for a in range(256)
-                  if a not in edges
-                  and _slides(a, sine, shape, mag) != _slides(_mirror(a), sine, shape, mag))
+                  if _slides(a, sine, shape, mag) != _slides(_mirror(a), sine, shape, mag))
 
 
-def test_band_edges_are_the_two_endpoints(shape):
-    """The one asymmetry we knowingly do NOT fix — pinned so it cannot widen."""
+def test_ceiling_band_is_mirror_symmetric(shape):
+    """The second divergence (d-34): the band skip must agree with its own mirror.
+
+    Pinned as a derived COUNT of disagreeing angles, so it goes red on any
+    reshaping of the parsed band — including a revert to S3K's `#$C0`, which
+    was the red-first proof on 2026-08-30 (2 angles, $60 and $A0).
+    """
     edges = _band_edges(shape)
-    assert len(edges) == 2, (
-        f"the ceiling-band skip now disagrees with its own mirror at {len(edges)} "
-        f"angles ({sorted(hex(a) for a in edges)}), not the 2 endpoints a half-open "
-        "interval must have. The band changed shape — the exclusion below is no "
-        "longer the small authentic S3K artifact it was scoped to be.")
+    assert len(edges) == 0, (
+        f"the ceiling-band skip disagrees with its own mirror at {len(edges)} "
+        f"angle(s) ({sorted(hex(a) for a in edges)}). The owner ruled the band "
+        "symmetric (d-34, 2026-08-30) — player_ground.emp's walking slope block "
+        f"spells it as addi.b #${shape['band_add']:X} / cmpi.b #${shape['band_cmp']:X}, "
+        "which is not its own mirror. The ruled form is #$60 / #$C1 (skip [$61,$9F]).")
 
 
 def test_shipped_rule_is_mirror_symmetric(sine, shape):
