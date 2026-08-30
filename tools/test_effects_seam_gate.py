@@ -328,11 +328,46 @@ class TestRasterSeamAgainstTheRealTree(unittest.TestCase):
                 names.fn_sec_raster),
             [])
 
-    def test_NO_sidecar_in_this_tree_carries_a_rasterRef(self):
-        """Step 5's declared precondition, asserted rather than remembered: the split is
-        the ONLY delta, which requires the chooser to still resolve to `hand`. When step
-        6 lands its band this test is the one that must be changed, deliberately."""
-        self.assertEqual(effects_gen.load_section_raster_refs(REPO), {})
+    def test_the_bound_sections_are_exactly_the_threaded_ones(self):
+        """Step 5's precondition was `no sidecar carries a rasterRef`, and its own
+        docstring said this test is the one step 6 must change DELIBERATELY. Step 6
+        landed `ojz_sec5_showcase` on section 5, so the precondition is now false by
+        design and asserting it would be asserting the absence of the feature.
+
+        WHAT REPLACES IT IS NOT `{5: ...}` TYPED IN. The invariant that actually
+        matters is the one the seam gate exists for: every section that BINDS a
+        rasterRef must be a section some preset THREADS the chooser for. Typing the
+        expected dict would pin today's content and go stale the first time an author
+        binds a second section; deriving it from the call sites cannot. The literal
+        that remains is the section index, and it is cross-checked against the
+        threaded set rather than standing alone."""
+        bound = effects_gen.load_section_raster_refs(REPO)
+        self.assertTrue(bound, "no sidecar carries a rasterRef — step 6's band is gone")
+
+        names = effects_gen.act_names(REPO)
+        with open(os.path.join(REPO, effects_seam_gate.EFFECTS_LIB)) as f:
+            lib = f.read()
+        threaded = {sec for sec, _hand in
+                    effects_seam_gate.raster_call_sites(lib, names.fn_sec_raster).values()}
+        self.assertTrue(
+            set(bound) <= threaded,
+            f"sections {sorted(set(bound) - threaded)} bind a rasterRef that no preset "
+            f"threads — the generator emits the binding and nothing reads it, which "
+            f"presents to the author as an assignment that did nothing")
+
+    def test_section_5_is_the_bound_one_and_its_id_is_the_shipped_document(self):
+        """The content assertion, kept separate from the invariant above so a content
+        change cannot look like a mechanism failure. Section 5 was the owner's ruling
+        (the 38-byte split that evicts nothing); the id must name a document that
+        really ships, which is what the reachability lint would otherwise catch late."""
+        bound = effects_gen.load_section_raster_refs(REPO)
+        self.assertEqual(sorted(bound), [5],
+                         f"the bound sections are {sorted(bound)}, not [5]")
+        presets = effects_gen.load_preset_documents(REPO) \
+            if hasattr(effects_gen, "load_preset_documents") else None
+        if presets is not None:
+            self.assertIn(bound[5], presets,
+                          f"section 5 binds {bound[5]!r}, which names no shipped preset document")
 
 
 if __name__ == "__main__":
