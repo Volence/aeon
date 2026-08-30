@@ -180,6 +180,51 @@ edge, and (b) `Section_RedrawPlanes` returning `d7 = Cache_Head_Col` uncondition
 `Section_Plane_Dirty` setters run straight after an unbudgeted `FillAll`, and now asserted, but it is
 the remaining place a tracker is written without a matching draw.
 
+### THE REPLAY FIXTURE NEEDS RE-STAMPING AFTER THE CLAMPS — MEASURED, AND NOBODY HAD BOOKED IT
+(2026-08-30; the oracle lane found the symptom, the mechanism is measured here)
+
+**Symptom, oracle's:** replaying `Replay_OJZ_Fixture` out of the chain-187 ROM raises
+`REPLAY DESYNC` at ring 0 — recorded `490164326`, produced `221728870`; 9 passed / 4 failed. The
+same command against chain 186 (`aeon_rev def98ee5`) is 13 / 0. They offered two explanations and
+declined to assert either: (a) the fixture is stale and wants re-recording, or (b) their emulator
+diverges from hardware in a way the new clamp code newly exercises — which would outrank their
+whole board.
+
+**(a), and it is not a prior — it is a row in a table.** `engine/system/replay.emp:374`:
+
+    dc.l    Section_Right_Col_Written, 1 // Right + Left
+
+**`Section_Right_Col_Written` is a hashed cell, and changing it is precisely what fix 2 does.**
+`Section_RedrawPlanes` used to *assign* `d7 = Cache_Head_Col`; it now clamps to
+`min(start_world_col + 63, Cache_Head_Col)`, which changes that word for `cam_col < 16`. **The act
+opens at camX 96, i.e. `cam_col` 6 — so the very first checkpoint is inside the window where the
+value differs, which is exactly where the desync fires.**
+
+**Fix 1 cannot contribute and that is checkable, not argued:** the hash's own header says it
+*"excludes sound RAM, `Ctrl_*` cells, VDP staging, DEBUG-only cells — gameplay state only"*, and
+grepping the module for `Vscroll` / `Parallax` / `VDP` returns nothing but that sentence. The
+parallax clamp is VDP staging and is invisible to the net by construction.
+
+**So (b) is dead and oracle's emulator is not implicated.** Worth stating in those terms because
+their alternative was an accuracy bug that would have reordered their board.
+
+**THIS IS A SEPARATE JOB AND NOBODY HAD BOOKED IT.** It is not part of the eight-failure strict fix
+sigil landed, and it is not part of the superseding freeze — **so the supersede will produce a ROM
+that still desyncs the fixture.** Oracle is right to keep pinning chain 186 until this lands.
+
+**The ritual is this repo's own and it is not "restamp": it is PROVE-THEN-RESTAMP** (owner ruling
+d-14; precedent `bb72f61f` *"the insta-shield is the ONLY behavioural change the net sees"* and the
+restamp at `f52c5c6a`, 7 of 27 checkpoints). So the work is: prove the clamps are the only
+behavioural change the net sees — the parallax half should prove *neutral*, which is a real
+prediction the proof can falsify — then re-stamp only the checkpoints that legitimately moved, and
+say how many of 27.
+
+**And the hash header names the trap that makes this worth doing carefully:** the fold is
+deliberately ADDRESS-FREE so that *"a behaviour-neutral parcel that merely shifts addresses
+reproduces recorded checkpoint hashes and the committed fixture stays a valid regression net."*
+A desync therefore means real behaviour moved — which is the correct reading here, and is why a
+blanket re-stamp without the proof would destroy the net's only claim.
+
 ### THE FREEZE CAPTURES ROMs AND NOT LISTINGS, SO A FROZEN ROM IS NOT A REPRODUCIBLE SUBJECT
 (found by the oracle lane 2026-08-30, verified firsthand here)
 
