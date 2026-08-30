@@ -342,6 +342,18 @@ same-runner, same-code, 186 vs candidate, delta per checkpoint rather than one p
   *Class: a trigger written from the shape of the FINISHED work rather than the shape of the NEXT
   step. It reads correctly, it is precise, and it names a precondition that the step it gates is the
   only thing that can satisfy.*
+- **STATUS 2026-08-30: QUEUED BEHIND A RULE, NOT BEHIND JUDGEMENT — and oracle drew the
+  distinction deliberately.** Their repo forbids two concurrent cargo runs and another agent holds
+  the lane, so the A/B runs when the lane frees. **"I chose to wait" and "I could not proceed" are
+  different facts and only one makes the timing predictable**, which is why they said which it was.
+  Booked in their `OVERSEER.md` and status with the reason attached, so a fresh session finds it
+  **queued rather than forgotten** — the failure mode a trigger left sitting in mail would have had.
+- **Candidate verified on their side rather than accepted:** sigil `e38295d2` reachable at their
+  `origin/master`; `golden/s4.debug.bin` hashes `951cf960…62707d` at 736315 B as stated. **And it is
+  byte-identical to chain 187 — the identity this lane predicted from the FIXPOINT and explicitly
+  declined to PROMISE until it was checked. It held.** So both sides of the A/B are committed blobs
+  with **no working-tree dependency on either lane** — the property the freeze exists for, arriving
+  on its first real use.
 - **Deliverable (theirs):** the moved SET per checkpoint index, not a count. The count is the
   headline; the set is the evidence, and prove-then-restamp turns on saying *why each mover moved*.
 - **⚠ THE FALSIFIER, STATED BEFORE THE RUN so the A/B can refute rather than accommodate:** this
