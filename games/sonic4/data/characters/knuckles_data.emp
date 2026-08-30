@@ -18,7 +18,7 @@
 // addressable and 25 of its entries across frames 234-250 silently wrapped to
 // low tile indices — those frames DMA'd early-frame art. `write_dplc` now refuses
 // to emit it (see the tile_start assert there), and the raw pair is both correct
-// and 8,702 bytes smaller. THE "max 4095" THAT USED TO SIT IN THIS PARAGRAPH IS
+// and 8,702 bytes smaller. THE BARE "(max N)" THAT USED TO CLOSE THIS SENTENCE IS
 // GONE ON PURPOSE: the ceiling is now DPLC_ADDRESSABLE_TILES in
 // engine/objects/dplc.emp and it is CHECKED against this file's sheet, by the
 // ensure beside the VRAM wall below. The paragraph is kept because it is the only
@@ -159,8 +159,8 @@ ensure(dplc_peak_entries(_dplc_knux) + DPLC_ENTRY_RESERVE <= DMA_IMPORTANT_SLOTS
 // THE 12-BIT tile_start CEILING — the machine check the header paragraph used to
 // be, and THE TIGHTEST BOUND ON ANY SHEET IN THIS TREE.
 //
-// 4,092 tiles against DPLC_ADDRESSABLE_TILES = 4,096: FOUR TILES of headroom, 128
-// bytes. Sonic has 1,050 and Tails 461. Any Knuckles re-export that adds five tiles
+// 4,092 tiles against DPLC_ADDRESSABLE_TILES: FOUR TILES of headroom, 128 bytes.
+// Sonic has 1,050 and Tails 461. Any Knuckles re-export that adds five tiles
 // fails the build — which is the guard working, not the guard being wrong: the raw
 // pair ships precisely because the contiguous one was 4,383 and wrapped.
 //
