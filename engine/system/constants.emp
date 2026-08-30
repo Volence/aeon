@@ -677,8 +677,13 @@ pub const PARALLAX_LERP_SHIFT   = 4
 // the consumer with a message naming neither module. Measured 2026-08-30. This module is a
 // helper, so both names reach every module with no `use` line at all.
 //
-// Held to the blob by tools/test_slope_symmetry.py, which re-derives both from
-// engine/data/sine.bin and fails naming these two constants if the table is replaced.
+// HELD TO THE BLOB by tools/test_vertical_bob.py (build.sh's pytest lane), which
+// re-derives both from engine/data/sine.bin — the peak magnitude for the amplitude, the
+// smallest repeating period for the cycle length — and fails naming these two constants.
+// That gate is not decoration: every `ensure` in engine/level/parallax.emp's bob ladder
+// compares this constant against itself one indirection removed, so a table swapped for
+// one of a different amplitude would leave the whole engine green while every authored
+// bob_shift silently came to mean a different number of pixels.
 pub const SINE_AMPLITUDE        = $100
 pub const SINE_CYCLE_ENTRIES    = $100
 

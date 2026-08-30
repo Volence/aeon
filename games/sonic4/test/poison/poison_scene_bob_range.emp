@@ -1,0 +1,132 @@
+// games/sonic4/test/poison/poison_scene_bob_range.emp — POISON (see README).
+//
+// TARGETS: engine/level/scene_dsl.emp `scene()`'s two vertical-bob range guards —
+// `bob_shift` (the amplitude ladder) and `bob_period` (the period ladder). Both fields
+// are `u8` in `Scene`, so every out-of-range value fits the TYPE; without these guards
+// nothing anywhere in the tree bounds either, and both failures are silent pictures
+// rather than build errors.
+//
+// EXPECTED FRAGMENTS (two rows against this one module, one per guard):
+//   "bob_shift 0 outside 1 .. 8, and it is not the no-bob sentinel 15"
+//   "bob_period 9 outside 0 .. 8"
+// The two guards read alike and the second field's NAME does not contain the first's, so
+// the fragments separate cleanly on the field name alone — but each also quotes its own
+// interpolated poison value and its own ladder, so a guard that started refusing the
+// wrong span stops matching instead of passing on a family resemblance. tools/
+// emp_expect_fail.py COMPUTES both fragments from engine/level/parallax.emp's own
+// constants rather than typing the ladders, so moving a ladder in EITHER direction is
+// loud (see emp_const's note in that file for why a typed bound goes vacuous downwards).
+//
+// WHY 0 AND 9, WHICH ARE THE TWO INTERESTING VALUES AND NOT ARBITRARY ONES:
+//
+//   bob_shift 0 is the value a reader ARRIVES AT BY ANALOGY and it is the worst one in
+//   the field. Every neighbouring shift field in this vocabulary — pcfg_v_deform_shift_bg,
+//   band_deform_shift_a/b, pcfg_anchor_dsa/dsb — admits 0 as "no shift, full amplitude",
+//   so "0 = the biggest bob" is the natural guess. Here 0 means a peak excursion of the
+//   whole sine amplitude, 256 px, against 289 legal Plane-B window origins: the sway
+//   would spend most of every cycle pinned against Step 5's seam clamp, moving in jerks
+//   at the ends and smoothly only in the middle. AND it is unrepresentable besides —
+//   `(0 << 4) | 0` is the byte 0, which pcfg_bob reads as NO BOB, so a scene authoring
+//   the largest sway the encoding can spell gets silence.
+//
+//   bob_period 9 is one past the ceiling, and the ceiling is not taste: the phase index
+//   is `(Logic_Tick.low >> bob_period) & $FF` over a SIXTEEN-BIT counter, so at 8 the
+//   index returns to 0 exactly when the counter wraps and at 9 it has reached only half
+//   the table when the counter wraps — the background JUMPS by the full bob amplitude,
+//   once every 65,536 ticks. A defect that appears once every eighteen minutes is the
+//   kind a build has to catch, because a play session will not.
+//
+// FOUR FIXTURES, TWO PAIRS, ONE AUTHORED FIELD APART IN EACH PAIR:
+//
+//   FIXTURE A — bob_shift 15, the no-bob sentinel and the default every scene in the
+//               tree takes. The control that separates "refused an out-of-range shift"
+//               from "refused the sentinel too" — and the sentinel is OUTSIDE the legal
+//               ladder (15 > 8), so a guard written as a plain range would refuse it and
+//               refuse every shipped scene with it.
+//   FIXTURE B — fixture A with bob_shift 0. The amplitude guard fires.
+//   FIXTURE C — bob_shift 1 with bob_period 8: BOTH ends of BOTH ladders at once, the
+//               widest legal sway at the slowest legal rate. Control.
+//   FIXTURE D — fixture C with bob_period 9. The period guard fires.
+//
+// EXPECTED `[Error]` COUNT IS 2, AND THE COUNT IS HALF OF EACH ROW'S ASSERTION: exactly
+// the two poisons fire and both controls stay legal. A 3 or 4 means a control stopped
+// passing — a ladder that excluded 15 would refuse every scene in the tree, and one that
+// excluded shift 1 or period 8 would have closed its own top end. A 1 means one of the
+// two guards went dead, and the surviving row's fragment is what says WHICH.
+//
+// THE GLOB IMPORTS ARE THE AUTHOR'S OWN SPELLING — see README.md ("Why every scene poison globs").
+module games.sonic4.test.poison.poison_scene_bob_range
+
+use engine.level.scene_dsl.*
+use engine.level.parallax_dsl.*
+
+// ---- PAIR 1: bob_shift, the amplitude ladder ----
+
+// FIXTURE A — the no-bob sentinel, which is the default and sits OUTSIDE the ladder.
+const POISON_BOB_SCENE_A: Scene = scene(
+    layers: [ layer(world_y: 0, fa: FACTOR_1, fb: FACTOR_1_2),
+              no_layer(), no_layer(), no_layer(),
+              no_layer(), no_layer(), no_layer(), no_layer(),
+              no_layer(), no_layer(), no_layer(), no_layer(),
+              no_layer(), no_layer(), no_layer(), no_layer() ],
+    count: 1, v_factor: 15, bob_shift: 15)
+
+// FIXTURE B — byte-for-byte fixture A with the shift a reader guesses means "the biggest
+// bob" and which the encoding reads as no bob at all.
+const POISON_BOB_SCENE_B: Scene = scene(
+    layers: [ layer(world_y: 0, fa: FACTOR_1, fb: FACTOR_1_2),
+              no_layer(), no_layer(), no_layer(),
+              no_layer(), no_layer(), no_layer(), no_layer(),
+              no_layer(), no_layer(), no_layer(), no_layer(),
+              no_layer(), no_layer(), no_layer(), no_layer() ],
+    count: 1, v_factor: 15, bob_shift: 0)
+
+// ---- PAIR 2: bob_period, the period ladder ----
+
+// FIXTURE C — both ends of both ladders: the widest legal sway at the slowest legal rate.
+const POISON_BOB_SCENE_C: Scene = scene(
+    layers: [ layer(world_y: 0, fa: FACTOR_1, fb: FACTOR_1_2),
+              no_layer(), no_layer(), no_layer(),
+              no_layer(), no_layer(), no_layer(), no_layer(),
+              no_layer(), no_layer(), no_layer(), no_layer(),
+              no_layer(), no_layer(), no_layer(), no_layer() ],
+    count: 1, v_factor: 15, bob_shift: 1, bob_period: 8)
+
+// FIXTURE D — fixture C one shift past the counter's own width.
+const POISON_BOB_SCENE_D: Scene = scene(
+    layers: [ layer(world_y: 0, fa: FACTOR_1, fb: FACTOR_1_2),
+              no_layer(), no_layer(), no_layer(),
+              no_layer(), no_layer(), no_layer(), no_layer(),
+              no_layer(), no_layer(), no_layer(), no_layer(),
+              no_layer(), no_layer(), no_layer(), no_layer() ],
+    count: 1, v_factor: 15, bob_shift: 1, bob_period: 9)
+
+// ---- THE PASSING HALVES (must stay green, and are MEASURED) ----
+// `ensure` is non-aborting, so "the controls passed" cannot be read off the build failing
+// for the poisons; it is read off the controls' OWN fields carrying the boundary values
+// the guards are asserted to admit, plus the diagnostic count above staying at 2.
+ensure(POISON_BOB_SCENE_A.sc_bob_shift == 15,
+       "poison_scene_bob_range: the CONTROL's sc_bob_shift is not the no-bob sentinel — fixture A stopped modelling the default every scene in the tree takes, so the failing half no longer separates an out-of-range shift from a refused sentinel")
+ensure(POISON_BOB_SCENE_C.sc_bob_shift == 1 && POISON_BOB_SCENE_C.sc_bob_period == 8,
+       "poison_scene_bob_range: the CONTROL is no longer sitting on both ladders' far ends (sc_bob_shift {POISON_BOB_SCENE_C.sc_bob_shift}, sc_bob_period {POISON_BOB_SCENE_C.sc_bob_period}) — fixture C exists to prove the widest legal sway at the slowest legal rate is admitted, and a fixture inside the span proves only that the middle is")
+
+// ---- THE FAILING HALVES — elaborating B and D is what fires the two guards ----
+// Each also asserts its fixture really CARRIES the poisoned value, so a poison that
+// silently stopped modelling the defect (a truncation, a changed default) fails here
+// rather than passing the lane on a diagnostic about something else.
+ensure(POISON_BOB_SCENE_B.sc_bob_shift == 0,
+       "poison_scene_bob_range: the poisoned fixture's sc_bob_shift is not 0 — it stopped modelling the shift-0-means-maximum guess, and the expected diagnostic proves nothing")
+ensure(POISON_BOB_SCENE_D.sc_bob_period == 9,
+       "poison_scene_bob_range: the poisoned fixture's sc_bob_period is not 9 — it stopped modelling one shift past the tick counter's width, and the expected diagnostic proves nothing")
+
+// ---- THE LOWERING, PROVED ON THE CONTROL THAT ACTUALLY BOBS ----
+// Fixture C is the only fixture in this file whose scene emits a NON-ZERO pcfg_bob, which
+// makes it the one place the nibble pack is visible at comptime. Spelled as the two
+// nibbles rather than as $18, so a swap of the two halves — the single most likely
+// lowering defect, and one that produces a perfectly plausible background that sways at
+// the wrong amplitude and rate — reads as a wrong number here rather than as a value that
+// still looks like a legal byte.
+ensure(scene_bob_packed(POISON_BOB_SCENE_C.sc_bob_shift, POISON_BOB_SCENE_C.sc_bob_period) == (1 << 4) | 8,
+       "poison_scene_bob_range: scene_bob_packed(1, 8) is {scene_bob_packed(POISON_BOB_SCENE_C.sc_bob_shift, POISON_BOB_SCENE_C.sc_bob_period)}, not the amplitude shift in the HIGH nibble and the period shift in the LOW one. Parallax_Step5_Vscroll reads the high nibble with `lsr.w #4` as the asr count and the low nibble with `and.w #$0F` as the tick shift, so a swapped pack sways 8 px every 512 ticks where the author asked for 128 px every 65,536")
+ensure(scene_bob_packed(POISON_BOB_SCENE_A.sc_bob_shift, POISON_BOB_SCENE_A.sc_bob_period) == 0,
+       "poison_scene_bob_range: the no-bob sentinel lowers to {scene_bob_packed(POISON_BOB_SCENE_A.sc_bob_shift, POISON_BOB_SCENE_A.sc_bob_period)}, not the packed byte 0. That 0 is the whole reason claiming pcfg_pad_29 moved no bytes: every one of the twenty shipped records takes this default, and a non-zero lowering here changes all twenty and every band array behind them")

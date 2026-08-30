@@ -46,7 +46,7 @@ pub data Sine_Table: [u8; $280] = embed("../data/sine.bin")
 // that mentions the sine table. MEASURED at this parcel (2026-08-30), trying exactly that
 // import from engine/level/parallax.emp: 69 errors, none of them saying "not importable".
 // engine.constants IS a helper, so the same two names reach every module without a `use`.
-// The values are held to THIS blob by tools/test_slope_symmetry.py, which re-derives both
+// The values are held to THIS blob by tools/test_vertical_bob.py, which re-derives both
 // from engine/data/sine.bin rather than trusting either declaration.
 
 // -----------------------------------------------

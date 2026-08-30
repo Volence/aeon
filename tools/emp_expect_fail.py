@@ -65,6 +65,45 @@ def emp_const(rel: str, name: str) -> int:
 # The engine's band ceiling, for the two scene-capacity fragments below.
 MAX_PARALLAX_BANDS = emp_const("engine/system/constants.emp", "MAX_PARALLAX_BANDS")
 
+# ---- The vertical bob's two ladders, RE-DERIVED for the bob-range fragments ----
+#
+# engine/level/parallax.emp computes BOB_SHIFT_MIN / BOB_SHIFT_MAX / BOB_PERIOD_SHIFT_MAX
+# with three `comptime fn`s, so `emp_const` (which reads a literal `const NAME = <int>`)
+# cannot read the ANSWERS — only the INPUTS. So the answers are recomputed here from those
+# inputs, by the same three formulas, in a second language. That is deliberately more than
+# a mirror: if the engine's derivation is edited, this one disagrees, the fragments stop
+# matching the guard's own sentence, and the two rows go red naming the ladder. If instead
+# these were typed as "1 .. 8" they would go vacuous the moment a ladder narrowed (the
+# guard would still refuse the poison, still say "outside", and the stale literal would
+# still be somewhere in the message) — exactly the failure `emp_const`'s note above
+# records from the MAX_PARALLAX_BANDS raise.
+BOB_SINE_AMP = emp_const("engine/level/parallax.emp", "BOB_SINE_AMP")
+BOB_SINE_ENTRIES = emp_const("engine/level/parallax.emp", "BOB_SINE_ENTRIES")
+BOB_VSCROLL_ORIGINS = emp_const("engine/level/parallax.emp", "BOB_VSCROLL_ORIGINS")
+BOB_TICK_BITS = emp_const("engine/level/parallax.emp", "BOB_TICK_BITS")
+BOB_SHIFT_NONE = emp_const("engine/level/parallax.emp", "BOB_SHIFT_NONE")
+
+# bob_shift_min: the smallest shift whose peak-to-peak travel fits the seam-free span.
+BOB_SHIFT_MIN = max(
+    [i + 1 for i in range(16) if (BOB_SINE_AMP >> i) * 2 > BOB_VSCROLL_ORIGINS] + [0])
+# bob_shift_max: the largest shift the sine table survives with a nonzero peak.
+BOB_SHIFT_MAX = max(i for i in range(16) if (BOB_SINE_AMP >> i) >= 1)
+# bob_period_shift_max: the largest period shift whose cycle still closes inside one pass
+# of the tick counter.
+BOB_PERIOD_SHIFT_MAX = max(
+    i for i in range(32) if (BOB_SINE_ENTRIES << i) <= (1 << BOB_TICK_BITS))
+# The two poisons are one step OUTSIDE each ladder, computed rather than typed for the
+# same reason the ladders are. They must match the fixtures in
+# games/sonic4/test/poison/poison_scene_bob_range.emp, and the guard's interpolation of
+# them is half of each fragment.
+BOB_POISON_SHIFT = BOB_SHIFT_MIN - 1
+BOB_POISON_PERIOD = BOB_PERIOD_SHIFT_MAX + 1
+if BOB_POISON_SHIFT < 0 or BOB_POISON_SHIFT >= BOB_SHIFT_NONE:
+    sys.exit("emp_expect_fail: the bob amplitude ladder no longer has a value one step "
+             f"below it that is not the sentinel (min {BOB_SHIFT_MIN}, sentinel "
+             f"{BOB_SHIFT_NONE}) — poison_scene_bob_range's fixture B cannot model the "
+             "defect and its row would be vacuous")
+
 # The DPLC entry word's tile_start width, for the tile_start-ceiling fragment below.
 # Folded here exactly as engine/objects/dplc.emp folds it, from the ONE name — never
 # typed as 12 or 4095, so the fixture and the fragment track the field in both
@@ -405,6 +444,30 @@ CASES: list[tuple[str, str, str, int]] = [
     (f"{POISON}/poison_scene_vbounds_range.emp",  "VOFFSET v_offset high", "v_offset 32768 outside -32768 .. 32767 — Parallax_Step5_Vscroll adds this field", 4),
     (f"{POISON}/poison_scene_vbounds_range.emp",  "VOFFSET v_center low",  "v_center -1 outside 0 .. 32767 — this is a WORLD Y", 4),
     (f"{POISON}/poison_scene_vbounds_range.emp",  "VOFFSET v_center high", "v_center 32768 outside 0 .. 32767 — this is a WORLD Y", 4),
+    # ---- BOB: the vertical bob's two ladder guards (EFFECTS-W1 item 7) ----
+    # TWO ROWS AGAINST ONE MODULE, same pairing as VFACTOR above: the module holds two
+    # control/poison pairs (bob_shift 15 vs 0, bob_period 8 vs 9), so a single build yields
+    # exactly two diagnostics and each row asserts that ITS guard produced one of them. The
+    # count of 2 is half of each row's assertion — a 3 or 4 means a control stopped passing
+    # (a ladder that excluded the sentinel 15 would refuse every scene in the tree; one that
+    # excluded shift 1 or period 8 would have closed its own top end) and a 1 means one
+    # guard went dead while the other's row still passed.
+    #
+    # BOTH FRAGMENTS ARE COMPUTED, NOT TYPED — see the BOB_* derivation block above. Each
+    # quotes the interpolated poison value AND the ladder the guard claims, so a guard that
+    # started refusing a different span stops matching rather than passing on the word
+    # "outside". The sentinel is quoted in the first fragment too, because a guard written
+    # as a plain range would refuse it and take all twenty shipped scenes with it.
+    #
+    # Measured red-first at this parcel (2026-08-30): with the two `ensure`s stashed out of
+    # scene(), this module builds with ZERO [Error] — both fields are u8, both values fit
+    # the type, and nothing else in the tree looks at either. That silence is what the two
+    # rows exist to end.
+    (f"{POISON}/poison_scene_bob_range.emp", "BOB bob_shift",
+     f"bob_shift {BOB_POISON_SHIFT} outside {BOB_SHIFT_MIN} .. {BOB_SHIFT_MAX}, and it is "
+     f"not the no-bob sentinel {BOB_SHIFT_NONE}", 2),
+    (f"{POISON}/poison_scene_bob_range.emp", "BOB bob_period",
+     f"bob_period {BOB_POISON_PERIOD} outside 0 .. {BOB_PERIOD_SHIFT_MAX}", 2),
     # ---- Ring sparkle (2026-08-26): the S3K-derived display-frame gate ----
     # One case: script_display_frames() (games/sonic4/objects/ring_sparkle.emp) fed a script
     # one frame short must report 18 (3 x (5+1)) against the reference 24. The fragment
