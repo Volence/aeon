@@ -387,6 +387,44 @@ every address by name, so the blob must be reproduced rather than taken.
 
 ### SUITE-HOME-PATHS — baked absolute paths, and the ones that PASS when the path is absent
 
+**⚑ SIGIL'S GENERALISING HAZARD, TESTED AGAINST THIS TREE — WE ARE NOT EXPOSED (2026-08-30).**
+The sigil lane found that **a poison/absent-tree scenario is not stable across repeated runs in
+one session**, because the suite's own write makes run 2 a different scenario than run 1. Their
+instance: `seam1::emit_sound_blob` calls `create_dir_all(&out_dir)` as its **first statement,
+before reading anything**, so their suite mkdirs inside a reference tree that does not exist —
+and because `contract_closure_corpus` guards on the *root*, that mkdir flips the guard from skip
+to run **for other rows**: 0 failed / exit 0 pristine, **53 failed / exit 101** after the suite's
+own mkdir, 0 failed again once the directory is deleted. Classification at sigil `8a377311`.
+
+**Tested here empirically rather than reasoned about, because the claim is about behaviour and
+not about code shape.** Ran our whole `tools` suite twice against a deliberately-partial
+`AEON_SUITE_ROOT`, same command, same tree:
+
+    run 1 : Interrupted, 3 errors during collection, 0.73 s
+    run 2 : Interrupted, 3 errors during collection, 0.70 s   <- identical
+    created in the scenario root across both runs : NOTHING
+
+**Positive control on the detector, so the empty result is a measurement and not a blind
+instrument:** a planted file in the same directory is found immediately by the same `find`. The
+absence is therefore a finding.
+
+**So our absent-tree assays ARE reproducible in place**, and the whole-suite poison figure the
+home-paths parcel reported stands. `test_level_staleness.py`'s absent-artifact rows are
+additionally safe by construction — each builds its tree inside a fresh
+`tempfile.TemporaryDirectory()`, so no run can contaminate the next.
+
+*Kept even though the answer is "not us": a negative result under a positive control is worth
+more than an untested assumption of safety, and the next lane to add an absent-tree gate here
+needs to know the property was checked once rather than assumed forever. Re-check it if any
+gate starts writing into the tree it points at.*
+
+*(Their smaller finding, worth having for its shape: `contract_closure_corpus`'s own doc comment
+DECLINES to emit build products because "generating one would be a WRITE into `AEON_DIR`, racing
+any concurrent build" — while `ensure_generated` does exactly that unconditionally. One module
+states the rule and its neighbour breaks it. If a concurrent aeon build has ever raced their
+suite, that is the door.)*
+
+
 **⚑ SCOPE LIMIT ON THE NEW GATE, FOUND BY THE OVERSEER'S OWN RED-FIRST PROBE (2026-08-30).**
 `tools/test_no_baked_home_paths.py` enumerates via `git ls-files`, so **it sees TRACKED files
 only.** A newly written file carrying a baked `/home/...` path passes the gate until it is
