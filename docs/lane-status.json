@@ -1,15 +1,10 @@
 {
-  "focus": "Getting the critical-path item designed while the byte-movers ahead of it clear.",
+  "focus": "The replay safety net runs green end to end for the first time since it broke.",
   "inFlight": [
     {
-      "what": "the record that lets sigil's nightly drift job observe anything at all",
-      "where": "branch parcel/drift-record-lookup-aeon",
-      "agent": true
-    },
-    {
-      "what": "item 1's design and its contract change - the project's critical path, so the schema gets adjudicated while we wait on byte-movers",
-      "where": "branch design/effects-ref-binding",
-      "agent": true
+      "what": "four-shape rebuild on the merged tree, then the paired freeze with sigil for the restamp",
+      "where": "master, foreground",
+      "agent": false
     }
   ],
   "blockedOnOwner": [
@@ -24,20 +19,20 @@
       "since": "2026-08-29"
     }
   ],
-  "nextBoundary": "When both agents report. The restamp still waits on sigil's CRCs.",
+  "nextBoundary": "After the paired freeze lands. The restamp is committed and pushed; the freeze is the remaining half.",
   "queue": [
     {
       "id": "REPLAY-RESTAMP",
-      "title": "RULED all_ten by the hub in his place, reversible on read-back. Repair all ten fingerprints, not the one originally scoped - the exclusion's premise was refuted by a byte identity. SERIALIZED behind sigil's byte-adjacent landing; do not start until they report their four CRCs.",
-      "state": "next",
+      "title": "RESTAMPED and pushed: both fixtures repaired, the net runs green end to end for the first time since chain 181, control still trips so the green is not vacuous. Four shapes green; the two sonic4 ROMs moved at identical lengths and both demo shapes are untouched. REMAINING: the paired freeze with sigil.",
+      "state": "open",
       "size": "M",
       "blockedBy": null,
       "project": "EFFECTS-W1"
     },
     {
       "id": "DRIFT-RECORD-LOOKUP-AEON",
-      "title": "Build the record sigil's nightly drift job reads. Until it exists that job reports NOTHING MEASURED - it is landed and blind.",
-      "state": "doing",
+      "title": "LANDED 04883fff: the reader answers all four verbs (my brief said one - a reader built to it would have died before reaching it). Sigil's job stays NOTHING MEASURED until they set one env value. Open and NOT ours: the job keys us on the raw branch tip, so docs-only commits read as a miss and N never advances while the watch appears to run.",
+      "state": "open",
       "size": "M",
       "blockedBy": null,
       "project": "EFFECTS-W1"
@@ -321,11 +316,27 @@
       "blockedBy": null,
       "project": "EFFECTS-W1",
       "title": "The bands work and are near-invisible: they recolour ONE palette entry and only 1.64% of the scene is drawn with it. Anything meant to read as staged light needs an entry the scene uses broadly, or several at once. A content/authoring call, not a mechanism defect."
+    },
+    {
+      "id": "DRIFT-KEY-CLOSURE-REV",
+      "state": "open",
+      "size": "M",
+      "blockedBy": "sigil + owner ruling",
+      "project": "EFFECTS-W1",
+      "title": "Should the drift job key our half on a ROM-path closure revision instead of the raw branch tip? Deliberately unfixed: the obvious fix errs toward MORE chains counting as evidence, which is the bias this record exists to resist in a decision about retiring a safety check. Fails safe today."
+    },
+    {
+      "id": "RASTER-ARM-GAP-ENSURE",
+      "state": "open",
+      "size": "S",
+      "blockedBy": null,
+      "project": "EFFECTS-W1",
+      "title": "Aurora's find: two records on one fire line store a gap whose byte IS the park value, killing every later fire silently. Measured HARDENING not tier - check_intervals already refuses it and every one of the five shipped programs is emitted through the checked path. Residual is defence in depth for a future path."
     }
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-08-30T07:58:12Z",
+  "updatedAt": "2026-08-30T08:22:10Z",
   "resume": "Both bug-tier rows are LANDED (replay-net answered, home-paths fixed) and both canonical shapes are green on the merged tree: s4 719315 B / 6e2f9b22, s4.debug 736315 B / 6516fc68, fresh mtimes, exit 0. Next in d-8 order: the checkpoint-0 restamp (RULED, oracle's A/B reported, restamp mechanically proven by our own agent - nothing restamped yet), then the listing freeze, then DPLC re-cut and block-stream dedup as SERIALIZED byte-movers paired with sigil - they are COUPLED, whichever lands second must re-run dplc_straddle --recut Art_Sonic on the merged tree. Then the decouple's three pieces, then item 1 with its CR filed at the start. Two asks are open with oracle (the three-item replay-net ask; the parameter-contract emitter, which is queued on THEIR owner's word - do not chase it, nothing of ours blocks on it). LEGACY-SEAM-KEY-GATE is unblocked now that tools/ is free of agents; it needs TWO axes, key spelling AND accepted value shape per method - a spelling-only gate would pass the case that matters.",
   "parkedQuestions": [
     {
