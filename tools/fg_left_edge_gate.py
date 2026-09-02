@@ -62,6 +62,22 @@ Expect `and=$0000..$00xx` against a three-digit `expected`. The gate prints all 
 numbers (`vsram4C`, `vsram4E`, `and`, `expected`) on the failing line so the poison's
 signature is visible rather than inferred.
 
+TWO ARMS SINCE d-50 (2026-09-02), PICKED PER SCENE FROM THE ROM. The column-19 borrow is
+per scene now, default on. This gate reads `Parallax_Current_Config`'s
+`pcfg_v_deform_shift_bg` and branches on PCFG_VDS_DECLINE_BORROW, so it grades each scene
+against the expectation that scene actually authored instead of against a list of indices
+that would rot silently. A scene that KEEPS the borrow is graded exactly as before. A scene
+that DECLINES it must show column-pair 19's plane-B word NOT carrying the foreground's
+V-scroll, and the run refuses to grade at all when the camera sits where the two hypotheses
+predict the same word. Registry 13 and 14 (Perspective_Subtle, Perspective) decline today;
+10, 11, 12 and 15 do not.
+
+⚠ THE DECLINING ARM HAS NOT BEEN RUN. The lane that added it (parcel/left-edge-perscene)
+was a background agent and could not touch an emulator, so the arm is derived from the
+engine source and reviewed but NOT attested against a booted ROM. The first foreground run
+is what turns it from a written expectation into a measurement; treat a green from it as
+unproven until then.
+
 USAGE
     python3 tools/fg_left_edge_gate.py                       # all six per-column scenes
     python3 tools/fg_left_edge_gate.py --scenes 12           # one
@@ -85,6 +101,30 @@ from aether import BusClient  # noqa: E402
 from aether_instance import AetherInstance  # noqa: E402
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def _pcfg_vds_offset() -> int:
+    """Byte offset of `pcfg_v_deform_shift_bg` inside `parallax_config`, DERIVED from the
+    struct declaration rather than typed. A field inserted ahead of it moves this read or
+    stops the gate; it never slides silently."""
+    import pathlib
+    from left_col_mask_probe import struct_offsets
+    layout = struct_offsets(pathlib.Path(REPO) / "engine" / "structs.emp", "parallax_config")
+    return layout["pcfg_v_deform_shift_bg"][0]
+
+
+def _decline_borrow_bit() -> int:
+    """PCFG_VDS_DECLINE_BORROW out of the engine source. Loud when absent — a gate that
+    guessed this bit would grade every scene against the wrong expectation."""
+    import re as _re
+    txt = open(os.path.join(REPO, "engine", "level", "parallax.emp"), encoding="utf-8").read()
+    m = _re.search(r"^\s*pub\s+const\s+PCFG_VDS_DECLINE_BORROW\s*=\s*\$([0-9A-Fa-f]+)",
+                   txt, _re.M)
+    if not m:
+        raise SystemExit("FAIL: cannot find `pub const PCFG_VDS_DECLINE_BORROW` in "
+                         "engine/level/parallax.emp — the per-scene switch this gate reads "
+                         "is not where it was, and a default would be a guess")
+    return int(m.group(1), 16)
 
 # The six scenes that attach SceneVDeform.Columns, i.e. the only ones that raise reg $0B
 # bit 2 — Rocking_Slow/Rocking/Rocking_Fast and Perspective_Subtle/Perspective/_Dramatic.
@@ -201,8 +241,44 @@ async def check_scene(client, syms, index, want_pixels):
     b19 = (vs[2] << 8) | vs[3]                    # VSRAM $4E — column-pair 19, plane B
     and_val = (a19 & b19) & VSRAM_MASK
 
+    # WHICH EXPECTATION THIS SCENE IS OWED (d-50, 2026-09-02). The borrow is per scene now,
+    # so the gate reads the ACTIVE CONFIG rather than carrying a list of which scenes decline
+    # — a list would go stale the first time an author changes one, and it would go stale
+    # green. Both the field offset and the flag bit come from the engine source above.
+    cfg = await read_bus(client, addr=syms["Parallax_Current_Config"], length=4)
+    if not cfg:
+        return False, (f"UNMEASURABLE scene {index}: Parallax_Current_Config is NULL at the "
+                       f"sample point, so no scene is installed and the per-scene borrow "
+                       f"policy cannot be read")
+    vds = await read_bus(client, addr=cfg + _pcfg_vds_offset(), length=1)
+    declined = bool(vds & _decline_borrow_bit())
+
     detail = (f"vsram4C=${a19:04X} vsram4E=${b19:04X} and=${and_val:03X} "
-              f"expected=${expected:03X} (Camera_Y={cam_y}, reg$0B=${mode3:02X})")
+              f"expected=${expected:03X} (Camera_Y={cam_y}, reg$0B=${mode3:02X}, "
+              f"cfg=${cfg:06X} vds=${vds:02X} borrow={'DECLINED' if declined else 'ON'})")
+
+    if declined:
+        # THE DECLINING ARM. The store is skipped, so column-pair 19's plane-B word must still
+        # be plane B's own — which on every per-column scene in this tree is a LOCKED plane
+        # (v_factor 15, v_offset 0) plus a small signed deform sample, i.e. near zero, while
+        # `expected` is the live camera Y. Asserting `b19 != expected` is therefore a real
+        # discriminator: put the store back and b19 becomes camY exactly.
+        #
+        # LOUD ON UNMEASURABLE rather than lucky: when the camera happens to sit where camY
+        # masks to a value the deform could also produce, the two hypotheses are
+        # indistinguishable and this run proves nothing. It says so instead of passing.
+        if expected <= 0x1F:
+            return False, (f"UNMEASURABLE scene {index}: Camera_Y masks to ${expected:03X}, which "
+                           f"is inside the range plane B's own locked-plus-deform word occupies, "
+                           f"so 'the store was skipped' and 'the store happened' predict the same "
+                           f"VSRAM. Re-run at a different camera Y. {detail}")
+        if (b19 & VSRAM_MASK) == expected:
+            return False, (f"FAIL scene {index}: this scene DECLINES the column-19 borrow "
+                           f"(pcfg_v_deform_shift_bg=${vds:02X}), but column-pair 19's plane-B "
+                           f"word is the foreground's V-scroll ${expected:03X} — the store ran "
+                           f"anyway. {detail}")
+        return True, (f"ok   scene {index}: borrow DECLINED and skipped; column-pair 19 keeps "
+                      f"plane B's own word. {detail}")
 
     if (a19 & VSRAM_MASK) != expected:
         return False, (f"FAIL scene {index}: column-pair 19's PLANE-A word is not the foreground's "
