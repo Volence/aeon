@@ -1,31 +1,59 @@
 // games/sonic4/test/poison/poison_tail_if_unit_fold.emp — POISON (see README).
 //
-// TARGETS: the ONE surface the engine has that catches EMP_PITFALLS §1's silent
-// unit fold — a module-level value `ensure` over the folded samples.
-// EXPECTED FRAGMENT: "TAIL_IF_UNIT_FOLD" (with both interpolated values quoted
-// in the lane row: `()` for the broken shape, `-16` for the shipped generator).
+// TARGETS: sigil's `[eq.cross-type]` refusal, on the operand shape this tree can
+// actually reach — a value that EMP_PITFALLS §1's silent unit fold turned into
+// `()`, compared against an int.
+// EXPECTED FRAGMENT: the refusal's class tag, operator and operand kinds —
+// "[eq.cross-type] `==` not defined for unit and int".
+//
+// WHAT THIS PINS, AND WHAT IT USED TO PIN. Until 2026-09-02 comptime `==` was
+// TOTAL: `() == -16` answered FALSE, so the ensure below evaluated, fired, and
+// this case matched its own interpolated "TAIL_IF_UNIT_FOLD: ... folded P[0] to
+// ()" text. Sigil then made equality refuse across comparison classes rather
+// than answer a constant (merge 6a8b3ecd09e80b9e6e1d5751f61d07b3362e7aed,
+// reachable from sigil origin/master; sigil docs/EMP_PITFALLS_EQUALITY.md §12 at
+// that revision is the reference — it covers both operand orders, the two
+// cross-kind comparisons that stay DEFINED, and why the unit lead is phrased as
+// a lead and not a verdict). So the old claim this header made — that `() ==
+// int` compares FALSE rather than erroring, and that a value ensure is
+// therefore the engine's catch surface — is now FALSE in both halves: the
+// compiler refuses first and the ensure below never evaluates at all. The catch
+// surface moved EARLIER and got stronger; this fixture moved with it.
 //
 // Background (triangle-fold parcel, 2026-08-26): `deform_triangle`'s original
 // body ended its `comptime for` element in a block-tail `if`/`else`, which sigil
 // folds to `()` for EVERY input with NO diagnostic (EMP_PITFALLS §1, measured
-// here even though the `if` is not nested). Sigil cannot refuse the fold at the
-// point of production, and the lane's `--extra-entry` contract refuses `data`
-// declarations, so the OTHER catch surface — `pub data X: [i8; 256] = ...`
-// emission dying with 256 x `[emit.type] expected an integer for i8, got unit`
-// (measured against a reachable copy) — cannot be pinned from this directory.
-// What CAN be pinned, and is pinned here, is that `() == int` compares FALSE
-// rather than erroring, so a sample-pinning ensure catches a unit fold loudly.
-// That is exactly the mechanism the module-level TriPin guards in
-// engine/level/parallax_dsl.emp rely on; this poison is their proof-of-catch.
+// here even though the `if` is not nested). tail_if_tri() below is a verbatim
+// copy of that PRE-FIX generator body, so `P` is a real folded-`()` array rather
+// than a hand-written `unit` — this case reaches the refusal by the same road a
+// regression would.
 //
-// tail_if_tri() below is a verbatim copy of the PRE-FIX generator body (the
-// block-tail-if shape). The ensure compares its fold against the SHIPPED
-// generator's, differentially:
-//   - today: P[0] is `()`, F[0] is -16, the ensure fires — 1 diagnostic.
-//   - if sigil ever fixes block-tail-if folding, P[0] becomes -16, this module
-//     builds CLEAN, and the lane fails THIS case — the signal that §1's trap is
-//     gone and this poison (plus the pitfall entry) should be retired, not that
-//     something broke.
+// WHY THIS IS KEPT RATHER THAN RETIRED — the reason it still exists. Cross-type
+// equality can regress in two directions and they are NOT symmetric:
+//   - regressed to comparing FALSE: the deform_triangle guards in
+//     engine/level/parallax_dsl.emp fire with their own messages and the build
+//     goes red anyway. Nothing is lost, and this case goes red too (the fragment
+//     below stops matching), so it costs nothing to keep.
+//   - regressed to comparing TRUE: EVERY one of those guards PASSES and a unit
+//     fold ships silently. A guard that passes produces no artifact, so nothing
+//     else in this tree can report it. THIS CASE IS THE TRIPWIRE ON THAT
+//     DIRECTION, and it catches it on the COUNT (see below), not the fragment.
+// It is deliberately the SECOND line — the primary detector for a sigil
+// regression belongs in sigil's own suite — and its whole value is that it is an
+// INDEPENDENT instrument: different tree, different mechanism, firing during our
+// build.
+//
+// THE COUNT IS HALF THE ASSERTION. The lane row expects exactly 1 [Error]:
+//   - today: `P[0]` is `()`, `F[0]` is -16, the comparison REFUSES — 1 diagnostic.
+//   - if sigil ever fixes block-tail-if folding, `P[0]` becomes -16, the ensure
+//     is int-vs-int, it PASSES, this module builds CLEAN, and the lane fails
+//     THIS case on 0 errors — the signal that §1's trap is gone and this poison
+//     (plus the pitfall entry) should be RETIRED, not that something broke.
+//   - if the refusal regressed to answering FALSE, the ensure fires with the
+//     message below — still 1 [Error], but the fragment no longer matches, so
+//     the lane reports wording drift and sends a reader here.
+// So 1-vs-0 separates "the refusal is working" from "the fold was really fixed",
+// and the fragment separates "refused" from "answered".
 //
 // Zero bytes, ensures-only — unreachable from any real entry like every module
 // in this directory; evaluated only by tools/emp_expect_fail.py.
@@ -46,5 +74,9 @@ comptime fn tail_if_tri(amplitude: int, period: int) -> [i8; 256] {
 const P = tail_if_tri(amplitude: 16, period: 64)
 const F = deform_triangle(amplitude: 16, period: 64)
 
+// This message is expected NEVER TO RENDER: the comparison is `unit == int`, and
+// sigil refuses it before the ensure evaluates. It is written for the one world
+// in which it DOES render — a refusal that regressed to answering false — which
+// is why it describes that world rather than claiming to be the catch surface.
 ensure(P[0] == F[0],
-       "TAIL_IF_UNIT_FOLD: the block-tail-if element folded P[0] to {P[0]} while the shipped generator folds {F[0]} — a value ensure is the engine's catch surface for EMP_PITFALLS section-1 unit folds; if P[0] just became a number, sigil fixed the fold and this poison should be RETIRED, see header")
+       "TAIL_IF_UNIT_FOLD: this text rendering AT ALL means comptime `==` answered instead of refusing — P[0] folded to {P[0]}, the shipped generator folds {F[0]}. Expected today: sigil's [eq.cross-type] refusal fires at the comparison and this ensure never evaluates. If P[0] just became a number, sigil fixed the fold and this poison should be RETIRED, see header")

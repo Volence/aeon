@@ -103,11 +103,21 @@ pub comptime fn deform_triangle(amplitude: int, period: int) -> [i8; 256] {
 // and mid-ramp T[8] = (8*64)/64 - 16 = -8. These module-level ensures execute
 // on EVERY build (parallax_dsl is inside every profile's use closure —
 // reachability proven red-first with a deliberate failing ensure, 2026-08-26),
-// so the fold can never silently regress to `()` again: a unit sample makes
-// every pin below fail loudly.
+// so the fold can never silently regress to `()` again.
+//
+// HOW a unit sample surfaces, since 2026-09-02 (sigil merge 6a8b3ecd): NOT
+// through these messages. Comptime `==` refuses across comparison classes
+// instead of answering, so `() == -16` is a compile error at the comparison and
+// the pins below never evaluate. Sigil's `[eq.cross-type]` refusal carries §1's
+// unit-fold lead itself (see sigil docs/EMP_PITFALLS_EQUALITY.md §12 at that
+// revision), so the diagnosis is not lost — it just arrives from the compiler
+// rather than from the strings here. On a healthy tree every pin is int-vs-int
+// and answers exactly as before. The independent tripwire on the opposite
+// regression — a refusal that starts answering TRUE, which would make all five
+// of these pass silently — is games/sonic4/test/poison/poison_tail_if_unit_fold.emp.
 const TriPin = deform_triangle(amplitude: 16, period: 64)
 ensure(TriPin[0] == -16,
-       "deform_triangle guard: T[0] must be -amplitude (trough), got {TriPin[0]} — a `()` here means the block-tail-if unit fold is back (EMP_PITFALLS §1)")
+       "deform_triangle guard: T[0] must be -amplitude (trough), got {TriPin[0]}")
 ensure(TriPin[16] == 0,
        "deform_triangle guard: T[period/4] must be 0 (rising zero-crossing), got {TriPin[16]}")
 ensure(TriPin[32] == 16,

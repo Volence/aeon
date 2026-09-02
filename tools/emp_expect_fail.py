@@ -473,16 +473,31 @@ CASES: list[tuple[str, str, str, int]] = [
     # one frame short must report 18 (3 x (5+1)) against the reference 24. The fragment
     # quotes the interpolated 18, so a fn that stopped counting frame bytes cannot match.
     (f"{POISON}/poison_ring_sparkle_frames.emp", "ring sparkle frames", "RING_SPARKLE_POISON: a 3-frame script shows 18 display frames", 1),
-    # ---- Triangle-fold parcel (2026-08-26): EMP_PITFALLS §1's unit fold IS catchable ----
-    # A verbatim copy of the pre-fix deform_triangle body (block-tail if in the comptime
-    # for element) folds every sample to `()` with no sigil diagnostic; the case proves
-    # the ONE engine-side catch surface — a value ensure over the folded samples — fires
-    # loudly on it (`() == int` compares false rather than erroring). The fragment quotes
-    # BOTH interpolated values, so the case passes only while the broken shape folds `()`
-    # AND the shipped generator folds a real -16 beside it. If sigil ever fixes block-tail
-    # if folding, this module builds CLEAN and the case fails — the retirement signal, see
-    # the poison's header. Exactly 1: the module holds one ensure.
-    (f"{POISON}/poison_tail_if_unit_fold.emp",   "tri unit fold", "TAIL_IF_UNIT_FOLD: the block-tail-if element folded P[0] to () while the shipped generator folds -16", 1),
+    # ---- Cross-type equality refusal (2026-09-02, re-purposed from "tri unit fold") ----
+    # A verbatim copy of the pre-fix deform_triangle body (block-tail if in the comptime for
+    # element) folds every sample to `()` with no sigil diagnostic (EMP_PITFALLS §1), and the
+    # ensure then compares that `()` against the shipped generator's int. Sigil REFUSES that
+    # comparison instead of answering it (merge 6a8b3ecd, sigil docs/EMP_PITFALLS_EQUALITY.md
+    # §12), so what is pinned here is the refusal, reached by the same road a real regression
+    # would take. Until that merge `() == -16` answered FALSE and this row grepped the
+    # ensure's own interpolated text; that property is gone and the row moved with it.
+    #
+    # WHY THE FRAGMENT IS THIS AND NOT `[eq.cross-type]`. The class tag alone would also be
+    # satisfied by any OTHER cross-type refusal — label-vs-struct, `Angle(10) == Pos(10)` —
+    # and a matcher that collides with a different rule's wording passes for the wrong
+    # reason, which no grep over the code under test can surface. Naming the operator and
+    # BOTH operand kinds in emission order (`==`, unit, int) is reachable only by an
+    # equality between a unit and an int, which is exactly this case's subject.
+    #
+    # THE COUNT IS HALF THE ASSERTION, and it is the retirement signal. Exactly 1: the module
+    # holds one ensure and the refusal is one diagnostic. If sigil ever fixes block-tail-if
+    # folding, P[0] becomes -16, the ensure is int-vs-int and PASSES, the module builds CLEAN,
+    # and this row fails on 0 — §1's trap is gone and the poison should be RETIRED (see its
+    # header), not debugged. If instead the refusal regressed to ANSWERING, the row fails on
+    # the fragment: false -> the ensure's own message (1 error, wrong text), true -> clean
+    # build (0 errors). That last direction is the one nothing else in this tree can see —
+    # the parallax_dsl TriPin guards would all silently pass — which is why this case is kept.
+    (f"{POISON}/poison_tail_if_unit_fold.emp",   "eq.cross-type unit vs int", "[eq.cross-type] `==` not defined for unit and int", 1),
     # One case: script_display_frames() (games/sonic4/player/player_instashield.emp) fed a
     # 3-frame script that ends in S3K's own two-byte `$FD, 0` terminator — the shape whose
     # ARGUMENT is a legal frame index. The fragment quotes the folded 3, so a walker that
