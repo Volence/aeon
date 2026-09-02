@@ -290,12 +290,22 @@ const OBJREQ_ERR_FULL    = 3    // spawn: the dynamic pool is exhausted — NOTH
 const OBJREQ_ERR_SLOT    = 4    // move/delete: Obj_Req_Slot is not a live dynamic slot
 const OBJREQ_ERR_OWNED   = 5    // delete: that slot belongs to the entity window
 
-// The cart address window ($000000-$3FFFFF). Used as the spawn archetype
-// pointer's upper rail. NOT `extern("EndOfRom")`, deliberately: EndOfRom is a
-// link-time value and this is a HARDWARE bound, so it stays a plain immediate
-// that says what it means and costs the parcel no new cross-seam reference. The
-// difference matters only for a pointer that is inside the cart window but past
-// the ROM, which the code_addr rail below still has to catch anyway.
+// The cart address window ($000000-$3FFFFF). The spawn archetype pointer's upper
+// rail, and it is deliberately the HARDWARE bound rather than the ROM's own end:
+// this rail's job is "a `movea.l` here cannot walk off the addressable cart", which
+// is a fact about the machine, not about how big today's build happens to be.
+//
+// SAY THE COST OUT LOUD RATHER THAN IMPLY IT AWAY: `extern("EndOfRom")` would be a
+// STRICTLY TIGHTER rail for the same 6 bytes (measured $A801C in s4.debug.lst
+// against this $400000), and games/sonic4/config/header.emp already resolves that
+// symbol, so it is available here. It is not taken because the looser rail is the
+// one that stays true when the ROM grows, and because the pointer this rail cannot
+// reject — inside the cart window, past EndOfRom, reading open bus — is rejected by
+// the code_addr rail below anyway in every case a garbage pointer produces a zero
+// head word. What it does NOT do is make this parcel cross-seam-free: seven engine
+// names are new to this module (Load_Object, DeleteObject, Dynamic_Live,
+// Dynamic_Live_Count, TagRef, Sst.slot_tag, Sst.code_addr). One more would not have
+// been the deciding cost, and reading this comment as if it were is the mistake.
 const CART_WINDOW_END    = $400000
 
 // The placement-word mask the engine applies to Obj_Req_Place: OEF flips in bits
