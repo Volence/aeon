@@ -1718,6 +1718,31 @@ object's own decoded x).
 **What is left for the card: the mailbox itself** — spawn type X at world (x,y), move slot N,
 delete slot N — consumed at a frame boundary on the warp-mailbox pattern, plus its costing.
 
+**✅ THE ENGINE HALF IS BUILT — `parcel/live-objects-spawn`, 2026-09-02.** The owner moved the
+row off the back burner and it landed as the third external mailbox, on the warp pattern:
+eight `Obj_Req_*` cells in the `if DEBUG == 1 @shape_divergent` game-RAM tail
+(`s4.debug.lst`: `$FFFFE610`–`$FFFFE61E`, 16 B) and a 228-byte frame-top consumer spliced
+into `GameState_OJZScroll_Update` after `Debug_Warp_Consume`. **The published interface is
+`docs/ENGINE_ARCHITECTURE.md` §4.12c** — field list, widths, order, op and status codes —
+and `tools/test_object_mailbox_contract.py` holds that table against the RAM and the
+consumer in both directions. Every answer above was honoured rather than re-litigated:
+refuse at a full pool (`AllocDynamic`'s own refusal, verbatim, nothing evicted), no
+`typeId` map (the client passes the `ObjDef` ROM address it resolved from deb2), no engine
+hit-test (the client passes the SST-address slot handle it already computes), and no
+survival machinery of any kind.
+
+**What is STILL open on this row:** the client half (oracle's picker + spawn mode), and the
+runtime confirmation of the consumer — no emulator was available to the lane that built it,
+so the mailbox has been read statically (the 228 emitted bytes were hand-decoded against
+the listing) and never executed.
+
+**FACT 2 ABOVE APPLIES TO THESE CELLS TOO, and more sharply.** `Camera_X`'s hazard is that
+it resolves in both shapes at different addresses. `Obj_Req_*` does not exist in the release
+shape at all, so a consumer that resolves by symbol gets a clean failure rather than a
+plausible wrong number — which is the better failure, and another reason not to hard-code
+`$FFFFE610`: it is a fact about one tree, and anything landing ahead of it in that
+`@shape_divergent` group moves it.
+
 **TWO FACTS FROM THIS LANE THAT THE CARD MUST CARRY, both measured here:**
 1. **`Sprite_Owner` is ABSENT from the release build entirely** (0 occurrences in `s4.lst`;
    `$FFFFE1EE` in `s4.debug.lst`). That is the absence detector oracle asked for — **provided a

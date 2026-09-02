@@ -3155,6 +3155,66 @@ The §4.12a feet-planted-lift hazard cannot arise on this path either: there is 
 
 ---
 
+#### 4.12c The live-object mailbox — external spawn / move / delete (DEBUG shapes)
+
+The third external mailbox, and the same shape as the two above on purpose: a tool writes a request into RAM, the level state's frame-top consumer applies it **inside the frame boundary**, and the cleared flag is the ack. Where the warp answers "put the *player* there", this one answers "put an *object* there, move it, take it away" — the engine half of an editor's live object placement.
+
+**The protocol.** Eight cells, DEBUG shapes only, at the tail of `games/sonic4/config/ram.emp` (measured `s4.debug.lst`: `$FFFFE610`–`$FFFFE61E`, 16 bytes with the even-alignment pad; release carries none of it).
+
+| symbol | width | direction | meaning |
+|---|---|---|---|
+| `Obj_Req_Def` | `u32` | client → engine | **SPAWN only.** Absolute ROM address of an `ObjDef` archetype record — e.g. the deb2 value of `ObjDef_Solid`. Ignored by MOVE/DELETE. |
+| `Obj_Req_X` | `u16` | client → engine | **SPAWN/MOVE.** World X in flat world **pixels** — the same convention as `Warp_Req_X`. Ignored by DELETE. |
+| `Obj_Req_Y` | `u16` | client → engine | **SPAWN/MOVE.** World Y, same convention. |
+| `Obj_Req_Slot` | `u16` | **both** | **MOVE/DELETE (in):** the target slot handle = the low 16 bits of its SST address, i.e. exactly what `Dynamic_Live` stores and what oracle's `emulator/object_list` reports. **SPAWN (out):** the engine publishes the new slot's handle here before clearing the flag. |
+| `Obj_Req_Place` | `u16` | client → engine | **SPAWN only.** `Load_Object`'s placement word: OEF flips in bits 13/14, subtype in the low byte. The engine masks it to `$60FF`, so no other bit can mean anything. |
+| `Obj_Req_Op` | `u8` | client → engine | `1` = SPAWN, `2` = MOVE, `3` = DELETE. Anything else is refused with status `1`. **Not cleared by the ack** — it stays readable so a watchpoint can see what the last request was. |
+| `Obj_Req_Status` | `u8` | engine → client | The result, valid when the flag reads `0`. See the table below. |
+| `Obj_Req_Flag` | `u8` | **both** | `0` = idle/consumed (the ack); nonzero = request pending. |
+
+| status | name | meaning |
+|---|---|---|
+| `0` | OK | applied. On SPAWN, `Obj_Req_Slot` holds the new handle. |
+| `1` | BAD OP | `Obj_Req_Op` was not 1/2/3. |
+| `2` | BAD DEF | SPAWN: `Obj_Req_Def` failed the archetype rails (zero, odd, outside the cart window, or a zero `ObjDef.code_addr`). |
+| `3` | POOL FULL | SPAWN: the dynamic pool is exhausted. **Nothing was evicted, moved or reclaimed.** |
+| `4` | BAD SLOT | MOVE/DELETE: `Obj_Req_Slot` is not a live dynamic slot. |
+| `5` | OWNED | DELETE: the slot belongs to the entity window (see below). |
+
+- **The client writes the payload, then `Obj_Req_Flag` LAST** — the same ordering-is-the-concurrency-control the warp uses. The consumer only reads the payload on a frame where the flag is already nonzero, so a write interrupted part-way is read on a later frame, never half-applied.
+- **The cleared flag is the ack, and it is not a success signal.** It says the engine *looked* at the request. `Obj_Req_Status` is written on every path *before* the flag clears, so it is valid exactly when the flag reads 0. A client that polls only the flag learns nothing about whether anything happened; the five refusals are otherwise silent, on purpose (a refused request must never fall back to guessing).
+- **One request per frame, by construction.** The consumer applies at most one and clears the flag; ten objects is ten request/ack round trips. That is what makes it lock-free with a single flag.
+- **Cost is one frame**, not the warp's ~21: nothing is re-seeded.
+- **The consumer only exists in the level state's update.** In any other game state the flag stays set and is never acked — exactly as the warp mailbox behaves, and for the same reason (§4.12a's *Placement*: the consumer lives in the game state, not `engine/system/game_loop.emp`). **A client must poll with a timeout**, and must not read an un-acked flag as a hung engine.
+- **It works while the game is PAUSED**, and that is useful rather than incidental. The frame top runs before `RunObjects`, whose `Game_Paused` test is what routes to the render-only pass — so a request is consumed on a paused frame and a spawned object first *ticks* when play resumes. A placement tool can pause, place, look, and unpause.
+
+**Free-slot policy: refuse, and the allocator is the engine's own.** A spawn goes through `Load_Object` → `AllocDynamic` and takes its refusal verbatim. `AllocDynamic` pops the dynamic free stack, which by construction never holds a slot that is in use, so **a debug spawn cannot land on a live gameplay object** — the property this interface most needed is one the engine already had, and the mailbox adds no allocator of its own. At exhaustion the request is refused with status `3`. What was rejected, and why:
+
+- **Evict the oldest / farthest live object.** This is precisely the failure the interface exists not to have: a debug spawn silently kills a gameplay object and the engine looks buggy an hour later, with nothing in the ROM to point at. It also fights the entity window, which would re-spawn the evicted entity from level data on the next scan — visible thrash on top of a silent kill.
+- **Scan the pool for the first free slot.** A second allocator over one pool. The scanned slot is still on the free stack, so the next `AllocDynamic` hands the same slot to gameplay code — the classic double-alloc. The free stack is the single source of truth and stays that way.
+- **Reserve a debug slot range.** It costs every DEBUG playtest those slots, so debug play no longer measures the shipping pool; `DeleteObject`'s pool detection is address-range based, so a carved range *inside* `Dynamic_Slots` would push back onto the wrong stack and need a second free stack and a second delete path — exactly the bookkeeping this design is not allowed to add. And it does not solve exhaustion; it moves which pool runs out.
+- **Suppress culling / despawn for debug-spawned objects.** Out of scope by ruling: a spawned object is an ordinary slot and dies like any other.
+
+**Slot handles are validated by searching `Dynamic_Live`.** The handle is the low word of an SST address; checking it arithmetically needs `Dynamic_Slots + k·sizeof(Sst)` and `sizeof(Sst)` is `$50`, not a power of two — a divide. The search costs at most `NUM_DYNAMIC` word compares on a cold path and proves *more*: slot alignment, pool membership and spawn-order liveness in one pass, against the engine's **own** occupancy list rather than a restatement of it. `Dynamic_Live_Pending` is deliberately not searched — `RunObjects` drains it at every frame end where it is non-empty, so it is empty at the frame top where this runs. The zero check before the search is not redundant with it: `DeleteObject` *zeroes* a deleted slot's live entry and compaction is deferred to the frame end, so a stale zero is a legitimate list member and a client handle of `0` would match it.
+
+**The DYNAMIC POOL IS THE WHOLE REACH, and that falls out of the same search.** Player, System and Effect slots are never in `Dynamic_Live`, so MOVE and DELETE against one of their handles is refused with status `4` — the mailbox structurally cannot touch a player, a system slot or an effect. A picker that lists *every* object (oracle's `emulator/object_list` does) will therefore get `4` when the user clicks the player, and that is the right answer rather than a gap: moving the player is the **warp mailbox's** job (§4.12a), which already does it coherently with the camera and the streaming state. Effects (dust puffs, ring sparkles) are self-deleting and short-lived; there is nothing to place.
+
+**The one asymmetry: DELETE refuses entity-window-owned slots (status `5`); MOVE does not.** A window-spawned entity carries a `slot_tag` other than `TagRef.none`, and the window's own despawn path (`EntityWindow_Y_Despawn`, `engine/objects/entity_window.emp`) clears the entity's **loaded bit** via `EntityLoaded_Clear` *before* it calls `DeleteObject`. A bare `DeleteObject` from here would skip that clear, leaving the window believing the entity is still spawned — so it would never re-spawn while its section stays tracked. That is the silent-inconsistency class this interface must not manufacture, so the request is refused instead. MOVE touches no bookkeeping and is allowed on any live dynamic slot. Debug spawns, children and effects are all untagged (`AllocDynamic` stamps `TagRef.none`) and delete freely.
+
+**What a spawned object is, and is not.** It is an ordinary dynamic slot: dispatched by `RunObjects` in spawn order, culled by camera distance like every other dynamic object, deleted by its own code or by `DeleteObject`, and taken with everything else by `InitObjectRAM` at a level re-init or reset. `DeleteObject` cascades its child chain, so a debug-spawned parent takes its children with it. There is **no registry, no lifetime tracking, no reserved range and no persistence** — none of it, deliberately. Being untagged is what keeps the entity window's Y-despawn band from harvesting it, and that is the same treatment children and effects already get, not a special case built for this.
+
+**Placement is verbatim, and there is no clamp.** MOVE writes `Obj_Req_X`/`Y` into `Sst.x_pos`/`y_pos` with the fraction cleared and touches nothing else — velocity, status, angle and animation are left alone, so a moved object keeps doing what it was doing from its new place. (That is the opposite of the warp's leader placement, which zeroes the whole carried-motion row; a placement tool nudging a badnik must not also silently reset it.) The warp clamps because an out-of-act *player* reaches `SEC_VOID`; an out-of-act *object* is simply culled by `RunObjects`' camera-distance test and does nothing, so there is nothing to defend against.
+
+**What the archetype pointer is validated for, and what it is not.** Four rails: nonzero, **even** (`Load_Object` burst-copies the template with `move.l (a2)+`, which address-errors on an odd source), inside the cart window (`< $400000`), and a nonzero `ObjDef.code_addr` (`objroutine(0)` resolves to `ObjCodeBase`'s bare `rts` — a slot that dispatches into nothing). What stays **unvalidated** is whether the bytes at a plausible pointer are actually an `ObjDef`; nothing in the format is self-describing. The damage is bounded structurally rather than by a rail: `RunObjects` dispatches `OBJ_CODE_BANK<<16 | word`, so *any* `code_addr` value, garbage included, lands inside the 64 KB object bank and cannot reach wild memory.
+
+**The stale-handle hazard, which is the client's to avoid.** A handle is an address, so a slot deleted and re-allocated between the client listing objects and issuing the request would resolve to the *new* occupant. The consumer cannot tell the two apart and does not try. The rule: list and request from the **same paused frame**, which a tool driving a paused emulator satisfies trivially.
+
+**Where it hooks.** `objreq_consume()`, a comptime `Code` template in `games/sonic4/test/ojz_scroll_test.emp`, spliced inline into `GameState_OJZScroll_Update`'s frame top **after** `Debug_Warp_Consume`. That order is load-bearing: a warp pending on the same frame lands first, so a spawn issued with it takes effect at the destination rather than at the origin the warp is about to abandon. It also sits before `RunObjects` (a spawn dispatches the same frame unless `AllocDynamic` latched it at a full live list — ordinary saturated-frame behaviour, not something this alters) and before the camera follow.
+
+**Shape rules — and why this is a template rather than a proc.** Same constraint §4.12b records: a `proc` whose body is wholly inside `if DEBUG == 1 {}` emits zero release bytes but still declares a release **label**, which reaches convsym's deb2 appendix and moves every release CRC. A template declares no symbol at all, so the zero-release-change property is structural rather than a label-parking trick the next edit can break. The op and status codes are likewise module-local `const`s rather than `pub const`s in `games/sonic4/config/constants.emp` — every `pub const` there is re-exported as a link `EquSym`, which reaches the appendix in *every* shape. This table is their published home; `tools/test_object_mailbox_contract.py` holds it against both source files in both directions.
+
+---
+
 ## 5. Player / Character System
 
 Three playable characters (Sonic, Tails, Knuckles) with shared physics via `games/sonic4/player/player_common.emp`, per-character abilities, and a unified shield system. The key innovations: per-section terrain physics (novel — generalizes underwater physics to any terrain type), configurable physics tables that separate character identity from terrain modifiers, and preserving Sonic's classic flat-acceleration feel while enabling per-character tuning.
