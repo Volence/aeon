@@ -519,6 +519,17 @@ class TestRendering(SceneShapeBase):
         self.assertIn("left_column_mask: SceneLeftColMask.SpriteMask", out)
         self.assertNotIn("transition: instant", out)
 
+    def test_decline_borrow_is_a_legal_left_column_mask(self):
+        """d-50 (2026-09-02) added the arm that turns the column-19 borrow off on one
+        scene. It is the only left_column_mask value that MOVES BYTES (it ORs $80 into
+        pcfg_v_deform_shift_bg), so a generator that silently refused it would look like
+        an editor bug rather than a missing map entry. The editor cannot write it yet;
+        this is the map entry the day it can."""
+        out = self.render(left_column_mask="decline_borrow",
+                          layers=[{"world_y": 0, "fa": "FACTOR_1", "fb": "FACTOR_1"}])
+        self.assertIn("left_column_mask: SceneLeftColMask.DeclineBorrow", out)
+        self.assertNotIn("left_column_mask: decline_borrow", out)
+
     def test_an_illegal_enum_value_is_refused_and_lists_the_legal_ones(self):
         path = self.write("ojz_bg", _scene(transition="snap"))
         scene = effects_gen.load_scene(path)

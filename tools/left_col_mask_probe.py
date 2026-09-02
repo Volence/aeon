@@ -2,12 +2,20 @@
 """left_col_mask_probe — verify the left-column policy declarations against the ROM.
 
 P3 Task 12 (design §2): every per-column-VSRAM scene must declare
-`left_column_mask: sprite_mask | factor0_lock | accept`. The comptime guards enforce the
+`left_column_mask: sprite_mask | factor0_lock | accept | decline_borrow`. The comptime
+guards enforce the
 declaration; THIS probe verifies the declarations' REASONING against the shipped
 artifact, and carries the (pending) runtime mask-engagement check for the day the
 SpriteMask engine emission lands.
 
 TWO ARMS, VERY DIFFERENT STANDINGS:
+
+SINCE d-50 (2026-09-02) THE FAMILY HAS A BEHAVIOURAL ARM, and this probe does not cover it.
+`decline_borrow` sets bit 7 of `pcfg_v_deform_shift_bg` and makes Parallax_Step5_Vscroll skip
+the column-19 store; the two Perspective records at registry 13 and 14 carry it. The --claims
+arm below reads the per-column table pointer, the BG H-table and the band factors, none of
+which that bit touches, so its Perspective conclusions are unchanged and still true. What
+verifies the bit is tools/fg_left_edge_gate.py, which drives the machine.
 
   --claims   STATIC — parses the .lst symbol table and reads the ROM bytes. No emulator,
              no oracle bus, runnable anywhere. Verifies:

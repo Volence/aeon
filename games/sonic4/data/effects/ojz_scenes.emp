@@ -390,31 +390,100 @@ pub const Scene_Rocking_Fast: Scene = rocking_scene(speed: 3, shift: 0)   // con
 // between the right edge and, on the shimmer rows where plane-B HScroll leaves the grain,
 // plane B's own leading sliver. Factor0Lock is out of reach twice over — while the floor
 // shimmers, and while the foreground scrolls — by design.
+//
+// AND ON TWO OF THE THREE THAT PRICE IS NOW DECLINED (d-50, 2026-09-02). This is the family
+// whose price the owner actually saw. Plane B is locked (v_factor 15) with
+// DeformTable_Shimmer live on the hills and ground rows, so the 16 px the borrow costs
+// plane B is not a static seam but a strip drawn from 154-395 px away and re-cut 5-12 times
+// a frame — "animating differently and super fast". He ruled the borrow per scene and
+// turned it off on the two he was looking at: registry indices 13 (Subtle) and 14
+// (Perspective), which is what `left_col: LCM_DECLINE_BORROW` says below.
+//
+// DRAMATIC IS DELIBERATELY LEFT ON, and that is a decision rather than an oversight: the
+// ruling names 13 and 14 and nothing else, and the point of a per-scene switch is that the
+// answer is per scene. It is also the cheapest A/B this family will ever offer — three
+// instances of one constructor, two declining and one not — if the look needs revisiting.
+// One word changes it.
+//
+// WHAT DECLINING BUYS AND COSTS HERE, so it is not re-derived from the engine banner: plane
+// B's leading and trailing 16 px go back to plane B's own V-scroll (correct, and no longer
+// re-cut every frame), and plane A's leading `hscroll & 15` sliver goes back to rendering
+// the AND of camY with plane B's word — the pre-d-40 foreground strip, on a family whose
+// every layer is `fa: FACTOR_1`. Both edges cannot be right at once: the hardware ANDs one
+// pair of words and hands the result to both planes.
 // =====================================================================
+// THE FIVE LAYERS ARE FACTORED OUT so the two constructors below cannot drift apart on the
+// half of the scene that is NOT the policy. Sharing them is the whole reason this helper
+// exists — the alternative was one constructor taking the policy as a parameter, and that
+// is refused by the assembler (see the note on the pair below).
+pub comptime fn perspective_layers() -> [SceneLayer; 16] {
+    return [ layer(world_y: 0,   fa: FACTOR_1, fb: FACTOR_0, dsa: 4, dsb: 15),
+             layer(world_y: 32,  fa: FACTOR_1, fb: FACTOR_0, dsa: 4, dsb: 15),
+             layer(world_y: 80,  fa: FACTOR_1, fb: FACTOR_0, dsa: 4, dsb: 15),
+             layer(world_y: 112, fa: FACTOR_1, fb: FACTOR_0, dsa: 4, dsb: 4),
+             layer(world_y: 160, fa: FACTOR_1, fb: FACTOR_0, dsa: 4, dsb: 2),
+             no_layer(), no_layer(), no_layer(),
+             no_layer(),
+             no_layer(),
+             no_layer(),
+             no_layer(),
+             no_layer(),
+             no_layer(),
+             no_layer(),
+             no_layer() ]
+}
+
+// TWO CONSTRUCTORS, ONE PER POLICY, AND THE POLICY IS SPELLED IN THE `scene()` CALL. The
+// obvious shape — one constructor taking `left_col: SceneLeftColMask` — was built first and
+// REFUSED BY SIGIL: a `Type.Variant` path written as an argument to a parameter whose enum
+// type was imported from another module resolves as a LABEL, and the build fails with "a
+// label is not a valid SceneLeftColMask argument — only a Label parameter accepts a label".
+// The same path is fine as an argument to `scene()` or `scene_lcm_is_decline_borrow()`,
+// which are declared in the enum's own module, and a named `use ...{SceneLeftColMask}` on
+// top of the glob does not help (tried, still red). Binding each arm to a const first DOES
+// work and was the first fix here; it was BACKED OUT for a reason worth stating, because
+// the workaround was cheaper than what it cost:
+//
+//   `tools/effects_budget_check.py`'s axis-5 census counts declaration sites by matching
+//   `left_column_mask: SceneLeftColMask.<Variant>` in the authored scene modules. Route the
+//   policy through a parameter and this family's declaration disappears from that census —
+//   the SpriteMask-adopter count stops seeing a whole per-column family. A drift lane that
+//   silently stops looking at a scene is worse than a duplicated `scene()` tail.
+//
+// So the duplication is bought deliberately: five lines twice, with the LAYERS shared above
+// so the part that could drift meaningfully cannot. The part that is duplicated is pinned
+// anyway — games/sonic4/test/scene_equiv_proof.emp carries an independent field-by-field
+// oracle for all THREE Perspective records, so a divergence between these two bodies fails
+// the build with the differing field named.
+
+// PERSPECTIVE, BORROW KEPT — the pre-d-50 behaviour and the family's original constructor.
 pub comptime fn perspective_scene(v_shift: int, h_speed: int, v_speed: int) -> Scene {
     return scene(
-        layers: [ layer(world_y: 0,   fa: FACTOR_1, fb: FACTOR_0, dsa: 4, dsb: 15),
-                  layer(world_y: 32,  fa: FACTOR_1, fb: FACTOR_0, dsa: 4, dsb: 15),
-                  layer(world_y: 80,  fa: FACTOR_1, fb: FACTOR_0, dsa: 4, dsb: 15),
-                  layer(world_y: 112, fa: FACTOR_1, fb: FACTOR_0, dsa: 4, dsb: 4),
-                  layer(world_y: 160, fa: FACTOR_1, fb: FACTOR_0, dsa: 4, dsb: 2),
-                  no_layer(), no_layer(), no_layer(),
-                  no_layer(),
-                  no_layer(),
-                  no_layer(),
-                  no_layer(),
-                  no_layer(),
-                  no_layer(),
-                  no_layer(),
-                  no_layer() ],
+        layers: perspective_layers(),
         count: 5, v_factor: 15, v_center: 0, v_offset: 0,
         deform_bg: SceneDeform.Shared(DeformTable_Shimmer, h_speed),
         v_deform: SceneVDeform.Columns(DeformTable_Perspective, v_speed, v_shift),
         left_column_mask: SceneLeftColMask.Accept)
 }
-pub const Scene_Perspective_Subtle:   Scene = perspective_scene(v_shift: 2, h_speed: 1, v_speed: 0)  // :244
-pub const Scene_Perspective:          Scene = perspective_scene(v_shift: 0, h_speed: 2, v_speed: 1)  // :245
-pub const Scene_Perspective_Dramatic: Scene = perspective_scene(v_shift: 0, h_speed: 3, v_speed: 2)  // :246
+
+// PERSPECTIVE, BORROW DECLINED — d-50, and the only difference from the constructor above
+// is the last argument. Plane B keeps both its edges; plane A's leading sliver goes back to
+// the pre-d-40 artifact. See the family banner for why that is the better trade here.
+pub comptime fn perspective_scene_declined(v_shift: int, h_speed: int, v_speed: int) -> Scene {
+    return scene(
+        layers: perspective_layers(),
+        count: 5, v_factor: 15, v_center: 0, v_offset: 0,
+        deform_bg: SceneDeform.Shared(DeformTable_Shimmer, h_speed),
+        v_deform: SceneVDeform.Columns(DeformTable_Perspective, v_speed, v_shift),
+        left_column_mask: SceneLeftColMask.DeclineBorrow)
+}
+
+// THE POLICY IS PER INSTANCE, NOT PER FAMILY. The ruling names two scenes, not the family
+// (d-50: "the shimmer scenes he saw (13 and 14)"), so Dramatic keeps the borrow and each
+// call site below names the constructor that carries its own answer.
+pub const Scene_Perspective_Subtle:   Scene = perspective_scene_declined(v_shift: 2, h_speed: 1, v_speed: 0)  // :244  registry 13
+pub const Scene_Perspective:          Scene = perspective_scene_declined(v_shift: 0, h_speed: 2, v_speed: 1)  // :245  registry 14
+pub const Scene_Perspective_Dramatic: Scene = perspective_scene(v_shift: 0, h_speed: 3, v_speed: 2)           // :246  registry 15
 
 // =====================================================================
 // WindyHaze — configs.emp:253-262. Composite: a windy multi-band BG gradient (clouds get
