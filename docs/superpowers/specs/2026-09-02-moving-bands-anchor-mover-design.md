@@ -513,6 +513,15 @@ existing loop (§1.1) and item 7's bob (§2.3). `a` and `p` are the sweep nibble
 Worst realistic case (**+908**) is **1.5% of today's headroom** and **0.7% of the frame pool**.
 The shipped-today case (+12) is **0.01%**.
 
+**Two addressing-mode assumptions the cost rests on, checked rather than inherited** (item 7's
+source flags the first as rot-prone in its own words — *"it costs 4 more cycles and 2 more bytes
+the day ROM growth pushes it past"*):
+
+- `Sine_Table` is at **`$2AF0`** (`s4.debug.lst:2956`), so `lea Sine_Table,aN` still lowers to
+  **absolute short = 8 cycles**, not 12. Headroom to `$8000` is `$5510` = 21,776 bytes.
+- `Logic_Tick` is at **`$FFFF8004`** (`s4.debug.lst:5181`), so `move.w Logic_Tick+2,dN` is
+  absolute short = **12 cycles**.
+
 **ROM:** ~150-190 bytes of code (SWEEP ~13 instructions, APPROACH ~15, setup ~5, all word-sized),
 plus **+28 B** of preset records (§6), plus **+16 B** for `Effects_SetTargetY`. Call it
 **+200 to +240 bytes** in the shapes that declare the bit, **0** in `demo` (`SCANLINE_CAPS = 0`).
