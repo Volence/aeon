@@ -1415,16 +1415,50 @@ class TestPresetShape(PresetShapeBase):
         self.assertIn("tint", msg)
 
     def test_the_reserved_wave2_keys_are_refused_BY_NAME_not_as_unknown(self):
-        """`fires` / `variants` / `cycles` are names empyrean's schema doc §7 already
-        reserves. An author who spells one has not made a typo — they have reached for a
-        channel this generator did not build — so the refusal must say that rather than
-        sending them to file a contract change for a field the contract already has."""
-        for key in ("fires", "variants", "cycles"):
+        """`fires` is a name empyrean's schema doc §7 already reserves. An author who
+        spells one has not made a typo — they have reached for a channel this generator
+        did not build — so the refusal must say that rather than sending them to file a
+        contract change for a field the contract already has.
+
+        INVERTED FOR `variants` AND `cycles`, 2026-09-02 (EFFECTS-W1 item 5), and the
+        inversion is what its author intended. This test used to loop over all three
+        reserved names; it went red the moment the generator ACCEPTED two of them, which
+        is exactly the signal that says "the reserved-key list moved, come and re-read
+        me". The re-read: `fires` is still reserved on both sides (empyrean's schema's own
+        reserved-and-refused line is down to it alone), and the two that left are now
+        covered by TestCyclesShape / TestVariantsShape below. The list is DERIVED from
+        `effects_gen.PRESET_REFUSED_KEYS` rather than typed, so the next name to leave
+        cannot leave this loop asserting about a key nobody refuses.
+        """
+        self.assertEqual(
+            sorted(effects_gen.PRESET_REFUSED_KEYS), ["fires"],
+            "the by-name refusal set changed. Every name in it must be one empyrean's "
+            "schema doc §7 still reserves AND this generator still does not implement; "
+            "a name that is now built belongs in PRESET_KEYS with shape checks, not "
+            "here.")
+        for key in sorted(effects_gen.PRESET_REFUSED_KEYS):
             with self.subTest(key=key):
                 msg = self.refuse("ojz_ground_wash", _preset(**{key: []}))
                 self.assertIn(key, msg)
                 self.assertIn("reserved", msg)
                 self.assertIn("§7", msg)
+
+    def test_the_two_wave2_keys_item_5_BUILT_are_no_longer_refused(self):
+        """The other half of the inversion, stated positively so it cannot pass vacuously.
+
+        A document carrying `cycles` and `variants` LOADS. If this goes red the keys have
+        been refused again and item 5 has been undone; if the test above goes red they
+        have been accepted without shape checks.
+        """
+        path = self.write("ojz_ground_wash", _preset(
+            cycles=[{"line": 2, "first": 8, "count": 4, "period": 9}],
+            variants=[{"shift_r": 1, "shift_g": 1}, None]))
+        loaded = effects_gen.load_preset(path)
+        self.assertEqual(len(loaded["cycles"]), 1)
+        self.assertEqual(loaded["variants"][1], None)
+        for key in ("cycles", "variants"):
+            self.assertIn(key, effects_gen.PRESET_KEYS)
+            self.assertNotIn(key, effects_gen.PRESET_REFUSED_KEYS)
 
     def test_name_is_accepted_and_ignored(self):
         path = self.write("ojz_ground_wash", _preset(name="Ground wash"))
@@ -1844,12 +1878,16 @@ class RasterRefBase(AssignmentBase):
             self.refs())
 
     def arm_footprint(self, text):
-        """Every character this arm contributes to the module: banner + chooser.
+        """Every character the CHANNEL BINDING arms contribute: banners + choosers.
 
         Separate from `chooser()` because the two tests want different subjects — one
-        asserts the chooser's body EXACTLY, the other asserts that cutting the whole
-        arm out leaves no trace of it. A banner is part of a footprint and not part of
-        a body, and conflating them is how the "nothing else" claim would go soft.
+        asserts the raster chooser's body EXACTLY, the other asserts that cutting the
+        whole arm out leaves no trace of it. A banner is part of a footprint and not part
+        of a body, and conflating them is how the "nothing else" claim would go soft.
+
+        It runs from the raster binding banner to the END OF THE MODULE, because the
+        cycle and variant choosers (item 5) sit after the raster one and are the same
+        arm one channel over — one `rasterRef` binds all three (ruling Q1).
         """
         head = effects_gen.RASTER_BINDING_BANNER.splitlines()[0]
         start = text.find(head)
@@ -1857,7 +1895,7 @@ class RasterRefBase(AssignmentBase):
             self.fail(f"the generated module carries no {head!r} — the raster "
                       "binding's banner is missing, so this test cannot locate the "
                       "arm it is meant to cut out.")
-        return text[start:text.index(self.chooser(text)) + len(self.chooser(text))]
+        return text[start:]
 
     def chooser(self, text):
         """The whole `sec_raster` function block, or a loud failure.
@@ -2008,22 +2046,613 @@ class TestRasterArmIsINERT(RasterRefBase):
     def test_the_arms_ONLY_footprint_is_the_chooser_and_its_witness(self):
         """"and no other text change" (design §3.4), stated as a measurement.
 
-        Cut the two blocks this arm contributes out of the rendered module and NOTHING
-        the arm introduced may remain. If a future edit slips a banner, a header count
-        or a blank line into the general path, it survives the cut and this goes red.
+        Cut the blocks this arm contributes out of the rendered module and NOTHING the arm
+        introduced may remain. If a future edit slips a banner, a header count or a blank
+        line into the general path, it survives the cut and this goes red.
+
+        WIDENED 2026-09-02 (EFFECTS-W1 item 5), and the widening is a real finding rather
+        than an accommodation. `arm_footprint` used to end at the raster chooser's closing
+        brace, which was the end of the module. It no longer is: the cycle and variant
+        choosers follow it, and their banner spells `rasterRef` — because ruling Q1 makes
+        ONE sidecar key bind the WHOLE preset document, every channel it carries. So the
+        sidecar key legitimately has a footprint in a block that is not the raster arm's,
+        and the honest fix is to cut all three channel blocks rather than to stop naming
+        the key where it belongs. The claim this test makes is unchanged: outside the
+        binding blocks, the module knows nothing about any of it.
         """
         self.write_preset("ojz_ground_wash")
         names = effects_gen.act_names(self.repo)
         text = self.render()
         rest = text.replace(self.arm_footprint(text), "")
-        rest = rest.replace(
-            f"pub equ {names.equ_raster_bindings} = 0\n", "")
-        for token in (names.fn_sec_raster, names.equ_raster_bindings, RASTER_KEY):
+        for equ in (names.equ_raster_bindings, names.equ_cycle_bindings,
+                    names.equ_variant_bindings):
+            rest = rest.replace(f"pub equ {equ} = 0\n", "")
+        for token in (names.fn_sec_raster, names.fn_sec_cycle, names.fn_sec_variant,
+                      names.equ_raster_bindings, names.equ_cycle_bindings,
+                      names.equ_variant_bindings, RASTER_KEY):
             self.assertNotIn(
                 token, rest,
-                f"{token!r} survives the removal of the raster chooser and its "
-                "witness — the arm has a third footprint in the generated module and "
-                "the zero-byte claim is no longer the two blocks it says it is.")
+                f"{token!r} survives the removal of the three channel choosers and "
+                "their witnesses — the arm has a further footprint in the generated "
+                "module and the zero-byte claim is no longer the blocks it says it is.")
+
+
+# =============================================================================
+# PALETTE CYCLES AND VARIANTS — the item-5 arm (contract §2.4).
+# =============================================================================
+#
+# THE VACUITY THIS BLOCK AVOIDS, and it is a different one from the raster block's. A
+# document carrying these keys DOES ship now (`ojz_sec3_shimmer.json`), so a test written
+# over the real tree could pass by accident. Every SHAPE test below therefore authors its
+# own fixture, and the two tests that DO read the real tree
+# (`TestTheEngineMirrorsArePinned`, `TestTheWorkedDocumentMatchesTheHandTwins`) are the
+# ones whose whole subject is the real tree, and they fail loudly when they cannot find it.
+
+def _channel(**over):
+    """One cycle channel that PASSES, so each test perturbs exactly one thing.
+
+    THE NUMBERS ARE `OJZ_ShimmerCycle`'s, with the unit translation applied: the hand
+    script carries the engine byte `period: 8` and its runtime cadence is 9 frames, so the
+    DOCUMENT that reproduces it says 9. Both numbers are correct and they differ by one on
+    purpose (empyrean AURORA_EFFECTS_SCHEMA.md §7.2, ruling Q7).
+    """
+    ch = {"line": 2, "first": 8, "count": 4, "period": 9}
+    ch.update(over)
+    return ch
+
+
+class TestCyclesShape(PresetShapeBase):
+    """SHAPE only, and the one place that is not true is named in its own test below."""
+
+    def test_the_three_legal_states_all_load(self):
+        for spelling, expect in (("absent", None),
+                                 ("null", None),
+                                 ("array", 1)):
+            with self.subTest(state=spelling):
+                body = _preset()
+                if spelling == "null":
+                    body["cycles"] = None
+                elif spelling == "array":
+                    body["cycles"] = [_channel()]
+                path = self.write("ojz_ground_wash", body)
+                loaded = effects_gen.load_preset(path)
+                if expect is None:
+                    self.assertFalse(loaded.get("cycles"))
+                else:
+                    self.assertEqual(len(loaded["cycles"]), expect)
+
+    def test_an_EMPTY_cycles_array_is_refused_NAMING_BOTH_LEGAL_SPELLINGS(self):
+        """Ruling Q2: `[]` is legal JSON against a shape-only schema and the refusal is
+        the GENERATOR's. It has to name the two states the author might have meant, or it
+        sends them to file a contract change for a spelling that already exists."""
+        msg = self.refuse("ojz_ground_wash", _preset(cycles=[]))
+        self.assertIn("null", msg)
+        self.assertIn("OMIT", msg)
+        self.assertIn("Pal_Cycle_None", msg)
+
+    def test_cycles_that_is_neither_a_list_nor_null_is_refused(self):
+        msg = self.refuse("ojz_ground_wash", _preset(cycles={"line": 2}))
+        self.assertIn("list", msg)
+
+    def test_THREE_channels_is_refused_NAMING_THE_WRAPPERS_and_not_the_engine_ceiling(self):
+        """Ruling Q3. The limit that bites is which `cycle_scriptN` EXISTS (1 and 2), not
+        `PAL_CYCLE_MAX_CHANNELS` (4) — a refusal naming 4 would tell the author their
+        3-channel script is legal when there is no constructor to lower it into."""
+        msg = self.refuse("ojz_ground_wash",
+                          _preset(cycles=[_channel(), _channel(line=3),
+                                          _channel(line=1)]))
+        self.assertIn("cycle_script1", msg)
+        self.assertIn("cycle_script2", msg)
+        self.assertIn("3 channels", msg)
+
+    def test_a_channel_that_is_not_an_object_is_refused_with_its_index(self):
+        msg = self.refuse("ojz_ground_wash", _preset(cycles=[7]))
+        self.assertIn("cycles[0]", msg)
+
+    def test_EVERY_defaultless_channel_field_is_required(self):
+        for key in effects_gen.CYCLE_CHANNEL_KEYS:
+            with self.subTest(missing=key):
+                ch = _channel()
+                del ch[key]
+                msg = self.refuse("ojz_ground_wash", _preset(cycles=[ch]))
+                self.assertIn(key, msg)
+                self.assertIn("cycles[0]", msg)
+
+    def test_dir_is_OPTIONAL_because_it_is_the_only_one_the_constructor_defaults(self):
+        ch = _channel()
+        path = self.write("ojz_ground_wash", _preset(cycles=[ch]))
+        self.assertNotIn("dir", effects_gen.load_preset(path)["cycles"][0])
+
+    def test_an_unknown_channel_key_is_refused(self):
+        msg = self.refuse("ojz_ground_wash", _preset(cycles=[_channel(speed=3)]))
+        self.assertIn("speed", msg)
+
+
+class TestThePeriodUnitRefusal(PresetShapeBase):
+    """THE ONE VALUE BOUND THE GENERATOR OWNS, and the reason it owns it.
+
+    `cycle_channel()`'s floor is `period >= 1`. The generator emits `period - 1`, so an
+    authored `period: 1` would reach the engine as 0 and the author would read a sentence
+    about a number they never wrote and cannot find in their file. The refusal is here,
+    one layer up, naming THEIR number.
+    """
+
+    def render(self, **over):
+        names = effects_gen.ActNames("ojz", "act1")
+        return effects_gen.render_preset_cycle("<fixture>", _preset(**over), names)
+
+    def test_period_one_is_refused_and_the_message_names_the_AUTHORS_number(self):
+        with self.assertRaises(effects_gen.SceneShapeError) as ctx:
+            self.render(cycles=[_channel(period=1)])
+        msg = str(ctx.exception)
+        self.assertIn("period is 1", msg)
+        self.assertIn("FRAMES", msg)
+        self.assertIn(str(effects_gen.CYCLE_PERIOD_DOC_MIN), msg)
+
+    def test_period_zero_and_negatives_are_refused_the_same_way(self):
+        for bad in (0, -1):
+            with self.subTest(period=bad):
+                with self.assertRaises(effects_gen.SceneShapeError) as ctx:
+                    self.render(cycles=[_channel(period=bad)])
+                self.assertIn(f"period is {bad}", str(ctx.exception))
+
+    def test_the_SMALLEST_LEGAL_period_passes_and_emits_the_engine_floor(self):
+        """The control for the refusal above: the boundary is where it says it is, and
+        the emitted byte is the constructor's own floor rather than something below it."""
+        out = self.render(cycles=[_channel(period=effects_gen.CYCLE_PERIOD_DOC_MIN)])
+        self.assertIn(f"period: {effects_gen.CYCLE_PERIOD_ENGINE_MIN}", out)
+
+    def test_a_STRING_period_is_refused_as_a_SHAPE_error_before_the_arithmetic(self):
+        with self.assertRaises(effects_gen.SceneShapeError) as ctx:
+            self.render(cycles=[_channel(period="9")])
+        self.assertIn("integer", str(ctx.exception))
+
+    def test_the_emitted_period_is_ONE_LESS_than_the_document_says(self):
+        """The whole of ruling Q7 in one assertion. `period: 9` in the document is a
+        rotation every 9 frames; the engine's timer rotates one frame after the byte, so
+        the byte is 8."""
+        self.assertIn("period: 8", self.render(cycles=[_channel(period=9)]))
+        self.assertIn("period: 20", self.render(cycles=[_channel(period=21)]))
+
+
+class TestVariantsShape(PresetShapeBase):
+    def test_the_three_states_PER_INDEX_all_load(self):
+        path = self.write("ojz_ground_wash",
+                          _preset(variants=[{"shift_r": 1}, None]))
+        loaded = effects_gen.load_preset(path)
+        self.assertEqual(loaded["variants"][0], {"shift_r": 1})
+        self.assertIsNone(loaded["variants"][1])
+
+    def test_a_KEY_LEVEL_null_is_refused_BY_NAME_and_not_read_as_absent(self):
+        """Ruling Q5 says the state does not exist, and the generator has to be the one
+        that says so out loud: a writer that nulls every key it knows would otherwise
+        produce "absent", whose meaning ("keep the hand value") is the opposite of what
+        such a writer meant."""
+        body = _preset()
+        body["variants"] = None
+        msg = self.refuse("ojz_ground_wash", body)
+        self.assertIn("[null, null]", msg)
+        self.assertIn("absent", msg)
+
+    def test_a_THIRD_slot_is_refused_naming_the_engines_slot_count(self):
+        msg = self.refuse("ojz_ground_wash",
+                          _preset(variants=[{}, {}, {}]))
+        self.assertIn("PAL_MAX_VARIANTS", msg)
+        self.assertIn(str(effects_gen.PAL_MAX_VARIANTS), msg)
+
+    def test_a_slot_that_is_neither_an_object_nor_null_is_refused_with_its_index(self):
+        msg = self.refuse("ojz_ground_wash", _preset(variants=[7]))
+        self.assertIn("variants[0]", msg)
+
+    def test_an_unknown_variant_field_is_refused(self):
+        msg = self.refuse("ojz_ground_wash", _preset(variants=[{"gamma": 2}]))
+        self.assertIn("gamma", msg)
+
+    def test_EVERY_variant_field_is_OPTIONAL_because_every_one_has_a_default(self):
+        path = self.write("ojz_ground_wash", _preset(variants=[{}]))
+        self.assertEqual(effects_gen.load_preset(path)["variants"][0], {})
+
+
+class TestTheNarrowSlotBindingCheck(PresetShapeBase):
+    """Ruling Q6's NARROW half, which is the half available today.
+
+    A band naming a slot the document leaves ABSENT is the majority case and is NOT
+    refused — absent means "the hand `preset()` call's value is still there", which the
+    generator cannot see. A band naming a slot the document explicitly CLEARS has no such
+    reading.
+    """
+
+    def _region_band(self, slot):
+        return _band(on={"pal_region": {"addr": 72, "slot": slot, "pal_line": 2,
+                                        "entry": 4, "count": 3}})
+
+    def test_streaming_from_an_explicitly_CLEARED_slot_is_refused(self):
+        msg = self.refuse("ojz_ground_wash",
+                          _preset(bands=[self._region_band(1)],
+                                  variants=[{"shift_r": 1}, None]))
+        self.assertIn("slot 1", msg)
+        self.assertIn("variants[1]", msg)
+
+    def test_streaming_from_an_AUTHORED_slot_is_fine(self):
+        path = self.write("ojz_ground_wash",
+                          _preset(bands=[self._region_band(0)],
+                                  variants=[{"shift_r": 1}, None]))
+        self.assertEqual(effects_gen.load_preset(path)["id"], "ojz_ground_wash")
+
+    def test_streaming_from_an_ABSENT_index_is_NOT_refused_and_that_is_the_ruling(self):
+        """The broad check is rider 2 and would be WRONG here: the section's hand
+        `preset()` call still binds slot 1, and the document is not the whole truth while
+        `hand:` fallbacks exist."""
+        path = self.write("ojz_ground_wash",
+                          _preset(bands=[self._region_band(1)],
+                                  variants=[{"shift_r": 1}]))
+        self.assertEqual(effects_gen.load_preset(path)["id"], "ojz_ground_wash")
+
+    def test_a_document_with_NO_variants_key_is_never_refused_by_this_check(self):
+        path = self.write("ojz_ground_wash", _preset(bands=[self._region_band(1)]))
+        self.assertEqual(effects_gen.load_preset(path)["id"], "ojz_ground_wash")
+
+
+class TestPaletteLowering(PresetShapeBase):
+    def cycle(self, **over):
+        names = effects_gen.ActNames("ojz", "act1")
+        return effects_gen.render_preset_cycle("<fixture>", _preset(**over), names)
+
+    def variants(self, **over):
+        names = effects_gen.ActNames("ojz", "act1")
+        return effects_gen.render_preset_variants("<fixture>", _preset(**over), names)
+
+    def test_a_one_channel_script_lowers_to_cycle_script1_under_the_act_qualified_name(self):
+        out = self.cycle(cycles=[_channel()])
+        self.assertIn("pub data EditorCycle_OJZ_Act1_ojz_ground_wash: PalCycleScript1 "
+                      "= cycle_script1(", out)
+        self.assertIn("cycle_channel(line: 2, first: 8, count: 4, period: 8)", out)
+
+    def test_a_two_channel_script_picks_the_TWO_channel_wrapper(self):
+        out = self.cycle(cycles=[_channel(), _channel(line=3, first=0, count=2)])
+        self.assertIn(": PalCycleScript2 = cycle_script2(", out)
+        self.assertEqual(out.count("cycle_channel("), 2)
+
+    def test_dir_is_emitted_only_when_the_document_spells_it(self):
+        self.assertNotIn("dir:", self.cycle(cycles=[_channel()]))
+        self.assertIn("dir: 1", self.cycle(cycles=[_channel(dir=1)]))
+
+    def test_cycles_null_emits_NO_data_because_OFF_is_a_shipped_sentinel(self):
+        body = _preset()
+        body["cycles"] = None
+        names = effects_gen.ActNames("ojz", "act1")
+        self.assertEqual(effects_gen.render_preset_cycle("<f>", body, names), "")
+
+    def test_a_variant_emits_ONE_pub_data_PER_SLOT_named_with_its_slot(self):
+        out = self.variants(variants=[{"shift_r": 1}, {"shift_b": 2}])
+        self.assertEqual(len(out), 2)
+        self.assertIn("EditorVariant_OJZ_Act1_ojz_ground_wash_0", out[0])
+        self.assertIn("EditorVariant_OJZ_Act1_ojz_ground_wash_1", out[1])
+
+    def test_a_NULL_slot_emits_NOTHING_because_clear_is_a_zero_in_the_chooser(self):
+        out = self.variants(variants=[None, {"shift_b": 2}])
+        self.assertEqual(len(out), 1)
+        self.assertIn("_1:", out[0])
+
+    def test_absent_variant_fields_are_OMITTED_so_the_constructor_defaults_stand(self):
+        out = self.variants(variants=[{"shift_r": 1, "shift_g": 1}])
+        self.assertIn("= variant(shift_r: 1, shift_g: 1)", out[0])
+        self.assertNotIn("lines:", out[0])
+
+    def test_variant_fields_render_in_the_CONSTRUCTORS_order_not_the_JSONs(self):
+        out = self.variants(variants=[{"lines": 6, "shift_r": 1}])
+        self.assertIn("variant(shift_r: 1, lines: 6)", out[0])
+
+    def test_out_of_range_values_are_FORWARDED_because_the_ranges_are_the_engines(self):
+        """Everything except the period unit. `shift_r: 9` and `lines: 1` are both
+        `variant()` refusals with the engine's own sentence behind them (`3-bit channel`,
+        `line 0 is the character's`), and a copy of either here is the second source that
+        drifts."""
+        out = self.variants(variants=[{"shift_r": 9, "bias_g": -30, "lines": 1}])
+        self.assertIn("variant(shift_r: 9, bias_g: -30, lines: 1)", out[0])
+
+    def test_an_out_of_range_LINE_or_COUNT_is_forwarded_too(self):
+        out = self.cycle(cycles=[_channel(line=0, count=99)])
+        self.assertIn("line: 0", out)
+        self.assertIn("count: 99", out)
+
+
+class TestTheEngineMirrorsArePinned(unittest.TestCase):
+    """The three numbers effects_gen.py carries that BELONG to the engine.
+
+    Each is a mirror the generator needs before the engine can speak — a positional array
+    width, which wrappers exist, and the floor the period translation shifts. Read from
+    engine source here so a move in the engine is a named failure rather than silent drift
+    (`MAX_PARALLAX_BANDS` has the same treatment in test_scene_band_shape_coverage.py).
+    """
+
+    PALETTE = os.path.join(effects_gen.REPO, "engine", "effects", "palette.emp")
+    DSL = os.path.join(effects_gen.REPO, "engine", "effects", "palette_dsl.emp")
+
+    def source(self, path):
+        if not os.path.isfile(path):
+            self.fail(f"{path} does not exist — this test's whole subject is the engine's "
+                      f"own numbers, and it must not pass without them.")
+        with open(path) as f:
+            return f.read()
+
+    def test_PAL_MAX_VARIANTS_matches_the_engine(self):
+        m = re.search(r"^pub\s+const\s+PAL_MAX_VARIANTS\s*=\s*(\d+)",
+                      self.source(self.PALETTE), re.M)
+        self.assertIsNotNone(
+            m, "could not find `pub const PAL_MAX_VARIANTS = <n>` in palette.emp")
+        self.assertEqual(
+            int(m.group(1)), effects_gen.PAL_MAX_VARIANTS,
+            "effects_gen.PAL_MAX_VARIANTS has drifted from the engine's. The generator "
+            "emits a positional array and a chooser whose slot `ensure` spells this "
+            "number, so it cannot be looked up at build time — it is a mirror, and this "
+            "is what holds it.")
+
+    def test_the_cycle_script_wrappers_are_the_ones_the_engine_declares(self):
+        found = tuple(sorted(int(n) for n in re.findall(
+            r"^pub\s+comptime\s+fn\s+cycle_script(\d+)\s*\(",
+            self.source(self.DSL), re.M)))
+        self.assertEqual(
+            found, tuple(sorted(effects_gen.CYCLE_SCRIPT_WRAPPERS)),
+            "engine/effects/palette_dsl.emp declares a different set of `cycle_scriptN` "
+            "wrappers than effects_gen.CYCLE_SCRIPT_WRAPPERS lists. If rider 1 landed "
+            "cycle_script3/4, widen the constant in the same parcel — until then the "
+            "generator would refuse a script the engine can now lower, or accept one it "
+            "cannot.")
+
+    def test_the_structs_the_wrappers_return_all_exist(self):
+        src = self.source(self.PALETTE)
+        for n in effects_gen.CYCLE_SCRIPT_WRAPPERS:
+            self.assertIn(f"struct PalCycleScript{n}", src,
+                          f"the generator would emit `: PalCycleScript{n}` as a type "
+                          f"annotation, and palette.emp declares no such struct.")
+
+    def test_the_period_floor_is_the_ENGINES_floor(self):
+        """And the document floor is that floor shifted by the same `- 1` the generator
+        emits. Both halves, because getting either wrong makes the refusal message name a
+        boundary that is not where the engine's is."""
+        m = re.search(r"ensure\(period\s*>=\s*(\d+)", self.source(self.DSL))
+        self.assertIsNotNone(
+            m, "could not find `cycle_channel`'s `ensure(period >= <n>` in "
+               "palette_dsl.emp")
+        self.assertEqual(int(m.group(1)), effects_gen.CYCLE_PERIOD_ENGINE_MIN)
+        self.assertEqual(effects_gen.CYCLE_PERIOD_DOC_MIN,
+                         effects_gen.CYCLE_PERIOD_ENGINE_MIN + 1)
+
+    def test_the_RIDER_5_PAIRING_comment_is_at_the_EMISSION_SITE(self):
+        """The `period - 1` and the engine's cadence fix must land in ONE parcel, and
+        nothing enforces that but this comment. It has to sit where the arithmetic is, so
+        the parcel that changes `Palette_DoCycle` is told by the code it is about to
+        break."""
+        with open(effects_gen.__file__) as f:
+            src = f.read()
+        fn = src[src.index("def render_cycle_channel("):]
+        fn = fn[:fn.index("\ndef ")]
+        self.assertIn("RIDER 5 PAIRING", fn)
+        self.assertIn("Palette_DoCycle", fn)
+        self.assertIn("period - 1", fn)
+
+
+class TestPaletteInTheGeneratedModule(RasterRefBase):
+    """The module-level half: imports, banner, choosers and witnesses."""
+
+    def write_preset(self, stem, **over):
+        with open(os.path.join(self.presets, f"{stem}.json"), "w") as f:
+            json.dump(_preset(id=stem, **over), f)
+
+    def test_a_document_with_NEITHER_key_appends_NOTHING_of_this_arm(self):
+        """The converse control, one channel over from the raster arm's. A tree whose
+        documents carry neither key must render the same text it rendered before item 5 —
+        no banner, no palette import, no `pub data`."""
+        self.write_preset("ojz_ground_wash")
+        out = self.render()
+        self.assertNotIn("use engine.effects.palette.", out)
+        self.assertNotIn("EditorCycle_OJZ_Act1_ojz_ground_wash", out)
+        self.assertNotIn("EditorVariant_OJZ_Act1_ojz_ground_wash", out)
+        self.assertNotIn(effects_gen.PALETTE_BANNER.splitlines()[0], out)
+
+    def test_the_struct_imports_appear_ONLY_for_the_keys_a_document_carries(self):
+        self.write_preset("a_wash", cycles=[_channel()])
+        out = self.render()
+        self.assertIn("use engine.effects.palette.{pal_cycle_channel, PalCycleScript1}",
+                      out)
+        self.assertNotIn("{pal_variant}", out)
+
+    def test_the_variant_import_appears_for_a_variant_only_document(self):
+        self.write_preset("a_wash", variants=[{"shift_r": 1}])
+        out = self.render()
+        self.assertIn("use engine.effects.palette.{pal_variant}", out)
+        self.assertNotIn("pal_cycle_channel", out)
+
+    def test_the_import_names_ONLY_the_wrapper_arities_actually_used(self):
+        self.write_preset("a_wash", cycles=[_channel(), _channel(line=3)])
+        self.assertIn("PalCycleScript2}", self.render())
+
+    def test_BOTH_choosers_exist_with_no_editor_content_at_all(self):
+        """Always-emitted, exactly like the raster chooser and the two scene bindings.
+        A caller must have ONE path, never a conditional."""
+        names = effects_gen.act_names(self.repo)
+        out = self.render()
+        self.assertIn(f"pub comptime fn {names.fn_sec_cycle}(sec: int, hand: Label = 0)",
+                      out)
+        self.assertIn(f"pub comptime fn {names.fn_sec_variant}(sec: int, slot: int, "
+                      f"hand: Label = 0)", out)
+
+    def test_with_no_binding_both_chooser_bodies_are_EXACTLY_the_fallback(self):
+        self.write_preset("a_wash", cycles=[_channel()],
+                          variants=[{"shift_r": 1}, None])
+        out = self.render()
+        names = effects_gen.act_names(self.repo)
+        for fn in (names.fn_sec_cycle, names.fn_sec_variant):
+            body = out[out.index(f"pub comptime fn {fn}("):]
+            body = body[:body.index("\n}") + 2]
+            self.assertNotIn("if sec ==", body,
+                             f"{fn} carries a binding row with no sidecar naming a "
+                             f"document — one `rasterRef` is the ONLY route into these "
+                             f"choosers (ruling Q1).")
+
+    def test_ONE_rasterRef_binds_EVERY_channel_the_document_carries(self):
+        """Ruling Q1, and it is the whole reason there is no `cycleRef`. Binding the
+        document through the RASTER key must light up the cycle and variant choosers too."""
+        self.write_preset("a_wash", cycles=[_channel()],
+                          variants=[{"shift_r": 1}, None])
+        self.write_sidecar(3, {RASTER_KEY: "a_wash"})
+        out = self.render()
+        self.assertIn("if sec == 3 { out = EditorRaster_OJZ_Act1_a_wash }", out)
+        self.assertIn("if sec == 3 { out = EditorCycle_OJZ_Act1_a_wash }", out)
+        self.assertIn("if sec == 3 && slot == 0 { out = EditorVariant_OJZ_Act1_a_wash_0 }",
+                      out)
+        self.assertIn("if sec == 3 && slot == 1 { out = 0 }", out)
+
+    def test_a_bound_cycles_null_document_chooses_the_SENTINEL_and_never_zero(self):
+        """Ruling Q2's OFF state. NULL cannot mean "off" while it also means "keep", which
+        is why the engine ships a non-NULL zero-channel script."""
+        body = _preset(id="a_wash")
+        body["cycles"] = None
+        with open(os.path.join(self.presets, "a_wash.json"), "w") as f:
+            json.dump(body, f)
+        self.write_sidecar(3, {RASTER_KEY: "a_wash"})
+        out = self.render()
+        self.assertIn("if sec == 3 { out = Pal_Cycle_None }", out)
+        self.assertNotIn("EditorCycle_OJZ_Act1_a_wash", out)
+
+    def test_the_slot_ensure_carries_an_INLINE_literal_for_the_call_site_rule(self):
+        """A comptime fn's free names resolve at the CALL SITE, so a named engine
+        constant in the chooser body would resolve in the effects library's scope or not
+        at all (docs/EMP_PITFALLS.md §2, the SECTION_PIN precedent)."""
+        out = self.render()
+        names = effects_gen.act_names(self.repo)
+        body = out[out.index(f"pub comptime fn {names.fn_sec_variant}("):]
+        self.assertIn(f"slot < {effects_gen.PAL_MAX_VARIANTS}", body)
+
+    def test_the_witnesses_count_the_bindings_of_EACH_channel_separately(self):
+        self.write_preset("a_wash", cycles=[_channel()])          # cycle, no variants
+        self.write_preset("b_wash", variants=[{"shift_r": 1}])    # variants, no cycle
+        self.write_sidecar(2, {RASTER_KEY: "a_wash"})
+        self.write_sidecar(3, {RASTER_KEY: "b_wash"})
+        names = effects_gen.act_names(self.repo)
+        out = self.render()
+        self.assertIn(f"pub equ {names.equ_raster_bindings} = 2", out)
+        self.assertIn(f"pub equ {names.equ_cycle_bindings} = 1", out)
+        self.assertIn(f"pub equ {names.equ_variant_bindings} = 1", out)
+
+    def test_the_banner_says_ONCE_which_cycle_this_key_means(self):
+        """Ruling Q10. `cycles` is palette cycling; the DEBUG hotkey's raster cycle table
+        is a different thing with the same word in its name, and a reader of one must not
+        read the other."""
+        self.write_preset("a_wash", cycles=[_channel()])
+        out = self.render()
+        self.assertIn("RASTER_CYCLE_COUNT", out)
+        self.assertIn("Palette_DoCycle", out)
+
+
+class TestTheWorkedDocumentMatchesTheHandTwins(unittest.TestCase):
+    """LAYER 1 OF THE BYTE GOLDEN — the text half, which needs no build.
+
+    `games/sonic4/data/editor/effects/presets/ojz_sec3_shimmer.json` is OJZ section 3's
+    hand-authored palette channels re-expressed as a document, so the calls the generator
+    emits for it must be the SAME CALLS the hand library makes. Layer 2 is
+    `tools/editor_palette_golden.py`, which compares the emitted BYTES in the built ROM.
+
+    Both sides are parsed to argument dicts and compared with the CONSTRUCTOR's own
+    defaults filled in, read out of `palette_dsl.emp`'s signatures — so a hand call that
+    omits `dir` and a document that spells `"dir": 0` compare equal, which they should,
+    and neither number is typed here.
+    """
+
+    DOC_ID = "ojz_sec3_shimmer"
+    HAND_LIB = os.path.join(effects_gen.REPO, "games", "sonic4", "data", "effects",
+                            "ojz_effects.emp")
+
+    @staticmethod
+    def call_args(text, fn):
+        """`fn(a: 1, b: -2)` -> {'a': 1, 'b': -2}, for the FIRST such call in `text`."""
+        m = re.search(re.escape(fn) + r"\(([^()]*)\)", text)
+        if m is None:
+            return None
+        out = {}
+        for k, v in re.findall(r"([A-Za-z_]\w*)\s*:\s*(-?\d+)", m.group(1)):
+            out[k] = int(v)
+        return out
+
+    def hand_call(self, symbol, fn):
+        """The argument dict of the first `fn(...)` inside `pub data <symbol> = ...`.
+
+        The declaration is taken up to the next top-level item rather than to the end of
+        its line, because the shipped `OJZ_ShimmerCycle` wraps its channel list onto a
+        second line — a line-anchored read would silently see half of it.
+        """
+        with open(self.HAND_LIB) as f:
+            src = f.read()
+        m = re.search(r"^pub\s+data\s+" + re.escape(symbol) + r"\s*:", src, re.M)
+        if m is None:
+            self.fail(f"{self.HAND_LIB} declares no `pub data {symbol}` — this test's "
+                      f"whole subject is that the document reproduces it. If the hand "
+                      f"instance was retired (empyrean §7.2 rider 3), retire this test "
+                      f"and the twin row in tools/editor_palette_golden.py with it.")
+        rest = src[m.start():]
+        nxt = re.search(r"\n(?:pub\s|const\s|//|data\s|\n)", rest[1:])
+        decl = rest[:nxt.start() + 1] if nxt else rest
+        args = self.call_args(decl, fn)
+        if args is None:
+            self.fail(f"`pub data {symbol}` does not call `{fn}(...)` on its own line; "
+                      f"this parser cannot read it and must not pass.")
+        return args
+
+    def document(self):
+        path = os.path.join(effects_gen.preset_dir(repo=effects_gen.REPO),
+                            self.DOC_ID + ".json")
+        if not os.path.isfile(path):
+            self.fail(f"{path} does not exist. It is the worked example the item-5 byte "
+                      f"golden is built on; without it this test measures nothing.")
+        return effects_gen.load_preset(path)
+
+    def defaults(self, fn):
+        # Read through the byte golden's OWN parser, so this text layer and the byte
+        # layer cannot disagree about what a constructor default is.
+        import editor_palette_golden as golden
+        with open(os.path.join(effects_gen.REPO, "engine", "effects",
+                               "palette_dsl.emp")) as f:
+            return golden.signature_defaults(f.read(), fn)
+
+    def test_the_documents_CYCLE_call_equals_the_hand_OJZ_ShimmerCycle_call(self):
+        doc = self.document()
+        names = effects_gen.act_names(effects_gen.REPO)
+        emitted = self.call_args(
+            effects_gen.render_preset_cycle("<real>", doc, names), "cycle_channel")
+        hand = self.hand_call("OJZ_ShimmerCycle", "cycle_channel")
+        defaults = self.defaults("cycle_channel")
+        for key in sorted(set(emitted) | set(hand)):
+            self.assertEqual(
+                emitted.get(key, defaults.get(key)), hand.get(key, defaults.get(key)),
+                f"the document's emitted cycle_channel disagrees with the hand "
+                f"OJZ_ShimmerCycle on `{key}` (emitted {emitted}, hand {hand}). Note the "
+                f"document's `period` is in FRAMES and the emitted one is the engine "
+                f"byte, one less — a mismatch here means the translation moved, not that "
+                f"the two units differ.")
+
+    def test_the_documents_VARIANT_call_equals_the_hand_Variant_Water_Deep_call(self):
+        doc = self.document()
+        names = effects_gen.act_names(effects_gen.REPO)
+        decls = effects_gen.render_preset_variants("<real>", doc, names)
+        self.assertTrue(decls, "the worked document emits no variant descriptor")
+        emitted = self.call_args(decls[0], "variant")
+        hand = self.hand_call("Variant_Water_Deep", "variant")
+        defaults = self.defaults("variant")
+        for key in sorted(set(emitted) | set(hand) | set(defaults)):
+            self.assertEqual(emitted.get(key, defaults.get(key)),
+                             hand.get(key, defaults.get(key)),
+                             f"slot 0 of {self.DOC_ID} disagrees with the hand "
+                             f"Variant_Water_Deep on `{key}`")
+
+    def test_the_documents_period_is_the_HAND_bytes_period_PLUS_ONE(self):
+        """Stated as its own assertion because it is the number most likely to be
+        'corrected' by someone who sees 9 beside 8 and reads it as a typo. It is not: the
+        engine's cadence is `period + 1` frames, so a document reproducing an 8-byte
+        script that runs every 9 frames says 9."""
+        doc = self.document()
+        hand = self.hand_call("OJZ_ShimmerCycle", "cycle_channel")
+        self.assertEqual(doc["cycles"][0]["period"], hand["period"] + 1)
 
 
 class TestTheConsumerContractNamesTheKey(unittest.TestCase):
@@ -2115,11 +2744,21 @@ class TestEditorRasterPresetsDoc(unittest.TestCase):
     def test_the_block_covers_every_row_and_no_others(self):
         self.assertEqual(
             sorted(self.documented()),
-            ["band", "on-arms", "on.cram", "on.pal_region",
-             "preset", "preset-ignored", "preset-refused"],
+            ["band", "cycle-channel", "cycle-channel-optional", "on-arms", "on.cram",
+             "on.pal_region", "preset", "preset-ignored", "preset-refused", "variant"],
             "the key block in EDITOR_RASTER_PRESETS.md gained or lost a row. Each row is "
             "one of the generator's key constants; a row with no constant behind it is "
             "unchecked prose wearing the block's authority.")
+
+    def test_the_documented_palette_keys_are_the_generators(self):
+        """The item-5 rows, held the same way the band rows are: the page names the
+        fields the LOADER enforces, or a panel built from it is built against fiction."""
+        doc = self.documented()
+        self.assertEqual(doc["cycle-channel"],
+                         sorted(effects_gen.CYCLE_CHANNEL_KEYS))
+        self.assertEqual(doc["cycle-channel-optional"],
+                         sorted(effects_gen.CYCLE_CHANNEL_OPTIONAL_KEYS))
+        self.assertEqual(doc["variant"], sorted(effects_gen.VARIANT_KEYS))
 
     def test_the_documented_preset_keys_are_the_generators(self):
         doc = self.documented()

@@ -269,7 +269,15 @@ MAX_PARALLAX_BANDS = 16
 PRESET_SUBDIR = "presets"
 
 # --- contract §2.4, top level -------------------------------------------------
-PRESET_KEYS = frozenset({"schema", "id", "bands"})
+# `cycles` and `variants` joined this set on 2026-09-02 (EFFECTS-W1 DoD item 5). They were
+# in PRESET_REFUSED_KEYS below until then, refused BY NAME, and the hub ruled their shape
+# in `empyrean docs/AURORA_EFFECTS_SCHEMA.md` §7.2 ("The ten rulings", 2026-08-30) against
+# this repo's demand artifact
+# `docs/superpowers/specs/2026-08-30-item5-variants-cycles-key-shapes.md`. §7.2 and the
+# committed `contract/schema/aurora-effects-preset.schema.json` are the authority for the
+# shape below — NOT the artifact's §2, which is a proposal the hub overrode in three places
+# (Q2, Q5, Q7).
+PRESET_KEYS = frozenset({"schema", "id", "bands", "cycles", "variants"})
 
 # `name` for the scene files' reason: a writer-owned display label.
 PRESET_IGNORED_KEYS = frozenset({"name"})
@@ -278,18 +286,102 @@ PRESET_IGNORED_KEYS = frozenset({"name"})
 # are names the suite has agreed on and this generator has not built — so they get a
 # refusal that says which, rather than the generic "unknown key" sentence that would send
 # an author to file a contract change for a field the contract already reserves.
+#
+# ONE NAME LEFT. `variants` and `cycles` were here and are now built (item 5); `fires`
+# stays reserved on both sides — empyrean §7 still holds it, and the schema's own
+# reserved-and-refused line is down to it alone.
 PRESET_REFUSED_KEYS = {
     "fires": "a reserved wave-2 preset key (empyrean AURORA_EFFECTS_SCHEMA.md §7) that "
-             "this generator does not implement. Only `bands` is built: a band lowers to "
-             "the two or three fires band() derives, and a general fire list would need "
-             "the vscroll/register/patchable vocabulary as well",
-    "variants": "a reserved wave-2 preset key (empyrean AURORA_EFFECTS_SCHEMA.md §7) — "
-                "palette variants are a different EffectsPreset channel and this "
-                "generator does not implement them",
-    "cycles": "a reserved wave-2 preset key (empyrean AURORA_EFFECTS_SCHEMA.md §7) — "
-              "palette cycling is a different EffectsPreset channel and this generator "
-              "does not implement it",
+             "this generator does not implement. `bands`, `cycles` and `variants` are "
+             "built: a band lowers to the two or three fires band() derives, and a "
+             "general fire list would need the vscroll/register/patchable vocabulary as "
+             "well",
 }
+
+# =============================================================================
+# PALETTE CYCLES AND VARIANTS — the other two EffectsPreset channels (contract §2.4).
+# =============================================================================
+#
+# ⚠ WHICH "CYCLE" THIS KEY MEANS, SAID ONCE (hub ruling Q10, and the contract says the
+# same sentence once in its §2.4). `cycles` is PALETTE cycling: the rotation of a span of
+# CRAM entries by `Palette_DoCycle` / `Palette_RotateSpan` in engine/effects/palette.emp.
+# It is UNRELATED to the DEBUG hotkey's **raster cycle table** (`RASTER_CYCLE_COUNT`,
+# tools/test_raster_cycle_table_lint.py), which steps a human through raster PROGRAMS.
+#
+# WHAT THEY LOWER TO. A document's `cycles` array IS one script — `ep_cycle` is one
+# pointer — and its `variants` array is POSITIONAL, index = `ep_variants[i]` = the slot
+# `Palette_SetVariant` takes = the `slot` a `pal_region` band names in the same document:
+#
+#     pub data EditorCycle_OJZ_Act1_<id>: PalCycleScript1 = cycle_script1(
+#         [ cycle_channel(line: .., first: .., count: .., period: .., dir: ..) ])
+#     pub data EditorVariant_OJZ_Act1_<id>_<slot>: pal_variant = variant(shift_r: .., ..)
+#
+# plus two always-emitted zero-byte choosers beside the raster one, whose `hand:` argument
+# is the caller's existing hand-authored channel.
+#
+# THREE STATES PER KEY, ONE SPELLING EACH (rulings Q2 and Q5) — this is the part that is
+# easy to get backwards, and getting it backwards is silent:
+#   * `cycles` ABSENT           -> the section keeps its hand-authored cycle (`hand:`)
+#   * `cycles: null`            -> cycling OFF; lowers to `Pal_Cycle_None`, never to 0
+#   * `cycles: [ .. ]`          -> the authored script; `[]` is REFUSED here
+#   * `variants` index ABSENT   -> that slot keeps its hand-authored value (`hand:`)
+#   * `variants[i] == null`     -> that slot is CLEARED (lowers to 0)
+#   * `variants[i] == { .. }`   -> that slot is authored
+# There is NO key-level `variants: null`: clearing both slots is `[null, null]`, and a
+# key-level null is refused BY NAME below rather than falling through to "absent", which
+# is the one state a null-filling writer would otherwise produce silently.
+#
+# ABSENT-KEEPS IS LOAD-BEARING, NOT A CONVENIENCE. Every shipped OJZ preset carries
+# `variants: [Variant_Water_Deep, 0]`, so a document whose silence CLEARED the slot would
+# drop the act-wide water tint at the first section crossing
+# (games/sonic4/data/effects/ojz_effects.emp, the block above OJZ_Preset_Sec0).
+#
+# NOT ONE VALUE BOUND IS RESTATED HERE, with exactly one deliberate exception named at
+# CYCLE_PERIOD_DOC_MIN below. `variant()` and `cycle_channel()` in
+# engine/effects/palette_dsl.emp carry every range as an `ensure`, and a `pub data` in a
+# lowered module is elaborated unconditionally, so the author reads the engine's own
+# sentence. The two mirrors this file does carry are the two SHAPE limits — how many
+# slots an array may have — and both are pinned against engine source by
+# tools/test_effects_gen.py::TestTheEngineMirrorsArePinned.
+
+# Required, IN `cycle_channel()`'s OWN ARGUMENT ORDER. `dir` is optional and is the only
+# one, because it is the only one the constructor defaults (`dir: int = 0`).
+CYCLE_CHANNEL_KEYS = ("line", "first", "count", "period")
+CYCLE_CHANNEL_OPTIONAL_KEYS = ("dir",)
+
+# Every field optional, because every one has a constructor default — which is what lets
+# the shipped deep-water variant be `{"shift_r": 1, "shift_g": 1}` verbatim. Order is
+# `variant()`'s own, so the emitted call reads like the hand one. `v_pad` is not a
+# document field.
+VARIANT_KEYS = ("shift_r", "bias_r", "shift_g", "bias_g", "shift_b", "bias_b", "lines")
+
+# A MIRROR of engine/effects/palette.emp's `PAL_MAX_VARIANTS`, carried for the same reason
+# MAX_PARALLAX_BANDS above is: the generator emits a POSITIONAL array and a chooser with a
+# slot ensure, so it has to know how many positions exist before the engine can speak.
+PAL_MAX_VARIANTS = 2
+
+# A MIRROR of which `cycle_scriptN` wrappers engine/effects/palette_dsl.emp actually
+# declares — NOT of `PAL_CYCLE_MAX_CHANNELS`, which is 4. Only 1 and 2 exist, so a
+# 3-channel document has no constructor to lower into and the refusal has to name the
+# engine limit rather than let sigil say "unknown function" about generated code. Rider 1
+# (empyrean §7.2) adds cycle_script3/4; the pin below goes red and names this line.
+CYCLE_SCRIPT_WRAPPERS = (1, 2)
+
+# THE ONE VALUE BOUND THIS FILE OWNS, AND IT IS OWED AN ARGUMENT (hub ruling Q7).
+#
+# The document's `period` is in FRAMES — the author's meaning, "a rotation every N frames"
+# — and the generator emits `pc_period = period - 1`, because the engine's timer reloads
+# `period` and rotates at 0, so its runtime cadence is `period + 1` frames
+# (engine/effects/palette.emp, Palette_DoCycle's timer logic).
+#
+# `cycle_channel()`'s own floor is `period >= 1`. With the `-1` applied, an authored
+# `period: 1` emits 0 and the engine fires a sentence about **0** — a number the author
+# never wrote and cannot find in their file. That is the single place the forward-verbatim
+# posture breaks, and it is written deliberately rather than discovered: the floor below is
+# the engine's floor SHIFTED BY THE SAME TRANSLATION, and the refusal names the author's
+# number. It is a unit translation, which this file's docstring classifies as SHAPE.
+CYCLE_PERIOD_ENGINE_MIN = 1
+CYCLE_PERIOD_DOC_MIN = CYCLE_PERIOD_ENGINE_MIN + 1
 
 # --- contract §2.4, per band ---------------------------------------------------
 # ALL FOUR REQUIRED, IN `band()`'s OWN ARGUMENT ORDER. `sh` has no default here because it
@@ -495,9 +587,11 @@ def load_preset(path: str) -> dict:
                 "preset")
 
     if "bands" not in preset:
-        _refuse(path, "no `bands` key. `bands` is the only channel this generator "
-                      "implements; the other names empyrean's schema doc §7 reserves "
-                      "(`fires`, `variants`, `cycles`) are refused by name above.")
+        _refuse(path, "no `bands` key. A preset document must carry `bands` (hub ruling "
+                      "Q1a: `required` is [schema, id, bands]); `cycles` and `variants` "
+                      "are optional channels beside it, and a cycle-only or variant-only "
+                      "document is a future contract change. The one name empyrean's "
+                      "schema doc §7 still reserves (`fires`) is refused by name above.")
     bands = preset["bands"]
     if not isinstance(bands, list):
         _refuse(path, f"`bands` must be a list, got {type(bands).__name__}")
@@ -521,7 +615,149 @@ def load_preset(path: str) -> dict:
                               f"`region_boundary` note is that whether an effect changes "
                               f"a mode register is worth stating at the call site.")
 
+    _check_cycles(path, preset)
+    _check_variants(path, preset)
+    _check_cleared_slot_is_not_streamed(path, preset)
     return preset
+
+
+def _check_cleared_slot_is_not_streamed(path: str, preset: dict) -> None:
+    """The NARROW half of ruling Q6, which is the half that is available today.
+
+    A `pal_region` band names a `Pal_Variant_Stage` SLOT and `variants[slot]` names that
+    slot's descriptor — the same integer, now in one file for the first time, which is the
+    whole reason the hub noted the binding becomes visible when both keys live in one
+    document. The BROAD check (refuse a band naming a slot the document leaves ABSENT) is
+    deferred as rider 2 and would be WRONG today: absent means "the hand `preset()` call's
+    value is still there", which the generator cannot see, and that is the majority case.
+
+    EXPLICIT `null` has no such ambiguity. The document is saying "clear this slot" and
+    "stream from this slot" in the same breath, and there is no reading under which that is
+    what someone meant — the band would stream whatever the staging buffer last held.
+
+    Deliberately lenient about everything it is not asking: a malformed band or a
+    non-integer slot is `render_band_on`'s refusal, with its own sentence, and this
+    function must not pre-empt it with a crash.
+    """
+    slots = preset.get("variants")
+    if not isinstance(slots, list):
+        return
+    cleared = {i for i, v in enumerate(slots) if v is None}
+    if not cleared:
+        return
+    for i, band in enumerate(preset["bands"]):
+        if not isinstance(band, dict):
+            continue
+        on = band.get("on")
+        if not isinstance(on, dict):
+            continue
+        region = on.get("pal_region")
+        if not isinstance(region, dict):
+            continue
+        slot = region.get("slot")
+        if isinstance(slot, bool) or not isinstance(slot, int):
+            continue
+        if slot in cleared:
+            _refuse(path, f"bands[{i}] streams from variant slot {slot} "
+                          f"(`on.pal_region.slot`), but this document sets "
+                          f"`variants[{slot}]` to null, which CLEARS that slot. The band "
+                          f"would stream whatever `Pal_Variant_Stage` last held for slot "
+                          f"{slot}. Author the slot, or drop the null so the section's "
+                          f"hand-authored variant keeps it, or point the band at the "
+                          f"other slot.")
+
+
+def _check_cycles(path: str, preset: dict) -> None:
+    """SHAPE of the `cycles` key. Three states, one spelling each (hub ruling Q2).
+
+    Absent is not checked at all — it is the no-cost majority case and the state of every
+    document shipped before item 5. `null` is OFF and carries no channels to check. Only
+    the array form reaches the per-channel walk.
+    """
+    if "cycles" not in preset or preset["cycles"] is None:
+        return
+    chs = preset["cycles"]
+    if not isinstance(chs, list):
+        _refuse(path, f"`cycles` must be a list of channel objects or null, got "
+                      f"{type(chs).__name__}. The array IS the script (one script per "
+                      f"document, because `ep_cycle` is one pointer); `null` means "
+                      f"cycling OFF for this section.")
+    if not chs:
+        _refuse(path, "`cycles` is an EMPTY array, which is not one of the three states "
+                      "this key has. Write `\"cycles\": null` for \"cycling OFF here\" "
+                      "(it lowers to the engine's `Pal_Cycle_None` sentinel), or OMIT "
+                      "the key to keep this section's hand-authored cycle. An empty "
+                      "array would lower to a script with no channels, which is what "
+                      "`null` already spells — and one state on the wire two ways is "
+                      "the defect the rule exists to prevent.")
+    if len(chs) not in CYCLE_SCRIPT_WRAPPERS:
+        _refuse(path, f"`cycles` has {len(chs)} channels, and "
+                      f"engine/effects/palette_dsl.emp declares script wrappers for "
+                      f"{', '.join(str(n) for n in CYCLE_SCRIPT_WRAPPERS)} only "
+                      f"(`cycle_script1`, `cycle_script2`). There is no constructor to "
+                      f"lower a wider script into — a `PalCycleScriptN` struct and its "
+                      f"wrapper are an ENGINE addition (empyrean §7.2 rider 1), never a "
+                      f"second lowering in generated code. The engine's own channel "
+                      f"ceiling (`PAL_CYCLE_MAX_CHANNELS`) is higher than the wrappers "
+                      f"go, which is why this refusal names the wrappers and not it.")
+    for i, ch in enumerate(chs):
+        if not isinstance(ch, dict):
+            _refuse(path, f"cycles[{i}] must be an object, got {type(ch).__name__}")
+        _check_keys(path, ch,
+                    frozenset(CYCLE_CHANNEL_KEYS) | frozenset(CYCLE_CHANNEL_OPTIONAL_KEYS),
+                    frozenset(), None, f"cycles[{i}]")
+        for required in CYCLE_CHANNEL_KEYS:
+            if required not in ch:
+                _refuse(path, f"cycles[{i}] has no `{required}`. A cycle channel is "
+                              f"{', '.join(CYCLE_CHANNEL_KEYS)} — all four required, "
+                              f"none with a default — plus the optional "
+                              f"`{CYCLE_CHANNEL_OPTIONAL_KEYS[0]}`, which is the only "
+                              f"field `cycle_channel()` itself defaults.")
+
+
+def _check_variants(path: str, preset: dict) -> None:
+    """SHAPE of the `variants` key. Positional, index = slot (hub ruling Q5).
+
+    A key-level `null` is refused BY NAME rather than treated as absent. The hub ruled
+    that state does not exist (clearing both slots is `[null, null]`), and a writer that
+    nulls every key it knows would otherwise produce "absent" — the one state whose
+    meaning is "keep the hand value", which is the opposite of what such a writer meant.
+    An unnamed fall-through here is exactly the silent case.
+    """
+    if "variants" not in preset:
+        return
+    slots = preset["variants"]
+    if slots is None:
+        _refuse(path, "`variants` is null at KEY level, and that state does not exist "
+                      "(hub ruling Q5). Positions are what carry the three states: OMIT "
+                      "the key to keep every slot's hand-authored value, write "
+                      "`[null, null]` to CLEAR both, or put an object at the index you "
+                      "are authoring. A key-level null is refused rather than read as "
+                      "\"absent\", because a writer that nulls every key it knows would "
+                      "otherwise silently mean the opposite of what it wrote.")
+    if not isinstance(slots, list):
+        _refuse(path, f"`variants` must be a list, got {type(slots).__name__}. It is "
+                      f"POSITIONAL — index i is `ep_variants[i]`, the slot "
+                      f"`Palette_SetVariant` takes and the `slot` a `pal_region` band "
+                      f"names in this same document — so a map would lose the one "
+                      f"property the key exists for.")
+    if len(slots) > PAL_MAX_VARIANTS:
+        _refuse(path, f"`variants` has {len(slots)} entries but the engine has "
+                      f"{PAL_MAX_VARIANTS} staging slots (`PAL_MAX_VARIANTS`, "
+                      f"engine/effects/palette.emp). The array is positional, so entry "
+                      f"{PAL_MAX_VARIANTS} names a slot that does not exist — "
+                      f"`Palette_SetVariant` masks the index with a power-of-two mask "
+                      f"and would fold it back onto slot 0.")
+    for i, v in enumerate(slots):
+        if v is None:
+            continue                      # CLEAR this slot. A legal state, not a gap.
+        if not isinstance(v, dict):
+            _refuse(path, f"variants[{i}] must be an object or null, got "
+                          f"{type(v).__name__}. null CLEARS the slot; an object authors "
+                          f"it; an index the array does not reach keeps the "
+                          f"hand-authored value.")
+        _check_keys(path, v, frozenset(VARIANT_KEYS), frozenset(), None,
+                    f"variants[{i}]")
 
 
 def load_all_presets(game: str = "sonic4", repo: str = REPO) -> dict:
@@ -1028,6 +1264,105 @@ def render_preset(path: str, preset: dict, names) -> str:
             + f"pub data {label}: [u16; raster_words({src})] = raster_program({src})")
 
 
+def render_cycle_channel(path: str, ch: dict, where: str) -> str:
+    """One authored channel → its `cycle_channel(line:, first:, count:, period:, dir:)`.
+
+    Every other number is forwarded VERBATIM: `line`'s 1..3, `first`'s 0..15 and the
+    `first + count <= 16` span rule are all `cycle_channel()` ensures with the engine's own
+    sentences, and none is repeated here.
+    """
+    period = ch["period"]
+    if isinstance(period, bool) or not isinstance(period, int):
+        _render_int(path, period, where + ".period")     # raises with the shape sentence
+    if period < CYCLE_PERIOD_DOC_MIN:
+        # THE ONE PLACE FORWARD-VERBATIM BREAKS, and it breaks because of the line above.
+        # An authored `period: 1` would emit 0 and the engine would refuse "period 0
+        # outside 1..255" — a number the author never wrote and cannot find in their file.
+        _refuse(path, f"{where}.period is {period}, and the smallest period a document "
+                      f"can carry is {CYCLE_PERIOD_DOC_MIN}. `period` here is in FRAMES, "
+                      f"the author's unit — a rotation every {period} frame(s) — and the "
+                      f"generator emits `period - 1` because the engine's timer rotates "
+                      f"one frame later than the byte says. So {period} would emit "
+                      f"{period - 1}, and the engine's own floor is "
+                      f"{CYCLE_PERIOD_ENGINE_MIN}. The refusal is here, naming YOUR "
+                      f"number, rather than one frame down naming a number you never "
+                      f"wrote.")
+    # ---- RIDER 5 PAIRING — engine/effects/palette.emp, `Palette_DoCycle`'s timer logic ----
+    #
+    # THE `- 1` BELOW IS HALF OF A PAIR AND THE OTHER HALF IS IN THE ENGINE.
+    # `Palette_DoCycle` reloads the period byte when a channel's timer reaches 0 and rotates
+    # on that frame, and `Palette_LoadCycle` seeds every timer to 0 — so `pc_period = P`
+    # produces a rotation every `P + 1` frames, not every P. The document's `period` is the
+    # AUTHOR's unit (frames between rotations), so this generator absorbs the off-by-one
+    # (hub ruling Q7, empyrean docs/AURORA_EFFECTS_SCHEMA.md §7.2).
+    #
+    # empyrean §7.2 books RIDER 5: the runtime cadence fix. THE DAY IT LANDS, THIS LINE
+    # BECOMES `period` UNCHANGED, IN THE SAME PARCEL. Split across two parcels, a generator
+    # still emitting `period - 1` against a fixed runtime shifts EVERY authored cycle one
+    # frame faster — silently. NOTHING GATES THAT: no test compares an authored period
+    # against an observed cadence, there is no cycling row in tools/effects_budget_model.toml,
+    # and no effects gate measures cycling at all. This comment is the only thing that will
+    # tell the engine-side parcel it is about to break something. CYCLE_PERIOD_DOC_MIN above
+    # moves with it (the floor is the engine's floor shifted by this same translation).
+    args = [f"line: " + _render_int(path, ch["line"], where + ".line"),
+            f"first: " + _render_int(path, ch["first"], where + ".first"),
+            f"count: " + _render_int(path, ch["count"], where + ".count"),
+            f"period: {period - 1}"]
+    if "dir" in ch:
+        args.append("dir: " + _render_int(path, ch["dir"], where + ".dir"))
+    return "cycle_channel(" + ", ".join(args) + ")"
+
+
+def render_variant(path: str, v: dict, where: str) -> str:
+    """One authored variant → its `variant(...)` call.
+
+    ABSENT FIELDS ARE OMITTED so the constructor's own defaults stand — the scene arm's
+    rule (`test_absent_optional_scalars_are_omitted_so_constructor_defaults_stand`),
+    applied here. The demand artifact's §3.2 illustration spells all seven arguments
+    explicitly; omitting them instead is strictly better for the one thing item 5 has to
+    prove, because it makes `{"shift_r": 1, "shift_g": 1}` emit the string
+    `variant(shift_r: 1, shift_g: 1)` — character-for-character the hand
+    `Variant_Water_Deep` call in games/sonic4/data/effects/ojz_effects.emp, so the text
+    golden is a literal comparison with nothing to normalise.
+    """
+    args = [f"{k}: " + _render_int(path, v[k], f"{where}.{k}")
+            for k in VARIANT_KEYS if k in v]
+    return "variant(" + ", ".join(args) + ")"
+
+
+def render_preset_cycle(path: str, preset: dict, names) -> str:
+    """The `pub data` for one document's cycle script, or "" when it authors none.
+
+    A `cycles: null` document emits NOTHING here: OFF is the sentinel `Pal_Cycle_None`,
+    which the engine already ships, and minting a second zero-channel script per document
+    would be two bytes of ROM per document saying what one shipped symbol says.
+    """
+    if not preset.get("cycles"):
+        return ""
+    chs = preset["cycles"]
+    calls = [render_cycle_channel(path, ch, f"cycles[{i}]")
+             for i, ch in enumerate(chs)]
+    n = len(chs)
+    return (f"pub data {names.cycle(preset['id'])}: PalCycleScript{n} = cycle_script{n}(\n"
+            + "    [ " + ",\n      ".join(calls) + " ])")
+
+
+def render_preset_variants(path: str, preset: dict, names) -> list:
+    """The `pub data`s for one document's authored variant slots, in slot order.
+
+    A `null` slot and an index the array does not reach both emit NOTHING — the first is
+    a 0 in the chooser, the second is the chooser's `hand:`. Only an authored object mints
+    a descriptor.
+    """
+    out = []
+    for i, v in enumerate(preset.get("variants") or []):
+        if v is None:
+            continue
+        out.append(f"pub data {names.variant(preset['id'], i)}: pal_variant = "
+                   + render_variant(path, v, f"variants[{i}]"))
+    return out
+
+
 # =============================================================================
 # SLICE 5 — assignments, the generated binding module, and the descriptor seam.
 # =============================================================================
@@ -1263,6 +1598,16 @@ class ActNames:
         self.fn_act_default = f"{stem}_act_default"
         self.fn_sec_scene = f"{stem}_sec_scene"
         self.fn_sec_raster = f"{stem}_sec_raster"
+        # The other two EffectsPreset channels (EFFECTS-W1 item 5). PER-SLOT for the
+        # variant chooser, and that is a choice with a reason: ruling Q5's three states are
+        # PER INDEX (absent keeps `hand:`, null clears, an object authors), and a single
+        # `-> [Label; 2]` chooser would have to express "keep the caller's hand value at
+        # index 1 only" by indexing its own `hand:` array parameter. A per-slot chooser
+        # spells that as the word `hand`. The `[Label; 2]` form is proven to reach the ROM
+        # (docs/superpowers/probes/2026-09-02-item5-comptime-probe.md, verdict Q1) and is
+        # the tidier shape for a pair that always moves together; it is not this one.
+        self.fn_sec_cycle = f"{stem}_sec_cycle"
+        self.fn_sec_variant = f"{stem}_sec_variant"
         self.binding_default = f"EditorSceneBinding_{cap}_Default"
         self.scene_array = f"EditorScenes_{cap}"
         self.equ_scenes = f"EditorScenes_{cap}_Count"
@@ -1272,6 +1617,12 @@ class ActNames:
         # the near-miss is deliberate (the prefix is what makes it read as the raster
         # channel's witness) and the regex is what makes it safe.
         self.equ_raster_bindings = f"EditorRaster_{cap}_Bindings"
+        # The other two channels' witnesses, same mechanism and same reason: an equ is
+        # minted only if the module is LOWERED, so a value of 0 is positive evidence the
+        # module was reached and carries no binding, which is a DIFFERENT observation from
+        # the symbol being absent.
+        self.equ_cycle_bindings = f"EditorCycle_{cap}_Bindings"
+        self.equ_variant_bindings = f"EditorVariant_{cap}_Bindings"
 
     def binding_sec(self, i: int) -> str:
         return f"EditorSceneBinding_{self.zone_id.upper()}_" \
@@ -1291,6 +1642,17 @@ class ActNames:
 
     def raster_src(self, preset_id: str) -> str:
         return f"EditorRasterSrc_{self.cap}_{preset_id}"
+
+    def cycle(self, preset_id: str) -> str:
+        """The emitted cycle-script LABEL for one preset document. Act-qualified for
+        `raster()`'s reason."""
+        return f"EditorCycle_{self.cap}_{preset_id}"
+
+    def variant(self, preset_id: str, slot: int) -> str:
+        """The emitted variant LABEL for one document's slot. The SLOT is part of the
+        name because the array is positional and two slots of one document are two
+        descriptors, not one."""
+        return f"EditorVariant_{self.cap}_{preset_id}_{slot}"
 
     def out_path(self, repo: str = REPO) -> str:
         return os.path.join(repo, "games", "sonic4", "data", "generated",
@@ -1372,6 +1734,29 @@ def render_module(scenes: dict, act_ref, sec_refs: dict, sections: int,
                 f"{', '.join(sorted(presets or {})) or '(none)'}.")
         raster_bound[i] = sec_raster_refs[i]
 
+    # ---- the OTHER TWO CHANNELS of the same documents (item 5) ----
+    #
+    # THERE IS NO SECOND SIDECAR KEY, and that is ruling Q1: one `rasterRef` binds the
+    # WHOLE preset document, every channel it carries. The engine binds ONE preset record
+    # per section and `ep_cycle` / `ep_variants` are fields of that record, so three refs
+    # could name three documents the engine has one slot to put. `rasterRef` is therefore a
+    # deliberate HISTORICAL SPELLING, from the day a preset document had only `bands`;
+    # renaming it is a separate CR nobody has asked for, and `effectsRef` stays reserved
+    # and unspent for the TOTAL binding, which still needs a palette reference `ep_pal`
+    # cannot default.
+    presets = presets or {}
+    # The wrapper arities actually used, so the import line names only those.
+    cycle_names = {len(presets[pid]["cycles"])
+                   for pid in presets if presets[pid].get("cycles")}
+    any_variants = any(
+        any(v is not None for v in (presets[pid].get("variants") or []))
+        for pid in presets)
+    # {section index: preset id} for the sections whose bound document carries each key.
+    cycle_bound = {i: raster_bound[i] for i in raster_bound
+                   if "cycles" in presets[raster_bound[i]]}
+    variant_bound = {i: raster_bound[i] for i in raster_bound
+                     if presets[raster_bound[i]].get("variants") is not None}
+
     used = sorted(set(bound.values()) | ({act_ref} if act_ref else set()))
     unused = sorted(set(scenes) - set(used))
 
@@ -1415,6 +1800,24 @@ def render_module(scenes: dict, act_ref, sec_refs: dict, sections: int,
         lowers = sorted({l for _, l in (_lowering("", scenes[sid]) for sid in used)})
         out.append("use games.sonic4.scene_registry.{"
                    + ", ".join(shapes + lowers) + "}")
+    # THE PALETTE WIRE-FORMAT STRUCTS (item 5). `engine.effects.palette_dsl` is a sigil
+    # COMPTIME_HELPERS member and is glob-injected into every placed module, so
+    # `variant()` / `cycle_channel()` / `cycle_scriptN()` need no import — but
+    # `engine.effects.palette` is a PLACED module and its struct names do. A comptime fn's
+    # struct-literal field values resolve at the EMISSION site's scope
+    # (engine/effects/palette_dsl.emp's banner), which is why the hand library imports the
+    # same two halves. `pal_cycle_channel` rides with the wrapper for
+    # docs/EMP_PITFALLS.md §8's reason: a struct declaration is re-elaborated in every
+    # module that imports one that contains it.
+    #
+    # EMITTED ONLY WHEN A DOCUMENT CARRIES THE KEY, so the no-content bake and every bake
+    # of the pre-item-5 documents stay TEXT-IDENTICAL and the four-CRC check stays a real
+    # check (the `bands` arm's rule, one channel over).
+    if cycle_names:
+        out.append("use engine.effects.palette.{pal_cycle_channel, "
+                   + ", ".join(f"PalCycleScript{n}" for n in sorted(cycle_names)) + "}")
+    if any_variants:
+        out.append("use engine.effects.palette.{pal_variant}")
     out.append("")
 
     if used:
@@ -1461,13 +1864,33 @@ def render_module(scenes: dict, act_ref, sec_refs: dict, sections: int,
                 os.path.join(preset_dir(), pid + ".json"), presets[pid], names))
             out.append("")
 
+    # ---- the PALETTE channels from the same documents (item 5) ----
+    # Same "appends nothing at all" rule as the raster arm above, one channel over: a tree
+    # whose documents carry neither key renders the same TEXT it rendered before item 5.
+    palette_decls = []
+    for pid in sorted(presets):
+        ppath = os.path.join(preset_dir(), pid + ".json")
+        cyc = render_preset_cycle(ppath, presets[pid], names)
+        if cyc:
+            palette_decls.append(cyc)
+        palette_decls.extend(render_preset_variants(ppath, presets[pid], names))
+    if palette_decls:
+        out.append(PALETTE_BANNER)
+        for decl in palette_decls:
+            out.append(decl)
+            out.append("")
+
     # ---- the witness equates (zero ROM bytes, link-visible) ----
     out.append(WITNESS_BLOCK.format(
         equ_scenes=names.equ_scenes, scenes=len(used),
         equ_bindings=names.equ_bindings,
         bindings=len(bound) + (1 if act_ref else 0),
         equ_raster_bindings=names.equ_raster_bindings,
-        raster_bindings=len(raster_bound)))
+        raster_bindings=len(raster_bound),
+        equ_cycle_bindings=names.equ_cycle_bindings,
+        cycle_bindings=len(cycle_bound),
+        equ_variant_bindings=names.equ_variant_bindings,
+        variant_bindings=len(variant_bound)))
     out.append("")
     out.append(SECTION_PIN.format(sections=sections))
     out.append("")
@@ -1504,6 +1927,53 @@ def render_module(scenes: dict, act_ref, sec_refs: dict, sections: int,
         out.append(f"    if sec == {i} {{ out = {names.raster(raster_bound[i])} }}")
     out.append("    return out")
     out.append("}")
+    out.append("")
+
+    # ---- (e) THE OTHER TWO PRESET CHANNELS' CHOOSERS — always emitted (item 5) ----
+    out.append(PALETTE_BINDING_BANNER)
+    out.append(f"pub comptime fn {names.fn_sec_cycle}(sec: int, hand: Label = 0) "
+               f"-> Label {{")
+    out.append(f'    ensure(sec >= 0 && sec < {sections}, "{names.fn_sec_cycle}(sec: '
+               f'{{sec}}): this act has {sections} sections, so there is no binding '
+               f'slot for that index — the section preset and project.json\'s grid '
+               f'have drifted apart")')
+    out.append("    comptime var out = hand")
+    for i in sorted(cycle_bound):
+        pid = cycle_bound[i]
+        # `cycles: null` = OFF, and OFF is the engine's sentinel, never 0. `Pal_Cycle_None`
+        # is a FREE NAME here and resolves at the CALL SITE (docs/EMP_PITFALLS.md §2) —
+        # the same rule that makes `hand:` a parameter. The call site is the game's own
+        # effects library, which already imports it for its hand-authored presets.
+        target = (names.cycle(pid) if presets[pid]["cycles"] else "Pal_Cycle_None")
+        out.append(f"    if sec == {i} {{ out = {target} }}")
+    out.append("    return out")
+    out.append("}")
+    out.append("")
+    out.append(f"pub comptime fn {names.fn_sec_variant}(sec: int, slot: int, "
+               f"hand: Label = 0) -> Label {{")
+    out.append(f'    ensure(sec >= 0 && sec < {sections}, "{names.fn_sec_variant}(sec: '
+               f'{{sec}}): this act has {sections} sections, so there is no binding '
+               f'slot for that index — the section preset and project.json\'s grid '
+               f'have drifted apart")')
+    # The literal below is PAL_MAX_VARIANTS, inlined for SECTION_PIN's reason: a comptime
+    # fn's free names resolve at the CALL SITE, so a named engine constant here would
+    # resolve in the effects library's scope or silently not at all.
+    out.append(f'    ensure(slot >= 0 && slot < {PAL_MAX_VARIANTS}, '
+               f'"{names.fn_sec_variant}(slot: {{slot}}): the engine has '
+               f'{PAL_MAX_VARIANTS} palette variant staging slots (PAL_MAX_VARIANTS) — '
+               f'Palette_SetVariant masks the index with a power-of-two mask, so a '
+               f'higher slot would fold back onto slot 0")')
+    out.append("    comptime var out = hand")
+    for i in sorted(variant_bound):
+        pid = variant_bound[i]
+        for slot, v in enumerate(presets[pid]["variants"]):
+            # A `null` slot CLEARS, and clear is 0 — the engine's own "unused slots
+            # 0 = clear". An index the array does not reach emits no row at all, which
+            # is how "keep the hand value" is spelled.
+            target = "0" if v is None else names.variant(pid, slot)
+            out.append(f"    if sec == {i} && slot == {slot} {{ out = {target} }}")
+    out.append("    return out")
+    out.append("}")
     return "\n".join(out) + "\n"
 
 
@@ -1518,7 +1988,9 @@ HEADER = """\
 // STATE OF THIS BAKE: {scenes} editor scene(s) reached by an assignment,
 // {bindings} binding(s), {sections} act sections. Authored but unassigned: {unused}.
 //
-// THE THREE `pub comptime fn`s AT THE BOTTOM ARE EMITTED FOR EVERY ACT, ALWAYS —
+// EVERY `pub comptime fn` AT THE BOTTOM IS EMITTED FOR EVERY ACT, ALWAYS — the act
+// default, the section scene, and one per `EffectsPreset` channel (raster, cycle,
+// variant) —
 // owner ruling 2026-08-22 (design §9 Q-c, the always-emitted default). With no
 // editor content they return the `hand:` fallback their caller passes; with
 // editor content they return the lowered record above. The caller therefore
@@ -1544,7 +2016,7 @@ WITNESS_BLOCK = """\
 // rows, same mechanism). Both are zero ROM bytes.
 //
 // An equ is only defined if this module is LOWERED, and a module is lowered iff it
-// is in the target's `use` closure — so the presence of these two names in the
+// is in the target's `use` closure — so the presence of these names in the
 // listing is positive evidence that `act_descriptor.emp`'s import edge is live. That
 // matters because an unreached `.emp` module gets ZERO body elaboration: every guard
 // below, including the budget fold, builds green while asserting nothing. Measured
@@ -1552,7 +2024,9 @@ WITNESS_BLOCK = """\
 // `ensure(1 == 0)` here built GREEN with an unchanged CRC.
 pub equ {equ_scenes} = {scenes}
 pub equ {equ_bindings} = {bindings}
-pub equ {equ_raster_bindings} = {raster_bindings}\
+pub equ {equ_raster_bindings} = {raster_bindings}
+pub equ {equ_cycle_bindings} = {cycle_bindings}
+pub equ {equ_variant_bindings} = {variant_bindings}\
 """
 
 SECTION_PIN = """\
@@ -1607,6 +2081,55 @@ RASTER_BANNER = """\
 // ownership walks fire on authored content HERE — a `pub data` in a lowered module is
 // elaborated unconditionally. The generator validates SHAPE only and repeats not one of
 // those bounds (tools/effects_gen.py, the RASTER BANDS banner).\
+"""
+
+PALETTE_BANNER = """\
+// ---- AURORA-AUTHORED PALETTE CYCLES AND VARIANTS, through the REAL constructors ----
+//
+// The other two `EffectsPreset` channels the same preset documents carry (EFFECTS-W1 DoD
+// item 5; the shape is empyrean docs/AURORA_EFFECTS_SCHEMA.md §7.2). One `pub data` per
+// authored cycle script and one per authored variant SLOT — the `variants` array is
+// positional, so slot 0 and slot 1 of one document are two descriptors under two names.
+//
+// ⚠ `cycles` HERE IS PALETTE CYCLING — the CRAM-span rotation Palette_DoCycle performs.
+// It is NOT the DEBUG hotkey's raster cycle table (RASTER_CYCLE_COUNT), which steps a
+// human through raster PROGRAMS. Said once, here, per hub ruling Q10.
+//
+// THE `period` ON EVERY cycle_channel BELOW IS AN ENGINE BYTE, ONE LESS THAN THE DOCUMENT
+// SAYS. The document's `period` is in frames, the author's unit; the engine's timer
+// rotates one frame later than the byte, so the generator emits `period - 1` (ruling Q7).
+// Reading the two numbers as a contradiction is the mistake this note exists to prevent —
+// see the RIDER 5 PAIRING block in tools/effects_gen.py's `render_cycle_channel`.
+//
+// Every `ensure` in variant() and cycle_channel() fires on authored content HERE, because
+// a `pub data` in a lowered module is elaborated unconditionally. Not one of their ranges
+// is restated in the generator.\
+"""
+
+PALETTE_BINDING_BANNER = """\
+// ---- THE PALETTE BINDINGS — the same seam, the other two channels ----
+//
+// Two more always-emitted choosers beside the raster one, called from the same place: the
+// section's own `preset()` in games/sonic4/data/effects/ojz_effects.emp. There is no
+// second sidecar key — ONE `rasterRef` binds the WHOLE preset document, every channel it
+// carries (ruling Q1), because the engine binds one preset RECORD per section and
+// `ep_cycle` / `ep_variants` are fields of it.
+//
+// `hand:` IS THE CALLER'S, AND FOR `cycle:` IT IS `Pal_Cycle_None`, NEVER 0. NULL cannot
+// mean "off" while it also means "keep" (ARCH §7.12), which is why the engine ships a
+// non-NULL zero-channel sentinel. For a variant slot the `hand:` is whatever the section
+// carries today — for every OJZ section that is `Variant_Water_Deep` in slot 0 and 0 in
+// slot 1 — and this is LOAD-BEARING: a document that said nothing and cleared the slots
+// would drop the act-wide water tint at the first crossing.
+//
+// THE VARIANT CHOOSER IS PER-SLOT because ruling Q5's three states are per INDEX: an
+// index the array does not reach keeps `hand:`, `null` clears, an object authors. A
+// single `[Label; 2]`-returning chooser would have to index its own `hand:` array to say
+// "keep the caller's value at slot 1 only"; per-slot spells it as the word `hand`.
+//
+// With no document carrying either key the bodies below are `return out` over an
+// unmodified `hand`, and this whole block is zero ROM bytes — a `pub comptime fn` emits
+// nothing.\
 """
 
 BINDING_BANNER = """\

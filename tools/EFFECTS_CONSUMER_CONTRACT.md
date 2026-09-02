@@ -316,10 +316,21 @@ a note in an error you may never see, which is exactly why the rule is written h
   booked with the hub. Until it lands, enumerate prose separately from code rather than
   trusting a search keyed on the sibling name.
 
-  **The channel it binds is `ep_raster` only** — a preset document carries a raster
-  program and nothing else, so `rasterRef` is a NARROW binding. empyrean §7's `effectsRef`
-  stays reserved and unspent for the total binding it was named for (CR adjudication
-  2026-08-30, option B).
+  ~~**The channel it binds is `ep_raster` only** — a preset document carries a raster
+  program and nothing else, so `rasterRef` is a NARROW binding.~~ **CORRECTED IN PLACE
+  2026-09-02 (EFFECTS-W1 item 5, hub ruling Q1).** A preset document now carries `cycles`
+  and `variants` beside `bands`, and **`rasterRef` binds the WHOLE document — every channel
+  it carries.** The reason it is one key and not three: the engine binds ONE preset record
+  per section, and `ep_cycle` and `ep_variants` are fields of that same record
+  (`engine/effects/preset.emp`), so sibling `cycleRef` / `variantsRef` keys would let a
+  section name three documents the engine has one slot to put. **`rasterRef` is therefore a
+  deliberate HISTORICAL SPELLING**, from the day a preset document had only `bands`; do not
+  conclude from the name that the other two channels need refs of their own. Renaming it is
+  a separate CR nobody has asked for (empyrean §3.1 records the price of a key addition:
+  thirteen code sites in five files plus six prose sites). empyrean §7's `effectsRef`
+  stays reserved and unspent for the TOTAL binding it was named for (CR adjudication
+  2026-08-30, option B) — total still needs a palette reference, and `ep_pal` is the one
+  preset field with no default.
 - `project.json` (repo root): per act entry, the generator reads **one key**: `sceneRef`
   — string scene id or `null`/absent (= the hand-authored engine default in
   `act_descriptor.emp` stands). The dangling `parallax` key is deleted in the same parcel
@@ -371,7 +382,24 @@ scene file is refused by the scene loader's ordinary unknown-key path (asserted:
 **Wave-2 status.** `bands` is a NEW key, not one of §7's reserved three. Its relation to
 the reserved `fires`: a band lowers to the two (or three, with `sh`) fires `band()`
 derives, so `bands` is the safe, closed subset and `fires` remains the open general form.
-The three reserved names are refused **by name** here rather than as unknown keys.
+**`variants` and `cycles` were refused by name until 2026-09-02 and are now BUILT**
+(EFFECTS-W1 DoD item 5; the hub specified them in `empyrean`
+`docs/AURORA_EFFECTS_SCHEMA.md` §7.2 on 2026-08-30 and ruled all ten of aeon's open
+questions there). `fires` is the last reserved name and is still refused **by name** here
+rather than as an unknown key.
+
+**⚠ WHICH "CYCLE" `cycles` MEANS, SAID ONCE (hub ruling Q10).** `cycles` is **PALETTE
+cycling** — the rotation of a span of CRAM entries performed by `Palette_DoCycle` and
+`Palette_RotateSpan` in `engine/effects/palette.emp`. It is unrelated to the DEBUG hotkey's
+**raster cycle table** (`RASTER_CYCLE_COUNT`, `tools/test_raster_cycle_table_lint.py`),
+which steps a human at a controller through raster PROGRAMS. A reader of that lint must not
+read this key as the same thing.
+
+**The other two channels are `EffectsPreset` channels for the same reason `bands` is.** A
+scene IS a `parallax_config`; the palette, the palette cycle, the variants and the raster
+program are channels of an `EffectsPreset`, bound per SECTION (§16.1, quoted above). So all
+three live in `presets/<id>.json` together, and **one `rasterRef` binds the whole document**
+(ruling Q1 — see §2.2's corrected note on that key's historical spelling).
 
 #### What one band becomes, end to end
 
@@ -417,7 +445,9 @@ the VALUE layer (is this number legal), and they fire at build time on the gener
 | `id` | string, `^[a-z][a-z0-9_]{0,31}$`, `== ` filename stem | Becomes the `.emp` label component `EditorRaster_<ACT>_<id>`. **Absent: refused.** | the emitted label's name | `tools/effects_gen.py` `load_preset` (pattern `SCENE_ID_RE`) |
 | `name` | any | Writer-owned display label. **Read by nothing; whatever the value, it is dropped.** | nothing | not validated anywhere — deliberately, `PRESET_IGNORED_KEYS` |
 | `bands` | array, length ≥ 1 | The bands in this program. **Absent: refused. Empty: refused** (an empty program is not a program). | one `compose([...])` | `tools/effects_gen.py` `load_preset`; backstop `engine/effects/raster_dsl.emp` `compose` ("compose: nothing to compose") |
-| `fires`, `variants`, `cycles` | — | empyrean §7 reserved wave-2 keys. **Refused by name**, with the reason, not as unknown keys. | nothing | `tools/effects_gen.py` `_check_keys` via `PRESET_REFUSED_KEYS` |
+| `cycles` | array of channel objects, **or `null`**, or absent | This section's ONE palette cycle script — the array IS the script, because `ep_cycle` is one pointer. **Three states, one spelling each** (ruling Q2): **absent** = keep the section's hand-authored cycle (the no-cost majority case); **`null`** = cycling OFF, lowering to the `Pal_Cycle_None` sentinel and never to 0; a **non-empty array** = the authored script. **Empty array: refused**, naming the two legal spellings. More channels than `engine/effects/palette_dsl.emp` has wrappers for (1 and 2 today): refused naming the wrappers, not `PAL_CYCLE_MAX_CHANNELS`. | `cycle_scriptN([cycle_channel(...), ...])` under `pub data EditorCycle_<ACT>_<id>` | `tools/effects_gen.py` `_check_cycles` (shape, the empty-array and channel-count refusals) · `render_preset_cycle` (wrapper choice) |
+| `variants` | array whose INDEX is the slot; each entry an object or `null` | The palette variant descriptors this section binds. **Positional: index *i* is `ep_variants[i]`, the slot `Palette_SetVariant` takes and the slot an `on.pal_region.slot` in this same document names.** **Three states per INDEX** (ruling Q5): an index the array does not reach (**including an absent `variants` key**) KEEPS that slot's hand-authored value — load-bearing, because every shipped OJZ preset carries the act's water tint and a silent clear would drop it act-wide at the first crossing; **`null`** at an index CLEARS it (lowers to 0); an **object** authors it. **There is no key-level `variants: null`** — clearing both is `[null, null]`, and a key-level null is refused BY NAME rather than read as absent. More entries than the engine has slots: refused naming `PAL_MAX_VARIANTS`. | one `variant(...)` per authored slot under `pub data EditorVariant_<ACT>_<id>_<slot>` | `tools/effects_gen.py` `_check_variants` (shape, the key-level-null and slot-count refusals) |
+| `fires` | — | The last empyrean §7 reserved wave-2 key. **Refused by name**, with the reason, not as an unknown key. | nothing | `tools/effects_gen.py` `_check_keys` via `PRESET_REFUSED_KEYS` |
 | any other key | — | **Refused.** Adding one is a CONTRACT change (see the drift rule at the top of this file). | nothing | `tools/effects_gen.py` `_check_keys` |
 | `bands[i].top` | integer | Screen line the effect turns **ON**. Its writes land on this line. **No default — required.** **0 is not "off"; it is line 0, which the engine refuses** (lines 0–2 belong to the priming records). | `band(top: …)` | shape: `tools/effects_gen.py` `_render_int` · value: `engine/effects/raster_dsl.emp` `fire` (screen-line range), `band` (`top < bot`), `band` (height vs `fire_cost_cycles`) |
 | `bands[i].bot` | integer | Screen line the effect turns **OFF** — the restore's line. The band covers `top .. bot-1` inclusive; `bot - top` is the height the engine charges. **No default — required.** | the derived `pal_restore` fire's line | shape: `_render_int` · value: `raster_dsl.emp` `fire`, `band` (`top < bot`), `band` (height, and the S/H height rule when `sh` is set) |
@@ -430,6 +460,15 @@ the VALUE layer (is this number legal), and they fire at build time on the gener
 | `on.pal_region.pal_line` | integer | The staging source's palette line. Must agree with `addr`'s line. | `stream_pal_region(pal_line: …)` | shape: `_render_int` · value: `raster_dsl.emp` `stream_pal_region` (range, and the `addr >> 5 == pal_line` agreement) |
 | `on.pal_region.entry` | integer | The staging source's first entry. Must agree with `addr`'s entry. | `stream_pal_region(entry: …)` | shape: `_render_int` · value: `raster_dsl.emp` `stream_pal_region` (range, and the `(addr >> 1) & 15 == entry` agreement) |
 | `on.pal_region.count` | integer | How many colours are swapped. Also the derived restore's word count. | `stream_pal_region(count: …)` | shape: `_render_int` · value: `raster_dsl.emp` `stream_pal_region` (burst ceiling, `entry + count` within the line), `pal_restore`, `fire` |
+| `cycles[i].line` | integer | CRAM line the rotation runs on. **No default — required.** Never 0: line 0 is the character's, which the constructor refuses. | `cycle_channel(line: …)` → `pc_line` | shape: `_render_int` · value: `engine/effects/palette_dsl.emp` `cycle_channel` (1..3) |
+| `cycles[i].first` | integer | First entry index within the line. **No default — required.** | `cycle_channel(first: …)` → `pc_first` | shape: `_render_int` · value: `palette_dsl.emp` `cycle_channel` (0..15) |
+| `cycles[i].count` | integer | How many consecutive entries rotate. **No default — required.** The runtime treats a too-small count as a no-op. | `cycle_channel(count: …)` → `pc_count` | shape: `_render_int` · value: `palette_dsl.emp` `cycle_channel` (a minimum, and `first + count` within the line's 16 entries) |
+| `cycles[i].period` | integer ≥ 2 | **FRAMES BETWEEN ROTATIONS, IN THE AUTHOR'S UNIT** — `period: 9` means a rotation every 9 frames. **No default — required.** The engine's timer reloads the byte and rotates when it hits 0, so its runtime cadence is `period + 1`; **the generator absorbs that** and emits `pc_period = period - 1` (ruling Q7), so no authored document moves when the booked runtime fix lands. **The one consequence, and the ONE value bound this generator owns:** the legal document floor is the engine's floor shifted by the same translation, so `0` and `1` are refused HERE, with a message naming the author's number — one layer down the engine would complain about a number the author never wrote. | `cycle_channel(period: <period - 1>)` → `pc_period` | shape + the unit floor: `tools/effects_gen.py` `render_cycle_channel` (`CYCLE_PERIOD_DOC_MIN`, pinned against the engine's own floor by `test_effects_gen.py::TestTheEngineMirrorsArePinned`) · value: `palette_dsl.emp` `cycle_channel` (1..255, on the EMITTED byte) |
+| `cycles[i].dir` | integer | Rotation direction, forward or reverse. **OPTIONAL — the only optional channel field**, because it is the only one `cycle_channel()` defaults. Absent: omitted from the emitted call so the constructor's default stands. | `cycle_channel(dir: …)` → `pc_dir` | shape: `_render_int` · value: `palette_dsl.emp` `cycle_channel` (0 or 1) |
+| `variants[i].shift_r` / `shift_g` / `shift_b` | integer | Right-shift of that colour channel before the bias. **OPTIONAL** (constructor default). | `variant(shift_r: …)` → `v_shift_r` etc. | shape: `_render_int` · value: `palette_dsl.emp` `variant` (0..3 — a 3-bit channel) |
+| `variants[i].bias_r` / `bias_g` / `bias_b` | integer, may be negative | Signed bias added to that channel after the shift; the transform is `clamp((c >> shift) + bias, 0, 7)`. **OPTIONAL** (constructor default). | `variant(bias_r: …)` → `v_bias_r` etc. | shape: `_render_int` · value: `palette_dsl.emp` `variant` (-7..+7) |
+| `variants[i].lines` | integer **bitmask** | Which CRAM lines the derive covers. **The INTEGER BITMASK the engine field is** (ruling Q4) — checkboxes or a line list are the editor panel's job, not the wire's, and **the generator will not grow a second spelling.** **OPTIONAL** (constructor default `%1110`). Uncovered lines are left as they are. | `variant(lines: …)` → `v_lines` | shape: `_render_int` · value: `palette_dsl.emp` `variant` (bit 0 — the character's line — must be clear; at least one of bits 1-3 set) |
+| *(cross-field)* a band streaming from a **cleared** slot | — | A band whose `on.pal_region.slot` names an index this same document sets to **`null`** is **refused**: "clear this slot" and "stream from this slot" in one file is never what anyone meant, and the band would stream whatever the staging buffer last held. A band naming a slot the document simply does **not reach** is **NOT** refused — that slot still holds the section's hand-authored value, which the generator cannot see (ruling Q6 defers the broad check). | nothing | `tools/effects_gen.py` `_check_cleared_slot_is_not_streamed` |
 
 **Whole-program rules — no field carries them, and they are all the engine's.** Emitted by
 `raster_program()` over the composed fire list: band pairing and ownership
@@ -490,6 +529,33 @@ which reads `effects_gen.py`'s raster arm and fails if it spells one of those nu
   `fx_tint_band` header states this as a standing, booked limitation.
 - **Nothing checks that a band is VISIBLE** — that the CRAM entry it repaints is used by
   pixels on those rows, or that the colour differs from the base. Design §3.4.
+- **The per-frame CPU cost of palette CYCLING is UNMEASURED, and there is deliberately no
+  number** (ruling Q9). `tools/effects_budget_model.toml` has no cycling row, and a
+  placeholder there would be worse than an absent one because a budget model is read as
+  measured. What IS measured, and what matters more than the rotation itself: a cycling
+  channel sets `PAL_ACT_VARIANT_STALE` on the frames it actually rotates, and that bit is
+  what gates the full variant re-derive — **19,332 cycles/frame, 15.1% of a frame**
+  (`engine/effects/palette.emp`, measured on OJZ_ScrollTest 2026-08-13). So a document
+  carrying BOTH keys is not two independent costs: the cycle is what makes the variant
+  re-derive fire. **⚠ And that figure is a ONE-SLOT number** — the measured scene bound one
+  variant — while `variants` is the first mechanism that makes binding BOTH slots easy, and
+  `Palette_DoVariants` derives each bound slot independently. The two-slot cost is
+  unmeasured; the capture is booked in `docs/DEFERRED_WORK.md` under item 5.
+- **Nothing compares an authored `period` against an observed CADENCE.** The generator's
+  `period - 1` and the engine's `period + 1` timer are a matched pair held together by a
+  comment (`# RIDER 5 PAIRING` in `tools/effects_gen.py`'s `render_cycle_channel`) and
+  nothing else. If the booked runtime fix lands without the generator changing in the same
+  parcel, every authored cycle runs one frame faster, silently. What IS checked, by
+  `tools/editor_palette_golden.py` on every canonical sonic4 build, is that the byte in the
+  ROM equals `authored period - 1` — i.e. that the generator's half of the pair is intact.
+- **The runtime variant-to-`pal_line` binding is still unchecked, but HALF of the slot half
+  is now checkable and is checked.** A document carrying both `bands` and `variants` puts
+  the band's `slot` and the descriptor in one file, so the generator refuses a band that
+  streams from a slot the document explicitly clears (the row above). The BROAD check — a
+  band naming a slot the document leaves absent — is deferred (ruling Q6) because absent
+  means "the section's hand `preset()` value is still there", which is the majority case.
+  Whether the bound variant's `lines` mask covers the band's `pal_line` remains a runtime
+  fact no comptime guard can see.
 - ~~**No writer-side schema exists yet.**~~ **IT EXISTS NOW — corrected 2026-08-29, hours after
   this bullet was written, which is why it is corrected in place rather than left to be
   discovered.** The writer-side half is `contract/schema/aurora-effects-preset.schema.json`
