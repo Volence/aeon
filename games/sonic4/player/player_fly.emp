@@ -35,7 +35,7 @@ use games.sonic4.player_common.{PlayerV, BUTTON_JUMP_MASK, BUTTON_JUMP_MASK_NO_B
 // Tails_DoLevelCollision that the jumping mode handler calls.
 
 // Game-config constants — sole authority is games.sonic4.constants.
-use games.sonic4.constants.{PSTATE_FLY, CHEAT_DEBUG_FLY}
+use games.sonic4.constants.{PSTATE_FLY, PSTATE_JUMP, PSTATE_ROLLJUMP, CHEAT_DEBUG_FLY}
 
 // player-block field displacements (a4-relative). a4 holds the CALLING SLOT's
 // block, so these reach that slot's physics row and no other. File-local
@@ -302,26 +302,32 @@ proc Fly_TickFuel (a0: *Sst) clobbers() {
 // lift y_pos by the derived curl shift. By the time PState_Fly's first frame
 // runs the player is uncurled, which is what the invariant is for.
 //
-// The two gates that ARE preconditions:
+// The three gates that ARE preconditions:
 //   * AIRBORNE — structural. This is only reachable through Player_Ability,
-//     which only PState_AirShared calls, and only from an air state. Note this
-//     is BROADER than S3K, whose `tst.b jumping(a0)` in Tails_JumpHeight admits
-//     only airborne frames that came from an actual jump — walking off a ledge
-//     there gets you no flight.
+//     which only PState_AirShared calls, and only from an air state.
+//   * CAME FROM A JUMP — S3K's `tst.b jumping(a0) / beq.s loc_15106` in
+//     Tails_JumpHeight (sonic3k.asm:28597-28598), whose `loc_15106` arm (:28615)
+//     rts's without ever reaching Tails_Test_For_Flight. So `jumping != 0` is a
+//     HARD PRECONDITION of flight in the reference, exactly as it is of Sonic's
+//     insta-shield, and it is step (0) of this proc.
 //
-//     CORRECTION 2026-08-28 (parcel/instashield-jump-gate), COMMENT ONLY — this
-//     line's justification used to read "we have no `jumping` bit (ST_ROLLING is
-//     close but marks a rolled-off-a-ledge AIRBALL too)", and that premise is
-//     WRONG. PlayerV.player_state discriminates without any new bit:
-//     {PSTATE_JUMP, PSTATE_ROLLJUMP} IS S3K's `jumping` (established by enumerating
-//     every writer of the byte — see player_instashield.emp's module header), and
-//     the same widening produced a real reported bug for Sonic's insta-shield,
-//     fixed there for 16 bytes. The WIDENING ITSELF STANDS HERE, unchanged and
-//     deliberately: the broader rule is the forgiving direction and nobody has
-//     reported flight-off-a-ledge as wrong. It is now a live question for the
-//     owner rather than a settled impossibility — booked in docs/DEFERRED_WORK.md
-//     under the insta-shield riders, with a recommendation. Do NOT close it at the
-//     call site in player_air.emp: that gate is shared with Knuckles' glide.
+//     HISTORY, because this line has been wrong twice and the record is what stops
+//     a third pass re-widening it. Until 2026-08-28 the justification for NOT having
+//     this gate read "we have no `jumping` bit (ST_ROLLING is close but marks a
+//     rolled-off-a-ledge AIRBALL too)". That premise is FALSE:
+//     PlayerV.player_state discriminates without any new bit — {PSTATE_JUMP,
+//     PSTATE_ROLLJUMP} IS S3K's `jumping`, established by enumerating every WRITER
+//     of the byte (see player_instashield.emp's module header for the enumeration
+//     and for the launcher obligation it puts on springs / bounces / knockback).
+//     That correction landed as a comment only, leaving the widening standing and
+//     the ruling open. The ruling is now MADE: TAILS IS TIGHTENED, KNUCKLES IS NOT.
+//     Tails' flight out of a non-jump fall converts any fall into indefinite
+//     flight, which S3K never allows and which makes ledges free; Knuckles' glide
+//     off a ledge walk-off reads as a coyote-time affordance rather than a bug, so
+//     `Ability_KnuxGlide` deliberately keeps the broad rule (booked as open in
+//     docs/DEFERRED_WORK.md with that reason). Do NOT close this at the call site
+//     in player_air.emp: that gate is SHARED with the glide, and moving it there
+//     would tighten Knuckles too — which is precisely what the ruling refuses.
 //   * y_vel >= the jump release cap — S3K's -$400, which is our per-character
 //     PHYS_JUMP_RELEASE_CAP read out of the slot's physics row. It is what stops
 //     a double-tap at launch from converting the whole jump into flight: the
@@ -341,14 +347,37 @@ proc Fly_TickFuel (a0: *Sst) clobbers() {
 // Clobbers: d0-d2, a1-a2 — the AbilityHook contract
 // -----------------------------------------------
 pub proc Ability_TailsFlight (a0: *Sst) clobbers(d0-d2/a1-a2) preserves(a0) {
+        // (0) S3K's `tst.b jumping(a0) / beq.s loc_15106` — the airborne frame must
+        // have come from a JUMP, not from a ledge walk-off, a launcher or a knockback.
+        //
+        // FIRST, ahead of the release-cap test, because that is the reference's own
+        // order: Tails_JumpHeight refuses on `jumping` before it even computes d1 for
+        // the `cmp.w y_vel(a0),d1` (sonic3k.asm:28597 vs :28605). A refusal here
+        // writes NOTHING — no fuel seed, no thrust mode, no state change — so a
+        // refused press cannot strand PSTATE_FLY's scratch half-initialised.
+        //
+        // Two explicit compares rather than an unsigned range test on
+        // PSTATE_JUMP..PSTATE_ROLLJUMP, matching Ability_InstaShield: the range form
+        // would silently start admitting a third state the day somebody renumbers,
+        // and this pair is 2 bytes dearer. d0 is free here (the AbilityHook contract
+        // clobbers it) and is reloaded with PSTATE_FLY below.
+        move.b  PlayerV.player_state(a0), d0
+        cmpi.b  #PSTATE_JUMP, d0
+        beq     .from_jump
+        cmpi.b  #PSTATE_ROLLJUMP, d0
+        bne     .refuse                         // AIR / AIRBALL / anything else: the
+                                                // press did not come out of a jump
+    .from_jump:
+
+        // (1) S3K's release-cap test — still rising faster than the cap, no flight.
         move.w  y_vel(a0), d1
         cmp.w   PBLK_RELEASE_CAP(a4), d1
-        blt     .rising_too_fast
+        blt     .refuse                         // rising too fast
         move.b  #FLY_FUEL_TICKS, PlayerV.fly_fuel(a0)
         move.b  #FLY_COAST, PlayerV.fly_thrust(a0)
         moveq   #PSTATE_FLY, d0
         jbra    Player_SetState                 // tail — its enter hook uncurls
-.rising_too_fast:
+.refuse:
         rts
 }
 // The fuel seed is a byte, so the S3K expression has to fit one.
