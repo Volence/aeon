@@ -49,7 +49,25 @@ Both halves are silent-and-green failures today: with no sidecar carrying a `ras
 the chooser resolves to `hand`, so deleting the call and typing the literal back leaves
 every witness value and every ROM byte identical.
 
-USAGE:  python3 tools/effects_seam_gate.py [--lst s4.lst]
+--source-only — THE FAST LOOP'S ARM (2026-09-02, walkthrough finding b4).
+Steps 1, 2 and 2b below read SOURCE ONLY: the generated module, the descriptor, the
+effects library and the section sidecars. Step 3 is the one that needs the build's
+listing. `FAST=1 ./build.sh` skips this whole gate along with the rest of the pytest
+lane, so binding a raster preset to a section no preset threads the chooser for goes
+GREEN in the loop the author is told to use and RED in the canonical build — 7
+`tools/test_effects_seam_gate.py` failures found at landing time, after the work.
+`--source-only` runs 1/2/2b before the build so that class fails in the loop, with the
+same message. MEASURED 2026-09-02, this repo, 5 consecutive runs including interpreter
+startup: 0.014 s each, against a FAST build of 2.07 s on the same box (16 cores, load
+~6.8; the header's 1.3 s figure is a quieter box). Under 1% either way.
+
+WHAT --source-only DOES NOT CHECK, stated so a green line is not over-read: step 3 —
+the REACHABILITY evidence and the witness VALUES. It cannot: the equates it reads are
+minted by the build it runs before. A `--source-only` pass says the binding seam is
+spelled and wired correctly in the source; it does NOT say the module reached the ROM.
+Only the canonical build answers that, and only that answer gates a landing.
+
+USAGE:  python3 tools/effects_seam_gate.py [--lst s4.lst] [--source-only]
 """
 
 import os
@@ -215,6 +233,7 @@ def main() -> int:
     if "--lst" in sys.argv:
         lst = sys.argv[sys.argv.index("--lst") + 1]
     lst_path = lst if os.path.isabs(lst) else os.path.join(REPO, lst)
+    source_only = "--source-only" in sys.argv
 
     names = effects_gen.act_names(REPO)
 
@@ -344,6 +363,20 @@ def main() -> int:
     if faults:
         fail(f"the raster binding seam is broken in {EFFECTS_LIB}:\n  - "
              + "\n  - ".join(faults))
+
+    if source_only:
+        # Say what was NOT measured, in the same breath as the pass. A gate that
+        # reports only its green half is how a partial check gets read as the whole
+        # one — and this half deliberately runs BEFORE the artifact exists.
+        threaded = ", ".join(f"{n}(sec: {raster_calls[n][0]})"
+                             for n in sorted(raster_calls))
+        print(f"effects_seam_gate: OK (--source-only) — seam spelling + raster binding "
+              f"in {EFFECTS_LIB} [{threaded}]; {calls} section call site(s), "
+              f"{len(want_raster_refs)} sidecar rasterRef(s).")
+        print("  NOT CHECKED here: the reachability witnesses and their values (step 3) "
+              "— they live in the build's listing, which does not exist yet. Only the "
+              "canonical `./build.sh` answers that.")
+        return 0
 
     # ---- 3. THE REACHABILITY EVIDENCE: the witnesses reached the artifact ----
     if not os.path.isfile(lst_path):

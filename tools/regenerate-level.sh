@@ -215,9 +215,27 @@ python3 "${TOOLS}/ojz_block_gen.py" generate ${NO_CACHE}
 echo "Verifying the re-baked tree..."
 python3 "${TOOLS}/verify_level_bin.py"
 
+# THE EDITOR-SOURCE STAMP — record WHICH editor bytes these outputs were baked from.
+# LAST, and only on a fully successful run: a stamp written before the generators
+# finish would certify a tree that does not exist. `set -euo pipefail` above means a
+# failure anywhere upstream never reaches this line, which is the whole point — a
+# half-baked tree stays STALE.
+#
+# It is the staleness gate's deletion-visible arm. mtime is monotonic per file, so
+# DELETING an editor document lowers no mtime and the old check read the tree as
+# fresh: the same build error came back, byte-identical, about a file the author had
+# already removed, until they touched something (aurora
+# docs/reviews/2026-09-02-effects-cold-walkthrough.md, finding b2). A content
+# manifest cannot be fooled that way. See tools/level_staleness.py's docstring.
+echo "Stamping the editor sources this bake read..."
+python3 "${TOOLS}/level_staleness.py" --stamp sonic4
+
 echo "Re-bake complete. Next: ./build.sh both shapes."
 echo "The committed level tree should be byte-identical unless the editor data or"
 echo "a donor project changed — review 'git status games/sonic4/data' before committing."
+echo
+echo "COMMIT games/sonic4/data/editor_sources.stamp.json WITH the tree too — it is what"
+echo "lets the staleness gate see an editor document that was DELETED rather than edited."
 echo
 echo "COMMIT games/sonic4/data/generated/ojz/act1/DONOR_PROVENANCE.json WITH the tree."
 echo "ojz_strip_gen stamped both donors' HEAD SHAs (and their dirty flags) into it as"

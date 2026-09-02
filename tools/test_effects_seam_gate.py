@@ -370,5 +370,78 @@ class TestRasterSeamAgainstTheRealTree(unittest.TestCase):
                           f"section 5 binds {bound[5]!r}, which names no shipped preset document")
 
 
+class TestSourceOnlyMode(unittest.TestCase):
+    """`--source-only` — the arm `FAST=1 ./build.sh` runs (walkthrough finding b4).
+
+    FAST used to run NO part of this gate: it sets NO_LINT=1 (skipping the pytest
+    lane) and the post-build invocation is under `FAST == 0`. So binding a raster
+    preset to a section no preset threads the chooser for was green in the loop and
+    red in the canonical build, found at landing. Steps 1/2/2b read source only, so
+    they can run before the build; step 3 reads the listing and cannot.
+
+    THE SPLIT IS THE THING BEING TESTED, in both directions. `--source-only` has to
+    reach step 2b (or FAST is still blind to the class it was added for) and has to
+    stop before step 3 (or it cannot run before the build at all). Asserting only the
+    exit code would be satisfied by a flag that skipped everything.
+    """
+
+    def run_gate(self, *args):
+        return subprocess.run([sys.executable, GATE, *args],
+                              capture_output=True, text=True, cwd=REPO)
+
+    MISSING_LST = "/nonexistent/there-is-no-listing-here.lst"
+
+    def test_it_stops_before_the_LISTING_step(self):
+        """The discriminator: point both modes at a listing that does not exist. The
+        full gate must refuse (step 3 has no artifact to read); --source-only must
+        not care, because it never gets there."""
+        full = self.run_gate("--lst", self.MISSING_LST)
+        self.assertEqual(full.returncode, 1, full.stdout)
+        self.assertIn("not found", full.stdout)
+
+        src = self.run_gate("--source-only", "--lst", self.MISSING_LST)
+        self.assertEqual(src.returncode, 0,
+                         f"--source-only read the listing anyway:\n{src.stdout}")
+
+    def test_it_REACHES_the_raster_binding_step(self):
+        """Not merely 'exits 0'. The line it prints must name the threaded call sites,
+        which only step 2b can know — that is the step the FAST loop was missing."""
+        p = self.run_gate("--source-only")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        names = effects_gen.act_names(REPO)
+        with open(os.path.join(REPO, effects_seam_gate.EFFECTS_LIB)) as f:
+            calls = effects_seam_gate.raster_call_sites(f.read(), names.fn_sec_raster)
+        self.assertTrue(calls, "the tree threads no chooser — nothing to observe here")
+        for preset, (sec, _hand) in calls.items():
+            self.assertIn(f"{preset}(sec: {sec})", p.stdout)
+
+    def test_it_says_what_it_did_NOT_check(self):
+        """A partial gate reporting only its green half is how a loop-level pass gets
+        read as a landing-level one. The FAST banner leans on this line."""
+        p = self.run_gate("--source-only")
+        self.assertIn("NOT CHECKED", p.stdout)
+        self.assertIn("canonical", p.stdout)
+
+    def test_a_broken_raster_binding_FAILS_it(self):
+        """The class FAST was blind to, driven through the same code path the flag
+        takes. `raster_seam_faults` is the only thing between the sidecars and the
+        gate's exit code, so a fault here is a `--source-only` refusal there."""
+        names = effects_gen.act_names(REPO)
+        with open(os.path.join(REPO, effects_seam_gate.EFFECTS_LIB)) as f:
+            calls = effects_seam_gate.raster_call_sites(f.read(), names.fn_sec_raster)
+        threaded = {sec for sec, _h in calls.values()}
+        sections = effects_gen.act_section_count(REPO)
+        unwired = next(s for s in range(sections) if s not in threaded)
+        with open(os.path.join(REPO, effects_seam_gate.DESCRIPTOR)) as f:
+            bindings = effects_seam_gate.descriptor_effects_bindings(f.read())
+        refs = dict(effects_gen.load_section_raster_refs(REPO))
+        refs[unwired] = "cold_test_band"          # the click Aurora offers
+        faults = effects_seam_gate.raster_seam_faults(
+            calls, bindings, sections, refs, names.fn_sec_raster)
+        self.assertTrue(faults, f"binding section {unwired} raised no fault")
+        self.assertIn(f"section {unwired}'s sidecar names rasterRef 'cold_test_band'",
+                      faults[0])
+
+
 if __name__ == "__main__":
     unittest.main()
