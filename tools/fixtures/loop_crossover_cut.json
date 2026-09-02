@@ -1,0 +1,101 @@
+{
+  "_note": "Player_LoopCrossover's and Collision_GetType's bytes, the shipped CrossoverTable, and the symbols/equates each shape was built with, per BUILD SHAPE. The two canonical shapes place these at different addresses, so one cut cannot serve both. Regenerate with tools/loop_crossover_gate.py --write-fixture (it preserves the other shape).",
+  "shapes": {
+    "s4.debug.lst": {
+      "bytes": [
+        "20280002302800060280fff8fff0b0ac0014672a29400014220048401628002d2f084eb86964205f7200120043f90007082810311000670653001140002d4e75",
+        "e6483438ad26b0426d5ab078ad286e549042d078ad2e0c4000506d0404400050e6493438ad2ab2426d3ab278ad2c6e349242e2493438ad30e24ad2420c41001e6d040441001e3401e549d242e949d2404a0367040641096041f9ffff2580103010004e7570004e75"
+      ],
+      "equs": {
+        "COLL_CELL_H": 16,
+        "COLL_CELL_W": 8,
+        "CTYPE_AIR": 0,
+        "LAYER_PATH_A": 0,
+        "LAYER_PATH_B": 1,
+        "SST_layer": 45,
+        "SST_x_pos": 2,
+        "SST_y_pos": 6,
+        "TILE_CACHE_COLL_SIZE": 2400,
+        "TILE_CACHE_COLS": 80,
+        "TILE_CACHE_ROWS": 60,
+        "XOVER_LAYER_BIAS": 1,
+        "XOVER_NONE": 0,
+        "XOVER_TO_A": 1,
+        "XOVER_TO_B": 2
+      },
+      "spans": [
+        [
+          65852,
+          65916
+        ],
+        [
+          26980,
+          27084
+        ]
+      ],
+      "syms": {
+        "Cache_Bottom_Row": 4294946092,
+        "Cache_Head_Col": 4294946088,
+        "Cache_Left_Col": 4294946086,
+        "Cache_Origin_Col": 4294946094,
+        "Cache_Origin_Row": 4294946096,
+        "Cache_Top_Row": 4294946090,
+        "Collision_GetType": 26980,
+        "CrossoverTable": 460840,
+        "Player_LoopCrossover": 65852,
+        "SolidityTable": 460584,
+        "Tile_Cache_Collision": 4294911360
+      },
+      "table": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "table_addr": 460840
+    },
+    "s4.lst": {
+      "bytes": [
+        "20280002302800060280fff8fff0b0ac0014672a29400014220048401628002d2f084eb8572e205f7200120043f90006ff6810311000670653001140002d4e75",
+        "e6483438ac98b0426d5ab078ac9a6e549042d078aca00c4000506d0404400050e6493438ac9cb2426d3ab278ac9e6e349242e2493438aca2e24ad2420c41001e6d040441001e3401e549d242e949d2404a0367040641096041f9ffff2580103010004e7570004e75"
+      ],
+      "equs": {
+        "COLL_CELL_H": 16,
+        "COLL_CELL_W": 8,
+        "CTYPE_AIR": 0,
+        "LAYER_PATH_A": 0,
+        "LAYER_PATH_B": 1,
+        "SST_layer": 45,
+        "SST_x_pos": 2,
+        "SST_y_pos": 6,
+        "TILE_CACHE_COLL_SIZE": 2400,
+        "TILE_CACHE_COLS": 80,
+        "TILE_CACHE_ROWS": 60,
+        "XOVER_LAYER_BIAS": 1,
+        "XOVER_NONE": 0,
+        "XOVER_TO_A": 1,
+        "XOVER_TO_B": 2
+      },
+      "spans": [
+        [
+          65758,
+          65822
+        ],
+        [
+          22318,
+          22422
+        ]
+      ],
+      "syms": {
+        "Cache_Bottom_Row": 4294945950,
+        "Cache_Head_Col": 4294945946,
+        "Cache_Left_Col": 4294945944,
+        "Cache_Origin_Col": 4294945952,
+        "Cache_Origin_Row": 4294945954,
+        "Cache_Top_Row": 4294945948,
+        "Collision_GetType": 22318,
+        "CrossoverTable": 458600,
+        "Player_LoopCrossover": 65758,
+        "SolidityTable": 458344,
+        "Tile_Cache_Collision": 4294911360
+      },
+      "table": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "table_addr": 458600
+    }
+  }
+}

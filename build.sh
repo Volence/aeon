@@ -246,7 +246,8 @@ if [[ "$FAST" == "1" ]]; then
     echo "            verify_level_bin · art_rom_report · s4budget · bganim_room (the"
     echo "            BG-anim ceiling is NOT checked) · sprite_tilt_gate (the tilt is NOT"
     echo "            executed) · instashield_gate (NEITHER the insta-shield NOR the"
-    echo "            Tails-flight precondition is executed) · ctags · effects_seam_gate's"
+    echo "            Tails-flight precondition is executed) · loop_crossover_gate (the"
+    echo "            crossover read site is NOT executed) · ctags · effects_seam_gate's"
     echo "            REACHABILITY half (its witnesses need this build's listing — see below)"
     echo "   run:     emit_sound_blob · gen_compression_vectors · sigil build (+checksum,"
     echo "            +deb2 symbols) · level re-bake IF STALE · effects_seam_gate"
@@ -965,6 +966,32 @@ if [[ "$FAST" == "0" ]]; then
             echo "Ability jump-gate check failed — see above (tools/instashield_gate.py)."
             exit 1
         fi
+
+        # The loop crossover's READ side, checked the same way and for the reason that
+        # forced the shape: the claim is that a byte of CrossoverTable DECIDES a
+        # player's collision plane, and every cell of every shipped act holds
+        # XOVER_NONE (docs/LOOP_CROSSOVER_ENCODING.md §2.1 — all 18 plane files). So a
+        # correct read site and a DELETED one emit the identical ROM, the identical
+        # CRC and the identical recorded play: no gate over content can tell them
+        # apart, which is the subject of that document's §8.1. This gate therefore
+        # takes Player_LoopCrossover AND Collision_GetType from THIS listing, their
+        # bytes and the shipped table from THIS ROM, decodes with capstone, executes
+        # both (the lookup is NOT stubbed — stubbing it would assume the half worth
+        # showing), and varies exactly ONE byte of the ROM's CrossoverTable to separate
+        # "the value is readable" from "the value is consumed". It refuses a run in
+        # which no execution was moved by that byte.
+        #
+        # The edge trigger gets its own family because it has a wrong version that
+        # passes a naive test: the §3.3 two-way pair (plane A says TO_B where plane B
+        # says TO_A at one cell) is what a layer-re-armed trigger ping-pongs on, and
+        # standing still does not discriminate. Same post-sigil placement and same
+        # --fixture discipline as the two gates above. sonic4-only: `demo` has no player.
+        if ! python3 "${TOOLS}/loop_crossover_gate.py" --lst "${ROM_NAME}.lst" \
+                --rom "${ROM_NAME}.bin" --built-after "${SIGIL_T0}" \
+                --fixture "${TOOLS}/fixtures/loop_crossover_cut.json" --gate; then
+            echo "Loop-crossover gate failed — see above (tools/loop_crossover_gate.py)."
+            exit 1
+        fi
     fi
 fi
 
@@ -992,6 +1019,7 @@ if [[ "$FAST" == "1" ]]; then
     else
     echo "   · effects_seam_gate (sonic4 only — ${GAME} has no act descriptor)."
     fi
+    echo "   · loop_crossover_gate (the crossover read site is NOT executed)."
     echo "   This is a DEV artifact. It is byte-identical to the canonical ROM on this"
     echo "   tree, but NOTHING here checked that — run ./build.sh before you land it."
     echo "================================================================================"

@@ -48,6 +48,16 @@ pub const HW_PORT_2_DATA = $A10005
 // Collision type: air / no surface (mirrors engine/constants.asm).
 pub const CTYPE_AIR = 0
 
+// The two collision planes, named. `Sst.layer` (engine/objects/sst.emp, $2D) holds
+// one of these, and it is the SAME value Collision_GetType takes in d3.b: that proc's
+// `tst.b d3 / beq` IS this encoding — zero selects plane A, non-zero adds
+// TILE_CACHE_COLL_SIZE to reach plane B. They exist so a site that MAPS some other
+// encoding onto the layer byte (the loop crossover's XOVER_TO_A/XOVER_TO_B, see
+// docs/LOOP_CROSSOVER_ENCODING.md §3.2) can bind its mapping to the layer's own
+// authority with an `ensure` instead of restating 0 and 1 in a comment.
+pub const LAYER_PATH_A = 0
+pub const LAYER_PATH_B = 1
+
 // Render flags — SST render_flags bit assignments (mirrors
 // engine/constants.asm).
 pub const RF_ONSCREEN  = 0            // set by Draw_Sprite if visible
@@ -796,6 +806,20 @@ pub const BLOCK_NT_SIZE         = BLOCK_TILE_SIZE * BLOCK_TILE_SIZE * 2   // 512
 pub const BLOCK_COLL_ROWS       = BLOCK_TILE_SIZE / 2                     // 8 collision rows per block
 pub const BLOCK_COLL_COLS       = BLOCK_TILE_SIZE                         // 16 collision cells per row
 pub const BLOCK_COLL_PLANE_SIZE = BLOCK_COLL_COLS * BLOCK_COLL_ROWS       // 128 bytes per plane
+// THE WORLD-PIXEL FOOTPRINT OF ONE COLLISION CELL — the granularity at which the byte
+// Collision_GetType returns can change, and therefore the granularity any per-cell
+// EDGE TRIGGER has to quantise position to. Derived from the block format above rather
+// than restated: a block is BLOCK_TILE_SIZE tiles (× 8 px per tile) square and carries
+// BLOCK_COLL_COLS cells across and BLOCK_COLL_ROWS down, so a cell is one TILE column
+// wide and TWO tile rows tall — the same 8/16 split Collision_GetType performs as
+// `lsr.w #3` on X and `lsr.w #3` then `lsr.w #1` on Y.
+//
+// The Y halving is relative to Cache_Top_Row, so these are the ABSOLUTE cell bounds
+// only because Cache_Top_Row is kept EVEN (TileCache_CopyBlockColumn's note,
+// engine/level/tile_cache.emp). If that invariant ever went, this pair would stop
+// describing the partition and every consumer of it would be quietly off by 8 px.
+pub const COLL_CELL_W           = BLOCK_TILE_SIZE * 8 / BLOCK_COLL_COLS   // 8 px
+pub const COLL_CELL_H           = BLOCK_TILE_SIZE * 8 / BLOCK_COLL_ROWS   // 16 px
 pub const BLOCK_COLL_SIZE       = BLOCK_COLL_PLANE_SIZE * TILE_CACHE_COLL_PLANES  // 256 bytes (A+B)
 pub const BLOCK_RAW_SIZE        = BLOCK_NT_SIZE + BLOCK_COLL_SIZE         // 768 bytes
 pub const BLOCK_STAGE_SLOTS     = 16    // staged decompressed blocks (round-robin evict)

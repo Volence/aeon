@@ -1671,10 +1671,14 @@ def apply_editor_collision_overlay(grids, sec_id, base_profiles, base_angles, at
         print(f"  NOTICE: sec {sec_id} carries {marks['A']} plane-A and "
               f"{marks['B']} plane-B loop crossover mark(s). They are BAKED into "
               f"the attr-set and reach crossover.bin.")
-        print(f"    The ENGINE does not read that table yet "
-              f"(LOOP_CROSSOVER_ENCODING.md §5 row 13), so these marks change ROM "
-              f"bytes and do NOT yet change any player's layer. This is not a "
-              f"refusal.")
+        print(f"    The engine READS that table since 2026-09-02 "
+              f"(LOOP_CROSSOVER_ENCODING.md §5 row 13 / §6 changes 2-5): "
+              f"Player_LoopCrossover, once per player per frame, writes Sst.layer "
+              f"on entering a marked cell. These marks will move a player.")
+        print(f"    What is still untested is the ENCODING AGAINST REAL GEOMETRY "
+              f"(anchor §0): no loop exists in OJZ act 1, so the read side is proven "
+              f"by executing the ROM's own bytes (tools/loop_crossover_gate.py) and "
+              f"not by anyone having driven through one.")
     return out_a, out_b
 
 
