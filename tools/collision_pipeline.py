@@ -50,8 +50,15 @@ SOL_NONE, SOL_TOP, SOL_LRB, SOL_ALL = 0, 1, 2, 3
 BLOCK_ID_MASK = 0x03FF      # bits 9:0 of a chunk entry word
 CHUNK_XFLIP_BIT = 0x0400    # bit 10
 CHUNK_YFLIP_BIT = 0x0800    # bit 11
-PATH_A_SOL_SHIFT = 12       # bits 13:12 (bit12=top, bit13=lrb)
+PATH_A_SOL_SHIFT = 12       # bits 13:12 — DONOR chunk-entry word ONLY (bake_cell)
 PATH_B_SOL_SHIFT = 14       # bits 15:14 — DONOR chunk-entry word ONLY (bake_cell)
+
+# Aurora's PER-PLANE cell word carries THIS plane's solidity in bits 13:12 — the
+# same position PATH_A_SOL_SHIFT names in the donor word, and a different meaning.
+# Anchor change (0): two constants may share a value, they must not share a name.
+# bake_plane_cell used to borrow PATH_A_SOL_SHIFT, which is how a reader ends up
+# believing the two word spaces are one (the d-39 failure).
+PLANE_SOL_SHIFT = 12        # bits 13:12 — PER-PLANE cell word ONLY (bake_plane_cell)
 
 # ---------------------------------------------------------------------------
 # XOVER — the loop crossover mark. docs/LOOP_CROSSOVER_ENCODING.md §3.1/§3.2.
@@ -62,10 +69,17 @@ PATH_B_SOL_SHIFT = 14       # bits 15:14 — DONOR chunk-entry word ONLY (bake_c
 # (PATH_B_SOL_SHIFT above). The two constants share a value; they must never
 # share a name, because crossing them is the d-39 failure the anchor records.
 #
-# Nothing bakes this yet (anchor §5 rows 5-8 are the engine parcel's work). It
-# is named here so that every producer which REWRITES a per-plane cell word can
-# preserve the field by name instead of by a typed literal — anchor §3.4's
-# preservation rule, enforced as rule R4.
+# BAKED SINCE parcel/loop-crossover (anchor §5 rows 5-8). It rides in the
+# IDENTITY of the interned attr byte — the field is part of AttrSet's dedup key,
+# so two cells with the same geometry and different marks intern to different
+# indices — and is emitted as `crossover.bin`, a 5th 256-byte table addressed by
+# the same attr byte as solidity.bin. No per-cell ROM growth (anchor §5).
+#
+# ⚠ WHAT STILL DOES NOT HAPPEN, and it is the honest half of this comment: the
+# ENGINE does not read CrossoverTable yet (anchor §5 row 13 / §6 changes 2-5).
+# A painted crossover now reaches the ROM and changes its bytes; it does not yet
+# move any player's Sst.layer. Do not read a marked cell in a built ROM as a
+# working loop.
 # ---------------------------------------------------------------------------
 XOVER_SHIFT = 14            # per-plane cell word ONLY (bake_plane_cell)
 XOVER_MASK = 3
@@ -166,16 +180,26 @@ def rotate_profile(heights: bytes) -> bytes:
 # ---------------------------------------------------------------------------
 
 class AttrSet:
-    """Deduplicated (heights, angle, solidity) → byte index. Index 0
-    reserved for air."""
+    """Deduplicated (heights, angle, solidity, xover) → byte index. Index 0
+    reserved for air.
+
+    `xover` is the loop crossover mark (docs/LOOP_CROSSOVER_ENCODING.md §5 row 6).
+    It is part of the KEY, not a payload: that is what makes the mark reach the
+    ROM without any per-cell growth — two cells with identical geometry and
+    different marks intern to different indices, and the value is read back out
+    of the table `emit_tables` writes. It is a required argument on purpose. A
+    default would let a new call site drop the field exactly the way
+    `bake_plane_cell` used to, which is the defect this parcel exists to fix.
+    """
 
     def __init__(self):
-        self.entries = [(bytes(PROFILE_LEN), 0x00, SOL_NONE)]   # 0 = air
-        self.lookup: dict[tuple[bytes, int, int], int] = {}
+        self.entries = [(bytes(PROFILE_LEN), 0x00, SOL_NONE, XOVER_NONE)]  # 0 = air
+        self.lookup: dict[tuple[bytes, int, int, int], int] = {}
         self.lookup[self.entries[0]] = 0
 
-    def intern(self, heights: bytes, angle: int, solidity: int) -> int:
-        key = (heights, angle, solidity)
+    def intern(self, heights: bytes, angle: int, solidity: int,
+               xover: int) -> int:
+        key = (heights, angle, solidity, xover)
         idx = self.lookup.get(key)
         if idx is not None:
             return idx
@@ -222,7 +246,10 @@ def bake_cell(block_word: int, index_a: bytes, index_b: bytes,
         if yflip:
             heights = flip_profile_y(heights)
             angle = flip_angle_y(angle)
-        result.append(attrset.intern(heights, angle, solidity))
+        # The donor word has NO crossover field — its bits 15:14 are path-B
+        # solidity, consumed above as PATH_B_SOL_SHIFT. Passing XOVER_NONE here
+        # is the encoding, not a placeholder (anchor §3.1's table).
+        result.append(attrset.intern(heights, angle, solidity, XOVER_NONE))
     return (result[0], result[1])
 
 
@@ -233,13 +260,42 @@ def bake_plane_cell(cell_word: int, profiles: bytes, angles: bytes,
     Aurora paints each of the engine's TWO collision planes independently, so
     each cell carries its OWN word (vs bake_cell's single word driving both
     paths). cell_word bits: 9:0 base-bank shape index, bit10 xflip, bit11 yflip,
-    13:12 THIS plane's solidity (bit12=top, bit13=lrb). Air (shape 0) or
-    solidity NONE -> byte 0. Applies xflip then yflip (same order as bake_cell),
-    then interns (heights, angle, solidity) into the shared attr-set."""
+    13:12 THIS plane's solidity (bit12=top, bit13=lrb), 15:14 XOVER (the loop
+    crossover mark). Applies xflip then yflip (same order as bake_cell), then
+    interns (heights, angle, solidity, xover) into the shared attr-set.
+
+    RULE R1 (anchor §7): XOVER == 3 is reserved and RAISES. It is not clamped and
+    not warned about. The reason is the clamp-to-top trap in anchor §3.2 — a
+    producer that clamps a value into a 2-bit field lands on 3, and 3 must
+    therefore be the loudest value in the set rather than the quietest.
+
+    THE CROSSOVER IS NOT GATED BEHIND SOLIDITY (anchor §6 change 1). A marked cell
+    with no geometry interns (all-zero heights, angle 0, SOL_NONE, xover) — a
+    NON-ZERO attr index that is nonetheless air. Every sensor stays correct
+    because `probe_core` reaches `SolidityTable[attr] & d6` on any non-zero attr
+    and SOL_NONE fails that gate, taking `.cl_air`. Without this, a crossover
+    could only ever fire for a player standing on solid ground, and you can enter
+    a loop's far side airborne.
+    ⚠ [TAG-RUNTIME] that sensor claim is anchor §11's, derived from reading
+    probe_core and never executed. It is unchanged by this parcel and still owed
+    a real build.
+    """
+    xover = (cell_word >> XOVER_SHIFT) & XOVER_MASK
+    if xover == XOVER_RESERVED:
+        raise ValueError(
+            f"bake_plane_cell: cell word ${cell_word:04X} carries XOVER == 3, "
+            f"which docs/LOOP_CROSSOVER_ENCODING.md §3.2 reserves as ILLEGAL. "
+            f"3 is the value a producer that CLAMPS into the 2-bit field lands "
+            f"on, and 'toggle' semantics there would fire on every crossing "
+            f"regardless of the path you are on — so it is a build failure by "
+            f"design. Legal values: {XOVER_NONE} none, {XOVER_TO_A} to path A, "
+            f"{XOVER_TO_B} to path B.")
     shape = cell_word & BLOCK_ID_MASK
-    solidity = (cell_word >> PATH_A_SOL_SHIFT) & 3
+    solidity = (cell_word >> PLANE_SOL_SHIFT) & 3
     if solidity == SOL_NONE or shape == 0:
-        return 0
+        if xover == XOVER_NONE:
+            return 0
+        return attrset.intern(bytes(PROFILE_LEN), 0x00, SOL_NONE, xover)
     heights = profiles[shape * PROFILE_LEN:(shape + 1) * PROFILE_LEN]
     angle = angles[shape] if shape < len(angles) else 0
     if cell_word & CHUNK_XFLIP_BIT:
@@ -248,28 +304,35 @@ def bake_plane_cell(cell_word: int, profiles: bytes, angles: bytes,
     if cell_word & CHUNK_YFLIP_BIT:
         heights = flip_profile_y(heights)
         angle = flip_angle_y(angle)
-    return attrset.intern(heights, angle, solidity)
+    return attrset.intern(heights, angle, solidity, xover)
 
 
 def emit_tables(attrset: AttrSet) -> dict[str, bytes]:
     """ROM tables: {'heightmaps.bin': 4096B (256×16), 'heightmaps_rot.bin':
     4096B (rotate_profile per entry), 'angles.bin': 256B, 'solidity.bin':
-    256B}. Unused slots zero."""
+    256B, 'crossover.bin': 256B}. Unused slots zero.
+
+    crossover.bin is the loop crossover table (anchor §5 row 7), addressed by the
+    SAME attr byte as solidity.bin — hence the same length, which
+    collision_data.emp asserts across the two embeds."""
     heightmaps = bytearray(MAX_PROFILES * PROFILE_LEN)
     heightmaps_rot = bytearray(MAX_PROFILES * PROFILE_LEN)
     angles = bytearray(MAX_PROFILES)
     solidity = bytearray(MAX_PROFILES)
-    for i, (heights, angle, sol) in enumerate(attrset.entries):
+    crossover = bytearray(MAX_PROFILES)
+    for i, (heights, angle, sol, xover) in enumerate(attrset.entries):
         heightmaps[i * PROFILE_LEN:(i + 1) * PROFILE_LEN] = heights
         heightmaps_rot[i * PROFILE_LEN:(i + 1) * PROFILE_LEN] = \
             rotate_profile(heights)
         angles[i] = angle
         solidity[i] = sol
+        crossover[i] = xover
     return {
         "heightmaps.bin": bytes(heightmaps),
         "heightmaps_rot.bin": bytes(heightmaps_rot),
         "angles.bin": bytes(angles),
         "solidity.bin": bytes(solidity),
+        "crossover.bin": bytes(crossover),
     }
 
 
@@ -292,6 +355,11 @@ def emit_stub_tables() -> dict[str, bytes]:
         "heightmaps_rot.bin": bytes(heightmaps),
         "angles.bin": bytes(MAX_PROFILES),
         "solidity.bin": bytes(solidity),
+        # No stub cell can carry a crossover: the stub encoding is "0 = air,
+        # 1 = solid" with no cell word behind it, so every slot is XOVER_NONE.
+        # It is emitted anyway so the stub set has the same SHAPE as the real
+        # one — a missing table here would be a link error, not a silent zero.
+        "crossover.bin": bytes(MAX_PROFILES),
     }
 
 
@@ -424,14 +492,14 @@ def run_probe(triples: list[tuple[str, int, int]]):
         a, b = (0, 0) if word is None else bake_cell(
             word, index_a, index_b, profiles, angles, attrset)
         for path_name, attr in (("A", a), ("B", b)):
-            heights, angle, sol = attrset.entries[attr]
+            heights, angle, sol, xover = attrset.entries[attr]
             rot = rotate_profile(heights)
             h = heights[sub_x]
             w = rot[sub_y]
             hs = h - 256 if h >= 0x80 else h
             ws = w - 256 if w >= 0x80 else w
             print(f"  path {path_name}: attr=${attr:02X} sol={sol} "
-                  f"angle=${angle:02X} h[{sub_x}]=${h:02X}({hs:+d}) "
+                  f"angle=${angle:02X} xover={xover} h[{sub_x}]=${h:02X}({hs:+d}) "
                   f"rot[{sub_y}]=${w:02X}({ws:+d})")
 
 
@@ -527,18 +595,27 @@ def test_rotate_ramp():
 def test_attrset_dedup_and_air():
     """Same combo interned once; index 0 is air."""
     s = AttrSet()
-    assert s.entries[0] == (bytes(16), 0, 0), "index 0 must be air"
-    assert s.intern(bytes(16), 0, SOL_NONE) == 0, \
+    assert s.entries[0] == (bytes(16), 0, 0, XOVER_NONE), "index 0 must be air"
+    assert s.intern(bytes(16), 0, SOL_NONE, XOVER_NONE) == 0, \
         "interning the air combo must return index 0, not a duplicate"
     h = bytes([16] * 16)
-    i1 = s.intern(h, 0x00, SOL_ALL)
-    i2 = s.intern(h, 0x00, SOL_ALL)
+    i1 = s.intern(h, 0x00, SOL_ALL, XOVER_NONE)
+    i2 = s.intern(h, 0x00, SOL_ALL, XOVER_NONE)
     assert i1 == i2 == 1, "duplicate combo must dedup to the same index"
-    i3 = s.intern(h, 0x00, SOL_TOP)
+    i3 = s.intern(h, 0x00, SOL_TOP, XOVER_NONE)
     assert i3 == 2, "different solidity is a distinct entry"
-    i4 = s.intern(h, 0x20, SOL_ALL)
+    i4 = s.intern(h, 0x20, SOL_ALL, XOVER_NONE)
     assert i4 == 3, "different angle is a distinct entry"
-    assert len(s.entries) == 4
+    # The crossover is part of the KEY — same geometry, different mark, distinct
+    # entry. This is the property the whole route depends on: the mark reaches
+    # the ROM in the identity of the byte, so a key that ignored it would put it
+    # nowhere at all (which is exactly what the pre-parcel bake did).
+    i5 = s.intern(h, 0x00, SOL_ALL, XOVER_TO_B)
+    assert i5 == 4, "a different crossover mark is a distinct entry"
+    assert s.intern(h, 0x00, SOL_ALL, XOVER_TO_B) == i5, "marked combos dedup too"
+    i6 = s.intern(h, 0x00, SOL_ALL, XOVER_TO_A)
+    assert i6 == 5, "TO_A and TO_B are distinct entries"
+    assert len(s.entries) == 6
     print("  [OK] test_attrset_dedup_and_air")
 
 
@@ -591,20 +668,40 @@ def test_bake_plane_cell():
     assert len(s.entries) == 1
 
     # plain solid shape 1
-    i_plain = bake_plane_cell(0x0001 | (SOL_ALL << PATH_A_SOL_SHIFT), profiles, angles, s)
+    i_plain = bake_plane_cell(0x0001 | (SOL_ALL << PLANE_SOL_SHIFT), profiles, angles, s)
     assert i_plain == 1
-    assert s.entries[1] == (bytes(range(1, 17)), 0x20, SOL_ALL)
+    assert s.entries[1] == (bytes(range(1, 17)), 0x20, SOL_ALL, XOVER_NONE)
 
     # x-flip → reversed columns + negated angle, a DISTINCT entry
-    i_xf = bake_plane_cell(0x0001 | CHUNK_XFLIP_BIT | (SOL_ALL << PATH_A_SOL_SHIFT),
+    i_xf = bake_plane_cell(0x0001 | CHUNK_XFLIP_BIT | (SOL_ALL << PLANE_SOL_SHIFT),
                            profiles, angles, s)
-    assert s.entries[i_xf] == (bytes(reversed(range(1, 17))), flip_angle_x(0x20), SOL_ALL)
+    assert s.entries[i_xf] == (bytes(reversed(range(1, 17))), flip_angle_x(0x20),
+                               SOL_ALL, XOVER_NONE)
     assert i_xf != i_plain
 
     # jump-through (top-only) of the same shape: distinct solidity entry
-    i_jt = bake_plane_cell(0x0001 | (SOL_TOP << PATH_A_SOL_SHIFT), profiles, angles, s)
-    assert s.entries[i_jt] == (bytes(range(1, 17)), 0x20, SOL_TOP)
+    i_jt = bake_plane_cell(0x0001 | (SOL_TOP << PLANE_SOL_SHIFT), profiles, angles, s)
+    assert s.entries[i_jt] == (bytes(range(1, 17)), 0x20, SOL_TOP, XOVER_NONE)
     assert i_jt not in (i_plain, i_xf)
+
+    # the crossover mark survives the bake and splits the entry (anchor §5 row 5)
+    i_xo = bake_plane_cell(0x0001 | (SOL_ALL << PLANE_SOL_SHIFT)
+                           | (XOVER_TO_B << XOVER_SHIFT), profiles, angles, s)
+    assert s.entries[i_xo] == (bytes(range(1, 17)), 0x20, SOL_ALL, XOVER_TO_B)
+    assert i_xo != i_plain, "a marked cell must not intern to the unmarked entry"
+
+    # a crossover on an AIR cell is NOT gated away (anchor §6 change 1)
+    i_air_xo = bake_plane_cell(XOVER_TO_A << XOVER_SHIFT, profiles, angles, s)
+    assert i_air_xo != 0, "an air cell with a crossover must not bake to byte 0"
+    assert s.entries[i_air_xo] == (bytes(PROFILE_LEN), 0x00, SOL_NONE, XOVER_TO_A)
+
+    # R1: the reserved value RAISES rather than clamping or warning
+    try:
+        bake_plane_cell(0x0001 | (SOL_ALL << PLANE_SOL_SHIFT)
+                        | (XOVER_RESERVED << XOVER_SHIFT), profiles, angles, s)
+        assert False, "XOVER == 3 must raise (R1)"
+    except ValueError:
+        pass
     print("  [OK] test_bake_plane_cell")
 
 
@@ -667,9 +764,13 @@ def test_real_data_measurement():
     assert len(tables["heightmaps_rot.bin"]) == 4096
     assert len(tables["angles.bin"]) == 256
     assert len(tables["solidity.bin"]) == 256
+    assert len(tables["crossover.bin"]) == 256
     # Index 0 is air in every table
     assert tables["heightmaps.bin"][:16] == bytes(16)
     assert tables["solidity.bin"][0] == 0
+    # The DONOR walk has no crossover field at all (anchor §3.1) — every slot 0.
+    assert tables["crossover.bin"] == bytes(256), \
+        "the donor chunk-entry walk must never produce a crossover mark"
 
     print(f"  [OK] test_real_data_measurement: {len(layout_files)} sections, "
           f"{placements} placements → {count} attr-set entries "

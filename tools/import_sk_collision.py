@@ -55,6 +55,13 @@ def _write_tables(out_dir, hm, hr, an, sol):
     open(os.path.join(out_dir, "heightmaps_rot.bin"), "wb").write(hr)
     open(os.path.join(out_dir, "angles.bin"), "wb").write(an)
     open(os.path.join(out_dir, "solidity.bin"), "wb").write(bytes(sol))
+    # crossover.bin — the 5th ROM table (docs/LOOP_CROSSOVER_ENCODING.md §5 row 7),
+    # addressed by the same attr byte as solidity.bin. The S&K base bank is a shape
+    # VOCABULARY with no cell words behind it, so it can carry no crossover: every
+    # slot is XOVER_NONE. Written anyway because these are "the default runtime
+    # tables" and collision_data.emp embeds all five — a set of four would be a
+    # missing-file build error on a fresh tree, not a silent zero.
+    open(os.path.join(out_dir, "crossover.bin"), "wb").write(bytes(SHAPES))
 
 
 def build(out=None):

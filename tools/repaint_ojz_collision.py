@@ -122,11 +122,18 @@ def resolve_word(word, hm, an):
     """Editor cell word -> (heights, angle, solidity), or None for air.
 
     Mirrors collision_pipeline.bake_plane_cell exactly (shape, xflip, yflip,
-    this plane's solidity in bits 13:12), so what this tool judges is what the
-    bake will intern.
+    this plane's solidity in bits 13:12 — cp.PLANE_SOL_SHIFT, NOT the donor
+    word's PATH_A_SOL_SHIFT, which shares the value and means something else),
+    so what this tool judges is what the bake will intern.
+
+    Deliberately NOT mirrored: bake_plane_cell's crossover-on-air case (anchor §6
+    change 1), which interns a non-zero attr for a marked cell with no geometry.
+    This function answers "what GEOMETRY does this cell contribute", and a marked
+    air cell contributes none — the rules this tool serves are about floor
+    surfaces. repaint_word carries the mark regardless (rule R4).
     """
     shape = word & cp.BLOCK_ID_MASK
-    sol = (word >> cp.PATH_A_SOL_SHIFT) & 3
+    sol = (word >> cp.PLANE_SOL_SHIFT) & 3
     if sol == 0 or shape == 0:
         return None
     heights = hm[shape * PROFILE_LEN:(shape + 1) * PROFILE_LEN]
@@ -161,9 +168,9 @@ def repaint_word(word):
     Anything added to this word in future must be added here too, or the next
     run of this tool erases it.
     """
-    sol = (word >> cp.PATH_A_SOL_SHIFT) & 3
+    sol = (word >> cp.PLANE_SOL_SHIFT) & 3
     xover = (word >> cp.XOVER_SHIFT) & cp.XOVER_MASK
-    return ((xover << cp.XOVER_SHIFT) | (sol << cp.PATH_A_SOL_SHIFT) |
+    return ((xover << cp.XOVER_SHIFT) | (sol << cp.PLANE_SOL_SHIFT) |
             SAFE_FULL_SHAPE)
 
 

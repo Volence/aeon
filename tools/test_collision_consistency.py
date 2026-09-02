@@ -315,19 +315,23 @@ def test_repaint_word_preserves_solidity_and_clears_flips():
             assert (out >> cp.PATH_A_SOL_SHIFT) & 3 == sol
 
 
-def _plane_file(tmp_path, cells, name="section_0.collattr.bin"):
-    """Write a synthetic 256x256 editor plane file. cells = {(col, cr): word},
-    addressed the way rp.Section does (cr = 16 px collision row = 2 tile rows).
-    Every cell not named is air. Returns the path."""
+def _write_plane(path, cells):
+    """Write a synthetic 256x256 editor plane file at `path`.
+    cells = {(col, cr): word}, addressed the way rp.Section does (cr = 16 px
+    collision row = 2 tile rows). Every cell not named is air."""
     data = bytearray(rp.EDITOR_W * rp.EDITOR_W * 2)
     for (col, cr), w in cells.items():
         for tile_row in (cr * 2, cr * 2 + 1):
             o = 2 * (tile_row * rp.EDITOR_W + col)
             data[o] = (w >> 8) & 0xFF
             data[o + 1] = w & 0xFF
-    path = tmp_path / name
     path.write_bytes(bytes(data))
     return str(path)
+
+
+def _plane_file(tmp_path, cells, name="section_0.collattr.bin"):
+    """_write_plane into tmp_path/name. Returns the path."""
+    return _write_plane(tmp_path / name, cells)
 
 
 def test_repaint_word_preserves_the_loop_crossover_mark():
@@ -502,3 +506,257 @@ def test_baseline_file_is_wellformed_json_with_a_provenance_comment():
         doc = json.load(f)
     assert isinstance(doc.get("known_violations"), list)
     assert doc.get("_comment"), "the baseline must say why each exemption exists"
+
+
+# ---------------------------------------------------------------------------
+# LOOP CROSSOVER — rules R1, R2, R3, R5 of docs/LOOP_CROSSOVER_ENCODING.md §7.
+#
+# THE DEFECT THESE PIN, stated so nobody re-derives it from the fix. Before
+# parcel/loop-crossover, `bake_plane_cell` did not read bits 15:14 at all. An
+# author could paint crossovers across a whole act: the editor accepted it, the
+# file recorded it faithfully, the bake ran clean, and `s4.bin` came out
+# BYTE-IDENTICAL. Measured on this branch's parent (73b07a4f): one XOVER_TO_B
+# authored into section_0.collattr.bin, full re-bake, full build -> 719,440 B /
+# crc32 df76de71 on both sides, and `git status` showed nothing but the editor
+# file. So every CRC gate downstream reported "nothing happened" — CORRECTLY —
+# and none of them could tell that from "never authored".
+#
+# VACUITY IS THE WHOLE DIFFICULTY (anchor §8.1): bits 15:14 are zero in all 18
+# shipped plane files, so no test over real content can fail here. Every mark
+# below is AUTHORED DELIBERATELY, and every rule carries its converse control.
+# ---------------------------------------------------------------------------
+
+XOVER_TEST_SHAPE = 114        # a real base-bank shape with geometry (see rule B)
+
+
+def _overlay(tmp_path, monkeypatch, cells_a, cells_b):
+    """Run the REAL bake path — ojz_strip_gen.apply_editor_collision_overlay —
+    over a synthetic one-section editor tree, and emit the ROM tables from the
+    attr-set it filled.
+
+    This is deliberately the production function and not a re-implementation:
+    the field was lost BETWEEN the file and the tables, so a test that baked
+    cells itself would have passed on the broken tree.
+
+    Returns (grids, attrset, tables).
+    """
+    import ojz_strip_gen as osg
+    import collision_pipeline as cp
+
+    edir = tmp_path / "editor"
+    act = edir / "ojz" / "act1"
+    act.mkdir(parents=True, exist_ok=True)
+    _write_plane(act / "section_0.collattr.bin", cells_a)
+    _write_plane(act / "section_0.collattrb.bin", cells_b)
+    monkeypatch.setattr(osg, "EDITOR_DIR", str(edir))
+
+    profiles, angles = osg.load_base_bank()
+    air = bytes(osg.COLLISION_ROWS_PER_STRIP)
+    grids = ([air] * osg.STRIP_TILE_HEIGHT, [air] * osg.STRIP_TILE_HEIGHT)
+    attrset = cp.AttrSet()
+    out = osg.apply_editor_collision_overlay(grids, "0", profiles, angles, attrset)
+    return out, attrset, cp.emit_tables(attrset)
+
+
+def test_r1_the_reserved_crossover_value_raises_and_the_legal_one_does_not():
+    """R1: XOVER == 3 is illegal — raise, do not clamp, do not warn.
+
+    Anchor §3.2: top-of-range is where a producer that CLAMPS into a 2-bit field
+    lands, and 'toggle' semantics there would fire on every crossing regardless
+    of which path you were on. So 3 is a build failure by design.
+
+    Converse control (anchor §8.1): the same word with 0b10 must bake fine.
+    Without it, a bake_plane_cell that raised on everything would pass.
+    """
+    import collision_pipeline as cp
+    profiles, angles = rp.base_bank_for()
+    s = cp.AttrSet()
+    base = (SOLID_ALL << cp.PLANE_SOL_SHIFT) | XOVER_TEST_SHAPE
+
+    with pytest.raises(ValueError) as exc:
+        cp.bake_plane_cell(base | (cp.XOVER_RESERVED << cp.XOVER_SHIFT),
+                           profiles, angles, s)
+    assert "XOVER" in str(exc.value)
+
+    ok = cp.bake_plane_cell(base | (cp.XOVER_TO_B << cp.XOVER_SHIFT),
+                            profiles, angles, s)
+    assert ok != 0, "the converse control must actually bake, or R1 is vacuous"
+    assert s.entries[ok][3] == cp.XOVER_TO_B
+
+
+def test_r1_a_crossover_on_an_air_cell_is_not_gated_away():
+    """Anchor §6 change (1): a marked cell with NO geometry must survive the
+    solidity gate, interning (all-zero heights, angle 0, SOL_NONE, xover) — a
+    non-zero attr index that is nonetheless air.
+
+    Why it matters: without it a painted crossover could only ever fire for a
+    player standing on solid ground, and you can enter a loop's far side
+    airborne (loops-and-sprite-rotation.md §4.5.3).
+
+    Converse control: an UNmarked air cell must still bake to byte 0, so this
+    cannot pass by making the gate unconditional.
+    """
+    import collision_pipeline as cp
+    profiles, angles = rp.base_bank_for()
+    s = cp.AttrSet()
+
+    marked_air = cp.bake_plane_cell(cp.XOVER_TO_A << cp.XOVER_SHIFT,
+                                    profiles, angles, s)
+    assert marked_air != 0, "a marked air cell must not bake to the air byte"
+    assert s.entries[marked_air] == (bytes(cp.PROFILE_LEN), 0x00, cp.SOL_NONE,
+                                     cp.XOVER_TO_A)
+    # and it really is air to the engine: solidity 0 fails every class gate
+    assert cp.emit_tables(s)["solidity.bin"][marked_air] == cp.SOL_NONE
+
+    assert cp.bake_plane_cell(0x0000, profiles, angles, s) == 0
+    # shape present but no solidity, and no mark -> still air
+    assert cp.bake_plane_cell(XOVER_TEST_SHAPE, profiles, angles, s) == 0
+
+
+def test_r2_a_self_mark_is_refused_on_the_plane_that_cannot_read_it(tmp_path, monkeypatch):
+    """R2: plane A must not carry XOVER_TO_A, plane B must not carry XOVER_TO_B.
+
+    Anchor §3.3: a plane's mark is only ever read by an object ALREADY on that
+    plane, so a self-mark is provably a no-op and is always an authoring
+    mistake. It is decidable only in apply_editor_collision_overlay, which is
+    the one place that knows which file a word came from.
+
+    THREE cases, per anchor §8.1: the rule is asymmetric and a symmetric bug
+    passes two of them.
+      1. plane A carrying TO_A          -> refused
+      2. plane A carrying TO_B          -> accepted   (the converse control)
+      3. plane B carrying TO_B          -> refused
+    """
+    import collision_pipeline as cp
+    base = (SOLID_ALL << cp.PLANE_SOL_SHIFT) | XOVER_TEST_SHAPE
+    to_a = base | (cp.XOVER_TO_A << cp.XOVER_SHIFT)
+    to_b = base | (cp.XOVER_TO_B << cp.XOVER_SHIFT)
+
+    with pytest.raises(ValueError) as exc:
+        _overlay(tmp_path / "c1", monkeypatch, {(10, 20): to_a}, {(10, 20): base})
+    assert "SELF-MARK" in str(exc.value) and "plane A" in str(exc.value)
+
+    _grids, attrset, tables = _overlay(tmp_path / "c2", monkeypatch,
+                                       {(10, 20): to_b}, {(10, 20): base})
+    assert cp.XOVER_TO_B in tables["crossover.bin"], (
+        "the converse control must be ACCEPTED and reach the table, or R2 is "
+        "just 'the bake refuses crossovers'")
+
+    with pytest.raises(ValueError) as exc:
+        _overlay(tmp_path / "c3", monkeypatch, {(10, 20): base}, {(10, 20): to_b})
+    assert "SELF-MARK" in str(exc.value) and "plane B" in str(exc.value)
+
+
+def test_r3_the_two_bakers_read_bits_15_14_differently():
+    """R3: bit 15:14 is path-B SOLIDITY in the donor chunk-entry word and XOVER
+    in Aurora's per-plane cell word, and no caller crosses them.
+
+    This is a CURRENCY test for anchor §3.1's table — the fact d-39 got wrong.
+    One 16-bit value is fed to both bakers and they must disagree in the
+    documented way.
+
+    Converse control (anchor §8.1): the same value with 15:14 CLEAR must produce
+    path-B air from bake_cell, so the test cannot pass by bake_cell returning a
+    second byte unconditionally.
+    """
+    import collision_pipeline as cp
+    index = bytes([0, 1])                                   # block 1 -> profile 1
+    profiles = bytes(16) + bytes([16] * 16) + bytes(4096 - 32)
+    angles = bytes(256)
+
+    marked = (0x0001 | (cp.SOL_ALL << cp.PATH_A_SOL_SHIFT)
+              | (cp.XOVER_TO_B << cp.XOVER_SHIFT))
+
+    s_donor = cp.AttrSet()
+    a, b = cp.bake_cell(marked, index, index, profiles, angles, s_donor)
+    assert a != 0 and b != 0, (
+        f"the DONOR baker must read bits 15:14 as path-B solidity and produce a "
+        f"second solid attr byte; got ({a}, {b})")
+    assert s_donor.entries[b][2] == cp.XOVER_TO_B, (
+        "path B's SOLIDITY should be the value those bits carried (2 = SOL_LRB)")
+    assert all(e[3] == cp.XOVER_NONE for e in s_donor.entries), (
+        "the donor walk must never produce a crossover mark")
+
+    s_plane = cp.AttrSet()
+    p = cp.bake_plane_cell(marked, profiles, angles, s_plane)
+    assert s_plane.entries[p][3] == cp.XOVER_TO_B, (
+        "the PER-PLANE baker must read the same bits as XOVER")
+    assert s_plane.entries[p][2] == cp.SOL_ALL, (
+        "and must take its solidity from bits 13:12, not from 15:14")
+
+    # converse: bits 15:14 clear -> the donor's path B is air
+    clear = 0x0001 | (cp.SOL_ALL << cp.PATH_A_SOL_SHIFT)
+    a2, b2 = cp.bake_cell(clear, index, index, profiles, angles, cp.AttrSet())
+    assert a2 != 0 and b2 == 0, f"expected path-B air, got ({a2}, {b2})"
+
+
+def test_r5_an_authored_crossover_reaches_the_emitted_table(tmp_path, monkeypatch):
+    """R5: the emitted crossover.bin matches the painted cells — the end-to-end
+    claim, run through the REAL overlay + emit path.
+
+    THE CONVERSE CONTROL IS THE POINT (anchor §8.1): the same grid with the
+    field zeroed must produce a DIFFERENT artifact. That is the check whose
+    absence made d-39's proposal unfalsifiable, and it is exactly the check that
+    would have been red on the whole pre-parcel tree.
+
+    Non-vacuity of the geometry half: the marked cell and its neighbour carry
+    IDENTICAL geometry and differ only in bits 15:14, so 'the tables differ'
+    can only be the crossover. (Anchor's fixture note: 'geometry held' cannot
+    fail where there is no geometry to lose — so both cells carry a real
+    base-bank shape, not an all-zero word.)
+    """
+    import collision_pipeline as cp
+    base = (SOLID_ALL << cp.PLANE_SOL_SHIFT) | XOVER_TEST_SHAPE
+    marked = base | (cp.XOVER_TO_B << cp.XOVER_SHIFT)
+
+    cells_a = {(10, 20): marked, (12, 20): base}
+    plain_a = {(10, 20): base, (12, 20): base}
+
+    (ga, _gb), attrset, tables = _overlay(
+        tmp_path / "marked", monkeypatch, cells_a, {})
+    (pa, _pb), _pset, plain = _overlay(
+        tmp_path / "plain", monkeypatch, plain_a, {})
+
+    attr_marked = ga[10][20]
+    attr_plain = ga[12][20]
+    assert attr_marked and attr_plain, "the fixture must bake to solid cells"
+    assert attr_marked != attr_plain, (
+        "identical geometry with different marks must intern to DIFFERENT attr "
+        "indices — that identity is how the mark reaches the ROM at all")
+
+    # positive: the value is in the emitted table at the marked cell's index
+    assert tables["crossover.bin"][attr_marked] == cp.XOVER_TO_B
+    assert tables["crossover.bin"][attr_plain] == cp.XOVER_NONE
+    assert len(tables["crossover.bin"]) == len(tables["solidity.bin"]), (
+        "both tables are indexed by the same attr byte; collision_data.emp "
+        "asserts this across the two embeds")
+
+    # geometry is UNTOUCHED by the mark (anchor §4 Q4: independent axes).
+    # The index must be re-read from the PLAIN bake's own grid: the attr-set is
+    # content-addressed and re-derived per bake, so the same cell is a different
+    # byte in the two trees (the reason cc.violation_key excludes the attr).
+    ref = pa[12][20]
+    assert (tables["heightmaps.bin"][attr_marked * 16:attr_marked * 16 + 16]
+            == plain["heightmaps.bin"][ref * 16:ref * 16 + 16])
+    assert tables["solidity.bin"][attr_marked] == plain["solidity.bin"][ref]
+    assert any(tables["heightmaps.bin"][attr_marked * 16:attr_marked * 16 + 16]), (
+        "the fixture's geometry is all zero — 'geometry held' cannot fail where "
+        "there is no geometry to lose (anchor's fixture note)")
+
+    # CONVERSE CONTROL: zero the field and the artifact must differ
+    assert plain["crossover.bin"] == bytes(len(plain["crossover.bin"])), (
+        "the unmarked fixture must emit an all-zero crossover table")
+    assert tables["crossover.bin"] != plain["crossover.bin"], (
+        "the marked and unmarked bakes emitted the SAME crossover table — the "
+        "field is not load-bearing end to end, which is the pre-parcel defect")
+    # AND THE BAKED GRID ITSELF CHANGES SHAPE, so the mark reaches the strips.
+    # Stated as a WITHIN-tree relation, not by comparing one cell's byte across
+    # the two trees: the attr-set is content-addressed and both bakes intern the
+    # (10,20) cell first, so that cell is byte 1 in BOTH and an across-tree
+    # comparison of it is equal for a reason that has nothing to do with the
+    # field. (A first draft asserted exactly that and was red — the assertion was
+    # wrong, not the code.)
+    assert pa[10][20] == pa[12][20], (
+        "in the unmarked bake the two identical cells must share one attr byte")
+    assert ga[10][20] != ga[12][20], (
+        "in the marked bake they must not — the split IS how the mark travels")

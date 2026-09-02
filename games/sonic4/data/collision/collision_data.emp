@@ -14,6 +14,7 @@ const _heightmaps     = embed("games/sonic4/data/collision/heightmaps.bin")
 const _heightmaps_rot = embed("games/sonic4/data/collision/heightmaps_rot.bin")
 const _angles         = embed("games/sonic4/data/collision/angles.bin")
 const _solidity       = embed("games/sonic4/data/collision/solidity.bin")
+const _crossover      = embed("games/sonic4/data/collision/crossover.bin")
 const _map_sonic      = embed("games/sonic4/data/mappings/sonic.bin")
 const _dplc_sonic     = embed("games/sonic4/data/dplc/optimized/sonic.bin")
 const _art_sonic      = embed("art/optimized/characters/sonic.bin")
@@ -95,10 +96,37 @@ ensure(VRAM_TEST_SONIC + dplc_peak_tiles(_dplc_sonic) <= VRAM_TEST_OBJ,
 ensure(dplc_peak_entries(_dplc_sonic) + DPLC_ENTRY_RESERVE <= DMA_IMPORTANT_SLOTS,
        "DPLC_Sonic's peak DPLC frame costs more Important queue slots than the budget leaves — re-cut the art (tools/dedup_art.py --entry-cap), do not raise DMA_IMPORTANT_SLOTS")
 
+// -----------------------------------------------
+// THE LOOP CROSSOVER TABLE — docs/LOOP_CROSSOVER_ENCODING.md §5 rows 7/11.
+//
+// One byte per attr-set index: 0 XOVER_NONE, 1 XOVER_TO_A, 2 XOVER_TO_B. 3 is
+// reserved and the BAKE refuses it (rule R1, tools/collision_pipeline.py
+// bake_plane_cell), so it can never appear here.
+//
+// It is addressed by the SAME attr byte as SolidityTable — the crossover rides in
+// the IDENTITY of the interned index rather than beside it, which is why adding
+// the field cost no per-cell ROM and did not change the collision strip format.
+// The two tables are therefore parallel by construction, and the guard below is
+// the only thing that says so at build time: they are written by one loop in
+// collision_pipeline.emit_tables, and a change that resized one and not the other
+// would silently mis-address every marked cell.
+//
+// ⚠ NOTHING IN THE ENGINE READS THIS TABLE YET (§5 row 13 / §6 changes 2-5: the
+// per-frame read site, the edge-trigger, and the write to Sst.layer). It is in
+// the ROM so that an authored crossover is CARRIED rather than dropped — the
+// defect this parcel closed was that painting one changed no byte anywhere, so
+// every CRC gate downstream correctly reported that nothing had happened and
+// could not tell "authored" from "never authored". A crossover now moves bytes.
+// It does not yet move a player.
+// -----------------------------------------------
+ensure(_crossover.len == _solidity.len,
+       "crossover.bin is {_crossover.len} B and solidity.bin is {_solidity.len} B — both are indexed by the SAME one-byte attr-set index, so a length that disagrees means one table is addressable where the other is not; fix tools/collision_pipeline.py emit_tables, do not pad the blob")
+
 pub data HeightMaps    = _heightmaps
 pub data HeightMapsRot = _heightmaps_rot
 pub data AngleTable    = _angles
 pub data SolidityTable = _solidity
+pub data CrossoverTable = _crossover
 pub data Map_Sonic     = _map_sonic
 pub data DPLC_Sonic    = _dplc_sonic
 pub data Art_Sonic     = _art_sonic

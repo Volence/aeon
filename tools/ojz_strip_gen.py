@@ -1581,7 +1581,21 @@ def apply_editor_collision_overlay(grids, sec_id, base_profiles, base_angles, at
     `grids` = (coll_a, coll_b), each a list of per-column bytes(COLLISION_ROWS_
     PER_STRIP). Editor data is 256×256 cells (one 16-bit word per 8px tile); a
     16px collision row samples the top tile row (even rows). Returns the new
-    grids, or the originals unchanged when no editor file exists for the section."""
+    grids, or the originals unchanged when no editor file exists for the section.
+
+    RULE R2 — SELF-MARKS ARE REFUSED HERE, and this is the only place that can do
+    it (docs/LOOP_CROSSOVER_ENCODING.md §7). A plane-A word carrying XOVER_TO_A,
+    or a plane-B word carrying XOVER_TO_B, is provably a no-op: to read a plane's
+    mark you must already be on that plane (§3.3). `bake_plane_cell` cannot
+    diagnose it, because a word does not know which file it came from; this
+    function does. It RAISES — the mark is authoring intent that silently does
+    nothing, which is the whole failure class this parcel exists to close.
+
+    ⚠ THE PLANE-B MIRROR IS SUBJECT TO R2, deliberately. When `section_N.collattrb.bin`
+    is absent or malformed, plane B is baked from plane A's words (`wb = wa`
+    below), so a plane-A TO_B mark really does become a plane-B self-mark in the
+    baked artifact and really is refused. That is the correct report: a crossover
+    is a per-plane pair (§3.3) and cannot be authored on a mirrored plane."""
     coll_a, coll_b = grids
     base = os.path.join(EDITOR_DIR, "ojz", "act1")
     path_a = os.path.join(base, f"section_{sec_id}.collattr.bin")
@@ -1602,8 +1616,30 @@ def apply_editor_collision_overlay(grids, sec_id, base_profiles, base_angles, at
     def word(buf, o):                           # big-endian (Aurora serializeCollAttr)
         return (buf[2 * o] << 8) | buf[2 * o + 1]
 
+    cp = collision_pipeline
+    self_mark = {"A": cp.XOVER_TO_A, "B": cp.XOVER_TO_B}
+
+    def check_r2(plane_name, cell_word, col, cr):
+        """R2. Returns the word's XOVER so the caller can count marks."""
+        x = (cell_word >> cp.XOVER_SHIFT) & cp.XOVER_MASK
+        if x == self_mark[plane_name]:
+            mirrored = (plane_name == "B" and b is None)
+            raise ValueError(
+                f"sec {sec_id} plane {plane_name} col {col} row {cr}: cell word "
+                f"${cell_word:04X} carries a SELF-MARK (XOVER_TO_{plane_name} on "
+                f"plane {plane_name}). docs/LOOP_CROSSOVER_ENCODING.md §3.3: a "
+                f"plane's mark is only ever read by an object already on that "
+                f"plane, so this can never fire — it is an authoring mistake, not "
+                f"a no-op worth shipping. Mark the OTHER plane, or use a per-plane "
+                f"pair."
+                + (f" (plane B has no file of its own here, so it is MIRRORED from "
+                   f"plane A — a crossover needs a real section_{sec_id}."
+                   f"collattrb.bin.)" if mirrored else ""))
+        return x
+
     out_a, out_b = [], []
     nonair = 0
+    marks = {"A": 0, "B": 0}
     for col in range(len(coll_a)):
         if col < W:
             ea = bytearray(COLLISION_ROWS_PER_STRIP)   # authoritative: start from air
@@ -1612,8 +1648,12 @@ def apply_editor_collision_overlay(grids, sec_id, base_profiles, base_angles, at
                 o = (cr * 2) * W + col           # top tile row of the 16px cell
                 wa = word(a, o)
                 wb = word(b, o) if b is not None else wa
-                ea[cr] = collision_pipeline.bake_plane_cell(wa, base_profiles, base_angles, attrset)
-                eb[cr] = collision_pipeline.bake_plane_cell(wb, base_profiles, base_angles, attrset)
+                if check_r2("A", wa, col, cr):
+                    marks["A"] += 1
+                if check_r2("B", wb, col, cr):
+                    marks["B"] += 1
+                ea[cr] = cp.bake_plane_cell(wa, base_profiles, base_angles, attrset)
+                eb[cr] = cp.bake_plane_cell(wb, base_profiles, base_angles, attrset)
                 if ea[cr]:
                     nonair += 1
             out_a.append(bytes(ea))
@@ -1622,6 +1662,19 @@ def apply_editor_collision_overlay(grids, sec_id, base_profiles, base_angles, at
             out_a.append(coll_a[col])
             out_b.append(coll_b[col])
     print(f"  sec {sec_id}: editor collision baked ({nonair} non-air cells)")
+    # AN AUTHORED CROSSOVER IS ANNOUNCED, NOT SILENT. Before this parcel the bake
+    # dropped bits 15:14 entirely, so an author could paint crossovers across a
+    # whole act and every artifact downstream — CRC gates included — correctly
+    # reported that nothing had happened. The count is the signal that the field
+    # travelled; the second line is the half that still does not.
+    if marks["A"] or marks["B"]:
+        print(f"  NOTICE: sec {sec_id} carries {marks['A']} plane-A and "
+              f"{marks['B']} plane-B loop crossover mark(s). They are BAKED into "
+              f"the attr-set and reach crossover.bin.")
+        print(f"    The ENGINE does not read that table yet "
+              f"(LOOP_CROSSOVER_ENCODING.md §5 row 13), so these marks change ROM "
+              f"bytes and do NOT yet change any player's layer. This is not a "
+              f"refusal.")
     return out_a, out_b
 
 
