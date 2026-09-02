@@ -966,7 +966,8 @@ docs half, excluded by path.
    generated `DONOR_PROVENANCE.json`; only **43** are executable harness/suite code.
 
 **What changed.** `tools/suite_paths.py` is the single resolver: `REPO_ROOT` from this file's own
-location, `suite_root()` from `AEON_SUITE_ROOT` (absolute, no fall-back) else a marker walk, and
+location, `suite_root()` from `AEON_SUITE_ROOT` (absolute, no fall-back; spelled
+`EMPYREAN_SUITE_ROOT` since the 2026-09-02 ruling under HOME-PATHS-OUTWARD below) else a marker walk, and
 **two deliberately non-interchangeable shapes** — `suite_path()`/`repo_path()` resolve, while
 `require_suite_path()`/`require_repo_path()`/`add_client_path()`/`harness_path()` raise
 `MissingSuitePath` naming the target **at the call site**. The walk is the hazard this entry warns
@@ -1037,6 +1038,16 @@ refuse a wrong value), with the precedence *explicit checkout var > suite-root v
 by name, never a home literal*; the sites that would need it are listed there in load-bearing order.
 Recommendation only — nothing outside aeon was edited, no sibling suite was run. The queue row stays
 open until the hub rules on the spelling.
+**RULED and aeon's half LANDED (2026-09-02).** The hub ruled in empyrean `contract/SUITE_PATHS.md`
+(`4e8e865b`): `AEON_DIR` for a checkout, **`EMPYREAN_SUITE_ROOT`** for the suite root (neither
+candidate — a suite-level fact carries no tool's brand), the precedence above verbatim with the
+derivation step forbidden from `--show-toplevel`, set-but-wrong a hard error at that step. aeon's
+alias landed at `d7a6066b`: `tools/suite_paths.py` reads `EMPYREAN_SUITE_ROOT` first and
+`AEON_SUITE_ROOT` as a transitional alias that announces the ratified name on stderr when it is the
+one that answered; both set and disagreeing is refused naming both; `suite_root_source()` says which
+step answered and the refusals carry it. Ten rows in `tools/test_suite_paths.py`, each shown red under
+a sabotage of its own behaviour. **This row now waits on nothing in aeon**; the sibling migrations
+(contract "Migration order" 1–6) are each lane's own.
 
 ### THE REPLAY FIXTURE NEEDS RE-STAMPING AFTER THE CLAMPS — MEASURED, AND NOBODY HAD BOOKED IT
 (2026-08-30; the oracle lane found the symptom, the mechanism is measured here)

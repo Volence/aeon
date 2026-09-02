@@ -1013,6 +1013,10 @@ individually — and the case aeon's handles — a whole suite moved or a poison
    (18 files) and oracle-old's (9 files) are the same defect pointed at empyrean**, and belong to the hub's
    list even though they are not aeon consumers.
 
+**RULED 2026-09-02: `contract/SUITE_PATHS.md` (empyrean `4e8e865b`).** `AEON_DIR` for the checkout,
+`EMPYREAN_SUITE_ROOT` (neither candidate) for the suite root, the precedence above verbatim, set-but-wrong a
+hard error; aeon's one-line alias landed in `tools/suite_paths.py` (`AEON_SUITE_ROOT` transitional, announced).
+
 **What this document does not claim.** It did not run any sibling's tests, so *load-bearing* is a
 static reading of the line, not an observed failure. It did not enumerate uncommitted or gitignored
 state. It counted what the greps returned at the HEADs named in §0; oracle and seraph were dirty at
