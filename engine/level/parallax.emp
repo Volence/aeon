@@ -720,6 +720,44 @@ ensure(VSCROLL_COL_PAIRS == 20 && VSCROLL_COL19_BG_OFF == 78,
 ensure(VSCROLL_COL19_BG_OFF + 2 <= 80,
        "the column-19 borrow writes past Parallax_Vscroll_Column_Buf's 80 bytes — {VSCROLL_COL19_BG_OFF}+2 > 80; ram.emp and SCREEN_WIDTH disagree about how many column-pairs the buffer holds")
 
+// PCFG_VDS_* — THE PER-SCENE BORROW SWITCH (d-50, 2026-09-02), packed into the top bit of
+// parallax_config.pcfg_v_deform_shift_bg.
+//
+// WHY IT RIDES IN THAT BYTE AND NOT IN A FIELD OF ITS OWN. `sizeof(parallax_config)` is 30
+// and every one of those thirty bytes is named — pcfg_bob claimed the last pad on
+// 2026-08-27. A thirty-first byte is odd, which the `sizeof % 2 == 0` ensure below refuses,
+// so a new field costs TWO bytes on all twenty shipped records AND shifts every band array
+// behind every header. The ruling's own constraint is that a scene which says nothing keeps
+// today's bytes exactly, so growing the record was not available.
+//
+// AND WHY *THIS* BYTE, out of the four that have spare bits. The switch is only ever
+// consulted inside the `pcfg_v_deform_table_bg != 0` arm — the same arm, the same frame and
+// the same `a0` as this field's only other read. A scene with no per-column V-deform emits 0
+// here today and will emit 0 forever, so the byte stays what it says it is: the per-column
+// V-scroll parameters. Packing into pcfg_transition (0/1, `tst.b`-read) or pcfg_v_factor_fg
+// (a live authoring field for a different plane's vertical factor) would have put a
+// V-scroll-edge policy inside a byte about something else.
+//
+// THE AUTHORED LADDER IS 0..15 AND THAT IS GUARDED, NOT ASSUMED: scene()'s
+// `v_deform_shift_raw >= -1 && <= 15` refuses anything wider because the runtime samples
+// with `asr.w`. That guard is what makes bits 4-7 structurally free, and the ensures below
+// hold the two facts together.
+//
+// THE TRAP THIS ENCODING AVOIDS, spelled because the bob sentinel three fields along
+// records the opposite case: here the AUTHOR's default (say nothing) and the WIRE's default
+// (bit clear) are the SAME end of the range. A scene that declines the borrow is the one
+// that sets a bit. A writer that clamped the field to its type range would set the bit and
+// author "decline", which is why PCFG_VDS_SHIFT_MASK is applied at the load site rather
+// than trusted — see Step 5b.
+pub const PCFG_VDS_SHIFT_MASK      = $0F   // the amplitude shift, bits 3-0
+pub const PCFG_VDS_DECLINE_BORROW  = $80   // bit 7 set = this scene DECLINES the borrow
+ensure((PCFG_VDS_SHIFT_MASK & PCFG_VDS_DECLINE_BORROW) == 0,
+       "the per-scene borrow flag ({PCFG_VDS_DECLINE_BORROW}) overlaps the V-deform amplitude shift mask ({PCFG_VDS_SHIFT_MASK}) — a scene's authored shift would read as declining the borrow, or a decline would corrupt the shift")
+ensure(PCFG_VDS_DECLINE_BORROW > PCFG_VDS_SHIFT_MASK,
+       "the per-scene borrow flag ({PCFG_VDS_DECLINE_BORROW}) has fallen inside the authored amplitude ladder (0..{PCFG_VDS_SHIFT_MASK}) — scene()'s v_deform_shift_raw guard admits every value up to 15, so a scene authoring the widest legal shift would silently decline the borrow")
+ensure(PCFG_VDS_DECLINE_BORROW == $80,
+       "the per-scene borrow flag is no longer bit 7 ({PCFG_VDS_DECLINE_BORROW}) — Step 5b tests it with `tst.b` + `bmi`, which reads the SIGN of the byte and nothing else. A flag anywhere else needs a `btst` there instead")
+
 // ---- THE THREE WHOLE-ENTRY COPIES, ALL GENERATED FROM ONE SIZE (P3 Task 8 Step 3) ----
 //
 // A whole band_entry moves in three places in this file and, before Task 8, only ONE of
@@ -1080,7 +1118,8 @@ pub proc Parallax_Active_Config () clobbers() out(d0, zero: inert) {
 // Clobbers: d0, a0, a5
 //
 // HARDWARE QUIRK (per-column branch) — AND IT IS FIXED SINCE 2026-08-29, by
-// the column-19 borrow in Parallax_Step5_Vscroll's fill. This banner said
+// the column-19 borrow in Parallax_Step5_Vscroll's fill, on every scene that
+// does not decline it (d-50, 2026-09-02; the default is the fix). This banner said
 // something stronger and less precise until then, and the imprecision cost a
 // decision: it asserted the sliver "renders at V-scroll = 0 regardless of
 // VSRAM[0]" and that "there is no register to fix this — it's silicon". The
@@ -1107,9 +1146,15 @@ pub proc Parallax_Active_Config () clobbers() out(d0, zero: inert) {
 //
 // SO THE MITIGATION LIST IS NOW FOUR, AND THE FIRST IS THE ONE IN FORCE:
 //   (a) the COLUMN-19 BORROW — write plane A's V-scroll into column-pair 19's
-//       plane-B word, making the AND `camY & camY = camY`. Unconditional in
-//       the fill span; costs plane B 16 px at the screen's right edge, where
-//       that same entry renders. This is what ships.
+//       plane-B word, making the AND `camY & camY = camY`. Costs plane B 16 px
+//       at the screen's right edge, where that same entry renders. This is what
+//       ships, and since d-50 (2026-09-02) it is PER SCENE with the borrow as
+//       the default: a scene that declares nothing gets it, and a scene that
+//       declares `left_column_mask: SceneLeftColMask.DeclineBorrow` skips the
+//       store and keeps plane B's own edge instead. The trade is not resolvable
+//       in the engine — whichever plane's sliver you make right, the other's is
+//       wrong — so the scene is where it is decided. See the store in
+//       Parallax_Step5_Vscroll and PCFG_VDS_DECLINE_BORROW.
 //   (b) lock BOTH planes' HScroll to 0 (factor_a and factor_b = FACTOR_0, no
 //       plane-B factor curve, AND no live deform on either plane — deform
 //       re-adds per-line HScroll on top of a locked factor). Then no plane
@@ -1117,9 +1162,10 @@ pub proc Parallax_Active_Config () clobbers() out(d0, zero: inert) {
 //   (c) sprite-mask the strip. RULED OUT by the owner, d-40 2026-08-29: he
 //       rejected covering it and asked for the repair.
 //   (d) live with it. Also ruled out by d-40.
-// The `left_column_mask:` declaration on a per-column scene survives (a) and
-// is re-scoped by it — see the SceneLeftColMask banner in
-// engine/level/scene_dsl.emp for what it now declares and what it does not.
+// The `left_column_mask:` declaration on a per-column scene survives (a), was
+// re-scoped by it, and since d-50 DRIVES it: the DeclineBorrow arm is the one
+// authoring surface that changes what this routine ships to VSRAM. See the
+// SceneLeftColMask banner in engine/level/scene_dsl.emp.
 // ----------------------------------------------------------------------
 pub proc Vscroll_Write () clobbers(d0/a0/a5) requires(vblank) {
         lea     VDP_CTRL, a5                        // (VDP_CTRL).l
@@ -2194,7 +2240,13 @@ proc Parallax_Step5_Vscroll () clobbers(d0-d7/a0-a6) {
         movea.l d0, a1                              // a1 = v_deform_table_bg
         lea     Parallax_Vscroll_Column_Buf, a2     // (Parallax_Vscroll_Column_Buf).w
         moveq   #0, d3
-        move.b  parallax_config.pcfg_v_deform_shift_bg(a0), d3   // amplitude shift
+        move.b  parallax_config.pcfg_v_deform_shift_bg(a0), d3   // amplitude shift + policy bit
+        // MASK IS MANDATORY, not defensive. Bit 7 of this byte is the per-scene borrow
+        // switch (PCFG_VDS_*, module-level banner), and `asr.w d3, d5` takes its count
+        // MOD 64 on a 68000 — so an unmasked $80 would shift by ZERO and hand every
+        // declining scene a 16x amplitude instead of a diagnosable fault. The mask is one
+        // instruction per FRAME, not per column: d3 is loaded once and the loop only reads it.
+        and.w   #PCFG_VDS_SHIFT_MASK, d3
         moveq   #0, d4
         move.b  Parallax_V_Deform_Phase_BG+1, d4    // (Parallax_V_Deform_Phase_BG+1).w — phase low byte
         moveq   #20-1, d6                           // 20 column-pairs
@@ -2209,7 +2261,8 @@ proc Parallax_Step5_Vscroll () clobbers(d0-d7/a0-a6) {
         addq.b  #1, d4
         dbf     d6, .col
 
-        // ---- THE COLUMN-19 BORROW (d-40, 2026-08-29) — the leftmost-partial-column fix ----
+        // ---- THE COLUMN-19 BORROW (d-40, 2026-08-29) — the leftmost-partial-column fix,
+        // ---- PER SCENE SINCE d-50 (2026-09-02), default ON ----
         // The last column-pair's PLANE-B word is the one VSRAM entry the VDP re-reads for
         // the leftmost partial column: with per-column V-scroll on and a plane's HScroll
         // off the 16-px grain, that plane's leading sliver renders at
@@ -2229,9 +2282,27 @@ proc Parallax_Step5_Vscroll () clobbers(d0-d7/a0-a6) {
         // not merely "the wobble is missing" — a background seam traded for a foreground
         // one. It is 16 px because the two costs are conserved: give plane B a misaligned
         // HScroll and its own leading sliver takes `hscroll & 15` of those pixels back off
-        // the right edge. UNCONDITIONAL ON PURPOSE — gating on `plane-A HScroll & 15 != 0`
-        // would spare the seam at one camera X in sixteen and make a 16-px background
-        // strip blink in and out as the camera walks, which reads worse than a steady one.
+        // the right edge.
+        //
+        // NOT GATED AT RUNTIME, AND THAT ARGUMENT IS UNCHANGED. Gating on `plane-A HScroll
+        // & 15 != 0` would spare the seam at one camera X in sixteen and make a 16-px
+        // background strip blink in and out as the camera walks, which reads worse than a
+        // steady one. That is an argument about a PER-CAMERA-X test, and it still holds:
+        // there is no camera-dependent condition on this store.
+        //
+        // GATED PER SCENE SINCE d-50 (2026-09-02), which is a different question and the
+        // one the paragraph above does NOT answer. A scene's choice is fixed for the whole
+        // scene, so nothing blinks; what it decides is which plane's edge is worth having
+        // right in THIS scene's content. The owner saw the price on the shimmer scenes —
+        // plane B locked and shimmering, so its 8-16 px sliver is drawn from 154-395 px
+        // away and re-cuts every frame — and ruled for the per-scene switch. The DEFAULT IS
+        // THE BORROW: a scene that declares nothing gets exactly what shipped before this,
+        // which is why the flag is a bit that must be SET to decline rather than cleared to
+        // accept. Authored through `left_column_mask: SceneLeftColMask.DeclineBorrow`
+        // (engine/level/scene_dsl.emp); the wire is bit 7 of pcfg_v_deform_shift_bg
+        // (PCFG_VDS_DECLINE_BORROW, module banner). `tst.b` + `bmi` and not `btst` because
+        // the flag IS the byte's sign bit — 6 bytes and ~26 cycles once per frame, on
+        // per-column scenes only.
         //
         // Derivation, the sources, and what would refute it:
         // docs/research/2026-08-29-vsram-column19-borrow.md.
@@ -2241,7 +2312,14 @@ proc Parallax_Step5_Vscroll () clobbers(d0-d7/a0-a6) {
         // H40-only — in H32 the leading sliver is pinned to V-scroll 0 and no VSRAM write
         // reaches it, so this store would be inert rather than wrong. The module-level
         // VSCROLL_COL19_BG_OFF ensure above is what keeps both facts honest.
+        tst.b   parallax_config.pcfg_v_deform_shift_bg(a0)   // bit 7 = PCFG_VDS_DECLINE_BORROW
+        bmi     .col19_borrow_declined
         move.w  d1, Parallax_Vscroll_Column_Buf + VSCROLL_COL19_BG_OFF
+    .col19_borrow_declined:
+        // Declined: column-pair 19's plane-B word keeps what the fill loop wrote — plane B's
+        // own base plus its deform sample — so the leading sliver of BOTH planes renders the
+        // AND of plane A's camY with that, which is what plane B wants and what plane A had
+        // before d-40. Nothing else in this span is conditional.
     .cap_per_col_vsram_fill_end:
     }
 

@@ -293,7 +293,8 @@ def check_axis5_mask_pricing(model: Dict[str, Any], aeon: str) -> Tuple[List[str
     if scanned == 0:
         failures.append("axis5 census scanned ZERO scene modules — the glob found nothing, "
                         "which is a moved-tree failure, not an empty census")
-    unknown = sorted(set(counts) - {"Undeclared", "SpriteMask", "Factor0Lock", "Accept"})
+    unknown = sorted(set(counts) - {"Undeclared", "SpriteMask", "Factor0Lock", "Accept",
+                                    "DeclineBorrow"})
     if unknown:
         failures.append(f"axis5 census found unknown left_column_mask spelling(s): {unknown} — "
                         "the enum and this census have drifted apart")

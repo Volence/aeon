@@ -19,7 +19,7 @@
 module engine.level.scene_dsl
 
 use engine.structs.{parallax_config}
-use engine.parallax.{band_entry, band_record, band_ext, BAND_EXT_N, band_curve, BAND_CURVE_N, band_drift, BAND_DRIFT_N, CURVE_FLAG_OP_BIT, CURVE_FLAG_ACTIVE_BIT, PLANE_B_SPAN, BAND_OP_BIT_A, BAND_OP_BIT_B, BOB_SHIFT_MIN, BOB_SHIFT_MAX, BOB_PERIOD_SHIFT_MAX, BOB_SHIFT_NONE}
+use engine.parallax.{band_entry, band_record, band_ext, BAND_EXT_N, band_curve, BAND_CURVE_N, band_drift, BAND_DRIFT_N, CURVE_FLAG_OP_BIT, CURVE_FLAG_ACTIVE_BIT, PLANE_B_SPAN, BAND_OP_BIT_A, BAND_OP_BIT_B, BOB_SHIFT_MIN, BOB_SHIFT_MAX, BOB_PERIOD_SHIFT_MAX, BOB_SHIFT_NONE, PCFG_VDS_SHIFT_MASK, PCFG_VDS_DECLINE_BORROW}
 use engine.constants.{MAX_PARALLAX_BANDS, PARALLAX_ANCHOR_NONE}
 use engine.effects.raster_dsl.{RASTER_MAX_PATCH}
 
@@ -85,6 +85,15 @@ ensure(CURVE_FLAG_OP_BIT == 0 && CURVE_FLAG_ACTIVE_BIT == 1, "scene_dsl's inline
 // FACTOR_0 resolves here without a `use`: parallax_dsl is a sigil COMPTIME_HELPERS member
 // and is glob-injected into every module (parallax_dsl.emp:9-10).
 ensure(FACTOR_0 == $0FF, "scene_dsl's inlined locked-factor encoding ($0FF) drifted from engine.level.parallax_dsl.FACTOR_0 — scene()'s factor0_lock verification compares every layer's ly_fa and ly_fb (and any curve's far end) against it, and a drift would let a scrolling plane claim the artifact cannot exist")
+// d-50 (2026-09-02) adds two more of the same species. scene_vds_byte() spells $80 and $0F
+// as literals for the reason above — a name imported HERE resolves to nothing inside a body
+// a GAME module elaborates — and these hold those two literals to the engine's own
+// encoding, which Parallax_Step5_Vscroll reads back with `and.w` (the shift) and `tst.b` +
+// `bmi` (the flag). A drift in either direction is silent and expensive: a moved flag turns
+// a declining scene's amplitude shift into garbage, and a widened mask turns an authored
+// shift into a decline.
+ensure(PCFG_VDS_DECLINE_BORROW == $80 && PCFG_VDS_SHIFT_MASK == $0F,
+       "scene_dsl's inlined per-scene borrow encoding ($80 flag / $0F shift mask) drifted from engine.parallax.PCFG_VDS_DECLINE_BORROW / PCFG_VDS_SHIFT_MASK — scene_vds_byte() packs pcfg_v_deform_shift_bg from those two literals and Parallax_Step5_Vscroll unpacks it with the engine's")
 
 // LAYER_WORLD_Y_MAX — the engine-wide ceiling on an act's vertical extent, and the bound
 // `layer()` replaced its `world_y < 512` with. It is NOT a parallax number and NOT a
@@ -442,13 +451,16 @@ pub comptime enum SceneVSplit {
 // attachment in this model that is a DECLARATION about a hardware artifact rather than a
 // mechanism request.
 //
-// READ THIS FIRST — THE ARTIFACT THIS FAMILY WAS BUILT AROUND IS FIXED (2026-08-29).
+// READ THIS FIRST — THE ARTIFACT THIS FAMILY WAS BUILT AROUND IS FIXED (2026-08-29), AND
+// SINCE 2026-09-02 THE FIX IS THE SCENE'S TO DECLINE.
 // `Parallax_Step5_Vscroll`'s column-19 borrow writes plane A's V-scroll into column-pair
 // 19's plane-B word, so the leading sliver renders `camY & camY = camY` — the foreground's
-// own scroll — on EVERY per-column scene, unconditionally, whatever the scene declares.
-// The owner ruled for the repair over the sprite bar and over acceptance (d-40). So what a
-// per-column scene declares here is NO LONGER "what do you do about the leftmost column";
-// it is "you have seen what the repair costs elsewhere". §"What each arm means now", below.
+// own scroll. The owner ruled for the repair over the sprite bar and over acceptance
+// (d-40), and then, having seen what it costs the background on the shimmer scenes, ruled
+// it PER SCENE with the repair as the default (d-50, `perscene`). So a per-column scene
+// declaring here is doing two things at once: saying it has seen what the repair costs
+// elsewhere (Accept, Factor0Lock) or spending that knowledge to turn the repair off on this
+// scene (DeclineBorrow). §"What each arm means now", below.
 //
 // THE ARTIFACT: the VDP's per-column V-scroll grain is 16 px (one VSRAM entry pair per
 // column-pair). When a plane carries HScroll that is not a multiple of 16 AND per-column
@@ -552,20 +564,42 @@ pub comptime enum SceneVSplit {
 //                 families spell it, and it is still a real decision, because that seam
 //                 is a visible thing an author is agreeing to.
 //
-// THE OPEN RETIREMENT, so nobody re-derives it. With the borrow unconditional, NO arm here
-// changes what the machine does — Factor0Lock and Accept differ only in what they assert
-// about the scene, and both scenes get the same VSRAM. A mandatory declaration that cannot
-// change behaviour is ceremony that reads as coverage, so the structurally right end state
-// is to retire this family outright: the enum, the sc_left_col_mask field, the mandatory
-// ensure, the five Factor0Lock guards, the two poison modules, the axis-5 SpriteMask rows,
-// the six Accept spellings, and the schema key tools/effects_gen.py accepts from Aurora.
-// THAT IS NOT DONE HERE ON PURPOSE. The borrow's right-edge price has never been seen on a
-// screen; if the owner looks at it and rejects it, the borrow becomes per-config (a
-// config-record flag, a byte-moving paired landing) and Accept comes straight back as
-// "decline the borrow" with a mechanism behind it. Deleting an authoring surface and a
-// cross-repo schema key the day before it might be needed is churn, not cleanliness.
-// Booked in docs/DEFERRED_WORK.md; derivation in
-// docs/research/2026-08-29-vsram-column19-borrow.md §5.
+//   DeclineBorrow DECLINE THE REPAIR ON THIS SCENE — the arm this family was kept alive
+//                 for, landed 2026-09-02 under owner ruling d-50 (`perscene`). It is the
+//                 ONLY arm that changes what the machine does: it sets
+//                 PCFG_VDS_DECLINE_BORROW in the lowered header, and
+//                 Parallax_Step5_Vscroll skips the column-19 store, so column-pair 19's
+//                 plane-B word keeps plane B's own scroll. The scene gets back the
+//                 pre-d-40 world: plane B's two edges are right and plane A's leading
+//                 sliver is wrong.
+//
+//                 WHEN TO SPELL IT. When the BACKGROUND's edge is the one on screen. The
+//                 shimmer scenes are the measured case: plane B is locked (v_factor 15)
+//                 with a live per-line HScroll shimmer, so its 8-16 px sliver is drawn
+//                 from 154-395 px away and re-cuts every frame, which the owner saw and
+//                 described as "animating differently and super fast". A scene whose
+//                 foreground edge is the visible one keeps Accept.
+//
+//                 IT IS NOT A BETTER Accept AND Accept WAS NOT REDEFINED. Six shipped
+//                 spellings say Accept and every one of them means "keep the borrow, I
+//                 have seen its right-edge price" — the same bytes they shipped before
+//                 this arm existed. Redefining Accept to mean "decline" would have moved
+//                 all six records and changed four scenes nobody ruled on.
+//
+// THE RETIREMENT IS CANCELLED, and this is where it was booked, so this is where it is
+// closed. It read: with the borrow unconditional, NO arm here changes what the machine
+// does, so a mandatory declaration that cannot change behaviour is ceremony that reads as
+// coverage, and the structurally right end state is to retire the family outright. The
+// escape clause it carried was exact — "if the owner looks at it and rejects it, the borrow
+// becomes per-config (a config-record flag, a byte-moving paired landing) and Accept comes
+// straight back as 'decline the borrow' with a mechanism behind it". He looked, and he
+// rejected it on two scenes (d-50, 2026-09-02). The clause fired as written except in one
+// detail worth naming rather than quietly reinterpreting: the mechanism came back as a
+// FIFTH ARM, not as a redefinition of Accept, for the byte-identity reason in the
+// DeclineBorrow paragraph above. The family now has behaviour, so nothing here is ceremony
+// and there is nothing left to retire. Derivation:
+// docs/research/2026-08-29-vsram-column19-borrow.md §5 and
+// docs/research/2026-08-30-left-edge-vsram-sample.md.
 //
 // NEVER A `0` SENTINEL — the questions are asked by the scene_lcm_* VARIANT tests below,
 // for the reason every enum banner in this file gives (EMP_PITFALLS §3): the policy has no
@@ -575,6 +609,7 @@ pub comptime enum SceneLeftColMask {
     SpriteMask,
     Factor0Lock,
     Accept,
+    DeclineBorrow,
 }
 
 // ---- lowering-tier and transition selectors ----
@@ -1116,32 +1151,49 @@ pub comptime fn scene_vsplit_offset(v: SceneVSplit) -> int {
     }
 }
 
-// THE LEFT-COLUMN QUESTIONS, asked of the VARIANT (P3 Task 12). Three tests, not one
+// THE LEFT-COLUMN QUESTIONS, asked of the VARIANT (P3 Task 12). Four tests, not one
 // int-coded answer, because every consumer asks a yes/no question and an integer encoding
-// would be a sentinel by another name. All four arms are spelled in each so a fifth
-// variant fails every match here instead of silently defaulting.
+// would be a sentinel by another name. All five arms are spelled in each so a sixth
+// variant fails every match here instead of silently defaulting — which is exactly what
+// caught the four call sites when DeclineBorrow was added (d-50, 2026-09-02).
 pub comptime fn scene_lcm_is_undeclared(m: SceneLeftColMask) -> int {
     return match m {
-        Undeclared  => 1,
-        SpriteMask  => 0,
-        Factor0Lock => 0,
-        Accept      => 0,
+        Undeclared    => 1,
+        SpriteMask    => 0,
+        Factor0Lock   => 0,
+        Accept        => 0,
+        DeclineBorrow => 0,
     }
 }
 pub comptime fn scene_lcm_is_sprite_mask(m: SceneLeftColMask) -> int {
     return match m {
-        Undeclared  => 0,
-        SpriteMask  => 1,
-        Factor0Lock => 0,
-        Accept      => 0,
+        Undeclared    => 0,
+        SpriteMask    => 1,
+        Factor0Lock   => 0,
+        Accept        => 0,
+        DeclineBorrow => 0,
     }
 }
 pub comptime fn scene_lcm_is_factor0_lock(m: SceneLeftColMask) -> int {
     return match m {
-        Undeclared  => 0,
-        SpriteMask  => 0,
-        Factor0Lock => 1,
-        Accept      => 0,
+        Undeclared    => 0,
+        SpriteMask    => 0,
+        Factor0Lock   => 1,
+        Accept        => 0,
+        DeclineBorrow => 0,
+    }
+}
+// THE ONE THAT REACHES THE ROM (d-50). Its answer is the bit scene_hdr ORs into
+// pcfg_v_deform_shift_bg, so a scene that never spells DeclineBorrow emits the byte it
+// always emitted. Undeclared answers 0 here and is refused on a per-column scene by
+// scene()'s guard (1), so "no declaration" can never silently mean "decline".
+pub comptime fn scene_lcm_is_decline_borrow(m: SceneLeftColMask) -> int {
+    return match m {
+        Undeclared    => 0,
+        SpriteMask    => 0,
+        Factor0Lock   => 0,
+        Accept        => 0,
+        DeclineBorrow => 1,
     }
 }
 
@@ -1219,6 +1271,36 @@ pub comptime fn scene_anchor_dsb(a: SceneAnchor) -> int {
 // truncates into its own nibble here instead of carrying into the amplitude one.
 pub comptime fn scene_bob_packed(shift: int, period: int) -> int {
     return if shift == 15 { 0 } else { (shift << 4) | (period & $0F) }
+}
+
+// scene_vds_byte — pcfg_v_deform_shift_bg, which since d-50 (2026-09-02) carries TWO
+// things: the V-column amplitude shift in bits 3-0 and the per-scene borrow switch in
+// bit 7.
+//
+//   byte = shift                 borrow ON  — what every scene emitted before d-50
+//   byte = shift | $80           borrow OFF — the scene declined it
+//
+// THE DEFAULT IS THE ZERO BIT, and that is the whole reason the switch is spelled as
+// "decline" rather than "accept". A scene that says nothing, and every one of the twenty
+// shipped records that predates this, emits the identical byte it always did; only a scene
+// that deliberately sets the bit moves. That is the OPPOSITE end of the range from the bob
+// sentinel three fields along (where the author writes 15 and the wire is 0), and the
+// difference is deliberate: the bob's author-facing "off" had to be re-spelled because 0
+// was a legal amplitude, whereas here "no opinion" and "keep the fix" are the same answer
+// and both are 0 at both ends. A writer that clamped this field to its type maximum would
+// author "decline" — the runtime masks with $0F rather than trusting the value, and
+// scene()'s v_deform_shift_raw guard refuses anything past 15 at the source.
+//
+// The `& $0F` on the shift is what makes "bit 7 is the only thing above the ladder" true
+// rather than merely usual; scene()'s guard already bounds the shift, so it can only ever
+// be a no-op, and if that guard is ever relaxed an over-wide shift truncates into its own
+// nibble here instead of forging a decline. Same discipline as scene_bob_packed's period.
+//
+// $80 and $0F are LITERALS here, pinned to engine.parallax.PCFG_VDS_* by the ensure in the
+// pin block at the top of this file — the call-site resolution rule (EMP_PITFALLS §2): this
+// body is elaborated inside a GAME module, where an import made here resolves to nothing.
+pub comptime fn scene_vds_byte(shift: int, decline: int) -> int {
+    return (shift & $0F) | (decline << 7)
 }
 
 // -----------------------------------------------
@@ -1596,7 +1678,7 @@ pub comptime fn scene(layers: [SceneLayer; 16], count: int,
     //     call site — the interpolated values are what lets the author tell Rocking_Slow
     //     (1 layer, speed 0, shift 0) from Perspective_Subtle (5 layers, speed 0, shift 2).
     ensure(vdeform_on == 0 || lcm_undeclared == 0,
-           "scene(): a scene with {count} layer(s) attaching a per-column V-deform table (SceneVDeform.Columns, sample speed {scene_vdeform_speed(v_deform)}, amplitude shift {scene_vdeform_shift(v_deform)}) declares NO left_column_mask policy. Per-column V-scroll makes a plane's leading sliver render at VSRAM[$4C] & VSRAM[$4E] instead of its own column-0 entry; the engine REPAIRS that unconditionally (the column-19 borrow in Parallax_Step5_Vscroll writes plane A's V-scroll into that pair's plane-B word, so the AND is the foreground's own scroll), and the repair costs plane B 16 px at the RIGHT edge, where the same entry renders. So the declaration is no longer about the left column — it is the author saying they have seen that price: declare left_column_mask: SceneLeftColMask.Accept (accept the residual; both shipped per-column families spell it) or .Factor0Lock (verified: NEITHER plane can H-scroll, so this scene has no sliver at all). .SpriteMask is ruled out — see the SceneLeftColMask banner in engine/level/scene_dsl.emp and docs/research/2026-08-29-vsram-column19-borrow.md")
+           "scene(): a scene with {count} layer(s) attaching a per-column V-deform table (SceneVDeform.Columns, sample speed {scene_vdeform_speed(v_deform)}, amplitude shift {scene_vdeform_shift(v_deform)}) declares NO left_column_mask policy. Per-column V-scroll makes a plane's leading sliver render at VSRAM[$4C] & VSRAM[$4E] instead of its own column-0 entry; the engine REPAIRS that unconditionally (the column-19 borrow in Parallax_Step5_Vscroll writes plane A's V-scroll into that pair's plane-B word, so the AND is the foreground's own scroll), and the repair costs plane B 16 px at the RIGHT edge, where the same entry renders. So the declaration is no longer about the left column — it is the author saying they have seen that price: declare left_column_mask: SceneLeftColMask.Accept (keep the borrow and accept its right-edge residual; six shipped records spell it), .DeclineBorrow (turn the borrow OFF on this scene — plane B keeps both its edges and plane A's leading sliver goes back to being wrong; spell it when the BACKGROUND's edge is the one on screen, which is what the shimmer scenes are, d-50 2026-09-02) or .Factor0Lock (verified: NEITHER plane can H-scroll, so this scene has no sliver at all). .SpriteMask is ruled out — see the SceneLeftColMask banner in engine/level/scene_dsl.emp and docs/research/2026-08-29-vsram-column19-borrow.md")
     // (2) NO POLICY WITHOUT A SUBJECT. On a scene with no per-column V-deform there is
     //     neither an artifact nor a repair to price, so a declared policy is a claim about
     //     nothing — and a reader who finds one will believe the scene uses per-column
@@ -1761,7 +1843,7 @@ pub comptime fn scene(layers: [SceneLayer; 16], count: int,
     //     declaration whose mechanism does not exist would ship the artifact while the
     //     build claimed it was covered; nothing was ever mis-certified through it.
     ensure(scene_lcm_is_sprite_mask(left_column_mask) == 0,
-           "scene(): left_column_mask: SpriteMask is declared, and it is RULED OUT — the owner rejected covering the strip and asked for it to be repaired instead (d-40, 2026-08-29). The strip emission is cancelled, not pending: since the column-19 borrow the sliver renders the foreground's own V-scroll on every per-column scene, so there is nothing left for a sprite bar to cover. Declare Factor0Lock or Accept. The never-built emitter's two rulings survive as knowledge only, in docs/DEFERRED_WORK.md §'Sprite mask for per-column V-scroll' (opaque strip at screen X 0 first in the link chain — NOT the VDP's X=0 sprite-masking feature, which suppresses later sprites and cannot repaint a plane pixel; and 7 SAT entries at 8x32, not 1)")
+           "scene(): left_column_mask: SpriteMask is declared, and it is RULED OUT — the owner rejected covering the strip and asked for it to be repaired instead (d-40, 2026-08-29). The strip emission is cancelled, not pending: since the column-19 borrow the sliver renders the foreground's own V-scroll on every per-column scene, so there is nothing left for a sprite bar to cover. Declare Factor0Lock, Accept or DeclineBorrow. The never-built emitter's two rulings survive as knowledge only, in docs/DEFERRED_WORK.md §'Sprite mask for per-column V-scroll' (opaque strip at screen X 0 first in the link chain — NOT the VDP's X=0 sprite-masking feature, which suppresses later sprites and cannot repaint a plane pixel; and 7 SAT entries at 8x32, not 1)")
     // (5) THE VERTICAL BOB'S TWO RANGE GUARDS (EFFECTS-W1 item 7).
     //
     // Both bounds are DERIVED in engine/level/parallax.emp (bob_shift_min / bob_shift_max /
@@ -2777,6 +2859,10 @@ pub comptime fn scene_hdr(s: Scene) -> parallax_config {
     // else the attachment's own shift, else hdr()'s default 4 via the accessor.
     let vds_raw = s.sc_v_deform_shift_raw
     let vds = if vds_raw >= 0 { vds_raw } else { scene_vdeform_shift(s.sc_v_deform) }
+    // The per-scene column-19 borrow switch shares that byte's top bit (d-50). A scene that
+    // does not declare DeclineBorrow answers 0 and the byte is unchanged — which is the
+    // ruling's default, and the reason nineteen of the twenty shipped records do not move.
+    let vds_decline = scene_lcm_is_decline_borrow(s.sc_left_col_mask)
     // pcfg_v_offset is the u16 IMAGE of a signed word (see Scene.sc_v_offset and scene()'s
     // v_offset guard): the runtime consumes it with add.w / move.w, so two's complement is
     // the encoding, and scene() has already bounded the value to the word, which makes this
@@ -2799,7 +2885,7 @@ pub comptime fn scene_hdr(s: Scene) -> parallax_config {
         pcfg_deform_table_bg:   scene_deform_table(s.sc_deform_bg),
         pcfg_v_deform_table_bg: scene_vdeform_table(s.sc_v_deform),
         pcfg_v_deform_speed_bg: scene_vdeform_speed(s.sc_v_deform),
-        pcfg_v_deform_shift_bg: vds,
+        pcfg_v_deform_shift_bg: scene_vds_byte(vds, vds_decline),
         pcfg_anchor_dsa:        scene_anchor_dsa(s.sc_anchor),
         pcfg_anchor_dsb:        scene_anchor_dsb(s.sc_anchor),
         pcfg_v_factor_fg:       s.sc_v_factor_fg,

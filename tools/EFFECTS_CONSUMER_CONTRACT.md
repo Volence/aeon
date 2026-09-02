@@ -122,6 +122,15 @@ DSL constructor arguments 1:1 (`engine/level/scene_dsl.emp` `scene()`/`layer()`)
   `layers`, `v_factor`, `v_center`, `v_offset`, `v_factor_fg`, `deform_fg`, `deform_bg`,
   `v_deform`, `anchor`, `left_column_mask`, `transition`, `budget_class`
   (passthrough, unvalidated — sigil is the validator).
+- **`left_column_mask` gained a fifth value, `decline_borrow` (owner ruling `d-50`,
+  2026-09-02).** It is the only value of this key that changes emitted bytes: it ORs $80
+  into `pcfg_v_deform_shift_bg` and makes the engine skip the column-19 borrow on that
+  scene, trading the foreground's leading sliver back for the background's two edges.
+  `tools/effects_gen.py` accepts it today. **The editor half is Aurora's + empyrean's and
+  is NOT built**: the schema's enum, the `scene-ui` control, and whatever the editor shows
+  an author so the trade is legible rather than a fifth word in a dropdown. Until that
+  lands the value is only reachable from hand-authored `.emp`, which is where the two
+  shipped adopters (`Scene_Perspective_Subtle`, `Scene_Perspective`) spell it.
 - **`precision` — ACCEPTED AND IGNORED (engine-side RETIRED 2026-08-26, owner ruling
   `d-29-corrected`).** The per-cell HScroll path the field chose between was deleted; the
   fill is per-line for every scene and `scene()` no longer takes the argument. The

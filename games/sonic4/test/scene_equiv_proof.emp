@@ -555,10 +555,20 @@ ensure(EQ_Rocking_Fast_b0 == -1, "scene equivalence: Scene_Rocking_Fast BAND 0 d
 // ---- Perspective x3 — configs.emp:263 perspective(), instances :275 :276 :277 ---------
 // Every band carries dsa 4; the dsb ramp 15/15/15/4/2 is the only thing distinguishing the
 // five bands (the plan's roster omits both — Task 6 finding 3).
+//
+// THE ONLY TWO EXPECTATIONS IN THIS FILE THAT ARE NOT THE SHIPPED-CONFIG BYTE (d-50,
+// 2026-09-02). Subtle and Perspective — registry indices 13 and 14 — now declare
+// `left_column_mask: SceneLeftColMask.DeclineBorrow`, and that arm ORs
+// PCFG_VDS_DECLINE_BORROW ($80) into pcfg_v_deform_shift_bg. So the expected byte is
+// $80 | 2 and $80 | 0 rather than 2 and 0, and the oracle is written that way DELIBERATELY:
+// this proof's job is to show the two constructors agree on the record the game ships, and
+// the record the game ships changed by owner ruling. Dramatic (index 15) keeps the borrow
+// and keeps its bare 0, which is what makes the pair below a real discriminator rather than
+// a blanket edit — flip Dramatic's expectation to $80 and it goes red.
 const EQ_Perspective_Subtle_h = cfg_eq(scene_hdr(Scene_Perspective_Subtle),
     hdr(band_count: 5, layer_mask: $1F, v_factor_bg: 15, v_center: 0, v_offset: 0,
         deform_bg: DeformTable_Shimmer, deform_speed_bg: 1,
-        v_deform_bg: DeformTable_Perspective, v_deform_speed_bg: 0, v_deform_shift_bg: 2))
+        v_deform_bg: DeformTable_Perspective, v_deform_speed_bg: 0, v_deform_shift_bg: $80 | 2))
 ensure(EQ_Perspective_Subtle_h == -1, "scene equivalence: Scene_Perspective_Subtle's lowered HEADER differs from ParallaxConfig_Perspective_Subtle's at cfg field {EQ_Perspective_Subtle_h}")
 const EQ_Perspective_Subtle_b0 = band_eq(scene_band(Scene_Perspective_Subtle, 0),
     cfg_band(cell: 0, fa: FACTOR_1, fb: FACTOR_0, dsa: 4, dsb: 15))
@@ -579,7 +589,7 @@ ensure(EQ_Perspective_Subtle_b4 == -1, "scene equivalence: Scene_Perspective_Sub
 const EQ_Perspective_h = cfg_eq(scene_hdr(Scene_Perspective),
     hdr(band_count: 5, layer_mask: $1F, v_factor_bg: 15, v_center: 0, v_offset: 0,
         deform_bg: DeformTable_Shimmer, deform_speed_bg: 2,
-        v_deform_bg: DeformTable_Perspective, v_deform_speed_bg: 1, v_deform_shift_bg: 0))
+        v_deform_bg: DeformTable_Perspective, v_deform_speed_bg: 1, v_deform_shift_bg: $80 | 0))
 ensure(EQ_Perspective_h == -1, "scene equivalence: Scene_Perspective's lowered HEADER differs from ParallaxConfig_Perspective's at cfg field {EQ_Perspective_h}")
 const EQ_Perspective_b0 = band_eq(scene_band(Scene_Perspective, 0),
     cfg_band(cell: 0, fa: FACTOR_1, fb: FACTOR_0, dsa: 4, dsb: 15))

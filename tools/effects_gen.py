@@ -200,6 +200,12 @@ LEFT_COL_MASK_NAMES = {
     "sprite_mask": "SceneLeftColMask.SpriteMask",
     "factor0_lock": "SceneLeftColMask.Factor0Lock",
     "accept": "SceneLeftColMask.Accept",
+    # d-50 (2026-09-02): the arm that turns the column-19 borrow OFF on one scene. It is
+    # the only left_column_mask value that changes emitted bytes -- it ORs $80 into
+    # pcfg_v_deform_shift_bg -- so an editor writing this key is moving the ROM, not
+    # annotating it. The editor half is NOT built yet; this entry is what the day it lands
+    # will need, and until then no scene JSON spells it.
+    "decline_borrow": "SceneLeftColMask.DeclineBorrow",
 }
 
 # A MIRROR of engine/system/constants.emp's `MAX_PARALLAX_BANDS`, and it was unpinned

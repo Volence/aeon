@@ -215,12 +215,21 @@ class TestAxis5MaskPricing(unittest.TestCase):
         self.assertTrue(any("engine_reservation" in f for f in failures), failures)
 
     def test_the_census_counts_declaration_sites_not_comments(self):
-        """The shipped tree has exactly two DECLARATION SITES (the Rocking and Perspective
-        family helpers), both Accept, and zero SpriteMask adopters — while the word
-        SpriteMask appears in comments/messages that strip_comments must be discarding."""
+        """The shipped tree has exactly three DECLARATION SITES and zero SpriteMask
+        adopters — while the word SpriteMask appears in comments/messages that
+        strip_comments must be discarding.
+
+        THE THIRD SITE ARRIVED WITH d-50 (2026-09-02). The Perspective family split into
+        two constructors, one per left-column policy, so the census now sees Accept twice
+        (Rocking's helper and perspective_scene) and DeclineBorrow once
+        (perspective_scene_declined). That split was chosen OVER routing the policy through
+        a constructor parameter precisely so this census keeps seeing the family: a
+        parameter would have removed the declaration from these modules and dropped a whole
+        per-column family out of the adopter count silently."""
         _, info = check_axis5_mask_pricing(self._model(), AEON)
         self.assertIn("SpriteMask adopters: 0", info)
         self.assertIn("Accept:2", info)
+        self.assertIn("DeclineBorrow:1", info)
 
 
 class TestLiveTree(unittest.TestCase):
