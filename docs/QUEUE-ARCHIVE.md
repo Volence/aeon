@@ -210,3 +210,24 @@ Two rows in tools/test_s4lint.py skip with 'main.asm not found'. main.asm was DE
 ### `FG-LEFT-EDGE-GATE-UNRUN` — open / S
 
 tools/fg_left_edge_gate.py was rewritten in chain 197 to branch on the per-scene flag (both the offset and the bit DERIVED at runtime, not typed). Its declining arm has NEVER EXECUTED - agents cannot touch the emulator. Until a foreground run, the gate is reviewed and not attested, and a gate whose new arm has never run is exactly the population this lane keeps finding. Five minutes with the emulator up.
+
+---
+
+## Added 2026-09-02 — open work that did not fit the 20-row bound
+
+### `EMP-PITFALLS-12-13` — open / S
+
+Sigil's cross-type-equality landing (`6a8b3ecd`) asks for THREE aeon changes; only the poison
+re-purpose was scoped into a brief, which was my scoping error, not the agent's.
+
+Still owed: `docs/EMP_PITFALLS.md` ends at **§11**. It lacks (a) the §1 amendment saying the
+silent unit fold is now caught directly by `[eq.cross-type]`; (b) sigil's drafted **§12** on
+cross-type equality, **including the two comparisons that stay DEFINED** — a label beside `0`
+(how `.emp` spells an empty pointer slot) and a newtype or `fixed<>` beside a bare int (§8.3
+erasure) — because a reader who learns "cross-type refuses" without those two will write a
+workaround for a case that never needed one; (c) **§13**, that a comptime fn's `[T; N]`
+signature is now a real length contract. §13 is unrelated to the poison parcel and nothing in
+aeon documents it at all today.
+
+Their draft is at `../sigil` `docs/EMP_PITFALLS_EQUALITY.md` at `6a8b3ecd`. Site it, do not
+restate it.

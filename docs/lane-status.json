@@ -1,6 +1,17 @@
 {
-  "focus": "The per-scene left-edge switch is landed on both sides; what is left is looking at the two scenes on screen.",
-  "inFlight": [],
+  "focus": "Item 5 is building; the compiler-pair half is finished and held back so it cannot break the agent that is still running.",
+  "inFlight": [
+    {
+      "what": "Item 5: teaching the generator the two authoring keys, so a cycle and its colour variants authored in the editor reach the ROM. Moves ROM bytes, so it lands as a paired freeze.",
+      "where": "branch parcel/item5-cycles-variants",
+      "agent": true
+    },
+    {
+      "what": "Our half of sigil's compiler pair - BUILT AND VERIFIED, deliberately not merged yet: merging it makes every build require sigil's new compiler, which would break the item-5 agent mid-run. It merges after item 5 lands.",
+      "where": "branch parcel/unit-fold-poison-repurpose",
+      "agent": false
+    }
+  ],
   "blockedOnOwner": [
     {
       "what": "d-51: writing OJZ's shimmer faithfully means period 9; the spec's example says 8, which would speed up the shipped shimmer on screen",
@@ -13,12 +24,12 @@
       "id": "d-52-water-tint-scope"
     }
   ],
-  "nextBoundary": "Now - chain 197 is attested and pushed on both sides, no agent is out, nothing is half-applied.",
+  "nextBoundary": "When item 5 returns: merge it, then the poison half, then release sigil's binary freeze, then the paired freeze.",
   "queue": [
     {
       "id": "EFFECTS-W1-VARIANTS-CYCLES",
       "title": "DoD item 5: the generator learns the two authoring keys. Unblocked both ways - chain 197 cleared the byte-mover queue and the fixture value does not wait on d-51. At landing the SHA goes to aurora and the hub in one message.",
-      "state": "next",
+      "state": "doing",
       "size": "M",
       "blockedBy": null,
       "project": "EFFECTS-W1"
@@ -173,12 +184,12 @@
       "size": "M",
       "blockedBy": null,
       "project": null,
-      "title": "Thirty further rows - the finished ones and the smaller live ones - live in docs/QUEUE-ARCHIVE.md with their full text, addressed by the same id."
+      "title": "Thirty further rows - the finished ones and the smaller live ones - live in docs/QUEUE-ARCHIVE.md with their full text, addressed by the same id. Also open there: EMP_PITFALLS.md still ends at 11 and owes sigil's 12 and 13."
     }
   ],
   "awaiting": null,
-  "atBoundary": true,
-  "updatedAt": "2026-09-02T13:01:16Z",
+  "atBoundary": false,
+  "updatedAt": "2026-09-02T13:34:49Z",
   "resume": "2026-09-02T09:47Z. LANDED AND PUSHED this session: the item-5 spec reconciliation, merge 04aa4fb4 + lane-log a41f0848 (docs only, zero ROM bytes) - section 4's heading was the thing that lied, the worked example's period is 9 not 8, and 3.4's first_mismatch recommendation is withdrawn with the probe's Q2-e verdict in its place. Every probe citation in it was verified against the probe doc firsthand before landing. RUNNING: parcel/left-edge-perscene, the first byte-mover of the new chain - it delivers a branch only; the merge, the four-shape re-verify, the paired sigil freeze and the attest are MINE, not the agent's. AUTHORITY FOR STARTING IT: the owner's own words are recorded in d-50's closure ('Feel free to make some decisions in the direction you generally know I want to go... but you're an expert as well. Best of best no shortcuts'), and the hub confirmed the pick at 09:42Z under that delegation. The owner has NOT personally answered this session. PEER STATE: sigil-d8 has chain 196 attested and is idle on aeon's account; aurora-5d is waiting on the generator half's landing SHA and expects their preset-lag row to go red as the unblock signal, not as a defect. TAGGED FOR A FOREGROUND EMULATOR SESSION: the two-slot variant cost re-derive (the published 19,332 is one-slot), Q9's cycling cost capture, and looking at the two switched scenes once the parcel lands. SIGIL_BUILD/SIGIL_EMIT are set by no dotfile - paste both export lines into every build brief.",
   "parkedQuestions": [
     {
