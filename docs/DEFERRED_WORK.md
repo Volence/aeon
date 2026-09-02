@@ -4386,8 +4386,10 @@ following are deliberately **deferred to follow-up plans** (not bugs):
     `cmp.w y_vel(a0),d1 / ble.w` with `d1 = -$400` (`-$200` underwater): S3K refuses
     the insta-shield while Sonic is still rising faster than the release cap, roughly
     the first ~12 frames of a jump at our `PHYS_JUMP_FORCE`/gravity. **Both siblings
-    already have this gate.** `Ability_TailsFlight` and `Ability_KnuxGlide` open with
-    `move.w y_vel(a0),d1 / cmp.w PBLK_RELEASE_CAP(a4),d1 / blt` and both banners cite
+    already have this gate.** `Ability_TailsFlight` and `Ability_KnuxGlide` carry
+    `move.w y_vel(a0),d1 / cmp.w PBLK_RELEASE_CAP(a4),d1 / blt` (in the flight hook it
+    is the SECOND step since 2026-09-02, behind that hook's own `jumping` gate — it
+    used to open the proc) and both banners cite
     `Tails_JumpHeight`/`Knux_JumpHeight :32520-32522` for it — so this is not an
     engine-wide simplification, it is an omission specific to the insta-shield. It is
     ~10 bytes (`a4` is already an AbilityHook input and `PBLK_RELEASE_CAP` is already
@@ -4400,27 +4402,57 @@ following are deliberately **deferred to follow-up plans** (not bugs):
     makes it impossible to land silently: the routine reads exactly three `PlayerV`
     bytes today, and a `y_vel` read appearing without `instashield_gate.MODEL_RISING_GATE`
     growing with it is a named failure rather than a model/routine divergence.
-  - **TAILS' FLIGHT AND KNUCKLES' GLIDE STILL LACK THE `jumping` GATE — deliberately
-    left for the owner to rule.** In S3K all three abilities hang off the identical
-    `tst.b jumping(a0) / beq` preamble (`Sonic_JumpHeight :23369`, `Tails_JumpHeight
-    :28596`, `Knux_JumpHeight :32513`), so a spring or a ledge walk-off denies flight
-    and glide exactly as it denies the insta-shield. In Aeon they do not:
-    `Ability_TailsFlight` and `Ability_KnuxGlide` carry S3K's *second* gate (the rising
-    window, above) but not its first, and take the call site's "any air state" rule
-    instead. `player_fly.emp:305-312` records the widening as a CHOICE — "we have no
-    `jumping` bit (ST_ROLLING is close but marks a rolled-off-a-ledge AIRBALL too), and
-    the broader rule is the forgiving direction". **The premise of that justification
-    is now known to be wrong** — `player_state` discriminates on its own, no new RAM
-    byte is needed, and Sonic's fix proves it costs 16 bytes — but the RULING may still
-    be right, so nothing was changed here beyond correcting the comment.
-    **Recommendation: tighten Tails, leave Knuckles.** Tails' flight out of a non-jump
-    fall is the one that reads as a bug in play (he can convert any fall into
-    indefinite flight, which S3K never allows, and it makes ledges free); Knuckles'
-    glide off a ledge walk-off is close to a modern-platformer coyote affordance and
-    reads as generous rather than broken. Either way it is one `cmpi.b` pair inside the
-    ability's own hook, exactly as Sonic's — never at the call site, which would change
-    all three at once. `tools/instashield_gate.py` generalises to them by name (the
-    routine, the stub table and the allowed set are all parameters).
+  - **~~TAILS' FLIGHT STILL LACKS THE `jumping` GATE~~ — DONE 2026-09-02
+    (`parcel/tails-jump-gate`).** The recommendation below was adopted as ruled:
+    **Tails tightened, Knuckles left alone.** `Ability_TailsFlight` now opens with the
+    same `move.b PlayerV.player_state(a0),d0 / cmpi.b #PSTATE_JUMP / beq / cmpi.b
+    #PSTATE_ROLLJUMP / bne` step (0) that `Ability_InstaShield` got on 2026-08-28 — 16
+    bytes again (the routine goes 30 -> 46), inside the ability's own hook and NOT at
+    the shared call site. It sits AHEAD of the release-cap test because that is
+    `Tails_JumpHeight`'s own order (`tst.b jumping` at `sonic3k.asm:28597`, the `cmp.w
+    y_vel(a0),d1` only at `:28605`), and a refusal writes nothing at all — no
+    `fly_fuel` seed, no `fly_thrust` mode, no state change — so no press can strand
+    `PSTATE_FLY`'s scratch half-initialised. `player_fly.emp`'s stale justification is
+    replaced by the ruling and its history.
+    **The replay net does not move, and could not have**: `Ability_TailsFlight` is
+    unreachable during playback. `Character_ID` is boot-zero (`CHAR_SONIC`) and its
+    only writer is `Debug_CharacterHotkey`, whose first gate is `tst.b Input_Source /
+    bne` — it stands down for `INPUT_PLAYBACK` and `INPUT_RECORD` alike
+    (`ojz_scroll_test.emp:1057-1058`), so no fixture can put Tails' record in
+    `Player_Chardef`. Established by enumerating the writers, not by running the net
+    (which has no automated runner — see `tools/test_replay_fixture.py`'s header).
+    `tools/instashield_gate.py` grew a second subject and grades it the same way:
+    5,888 executions per shape (all 256 `player_state` values x 3 release-cap probes x
+    the `y_vel` probes derived from each cap) against `Tails_JumpHeight :28596 ->
+    Tails_Test_For_Flight :28627`. Measured RED on master `73b07a4f`'s own ROM — 3,556
+    of 5,888 disagreed, flight engaging from all 254 non-jump state values — and green
+    after. Runners: `build.sh`'s post-sigil block and its pytest lane, over
+    `tools/fixtures/tailsflight_cut.json` (both canonical shapes).
+    **CORRECTION to the old note here:** the claim that the gate tool "generalises to
+    them by name (the routine, the stub table and the allowed set are all parameters)"
+    is only two-thirds true. The EXECUTOR generalised (one new operand form: `a4`-
+    relative reads behind a synthetic `PlayerBlock`). `LOCAL_PREFIX` did NOT — it is
+    the routine name under its MODULE path, and with the insta-shield's string
+    `routine_extent` stopped at `Ability_TailsFlight`'s first local label and silently
+    cut the trailing `rts` off the extent (28 bytes instead of 30). The MODEL and the
+    SWEEP are per-ability by nature: the flight hook reads `y_vel` and `a4`'s release
+    cap and writes two scratch bytes, none of which the insta-shield model has a slot
+    for.
+  - **KNUCKLES' GLIDE STILL LACKS THE `jumping` GATE — and stays that way, ruled
+    2026-09-02.** In S3K all three abilities hang off the identical `tst.b jumping(a0)
+    / beq` preamble (`Sonic_JumpHeight :23369`, `Tails_JumpHeight :28596`,
+    `Knux_JumpHeight :32513`), so a spring or a ledge walk-off denies the glide exactly
+    as it denies the insta-shield. `Ability_KnuxGlide` deliberately keeps Aeon's
+    broader "any air state" rule instead: **gliding off a ledge walk-off reads as a
+    modern-platformer coyote-time affordance rather than a bug**, generous rather than
+    broken, which is the opposite of how Tails' case read (he could convert any fall
+    into indefinite flight, which S3K never allows, and it made ledges free). This is a
+    kept divergence with a reason, not an oversight — if it is ever revisited, the fix
+    is the same 16-byte `cmpi.b` pair inside `Ability_KnuxGlide` itself, never at the
+    call site in `player_air.emp`, which is SHARED with the flight hook and would
+    re-tighten Knuckles by accident. `tools/instashield_gate.py` deliberately does NOT
+    take the glide as a subject: a gate for it would assert a rule the engine does not
+    have.
   - **~~The SFX is not wired~~ — DONE 2026-08-26 (`parcel/knux-instashield-sfx`).**
     S3K's `sfx_InstaAttack` = SFX `$42` is transcoded and shipped as
     `SFXID_INSTASHIELD` / `SFXPRI_INSTASHIELD $20`, fired from `Ability_InstaShield`
