@@ -33,6 +33,10 @@ use engine.vdp.{VdpTarget, VdpOp, vdp_comm, VDP_MODE2_OFF, VDP_MODE3_OFF}
 use engine.z80_bus.{z80_stopped}
 use engine.irq.{ints_off}
 use engine.types.{VramTile, GridX, GridY}
+// TagRef.none ($FF, the option niche) — the live-object mailbox's DELETE arm tests
+// a slot's entity-window ownership with it. Spelled through the type rather than as
+// a raw #$FF so `[option.unguarded-use]` stays able to see the comparison.
+use engine.types.{TagRef}
 use engine.coords.{pixels_to_coord}
 
 // VRAM_TEST_OBJ / VRAM_TEST_MARKER — sole authority is games.sonic4.constants
@@ -257,6 +261,235 @@ comptime fn center_camera_on(xcell: Label, ycell: Label) -> Code {
     .ccam_y_hi:
         {pixels_to_coord(d0)}
         move.l  d0, Camera_Y                    // (Camera_Y).w
+    }
+}
+
+// -----------------------------------------------
+// LIVE-OBJECT MAILBOX — the third external mailbox (DEBUG shapes)
+// -----------------------------------------------
+// Op codes and status codes for the Obj_Req_* cells (games/sonic4/config/ram.emp).
+// Protocol prose + the published field list: docs/ENGINE_ARCHITECTURE.md "§4.12c".
+//
+// THESE ARE MODULE-LOCAL `const`s, NOT `pub const`s in games/sonic4/config/
+// constants.emp, and that is the same release-CRC constraint the two templates
+// above are written for rather than a filing preference. Every `pub const` in the
+// game constants module is harvested and RE-EXPORTED as a link EquSym (see that
+// file's header), and a link symbol feeds convsym's deb2 appendix in EVERY shape —
+// including release, where this whole feature is meant to be absent. A module-local
+// const declares nothing at link, so it costs release exactly nothing. The values
+// are published in the architecture doc instead, and tools/test_object_mailbox_
+// contract.py holds the doc's table against this file and against ram.emp.
+const OBJREQ_OP_SPAWN    = 1
+const OBJREQ_OP_MOVE     = 2
+const OBJREQ_OP_DELETE   = 3
+
+const OBJREQ_OK          = 0    // request applied
+const OBJREQ_ERR_OP      = 1    // Obj_Req_Op is not 1/2/3
+const OBJREQ_ERR_DEF     = 2    // spawn: Obj_Req_Def failed the archetype-pointer rails
+const OBJREQ_ERR_FULL    = 3    // spawn: the dynamic pool is exhausted — NOTHING was evicted
+const OBJREQ_ERR_SLOT    = 4    // move/delete: Obj_Req_Slot is not a live dynamic slot
+const OBJREQ_ERR_OWNED   = 5    // delete: that slot belongs to the entity window
+
+// The cart address window ($000000-$3FFFFF). Used as the spawn archetype
+// pointer's upper rail. NOT `extern("EndOfRom")`, deliberately: EndOfRom is a
+// link-time value and this is a HARDWARE bound, so it stays a plain immediate
+// that says what it means and costs the parcel no new cross-seam reference. The
+// difference matters only for a pointer that is inside the cart window but past
+// the ROM, which the code_addr rail below still has to catch anyway.
+const CART_WINDOW_END    = $400000
+
+// The placement-word mask the engine applies to Obj_Req_Place: OEF flips in bits
+// 13/14 and the subtype in the low byte are the only bits Load_Object reads
+// (`rol.w #4` then `andi.b #$06`, plus `move.b d2, Sst.subtype`), so masking here
+// makes the field TOTAL — no client value can reach a bit that means nothing.
+const OBJREQ_PLACE_MASK  = $60FF
+
+// objreq_consume — apply at most one live-object request, at the frame top.
+//
+// A COMPTIME TEMPLATE, NOT A PROC, for the reason spelled out at the two mailbox
+// templates above: a `proc` whose body is wholly inside `if DEBUG == 1 {}` emits
+// zero release BYTES but still declares a release LABEL, that label reaches
+// convsym's deb2 appendix, and the appendix moves every release CRC. Measured on
+// the boot-override parcel: three parked zero-byte procs took s4.bin from
+// d00dd11d/698411 to 84df688f/698409 — code identical through EndOfRom and still a
+// changed ROM. A template declares no symbol at all, so the DEBUG-only guarantee is
+// structural rather than a placement trick that the next edit can break. It is
+// instantiated ONCE (in GameState_OJZScroll_Update's frame top); the local labels
+// below would collide at a second instantiation.
+//
+// WHERE THE SLOTS COME FROM, and why there is no allocator here. A spawn goes
+// through Load_Object -> AllocDynamic, the engine's own dynamic-pool allocator,
+// and takes its refusal verbatim. AllocDynamic pops the free stack, which by
+// construction never contains a slot that is in use, so a debug spawn CANNOT land
+// on a live gameplay object — the property this mailbox most needed is one the
+// engine already had. When the pool is exhausted the request is REFUSED with
+// OBJREQ_ERR_FULL and nothing is evicted, moved or reclaimed. The rejected
+// alternatives are recorded in docs/ENGINE_ARCHITECTURE.md §4.12c; the short
+// version is that a second allocator over one pool (a first-free scan) would hand
+// out a slot the free stack still holds, and eviction is precisely the "a debug
+// spawn silently killed a live object and the engine looked buggy an hour later"
+// failure this interface exists to not have.
+//
+// WHY MOVE/DELETE VALIDATE BY SEARCHING Dynamic_Live. The client's slot handle is
+// the low word of an SST address. Checking it by arithmetic would need the
+// address to be Dynamic_Slots + k*sizeof(Sst), and sizeof(Sst) is $50 — not a
+// power of two, so that check costs a divide. Searching Dynamic_Live instead
+// costs at most NUM_DYNAMIC word compares on a cold path and proves MORE: slot
+// alignment, pool membership and spawn-order liveness in one pass, against the
+// engine's own occupancy list rather than a second restatement of it. The latch
+// (Dynamic_Live_Pending) is deliberately NOT searched: RunObjects drains it at
+// every frame end where it is non-empty, so it is always empty at the frame top
+// where this runs. The consequence a client must know: a slot spawned through
+// this mailbox is NOT movable or deletable on the same frame it was created —
+// but since only one request is consumed per frame, no client can try.
+//
+// WHAT THIS INTERFACE DOES NOT DO, and none of it is an oversight. There is no
+// registry, no debug-slot reservation, no lifetime tracking and no persistence: a
+// spawned object is an ordinary dynamic slot that dies like any other. It does not
+// survive InitObjectRAM, so a level re-init, a reset or a state change takes it
+// with everything else. It IS untagged (AllocDynamic stamps TagRef.none), which is
+// what keeps the entity window's Y-despawn band from harvesting it — the same
+// treatment children and effects already get, not a special case built for this.
+//
+// In:  the Obj_Req_* cells, Obj_Req_Flag nonzero
+// Out: Obj_Req_Status written, then Obj_Req_Flag cleared (the ack). On a spawn,
+//      Obj_Req_Slot carries the new slot's handle.
+// Clobbers: d0-d3/a0-a3 (Load_Object's and DeleteObject's closure)
+comptime fn objreq_consume() -> Code {
+    return asm {
+        tst.b   Obj_Req_Flag                    // (Obj_Req_Flag).w
+        beq     .objreq_idle                    // idle: one read and a branch
+
+        cmpi.b  #OBJREQ_OP_SPAWN, Obj_Req_Op
+        beq     .objreq_spawn
+        cmpi.b  #OBJREQ_OP_MOVE, Obj_Req_Op
+        beq     .objreq_slot_op
+        cmpi.b  #OBJREQ_OP_DELETE, Obj_Req_Op
+        beq     .objreq_slot_op
+        move.b  #OBJREQ_ERR_OP, Obj_Req_Status
+        jbra    .objreq_ack
+
+        // -- SPAWN. The archetype pointer is the one field that can do real damage,
+        //    so it gets four rails: nonzero (a cleared cell is not a request),
+        //    EVEN (Load_Object burst-copies the template with `move.l (a2)+`, which
+        //    ADDRESS ERRORs on an odd source), inside the cart window, and a nonzero
+        //    ObjDef.code_addr (objroutine(0) resolves to ObjCodeBase's bare `rts`,
+        //    i.e. a slot that dispatches into nothing). What stays unvalidated is
+        //    whether the bytes at a plausible pointer are ACTUALLY an ObjDef — nothing
+        //    in the format is self-describing. The damage is bounded structurally
+        //    rather than by a rail: RunObjects dispatches `OBJ_CODE_BANK<<16 | word`,
+        //    so ANY code_addr value, garbage included, lands inside the 64 KB object
+        //    bank and cannot reach wild memory. --
+    .objreq_spawn:
+        move.l  Obj_Req_Def, d0                 // (Obj_Req_Def).w
+        beq     .objreq_bad_def
+        btst    #0, d0
+        bne     .objreq_bad_def
+        cmpi.l  #CART_WINDOW_END, d0
+        bhs     .objreq_bad_def
+        movea.l d0, a1
+        tst.w   (a1)                            // ObjDef.code_addr, the record's head word
+        beq     .objreq_bad_def
+
+        move.w  Obj_Req_X, d0
+        move.w  Obj_Req_Y, d1
+        move.w  Obj_Req_Place, d2
+        andi.w  #OBJREQ_PLACE_MASK, d2          // total: no other bit can mean anything
+        jbsr    Load_Object                     // a1 = ObjDef in, new SST out; Z = success
+        bne     .objreq_full
+        move.w  a1, Obj_Req_Slot                // publish the handle the client will
+        move.b  #OBJREQ_OK, Obj_Req_Status      //   move/delete with
+        jbra    .objreq_ack
+    .objreq_full:
+        move.b  #OBJREQ_ERR_FULL, Obj_Req_Status
+        jbra    .objreq_ack
+    .objreq_bad_def:
+        move.b  #OBJREQ_ERR_DEF, Obj_Req_Status
+        jbra    .objreq_ack
+
+        // -- MOVE and DELETE share the slot lookup, and share it by CODE PATH rather
+        //    than by a second template instantiation: two instantiations inside one
+        //    proc would declare the scan's local labels twice. So both ops land here,
+        //    the handle is validated once, and the op is re-tested afterwards — one
+        //    `cmpi.b` on a cold path, against ~20 duplicated bytes and a label-collision
+        //    hazard the next reader would have to rediscover.
+        //
+        //    WHY THE VALIDATION IS A SEARCH OF Dynamic_Live: see the header. The zero
+        //    check is not redundant with the search — DeleteObject ZEROES a deleted
+        //    slot's live-list entry and the compaction that removes it is deferred to
+        //    the frame end, so a stale zero entry is a legitimate list member and a
+        //    client handle of 0 would match it. --
+    .objreq_slot_op:
+        move.w  Obj_Req_Slot, d1                // (Obj_Req_Slot).w
+        beq     .objreq_bad_slot                // 0 would match a zeroed (deleted) entry
+        move.w  Dynamic_Live_Count, d0
+        beq     .objreq_bad_slot
+        lea     Dynamic_Live, a1
+        subq.w  #1, d0
+    .objreq_scan:
+        cmp.w   (a1)+, d1
+        beq     .objreq_hit
+        dbf     d0, .objreq_scan
+    .objreq_bad_slot:
+        move.b  #OBJREQ_ERR_SLOT, Obj_Req_Status
+        jbra    .objreq_ack
+    .objreq_hit:
+        movea.w d1, a0                          // game RAM is $FFFFxxxx: the sign-extend
+        tst.w   Sst.code_addr(a0)               //   IS the address. Dead-but-uncompacted
+        beq     .objreq_bad_slot                //   entry: listed, but the slot is gone
+        cmpi.b  #OBJREQ_OP_DELETE, Obj_Req_Op
+        beq     .objreq_delete
+
+        // -- MOVE. Position only: velocity, status, angle and animation are left
+        //    exactly as they were, so a moved object keeps doing whatever it was
+        //    doing from its new place. That is the opposite of the warp's leader
+        //    placement (which zeroes the whole carried-motion row) and it is the
+        //    right default here — a placement tool nudging a badnik must not also
+        //    silently reset it. The fraction is cleared, as everywhere a pixel
+        //    coordinate becomes a 16.16 one. NO clamp, deliberately: an out-of-act
+        //    object is culled by RunObjects' camera-distance test and does nothing,
+        //    where the player's own out-of-act position would reach SEC_VOID — which
+        //    is the entire reason the warp clamps and this does not. --
+        move.w  Obj_Req_X, d0
+        {pixels_to_coord(d0)}
+        move.l  d0, Sst.x_pos(a0)
+        move.w  Obj_Req_Y, d1
+        {pixels_to_coord(d1)}
+        move.l  d1, Sst.y_pos(a0)
+        move.b  #OBJREQ_OK, Obj_Req_Status
+        jbra    .objreq_ack
+
+        // -- DELETE, and the one asymmetry in this interface: it refuses a slot the
+        //    ENTITY WINDOW owns. A window-spawned entity carries a slot_tag other
+        //    than TagRef.none, and the window's own despawn path
+        //    (EntityWindow_Y_Despawn, engine/objects/entity_window.emp) clears the
+        //    entity's LOADED bit via EntityLoaded_Clear BEFORE it calls DeleteObject.
+        //    A bare DeleteObject here would skip that clear, leaving the window
+        //    believing the entity is still spawned — so it would never re-spawn while
+        //    its section stays tracked. That is exactly the class of silent
+        //    inconsistency that gets read as an engine bug weeks later, so the
+        //    request is refused with OBJREQ_ERR_OWNED instead. Debug spawns, children
+        //    and effects are all untagged and delete freely. MOVE has no such hazard
+        //    (it touches no bookkeeping) and is allowed on any live dynamic slot.
+        //
+        //    DeleteObject cascades the slot's child chain itself, so a debug-spawned
+        //    parent takes its children with it — no lifetime handling of our own. --
+    .objreq_delete:
+        cmpi.b  #TagRef.none, Sst.slot_tag(a0)
+        bne     .objreq_owned
+        jbsr    DeleteObject
+        move.b  #OBJREQ_OK, Obj_Req_Status
+        jbra    .objreq_ack
+    .objreq_owned:
+        move.b  #OBJREQ_ERR_OWNED, Obj_Req_Status
+
+        // -- ACK, and it must be the LAST write of the consumption, exactly as the
+        //    warp's and the boot override's are: the client polls this byte to learn
+        //    the request was looked at, so clearing it before the status write would
+        //    publish a result the client cannot trust. --
+    .objreq_ack:
+        clr.b   Obj_Req_Flag                    // (Obj_Req_Flag).w
+    .objreq_idle:
     }
 }
 
@@ -628,6 +861,25 @@ pub proc GameState_OJZScroll_Update () clobbers(d0-d7/a0-a6) {
         //    Emits nothing in the plain shape. --
         if DEBUG == 1 {
                 jbsr    Debug_Warp_Consume
+        }
+
+        // -- FRAME TOP: the external LIVE-OBJECT mailbox (spawn / move / delete),
+        //    spliced INLINE because it is a comptime template rather than a proc —
+        //    see objreq_consume's header for why that is a hard constraint and not a
+        //    style choice.
+        //
+        //    ORDER AGAINST THE WARP IS LOAD-BEARING and it is this way round: a warp
+        //    pending on the same frame lands FIRST, so a spawn issued with it takes
+        //    effect at the destination rather than at the origin the warp is about to
+        //    abandon. It also sits before RunObjects, so a spawn made this frame is
+        //    dispatched this frame (unless AllocDynamic latched it at a full live
+        //    list, which is the engine's ordinary saturated-frame behaviour and not
+        //    something this mailbox alters), and before the camera follow, so a MOVE
+        //    is already in place when the culling test reads it.
+        //
+        //    Emits nothing in the plain shape. --
+        if DEBUG == 1 {
+                objreq_consume()
         }
 
         // -- DEBUG character-cycle hotkey (A, while in debug mode). Polled before

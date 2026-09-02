@@ -262,7 +262,63 @@ pub vars game_ram {
         // without this whole block is BYTE-IDENTICAL (crc c9255279, 719235 B both ways,
         // release Game_RAM_End $FFFFBD02 both ways).
         Debug_Raster_Index: u8,     // effects-lab cursor: row in .raster_table
-        pad(1),                     // keep Game_RAM_End even
+        pad(1),                     // keep the following long even-aligned
+
+        // -----------------------------------------------
+        // Live-object mailbox (DEBUG shapes only) — the supported EXTERNAL
+        // spawn / move / delete interface
+        // -----------------------------------------------
+        // The third external mailbox, and deliberately the SAME SHAPE as the warp
+        // and boot-override pair above: an external tool writes a request here, the
+        // level state's frame-top consumer applies it inside the frame boundary, and
+        // the cleared flag is the ack. Full protocol + rationale:
+        // docs/ENGINE_ARCHITECTURE.md, "§4.12c The live-object mailbox".
+        //
+        // THE WRITE ORDER IS THE PROTOCOL, exactly as it is for the other two: the
+        // external writer stores the PAYLOAD (Def, X, Y, Slot, Place, Op) and then
+        // Obj_Req_Flag LAST. The consumer only reads the payload on a frame where
+        // the flag is already nonzero, so a write interrupted part-way is read on a
+        // later frame, never half-applied — there is no lock and none is needed.
+        //
+        // ONE REQUEST PER FRAME, BY CONSTRUCTION. The consumer applies at most one
+        // request per frame and clears the flag; a client that wants to place ten
+        // objects issues ten request/ack round trips. That is what makes the whole
+        // thing lock-free with a single flag.
+        //
+        // Obj_Req_Status IS NOT THE ACK — the flag is. Status is written on every
+        // path BEFORE the flag clears, so it is valid exactly when the flag reads 0,
+        // and it distinguishes "applied" from the five refusals. A client that only
+        // polls the flag learns that the engine LOOKED at the request, not that it
+        // did anything; the refusals are silent otherwise, on purpose (a refused
+        // request must never fall back to guessing).
+        //
+        // RAM TAIL + @shape_divergent, for the same reason the warp cells are: this
+        // sits after every existing game var, so the DEBUG-shape addition ripples
+        // ZERO addresses (engine RAM does not move at all — this is game RAM chained
+        // after Engine_RAM_End) and release carries none of it.
+        Obj_Req_Def:    u32,    // SPAWN: ObjDef archetype record (absolute ROM address,
+                                //   e.g. the deb2 value of `ObjDef_Solid`). Ignored by
+                                //   MOVE/DELETE. Validated even + nonzero + inside the
+                                //   cart window + nonzero ObjDef.code_addr.
+        Obj_Req_X:      u16,    // SPAWN/MOVE: world X in flat world PIXELS — the same
+        Obj_Req_Y:      u16,    //   convention as Warp_Req_X/Y. Ignored by DELETE.
+        Obj_Req_Slot:   u16,    // MOVE/DELETE (in): the target slot handle = low 16 bits
+                                //   of its SST address, i.e. exactly what Dynamic_Live
+                                //   stores and what oracle's object_list reports.
+                                //   SPAWN (out): the engine PUBLISHES the new slot's
+                                //   handle here before clearing the flag.
+        Obj_Req_Place:  u16,    // SPAWN: Load_Object's placement word — OEF flips in
+                                //   bits 13/14, subtype in the low byte. The engine
+                                //   masks it to $60FF, so no other bit can do anything.
+        Obj_Req_Op:     u8,     // 1 = SPAWN, 2 = MOVE, 3 = DELETE. Anything else is
+                                //   refused with status 1. NOT cleared by the ack — it
+                                //   stays readable so a watchpoint can see what the last
+                                //   request was.
+        Obj_Req_Status: u8,     // engine result, valid when the flag reads 0:
+                                //   0 OK · 1 bad op · 2 bad ObjDef · 3 pool full
+                                //   4 bad slot handle · 5 slot owned by the entity window
+        Obj_Req_Flag:   u8,     // 0 = idle / consumed (the ack); nonzero = pending
+        pad(1),                 // keep Game_RAM_End even
     }
 
     mark Game_RAM_End,
