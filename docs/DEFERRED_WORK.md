@@ -16288,7 +16288,7 @@ Item 2 is the only one that does not.
 | 2 | Show him a band on screen | **S** | **no** | `tools/band_witness.py` already exists. Pure verification. |
 | 3 | Drift on and authored | **M** | yes, paired | Mechanism is landed and inert: `CAP_BAND_DRIFT` is DECLARED at `$0080` with three capability-gated tails in `parallax.emp` (`:1119`, `:1202`, `:1254`) and a pinned `BAND_DRIFT_N`. Raising it in `Game.SCANLINE_CAPS` flips that pin 0→1 and lights all three. **Documented trap:** `effects_gen.py:1301-1311` records that adding `band_drift` to the three hand importers while leaving the generator's own list short turns the whole build red with `unknown type: band_drift` pointing at `parallax.emp`. |
 | 4 | Moving bands: P2b moving-top + time-driven anchor mover | **L** | yes, paired | The anchor mover is the owner's addition and the DoD calls it *"a gap in every prior plan"* — so it needs a DESIGN pass before implementation, not just a parcel. P3 (both edges) only on his ask. |
-| 5 | `variants` / `cycles` lowering | **M** | yes, paired | Needs the item-13 contract CR before aurora can author against it. |
+| 5 | `variants` / `cycles` lowering | **M** | yes, paired | ~~Needs the item-13 contract CR before aurora can author against it.~~ **UNBLOCKED 2026-08-30 — the contract CR LANDED.** Both keys are committed properties of `contract/schema/aurora-effects-preset.schema.json` and specified in `AURORA_EFFECTS_SCHEMA.md` §7.2, which also RULED all ten of the demand artifact's open questions. **Only the aeon half remains** (the generator). See the item-5 block below. |
 | 6 | Dense per-line VSRAM | **L** | yes, paired | Booked in full in the DENSE PER-LINE VSRAM entry above. **Not blocked by the stream-register card** — the conservative model ships today and the item can start on it; the ruling only decides whether the faster path is taken. Surface the card before the budget check concludes, not before the item starts. |
 | 7 | Vertical bob | **S-M** | yes, paired | **BUILT — `parcel/vertical-bob`, 2026-08-30, unlanded.** A scene-level term on `Parallax_Step5_Vscroll`'s `.v_pack`. 40 bytes of code, ZERO config bytes (the packed nibble pair claimed `pcfg_pad_29`), EndOfRom unmoved in all four shapes. Riders booked below. |
 | 8 | BgAnim vertical band motion | **M** | yes, paired | BgAnim procs are live and driven today. |
@@ -16297,6 +16297,104 @@ Item 2 is the only one that does not.
 | 11 | Nametable-base changes (frame swap, Plane Z, Batman mid-frame) | **L** | yes, paired | **BLOCKED — same item 0.** |
 
 **Item 5's DEMAND ARTIFACT exists (2026-08-30, `docs/item5-key-shapes`, documents only):** `docs/superpowers/specs/2026-08-30-item5-variants-cycles-key-shapes.md` transcribes from engine source the `cycles` / `variants` key shapes a preset document would carry (one script of 1..4 channels; two positional variant slots; every field 1:1 with `pal_cycle_channel` / `pal_variant`), what `effects_gen.py` would emit, the byte-golden against `OJZ_ShimmerCycle` / `Variant_Water_Deep`, and ten open questions (Q1 one-ref-or-three is the hub's) — the source the item-13 contract CR is drafted from.
+
+#### Item 5 STATE, 2026-09-02 — the ten are RULED, the spec is AMENDED, the generator half is what is left
+
+Three things happened after the demand artifact landed, and a reader arriving at the row
+above needs all three:
+
+1. **The hub RULED all ten questions on 2026-08-30** — the same day the artifact was written
+   — in empyrean `docs/AURORA_EFFECTS_SCHEMA.md` §7.2 ("The ten rulings"), plus a **Q1a**
+   the artifact never asked. Read at empyrean `origin/main` =
+   `38f6df4130bcc00f5c859d78e0e30ff7c5fdb349`. **The contract half of item 5 is DONE:** both
+   keys are committed properties of `contract/schema/aurora-effects-preset.schema.json`
+   (`cycles` typed `["array","null"]`, `variants` `array`), and only `fires` remains reserved.
+   The audit of those rulings against aeon's source is
+   `docs/superpowers/designs/2026-09-02-item5-open-questions.md` (aeon `297d21d5`).
+2. **The spec has been AMENDED** (`parcel/item5-spec-amend`, docs-only, zero ROM bytes). Its
+   §4 no longer claims the ten are open — that heading was the defect, and it cost two lanes
+   a round trip. Its §2.3 worked example now says `"period": 9`, not 8: the document key is
+   in DOCUMENT FRAMES and the generator emits `period - 1`, so 8 would have emitted an
+   8-frame shimmer where the shipped one runs 9 — **and that example is the parcel's own
+   byte-golden fixture.** Its §3.4 `first_mismatch` recommendation is WITHDRAWN (see 3).
+3. **The probe settled the two comptime questions**
+   (`docs/superpowers/probes/2026-09-02-item5-comptime-probe.md`, built four-shape,
+   red-first, ROM read-back). **A `[Label; 2]`-returning chooser reaches `ep_variants` in
+   slot order and is now the preferred form** (caveat: the `[Label; 2]` annotation is NOT
+   length-checked on the fn; the emitted record catches a wrong length, blamed on the
+   `pub data` line). **And the byte-golden must be Python, never a comptime ensure:** the
+   hand `pub data` twin resolves as a LABEL inside an array literal, so
+   `first_mismatch([Variant_Water_Deep], [variant(...)])` is **always-red** — and the probe
+   measured that flipping `== -1` to `== 0` makes it pass, i.e. one keystroke turns it
+   permanently vacuous while looking like debugging.
+
+**What remains before the generator half can be built** — derived from the design doc's §13
+ordering section, not invented here:
+
+- **Not blocking the start.** The generator can land `cycles` as an array and `variants`
+  positionally today. Only the **`cycles: null` = OFF** arm is gated (next bullet).
+- **GATE, aurora's to satisfy:** no `cycles: null` document lands in aeon's tree until
+  aurora's writer-side golden proves **absent survives a parse→serialize round-trip as
+  absent**, not as null. Their sibling writer null-fills today
+  (`games/sonic4/data/editor/ojz/act1/section_5.meta.json` is present-and-null on every
+  unset ref), which is harmless for `rasterRef` because §3.1 makes absent and null the same
+  state — but Q2 makes them DIFFERENT states one layer down, so a null-filling save would
+  turn section 3's shimmer OFF silently, schema-green and build-green.
+- **MUST LAND TOGETHER, in the first `cycles`-emitting parcel:** the `period - 1` absorption,
+  a `period >= 2` refusal whose message names the **author's** number (with the `-1`, an
+  authored `period: 1` emits 0 and the engine complains about a number the author never
+  wrote), and a `# RIDER 5 PAIRING` comment at the emission site naming
+  `palette.emp:454-461`.
+- **MUST LAND TOGETHER, whenever rider 5 lands:** the runtime cadence fix **and** the
+  generator's `-1` → passthrough. Split across two parcels, every authored cycle shifts one
+  frame faster and nothing gates it. **Precede it with the look call**, parked as
+  `d-51-shimmer-cadence-look` in `docs/decisions.jsonl`.
+- **Site population, aeon side (spec §3.5):** `PRESET_KEYS` gains both names and
+  `PRESET_REFUSED_KEYS` loses them (`tools/effects_gen.py:266, 275-286` — the closed-object
+  check must widen or every document carrying the keys is refused by name); `load_preset`
+  gains `bands`-shaped SHAPE checks and no value checks; the refusal test
+  `test_the_reserved_wave2_keys_are_refused_BY_NAME_not_as_unknown`
+  (`tools/test_effects_gen.py:1406-1416`) INVERTS in the same parcel;
+  `tools/EFFECTS_CONSUMER_CONTRACT.md` §2.4 gains a row per field (and, per ruling Q1, the
+  one sentence saying `rasterRef` is a deliberate historical spelling that binds the WHOLE
+  document; per ruling Q10, the one sentence distinguishing palette `cycles` from the DEBUG
+  hotkey's raster cycle table); `docs/EDITOR_RASTER_PRESETS.md` §B's key list is
+  machine-compared against the generator's constants and moves with them.
+- **Available now, not gated:** the NARROW half of Q6 — refuse a band whose
+  `pal_region.slot` the document sets to explicit `null` (saying "clear this slot" and
+  "stream from this slot" in one document is never right, whatever the hand call does).
+  The broad half is gated two deep.
+- **RIDER CHAIN, write it down once: `Q1a → Q8 → Q6`.** Retiring the hand twins (Q8) needs
+  **variant-only** documents — most OJZ sections carrying the water tint have no bands — and
+  Q1a keeps `bands` REQUIRED, so Q8 is blocked on a hub CR relaxing Q1a, and Q6's broad half
+  is blocked on Q8. §7.2's Q1a bullet now carries this chain too.
+- **Rider 1 (`cycle_script3/4`) needs a pin in the same parcel:** an `ensure` tying every
+  `PalCycleScriptN` wrapper's `chs.len` to `PAL_CYCLE_MAX_CHANNELS`. Today the wrappers stop
+  at 2 and the array is 4, so there is a margin of two; landing 3/4 puts the widest wrapper
+  exactly on the bound, and `Palette_LoadCycle` has **no runtime check** — a 5-channel script
+  walks into `Pal_Fade_Frames`. `palette_dsl.emp:124-125` is the existing pin to extend.
+- **Effects gate ritual:** item 5 as scoped is generator + schema + docs and may not touch
+  `engine/effects/*`; **riders 1 and 5 both do**, and owe
+  `python3 tools/effects_gates.py --rom s4.debug.bin --lst s4.debug.lst` totals + exit code
+  in their merge evidence.
+
+**TAGGED, needs the emulator (no agent may run it):** the two cost captures. (a) Q9's cycling
+row — boot OJZ act 1 **section 3** (the only section binding a cycle,
+`ojz_effects.emp:1035`) on a `DEBUG=1` build with the profiler armed, ≥18 consecutive frames
+(two cadences at P=8), reporting `Palette_DoCycle`, `Palette_RotateSpan` and
+`Palette_DoVariants` **separately** so the rotation frame and the eight quiet frames are
+distinguishable; control on **section 2** (same variant, `Pal_Cycle_None`) to isolate the
+cycling delta. (b) **The TWO-SLOT variant re-derive.** The published **19,332 cycles/frame =
+15.1%** is a **ONE-SLOT** number — `palette.emp:107-111` records the measured scene bound
+`Variant_Water_Deep` alone (`Pal_Active` read `$10`) — and `Palette_DoVariants` derives each
+bound slot independently, so two authored slots cost roughly double. `variants` is the first
+mechanism that makes two-slot binding easy, so the figure understates exactly the case the
+key introduces; take the second control (a scene binding both slots) in the same run.
+
+**Also parked as look calls, both surfaced by item 5 and neither answerable by the
+engine:** `d-51-shimmer-cadence-look` (9 frames as shipped, or 8 as rider 5 would make it)
+and `d-52-water-tint-scope` (whether OJZ's water tint should stay act-wide now that
+per-section tinting is authorable for the first time).
 
 ### Item 7's riders — what `parcel/vertical-bob` found and did NOT build (2026-08-30)
 
