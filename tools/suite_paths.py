@@ -22,22 +22,36 @@ back: a defaulting accessor is the one shape incapable of announcing its own fai
 
 ## How the suite root is found, and how to stop it
 
-`AEON_SUITE_ROOT`, if set, WINS ABSOLUTELY — no walk is attempted, and a value pointing at a
+The variable is **`EMPYREAN_SUITE_ROOT`** — the suite-level spelling the hub ratified in
+empyrean `contract/SUITE_PATHS.md` (2026-09-02, commit `4e8e865b`): a suite-level fact must
+not carry one tool's brand. aeon's own pre-contract spelling, `AEON_SUITE_ROOT`, is accepted
+as a transitional alias (`SUITE_ROOT_ENV_ALIASES`); the contract lets a resolver accept the
+old spellings during the transition *"but must document [the ratified name] as the name"*, so
+when the alias is what answered, the resolver says so on stderr and names the spelling to
+switch to. Set `EMPYREAN_SUITE_ROOT`; do not set the alias in anything new.
+
+Whichever spelling is set WINS ABSOLUTELY — no walk is attempted, and a value pointing at a
 directory that is not a suite root is a hard error rather than a silent fall-back to the real
-tree. That override is the mitigation for the hazard `docs/DEFERRED_WORK.md` records under
+tree (the contract's "set but wrong is a hard error at that step", which is this module's own
+semantic). Both spellings set and disagreeing is the same defect — two answers to one question
+is evidence of a wrong environment — and is refused naming both variables and both values.
+That override is the mitigation for the hazard `docs/DEFERRED_WORK.md` records under
 SUITE-HOME-PATHS: *"a helper that climbs parents looking for a marker LOOKS converted and still
 opens the real tree, because the walk succeeds from wherever the test happens to run. An
 override pointed at an absent directory does not stop it."* Here it does stop it, and that is
 the only reason a walk is acceptable at all.
 
 Without the override, the walk climbs this file's parents for the first directory holding ALL
-of `_SUITE_MARKERS`. It must be a walk and not a fixed parent count because this repo is
+of `_SUITE_MARKERS` (the contract's step 3, "a marker walk to the directory containing the
+sibling repos"). It must be a walk and not a fixed parent count because this repo is
 routinely checked out as a git worktree under `.claude/worktrees/<name>/`, which is three
 levels deeper than the main checkout. `git rev-parse --git-common-dir` would also find it, but
 that costs a subprocess in ~40 harness processes and fails outside a checkout; the walk is
-pure and needs neither.
+pure and needs neither. (`--show-toplevel` is never acceptable: it answers with the worktree.)
 
-Failure to resolve raises `SuiteRootNotFound`. It never returns a guess.
+Failure to resolve raises `SuiteRootNotFound`. It never returns a guess. `suite_root_source()`
+says which step answered — the contract asks every resolver to be able to — and the refusal
+messages carry it so the fix is readable from the message.
 """
 from __future__ import annotations
 
@@ -47,13 +61,20 @@ from pathlib import Path
 
 __all__ = [
     "SuitePathError", "SuiteRootNotFound", "MissingSuitePath",
-    "SUITE_ROOT_ENV", "REPO_ROOT", "suite_root",
+    "SUITE_ROOT_ENV", "SUITE_ROOT_ENV_ALIASES", "REPO_ROOT",
+    "suite_root", "suite_root_source",
     "suite_path", "require_suite_path", "repo_path", "require_repo_path",
     "client_path", "add_client_path", "harness_path",
 ]
 
 #: Explicit override. Set it to relocate the suite, or to point a poison run at an empty tree.
-SUITE_ROOT_ENV = "AEON_SUITE_ROOT"
+#: The spelling is the hub's (empyrean `contract/SUITE_PATHS.md`): THIS is the name.
+SUITE_ROOT_ENV = "EMPYREAN_SUITE_ROOT"
+
+#: Transitional aliases, accepted but announced. `AEON_SUITE_ROOT` was aeon's own spelling
+#: before the contract; the contract's cost line for aeon is exactly this tuple. Retire it once
+#: nothing in the suite sets it.
+SUITE_ROOT_ENV_ALIASES = ("AEON_SUITE_ROOT",)
 
 #: Every sibling that must be present for a directory to BE the suite root. `empyrean` is the
 #: suite contract repo and `aeon` this engine; a directory holding both is the suite root by
@@ -79,45 +100,99 @@ class MissingSuitePath(SuitePathError):
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 _suite_root: Path | None = None
+#: Which step answered, as prose: `<VAR>=<value>` (with the alias note when an alias answered)
+#: or the walk's starting point. Set beside `_suite_root`, read by `suite_root_source()`.
+_suite_root_source: str | None = None
+
+
+def _forget() -> None:
+    """Drop the memo. For tests that change the environment between resolutions."""
+    global _suite_root, _suite_root_source
+    _suite_root = None
+    _suite_root_source = None
 
 
 def _is_suite_root(p: Path) -> bool:
     return all((p / m).is_dir() for m in _SUITE_MARKERS)
 
 
+def _override() -> tuple[str, str] | None:
+    """`(variable, value)` for the spelling that answers, or None when nothing is set.
+
+    Precedence is the ratified name, then the aliases in order. Two spellings set to
+    different directories is set-but-wrong — refused naming both, because the next step
+    would hide the wrong environment that produced them.
+    """
+    found = [(name, os.environ[name])
+             for name in (SUITE_ROOT_ENV, *SUITE_ROOT_ENV_ALIASES)
+             if os.environ.get(name)]
+    if not found:
+        return None
+    first_name, first_value = found[0]
+    first = Path(first_value).expanduser().resolve()
+    for name, value in found[1:]:
+        if Path(value).expanduser().resolve() != first:
+            raise SuiteRootNotFound(
+                f"{first_name}={first_value!r} and {name}={value!r} disagree — the suite root "
+                f"is one directory. Unset {name} (a transitional alias) and set only "
+                f"{SUITE_ROOT_ENV}.")
+    return first_name, first_value
+
+
 def suite_root() -> Path:
     """The directory holding aeon and its peer repos. Raises rather than guessing."""
-    global _suite_root
+    global _suite_root, _suite_root_source
     if _suite_root is not None:
         return _suite_root
 
-    override = os.environ.get(SUITE_ROOT_ENV)
+    override = _override()
     if override:
-        p = Path(override).expanduser()
+        name, value = override
+        p = Path(value).expanduser()
         # The override is absolute law: if it is wrong we stop, we do NOT fall back to the
         # walk. A fall-back here would re-open the real tree during exactly the poison runs
         # this variable exists to make possible.
         if not p.is_dir():
             raise SuiteRootNotFound(
-                f"{SUITE_ROOT_ENV}={override!r} is not a directory")
+                f"{name}={value!r} is not a directory (looked for a suite root holding "
+                + ", ".join(f"{m}/" for m in _SUITE_MARKERS) + ")")
         missing = [m for m in _SUITE_MARKERS if not (p / m).is_dir()]
         if missing:
             raise SuiteRootNotFound(
-                f"{SUITE_ROOT_ENV}={override!r} is not a suite root: missing "
+                f"{name}={value!r} is not a suite root: missing "
                 + ", ".join(f"{m}/" for m in missing))
-        _suite_root = p.resolve()
+        source = f"{name}={value}"
+        if name != SUITE_ROOT_ENV:
+            # The contract lets the alias answer during the transition but the resolver must
+            # document the ratified name as THE name — so say so, once, where a human reads.
+            source += f" (transitional alias; the name is {SUITE_ROOT_ENV})"
+            sys.stderr.write(
+                f"suite_paths: {name} is a transitional alias — set {SUITE_ROOT_ENV} "
+                f"instead (empyrean contract/SUITE_PATHS.md)\n")
+        _suite_root, _suite_root_source = p.resolve(), source
         return _suite_root
 
     here = Path(__file__).resolve()
     for cand in here.parents:
         if _is_suite_root(cand):
-            _suite_root = cand
+            _suite_root, _suite_root_source = cand, f"marker walk up from {here}"
             return _suite_root
 
     raise SuiteRootNotFound(
         f"no suite root above {here} — no ancestor holds all of "
         + ", ".join(f"{m}/" for m in _SUITE_MARKERS)
         + f". Set {SUITE_ROOT_ENV} to the directory containing the Empyrean repos.")
+
+
+def suite_root_source() -> str:
+    """Which step produced `suite_root()`, for announcements and refusal messages.
+
+    The contract asks every resolver to say which step answered before work is done against
+    the path: this is that answer. Resolves first if nothing has yet.
+    """
+    suite_root()
+    assert _suite_root_source is not None
+    return _suite_root_source
 
 
 def suite_path(*parts: str | os.PathLike) -> Path:
@@ -132,9 +207,7 @@ def require_suite_path(*parts: str | os.PathLike, what: str = "") -> Path:
         raise MissingSuitePath(
             f"required suite path is absent: {p}"
             + (f" ({what})" if what else "")
-            + f" — suite root is {suite_root()}"
-            + (f" from {SUITE_ROOT_ENV}" if os.environ.get(SUITE_ROOT_ENV)
-               else f" (found by walking up from {Path(__file__).resolve()})"))
+            + f" — suite root is {suite_root()}, from {suite_root_source()}")
     return p
 
 
@@ -186,3 +259,4 @@ def add_client_path() -> Path:
 if __name__ == "__main__":  # a one-line answer to "where does this think the suite is?"
     print(f"repo  {REPO_ROOT}")
     print(f"suite {suite_root()}")
+    print(f"from  {suite_root_source()}")
