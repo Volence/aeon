@@ -2023,7 +2023,41 @@ case**, and the imagined case is what fixes its shape. The real instance will sa
 switch belongs per-scene, per-section, or per-act — and that is exactly the question this
 booking cannot answer today.
 
-### AN AUTHORED LOOP CROSSOVER REACHES THE FILE AND NEVER THE ROM — and every gate correctly reports nothing happened — booked 2026-08-29
+### AN AUTHORED LOOP CROSSOVER REACHES THE FILE AND NEVER THE ROM — and every gate correctly reports nothing happened — booked 2026-08-29 · **BAKE HALF CLOSED 2026-09-02**
+
+> **CLOSED, AND ONLY AS FAR AS THE ROM** — `parcel/loop-crossover`, aeon `8a4313b5`.
+> `bake_plane_cell` reads bits 15:14, the mark is part of `AttrSet`'s dedup key, and it is
+> emitted as `crossover.bin` → `CrossoverTable` in the ROM (anchor §5 rows 5-12; anchor §7
+> rules R1, R2, R3 and R5 are now built and pinned in `tools/test_collision_consistency.py`
+> alongside the R4 pair, each with the converse control §8.1 demands).
+>
+> **THE BOOKING BELOW WAS RE-DERIVED, NOT TRUSTED, AND IT WAS RIGHT.** Control first: a
+> re-bake with no edit reproduces the committed tree byte-for-byte. Then one `XOVER_TO_B`
+> authored into `section_0.collattr.bin` at `73b07a4f` → generated tree IDENTICAL, collision
+> tables IDENTICAL, `s4.bin` IDENTICAL at 719,440 B / crc32 `df76de71` both sides. After the
+> fix, the same fixture moves the attr-set 31 → 32, `crossover.bin[4] = 2`, `sec0_strips_a.bin`
+> and `sec0_blocks.bin`, and the ROM byte at `CrossoverTable + 4`.
+>
+> **⚠ WHAT IS STILL OPEN IS THE HALF THAT MAKES A LOOP WORK.** Anchor §5 row 13 and §6
+> changes (2)–(5): the per-frame read site, the edge-trigger, and the write to `Sst.layer`.
+> **A painted crossover now moves ROM bytes and still does not move a player.** Rule R6 (the
+> `.emp` `ensure` tying the engine's layer mapping to the encoding) belongs with that work
+> and does not exist. The bake PRINTS a notice counting the marks it baked and saying this in
+> its own text, so the third claim below is now legible in the build log rather than only in
+> this document — but **the costume is no longer a green build, it is a green build with a
+> notice, and a notice is not a refusal** (which is exactly the R1-detector lesson recorded
+> further down, applied to our own new output).
+>
+> **The three claims are now four**, and anyone citing a paint result must still say which:
+> the bytes reach the FILE · they reach the ROM · the engine READS them · the player MOVES.
+> Only the first two are true today.
+>
+> Two things below are now stale and are left standing as the record: `tools/collision_pipeline.py`
+> `bake_plane_cell` no longer sits at `:229` and no longer drops the field, and "R1 is exercised
+> by nothing" is no longer true. The **fixture constraint** (no 4-cell run where both planes
+> carry geometry AND differ) was not re-derived by this parcel and still binds anyone writing a
+> REAL-CONTENT test here; the tests that landed are synthetic by anchor §8.1's rule, so it did
+> not bind them.
 
 **Measured by the aurora lane** (their `2e24094`, `docs/reviews/2026-08-29-crossover-paint-loop.md`,
 instrument `scratchpad/crossover-paint-harness.mjs`), against aeon `4d86f5db`, in a throwaway
