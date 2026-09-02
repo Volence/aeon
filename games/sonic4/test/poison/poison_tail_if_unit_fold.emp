@@ -74,6 +74,18 @@ comptime fn tail_if_tri(amplitude: int, period: int) -> [i8; 256] {
 const P = tail_if_tri(amplitude: 16, period: 64)
 const F = deform_triangle(amplitude: 16, period: 64)
 
+// ⚠ THE OPERAND ORDER IS LOAD-BEARING — DO NOT WRITE THIS AS `F[0] == P[0]`.
+// The lane row's fragment pins `not defined for unit and int`, and sigil emits the
+// two kinds in SOURCE ORDER: `eq_compatible(a, b)` reports `(desc(a), desc(b))`,
+// lhs first, with NO normalisation — no sorting, no canonical order, no swap for
+// readability (sigil's own source, read by that lane 2026-09-02; they pin both
+// orders in their tests and will not silently normalise). So swapping these
+// operands — a meaning-preserving edit any reader might make without thinking —
+// flips the message to `int and unit`, the row goes red, and the failure points at
+// the REFUSAL rather than at the swap that caused it. The unit side stays LEFT.
+// This note sits here, at the edit site, and not only in the header, because the
+// header is not where that edit gets made.
+//
 // This message is expected NEVER TO RENDER: the comparison is `unit == int`, and
 // sigil refuses it before the ensure evaluates. It is written for the one world
 // in which it DOES render — a refusal that regressed to answering false — which
