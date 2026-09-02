@@ -210,7 +210,7 @@ class TestLayers(SceneShapeBase):
         path = self.write("ojz_bg", _scene(layers=[{
             "world_y": 0, "fa": 8, "fb": 8, "dsa": 15, "dsb": 15,
             "phase": 0, "enabled": 1, "deform": None, "curve": None,
-            "vsplit": None,
+            "vsplit": None, "drift": None,
         }]))
         self.assertEqual(len(effects_gen.load_scene(path)["layers"]), 1)
 
@@ -755,6 +755,98 @@ class TestRendering(SceneShapeBase):
         self.assertEqual(out.count("no_layer()"), 0)
         self.assertEqual(out.count("layer(world_y"), n)
         self.assertIn("count: %d" % n, out)
+
+
+class TestLayerDrift(SceneShapeBase):
+    """`layer.drift` — EFFECTS-W1 item 3's authoring half (2026-09-02).
+
+    The mechanism and the hand-authored adopter landed at chain 201; this key is what
+    lets a SCENE DOCUMENT reach it. Expectations are derived from the two owners the
+    contract names and from nothing else: the wire shape and its bounds from the writer
+    schema (empyrean `contract/schema/aurora-effects-scene.schema.json`
+    `$defs.layer.drift` — `oneOf ["none", {"rate": integer, -4096..4096, not 0}]`,
+    `"default": "none"`), and the emitted spelling from the hand idiom at
+    `games/sonic4/data/effects/ojz_scenes.emp:170-173`, which writes
+    `drift: SceneDrift.Rate(-32)`.
+
+    THE UNIT IS THE THING THIS CLASS EXISTS TO PIN. `rate` is on the wire in the
+    ENGINE's unit (1/256 px per frame, signed), not in px/frame: the px/frame
+    presentation is Aurora's UI and is multiplied by 256 on export (design §7.1
+    mitigation 2). A generator that "helpfully" scaled would make every authored rate
+    256x fast, and no assertion downstream could catch it — `Rate(8192)` is a legal
+    integer that merely trips a taste bound. `test_the_rate_reaches_the_constructor_
+    unscaled` is that guard, and the OJZ value is used because it is the one rate whose
+    correct emission is checkable against a shipped file.
+    """
+
+    def render(self, drift):
+        layer = {"world_y": 0, "fa": "FACTOR_1", "fb": "FACTOR_1"}
+        if drift is not _OMITTED:
+            layer["drift"] = drift
+        path = self.write("ojz_bg", _scene(layers=[layer]))
+        return effects_gen.render_scene(path, effects_gen.load_scene(path))
+
+    def test_the_key_is_accepted_at_all(self):
+        """It was refused before this parcel: `drift` was not in LAYER_KEYS, so
+        `_check_keys` made every scene carrying it a hard refusal. Aurora's editor
+        control is built against the key being readable."""
+        self.assertIn("drift", effects_gen.LAYER_KEYS)
+        path = self.write("ojz_bg", _scene(layers=[
+            {"world_y": 0, "fa": "FACTOR_1", "fb": "FACTOR_1",
+             "drift": {"rate": 32}}]))
+        self.assertEqual(effects_gen.load_scene(path)["layers"][0]["drift"],
+                         {"rate": 32})
+
+    def test_the_rate_reaches_the_constructor_unscaled(self):
+        """The wire unit IS the engine unit. `{"rate": -32}` must emit `Rate(-32)` —
+        not `Rate(-8192)` (scaled here as well as in the editor) and not `Rate(-1)`
+        (unscaled anywhere). -32 is the shipped OJZ canopy rate, 1/8 px/frame."""
+        out = self.render({"rate": -32})
+        self.assertIn("drift: SceneDrift.Rate(-32)", out)
+        self.assertNotIn("Rate(-8192)", out)
+
+    def test_a_positive_rate_emits_verbatim_too(self):
+        self.assertIn("drift: SceneDrift.Rate(256)", self.render({"rate": 256}))
+
+    def test_absent_emits_no_drift_argument_in_all_three_spellings(self):
+        """`layer()`'s default IS `SceneDrift.None`, so the absent case is the argument
+        being left off — the same treatment `curve` and `vsplit` get. All three absent
+        spellings the format allows must land there: omitted, the schema's `"none"`,
+        and JSON null (ATTACH_NONE's accepted synonym)."""
+        for spelling in (_OMITTED, "none", None):
+            with self.subTest(spelling=spelling):
+                self.assertNotIn("drift:", self.render(spelling))
+
+    def test_a_non_integer_rate_is_refused_naming_the_slot(self):
+        """The VFACTOR defect applied to this slot: a string is interpolated into
+        generated `.emp` as a bare SYMBOL, and `FACTOR_0` resolves everywhere."""
+        with self.assertRaises(effects_gen.SceneShapeError) as ctx:
+            self.render({"rate": "FACTOR_0"})
+        self.assertIn("drift.rate", str(ctx.exception))
+
+    def test_a_drift_object_without_rate_is_refused_naming_the_arm(self):
+        with self.assertRaises(effects_gen.SceneShapeError) as ctx:
+            self.render({"px_per_frame": 1})
+        msg = str(ctx.exception)
+        self.assertIn("rate", msg)
+        self.assertIn("px_per_frame", msg)
+
+    def test_zero_and_out_of_range_rates_pass_shape_and_are_left_to_sigil(self):
+        """Design §7 row 10, verbatim: "the range is enforced by row 2's `ensure` at
+        build time, not by the generator." Both bounds live in `layer()`
+        (`engine/level/scene_dsl.emp`) and their MESSAGES are the field's real
+        documentation — they state the unit and give the worked conversion. A copy of
+        either bound here would be the second source that drifts, and it would answer
+        with this tool's wording instead of the one the author needs to read."""
+        for rate in (0, 9000, -9000):
+            with self.subTest(rate=rate):
+                self.assertIn(f"drift: SceneDrift.Rate({rate})",
+                              self.render({"rate": rate}))
+
+
+# A sentinel for "the key is not present at all", distinct from JSON null (which is a
+# legal ABSENT spelling and must be tested separately from omission).
+_OMITTED = object()
 
 
 # =============================================================================
@@ -2689,6 +2781,34 @@ class TestTheConsumerContractNamesTheKey(unittest.TestCase):
             "§2.2 Assignments, which is the section that enumerates the sidecar's read "
             "set — a reader looking up 'what does the generator read from a sidecar' "
             "would not find it.")
+
+    def test_the_contract_names_every_layer_key_the_generator_reads(self):
+        """§2.1's per-layer list and `LAYER_KEYS` must agree, CONSTANT authoritative.
+
+        The same obligation as the sidecar test above, generalised to the surface that
+        just grew: `drift` was added to `LAYER_KEYS` on 2026-09-02 and the contract is
+        the file Aurora's writer is built against, so a key readable here and unnamed
+        there is a capability the writer lane cannot know it has. Derived by iterating
+        the constant — a key added to `LAYER_KEYS` in some later parcel fails this test
+        until §2.1 names it, which is the drift rule at the top of the contract
+        expressed as a gate rather than as prose.
+
+        Scoped to §2.1 (the section that enumerates the scene document's read set) so
+        that a mention in a §1 table or a rationale paragraph elsewhere cannot satisfy
+        it. `world_y` and friends are backticked there; the backticks are asserted
+        because an unquoted word in prose is not an enumeration entry.
+        """
+        with open(self.DOC) as f:
+            text = f.read()
+        section = text.split("### 2.1 Scene definition files", 1)[-1] \
+                      .split("### 2.1b", 1)[0]
+        for key in sorted(effects_gen.LAYER_KEYS):
+            self.assertIn(
+                f"`{key}`", section,
+                f"tools/EFFECTS_CONSUMER_CONTRACT.md §2.1 never names `{key}`, which "
+                f"tools/effects_gen.py accepts as a per-layer key (LAYER_KEYS). Adding "
+                f"a read is a CONTRACT change under this document's own drift rule: "
+                f"amend §2.1 and the empyrean schema pair in the same series.")
 
 
 class TestEditorRasterPresetsDoc(unittest.TestCase):

@@ -117,7 +117,7 @@ SCENE_REFUSED_KEYS = {
 # --- contract §2.1, per layer -------------------------------------------------
 LAYER_KEYS = frozenset({
     "world_y", "fa", "fb", "dsa", "dsb", "phase", "enabled",
-    "deform", "curve", "vsplit",
+    "deform", "curve", "vsplit", "drift",
 })
 
 LAYER_IGNORED_KEYS = frozenset({"name"})
@@ -1075,6 +1075,43 @@ def render_vsplit(path: str, value, where: str) -> str:
     return f"SceneVSplit.At({_render_int(path, at, where + '.at')})"
 
 
+def render_drift(path: str, value, where: str) -> str:
+    """`{"rate": <int>}` → `SceneDrift.Rate(<int>)`.
+
+    THE UNIT IS 1/256 px PER FRAME, SIGNED — and this function deliberately does not
+    convert it. The writer schema's `layer.drift.rate` (empyrean
+    `contract/schema/aurora-effects-scene.schema.json`, `$defs.layer.drift`) is already
+    in the engine's unit: `{"minimum": -4096, "maximum": 4096, "not": {"const": 0}}`,
+    the exact bounds of `layer()`'s two drift `ensure`s in
+    `engine/level/scene_dsl.emp`. The px/frame ↔ 1/256-px/frame conversion the design
+    calls for (`docs/superpowers/specs/2026-08-29-band-drift-design.md` §7.1 mitigation
+    2) happens in AURORA'S UI, on export, above the wire — so a multiply here would
+    apply it twice and every authored rate would come out 256x too fast. The wire value
+    goes to the constructor verbatim, sign included.
+
+    WHY THE RANGE AND THE ZERO ARE NOT CHECKED HERE. Design §7 row 10 says it in as many
+    words: "after it lands, the range is enforced by row 2's `ensure` at build time, not
+    by the generator." `Rate(0)` and `Rate(9000)` are SHAPE-legal and this tool forwards
+    them, because `layer()`'s messages are the field's real documentation — they state
+    the unit, give the worked conversion (1 px/frame = 256) and name the corpus max —
+    and a bound copied down here would be the second source that drifts. Same posture as
+    every other slot; see `_render_int`'s SHAPE-vs-VALUE block.
+
+    PER LAYER, NOT PER BAND, and the choice is the engine's rather than this tool's:
+    `drift` is an argument of `layer()` and a scene layer IS a parallax band — one layer
+    lowers to one `band_record`, so per-layer already spells everything per-band could.
+    (`BAND_KEYS` in this file is the RASTER preset's scanline region, an unrelated use of
+    the word.) The shipped hand-authored precedent gives all four OJZ canopy layers ONE
+    rate on purpose — `games/sonic4/data/effects/ojz_scenes.emp`, chain 201 — because
+    that art is one visual plane cut into four records and per-band rates would shear its
+    full-height features at a band boundary. That is a choice an author makes by writing
+    the same rate four times, which this key lets them do; it is not a reason to move the
+    key up a level and take the other choice away.
+    """
+    rate = _single_arm(path, value, "rate", where)
+    return f"SceneDrift.Rate({_render_int(path, rate, where + '.rate')})"
+
+
 def render_anchor(path: str, value, where: str) -> str:
     """`{"at": {channel, dsa, dsb}}` → `SceneAnchor.At(channel, dsa, dsb)`."""
     at = _single_arm(path, value, "at", where)
@@ -1108,6 +1145,8 @@ def render_layer(path: str, layer: dict, where: str,
         args.append(f"curve: {render_curve(path, layer['curve'], where + '.curve')}")
     if not is_absent(layer.get("vsplit")):
         args.append(f"vsplit: {render_vsplit(path, layer['vsplit'], where + '.vsplit')}")
+    if not is_absent(layer.get("drift")):
+        args.append(f"drift: {render_drift(path, layer['drift'], where + '.drift')}")
     for key, arm in LAYER_TABLE_ATTACHMENTS.items():
         if not is_absent(layer.get(key)):
             args.append(f"{key}: " + render_table_attachment(

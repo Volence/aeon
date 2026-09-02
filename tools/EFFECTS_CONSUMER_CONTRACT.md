@@ -140,7 +140,26 @@ DSL constructor arguments 1:1 (`engine/level/scene_dsl.emp` `scene()`/`layer()`)
   `docs/DEFERRED_WORK.md` ("Per-cell HScroll fill — DELETED"); when it lands, the key
   moves from the generator's ignored set to its refused set.
 - Per layer: `world_y`, `fa`, `fb`, `dsa`, `dsb`, `phase`, `enabled`, `deform`, `curve`,
-  `vsplit`.
+  `vsplit`, `drift`.
+- **`drift` — READ SINCE 2026-09-02 (this amendment; contract change per the drift rule
+  above).** Wire form `"none"` / absent / `{"rate": <signed int>}`; lowers to
+  `layer(drift: SceneDrift.Rate(<rate>))`, and absent lowers to the argument being
+  omitted (`SceneDrift.None` is `layer()`'s default). **`rate` IS IN THE ENGINE'S UNIT ON
+  THE WIRE: 1/256 px per FRAME, signed** — 1 px/frame is `256`, S3K AIZ1's clouds are
+  `32`, the shipped OJZ canopy is `-32`. The px/frame presentation the design asks for
+  (`docs/superpowers/specs/2026-08-29-band-drift-design.md` §7.1 mitigation 2) is
+  **Aurora's UI, multiplied by 256 on export**; the generator applies no conversion, so a
+  writer that exports px/frame unscaled is 256x slow and one that scales twice is 256x
+  fast. Bounds `-4096 … +4096` and the refusal of `0` are `layer()`'s two `ensure`s in
+  `engine/level/scene_dsl.emp` and are NOT re-checked here, per design §7 row 10 — the
+  generator's shape check only requires an integer. This key is only authorable in a game
+  whose `SCANLINE_CAPS` raise `CAP_BAND_DRIFT` (`$0080`); in one that does not, the
+  scene-registry gate in `games/sonic4/data/effects/scene_registry.emp` refuses the fold
+  at build time with its own message. Writer half: empyrean
+  `contract/schema/aurora-effects-scene.schema.json` `$defs.layer.drift`, already landed
+  at empyrean `041e5e8` — **its description's closing clause ("until then
+  `effects_gen.py` refuses the key") is stale as of this amendment and is empyrean's to
+  cut.**
 - Inside attachments: the factor spelling (named `FACTOR_*` or `{s1,s2,op}`) and the
   `tableRef` forms (`generator`: `sine`/`triangle`/`zero`/`v_column_perspective`/
   `v_column_floor` with their parameters, or `bin`).
