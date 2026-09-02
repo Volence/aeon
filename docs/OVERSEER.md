@@ -185,6 +185,36 @@ rulings live in the session memory and the most recent `docs/superpowers/*handof
   this file keeps meeting: their agent claimed a delta of 53 new tests; the measured delta was
   40. The tree was self-consistent, the claimed delta was not.)*
 
+- **RUN THE FREEZE DETACHED, NOT AS A HARNESS BACKGROUND TASK — the `[killed], no exit status`
+  class is the harness reclaiming its own task, and NOTHING ABOUT THE FREEZE FAILED** (added
+  2026-09-02; the sigil lane's mechanism, offered explicitly as a hypothesis, n=2, one data point
+  accidental, harness lifecycle rules unread by either lane).
+  This lane lost two freezes to `[killed]` with no exit status and no error anywhere, and spent a
+  session on a correlation story (each kill coincided with an abnormal foreground call). **That
+  story is DEMOTED.** Sigil got a controlled comparison by accident: the same work launched **as**
+  a harness background task was reported killed — no OOM in `journalctl -k`, no orphan, swap fine
+  — while the same work launched **detached** with `nohup … &`, watched by a separate background
+  task, survived and the *watcher* was killed instead. **The variable is whether the work is a
+  CHILD of the harness's background task.**
+  It explains both properties that made this confusing: **no exit status** because the process
+  never returned one, and **no error** because nothing went wrong. It also explains why the
+  journal recovery worked perfectly — nothing was corrupt because nothing had failed.
+  **Operational form, and the second half is the one that matters:**
+  ```sh
+  nohup bash the-freeze-script.sh > run.log 2>&1 &
+  ```
+  and have the script append its own `finished=<exit code>` line at the end. **In a log a vanished
+  run and a completed one trail IDENTICALLY**, so the stamp is the only thing that distinguishes
+  them — the same corrective as `REAL_EXIT=$?` inside the log, one level out. Do not poll with
+  `pgrep -f`, which matches your own watcher; ask whether the artifact changed.
+  **Its cheap prediction, which this lane's next freeze tests:** a detached freeze survives
+  whatever killed the last two. If one dies anyway the hypothesis is wrong and the class is
+  unexplained again — report that outcome either way, because a refutation here is worth as much
+  as a confirmation and nothing else will surface it.
+  *And the miss worth keeping: this lane's own notes already recorded aurora's observation that
+  `[killed]` is what the task harness writes when IT stops a task. The mechanism was sitting in
+  the record, and a coincidence story got built on top of it instead of followed.*
+
 - **NEVER LEAVE A SHARED CHECKOUT ON A PRIVATE BRANCH — a repoint silently invalidates
   every other session's already-correct branch check** (added 2026-08-27; this lane's defect,
   disclosed by the sigil lane who bore the cost). Landing chain 172, this overseer committed the
