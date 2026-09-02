@@ -867,6 +867,31 @@ path, for the same reason the protocol is read that way.
 
 ## Aeon-specific review bars (beyond the protocol's)
 
+- **WHEN A MECHANISM IS REFUTED, RE-DERIVE THE ARITHMETIC IT PRODUCED — NUMBERS DO NOT INHERIT
+  SOUNDNESS FROM HAVING BEEN COMPUTED BEFORE THE STORY WAS WRONG** (added 2026-09-02, chain 198;
+  this lane's defect, generalised with the sigil lane, who banked the same row against themselves
+  as the inbound form of a bar their board already carried outbound).
+  **The move to watch is a PARTITION OF YOUR OWN ERROR into a wrong half and a sound half, with
+  no re-derivation of the half you declared sound.** It feels like precision — conceding narrowly
+  rather than flinching is exactly the discipline — and it is what lets a wrong figure travel
+  **with a concession attached**, which is more persuasive than the original claim was.
+  Lived: told that the causal story behind a byte decomposition was backwards, this lane replied
+  *"the arithmetic was right and the word 'leaving' was the whole defect"*. The arithmetic was the
+  part that was wrong. Chain 198's frozen prose says *"release +93 = 62 content + 31 appendix"*;
+  measured, it is +0 assembled / +93 appendix, because the content is absorbed at the org anchor
+  and never reaches the file end — and the entry's own held `anchor_end` refutes it.
+  **Two separable failures with different fixes, and folding them into one keeps only the easy
+  fix.** (a) The numbers first went out while their own check was still in flight — a SEQUENCING
+  problem: do not quote a decomposition while the derivation that tests it is still running.
+  (b) They were re-certified an hour later in a reply that had the correction in front of it —
+  not a sequencing problem at all, and the harder of the two.
+  **The certification is more dangerous than the original error**, because by then it carries a
+  second lane's agreement and arrives as corroborated rather than as one lane's claim.
+  *Recorded with the peer interaction intact, because it is half the lesson: the sigil lane
+  offered a reading that folded (b) into (a) and excused it as latency. Checking the timeline
+  refuted that. **Softening a peer's self-booking deletes instances**, and the instance it deletes
+  is the one that had no cheap fix.*
+
 - **A MEASUREMENT RECORDED WITHOUT THE THING IT WAS TAKEN AGAINST DECAYS INTO A FALSE CLAIM —
   SILENTLY, BECAUSE THE NUMBER ITSELF NEVER CHANGES** (added 2026-08-30T09:35Z; developed jointly
   with the sigil lane, four instances in one evening, three of them this lane's).
