@@ -588,4 +588,14 @@ The reference spans are the derived images in §1.3/§1.4 (`00 01 02 08 04 08 00
   parcel); re-verify before deleting the field.
 - **Whether a comptime fn may return `[Label; 2]` into `preset(variants:)`**, and whether
   two struct values can be compared by `first_mismatch` — unverified, no build here.
+  - *Verified 2026-09-02* (`docs/superpowers/probes/2026-09-02-item5-comptime-probe.md`,
+    built, red-first, ROM read-back): **both YES.** A `-> [Label; 2]` (or `-> array`) chooser
+    reaches `ep_variants` in slot order, byte-identical to the hand pair; `first_mismatch`,
+    direct `==`/`!=`, and field-wise all compare `pal_variant` / `pal_cycle_channel` values
+    and all fire on a one-field mutation; the prefix case still returns -1. Two caveats the
+    implementing parcel needs: a `[Label; 2]` fn annotation is NOT length-checked (the
+    emitted record is, blamed on the `pub data` line), and the hand `pub data` twin cannot
+    be named in the ensure (`unknown name` bare; a LABEL inside an array literal, which makes
+    `first_mismatch([Variant_Water_Deep], ...)` always-red) — the value must come through a
+    comptime-visible `const`.
 - **A cycling capture in GATE-EVIDENCE** — none (`ojz_effects.emp:498-499`).
