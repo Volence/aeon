@@ -1619,3 +1619,40 @@ family and the most expensive, because the others cost effort and this one cost 
   the shared root" — which only works if trees worth keeping are actually declared. **This is
   the other half of that remedy, and it is the half this lane had not yet done for itself.**
   Retire it when a later chain supersedes it, and say so here rather than deleting the line.
+
+
+<!-- @MOVED 2026-09-02: the 31-row ruled-not-to-repair set, moved out of the head under the
+     boot-read bound. VERBATIM, 32 lines. The RULING and the 8c trap stay in OVERSEER.md;
+     the generated fixture tools/fixtures/decisions_ruled_unrepaired.json is the authority. -->
+  **THE RULED-NOT-TO-REPAIR SET, by line:**
+  line   3  `d-4` — option missing key; option missing name; recommend must be an object
+  line   4  `d-5` — option missing key; option missing name; recommend must be an object
+  line  35  `d-19-answered` — options must list two or more
+  line  36  `d-20-answered` — options must list two or more
+  line  38  `d-21-answered` — options must list two or more
+  line  39  `d-22-answered` — options must list two or more
+  line  40  `d-24-answered` — options must list two or more
+  line  41  `d-25-answered` — options must list two or more
+  line  42  `d-26-answered` — options must list two or more
+  line  43  `d-27-answered` — options must list two or more
+  line  45  `d-18-answered` — options must list two or more
+  line  48  `d-32` — option missing key; option missing name; recommend must be an object
+  line  49  `d-30-answered` — options must list two or more
+  line  59  `d-36-answered` — options must list two or more
+  line  60  `d-38-answered` — options must list two or more
+  line  63  `d-40-answered` — options must list two or more
+  line  64  `d-36-correction` — options must list two or more
+  line  68  `d-42-answered` — options must list two or more
+  line  69  `d-43-answered` — options must list two or more
+  line  72  `d-42-answered` — options must list two or more
+  line  73  `d-43-answered` — options must list two or more
+  line  74  `d-44-answered` — options must list two or more
+  line  75  `d-45-answered` — options must list two or more
+  line  76  `d-35-closed` — options must list two or more
+  line  77  `d-32-closed` — options must list two or more
+  line  81  `vram-replan` — option missing key; option missing name; recommend must be an object
+  line  82  `instashield-riders` — option missing key; option missing name; recommend.key names no option
+  line  83  `d-47-revised-answered` — options missing; recommend missing
+  line  84  `vram-replan-deferred` — options missing; recommend missing
+  line  85  `d-46-downgraded` — options missing; recommend missing
+  line  86  `instashield-riders` — option missing key; option missing name; recommend.key names no option
