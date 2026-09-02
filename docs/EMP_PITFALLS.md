@@ -347,6 +347,20 @@ not the trap and it needs no workaround:
 by an argument-kind check that is **not** `[eq.cross-type]`. Same keyword, different
 mechanism; do not diagnose it as a comparison problem.
 
+**DATED 2026-09-02: this asymmetry is OLD and has nothing to do with the equality change.**
+The same probe — a `comptime fn` taking a scalar `Label`, called with `0` — produces the
+**byte-identical diagnostic** on the pre-change compiler (`cdd330ff`) and the post-change one
+(`6a8b3ecd`), and the `[Label; 2]`-with-a-`0`-slot half is accepted by both. So a reader who
+meets this message has not found a side effect of §12 and should not go looking for one. Run
+by the sigil lane and reproduced here independently against both binaries.
+
+*How this nearly went unrecorded, because the lesson is about prohibitions rather than about
+labels:* the pre-change binary was frozen read-only during the landing, and the freeze was
+written — and read — as "off-limits". **It was `-r-xr-xr-x`: writing was refused, RUNNING was
+never in question**, so the A/B was available the whole time at no cost and to nobody's risk.
+A prohibition should say what it forbids and, where the distinction is load-bearing, what it
+still permits; an over-broad one buys caution by deleting a measurement.
+
 ### The trap with teeth: the one-keystroke "fix" that makes the guard permanently vacuous
 
 An always-red guard looks like a broken assertion, and the cheapest way to make it stop
