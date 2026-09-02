@@ -2023,8 +2023,42 @@ case**, and the imagined case is what fixes its shape. The real instance will sa
 switch belongs per-scene, per-section, or per-act — and that is exactly the question this
 booking cannot answer today.
 
-### AN AUTHORED LOOP CROSSOVER REACHES THE FILE AND NEVER THE ROM — and every gate correctly reports nothing happened — booked 2026-08-29 · **BAKE HALF CLOSED 2026-09-02**
+### AN AUTHORED LOOP CROSSOVER REACHES THE FILE AND NEVER THE ROM — and every gate correctly reports nothing happened — booked 2026-08-29 · **BAKE HALF CLOSED 2026-09-02** · **ENGINE HALF CLOSED 2026-09-02**
 
+> **THE ENGINE HALF IS BUILT** — `parcel/loop-crossover-read`, aeon `602170f7` (the read
+> site) + `d0f2e0e1`-family (the gate). Anchor §5 row 13 and §6 changes (2)–(5):
+> `Player_LoopCrossover` (`games/sonic4/player/player_common.emp`) runs once per player per
+> frame from `Player_Main`'s shared preamble, looks up the cell the player resolved onto on
+> the plane the player is on, indexes `CrossoverTable`, and writes `Sst.layer`. Rule R6's
+> `ensure` block is at that read site and binds `subq.b #XOVER_LAYER_BIAS` to
+> `LAYER_PATH_A`/`LAYER_PATH_B`. **Of the four claims listed below, three are now true: the
+> bytes reach the FILE, they reach the ROM, and the engine READS them.**
+>
+> **THE FOURTH IS NOT, AND CANNOT BE UNTIL SOMEONE PAINTS A LOOP.** "The player MOVES"
+> requires geometry, and there is none: anchor §0's provenance limit is unchanged, no loop
+> exists anywhere in OJZ act 1, and all 256 slots of the shipped `CrossoverTable` hold
+> `XOVER_NONE`. What was demonstrated instead is the mechanism, by executing the built ROM's
+> own bytes (`tools/loop_crossover_gate.py`, 148 executions per canonical shape, post-sigil
+> in `build.sh` + a committed-cut pytest lane): with every other input held fixed, varying
+> ONE byte of the ROM image at `CrossoverTable + attr` changes `Sst.layer`, and the
+> unmodified table is the control. That is the difference between "readable" and "consumed",
+> and it is as far as a tree with no loop in it can go.
+>
+> **[TAG-RUNTIME] for the controller, with the check named.** Paint a throwaway loop (or
+> just a two-cell crossover pair on flat OJZ ground), build, and watch `Sst.layer` at
+> `Player_1 + $2D` change as the player crosses the marked column and NOT change while
+> standing on it. The gate cannot do this — it has no emulator and no geometry — and it is
+> the only remaining question the encoding has left.
+>
+> **DELIBERATELY LEFT OPEN — the per-act crossover gate.** The read costs ~0.81% of an NTSC
+> frame for two players on a frame where both changed cell (derived from the emitted
+> encodings, see the routine's own cost note), and today it buys nothing because every act's
+> table is empty. A per-act "this act has crossovers" flag would collapse that to ~12 cycles.
+> It is not built because the flag does not exist, it is a BAKE-side field, and adding one
+> here would ship a second encoding ahead of its first user — the same mistake this booking
+> exists to record. Revisit when the first real loop lands, which is also when the cost
+> starts buying something.
+>
 > **CLOSED, AND ONLY AS FAR AS THE ROM** — `parcel/loop-crossover`, aeon `8a4313b5`.
 > `bake_plane_cell` reads bits 15:14, the mark is part of `AttrSet`'s dedup key, and it is
 > emitted as `crossover.bin` → `CrossoverTable` in the ROM (anchor §5 rows 5-12; anchor §7
@@ -2038,7 +2072,10 @@ booking cannot answer today.
 > fix, the same fixture moves the attr-set 31 → 32, `crossover.bin[4] = 2`, `sec0_strips_a.bin`
 > and `sec0_blocks.bin`, and the ROM byte at `CrossoverTable + 4`.
 >
-> **⚠ WHAT IS STILL OPEN IS THE HALF THAT MAKES A LOOP WORK.** Anchor §5 row 13 and §6
+> ~~**⚠ WHAT IS STILL OPEN IS THE HALF THAT MAKES A LOOP WORK.**~~ **BUILT 2026-09-02 —
+> see the block above.** The paragraph is kept because the bake's own NOTICE text still
+> quotes it, and that text is now one release behind the engine (`tools/ojz_strip_gen.py`
+> prints "the ENGINE does not read that table yet"; it does). Anchor §5 row 13 and §6
 > changes (2)–(5): the per-frame read site, the edge-trigger, and the write to `Sst.layer`.
 > **A painted crossover now moves ROM bytes and still does not move a player.** Rule R6 (the
 > `.emp` `ensure` tying the engine's layer mapping to the encoding) belongs with that work

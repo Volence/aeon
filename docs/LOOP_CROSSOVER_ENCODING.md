@@ -1,14 +1,24 @@
 # Loop crossover encoding — the cross-repo anchor
 
-**Status:** design anchor, **half built as of 2026-09-02** (`parcel/loop-crossover`, aeon
-`8a4313b5`). This document exists so Aurora's paint tool and Aeon's engine parcel can be
-built against the same contract without either waiting for the other.
+**Status:** design anchor, **BUILT as of 2026-09-02** (`parcel/loop-crossover` aeon
+`8a4313b5` for the bake, `parcel/loop-crossover-read` aeon `602170f7` for the engine). This
+document exists so Aurora's paint tool and Aeon's engine parcel can be built against the
+same contract without either waiting for the other.
 
-**THE BAKE HALF IS BUILT; THE ENGINE HALF IS NOT.** §5 rows 1-12 are done — a painted
-crossover now travels from the editor file through `bake_plane_cell`, into the attr-set's
-dedup key, out as `crossover.bin`, and into the ROM as `CrossoverTable`. §5 **row 13 does
-not exist**: nothing reads that table, so **a painted crossover moves ROM bytes and does not
-move a player.** Rules R1-R5 are built; R6 has no read site to live at.
+**BOTH HALVES ARE BUILT.** §5 rows 1-12: a painted crossover travels from the editor file
+through `bake_plane_cell`, into the attr-set's dedup key, out as `crossover.bin`, and into
+the ROM as `CrossoverTable`. §5 **row 13**: `Player_LoopCrossover` reads that table once per
+player per frame and writes `Sst.layer`. Rules R1-R6 are all built.
+
+**WHAT IS STILL NOT TRUE IS THE SENTENCE THAT MATTERS MOST, AND IT IS NOT AN ENGINE GAP.**
+*Nobody has driven a player through a painted crossover*, because §0's provenance limit is
+unchanged: there is no loop geometry anywhere in OJZ act 1, and all 256 slots of the shipped
+`CrossoverTable` hold `XOVER_NONE`. The read side is proven by EXECUTING the built ROM's own
+bytes — `tools/loop_crossover_gate.py` varies one byte of `CrossoverTable` in the ROM image
+with every other input held fixed and requires `Sst.layer` to follow it — which separates
+"the value is readable" from "the value is consumed" and goes no further. **Four claims, and
+say which one you mean: the bytes reach the FILE · they reach the ROM · the engine READS
+them · a player MOVES. The first three are true.**
 
 **Read the §5 and §7 tables' status columns for what exists** — every row carries its own
 verdict and the commit that earned it. Do not read any prose in this document, including
@@ -322,7 +332,7 @@ accounted for.
 | 10 | strips → 16×16 blocks with embedded dual-plane collision, S4LZ | `tools/ojz_block_gen.py` (`STRIP_COLL_OFFSET_A/B`, 128 B per plane per column) | exists — **no change**, no ROM format change |
 | 11 | table blob into the ROM | `games/sonic4/data/collision/collision_data.emp` — `pub data CrossoverTable` | **DONE** `8a4313b5` — with an `ensure` tying its length to `SolidityTable`'s, the pairing the shared attr index depends on |
 | 12 | placement | `games/sonic4/map.toml` (`collision_data` section, boundary key `HeightMaps`) | **NO EDIT NEEDED** — `order` lists section HEAD-labels only, and `CrossoverTable` is inside `HeightMaps`' section. Still **byte-moving**: measured `Map_Sonic`/`DPLC_Sonic`/`Art_Sonic` +256 B, the Z80 banks unmoved (their alignment padding absorbed it), `s4.bin` +16 B — the appended deb2 entry for the new symbol. **The sigil pin/refreeze ritual still applies.** |
-| 13 | once-per-frame read + write to `Sst.layer` | engine — see §6 | **STILL DOES NOT EXIST.** This is the row that decides whether a loop works. Rows 1-12 mean the mark reaches the ROM; nothing reads it. |
+| 13 | once-per-frame read + write to `Sst.layer` | engine — `Player_LoopCrossover`, `games/sonic4/player/player_common.emp`, called from `Player_Main`'s shared preamble | **DONE** `602170f7` — 64 bytes, one `Collision_GetType` on the cell the frame resolved onto, on the plane the object is on, indexing `CrossoverTable`; edge-triggered on a `PlayerBlock.xover_cell` compare. Cost, summed from the emitted encodings: 106 cycles same-cell, 518/524 on a cell change, 532/538 when it fires — 0.17% / 0.81% of an NTSC frame for two players. §6 changes (2)-(5) all landed here |
 
 **The load-bearing property of this route: no per-cell ROM growth.** The crossover rides in
 the *identity* of the interned attr byte, not alongside it, so steps 9 and 10 are untouched
@@ -332,8 +342,17 @@ and the ROM collision format does not change. The entire ROM cost is one 256-byt
 
 ## 6. What the engine parcel owes — the contract
 
-Stated as requirements, not implemented here. This parcel sequences **after** the sprite
-priority swap (`loops-and-sprite-rotation.md` §6, Parcel 2).
+**Changes (0), (1), (6) landed with the bake (`8a4313b5` / `fix/repaint-preserve-crossover`);
+(2)-(5) landed with the read site (`602170f7`); (7) is unchanged and (8) is the standing
+ritual.** Each is marked at its own heading. Written as requirements, and left in that voice
+so the CONTRACT is still readable next to what satisfies it.
+
+One requirement here was NOT satisfied as written, and it is flagged where it appears: (3)
+names two places that are not the same place ("the shared per-frame player tail" and
+"alongside the quadrant derive"). It landed at the quadrant derive.
+
+This parcel sequences **after** the sprite priority swap
+(`loops-and-sprite-rotation.md` §6, Parcel 2).
 
 **(0) Constant hygiene, `tools/collision_pipeline.py`.** Add `PLANE_SOL_SHIFT = 12` and
 `XOVER_SHIFT = 14` documented as *the per-plane word only*, and re-comment
@@ -356,21 +375,45 @@ Why it matters: without it, a painted crossover can only ever fire for a player 
 solid ground, and `loops-and-sprite-rotation.md` §4.5.3 is explicit that the layer update
 must work in every state *because you can enter a loop's far side airborne*.
 
-**(2) The read site.** One lookup per frame, of the cell the object actually resolved onto —
-**not** on the probe path. Sensors issue many speculative probes per frame (both sensors of
-a pair, the ±16 extensions, ceiling checks) and a transition must never fire from one.
+**(2) The read site. DONE `602170f7`.** One lookup per frame, of the cell the object actually
+resolved onto — **not** on the probe path. Sensors issue many speculative probes per frame
+(both sensors of a pair, the ±16 extensions, ceiling checks) and a transition must never fire
+from one. `Player_LoopCrossover` issues exactly one `Collision_GetType` per player per frame,
+against `x_pos`/`y_pos`, and only on a frame where the cell changed.
 
-**(3) Where it goes.** The shared per-frame player tail in `Player_Main`, alongside the
-quadrant derive (`games/sonic4/player/player_common.emp`). **Not** the `Ground_PostMove`
-fall-through, which carries an explicit `SEAM GUARD` comment in `player_ground.emp`
-forbidding state-specific insertions between the floor snap and `Player_SlopeRepel`.
+**(3) Where it goes. DONE `602170f7`, at ONE of the two places this line names.** The
+requirement says "the shared per-frame player tail in `Player_Main`, alongside the quadrant
+derive" — and those are different sites: the quadrant derive is in the preamble, above the
+state dispatch, not in the tail. It landed at the **quadrant derive**, which is the more
+specific of the two and the established idiom for shared per-frame state taken from the
+position the last frame resolved to. *The two placements are behaviourally identical*: a
+pre-dispatch read on frame N+1 sees exactly the position a post-dispatch read on frame N
+would have seen, so the layer reaches the sensors on the same tick either way. **Not** the
+`Ground_PostMove` fall-through, which carries an explicit `SEAM GUARD` comment in
+`player_ground.emp` forbidding state-specific insertions between the floor snap and
+`Player_SlopeRepel`.
 
-**(4) Edge-trigger.** Fire only when the resolved cell *changes*. Standing still on a marked
-cell must not re-fire. This needs one word of per-object state (last resolved cell index).
+**(4) Edge-trigger. DONE `602170f7`, and as a LONG rather than a word.** Fire only when the
+resolved cell *changes*. Standing still on a marked cell must not re-fire. `PlayerBlock.xover_cell`
+is a `u32` holding the packed world cell `(x & $FFF8) << 16 | (y & $FFF0)` — the quantisation
+`Collision_GetType` itself performs, derived from the block collision format
+(`COLL_CELL_W`/`COLL_CELL_H`, `engine/system/constants.emp`) rather than chosen. A word would
+not fit two 16-bit axes, and packing them lossily would alias two cells onto one id.
 
-**(5) The write.** `move.b #(value - 1), Sst.layer(a0)` — `XOVER_TO_A`(1) → layer 0,
-`XOVER_TO_B`(2) → layer 1. The engine must **not** re-derive this mapping independently;
-it is the encoding, and it should carry an `ensure` tying the two.
+**The requirement's own wording contains the trap, so it is worth stating what "changes"
+must mean.** The id is derived from **position only** — never from the layer, the mark, or
+anything the fire writes. A trigger keyed on the VALUE ("fire when the mark becomes
+non-zero") also survives standing still, so standing still does not discriminate between the
+right rule and the wrong one. The case that does is §3.3's ORDINARY two-way pair: plane A
+carries `XOVER_TO_B` at the same cell where plane B carries `XOVER_TO_A`, so a trigger that
+re-armed when the layer changed would read the other plane's word there on the next frame and
+flip back, every frame, forever. `tools/loop_crossover_gate.py` runs that exact cell for five
+frames without moving and requires no second write.
+
+**(5) The write. DONE `602170f7`.** `subq.b #XOVER_LAYER_BIAS, d0` then `move.b d0, Sst.layer(a0)`
+— `XOVER_TO_A`(1) → layer 0, `XOVER_TO_B`(2) → layer 1. The engine must **not** re-derive this
+mapping independently; it is the encoding, and it carries the R6 `ensure` pair tying the two
+(§7 R6). The bias is a named constant precisely so the guard binds the emitted immediate.
 
 **(6) `tools/repaint_ojz_collision.py::repaint_word` must preserve bits 15:14** (§3.4).
 **DONE** — landed ahead of the rest of this parcel; see the callout in §3.4. Change (0)'s
@@ -400,7 +443,7 @@ paying for.* Every rule in this document, with its enforcement site:
 | **R3** | bit 14 means path-B solidity in the donor word and `XOVER` in the per-plane word, and no caller crosses them | `tools/test_collision_consistency.py::test_r3_the_two_bakers_read_bits_15_14_differently` | **DONE** `8a4313b5` — and change (0)'s `PLANE_SOL_SHIFT` landed with it, so `bake_plane_cell` no longer borrows the donor word's `PATH_A_SOL_SHIFT` |
 | **R4** | every rewriter of a per-plane cell word preserves bits 15:14 | `tools/test_collision_consistency.py::test_repaint_word_preserves_the_loop_crossover_mark` (the function) and `::test_repaint_write_path_preserves_the_crossover_on_a_synthetic_plane` (the tool's real write path, incl. `Section.set_word`'s two tile rows) and `::test_run_reports_a_marked_target_as_a_notice_and_still_succeeds` (the NOTICE, and that a mark does NOT change the exit code) | **DONE** — both tests green, both red before the fix; the only rewriter on our side is now compliant |
 | **R5** | the emitted `crossover.bin` matches the painted cells | `tools/test_collision_consistency.py::test_r5_an_authored_crossover_reaches_the_emitted_table` — the real `apply_editor_collision_overlay` + `emit_tables` path over a synthetic two-cell fixture, with §8.1's converse control | **DONE** `8a4313b5`, **but NOT where this row said.** It is a FIXTURE test, not a rule inside `collision_consistency.py`. Reason: bits 15:14 are zero in all 18 shipped files, so a rule over the baked artifact would examine a population of ZERO marked cells — and that gate REFUSES an empty population by design (`check()`'s vacuity guards). A rule that can never fire is the thing this document spends §8.1 warning about. Revisit when real content carries a mark |
-| **R6** | the engine's layer mapping matches the encoding | `.emp` `ensure` at the read site (see `docs/EMP_PITFALLS.md` §3 — the guard must be in a **reachable** module or it is dead) | **STILL NEW** — there is no read site to put it at (row 13) |
+| **R6** | the engine's layer mapping matches the encoding | `.emp` `ensure` block at the read site, `games/sonic4/player/player_common.emp` (reachable on every sonic4 shape's link, so it evaluates — `docs/EMP_PITFALLS.md` §3) | **DONE** `602170f7` — `XOVER_TO_A - XOVER_LAYER_BIAS == LAYER_PATH_A` and the `TO_B`/`PATH_B` twin, where `XOVER_LAYER_BIAS` is the immediate the emitted `subq.b` actually carries, so the guard binds the instruction and not a restatement of it. Plus `XOVER_NONE == 0` (the `beq` after the table fetch IS that test), `XOVER_TO_B == XOVER_TO_A + 1` (one subtraction can only map an adjacent pair) and `TILE_CACHE_COLL_PLANES == 2`. **An `ensure` cannot see a mis-typed IMMEDIATE**, which is why `tools/loop_crossover_gate.py` exists beside it: changing `#XOVER_LAYER_BIAS` to `#2` in the source builds green through every guard here and produces 9 findings there |
 | — | loop-shaped reachability | **Aurora**, at paint time (§8) | **NEW, and not ours** |
 
 **Why `tools/collision_consistency.py` and `tools/test_collision_consistency.py`.** They are
@@ -474,10 +517,12 @@ than no gate.
   At that correction, **exactly one of the six was built: R4.** R1, R2, R3, R5 and R6 were
   **specified and not implemented**, exactly as the §7 table had always marked them (`NEW`
   against `DONE`) — the table was right and this prose was ahead of it.
-  **AS OF 2026-09-02 (`8a4313b5`) FIVE OF THE SIX ARE BUILT: R1-R5. R6 is not, because there
-  is no engine read site to put it at (§5 row 13).** R5 landed as a fixture test rather than as
-  a rule inside `collision_consistency.py` — see its §7 row for why a rule there would examine
-  a population of zero.
+  **AS OF 2026-09-02 ALL SIX ARE BUILT: R1-R5 at `8a4313b5`, R6 at `602170f7`.** R5 landed as
+  a fixture test rather than as a rule inside `collision_consistency.py` — see its §7 row for
+  why a rule there would examine a population of zero. R6's own §7 row records the thing an
+  `ensure` structurally cannot check (the emitted immediate) and names what checks it instead.
+  **The split this paragraph describes now holds in both directions: our build checks the
+  encoding, and it does so without ever pretending to check the loop.**
   **Read the §7 table's status column for what exists; read this split for where it goes.**
 
   **How it went wrong, because the mechanism matters more than the correction.** The present
@@ -605,7 +650,15 @@ run. Three items are tagged for the controller, none of which gate Aurora:
   (`loops-and-sprite-rotation.md` §10.4). Painted crossovers do not have this failure mode at
   all, which is a further argument for Route P — but the object survives (§6 change 7) and
   the behaviour still wants a deliberate test on a real loop.
-- **[TAG-RUNTIME]** the whole encoding, against the first painted loop. §0.
+- **[TAG-RUNTIME]** the whole encoding, against the first painted loop. §0. **This is now
+  the ONLY open item in the whole document, and it is the one the controller has to close by
+  hand.** The named check: paint a crossover pair (a loop, or just two marked cells on flat
+  OJZ ground — `XOVER_TO_B` in `section_N.collattr.bin`, `XOVER_TO_A` in the `.collattrb.bin`
+  twin at the same cell, which is §3.3's pair), build, and watch the byte at `Player_1 + $2D`
+  (`Sst.layer`) in the emulator. It must change on the frame the player ENTERS the marked
+  cell and must NOT change again while the player stays in it — the second half is the whole
+  point, because it is what a re-arming edge trigger gets wrong and what
+  `tools/loop_crossover_gate.py` can only demonstrate against a synthetic tile cache.
 
 **For the owner — one item, and it is not a blocker.** `loops-and-sprite-rotation.md` §6
 recommends keeping `path_swap.emp` alongside Route P as the escape hatch for the dynamic
