@@ -68,7 +68,19 @@ pub implement Game {
     // The editor fold ALSO raises $0010 CAP_TRANSITIONS (two editor scenes) and $0008
     // from the start scene's anchor — both already declared above. Bit 0 stays the
     // retired hole (d-29-corrected): $005E, not $005F.
-    const SCANLINE_CAPS = $005E
+    //   $0080 CAP_BAND_DRIFT     ADDED 2026-09-02 by the drift ADOPTION parcel (EFFECTS-W1
+    //                            item 3). Unlike CAP_FACTOR_CURVE above, this one IS raised
+    //                            by a shipped HAND scene: Scene_OJZ_Default's four bands
+    //                            carry `drift: SceneDrift.Rate(-32)`, so
+    //                            scene_registry.emp's two-sided pin moved $001E -> $009E in
+    //                            the same commit. Raising it also flips the record shape —
+    //                            engine/level/parallax.emp's BAND_DRIFT_N and
+    //                            engine/ram.emp's BAND_DRIFT_BYTES moved with it, and
+    //                            Parallax_State grew 128 B (the shadow tail plus the
+    //                            per-band accumulator array). The picture is the OJZ act-1
+    //                            canopy drifting on its own; the look call is in
+    //                            games/sonic4/data/effects/ojz_scenes.emp's banner.
+    const SCANLINE_CAPS = $00DE
 
     // Boot enters ojz_scroll_test's GameState_OJZScroll_Init.
     const ENTRY_ID = GS_OJZ_SCROLL_TEST

@@ -725,6 +725,25 @@ if [[ "$FAST" == "0" ]]; then
             exit 1
         fi
 
+        # THE BAND-DRIFT BYTE GOLDEN (EFFECTS-W1 item 3). The scanline_spans differential
+        # in tools/effects_gates.py proves the three `cap_band_drift_*` instruction spans
+        # are emitted for sonic4 and elided for demo; this proves the DATA those spans
+        # read — the 16.16 rate in each band record's drift tail — is the rate
+        # games/sonic4/data/effects/ojz_scenes.emp authors. Neither implies the other: a
+        # walker that faithfully accumulates a rate of ZERO emits the same spans, costs
+        # the same cycles, and moves no pixel.
+        #
+        # It runs HERE for editor_palette_golden's reason (the pytest lane runs BEFORE the
+        # build, so a unit test opening s4.bin would grade a previous one), and it reads
+        # the ROM rather than asserting in `.emp` for a structural reason: the equivalence
+        # witness's `band_eq()` runs through `.br_base` and is blind to every capability
+        # tail by construction.
+        if ! python3 "${TOOLS}/band_drift_golden.py" --lst "${ROM_NAME}.lst" \
+                --rom "${ROM_NAME}.bin" --built-after "${SIGIL_T0}"; then
+            echo "Band-drift golden failed — see above (tools/band_drift_golden.py)."
+            exit 1
+        fi
+
         # The BG-animation section's ROOM, re-derived from THIS build's listing
         # (decision d-9). `ojz_bg_anim` grows into the hole that ends
         # at the `dac_banks` map anchor — DERIVED by the bank placement rule since the
