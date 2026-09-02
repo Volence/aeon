@@ -891,6 +891,24 @@ path, for the same reason the protocol is read that way.
   offered a reading that folded (b) into (a) and excused it as latency. Checking the timeline
   refuted that. **Softening a peer's self-booking deletes instances**, and the instance it deletes
   is the one that had no cheap fix.*
+  **⚠ THIRD INSTANCE THE SAME SESSION, AND IT EARNS A MECHANICAL RULE RATHER THAN MORE CARE —
+  AN ATTRIBUTION THAT NAMES ANOTHER LANE'S COMMAND IS CHECKED AGAINST THAT COMMAND'S OWN
+  DEFINITION BEFORE IT IS SENT, OR IT GOES HEDGED.** Lived: the shared `target/release/sigil`
+  was found relinked mid-chain (md5 `956da96a…` -> `4ca83f71…`, `--version` 079cec97 ->
+  dd5eaad2). The measurement was real; the CAUSE — *"your `cargo test --release --workspace`
+  relinked it"* — was invented from a timing coincidence and **dressed in a rule out of this very
+  file**, which made it read as diagnosis rather than as a guess. `scripts/landing-run.sh:323`
+  and `:416` both set `CARGO_TARGET_DIR="$TARGET"`, so that run **structurally could not** have
+  touched the shared path. One grep, against a file already on local disk, would have settled it.
+  **AND THE LEVEL CORRECTION IS WORTH MORE THAN THE INSTANCE** (the sigil lane's, re-deriving
+  rather than accepting): this file's existing *"guard the ARTIFACT, not the verb"* is still one
+  level short. **The variable is the TARGET DIR.** The single properly-guarded command is the only
+  one that could not have done it, while every casual `cargo test -p …` in a shared checkout can —
+  so guarding the named script harder would have prevented nothing.
+  **A second cost, and it is permanent: the binary that produced entry 198's goldens was
+  overwritten IN PLACE at the same path.** It no longer exists to compare against and is
+  recoverable only by rebuilding at 079cec97. A shared artifact pinned by md5 tells you it moved;
+  it does not give you back the thing that moved.
 
 - **A MEASUREMENT RECORDED WITHOUT THE THING IT WAS TAKEN AGAINST DECAYS INTO A FALSE CLAIM —
   SILENTLY, BECAUSE THE NUMBER ITSELF NEVER CHANGES** (added 2026-08-30T09:35Z; developed jointly
