@@ -67,6 +67,24 @@ pub struct PlayerBlock {
                             // accel on an odd address and `move.w` would ADDRESS
                             // ERROR. 8 words + quadrant + jump_buffer was exactly
                             // 18; dust_timer makes 19, so this pads back to 20.
+    xover_cell:     u32,    // THE LOOP CROSSOVER EDGE TRIGGER's whole state: the world
+                            // collision cell this slot was in when the crossover read
+                            // last ran, packed (x & ~(COLL_CELL_W-1)) << 16 |
+                            // (y & ~(COLL_CELL_H-1)). Player_LoopCrossover
+                            // (player_common.emp) fires only when it CHANGES, which is
+                            // what stops a marked cell re-firing every frame you stand
+                            // on it — and, because the value is derived from POSITION
+                            // ONLY, what stops the write to Sst.layer from re-arming
+                            // the trigger it just fired (a plane-A cell saying TO_B and
+                            // the plane-B cell under it saying TO_A is the ORDINARY
+                            // two-way loop pair, docs/LOOP_CROSSOVER_ENCODING.md §3.3,
+                            // and a value-derived trigger would ping-pong on it every
+                            // frame). Boot-cleared with all Work-RAM; cell (0,0) is
+                            // therefore the initial value and a player spawning
+                            // anywhere else fires on their first frame, reading
+                            // XOVER_NONE like every other unmarked cell.
+                            // Even offset (20), so the `move.l`/`cmp.l` pair below is
+                            // aligned in BOTH slots at the 24-byte stride.
 }
 
 pub region game_ram @ after(upper_ram) .. SYSTEM_STACK, w_addressable

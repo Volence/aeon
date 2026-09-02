@@ -347,6 +347,27 @@ pub const COLLECTED_PARK_SLOTS      = 4         // park entries (rolling overwri
 pub const COLLECTED_PARK_ENTRY_SIZE = 1 + 2 * COLLECTED_MASK_BYTES // 33 — id byte + collected + killed masks (byte-packed, entries NOT word-aligned)
 
 // -----------------------------------------------
+// LOOP CROSSOVER — the value encoding of CrossoverTable
+// (docs/LOOP_CROSSOVER_ENCODING.md §3.2; the anchor's §7 rule R6 binds these to
+// the layer byte at the read site, games/sonic4/player/player_common.emp)
+// -----------------------------------------------
+// One byte per attr-set index, addressed by the SAME index as SolidityTable. The
+// producer is tools/collision_pipeline.py (XOVER_NONE / XOVER_TO_A / XOVER_TO_B,
+// same names, same values) and the tool refuses value 3 at BAKE time (rule R1), so
+// the engine never has to consider it and deliberately carries no runtime check for
+// it — the anchor's §3.2 reasoning is that a clamping producer lands on 3 and that
+// 3 must therefore be the loudest value in the set, which a silent runtime default
+// would undo.
+pub const XOVER_NONE       = 0        // no crossover — the value every shipped cell holds
+pub const XOVER_TO_A       = 1        // put the resolving object on path A
+pub const XOVER_TO_B       = 2        // put the resolving object on path B
+// The mapping, as ONE number rather than as two coincidences: the read site emits
+// `subq.b #XOVER_LAYER_BIAS, d0` and the two guards below are what make that
+// subtraction the encoding instead of an independent re-derivation of it (§6
+// change 5: "the engine must NOT re-derive this mapping").
+pub const XOVER_LAYER_BIAS = 1
+
+// -----------------------------------------------
 // VRAM allocation — VALUES are generated from games/sonic4/vram.toml
 // -----------------------------------------------
 // The rationale prose below is hand-owned; the constants and their walls are

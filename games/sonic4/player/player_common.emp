@@ -26,7 +26,9 @@ use engine.constants.{NUM_PLAYERS,
         RF_PRIORITY_SHIFT, RF_PRIORITY_MASK, RF_XFLIP, RF_YFLIP, ST_IN_AIR, BUTTON_LEFT, BUTTON_RIGHT, SECTION_SIZE_SHIFT, SCREEN_HEIGHT,
         PHYS_SKID_MIN, PHYS_JUMP_BUFFER, PHYS_FALL_CAP,
         ST_ROLLING, ST_PUSHING, ST_XFLIP, COLLISION_NONE, EDGE_WRAP_V, EDGE_KILL, BUTTON_A, BUTTON_B, BUTTON_C,
-        BUTTON_UP_BIT, BUTTON_B_BIT, BUTTON_DOWN_BIT, BUTTON_LEFT_BIT, BUTTON_RIGHT_BIT}
+        BUTTON_UP_BIT, BUTTON_B_BIT, BUTTON_DOWN_BIT, BUTTON_LEFT_BIT, BUTTON_RIGHT_BIT,
+        // loop crossover — the read site (Player_LoopCrossover) and its R6 guard block
+        LAYER_PATH_A, LAYER_PATH_B, COLL_CELL_W, COLL_CELL_H, TILE_CACHE_COLL_PLANES}
 use engine.types.{VramTile}
 
 // PlayerBlock — the per-slot player working block this module's a4 convention
@@ -66,7 +68,9 @@ use games.sonic4.constants.{
     ANIM_FLY, ANIM_FLY_TIRED,
     ANIM_GLIDE_0, ANIM_GLIDEFALL, ANIM_SLIDE, ANIM_CLIMB, ANIM_LEDGE,
     ANIM_RUN_THRESHOLD, VRAM_TEST_MARKER, CHEAT_DEBUG_FLY, CHAR_COUNT,
-    PLAYER_PRIORITY_BAND
+    PLAYER_PRIORITY_BAND,
+    // loop crossover value encoding (docs/LOOP_CROSSOVER_ENCODING.md §3.2)
+    XOVER_NONE, XOVER_TO_A, XOVER_TO_B, XOVER_LAYER_BIAS
 }
 
 // Sound id — sole authority is games.sonic4.sound_ids.
@@ -276,6 +280,7 @@ ensure(ANIM_RUN == ANIM_WALK + 1, "ANIM_RUN is no longer ANIM_WALK+1 — Player_
 const PBLK_QUADRANT  = 16
 const PBLK_JUMPBUF   = 17
 const PBLK_DUSTTIMER = 18
+const PBLK_XOVERCELL = 20
 
 // -----------------------------------------------
 // player_block — point a register at the CALLING SLOT's PlayerBlock
@@ -338,6 +343,55 @@ ensure(PBLK_JUMPBUF == offsetof(PlayerBlock, jump_buffer),
        "PBLK_JUMPBUF out of sync with PlayerBlock.jump_buffer (config/ram.emp)")
 ensure(PBLK_DUSTTIMER == offsetof(PlayerBlock, dust_timer),
        "PBLK_DUSTTIMER out of sync with PlayerBlock.dust_timer (config/ram.emp)")
+ensure(PBLK_XOVERCELL == offsetof(PlayerBlock, xover_cell),
+       "PBLK_XOVERCELL out of sync with PlayerBlock.xover_cell (config/ram.emp)")
+// The crossover cell id is read and written with move.l/cmp.l, so BOTH slots' copies
+// must be even — the field's own offset and the array stride. sizeof(PlayerBlock)
+// being even is already the `pad` byte's job; this is the half that pad cannot state,
+// because a field can sit at an odd offset inside an even-sized struct.
+ensure((PBLK_XOVERCELL & 1) == 0,
+       "PlayerBlock.xover_cell is at an ODD offset — Player_LoopCrossover's move.l/cmp.l pair would ADDRESS ERROR on slot 0; re-order the byte fields above it")
+ensure((sizeof(PlayerBlock) & 1) == 0,
+       "sizeof(PlayerBlock) is ODD — slot 1's xover_cell (and its whole physics row) would land on an odd address; restore the pad byte in config/ram.emp")
+
+// -----------------------------------------------
+// LOOP CROSSOVER — rule R6 of docs/LOOP_CROSSOVER_ENCODING.md §7, plus the two facts
+// the edge trigger's `andi.l` depends on. This is the guard block the anchor asked for,
+// and it lives HERE because §7 R6 says "at the read site" and EMP_PITFALLS §3 says a
+// guard in an unreachable module is dead — player_common is on every sonic4 shape's
+// link, so these evaluate.
+// -----------------------------------------------
+// The packed cell-id mask, derived from the collision cell footprint rather than typed:
+// $10000 - W is the two's-complement "clear the low log2(W) bits" mask for a word.
+const XOVER_CELL_MASK = (($10000 - COLL_CELL_W) << 16) | ($10000 - COLL_CELL_H)
+// A mask can only express the quantisation if the cell is a power of two on each axis.
+// It is (8 x 16), and the derivation in engine.constants folds it from the block
+// collision format — but a block format that stopped dividing evenly would produce a
+// non-power-of-two here and the mask would silently quantise to the wrong grid.
+ensure((COLL_CELL_W & (COLL_CELL_W - 1)) == 0,
+       "COLL_CELL_W is {COLL_CELL_W}, not a power of two — Player_LoopCrossover quantises the cell id with an AND mask, which cannot express a non-power-of-two cell width")
+ensure((COLL_CELL_H & (COLL_CELL_H - 1)) == 0,
+       "COLL_CELL_H is {COLL_CELL_H}, not a power of two — Player_LoopCrossover quantises the cell id with an AND mask, which cannot express a non-power-of-two cell height")
+ensure(XOVER_CELL_MASK == $FFF8FFF0,
+       "the collision cell footprint moved: the crossover edge trigger's mask derives to {XOVER_CELL_MASK} instead of $FFF8FFF0. That is not necessarily wrong, but Player_LoopCrossover's cost note and the loop_crossover_gate fixture both quote the 8x16 grid — re-check both before re-pinning this number")
+
+// R6 — THE ENGINE MUST NOT RE-DERIVE THE ENCODING'S MAPPING. The read site's whole
+// value->layer step is one `subq.b #XOVER_LAYER_BIAS`; these bind that immediate to
+// the two encodings it sits between, so changing either end fails the build here
+// instead of sending a player to the wrong plane.
+ensure(XOVER_NONE == 0,
+       "XOVER_NONE is no longer 0 — Player_LoopCrossover's `beq` straight after the CrossoverTable fetch IS the no-crossover test, and a non-zero XOVER_NONE would make every unmarked cell fire")
+ensure(XOVER_TO_A - XOVER_LAYER_BIAS == LAYER_PATH_A,
+       "XOVER_TO_A - XOVER_LAYER_BIAS is {XOVER_TO_A - XOVER_LAYER_BIAS}, not LAYER_PATH_A ({LAYER_PATH_A}) — the read site's subq would put a to-path-A crossover on the wrong collision plane")
+ensure(XOVER_TO_B - XOVER_LAYER_BIAS == LAYER_PATH_B,
+       "XOVER_TO_B - XOVER_LAYER_BIAS is {XOVER_TO_B - XOVER_LAYER_BIAS}, not LAYER_PATH_B ({LAYER_PATH_B}) — the read site's subq would put a to-path-B crossover on the wrong collision plane")
+ensure(XOVER_TO_B == XOVER_TO_A + 1,
+       "the two crossover values are no longer adjacent, so ONE subtraction can no longer map the whole set — Player_LoopCrossover needs a table or a branch, not a wider bias")
+// The layer byte is written unconditionally from the subtraction, so the encoding must
+// not be able to produce a layer the collision lookup cannot select. Two planes exist
+// (TILE_CACHE_COLL_PLANES), and Collision_GetType selects between them with `tst.b d3`.
+ensure(TILE_CACHE_COLL_PLANES == 2,
+       "there are no longer exactly two collision planes — Collision_GetType's tst.b/beq plane select and the crossover's two-value encoding both assume 2")
 
 // -----------------------------------------------
 // set_standing_size / set_ball_size — the two collision boxes, taken from the
@@ -598,6 +652,131 @@ pub proc Player_RefreshPhysics (a2: *PlayerBlock) clobbers(d0/a1-a2) {
 }
 
 // -----------------------------------------------
+// Player_LoopCrossover — THE PAINTED LAYER TRANSITION.
+// docs/LOOP_CROSSOVER_ENCODING.md §5 row 13 and §6 changes (2) (3) (4) (5); rule R6's
+// `ensure` is the block above this one.
+//
+// A crossover is a mark painted into a collision cell that says "an object resolving
+// onto me belongs on the OTHER path". The mark rides in the identity of the interned
+// attr byte (which is why it cost no per-cell ROM), so reading it is the same one-byte
+// lookup the sensors already do, followed by one indexed table read.
+//
+// (2) ONE LOOKUP PER FRAME, OFF THE PROBE PATH. The sensors issue many speculative
+//     probes per frame — both sensors of a pair, the +/-16 extensions, ceiling checks —
+//     and any of them can land on a cell the player never resolves onto. A transition
+//     fired from one of those would teleport the player between planes for standing
+//     near a mark. So the read is here, against x_pos/y_pos: the position the frame
+//     actually resolved to, once, per player.
+//
+// (3) WHERE. The shared per-frame preamble, immediately after the quadrant derive and
+//     under the same rule that derive states — it consumes LAST frame's resolved
+//     position, and the layer it writes is in place for THIS frame's sensors. NOT in
+//     Ground_PostMove, whose SEAM GUARD comment forbids inserting state-specific work
+//     between the floor snap and Player_SlopeRepel.
+//
+// (4) THE EDGE TRIGGER, and why it cannot double-fire. The whole trigger is a compare
+//     against PlayerBlock.xover_cell, which holds the world cell the read last ran in.
+//     Two properties do the work, and they are different properties:
+//       * it is an EQUALITY on a cell id, not a test of the mark's value, so standing
+//         on a marked cell re-reads nothing: the id is unchanged and the routine leaves
+//         at the first `beq`. A value-derived trigger ("fire when the mark becomes
+//         non-zero") would pass that case too, which is why it looks right.
+//       * the id is derived from POSITION ONLY — never from the layer, the mark, or
+//         anything the fire itself writes. That is what makes the write to Sst.layer
+//         unable to re-arm the trigger. The case it protects is not exotic, it is the
+//         ORDINARY two-way loop of §3.3: the bottom-centre cell carries XOVER_TO_B on
+//         plane A and XOVER_TO_A on plane B, so a trigger that re-armed on the layer
+//         change would read the OTHER plane's word at the same cell on the very next
+//         frame and flip straight back, every frame, forever.
+//     The quantisation is COLL_CELL_W x COLL_CELL_H — exactly Collision_GetType's own
+//     partition, derived from the block collision format (engine/system/constants.emp),
+//     not a chosen granularity. Coarser would step over a marked cell; finer would
+//     re-fire inside one, which for a two-way pair is the ping-pong above.
+//
+// (5) THE WRITE. `subq.b #XOVER_LAYER_BIAS` IS the encoding — XOVER_TO_A(1) -> layer 0,
+//     XOVER_TO_B(2) -> layer 1 — and the R6 guards bind that one immediate to
+//     LAYER_PATH_A / LAYER_PATH_B so the engine does not re-derive the mapping.
+//
+// Value 3 is not tested for. The bake refuses it (rule R1, tools/collision_pipeline.py
+// bake_plane_cell raises), so it cannot reach CrossoverTable; adding a silent runtime
+// clamp here would give the illegal value a quiet meaning, which is the exact thing
+// §3.2 reserved it to prevent.
+//
+// COST, per player per frame. Every figure below was summed from the ENCODINGS this
+// build emitted (read back out of s4.debug.lst / .bin with capstone), against the
+// MC68000UM tables — not from a cycle count written next to the source. The dominant
+// term is Collision_GetType's own 292/298, which is why guessing it is not an option:
+// an earlier draft of this comment put it at ~150 and was wrong by a factor of two.
+//
+//   same cell (the whole steady state: bsr.w 18, move.l d(An),Dn 16, move.w d(An),Dn
+//     12, andi.l # 16, cmp.l d(An),Dn 18, beq taken 10, rts 16)                106
+//   cell changed, position off the tile cache (GetType's early air exit, 58)   284
+//   cell changed, no mark  (GetType in-window: plane A 292 / plane B 298)  518 / 524
+//   cell changed, fires                                                   532 / 538
+//
+// Two players at 60 Hz against a ~127,800-cycle NTSC frame: 0.17% standing still,
+// 0.81% on a frame where both changed cell. A player running at speed changes cell
+// most frames, so 0.8% is the honest running figure and 0.17% is only the floor.
+// 64 bytes of code, measured from the listing.
+//
+// The cheap gate that is NOT here, named so it is a decision and not an oversight:
+// every shipped act holds XOVER_NONE in all 256 slots, so today the whole 0.8% buys
+// nothing. A per-act "this act has crossovers" flag would collapse it to about 12
+// cycles — but that flag does not exist, it is a bake-side field, and adding one in
+// this parcel would be a second encoding shipped ahead of its first user. Booked in
+// docs/DEFERRED_WORK.md instead.
+//
+// In:  a0 = player SST, a4 = this slot's PlayerBlock
+// Out: none
+// Clobbers: d0-d3, a1 (d1-d3/a0 via Collision_GetType — a0 is saved across it here,
+//           exactly as probe_core does). a4 and d4-d7 are untouched: Player_Main holds
+//           the block in a4 and the frame's press bits in d6 across this call.
+// -----------------------------------------------
+pub proc Player_LoopCrossover (a0: *Sst, a4: *PlayerBlock) clobbers(d0-d3/a1) preserves(a0, a4) {
+        // The cell id, in three instructions: x_pos's HIGH word is the pixel X (the low
+        // word is sub-pixel), so one move.l lands X where it belongs and one move.w
+        // drops pixel Y in beside it. The mask then quantises both halves at once.
+        move.l  x_pos(a0), d0                   // X px in the high word, sub-px in the low
+        move.w  y_pos(a0), d0                   // Y px into the low word
+        andi.l  #XOVER_CELL_MASK, d0            // -> the world cell, one long
+        cmp.l   PBLK_XOVERCELL(a4), d0
+        beq     .done                           // same cell — THE edge trigger
+        move.l  d0, PBLK_XOVERCELL(a4)
+
+        // The lookup's arguments come OUT OF THE ID, not out of a second pair of
+        // position reads — 8 cycles and 4 bytes instead of 24 and 8, and, worth more
+        // than either, it makes "the cell the trigger compared" and "the cell the
+        // lookup fetched" the same value by construction rather than by two reads
+        // agreeing. Clearing the low bits first is provably free: Collision_GetType
+        // does `lsr.w #3` on X (so bits 2:0 never survive) and `lsr.w #3` then
+        // `lsr.w #1` on Y, and forcing Y's bit 3 low only selects the EVEN tile row of
+        // the pair the halving folds together — which lands on the same collision row,
+        // because Cache_Top_Row is even and the subtraction between them preserves that.
+        move.l  d0, d1                          // d1.w = Y, quantised
+        swap    d0                              // d0.w = X, quantised
+        move.b  layer(a0), d3                   // read the mark from the plane we are ON
+                                                // (§3.3: a plane's mark is only ever
+                                                // read by an object already on it, which
+                                                // is what makes one painted pair serve
+                                                // both directions of travel)
+        move.l  a0, -(sp)                       // Collision_GetType clobbers a0
+        jbsr    Collision_GetType               // d0.b = attr index (0 = air / off-cache)
+        movea.l (sp)+, a0
+        moveq   #0, d1
+        move.b  d0, d1                          // zero-extend: GetType's solid path is a
+                                                // `move.b` into d0 and leaves the upper
+                                                // bits dirty (only its air path moveq's)
+        lea     CrossoverTable, a1
+        move.b  (a1, d1.w), d0
+        beq     .done                           // XOVER_NONE — every cell in every
+                                                // shipped act, today
+        subq.b  #XOVER_LAYER_BIAS, d0
+        move.b  d0, layer(a0)
+    .done:
+        rts
+}
+
+// -----------------------------------------------
 // Player_Main — per-frame player update (RunObjects entry)
 // In:  a0 = player SST
 // Out: none
@@ -663,6 +842,15 @@ pub proc Player_Main (a0: *Sst) clobbers(d0-d6/a1-a4) preserves(d7.w) falls_into
         rol.b   #2, d0
         andi.b  #3, d0
         move.b  d0, PBLK_QUADRANT(a4)
+
+        // The painted layer transition (docs/LOOP_CROSSOVER_ENCODING.md §5 row 13),
+        // here for the same reason the quadrant derive is here: it is shared per-frame
+        // state derived once from the position the last frame resolved to, and it must
+        // be in place before the state dispatch's sensors read Sst.layer. See
+        // Player_LoopCrossover above for the edge trigger and the cost.
+        // d6 (this frame's press bits, read once at the top) is not in its clobber set,
+        // so the jump-buffer latch below still sees them.
+        jbsr    Player_LoopCrossover
 
         // jump buffer: latch PHYS_JUMP_BUFFER on a press edge, else tick down.
         // Maintained here; the ground-state jump check CONSUMES it.
