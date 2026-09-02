@@ -967,7 +967,9 @@ docs half, excluded by path.
 
 **What changed.** `tools/suite_paths.py` is the single resolver: `REPO_ROOT` from this file's own
 location, `suite_root()` from `AEON_SUITE_ROOT` (absolute, no fall-back; spelled
-`EMPYREAN_SUITE_ROOT` since the 2026-09-02 ruling under HOME-PATHS-OUTWARD below) else a marker walk, and
+`EMPYREAN_SUITE_ROOT` since the 2026-09-02 ruling under HOME-PATHS-OUTWARD below; and since R9 the
+same day the empyrean checkout is reached through `EMPYREAN_DIR` FIRST, with `build.sh` announcing
+both resolutions and their steps on every build, R8 — see the HOME-PATHS-OUTWARD record) else a marker walk, and
 **two deliberately non-interchangeable shapes** — `suite_path()`/`repo_path()` resolve, while
 `require_suite_path()`/`require_repo_path()`/`add_client_path()`/`harness_path()` raise
 `MissingSuitePath` naming the target **at the call site**. The walk is the hazard this entry warns
@@ -1048,6 +1050,32 @@ one that answered; both set and disagreeing is refused naming both; `suite_root_
 step answered and the refusals carry it. Ten rows in `tools/test_suite_paths.py`, each shown red under
 a sabotage of its own behaviour. **This row now waits on nothing in aeon**; the sibling migrations
 (contract "Migration order" 1–6) are each lane's own.
+**CORRECTED BY THE HUB, AND THE CORRECTION LANDED (R8 + R9, 2026-09-02, branch
+`parcel/suite-paths-r8-r9`, contract re-read at empyrean `5f52d1a`).** The sentence above read the
+NAME's price as the parcel's scope; the contract's own note on aeon's landing says otherwise: *"a
+resolver that reaches a sibling checkout through the suite root alone still owes step 1."*
+`client_path()` did exactly that. **R9:** `tools/suite_paths.py` now has `empyrean_dir()` —
+**`EMPYREAN_DIR`** first (contract step 1, the `<TOOL>_DIR` spelling from the contract's table);
+set-but-wrong (not a directory, or missing `contract/`/`clients/`) is a hard error naming the
+variable and the path with the suite root NOT consulted behind it (the test sabotages
+`suite_root()` to fail the row if it is); unset, `suite_root()/empyrean`, so steps 2–4 are inherited,
+and a present-but-empty `empyrean/` is refused naming the path, the variable, and the suite-root
+step. `empyrean_dir_source()` says which step answered and `client_path()` resolves through it.
+Seven more rows in `tools/test_suite_paths.py` (10 → 17), each red under a sabotage of its own
+behaviour. **R8:** `build.sh` runs `python3 tools/suite_paths.py` ahead of the level-staleness gate,
+on BOTH the canonical and FAST paths (the FAST re-bake resolves its donors through the same
+resolver), so every build log carries the suite root, the empyrean checkout, and the step that
+produced each; a refusal is one named stderr line and exit 1, build-fatal there under `set -e` —
+shown with `EMPYREAN_SUITE_ROOT` at an empty directory and with `EMPYREAN_DIR` at a non-checkout,
+each stopping before any later lane. All four canonical shapes byte-identical to the control.
+**`harness_path()` — oracle-old's `linux-port/harness` — is LIVE, not legacy, and did NOT get
+step 1: OPEN WITH THE HUB.** `tools/effects_gates.py:132` (the nightly effects gate) and the
+`oracle_gui`-spawning probes import it, so contract step 6 ("only if it is still meant to run")
+applies and it is still meant to run. But the contract's table names `ORACLE_DIR` for the Rust
+oracle — a different checkout — and no `<TOOL>_DIR` for `oracle-old`; inventing one here would be
+the eleventh spelling of the kind the contract exists to end. It stays on the suite root alone
+(steps 2–4), recorded as such in the module docstring, until the hub spells the variable. When it
+does, the shape is `empyrean_dir()`'s with the markers changed, and the test rows are the same three.
 
 ### THE REPLAY FIXTURE NEEDS RE-STAMPING AFTER THE CLAMPS — MEASURED, AND NOBODY HAD BOOKED IT
 (2026-08-30; the oracle lane found the symptom, the mechanism is measured here)
