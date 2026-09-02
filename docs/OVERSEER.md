@@ -207,6 +207,20 @@ rulings live in the session memory and the most recent `docs/superpowers/*handof
   run and a completed one trail IDENTICALLY**, so the stamp is the only thing that distinguishes
   them — the same corrective as `REAL_EXIT=$?` inside the log, one level out. Do not poll with
   `pgrep -f`, which matches your own watcher; ask whether the artifact changed.
+  **⚠ AND DO NOT WATCH THE DETACHED RUN WITH A HARNESS BACKGROUND TASK — THE WATCHER IS EXACTLY
+  WHAT GETS RECLAIMED** *(measured here 2026-09-02, and it is a correction to the advice above,
+  which was two thirds right)*. Landing chain 197 this lane detached the four-shape build
+  correctly and then armed a `run_in_background` `until`-loop to wait for its `finished=` line.
+  **The harness killed the WAITER; the detached build survived** — `pgrep -x sigil` found the
+  assembler alive and the log still growing. So the watch step reintroduces the exact failure the
+  detach was routing around. Poll by hand, or better, ask the question that survives:
+  **"did the log get its `finished=` line" is answerable later by anyone; "is the process alive"
+  asks about something the harness may reclaim out from under both the asker and the answer.
+  Prefer the artifact.** *(Stated this way rather than as "no background waiters" because the
+  rule generalises past this harness.)*
+  *Free control that arrived unplanned: the thing that died carried NO stamp, and its log is
+  indistinguishable by inspection from a completed run — which is the argument for the stamp,
+  landing on the one process in the experiment that lacked it.*
   **AND KEEP THE NUMBER, not just the fact of it** *(sigil's sharpening, 2026-09-02, and it is
   what turns this from a hypothesis into a measurement)*: the recorded exit code separates
   *killed by something* from *died on its own*, and **137 vs 143 separates SIGKILL from SIGTERM**,
