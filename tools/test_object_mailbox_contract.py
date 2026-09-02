@@ -48,25 +48,38 @@ pattern it could not find. A gate that quietly parses zero cells and passes is t
 this tree has been bitten by before, so `test_the_parsers_found_something` asserts a
 non-empty parse for each of the three sources before any comparison runs.
 
-PROVEN RED (2026-09-02), each arm firing alone, by editing the source on disk and
-restoring from the committed baseline (`git checkout --` of the exact path), with
-`__pycache__` cleared before every run:
-  * rename `Obj_Req_Place` -> `Obj_Req_Placement` in ram.emp only
-                                        -> test_ram_and_doc_declare_the_same_cells (both
-                                           directions named in one message)
-  * change `Obj_Req_Slot: u16` -> `u32` in ram.emp only
-                                        -> test_ram_and_doc_agree_on_every_width
-  * move `Obj_Req_Flag` above `Obj_Req_Status` in ram.emp only
-                                        -> test_flag_is_the_last_cell
-                                           and test_ram_and_doc_agree_on_order
-  * change `OBJREQ_ERR_FULL = 3` -> `= 6` in ojz_scroll_test.emp only
-                                        -> test_status_codes_match_the_doc
-  * change `OBJREQ_OP_DELETE = 3` -> `= 4` in ojz_scroll_test.emp only
-                                        -> test_op_codes_match_the_doc
-  * `comptime fn objreq_consume()` -> `proc objreq_consume()`
-                                        -> test_the_consumer_is_a_template_not_a_proc
-  * move the `Obj_Req_*` cells out of the `if DEBUG == 1 @shape_divergent` group
-                                        -> test_the_cells_are_debug_shape_only
+PROVEN RED (2026-09-02), eight mutations, each applied to ONE file, shown on disk with
+`git diff` before the run, and restored with `git checkout --` of that exact path from the
+committed baseline; `__pycache__` cleared before every run and a per-run
+PYTHONPYCACHEPREFIX, because this tree has measured false greens from stale bytecode.
+Baseline 12 passed / 0 failed. What each mutation turned red, verbatim from the runs:
+
+  1. `Obj_Req_Place` -> `Obj_Req_Placement` in ram.emp   -> 3 failed:
+     ..._declare_the_same_cells (both directions in one message -- a rename is one
+     missing + one dead), ..._agree_on_order, ..._every_cell_the_consumer_touches
+  2. `Obj_Req_Slot: u16` -> `u32` in ram.emp             -> 1 failed:
+     ..._agree_on_every_width
+  3. `Obj_Req_Flag` hoisted above `Obj_Req_Status`       -> 2 failed:
+     ..._agree_on_order, ..._flag_is_the_last_cell
+  4. `OBJREQ_ERR_FULL = 3` -> `= 6`                      -> 1 failed:
+     ..._status_codes_match_the_doc
+  5. `OBJREQ_OP_DELETE = 3` -> `= 4`                     -> 1 failed:
+     ..._op_codes_match_the_doc
+  6. `comptime fn objreq_consume() -> Code` -> `proc`    -> 1 failed:
+     ..._the_consumer_is_a_template_not_a_proc
+  7. `const OBJREQ_OP_SPAWN` -> `pub const`              -> 2 failed:
+     ..._are_not_pub_consts (the arm under test) and ..._op_codes_match_the_doc
+     (collateral: the `^const` parser stops seeing the name, so the op set shrinks --
+     recorded rather than tidied away, since a reader must not read that second
+     failure as a second independent detector)
+  8. the whole `Obj_Req_*` group hoisted OUT of the
+     `if DEBUG == 1 @shape_divergent` block                -> 6 failed, including
+     ..._the_cells_are_debug_shape_only (the arm under test) and the vacuity guard,
+     which is the point: the group vanishing from the fence must not read as "nothing
+     to check"
+
+An unapplied mutation and a restored baseline both print 12 passed, which is why the
+`git diff` before each run is part of the proof and not decoration.
 
 RUN BY: `python3 -m pytest tools -q` -- the sweep build.sh runs build-fatally before every
 canonical build (build.sh, "pytest tools" lane).
