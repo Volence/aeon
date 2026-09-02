@@ -225,13 +225,27 @@ rulings live in the session memory and the most recent `docs/superpowers/*handof
   what turns this from a hypothesis into a measurement)*: the recorded exit code separates
   *killed by something* from *died on its own*, and **137 vs 143 separates SIGKILL from SIGTERM**,
   i.e. a hard reclaim from a polite one. Without the stamp both outcomes and a completed run
-  produce the same truncated artifact, which is the absence family rather than a mystery. **So a
-  clean completion here REFUTES the harness story rather than merely failing to confirm it** —
-  which is worth more than the freeze it is attached to. Report the number either way.
-  **Its cheap prediction, which this lane's next freeze tests:** a detached freeze survives
-  whatever killed the last two. If one dies anyway the hypothesis is wrong and the class is
-  unexplained again — report that outcome either way, because a refutation here is worth as much
-  as a confirmation and nothing else will surface it.
+  produce the same truncated artifact, which is the absence family rather than a mystery.
+  Report the number either way.
+  **⚠ CORRECTED 2026-09-02, AND THE CORRECTION MATTERS MORE THAN THE RULE. This bullet first
+  read: "a clean completion REFUTES the harness story rather than merely failing to confirm it."
+  THAT IS BACKWARDS.** The hypothesis predicts that a detached run survives, so a clean
+  completion **CONFIRMS** it — weakly, at n=1. **A detached DEATH is what would refute it**, which
+  is why the death is the more valuable outcome. What a clean run refutes is the *competing*
+  story — the freeze is fragile, memory pressure kills it — and that is probably what the
+  sentence was reaching for, but it is not what it said.
+  *Recorded because of HOW it got here, which is the transferable part: the claim arrived from a
+  peer, was persuasive, was banked in this file and in session memory in those words without
+  being worked through, and would have been quoted AFTER a clean run as though the result proved
+  something stronger than it did. Chain 197's freeze DID complete clean (`finished=0`) — the
+  convenient direction, which is exactly when an unchecked claim gets promoted. The peer's own
+  later message had it right and the two never met, because nothing re-reads a banked sentence.*
+  **THE HONEST STATE AS OF CHAIN 197: three observations, all consistent, none decisive.** Two
+  freezes died as harness background tasks; a waiter died while its detached build lived (run-2
+  shape, reproduced by the lane that did not form the hypothesis); a detached freeze ran to
+  completion. Consistent with child-lifecycle — and equally consistent with an intermittent death
+  that happened not to fire. **The discriminating run is a detached death, and we have not had
+  one.** Keep detaching and keep stamping; do not write the mechanism down as settled.
   *And the miss worth keeping: this lane's own notes already recorded aurora's observation that
   `[killed]` is what the task harness writes when IT stops a task. The mechanism was sitting in
   the record, and a coincidence story got built on top of it instead of followed.*
