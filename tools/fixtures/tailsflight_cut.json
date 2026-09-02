@@ -1,20 +1,18 @@
 {
-  "_note": "Ability_InstaShield's bytes, per BUILD SHAPE, and the constants each was built with. The two canonical shapes place the routine at different addresses, so one cut cannot serve both. Regenerate with tools/instashield_gate.py --write-fixture (it preserves the other shape).",
+  "_note": "Ability_TailsFlight's bytes, per BUILD SHAPE, and the constants each was built with. The two canonical shapes place the routine at different addresses, so one cut cannot serve both. Regenerate with tools/instashield_gate.py --write-fixture (it preserves the other shape).",
   "shapes": {
     "s4.debug.lst": {
-      "bytes": "122800320c01000867060c01000a662c4a28004a66260c01000a660670086100ed5c12280033020100736610117c0001004a610a103c0042600097ac4e75",
+      "bytes": "102800320c00000867060c00000a661c3228000cb26c000e6d12117c00f00042117c00010043700e6000f3904e75",
       "constants": {
-        "INSTASHIELD_ATTACKING": 1,
-        "INSTASHIELD_READY": 0,
-        "INSTASHIELD_SPENT": 2,
-        "INSTASHIELD_SUPPRESS_MASK": 115,
-        "PSTATE_AIR": 6,
-        "PSTATE_AIRBALL": 12,
-        "PSTATE_COUNT": 13,
+        "FLY_COAST": 1,
+        "FLY_FUEL_TICKS": 240,
+        "PBLK_RELEASE_CAP": 14,
+        "PSTATE_FLY": 14,
         "PSTATE_JUMP": 8,
-        "PSTATE_ROLLJUMP": 10
+        "PSTATE_ROLLJUMP": 10,
+        "SST_y_vel": 12
       },
-      "end": 71532,
+      "end": 69918,
       "offsets": {
         "air_left": 57,
         "climb_pad": 71,
@@ -41,27 +39,23 @@
         "stick_convex": 59
       },
       "sst_custom": 48,
-      "start": 71470,
+      "start": 69872,
       "stubs": {
-        "00AF14": "Sound_PlaySFX",
-        "0104AA": "Player_SetState",
-        "01176C": "InstaShield_Spawn"
+        "0104AA": "Player_SetState"
       }
     },
     "s4.lst": {
-      "bytes": "122800320c01000867060c01000a662c4a28004a66260c01000a660670086100edb812280033020100736610117c0001004a610a103c00424ef87fc64e75",
+      "bytes": "102800320c00000867060c00000a661c3228000cb26c000e6d12117c00f00042117c00010043700e6000f3e44e75",
       "constants": {
-        "INSTASHIELD_ATTACKING": 1,
-        "INSTASHIELD_READY": 0,
-        "INSTASHIELD_SPENT": 2,
-        "INSTASHIELD_SUPPRESS_MASK": 115,
-        "PSTATE_AIR": 6,
-        "PSTATE_AIRBALL": 12,
-        "PSTATE_COUNT": 13,
+        "FLY_COAST": 1,
+        "FLY_FUEL_TICKS": 240,
+        "PBLK_RELEASE_CAP": 14,
+        "PSTATE_FLY": 14,
         "PSTATE_JUMP": 8,
-        "PSTATE_ROLLJUMP": 10
+        "PSTATE_ROLLJUMP": 10,
+        "SST_y_vel": 12
       },
-      "end": 71244,
+      "end": 69638,
       "offsets": {
         "air_left": 57,
         "climb_pad": 71,
@@ -88,11 +82,9 @@
         "stick_convex": 59
       },
       "sst_custom": 48,
-      "start": 71182,
+      "start": 69592,
       "stubs": {
-        "007FC6": "Sound_PlaySFX",
-        "0103E6": "Player_SetState",
-        "01164C": "InstaShield_Spawn"
+        "0103E6": "Player_SetState"
       }
     }
   }

@@ -223,8 +223,8 @@ if [[ "$FAST" == "1" ]]; then
     echo "   skipped: s4lint · effects_budget_check · pytest tools · emp_expect_fail"
     echo "            verify_level_bin · art_rom_report · s4budget · effects_seam_gate"
     echo "            bganim_room (the BG-anim ceiling is NOT checked) · sprite_tilt_gate"
-    echo "            (the tilt is NOT executed) · instashield_gate (the insta-shield"
-    echo "            precondition is NOT executed) · ctags"
+    echo "            (the tilt is NOT executed) · instashield_gate (NEITHER the"
+    echo "            insta-shield NOR the Tails-flight precondition is executed) · ctags"
     echo "   run:     emit_sound_blob · gen_compression_vectors · sigil build (+checksum,"
     echo "            +deb2 symbols) · level re-bake IF STALE"
     echo "   Re-run without FAST=1 before you land, merge, freeze, or quote a number."
@@ -809,22 +809,33 @@ if [[ "$FAST" == "0" ]]; then
             exit 1
         fi
 
-        # Sonic's insta-shield precondition, checked the same way and for a sharper
+        # The two ABILITY-HOOK preconditions, checked the same way and for a sharper
         # reason: the claim is a REFUSAL — "a jump press made after walking off a ledge
-        # must NOT fire the insta-shield" — and the recorded replay net demonstrably
-        # cannot see it. That net is byte-identical across the parcel that added this
-        # gate (measured, both fixtures), because every airborne press it holds was
-        # already made out of a real jump. So the subject is the ROUTINE: extent from
-        # THIS listing, bytes from THIS ROM, capstone as an independent decoder, and a
-        # sweep over all 256 player_state values x the three one-shot values x the
-        # suppression bits, compared against S3K's Sonic_JumpHeight -> Sonic_ShieldMoves
-        # rule (sonic3k.asm:23368-23486). The allowed set it must produce is exactly
-        # {PSTATE_JUMP, PSTATE_ROLLJUMP}. Same post-sigil placement and same --fixture
-        # discipline as the two gates above. sonic4-only: `demo` has no player.
+        # must NOT fire the ability" — and the recorded replay net demonstrably cannot
+        # see it. For Sonic's insta-shield that net is byte-identical across the parcel
+        # that added the gate (measured, both fixtures), because every airborne press it
+        # holds was already made out of a real jump; for Tails' flight the net cannot
+        # reach the routine AT ALL (Character_ID is boot-zero = CHAR_SONIC and its only
+        # writer, Debug_CharacterHotkey, stands down for INPUT_PLAYBACK and INPUT_RECORD
+        # alike). So the subject is the ROUTINE: extent from THIS listing, bytes from
+        # THIS ROM, capstone as an independent decoder, and a sweep over all 256
+        # player_state values —
+        #   Ability_InstaShield  x the three one-shot values x the suppression bits,
+        #     vs S3K's Sonic_JumpHeight -> Sonic_ShieldMoves (sonic3k.asm:23368-23486)
+        #   Ability_TailsFlight  x the release-cap probes x the y_vel probes derived
+        #     from each, vs Tails_JumpHeight -> Tails_Test_For_Flight (:28596-28693)
+        # The allowed set each must produce is exactly {PSTATE_JUMP, PSTATE_ROLLJUMP}.
+        # Ability_KnuxGlide is deliberately NOT a subject — the ruling left the glide on
+        # the broad "any air state" rule (coyote time), so asserting the gate for it
+        # would assert a rule the engine does not have. Same post-sigil placement and
+        # same --fixture discipline as the two gates above (one fixture FILE per
+        # subject, so re-stamping one cannot quietly re-stamp the other). sonic4-only:
+        # `demo` has no player.
         if ! python3 "${TOOLS}/instashield_gate.py" --lst "${ROM_NAME}.lst" \
                 --rom "${ROM_NAME}.bin" --built-after "${SIGIL_T0}" \
-                --fixture "${TOOLS}/fixtures/instashield_cut.json" --gate; then
-            echo "Insta-shield gate failed — see above (tools/instashield_gate.py)."
+                --fixture "${TOOLS}/fixtures/instashield_cut.json" \
+                --tails-fixture "${TOOLS}/fixtures/tailsflight_cut.json" --gate; then
+            echo "Ability jump-gate check failed — see above (tools/instashield_gate.py)."
             exit 1
         fi
     fi
@@ -847,7 +858,7 @@ if [[ "$FAST" == "1" ]]; then
     echo "   · emp_expect_fail · verify_level_bin · art_rom_report · s4budget"
     echo "   · effects_seam_gate · bganim_room (BG-anim ceiling NOT checked)"
     echo "   · sprite_tilt_gate (the tilt routine is NOT executed)"
-    echo "   · instashield_gate (the insta-shield precondition is NOT executed) · ctags."
+    echo "   · instashield_gate (neither ability jump-gate is executed) · ctags."
     echo "   This is a DEV artifact. It is byte-identical to the canonical ROM on this"
     echo "   tree, but NOTHING here checked that — run ./build.sh before you land it."
     echo "================================================================================"
