@@ -2026,7 +2026,7 @@ booking cannot answer today.
 ### AN AUTHORED LOOP CROSSOVER REACHES THE FILE AND NEVER THE ROM — and every gate correctly reports nothing happened — booked 2026-08-29 · **BAKE HALF CLOSED 2026-09-02** · **ENGINE HALF CLOSED 2026-09-02**
 
 > **THE ENGINE HALF IS BUILT** — `parcel/loop-crossover-read`, aeon `602170f7` (the read
-> site) + `d0f2e0e1`-family (the gate). Anchor §5 row 13 and §6 changes (2)–(5):
+> site), `b8d00948` (the gate, its committed cut and its build.sh lane). Anchor §5 row 13 and §6 changes (2)–(5):
 > `Player_LoopCrossover` (`games/sonic4/player/player_common.emp`) runs once per player per
 > frame from `Player_Main`'s shared preamble, looks up the cell the player resolved onto on
 > the plane the player is on, indexes `CrossoverTable`, and writes `Sst.layer`. Rule R6's
