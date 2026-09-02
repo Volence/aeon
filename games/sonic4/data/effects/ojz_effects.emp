@@ -72,7 +72,19 @@ use engine.effects.preset.{EffectsPreset, preset}
 // continuing to import that module, so it would have gone stale silently the day that
 // changed. Corrected on the sigil lane's reading (2026-08-30) — they refused to take the
 // justification and re-derived it from this file.
-use games.sonic4.ojz_effects_editor_act1.{ojz_act1_sec_raster}
+// THE OTHER TWO CHANNELS' CHOOSERS join it for EFFECTS-W1 item 5, from the same generated
+// module and through the same selective edge. There is no second sidecar key: ONE
+// `rasterRef` binds the WHOLE preset document, every channel it carries (empyrean
+// docs/AURORA_EFFECTS_SCHEMA.md §7.2, ruling Q1), because the engine binds one preset
+// RECORD per section and `ep_cycle` / `ep_variants` are fields of it. The variant chooser
+// is PER SLOT because ruling Q5's three states are per index.
+//
+// SECTION 3 IS WHERE THEY ARE THREADED, and it costs nothing today: no sidecar names a
+// document, so both choosers return `hand:` and OJZ_Preset_Sec3 is byte-identical to what
+// it was. That is the whole point of threading them now — the call site is what makes the
+// choosers ELABORATED (an uncalled `pub comptime fn` asserts nothing), and item 1 paid the
+// same price on the raster channel for the same reason.
+use games.sonic4.ojz_effects_editor_act1.{ojz_act1_sec_raster, ojz_act1_sec_cycle, ojz_act1_sec_variant}
 // Parcel W: section 0 binds its parallax config through the PRESET (ep_parallax) rather
 // than inheriting the act default, because the overlay's anchor channel has to be the same
 // channel the patched palette boundary rides. This is also the first ep_parallax binding in
@@ -1032,7 +1044,30 @@ pub data OJZ_Preset_Sec0:  EffectsPreset = preset(pal: OJZ_Palette, patched: OJZ
                                                   patch_world_ys: [224, 314, PATCH_ANCHOR_NONE, PATCH_ANCHOR_NONE])
 pub data OJZ_Preset_Sec1:  EffectsPreset = preset(pal: OJZ_Palette, raster: OJZ_TestRaster,     cycle: Pal_Cycle_None,     variants: [Variant_Water_Deep, 0])
 pub data OJZ_Preset_Sec2:  EffectsPreset = preset(pal: OJZ_TestPal, raster: OJZ_TestGradient,   cycle: Pal_Cycle_None,     variants: [Variant_Water_Deep, 0])
-pub data OJZ_Preset_Sec3:  EffectsPreset = preset(pal: OJZ_Palette, raster: Raster_Program_None, cycle: OJZ_ShimmerCycle,  variants: [Variant_Water_Deep, 0])
+// SECTION 3 THREADS THE PALETTE CHOOSERS (EFFECTS-W1 item 5). `hand:` is what this section
+// carries today — `OJZ_ShimmerCycle` on the cycle channel, `Variant_Water_Deep` in variant
+// slot 0 and nothing in slot 1 — so with no sidecar naming a document both choosers return
+// `hand` and this record is byte-identical to the literal it replaced.
+//
+// `hand:` FOR `cycle:` IS THE SENTINEL OR A REAL SCRIPT, NEVER 0. A NULL `ep_cycle` cannot
+// mean "off" while it also means "keep"; every other section here passes `Pal_Cycle_None`.
+// `hand:` FOR THE VARIANT SLOTS IS LOAD-BEARING: a document that said nothing and cleared
+// them would drop the act-wide water tint at the first crossing (the block above
+// OJZ_Preset_Sec0's group says why).
+//
+// SLOT 1 PASSES NO `hand:` AT ALL, AND THAT IS NOT THE RASTER CHANNEL'S SLOPPINESS — it is
+// what sigil permits. A bare `0` in a `Label` argument position is REFUSED
+// (`expected a label (a Label argument), got int`, measured 2026-09-02 on this exact line),
+// and there is no Label-typed spelling of "no variant": unlike `ep_raster`, whose off state
+// is the parked `Raster_Program_None` program, `ep_variants`' off state IS zero — the
+// engine's own "unused slots 0 = clear" (preset.emp). So the chooser's declared
+// `hand: Label = 0` default is the only way to spell it, and it is also the RIGHT value:
+// 0 means CLEAR here, where in ep_raster it would mean "keep". The raster channel's
+// "always pass `hand:` explicitly" rule does not transfer, for exactly that reason.
+pub data OJZ_Preset_Sec3:  EffectsPreset = preset(pal: OJZ_Palette, raster: Raster_Program_None,
+                                                  cycle: ojz_act1_sec_cycle(sec: 3, hand: OJZ_ShimmerCycle),
+                                                  variants: [ ojz_act1_sec_variant(sec: 3, slot: 0, hand: Variant_Water_Deep),
+                                                              ojz_act1_sec_variant(sec: 3, slot: 1) ])
 pub data OJZ_Preset_Plain: EffectsPreset = preset(pal: OJZ_Palette, raster: Raster_Program_None, cycle: Pal_Cycle_None,    variants: [Variant_Water_Deep, 0])
 // SECTION 4 IS THE SHOWCASE DEPTH SECTION (owner decision d-15, 2026-08-26). It is
 // OJZ_Preset_Plain in every other respect — same palette, same variant, no cycle — and

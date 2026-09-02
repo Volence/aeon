@@ -47,27 +47,34 @@ author did not write.
 
 <!-- KEYS-CHECKED-AGAINST-effects_gen.py -->
 ```
-preset:          bands, id, schema
+preset:          bands, cycles, id, schema, variants
 preset-ignored:  name
-preset-refused:  cycles, fires, variants
+preset-refused:  fires
 band:            bot, on, sh, top
 on-arms:         cram, pal_region
 on.cram:         addr, colours
 on.pal_region:   addr, count, entry, pal_line, slot
+cycle-channel:   count, first, line, period
+cycle-channel-optional: dir
+variant:         bias_b, bias_g, bias_r, lines, shift_b, shift_g, shift_r
 ```
 <!-- /KEYS-CHECKED-AGAINST-effects_gen.py -->
 
-Reading the seven rows:
+Reading the rows:
 
-- **`preset`** — all three required. `schema` must be `1`. `id` must match the filename stem
-  and `^[a-z][a-z0-9_]{0,31}$`, because it becomes an `.emp` label component. `bands` is a
+- **`preset`** — `schema`, `id` and `bands` are required; `cycles` and `variants` are
+  optional. `schema` must be `1`. `id` must match the filename stem and
+  `^[a-z][a-z0-9_]{0,31}$`, because it becomes an `.emp` label component. `bands` is a
   list with at least one element; empty is refused, because a document that emits a zero-band
-  program is a document that should not exist.
+  program is a document that should not exist. **`bands` stays required even on a document
+  whose point is the other two keys** (ruling Q1a): a cycle-only or variant-only document is
+  a future contract change, and it is the one that unblocks retiring the hand twins.
 - **`preset-ignored`** — `name` is the writer's display label. Any value; read by nothing;
   dropped on lowering. It is the one deliberate writer-only field.
-- **`preset-refused`** — `fires` / `variants` / `cycles` are refused **by name**, with the
-  reason. They are `empyrean` `docs/AURORA_EFFECTS_SCHEMA.md` §7's reserved wave-2 vocabulary,
-  not unknown keys: the suite has agreed on them and this generator has not built them.
+- **`preset-refused`** — `fires` is refused **by name**, with the reason. It is the last of
+  `empyrean` `docs/AURORA_EFFECTS_SCHEMA.md` §7's reserved wave-2 vocabulary that this
+  generator has not built, and it is not an unknown key: the suite has agreed on the name.
+  `variants` and `cycles` were here until 2026-09-02 and are now built (DoD item 5).
   Anything else unknown is refused as an unknown key, and adding one is a contract change to
   both halves.
 - **`band`** — all four required, **none with a default**, `sh` included. That is deliberate:
@@ -79,6 +86,38 @@ Reading the seven rows:
   purpose: a band's restore is derived from the ON op's CRAM span, and a VSRAM op has none.
 - **`on.cram` / `on.pal_region`** — every listed field required, no extras. `colours` is a
   JSON array of integers; every other field is a bare integer.
+- **`cycles`** — the section's ONE palette cycle script, spelled as its array of channels.
+  **This is PALETTE cycling** (`Palette_DoCycle`), not the DEBUG hotkey's raster cycle table
+  in §C, which steps through raster *programs*. Three states, one spelling each: the key
+  **absent** keeps the section's hand-authored cycle; **`null`** turns cycling OFF; a
+  **non-empty array** is the authored script. An **empty array is refused**, naming the two
+  legal spellings. One or two channels today — `engine/effects/palette_dsl.emp` declares
+  `cycle_script1` and `cycle_script2` and nothing wider, so three is refused naming the
+  wrappers.
+- **`cycle-channel` / `cycle-channel-optional`** — `line`, `first`, `count` and `period` are
+  required; `dir` is optional, because it is the only field `cycle_channel()` itself
+  defaults. **`period` is in FRAMES, the author's unit**: `period: 9` means a rotation every
+  9 frames. The engine's timer rotates one frame after the byte says, so the generator emits
+  `period - 1` and the author never sees the quirk (ruling Q7). The one consequence: the
+  smallest period a document can carry is **2**, and the generator refuses `0` or `1` naming
+  *your* number rather than letting the engine complain about a number you never wrote.
+- **`variants`** — the palette variant descriptors this section binds, **positionally**:
+  index *i* is the staging slot `Palette_SetVariant` takes, and it is the same integer an
+  `on.pal_region.slot` in this same document names. Three states per INDEX: an index the
+  array does not reach (including an absent `variants` key) **keeps** that slot's
+  hand-authored value; **`null`** at an index **clears** it; an object **authors** it. There
+  is deliberately no key-level `variants: null` — clearing both slots is `[null, null]`, and
+  a key-level null is refused by name. Two slots; a third is refused naming
+  `PAL_MAX_VARIANTS`. Every field is optional because every one has a constructor default,
+  which is what lets the shipped deep-water variant be `{"shift_r": 1, "shift_g": 1}`
+  verbatim. `lines` is the **integer bitmask** the engine field is (ruling Q4) — a friendlier
+  spelling is the editor panel's job, not the wire's, and the generator will not grow a
+  second one.
+- **One cross-field rule, and it is the only one:** a band that streams from a slot the same
+  document sets to explicit `null` is refused. Saying "clear this slot" and "stream from this
+  slot" in one file is never what anyone meant. A band naming a slot the document simply does
+  not reach is **not** refused — that slot still holds the section's hand-authored value,
+  which the generator cannot see.
 
 **Serialization is normative** (contract §5): a preset document is a *scalar* document, so
 `json.dumps(obj, sort_keys=True, indent=2)`. Keys sort alphabetically and **recursively** —

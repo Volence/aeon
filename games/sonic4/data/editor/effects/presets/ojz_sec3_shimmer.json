@@ -1,0 +1,37 @@
+{
+  "bands": [
+    {
+      "bot": 148,
+      "on": {
+        "pal_region": {
+          "addr": 72,
+          "count": 3,
+          "entry": 4,
+          "pal_line": 2,
+          "slot": 0
+        }
+      },
+      "sh": false,
+      "top": 120
+    }
+  ],
+  "cycles": [
+    {
+      "count": 4,
+      "dir": 0,
+      "first": 8,
+      "line": 2,
+      "period": 9
+    }
+  ],
+  "id": "ojz_sec3_shimmer",
+  "name": "OJZ act 1 section 3 - shimmer band over deep water",
+  "schema": 1,
+  "variants": [
+    {
+      "shift_g": 1,
+      "shift_r": 1
+    },
+    null
+  ]
+}
