@@ -16,7 +16,39 @@ layouts, not read out of a listing — no build was run in this parcel.*
 *Scope of this document, stated beside the claims: it describes what the engine CAN bind
 today and what a document would have to say to bind it. It does not decide the JSON
 spelling (that is the hub's contract change) and it does not decide which section gets
-what (that is content). Section 4 lists what it deliberately leaves to the owner or hub.*
+what (that is content). Section 4 records the ten questions it deliberately left open —
+**all ten of which have since been RULED**, see the amendment note below.*
+
+---
+
+## AMENDED 2026-09-02 — read this before §2 or §4
+
+This page has been overtaken twice since it was written, and the amendments are marked
+inline where they land. **Nothing in §1 changed** — the engine transcription still holds.
+What changed:
+
+1. **All ten of §4's questions were RULED by the hub on 2026-08-30**, the same day this page
+   was written, in empyrean `docs/AURORA_EFFECTS_SCHEMA.md` §7.2 (plus a **Q1a** this page
+   never asked). §4 is retitled and re-pointed. **§2 is a PROPOSAL the hub overrode in three
+   places** (Q2, Q5, Q7) — §7.2 and the committed JSON schema are the implementing parcel's
+   authority, not §2.
+2. **§2.3's worked example said `"period": 8`; it now says `9`**, because the document key is
+   in DOCUMENT FRAMES and the generator emits `period - 1`. It is the byte-golden fixture,
+   so the wrong number was the parcel's own reference.
+3. **§3.4's `first_mismatch` recommendation is WITHDRAWN** — the probe
+   (`docs/superpowers/probes/2026-09-02-item5-comptime-probe.md`) verified the construction
+   and the verdict refutes it. §3.3's `[Label; 2]` NOT VERIFIED is likewise now verified YES.
+4. **§1.3's 19,332-cycle figure is a ONE-SLOT number** and is now marked so.
+
+**Citation rot, named rather than repaired** *(design doc F7)*: the header above cites
+empyrean `origin/main` = `5a894756`. That is three days stale — every §7 and §3.1 line
+number this page quotes has moved, and §7.1/§7.2 did not exist at it. **Re-read before
+citing any empyrean line number from this page.** Reads made during this amendment are at
+empyrean `origin/main` = `38f6df4130bcc00f5c859d78e0e30ff7c5fdb349`.
+
+**The audit that produced these amendments** is
+`docs/superpowers/designs/2026-09-02-item5-open-questions.md` (aeon `297d21d5`), whose §14
+tabulates every disagreement between this page and current source or the current hub.
 
 ---
 
@@ -36,12 +68,20 @@ what (that is content). Section 4 lists what it deliberately leaves to the owner
   `tools/test_effects_gen.py:1406-1416`
   (`test_the_reserved_wave2_keys_are_refused_BY_NAME_not_as_unknown`). The consumer
   contract row is `tools/EFFECTS_CONSUMER_CONTRACT.md:411`.
-- The hub's schema has `bands` only: `contract/schema/aurora-effects-preset.schema.json`
+- ~~The hub's schema has `bands` only: `contract/schema/aurora-effects-preset.schema.json`
   at empyrean `5a894756` — top-level `properties` are exactly `schema`, `id`, `name`,
-  `bands`; `required` is `["schema","id","bands"]`; `unevaluatedProperties: false` closes
-  the key set; its own `description` says *"Reserved and refused by name (still wave-2
-  open): fires, variants, cycles."* **So the proposal in §2 is an ADDITION of two optional
-  top-level keys to a closed object, and nothing in the existing four keys changes.**
+  `bands` … its own `description` says *"Reserved and refused by name (still wave-2 open):
+  fires, variants, cycles."*~~ **AMENDED 2026-09-02 — no longer true on the hub's side.**
+  Read at empyrean `origin/main` `38f6df4130bcc00f5c859d78e0e30ff7c5fdb349`, that schema's
+  title is now *"Aurora Effects Raster Preset Document (wave 2: bands, cycles, variants)"*,
+  its top-level `properties` are `schema`, `id`, `name`, `bands`, **`cycles`, `variants`**
+  (`cycles` typed `["array","null"]` per ruling Q2, `variants` `array`), and the
+  reserved-and-refused line is down to **`fires` alone**. What is unchanged: `required` is
+  still `["schema","id","bands"]` (ruling Q1a) and `unevaluatedProperties: false` still
+  closes the key set. **So §2's proposal has LANDED on the hub's side and this half of the
+  item is done; what is still refused is aeon's half** — the generator below.
+  *(This bullet's replacement is the reason the section title still says "still refused":
+  the refusal that remains is ours, not the hub's.)*
 
 ---
 
@@ -153,7 +193,18 @@ posture `effects_gen.py:30-40` states for bands).
 
 **Costs, quoted from source:**
 - The full variant re-derive: **19,332 cycles/frame = 15.1% of every frame**, measured on
-  OJZ_ScrollTest 2026-08-13 (`palette.emp:107-111`; repeated at `preset.emp:244`). The stale
+  OJZ_ScrollTest 2026-08-13 (`palette.emp:107-111`; repeated at `preset.emp:244`).
+  **⚠ That is a ONE-SLOT number and this page originally quoted it unqualified**
+  *(AMENDED 2026-09-02)*: `palette.emp:107-111` records that the measured scene bound
+  `Variant_Water_Deep` alone, so `Pal_Active` read `$10` — variant-only — in every section.
+  `Palette_DoVariants` (`palette.emp:705-721`) calls `Palette_DeriveVariant` **once per bound
+  slot**, each over a full 128-byte image, so **a document authoring BOTH slots costs roughly
+  twice this** — DERIVED from the call structure, not measured. This matters here more than
+  anywhere else it is quoted: `variants` is the first mechanism that makes binding two slots
+  easy, so the published figure understates exactly the case the key introduces. **The
+  two-slot cost is UNMEASURED**; the capture is tagged to the aeon lane (design doc §10, with
+  its two controls) and cannot be run from a documents parcel. The hub carries the same
+  qualification in §7.2's `variants` cost paragraph. The stale
   bit (`:102-119`) and the install-path compare-and-skip (`preset.emp:242-248`) exist to
   avoid paying it on frames where nothing moved; a preset that carries the SAME variant
   pointer as the previous section pays nothing at the crossing.
@@ -266,7 +317,24 @@ record, so a section that binds anything of its own needs its own 38-byte preset
 
 ---
 
-## 2. Proposed JSON key shapes — `cycles` and `variants`
+## 2. Proposed JSON key shapes — a PROPOSAL, SUPERSEDED in three places (see §4)
+
+> **AMENDED 2026-09-02.** The hub ruled on this section the day it was written and, in its
+> own words, *"Aeon's artifact §2 is a PROPOSAL, and the hub's ruling wins where they
+> differ."* **The normative shape is empyrean `AURORA_EFFECTS_SCHEMA.md` §7.2 plus
+> `contract/schema/aurora-effects-preset.schema.json`, not this section.** Three overrides,
+> each ruled against what §2 proposes below:
+>
+> - **Q2** — §2.1 offered only "lower `[]`" or "refuse". Ruled: **three** states —
+>   absent = keep the hand cycle, **`null` = OFF**, `[]` = refused.
+> - **Q5** — §2.2 left the short-array case open. Ruled: **absent keeps `hand:`, `null` at
+>   an index CLEARS**, an object authors; and there is **no key-level `variants: null`**.
+> - **Q7** — §2.1's field comment puts the `period + 1` cadence on the wire. Ruled: the
+>   **document's `period` is in FRAMES** and the **generator** absorbs the quirk.
+>
+> §2 is kept intact rather than rewritten because §7.2 is transcribed FROM it and cites it
+> by section; editing the proposal would break the hub's own provenance trail. Read it as
+> the demand it was, and take the shape from §4's table.
 
 Both keys are **optional, top-level, and additive** to the closed object the hub's schema
 already defines. Neither changes `bands`. Each field below maps 1:1 to an engine field
@@ -284,6 +352,9 @@ layer.
   "first":  integer,   // -> cycle_channel(first:)  -> pc_first   (0..15)
   "count":  integer,   // -> cycle_channel(count:)  -> pc_count   (>= 2, first+count <= 16)
   "period": integer,   // -> cycle_channel(period:) -> pc_period  (1..255; cadence = period+1 frames)
+                       // ^^ OVERRIDDEN by ruling Q7: the DOCUMENT's period is in FRAMES
+                       //    ("period: 9" = a rotation every 9 frames) and the generator
+                       //    emits pc_period = period - 1. Do NOT put the +1 on the wire.
   "dir":    integer    // -> cycle_channel(dir:)    -> pc_dir     (0 fwd / 1 rev); OPTIONAL, default 0
 }
 ```
@@ -364,7 +435,7 @@ the file is a valid `bands`-carrying document under today's schema:
       "on": { "pal_region": { "addr": 72, "slot": 0, "pal_line": 2, "entry": 4, "count": 3 } } }
   ],
   "cycles": [
-    { "line": 2, "first": 8, "count": 4, "period": 8, "dir": 0 }
+    { "line": 2, "first": 8, "count": 4, "period": 9, "dir": 0 }
   ],
   "variants": [
     { "shift_r": 1, "shift_g": 1 },
@@ -378,6 +449,23 @@ Bound from the sidecar exactly as `rasterRef` is today
 `{"bgLayoutRef": null, "paletteRef": null, "rasterRef": "ojz_sec5_showcase", "sceneRef": null}`).
 Whether ONE ref key now carries all three channels of the document or each channel gets its
 own key is §4, Q1.
+
+**`"period": 9` is not a typo, and the unit is the reason** *(AMENDED 2026-09-02 — it read
+`8` when this page was written, which was wrong)*. **The document's `period` is in DOCUMENT
+FRAMES** — the author's meaning, "a rotation every N frames" — and under the hub's Q7 ruling
+the generator absorbs the engine's off-by-one by emitting `period - 1`. Shipped
+`OJZ_ShimmerCycle` carries the engine byte `08` (§1.4's derived image
+`00 01 | 02 08 04 08 00 00`) and therefore runs on a **9**-frame cadence, so a document that
+is byte-for-byte identical to it must say `9`. Written as `8` this document would emit `07`
+and run the shimmer at 8 frames — one frame faster than the shipped screen, visibly.
+
+*Ruling: empyrean `docs/AURORA_EFFECTS_SCHEMA.md` §7.2, ruling Q7, read at empyrean
+`origin/main` = `38f6df4130bcc00f5c859d78e0e30ff7c5fdb349`.*
+
+*Note: `9` is the FAITHFUL value — it preserves the shipped shimmer exactly. Whether the
+owner would rather have `8` (a shimmer one frame faster than today's) is a LOOK call, parked
+as decision card **`d-51-shimmer-cadence-look`** in `docs/decisions.jsonl`. That card is
+about whether to depart from faithfulness; it is not a reason to write `8` here.*
 
 What that document lowers to is §3. Its `cycles` entry is byte-for-byte `OJZ_ShimmerCycle`
 and its `variants[0]` is byte-for-byte `Variant_Water_Deep`, which is what §3.4 proves.
@@ -417,6 +505,12 @@ pub data EditorCycle_OJZ_Act1_ojz_sec3_shimmer: PalCycleScript1 = cycle_script1(
 pub data EditorVariant_OJZ_Act1_ojz_sec3_shimmer_0: pal_variant = variant(shift_r: 1, bias_r: 0, shift_g: 1, bias_g: 0, shift_b: 0, bias_b: 0, lines: 14)
 ```
 
+- **`period: 8` in that emitted call is the ENGINE BYTE, and it is correct as written — it
+  is not the `9` §2.3's document says.** The two numbers differ by one on purpose: the
+  document is in DOCUMENT FRAMES and the generator emits `period - 1` (hub §7.2, ruling Q7),
+  so §2.3's `"period": 9` lowers to exactly the `period: 8` above, which is exactly what
+  `OJZ_ShimmerCycle` carries by hand (`ojz_effects.emp:502-503`). Reading them as a
+  contradiction is the mistake this note exists to prevent.
 - Names follow `ActNames.raster()`'s act-qualified rule and its stated reason
   (`effects_gen.py:1274-1287`): `EditorCycle_<CAP>_<id>` and `EditorVariant_<CAP>_<id>_<slot>`.
   A `null` slot emits nothing.
@@ -463,10 +557,18 @@ pub data OJZ_Preset_Sec3: EffectsPreset = preset(pal: OJZ_Palette,
 - **Per-slot Label-returning choosers are proposed because that is the ONE chooser shape
   proven to compose into `preset()` and reach the ROM** — item 1 step 2 read the emitted
   `ep_raster` longwords back out of `s4.debug.bin` for both arms
-  (`docs/DEFERRED_WORK.md:16650-16656`). A single chooser returning `[Label; 2]` into the
-  `variants:` array argument is **NOT VERIFIED** in this parcel (no build was run); if sigil
-  accepts it, it is the tidier form, and that is a one-line question for the implementing
-  parcel, not for the hub.
+  (`docs/DEFERRED_WORK.md:16650-16656`). ~~A single chooser returning `[Label; 2]` into the
+  `variants:` array argument is **NOT VERIFIED** in this parcel (no build was run)~~
+  — **VERIFIED YES, 2026-09-02** (`docs/superpowers/probes/2026-09-02-item5-comptime-probe.md`,
+  verdicts Q1 and Q1-L; four-shape canonical build, byte-identical, `ep_variants` read back
+  out of `s4.debug.bin` in slot order). **Both spellings reach the ROM**, and the
+  `[Label; 2]`-returning single chooser is the tidier one — it matches `preset()`'s own
+  parameter spelling (`preset.emp:123`) and needs one chooser instead of two.
+  **One caveat the implementing parcel must carry: a `[Label; 2]` annotation is NOT
+  length-checked on the fn.** A `[Label; 2]` parameter accepted a 3-element array and
+  reported `.len == 3`; the wrong length is caught only when the record is emitted
+  (`array length mismatch: expected 2 element(s), got 3`), blamed on the `pub data` line,
+  not on the fn.
 - `hand:` for `cycle:` is `Pal_Cycle_None`, never 0 (§1.1's convention); `hand:` for
   variants is whatever the section carries today, which for every OJZ section is
   `[Variant_Water_Deep, 0]`.
@@ -482,23 +584,63 @@ as `Variant_Water_Deep` (`:904`). Two layers, both red-first:
 
 1. **Text golden, no build (tools/test_effects_gen.py).** Render the worked document and
    assert the emitted `cycle_channel(...)` / `variant(...)` argument lists equal the hand
-   call text at `ojz_effects.emp:503` and `:904` after defaults are made explicit. Red
-   first: mutate `period` to 7 in the fixture and watch it fail by name before the real
-   document passes. The existing refusal test `test_the_reserved_wave2_keys_are_refused_BY_NAME_not_as_unknown`
+   call text at `ojz_effects.emp:503` and `:904` after defaults are made explicit. **Red
+   first, and the mutation is on the DOCUMENT side:** change the fixture document's
+   `"period"` from `9` to `8` (§2.3), which lowers to `cycle_channel(..., period: 7, ...)`
+   against the hand call's `period: 8`, and watch it fail by name before the real document
+   passes. *(AMENDED 2026-09-02: this used to read "mutate `period` to 7 in the fixture",
+   which was ambiguous about which side 7 lives on. 7 is an EMITTED byte, never a document
+   value; the document value that produces it is 8.)* The existing refusal test `test_the_reserved_wave2_keys_are_refused_BY_NAME_not_as_unknown`
    (`:1406-1416`) must be INVERTED for `variants`/`cycles` in the same parcel (it goes red
    the moment the keys are accepted, as its author intended for `bands`'
    `test_the_real_repo_ships_no_preset_documents`, `EFFECTS_CONSUMER_CONTRACT.md:336-341`).
 2. **Byte golden, on the built ROM.** Read the span at `EditorCycle_OJZ_Act1_ojz_sec3_shimmer`
    and at `OJZ_ShimmerCycle` out of `s4.debug.bin` at the listing's own addresses — the
    exact method step 2 used for `ep_raster` (`docs/DEFERRED_WORK.md:16650-16656`) — and
-   assert the two 8-byte spans are equal; likewise the two `pal_variant` spans. Red first:
-   the same period-7 mutation, rebuilt, differs at byte 5. This can live as a row in
+   assert the two 8-byte spans are equal; likewise the two `pal_variant` spans. **Red
+   first: the same document-side mutation (`"period"` 9 → 8), rebuilt, differs at index 5
+   of the 8-byte image** — `00 01 | 02 08 04 08 00 00` becomes `00 01 | 02 08 04 07 00 00`.
+   This can live as a row in
    `tools/effects_seam_gate.py` (it already parses `s4.lst` for this module's symbols) or in
    `tools/effects_gates.py`; **no gate is added by THIS parcel** — it is the implementing
    parcel's, and the effects gate ritual (`CLAUDE.md`, "Effects gate ritual") applies to it.
-   A comptime `first_mismatch(a, b) == -1` ensure (`raster_dsl.emp:3402`; the idiom at
-   `ojz_effects.emp:213-216, 1273-1276`) is the in-`.emp` alternative for arrays; whether
-   two `pal_variant` STRUCT values can be compared that way is **NOT VERIFIED**.
+
+   > **DO NOT write this byte-golden as a comptime `first_mismatch` ensure against the hand
+   > `pub data` twin.** *(AMENDED 2026-09-02. This page used to offer
+   > `first_mismatch(a, b) == -1` — `raster_dsl.emp:3402`, the idiom at
+   > `ojz_effects.emp:213-216, 1273-1276` — as "the in-`.emp` alternative for arrays", with
+   > the struct case marked NOT VERIFIED. It has since been verified, and the verdict
+   > refutes the recommendation. The recommendation is withdrawn.)*
+   >
+   > The probe (`docs/superpowers/probes/2026-09-02-item5-comptime-probe.md`, verdict Q2-e,
+   > evidence RED-4) measured the hand twin in exactly this position: *"**NO.** Bare in an
+   > ensure: `unknown name`. Inside an array literal it resolves as a LABEL and
+   > label-vs-struct `!=` is always true, so
+   > `first_mismatch([Variant_Water_Deep], [variant(...)])` reports index 0 for the EQUAL
+   > twin too (always-red, useless). Field access on the data symbol: `unknown name`."*
+   >
+   > **Why this matters more than a stale sentence normally would.** The construction is
+   > **always-red** — it fires on correct code — and the single most natural edit anyone
+   > makes to take an always-red guard green is to flip the expectation from `== -1` to
+   > `== 0`. The probe measured that step too: *"with the EQUAL twin and `== -1` it fires
+   > 'index 0'; with the EQUAL twin and `== 0` it passes."* So one keystroke converts an
+   > always-red guard into a **permanently vacuous** one, and it looks like debugging the
+   > whole way. This page's own withdrawn sentence sat next to that trap as an invitation,
+   > which is the reason it is deleted rather than merely qualified.
+   >
+   > **Corroboration, stated as the sigil lane's measurement with their stated limit**
+   > (2026-09-02): `first_mismatch` appears nowhere in sigil's corpus — no `.emp` fixture,
+   > no Rust test, zero hits across master — so withdrawing this recommendation breaks no
+   > fixture on their side. Their limit, in their words: the grep rules out **the specific
+   > construction**, not the general shape of a cross-type comparison fixture.
+   >
+   > **What to do instead:** layers 1 and 2 above, both Python, neither of which needs
+   > comptime equality at all. If a future parcel insists on an in-`.emp` guard, the only
+   > shape the probe proved is a module-level `const X = variant(...)` feeding BOTH the
+   > `pub data` and the ensure (probe verdict Q2-f) — and the probe's "Left open" item 1
+   > records that whether such a `const` is visible ACROSS modules (generated
+   > `effects_scenes.emp` ↔ hand `ojz_effects.emp`), which is the case item 5 actually
+   > needs, **was not probed**.
 
 The reference spans are the derived images in §1.3/§1.4 (`00 01 02 08 04 08 00 00` and
 `01 00 01 00 00 00 0E 00`); the gate should read them from the listing, not from this page.
@@ -513,9 +655,12 @@ The reference spans are the derived images in §1.3/§1.4 (`00 01 02 08 04 08 00
   the same series"*, `effects_gen.py:5-8`), and `docs/EDITOR_RASTER_PRESETS.md` §B's key
   list is machine-compared against the generator's constants
   (`tools/test_effects_gen.py::TestEditorRasterPresetsDoc`, per that page's header).
-- The hub's schema gains the two optional properties (§2) and drops them from its
-  reserved-and-refused description; `AURORA_EFFECTS_SCHEMA.md` §7 keeps `fires` and
-  `effectsRef` reserved.
+- ~~The hub's schema gains the two optional properties (§2) and drops them from its
+  reserved-and-refused description~~ — **DONE 2026-08-30, not pending** *(AMENDED
+  2026-09-02)*: both properties are committed and the reserved-and-refused line is down to
+  `fires` (§0, verified at empyrean `38f6df41`). `AURORA_EFFECTS_SCHEMA.md` §7 does still
+  keep `fires` and `effectsRef` reserved, as written. **So this row is off the item's size:
+  the empyrean half of item 5 has landed and only the aeon half remains.**
 - Every byte this emits pairs with sigil (DoD row: *"yes, paired"*).
 - The section-3 hand data (`OJZ_ShimmerCycle`, the `cycle:` on `ojz_sec(sec: 3)`) becomes a
   second source for one screen the day a document binds it; retiring it is the same shape
@@ -523,57 +668,113 @@ The reference spans are the derived images in §1.3/§1.4 (`00 01 02 08 04 08 00
 
 ---
 
-## 4. Open questions for the owner or hub (listed, not answered)
+## 4. The ten questions — ALL TEN RULED by the hub, 2026-08-30 (amended 2026-09-02)
 
-- **Q1 — one ref or three.** Does the existing `rasterRef` grow to bind ALL channels the
-  named document carries (then its name is wrong the moment a document has no `bands`), do
-  `cycleRef` / `variantsRef` siblings appear (mirroring `rasterRef`'s own shape, §3.1 of the
-  hub doc), or is this the day `effectsRef` is spent — which the hub reserved for the TOTAL
-  binding and which still needs a palette reference `ep_pal` cannot default
-  (`preset.emp:57`, `:119-120`)? The hub refused option C for item 1; item 5 is where that
-  question comes back.
-- **Q2 — empty `cycles: []`.** "Cycling OFF here" (lower to `Pal_Cycle_None`) or refuse (the
-  empty-`bands` precedent: *"if the intent is 'no raster here', delete the file"*)? Unlike
-  bands, OFF is a value the engine can bind, so the precedent does not settle it.
-- **Q3 — 3- and 4-channel scripts.** Add `PalCycleScript3/4` + `cycle_script3/4` on the
-  engine side before or with the lowering, or cap the document at 2 and say so in the
-  schema? `PAL_CYCLE_MAX_CHANNELS` is 4 and `Pal_Cycle_Timers` is sized for it; the
-  wrappers stop at 2 (`palette_dsl.emp:112-125`).
-- **Q4 — `lines` spelling.** Integer bitmask (1:1 with `v_lines`) or an array of line
-  numbers translated by the generator? Authoring ergonomics are aurora's; the 1:1 form is
-  what this page proposes.
-- **Q5 — a short `variants` array.** Does a length-1 array leave slot 1 at `hand:` (keeps
-  today's water tint) or at 0 (clears it)? The engine's own words are *"unused slots 0 =
-  clear"* (`preset.emp:64`) but that describes the RECORD, not the document's silence.
-- **Q6 — the slot-binding assertion.** With `bands[i].on.pal_region.slot` and
-  `variants[slot]` in one document, should the generator (or an engine ensure) refuse a
-  band that streams from a slot the document leaves `null`/absent? Today that binding is
-  the schema's own listed *"NOT checkable at build time"* limit; it becomes checkable, but
-  only if the answer to Q5/absent-`variants` is "the document is the whole truth", which it
-  is not while `hand:` fallbacks exist.
-- **Q7 — the `period + 1` cadence.** Ship the key with the engine's true cadence
-  (`period + 1`) documented in the schema row, or first land the booked runtime change that
-  makes `period: N` mean N frames (`ojz_effects.emp:499-501`)? A schema that documents
-  `period + 1` and an engine later fixed to `period` breaks every authored cycle by one
-  frame silently.
-- **Q8 — retire the hand twins.** When a document reproduces `OJZ_ShimmerCycle` /
-  `Variant_Water_Deep`, do the hand instances (and the four unreferenced seed variants,
-  `ojz_effects.emp:892-897`) go the way of `authored_probe`, and does the legacy
-  `Sec.sec_pal_cycle` field (`structs.emp:121`) go with them?
-- **Q9 — a cycling cost row.** Item 5 lowers a per-frame effect the budget model has no row
-  for (§1.4). Is a `[palette.cycle_cost]` row (a cross-repo pin, like the bob's) part of the
-  item or a rider?
-- **Q10 — naming hazard, for the hub's prose.** `cycles` (this key) and the DEBUG hotkey's
-  *raster cycle table* (`RASTER_CYCLE_COUNT`, `tools/test_raster_cycle_table_lint.py:6-16`)
-  are unrelated; the contract should say which "cycle" it means once, so a reader of the
-  lint does not conflate them.
+**This heading used to read *"Open questions for the owner or hub (listed, not answered)"*,
+and that was the thing that lied.** All ten had been ruled on 2026-08-30, the same day this
+page was written; the heading went on claiming otherwise for three days, and a section
+titled "open questions" full of answered ones does not read as stale — it reads as current,
+because **a heading is a claim like any other and nobody re-derives a title.** It cost two
+lanes a round trip and at least one peer sequenced work behind an owner call that had
+already been made. That is why §4 is retitled here rather than merely annotated, and why
+every heading on this page was swept against its body in the same pass.
+
+**Where the rulings live:** empyrean `docs/AURORA_EFFECTS_SCHEMA.md` **§7.2** —
+*"`cycles` and `variants` in preset documents (2026-08-30, DoD item 5, aeon demand artifact
+`8ec2b05d`)"* — subsection **"The ten rulings"**, each *"ruled by the hub in the owner's
+place, 2026-08-30, `docs/OVERSEER.md`, under the standing delegation"*. Read firsthand at
+empyrean `origin/main` = **`38f6df4130bcc00f5c859d78e0e30ff7c5fdb349`**. The two keys are
+already properties of `contract/schema/aurora-effects-preset.schema.json`, and §7 has been
+amended so only `fires` remains reserved.
+
+**Two consequences a reader of this page must carry:**
+
+1. **The implementing parcel's authority is §7.2 and the committed JSON schema, not this
+   page's §2.** §2 is a PROPOSAL — the hub's own words — and the hub overrode it in three
+   places (Q2, Q5, Q7).
+2. **The hub added a Q1a this page never asked** (*must a document carry `bands`?*), and its
+   answer gates two riders. See below.
+
+The verdicts are one line each **on purpose**: the evidence, the concurrence and the cost to
+the implementing parcel are audited in `docs/superpowers/designs/2026-09-02-item5-open-questions.md`
+(landed aeon `297d21d5`), section by section. A pointer is the deliverable here; re-arguing
+a ruling in two places is how the two copies drift.
+
+| Q | RULED | Evidence and cost |
+|---|---|---|
+| **Q1** one ref or three | **ONE ref: `rasterRef`, binding the WHOLE preset document, every channel it carries.** `effectsRef` stays reserved and unspent. `rasterRef` is now a deliberate *historical spelling*. | design doc **§2** |
+| **Q1a** *(hub's addition, not asked here)* must a document carry `bands`? | **`bands` stays REQUIRED in this CR.** A cycle-only or variant-only document is a future CR. | design doc **§3** |
+| **Q2** empty `cycles: []` | **Three states, one spelling each: absent = keep the hand cycle; `null` = OFF (lowers to `Pal_Cycle_None`); `[]` = REFUSED by the generator**, naming the two legal spellings. | design doc **§4** |
+| **Q3** 3/4-channel scripts | **No number in the schema.** The generator refuses more than two today, naming the engine limit; `cycle_script3/4` is a RIDER aeon books, not part of item 5. | design doc **§5** |
+| **Q4** `lines` spelling | **Integer bitmask, 1:1 with `v_lines`.** Authoring ergonomics are the editor panel's job, not the wire's. | design doc **§6**; and the aurora note below |
+| **Q5** short `variants` array | **Positional, index = slot: absent (including an index the array does not reach) keeps `hand:`; `null` at an index CLEARS; an object authors.** No key-level `variants: null` — clearing both is `[null, null]`. | design doc **§7** |
+| **Q6** slot-binding assertion | **NOT in this CR** — booked as rider 2. Absent means "the hand value is still there", so the assertion would be wrong for the majority case. | design doc **§8** |
+| **Q7** the `period + 1` cadence | **The DOCUMENT's `period` is in FRAMES, the author's meaning; the generator absorbs the quirk** (`period - 1` today, `period` unchanged once the runtime fix lands, so no authored document ever moves). Neither option this page offered; a third answer. | design doc **§9**; §2.3 and §3.2 above carry the unit at both sites |
+| **Q8** retire the hand twins | **RIDER, not item 5** — only after documents reproduce them byte-golden, one attested chain shows the hand instances unreferenced, and `Sec.sec_pal_cycle`'s reader search is re-verified. | design doc **§12a** (the byte-golden must be Python, never comptime) |
+| **Q9** a cycling cost row | **RIDER, and deliberately no number** — "per-frame cost unmeasured" rather than a placeholder, because a budget model is read as measured. | design doc **§10**, which names the exact capture and its two controls |
+| **Q10** naming hazard | **The contract says it ONCE**, at the top of §7.2's `cycles` section. Aeon's obligation is the same sentence in `EFFECTS_CONSUMER_CONTRACT.md` §2.4. | design doc **§11** |
+
+### The ordering the rulings impose
+
+Two chains, both from the design doc's **§13**, recorded here because a reader who takes the
+table above as a to-do list will otherwise rediscover them:
+
+- **`Q1a → Q8 → Q6`.** Retiring the hand twins (Q8) requires **variant-only** documents —
+  most OJZ sections that carry the water tint have no bands — and Q1a forbids a document
+  without `bands`. Q6 is gated on Q8 by the hub's own reason. So relaxing Q1a is the CR that
+  opens both, and rider 2 sits **two** gates back, not one. *(§7.2's Q1a bullet now carries
+  this chain, banked there 2026-09-02 from our design doc's §3.)*
+- **Q7's pairing.** The generator's `period - 1` absorption and rider 5's runtime cadence fix
+  must land in **one** parcel. Split across two, every authored cycle shifts one frame
+  faster, silently, and nothing gates it.
+
+### Q4 — the aurora lane's own answer, which the design doc does not carry
+
+Recorded here because it closes the half the design doc left to aurora, and because two of
+its riders bear on **our** side. Answered by the aurora lane, 2026-09-02:
+
+- **The `lines` bitmask STAYS ON THE WIRE — decided, not deferred.** Their vendored schema
+  copy carries the Q4 sentence verbatim: *"as the INTEGER BITMASK the engine field is (ruling
+  Q4): the 1:1 spelling is the one that cannot drift from the engine, and a friendlier form
+  (checkboxes, a list of line numbers) is the editor panel's job, not the wire's."*
+  Read firsthand at aurora `cbfa22cff1687b9bd35432cefdfcd0110d32d436`
+  (`src/core/formats/effects/aurora-effects-preset.schema.json`, located by grepping its
+  content rather than by trusting a line number).
+- **Rider (i) — the review-diff residual is REAL and it is AURORA'S.** A reviewer reading
+  `"lines": 12 → 20` in a committed document, with no editor panel in front of them, cannot
+  see what changed. Aurora owns that, and their fix is a **review-time decoder**. **We are
+  told explicitly not to work around it on our side**, and this page enforces that as a rule:
+  **the generator must not grow a second author-facing spelling of `lines`.** One state on
+  the wire, one way.
+- **Rider (ii) — aurora's gates CANNOT catch a `period` off-by-one, and the number of green
+  rows is the trap.** They vendor **two** schemas with **two** separate currency gates —
+  `test/formats/effects-schema-drift.test.ts` (scene, 12 rows) and
+  `test/formats/effects-preset-schema-drift.test.ts` (preset, 14 rows), the latter including
+  a row matching the empyrean `origin/main` copy and a row asserting the pinned revision is
+  published rather than local-only. **26 green rows across two files, and not one of them
+  measures a document VALUE.** Both answer only *"is our vendored copy still what empyrean
+  publishes"*, plus keyword coverage of the evaluator; shape lives in a third place
+  (`effects-preset-vectors.json`) and values live nowhere on their side. *(The 14/14 and
+  12/12 counts are aurora's measurement, relayed; the two test files' existence at
+  `cbfa22cf` and the schema sentence above were read firsthand here.)*
+  **So no consumer-side guard exists for values, and item 5's `period` correctness rests
+  entirely on §3.4's two Python layers.** Do not count a green schema-drift run as coverage
+  of anything this page proves.
 
 ---
 
-## 5. NOT FOUND — what this page looked for and could not find
+## 5. NOT FOUND at the time of writing — one entry has since been RESOLVED (the last)
+
+*Amended 2026-09-02: every entry below was re-verified against this tree in the amendment
+pass; all still hold **except the last**, which the probe answered and which now carries its
+verdict. The heading says so rather than leaving a resolved item inside a "could not find"
+list.*
 
 - **Per-frame CPU cost of `Palette_DoCycle` / `Palette_RotateSpan`** — no measurement, no
   budget-model row (`ojz_effects.emp:498-499`; `tools/effects_budget_model.toml` grep).
+  *(Re-verified 2026-09-02 IN THIS TREE: `grep -c "palette.cycle_cost\|cycle_cost\|pal_cycle"
+  tools/effects_budget_model.toml` = **0**. The design doc's §15 explicitly declined to
+  re-check this and recorded it as the spec's claim; it is now checked and it holds.)*
 - **`Palette_RunCycles`** — named at `ojz_effects.emp:494`; no such proc exists. The proc
   is `Palette_DoCycle` (`palette.emp:439`).
 - **`cycle_script3` / `cycle_script4` / `PalCycleScript3` / `PalCycleScript4`** — do not
