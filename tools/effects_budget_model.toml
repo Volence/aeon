@@ -544,7 +544,22 @@ band_drift_measured_16band_cycles = 1100.00     # 1.060% -- the MAX_PARALLAX_BAN
 # baseline is in the SIGIL repo (crates/sigil-harness/src/contract_baseline.rs) and must move in
 # the same paired commit as any adoption. It does NOT affect the canonical shapes, which elide
 # the block and build green with the gate ON.
+#
+# SATISFIED 2026-09-02 (EFFECTS-W1 item 3, aeon+sigil parcel/drift-on). The flag stays TRUE
+# because it states a standing property of adoption, not an open task -- but the fix it implies
+# was WRONG IN ONE WAY WORTH RECORDING HERE, since this file is where the next adopter looks:
+# the row is not deleted, it is MOVED to a per-game arm (`D1C_DEMO_EXTRA`). The measurement above
+# was made on a sonic4-only instrument. `demo` declares no capability, elides the `add.w`, and
+# keeps firing the row; deleting it outright turns both demo shapes red with the same row as a
+# NEW firing. sigil's `d1c_baseline()` now carries a game axis beside its debug one.
 band_drift_adoption_needs_sigil_contract_baseline = true
+
+# ADOPTION IS LIVE, so this section's cost rows are no longer hypothetical for sonic4: it
+# declares CAP_BAND_DRIFT ($00DE) and Scene_OJZ_Default's FOUR bands each author
+# `drift: SceneDrift.Rate(-32)`. At the measured 12 + 68n that is 12 + 272 = 284 cyc/frame on
+# every scene the act installs, which is the `band_drift_measured_4band_cycles` row above and
+# 0.274% of axis1_budget_cycles. `demo` declares nothing and pays zero cycles.
+band_drift_adopted_by_sonic4 = true
 # ---------------------------------------------------------------------------------------
 
 # ANCHOR: P2's "TWO REGIMES" ARE REFUTED. They were the frame dilution above (W10/W12 caught
