@@ -1077,6 +1077,70 @@ the eleventh spelling of the kind the contract exists to end. It stays on the su
 (steps 2–4), recorded as such in the module docstring, until the hub spells the variable. When it
 does, the shape is `empyrean_dir()`'s with the markers changed, and the test rows are the same three.
 
+**SUITE-PATHS-STEP3-OBSERVABILITY — the walk's own rows were measuring the runner's location.
+NOW COVERED for the walk; two named things remain open** (2026-09-02, branch
+`parcel/suite-paths-walk-beds`, contract re-read at empyrean `7d0a279a`). This booking did not exist
+under this name before today; it is opened and part-closed in the same entry.
+
+**The defect.** `test_the_walk_records_its_step` called the real resolver from the real filesystem,
+so the bed was whatever directory the runner happened to sit in. Measured both ways: from the main
+checkout the walk climbs `<repo>/tools/` and lands two levels up; from an agent worktree it climbs
+`<repo>/.claude/worktrees/<name>/tools/` and lands four levels up. **Both green, neither chosen,
+and the row could not fail** — the walk is *defined* to succeed from anywhere inside the suite root,
+so a row that runs it from inside the suite root asserts a tautology about its own location. The
+other walk row (`test_the_walk_refusal_names_the_variable_and_where_it_looked`) monkeypatches
+`_is_suite_root` to always-False, so it pins the refusal message and says nothing about depth
+either. The discriminating case — **a worktree OUTSIDE the suite tree**, where the marker walk has
+nothing to find — was exercised by no row at all. That is exactly the limit the contract's *"The
+other route, and where its reason stops"* names, citing this module's own comment: aeon's walk works
+from a worktree *"because aeon nests worktrees under `.claude/worktrees/<name>/` ... That reason
+generalises exactly as far as the nesting does."*
+
+**What is now covered.** Four rows (17 → 21 in `tools/test_suite_paths.py`), collected by the
+`python3 -m pytest "${TOOLS}"` sweep `build.sh` runs build-fatally. `_plant_resolver()` copies
+`suite_paths.py` into a bed and **imports that copy**, so the walk's anchor — `Path(__file__)`, what
+the resolver actually derives from — is the bed's path; Python has runtime module loading, so this
+is the contract's first arm, and a bed that only changed cwd would be provably inert because the
+walk never reads the cwd. Two nested depths come from one `_LAYOUTS` definition, parameterised, with
+the **returned** step-source asserted to name the BED's resolver and not this checkout's — the
+contract's only discriminator against an inert bed. The wrong method is a fixed parent count,
+derived from the main-checkout layout because that is the module docstring's own stated reason for
+walking; the pair is asserted in whichever direction the bed's geometry makes true and **fails
+loudly, never skips**, when a bed stops discriminating. The outside-the-suite bed pins the exact
+exception type (the bed copy's own class object) AND wording unique to the walk's refusal, and
+carries a positive control in the same process: complete the marker set four levels up and the same
+call must start succeeding, which a walk that died before reaching the end of the parents could not
+do. `test_the_walk_records_its_step` is rewritten as the contract's second configuration — the real
+resolver in place, asserting its answer's position matches a layout this repo actually has and
+printing which one it ran from, with an unrecognised layout a loud failure rather than a pass.
+
+**Six plants, each shown applied from disk and each red for its own reason.** `fixed-count`
+(`here.parents[2:3]`) reddens the nested-worktree bed and the in-place row while leaving the
+main-checkout bed GREEN — which is the measured proof that the shallow arm cannot discriminate, the
+reason the two-configuration rule exists, and the reason that arm says so out loud instead of
+pretending. `blind-source` reddens both bed depths on "the returned source does not name the bed's
+resolver" and **no pre-existing row notices it**. `printed-source` reddens the step-source row ALONE
+(1 failed / 20 passed). `reworded-refusal` reddens the outside row ALONE while
+`test_the_walk_refusal_names_the_variable_and_where_it_looked` stays green — so the wording matcher
+is doing work no other row does. `wrong-exception` (`raise OSError` with the message BYTE-IDENTICAL)
+reddens the outside row on the type alone, the case wording could never catch. `short-walk`
+(`here.parents[:3]`) reddens the outside row at the positive control, i.e. on "the refusal above is
+not evidence the walk reached the end of the parents". Restored from the committed baseline between
+plants; 21 passed / 0 failed / 0 skipped after, and the whole `tools` sweep is 1828 passed, 6
+skipped, 58 subtests passed, `REAL_EXIT=0`.
+
+**Still open, and neither is closed by these rows.** (1) **The step-source half aeon already owed
+was already met and is only now proved:** `suite_root_source()`/`empyrean_dir_source()` are RETURNED
+values, not printed lines, which is the shape the contract demands — but they are memoised beside
+`_suite_root`, and the beds only sidestep that because each planted copy is a fresh module object
+with its own globals. A caller that resolves, relocates and re-resolves in one process still gets
+the first answer unless it calls `_forget()`; the contract's *"the printed line may be memoised, the
+returned value may not"* is therefore satisfied in shape and not in mechanism, and nothing tests the
+mechanism. (2) **`empyrean_dir()`'s own derivation gets no bed.** These rows are the suite-root
+walk's; the step-1/step-2 rows for the empyrean checkout still run against `tmp_path` trees with the
+REAL module, which is correct for them (they exercise env vars and a join, not a walk) — but if
+`empyrean_dir()` ever grows a derivation of its own, it needs this same treatment and has none.
+
 ### THE REPLAY FIXTURE NEEDS RE-STAMPING AFTER THE CLAMPS — MEASURED, AND NOBODY HAD BOOKED IT
 (2026-08-30; the oracle lane found the symptom, the mechanism is measured here)
 
