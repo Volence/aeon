@@ -1,53 +1,50 @@
 {
-  "focus": "Building the band's home section now that the last question on it was answered for you.",
-  "inFlight": [
-    {
-      "what": "item 1 step 5 - splitting the preset so section 5 can carry a band of its own",
-      "where": "branch parcel/preset-sec5-split",
-      "agent": true
-    },
-    {
-      "what": "the unguarded art-size ceiling under the DPLC fix - a compile-time check so it cannot be crossed silently",
-      "where": "branch parcel/dplc-tilestart-ensure",
-      "agent": true
-    }
-  ],
+  "focus": "The per-scene left-edge switch is landed on both sides; what is left is looking at the two scenes on screen.",
+  "inFlight": [],
   "blockedOnOwner": [
     {
-      "id": "d-34",
-      "what": "a second standstill drift, found while building your mirrored-slopes ruling",
-      "since": "2026-08-27"
+      "what": "d-51: writing OJZ's shimmer faithfully means period 9; the spec's example says 8, which would speed up the shipped shimmer on screen",
+      "since": "2026-09-02",
+      "id": "d-51-shimmer-cadence-look"
     },
     {
-      "id": "d-41",
-      "what": "the right-edge price of your left-edge fix - the pictures you asked for are ready and waiting for your look",
-      "since": "2026-08-29"
+      "what": "d-52, LOOK HALF ONLY: whether you want each section to carry its own deep-water tint - colder caves, a murkier late section. This gates NOTHING and has no deadline. The mechanism half was ruled act_wide (the hub, in your place, 2026-09-02): the authoring reproduces today's single tint exactly, nothing changes on screen, and the per-section capability stays available for the day you want it. Answering per_section opens a new authoring row; it does not reopen item 5.",
+      "since": "2026-09-02",
+      "id": "d-52-water-tint-scope"
     }
   ],
-  "nextBoundary": "When both agents report and whichever is sound is merged and re-verified on the merged tree. The byte-mover (step 5) also needs its sigil pairing before it is really down.",
+  "nextBoundary": "Now - chain 197 is attested and pushed on both sides, no agent is out, nothing is half-applied.",
   "queue": [
     {
-      "id": "REPLAY-RESTAMP",
-      "title": "DONE and now CLOSED THREE WAYS - chain 189 frozen, attested (4170 passed / 0 failed / 0 skips / 29 strict bodies), pushed both sides. Scope was properly extended to all ten by d-49-restamp-scope-answered (hub, standing delegation, reversible on owner read-back); DEFERRED_WORK's 'checkpoint 0 only' sentence outlived that and is now struck. The 188->189 delta is accounted for to the byte in BOTH shapes - 40 bytes each, zero code bytes, a pure fixture re-record - independently reproduced by sigil (plain shape, +0x22B0) and by oracle. The cam_col<16 falsifier is over MOVED (candidate minus control) = {0}, not over chain 188's STALE set = ten; that word carried two meanings in one entry and is now defined.",
-      "state": "open",
+      "id": "EFFECTS-W1-VARIANTS-CYCLES",
+      "title": "DoD item 5: the generator learns the two authoring keys. Unblocked both ways - chain 197 cleared the byte-mover queue and the fixture value does not wait on d-51. At landing the SHA goes to aurora and the hub in one message.",
+      "state": "next",
       "size": "M",
       "blockedBy": null,
       "project": "EFFECTS-W1"
     },
     {
-      "id": "DRIFT-RECORD-LOOKUP-AEON",
-      "title": "LANDED 04883fff: the reader answers all four verbs (my brief said one - a reader built to it would have died before reaching it). Sigil's job stays NOTHING MEASURED until they set one env value. Open and NOT ours: the job keys us on the raw branch tip, so docs-only commits read as a miss and N never advances while the watch appears to run.",
+      "id": "FG-LEFT-EDGE-GATE-UNRUN",
+      "title": "The left-edge gate was rewritten in chain 197 and its new declining arm has NEVER EXECUTED - agents cannot touch the emulator. Reviewed, not attested. Five foreground minutes with the emulator up.",
       "state": "open",
-      "size": "M",
+      "size": "S",
       "blockedBy": null,
       "project": "EFFECTS-W1"
     },
     {
-      "id": "SIGIL-R7-ALIGNMENT-FLIP",
-      "title": "CORRECTED 2026-08-30: my board said 'ready and waits on my sequencing'. FALSE - sigil retracted it against their own tree. What landed is the PRECONDITION (the declaration table and its gate); the flip itself is future-tense in their source. Do NOT open a paired-freeze window for it. It is a parcel to WRITE, then land with its own freeze range - never riding another parcel's, per the chain-179 lesson.",
-      "state": "blocked",
+      "id": "D41-LOAD-FOR-OWNER-LOOK",
+      "title": "Captures are waiting whenever you want to look at the left-edge trade. Gates nothing since the per-scene switch landed.",
+      "state": "open",
+      "size": "S",
+      "blockedBy": null,
+      "project": "EFFECTS-W1"
+    },
+    {
+      "id": "EFFECTS-W1-DRIFT-ON",
+      "title": "Switch the drifting-cloud mechanism on and author one layer with it. The engine half landed already and is sitting inert. Byte-mover; unblocked now that chain 197 is attested.",
+      "state": "open",
       "size": "M",
-      "blockedBy": "sigil - the parcel does not exist yet",
+      "blockedBy": null,
       "project": "EFFECTS-W1"
     },
     {
@@ -55,22 +52,6 @@
       "title": "DoD item 4: bands whose edges move over time while the player stands still. Needs a design pass first - the anchor mover is new.",
       "state": "open",
       "size": "L",
-      "blockedBy": null,
-      "project": "EFFECTS-W1"
-    },
-    {
-      "id": "EFFECTS-W1-VARIANTS-CYCLES",
-      "title": "DoD item 5: palette variants and palette cycling, authorable. Its blocker is NOT the CR that just landed - that CR deliberately did NOT grow the preset document to total (option C was refused precisely because it would make item 1 depend on this row). Item 5 needs its OWN contract change adding the variants/cycles keys, which is unwritten. Do not read item 1's adjudication as unblocking this.",
-      "state": "blocked",
-      "size": "M",
-      "blockedBy": "a second contract change, not yet written - the item-1 CR did not carry these keys",
-      "project": "EFFECTS-W1"
-    },
-    {
-      "id": "EFFECTS-W1-VERTICAL-BOB",
-      "title": "DoD item 7: the whole background sways over time. Cheapest of the motion items - one term on a step that already exists.",
-      "state": "next",
-      "size": "S",
       "blockedBy": null,
       "project": "EFFECTS-W1"
     },
@@ -84,7 +65,15 @@
     },
     {
       "id": "EFFECTS-W1-ROW-REMAP",
-      "title": "DoD item 9: Hydrocity-style background rows re-ordered from a table. He wants it; sequenced last by his own preference.",
+      "title": "DoD item 9: Hydrocity-style background rows re-ordered from a table. You want it; sequenced last by your own preference.",
+      "state": "open",
+      "size": "L",
+      "blockedBy": null,
+      "project": "EFFECTS-W1"
+    },
+    {
+      "id": "EFFECTS-W1-VRAM-REPLAN",
+      "title": "Free a spare nametable region. Video memory is measured full to the top. Ruled to wait until the two set-piece items are reached, so nothing is stopped on it today.",
       "state": "open",
       "size": "L",
       "blockedBy": null,
@@ -92,7 +81,7 @@
     },
     {
       "id": "EFFECTS-W1-PLANE-TRICKS",
-      "title": "DoD item 10: reels, swapping which plane is the background, and the window as a third layer. Needs the spare nametable first.",
+      "title": "DoD item 10: reels, swapping which plane is the background, and the window as a third layer.",
       "state": "blocked",
       "size": "L",
       "blockedBy": "the VRAM re-plan - no spare nametable region exists",
@@ -100,31 +89,15 @@
     },
     {
       "id": "EFFECTS-W1-NAMETABLE-BASE",
-      "title": "DoD item 11: swapping the picture by register, mid-frame and per-frame. Same spare-nametable prerequisite.",
+      "title": "DoD item 11: swapping the picture by register, mid-frame and per-frame.",
       "state": "blocked",
       "size": "L",
       "blockedBy": "the VRAM re-plan - no spare nametable region exists",
       "project": "EFFECTS-W1"
     },
     {
-      "id": "BUG-D34-STANDSTILL-DRIFT",
-      "title": "A second standstill drift: overhangs at 135 and 225 degrees behave differently. PARKED for you - the card says in terms that it cannot be judged for you. One character to change whenever you say; pinned meanwhile so it cannot spread.",
-      "state": "blocked",
-      "size": "S",
-      "blockedBy": null,
-      "project": "EFFECTS-W1"
-    },
-    {
-      "id": "BUG-D32-LEFT-EDGE-REMEASURE",
-      "title": "Left-edge ground glitch. My 2026-08-30 'it is gone' is RETRACTED: the fix I credited is reverted on master, and I sampled on a 16px boundary where the glitch cannot show. Status UNKNOWN; needs an off-grid camera with foreground at the left edge.",
-      "state": "open",
-      "size": "S",
-      "blockedBy": null,
-      "project": "EFFECTS-W1"
-    },
-    {
-      "id": "BUG-INSTASHIELD-RIDERS",
-      "title": "RULED: Tails gets the came-from-a-jump gate, Knuckles is left alone, the second gate is not taken. Ready to build.",
+      "id": "CANOPY-GAP",
+      "title": "DoD item 17, and not backgroundable by your ruling. Two code-read explanations are refuted, so the plan is to instrument for the next sighting rather than derive a third.",
       "state": "open",
       "size": "S",
       "blockedBy": null,
@@ -139,6 +112,14 @@
       "project": "EFFECTS-W1"
     },
     {
+      "id": "BUG-INSTASHIELD-RIDERS",
+      "title": "RULED and ready to build: Tails gets the came-from-a-jump gate, Knuckles is left alone, the second gate is not taken.",
+      "state": "open",
+      "size": "S",
+      "blockedBy": null,
+      "project": "EFFECTS-W1"
+    },
+    {
       "id": "BUG-DMA-SPLIT-RESERVE",
       "title": "The DMA split-reject reserve is sized from art volume rather than per-frame count. Measure before changing it.",
       "state": "open",
@@ -147,128 +128,24 @@
       "project": "EFFECTS-W1"
     },
     {
-      "id": "BUG-BASE-RESIDUE-ENSURES",
-      "title": "Assumptions about alignment with nothing asserting them, invisible to the assembler's own gate. Discipline plus a lint on the sigil side.",
-      "state": "open",
-      "size": "S",
-      "blockedBy": null,
-      "project": "EFFECTS-W1"
-    },
-    {
-      "id": "ORACLE-DEFAULT-AEON",
-      "title": "Point the last emulator-spawning scripts at the new Oracle. The gate lane is already there; eleven standalone probes and two gate entries still spawn the legacy one.",
+      "id": "SCENE-READOUT",
+      "title": "Nothing tells you which of the twenty effects is on screen - you counted button presses to find scene 13. A gap, not a preference.",
       "state": "open",
       "size": "M",
-      "blockedBy": null,
-      "project": "ORACLE-DEFAULT"
-    },
-    {
-      "id": "EFFECTS-W1-BIND-PRESETS",
-      "title": "DoD item 1. STEPS 2-4 MERGED 4aa2abc0, zero-byte and re-verified on the merged tree by this lane: all four shapes CRC-identical to sigil's committed goldens (63451f96 / 3aa7cb12 / 9223a60d / d30c3636), 1742 passed / 3 skipped / 0 failed on each of the four canonical builds. The key is rasterRef; the wire spelling exists in exactly one place (ACT_RASTER_REF_KEY) after review removed a copied expectation. BLOCKED-3 is PROVEN, so the design's +38 B unconditional fallback is dropped. Aurora has a WRITER now (f98824ac) and their SectionMeta precondition landed (7b1d15a0). LEFT: step 5 (+38 B split, sigil pair) blocked only on the owner's section/band pick; step 6 (band + rasterRef + delete authored_probe), its aurora precondition now discharged; step 7 (EDITOR_RASTER_PRESETS.md C/D).",
-      "state": "doing",
-      "size": "M",
-      "blockedBy": null,
-      "project": "EFFECTS-W1"
-    },
-    {
-      "id": "EFFECTS-W1-DRIFT-ON",
-      "title": "Switch the drifting-cloud mechanism on and author one layer with it. The engine half landed already and is sitting inert.",
-      "state": "open",
-      "size": "M",
-      "blockedBy": null,
-      "project": "EFFECTS-W1"
-    },
-    {
-      "id": "EFFECTS-W1-VRAM-REPLAN",
-      "title": "Free a spare nametable region. Video memory is measured full to the top. Ruled to wait until the two set-piece items are reached, so nothing is stopped on it today.",
-      "state": "open",
-      "size": "L",
       "blockedBy": null,
       "project": "EFFECTS-W1"
     },
     {
       "id": "DENSE-PERLINE-VSRAM",
-      "title": "Per-line vertical-scroll effects, the Batman pseudo-3D floors. You ruled it in tonight. The dense tier it hangs off already exists.",
+      "title": "Per-line vertical-scroll effects, the Batman pseudo-3D floors. You ruled it in. The dense tier it hangs off already exists.",
       "state": "open",
       "size": "L",
-      "blockedBy": null,
-      "project": "EFFECTS-W1"
-    },
-    {
-      "id": "PARALLAX-SCROLL-CLAMP",
-      "title": "Nothing clamps the background scroll, so a scene with out-of-range numbers wraps silently and looks like a bug somewhere else.",
-      "state": "open",
-      "size": "S",
-      "blockedBy": null,
-      "project": "EFFECTS-W1"
-    },
-    {
-      "id": "CANOPY-GAP",
-      "title": "The up-and-down test is built and run, twice, both clean - so the explanation we were hoping for is dead and the gap likely has a second, still-live cause. Two suspects promoted; the detector is still the plan.",
-      "state": "open",
-      "size": "S",
-      "blockedBy": null,
-      "project": "EFFECTS-W1"
-    },
-    {
-      "id": "DPLC-ENTRY-BUDGET",
-      "title": "Sonic's heaviest frames need 13 art transfers against 12 slots. The append risk is MEASURED and clear (margin 5,188 B), and the measurement found this is coupled to the block-stream slimming - whichever lands second must re-measure. A build gate now catches it. NOT the row in flight: the agent is on its RIDER (DPLC-TILESTART-ENSURE), not the re-cut. The re-cut itself is still unstarted.",
-      "state": "open",
-      "size": "M",
-      "blockedBy": null,
-      "project": "EFFECTS-W1"
-    },
-    {
-      "id": "DPLC-TILESTART-ENSURE",
-      "state": "doing",
-      "size": "S",
-      "blockedBy": null,
-      "project": "EFFECTS-W1",
-      "title": "The rider under DPLC-ENTRY-BUDGET: the art-index field is 12 bits and nothing checks it. One character's file records the ceiling in a COMMENT and no machine check enforces it for any of them. Zero-byte compile-time ensure, red-first proof required; the bound must be derived from whatever names the field width, never typed in."
-    },
-    {
-      "id": "LIVE-OBJECTS",
-      "title": "Placing and moving objects from the editor while the game runs. The spawn half is a paused project; oracle has your go on the select-and-inspect half.",
-      "state": "blocked",
-      "size": "L",
-      "blockedBy": null,
-      "project": "LIVE-OBJECTS"
-    },
-    {
-      "id": "SCENE-READOUT",
-      "title": "Nothing tells you which of the twenty effects is on screen. You counted button presses to find scene 13. A gap, not a preference.",
-      "state": "open",
-      "size": "M",
-      "blockedBy": null,
-      "project": "EFFECTS-W1"
-    },
-    {
-      "id": "BG-TALL-AND-PAGING",
-      "title": "Taller background art, then paging it. Both designed and priced; parked with the regions project rather than waiting on you.",
-      "state": "blocked",
-      "size": "L",
-      "blockedBy": null,
-      "project": "EFFECTS-W1"
-    },
-    {
-      "id": "SIGIL-DECOUPLE",
-      "title": "Taking the certification harness off the assembler. Step two is finished; step one retires the golden from being a fix's only witness.",
-      "state": "open",
-      "size": "L",
-      "blockedBy": "the sigil lane - their project, their board front",
-      "project": "EFFECTS-W1"
-    },
-    {
-      "id": "SECTION-HEAD-CLAMP",
-      "title": "A line that says it clamps and does not. Harmless today, wrong the moment anyone adds the cache-recovery path the code's own comments already promise.",
-      "state": "open",
-      "size": "S",
       "blockedBy": null,
       "project": "EFFECTS-W1"
     },
     {
       "id": "PAINTED-REGIONS-FINDINGS",
-      "title": "Fourteen defects a peer study found, now verified and booked. Ten real, one refuted, three already known. Fixing them is not started.",
+      "title": "Fourteen defects a peer study found, verified and booked: ten real, one refuted, three already known. Fixing them is not started.",
       "state": "open",
       "size": "M",
       "blockedBy": null,
@@ -276,81 +153,33 @@
     },
     {
       "id": "BLOCK-STREAM-DEDUP",
-      "title": "About 21 KB freed for no behaviour change. NOT as independent as ruled: it moves the same art base the DPLC fix depends on, by four times that fix's margin. Safe inside a measured band; re-measure whichever lands second.",
+      "title": "About 21 KB freed for no behaviour change. It moves the same art base the DPLC fix depends on, by four times that fix's margin - re-measure whichever lands second.",
       "state": "open",
       "size": "M",
       "blockedBy": null,
       "project": "EFFECTS-W1"
     },
     {
-      "id": "LEDGER-WRITE-SITE-CHECK",
-      "title": "Check decision entries as they are written, not after. The measurement tool exists and found 31 bad lines; it cannot stop the next one.",
+      "id": "VARIANT-TWO-SLOT-COST",
+      "title": "The published palette cost figure is a ONE-SLOT number, and the variants key is the first thing that makes two-slot binding easy - so it understates the case the key introduces. Runtime capture; needs the emulator.",
       "state": "open",
       "size": "S",
       "blockedBy": null,
       "project": "EFFECTS-W1"
     },
     {
-      "id": "PROBE-MIGRATION-RUST-CORE",
-      "title": "UNBLOCKED 2026-08-30: oracle closed the player-path breakpoint gap. Two probes still dial the legacy emulator; each migrates to the Rust core with its timeout spelling flipped in the SAME commit, never before. Needs the emulator in the foreground, so it does not run beside the tier.",
+      "id": "QUEUE-REST-IN-ARCHIVE",
       "state": "open",
       "size": "M",
       "blockedBy": null,
-      "project": "EFFECTS-W1"
-    },
-    {
-      "id": "HOME-PATHS-OUTWARD",
-      "state": "open",
-      "size": "S",
-      "blockedBy": null,
-      "project": "EFFECTS-W1",
-      "title": "The inward half is fixed; peers still reach INTO this tree by absolute path from their own harnesses. Nothing was moved or renamed so nothing is broken, but the consumer enumeration has not been done and AEON_SUITE_ROOT is new that nothing outside aeon knows about. Suite-level, not ours alone."
-    },
-    {
-      "id": "RESET-WAIT-KEY-x12",
-      "state": "open",
-      "size": "S",
-      "blockedBy": null,
-      "project": "EFFECTS-W1",
-      "title": "Twelve of our sites send a reset key the legacy server never reads - harmless only by luck, since the useful value is the one that would break. Registered with the count pinned so a thirteenth fails the build; REMOVAL is coupled to the Rider 3 migration and cannot land alone."
-    },
-    {
-      "id": "SEAM-GATE-RUNTIME-PROOF",
-      "state": "open",
-      "size": "S",
-      "blockedBy": null,
-      "project": "EFFECTS-W1",
-      "title": "The seam gate reasons from the peer's SOURCE and has never confirmed against a running legacy server that a misspelled key really is accepted. Five foreground minutes; no legacy server is currently up and launching one is not covered by this lane's auto-launch permission, so it waits for a window."
-    },
-    {
-      "id": "BAND-PALETTE-ENTRY-CHOICE",
-      "state": "open",
-      "size": "S",
-      "blockedBy": null,
-      "project": "EFFECTS-W1",
-      "title": "The bands work and are near-invisible: they recolour ONE palette entry and only 1.64% of the scene is drawn with it. Anything meant to read as staged light needs an entry the scene uses broadly, or several at once. A content/authoring call, not a mechanism defect."
-    },
-    {
-      "id": "DRIFT-KEY-CLOSURE-REV",
-      "state": "open",
-      "size": "M",
-      "blockedBy": "sigil + owner ruling",
-      "project": "EFFECTS-W1",
-      "title": "Should a clean-closure build count as identifying evidence? STILL THE OWNER'S and deliberately unfixed - the obvious fix errs toward MORE chains counting, the bias this record exists to resist. NEW 2026-08-30: there are now TWO independent silent mechanisms by which N fails to advance while the watch reads healthy - our docs-only-commit key miss, and sigil's drift_report treating clean-sources as non-identifying. Sigil is reporting the state by name rather than folding it, per their own MISS-must-name-itself ruling, and neither lane is moving the counting. Our half of the falsehood is fixed (7a207cd7): we were MINTING clean-sources as 'dirty', which was a false record and is separable because nothing keys on that field. ALSO MEASURED by sigil: systemctl --user is-enabled sigil-ref-drift.timer is NOT-FOUND, so the job accumulates nothing nightly regardless of what either lane lands."
-    },
-    {
-      "id": "RASTER-ARM-GAP-ENSURE",
-      "state": "open",
-      "size": "S",
-      "blockedBy": null,
-      "project": "EFFECTS-W1",
-      "title": "Aurora's find: two records on one fire line store a gap whose byte IS the park value, killing every later fire silently. Measured HARDENING not tier - check_intervals already refuses it and every one of the five shipped programs is emitted through the checked path. Residual is defence in depth for a future path."
+      "project": null,
+      "title": "Thirty further rows - the finished ones and the smaller live ones - live in docs/QUEUE-ARCHIVE.md with their full text, addressed by the same id."
     }
   ],
   "awaiting": null,
-  "atBoundary": false,
-  "updatedAt": "2026-08-30T10:01:08Z",
-  "resume": "Item 1 step 5 is UNBLOCKED and in flight. BLOCKED-2 (which section) was ruled in the owner's place by the hub: SECTION 5, the 38-byte split that evicts nothing; section 4 was rejected because it evicts the d-15 showcase. Carrying commit empyrean e874427decc99c3717892a68a583f5a9bafc6dcc, docs/OVERSEER.md - VERIFIED FIRSTHAND in their tree but NOT yet reachable from origin/main (hub had not pushed at 10:00Z), so re-check reachability before citing it as an anchor. The look of the band stays the owner's: ship a legible default and PARK A CAPTURE naming the section. The design branch design/effects-ref-binding (2cf29126, unmerged) still says effectsRef throughout and is stale - the key is rasterRef, and the landed arm on master is the authority on spellings. Steps 0-4 are landed; 6 needs aurora's SectionMeta extension, 7 is docs. Second agent: the 12-bit tile_start ceiling rider booked under the d-47 DPLC measurement - zero-byte ensure, red-first required.",
+  "atBoundary": true,
+  "updatedAt": "2026-09-02T13:01:16Z",
+  "resume": "2026-09-02T09:47Z. LANDED AND PUSHED this session: the item-5 spec reconciliation, merge 04aa4fb4 + lane-log a41f0848 (docs only, zero ROM bytes) - section 4's heading was the thing that lied, the worked example's period is 9 not 8, and 3.4's first_mismatch recommendation is withdrawn with the probe's Q2-e verdict in its place. Every probe citation in it was verified against the probe doc firsthand before landing. RUNNING: parcel/left-edge-perscene, the first byte-mover of the new chain - it delivers a branch only; the merge, the four-shape re-verify, the paired sigil freeze and the attest are MINE, not the agent's. AUTHORITY FOR STARTING IT: the owner's own words are recorded in d-50's closure ('Feel free to make some decisions in the direction you generally know I want to go... but you're an expert as well. Best of best no shortcuts'), and the hub confirmed the pick at 09:42Z under that delegation. The owner has NOT personally answered this session. PEER STATE: sigil-d8 has chain 196 attested and is idle on aeon's account; aurora-5d is waiting on the generator half's landing SHA and expects their preset-lag row to go red as the unblock signal, not as a defect. TAGGED FOR A FOREGROUND EMULATOR SESSION: the two-slot variant cost re-derive (the published 19,332 is one-slot), Q9's cycling cost capture, and looking at the two switched scenes once the parcel lands. SIGIL_BUILD/SIGIL_EMIT are set by no dotfile - paste both export lines into every build brief.",
   "parkedQuestions": [
     {
       "id": "d-16",
