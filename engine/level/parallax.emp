@@ -343,7 +343,14 @@ pub struct band_drift (size: 4) {
 // including `demo`, whose SCANLINE_CAPS is 0 and which will never drift, and every ROM image
 // in the tree moves. That is owner-gated (scene_registry.emp carries the refusal), and it is
 // why the mechanism lands at 0: the mechanism moves no byte, adoption does.
-pub const BAND_DRIFT_N = 0
+//
+// RAISED TO 1 BY THE ADOPTION PARCEL (EFFECTS-W1 item 3, 2026-09-02), in the same commit as
+// engine/ram.emp's BAND_DRIFT_BYTES = 4, games/sonic4/config/game.emp's CAP_BAND_DRIFT and
+// the authored rate on Scene_OJZ_Default — which is exactly the set scene_registry.emp's
+// refusal message enumerates. `demo` pays the widened record and the accumulator array and
+// authors no rate; that is the engine-wide price this banner priced in advance, and its
+// SCANLINE_CAPS stays 0 so it emits none of the three gated spans.
+pub const BAND_DRIFT_N = 1
 
 // band_record — WHAT A BAND OCCUPIES, in ROM and in the shadow view. This is the type the
 // registry emits arrays of, the type `scene_band()` builds, and the STRIDE every walker

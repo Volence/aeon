@@ -9,6 +9,16 @@ array, the three bracketed runtime spans, the `Factor0Lock` arm, the registry pi
 fixtures. **What did not land, deliberately: adoption.** No shipped scene authors a drift, so
 three of the four canonical images are byte-identical (§5).
 
+> **ADOPTION LANDED 2026-09-02** — `parcel/drift-on`, EFFECTS-W1 item 3. This file is kept as
+> written: it is the record of the MECHANISM parcel, and rewriting its tenses would destroy the
+> distinction it exists to draw. Two things in it are now superseded and are flagged where they
+> occur — §5's byte-identity table (adoption moves all four images) and §6's sigil rider (the fix
+> is a per-game SPLIT of the baseline row, not the deletion §6 assumes; §6 was measured on a
+> sonic4-only instrument and never looked at demo). §7's NOT-PROVEN list stands except that the
+> capability-off identity `ensure` is now vacuous for a second reason, and that the DATA half of
+> "green and dead" is closed by `tools/band_drift_golden.py`. The adoption's own numbers live in
+> `docs/DEFERRED_WORK.md`'s band-drift entry.
+
 ---
 
 ## 1. The authored model
@@ -271,6 +281,13 @@ missing cancels.
 
 ## 5. What moved, and what did not
 
+> **HISTORICAL, 2026-09-02.** The table below is the MECHANISM parcel's, at `BAND_DRIFT_N = 0`.
+> Adoption moves all four images — though `EndOfRom` moves in none of them: +24 code / +308 data
+> on sonic4 and +2 code on demo all land in existing slack, and the file-size deltas (+190 / +192
+> / +16 / +16) are the deb2 appendix. See `docs/DEFERRED_WORK.md`.
+
+
+
 Built from **deleted** ROMs (a byte-neutral parcel cannot witness its own freshness, and a
 leftover ROM ships four perfect CRCs as proof of a build that never ran).
 
@@ -298,6 +315,15 @@ observation rather than explained.
 ---
 
 ## 6. ⚠ ADOPTION HAS A SIGIL RIDER THE DESIGN DOES NOT MENTION
+
+> **SUPERSEDED IN ITS CONCLUSION, 2026-09-02.** The row and the reason below are right. The
+> implied fix — update (i.e. delete) the row — is wrong, and it is wrong for a reason this
+> section could not see: it was measured on a sonic4-only instrument. `demo` declares no
+> capability, elides the `add.w (a4), d2`, and goes on firing the row; deleting it turns both
+> demo shapes red with the SAME row as a NEW firing. sigil `parcel/drift-on` moves the row to a
+> new `D1C_DEMO_EXTRA` and gives `d1c_baseline()` a per-game axis beside its per-family one.
+
+
 
 Measured while building i2 — with the drift block live, sigil's **contract-closure gate fails**:
 

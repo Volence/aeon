@@ -267,6 +267,34 @@ from scene_spans import (AEON, capability_bits, expected_spans, game_caps,
 #     add.w   d4, d2                        D4 44                    2
 #                                                                 = 40 B, in BOTH games.
 #
+# RE-DERIVATION LOG — 2026-09-02, the band-drift ADOPTION parcel (EFFECTS-W1 item 3,
+# parcel/drift-on). The pin FAILED and was right to. ONE row moved, and it is the 08-26
+# entry above one tail over:
+#
+#   Parallax_Step4_Fill      192 -> 194  (+2)  `.copy_band` 42 -> 44 (demo.debug.lst:
+#                                            $5A80..$5AAA on master vs $5A80..$5AAC here;
+#                                            every later local label in the proc is +2 and
+#                                            nothing else in it moved — `Parallax_Step4_Fill`
+#                                            and `.find_k` / `.found_k` / `.copy_band`
+#                                            themselves are at IDENTICAL addresses). The
+#                                            cause is again the RECORD STRIDE and not a
+#                                            capability span: `BAND_DRIFT_N` is a pinned
+#                                            ENGINE literal (parallax.emp, 0 -> 1 when
+#                                            sonic4 raised CAP_BAND_DRIFT), so
+#                                            `sizeof(band_record)` went 20 -> 24 in EVERY
+#                                            game, demo included, and `copy_band_entry_fwd`
+#                                            is generated from that size: one more
+#                                            `move.l (a1)+,(a4)+` = +2 B. demo authors no
+#                                            drift and emits NONE of the three
+#                                            `cap_band_drift_*` spans — the span half of
+#                                            this witness confirms it (demo 0 spans), which
+#                                            is exactly why the image half exists.
+#
+# The other six rows are unchanged — measured, not assumed: this tool's own image
+# differential printed 6 / 100 / 78 / 194 / 120 / 8 / 26 against pins of 6 / 100 / 78 /
+# 192 / 120 / 8 / 26 on the run that failed this one, so Step4_Fill is the only row that
+# disagreed.
+#
 # ONE OF THOSE FORTY IS RELAXATION-DEPENDENT AND WORTH KNOWING BEFORE THE NEXT REPIN. The
 # `lea` lowers to ABSOLUTE SHORT (4 B) because Sine_Table sits at $1258 in demo.debug and
 # $2B08 in s4.debug — both inside the sign-extended $0000..$7FFF that `.w` reaches. It
@@ -283,7 +311,7 @@ DEMO_SPECIALISED_PROCS = {
     "Parallax_Active_Config":     6,   # CAP_TRANSITIONS            (sonic4  18)
     "Parallax_Fill_PerLine":    100,   # CAP_DEFORM, CAP_MULTI_DEFORM_TABLE, CAP_FACTOR_CURVE (sonic4 792 with the curve raised) — the flat filler
     "Parallax_StartTransition":  78,   # CAP_PER_COL_VSRAM, CAP_TRANSITIONS  (sonic4 106)
-    "Parallax_Step4_Fill":      192,   # CAP_ANCHORS, CAP_FACTOR_CURVE  (sonic4 662; 20 B record stride)
+    "Parallax_Step4_Fill":      194,   # CAP_ANCHORS, CAP_FACTOR_CURVE  (sonic4 670; 24 B record stride since CAP_BAND_DRIFT, 2026-09-02)
     "Parallax_Step5_Vscroll":   120,   # CAP_PER_COL_VSRAM, CAP_TRANSITIONS  (sonic4 206)
     "Raster_GetChannelBand":      8,   # CAP_ANCHORS                (sonic4  50)
     "Vscroll_Write":             26,   # CAP_PER_COL_VSRAM          (sonic4 118)

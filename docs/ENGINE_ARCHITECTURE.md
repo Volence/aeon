@@ -2545,12 +2545,33 @@ canonical spelling and is what S2 DEZ's camera-locked star rows and S3K SSZ1's s
 - **RAM: +128 B** at `MAX_PARALLAX_BANDS = 16` — `Parallax_State` 552 -> 680, measured from the
   instrument listing's own `Parallax_State`/`_End` span. +64 is the shadow widening, +64 the
   accumulator array. Both terms are capability-sized.
-- **ADOPTION IS OWNER-GATED AND HAS A SIGIL RIDER.** `BAND_DRIFT_N` is a pinned engine-wide
-  literal, so raising it widens the record for `demo` too and moves every ROM image;
-  `scene_registry.emp` carries the refusal. It ALSO fails sigil's contract-closure gate with a GONE
-  row (`Parallax_Update @ Decode_Factor_B :: d2`), because `add.w (a4), d2` makes d2 a live output
-  of that call — the baseline in the sigil repo must move in the same paired commit. See
+- **ADOPTED 2026-09-02 (EFFECTS-W1 item 3).** `Scene_OJZ_Default` — the act-installed OJZ record,
+  so the background on seven of act 1's nine sections — carries `drift: SceneDrift.Rate(-32)` on
+  all four bands: 1/8 px per frame leftward, S3K AIZ1's cloud rate. `SCANLINE_CAPS` is `$00DE`,
+  `BAND_DRIFT_N` is 1 and `BAND_DRIFT_BYTES` is 4. **The rate is the same on every band on
+  purpose:** those four bands share identical factors and shifts (they are one visual plane cut
+  into four records) and the OJZ BG art is a 128-px canopy tiled four times vertically with
+  VERTICAL features, so a per-band rate would shear it at a band boundary that `v_factor: 3` then
+  sweeps down the screen. A per-band rate is right the day the art has bands; the mechanism is
+  per-band either way. Cost: +24 code and +308 data (77 emitted bands x the 4-byte tail) on
+  sonic4, +2 code on `demo` for the widened copy loop alone — and **`EndOfRom` does not move in
+  any of the four shapes**, so all of it lands in existing slack; the file-size deltas (+190 /
+  +192 / +16 / +16) are the deb2 symbol appendix taking the new names.
+- **ADOPTION WAS OWNER-GATED AND HAD A SIGIL RIDER.** `BAND_DRIFT_N` is a pinned engine-wide
+  literal, so raising it widened the record for `demo` too and moved every ROM image;
+  `scene_registry.emp` carried the refusal (its `CAP_BAND_DRIFT` arm is now inverted, and refuses
+  the silent LOSS of the adoption instead). It ALSO fails sigil's contract-closure gate on the row
+  `Parallax_Update @ Decode_Factor_B :: d2`, because `add.w (a4), d2` makes d2 a live output of
+  that call — and the resolution is a SPLIT, not a deletion: the row is GONE for sonic4 and NEW for
+  `demo`, whose capability-clear `Parallax_Update` elides that instruction. sigil's baseline gained
+  a per-game family axis (`D1C_DEMO_EXTRA`) in the same paired commit. See
   `docs/DEFERRED_WORK.md`, "Band drift".
+- **TWO BUILD GATES, AND NEITHER SUBSTITUTES FOR THE OTHER.** `tools/effects_gates.py`'s
+  `scanline_spans` differential proves the three `cap_band_drift_*` instruction spans are emitted
+  for sonic4 and elided for demo (the CODE half); `tools/band_drift_golden.py` reads each band's
+  drift tail out of the built ROM and decodes it against the authored rate (the DATA half). A
+  walker that faithfully accumulates a rate of zero passes the first and fails the second. Whether
+  the accumulate moves the PICTURE is still emulator work and is booked as unrun.
 
 **Vertical bob — a scene-level sway on the whole background (2026-08-30, EFFECTS-W1 item 7).** A
 scene may carry `bob_shift` and `bob_period`, and Plane B's V-scroll then sways

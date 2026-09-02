@@ -119,12 +119,58 @@ pub const SceneSrc_DeformTable_Perspective = v_column_floor(center: 20, max_offs
 // from four enabled layers, so the fifth bit is unreachable from the model and is carried
 // as `layer_mask_raw`. scene() checks it is a SUPERSET of the derivation ($1F | $0F ==
 // $1F, passes), which is the only thing that can be checked about it.
+//
+// ---- THE DRIFT, AND WHY IT IS ON ALL FOUR BANDS AT ONE RATE (EFFECTS-W1 item 3) ----
+//
+// This is the act-installed record (`OJZ_Act1_Descriptor.act_parallax_config`), so it is
+// the OJZ background for every section that does not bind an editor scene — 1, 2, 3, 5, 6,
+// 7 and 8 of the nine. It is therefore the layer to drift if the drift is to be SEEN.
+//
+// THE RATE IS THE SAME ON ALL FOUR BANDS, AND THAT IS READ OFF THE ART RATHER THAN CHOSEN
+// FOR SYMMETRY. Two facts decide it:
+//
+//   1. These four bands are ONE VISUAL LAYER. Their fa, fb, dsa and dsb are identical, so
+//      today they scroll as one plane and the three band boundaries are invisible. They are
+//      four records for the header's sake, not four depths.
+//   2. THE BG ART HAS NO BANDS TO ALIGN THEM WITH. Read out of the emitted plane
+//      (games/sonic4/data/generated/ojz/act1/zone_bg.bin, 64 x 64 cells): cell rows 0-15
+//      repeat VERBATIM at 16, 32 and 48, i.e. one 128-px canopy pattern tiled four times
+//      vertically, and its features are VERTICAL — vine columns and flower clusters that run
+//      the full height. The band tops are plane cell rows 0 / 8 / 40 / 48, which cut that
+//      pattern at no edge it has.
+//
+// So a per-band rate would shear those vertical features at the band boundary, and the
+// boundary is not even stationary: `v_factor: 3` walks the whole plane past the screen as
+// the camera climbs the 6144-px act, so the shear line would SWEEP down the picture. One
+// rate on all four has no seam by construction — every band's plane-B word gains the same
+// pixel offset, so the plane moves as the single sheet it is drawn as.
+//
+// (A genuinely per-band drift is the right call the moment the BG art HAS bands — a sky
+// strip over a treeline over a floor. That is an art decision, not a scene edit, and the
+// mechanism is per-band already: change one `Rate(-32)` here and only that band moves.)
+//
+// THE MAGNITUDE IS -32 = 1/8 px per frame = 7.5 px/s, CORPUS-GROUNDED. It is S3K AIZ1's
+// cloud rate exactly ($2000 in AIZ1's own 16.16 accumulator), the slow-ambient value the
+// engine's own docs name, and the canopy takes ~43 s to cross the 320-px screen at it —
+// visible within a couple of seconds of standing still, and never competing with the
+// player's own motion (running Sonic moves this plane ~5 px/frame at FACTOR_1_2, forty
+// times the drift). The unit trap is real and worth restating at the call: THE UNIT IS
+// 1/256 px PER FRAME, so this is 32/256, not 32 px.
+//
+// THE SIGN IS NEGATIVE SO THE DRIFT NEVER FIGHTS FORWARD MOTION. Decode_Factor_B returns
+// `-decode(camX, factor_b)`, so running RIGHT lowers the plane-B scroll word and the
+// background travels LEFT; `add.w (a4), d2` folds the accumulator into that same word, so a
+// negative rate lowers it too and the canopy drifts the same way it already moves under a
+// player heading right. A positive rate would partially cancel the parallax on the act's
+// default direction of travel, which is the artifact you would notice. WHICH WAY THAT IS ON
+// SCREEN IS DERIVED HERE, NOT SEEN — SceneDrift's banner says to eyeball it once, and this
+// parcel could not. If it reads backwards, the fix is the minus sign on these four lines.
 // =====================================================================
 pub const Scene_OJZ_Default: Scene = scene(
-    layers: [ layer(world_y: 512,  fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15),
-              layer(world_y: 1024, fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15),
-              layer(world_y: 3072, fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15),
-              layer(world_y: 3584, fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15),
+    layers: [ layer(world_y: 512,  fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15, drift: SceneDrift.Rate(-32)),
+              layer(world_y: 1024, fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15, drift: SceneDrift.Rate(-32)),
+              layer(world_y: 3072, fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15, drift: SceneDrift.Rate(-32)),
+              layer(world_y: 3584, fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15, drift: SceneDrift.Rate(-32)),
               no_layer(), no_layer(), no_layer(), no_layer(),
               no_layer(),
               no_layer(),

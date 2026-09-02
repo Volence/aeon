@@ -15818,12 +15818,85 @@ also finds constant drift-guards, camera drift and doc drift — none of them th
 
 ### What is open
 
-- **ADOPTION — owner card, not a task.** Raising `CAP_BAND_DRIFT` widens `band_record` 20 -> 24
+#### ✅ ADOPTION LANDED 2026-09-02 — `parcel/drift-on`, paired with sigil `parcel/drift-on`
+
+**EFFECTS-W1 item 3 is DONE.** `Scene_OJZ_Default` — the act-installed record, so the OJZ
+background on seven of act 1's nine sections — carries `drift: SceneDrift.Rate(-32)` on all four
+of its bands. The three pins moved in one commit exactly as the refusal message demanded:
+`BAND_DRIFT_N` 0 -> 1 (`engine/level/parallax.emp`), `BAND_DRIFT_BYTES` 0 -> 4
+(`engine/ram.emp`), `SCANLINE_CAPS` `$005E` -> `$00DE` (`games/sonic4/config/game.emp`), plus
+`SceneRegistry_CapsExpected` `$001E` -> `$009E` and the registry's `CAP_BAND_DRIFT` arm turned
+round from `== 0` (refuse adoption) to `!= 0` (refuse the SILENT LOSS of it, which is now the
+expensive direction).
+
+**Measured, all four shapes green** (baseline = master `73b07a4f`, both built four-shape with
+their own sigil, ROMs deleted first):
+
+| shape | before | after | delta |
+|---|---|---|---|
+| `s4.bin` | 719440 / `df76de71` | 719630 / `f886992e` | +190 |
+| `s4.debug.bin` | 736454 / `0d6d1175` | 736646 / `8386e341` | +192 |
+| `demo.bin` | 96458 / `30a31d81` | 96474 / `0c456778` | +16 |
+| `demo.debug.bin` | 101323 / `51056291` | 101339 / `2e603d53` | +16 |
+
+**`EndOfRom` DOES NOT MOVE IN ANY OF THE FOUR** — `$A5C82` / `$A7F38` / `$1121A` / `$1121A`,
+identical before and after. Every one of those file-size deltas is the **deb2 symbol appendix**
+past `EndOfRom` taking the new names (`Parallax_Drift_Acc` and the three `cap_band_drift_*` span
+pairs). The parcel's real ROM cost — **+24 code** (`Parallax_Update` +14, the three spans;
+`Parallax_Step4_Fill` +10, the widened `copy_band_entry_fwd`) **and +308 data** (77 emitted bands
+x 4 bytes of drift tail: the twenty hand scenes' 67 plus the two editor scenes' 10) — lands
+entirely inside existing slack ahead of the next map anchor. Bytes below `EndOfRom` DO move in
+bulk (416261 / 423245 / 6096 / 11336 differ), because everything after the parallax config block
+shifts up to the next anchor; that is relocation, not growth. `demo`'s code cost is +2 alone —
+the copy loop's one extra `move.l (a1)+,(a4)+`; it declares no capability, emits none of the three
+spans and authors no rate, so it pays only the engine-wide record widening this entry priced in
+advance.
+
+RAM: `Parallax_State` +128 B (accumulator array 64, shadow tail 64) — the number the design
+derived from source, now measured off the shipped listing's own
+`Parallax_Drift_Acc`/`Parallax_Curve_Carry`/`Parallax_Shadow_Scroll_A` spans. Everything above it
+moves +128, except `Player_Pos_Ring`, which is 256-aligned and therefore +256.
+
+**THE LOOK CALL, and why the drift is on all four bands at one rate.** These four bands share
+identical `fa`/`fb`/`dsa`/`dsb` — they are one visual plane cut into four records — and the OJZ
+BG art has no bands to align a per-band rate with: read out of
+`games/sonic4/data/generated/ojz/act1/zone_bg.bin`, cell rows 0-15 repeat verbatim at 16, 32 and
+48 (one 128-px canopy tiled four times) and its features run VERTICALLY. A per-band rate would
+shear those features at the band boundary, and `v_factor: 3` walks that boundary down the screen
+as the camera climbs. One rate on all four has no seam by construction. The magnitude is S3K
+AIZ1's cloud rate exactly (`$2000` in AIZ1's 16.16 accumulator = 32 here = 1/8 px/frame = 7.5
+px/s, ~43 s to cross the screen); the sign is negative so the canopy drifts the way it already
+moves under a player heading right, never against it. The full argument is at the scene in
+`games/sonic4/data/effects/ojz_scenes.emp`.
+
+**WHAT IS STILL OPEN AND WAS LEFT SO DELIBERATELY:**
+
+1. **Nobody has looked at it.** The rate, the direction and "does the canopy sliding read as wind
+   or as the trees walking" are all unverified — this parcel had no emulator by instruction. The
+   sign in particular is DERIVED (`Decode_Factor_B` returns `-decode(camX, factor_b)` and
+   `add.w (a4), d2` folds into that same word), and `SceneDrift`'s own banner says to eyeball it
+   once rather than derive it. If it reads backwards the fix is the minus sign on four lines.
+2. **The runtime numeric witness is STILL UNRUN** — see the TAG below, which this parcel did not
+   close and could not.
+3. **Sections 0 and 4 do not drift**, because they bind Aurora-authored editor scenes
+   (`ojz_act1_start`, `ojz_act1_depth`) rather than the act default, and `tools/effects_gen.py`
+   has no `drift` key (open bullet below). The drift is first seen in section 1. **A consequence
+   worth knowing before it is reported as a bug:** crossing between a drifting config and a
+   non-drifting one steps plane B's scroll by the accumulated pixel offset, which grows without
+   bound. Those two boundaries already jump (the editor scenes carry a different factor gradient
+   and `TRANS_INSTANT`), so this widens an existing discontinuity rather than creating one — but
+   the clean answer is for every config in a zone to declare the same drift, which needs the
+   generator key.
+4. **The `left_column_mask` interaction is untested by anything visual.** `Scene_OJZ_Default`
+   takes the default policy; `scene()`'s `Factor0Lock ^ drift` refusal does not apply to it.
+
+- **~~ADOPTION — owner card, not a task.~~** Raising `CAP_BAND_DRIFT` widens `band_record` 20 -> 24
   for **both** games (`BAND_DRIFT_N` is a pinned engine-wide literal; `demo` pays it too and will
   never drift) and adds 128 B to `Parallax_State`. Every ROM image in the tree moves.
   `games/sonic4/data/effects/scene_registry.emp` carries the refusal so it cannot happen by
   accident. Landing the mechanism needed no card; adopting it does.
-- **⚠ ADOPTION ALSO NEEDS A PAIRED SIGIL EDIT, AND THIS IS NOT IN THE DESIGN.** Measured
+- **⚠ ~~ADOPTION ALSO NEEDS A PAIRED SIGIL EDIT, AND THIS IS NOT IN THE DESIGN.~~ DONE — and
+  the prediction was RIGHT ABOUT THE ROW AND WRONG ABOUT THE FIX.** Measured
   2026-08-29 building the instrument: with the drift block live, sigil's contract-closure gate
   fails with a **GONE** row — `Parallax_Update @ Decode_Factor_B :: d2 (got 0, want 1)` — because
   `add.w (a4), d2` makes d2 a genuine live output of that call where the analysis previously saw
@@ -15832,19 +15905,53 @@ also finds constant drift-guards, camera drift and doc drift — none of them th
   (`crates/sigil-harness/src/contract_baseline.rs`) and must be adjudicated and updated in the
   same paired commit. It does **not** affect the canonical shapes — they elide the block and build
   green with the gate on — so it is an adoption cost, not a landing one.
+
+  **WHAT THE 08-29 MEASUREMENT COULD NOT SEE: the answer is a SPLIT, not a deletion.** That
+  measurement was made on a sonic4-only instrument build, so it never looked at demo. Deleting the
+  row from `D1C_BASELINE` builds both sonic4 shapes green and fails **both demo shapes** with the
+  same row as a **NEW** firing — because `demo`'s `SCANLINE_CAPS` is 0, its `Parallax_Update`
+  elides the `add.w (a4), d2`, and the coarse walk goes back to classifying d2 as a held value
+  across the call. One proc, two shipped games, two different instruction streams. sigil
+  `parcel/drift-on` therefore MOVES the row into a new `D1C_DEMO_EXTRA` and gives
+  `d1c_baseline()` a **second family axis** in the exact shape of the existing `D1C_DEBUG_EXTRA`,
+  keyed by `is_demo_family()` on the profile's `manifest_module` (not on `name` — `config_a` /
+  `config_b` / `lean` / `stress_*` carry their own names and sonic4's manifest, so a name test
+  would mis-classify the next profile someone adds). `diff_d1c` now takes the `GameProfile` and
+  derives both axes inside, so neither gate carries its own copy of the classification.
 - **Aurora's field unit.** The wire unit is 1/256 px per frame; the editor should present
   **px/frame** and multiply by 256 on export, because the 256x units error is the one hazard no
   guard can catch (`layer()`'s two messages are the only mitigation). Editor lane's call.
-- **`tools/effects_gen.py`'s `layer.drift` JSON lowering.** The generator's *import list* moved
-  with this parcel (it is a load-bearing fourth importer of `band_record` — see below); the field
-  lowering did not, and no schema key exists yet. `effects_gen.py` refuses unknown keys, so an
-  authored `drift` key is refused today rather than silently dropped.
-- **The runtime numeric witness is UNRUN and TAGGED.** With the camera frozen, `Parallax_Drift_Acc[i]`
+- **`tools/effects_gen.py`'s `layer.drift` JSON lowering — STILL OPEN, and it is now the gap
+  between item 3 and the project's own sentence.** The generator's *import list* moved
+  with the mechanism parcel (it is a load-bearing fourth importer of `band_record` — see below);
+  the field lowering did not, and no schema key exists yet. `effects_gen.py` refuses unknown keys,
+  so an authored `drift` key is refused today rather than silently dropped. **The adoption parcel
+  did NOT close this and deliberately did not try:** `drift` would have to become a committed
+  property of empyrean's `contract/schema/aurora-effects-scene.schema.json` first, which is the
+  item-13 class and the same gate item 5's `cycles`/`variants` waited on. Until it lands, drift is
+  authorable only in the hand scenes, which is why OJZ act 1's editor-bound sections 0 and 4 do not
+  drift while the other seven do. `layer()` already takes the argument and `effects_gen.py` already
+  emits `curve:` / `vsplit:` the same way, so aeon's half is one `render_drift` and one
+  `LAYER_KEYS` row once the schema property exists.
+- **The runtime numeric witness is UNRUN and TAGGED — STILL, after adoption.** With the camera
+  frozen, `Parallax_Drift_Acc[i]`
   at frame N and N+K must equal exactly `K * (rate << 8)`, and the band's HScroll longword's BG half
-  must have moved by the accumulator's high word. Nothing in this parcel executed the drift block;
-  the cost measurement below runs the WALKER, and a walker that accumulates into a slot nothing
+  must have moved by the accumulator's high word. Nothing in the mechanism parcel executed the drift
+  block; the cost measurement below runs the WALKER, and a walker that accumulates into a slot nothing
   displays would cost the same. **This is the check that catches a green-but-dead implementation
-  and it has not been run.**
+  and it has not been run.** With adoption there is now a real rate to derive the expectation from
+  (`Rate(-32)` -> `-$2000` per frame), so the witness is finally runnable against a shipped scene
+  rather than an instrument build — and its expectation must come from that authored rate, never
+  from a pin.
+
+  **WHAT ADOPTION *DID* CLOSE, so the remaining gap is not over-stated.** Two halves of
+  "green and dead" are now gated on every canonical sonic4 build:
+  the CODE half by `tools/effects_gates.py`'s `scanline_spans CAP_BAND_DRIFT` differential, which
+  had no subject until now and today reads *sonic4 `['band_drift_accum', 'band_drift_setup',
+  'band_drift_step']` vs demo `[]`*; and the DATA half by the new
+  `tools/band_drift_golden.py`, which reads each band's drift tail out of the built ROM at the
+  listing's addresses and decodes it against the rate the `.emp` authors. What neither can say is
+  that the accumulate MOVES THE PICTURE — that is still emulator work.
 
 ### What does NOT ride on this — survey row 15's vertical bob
 

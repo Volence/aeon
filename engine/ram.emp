@@ -74,7 +74,9 @@ const CURVE_CARRY_WORDS     = BAND_CURVE_BYTES / 5
 // a game may declare any subset of the three. A shadow band occupies
 // BAND_ENTRY_LEN + BAND_EXT_BYTES + BAND_CURVE_BYTES + BAND_DRIFT_BYTES, and parallax.emp's
 // reservation guard names whichever one is short.
-const BAND_DRIFT_BYTES      = 0     // sizeof(band_drift) * BAND_DRIFT_N; pinned in parallax.emp
+// MOVED TO 4 BY THE DRIFT ADOPTION PARCEL (EFFECTS-W1 item 3, 2026-09-02), in the same commit
+// as parallax.emp's BAND_DRIFT_N = 1, because Scene_OJZ_Default now authors a rate.
+const BAND_DRIFT_BYTES      = 4     // sizeof(band_drift) * BAND_DRIFT_N; pinned in parallax.emp
 // DRIFT_ACC_LONGS — the per-band 16.16 accumulators (Parallax_Drift_Acc), DERIVED from the
 // tail mirror above rather than being a fifth constant a capability flip would have to
 // remember. This copies CURVE_CARRY_WORDS' shape deliberately: A CAPABILITY FLIP MUST EDIT ONE

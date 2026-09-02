@@ -485,7 +485,11 @@ pub const SceneRegistry_CapsFolded = fold_caps(SCENES)
 // stated in the banner above this block, re-added: ($0001 retired 2026-08-26),
 // $0002 CAP_PER_COL_VSRAM (the four v-deform scenes), $0004 CAP_DEFORM (every scene with
 // a live amplitude), $0008 CAP_ANCHORS (OJZ_Underwater alone), $0010 CAP_TRANSITIONS
-// (fold_caps() adds it because SCENES.len is 20 > 1). Writing it as `fold_caps(SCENES)`
+// (fold_caps() adds it because SCENES.len is 20 > 1), $0080 CAP_BAND_DRIFT (2026-09-02,
+// EFFECTS-W1 item 3 — Scene_OJZ_Default alone, whose four bands carry
+// `drift: SceneDrift.Rate(-32)`; derived_drift() raises it off a non-zero rate on any layer
+// inside `count`, so ONE band would raise it and four raise it once). Writing it as
+// `fold_caps(SCENES)`
 // would make the test `x == x`, which is the vacuity poison_scene_mask.emp's header
 // warns about in the same words.
 //
@@ -493,7 +497,7 @@ pub const SceneRegistry_CapsFolded = fold_caps(SCENES)
 // $0040 on the scenes that adopt one; the correct response is to re-derive this word
 // from the roster and edit it, in the same commit as the adoption, never to widen the
 // test. A pin nobody has to touch is a pin nobody is checking.
-pub const SceneRegistry_CapsExpected = $001E
+pub const SceneRegistry_CapsExpected = $009E
 ensure(SceneRegistry_CapsFolded == SceneRegistry_CapsExpected,
        "scene registry: the twenty scenes fold to capability mask {SceneRegistry_CapsFolded}, not the hand-derived {SceneRegistry_CapsExpected}. This pin is two-sided ON PURPOSE — the subset test below cannot see a scene that STOPS raising a bit. If a scene gained a capability, re-derive this word from the per-scene roster in this file's banner and edit it in the same commit; if a scene LOST one, that is a lowering regression and the fold is telling you which way")
 
@@ -516,8 +520,18 @@ ensure((SceneRegistry_CapsFolded & CAP_FACTOR_CURVE) == 0,
 // CAP_BAND_DRIFT moves BAND_DRIFT_N and BAND_DRIFT_BYTES, and it ALSO adds a 64-byte
 // accumulator array to Parallax_State. Same owner gate, same reason: the mechanism landing at
 // BAND_DRIFT_N = 0 moves no byte, and adoption on a scene the owner sees does.
-ensure((SceneRegistry_CapsFolded & CAP_BAND_DRIFT) == 0,
-       "scene registry: a shipped scene now folds CAP_BAND_DRIFT — some layer authored `drift: SceneDrift.Rate(..)`. Adopting a time-driven background scroll is owner-gated and is not a scene-local edit: it flips the lowered band record to carry the drift tail, so engine/level/parallax.emp's BAND_DRIFT_N must become 1 and engine/ram.emp's BAND_DRIFT_BYTES must become sizeof(band_drift) in the SAME commit; the shadow view and the accumulator array take +128 B of Parallax_State between them, and every ROM image in the tree moves — including demo's, whose SCANLINE_CAPS is 0 and which will never drift")
+//
+// THE GATE IS PASSED (EFFECTS-W1 item 3, 2026-09-02) AND THE ASSERTION TURNS ROUND WITH IT.
+// Scene_OJZ_Default authors `drift: SceneDrift.Rate(-32)` on all four bands, so this arm no
+// longer refuses adoption — it refuses the SILENT LOSS of it, which is the direction that is
+// now expensive. The three record-shape pins above stay `== 0` because their capabilities are
+// still unadopted by any hand scene; this one is `!= 0` because its capability is adopted, and
+// a fold that stopped raising it would leave the game declaring CAP_BAND_DRIFT, paying the
+// widened record and the 68 cyc/band accumulate on every scene, and drifting nothing.
+// (The two-sided SceneRegistry_CapsExpected pin above catches the same regression by equality;
+// this arm exists because the reader who trips it needs the sentence, not the hex word.)
+ensure((SceneRegistry_CapsFolded & CAP_BAND_DRIFT) != 0,
+       "scene registry: NO shipped scene folds CAP_BAND_DRIFT any more, but this game still declares it in Game.SCANLINE_CAPS. Scene_OJZ_Default's four bands carried `drift: SceneDrift.Rate(-32)` as of EFFECTS-W1 item 3 — if that was deliberately dropped, this is a THREE-file retreat and not a scene-local edit: clear $0080 from SCANLINE_CAPS in games/sonic4/config/game.emp, put engine/level/parallax.emp's BAND_DRIFT_N back to 0 and engine/ram.emp's BAND_DRIFT_BYTES back to 0 in the SAME commit, re-derive SceneRegistry_CapsExpected above, and flip this arm back to `== 0`. Leaving it half-done costs the widened band record, 128 B of Parallax_State and 68 cycles per band per frame for a background that does not move")
 // ---------------------------------------------------------------------
 ensure((SceneRegistry_CapsFolded & ~Game.SCANLINE_CAPS) == 0, "scene registry: the folded capability mask {SceneRegistry_CapsFolded} is NOT a subset of Game.SCANLINE_CAPS {Game.SCANLINE_CAPS}; the UNDECLARED bits are {SceneRegistry_CapsFolded & ~Game.SCANLINE_CAPS} — a scene demands a scanline service the game does not declare, so the P2 lowering would omit machinery the scene still needs. Either widen SCANLINE_CAPS in games/sonic4/config/game.emp to cover the folded mask, or stop authoring the capability in the scene that raises it (engine/level/scene_dsl.emp's CAP_* block names each bit)")
 
