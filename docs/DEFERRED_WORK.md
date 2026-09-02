@@ -1015,17 +1015,22 @@ closed by this row.
 `docs/superpowers/2026-08-30-home-paths-outward-enumeration.md` is the consumer enumeration the
 paragraph above demanded, read-only across the six sibling checkouts (sigil `036800fd`, oracle
 `7d57efa`, aurora `6fbfe9dd`, seraph `e149a22`, empyrean `5dfd6c5`, oracle-old `58b6f81`). Totals:
-**619 files / 1,647 sites** name the suite root or `../aeon`; **558 sites name aeon**; **225 sites in
-200 files are load-bearing** (an executable line a process opens/imports/executes that would fail or
-silently skip if this checkout moved): sigil 128 (108 files), aurora 82 (79 — 73 of them committed
-`scratchpad/` instruments), oracle-old 10 (8), oracle 5 (5), seraph 0, empyrean 0. The literal grep
+**619 files / 1,647 sites** name the suite root or `../aeon`; **558 sites name aeon**; **218 sites in
+194 files are load-bearing** (an executable line a process opens/imports/executes that would fail or
+silently skip if this checkout moved): sigil 128 (108 files), aurora 76 (74 — every one a committed
+`scratchpad/` instrument), oracle-old 10 (8), oracle 4 (4), seraph 0, empyrean 0. (Reviewed 2026-09-02
+at the pinned SHAs: the greps re-derived exactly; the load-bearing count was 225 in 200 before six
+comment/docstring/guard lines mis-ruled YES were corrected — the review block at the end of the
+document has the per-repo, per-command table.) The literal grep
 under-counts sigil by another 261 identifier-routed call sites (`aeon_dir()` in 67 files, all
 resolving to `test_support::LIVE_TREE_FALLBACK`). The three most load-bearing sites are sigil
 `test_support.rs:601`, sigil `scripts/nightly_source_gates.sh:31-34` (hard-coded, no override, run
 by an ENABLED nightly timer), and sigil `scripts/landing-run.sh:207`. Peers point at aeon through
-NINE spellings (`AEON_DIR` dominant: 124 sigil files + 60 aurora files; also `AEON_ARG`,
-`AEON_REPO`, `ORACLE_AEON_DIR`, `AEON_ROOT`, `AURORA_PEER_ROOT`/`AURORA_AEON_REPO`, `LIVE_AEON`,
-`TOOLS`, `PROFILE_LST`); **`AEON_SUITE_ROOT` appears in zero committed files outside this repo.**
+TEN spellings (`AEON_DIR` dominant: 100 sigil files read it as an env var, 145 name it anywhere
+outside prose — the "124" first written here reproduced under no rule — + 60 aurora files; also
+`AEON_ARG`, `AEON_REPO`, `ORACLE_AEON_DIR`, `AEON_ROOT`, `AURORA_PEER_ROOT`/`AURORA_AEON_REPO`,
+`LIVE_AEON`, `TOOLS`, `PROFILE_LST`, and bare `AEON` in one aurora scratchpad script, found on review);
+**`AEON_SUITE_ROOT` appears in zero committed files outside this repo** (re-derived: 0 in all six).
 The document's §11 recommends the hub standardise on `AEON_DIR` for the checkout and pick ONE
 suite-root spelling (aeon's `AEON_SUITE_ROOT` or aurora's `AURORA_PEER_ROOT` — both exist, both
 refuse a wrong value), with the precedence *explicit checkout var > suite-root var > derived > refuse

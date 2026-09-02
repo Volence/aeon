@@ -13,12 +13,17 @@ sibling test suite was run, no ROM byte moved.
 | repo | HEAD | tree | files with a hit | sites | sites naming **aeon** | **load-bearing** aeon sites (files) |
 |---|---|---|---:|---:|---:|---:|
 | sigil | `036800fd` (master) | clean | 202 | 365 | 238 | **128** (108) |
-| oracle | `7d57efa` (main) | DIRTY (1 path in `git status --porcelain`) | 65 | 133 | 44 | **5** (5) |
-| aurora | `6fbfe9dd` (master) | clean | 272 | 566 | 203 | **82** (79) |
+| oracle | `7d57efa` (main) | DIRTY (1 path in `git status --porcelain`) | 65 | 133 | 44 | **4** (4) |
+| aurora | `6fbfe9dd` (master) | clean | 272 | 566 | 203 | **76** (74) |
 | seraph | `e149a22` (main) | DIRTY (2 paths) | 12 | 96 | 8 | **0** (0) |
 | empyrean | `5dfd6c5` (main) | clean | 47 | 407 | 53 | **0** (0) |
 | oracle-old | `58b6f81` (main) | clean | 21 | 80 | 12 | **10** (8) |
-| **total** | | | **619** | **1647** | **558** | **225** (200) |
+| **total** | | | **619** | **1647** | **558** | **218** (194) |
+
+*(Load-bearing column corrected on review 2026-09-02: oracle 5 (5) → 4 (4), aurora 82 (79) → 76 (74),
+total 225 (200) → 218 (194) — six rows had been ruled YES on lines that are comments, docstrings, a
+`console.log` string, or a guard's refused value. The other five columns re-derived exactly. See the
+review block at the end.)*
 
 *files / sites* = the deduplicated union of the absolute-path grep and the relative-path grep (a file
 hit by both is counted once per grep; §1 gives the two greps separately). *naming aeon* = the literal
@@ -47,17 +52,19 @@ tables but are never load-bearing.
    result is not an aeon checkout — but the default is still this machine's home directory.
 
 Runner-up clusters: **oracle-old `linux-port/harness/*.py`** (8 files, 10 `ROM =`/`LST =` module
-constants naming built aeon artifacts, no override of any kind — the legacy harness), **aurora's 73
+constants naming built aeon artifacts, no override of any kind — the legacy harness), **aurora's 72
 committed scratchpad instruments** that default to the live tree (45 with an `AEON_DIR`/`LIVE_AEON`
-fallback, 28 hard-coded), and **oracle `examples/common/rom_source.rs:44` `LIVE_AEON_DIR`** (three
+fallback, 27 hard-coded), and **oracle `examples/common/rom_source.rs:44` `LIVE_AEON_DIR`** (three
 hand-run examples default to it for the two artifacts oracle chose not to freeze).
 
-**Env-var spellings peers already use to point at aeon** (§10): `AEON_DIR` (sigil: 124 files; aurora:
-60 files; sigil CI pins it to `/nonexistent/...` on purpose), `AEON_ARG` (sigil landing-run, CLI form),
+**Env-var spellings peers already use to point at aeon** (§10): `AEON_DIR` (sigil: 100 files read it as an env var by command C, 145 name it anywhere outside prose — the
+"124" this document first printed reproduced under no counting rule; aurora: 60 files; sigil CI pins it to
+`/nonexistent/...` on purpose), `AEON_ARG` (sigil landing-run, CLI form),
 `AEON_REPO` (sigil provision + ref-drift), `ORACLE_AEON_DIR` (oracle, 3 files, default = frozen
 `fixtures/aeon/`), `AEON_ROOT` (aurora, 1 test), `AURORA_PEER_ROOT` + `AURORA_AEON_REPO` (aurora's
 resolver: suite root + per-peer override), `LIVE_AEON` (2 aurora instruments), `TOOLS` (oracle
-blastem-differential, aeon's `tools/`), `PROFILE_LST` (sigil A/B scripts, a listing path).
+blastem-differential, aeon's `tools/`), `PROFILE_LST` (sigil A/B scripts, a listing path), and — found on
+review — bare `AEON` (aurora `scratchpad/bg-roomy-regenerate.sh:16`, `AEON=${AEON:-$HERE/../aeon}`, 1 file).
 **`AEON_SUITE_ROOT` appears in zero committed files outside aeon.** Nothing outside this repo knows it.
 
 ## 1. Method — the exact commands, and what each cannot see
@@ -348,7 +355,7 @@ aeon's `s4.debug.lst` (8 files, `PROFILE_LST` in 6 of them). `provenance.toml`'s
 
 | file | lines | literal(s) | use | load-bearing? | env-override-aware? |
 |---|---|---|---|---|---|
-| `crates/sigil-cli/tests/subcommands.rs` | 13 | `../../../aeon` | aeon SOURCE tree read by a source-compilation gate (`AEON_DIR` fallback default) | YES — fallback default | none |
+| `crates/sigil-cli/tests/subcommands.rs` | 13 | `../../../aeon` | `concat!(env!("CARGO_MANIFEST_DIR"), "/../../../aeon")` — the aeon SOURCE tree for an `#[ignore]`d subcommand test; relative to the crate, no `AEON_DIR` read at all (sub-verdict corrected on review: it was printed "fallback default") | YES — hard-coded | none |
 | `scripts/provision-aeon-ref.sh` | 22,64 | `../aeon` | provisions the pinned reference worktree from `AEON_REPO` (default `../aeon` beside sigil) | YES — fallback default | `AEON_REPO` |
 
 ### sigil — relative `../aeon` reach: prose files (3 files, 3 sites) — PROSE, never load-bearing
@@ -361,7 +368,7 @@ aeon's `s4.debug.lst` (8 files, `PROFILE_LST` in 6 of them). `provenance.toml`'s
 
 ## 4. oracle — HEAD `7d57efa` (main), tree DIRTY (1 path in `git status --porcelain`)
 
-Absolute grep A: **51 files / 113 sites** (10 code files / 18 sites; 41 prose files / 95 sites); 24 sites in 16 files name aeon; **load-bearing: 1 sites in 1 files**. Relative grep B: 14 files / 20 sites; load-bearing 4 sites in 4 files.
+Absolute grep A: **51 files / 113 sites** (10 code files / 18 sites; 41 prose files / 95 sites); 24 sites in 16 files name aeon; **load-bearing: 1 sites in 1 files**. Relative grep B: 14 files / 20 sites; load-bearing 3 sites in 3 files (was printed 4 in 4: `tools/aether_smoke.py:14` is a docstring line, re-ruled PROSE on review).
 
 **Shape.** The Rust core already did its own sweep (`oracle/docs/2026-08-30-live-tree-readers.md`,
 read here at `7d57efa`): tests default to the frozen `fixtures/aeon/` with `ORACLE_AEON_DIR` as the
@@ -442,7 +449,7 @@ choice).
 | `crates/oracle-replay/src/artifacts.rs` | 255 | `../aeon` | synthetic path string in a unit test (`/home/u/scratch/../aeon/p.txt`) — not a real consumer | NO (synthetic test string) | none |
 | `docs/decisions.jsonl` | 6 | `../aeon` | lane-log / decisions narrative | RECORD | n/a |
 | `docs/lane-log.jsonl` | 1,2,4 | `../aeon` | lane-log / decisions narrative | RECORD | n/a |
-| `tools/aether_smoke.py` | 14 | `../aeon` | docstring recording the move from `../aeon` to `fixtures/aeon` | YES — hard-coded | none |
+| `tools/aether_smoke.py` | 14 | `../aeon` | docstring recording the move from `../aeon` to `fixtures/aeon` (line 14 is inside the module `"""` docstring; the script's launch line names `fixtures/aeon/`) | PROSE (docstring) — corrected on review, was YES | n/a |
 | `tools/blastem-differential/build_rom.sh` | 9 | `../../../aeon` | `TOOLS=${TOOLS:-$HERE/../../../aeon/tools}` — aeon's assembler tools for the differential ROM builds (env `TOOLS`) | YES — fallback default | `TOOLS` |
 | `tools/blastem-differential/build_vdp_dma_fill.sh` | 6 | `../../../aeon` | `TOOLS=${TOOLS:-$HERE/../../../aeon/tools}` — aeon's assembler tools for the differential ROM builds (env `TOOLS`) | YES — fallback default | `TOOLS` |
 | `tools/blastem-differential/build_vdp_pending.sh` | 6 | `../../../aeon` | `TOOLS=${TOOLS:-$HERE/../../../aeon/tools}` — aeon's assembler tools for the differential ROM builds (env `TOOLS`) | YES — fallback default | `TOOLS` |
@@ -461,7 +468,7 @@ choice).
 
 ## 5. aurora — HEAD `6fbfe9dd` (master), tree clean
 
-Absolute grep A: **227 files / 490 sites** (172 code files / 328 sites; 55 prose files / 162 sites); 127 sites in 112 files name aeon; **load-bearing: 75 sites in 73 files**. Relative grep B: 45 files / 76 sites; load-bearing 7 sites in 6 files.
+Absolute grep A: **227 files / 490 sites** (172 code files / 328 sites; 55 prose files / 162 sites); 127 sites in 112 files name aeon; **load-bearing: 74 sites in 72 files** (was printed 75 in 73: `crossover-paint-harness.mjs:43` is a guard's refused value, re-ruled GUARD). Relative grep B: 45 files / 76 sites; load-bearing 2 sites in 2 files (was printed 7 in 6: four rows were comments, docstrings, or `console.log` strings, re-ruled PROSE — see the rows).
 
 **Shape.** `src/` and `test/` were converted on 2026-08-30 to a single resolver
 (`test/support/sibling-root.mjs` → `AURORA_PEER_ROOT` for the suite root, `AURORA_<NAME>_REPO` per
@@ -474,9 +481,9 @@ override), `src/core/editing/__tests__/bg-override-art-injector-gate.test.ts` (a
 `aeon/tools/inject_editor_bg.py`, `AEON_ROOT` overrides — a THIRD spelling for the same thing `AEON_DIR`
 names elsewhere), and `test/formats/aeon-json-trailing-newline.test.ts` (through `referenceFile('aeon')`,
 so the resolver's variables). The gate does not cover `scratchpad/`, which is committed on purpose
-(instruments are tracked; `.gitignore` says so) and holds the whole live-tree population: **73 files
+(instruments are tracked; `.gitignore` says so) and holds the whole live-tree population: **72 files
 default to `/home/volence/sonic_hacks/aeon`** (45 via `process.env.AEON_DIR ??` / `LIVE_AEON` /
-`environ.get`, 28 hard-coded `const`), plus 6 whose literal is the value a guard REFUSES, 19 `.log`/lens-sweep
+`environ.get`, 27 hard-coded `const`), plus 7 whose literal is the value a guard REFUSES, 19 `.log`/lens-sweep
 records, 4 comment-only, and 58 files whose literals name other siblings (aurora's own `node_modules`, `.claude/worktrees`, `s1disasm`,
 `oracle-next/target`). `src/core/project/__tests__/art-tiers.test.ts:15` `'../aeon/index'` is a false
 positive (aurora's own adapter module).
@@ -537,7 +544,7 @@ positive (aurora's own adapter module).
 | `scratchpad/composer-fill-harness.mjs` | 27,28,29 | `/home/volence/sonic_hacks/aurora`; `/home/volence/sonic_hacks/s1disasm` | committed instrument: literal naming aurora itself / s1disasm / another sibling (not aeon) | NO for aeon (names another sibling) | none |
 | `scratchpad/composer-priority-harness.mjs` | 109 | `/home/volence/sonic_hacks/aeon` | committed instrument: aeon project/ROM as the default subject (env fallback) | YES — fallback default | `AEON_DIR` |
 | `scratchpad/crash-harness.mjs` | 13,14 | `/home/volence/sonic_hacks/aurora`; `/home/volence/sonic_hacks/s1disasm` | committed instrument: literal naming aurora itself / s1disasm / another sibling (not aeon) | NO for aeon (names another sibling) | none |
-| `scratchpad/crossover-paint-harness.mjs` | 42,43 | `/home/volence/sonic_hacks/.aurora-crossover-paint`; `/home/volence/sonic_hacks/aeon` | committed instrument: aeon project/ROM as a hard-coded subject | YES — hard-coded | none |
+| `scratchpad/crossover-paint-harness.mjs` | 42,43 | `/home/volence/sonic_hacks/.aurora-crossover-paint`; `/home/volence/sonic_hacks/aeon` | committed instrument: the subject is the `.aurora-crossover-paint` worktree (42); `LIVE_AEON` (43) is used only at line 51, the compare that REFUSES the live tree | GUARD (refuses the live tree) — corrected on review, was YES | none |
 | `scratchpad/curve-editor-harness.mjs` | 108,109 | `/home/volence/sonic_hacks/aeon`; `/home/volence/sonic_hacks/aurora` | committed instrument: aeon project/ROM as the default subject (env fallback) | YES — fallback default | `AEON_DIR` |
 | `scratchpad/curve-option-disabled-harness.mjs` | 85,88 | `/home/volence/sonic_hacks/aeon`; `/home/volence/sonic_hacks/aurora` | committed instrument: aeon project/ROM as a hard-coded subject | GUARD (refuses the live tree) | none |
 | `scratchpad/curve-vsplit-reachable-harness.mjs` | 196,199 | `/home/volence/sonic_hacks/aeon`; `/home/volence/sonic_hacks/aurora` | committed instrument: aeon project/ROM as a hard-coded subject | GUARD (refuses the live tree) | none |
@@ -728,13 +735,13 @@ positive (aurora's own adapter module).
 | `scratchpad/bganim-insert-roomy-harness.mjs` | 46 | `../aeon` | committed instrument: comment naming the live tree | PROSE (comment) | n/a |
 | `scratchpad/bganim-marquee-resolution-probe.mjs` | 324 | `../../../../aeon` | committed instrument: aeon project/ROM as a hard-coded subject | YES — hard-coded | none |
 | `scratchpad/bganim-phase-shift-harness.mjs` | 31 | `../aeon` | committed instrument: comment naming the live tree | PROSE (comment) | n/a |
-| `scratchpad/bganim-promoted-vs-aeon-injector.py` | 17,18 | `../aeon` | committed instrument: aeon project/ROM as a hard-coded subject | YES — hard-coded | none |
+| `scratchpad/bganim-promoted-vs-aeon-injector.py` | 17,18 | `../aeon` | usage recipe inside the module docstring (`R=$(git -C ../aeon ls-remote …)`); the script itself takes its inputs as arguments | PROSE (docstring) — corrected on review, was YES | n/a |
 | `scratchpad/bganim-promotion-vs-aeon-live.ts` | 15,16 | `../aeon` | committed instrument: comment naming the live tree | PROSE (comment) | n/a |
 | `scratchpad/build-console-overlap-harness.mjs` | 55,61,81 | `../../aeon`; `../aeon` | committed instrument: comment naming the live tree | PROSE (comment) | n/a |
-| `scratchpad/collision-preservation-harness.mjs` | 64,301 | `../aeon` | committed instrument: aeon project/ROM as a hard-coded subject | YES — hard-coded | none |
+| `scratchpad/collision-preservation-harness.mjs` | 64,301 | `../aeon` | 64 is a comment; 301 is a `console.log` string printing a `git -C ../aeon show` hint (the instrument's live-tree default is its grep-A row, `AEON_DIR` fallback at 112) | PROSE (comment / printed string) — corrected on review, was YES | n/a |
 | `scratchpad/effects-bob-harness.mjs` | 61,79 | `../aeon` | committed instrument: the literal is the LIVE tree the harness REFUSES to open (guard) | GUARD (refuses the live tree) | none |
-| `scratchpad/item14-refusal-probe/probe.py` | 10 | `../aeon` | committed instrument: aeon project/ROM as a hard-coded subject | YES — hard-coded | none |
-| `scratchpad/loop-paint-harness.mjs` | 11,339 | `../aeon` | committed instrument: aeon project/ROM as a hard-coded subject | YES — hard-coded | none |
+| `scratchpad/item14-refusal-probe/probe.py` | 10 | `../aeon` | module docstring recording that the module beside the probe was extracted with `git -C ../aeon show` | PROSE (docstring) — corrected on review, was YES | n/a |
+| `scratchpad/loop-paint-harness.mjs` | 11,339 | `../aeon` | 11 is a comment; 339 is a `console.log` string printing a `git -C ../aeon show` hint (the instrument's live-tree default is its grep-A row, `AEON_DIR` fallback at 98) | PROSE (comment / printed string) — corrected on review, was YES | n/a |
 | `src/core/collision/crossover-audit.ts` | 4 | `../aeon` | comment / doc citing `git -C ../aeon show <rev>:<path>` as the provenance of a vendored fixture | PROSE (comment) | n/a |
 | `src/core/collision/layer-transition.ts` | 7 | `../aeon` | comment / doc citing `git -C ../aeon show <rev>:<path>` as the provenance of a vendored fixture | PROSE (comment) | n/a |
 | `src/core/editing/__tests__/bg-override-art-injector-gate.test.ts` | 6,37 | `../aeon` | runs aeon's `tools/inject_editor_bg.py` as the validator: ancestor walk for `../aeon`, `AEON_ROOT` overrides; skips with reason when absent | PROSE (comment) | `AEON_ROOT` |
@@ -936,7 +943,7 @@ note "ab_runner IS the gate harness" names its `ab_runner.py`.
 
 | spelling | repo(s) | files | meaning | default when unset |
 |---|---|---:|---|---|
-| `AEON_DIR` | sigil, aurora (scratchpad + 1 handover script), empyrean (prose) | sigil 124 / aurora 60 | the aeon CHECKOUT | the home literal (sigil, aurora); sigil CI pins `/nonexistent/aeon-not-checked-out-in-ci` so its skips are honest |
+| `AEON_DIR` | sigil, aurora (scratchpad + 1 handover script), empyrean (prose) | sigil 100 by command C (145 naming it anywhere outside prose; the "124" first printed here reproduced under no rule) / aurora 60 (command C) | the aeon CHECKOUT | the home literal (sigil, aurora); sigil CI pins `/nonexistent/aeon-not-checked-out-in-ci` so its skips are honest |
 | `AEON_ARG` | sigil `scripts/landing-run.sh` | 1 | `--aeon <path>` CLI form of `AEON_DIR` | falls through to `AEON_DIR` |
 | `AEON_REPO` | sigil `scripts/provision-aeon-ref.sh`, `nightly_ref_drift.sh` | 2 | the aeon checkout to provision a pinned worktree FROM | `$SIGIL_ROOT/../aeon` (relative) |
 | `ORACLE_AEON_DIR` | oracle (`symbols_real_lst.rs`, `replay_real_artifacts.rs`, `aeon_pin.rs`) | 3 | a directory of aeon BUILD ARTIFACTS | oracle's frozen `fixtures/aeon/` (never the live tree) |
@@ -948,6 +955,7 @@ note "ab_runner IS the gate harness" names its `ab_runner.py`.
 | `TOOLS` | oracle `tools/blastem-differential/build_*.sh` | 3 | aeon's `tools/` directory | `$HERE/../../../aeon/tools` (relative) |
 | `PROFILE_LST` | sigil `golden/ab/**/*.py` | 6 of 8 | a listing FILE (`s4.debug.lst`) | the home literal |
 | `ORACLE_DIR` | sigil `m1b_gate.rs` | 1 | the oracle-old checkout (not aeon, but the same class) | the home literal |
+| `AEON` (bare) — added on review | aurora `scratchpad/bg-roomy-regenerate.sh:16` | 1 | the aeon checkout (`git archive`d at a SHA, never opened live) | `$HERE/../aeon` (relative) |
 | `AEON_SUITE_ROOT` | **aeon only** (`tools/suite_paths.py`) | 0 outside aeon | the SUITE ROOT | marker walk from the file's own location |
 
 Shell-local names that look like env vars but are not (`AEON_MAIN`, `AEON_GATES`, `DRIFT_AEON_TREE`,
@@ -958,12 +966,12 @@ they were read and excluded. `AEONDIR` (19 aurora sites) is a JS local, not an e
 
 **Two levels exist and they should stay two levels.** Every peer that names aeon means one of two
 things: *the aeon checkout* (sigil `AEON_DIR`/`AEON_ARG`/`AEON_REPO`, aurora `AEON_DIR`/`AEON_ROOT`/`LIVE_AEON`/
-`AURORA_AEON_REPO`) or *the suite root that all checkouts hang off* (aurora `AURORA_PEER_ROOT`, aeon
+`AURORA_AEON_REPO`/bare `AEON`) or *the suite root that all checkouts hang off* (aurora `AURORA_PEER_ROOT`, aeon
 `AEON_SUITE_ROOT`). Collapsing them loses the case aurora's resolver already handles — a peer relocated
 individually — and the case aeon's handles — a whole suite moved or a poison tree.
 
 1. **Standardise the checkout-level spelling on `AEON_DIR`.** It is the de-facto contract already:
-   124 sigil files, 60 aurora files, sigil's CI (which pins it to a nonexistent path so absence is
+   100 sigil files (by command C), 60 aurora files, sigil's CI (which pins it to a nonexistent path so absence is
    honest), and the landing wrapper. The sites that would need to change to meet it are the ones that
    spell the same thing differently — aurora `AEON_ROOT` (1 test) and `LIVE_AEON` (2 instruments) — and
    aurora's resolver, which should treat `AEON_DIR` as an alias of `AURORA_AEON_REPO` (one line in
@@ -995,8 +1003,8 @@ individually — and the case aeon's handles — a whole suite moved or a poison
    * oracle `blastem-differential/build_*.sh` `TOOLS` default → derive;
    * oracle-old `linux-port/harness/*.py` (8 files) → only if that harness is still meant to run;
      otherwise record it as legacy and leave it;
-   * aurora `scratchpad/` (73 instruments) → extend `check-peer-path-literals.mjs` to cover
-     `scratchpad/` once the instruments read `AEON_DIR` through `sibling-root.mjs`; the 6 GUARD sites
+   * aurora `scratchpad/` (72 instruments) → extend `check-peer-path-literals.mjs` to cover
+     `scratchpad/` once the instruments read `AEON_DIR` through `sibling-root.mjs`; the 7 GUARD sites
      must keep a way to name the live tree they refuse (compare against the resolved default, not the
      literal);
    * aurora `screen.test.ts` walk → `referenceFile('aeon', …)` like its neighbours.
@@ -1010,3 +1018,101 @@ static reading of the line, not an observed failure. It did not enumerate uncomm
 state. It counted what the greps returned at the HEADs named in §0; oracle and seraph were dirty at
 enumeration time (1 and 2 paths), and the committed content is what was read.
 
+
+## Reviewed 2026-09-02 (re-derived at the pinned revisions, read-only)
+
+Clock at review: `date` → Tue 2026-09-01 23:40 EDT. Every command below ran as
+`git -C /home/volence/sonic_hacks/<repo> grep … <sha> -- .` / `git show <sha>:<path>` against the §0
+SHAs (all six reachable), never against a sibling working tree (sigil's HEAD is still `036800fd`;
+oracle, aurora, empyrean and oracle-old have moved on — `2fd5bb0`, `4f125cfe`, `63c85ae`, `1eb09a9` — so
+the pins are what was measured). Nothing was run inside a sibling.
+
+**Grep totals, doc vs re-derived** (files / sites; the command is §1's, with the SHA inserted):
+
+| repo | A doc | A re-derived | B doc | B re-derived | naming aeon doc | re-derived | `AEON_SUITE_ROOT` (`grep -n -I -F`) |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| sigil | 197 / 359 | 197 / 359 | 5 / 6 | 5 / 6 | 238 | 238 (A 232 in 150 + B 6) | 0, exit 1 |
+| oracle | 51 / 113 | 51 / 113 | 14 / 20 | 14 / 20 | 44 | 44 (A 24 in 16 + B 20) | 0, exit 1 |
+| aurora | 227 / 490 | 227 / 490 | 45 / 76 | 45 / 76 | 203 | 203 (A 127 in 112 + B 76) | 0, exit 1 |
+| seraph | 12 / 96 | 12 / 96 | 0 (exit 1) | 0 (exit 1) | 8 | 8 | 0, exit 1 |
+| empyrean | 39 / 396 | 39 / 396 | 8 / 11 | 8 / 11 | 53 | 53 (A 42 in 20 + B 11) | 0, exit 1 |
+| oracle-old | 21 / 80 | 21 / 80 | 0 (exit 1) | 0 (exit 1) | 12 | 12 | 0, exit 1 |
+| **total** | 619 / 1647 | **619 / 1647** | | | 558 | **558** | **0** |
+
+The code/prose splits in every §3–§8 header re-derived exactly (prose = `.md`/`.txt` path), and every
+line number in every code-table row matched the pinned grep (zero mismatches across the six repos).
+
+**Command C could not be re-run as written** — §1 prints it with a literal `|...)` in the alternation.
+Re-run with the four printed alternatives and the tail dropped: sigil 135 sites (`AEON_DIR` 127 sites /
+100 files), oracle 4 (`ORACLE_AEON_DIR`), aurora 126 (`AEON_DIR` 57 sites / 60 files), seraph, empyrean
+and oracle-old exit 1. §1's "C exited 1 on seraph and oracle-old" is therefore under-stated by empyrean
+for the reconstructed form; whether the elided tail changes that is unknowable from the text.
+
+**Command D** re-derived exactly: sigil `\baeon_dir\(\)` in `crates` → 261 sites / 67 files; oracle
+`LIVE_AEON_DIR|live_aeon\(` → the constant, the helper, and 4 consumer sites in 3 examples; aurora
+resolver calls → 10 sites / 8 files (§9's 7/6 + 3/2).
+
+**Headline claims.** (1) `sigil/crates/sigil-harness/src/test_support.rs:601` at `036800fd` is
+`pub const LIVE_TREE_FALLBACK: &str = "/home/volence/sonic_hacks/aeon";` — holds. The "99
+`sigil-cli/tests/*.rs` (86 executable, 13 header-comment only)" holds as grep A's 98 (85 + 13) plus
+`subcommands.rs:13` from grep B. (2) `scripts/nightly_source_gates.sh:31-34` at `036800fd` assigns
+`SIGIL_MAIN`, `AEON_MAIN=/home/volence/sonic_hacks/aeon`, `SIGIL_GATES`, `AEON_GATES` with no
+`${…:-}` form anywhere; `AEON_MAIN` is consumed at 369/380/392 (`git -C "$AEON_MAIN" worktree add
+--detach …`). `systemctl --user is-enabled sigil-source-gates.timer` → `enabled` (exit 0); `is-active` →
+`active`; `list-timers --all`: last `Tue 2026-09-01 05:17:31 EDT`, next `Wed 2026-09-02 05:17 EDT`;
+`ExecStart=/home/volence/sonic_hacks/sigil/scripts/nightly_source_gates.sh`. `is-enabled
+sigil-ref-drift.timer` → `not-found` (exit 4). Holds. (3) `scripts/landing-run.sh:207` at `036800fd` is
+`AEON=$(abspath "${AEON_ARG:-${AEON_DIR:-/home/volence/sonic_hacks/aeon}}")` followed by the
+refuse-by-name checks at 208–210 — holds.
+
+**Verdict sampling** (each site read at the pinned SHA and classified by what the line DOES): 22
+load-bearing rows (sigil 8, aurora 9, oracle 3, oracle-old 2) and 9 non-load-bearing rows (sigil
+`math_port.rs:75` PROSE, `provenance.toml` RECORD, `drift-nightly.conf:34,47` NO-for-aeon; oracle
+`vgm_capture.rs:13` PROSE, `artifacts.rs:255` NO; aurora `screen.test.ts:20` PROSE,
+`art-tiers.test.ts:15` false positive, `bg-override-art-injector-gate.test.ts:6,37` PROSE; seraph
+`.mcp.json:5` RECORD). All 9 non-load-bearing verdicts hold. **6 of the 22 YES rows were wrong**, all
+corrected in place above and each marked "corrected on review":
+
+* aurora A `scratchpad/crossover-paint-harness.mjs:43` — `LIVE_AEON` is used only at line 51, a
+  `===` compare that throws; the subject is `.aurora-crossover-paint`. YES → GUARD.
+* aurora B `scratchpad/loop-paint-harness.mjs:11,339` — 11 comment, 339 `console.log` string. YES → PROSE.
+* aurora B `scratchpad/collision-preservation-harness.mjs:64,301` — same shape. YES → PROSE.
+* aurora B `scratchpad/bganim-promoted-vs-aeon-injector.py:17,18` — inside the module docstring. YES → PROSE.
+* aurora B `scratchpad/item14-refusal-probe/probe.py:10` — inside the module docstring. YES → PROSE.
+* oracle B `tools/aether_smoke.py:14` — inside the module docstring (the doc's own "use" column said
+  so; the verdict column said YES). YES → PROSE.
+
+Plus one sub-verdict: sigil B `crates/sigil-cli/tests/subcommands.rs:13` is
+`concat!(env!("CARGO_MANIFEST_DIR"), "/../../../aeon")` — hard-coded relative to the crate, no
+`AEON_DIR` read; it was printed "fallback default" with a copy-pasted use-text. Still load-bearing.
+
+**Load-bearing totals, doc vs corrected** (re-derived by the doc's own rule — executable aeon-naming
+lines in files ruled YES, files counted once per grep — over the corrected verdict tables):
+
+| repo | doc sites (files) | corrected sites (files) |
+|---|---:|---:|
+| sigil | 128 (108) | 128 (108) — A 126 in 106, B 2 in 2 |
+| oracle | 5 (5) | **4 (4)** — A 1 in 1, B 3 in 3 |
+| aurora | 82 (79) | **76 (74)** — A 74 in 72, B 2 in 2 |
+| seraph | 0 (0) | 0 (0) |
+| empyrean | 0 (0) | 0 (0) |
+| oracle-old | 10 (8) | 10 (8) |
+| **total** | 225 (200) | **218 (194)** |
+
+Aurora's §5 shape moves with it: 72 files default to the live tree (45 fallback, 27 hard-coded), 7
+GUARD. None of the three headline sites, the ranking in §11, or the recommendation changes.
+
+**§10 spellings.** Every row's file count re-derived by `git grep -l -I -w <spelling> <sha>` with
+command C's exclusions except `AEON_DIR` on sigil: the "124 files" reproduced under no counting rule
+tried (command C 100; `"AEON_DIR"` on a non-comment line 101; any non-comment line 117; any line 145;
+`env::var("AEON_DIR")` 97). The row now carries the two derivable numbers. Aurora's 60 is command C's
+figure exactly. `AEON_SUITE_ROOT` is 0 in all six (table above). One env spelling was missing from the
+table and from the "nine spellings" summary: bare **`AEON`**, read as `${AEON:-$HERE/../aeon}` by aurora
+`scratchpad/bg-roomy-regenerate.sh:16` (the other `$AEON`/`${AEON}` hits — sigil `landing-run.sh`,
+`capture_goldens.sh`, `derive_offcanonical_sizes.sh`, aurora's harness template strings — are shell or
+JS locals derived from `AEON_DIR`, as §10's last paragraph already says). Added as a row. aurora
+`bganim-motion-harness.mjs:301` reads `process.env.AEON_LIVE`, a `'1'` boolean, not a path — not added.
+
+**Not re-checked here:** no sibling test was run (the doc's "static reading" caveat stands); the
+per-row prose of the 500-odd PROSE/RECORD rows beyond the 9 sampled; the dirty-tree paths of oracle
+and seraph at enumeration time.
