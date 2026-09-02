@@ -207,6 +207,13 @@ rulings live in the session memory and the most recent `docs/superpowers/*handof
   run and a completed one trail IDENTICALLY**, so the stamp is the only thing that distinguishes
   them — the same corrective as `REAL_EXIT=$?` inside the log, one level out. Do not poll with
   `pgrep -f`, which matches your own watcher; ask whether the artifact changed.
+  **AND KEEP THE NUMBER, not just the fact of it** *(sigil's sharpening, 2026-09-02, and it is
+  what turns this from a hypothesis into a measurement)*: the recorded exit code separates
+  *killed by something* from *died on its own*, and **137 vs 143 separates SIGKILL from SIGTERM**,
+  i.e. a hard reclaim from a polite one. Without the stamp both outcomes and a completed run
+  produce the same truncated artifact, which is the absence family rather than a mystery. **So a
+  clean completion here REFUTES the harness story rather than merely failing to confirm it** —
+  which is worth more than the freeze it is attached to. Report the number either way.
   **Its cheap prediction, which this lane's next freeze tests:** a detached freeze survives
   whatever killed the last two. If one dies anyway the hypothesis is wrong and the class is
   unexplained again — report that outcome either way, because a refutation here is worth as much
