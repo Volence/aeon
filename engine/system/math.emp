@@ -34,7 +34,7 @@ pub proc GetSineCosine (d0: Angle) clobbers() out(d0: fixed<8,8>, d1: fixed<8,8>
 // typed size doubles as a compile-time check against the embedded blob's
 // true length. Path is relative to engine/system/, hence the ../data/.
 // -----------------------------------------------
-pub data Sine_Table: [u8; $280] = embed("../data/sine.bin")
+pub data Sine_Table: [u8; $280] = embed("engine/data/sine.bin")
 
 // SINE_AMPLITUDE / SINE_CYCLE_ENTRIES — the two numbers the header above states in prose
 // live in engine/system/constants.emp, NOT here beside the table they describe, and the
@@ -161,4 +161,4 @@ pub proc GetArcTan (d1: i16, d2: i16) clobbers() preserves(d3-d4) out(d0: Angle)
 // the filename. The typed size doubles as a compile-time check against the
 // embedded blob's true length.
 // -----------------------------------------------
-pub data ArcTan_Table: [u8; $102] = embed("../data/arctan.bin")
+pub data ArcTan_Table: [u8; $102] = embed("engine/data/arctan.bin")
