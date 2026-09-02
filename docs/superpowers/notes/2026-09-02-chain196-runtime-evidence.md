@@ -58,27 +58,44 @@ either shape**, which is the property a per-site count cannot express.
 
 **The hazard the flip actually risks** is not "a site was re-encoded" but "a site was
 re-encoded whose target does not survive sign extension": `abs.w` sign-extends, so any
-target ≥ `0x8000` addresses RAM instead of ROM. Scanning all four shapes for every
-`4EB8`/`4EF8` encoding whose operand is ≥ `0x8000`:
+target ≥ `0x8000` addresses RAM instead of ROM.
 
-| ROM | abs.w jsr/jmp encodings | targets ≥ `0x8000` |
-|---|---|---|
-| `s4.bin` | 109 | 1 — `jmp ($FFFE).w` @ `0xA4F3E` |
-| `s4.debug.bin` | 158 | 2 — `jmp ($FFFE).w` @ `0xA71F0`; `jsr ($9542).w` @ `0xA970A` |
-| `demo.bin` | 10 | 1 — `jmp ($FFFE).w` @ `0x104D6` |
-| `demo.debug.bin` | 10 | 1 — same |
+The first version of this scan covered the **whole ROM image** while the claim it was
+supporting was about **engine and game code**, and it is written up here in its corrected
+form because sigil's review (sigil `be676684`) caught two things in it that the original
+prose got wrong. Both are recorded in §4.
 
-All four resolve outside this parcel's subject, and each was resolved rather than waved
-past. `0xA970A` is `EndOfRom + 0x17D6` — inside the deb2 symbol appendix, which is data.
-The `$FFFE` ones are `ErrorHandlerBlob + 0x212` in **both** sonic4 shapes — the same
-displacement into the vendored MD Debugger blob, i.e. blob content, byte pairs in a
-pre-assembled island this parcel does not touch. The control that settles it: the same
-pattern is present in a **pre-flip** `s4.debug.bin` at `0xA71FC`, twelve bytes off the
-post-flip `0xA71F0` — exactly the shift the flip causes to everything after it. It is
-pre-existing; the flip moved it, it did not create it.
+The population the claim is about is the emitted engine+game region, `[0x200,
+ErrorHandlerBlob)`: below it is our code and data, `ErrorHandlerBlob`..`EndOfRom` is the
+vendored MD Debugger island (a pre-assembled blob, `0xF56` bytes in **both** shapes pre
+and post — itself evidence its content is untouched), and past `EndOfRom` is the deb2
+symbol appendix. Word-aligned scan, chain-195 goldens (`fdd1cf81`/719387,
+`0f6b1359`/736391) as the pre side:
 
-So: **zero abs.w encodings in engine or game code, in any shape, whose target would sign
-extend into RAM.**
+| shape | code region `[0x200, blob)` | blob + appendix | whole image |
+|---|---|---|---|
+| `s4.bin` pre | 97 enc, **0 flagged** | 2 enc, 1 flagged | 99, 1 |
+| `s4.bin` post | 108 enc, **0 flagged** | 1 enc, 1 flagged | 109, 1 |
+| `s4.debug.bin` pre | 154 enc, **0 flagged** | 1 enc, 1 flagged | 155, 1 |
+| `s4.debug.bin` post | 156 enc, **0 flagged** | 2 enc, 2 flagged | 158, 2 |
+
+Two things fall out, and the bounded population is what makes both legible:
+
+**The conversion reconciles exactly.** Code-region `abs.w` encodings go 97 → 108 in `s4`
+(**+11**) and 154 → 156 in `s4_debug` (**+2**) — the converted sites and nothing else. The
+whole-image counts are off by one in *opposite* directions (109 vs a predicted 110; 158 vs
+157), and that discrepancy is not in the code at all: it is the blob+appendix band moving
+2 → 1 in `s4` and 1 → 2 in `s4_debug` as a 62-byte shrink re-aligns data past the code.
+
+**Zero flagged operands in the code region, pre and post, in both shapes.** That is the
+statement the claim needs: not "the flags I found resolve outside the subject" but *the
+subject contains none* — and it holds on the pre side too, so it is a property of the
+region, not a lucky post-flip reading.
+
+The flagged encodings all sit outside that region and are data being read as code:
+`0xA970A` is `EndOfRom + 0x17D6`, inside the deb2 appendix; the `$FFFE` ones are
+`ErrorHandlerBlob + 0x212` in both sonic4 shapes, the same displacement into the vendored
+blob.
 
 ## 3. The build control phase 1 never reached
 
@@ -101,3 +118,32 @@ nobody re-derived for it is an independent check of the 195 baseline itself.
 The pre-flip control was taken through `FAST=1`, whose banner is right that it verifies
 nothing; it is the correct instrument here because the question is *which bytes does this
 binary emit*, which is the one thing FAST does not skip.
+
+## 4. What the first version of §2 claimed and got wrong
+
+Sigil re-derived this evidence from the other side of the flip (`be676684`) and corrected
+two things. Both are recorded here rather than quietly fixed, because the corrected
+sentences are the ones a future session will rely on without re-deriving them.
+
+**"Pre-existing; the flip moved it, it did not create it" was true of one flag and was
+written as though it covered both.** It is right about the `$FFFE` pattern: pre-flip
+`s4.debug.bin` carries it at `0xA71FC`, twelve bytes off the post-flip `0xA71F0`, which is
+exactly the shift the flip causes. It is **wrong about `0xA970A`**, which has *no*
+pre-flip counterpart — pre-flip `s4.debug.bin` contains no `4EB8`/`4EF8` anywhere in
+`0xA9600..0xA9900` at any operand. That flag is **new**, created by the shrink re-aligning
+the deb2 appendix: the surrounding bytes are an ascending 16-bit table in pairs
+(`9218 4E6A 92BE 4E78 9346 4E86 …`) that passes straight through the `4EB8`/`4EF8` range,
+and post-flip one pair lands reading as `jsr ($9542).w`. Still data, still harmless — but
+"the flip did not create it" is false of it, and that sentence was the falsifier's whole
+claim about what the flip did.
+
+**The prose counted five flags and then resolved "all four."** 1 + 2 + 1 + 1 = five; the
+unaccounted one was `0xA970A`, the same flag the sentence above was wrong about. Two
+errors, one cause: the appendix flag was never really looked at.
+
+Neither bears on whether the flip is sound. Both bear on what the evidence *proves*, which
+is why §2 was rewritten around a bounded population instead of patched in place. The
+lesson worth keeping: a whole-image scan defending a claim about code will always carry
+flags that need individual excuses, and each excuse is a place to be wrong. Bounding the
+scan to the claim's own population removed the excuses entirely and turned the result from
+"the flags resolve outside the subject" into "the subject contains none."
