@@ -8,7 +8,9 @@
 // STATE OF THIS BAKE: 2 editor scene(s) reached by an assignment,
 // 2 binding(s), 9 act sections. Authored but unassigned: none.
 //
-// THE THREE `pub comptime fn`s AT THE BOTTOM ARE EMITTED FOR EVERY ACT, ALWAYS —
+// EVERY `pub comptime fn` AT THE BOTTOM IS EMITTED FOR EVERY ACT, ALWAYS — the act
+// default, the section scene, and one per `EffectsPreset` channel (raster, cycle,
+// variant) —
 // owner ruling 2026-08-22 (design §9 Q-c, the always-emitted default). With no
 // editor content they return the `hand:` fallback their caller passes; with
 // editor content they return the lowered record above. The caller therefore
@@ -32,6 +34,8 @@ use engine.parallax.{band_entry, band_record, band_ext, BAND_EXT_N, band_curve, 
 use engine.level.scene_dsl.*
 use engine.level.parallax_dsl.*
 use games.sonic4.scene_registry.{SceneCfg5, lower5}
+use engine.effects.palette.{pal_cycle_channel, PalCycleScript1}
+use engine.effects.palette.{pal_variant}
 
 // ---- deform tables, deduped by content across the act ----
 // ---- the authored scenes, through the REAL constructors ----
@@ -139,10 +143,40 @@ const EditorRasterSrc_OJZ_Act1_authored_probe = compose([
 ])
 pub data EditorRaster_OJZ_Act1_authored_probe: [u16; raster_words(EditorRasterSrc_OJZ_Act1_authored_probe)] = raster_program(EditorRasterSrc_OJZ_Act1_authored_probe)
 
+const EditorRasterSrc_OJZ_Act1_ojz_sec3_shimmer = compose([
+    band(top: 120, bot: 148, on: stream_pal_region(addr: 72, slot: 0, pal_line: 2, entry: 4, count: 3), sh: 0),
+])
+pub data EditorRaster_OJZ_Act1_ojz_sec3_shimmer: [u16; raster_words(EditorRasterSrc_OJZ_Act1_ojz_sec3_shimmer)] = raster_program(EditorRasterSrc_OJZ_Act1_ojz_sec3_shimmer)
+
 const EditorRasterSrc_OJZ_Act1_ojz_sec5_showcase = compose([
     band(top: 32, bot: 80, on: stream_cram(addr: 80, colours: [3748]), sh: 0),
 ])
 pub data EditorRaster_OJZ_Act1_ojz_sec5_showcase: [u16; raster_words(EditorRasterSrc_OJZ_Act1_ojz_sec5_showcase)] = raster_program(EditorRasterSrc_OJZ_Act1_ojz_sec5_showcase)
+
+// ---- AURORA-AUTHORED PALETTE CYCLES AND VARIANTS, through the REAL constructors ----
+//
+// The other two `EffectsPreset` channels the same preset documents carry (EFFECTS-W1 DoD
+// item 5; the shape is empyrean docs/AURORA_EFFECTS_SCHEMA.md §7.2). One `pub data` per
+// authored cycle script and one per authored variant SLOT — the `variants` array is
+// positional, so slot 0 and slot 1 of one document are two descriptors under two names.
+//
+// ⚠ `cycles` HERE IS PALETTE CYCLING — the CRAM-span rotation Palette_DoCycle performs.
+// It is NOT the DEBUG hotkey's raster cycle table (RASTER_CYCLE_COUNT), which steps a
+// human through raster PROGRAMS. Said once, here, per hub ruling Q10.
+//
+// THE `period` ON EVERY cycle_channel BELOW IS AN ENGINE BYTE, ONE LESS THAN THE DOCUMENT
+// SAYS. The document's `period` is in frames, the author's unit; the engine's timer
+// rotates one frame later than the byte, so the generator emits `period - 1` (ruling Q7).
+// Reading the two numbers as a contradiction is the mistake this note exists to prevent —
+// see the RIDER 5 PAIRING block in tools/effects_gen.py's `render_cycle_channel`.
+//
+// Every `ensure` in variant() and cycle_channel() fires on authored content HERE, because
+// a `pub data` in a lowered module is elaborated unconditionally. Not one of their ranges
+// is restated in the generator.
+pub data EditorCycle_OJZ_Act1_ojz_sec3_shimmer: PalCycleScript1 = cycle_script1(
+    [ cycle_channel(line: 2, first: 8, count: 4, period: 8, dir: 0) ])
+
+pub data EditorVariant_OJZ_Act1_ojz_sec3_shimmer_0: pal_variant = variant(shift_r: 1, shift_g: 1)
 
 // ---- REACHABILITY WITNESSES (tools/effects_seam_gate.py) ----
 //
@@ -152,7 +186,7 @@ pub data EditorRaster_OJZ_Act1_ojz_sec5_showcase: [u16; raster_words(EditorRaste
 // rows, same mechanism). Both are zero ROM bytes.
 //
 // An equ is only defined if this module is LOWERED, and a module is lowered iff it
-// is in the target's `use` closure — so the presence of these two names in the
+// is in the target's `use` closure — so the presence of these names in the
 // listing is positive evidence that `act_descriptor.emp`'s import edge is live. That
 // matters because an unreached `.emp` module gets ZERO body elaboration: every guard
 // below, including the budget fold, builds green while asserting nothing. Measured
@@ -161,6 +195,8 @@ pub data EditorRaster_OJZ_Act1_ojz_sec5_showcase: [u16; raster_words(EditorRaste
 pub equ EditorScenes_OJZ_Act1_Count = 2
 pub equ EditorScenes_OJZ_Act1_Bindings = 2
 pub equ EditorRaster_OJZ_Act1_Bindings = 1
+pub equ EditorCycle_OJZ_Act1_Bindings = 0
+pub equ EditorVariant_OJZ_Act1_Bindings = 0
 
 // The binding table's domain, held against the engine's flat-section ceiling. The
 // literal below is repeated inside `sec_scene`'s ensure ON PURPOSE — a comptime fn's
@@ -211,5 +247,41 @@ pub comptime fn ojz_act1_sec_raster(sec: int, hand: Label = 0) -> Label {
     ensure(sec >= 0 && sec < 9, "ojz_act1_sec_raster(sec: {sec}): this act has 9 sections, so there is no binding slot for that index — the section preset and project.json's grid have drifted apart")
     comptime var out = hand
     if sec == 5 { out = EditorRaster_OJZ_Act1_ojz_sec5_showcase }
+    return out
+}
+
+// ---- THE PALETTE BINDINGS — the same seam, the other two channels ----
+//
+// Two more always-emitted choosers beside the raster one, called from the same place: the
+// section's own `preset()` in games/sonic4/data/effects/ojz_effects.emp. There is no
+// second sidecar key — ONE `rasterRef` binds the WHOLE preset document, every channel it
+// carries (ruling Q1), because the engine binds one preset RECORD per section and
+// `ep_cycle` / `ep_variants` are fields of it.
+//
+// `hand:` IS THE CALLER'S, AND FOR `cycle:` IT IS `Pal_Cycle_None`, NEVER 0. NULL cannot
+// mean "off" while it also means "keep" (ARCH §7.12), which is why the engine ships a
+// non-NULL zero-channel sentinel. For a variant slot the `hand:` is whatever the section
+// carries today — for every OJZ section that is `Variant_Water_Deep` in slot 0 and 0 in
+// slot 1 — and this is LOAD-BEARING: a document that said nothing and cleared the slots
+// would drop the act-wide water tint at the first crossing.
+//
+// THE VARIANT CHOOSER IS PER-SLOT because ruling Q5's three states are per INDEX: an
+// index the array does not reach keeps `hand:`, `null` clears, an object authors. A
+// single `[Label; 2]`-returning chooser would have to index its own `hand:` array to say
+// "keep the caller's value at slot 1 only"; per-slot spells it as the word `hand`.
+//
+// With no document carrying either key the bodies below are `return out` over an
+// unmodified `hand`, and this whole block is zero ROM bytes — a `pub comptime fn` emits
+// nothing.
+pub comptime fn ojz_act1_sec_cycle(sec: int, hand: Label = 0) -> Label {
+    ensure(sec >= 0 && sec < 9, "ojz_act1_sec_cycle(sec: {sec}): this act has 9 sections, so there is no binding slot for that index — the section preset and project.json's grid have drifted apart")
+    comptime var out = hand
+    return out
+}
+
+pub comptime fn ojz_act1_sec_variant(sec: int, slot: int, hand: Label = 0) -> Label {
+    ensure(sec >= 0 && sec < 9, "ojz_act1_sec_variant(sec: {sec}): this act has 9 sections, so there is no binding slot for that index — the section preset and project.json's grid have drifted apart")
+    ensure(slot >= 0 && slot < 2, "ojz_act1_sec_variant(slot: {slot}): the engine has 2 palette variant staging slots (PAL_MAX_VARIANTS) — Palette_SetVariant masks the index with a power-of-two mask, so a higher slot would fold back onto slot 0")
+    comptime var out = hand
     return out
 }

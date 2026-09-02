@@ -16366,7 +16366,7 @@ Item 2 is the only one that does not.
 | 2 | Show him a band on screen | **S** | **no** | `tools/band_witness.py` already exists. Pure verification. |
 | 3 | Drift on and authored | **M** | yes, paired | Mechanism is landed and inert: `CAP_BAND_DRIFT` is DECLARED at `$0080` with three capability-gated tails in `parallax.emp` (`:1119`, `:1202`, `:1254`) and a pinned `BAND_DRIFT_N`. Raising it in `Game.SCANLINE_CAPS` flips that pin 0→1 and lights all three. **Documented trap:** `effects_gen.py:1301-1311` records that adding `band_drift` to the three hand importers while leaving the generator's own list short turns the whole build red with `unknown type: band_drift` pointing at `parallax.emp`. |
 | 4 | Moving bands: P2b moving-top + time-driven anchor mover | **L** | yes, paired | The anchor mover is the owner's addition and the DoD calls it *"a gap in every prior plan"* — so it needs a DESIGN pass before implementation, not just a parcel. P3 (both edges) only on his ask. |
-| 5 | `variants` / `cycles` lowering | **M** | yes, paired | ~~Needs the item-13 contract CR before aurora can author against it.~~ **UNBLOCKED 2026-08-30 — the contract CR LANDED.** Both keys are committed properties of `contract/schema/aurora-effects-preset.schema.json` and specified in `AURORA_EFFECTS_SCHEMA.md` §7.2, which also RULED all ten of the demand artifact's open questions. **Only the aeon half remains** (the generator). See the item-5 block below. |
+| 5 | `variants` / `cycles` lowering | **M** | yes, paired | ~~Needs the item-13 contract CR before aurora can author against it.~~ ~~**UNBLOCKED 2026-08-30 — the contract CR LANDED.**~~ **DONE 2026-09-02, both halves.** The hub's is `AURORA_EFFECTS_SCHEMA.md` §7.2 + the two committed schema properties; aeon's is `parcel/item5-cycles-variants` — the generator accepts both keys, lowers them through `variant()` / `cycle_scriptN()`, emits two more always-emitted choosers, and `tools/editor_palette_golden.py` reads the emitted records back out of the built ROM on every canonical sonic4 build. What is NOT done are the five riders §7.2 books; see the item-5 block below. |
 | 6 | Dense per-line VSRAM | **L** | yes, paired | Booked in full in the DENSE PER-LINE VSRAM entry above. **Not blocked by the stream-register card** — the conservative model ships today and the item can start on it; the ruling only decides whether the faster path is taken. Surface the card before the budget check concludes, not before the item starts. |
 | 7 | Vertical bob | **S-M** | yes, paired | **BUILT — `parcel/vertical-bob`, 2026-08-30, unlanded.** A scene-level term on `Parallax_Step5_Vscroll`'s `.v_pack`. 40 bytes of code, ZERO config bytes (the packed nibble pair claimed `pcfg_pad_29`), EndOfRom unmoved in all four shapes. Riders booked below. |
 | 8 | BgAnim vertical band motion | **M** | yes, paired | BgAnim procs are live and driven today. |
@@ -16406,28 +16406,84 @@ above needs all three:
    measured that flipping `== -1` to `== 0` makes it pass, i.e. one keystroke turns it
    permanently vacuous while looking like debugging.
 
+#### Item 5 LANDED, 2026-09-02 — what the generator half actually does, and what it did not
+
+`parcel/item5-cycles-variants`. The list below that begins "What remains before the
+generator half can be built" is kept as written, because every one of its bullets is either
+DONE by this parcel or still open, and marking which is more useful than deleting it. What
+is done:
+
+- **`PRESET_KEYS` gains both names; `PRESET_REFUSED_KEYS` is down to `fires` alone.**
+  `load_preset` grows `_check_cycles` / `_check_variants` (types, required keys, array-ness,
+  positional length) and no value checks — with the one deliberate exception below.
+- **The three states per key are implemented as ruled.** `cycles` absent / `null` /
+  non-empty array (`[]` refused naming both legal spellings, >2 channels refused naming the
+  `cycle_scriptN` wrappers rather than `PAL_CYCLE_MAX_CHANNELS`); `variants` positional with
+  absent / `null` / object per INDEX, no key-level `variants: null` (refused by name), a
+  third slot refused naming `PAL_MAX_VARIANTS`.
+- **The `period` unit, all three parts in this one parcel** (the "MUST LAND TOGETHER"
+  bullet): `pc_period = period - 1`, a `period < 2` refusal whose message names the
+  AUTHOR's number, and a `# RIDER 5 PAIRING` comment at the emission site naming
+  `Palette_DoCycle`'s timer logic. `tools/test_effects_gen.py::TestTheEngineMirrorsArePinned`
+  pins the document floor against `cycle_channel`'s own `ensure(period >= …)`.
+- **Two more always-emitted choosers**, `ojz_act1_sec_cycle(sec:, hand:)` and
+  `ojz_act1_sec_variant(sec:, slot:, hand:)`, threaded into `OJZ_Preset_Sec3`'s `preset()`
+  call. **PER-SLOT for the variant**, not the `[Label; 2]` form the probe preferred: ruling
+  Q5's three states are per INDEX, and a pair-returning chooser would have to index its own
+  `hand:` array to say "keep the caller's value at slot 1 only". Both spellings reach the
+  ROM (probe verdict Q1); this one spells the ruling.
+- **The NARROW half of Q6 is taken** (`_check_cleared_slot_is_not_streamed`): a band
+  streaming from a slot the same document sets to explicit `null` is refused. The broad half
+  is still rider 2, still two gates back.
+- **The byte golden is Python, in two layers, and NEITHER is a comptime ensure.**
+  `tools/test_effects_gen.py::TestTheWorkedDocumentMatchesTheHandTwins` compares the emitted
+  CALLS against the hand ones with the constructors' own defaults filled in;
+  `tools/editor_palette_golden.py` (build.sh, sonic4, post-sigil) reads the emitted RECORDS
+  out of the ROM at the listing's addresses and decodes them against the JSON — including
+  the `period - 1`, which nothing else in the tree checks.
+- **The worked document ships:** `games/sonic4/data/editor/effects/presets/ojz_sec3_shimmer.json`,
+  section 3's hand channels re-expressed. Its `"period": 9` is not a typo — see §2.3 of the
+  spec. It is reachable through the DEBUG raster chord (a third `.raster_table` row), NOT
+  through a `rasterRef`: binding it would put a band and a shimmer on a shipped screen, which
+  is a look call and not this parcel's.
+
+**Two findings worth carrying, both measured on this parcel's builds:**
+
+1. **A bare `0` is REFUSED in a `Label` argument position** — `expected a label (a Label
+   argument), got int`. So `ojz_act1_sec_variant(sec: 3, slot: 1, hand: 0)` does not
+   assemble and the call site relies on the chooser's declared `hand: Label = 0` default
+   instead. There is no Label-typed spelling of "no variant": unlike `ep_raster`, whose off
+   state is the parked `Raster_Program_None`, `ep_variants`' off state IS zero. The raster
+   channel's "always pass `hand:` explicitly" rule therefore does not transfer.
+2. **`variants: null` at key level had to be refused by name**, not left to fall through to
+   "absent". A writer that nulls every key it knows produces exactly that, and "absent"
+   means KEEP — the opposite of what such a writer meant.
+
 **What remains before the generator half can be built** — derived from the design doc's §13
 ordering section, not invented here:
 
-- **Not blocking the start.** The generator can land `cycles` as an array and `variants`
-  positionally today. Only the **`cycles: null` = OFF** arm is gated (next bullet).
-- **GATE, aurora's to satisfy:** no `cycles: null` document lands in aeon's tree until
+- ~~**Not blocking the start.**~~ **DONE.** The generator lands `cycles` as an array and
+  `variants` positionally. The **`cycles: null` = OFF** arm is IMPLEMENTED but no document in
+  this tree uses it, which is what the gate below is about.
+- **GATE, aurora's to satisfy — STILL OPEN, and now it gates a DOCUMENT rather than the
+  code:** no `cycles: null` document lands in aeon's tree until
   aurora's writer-side golden proves **absent survives a parse→serialize round-trip as
   absent**, not as null. Their sibling writer null-fills today
   (`games/sonic4/data/editor/ojz/act1/section_5.meta.json` is present-and-null on every
   unset ref), which is harmless for `rasterRef` because §3.1 makes absent and null the same
   state — but Q2 makes them DIFFERENT states one layer down, so a null-filling save would
   turn section 3's shimmer OFF silently, schema-green and build-green.
-- **MUST LAND TOGETHER, in the first `cycles`-emitting parcel:** the `period - 1` absorption,
+- ~~**MUST LAND TOGETHER, in the first `cycles`-emitting parcel:**~~ **DONE, all three in
+  `parcel/item5-cycles-variants`:** the `period - 1` absorption,
   a `period >= 2` refusal whose message names the **author's** number (with the `-1`, an
   authored `period: 1` emits 0 and the engine complains about a number the author never
   wrote), and a `# RIDER 5 PAIRING` comment at the emission site naming
-  `palette.emp:454-461`.
+  `Palette_DoCycle`'s timer logic.
 - **MUST LAND TOGETHER, whenever rider 5 lands:** the runtime cadence fix **and** the
   generator's `-1` → passthrough. Split across two parcels, every authored cycle shifts one
   frame faster and nothing gates it. **Precede it with the look call**, parked as
   `d-51-shimmer-cadence-look` in `docs/decisions.jsonl`.
-- **Site population, aeon side (spec §3.5):** `PRESET_KEYS` gains both names and
+- ~~**Site population, aeon side (spec §3.5):**~~ **DONE, every site:** `PRESET_KEYS` gains both names and
   `PRESET_REFUSED_KEYS` loses them (`tools/effects_gen.py:266, 275-286` — the closed-object
   check must widen or every document carrying the keys is refused by name); `load_preset`
   gains `bands`-shaped SHAPE checks and no value checks; the refusal test
@@ -16438,10 +16494,11 @@ ordering section, not invented here:
   document; per ruling Q10, the one sentence distinguishing palette `cycles` from the DEBUG
   hotkey's raster cycle table); `docs/EDITOR_RASTER_PRESETS.md` §B's key list is
   machine-compared against the generator's constants and moves with them.
-- **Available now, not gated:** the NARROW half of Q6 — refuse a band whose
+- ~~**Available now, not gated:**~~ **DONE** — the NARROW half of Q6, refuse a band whose
   `pal_region.slot` the document sets to explicit `null` (saying "clear this slot" and
-  "stream from this slot" in one document is never right, whatever the hand call does).
-  The broad half is gated two deep.
+  "stream from this slot" in one document is never right, whatever the hand call does):
+  `tools/effects_gen.py` `_check_cleared_slot_is_not_streamed`.
+  The broad half is still gated two deep.
 - **RIDER CHAIN, write it down once: `Q1a → Q8 → Q6`.** Retiring the hand twins (Q8) needs
   **variant-only** documents — most OJZ sections carrying the water tint have no bands — and
   Q1a keeps `bands` REQUIRED, so Q8 is blocked on a hub CR relaxing Q1a, and Q6's broad half

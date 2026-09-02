@@ -702,6 +702,29 @@ if [[ "$FAST" == "0" ]]; then
             exit 1
         fi
 
+        # THE PALETTE BYTE GOLDEN (EFFECTS-W1 item 5). An Aurora-authored `cycles` /
+        # `variants` key lowers through the engine's own constructors into a `pub data`;
+        # this gate reads that record back OUT OF THIS ROM, at this listing's addresses,
+        # and decodes it against the JSON the author wrote — including the one place the
+        # generator does NOT forward verbatim, the `period - 1` the document's FRAMES unit
+        # costs (ruling Q7). It also holds the worked document byte-for-byte against the
+        # hand `pub data` twin it re-expresses.
+        #
+        # It runs HERE, below sigil, for bganim_room's reason: the pytest lane runs BEFORE
+        # the build, so a unit test opening s4.debug.bin would measure a previous build.
+        # --built-after makes a stale artifact a named UNMEASURABLE (exit 2) instead.
+        #
+        # It is PYTHON and not a comptime `ensure` deliberately: the hand twin resolves as
+        # a LABEL inside an `.emp` array literal, so the natural
+        # `first_mismatch([<hand>], [<generated>]) == -1` guard is ALWAYS RED on correct
+        # code — and flipping it to `== 0` to "fix" that makes it permanently vacuous in
+        # one keystroke. Measured, docs/superpowers/probes/2026-09-02-item5-comptime-probe.md.
+        if ! python3 "${TOOLS}/editor_palette_golden.py" --lst "${ROM_NAME}.lst" \
+                --rom "${ROM_NAME}.bin" --built-after "${SIGIL_T0}"; then
+            echo "Editor palette golden failed — see above (tools/editor_palette_golden.py)."
+            exit 1
+        fi
+
         # The BG-animation section's ROOM, re-derived from THIS build's listing
         # (decision d-9). `ojz_bg_anim` grows into the hole that ends
         # at the `dac_banks` map anchor — DERIVED by the bank placement rule since the

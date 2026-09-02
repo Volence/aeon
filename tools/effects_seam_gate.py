@@ -18,8 +18,11 @@ hand default is what the binding resolves to today anyway — the ROM would be c
 and the gate coverage would be gone.
 
 WHAT IT OBSERVES, AND WHY THAT OBSERVATION IS POSITIVE. The generated module declares
-three `pub equ` witnesses (the third, the raster-binding count, arrived with the
-`rasterRef` arm and is legitimately 0 until a sidecar carries the key). An equ mints a link-level symbol that reaches the build's
+five `pub equ` witnesses — two scene counts and one per `EffectsPreset` channel (raster,
+cycle, variant). The three channel counts are legitimately 0 until a sidecar carries a
+`rasterRef` naming a document that carries the matching key; ONE ref binds the whole
+document (empyrean AURORA_EFFECTS_SCHEMA.md §7.2, ruling Q1), which is why there is one
+sidecar key and three witnesses. An equ mints a link-level symbol that reaches the build's
 listing (the mechanism scene_registry.emp's budget ledger rows use), and it is
 defined ONLY if the module is lowered — so its PRESENCE in `s4.lst` is direct
 evidence that the module is inside the target's `use` closure. Presence is also what
@@ -306,10 +309,31 @@ def main() -> int:
     if lib_use.group(1) == "*":
         fail(f"{EFFECTS_LIB} imports {names.module} as a GLOB. Name list, never a "
              f"glob — same rule as the descriptor's seam.")
-    if names.fn_sec_raster not in {n.strip() for n in lib_use.group(2).split(",")}:
+    lib_imported = {n.strip() for n in lib_use.group(2).split(",")}
+    if names.fn_sec_raster not in lib_imported:
         fail(f"{EFFECTS_LIB}'s import of {names.module} does not name "
              f"{names.fn_sec_raster}. That function is the raster channel's whole "
              f"binding route.")
+    # THE OTHER TWO PRESET CHANNELS (EFFECTS-W1 item 5), same silent-and-green shape.
+    # `ep_cycle` and `ep_variants` are fields of the same record `ep_raster` is, and one
+    # `rasterRef` binds the whole document (ruling Q1) — so if the library stops importing
+    # or calling these two choosers, a document's `cycles` / `variants` become ROM nothing
+    # installs, with no other symptom: the choosers resolve to `hand` today, so dropping
+    # the call and typing the literal back leaves every byte identical. An UNCALLED
+    # `pub comptime fn` is also an unelaborated one — every `ensure` inside it would be
+    # asserting nothing (docs/EMP_PITFALLS.md §3, one tier down).
+    for fn, channel in ((names.fn_sec_cycle, "cycle"),
+                        (names.fn_sec_variant, "variant")):
+        if fn not in lib_imported:
+            fail(f"{EFFECTS_LIB}'s import of {names.module} does not name {fn}. That "
+                 f"function is the palette {channel} channel's whole binding route, and "
+                 f"an unimported chooser cannot be called — so every document's "
+                 f"`{channel}s` would be ROM nothing installs.")
+        if f"{fn}(sec:" not in lib:
+            fail(f"{EFFECTS_LIB} imports {fn} but never calls it. The chooser is emitted "
+                 f"for every act whether or not a document carries the key, so nothing "
+                 f"legitimately stops calling it — and an uncalled `pub comptime fn` is "
+                 f"never elaborated, which makes its own `ensure`s dead too.")
     raster_calls = raster_call_sites(lib, names.fn_sec_raster)
     want_raster_refs = effects_gen.load_section_raster_refs(REPO)
     faults = raster_seam_faults(raster_calls,
@@ -353,8 +377,25 @@ def main() -> int:
     # through the generator's own reader, never read out of the generated `.emp`.
     want_raster = len(want_raster_refs)
 
+    # THE PALETTE WITNESSES (item 5), counted the same way and from the same sidecars:
+    # one `rasterRef` binds the WHOLE document, so a section's cycle/variant binding is
+    # its raster binding filtered by which keys that document carries. Both are 0 today
+    # and that is a state they have to be able to express — a value of 0 says "the module
+    # was lowered and binds nothing", which is a DIFFERENT observation from absence.
+    try:
+        want_presets = effects_gen.load_all_presets("sonic4", REPO)
+    except effects_gen.SceneShapeError as e:
+        fail(f"a preset document does not load, so this gate cannot derive the palette "
+             f"witness counts: {e}")
+    want_cycle = sum(1 for sec, pid in want_raster_refs.items()
+                     if "cycles" in want_presets.get(pid, {}))
+    want_variant = sum(1 for sec, pid in want_raster_refs.items()
+                       if want_presets.get(pid, {}).get("variants") is not None)
+
     expected = {names.equ_scenes: want_scenes, names.equ_bindings: want_bindings,
-                names.equ_raster_bindings: want_raster}
+                names.equ_raster_bindings: want_raster,
+                names.equ_cycle_bindings: want_cycle,
+                names.equ_variant_bindings: want_variant}
     for sym, want in expected.items():
         if sym not in equs:
             fail(f"witness `{sym}` is ABSENT from {lst}. An equ is defined only if "
@@ -366,7 +407,8 @@ def main() -> int:
         if equs[sym] != want:
             fail(f"witness `{sym}` is {equs[sym]} in {lst}, but the editor inputs "
                  f"say {want} (scenes reached by an assignment: {want_scenes}; "
-                 f"scene bindings: {want_bindings}; raster bindings: {want_raster}). "
+                 f"scene bindings: {want_bindings}; raster bindings: {want_raster}; "
+                 f"cycle bindings: {want_cycle}; variant bindings: {want_variant}). "
                  f"The built artifact does not carry "
                  f"what project.json + the section sidecars declare — re-bake with "
                  f"tools/regenerate-level.sh.")
@@ -374,6 +416,8 @@ def main() -> int:
     print(f"effects_seam_gate: OK — binding seam reached "
           f"({names.equ_scenes}={want_scenes}, {names.equ_bindings}={want_bindings}, "
           f"{names.equ_raster_bindings}={want_raster}, "
+          f"{names.equ_cycle_bindings}={want_cycle}, "
+          f"{names.equ_variant_bindings}={want_variant}, "
           f"{calls} section call site(s), {len(equs)} equates parsed from {lst})")
     # The raster seam's own line, and it names the presets rather than counting them:
     # "1 call site" would read the same whether it were section 5's or section 3's, and
