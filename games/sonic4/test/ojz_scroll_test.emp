@@ -22,12 +22,19 @@
 // (engine-side), which now skips the bus hold on unchanged-mode frames.
 module games.sonic4.ojz_scroll_test in ojz_scroll_test
 
-use engine.objects.objdef.{vram_bytes}
+// vram_art — the packed art_tile word (tile | palette | priority) the DEBUG
+// scene readout stamps into its two glyph objects (Debug_SceneReadout_Show).
+use engine.objects.objdef.{vram_bytes, vram_art}
 use engine.structs.{Act, Sec}
 use engine.constants.{SECTION_SIZE_SHIFT, SCREEN_WIDTH, SCREEN_HEIGHT, CAM_SCREEN_HALF_W, CAM_SCREEN_HALF_H, VDP_DATA, VDP_CTRL, BUTTON_A, BUTTON_B, BUTTON_C, BUTTON_UP, BUTTON_DOWN, INPUT_LIVE}
 // BUTTON_START / LEFT / RIGHT — the DEBUG effects-lab hotkey's chord
 // (Debug_SceneCycleHotkey, below).
 use engine.constants.{BUTTON_START, BUTTON_LEFT, BUTTON_RIGHT}
+// RF_COORDMODE / RF_PRIORITY_SHIFT — the render_flags bits the DEBUG scene
+// readout's two glyph objects are built from (screen coords, front band).
+// NUM_SYSTEM — the readout's two glyph cells are the TOP TWO System slots, and
+// they are claimed by address (the System pool has no allocator).
+use engine.constants.{RF_COORDMODE, RF_PRIORITY_SHIFT, NUM_SYSTEM}
 use engine.constants.{PAGECACHE_AUDIT_INTERVAL}
 use engine.vdp.{VdpTarget, VdpOp, vdp_comm, VDP_MODE2_OFF, VDP_MODE3_OFF}
 use engine.z80_bus.{z80_stopped}
@@ -39,7 +46,10 @@ use engine.coords.{pixels_to_coord}
 // (config/constants.emp). VRAM_TEST_MARKER = VRAM_RING_PLACEHOLDER+16 =
 // VRAM_TEST_OBJ+$18. CHAR_COUNT is the roster length the DEBUG character-cycle
 // hotkey wraps at.
-use games.sonic4.constants.{VRAM_TEST_OBJ, VRAM_TEST_MARKER, VRAM_DUST_PUFF, VRAM_RING_SPARKLE, CHEAT_DEBUG_FLY, CHAR_COUNT, PSTATE_AIR}
+// VRAM_DEBUG_READOUT — the two glyph cells (tiles 1020-1021) the DEBUG scene
+// readout repaints; declared in games/sonic4/vram.toml like every other region,
+// reserved in both shapes and written only in DEBUG.
+use games.sonic4.constants.{VRAM_TEST_OBJ, VRAM_TEST_MARKER, VRAM_DUST_PUFF, VRAM_RING_SPARKLE, CHEAT_DEBUG_FLY, CHAR_COUNT, PSTATE_AIR, VRAM_DEBUG_READOUT}
 
 // Sst — the object SST layout. The DEBUG warp consumer places the LEADER through
 // Camera_Target (an SST pointer), not through the Player_1 absolutes above: the
@@ -1325,9 +1335,10 @@ proc Debug_Warp_Consume () clobbers(d0-d7/a0-a6) {
 // CYCLE ORDER IS THE REGISTRY ORDER — games/sonic4/data/effects/scene_registry.emp's
 // `SCENES[]`, index 0..19, which is also the ROM emission order. The `dc.l` table
 // below is that list transcribed, and the index comment on each row is the SCENES[]
-// index it mirrors. There is no on-screen readout of WHICH scene is up: no debug text
-// or numeric display path exists in this shape, and building one is a much larger
-// parcel than this. The cursor is readable from a debugger as `Debug_Scene_Index`.
+// index it mirrors. WHICH scene is up is now ON SCREEN: every step calls
+// Debug_SceneReadout_Show (below), which paints the cursor as two decimal digits in
+// the top-left corner. The cursor is also readable from a debugger as
+// `Debug_Scene_Index`, which is what it was before the readout existed.
 //
 // ---- WHY THIS CHORD, AND NOT A BARE BUTTON ----
 // Enumerated over the canonical `DEBUG=1 ./build.sh` shape in live gameplay, START is
@@ -1412,11 +1423,12 @@ proc Debug_Warp_Consume () clobbers(d0-d7/a0-a6) {
 // In:  none (reads Ctrl_1_Held / Ctrl_1_Press / Input_Source / Debug_Scene_Index)
 // Out: Debug_Scene_Index advanced and the named config handed to
 //      Parallax_StartTransition, iff the chord fired this frame
-// Clobbers: d0-d2, a0-a1 — a0/d0-d1 via the Parallax_StartTransition tail (it declares
-//           d0-d1), a1 is the table cursor. Narrower than the character hotkey's
-//           because nothing here reaches the player.
+// Clobbers: d0-d4, a0-a2 — a0/d0-d1 via the Parallax_StartTransition tail (it declares
+//           d0-d1), a1 is the table cursor, and d0-d4/a0-a2 is what the readout call
+//           below spends (its own header says why). Still narrower than the character
+//           hotkey's, because nothing here reaches the player.
 // -----------------------------------------------
-proc Debug_SceneCycleHotkey () clobbers(d0-d2/a0-a1) {
+proc Debug_SceneCycleHotkey () clobbers(d0-d4/a0-a2) {
     if DEBUG == 1 {
         // Gate 1: live input only — see the header. A `tst.b` is the whole test
         // because INPUT_LIVE is 0; the same ensure Debug_CharacterHotkey declares
@@ -1466,6 +1478,15 @@ proc Debug_SceneCycleHotkey () clobbers(d0-d2/a0-a1) {
                                                 // fetch a pointer from past the table
         move.b  d0, Debug_Scene_Index           // (Debug_Scene_Index).w
 
+        // -- say WHICH one, on screen (see Debug_SceneReadout_Show below) --
+        // Ordered before the install and not after it for one reason: the install
+        // is a TAIL call, so anything after it would have to stop being one.
+        // Nothing about the readout depends on the scene actually being installed —
+        // it publishes the CURSOR, which is already stored above.
+        jbsr    Debug_SceneReadout_Show         // reads Debug_Scene_Index; owns d0-d4/a0-a2
+        moveq   #0, d0                          // index-register hygiene (§2.5b)
+        move.b  Debug_Scene_Index, d0           // reload — the readout owns d0 (and d1-d3)
+
         // -- install it, through the engine's own live scene-swap --
         lsl.w   #2, d0                          // × sizeof(pointer); no scaled indexing
                                                 // on the 68000
@@ -1506,6 +1527,259 @@ proc Debug_SceneCycleHotkey () clobbers(d0-d2/a0-a1) {
         dc.l    ParallaxConfig_SkyHaze              // 17
         dc.l    ParallaxConfig_OJZ_Caves            // 18
         dc.l    ParallaxConfig_OJZ_LockedClouds     // 19
+    }
+}
+
+// -----------------------------------------------
+// Debug_SceneReadout_Show — THE EFFECTS LAB'S READOUT. Paint Debug_Scene_Index as
+// two decimal digits in the top-left corner, so the scene on screen NAMES ITSELF
+// instead of having to be counted in button presses. Called by
+// Debug_SceneCycleHotkey on every step it takes.
+//
+// ---- THE PROBLEM IT SOLVES, STATED AS A FACT ABOUT THE OLD BUILD ----
+// The cycle wraps over twenty entries and had no display of any kind, so finding
+// SCENES[13] meant counting presses from a boot value and trusting the count. That
+// is not a preference — a review tool whose position can only be inferred is one
+// mis-press away from reviewing the wrong scene and recording the verdict against
+// its neighbour.
+//
+// ---- WHY DIGITS AND NOT NAMES ----
+// The registry carries no names. `SCENES[]` (games/sonic4/data/effects/scene_registry.emp)
+// is an array of Scene VALUES, and the `Scene` struct (engine/level/scene_dsl.emp)
+// has no string field — the only human-readable names are the `pub const`
+// identifiers themselves, which no comptime string builder can reach. A name
+// display would therefore need a hand-written twenty-row string table AND an
+// alphabet, and the alphabet is what actually rules it out: this map's largest
+// free VRAM run is four tiles (games/sonic4/vram.toml — 957-959, 1020-1023,
+// 1501-1503, 1532-1535), and 26 letters plus 10 digits is 36. The INDEX is what
+// the cycle is defined in terms of anyway — the table rows below are numbered in
+// it, the lint counts it, and Debug_Scene_Index stores it — so the index is the
+// readout's natural unit rather than a fallback from a nicer one.
+//
+// ---- WHY IT COSTS TWO VRAM TILES AND NOT TEN ----
+// The ten-glyph FONT lives in ROM (`.digit_font` below, DEBUG shapes only, inside
+// this `if DEBUG == 1` like `.scene_table` is). Only the two SELECTED glyphs are
+// ever resident, re-blitted on each press, so the VRAM claim is 2 tiles and fits
+// the 1020-1023 free run with two tiles left over. That is the whole reason a
+// readout is affordable in a map with no ten-tile hole in it.
+//
+// ---- WHY OBJECTS, AND WHY THE OBJECTS ARE THE ENGINE'S OWN ----
+// A sprite is the only surface here that does not scroll with the level and does
+// not have to be re-drawn every frame by hand: Plane A is the streaming tile
+// cache, Plane B is the background, and the window plane's nametable base
+// ($F000) is inside Plane B's own 64x64 table, so there is no free window to
+// point at. So: two objects in SCREEN coordinates (RF_COORDMODE), one glyph cell
+// each, front priority band. Their code is `TestStatic_Main`
+// (games/sonic4/objects/test_static.emp) — the engine's display-only object, a
+// single `jbra Draw_Sprite` — and their mapping is `Map_TestObj` frame 2, the
+// existing 8x8 one-tile frame. Nothing new is emitted for either, which is what
+// keeps this parcel's release cost at zero bytes rather than at "a small mapping
+// table and a stub".
+//
+// ---- SYSTEM SLOTS, AND THE DYNAMIC POOL IS A TRAP HERE ----
+// The two cells are the TOP TWO System slots, claimed by address, not allocated.
+// `AllocDynamic` was the obvious choice and it is WRONG for this object: the
+// dynamic pool is dispatched by `RunObjects`' `.run_culled`, which culls on WORLD
+// distance from the camera (CULL_DISTANCE_X/Y) and does not look at RF_COORDMODE
+// at all. A screen-space object still carries a world x_pos/y_pos for that test —
+// ours would read as (16,16) — so the readout would be culled, never dispatched,
+// never call Draw_Sprite, and be invisible everywhere in the act except near the
+// origin. System slots go through `.run_always` (and through RunObjects_Frozen's
+// fixed sweep, so the readout survives a frozen frame too), which is exactly the
+// "runs regardless of where the camera is" contract a screen-space element needs.
+//
+// The top two rather than the bottom two, and by address rather than through an
+// allocator, because the System pool HAS no allocator — nothing in engine/ or
+// games/ claims a System slot today, so claiming from the top leaves the natural
+// growth direction (slot 0 upward) free for the first real system object.
+// `Touch_TestTargets` sweeps these slots but front-guards on collision_resp,
+// which is 0 on a slot we build ourselves, so they are inert to collision.
+//
+// ---- WHY IT IS BUILT ON FIRST PRESS AND NOT AT LEVEL INIT ----
+// Not laziness, and not cost: it is what keeps every existing replay fixture
+// byte-for-byte on its old hashes. Replay drives Input_Source != INPUT_LIVE, the
+// hotkey stands down on that gate before it ever reaches here, so a replayed run
+// never builds these objects and its sprite table is exactly what it was. An
+// always-on readout would add two SAT entries to every DEBUG frame and re-stamp
+// every fixture for a debug convenience. The visible consequence is that the
+// readout appears on the first press rather than at boot — which is also the
+// first moment it has anything to say that Debug_Scene_Index's boot value 0 did
+// not already say. Boot clears all of Work RAM, so `code_addr == 0` on the two
+// slots is a reliable "not built yet" and needs no flag of its own.
+//
+// ---- DMA, NOT A DIRECT VDP WRITE ----
+// §3.1/2 of CODING_CONVENTIONS: tile updates go through the DMA queue, never
+// direct from the game loop. The neighbouring direct VRAM write in this file
+// (PlayerMarkerTile, in Init) is legal because the display is still off there;
+// this runs mid-frame with the display on. Two 32-byte Critical entries, one per
+// glyph. `@discards(dropped)` for the same reason the init art DMA above uses it
+// — a full queue costs one press's worth of stale digit, and blocking a review
+// hotkey on queue pressure would be worse than showing the previous number for a
+// frame.
+//
+// DEBUG-shape only: the body, the `rts`, the local subroutine AND the font table
+// are all inside `if DEBUG == 1 {}`, so the whole proc emits ZERO bytes in the
+// plain shape. Its PLACEMENT is load-bearing for exactly the reason
+// Debug_SceneCycleHotkey's header states above: it is parked INSIDE that run of
+// zero-release-byte procs (between the scene cycle and the band demo), so its
+// release label coincides with an address the deb2 appendix already carries.
+//
+// In:  none (reads Debug_Scene_Index and the two System slots)
+// Out: the two glyph objects exist and the two VRAM cells are queued to show the
+//      cursor's decimal digits
+// Clobbers: d0-d4, a0-a2 — d0-d4/a1-a2 is QueueDMA_Critical's declared set, d2/a1
+//           also RefreshSpritePieceCount's, and a0 is the SST cursor in the build
+//           half and the font base in the blit half.
+// -----------------------------------------------
+// Screen-space placement of the two glyph cells. Map_TestObj frame 2 is
+// `centered(half: 4, ...)`, so the object position is the CELL CENTRE and the two
+// cells are 8 px apart: tens covers screen x 12..19, ones x 20..27, both y 12..19.
+const DEBUG_READOUT_X = 16
+const DEBUG_READOUT_Y = 16
+// render_flags, written WHOLE rather than or-ed in: front band (7) + screen
+// coordinates. A whole-byte write has no C1c inherited-band hazard by
+// construction (there is nothing to union with), and these two objects' flags are
+// owned here and nowhere else.
+const DEBUG_READOUT_FLAGS = (7 << RF_PRIORITY_SHIFT) | (1 << RF_COORDMODE)
+// Map_TestObj's third frame: one 8x8 piece at art_tile + 0. See
+// games/sonic4/data/mappings/test_mappings.emp.
+const DEBUG_READOUT_FRAME = 2
+// The two System slots the glyph cells occupy, counted from the TOP of the pool.
+ensure(NUM_SYSTEM >= 2,
+       "scene readout: the two glyph cells are the top two System slots, but NUM_SYSTEM is {NUM_SYSTEM}")
+// Resolved at link, consumed as a plain immediate — the `equ`-at-module-scope
+// shape `extern()` is documented to work in (EMP_PITFALLS §5; buffers.emp's
+// SRC_SPRITE_TABLE is the worked example). Spelled this way rather than as
+// `lea sizeof(Sst)*N(a0), a0` because that displacement form is DROPPED by the
+// contract-closure analysis — it built, and the closure gate then reported two
+// instructions it could not see, which makes every contract finding under it
+// unreliable. A form the analysis can read is worth two bytes per cell.
+equ DEBUG_READOUT_SST_TENS = extern("System_Slots") + sizeof(Sst) * (NUM_SYSTEM - 2)
+equ DEBUG_READOUT_SST_ONES = extern("System_Slots") + sizeof(Sst) * (NUM_SYSTEM - 1)
+// The readout is two decimal digits, so the cycle has to fit in two. Held here
+// rather than assumed: a registry grown past 99 would silently show its cursor
+// modulo nothing sensible, and the tens loop below would spin the wrong count.
+ensure(SCENE_CYCLE_COUNT <= 99,
+       "scene readout: SCENE_CYCLE_COUNT is {SCENE_CYCLE_COUNT}, which does not fit the two-digit readout in Debug_SceneReadout_Show — give it a third glyph cell (games/sonic4/vram.toml, region debug_readout) before growing the registry past 99")
+proc Debug_SceneReadout_Show () clobbers(d0-d4/a0-a2) {
+    if DEBUG == 1 {
+        // -- (1) make sure the two glyph objects exist --
+        // a0 = the System slot, d1 = screen X as a 16.16 Coord, d3 = art_tile.
+        // Palette line 1 + priority 1 is PlayerMarkerTile's pairing, and it is
+        // chosen for the same reason: line 1 entry 12 is the bright yellow that
+        // the debug-fly marker is already known to be legible in over this act.
+        movea.l #DEBUG_READOUT_SST_TENS, a0
+        move.l  #DEBUG_READOUT_X << 16, d1
+        move.w  #vram_art(VRAM_DEBUG_READOUT, 1, 1), d3     // tens cell
+        jbsr    .ensure_glyph
+        movea.l #DEBUG_READOUT_SST_ONES, a0
+        move.l  #(DEBUG_READOUT_X + 8) << 16, d1
+        move.w  #vram_art(VRAM_DEBUG_READOUT + 1, 1, 1), d3 // ones cell
+        jbsr    .ensure_glyph
+
+        // -- (2) split the cursor into tens and ones --
+        // Repeated subtraction, not `divu`: the divisor is the literal 10 and the
+        // dividend is bounded by SCENE_CYCLE_COUNT (the ensure above), so the loop
+        // runs at most 9 times on a press the player made by hand. §2.1's four-point
+        // argument is not needed because there is no divide.
+        moveq   #0, d0                          // index-register hygiene (§2.5b)
+        move.b  Debug_Scene_Index, d0           // (Debug_Scene_Index).w
+        moveq   #0, d1                          // d1 = tens
+    .tens_loop:
+        cmpi.w  #10, d0
+        blt     .tens_done
+        subi.w  #10, d0                         // d0 -> ones
+        addq.w  #1, d1
+        bra     .tens_loop
+    .tens_done:
+
+        // -- (3) queue both glyph cells. The two tiles are adjacent, but they are
+        //    queued as two entries rather than one: the SOURCES are two arbitrary
+        //    rows of the font and are only contiguous when the digits happen to be. --
+        lea     .digit_font(pc), a0             // a0 survives QueueDMA_Critical
+        lsl.w   #5, d0                          // ones × 32 bytes per glyph
+        move.w  d0, -(sp)                       // ... and d0-d4 do not survive it
+        lsl.w   #5, d1                          // tens × 32
+        lea     (a0,d1.w), a1
+        move.l  a1, d1                          // d1 = DMA source
+        move.w  #vram_bytes(VRAM_DEBUG_READOUT), d2
+        moveq   #32, d3                         // one 8x8 4bpp tile
+        jbsr    QueueDMA_Critical @discards(dropped)    // review tool: a dropped glyph
+                                                        // costs one stale digit, never a
+                                                        // missed scene install
+        move.w  (sp)+, d0                       // ones × 32
+        lea     (a0,d0.w), a1
+        move.l  a1, d1
+        move.w  #vram_bytes(VRAM_DEBUG_READOUT + 1), d2
+        moveq   #32, d3
+        jbra    QueueDMA_Critical @discards(dropped)    // tail call (§2.8)
+
+        // -----------------------------------------------
+        // .ensure_glyph — build one glyph object into its System slot, once.
+        // In:  a0 = the System slot's SST, d1 = screen X (16.16), d3 = art_tile word
+        // Out: that slot holds a live display-only screen-space object
+        // Clobbers: d2 and a1, both via RefreshSpritePieceCount. a0/d1/d3 survive,
+        //      which is what lets the caller set up once per cell.
+        // The whole "is it built" test is code_addr: boot clears Work RAM, and
+        // nothing else writes these two slots.
+        // -----------------------------------------------
+    .ensure_glyph:
+        tst.w   (a0)                            // Sst.code_addr
+        bne     .glyph_done                     // already built — leave it alone
+        move.w  #TestStatic_Main - ObjCodeBase, Sst.code_addr(a0)
+        move.l  #Map_TestObj, Sst.mappings(a0)
+        move.b  #DEBUG_READOUT_FRAME, Sst.mapping_frame(a0)
+        jbsr    RefreshSpritePieceCount         // mappings + mapping_frame written ->
+                                                // re-cache frame_off/piece count (the
+                                                // Sst.frame_off contract)
+        move.w  d3, Sst.art_tile(a0)
+        move.b  #DEBUG_READOUT_FLAGS, Sst.render_flags(a0)
+        move.l  d1, Sst.x_pos(a0)
+        move.l  #DEBUG_READOUT_Y << 16, Sst.y_pos(a0)
+    .glyph_done:
+        rts
+
+        // -----------------------------------------------
+        // .digit_font — ten 8x8 4bpp tiles, '0' to '9', 32 bytes each.
+        // -----------------------------------------------
+        // A 5x7 glyph in an 8x8 cell: pixel columns 1-5, rows 0-6, so consecutive
+        // cells leave a 3 px gap and the digits do not touch. Every set pixel is
+        // colour index $C, which on palette line 1 is the same bright yellow
+        // PlayerMarkerTile uses ($00EE) — one colour, so the glyphs stay legible
+        // over whatever the act's line 1 happens to be doing elsewhere.
+        //
+        // ONE LONG PER PIXEL ROW, one hex nibble per pixel, left to right: the
+        // source IS the picture. That is why this is a hand table and not a
+        // comptime expansion of a packed 1bpp form — a bitmap you can read is worth
+        // more here than a bitmap you have to decode, and there is nothing to
+        // derive it FROM (no font asset exists in this tree outside the MD
+        // Debugger's own 1bpp blob, which is reachable only at a blob offset).
+        //
+        // IT LIVES INSIDE THE `if DEBUG == 1`, exactly as `.scene_table` does above,
+        // because a module-scope `data` item cannot be shape-gated in `.emp` (§1.7)
+        // and 320 release bytes for a debug readout is precisely what this parcel
+        // must not spend.
+    .digit_font:
+        dc.l    $00CCC000, $0C000C00, $0C000C00, $0C000C00      // 0
+        dc.l    $0C000C00, $0C000C00, $00CCC000, $00000000
+        dc.l    $000C0000, $00CC0000, $000C0000, $000C0000      // 1
+        dc.l    $000C0000, $000C0000, $00CCC000, $00000000
+        dc.l    $00CCC000, $0C000C00, $00000C00, $0000C000      // 2
+        dc.l    $000C0000, $00C00000, $0CCCCC00, $00000000
+        dc.l    $00CCC000, $0C000C00, $00000C00, $000CC000      // 3
+        dc.l    $00000C00, $0C000C00, $00CCC000, $00000000
+        dc.l    $0000C000, $000CC000, $00C0C000, $0C00C000      // 4
+        dc.l    $0CCCCC00, $0000C000, $0000C000, $00000000
+        dc.l    $0CCCCC00, $0C000000, $0CCCC000, $00000C00      // 5
+        dc.l    $00000C00, $0C000C00, $00CCC000, $00000000
+        dc.l    $000CC000, $00C00000, $0C000000, $0CCCC000      // 6
+        dc.l    $0C000C00, $0C000C00, $00CCC000, $00000000
+        dc.l    $0CCCCC00, $00000C00, $0000C000, $000C0000      // 7
+        dc.l    $00C00000, $00C00000, $00C00000, $00000000
+        dc.l    $00CCC000, $0C000C00, $0C000C00, $00CCC000      // 8
+        dc.l    $0C000C00, $0C000C00, $00CCC000, $00000000
+        dc.l    $00CCC000, $0C000C00, $0C000C00, $00CCCC00      // 9
+        dc.l    $00000C00, $0000C000, $00CC0000, $00000000
     }
 }
 
