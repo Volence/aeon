@@ -53,7 +53,8 @@ set -euo pipefail
 # EMIT ROM-consumed bytes) + the sigil build + its checksum/deb2 appendix, and drops
 # s4lint, effects_budget_check, the pytest sweep, the expect-fail lane,
 # verify_level_bin, art_rom_report, s4budget, the post-sigil listing gates
-# (effects_seam_gate, bganim_room, sprite_tilt_gate, instashield_gate) and the ctags
+# (effects_seam_gate's REACHABILITY half — see below for the source half FAST now
+# does run — bganim_room, sprite_tilt_gate, instashield_gate) and the ctags
 # reindex. None of those write a
 # byte the ROM contains, so a FAST ROM is byte-identical to the canonical ROM on
 # the same tree — that identity is the contract, and skipping a lane that changed
@@ -77,6 +78,19 @@ set -euo pipefail
 # skipped, and it is REFUSED on the STRESS_* fixture shapes, which exist to produce
 # evidence. It is not a merge/ship artifact — re-run without FAST before landing.
 #
+# THE ONE VERIFICATION FAST DOES RUN (2026-09-02, walkthrough finding b4):
+# `effects_seam_gate.py --source-only`, 14 ms, before the sigil build. Not an
+# exception to the rule above so much as its correction — "skip every lane" was
+# costing the author the ENTIRE run: binding a raster preset to an unwired section
+# is a canonical refusal (7 test_effects_seam_gate.py failures) that FAST could not
+# see at all, so the loop stayed green on a tree the real build rejects and the
+# author learned it at landing. MEASURED here, 5 runs including interpreter startup:
+# 0.014 s each, against a 2.07 s FAST build on the same box (load ~6.8) — under 1%.
+# It checks SPELLING AND BINDING ONLY; the reachability witnesses need this build's
+# listing and still run on the canonical path alone. Any further addition here must
+# clear the same bar: measured, milliseconds, and it catches something that otherwise
+# costs a whole authoring session.
+#
 # STALE LEVEL DATA (the trap FAST forced into the open — closed for BOTH paths).
 # games/<game>/prebuild.sh is a documented no-op and the generated level tree is a
 # COMMITTED artifact, so `./build.sh` after an editor save silently shipped the
@@ -85,6 +99,14 @@ set -euo pipefail
 # tools/level_staleness.py (see its docstring for the compare and the exclusions):
 #   canonical -> STALE is a HARD FAILURE naming tools/regenerate-level.sh
 #   FAST=1    -> STALE auto-runs the re-bake, timed and reported in the banner
+#
+# THAT GATE HAS TWO ARMS SINCE 2026-09-02, and the second one is why the owner's
+# "some seem like they're just a repeat of things" happened. mtime alone cannot see a
+# DELETION — removing an editor document lowers no mtime, so the tree read fresh, the
+# re-bake never ran, and the SAME build error came back byte-identical about a file
+# that was gone, until someone `touch`ed something. Arm B is a committed content
+# manifest of the editor sources (games/<game>/data/editor_sources.stamp.json, written
+# by the re-bake); `touch` is not its escape hatch and structurally cannot become one.
 #
 # RE-BAKE COST (measured 2026-08-19, after the incremental re-bake parcel). The
 # re-bake is part of the FAST loop whenever the editor has saved, so its cost is
@@ -221,12 +243,16 @@ if [[ "$FAST" == "1" ]]; then
     echo "================================================================================"
     echo " FAST BUILD — VERIFICATION LANES SKIPPED. NOT a merge/ship artifact."
     echo "   skipped: s4lint · effects_budget_check · pytest tools · emp_expect_fail"
-    echo "            verify_level_bin · art_rom_report · s4budget · effects_seam_gate"
-    echo "            bganim_room (the BG-anim ceiling is NOT checked) · sprite_tilt_gate"
-    echo "            (the tilt is NOT executed) · instashield_gate (NEITHER the"
-    echo "            insta-shield NOR the Tails-flight precondition is executed) · ctags"
+    echo "            verify_level_bin · art_rom_report · s4budget · bganim_room (the"
+    echo "            BG-anim ceiling is NOT checked) · sprite_tilt_gate (the tilt is NOT"
+    echo "            executed) · instashield_gate (NEITHER the insta-shield NOR the"
+    echo "            Tails-flight precondition is executed) · ctags · effects_seam_gate's"
+    echo "            REACHABILITY half (its witnesses need this build's listing — see below)"
     echo "   run:     emit_sound_blob · gen_compression_vectors · sigil build (+checksum,"
-    echo "            +deb2 symbols) · level re-bake IF STALE"
+    echo "            +deb2 symbols) · level re-bake IF STALE · effects_seam_gate"
+    if [[ "${GAME}" == "sonic4" ]]; then
+    echo "            --source-only (seam spelling + raster binding, 14 ms)"
+    fi
     echo "   Re-run without FAST=1 before you land, merge, freeze, or quote a number."
     echo "================================================================================"
     # One switch for the whole source-gate block below; the ctags/budget/level lanes
@@ -421,24 +447,106 @@ if [[ "$STALE" == "1" ]]; then
     echo "$STALE_MSG"
     if [[ "$FAST" == "1" ]]; then
         # The loop's whole point: re-bake instead of scolding.
+        #
+        # ITS OUTPUT IS CAPTURED, NOT DISCARDED (2026-09-02, walkthrough finding b3).
+        # This used to be `> /dev/null` with a fixed failure message that guessed at
+        # the cause — "it needs the out-of-repo donors". The generators print their
+        # refusals on STDOUT, so that redirect ate the ONLY actionable message in the
+        # run. With one dangling `rasterRef` the author was sent hunting for donor
+        # directories while the real line, which effects_gen had already written and
+        # this script had already thrown away, was:
+        #
+        #   effects_gen: REFUSED — section_0.meta.json: rasterRef 'x' names no preset
+        #   document in .../effects/presets — ... Known ids: authored_probe, ...
+        #
+        # A wrapper that replaces a specific diagnosis with a generic one is worse
+        # than no wrapper. So: quiet on success (the loop stays quiet), and on failure
+        # the re-bake's OWN OUTPUT IN FULL — not a tail, because the failing line's
+        # position in the run is not knowable from here — with the donor guess demoted
+        # to a footnote for the case where the output names nothing.
+        # Do NOT reintroduce a redirect to /dev/null here.
+        #
+        # THE MARKERS BELOW ARE LOAD-BEARING. tools/test_build_fast_lanes.py lifts the
+        # bytes between them and EXECUTES them against a stub re-bake that prints a
+        # known refusal, which is the only way to assert "the diagnosis reaches the
+        # author" rather than to assert it in prose. Keep them around the block, and
+        # keep the block using only ${TOOLS} from the enclosing script.
+        # >>> FAST_REBAKE_BLOCK
         echo "FAST: re-baking the level tree (tools/regenerate-level.sh)..."
         REBAKE_T0=$(date +%s)
-        if ! "${TOOLS}/regenerate-level.sh" > /dev/null; then
-            echo "ERROR: the FAST re-bake failed. Run tools/regenerate-level.sh directly to see why"
-            echo "  (it needs the out-of-repo donors: sonic_hack + skdisasm/AEON_SKDISASM_DIR)."
+        REBAKE_LOG=$(mktemp -t aeon-fast-rebake.XXXXXX)
+        # `$?` inside `if ! cmd; then` is the INVERSION's status (always 0), so the
+        # real exit code is captured here instead of reported as a confident zero.
+        set +e
+        "${TOOLS}/regenerate-level.sh" > "${REBAKE_LOG}" 2>&1
+        REBAKE_RC=$?
+        set -e
+        if [[ "${REBAKE_RC}" -ne 0 ]]; then
+            echo
+            echo "ERROR: the FAST re-bake failed (rc=${REBAKE_RC}). ITS OWN OUTPUT FOLLOWS —"
+            echo "  that is the actionable message; this wrapper knows nothing it does not."
+            echo "--------------------------- tools/regenerate-level.sh ---------------------------"
+            cat "${REBAKE_LOG}"
+            echo "---------------------------------------------------------------------------------"
+            echo "  Iterate on it directly with: tools/regenerate-level.sh"
+            echo "  If nothing above names a file or an id, suspect the out-of-repo donors"
+            echo "  (sonic_hack + skdisasm / AEON_SKDISASM_DIR) — but read the output first."
+            rm -f "${REBAKE_LOG}"
             exit 1
         fi
+        rm -f "${REBAKE_LOG}"
         REBAKE_SECS=$(( $(date +%s) - REBAKE_T0 ))
         echo "FAST: re-bake done in ${REBAKE_SECS}s."
+        # <<< FAST_REBAKE_BLOCK
     else
         echo
-        echo "ERROR: the committed level tree is STALE — the editor has saved since the last re-bake."
+        echo "ERROR: the committed level tree is STALE — it was not baked from the editor"
+        echo "  sources that are here now. That is a SAVE, an ADD, a RENAME or a DELETE:"
+        echo "  the message above names which arm fired and, for a set change, which files."
         echo "  The build consumes games/${GAME}/data/generated/ DIRECTLY (prebuild.sh is a no-op),"
         echo "  so building now would ship the PREVIOUS level data with no other warning."
         echo
-        echo "  REMEDY:  tools/regenerate-level.sh     (then commit the regenerated tree)"
+        echo "  REMEDY:  tools/regenerate-level.sh     (then commit the regenerated tree,"
+        echo "                                          INCLUDING the editor-source stamp)"
         echo "           FAST=1 ./build.sh ${GAME}     (dev loop: re-bakes automatically, skips gates)"
         echo
+        echo "  NOT a remedy: \`touch\`. Deleting an editor document lowers no mtime, so"
+        echo "  touching a file only silences the timestamp arm — the tree stays stale and"
+        echo "  the same build error comes back. See tools/level_staleness.py's docstring."
+        echo
+        exit 1
+    fi
+fi
+
+# THE FAST LOOP'S SEAM PRE-CHECK (2026-09-02, walkthrough finding b4).
+#
+# Binding a raster preset to a section no preset threads the chooser for is a
+# canonical-build REFUSAL (7 tools/test_effects_seam_gate.py failures) that FAST used
+# to be completely blind to: FAST sets NO_LINT=1, which skips the pytest lane, and the
+# post-build seam gate is under `FAST == 0`. So the iteration loop went green on a tree
+# the real build rejects, and the author found out at landing time, after the work.
+#
+# WHY A PRE-CHECK AND NOT THE WHOLE GATE. The gate's steps 1/2/2b read source only and
+# cost 0.014 s (measured 2026-09-02, 5 runs including interpreter startup, against a
+# 2.07 s FAST build on the same loaded box) — cheap enough to be unconditional and to run
+# BEFORE the build, so the failure arrives immediately. Step 3 reads the build's listing
+# and therefore cannot run before the build at all. FAST's value IS its speed; this buys
+# the whole authoring-error class for under 1% of the budget.
+#
+# WHAT IT DOES NOT CATCH, so the green line is not over-read: reachability. It cannot
+# tell whether the generated binding module reached the ROM — that is step 3, it needs
+# the listing, and only the canonical `./build.sh` runs it. FAST remains not a
+# merge/ship artifact, and the banner still says so.
+#
+# sonic4 only (demo has no act descriptor and no editor scenes), and it runs AFTER the
+# re-bake above so it reads the tree the build is about to consume.
+if [[ "$FAST" == "1" && "${GAME}" == "sonic4" ]]; then
+    echo "FAST: checking the editor-scene binding seam (source only)..."
+    if ! python3 "${TOOLS}/effects_seam_gate.py" --source-only; then
+        echo
+        echo "ERROR: the editor-scene binding seam is broken in the SOURCE — see above."
+        echo "  The canonical ./build.sh refuses this tree too (and with more checks), so"
+        echo "  fixing it now is strictly cheaper than finding it at landing time."
         exit 1
     fi
 fi
@@ -875,9 +983,15 @@ if [[ "$FAST" == "1" ]]; then
     fi
     echo "   VERIFICATION LANES WERE SKIPPED: s4lint · effects_budget_check · pytest tools"
     echo "   · emp_expect_fail · verify_level_bin · art_rom_report · s4budget"
-    echo "   · effects_seam_gate · bganim_room (BG-anim ceiling NOT checked)"
+    echo "   · bganim_room (BG-anim ceiling NOT checked)"
     echo "   · sprite_tilt_gate (the tilt routine is NOT executed)"
     echo "   · instashield_gate (neither ability jump-gate is executed) · ctags."
+    if [[ "${GAME}" == "sonic4" ]]; then
+    echo "   effects_seam_gate ran its --source-only half (seam spelling + raster binding);"
+    echo "   its REACHABILITY witnesses were NOT checked — they read this build's listing."
+    else
+    echo "   · effects_seam_gate (sonic4 only — ${GAME} has no act descriptor)."
+    fi
     echo "   This is a DEV artifact. It is byte-identical to the canonical ROM on this"
     echo "   tree, but NOTHING here checked that — run ./build.sh before you land it."
     echo "================================================================================"
