@@ -241,8 +241,8 @@ when = "sound_on"
 
 # ── Holes (declared as data now; boot_data enforcement rides K2) ──
 [[hole]]
-after = "Z80_IdleProgram"   # the Z80 idle runs from the label to `at`; MEASURED 0x3D0..0x3F8
-at = 0x3F8                   # post-hole AS data (PSG silence, post-DMA) resumes here
+after = "Z80_IdleProgram"   # the Z80 idle runs from the label to `at`; MEASURED 0x3C8..0x3F0
+at = 0x3F0                   # post-hole AS data (PSG silence, post-DMA) resumes here (idle 0x3C8..0x3F0)
                              # ⚠ was 0x3FE, and the comment said $3d8..$3fe, from 2026-08-01
                              # (a7375682/K1) — both went stale when the layout moved twice
                              # underneath them (boot region +8, idle body 38->40 B) and
