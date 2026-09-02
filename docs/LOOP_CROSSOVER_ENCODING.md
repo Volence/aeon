@@ -1,11 +1,24 @@
 # Loop crossover encoding — the cross-repo anchor
 
-**Status:** design anchor. This document exists so Aurora's paint tool and Aeon's engine
-parcel can be built against the same contract without either waiting for the other. Nothing
-here is implemented **except** the one piece that could not wait: the named `XOVER_*`
-constants and §6 change (6)'s preservation rule, landed on `fix/repaint-preserve-crossover`
-because the violator it names is a committed tool that writes the owner's live tree and
-would have silently eaten the first painted crossover. See §3.4 and §7 R4.
+**Status:** design anchor, **half built as of 2026-09-02** (`parcel/loop-crossover`, aeon
+`8a4313b5`). This document exists so Aurora's paint tool and Aeon's engine parcel can be
+built against the same contract without either waiting for the other.
+
+**THE BAKE HALF IS BUILT; THE ENGINE HALF IS NOT.** §5 rows 1-12 are done — a painted
+crossover now travels from the editor file through `bake_plane_cell`, into the attr-set's
+dedup key, out as `crossover.bin`, and into the ROM as `CrossoverTable`. §5 **row 13 does
+not exist**: nothing reads that table, so **a painted crossover moves ROM bytes and does not
+move a player.** Rules R1-R5 are built; R6 has no read site to live at.
+
+**Read the §5 and §7 tables' status columns for what exists** — every row carries its own
+verdict and the commit that earned it. Do not read any prose in this document, including
+this paragraph, as a substitute; §8.2 records at length what it cost the last time a design
+split was read as a status report, and a paragraph is exactly what goes stale first.
+
+Earlier, ahead of the rest: the named `XOVER_*` constants and §6 change (6)'s preservation
+rule, landed on `fix/repaint-preserve-crossover` because the violator it names is a
+committed tool that writes the owner's live tree and would have silently eaten the first
+painted crossover. See §3.4 and §7 R4.
 
 **Measured against:** aeon `fde35b2f` (`data(ojz): repaint the collision cells that made
 Knuckles fall through the floor`), worktree clean for
@@ -91,6 +104,11 @@ exactly `(heights, angle, solidity)` — `AttrSet.intern` in `tools/collision_pi
 Two cells that differ only in some other property intern to the *same index*, so no
 downstream table can distinguish them. The four tables the index addresses are
 `HeightMaps`, `HeightMapsRot`, `AngleTable`, `SolidityTable`
+*(the key is a 4-tuple since `8a4313b5` — `(heights, angle, solidity, xover)` — and there is
+a fifth table, `CrossoverTable`. **That change does not weaken the argument in this section,
+it is the argument's conclusion carried out:** the reason a field was needed is exactly that
+no existing member of the key could carry the transition, and widening the key is how the new
+one reaches a table at all. Nothing here about SOLIDITY has changed.)*
 (`games/sonic4/data/collision/collision_data.emp`), consumed by `probe_core`
 (`player_sensors.emp`), which uses `SolidityTable[attr] & d6` purely as a *class gate*
 (pass → surface, fail → `.cl_air`).
@@ -121,8 +139,8 @@ encodings.** They are disjoint word spaces that happen to share a file:
 | read by | `ojz_strip_gen.build_section_collision` | `ojz_strip_gen.apply_editor_collision_overlay` |
 | bits 9:0 | block id | shape index into the S&K base bank |
 | bit 10 / 11 | X-flip / Y-flip | X-flip / Y-flip |
-| bits 13:12 | **path A** solidity (`PATH_A_SOL_SHIFT`) | **this plane's** solidity (reuses `PATH_A_SOL_SHIFT`) |
-| bits 15:14 | **path B solidity — LIVE (`PATH_B_SOL_SHIFT = 14`)** | **unassigned — dropped by the bake** |
+| bits 13:12 | **path A** solidity (`PATH_A_SOL_SHIFT`) | **this plane's** solidity (`PLANE_SOL_SHIFT` since `8a4313b5`; it used to reuse `PATH_A_SOL_SHIFT`) |
+| bits 15:14 | **path B solidity — LIVE (`PATH_B_SOL_SHIFT = 14`)** | **`XOVER` — LIVE since `8a4313b5` (`XOVER_SHIFT = 14`); it was dropped by the bake before that** |
 | returns | *two* attr bytes (A, B) from one word | *one* attr byte |
 
 > **THE FIELD LIVES IN `bake_plane_cell`'S WORD ONLY.**
@@ -138,10 +156,11 @@ encodings.** They are disjoint word spaces that happen to share a file:
   `section_<S>.collattrb.bin` (plane B), same 16-bit big-endian cell word, same bit
   positions in both.
 
-A naming hazard worth fixing in the same parcel: `bake_plane_cell` currently reads
-*this plane's* solidity through the constant named `PATH_A_SOL_SHIFT`. Specify a distinct
-`PLANE_SOL_SHIFT = 12` for the per-plane word, so the two encodings stop sharing constant
-names. See §6, change (0).
+~~A naming hazard worth fixing in the same parcel: `bake_plane_cell` currently reads
+*this plane's* solidity through the constant named `PATH_A_SOL_SHIFT`.~~ **FIXED `8a4313b5`:**
+`PLANE_SOL_SHIFT = 12` exists for the per-plane word and `bake_plane_cell`,
+`repaint_ojz_collision.py` and the tests all spell it. The two encodings no longer share a
+constant name. See §6, change (0).
 
 ### 3.2 What each value means, including zero and the reserved one
 
@@ -295,15 +314,15 @@ accounted for.
 | 2 | serialise bits 15:14 into the cell word | Aurora `collision-cell-word.ts` | **DOES NOT EXIST** |
 | 3 | write `section_N.collattr.bin` / `.collattrb.bin` | Aurora | exists — file format unchanged, 2 bytes/cell, big-endian |
 | 4 | read both plane files, hand each word to the baker | `tools/ojz_strip_gen.py` `apply_editor_collision_overlay` | exists — **no change needed** |
-| 5 | extract `XOVER`, pass it into the intern key | `tools/collision_pipeline.py` `bake_plane_cell` | **CHANGE REQUIRED** — today it drops bits 15:14 |
-| 6 | widen the dedup key to 4-tuple, store the value | `tools/collision_pipeline.py` `AttrSet.intern` / `AttrSet.entries` | **CHANGE REQUIRED** |
-| 7 | emit a 5th 256-byte table | `tools/collision_pipeline.py` `emit_tables` / `emit_stub_tables` | **CHANGE REQUIRED** — new `crossover.bin` |
-| 8 | write the table to the data dir | `tools/gen_collision_data.py` | **CHANGE REQUIRED** — one more output file |
+| 5 | extract `XOVER`, pass it into the intern key | `tools/collision_pipeline.py` `bake_plane_cell` | **DONE** `8a4313b5` — and it does NOT gate the mark behind solidity (§6 change 1) |
+| 6 | widen the dedup key to 4-tuple, store the value | `tools/collision_pipeline.py` `AttrSet.intern` / `AttrSet.entries` | **DONE** `8a4313b5` — `xover` is a REQUIRED argument, so a new call site cannot drop it the way `bake_plane_cell` did |
+| 7 | emit a 5th 256-byte table | `tools/collision_pipeline.py` `emit_tables` / `emit_stub_tables` | **DONE** `8a4313b5` — `crossover.bin`; `tools/import_sk_collision.py` writes the zero form too, so a fresh tree has all five |
+| 8 | write the table to the data dir | `tools/gen_collision_data.py` | **DONE** `8a4313b5` — no edit was needed: it writes whatever `emit_tables` returns, as does `ojz_strip_gen.generate`'s re-emit |
 | 9 | attr bytes → per-column collision strips | `tools/ojz_strip_gen.py` `build_section_collision` / `write_strips_to_file` | exists — **no change**; the attr byte is still one byte |
 | 10 | strips → 16×16 blocks with embedded dual-plane collision, S4LZ | `tools/ojz_block_gen.py` (`STRIP_COLL_OFFSET_A/B`, 128 B per plane per column) | exists — **no change**, no ROM format change |
-| 11 | table blob into the ROM | `games/sonic4/data/collision/collision_data.emp` — new `pub data CrossoverTable = embed("…/crossover.bin")` | **CHANGE REQUIRED** |
-| 12 | placement | `games/sonic4/map.toml` (`collision_data` section, boundary key `HeightMaps`) | **CHANGE REQUIRED** — adds 256 B to the section; byte-moving, so the pin/refreeze ritual applies |
-| 13 | once-per-frame read + write to `Sst.layer` | engine — see §6 | **DOES NOT EXIST** |
+| 11 | table blob into the ROM | `games/sonic4/data/collision/collision_data.emp` — `pub data CrossoverTable` | **DONE** `8a4313b5` — with an `ensure` tying its length to `SolidityTable`'s, the pairing the shared attr index depends on |
+| 12 | placement | `games/sonic4/map.toml` (`collision_data` section, boundary key `HeightMaps`) | **NO EDIT NEEDED** — `order` lists section HEAD-labels only, and `CrossoverTable` is inside `HeightMaps`' section. Still **byte-moving**: measured `Map_Sonic`/`DPLC_Sonic`/`Art_Sonic` +256 B, the Z80 banks unmoved (their alignment padding absorbed it), `s4.bin` +16 B — the appended deb2 entry for the new symbol. **The sigil pin/refreeze ritual still applies.** |
+| 13 | once-per-frame read + write to `Sst.layer` | engine — see §6 | **STILL DOES NOT EXIST.** This is the row that decides whether a loop works. Rows 1-12 mean the mark reaches the ROM; nothing reads it. |
 
 **The load-bearing property of this route: no per-cell ROM growth.** The crossover rides in
 the *identity* of the interned attr byte, not alongside it, so steps 9 and 10 are untouched
@@ -376,12 +395,12 @@ paying for.* Every rule in this document, with its enforcement site:
 
 | rule | statement | enforced at | exists? |
 |---|---|---|---|
-| **R1** | `XOVER == 3` is illegal | `tools/collision_pipeline.py` `bake_plane_cell` — raise, do not clamp, do not warn | **NEW** |
-| **R2** | plane-A word must not carry `XOVER_TO_A`; plane-B must not carry `XOVER_TO_B` | `tools/ojz_strip_gen.py` `apply_editor_collision_overlay` (the only site that knows *which* plane a word came from — `bake_plane_cell` does not) | **NEW** |
-| **R3** | bit 14 means path-B solidity in the donor word and `XOVER` in the per-plane word, and no caller crosses them | `tools/test_collision_consistency.py` — a currency test asserting `bake_cell` and `bake_plane_cell` disagree on the same 16-bit input in the documented way | **NEW** |
+| **R1** | `XOVER == 3` is illegal | `tools/collision_pipeline.py` `bake_plane_cell` — raise, do not clamp, do not warn | **DONE** `8a4313b5` — it raises. Pinned by `test_r1_the_reserved_crossover_value_raises_and_the_legal_one_does_not` with the 0b10 converse |
+| **R2** | plane-A word must not carry `XOVER_TO_A`; plane-B must not carry `XOVER_TO_B` | `tools/ojz_strip_gen.py` `apply_editor_collision_overlay` (the only site that knows *which* plane a word came from — `bake_plane_cell` does not) | **DONE** `8a4313b5` — it raises, and the MIRRORED plane B (no `.collattrb.bin`) is subject to it too, with the message saying so. Pinned by `test_r2_a_self_mark_is_refused_on_the_plane_that_cannot_read_it`, all three asymmetric cases |
+| **R3** | bit 14 means path-B solidity in the donor word and `XOVER` in the per-plane word, and no caller crosses them | `tools/test_collision_consistency.py::test_r3_the_two_bakers_read_bits_15_14_differently` | **DONE** `8a4313b5` — and change (0)'s `PLANE_SOL_SHIFT` landed with it, so `bake_plane_cell` no longer borrows the donor word's `PATH_A_SOL_SHIFT` |
 | **R4** | every rewriter of a per-plane cell word preserves bits 15:14 | `tools/test_collision_consistency.py::test_repaint_word_preserves_the_loop_crossover_mark` (the function) and `::test_repaint_write_path_preserves_the_crossover_on_a_synthetic_plane` (the tool's real write path, incl. `Section.set_word`'s two tile rows) and `::test_run_reports_a_marked_target_as_a_notice_and_still_succeeds` (the NOTICE, and that a mark does NOT change the exit code) | **DONE** — both tests green, both red before the fix; the only rewriter on our side is now compliant |
-| **R5** | the emitted `crossover.bin` matches the painted cells | `tools/collision_consistency.py` — a new rule in the existing gate, run over the **baked artifact** like rules A and B | **NEW** |
-| **R6** | the engine's layer mapping matches the encoding | `.emp` `ensure` at the read site (see `docs/EMP_PITFALLS.md` §3 — the guard must be in a **reachable** module or it is dead) | **NEW** |
+| **R5** | the emitted `crossover.bin` matches the painted cells | `tools/test_collision_consistency.py::test_r5_an_authored_crossover_reaches_the_emitted_table` — the real `apply_editor_collision_overlay` + `emit_tables` path over a synthetic two-cell fixture, with §8.1's converse control | **DONE** `8a4313b5`, **but NOT where this row said.** It is a FIXTURE test, not a rule inside `collision_consistency.py`. Reason: bits 15:14 are zero in all 18 shipped files, so a rule over the baked artifact would examine a population of ZERO marked cells — and that gate REFUSES an empty population by design (`check()`'s vacuity guards). A rule that can never fire is the thing this document spends §8.1 warning about. Revisit when real content carries a mark |
+| **R6** | the engine's layer mapping matches the encoding | `.emp` `ensure` at the read site (see `docs/EMP_PITFALLS.md` §3 — the guard must be in a **reachable** module or it is dead) | **STILL NEW** — there is no read site to put it at (row 13) |
 | — | loop-shaped reachability | **Aurora**, at paint time (§8) | **NEW, and not ours** |
 
 **Why `tools/collision_consistency.py` and `tools/test_collision_consistency.py`.** They are
@@ -452,9 +471,13 @@ than no gate.
 
   **⚠ THAT SENTENCE IS THE DESIGN, NOT THE STATE OF THE TREE — corrected 2026-08-29 after it
   was read as a statement of fact.** It describes which side of the wall each check BELONGS on.
-  As of this correction, **exactly one of the six is built: R4.** R1, R2, R3, R5 and R6 are
-  **specified and not implemented**, exactly as the §7 table has always marked them (`NEW`
+  At that correction, **exactly one of the six was built: R4.** R1, R2, R3, R5 and R6 were
+  **specified and not implemented**, exactly as the §7 table had always marked them (`NEW`
   against `DONE`) — the table was right and this prose was ahead of it.
+  **AS OF 2026-09-02 (`8a4313b5`) FIVE OF THE SIX ARE BUILT: R1-R5. R6 is not, because there
+  is no engine read site to put it at (§5 row 13).** R5 landed as a fixture test rather than as
+  a rule inside `collision_consistency.py` — see its §7 row for why a rule there would examine
+  a population of zero.
   **Read the §7 table's status column for what exists; read this split for where it goes.**
 
   **How it went wrong, because the mechanism matters more than the correction.** The present
@@ -465,11 +488,15 @@ than no gate.
   A design split and a status report look identical in prose and are separated only by tense.
   **Write a division of responsibility in the future tense, or put the status beside it.**
 
-  **And note what R1's absence costs specifically**, since it is the one with a live consequence:
+  ~~**And note what R1's absence costs specifically**, since it is the one with a live consequence:
   R1 (`XOVER == 3` hard-errors) is exercised by nothing, because `bake_plane_cell` does not read
   bits 15:14 at all (`tools/collision_pipeline.py:229`; its docstring enumerates `9:0`, `10`,
   `11`, `13:12`). So the illegal value is not merely unchecked — it is undetectable on the bake
-  path, and an act painted full of `XOVER == 3` produces a byte-identical ROM and a green build.
+  path, and an act painted full of `XOVER == 3` produces a byte-identical ROM and a green build.~~
+  **FIXED 2026-09-02 (`8a4313b5`): `bake_plane_cell` reads the field and R1 raises on 3.** Kept
+  struck through rather than deleted, because the paragraph is the clearest statement anywhere of
+  what "the field is dropped" actually bought — and the line number in it had already rotted
+  before the fix, which is its own lesson about citing one.
   Booked in `docs/DEFERRED_WORK.md` under the authored-crossover-never-reaches-the-ROM entry.
 - **Aurora checks the loop** — at paint time, where the *intent* is present. You know a
   stroke was a loop; the bake only knows it produced divergent cells. Refusing to author a
