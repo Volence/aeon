@@ -383,6 +383,13 @@ if [[ ! -x "${TOOLS}/bin/salvador" ]]; then
     cp "${TOOLS}/salvador/salvador" "${TOOLS}/bin/salvador"
 fi
 
+# Announce the suite root and the empyrean checkout, and the step that produced each
+# (empyrean contract/SUITE_PATHS.md: "say which step answered" before working against
+# the path). On BOTH paths, because the FAST re-bake resolves its donors through the
+# same resolver; ~30 ms. A set-but-wrong EMPYREAN_SUITE_ROOT / EMPYREAN_DIR is one
+# named line on stderr and exit 1, which `set -e` makes build-fatal HERE, not deeper.
+echo "Resolving suite paths..." && python3 "${TOOLS}/suite_paths.py"
+
 # ---------------------------------------------------------------------------
 # LEVEL-DATA STALENESS GATE  (closes the silent-stale-data trap, 2026-08-19)
 # ---------------------------------------------------------------------------
