@@ -40,6 +40,39 @@ if b == 1 { acc = acc | BIT_B }
 return acc
 ```
 
+**AMENDED 2026-09-02 — the trap is NARROWED, not closed.** Sigil now refuses a comparison
+whose operands are of different kinds (§12), and a folded `()` meeting a value of any other
+kind is such a comparison. So the fold is caught **at the comparison**, loudly, and the
+refusal carries this section's guidance in its own text:
+
+```
+[Error] [eq.cross-type] `==` not defined for unit and int — … One operand is `unit`, which
+        is a value nothing produced deliberately: a LIKELY cause is an `if` in value position
+        whose taken branch yields nothing, which folds to `()` silently (see the `.emp`
+        pitfalls, §1 — the silent unit fold). Check what produced the `unit` side; `unit` has
+        other sources, so treat this as a lead rather than the answer
+```
+
+**Read exactly what moved, and do not read this entry as fixed.** Three things are still true:
+
+- **The fold itself is still silent.** A block-tail `if` with no `else` still evaluates to
+  `()` and sigil says nothing *where the `()` is produced*. Measured 2026-09-02 on sigil
+  `6a8b3ecd`: the `NEST` shape above, reproduced in a throwaway probe and called as
+  `NEST(0,0)` against an int, produced **exactly one** `[Error]` — the comparison's. Not
+  two. Nothing was reported at the fold.
+- **A `()` that is never compared is still silently wrong.** The refusal is a property of
+  `==`/`!=`, not of the fold. A folded `()` that flows into a mask, a length, an emitted
+  record or another fn's argument reaches none of this machinery and is exactly as silent
+  as it was before. Whether the wrong specialization this entry records went that way or
+  through a comparison was not re-established; assume nothing about your own fold.
+- **The hint is a lead, not a verdict.** It says *likely cause* because the compiler has
+  established the operand's KIND and nothing about its provenance; `unit` also comes from an
+  empty `else`, a statement used as a value, and a fn falling off its end.
+
+The differential-twin `ensure` this entry used to require is therefore a belt-and-braces
+measure rather than the only surface — but the flat-accumulator rule above is unchanged, and
+it is still what prevents the fold instead of catching it.
+
 ## 2. Comptime-helper imports don't travel to call sites
 
 **Trap:** a `comptime fn`'s free names resolve at its **call site**, not in its defining
@@ -256,3 +289,134 @@ with the explicit width — `lea (Table).l, a1` — or as an immediate `movea.l 
 the operand is a template argument (`({ptable}).l` does not parse). Same 6 bytes, same
 cycles, base-invariant measurement. When the placer names a pair that has not changed,
 suspect a width choice in the EARLIER section of the pair before suspecting the map.
+
+## 12. Comparing two things that can never be equal — the always-RED guard
+
+**Trap:** comptime `==`/`!=` used to be **total** — any two values of different kinds were
+"simply not equal", with no diagnostic. That reads as permissive; it is the opposite. It
+turns a mistake into a **constant**, and a guard built on a constant is not a guard. It has
+two signs, and both were hit live:
+
+- **always RED** — a bareword naming a `pub data` symbol resolves to a LABEL, so
+  `ensure(first_mismatch([Variant_Water_Deep], [variant(shift_r: 1, shift_g: 1)]) == -1, …)`
+  compared a label against a struct, was always unequal, and reported a mismatch for the
+  twin that AGREES. No value of either side could have made it pass;
+- **always GREEN** — two different struct types compared FALSE rather than refusing, so a
+  typo'd constructor read as an ordinary mismatch instead of a type error.
+
+Both shapes are the sigil lane's measurements of the OLD behaviour (item-5 comptime probe),
+carried across rather than re-run here — the pre-change compiler is not available to this
+tree. Everything below was re-measured against `6a8b3ecd` on this tree.
+
+Since 2026-09-02 (sigil `6a8b3ecd`) equality is defined **within a comparison class** and
+**refuses across classes**, so both signs are now build errors:
+
+```
+[Error] [eq.cross-type] `==` not defined for struct `pal_variant` and int — no value of one
+        can equal a value of the other, so this comparison is always false; compare
+        same-typed values (or their fields)
+```
+
+Aggregates recurse, so the refusal lands whether the values meet directly (`[a] == [b]`) or
+one element at a time inside a helper like `first_mismatch`.
+
+### The two cross-kind comparisons that stay DEFINED — read these before writing a workaround
+
+Everything else across classes refuses. **These two do not**, deliberately. Refusing either
+would fire on correct code all over this repo's effects tables, so if you meet one, it is
+not the trap and it needs no workaround:
+
+1. **A label beside `0`.** `0` is how `.emp` spells an absent symbol in a pointer slot —
+   `preset(variants: [Variant_Water_Deep, 0])` is the ordinary spelling of "one variant, the
+   second slot empty", and every OJZ preset carries it. A real label is never `0`, so
+   `slot == 0` is always false and is still the emptiness test you want. Measured on
+   `6a8b3ecd`: `preset()`'s own live guard `ensure(raster == 0 || patched == 0, …)` fired
+   with **its own message** when handed a real label in both slots (an ANSWER of false, not
+   a refusal), and `variants: [Raster_Program_None, 0]` builds clean.
+2. **A newtype or `fixed<>` value beside a bare int.** This is the language's erasure rule
+   (`empyrean/docs/SIGIL_SPEC2_LANGUAGE.md` §4.1/§8.3 — newtypes, `fixed<>` and refinements
+   are erasing; **not** this document's §8) and it predates the change. Measured:
+   `Angle(5) == 5` is true and `Angle(5) == 6` is false — it answers,
+   in both directions. Two DIFFERENT newtypes do **not** compare:
+   `Angle(10) == GridX(10)` refuses with ``[eq.cross-type] `==` not defined for newtype
+   `Angle` and newtype `GridX` ``.
+
+**One asymmetry, measured here and easy to trip over:** the `0`-means-empty spelling lives in
+`[Label; N]` array slots and in parameter DEFAULTS. An explicit bare `0` passed to a
+**scalar** `Label` argument is refused — ``expected a label (a `Label` argument), got int`` —
+by an argument-kind check that is **not** `[eq.cross-type]`. Same keyword, different
+mechanism; do not diagnose it as a comparison problem.
+
+### The trap with teeth: the one-keystroke "fix" that makes the guard permanently vacuous
+
+An always-red guard looks like a broken assertion, and the cheapest way to make it stop
+shouting is to flip its constant — `== -1` becomes `== 0` and the build goes green. That
+edit does not fix anything: it selects the *other* constant answer, and the guard is now
+permanently vacuous with nothing left to notice. On a pre-`6a8b3ecd` sigil that is the whole
+failure mode. Since `6a8b3ecd` the compiler refuses the comparison instead, which removes the
+keystroke — **but only when the two sides differ by KIND.** A comparison that is constant
+because you compared a value to itself, or to a copy of its own construction, still refuses
+nothing and still needs §10's inversion.
+
+Note also that the `unit`-operand hint (§1) says *likely cause*. `unit` has other sources —
+an empty `else`, a statement used as a value, a fn falling off its end — so read it as a lead
+about one operand's kind, never as a verdict about where it came from.
+
+### The shape to reach for instead
+
+Hold the value in a module-level `const` and feed BOTH the emitted twin and the guard from it:
+
+```emp
+const WATER_DEEP = variant(shift_r: 1, shift_g: 1)
+pub data Variant_Water_Deep: pal_variant = WATER_DEEP
+ensure(WATER_DEEP == variant(shift_r: 1, shift_g: 1), "water-deep twin drifted")
+```
+
+`WATER_DEEP` is a struct VALUE on both sides, so the comparison is in-class and the guard can
+genuinely fail. Naming the `pub data` symbol was never comparing values — it was comparing an
+address to a struct. (§3's related note still stands for the other direction: an `ensure`
+comparing an imported DATA symbol to an integer at module scope is unevaluable.)
+
+**Rule:** if a guard compares two things and you cannot name a change to either side that
+would flip the answer, it is not a guard.
+
+**Source.** The language-lawyer account — the full class table, the discrimination that
+proved "always red" rather than merely "wrong", and the diagnostic's exact wording — is
+sigil's `docs/EMP_PITFALLS_EQUALITY.md` §12, read at sigil
+`3aa6f24028b0d4eed5d9602d4b4a0afee3bc06ea`.
+
+## 13. A `comptime fn` signature's `[T; N]` is now a real length contract
+
+**Trap:** a `[T; N]` annotation in a `comptime fn` signature used to check NOTHING. A
+`[Label; 2]` parameter accepted a three-element argument and reported `v.len == 3`; the
+return annotation was read by nothing at all. The wrong length surfaced only much later, when
+a record built from the value was emitted — blamed on the **consumer's** `pub data` line:
+
+```
+[Error] array length mismatch: expected 2 element(s), got 3
+        @ the whole `pub data OJZ_Preset_Sec3: EffectsPreset = preset(...)` line
+```
+
+That line is innocent; its author supplied none of the three elements. (The OLD behaviour and
+that blame site are the sigil lane's measurement, carried across; the pre-change compiler is
+not available to this tree.)
+
+Since 2026-09-02 the length is checked at the signature — a parameter at the CALL, naming the
+fn and the slot; a return at the fn that returned it. Both measured on `6a8b3ecd`:
+
+```
+[Error] array length mismatch: expected 2 element(s), got 3 — parameter `hand` of
+        `probe_pair` is declared with a fixed length
+[Error] array length mismatch: expected 2 element(s), got 3 — the return type of
+        `probe_three` is declared with a fixed length
+```
+
+**Scope, deliberately narrow.** Array LENGTH only. A signature annotation still says nothing
+about element TYPES, and a parameter still binds loosely when the argument is not an array at
+all — so `hand: array` remains the way to say "any array", and `[Label; 2]` now means what it
+looks like.
+
+**Rule:** spell the length when you mean it. `-> [Label; 2]` is worth writing now, because it
+fails at the fn that broke it instead of at whoever eventually emitted the result. (Sigil's
+`docs/EMP_PITFALLS_EQUALITY.md` §13 at `3aa6f24028b0d4eed5d9602d4b4a0afee3bc06ea` for the
+compiler-side scope.)
