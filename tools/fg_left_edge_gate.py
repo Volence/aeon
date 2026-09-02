@@ -341,7 +341,14 @@ def main():
         print(f"      server romPath={st['romPath']} romBytes={st['romBytes']} (matches)")
 
         syms = {}
-        for name in ("Debug_Scene_Index", "Camera_Y", "VDP_Shadow_Table"):
+        # `Parallax_Current_Config` is read by check_scene() and was NOT in this tuple.
+        # Chain 197's rewrite added the read and not the name, so every run died with
+        # KeyError before reaching a single scene — which is why this gate's declining arm
+        # had never executed once. The failure looked like "nobody ran it"; it was
+        # "it could not run". Those two leave the same evidence: no result.
+        # If you add a syms[...] read to check_scene(), add its name HERE in the same edit.
+        for name in ("Debug_Scene_Index", "Camera_Y", "VDP_Shadow_Table",
+                     "Parallax_Current_Config"):
             syms[name] = await lookup(c, name)
 
         await c.call("emulator/run_frames", {"frames": args.settle})
