@@ -487,8 +487,8 @@ item 4's whole point is that an author can express it.
 The latch's derivation becomes:
 
 ```
-Effects_World_Y[ch]  <- approach(Effects_World_Y[ch], Target[ch], Speed[ch])     ; §5.2, writes back
-Effects_Screen_L[ch] <- Effects_World_Y[ch] + sweep(Motion[ch], Logic_Tick) - Camera_Y    ; §5.1
+Effects_World_Y[ch]  <- approach(Effects_World_Y[ch], Target[ch], RateMask[ch], Logic_Tick)  ; §5.2
+Effects_Screen_L[ch] <- Effects_World_Y[ch] + sweep(Motion[ch], Phase[ch], Logic_Tick) - Camera_Y
 ```
 
 Two terms, composed by addition, exactly as S.C.E. composes mean and ripple (§2.1). The order is
