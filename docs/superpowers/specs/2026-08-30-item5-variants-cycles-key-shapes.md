@@ -364,7 +364,7 @@ the file is a valid `bands`-carrying document under today's schema:
       "on": { "pal_region": { "addr": 72, "slot": 0, "pal_line": 2, "entry": 4, "count": 3 } } }
   ],
   "cycles": [
-    { "line": 2, "first": 8, "count": 4, "period": 8, "dir": 0 }
+    { "line": 2, "first": 8, "count": 4, "period": 9, "dir": 0 }
   ],
   "variants": [
     { "shift_r": 1, "shift_g": 1 },
@@ -378,6 +378,23 @@ Bound from the sidecar exactly as `rasterRef` is today
 `{"bgLayoutRef": null, "paletteRef": null, "rasterRef": "ojz_sec5_showcase", "sceneRef": null}`).
 Whether ONE ref key now carries all three channels of the document or each channel gets its
 own key is §4, Q1.
+
+**`"period": 9` is not a typo, and the unit is the reason** *(AMENDED 2026-09-02 — it read
+`8` when this page was written, which was wrong)*. **The document's `period` is in DOCUMENT
+FRAMES** — the author's meaning, "a rotation every N frames" — and under the hub's Q7 ruling
+the generator absorbs the engine's off-by-one by emitting `period - 1`. Shipped
+`OJZ_ShimmerCycle` carries the engine byte `08` (§1.4's derived image
+`00 01 | 02 08 04 08 00 00`) and therefore runs on a **9**-frame cadence, so a document that
+is byte-for-byte identical to it must say `9`. Written as `8` this document would emit `07`
+and run the shimmer at 8 frames — one frame faster than the shipped screen, visibly.
+
+*Ruling: empyrean `docs/AURORA_EFFECTS_SCHEMA.md` §7.2, ruling Q7, read at empyrean
+`origin/main` = `38f6df4130bcc00f5c859d78e0e30ff7c5fdb349`.*
+
+*Note: `9` is the FAITHFUL value — it preserves the shipped shimmer exactly. Whether the
+owner would rather have `8` (a shimmer one frame faster than today's) is a LOOK call, parked
+as decision card **`d-51-shimmer-cadence-look`** in `docs/decisions.jsonl`. That card is
+about whether to depart from faithfulness; it is not a reason to write `8` here.*
 
 What that document lowers to is §3. Its `cycles` entry is byte-for-byte `OJZ_ShimmerCycle`
 and its `variants[0]` is byte-for-byte `Variant_Water_Deep`, which is what §3.4 proves.
@@ -417,6 +434,12 @@ pub data EditorCycle_OJZ_Act1_ojz_sec3_shimmer: PalCycleScript1 = cycle_script1(
 pub data EditorVariant_OJZ_Act1_ojz_sec3_shimmer_0: pal_variant = variant(shift_r: 1, bias_r: 0, shift_g: 1, bias_g: 0, shift_b: 0, bias_b: 0, lines: 14)
 ```
 
+- **`period: 8` in that emitted call is the ENGINE BYTE, and it is correct as written — it
+  is not the `9` §2.3's document says.** The two numbers differ by one on purpose: the
+  document is in DOCUMENT FRAMES and the generator emits `period - 1` (hub §7.2, ruling Q7),
+  so §2.3's `"period": 9` lowers to exactly the `period: 8` above, which is exactly what
+  `OJZ_ShimmerCycle` carries by hand (`ojz_effects.emp:502-503`). Reading them as a
+  contradiction is the mistake this note exists to prevent.
 - Names follow `ActNames.raster()`'s act-qualified rule and its stated reason
   (`effects_gen.py:1274-1287`): `EditorCycle_<CAP>_<id>` and `EditorVariant_<CAP>_<id>_<slot>`.
   A `null` slot emits nothing.
@@ -482,23 +505,63 @@ as `Variant_Water_Deep` (`:904`). Two layers, both red-first:
 
 1. **Text golden, no build (tools/test_effects_gen.py).** Render the worked document and
    assert the emitted `cycle_channel(...)` / `variant(...)` argument lists equal the hand
-   call text at `ojz_effects.emp:503` and `:904` after defaults are made explicit. Red
-   first: mutate `period` to 7 in the fixture and watch it fail by name before the real
-   document passes. The existing refusal test `test_the_reserved_wave2_keys_are_refused_BY_NAME_not_as_unknown`
+   call text at `ojz_effects.emp:503` and `:904` after defaults are made explicit. **Red
+   first, and the mutation is on the DOCUMENT side:** change the fixture document's
+   `"period"` from `9` to `8` (§2.3), which lowers to `cycle_channel(..., period: 7, ...)`
+   against the hand call's `period: 8`, and watch it fail by name before the real document
+   passes. *(AMENDED 2026-09-02: this used to read "mutate `period` to 7 in the fixture",
+   which was ambiguous about which side 7 lives on. 7 is an EMITTED byte, never a document
+   value; the document value that produces it is 8.)* The existing refusal test `test_the_reserved_wave2_keys_are_refused_BY_NAME_not_as_unknown`
    (`:1406-1416`) must be INVERTED for `variants`/`cycles` in the same parcel (it goes red
    the moment the keys are accepted, as its author intended for `bands`'
    `test_the_real_repo_ships_no_preset_documents`, `EFFECTS_CONSUMER_CONTRACT.md:336-341`).
 2. **Byte golden, on the built ROM.** Read the span at `EditorCycle_OJZ_Act1_ojz_sec3_shimmer`
    and at `OJZ_ShimmerCycle` out of `s4.debug.bin` at the listing's own addresses — the
    exact method step 2 used for `ep_raster` (`docs/DEFERRED_WORK.md:16650-16656`) — and
-   assert the two 8-byte spans are equal; likewise the two `pal_variant` spans. Red first:
-   the same period-7 mutation, rebuilt, differs at byte 5. This can live as a row in
+   assert the two 8-byte spans are equal; likewise the two `pal_variant` spans. **Red
+   first: the same document-side mutation (`"period"` 9 → 8), rebuilt, differs at index 5
+   of the 8-byte image** — `00 01 | 02 08 04 08 00 00` becomes `00 01 | 02 08 04 07 00 00`.
+   This can live as a row in
    `tools/effects_seam_gate.py` (it already parses `s4.lst` for this module's symbols) or in
    `tools/effects_gates.py`; **no gate is added by THIS parcel** — it is the implementing
    parcel's, and the effects gate ritual (`CLAUDE.md`, "Effects gate ritual") applies to it.
-   A comptime `first_mismatch(a, b) == -1` ensure (`raster_dsl.emp:3402`; the idiom at
-   `ojz_effects.emp:213-216, 1273-1276`) is the in-`.emp` alternative for arrays; whether
-   two `pal_variant` STRUCT values can be compared that way is **NOT VERIFIED**.
+
+   > **DO NOT write this byte-golden as a comptime `first_mismatch` ensure against the hand
+   > `pub data` twin.** *(AMENDED 2026-09-02. This page used to offer
+   > `first_mismatch(a, b) == -1` — `raster_dsl.emp:3402`, the idiom at
+   > `ojz_effects.emp:213-216, 1273-1276` — as "the in-`.emp` alternative for arrays", with
+   > the struct case marked NOT VERIFIED. It has since been verified, and the verdict
+   > refutes the recommendation. The recommendation is withdrawn.)*
+   >
+   > The probe (`docs/superpowers/probes/2026-09-02-item5-comptime-probe.md`, verdict Q2-e,
+   > evidence RED-4) measured the hand twin in exactly this position: *"**NO.** Bare in an
+   > ensure: `unknown name`. Inside an array literal it resolves as a LABEL and
+   > label-vs-struct `!=` is always true, so
+   > `first_mismatch([Variant_Water_Deep], [variant(...)])` reports index 0 for the EQUAL
+   > twin too (always-red, useless). Field access on the data symbol: `unknown name`."*
+   >
+   > **Why this matters more than a stale sentence normally would.** The construction is
+   > **always-red** — it fires on correct code — and the single most natural edit anyone
+   > makes to take an always-red guard green is to flip the expectation from `== -1` to
+   > `== 0`. The probe measured that step too: *"with the EQUAL twin and `== -1` it fires
+   > 'index 0'; with the EQUAL twin and `== 0` it passes."* So one keystroke converts an
+   > always-red guard into a **permanently vacuous** one, and it looks like debugging the
+   > whole way. This page's own withdrawn sentence sat next to that trap as an invitation,
+   > which is the reason it is deleted rather than merely qualified.
+   >
+   > **Corroboration, stated as the sigil lane's measurement with their stated limit**
+   > (2026-09-02): `first_mismatch` appears nowhere in sigil's corpus — no `.emp` fixture,
+   > no Rust test, zero hits across master — so withdrawing this recommendation breaks no
+   > fixture on their side. Their limit, in their words: the grep rules out **the specific
+   > construction**, not the general shape of a cross-type comparison fixture.
+   >
+   > **What to do instead:** layers 1 and 2 above, both Python, neither of which needs
+   > comptime equality at all. If a future parcel insists on an in-`.emp` guard, the only
+   > shape the probe proved is a module-level `const X = variant(...)` feeding BOTH the
+   > `pub data` and the ensure (probe verdict Q2-f) — and the probe's "Left open" item 1
+   > records that whether such a `const` is visible ACROSS modules (generated
+   > `effects_scenes.emp` ↔ hand `ojz_effects.emp`), which is the case item 5 actually
+   > needs, **was not probed**.
 
 The reference spans are the derived images in §1.3/§1.4 (`00 01 02 08 04 08 00 00` and
 `01 00 01 00 00 00 0E 00`); the gate should read them from the listing, not from this page.
