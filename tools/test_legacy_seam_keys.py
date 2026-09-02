@@ -86,7 +86,7 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # tools/, for suite_paths
-from suite_paths import suite_path  # noqa: E402
+from suite_paths import SUITE_ROOT_ENV, suite_path  # noqa: E402
 
 TOOLS = Path(__file__).resolve().parent
 LEGACY_CPP = suite_path("oracle-old", "linux-port", "gui", "ControlSocket.cpp")
@@ -364,7 +364,7 @@ def _require_cpp() -> str:
             "unreadable, CONTRACT/SHAPES/the population pins above are unchecked folklore and "
             "every other row in this file is measuring our tools against a table nothing "
             "re-derived. A skip would render that as a deliberate choice.\n"
-            "Fix by restoring the peer checkout beside this one, or point AEON_SUITE_ROOT at "
+            f"Fix by restoring the peer checkout beside this one, or point {SUITE_ROOT_ENV} at "
             "the directory that holds them.")
     return LEGACY_CPP.read_text()
 

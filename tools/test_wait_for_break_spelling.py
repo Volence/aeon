@@ -41,7 +41,7 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # tools/, for suite_paths
-from suite_paths import suite_path  # noqa: E402
+from suite_paths import SUITE_ROOT_ENV, suite_path  # noqa: E402
 
 TOOLS = Path(__file__).resolve().parent
 
@@ -74,8 +74,8 @@ LEGACY_CPP = suite_path(*LEGACY_CPP_PARTS)
 # tree's actual policy is "the donors are part of the checkout"; this row was the anomaly, not
 # the policy. Failing here makes the row agree with its five siblings.
 #
-# The escape hatch is `AEON_SUITE_ROOT`, which relocates the whole suite for every tool at
-# once. There is deliberately no per-row opt-out: an opt-out would restore exactly the silent
+# The escape hatch is `EMPYREAN_SUITE_ROOT` (`suite_paths.SUITE_ROOT_ENV`), which relocates the
+# whole suite for every tool at once. There is deliberately no per-row opt-out: an opt-out would restore exactly the silent
 # skip this replaced.
 
 # A line that actually SENDS the method, as opposed to naming it in a comment, a docstring or a
@@ -157,7 +157,7 @@ def test_expected_spellings_are_derived_from_the_real_servers():
               "peer source is unreadable, KEY_RUST/KEY_LEGACY above are unchecked folklore "
               "and this file's regression net is pinning constants nothing re-derives. "
               "A skip here would report that as a deliberate choice.\n"
-              "Fix by restoring the peer checkout beside this one, or point AEON_SUITE_ROOT "
+              f"Fix by restoring the peer checkout beside this one, or point {SUITE_ROOT_ENV} "
               "at the directory that holds them.")
 
     schema = json.loads(RUST_SCHEMA.read_text())
