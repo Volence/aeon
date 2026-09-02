@@ -114,9 +114,28 @@ tiles = 4
 lifetime = "mode"
 const = "VRAM_TEST_MARKER"
 
-[[free]]
+[[region]]
+name = "debug_readout"
+owner = "games.sonic4.ojz_scroll_test"
+kind = "window"
 base = 1020
-tiles = 4
+tiles = 2
+lifetime = "mode"
+const = "VRAM_DEBUG_READOUT"
+# The effects lab's scene readout: two 8x8 glyph cells, tens then ones, that
+# Debug_SceneReadout_Show repaints from its own digit font on every scene-cycle
+# press. RESERVED IN EVERY SHAPE, WRITTEN ONLY IN DEBUG — a VRAM reservation is
+# not a ROM byte, and declaring it in all shapes is what keeps this file the
+# single placement authority (the alternative, a shape-conditional region, would
+# make the map mean two different things and gen_vram_map.py checks adjacency
+# across the whole 0..2047 span). Two tiles because the readout is two decimal
+# digits and 0..SCENE_CYCLE_COUNT-1 fits in two; the glyph SHEET stays in ROM
+# and only the two selected glyphs are ever resident, which is why 10 font tiles
+# do not have to fit here (no free run in this map is that big).
+
+[[free]]
+base = 1022
+tiles = 2
 
 [[region]]
 name = "bg_region"
