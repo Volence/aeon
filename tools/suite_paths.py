@@ -52,6 +52,29 @@ pure and needs neither. (`--show-toplevel` is never acceptable: it answers with 
 Failure to resolve raises `SuiteRootNotFound`. It never returns a guess. `suite_root_source()`
 says which step answered — the contract asks every resolver to be able to — and the refusal
 messages carry it so the fix is readable from the message.
+
+## How a sibling CHECKOUT is found (contract step 1), and which siblings get it
+
+The contract's precedence has a step the suite root does not cover: **the explicit checkout
+variable, `<TOOL>_DIR`, is consulted FIRST**, before `EMPYREAN_SUITE_ROOT` and before the walk.
+The hub's note on aeon's first landing is the reason this paragraph exists: *"a resolver that
+reaches a sibling checkout through the suite root alone still owes step 1."* So `empyrean_dir()`
+reads **`EMPYREAN_DIR`** first; set-but-wrong (not a directory, or a directory that is not an
+empyrean checkout by `_EMPYREAN_MARKERS`) is a hard error naming the variable and the path,
+never a fall-through to the suite root — the same discipline as `_override()`. Unset, the
+checkout is `suite_root()/empyrean`, so steps 2-4 are inherited unchanged. `empyrean_dir_source()`
+says which step answered, in the same way `suite_root_source()` does, and `client_path()` is
+resolved through it.
+
+`harness_path()` — oracle-old's `linux-port/harness` — is **LIVE, not legacy**:
+`effects_gates.py` (the nightly effects gate) and the probes that spawn the C++ `oracle_gui`
+import it, so the contract's step 6 ("oracle-old's harness only if it is still meant to run")
+applies and it is still meant to run. It does NOT yet get a step-1 variable, because the
+contract's table names `ORACLE_DIR` for the Rust oracle — a different checkout — and no
+spelling for `oracle-old`; a name invented here would be an eleventh spelling of the kind the
+contract exists to end. Until the hub spells it, `harness_path()` resolves through the suite
+root alone (steps 2-4), and that gap is booked in `docs/DEFERRED_WORK.md` under
+HOME-PATHS-OUTWARD.
 """
 from __future__ import annotations
 
@@ -60,9 +83,10 @@ import sys
 from pathlib import Path
 
 __all__ = [
-    "SuitePathError", "SuiteRootNotFound", "MissingSuitePath",
-    "SUITE_ROOT_ENV", "SUITE_ROOT_ENV_ALIASES", "REPO_ROOT",
+    "SuitePathError", "SuiteRootNotFound", "CheckoutNotFound", "MissingSuitePath",
+    "SUITE_ROOT_ENV", "SUITE_ROOT_ENV_ALIASES", "EMPYREAN_DIR_ENV", "REPO_ROOT",
     "suite_root", "suite_root_source",
+    "empyrean_dir", "empyrean_dir_source",
     "suite_path", "require_suite_path", "repo_path", "require_repo_path",
     "client_path", "add_client_path", "harness_path",
 ]
@@ -81,6 +105,20 @@ SUITE_ROOT_ENV_ALIASES = ("AEON_SUITE_ROOT",)
 #: definition (see `../CLAUDE.md`, "Projects").
 _SUITE_MARKERS = ("aeon", "empyrean")
 
+#: Contract step 1 for the empyrean checkout: the `<TOOL>_DIR` spelling from the contract's
+#: own table. Consulted BEFORE the suite root; set-but-wrong is a hard error at this step.
+EMPYREAN_DIR_ENV = "EMPYREAN_DIR"
+
+#: The directory name empyrean's checkout has under the suite root (contract step 2: "the
+#: suite root joined with the repo's directory name").
+_EMPYREAN_DIRNAME = "empyrean"
+
+#: What makes a directory BE the empyrean checkout: its two stable top-level trees — the
+#: suite contract (`contract/SUITE_PATHS.md` lives there) and the Aether clients this module
+#: hands out. A directory missing either is "not the named checkout", the contract's
+#: set-but-wrong case.
+_EMPYREAN_MARKERS = ("contract", "clients")
+
 
 class SuitePathError(RuntimeError):
     """Base for every failure in this module."""
@@ -88,6 +126,10 @@ class SuitePathError(RuntimeError):
 
 class SuiteRootNotFound(SuitePathError):
     """The suite root could not be resolved at all."""
+
+
+class CheckoutNotFound(SuitePathError):
+    """A sibling checkout (`<TOOL>_DIR` or `<suite root>/<tool>`) is absent or is not that repo."""
 
 
 class MissingSuitePath(SuitePathError):
@@ -104,12 +146,19 @@ _suite_root: Path | None = None
 #: or the walk's starting point. Set beside `_suite_root`, read by `suite_root_source()`.
 _suite_root_source: str | None = None
 
+_empyrean_dir: Path | None = None
+#: Which step answered for the empyrean checkout: `EMPYREAN_DIR=<value>` (step 1) or the suite
+#: root's own provenance (steps 2-3). Set beside `_empyrean_dir`, read by `empyrean_dir_source()`.
+_empyrean_dir_source: str | None = None
+
 
 def _forget() -> None:
-    """Drop the memo. For tests that change the environment between resolutions."""
-    global _suite_root, _suite_root_source
+    """Drop the memos. For tests that change the environment between resolutions."""
+    global _suite_root, _suite_root_source, _empyrean_dir, _empyrean_dir_source
     _suite_root = None
     _suite_root_source = None
+    _empyrean_dir = None
+    _empyrean_dir_source = None
 
 
 def _is_suite_root(p: Path) -> bool:
@@ -195,6 +244,59 @@ def suite_root_source() -> str:
     return _suite_root_source
 
 
+def _is_empyrean_checkout(p: Path) -> bool:
+    return all((p / m).is_dir() for m in _EMPYREAN_MARKERS)
+
+
+def empyrean_dir() -> Path:
+    """The empyrean checkout: `EMPYREAN_DIR` first (contract step 1), else under the suite root.
+
+    Raises `CheckoutNotFound` rather than guessing. A set `EMPYREAN_DIR` that is not an
+    empyrean checkout is refused HERE, naming the variable and the path; the suite root is
+    never consulted behind a set-but-wrong value, because the next step would hide the wrong
+    environment that produced it.
+    """
+    global _empyrean_dir, _empyrean_dir_source
+    if _empyrean_dir is not None:
+        return _empyrean_dir
+
+    looked_for = "an empyrean checkout holding " + ", ".join(f"{m}/" for m in _EMPYREAN_MARKERS)
+    value = os.environ.get(EMPYREAN_DIR_ENV)
+    if value:
+        p = Path(value).expanduser()
+        if not p.is_dir():
+            raise CheckoutNotFound(
+                f"{EMPYREAN_DIR_ENV}={value!r} is not a directory (looked for {looked_for})")
+        missing = [m for m in _EMPYREAN_MARKERS if not (p / m).is_dir()]
+        if missing:
+            raise CheckoutNotFound(
+                f"{EMPYREAN_DIR_ENV}={value!r} is not an empyrean checkout: missing "
+                + ", ".join(f"{m}/" for m in missing))
+        _empyrean_dir, _empyrean_dir_source = p.resolve(), f"{EMPYREAN_DIR_ENV}={value}"
+        return _empyrean_dir
+
+    # Steps 2-4 are the suite root's own precedence; this is "the suite root joined with the
+    # repo's directory name". A suite root that resolved but holds no empyrean checkout is
+    # refused naming both the variable that would have answered first and where it looked.
+    root = suite_root()
+    p = root / _EMPYREAN_DIRNAME
+    if not _is_empyrean_checkout(p):
+        raise CheckoutNotFound(
+            f"{p} is not an empyrean checkout (looked for {looked_for}) — {EMPYREAN_DIR_ENV} "
+            f"is unset, suite root is {root}, from {suite_root_source()}. Set "
+            f"{EMPYREAN_DIR_ENV} to the empyrean checkout.")
+    _empyrean_dir = p
+    _empyrean_dir_source = f"{EMPYREAN_DIR_ENV} unset; under the suite root, from {suite_root_source()}"
+    return _empyrean_dir
+
+
+def empyrean_dir_source() -> str:
+    """Which step produced `empyrean_dir()`. Resolves first if nothing has yet."""
+    empyrean_dir()
+    assert _empyrean_dir_source is not None
+    return _empyrean_dir_source
+
+
 def suite_path(*parts: str | os.PathLike) -> Path:
     """Resolve a path under the suite root. Does NOT check that it exists."""
     return suite_root().joinpath(*parts)
@@ -228,18 +330,31 @@ def require_repo_path(*parts: str | os.PathLike, what: str = "") -> Path:
 
 
 def client_path() -> Path:
-    """The Aether Python client package directory, required to exist."""
-    return require_suite_path("empyrean", "clients", "python",
-                              what="the Aether Python client (`import aether`)")
+    """The Aether Python client package directory, required to exist.
+
+    Resolved through `empyrean_dir()` — `EMPYREAN_DIR` first, then the suite root — so a
+    refusal here says which step produced the checkout it looked under.
+    """
+    p = empyrean_dir() / "clients" / "python"
+    if not p.exists():
+        raise MissingSuitePath(
+            f"required suite path is absent: {p} (the Aether Python client (`import aether`))"
+            f" — empyrean checkout is {empyrean_dir()}, from {empyrean_dir_source()}")
+    return p
 
 
 def harness_path() -> Path:
-    """The legacy C++ `oracle_gui` launcher package, required to exist.
+    """The C++ `oracle_gui` launcher package in oracle-old, required to exist. LIVE.
 
-    Thirteen probes put this on `sys.path` to `from launcher import headless_emulator`.
+    `effects_gates.py` (the nightly effects gate) and the probes that spawn `oracle_gui` put
+    this on `sys.path` to `from launcher import headless_emulator`, so it is still meant to
+    run. It resolves through the suite root ALONE (contract steps 2-4) and not through a
+    step-1 `<TOOL>_DIR` variable, because the contract names none for oracle-old
+    (`ORACLE_DIR` is the Rust oracle, a different checkout) and inventing one here would be
+    the drift the contract exists to end. Open with the hub; see the module docstring.
     """
     return require_suite_path("oracle-old", "linux-port", "harness",
-                              what="the legacy oracle_gui launcher (`import launcher`)")
+                              what="the oracle_gui launcher (`import launcher`)")
 
 
 def add_client_path() -> Path:
@@ -256,7 +371,17 @@ def add_client_path() -> Path:
     return p
 
 
-if __name__ == "__main__":  # a one-line answer to "where does this think the suite is?"
-    print(f"repo  {REPO_ROOT}")
-    print(f"suite {suite_root()}")
-    print(f"from  {suite_root_source()}")
+if __name__ == "__main__":  # the announce: "where does this think the suite is, and why?"
+    # build.sh runs this ahead of its gate lanes so every build log carries the resolved
+    # paths and the step that produced each (contract: "say which step answered"). A
+    # refusal is one named line on stderr and exit 1, which `set -e` turns build-fatal.
+    print(f"repo      {REPO_ROOT}")
+    try:
+        print(f"suite     {suite_root()}")
+        print(f"  from    {suite_root_source()}")
+        print(f"empyrean  {empyrean_dir()}")
+        print(f"  from    {empyrean_dir_source()}")
+    except SuitePathError as e:
+        sys.stdout.flush()
+        sys.stderr.write(f"suite_paths: REFUSED — {e}\n")
+        sys.exit(1)
