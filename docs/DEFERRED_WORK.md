@@ -16463,8 +16463,25 @@ moves under a player heading right, never against it. The full argument is at th
    in the reference set is time-driven, S.C.E.'s and S2's only moving boundary is triggered by
    camera X — so an observation made with no knowledge of the survey landed on the survey's own
    conclusion. The magnitude is S3K AIZ1's cloud rate exactly.
-2. **The runtime numeric witness is STILL UNRUN** — see the TAG below, which this parcel did not
-   close and could not.
+2. ~~**The runtime numeric witness is STILL UNRUN.**~~ **✅ RUN 2026-09-03, AND THE RATE IS EXACT —
+   `-0.125000` px per executed tick against a design value of `-32/256` = `-0.125000`.** Headless
+   private instance, walked into a drifting section (camera x 4704), `Parallax_Drift_Acc` sampled over
+   600 requested frames.
+   **⚠ AND THE FIRST VERSION OF THIS CLOSURE WAS WRONG IN A WAY WORTH KEEPING, because it is the same
+   defect the reels witness had on the same afternoon.** I first reported `0.1230` px per frame against
+   `0.125` derived and called it "1.6% low, dropped logic steps". **The guess at the cause was right and
+   reporting it as a SHORTFALL was wrong: I was dividing by the frames I had REQUESTED, and the design's
+   figure is per LOGIC TICK.** The two are not the same denominator. `VInt_Lag` runs instead of
+   `VInt_Level` when a physical VBlank fires mid-frame, so the level update — and every accumulator it
+   drives — does not run on those frames, while `Frame_Counter` ticks anyway. `Lag_Frame_Count`
+   (`engine/ram.emp`, DEBUG-only) is what counts them.
+   **The corrected measurement, with both denominators shown so the mistake cannot be re-made silently:**
+   600 requested frames · 12 lag frames · 588 executions · `-73.5000` px total ·
+   `-0.122500` px per requested frame · **`-0.125000` px per executed tick**. The first of those three
+   rates is the one I published and it is a fact about my instrument, not about the drift.
+   **Rule taken from it: any rate this engine derives per tick is measured against `Lag_Frame_Count`,
+   never against a requested frame count.** `tools/reels_witness.py` now does exactly this and is the
+   worked example.
 3. **Sections 0 and 4 do not drift**, because they bind Aurora-authored editor scenes
    (`ojz_act1_start`, `ojz_act1_depth`) rather than the act default, and `tools/effects_gen.py`
    has no `drift` key (open bullet below). The drift is first seen in section 1. **A consequence
