@@ -17475,7 +17475,7 @@ Item 2 is the only one that does not.
 | 8 | BgAnim vertical band motion | **M** | **no — zero ROM bytes** | **ENGINE HALF DONE 2026-09-02, `parcel/bganim-band-motion`; the ON-SCREEN half is BLOCKED and the reason is measured** — see the item-8 block below. The pricing was written on the belief that a vertical shift needed a different DMA shape; it does not, `BgAnim_Update` was always axis-agnostic, and the parcel moves no engine byte at all. So this row does NOT pair with sigil. |
 | 9 | Hydrocity row remap | **L** | yes, paired | Zone-specific by the survey's own estimate; he wants it; sequenced last by his preference. |
 | 10 | Reels / plane-role swap / window as third layer | **L** | aeon alone (the paired freeze ended 2026-09-02) | ~~**BLOCKED — see item 0 below.**~~ **UNBLOCKED on the VRAM axis 2026-09-03: item 0 landed as Option P** — `spare_nametable`, 128 tiles at tile 768 (`$6000`), a legal Plane A/B/Window base. **10a (reels) LANDED 2026-09-03, `parcel/item10a-reels`** — `OJZ_Reels_Fill` composes REEL_BAND_COUNT (5) independently-advancing, pairwise-distinct per-frame phase increments onto the shipped per-column VSRAM buffer's BG words; needed **zero** of item 0's tiles (design §2 row 10a's claim held). `tools/reels_gate.py` gates it on every canonical sonic4 build. **`tools/reels_witness.py`'s tagged emulator pass has now been RUN (2026-09-03, `fix/reels-witness-expectation`)** — it found the mechanism sound and its OWN expectation wrong (assumed the fill runs once per requested frame; two real lag frames in the test scene's settle window mean it doesn't), fixed to derive the expectation from `Lag_Frame_Count` rather than the frame count. **10b (plane-role swap) IMPLEMENTED 2026-09-03 on `parcel/item10b-plane-role-swap`, unmerged** (rebased onto master post-item-6) — `engine.parallax.Parallax_Set_Roles_Swapped`, a WHOLE-FRAME settled-state register swap (`Set_VDP_Reg`, item 11a's mid-frame door does not fit a multi-frame set-piece) plus the HScroll/VSRAM feed-packer swap design §8 Q4 asked for; needed **zero** of item 0's tiles (design §2 row 10b's claim held) and the streaming write targets (`plane_buffer.emp`/`section.emp`/`bg.emp`) needed **zero** changes (they target physical VRAM addresses, not "whichever register is Plane A now"). Capability-gated behind `CAP_ROLE_SWAP` (took `$0400` after item 6's `CAP_DENSE_TIER` claimed `$0200` in parallel) — the unconditional version cost demo 104 bytes across five sites; gating measured to zero bytes for BOTH games. `tools/plane_role_swap_gate.py` gates it on every canonical sonic4 build. **10c (window as third layer) is UNSTARTED** and does need item 0's `spare_nametable`. See the item-10b block below. |
-| 11 | Nametable-base changes (frame swap, Plane Z, Batman mid-frame) | **L** | aeon alone (the paired freeze ended 2026-09-02) | ~~**BLOCKED — same item 0.**~~ **PARTLY DONE.** Item 0's design (§2) split this row into 11a (the mid-frame base change as a MECHANISM, zero tiles) and 11b (Plane Z, a distinct third picture, which does need tiles). **11a LANDED 2026-09-03, `parcel/item11a-midframe-base`, aeon `eb87d2ba`** — `OJZ_BaseSwap`, one `OP_SET_REG` re-pointing Plane A at Plane B's nametable at screen line 160, gated by `tools/plane_base_swap_gate.py` on every canonical sonic4 build. **The on-screen half is unrun** (no emulator in that lane) and is tagged for the controller. **11b is UNBLOCKED on the VRAM axis by item 0's landing** — but note there is no SECOND `$2000`-aligned run left: the remaining spendable run is at `$5000`, `$1000`-aligned, i.e. window-only, so 10c and 11b are competing for the one `$6000` run. See the item-11a and item-0 blocks below. |
+| 11 | Nametable-base changes (frame swap, Plane Z, Batman mid-frame) | **L** | aeon alone (the paired freeze ended 2026-09-02) | ~~**BLOCKED — same item 0.**~~ **PARTLY DONE.** Item 0's design (§2) split this row into 11a (the mid-frame base change as a MECHANISM, zero tiles) and 11b (Plane Z, a distinct third picture, which does need tiles). **11a LANDED 2026-09-03, `parcel/item11a-midframe-base`, aeon `eb87d2ba`** — `OJZ_BaseSwap`, one `OP_SET_REG` re-pointing Plane A at Plane B's nametable at screen line 160, gated by `tools/plane_base_swap_gate.py` on every canonical sonic4 build. **The on-screen half is unrun** (no emulator in that lane) and is tagged for the controller. **11b is UNBLOCKED on the VRAM axis by item 0's landing** — but note there is no SECOND `$2000`-aligned run left: the remaining spendable run is at `$5000`, `$1000`-aligned, i.e. window-only, so 10c and 11b are competing for the one `$6000` run. See the item-11a and item-0 blocks below. **11a's AUTHORABLE half also LANDED 2026-09-03, `parcel/item11a-authorable`** — a `base_swap` preset-document key ({line, target}) reusing `OJZ_BaseSwap`'s own `fire`/`reg_set`/`raster_program` calls (no new constructor), bound to a REAL section (section 6's own `OJZ_Preset_Sec6`, split off the shared `OJZ_Preset_Plain` the way section 5 was split for `bands`) rather than existing only as `OJZ_BaseSwap`'s DEBUG-only demo — reachability proved against the built listing (`EditorRaster_OJZ_Act1_Bindings=2` in both shapes' `s4.lst`/`s4.debug.lst`). Ships ahead of a hub schema ruling; the short shape note is `docs/superpowers/specs/2026-09-03-item11a-base-swap-key-shape.md`. See the item-11a-authorable block below. |
 
 **WHAT DECIDES A RAMP'S WIDTH, ANSWERED FOR THE EDITOR (2026-09-03).** A per-line VSRAM ramp is
 either a full-width shear or a single 16-pixel column, and until today nothing on the authoring
@@ -18979,6 +18979,102 @@ No emulator was used. **A green gate is not the picture.** What to look for, in 
   checksum at `$00018E-$00018F`, and the appended deb2 symbol table above `$0A6117`
   (`EndOfRom` is `$A5C82` in both). That is the expected footprint of a `pub` symbol that
   emits no bytes, and it is the same footprint `OJZ_BandDemo` already has.
+
+## EFFECTS-W1 ITEM 11a'S AUTHORABLE HALF — `base_swap` IS A REAL PRESET KEY, BOUND TO SECTION 6 (2026-09-03, `parcel/item11a-authorable`)
+
+Branch `parcel/item11a-authorable`, based on aeon `origin/master` at `c7ee7075`, rebased
+onto `dad4a029` mid-flight with no conflicts in the parcel's own files. Per this booking's
+own sequencing note above: the SMALLER half of item 11a, because `OJZ_BaseSwap` already had
+its constructor (`raster_program`/`fire`/`reg_set`) — what it lacked was a document key and
+a per-scene binding.
+
+**What shipped:** `tools/effects_gen.py` gains `base_swap`, a third top-level preset key
+(sibling to `bands`/`ramp`, exactly-one-of the three — all three write the same
+`EffectsPreset.ep_raster` channel). Shape: `{"line": int, "target": int}`, both required,
+both forwarded VERBATIM to engine constructs that own their own ranges — `fire()`'s
+line-range ensure (`engine/effects/raster_dsl.emp:360-361`) and `vdp_base_reg(VdpBase.PlaneA,
+target)`'s `$2000`-granule ensure (`engine/vdp.emp:116-117`), which names the granule in its
+refusal rather than silently encoding a wrong register byte. No `CAP_*` bit gates it — unlike
+`ramp`'s `CAP_DENSE_TIER`, `OP_SET_REG` dispatches unconditionally in every game. Short shape
+note: `docs/superpowers/specs/2026-09-03-item11a-base-swap-key-shape.md` — the CR the hub
+files against the empyrean schema, since `base_swap` ships ahead of a ruling (the item-11a
+booking's own call: build first, file the CR after, the reverse of `ramp`'s sequence).
+
+**The real-section binding.** `games/sonic4/data/editor/effects/presets/ojz_sec6_baseswap.json`
+(`base_swap: {line: 160, target: 57344}` — `VRAM_PLANE_B` = `$E000`, the SAME line and target
+`OJZ_BaseSwap` uses) is bound via `games/sonic4/data/editor/ojz/act1/section_6.meta.json`'s
+`rasterRef`. Section 6 previously pointed at the shared `OJZ_Preset_Plain` record (with 7 and
+8); it now owns `OJZ_Preset_Sec6`, threading `raster: ojz_act1_sec_raster(sec: 6, hand:
+Raster_Program_None)` — the same one-time split section 5 paid to become document-bindable
+for `bands`. **Unlike `OJZ_BaseSwap`, this emission is NOT DEBUG-gated**: it is a real
+section's `EffectsPreset`, `pub data` in every shape.
+
+**Reachability, proved against the build, not asserted from source.** `tools/effects_seam_gate.py`
+reads both listings and reports `EditorRaster_OJZ_Act1_Bindings=2` (were 1) in both
+`s4.lst` and `s4.debug.lst`, naming `[OJZ_Preset_Sec5(sec: 5), OJZ_Preset_Sec6(sec: 6)]`.
+`EditorRaster_OJZ_Act1_ojz_sec6_baseswap` lands at `$013446` in the release listing (a
+non-zero address in the RELEASE shape, the positive proof the emission is unconditional);
+its 22 bytes read out of `s4.bin` are `0000 8A9D 0000 8AFF 0000 8AFF 0001 0000 8238 8AFF
+FFFF` — byte-for-byte IDENTICAL to `OJZ_BaseSwap`'s own hand-authored program (this
+booking's own ROM-evidence block above), confirming the generator's `raster_program([fire(160,
+[reg_set($8200 | vdp_base_reg(VdpBase.PlaneA, 57344))])])` folds to the same word `OJZ_BaseSwap`
+does. `OJZ_BaseSwap`'s own `plane_base_swap_gate.py` is untouched by this parcel and still
+passes independently in both shapes (its release/DEBUG asymmetry is a property of the fixture
+this parcel did not touch).
+
+**EndOfRom, both endpoints, information only (no sigil pairing per the 2026-09-02 ruling):**
+release `s4.bin` `EndOfRom` = `$A5C82` (holds, same value this booking's own item-11a section
+measured at `eb87d2ba`); DEBUG `s4.debug.bin` `EndOfRom` = `$A825C`. Neither is a clean A/B
+against a pre-parcel baseline — master moved several times underneath this branch during the
+session (rebased onto `dad4a029`) — so these are point measurements of what ships today, not a
+delta attributed to this parcel alone.
+
+**Two DEBUG-shape fixtures were re-stamped twice** (once after the parcel's own content
+landed, again after the `dad4a029` rebase moved more content underneath it), both the same
+pure-displacement class this booking's own item-11a section already recorded for the same two
+fixtures: `tools/fixtures/sprite_tilt_cut.json` (the three `Ani_*` slab addresses, +$44 each
+time, `Player_ApplyTilt` itself unmoved, all table AND routine bytes verified content-identical
+at their new addresses before re-stamping) and `tools/fixtures/loop_crossover_cut.json`
+(`CrossoverTable` +$44, `Player_LoopCrossover`'s one differing byte the low byte of a `lea`
+operand naming `CrossoverTable`'s new address — confirmed against each listing's own symbol
+table, not assumed). `Collision_GetType`'s span was byte-identical throughout, both times.
+
+**An unrelated, pre-existing defect on master blocked every canonical build from this base
+and was fixed in a separate commit** (`60691c3b`, not part of this parcel): `tools/ramp_authored_witness.py`
+(landed at `d32e11c5`, before this branch's base, no relation to item 11a) hardcoded two
+absolute `/home/.../sonic_hacks/...` paths, tripping `tools/test_no_baked_home_paths.py` for
+ANY change on top of `dad4a029` — confirmed by the fact the file is absent from this parcel's
+own commit and the failure's only two hits are both inside it. Routed through the script's own
+location and `suite_paths.suite_root()`, the fix the failing test's own message prescribes.
+
+**Four-shape totals, all REAL_EXIT=0, quoted from the canonical run (not FAST):**
+
+| shape | result |
+|---|---|
+| `./build.sh` (sonic4 release) | 2171 passed, 0 failed, 4 skipped |
+| `DEBUG=1 ./build.sh` (sonic4 debug) | 2171 passed, 0 failed, 4 skipped |
+| `./build.sh demo` (release) | 2171 passed, 0 failed, 4 skipped |
+| `DEBUG=1 ./build.sh demo` (debug) | 2171 passed, 0 failed, 4 skipped |
+
+The effects gate ritual (`tools/effects_gates.py`) was NOT triggered: this parcel touches
+none of `engine/effects/*`, `engine/level/bg_anim.emp` or `engine/system/buffers.emp` — every
+changed file is under `tools/`, `docs/`, or `games/sonic4/data/`.
+
+**Tagged for the controller's emulator pass, not run here (no emulator in a subagent):**
+whether section 6's band is visible on screen exactly as `OJZ_BaseSwap`'s own booking
+describes — 64 lines above the screen bottom, Plane A drawing Plane B's nametable — reached by
+scrolling into section 6. A failure would look like: no visible change crossing into section 6
+(the band never installs — check `Sec.sec_effects` actually resolves to `OJZ_Preset_Sec6` at
+runtime), or a change at the WRONG line/base (the word folds wrong — already ruled out at build
+time by the byte-for-byte match against `OJZ_BaseSwap` above, so this would indicate a runtime
+divergence between the two paths' installers, not the encoded word itself).
+
+**Left open:** whether a `bands`+`base_swap` combinator should ever exist (same open question
+`ramp`'s own artifact left for the dense tier); the empyrean schema CR itself, which this
+booking's shape note is written for the hub to file, not something this parcel can land;
+section 7/8 still share `OJZ_Preset_Plain` and are not document-bindable — opening either would
+be the same one-time split paid again, undertaken only if a third document-bound section is
+wanted.
 
 ## EFFECTS-W1 ITEM 10a — REELS: FIVE INDEPENDENT VERTICAL STRIPS ARE IN THE ROM; THE PICTURE IS UNRUN (2026-09-03, `parcel/item10a-reels`)
 
