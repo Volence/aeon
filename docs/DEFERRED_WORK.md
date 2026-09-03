@@ -19310,6 +19310,35 @@ the program REMOVED, and a removal has no line of its own to contaminate with.
 | `classify` made to guess "A" on a tie instead of returning "ambiguous" | unit cover **RED**, 2 of 18 (`test_found_in_both_is_ambiguous`, `test_found_in_neither_is_ambiguous`) |
 | one control arm run for `n+1` frames instead of `n` | **RED, two independent arms** — the frame-advance guard (`short arms advanced [4, 4, 4, 5, 4]`) and control-vs-control (`removed pair 128 differing lines`), then REFUSED |
 
+### Verification totals
+
+**Four shapes, canonical (not FAST), all `REAL_EXIT=0`** — and the ROM crc32s the witness
+measured against are the crc32s these builds produced:
+
+| shape | pytest | ROM |
+|---|---|---|
+| `./build.sh` | 2189 passed, 0 failed, 4 skipped | `s4.bin` crc `bec28f7f`, 720502 B |
+| `DEBUG=1 ./build.sh` | 2189 passed, 0 failed, 4 skipped | `s4.debug.bin` crc `dd1c60ea`, 740166 B |
+| `./build.sh demo` | 2189 passed, 0 failed, 4 skipped | `demo.bin` crc `56ae65fc`, 96595 B |
+| `DEBUG=1 ./build.sh demo` | 2189 passed, 0 failed, 4 skipped | `demo.debug.bin` crc `7357ea05`, 102771 B |
+
+(2171 before this parcel; the 18 new tests are `tools/test_sec6_baseswap_witness.py`.)
+
+**The effects gate ritual was run even though this parcel does not trigger it by its letter**
+(every changed file is under `tools/` or `docs/`) — because it CHANGES the runner.
+`tools/effects_gates.py`: **OK, 17 of 17 scheduled gates, 35 rows, exit 0.** An earlier run of
+the same lane failed one row — `cost_model`, with
+`aether.BusError: [-32010] reset: timeout waiting for main-thread drain` — at load average
+~19 while a four-shape build was still finishing. `cost_model` is the one segment still on the
+legacy `launcher.headless_emulator`, it passed standalone immediately afterwards and passed
+again in the clean full-lane run, and nothing in this parcel touches what it measures. Booked
+as a load-induced flake on that launcher, on two independent clean runs, not as a result.
+
+**Runtime, measured rather than guessed:** 1.9 s standalone for BOTH shapes, 2.0 s as a lane
+segment, at load average ~9. The registry comment first carried a *guessed* "300-400 s" — the
+lane's own timing column contradicted it on the first run, and it was corrected to the
+measured figure (aeon `0d80dff2`); the budget is the lane's ordinary emulator wedge ceiling.
+
 ### What is still NOT certified, and why
 
 * **The release-shape BINDING is static, not walked.** `Warp_Req_*` is DEBUG-only, so the
