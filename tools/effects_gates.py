@@ -233,10 +233,13 @@ def gate_registry() -> list[tuple[str, bool, int]]:
         # canonical shapes in a single invocation — the release arm is not decoration, it is
         # how the instrument separates the generated program from `OJZ_BaseSwap` BY
         # CONSTRUCTION (the hand-written demo emits zero bytes in `s4.bin`). Two servers, a
-        # warp, four checkpoint-restored frame captures per shape and a dozen scanline stops
-        # each, measured 300-400 s wall on a machine running two other agents' lanes, so the
-        # budget below is a wedge ceiling well above that and not a performance assertion.
-        ("sec6_baseswap", True, 900),
+        # warp, seven checkpoint-restored full-frame captures per shape and ~15 scanline stops
+        # of 32 `pixel_attribution` calls each — and it is FAST: 1.9 s standalone, 2.0 s as a
+        # segment, measured 2026-09-03 at load average ~9. (Guessed at "300-400 s" here before
+        # it was timed; the number is now the measured one, which is the whole point of the
+        # table above carrying real figures.) The ordinary emulator budget is ~120x that and,
+        # like every other row here, is a WEDGE CEILING and not a performance assertion.
+        ("sec6_baseswap", True, GATE_EMU_BUDGET),
         ("cost_model", True, 900),
         ("scanline_spans", False, 120),
         ("demo_witness", False, 120),
