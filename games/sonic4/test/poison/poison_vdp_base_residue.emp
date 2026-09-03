@@ -1,0 +1,33 @@
+// games/sonic4/test/poison/poison_vdp_base_residue.emp — POISON (see README).
+//
+// TARGETS: vdp_base_reg's residue guard (engine/vdp.emp) — the wall under the
+// booked class "BASE-RESIDUE ASSUMPTIONS WITHOUT AN `ensure` ARE INVISIBLE TO
+// THE ALIGNMENT DECLARATION" (docs/DEFERRED_WORK.md).
+// EXPECTED FRAGMENT: computed in tools/emp_expect_fail.py from the real base
+// and the real granule — see the note there.
+//
+// WHAT MAKES THIS CLASS WORTH A POISON. The five VDP base registers encode only
+// the address bits above their granule; the bits below are not rejected, they
+// are DROPPED. So a misaligned base does not fail anywhere — it points the VDP
+// at one address while every VRAM_* consumer reads and writes another, and no
+// gate outside the register encoding can see the difference. This poison is the
+// proof that the wall which now stands in that encoding actually fires.
+//
+// THE BASE IS DERIVED, NOT TYPED. `VRAM_SPRITE_TABLE + $100` tracks the real
+// constant, so a relayout that moves the sprite table moves this fixture with
+// it. It is misaligned for a structural reason and not by luck: the sprite
+// table's granule is $400, so a legal base has its low $3FF bits clear and
+// adding $100 always leaves a residue of exactly $100. A literal would have gone
+// vacuous the day the base moved.
+//
+// NO IMPORTS — the poison directory's rule; engine.vdp and engine.constants are
+// COMPTIME_HELPERS, so `vdp_base_reg`, `VdpBase` and `VRAM_SPRITE_TABLE` are
+// glob-injected here exactly as they are into an author's module.
+module games.sonic4.test.poison.poison_vdp_base_residue
+
+const POISON_VDP_BASE_RESIDUE = vdp_base_reg(VdpBase.SpriteTable, VRAM_SPRITE_TABLE + $100)
+
+// An unreferenced top-level `const X = f(...)` is comptime-inert and proves
+// nothing (EMP_PITFALLS §3), so the fold is forced by naming it here.
+ensure(POISON_VDP_BASE_RESIDUE >= 0,
+       "poison_vdp_base_residue: vdp_base_reg folded without complaint — this poison no longer reaches the guard it targets")

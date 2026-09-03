@@ -35,7 +35,11 @@
 module engine.boot_data
 
 use engine.constants.{Z80_RAM, Z80_BUS_REQUEST, Z80_RESET, VDP_DATA, VDP_CTRL, VDP_REG_0C_BOOT}
-use engine.vdp.{vdp_comm, vdp_reg, bytes_to_lcnt}
+// The VRAM bases the five base registers below are DERIVED from — named here so
+// the register table has one authority instead of a transcribed literal each.
+use engine.constants.{VRAM_PLANE_A, VRAM_PLANE_B, VRAM_PLANE_B_BYTES, VRAM_WINDOW}
+use engine.constants.{VRAM_SPRITE_TABLE, VRAM_HSCROLL_TABLE}
+use engine.vdp.{vdp_comm, vdp_reg, bytes_to_lcnt, vdp_base_reg, VdpBase}
 use engine.sound_constants.{SND_STATE_BASE}
 
 // The resident sound driver blob (seam-1 emit). Direct-embed consts (the
@@ -108,6 +112,31 @@ const CRAM_WRITE_CMD   = vdp_comm(0, VdpTarget.Cram, VdpOp.Write)
 
 const VSRAM_WRITE_CMD  = vdp_comm(0, VdpTarget.Vsram, VdpOp.Write)
 
+// The five VDP base registers, DERIVED from the VRAM map rather than
+// transcribed beside it. Each of these registers encodes only the address bits
+// above its granule and drops the rest without a diagnostic, so the residue is
+// a real requirement that used to live only in the byte written here — the
+// class DEFERRED_WORK books as "BASE-RESIDUE ASSUMPTIONS WITHOUT AN `ensure`".
+// `vdp_base_reg` (engine/vdp.emp) carries both halves: the derivation, so the
+// byte follows the base when a `vram.toml` moves it, and the `ensure`, so a
+// base that cannot be encoded fails the build instead of pointing the VDP
+// somewhere no consumer writes. These fold to $30/$3C/$07/$5C/$2F on the
+// shipped map, which is what the literals said.
+const VDP_REG_PLANE_A  = vdp_base_reg(VdpBase.PlaneA,      VRAM_PLANE_A)
+const VDP_REG_WINDOW   = vdp_base_reg(VdpBase.Window,      VRAM_WINDOW)
+const VDP_REG_PLANE_B  = vdp_base_reg(VdpBase.PlaneB,      VRAM_PLANE_B)
+const VDP_REG_SPRITES  = vdp_base_reg(VdpBase.SpriteTable, VRAM_SPRITE_TABLE)
+const VDP_REG_HSCROLL  = vdp_base_reg(VdpBase.HScroll,     VRAM_HSCROLL_TABLE)
+
+// The plane-B base has TWO spellings in engine.constants — VRAM_PLANE_B
+// ($E000, the one the generated vram.toml cross-checks pin) and
+// VRAM_PLANE_B_BYTES ($E000, what bg/plane_buffer/section import). Nothing
+// pinned them together, so a relayout that moved one would leave the other
+// pointing at the old plane. The register above is derived from VRAM_PLANE_B;
+// this is the wall that keeps the consumers' spelling with it.
+ensure(VRAM_PLANE_B == VRAM_PLANE_B_BYTES,
+       "engine.constants disagrees with itself about Plane B: VRAM_PLANE_B is {VRAM_PLANE_B} and VRAM_PLANE_B_BYTES is {VRAM_PLANE_B_BYTES}. Reg $04 is derived from the first and bg/plane_buffer/section address the plane through the second, so a split makes the VDP fetch the nametable from one address while the engine writes it to another.")
+
 // -----------------------------------------------
 // boot_head — the movem-preload head (26 B) + the 24 VDP register bytes + the
 // VRAM DMA-fill command (4 B) = 54 B, then the resident sound blob (sound-on) or
@@ -134,16 +163,16 @@ section boot_head (cpu: m68000) {
     pub proc BootData_VDPRegs () clobbers() {
         dc.b    $04                         // $00: HInt off, HV counter readable
         dc.b    $14                         // $01: display OFF, VInt OFF, DMA ON
-        dc.b    $30                         // $02: Plane A nametable at $C000
+        dc.b    VDP_REG_PLANE_A             // $02: Plane A nametable ($C000)
         // $03: Window nametable at $F000. CONSTRAINT, not a free choice: with
         // 64x64 planes (reg $10 = $11) Plane B at $E000 spans $E000-$FFFF, so
         // $F000 lies INSIDE Plane B. Harmless today — the window is disabled
         // (regs $11/$12 = 0), so the VDP never fetches from it — but there is
         // NO free window space anywhere in this VRAM map. Enabling the window
         // means first re-planning the VRAM layout, not just writing $11/$12.
-        dc.b    $3C                         // $03: Window nametable at $F000 (see above)
-        dc.b    $07                         // $04: Plane B nametable at $E000
-        dc.b    $5C                         // $05: Sprite table at $B800
+        dc.b    VDP_REG_WINDOW              // $03: Window nametable ($F000; see above)
+        dc.b    VDP_REG_PLANE_B             // $04: Plane B nametable ($E000)
+        dc.b    VDP_REG_SPRITES             // $05: Sprite table ($B800)
         dc.b    $00                         // $06: unused
         dc.b    $00                         // $07: BG color = pal 0, entry 0
         dc.b    $00                         // $08: unused (SMS compat)
@@ -151,7 +180,7 @@ section boot_head (cpu: m68000) {
         dc.b    $FF                         // $0A: HInt counter = every 256 lines
         dc.b    $00                         // $0B: full-screen V/H scroll
         dc.b    VDP_REG_0C_BOOT             // $0C: H40 (320px), no interlace
-        dc.b    $2F                         // $0D: HScroll table at $BC00
+        dc.b    VDP_REG_HSCROLL             // $0D: HScroll table ($BC00)
         dc.b    $00                         // $0E: unused
         dc.b    $02                         // $0F: auto-increment = 2 (normal word access)
         dc.b    $11                         // $10: 64x64 scroll planes
