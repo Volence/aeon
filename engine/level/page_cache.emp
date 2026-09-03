@@ -590,7 +590,8 @@ comptime fn pc_patch_run_loop(src_step: Int, dest_step: Int) -> Code {
 // The F-3 merge-translation contract is satisfied IDENTICALLY: staged words stay
 // LOCAL, the section map is applied per word, the full-width global lives only in
 // a register, and the 11-bit nametable field carries only the physical index
-// (<= 959 — POOL_TILE_CEILING, well inside NT_TILE_MASK). Value-identity with the
+// (< POOL_TILE_CEILING, well inside NT_TILE_MASK — no literal: this line read
+// "<= 959" through two pool cuts). Value-identity with the
 // general loop is by construction: the same map read feeds the same attr merge.
 //
 // A miss arm is structurally unreachable here (every page resident => every

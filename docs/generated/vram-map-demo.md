@@ -5,7 +5,8 @@ Do not edit; edit the TOML and regenerate.
 
 | tiles | name | kind | lifetime | owner | constant / authority | notes |
 |---|---|---|---|---|---|---|
-| 0-895 | fg_art_pool | arena | act | engine.level.page_cache | engine-endtiles:POOL_TILE_CEILING |  |
+| 0-767 | fg_art_pool | arena | act | engine.level.page_cache | engine-endtiles:POOL_TILE_CEILING |  |
+| 768-895 | spare_nametable | plane | boot | engine.system.boot |  |  |
 | 896-991 | FREE |  |  |  |  |  |
 | 992-995 | demo_obj | window | boot | games.demo.demo_state | VRAM_DEMO_OBJ |  |
 | 996-996 | ring_placeholder | window | boot | engine.objects.rings | sigil-D:VRAM_RING_PLACEHOLDER |  |

@@ -279,9 +279,14 @@ pub const PAGE_TABLE_MAX       = 256        // residency page-table ceiling (mat
 
 // Residency cache (P2b Task 6, engine.page_cache). The FG VRAM art region is
 // carved into PAGE_FRAMES fixed 64-tile frames; the page table maps a global
-// page id -> the frame holding it (or PAGE_NOT_RESIDENT). POOL_TILE_CEILING(960)
-// / ART_POOL_PAGE_TILES(64) = 15 frames span the whole FG art window.
-pub const PAGE_FRAMES        = POOL_TILE_CEILING / ART_POOL_PAGE_TILES   // 15
+// page id -> the frame holding it (or PAGE_NOT_RESIDENT). POOL_TILE_CEILING /
+// ART_POOL_PAGE_TILES frames span the whole FG art window.
+// NO LITERAL HERE, DELIBERATELY: this comment read "POOL_TILE_CEILING(960) ... =
+// 15 frames" for two relayouts after the value stopped being 960, because a
+// spelled-out number goes stale on exactly the clock the `ensure` below cannot
+// see (it compares the quotient against its own dividend, so it catches inexact
+// division and can never catch the prose). Read the value off POOL_TILE_CEILING.
+pub const PAGE_FRAMES        = POOL_TILE_CEILING / ART_POOL_PAGE_TILES
 ensure(PAGE_FRAMES * ART_POOL_PAGE_TILES == POOL_TILE_CEILING,
        "PAGE_FRAMES*ART_POOL_PAGE_TILES must tile the FG art window exactly")
 // CAPACITY, deliberately split from the COUNT above (user style ruling
@@ -292,7 +297,8 @@ ensure(PAGE_FRAMES * ART_POOL_PAGE_TILES == POOL_TILE_CEILING,
 // fixtures on a behaviour-identical build. The arrays are now sized by this
 // fixed capacity and PAGE_FRAMES is just the live count, so POOL_TILE_CEILING
 // is a genuinely VRAM-only knob. Cost: (PAGE_FRAMES_MAX - PAGE_FRAMES) slots
-// of RAM slack (10 bytes at 14/15) — bought deliberately, do not "reclaim" it.
+// of RAM slack, sizeof(PageFrame) bytes apiece — bought deliberately, do not
+// "reclaim" it. (The slack grows every time the pool shrinks; that is the deal.)
 // Raising the capacity IS a RAM-layout change and owes the full pin/goldens
 // ritual; that is the point — you pay it when you CHOOSE to, not as a side
 // effect of a VRAM budget edit.
@@ -700,16 +706,28 @@ pub const SINE_CYCLE_ENTRIES    = $100
 // -----------------------------------------------
 // Act art-pool VRAM ceiling + per-act section grid cap.
 // -----------------------------------------------
-// 896 = 14 pages of 64, NOT 960 (15): the top page was surrendered to the dust
-// windows (VRAM_DUST_PUFF at 896, VRAM_DUST_SPINDASH at 912, the ring sparkle's
-// VRAM_RING_SPARKLE at 924, 32 tiles spare at 928-959 — see
-// docs/generated/vram-map-sonic4.md, emitted from
-// games/sonic4/vram.toml, whose generated block cross-checks THIS value by
-// name). Affordable because the pool is over-provisioned: OJZ act 1 needs 10
-// pages (612 tiles) of the remaining 14, so it stays fully resident. Safe
-// because of the 2026-08-11 prep parcel: the RAM arrays are PAGE_FRAMES_MAX-
-// sized (a resize moves no RAM) and the replay hash is layout-proof.
-pub const POOL_TILE_CEILING = 896       // pool loads to tiles 0..N-1; dust windows at 896; DPLC region at tile 960
+// The pool no longer runs to the top of the FG art window: two deliberate cuts
+// have been taken out of it, both of them page-quantised (ART_POOL_PAGE_TILES).
+//   960 -> 896  the top page surrendered to the dust/sparkle/insta-shield
+//               windows (the 2026-08-11 dust carve).
+//   896 -> 768  two more pages surrendered to `spare_nametable`, the one
+//               $2000-aligned run in the map — a legal Plane A / Plane B /
+//               Window base register value, which every other free run in VRAM
+//               is not (EFFECTS-W1 item 0, Option P, 2026-09-03).
+// WHAT IS ABOVE THE CEILING IS NOT LISTED HERE. It changes, this comment does
+// not, and the tree already has one authority for it: games/sonic4/vram.toml,
+// via docs/generated/vram-map-<game>.md. That file's generated block cross-checks
+// THIS constant by name, so the two cannot silently disagree.
+// AFFORDABLE because the pool is over-provisioned: OJZ act 1 needs
+// OJZ_ACT_POOL_PAGES pages, well inside PAGE_FRAMES, so it stays fully resident
+// (the §9.7 degenerate path — see PAGE_FRAMES_CLAMP and Level_LoadArt's latch).
+// SAFE because of the 2026-08-11 prep parcel: the RAM arrays are
+// PAGE_FRAMES_MAX-sized (a resize moves no RAM) and the replay hash is
+// layout-proof. What a cut DOES cost is page-frames, i.e. headroom for future
+// acts — and there is a FLOOR: not below 640 tiles / 10 frames until C4-3 (the
+// famine capacity fix) lands, because the STRESS_EVICT famine is measured
+// evidence that tight-cache mode has an open defect.
+pub const POOL_TILE_CEILING = 768       // the pool loads to tiles 0..N-1; everything at or above N belongs to vram.toml
 pub const MAX_ACT_SECTIONS  = 48        // flat id = sec_y*grid_w + sec_x; build asserts grid_w*grid_h <= this
 
 // -----------------------------------------------

@@ -1112,7 +1112,7 @@ pub vars upper_ram {
     PageIn_Cur_Frame:       u8,         // frame allocated for the in-flight page (P2b Task 6; published at land)
     PageIn_Bulk_Drain:      u8,         // nonzero while Level_LoadArt's bulk pool load + drain-wait is active:
                                         // BULK-FIRST discipline (chain 78) — PageCache_Prefetch yields so the
-                                        // init drain reaches quiescence (41 pages > 15 frames would otherwise
+                                        // init drain reaches quiescence (a pool larger than PAGE_FRAMES would otherwise
                                         // prefetch<->evict-churn the FIFO forever, a black-screen livelock).
                                         // (Consumes the former word-align pad byte — RAM layout unchanged.)
     PageIn_Pool_Table:      u32,        // current act's page-address table (FIFO resolution base; set by Level_LoadArt)

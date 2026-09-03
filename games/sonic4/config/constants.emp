@@ -417,7 +417,7 @@ pub const VRAM_TEST_MARKER        : VramTile = $03F8   // test_marker: tiles 101
 pub const VRAM_DEBUG_READOUT      : VramTile = $03FC   // debug_readout: tiles 1020..1021 (2), mode, owner games.sonic4.ojz_scroll_test
 pub const VRAM_TAILS_APPENDAGE    : VramTile = $05D4   // tails_appendage: tiles 1492..1500 (9), act, owner games.sonic4.tails_appendage
 // Authority cross-checks — the engine constant vs the declared map:
-ensure(POOL_TILE_CEILING == 896, "vram.toml fg_art_pool drifted from engine POOL_TILE_CEILING — edit games/sonic4/vram.toml and regenerate")
+ensure(POOL_TILE_CEILING == 768, "vram.toml fg_art_pool drifted from engine POOL_TILE_CEILING — edit games/sonic4/vram.toml and regenerate")
 ensure(BG_TILE_CAPACITY == 448, "vram.toml bg_region drifted from engine BG_TILE_CAPACITY — edit games/sonic4/vram.toml and regenerate")
 ensure(BG_TILE_BASE_VRAM == $8000, "vram.toml bg_region drifted from engine BG_TILE_BASE_VRAM — edit games/sonic4/vram.toml and regenerate")
 ensure(VRAM_SPRITE_TABLE == $B800, "vram.toml sprite_table drifted from engine VRAM_SPRITE_TABLE — edit games/sonic4/vram.toml and regenerate")
