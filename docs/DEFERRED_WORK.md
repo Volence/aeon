@@ -17435,7 +17435,7 @@ Item 2 is the only one that does not.
 | 7 | Vertical bob | **S-M** | yes, paired | **BUILT — `parcel/vertical-bob`, 2026-08-30, unlanded.** A scene-level term on `Parallax_Step5_Vscroll`'s `.v_pack`. 40 bytes of code, ZERO config bytes (the packed nibble pair claimed `pcfg_pad_29`), EndOfRom unmoved in all four shapes. Riders booked below. |
 | 8 | BgAnim vertical band motion | **M** | **no — zero ROM bytes** | **ENGINE HALF DONE 2026-09-02, `parcel/bganim-band-motion`; the ON-SCREEN half is BLOCKED and the reason is measured** — see the item-8 block below. The pricing was written on the belief that a vertical shift needed a different DMA shape; it does not, `BgAnim_Update` was always axis-agnostic, and the parcel moves no engine byte at all. So this row does NOT pair with sigil. |
 | 9 | Hydrocity row remap | **L** | yes, paired | Zone-specific by the survey's own estimate; he wants it; sequenced last by his preference. |
-| 10 | Reels / plane-role swap / window as third layer | **L** | aeon alone (the paired freeze ended 2026-09-02) | ~~**BLOCKED — see item 0 below.**~~ **UNBLOCKED on the VRAM axis 2026-09-03: item 0 landed as Option P** — `spare_nametable`, 128 tiles at tile 768 (`$6000`), a legal Plane A/B/Window base. **10a (reels) LANDED 2026-09-03, `parcel/item10a-reels`** — `OJZ_Reels_Fill` composes REEL_BAND_COUNT (5) independently-advancing, pairwise-distinct per-frame phase increments onto the shipped per-column VSRAM buffer's BG words; needed **zero** of item 0's tiles (design §2 row 10a's claim held). `tools/reels_gate.py` gates it on every canonical sonic4 build. **`tools/reels_witness.py`'s tagged emulator pass has now been RUN (2026-09-03, `fix/reels-witness-expectation`)** — it found the mechanism sound and its OWN expectation wrong (assumed the fill runs once per requested frame; two real lag frames in the test scene's settle window mean it doesn't), fixed to derive the expectation from `Lag_Frame_Count` rather than the frame count. **10b (plane-role swap) and 10c (window as third layer) are UNSTARTED** and 10c does need item 0's `spare_nametable` (10b needs none). See the item-10a block below. |
+| 10 | Reels / plane-role swap / window as third layer | **L** | aeon alone (the paired freeze ended 2026-09-02) | ~~**BLOCKED — see item 0 below.**~~ **UNBLOCKED on the VRAM axis 2026-09-03: item 0 landed as Option P** — `spare_nametable`, 128 tiles at tile 768 (`$6000`), a legal Plane A/B/Window base. **10a (reels) LANDED 2026-09-03, `parcel/item10a-reels`** — `OJZ_Reels_Fill` composes REEL_BAND_COUNT (5) independently-advancing, pairwise-distinct per-frame phase increments onto the shipped per-column VSRAM buffer's BG words; needed **zero** of item 0's tiles (design §2 row 10a's claim held). `tools/reels_gate.py` gates it on every canonical sonic4 build. **`tools/reels_witness.py`'s tagged emulator pass has now been RUN (2026-09-03, `fix/reels-witness-expectation`)** — it found the mechanism sound and its OWN expectation wrong (assumed the fill runs once per requested frame; two real lag frames in the test scene's settle window mean it doesn't), fixed to derive the expectation from `Lag_Frame_Count` rather than the frame count. **10b (plane-role swap) IMPLEMENTED 2026-09-03 on `parcel/item10b-plane-role-swap`, unmerged** (rebased onto master post-item-6) — `engine.parallax.Parallax_Set_Roles_Swapped`, a WHOLE-FRAME settled-state register swap (`Set_VDP_Reg`, item 11a's mid-frame door does not fit a multi-frame set-piece) plus the HScroll/VSRAM feed-packer swap design §8 Q4 asked for; needed **zero** of item 0's tiles (design §2 row 10b's claim held) and the streaming write targets (`plane_buffer.emp`/`section.emp`/`bg.emp`) needed **zero** changes (they target physical VRAM addresses, not "whichever register is Plane A now"). Capability-gated behind `CAP_ROLE_SWAP` (took `$0400` after item 6's `CAP_DENSE_TIER` claimed `$0200` in parallel) — the unconditional version cost demo 104 bytes across five sites; gating measured to zero bytes for BOTH games. `tools/plane_role_swap_gate.py` gates it on every canonical sonic4 build. **10c (window as third layer) is UNSTARTED** and does need item 0's `spare_nametable`. See the item-10b block below. |
 | 11 | Nametable-base changes (frame swap, Plane Z, Batman mid-frame) | **L** | aeon alone (the paired freeze ended 2026-09-02) | ~~**BLOCKED — same item 0.**~~ **PARTLY DONE.** Item 0's design (§2) split this row into 11a (the mid-frame base change as a MECHANISM, zero tiles) and 11b (Plane Z, a distinct third picture, which does need tiles). **11a LANDED 2026-09-03, `parcel/item11a-midframe-base`, aeon `eb87d2ba`** — `OJZ_BaseSwap`, one `OP_SET_REG` re-pointing Plane A at Plane B's nametable at screen line 160, gated by `tools/plane_base_swap_gate.py` on every canonical sonic4 build. **The on-screen half is unrun** (no emulator in that lane) and is tagged for the controller. **11b is UNBLOCKED on the VRAM axis by item 0's landing** — but note there is no SECOND `$2000`-aligned run left: the remaining spendable run is at `$5000`, `$1000`-aligned, i.e. window-only, so 10c and 11b are competing for the one `$6000` run. See the item-11a and item-0 blocks below. |
 
 **⚠ ITEMS 10 AND 11 HAVE NO AUTHORING KEY YET, AND THEY ARE SUPPOSED TO — RULED 2026-09-03, AND THE
@@ -19436,3 +19436,317 @@ as NOT ESTABLISHED, including whether a real per-section reels mechanism needs a
 `Parallax_Update` engine hook or can keep the override-after-fill shape with per-scene
 rather than one fixed global rate storage — the source the item-13 contract CR would be
 drafted from, once the hub rules on the open questions §2 raises.
+
+## EFFECTS-W1 ITEM 10b — THE PLANE-ROLE SWAP IS IN THE ROM; THE PICTURE IS UNRUN (2026-09-03, `parcel/item10b-plane-role-swap`)
+
+Branch `parcel/item10b-plane-role-swap`, based on aeon `origin/master` at `b35b2d36`
+(fetched and re-derived, not typed — `git rev-parse origin/master`). Unmerged: item 6
+(dense per-line VSRAM, `parcel/item6-dense-perline-vsram`) lands first per the
+coordinating brief, and this branch has not been rebased onto whatever it leaves master
+at. Design: `docs/superpowers/designs/2026-09-03-vram-replan-item0-design.md` §2 row
+10b, §2.0 and §8 Q4 — and the item-11a booking above, which records 10b as "trivially
+adjacent and was deliberately NOT started" for exactly the reason worked out below.
+
+### Whole-frame, not mid-frame, and why
+
+Item 11a proved the MID-FRAME door: a raster `OP_SET_REG` re-pointing ONE register
+partway down the frame, self-restoring at the next VBlank flush because it never
+touches the shadow. That door does not fit 10b. A "set-piece" role swap is a SETTLED
+state meant to survive many frames — not one band's worth of scanlines — so this parcel
+uses the SETTLED door instead: `Set_VDP_Reg` (`engine/system/vdp_init.emp`), which
+"SHIPS UNADOPTED" by its own header before this parcel (every other settled-state
+register write in this tree inlines `VDP_Shadow_Table + VDP_*_OFF` instead of calling
+the helper). `Parallax_Set_Roles_Swapped` is the first real adopter.
+
+**What mid-frame would additionally cost, named because the escape hatch asks for it.**
+HScroll is ALREADY per-line (`Hscroll_Buffer`, one longword per scanline —
+`Parallax_Fill_PerLine` already visits every line to build it), so a mid-frame split of
+its feed would be free — the per-band pack site below already runs once per band and
+could as easily branch on a screen-line threshold. VSRAM is NOT free: the whole-plane
+word and the per-column buffer are latched once per FRAME (`Vscroll_Write`, at VBlank),
+never once per scanline. A vertically-split swap would need a SECOND VSRAM write
+mid-frame from the HInt handler, landing inside its column-fetch window — an unproven
+technique on this engine (§8 Q2 is exactly this question and is still open for the base
+registers; VSRAM's per-scanline story is not even asked yet). That is real, unbuilt
+design work, not a parameter change, and it is the concrete reason whole-frame was
+picked to "prove the mechanism most cheaply": no new raster op, no re-install-every-frame
+program, no HInt timing question.
+
+### The scroll re-plumbing, costed against the design's zero-video-memory pricing
+
+**The zero-tiles claim survives contact, confirmed by reading the actual consumers, not
+assumed.** `engine/level/plane_buffer.emp` and `engine/level/section.emp` DMA new
+foreground columns to the PHYSICAL address `VRAM_PLANE_A` ($C000); `engine/level/bg.emp`
+writes background rows at the physical `VRAM_PLANE_B_BYTES` ($E000). Both are literal
+VRAM addresses, not "whichever register currently answers to Plane A" — so a role swap
+moves NOTHING in VRAM. The foreground's own tiles stay resident at $C000, the
+background's at $E000; only the REGISTER pointing at each, and the scroll feed riding
+with it, changes. **The streaming write targets needed zero changes.** This is the
+opposite of what §8 Q4's phrasing might suggest to a reader who has not checked: Q4 asks
+about the SCROLL feeds specifically, and is right to; it does not extend to VRAM
+placement, which this parcel confirms by reading the three consumer files rather than by
+assuming the symmetry.
+
+**The scroll feeds ARE real work, and it is cheaper than it first looks because of WHERE
+the packing happens.** Both the HScroll table and VSRAM are addressed BY REGISTER SLOT,
+not by content — word 0 of every `Hscroll_Buffer` longword always lands in reg $02's
+per-line table entry, word 1 always lands in reg $04's, VSRAM identically. Three sites
+pack FG-first/BG-second unconditionally: `Parallax_Fill_PerLine`'s per-band pack (once
+per band, not per line — cheap), `Parallax_Step5_Vscroll`'s whole-plane pack (once per
+frame — cheap), and its per-column column-buffer fill under `CAP_PER_COL_VSRAM` (once
+per column, 20×/frame when a scene raises the cap — the one site where the check runs
+inside a hot loop, and it is paid for by choosing between TWO whole loop bodies once,
+not by a per-column branch, the same "duplicate the specialised loop" idiom
+`Parallax_Fill_PerLine`'s five line-loops already use). All three now read
+`Parallax_Roles_Swapped` and swap pack order to match, so CONTENT keeps its own scroll
+behaviour (the camera-locked plane still tracks the camera, the lerped plane still
+lerps) regardless of which register is presenting it.
+
+**A fourth, easy-to-miss site: the column-19 borrow.** The per-column path's leftmost-
+partial-column fix (d-40/d-50, `docs/research/2026-08-29-vsram-column19-borrow.md`)
+overwrites a FIXED buffer offset (the last column-pair's second word) with the
+camera-tracked plane's value, to make Eke-Eke's leading-sliver AND-quirk resolve
+cleanly. That offset is a register-slot position, exactly like the pack sites — under a
+role swap the camera-tracked content now presents through the OTHER register, so the
+borrow must target the OTHER word (`VSCROLL_COL19_FG_OFF`, a new const beside the
+shipped `VSCROLL_COL19_BG_OFF`, `+2` apart and `ensure`-pinned to stay so). This is the
+one correctness point that would have been easy to ship silently wrong (the sliver would
+render a plausible but incorrect strip, not a crash), and it is fixed and reasoned
+through explicitly in `engine/level/parallax.emp`'s own comment at the site.
+
+**Total verdict: the design's zero-*tiles* pricing holds exactly. The zero-*work*
+pricing does not, and the design said so itself ("this design prices at zero tiles, not
+zero work") — the real cost is four call sites in `engine/level/parallax.emp`, none of
+them per-scanline-hot except the one already amortised by choosing a loop body once.**
+
+### What shipped
+
+`engine/level/parallax.emp` gains:
+- `Parallax_Set_Roles_Swapped (d0: u8)` — the single entry point. Stores the flag, then
+  settles both base registers through `Set_VDP_Reg`: `ROLE_SWAP_PLANE_A_SWAPPED` /
+  `_NORMAL` and `ROLE_SWAP_PLANE_B_SWAPPED` / `_NORMAL`, each `vdp_base_reg`-folded from
+  `VRAM_PLANE_A`/`VRAM_PLANE_B` — the SAME comptime fold item 11a's `OJZ_BaseSwap` uses,
+  carrying the same demonstrability `ensure` (refuses a base the register cannot encode,
+  or two bases that fold to the same byte).
+- The per-frame register reassert, in `Parallax_Update` right beside the existing reg
+  $0B reassert — UNLIKE that one, it does not compare-before-write, because
+  `Set_VDP_Reg` only touches the shadow (a RAM store), never live `VDP_CTRL`, so there is
+  no bus-hold to spare by skipping an unchanged write.
+- The three pack-order swaps above, plus the column-19 borrow's target swap.
+- `pub const VSCROLL_COL19_FG_OFF`.
+
+`engine/ram.emp` gains `Parallax_Roles_Swapped: u8` (+ `pad(1)`), placed BETWEEN the
+`Parallax_State`/`_End` marks and the `Raster_State` mark — deliberately OUTSIDE the
+pinned `Parallax_State` span (`PARALLAX_STATE_LONGS`-counted, cleared per act-load by
+`Parallax_Init`'s zero loop): a role-swap set-piece must survive ordinary parallax churn
+within an act, so the flag is reset EXPLICITLY (a `clr.b` in `Parallax_Init`, ahead of
+its own `jbsr Parallax_Update` tail call, which reasserts the registers a moment later)
+rather than folded into that span's arithmetic.
+
+**No game-authored trigger and no new debug hotkey.** `Debug_BandDemoHotkey`'s own
+header (`games/sonic4/test/ojz_scroll_test.emp`) already enumerates the 3-button pad
+down to nothing free, and item 10a hit the identical wall for `OJZ_Reel_Active` — its
+answer is this item's too: no chord, a debug tool pokes the RAM cell directly
+(`tools/reels_witness.py`'s pattern, `band_witness.py`'s before it). Here the cell is
+`Parallax_Roles_Swapped` itself: poke it nonzero via Oracle's memory-write tool and the
+NEXT `Parallax_Update` call reasserts both registers and starts packing the swapped
+order — no proc call, no hotkey, no new debug RAM needed. `Parallax_Set_Roles_Swapped`
+exists as the API a game's own scripted set-piece calls; nothing in this parcel calls it
+with a nonzero argument, which is correct for an engine mechanism with no authored
+content yet (10b's own row never asked for a specific in-game set-piece, only the
+mechanism).
+
+### The ROM evidence
+
+DEBUG (`s4.debug.lst`/`s4.debug.bin`): `Parallax_Set_Roles_Swapped` at `$007BD6`,
+its `.normal:` arm at `$007BF6`, `Parallax_Update` (the bounding next symbol) at
+`$007C0E`. RELEASE (`s4.lst`/`s4.bin`): `Parallax_Set_Roles_Swapped` at `$00640E`.
+`Parallax_Roles_Swapped` (RAM) at `$FFFF8B48` in BOTH shapes. Disassembling the routine
+(capstone) gives, in order: `move.w #2,d0 / move.b #$38,d1 / bsr Set_VDP_Reg / move.w
+#4,d0 / move.b #$06,d1 / bra Set_VDP_Reg` (the swapped arm) then `move.w #2,d0 / move.b
+#$30,d1 / bsr / move.w #4,d0 / move.b #$07,d1 / bra` (the normal arm) — exactly
+`$38`/`$06`/`$30`/`$07`, the four bytes design §2's own table names.
+
+### The gate
+
+`tools/plane_role_swap_gate.py`, modelled on item 11a's `plane_base_swap_gate.py` but
+DELIBERATELY DIFFERENT IN SHAPE, stated in its own docstring so a reader who knows 11a's
+gate does not read this as the same claim: 11a's mechanism is a DEBUG-only effects-lab
+demonstration, so its gate asserts OPPOSITE things in the two shapes. 10b's mechanism is
+unconditional real engine capability, so this gate asserts the SAME thing in both shapes
+— present and correct — which is still falsifiable (a future accidental DEBUG-gating of
+the mechanism, or a fold regression exposed by only one shape's layout, would turn it
+red).
+
+It disassembles `Parallax_Set_Roles_Swapped`'s ROM bytes (reusing `sprite_tilt_gate.decode`,
+the same capstone wrapper `instashield_gate.py` already imports — not a new
+hand-rolled 68000 decoder) and asserts the four `(register, value)` pairs it finds match
+the four values independently derived from `engine/system/constants.emp`
+(`VRAM_PLANE_A`/`VRAM_PLANE_B`) and `engine/vdp.emp` (`vdp_base_shift`'s PlaneA AND
+PlaneB arms — 11a's gate only needed PlaneA). Wired into `build.sh`'s post-sigil sonic4
+block beside `plane_base_swap_gate` and `reels_gate`, with the same `--built-after`
+provenance rule.
+
+`tools/test_plane_role_swap_gate.py` covers the pure halves (10 tests) — the derivation,
+the degenerate-fold guard on BOTH registers, the two operand parsers, and the
+decode-and-pair-walk logic exercised against a byte string captured from this parcel's
+own build (not invented).
+
+**PROVEN RED, each mutation shown applied on disk, `__pycache__` cleared between runs,
+restored from a committed baseline where one existed (this branch has no prior commit,
+so `engine/vdp.emp` and `engine/system/constants.emp` — both otherwise untouched by this
+parcel — were restored with `git checkout HEAD --`; the two files this parcel actually
+edits, `engine/level/parallax.emp` and `tools/plane_role_swap_gate.py`, have no committed
+baseline yet on this branch and were restored by hand, each restoration verified against
+the diff before the next mutation):**
+
+| mutation | result |
+|---|---|
+| `engine/vdp.emp`'s `vdp_base_shift` `PlaneB => 13` → `PlaneB => 10` | 1 failed, 9 passed. `test_the_two_planes_fold_to_different_reg04_bytes` stays GREEN (the two planes still fold to different bytes at shift 10 — $30 vs $38 — the shift COLLIDING with PlaneA's own shift is the intuitive but wrong prediction, recorded rather than silently corrected). `test_expected_pairs_matches_the_real_build` FAILS: reg $04's swapped pair becomes `(4, 0x30)` where the structural pin wants `(4, 0x06)`. |
+| `engine/system/constants.emp`'s `VRAM_PLANE_B = $E000` → `$C000` | 3 failed, 7 passed — BOTH plane-fold guards fail (every register's normal/swapped byte collapses with the planes identical, not only one), plus the structural-pin test (on the same `Unmeasurable` `expected_pairs` itself raises). `test_two_identical_planes_are_UNMEASURABLE_on_both_regs` stays green — it calls `expected_pairs` with hardcoded literals, proving the FUNCTION refuses the degenerate case rather than that source currently avoids one. **This mutation collided with an in-flight background release build reading the dirty tree mid-mutation and caused a real build failure unrelated to the gate** — restored immediately; noted here because it is the honest record, not because it is part of the gate's own red-first proof. |
+| `plane_role_swap_gate.py`'s `_imm`'s `"#$"` → `"#%"` | 2 failed, 8 passed — a real `#$38` operand no longer parses. |
+| `plane_role_swap_gate.py`'s `found_pairs`'s `_reg_num(ops[1]) == 1` → `== 2` | 1 failed, 9 passed — the fixture's `move.b` destinations are all `d1`, so nothing matches. |
+| **ROM-level:** `engine/level/parallax.emp`'s swapped arm, `move.b #ROLE_SWAP_PLANE_A_SWAPPED, d1` → `#ROLE_SWAP_PLANE_A_NORMAL, d1` (the swapped arm silently writes the wrong/normal value for plane A — a class NO comptime `ensure` in the file can see, since `ROLE_SWAP_PLANE_A_NORMAL` is a perfectly legal fold, just the wrong one here) | `DEBUG=1 ./build.sh` still exits 0 — 91 PASS/OK lines, the full pytest lane (2158 passed), every other gate green. **`tools/plane_role_swap_gate.py --shape debug` is the ONLY thing that catches it**, exiting 1 and naming the exact defect: `index 0: got (d0=$2, d1=$30) want (d0=$2, d1=$38)`. Restored, rebuilt, reconfirmed green (see the ROM evidence section above, measured on the restored build). |
+
+### ⚠ TAGGED FOR THE CONTROLLER'S EMULATOR PASS — the on-screen half is NOT run
+
+No emulator was used (standing invariant). What to look for, in the **DEBUG** shape
+(`s4.debug.bin`), in OJZ act 1:
+
+1. **How to trigger it** (no pad chord — see above): with Oracle's memory-write tool,
+   write a nonzero byte to RAM address `$FFFF8B48` (`Parallax_Roles_Swapped`). No other
+   poke is needed — the next `Parallax_Update` call (every frame) reasserts both base
+   registers AND starts packing the swapped scroll order.
+2. **Expected:** the background art appears where the foreground used to be (Plane A's
+   priority slot) and the foreground level art appears where the background used to be
+   (Plane B's slot) — a genuine role trade, NOT item 11a's "second copy at the wrong
+   scroll" effect. Each layer should keep ITS OWN scroll behaviour: whichever content is
+   camera-locked should still track the camera 1:1 through whichever register now
+   presents it, and the lerped/parallax layer should still lerp. The picture should look
+   like the background and foreground literally swapped priority, not like either one
+   glitched its scrolling.
+3. **To turn it off:** write 0 back to the same address; the next `Parallax_Update`
+   reasserts the normal registers and pack order.
+4. **A failure looks like:** (a) no visible change at all — check the poke landed at the
+   right absolute address and that a parallax config is active (see the accepted gap
+   below); (b) the register swap takes effect but scrolling looks wrong on one or both
+   layers (a seam, a snap, or a layer scrolling at the OTHER layer's speed/offset) — this
+   would mean one of the three pack-swap sites is not actually reached or is wrong,
+   contradicting the static analysis above and needing re-derivation; (c) a corrupted or
+   garbage strip rather than a recognisable swapped picture — would mean the register
+   bytes are landing somewhere other than the two planes' own bases (contradicts the
+   gate, so check the poke address and the build first).
+5. **Accepted gap, stated rather than hidden:** the reassert in `Parallax_Update` sits
+   past its own `.no_config` early-out, so a level with a NULL parallax config would
+   leave a previously-set swap un-reasserted (though the flag itself resets correctly at
+   act load). The one shipped act (`games/sonic4/data/levels/ojz/act1/act_descriptor.emp`)
+   has a non-NULL config, so this cannot be observed today; it is a real gap for a future
+   NULL-config act combined with a surviving swap, not a defect in the reachable game.
+
+### The effects-gate ritual — NOT triggered by letter, run anyway, one finding
+
+This parcel touches `engine/level/parallax.emp` and `engine/ram.emp` — neither is
+`engine/effects/*`, `engine/level/bg_anim.emp`, nor `engine/system/buffers.emp`, so the
+ritual is NOT triggered by CLAUDE.md's letter. Run anyway (item 11a's precedent: "flagged
+anyway because raster-adjacent"; this parcel is VDP-register-and-scroll-adjacent for the
+same reason).
+
+`python3 tools/effects_gates.py --rom s4.debug.bin --lst s4.debug.lst`: **exit 1, 1 of 31
+row(s) failed, over 16 of 16 scheduled gates.** The one failure, `demo_witness (span
+absence + image pin)`, is `tools/demo_specialization_witness.py`, and it is a genuine,
+if narrow, finding rather than a defect in this parcel's mechanism:
+
+- Two of its three sub-checks are LEGITIMATE growth from this parcel's unconditional
+  code: `Parallax_Fill_PerLine` and `Parallax_Step5_Vscroll` both emit more bytes in
+  demo than their committed pins record (+14 and +16 — the per-band and whole-plane pack
+  swaps are unconditional engine code, so they cost bytes in EVERY game that reaches
+  `engine.parallax`, demo included, even though demo raises no parallax capability bits
+  at all). These pins were **not** touched by this parcel — see below for why.
+- The third — "`Parallax_Step5_Vscroll` is 136 bytes in demo and 64 in sonic4" — is a
+  **pre-existing measurement artifact in `tools/scene_spans.py`'s `lst_proc_sizes`**,
+  newly EXPOSED (not caused, in the sense of a logic bug) by this parcel's ROM growth,
+  and confirmed by direct disassembly rather than assumed: `lst_proc_sizes` sizes a proc
+  as "head to the NEXT label, numerically, in the same listing" with no filter for
+  address SPACE. In this DEBUG build, `SoundTablesZ80_Head` — a Z80 sound-bank symbol
+  whose listed value is a BANKED VMA (`games/sonic4/map.toml:237`, "vma $8000, bank
+  $14"), not a ROM file address in the same number space as 68000 code — happens to fall
+  at `$8000`, numerically between `Parallax_Step5_Vscroll` (`$7FC0`) and its real next
+  proc, `Decode_Factor_A` (`$80D8`). `lst_proc_sizes` reads that coincidence as "the proc
+  ends at $8000" and reports 64 bytes. **Disassembling `$7FC0..$8100` directly (capstone)
+  shows the REAL instruction stream — including `tst.b $8b48.w`, this parcel's own
+  `Parallax_Roles_Swapped` check — flowing continuously and coherently straight through
+  $8000 with no discontinuity.** The routine is correct; the diagnostic undercounts it.
+  In demo's build the same proc's real next symbol (`Decode_Factor_A` at `$5FB4`) is a
+  genuine same-file neighbour with no such collision, which is why only the sonic4 side
+  of the differential is wrong and demo's own 136-byte figure is trustworthy.
+- **Not fixed in this parcel.** Fixing `lst_proc_sizes` to distinguish banked VMAs from
+  ROM addresses is real, separate design work (it needs to know which symbols are
+  Z80-bank-relative, a distinction this file does not currently carry) unrelated to the
+  plane-role swap, and touching the two legitimate pins without also fixing the root
+  cause would leave the row failing anyway (all three sub-checks must pass for the row
+  to go green) while creating a half-updated, confusing committed state. Booked as a
+  new, small follow-up: **`tools/scene_spans.py`'s `lst_proc_sizes` conflates banked VMA
+  labels with ROM addresses when computing proc extents by nearest-label distance; a
+  parcel growing the ROM enough to bring a proc's true boundary near a banked symbol's
+  VMA will misreport that proc's size. Needs either a space-discriminating symbol table
+  or a same-source-file boundary check.** Whoever picks this up should re-verify against
+  a build where the collision has NOT (yet) triggered, to confirm the fix does not change
+  today's correct measurements.
+- Every other gate `effects_gates.py` runs (30 of 31 rows, including `scanline_spans`'s
+  full capability-coverage sweep, `raster_source_gate`, `palette_variant_gate`,
+  `warp_mailbox_gate`, `parallax_crossing_gate`, `tile_cache_fill`, and both cost-model
+  rows) is GREEN.
+
+### What is NOT done, and what this does and does not unblock
+
+- **10c (window as third layer) is untouched and still needs item 0's `spare_nametable`.**
+  Nothing in this parcel makes that cheaper or more expensive.
+- **The mid-frame variant of 10b is untouched**, for the reasons costed above — it would
+  need a genuinely new VSRAM-mid-frame-write mechanism, not a parameter on this one.
+- **Item 6 collision surface, stated for whoever rebases this branch onto item 6's
+  landing.** Both items touch `engine/level/scene_dsl.emp`'s neighbourhood and VSRAM.
+  This parcel does NOT edit `scene_dsl.emp` itself (only imports `CAP_PER_COL_VSRAM` and
+  friends, already-shipped names, unchanged). The files this parcel DOES edit that a
+  dense-per-line-VSRAM parcel is likely to also touch: `engine/level/parallax.emp` (the
+  per-column V-scroll fill loop, `Parallax_Step5_Vscroll`, and the whole-plane pack site
+  — item 6's "dense per-line VSRAM" sounds adjacent enough to `Vscroll_Write`'s
+  `cap_per_col_vsram_emit` branch that a textual merge conflict there is likely, though
+  this parcel changes ORDER-of-write, not the buffer SHAPE or stride, so a clean rebase
+  should be mechanical) and `engine/ram.emp` (a 2-byte insertion outside the
+  `Parallax_State` span — if item 6 also adds a field there, expect the SAME
+  RAM-address-cascade fixture re-stamp this parcel needed, see below). No claim is made
+  about what item 6 itself does, per the brief's instruction not to defensively design
+  around unseen work.
+- **Two committed test fixtures were re-stamped, in BOTH canonical shapes** (this parcel
+  needed both, unlike item 11a which needed only DEBUG): `tools/fixtures/instashield_cut.json`
+  and `tools/fixtures/loop_crossover_cut.json`. Both are the SAME class item 11a's
+  landing recorded: a `+2`-byte RAM shift (this parcel's `Parallax_Roles_Swapped` +
+  `pad(1)`) cascades into the `Cache_*` RAM addresses `Player_LoopCrossover` and
+  `Collision_GetType` bake in as displacements, and a ROM-layout shift (this parcel's
+  ~150-200 bytes of new engine code) moves an absolute `Sound_PlaySFX` call target
+  `Ability_InstaShield`/`Ability_TailsFlight` reference. Each was verified as a pure
+  displacement/absolute-address change (not an opcode change) by disassembling the
+  routine before re-stamping — `bra.w $b44a` (was `$b3b2`) in DEBUG,
+  `jmp $8120.l` (was `$8088.l`) in RELEASE, both `Sound_PlaySFX`. `tailsflight_cut.json`
+  needed no change in either shape (byte-identical).
+- **Both ROM images below `EndOfRom`** were rebuilt clean after every fixture re-stamp
+  and verified with a fresh `./build.sh` / `DEBUG=1 ./build.sh` run (exit 0, full pytest
+  lane 2158 passed/5 skipped/73 subtests, both shapes) — see the four-shape totals below.
+
+### Four-shape aggregate totals (wall clock: `13:03:29 up 9 days, 4:52, load average: 3.87, 4.70, 6.21`)
+
+All four builds exit 0. Each ran the full pytest lane: **2158 passed, 5 skipped, 2
+warnings, 73 subtests passed** (identical across all four shapes — sonic4 debug, sonic4
+release, demo debug, demo release). No test names failed in any shape.
+
+| shape | `EndOfRom` | notes |
+|---|---|---|
+| sonic4 DEBUG (`s4.debug.bin`) | `$A8258` | |
+| sonic4 RELEASE (`s4.bin`) | `$A5C82` | unchanged from item 11a's own measured release `EndOfRom` — this parcel's ~150-200 new unconditional bytes were fully absorbed by existing placer slack in the release shape too |
+| demo DEBUG (`demo.debug.bin`) | `$1121A` | unaffected — demo declares no parallax and never reaches `engine.parallax` |
+| demo RELEASE (`demo.bin`) | `$1121A` | unaffected, same reason |
+
+Both endpoints measured on this box with sigil `md5 6c2378ae8a657e26684d4019a7d976d7`, by
+building this branch's four shapes and reading `EndOfRom` out of each fresh listing —
+information only, per the standing "no sigil pairing" ruling (2026-09-02); nothing here
+repins or refreezes sigil.

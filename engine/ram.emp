@@ -403,6 +403,27 @@ pub vars upper_ram {
     Parallax_Shadow_Scroll_B:    [u16; MAX_PARALLAX_BANDS],
     mark Parallax_State_End,
 
+    // EFFECTS-W1 item 10b — the plane-role swap flag. 0 = normal roles (FG on Plane A,
+    // BG on Plane B); nonzero = swapped (BG on Plane A, FG on Plane B). Read every frame
+    // by Parallax_Update's register reassert and by the HScroll/VSRAM feed packers
+    // (engine/level/parallax.emp) so content keeps its OWN scroll behaviour under either
+    // register assignment — see that file's item 10b banner for the derivation.
+    //
+    // DELIBERATELY OUTSIDE Parallax_State/_End, not an oversight: that span is the
+    // PER-ACT-LOAD clear target (Parallax_Init's `PARALLAX_STATE_LONGS`-counted zero
+    // loop), sized and pinned by an `ensure` in parallax.emp keyed to that exact byte
+    // count. A field inside it is reset every act load whether or not that is wanted;
+    // this one is reset EXPLICITLY, by name, in Parallax_Init instead (a `clr.b`, not a
+    // fold into the longword loop) — the flag's own reset does not need to share the
+    // pinned span's arithmetic, and a role-swap set-piece is a scene-level effect, not
+    // parallax-internal state, so it does not belong inside a span whose whole point is
+    // "the numbers `Parallax_Fill_PerLine` and `Parallax_Step5_Vscroll` compute every
+    // frame from ROM". Not gated to DEBUG shapes either: unlike the effects-lab demo
+    // flags below (Debug_Raster_Index, OJZ_Reel_Active), this is real engine capability
+    // a shipped game can use for a real set-piece, not a review-only toy.
+    Parallax_Roles_Swapped: u8,
+    pad(1),                      // keep the following long even-aligned
+
     // --- Raster state (effects P1) — the sparse HInt dispatcher's working set
     // (engine/effects/raster.emp). Its span is cross-checked there by an
     // `ensure` against RASTER_STATE_SIZE, so a drift on either side fails the
