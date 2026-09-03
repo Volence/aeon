@@ -210,24 +210,35 @@ fixed band.**
 
 Two size reductions are available and both are worth knowing before buying tiles.
 
-- **A top-anchored window band is cheap.** The VDP indexes the window nametable by *absolute
-  screen cell position* (`row × 64 + col`), so a window covering only screen rows 0..N-1 only
-  ever fetches the first `N × 128` bytes = `N × 4` tiles. An 8-row (64 px) top band is
-  **32 tiles**, not 128. A **bottom**-anchored band gets no such discount — a window at rows
-  20..27 still reads at offset `$A00`, so the region must extend that far. The DoD already
-  prefers top/bottom over left ("a top/bottom window avoids the left-window scroll bug Oracle
-  models as R9" — Oracle models exactly this at
-  `oracle/crates/oracle-core/src/render.rs:1272`: *"the first 16 px of plane A right of a
-  *left* window"*), so **top** is the free-est of the two.
+- **A top-anchored window band is probably cheap — and this one is an INFERENCE, marked as such
+  because Option B's viability rests on it.** What is *documented* is that the H40 window
+  nametable is a fixed 64×32 table regardless of reg `$10` (`genvdp.txt`, §10.3), i.e. `$1000`
+  of address space. What I am *inferring* is that the VDP addresses it by **absolute screen cell
+  position** (`row × 64 + col` from the base), so a window covering only screen rows 0..N-1
+  never fetches past byte `N × 128` and a region of `N × 4` tiles suffices — an 8-row (64 px)
+  top band would be **32 tiles**, and Option B's 64-tile run at `$B000` would hold a **16-row
+  (128 px)** band. **⚠ TAGGED FOR RUNTIME CONFIRMATION (§8, Q5).** I did not find a source that
+  states the indexing explicitly, and the alternative reading — that the window table is indexed
+  relative to the window's own origin — would make a top band cost the same as any other and
+  would **not** change Option P (which buys the full 128 either way) but **would** reduce Option
+  B to a 64-tile region that cannot hold a 64-wide window at all. So: safe for the
+  recommendation, load-bearing for the runner-up.
+
+  A **bottom**-anchored band gets no discount under either reading — a window at rows 20..27
+  reads at offset `$A00` in the absolute model. The DoD prefers top/bottom over left ("a
+  top/bottom window avoids the left-window scroll bug Oracle models as R9" — Oracle models
+  exactly this at `oracle/crates/oracle-core/src/render.rs:1272`: *"the first 16 px of plane A
+  right of a *left* window"*, and §10.2 confirms the trigger from the primary source), so **top**
+  is the cheapest corner of a documented-safe choice.
 - **Plane Z's 48-px strip is 6 rows = 24 tiles** of a 64×64 plane's `$2000` span. Re-pointing
   Plane B at a base with only 24-32 valid tiles behind it means plane rows past the strip
   fetch whatever else lives there. Whether that is harmless depends on whether those rows are
   ever on screen at the moment the base is re-pointed. **⚠ TAGGED FOR RUNTIME CONFIRMATION
   (§8, Q1).**
 
-The design below still buys a full 128 tiles, because the marginal cost of the full run over
-32 tiles is zero at the cheapest source (§3, Option P) — the quantum forces it either way —
-and 128 tiles is what turns "a top band" into "a real third layer".
+The recommendation below buys a full 128 tiles anyway, because the marginal cost of the full run
+over 32 tiles is zero at the cheapest source (§3, Option P) — the pool's `quantum = 64` forces
+128 either way — and buying the full table is what makes the region immune to Q5's answer.
 
 ---
 
@@ -600,6 +611,11 @@ assumption whose failure changes a cost, not the recommendation*.
   `oracle/crates/oracle-core/src/render.rs:1272` as specific to a **left** window. The DoD
   already assumes top/bottom avoids it. Worth confirming against Oracle's golden
   (`crates/oracle-core/tests/golden_frames.rs:184-206`) before committing to a top band.
+- **Q5 — window nametable indexing: absolute screen row, or window-relative?** §2.2's
+  top-band discount and therefore Option B's 16-row band both depend on the absolute reading.
+  Not found stated in any source I checked. Cheap to answer in Oracle or any emulator: enable a
+  4-row top window, fill the window table's rows 0-3 and rows 4-7 with distinguishable cells,
+  and see which pair appears.
 - **Q4 — plane-role swap's scroll plumbing.** Swapping reg `$02`/`$04` swaps which nametable
   is front, but the HScroll table's per-line A/B word pair and VSRAM's even/odd entries are
   addressed by *plane*, not by *content*. Confirm the swap needs a matching swap of the scroll
