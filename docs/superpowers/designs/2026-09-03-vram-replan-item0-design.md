@@ -429,9 +429,17 @@ from `$DC00` (was inside Plane A 64x64 nametable)"*. Someone already paid to mak
 genuinely 64 rows tall. `engine/level/bg.emp:27` closes it: *"ALL 64 ROWS ARE LIVE (NEW-5
 close, 2026-08-05)."*
 
-**Verdict: rejected.** It is free in tiles and expensive in the one currency the engine's
-stated goals are denominated in (vertical transitions, the mega-act). Recording it because it
-*looks* like the answer and the next person to open the file will find it too.
+**Verdict: rejected — but read §10.6 before treating that as obvious.** It is free in tiles and
+expensive in the one currency the engine's stated goals are denominated in (vertical
+transitions, the mega-act), and the three `ensure`s above are the tree telling you so by name.
+What the reference sweep adds is context this write-up would otherwise misrepresent: **every
+Sonic-lineage and Treasure reference runs 64×32 planes, and TF4 / Gunstar / Alien Soldier fit A,
+W and B contiguously in `$C000-$EFFF` because of it.** 64×64 is *our* unusual choice and the
+third nametable is precisely what it was traded for. So this option is not exotic and it is not
+obviously wrong — it is a re-opening of a decision already made, at the price of a shipped
+feature. **If the owner ever wants to revisit the 512 px Plane-B span on its own merits, that is
+a different and larger conversation than item 0**, and it should not be had under the pressure
+of needing 128 tiles this week.
 
 ---
 
@@ -683,6 +691,19 @@ Stated plainly, because being contradicted was asked for.
    nametable-base-change *mechanism* that item 11 is named for. The brief treats item 0 as
    strictly upstream of both items; it is upstream of two sub-features out of five.
 
+**Confirmed by the reference sweep, after this document was drafted:**
+- The register bytes §2 derives are correct against a shipped ROM that no prior cross-check
+  covered. Alien Soldier's HBlank blob at ROM `0x0019D2` literally contains `move.w #$8238` and
+  `move.w #$8406` — the values this document derives for Plane A → `$E000` and Plane B →
+  `$C000`. (`DEFERRED_WORK`'s fold was checked against s2disasm and skdisasm; this is a third,
+  independent instance, and it is the one that exercises the A/B *exchange*.)
+- The brief's Ristar hypothesis — *"does any of that script write reg `$02`/`$03`/`$04`, or only
+  `$0D`-fed hscroll / reg `$0F` / CRAM?"* — is **exactly right**. All 16 per-act HBlank handlers
+  write only VSRAM, CRAM, reg `$0A` and the next-handler pointer; only regs `$01` and `$0F` are
+  ever modified in its `$FFEA44` shadow.
+- The DoD's *"HUD is sprites, as in the Sonic games"* is confirmed rather than assumed: S3K uses
+  the window only in the LBZ2 transition and the Save screen, never in gameplay.
+
 **Also worth flagging, found while deriving:**
 
 - `engine/system/constants.emp:282-284` still describes the pool as 960 tiles / 15 frames. It is
@@ -800,31 +821,117 @@ we cannot use it: per-line HScroll is unconditional since 2026-08-26
 
 ### 10.6 What the reference games actually do about plane pressure
 
-- **Thunder Force IV**, the obvious candidate for "how do I get more layers": *it does not use a
-  third nametable.* Its celebrated stage-1 parallax is **line-scroll banding on the existing two
-  planes**, arranged so the bands never overlap — rasterscroll, on the same stage: *"the near
-  foreground and the background **actually never overlap since they are the same layer**."* Five
-  apparent layers, two nametables, zero extra VRAM. **This is the cheapest technique in the
-  whole survey and it is the one we should reach for before spending tiles.**
-- **The Adventures of Batman & Robin** is the one game that genuinely time-multiplexes a base
-  register per raster band (§11.1) — i.e. it is the only reference that does what item 11 asks
-  for, and it does it on reg `$04`, plane B, exactly as the DoD's "Plane Z" description says.
-- **Titan Overdrive 2** does not add a plane. Kabuto: its effects use the undocumented debug
-  register at `$C0001C`, bits 7-8 of which *"force one plane permanently active"* — a
-  blending/masking trick, not an extra layer, and explicitly fragile across VDP revisions
-  (*"stability of the debug registers mostly affects 1st generation VDP chips"*). **Given the
-  standing no-real-hardware constraint, this is the one MD technique where emulator agreement
-  is worth the least, and it should stay off our list.**
-- **No source found describes a genuine fourth map on screen.** The VDP has three name tables,
-  W substitutes for A, and the only way to exceed three is to time-multiplex a base across
-  raster bands. That is item 11, and it is why item 11 is the item that buys capability.
+A sweep of all ten local trees. Four (`s2disasm`, `skdisasm`, S.C.E., `sonic_hack`) are
+hand-labelled source and were read directly; the other six are raw capstone output with no
+addresses on instruction lines, so they were worked from the **ROM binaries** with a fresh
+capstone pass (VDP init-table scan, then every `MOVE.W #$8xxx`/`#$9xxx` to `$00C00004`, then
+disassembly of every survivor and every table-loader / shadow-register site). **Static only —
+nothing was emulated.** A base write assembled in a data register and stored through a pointer
+would be caught only where the setter routine itself was found (it was, in TF4 and Vectorman).
 
-*(Sources: `genvdp.txt` v1.5f · Plutiedev VDP register reference and Kabuto hardware-notes
-mirror · md.railgun.works VDP · SpritesMind threads 972, 666, 2604 · Genesis Plus GX
-`core/vdp_ctrl.c` / `core/vdp_render.c` · rasterscroll.com. A reported claim that Thunder Force
-IV's top four rows are a window came from a search summary only and is **unverified**.)*
+#### The finding that reframes Option C: we are the outlier, and 64×64 is why
 
----
+| game | Plane A | Window | Plane B | reg `$10` |
+|---|---|---|---|---|
+| Sonic 2 | `$C000` | `$A000` (parked) | `$E000` | `$01` 64×32 |
+| S3K | `$C000` | `$8000` | `$E000` | `$01` 64×32 |
+| S.C.E. | `$C000` | **aliased onto A (engine) / B (level)** | `$E000` | `$01` 64×32 |
+| `sonic_hack` | `$C000` | `$A000` (parked) | `$E000` | `$01` 64×32 |
+| **Thunder Force IV** | `$C000` | **`$D000`** | `$E000` | `$01` 64×32 |
+| **Gunstar Heroes** | `$C000` | **`$D000`** | `$E000` | `$01` 64×32 |
+| **Alien Soldier** | `$C000` | **`$D000`** | `$E000` | `$01` 64×32 |
+| Ristar | `$C000` | `$B000` (parked) | `$E000` | `$01` 64×32 |
+| Vectorman | `$0000` | `$F000` | `$2000` | `$01`, one mode `$11` |
+| Batman & Robin | `$C000` | `$0000` (parked) | `$E000` | `$03` 128×32 / `$11` 64×64 |
+| **Aeon (us)** | **`$C000`** | **`$F000` — aliased onto B** | **`$E000`** | **`$11` 64×64** |
+
+**Every Sonic-lineage reference and every Treasure game runs 64×32 planes.** At `$1000` per
+plane, TF4 / Gunstar / Alien Soldier fit **A, W and B contiguously in `$C000-$EFFF`** with
+`$F000` still free. They do not have our problem because they never spent `$2000` on a plane.
+
+This does **not** overturn §3's rejection of Option C — `PLANE_B_SPAN = 512` is masked against
+in Step 4a, the seam-free scroll range collapses from 288 origins to 32, and item 7's bob ladder
+goes empty by a named `ensure`, all of which are true regardless of what Sega did. But it does
+correct the *impression* my Option C write-up left, that 64×64 is the norm and shrinking it is
+exotic. **The opposite is true: 64×64 is our unusual choice, and the third nametable is what it
+was traded for.** That is a fair thing for the owner to know before approving a purchase to buy
+back what the plane size spent. Two references do run big planes (Vectorman's one 64×64 mode,
+Batman's 128×32/64×64 scenes) — and note Vectorman *pays* `$2000` per plane even in 64×32 mode,
+because its own base setter (`0x001D6A`) enforces `$2000` alignment, independently confirming
+§0's granule.
+
+**S.C.E. aliases the window base onto Plane A (engine) or Plane B (level)** —
+`Engine/Constants.asm:831` is literally `VRAM_Plane_W_Name_Table = VRAM_Plane_A_Name_Table`.
+**Our `overlay_with` is not a wart; it is the idiom**, and S.C.E. reached it independently.
+
+#### Items 10b, 11a and 11b are all shipped techniques, and one game does two of them at once
+
+- **Alien Soldier does item 10b *and* item 11a together, mid-frame.** Its HBlank handler bodies
+  are copied into RAM from ROM blobs; three of them are a long `4E71` NOP slide (a cycle delay
+  to land the write at a chosen point in the visible line) followed by:
+  `move.w #$8238,$00C00004` — **Plane A → `$E000`** — and `move.w #$8406,$00C00004` — **Plane B →
+  `$C000`** (ROM `0x0019D2`). **That is the A/B role exchange, performed from HBlank.** It also
+  re-derives the pair every frame in its scroll update through a 24-word VDP shadow at `$FFF7D0`
+  (`0x010B80`: `$8230`/`$8407` normally, `$8238`/`$8406` when a flag is set) — i.e. **the same
+  effect at both time scales, through the same two mechanisms our §2.0 already has.**
+  **The literal bytes are `$8238` and `$8406`. Those are the exact values §2's table derives for
+  `$E000` on reg `$02` and `$C000` on reg `$04`** — an independent check of the shift table
+  against a shipped ROM, from a game neither `DEFERRED_WORK`'s two references nor GPGX covers.
+- **Item 11's frame swap ships in both Sonic games.** Sonic 2's Special Stage double-buffers
+  Plane A between `$C000` and `$8000`, toggled per drawn frame in the V-Int
+  (`s2.asm:880`/`:895`, flag `SS_Alternate_PNT`), with **three** 64×64 nametables resident
+  (`s2.constants.asm:2194-2196`) at reg `$10` = 128×32. S3K's title screen alternates **both**
+  plane bases every frame between `$C000` and `$E000` (`sonic3k.asm:5753`/`:5764`).
+- **Sonic 2 also does a mid-frame Plane A base swap for the 2P split** — `H_Int` writes
+  `#$8200|(VRAM_Plane_A_Name_Table_2P/$400)` (`s2.asm:1199`), restored in the V-Int
+  (`s2.asm:578`, `:605`). Note the spelling: **the derivation, not a literal** — the same form
+  `DEFERRED_WORK` cites as the model for our fold.
+- **Thunder Force IV has a real base-setter library** (`0x0017CE`+: `and.w #$e000,d0 / rol.w #6,d0
+  / or.w #$8200,d0`) and a 10-entry per-mode register-table array, one entry of which puts Plane
+  A on `$E000` *on top of* Plane B. But its HBlank is a bare dispatch and **no base write appears
+  in any handler**: TF4 swaps per game mode, never within a frame.
+
+#### The window as a real layer: three games ship it, all as a top or bottom band
+
+Gunstar Heroes reg `$12` = `$03` (**top 3 rows / 24 px** from `$D000`); Alien Soldier reg `$12` =
+`$04` (**top 4 rows / 32 px** from `$D000`) *and* it repositions the window mid-frame from an
+HBlank blob (`0x001DE0`: reg `$11` = `$910A`, left edge at x=160); Vectorman reg `$12` = `$97`
+(**bottom 5 rows / 40 px** from `$F000`); TF4 one path at `0x0059FE` (**top 4 rows**). S3K uses it
+twice, both special-purpose — the LBZ2 act transition (`sonic3k.asm:102560`) and the Save screen,
+where window base = Plane A base makes Plane A entirely non-scrolling. **S3K's in-level HUD is
+sprites — confirmed by the sweep**, which is the DoD's standing assumption and §11 Q2's ruling.
+
+**These are all small bands, and all of them are top or bottom.** Nothing in the survey uses a
+full-screen window, and nothing uses a left-anchored one — consistent with §10.2's account of the
+left-column bug. It also means §2.2's cheap-top-band question (Q5) is the shape every shipped
+user of the window actually needs.
+
+#### Ristar, and the two games that do nothing here
+
+**Ristar's per-stage HBlank scripting does not touch the base registers** — the hypothesis in the
+brief is confirmed exactly. Its VDP shadow is at `$FFEA44`; an exhaustive scan of every
+instruction touching `$EA44-$EA6A` shows **only regs `$01` and `$0F` are ever modified**, and all
+**16** per-act HBlank handlers write only VSRAM, CRAM, reg `$0A` and the next-handler pointer.
+Gunstar Heroes has Alien Soldier's identical shadow and machinery and simply never uses it.
+S.C.E. has one fixed layout and no swaps at all outside its error-handler screen.
+
+#### ⚠ An unresolved contradiction about Batman & Robin — recorded, not adjudicated
+
+§10.1 rests on eke-eke's SpritesMind account and Genesis Plus GX's source comment
+(*"Plane B Name Table Base changed during HBLANK (Adventures of Batman & Robin)"*), which is
+strong evidence: the guard was written to fix an observed glitch in a specific scene.
+**The local static sweep did not find it.** It reports Batman's HBlank as a RAM-generated
+unrolled routine at `$FFE560` (copied by `0x00B0F0`/`0x00B1B6`) doing per-line VSRAM plus regs
+`$0A`/`$01`, and all **seven** scene tables at `0x0155A8 + n*$14` using the same
+A=`$C000`/B=`$E000`, varying only plane size and scroll granularity.
+
+Both can be true — a RAM-generated handler is exactly where a statically-invisible write would
+live, and the sweep covers the *copied bodies* it found, not every scene's. **I am not
+adjudicating it here, and nothing in this design depends on the answer**: Alien Soldier's
+`0x0019D2` blob is a *directly disassembled* mid-frame base write, so the technique is
+established for item 11a whether or not Batman is a second instance. Worth flagging because
+§10.1 names Batman and the DoD does too — if a later parcel wants Batman specifically as its
+model, that is the thread to pull.
 
 ## 11. Open for the owner
 
