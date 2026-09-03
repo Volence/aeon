@@ -8,6 +8,22 @@ the wall, and has since 2026-08-29.** This document exists to re-derive that fro
 rather than take the existing docs' word for it, cost the two alternatives nobody had
 priced, and give the editor lane a citable answer.*
 
+> **READ §1.2 FIRST IF YOU ARE HERE FROM THE "16 OF 16 BITS ARE FULL" QUESTION.** The census
+> is correct and both repos agree on it bit for bit. It is also **not evidence about the
+> engine's cell**, because the 16-bit word it counts is a **bake-time-only artifact** that
+> ceases to exist inside `bake_plane_cell`. What the engine stores per cell is an **8-bit
+> interned attr index** into five 256-byte side tables, of which **225 of 256 slots are
+> free** (measured, §5). A full authoring word and an empty runtime budget are both true at
+> once; they are counts of different things. Every number in this document names the artifact
+> it came from — §1.2's table defines the three.
+
+> **Correction recorded in place, §1.3:** this document's first pass claimed solidity's
+> "four values all live", read off the constant. Measured, **`SOL_LRB` = 2 is emitted by
+> nothing** — zero of 589,824 authored cells, zero of 256 shipped table slots. It is still
+> not reclaimable, for a reason worth knowing: the runtime gates solidity as a **bitmask**
+> (`and.b d6, d0`), not an enum, so the unused value is unused *content*, not spare
+> *encoding*.
+
 *Every aeon claim below is transcribed from source in this tree at aeon
 `7cd6353e594ff607b7dccdd3311c27aed9c7f4f5` — the tip of `origin/master` at the moment this
 branch (`design/loops-p-cell-word`) was cut, confirmed by `git rev-parse HEAD` in this
@@ -78,15 +94,18 @@ file and must never be confused, §3 below):**
 | 0-9 | shape index | `BLOCK_ID_MASK = 0x03FF` | 0-1023 (base bank uses 0-255 only, §4.1) | `tools/collision_pipeline.py:50` |
 | 10 | X-flip | `CHUNK_XFLIP_BIT = 0x0400` | bool | `tools/collision_pipeline.py:51` |
 | 11 | Y-flip | `CHUNK_YFLIP_BIT = 0x0800` | bool | `tools/collision_pipeline.py:52` |
-| 12-13 | this plane's solidity | `PLANE_SOL_SHIFT = 12` | `SOL_NONE`=0, `SOL_TOP`=1, `SOL_LRB`=2, `SOL_ALL`=3 — **all four live** | `tools/collision_pipeline.py:61`, read at `:305` |
+| 12-13 | this plane's solidity | `PLANE_SOL_SHIFT = 12` | `SOL_NONE`=0, `SOL_TOP`=1, `SOL_LRB`=2, `SOL_ALL`=3 — all four **distinguishable**, only **three emitted** in shipped content; see §1.2 | `tools/collision_pipeline.py:61`, read at `:305` |
 | 14-15 | crossover (`XOVER`) | `XOVER_SHIFT = 14`, `XOVER_MASK = 3` | `NONE`=0, `TO_A`=1, `TO_B`=2, `RESERVED`=3 (bake **raises**, does not clamp — `:294-303`) | `tools/collision_pipeline.py:95-100` |
 
 Sixteen of sixteen bits accounted for, none free. Confirmed by exercising the raise path
 directly: `bake_plane_cell` (`:267`) reads `xover` at `:294` and raises at `:295-303` for
 value 3; there is no path that reaches a return with `xover == 3`.
 
-**aurora — the SAME word, split across two files that between them are the authority (their
-own `collision-cell-word.ts` docblock has drifted, see §1.1):**
+**aurora — the SAME artifact (#1 in §1.2's table), described in a different repo and a
+different language: TypeScript, `aurora/src/core/collision/`. It is the producer's
+description of the file format; aeon's table above is the consumer's. They must agree, and
+they do. Split across two files that between them are the authority (their own
+`collision-cell-word.ts` docblock has drifted, see §1.1):**
 
 - `src/core/collision/collision-cell-word.ts:1-19` (`06f1ecd5`) — shape/xFlip/yFlip/solidity,
   bits 0-13, matching aeon's `BLOCK_ID_MASK`/`CHUNK_XFLIP_BIT`/`CHUNK_YFLIP_BIT`/
@@ -96,10 +115,90 @@ own `collision-cell-word.ts` docblock has drifted, see §1.1):**
   `XOVER_MASK`/`XOVER_RESERVED` bit-for-bit, and citing the anchor doc by commit
   (`layer-transition.ts:8`: `git -C ../aeon show aa2a9f29:docs/LOOP_CROSSOVER_ENCODING.md`).
 
-**Verdict: our tree agrees with the editor's census exactly.** Sixteen of sixteen bits used,
-solidity's four legal values all live, crossover's three legal values live and the fourth
-hard-errors. **No fifth solidity value has anywhere to go, and this document does not
-propose finding it one** — §2 explains why it does not need to.
+**Verdict: our tree agrees with the editor's census exactly, bit for bit.** Sixteen of
+sixteen bits used, crossover's three legal values live and the fourth hard-errors. **No
+fifth solidity value has anywhere to go, and this document does not propose finding it
+one** — §2 explains why it does not need to.
+
+**But agreement here is agreement about ONE artifact, and it is not the engine's.** See
+§1.2: this word is a bake-time-only artifact. The 16/16 count is a true statement about the
+authored `.collattr[b].bin` cell word and says nothing about the engine's per-cell runtime
+datum, which is a different width in a different place with 225 of 256 slots free.
+
+### 1.2 WHICH ARTIFACT EACH NUMBER DESCRIBES — the distinction that dissolves the question
+
+There are **three different per-cell representations** in this pipeline, and the blocked
+question conflates the first with the third. Naming them is most of the answer:
+
+| # | artifact | width | where it lives | who reads it |
+|---|---|---|---|---|
+| 1 | **authored cell word** | 16 bits/cell/plane | aurora's `section_N.collattr.bin` / `.collattrb.bin` (131072 B each) | `bake_plane_cell` — and nothing else, ever |
+| 2 | **interned attr index** | **8 bits**/cell/plane | strips → 16×16 block embeds → `Tile_Cache_Collision` (2400 B × 2 planes) | `Collision_GetType` |
+| 3 | **side tables** | 5 tables addressed by #2 | `heightmaps.bin` 4096 B, `heightmaps_rot.bin` 4096 B, `angles.bin` 256 B, `solidity.bin` 256 B, `crossover.bin` 256 B | `probe_core` (solidity/angle/height), `Player_LoopCrossover` (crossover) |
+
+**Artifact #1 dies inside `bake_plane_cell`.** Its sixteen bits are destructured there
+(`:294` xover, `:304` shape, `:305` solidity, `:312`/`:315` flips) and what leaves is a
+single interned byte. **No 16-bit cell word exists at runtime, in ROM, or anywhere past the
+baker.** Aurora's census and aeon's census are measurements of the same artifact #1 — they
+agree — but a full artifact #1 does not constrain a feature, because artifact #1 is not
+where a runtime cell state would have to live.
+
+**This is why the controller's `grep crossover engine/level/` returned nothing, and it is
+not a divergence.** Verified directly at our SHA: `engine/` contains no consumer of any cell-
+word field. `grep -rn "crossover\|Crossover\|XOVER" --include="*.emp" engine/` returns two
+hits, both non-consumers — an unrelated raster comment (`engine/effects/raster.emp:1351`) and
+a cross-reference comment (`engine/system/constants.emp:55`). `engine/level/
+collision_lookup.emp` fetches **one opaque byte** (`move.b (a0, d1.w), d0`) and knows nothing
+of shapes, flips, solidity or crossover. Both actual field consumers are **game-side**:
+`probe_core` in `games/sonic4/player/player_sensors.emp:202` and `Player_LoopCrossover` in
+`games/sonic4/player/player_common.emp:735`. The empty grep is the **stage boundary showing
+up exactly where the architecture puts it**, not a missing consumer.
+
+### 1.3 The bits-12-13 probe — measured, and it CORRECTS this document's own first pass
+
+"All four solidity values live" was this document's claim on its first pass, read off the
+constant. **Measured, it is wrong**, and the correction is recorded here rather than
+silently edited because the distinction it turns on is the reusable part.
+
+*Artifact #1, all 9 sections × 2 planes = 1,179,648 bytes decoded directly (bits 13:12 of
+every one of 589,824 cells):*
+
+```
+section_0  plane A:  {SOL_NONE: 63744, SOL_TOP: 620, SOL_ALL: 1172}
+section_0  plane B:  {SOL_NONE: 64436,                SOL_ALL: 1100}
+sections 1-8, both planes:  {SOL_NONE: 65536} each — no authored collision at all
+```
+
+*Artifact #3, the shipped `games/sonic4/data/collision/solidity.bin`, 256 bytes:*
+
+```
+{0: 225, 1: 17, 3: 14}      <- value 2 (SOL_LRB) appears in ZERO of 256 slots
+```
+
+**`SOL_LRB` = 2 is emitted by nothing.** Not one authored cell in the act, not one slot of
+the shipped ROM table. So the brief's hoped-for outcome — "a value nothing produces is spare
+capacity wearing a name" — is *half* true, and the half that fails is the half that matters:
+
+- **It is spare CONTENT capacity, not spare ENCODING capacity.** The field is two bits wide
+  regardless of how many of its values current content happens to use; an unused value frees
+  no bit.
+- **The runtime structurally distinguishes all four, so the unused value cannot be
+  reclaimed.** `probe_core` gates on `and.b d6, d0` (`player_sensors.emp:205`) — solidity is
+  a **bitmask** (bit0 = TOP, bit1 = LRB), not an enum, and the comment at `:204` says so:
+  *"gate is `class == SOLID_ALL || (class & mask)`; ALL = TOP|LRB, so a single AND covers
+  both cases"*. `SOLID_LRB` is the mask a ceiling or wall probe already sets — `moveq
+  #SOLID_LRB, d6` at `player_sensors.emp:334` (ceiling), `:452` (wall), and
+  `player_climb.emp:263` — so a cell painted solidity 2 would behave differently from 1 and
+  3 **today, with no code change**. It is a working feature with no content yet (a wall you
+  cannot stand on top of), not a dead value.
+- Reclaiming value 2 as a "solid in both" marker would therefore make every wall and ceiling
+  probe in the game read those cells as wall-solid — a silent behaviour change at three call
+  sites, to encode a fact §2 shows is already free.
+
+**Net effect on the recommendation: none, and it is now better supported.** The probe was
+worth running — it is the one place the premise could have broken in our favour — and it
+came back negative for a reason (bitmask, not enum) that also rules out the cheapest
+version of Option A.
 
 ### 1.1 One thing that does NOT agree, and does not matter to the answer
 
@@ -401,6 +500,20 @@ is cheaper than Option A's flag, since it would not need to touch the word at al
   exhaustively line-by-line.
 - **No build was run and no emulator was used**, per the brief's bar (documents only; this
   parcel touches nothing the build reads).
+
+**Settled in the second pass, and previously open:**
+
+- **Whether aeon's baked word had DIVERGED from aurora's TypeScript packing.** It has not —
+  §1.2. The two describe the same artifact (#1) and agree bit for bit; the apparent absence
+  of any crossover consumer under `engine/` is a stage boundary, not a divergence, and is
+  now measured rather than inferred.
+- **Whether the baker emits all four solidity values.** It does not — §1.3, `SOL_LRB` = 2 is
+  emitted by zero authored cells and zero shipped table slots. This corrects the first
+  pass's claim. It does not change the recommendation, and §1.3 explains why the unused
+  value is nonetheless not reclaimable (bitmask, not enum).
+- **The attr-slot budget**, independently re-measured this pass by decoding all five shipped
+  tables together: **31 of 256 used, 225 free**, max used index 31 — reproducing the first
+  pass's figure exactly.
 
 ---
 
