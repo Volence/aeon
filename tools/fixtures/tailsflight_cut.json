@@ -12,7 +12,7 @@
         "PSTATE_ROLLJUMP": 10,
         "SST_y_vel": 12
       },
-      "end": 69918,
+      "end": 69986,
       "offsets": {
         "air_left": 57,
         "climb_pad": 71,
@@ -39,9 +39,9 @@
         "stick_convex": 59
       },
       "sst_custom": 48,
-      "start": 69872,
+      "start": 69940,
       "stubs": {
-        "0104AA": "Player_SetState"
+        "0104EE": "Player_SetState"
       }
     },
     "s4.lst": {
@@ -55,7 +55,7 @@
         "PSTATE_ROLLJUMP": 10,
         "SST_y_vel": 12
       },
-      "end": 69638,
+      "end": 69706,
       "offsets": {
         "air_left": 57,
         "climb_pad": 71,
@@ -82,9 +82,9 @@
         "stick_convex": 59
       },
       "sst_custom": 48,
-      "start": 69592,
+      "start": 69660,
       "stubs": {
-        "0103E6": "Player_SetState"
+        "01042A": "Player_SetState"
       }
     }
   }
