@@ -330,10 +330,14 @@ pub proc Effects_InstallPreset (a0: u32) clobbers(d0-d4/a0-a3) {
         // Effects_Motion_Any is folded HERE, once per install, from the words being seeded.
         // Recomputing it per frame would be the loop it exists to skip.
         //
-        // THIS BLOCK IS NOT CAPABILITY-GATED while the loop that reads it is, and that is
-        // deliberate: the RAM exists in every game (ram.emp has no capability arms), the seed
-        // is four moves, and a game with the bit clear seeds a bank nothing reads rather than
-        // carrying a second gated span in a proc that is already the crossing hot path.
+        // THIS BLOCK IS NOT CAPABILITY-GATED while the loop that reads it is, and that is a
+        // decision with a measured price rather than an oversight: 34 bytes (11 instructions),
+        // paid by every game including one whose SCANLINE_CAPS is 0. It buys not carrying a
+        // third bracketed span in a proc that is already the crossing hot path, and the RAM it
+        // seeds exists in every game anyway (ram.emp has no capability arms). Measured on
+        // demo.debug: these 34 bytes plus Effects_SetTargetY's 2 land in PLACER FILL —
+        // EndOfRom does not move — so a zero-capability game's ROM image is the same length it
+        // was. Gate it the day that stops being true.
         lea     EffectsPreset.ep_patch_motion(a3), a0
         lea     Effects_Motion, a1
         lea     Effects_Target, a2

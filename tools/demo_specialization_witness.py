@@ -320,15 +320,21 @@ from scene_spans import (AEON, capability_bits, expected_spans, game_caps,
 #                                         (the `lea Effects_Screen_L, a1` moved below the
 #                                         `moveq`, so the elided arm can take a1 for the sine
 #                                         base) and reordering four instructions of the same
-#                                         widths moves no byte. A game with the bit clear pays
-#                                         NOTHING for this feature in code — only the 26 bytes
-#                                         of RAM, which ram.emp has no capability arms to elide.
+#                                         widths moves no byte.
 #   Effects_SetTargetY        NEW ->  2   sonic4 36 (-34). The whole body is gated
 #                                         (`cap_anchor_motion_target`), so demo carries the
 #                                         `rts` and nothing else. It is a `pub proc` and demo's
 #                                         raster.emp is in its use closure, so the alternative
 #                                         to gating it was 36 bytes of setter writing a bank
 #                                         demo's elided loop never reads.
+#
+# WHAT DEMO DOES STILL PAY, stated because "the bit elides it" over-reads: 36 code bytes
+# (Effects_SetTargetY's `rts` = 2, plus Effects_InstallPreset's 34-byte motion seed, which is
+# NOT capability-gated — argued at the instruction in engine/effects/preset.emp) and the 26
+# bytes of RAM, which ram.emp has no capability arms to elide. Measured: demo.debug's symbol
+# shifts are exactly {+0, +2, +36, +26} and its EndOfRom does NOT move — the 36 bytes land in
+# placer fill, so demo's ROM IMAGE is the same length and only the deb2 symbol appendix grows
+# (+131 B on demo.debug.bin, +118 on demo.bin, all of it new label names).
 #
 # The other eight rows the tool prints (six pinned plus Parallax_Update, which hosts a span and
 # has never been pinned) are unchanged — measured, not assumed: this run printed
