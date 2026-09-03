@@ -10,7 +10,7 @@
 //
 // EVERY `pub comptime fn` AT THE BOTTOM IS EMITTED FOR EVERY ACT, ALWAYS — the act
 // default, the section scene, and one per `EffectsPreset` channel (raster, cycle,
-// variant) —
+// variant, patch world Y, patch motion) —
 // owner ruling 2026-08-22 (design §9 Q-c, the always-emitted default). With no
 // editor content they return the `hand:` fallback their caller passes; with
 // editor content they return the lowered record above. The caller therefore
@@ -197,6 +197,7 @@ pub equ EditorScenes_OJZ_Act1_Bindings = 2
 pub equ EditorRaster_OJZ_Act1_Bindings = 1
 pub equ EditorCycle_OJZ_Act1_Bindings = 0
 pub equ EditorVariant_OJZ_Act1_Bindings = 0
+pub equ EditorPatch_OJZ_Act1_Bindings = 1
 
 // The binding table's domain, held against the engine's flat-section ceiling. The
 // literal below is repeated inside `sec_scene`'s ensure ON PURPOSE — a comptime fn's
@@ -283,5 +284,64 @@ pub comptime fn ojz_act1_sec_variant(sec: int, slot: int, hand: Label = 0) -> La
     ensure(sec >= 0 && sec < 9, "ojz_act1_sec_variant(sec: {sec}): this act has 9 sections, so there is no binding slot for that index — the section preset and project.json's grid have drifted apart")
     ensure(slot >= 0 && slot < 2, "ojz_act1_sec_variant(slot: {slot}): the engine has 2 palette variant staging slots (PAL_MAX_VARIANTS) — Palette_SetVariant masks the index with a power-of-two mask, so a higher slot would fold back onto slot 0")
     comptime var out = hand
+    return out
+}
+
+// ---- THE PATCH-CHANNEL BINDINGS — the anchor mover's authoring seam (item 4) ----
+//
+// Two more always-emitted choosers on the same seam, called from the same `preset()` in
+// games/sonic4/data/effects/ojz_effects.emp. They return `int` and not `Label`, because a
+// world Y and a packed sweep word are VALUES: `ep_patch_world_ys` and `ep_patch_motion` are
+// inline `[u16; RASTER_MAX_PATCH]` fields, which is what gives preset() a `.len` it can
+// check (engine/effects/preset.emp).
+//
+// ⚠ `patch_world_ys` IS WHOLE PIXELS AND NEITHER SIDE CONVERTS — 1:1, editor to ROM. This
+// is NOT item 3's `drift.rate`, which is 1/256 px per frame with the editor multiplying by
+// 256 on export. A world Y carried through that habit lands 256x down the level;
+// `Effects_LatchWorldLines` derives the screen line as `anchor - Camera_Y`, so the band
+// simply never appears and nothing reports it. There is no `* 256` anywhere on this path
+// and there must never be one.
+//
+// ⚠ THE SWEEP FIELDS ARE BASE-2 LOGARITHMS ON QUANTIZED LADDERS — seven amplitude rungs
+// (peak = 256 >> amp_shift px) and nine period rungs (cycle = 256 << period_shift ticks),
+// derived in engine/effects/raster_dsl.emp from the sine table and the screen height. The
+// generator forwards them VERBATIM and refuses nothing about their values: adjacent rungs
+// differ by a factor of two, so rounding one silently doubles or halves the motion where
+// `anchor_sweep()`'s own ensure prints the whole ladder.
+//
+// `hand:` IS THE CALLER'S, and its default here is the ENGINE SENTINEL and never 0 — 0 is a
+// real world Y, and it is the worst one: it reads as ABOVE the screen top, i.e. fully
+// submerged, for a channel nobody asked for.
+//
+// WHAT THIS SEAM CANNOT CHECK, said here because the author gets no comptime error for any
+// of it: (a) a sweep's peak-to-peak travel must fit its channel's `patchable(lo, hi)` band,
+// and above `hi` Raster_BuildSchedule DROPS the record rather than clamping — the band
+// vanishes for the frame. `lo`/`hi` live in the raster program and the amplitude in the
+// preset, associated by a pointer at runtime, so no comptime scope holds both;
+// tools/test_anchor_sweep_band.py is that scope. (b) whether the SECTION binding this
+// document is one of the places the channel is actually consumed — the generator checks
+// only that the game consumes it somewhere.
+//
+// With no document carrying either key the bodies below are `return out` over an unmodified
+// `hand`, and this whole block is zero ROM bytes — a `pub comptime fn` emits nothing.
+pub comptime fn ojz_act1_sec_patch_world_y(sec: int, ch: int, hand: int = 32767) -> int {
+    ensure(sec >= 0 && sec < 9, "ojz_act1_sec_patch_world_y(sec: {sec}): this act has 9 sections, so there is no binding slot for that index — the section preset and project.json's grid have drifted apart")
+    ensure(ch >= 0 && ch < 4, "ojz_act1_sec_patch_world_y(ch: {ch}): the engine has 4 patch channels (RASTER_MAX_PATCH) — the runtime patcher masks the channel index with RASTER_MAX_PATCH minus 1, so a higher channel would fold back onto channel 0")
+    comptime var out = hand
+    if sec == 5 && ch == 0 { out = 2272 }
+    if sec == 5 && ch == 1 { out = PATCH_ANCHOR_NONE }
+    if sec == 5 && ch == 2 { out = PATCH_ANCHOR_NONE }
+    if sec == 5 && ch == 3 { out = PATCH_ANCHOR_NONE }
+    return out
+}
+
+pub comptime fn ojz_act1_sec_patch_motion(sec: int, ch: int, hand: int = 0) -> int {
+    ensure(sec >= 0 && sec < 9, "ojz_act1_sec_patch_motion(sec: {sec}): this act has 9 sections, so there is no binding slot for that index — the section preset and project.json's grid have drifted apart")
+    ensure(ch >= 0 && ch < 4, "ojz_act1_sec_patch_motion(ch: {ch}): the engine has 4 patch channels (RASTER_MAX_PATCH) — the runtime patcher masks the channel index with RASTER_MAX_PATCH minus 1, so a higher channel would fold back onto channel 0")
+    comptime var out = hand
+    if sec == 5 && ch == 0 { out = anchor_sweep(amp_shift: 4, period_shift: 1) }
+    if sec == 5 && ch == 1 { out = ANCHOR_MOTION_NONE }
+    if sec == 5 && ch == 2 { out = ANCHOR_MOTION_NONE }
+    if sec == 5 && ch == 3 { out = ANCHOR_MOTION_NONE }
     return out
 }

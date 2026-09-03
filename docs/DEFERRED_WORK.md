@@ -292,7 +292,50 @@ byte-identical to master, checked against controls built at two master commits.
 function of placement; whether it matters is a function of reachability. That is the whole
 argument in one line, and both shapes now answer it.
 
-### THE ANCHOR MOVER HAS NO AUTHORING SURFACE, AND THE BLOCKER IS A CLOSED SCHEMA TWO LANES AWAY (booked 2026-09-03)
+### ~~THE ANCHOR MOVER HAS NO AUTHORING SURFACE~~ — CLOSED 2026-09-03, SAME DAY. ONE HALF REMAINS AND IT IS NOT THE READER (booked 2026-09-03)
+
+**ALL FOUR STEPS OF THE CHAIN LANDED ON 2026-09-03.** Step 1 (aeon names the shape) is the spec
+below; step 2 is empyrean's schema CR `d36d704` (`docs/AURORA_EFFECTS_SCHEMA.md` §7.3, schema blob
+`c1147071`); step 3 is aurora's writer at `b5c5284b`; **step 4 — the reader — is this entry's
+subject and is DONE.** `tools/effects_gen.py` accepts `patch_world_ys` and `patch_motion`, emits
+`ojz_act1_sec_patch_world_y` / `ojz_act1_sec_patch_motion` per `(sec, ch)`, and the shipped document
+`games/sonic4/data/editor/effects/presets/ojz_sec5_showcase.json` authors channel 0 at world Y 2272
+sweeping at `anchor_sweep(4, 1)`. Byte-verified end to end: the whole sonic4 delta is five bytes —
+two of header checksum, `7FFF -> 08E0` at `OJZ_Preset_Sec5 + $1C` (2272 decimal, **whole pixels, no
+scale factor anywhere**) and `00 -> 41` at `+$26` (the packed `$4100`). `tools/test_anchor_sweep_band.py`
+now reports `LIVE GENERATED POPULATION: 1 sweep(s)` where it reported EMPTY, so its generated arm
+has a real subject for the first time and `test_the_live_generated_population_really_is_empty` has
+been INVERTED to `..._is_not_empty` rather than deleted.
+
+**WHAT IS STILL OPEN, AND IT IS A CONTENT/CONTRACT DECISION RATHER THAN A READER ONE: NOTHING AT
+SECTION 5 CONSUMES THE CHANNEL IT SWEEPS.** The generator's liveness refusal is a SUPERSET check —
+it sees that channel 0 has a consumer somewhere in the game, not that the binding section is one of
+them — and today it does not. The only section with live patch channels is section 0
+(`OJZ_TwoChannel`'s two `patchable()` records plus `ParallaxConfig_OJZ_Underwater`'s anchor), and
+**section 0 structurally cannot bind an editor preset document**: a document must carry `bands`
+(ruling Q1a), `bands` lowers to a raster program, `tools/effects_seam_gate.py` refuses a sidecar
+`rasterRef` that no `ojz_act1_sec_raster(sec: N)` threads, and `preset()` makes `ep_raster` and
+`ep_patched` mutually exclusive. Those three rules close the door together, which is why section 5
+— the only section a document can bind to at all — is where the path is proved. Three ways out, all
+of them somebody else's call: (a) give `OJZ_Preset_Sec5` an anchored `ep_parallax` (one word, reuses
+the shipped `ParallaxConfig_OJZ_Underwater`, changes section 5's picture); (b) bind an anchored
+editor SCENE at section 5 via `sceneRef` (pure editor change, costs a new `SceneCfg` record, also
+changes the picture); (c) a contract change opening a bands-less preset document, which is the same
+CR the cycle-only/variant-only document needs and would let section 0 bind directly. **Until one of
+those lands, the shipped generated sweep is data that reaches the ROM and is seeded on the crossing
+with no consumer** — stated here because a green build says nothing about it and the superset check
+says so only in the message it does not print.
+
+**One defect in the just-merged band scanner was found by giving it a subject** (`0bbf28e2`): its
+seeded-headroom bound held every generated sweep against `SPAWN_CAMERA_Y = 144`, which is the camera
+at the ACT SPAWN. Anchors are act-relative, so a section a grid row down legitimately seeds an anchor
+a section-height further down — section 5's 2272 against camera 144 is screen line 2128, and the
+bound reported a violation that was an artifact of the wrong camera. Scoped to `SPAWN_SECTION` and
+reported as NOT EVALUATED elsewhere, rather than loosened; band fit and channel liveness need no
+camera and still cover every scanned sweep.
+
+**The original entry follows, kept because its measurements and its trap are the record of why the
+chain was ordered this way.**
 
 **EFFECTS-W1 DoD item 4's engine half landed as chain 215 (`094496ca`); its AUTHORING half is
 blocked and is not this lane's to unblock alone.** The key shape is specified in full at

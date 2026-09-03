@@ -51,15 +51,22 @@ hand-authored sweep was written by someone who could read `anchor_sweep()`'s own
 generated one is written by an author in Aurora, who gets no comptime error at all — and the
 failure is not a crash but a DROPPED record, i.e. an effect that simply is not there.
 
-**THE LIVE POPULATION IS EMPTY, AND A GREEN FROM THE GENERATED ARM PROVES NOTHING YET.**
-Step 4 of that document's chain (teaching `tools/effects_gen.py` the key) is unwritten, and
-steps 2 and 3 — the empyrean schema CR and Aurora's writer — are the reason it cannot be
-written yet. So no real document can legally carry the key, and no generated module in this
-tree contains a sweep. `coverage_report()` says so out loud on every run, and
-`test_the_scan_says_what_it_did_and_did_not_cover` emits it as a warning so a GREEN run still
-names what it looked at. The arm is instead proven against the synthetic generated modules in
-`tools/fixtures/anchor_sweep/`, which are read through the SAME `scan_module()` the real
-modules go through — never a parallel implementation.
+**THE LIVE POPULATION IS NO LONGER EMPTY (2026-09-03, step 4 landed).** The paragraph that
+stood here said a green from the generated arm proved nothing, because no real document could
+legally carry the key. `tools/effects_gen.py` reads it now: the preset document
+`games/sonic4/data/editor/effects/presets/ojz_sec5_showcase.json` authors
+`patch_world_ys[0] = 2272` and `patch_motion[0] = {"sweep": {"amp_shift": 4,
+"period_shift": 1}}`, and the generated module carries the chooser row
+`if sec == 5 && ch == 0 { out = anchor_sweep(amp_shift: 4, period_shift: 1) }`. The scan sees
+it — `coverage_report()` prints `LIVE GENERATED POPULATION: 1 sweep(s)` — so
+`test_every_scanned_sweep_fits_its_channels_patchable_band` has a real subject on the
+generated side for the first time, and the fixtures in `tools/fixtures/anchor_sweep/` are now
+its FLOOR rather than its only subject. They stay: they are the only way to exercise the
+REFUSING arms (out-of-band amplitude, a dead channel, an unresolvable occurrence), since a
+tree carrying any of those would simply be a broken tree.
+
+The fixtures are read through the SAME `scan_module()` the real modules go through — never a
+parallel implementation.
 
 RED-FIRST FOR THE GENERATED ARM, mutation on disk (2026-09-03): with
 `tools/fixtures/anchor_sweep/generated_chooser_out_of_band.emp`'s `amp_shift` lowered from
@@ -68,16 +75,20 @@ and `test_the_out_of_band_fixture_is_refused_for_its_amplitude` both fail, and r
 makes them pass.
 
 WHAT THE ARM STILL CANNOT SEE, stated so a green is not over-read:
-  * The generated SHAPE is a prediction. `effects_gen.py` has not emitted a sweep yet, so
-    `_chooser_sweeps()` is written against the chooser form the spec's §4a names and the form
-    every other chooser in that module already uses. If the real emission differs, the
-    occurrence lands in `unresolved` and the scan FAILS — it does not fall silent. That is
-    what `generated_chooser_unguarded.emp` exists to prove.
-  * Seeded HEADROOM is only checked where the seed is discoverable. A generated sweep may
-    legally inherit its anchor from the section's hand-authored `patch_world_ys` (the key's
-    "index absent -> keep" state), and resolving that needs a section->preset map this file
-    does not have. Band fit and channel liveness apply to every record; headroom applies to
-    the ones whose seed is in reach, and the report names the difference.
+  * The generated SHAPE was a prediction and is now CONFIRMED: the emission
+    `effects_gen.py` produced is the `if sec == N && ch == C { out = anchor_sweep(..) }` form
+    `_chooser_sweeps()` was written against, and the scan reads it with no change. Had it come
+    out different, the occurrence would have landed in `unresolved` and the scan would have
+    FAILED rather than falling silent — which is what `generated_chooser_unguarded.emp` still
+    proves for the next shape that appears.
+  * Seeded HEADROOM is only checked where the seed is discoverable AND the sweep is on the
+    spawn section. A generated sweep may legally inherit its anchor from the section's
+    hand-authored `patch_world_ys` (the key's "index absent -> keep" state), which needs a
+    section->preset map this file does not have; and `SPAWN_CAMERA_Y` is the camera at the ACT
+    SPAWN, which is only the right camera for the section the spawn is in (see SPAWN_SECTION).
+    The live section-5 sweep is in the second class and is reported as NOT EVALUATED. Band fit
+    and channel liveness apply to every record and need no camera; the report names which is
+    which on every run.
   * On channel 0 the band bound is currently WEAKER than `anchor_sweep()`'s own screen bound:
     the band is 218 lines and the widest legal rung travels 128 px, so no legal amplitude on
     that channel can fail the band fit. Today only channel 1 (2 lines) can be failed by
@@ -113,6 +124,24 @@ FIXTURE_DIR = os.path.join(AEON, "tools", "fixtures", "anchor_sweep")
 # Camera_Y and the act's own spawn. Hoisted from the test body it used to be a local of,
 # because the generated arm needs the same number.
 SPAWN_CAMERA_Y = 144
+
+# ...AND IT IS ONLY TRUE FOR ONE SECTION, which the generated arm made visible the moment it
+# had a subject (2026-09-03, step 4 of the authoring-key chain).
+#
+# `SPAWN_CAMERA_Y` is the camera at the ACT SPAWN, and the act spawn is in section 0. Anchors
+# are act-relative world Ys (`assert_act_relative_tagged`, scene_registry.emp), so a section
+# in grid row 1 legitimately seeds an anchor a whole section-height further down — section
+# 5's channel 0 is 2272, which is 2048 + 224, i.e. section 0's own anchor one row down. Held
+# against a camera of 144 that is a screen line of 2128 and the headroom bound reports a
+# violation that is an artifact of the wrong camera, not a property of the sweep.
+#
+# The check is therefore SCOPED to the spawn section rather than loosened, and everything
+# else is reported as NOT EVALUATED. Making it evaluable for another section needs a camera
+# for that section, and there is no such number in the tree: the gate scenes pin one camera,
+# and where a player's camera sits inside section N is a gameplay fact, not a source fact.
+# BAND FIT AND CHANNEL LIVENESS ARE UNAFFECTED — they need no camera and still cover every
+# scanned sweep, which is what makes this a narrowing of one bound and not of the file.
+SPAWN_SECTION = 0
 
 
 def _read(path):
@@ -580,6 +609,13 @@ def headroom_violations(sweeps, seeds_by_path, bands=None, amp=None):
             if k[1] == s.channel and ("sec: %s" % k[0]) in s.site:
                 key = k
                 break
+        # THE CAMERA HAS TO BELONG TO THE SECTION, or the bound is arithmetic about a place
+        # the sweep is not. SPAWN_CAMERA_Y is the act spawn's camera and the act spawn is in
+        # SPAWN_SECTION; a sweep authored on any other section is reported as not evaluated
+        # rather than judged against it. See the SPAWN_SECTION note above.
+        if key is not None and key[0] is not None and key[0] != SPAWN_SECTION:
+            unevaluated.append(s)
+            continue
         if key is None:
             unevaluated.append(s)
             continue
@@ -642,11 +678,12 @@ def coverage_report():
                     else "the arm has a real subject; the fixtures remain as its floor."))
     seeds = {p: chooser_seeds(p) for p in generated_modules()}
     _, unevaluated = headroom_violations(gen, seeds, bands)
-    lines.append("  NOT CHECKED: seeded headroom for %d of the %d generated sweep(s), whose "
-                 "anchor is not in this file's reach (a document may legally keep the "
-                 "section's hand-authored patch_world_ys). Band fit and channel liveness ARE "
-                 "checked for all %d scanned sweep(s)."
-                 % (len(unevaluated), len(gen), len(sweeps)))
+    lines.append("  NOT CHECKED: seeded headroom for %d of the %d generated sweep(s) — either "
+                 "the anchor is not in this file's reach (a document may legally keep the "
+                 "section's hand-authored patch_world_ys) or the sweep is not on the spawn "
+                 "section %d, the only section SPAWN_CAMERA_Y (%d) is the camera for. Band "
+                 "fit and channel liveness ARE checked for all %d scanned sweep(s)."
+                 % (len(unevaluated), len(gen), SPAWN_SECTION, SPAWN_CAMERA_Y, len(sweeps)))
     if unresolved:
         lines.append("  UNRESOLVED OCCURRENCES: %d — see the failing test" % len(unresolved))
     return "\n".join(lines)
@@ -943,8 +980,11 @@ class TestTheScanCoversBothModuleSetsAndBothShapes(unittest.TestCase):
 
 
 class TestTheGeneratedArmIsProvenByItsFixtures(unittest.TestCase):
-    """THE LIVE POPULATION IS EMPTY (see this file's docstring), so the generated arm above is
-    green against nothing and proves nothing on its own. These fixtures are its subject.
+    """The live population is no longer empty (see this file's docstring), so these fixtures
+    are the generated arm's FLOOR rather than its only subject — and they stay, because they
+    are the only way to exercise the arm's REFUSING paths. A tree that carried an out-of-band
+    amplitude, a dead channel or an unreadable occurrence would simply be a broken tree, so
+    those three cases can never have a live subject.
 
     They go through `scan_module()` — the same function the real modules go through — so what
     is proven here is the production path and not a sibling of it."""
@@ -954,24 +994,30 @@ class TestTheGeneratedArmIsProvenByItsFixtures(unittest.TestCase):
     DEAD_CHANNEL = os.path.join(FIXTURE_DIR, "generated_chooser_dead_channel.emp")
     UNGUARDED = os.path.join(FIXTURE_DIR, "generated_chooser_unguarded.emp")
 
-    def test_the_live_generated_population_really_is_empty(self):
-        """Not a bound — a STATEMENT OF RECORD, so the day it stops being true is the day this
-        test says so and the fixtures stop being the arm's only subject. It asserts the
-        weaker, durable half (the arm is reachable), and reports the count."""
+    def test_the_live_generated_population_is_not_empty(self):
+        """Was `..._really_is_empty`, a statement of record, written so that the day it
+        stopped being true this test would say so. That day is 2026-09-03: step 4 landed, a
+        document authors the key, and the assertion INVERTS rather than being deleted — an
+        arm that silently loses its live subject again is exactly the state the old name was
+        watching for, and it is now a red instead of a warning."""
         gen_paths = set(generated_modules())
         gen = [s for s in scan_all()[0] if s.path in gen_paths]
-        if gen:
-            warnings.warn("the generated arm now has %d REAL sweep(s); the fixtures below are "
-                          "no longer its only subject" % len(gen), UserWarning, stacklevel=1)
-        else:
-            warnings.warn("the generated arm's live population is EMPTY — every green from "
-                          "test_every_scanned_sweep_fits_its_channels_patchable_band is "
-                          "vacuous for the generated half, and the fixtures in %s are the "
-                          "only thing proving that arm works"
-                          % os.path.relpath(FIXTURE_DIR, AEON), UserWarning, stacklevel=1)
         self.assertTrue(generated_modules(),
-                        "there is no generated module at all, so 'the population is empty' is "
-                        "not even a measurement of the right thing")
+                        "there is no generated module at all, so 'the population' is not even "
+                        "a measurement of the right thing — run tools/effects_gen.py emit")
+        self.assertTrue(
+            gen,
+            "the generated arm's live population is EMPTY again. It was 1 when step 4 of the "
+            "authoring-key chain landed (a `patch_motion` sweep in "
+            "games/sonic4/data/editor/effects/presets/ojz_sec5_showcase.json, bound through "
+            "section_5.meta.json's rasterRef). With it gone, every green from "
+            "test_every_scanned_sweep_fits_its_channels_patchable_band is vacuous for the "
+            "generated half and only the fixtures in %s prove that arm works. Either a "
+            "document lost its key, a sidecar lost its binding, or tools/effects_gen.py "
+            "stopped emitting the chooser row."
+            % os.path.relpath(FIXTURE_DIR, AEON))
+        warnings.warn("the generated arm has %d REAL sweep(s); the fixtures below are its "
+                      "floor, not its only subject" % len(gen), UserWarning, stacklevel=1)
 
     def test_the_fixtures_exist_and_are_not_build_inputs(self):
         for p in (self.OUT_OF_BAND, self.IN_BAND, self.DEAD_CHANNEL, self.UNGUARDED):

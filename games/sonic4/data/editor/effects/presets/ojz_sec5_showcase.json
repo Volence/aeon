@@ -16,5 +16,22 @@
   ],
   "id": "ojz_sec5_showcase",
   "name": "OJZ act 1 section 5 - moonlit canopy void",
+  "patch_motion": [
+    {
+      "sweep": {
+        "amp_shift": 4,
+        "period_shift": 1
+      }
+    },
+    null,
+    null,
+    null
+  ],
+  "patch_world_ys": [
+    2272,
+    null,
+    null,
+    null
+  ],
   "schema": 1
 }

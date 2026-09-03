@@ -84,7 +84,13 @@ use engine.effects.preset.{EffectsPreset, preset}
 // it was. That is the whole point of threading them now — the call site is what makes the
 // choosers ELABORATED (an uncalled `pub comptime fn` asserts nothing), and item 1 paid the
 // same price on the raster channel for the same reason.
-use games.sonic4.ojz_effects_editor_act1.{ojz_act1_sec_raster, ojz_act1_sec_cycle, ojz_act1_sec_variant}
+//
+// THE PATCH CHANNELS' CHOOSERS join for EFFECTS-W1 item 4 (2026-09-03), from the same
+// module and on the same rule — `ep_patch_world_ys` and `ep_patch_motion` are fields of the
+// same record, so the same `rasterRef` binds them. They are PER (sec, ch) for the variant
+// chooser's per-slot reason, and they return `int` rather than `Label` because a world Y and
+// a packed sweep word are values, not addresses.
+use games.sonic4.ojz_effects_editor_act1.{ojz_act1_sec_raster, ojz_act1_sec_cycle, ojz_act1_sec_variant, ojz_act1_sec_patch_world_y, ojz_act1_sec_patch_motion}
 // Parcel W: section 0 binds its parallax config through the PRESET (ep_parallax) rather
 // than inheriting the act default, because the overlay's anchor channel has to be the same
 // channel the patched palette boundary rides. This is also the first ep_parallax binding in
@@ -1166,9 +1172,57 @@ pub data OJZ_Preset_Depth: EffectsPreset = preset(pal: OJZ_Palette, raster: OJZ_
 // `rasterRef`, so the chooser's body is `return hand` and this record is byte-identical to
 // OJZ_Preset_Plain — deliberately, because it makes the step's whole ROM delta one
 // EffectsPreset (`struct EffectsPreset (size: 38)`) and nothing else.
+// (STALE AS OF 2026-08-30: section_5.meta.json DOES carry a `rasterRef` now, and as of
+// 2026-09-03 that document also carries the two patch keys. The record is no longer
+// byte-identical to OJZ_Preset_Plain, and `struct EffectsPreset` is 46 bytes since item 4
+// added ep_patch_motion. Kept, corrected in place, because the ARGUMENT above is still the
+// live reason section 5 owns a preset at all.)
+//
+// ---- THE PATCH CHANNELS ARE THREADED HERE (EFFECTS-W1 item 4 step 4, 2026-09-03) ----
+//
+// All eight positions are written LITERALLY through the choosers, and that is the shape the
+// key-shape artifact §5.1 ruled rather than an emitted array: `preset()` ensures
+// `patch_world_ys.len == RASTER_MAX_PATCH` and `patch_motion.len == RASTER_MAX_PATCH`, and a
+// call site that spells all four keeps that true by construction whatever the document says.
+// A generator that emitted the ARRAY would have to PAD a short document, and padding is
+// where a document that said nothing silently becomes an anchor nobody authored.
+//
+// `hand:` IS THE SENTINEL ON EVERY POSITION, not 0. This section authored no patch channel
+// by hand, and "no channel" is PATCH_ANCHOR_NONE / ANCHOR_MOTION_NONE — 0 is a real world Y
+// and the worst one (`anchor - Camera_Y` at 0 reads as above the screen top, i.e. fully
+// submerged, for a channel nobody asked for).
+//
+// ⚠ WHAT SECTION 5's SWEEP DOES AND DOES NOT DO TODAY, said here rather than discovered.
+// The document authors channel 0 at world Y 2272 (section 5 is grid row 1, so 2048 + 224 —
+// section 0's own channel-0 anchor one section row down) sweeping at the shipped rung
+// `anchor_sweep(4, 1)`. The seed and the packed word DO reach this record and DO get seeded
+// into `Effects_Motion[]` on the crossing. But NOTHING AT SECTION 5 CONSUMES CHANNEL 0: this
+// preset binds `raster:` (a static editor program with no `patchable()` record) and defers
+// its parallax to the act default `ParallaxConfig_OJZ_Default`, which carries no
+// `SceneAnchor.At(0, ..)`. So the line is derived every frame and read by no one.
+//
+// THAT IS A STRUCTURAL GAP AND NOT A CHOICE, and it is worth stating because the obvious
+// fix is the wrong one. Section 0 is the only section in the tree with live patch channels
+// (OJZ_TwoChannel's two `patchable()` records plus ParallaxConfig_OJZ_Underwater's anchor),
+// and section 0 CANNOT bind an editor preset document: a document must carry `bands` (hub
+// ruling Q1a), `bands` lowers to a raster program, `tools/effects_seam_gate.py` requires
+// every sidecar `rasterRef` to be threaded through `ojz_act1_sec_raster(sec: N)`, and
+// `preset()` makes `ep_raster` and `ep_patched` mutually exclusive. The three rules close
+// the door together. Section 5 is the only section a document can bind to at all, so it is
+// where the authoring path is proved end to end — and giving it a consumer is a CONTENT
+// decision (an anchored `ep_parallax`, an anchored editor scene bound at section 5, or a
+// contract change opening a bands-less preset document), left to the owner.
 pub data OJZ_Preset_Sec5:  EffectsPreset = preset(pal: OJZ_Palette,
                                                   raster: ojz_act1_sec_raster(sec: 5, hand: Raster_Program_None),
-                                                  cycle: Pal_Cycle_None,    variants: [Variant_Water_Deep, 0])
+                                                  cycle: Pal_Cycle_None,    variants: [Variant_Water_Deep, 0],
+                                                  patch_world_ys: [ojz_act1_sec_patch_world_y(sec: 5, ch: 0, hand: PATCH_ANCHOR_NONE),
+                                                                   ojz_act1_sec_patch_world_y(sec: 5, ch: 1, hand: PATCH_ANCHOR_NONE),
+                                                                   ojz_act1_sec_patch_world_y(sec: 5, ch: 2, hand: PATCH_ANCHOR_NONE),
+                                                                   ojz_act1_sec_patch_world_y(sec: 5, ch: 3, hand: PATCH_ANCHOR_NONE)],
+                                                  patch_motion:   [ojz_act1_sec_patch_motion(sec: 5, ch: 0, hand: ANCHOR_MOTION_NONE),
+                                                                   ojz_act1_sec_patch_motion(sec: 5, ch: 1, hand: ANCHOR_MOTION_NONE),
+                                                                   ojz_act1_sec_patch_motion(sec: 5, ch: 2, hand: ANCHOR_MOTION_NONE),
+                                                                   ojz_act1_sec_patch_motion(sec: 5, ch: 3, hand: ANCHOR_MOTION_NONE)])
 
 // ===========================================================================
 // OJZ_TwoChannel — the Parcel P-a gate. TWO independently patchable boundaries in ONE

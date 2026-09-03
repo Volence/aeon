@@ -341,8 +341,14 @@ def main() -> int:
     # the call and typing the literal back leaves every byte identical. An UNCALLED
     # `pub comptime fn` is also an unelaborated one — every `ensure` inside it would be
     # asserting nothing (docs/EMP_PITFALLS.md §3, one tier down).
+    # The patch channels (item 4) ride the same rule for the same reason: `ep_patch_world_ys`
+    # and `ep_patch_motion` are fields of the same record, one `rasterRef` binds them, and an
+    # unimported or uncalled chooser makes a document's anchor authoring ROM nothing reads —
+    # with no other symptom, because both choosers resolve to `hand` on an unbound section.
     for fn, channel in ((names.fn_sec_cycle, "cycle"),
-                        (names.fn_sec_variant, "variant")):
+                        (names.fn_sec_variant, "variant"),
+                        (names.fn_sec_patch_world_y, "patch world-Y"),
+                        (names.fn_sec_patch_motion, "patch motion")):
         if fn not in lib_imported:
             fail(f"{EFFECTS_LIB}'s import of {names.module} does not name {fn}. That "
                  f"function is the palette {channel} channel's whole binding route, and "
@@ -424,11 +430,18 @@ def main() -> int:
                      if "cycles" in want_presets.get(pid, {}))
     want_variant = sum(1 for sec, pid in want_raster_refs.items()
                        if want_presets.get(pid, {}).get("variants") is not None)
+    # THE PATCH WITNESS (item 4), counted the same way off the same sidecars. EITHER key
+    # binds: a document may author only the world-Y seed (a boundary that sits somewhere new
+    # but does not move) or, keeping the section's hand anchor, only the motion.
+    want_patch = sum(1 for sec, pid in want_raster_refs.items()
+                     if ("patch_world_ys" in want_presets.get(pid, {})
+                         or "patch_motion" in want_presets.get(pid, {})))
 
     expected = {names.equ_scenes: want_scenes, names.equ_bindings: want_bindings,
                 names.equ_raster_bindings: want_raster,
                 names.equ_cycle_bindings: want_cycle,
-                names.equ_variant_bindings: want_variant}
+                names.equ_variant_bindings: want_variant,
+                names.equ_patch_bindings: want_patch}
     for sym, want in expected.items():
         if sym not in equs:
             fail(f"witness `{sym}` is ABSENT from {lst}. An equ is defined only if "
@@ -441,7 +454,8 @@ def main() -> int:
             fail(f"witness `{sym}` is {equs[sym]} in {lst}, but the editor inputs "
                  f"say {want} (scenes reached by an assignment: {want_scenes}; "
                  f"scene bindings: {want_bindings}; raster bindings: {want_raster}; "
-                 f"cycle bindings: {want_cycle}; variant bindings: {want_variant}). "
+                 f"cycle bindings: {want_cycle}; variant bindings: {want_variant}; "
+                 f"patch bindings: {want_patch}). "
                  f"The built artifact does not carry "
                  f"what project.json + the section sidecars declare — re-bake with "
                  f"tools/regenerate-level.sh.")
@@ -451,6 +465,7 @@ def main() -> int:
           f"{names.equ_raster_bindings}={want_raster}, "
           f"{names.equ_cycle_bindings}={want_cycle}, "
           f"{names.equ_variant_bindings}={want_variant}, "
+          f"{names.equ_patch_bindings}={want_patch}, "
           f"{calls} section call site(s), {len(equs)} equates parsed from {lst})")
     # The raster seam's own line, and it names the presets rather than counting them:
     # "1 call site" would read the same whether it were section 5's or section 3's, and

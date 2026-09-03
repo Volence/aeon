@@ -277,7 +277,13 @@ PRESET_SUBDIR = "presets"
 # committed `contract/schema/aurora-effects-preset.schema.json` are the authority for the
 # shape below — NOT the artifact's §2, which is a proposal the hub overrode in three places
 # (Q2, Q5, Q7).
-PRESET_KEYS = frozenset({"schema", "id", "bands", "cycles", "variants"})
+# `patch_world_ys` and `patch_motion` joined on 2026-09-03 (EFFECTS-W1 DoD item 4, step 4 of
+# four). The shape is aeon's own
+# `docs/superpowers/specs/2026-09-03-anchor-authoring-key-shape.md` §2 as ruled by the hub in
+# `empyrean docs/AURORA_EFFECTS_SCHEMA.md` §7.3, and the SCHEMA is the authority where the
+# two differ — §7.3 is STRICTER than the aeon artifact on purpose (see PATCH_* below).
+PRESET_KEYS = frozenset({"schema", "id", "bands", "cycles", "variants",
+                         "patch_world_ys", "patch_motion"})
 
 # `name` for the scene files' reason: a writer-owned display label.
 PRESET_IGNORED_KEYS = frozenset({"name"})
@@ -382,6 +388,76 @@ CYCLE_SCRIPT_WRAPPERS = (1, 2)
 # number. It is a unit translation, which this file's docstring classifies as SHAPE.
 CYCLE_PERIOD_ENGINE_MIN = 1
 CYCLE_PERIOD_DOC_MIN = CYCLE_PERIOD_ENGINE_MIN + 1
+
+# =============================================================================
+# THE PATCH CHANNELS — the anchor mover's authoring key (EFFECTS-W1 DoD item 4).
+# =============================================================================
+#
+# `patch_world_ys` is the per-channel world-anchor SEED and `patch_motion` the per-channel
+# packed SWEEP word. Both are `preset()` parameters (engine/effects/preset.emp:141-148) and
+# both are POSITIONAL, index = patch channel, exactly like `variants`. Three states per
+# index, one spelling each, and they are the same three `variants` has:
+#
+#   * an index the array does not reach -> KEEP the section's hand-authored value (`hand:`)
+#   * `null`                            -> the engine SENTINEL, never 0
+#   * a value                           -> authored
+#
+# ⚠ THE UNIT, WHICH IS THE TRAP THIS BLOCK EXISTS FOR. `patch_world_ys[i]` is WHOLE PIXELS
+# in absolute level space and NEITHER SIDE CONVERTS — 1:1, both directions, no scaling
+# anywhere in this file or in the editor. That is NOT item 3's `drift.rate`, which is
+# 1/256 px per frame with the editor multiplying by 256 on export. Carrying that habit here
+# puts the anchor 256x down the level; `Effects_LatchWorldLines` derives a screen line as
+# `anchor - Camera_Y`, so the band lands far below the screen and SILENTLY NEVER APPEARS.
+# There is no error to read, so grep this file for a `* 256` before believing a bug report:
+# there is none, and there must never be one.
+#
+# ⚠ `0` IS A REAL WORLD Y AND IT IS THE WORST ONE. `anchor - Camera_Y` at anchor 0 reads as
+# ABOVE the screen top, i.e. "fully submerged" — the most invasive state a channel nobody
+# asked for can have. "Unused" is `null`, which lowers to PATCH_ANCHOR_NONE. Same rule as
+# item 5's `cycles: null -> Pal_Cycle_None, never 0`.
+#
+# WHERE THE BOUNDS LIVE, and this key DEPARTS from the shape-only posture in exactly two
+# places, on the hub's own ruling (empyrean §7.3, "ONE departure from §7.1's shape-only
+# posture, ruled here"). The sweep's three ranges stay the engine's: `anchor_sweep()`'s
+# ensures (its three amplitude/period/phase guards) carry the derived ladders and the worked
+# conversion, so this file forwards `amp_shift` / `period_shift` / `phase` VERBATIM — never
+# rounded, never snapped, because rounding an off-ladder rung silently doubles or halves the
+# motion where refusing it names the value. But the SEED has no engine bound at all:
+# `preset()` ensures the array LENGTH, not its values, so a seed of 32767 (a stationary
+# channel the author thinks is authored) and a seed outside u16 (a truncated anchor) both
+# reach the ROM with no message from anywhere. The schema encodes them and so does this
+# file — "the party validating is the party publishing", and here that is both of us.
+PATCH_ANCHOR_NONE = 0x7FFF          # engine/effects/raster_dsl.emp
+ANCHOR_MOTION_NONE = 0              # engine/effects/raster_dsl.emp
+PATCH_WORLD_Y_MAX = 0xFFFF          # ep_patch_world_ys is [u16; RASTER_MAX_PATCH]
+
+# A MIRROR of engine/effects/raster_dsl.emp's `RASTER_MAX_PATCH`, carried for
+# `PAL_MAX_VARIANTS`' reason one channel over: both keys are POSITIONAL arrays and the
+# emitted chooser carries a `ch` ensure, so this file has to know how many positions exist
+# before the engine can speak. The engine's own ceiling is not reachable from a fifth entry
+# — `preset()` checks `patch_world_ys.len == RASTER_MAX_PATCH` at the CALL SITE, which
+# writes all four positions literally whatever the document said, so a five-channel document
+# would simply lose its fifth entry with nothing anywhere to say so.
+RASTER_MAX_PATCH = 4
+
+# The one arm `patch_motion` has. There is deliberately NO `approach` arm and the schema
+# reserves none: APPROACH has no preset seed field (preset.emp:81-87), its runtime handle is
+# `Effects_SetTargetY`, and a reserved arm would be a key with nothing behind it. Adding one
+# is its own contract change.
+PATCH_MOTION_ARM = "sweep"
+SWEEP_KEYS = ("amp_shift", "period_shift")
+SWEEP_OPTIONAL_KEYS = ("phase",)
+
+# CAP_ANCHOR_MOTION, and the ASYMMETRY that makes this a generator refusal rather than an
+# engine one (aeon artifact §4b). `Effects_InstallPreset`'s SEED is not capability-gated —
+# 34 bytes every game pays, a measured decision at preset.emp:333-340 — while the latch loop
+# that READS the motion is (`engine/effects/raster.emp`, the `if (Game.SCANLINE_CAPS &
+# CAP_ANCHOR_MOTION) != 0` block). So in a game that does not raise the bit, an authored
+# sweep is written into the preset record, installed into `Effects_Motion[]`, folded into
+# `Effects_Motion_Any` — and NOTHING EVER READS IT. The boundary does not move and nothing
+# says why. That is a silent no-op with data behind it, which is worse than an error, so the
+# combination is refused here where both facts are visible at once.
+CAP_ANCHOR_MOTION = 0x0100
 
 # --- contract §2.4, per band ---------------------------------------------------
 # ALL FOUR REQUIRED, IN `band()`'s OWN ARGUMENT ORDER. `sh` has no default here because it
@@ -618,6 +694,9 @@ def load_preset(path: str) -> dict:
     _check_cycles(path, preset)
     _check_variants(path, preset)
     _check_cleared_slot_is_not_streamed(path, preset)
+    _check_patch_world_ys(path, preset)
+    _check_patch_motion(path, preset)
+    _check_motion_has_an_anchor(path, preset)
     return preset
 
 
@@ -760,13 +839,294 @@ def _check_variants(path: str, preset: dict) -> None:
                     f"variants[{i}]")
 
 
+def _check_positional_patch_array(path: str, preset: dict, key: str):
+    """The half `patch_world_ys` and `patch_motion` share: positional, <= 4, key-level null
+    refused by NAME.
+
+    Returns the list, or None when the key is absent (the "keep the hand value" state).
+
+    A KEY-LEVEL `null` is refused for `_check_variants`' measured reason and it is the same
+    writer that produces it: a writer that nulls every key it knows would otherwise emit the
+    one state whose meaning is "keep the hand-authored value", which is the OPPOSITE of what
+    it wrote. Positions carry the three states; the key does not.
+    """
+    if key not in preset:
+        return None
+    arr = preset[key]
+    if arr is None:
+        _refuse(path, f"`{key}` is null at KEY level, and that state does not exist. "
+                      f"Positions are what carry the three states: OMIT the key to keep "
+                      f"every channel's hand-authored value, write `[null, null, null, "
+                      f"null]` to set every channel to the engine sentinel, or put a value "
+                      f"at the index you are authoring. A key-level null is refused rather "
+                      f"than read as \"absent\", because a writer that nulls every key it "
+                      f"knows would otherwise silently mean the opposite of what it wrote.")
+    if not isinstance(arr, list):
+        _refuse(path, f"`{key}` must be a list, got {type(arr).__name__}. It is "
+                      f"POSITIONAL — index i is patch CHANNEL i, the same channel a "
+                      f"`patchable(ch: i, ..)` call declares a band for — so a map would "
+                      f"lose the one property the key exists for.")
+    if len(arr) > RASTER_MAX_PATCH:
+        _refuse(path, f"`{key}` has {len(arr)} entries but the engine has "
+                      f"{RASTER_MAX_PATCH} patch channels (`RASTER_MAX_PATCH`, "
+                      f"engine/effects/raster_dsl.emp). The array is positional, so entry "
+                      f"{RASTER_MAX_PATCH} names a channel that does not exist — and "
+                      f"NOTHING DOWNSTREAM WOULD SAY SO: `preset()`'s length ensure fires "
+                      f"on the CALL SITE's array, which writes exactly "
+                      f"{RASTER_MAX_PATCH} positions whatever this document carried, so a "
+                      f"fifth entry is simply dropped in silence. Refused here because "
+                      f"here is the only place it is visible.")
+    return arr
+
+
+def _check_patch_world_ys(path: str, preset: dict) -> None:
+    """SHAPE and the two bounds the hub ruled onto the writer side (empyrean §7.3).
+
+    `0 … 65535` and "not the sentinel" are the ONLY numeric bounds this file owns on this
+    key, and each is owed its argument because the file's standing posture is that ranges
+    belong to the engine (this module's SHAPE-vs-VALUE docstring). The argument is that
+    NEITHER HAS AN ENGINE SITE: `preset()` ensures `patch_world_ys.len`, not its values, so
+    a 70000 truncates into the u16 and a 32767 installs a channel the runtime reads as
+    UNUSED — both reaching the ROM with no message from any layer. A bound with no other
+    enforcing site is not a duplicated bound.
+    """
+    ys = _check_positional_patch_array(path, preset, "patch_world_ys")
+    if ys is None:
+        return
+    for i, y in enumerate(ys):
+        if y is None:
+            continue                      # the sentinel. A legal state, not a gap.
+        if isinstance(y, bool) or not isinstance(y, int):
+            _refuse(path, f"patch_world_ys[{i}] must be an integer or null, got "
+                          f"{type(y).__name__} {y!r}. null is the engine's "
+                          f"PATCH_ANCHOR_NONE sentinel (\"this channel is unused\"); an "
+                          f"integer is a world Y in WHOLE PIXELS; an index the array does "
+                          f"not reach keeps the section's hand-authored anchor.")
+        if not 0 <= y <= PATCH_WORLD_Y_MAX:
+            _refuse(path, f"patch_world_ys[{i}] is {y}, outside 0..{PATCH_WORLD_Y_MAX}. "
+                          f"`ep_patch_world_ys` is [u16; {RASTER_MAX_PATCH}], so this "
+                          f"value is stored in sixteen bits and a larger one TRUNCATES — "
+                          f"the anchor lands somewhere else entirely and nothing reports "
+                          f"it. Note the unit before you widen the number: this field is "
+                          f"WHOLE PIXELS in absolute level space, 1:1, and nothing on "
+                          f"either side of the wire scales it. A value near 57344 is very "
+                          f"often 224 that has been through item 3's `drift.rate` x256 "
+                          f"conversion by mistake.")
+        if y == PATCH_ANCHOR_NONE:
+            _refuse(path, f"patch_world_ys[{i}] is {PATCH_ANCHOR_NONE}, which is the "
+                          f"engine's PATCH_ANCHOR_NONE sentinel — the value that means "
+                          f"\"this channel is UNUSED\". Written as an integer it reads as "
+                          f"an authored anchor to every human and as \"unused\" to the "
+                          f"runtime, and the two never meet: the channel simply does "
+                          f"nothing. Spell the intent as `null`, which lowers to the same "
+                          f"word and says what it is. If you really did mean world Y "
+                          f"{PATCH_ANCHOR_NONE}, use {PATCH_ANCHOR_NONE - 1} or "
+                          f"{PATCH_ANCHOR_NONE + 1} — one pixel is not the difference "
+                          f"between a working effect and a missing one, and this is.")
+
+
+def _check_patch_motion(path: str, preset: dict) -> None:
+    """SHAPE of `patch_motion`. One arm, `sweep`, and its three fields forwarded verbatim.
+
+    NOT ONE SWEEP RANGE IS CHECKED HERE. `anchor_sweep()` carries all three, each with the
+    derived ladder in its message, and its ladders are DERIVED from
+    ANCHOR_SINE_AMP / ANCHOR_SCREEN_LINES / ANCHOR_SINE_ENTRIES / ANCHOR_TICK_BITS rather
+    than picked — so a copy here would be a second source that drifts the day the screen or
+    the sine table moves. What this file does own is that the value arrives UNCHANGED: these
+    are base-2 LOGARITHMS on quantized ladders (7 amplitude rungs, 9 period rungs), so
+    rounding one rung doubles or halves the motion in silence where refusing it prints the
+    ladder. There is no rounding, no snapping and no unit translation on this path.
+    """
+    motions = _check_positional_patch_array(path, preset, "patch_motion")
+    if motions is None:
+        return
+    for i, m in enumerate(motions):
+        if m is None:
+            continue                      # ANCHOR_MOTION_NONE — a static channel.
+        if not isinstance(m, dict):
+            _refuse(path, f"patch_motion[{i}] must be an object or null, got "
+                          f"{type(m).__name__}. null is the engine's ANCHOR_MOTION_NONE "
+                          f"(\"this channel does not move\"); an object is "
+                          f"`{{\"{PATCH_MOTION_ARM}\": {{..}}}}`; an index the array does "
+                          f"not reach keeps the section's hand-authored motion.")
+        body = _single_arm(path, m, PATCH_MOTION_ARM, f"patch_motion[{i}]")
+        if not isinstance(body, dict):
+            _refuse(path, f"patch_motion[{i}].{PATCH_MOTION_ARM} must be an object with "
+                          f"{'/'.join(SWEEP_KEYS)}, got {type(body).__name__}")
+        _check_keys(path, body,
+                    frozenset(SWEEP_KEYS) | frozenset(SWEEP_OPTIONAL_KEYS),
+                    frozenset(), None, f"patch_motion[{i}].{PATCH_MOTION_ARM}")
+        for required in SWEEP_KEYS:
+            if required not in body:
+                _refuse(path, f"patch_motion[{i}].{PATCH_MOTION_ARM} has no `{required}`. "
+                              f"A sweep is {', '.join(SWEEP_KEYS)} — both required, "
+                              f"neither with a default — plus the optional "
+                              f"`{SWEEP_OPTIONAL_KEYS[0]}`, which is the only field "
+                              f"`anchor_sweep()` itself defaults. Both required fields are "
+                              f"base-2 SHIFTS and not pixels or frames: the peak excursion "
+                              f"is `256 >> amp_shift` px and one cycle is "
+                              f"`256 << period_shift` ticks.")
+
+
+def _check_motion_has_an_anchor(path: str, preset: dict) -> None:
+    """A motion on a channel this document also sets to the SENTINEL is a no-op, said once.
+
+    The narrow half of "two keys or nothing" (aeon artifact §1), and it is narrow for
+    `_check_cleared_slot_is_not_streamed`'s reason: an index the document does not reach
+    keeps the section's hand-authored anchor, which this file cannot see and which is the
+    majority case, so ABSENCE is not checkable. An explicit `null` beside a sweep has no
+    such ambiguity — the document says "this channel is unused" and "this channel sweeps" in
+    the same breath, and the runtime resolves that as unused.
+    """
+    ys = preset.get("patch_world_ys")
+    motions = preset.get("patch_motion")
+    if not isinstance(ys, list) or not isinstance(motions, list):
+        return
+    for i, m in enumerate(motions):
+        if m is None or i >= len(ys) or ys[i] is not None:
+            continue
+        _refuse(path, f"patch_motion[{i}] authors a sweep on channel {i}, but this "
+                      f"document also sets `patch_world_ys[{i}]` to null, which is the "
+                      f"PATCH_ANCHOR_NONE sentinel — \"channel {i} is unused\". A sweep is "
+                      f"a displacement of an anchor; with no anchor there is nothing to "
+                      f"displace and the channel is inert, so this pair authors an effect "
+                      f"that cannot appear. Give channel {i} a world Y, or drop the null "
+                      f"so the section's hand-authored anchor stands, or drop the motion.")
+
+
+def game_scanline_caps(game: str = "sonic4", repo: str = REPO) -> int:
+    """`Game.SCANLINE_CAPS` for one game, read from its own config.
+
+    Parsed rather than mirrored: the mask is a per-GAME declaration (sonic4 $01DE, demo 0),
+    so there is no single value to carry and a stale copy would refuse or admit the wrong
+    game. A missing declaration is a refusal and not a 0 — reading "no capabilities" out of
+    a file this function failed to find is exactly how a capability check goes vacuous.
+    """
+    path = os.path.join(repo, "games", game, "config", "game.emp")
+    try:
+        with open(path, "r") as f:
+            src = f.read()
+    except OSError as e:
+        _refuse(path, f"cannot read the game config to resolve Game.SCANLINE_CAPS: {e}. "
+                      f"The capability check below would otherwise read as \"no "
+                      f"capabilities declared\" and refuse every authored motion.")
+    m = re.search(r"^\s*const SCANLINE_CAPS\s*=\s*(\$?[0-9A-Fa-f]+)\s*(?://.*)?$",
+                  src, re.M)
+    if not m:
+        _refuse(path, "no `const SCANLINE_CAPS = <literal>` declaration. Every game "
+                      "declares the scanline services it wants lowered; without it the "
+                      "capability check on `patch_motion` cannot run, and a check that "
+                      "cannot run must not pass.")
+    tok = m.group(1)
+    return int(tok[1:], 16) if tok.startswith("$") else int(tok)
+
+
+def declared_patch_channels(game: str = "sonic4", repo: str = REPO) -> dict:
+    """{channel: [the source sites that consume it]} for one game's effects library.
+
+    THE THREE CONSUMERS, and it is three rather than one. `Effects_LatchWorldLines` derives
+    ONE screen line per channel and three things read it (engine/effects/raster.emp's own
+    banner): the raster fire of a `patchable(..)` record, the parallax band split of a scene
+    carrying `SceneAnchor.At(ch, ..)`, and the off-screen ship. A liveness check that looked
+    only at `patchable()` — which is how the aeon artifact's §4c phrases it — would refuse a
+    sweep that a scene anchor legitimately consumes, so both spellings are collected.
+
+    IT IS A SUPERSET CHECK AND THE MESSAGE SAYS SO. Whether a given SECTION consumes a given
+    channel depends on which raster program and which parallax config that section's
+    `preset()` binds, and that binding lives in the hand-authored library and the act
+    descriptor rather than in anything this generator reads. So this catches the channel
+    NOTHING in the game consumes — channels 2 and 3 today — and not the channel some other
+    section consumes. Named rather than silently ignored, because "checked and fine" and
+    "not checkable" must not print the same.
+    """
+    channels = {}
+    lib = os.path.join(repo, "games", game, "data", "effects")
+    if not os.path.isdir(lib):
+        return channels
+    for name in sorted(os.listdir(lib)):
+        if not name.endswith(".emp"):
+            continue
+        with open(os.path.join(lib, name), "r") as f:
+            src = f.read()
+        for m in re.finditer(r"patchable\s*\(", src):
+            q = re.search(r"\bch\s*:\s*(\d+)", src[m.end():m.end() + 400])
+            if q:
+                channels.setdefault(int(q.group(1)), []).append(f"{name} patchable()")
+        for m in re.finditer(r"SceneAnchor\s*\.\s*At\s*\(\s*(\d+)", src):
+            channels.setdefault(int(m.group(1)), []).append(f"{name} SceneAnchor.At()")
+    return channels
+
+
+def _check_patch_context(path: str, preset: dict, caps: int, live: dict, game: str) -> None:
+    """The two refusals that need the GAME and not just the document.
+
+    Both are silent no-ops rather than errors if they get through, which is the whole reason
+    they are refusals: an author gets no comptime message, no crash and no wrong picture —
+    just an effect that is not there.
+    """
+    motions = preset.get("patch_motion")
+    if not isinstance(motions, list):
+        return
+    authored = [i for i, m in enumerate(motions) if m is not None]
+    if not authored:
+        return
+
+    # (1) THE SEED/CAPABILITY MISMATCH — aeon artifact §4b.
+    if (caps & CAP_ANCHOR_MOTION) == 0:
+        _refuse(path, f"`patch_motion` authors channel(s) "
+                      f"{', '.join(str(i) for i in authored)}, but game {game!r} does not "
+                      f"raise CAP_ANCHOR_MOTION (${CAP_ANCHOR_MOTION:04X}) in its "
+                      f"`Game.SCANLINE_CAPS` (games/{game}/config/game.emp). The two "
+                      f"halves of the mover are gated DIFFERENTLY on purpose: "
+                      f"`Effects_InstallPreset` seeds `Effects_Motion[]` from every preset "
+                      f"unconditionally (34 bytes every game pays, preset.emp:333-340), "
+                      f"while the latch loop that READS it is inside "
+                      f"`if (Game.SCANLINE_CAPS & CAP_ANCHOR_MOTION) != 0` "
+                      f"(engine/effects/raster.emp). So this sweep would be installed, "
+                      f"folded into Effects_Motion_Any, and never read — the boundary does "
+                      f"not move and nothing anywhere says why. Either raise the bit in "
+                      f"that game's SCANLINE_CAPS, or stop authoring motion in a game that "
+                      f"does not lower the mover.")
+
+    # (2) CHANNEL LIVENESS — aeon artifact §4c, widened to all three consumers.
+    for i in authored:
+        if i in live:
+            continue
+        _refuse(path, f"`patch_motion[{i}]` authors a sweep on patch channel {i}, and "
+                      f"NOTHING in games/{game}/data/effects consumes that channel: no "
+                      f"`patchable(ch: {i}, ..)` record declares a band for it and no "
+                      f"`SceneAnchor.At({i}, ..)` scene splits on it. "
+                      f"`Effects_LatchWorldLines` would derive a swept screen line every "
+                      f"frame and no consumer would read it, so the sweep costs cycles and "
+                      f"moves nothing. Channels with a consumer today: "
+                      f"{', '.join(str(c) for c in sorted(live)) or '(none)'}. "
+                      f"This is a SUPERSET check — it can see that a channel is consumed "
+                      f"SOMEWHERE in the game, not that the section binding this document "
+                      f"is the place that consumes it, because which program and which "
+                      f"parallax config a section binds lives in the hand-authored library "
+                      f"and the act descriptor. A green here is not a promise the effect "
+                      f"is visible; a red is a promise it is not.")
+
+
 def load_all_presets(game: str = "sonic4", repo: str = REPO) -> dict:
-    """All preset documents for a game, keyed by id. Empty dict when none exist."""
+    """All preset documents for a game, keyed by id. Empty dict when none exist.
+
+    THE GAME-DEPENDENT CHECKS RUN HERE and not in `load_preset`, because they need the game
+    and `load_preset` takes a path. Both are cheap and read-only, but they read the game's
+    config and effects library once per bake rather than once per document.
+    """
+    paths = discover_preset_files(game, repo)
     presets = {}
-    for path in discover_preset_files(game, repo):
+    caps = live = None
+    for path in paths:
         preset = load_preset(path)
         if preset["id"] in presets:
             _refuse(path, f"duplicate preset id {preset['id']!r}")
+        if preset.get("patch_motion"):
+            if caps is None:
+                caps, live = game_scanline_caps(game, repo), \
+                             declared_patch_channels(game, repo)
+            _check_patch_context(path, preset, caps, live, game)
         presets[preset["id"]] = preset
     return presets
 
@@ -1386,6 +1746,30 @@ def render_preset_cycle(path: str, preset: dict, names) -> str:
             + "    [ " + ",\n      ".join(calls) + " ])")
 
 
+def render_patch_motion(path: str, value, where: str) -> str:
+    """One authored motion → its `anchor_sweep(amp_shift:, period_shift:[, phase:])`.
+
+    FORWARD-VERBATIM, with the emphasis on VERBATIM. `amp_shift` and `period_shift` are
+    base-2 logarithms on quantized ladders — seven amplitude rungs and nine period rungs,
+    derived in raster_dsl.emp from the sine table and the screen height — so the difference
+    between two adjacent legal values is a FACTOR OF TWO in travel or in period. Nothing
+    here rounds, snaps, clamps or scales: an off-ladder value goes through untouched and
+    `anchor_sweep()` refuses it with the derived ladder in the sentence, which is the only
+    outcome that tells an author which rungs exist. (Contrast `render_cycle_channel`, which
+    translates a unit and therefore owns a floor. This one translates nothing, so it owns
+    nothing.)
+
+    `phase` is OMITTED when the document omits it, so `anchor_sweep()`'s own default stands
+    and the emitted text is character-for-character the shipped hand call in
+    games/sonic4/data/effects/ojz_effects.emp — the scene arm's absent-optional rule, which
+    makes the text golden a literal comparison with nothing to normalise.
+    """
+    body = _single_arm(path, value, PATCH_MOTION_ARM, where)
+    args = [f"{k}: " + _render_int(path, body[k], f"{where}.{PATCH_MOTION_ARM}.{k}")
+            for k in SWEEP_KEYS + SWEEP_OPTIONAL_KEYS if k in body]
+    return "anchor_sweep(" + ", ".join(args) + ")"
+
+
 def render_preset_variants(path: str, preset: dict, names) -> list:
     """The `pub data`s for one document's authored variant slots, in slot order.
 
@@ -1647,6 +2031,16 @@ class ActNames:
         # the tidier shape for a pair that always moves together; it is not this one.
         self.fn_sec_cycle = f"{stem}_sec_cycle"
         self.fn_sec_variant = f"{stem}_sec_variant"
+        # THE PATCH CHANNELS (EFFECTS-W1 item 4). Per-(sec, ch) for `fn_sec_variant`'s
+        # reason exactly: the three states are PER INDEX, and a `-> [int; 4]` chooser would
+        # have to express "keep the caller's hand value on channel 2 only" by indexing its
+        # own `hand:` array parameter. A per-channel chooser spells that as the word `hand`.
+        # They return `int` and not `Label` because a world Y and a packed sweep word are
+        # VALUES, not addresses — `ep_patch_world_ys` / `ep_patch_motion` are inline
+        # `[u16; RASTER_MAX_PATCH]` fields for the reason preset.emp states (a Label carries
+        # no length, so the array-length ensure would be unevaluable and silently pass).
+        self.fn_sec_patch_world_y = f"{stem}_sec_patch_world_y"
+        self.fn_sec_patch_motion = f"{stem}_sec_patch_motion"
         self.binding_default = f"EditorSceneBinding_{cap}_Default"
         self.scene_array = f"EditorScenes_{cap}"
         self.equ_scenes = f"EditorScenes_{cap}_Count"
@@ -1662,6 +2056,7 @@ class ActNames:
         # the symbol being absent.
         self.equ_cycle_bindings = f"EditorCycle_{cap}_Bindings"
         self.equ_variant_bindings = f"EditorVariant_{cap}_Bindings"
+        self.equ_patch_bindings = f"EditorPatch_{cap}_Bindings"
 
     def binding_sec(self, i: int) -> str:
         return f"EditorSceneBinding_{self.zone_id.upper()}_" \
@@ -1795,6 +2190,13 @@ def render_module(scenes: dict, act_ref, sec_refs: dict, sections: int,
                    if "cycles" in presets[raster_bound[i]]}
     variant_bound = {i: raster_bound[i] for i in raster_bound
                      if presets[raster_bound[i]].get("variants") is not None}
+    # The patch channels ride the SAME `rasterRef`, ruling Q1 again: one ref binds the whole
+    # document. Either key alone is enough to bind — a document may author only the seed
+    # (a boundary that sits somewhere new but does not move) or, having kept the section's
+    # hand anchor, only the motion.
+    patch_bound = {i: raster_bound[i] for i in raster_bound
+                   if ("patch_world_ys" in presets[raster_bound[i]]
+                       or "patch_motion" in presets[raster_bound[i]])}
 
     used = sorted(set(bound.values()) | ({act_ref} if act_ref else set()))
     unused = sorted(set(scenes) - set(used))
@@ -1929,7 +2331,9 @@ def render_module(scenes: dict, act_ref, sec_refs: dict, sections: int,
         equ_cycle_bindings=names.equ_cycle_bindings,
         cycle_bindings=len(cycle_bound),
         equ_variant_bindings=names.equ_variant_bindings,
-        variant_bindings=len(variant_bound)))
+        variant_bindings=len(variant_bound),
+        equ_patch_bindings=names.equ_patch_bindings,
+        patch_bindings=len(patch_bound)))
     out.append("")
     out.append(SECTION_PIN.format(sections=sections))
     out.append("")
@@ -2013,7 +2417,64 @@ def render_module(scenes: dict, act_ref, sec_refs: dict, sections: int,
             out.append(f"    if sec == {i} && slot == {slot} {{ out = {target} }}")
     out.append("    return out")
     out.append("}")
-    return "\n".join(out) + "\n"
+
+    # ---- (f) THE PATCH CHANNELS' CHOOSERS — always emitted (item 4) ----
+    out.append("")
+    out.append(PATCH_BINDING_BANNER)
+    for fn, key, sentinel, render in (
+            (names.fn_sec_patch_world_y, "patch_world_ys", PATCH_ANCHOR_NONE, None),
+            (names.fn_sec_patch_motion, "patch_motion", ANCHOR_MOTION_NONE,
+             render_patch_motion)):
+        # THE DEFAULT IS THE SENTINEL AS A LITERAL, and both halves of that are deliberate.
+        # It is the SENTINEL and not 0 because 0 is a real world Y — `anchor - Camera_Y` at
+        # 0 reads as above the screen top, the most invasive state a channel nobody asked
+        # for can have (raster_dsl.emp's PATCH_ANCHOR_NONE note). It is a LITERAL because a
+        # comptime fn's free names resolve at the CALL SITE (docs/EMP_PITFALLS.md §2): a
+        # default parameter is the one position in the signature where that rule has never
+        # been measured either way, so this file does not bet on it. The BODIES below do use
+        # the named constants, which IS the proven case — `Pal_Cycle_None` has ridden the
+        # cycle chooser's body since item 5, and `engine.effects.raster_dsl` is a sigil
+        # COMPTIME_HELPERS member glob-injected into every placed module, so
+        # PATCH_ANCHOR_NONE / ANCHOR_MOTION_NONE / anchor_sweep are ambient wherever this
+        # module lands and wherever it is called from.
+        out.append(f"pub comptime fn {fn}(sec: int, ch: int, hand: int = {sentinel}) "
+                   f"-> int {{")
+        out.append(f'    ensure(sec >= 0 && sec < {sections}, "{fn}(sec: '
+                   f'{{sec}}): this act has {sections} sections, so there is no binding '
+                   f'slot for that index — the section preset and project.json\'s grid '
+                   f'have drifted apart")')
+        # RASTER_MAX_PATCH inlined for SECTION_PIN's reason, one channel over from the
+        # variant chooser's PAL_MAX_VARIANTS: a named engine constant here would resolve in
+        # the effects library's scope or silently not at all.
+        out.append(f'    ensure(ch >= 0 && ch < {RASTER_MAX_PATCH}, "{fn}(ch: {{ch}}): '
+                   f'the engine has {RASTER_MAX_PATCH} patch channels '
+                   f'(RASTER_MAX_PATCH) — the runtime patcher masks the channel index '
+                   f'with RASTER_MAX_PATCH minus 1, so a higher channel would fold back '
+                   f'onto channel 0")')
+        out.append("    comptime var out = hand")
+        for i in sorted(patch_bound):
+            pid = patch_bound[i]
+            for ch, v in enumerate(presets[pid].get(key) or []):
+                # `null` is the ENGINE SENTINEL and never 0, on both keys — the same rule
+                # `cycles: null -> Pal_Cycle_None` follows. An index the array does not
+                # reach emits no row at all, which is how "keep the hand value" is spelled.
+                if v is None:
+                    target = "PATCH_ANCHOR_NONE" if key == "patch_world_ys" \
+                             else "ANCHOR_MOTION_NONE"
+                elif render is None:
+                    # WHOLE PIXELS, INTERPOLATED VERBATIM. No `* 256`, no `>> 8`, no offset:
+                    # this is the one field whose unit differs from item 3's `drift.rate`
+                    # and the whole failure mode is that a conversion looks harmless.
+                    target = _render_int(os.path.join(preset_dir(), pid + ".json"), v,
+                                         f"{key}[{ch}]")
+                else:
+                    target = render(os.path.join(preset_dir(), pid + ".json"), v,
+                                    f"{key}[{ch}]")
+                out.append(f"    if sec == {i} && ch == {ch} {{ out = {target} }}")
+        out.append("    return out")
+        out.append("}")
+        out.append("")
+    return "\n".join(out).rstrip("\n") + "\n"
 
 
 HEADER = """\
@@ -2029,7 +2490,7 @@ HEADER = """\
 //
 // EVERY `pub comptime fn` AT THE BOTTOM IS EMITTED FOR EVERY ACT, ALWAYS — the act
 // default, the section scene, and one per `EffectsPreset` channel (raster, cycle,
-// variant) —
+// variant, patch world Y, patch motion) —
 // owner ruling 2026-08-22 (design §9 Q-c, the always-emitted default). With no
 // editor content they return the `hand:` fallback their caller passes; with
 // editor content they return the lowered record above. The caller therefore
@@ -2065,7 +2526,8 @@ pub equ {equ_scenes} = {scenes}
 pub equ {equ_bindings} = {bindings}
 pub equ {equ_raster_bindings} = {raster_bindings}
 pub equ {equ_cycle_bindings} = {cycle_bindings}
-pub equ {equ_variant_bindings} = {variant_bindings}\
+pub equ {equ_variant_bindings} = {variant_bindings}
+pub equ {equ_patch_bindings} = {patch_bindings}\
 """
 
 SECTION_PIN = """\
@@ -2169,6 +2631,46 @@ PALETTE_BINDING_BANNER = """\
 // With no document carrying either key the bodies below are `return out` over an
 // unmodified `hand`, and this whole block is zero ROM bytes — a `pub comptime fn` emits
 // nothing.\
+"""
+
+PATCH_BINDING_BANNER = """\
+// ---- THE PATCH-CHANNEL BINDINGS — the anchor mover's authoring seam (item 4) ----
+//
+// Two more always-emitted choosers on the same seam, called from the same `preset()` in
+// games/sonic4/data/effects/ojz_effects.emp. They return `int` and not `Label`, because a
+// world Y and a packed sweep word are VALUES: `ep_patch_world_ys` and `ep_patch_motion` are
+// inline `[u16; RASTER_MAX_PATCH]` fields, which is what gives preset() a `.len` it can
+// check (engine/effects/preset.emp).
+//
+// ⚠ `patch_world_ys` IS WHOLE PIXELS AND NEITHER SIDE CONVERTS — 1:1, editor to ROM. This
+// is NOT item 3's `drift.rate`, which is 1/256 px per frame with the editor multiplying by
+// 256 on export. A world Y carried through that habit lands 256x down the level;
+// `Effects_LatchWorldLines` derives the screen line as `anchor - Camera_Y`, so the band
+// simply never appears and nothing reports it. There is no `* 256` anywhere on this path
+// and there must never be one.
+//
+// ⚠ THE SWEEP FIELDS ARE BASE-2 LOGARITHMS ON QUANTIZED LADDERS — seven amplitude rungs
+// (peak = 256 >> amp_shift px) and nine period rungs (cycle = 256 << period_shift ticks),
+// derived in engine/effects/raster_dsl.emp from the sine table and the screen height. The
+// generator forwards them VERBATIM and refuses nothing about their values: adjacent rungs
+// differ by a factor of two, so rounding one silently doubles or halves the motion where
+// `anchor_sweep()`'s own ensure prints the whole ladder.
+//
+// `hand:` IS THE CALLER'S, and its default here is the ENGINE SENTINEL and never 0 — 0 is a
+// real world Y, and it is the worst one: it reads as ABOVE the screen top, i.e. fully
+// submerged, for a channel nobody asked for.
+//
+// WHAT THIS SEAM CANNOT CHECK, said here because the author gets no comptime error for any
+// of it: (a) a sweep's peak-to-peak travel must fit its channel's `patchable(lo, hi)` band,
+// and above `hi` Raster_BuildSchedule DROPS the record rather than clamping — the band
+// vanishes for the frame. `lo`/`hi` live in the raster program and the amplitude in the
+// preset, associated by a pointer at runtime, so no comptime scope holds both;
+// tools/test_anchor_sweep_band.py is that scope. (b) whether the SECTION binding this
+// document is one of the places the channel is actually consumed — the generator checks
+// only that the game consumes it somewhere.
+//
+// With no document carrying either key the bodies below are `return out` over an unmodified
+// `hand`, and this whole block is zero ROM bytes — a `pub comptime fn` emits nothing.\
 """
 
 BINDING_BANNER = """\

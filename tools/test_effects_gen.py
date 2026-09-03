@@ -2865,7 +2865,8 @@ class TestEditorRasterPresetsDoc(unittest.TestCase):
         self.assertEqual(
             sorted(self.documented()),
             ["band", "cycle-channel", "cycle-channel-optional", "on-arms", "on.cram",
-             "on.pal_region", "preset", "preset-ignored", "preset-refused", "variant"],
+             "on.pal_region", "preset", "preset-ignored", "preset-refused", "sweep",
+             "sweep-optional", "variant"],
             "the key block in EDITOR_RASTER_PRESETS.md gained or lost a row. Each row is "
             "one of the generator's key constants; a row with no constant behind it is "
             "unchecked prose wearing the block's authority.")
@@ -2879,6 +2880,16 @@ class TestEditorRasterPresetsDoc(unittest.TestCase):
         self.assertEqual(doc["cycle-channel-optional"],
                          sorted(effects_gen.CYCLE_CHANNEL_OPTIONAL_KEYS))
         self.assertEqual(doc["variant"], sorted(effects_gen.VARIANT_KEYS))
+
+    def test_the_documented_sweep_keys_are_the_generators(self):
+        """The item-4 rows. These matter MORE than the others for the same reason the
+        page's own warning does: `amp_shift` and `period_shift` are base-2 logarithms on
+        quantized ladders, so a panel built against a wrong field NAME here does not
+        produce a wrong number, it produces a refusal — and a panel built against a wrong
+        UNIT produces a number twice or half what the author asked for, silently."""
+        doc = self.documented()
+        self.assertEqual(doc["sweep"], sorted(effects_gen.SWEEP_KEYS))
+        self.assertEqual(doc["sweep-optional"], sorted(effects_gen.SWEEP_OPTIONAL_KEYS))
 
     def test_the_documented_preset_keys_are_the_generators(self):
         doc = self.documented()
@@ -2899,3 +2910,400 @@ class TestEditorRasterPresetsDoc(unittest.TestCase):
                 doc[f"on.{arm}"], sorted(fields),
                 f"the documented fields of the `{arm}` ON arm are not the ones "
                 f"render_band_on passes to its constructor.")
+
+
+# =============================================================================
+# THE PATCH CHANNELS — EFFECTS-W1 DoD item 4, step 4 (the reader).
+# =============================================================================
+
+
+class PatchShapeBase(PresetShapeBase):
+    """PresetShapeBase plus the two GAME-level inputs the contextual refusals read.
+
+    `load_preset(path)` is pure and takes a path; the capability and liveness checks need
+    the GAME, so they run in `load_all_presets(game, repo)` and read the game's own
+    `config/game.emp` and `data/effects/*.emp`. Those are written here rather than mocked,
+    because what is being tested is that the generator reads the real declarations — a mock
+    would let a parser that reads nothing pass.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.config = os.path.join(self.tmp.name, "games", "sonic4", "config")
+        self.lib = os.path.join(self.tmp.name, "games", "sonic4", "data", "effects")
+        os.makedirs(self.config)
+        os.makedirs(self.lib)
+        self.write_caps("$01DE")          # sonic4's real mask: CAP_ANCHOR_MOTION raised
+        self.write_lib(
+            "const P = compose([\n"
+            "    patchable(fx_tint_band(line: 100), ch: 0, lo: 3,   hi: 220),\n"
+            "    patchable(fx_vscroll_split(line: 222), ch: 1, lo: 222, hi: 223),\n"
+            "])\n")
+
+    def write_caps(self, literal):
+        with open(os.path.join(self.config, "game.emp"), "w") as f:
+            f.write("contract Game {\n    const SCANLINE_CAPS = %s\n}\n" % literal)
+
+    def write_lib(self, text):
+        with open(os.path.join(self.lib, "ojz_effects.emp"), "w") as f:
+            f.write(text)
+
+    def load_all(self):
+        return effects_gen.load_all_presets(repo=self.tmp.name)
+
+    def refuse_all(self, stem, body):
+        self.write(stem, body)
+        with self.assertRaises(effects_gen.SceneShapeError) as ctx:
+            self.load_all()
+        return str(ctx.exception)
+
+
+def _sweep(**over):
+    body = {"amp_shift": 4, "period_shift": 1}
+    body.update(over)
+    return {"sweep": body}
+
+
+class TestPatchWorldYsShape(PatchShapeBase):
+    def test_the_three_states_PER_INDEX_all_load(self):
+        path = self.write("ojz_ground_wash",
+                          _preset(patch_world_ys=[224, None]))
+        loaded = effects_gen.load_preset(path)
+        self.assertEqual(loaded["patch_world_ys"][0], 224)
+        self.assertIsNone(loaded["patch_world_ys"][1])
+        self.assertEqual(len(loaded["patch_world_ys"]), 2)   # 2 and 3 are "keep"
+
+    def test_a_KEY_LEVEL_null_is_refused_BY_NAME_and_not_read_as_absent(self):
+        body = _preset()
+        body["patch_world_ys"] = None
+        msg = self.refuse("ojz_ground_wash", body)
+        self.assertIn("KEY level", msg)
+        self.assertIn("absent", msg)
+
+    def test_a_FIFTH_channel_is_refused_naming_the_engines_channel_count(self):
+        msg = self.refuse("ojz_ground_wash",
+                          _preset(patch_world_ys=[0, 1, 2, 3, 4]))
+        self.assertIn("RASTER_MAX_PATCH", msg)
+        self.assertIn(str(effects_gen.RASTER_MAX_PATCH), msg)
+
+    def test_a_seed_past_the_u16_is_refused_and_the_message_names_the_x256_trap(self):
+        """57344 is 224 exported through item 3's 1/256 unit. It is the single most likely
+        wrong value on this key, so the refusal says so rather than only naming the bound."""
+        msg = self.refuse("ojz_ground_wash", _preset(patch_world_ys=[70000]))
+        self.assertIn("0..65535", msg)
+        self.assertIn("57344", msg)
+
+    def test_a_negative_seed_is_refused(self):
+        self.assertIn("0..65535", self.refuse("ojz_ground_wash",
+                                              _preset(patch_world_ys=[-1])))
+
+    def test_the_SENTINEL_written_as_an_integer_is_refused_naming_null(self):
+        """The refusal the hub added to the schema because nothing else has it: `preset()`
+        ensures the array's LENGTH, never its values, so 32767 reaches the ROM as an
+        authored-looking anchor the runtime reads as 'channel unused'."""
+        msg = self.refuse("ojz_ground_wash",
+                          _preset(patch_world_ys=[effects_gen.PATCH_ANCHOR_NONE]))
+        self.assertIn("PATCH_ANCHOR_NONE", msg)
+        self.assertIn("null", msg)
+
+    def test_one_below_and_one_above_the_sentinel_are_accepted(self):
+        """The bound is the sentinel VALUE and not a region around it — asserted so that a
+        future 'be safe, refuse a range' edit fails here rather than quietly costing an
+        author two legal world Ys."""
+        for y in (effects_gen.PATCH_ANCHOR_NONE - 1, effects_gen.PATCH_ANCHOR_NONE + 1):
+            path = self.write("ojz_ground_wash", _preset(patch_world_ys=[y]))
+            self.assertEqual(effects_gen.load_preset(path)["patch_world_ys"][0], y)
+
+    def test_0_and_65535_are_both_accepted_because_both_are_real_world_ys(self):
+        for y in (0, 65535):
+            path = self.write("ojz_ground_wash", _preset(patch_world_ys=[y]))
+            self.assertEqual(effects_gen.load_preset(path)["patch_world_ys"][0], y)
+
+    def test_a_non_integer_seed_is_refused_with_its_index(self):
+        self.assertIn("patch_world_ys[0]",
+                      self.refuse("ojz_ground_wash", _preset(patch_world_ys=["224"])))
+
+
+class TestPatchMotionShape(PatchShapeBase):
+    def test_the_three_states_PER_INDEX_all_load(self):
+        path = self.write("ojz_ground_wash",
+                          _preset(patch_world_ys=[224, 314],
+                                  patch_motion=[_sweep(), None]))
+        loaded = effects_gen.load_preset(path)
+        self.assertEqual(loaded["patch_motion"][0]["sweep"]["amp_shift"], 4)
+        self.assertIsNone(loaded["patch_motion"][1])
+
+    def test_a_KEY_LEVEL_null_is_refused_BY_NAME(self):
+        body = _preset()
+        body["patch_motion"] = None
+        self.assertIn("KEY level", self.refuse("ojz_ground_wash", body))
+
+    def test_a_FIFTH_channel_is_refused(self):
+        self.assertIn("RASTER_MAX_PATCH",
+                      self.refuse("ojz_ground_wash",
+                                  _preset(patch_motion=[None] * 5)))
+
+    def test_an_APPROACH_arm_is_refused_because_no_arm_but_sweep_exists(self):
+        msg = self.refuse("ojz_ground_wash",
+                          _preset(patch_world_ys=[224],
+                                  patch_motion=[{"approach": {"target": 300}}]))
+        self.assertIn("sweep", msg)
+
+    def test_zero_arms_and_two_arms_are_both_refused(self):
+        self.assertIn("sweep", self.refuse("ojz_ground_wash",
+                                           _preset(patch_world_ys=[224],
+                                                   patch_motion=[{}])))
+        self.assertIn("sweep", self.refuse(
+            "ojz_ground_wash",
+            _preset(patch_world_ys=[224],
+                    patch_motion=[{"sweep": {"amp_shift": 4, "period_shift": 1},
+                                   "approach": {}}])))
+
+    def test_a_sweep_missing_either_required_field_is_refused_naming_the_shift_unit(self):
+        for missing in effects_gen.SWEEP_KEYS:
+            body = dict(_sweep()["sweep"])
+            del body[missing]
+            msg = self.refuse("ojz_ground_wash",
+                              _preset(patch_world_ys=[224],
+                                      patch_motion=[{"sweep": body}]))
+            self.assertIn(missing, msg)
+            self.assertIn("256 >> amp_shift", msg)
+
+    def test_phase_is_OPTIONAL(self):
+        path = self.write("ojz_ground_wash",
+                          _preset(patch_world_ys=[224], patch_motion=[_sweep()]))
+        self.assertNotIn("phase",
+                         effects_gen.load_preset(path)["patch_motion"][0]["sweep"])
+
+    def test_an_unknown_sweep_field_is_refused(self):
+        self.assertIn("amplitude", self.refuse(
+            "ojz_ground_wash",
+            _preset(patch_world_ys=[224], patch_motion=[_sweep(amplitude=8)])))
+
+    def test_a_sweep_beside_an_EXPLICIT_null_anchor_is_refused(self):
+        """The narrow half of 'two keys or nothing'. A sweep displaces an anchor; a channel
+        the same document declares unused has none, so the pair authors an effect that
+        cannot appear."""
+        msg = self.refuse("ojz_ground_wash",
+                          _preset(patch_world_ys=[None], patch_motion=[_sweep()]))
+        self.assertIn("patch_motion[0]", msg)
+        self.assertIn("patch_world_ys[0]", msg)
+
+    def test_a_sweep_on_an_ABSENT_anchor_index_is_NOT_refused(self):
+        """The broad check would be WRONG for `_check_cleared_slot_is_not_streamed`'s
+        reason: absent means the section's hand-authored anchor is still there, and the
+        generator cannot see it."""
+        path = self.write("ojz_ground_wash", _preset(patch_motion=[_sweep()]))
+        self.assertEqual(effects_gen.load_preset(path)["id"], "ojz_ground_wash")
+
+
+class TestPatchMotionIsForwardedVERBATIM(PatchShapeBase):
+    """The unit contract, asserted as text rather than argued.
+
+    Every number an author writes has to come out the other side unchanged: `patch_world_ys`
+    because it is whole pixels 1:1 (item 3's `drift.rate` x256 habit is the trap), and the
+    sweep shifts because they are base-2 logarithms on ladders whose adjacent rungs differ by
+    a factor of two.
+    """
+
+    def render(self, value):
+        return effects_gen.render_patch_motion("<fixture>", value, "patch_motion[0]")
+
+    def test_the_shipped_hand_call_is_reproduced_CHARACTER_FOR_CHARACTER(self):
+        """games/sonic4/data/effects/ojz_effects.emp's OJZ_Preset_Sec0 spells the shipped
+        precedent. The generated text is compared to it literally, with nothing to
+        normalise, which is only possible because `phase` is OMITTED when absent."""
+        self.assertEqual(self.render(_sweep()),
+                         "anchor_sweep(amp_shift: 4, period_shift: 1)")
+
+    def test_phase_is_emitted_only_when_authored_and_in_the_constructors_order(self):
+        self.assertEqual(self.render(_sweep(phase=64)),
+                         "anchor_sweep(amp_shift: 4, period_shift: 1, phase: 64)")
+
+    def test_every_legal_rung_survives_the_round_trip_UNCHANGED(self):
+        """No rounding, no snapping, no clamping — for every rung on both ladders. The
+        ladders are DERIVED from engine/effects/raster_dsl.emp's own literals rather than
+        listed here, so a screen or sine-table change moves the domain of this test with it
+        instead of leaving it testing a stale set."""
+        dsl = os.path.join(effects_gen.REPO, "engine/effects/raster_dsl.emp")
+        with open(dsl) as f:
+            src = f.read()
+
+        def const(name):
+            m = re.search(r"^(?:pub )?const %s\s*=\s*(\$?[0-9A-Fa-f]+)" % name, src, re.M)
+            self.assertIsNotNone(m, "%s no longer declares `const %s`" % (dsl, name))
+            tok = m.group(1)
+            return int(tok[1:], 16) if tok.startswith("$") else int(tok)
+
+        amp, lines = const("ANCHOR_SINE_AMP"), const("ANCHOR_SCREEN_LINES")
+        entries, width = const("ANCHOR_SINE_ENTRIES"), const("ANCHOR_TICK_BITS")
+        amp_min = max([i + 1 for i in range(16) if (amp >> i) * 2 > lines] or [0])
+        amp_max = max(i for i in range(16) if (amp >> i) >= 1)
+        per_max = max(i for i in range(32) if (entries << i) <= (1 << width))
+        self.assertEqual((amp_min, amp_max, per_max), (2, 8, 8),
+                         "the derived ladders moved; this test's own arithmetic is what "
+                         "says so, and the rungs below are re-derived from it either way")
+        for a in range(amp_min, amp_max + 1):
+            for p in range(0, per_max + 1):
+                self.assertEqual(
+                    self.render({"sweep": {"amp_shift": a, "period_shift": p}}),
+                    "anchor_sweep(amp_shift: %d, period_shift: %d)" % (a, p))
+
+    def test_an_OFF_LADDER_rung_is_forwarded_UNCHANGED_rather_than_rounded(self):
+        """The posture, stated as a test because the alternative is the silent one. An
+        amp_shift of 1 is illegal, and `anchor_sweep()` refuses it AT BUILD TIME with the
+        derived ladder in the sentence. Snapping it to 2 here would halve the author's
+        travel and print nothing at all."""
+        self.assertEqual(self.render({"sweep": {"amp_shift": 1, "period_shift": 99}}),
+                         "anchor_sweep(amp_shift: 1, period_shift: 99)")
+
+    def test_the_generator_carries_no_scale_factor_on_this_path(self):
+        """The x256 trap, checked mechanically. `patch_world_ys` is WHOLE PIXELS 1:1 in both
+        directions; item 3's `drift.rate` is 1/256 px per frame and the EDITOR multiplies.
+        Confusing them puts the anchor 256x down the level and the band silently never
+        appears — so this asserts the seed reaches generated text as the digits the author
+        typed, for a value that would be unmistakable if scaled."""
+        names = effects_gen.ActNames("ojz", "act1")
+        module = effects_gen.render_module(
+            {}, None, {}, 9, names,
+            presets={"ojz_ground_wash": _preset(patch_world_ys=[224, None, None, None],
+                                                patch_motion=[_sweep(), None, None, None])},
+            sec_raster_refs={5: "ojz_ground_wash"})
+        self.assertIn("if sec == 5 && ch == 0 { out = 224 }", module)
+        self.assertNotIn("57344", module)
+        self.assertIn("if sec == 5 && ch == 0 { out = anchor_sweep(amp_shift: 4, "
+                      "period_shift: 1) }", module)
+
+
+class TestPatchChannelsInTheGeneratedModule(PatchShapeBase):
+    def module(self, presets, refs):
+        return effects_gen.render_module({}, None, {}, 9,
+                                         effects_gen.ActNames("ojz", "act1"),
+                                         presets=presets, sec_raster_refs=refs)
+
+    def test_both_choosers_are_emitted_for_an_act_with_NO_documents_at_all(self):
+        """The always-emitted ruling (design §9 Q-c), one channel over. The caller has ONE
+        path whether or not editor content exists, and an UNCALLED `pub comptime fn` is an
+        unelaborated one whose own ensures assert nothing."""
+        module = self.module({}, {})
+        self.assertIn("pub comptime fn ojz_act1_sec_patch_world_y(sec: int, ch: int, "
+                      "hand: int = %d) -> int {" % effects_gen.PATCH_ANCHOR_NONE, module)
+        self.assertIn("pub comptime fn ojz_act1_sec_patch_motion(sec: int, ch: int, "
+                      "hand: int = %d) -> int {" % effects_gen.ANCHOR_MOTION_NONE, module)
+        self.assertIn("EditorPatch_OJZ_Act1_Bindings = 0", module)
+
+    def test_the_defaults_are_the_SENTINELS_and_never_0_on_the_world_Y(self):
+        """0 is a real world Y and the worst one: `anchor - Camera_Y` at 0 reads as above
+        the screen top for a channel nobody asked for."""
+        self.assertNotEqual(effects_gen.PATCH_ANCHOR_NONE, 0)
+        self.assertIn("hand: int = %d" % effects_gen.PATCH_ANCHOR_NONE, self.module({}, {}))
+
+    def test_a_null_index_lowers_to_the_NAMED_sentinel_and_not_to_a_literal(self):
+        """`Pal_Cycle_None`'s rule, two channels over: a comptime fn's free names resolve at
+        the CALL SITE, and `engine.effects.raster_dsl` is a sigil COMPTIME_HELPERS member
+        glob-injected into every placed module, so the name is ambient wherever this lands."""
+        module = self.module(
+            {"p": _preset(id="p", patch_world_ys=[None], patch_motion=[None])},
+            {5: "p"})
+        self.assertIn("if sec == 5 && ch == 0 { out = PATCH_ANCHOR_NONE }", module)
+        self.assertIn("if sec == 5 && ch == 0 { out = ANCHOR_MOTION_NONE }", module)
+
+    def test_an_index_the_array_does_not_reach_emits_NO_ROW(self):
+        """That is how 'keep the section's hand-authored value' is spelled: no row, so the
+        chooser returns its `hand:` parameter."""
+        module = self.module({"p": _preset(id="p", patch_world_ys=[224])}, {5: "p"})
+        self.assertIn("if sec == 5 && ch == 0 { out = 224 }", module)
+        for ch in (1, 2, 3):
+            self.assertNotIn("if sec == 5 && ch == %d" % ch, module)
+
+    def test_the_witness_counts_a_document_carrying_EITHER_key(self):
+        for key, value in (("patch_world_ys", [224]), ("patch_motion", [None])):
+            module = self.module({"p": _preset(id="p", **{key: value})}, {5: "p"})
+            self.assertIn("EditorPatch_OJZ_Act1_Bindings = 1", module)
+
+    def test_an_UNBOUND_document_contributes_no_row_and_no_binding(self):
+        module = self.module({"p": _preset(id="p", patch_world_ys=[224])}, {})
+        self.assertIn("EditorPatch_OJZ_Act1_Bindings = 0", module)
+        self.assertNotIn("out = 224", module)
+
+    def test_the_choosers_carry_a_CHANNEL_ensure_with_the_literal_inlined(self):
+        """SECTION_PIN's reason: a comptime fn's free names resolve at the CALL SITE, so a
+        named engine constant in the ensure would resolve in the effects library's scope or
+        silently not at all."""
+        module = self.module({}, {})
+        self.assertIn("ensure(ch >= 0 && ch < %d," % effects_gen.RASTER_MAX_PATCH, module)
+        self.assertIn("RASTER_MAX_PATCH", module)
+
+
+class TestPatchCapabilityAndLiveness(PatchShapeBase):
+    """The two refusals that need the GAME, which is why they run in `load_all_presets`.
+
+    Both failures are SILENT NO-OPS if they get through — no crash, no wrong picture, just
+    an effect that is not there — which is the whole argument for refusing them at all.
+    """
+
+    def test_a_motion_in_a_game_that_does_not_raise_CAP_ANCHOR_MOTION_is_refused(self):
+        self.write_caps("0")             # demo's real mask
+        msg = self.refuse_all("ojz_ground_wash",
+                              _preset(patch_world_ys=[224], patch_motion=[_sweep()]))
+        self.assertIn("CAP_ANCHOR_MOTION", msg)
+        self.assertIn("SCANLINE_CAPS", msg)
+        self.assertIn("never read", msg)
+
+    def test_a_SEED_alone_is_NOT_refused_in_such_a_game(self):
+        """The asymmetry is the point and it is the engine's, not this file's: the seed is
+        installed unconditionally (34 bytes every game pays) and IS read by the plain latch
+        loop; only the MOTION is behind the capability."""
+        self.write_caps("0")
+        self.write("ojz_ground_wash", _preset(patch_world_ys=[224]))
+        self.assertIn("ojz_ground_wash", self.load_all())
+
+    def test_the_capability_check_reads_the_games_OWN_declaration(self):
+        """Not a mirror: sonic4 is $01DE and demo is 0, so there is no single value to
+        carry. Clearing exactly the anchor bit out of the real mask must refuse, which a
+        parser that only looked for a non-zero mask would not."""
+        self.write_caps("$%04X" % (0x01DE & ~effects_gen.CAP_ANCHOR_MOTION))
+        self.assertIn("CAP_ANCHOR_MOTION",
+                      self.refuse_all("ojz_ground_wash",
+                                      _preset(patch_world_ys=[224],
+                                              patch_motion=[_sweep()])))
+
+    def test_a_game_config_with_no_SCANLINE_CAPS_at_all_is_refused_not_read_as_zero(self):
+        """A check that cannot run must not pass. Reading a missing declaration as 'no
+        capabilities' would refuse every motion; reading it as 'all capabilities' would
+        refuse none. Neither is a measurement."""
+        self.write_caps("$01DE")
+        with open(os.path.join(self.config, "game.emp"), "w") as f:
+            f.write("contract Game {\n}\n")
+        self.assertIn("SCANLINE_CAPS",
+                      self.refuse_all("ojz_ground_wash",
+                                      _preset(patch_world_ys=[224],
+                                              patch_motion=[_sweep()])))
+
+    def test_a_motion_on_a_channel_NOTHING_consumes_is_refused(self):
+        """Channels 2 and 3 have no consumer in the shipped tree. A sweep there derives a
+        screen line every frame that no fire, no band split and no off-screen ship reads."""
+        msg = self.refuse_all(
+            "ojz_ground_wash",
+            _preset(patch_world_ys=[None, None, 224], patch_motion=[None, None, _sweep()]))
+        self.assertIn("channel 2", msg)
+        self.assertIn("patchable(ch: 2", msg)
+        self.assertIn("SUPERSET", msg)
+
+    def test_a_channel_declared_only_by_a_SCENE_ANCHOR_is_live(self):
+        """Three consumers read the latched line, not one. A liveness check that looked only
+        at `patchable()` — which is how the key-shape artifact's §4c phrases it — would
+        refuse a sweep a parallax band split legitimately consumes."""
+        self.write_lib("pub const S: Scene = scene(anchor: SceneAnchor.At(2, 15, 2))\n")
+        self.write("ojz_ground_wash",
+                   _preset(patch_world_ys=[None, None, 224],
+                           patch_motion=[None, None, _sweep()]))
+        self.assertIn("ojz_ground_wash", self.load_all())
+
+    def test_a_SEED_on_a_dead_channel_is_NOT_refused(self):
+        """Deliberately narrower than the motion check. A seed is what a channel becomes
+        live AROUND — a `patchable()` record or an anchored scene can be added in the same
+        series — and an inert anchor costs one word, where an inert sweep costs cycles every
+        frame and reads as a feature that does not work."""
+        self.write("ojz_ground_wash", _preset(patch_world_ys=[None, None, 224]))
+        self.assertIn("ojz_ground_wash", self.load_all())

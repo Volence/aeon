@@ -47,7 +47,7 @@ author did not write.
 
 <!-- KEYS-CHECKED-AGAINST-effects_gen.py -->
 ```
-preset:          bands, cycles, id, schema, variants
+preset:          bands, cycles, id, patch_motion, patch_world_ys, schema, variants
 preset-ignored:  name
 preset-refused:  fires
 band:            bot, on, sh, top
@@ -57,6 +57,8 @@ on.pal_region:   addr, count, entry, pal_line, slot
 cycle-channel:   count, first, line, period
 cycle-channel-optional: dir
 variant:         bias_b, bias_g, bias_r, lines, shift_b, shift_g, shift_r
+sweep:           amp_shift, period_shift
+sweep-optional:  phase
 ```
 <!-- /KEYS-CHECKED-AGAINST-effects_gen.py -->
 
@@ -118,6 +120,48 @@ Reading the rows:
   slot" in one file is never what anyone meant. A band naming a slot the document simply does
   not reach is **not** refused — that slot still holds the section's hand-authored value,
   which the generator cannot see.
+- **`patch_world_ys`** — the world anchor of each patch channel, **positionally**: index *i*
+  is patch channel *i*, the same integer a `patchable(ch: i, ..)` record or a
+  `SceneAnchor.At(i, ..)` scene names. Same three states per INDEX as `variants`: an index
+  the array does not reach (or an absent key) **keeps** the section's hand-authored anchor;
+  **`null`** is the engine sentinel `PATCH_ANCHOR_NONE`, i.e. *this channel is unused*; an
+  integer **authors** it. Four channels; a fifth is refused naming `RASTER_MAX_PATCH`, and
+  nothing downstream would have caught it. There is no key-level `patch_world_ys: null`.
+  **⚠ THE UNIT IS WHOLE PIXELS, absolute, in level space, and NEITHER SIDE CONVERTS — 1:1.**
+  This is *not* the scene document's `drift.rate`, which is 1/256 px per frame with the
+  editor multiplying by 256 on export. A world Y carried through that habit lands 256x down
+  the level and the band simply never appears; there is no error, because the engine derives
+  the screen line as `anchor - Camera_Y` and a huge anchor is just off-screen-below.
+  **⚠ `0` IS A REAL WORLD Y AND IT IS THE WORST ONE** — it reads as *above the screen top*,
+  the most invasive state a channel nobody asked for can have. "Unused" is `null`.
+  Range `0 … 65535` (the engine field is `u16`), and **`32767` is refused**: it is
+  `PATCH_ANCHOR_NONE` itself, so writing it as an integer reads as an authored anchor to
+  every human and as "unused" to the runtime. Both bounds are enforced here and in the writer
+  schema, and both are owed that because *nothing else enforces them* — `preset()` checks the
+  array's length, never its values.
+- **`patch_motion`** — the motion of each patch channel, positionally and with the same three
+  states. **`null`** is `ANCHOR_MOTION_NONE`, a static channel; an object is
+  `{"sweep": { .. }}`. **`sweep` is the only arm.** There is no `approach` arm and none is
+  reserved: APPROACH has no preset seed field at all, its runtime handle is the call
+  `Effects_SetTargetY`, and a reserved arm would be a key with nothing behind it. Adding one
+  is its own contract change. A sweep on a channel this same document sets to `null` is
+  refused — a displacement with no anchor to displace.
+- **`sweep` / `sweep-optional`** — `amp_shift` and `period_shift` are required, `phase` is
+  optional (it is the only field `anchor_sweep()` itself defaults). **⚠ ALL THREE ARE
+  QUANTIZED, and the first two are BASE-2 LOGARITHMS, not pixels or frames**: the peak
+  excursion is `256 >> amp_shift` px and one cycle is `256 << period_shift` ticks, so there
+  are **7 amplitude rungs and 9 period rungs** and adjacent rungs differ by a **factor of
+  two**. A UI control must SNAP; the generator forwards the value untouched and
+  `anchor_sweep()` refuses an off-ladder one with the whole derived ladder in the message,
+  because rounding a rung silently doubles or halves the motion. `phase` is in sine-table
+  entries, `0 … 255` is one full cycle, and it is the only continuous field — it exists so
+  that two channels at the same period do not move in lockstep and read as one boundary.
+- **What no one can check for you:** a sweep's peak-to-peak travel has to stay inside its
+  channel's `patchable(lo, hi)` band. Leaving it upward does **not** clamp —
+  `Raster_BuildSchedule` deletes the record for the frame, so the band *vanishes* and returns
+  at the next zero crossing, which reads as a rendering bug rather than as an amplitude
+  anyone chose. `lo`/`hi` live in the raster program and the amplitude in the preset, so no
+  compiler scope holds both; `tools/test_anchor_sweep_band.py` is the check that does.
 
 **Serialization is normative** (contract §5): a preset document is a *scalar* document, so
 `json.dumps(obj, sort_keys=True, indent=2)`. Keys sort alphabetically and **recursively** —
