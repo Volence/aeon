@@ -26,10 +26,11 @@ use engine.structs.{Sec, Act}
 // Field order deliberately avoids an odd run of u8 before a pointer — sigil does
 // NOT auto-align, and even alignment is all the 68000 needs.
 //
-// SIZE IS 38 SINCE effects-P3 P-b, AND IT WAS DECLARED 36 WHILE IT WAS 32 UNTIL
-// 2026-08-14. The fields are contiguous with no gaps — 5 pointers (20) + a 2-slot
-// pointer array (8) + ep_patch_world_ys ([u16; RASTER_MAX_PATCH] = 8) + 1 u16 (2)
-// = 38. The old 36 was simply wrong: it came from the design spec's prose estimate
+// SIZE IS 46 SINCE EFFECTS-W1 item 4 (the anchor mover), 38 before it, AND IT WAS DECLARED
+// 36 WHILE IT WAS 32 UNTIL 2026-08-14. The fields are contiguous with no gaps —
+// 5 pointers (20) + a 2-slot pointer array (8) + ep_patch_world_ys
+// ([u16; RASTER_MAX_PATCH] = 8) + 1 u16 (2) + ep_patch_motion ([u16; RASTER_MAX_PATCH] = 8)
+// = 46. The old 36 was simply wrong: it came from the design spec's prose estimate
 // ("roughly 36 bytes"), copied into the plan beside offsets that added to 32. That
 // it landed near the value the struct would eventually reach is a coincidence and
 // not a defence — it was never checked against the fields.
@@ -53,7 +54,7 @@ use engine.structs.{Sec, Act}
 // passes silently (the vacuous-guard generator documented below). An inline [u16; N] gives
 // preset() a `.len` it can actually check, and gives Raster_InstallPatched an `lea` into the
 // preset instead of an indirection through a table nothing can size.
-pub struct EffectsPreset (size: 38) {
+pub struct EffectsPreset (size: 46) {
     ep_pal:            *u8      @ $00,   // required; the preset CARRIES the palette
     ep_parallax:       *u8      @ $04,   // 0 = defer to the act default (the one legal 0); a
                                          // non-zero Sec.sec_parallax_config outranks it either
@@ -64,6 +65,25 @@ pub struct EffectsPreset (size: 38) {
     ep_variants:       [*u8; 2] @ $14,   // PAL_MAX_VARIANTS; unused slots 0 = clear
     ep_patch_world_ys: [u16; RASTER_MAX_PATCH] @ $1C,  // one authored world Y per patch channel
     ep_transition:     u16      @ $24,   // cross-fade arm; unused by every C2 fixture
+    // EFFECTS-W1 item 4 — one packed SWEEP word per patch channel, seeded into
+    // Effects_Motion[] on every install. It sits BESIDE ep_patch_world_ys because it is the
+    // same kind of thing: the seed, not the storage. A channel's motion is a property of the
+    // SECTION, so re-entering a section resets a swept anchor exactly as it resets the anchor
+    // itself — the declared delta engine/ram.emp states for the bank.
+    //
+    // INLINE, not a pointer, for ep_patch_world_ys' reason: a `Label` carries no length, so an
+    // `ensure` comparing one to an integer is unevaluable and passes silently. An inline
+    // [u16; N] gives preset() a `.len` it can actually check.
+    //
+    // ANCHOR_MOTION_NONE (0) is a static channel, which is why amplitude shift 0 is illegal —
+    // engine/effects/raster_dsl.emp derives the ladder and the sentinel together.
+    //
+    // APPROACH HAS NO SEED FIELD HERE, and that is a scope decision rather than an oversight.
+    // A ramp's authoring surface is the same blocked contract change as the sweep's (see
+    // docs/DEFERRED_WORK.md); its runtime handle is Effects_SetTargetY, which is what a boss,
+    // a switch or a cutscene drives. Sixteen bytes per preset of guaranteed-zero target and
+    // rate words would be a dormant scaffold with no consumer, which this repo rules against.
+    ep_patch_motion:   [u16; RASTER_MAX_PATCH] @ $26,
 }
 
 // ✅ THE `ensure` BELOW IS LIVE — verified by inversion on 2026-08-14, and it took
@@ -123,6 +143,8 @@ pub comptime fn preset(pal: Label, parallax: Label = 0, raster: Label = 0,
                        variants: [Label; 2] = [0, 0],
                        patch_world_ys: array = [PATCH_ANCHOR_NONE, PATCH_ANCHOR_NONE,
                                                 PATCH_ANCHOR_NONE, PATCH_ANCHOR_NONE],
+                       patch_motion: array = [ANCHOR_MOTION_NONE, ANCHOR_MOTION_NONE,
+                                              ANCHOR_MOTION_NONE, ANCHOR_MOTION_NONE],
                        transition: int = 0) -> EffectsPreset {
     // ep_raster and ep_patched are mutually exclusive. Whichever installs last wins
     // DESTRUCTIVELY: Raster_InstallPatched clears Raster_Pending (killing a
@@ -138,9 +160,16 @@ pub comptime fn preset(pal: Label, parallax: Label = 0, raster: Label = 0,
     // array would have it read whatever follows in ROM as an anchor.
     ensure(patch_world_ys.len == RASTER_MAX_PATCH,
            "preset(): patch_world_ys must name exactly one world Y per patch channel. Effects_InstallPreset seeds exactly RASTER_MAX_PATCH words out of this field on EVERY install (W0), so a SHORT array makes it read the bytes that follow in ROM as anchors, and a LONG one silently drops the tail — the guard is stated as equality, not a minimum, because both directions are wrong and only one of them would ever look like an error.")
+    // Same shape, same reason, one field along: the install seeds exactly RASTER_MAX_PATCH
+    // motion words too, and the sweep bank sits immediately after the anchor bank in ROM — so
+    // a short array here reads the transition word and whatever follows as sweep encodings,
+    // which would not fail, it would just move a boundary at an amplitude nobody authored.
+    ensure(patch_motion.len == RASTER_MAX_PATCH,
+           "preset(): patch_motion must name exactly one packed sweep word per patch channel. Effects_InstallPreset seeds exactly RASTER_MAX_PATCH words out of this field on EVERY install, so a SHORT array makes it read the bytes that follow in ROM as sweep encodings — which does not fail, it silently sweeps a boundary at an amplitude and period nobody authored — and a LONG one drops the tail. Use anchor_sweep(amp_shift, period_shift, phase) per channel and ANCHOR_MOTION_NONE for a static one.")
     return EffectsPreset{ ep_pal: pal, ep_parallax: parallax, ep_raster: raster,
                           ep_patched: patched, ep_cycle: cycle, ep_variants: variants,
-                          ep_patch_world_ys: patch_world_ys, ep_transition: transition }
+                          ep_patch_world_ys: patch_world_ys, ep_transition: transition,
+                          ep_patch_motion: patch_motion }
 }
 
 // Displacements into ep_variants[0]/[1] — PAL_MAX_VARIANTS is locked to 2 by the
@@ -286,6 +315,41 @@ pub proc Effects_InstallPreset (a0: u32) clobbers(d0-d4/a0-a3) {
     .seed_anchor:
         move.w  (a0)+, (a1)+
         dbf     d0, .seed_anchor
+
+        // ---- ep_patch_motion -> Effects_Motion[], and the mover's two derived cells ----
+        // EFFECTS-W1 item 4. Same rule as the anchors above and for the same W0 reason: a
+        // section that authors no motion must CLEAR the previous section's, or "0 means keep"
+        // comes back through a channel nobody was watching.
+        //
+        // THE TARGET BANK IS RESET, NOT SEEDED, and it must be: zero is a legal world Y, so a
+        // target left at its boot value would read as "ramp every channel to the top of the
+        // act" the moment anything armed the gate. PATCH_ANCHOR_NONE is the no-ramp sentinel.
+        // The rate masks are deliberately NOT reset — a mask is meaningless while its target
+        // is NONE, and Effects_SetTargetY writes the pair together.
+        //
+        // Effects_Motion_Any is folded HERE, once per install, from the words being seeded.
+        // Recomputing it per frame would be the loop it exists to skip.
+        //
+        // THIS BLOCK IS NOT CAPABILITY-GATED while the loop that reads it is, and that is a
+        // decision with a measured price rather than an oversight: 34 bytes (11 instructions),
+        // paid by every game including one whose SCANLINE_CAPS is 0. It buys not carrying a
+        // third bracketed span in a proc that is already the crossing hot path, and the RAM it
+        // seeds exists in every game anyway (ram.emp has no capability arms). Measured on
+        // demo.debug: these 34 bytes plus Effects_SetTargetY's 2 land in PLACER FILL —
+        // EndOfRom does not move — so a zero-capability game's ROM image is the same length it
+        // was. Gate it the day that stops being true.
+        lea     EffectsPreset.ep_patch_motion(a3), a0
+        lea     Effects_Motion, a1
+        lea     Effects_Target, a2
+        moveq   #RASTER_MAX_PATCH-1, d0
+        moveq   #0, d2                          // the running OR of the seeded motion words
+    .seed_motion:
+        move.w  (a0)+, d1
+        move.w  d1, (a1)+
+        or.w    d1, d2
+        move.w  #PATCH_ANCHOR_NONE, (a2)+
+        dbf     d0, .seed_motion
+        move.w  d2, Effects_Motion_Any
 
         // ---- and latch the derived screen lines from them, immediately ----
         // Effects_LatchWorldLines is the SINGLE derivation of Effects_Screen_L (its own doc,

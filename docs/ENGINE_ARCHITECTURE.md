@@ -4658,6 +4658,39 @@ ones dropped) park correctly with no special-case emitter.
   today: `Raster_BuildSchedule` (VBlank) and the parallax overlay (main loop, Parcel W) — a
   complete underwater section is a palette boundary *and* a shimmer at the same line, both driven
   off one anchor via `Effects_LatchWorldLines`'s single per-frame derivation.
+- **Anchors MOVE ON THEIR OWN since EFFECTS-W1 item 4** (2026-09-03), which discharges the
+  "rising lava, a flood line, a beat-driven pulse" sentence above by supplying the two of those
+  three that are expressible without game code. Both terms are evaluated **inside**
+  `Effects_LatchWorldLines`'s existing per-channel loop, gated on `CAP_ANCHOR_MOTION` ($0100) and,
+  within it, on a once-per-frame `Effects_Motion_Any` word:
+
+      Effects_World_Y[ch]  <- approach(anchor, Target[ch], RateMask[ch], Logic_Tick)
+      Effects_Screen_L[ch] <- Effects_World_Y[ch] + sweep(Motion[ch], Logic_Tick) - Camera_Y
+
+  **SWEEP** is `Sine_Table[((tick >> p) + ph) & 255] >> a` off one packed `u16` per channel
+  (`(a << 12) | (p << 8) | ph`, seeded from the preset's `ep_patch_motion`), stateless, with a
+  per-channel phase so two channels at the same period do not move in lockstep. **APPROACH** is a
+  one-pixel ramp of the anchor toward `Effects_Target[ch]`, gated by `Logic_Tick & RateMask[ch]`
+  — a power-of-two frame mask, which for a power-of-two rate is *the same motion* as a 16.16
+  accumulator at zero RAM, and which is what makes a sub-pixel rate (0.25 px/frame, Ristar's
+  waterline) expressible where an integer px/frame speed makes 60 px/s the slowest flood.
+  Retargeted at runtime through `Effects_SetTargetY`; `Effects_SetWorldY` remains the teleport.
+
+  **The placement is forced, not chosen.** Any other site re-derives `anchor - Camera_Y`, and on a
+  `VInt_Lag` frame VBlank runs twice against one main-loop update — so the raster fire line and the
+  parallax split would move on different cameras and every transition would pop. That is the same
+  ruling the latch already existed for; the mover is loop-body work inside it.
+
+  **The order is load-bearing.** APPROACH publishes into the anchor bank (so a gameplay reader sees
+  a real world Y); SWEEP does not, because it is a display displacement and the anchor has one
+  writer. A future "is the player under the waterline" consumer therefore reads the MEAN, not the
+  swept surface — the same split S.C.E. ships as `Mean_water_level` vs `Water_level`, and the fix
+  when something needs it is an `Effects_Display_Y[4]` bank.
+
+  **A band's own top still cannot move.** Step 4a's `.find_k` requires band tops to ascend, and
+  independently-moving tops cross — which does not degrade, it selects the wrong `k` and
+  mis-attributes every band's scroll for the frame. The movable edges are the **anchored split**
+  and the **patchable raster fires**, which is what the DoD's own title says.
 - **Off-screen is now TWO different answers, not one clamp.** The deleted `Raster_PatchWaterLine`
   (pre-P-a) had two off-screen branches (above the viewport = fully submerged, fire as early as
   possible; below = park, not visible) that P-b flattened into a single symmetric clamp — a

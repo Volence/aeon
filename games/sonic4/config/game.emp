@@ -80,7 +80,21 @@ pub implement Game {
     //                            per-band accumulator array). The picture is the OJZ act-1
     //                            canopy drifting on its own; the look call is in
     //                            games/sonic4/data/effects/ojz_scenes.emp's banner.
-    const SCANLINE_CAPS = $00DE
+    //   $0100 CAP_ANCHOR_MOTION  ADDED 2026-09-03 by the anchor-mover parcel (EFFECTS-W1
+    //                            item 4). IT IS RAISED BY NO SCENE AT ALL, and that is not
+    //                            an omission — anchor motion is a PRESET channel, not a
+    //                            parallax_config field, so scene_registry.emp's fold cannot
+    //                            see it and SceneRegistry_CapsExpected stays $009E. The
+    //                            subset test is one-sided precisely for this case: a
+    //                            declared superset only forgoes a specialisation. What
+    //                            raises it in practice is
+    //                            games/sonic4/data/effects/ojz_effects.emp's
+    //                            OJZ_Preset_Sec0, whose channel 0 carries
+    //                            `anchor_sweep(4, 1)`. The bit gates two spans in
+    //                            engine/effects/raster.emp (the mover inside
+    //                            Effects_LatchWorldLines and Effects_SetTargetY's body);
+    //                            demo declares 0 and elides both.
+    const SCANLINE_CAPS = $01DE
 
     // Boot enters ojz_scroll_test's GameState_OJZScroll_Init.
     const ENTRY_ID = GS_OJZ_SCROLL_TEST

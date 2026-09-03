@@ -1212,6 +1212,66 @@ pub proc GameState_OJZScroll_Update () clobbers(d0-d7/a0-a6) {
         moveq   #0, d0                          // channel 0
         jbsr    Effects_SetWorldY
     .no_anchor_nudge:
+
+        // -- C+LEFT / C+RIGHT arm an APPROACH ramp on channel 0 and let go: the flood runs
+        //    by itself from there, one pixel every four frames, until it arrives and stops.
+        //    EFFECTS-W1 item 4's second motion term.
+        //
+        //    IT IS HERE FOR THE SAME REASON THE NUDGE ABOVE IS, and the reason is stated at
+        //    length there: this is the ONLY call site of Effects_SetTargetY in the tree. The
+        //    proc's ten instructions are assembled either way — what an uncalled `pub proc`
+        //    cannot pin is its CONTRACT: that d1 is WORLD space, that d2 is a rate SHIFT and
+        //    not a mask, and that the proc and the mover's loop agree on Effects_Target's and
+        //    Effects_RateMask's bases and element size. Reshape any of those and an uncalled
+        //    setter rots silently until the first content parcel inherits a broken handle.
+        //
+        //    AND IT IS WHY APPROACH IS NOT A DORMANT SCAFFOLD. The ramp has no authored seed
+        //    — `ep_patch_motion` carries the SWEEP only, and the ramp's authoring surface is
+        //    the same blocked contract change (docs/DEFERRED_WORK.md). What ships is the
+        //    runtime handle a boss, a switch or a cutscene drives, exercised here.
+        //
+        //    THE TARGETS ARE THE CHANNEL'S OWN BAND EDGES, converted to world space by the
+        //    same `+ Camera_Y + 1` the clamp above uses, so LEFT drains the water to the top
+        //    of what the raster can express and RIGHT floods it to the bottom. Reusing the
+        //    band means the ramp cannot be armed at a target the boundary could never reach.
+        //
+        //    RATE SHIFT 2 = one pixel every four frames = 0.25 px/frame, which is Ristar's
+        //    monotone waterline rate ($4000 per frame on its 16.16 accumulator) to the frame.
+        //    An integer px/frame speed — S.C.E.'s and stock S2's `Water_speed` — makes 1
+        //    px/frame the SLOWEST possible flood, 60 px/s, the screen in under four seconds.
+        move.b  Ctrl_1_Held, d0
+        andi.b  #BUTTON_C, d0
+        beq     .no_flood_arm
+        move.b  Ctrl_1_Held, d0
+        moveq   #0, d3                          // d3 = 0 none / -1 drain / +1 flood
+        btst    #BUTTON_LEFT_BIT, d0
+        beq     .flood_not_left
+        moveq   #-1, d3
+    .flood_not_left:
+        btst    #BUTTON_RIGHT_BIT, d0
+        beq     .flood_not_right
+        moveq   #1, d3
+    .flood_not_right:
+        tst.w   d3
+        beq     .no_flood_arm                   // C alone, or C with both: no arm
+        moveq   #0, d0                          // channel 0
+        jbsr    Raster_GetChannelBand           // d0 = found; d1/d2 = lo/hi FIRE lines
+        tst.w   d0
+        beq     .no_flood_arm                   // no band declared -> nothing to ramp toward
+        move.w  Camera_Y, d0                    // 16.16 -> the integer word
+        addq.w  #1, d0                          // fire line -> screen line, once for both
+        tst.w   d3
+        bmi     .flood_drain
+        add.w   d2, d0                          // d0 = band HI in world Y
+        jbra    .flood_have_target
+    .flood_drain:
+        add.w   d1, d0                          // d0 = band LO in world Y
+    .flood_have_target:
+        move.w  d0, d1                          // d1 = target world Y
+        moveq   #2, d2                          // rate shift: 0.25 px/frame
+        moveq   #0, d0                          // channel 0
+        jbsr    Effects_SetTargetY
+    .no_flood_arm:
     }
 
 

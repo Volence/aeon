@@ -17825,3 +17825,134 @@ bound instances required to agree byte for byte. VERDICT: BAND SEEN.**
 - **NOT established:** exact transition lines (polling `run_to_scanline`; PIN 5 owns those), other
   CRAM entries, other camera positions, a WALKED crossing in/out of section 5, motion, hardware,
   and the aurora `SectionMeta` SHA the step-6 evidence was to cite (the commit does not name it).
+
+---
+
+## EFFECTS-W1 item 4 (the anchor mover) — LANDED 2026-09-03; the AUTHORING half is BLOCKED
+
+Branch `parcel/anchor-mover`. Design: `docs/superpowers/specs/2026-09-02-moving-bands-anchor-mover-design.md`
+(read it at `origin/design/moving-bands` `4e4dfd9f`; the annotations recording where the
+implementation diverged are in place in that file).
+
+**What shipped.** The two motion terms, both evaluated inside `Effects_LatchWorldLines`'s existing
+per-channel loop: a stateless sine SWEEP with a per-channel phase, added to the SCREEN line, and a
+rate-gated one-pixel APPROACH ramp of the ANCHOR toward a target. `CAP_ANCHOR_MOTION = $0100`;
+`Effects_Motion[4]` / `Effects_Target[4]` / `Effects_RateMask[4]` / `Effects_Motion_Any` (26 B of
+RAM); `ep_patch_motion` on `EffectsPreset` (38 -> 46); `Effects_SetTargetY` as the ramp's runtime
+handle. Authored: `OJZ_Preset_Sec0` channel 0, `anchor_sweep(4, 1)`.
+
+### 1. The authoring half — STILL BLOCKED, and it is two fields deep, not one
+
+**Verified against `origin/master` on 2026-09-03**, not inherited from the design: `grep -c
+patch_world_ys tools/effects_gen.py` returns **0**. Neither the scene document nor the preset
+document can express a channel's world Y **at all**, let alone its motion. So:
+
+- **The world-Y seed is the prerequisite** and is its own contract change. A `motion` key landing
+  tomorrow would let an author say a boundary sweeps and not say *where* it sweeps around.
+- Both keys belong on the **PRESET** document, not the scene, and that is already settled twice
+  over — `docs/superpowers/specs/2026-08-28-raster-band-ownership-design.md` §16.1 ("a scene IS a
+  `parallax_config`") and empyrean `AURORA_EFFECTS_SCHEMA.md` §7's own reservation of the presets
+  directory for "patchable **world-anchor channels**", which names this item in a reservation that
+  predates it. A parcel dispatched to put these on the scene file would repeat a documented mistake.
+- The CR is filed against `empyrean/docs/AURORA_EFFECTS_SCHEMA.md` §7 and
+  `contract/schema/aurora-effects-preset.schema.json`, following
+  `docs/2026-08-30-effectsref-contract-change.md`'s template. **Read the empyrean side at a
+  committed revision** (`git -C ../empyrean show origin/main:<path>`) — the aeon-side
+  `tools/EFFECTS_CONSUMER_CONTRACT.md` enumerates FIELD NAMES and does not own their values, and
+  reading it as if it did has already shipped two defects.
+- **Sequencing precondition, inherited:** no `channels` key lands in aeon's tree until the
+  Aurora-side writer is on aurora master, and the aeon parcel cites that SHA — an older Aurora
+  erases an unknown key on the next save round-trip, and an older `effects_gen.py` ignores it
+  silently (contract §6.1's named, accepted behaviour), so a tree carrying it builds green and
+  shows nothing.
+
+Until that lands, an authored sweep is a hand-written `.emp` seed, which is exactly where item 3
+stood. **"Item 4 done" is the engine half only.**
+
+### 2. APPROACH has no authored seed, deliberately
+
+`ep_patch_motion` carries the SWEEP word only. The ramp's seed fields (`ep_patch_target`,
+`ep_patch_ratemask`, +16 B/preset) are the design's §10 P3 and are NOT built: sixteen bytes per
+preset of guaranteed-zero words would be a dormant scaffold with no consumer, which this repo
+rules against (`LO_SUPPRESS`, 2026-08-28, same ground). What ships is `Effects_SetTargetY`, the
+runtime handle a boss, a switch or a cutscene drives, with its live call site the OJZ scroll test's
+`C`+`LEFT`/`RIGHT` chord — the same discipline that keeps `Effects_SetWorldY`'s contract pinned.
+**When the CR of item 1 lands, the ramp's two seed fields are the natural second half of it.**
+
+### 3. Two OWNER CALLS the design designed up to and did not pass, and neither was forced
+
+- **Q4 — is an unbounded WRAPPING edge a look you want?** A free-running edge that walks its band
+  and reseeds at the far side (a repeating light shaft, a conveyor of shadow) is a real look and a
+  taste question, not an engineering one. The mechanism is a two-instruction addition to APPROACH
+  (`Target` = the far edge, and on arrival reseed the position to the near edge), not a new term.
+  **Nothing in this parcel forecloses it and nothing in it required deciding.**
+- **Q5 — P3, both edges of a raster band moving.** The DoD defers it to "only if the owner asks".
+  Priced by the band-ownership design at +2 B per patch record and ~+8 nominal cycles per patchable
+  record per VBlank (unmeasured). Untouched here: this parcel moves a band's TOP (the patchable
+  fire) and the anchored parallax SPLIT; a patchable *restore* — a moving bottom — stays refused at
+  `engine/effects/raster_dsl.emp:2673`, and sweep 5 measured why.
+
+### 4. What is NOT verified, and it is the whole visual question
+
+**No emulator was run.** This parcel was built by a background agent, where `mcp__oracle__*`
+deadlocks. Nothing here has been seen in motion, including the mechanism it builds on: §9.8 of the
+design books the main-loop-write -> VBlank-conversion seam as measured but never pixel-verified, so
+if the foundation has a one-frame or one-line error this item will surface it and it will look like
+this item's bug. Two things are owed a foreground session:
+
+1. **The look.** Does `anchor_sweep(4, 1)` on channel 0 read as MOTION or as a GLITCH? The values
+   are derived (see the banner at `OJZ_Preset_Sec0`) but derivation is not the same as taste, and
+   the failure mode has a name: an edge slow enough that the integer screen line steps rather than
+   moves. The witness is free — `Debug_Scene_Freeze` does not stop the mover (deliberately: a
+   frozen camera still has to be latched), so a frozen scene shows the edge moving with nothing
+   else moving, which is literally the item's own description.
+2. **`tools/effects_gates.py`.** The effects-gate ritual (owner ruling 2026-08-18) requires
+   `python3 tools/effects_gates.py --rom s4.debug.bin --lst s4.debug.lst` before merge for any
+   parcel touching `engine/effects/*`, and it boots a headless emulator per gate. **It could not be
+   run here.** The four gate scenes were amended in this parcel — each now pokes
+   `Effects_Motion_Any = 0` to hold the mover still, because `derive_arms` predicts
+   `anchor - Camera_Y` exactly and a swept channel 0 would make every expectation a function of
+   which frame the capture landed on. That amendment restores today's behaviour by construction
+   and `tools/test_anchor_sweep_band.py` refuses a scene that loses the poke, but **nobody has
+   watched the gates pass with it**.
+
+### 5. Cycle cost — DERIVED FROM THE EMITTED ENCODINGS, still unmeasured
+
+Read out of `s4.debug.bin` `$8714..$8791`, not recalled and not from the design (whose §7.3 was low
+by 57% on the realistic case and by 10 cycles on the idle case):
+
+| state | cycles/frame | delta |
+|---|---|---|
+| capability OFF (demo) | 172 | 0 — and the code is byte-identical, 26 B |
+| ON, nothing authored | 194 | **+22** (`tst.w (xxx).W` 12 + `beq` taken 10; the design said +12) |
+| ON, section 0 as authored (1 ch sweeping a=4 p=1) | 542 | **+370** (the design predicted +236) |
+| ON, 4 ch sweeping at the widest rungs and all ramping | 1208 | +1036 (the design predicted +908) |
+
+Charged against `axis1_reservation_cycles`, not the scene budget, so +370 is 0.61% of today's
+headroom (61,002) and 0.29% of a 128,000-cycle frame. **MEASUREMENT 1 of the design is still owed:**
+the per-routine profiler row for the game state's frame, camera frozen, across four builds
+(capability off / on-nothing-authored / on-one-sweeping / on-four-both-terms), with BAND-DRIFT
+§4.1's one-thing-per-pair fixture discipline. Read the table above as ±15% until then; band drift's
+calibration says loop terms come in LOW and frame constants HIGH.
+
+### 6. Small things noticed and not fixed
+
+- `RASTER_MAX_PATCH = 4` was not questioned, by this parcel or the design. Four moving edges covers
+  every case the DoD names, but nobody checked whether the showcase act wants more, and raising it
+  is cheaper before content adopts the mover than after.
+- **A swept edge's position exists only in screen space.** SWEEP is added into `Effects_Screen_L`
+  and never into `Effects_World_Y`, so a future gameplay consumer asking "is the player under the
+  waterline" reads the MEAN, not the swept surface. S.C.E. publishes both (`Water_level` vs
+  `Mean_water_level`) and its gameplay reads the displayed one. Costs nothing today because nothing
+  reads the bank; the fix when something does is `Effects_Display_Y[4]` and one `move.w` per channel.
+- **The replay fixtures do NOT need re-stamping, and the design's §9.10 over-read the risk.**
+  It warns that authoring a mover invalidates every recorded checkpoint. Checked rather than
+  inherited: `Replay_Hash` (`engine/system/replay.emp:265-280`) folds a CURATED region list —
+  `Logic_Tick`, Player_1's five SST spans, `Camera_X`/`Camera_Y`, the section streaming state, three
+  Player_1 word fields, and the free-stack occupancies. `Effects_Screen_L`, `Effects_World_Y` and
+  the three new banks are in none of it, and the mover writes nothing else. So the hashes are
+  unchanged and no re-stamp is owed. What §9.10 is right about is the *visual* baseline: a
+  screenshot taken of section 0 before this parcel is not a screenshot of section 0 after it, and
+  the mover is deterministic (`Logic_Tick` IS the replay timebase, lag-immune) so a pixel
+  comparison is reproducible but frame-dependent. A pixel-diffing net, if one is ever built,
+  inherits that; the hash net does not.

@@ -500,6 +500,50 @@ pub vars upper_ram {
     // The 4 mirrors RASTER_MAX_PATCH as a literal, for the ram-harvest reason above.
     Effects_Screen_L:   [u16; 4],
 
+    // --- THE ANCHOR MOVER'S BANKS (EFFECTS-W1 DoD item 4) --------------------
+    // The block above gives every patch channel a world anchor and one derived screen line.
+    // These four cells are what MOVES them, and all four are read in the same single-pass
+    // loop that derives the line (Effects_LatchWorldLines) — the design's whole ruling is
+    // that a mover anywhere else would put the raster fire and the parallax split on
+    // different cameras on a VInt_Lag frame, which is the exact pop the single derivation
+    // exists to prevent.
+    //
+    // The 4s mirror RASTER_MAX_PATCH as literals for the ram-harvest reason stated above
+    // Effects_World_Y; raster.emp's RASTER_STATE_SIZE ensure measures the real emitted span
+    // and is what refuses a drift.
+    //
+    // SWEEP's packed word: (amp_shift << 12) | (period_shift << 8) | phase. 0 is
+    // ANCHOR_MOTION_NONE, the whole-word "this channel does not sweep" sentinel, which is why
+    // amplitude shift 0 is illegal (engine/effects/raster_dsl.emp derives the ladder and says
+    // so). SEEDED BY THE PRESET on every install, exactly like the anchors above and for the
+    // same reason: a channel's motion is a property of the section, not something a previous
+    // section leaves behind.
+    Effects_Motion:     [u16; 4],
+
+    // APPROACH's target world Y per channel. PATCH_ANCHOR_NONE ($7FFF) means "no ramp", and it
+    // is the SAME sentinel the anchors use rather than a second one — a channel with no target
+    // and a channel with no anchor are the same kind of "this is not a place", and $7FFF is
+    // already unauthorable as a world Y. NOT seeded from the preset: the ramp's authoring
+    // surface is the blocked contract change (see DEFERRED_WORK), so its only writer today is
+    // Effects_SetTargetY. Effects_InstallPreset RESETS all four to NONE on every install,
+    // which it must — zero is a legal world Y, so an unwritten target would read as "ramp to
+    // the top of the act" for every channel.
+    Effects_Target:     [u16; 4],
+
+    // The APPROACH rate, as the frame MASK and not the shift: `(1 << k) - 1`, so the ramp
+    // steps one pixel on the frames where `Logic_Tick & mask` is zero — 1 px/frame at k=0,
+    // 0.25 px/f at k=2, which is Ristar's monotone waterline rate to the frame. Computing the
+    // mask from a shift per channel per frame would be ~14 cycles to store four fewer bits,
+    // and CODING_CONVENTIONS §2 rules that direction.
+    Effects_RateMask:   [u16; 4],
+
+    // The once-per-frame gate. Nonzero iff SOMETHING is authored — the OR of the four motion
+    // words at install, plus a bit whenever a target is armed. One `tst.w` + `beq` costs 12
+    // cycles a frame and skips between 224 and 896, which is where this inverts band drift's
+    // "a zero rate costs 48 cycles; testing for it costs ~30 to save ~40" ruling: the rule is
+    // measure the ratio, and this one is 19:1 to 75:1 against band drift's 0.75:1.
+    Effects_Motion_Any: u16,
+
     // -> the live program's off-screen ship entry (the 14-byte DMAEntry inside its ROM trailer),
     // or 0 when the installed program declares none. Written UNCONDITIONALLY by every preset
     // install, which is what keeps it from becoming a side channel: a cell that is a pure

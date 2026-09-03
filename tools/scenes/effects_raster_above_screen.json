@@ -5,6 +5,7 @@
   "steps": [
     {"run_frames": 180},
     {"poke": {"symbol": "Debug_Scene_Freeze", "value": 1, "width": 1}},
+    {"poke": {"symbol": "Effects_Motion_Any", "value": 0, "width": 2}},
     {"poke": {"symbol": "Camera_Y", "value": 144, "width": 2}},
     {"poke": {"symbol": "Effects_World_Y", "value": 100, "width": 2}},
     {"run_frames": 3}

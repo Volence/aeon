@@ -40,6 +40,7 @@ nondeterministic scene invalidates everything downstream, and the cause is the s
 |---|---|
 | `Debug_Scene_Freeze = 1` | skips `Camera_Update`, so the written camera stays put. DEBUG shape only — hence `s4.debug.lst` |
 | `Camera_Y = 144` | the latched line is `anchor - Camera_Y`, so pinning the camera is what makes the expected words derivable at all |
+| `Effects_Motion_Any = 0` | **disarms the anchor mover** for the fixture. Added by EFFECTS-W1 item 4 (2026-09-03), which made `Effects_LatchWorldLines` add a per-channel sine sweep to the latched line: `OJZ_Preset_Sec0` authors `anchor_sweep(4, 1)` on channel 0, so without this poke the derived line would be `anchor - camera + (a 32 px peak-to-peak term)` and every expectation below would be a function of the frame the capture happened to land on. The mover deliberately runs **outside** `Debug_Scene_Freeze` (a frozen camera still has to be latched), so freezing the scene does **not** hold it still — this poke is what does, and it is one poke rather than four because the once-per-frame gate word is what the mover tests first. These gates measure `Raster_BuildSchedule`, not the mover; holding the mover fixed is varying one thing. |
 | `Effects_World_Y = N` | channel 0's world anchor — the only value that differs between the three scenes |
 
 Channel 1 is deliberately **not** poked. Its preset anchor (314) puts it at latched line 170, below

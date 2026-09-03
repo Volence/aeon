@@ -45,7 +45,7 @@
       }
     },
     "s4.lst": {
-      "bytes": "102800320c00000867060c00000a661c3228000cb26c000e6d12117c00f00042117c00010043700e6000f3e44e75",
+      "bytes": "102800320c00000867060c00000a661c3228000cb26c000e6d12117c00f00042117c00010043700e6000f3da4e75",
       "constants": {
         "FLY_COAST": 1,
         "FLY_FUEL_TICKS": 240,
@@ -55,7 +55,7 @@
         "PSTATE_ROLLJUMP": 10,
         "SST_y_vel": 12
       },
-      "end": 69706,
+      "end": 69718,
       "offsets": {
         "air_left": 57,
         "climb_pad": 71,
@@ -82,9 +82,9 @@
         "stick_convex": 59
       },
       "sst_custom": 48,
-      "start": 69660,
+      "start": 69672,
       "stubs": {
-        "01042A": "Player_SetState"
+        "01042C": "Player_SetState"
       }
     }
   }
