@@ -1322,6 +1322,16 @@ pub data OJZ_Preset_Depth: EffectsPreset = preset(pal: OJZ_Palette, raster: OJZ_
 // contract change opening a bands-less preset document), left to the owner.
 pub data OJZ_Preset_Sec5:  EffectsPreset = preset(pal: OJZ_Palette,
                                                   raster: ojz_act1_sec_raster(sec: 5, hand: Raster_Program_None),
+                                                  // d-53, owner 2026-09-03 ("Sure let's do it to see it?"): the one
+                                                  // reversible word that gives channel 0 a CONSUMER. The gap named in
+                                                  // the block above is structural, not a choice — section 5 is the only
+                                                  // section a document can bind to, and its parallax defaulted to
+                                                  // ParallaxConfig_OJZ_Default, which carries no SceneAnchor.At(0, ..).
+                                                  // Underwater does, so the document's patch_motion[0] sweep finally
+                                                  // moves something. This LOANS section 5 a look it does not otherwise
+                                                  // have; deleting this line puts the picture back exactly. The end
+                                                  // state is d-53 option open_the_door, which needs no loan at all.
+                                                  parallax: ParallaxConfig_OJZ_Underwater,
                                                   cycle: Pal_Cycle_None,    variants: [Variant_Water_Deep, 0],
                                                   patch_world_ys: [ojz_act1_sec_patch_world_y(sec: 5, ch: 0, hand: PATCH_ANCHOR_NONE),
                                                                    ojz_act1_sec_patch_world_y(sec: 5, ch: 1, hand: PATCH_ANCHOR_NONE),
