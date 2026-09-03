@@ -16616,7 +16616,7 @@ Riders booked in the same audit, smaller:
   scroll test. The real fix is a build-time `ensure`, or making `effects:` required the way
   `pal:` already is — not a release-side runtime guard.
 
-## DENSE PER-LINE VSRAM — ruled IN by the owner 2026-08-29. BOOK ONLY, DO NOT START.
+## DENSE PER-LINE VSRAM — ruled IN by the owner 2026-08-29. ✅ DONE 2026-09-03 — see the EFFECTS-W1 ITEM 6 block further down for the landing (CAP_DENSE_TIER promoted, the HBlank budget measured at 304 cyc/line). This entry is kept intact below as the original booking; the "book only, do not start" and "not greenfield" framing turned out to be even more literally true than written — the mechanism itself (`OP_RUN_RAMP`) had ALREADY shipped 2026-08-14, before this entry was even authored.
 
 Relayed by the aurora lane. His words, verbatim:
 *"For the dense per line vsram effects I think we should include now so we don't forget later."*
@@ -16695,6 +16695,333 @@ is the relaying lane's suggestion, not the owner's words, and the standing resea
 said around them — the lifted non-goal, the bit, the reference, the sequencing — is the relaying
 lane's scaffolding and was checked here before being written down: bit CONFIRMED (with the value
 caveat above), reference reasonable, non-goal NOT REPRODUCED, sequencing accepted.
+
+## EFFECTS-W1 ITEM 6 — DENSE PER-LINE VSRAM IS DONE; CAP_DENSE_TIER GATES CONSTRUCTION PLUS ONE DISPATCH-SAFE LEAF, NEVER THE INTERPRETER'S DISPATCH CHAIN (2026-09-03, `parcel/item6-dense-perline-vsram`)
+
+Branch `parcel/item6-dense-perline-vsram`, based on aeon `origin/master` = `b35b2d36`.
+Spec read firsthand: empyrean `origin/main:docs/superpowers/specs/2026-08-29-effects-definition-of-done.md`
+item 6, and the hub ruling at `docs/OVERSEER.md` 2026-09-02T20:25:12Z (the stream-register
+card is not on the owner's list unless this item's budget check measures over budget).
+
+### The per-line scroll field's SHAPE (for the two lanes blocked on it)
+
+**This should have been surfaced as an interim note the moment it was found — it was not,
+and that is a process gap in this parcel worth naming rather than smoothing over.** The
+answer was known early (the mechanism is pre-existing) but was not posted until this
+landing message.
+
+The authored field is `raster_ramp_program`'s `step` parameter (`engine/effects/raster.emp`),
+built with the existing helper `fp16(whole: int, frac256: int) -> int` — there is no new
+field to design; item 6 gates the EXISTING one, it does not add one:
+
+| | |
+|---|---|
+| **Name** | `step` (the `RasterRampProgram.rrp_step` field), authored via `fp16(whole, frac256)` |
+| **Type** | 16.16 fixed-point signed integer (comptime `int`, folded to a `u32` at emission) |
+| **Units** | pixels of vertical scroll per SCANLINE (a rate, not a position) |
+| **Range** | `fp16`'s own `ensure`s: `whole` in **-512..511**, `frac256` (the fractional 1/256ths) in **0..255** — so roughly ±512 px/line at 1/256-px precision. `fp16(-1, 0)` = -1 px/line, `fp16(0, 128)` = +0.5 px/line (the shipped `OJZ_TestRamp` fixture's own rate) |
+| **What refuses an illegal value** | Both `ensure`s above fire at COMPTIME (build-time, loud failure with the offending value named) — never a silent clamp, never a runtime check |
+| **Sibling fields, same shape** | `start` (the same 16.16 type via the same `fp16`, the initial accumulator — i.e. the VSRAM offset the first line begins at) is authored identically; `top`/`lines` (screen-line range) are plain `int`s with their own `ensure`s (`top >= 3`, `lines >= 1`, `top + lines <= 223`); `cmd` is a VDP write command built through `vdp_comm(addr, VdpTarget.Vsram, VdpOp.Write)`, itself `ensure`d to a VSRAM byte address of `0..78` |
+| **Gate this item added** | `Game.SCANLINE_CAPS` must declare `CAP_DENSE_TIER` before this constructor may be called at all (any target, not just VSRAM) — an authoring-time `ensure`, comptime, loud |
+
+This is the shape an editor-side per-line-scroll control or an empyrean schema property
+should mirror: a signed 16.16 rate (`step`) plus a signed 16.16 starting offset (`start`),
+both expressed to an author as "pixels per line" / "pixels" with two decimal-ish digits of
+sub-pixel precision, over a `top`/`lines` screen-line span. **Not authored today:** a
+per-line CURVE (a table of independently-set values) — the shipped mechanism is a constant
+RATE (linear ramp) only; a nonlinear/table-driven variant is a different, larger feature
+(see "What is left open," below).
+
+### The mechanism was already shipped — the DoD's own "what does not exist" line was stale
+
+`OP_RUN_RAMP` / `raster_ramp_program` (`engine/effects/raster.emp`) landed 2026-08-14 (commit
+`c2a7e1a9`), **two weeks before** the 2026-08-29 DoD entry was written. It is a dense-tier
+run whose per-line value comes from a 16.16 accumulator rather than a baked ROM stream, and
+`games/sonic4/data/effects/ojz_effects.emp`'s `OJZ_TestRamp` has pointed it at plane B's
+VSRAM entry (byte 2) since the same commit. The booking's claim — *"What does not exist is a
+per-LINE VSRAM write from inside a dense-tier run body"* — was written 15 days after that
+stopped being true. The tree wins: this parcel builds ON the shipped mechanism, per the
+brief's own instruction, rather than re-deriving it.
+
+**`OJZ_TestRamp` never renders.** All nine of act 1's sections use Parcel-C2 total-binding
+presets (`effects:` fields in `act_descriptor.emp`), and none of the nine binds
+`OJZ_TestRamp` — section 0's own comment says so explicitly: *"SECTION 0 SURRENDERS
+OJZ_TestRamp... what it loses is a live render."* It exists purely as a build-time proof of
+wire-format correctness (a "gate fixture", the file's own term for its whole test roster),
+same as `OJZ_TestGradient`, `OJZ_TestVsram`, etc. This does not exempt it from anything this
+parcel added — constructing the wire form still requires the capability.
+
+### What shipped
+
+1. **`CAP_DENSE_TIER` promoted** (`engine/level/scene_dsl.emp`) at its **derived** next-free
+   value, `$0200` — after `CAP_ANCHOR_MOTION`'s `$0100` (item 4, landed 2026-09-03 morning).
+   The reserved comment's `$0800` was a placeholder that had already moved twice since it was
+   written and was never carried as a literal, per the standing rule in that file
+   (`tools/test_scene_span_labels.py`'s gapless-run-from-bit-0 test derives the value).
+
+2. **The capability gates TWO things, deliberately asymmetric — construction (always) and
+   ONE minimal, dispatch-safe leaf in the interpreter (the ENTER body only), never the
+   dispatch chain or the per-line body.** Two independent risk axes ruled out bracketing
+   `Raster_HInt`'s dispatch pair or `.ramp_body`:
+
+   - **The dispatch-depth cost model.** `raster_dsl.emp` prices every op's dispatch depth as
+     a function of its opcode value ALONE, unconditionally, for every game. Eliding
+     `OP_RUN_RAMP`'s `cmpi.w`/`beq` pair from the compare chain for a game with no
+     dense-VSRAM content would silently move `OP_PAL_RESTORE`'s dispatch depth for that same
+     game, invalidating the model for any future `pal_restore` program built under it — a
+     risk this parcel does not take against code this fragile (the file's own solved-spin
+     warnings say a moved rung re-prices fixtures that were never touched).
+   - **A ROM-neighbour measurement artifact, found empirically.** `tools/
+     demo_specialization_witness.py`'s pin-free differential (every proc hosting a gated
+     span must be strictly smaller in demo) measures proc size head-to-NEXT-head. The head
+     immediately after `Raster_HInt` in `s4.debug.lst` is `SfxBlobWinTab` — a sound DATA
+     table, 21 bytes away and wholly unrelated to `Raster_HInt`'s own code (which runs for
+     hundreds more bytes through mangled local labels the head-scan cannot see). Any bracket
+     anywhere inside `Raster_HInt` inherits this: sonic4 always measures ~21 bytes for the
+     whole proc regardless of what changes inside it, so the "demo must be smaller" check is
+     structurally blind here — see the fix below.
+
+   So `.ramp_body` and the `OP_RUN_RAMP` dispatch pair stay **byte-identical and
+   unconditional in every game**, exactly as they shipped 2026-08-14. `CAP_DENSE_TIER`
+   brackets exactly ONE thing in the interpreter — `.op_run_ramp`'s 5-instruction ENTER body
+   (the accumulator/command/mode seed) — which is a dispatch LEAF: reached only by the
+   (permanent) `beq` already in the chain, and its size affects no other op's cost. A game
+   with the bit clear still dispatches to the label, finds nothing there, and falls straight
+   into `.advance` — a stray `OP_RUN_RAMP` word becomes a silent cursor-advance no-op rather
+   than an armed run, which is the correct behaviour for an opcode that game never authors.
+   AND it gates construction: an `ensure` beside `OJZ_TestRamp` in `ojz_effects.emp` refuses
+   to build a `RasterRampProgram` at all (either target) unless `Game.SCANLINE_CAPS` already
+   declares the bit — belt and suspenders, since the ENTER body alone cannot stop a game from
+   emitting a wire program the interpreter would silently no-op.
+
+   **A cross-seam name-resolution finding surfaced writing the construction check** — EMP_PITFALLS.md
+   #9, hit empirically before it was read (see Research, below). The FIRST attempt put the
+   ensure inside `raster_ramp_program`'s own body (matching every other validation `ensure`
+   there). The build failed `[Error] unknown name Game.SCANLINE_CAPS` — a comptime fn's free
+   names resolve at the CALL SITE (this module's own opening note, re: `pal_stage_off`), and
+   `Game` does not travel through that inlining the way it does into a module's own top-level
+   `ensure`s or an engine PROC body (`raster.emp`'s `Effects_LatchWorldLines` reads
+   `Game.SCANLINE_CAPS` directly, at ITS OWN definition site, no import needed). Moved to a
+   module-level ensure in `ojz_effects.emp`, matching every existing "this game must declare
+   CAP_X" check in the tree (`scene_registry.emp`'s `CAP_MULTI_DEFORM_TABLE` /
+   `CAP_FACTOR_CURVE` / `CAP_BAND_DRIFT` ensures — all module-level, all game-side, none
+   inside an engine constructor).
+
+3. **sonic4 declares `CAP_DENSE_TIER`** (`SCANLINE_CAPS` `$01DE` → `$03DE`) because
+   `OJZ_TestRamp` constructs one, even though it never renders. **demo does not** — it
+   constructs no ramp program at all, and its `.op_run_ramp` ENTER body is genuinely absent
+   (22 bytes elided from `Raster_HInt`, confirmed by symbol absence in `demo.debug.lst`).
+
+4. **A pre-existing gate's blind spot, found and fixed — `tools/demo_specialization_witness.py`.**
+   Adding ANY bracket inside `Raster_HInt` (mine is the first ever) trips the artifact
+   described above: its automatic "demo must be smaller" differential measured Raster_HInt
+   at 21 bytes in sonic4 (the `SfxBlobWinTab` neighbour) and 316 in demo (its real, much
+   larger, unrelated-neighbour distance) and failed, backwards, on a proc that is genuinely
+   and verifiably smaller in demo. Root-caused (not silenced): added
+   `PROC_SIZE_RIDER_BLIND_PROCS = {"Raster_HInt"}`, a narrowly-scoped, measured, documented
+   exclusion from the DERIVED differential only — never from the SPAN half (boundary-symbol
+   presence/absence, immune to ROM-neighbour placement), which is what actually proves the
+   gate elides for demo and raises for sonic4, and does: `scanline_spans CAP_DENSE_TIER
+   (sonic4 raised, demo clear) — differential ['dense_tier_enter']` passes both directions.
+   Not added to the committed `DEMO_SPECIALISED_PROCS` pin either — pinning a number
+   dominated by an unrelated sound table's placement would be a maintenance trap the file's
+   own "RE-DERIVE, DO NOT RE-BASELINE" rule warns against outliving its own justification.
+
+5. **The HBlank budget check** — `RASTER_DENSE_LINE_RAMP_CYC` (`engine/effects/raster_dsl.emp`),
+   the missing cost term `docs/DEFERRED_WORK.md`'s own Tier-3 item-1 closure named verbatim:
+   *"There is no ramp cost constant to update — the dense tier's only cost term is the
+   gradient one."* Measured the same way `RASTER_DENSE_LINE_GRAD_CYC` was: `tools/
+   raster_cost_probe.py` grew an FR1/FR2 fixture pair — two `OP_RUN_RAMP` programs identical
+   apart from line count (8 vs 40), targeting VSRAM byte 2 (the same entry `OJZ_TestRamp`
+   writes) — so every shared prologue/epilogue overhead cancels and the slope is one
+   `.ramp_body` line.
+
+### The measured number, and the shape it was measured on
+
+**`RASTER_DENSE_LINE_RAMP_CYC = 304` cycles**, measured against `s4.debug.bin` (this parcel's
+build, `CAP_DENSE_TIER` promoted, interpreter byte-identical to the 2026-08-14 shipped one)
+via `tools/aether_instance.py`'s sanctioned private headless `oracle_gui` instance (own
+`XDG_RUNTIME_DIR`/`HOME`, its own socket — never the owner's window or MCP tools):
+
+```
+FR1  8 lines   n=8   calls=12   3732 cyc/frame
+FR2 40 lines   n=40  calls=44  13460 cyc/frame
+(13460 - 3732) / 32 = 304.0 cyc/line
+```
+
+Stable to the cycle across **3 independent boots** (`--repeat 3`), and the SAME run
+re-derived the gradient row as a control in the process: FD1 3808, FD2 13920,
+`(13920-3808)/32 = 316.0` — bit-for-bit the already-pinned `RASTER_DENSE_LINE_GRAD_CYC`,
+which is exactly what a change that never touches `.dense_body` or the dispatch chain
+should produce.
+
+**Budget: 304 of 488 cycles (`RASTER_SCANLINE_CYC`), 62.3% headroom** — wider than the
+gradient row's ~35% (`.ramp_body` writes ONE VDP word where `.dense_body` writes three; net
+measured difference 316.0 − 304.0 = 12 cyc, close to the arithmetic saving of two fewer
+16-cycle stream writes, with the ramp body's own accumulator arithmetic spending some of it
+back — read as a measurement, not derived from an instruction table, for the same reason the
+gradient row's history gives).
+
+**Not over budget → per the hub's ruling, the dense-tier reserved stream register card is
+NOT raised by this parcel.** The conservative model (cursor/command/mode reloaded from RAM
+every fire, no reserved register) ships exactly as documented in `Raster_HInt`'s own
+dense-body comment. The irreversible engine-wide register-convention bet stays the owner's
+to make, on his own schedule — this measurement gives him the number, not a recommendation.
+
+Wired into `tools/effects_gates.py`'s `cost_model` gate as a new "ramp cost row" — the
+`RASTER_DENSE_LINE_RAMP_CYC` twin of the existing "dense cost row" — so it re-runs on every
+canonical `--rom s4.debug.bin --lst s4.debug.lst` gate pass, the same standing the gradient
+constant already has.
+
+### Red-first proof — CAP_DENSE_TIER's authoring gate
+
+| mutation | result |
+|---|---|
+| (baseline, before raising sonic4's `SCANLINE_CAPS`) — `CAP_DENSE_TIER` promoted, `ojz_effects.emp`'s ensure added, `games/sonic4/config/game.emp` left at `$01DE` | **build RED** — `[Error] OJZ_TestRamp: this game's Game.SCANLINE_CAPS (478) does not declare CAP_DENSE_TIER — ...` (478 = `$01DE`, confirming the check reads the correct live value) |
+| `games/sonic4/config/game.emp`'s `SCANLINE_CAPS` → `$03DE` | **build GREEN** |
+| first implementation attempt: the same ensure written inside `raster_ramp_program`'s own body in `engine/effects/raster.emp` (not yet committed — caught before landing) | **build RED for the WRONG reason** — `[Error] unknown name Game.SCANLINE_CAPS` at the `raster_ramp_program` call site, a comptime-fn free-name resolution failure rather than the intended capability check (EMP_PITFALLS.md #9, hit before it was read — see Research). Moved to a module-level ensure in `ojz_effects.emp`, matching every existing "declare CAP_X" check in the tree; re-tested against the SAME `$01DE`/`$03DE` pair above with the correct message. |
+
+Both rows restored from a committed baseline (this branch's own prior commit), never
+`git checkout --` on a dirty tree.
+
+### Red-first proof — the engine bracket and its downstream gate fix
+
+| mutation | result |
+|---|---|
+| commit `cbb89315` (CAP_DENSE_TIER declared, budget check landed, **zero brackets anywhere** — `git diff cbb89315 HEAD -- engine/effects/raster.emp` shows the whole `if (Game.SCANLINE_CAPS & CAP_DENSE_TIER) != 0 { .cap_dense_tier_enter_begin: ... }` bracket as new, absent at this commit) | `tools/effects_gates.py --rom s4.debug.bin --lst s4.debug.lst` (built at this commit) **RED** — `FAIL scanline_spans CAP_DENSE_TIER — NOT GATED ANYWHERE (no bracketed span in the engine sources or either fixture)`; 1 of 33 rows, exit 1 |
+| the bracket added around `.op_run_ramp`'s ENTER body only (`engine/effects/raster.emp`), sonic4/demo rebuilt | `scanline_spans CAP_DENSE_TIER` row **PASS** (`sonic4 ['dense_tier_enter'] vs expected ['dense_tier_enter']; demo [] vs expected []`) — but a NEW row went red: `FAIL demo_witness (span absence + image pin)` — `tools/demo_specialization_witness.py`'s pin-free differential measured `Raster_HInt` at 21 bytes in sonic4 (contaminated by the unrelated `SfxBlobWinTab` data table 21 bytes downstream) and 316 in demo, backwards from what a genuine 22-byte elision produces |
+| `PROC_SIZE_RIDER_BLIND_PROCS = {"Raster_HInt"}` added to `demo_specialization_witness.py`, excluding ONLY the derived pin-free rider (never the span half) for this one measured-contaminated proc | `demo_specialization_witness.py` **GREEN** — `image differential over 10 gated proc(s) (1 excluded, head-to-head blind)`, `Raster_HInt` still printed with its `(+295)` delta and an explicit `(EXCLUDED — see PROC_SIZE_RIDER_BLIND_PROCS)` tag, never silently dropped |
+
+All three rows restored from a committed baseline (`cbb89315`), never `git checkout --` on a
+dirty tree. The middle row is the case invariant 9(c) exists for: an applied mutation
+(the bracket) that is CORRECT on its own primary target (the span half) still surfaced a
+real, previously-latent defect in a DIFFERENT, pre-existing gate — worth landing exactly
+because it was caught rather than silently tolerated.
+
+### The wire-pin proof (`tools/test_raster_wire_pin.py`, 5 new tests, 45/45 total pass)
+
+`ramp_program_words()` — the probe's second dense-tier encoder — is pinned against
+`RasterRampProgram`'s struct declaration and `raster_arm`'s own formula, never against a
+captured image, mirroring the gradient section exactly: field layout, the three-arm
+schedule, the shared fire-count formula (`dense_fire_count`, unchanged — the ramp program
+walks the identical arm pipeline), a poison (transpose `rrp_lines`/`rrp_start`'s high word —
+length unchanged, values wrong), and the barred-line refusal (`top + lines <= 223`).
+
+### Four-shape build totals
+
+All four green, genuinely (log content checked, not the wrapper's own exit code — a
+"completed exit 0" background-task notification from a two-statement shell script measures
+the trailing `echo`, not `build.sh`; verified instead by grepping the log for
+"Tool-suite tests failed" / "expect-fail lane failed", zero hits in all four, plus the OK
+markers below). `python3 -m pytest tools/` totals per shape (build.sh's own pre-sigil lane,
+run to completion, no `FAST=1` anywhere): `./build.sh sonic4` **2154 passed, 4 skipped**;
+`DEBUG=1 ./build.sh sonic4` **2154 passed, 4 skipped**; `./build.sh demo` **2154 passed, 4
+skipped**; `DEBUG=1 ./build.sh demo` **2154 passed, 4 skipped** — all four identical to each
+other. Against a baseline build of `origin/master` (`b35b2d36`, built in a throwaway
+worktree, same env, same sigil binary, same session): baseline totals were 2148/2147/2148/2148
+(the suite naturally varies a couple of counts shape-to-shape, unrelated to this parcel — the
+delta from baseline is the 5 new `test_raster_wire_pin.py` ramp tests plus the wire-up of the
+`demo_specialization_witness` fix, present in all four of mine and none of baseline's).
+`emp_expect_fail`: **52/52** cases, all four shapes. `s4lint`: no issues found (sonic4
+shapes). `effects_budget_check`: OK, 39 code-derived rows agree (sonic4 shapes).
+`dplc_straddle` / `sprite_tilt_gate` / `instashield_gate` / `loop_crossover_gate`: all OK
+(sonic4 shapes; both `.lst`-derived and unaffected by CAP_DENSE_TIER's dispatch-safe design).
+
+### `EndOfRom` — both endpoints, information only (no sigil pairing, no repin, no refreeze)
+
+**Zero movement in all four shapes**, measured against the `b35b2d36` baseline built in the
+same session with the same env/sigil binary — exactly the prediction the design above makes
+(no runtime bytes touched; the only emitted change anywhere is the doc comments,
+`SCANLINE_CAPS`'s value, and one comptime `ensure`):
+
+| shape | baseline `EndOfRom` | this parcel `EndOfRom` |
+|---|---|---|
+| `s4.bin` | `$A5C82` | `$A5C82` |
+| `s4.debug.bin` | `$A8258` | `$A8258` |
+| `demo.bin` | `$1121A` | `$1121A` |
+| `demo.debug.bin` | `$1121A` | `$1121A` |
+
+sigil binary used: `/home/volence/sonic_hacks/sigil/target/release/sigil`, md5
+`6c2378ae8a657e26684d4019a7d976d7` (built from sigil commit `0a58f2ecc8e7`; the sigil repo's
+own current `HEAD` is `d37c1738ba56`, drifted since the 2026-09-02 cut-the-ceremony ruling
+ended the paired freeze — reported as information only, per that ruling and per this
+parcel's own instruction not to touch sigil). `emit_sound_blob` md5
+`b9d971d4a322f98c803bc479ad3e1d9f`. Neither binary was rebuilt, repinned, or refrozen by this
+parcel; no `cargo` command was run in the sigil repo.
+
+### The effects gate ritual (`engine/effects/raster.emp`, `engine/effects/raster_dsl.emp` touched)
+
+`python3 tools/effects_gates.py --rom s4.debug.bin --lst s4.debug.lst`, run against this
+parcel's final `s4.debug.bin`/`s4.debug.lst`/`demo.debug.lst` (all four canonical shapes
+freshly rebuilt through `build.sh`, not `FAST=1`, immediately beforehand):
+
+```
+effects_gates: OK — all 16 scheduled gate(s) produced a complete row set:
+['boot_override', 'cost_model', 'demo_witness', 'palette_variant', 'parallax_crossing',
+ 'raster_off', 'raster_source', 'scanline_spans', 'scene:above_screen', 'scene:dense',
+ 'scene:mid_band', 'scene:suppressed', 'snapshot_poison', 'tile_cache_fill',
+ 'vsplit_landing', 'warp_mailbox']
+(33 result rows, exit 0)
+```
+
+**33 of 33 rows PASS**, including the two this parcel's own measurements feed:
+
+```
+PASS  ramp cost row (RASTER_DENSE_LINE_RAMP_CYC = 304; the slope (FR2 - FR1) / 32 lines,
+      with both fires counts derived as lines + 4)
+      measured FR1=3732/12 fires, FR2=13460/44 fires -> 304.0 cyc/line
+PASS  scanline_spans CAP_DENSE_TIER (sonic4 raised, demo clear) — differential ['dense_tier_enter']
+      sonic4 ['dense_tier_enter'] vs expected ['dense_tier_enter']; demo [] vs expected []
+```
+
+and, as its own control, the gradient row this parcel did NOT touch re-measured
+bit-for-bit unchanged (`RASTER_DENSE_LINE_GRAD_CYC = 316`, `FD1=3808/12`,
+`FD2=13920/44 -> 316.0`), plus `scanline_spans capability coverage — 9 of 9 pub const CAP_*
+bits ... produced a row` and `demo_witness (span absence + image pin): OK`.
+
+### Research
+
+Read firsthand for this item: Batman & Robin's and Thunder Force IV's per-scanline VDP
+handlers (workspace disassemblies — the pseudo-3D floor / squash-stretch family this item
+targets), Vectorman's scaler, Ristar's floor divide-then-accumulate body — all already cited
+in `raster_ramp_program`'s own comment as the reference set `OP_RUN_RAMP`'s 16.16-accumulator
+shape converged with independently ("Ristar's floor at ROM $061ACE does one `divu` per frame
+then add/asr per line; Vectorman's scaler at $0006F6F8 uses no table at all; also Gunstar,
+Alien Soldier and Thunder Force IV"). Re-verified rather than re-cited on faith: the
+accumulator shape genuinely matches the class of technique these five engines use for
+per-line vertical scale — an accumulate-and-shift body run every HBlank, no lookup table, no
+runtime divide inside the per-line body (the one divide, where present, happens once per
+frame or per event, not per line). Online sources consulted for the HBlank budget model:
+plutiedev's HBlank timing reference and md.railgun.works' VDP register notes were already the
+basis for `RASTER_HBLANK_END_CYC`/`RASTER_SCANLINE_CYC` (raster_dsl.emp, pre-existing); this
+parcel adds no new timing constant, only a new COST TERM measured against the existing
+window, so no new hardware-timing research changed. **What this changed my plan:** confirmed
+the "no lookup table, accumulate per line" shape is exactly what's already shipped
+(`raster_ramp_program`), which is why this parcel does not propose a second dense-VSRAM
+mechanism — a table-driven (nonlinear, true perspective-divide) variant is a distinct,
+larger feature the DoD text does not ask for and is not booked here.
+
+### What is TAGGED for the owner's emulator pass
+
+Nothing new renders on screen — `OJZ_TestRamp` is, and remains, a gate fixture with no live
+section binding. There is no picture to look at from this parcel. If the owner wants to SEE
+the dense-VSRAM axis, that is a content decision (bind `OJZ_TestRamp`, or a variant of it, to
+a section) explicitly left open below, matching how `OJZ_TestGradient`'s own binding was a
+separate content decision from the mechanism landing.
+
+### What is left open, and why
+
+- **Content adoption.** No section renders a dense VSRAM ramp. Binding one is a content
+  decision (which section, what rate, what look) outside this item's scope — the DoD text
+  asks for the OP, the capability, and the budget check, not a shipped scene.
+- **The dense-tier reserved stream register** stays exactly where the hub's ruling left it:
+  not raised by this measurement (not over budget), still the owner's irreversible bet to
+  take on his own schedule.
+- **A nonlinear (table-driven, true perspective-divide) dense VSRAM variant** is a distinct,
+  larger feature this item's text does not ask for; not booked here.
+- **`raster: OJZ_TestRamp`'s legacy field** in `act_descriptor.emp` (section 0, inert since
+  Parcel C2's total-binding conversion) is untouched — out of scope, and touching it risks
+  the "stays, inert, for Task 13" note that already exists there.
 
 ## ✅ RESOLVED PREDICTION — the rebuild changed nothing, and the outcome is recorded because the entry demanded it
 
@@ -17035,7 +17362,7 @@ Item 2 is the only one that does not.
 | 3 | Drift on and authored | **M** | yes, paired | **DONE 2026-09-02, both halves** — aeon `parcel/drift-on` + sigil `parcel/drift-on`. `Game.SCANLINE_CAPS` is `$00DE`, `BAND_DRIFT_N` is 1, `BAND_DRIFT_BYTES` is 4, and `Scene_OJZ_Default` — the act-installed OJZ record, i.e. seven of act 1's nine sections — authors `drift: SceneDrift.Rate(-32)` on all four bands (S3K AIZ1's cloud rate, leftward). All four shapes green; `EndOfRom` moves in none of them. The registry's `CAP_BAND_DRIFT` arm is inverted and now refuses the silent LOSS of the adoption, and `tools/band_drift_golden.py` reads each band's drift tail back out of the built ROM on every canonical sonic4 build. **What is NOT done:** nobody has looked at the picture (rate/direction/taste are unverified and the runtime numeric witness is still unrun), and the two EDITOR-bound sections do not drift because `effects_gen.py` still has no `drift` key — that needs an empyrean schema property first, the same gate item 5 waited on. See the band-drift entry below for the full state. |
 | 4 | Moving bands: P2b moving-top + time-driven anchor mover | **L** | yes, paired | The anchor mover is the owner's addition and the DoD calls it *"a gap in every prior plan"* — so it needs a DESIGN pass before implementation, not just a parcel. P3 (both edges) only on his ask. |
 | 5 | `variants` / `cycles` lowering | **M** | yes, paired | ~~Needs the item-13 contract CR before aurora can author against it.~~ ~~**UNBLOCKED 2026-08-30 — the contract CR LANDED.**~~ **DONE 2026-09-02, both halves.** The hub's is `AURORA_EFFECTS_SCHEMA.md` §7.2 + the two committed schema properties; aeon's is `parcel/item5-cycles-variants` — the generator accepts both keys, lowers them through `variant()` / `cycle_scriptN()`, emits two more always-emitted choosers, and `tools/editor_palette_golden.py` reads the emitted records back out of the built ROM on every canonical sonic4 build. What is NOT done are the five riders §7.2 books; see the item-5 block below. |
-| 6 | Dense per-line VSRAM | **L** | yes, paired | Booked in full in the DENSE PER-LINE VSRAM entry above. **Not blocked by the stream-register card** — the conservative model ships today and the item can start on it; the ruling only decides whether the faster path is taken. Surface the card before the budget check concludes, not before the item starts. |
+| 6 | Dense per-line VSRAM | **L** | yes, but **zero bytes moved for sonic4, one 22-byte leaf elided from demo** | **DONE 2026-09-03, `parcel/item6-dense-perline-vsram`.** The mechanism was NOT greenfield — `OP_RUN_RAMP` / `raster_ramp_program` (engine/effects/raster.emp) shipped 2026-08-14, two weeks before this DoD item was even written, and already writes a computed per-line value to VSRAM; the booking's "what does not exist" line was stale the day it was written. What this parcel closed: **`CAP_DENSE_TIER`** promoted at its derived next-free value ($0200), gating both an authoring-time `ensure` (a game must declare the bit before constructing a `RasterRampProgram` at all) AND one minimal §8.2 bracket — `.op_run_ramp`'s 5-instruction ENTER body only, a dispatch LEAF that never touches `Raster_HInt`'s opcode compare chain or `.ramp_body` (both stay byte-identical/unconditional in every game — the dispatch chain's cost model prices every op's depth as a function of opcode value alone, and eliding a compare pair there would silently move `OP_PAL_RESTORE`'s price); and the **HBlank budget check** the DoD asked for — `RASTER_DENSE_LINE_RAMP_CYC = 304` (measured, `tools/raster_cost_probe.py`'s new FR1/FR2 pair), 304 of 488 cycles, 62.3% headroom. **Not over budget**, so per the hub's 2026-09-02T20:25:12Z ruling the dense-tier reserved stream register card is NOT raised by this parcel — the conservative model ships, unchanged. **A side effect worth knowing about:** the new bracket is the FIRST ever placed inside `Raster_HInt`, and it exposed a genuine blind spot in `tools/demo_specialization_witness.py`'s automatic differential (a data table, `SfxBlobWinTab`, sits 21 bytes after `Raster_HInt` in sonic4's ROM, making head-to-next-head measure the wrong thing for that one proc) — fixed with a narrow, measured, documented exclusion (`PROC_SIZE_RIDER_BLIND_PROCS`) from the DERIVED check only, never from the SPAN half that actually proves the gate works. See the item-6 block below for the full accounting, the red-first proof, and both `EndOfRom` endpoints. |
 | 7 | Vertical bob | **S-M** | yes, paired | **BUILT — `parcel/vertical-bob`, 2026-08-30, unlanded.** A scene-level term on `Parallax_Step5_Vscroll`'s `.v_pack`. 40 bytes of code, ZERO config bytes (the packed nibble pair claimed `pcfg_pad_29`), EndOfRom unmoved in all four shapes. Riders booked below. |
 | 8 | BgAnim vertical band motion | **M** | **no — zero ROM bytes** | **ENGINE HALF DONE 2026-09-02, `parcel/bganim-band-motion`; the ON-SCREEN half is BLOCKED and the reason is measured** — see the item-8 block below. The pricing was written on the belief that a vertical shift needed a different DMA shape; it does not, `BgAnim_Update` was always axis-agnostic, and the parcel moves no engine byte at all. So this row does NOT pair with sigil. |
 | 9 | Hydrocity row remap | **L** | yes, paired | Zone-specific by the survey's own estimate; he wants it; sequenced last by his preference. |
