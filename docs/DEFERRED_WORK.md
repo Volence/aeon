@@ -180,6 +180,45 @@ edge, and (b) `Section_RedrawPlanes` returning `d7 = Cache_Head_Col` uncondition
 `Section_Plane_Dirty` setters run straight after an unbudgeted `FillAll`, and now asserted, but it is
 the remaining place a tracker is written without a matching draw.
 
+### THE ANCHOR MOVER HAS NO AUTHORING SURFACE, AND THE BLOCKER IS A CLOSED SCHEMA TWO LANES AWAY (booked 2026-09-03)
+
+**EFFECTS-W1 DoD item 4's engine half landed as chain 215 (`094496ca`); its AUTHORING half is
+blocked and is not this lane's to unblock alone.** The key shape is specified in full at
+`docs/superpowers/specs/2026-09-03-anchor-authoring-key-shape.md` — both keys, units, ladders,
+refusals, enforcement sites, and the `file:line` list a schema CR can cite.
+
+**Measured on `origin/master` `e190297c`, with positive controls so the zeros mean absence and
+not a typo:** `grep -c` over `tools/effects_gen.py` gives `patch_world_ys` **0**, `patch_motion`
+**0**, `anchor_sweep` **0** — against `drift` 13, `cycles` 31, `variants` 30. **So it is two keys
+or it is nothing:** a motion key alone lets an author say *how* a boundary moves but never *where*
+it starts, and `preset()` would default the anchor to `PATCH_ANCHOR_NONE` — channel unused, motion
+invisible.
+
+**WHY THE READER MUST NOT BE BUILT YET.** `empyrean contract/schema/aurora-effects-preset.schema.json`
+is CLOSED: `unevaluatedProperties: false` at the top level (line 58) and at six nested positions
+(115, 118, 139, 172, 205, 240), top-level `properties` exactly `[schema, id, name, bands, cycles,
+variants]`. A document carrying either key is refused at parse **today**, so a reader built now
+would land green and read a key no document can legally contain — a check that cannot fail. The
+chain is: (1) aeon names the shape ← **done, the spec above**; (2) empyrean files the schema CR;
+(3) aurora vendors it and writes the key; (4) this lane reads it. **Steps 2 and 3 are not this
+lane's.**
+
+**THE TRAP THAT WILL BITE STEP 4, BOOKED HERE SO IT IS NOT REDISCOVERED.**
+`tools/test_anchor_sweep_band.py` is the ONLY scope that can check a sweep's amplitude against its
+channel's `patchable(lo, hi)` — no comptime scope holds both numbers, and exceeding the band makes
+`Raster_BuildSchedule` DROP the record rather than clamp it, i.e. the band flickers out once per
+cycle. **That test reads only `games/sonic4/data/effects/ojz_effects.emp`.** A generator-authored
+sweep lands in `ojz_effects_editor_act1.emp` and is invisible to it, and the scanner needs a new
+shape besides — the generated form is a chooser body (`if sec == N && ch == C { out = anchor_sweep(..) }`),
+not an array position. **Extending that test is a hard prerequisite of step 4, not a nice-to-have:**
+an author gets no comptime error, so they need the check more than a programmer does.
+
+**Correction of record, attributed to the aurora lane:** the item-4 design's §8.2 (line 902 at
+`094496ca`) says an older Aurora "erases it on the next save round-trip". That is **wrong about
+Aurora and the remedy inverts** — Aurora is conformant and takes the *refuse* branch, so the
+failure is not silent loss on save, it is that every author on a tree carrying the key cannot
+**open** that preset at all. Cite §8.2 only with that correction.
+
 ### TWO THINGS WAITING ON THIS LANE FROM SIGIL, both ready on their side (2026-08-30)
 
 **1. R7's alignment flip is READY and needs this lane's sequencing.** The declaration half landed
