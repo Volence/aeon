@@ -1359,10 +1359,14 @@ pub data OJZ_Preset_Depth: EffectsPreset = preset(pal: OJZ_Palette, raster: OJZ_
 // ruling Q1a), `bands` lowers to a raster program, `tools/effects_seam_gate.py` requires
 // every sidecar `rasterRef` to be threaded through `ojz_act1_sec_raster(sec: N)`, and
 // `preset()` makes `ep_raster` and `ep_patched` mutually exclusive. The three rules close
-// the door together. Section 5 is the only section a document can bind to at all, so it is
-// where the authoring path is proved end to end — and giving it a consumer is a CONTENT
-// decision (an anchored `ep_parallax`, an anchored editor scene bound at section 5, or a
-// contract change opening a bands-less preset document), left to the owner.
+// the door together. Section 5 was the only section a document could bind to at all — the
+// authoring path was proved end to end there — and giving it a raster CONSUMER (as
+// opposed to a raster BINDING) is a content decision left to the owner.
+//
+// (STALE AS OF 2026-09-03: "the only section" stopped being true the moment `base_swap`
+// gave item 11a a second one — section 6, below. Both sections were Plain and neither
+// binds `patched:`, so opening a second document-bindable section cost nothing: it is the
+// same one-time split OJZ_Preset_Sec5's own paragraph above describes, paid again.)
 pub data OJZ_Preset_Sec5:  EffectsPreset = preset(pal: OJZ_Palette,
                                                   raster: ojz_act1_sec_raster(sec: 5, hand: Raster_Program_None),
                                                   // d-53, owner 2026-09-03 ("Sure let's do it to see it?"): the one
@@ -1384,6 +1388,38 @@ pub data OJZ_Preset_Sec5:  EffectsPreset = preset(pal: OJZ_Palette,
                                                                    ojz_act1_sec_patch_motion(sec: 5, ch: 1, hand: ANCHOR_MOTION_NONE),
                                                                    ojz_act1_sec_patch_motion(sec: 5, ch: 2, hand: ANCHOR_MOTION_NONE),
                                                                    ojz_act1_sec_patch_motion(sec: 5, ch: 3, hand: ANCHOR_MOTION_NONE)])
+// SECTION 6 IS THE MID-FRAME BASE-SWAP'S REAL BINDING (EFFECTS-W1 item 11a's authorable
+// half, 2026-09-03). It is `OJZ_Preset_Plain` in every respect but one — same palette, same
+// variant, no cycle, no parallax/patch channels — and exists ONLY so that section 6 has a
+// preset of its own to thread a `rasterRef` through, the exact reason `OJZ_Preset_Sec5`
+// exists one section up.
+//
+// WHY SECTION 6 AND NOT SECTION 5: section 5 already carries `ojz_sec5_showcase`'s `bands`
+// program (plus the two patch channels), and `base_swap` occupies the SAME `ep_raster`
+// slot `bands` does — binding it there would EVICT the showcase. Section 6 (like 7 and 8)
+// pointed at the shared `OJZ_Preset_Plain` record before this parcel, so it takes a
+// document binding without taking one from anything and without disturbing 7 or 8, which
+// still share `OJZ_Preset_Plain`.
+//
+// THE DOCUMENT: `games/sonic4/data/editor/effects/presets/ojz_sec6_baseswap.json` carries
+// `base_swap: {line: 160, target: 57344}` — the SAME line and target
+// (`VRAM_PLANE_B` = `$E000` = 57344) this file's own hand-authored `OJZ_BaseSwap` fixture
+// above uses, so the generator's output is checkable against a program already proved
+// word-for-word against a hand encoding. `games/sonic4/data/editor/ojz/act1/section_6.meta.json`
+// binds it via `rasterRef`. `tools/effects_gen.py`'s `render_base_swap_preset` lowers it to
+// `raster_program([fire(160, [reg_set($8200 | vdp_base_reg(VdpBase.PlaneA, 57344))])])` —
+// the SAME three calls (`fire`/`reg_set`/`raster_program`) `OJZ_BASE_SWAP_PROG` above
+// makes, not a second constructor.
+//
+// UNLIKE OJZ_BaseSwap, THIS EMISSION IS NOT DEBUG-GATED. A preset document's raster
+// program is real section content — every section's `EffectsPreset` is `pub data`,
+// unconditional in every shape — so `EditorRaster_OJZ_Act1_ojz_sec6_baseswap` reaches
+// `s4.bin` too, not only `s4.debug.bin`. That is the whole point of this parcel: the
+// mid-frame door stops being a DEBUG-only demo the moment a document, rather than a hotkey,
+// asks for it.
+pub data OJZ_Preset_Sec6:  EffectsPreset = preset(pal: OJZ_Palette,
+                                                  raster: ojz_act1_sec_raster(sec: 6, hand: Raster_Program_None),
+                                                  cycle: Pal_Cycle_None,    variants: [Variant_Water_Deep, 0])
 
 // ===========================================================================
 // OJZ_TwoChannel — the Parcel P-a gate. TWO independently patchable boundaries in ONE

@@ -47,7 +47,7 @@ author did not write.
 
 <!-- KEYS-CHECKED-AGAINST-effects_gen.py -->
 ```
-preset:          bands, cycles, id, patch_motion, patch_world_ys, ramp, schema, variants
+preset:          bands, base_swap, cycles, id, patch_motion, patch_world_ys, ramp, schema, variants
 preset-ignored:  name
 preset-refused:  fires
 band:            bot, on, sh, top
@@ -68,12 +68,14 @@ Reading the rows:
   optional. `schema` must be `1`. `id` must match the filename stem and
   `^[a-z][a-z0-9_]{0,31}$`, because it becomes an `.emp` label component. `bands` is a
   list with at least one element; empty is refused, because a document that emits a zero-band
-  program is a document that should not exist. **Exactly one of `bands` or `ramp` is
-  required** (ruling Q1a for `bands` alone, widened by EFFECTS-W1 item 6's `ramp` and the
-  contract's top-level `oneOf`): both channels lower into the same `EffectsPreset.ep_raster`
-  slot, so a document naming neither or both is refused. A cycle-only or variant-only
-  document with neither `bands` nor `ramp` is a future contract change, and it is the one
-  that unblocks retiring the hand twins.
+  program is a document that should not exist. **Exactly one of `bands`, `ramp` or
+  `base_swap` is required** (ruling Q1a for `bands` alone, widened by EFFECTS-W1 item 6's
+  `ramp` and the contract's top-level `oneOf`, widened again by item 11a's `base_swap` —
+  see its own row below for why THAT widening ships ahead of a schema entry): all three
+  channels lower into the same `EffectsPreset.ep_raster` slot, so a document naming none
+  or more than one of them is refused. A cycle-only or variant-only document with none of
+  the three is a future contract change, and it is the one that unblocks retiring the hand
+  twins.
 - **`preset-ignored`** — `name` is the writer's display label. Any value; read by nothing;
   dropped on lowering. It is the one deliberate writer-only field.
 - **`preset-refused`** — `fires` is refused **by name**, with the reason. It is the last of
@@ -179,6 +181,29 @@ Reading the rows:
   game declares `CAP_DENSE_TIER` in its `SCANLINE_CAPS` is checked too — a game that has
   not is refused at the generated call site rather than silently building a program the
   interpreter no-ops.
+- **`base_swap`** — the mid-frame nametable-base swap (EFFECTS-W1 item 11a's authorable
+  half, 2026-09-03). **NOT YET in the empyrean schema** — this generator ships the key
+  ahead of a hub ruling, the reverse of `ramp`'s own sequence, because the item-11a booking
+  called this half strictly smaller than a full demand artifact warrants ("it already has
+  its constructor... needs only a key and a per-scene binding"). A single closed object,
+  `{"line": .., "target": ..}`, both fields REQUIRED, none defaulted. `line` is the screen
+  line the swap fires on, forwarded verbatim to `fire()`'s own line-range ensure. `target`
+  is the raw VRAM byte address Plane A's base register (reg $02) is re-pointed at —
+  **spelled as an address, not a `VdpBase` name**, the same "spelled out explicitly beats
+  one fact computed twice" precedent `pal_region.addr` and `ramp.target.vsram.addr` already
+  set. **`target` MUST be a multiple of $2000** — reg $02 encodes only the address bits
+  above that granule and drops the rest SILENTLY, so a misaligned target would point the
+  VDP at a different address than every other `VRAM_*` consumer with nothing visible
+  anywhere else. This is enforced by `vdp_base_reg()`'s own ensure
+  (`engine/vdp.emp:116-117`), which names the granule in its refusal — never a byte this
+  generator could silently mis-encode. **Absent key: no swap** — the section's raster
+  channel is whatever `bands`/`ramp` (or neither, `Raster_Program_None`) says instead;
+  `base_swap` cannot combine with either, for the same one-`ep_raster`-slot reason `ramp`
+  cannot combine with `bands`. No capability bit gates it — unlike `ramp`'s
+  `CAP_DENSE_TIER`, a register-write raster op (`OP_SET_REG`) dispatches unconditionally in
+  every game, so no `ensure(Game.SCANLINE_CAPS & CAP_...)` is re-emitted at the generated
+  call site. The emitted program is real section content, not a DEBUG-only demo: it
+  reaches both `s4.bin` and `s4.debug.bin` the moment a section's sidecar names it.
 - **`sweep` / `sweep-optional`** — `amp_shift` and `period_shift` are required, `phase` is
   optional (it is the only field `anchor_sweep()` itself defaults). **⚠ ALL THREE ARE
   QUANTIZED, and the first two are BASE-2 LOGARITHMS, not pixels or frames**: the peak

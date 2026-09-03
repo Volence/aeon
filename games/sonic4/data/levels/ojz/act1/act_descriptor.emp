@@ -24,7 +24,11 @@ use games.sonic4.ojz_effects.{OJZ_TestRaster, OJZ_TestPal, OJZ_TestGradient, OJZ
 // section 5 took OJZ_Preset_Sec5 at EFFECTS-W1 item 1 step 5. The twin of this sentence
 // in ojz_effects.emp was corrected in the same parcel; this copy was missed, which is
 // why the rule is to grep the COMMENTS of anything built against a ruling that moved.
-use games.sonic4.ojz_effects.{OJZ_Preset_Sec0, OJZ_Preset_Sec1, OJZ_Preset_Sec2, OJZ_Preset_Sec3, OJZ_Preset_Plain, OJZ_Preset_Depth, OJZ_Preset_Sec5}
+//
+// (STALE AGAIN AS OF 2026-09-03: "one shared instance for the three identical plain
+// sections (6-8)" is now two — section 6 took OJZ_Preset_Sec6 at EFFECTS-W1 item 11a's
+// authorable half, so only 7 and 8 still share OJZ_Preset_Plain.)
+use games.sonic4.ojz_effects.{OJZ_Preset_Sec0, OJZ_Preset_Sec1, OJZ_Preset_Sec2, OJZ_Preset_Sec3, OJZ_Preset_Plain, OJZ_Preset_Depth, OJZ_Preset_Sec5, OJZ_Preset_Sec6}
 // The act-default parallax record (`act_parallax_config` below — the fallback for sections
 // that declare none). NAMED rather than left to resolve as a link extern (scanline-P1
 // Task 9): an unknown name in a Label position does not error in .emp, it silently becomes
@@ -304,7 +308,13 @@ pub data OJZ_Act1_Sections: [Sec; 9] = [
             objects: OJZ_Sec6_Objects, rings: OJZ_Sec6_Rings,
             type_table: OJZ_Sec6_TypeTable,
             pal: OJZ_Palette,
-            effects: OJZ_Preset_Plain,
+            // EFFECTS-W1 item 11a's authorable half (2026-09-03): the mid-frame
+            // nametable-base swap, bound through a `base_swap` preset document
+            // (games/sonic4/data/editor/effects/presets/ojz_sec6_baseswap.json) instead
+            // of existing only as OJZ_BaseSwap's DEBUG-only demo. Scroll right into
+            // section 6 to see it: 64 lines above the screen bottom, the foreground
+            // plane starts drawing the background's map.
+            effects: OJZ_Preset_Sec6,
             dict: extern("OJZ_Sec6_Blocks") + extern("BLOCK_INDEX_SIZE"),
             dict_len: OJZ_SEC6_BLOCK_DICT_LEN),
     ojz_sec(sec: 7, blocks: OJZ_Sec7_Blocks,
