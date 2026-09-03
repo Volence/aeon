@@ -224,6 +224,31 @@ they are associated by a *pointer* at runtime, so no comptime scope holds both.
 > scanner must also change shape: the generated form is a chooser body
 > (`if sec == N && ch == C { out = anchor_sweep(...) }`), not an array position.
 
+> **CLOSED 2026-09-03, with one correction and one measurement, by the lane that did it**
+> (`parcel/band-scanner-generated`).
+>
+> **The prerequisite is no longer open.** `tools/test_anchor_sweep_band.py` now scans both
+> module sets by GLOB and both shapes, through one `scan_module()`, and accounts for every
+> `anchor_sweep(` occurrence rather than counting the ones a pattern matched. Step 4 does not
+> have to build it.
+>
+> **`ojz_effects_editor_act1.emp` IS NOT A FILENAME.** No such file exists or ever will.
+> `ojz_effects_editor_act1` is the SECTION name (`games/sonic4/map.toml` carries
+> `"section:ojz_effects_editor_act1"`) and the module name; the FILE that section is emitted
+> to is `games/<game>/data/generated/<zone>/<act>/effects_scenes.emp`, per
+> `tools/effects_gen.py`'s `ActNames.out_path()`. Anyone extending a tool by searching for
+> the name above finds nothing and may conclude the generated module does not exist yet — it
+> does, and it is committed. The scanner derives that path from `out_path()` itself rather
+> than transcribing it.
+>
+> **The band bound is currently unfalsifiable on channel 0**, which §4a's framing does not
+> lead you to expect. Channel 0's band is 218 lines and the WIDEST legal rung
+> (`amp_shift` = `ANCHOR_SWEEP_SHIFT_MIN` = 2) travels 128 px peak-to-peak, so no amplitude
+> `anchor_sweep()` admits can fail the band fit there. Only channel 1 (2 lines) can, which is
+> where the refuse fixture is authored. The obligation is real — it is just that today it
+> bites on the narrow channel and via the seeded-headroom bound, not on channel 0's
+> amplitude.
+
 **(b) The capability gate.** `CAP_ANCHOR_MOTION` (`$0100`) must be raised in the game's
 `SCANLINE_CAPS`. sonic4 is `$01DE` (raised); demo is `0` (not). The asymmetry matters and is
 deliberate: `Effects_InstallPreset`'s **seed is NOT capability-gated** (34 bytes paid by

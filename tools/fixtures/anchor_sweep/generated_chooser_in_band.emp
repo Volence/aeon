@@ -1,0 +1,29 @@
+// FIXTURE — NOT A BUILD INPUT. Read only by tools/test_anchor_sweep_band.py.
+//
+// The ACCEPT half of the generated arm's proof, in the same emitted shape as its refuse
+// twin. A red-first that only ever shows a refusal cannot tell "the arm checks the band"
+// apart from "the arm refuses everything it sees", so this file carries the shipped
+// hand-authored sweep — `OJZ_Preset_Sec0` channel 0, `anchor_sweep(amp_shift: 4,
+// period_shift: 1)` seeded at world Y 224 — re-expressed as a chooser body. The scanner must
+// return ZERO violations for it: band fit, channel liveness and seeded headroom all hold.
+//
+// Its in-band-ness is re-derived, not asserted, by
+// `test_the_fixtures_still_straddle_the_real_band`.
+
+module games.sonic4.fixture_effects_editor_in_band in fixture_effects_editor_in_band
+
+use engine.effects.raster_dsl.{anchor_sweep, ANCHOR_MOTION_NONE}
+
+pub comptime fn fx_act1_sec_patch_motion(sec: int, ch: int, hand: int = ANCHOR_MOTION_NONE) -> int {
+    ensure(sec >= 0 && sec < 9, "fx_act1_sec_patch_motion(sec: {sec}): this act has 9 sections")
+    comptime var out = hand
+    if sec == 0 && ch == 0 { out = anchor_sweep(amp_shift: 4, period_shift: 1, phase: 0) }
+    return out
+}
+
+pub comptime fn fx_act1_sec_patch_world_y(sec: int, ch: int, hand: int = $7FFF) -> int {
+    ensure(sec >= 0 && sec < 9, "fx_act1_sec_patch_world_y(sec: {sec}): this act has 9 sections")
+    comptime var out = hand
+    if sec == 0 && ch == 0 { out = 224 }
+    return out
+}

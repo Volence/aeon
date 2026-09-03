@@ -1,0 +1,25 @@
+// FIXTURE — NOT A BUILD INPUT. Read only by tools/test_anchor_sweep_band.py.
+//
+// THE ANTI-SILENCE CASE, and the reason this file exists at all. The generated shape is not
+// settled — step 4 of the authoring-key chain has not been written, so the chooser below is
+// a PREDICTION of what `effects_gen.py` will emit. If the prediction is wrong, the scanner
+// must say "I found a sweep here and could not tell which channel it is on" and FAIL. What
+// it must never do is find nothing and report that every sweep is in band.
+//
+// So: a real `anchor_sweep(...)` that carries no `ch ==` guard the scanner can read. The
+// scanner must classify it UNRESOLVED and refuse, naming this file and the line. If a future
+// generator emits a shape this file's arm cannot parse, this is the failure mode that will
+// be waiting.
+
+module games.sonic4.fixture_effects_editor_unguarded in fixture_effects_editor_unguarded
+
+use engine.effects.raster_dsl.{anchor_sweep, ANCHOR_MOTION_NONE}
+
+// No `ch ==` anywhere: the channel is implied by the array position of the RESULT, which is
+// a shape the chooser arm cannot see and the array arm does not reach (this is not a
+// `patch_motion:` literal).
+pub comptime fn fx_act1_sec_patch_motion_table(sec: int) -> int {
+    comptime var out = ANCHOR_MOTION_NONE
+    if sec == 0 { out = anchor_sweep(amp_shift: 4, period_shift: 1, phase: 0) }
+    return out
+}
