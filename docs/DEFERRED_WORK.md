@@ -20416,3 +20416,43 @@ re-stamping needed.
 rows total, a count rather than a pass/fail measure per the tool's own footnote). Zero
 failing rows, for the first time in this parcel's history — the Z80/phased-VMA fix
 landing is what closed the last one.
+
+## PRESET-ID NAMESPACE COLLISION — `ramp_probe` and `authored_probe` are unqualified in a namespace peer harnesses write into (booked 2026-09-03T21:38:24Z)
+
+**Aurora's finding, against their own tree first, relayed and confirmed here.** Their ramp-control
+harness opens *this* checkout and creates its fixture **through the editor panel**. Its probe id was
+`ramp_probe`. Hours after they wrote it, this lane landed a real
+`games/sonic4/data/editor/effects/presets/ramp_probe.json` (aeon `15c15340`, item 6 step 4) — and
+from that moment the panel's "New" button **did not create a document, it SELECTED this lane's
+committed preset.** All eighteen of their fixture rows were handed a document that was not theirs.
+
+**Nothing was written to this tree** (their harness issues no save; verified untouched). It was
+caught by `[f0]`, their anti-vacuous fixture row, which asserts the fixture IS a bands document with
+an enabled chip *before* any row reads anything. Without that row they would have shipped this lane a
+witness authored on top of this lane's own preset and never known.
+
+**THE EXPOSURE IS SYMMETRIC AND IT IS OURS TO CLOSE.** Five presets live in
+`games/sonic4/data/editor/effects/presets/`. Three are namespaced and safe
+(`ojz_sec3_shimmer`, `ojz_sec5_showcase`, `ojz_sec6_baseswap`). **Two are not: `ramp_probe` and
+`authored_probe`.** Any lane's panel harness authoring either id selects our committed document,
+silently, in exactly the direction that just bit aurora.
+
+**NOT FIXED TODAY, and the blast radius is the reason** — a rename is a parcel, not a rename:
+- `games/sonic4/data/generated/ojz/act1/effects_scenes.emp` — `EditorRaster_OJZ_Act1_ramp_probe`
+  (a `RasterRampProgram` with a CAP_DENSE_TIER ensure) and `EditorRaster_OJZ_Act1_authored_probe`
+- `games/sonic4/test/ojz_scroll_test.emp` — the `use` import and `.raster_table` rows 2 and 4
+- `tools/ramp_authored_witness.py` (names `ramp_probe.json` as its subject),
+  `tools/test_raster_wire_pin.py` (two tests), `tools/test_raster_cycle_table_lint.py`,
+  `tools/test_build_fast_lanes.py`, `tools/effects_gen.py`
+- `ramp_probe` is documented as deliberately UNBOUND from a section (`ojz_scroll_test.emp:131-136`)
+  — a rename must preserve that, not quietly bind it
+
+**UNTIL IT LANDS: `ramp_probe` and `authored_probe` are RESERVED in the shared namespace.** Told to
+aurora and to the hub; aurora's is now `aurora_local_rampctl_probe`.
+
+**THE REUSABLE HALF, and it generalises past these two ids:** a panel's "New" is a namespace **write**
+that reads like a namespace **allocation**. Neither side can see the collision coming, because each
+one's view is locally consistent — their harness saw a document, we saw our file untouched. The only
+thing standing between that and a witness authored on a stranger's file is an **anti-vacuous fixture
+row that checks the fixture's identity before any assertion reads it.** Any fixture in this tree that
+creates a document through the panel needs that row; this lane has not audited which ones have it.
