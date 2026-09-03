@@ -17520,6 +17520,17 @@ panel would be ASSERTING this sentence to an author, and that is the right reaso
    first held-constant run duly showed 151- and 297-pixel spreads on lines 170 and 180 and a clean 16
    on 150. **Sampling only above the control's own boundary is what made the answer legible.** A
    control is only a control where it does nothing.
+   *Operational form, the editor lane's, from this instance:* **when a rule holds in part of the
+   window and fails in the rest with a SHARP EDGE, suspect the control before the subject — a
+   contiguous failure region is usually describing the control's own boundary.**
+
+**AND THE FAMILY, which is the editor lane's generalisation of all three and is worth more than any
+of them: EVERY ONE OF THESE TRAPS PRODUCES A FALSE NEGATIVE.** The vacuous poke read as "the rule is
+false on every scene"; the short sweep read as "no scene reaches per-column"; the contaminated control
+read as "the rule fails at some lines". **This suite's instruments mostly fail by manufacturing
+confident absence, and absence is the finding nobody re-checks** — there is no artifact to re-examine
+and nothing looks wrong. The expensive direction is discarding a true rule while feeling rigorous
+about it.
 
 **And a pattern worth more than either instance: `v_deform` has now produced TWO authoring hazards in
 one day** — it is also the wrong surface for reels (item 10a's artifact, where it samples one shared
