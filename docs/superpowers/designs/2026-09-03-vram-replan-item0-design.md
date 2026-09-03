@@ -101,11 +101,12 @@ zero new VRAM.**
 | 10a | **reels** ("per-strip vertical scroll content") | per-column VSRAM, which **already ships**: `engine/level/parallax.emp:723` `VSCROLL_COL_PAIRS = SCREEN_WIDTH/16 = 20`, with a per-column V-scroll buffer and `VSCROLL_COL19_BG_OFF = 78` | **none** |
 | 10b | **plane-role swap** ("background on Plane A for a set-piece") | swap reg `$02` ↔ reg `$04`. **Both target addresses already exist and are already legal bases** (`$C000` and `$E000` are both `$2000`-aligned). The work is re-plumbing the scroll feeds (HScroll table is A/B-interleaved per line; VSRAM even/odd) and the plane-buffer write targets — code, not tiles | **none** |
 | 10c | **window as a third layer** | a window nametable that is not aliasing Plane B, based on a `$1000` boundary. **⚠ but see §2.1 — the window is not additive** | **yes** |
-| 11a | **mid-frame base change, as a mechanism** | re-point reg `$02` (or `$04`) partway down the frame at an address that already holds a valid nametable — e.g. point Plane A at `$E000` at scanline S so the bottom of the screen draws Plane B's map in the Plane-A layer. **This is Batman's trick and it is demonstrable today with zero tiles.** | **none** |
-| 11b | **frame swap / Plane Z** (a *distinct third picture*, "a 48-px strip in a spare nametable shown by re-pointing Plane B's base at a scanline") | a `$2000`-aligned base (for reg `$02`/`$04`) holding content nothing else owns | **yes** |
+| 11a | **mid-frame base change, as a mechanism** | re-point reg `$02` (or `$04`) partway down the frame at an address that already holds a valid nametable — e.g. point Plane A at `$E000` at scanline S so the bottom of the screen draws Plane B's map in the Plane-A layer. **This is Batman's trick, the op that delivers it already ships (§2.0), and it is demonstrable today with zero tiles and zero new engine code.** | **none** |
+| 11b | **frame swap / Plane Z** (a *distinct third picture*, "a 48-px strip in a spare nametable shown by re-pointing Plane B's base at a scanline") | a `$2000`-aligned base (for reg `$02`/`$04`) holding content nothing else owns. The *delivery* is `SetReg` / `Set_VDP_Reg`, both shipped (§2.0) — only the **content** is missing | **yes** |
 
 **So the split is real and it is worth acting on.** Item 10 is two-thirds free today. Item 11's
-*mechanism* is free today; only its *content* costs. And critically:
+*mechanism* is not merely free — it is already built (§2.0); only its *content* costs. And
+critically:
 
 > **10c wants a `$1000`-aligned base. 11b wants a `$2000`-aligned base. A `$2000`-aligned base
 > is also `$1000`-aligned. One 128-tile run starting at a `$2000` boundary satisfies both.**
@@ -126,6 +127,51 @@ re-derive them and cannot transcribe them wrong):
 Note what the first two rows say: **10b's plane-role swap is `$30`↔`$38` on `$02` and
 `$07`↔`$06` on `$04`, and 11a's mid-frame proof is one write of `$38` to reg `$02`.** Every
 byte those two sub-features need already has a legal target in today's map.
+
+### 2.0 The delivery mechanism for items 10b/11a/11b already ships. Only the content is missing.
+
+This was not expected and it changes the sequencing more than anything else in this document.
+The engine already has both halves of "write a VDP base register at a chosen moment":
+
+- **Mid-frame.** `engine/effects/raster.emp:118` defines `OP_SET_REG` — a sparse HInt raster op
+  whose whole argument is *"`dc.w $8xxx` — one VDP register word"* (`raster.emp:80`), written
+  straight to `VDP_CTRL` from `Raster_HInt`'s `.op_set_reg`. It is exposed to authoring as
+  `RasterOp.SetReg(int)` (`engine/effects/raster_dsl.emp:131, 207`) and it is the **cheapest op
+  in the dispatcher** — `OP_SET_REG == 0` is load-bearing so the op fetch's own `move.w` decides
+  it on the Z flag with no compare at all (`raster.emp:111-120`).
+- **Per-frame (settled).** `Set_VDP_Reg` (`engine/system/vdp_init.emp:114`) writes the shadow;
+  `Flush_VDP_Shadow` (`:73`) re-blits it at VBlank.
+
+And the register in question is shadowed. `engine/structs.emp:373-393` — `VdpShadow` covers all
+19 registers `$00`-`$12` by name, **including `vdp_plane_a` (`$02`), `vdp_window` (`$03`),
+`vdp_plane_b` (`$04`), `vdp_plane_size` (`$10`) and `vdp_window_h`/`vdp_window_v`
+(`$11`/`$12`)**. Two consequences, both good:
+
+1. **A mid-frame base change self-restores at frame top, for free.** `raster.emp:61-68` states
+   the design: programs used to carry paired reset words, and that mechanism was *deleted*
+   because *"Flush_VDP_Shadow now re-blits ALL 19 shadowed VDP registers from VDP_Shadow_Table
+   unconditionally every VBlank, which restores every register a mid-frame op touched … without
+   the program having to name it. Deleting the mechanism is what lets two independently-authored
+   effects touch the same register and simply compose."* A per-band `SetReg($8238)` is therefore
+   already safe and already composable with every other authored effect.
+2. **The two halves of item 11 use different doors, and the file already says which.**
+   `raster.emp:68-69`: *"A register change meant to SURVIVE the frame is settled state, not a
+   raster op: `Set_VDP_Reg` … writes the shadow and the flush delivers it."* So item 11's
+   *frame* swap is a `Set_VDP_Reg` call and its *mid-frame* swap is a `SetReg` op. Neither is
+   new work.
+
+**Cost check.** A `SetReg` is one `move.w` to `VDP_CTRL`. The engine's HBlank write window is
+measured at **122.9 cycles** (`docs/benchmarks/scanline-p2/HBLANK-WINDOW-SWEEP-RESULTS.md`,
+2026-08-19 sweep), and the deadline Genesis Plus GX models for a same-line base change is ~860
+master cycles ≈ 122 68000 cycles (§10.1). *These two figures are not independent evidence of
+each other* — both are essentially "how long HBlank is in 68000 cycles" — but a single register
+write is an order of magnitude inside either, so the budget is not the constraint. The
+per-fire ceiling is 4 ops (`raster_dsl.emp:415`) and *"the richest fire anything has ever run is
+two ops."*
+
+**So item 11 is not blocked on a strip streamer or a new opcode.** It is blocked on one thing
+only: a base address holding a picture nothing else owns. That is what §3 buys, and it is why
+§4 recommends proving 11a *first*, on `$E000`, with an op that already exists.
 
 ### 2.1 ⚠ The window is not a third layer. It is a region-exclusive substitute for Plane A.
 
