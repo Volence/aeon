@@ -657,6 +657,29 @@ pub struct RasterRampProgram {
 // sparse tier's single `-1` rule was designed to avoid. Author the line you want the
 // ramp to START at and, for VSRAM, expect the line above it to hold the previous value.
 //
+// ⚠ THE RULE ABOVE MAY BE ONE LINE OPTIMISTIC AT THE TOP, AND `j`'s BASE IS NOT STATED.
+// Measured 2026-09-03 by `tools/ramp_authored_witness.py` arm 4 (two FLAT twins of one
+// record differing only in `rrp_start`, so every line the run reaches moves and no line it
+// misses can): the first VSRAM line a run actually reaches is `top + 2`, on TWO documents
+// with different tops — `aurora_local_rampctl_probe` (top 3 -> first line 5) and
+// `ramp_probe` (top 128 -> first line 130). RAMP-EVIDENCE's published excerpt cannot
+// exclude this: it samples `top` then `top + 4`, never the run's first three rows, and its
+// +0.5 px/line step floors the first two emitted values to 0.
+//
+// NOT CORRECTED HERE, ON PURPOSE. The banner, the ceiling ensure below and
+// docs/benchmarks/effects-p3/RAMP-EVIDENCE.md are three statements of ONE rule and must
+// move together, against a third data point and a CRAM-target probe. Booked in
+// docs/DEFERRED_WORK.md, "RAMP BOUNDARY", with what would settle it. Until then treat the
+// run's first line as UNCERTAIN between `top + 1` and `top + 2`, and note that
+// `top + lines <= 223` therefore admits a last value that may display on line 224 and
+// never be seen: the 220-line aurora document renders 219 lines.
+//
+// AND A SECOND UNDOCUMENTED PROPERTY, measured in the same run: a ramp WRITES the entry, so
+// after the run ends the entry KEEPS its final value and every line below the run stays
+// shifted for the rest of the frame. `ramp_probe`'s 64-line run, declared to end at 192,
+// changes the picture to 223. Correct, and not a bug — but it means "the last line that
+// looks different" is not where a run ENDS.
+//
 // THE MASK IS DERIVED, exactly as the gradient constructor derives it, and for the same
 // reason — a pal_dirty_mask naming the wrong line leaves a mid-frame write latched
 // forever. A ramp pointed at VSRAM writes no palette, so its mask is 0; that is the same

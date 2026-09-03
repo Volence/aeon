@@ -20450,9 +20450,80 @@ silently, in exactly the direction that just bit aurora.
 **UNTIL IT LANDS: `ramp_probe` and `authored_probe` are RESERVED in the shared namespace.** Told to
 aurora and to the hub; aurora's is now `aurora_local_rampctl_probe`.
 
+**UPDATE 2026-09-03, `parcel/aurora-ramp-witness`:** `aurora_local_rampctl_probe` is now a COMMITTED
+preset in this tree (`games/sonic4/data/editor/effects/presets/`), copied byte-for-byte from aurora
+`b7e95791`. The fully-qualified id was kept deliberately and must not be shortened — the whole
+reason it is spelled that way is this entry. The two RESERVED ids are unchanged and still unfixed.
+
 **THE REUSABLE HALF, and it generalises past these two ids:** a panel's "New" is a namespace **write**
 that reads like a namespace **allocation**. Neither side can see the collision coming, because each
 one's view is locally consistent — their harness saw a document, we saw our file untouched. The only
 thing standing between that and a witness authored on a stranger's file is an **anti-vacuous fixture
 row that checks the fixture's identity before any assertion reads it.** Any fixture in this tree that
 creates a document through the panel needs that row; this lane has not audited which ones have it.
+
+---
+
+## RAMP BOUNDARY: the constructor's own N+1 rule is one line optimistic at the TOP (measured 2026-09-03)
+
+**Discharged in the same parcel: the sign half.** `raster_ramp_program` never two's-complement
+encoded a NEGATIVE `start`/`step` into its u32 image fields, so **no ROM could hold a downward
+ramp at all** — sigil refused the emission (`[emit.out-of-range] -98304 does not fit u32`). Fixed
+on `parcel/aurora-ramp-witness` with the tree's own precedent (`scene_hdr`/`pcfg_v_offset`,
+`scene_band`/`bd_rate_1616`) plus a two-directional zero-byte pin. **That part is CLOSED.** What
+follows is what the resulting witness then found, and is NOT closed.
+
+**THE OPEN ITEM.** `raster_ramp_program`'s banner says, and `docs/benchmarks/effects-p3/RAMP-EVIDENCE.md`
+concluded from 74/74 rows:
+
+> value `j` displays on screen line `top + j + 1` for a **VSRAM** target
+
+Measured with `tools/ramp_authored_witness.py` arm 4 — two FLAT twins (step 0) of the same record
+differing only in `rrp_start`, so every line the run reaches takes a constant offset and no line it
+misses can move — **the first line a VSRAM ramp reaches is `top + 2`, not `top + 1`:**
+
+| document | `top` | derived first line | MEASURED first line | span measured |
+|---|---|---|---|---|
+| `aurora_local_rampctl_probe` (top 3, 220 lines, -1.5 px/line) | 3 | 4 | **5** | 5..223, 219 contiguous, 0 gaps |
+| `ramp_probe` (top 128, 64 lines, +1.5 px/line) | 128 | 129 | **130** | first reached line 130 |
+
+Two documents, two different `top`s, the same `+1`. VDP shadow reg `$0B` read `$03` (full-screen
+vertical scroll) at capture in every instance, so `addr 2` really is plane B full width and the
+offset really is a whole-plane shear. No reset/restore/checkpoint/`run_to` anywhere; each arm gets
+its own instance booted paused at frame 0 and the frame index is bracketed and printed.
+
+**WHY RAMP-EVIDENCE COULD NOT HAVE SEEN THIS, which is a claim about its published sample and not
+a claim that it was careless.** Its excerpt samples rows 112, 116, 124, 140, 156, 172, 184 — `top`
+and then nothing until `top + 4`; the run's first three rows are absent. And its step is **+0.5
+px/line**, so the first two emitted values floor to 0 and are pixel-identical to an untouched line.
+A one-line boundary shift is structurally invisible to that combination. Whether its full 74-row
+set also misses it is NOT established here — someone should check, because if it does not, then
+two instruments disagree and that is a different and larger problem.
+
+**MECHANISM IS OPEN AND IS NOT ASSERTED.** The interpreter advances the accumulator BEFORE emitting
+(`move.l Raster_Ramp_Acc,d1; add.l Raster_Ramp_Step,d1; ...; swap d1`), so the first emitted value is
+`start + step` and the emitted sequence is naturally 1-based; a rule written for a 0-based `j` would
+land exactly one line early. That reconciles both numbers and it is a STORY — the measurement above
+does not depend on it and does not establish it. Do not write it into the constructor as fact
+without an experiment that could have refuted it.
+
+**THE CONSEQUENCE AN AUTHOR MEETS.** `ensure(top + lines <= 223)` admits a run whose LAST value can
+never be seen. `aurora_local_rampctl_probe` authors 220 lines and **219 of them are visible**: first
+at 5, contiguous to 223, zero interior gaps. Under the measured `top + 2` first line the 220th value
+displays on line 224, which does not exist. (Derived from the measured first line plus contiguity —
+the instrument cannot distinguish "written and off-screen" from "never written", because a dense
+VSRAM run's last value PERSISTS to the bottom of the frame either way.) If the `+1` is confirmed,
+the ceiling ensure should become `top + lines <= 222` and say why, or the constructor should stop
+promising a line it does not deliver.
+
+**PERSISTENCE IS A SECOND THING THIS TIER DOES NOT DOCUMENT.** A ramp WRITES the VSRAM entry, so
+after the run ends the entry keeps its final value for the rest of the frame and every line below
+the run is shifted too. Measured on `ramp_probe`: a 64-line run declared to end at 192 changes the
+picture all the way to 223. This is correct behaviour and completely undocumented; it is also why
+"last differing line" is not a measurement of where a run ENDS.
+
+**WHAT TO DO.** (a) Re-run the boundary probe on a third `top` to make it three points, ideally with
+a CRAM target too — the rule is stated for both tiers and only the VSRAM half has been probed here.
+(b) Reconcile against RAMP-EVIDENCE's full row set. (c) Then, and only then, correct the
+constructor's banner, the evidence doc and the ceiling ensure together, in one parcel, since they
+are three statements of one rule.
