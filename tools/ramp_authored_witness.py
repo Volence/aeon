@@ -263,26 +263,56 @@ def run(rom, lst, sym, install=None, patch=None):
                 done += n
                 await mark("settle+%d" % done, r)
             if patch is not None:
+                # THE TWIN LIVES IN WORK RAM, NOT IN A PATCHED ROM — MEASURED, NOT CHOSEN.
+                # The first shape of this arm patched `rrp_step` in place at the program's
+                # own ROM address; the Rust core refuses that outright:
+                #   [-32004] 0x00013BD0: only the work-RAM window ($E00000-$FFFFFF) is
+                #            writable; ROM and I/O writes are refused
+                # So the twin is WRITTEN INTO RAM and `Raster_Pending` is pointed at it.
+                # That is sound for the same reason the install itself is: `Raster_Install`
+                # only stores a pointer, and the walker reads the record through a1 from
+                # wherever it points. It also makes the twin a strictly better control than
+                # a ROM patch would have been — the SUBJECT's bytes are never touched, so
+                # arm 2 and arm 3 are two installs of two records rather than one record
+                # mutated between runs.
                 addr, data = patch
+                # `bytes` must carry the "0x" prefix (protocol §2.5; measured -32602 without
+                # it).
                 await b.call("emulator/write_memory",
-                             {"addr": "0x%08X" % bus24(addr), "bytes": data.hex()})
+                             {"addr": "0x%08X" % bus24(addr), "bytes": "0x" + data.hex()})
                 back = (await b.call("emulator/read_memory",
                                      {"addr": "0x%08X" % bus24(addr),
                                       "len": len(data)}))["bytes"]
-                if bytes.fromhex(back.replace("0x", "")) != data:
+                if bytes.fromhex(back[2:] if back.startswith("0x") else back) != data:
                     raise SystemExit(
-                        "ARM 3 CANNOT BE STAGED: the step-0 twin is made by patching the "
-                        "program's own rrp_step in the emulator's ROM image, and the "
-                        "read-back does not match what was written (wrote %s, read %s). "
-                        "This server does not honour a debug write to ROM. That is a "
-                        "MISSING MEASUREMENT, not a pass — arm 2 alone cannot separate the "
-                        "ramp from the program replacement." % (data.hex(), back))
+                        "ARM 3 CANNOT BE STAGED: the step-0 twin was written to scratch RAM "
+                        "at $%06X and the read-back does not match (wrote %s, read %s). "
+                        "That is a MISSING MEASUREMENT, not a pass — arm 2 alone cannot "
+                        "separate the ramp from the program replacement."
+                        % (bus24(addr), data.hex(), back))
             if install is not None:
                 await b.call("emulator/write_memory",
                              {"addr": "0x%08X" % bus24(sym["Raster_Pending"]),
                               "bytes": "0x%08X" % install})
             r = await b.call("emulator/run_frames", {"frames": AFTER})
             await mark("after-install", r)
+            if patch is not None:
+                # THE SCRATCH MUST STILL HOLD THE TWIN. It sits above Game_RAM_End and well
+                # below the initial stack pointer, but "well below" is an argument and this
+                # is a measurement: a clobbered record would have the walker reading
+                # whatever landed there, and the resulting line diff would be attributed to
+                # the step.
+                addr, data = patch
+                back = (await b.call("emulator/read_memory",
+                                     {"addr": "0x%08X" % bus24(addr),
+                                      "len": len(data)}))["bytes"]
+                if bytes.fromhex(back[2:] if back.startswith("0x") else back) != data:
+                    raise SystemExit(
+                        "ARM 3 IS VOID: the step-0 twin at $%06X was CLOBBERED during the "
+                        "%d frames it was live (wrote %s, read %s). Something in the game "
+                        "owns that scratch after all; pick another address rather than "
+                        "reporting a diff produced by whatever overwrote it."
+                        % (bus24(addr), AFTER, data.hex(), back))
             prog = (await b.call("emulator/read_memory",
                                  {"symbol": "Raster_Program", "len": 4}))["bytes"]
             # ⚠ RE-READ AT THE POINT OF USE, not once at boot. `addr 2` is "plane B, full
@@ -413,8 +443,24 @@ def main():
     twin = bytearray(blob)
     off = field_offset("rrp_step")
     twin[off:off + 4] = (0).to_bytes(4, "big")
-    p2, m2, flat, t2 = run(str(rom), str(lst), sym, install=at, patch=(at, bytes(twin)))
-    print("  twin Raster_Program = %s   (same address; the four rrp_step bytes are zeroed)"
+    # WHERE THE TWIN GOES, DERIVED FROM THE TREE rather than picked. `Game_RAM_End` is the
+    # last address any RAM region claims; the ROM header's first longword is the initial
+    # stack pointer, and the stack grows DOWN from it. The scratch sits a page above the
+    # one and thousands of bytes below the other, and both margins are asserted here rather
+    # than asserted in prose.
+    ram_end = sym["Game_RAM_End"]
+    init_sp = int.from_bytes(rom.read_bytes()[0:4], "big")
+    scratch = (ram_end + 0x1DA) & ~1          # a page-ish above the last claimed byte, even
+    if not (ram_end < scratch and scratch + REC_SIZE + 0x800 < init_sp):
+        raise SystemExit(
+            "no safe scratch for the step-0 twin: Game_RAM_End $%08X, initial SP $%08X, "
+            "candidate $%08X. Refusing to place a control record where it might be the "
+            "stack or a RAM region." % (ram_end, init_sp, scratch))
+    print("  twin at $%08X   (Game_RAM_End $%08X, initial SP $%08X, %d bytes of stack "
+          "headroom below it)" % (scratch, ram_end, init_sp, init_sp - scratch))
+    p2, m2, flat, t2 = run(str(rom), str(lst), sym, install=scratch,
+                           patch=(scratch, bytes(twin)))
+    print("  twin Raster_Program = %s   (the subject's own 34 bytes with rrp_step zeroed)"
           % p2)
     print("  VDP shadow reg $0B at capture: %s" % m2)
     print("  frame bracket: %s .. %s   (strictly advancing, no rewind)" % (t2[0], t2[-1]))
@@ -427,7 +473,57 @@ def main():
     print("    outside it                        : %d %s"
           % (len(d_out), sorted(d_out) if len(d_out) <= 12 else ""))
     print("  first line attributable to the STEP : %s" % (diff[0] if diff else None))
+    print("  last  line attributable to the STEP : %s" % (diff[-1] if diff else None))
     print("  -> the two programs differ in FOUR BYTES, so every line above is the step.")
+    print()
+
+    # -----------------------------------------------------------------------
+    # ARM 4 — WHICH LINES DOES THE RUN ACTUALLY REACH?
+    #
+    # Arms 2 and 3 both answer "where did the RAMP change the picture", and a ramp can be
+    # visually degenerate on a line: at the top of a run the accumulator is still small, so
+    # a line the run genuinely writes can render IDENTICALLY to one it does not. That is a
+    # real ambiguity and it is not resolvable by looking harder at arm 3 — "changed" and
+    # "written" are different questions.
+    #
+    # So arm 4 asks the WRITTEN question directly, with two FLAT twins: both the subject's
+    # own record with step 0, differing only in `rrp_start`. Every line the run reaches gets
+    # a constant offset, and the two constants differ, so EVERY reached line differs and no
+    # unreached line can. The first and last differing lines ARE the displayed span, with no
+    # dependence on the document's own step being visible at any particular line.
+    #
+    # The offset is -37 px and the oddness is deliberate: plane B is 64 tiles tall and a
+    # round multiple of the 8-pixel tile height could alias against a vertically periodic
+    # background and produce a false "unreached".
+    print("ARM 4  THE SPAN ITSELF  (two FLAT twins, step 0, differing only in rrp_start)")
+    probe_px = -37
+    flat_a = bytearray(blob)
+    flat_a[field_offset("rrp_step"):field_offset("rrp_step") + 4] = (0).to_bytes(4, "big")
+    flat_a[field_offset("rrp_start"):field_offset("rrp_start") + 4] = (0).to_bytes(4, "big")
+    flat_b = bytearray(flat_a)
+    flat_b[field_offset("rrp_start"):field_offset("rrp_start") + 4] =         u32_image(fp16(probe_px, 0)).to_bytes(4, "big")
+    pa, ma, rows_a, ta = run(str(rom), str(lst), sym, install=scratch,
+                             patch=(scratch, bytes(flat_a)))
+    pb, mb, rows_b, tb = run(str(rom), str(lst), sym, install=scratch,
+                             patch=(scratch, bytes(flat_b)))
+    print("  VDP shadow reg $0B at capture: %s / %s" % (ma, mb))
+    print("  frame brackets: %s..%s and %s..%s   (strictly advancing, no rewind)"
+          % (ta[0], ta[-1], tb[0], tb[-1]))
+    reached = [l for (l, x), (_, y) in zip(rows_a, rows_b) if x != y]
+    if not reached:
+        print("  *** the two flat twins are IDENTICAL on every line — the run reached "
+              "nothing, or a %+d px plane-B offset is invisible in this scene. This arm "
+              "measured NOTHING; do not read it as a span of zero." % probe_px)
+    else:
+        gaps = [l for l in range(reached[0], reached[-1] + 1) if l not in set(reached)]
+        print("  offset %+d px changes lines %d..%d, %d of them, %d interior gap(s) %s"
+              % (probe_px, reached[0], reached[-1], len(reached), len(gaps),
+                 gaps if len(gaps) <= 12 else ""))
+        print("  MEASURED DISPLAY SPAN  : %d..%d" % (reached[0], reached[-1]))
+        print("  DERIVED DISPLAY SPAN   : %d..%d" % (d_lo, d_hi))
+        print("  agreement              : %s"
+              % ("EXACT" if (reached[0], reached[-1]) == (d_lo, d_hi)
+                 else "top %+d, bottom %+d" % (reached[0] - d_lo, reached[-1] - d_hi)))
     return 0
 
 
