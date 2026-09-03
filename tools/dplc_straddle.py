@@ -742,7 +742,7 @@ def reachable_sets(subs, rom, labels):
     bind = subject_bindings()
     climb = climb_frames()
 
-    notes, undet_all, per_subject_undet = [], [], {s["name"]: [] for s in subs}
+    notes, undet_all = [], []
 
     # --- the scripts, out of the ROM -------------------------------------
     scripts = {}
@@ -838,11 +838,10 @@ def reachable_sets(subs, rom, labels):
     out = {}
     for s in subs:
         frames = s.pop("_reach", set())
-        undet = per_subject_undet[s["name"]] + undet_all
-        if undet:
+        if undet_all:
             frames = set(range(len(s["frames"])))     # fail SAFE: widen, never narrow
         oob = sorted(f for f in frames if f >= len(s["frames"]))
-        out[s["name"]] = {"frames": frames, "undetermined": undet,
+        out[s["name"]] = {"frames": frames, "undetermined": list(undet_all),
                           "out_of_range": oob, "notes": notes}
     return out
 
@@ -916,6 +915,10 @@ def report(lst_path, out=sys.stdout, sweep=None, sweep_range=(-512, 512),
           f"DPLC_ENTRY_RESERVE={reserve}  DMA source boundary=0x{boundary:X}", file=out)
     print(f"  the wall the ratchet aims at: {slots} - {reserve} = {slots - reserve} slots", file=out)
     print(f"  reachability walked out of {rom_path}", file=out)
+    # The derivations the reachable set rests on, said out loud: a reader who
+    # doubts a frame's classification can check these before reading the code.
+    for n in dict.fromkeys(reach[subs[0]["name"]]["notes"]):
+        print(f"    derived: {n}", file=out)
 
     worst = 0
     worst_reach_slots = 0
