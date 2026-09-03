@@ -122,6 +122,27 @@ about art, and three of the four things that have to be true for it are the writ
    else is admitted, deliberately: the shipped horizontal bands are composites rather than
    pure rolls, and demanding rolls would outlaw the same technique on the new axis before
    anyone has used it.
+   **⚠ THE CHECK IS NARROWER THAN THIS SENTENCE PROMISES, AND THE GAP IS MEASURED** (found by
+   the aurora lane, 2026-09-03, against a materialised copy of this tree with a control).
+   `validate_band_phase_axis` additionally requires **column-major slots**, because
+   `_band_pixels` decodes every bank column-major unconditionally. On a **row-major** band it
+   therefore assembles a permutation of the real picture, a true x-roll is no longer an x-roll
+   in the decoded grid, and the guard **stops firing on exactly the case it exists to refuse**:
+   ```
+   column-major slots + x-rolled phases  ->  REFUSED   (the control: fixture well-formed, guard reachable)
+   row-major    slots + x-rolled phases  ->  ADMITTED  (the shimmer ships)
+   ```
+   **So the sentence above is conditioned on the PHASES alone and the code is conditioned on
+   phases AND slot order.** A writer is entitled to rely on the sentence; until the code is
+   widened, rely on this paragraph instead — the check catches a writer that is horizontal in
+   BOTH respects, not one that gets slot order right and phases wrong.
+   **And note WHY the docstring's own argument did not protect it**, because the shape recurs:
+   it says *"a consistent relabelling of the slots cannot turn a non-translation into one"* —
+   which is TRUE, and rules out FALSE POSITIVES. The exposure is a FALSE NEGATIVE: a relabelling
+   turns a translation INTO a non-translation. A correct sentence certifying the half nobody was
+   worried about.
+   *Population is empty today, so nothing ships broken — but the first vertical band anyone
+   authors is precisely what would land on this.*
 3. **`axis` must survive a round trip.** A writer that loads a document, edits something
    else and saves it back must preserve the key. Dropping it silently reverts the band to
    horizontal, and the guard in (2) cannot see a band that no longer claims to be vertical.
