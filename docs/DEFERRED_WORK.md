@@ -16604,7 +16604,7 @@ Item 2 is the only one that does not.
 | 5 | `variants` / `cycles` lowering | **M** | yes, paired | ~~Needs the item-13 contract CR before aurora can author against it.~~ ~~**UNBLOCKED 2026-08-30 — the contract CR LANDED.**~~ **DONE 2026-09-02, both halves.** The hub's is `AURORA_EFFECTS_SCHEMA.md` §7.2 + the two committed schema properties; aeon's is `parcel/item5-cycles-variants` — the generator accepts both keys, lowers them through `variant()` / `cycle_scriptN()`, emits two more always-emitted choosers, and `tools/editor_palette_golden.py` reads the emitted records back out of the built ROM on every canonical sonic4 build. What is NOT done are the five riders §7.2 books; see the item-5 block below. |
 | 6 | Dense per-line VSRAM | **L** | yes, paired | Booked in full in the DENSE PER-LINE VSRAM entry above. **Not blocked by the stream-register card** — the conservative model ships today and the item can start on it; the ruling only decides whether the faster path is taken. Surface the card before the budget check concludes, not before the item starts. |
 | 7 | Vertical bob | **S-M** | yes, paired | **BUILT — `parcel/vertical-bob`, 2026-08-30, unlanded.** A scene-level term on `Parallax_Step5_Vscroll`'s `.v_pack`. 40 bytes of code, ZERO config bytes (the packed nibble pair claimed `pcfg_pad_29`), EndOfRom unmoved in all four shapes. Riders booked below. |
-| 8 | BgAnim vertical band motion | **M** | yes, paired | BgAnim procs are live and driven today. |
+| 8 | BgAnim vertical band motion | **M** | **no — zero ROM bytes** | **ENGINE HALF DONE 2026-09-02, `parcel/bganim-band-motion`; the ON-SCREEN half is BLOCKED and the reason is measured** — see the item-8 block below. The pricing was written on the belief that a vertical shift needed a different DMA shape; it does not, `BgAnim_Update` was always axis-agnostic, and the parcel moves no engine byte at all. So this row does NOT pair with sigil. |
 | 9 | Hydrocity row remap | **L** | yes, paired | Zone-specific by the survey's own estimate; he wants it; sequenced last by his preference. |
 | 10 | Reels / plane-role swap / window as third layer | **L** | yes, paired | **BLOCKED — see item 0 below.** |
 | 11 | Nametable-base changes (frame swap, Plane Z, Batman mid-frame) | **L** | yes, paired | **BLOCKED — same item 0.** |
@@ -16862,6 +16862,114 @@ because it is the only item that can return information without moving a byte.*
 - Item 6's stream register — a card, but NOT a blocker (see the row).
 - Item 4's P3 both-edges — on demand only.
 - Item 9's relatives — after the mechanism exists.
+
+## EFFECTS-W1 ITEM 8 — THE ENGINE HALF IS DONE AND MOVES ZERO BYTES; THE ON-SCREEN HALF IS BLOCKED ON TWO MEASURED THINGS (2026-09-02, `parcel/bganim-band-motion`)
+
+**The item, verbatim** (empyrean `docs/superpowers/specs/2026-08-29-effects-definition-of-done.md:37`):
+*"**BgAnim vertical band motion** (the owner's 2026-08-27 ask, aurora row 55)."* The ask
+itself is aurora `docs/ROADMAP.md` row 55, read firsthand: *"A band cannot scroll VERTICALLY,
+and the owner wants it."* Row 55 costs it **M (aeon) + S (aurora)** and hands aeon one
+question: *"whether a vertical shift can reuse the column rotate at all or needs a different
+DMA shape."*
+
+### The answer to row 55's question: REUSE, EXACTLY, with no engine byte moved
+
+`BgAnim_Update` never knew which way a band moves. It picks bank `step & 7` and rotates the
+band's byte image by `(step >> 3) << col_shift`, masking the step with `step_mask`. **Both
+fields are units, not axes** — `col_shift` is log2 of the rotation UNIT in bytes and
+`step_mask` is the pattern PERIOD in px minus 1 — and the one condition the rotate needs is
+satisfied on both axes, which is what keeps its piece-1 length positive:
+
+| axis | rotation unit | period | slot order in the band | `units * unit_bytes` |
+|---|---|---|---|---|
+| horizontal | `rows * 32` B | `cols * 8` px | column-major, `base + c*rows + r` | `cols * rows * 32` ✓ |
+| vertical | `cols * 32` B | `rows * 8` px | **row-major**, `base + r*cols + c` | `cols * rows * 32` ✓ |
+
+What forbade vertical until today was not the DMA. It was two lines in
+`tools/inject_editor_bg.py` — `assert (1 << col_shift) == rows*32` and
+`assert pattern_px == cols * 8` — which spelled the horizontal reading of both fields as if
+it were the only one. **The whole engine change is comments.** `engine/level/bg_anim.emp` is
+byte-identical; the parcel's ROM output is byte-identical in all four shapes.
+
+⚠ **The brief this was built from said item 8 was "a motion term plus authoring", by analogy
+with items 3 and 7. It is not.** BgAnim has nothing to do with `scene_dsl` — no `SceneDrift`,
+no `Effects_World_Y`, no scene at all. Its authoring surface is the act's BG override
+document (`games/sonic4/data/editor_bg_override.json`) and its consumer contract is aeon's
+own `tools/EFFECTS_CONSUMER_CONTRACT.md` §1.2, **not** an empyrean schema — which is why this
+item did NOT hit the wall items 3 and 4 hit.
+
+### What landed
+
+- **`axis` is a band key**, default `"horizontal"`, so every existing document emits the same
+  record and the same banks. Verified on the live act: the six header words and all 8,192
+  bytes of `bg_anim_banks.bin` are byte-identical; the only diff in the whole generated tree
+  is the emitted module's comment, which now names the axis and the direction because six
+  numbers cannot.
+- **The power-of-two constraint MOVES rather than doubles** — `rows` horizontal, `cols`
+  vertical — and the refusal names the key the author must change. `pattern_px` becomes the
+  period *along the axis*.
+- **`validate_band_phase_axis`**, a narrow guard whose **population is empty today** and which
+  is a guard for the first vertical band rather than a check on anything shipped. It refuses a
+  vertical band whose phases are exact HORIZONTAL translations of phase 0 and are not also
+  vertical ones — i.e. one regenerated by a horizontal-only shift-fill while `axis: vertical`
+  stayed in the file. Deliberately NOT an exact-roll check: **measured 2026-09-02, the shipped
+  horizontal bands are composites, not rolls** (the historical act's firefly band is a
+  brightness triangle, `forest_bg_gen.py` FF_TRI; only the live aurora-authored canopy is an
+  exact roll, `phase0[y][(x+k) % 64]`), so demanding rolls would outlaw the same technique on
+  the new axis before anyone has used it.
+- **13 tests** in `tools/test_bg_emit.py::TestBgAnimMotionAxis`, run by build.sh's pytest lane.
+  Red-first, four mutations each shown on disk and restored from the committed baseline:
+  swapping which dimension feeds the unit → 6 red; ignoring the `axis` key → 9 red; dropping
+  the guard call → **exactly 1** red; making the guard unconditional → **exactly 1** red (a
+  different one). The last two are what say the guard's two halves each discriminate.
+
+### The on-screen half is BLOCKED, and both reasons are numbers rather than judgement
+
+The DoD wants a vertical band *visible in the OJZ scroll test*. That needs art, and art is
+where this stops:
+
+1. **No writer in either repo can produce vertical phases.** Aurora is the author of `anims`
+   (owner decision d-14) and its shift-fill derives bank k as phase 0 scrolled k px within the
+   pattern WIDTH. The column-wise twin is row 55's **S (aurora)** and is **not built**. Aeon
+   synthesising the phases instead would put a band into the shared document that the editor
+   silently destroys the next time anyone touches it — the guard above turns that into a build
+   refusal, but a refusal is not a band on screen.
+2. **A second full-size band does not fit, and the ceiling says so in advance.** `ojz_bg_anim`
+   holds the table and the bank blob for the whole act under the d-9 ROM-room ceiling of
+   **12,288 B**. The live act sits at **8,238 B** (measured, this parcel's emitter run:
+   `2 + 44 + 8192`). That leaves **4,050 B**, and a band costs `8 phases * tiles * 32` = 256 B
+   per tile — so a second band is capped at **15 tiles**. The canopy is 32. The ceiling block
+   in `inject_editor_bg.py` already said the shape of this: *"still short of two 8 KB bands
+   (16,384 > 15,152), which remains the re-layout's job."*
+
+   A *small* vertical band does fit — e.g. 4 cols x 3 rows = 12 tiles = 3,072 B, total 11,354 B
+   — so this is a real option, not an impossibility. It costs inserting 12 slots at the front
+   of a 110 KB authored document and renumbering all 4,096 layout words, i.e. rewriting the
+   owner's background, blind. `forest_bg_gen.py` already **refuses by name** to rewrite a
+   document carrying `anims`; that refusal is the repo's own statement that this document is
+   not a tool's to regenerate.
+
+**What closes it**, in the order it wants doing: aurora builds row 55's column-wise
+shift-fill (S) → an author places a vertical band in the editor → `axis: "vertical"` rides
+the document through the emitter that now understands it → the ceiling decides how big it
+can be, and if the owner wants a full-size one, the "banks late, data unbounded" re-layout is
+the prerequisite, not a bigger number.
+
+### Left open on purpose
+
+- **`direction`.** Bank k is phase 0 moved k px toward *decreasing* coordinate and the coarse
+  rotate carries the same sign, so an increasing driver scrolls horizontal LEFT and vertical
+  UP. Downward or rightward needs the step reversed on its ring (~a few bytes in
+  `BgAnim_Update` plus a record field, so it DOES pair with sigil). Not built, because nothing
+  authored wants it yet and the record has no spare word.
+- **The slot-order obligation is unchecked.** A vertical band's `layout` must place its slots
+  row-major, and nothing can verify it: a band's slots are deduped against the static blob and
+  appear at many cells, so a scroll and a shimmer are indistinguishable to the emitter. Booked
+  as a writer obligation in `tools/EFFECTS_CONSUMER_CONTRACT.md` §1.2 rather than pretended
+  away.
+- **NOT SEEN IN MOTION.** No emulator was touched by this parcel and none could be. Nothing
+  vertical exists to look at yet — see the blocked half — but the byte-identity claim across
+  the four shapes is a build fact, not a screenshot.
 
 ## ⚠ AN OPEN MEASUREMENT THREAD WITH SIGIL THAT HAS NO IN-TREE RECORD (2026-08-30)
 

@@ -77,9 +77,10 @@ raising it is a three-file engine change, never a writer decision).
 
 | Key | Line(s) | Required | Read as / constraint |
 |---|---|---|---|
-| `cols` | `:85` | yes | band width in tiles |
-| `rows` | `:85` | yes | band height in tiles; `col_bytes = rows * 32` must be a power of two (`:88-90`) |
-| `pattern_px` | `:87`, `:91` | yes | must equal `cols * 8` |
+| `cols` | `:85` | yes | band width in tiles; on a **vertical** band `cols * 32` is the rotation unit and must be a power of two |
+| `rows` | `:85` | yes | band height in tiles; on a **horizontal** band `rows * 32` is the rotation unit and must be a power of two |
+| `axis` | `band_axis_geometry` | no (default `"horizontal"`) | `"horizontal"` or `"vertical"` — which way the band's pattern translates. Any other value is refused by name. **NOT the same thing as `driver`**, which names the SCALAR the step is read from and never an axis |
+| `pattern_px` | `:87`, `:91` | yes | the pattern period **along the axis**: `cols * 8` horizontal, `rows * 8` vertical |
 | `driver` | `:105-106` | no (default `"camera_x"`) | one of `camera_x` / `camera_y` / `timer` (`DRIVERS`, `:69`) |
 | `rate_shift` | `:107` | no (default 2) | 1 px of pattern motion per `1 << rate_shift` driver units |
 | `slot_base` | `:92-93` | no (default = running cursor) | if present MUST equal the running cursor — bands pack contiguously from slot 0 in list order |
@@ -88,6 +89,37 @@ raising it is a three-file engine change, never a writer decision).
 Derived, not read: `step_mask` (= `pattern_px - 1`), `col_shift`, `tile_count`,
 `bank_offsets`. Writers must not emit them; the consumer ignores unknown keys today, but
 the drift rule above governs — do not rely on ignored keys staying ignored.
+
+#### `axis` — three writer obligations the consumer CANNOT check (added 2026-09-02)
+
+The engine was always axis-agnostic (`bg_anim.emp`'s header block is the authority):
+`col_shift` is log2 of the rotation UNIT in bytes and `step_mask` is the period in px
+minus 1, and the vertical arm reuses the same whole-unit DMA rotate with no engine byte
+changed. That makes `axis` cheap to add and it also means **the axis is a declaration
+about art, and three of the four things that have to be true for it are the writer's.**
+
+1. **Slot order inside the band.** Horizontal wants column-major (slot `base + c*rows + r`
+   at band cell `(c, r)`); vertical wants **row-major** (`base + r*cols + c`). It lives in
+   `layout`, and the same slots read as a scroll under one order and as a shimmer under
+   the other. The consumer cannot tell them apart — a band's slots are deduped against the
+   static blob and appear at many cells — so nothing checks this.
+2. **The eight phases must be translations along the declared axis.** One narrow case IS
+   refused: a vertical band whose phases are exact HORIZONTAL translations of phase 0 and
+   are not also vertical ones. That is the reachable accident — a horizontal-only
+   shift-fill (aurora ROADMAP row 55: the column-wise twin is costed, **not built**) run
+   over a band someone declared vertical, which bakes clean and ships a shimmer. Anything
+   else is admitted, deliberately: the shipped horizontal bands are composites rather than
+   pure rolls, and demanding rolls would outlaw the same technique on the new axis before
+   anyone has used it.
+3. **`axis` must survive a round trip.** A writer that loads a document, edits something
+   else and saves it back must preserve the key. Dropping it silently reverts the band to
+   horizontal, and the guard in (2) cannot see a band that no longer claims to be vertical.
+
+**Direction is fixed and is not a key.** Bank `k` is phase 0 moved `k` px toward
+decreasing coordinate and the coarse rotate carries the same sign, so an increasing
+driver scrolls a horizontal band LEFT and a vertical band UP. A `direction` key would be
+an engine change (reverse the step on its ring) and is booked in `docs/DEFERRED_WORK.md`,
+not built.
 
 Output contract (aeon-internal, cited for orientation only): 44-byte records LOCKSTEP
 with `engine/level/bg_anim.emp` `struct bganim_band` (**`bg_anim.emp:66`**, its width held
