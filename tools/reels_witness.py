@@ -13,6 +13,29 @@ INSTRUMENT: `Parallax_Vscroll_Column_Buf` (80 bytes: 20 column-pairs x [FG word,
 word]) read directly via `read_memory` on the Rust core, sampled TWICE, N frames apart,
 while `OJZ_Reel_Active` is held nonzero.
 
+THE EXPECTATION IS DERIVED FROM `Lag_Frame_Count`, NOT FROM N ITSELF (measured
+2026-09-03). `OJZ_Reels_Fill` is called once from `GameState_OJZScroll_Update`'s frame
+body (games/sonic4/test/ojz_scroll_test.emp) — that proc has exactly one `rts`, so it
+never skips the call on its own. But the LEVEL frame body only ever runs once per
+COMPLETE VBlank (`VInt_Level`, `VBlank_Ready=1`); whenever a physical VBlank fires while
+the main loop is still mid-frame (`VBlank_Ready=0`), `VInt_Lag` (engine/system/vblank.emp)
+runs instead — critical DMA and controller reads only, no level update, hence no
+`OJZ_Reels_Fill` call — and still ticks `Frame_Counter` (so `run_frames(N)` genuinely
+advances N physical VBlanks every time; nothing is wrong with the harness's frame count).
+`VInt_Lag` also ticks `Lag_Frame_Count` (u32, DEBUG-only, engine/ram.emp), which is
+therefore the exact count of frames in the just-elapsed window where the fill did NOT
+run. Measured directly (`tools/reels_diag.py`-style single-frame stepping cross-checked
+against `Lag_Frame_Count` deltas): requesting N frames yields exactly `N - lag_delta`
+executions of `OJZ_Reels_Fill`, at N=30/60/90 alike, so the two "missing" executions
+this witness used to assume away are two REAL lag frames early in this scene's settle
+window, not a harness artifact — a hardcoded `N - 2` would happen to match today only
+because those two lag frames both land inside every gap tested; a different SETTLE_
+FRAMES, a slower/faster scene, or a future change to the level body's per-frame cost
+would move or multiply them, and `N - 2` would go stale silently. So this witness now
+brackets `Lag_Frame_Count` tightly around the same `run_frames` call it measures across,
+and multiplies each band's speed by `N - lag_delta` (the MEASURED execution count), not
+by N.
+
 THERE IS NO HOTKEY. `OJZ_Reel_Speed`/`OJZ_Reels_Fill`'s own header
 (games/sonic4/data/effects/ojz_effects.emp) records why: `Debug_BandDemoHotkey`'s header
 enumerates every remaining pad chord against this shape and finds none free. So this
@@ -83,30 +106,53 @@ async def run(sock, lst):
             raise RuntimeError(f"read {len(raw)} bytes, wanted {COLUMN_BUF_LEN}")
         return raw
 
+    async def read_lag_count():
+        r = await b.call("emulator/read_memory", {"addr": hex(sym["Lag_Frame_Count"]), "len": 4})
+        raw = bytes.fromhex(r["bytes"].replace("0x", ""))
+        if len(raw) != 4:
+            raise RuntimeError(f"Lag_Frame_Count read {len(raw)} bytes, wanted 4")
+        return int.from_bytes(raw, "big")
+
     active = await b.call("emulator/read_memory", {"addr": hex(sym["OJZ_Reel_Active"]), "len": 1})
     if bytes.fromhex(active["bytes"].replace("0x", ""))[0] == 0:
         return 1, ["OJZ_Reel_Active reads 0 after the write — the poke did not take"]
 
+    lag1 = await read_lag_count()
     buf1 = await sample()
     await b.call("emulator/run_frames", {"frames": SAMPLE_GAP_FRAMES})
+    lag2 = await read_lag_count()
     buf2 = await sample()
 
-    fails = []
-    deltas = []
+    lag_delta = lag2 - lag1
+    if lag_delta < 0:
+        return 1, [f"Lag_Frame_Count went BACKWARDS ({lag1} -> {lag2}) — u32 wrap or a "
+                    "reset landed inside the sample window; the measurement is invalid"]
+    fill_executions = SAMPLE_GAP_FRAMES - lag_delta
+    if fill_executions <= 0:
+        return 1, [f"Lag_Frame_Count says {lag_delta} lag frames out of "
+                    f"{SAMPLE_GAP_FRAMES} requested — OJZ_Reels_Fill would have run "
+                    f"{fill_executions} times, which cannot be measured"]
+
+    print(f"Lag_Frame_Count: {lag1} -> {lag2} (delta {lag_delta}) over "
+          f"{SAMPLE_GAP_FRAMES} requested frames -> OJZ_Reels_Fill actually ran "
+          f"{fill_executions} times (this, not the requested frame count, is what "
+          f"each band's expectation is multiplied by)")
     print(f"sampled {SAMPLE_GAP_FRAMES} frames apart, one representative column per band "
           f"(column = band * {REEL_COLS_PER_BAND}):")
+    fails = []
+    deltas = []
     for band in range(REEL_BAND_COUNT):
         col = band * REEL_COLS_PER_BAND
         v1, v2 = bg_word(buf1, col), bg_word(buf2, col)
         # the phase accumulator is a BYTE (wraps mod 256); the word delta modulo 256 is
         # the comparable quantity regardless of how many times it wrapped
         delta = (v2 - v1) % 256
-        want = (SPEEDS[band] * SAMPLE_GAP_FRAMES) % 256
+        want = (SPEEDS[band] * fill_executions) % 256
         deltas.append(delta)
         ok = delta == want
         print(f"  band {band} (col {col}): BG {v1:#06x} -> {v2:#06x}, delta {delta} "
-              f"(mod 256), speed {SPEEDS[band]:+d} x {SAMPLE_GAP_FRAMES}f = {want} "
-              f"{'OK' if ok else 'MISMATCH'}")
+              f"(mod 256), speed {SPEEDS[band]:+d} x {fill_executions} actual runs = "
+              f"{want}  {'OK' if ok else 'MISMATCH'}")
         if not ok:
             fails.append(f"band {band} delta")
 
