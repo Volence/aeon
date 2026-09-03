@@ -691,9 +691,13 @@ def check_anim_dplc_pairings():
                     m = rx.search(line)
                     if m:
                         seen[key] = m.group(1)
-                if "ani" in seen and "dplc" in seen and seen["ani"] != seen["dplc"]:
-                    bad.append(f"{rel}:{n} ({sym}) binds Ani_{seen['ani']} with "
-                               f"DPLC_{seen['dplc']}")
+                if "ani" in seen and "dplc" in seen:
+                    if seen["ani"] != seen["dplc"]:
+                        bad.append(f"{rel}:{n} ({sym}) binds Ani_{seen['ani']} with "
+                                   f"DPLC_{seen['dplc']}")
+                    # Cleared on every completed pair, matched or not: a routine
+                    # that binds two sets in turn must be judged pair by pair,
+                    # not against whatever it named first.
                     seen = {}
     return bad
 
