@@ -592,6 +592,29 @@ pub comptime fn fp16(whole: int, frac256: int) -> int {
     return (whole * 65536) + (frac256 * 256)
 }
 
+// WITNESS, THROUGH fp16() ITSELF, NOT A RE-DERIVATION — EFFECTS-W1 item 6 step 4's
+// editor-lane trap. The naive reading of a negative fp16 is "whole + frac256/256", which
+// would read fp16(-1, 128) as -0.5. That is WRONG: the `if whole < 0` branch above
+// SUBTRACTS the fractional term, so the fraction ADDS TO THE MAGNITUDE for a negative
+// whole instead of counting toward zero. fp16(-1, 128) = (-1*65536) - (128*256) =
+// -65536 - 32768 = -98304 = -1.5 (in 16.16, -98304 / 65536 = -1.5), not -0.5. A generator
+// that ever computed this value itself instead of emitting `fp16(whole, frac256)`
+// verbatim would agree with a naive schema check and disagree with the engine by a whole
+// pixel, with nothing to catch it — this `ensure` calls the REAL function so the
+// guarantee survives someone later "simplifying" the emission on either side of the wire.
+ensure(fp16(-1, 128) == -98304,
+       "fp16(-1, 128) must be -98304 (-1.5, the MAGNITUDE-ADDS reading), not -32768 (-0.5, the naive whole + frac256/256 reading) — fp16's own arithmetic changed")
+
+// A REAL GAP IN fp16's SPELLING, RECORDED HERE RATHER THAN FIXED — NOT THIS PARCEL'S TO
+// CLOSE. fp16 cannot spell any value in the OPEN INTERVAL (-1, 0): whole = 0 covers
+// 0 .. +255/256 (+0.996), and whole = -1 covers -1.0 .. -1.996 (frac256 ADDS magnitude
+// going more negative, per the ensure above) — so -0.5, and every other value strictly
+// between -1 and 0, has NO representation in this encoding. An author wanting a slow
+// upward ramp (a small negative rate) meets this gap directly. The editor's converter
+// returns null rather than snapping across it, which is the right behaviour to mirror —
+// snapping would silently author a rate up to 2x what was asked for. Fixing the encoding
+// is an engine change with its own `ensure` and its own argument; out of scope here.
+
 // RasterRampProgram — the wire shape of a dense RAMP program. Same schedule as
 // RasterGradientProgram (two priming records, a setup record carrying the op, then the
 // terminator); the body differs only in what the setup record carries.

@@ -17083,6 +17083,19 @@ ramp_probe.json`, reachable only through the DEBUG effects lab's `.raster_table`
 `RASTER_CYCLE_COUNT` now 5) — **not bound to any section**, per this item's own "content
 adoption is a separate decision" note two bullets below, which still stands. See
 `docs/EDITOR_RASTER_PRESETS.md`'s new `ramp` row/bullet for the author-facing shape.
+**Two things named by the editor lane, recorded rather than fixed:** (1) a build-time
+witness `ensure(fp16(-1, 128) == -98304, ...)` now sits beside `fp16()` itself
+(`engine/effects/raster.emp`) — proof THROUGH the real function, not a schema-side
+restatement, that the negative-`whole` branch ADDS the fraction to the magnitude
+(`{whole:-1, frac256:128}` is `-1.5`, not the naive `-0.5`), so a later "simplification" of
+either side's emission cannot silently disagree with it. (2) **`fp16` cannot spell any
+value in the open interval `(-1, 0)`** — `whole: 0` reaches `0..+0.996`, `whole: -1` reaches
+`-1.0..-1.996`, and nothing reaches, say, `-0.5`. Not fixed here — that is an engine change
+to `fp16` with its own `ensure` and its own argument, out of this parcel's scope; an author
+wanting a slow upward ramp meets this gap directly, and the generator does not snap across
+it. **The generator applies NO display-lag compensation anywhere on this path** (no `+1` on
+`top`, matching both the constructor and the editor codec, which apply none by design) —
+that adjustment belongs only to an editor's own preview.
 
 ### What is left open, and why
 

@@ -158,15 +158,27 @@ Reading the rows:
   `{"whole": -512..511, "frac256": 0..255}`, and MUST be** — a raw integer is refused,
   because the generator emits `fp16(whole, frac256)` verbatim and that is the only thing
   standing between an authored value and `raster_ramp_program()`, which carries no range
-  ensure of its own on either field. Value: `whole + frac256/256`, so `{"whole": -1,
-  "frac256": 128}` is `-1.5`, not `-0.5` — the magnitude ADDS for a negative whole, exactly
-  as `fp16()` computes it. **No `curve` key**: the object is closed, and a ramp authors
-  exactly one rate and one starting offset — `RasterRampProgram` has no field that could
-  receive a per-line table. **A VSRAM target's value `j` displays on screen line `top + j +
-  1`**, the N+1 VSRAM latency; the constructor does not compensate, so an author reads the
-  line below `top` as still showing whatever preceded the run. Whether this game declares
-  `CAP_DENSE_TIER` in its `SCANLINE_CAPS` is checked too — a game that has not is refused at
-  the generated call site rather than silently building a program the interpreter no-ops.
+  ensure of its own on either field. **Value is NOT `whole + frac256/256`** for a negative
+  `whole` — that naive reading is wrong by up to a whole pixel. `fp16()`'s real rule:
+  non-negative `whole` adds the fraction (`whole + frac256/256`); negative `whole`
+  SUBTRACTS it, so the fraction ADDS TO THE MAGNITUDE going more negative. So `{"whole":
+  -1, "frac256": 128}` is `-1.5`, not `-0.5`, and this is asserted through `fp16()` itself
+  in `engine/effects/raster.emp` (a build-time witness `ensure`, not a schema-side
+  restatement) so a later "simplification" of the emission cannot silently disagree with
+  it. **⚠ A REAL GAP: `fp16` cannot spell any value in the open interval `(-1, 0)`** —
+  `whole: 0` covers `0` to `+0.996`, `whole: -1` covers `-1.0` to `-1.996`, and nothing
+  covers, e.g., `-0.5`. There is no fix in this generator or engine for that; an author
+  wanting a slow upward ramp meets this gap directly, and a converter should return "not
+  representable" rather than snap across it (snapping silently doubles the rate). **No
+  `curve` key**: the object is closed, and a ramp authors exactly one rate and one starting
+  offset — `RasterRampProgram` has no field that could receive a per-line table. **A VSRAM
+  target's value `j` displays on screen line `top + j + 1`**, the N+1 VSRAM latency; the
+  constructor does not compensate and NEITHER DOES THIS GENERATOR — `top`/`lines` are
+  forwarded verbatim with no `+1` or other adjustment anywhere on this path; the only place
+  display-lag compensation legitimately exists is an editor's own preview. Whether this
+  game declares `CAP_DENSE_TIER` in its `SCANLINE_CAPS` is checked too — a game that has
+  not is refused at the generated call site rather than silently building a program the
+  interpreter no-ops.
 - **`sweep` / `sweep-optional`** — `amp_shift` and `period_shift` are required, `phase` is
   optional (it is the only field `anchor_sweep()` itself defaults). **⚠ ALL THREE ARE
   QUANTIZED, and the first two are BASE-2 LOGARITHMS, not pixels or frames**: the peak
