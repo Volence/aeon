@@ -16856,11 +16856,23 @@ parcel added — constructing the wire form still requires the capability.
    (22 bytes elided from `Raster_HInt`, confirmed by symbol absence in `demo.debug.lst`).
 
 4. **A pre-existing gate's blind spot, found and fixed — `tools/demo_specialization_witness.py`.**
-   Adding ANY bracket inside `Raster_HInt` (mine is the first ever) trips the artifact
-   described above: its automatic "demo must be smaller" differential measured Raster_HInt
-   at 21 bytes in sonic4 (the `SfxBlobWinTab` neighbour) and 316 in demo (its real, much
-   larger, unrelated-neighbour distance) and failed, backwards, on a proc that is genuinely
-   and verifiably smaller in demo. Root-caused (not silenced): added
+   ⚠ **SUPERSEDED 2026-09-03, `fix/z80-vma-address-collision`** — this item's diagnosis
+   correctly identified the SYMPTOM (`SfxBlobWinTab` sitting inside `Raster_HInt`'s
+   measured extent) but scoped the fix to this one proc rather than to the actual
+   mechanism. `SfxBlobWinTab` is one of SIX names declared inside
+   `soundbankhead.emp`'s `section soundbankhead (cpu: m68000, vma: $8000)` — a PHASED
+   section whose listing address is a bank-local VMA, not its real ROM location — and
+   another of the six (`SoundTablesZ80_Head`) had ALREADY been silently truncating
+   `Parallax_Step5_Vscroll` the same way (measured 138 B against a real ~216 B), unnoticed
+   because nothing pinned that proc's sonic4-side number. `tools/scene_spans.py`'s
+   `vma_phased_symbol_names()` now derives the exclusion from every `section ... vma:`
+   declaration in the tree (not by name), `lst_proc_sizes` applies it directly (no
+   per-proc allowlist needed), and `PROC_SIZE_RIDER_BLIND_PROCS` below is REMOVED —
+   `Raster_HInt` is measured correctly (338 sonic4 / 316 demo) and is now a normal row
+   in the committed `DEMO_SPECIALISED_PROCS` pin. See this fix's own `## ` section
+   near the end of this file for the full population, both real collisions, and the
+   consumers checked. Kept below verbatim as the original (superseded) reasoning.
+   Root-caused (not silenced): added
    `PROC_SIZE_RIDER_BLIND_PROCS = {"Raster_HInt"}`, a narrowly-scoped, measured, documented
    exclusion from the DERIVED differential only — never from the SPAN half (boundary-symbol
    presence/absence, immune to ROM-neighbour placement), which is what actually proves the
@@ -19160,3 +19172,171 @@ was. Fixed on branch `fix/reels-witness-expectation`.
   §2 is real (the existing per-column DSL cannot produce independent rates) rather than
   assuming the six shipped Rocking/Perspective scenes already satisfied item 10a, which
   would have been the wrong, no-code reading of "zero new engine mechanism".
+
+---
+
+## LISTING EXTENT INFERENCE FIXED — PHASED-VMA SYMBOLS EXCLUDED FROM THE 68000 ADDRESS RUN (2026-09-03, `fix/z80-vma-address-collision`)
+
+### What was wrong, and how long it had been wrong
+
+`tools/scene_spans.py::lst_proc_sizes` sizes a routine by the distance to the next
+top-level symbol in address-sorted order — "head-to-next-head." That inference silently
+breaks whenever a symbol whose LISTING VALUE is not its real ROM address (LMA) sorts into
+the run: it can land, purely by numeric coincidence, INSIDE an unrelated routine's true
+address range and truncate it there.
+
+The mechanism is a **PHASED SECTION** — `section NAME (..., vma: $HEX, ...) { ... }` —
+which sigil-link places at a real LMA but whose listing prints the VMA (the bank-local
+runtime address the CPU sees once the bank is switched in; see `games/sonic4/map.toml`'s
+`sound_bank` anchor and `soundbankhead.emp`'s `vma: $8000` phase-bank head). Exactly one
+such section exists in this tree today —
+`games/sonic4/data/sound/soundbankhead.emp`'s `section soundbankhead (cpu: m68000, vma:
+$8000)` — and it produced TWO real, independently confirmed truncations in a live
+`s4.debug.lst` build (2026-09-03, branch base `origin/master` `0905449d`):
+
+  - `SoundTablesZ80_Head` at listing `$8000` truncated `Parallax_Step5_Vscroll` (real head
+    `$7F76`) to **138 bytes** (real size 216). This one was NEVER CAUGHT before this fix —
+    nothing pins `Parallax_Step5_Vscroll`'s sonic4-side number in
+    `demo_specialization_witness.py` (only its DEMO-side number is pinned, and demo links
+    no phased section at all, so it was never wrong there), and the derived pin-free rider
+    only checks `demo < sonic4`, which stayed true (120 < 138) even with the wrong sonic4
+    number, so no gate flagged it. **Unknown how long this had been silently wrong** — the
+    `sound_bank` anchor and its `vma: $8000` phase-bank head predate this investigation
+    (2026-08-26 re-layout at the latest), so this specific truncation is at least a week
+    old and was never visible because nothing compared the number to anything.
+  - `SfxBlobWinTab` at listing `$845F` truncated `Raster_HInt` to **21 bytes** — this ONE
+    was caught, by EFFECTS-W1 item 6 (`parcel/item6-dense-perline-vsram`, landed minutes
+    before this fix started), which correctly diagnosed the symptom but scoped its fix to
+    a single proc name (`PROC_SIZE_RIDER_BLIND_PROCS = {"Raster_HInt"}`) rather than to the
+    section mechanism producing it. See the correction inline at this file's EFFECTS-W1
+    ITEM 6 section, item 4.
+
+**The defect is a PHASED-SECTION class, not a "Z80 symbol" class.** `cpu: z80` is neither
+necessary (the section producing both real collisions is `cpu: m68000`) nor sufficient
+(the resident Z80 sound driver's own `cpu: z80` sections —
+`engine/sound/z80_sound_driver.emp`, `sound_fm.emp`, `sound_psg.emp`, `sound_sequencer.emp`,
+`sound_sfx.emp` — declare NO `vma:` and compile to a separate seam-2 Z80 blob that never
+reaches the 68000 listing at all; none of their proc names appear as top-level heads in
+`s4.debug.lst`, confirmed by direct grep). A name-based exclusion list (which is what item
+6 landed) is a per-instance patch on a defect that recurs by MECHANISM.
+
+### The discriminator, and how the population was enumerated
+
+**The listing itself carries no marker.** sigil-link's `emit_listing`
+(`sigil/crates/sigil-link/src/listing.rs`) writes exactly one row shape —
+`(0) N/HEXADDR :        Name:` — for every symbol, phased or not; nothing in the row says
+which. Address ranges cannot discriminate either, because the whole defect IS that the
+ranges overlap (a phased symbol at `$845F` and a plain low-ROM routine at `$844A` are
+fifteen bytes of address apart and structurally indistinguishable by value alone).
+
+The only place the distinction exists at all is in SOURCE: the `vma:` clause on a
+`section` declaration. `tools/scene_spans.py::vma_phased_symbol_names()` greps every
+`.emp` file under `engine/` and every `games/*/` tree for `section NAME (..., vma: $HEX,
+...) { ... }`, and collects the `(pub )?(proc|data) NAME` declarations inside each such
+block's balanced braces. This enumerates the population from what DECLARES it (the
+`vma:` clause), not from a symbol's name or its numeric address — the method this fix
+was worked from explicitly required, and independently re-derived here against the real
+tree rather than assumed: grepping for `vma\s*:` inside every `.emp` file finds exactly
+seven `section ... vma:` declarations tree-wide, and only ONE of them
+(`soundbankhead.emp`'s) produces symbols that actually reach the main 68000 listing — the
+other six (`sfx_blob_win_tab.emp`, `movingtrucks_pitchtable.emp`,
+`engine/sound/{seq_opcode_tab,sound_tables_z80,dac_sample_tab}.emp`,
+`engine/system/z80_init.emp`'s `z80_idle`) are `cpu: z80` sections compiled to a separate
+blob and `embed()`-ed as raw bytes by `soundbankhead.emp` — their OWN declared proc names
+never surface as listing heads (confirmed empirically: `SndDrv_Init`, `Fm_YmWrite`,
+`Psg_HwCh`, `Sfx_Frame`, `Sequencer_Frame`, `Z80_Sound_Entry`, `Z80_IdleProgram` — none of
+them appear in `s4.debug.lst` at all). `vma_phased_symbol_names()` still includes their
+names (a harmless superset, since they never match a real listing head), rather than
+threading blob-vs-source knowledge through the derivation — a false negative here would be
+the dangerous direction, a false positive costs nothing.
+
+### Every listing consumer checked, and its verdict
+
+Enumerated by "reads a `.lst` and reasons about 68000 addresses or the gap between two
+symbols" — not by name, not by which file happened to be near the reported bug:
+
+| consumer | verdict |
+|---|---|
+| `tools/scene_spans.py::lst_proc_sizes` | **FIXED** — the reported defect's own instrument; excludes `vma_phased_symbol_names()` before the address sort |
+| `tools/demo_drift_classifier.py::rom_spans` | **FIXED** — an independently-written head-to-next-head span inference, not sharing code with `lst_proc_sizes`. Currently LATENT in practice (this tool is documented and used against two `games/demo` builds, which link no phased section — sound is off), but it accepts any two listings, so pointing it at two sonic4 builds would have hit the identical defect. Fixed the same way (excluding `vma_phased_symbol_names()` from its candidate boundaries), with its own regression test (`tools/test_demo_drift_classifier.py`, new file) |
+| `tools/demo_drift_classifier.py::ram_moves` | **NOT VULNERABLE** — filters to `addr >= 0xFF0000`; phased-VMA values (`$0000`-`$FFFF`) cannot enter this range |
+| `tools/s4budget.py::rom_labels` | **NOT VULNERABLE** — defined, called only from its own test, never used to infer an extent (no gap arithmetic reads it) |
+| `tools/s4budget.py::resolve_budgets` | **NOT VULNERABLE TODAY, latent by construction** — computes `addr - region.lma_base` for a NAMED budget cursor, not head-to-next-head, so it fails only if a `[[budget]]`'s `cursor` names a phased symbol. `games/sonic4/map.toml` declares exactly one budget (`cursor = "DeformTable_Zero"`, an ordinary symbol) — not fixed, because there is nothing to fix without inventing a check for a case that does not exist; flagged here so a future budget naming a phased cursor is deliberate, not silent |
+| `tools/s4budget.py::compute_ram_layout` / `_entries_from_sorted` | **NOT VULNERABLE** — operates only on `ram_labels` (`addr >= 0xFF0000`), same disjoint range as `ram_moves` |
+| `tools/effects_gates.py`'s dense-stream probe (`line.startswith("(0) ") and line.rstrip().endswith(...)`) | **NOT VULNERABLE** — an exact single-line existence check, no distance arithmetic |
+| `tools/raster_cost_probe.py`'s scanline-gap arithmetic | **NOT THIS POPULATION** — screen-line (HInt fire) arithmetic over a caller-supplied list, not listing-symbol addresses at all |
+| every other `tools/*.py` importing `scene_spans` (`lst_spans`, `lst_unpaired_spans`, `expected_spans`, `capability_bits`, `gated_procs`, etc.) | **NOT VULNERABLE** — these read MANGLED `$cap_*_begin`/`_end` boundary-symbol PRESENCE via regex, never an address gap; the whole reason `demo_specialization_witness.py`'s SPAN half stayed correct throughout this defect's life while its IMAGE half did not |
+
+### Reproduction (red-first) and the regression tests
+
+Reproduced against a REAL build, not a synthetic fixture — the current tree was already
+wrong on both instances before any code changed. With the pre-fix `scene_spans.py`,
+`lst_proc_sizes('s4.debug.lst')` reported `Parallax_Step5_Vscroll` = 138 and
+`Raster_HInt` = 21; with the fix applied to the same listing, 216 and 338.
+
+**Positive control** — routines NOT straddling a phased symbol are byte-identical before
+and after: `Player_ApplyTilt` 110, `Ability_InstaShield` 62, `Ability_TailsFlight` 46,
+`Player_LoopCrossover` 64, `Collision_GetType` 104 — all unchanged.
+
+**Regression coverage**, wired into `python3 -m pytest tools` (`build.sh`'s pre-build
+pytest lane):
+  - `tools/test_demo_specialization_witness.py::TestListingReaders::test_a_phased_vma_symbol_does_not_truncate_the_routine_it_lands_inside`
+    — a synthetic listing shaped like the real collision, expectation DERIVED from the
+    fixture's own parsed addresses (not hardcoded to a byte count that will move), plus
+    an assertion that `vma_phased_symbol_names()` (called for real, not mocked) still
+    finds the real `SoundTablesZ80_Head` name.
+  - `tools/test_demo_specialization_witness.py::TestVmaPhasedSymbols` — the derivation
+    against the real tree: finds all six `soundbankhead.emp` names, excludes the resident
+    Z80 driver's un-phased `cpu: z80` proc names, excludes two ordinary 68000 routines.
+  - `tools/test_demo_specialization_witness.py::TestAgainstARealListing` (skipped unless
+    `s4.debug.lst` exists) — proves against whatever the tree last built that
+    `Raster_HInt`'s measured size no longer equals the raw address gap to
+    `SfxBlobWinTab`, with no byte count hardcoded.
+  - `tools/test_demo_drift_classifier.py` (new file) — the same fixture shape against
+    `rom_spans`.
+
+Verified red-first by mechanically removing just the exclusion line (the function still
+defined, still importable) and confirming both new tests fail with the exact pre-fix
+numbers, then restoring and re-confirming green. `__pycache__` cleared before every run
+(the stale-`.pyc` false-green trap this repo has been bitten by before).
+
+### Pins re-derived, and the one that changed
+
+**No currently-pinned number in `DEMO_SPECIALISED_PROCS` was wrong** — every existing pin
+is a DEMO-side number, and `games/demo` links no phased section (sound is off), so none of
+those nine numbers were ever computed from a collision. The pin-free rider's check on
+`Parallax_Step5_Vscroll` (`demo < sonic4`) also stayed green throughout — `120 < 138`
+(wrong sonic4 number) and `120 < 216` (correct one) are both true, so no currently-green
+gate went red from the correction.
+
+**One row changed: `Raster_HInt` is now pinnable and pinned.** Before this fix it was
+UNMEASURABLE (item 6's own diagnosis) and explicitly excluded via
+`PROC_SIZE_RIDER_BLIND_PROCS`. With the general fix, `lst_proc_sizes` reports it correctly
+in both shapes — sonic4 338, demo 316 — and the delta (+22) matches item 6's own
+independently-stated size for `.cap_dense_tier_enter` exactly, corroborating the SPAN
+half's proof that never depended on this instrument. `Raster_HInt: 316` is now a normal
+row in `DEMO_SPECIALISED_PROCS`, and `PROC_SIZE_RIDER_BLIND_PROCS` — the mechanism, not
+just its one entry — is REMOVED from `demo_specialization_witness.py` (the rider loop and
+its print-side tagging both simplified back to the pre-item-6 shape): the general fix
+makes the per-proc allowlist unnecessary, so it is deleted rather than left empty.
+
+Verified end to end after rebasing onto `origin/master` `0905449d` (item 6's landing
+commit) and rebuilding both canonical DEBUG fixtures fresh:
+`python3 tools/demo_specialization_witness.py` and
+`python3 tools/effects_gates.py --only scanline_spans,demo_witness` both **OK**; the full
+`python3 -m pytest tools` sweep: **2161 passed, 4 skipped** (no new skips or failures).
+
+### What is NOT done
+
+- **`tools/s4budget.py::resolve_budgets`** is flagged latent-by-construction above but not
+  hardened, because no live `[[budget]]` cursor names a phased symbol — inventing a
+  check for a case with zero real instances would be exactly the kind of untested
+  speculative branch this repo's own conventions discourage. If a future budget's
+  `cursor` ever needs to be a phased symbol, `used = addr - region.lma_base` will
+  silently misreport and this is the place to look.
+- The four build shapes named in this fix's brief (`./build.sh`, `DEBUG=1 ./build.sh`,
+  both again with `demo`) were exercised for the two DEBUG shapes (required to read
+  `s4.debug.lst`/`demo.debug.lst` at all); the two release shapes were not separately
+  built for this change, because `tools/` is Python read only by post-build gates and
+  the pytest lane — nothing in this fix touches assembled bytes, headers, or anything a
+  release-shape build reads differently from a debug one.
