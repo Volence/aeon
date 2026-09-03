@@ -2020,6 +2020,13 @@ this parcel is entirely static, so building them here would have shipped two mec
 measurement behind them. They remain the right kill for the **page-in landing** half, which is
 still unmeasured (see the d-47 entry below).
 
+> **BOTH COMPANIONS BUILT 2026-09-03** (`parcel/dma-straddle-counter`). `DMA_Peak_Important` is
+> written, in bytes from the queue base, sampled immediately before the Important drain; and
+> `.split_reject` charges its own `DMA_Split_Reject_Count` so it is no longer confusable with
+> `.full`. A third and fourth cell count the per-frame straddle DEMAND and its peak. **The
+> measurement they exist for has still NOT been taken** — see the "DMA SPLIT-REJECT NEEDS TWO
+> FREE IMPORTANT SLOTS" entry below for the arming recipe and for what each reading means.
+
 ---
 
 **Original booking follows.**
@@ -2047,12 +2054,69 @@ previous statement was false is a field nobody was measuring.
 - **`.full` and `.split_reject` share one `DMA_Overflow_Count`** (`dma_queue.emp:170` and `:235`), so
   even in DEBUG a straddle-reject is indistinguishable from queue-full. **The instrument cannot tell
   the two failures apart**, which is why nobody could have measured the paragraph above.
+  **FIXED 2026-09-03** (`parcel/dma-straddle-counter`): `.split_reject` charges
+  `DMA_Split_Reject_Count`, `.full` keeps `DMA_Overflow_Count`. Same instruction form, different
+  address — zero added cycles.
 
 **Do NOT simply raise `DMA_IMPORTANT_SLOTS`.** The header names re-paging `sonic.bin` on the
 optimizer's output as the real remedy; raising the slot count spends RAM to hide a fixable data
 shape. Uncomment the `ensure` only once the data satisfies it, or it is a build that cannot build.
 
 ### DMA SPLIT-REJECT NEEDS TWO FREE IMPORTANT SLOTS, AND NOTHING COUNTS PER-FRAME STRADDLES — booked 2026-08-29
+
+> **THE INSTRUMENT IS BUILT 2026-09-03** (`parcel/dma-straddle-counter`). **THE MEASUREMENT IS
+> NOT — this entry stays OPEN, and the reserve is UNCHANGED at 2.** No emulator was used in that
+> parcel; the reading is owed by a foreground session and only that reading closes this.
+>
+> **What exists now**, all DEBUG-shape only (both release ROMs verified byte-identical:
+> `s4.bin` 719700 / `14ee2440`, `demo.bin` 96474 / `0c456778`):
+>
+> | cell | what it holds |
+> |---|---|
+> | `Dbg_DMA_Straddle_All` | straddling enqueues on EVERY queue, free-running. The positive control — a zero in the two cells below is only readable as "Important never straddled" if this one is non-zero. |
+> | `Dbg_DMA_Straddle_Frame` | this window's straddling **Important** enqueues. Folded and cleared in `VInt_Level`. |
+> | `Dbg_DMA_Straddle_Peak` | high-water mark of the above. **THE number this booking asks for.** |
+> | `DMA_Split_Reject_Count` | transfers actually dropped whole by `.split_reject` — split out of `DMA_Overflow_Count`, which it shared with `.full`. That sharing is what the paragraphs below name as the reason nobody could measure this, and it is gone. |
+> | `DMA_Peak_Important` | peak Important queue occupancy, in BYTES from the queue base (÷ `sizeof(DMAEntry)` = 14 for entries; 12 slots = 168). Declared since the pipeline parcel and **written nowhere until now**. |
+>
+> **Counted at the top of `.split`** (`engine/system/dma_queue.emp`), where the crossing is a fact
+> the core's own `blo` just established, and **before** the two-slot check — so it counts DEMAND:
+> a straddle refused by `.split_reject` still wanted two slots and is still counted. **Folded and
+> cleared in one breath immediately before `Process_DMA_Important`**: every Important enqueue runs
+> in main-loop context under `move.w #$2700, sr` and the fold is the VBlank handler, so the two
+> cannot interleave; nothing removes an entry between enqueue and drain, so that instant is the
+> window's maximum occupancy by construction. A lag frame's straddles roll into the next window
+> (`VInt_Lag` neither drains nor folds), so the peak **over-counts a physical frame and never
+> loses one** — the safe direction, and the frame convention `DMA_Enq_Bytes_Frame` already uses.
+>
+> **Cost**: zero added cycles for a non-crossing transfer, which never reaches `.split`. 48 cycles
+> per straddling Important enqueue, 34 per straddling Critical/Deferrable, 92-112 once per frame
+> for the fold. Realistic worst frame ≈ 208 cycles = 0.16% of a frame; DEBUG only.
+>
+> **HOW TO ARM AND READ IT.** `DEBUG=1 ./build.sh`, load `s4.debug.bin` with `s4.debug.lst`'s deb2
+> symbols, play an act for a few minutes reaching art-heavy states (the LookUp/spring/roll
+> animations, and camera pans that force page-ins), then read the five cells by symbol.
+>
+> **WHAT THE NUMBERS MEAN**, derived from the constants and from
+> `tools/dplc_straddle.py --gate`, which prints its half on every sonic4 build:
+> * `DMA_Split_Reject_Count > 0` — **the defect, observed directly.** A transfer was dropped
+>   whole because the reserve did not hold two slots. Nothing else needs arguing.
+> * `Dbg_DMA_Straddle_Peak` is the booking's check, against
+>   `DMA_IMPORTANT_SLOTS - dplc_peak_entries()` = **12 - 10 = 2** today (the 10 is the committed
+>   ratchet the static gate measures and prints). **0 or 1 = the reserve is comfortable. 2 = at
+>   the wall, and one more per-frame Important producer breaks it. ≥3 = the reserve is provably
+>   too small** and this booking's "do not raise it without a measurement" is satisfied.
+> * `Dbg_DMA_Straddle_All == 0` alongside a zero Important peak means **the run never exercised a
+>   straddle at all** — an uninterpretable run, not a clean one. Play longer or elsewhere.
+> * `DMA_Peak_Important` ÷ 14 is the peak slot occupancy; 12 means the queue filled exactly.
+>
+> **THE PREDICTION, written before the reading so a surprise is recognisable as one.** The static
+> gate says the worst DPLC frame costs 10 slots and that at most ONE straddling entry exists per
+> character sheet (Sonic's is frame `$6A`, which is not a peak-entry frame); `PageIn_EnqueueLanding`
+> is documented to land ≤1 page/frame under the art budget. So the expected reading is
+> **`Dbg_DMA_Straddle_Peak` of 0 or 1, and `DMA_Split_Reject_Count` of 0.** A peak of 2 is the
+> boundary case and worth reporting even though it does not yet fail. **Anything ≥3, or any
+> non-zero reject count, contradicts the model above and is the finding.**
 
 **The sigil lane's finding** (their `parcel/declare-section-alignment`, merged sigil `15cf396c`,
 tip `54fde158` — both verified reachable at their `origin/master` here), **found while chasing a
