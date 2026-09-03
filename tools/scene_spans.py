@@ -48,6 +48,18 @@ LST_SPAN_RE = re.compile(r"\$cap_([a-z0-9_]+)_(begin|end)\b")
 # A listing line naming a TOP-LEVEL (unmangled) label — a section / proc head.
 LST_HEAD_RE = re.compile(r"^\(\d+\) \d+/([0-9A-F]+) :\s+([A-Za-z_][A-Za-z0-9_]*):\s*$")
 
+# `section NAME (..., vma: $HEX, ...) { ... }` — a PHASED section. sigil-link places its
+# bytes at an LMA (the real ROM offset) but the listing prints the VMA (the bank-local
+# runtime address the CPU sees once the bank is switched in) — see the map.toml
+# `z80_sound_bank`/`sound_bank` anchor commentary and `soundbankhead.emp`'s `vma: $8000`
+# phase-bank head. Only a `section` with an EXPLICIT `vma:` gets this treatment; a plain
+# section's listing value already IS its LMA (confirmed against every other `section` in
+# this tree: each one either has no `vma:` at all, with a comment saying so, or has one).
+SECTION_VMA_RE = re.compile(r"\bsection\s+\w+\s*\(([^)]*)\)\s*\{")
+
+# A top-level `proc`/`data` declaration directly inside a phased section's body.
+TOPLEVEL_DECL_RE = re.compile(r"^\s*(?:pub\s+)?(?:proc|data)\s+([A-Za-z_]\w*)", re.M)
+
 
 def capability_bits():
     """{CAP_NAME: bit} from scene_dsl.emp — the model's sole authority."""
@@ -145,6 +157,66 @@ def emp_sources():
         for name in sorted(filenames):
             if name.endswith(".emp"):
                 yield os.path.join(dirpath, name)
+
+
+def all_emp_sources():
+    """Every `.emp` file in the tree — engine AND every game.
+
+    Unlike `emp_sources()` (engine-only, because capability spans are an engine-only
+    concept), a phased `vma:` section can live in a GAME file — `soundbankhead.emp`
+    (`games/sonic4/data/sound/`) is exactly that: the section housing
+    `SoundTablesZ80_Head` / `SfxBlobWinTab` / etc. is declared there, not in engine/.
+    """
+    for root in (ENGINE, os.path.join(AEON, "games")):
+        for dirpath, dirnames, filenames in os.walk(root):
+            dirnames[:] = [d for d in dirnames if d not in (".git", "generated")]
+            for name in sorted(filenames):
+                if name.endswith(".emp"):
+                    yield os.path.join(dirpath, name)
+
+
+def vma_phased_symbol_names():
+    """Names declared inside a `section ... (..., vma: $HEX, ...)` block anywhere in
+    the tree — symbols whose LISTING VALUE is a phased/bank-local VMA, not their real
+    ROM address (LMA), so a listing consumer that infers an extent from the gap
+    between two address-sorted symbols must never let one of these stand as a
+    boundary. Two phased symbols numerically near each other say nothing about how
+    far apart their real ROM bytes are, and a phased symbol can land, purely by
+    numeric coincidence, INSIDE an unrelated routine's true address run.
+
+    Measured against a real build (2026-09-03): `SoundTablesZ80_Head` at listing
+    address $8000 truncated `Parallax_Step5_Vscroll` to 64 bytes (real size far
+    larger — its own interior labels run past $8000); `SfxBlobWinTab` at listing
+    address $845F, 21 bytes after `Raster_HInt`'s head, truncated it to 21 bytes for
+    the same reason. Both names come from ONE phased section:
+    `games/sonic4/data/sound/soundbankhead.emp`'s `section soundbankhead (cpu:
+    m68000, vma: $8000)` — note `cpu: m68000`, not `z80`: the collision is NOT a
+    "Z80 symbol" class, it is a PHASED-SECTION class, and `cpu: z80` is neither
+    necessary (this section proves it) nor sufficient (several `cpu: z80` sections
+    in this tree — `z80_sound_driver.emp`, `sound_fm.emp`, `sound_psg.emp`,
+    `sound_sequencer.emp`, `sound_sfx.emp` — declare NO `vma:` and compile to a
+    separate seam-2 Z80 blob that never reaches the main 68000 listing at all; their
+    proc names do not appear in `s4.debug.lst` as top-level heads).
+
+    THE LISTING CARRIES NO MARKER OF ITS OWN for this — sigil-link's `emit_listing`
+    writes one `(0) N/HEXADDR : Name:` shape for every symbol, phased or not, with
+    no field saying which (sigil/crates/sigil-link/src/listing.rs). `vma:` on the
+    declaring `section` is the only place the distinction exists at all; this is a
+    SOURCE derivation, not something recoverable from the listing alone.
+    """
+    names = set()
+    for path in all_emp_sources():
+        with open(path, encoding="utf-8") as f:
+            src = blank_comments_and_strings(f.read())
+        for m in SECTION_VMA_RE.finditer(src):
+            attrs = m.group(1)
+            if not re.search(r"\bvma\s*:", attrs):
+                continue
+            brace = m.end() - 1        # index of the `{` the regex just matched
+            end = block_end(src, brace)
+            for dm in TOPLEVEL_DECL_RE.finditer(src[brace:end]):
+                names.add(dm.group(1))
+    return names
 
 
 def block_end(src, open_brace):
@@ -248,13 +320,25 @@ def lst_proc_sizes(path):
     not code; callers that care compare NAMED procs, and the caller in
     demo_specialization_witness compares the same proc across two FIXTURES rather
     than across two builds, where the padding rule is identical on both sides.
+
+    PHASED-SECTION symbols (see `vma_phased_symbol_names`) are dropped before the
+    address sort, not merely excluded from the RESULT: a phased symbol's listing
+    value is a bank-local VMA that can fall numerically INSIDE another routine's
+    real address run, so leaving it in the "next head" candidate list truncates
+    that routine at the phased symbol's address — measured wrong at 64 B and 21 B
+    for two real routines it landed inside of (see that function's docstring). Once
+    dropped, the next surviving head is the routine's real neighbour again.
     """
+    phased = vma_phased_symbol_names()
     heads = {}
     with open(path, encoding="utf-8", errors="replace") as f:
         for line in f:
             m = LST_HEAD_RE.match(line.rstrip("\n"))
             if m:
-                heads.setdefault(m.group(2), int(m.group(1), 16))
+                name = m.group(2)
+                if name in phased:
+                    continue
+                heads.setdefault(name, int(m.group(1), 16))
     rom = sorted(((a, n) for n, a in heads.items() if a < 0x800000))
     return {n: (rom[i + 1][0] - a if i + 1 < len(rom) else 0)
             for i, (a, n) in enumerate(rom)}

@@ -63,9 +63,13 @@ Exit 0 iff every differing byte in the common prefix is accounted for and the ta
 """
 from __future__ import annotations
 
+import os
 import re
 import sys
 from typing import Dict, List, Tuple
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from scene_spans import vma_phased_symbol_names  # noqa: E402
 
 # `(0) 1954/FFFF8A22 :        Raster_Buf_B:` — the sigil-canonical .lst symbol form.
 LST_RE = re.compile(r"^\(\d+\)\s+\d+/([0-9A-Fa-f]{1,8})\s*:\s+([A-Za-z_][\w.$]*):")
@@ -123,8 +127,20 @@ def rom_spans(old: Dict[str, int], new: Dict[str, int], appendix: int
     attributed to the routine that owns it. `delta` is that symbol's own move — per-symbol,
     never a single global shift, because a parcel with N insertion sites produces N different
     downstream shifts and one assumed delta would misclassify most of them.
+
+    PHASED symbols (declared inside a `section ... (..., vma: $HEX, ...)` — see
+    `scene_spans.vma_phased_symbol_names`) are excluded from the candidate boundaries for
+    the same reason `scene_spans.lst_proc_sizes` excludes them: their listing value is a
+    bank-local VMA, not their real ROM address, so one can land numerically INSIDE an
+    unrelated routine's true span and truncate it (measured: `SoundTablesZ80_Head` and
+    `SfxBlobWinTab`, both from `games/sonic4/data/sound/soundbankhead.emp`'s phased head,
+    do exactly this in a real sonic4 listing — currently latent here only because
+    `games/demo` builds with sound off and links no phased section, but this function
+    accepts any two listings, not only demo's).
     """
-    common = [(new[n], n) for n in new if new[n] < appendix and not (0xFF0000 <= new[n])]
+    phased = vma_phased_symbol_names()
+    common = [(new[n], n) for n in new
+              if new[n] < appendix and not (0xFF0000 <= new[n]) and n not in phased]
     common.sort()
     out: List[Tuple[int, int, str, int | None]] = []
     for i, (start, name) in enumerate(common):
