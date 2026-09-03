@@ -17068,6 +17068,27 @@ Item 2 is the only one that does not.
 | 10 | Reels / plane-role swap / window as third layer | **L** | aeon alone (the paired freeze ended 2026-09-02) | ~~**BLOCKED — see item 0 below.**~~ **UNBLOCKED on the VRAM axis 2026-09-03: item 0 landed as Option P** — `spare_nametable`, 128 tiles at tile 768 (`$6000`), a legal Plane A/B/Window base. **10a (reels) LANDED 2026-09-03, `parcel/item10a-reels`** — `OJZ_Reels_Fill` composes REEL_BAND_COUNT (5) independently-advancing, pairwise-distinct per-frame phase increments onto the shipped per-column VSRAM buffer's BG words; needed **zero** of item 0's tiles (design §2 row 10a's claim held). `tools/reels_gate.py` gates it on every canonical sonic4 build. **10b (plane-role swap) and 10c (window as third layer) are UNSTARTED** and 10c does need item 0's `spare_nametable` (10b needs none). See the item-10a block below. |
 | 11 | Nametable-base changes (frame swap, Plane Z, Batman mid-frame) | **L** | aeon alone (the paired freeze ended 2026-09-02) | ~~**BLOCKED — same item 0.**~~ **PARTLY DONE.** Item 0's design (§2) split this row into 11a (the mid-frame base change as a MECHANISM, zero tiles) and 11b (Plane Z, a distinct third picture, which does need tiles). **11a LANDED 2026-09-03, `parcel/item11a-midframe-base`, aeon `eb87d2ba`** — `OJZ_BaseSwap`, one `OP_SET_REG` re-pointing Plane A at Plane B's nametable at screen line 160, gated by `tools/plane_base_swap_gate.py` on every canonical sonic4 build. **The on-screen half is unrun** (no emulator in that lane) and is tagged for the controller. **11b is UNBLOCKED on the VRAM axis by item 0's landing** — but note there is no SECOND `$2000`-aligned run left: the remaining spendable run is at `$5000`, `$1000`-aligned, i.e. window-only, so 10c and 11b are competing for the one `$6000` run. See the item-11a and item-0 blocks below. |
 
+**⚠ ITEMS 10 AND 11 HAVE NO AUTHORING KEY, AND THE SPEC CONTRADICTS ITSELF ABOUT WHETHER THEY SHOULD
+(open scoping question, raised by the hub 2026-09-03, answered by this lane as a POSITION not a ruling).**
+Measured: `tools/effects_gen.py` at `origin/master` accepts no reel, nametable, `plane_base` or
+`base_swap` key — enumerated from the generator's own key set, not inferred. That matches how the DoD
+describes items 10 and 11, which name no field and are costed as mechanisms ("a spare nametable region
+and a small strip streamer"), and it matches how the spec spells authorability everywhere it wants it
+(item 3 "add `drift` to the generator's layer keys"; item 5 "so ... are authorable"; item 12 "per-line
+scroll authoring as a NEW field via schema CR once item 6 lands"). **But item 12's closing clause is
+"controls for items 7 to 11 as each lands", so a control IS inside the definition of done.**
+**THIS LANE'S POSITION, given to the hub: aurora's EW-7-11 for items 10/11 stays OPEN and is
+reclassified from "blocked on a file from aeon" to "blocked on whether wave 1 exposes these to an
+author at all".** Closing another lane's row by ruling on our own item's scope is not ours to do.
+**AND THE TRAP THAT MATTERS MORE THAN THE COST: the obvious surface for a reels key is WRONG.**
+`SceneVDeform` samples one table at one global phase, which is precisely why 10a needed new code, so a
+key hung there would let an author ask for reels and receive lagging columns. A real reels key needs its
+own field. Cost if it is ruled in: five files for reels (`scene_registry.emp`'s SCENES array,
+`SCENE_CYCLE_COUNT` and its two-sided capability/budget pins, `Debug_SceneCycleHotkey`'s cycle table,
+its lint); for 11a there is no authored form at all today — it is row 1 of the effects lab's raster
+cycle, DEBUG-gated, zero release bytes — and an authored one needs a field naming the swap line and the
+target base, whose `$2000` granule is what item 0 just bought room for.
+
 **Item 5's DEMAND ARTIFACT exists (2026-08-30, `docs/item5-key-shapes`, documents only):** `docs/superpowers/specs/2026-08-30-item5-variants-cycles-key-shapes.md` transcribes from engine source the `cycles` / `variants` key shapes a preset document would carry (one script of 1..4 channels; two positional variant slots; every field 1:1 with `pal_cycle_channel` / `pal_variant`), what `effects_gen.py` would emit, the byte-golden against `OJZ_ShimmerCycle` / `Variant_Water_Deep`, and ten open questions (Q1 one-ref-or-three is the hub's) — the source the item-13 contract CR is drafted from.
 
 #### Item 5 STATE, 2026-09-02 — the ten are RULED, the spec is AMENDED, the generator half is what is left
