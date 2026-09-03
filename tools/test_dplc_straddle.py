@@ -376,6 +376,32 @@ class TestSubjectBindings(unittest.TestCase):
     def test_no_routine_animates_one_character_against_another_s_dplc(self):
         self.assertEqual(D.check_anim_dplc_pairings(), [])
 
+    def test_every_ability_gated_writer_has_exactly_one_owner(self):
+        """A writer routed to one character because only that character's hook
+        can reach it is only correct while the hook has ONE owner."""
+        bind = D.subject_bindings()
+        for key, spec in D.WRITERS.items():
+            if not spec.get("ability"):
+                continue
+            owner = D.sole_ability_owner(bind, spec["ability"])
+            self.assertIsNotNone(owner, f"{key} routes on {spec['ability']}, which zero or "
+                                        f"several records own")
+            self.assertEqual(bind[owner]["kind"], "player")
+            expected = next(a for n, a, *_ in D.SUBJECTS if n == spec["art"])
+            self.assertEqual(owner, expected,
+                             f"{key} routes to {spec['art']} but {spec['ability']} belongs to "
+                             f"{owner}")
+
+    def test_a_second_owner_of_the_hook_breaks_the_sole_owner_check(self):
+        bind = D.subject_bindings()
+        ability = next(s["ability"] for s in D.WRITERS.values() if s.get("ability"))
+        self.assertIsNotNone(D.sole_ability_owner(bind, ability))
+        forged = dict(bind)
+        victim = next(a for a, b in forged.items() if b.get("ability") != ability)
+        forged[victim] = dict(forged[victim], ability=ability)
+        self.assertIsNone(D.sole_ability_owner(forged, ability),
+                          "two owners must read as undetermined, not as the first one")
+
 
 class TestLoudOnUnmeasurable(unittest.TestCase):
     def test_a_missing_constant_raises(self):

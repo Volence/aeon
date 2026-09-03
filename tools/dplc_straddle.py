@@ -623,17 +623,23 @@ WRITERS = {
         evidence=[(r'jbsr\s+Player_InitAssets',
                    "debug-exit restores the CharacterDef's mappings before the frame write")],
         why="frame 0 against the restored character sheet"),
+    # The four climb/ledge writers are Knuckles-only, and that is CHECKED, not
+    # asserted: PSTATE_CLIMB is entered from exactly one place (Climb_Catch, the
+    # `.hit_wall` branch of PState_Glide), the glide family is entered only from
+    # the AbilityHook below, and `ability=` makes the gate verify that exactly
+    # one CharacterDef owns that hook. Give a second character the same hook and
+    # these subjects widen instead of quietly staying Knuckles'.
     ("games/sonic4/player/player_climb.emp", "Climb_Animate"): dict(
-        sites=1, art="knuckles", frames="climb_cycle",
+        sites=1, art="knuckles", frames="climb_cycle", ability="Ability_KnuxGlide",
         why="the climb cycle, owned by the state body (anim_timer is pinned)"),
     ("games/sonic4/player/player_climb.emp", "Climb_LetGo"): dict(
-        sites=1, art="knuckles", frames="climb_letgo",
+        sites=1, art="knuckles", frames="climb_letgo", ability="Ability_KnuxGlide",
         why="the let-go pose"),
     ("games/sonic4/player/player_climb.emp", "Climb_DoClamberStep"): dict(
-        sites=1, art="knuckles", frames="climb_clamber",
+        sites=1, art="knuckles", frames="climb_clamber", ability="Ability_KnuxGlide",
         why="the four ledge-clamber poses, from Climb_ClamberFrames"),
     ("games/sonic4/player/player_climb.emp", "Climb_Catch"): dict(
-        sites=1, art="knuckles", frames="climb_catch",
+        sites=1, art="knuckles", frames="climb_catch", ability="Ability_KnuxGlide",
         why="the wall-catch pose"),
     ("games/sonic4/objects/tails_appendage.emp", "TailsAppendage_Main"): dict(
         sites=1, art="appendage", frames="appendage",
@@ -712,9 +718,11 @@ def subject_bindings():
                 raise Unmeasurable(
                     f"{m.group(1)} does not name all three of cd_dplc / cd_artbase / "
                     f"cd_animtable as extern(...) — the art-to-script binding cannot be derived")
+            ability = re.search(r'cd_ability:\s*extern\("(\w+)"\)', body)
             out[f["artbase"].group(1)] = {"dplc": f["dplc"].group(1),
                                           "anim": f["animtable"].group(1),
-                                          "kind": "player", "record": m.group(1)}
+                                          "kind": "player", "record": m.group(1),
+                                          "ability": ability.group(1) if ability else None}
     app = _read("games/sonic4/objects/tails_appendage.emp")
     eq = {k: re.search(r'equ\s+' + k + r'\s*=\s*extern\("(\w+)"\)', app) for k in
           ("ART_TAILS_APPENDAGE", "DPLC_TAILS_APPENDAGE", "ANI_TAILS_APPENDAGE")}
@@ -725,8 +733,22 @@ def subject_bindings():
     out[eq["ART_TAILS_APPENDAGE"].group(1)] = {
         "dplc": eq["DPLC_TAILS_APPENDAGE"].group(1),
         "anim": eq["ANI_TAILS_APPENDAGE"].group(1),
-        "kind": "appendage", "record": "tails_appendage.emp equ block"}
+        "kind": "appendage", "record": "tails_appendage.emp equ block", "ability": None}
     return out
+
+
+def sole_ability_owner(bind, ability):
+    """Which subject's CharacterDef is the ONLY one pointing at `ability`.
+
+    A state body reached only through one character's airborne ability hook is
+    that character's alone — but "Knuckles only" is a fact about the ROSTER, not
+    a property of the file it lives in. Give a second record the same hook and
+    those frames become reachable for a second sheet. Returns the art label, or
+    None if zero or more than one record owns it (which the caller must treat as
+    undetermined, never as "still just the one").
+    """
+    owners = [art for art, b in bind.items() if b.get("ability") == ability]
+    return owners[0] if len(owners) == 1 else None
 
 
 def reachable_sets(subs, rom, labels):
@@ -828,6 +850,16 @@ def reachable_sets(subs, rom, labels):
         if stale:
             undet_all.extend(f"{key[0]} ({key[1]}): {s}" for s in stale)
             continue
+        if spec.get("ability"):
+            owner = sole_ability_owner(bind, spec["ability"])
+            expected = next((s["art_label"] for s in subs if s["name"] == spec["art"]), None)
+            if owner is None or owner != expected:
+                undet_all.append(
+                    f"{key[0]} ({key[1]}) is routed to {spec['art']} because "
+                    f"{spec['ability']} is that character's alone, but the roster now gives it "
+                    f"to {owner or 'zero or several records'} — the state body is reachable for "
+                    f"a different sheet than this claim says")
+                continue
         for sub in subs:
             if applies(spec["art"], sub):
                 sub.setdefault("_reach", set()).update(contribution(spec["frames"], sub))
