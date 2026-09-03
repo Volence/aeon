@@ -18,6 +18,12 @@ use engine.vdp.{VdpTarget, VdpOp, vdp_comm, VdpBase, vdp_base_reg}
 // literals so a re-layout moves the op instead of stranding it: engine.constants is the
 // engine-side truth and games/sonic4/config/constants.emp pins vram.toml against it.
 use engine.constants.{VRAM_PLANE_A, VRAM_PLANE_B}
+// EFFECTS-W1 item 10a (OJZ_Reels, below): VSCROLL_COL_PAIRS is the per-column VSRAM
+// buffer's own column-pair count (engine/level/parallax.emp), and the two REEL_* geometry
+// constants are the game's own (games/sonic4/config/constants.emp) — both are needed by
+// the ensure that ties the reel-band split to the buffer it actually writes.
+use engine.parallax.{VSCROLL_COL_PAIRS}
+use games.sonic4.constants.{REEL_BAND_COUNT, REEL_COLS_PER_BAND}
 // The sparse fixtures are authored through engine.effects.raster_dsl, which is a
 // COMPTIME_HELPERS member and therefore ambient. What remains is the DENSE tier's
 // import surface: raster_gradient_program's BODY names these, and a comptime fn's
@@ -1520,3 +1526,159 @@ ensure(OJZ_TC_HAND.len == 25,
 ensure(first_mismatch(patched_program(OJZ_TC_PROG),
                       OJZ_TC_HAND ++ OJZ_TC_PAD ++ OJZ_TC_TABLE_HAND ++ OJZ_TC_TRAILER_HAND) == -1,
        "OJZ_TwoChannel: the emitted patched image diverges from the hand twin at index {first_mismatch(patched_program(OJZ_TC_PROG), OJZ_TC_HAND ++ OJZ_TC_PAD ++ OJZ_TC_TABLE_HAND ++ OJZ_TC_TRAILER_HAND)}")
+
+// ===========================================================================
+// OJZ_Reels — EFFECTS-W1 DoD ITEM 10a: REELS (per-strip vertical scroll content).
+//
+// Design: docs/superpowers/designs/2026-09-03-vram-replan-item0-design.md §2 row 10a
+// and §4 step 1 — "10a (reels — the per-column VSRAM buffer already exists) ... zero
+// VRAM and zero new engine mechanism". That claim is about the LOW-LEVEL machinery
+// only: the 80-byte `Parallax_Vscroll_Column_Buf` and its unconditional per-frame DMA
+// to VSRAM (`Vscroll_Write`, engine/level/parallax.emp) already ship and are untouched
+// here. What the DoD row still needs authored is a REEL SOURCE — content that makes
+// adjacent 16-px strips scroll independently — and the tree does not have one:
+// `SceneVDeform.Columns` (engine/level/scene_dsl.emp; shipped scenes Rocking/
+// Perspective) samples ONE table at ONE global phase across every column, so any two
+// columns are always the SAME wave read a few degrees apart — they lag, they never
+// diverge without bound. A "reel" needs each strip's own CONSTANT rate.
+//
+// ---- WHAT THIS ADDS, AND WHAT IT DOES NOT --------------------------------
+// OJZ_Reels_Fill (below) OVERRIDES the per-column buffer's BG words for the frame,
+// right after Parallax_Update fills it (games/sonic4/test/ojz_scroll_test.emp), by
+// COMPOSING REEL_BAND_COUNT independently-advancing byte phase accumulators on top of
+// Parallax_Current_Vscroll_BG — the same camera-driven BG base Parallax_Update itself
+// reads. FG words are left exactly as Parallax_Update wrote them (camY, unchanged), so
+// the foreground is undisturbed. No new VRAM, no new VSRAM write path, no new VDP
+// register: the "mechanism" the design names is reused verbatim. What's new is the
+// SOURCE feeding it, which is real code by construction (a per-band rate cannot be a
+// spatial table sample, the family the DSL already speaks) — exactly what the brief
+// this parcel implements from anticipated ("the per-column buffer is currently driven
+// by parallax, so a reel source that overrides or composes with it is likely real
+// code").
+//
+// ---- WHY IT HAS NO HOTKEY, AND HOW TO REACH IT ANYWAY ----------------------
+// Debug_BandDemoHotkey's own header (games/sonic4/test/ojz_scroll_test.emp) enumerates
+// every remaining pad chord against this shape's readers and finds none free: START+
+// LEFT/RIGHT is the scene cycle, START+UP/DOWN is the raster tier, and START+A/B/C/
+// X/Y/Z are each individually rejected by name. A third demo therefore gets no chord
+// of its own — the honest reading of that exhaustion, not an oversight here. Reachable
+// instead the way OJZ_BandDemo's own header names as the alternative: poke the RAM cell
+// directly. `tools/reels_witness.py` sets `OJZ_Reel_Active` nonzero and reads the
+// column buffer back; TAGGED for the controller's foreground pass, not run here (no
+// emulator in a subagent).
+//
+// ---- WHAT IS DEMONSTRABLE WITHOUT AN EMULATOR ------------------------------
+// `tools/reels_gate.py` reads the built ROM and proves the SOURCE reached it: the
+// `OJZ_Reel_Speed` table's bytes, independently re-derived from this file's own
+// `OJZ_REEL_SPEEDS` constant, and the DEBUG/release presence split (both this table and
+// `OJZ_Reels_Fill` emit real bytes in DEBUG and zero in release, the same dormant-
+// scaffold shape item 11a's OJZ_BaseSwap uses and for the identical reason: nothing in
+// the release shape can ever set `OJZ_Reel_Active`). It does NOT decode `OJZ_Reels_Fill`
+// down to its instruction bytes — unlike OJZ_BaseSwap's 11-word DATA program,
+// this is CODE, and pinning a compiler's exact encoding of a loop is the kind of
+// coupling this tree spends real effort avoiding elsewhere. The loop's correctness is
+// covered by the `ensure`s below (which run, ungated, on every build) plus the tagged
+// runtime pass.
+// ===========================================================================
+
+// The reel-band split of the 20 column-pairs `Parallax_Vscroll_Column_Buf` holds.
+// REEL_BAND_COUNT and REEL_COLS_PER_BAND are declared in games/sonic4/config/constants.emp
+// (REEL_BAND_COUNT is also needed there, for OJZ_Reel_Phase's array length in
+// games/sonic4/config/ram.emp) — this is the one place all three names are in scope, so
+// this is where the identity between them is checked.
+ensure(REEL_BAND_COUNT * REEL_COLS_PER_BAND == VSCROLL_COL_PAIRS,
+       "OJZ_Reels: {REEL_BAND_COUNT} bands x {REEL_COLS_PER_BAND} columns/band must cover every one of the VSCROLL_COL_PAIRS ({VSCROLL_COL_PAIRS}) column-pairs the per-column VSRAM buffer holds, or OJZ_Reels_Fill's column loop would leave some columns with whatever Parallax_Update last wrote them instead of an independent reel")
+// OJZ_Reels_Fill's column->band map is a hardcoded `lsr.b #2` (divide by 4, a shift —
+// not the mulu/divu CODING_CONVENTIONS §2.1 gates). If REEL_COLS_PER_BAND ever moves,
+// the shift amount has to move with it; this is the tripwire that says so by name
+// instead of leaving the loop to silently address the wrong band.
+ensure(REEL_COLS_PER_BAND == 4,
+       "OJZ_Reels: OJZ_Reels_Fill's column->band map is a hardcoded `lsr.b #2` (divide by 4) — REEL_COLS_PER_BAND is {REEL_COLS_PER_BAND}, not 4, so the shift amount in games/sonic4/data/effects/ojz_effects.emp must move with it")
+
+// THE REEL SOURCE ITSELF — REEL_BAND_COUNT signed per-frame phase increments, one per
+// strip. UNGATED (evaluated in every shape, every build) even though only DEBUG ever
+// emits it as ROM bytes, for OJZ_BaseSwap's reason: the properties below must hold of
+// the AUTHORED numbers, not merely of whichever shape happens to be building.
+//
+// PAIRWISE DISTINCT, and that is the whole "reel" claim in one property: two bands
+// sharing a rate would look like one wide strip instead of two independent ones, which
+// is exactly the failure a smooth deform table already has everywhere (neighbouring
+// columns are never far apart in rate). distinct5() is a plain comptime fn with a
+// single-level `return if` — parallax_dsl.emp's `iabs`/`tri_sample` precedent for why
+// that folds to a value rather than `()` (EMP_PITFALLS §1: only an `if` in a
+// `comptime for` element's TAIL position is the trap; this is neither).
+comptime fn distinct5(a: int, b: int, c: int, d: int, e: int) -> int {
+    return if a != b && a != c && a != d && a != e && b != c && b != d && b != e && c != d && c != e && d != e { 1 } else { 0 }
+}
+const OJZ_REEL_SPEEDS: [i8; REEL_BAND_COUNT] = [3, -5, 2, -4, 6]
+ensure(OJZ_REEL_SPEEDS.len == REEL_BAND_COUNT,
+       "OJZ_Reels: OJZ_REEL_SPEEDS carries {OJZ_REEL_SPEEDS.len} rates, not one per REEL_BAND_COUNT ({REEL_BAND_COUNT}) band")
+ensure(distinct5(OJZ_REEL_SPEEDS[0], OJZ_REEL_SPEEDS[1], OJZ_REEL_SPEEDS[2], OJZ_REEL_SPEEDS[3], OJZ_REEL_SPEEDS[4]) == 1,
+       "OJZ_Reels: OJZ_REEL_SPEEDS = {OJZ_REEL_SPEEDS} are not pairwise distinct — two reel bands sharing a rate would look like one wide strip on screen, not two independent ones, which is the whole property this demo exists to show")
+
+// THE EMISSION IS DEBUG-GATED, FOR OJZ_BaseSwap's REASON EXACTLY: nothing in the
+// release shape can ever set OJZ_Reel_Active (its only writer is tools/reels_witness.py
+// poking the RAM cell directly), so an unconditional emission would be a dormant
+// scaffold in the ROM the owner ships.
+const REEL_SPEED_EMIT_LEN = if DEBUG == 1 { REEL_BAND_COUNT } else { 0 }
+pub data OJZ_Reel_Speed: [i8; REEL_SPEED_EMIT_LEN] = if DEBUG == 1 { OJZ_REEL_SPEEDS } else { [] }
+// EVENNESS PAD — load-bearing, boot_data.emp's Z80_Sound_End precedent: REEL_BAND_COUNT
+// (5) is odd, so without this the proc right below would land at an odd address, which
+// is a guaranteed 68k address-error crash for CODE ([layout.odd-item] is a hard error on
+// a proc, unlike the warning it is for data). Absent in the release shape (the table is
+// 0 bytes there, already even), which is fine: `align 2` on an already-even address costs
+// nothing.
+align 2
+
+// OJZ_Reels_Fill — advance the REEL_BAND_COUNT phase accumulators by their own speed,
+// then rebuild all 20 column-pairs of Parallax_Vscroll_Column_Buf: FG word preserved
+// (whatever Parallax_Update already wrote — camY, constant per column), BG word
+// replaced with Parallax_Current_Vscroll_BG (the camera's own BG base, composed rather
+// than discarded) plus that column's OWNING band's live phase.
+//
+// NOT APPLIED: the column-19 borrow (engine/level/parallax.emp's `.col19_borrow_declined`
+// banner) — this demo does not participate in any scene's `left_column_mask` contract,
+// so its leading sliver may show the known left-edge artifact the borrow exists to fix.
+// A known imprecision, not a defect, exactly as item 11a's booking treats its own two.
+//
+// DEBUG-shape only: the whole body, RTS included, sits inside `if DEBUG == 1 {}`,
+// Debug_BandDemoHotkey's pattern, so the proc emits ZERO bytes in the plain shape.
+//
+// In:  none (reads OJZ_Reel_Phase, OJZ_Reel_Speed, Parallax_Current_Vscroll_BG)
+// Out: OJZ_Reel_Phase advanced; Parallax_Vscroll_Column_Buf's 20 BG words replaced
+// Clobbers: d0-d5/a0-a2
+pub proc OJZ_Reels_Fill () clobbers(d0-d5/a0-a2) {
+    if DEBUG == 1 {
+        // advance each band's phase accumulator by its own constant speed — the reel
+        // source itself. Wraps at 256 (byte add), which is the loop: a band's strip
+        // scrolls forever rather than settling, exactly like a slot-machine reel.
+        lea     OJZ_Reel_Phase, a1              // (OJZ_Reel_Phase).w — REEL_BAND_COUNT bytes
+        lea     OJZ_Reel_Speed(pc), a2          // ROM: REEL_BAND_COUNT signed byte speeds
+        moveq   #REEL_BAND_COUNT-1, d5
+    .advance:
+        move.b  (a1), d0
+        add.b   (a2)+, d0
+        move.b  d0, (a1)+
+        dbf     d5, .advance
+
+        // rebuild the column buffer Vscroll_Write DMAs to VSRAM every frame.
+        lea     Parallax_Vscroll_Column_Buf, a0
+        move.w  (a0), d1                        // FG word — constant per column, preserved
+        lea     OJZ_Reel_Phase, a1
+        moveq   #0, d4                          // column index 0..19
+        moveq   #VSCROLL_COL_PAIRS-1, d5
+    .col:
+        move.w  d1, (a0)+                       // FG unchanged
+        moveq   #0, d2
+        move.b  d4, d2
+        lsr.b   #2, d2                          // band = column / REEL_COLS_PER_BAND (== 4)
+        moveq   #0, d3
+        move.b  (a1, d2.w), d3                  // that band's live phase (0..255)
+        ext.w   d3
+        add.w   Parallax_Current_Vscroll_BG, d3 // compose with the camera's own BG base
+        move.w  d3, (a0)+
+        addq.b  #1, d4
+        dbf     d5, .col
+        rts
+    }
+}

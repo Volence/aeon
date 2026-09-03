@@ -1292,6 +1292,23 @@ pub proc GameState_OJZScroll_Update () clobbers(d0-d7/a0-a6) {
         //    (shadow + direct hardware write), so the mode stays in lockstep with
         //    the HScroll/VSRAM buffers it builds here. --
         jbsr    Parallax_Update
+
+        // -- DEBUG effects-lab tier: EFFECTS-W1 item 10a "reels" demo. Overrides the
+        //    per-column V-scroll buffer Parallax_Update just filled, right after it
+        //    fills it and before Vscroll_Write's VBlank DMA reads it — see
+        //    OJZ_Reels_Fill's header (games/sonic4/data/effects/ojz_effects.emp) for
+        //    what it writes and why. No hotkey installs it (Debug_BandDemoHotkey's
+        //    header enumerates the exhausted pad chords): toggled only by
+        //    tools/reels_witness.py poking OJZ_Reel_Active directly, the same pattern
+        //    band_witness.py uses for OJZ_BandDemo. Emits nothing in the plain
+        //    shape. --
+        if DEBUG == 1 {
+                tst.b   OJZ_Reel_Active         // (OJZ_Reel_Active).w
+                beq     .skip_reels_fill
+                jbsr    OJZ_Reels_Fill
+        .skip_reels_fill:
+        }
+
         // -- camera-driven BG tile animation (trunk cores) --
         jbsr    BgAnim_Update
         rts

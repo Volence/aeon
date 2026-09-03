@@ -17,6 +17,7 @@
 module games.sonic4.ram
 
 use engine.constants.{SYSTEM_STACK, NUM_PLAYERS}
+use games.sonic4.constants.{REEL_BAND_COUNT}
 
 // -----------------------------------------------
 // PlayerBlock — one player slot's mutable per-frame working state
@@ -336,6 +337,24 @@ pub vars game_ram {
                                 //   0 OK · 1 bad op · 2 bad ObjDef · 3 pool full
                                 //   4 bad slot handle · 5 slot owned by the entity window
         Obj_Req_Flag:   u8,     // 0 = idle / consumed (the ack); nonzero = pending
+
+        // -----------------------------------------------
+        // OJZ_Reels demo state (DEBUG shapes only) — EFFECTS-W1 item 10a
+        // -----------------------------------------------
+        // Independent per-strip ("reel") V-scroll demo. OJZ_Reel_Active gates
+        // OJZ_Reels_Fill (games/sonic4/data/effects/ojz_effects.emp), which OVERRIDES
+        // Parallax_Vscroll_Column_Buf's BG words for the frame right after
+        // Parallax_Update fills it, composing REEL_BAND_COUNT independently-advancing
+        // phase accumulators on top of Parallax_Current_Vscroll_BG. There is no hotkey
+        // to set it: Debug_BandDemoHotkey's header enumerates every remaining pad chord
+        // against this shape and finds none free. tools/reels_witness.py pokes this
+        // cell directly instead (band_witness.py's pattern for OJZ_BandDemo).
+        //
+        // RAM TAIL + @shape_divergent, same reason as the two mailboxes above: chained
+        // after every existing game var, so the DEBUG shape grows and release carries
+        // none of it.
+        OJZ_Reel_Active: u8,                     // 0 = normal parallax fill; nonzero = reels demo live
+        OJZ_Reel_Phase:  [u8; REEL_BAND_COUNT],  // per-band phase accumulators (0..255, wraps)
         pad(1),                 // keep Game_RAM_End even
     }
 
