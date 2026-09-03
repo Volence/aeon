@@ -43,8 +43,10 @@ and the expectation was wrong. So nothing is typed now:
   * `Raster_Program_None` and `Pal_Cycle_None` come from the listing, not from a literal.
 
 WHAT IT DOES NOT MEASURE.
-  * It does not look at pixels. A glyph correct in VRAM but pointed at by a mis-built
-    sprite would pass; the SAT half is not sampled.
+  * It does not look at pixels, and it does not read the sprite attribute table. It DOES
+    check the two glyph objects' own SSTs — built (code_addr non-zero) and at the screen
+    coordinates the readout declares — which closes the "the tile is right but nothing
+    points at it" half; what is left unsampled is the SAT build and the pixels.
   * It does not reach the BLIND verdict. Section 0's water anchors are at world Y 224/314
     and a boot lands the camera above them, so the honest reading at cursor 0 is LIVE.
     Producing a BLIND requires a warp deeper into the act, which is a bigger instrument;
@@ -89,6 +91,11 @@ ACT_SEC_GRID, ACT_GRID_W, ACT_GRID_H = 0x00, 0x04, 0x06
 PATCH_ANCHOR_NONE = 0x7FFF     # engine/effects/raster_dsl.emp; pinned below against ROM
 RASTER_MAX_PATCH = 4
 SCREEN_HEIGHT = 224            # engine/system/constants.emp
+SST_SIZE = 0x50                # sizeof(Sst) — engine/objects/sst.emp's own (size:) assertion
+SST_CODE_ADDR, SST_X_POS, SST_Y_POS = 0x00, 0x02, 0x06   # dispatch word + the two 16.16 Coords
+NUM_SYSTEM = 8                 # engine/system/constants.emp; pinned against the listing below
+PRESET_ROW_Y = 32              # DEBUG_PRESET_READOUT_Y — the second readout row
+PRESET_CELL_X = (16, 24)       # DEBUG_PRESET_READOUT_X and +8
 
 
 def lst_symbol(lst: str, name: str) -> int | None:
@@ -199,6 +206,10 @@ async def run(sock: str, rom: str, lst: str) -> tuple[int, list[str]]:
         return 2, ["the glyph sheets read out of ROM contain duplicate rows — either the "
                    "symbols moved or the read is wrong; a duplicate makes every tile "
                    "comparison below ambiguous rather than false"]
+
+    if "System_Slots" not in sym:
+        return 2, ["System_Slots is not in the listing — the readout's two glyph objects "
+                   "are claimed by address off it, so their existence cannot be checked"]
 
     await b.call("emulator/reset", {})
     await b.call("emulator/run_frames", {"frames": BOOT_FRAMES})
@@ -317,6 +328,26 @@ async def run(sock: str, rom: str, lst: str) -> tuple[int, list[str]]:
                 fails.append(f"section {want_cursor}: verdict shows "
                              f"{V_NAMES.get(shown, 'no glyph in the sheet')}, wanted "
                              f"{V_NAMES[want_verdict]} — {why}")
+        # --- the two glyph OBJECTS: built, and where the readout says they are ---
+        # Slots NUM_SYSTEM-4 and NUM_SYSTEM-3, claimed by address (the System pool has no
+        # allocator). Checked once, on the first step, because they are built once.
+        if want_cursor == 1:
+            for i, (slot, x) in enumerate(zip((NUM_SYSTEM - 4, NUM_SYSTEM - 3), PRESET_CELL_X)):
+                sst = sym["System_Slots"] + slot * SST_SIZE
+                blob = await rd(b, sst, 0x10)
+                code = int.from_bytes(blob[SST_CODE_ADDR:SST_CODE_ADDR + 2], "big")
+                px = int.from_bytes(blob[SST_X_POS:SST_X_POS + 2], "big")
+                py = int.from_bytes(blob[SST_Y_POS:SST_Y_POS + 2], "big")
+                if code == 0:
+                    fails.append(f"readout cell {i}: System slot {slot} has code_addr 0 — "
+                                 f"the glyph object was never built, so the VRAM tile below "
+                                 f"is correct but nothing draws it")
+                elif (px, py) != (x, PRESET_ROW_Y):
+                    fails.append(f"readout cell {i}: System slot {slot} sits at screen "
+                                 f"({px},{py}), wanted ({x},{PRESET_ROW_Y})")
+            print(f"    glyph objects: System slots {NUM_SYSTEM-4}/{NUM_SYSTEM-3} built at "
+                  f"screen y {PRESET_ROW_Y}")
+
         print(f"  cursor {want_cursor}: preset ${ep:06X} · Raster_Program ${prog:06X} · "
               f"verdict {V_NAMES[want_verdict]} ({why})")
 
