@@ -224,12 +224,34 @@ source-regex enumeration, which is the weaker form this replaces:
 and stderr. The reachable set is never quietly narrowed.** A broken derivation is `Unmeasurable`
 and exits 2.
 
-**Two things the scan found that a hand list would not have.** `Load_Object` writes
-`mapping_frame` through a `move.l #$FF000000, Sst.prev_anim:l(a1)` sized overlay — the line never
-says `mapping_frame`, and it runs for every spawned object; the scanner matches by SPAN, not by
-name. And the handler-block derivation initially mis-classified `AF_CALLBACK` as a terminator
-because `.evt_callback` carries its own `.evt_cb_done:` label before its cursor advance — caught
-by a unit test, latent today only because no script bakes a callback.
+**Four things the scan and the derivation found that the hand list in the measurement did not.**
+* `Load_Object` writes `mapping_frame` through a `move.l #$FF000000, Sst.prev_anim:l(a1)` sized
+  overlay — the line never says `mapping_frame`, and it runs for every spawned object. The
+  scanner matches by SPAN, not by name.
+* **`player_instashield.emp` writes `mapping_frame` nowhere.** It only READS it
+  (`cmpi.b #INSTASHIELD_LAST_FRAME, Sst.mapping_frame(a0)`). The measurement listed it as a
+  writer; it is not one.
+* `player_climb.emp` holds **four** writers, not the two the measurement named: the cycle write
+  in `Climb_Animate` (`$B7..$BC`) and the table-driven `Climb_DoClamberStep` (`$BD $BE $BF $D2`)
+  are additional to `CLIMB_CATCH_FRAME` and `CLIMB_LETGO_FRAME`.
+* The handler-block derivation initially mis-classified `AF_CALLBACK` as a terminator because
+  `.evt_callback` carries its own `.evt_cb_done:` label before its cursor advance — caught by a
+  unit test, latent today only because no script bakes a callback.
+
+**And two places the first cut of this parcel narrowed silently, both now checked.** The four
+climb writers were routed to Knuckles on a reading — `PSTATE_CLIMB` is entered only from
+`Climb_Catch`, itself only the `.hit_wall` branch of `PState_Glide`, itself only reachable through
+`Ability_KnuxGlide`. The first two are structural; the third is a fact about the ROSTER, so the
+gate now verifies that exactly ONE `CharacterDef` owns that hook and that it is the one the entry
+routes to (proven red by pointing `CharDef_Sonic.cd_ability` at it). And the walk stops at
+`AF_BACK` because the rewind lands on already-covered bytes — true only while the rewind is no
+larger than the cursor, since `.cc_back` subtracts with a byte `sub.b`; a larger one underflows
+and reads outside the body, and is now `Unmeasurable` rather than assumed away.
+
+**Also worth knowing for anyone reading `mapping_frame` writes:** `Player_DebugEnter`'s
+`clr.b mapping_frame` lands against `Map_TestObj` (it swaps the mappings first), so it reaches no
+character art, while `Player_DebugExit`'s lands against the restored character sheet and DOES
+make frame 0 reachable. The two lines are byte-identical and three routines apart.
 
 **The old slot-cost verdict is unchanged** — same predicate, same message, same exit code (worst
 peak SLOT cost over ALL frames vs `DMA_IMPORTANT_SLOTS - DPLC_ENTRY_RESERVE`).

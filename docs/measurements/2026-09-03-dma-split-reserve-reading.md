@@ -139,10 +139,12 @@ refuted the whole argument. None appeared.
   appendage banks from their own constants, and finds every other
   `mapping_frame` writer by scanning the tree rather than by reading this list.
   It confirms both halves of the paragraph above — Sonic's `$6A` is unreachable,
-  Tails' `$A4` and Knuckles' `$8B` are reachable — and it found one writer this
-  document's enumeration missed: `Load_Object`'s sized-overlay write, which
-  makes frame 0 reachable for every subject. See the CLOSED entry in
-  `docs/DEFERRED_WORK.md`.
+  Tails' `$A4` and Knuckles' `$8B` are reachable — and it corrects the writer
+  list this document worked from in three places: `Load_Object`'s sized-overlay
+  write was missing (it makes frame 0 reachable for every subject),
+  `player_climb.emp` holds FOUR writers rather than two, and
+  `player_instashield.emp` holds NONE — it only reads `mapping_frame`. See the
+  CLOSED entry in `docs/DEFERRED_WORK.md`.
 - **Sampling was one read per action**, not per frame — a watchpoint halts the
   run, so continuous capture was not available. A transient frame could have
   been missed. This is a falsification opportunity taken, not exhaustive
