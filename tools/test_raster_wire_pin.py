@@ -477,3 +477,88 @@ def test_dense_encoder_refuses_the_barred_line():
         probe.dense_program_words(top=96, lines=128, cram_addr=0x48, stream=0x1000)
     with pytest.raises(ValueError):
         probe.dense_program_words(top=96, lines=8, cram_addr=0x00, stream=0x1000)  # CRAM line 0
+
+
+# ---- 6. the RAMP program's wire form (EFFECTS-W1 item 6) --------------------
+#
+# `raster_ramp_program` / RasterRampProgram is the dense tier's OTHER body — a second
+# encoder the probe grew for the FR1/FR2 pair, and the same rule applies: an unpinned
+# second encoder is exactly what this file exists to prevent. Pinned against the .emp
+# source, not a captured image, same as the gradient section above.
+
+def _ramp_struct_fields() -> list[tuple[str, int]]:
+    """(field name, width in words) for RasterRampProgram, in declaration order."""
+    body = re.search(r"pub struct RasterRampProgram\s*\{(.*?)\n\}", RASTER.read_text(), re.S)
+    assert body, "cannot find `pub struct RasterRampProgram` in raster.emp"
+    out: list[tuple[str, int]] = []
+    for name, ty in re.findall(r"(\w+)\s*:\s*(\*?\w+)\s*,", body.group(1)):
+        out.append((name, 2 if ty.startswith("*") else STRUCT_WIDTH[ty]))
+    return out
+
+
+def test_ramp_probe_layout_matches_the_struct():
+    """The probe's word image must have the struct's shape, field for field."""
+    import raster_cost_probe as probe
+    fields = _ramp_struct_fields()
+    assert [n for n, _ in fields] == [
+        "rrp_mask", "rrp_arm0", "rrp_ops0", "rrp_arm1", "rrp_ops1",
+        "rrp_arm2", "rrp_ops2", "rrp_op", "rrp_cmd", "rrp_lines", "rrp_start", "rrp_step",
+        "rrp_end_arm", "rrp_end_ops"], (
+        "RasterRampProgram's fields moved — the probe's ramp encoder emits a fixed "
+        f"order and no longer matches: {[n for n, _ in fields]}")
+    w = probe.ramp_program_words(top=96, lines=40, cmd=0x40000010, start=0x00010000, step=0x8000)
+    assert len(w) == sum(n for _, n in fields), (
+        f"probe emits {len(w)} words, the struct is {sum(n for _, n in fields)}")
+    at, idx = {}, 0
+    for name, n in fields:
+        at[name], idx = idx, idx + n
+    assert w[at["rrp_op"]] == emp_const(RASTER, "OP_RUN_RAMP") == probe.OP_RUN_RAMP
+    assert w[at["rrp_lines"]] == 40
+    assert (w[at["rrp_cmd"]] << 16 | w[at["rrp_cmd"] + 1]) == 0x40000010
+    assert (w[at["rrp_start"]] << 16 | w[at["rrp_start"] + 1]) == 0x00010000
+    assert (w[at["rrp_step"]] << 16 | w[at["rrp_step"] + 1]) == 0x8000
+    assert w[at["rrp_end_arm"]] == emp_const(RASTER, "RASTER_ARM_PARK")
+    assert w[at["rrp_end_ops"]] == emp_const(RASTER, "RASTER_OPS_END")
+    assert w[at["rrp_ops0"]] == 0 and w[at["rrp_ops1"]] == 0 and w[at["rrp_ops2"]] == 1
+    assert w[at["rrp_mask"]] == 0, "default mask must be 0 (no arg passed)"
+
+
+def test_ramp_probe_schedule_matches_raster_arm():
+    """Same schedule as the gradient program (raster_ramp_program's own comment: 'Same
+    shape as the gradient ENTER'), so the same three-arm-word identity applies."""
+    import raster_cost_probe as probe
+    every = emp_const(RASTER, "RASTER_ARM_EVERY_LINE")
+    for top in (3, 96, 112, 200):
+        w = probe.ramp_program_words(top=top, lines=8, cmd=0x40000010, start=0, step=0x8000)
+        assert w[1] == 0x8A00 | ((top - 1) - 1 - 1), f"arm0 wrong at top {top}"
+        assert w[3] == 0x8A00 | (top - (top - 1) - 1) == every, f"arm1 wrong at top {top}"
+        assert w[5] == every, f"arm2 must be the every-line word at top {top}"
+
+
+def test_ramp_fire_count_shares_the_dense_pipeline():
+    """The ramp program walks the SAME arm pipeline as the gradient one — two priming, the
+    setup record, `lines` fires, one trailing fire — so `dense_fire_count` applies
+    unchanged; there is no separate `ramp_fire_count` to drift out of sync with it."""
+    import raster_cost_probe as probe
+    assert probe.dense_fire_count(8) == 8 + 2 + 1 + 1
+    assert probe.dense_fire_count(40) == 40 + 2 + 1 + 1
+
+
+def test_ramp_pin_is_not_vacuous():
+    """Poison it: transpose rrp_lines and rrp_start's high word — LENGTH unchanged."""
+    import raster_cost_probe as probe
+    w = list(probe.ramp_program_words(top=96, lines=40, cmd=0x40000010, start=0x00010000, step=0x8000))
+    p = list(w)
+    p[10], p[11] = p[11], p[10]        # rrp_lines <-> rrp_start's high word
+    assert len(p) == len(w)
+    assert p != w, "pick a fixture whose two swapped words differ, or this proves nothing"
+    with pytest.raises(AssertionError):
+        assert p[10] == 40, "rrp_lines"
+
+
+def test_ramp_encoder_refuses_the_barred_line():
+    """`top + lines <= 223` — the constructor's ensure, mirrored (raster.emp's derivation)."""
+    import raster_cost_probe as probe
+    probe.ramp_program_words(top=96, lines=127, cmd=0x40000010, start=0, step=0x8000)  # 223: ok
+    with pytest.raises(ValueError):
+        probe.ramp_program_words(top=96, lines=128, cmd=0x40000010, start=0, step=0x8000)

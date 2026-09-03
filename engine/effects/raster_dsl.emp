@@ -1866,6 +1866,48 @@ pub const RASTER_DENSE_LINE_GRAD_CYC = 316
 ensure(RASTER_DENSE_LINE_GRAD_CYC < RASTER_SCANLINE_CYC,
        "a dense line costs {RASTER_DENSE_LINE_GRAD_CYC} cycles against a {RASTER_SCANLINE_CYC}-cycle scanline. The dense tier re-arms reg $0A = 0 and fires on EVERY line, so a body that does not fit in one line cannot keep up: each fire retires after the next line has already begun and the run slips further behind for its whole length. Take work out of Raster_HInt's .dense_body, or the dense tier stops being a per-scanline instrument.")
 
+// ---- the DENSE tier's RAMP body (EFFECTS-W1 item 6, 2026-09-03) -------------
+// `.ramp_body` (raster.emp) shipped 2026-08-14 alongside OP_RUN_RAMP and had NO cost term
+// of its own until this parcel — docs/DEFERRED_WORK.md's Tier-3 item-1 closure said so
+// verbatim: "There is no ramp cost constant to update — the dense tier's only cost term is
+// the gradient one." This is that missing term, measured the same way
+// RASTER_DENSE_LINE_GRAD_CYC was: the SLOPE between two runs of the same OP_RUN_RAMP
+// program at 8 and 40 lines (tools/raster_cost_probe.py's FR1/FR2 pair), so every shared
+// prologue/epilogue overhead cancels and only the per-line body remains.
+//
+// MEASURED 2026-09-03, s4.debug.bin (this parcel's build, CAP_DENSE_TIER promoted, the
+// interpreter byte-identical to what shipped 2026-08-14 — see that capability's own
+// comment for why the promotion touches no Raster_HInt byte): FR1 3732, FR2 13460,
+// (13460 - 3732) / 32 = 304.0 cyc/line. Stable across three independent boots (--repeat 3,
+// same headless instrument the gradient pair uses), and it re-derived the gradient row in
+// the SAME run as a control: FD1 3808, FD2 13920, (13920 - 3808) / 32 = 316.0 — bit-for-bit
+// the constant already pinned above, which is the expected result of a change that never
+// touched `.dense_body` or the dispatch chain.
+//
+// WHY IT IS CHEAPER THAN THE GRADIENT LINE, AND BY ROUGHLY WHAT THE BODY SAYS. `.ramp_body`
+// writes ONE VDP word (`move.w d1, -4(a2)`, 12 cyc) where `.dense_body` writes THREE
+// (`move.w (a1)+, -4(a2)` x3, 16 cyc each = 48), a 36-cycle saving; the ramp body spends
+// some of it back on the accumulator arithmetic `.dense_body` does not pay
+// (`move.l Raster_Ramp_Acc,d1` / `add.l Raster_Ramp_Step,d1` / `move.l d1,Raster_Ramp_Acc` /
+// `swap d1`). Net measured difference: 316.0 - 304.0 = 12 cyc. Nominal is not trusted here
+// either way — the gradient row's own history (RASTER_DENSE_LINE_GRAD_CYC's comment) is
+// three separate cases where a nominal cycle count over- or under-predicted an edit to this
+// same neighbourhood — so this is read as a measurement, not derived from an instruction
+// table.
+pub const RASTER_DENSE_LINE_RAMP_CYC = 304
+
+// Same invariant as the gradient row, same reason: a dense run fires EVERY line, so a body
+// that does not fit inside one scanline falls behind for the rest of the run. Margin against
+// 488 is 184 cycles (62.3%) — comfortably wider than the gradient row's ~35%, which tracks
+// with the ramp body doing less per-line VDP work. EFFECTS-W1 item 6's own booking names
+// this as the check the DoD asked for: "an HBlank budget check — the per-line work has to
+// fit the window." It does, by a wide margin, so the dense-tier reserved stream register
+// (a separate, owner-held decision — docs/DEFERRED_WORK.md's DENSE PER-LINE VSRAM entry)
+// is not raised by this measurement: the ruling was to revisit it only if a dense-VSRAM
+// workload measures OVER budget, and 304 of 488 is not that.
+ensure(RASTER_DENSE_LINE_RAMP_CYC < RASTER_SCANLINE_CYC,
+       "a dense ramp line costs {RASTER_DENSE_LINE_RAMP_CYC} cycles against a {RASTER_SCANLINE_CYC}-cycle scanline. The dense tier re-arms reg $0A = 0 and fires on EVERY line, so a body that does not fit in one line cannot keep up: each fire retires after the next line has already begun and the run slips further behind for its whole length. Take work out of Raster_HInt's .ramp_body, or the dense tier's VSRAM axis stops being a per-scanline instrument.")
+
 // The per-op terms. Each op pays all four.
 pub const RASTER_OP_FETCH_CYC       = 8      // move.w (a1)+, d1
 pub const RASTER_DISPATCH_RUNG_CYC  = 16     // a FAILED rung: cmpi.w #imm,d1 + beq.s not taken

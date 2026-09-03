@@ -3890,6 +3890,27 @@ DAC (6.2, shipped shape)
 > Design: `docs/superpowers/2026-08-11-effects-suite-design.md` (six phases).
 > The timing rules the dispatcher is built on: `docs/research/2026-08-12-raster-hint-survey.md`.
 
+**Update, 2026-09-03 (EFFECTS-W1 item 6, `parcel/item6-dense-perline-vsram`), reconciling
+the P2 snapshot above.** The dense tier gained a SECOND body two weeks after that snapshot:
+`OP_RUN_RAMP` (2026-08-14) computes its per-line value from a 16.16 accumulator instead of
+streaming a baked ROM colour list, and pointed at VSRAM it is vertical scale — squash,
+stretch, the perspective-floor family the blockquote's own "Batman & Robin's core raster
+architecture" line gestures at. This item promoted `CAP_DENSE_TIER` (the capability gates
+both CONSTRUCTING a ramp program — an authoring-time `ensure`, so a game must declare
+intent before it can build one — and one minimal interpreter leaf, `.op_run_ramp`'s
+5-instruction ENTER body; NOT the dispatch chain or `.ramp_body`, both of which stay
+byte-identical and unconditional in every game, because `Raster_HInt`'s opcode-dispatch
+cost model prices every op's depth as a function of opcode value alone for every game, and
+eliding a mid-chain compare conditionally would silently move a later op's price; see
+`docs/DEFERRED_WORK.md`'s EFFECTS-W1 ITEM 6 block for the full reasoning, including a
+ROM-neighbour measurement artifact this same bracket exposed and fixed in
+`tools/demo_specialization_witness.py`) and measured the
+missing cost term: `RASTER_DENSE_LINE_RAMP_CYC = 304` cyc/line against a 488-cycle
+scanline (62.3% headroom). This is the number the "reserved-global-stream-register FLAGGED
+decision" two paragraphs up was waiting on — it does not force the register: 304 is not
+over budget, so per the hub's ruling the conservative model (no reserved register) ships
+unchanged and that decision stays the owner's to make on his own schedule.
+
 Palette management, raster effects, hardware-driven lighting, and a lightweight effects engine. The palette system is fully section-aware with computed water palettes (novel). Raster effects are driven by a unified per-scanline command table (§7.2) — Batman & Robin's core raster architecture, enabling stackable VDP register changes per frame. Shadow/Highlight mode provides hardware transparency and lighting at zero CPU cost. Boss and special stage effects use Batman-inspired compound rotation math.
 
 ### 7.1 Palette System

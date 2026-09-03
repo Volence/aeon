@@ -1005,6 +1005,49 @@ pub data OJZ_TestRamp: RasterRampProgram = raster_ramp_program(
     start: 0,
     step:  OJZ_RAMP_STEP)
 
+// EFFECTS-W1 item 6 — CAP_DENSE_TIER IS THE AUTHORING GATE, NOT AN INTERPRETER GATE.
+//
+// WHY THE CHECK LIVES HERE AND NOT INSIDE raster_ramp_program's OWN BODY (engine/effects/
+// raster.emp), which is where every one of its OTHER validation `ensure`s lives. MEASURED,
+// not assumed: a first attempt put `ensure((Game.SCANLINE_CAPS & CAP_DENSE_TIER) != 0, ..)`
+// inside the comptime fn itself and the build failed `[Error] unknown name Game.SCANLINE_CAPS`
+// at exactly this call site — a comptime fn's free names resolve at the CALL SITE (this
+// module's own opening note, three paragraphs up, about `pal_stage_off`), and `Game` does
+// not travel through that inlining the way it does into a module's own top-level `ensure`s
+// or its engine-module PROC bodies (raster.emp's Effects_LatchWorldLines reads
+// `Game.SCANLINE_CAPS` directly, at its own definition site, with no import). Every existing
+// "this game must declare CAP_X" check in the tree already lives this way — see
+// games/sonic4/data/effects/scene_registry.emp's CAP_MULTI_DEFORM_TABLE / CAP_FACTOR_CURVE /
+// CAP_BAND_DRIFT ensures, all module-level, all in a GAME file, none inside an engine
+// constructor. This follows the same precedent rather than fighting it.
+//
+// WHY THIS ENSURE AND NOT A BRACKETED SPAN IN Raster_HInt, which is the §8.2 norm every
+// other promoted bit follows. Raster_HInt's opcode dispatch is a compare CHAIN whose whole
+// cost model (raster_dsl.emp) prices every op's DISPATCH DEPTH as a function of its opcode
+// value alone, unconditionally, for every game — "an op's depth is derivable from its
+// opcode" is stated there as a universal fact, not a per-game one. Eliding `.op_run_ramp`'s
+// dispatch pair for a game that declares no dense-VSRAM content would shrink
+// OP_PAL_RESTORE's dispatch depth for that SAME game — silently invalidating the model for
+// any future pal_restore program built under it, whether or not one exists today. That risk
+// is not this item's to take against code this fragile (raster_dsl.emp's own solved-spin
+// warnings are explicit that a moved rung re-prices fixtures that were never touched). So
+// the interpreter (`.op_run_ramp`, `.ramp_body`, the dispatch pair) stays UNCONDITIONAL —
+// byte-identical in every game, exactly as it shipped 2026-08-14 — and the capability
+// instead gates the one place a change costs nothing and risks nothing: the comptime call
+// that BUILDS the program. A game that has not declared CAP_DENSE_TIER cannot construct a
+// RasterRampProgram at all, in either target — this covers a future CRAM ramp too, on
+// purpose: the bit names the MECHANISM (OP_RUN_RAMP, "the dense tier"), not one of its two
+// targets, and a CRAM ramp would be exactly as much a new axis for a game as a VSRAM one.
+//
+// OJZ_TestRamp ITSELF NEVER RENDERS (see the "SECTION 0 SURRENDERS OJZ_TestRamp" banner
+// below) — it is a build-time proof of wire-format correctness, same as every other GATE
+// FIXTURE in this file. That does not exempt it: constructing the wire form is still
+// constructing the program, so this game must still declare the bit to build it, exactly
+// as it would for a live scene. sonic4 does (games/sonic4/config/game.emp); demo does not
+// and constructs no ramp program, so the check never runs there.
+ensure((Game.SCANLINE_CAPS & CAP_DENSE_TIER) != 0,
+       "OJZ_TestRamp: this game's Game.SCANLINE_CAPS ({Game.SCANLINE_CAPS}) does not declare CAP_DENSE_TIER — EFFECTS-W1 item 6 gates construction of a dense-tier RAMP program on that bit (engine/level/scene_dsl.emp), so a game must declare intent to spend the dense tier's ramp axis before it may author one. Add CAP_DENSE_TIER to this game's SCANLINE_CAPS in its config/game.emp")
+
 // ===========================================================================
 // STARTER PALETTE VARIANTS — moved here from engine/effects/palette.emp in
 // Parcel C2 Task 11.

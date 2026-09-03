@@ -371,6 +371,49 @@ def dense_fire_count(lines: int) -> int:
     return lines + 4
 
 
+# ---- the dense tier's RAMP body (EFFECTS-W1 item 6) -------------------------
+# `.ramp_body` (raster.emp) has had no cost row of its own since it shipped 2026-08-14 —
+# `docs/DEFERRED_WORK.md`'s own Tier-3 item-1 closure says so verbatim: "There is no ramp
+# cost constant to update — the dense tier's only cost term is the gradient one." This is
+# the FD1/FD2 pair's ramp twin, same method: a program identical apart from `lines`, so
+# every shared overhead (priming, setup, LEAVE) cancels in the slope.
+#
+# THE SCHEDULE IS `raster_ramp_program`'s (RasterRampProgram, engine/effects/raster.emp),
+# restated exactly like `dense_program_words` restates the gradient's: two priming
+# records, a setup record carrying OP_RUN_RAMP, then `lines` ramp fires, then the
+# terminator. No ROM stream cursor here — the ramp seeds its accumulator from two
+# IMMEDIATE longwords in the program itself, so unlike the gradient fixture this one
+# needs no extra symbol.
+OP_RUN_RAMP = 8
+
+
+def ramp_program_words(top: int, lines: int, cmd: int, start: int, step: int,
+                       mask: int = 0) -> list[int]:
+    """A minimal OP_RUN_RAMP program — raster.emp's `raster_ramp_program`, in wire."""
+    if top < 3:
+        raise ValueError(f"ramp top {top} below 3 (priming needs fire lines 0-1)")
+    if lines < 1:
+        raise ValueError(f"ramp line count {lines} must be positive")
+    if top + lines > 223:
+        raise ValueError(f"ramp run {top}..{top + lines - 1} reaches the barred line 223")
+    gap0 = (top - 1) - 1 - 1                       # raster_arm(1, top-1)
+    if not 0 <= gap0 <= 255:
+        raise ValueError(f"ramp priming gap {gap0} out of range")
+    out = [mask & 0xFFFF,                          # pal_dirty_mask — 0 for a VSRAM target
+           ARM_EVERY_LINE | gap0, 0,               # record 0 — priming
+           ARM_EVERY_LINE, 0,                      # record 1 — priming, every-line
+           ARM_EVERY_LINE, 1,                      # record 2 — the setup record, one op
+           OP_RUN_RAMP,
+           (cmd >> 16) & 0xFFFF, cmd & 0xFFFF,
+           lines,
+           (start >> 16) & 0xFFFF, start & 0xFFFF,
+           (step >> 16) & 0xFFFF, step & 0xFFFF,
+           ARM_PARK, OPS_END]
+    if len(out) * 2 > 128:
+        raise ValueError(f"program is {len(out) * 2} bytes, over RASTER_BUF_SIZE (128)")
+    return out
+
+
 # ---- the fixtures -----------------------------------------------------------
 # Each varies ONE thing from a neighbour. Fires REPEAT within a fixture so the measured
 # quantity is a marginal cost divided by the repeat count: the per-fire figure is
@@ -467,6 +510,26 @@ FIXTURES: dict[str, dict] = {
         "n": 40,
         "dense": {"top": 96, "lines": 40, "cram_addr": 0x48, "stream": "OJZ_GradientStream"},
     },
+    # ---- the DENSE tier's RAMP body (EFFECTS-W1 item 6) ---------------------
+    # Same pairing method as FD1/FD2, same `top`, same 8/40 split, and the same reason for
+    # each: shared overhead cancels in the slope, and 32 lines of separation divides the
+    # instrument's error by 32 while staying far from the barred line 223. `cmd` targets
+    # VSRAM byte 2 (entry 1 = plane B) — the SAME address OJZ_TestRamp writes
+    # (games/sonic4/data/effects/ojz_effects.emp) — because item 6 is the VSRAM axis and a
+    # CRAM-targeted ramp would price a program this engine has never shipped. start/step
+    # do not affect the per-line COST (the body's `add.l`/`swap`/`move.w` chain takes the
+    # same cycles for any operand), so both fixtures use OJZ_TestRamp's own values rather
+    # than inventing new ones nobody can cross-check.
+    "FR1": {
+        "what": "DENSE ramp, 8 lines — the ramp pair's low leg",
+        "n": 8,
+        "ramp": {"top": 96, "lines": 8, "cmd": VSRAM_WRITE | _delta(2), "start": 0, "step": 0x8000},
+    },
+    "FR2": {
+        "what": "DENSE ramp, 40 lines — slope against FR1 IS one ramp line",
+        "n": 40,
+        "ramp": {"top": 96, "lines": 40, "cmd": VSRAM_WRITE | _delta(2), "start": 0, "step": 0x8000},
+    },
 }
 
 
@@ -501,6 +564,9 @@ async def _one(b: BusClient, sym: dict[str, int], fixture: dict,
     if "dense" in fixture:
         d = fixture["dense"]
         words = dense_program_words(d["top"], d["lines"], d["cram_addr"], sym[d["stream"]])
+    elif "ramp" in fixture:
+        r = fixture["ramp"]
+        words = ramp_program_words(r["top"], r["lines"], r["cmd"], r["start"], r["step"])
     else:
         words = program_words(fixture["fires"])
     image = "".join(f"{w:04X}" for w in words)
@@ -648,18 +714,25 @@ def main() -> int:
             print(f"         call count VARIED across repeats: {cal}")
         # A dense fixture's fire count is DERIVED (lines + 4), so it is checkable — and
         # checking it is what separates "the dense run cost this" from "something else
-        # ran". A sparse fixture has no such derivation, hence no row here.
+        # ran". A sparse fixture has no such derivation, hence no row here. The ramp
+        # fixtures share the exact same arm pipeline (2 priming + 1 setup + lines + 1
+        # trailing) as the gradient ones, so the same formula applies unchanged.
         if "dense" in FIXTURES[name]:
             want_calls = dense_fire_count(FIXTURES[name]["dense"]["lines"])
             if cal[0] != want_calls:
                 print(f"         !! fires {cal[0]}, derived {want_calls} "
                       f"(lines + 4) — the dense run did not run as authored")
+        elif "ramp" in FIXTURES[name]:
+            want_calls = dense_fire_count(FIXTURES[name]["ramp"]["lines"])
+            if cal[0] != want_calls:
+                print(f"         !! fires {cal[0]}, derived {want_calls} "
+                      f"(lines + 4) — the ramp run did not run as authored")
 
     if "F0" in table:
         f0 = table["F0"]["cycles"][0]
         print(f"\nmarginal cost of ONE fire, (fixture - F0) / n, with F0 = {f0}:")
         for name in names:
-            if name == "F0" or name not in table or "dense" in FIXTURES[name]:
+            if name == "F0" or name not in table or "dense" in FIXTURES[name] or "ramp" in FIXTURES[name]:
                 continue
             t = table[name]
             print(f"  {name:4} ({t['n']} fires)  {(t['cycles'][0] - f0) / t['n']:8.1f} cyc"
@@ -677,13 +750,25 @@ def main() -> int:
               f"  ({table['FD2']['cycles'][0]} - {table['FD1']['cycles'][0]}) / {dl}"
               f" = {dc / dl:.1f} cyc")
 
+    # The RAMP row (EFFECTS-W1 item 6) — same slope method, `.ramp_body`'s twin of the
+    # gradient measurement above. Never (fixture - F0) / n for the same reason: F0 shares
+    # none of the ramp fixture's priming/setup/LEAVE overhead.
+    if "FR1" in table and "FR2" in table:
+        r1, r2 = FIXTURES["FR1"]["ramp"], FIXTURES["FR2"]["ramp"]
+        rl = r2["lines"] - r1["lines"]
+        rc = table["FR2"]["cycles"][0] - table["FR1"]["cycles"][0]
+        print(f"\ndense tier — ONE ramp line, ({r2['lines']} - {r1['lines']} lines):"
+              f"  ({table['FR2']['cycles'][0]} - {table['FR1']['cycles'][0]}) / {rl}"
+              f" = {rc / rl:.1f} cyc")
+
     if args.out:
         Path(args.out).write_text(json.dumps(
             {k: {"cycles": v["cycles"], "calls": v["calls"], "n": v["n"],
                  "what": FIXTURES[k]["what"],
-                 # dense fixtures publish their AUTHORED parameters so a consumer derives
-                 # the slope's divisor from the fixture rather than restating it
-                 **({"dense": FIXTURES[k]["dense"]} if "dense" in FIXTURES[k] else {})}
+                 # dense/ramp fixtures publish their AUTHORED parameters so a consumer
+                 # derives the slope's divisor from the fixture rather than restating it
+                 **({"dense": FIXTURES[k]["dense"]} if "dense" in FIXTURES[k] else {}),
+                 **({"ramp": FIXTURES[k]["ramp"]} if "ramp" in FIXTURES[k] else {})}
              for k, v in table.items()}, indent=2) + "\n")
         print(f"\nraw: {args.out}")
     return 0

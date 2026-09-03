@@ -45,7 +45,11 @@ class TestCapabilityAuthority(unittest.TestCase):
         day later (EFFECTS-W1 item 4, the anchor mover) at $0100, shifting them up again;
         unlike every bit before it, it gates spans in engine/effects/raster.emp rather than
         in parallax.emp, because the mover is evaluated inside Effects_LatchWorldLines — the
-        single derivation all three edge consumers read. CAP_PER_LINE was RETIRED
+        single derivation all three edge consumers read. CAP_DENSE_TIER did the same again
+        (EFFECTS-W1 item 6, the dense tier's VSRAM axis) at $0200 — its three brackets sit
+        around `OP_RUN_RAMP`'s dispatch entry, ENTER block and per-line body in
+        engine/effects/raster.emp, the mechanism `raster_ramp_program` already shipped
+        2026-08-14; this bit is the gate that mechanism never got. CAP_PER_LINE was RETIRED
         2026-08-26 (d-29-corrected) when the per-cell HScroll path it selected against was
         deleted — it is parsed as retired, never as declared. This list is the whole
         promotion contract: it is the file that says which bits a span may name."""
@@ -53,8 +57,8 @@ class TestCapabilityAuthority(unittest.TestCase):
         self.assertEqual(
             sorted(bits),
             ["CAP_ANCHORS", "CAP_ANCHOR_MOTION", "CAP_BAND_DRIFT", "CAP_DEFORM",
-             "CAP_FACTOR_CURVE", "CAP_MULTI_DEFORM_TABLE", "CAP_PER_COL_VSRAM",
-             "CAP_TRANSITIONS"])
+             "CAP_DENSE_TIER", "CAP_FACTOR_CURVE", "CAP_MULTI_DEFORM_TABLE",
+             "CAP_PER_COL_VSRAM", "CAP_TRANSITIONS"])
         self.assertEqual(len(set(bits.values())), len(bits),
                          "two capabilities share a bit: %r" % (bits,))
         self.assertEqual(retired_capability_bits(), {"CAP_PER_LINE": 0x0001})
@@ -90,13 +94,14 @@ class TestCapabilityAuthority(unittest.TestCase):
         bracket naming one would bracket a block that cannot exist, so the parse must
         not see them.
 
-        All five are listed, not a sample: P3 promoted two of the original seven and
-        the reason the other five stayed is that promoting a bit NOTHING raises is the
-        vacuous-gate shape. A partial list here would let the next promotion slip
-        through unchecked."""
+        All four are listed, not a sample: P3/P4 promoted three of the original seven
+        (CAP_MULTI_DEFORM_TABLE, CAP_FACTOR_CURVE, CAP_BAND_DRIFT, CAP_ANCHOR_MOTION and
+        now CAP_DENSE_TIER — five, not three; the "original seven" is P1's count) and the
+        reason the rest stayed is that promoting a bit NOTHING raises is the vacuous-gate
+        shape. A partial list here would let the next promotion slip through unchecked."""
         bits = capability_bits()
         for reserved in ("CAP_FG_SPRITE_STRIPS", "CAP_BGANIM_BOUND",
-                         "CAP_DENSE_TIER", "CAP_COMPUTED", "CAP_DEGRADE"):
+                         "CAP_COMPUTED", "CAP_DEGRADE"):
             self.assertNotIn(
                 reserved, bits,
                 "%s is parsed as a declared capability but nothing lowers or raises it "

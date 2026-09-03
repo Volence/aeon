@@ -94,7 +94,24 @@ pub implement Game {
     //                            engine/effects/raster.emp (the mover inside
     //                            Effects_LatchWorldLines and Effects_SetTargetY's body);
     //                            demo declares 0 and elides both.
-    const SCANLINE_CAPS = $01DE
+    //   $0200 CAP_DENSE_TIER     ADDED 2026-09-03 by the item-6 parcel (EFFECTS-W1 item 6,
+    //                            dense per-line VSRAM). Unlike every bit above, THIS ONE
+    //                            GATES NO ENGINE SPAN — Raster_HInt's `.op_run_ramp` /
+    //                            `.ramp_body` (OP_RUN_RAMP, shipped 2026-08-14) stay
+    //                            unconditional in every game, because their dispatch sits
+    //                            in a compare CHAIN whose cost model prices every later
+    //                            op's dispatch depth as a fixed function of opcode value —
+    //                            eliding a mid-chain compare per-game would silently move
+    //                            OP_PAL_RESTORE's depth for that game (see the ensure's own
+    //                            comment in games/sonic4/data/effects/ojz_effects.emp, next
+    //                            to OJZ_TestRamp). Instead the bit gates CONSTRUCTION: a
+    //                            game may not build a RasterRampProgram at all — CRAM or
+    //                            VSRAM — without declaring this first. sonic4 declares it
+    //                            because OJZ_TestRamp constructs one (a gate fixture that
+    //                            never renders — see "SECTION 0 SURRENDERS OJZ_TestRamp"
+    //                            in ojz_effects.emp — but construction still requires the
+    //                            bit); demo constructs no ramp program and declares 0.
+    const SCANLINE_CAPS = $03DE
 
     // Boot enters ojz_scroll_test's GameState_OJZScroll_Init.
     const ENTRY_ID = GS_OJZ_SCROLL_TEST
