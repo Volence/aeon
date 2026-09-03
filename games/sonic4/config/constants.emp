@@ -429,7 +429,7 @@ pub const VRAM_INSTA_SHIELD       : VramTile = $03A0   // insta_shield: tiles 92
 pub const VRAM_TEST_SONIC         : VramTile = $03C0   // character_window: tiles 960..991 (32), act, owner games.sonic4.player
 pub const VRAM_TEST_OBJ           : VramTile = $03E0   // test_obj: tiles 992..999 (8), mode, owner games.sonic4.test_objects
 pub const VRAM_TEST_MARKER        : VramTile = $03F8   // test_marker: tiles 1016..1019 (4), mode, owner games.sonic4.player_common
-pub const VRAM_DEBUG_READOUT      : VramTile = $03FC   // debug_readout: tiles 1020..1021 (2), mode, owner games.sonic4.ojz_scroll_test
+pub const VRAM_DEBUG_READOUT      : VramTile = $03FC   // debug_readout: tiles 1020..1023 (4), mode, owner games.sonic4.ojz_scroll_test
 pub const VRAM_TAILS_APPENDAGE    : VramTile = $05D4   // tails_appendage: tiles 1492..1500 (9), act, owner games.sonic4.tails_appendage
 // Authority cross-checks — the engine constant vs the declared map:
 ensure(POOL_TILE_CEILING == 768, "vram.toml fg_art_pool drifted from engine POOL_TILE_CEILING — edit games/sonic4/vram.toml and regenerate")
@@ -448,6 +448,6 @@ ensure(VRAM_INSTA_SHIELD + 29 <= $03C0, "insta_shield runs into character_window
 ensure(VRAM_TEST_SONIC + 32 <= $03E0, "character_window runs into test_obj")
 ensure(VRAM_TEST_OBJ + 8 <= $03E8, "test_obj runs into ring_placeholder")
 ensure(VRAM_TEST_MARKER + 4 <= $03FC, "test_marker runs into debug_readout")
-ensure(VRAM_DEBUG_READOUT + 2 <= $0400, "debug_readout runs into bg_region")
+ensure(VRAM_DEBUG_READOUT + 4 <= $0400, "debug_readout runs into bg_region")
 ensure(VRAM_TAILS_APPENDAGE + 9 <= $05E0, "tails_appendage runs into hscroll_table")
 // <<< GENERATED: vram map END >>>
