@@ -16432,11 +16432,37 @@ moves under a player heading right, never against it. The full argument is at th
 
 **WHAT IS STILL OPEN AND WAS LEFT SO DELIBERATELY:**
 
-1. **Nobody has looked at it.** The rate, the direction and "does the canopy sliding read as wind
-   or as the trees walking" are all unverified — this parcel had no emulator by instruction. The
-   sign in particular is DERIVED (`Decode_Factor_B` returns `-decode(camX, factor_b)` and
-   `add.w (a4), d2` folds into that same word), and `SceneDrift`'s own banner says to eyeball it
-   once rather than derive it. If it reads backwards the fix is the minus sign on four lines.
+1. ~~**Nobody has looked at it.**~~ **✅ THE OWNER LOOKED, 2026-09-03, and his verdict is
+   "the trees themselves are sliding (trunks and all) but nice!"** Driven on his own display
+   (oracle-frontend, current `s4.debug.bin`, camera walked into a drifting section) with the
+   drift the only thing moving.
+   **THE SIGN IS NOT THE PROBLEM AND MUST NOT BE "FIXED".** He did not report it running
+   backwards, so the DERIVED direction (`Decode_Factor_B` returns `-decode(camX, factor_b)`,
+   `add.w (a4), d2` folds into the same word) is CONFIRMED by observation, and the minus-sign
+   change this bullet used to offer is now the wrong move — it would make the drift fight
+   forward motion, which is the artifact the sign was chosen to avoid. **Delete that idea
+   rather than leaving it available.**
+   **WHAT HE SAW IS THE ART, AND THE SCENE'S OWN BANNER PREDICTED IT IN ADVANCE.**
+   `ojz_scenes.emp`'s drift note says the four bands are ONE VISUAL LAYER with identical
+   `fa`/`fb`/`dsa`/`dsb`, and that the BG art has no bands to align them with: one 128-px
+   canopy pattern tiled four times vertically whose features are VERTICAL — vine columns and
+   trunks running the full height, cut by the band tops at no edge they have. So there is no
+   canopy/trunk separation for the drift to respect, and moving the plane moves the trunks
+   with the leaves BY CONSTRUCTION. This is not a defect in the drift and no scene edit
+   reaches it.
+   **THE MECHANISM IS ALREADY PER-BAND** — one `Rate(-32)` per layer, change one and only
+   that band moves — so the fix is an ART decision the same banner already names: BG art with
+   a real horizontal split (a sky strip over a treeline over a floor) turns "the trees are
+   sliding" into "wind in the canopy" with no engine work at all. **Doing it on today's art
+   would SHEAR the vertical features at the band boundary, and `v_factor: 3` sweeps that
+   boundary down the picture as the camera climbs, so the shear line would move too.** Left as
+   the owner's art call; the rate and sign stay as shipped until he asks.
+   **AND A SECOND THING HE SAID THAT IS WORTH KEEPING, because it corroborates the research
+   from outside it:** *"This is the first moving on a timer example I've seen vs moving based
+   on position of camera."* That is exactly what the corpus survey found and recorded — nothing
+   in the reference set is time-driven, S.C.E.'s and S2's only moving boundary is triggered by
+   camera X — so an observation made with no knowledge of the survey landed on the survey's own
+   conclusion. The magnitude is S3K AIZ1's cloud rate exactly.
 2. **The runtime numeric witness is STILL UNRUN** — see the TAG below, which this parcel did not
    close and could not.
 3. **Sections 0 and 4 do not drift**, because they bind Aurora-authored editor scenes
