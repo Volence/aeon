@@ -103,6 +103,17 @@ about art, and three of the four things that have to be true for it are the writ
    `layout`, and the same slots read as a scroll under one order and as a shimmer under
    the other. The consumer cannot tell them apart — a band's slots are deduped against the
    static blob and appear at many cells — so nothing checks this.
+   **⚠ AND A TEST OVER THE SET OF SLOTS CANNOT DISCHARGE THIS OBLIGATION** (the aurora lane's
+   formulation, 2026-09-03, written while briefing an agent against this section — theirs is
+   sharper than the paragraph above, which says the obligation exists without saying which
+   shape of test fails to meet it). Column-major and row-major emission produce **the same
+   slots**; they differ only in ORDER. So an assertion over the set, the count, a sorted list,
+   or a checksum **passes under both orderings and reads as coverage while asserting nothing
+   about the obligation.** Discharge it by asserting the ORDER at named positions, derived from
+   `base + r*cols + c` (vertical) and `base + c*rows + r` (horizontal) — for example the slots
+   at band cells `(1,0)` and `(0,1)`, **which are the two the orderings first disagree about**.
+   That last clause is the operative one: naming which cells disagree first turns "assert the
+   order" into something a writer can act on without re-deriving the formula.
 2. **The eight phases must be translations along the declared axis.** One narrow case IS
    refused: a vertical band whose phases are exact HORIZONTAL translations of phase 0 and
    are not also vertical ones. That is the reachable accident — a horizontal-only
