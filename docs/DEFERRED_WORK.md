@@ -19324,6 +19324,8 @@ measured against are the crc32s these builds produced:
 
 (2171 before this parcel; the 18 new tests are `tools/test_sec6_baseswap_witness.py`.)
 
+**REBASED MID-PARCEL AND RE-VERIFIED.** `master` was rewritten underneath this branch while it ran — the base commit `b7036e43` stopped being an ancestor and was replaced by `ddaab282` with the same subject, on top of a merge this branch never had. Rebased onto current master (no conflicts; the diff is exactly this parcel's four files) and the WHOLE verification set re-run on the new base: four canonical shapes green with the crc32s above UNCHANGED (so the master commits in between moved no bytes, and every measurement in this block is still against the ROMs that ship), the witness 22 of 22 checks in both shapes, and `tools/effects_gates.py` 17 of 17 gates / 35 rows / exit 0.
+
 **The effects gate ritual was run even though this parcel does not trigger it by its letter**
 (every changed file is under `tools/` or `docs/`) — because it CHANGES the runner.
 `tools/effects_gates.py`: **OK, 17 of 17 scheduled gates, 35 rows, exit 0.** An earlier run of
