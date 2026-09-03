@@ -1642,6 +1642,114 @@ the left edge (at 1472 the foreground is empty across x 0-23, so even a correct 
 measured nothing). Both conditions, in one frame. Until then **d-32's status is UNKNOWN**, exactly as
 it was before, and the DoD item-15 entry for it is NOT discharged.
 
+### CANOPY GAP — item 17: A CAUSE WAS FOUND, PROVEN INVISIBLE, AND THE SEARCH BEYOND IT IS CLEAN AT MAXIMUM SENSITIVITY (measured 2026-09-03)
+
+**Parcel:** `diag/canopy-gap-cause`. This is the reproduction the entry below's own "detector
+remains the plan" called for — the first time the instrument was ever run against a live
+machine. **Two things had to be fixed before that could happen at all, both in the READER, not
+the runtime instrument:** `tools/canopy_record.py`'s `read_live` called
+`async with AetherInstance(rom=rom): b = inst.bus`, and `AetherInstance` has neither
+`__aenter__`/`__aexit__` nor a `.bus` attribute — every prior invocation of this reader raised
+`TypeError` before reading one byte from a live machine. Fixed by matching the house
+spawn-then-async-body shape every other gate in this tree uses (`tile_cache_fill_gate.py`'s
+`main()`). **The runtime instrument (`Canopy_Probe`/`Canopy_Fire`/`Canopy_Persist`, the shadow
+writes) is UNCHANGED** — this was a reader-only defect, called out per this parcel's own
+standing instruction #8.
+
+**METHOD, per the brief: reproduce first, no third derivation.** `tools/canopy_gap_exercise.py`
+(new, committed) drives `s4.debug.bin` headlessly through `tools/aether_instance.py`: real held
+running with real jumps (A, not B — the DEBUG shape arms `CHEAT_DEBUG_FLY` at boot, which
+excludes B from the jump mask), both directions, repeated flips across both internal section
+seams (world X 2048 and 4096), a full-map debug-fly sweep on both axes, five warp-mailbox hops
+to distant sections each followed by real moving play (not a static settle), and a final run —
+polling `Canopy_Rec_Code` every 150-frame slice throughout. **21,439 frames (357 s of game time)
+driven in 56 s wall clock, covering all 9 of OJZ act 1's sections.**
+
+**IT FIRED — reliably, from the very first attempt (frame 554 of a fresh boot).** C1 fired 2,080
+times and C4 63 times over the campaign. Both are the SAME cause:
+
+  * **C1**, world column 768: whenever the camera sits at `Camera_X_Max` (5824 for this act — the
+    right-edge clamp `Section_UpdateColumns`/`Camera_Init` compute from `grid_w << SECTION_SIZE_SHIFT
+    - SCREEN_WIDTH`), the tracked "last visible column" (`cam_col + SCREEN_LAST_COL_MAX` = `728+40`
+    = `768`) is exactly ONE TILE PAST the act's last valid column (767 = `grid_w*2048/8 - 1`). That
+    column is outside every section, never gets a legitimate write, and the shadow holds the stale
+    ring-wrapped value from 64 columns back forever — C1 latches and stays latched for as long as
+    the camera rests at the wall (measured: 2,080 consecutive sweeps in one sitting).
+  * **C4**, same root cause from the row-fill side: a row write's anchor R correctly stops at the
+    last valid column (767) instead of reaching for the phantom 768th, and C4's requirement (derived
+    the same way, from `SCREEN_LAST_COL_MAX`) reads that as "short by 1".
+
+**PROVEN INVISIBLE, by measurement, not by argument.** `SECTION_SIZE_SHIFT` (2048) and
+`SCREEN_WIDTH` (320) are both engine constants and both multiples of 8, so `Camera_X_Max` is
+ALWAYS exactly tile-aligned — the clamp always lands at zero fine-scroll. At zero fine-scroll the
+VDP only needs 40 whole tile columns (`cam_col..cam_col+39`), all 40 of which are valid; the 41st
+tracked column (`SCREEN_LAST_COL_MAX`=40 exists to cover the GENERAL case of a fine-scrolled
+screen needing a 41st partial tile, which is correct everywhere except at this exact clamp) is
+never actually painted. Confirmed two ways: (1) a screenshot taken with the camera pinned exactly
+at the wall (`/tmp/oracle-frame-800.png` this session — archived below) shows continuous canopy/
+foliage art across the full 320px width with no seam, hole, or wrong-colour column at the right
+edge; (2) a raw pixel-column dump of x=304..319 shows normal varying content, no blank strip. This
+is **not** the reported symptom — it cannot be, since column 768 never reaches the CRT.
+
+**BEYOND THAT ONE CAUSE, THE CAMPAIGN IS CLEAN — including at MAXIMUM PREDICATE SENSITIVITY.**
+After classifying and clearing every instance of the known edge cause (22 times in the full run;
+`tools/canopy_gap_exercise.py`'s `classify_and_maybe_clear`, derived generically off the live
+`Camera_X`/`Camera_X_Max`/`SCREEN_LAST_COL_MAX`, never pinned to OJZ's numbers), **nothing else
+ever latched** — not C1 elsewhere, not C4 elsewhere, across the whole grid, both directions, both
+section seams, the full vertical range, and five warp landings. **The persistence-threshold
+caveat this file's own booking states was then tested directly**, per the brief's explicit ask:
+`CANOPY_PERSIST_FRAMES` lowered from 8 to 1 (the most sensitive it can be — fires on a SINGLE
+disagreeing sweep instead of requiring 8 consecutive), DEBUG rebuilt, and the IDENTICAL
+deterministic campaign re-run byte-for-byte. **Identical result**: the same edge fires at the same
+frames, and nothing new. This distinguishes the two readings the caveat names: it is not that a
+short-lived, self-healing disagreement was being hidden by too strict a latch — at 1-frame
+sensitivity there is nothing left to hide. The change was reverted (`constants.emp` byte-identical
+to before; verified `git diff` clean) and DEBUG rebuilt canonical before this entry was written.
+
+**WHAT THIS MEANS FOR THE OWNER'S SIGHTING: still unaccounted for, and now more tightly bounded
+than before.** The found cause is real, reproducible on demand, and explicitly named — but it is
+structurally invisible, so it is not what the owner saw. The instrument's own "what it misses"
+list (below) says where to look next: art faults (page eviction, ZX0 decode, block dictionaries)
+that leave addressing perfect, plane B, sub-cell artifacts (VSRAM/HSCROLL, parallax, sprite
+masking), or a disagreement lasting under one frame at the sweep point. None of those are plane-A
+cell addressing, which is everything C1/C4 can see — and this campaign now says plane-A cell
+addressing is clean on OJZ act 1 to the limit of what an exhaustive, maximally-sensitive automated
+drive can exercise.
+
+**A found-but-not-matching cause is not nothing, and per the brief it does not need a fix if the
+cause is confirmed harmless — but it is a real latent defect worth naming for its own sake.** The
+generic shape (`SCREEN_LAST_COL_MAX` over-tracks by exactly one column past whichever axis a
+camera clamp pins to an act's last valid tile) would stop being invisible the moment either
+engine constant lost its multiple-of-8 property, or if a future act's edge clamp were computed
+differently. Left unfixed here per the brief's own scope ("if it does NOT fire... report the
+coverage" / "if the cause turns out to be ART... name it and do not fix it" — this is the third
+case the brief didn't name outright: found, reproducible, but confirmed invisible under the
+engine's actual constants) — flagged for the owner's call on whether `SCREEN_LAST_COL_MAX`'s
+tracking window should be clamped to the act's real tile extent as a hardening measure, not a bug
+fix, since nothing observable changes.
+
+**Coverage this campaign does NOT claim:** it is one test level (OJZ act 1, whose actual playable
+width is short — full traversal takes under 10 seconds at speed, which is also why the right-edge
+clamp above dominates naive long straight-line runs and why `classify_and_maybe_clear` had to
+warp the player back rather than let it drift for thousands of frames recovering from the
+no-wall-at-the-edge freefall that phase 1's first pass fell into — a separate, unrelated defect
+recorded here only as an observation, not chased: real physics puts no wall at the act's right
+edge, so Sonic sails past `Camera_X_Max` into an extended freefall with `x_vel` reading 0 the
+whole time (player X measured past 11,000 world px against a 6,144 px act) before slowly drifting
+back. It has nothing to do with canopy addressing and was not investigated further here). It is
+one specific real level's geometry, one act, no other zone/act's tileset or block-dictionary
+shape, and no multi-minute continuous session (longest single unbroken stretch here was ~2,600
+frames before a clear-and-warp). A different act with different section dimensions, a longer
+uninterrupted session, or the sub-cell/art-fault causes the instrument cannot see at all remain
+untested.
+
+**Files:** `tools/canopy_record.py` (the `read_live`/`AetherInstance` fix), `tools/
+canopy_gap_exercise.py` (new — the exercise driver, keep for the next attempt),
+`docs/measurements/2026-09-03-canopy-gap-cause.md` (the full write-up, screenshot and captured
+records), `docs/measurements/2026-09-03-canopy-gap-exercise-capture.json` (the archived record
+from the full campaign — empty/cleared, since no interesting fire survived to the end; kept as
+the coverage's own receipt).
+
 ### CANOPY GAP — THE DETECTOR IS BUILT AND ARMED, AND IT HAS NEVER SEEN A SIGHTING (built 2026-09-02)
 
 **Parcel:** `parcel/canopy-instrument`. This is the "detector remains the plan" step the entry
