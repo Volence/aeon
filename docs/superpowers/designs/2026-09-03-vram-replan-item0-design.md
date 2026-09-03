@@ -446,9 +446,17 @@ and it is the reason Option B's `$2000`-aligned variant is as expensive as it is
 768-895, 128 tiles) as the spare nametable region.**
 
 The reason, in one sentence: **it is the only option that yields a `$2000`-aligned base — the
-alignment both items need and the alignment that a run of free tiles almost never has — and it
-is the only option whose cost is paid in headroom the tree has already measured as surplus,
-rather than in shipped art, a shipped feature, or a fixture re-stamp.**
+alignment item 11b needs, that item 10c also accepts, and that a run of free tiles almost never
+has.** One purchase then covers both items instead of two purchases covering one each.
+
+The runner-up is closer than it first looked, and the honest version of the comparison is worth
+stating rather than hiding: **Option B is also cheap, also available today, and also costs no
+shipped art** (§3 — that took a measurement to establish, after a first draft got it wrong from
+a stale comment). What separates them is not cost, it is reach: `$B000` can never hold a plane
+nametable, so B buys item 10c and stops. **If item 11b were dropped, B would be the better
+buy** — it spends a reserve that is currently unusable anyway rather than pool frames that are
+live headroom. Both costs are small and they fall on different budgets, so this is a question
+worth putting to the owner (§11 Q4) rather than settling by a table.
 
 The full comparison:
 
@@ -659,9 +667,18 @@ Stated plainly, because being contradicted was asked for.
    nametable-base-change *mechanism* that item 11 is named for. The brief treats item 0 as
    strictly upstream of both items; it is upstream of two sub-features out of five.
 
-**Also worth flagging, found while deriving:** `engine/system/constants.emp:282-284` still
-describes the pool as 960 tiles / 15 frames. It is 896 / 14. A comment one relayout behind the
-code, in the file this design proposes to edit next.
+**Also worth flagging, found while deriving:**
+
+- `engine/system/constants.emp:282-284` still describes the pool as 960 tiles / 15 frames. It is
+  896 / 14. A comment one relayout behind the code, in the file this design proposes to edit
+  next.
+- **`games/sonic4/vram.toml`'s `band_reserve` block reads as present tense and is not.** Its
+  *"The 2026-07-21 import packed to 448/448"* describes the destroyed configuration; the shipped
+  blob is 320 tiles. I restated it and got Option B wrong until I measured `bg_tiles.bin`
+  (§3). Two documents in the same repo, both a relayout behind, both in files this parcel
+  touches — the tell is that both are prose beside a number rather than a derivation *of* it,
+  which is the same failure the `vdp_base_reg` fold (§7) was built to end for registers. **The
+  reserve block deserves the same treatment or at least a dated "as of" line.**
 
 ---
 
