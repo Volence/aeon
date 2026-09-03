@@ -324,35 +324,64 @@ one relayout behind the code — exactly the drift class this design has to be c
 
 ---
 
-### Option B — take it from `bg_region`: 448 → 320 (or 384)
+### Option B — take it from `bg_region`: capacity 448 → 384 (the band reserve, not the art)
 
-`bg_region` is `$8000-$B7FF`. Cutting it to **384** tiles ends it at `$AFFF` and frees
-`$B000-$B7FF` = **64 tiles at a `$1000` boundary** — enough for a **16-row (128 px) top window
-band**, but *not* `$2000`-aligned, so it can never serve item 11b's Plane Z. Cutting to **320**
-frees `$A800-$B7FF` = 128 tiles, but `$A800` is `$800`-aligned and therefore worth **nothing**:
-the usable base is still `$B000` and the extra 64 tiles are stranded. Getting a `$2000`-aligned
-slot out of the BG region means freeing `$A000-$BFFF` entirely, which requires **relocating the
-SAT and the HScroll table as well** and cuts the BG to 192 tiles.
+**⚠ I wrote this option wrong the first time and the correction is the interesting part.** The
+first draft said the BG blob *"ships packed to 448/448"* and concluded Option B *"cannot be
+taken today at all"*. That came from restating `games/sonic4/vram.toml`'s own comment about the
+2026-07-21 import. **I then measured the blob, and it is 320 tiles, not 448.**
 
-**Cost, as the owner would picture it: background art detail.** The BG blob ships **packed to
-448/448** — that is the whole subject of the `band_reserve` comment at
-`games/sonic4/vram.toml:146-195` and `docs/BUGS.md` TOOL-01. Taking 64 tiles is a 14% cut to
-the unique-tile budget of art that has *already been generated and imported*, so this option
-**cannot be taken today at all**: `tools/inject_editor_bg.py` gates the final blob on
-`BG_TILE_CAPACITY`, so lowering it makes the shipped act fail to build until the BG art is
-re-generated at the smaller budget. It is a next-art-pass option, not a parcel.
+`games/sonic4/data/generated/ojz/act1/bg_tiles.bin` is 10,242 bytes. Its format is a 2-byte
+big-endian blob length followed by the blob (`tools/inject_editor_bg.py:797-799`,
+`f.write(struct.pack('>H', len(blob)))`); the header word reads **10,240**, and 10,240 / 32 =
+**320 tiles exactly** — which is precisely the *static budget* the generated map already prints
+for this region (`band_reserve: 128 (static budget 320)`). **So 128 tiles of `bg_region`,
+`$A800-$B7FF`, hold nothing in VRAM today.** The TOML comment is describing the destroyed
+2026-07-21 configuration, not the shipped one, and read as present tense it is misleading.
 
-**And it collides with a decision already made.** `band_reserve = 128` is the
-animation-vs-detail dial and the comment records it as *"the owner's number to set at the next
-art pass"*, chosen deliberately from the generous side. Option B would spend the same art pass
-on a *third* claimant. It makes the next art import a three-way negotiation instead of a
-one-way dial.
+**What that changes:**
 
-**Verdict:** more expensive than P, buys strictly less (no `$2000` alignment), and it is
-blocked behind a content pass. Not recommended, but recorded because it is the only option
-whose cost is paid in *pixels* rather than in *engine headroom* — if the owner would rather
-lose background detail than pool frames, this is that trade, and it is available at the next
-art pass for 64 tiles.
+`bg_region` is `$8000-$B7FF` (448 tiles) with a 320-tile blob at `$8000-$A7FF`. Cutting the
+capacity to **384** ends the region at `$AFFF` and frees **`$B000-$B7FF` = 64 tiles at a
+`$1000` boundary**. The blob still fits with room to spare, so:
+
+- **It costs zero shipped art.** No re-import, no re-generation, no art pass. It is a TOML edit
+  plus a regenerate, exactly like Option P.
+- **It costs zero static-art budget for the next import, either.** The static budget is
+  `capacity - band_reserve`: today `448 - 128 = 320`; after, `384 - 64 = 320`. **Unchanged.**
+- **The entire cost is the BgAnim band reserve: 128 → 64 tiles.** In the reserve comment's own
+  units that is the difference between one full-size 32×4 animated band (128 slots, the size of
+  the destroyed art's larger band) and a 16×4 one (64). It halves the animation headroom the
+  next art pass can spend.
+
+**Why it still is not the recommendation.** `$B000` is `$1000`-aligned but **not**
+`$2000`-aligned, so Option B can serve item 10c (a 16-row / 128 px top window band — 64 tiles is
+16 rows × 4, and §2.2's top-anchored discount is what makes 64 enough) and **cannot ever serve
+item 11b's Plane Z.** Getting a `$2000`-aligned slot out of the BG region means freeing
+`$A000-$BFFF`, which requires relocating the SAT *and* the HScroll table into the vacated space
+— and §10.4 records that relocating the SAT is a one-way boot-time move because the VDP's
+internal sprite Y/size/link cache is not invalidated by a base change. Cutting the capacity to
+**320** (reserve 0) frees `$A800-$B7FF` = 128 tiles, but `$A800` is `$800`-aligned and therefore
+worth **nothing** to any base register: the usable base is still `$B000` and the extra 64 tiles
+are stranded.
+
+**It is, however, a real and cheap alternative if the owner wants item 10c and not 11b** — and
+it is genuinely complementary: taking B *and* P later yields both a window band at `$B000` and a
+Plane-Z slot at `$6000`, with the costs falling on two different budgets (BgAnim reserve, pool
+frames) instead of both on one. That is worth knowing before either is spent.
+
+**One thing it does collide with.** `band_reserve = 128` is recorded as *"the owner's number to
+set at the next art pass"*, chosen deliberately from the generous side, and the reserve exists
+because it once reached zero and destroyed two bands (`docs/BUGS.md` TOOL-01). Halving it is a
+decision in the owner's own stated territory. Two facts make it easier than it sounds: band
+*insertion* is already blocked until an art-side pass regardless of the reserve, and *promotion*
+(converting existing static tiles, blob length unchanged) is the working route today and needs
+none of it. **But it is the owner's dial, so §11 asks rather than assumes.**
+
+**Verdict:** cheap and available today, but it buys strictly less than P — it cannot serve item
+11b at any price — so it is not the recommendation as a *replacement*. It is a strong second
+purchase, and it is the option to prefer if the owner would rather spend animation headroom than
+FG-pool frames.
 
 ---
 
@@ -423,17 +452,17 @@ rather than in shipped art, a shipped feature, or a fixture re-stamp.**
 
 The full comparison:
 
-| | P (pool 896→768) | B (bg 448→384) | C (planes 64×32) | D (tables) |
+| | P (pool 896→768) | B (bg cap 448→384) | C (planes 64×32) | D (tables) |
 |---|---|---|---|---|
 | tiles freed | 128 | 64 | 256 | ~24 |
 | base offered | **`$6000` — `$2000`-aligned** | `$B000` — `$1000` only | `$D000`, `$F000` — `$1000` only | none usable |
-| serves item 10c (window) | ✅ full 64×32 | ✅ 16-row band only | ✅ two full windows | ❌ |
+| serves item 10c (window) | ✅ full 64×32 | ✅ 16-row top band only | ✅ two full windows | ❌ |
 | serves item 11b (Plane Z) | ✅ | ❌ wrong alignment | ❌ wrong alignment | ❌ |
-| cost | 2 pool page-frames (14→12) | 64 tiles of BG art detail | `PLANE_B_SPAN` 512→256 | undoes a deletion |
-| breaks a shipped feature | no | the shipped BG blob won't build | **yes — item 7's vertical bob, by named `ensure`** | per-line HScroll |
+| cost | 2 pool page-frames (14→12) | BgAnim band reserve 128→64. **Zero shipped art, zero static budget** | `PLANE_B_SPAN` 512→256 | undoes a deletion |
+| breaks a shipped feature | no | no (blob is 320 tiles, measured) | **yes — item 7's vertical bob, by named `ensure`** | per-line HScroll |
 | moves RAM | **no** (`constants.emp:287-301`) | no | no | no |
 | re-stamps a fixture | **no** | no | no | no |
-| available today | **yes** | no — needs an art pass | yes | no |
+| available today | **yes** | **yes** | yes | no |
 
 **Sequencing that follows from §2:** do not wait for this parcel to start items 10 and 11.
 
@@ -465,8 +494,10 @@ Specifics, so nobody has to re-derive them:
 - **Option P costs the pool half its legal slack.** Between the 640-tile floor (§3) and today's
   896 there are 256 spendable tiles; P spends 128. A second 128-tile run remains at `$5000`
   (`$1000`-aligned, window-only), and after that the pool is at its floor until C4-3 lands.
-- **Option B breaks the current build**, not just the art: `inject_editor_bg.py` gates the
-  final blob on `BG_TILE_CAPACITY` and the shipped blob is 448/448.
+- **Option B breaks nothing today.** `inject_editor_bg.py:764` asserts
+  `len(tiles) <= BG_TILE_CAPACITY`, and the shipped blob is **320** tiles (measured from
+  `bg_tiles.bin`'s own 2-byte length header), so a capacity of 384 clears it by 64. What it
+  spends is the BgAnim band reserve, 128 → 64.
 - **Option C breaks `engine/level/parallax.emp`'s bob ladder by build-fatal `ensure`**, deletes
   the seam-free scroll range, and reverses the SAT/HScroll relocation that bought rows 48-63.
 - **Precision on which options touch a base register.** Option P by itself touches **none** of
@@ -773,14 +804,20 @@ IV's top four rows are a window came from a search summary only and is **unverif
    "sprites" here is what makes the `$6000` region spendable on effects.
 3. **Do items 10a/10b/11a get started before this parcel?** §4 says they can, and §2.0 says
    they need no new engine mechanism to do it. That is a sequencing call, not a technical one.
-4. **Is the freed run declared as a `[[region]]` now, or as `[[free]]`?** Declaring it as a
+4. **Would you rather spend the BgAnim band reserve than FG-pool frames?** Option B is real,
+   available today, and costs no shipped art (§3, corrected by measurement). It buys a 16-row
+   top window band at `$B000` and can never buy item 11b. If item 10c is what you want and 11b
+   can wait, B is the cheaper purchase and P stays available for 11b later, with the two costs
+   landing on different budgets. **The reserve is your dial and the doc does not spend it for
+   you.**
+5. **Is the freed run declared as a `[[region]]` now, or as `[[free]]`?** Declaring it as a
    named region immediately makes the map self-documenting and reserves the address against the
    next person looking for 128 tiles; declaring it `[[free]]` keeps the parcel to one knob and
    defers the naming to whoever consumes it. Either passes the generator (both were run, §3).
    The recommendation is a named region with `owner = "engine.system.boot"` and no `register`
    field until a consumer wires one, because an unnamed run is exactly how the BG band reserve
    reached zero (`docs/BUGS.md` TOOL-01, the precedent the TOML's own comment cites).
-5. **Item 10c after §2.1 — do you still want it?** The window is a region-exclusive substitute
+6. **Item 10c after §2.1 — do you still want it?** The window is a region-exclusive substitute
    for Plane A, not a fourth layer. It buys a non-scrolling band. If what you pictured was a
    third parallax layer, item 11b is the sub-feature that delivers it and 10c can be dropped —
    which would not change the procurement (one `$2000`-aligned run serves either) but would
