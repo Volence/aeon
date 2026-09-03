@@ -112,6 +112,21 @@ zero new VRAM.**
 
 That is the single procurement this design has to make.
 
+**The register bytes, derived** (`base >> vdp_base_shift`, so a later parcel does not have to
+re-derive them and cannot transcribe them wrong):
+
+| target | reg `$02` (Plane A) | reg `$04` (Plane B) | reg `$03` (Window) |
+|---|---|---|---|
+| `$C000` (today's Plane A) | **`$30`** ✓ shipped | `$06` | — |
+| `$E000` (today's Plane B) | `$38` | **`$07`** ✓ shipped | — |
+| `$F000` (today's Window alias) | — | — | **`$3C`** ✓ shipped |
+| **`$6000`** (Option P's freed run) | `$18` | `$03` | `$18` |
+| `$5000` (Option P's second run, window only) | — | — | `$14` |
+
+Note what the first two rows say: **10b's plane-role swap is `$30`↔`$38` on `$02` and
+`$07`↔`$06` on `$04`, and 11a's mid-frame proof is one write of `$38` to reg `$02`.** Every
+byte those two sub-features need already has a legal target in today's map.
+
 ### 2.1 ⚠ The window is not a third layer. It is a region-exclusive substitute for Plane A.
 
 This is the single most important correction in this document, because it changes whether item
@@ -180,7 +195,7 @@ simultaneously a legal **Plane A base** (reg `$02` = `$6000 >> 10` = `$18`), a l
 base** (reg `$04` = `$6000 >> 13` = `$03`) and a legal **Window base** (reg `$03` = `$18`).
 It is the only free-able run in the map that is `$2000`-aligned at a cost anyone would pay.
 
-**Why 768 and not 832:** `quantum = 64` (`games/sonic4/vram.toml:16`) and
+**Why 768 and not 832:** `quantum = 64` (`games/sonic4/vram.toml:15`) and
 `ensure(PAGE_FRAMES * ART_POOL_PAGE_TILES == POOL_TILE_CEILING)`
 (`engine/system/constants.emp:285`). 832 frees `$6800-$6FFF`, which is `$800`-aligned and
 therefore useless to every base register. 768 is the next legal step down and it lands exactly
