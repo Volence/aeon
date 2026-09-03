@@ -307,7 +307,35 @@ from scene_spans import (AEON, capability_bits, expected_spans, game_caps,
 # The other six rows are unchanged — measured, not assumed: this tool's own image
 # differential printed 6 / 100 / 78 / 192 / 8 / 26 against pins of 6 / 100 / 78 / 192 / 8 /
 # 26 on the same run that failed this one. That is the corroboration this banner asks for.
+# RE-DERIVATION LOG — 2026-09-03, THE ANCHOR MOVER (`parcel/anchor-mover`, EFFECTS-W1 item 4).
+# The pin did NOT fail, and that is the finding: not one of the seven rows moved. Two procs
+# JOIN the set, both in engine/effects/raster.emp, and both because CAP_ANCHOR_MOTION ($0100)
+# is the first capability whose spans live outside parallax.emp:
+#
+#   Effects_LatchWorldLines   NEW -> 26   sonic4 126 (-100). The mover — a rate-gated ramp
+#                                         plus a sine sweep, evaluated inside the existing
+#                                         per-channel loop — is `cap_anchor_motion_latch`.
+#                                         DEMO'S 26 IS THE SHIPPED PRE-PARCEL SIZE TO THE
+#                                         BYTE: the four prologue instructions were reordered
+#                                         (the `lea Effects_Screen_L, a1` moved below the
+#                                         `moveq`, so the elided arm can take a1 for the sine
+#                                         base) and reordering four instructions of the same
+#                                         widths moves no byte. A game with the bit clear pays
+#                                         NOTHING for this feature in code — only the 26 bytes
+#                                         of RAM, which ram.emp has no capability arms to elide.
+#   Effects_SetTargetY        NEW ->  2   sonic4 36 (-34). The whole body is gated
+#                                         (`cap_anchor_motion_target`), so demo carries the
+#                                         `rts` and nothing else. It is a `pub proc` and demo's
+#                                         raster.emp is in its use closure, so the alternative
+#                                         to gating it was 36 bytes of setter writing a bank
+#                                         demo's elided loop never reads.
+#
+# The other eight rows the tool prints (six pinned plus Parallax_Update, which hosts a span and
+# has never been pinned) are unchanged — measured, not assumed: this run printed
+# 6 / 100 / 78 / 194 / 120 / 8 / 26 against pins of the same seven numbers.
 DEMO_SPECIALISED_PROCS = {
+    "Effects_LatchWorldLines":   26,   # CAP_ANCHOR_MOTION          (sonic4 126)
+    "Effects_SetTargetY":         2,   # CAP_ANCHOR_MOTION          (sonic4  36) — a bare rts
     "Parallax_Active_Config":     6,   # CAP_TRANSITIONS            (sonic4  18)
     "Parallax_Fill_PerLine":    100,   # CAP_DEFORM, CAP_MULTI_DEFORM_TABLE, CAP_FACTOR_CURVE (sonic4 792 with the curve raised) — the flat filler
     "Parallax_StartTransition":  78,   # CAP_PER_COL_VSRAM, CAP_TRANSITIONS  (sonic4 106)

@@ -41,15 +41,20 @@ class TestCapabilityAuthority(unittest.TestCase):
         raise them (Tasks 7 and 10). CAP_BAND_DRIFT was promoted by the band-drift parcel
         WITH its lowering and its three bracketed spans in one commit, per the standing
         rule in scene_dsl's own CAP_* block — and it took $0080, the next bit, which
-        shifted the five still-reserved names up one each. CAP_PER_LINE was RETIRED
+        shifted the five still-reserved names up one each. CAP_ANCHOR_MOTION did the same a
+        day later (EFFECTS-W1 item 4, the anchor mover) at $0100, shifting them up again;
+        unlike every bit before it, it gates spans in engine/effects/raster.emp rather than
+        in parallax.emp, because the mover is evaluated inside Effects_LatchWorldLines — the
+        single derivation all three edge consumers read. CAP_PER_LINE was RETIRED
         2026-08-26 (d-29-corrected) when the per-cell HScroll path it selected against was
         deleted — it is parsed as retired, never as declared. This list is the whole
         promotion contract: it is the file that says which bits a span may name."""
         bits = capability_bits()
         self.assertEqual(
             sorted(bits),
-            ["CAP_ANCHORS", "CAP_BAND_DRIFT", "CAP_DEFORM", "CAP_FACTOR_CURVE",
-             "CAP_MULTI_DEFORM_TABLE", "CAP_PER_COL_VSRAM", "CAP_TRANSITIONS"])
+            ["CAP_ANCHORS", "CAP_ANCHOR_MOTION", "CAP_BAND_DRIFT", "CAP_DEFORM",
+             "CAP_FACTOR_CURVE", "CAP_MULTI_DEFORM_TABLE", "CAP_PER_COL_VSRAM",
+             "CAP_TRANSITIONS"])
         self.assertEqual(len(set(bits.values())), len(bits),
                          "two capabilities share a bit: %r" % (bits,))
         self.assertEqual(retired_capability_bits(), {"CAP_PER_LINE": 0x0001})

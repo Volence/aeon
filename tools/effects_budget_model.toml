@@ -1163,7 +1163,7 @@ records_measured          = 2
 [ram]
 # code-derived — the two effects RAM blocks (engine/ram.emp span guards).
 palette_state_bytes  = 472           # PALETTE_STATE_SIZE
-raster_state_bytes   = 318           # RASTER_STATE_SIZE (Program/Cursor/Pending/Line + Buf_A/Buf_B 128 each + Active_Buf + dense + ramp + Effects_World_Y[4] + Effects_Screen_L[4] + Effects_Offscreen_Entry + Patch_Tab)
+raster_state_bytes   = 344           # RASTER_STATE_SIZE (Program/Cursor/Pending/Line + Buf_A/Buf_B 128 each + Active_Buf + dense + ramp + Effects_World_Y[4] + Effects_Screen_L[4] + the anchor mover's Effects_Motion[4]/Effects_Target[4]/Effects_RateMask[4] + Effects_Motion_Any + Effects_Offscreen_Entry + Patch_Tab). 318 before EFFECTS-W1 item 4 added the mover's 26 bytes.
                                      # 288 -> 306 in effects-P3 P-b: -4 for the deleted single-channel water pair
                                      # (Raster_Water_Line + Raster_Water_World_Y), +8 for Effects_World_Y[RASTER_MAX_PATCH],
                                      # +4 for Raster_Patch_Tab, +10 for the ramp cells already present but never added here.

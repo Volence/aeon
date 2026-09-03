@@ -2102,6 +2102,177 @@ ensure((RASTER_MAX_PATCH & (RASTER_MAX_PATCH - 1)) == 0,
 // The raster patcher itself is indifferent: it only walks channels a live patch table names.
 pub const PATCH_ANCHOR_NONE = $7FFF
 
+// ===========================================================================
+// THE ANCHOR MOVER'S AUTHORING VOCABULARY (EFFECTS-W1 DoD item 4)
+//
+// Design: docs/superpowers/specs/2026-09-02-moving-bands-anchor-mover-design.md.
+//
+// A patch channel's world anchor is a place in the LEVEL; Effects_LatchWorldLines turns it
+// into a screen line once per frame and three consumers read that one line (the raster fire,
+// the parallax band split, the off-screen ship). Until this block the only thing that moved
+// an anchor was a human holding a debug chord. Two terms move it now, and BOTH are evaluated
+// inside that single derivation — see engine/effects/raster.emp's Effects_LatchWorldLines for
+// why nowhere else is allowed:
+//
+//   SWEEP     a stateless periodic offset, `Sine_Table[((tick >> p) + ph) & 255] >> a`,
+//             added to the SCREEN line and never to the anchor. One packed u16 per channel.
+//   APPROACH  a rate-gated one-pixel ramp of the ANCHOR toward a target. The rate is a
+//             power-of-two frame mask, not a velocity — see anchor_rate_mask below.
+//
+// THE THREE FACTS THE LADDERS ARE DERIVED FROM ARE SPELLED AS LITERALS HERE, and that is the
+// COMPTIME_HELPERS rule rather than sloppiness (this module's own header, EMP_PITFALLS §2):
+// a `pub const` whose initializer calls a module-private `comptime fn` folds at its DEFINITION
+// site and must fold from THIS FILE'S OWN NAMES, and a name imported by `use` is invisible to
+// that fold. engine/level/parallax.emp measured the failure for the vertical bob's identical
+// ladders and wrote the rule down. The pins that hold these literals to
+// engine.constants live in engine/effects/raster.emp — an ORDINARY module, where an
+// `ensure` naming an imported constant is evaluated once in its own scope instead of being
+// glob-injected into every module's instruction stream.
+const ANCHOR_SINE_AMP     = $100    // pinned to SINE_AMPLITUDE in raster.emp
+const ANCHOR_SINE_ENTRIES = $100    // pinned to SINE_CYCLE_ENTRIES in raster.emp
+const ANCHOR_SCREEN_LINES = 224     // pinned to SCREEN_HEIGHT in raster.emp
+// The width of the time source both terms ride. Effects_LatchWorldLines reads `Logic_Tick+2`,
+// the LOW WORD of the u32 tick — the lag-immune spelling engine/level/bg_anim.emp and the
+// vertical bob already use — so the counter is 16 bits, not 32.
+const ANCHOR_TICK_BITS    = 16
+
+// ANCHOR_SWEEP_SHIFT_MIN — the WIDEST sweep a channel may express, as the smallest legal
+// amplitude shift.
+//
+// A sweep's peak-to-peak travel is `2 * (amp >> a)` pixels, and the edge it moves has to stay
+// inside its channel's declared `patchable(lo, hi)` band or the record is DROPPED at the top
+// of every cycle (Raster_BuildSchedule's `bgt .suppress`) — the band does not clamp, it
+// vanishes. That band is a subrange of the screen, so a sweep whose travel exceeds the SCREEN
+// cannot fit any band whatsoever, and that is the strongest bound this file can see.
+//
+// IT IS NECESSARY, NOT SUFFICIENT, and the design says so in the same words: `lo`/`hi` live in
+// the raster program's `patchable(...)` call while the amplitude lives in the preset, and the
+// two are associated by a POINTER at runtime — there is no comptime context in which both
+// numbers exist, so the per-channel bound cannot be an `ensure` here. The cross-file check
+// that CAN see both is tools/test_anchor_sweep_band.py, and the authoring doc carries the
+// rule in prose. A runtime clamp is the wrong answer for the same reason the bob refuses one
+// (engine/level/parallax.emp): it would turn an authoring error into a silent stutter.
+comptime fn anchor_shift_min(amp: int, lines: int) -> int {
+    comptime var s = 0
+    for i in 0..16 {
+        if (amp >> i) * 2 > lines {
+            s = i + 1
+        }
+    }
+    return s
+}
+
+// ANCHOR_SWEEP_SHIFT_MAX — the SMALLEST sweep that is still a sweep. `asr.w #a` of a table
+// whose peak is `amp` yields a peak of `amp >> a`; one shift past the last nonzero peak the
+// table is annihilated and what is left is a 1-px DC droop across the negative half-cycle and
+// no motion at all. Same derivation, same reason, as the vertical bob's BOB_SHIFT_MAX.
+comptime fn anchor_shift_max(amp: int) -> int {
+    comptime var s = 0
+    for i in 0..16 {
+        if (amp >> i) >= 1 {
+            s = i
+        }
+    }
+    return s
+}
+
+// ANCHOR_SWEEP_PERIOD_SHIFT_MAX — the SLOWEST sweep that still closes its cycle. The phase
+// index is `(tick >> p) & (entries-1)` over a `width`-bit counter, so one sweep spans
+// `entries << p` ticks. While that is <= `1 << width` the index is back at 0 exactly when the
+// counter is and the wrap is invisible; one shift further and the sine JUMPS by its full
+// amplitude once every counter pass. Not taste — a discontinuity.
+comptime fn anchor_period_shift_max(entries: int, width: int) -> int {
+    comptime var p = 0
+    for i in 0..32 {
+        if (entries << i) <= (1 << width) {
+            p = i
+        }
+    }
+    return p
+}
+
+pub const ANCHOR_SWEEP_SHIFT_MIN        = anchor_shift_min(ANCHOR_SINE_AMP, ANCHOR_SCREEN_LINES)
+pub const ANCHOR_SWEEP_SHIFT_MAX        = anchor_shift_max(ANCHOR_SINE_AMP)
+pub const ANCHOR_SWEEP_PERIOD_SHIFT_MAX = anchor_period_shift_max(ANCHOR_SINE_ENTRIES, ANCHOR_TICK_BITS)
+// The phase offset is a full byte of table entries: 0..255 is exactly one cycle, whatever the
+// period shift is, because the phase is added AFTER the shift (the same place the deform
+// sampler's band_phase_offset adds its own).
+pub const ANCHOR_SWEEP_PHASE_MAX        = ANCHOR_SINE_ENTRIES - 1
+
+// ANCHOR_MOTION_NONE — the packed word of a channel that does not sweep, and it is the whole
+// WORD rather than a byte because the motion word carries three fields.
+//
+// THE SENTINEL IS WHAT MAKES SHIFT 0 ILLEGAL, not the other way round. `anchor_sweep(0, 0, 0)`
+// would pack to 0 and be read as "no motion", silently. The ensure below is what refuses the
+// collision, and it holds because ANCHOR_SWEEP_SHIFT_MIN is derived and never picked.
+pub const ANCHOR_MOTION_NONE = 0
+ensure(ANCHOR_SWEEP_SHIFT_MIN >= 1,
+       "the anchor sweep's amplitude ladder now admits shift 0 (min is {ANCHOR_SWEEP_SHIFT_MIN}), i.e. a peak excursion of the whole sine amplitude ({ANCHOR_SINE_AMP} px) against a {ANCHOR_SCREEN_LINES}-line screen. The packed encoding depends on shift 0 being ILLEGAL: ANCHOR_MOTION_NONE is 0 for the whole word, so a legal shift-0 sweep at period shift 0 and phase 0 would pack to 0 and be read as NO sweep")
+ensure(ANCHOR_SWEEP_SHIFT_MIN <= ANCHOR_SWEEP_SHIFT_MAX,
+       "the anchor sweep's amplitude ladder is EMPTY: the widest sweep that fits a {ANCHOR_SCREEN_LINES}-line screen is shift {ANCHOR_SWEEP_SHIFT_MIN}, but the largest shift the sine table survives is {ANCHOR_SWEEP_SHIFT_MAX}. Either the screen shrank or the table's amplitude ({ANCHOR_SINE_AMP}) did — with no legal shift left, anchor_sweep() admits nothing and the feature is unauthorable")
+ensure(ANCHOR_SWEEP_SHIFT_MAX <= 15 && ANCHOR_SWEEP_PERIOD_SHIFT_MAX <= 15,
+       "the anchor sweep's ladders ({ANCHOR_SWEEP_SHIFT_MAX} / {ANCHOR_SWEEP_PERIOD_SHIFT_MAX}) no longer fit the nibbles the motion word packs them into — anchor_sweep() would admit values the lowering silently truncates")
+
+// anchor_sweep — the packed motion word for one channel.
+//
+//   bits 15..12   amplitude shift a   peak excursion = 256 >> a px
+//   bits 11.. 8   period shift p      one cycle = 256 << p ticks (4.3 s at p=0, 60 Hz)
+//   bits  7.. 0   phase offset ph     table entries; 0..255 is one full cycle
+//
+// THE PHASE BYTE IS RISTAR'S CORRECTION AND IT IS NOT DECORATION. Two channels sweeping at the
+// same period with no offset move in LOCKSTEP and read as one boundary; Ristar gives each of
+// its bands its own phase into one shared wave table for exactly this reason, and this repo
+// already spells the same idea as `band_entry.band_phase_offset` on the deform sampler.
+//
+// IT IS ADDED AFTER THE PERIOD SHIFT, so it is a phase in TABLE ENTRIES and not in ticks —
+// ph = 64 is a quarter cycle whatever p is. That is also what lets the runtime add the whole
+// packed word to the shifted tick and mask with 255: the two nibbles above sit in the high
+// byte, so they fall out of the mask for free and the phase costs no separate instruction.
+pub comptime fn anchor_sweep(amp_shift: int, period_shift: int, phase: int = 0) -> int {
+    ensure(amp_shift >= ANCHOR_SWEEP_SHIFT_MIN && amp_shift <= ANCHOR_SWEEP_SHIFT_MAX,
+           "anchor_sweep(): amplitude shift {amp_shift} is outside the derived ladder {ANCHOR_SWEEP_SHIFT_MIN}..{ANCHOR_SWEEP_SHIFT_MAX}. The peak excursion is 256 >> shift px, so the ladder is 64 px down to 1 px; below the minimum the peak-to-peak travel exceeds the whole screen and no patchable band could contain it, above the maximum `asr.w` annihilates the table and the edge does not move at all. NOTE the ladder is a SCREEN bound and not a BAND bound — a legal shift can still exceed the channel's own patchable(lo, hi) and flicker the record out at the top of every cycle; tools/test_anchor_sweep_band.py is what checks that, because lo/hi and this shift never meet in one comptime scope")
+    ensure(period_shift >= 0 && period_shift <= ANCHOR_SWEEP_PERIOD_SHIFT_MAX,
+           "anchor_sweep(): period shift {period_shift} is outside 0..{ANCHOR_SWEEP_PERIOD_SHIFT_MAX}. One cycle is 256 << shift ticks (4.3 s at 0, 8.5 s at 1, 17 s at 2 on a 60 Hz frame); past the maximum the phase index has only reached part of the table when the 16-bit tick wraps, and the sine jumps by its full amplitude at that instant, once per counter pass")
+    ensure(phase >= 0 && phase <= ANCHOR_SWEEP_PHASE_MAX,
+           "anchor_sweep(): phase {phase} is outside 0..{ANCHOR_SWEEP_PHASE_MAX}. The phase is in TABLE ENTRIES and one full cycle is the whole range, so there is no meaning past it — and the runtime folds the phase in by adding the packed word to the shifted tick before masking with 255, so a value that overflowed the low byte would corrupt the amplitude and period nibbles instead of wrapping")
+    ensure(((amp_shift << 12) | (period_shift << 8) | phase) != ANCHOR_MOTION_NONE,
+           "anchor_sweep({amp_shift}, {period_shift}, {phase}) packs to the ANCHOR_MOTION_NONE sentinel, so the channel would read as static. This is unreachable while the amplitude ladder starts at {ANCHOR_SWEEP_SHIFT_MIN}; it is stated because the sentinel and the ladder are two facts that could drift apart, and the silent failure is a boundary that simply does not move")
+    return (amp_shift << 12) | (period_shift << 8) | phase
+}
+
+// ANCHOR_RATE_SHIFT_MAX — the slowest APPROACH ramp, derived from the counter it gates on.
+//
+// The gate is `(tick & mask) == 0` against the same 16-bit tick low word, and the mask is
+// stored in a u16, so `(1 << k) - 1` must fit sixteen bits: k = 16 gives $FFFF (one step every
+// 65536 ticks, ~18 minutes) and k = 17 does not fit at all. That is the representability
+// bound; the USEFUL ladder is far shorter and is stated at anchor_rate_mask.
+pub const ANCHOR_RATE_SHIFT_MAX = ANCHOR_TICK_BITS
+
+// anchor_rate_mask — the frame mask for an APPROACH ramp of `1 / 2^rate_shift` px per frame.
+//
+// THE MASK IS THE RATE, AND FOR A POWER-OF-TWO RATE IT IS NOT AN APPROXIMATION OF A 16.16
+// ACCUMULATOR — IT IS THE IDENTICAL MOTION. `acc += $4000` on a 16.16 accumulator advances the
+// integer part on exactly every 4th frame, which is what a mask of 3 does; the accumulator
+// costs 16 bytes of RAM, a seed and a re-entry semantics ruling to reproduce it. Ristar's two
+// real waterline rates are $4000 and $2000 per frame — 0.25 and 0.125 px/f — which are k=2 and
+// k=3 here.
+//
+// WHY A RATE SHIFT AND NOT AN INTEGER px/frame SPEED. S.C.E. and stock S2 both carry an
+// integer `Water_speed`, which makes 1 px/frame the SLOWEST expressible flood: 60 px/s, a
+// waterline crossing the screen in under four seconds. They get away with it because the speed
+// is 1 and is written exactly once in either tree. A boundary reads as RISING rather than
+// STEPPING at a quarter of a pixel a frame, so the rate has to be sub-pixel and the gate is
+// the cheapest place to put it.
+//
+// The step itself is ONE PIXEL, which makes the overshoot S.C.E. ships (`add.w speed, mean`
+// with no clamp to the remaining distance, oscillating by +/-speed forever when the distance
+// is not a multiple of the speed) arithmetically unreachable rather than merely fixed.
+pub comptime fn anchor_rate_mask(rate_shift: int) -> int {
+    ensure(rate_shift >= 0 && rate_shift <= ANCHOR_RATE_SHIFT_MAX,
+           "anchor_rate_mask(): rate shift {rate_shift} is outside 0..{ANCHOR_RATE_SHIFT_MAX}. The ramp advances one pixel every 2^shift frames, so the shift IS the rate: 0 is 1 px/frame (60 px/s, the whole screen in under four seconds), 2 is 0.25 px/f and 3 is 0.125 px/f — Ristar's two real waterline rates — and 5 is ~1.9 px/s. The ceiling is where the mask stops fitting the 16-bit tick word the gate ANDs it against")
+    return (1 << rate_shift) - 1
+}
+
 // fire_cost_cycles — modelled cost of one fire: the per-fire constant ONCE, plus every op.
 // EVERY op, reg_set included — the predecessor summed over stream ops only, which is why a
 // fire of nothing but register writes modelled at zero and could not be refused however many

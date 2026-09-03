@@ -231,8 +231,34 @@ pub const CAP_FACTOR_CURVE       = $0040
 // test's own docstring names — "a value a still-reserved bit already claims in the comment
 // ... leaves the names right and the arithmetic wrong".
 pub const CAP_BAND_DRIFT         = $0080
-// Reserved (P4+): CAP_FG_SPRITE_STRIPS=$0100, CAP_BGANIM_BOUND=$0200,
-// CAP_DENSE_TIER=$0400, CAP_COMPUTED=$0800, CAP_DEGRADE=$1000
+// EFFECTS-W1 item 4: THE ANCHOR MOVER — a patch channel's world anchor moves over time, so a
+// band's EDGE moves while the player stands still. Promoted WITH its lowering and its two
+// bracketed spans in one commit, per the standing rule above.
+//
+// IT IS NOT A SECOND SPELLING OF BAND DRIFT, and the reason is dimensional rather than a
+// matter of discipline. Drift adds a per-band term to Parallax_Current_Scroll_B[i], a
+// HORIZONTAL scroll word — it moves a band's CONTENTS sideways. This moves a horizontal
+// BOUNDARY vertically: where one band stops and the next starts. Different axes of different
+// quantities; composed, they are a cloud band that drifts sideways while its lower edge
+// sweeps. Nor is it the scene-level vertical bob (item 7), which adds its sine to the single
+// site the whole BG vertical origin flows through and therefore moves EVERY band's edge by
+// the same amount, together — a whole background swaying as one picture. This item's edges
+// move RELATIVE to each other.
+//
+// IT TAKES $0100, THE NEXT BIT, and the five reserved names shift up one AGAIN — the same
+// allocation rule band drift's block above documents, for the same reason
+// (tools/test_scene_span_labels.py's gapless-run test). Nothing lowers, raises, brackets or
+// masks against any of the five, so the shift is free; leaving the comment claiming $0100 for
+// CAP_FG_SPRITE_STRIPS while a declaration holds it is the failure that test names.
+//
+// ITS SPANS ARE IN engine/effects/raster.emp, NOT IN parallax.emp, and that is the item's
+// central ruling: the mover is evaluated inside Effects_LatchWorldLines because that proc is
+// by standing ruling the SINGLE derivation of Effects_Screen_L, and all three consumers that
+// can place a horizontal edge read it. A mover at any other site puts the raster fire line and
+// the parallax split on different cameras on a VInt_Lag frame.
+pub const CAP_ANCHOR_MOTION      = $0100
+// Reserved (P4+): CAP_FG_SPRITE_STRIPS=$0200, CAP_BGANIM_BOUND=$0400,
+// CAP_DENSE_TIER=$0800, CAP_COMPUTED=$1000, CAP_DEGRADE=$2000
 //
 // THE LEFT-COLUMN POLICY (P3 Task 12) RAISES NO BIT, AND THAT IS A RULING, NOT AN
 // OVERSIGHT. Factor0Lock and Accept demand nothing of the runtime — one is a verified
@@ -240,8 +266,8 @@ pub const CAP_BAND_DRIFT         = $0080
 // code. SpriteMask WILL need a bit (its strip emitter is engine code a non-per-column
 // game must elide), but its emission has not landed and scene() refuses the variant
 // until it does; per the promotion note above, the bit arrives WITH its gated block in
-// the emission parcel, never ahead of it. CAP_FG_SPRITE_STRIPS ($0100 since band drift took
-// $0080 — see that declaration for why a new bit takes the NEXT one) is NOT that bit —
+// the emission parcel, never ahead of it. CAP_FG_SPRITE_STRIPS ($0200 since the anchor mover
+// took $0100 — see that declaration for why a new bit takes the NEXT one) is NOT that bit —
 // it is design §2's FG parallax strips, a different mechanism, and stays reserved.
 
 // ---- attachment enums (spec §2) ----

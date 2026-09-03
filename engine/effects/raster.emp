@@ -10,10 +10,15 @@
 module engine.effects.raster in raster
 
 use engine.vdp.{VDP_HINT_OFF, vdp_comm, vdp_comm_addr, VdpTarget, VdpOp}
-use engine.constants.{VDP_CTRL, VDP_DATA}
+use engine.constants.{VDP_CTRL, VDP_DATA, SINE_AMPLITUDE, SINE_CYCLE_ENTRIES, SCREEN_HEIGHT}
 use engine.irq.{ints_off_until_rte}
 // P2 §3.3 capability gate — see the CAP_* authority block in engine/level/scene_dsl.emp.
-use engine.level.scene_dsl.{CAP_ANCHORS}
+use engine.level.scene_dsl.{CAP_ANCHORS, CAP_ANCHOR_MOTION}
+// The anchor mover's sine source. ONLY THE DATA LABEL is imported — the two sine FACTS come
+// in from engine.constants above and are pinned against raster_dsl's literals below; naming
+// them through engine.math would yield a LINK EXTERN (a Label) that fails arithmetic, which
+// engine/level/parallax.emp measured for the vertical bob and wrote down.
+use engine.math.{Sine_Table}
 
 // ===========================================================================
 // SPARSE RASTER DISPATCHER (effects P1) — the HBlank trampoline's first consumer.
@@ -363,6 +368,8 @@ pub const RASTER_BUF_SIZE = 128
 //   + Dense_Lines 2 + Dense_Cursor 4 + Dense_Cmd 4
 //   + Dense_Kind 2 + Ramp_Acc 4 + Ramp_Step 4
 //   + Effects_World_Y (2 * RASTER_MAX_PATCH) + Effects_Screen_L (2 * RASTER_MAX_PATCH)
+//   + Effects_Motion (2 * RASTER_MAX_PATCH) + Effects_Target (2 * RASTER_MAX_PATCH)
+//   + Effects_RateMask (2 * RASTER_MAX_PATCH) + Effects_Motion_Any 2
 //   + Effects_Offscreen_Entry 4 + Patch_Tab 4
 //
 // THIS ensure IS WHAT HOLDS ram.emp's LITERAL 4 TO RASTER_MAX_PATCH. ram.emp is built by a
@@ -371,9 +378,48 @@ pub const RASTER_BUF_SIZE = 128
 // measures the real emitted span between the two marks, so raising RASTER_MAX_PATCH without
 // widening the RAM array fails the build HERE, which is the whole reason the span guard is
 // phrased against extern() marks rather than against a hand-added byte count.
-pub const RASTER_STATE_SIZE = 4 + 4 + 4 + 2 + RASTER_BUF_SIZE + RASTER_BUF_SIZE + 4 + 2 + 4 + 4 + 2 + 4 + 4 + (2 * RASTER_MAX_PATCH) + (2 * RASTER_MAX_PATCH) + 4 + 4
+pub const RASTER_STATE_SIZE = 4 + 4 + 4 + 2 + RASTER_BUF_SIZE + RASTER_BUF_SIZE + 4 + 2 + 4 + 4 + 2 + 4 + 4 + (2 * RASTER_MAX_PATCH) + (2 * RASTER_MAX_PATCH) + (2 * RASTER_MAX_PATCH) + (2 * RASTER_MAX_PATCH) + (2 * RASTER_MAX_PATCH) + 2 + 4 + 4
 ensure((extern("Raster_State_End") - extern("Raster_State")) == RASTER_STATE_SIZE,
        "Raster_State RAM block drifted from hblank.emp's raster layout")
+
+// ---- THE ANCHOR MOVER'S LADDER PINS (EFFECTS-W1 DoD item 4) ----------------
+//
+// engine/effects/raster_dsl.emp derives ANCHOR_SWEEP_SHIFT_MIN / _MAX / _PERIOD_SHIFT_MAX /
+// _PHASE_MAX from three LITERALS, because a COMPTIME_HELPERS module's `pub const` must fold
+// from its own file's names (that module says why, and engine/level/parallax.emp measured the
+// failure). This is where those ladders meet the constants they are supposed to be derived
+// FROM: an ORDINARY module, where an imported name in a module-scope `ensure` is evaluated
+// once in its own scope instead of being glob-injected into every module's stream.
+//
+// The pins RE-DERIVE rather than compare to a copy — each states the bracketing property that
+// makes the ladder rung the LAST legal one, so a change to the sine table or the screen height
+// fails here naming the new numbers, and a hand-edited ladder fails here too.
+ensure((SINE_AMPLITUDE >> ANCHOR_SWEEP_SHIFT_MIN) * 2 <= SCREEN_HEIGHT && (SINE_AMPLITUDE >> (ANCHOR_SWEEP_SHIFT_MIN - 1)) * 2 > SCREEN_HEIGHT,
+       "the anchor sweep's widest rung ({ANCHOR_SWEEP_SHIFT_MIN}) is not the smallest shift whose peak-to-peak travel (2 * ({SINE_AMPLITUDE} >> shift)) fits a {SCREEN_HEIGHT}-line screen. raster_dsl.emp derives it from its own literals ({SINE_AMPLITUDE} / {SCREEN_HEIGHT} spelled there); one of those literals has drifted from engine.constants, or the ladder was edited by hand. A sweep wider than the screen cannot fit ANY patchable band, so the edge would be deleted at the top of every cycle rather than moving")
+ensure((SINE_AMPLITUDE >> ANCHOR_SWEEP_SHIFT_MAX) >= 1 && (SINE_AMPLITUDE >> (ANCHOR_SWEEP_SHIFT_MAX + 1)) == 0,
+       "the anchor sweep's narrowest rung ({ANCHOR_SWEEP_SHIFT_MAX}) is not the last shift that leaves the sine table a nonzero positive peak against amplitude {SINE_AMPLITUDE}. One past it, `asr.w` returns 0 across the whole positive half-cycle and -1 across the negative one: a 1-px DC droop and no motion, which reads as a broken sweep rather than a subtle one")
+ensure((SINE_CYCLE_ENTRIES << ANCHOR_SWEEP_PERIOD_SHIFT_MAX) <= 65536 && (SINE_CYCLE_ENTRIES << (ANCHOR_SWEEP_PERIOD_SHIFT_MAX + 1)) > 65536,
+       "the anchor sweep's slowest rung ({ANCHOR_SWEEP_PERIOD_SHIFT_MAX}) is not the last period shift whose cycle ({SINE_CYCLE_ENTRIES} << shift ticks) still closes inside the 16-bit Logic_Tick low word the mover reads. One further and the phase index has reached only part of the table when the counter wraps, and the sine jumps by its full amplitude at that instant")
+// ---- THE TWO RAM ADJACENCIES Effects_LatchWorldLines ADDRESSES THROUGH ------
+//
+// The mover reaches four banks with TWO address registers, and it has to: three separate
+// `lea`s put it on a3, which Effects_InstallPreset holds the live EffectsPreset* in across its
+// call to this proc — sigil's [call.live-clobbered] closure reported exactly that, measured on
+// this parcel's first build. So one cursor walks Motion / Target / RateMask by displacement,
+// and the screen bank is reached as `6(a0)` off the post-incremented anchor cursor.
+//
+// BOTH ARE FACTS ABOUT engine/ram.emp'S DECLARATION ORDER, WHICH THIS FILE CANNOT SEE. An
+// unrelated field inserted between any two of them would not fail to build — it would write
+// screen lines into the wrong bank and read sweep words out of the anchors, silently. These
+// are the guards that turn that into a build error naming the field that moved. They are
+// phrased against `extern()` marks rather than a hand-added byte count for the same reason
+// RASTER_STATE_SIZE's is.
+ensure((extern("Effects_Screen_L") - extern("Effects_World_Y")) == 2 * RASTER_MAX_PATCH,
+       "Effects_Screen_L is no longer 2 * RASTER_MAX_PATCH bytes after Effects_World_Y, so Effects_LatchWorldLines' motion arm — which stores this channel's screen line as `6(a0)` off the post-incremented anchor cursor rather than spending a second address register on it — writes into whatever now sits between them. Either put the two banks back adjacent in engine/ram.emp, or give the motion arm its own screen cursor and pay the register (the comment at the `lea Sine_Table, a1` says what that costs)")
+ensure((extern("Effects_Target") - extern("Effects_Motion")) == 2 * RASTER_MAX_PATCH && (extern("Effects_RateMask") - extern("Effects_Motion")) == 4 * RASTER_MAX_PATCH,
+       "the anchor mover's three banks (Effects_Motion, Effects_Target, Effects_RateMask) are no longer three adjacent [u16; RASTER_MAX_PATCH] arrays in engine/ram.emp. Effects_LatchWorldLines walks all three from ONE cursor as `(a2)`, `8(a2)` and `16(a2)`, because three `lea`s would need a3 and Effects_InstallPreset holds the EffectsPreset* there across the call. A field inserted between them does not fail to build — it makes the ramp read sweep words as targets")
+ensure(ANCHOR_SWEEP_PHASE_MAX == SINE_CYCLE_ENTRIES - 1,
+       "the anchor sweep's phase range ({ANCHOR_SWEEP_PHASE_MAX}) is not one full cycle of the sine table ({SINE_CYCLE_ENTRIES} entries). The mover folds the phase in by ADDING the packed motion word to the shifted tick and masking with {SINE_CYCLE_ENTRIES}-1, so a phase that overflowed the low byte would corrupt the amplitude and period nibbles instead of wrapping")
 
 // ---- comptime authoring helpers -------------------------------------------
 // What survives here is the arm arithmetic the DENSE tier still authors with: the
@@ -1844,16 +1890,176 @@ pub proc Raster_GetChannelBand (d0: u16) clobbers(a0) out(d0: u16, d1: u16, d2: 
 // is above the screen entirely", which is precisely the state the off-screen ship answers.
 // Consumers clamp for their own purposes; the bank holds the truth.
 // -----------------------------------------------
-pub proc Effects_LatchWorldLines () clobbers(d0-d2/a0-a1) {
+// THE ANCHOR MOVER LIVES HERE, INSIDE THIS LOOP, AND THAT IS FORCED (EFFECTS-W1 DoD item 4).
+// The paragraph above is the argument: three consumers read one derivation so that they read
+// ONE CAMERA. A mover anywhere else re-opens exactly that — the raster fire would move on the
+// frame the parallax split had not yet, which is the pop this proc exists to prevent — so the
+// two motion terms are loop-body work in the walk that already exists, not a second walk and
+// not a second call site. The design ruled out four alternatives (a write-back accumulator on
+// the anchor, a scene-level clock the consumers each index, a mover on the band record, and
+// Batman & Robin's "the boundary IS an object's world Y"); the reasons are in
+// docs/superpowers/specs/2026-09-02-moving-bands-anchor-mover-design.md §4.3.
+//
+//   Effects_World_Y[ch]  <- approach(anchor, Target[ch], RateMask[ch], tick)      APPROACH
+//   Effects_Screen_L[ch] <- Effects_World_Y[ch] + sweep(Motion[ch], tick) - Camera_Y   SWEEP
+//
+// THE ORDER IS LOAD-BEARING. APPROACH publishes into the anchor bank, so gameplay reading
+// Effects_World_Y sees a real world Y; SWEEP does NOT, because it is a display displacement
+// and an anchor has exactly one writer. The consequence is stated rather than discovered: a
+// future consumer asking "is the player under the waterline" reads the MEAN, not the swept
+// surface. S.C.E. publishes both (Water_level vs Mean_water_level) and its gameplay reads the
+// displayed one; the fix here, when something needs it, is an Effects_Display_Y[4] bank and
+// one move.w per channel. Nothing reads the bank today, so it costs nothing today.
+//
+// THE CAPABILITY GATE AND THE MOTION_ANY GATE ARE TWO DIFFERENT GATES doing two different
+// jobs. The capability elides the whole block from a game that authors no motion at all (demo
+// pays zero bytes). Effects_Motion_Any elides it per-FRAME in a game that does, on every
+// section that authors none: one `tst.w` + `beq` for 12 cycles, skipping 224 to 896.
+//
+// THIS INVERTS BAND DRIFT'S RULE ON PURPOSE, and the inversion is the point rather than an
+// inconsistency: BAND-DRIFT §3.1 refuses a per-band test on the rate because "a zero rate
+// costs 48 cycles; testing for it costs ~30 to save ~40" — 0.75:1. Here the same test is
+// 19:1 to 75:1. The rule both decisions obey is "measure the ratio", never "always test" or
+// "never test".
+//
+// A GAME THAT DECLARES THE BIT AND AUTHORS NOTHING RUNS THE OLD LOOP UNCHANGED, plus the 12.
+pub proc Effects_LatchWorldLines () clobbers(d0-d4/a0-a2) {
         move.w  Camera_Y, d1                // 16.16 -> the integer word
         lea     Effects_World_Y, a0
-        lea     Effects_Screen_L, a1
         moveq   #RASTER_MAX_PATCH-1, d0
-    .ch:
+    if (Game.SCANLINE_CAPS & CAP_ANCHOR_MOTION) != 0 {
+    .cap_anchor_motion_latch_begin:
+        // THE ONCE-PER-FRAME GATE. Everything below it is skipped on a section that authors
+        // no motion, which is every section but one today.
+        tst.w   Effects_Motion_Any          // (Effects_Motion_Any).w
+        beq     .plain                      // nothing authored: fall into the shipped loop
+        // ONE CURSOR OVER THREE BANKS. Effects_Motion, Effects_Target and Effects_RateMask are
+        // three adjacent [u16; RASTER_MAX_PATCH] arrays, so `(a2)`, `8(a2)` and `16(a2)` reach
+        // all three and one post-increment advances all three. That is not a micro-optimisation
+        // — it is what keeps this proc inside the register budget its CALLERS already have:
+        // three separate `lea`s needed a3, which Effects_InstallPreset holds the EffectsPreset*
+        // in across its call to this proc, and sigil's [call.live-clobbered] closure said so
+        // (measured, this parcel). The adjacency is pinned by the `ensure`s beside
+        // RASTER_STATE_SIZE above; break it and the build fails there, not here.
+        lea     Effects_Motion, a2
+        // `lea` FIRST, AND NOT `Sine_Table(pc,dN.w)`. The 68000's PC-relative INDEXED mode
+        // carries an 8-bit displacement, so a cross-section indexed read of a ROM table has to
+        // load the base into an address register whatever the distance happens to be — the
+        // reach is 128 bytes, not 32 KB. engine/level/parallax.emp measured the link failure
+        // (`(d8,PC,Xn) displacement to Sine_Table out of range (-20794)`) copying the spelling
+        // engine/system/math.emp uses thirty bytes from the table.
+        //
+        // a1 IS THE SINE BASE HERE AND THE SCREEN BANK IS REACHED BY DISPLACEMENT INSTEAD:
+        // Effects_Screen_L sits exactly 2 * RASTER_MAX_PATCH bytes after Effects_World_Y, so
+        // after the post-incremented anchor read below, `6(a0)` IS this channel's screen slot.
+        // Same reason as the shared cursor — one fewer address register, and the offset is
+        // pinned by an `ensure` rather than assumed.
+        lea     Sine_Table, a1
+    .mch:
+        // ---- APPROACH: a rate-gated ONE-PIXEL ramp of the anchor toward its target ----
+        move.w  8(a2), d4                   // target world Y; PATCH_ANCHOR_NONE = no ramp
+        cmpi.w  #PATCH_ANCHOR_NONE, d4
+        beq     .no_ramp
+        move.w  Logic_Tick+2, d3            // the LOW WORD — the lag-immune tick
+        and.w   16(a2), d3                  // THE RATE GATE: (1 << rate_shift) - 1
+        bne     .no_ramp                    // shut on this frame
+        sub.w   (a0), d4                    // d4 = target - anchor
+        beq     .no_ramp                    // arrived. Terminal, forever, for one compare
+        bmi     .ramp_up                    // target above the anchor -> world Y decreases
+        addq.w  #1, (a0)
+        jbra    .no_ramp
+    .ramp_up:
+        subq.w  #1, (a0)
+        // ONE PIXEL, NEVER `add.w speed`. S.C.E. (Water Effects.asm:49-70) and stock S2
+        // (s2.asm:5343-5365) both add a speed byte with no clamp to the remaining distance, so
+        // a distance that is not a multiple of the speed oscillates by +/-speed forever. It
+        // never bites in either tree only because their speed is 1 and is written exactly
+        // once. A one-pixel step is their speed-1 case made universal, with the rate moved
+        // into the gate — which is what makes overshoot unreachable rather than merely fixed.
+    .no_ramp:
+        // ---- SWEEP: stateless, periodic, added to the SCREEN LINE and not to the anchor ----
+        // It is computed FIRST, into the accumulator, so d2 is a third scratch register while
+        // the anchor is still in memory. Adding the anchor last costs nothing (`add.w (a0)+`
+        // where the plain loop has `move.w (a0)+`) and buys the register.
+        moveq   #0, d2
+        move.w  (a2)+, d4                   // packed (a << 12) | (p << 8) | ph; 0 = static
+        beq     .no_sweep
+        move.w  d4, d2
+        lsr.w   #8, d2
+        and.w   #$0F, d2                    // d2 = period shift p
+        move.w  Logic_Tick+2, d3
+        lsr.w   d2, d3                      // tick >> p
+        // THE PHASE COSTS NOTHING. Adding the WHOLE packed word is the same as adding the
+        // phase byte, because the mask below keeps eight bits and the two nibbles live above
+        // them — so the per-channel phase offset Ristar's shared wave table needs is one
+        // `add.w` that was going to happen anyway.
+        add.w   d4, d3
+        and.w   #SINE_CYCLE_ENTRIES-1, d3   // one full cycle; never the $40 overlap
+        add.w   d3, d3                      // the table's entries are WORDS
+        move.w  (a1,d3.w), d2               // -SINE_AMPLITUDE .. +SINE_AMPLITUDE
+        rol.w   #4, d4                      // amplitude shift a into the low nibble
+        and.w   #$0F, d4
+        asr.w   d4, d2                      // ARITHMETIC: the wave is signed
+    .no_sweep:
+        add.w   (a0)+, d2                   // + the anchor (which APPROACH may just have moved)
+        sub.w   d1, d2                      // may go negative, meaningfully
+        move.w  d2, 6(a0)                   // Effects_Screen_L[ch] — see the a1 note above
+        dbf     d0, .mch
+        rts
+    .cap_anchor_motion_latch_end:
+    }
+    .plain:
+        lea     Effects_Screen_L, a1
+    .plain_ch:
         move.w  (a0)+, d2
         sub.w   d1, d2                      // may go negative, meaningfully
         move.w  d2, (a1)+
-        dbf     d0, .ch
+        dbf     d0, .plain_ch
+        rts
+}
+
+// -----------------------------------------------
+// Effects_SetTargetY — arm (or disarm) an APPROACH ramp on one patch channel.
+//
+// THE RETARGET HANDLE, mirroring Effects_SetWorldY instruction for instruction: that proc is
+// the TELEPORT (it moves the position; the ramp then continues from wherever it lands), this
+// one is the ramp. S.C.E. spends the sign bit of a Y word on exactly that snap-vs-ramp
+// distinction (Check Range.asm:562-577); we get the same expressiveness for free from a proc
+// that already ships.
+//
+//   d0.w = channel   d1.w = target world Y (PATCH_ANCHOR_NONE disarms)   d2.w = rate shift
+//
+// THE RATE SHIFT, NOT A MASK, is the parameter — the units an author reads on the ladder in
+// raster_dsl.emp's anchor_rate_mask. The conversion is three instructions on a proc called
+// once per event, and it keeps a runtime-chosen rate expressible. `lsl.w` with a register
+// count of 16 yields 0, so shift 16 lands the full $FFFF mask correctly rather than wrapping.
+//
+// OWNERSHIP RULE, STATED ONCE: a channel with a live target is owned by the mover; a channel
+// with PATCH_ANCHOR_NONE is owned by whoever writes Effects_World_Y. Both are legal. Both at
+// once is an authoring error the engine cannot detect and does not try to.
+// -----------------------------------------------
+pub proc Effects_SetTargetY (d0: u16, d1: u16, d2: u16) clobbers(d0-d2/a0) {
+    if (Game.SCANLINE_CAPS & CAP_ANCHOR_MOTION) != 0 {
+    .cap_anchor_motion_target_begin:
+        andi.w  #RASTER_MAX_PATCH-1, d0
+        add.w   d0, d0
+        lea     Effects_Target, a0
+        move.w  d1, (a0, d0.w)
+        moveq   #1, d1
+        lsl.w   d2, d1
+        subq.w  #1, d1                      // (1 << rate_shift) - 1
+        lea     Effects_RateMask, a0
+        move.w  d1, (a0, d0.w)
+        // Arm the once-per-frame gate. It is an OR and not a store because the word already
+        // carries the install-time fold of the four sweep words, and a ramp must not clear
+        // them. Any nonzero value means "walk the channels"; the bits carry no other meaning.
+        // Disarming a ramp deliberately does NOT clear it — the next preset install recomputes
+        // the word from scratch, and until then a spuriously-armed gate costs the 12-cycle
+        // test plus four inactive arms, while a spuriously-CLEARED one would stop a sweep the
+        // section really authored.
+        ori.w   #1, Effects_Motion_Any
+    .cap_anchor_motion_target_end:
+    }
         rts
 }
 

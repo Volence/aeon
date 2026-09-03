@@ -1028,9 +1028,14 @@ pub data OJZ_DepthVSplit: [u16; raster_words(OJZ_DEPTH_VSPLIT_PROG)] = raster_pr
 //
 // THE ANCHORS ARE MEASURED, NOT GUESSED. Camera_Y reads $0090 (144) at spawn on oracle, and
 // screen_line = world_y - Camera_Y, so:
-//   channel 0: 224 - 144 =  80  (band 40..120  — mid-band, and it clamps to lo once the
-//                                camera descends past world Y 184)
-//   channel 1: 314 - 144 = 170  (band 130..200 — mid-band)
+//   channel 0: 224 - 144 =  80  (band 3..220 — mid-band)
+//   channel 1: 314 - 144 = 170  (band 222..223 — BELOW the band, so it clamps UP to 222)
+//
+// (Those two band ranges read "40..120" and "130..200" until 2026-09-03, and both were stale:
+// channel 0's `lo` went 40 -> 3 when Parcel W shipped — the note above OJZ_TC_PROG describes
+// exactly that edit and why — and channel 1 has been the two-line 222..223 vscroll split since
+// the 2026-08-18 re-band. The bands are read from the `patchable(..., lo:, hi:)` calls, which
+// is also where tools/effects_gates.py reads them from rather than from prose.)
 // Both boundaries are on screen at spawn, and both clamp edges are reachable by scrolling,
 // which is what lets the gate assert absolute predicted rows AND both clamp directions
 // without a debug hook. Channels 2 and 3 are unused; their anchors are PATCH_ANCHOR_NONE
@@ -1039,9 +1044,60 @@ pub data OJZ_DepthVSplit: [u16; raster_words(OJZ_DEPTH_VSPLIT_PROG)] = raster_pr
 // derives a screen line as `anchor - Camera_Y`, so a 0 anchor reads as ABOVE the screen top,
 // i.e. "fully submerged", the most invasive possible default for a channel nobody asked for
 // (see PATCH_ANCHOR_NONE in raster_dsl.emp).
+//
+// CHANNEL 0 SWEEPS (EFFECTS-W1 DoD item 4, 2026-09-03) — the act's first moving edge, and the
+// reason it is THIS channel is that channel 0 is the only one in the tree with two consumers.
+// ParallaxConfig_OJZ_Underwater anchors its band split on channel 0 and OJZ_TwoChannel's
+// patchable fire 0 is the palette boundary, so one swept anchor moves the parallax split and
+// the tint line TOGETHER, on the same frame, off the one derivation — which is simultaneously
+// the content and the witness for the single-derivation ruling the mover was placed under.
+//
+// CHANNEL 1 DELIBERATELY DOES NOT SWEEP, and the reason is arithmetic rather than taste: its
+// patchable band is lines 222..223 (the plane-B vertical scroll split at the screen bottom),
+// two lines wide. At the spawn camera its line is 314 - 144 = 170, below the floor, so
+// Raster_BuildSchedule clamps it UP to 222; the only camera Ys that put it INSIDE the band are
+// the two-line window 91..92. A sweep there is invisible almost everywhere and a two-line
+// stutter in the window, which is not motion.
+// Two channels sweeping on different phases is what the phase byte is FOR — Ristar's
+// correction — and this act has nowhere to spend it; the field is exercised by
+// tools/test_anchor_sweep_band.py and by anchor_sweep()'s own guards, not by content.
+//
+// THE TWO VALUES, DERIVED. `anchor_sweep(4, 1)` = amplitude shift 4, period shift 1, phase 0.
+//
+//   AMPLITUDE — shift 4 is a peak of 256 >> 4 = 16 px, so 32 px peak-to-peak. The bound that
+//   actually binds is the channel's own patchable band (§9.3 of the design): leaving it
+//   upward does not stop the edge, Raster_BuildSchedule DELETES the record and the band
+//   vanishes for that frame. Channel 0's band is 3..220 = 218 lines and its seeded line at
+//   spawn is 224 - 144 = 80, which is 77 lines above `lo` and 140 below `hi`. A +/-16 px
+//   excursion spends 21% of the tighter side, leaving 61 lines of camera travel before the
+//   sweep's own peak reaches a clamp. The next rung up (shift 3, +/-32) would spend 42% of it
+//   and start clamping while the player is still on screen 0.
+//
+//   PERIOD — shift 1 is 256 << 1 = 512 ticks, 8.53 s on a 60 Hz frame. The peak vertical speed
+//   of a sine of amplitude A and period T is A * 2*pi / T = 16 * 6.283 / 512 = 0.196 px/frame,
+//   about 11.8 px/s. That is the number the rung was chosen ON: at the next rung (shift 2,
+//   17 s — Ristar's own boundary-swell cycle) the peak is 0.098 px/frame, so the INTEGER
+//   screen line only advances once per ~10 frames and the edge reads as stepping rather than
+//   moving, which is the exact failure this item exists to avoid. At shift 0 (4.3 s) it is
+//   0.39 px/frame, which on a waterline reads as chop rather than swell.
+//
+//   AGAINST THE CORPUS: Ristar's shipped boundary swell (its 32-entry wave table, one step per
+//   32 frames) covers -12..+28 px over 1024 frames, a peak segment rate of 4 px / 32 frames =
+//   0.125 px/frame. S.C.E.'s water ripple is a 0..8 px one-sided term off the mean
+//   (Oscillatory Routines.asm slot F, amplitude $10, halved by `lsr.w #1` at Water
+//   Effects.asm:20). Ours is 32 px peak-to-peak at 0.196 px/frame: between the two, closer to
+//   Ristar's swell in travel and to nobody's in rate, because nothing in the corpus is
+//   TIME-driven — S.C.E.'s and S2's only moving boundary is triggered by camera X.
+//
+//   PHASE — 0, because there is one sweeping channel and a phase is a relationship between
+//   two of them.
 pub data OJZ_Preset_Sec0:  EffectsPreset = preset(pal: OJZ_Palette, patched: OJZ_TwoChannel,   cycle: Pal_Cycle_None,     variants: [Variant_Water_Deep, 0],
                                                   parallax: ParallaxConfig_OJZ_Underwater,
-                                                  patch_world_ys: [224, 314, PATCH_ANCHOR_NONE, PATCH_ANCHOR_NONE])
+                                                  patch_world_ys: [224, 314, PATCH_ANCHOR_NONE, PATCH_ANCHOR_NONE],
+                                                  patch_motion:   [anchor_sweep(amp_shift: 4, period_shift: 1),
+                                                                   ANCHOR_MOTION_NONE,
+                                                                   ANCHOR_MOTION_NONE,
+                                                                   ANCHOR_MOTION_NONE])
 pub data OJZ_Preset_Sec1:  EffectsPreset = preset(pal: OJZ_Palette, raster: OJZ_TestRaster,     cycle: Pal_Cycle_None,     variants: [Variant_Water_Deep, 0])
 pub data OJZ_Preset_Sec2:  EffectsPreset = preset(pal: OJZ_TestPal, raster: OJZ_TestGradient,   cycle: Pal_Cycle_None,     variants: [Variant_Water_Deep, 0])
 // SECTION 3 THREADS THE PALETTE CHOOSERS (EFFECTS-W1 item 5). `hand:` is what this section
