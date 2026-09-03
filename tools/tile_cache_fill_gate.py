@@ -503,6 +503,23 @@ async def body(sock, rom, lst, blob, args, k):
               f"samples prove nothing either way")
     print(f"      a partial fill was outstanding at {partial_seen} of the sample points "
           f"(0 means the starved regime was never entered — see POISON in the docstring)")
+
+    # -- the canopy capture instrument, read out but NOT gated on --
+    # It answers a different question from this gate's two assertions: those ask whether a
+    # RECORDED cell matches the cache, this asks whether a plane cell holds the world cell
+    # the camera says it holds. A drive that trips it during a gate run is worth knowing
+    # about, so it is printed; it does not change the verdict, because a predicate that has
+    # never met a real sighting has no business failing anyone's build. See
+    # tools/canopy_record.py.
+    if "Canopy_Hits" in sym:
+        raw = await read_block(b, "emulator/read_memory", sym["Canopy_Hits"], 8)
+        hits = [word_at(raw, i * 2) for i in range(4)]
+        cost = await read_word(b, sym["Canopy_Cost_Peak"])
+        code = await read_word(b, sym["Canopy_Rec_Code"])
+        print(f"      canopy instrument: C1 {hits[0]} fires, C4 {hits[3]} fires, "
+              f"sweep peak {cost} scanlines, latch {'EMPTY' if not code else f'HOLDS code {code}'}")
+        if code:
+            print(f"      -> python3 tools/canopy_record.py --lst {lst} reads it")
     return failures
 
 

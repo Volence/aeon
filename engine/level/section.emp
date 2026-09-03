@@ -9,6 +9,9 @@ use engine.constants.{SECTION_SIZE_SHIFT, PLANE_H_CELLS, VRAM_PLANE_B_BYTES, MAX
 use engine.constants.{TILE_CACHE_COLS, TILE_CACHE_ROWS, TILE_CACHE_STRIDE, TILE_CACHE_NT_SIZE}
 use engine.constants.{VRAM_PLANE_A, PLANE_V_CELLS, PLANE_BUFFER_SIZE, VDP_DATA, VDP_CTRL}
 use engine.constants.{SECTION_H_REACH_PX, SECTION_V_REACH_PX}
+// Canopy-gap capture instrument (DEBUG only) — see Canopy_Probe at the foot of this file.
+use engine.constants.{SCREEN_LAST_COL_MAX, SCREEN_LAST_ROW_MAX, VDP_HV_COUNTER}
+use engine.constants.{CANOPY_C1, CANOPY_C4, CANOPY_PERSIST_FRAMES}
 use engine.structs.{Act, Sec, Act_grid_w_lo, Act_grid_h_lo}
 use engine.vdp.{VdpTarget, VdpOp, vdp_comm, vdp_comm_reg}
 use engine.z80_bus.{z80_stopped}
@@ -277,6 +280,28 @@ pub proc Section_RedrawPlanes () clobbers(d0-d4/d6/a0-a6/sr.ccr) out(d5: u16, d7
             blt     .pla_next
             cmp.w   Cache_Head_Col, d7
             bgt     .pla_next
+
+        if DEBUG == 1 {
+            // CANOPY SHADOW. This column IS about to be poked into plane A, so the
+            // shadow records it here and not from the extent d7 returns at the tail —
+            // recording from the returned extent would make the shadow agree with the
+            // claim by construction, which is exactly the claim under suspicion.
+            // No `assert` in this block: it sits inside `with z80_stopped` (EMP_PITFALLS
+            // §6 Trap A), and plain stores are all it needs. a3 is free for the whole
+            // pass (a2 is not touched until the Plane B section below); d0 and d4 are
+            // both assigned before use below.
+            move.w  d7, d4
+            andi.w  #PLANE_H_CELLS-1, d4
+            add.w   d4, d4                      // d4 = plane col × 2 (dead by .pA_clamp below)
+            lea     Canopy_ColW, a3
+            move.w  d7, (a3, d4.w)
+            lea     Canopy_ColTop, a3
+            move.w  Cache_Top_Row, d0
+            move.w  d0, (a3, d4.w)
+            lea     Canopy_ColFrame, a3
+            move.w  Frame_Counter, d0
+            move.w  d0, (a3, d4.w)
+        }
 
             // convert world col → plane col (world_col & 63)
             move.w  d7, d0
@@ -562,7 +587,40 @@ pub proc Section_UpdateColumns () clobbers(d0-d7/a0-a3/a5-a6) {
         move.w  Cache_Fill_RowResume_Row, d0
         assert.w d0, eq, #$FFFF
     }
+        // CANOPY INSTRUMENT: clear the shadow before the redraw, so anything the redraw
+        // does NOT draw reads as $FFFF ("nothing ever wrote this plane cell") rather than
+        // as a stale value from before. $FFFF is not a plausible world coordinate, so the
+        // sweep's ordinary compare fires on it with no special case — and a visible plane
+        // column nothing ever wrote IS the shape of an over-claimed tracker, which is the
+        // thing the sweep is here to see. The row shadow is cleared for the opposite
+        // reason: a redraw writes COLUMNS, so every plane row is column-owned afterwards
+        // and its stale row anchor must not be tested against the new camera.
+    if DEBUG == 1 {
+        lea     Canopy_ColW, a0
+        lea     Canopy_RowR, a1
+        lea     Canopy_ColFrame, a2
+        lea     Canopy_RowFrame, a3
+        moveq   #PLANE_H_CELLS-1, d0
+        moveq   #0, d1
+    .canopy_clear:
+        move.w  #$FFFF, (a0)+
+        move.w  #$FFFF, (a1)+
+        move.w  d1, (a2)+
+        move.w  d1, (a3)+
+        dbf     d0, .canopy_clear
+    }
         jbsr    Section_RedrawPlanes
+    if DEBUG == 1 {
+        // Latch what the redraw CLAIMED, before the two lines below turn the claim into
+        // the trackers. Canopy_Redraw_R against the shadow the sweep later reads is the
+        // whole of the (b) attribution: a d7 further right than any column the redraw's
+        // .pla_fill actually stamped is an over-claim, and nothing else in the machine
+        // records that d7 after these two stores overwrite the trackers with it.
+        move.w  Frame_Counter, d0
+        move.w  d0, Canopy_Redraw_Fr
+        move.w  d5, Canopy_Redraw_L
+        move.w  d7, Canopy_Redraw_R
+    }
         move.w  d7, Section_Right_Col_Written
         move.w  d5, Section_Left_Col_Written
         // mem-to-mem: two width-PINNED abs operands. Explicit .w (not the bare
@@ -799,6 +857,390 @@ pub proc Section_UpdateColumns () clobbers(d0-d7/a0-a3/a5-a6) {
         move.w  d3, Section_Bottom_Row_Written
     .bot_row_clamp_skip:
 
+    if DEBUG == 1 {
+        // The canopy sweep runs HERE — after all four loops, so the frame's plane content
+        // is final — and NOT on the `.not_dirty` early-return path above, where the redraw
+        // has just made everything consistent by construction. Its clobbers (d0-d7/a0-a3)
+        // are inside this proc's own declared set and land above the movem restore below.
+        jbsr    Canopy_Probe
+    }
         movem.l (sp)+, d2-d7/a0-a2
         rts
+}
+
+// =================================================================================
+// THE CANOPY-GAP CAPTURE INSTRUMENT (DEBUG only — zero bytes in release)
+// =================================================================================
+//
+// WHY IT EXISTS, and why it is a capture and not a check. The reported canopy gap has
+// outlived two derived explanations (`docs/DEFERRED_WORK.md`, "CANOPY GAP"): the
+// declared-before-filled defect was real, was fixed, and did not account for the
+// sighting; the vertical fill path was then exercised plain and starved and came back
+// clean. Derivation is 0-for-2 here. So this records the state a third derivation would
+// need, at the moment a disagreement occurs, and offers no verdict about which of the
+// two live candidates — or of some third thing — is the cause. THE FIRST FIRE IS LATCHED
+// AND NEVER OVERWRITTEN, because later fires are consequences of the first.
+//
+// WHAT MAKES A SHADOW NECESSARY, and it is the load-bearing fact of the whole design:
+// which world cell a plane cell holds CANNOT be read back out of VRAM. The act's tileset
+// is globally deduplicated, so a given tile word legitimately belongs to many world
+// cells and the plane records no provenance. The writers are the only things that ever
+// know, and only at the instant they write. Everything here follows from that —
+// `Canopy_ColW`/`Canopy_ColTop` are written by the column writers (`Draw_TileColumn`,
+// `Section_RedrawPlanes`' `.pla_fill`), `Canopy_RowR` by the row writer
+// (`Draw_TileRow_FromCache`), each at the last point before its bytes are committed and
+// after every one of its bails.
+//
+// THE TWO WRITERS USE DIFFERENT ANCHORS FOR THE SAME 2D CONTENT, and that is the whole
+// source of the disagreements this measures:
+//
+//   * a COLUMN write puts world column W at plane column `W & 63` — self-consistent by
+//     construction on the column axis — and maps its 64 rows from `Cache_Top_Row`,
+//     filling `TILE_CACHE_ROWS` of cache data and zeroing the rest;
+//   * a ROW write puts world row V at plane row `V & 63` — self-consistent on the row
+//     axis — and maps its 64 columns from `R = min(Section_Right_Col_Written,
+//     Cache_Head_Col)`, choosing for each plane column the one world column congruent to
+//     it mod 64 that lies in `[R-63, R]`.
+//
+// So each writer is right about its OWN axis and is asserting something about the
+// OTHER's. TWO predicates are shipped, one per candidate:
+//
+//   C1 (the sweep, engine-side)   — a visible plane column does not hold the world
+//        column the camera says it holds. Every column write puts W at `W & 63`, so any
+//        disagreement is a whole multiple of 64: the plane is showing the wrap twin from
+//        512 px away, in a full-height stripe, or (`$FFFF`) nothing ever wrote it. That
+//        is the shape a tracker recording columns no writer reached would leave —
+//        candidate (b) — but the instrument does not say so, it says what it measured.
+//   C4 (at the row write's own site) — the anchor a row write is about to impose does
+//        not cover the visible columns. That write is about to source ~40 of the row's
+//        41 visible cells from 512 px away, and only later column writes repair them one
+//        column at a time. That is candidate (a)'s shape, caught where the anchor and
+//        the camera actually met rather than reconstructed afterwards.
+//
+// C1 IS ATTRIBUTED, and without the attribution it would be a false-positive generator.
+// A plane column whose stored world column is stale may nonetheless be showing correct
+// cells: a ROW write rewrites every column of its row, repairing them. So C1 fires only
+// where at least one VISIBLE plane row is older than the column write — `Canopy_ColFrame`
+// beats the minimum `Canopy_RowFrame` over the visible rows — which is exactly "some
+// visible cell of this column is still owned by that stale column write". The comparison
+// is a signed difference, not an unsigned compare, so `Frame_Counter`'s 16-bit wrap
+// (every ~18 minutes) cannot invert it.
+//
+// TWO FURTHER PREDICATES WERE WRITTEN AND DROPPED as unsound; the reasoning is at
+// CANOPY_C1 in `engine/system/constants.emp` and it is a finding, not an omission. Both
+// questions survive in the capture, which snapshots all four shadow arrays.
+//
+// WHAT IT DELIBERATELY DOES NOT DO: judge. The record carries the trackers, the cache
+// window, the fill's partial sentinels, the last redraw's returned extent and a frozen
+// copy of the whole shadow, so the attribution is done off the machine, by a reader,
+// against the numbers — not here, by a predicate. A fire whose numbers match NEITHER
+// candidate is the outcome worth the most.
+
+// -----------------------------------------------
+// Canopy_Fire — latch one disagreement. DEBUG only; zero bytes in release.
+// In:  d0.w = fire code (CANOPY_C1 / CANOPY_C4)
+//      d1.w = plane index the fire is about (column for C1, row for C4)
+//      d2.w = the world coordinate the fire was looking at
+//      d3.w = what the shadow says instead (the anchor R, for C4)
+// Out: none
+// PRESERVES EVERY REGISTER, deliberately: it is called from inside
+// `Draw_TileRow_FromCache`, whose `clobbers` contract is declared for BOTH shapes and
+// must not widen because a DEBUG probe was added under it. The movem is paid only on the
+// fire path, which never runs in a correct frame.
+// -----------------------------------------------
+pub proc Canopy_Fire (d0: u16, d1: u16, d2: u16, d3: u16) {
+    if DEBUG == 1 {
+        movem.l d0-d7/a0-a6, -(sp)
+
+        // Per-code counting happens whether or not this fire wins the latch. How often a
+        // code fires is a measurement the single latch cannot carry.
+        move.w  d0, d4
+        subq.w  #1, d4
+        add.w   d4, d4                          // d4 = (code - 1) × 2
+        lea     Canopy_Hits, a0
+        addq.w  #1, (a0, d4.w)
+        cmpi.w  #1, (a0, d4.w)
+        bne     .counted                        // not this code's first fire
+        lea     Canopy_First_Fr, a0
+        move.w  Frame_Counter, d5
+        move.w  d5, (a0, d4.w)
+    .counted:
+
+        tst.w   Canopy_Rec_Code
+        bne     .already                        // first fire wins; this one is only counted
+
+        move.w  d0, Canopy_Rec_Code
+        move.w  d1, Canopy_Rec_Idx
+        move.w  d2, Canopy_Rec_Want
+        move.w  d3, Canopy_Rec_Got
+
+        // The stamp is read HERE, from the shadow, by code — never passed in. A caller
+        // that computed it separately could hand over a stamp belonging to a different
+        // index than the one it named, and the record would be self-inconsistent with
+        // nothing in it to reveal that.
+        add.w   d1, d1                          // plane index -> byte offset
+        cmpi.w  #CANOPY_C4, d0
+        beq     .stamp_row
+        lea     Canopy_ColFrame, a0
+        jbra    .stamp_read
+    .stamp_row:
+        lea     Canopy_RowFrame, a0
+    .stamp_read:
+        move.w  (a0, d1.w), d4
+        move.w  d4, Canopy_Rec_Stamp
+
+        move.w  Frame_Counter, d4
+        move.w  d4, Canopy_Rec_Frame
+        move.l  Camera_X, d5
+        move.l  d5, Canopy_Rec_CamX
+        move.l  Camera_Y, d5
+        move.l  d5, Canopy_Rec_CamY
+
+        // The trackers and the cache window, verbatim. Every copy goes through d4 rather
+        // than mem-to-mem: two symbolic RAM operands need both widths pinned by hand and
+        // these span two regions, so the round trip buys the spelling out of the question
+        // on a path that runs once.
+        move.w  Section_Right_Col_Written, d4
+        move.w  d4, Canopy_Rec_SecR
+        move.w  Section_Left_Col_Written, d4
+        move.w  d4, Canopy_Rec_SecL
+        move.w  Section_Bottom_Row_Written, d4
+        move.w  d4, Canopy_Rec_SecB
+        move.w  Section_Top_Row_Written, d4
+        move.w  d4, Canopy_Rec_SecT
+        move.w  Cache_Head_Col, d4
+        move.w  d4, Canopy_Rec_CacheHead
+        move.w  Cache_Left_Col, d4
+        move.w  d4, Canopy_Rec_CacheLeft
+        move.w  Cache_Top_Row, d4
+        move.w  d4, Canopy_Rec_CacheTop
+        move.w  Cache_Bottom_Row, d4
+        move.w  d4, Canopy_Rec_CacheBot
+        move.w  Cache_Origin_Col, d4
+        move.w  d4, Canopy_Rec_OrgCol
+        move.w  Cache_Origin_Row, d4
+        move.w  d4, Canopy_Rec_OrgRow
+        move.w  Cache_Fill_Resume_Col, d4
+        move.w  d4, Canopy_Rec_ResumeCol
+        move.w  Cache_Fill_RowResume_Row, d4
+        move.w  d4, Canopy_Rec_ResumeRow
+        move.w  Plane_Buffer_Ptr, d4
+        move.w  d4, Canopy_Rec_PBPtr
+        move.w  Cache_Art_Stall, d4
+        move.w  d4, Canopy_Rec_Stall
+        move.w  Canopy_Redraw_Fr, d4
+        move.w  d4, Canopy_Rec_RedrawFr
+        move.w  Canopy_Redraw_L, d4
+        move.w  d4, Canopy_Rec_RedrawL
+        move.w  Canopy_Redraw_R, d4
+        move.w  d4, Canopy_Rec_RedrawR
+
+        // Freeze the whole shadow. The scalars above name ONE offending index; this says
+        // how many there are, whether they are contiguous, which side of the window they
+        // fall on, and — through the two frame-stamp arrays — which writer owns every
+        // visible cell. A record read minutes after a sighting reads a live shadow that
+        // has long since moved on, so without this the shape of the damage, and the two
+        // predicates that were dropped as unsound, are all unrecoverable.
+        lea     Canopy_ColW,          a0
+        lea     Canopy_Snap_ColW,     a1
+        jbsr    .snap
+        lea     Canopy_ColTop,        a0
+        lea     Canopy_Snap_ColTop,   a1
+        jbsr    .snap
+        lea     Canopy_ColFrame,      a0
+        lea     Canopy_Snap_ColFrame, a1
+        jbsr    .snap
+        lea     Canopy_RowR,          a0
+        lea     Canopy_Snap_RowR,     a1
+        jbsr    .snap
+        lea     Canopy_RowFrame,      a0
+        lea     Canopy_Snap_RowFrame, a1
+        jbsr    .snap
+
+    .already:
+        // The owner-armed halt. Default 0 = latch silently and keep playing, because a
+        // predicate this parcel could not test against a real sighting must not be able
+        // to end a session on a false positive. Set Canopy_Halt nonzero from the bus
+        // before an unattended run and the machine stops itself on the next fire instead,
+        // which is the only way a sighting survives nobody watching.
+        tst.w   Canopy_Halt
+        beq     .out
+        raise_error "Canopy_Fire: a plane cell disagrees with the camera - read Canopy_Rec_* and the Canopy_Snap_* arrays (tools/canopy_record.py)"
+    .out:
+        movem.l (sp)+, d0-d7/a0-a6
+        rts
+
+    // -- copy one 64-word shadow array (a0) to its snapshot (a1). Clobbers d0/a0/a1. --
+    .snap:
+        moveq   #PLANE_H_CELLS/2 - 1, d0        // 32 longwords = 64 words
+    .snap_loop:
+        move.l  (a0)+, (a1)+
+        dbf     d0, .snap_loop
+        rts
+    }
+}
+
+// -----------------------------------------------
+// Canopy_Persist — the C1 persistence gate. DEBUG only; zero bytes in release.
+// Same argument registers as Canopy_Fire, and it preserves every register for the same
+// reason. A disagreement latches only after CANOPY_PERSIST_FRAMES consecutive sweeps
+// report the SAME (code, plane index): the reported symptom is a hole that stays, and a
+// streamer one column behind for a frame is not it. Past the threshold every subsequent
+// sweep fires too, so Canopy_Hits counts FRAMES the condition has held, which is the
+// number that says whether a capture is a lasting hole or a blip.
+// -----------------------------------------------
+pub proc Canopy_Persist (d0: u16, d1: u16, d2: u16, d3: u16) {
+    if DEBUG == 1 {
+        movem.l d0-d7/a0-a6, -(sp)
+        cmp.w   Canopy_Pend_Code, d0
+        bne     .fresh
+        cmp.w   Canopy_Pend_Idx, d1
+        bne     .fresh
+        addq.w  #1, Canopy_Pend_Age
+        cmpi.w  #CANOPY_PERSIST_FRAMES, Canopy_Pend_Age
+        blo     .out
+        jbsr    Canopy_Fire                     // d0-d3 are still the arguments (movem does not alter them)
+        jbra    .out
+    .fresh:
+        move.w  d0, Canopy_Pend_Code
+        move.w  d1, Canopy_Pend_Idx
+        move.w  #1, Canopy_Pend_Age
+    .out:
+        movem.l (sp)+, d0-d7/a0-a6
+        rts
+    }
+}
+
+// -----------------------------------------------
+// Canopy_Probe — the once-per-frame half of the instrument. DEBUG only; zero bytes in
+// release. Called from Section_UpdateColumns after all four streaming loops, and NOT on
+// its `.not_dirty` early-return path, where a redraw has just made everything consistent
+// by construction.
+//
+// PASS 1, over the 29 visible plane rows: the minimum `Canopy_RowFrame` across them.
+// That single number is C1's attribution — see the block comment above. A visible row
+// that has never been row-written carries stamp 0, which drives the minimum to 0 and
+// makes C1's ownership test trivially true, correctly: that row is column-owned.
+//
+// PASS 2, over the 41 visible plane columns: C1. `Canopy_ColW[P]` must be the world
+// column the camera says plane column P holds. `$FFFF` (nothing has written this plane
+// column since the last full redraw) reads as a disagreement through the same compare,
+// with no special case — and a visible plane column nothing ever wrote is precisely the
+// shape of an over-claimed tracker.
+//
+// NEITHER PASS CONSULTS A TRACKER, which is the point: `Section_*_Written` is one of the
+// two things under suspicion, so a predicate built on it could not see the suspicion.
+// Both passes are built from the camera and the shadow alone.
+//
+// SELF-PRICED. The sweep brackets itself with the V counter (the house profiling idiom,
+// games/sonic4/test/object_test_state.emp) and leaves the cost in `Canopy_Cost` /
+// `Canopy_Cost_Peak`, in scanlines. It is written this way because the cost of an
+// instrument left armed across ordinary play is the one number nobody should take on
+// trust from a cycle table — and this tree's cycle tables have been wrong by 2.5x, 6x and
+// 33% on consecutive parcels. A difference above 100 lines is a V-counter wrap across the
+// frame boundary, not a measurement, and is discarded rather than recorded as a peak.
+// DERIVED PREDICTION, recorded so the reading can refute it. Decoded from the emitted
+// encodings of THIS build, not from the source:
+//   pass 1   29 iterations × 54-56 cyc   = 1,599
+//   pass 2   41 iterations × 52 cyc      = 2,136
+//   fixed    prologues 92 + 68, tail 34, epilogue 126, the caller's bsr.w 18  =  338
+//   ------------------------------------------------------------------------------
+//   sweep total                          = 4,073 cycles, no violation found
+// That is 8.3 scanlines at 488.57 68000 cycles/line, and 3.2% of a 128,006-cycle NTSC
+// frame. The two per-write halves add 106 cycles per column write and 254 per on-screen
+// row write (158 for an off-screen one), so an ordinary frame with one of each is ~4,433
+// cycles, 3.5%. Bus contention is NOT in these figures; they are the instruction stream
+// alone. SO: Canopy_Cost should read 8, occasionally 9, and Canopy_Cost_Peak 9 or 10. If
+// it reads materially higher, the derivation is wrong and the machine is right — this
+// tree's cycle tables have been wrong by 2.5x, 6x and 33% on consecutive parcels, which
+// is exactly why the number is measured at runtime and not merely written down here.
+//
+// In:  none
+// Out: none
+// Clobbers: d0-d7, a0-a3
+// -----------------------------------------------
+pub proc Canopy_Probe () clobbers(d0-d7/a0-a3) {
+    if DEBUG == 1 {
+        move.w  VDP_HV_COUNTER, -(sp)           // self-price, entry (V counter in the high byte)
+
+        // ---- pass 1: the minimum row-write stamp over the visible plane rows ----
+        move.l  Camera_Y, d4
+        swap    d4
+        lsr.w   #3, d4                          // d4 = camRow, the topmost visible world row
+        move.w  d4, d0
+        andi.w  #PLANE_V_CELLS-1, d0
+        add.w   d0, d0                          // d0 = plane row × 2, walked with wrap
+        move.w  Frame_Counter, d5               // d5 = running minimum; no stamp can be newer than now
+        lea     Canopy_RowFrame, a0
+        moveq   #SCREEN_LAST_ROW_MAX, d6
+    .row_min:
+        move.w  (a0, d0.w), d3
+        move.w  d3, d2
+        sub.w   d5, d2                          // signed difference: wrap-safe past Frame_Counter's 16-bit roll
+        bpl     .row_keep
+        move.w  d3, d5
+    .row_keep:
+        addq.w  #2, d0
+        andi.w  #PLANE_V_CELLS*2-1, d0
+        dbf     d6, .row_min
+        // d5 = the oldest row write owning any visible plane row
+
+        // ---- pass 2: C1 over the visible plane columns ----
+        move.l  Camera_X, d0
+        swap    d0
+        lsr.w   #3, d0                          // camCol, the leftmost visible world column
+        move.w  d0, d1                          // d1 = world column walked
+        andi.w  #PLANE_H_CELLS-1, d0
+        add.w   d0, d0                          // d0 = plane column × 2, walked with wrap
+        lea     Canopy_ColW, a0
+        lea     Canopy_ColFrame, a1
+        moveq   #SCREEN_LAST_COL_MAX, d6
+    .col_loop:
+        move.w  (a0, d0.w), d3
+        cmp.w   d1, d3
+        bne     .col_bad
+    .col_next:
+        addq.w  #1, d1
+        addq.w  #2, d0
+        andi.w  #PLANE_H_CELLS*2-1, d0
+        dbf     d6, .col_loop
+
+        // Nothing disagreed this sweep: any pending episode is over, not merely paused.
+        clr.w   Canopy_Pend_Code
+        clr.w   Canopy_Pend_Age
+        jbra    .priced
+
+    .col_bad:
+        // ATTRIBUTION, on the rare path so the loop above pays nothing for it. This
+        // column's stored world column is stale — but if EVERY visible plane row has been
+        // row-written since that column write, every visible cell of the column has been
+        // repaired by those row writes and there is nothing on screen to see. Fire only
+        // when the column write is newer than the OLDEST visible row write, i.e. when at
+        // least one visible cell of this column is still owned by it.
+        move.w  (a1, d0.w), d2
+        sub.w   d5, d2                          // signed, for the same wrap reason as pass 1
+        ble     .col_next
+        move.w  d1, d2                          // d2 = want  = the world column that belongs here
+        move.w  d0, d1
+        lsr.w   #1, d1                          // d1 = idx   = the plane column
+        moveq   #CANOPY_C1, d0                  // d3 is still the stored world column = got
+        jbsr    Canopy_Persist                  // preserves every register
+        // One report per sweep. A disagreement is almost never alone — a stale window
+        // takes a run of columns with it — and reporting all of them would make
+        // Canopy_Hits count columns instead of frames. The snapshot carries the run.
+
+    .priced:
+        move.w  VDP_HV_COUNTER, d0
+        move.w  (sp)+, d1
+        sub.w   d1, d0
+        lsr.w   #8, d0                          // d0 = scanlines the sweep occupied
+        cmpi.w  #100, d0
+        bhi     .price_wrapped                  // a V-counter wrap, not a measurement
+        move.w  d0, Canopy_Cost
+        cmp.w   Canopy_Cost_Peak, d0
+        bls     .price_wrapped
+        move.w  d0, Canopy_Cost_Peak
+    .price_wrapped:
+        rts
+    }
 }

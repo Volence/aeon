@@ -794,6 +794,48 @@ ensure(TILE_CACHE_COLS >= TILE_CACHE_MARGIN_H + SECTION_H_REACH_COLS_MAX + 1,
 ensure(TILE_CACHE_ROWS >= TILE_CACHE_MARGIN_V + SECTION_V_REACH_ROWS_MAX + 1,
        "TILE_CACHE_ROWS ({TILE_CACHE_ROWS}) cannot span the top margin ({TILE_CACHE_MARGIN_V}) plus the row fill's reach ({SECTION_V_REACH_ROWS_MAX}) plus the camera's own row — Cache_Bottom_Row can never reach the plane fill's bottom edge")
 
+// --- Canopy-gap capture instrument: the fire codes (DEBUG only). ---
+// The instrument records which DISAGREEMENT it saw; it does not judge it. See
+// Canopy_Probe (engine/level/section.emp) for the derivation of each predicate and
+// engine/ram.emp's "Canopy-gap capture instrument" block for what each fire records.
+// Kept here rather than in either owner module because the writer (plane_buffer) and the
+// sweep (section) both spell them, and a code that means one thing at the fire and
+// another at the reader is the failure this whole parcel exists to avoid.
+pub const CANOPY_C1 = 1   // a visible plane COLUMN holds the wrong world column (or was never written)
+pub const CANOPY_C4 = 4   // a row write is about to impose an anchor that does not cover the visible columns
+//
+// 2 AND 3 ARE DELIBERATELY UNASSIGNED, and the reason is a finding rather than a gap.
+// Both were written, and both are UNSOUND as cheap sweep predicates:
+//
+//   * (2) "a visible plane column's Cache_Top_Row anchor no longer covers the visible
+//     rows". A column write maps its 64 plane rows from the Cache_Top_Row it read, so a
+//     column drawn long ago does carry a stale row mapping — but the ROW writer
+//     legitimately repairs exactly those cells, across every column at once. Telling a
+//     stale-and-unrepaired column from a stale-and-repaired one needs per-cell
+//     attribution the sweep cannot afford (64x64), and without it the predicate fires
+//     on ~120 px of ordinary vertical camera travel.
+//   * (3) "a visible plane row's stored anchor no longer covers the visible columns".
+//     Same shape mirrored: `Canopy_RowR[Q]` is never rewritten by the COLUMN writes that
+//     repair that row cell by cell, so after ~24 columns of ordinary rightward scroll the
+//     predicate fires on every row and never stops.
+//
+// Both questions survive in the CAPTURE — `Canopy_ColTop`, `Canopy_ColFrame`,
+// `Canopy_RowR` and `Canopy_RowFrame` are all snapshotted at a fire — so a reader can
+// answer them offline against a real record, with the per-cell attribution the sweep
+// could not pay for. What is not shipped is a predicate that would have latched on
+// ordinary play and masked the sighting.
+
+// How many consecutive sweeps a C1 disagreement must survive before it is latched. The
+// reported symptom is a hole that STAYS (docs/DEFERRED_WORK.md, "CANOPY GAP"); a streamer
+// that fell one column behind for a frame — a full plane buffer, a partial fill, a
+// leading-edge draw the same frame's loop declined — is not that, resolves within a frame
+// or two, and would otherwise claim the first-fire latch and mask the real sighting.
+// 8 frames is 133 ms: far past any transient, far under anything a player would call a
+// sighting. Not tuned against a real sighting, because there has never been one to tune
+// against — if the record ever comes back empty while the owner saw a gap, this number is
+// the first thing to suspect.
+pub const CANOPY_PERSIST_FRAMES = 8
+
 // Raw block layout: [512B nametable][128B collision plane A][128B collision plane B].
 pub const BLOCK_TILE_SIZE       = 16    // 16x16 tiles per block
 pub const BLOCK_TILE_SHIFT      = 4     // lsr #4 = / 16

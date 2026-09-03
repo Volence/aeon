@@ -1175,6 +1175,116 @@ pub vars upper_ram {
         Sprite_Owner:           [u16; MAX_VDP_SPRITES],  // 160 B today (80 slots)
     }
 
+    // --- Canopy-gap capture instrument (engine/level/section.emp, DEBUG only) ---
+    // WHAT THIS IS FOR, stated because a reader will otherwise price it as bloat: the
+    // reported canopy gap has outlived TWO derived explanations (DEFERRED_WORK, "CANOPY
+    // GAP"), both refuted by measurement. This block is the state a THIRD derivation
+    // would need and cannot get after the fact — see Canopy_Probe in
+    // engine/level/section.emp for the predicates and Canopy_Rec_* for the latch.
+    //
+    // THE ONE FACT THAT MAKES THE SHADOW MANDATORY: which world cell a plane cell holds
+    // is NOT recoverable from VRAM. The act's tileset is globally deduplicated, so the
+    // same tile word legitimately appears at many world cells; reading plane A after a
+    // sighting cannot say which world column produced a given plane column. Only the
+    // writer knows, and only at the moment it writes. Hence a shadow, not a post-hoc read.
+    //
+    // Placed at the RAM TAIL, AFTER the sprite-owner block, and @shape_divergent, for
+    // exactly the reason the block above states: it ripples ZERO existing engine-RAM
+    // addresses, moving only Engine_RAM_End and the game RAM chained after it, and only
+    // in the DEBUG shape.
+    if DEBUG == 1 @shape_divergent {
+        // -- LIVE shadow: what each plane cell's last writer intended. --
+        // Per plane COLUMN P: the column writer (Draw_TileColumn / Section_RedrawPlanes'
+        // .pla_fill) writes all 64 rows of P from ONE world column, mapping cache rows
+        // onto NT rows through the Cache_Top_Row anchor it read at that instant.
+        Canopy_ColW:            [u16; PLANE_H_CELLS],   // world col written into plane col P ($FFFF = never)
+        Canopy_ColTop:          [u16; PLANE_H_CELLS],   // Cache_Top_Row anchor that write used for P's 64 rows
+        Canopy_ColFrame:        [u16; PLANE_H_CELLS],   // Frame_Counter at that write (0 = never)
+        // Per plane ROW Q: the row writer (Draw_TileRow_FromCache) writes all 64 columns
+        // of Q from ONE cache row, mapping cache cols onto NT cols through the anchor
+        // R = min(Section_Right_Col_Written, Cache_Head_Col) it read at that instant.
+        Canopy_RowR:            [u16; PLANE_V_CELLS],   // that anchor R ($FFFF = never row-written)
+        Canopy_RowFrame:        [u16; PLANE_V_CELLS],   // Frame_Counter at that write (0 = never)
+
+        // -- The LATCH. First fire wins and is never overwritten; Canopy_Hits counts
+        //    every fire including the first. A later fire is a consequence of the first,
+        //    which is why the first is the one kept. --
+        // Draw_TileRow_FromCache's two-part hand-off: the row's identity is known at the
+        // top of that proc, the anchor it is written with only sixty lines later. A RAM
+        // stash rather than a reserved register — see the comment at the write site.
+        Canopy_Tmp_Idx:         u16,    // plane row × 2
+        Canopy_Tmp_V:           u16,    // world row
+
+        // Per-code counters and per-code first-fire frames. These exist SEPARATELY from
+        // the single latch below because how OFTEN a code fires is a measurement in its
+        // own right, and the latch can only hold one fire: a C4 that fires four hundred
+        // times in ordinary play says the row anchor mismatches routinely and cannot be a
+        // rare-sighting explanation; a C4 that never fires says so just as loudly.
+        // Indexed by (code - 1); slots 1 and 2 (codes 2 and 3) are permanently zero, see
+        // the note at CANOPY_C1 in engine/system/constants.emp.
+        Canopy_Hits:            [u16; 4],
+        Canopy_First_Fr:        [u16; 4],   // Frame_Counter at each code's FIRST fire
+
+        // The C1 persistence gate — see CANOPY_PERSIST_FRAMES. A disagreement must be the
+        // same (code, plane index) for this many consecutive sweeps before it latches.
+        Canopy_Pend_Code:       u16,
+        Canopy_Pend_Idx:        u16,
+        Canopy_Pend_Age:        u16,
+
+        Canopy_Halt:            u16,    // owner-armed from the bus: nonzero = raise_error on the NEXT fire
+        Canopy_Cost:            u16,    // V-counter lines the last sweep took (self-price)
+        Canopy_Cost_Peak:       u16,    // peak of the above
+
+        // The last full-plane redraw, latched LIVE by Section_UpdateColumns' dirty arm
+        // (copied into the record at the fire). Section_RedrawPlanes' d5/d7 ARE the
+        // caller's tracker writes, so these three say whether a redraw is what put the
+        // trackers where the fire found them — the (b) attribution.
+        Canopy_Redraw_Fr:       u16,    // Frame_Counter of the last Section_RedrawPlanes (0 = none since boot)
+        Canopy_Redraw_L:        u16,    // the d5 it returned
+        Canopy_Redraw_R:        u16,    // the d7 it returned
+
+        Canopy_Rec_Code:        u16,    // 0 = empty. See CANOPY_C1..C4 in engine/level/section.emp
+        Canopy_Rec_Frame:       u16,    // Frame_Counter at the fire
+        Canopy_Rec_CamX:        u32,    // Camera_X 16.16 as read by the check
+        Canopy_Rec_CamY:        u32,
+        Canopy_Rec_Idx:         u16,    // plane col P (codes 1,2) or plane row Q (codes 3,4)
+        Canopy_Rec_Want:        u16,    // world col W (1,2) / world row V (3,4) the fire was looking at
+        Canopy_Rec_Got:         u16,    // Canopy_ColW[P] (1) / Canopy_ColTop[P] (2) / the anchor R (3,4)
+        Canopy_Rec_Stamp:       u16,    // Canopy_ColFrame[P] (1,2) / Canopy_RowFrame[Q] (3,4)
+        // The trackers and the cache window as they stood. Canopy_Rec_SecR against
+        // Canopy_Redraw_R and against the Canopy_Snap_ColW spread is the (b)
+        // discriminator: a tracker claiming further right than any column writer ever
+        // reached is an over-claim, not an anchor error.
+        Canopy_Rec_SecR:        u16,    // Section_Right_Col_Written
+        Canopy_Rec_SecL:        u16,    // Section_Left_Col_Written
+        Canopy_Rec_SecB:        u16,    // Section_Bottom_Row_Written
+        Canopy_Rec_SecT:        u16,    // Section_Top_Row_Written
+        Canopy_Rec_CacheHead:   u16,    // Cache_Head_Col
+        Canopy_Rec_CacheLeft:   u16,    // Cache_Left_Col
+        Canopy_Rec_CacheTop:    u16,    // Cache_Top_Row
+        Canopy_Rec_CacheBot:    u16,    // Cache_Bottom_Row
+        Canopy_Rec_OrgCol:      u16,    // Cache_Origin_Col   (ring phase — the reading error of 2026-08-29)
+        Canopy_Rec_OrgRow:      u16,    // Cache_Origin_Row
+        Canopy_Rec_ResumeCol:   u16,    // Cache_Fill_Resume_Col    ($FFFF = no partial)
+        Canopy_Rec_ResumeRow:   u16,    // Cache_Fill_RowResume_Row ($FFFF = no partial)
+        Canopy_Rec_PBPtr:       u16,    // Plane_Buffer_Ptr at the check (a near-full buffer bails the four loops)
+        Canopy_Rec_Stall:       u16,    // Cache_Art_Stall — a demand-stalled fill is a different cause again
+        Canopy_Rec_RedrawFr:    u16,    // Canopy_Redraw_Fr as it stood at the fire
+        Canopy_Rec_RedrawL:     u16,    // Canopy_Redraw_L
+        Canopy_Rec_RedrawR:     u16,    // Canopy_Redraw_R
+
+        // -- The SNAPSHOT: the whole live shadow, frozen at the first fire. The scalars
+        //    above name ONE offending index; this says how many there are, whether they
+        //    are contiguous, and which side of the window they fall on — the difference
+        //    between "one column lost its twin" and "the anchor moved". Without it a
+        //    sighting read minutes later reads a shadow that has long since moved on. --
+        Canopy_Snap_ColW:       [u16; PLANE_H_CELLS],
+        Canopy_Snap_ColTop:     [u16; PLANE_H_CELLS],
+        Canopy_Snap_ColFrame:   [u16; PLANE_H_CELLS],
+        Canopy_Snap_RowR:       [u16; PLANE_V_CELLS],
+        Canopy_Snap_RowFrame:   [u16; PLANE_V_CELLS],
+    }
+
     // Engine RAM ends here — game RAM continues from Engine_RAM_End
     // (games/<game>/config/ram.emp declares `game_ram @ after(upper_ram)`).
     mark Engine_RAM_End,

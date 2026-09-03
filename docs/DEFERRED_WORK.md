@@ -1448,6 +1448,88 @@ the left edge (at 1472 the foreground is empty across x 0-23, so even a correct 
 measured nothing). Both conditions, in one frame. Until then **d-32's status is UNKNOWN**, exactly as
 it was before, and the DoD item-15 entry for it is NOT discharged.
 
+### CANOPY GAP — THE DETECTOR IS BUILT AND ARMED, AND IT HAS NEVER SEEN A SIGHTING (built 2026-09-02)
+
+**Parcel:** `parcel/canopy-instrument`. This is the "detector remains the plan" step the entry
+below booked. It is a CAPTURE, not a fix and not a third explanation: nothing here diagnoses
+anything, and the parcel deliberately stopped at the point where a diagnosis would have started.
+
+**WHAT IS IN THE DEBUG ROM.** A shadow of what each plane cell's last writer intended, plus two
+predicates over it. `engine/ram.emp` ("Canopy-gap capture instrument"), `Canopy_Probe` /
+`Canopy_Fire` / `Canopy_Persist` in `engine/level/section.emp`, and two write-site halves in
+`engine/level/plane_buffer.emp`. Reader: `tools/canopy_record.py` (14 unit tests in
+`tools/test_canopy_record.py`, in build.sh's build-fatal pytest lane).
+
+**THE ONE FACT THE DESIGN TURNS ON, and it is why nobody could have done this from a post-hoc
+read:** which world cell a plane cell holds is **not recoverable from VRAM**. The act tileset is
+globally deduplicated, so one tile word legitimately belongs to many world cells and plane A
+records no provenance. The writers are the only things that ever know, and only while they write.
+
+**THE TWO PREDICATES, one per live candidate:**
+
+* **C1** (sweep, once per frame at the tail of `Section_UpdateColumns`) — a visible plane column
+  does not hold the world column the camera says it holds, or holds `$FFFF` (nothing wrote it
+  since the last full redraw). That is candidate **(b)**'s shape. Latched only after
+  `CANOPY_PERSIST_FRAMES` (8) consecutive sweeps on the same plane column, because the reported
+  symptom is a hole that STAYS and a streamer one column behind for a frame is not it.
+* **C4** (at `Draw_TileRow_FromCache`'s own site) — the anchor `R` a row write is about to impose
+  does not cover the visible columns, so ~40 of that row's 41 visible cells are about to come
+  from 512 px away. That is candidate **(a)**'s shape, caught where the anchor and the camera
+  actually met.
+
+Neither predicate consults `Section_*_Written`: the trackers are one of the two things under
+suspicion, so a predicate built on them could not see the suspicion.
+
+**TWO FURTHER PREDICATES WERE WRITTEN AND DROPPED AS UNSOUND, and that is a finding.** The
+vertical mirrors — "a column's `Cache_Top_Row` anchor no longer covers the visible rows" and "a
+row's stored anchor no longer covers the visible columns" — both fire on ORDINARY play (~120 px of
+vertical travel; ~24 columns of rightward scroll) because each writer's work is legitimately
+repaired cell-by-cell by the other, and telling repaired from unrepaired needs 64x64 per-cell
+attribution the sweep cannot afford. Both questions survive in the capture, which snapshots all
+four shadow arrays, so a reader can answer them offline against a real record. C1 carries the
+cheap half of that attribution (its column stamp must beat the oldest visible row stamp) and
+would be a false-positive generator without it. **Codes 2 and 3 are permanently unassigned.**
+
+**COST, decoded from the emitted encodings of the built ROM, not from a cycle table:** the sweep
+is 4,073 cycles — pass 1 (29 rows) 1,599, pass 2 (41 cols) 2,136, fixed 338 — plus 106 per column
+write and 254 per on-screen row write. An ordinary frame is ~4,433 cycles = **3.5% of a
+128,006-cycle NTSC frame, 9 scanlines**. Bus contention is not in that figure, which is why the
+sweep **prices itself at runtime** into `Canopy_Cost` / `Canopy_Cost_Peak` (V-counter, house
+idiom). **Prediction on record so the reading can refute it: `Canopy_Cost` reads 8, peak 9-10.**
+DEBUG RAM: 1,280 B at the shape-divergent tail (6,112 free before → 4,832 after).
+
+**RELEASE IS BYTE-IDENTICAL, verified by CRC and not by argument:** `s4.bin` 719,700 B crc32
+`14ee2440` and `demo.bin` 96,474 B crc32 `0c456778`, both unchanged from the pre-parcel build.
+DEBUG moved (+1,063 / +1,094 B) and the two DEBUG-shape address cuts were re-stamped.
+
+**⚠ THE THING A LATER READER MUST NOT DO WITH THIS.** An empty record is not a clean bill. It
+means one of: no disagreement of either shape has occurred; or a disagreement occurred that
+neither predicate describes. **A fix landing and no fire occurring proves nothing, because
+sightings were already rare** — the same warning the entry below carries, and it now applies to
+this instrument's own silence. The reader says so in its own output, on purpose.
+
+**WHAT IT MISSES, stated so an empty record can be read correctly.** Cache CONTENT (the fill
+invariant — that is `tools/tile_cache_fill_gate.py`'s job, and this covers addressing only); art
+faults (page eviction, ZX0 decode, block dictionaries) that leave the addressing perfect; a
+truncated `VInt_DrawLevel` drain, since the shadow records intent at append time; plane B; sub-cell
+artifacts (VSRAM/HSCROLL, parallax, sprite masking); anything lasting under one frame at the sweep
+point; and — the deliberate one — a non-contiguous or unrepaired-but-repaired-looking column,
+which C1's cheap attribution may excuse.
+
+**FOREGROUND STEPS (nobody in this parcel could run an emulator).**
+1. `DEBUG=1 ./build.sh`, play OJZ act 1 normally, then
+   `python3 tools/canopy_record.py`. Read `Canopy_Cost` FIRST — it is the price check, and if it
+   is materially above 12 the derivation above is wrong.
+2. For an unattended session: `python3 tools/canopy_record.py --arm` sets `Canopy_Halt`, and the
+   machine stops itself on the next fire onto the MD Debugger screen instead of latching silently.
+3. When it fires: `python3 tools/canopy_record.py --save capture.json` archives the whole record,
+   including the four shadow snapshots, so it survives the session. `--dump capture.json` re-reads
+   it later with no emulator.
+4. `tools/tile_cache_fill_gate.py` now prints the instrument's counters at the end of every run, so
+   an ordinary gate run says whether the predicates fire during a drive it already performs. **If
+   C1 or C4 fires during ordinary play with no visible gap, the predicate is too tight and
+   `CANOPY_PERSIST_FRAMES` is the first thing to suspect.**
+
 ### CANOPY GAP — THE VERTICAL FILL PATH IS NOW EXERCISED, PLAIN AND STARVED, AND IT IS CLEAN (measured 2026-08-30)
 
 **This discharges the booked next step** ("get a reproduction with real vertical camera motion and
