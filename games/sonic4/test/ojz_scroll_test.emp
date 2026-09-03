@@ -1415,10 +1415,18 @@ proc Debug_CharacterHotkey () clobbers(d0-d2/a0-a2) {
 
         // roster resolve — the same derivation Player_Init runs, repeated here
         // rather than reached through Player_Init because calling Player_Init is
-        // the thing this routine exists to avoid (see the header). The
-        // CHAR_KNUCKLES row is still the Sonic record, so every id in
-        // 0..CHAR_COUNT-1 lands on a complete CharacterDef and cycling past
+        // the thing this routine exists to avoid (see the header). Every id in
+        // 0..CHAR_COUNT-1 lands on a complete CharacterDef, so cycling past
         // Tails is safe.
+        //
+        // This used to say the CHAR_KNUCKLES row was still the Sonic record. It
+        // has not been since the TEMP stub was removed — characters.emp binds
+        // extern("CharDef_Knuckles") and says so right above the table. The
+        // stale sentence was load-bearing in the wrong direction: on 2026-09-03
+        // it is why a straddle measurement was abandoned as unreachable when
+        // cycling to Knuckles would in fact have driven the counter positive,
+        // which is what it then did (docs/measurements/2026-09-03-dma-split-
+        // reserve-reading.md). Cycling here loads each character's REAL art.
         lsl.w   #2, d0                          // × sizeof(pointer); no scaled
                                                 // indexing on the 68000
         lea     CharacterDefs, a1

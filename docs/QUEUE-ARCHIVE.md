@@ -215,12 +215,22 @@ tools/fg_left_edge_gate.py was rewritten in chain 197 to branch on the per-scene
 
 ## Added 2026-09-02 — open work that did not fit the 20-row bound
 
-### `EMP-PITFALLS-12-13` — open / S
+### `EMP-PITFALLS-12-13` — CLOSED 2026-09-03 / S
+
+**All three landed** (`d0084be8`, merged `d59a606b`), and this row was stale for a day: §1
+carries the "AMENDED — the trap is NARROWED, not closed" paragraph citing `[eq.cross-type]`,
+§12 is present *with* its "two cross-kind comparisons that stay DEFINED" subsection (label
+beside `0`; newtype/`fixed<>` beside a bare int), and §13 is present. `docs/EMP_PITFALLS.md`
+ends at §13, not §11. Verified by reading the headings, not by trusting this row.
+
+The original text is kept below because the row's own claim is the thing that went wrong —
+this is the third stale description found on 2026-09-03 alone, after a gate that had never
+tested its subject and a comment that cost a measurement.
 
 Sigil's cross-type-equality landing (`6a8b3ecd`) asks for THREE aeon changes; only the poison
 re-purpose was scoped into a brief, which was my scoping error, not the agent's.
 
-Still owed: `docs/EMP_PITFALLS.md` ends at **§11**. It lacks (a) the §1 amendment saying the
+~~Still owed~~ (all now landed): `docs/EMP_PITFALLS.md` ends at **§11**. It lacks (a) the §1 amendment saying the
 silent unit fold is now caught directly by `[eq.cross-type]`; (b) sigil's drafted **§12** on
 cross-type equality, **including the two comparisons that stay DEFINED** — a label beside `0`
 (how `.emp` spells an empty pointer slot) and a newtype or `fixed<>` beside a bare int (§8.3
