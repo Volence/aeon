@@ -2471,7 +2471,10 @@ proc Debug_BandDemoHotkey () clobbers(d0-d1/a0-a1) {
 //   2  the DENSE tier — a 96-line gradient ramp, plus this section's own palette
 //   3  no raster at all: a palette-CYCLING band (line 2 entries 8-11)
 //   4  the depth showcase — the vertical-split program from this section's scene
-//   5  whatever its editor sidecar's rasterRef binds (None today)
+//   5  the program its editor sidecar's rasterRef binds. A source comment in
+//      ojz_effects.emp reads as "None" here — that is the `hand:` FALLBACK, not the
+//      resolved value, and tools/preset_lab_witness.py measured the real one on the
+//      running ROM ($013C4C). Section 5 is NOT the empty entry; 7 and 8 are.
 //   6  the mid-frame nametable-base swap — the foreground draws the background
 //   7  Plain — palette and parallax only; there is deliberately nothing to see
 //   8  Plain, the same record

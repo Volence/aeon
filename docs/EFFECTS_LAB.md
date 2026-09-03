@@ -71,10 +71,16 @@ cursor starts at 0 and your first press installs **1**, because you boot standin
 | 2 | **The dense tier** — a 96-line gradient ramp down the lower half, plus this section's own palette. | Nothing. |
 | 3 | **A palette-cycling band** — no raster at all, the colours themselves animate (line 2, entries 8-11). | Nothing, but **watch, don't glance** — it is an 8-frame cycle. |
 | 4 | **The depth showcase** — the vertical-split program from this section's authored scene. | Nothing. |
-| 5 | Whatever section 5's editor sidecar binds. Nothing today. | — reads `-` until its sidecar binds something. |
+| 5 | The program section 5's editor sidecar binds (`$013C4C`, measured on the live ROM). | Nothing. |
 | 6 | **The mid-frame plane swap** — 64 lines above the screen bottom, the foreground starts drawing the background's map. | Nothing. Look at the **bottom** of the screen. |
 | 7 | **Plain.** Palette and parallax only. | — reads `-`. Deliberately empty; it is the control. |
 | 8 | Plain, the same record as 7. | — reads `-`. |
+
+Every row above was **measured** off the running ROM by `tools/preset_lab_witness.py`, not
+read off a comment: 1-6 read the diamond, 7 and 8 read the bar, and 0 reads the diamond with
+its first water boundary landing on screen line 90 from a boot camera. Section 5 was written
+up as empty on the strength of a source comment and is not — its sidecar binds a real
+program.
 
 ---
 

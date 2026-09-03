@@ -20522,12 +20522,17 @@ on `START` held in the same file — the same shape as the `B` veto that hotkey 
    `debug_readout` is now spent** (1022-1023 went to this parcel): that means a SECOND region out
    of 957-959 / 1501-1503 / 1532-1535, not an extension. See `games/sonic4/vram.toml`.
 
-3. **Sections 5, 7 and 8 read `-` ("nothing bound"), and 5 is the one worth looking at.**
-   7 and 8 are `OJZ_Preset_Plain` and are deliberately empty — the control. **Section 5 is
-   different: it owns a preset (`OJZ_Preset_Sec5`) specifically so its sidecar's `rasterRef`
-   could bind a program, and that sidecar binds nothing today**, so the preset exists to carry a
-   channel it does not carry. The lab now makes that state *visible* rather than inferrable,
-   which is new information about existing content, not a defect this parcel introduced.
+3. ~~**Sections 5, 7 and 8 read `-` ("nothing bound"), and 5 is the one worth looking at.**
+   Section 5 owns a preset specifically so its sidecar's `rasterRef` could bind a program,
+   and that sidecar binds nothing today.~~ **CORRECTED the same day, by
+   `tools/preset_lab_witness.py` against the running ROM: section 5's sidecar DOES bind a
+   program (`$013C4C`), the lab reads the diamond there, and it is right.** The claim above
+   was written off a source comment in `ojz_effects.emp` (`ojz_act1_sec_raster(sec: 5, hand:
+   Raster_Program_None)` — the *fallback*, not the resolved value) and the witness refuted it
+   within the hour. **Only sections 7 and 8 read `-`**, both `OJZ_Preset_Plain`, and they are
+   the deliberate empty control. The correction is kept rather than deleted because it is the
+   second time this parcel a hand-typed expectation lost to the ROM, and both times the thing
+   under test was right — which is the argument for deriving expectations, made twice.
 
 ### Two preconditions are met BY CONSTRUCTION and are deliberately untested
 
@@ -20547,3 +20552,37 @@ target"); `lea Debug_SceneReadout_Show.digit_font(pc), a0` fails at **link**. Bo
 which is how it was found. `CODING_CONVENTIONS.md` §1.5 states the `ProcName.label` reference form
 but does not say the export keyword is required for it; the rule in practice is **every
 cross-proc reference needs `export` at the definition, whether it is a branch or a data read.**
+
+### The zero-byte claim, measured by SPAN and by BYTE — and one inherited claim it refutes
+
+`Debug_SceneCycleHotkey`'s header says a zero-byte label parked in this module's
+zero-release-byte run "coincides with an address the appendix already carries and **dedupes
+away**". **The dedup half is wrong.** Measured on this parcel: the release symbol set went
+**2376 -> 2378 names**, and both `Debug_PresetCycleHotkey` and `Debug_PresetReadout_Show`
+landed in the convsym deb2 appendix at `$A45DC`, the address `OJZ_SectionMarkerColors`
+already occupies. convsym dedupes nothing.
+
+What the parking DOES buy held exactly, and it is the claim that matters. `s4.bin` against
+master, byte for byte:
+
+| where | differing bytes |
+|---|---|
+| `$000000`..`$A5C81` (the executable image, below `EndOfRom`) | **2** — `$18E`-`$18F`, the header checksum |
+| `$A5C82`.. (the deb2 appendix release ships by design) | 3,252 |
+| file length | 720,502 **both ways** |
+
+Both new procs' listing spans are **0** (`$A45DC`, the address `OJZ_SectionMarkerColors`
+emits at). **Anyone re-measuring a zero-byte claim in this tree should classify the diff by
+`EndOfRom` rather than reading the CRC**, which cannot tell a moved instruction from a new
+symbol name.
+
+### The witness is wired, and where
+
+`tools/preset_lab_witness.py` runs as a **second lane in
+`tools/nightly_effects_gates.sh`**, beside the effects gates, under the same
+loud-on-failure-and-on-could-not-run contract, combined worst-wins. It cannot live in
+`build.sh` — it boots a headless emulator, the same reason the gates cannot. Red-first
+evidence: mutating the verdict's initial state from `PRESET_VERDICT_NONE` to
+`PRESET_VERDICT_LIVE` on disk and rebuilding (`crc c585c0fd`) made it exit 1 naming
+**exactly** sections 7 and 8, the only two whose verdict that mutation changes; restored from
+the committed baseline it is green again.
