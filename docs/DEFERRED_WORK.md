@@ -19398,8 +19398,12 @@ encode the length and the magnitude bound this lane states; **duplicate-refusal 
 in JSON Schema, so the generator re-emits the distinctness `ensure`** — which is the artifact's
 "nothing enforces that a copy keeps its checks" finding arriving as a contract obligation.
 
-**SEQUENCE: after 10b lands, and NOT ahead of the item 6 generator half** (which unblocks the editor
-lane today). Both touch `engine/level/parallax.emp`.
+**SEQUENCE, REVISED BY THE HUB 2026-09-03 AFTER THE ITEM 11a FINDING BELOW: item 11a's authorable
+half goes AHEAD of item 10a's engine half.** Both come after 10b and after the item 6 generator half
+(which unblocks the editor lane today), and both touch `engine/level/parallax.emp` so the order is
+load-bearing rather than a preference. **11a first because it is the smaller parcel and unblocks the
+SAME editor row** — it already has its constructor and needs only a key and a per-scene binding, so
+its shape note can be the two-line kind rather than a full artifact.
 
 **AND ITEM 11a IS THE SAME SHAPE ON BINDABILITY BUT NOT ON COST — verified here rather than assumed,
 so no second full artifact is owed.** `OJZ_BaseSwap` is referenced by exactly two things: its own
