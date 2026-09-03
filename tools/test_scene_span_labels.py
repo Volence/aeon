@@ -49,7 +49,11 @@ class TestCapabilityAuthority(unittest.TestCase):
         (EFFECTS-W1 item 6, the dense tier's VSRAM axis) at $0200 — its three brackets sit
         around `OP_RUN_RAMP`'s dispatch entry, ENTER block and per-line body in
         engine/effects/raster.emp, the mechanism `raster_ramp_program` already shipped
-        2026-08-14; this bit is the gate that mechanism never got. CAP_PER_LINE was RETIRED
+        2026-08-14; this bit is the gate that mechanism never got. CAP_ROLE_SWAP landed
+        the SAME DAY, on a separate branch (EFFECTS-W1 item 10b, the plane-role swap),
+        and independently derived $0200 too — the collision was ruled in item 6's favour
+        (landed first) and CAP_ROLE_SWAP took $0400 instead, five sites in
+        engine/level/parallax.emp. CAP_PER_LINE was RETIRED
         2026-08-26 (d-29-corrected) when the per-cell HScroll path it selected against was
         deleted — it is parsed as retired, never as declared. This list is the whole
         promotion contract: it is the file that says which bits a span may name."""
@@ -58,7 +62,7 @@ class TestCapabilityAuthority(unittest.TestCase):
             sorted(bits),
             ["CAP_ANCHORS", "CAP_ANCHOR_MOTION", "CAP_BAND_DRIFT", "CAP_DEFORM",
              "CAP_DENSE_TIER", "CAP_FACTOR_CURVE", "CAP_MULTI_DEFORM_TABLE",
-             "CAP_PER_COL_VSRAM", "CAP_TRANSITIONS"])
+             "CAP_PER_COL_VSRAM", "CAP_ROLE_SWAP", "CAP_TRANSITIONS"])
         self.assertEqual(len(set(bits.values())), len(bits),
                          "two capabilities share a bit: %r" % (bits,))
         self.assertEqual(retired_capability_bits(), {"CAP_PER_LINE": 0x0001})

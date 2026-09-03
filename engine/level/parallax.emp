@@ -69,7 +69,7 @@ use engine.math.{Sine_Table}
 // code, and Task 9 adds the first CODE site for the bit — the per-band table reload in
 // Parallax_Fill_PerLine. A comptime CONDITION resolves at the call site and fails LOUDLY
 // when it cannot (measured 2026-08-20 on the buffers.emp twin, since deleted), so this import is load-bearing.
-use engine.level.scene_dsl.{CAP_PER_COL_VSRAM, CAP_DEFORM, CAP_ANCHORS, CAP_TRANSITIONS, CAP_MULTI_DEFORM_TABLE, CAP_FACTOR_CURVE, CAP_BAND_DRIFT}
+use engine.level.scene_dsl.{CAP_PER_COL_VSRAM, CAP_DEFORM, CAP_ANCHORS, CAP_TRANSITIONS, CAP_MULTI_DEFORM_TABLE, CAP_FACTOR_CURVE, CAP_BAND_DRIFT, CAP_ROLE_SWAP}
 
 // The a5-relative data-port derive (a5 = VDP_CTRL, so VDP_DATA_OFF(a5) hits
 // VDP_DATA). Port bases + their drift locks live in engine.vdp.
@@ -903,7 +903,11 @@ pub proc Parallax_Init () clobbers(d0-d7/a0-a6) {
         // parcel does not do (it would touch every other early-out's contract too).
         // (games/sonic4/data/levels/ojz/act1/act_descriptor.emp's act_parallax_config
         // is the one shipped act's, and it is non-NULL.)
+    if (Game.SCANLINE_CAPS & CAP_ROLE_SWAP) != 0 {
+    .cap_role_swap_init_begin:
         clr.b   Parallax_Roles_Swapped                      // (Parallax_Roles_Swapped).w
+    .cap_role_swap_init_end:
+    }
 
         // Snap all band scrolls to their correct positions on the first
         // frame instead of lerping from 0. One Update with Snap_Pending
@@ -1357,6 +1361,8 @@ ensure(VSCROLL_COL19_FG_OFF + 2 == VSCROLL_COL19_BG_OFF,
 // Clobbers: d0-d1, a0
 // ----------------------------------------------------------------------
 pub proc Parallax_Set_Roles_Swapped (d0: u8) clobbers(d0-d1/a0) {
+    if (Game.SCANLINE_CAPS & CAP_ROLE_SWAP) != 0 {
+    .cap_role_swap_set_begin:
         move.b  d0, Parallax_Roles_Swapped                  // (Parallax_Roles_Swapped).w
         tst.b   d0
         beq     .normal
@@ -1373,6 +1379,8 @@ pub proc Parallax_Set_Roles_Swapped (d0: u8) clobbers(d0-d1/a0) {
         move.w  #4, d0
         move.b  #ROLE_SWAP_PLANE_B_NORMAL, d1
         jbra    Set_VDP_Reg                                 // tail call
+    .cap_role_swap_set_end:
+    }
 }
 
 // ----------------------------------------------------------------------
@@ -1492,11 +1500,15 @@ pub proc Parallax_Update () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
         // a0 (the resolved config pointer) crosses this call on the stack: it is read
         // immediately below (`pcfg_band_count(a0)`) and Parallax_Set_Roles_Swapped
         // declares a0 among its clobbers.
+    if (Game.SCANLINE_CAPS & CAP_ROLE_SWAP) != 0 {
+    .cap_role_swap_reassert_begin:
         move.l  a0, -(sp)
         moveq   #0, d0
         move.b  Parallax_Roles_Swapped, d0
         jbsr    Parallax_Set_Roles_Swapped
         movea.l (sp)+, a0
+    .cap_role_swap_reassert_end:
+    }
 
         moveq   #0, d7
         move.b  parallax_config.pcfg_band_count(a0), d7
@@ -2389,6 +2401,8 @@ proc Parallax_Step5_Vscroll () clobbers(d0-d7/a0-a6) {
         // when the planes have traded registers. Same reasoning as the HScroll pack
         // above, ONCE PER FRAME here instead of once per band. d0 is free (Step 5b below
         // reloads it before reading it).
+    if (Game.SCANLINE_CAPS & CAP_ROLE_SWAP) != 0 {
+    .cap_role_swap_vpack_begin:
         tst.b   Parallax_Roles_Swapped
         bne     .vpack_swapped
         swap    d1                                  // FG in high half
@@ -2400,6 +2414,11 @@ proc Parallax_Step5_Vscroll () clobbers(d0-d7/a0-a6) {
         swap    d1                                  // ...then promoted to the HIGH half
         move.w  d0, d1                              // FG back into the low half
     .vpacked:
+    .cap_role_swap_vpack_end:
+    } else {
+        swap    d1                                  // FG in high half
+        move.w  d2, d1                              // BG in low half (d2 = current_vscroll_bg)
+    }
         move.l  d1, Vscroll_Factor
 
         // --- Step 5b: per-column V-scroll buffer fill ---
@@ -2715,6 +2734,8 @@ proc Parallax_Fill_PerLine () clobbers(d0-d6/a1-a6) preserves(a0/d7) {
         // register assignment (item 10b's banner, above Parallax_Set_Roles_Swapped).
         // ONCE PER BAND, not per line: the five line loops below all consume this same
         // d0 without re-reading (a2)/(a3), so one check here covers every line they emit.
+    if (Game.SCANLINE_CAPS & CAP_ROLE_SWAP) != 0 {
+    .cap_role_swap_pack_begin:
         tst.b   Parallax_Roles_Swapped
         bne     .pack_swapped
         move.w  (a2), d0                            // FG (already negated)
@@ -2726,6 +2747,12 @@ proc Parallax_Fill_PerLine () clobbers(d0-d6/a1-a6) preserves(a0/d7) {
         swap    d0
         move.w  (a2), d0                            // FG → d0 = BG<<16 | FG
     .packed:
+    .cap_role_swap_pack_end:
+    } else {
+        move.w  (a2), d0                            // FG (already negated)
+        swap    d0
+        move.w  (a3), d0                            // BG → d0 = FG<<16 | BG
+    }
 
         // ---- THE FIFTH LINE LOOP: a curve layer's ramping BG scroll (P3 Task 10) ----
         //

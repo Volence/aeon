@@ -111,7 +111,19 @@ pub implement Game {
     //                            never renders — see "SECTION 0 SURRENDERS OJZ_TestRamp"
     //                            in ojz_effects.emp — but construction still requires the
     //                            bit); demo constructs no ramp program and declares 0.
-    const SCANLINE_CAPS = $03DE
+    //   $0400 CAP_ROLE_SWAP      ADDED 2026-09-03 by the item-10b parcel (EFFECTS-W1 item
+    //                            10b, the plane-role swap), on a separate branch from
+    //                            item 6 above — both independently derived $0200 as "the
+    //                            next bit" and collided; ruled to $0400 since item 6
+    //                            landed first. Gates five sites in
+    //                            engine/level/parallax.emp (Parallax_Init, Parallax_
+    //                            Update's register reassert, the whole body of
+    //                            Parallax_Set_Roles_Swapped, and the two HScroll/VSRAM
+    //                            pack-order swaps). sonic4 raises it because it is the
+    //                            only game with a scene worth demonstrating the swap on;
+    //                            demo declares 0 and every gated site — including the
+    //                            new proc itself — compiles to zero bytes.
+    const SCANLINE_CAPS = $07DE
 
     // Boot enters ojz_scroll_test's GameState_OJZScroll_Init.
     const ENTRY_ID = GS_OJZ_SCROLL_TEST

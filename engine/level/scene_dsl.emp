@@ -287,8 +287,36 @@ pub const CAP_ANCHOR_MOTION      = $0100
 // (tools/test_scene_span_labels.py's gapless-run test). Nothing lowers, raises, brackets
 // or masks against any of the four, so the shift is free.
 pub const CAP_DENSE_TIER          = $0200
-// Reserved (P4+): CAP_FG_SPRITE_STRIPS=$0400, CAP_BGANIM_BOUND=$0800,
-// CAP_COMPUTED=$1000, CAP_DEGRADE=$2000
+// CAP_ROLE_SWAP — EFFECTS-W1 item 10b, the plane-role swap
+// (engine/level/parallax.emp's Parallax_Set_Roles_Swapped, its per-frame register
+// reassert in Parallax_Update, and the HScroll/VSRAM feed-packer swap). Landed the
+// same day as CAP_DENSE_TIER above, in parallel and on separate branches — both
+// parcels independently derived $0200 as "the next bit" and collided. Ruled by the
+// coordinating hub 2026-09-03: item 6 landed first, so CAP_DENSE_TIER keeps $0200 and
+// CAP_ROLE_SWAP takes the NEXT bit, $0400, with the four still-reserved names shifted
+// up one again — the same allocation rule every promotion above documents. Re-verified
+// on THIS tree (not assumed from the hub's check against master) that the shift is
+// free: nothing in engine/, games/ or tools/ lowers, raises, brackets or masks against
+// any of the four reserved names — every reference is prose (comments in
+// tools/scene_spans.py and tools/effects_budget_model.toml, and
+// tools/test_scene_span_labels.py's reserved-name list, which iterates NAMES and never
+// their numeric values).
+//
+// Gates five sites in engine/level/parallax.emp — Parallax_Init's flag clear,
+// Parallax_Update's register reassert, the WHOLE BODY of Parallax_Set_Roles_Swapped
+// (no unconditional caller anywhere in its use closure, so it collapses to zero bytes
+// in a game that does not raise this bit), and the two HScroll/VSRAM pack-order swaps
+// (Parallax_Fill_PerLine, Parallax_Step5_Vscroll) — each restoring the exact
+// pre-parcel plain code in its `else` arm. Measured, not estimated: gating costs
+// sonic4 zero bytes (byte-identical routine, byte-identical addresses to the
+// unconditional version) and costs demo zero bytes (every touched proc returns to its
+// EXACT pre-parcel size; the new proc's zero-byte collapse is one step past
+// CAP_ANCHOR_MOTION's own Effects_SetTargetY precedent, which keeps a bare `rts`
+// because IT still has an unconditional caller). See docs/DEFERRED_WORK.md's item 10b
+// block, "CORRECTION AND FINAL DESIGN", for the full Q1/Q2/Q3 accounting.
+pub const CAP_ROLE_SWAP           = $0400
+// Reserved (P4+): CAP_FG_SPRITE_STRIPS=$0800, CAP_BGANIM_BOUND=$1000,
+// CAP_COMPUTED=$2000, CAP_DEGRADE=$4000
 //
 // THE LEFT-COLUMN POLICY (P3 Task 12) RAISES NO BIT, AND THAT IS A RULING, NOT AN
 // OVERSIGHT. Factor0Lock and Accept demand nothing of the runtime — one is a verified

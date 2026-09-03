@@ -356,14 +356,48 @@ from scene_spans import (AEON, capability_bits, expected_spans, game_caps,
 # independent proof that the gate raises for sonic4 and elides for demo). The other nine rows
 # are unchanged — measured, not assumed: this run printed 26 / 2 / 6 / 100 / 78 / 194 / 120 /
 # 8 / 26 against pins of the same nine numbers.
+# RE-DERIVATION LOG — 2026-09-03, EFFECTS-W1 item 10b (the plane-role swap,
+# `parcel/item10b-plane-role-swap`), landed on a separate branch from the phased-VMA fix
+# above and rebased onto it. `CAP_ROLE_SWAP` gates the mechanism ($0400 — see
+# engine/level/scene_dsl.emp's banner for why not $0200), proving gating costs demo
+# NOTHING: Parallax_Fill_PerLine and Parallax_Step5_Vscroll's pins did not move (100 and
+# 120 stand, byte for byte, the SAME numbers the log entries above measured) — the
+# unconditional version of this parcel had temporarily pushed them to 114/136 (+14/+16)
+# before this capability wrapped the four extra sites back out of demo's build.
+# `Parallax_Step5_Vscroll`'s sonic4 side is ALSO now re-measurable thanks to the
+# phased-VMA fix above (previously blind past `$8000`) — see its own row for the number.
+# Three procs join the set:
+#
+#   Parallax_Init                NEW -> 42   sonic4  46 (-4). The gated site is one
+#                                             `clr.b Parallax_Roles_Swapped`
+#                                             (`cap_role_swap_init`); demo's 42 is the
+#                                             shipped pre-parcel size to the byte.
+#   Parallax_Set_Roles_Swapped   NEW ->  0   sonic4  56. The WHOLE proc body is gated
+#                                             (`cap_role_swap_set`) and, unlike
+#                                             Effects_SetTargetY above (pinned at 2, a
+#                                             bare `rts`), this one has NO unconditional
+#                                             caller anywhere in its use closure — its
+#                                             only call site (Parallax_Update, below) is
+#                                             gated by the SAME bit — so the symbol
+#                                             collapses onto its neighbour's address
+#                                             exactly as a DEBUG-gated `pub data` does,
+#                                             and demo carries not even a return.
+#   Parallax_Update              NEW -> 246   sonic4 276 (-30). Hosts `cap_role_swap_
+#                                             reassert` (the 14-byte Set_Roles_Swapped
+#                                             call, a0 saved/restored around it); the
+#                                             other 16 bytes of the delta predate this
+#                                             parcel and are unrelated to it.
 DEMO_SPECIALISED_PROCS = {
     "Effects_LatchWorldLines":   26,   # CAP_ANCHOR_MOTION          (sonic4 126)
     "Effects_SetTargetY":         2,   # CAP_ANCHOR_MOTION          (sonic4  36) — a bare rts
     "Parallax_Active_Config":     6,   # CAP_TRANSITIONS            (sonic4  18)
-    "Parallax_Fill_PerLine":    100,   # CAP_DEFORM, CAP_MULTI_DEFORM_TABLE, CAP_FACTOR_CURVE (sonic4 792 with the curve raised) — the flat filler
+    "Parallax_Fill_PerLine":    100,   # CAP_DEFORM, CAP_MULTI_DEFORM_TABLE, CAP_FACTOR_CURVE, CAP_ROLE_SWAP (sonic4 792 with the curve raised) — the flat filler
+    "Parallax_Init":             42,   # CAP_ROLE_SWAP              (sonic4  46)
+    "Parallax_Set_Roles_Swapped": 0,   # CAP_ROLE_SWAP              (sonic4  56) — no unconditional caller, so the whole proc elides
     "Parallax_StartTransition":  78,   # CAP_PER_COL_VSRAM, CAP_TRANSITIONS  (sonic4 106)
     "Parallax_Step4_Fill":      194,   # CAP_ANCHORS, CAP_FACTOR_CURVE  (sonic4 670; 24 B record stride since CAP_BAND_DRIFT, 2026-09-02)
-    "Parallax_Step5_Vscroll":   120,   # CAP_PER_COL_VSRAM, CAP_TRANSITIONS  (sonic4 206)
+    "Parallax_Step5_Vscroll":   120,   # CAP_PER_COL_VSRAM, CAP_TRANSITIONS, CAP_ROLE_SWAP  (sonic4 206 — sonic4's OWN size cannot currently be re-measured past $8000, see tools/scene_spans.py's booked lst_proc_sizes defect; 120 is demo's own number, unaffected by that collision)
+    "Parallax_Update":          246,   # CAP_ROLE_SWAP              (sonic4 276)
     "Raster_GetChannelBand":      8,   # CAP_ANCHORS                (sonic4  50)
     "Raster_HInt":              316,   # CAP_DENSE_TIER             (sonic4 338) — see the
                                         # RE-DERIVATION LOG above; unmeasurable before the

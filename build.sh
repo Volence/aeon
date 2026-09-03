@@ -908,6 +908,24 @@ if [[ "$FAST" == "0" ]]; then
             exit 1
         fi
 
+        # THE PLANE-ROLE-SWAP BYTE GOLDEN (EFFECTS-W1 item 10b). Disassembles
+        # Parallax_Set_Roles_Swapped and asserts its four (register, value) writes
+        # match engine/system/constants.emp (VRAM_PLANE_A/VRAM_PLANE_B) and
+        # engine/vdp.emp's vdp_base_shift (PlaneA AND PlaneB arms) — the fold item
+        # 11a's OJZ_BaseSwap also derives its word through. UNLIKE the two golden
+        # gates above, this one asserts the SAME thing in both shapes (present and
+        # correct): the mechanism is unconditional real engine capability, not a
+        # DEBUG-only effects-lab demonstration, so there is no release-shape
+        # zero-byte arm to check. --shape is still passed, for messaging only.
+        ROLE_SWAP_SHAPE="release"
+        if [[ "${DEBUG:-0}" == "1" ]]; then ROLE_SWAP_SHAPE="debug"; fi
+        if ! python3 "${TOOLS}/plane_role_swap_gate.py" --lst "${ROM_NAME}.lst" \
+                --rom "${ROM_NAME}.bin" --built-after "${SIGIL_T0}" \
+                --shape "${ROLE_SWAP_SHAPE}"; then
+            echo "Plane-role-swap gate failed — see above (tools/plane_role_swap_gate.py)."
+            exit 1
+        fi
+
         # The BG-animation section's ROOM, re-derived from THIS build's listing
         # (decision d-9). `ojz_bg_anim` grows into the hole that ends
         # at the `dac_banks` map anchor — DERIVED by the bank placement rule since the

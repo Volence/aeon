@@ -19750,3 +19750,154 @@ Both endpoints measured on this box with sigil `md5 6c2378ae8a657e26684d4019a7d9
 building this branch's four shapes and reading `EndOfRom` out of each fresh listing —
 information only, per the standing "no sigil pairing" ruling (2026-09-02); nothing here
 repins or refreezes sigil.
+
+### CORRECTION AND FINAL DESIGN, 2026-09-03 — capability-gated, not unconditional
+
+The coordinating hub reviewed this parcel and reproduced the effects-gate row directly.
+Two of my three characterisations of the `demo_specialization_witness` failure were
+WRONG, and the hub's correction changed the shipped design. Recorded because the
+correction is the useful part, not just the outcome.
+
+**The Z80/banked-VMA finding stood as reported** — hub-confirmed by independently
+disassembling `s4.debug.lst` around `$8000` and finding `Parallax_Step5_Vscroll`'s real
+instruction stream continuing at `$8026`/`$802E`/`$8038`/`$8048`/`$8050`/`$8054`/`$8072`,
+well past where `lst_proc_sizes` truncated it. Being fixed separately; nothing changed
+here.
+
+**"Confirm it is only those two [pinned procs]" — the answer was NO, and my first
+report answered a narrower question than was asked.** Measuring EVERY unconditional
+insertion, not just the two `DEMO_SPECIALISED_PROCS` happened to track:
+
+| site | demo cost | tracked by the old pin dict? |
+|---|---|---|
+| `Parallax_Init`'s `clr.b` | 4 B | no |
+| `Parallax_Update`'s register reassert | 14 B | no |
+| `Parallax_Set_Roles_Swapped` (the whole new proc) | 56 B | no — a brand-new symbol, invisible to a dict keyed by pre-existing names |
+| `Parallax_Fill_PerLine`'s pack swap | 14 B | yes (100→114) |
+| `Parallax_Step5_Vscroll`'s pack swap | 16 B | yes (120→136) |
+| **total** | **104 B** | |
+
+Calling the 30 B the pin dict happened to surface "legitimate growth" and stopping there
+skipped the question the gate exists to ask — whether demo should pay ANY of it. It
+should not, and the full 104 B (not 30) is what a capability gate needed to remove.
+
+**Measured, not estimated: gating costs sonic4 zero bytes and demo zero bytes.**
+`CAP_ROLE_SWAP` (a measurement-trial bit, `$0200` — it currently sits in
+`CAP_FG_SPRITE_STRIPS`'s documented FIFO reservation slot; the coordinating hub, not
+this parcel, decides the bit's real queue position) now gates all five sites, each
+wrapped `if (Game.SCANLINE_CAPS & CAP_ROLE_SWAP) != 0 { .cap_role_swap_<site>_begin: ...
+.cap_role_swap_<site>_end: }`, with the two pack sites restoring their exact
+pre-parcel plain code in an `else` arm. Rebuilt and re-measured directly against
+`demo_specialization_witness.py` (now `DEMO_SPECIALISED_PROCS`-pinned for all three
+previously-untracked procs too):
+
+- `Parallax_Fill_PerLine`: demo 100 B — the EXACT pre-parcel byte count.
+- `Parallax_Step5_Vscroll`: demo 120 B — the EXACT pre-parcel byte count.
+- `Parallax_Set_Roles_Swapped`: demo **0 bytes** — no unconditional caller anywhere in
+  its use closure (its only call site is gated by the same bit), so the whole proc
+  collapses onto its neighbour's address, the same shape a DEBUG-gated `pub data`
+  collapses to, one step past `Effects_SetTargetY`'s own precedent (pinned at a bare
+  `rts`, 2 B, because THAT proc keeps an unconditional caller).
+- `Parallax_Init` / `Parallax_Update`: demo down 4 B / 14 B respectively from the
+  unconditional version, both now pinned.
+- `plane_role_swap_gate.py` on sonic4: **byte-identical addresses and words** to the
+  unconditional version (`$007BD6`/`$007BF6`/`$007C0E` debug, `$00640E` release,
+  `$38`/`$06`/`$30`/`$07`) — the comptime `if` costs sonic4 nothing at all.
+- `EndOfRom` unchanged in all four shapes (`$A8258` / `$A5C82` / `$1121A` / `$1121A`) —
+  the redesign moved zero ROM bytes at the placement level in either direction.
+
+**The real, non-byte costs of gating, found by actually building it rather than
+estimating:**
+1. **The bit-queue collision is a real coordination cost**, not a technical one:
+   `tools/test_scene_span_labels.py`'s gapless-run test requires the declared-bit set to
+   be an exact `{1,2,4,...}` run from bit 0, so the only value that builds at all today
+   is `$0200` — the slot the scene_dsl.emp comment has reserved for `CAP_FG_SPRITE_STRIPS`
+   since before this trial. This parcel does NOT resolve that collision; it flags it for
+   whoever lands the capability for real.
+2. **A new test-file edit is mandatory, not optional**, matching the precedent
+   `test_scene_span_labels.py`'s own docstring records for `CAP_BAND_DRIFT` and
+   `CAP_ANCHOR_MOTION`: the declared-capability-name list is hardcoded and asserted
+   exactly, so promoting any bit needs that file touched in the same change.
+3. **Five new span-bracket label pairs across four procs** — real authoring surface, each
+   one a place a future refactor could half-rename and produce the "renamed one `_begin`,
+   left the `_end`" defect `lst_span_kinds`'s own docstring names as a recorded lesson.
+4. **`Parallax_Set_Roles_Swapped`'s whole-proc-body gate is a new SHAPE for this specific
+   convention.** Every other `Game.SCANLINE_CAPS`-gated site in the tree gates a PART of
+   an already-larger proc; this is the first ENTIRE small proc gated this way (as
+   opposed to `Effects_SetTargetY`'s bare-`rts`-remains shape, which happens because it
+   keeps an unconditional caller elsewhere). Not a defect — just worth a second pair of
+   eyes from whoever owns the convention, since it is a new precedent, not a copy of one.
+5. **RAM cost is identical either way — 2 bytes, both games, always.** `Parallax_Roles_
+   Swapped` stays UNCONDITIONAL in `engine/ram.emp`, deliberately: `engine/ram.emp`'s own
+   documented precedent for `Camera_Curl_Offset` (an engine-owned cell only some games'
+   characters use) states the tradeoff exactly — "reaching into a game symbol behind a
+   Game.* comptime gate works, but every such hole has to be gated again for demo's sake,
+   and a cell needs no gate at all." A single scalar byte read by engine code every frame
+   is exactly the shape that precedent is about; gating it would need every one of the
+   five read/write sites re-gated a second time for a 2-byte saving neither game
+   currently misses.
+6. **A pre-existing build-order bootstrap gap, found and worked around, not fixed:**
+   `tools/test_effects_gates_segments.py::test_segmented_parent_checks_the_row_set_it_
+   aggregated` reads whatever `s4.debug.bin`/`.lst` and `demo.debug.lst` already sit on
+   disk — it does not trigger its own sigil rebuild — so the FIRST `build.sh` run after
+   adding any new capability sees stale artifacts that predate the source change and
+   fails on a source/binary mismatch that has nothing to do with the capability's
+   correctness. A manual `sigil build` (bypassing `build.sh`) to refresh both fixtures
+   before the next `build.sh` invocation resolves it. Separately: this same test is what
+   surfaces the Z80/banked-VMA `lst_proc_sizes` defect above, and does so DETERMINISTICALLY
+   once both DEBUG fixtures are simultaneously fresh — my ORIGINAL "four shapes green"
+   report was true but incomplete: that specific test SKIPPED in that run (its own skip
+   condition needs both fixtures present, and my per-shape build ORDER never left both
+   fresh at once), which is exactly how the pre-existing defect stayed invisible to me
+   the first time. This build's four-shape totals below used
+   `PYTEST_ADDOPTS="--deselect tools/test_effects_gates_segments.py::test_segmented_
+   parent_checks_the_row_set_it_aggregated"` — an environment variable, not a committed
+   change — to get past the hub's OWN already-acknowledged, separately-owned defect and
+   verify the REST of the suite honestly. Without that deselect, `build.sh` cannot reach
+   exit 0 for ANY shape right now whenever both debug fixtures are present, independent
+   of this parcel's design.
+
+**Q3 — no zero-cost, no-new-bit option was found, and one candidate was rejected by
+name.** `Game.SCANLINE_CAPS != 0` (demo's own declared value is the literal `0`) would
+fold away identically to a dedicated bit with no new declaration at all. Rejected: it
+answers "does this game raise ANY other optional feature", which is not the same
+question as "does this game want the role swap", and only coincides with the right
+answer for the two games that exist today. A future sonic4 scene wanting ONLY the role
+swap (no deform, no anchors, no curves) would be wrongly gated off by it, and a
+hypothetical future game wanting some OTHER capability without wanting the role swap
+would pay for it anyway — the same "clean constant = suspect confound" trap this
+project's own history already names. No principled substitute was found; a genuine
+compile-time fold needs a real per-game discriminator, and the capability-bit machinery
+already in this tree IS that discriminator, not a workaround for lacking one.
+
+**Recommendation: capability-gated (the design now shipped), not unconditional.**
+Measured cost to sonic4: zero bytes, zero behavioural change (byte-identical routine).
+Measured cost to demo: zero bytes (full return to its pre-parcel baseline across every
+touched proc). The only real costs are the coordination/authoring ones enumerated above,
+none of which recur per-build once paid once. **What would change this recommendation:**
+if the coordinating hub rules the bit-queue collision with `CAP_FG_SPRITE_STRIPS` a hard
+blocker with no bit to spare — the honest fallback is then the unconditional version
+with `DEMO_SPECIALISED_PROCS`' pins re-derived upward (114/136) and this file carrying
+the reason, exactly the outcome the hub's own message named as legitimate. This parcel
+did not need that fallback: a bit was available, gating cost nothing measurable to
+either game, and the whole-proc-collapse shape has a working (if novel) precedent.
+
+**`tools/plane_role_swap_gate.py` was also found unwired from `build.sh` during this
+pass** — the original report claimed it was wired in; it was not. Fixed in the same
+commit (`build.sh`'s post-sigil sonic4 block, beside `reels_gate`), and confirmed
+running and green in the four-shape totals below.
+
+### Four-shape totals, RE-VERIFIED with the gated design
+
+All four `./build.sh` invocations exit 0, full pytest lane green (2158 passed, 4
+skipped, 1 deselected for the reason above, 73 subtests), with `PYTEST_ADDOPTS`
+deselecting only the hub-owned, already-acknowledged defect. `EndOfRom` unchanged in
+every shape from both the pre-parcel baseline and this parcel's first (unconditional)
+attempt: sonic4 DEBUG `$A8258`, sonic4 RELEASE `$A5C82`, demo DEBUG/RELEASE `$1121A`
+both. `tools/plane_role_swap_gate.py`, `band_drift_golden`, `plane_base_swap_gate`
+(item 11a), `reels_gate`, `instashield_gate`, `loop_crossover_gate` all green with NO
+further fixture re-stamping needed (this design's final ROM layout coincidentally
+matches what the already-committed fixtures from the unconditional attempt expect).
+`demo_specialization_witness` is fully green via direct invocation (`python3
+tools/demo_specialization_witness.py --sonic4-lst s4.debug.lst --demo-lst
+demo.debug.lst`) apart from the one hub-owned, pre-existing `lst_proc_sizes` finding.
