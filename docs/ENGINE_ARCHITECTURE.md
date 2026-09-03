@@ -1616,7 +1616,7 @@ UFTC was originally planned for random-access sprite decompression, but measured
   name, so engine/contract drift fails the build. T1 (planned) moves solving
   into the sigil chainer; T2 adds state overlays, per-act solving, and
   register emission.
-- **Act FG art** occupies a single globally-deduped, spatially-ordered, paged pool run as a VRAM residency cache (§9.7): bulk-loaded at level init (§2.3, §2.5), pages living in allocated frames, degenerating to fully resident when the pool fits the frame budget. Section nametables reference per-section LOCAL indices translated to global at block decode (§2.3) — there is no per-section VRAM allocation and no per-section art swap. The pool's ceiling is 896 tiles (14 pages) since the dust carve; the surrendered page holds the dust windows (896/912) + 36 spare.
+- **Act FG art** occupies a single globally-deduped, spatially-ordered, paged pool run as a VRAM residency cache (§9.7): bulk-loaded at level init (§2.3, §2.5), pages living in allocated frames, degenerating to fully resident when the pool fits the frame budget. Section nametables reference per-section LOCAL indices translated to global at block decode (§2.3) — there is no per-section VRAM allocation and no per-section art swap. **The pool's ceiling is `POOL_TILE_CEILING` and the tiles above it belong to `games/<game>/vram.toml` — read both off the generated map (`docs/generated/vram-map-<game>.md`), not off this line**, which has now gone stale twice (960 → 896 at the dust carve, 896 → 768 at EFFECTS-W1 item 0's `spare_nametable`).
 - **Object/permanent art** (HUD, rings, monitors, characters) uses VRAM addresses baked into archetype templates via the `vram_art()` macro at build time — the addresses now COME FROM the registry rather than hand-picked literals. The address is a static immediate; objects spawn with it directly (§3.9). No allocation step runs when an object spawns.
 
 Because every object/permanent tile address is decided at build time and act FG art rides the §9.7 residency cache, there is no fragmentation, no compaction, and no allocator beyond the cache's own frame/refcount machinery. The act pool is capped by ROM budget, not VRAM: `tools/art_rom_report.py` gates the per-act ROM footprint at build time, and the cache degenerates to fully resident for acts whose pool fits the frame budget.
@@ -1631,8 +1631,13 @@ Because every object/permanent tile address is decided at build time and act FG 
 `docs/generated/vram-map-sonic4.md` / `vram-map-demo.md`, emitted from each
 game's `vram.toml` on every regeneration (§2.2). The diagram below keeps the
 DESIGN — the unified-pool shape and the plane/table placement rationale — and
-its numbers are correct for the layout's original 960-tile pool; the current
-pool ceiling is 896 with the dust windows in the surrendered page.
+its numbers are correct for the layout's original 960-tile pool. **The pool has
+been cut twice since: 960 → 896 (the dust carve, whose surrendered page holds the
+dust/sparkle/insta-shield windows) and 896 → 768 (EFFECTS-W1 item 0, 2026-09-03),
+which frees `$6000-$6FFF` as `spare_nametable` — the one `$2000`-aligned run in
+the map, hence a legal Plane A / Plane B / Window base.** Read the current numbers
+off the generated map, never off this diagram. The pool has a FLOOR of 640 tiles
+/ 10 frames until C4-3 lands (see `POOL_TILE_CEILING`'s own comment).
 
 **Purpose:** Maximize available art tiles through a single unified pool, with 64×64 scroll planes for vertical buffering and visual effects. Character DPLC art lives in the pool (tile `$3C0`, DMA'd per frame); the sprite attr + HScroll tables sit in their own region (`$5C0-$5FF`, below Plane A) — so both scroll planes keep all 64 rows free for vertical streaming (no off-screen-row embedding, no "Region 2").
 

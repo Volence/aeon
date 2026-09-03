@@ -6,7 +6,8 @@
 # silently poison their budget constants once the maps diverge.
 GAME = 'sonic4'
 REGIONS = {
-    'fg_art_pool': {'base': 0, 'tiles': 896, 'lifetime': 'act'},
+    'fg_art_pool': {'base': 0, 'tiles': 768, 'lifetime': 'act'},
+    'spare_nametable': {'base': 768, 'tiles': 128, 'lifetime': 'boot'},
     'dust_puff': {'base': 896, 'tiles': 16, 'lifetime': 'act'},
     'dust_spindash': {'base': 912, 'tiles': 12, 'lifetime': 'act'},
     'ring_sparkle': {'base': 924, 'tiles': 4, 'lifetime': 'act'},
@@ -24,7 +25,7 @@ REGIONS = {
     'plane_b': {'base': 1792, 'tiles': 256, 'lifetime': 'boot'},
     'window_plane': {'base': 1920, 'tiles': 128, 'lifetime': 'boot'},
 }
-POOL_TILE_CEILING = 896
+POOL_TILE_CEILING = 768
 BG_TILE_BASE_SLOT = 1024
 BG_TILE_CAPACITY = 448
 BG_BAND_RESERVE = 128

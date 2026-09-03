@@ -5,7 +5,8 @@ Do not edit; edit the TOML and regenerate.
 
 | tiles | name | kind | lifetime | owner | constant / authority | notes |
 |---|---|---|---|---|---|---|
-| 0-895 | fg_art_pool | arena | act | engine.level.page_cache | engine-endtiles:POOL_TILE_CEILING |  |
+| 0-767 | fg_art_pool | arena | act | engine.level.page_cache | engine-endtiles:POOL_TILE_CEILING |  |
+| 768-895 | spare_nametable | plane | boot | engine.system.boot |  |  |
 | 896-911 | dust_puff | window | act | games.sonic4.dust_puff | VRAM_DUST_PUFF |  |
 | 912-923 | dust_spindash | window | act | games.sonic4.dust_spindash | VRAM_DUST_SPINDASH |  |
 | 924-927 | ring_sparkle | window | act | games.sonic4.ring_sparkle | VRAM_RING_SPARKLE |  |

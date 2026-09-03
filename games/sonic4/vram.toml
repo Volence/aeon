@@ -11,13 +11,47 @@ name = "fg_art_pool"
 owner = "engine.level.page_cache"
 kind = "arena"
 base = 0
-tiles = 896                      # 960 -> 896: the top page surrendered to the dust
-quantum = 64                     # windows below (the dust design's carve, re-landed
-lifetime = "act"                 # as this TOML edit — safe post-prep-parcel: no RAM
-authority = "engine-endtiles:POOL_TILE_CEILING"  # moves, no fixture re-stamp).
+tiles = 768                      # 960 -> 896 (the dust carve) -> 768 (EFFECTS-W1
+quantum = 64                     # item 0, Option P: the spare nametable below).
+lifetime = "act"                 # Both cuts are safe for the SAME post-prep-parcel
+authority = "engine-endtiles:POOL_TILE_CEILING"  # reason: no RAM moves, no fixture
+                                 # re-stamp (PAGE_FRAMES_MAX sizes the arrays; every
+                                 # region from 896 up keeps its base).
                                  # AUTHORITY stays engine-side; the generated block
                                  # cross-checks equality, so forgetting the engine
                                  # constant fails the build by name.
+                                 # The FLOOR is 640 tiles / 10 frames until C4-3
+                                 # (the famine capacity fix) lands: below that an act
+                                 # runs with granted near floor and tight-cache mode
+                                 # has an open defect (the STRESS_EVICT famine).
+
+[[region]]
+name = "spare_nametable"
+owner = "engine.system.boot"
+kind = "plane"
+base = 768                       # byte $6000 — a multiple of $2000, so this run is
+tiles = 128                      # simultaneously a legal Plane A base (reg $02 =
+lifetime = "boot"                # $18), Plane B base (reg $04 = $03) and Window base
+                                 # (reg $03 = $18). It is the ONLY $2000-aligned run
+                                 # in this map that could be freed at a price anyone
+                                 # would pay, and the pool's quantum = 64 is what
+                                 # lands it exactly on $6000 rather than $6800.
+#
+# NO `register` FIELD YET, DELIBERATELY. Nothing points a VDP base register here;
+# the consumer parcel (EFFECTS-W1 items 10c / 11b) adds `register = "vdp:0x0N"` when
+# it wires one, and that is the parcel where the alignment decision is actually made.
+#
+# WHY A NAMED REGION AND NOT A [[free]] RUN. An unnamed run is exactly how the BG
+# band reserve reached zero (docs/BUGS.md TOOL-01, the precedent the bg_region
+# comment below cites): free space with no owner gets spent by the next person who
+# needs tiles and does not know what it was for. Naming it reserves the ADDRESS,
+# which is the scarce thing here — spare tiles are not scarce, spare $2000-aligned
+# tiles are (all eight legal plane bases were occupied before this cut).
+#
+# ⚠ gen_vram_map.py does NOT check base-register alignment (its checks are bounds,
+# coverage, overlap, quantum, reserve, authority). A misaligned nametable region
+# passes it with exit 0. The rider that teaches it the granule table is booked in
+# docs/DEFERRED_WORK.md and rides the parcel that consumes this region.
 
 [[region]]
 name = "dust_puff"
@@ -64,8 +98,11 @@ lifetime = "act"
 const = "VRAM_INSTA_SHIELD"
 # Sonic's insta-shield flash: STREAMED, not resident. The sheet is 52 tiles (two
 # 23/29-tile blocks the donor DPLC pages between), which no free run can hold —
-# the only one big enough would have to come out of fg_art_pool, and its ceiling
-# is POOL_TILE_CEILING, which moves RAM. 29 = the peak DPLC frame, and the .emp
+# the only one big enough would have to come out of fg_art_pool, whose ceiling is
+# POOL_TILE_CEILING. (This comment used to add "which moves RAM"; that has been
+# FALSE since the 2026-08-11 prep parcel split PAGE_FRAMES from PAGE_FRAMES_MAX —
+# see the constant's own comment. What the pool actually costs is page-frames.)
+# 29 = the peak DPLC frame, and the .emp
 # re-derives it from the blob rather than trusting this number
 # (docs/superpowers/notes/2026-08-26-instashield-design.md §2.6).
 

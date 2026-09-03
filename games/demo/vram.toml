@@ -7,14 +7,26 @@ name = "fg_art_pool"
 owner = "engine.level.page_cache"
 kind = "arena"
 base = 0
-tiles = 896                      # follows the engine-global POOL_TILE_CEILING
-quantum = 64                     # (960 -> 896, the sonic4 dust carve; the engine
+tiles = 768                      # follows the engine-global POOL_TILE_CEILING
+quantum = 64                     # (960 -> 896, the sonic4 dust carve; -> 768,
+                                 # EFFECTS-W1 item 0's spare nametable). The engine
                                  # constant is shared, so every game's map moves
-                                 # with it — demo has no dust, so the freed page
-                                 # is simply declared free below)
+                                 # with it — demo has no dust, so the page the dust
+                                 # carve freed is simply declared free below.
 lifetime = "act"
 authority = "engine-endtiles:POOL_TILE_CEILING"
 # demo ships HAS_ACT_ART_POOL=0 — the range exists, unpopulated.
+
+[[region]]
+name = "spare_nametable"
+owner = "engine.system.boot"
+kind = "plane"
+base = 768                       # byte $6000, the one $2000-aligned run item 0
+tiles = 128                      # bought. ENGINE-owned, so it is declared here too:
+lifetime = "boot"                # the engine regions are identical to sonic4's by
+                                 # construction, and a consumer that rebases a plane
+                                 # base register is engine code both games run.
+                                 # No `register` field until a consumer wires one.
 
 [[region]]
 name = "demo_obj"
