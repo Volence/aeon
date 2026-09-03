@@ -47,6 +47,77 @@ pub comptime fn bytes_to_lcnt(n: int where 4..$10000) -> int {
     return n / 4 - 1
 }
 
+// -----------------------------------------------
+// VDP BASE REGISTERS — the five registers that carry a VRAM base address.
+//
+// THE CLASS THIS EXISTS TO CLOSE, and it is the reason this is a fn and not a
+// table of literals. DEFERRED_WORK books it as "BASE-RESIDUE ASSUMPTIONS
+// WITHOUT AN `ensure` ARE INVISIBLE TO THE ALIGNMENT DECLARATION": each of
+// these registers encodes only the address bits ABOVE its granule, and the bits
+// below are not rejected — they are DROPPED. A misaligned base therefore makes
+// the VDP fetch from one address while every `VRAM_*` consumer reads and writes
+// another, with no diagnostic anywhere, because the requirement lives ONLY in
+// the register encoding. That is precisely the shape sigil's alignment table
+// cannot see: it can only find requirements that already have a comptime wall
+// beside them. The `ensure` below IS that wall.
+//
+// The second half of the same defect is transcription. Before this, the five
+// bytes were literals in engine/system/boot_data.emp with the address they mean
+// recorded only in a trailing comment, so moving a base in a game's `vram.toml`
+// (and in engine.constants, which the generated cross-checks force) left the
+// register pointing at the OLD address and every gate green. Deriving the byte
+// from the base is what removes that second failure; the residue guard is what
+// removes the first.
+//
+//   reg   field                value       granule (H40)
+//   $02   bits 5:3 = A15:A13   base >> 10   $2000
+//   $03   bits 5:1 = A15:A11   base >> 10   $1000  (H40 ignores value bit 1)
+//   $04   bits 2:0 = A15:A13   base >> 13   $2000
+//   $05   bits 6:0 = A15:A9    base >>  9   $400   (H40 ignores value bit 0)
+//   $0D   bits 5:0 = A15:A10   base >> 10   $400
+//
+// The five SHIFTS are re-derived rather than copied off our own table: s2disasm
+// (`s2.asm:288-303`) programs the same five registers at DIFFERENT bases —
+// $D800 sprites / $DC00 hscroll against our $B800 / $BC00 — and every shift
+// above reproduces its byte too ($6C and $37 respectively). Its plane-A site
+// spells the derivation outright, `$8200|(VRAM_Plane_A_Name_Table/$400)`.
+//
+// H40 is not an assumption to re-check at each call: engine.constants
+// VDP_REG_0C_BOOT is $81 (RS0|RS1 = 40-cell) and nothing leaves 40-cell mode.
+// The two H40 granules are also the STRICTER pair, so a future H32 shape would
+// still satisfy them.
+pub comptime enum VdpBase { PlaneA, Window, PlaneB, SpriteTable, HScroll }
+
+// Discriminants live ONCE, in the two mappers — the target_bits/op_bits pattern
+// above. Exhaustive match, so a new base register forces both to grow.
+comptime fn vdp_base_shift(b: VdpBase) -> int {
+    match b {
+        PlaneA      => 10,
+        Window      => 10,
+        PlaneB      => 13,
+        SpriteTable => 9,
+        HScroll     => 10,
+    }
+}
+comptime fn vdp_base_granule(b: VdpBase) -> int {
+    match b {
+        PlaneA      => $2000,
+        Window      => $1000,
+        PlaneB      => $2000,
+        SpriteTable => $400,
+        HScroll     => $400,
+    }
+}
+
+// vdp_base_reg: a VRAM base address -> the byte its VDP base register carries.
+pub comptime fn vdp_base_reg(b: VdpBase, base: int where 0..$FFFF) -> int {
+    let granule = vdp_base_granule(b)
+    let dropped = base & (granule - 1)
+    ensure(dropped == 0,
+           "VDP base register: the VRAM base {base} is not a multiple of its register's granule {granule}. This register encodes only the address bits above that granule, so the low {dropped} is DROPPED SILENTLY — the VDP would fetch from {base - dropped} while every VRAM_* consumer reads and writes {base}, and nothing outside this encoding can see the difference. Move the base (the game's vram.toml AND engine.constants) to a multiple of {granule}.")
+    return base >> vdp_base_shift(b)
+}
+
 // The %-encodings (truth: engine.constants — VRAM/CRAM/VSRAM/READ/WRITE/DMA). Exhaustive match — Plan-3
 // totality checks it, so a new variant FORCES the mapper to grow.
 comptime fn target_bits(t: VdpTarget) -> int {

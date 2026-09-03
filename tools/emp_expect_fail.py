@@ -112,6 +112,50 @@ DPLC_TILE_START_BITS = emp_const("engine/objects/dplc.emp", "DPLC_TILE_START_BIT
 DPLC_TILE_START_MAX = (1 << DPLC_TILE_START_BITS) - 1
 DPLC_ADDRESSABLE_TILES = DPLC_TILE_START_MAX + 1
 
+
+def emp_match_arm(rel: str, fn: str, arm: str) -> int:
+    """The int a `comptime fn`'s exhaustive `match` maps one variant to.
+
+    `emp_const` reads `const NAME = <int>`; the VDP base granules are not consts, they
+    are the arms of `vdp_base_granule`'s match — the single place the discriminants
+    live, by the target_bits/op_bits pattern engine/vdp.emp already uses. So the
+    fragment below reads the ARM rather than a literal, for the reason emp_const's own
+    note gives: a granule typed as 1024 here would still match after the granule moved,
+    and the case would report green about a bound that no longer exists.
+
+    A missing fn or arm is a LOUD exit, never a default.
+    """
+    txt = (AEON / rel).read_text()
+    m = re.search(rf"comptime\s+fn\s+{re.escape(fn)}\s*\([^)]*\)[^{{]*\{{(.*?)\n\}}",
+                  txt, re.S)
+    if not m:
+        sys.exit(f"emp_expect_fail: cannot find `comptime fn {fn}` in {rel} — a case "
+                 "fragment is computed from one of its match arms")
+    a = re.search(rf"^\s*{re.escape(arm)}\s*=>\s*(\$[0-9A-Fa-f]+|\d+)\s*,", m.group(1), re.M)
+    if not a:
+        sys.exit(f"emp_expect_fail: `comptime fn {fn}` in {rel} has no `{arm} =>` arm — "
+                 "a case fragment is computed from it and a guessed value would make "
+                 "that case vacuous")
+    v = a.group(1)
+    return int(v[1:], 16) if v.startswith("$") else int(v)
+
+
+# ---- The VDP sprite-table base register, for the base-residue fragment below ----
+#
+# The poison feeds vdp_base_reg a base of `VRAM_SPRITE_TABLE + $100`, so both numbers in
+# the guard's sentence are computed here from the same two authorities the poison reads:
+# the engine's real sprite-table base and the register's real granule. Neither is typed.
+# Structural, not lucky: the granule is $400, a legal base has its low $3FF bits clear,
+# so +$100 is misaligned at every base the tree can ship.
+VDP_SPRITE_BASE = emp_const("engine/system/constants.emp", "VRAM_SPRITE_TABLE")
+VDP_SPRITE_GRANULE = emp_match_arm("engine/vdp.emp", "vdp_base_granule", "SpriteTable")
+VDP_POISON_BASE = VDP_SPRITE_BASE + 0x100
+if VDP_POISON_BASE % VDP_SPRITE_GRANULE == 0:
+    sys.exit("emp_expect_fail: the base-residue poison's base "
+             f"({VDP_POISON_BASE}) is ALIGNED to the sprite-table granule "
+             f"({VDP_SPRITE_GRANULE}) — the fixture cannot trip the guard it targets "
+             "and its row would be vacuous")
+
 # The anti-vacuity sentinel: (module path relative to AEON, expected fragment, expected
 # [Error] count). Its guard names nothing outside its own file, so a failure isolates the
 # mechanism — module resolved, module-level `ensure`s evaluated — from every question
@@ -516,6 +560,20 @@ CASES: list[tuple[str, str, str, int]] = [
     (f"{POISON}/poison_dplc_tile_start.emp", "DPLC tile_start ceiling",
      f"DPLC_TILE_START_POISON: a {DPLC_ADDRESSABLE_TILES + 1}-tile art sheet cannot be "
      f"addressed by a DPLC entry's tile_start, which names only 0..{DPLC_TILE_START_MAX}", 1),
+    # ---- VDP BASE RESIDUE: vdp_base_reg's silent-drop wall ----
+    # The booked class ("BASE-RESIDUE ASSUMPTIONS WITHOUT AN `ensure` ARE INVISIBLE TO THE
+    # ALIGNMENT DECLARATION"): the five VDP base registers encode only the address bits
+    # above their granule and DROP the rest, so a misaligned base points the VDP at one
+    # address while every VRAM_* consumer uses another, with no diagnostic anywhere. The
+    # guard is the only artifact that can see it; this row is the proof it fires.
+    #
+    # BOTH NUMBERS ARE COMPUTED, from the two authorities the poison itself reads —
+    # VRAM_SPRITE_TABLE (engine/system/constants.emp) and the SpriteTable arm of
+    # vdp_base_granule (engine/vdp.emp). A typed 47360/1024 would go vacuous the day the
+    # sprite table moved, which is the exact failure emp_const's note above records.
+    (f"{POISON}/poison_vdp_base_residue.emp", "VDP base residue",
+     f"the VRAM base {VDP_POISON_BASE} is not a multiple of its register's granule "
+     f"{VDP_SPRITE_GRANULE}", 1),
 ]
 
 

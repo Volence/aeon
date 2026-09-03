@@ -2092,6 +2092,80 @@ raising a number nobody has measured trades a possible drop for a certain cost.
 
 ### BASE-RESIDUE ASSUMPTIONS WITHOUT AN `ensure` ARE INVISIBLE TO THE ALIGNMENT DECLARATION — booked 2026-08-29
 
+> **THE AEON HALF IS CLOSED 2026-09-03** by `parcel/item15-static-pair`. The sweep this
+> booking asks for was run, and it found ONE instance — not the near-miss the entry already
+> records, a live one, and in a place nobody would have looked.
+>
+> **THE INSTANCE: `BootData_VDPRegs`' five VDP base registers.** Registers
+> `$02`/`$03`/`$04`/`$05`/`$0D` each carry a VRAM base encoded as the address bits ABOVE a
+> granule ($2000 / $1000 / $2000 / $400 / $400 in H40). The bits below are **not rejected —
+> they are dropped.** So the residue requirement was real, and it lived *only* in the byte
+> written into that table: the five rows were LITERALS (`$30 $3C $07 $5C $2F`) with the
+> address they mean recorded in a trailing comment. **This is the booked class exactly**, and
+> it carried a second failure the booking's own framing does not cover: because the byte was
+> transcribed rather than derived, moving a base in a game's `vram.toml` (and in
+> `engine.constants`, which the generated cross-checks force) left the register pointing at
+> the OLD address with **every gate green** — the generated `ensure(VRAM_SPRITE_TABLE ==
+> $B800, …)` pins the constant to the map, and nothing pinned the register to the constant.
+>
+> **LATENT, not reachable today** — say it plainly: the five shipped bases all satisfy their
+> granules, so nothing is wrong in any ROM this tree has built. What made it worth fixing is
+> that the trigger is *a VRAM relayout*, which this tree does: the two constants' own comments
+> read "relocated from $D800" and "relocated from $DC00", and the VRAM-linker work is a
+> build-time relayout by design.
+>
+> **THE FIX IS THE DISCIPLINE THIS ENTRY PRESCRIBES, TAKEN LITERALLY.** `vdp_base_reg`
+> (`engine/vdp.emp`) folds the byte from the base and carries the `ensure` in the same place,
+> with `vdp_base_shift` / `vdp_base_granule` as the two exhaustive matches that hold the
+> discriminants once (the `target_bits`/`op_bits` pattern already in that file).
+> `boot_data.emp`'s five rows are now those folds. **The ROM is byte-identical on all four
+> shapes** — the derivation reproduces $30/$3C/$07/$5C/$2F exactly, which is also the check
+> that the shifts are right. They were re-derived rather than read off our own table: **two
+> reference disassemblies, independently** — s2disasm's VDP init (`s2.asm:288-303`) and
+> skdisasm's (`sonic3k.asm:200-210`) both program these registers at DIFFERENT bases ($D800
+> sprites / $DC00 hscroll against our $B800 / $BC00) and every shift reproduces their bytes
+> there too ($6C, $37). s2disasm's plane-A site spells the derivation outright,
+> `$8200|(VRAM_Plane_A_Name_Table/$400)`.
+>
+> **THE GRANULES ARE THE HALF NOT CROSS-CHECKED AGAINST A REFERENCE, and the difference
+> matters.** The five shifts are confirmed by two disassemblies; the H40 ignored-bit rules
+> behind the $1000 (window) and $400 (SAT) granules come from the hardware documentation, and
+> no shipped base in either reference distinguishes them from the looser $800/$200 field
+> granularity. **The direction of that uncertainty is safe, and is why it was taken this
+> way:** the H40 pair is the STRICTER reading, so a wrong choice can only refuse a base that
+> would in fact have worked — never admit one that would not. Every base this tree ships
+> satisfies them, so there is no refusal today.
+>
+> **A SECOND, SMALLER FINDING, fixed with it:** `engine.constants` spells the Plane B base
+> TWICE — `VRAM_PLANE_B` ($E000, what the generated `vram.toml` cross-checks pin) and
+> `VRAM_PLANE_B_BYTES` ($E000, what `bg`/`plane_buffer`/`section` import) — and **nothing
+> pinned them together**. Reg $04 derives from the first and the engine's writes go through
+> the second, so a relayout that moved one is the same defect in a different costume. There is
+> now an `ensure` in `boot_data.emp` and a twin assertion in the pytest lane.
+>
+> **TWO RUNNERS, and they fail for different reasons — which is the point, because either one
+> alone reports green in the case the other catches.**
+> * `games/sonic4/test/poison/poison_vdp_base_residue.emp` + its row in
+>   `tools/emp_expect_fail.py` (run build-fatally by `build.sh`): proves the `ensure` FIRES.
+>   Measured red-first — with the `ensure` deleted the row reports `BUILT CLEAN — the guard
+>   did not fire`. Both numbers in its expected fragment are computed from the sources the
+>   poison itself reads (`VRAM_SPRITE_TABLE`, and the `SpriteTable` arm of
+>   `vdp_base_granule`), never typed, so the row cannot go vacuous when the base moves.
+> * `tools/test_vdp_base_registers.py` (the build-fatal `pytest tools` lane): proves the five
+>   rows stay DERIVED, and restates the residue fact in a second language. **This is the half
+>   the `.emp` guard structurally cannot cover** — a row that goes back to `dc.b $5C` stops
+>   *calling* `vdp_base_reg`, so the poison keeps passing about a guard nothing consults. A
+>   wall is only as live as its callers.
+>
+> **WHAT IS NOT CLOSED.** The `.emp` lint is still sigil's and still unbuilt, and this parcel
+> does not substitute for it: a sweep is a one-time answer and a lint is a standing one. The
+> sweep's own bounds, stated so a successor does not re-read it as more than it was — it
+> covered the Z80 page-residue family (`SND_RING_BASE`, `SND_SFX_BASE`, `SND_Z80_YM_A1` and
+> the deliberately-not-taken `DacSampleTable` form: **all four already carry their `ensure`,
+> which is the booking's own claim confirmed**), the 68000 masked-address sites, and the VDP
+> register encodings where the instance was found. It did NOT cover the residual `.asm`, the
+> generated data blobs, or anything whose residue is expressed in a tool rather than in source.
+
 **Stated by the sigil lane against their own new gate, which is the right direction for a caveat
 to travel.** Their alignment table declares a requirement per section with a cited source; 104 of
 107 rows declare 2 **by rule rather than by measurement**. They swept `ensure(` across all of
@@ -17128,6 +17202,25 @@ it looks: that list was written by a session that no longer exists, and this lan
 lane's context** — the same lesson as the lost `+$60` derivation two entries up, with the opposite
 outcome. The list: scroll clamp, d-34, d-35, d-32 (re-measure after d-41), insta-shield riders, loop
 crossover to ROM, DMA split-reject reserve, base-residue `ensure`s, scene readout.
+
+> **TWO MORE ROWS STRUCK 2026-09-03, both checked against `origin/master` rather than against
+> the list.** The hub's 2026-09-03T03:32Z correction (empyrean `5d8d0f7`) already struck scene
+> readout, the loop crossover and the insta-shield riders, and left `scroll clamp` and
+> `base-residue ensure`s in its "live remainder". **`scroll clamp` was NOT live** —
+> PARALLAX-SCROLL-CLAMP landed `d3b3ab5a` (2026-08-29 21:58 -0400) and merged `2718cf0a`
+> (22:24), both verified ancestors of `origin/master`, with the clamp readable at
+> `engine/level/parallax.emp:2212-2214` and `VSCROLL_BG_MAX` at `:573`. **The list is six
+> hours older than the landing** (it was compiled 2026-08-29T19:53:03Z = 15:53 -0400), which
+> is the whole explanation. Its one open caveat — *"changes the picture on a shipped scene …
+> someone should look at it"* — was discharged too, by the owner's own capture `46acfdd0`
+> (`docs/captures/2026-08-30-scroll-clamp/`), also an ancestor. **`base-residue ensure`s WAS
+> live and is now closed** by `parcel/item15-static-pair`; see the LANDED block on that entry.
+> **Live remainder after this: d-34, d-35, d-32 (re-measure), DMA split-reject reserve.**
+>
+> The transferable half, since this is now the second list in this file to outlive its own
+> tree: **a queue row's status is a fact about `origin/master`, and the list is only a pointer
+> to where to look.** Three of the nine were struck by a check against the tree, and two more
+> here; every one of the five had been carried forward by sequencing from the list.
 
 ### d-47-revised — RULED `targeted`
 
