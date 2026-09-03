@@ -809,6 +809,13 @@ def reachable_sets(subs, rom, labels):
     # --- the per-writer contributions ------------------------------------
     def contribution(key, sub):
         if key == "script":
+            # EVERY row of the table, including ids this character cannot enter
+            # (Sonic's Fly/Glide rows exist only to keep the ANIM id space
+            # total). That is the SAFE direction — it can only overstate — and
+            # it costs nothing today because every such row is a byte-for-byte
+            # copy of that character's own walk cycle. Narrowing it would mean
+            # deciding which ids each character's state machine can reach, which
+            # is a second, drift-prone copy of Player_Animate's classifier.
             return set().union(*scripts[sub["name"]].values()) if scripts[sub["name"]] else set()
         if key == "zero":
             return {0}
