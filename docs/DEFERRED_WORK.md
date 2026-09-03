@@ -19238,6 +19238,19 @@ next instance arrives wearing different clothes.
 *(Recorded here rather than as a new bar: the moratorium on process bars is in force, and this is a
 fact about one defect, in the entry that fixes it.)*
 
+
+**⚠ ONE SENTENCE ABOVE IS TOO STRONG, corrected on landing rather than left to be inherited.**
+The claim that the six `cpu: z80` phased sections' own proc names *"never surface as listing
+heads"* is contradicted by this entry's own second collision: **`SfxBlobWinTab` is declared inside
+`games/sonic4/data/sound/sfx_blob_win_tab.emp`'s `section sfx_blob_win_tab (cpu: z80, vma: $8000)`,
+and it DOES surface** — it is the head immediately after `Raster_HInt` in `s4.debug.lst`, which is
+exactly how it truncated it. So the two collisions do NOT share one section, and one of them is
+`cpu: z80` while the other is `cpu: m68000`. **The fix is unaffected and is in fact vindicated by
+this**: the discriminator it implements is the `vma:` clause and nothing else, and its exclusion set
+deliberately includes every phased section's names as a superset — which is why it caught a case its
+own prose says could not occur. Read the sentence as "some do not", and read the DISCRIMINATOR, not
+the cpu.
+
 ### The discriminator, and how the population was enumerated
 
 **The listing itself carries no marker.** sigil-link's `emit_listing`
@@ -19261,7 +19274,7 @@ other six (`sfx_blob_win_tab.emp`, `movingtrucks_pitchtable.emp`,
 `engine/sound/{seq_opcode_tab,sound_tables_z80,dac_sample_tab}.emp`,
 `engine/system/z80_init.emp`'s `z80_idle`) are `cpu: z80` sections compiled to a separate
 blob and `embed()`-ed as raw bytes by `soundbankhead.emp` — their OWN declared proc names
-never surface as listing heads (confirmed empirically: `SndDrv_Init`, `Fm_YmWrite`,
+mostly do not surface as listing heads (confirmed empirically: `SndDrv_Init`, `Fm_YmWrite`,
 `Psg_HwCh`, `Sfx_Frame`, `Sequencer_Frame`, `Z80_Sound_Entry`, `Z80_IdleProgram` — none of
 them appear in `s4.debug.lst` at all). `vma_phased_symbol_names()` still includes their
 names (a harmless superset, since they never match a real listing head), rather than
@@ -19358,3 +19371,23 @@ commit) and rebuilding both canonical DEBUG fixtures fresh:
   built for this change, because `tools/` is Python read only by post-build gates and
   the pytest lane — nothing in this fix touches assembled bytes, headers, or anything a
   release-shape build reads differently from a debug one.
+**Item 10a's DEMAND ARTIFACT exists (2026-09-03, `docs/item10a-key-shape`, documents
+only):** `docs/superpowers/specs/2026-09-03-item10a-reels-key-shape.md` transcribes from
+engine source the authoring shape a reels field would need if exposed to a document — and
+finds that no preset key, scene key, or reserved-by-name placeholder targets it today
+(zero hits for "reel"/"strip" in `tools/effects_gen.py`), and that the one scene-level key
+that IS adjacent, `v_deform`, is mechanically the WRONG surface: `SceneVDeform.Columns`
+samples one table at one shared, monotonically-advancing phase (verified at the
+instruction level against `engine/level/parallax.emp`'s per-column fill loop), so it can
+only ever produce columns that lag and periodically re-synchronise, never the pairwise-
+distinct, never-resynchronising independent per-band rates `OJZ_Reel_Speed` demonstrates.
+It also finds the feature has no reusable `comptime fn` constructor of any kind (unlike
+item 6's `raster_ramp_program`) and no capability-bit gate at all, names all four
+`ensure`s (by line) that refuse an illegal `OJZ_REEL_SPEEDS`/`REEL_BAND_COUNT`/
+`REEL_COLS_PER_BAND` combination, and states that no `ensure` bounds an individual speed's
+magnitude beyond its raw `i8` storage — the authored contract and the storage width are
+the same range here, the opposite asymmetry from item 6's ~64x gap. Ten items are listed
+as NOT ESTABLISHED, including whether a real per-section reels mechanism needs a new
+`Parallax_Update` engine hook or can keep the override-after-fill shape with per-scene
+rather than one fixed global rate storage — the source the item-13 contract CR would be
+drafted from, once the hub rules on the open questions §2 raises.
