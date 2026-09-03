@@ -95,8 +95,8 @@ USAGE
                                                           # slot cost exceeds
                                                           # the ratchet, or if a
                                                           # REACHABLE frame
-                                                          # breaches the wall or
-                                                          # the split reserve
+                                                          # splits past the
+                                                          # DPLC entry reserve
 The ROM defaults to the listing with `.lst` -> `.bin`; `--rom` names it directly.
 """
 
@@ -1037,32 +1037,47 @@ def report(lst_path, out=sys.stdout, sweep=None, sweep_range=(-512, 512),
         for why in dict.fromkeys(undetermined):
             print(f"  ! {why}", file=sys.stderr)
     if gate:
-        # VERDICT A — unchanged: the worst peak SLOT cost over ALL frames.
+        failed = False
+        # VERDICT A — UNCHANGED: the worst peak SLOT cost over ALL frames, with
+        # the same predicate, the same message and the same exit code it has
+        # always had.
         if worst > ratchet:
             print(f"\ndplc_straddle: FAIL — peak SLOT cost {worst} exceeds the committed "
                   f"entry bar {ratchet}. A frame costs more queue slots than its "
                   f"entry count, because at least one of its transfers straddles a "
                   f"0x{boundary:X} source boundary and QueueDMA splits it in two.",
                   file=out)
-            return 1
-        # VERDICT B — the reachable half. A displayable frame that breaches the
-        # wall, or one whose splits outnumber the slots the reserve holds open
-        # for exactly those splits, is the case the all-frames peak can miss when
-        # an art base moves. Both numbers come from the constants, not from a pin.
-        if worst_reach_slots > ratchet:
-            print(f"\ndplc_straddle: FAIL — a REACHABLE frame costs {worst_reach_slots} slots "
-                  f"against the bar {ratchet}. Unlike the all-frames peak this one is a frame "
-                  f"the game can display.", file=out)
-            return 1
+            failed = True
+        # VERDICT B — driven by the REACHABLE set, and NOT implied by A.
+        #
+        # Note what is deliberately absent: there is no "a reachable frame is
+        # over the bar" check, because A already forbids ANY frame being over it
+        # and slot_cost already includes the splits — such a check could never
+        # fire on its own and would be a gate that only looks like one.
+        #
+        # What A cannot see is the SHAPE of the cost. A frame can sit well under
+        # the bar and still need more than the reserved slots at once: a DPLC
+        # frame may name the same tile several times (Sonic's $1E lists tile 165
+        # seven times), and every one of those entries straddles together when
+        # the boundary falls inside that tile. QueueDMA rejects a split outright
+        # when only one slot is free (dma_queue.emp `.split_reject`), so the bar
+        # for a single frame's splits is DPLC_ENTRY_RESERVE — read from its own
+        # defining file, never pinned here. This is the check a 21 KB art-base
+        # move walks into, and it is why the reachable half exists.
         if worst_reach_split > reserve:
             print(f"\ndplc_straddle: FAIL — a REACHABLE frame splits into {worst_reach_split} "
-                  f"extra queue entries, more than the {reserve}-slot DPLC_ENTRY_RESERVE held "
-                  f"open for splits. QueueDMA rejects the whole transfer when only one slot is "
-                  f"free (dma_queue.emp .split_reject), so the frame's art would not load.",
-                  file=out)
+                  f"extra queue entries at once, more than the {reserve}-slot "
+                  f"DPLC_ENTRY_RESERVE held open for exactly those splits. QueueDMA rejects "
+                  f"the whole transfer when only one slot is free (dma_queue.emp "
+                  f".split_reject), so this frame's art would not load — and it is a frame the "
+                  f"game can display.", file=out)
+            failed = True
+        if failed:
             return 1
         print(f"\ndplc_straddle: OK — no frame's SLOT cost exceeds the bar {ratchet}, and no "
-              f"REACHABLE frame splits past the {reserve}-slot reserve", file=out)
+              f"REACHABLE frame splits past the {reserve}-slot reserve "
+              f"(worst reachable peak {worst_reach_slots} slots, worst reachable split "
+              f"{worst_reach_split})", file=out)
     return 0
 
 
@@ -1306,6 +1321,35 @@ def selftest(lst_path, out=sys.stdout, rom_path=None):
         who, d, was, now = moved
         print(f"  [5] reachable-straddle move: shifting {who}'s art base by {d:+d} B takes its "
               f"REACHABLE straddling entries {was} -> {now}", file=out)
+
+    # (5b) VERDICT B must be provably red on this data, or its green means
+    # nothing. Searched at tile granularity over a whole boundary period, which
+    # covers every distinct placement the art can have.
+    def reach_split(sub, shift):
+        rf = reach[sub["name"]]["frames"]
+        c = frame_costs(sub["frames"], sub["art_base"] + shift, tile_size, boundary)
+        return max((len(x[2]) for i, x in enumerate(c) if i in rf), default=0)
+
+    over = None
+    for x in subs:
+        if reach[x["name"]]["undetermined"]:
+            continue
+        for d in range(0, boundary, tile_size):
+            if reach_split(x, d) > reserve:
+                over = (x["name"], d, reach_split(x, d))
+                break
+        if over:
+            break
+    if over is None:
+        fails.append(f"no placement in a whole {boundary:#x}-byte period makes any REACHABLE "
+                     f"frame split past the {reserve}-slot reserve — VERDICT B cannot be shown "
+                     f"red on this data, so its green is decoration")
+        print("  [5b] VERDICT B RED PROOF: NONE FOUND — see failure below", file=out)
+    else:
+        who, d, n = over
+        print(f"  [5b] verdict B red proof: shifting {who}'s art base by {d:+d} B makes a "
+              f"REACHABLE frame split into {n} entries at once, past the {reserve}-slot "
+              f"reserve — the gate fires", file=out)
 
     # (6) an undetermined writer widens; it must never narrow
     probe = [dict(x) for x in subs]

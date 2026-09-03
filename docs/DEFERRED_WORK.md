@@ -231,13 +231,25 @@ name. And the handler-block derivation initially mis-classified `AF_CALLBACK` as
 because `.evt_callback` carries its own `.evt_cb_done:` label before its cursor advance — caught
 by a unit test, latent today only because no script bakes a callback.
 
-**The old slot-cost verdict is unchanged** (worst peak SLOT cost over ALL frames vs
-`DMA_IMPORTANT_SLOTS - DPLC_ENTRY_RESERVE`); the reachable half adds two: a REACHABLE frame over
-the bar, and a REACHABLE frame splitting into more entries than the reserve holds open.
-`--selftest` now carries six proofs, three of them new and all searched at run time — that the
-reachable set is a proper non-empty subset, that a base shift can MOVE the reachable straddle
-count (on this tree, `+9209 B` on Sonic takes it 0 → 1), and that an unclaimed writer widens
-rather than narrows. Zero ROM bytes moved: all four shapes are byte-identical to `5b35f083`.
+**The old slot-cost verdict is unchanged** — same predicate, same message, same exit code (worst
+peak SLOT cost over ALL frames vs `DMA_IMPORTANT_SLOTS - DPLC_ENTRY_RESERVE`).
+
+**The reachable half adds exactly ONE new failing condition, and the one it does NOT add is worth
+recording.** There is deliberately no "a reachable frame is over the bar" check: the old verdict
+already forbids ANY frame being over it and `slot_cost` already counts the splits, so such a
+check could never fire on its own — a gate that only looks like one. What the old verdict cannot
+see is the SHAPE of the cost. **A DPLC frame may name the same tile several times — Sonic's `$1E`
+lists tile 165 seven times — and all seven entries straddle together when the boundary falls
+inside that tile.** `QueueDMA` rejects a split outright when only one slot is free, so the bar for
+a single frame's simultaneous splits is `DPLC_ENTRY_RESERVE`, and a frame can sit well under the
+slot bar and still breach it. That is the 21 KB-base-move case, and it is now a named failure.
+
+`--selftest` carries seven proofs, four of them new and all searched at run time: the reachable
+set is a proper non-empty subset for every subject; a base shift can MOVE the reachable straddle
+count (`+9209 B` on Sonic takes it 0 → 1); a base shift can make a REACHABLE frame split **7**
+ways past the 2-slot reserve (`+47968 B` on Sonic, frame `$1E`), so the new verdict is provably
+red; and an unclaimed writer widens rather than narrows. Zero ROM bytes moved: all four shapes
+are byte-identical to `5b35f083`.
 
 ### THE ANCHOR MOVER HAS NO AUTHORING SURFACE, AND THE BLOCKER IS A CLOSED SCHEMA TWO LANES AWAY (booked 2026-09-03)
 
