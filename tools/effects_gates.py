@@ -229,6 +229,14 @@ def gate_registry() -> list[tuple[str, bool, int]]:
         # inline lane (a headless boot plus 30 settled samples), which is exactly why it is
         # here and in the nightly.
         ("tile_cache_fill", True, GATE_EMU_BUDGET),
+        # sec6_baseswap is item 11a's ON-SCREEN half, and the one gate here that boots BOTH
+        # canonical shapes in a single invocation — the release arm is not decoration, it is
+        # how the instrument separates the generated program from `OJZ_BaseSwap` BY
+        # CONSTRUCTION (the hand-written demo emits zero bytes in `s4.bin`). Two servers, a
+        # warp, four checkpoint-restored frame captures per shape and a dozen scanline stops
+        # each, measured 300-400 s wall on a machine running two other agents' lanes, so the
+        # budget below is a wedge ceiling well above that and not a performance assertion.
+        ("sec6_baseswap", True, 900),
         ("cost_model", True, 900),
         ("scanline_spans", False, 120),
         ("demo_witness", False, 120),
@@ -1303,6 +1311,27 @@ def main() -> int:
                 else "NO capability bits declared at all — every check above ran over an "
                      "empty set and this gate measured nothing",
                 final=True))
+
+    # ------------------------------------------------------------------
+    # 6b. EFFECTS-W1 item 11a's on-screen half: a RUNNING machine obeys the base-swap
+    # program a preset DOCUMENT asks for. `tools/plane_base_swap_gate.py` (build.sh, every
+    # canonical build) proves the HAND-WRITTEN demo's bytes are in the ROM and says in its
+    # own docstring that it does not prove the VDP draws anything; this is that half, and
+    # its subject is the GENERATED program bound to section 6, never the demo.
+    #
+    # It derives the release ROM/listing from `--rom`/`--lst` by dropping `.debug`, so the
+    # lane's ordinary two arguments reach both shapes. A missing release artifact REFUSES
+    # (exit 2) rather than quietly measuring one shape.
+    if wanted("sec6_baseswap"):
+        rel_rom = rom.replace(".debug.bin", ".bin")
+        rel_lst = lst.replace(".debug.lst", ".lst")
+        ok, msg = run(["python3", str(AEON / "tools/sec6_baseswap_witness.py"),
+                       "--rom", rom, "--lst", lst,
+                       "--release-rom", rel_rom, "--release-lst", rel_lst], "sec6_baseswap")
+        results.append(row("sec6_baseswap",
+                           "sec6_baseswap (the section's own crossing installs the GENERATED "
+                           "base-swap program, and the VDP's Plane A base moves at the "
+                           "authored line — in both shapes)", ok, msg, final=True))
 
     # ------------------------------------------------------------------
     # 7. The demo witness (Task 8): span absence + the committed per-proc image pin.
