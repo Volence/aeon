@@ -1085,7 +1085,7 @@ def main() -> int:
         jf = tmp / "cost.json"
         p = subprocess.run(["python3", str(AEON / "tools/raster_cost_probe.py"),
                             "--rom", rom, "--lst", lst,
-                            "--only", "F0,F1,F3,F4,F5,F8,FD1,FD2",
+                            "--only", "F0,F1,F3,F4,F5,F8,FD1,FD2,FR1,FR2",
                             "--out", str(jf)],
                            capture_output=True, text=True)
         if p.returncode != 0 or not jf.exists():
@@ -1139,7 +1139,29 @@ def main() -> int:
                 ok_d,
                 f"measured FD1={d1['cycles'][0]}/{d1['calls'][0]} fires, "
                 f"FD2={d2['cycles'][0]}/{d2['calls'][0]} fires -> {slope:.1f} cyc/line"
-                + ("" if calls_ok else f"  !! a fire count is not {shape}"),
+                + ("" if calls_ok else f"  !! a fire count is not {shape}")))
+
+            # The RAMP row (EFFECTS-W1 item 6) — `.ramp_body`'s twin of the dense gradient
+            # row directly above, same method: FR1/FR2 are the same OP_RUN_RAMP program at
+            # two line counts, so the slope is one ramp line with every shared overhead
+            # cancelled. RASTER_DENSE_LINE_RAMP_CYC is the HBlank budget check EFFECTS-W1
+            # item 6 asked for — this gate is what re-runs it on every canonical build,
+            # the same standing this file already gives the gradient constant.
+            ramp_line = emp_int("engine/effects/raster_dsl.emp", "RASTER_DENSE_LINE_RAMP_CYC")
+            r1, r2 = d["FR1"], d["FR2"]
+            rl = r2["ramp"]["lines"] - r1["ramp"]["lines"]
+            rslope = (r2["cycles"][0] - r1["cycles"][0]) / rl
+            r_calls_ok = all(f["calls"][0] == dense_fire_count(f["ramp"]["lines"])
+                             for f in (r1, r2))
+            ok_r = r_calls_ok and rslope == ramp_line
+            results.append(row(
+                "cost_model",
+                f"ramp cost row (RASTER_DENSE_LINE_RAMP_CYC = {ramp_line}; the slope "
+                f"(FR2 - FR1) / {rl} lines, with both fires counts derived as {shape})",
+                ok_r,
+                f"measured FR1={r1['cycles'][0]}/{r1['calls'][0]} fires, "
+                f"FR2={r2['cycles'][0]}/{r2['calls'][0]} fires -> {rslope:.1f} cyc/line"
+                + ("" if r_calls_ok else f"  !! a fire count is not {shape}"),
                 final=True))
 
     # ------------------------------------------------------------------
