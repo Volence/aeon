@@ -134,6 +134,15 @@ refuted the whole argument. None appeared.
 - **The enumeration is over source scripts, matched by pattern, not over the
   built table.** A ROM-derived enumeration is the stronger form, and is what the
   gate should carry rather than this document.
+  **SUPERSEDED 2026-09-03: the gate carries it now.** `tools/dplc_straddle.py`
+  walks the scripts out of the BUILT animation tables, expands the tilt and
+  appendage banks from their own constants, and finds every other
+  `mapping_frame` writer by scanning the tree rather than by reading this list.
+  It confirms both halves of the paragraph above — Sonic's `$6A` is unreachable,
+  Tails' `$A4` and Knuckles' `$8B` are reachable — and it found one writer this
+  document's enumeration missed: `Load_Object`'s sized-overlay write, which
+  makes frame 0 reachable for every subject. See the CLOSED entry in
+  `docs/DEFERRED_WORK.md`.
 - **Sampling was one read per action**, not per frame — a watchpoint halts the
   run, so continuous capture was not available. A transient frame could have
   been missed. This is a falsification opportunity taken, not exhaustive

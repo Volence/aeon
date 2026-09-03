@@ -139,6 +139,244 @@ class TestRecut(unittest.TestCase):
                         "bits 15-12 hold count-1, so 16 tiles is the cap")
 
 
+def make_anim_table(bodies):
+    """Build an `offsets`-construct animation table from a list of body byte
+    strings, laid out exactly as sigil emits one: a word offset per entry from
+    the table base, then the bodies packed inline behind it."""
+    table, blob, off = [], b"", len(bodies) * 2
+    for b in bodies:
+        table.append(off)
+        blob += bytes(b)
+        off += len(b)
+    return b"".join(struct.pack(">H", o) for o in table) + blob
+
+
+#: The control-code values, spelled here so the walk tests do not depend on the
+#: tree's constants file being present. `TestOpcodeDerivation` is what binds
+#: these to the tree — if engine/system/constants.emp renumbers a code, that test
+#: fails, not these.
+AF_END, AF_BACK, AF_CHANGE = 0xFF, 0xFE, 0xFD
+AF_ROUTINE, AF_DELETE, AF_CALLBACK = 0xFC, 0xFB, 0xFA
+AF_SOUND, AF_COLLISION, AF_SET_FIELD = 0xF9, 0xF8, 0xF7
+AF = {"AF_END": AF_END, "AF_BACK": AF_BACK, "AF_CHANGE": AF_CHANGE,
+      "AF_ROUTINE": AF_ROUTINE, "AF_DELETE": AF_DELETE, "AF_CALLBACK": AF_CALLBACK,
+      "AF_SOUND": AF_SOUND, "AF_COLLISION": AF_COLLISION, "AF_SET_FIELD": AF_SET_FIELD}
+EVENTS = {AF_CALLBACK: 4, AF_SOUND: 2, AF_COLLISION: 2, AF_SET_FIELD: 4}
+MAPFRAME_OFF = 0x23
+
+
+class TestAnimWalk(unittest.TestCase):
+    """The script walk, over hand-built tables.
+
+    The expectations are read off the format in engine/objects/animate.emp's
+    header: byte 0 is a DURATION, bytes 0-$F6 are frame indices, and every
+    control code's operand is its own kind of thing — a rewind COUNT, an anim
+    ID, a sound id — never a frame.
+    """
+
+    def walk(self, bodies, count=None):
+        blob = make_anim_table(bodies)
+        return D.parse_anim_table(blob, 0, count if count is not None else len(bodies),
+                                  "t", AF, EVENTS, MAPFRAME_OFF)
+
+    def test_the_duration_byte_is_not_a_frame(self):
+        by_id, _ = self.walk([[7, 0x40, 0x41, AF_END]])
+        self.assertEqual(by_id[0], {0x40, 0x41},
+                         "byte 0 is the hold, not the first frame")
+
+    def test_af_back_operand_is_a_count_not_a_frame(self):
+        # `[5, $C3, $C4, AF_BACK, 1]` holds the last pose. The trailing 1 is a
+        # rewind count; a walker that treated it as a frame would invent frame 1.
+        by_id, _ = self.walk([[5, 0xC3, 0xC4, AF_BACK, 1]])
+        self.assertEqual(by_id[0], {0xC3, 0xC4})
+
+    def test_af_change_operand_is_an_anim_id_not_a_frame(self):
+        by_id, _ = self.walk([[5, 0x30, AF_CHANGE, 9], [5, 0x31, AF_END]])
+        self.assertEqual(by_id[0], {0x30}, "the 9 is the id of animation 1, not frame 9")
+        self.assertEqual(by_id[1], {0x31})
+
+    def test_inline_events_are_read_through_and_their_operands_skipped(self):
+        # AF_SOUND takes one operand byte; the interpreter continues at the byte
+        # after it. Pick operands that WOULD look like frames if mis-read.
+        by_id, _ = self.walk([[3, 0x20, AF_SOUND, 0x55, 0x21, AF_END]])
+        self.assertEqual(by_id[0], {0x20, 0x21}, "$55 is a sound id, not a frame")
+        by_id, _ = self.walk([[3, 0x20, AF_COLLISION, 0x66, 0x21, AF_END]])
+        self.assertEqual(by_id[0], {0x20, 0x21})
+        by_id, _ = self.walk([[3, 0x20, AF_CALLBACK, 0x12, 0x34, 0, 0x21, AF_END]])
+        self.assertEqual(by_id[0], {0x20, 0x21}, "the callback target is an address pair")
+
+    def test_af_set_field_targeting_mapping_frame_contributes_its_value(self):
+        # DEBUG asserts a script cannot do this; release does not. If one ever
+        # does, the value IS a displayed frame and must not be lost.
+        by_id, notes = self.walk([[3, 0x20, AF_SET_FIELD, MAPFRAME_OFF, 0x7E, 0, AF_END]])
+        self.assertIn(0x7E, by_id[0])
+        self.assertTrue(any("AF_SET_FIELD" in n for n in notes), "and it says so")
+
+    def test_af_set_field_targeting_another_byte_contributes_nothing(self):
+        by_id, notes = self.walk([[3, 0x20, AF_SET_FIELD, MAPFRAME_OFF + 1, 0x7E, 0, AF_END]])
+        self.assertEqual(by_id[0], {0x20})
+        self.assertEqual(notes, [])
+
+    def test_every_terminator_stops_the_walk(self):
+        for term in (AF_END, AF_ROUTINE, AF_DELETE):
+            by_id, _ = self.walk([[3, 0x20, term], [3, 0x21, AF_END]])
+            self.assertEqual(by_id[0], {0x20}, f"${term:02X} terminates")
+
+    def test_a_body_with_no_terminator_is_unmeasurable(self):
+        with self.assertRaises(D.Unmeasurable):
+            self.walk([[3] + [0x20] * 8, [3, 0x21, AF_END]])
+
+    def test_a_count_that_disagrees_with_anim_count_is_unmeasurable(self):
+        with self.assertRaises(D.Unmeasurable):
+            self.walk([[3, 0x20, AF_END], [3, 0x21, AF_END]], count=3)
+
+    def test_a_non_table_head_is_unmeasurable_not_empty(self):
+        with self.assertRaises(D.Unmeasurable):
+            D.parse_anim_table(b"\x00\x00\x00\x00", 0, 2, "t", AF, EVENTS, MAPFRAME_OFF)
+        with self.assertRaises(D.Unmeasurable):
+            D.parse_anim_table(b"\x00\x03\x00\x00", 0, 1, "t", AF, EVENTS, MAPFRAME_OFF)
+
+
+class TestOpcodeDerivation(unittest.TestCase):
+    """The walk's opcode classification is DERIVED from AnimateSprite, so this
+    checks the shape of what came back, not numbers copied out of a run."""
+
+    def setUp(self):
+        self.values, self.events, self.threshold = D.anim_opcodes()
+
+    def test_the_hand_written_test_codes_match_the_tree(self):
+        self.assertEqual(self.values, AF, "the codes the walk tests use are the tree's")
+
+    def test_terminators_are_not_events(self):
+        for name in ("AF_END", "AF_BACK", "AF_CHANGE", "AF_ROUTINE", "AF_DELETE"):
+            self.assertNotIn(self.values[name], self.events,
+                             f"{name} ends the walk; it has no inline width")
+
+    def test_events_are_events(self):
+        for name in ("AF_CALLBACK", "AF_SOUND", "AF_COLLISION", "AF_SET_FIELD"):
+            self.assertIn(self.values[name], self.events,
+                          f"{name} is read THROUGH — the interpreter advances past it")
+
+    def test_every_event_width_is_even_and_at_least_two(self):
+        # animate.emp's header states the invariant: "All events consume an even
+        # number of bytes." An odd width would desynchronise every later frame.
+        for code, w in self.events.items():
+            self.assertGreaterEqual(w, 2, f"${code:02X} must consume its opcode plus operands")
+            self.assertEqual(w % 2, 0, f"${code:02X} breaks the even-width format invariant")
+
+    def test_the_threshold_is_the_lowest_control_code(self):
+        self.assertEqual(self.threshold, min(self.values.values()))
+
+
+class TestTiltExpansion(unittest.TestCase):
+    """The tilt banks, against the sheet geometry player_common.emp's own
+    `ensure` pins: the four WALK blocks tile TILT_WALK_BASE up to where the RUN
+    blocks begin, and the four RUN blocks follow them."""
+
+    def test_the_walk_cycle_expands_to_fill_the_walk_blocks(self):
+        P = "games/sonic4/player/player_common.emp"
+        base = D.local_const(P, "TILT_WALK_BASE")
+        length = D.local_const(P, "TILT_WALK_LEN")
+        run_base = D.local_const(P, "TILT_RUN_BASE")
+        walk_cycle = set(range(base, base + length))
+        got, _ = D.tilt_expansion({0: walk_cycle, 1: set()})
+        self.assertEqual(got, set(range(base, run_base)),
+                         "four blocks of the walk cycle tile the span up to the run blocks")
+
+    def test_the_run_cycle_expands_to_fill_the_run_blocks(self):
+        P = "games/sonic4/player/player_common.emp"
+        base = D.local_const(P, "TILT_RUN_BASE")
+        length = D.local_const(P, "TILT_RUN_LEN")
+        sets = D.local_const(P, "TILT_SETS")
+        got, _ = D.tilt_expansion({0: set(), 1: set(range(base, base + length))})
+        self.assertEqual(got, set(range(base, base + sets * length)))
+
+    def test_an_untilted_animation_expands_to_nothing(self):
+        got, _ = D.tilt_expansion({5: {0x9B, 0x9C}})
+        self.assertEqual(got, set(), "only WALK and RUN have tilted art behind them")
+
+
+class TestAppendageBank(unittest.TestCase):
+    def test_the_roll_cycle_expands_by_the_masked_banks(self):
+        roll = D.const_from_emp("games/sonic4/config/constants.emp", "ANIM_ROLL")
+        got, note = D.appendage_bank({roll: {5}})
+        # The banks are the submasks of the `andi.b` mask, so the expansion of a
+        # single frame is one frame per bank and they are all distinct.
+        self.assertIn(5, got)
+        self.assertEqual(len(got), note.count("/") + 1)
+
+    def test_a_non_roll_animation_does_not_bank(self):
+        roll = D.const_from_emp("games/sonic4/config/constants.emp", "ANIM_ROLL")
+        got, _ = D.appendage_bank({roll + 1: {5}})
+        self.assertEqual(got, set())
+
+
+class TestClimbFrames(unittest.TestCase):
+    def test_the_cycle_is_the_inclusive_span_between_its_bounds(self):
+        P = "games/sonic4/player/player_climb.emp"
+        lo = D.local_const(P, "CLIMB_FRAME_LO")
+        hi = D.local_const(P, "CLIMB_FRAME_HI")
+        self.assertEqual(D.climb_frames()["cycle"], set(range(lo, hi + 1)))
+
+    def test_one_clamber_pose_per_four_byte_entry(self):
+        P = "games/sonic4/player/player_climb.emp"
+        total = D.local_const(P, "CLIMB_CLAMBER_BYTES")
+        self.assertEqual(len(D.climb_frames()["clamber"]), total // 4,
+                         "the cursor advances by 4, so entry 0 of each 4 is the frame")
+
+
+class TestWriteSiteScan(unittest.TestCase):
+    """The scanner has to find writers the tree spells in more than one way."""
+
+    def setUp(self):
+        self.sites = D.scan_write_sites()
+        self.keys = {(p, s) for p, _, s, _ in self.sites}
+
+    def test_it_finds_the_script_interpreter(self):
+        self.assertIn(("engine/objects/animate.emp", "AnimateSprite"), self.keys)
+
+    def test_it_finds_the_unnamed_sized_overlay_writer(self):
+        # Load_Object initialises prev_anim..prev_frame with one `move.l` over a
+        # `:l` sized override — the line never says "mapping_frame", but it
+        # writes it, and it runs for EVERY spawned object. A name-only scan
+        # misses the one writer with the widest reach in the tree.
+        self.assertIn(("engine/objects/load_object.emp", "Load_Object"), self.keys)
+
+    def test_every_site_found_is_claimed_by_a_writers_entry(self):
+        unclaimed = sorted(self.keys - set(D.WRITERS))
+        self.assertEqual(unclaimed, [], "an unclassified writer widens the reachable set")
+
+    def test_every_writers_entry_still_names_a_live_site(self):
+        stale = sorted(set(D.WRITERS) - self.keys)
+        self.assertEqual(stale, [], "a claim whose routine moved is a claim about nothing")
+
+    def test_the_claimed_site_counts_match(self):
+        counts = {}
+        for p, _, s, _ in self.sites:
+            counts[(p, s)] = counts.get((p, s), 0) + 1
+        for key, spec in D.WRITERS.items():
+            self.assertEqual(counts.get(key), spec["sites"],
+                             f"{key} holds a different number of writes than it claims")
+
+    def test_comment_only_mentions_are_not_sites(self):
+        self.assertEqual(D._strip_comment("        move.b  d0, mapping_frame(a0) // x").strip(),
+                         "move.b  d0, mapping_frame(a0)")
+        self.assertEqual(D._strip_comment("// move.b d0, mapping_frame(a0)").strip(), "")
+
+
+class TestSubjectBindings(unittest.TestCase):
+    def test_every_subject_is_bound_by_a_record_that_names_all_three_labels(self):
+        bind = D.subject_bindings()
+        for _, art, dplc, *_ in D.SUBJECTS:
+            self.assertIn(art, bind, f"{art} is bound by no record")
+            self.assertEqual(bind[art]["dplc"], dplc,
+                             f"{art}'s record pairs it with a different DPLC table")
+            self.assertTrue(bind[art]["anim"].startswith("Ani_"))
+
+    def test_no_routine_animates_one_character_against_another_s_dplc(self):
+        self.assertEqual(D.check_anim_dplc_pairings(), [])
+
+
 class TestLoudOnUnmeasurable(unittest.TestCase):
     def test_a_missing_constant_raises(self):
         with self.assertRaises(D.Unmeasurable):

@@ -180,6 +180,65 @@ edge, and (b) `Section_RedrawPlanes` returning `d7 = Cache_Head_Col` uncondition
 `Section_Plane_Dirty` setters run straight after an unbudgeted `FillAll`, and now asserted, but it is
 the remaining place a tracker is written without a matching draw.
 
+### ~~THE STRADDLE GATE COULD NOT TELL A DISPLAYABLE FRAME FROM AN UNREACHABLE ONE~~ — CLOSED 2026-09-03
+
+**`tools/dplc_straddle.py` now splits every character's straddling frames into REACHABLE and
+UNREACHABLE, and the reachable half carries its own verdict.** The gap it closes was named in
+`docs/measurements/2026-09-03-dma-split-reserve-reading.md`: the gate computed its straddle set
+over ALL frames of each sheet, so it both overstated (it reported a Sonic straddle the game
+cannot display) and — the sharp half — **could not say when a straddle landed on a frame that
+IS displayable, because it never asked.** `BLOCK-STREAM-DEDUP` is booked to move art bases by
+about 21 KB, four times the margin the d-47 fix depends on, and moving a base moves which frames
+straddle. That case was silent; it is now a named failure.
+
+**THE READING, on `s4.debug.bin` at this commit** (`--gate` prints it on every sonic4 build):
+
+| subject | straddling | reachable? | reachable frames |
+|---|---|---|---|
+| sonic | `$6A` | **NO** | 83 of 224 |
+| tails | `$A4` | **YES** (FlyTired) | 76 of 251 |
+| tails_tail | none | — | 36 of 45 |
+| knuckles | `$8B` | **YES** (Spindash) | 113 of 251 |
+
+**The reserve is load-bearing for the ROSTER even though it is not for Sonic.** Sonic's `$6A` is
+in no script and above every tilt bank (walk tops out at `$20`, run at `$30`), so the zero
+straddle count the emulator reading got is the PREDICTED result — but Tails' `$A4` and Knuckles'
+`$8B` are both scripted and become reachable the moment those characters ship. Do not read the
+Sonic zero as "the split reserve is unused".
+
+**How reachability is derived** — all of it from the tree, none of it from that document's
+source-regex enumeration, which is the weaker form this replaces:
+* **the scripts are walked out of the BUILT ROM** at the `Ani_*` table each subject's
+  `CharacterDef` names (the appendage from its own `equ` block), with the control-code operand
+  widths DERIVED from `AnimateSprite`'s own handlers — `AF_BACK`'s operand is a rewind count and
+  `AF_CHANGE`'s an anim id, and a walker that read either as a frame would invent one;
+* **the expansions** — `Player_ApplyTilt`'s walk/run banks and `TailsAppendage_Main`'s roll banks
+  — read their bases, shifts and masks from the constants that define them, and re-read the
+  instructions the arithmetic depends on so a re-spelled routine fails loud;
+* **every other `Sst.mapping_frame` writer is FOUND BY SCANNING**, not listed from memory, and
+  each must be claimed by a `WRITERS` entry saying whose art it targets. Writes against a
+  different mappings set (the debug marker's `Map_TestObj`, the test objects, the readout glyph)
+  contribute nothing and say why.
+
+**A writer it cannot classify WIDENS to all frames and prints an UNDETERMINED banner on stdout
+and stderr. The reachable set is never quietly narrowed.** A broken derivation is `Unmeasurable`
+and exits 2.
+
+**Two things the scan found that a hand list would not have.** `Load_Object` writes
+`mapping_frame` through a `move.l #$FF000000, Sst.prev_anim:l(a1)` sized overlay — the line never
+says `mapping_frame`, and it runs for every spawned object; the scanner matches by SPAN, not by
+name. And the handler-block derivation initially mis-classified `AF_CALLBACK` as a terminator
+because `.evt_callback` carries its own `.evt_cb_done:` label before its cursor advance — caught
+by a unit test, latent today only because no script bakes a callback.
+
+**The old slot-cost verdict is unchanged** (worst peak SLOT cost over ALL frames vs
+`DMA_IMPORTANT_SLOTS - DPLC_ENTRY_RESERVE`); the reachable half adds two: a REACHABLE frame over
+the bar, and a REACHABLE frame splitting into more entries than the reserve holds open.
+`--selftest` now carries six proofs, three of them new and all searched at run time — that the
+reachable set is a proper non-empty subset, that a base shift can MOVE the reachable straddle
+count (on this tree, `+9209 B` on Sonic takes it 0 → 1), and that an unclaimed writer widens
+rather than narrows. Zero ROM bytes moved: all four shapes are byte-identical to `5b35f083`.
+
 ### THE ANCHOR MOVER HAS NO AUTHORING SURFACE, AND THE BLOCKER IS A CLOSED SCHEMA TWO LANES AWAY (booked 2026-09-03)
 
 **EFFECTS-W1 DoD item 4's engine half landed as chain 215 (`094496ca`); its AUTHORING half is

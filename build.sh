@@ -901,8 +901,17 @@ if [[ "$FAST" == "0" ]]; then
         # against DPLC_ENTRY_RESERVE. The ratchet is READ from that ensure, not
         # copied here. --selftest (not run in the build) proves the gate red by
         # searching for a shift that trips it. sonic4-only: `demo` has no player.
+        #
+        # It takes the ROM as well as the listing because it now splits each
+        # character's straddling frames into REACHABLE and unreachable, and the
+        # reachable set is walked out of the BUILT animation tables (plus the
+        # tilt/bank expansions and every other mapping_frame writer, found by
+        # scanning the tree). A straddle on a frame the game can display is a
+        # second, named failure; a writer it cannot classify WIDENS the set and
+        # says so, never narrows it.
         # Measured and reasoned in docs/2026-08-30-dplc-append-disturbance.md.
-        if ! python3 "${TOOLS}/dplc_straddle.py" --lst "${ROM_NAME}.lst" --gate; then
+        if ! python3 "${TOOLS}/dplc_straddle.py" --lst "${ROM_NAME}.lst" \
+                     --rom "${ROM_NAME}.bin" --gate; then
             echo "DPLC straddle gate failed — see above (tools/dplc_straddle.py)."
             exit 1
         fi

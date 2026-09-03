@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """dplc_straddle — measure the Important-queue SLOT cost of a DPLC frame, and how
-it moves when character art is APPENDED to or SHIFTED in the ROM.
+it moves when character art is APPENDED to or SHIFTED in the ROM — and whether a
+straddling frame is one the game can actually DISPLAY.
 
 WHY THIS EXISTS
 ---------------
@@ -32,6 +33,42 @@ For each (character DPLC table, art base) pair reachable from a CharacterDef:
   * and, under `--sweep`, both peaks as a function of a byte shift applied to
     the art base — the neighbourhood an append moves through.
 
+REACHABILITY — THE QUESTION THIS COULD NOT ASK
+----------------------------------------------
+The costs above are computed over EVERY frame of a character's DPLC table,
+including frames no animation can reach. That overstates (Sonic's only
+straddling frame, `$6A`, cannot be displayed at all), which is the mild half.
+The sharp half is the other direction: without a reachable set the tool cannot
+tell you when a straddle lands on a frame that IS displayable, and moving an art
+base — `BLOCK-STREAM-DEDUP` is booked to move one by ~21 KB — moves which frames
+straddle. That case has to be loud.
+
+So every subject's frames are split REACHABLE / UNREACHABLE. Reachable means
+"some code path can write this index into `Sst.mapping_frame` while the SST's
+mappings/DPLC are THIS subject's art", and it is assembled from three sources:
+
+  1. the animation scripts, walked OUT OF THE BUILT ROM (`--rom`) at the
+     `Ani_*` table the subject's `CharacterDef` names, with the control-code
+     operand widths DERIVED from `AnimateSprite`'s own handlers rather than
+     transcribed — `AF_BACK`'s operand is a rewind count and `AF_CHANGE`'s an
+     anim id, and neither is a frame;
+  2. the per-writer expansions — `Player_ApplyTilt`'s walk/run tilt banks and
+     `TailsAppendage_Main`'s roll direction banks — with the bases, shifts and
+     masks read from their own defining constants and their instruction
+     spellings re-checked;
+  3. every OTHER writer of `Sst.mapping_frame`, found by SCANNING the tree
+     (`scan_write_sites`) rather than listed from memory. Each site must be
+     claimed by a `WRITERS` entry that says which subjects' art it targets and
+     what it contributes — a write against a DIFFERENT mappings set (the debug
+     marker's `Map_TestObj`, the test objects) contributes nothing and says so.
+
+FAIL-SAFE, NEVER SILENT: a write site no `WRITERS` entry claims, or a claimed
+site whose count drifted, WIDENS the affected subjects' reachable set to ALL
+frames and prints an UNDETERMINED banner to stdout and stderr. The reachable set
+is never quietly narrowed. A broken derivation (a missing constant, a changed
+instruction spelling, a script that runs off its body) is `Unmeasurable` and
+exits 2.
+
 DERIVATION, NOT TRANSCRIPTION
 -----------------------------
 Every constant below is read out of the tree at run time and cross-checked:
@@ -56,7 +93,11 @@ USAGE
     tools/dplc_straddle.py --lst s4.debug.lst --sweep Art_Sonic --range -512:512
     tools/dplc_straddle.py --lst s4.debug.lst --gate      # non-zero if a peak
                                                           # slot cost exceeds
-                                                          # the ratchet
+                                                          # the ratchet, or if a
+                                                          # REACHABLE frame
+                                                          # breaches the wall or
+                                                          # the split reserve
+The ROM defaults to the listing with `.lst` -> `.bin`; `--rom` names it directly.
 """
 
 import argparse
@@ -205,6 +246,607 @@ def frame_costs(frames, art_base, tile_size, boundary):
     return out
 
 
+# ---------------------------------------------------------------- reachability
+#
+# Everything below answers ONE question: which of a subject's DPLC frames can the
+# game actually put in `Sst.mapping_frame` while that subject's art is the SST's
+# art? See the module header's REACHABILITY section for the shape of the answer
+# and for the fail-safe rule.
+
+#: Source files scanned for `Sst.mapping_frame` writers. Derived from the
+#: subjects' own game (they all live under games/sonic4), plus the engine every
+#: game shares — NOT a hand-kept list of files that happen to have one today.
+WRITER_SCAN_ROOTS = ("engine", "games/sonic4")
+WRITER_SCAN_SUFFIXES = (".emp", ".asm")
+
+#: 68000 mnemonics whose LAST operand is the destination. A line is a write site
+#: when one of these is the mnemonic and `mapping_frame(aN)` is its last operand.
+WRITE_MNEMONICS = {
+    "move", "movea", "clr", "st", "sf", "add", "addq", "addi", "sub", "subq",
+    "subi", "or", "ori", "and", "andi", "eor", "eori", "not", "neg", "negx",
+    "bset", "bclr", "bchg", "addx", "subx", "abcd", "sbcd", "nbcd", "tas",
+}
+
+
+def _strip_comment(line):
+    """Drop `//` (.emp) and `;` (.asm) trailing comments. Neither language has a
+    string literal on an instruction line here, so this is exact enough to key a
+    scanner off."""
+    for mark in ("//", ";"):
+        i = line.find(mark)
+        if i >= 0:
+            line = line[:i]
+    return line
+
+
+def local_const(path, name):
+    """`const NAME = <int>` (with or without `pub`) out of an .emp file."""
+    text = _read(path)
+    m = re.search(r'^\s*(?:pub\s+)?const\s+' + re.escape(name) +
+                  r'\s*=\s*(\$?[0-9A-Fa-f]+)\s*(?://.*)?$', text, re.M)
+    if not m:
+        raise Unmeasurable(f"no `const {name} = <int>` in {path} — re-derive it")
+    raw = m.group(1)
+    return int(raw[1:], 16) if raw.startswith('$') else int(raw)
+
+
+def require_spelling(path, pattern, why):
+    """A derivation that depends on an instruction being spelled a certain way
+    re-reads that instruction, so a change to it fails loud instead of leaving a
+    stale constant behind (the `boundary_from_source` discipline)."""
+    if not re.search(pattern, _read(path), re.M):
+        raise Unmeasurable(f"{path} no longer matches `{pattern}` — {why}")
+
+
+def sst_offsets():
+    """field -> byte offset, from engine/objects/sst.emp's `name: T @ $XX` rows."""
+    text = _read("engine/objects/sst.emp")
+    out = {}
+    for m in re.finditer(r'^\s*(\w+)\s*:\s*[^@\n]+@\s*\$([0-9A-Fa-f]+)', text, re.M):
+        out[m.group(1)] = int(m.group(2), 16)
+    if "mapping_frame" not in out:
+        raise Unmeasurable("sst.emp declares no `mapping_frame ... @ $XX` — re-derive the SST layout")
+    return out
+
+
+def anim_opcodes():
+    """The animation control codes, and how many bytes each EVENT consumes.
+
+    Values come from engine/system/constants.emp. The classification — which
+    codes terminate a straight-line walk and which are inline events the
+    interpreter reads THROUGH — is DERIVED from AnimateSprite's own handlers:
+    an event handler advances the script cursor by its own width with
+    `addq.b #N, Sst.anim_frame(a0)`, and a terminator does not. So a new event
+    opcode, or a changed operand width, moves this rather than silently
+    mis-parsing a script.
+
+    Returns (values: name -> byte, events: byte -> width, threshold: byte).
+    """
+    names = ["AF_END", "AF_BACK", "AF_CHANGE", "AF_ROUTINE", "AF_DELETE",
+             "AF_CALLBACK", "AF_SOUND", "AF_COLLISION", "AF_SET_FIELD"]
+    values = {n: const_from_emp("engine/system/constants.emp", n) for n in names}
+
+    src = _read("engine/objects/animate.emp")
+    # The dispatch threshold: everything at or above AF_SET_FIELD is a command,
+    # everything below it is a frame index. AnimateSprite spells that test five
+    # times; one is enough to establish it, zero is not.
+    if not re.search(r'^\s*cmpi\.b\s+#AF_SET_FIELD,\s*d0\b', src, re.M):
+        raise Unmeasurable(
+            "animate.emp no longer spells `cmpi.b #AF_SET_FIELD, d0` — the "
+            "frame-vs-command threshold this walk depends on has moved; re-derive it")
+
+    # The jump table names one handler label per code, highest code first
+    # ($FF down to $F7) — that ORDER is what the pc-indexed `jmp` encodes.
+    table = re.search(r'^\s*\.cc_table:\s*$(.*?)^\s*\.cc_end:', src, re.M | re.S)
+    if not table:
+        raise Unmeasurable("animate.emp has no `.cc_table:` ... `.cc_end:` block — re-derive the dispatch")
+    handlers = re.findall(r'^\s*bra\.w\s+(\.\w+)', table.group(1), re.M)
+    if len(handlers) != len(names):
+        raise Unmeasurable(
+            f"animate.emp's .cc_table has {len(handlers)} rows for {len(names)} control "
+            f"codes — the dispatch changed shape; re-derive the walk")
+
+    # A handler's body runs to the start of the NEXT handler (or to the shared
+    # `.after_event` tail every event falls into). It is NOT bounded by the next
+    # local label: .evt_callback carries its own `.evt_cb_done:` and its cursor
+    # advance sits after it, so a next-label bound would classify the callback as
+    # a terminator and silently truncate every script that carries one.
+    bounds = {}
+    for label in handlers + [".after_event"]:
+        m = re.search(r'^\s*' + re.escape(label) + r':\s*$', src, re.M)
+        if not m:
+            raise Unmeasurable(f"animate.emp names handler {label} in .cc_table but "
+                               f"defines no such block — re-derive the walk")
+        bounds[label] = m.start()
+    ordered = sorted(bounds.values())
+
+    events = {}
+    for name, label in zip(names, handlers):
+        start = bounds[label]
+        end = min([p for p in ordered if p > start], default=len(src))
+        adv = re.search(r'^\s*addq\.b\s+#(\d+),\s*Sst\.anim_frame\(a0\)', src[start:end], re.M)
+        if adv:
+            events[values[name]] = int(adv.group(1))
+    if not events:
+        raise Unmeasurable("no animation handler advances Sst.anim_frame by a literal width — "
+                           "the inline-event format changed; re-derive the walk")
+    return values, events, values["AF_SET_FIELD"]
+
+
+def parse_anim_table(rom, base, count_expected, who, af, events, mapframe_off):
+    """Walk an `offsets` animation table OUT OF THE ROM -> {anim_id: {frames}}.
+
+    The table is words of offsets from its own base, with the bodies packed
+    inline behind it, so the first offset IS twice the entry count — the same
+    self-describing shape `parse_dplc` reads. The count is cross-checked against
+    ANIM_COUNT by the caller.
+
+    Each body is byte 0 = duration, then frame bytes and control codes. The walk
+    stops at a terminator: AF_END restarts at byte 1, AF_BACK rewinds by its
+    operand and AF_CHANGE switches to another id — all three land on bytes this
+    walk has already covered (AF_CHANGE's target body is enumerated in its own
+    right), so stopping loses no frame. Inline events are read THROUGH at the
+    widths anim_opcodes() derived.
+
+    Returns (frames_by_id, notes) — notes carries anything loud the walk found.
+    """
+    if base + 2 > len(rom):
+        raise Unmeasurable(f"{who}: anim table base 0x{base:X} is past the ROM end")
+    first = struct.unpack_from('>H', rom, base)[0]
+    if first == 0 or first % 2:
+        raise Unmeasurable(f"{who}: first offset word is {first} — not an offsets table")
+    count = first // 2
+    if count != count_expected:
+        raise Unmeasurable(
+            f"{who}: the table holds {count} entries but ANIM_COUNT is {count_expected} — "
+            f"the ROM table and the id space disagree; re-derive one of them")
+    offs = [struct.unpack_from('>H', rom, base + 2 * i)[0] for i in range(count)]
+    # A body ends where the next one begins. The LAST body has no successor, so
+    # it is bounded by the highest offset plus a generous slack and must still
+    # terminate inside it — running off the end is Unmeasurable, not a guess.
+    starts = sorted(set(offs))
+    slack = 4096
+    notes = []
+    by_id = {}
+    for i, off in enumerate(offs):
+        limit = min([s for s in starts if s > off], default=max(starts) + slack)
+        p, frames = off + 1, set()
+        while p < limit:
+            b = rom[base + p]
+            if b < af["AF_SET_FIELD"]:
+                frames.add(b)
+                p += 1
+                continue
+            if b in events:
+                if b == af["AF_SET_FIELD"] and rom[base + p + 1] == mapframe_off:
+                    # A script writing mapping_frame through AF_SET_FIELD would
+                    # bypass the frame walk entirely. DEBUG asserts against it;
+                    # release does not, so count the value and say so.
+                    val = rom[base + p + 2]
+                    frames.add(val)
+                    notes.append(f"{who}[{i}]: AF_SET_FIELD writes mapping_frame = ${val:02X}")
+                p += events[b]
+                continue
+            break                                   # a terminator
+        else:
+            raise Unmeasurable(
+                f"{who}: animation {i} runs past its body end (offset {off}, limit {limit}) "
+                f"with no terminator — the script format or the table changed")
+        by_id[i] = frames
+    return by_id, notes
+
+
+def tilt_expansion(frames_by_id):
+    """Player_ApplyTilt's contribution: the tilted walk/run art blocks.
+
+    `mapping_frame = script_frame + (block << shift)` with block 0..TILT_SETS-1,
+    gated to the WALK and RUN ids alone. Every number here is read from the
+    constants that define it in player_common.emp / constants.emp, and the four
+    instructions the arithmetic depends on are re-read so a re-spelled routine
+    fails loud instead of leaving this formula stale.
+    """
+    P = "games/sonic4/player/player_common.emp"
+    C = "games/sonic4/config/constants.emp"
+    sets = local_const(P, "TILT_SETS")
+    walk_shift = local_const(P, "TILT_WALK_SHIFT")
+    run_shift = local_const(P, "TILT_RUN_SHIFT")
+    anim_walk = const_from_emp(C, "ANIM_WALK")
+    anim_run = const_from_emp(C, "ANIM_RUN")
+
+    require_spelling(P, r'^\s*cmpi\.b\s+#ANIM_RUN,\s*d0\s*$',
+                     "Player_ApplyTilt's `id <= ANIM_RUN` gate is the whole reason only "
+                     "walk and run expand; re-derive which anims tilt")
+    require_spelling(P, r'^\s*andi\.w\s+#TILT_SETS - 1,\s*d2\b',
+                     "the orientation block is masked to 0..TILT_SETS-1 here; re-derive the block range")
+    require_spelling(P, r'^\s*lsl\.w\s+#TILT_WALK_SHIFT,\s*d2\b',
+                     "the walk block stride is this shift; re-derive it")
+    require_spelling(P, r'^\s*lsl\.w\s+#TILT_RUN_SHIFT,\s*d2\b',
+                     "the run block stride is this shift; re-derive it")
+    require_spelling(P, r'^\s*add\.b\s+d2,\s*d0\s*$',
+                     "the block offset is ADDED to the script's own frame byte; re-derive the formula")
+    if anim_walk != 0:
+        raise Unmeasurable(
+            f"ANIM_WALK is {anim_walk}, not 0 — Player_ApplyTilt picks its stride with a bare "
+            f"`tst.b anim(a0)`, so this expansion is only valid while WALK is 0")
+
+    out = set()
+    for anim_id, shift in ((anim_walk, walk_shift), (anim_run, run_shift)):
+        for f in frames_by_id.get(anim_id, ()):
+            for block in range(sets):
+                out.add((f + (block << shift)) & 0xFF)
+    return out, (f"tilt: ids {anim_walk}/{anim_run}, {sets} blocks, "
+                 f"strides 1<<{walk_shift}/1<<{run_shift}")
+
+
+def appendage_bank(frames_by_id):
+    """TailsAppendage_Main's roll direction bank: the ball-spin cycle is stored
+    four times over, and the bank (a submask of the `andi.b` mask) is added to
+    the script's frame. Gated on ANIM_ROLL — every other row would index into an
+    unrelated frame, which is exactly what the `cmpi.b` below says."""
+    A = "games/sonic4/objects/tails_appendage.emp"
+    anim_roll = const_from_emp("games/sonic4/config/constants.emp", "ANIM_ROLL")
+    require_spelling(A, r'^\s*cmpi\.b\s+#ANIM_ROLL,\s*Sst\.anim\(a0\)\s*$',
+                     "the direction bank is gated on ANIM_ROLL; re-derive which anims bank")
+    m = re.search(r'^\s*andi\.b\s+#\$([0-9A-Fa-f]+),\s*d0\b.*?bank', _read(A), re.M)
+    if not m:
+        raise Unmeasurable(
+            "tails_appendage.emp no longer masks the direction bank with an `andi.b #$X, d0` — "
+            "re-derive the bank set")
+    mask = int(m.group(1), 16)
+    require_spelling(A, r'^\s*add\.b\s+1\(a1,d1\.w\),\s*d0\b',
+                     "the bank is ADDED to the script's own frame byte; re-derive the formula")
+    banks = [b for b in range(mask + 1) if b & ~mask == 0]
+    out = {(f + b) & 0xFF for f in frames_by_id.get(anim_roll, ()) for b in banks}
+    return out, f"appendage bank: id {anim_roll}, banks {'/'.join(str(b) for b in banks)}"
+
+
+def climb_frames():
+    """The Knuckles-only frames the climb/ledge state bodies write DIRECTLY.
+
+    `AnimateSprite` never produces these: Climb_Animate pins anim_timer and owns
+    mapping_frame itself. The cycle bounds and the two one-shot poses are their
+    own constants; the clamber poses are the first byte of each 4-byte entry of
+    Climb_ClamberFrames, read out of the table rather than restated.
+    """
+    P = "games/sonic4/player/player_climb.emp"
+    lo = local_const(P, "CLIMB_FRAME_LO")
+    hi = local_const(P, "CLIMB_FRAME_HI")
+    if lo > hi:
+        raise Unmeasurable(f"CLIMB_FRAME_LO ${lo:02X} > CLIMB_FRAME_HI ${hi:02X} — the climb cycle "
+                           f"bounds are inverted; re-derive them")
+    cycle = set(range(lo, hi + 1))
+    catch = {local_const(P, "CLIMB_CATCH_FRAME")}
+    letgo = {local_const(P, "CLIMB_LETGO_FRAME")}
+
+    m = re.search(r'^\s*data\s+Climb_ClamberFrames\s*:[^=]*=\s*\[(.*?)\]', _read(P), re.M | re.S)
+    if not m:
+        raise Unmeasurable("player_climb.emp declares no `data Climb_ClamberFrames: ... = [...]` — "
+                           "re-derive the ledge clamber poses")
+    body = re.sub(r'//[^\n]*', '', m.group(1))
+    items = [t.strip() for t in body.split(",") if t.strip()]
+    if len(items) % 4:
+        raise Unmeasurable(f"Climb_ClamberFrames holds {len(items)} bytes, not a whole number of "
+                           f"4-byte entries — re-derive the clamber step stride")
+    clamber = set()
+    for i in range(0, len(items), 4):
+        tok = items[i]
+        if not re.fullmatch(r'\$[0-9A-Fa-f]+|\d+', tok):
+            raise Unmeasurable(f"Climb_ClamberFrames entry {i // 4} starts with `{tok}`, which is "
+                               f"not a literal frame byte — re-derive the table")
+        clamber.add(int(tok[1:], 16) if tok.startswith('$') else int(tok))
+    return {"cycle": cycle, "catch": catch, "letgo": letgo, "clamber": clamber}
+
+
+def scan_write_sites():
+    """Every line in the scanned tree that WRITES Sst.mapping_frame.
+
+    Two shapes are recognised, because the tree uses both:
+
+      * a named write — `mapping_frame(aN)` as the instruction's LAST operand
+        (68000 destination), with or without the `Sst.` qualifier;
+      * a sized-override OVERLAY — `move.l #..., Sst.<field>:l(aN)` whose span
+        from <field>'s offset covers mapping_frame's. Load_Object initialises
+        four SST bytes that way, so a scanner that only looked for the name
+        would miss the one writer that runs for EVERY spawned object.
+
+    Returns [(path, line_no, enclosing_symbol, text)].
+    """
+    off = sst_offsets()
+    target = off["mapping_frame"]
+    named = re.compile(r'(?:Sst\.)?mapping_frame(?::[bwl])?\(a[0-7][^)]*\)\s*$')
+    overlay = re.compile(r'Sst\.(\w+):([bwl])\(a[0-7][^)]*\)\s*$')
+    mnemonic = re.compile(r'^\s*([a-z]+)\.?([bwl]?)\s+\S')
+    symbol = re.compile(r'^\s*(?:pub\s+)?(?:proc|comptime\s+fn|fn)\s+([A-Za-z_]\w*)')
+    width = {"b": 1, "w": 2, "l": 4}
+
+    sites = []
+    for root in WRITER_SCAN_ROOTS:
+        base = AEON / root
+        if not base.is_dir():
+            raise Unmeasurable(f"{root} is not a directory — the writer scan cannot run")
+        for p in sorted(base.rglob("*")):
+            if p.suffix not in WRITER_SCAN_SUFFIXES or not p.is_file():
+                continue
+            rel = p.relative_to(AEON).as_posix()
+            sym = "<file>"
+            for n, raw in enumerate(p.read_text(errors="replace").splitlines(), 1):
+                s = symbol.match(raw)
+                if s:
+                    sym = s.group(1)
+                line = _strip_comment(raw).rstrip()
+                mn = mnemonic.match(line)
+                if not mn or mn.group(1) not in WRITE_MNEMONICS:
+                    continue
+                if named.search(line):
+                    sites.append((rel, n, sym, line.strip()))
+                    continue
+                ov = overlay.search(line)
+                if ov and ov.group(1) in off:
+                    start = off[ov.group(1)]
+                    if start <= target < start + width[ov.group(2)]:
+                        sites.append((rel, n, sym, line.strip()))
+    if not sites:
+        raise Unmeasurable("the writer scan found NO mapping_frame write sites at all — "
+                           "the scan roots or the field name are wrong")
+    return sites
+
+
+#: What each writer contributes, keyed by (file, enclosing symbol) — the unit a
+#: reader can check by opening the file at that routine. `sites` is the number of
+#: write lines the routine is expected to hold, so a new write inside a claimed
+#: routine is a count drift and goes loud rather than riding in unnoticed.
+#:
+#: `art` names WHOSE mappings the SST holds at the write:
+#:    "player"      — the active CharacterDef's art (sonic / tails / knuckles)
+#:    "appendage"   — the Tails appendage's own set
+#:    "knuckles"    — a Knuckles-only state body
+#:    "any"         — every subject (a generic object path)
+#:    "other"       — a DIFFERENT mappings set, so it reaches none of this art
+#: `frames` is a key into the contribution table built in reachable_sets().
+WRITERS = {
+    ("engine/objects/animate.emp", "AnimateSprite"): dict(
+        sites=1, art="any", frames="script",
+        why="the script interpreter — the frame bytes of the SST's own anim table"),
+    ("engine/objects/load_object.emp", "Load_Object"): dict(
+        sites=1, art="any", frames="zero",
+        why="the $FF000000 overlay over prev_anim..mapping_frame zeroes the frame at spawn"),
+    ("games/sonic4/player/player_common.emp", "Player_ApplyTilt"): dict(
+        sites=1, art="player", frames="tilt",
+        why="the ground-angle tilt banks, walk/run only"),
+    ("games/sonic4/player/player_common.emp", "Player_DebugEnter"): dict(
+        sites=1, art="other", frames="none",
+        evidence=[(r'move\.l\s+#Map_TestObj,\s*mappings\(a0\)',
+                   "debug-enter swaps the player to the marker's mappings first")],
+        why="writes frame 0 against Map_TestObj, not the character sheet"),
+    ("games/sonic4/player/player_common.emp", "Player_DebugExit"): dict(
+        sites=1, art="player", frames="zero",
+        evidence=[(r'jbsr\s+Player_InitAssets',
+                   "debug-exit restores the CharacterDef's mappings before the frame write")],
+        why="frame 0 against the restored character sheet"),
+    ("games/sonic4/player/player_climb.emp", "Climb_Animate"): dict(
+        sites=1, art="knuckles", frames="climb_cycle",
+        why="the climb cycle, owned by the state body (anim_timer is pinned)"),
+    ("games/sonic4/player/player_climb.emp", "Climb_LetGo"): dict(
+        sites=1, art="knuckles", frames="climb_letgo",
+        why="the let-go pose"),
+    ("games/sonic4/player/player_climb.emp", "Climb_DoClamberStep"): dict(
+        sites=1, art="knuckles", frames="climb_clamber",
+        why="the four ledge-clamber poses, from Climb_ClamberFrames"),
+    ("games/sonic4/player/player_climb.emp", "Climb_Catch"): dict(
+        sites=1, art="knuckles", frames="climb_catch",
+        why="the wall-catch pose"),
+    ("games/sonic4/objects/tails_appendage.emp", "TailsAppendage_Main"): dict(
+        sites=1, art="appendage", frames="appendage",
+        why="the roll direction bank added to the appendage script's own frame"),
+    ("games/sonic4/objects/test_player.emp", "TestPlayer_Main"): dict(
+        sites=2, art="sonic", frames="zero",
+        evidence=[(r'move\.l\s+#Map_Sonic,\s*mappings\(a0\)',
+                   "the debug-exit half restores Map_Sonic before writing frame 0")],
+        why="two clr.b sites, one against Map_TestObj (contributes nothing) and one "
+            "against Map_Sonic; the union is frame 0"),
+    ("games/sonic4/objects/test_solid.emp", "TestSolid_Init"): dict(
+        sites=1, art="other", frames="none",
+        evidence=[(r'code:\s*"TestSolid_Init",\s*map:\s*"Map_TestObj"',
+                   "ObjDef_Solid gives the slot Map_TestObj",
+                   "games/sonic4/data/objdefs/test_objects.emp")],
+        why="subtype -> frame against Map_TestObj"),
+    ("games/sonic4/objects/test_helpers.emp", "test_obj_prolog"): dict(
+        sites=1, art="other", frames="none",
+        evidence=[(r'move\.l\s+#Map_TestObj,\s*mappings\(a0\)',
+                   "the prolog sets Map_TestObj in the same splice")],
+        why="the shared test-object prolog frame, against Map_TestObj"),
+    ("games/sonic4/test/ojz_scroll_test.emp", "Debug_SceneReadout_Show"): dict(
+        sites=1, art="other", frames="none",
+        evidence=[(r'move\.l\s+#Map_TestObj,\s*Sst\.mappings\(a0\)',
+                   "the glyph slot is built on Map_TestObj")],
+        why="the debug readout glyph, against Map_TestObj"),
+}
+
+
+def check_anim_dplc_pairings():
+    """A test object that animated Sonic's SCRIPTS against Tails' DPLC would make
+    the per-subject script set a lie. Every routine that hard-binds both an
+    `Ani_*` table and a `DPLC_*` table must bind the MATCHING pair."""
+    symbol = re.compile(r'^\s*(?:pub\s+)?(?:proc|comptime\s+fn|fn)\s+([A-Za-z_]\w*)')
+    ani = re.compile(r'#Ani_(\w+)\b')
+    dplc = re.compile(r'#DPLC_(\w+)\b')
+    bad = []
+    for root in WRITER_SCAN_ROOTS:
+        for p in sorted((AEON / root).rglob("*")):
+            if p.suffix not in WRITER_SCAN_SUFFIXES or not p.is_file():
+                continue
+            rel, sym, seen = p.relative_to(AEON).as_posix(), "<file>", {}
+            for n, raw in enumerate(p.read_text(errors="replace").splitlines(), 1):
+                s = symbol.match(raw)
+                if s:
+                    sym, seen = s.group(1), {}
+                line = _strip_comment(raw)
+                for rx, key in ((ani, "ani"), (dplc, "dplc")):
+                    m = rx.search(line)
+                    if m:
+                        seen[key] = m.group(1)
+                if "ani" in seen and "dplc" in seen and seen["ani"] != seen["dplc"]:
+                    bad.append(f"{rel}:{n} ({sym}) binds Ani_{seen['ani']} with "
+                               f"DPLC_{seen['dplc']}")
+                    seen = {}
+    return bad
+
+
+def subject_bindings():
+    """art label -> {dplc, anim, kind}, read from the records that declare them.
+
+    The three player characters come from their `CharacterDef` literals, which
+    is the ONE place the art / DPLC / anim-table triple is bound together; the
+    appendage comes from the `equ ... = extern(...)` block its object uses for
+    the same purpose. Nothing here is a pairing typed into this tool.
+    """
+    out = {}
+    for p in sorted((AEON / "games/sonic4/player").glob("*.emp")):
+        text = p.read_text()
+        for m in re.finditer(r'pub\s+data\s+(CharDef_\w+)\s*:\s*CharacterDef\s*=\s*'
+                             r'CharacterDef\{(.*?)\n\}', text, re.S):
+            body = m.group(2)
+            f = {k: re.search(r'cd_' + k + r':\s*extern\("(\w+)"\)', body) for k in
+                 ("dplc", "artbase", "animtable")}
+            if not all(f.values()):
+                raise Unmeasurable(
+                    f"{m.group(1)} does not name all three of cd_dplc / cd_artbase / "
+                    f"cd_animtable as extern(...) — the art-to-script binding cannot be derived")
+            out[f["artbase"].group(1)] = {"dplc": f["dplc"].group(1),
+                                          "anim": f["animtable"].group(1),
+                                          "kind": "player", "record": m.group(1)}
+    app = _read("games/sonic4/objects/tails_appendage.emp")
+    eq = {k: re.search(r'equ\s+' + k + r'\s*=\s*extern\("(\w+)"\)', app) for k in
+          ("ART_TAILS_APPENDAGE", "DPLC_TAILS_APPENDAGE", "ANI_TAILS_APPENDAGE")}
+    if not all(eq.values()):
+        raise Unmeasurable(
+            "tails_appendage.emp no longer binds ART/DPLC/ANI_TAILS_APPENDAGE with "
+            "`equ ... = extern(...)` — the appendage's art-to-script binding cannot be derived")
+    out[eq["ART_TAILS_APPENDAGE"].group(1)] = {
+        "dplc": eq["DPLC_TAILS_APPENDAGE"].group(1),
+        "anim": eq["ANI_TAILS_APPENDAGE"].group(1),
+        "kind": "appendage", "record": "tails_appendage.emp equ block"}
+    return out
+
+
+def reachable_sets(subs, rom, labels):
+    """subject name -> {"frames": set, "undetermined": [reasons], "notes": [str]}.
+
+    UNDETERMINED never narrows: any unclaimed write site, any claimed routine
+    whose write count drifted, and any evidence line that stopped matching
+    widens the affected subjects to EVERY frame and is reported.
+    """
+    off = sst_offsets()
+    af, events, _ = anim_opcodes()
+    anim_count = const_from_emp("games/sonic4/config/constants.emp", "ANIM_COUNT")
+    bind = subject_bindings()
+    climb = climb_frames()
+
+    notes, undet_all, per_subject_undet = [], [], {s["name"]: [] for s in subs}
+
+    # --- the scripts, out of the ROM -------------------------------------
+    scripts = {}
+    for s in subs:
+        b = bind.get(s["art_label"])
+        if b is None:
+            raise Unmeasurable(
+                f"{s['art_label']} is bound by no CharacterDef and by no appendage equ block — "
+                f"its animation table cannot be derived")
+        if b["dplc"] != s["dplc_label"]:
+            raise Unmeasurable(
+                f"{b['record']} pairs {s['art_label']} with {b['dplc']}, but this tool's "
+                f"subject pairs it with {s['dplc_label']} — one of them is wrong")
+        if b["anim"] not in labels:
+            raise Unmeasurable(f"{b['anim']} (named by {b['record']}) is not in the listing")
+        by_id, walk_notes = parse_anim_table(rom, labels[b["anim"]], anim_count,
+                                             b["anim"], af, events, off["mapping_frame"])
+        scripts[s["name"]] = by_id
+        notes.extend(walk_notes)
+        s["anim_label"] = b["anim"]
+        s["kind"] = b["kind"]
+
+    # --- the per-writer contributions ------------------------------------
+    def contribution(key, sub):
+        if key == "script":
+            return set().union(*scripts[sub["name"]].values()) if scripts[sub["name"]] else set()
+        if key == "zero":
+            return {0}
+        if key == "none":
+            return set()
+        if key == "tilt":
+            got, note = tilt_expansion(scripts[sub["name"]])
+            notes.append(f"{sub['name']}: {note}")
+            return got
+        if key == "appendage":
+            got, note = appendage_bank(scripts[sub["name"]])
+            notes.append(f"{sub['name']}: {note}")
+            return got
+        if key.startswith("climb_"):
+            return climb[key[len("climb_"):]]
+        raise Unmeasurable(f"WRITERS names an unknown contribution `{key}`")
+
+    def applies(art, sub):
+        if art == "any":
+            return True
+        if art == "player":
+            return sub["kind"] == "player"
+        if art == "appendage":
+            return sub["kind"] == "appendage"
+        if art == "other":
+            return False
+        return art == sub["name"]
+
+    sites = scan_write_sites()
+    by_routine = {}
+    for rel, n, sym, text in sites:
+        by_routine.setdefault((rel, sym), []).append((n, text))
+
+    for key in sorted(set(by_routine) | set(WRITERS)):
+        spec = WRITERS.get(key)
+        found = by_routine.get(key, [])
+        if spec is None:
+            undet_all.append(
+                f"UNCLAIMED writer {key[0]} ({key[1]}) at line(s) "
+                f"{', '.join(str(n) for n, _ in found)} — no WRITERS entry says what it writes")
+            continue
+        if not found:
+            undet_all.append(
+                f"WRITERS claims {key[0]} ({key[1]}), but the scan found no write there — "
+                f"the routine moved or was deleted; the claim is stale")
+            continue
+        if len(found) != spec["sites"]:
+            undet_all.append(
+                f"{key[0]} ({key[1]}) holds {len(found)} mapping_frame writes, not the "
+                f"{spec['sites']} its WRITERS entry claims — a new write is unaccounted for")
+            continue
+        stale = []
+        for ev in spec.get("evidence", ()):
+            rx, why = ev[0], ev[1]
+            where = ev[2] if len(ev) > 2 else key[0]
+            if not re.search(rx, _read(where), re.M):
+                stale.append(f"{where} no longer matches `{rx}` ({why})")
+        if stale:
+            undet_all.extend(f"{key[0]} ({key[1]}): {s}" for s in stale)
+            continue
+        for sub in subs:
+            if applies(spec["art"], sub):
+                sub.setdefault("_reach", set()).update(contribution(spec["frames"], sub))
+
+    for line in check_anim_dplc_pairings():
+        undet_all.append(f"MISMATCHED anim/DPLC binding — {line}")
+
+    out = {}
+    for s in subs:
+        frames = s.pop("_reach", set())
+        undet = per_subject_undet[s["name"]] + undet_all
+        if undet:
+            frames = set(range(len(s["frames"])))     # fail SAFE: widen, never narrow
+        oob = sorted(f for f in frames if f >= len(s["frames"]))
+        out[s["name"]] = {"frames": frames, "undetermined": undet,
+                          "out_of_range": oob, "notes": notes}
+    return out
+
+
 # -------------------------------------------------------------------- subjects
 
 #: (display name, art label, dplc label, .emp file, art const, dplc const, queue)
@@ -242,21 +884,43 @@ def load_subjects(labels):
 
 # --------------------------------------------------------------------- reports
 
+def default_rom_for(lst_path):
+    """The ROM a listing came from. Not a guess the tool then trusts: rom_bytes
+    fails loud if it is not there, and the caller may name it with --rom."""
+    p = Path(lst_path)
+    return str(p.with_suffix(".bin")) if p.suffix == ".lst" else str(p) + ".bin"
+
+
+def rom_bytes(rom_path):
+    p = Path(rom_path)
+    if not p.exists():
+        raise Unmeasurable(
+            f"ROM {rom_path} does not exist — the reachable set is walked out of the BUILT "
+            f"animation tables, so this gate needs the ROM its listing came from")
+    return p.read_bytes()
+
+
 def report(lst_path, out=sys.stdout, sweep=None, sweep_range=(-512, 512),
-           recut_label=None, gate=False):
+           recut_label=None, gate=False, rom_path=None):
     tile_size = const_from_emp("engine/system/constants.emp", "TILE_SIZE")
     slots = const_from_emp("engine/system/constants.emp", "DMA_IMPORTANT_SLOTS")
     reserve = const_from_emp("engine/objects/dplc.emp", "DPLC_ENTRY_RESERVE")
     boundary = boundary_from_source()
     labels = lst_labels(lst_path)
     subs = load_subjects(labels)
+    rom_path = rom_path or default_rom_for(lst_path)
+    reach = reachable_sets(subs, rom_bytes(rom_path), labels)
 
     print(f"dplc_straddle [{lst_path}]", file=out)
     print(f"  derived: TILE_SIZE={tile_size}  DMA_IMPORTANT_SLOTS={slots}  "
           f"DPLC_ENTRY_RESERVE={reserve}  DMA source boundary=0x{boundary:X}", file=out)
     print(f"  the wall the ratchet aims at: {slots} - {reserve} = {slots - reserve} slots", file=out)
+    print(f"  reachability walked out of {rom_path}", file=out)
 
     worst = 0
+    worst_reach_slots = 0
+    worst_reach_split = 0
+    undetermined = []
     for s in subs:
         end = s["art_base"] + s["art_len"]
         crossings = [b for b in range(boundary, end + boundary, boundary)
@@ -282,6 +946,45 @@ def report(lst_path, out=sys.stdout, sweep=None, sweep_range=(-512, 512),
         print(f"    straddling entries: {n_str} across {len(f_str)} frame(s)"
               f"{': ' + ', '.join(f'${i:02X}' for i in f_str[:12]) if f_str else ''}", file=out)
 
+        # --- the reachable / unreachable split ---------------------------
+        r = reach[s["name"]]
+        rf = r["frames"]
+        if r["undetermined"]:
+            undetermined.extend(r["undetermined"])
+            print(f"    REACHABILITY UNDETERMINED — WIDENED to all {len(s['frames'])} frames "
+                  f"(fail-safe: never narrowed). Reasons:", file=out)
+            for why in dict.fromkeys(r["undetermined"]):
+                print(f"      ! {why}", file=out)
+        if r["out_of_range"]:
+            print(f"    ! reachable frame(s) OUTSIDE this DPLC table "
+                  f"({len(s['frames'])} entries): "
+                  f"{', '.join(f'${i:02X}' for i in r['out_of_range'][:12])} — a writer names a "
+                  f"frame this art does not have", file=out)
+        in_range = sorted(f for f in rf if f < len(s["frames"]))
+        r_str = [i for i in f_str if i in rf]
+        u_str = [i for i in f_str if i not in rf]
+        print(f"    reachable frames: {len(in_range)} of {len(s['frames'])} "
+              f"(anim table {s.get('anim_label', '?')}, kind {s.get('kind', '?')})", file=out)
+        print(f"    straddling REACHABLE:   {len(r_str)}"
+              f"{': ' + ', '.join(f'${i:02X}' for i in r_str[:12]) if r_str else ' — none'}",
+              file=out)
+        print(f"    straddling unreachable: {len(u_str)}"
+              f"{': ' + ', '.join(f'${i:02X}' for i in u_str[:12]) if u_str else ' — none'}",
+              file=out)
+        if in_range:
+            r_peak = max(costs[i][1] for i in in_range)
+            r_at = [i for i in in_range if costs[i][1] == r_peak]
+            r_split = max(len(costs[i][2]) for i in in_range)
+            worst_reach_slots = max(worst_reach_slots, r_peak)
+            worst_reach_split = max(worst_reach_split, r_split)
+            print(f"    peak SLOTS over REACHABLE frames: {r_peak} at "
+                  f"{', '.join(f'${i:02X}' for i in r_at[:8])}"
+                  f"{' ...' if len(r_at) > 8 else ''}   "
+                  f"(worst reachable frame splits into {r_split} extra entry(ies))", file=out)
+        else:
+            print(f"    peak SLOTS over REACHABLE frames: n/a — no frame of this art is "
+                  f"reachable at all", file=out)
+
     if sweep:
         s = next((x for x in subs if x["art_label"] == sweep), None)
         if s is None:
@@ -290,13 +993,15 @@ def report(lst_path, out=sys.stdout, sweep=None, sweep_range=(-512, 512),
         lo, hi = sweep_range
         print(f"\n  SWEEP {sweep}: art base shifted over [{lo}, {hi}] B "
               f"(the neighbourhood an append/shrink moves it through)", file=out)
+        srf = reach[s["name"]]["frames"]
         seen = {}
         for d in range(lo, hi + 1):
             costs = frame_costs(s["frames"], s["art_base"] + d, tile_size, boundary)
             key = (max(c[0] for c in costs), max(c[1] for c in costs),
-                   sum(len(c[2]) for c in costs))
+                   sum(len(c[2]) for c in costs),
+                   sum(len(c[2]) for i, c in enumerate(costs) if i in srf))
             seen.setdefault(key, []).append(d)
-        for (pe, ps, ns), ds in sorted(seen.items()):
+        for (pe, ps, ns, nr), ds in sorted(seen.items()):
             runs, start, prev = [], ds[0], ds[0]
             for d in ds[1:]:
                 if d != prev + 1:
@@ -305,7 +1010,8 @@ def report(lst_path, out=sys.stdout, sweep=None, sweep_range=(-512, 512),
                 prev = d
             runs.append((start, prev))
             span = ', '.join(f"{a}" if a == b else f"{a}..{b}" for a, b in runs[:6])
-            print(f"    peak entries {pe}  peak SLOTS {ps}  straddling entries {ns}   "
+            print(f"    peak entries {pe}  peak SLOTS {ps}  straddling entries {ns} "
+                  f"(REACHABLE {nr})   "
                   f"at shift {span}{' ...' if len(runs) > 6 else ''}  "
                   f"({len(ds)} of {hi - lo + 1} shifts)", file=out)
 
@@ -319,7 +1025,19 @@ def report(lst_path, out=sys.stdout, sweep=None, sweep_range=(-512, 512),
     ratchet, provenance = ratchet_from_source(slots, reserve)
     print(f"\n  worst peak SLOT cost over all subjects: {worst}", file=out)
     print(f"  the committed bar is {ratchet} — from {provenance}", file=out)
+    print(f"  worst peak SLOT cost over REACHABLE frames: {worst_reach_slots}", file=out)
+    print(f"  worst REACHABLE frame split: {worst_reach_split} extra entry(ies) against a "
+          f"{reserve}-slot DPLC_ENTRY_RESERVE", file=out)
+    if undetermined:
+        # Loud on both streams: a widened set is a fail-safe, not an answer, and a
+        # build log scrolls past stdout.
+        print(f"\ndplc_straddle: REACHABILITY WIDENED — {len(set(undetermined))} writer(s) could "
+              f"not be classified, so their subjects were widened to ALL frames. The reachable "
+              f"columns above are an UPPER BOUND, never a narrowed set.", file=out)
+        for why in dict.fromkeys(undetermined):
+            print(f"  ! {why}", file=sys.stderr)
     if gate:
+        # VERDICT A — unchanged: the worst peak SLOT cost over ALL frames.
         if worst > ratchet:
             print(f"\ndplc_straddle: FAIL — peak SLOT cost {worst} exceeds the committed "
                   f"entry bar {ratchet}. A frame costs more queue slots than its "
@@ -327,7 +1045,24 @@ def report(lst_path, out=sys.stdout, sweep=None, sweep_range=(-512, 512),
                   f"0x{boundary:X} source boundary and QueueDMA splits it in two.",
                   file=out)
             return 1
-        print(f"\ndplc_straddle: OK — no frame's SLOT cost exceeds the bar {ratchet}", file=out)
+        # VERDICT B — the reachable half. A displayable frame that breaches the
+        # wall, or one whose splits outnumber the slots the reserve holds open
+        # for exactly those splits, is the case the all-frames peak can miss when
+        # an art base moves. Both numbers come from the constants, not from a pin.
+        if worst_reach_slots > ratchet:
+            print(f"\ndplc_straddle: FAIL — a REACHABLE frame costs {worst_reach_slots} slots "
+                  f"against the bar {ratchet}. Unlike the all-frames peak this one is a frame "
+                  f"the game can display.", file=out)
+            return 1
+        if worst_reach_split > reserve:
+            print(f"\ndplc_straddle: FAIL — a REACHABLE frame splits into {worst_reach_split} "
+                  f"extra queue entries, more than the {reserve}-slot DPLC_ENTRY_RESERVE held "
+                  f"open for splits. QueueDMA rejects the whole transfer when only one slot is "
+                  f"free (dma_queue.emp .split_reject), so the frame's art would not load.",
+                  file=out)
+            return 1
+        print(f"\ndplc_straddle: OK — no frame's SLOT cost exceeds the bar {ratchet}, and no "
+              f"REACHABLE frame splits past the {reserve}-slot reserve", file=out)
     return 0
 
 
@@ -450,11 +1185,11 @@ def ratchet_from_source(slots, reserve):
         "is gone; re-derive it")
 
 
-def selftest(lst_path, out=sys.stdout):
+def selftest(lst_path, out=sys.stdout, rom_path=None):
     """RED-FIRST proof that the gate can fail, run against this build.
 
     A gate that has never been observed red is a gate nobody has tested. This
-    drives the same `--gate` predicate through three states:
+    drives the same `--gate` predicates through six states:
 
       1. the real placement                -> must be GREEN
       2. an art base shifted onto a straddle that lands on a peak frame
@@ -463,6 +1198,15 @@ def selftest(lst_path, out=sys.stdout):
          failing shift exists within the search window the self-test FAILS
          LOUD rather than passing vacuously.
       3. a corrupted derived constant      -> must be UNMEASURABLE, not 0
+      4. the reachable set must be a PROPER, NON-EMPTY subset of the frames for
+         at least one subject — a set that is everything, or nothing, cannot
+         tell reachable from unreachable and its split is decoration.
+      5. an art base shifted so a straddle lands on a REACHABLE frame -> the
+         reachable straddle count must MOVE. Searched for, not written down; if
+         no such shift exists the split cannot respond to a base move at all,
+         which is the exact failure BLOCK-STREAM-DEDUP would walk into.
+      6. an unclaimed writer must WIDEN, not narrow: a synthetic undetermined
+         reason has to produce the full frame set.
 
     Nothing here is a hardcoded expectation copied from a previous run.
     """
@@ -473,6 +1217,8 @@ def selftest(lst_path, out=sys.stdout):
     ratchet, provenance = ratchet_from_source(slots, reserve)
     labels = lst_labels(lst_path)
     subs = load_subjects(labels)
+    rom_path = rom_path or default_rom_for(lst_path)
+    reach = reachable_sets(subs, rom_bytes(rom_path), labels)
     fails = []
     print(f"  [0] the bar is {ratchet} — from {provenance}", file=out)
 
@@ -516,6 +1262,73 @@ def selftest(lst_path, out=sys.stdout):
         print("  [3] unmeasurable proof: a missing derived constant raises rather than "
               "reporting 0", file=out)
 
+    # (4) the split has to actually split something
+    discriminating = []
+    for x in subs:
+        rf = reach[x["name"]]["frames"]
+        n, total = len(rf), len(x["frames"])
+        if reach[x["name"]]["undetermined"]:
+            continue
+        if 0 < n < total:
+            discriminating.append(f"{x['name']} {n}/{total}")
+    print(f"  [4] discriminating subjects (reachable is a proper non-empty subset): "
+          f"{', '.join(discriminating) or 'NONE'}", file=out)
+    if not discriminating:
+        fails.append("no subject has a reachable set that is both non-empty and smaller than "
+                     "its whole table — the reachable/unreachable split distinguishes nothing")
+
+    # (5) a base shift must be able to move the REACHABLE straddle count
+    def reach_straddles(sub, shift):
+        rf = reach[sub["name"]]["frames"]
+        c = frame_costs(sub["frames"], sub["art_base"] + shift, tile_size, boundary)
+        return sum(len(x[2]) for i, x in enumerate(c) if i in rf)
+
+    moved = None
+    for x in subs:
+        if reach[x["name"]]["undetermined"]:
+            continue
+        base_n = reach_straddles(x, 0)
+        for d in range(1, 1 << 17):
+            for sign in (1, -1):
+                if reach_straddles(x, sign * d) != base_n:
+                    moved = (x["name"], sign * d, base_n, reach_straddles(x, sign * d))
+                    break
+            if moved:
+                break
+        if moved:
+            break
+    if moved is None:
+        fails.append("no art-base shift within +/-128 KB changes any subject's REACHABLE "
+                     "straddle count — the split cannot respond to a base move, which is the "
+                     "one thing it exists to catch")
+        print("  [5] REACHABLE-STRADDLE MOVE: NONE FOUND — see failure below", file=out)
+    else:
+        who, d, was, now = moved
+        print(f"  [5] reachable-straddle move: shifting {who}'s art base by {d:+d} B takes its "
+              f"REACHABLE straddling entries {was} -> {now}", file=out)
+
+    # (6) an undetermined writer widens; it must never narrow
+    probe = [dict(x) for x in subs]
+    for x in probe:
+        x["frames"] = list(x["frames"])
+    saved = dict(WRITERS)
+    try:
+        WRITERS.pop(("engine/objects/animate.emp", "AnimateSprite"), None)
+        WRITERS[("engine/objects/animate.emp", "AnimateSprite_NOT_A_ROUTINE")] = dict(
+            sites=1, art="any", frames="none", why="selftest probe")
+        widened = reachable_sets(probe, rom_bytes(rom_path), labels)
+    finally:
+        WRITERS.clear()
+        WRITERS.update(saved)
+    bad = [x["name"] for x in probe
+           if not widened[x["name"]]["undetermined"]
+           or widened[x["name"]]["frames"] != set(range(len(x["frames"])))]
+    print(f"  [6] fail-safe widening: an unclaimed writer widened "
+          f"{len(probe) - len(bad)}/{len(probe)} subjects to their whole table", file=out)
+    if bad:
+        fails.append(f"an unclaimed writer did NOT widen {', '.join(bad)} — an unclassified "
+                     f"write site would silently narrow the reachable set")
+
     print(f"\n  derived this run: TILE_SIZE={tile_size} DMA_IMPORTANT_SLOTS={slots} "
           f"DPLC_ENTRY_RESERVE={reserve} boundary=0x{boundary:X} ratchet={ratchet}", file=out)
     if fails:
@@ -530,6 +1343,7 @@ def selftest(lst_path, out=sys.stdout):
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--lst", default="s4.debug.lst")
+    ap.add_argument("--rom", help="the ROM the listing came from (default: --lst with .lst -> .bin)")
     ap.add_argument("--sweep", help="art label to sweep the base address of")
     ap.add_argument("--recut", help="art label to model the d-47 `targeted` re-cut on")
     ap.add_argument("--range", default="-512:512", help="sweep range LO:HI in bytes")
@@ -541,9 +1355,9 @@ def main(argv=None):
     try:
         if a.selftest:
             print(f"dplc_straddle selftest [{a.lst}]")
-            return selftest(a.lst)
+            return selftest(a.lst, rom_path=a.rom)
         return report(a.lst, sweep=a.sweep, sweep_range=(lo, hi),
-                      recut_label=a.recut, gate=a.gate)
+                      recut_label=a.recut, gate=a.gate, rom_path=a.rom)
     except Unmeasurable as e:
         print(f"dplc_straddle: UNMEASURABLE — {e}", file=sys.stderr)
         return 2
