@@ -262,7 +262,66 @@ def geometry() -> dict:
 
 # ---- the machine front end ----
 
-async def read_live(lst: str, rom: str, arm: int | None) -> dict:
+async def read_from_bus(b, sym: dict, arm: int | None) -> dict:
+    """The pure bus half: given a CONNECTED BusClient and resolved symbols, read every
+    scalar/long/array/snap/live field. No process spawn here — see `read_live` below
+    for why that must happen outside this coroutine's event loop.
+    """
+    rec: dict = {}
+
+    async def rd(addr: int, n: int) -> bytes:
+        r = await b.call("emulator/read_memory", {"addr": hex(addr), "len": n})
+        h = str(r["bytes"]).removeprefix("0x").removeprefix("0X")
+        if len(h) != 2 * n:
+            raise SetupError(f"read_memory returned {len(h) // 2} bytes at {addr:#x}, wanted {n}")
+        return bytes.fromhex(h)
+
+    if arm is not None:
+        await b.call("emulator/write_memory",
+                     {"addr": hex(sym["Canopy_Halt"]), "bytes": "0x%04X" % arm})
+    for n in SCALARS:
+        rec[n] = words(await rd(sym[n], 2))[0]
+    for n in LONGS:
+        v = await rd(sym[n], 4)
+        rec[n] = int.from_bytes(v, "big")
+    for n in ARRAYS:
+        rec[n] = words(await rd(sym[n], 8))
+    g = geometry()
+    for n in SNAPS + LIVE:
+        cells = g["PLANE_V_CELLS"] if "Row" in n else g["PLANE_H_CELLS"]
+        rec[n] = words(await rd(sym[n], cells * 2))
+    return rec
+
+
+async def _body(sock: str, sym: dict, arm: int | None) -> dict:
+    from aether import BusClient
+    b = BusClient(sock, client_id="canopy_record", client_name="canopy_record")
+    await b.connect()
+    try:
+        return await read_from_bus(b, sym, arm)
+    finally:
+        await b.close()
+
+
+def read_live(lst: str, rom: str, arm: int | None) -> dict:
+    """Spawn oracle-aether, read the record, reap. SYNCHRONOUS on purpose.
+
+    ⚠ FIXED 2026-09-03 (diag/canopy-gap-cause): this used to be `async def
+    read_live(...): async with AetherInstance(rom=rom) as inst: b = inst.bus`.
+    AetherInstance has neither `__aenter__`/`__aexit__` nor a `.bus` attribute — it
+    exposes a SYNCHRONOUS `start()`/`reap()` pair, and `start()` itself calls
+    `asyncio.run()` internally for its handshake (aether_instance.py:246), so it
+    cannot be invoked from inside an already-running event loop at all — calling it
+    from an `async def` produces "asyncio.run() cannot be called from a running
+    event loop", not the original TypeError, once the first mistake is fixed. Both
+    bugs together mean this function raised on EVERY call and never read one byte
+    from a live machine. Every other gate in this tree spawns the instance
+    SYNCHRONOUSLY in the caller (see `tile_cache_fill_gate.py`'s `main()`) and hands
+    the socket path into a plain `async def body(...)`; this now matches that shape.
+    Nobody had run this reader end-to-end before — it could not have produced any of
+    the "never seen a sighting" silence on its own.
+    """
+    import asyncio
     from suite_paths import add_client_path
     add_client_path()
     from aether_instance import AetherInstance
@@ -275,32 +334,12 @@ async def read_live(lst: str, rom: str, arm: int | None) -> dict:
             f"{lst} has no {missing[0]} (and {len(missing) - 1} more). The instrument is "
             f"DEBUG-only -- point --lst at s4.debug.lst, and make sure it is THIS build's.")
 
-    rec: dict = {}
-    async with AetherInstance(rom=rom) as inst:
-        b = inst.bus
-
-        async def rd(addr: int, n: int) -> bytes:
-            r = await b.call("emulator/read_memory", {"addr": hex(addr), "len": n})
-            h = str(r["bytes"]).removeprefix("0x").removeprefix("0X")
-            if len(h) != 2 * n:
-                raise SetupError(f"read_memory returned {len(h) // 2} bytes at {addr:#x}, wanted {n}")
-            return bytes.fromhex(h)
-
-        if arm is not None:
-            await b.call("emulator/write_memory",
-                         {"addr": hex(sym["Canopy_Halt"]), "bytes": "0x%04X" % arm})
-        for n in SCALARS:
-            rec[n] = words(await rd(sym[n], 2))[0]
-        for n in LONGS:
-            v = await rd(sym[n], 4)
-            rec[n] = int.from_bytes(v, "big")
-        for n in ARRAYS:
-            rec[n] = words(await rd(sym[n], 8))
-        g = geometry()
-        for n in SNAPS + LIVE:
-            cells = g["PLANE_V_CELLS"] if "Row" in n else g["PLANE_H_CELLS"]
-            rec[n] = words(await rd(sym[n], cells * 2))
-    return rec
+    inst = AetherInstance(rom=rom)
+    sock = inst.start()
+    try:
+        return asyncio.run(_body(sock, sym, arm))
+    finally:
+        inst.reap()
 
 
 def main() -> int:
@@ -319,10 +358,9 @@ def main() -> int:
             rec = json.load(open(a.dump))
             g = rec.pop("_geometry")
         else:
-            import asyncio
             lst = a.lst or (a.rom[:-4] + ".lst")
             arm = 1 if a.arm else (0 if a.disarm else None)
-            rec = asyncio.run(read_live(lst, a.rom, arm))
+            rec = read_live(lst, a.rom, arm)
             g = geometry()
         if a.save:
             json.dump({**rec, "_geometry": g}, open(a.save, "w"), indent=1)
