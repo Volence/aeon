@@ -4,7 +4,7 @@
     "s4.debug.lst": {
       "bytes": [
         "20280002302800060280fff8fff0b0ac0014672a29400014220048401628002d2f084eb86a28205f7200120043f900070a0010311000670653001140002d4e75",
-        "e6483438adc0b0426d5ab078adc26e549042d078adc80c4000506d0404400050e6493438adc4b2426d3ab278adc66e349242e2493438adcae24ad2420c41001e6d040441001e3401e549d242e949d2404a0367040641096041f9ffff2580103010004e7570004e75"
+        "e6483438adc2b0426d5ab078adc46e549042d078adca0c4000506d0404400050e6493438adc6b2426d3ab278adc86e349242e2493438adcce24ad2420c41001e6d040441001e3401e549d242e949d2404a0367040641096041f9ffff2580103010004e7570004e75"
       ],
       "equs": {
         "COLL_CELL_H": 16,
@@ -34,12 +34,12 @@
         ]
       ],
       "syms": {
-        "Cache_Bottom_Row": 4294946246,
-        "Cache_Head_Col": 4294946242,
-        "Cache_Left_Col": 4294946240,
-        "Cache_Origin_Col": 4294946248,
-        "Cache_Origin_Row": 4294946250,
-        "Cache_Top_Row": 4294946244,
+        "Cache_Bottom_Row": 4294946248,
+        "Cache_Head_Col": 4294946244,
+        "Cache_Left_Col": 4294946242,
+        "Cache_Origin_Col": 4294946250,
+        "Cache_Origin_Row": 4294946252,
+        "Cache_Top_Row": 4294946246,
         "Collision_GetType": 27176,
         "CrossoverTable": 461312,
         "Player_LoopCrossover": 65852,
@@ -52,7 +52,7 @@
     "s4.lst": {
       "bytes": [
         "20280002302800060280fff8fff0b0ac0014672a29400014220048401628002d2f084eb8572e205f7200120043f9000700fa10311000670653001140002d4e75",
-        "e6483438ad32b0426d5ab078ad346e549042d078ad3a0c4000506d0404400050e6493438ad36b2426d3ab278ad386e349242e2493438ad3ce24ad2420c41001e6d040441001e3401e549d242e949d2404a0367040641096041f9ffff2580103010004e7570004e75"
+        "e6483438ad34b0426d5ab078ad366e549042d078ad3c0c4000506d0404400050e6493438ad38b2426d3ab278ad3a6e349242e2493438ad3ee24ad2420c41001e6d040441001e3401e549d242e949d2404a0367040641096041f9ffff2580103010004e7570004e75"
       ],
       "equs": {
         "COLL_CELL_H": 16,
@@ -82,12 +82,12 @@
         ]
       ],
       "syms": {
-        "Cache_Bottom_Row": 4294946104,
-        "Cache_Head_Col": 4294946100,
-        "Cache_Left_Col": 4294946098,
-        "Cache_Origin_Col": 4294946106,
-        "Cache_Origin_Row": 4294946108,
-        "Cache_Top_Row": 4294946102,
+        "Cache_Bottom_Row": 4294946106,
+        "Cache_Head_Col": 4294946102,
+        "Cache_Left_Col": 4294946100,
+        "Cache_Origin_Col": 4294946108,
+        "Cache_Origin_Row": 4294946110,
+        "Cache_Top_Row": 4294946104,
         "Collision_GetType": 22318,
         "CrossoverTable": 459002,
         "Player_LoopCrossover": 65758,

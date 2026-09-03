@@ -5,15 +5,26 @@
 //   Parallax_Update                    — main-loop per-frame builder
 //   Parallax_StartTransition(a0=new)   — section-boundary config switch
 //   Vscroll_Write                      — VBlank VSRAM emitter
+//   Parallax_Set_Roles_Swapped(d0=u8)  — EFFECTS-W1 item 10b: swap FG/BG plane roles
 
 module engine.parallax in parallax
 
-use engine.constants.{SECTION_SIZE_SHIFT, SCREEN_WIDTH, SCREEN_HEIGHT, PARALLAX_TRANS_DEFAULT, PARALLAX_LERP_SHIFT, VDP_DATA, VDP_CTRL, PARALLAX_ANCHOR_NONE, MAX_PARALLAX_BANDS, SINE_AMPLITUDE, SINE_CYCLE_ENTRIES}
+use engine.constants.{SECTION_SIZE_SHIFT, SCREEN_WIDTH, SCREEN_HEIGHT, PARALLAX_TRANS_DEFAULT, PARALLAX_LERP_SHIFT, VDP_DATA, VDP_CTRL, PARALLAX_ANCHOR_NONE, MAX_PARALLAX_BANDS, SINE_AMPLITUDE, SINE_CYCLE_ENTRIES, VRAM_PLANE_A, VRAM_PLANE_B}
 use engine.structs.{Sec, parallax_config}
-use engine.vdp.{VdpTarget, VdpOp, vdp_comm, VDP_MODE3_OFF}
+use engine.vdp.{VdpTarget, VdpOp, vdp_comm, VDP_MODE3_OFF, VdpBase, vdp_base_reg}
 use engine.z80_bus.{z80_stopped}
 use engine.irq.{ints_off, vblank}
 use engine.effects.preset.{Effects_InstallPreset}
+// EFFECTS-W1 item 10b (the plane-role swap, below): the settled-state register door,
+// Set_VDP_Reg — item 11a's mid-frame OP_SET_REG door does not fit here (§10b's own
+// banner explains why a whole-frame swap wants the SETTLED door instead). Named
+// explicitly rather than left to VRAM_PLANE_A/VRAM_PLANE_B's ambient engine.constants
+// visibility: this is a real cross-module PROC call, not a comptime fold, and pitfall #2
+// (comptime-helper imports don't travel to call sites) does not cover ordinary `use`.
+use engine.vdp_init.{Set_VDP_Reg}
+// VRAM_PLANE_A / VRAM_PLANE_B are now in this file's engine.constants use line above
+// (added beside SINE_AMPLITUDE/SINE_CYCLE_ENTRIES) — ojz_effects.emp's style for the
+// identical fold, named explicitly rather than left to any ambient reach.
 // The sine table (engine/system/math.emp). The vertical bob samples it directly rather
 // than calling GetSineCosine: the bob wants ONE value, not the sin/cos PAIR that routine's
 // four extra instructions exist to produce, and Step 5 is not allowed to spend a `jbsr` +
@@ -58,7 +69,7 @@ use engine.math.{Sine_Table}
 // code, and Task 9 adds the first CODE site for the bit — the per-band table reload in
 // Parallax_Fill_PerLine. A comptime CONDITION resolves at the call site and fails LOUDLY
 // when it cannot (measured 2026-08-20 on the buffers.emp twin, since deleted), so this import is load-bearing.
-use engine.level.scene_dsl.{CAP_PER_COL_VSRAM, CAP_DEFORM, CAP_ANCHORS, CAP_TRANSITIONS, CAP_MULTI_DEFORM_TABLE, CAP_FACTOR_CURVE, CAP_BAND_DRIFT}
+use engine.level.scene_dsl.{CAP_PER_COL_VSRAM, CAP_DEFORM, CAP_ANCHORS, CAP_TRANSITIONS, CAP_MULTI_DEFORM_TABLE, CAP_FACTOR_CURVE, CAP_BAND_DRIFT, CAP_ROLE_SWAP}
 
 // The a5-relative data-port derive (a5 = VDP_CTRL, so VDP_DATA_OFF(a5) hits
 // VDP_DATA). Port bases + their drift locks live in engine.vdp.
@@ -875,6 +886,29 @@ pub proc Parallax_Init () clobbers(d0-d7/a0-a6) {
         move.b  #$FF, Parallax_Prev_Sec_X                   // (Parallax_Prev_Sec_X).w
         move.b  #$FF, Parallax_Prev_Sec_Y                   // (Parallax_Prev_Sec_Y).w
 
+        // EFFECTS-W1 item 10b: a role swap must not survive an act reload. The flag
+        // lives OUTSIDE Parallax_State/_End (ram.emp's placement note explains why), so
+        // the zero loop above never touches it — reset it explicitly instead. The
+        // Update call right below reasserts both base registers from whatever this
+        // leaves here, so a bare `clr.b` (not a call to Parallax_Set_Roles_Swapped) is
+        // enough: Update's own reassert does the register work a moment later.
+        //
+        // ACCEPTED GAP: the reassert lives past Update's `.no_config` early-out (a0 ==
+        // NULL — an inert level with no parallax at all), so a swap left active by a
+        // PREVIOUS act would leave the hardware registers swapped, unreasserted, on a
+        // level that declares no parallax config. No shipped act does this today (the
+        // one shipped act's config is non-NULL, checked below), so it costs nothing
+        // observable yet; a future NULL-config act combined with a role swap surviving the
+        // transition would need the reassert moved outside `.no_config`, which this
+        // parcel does not do (it would touch every other early-out's contract too).
+        // (games/sonic4/data/levels/ojz/act1/act_descriptor.emp's act_parallax_config
+        // is the one shipped act's, and it is non-NULL.)
+    if (Game.SCANLINE_CAPS & CAP_ROLE_SWAP) != 0 {
+    .cap_role_swap_init_begin:
+        clr.b   Parallax_Roles_Swapped                      // (Parallax_Roles_Swapped).w
+    .cap_role_swap_init_end:
+    }
+
         // Snap all band scrolls to their correct positions on the first
         // frame instead of lerping from 0. One Update with Snap_Pending
         // writes target_scroll directly to current_scroll for every band.
@@ -1226,6 +1260,129 @@ pub proc Vscroll_Write () clobbers(d0/a0/a5) requires(vblank) {
         rts
 }
 
+// ===========================================================================
+// EFFECTS-W1 DoD ITEM 10b — THE PLANE-ROLE SWAP.
+//
+// For a set-piece, the background draws on Plane A and the foreground draws on Plane
+// B — the two layers trading roles. Design:
+// docs/superpowers/designs/2026-09-03-vram-replan-item0-design.md §2 row 10b, §2.0 and
+// §8 Q4. Zero new VRAM either way ($C000 and $E000 are both already legal, already
+// $2000-aligned bases for BOTH reg $02 and reg $04) — the design's own claim, re-derived
+// here rather than trusted, and it holds.
+//
+// WHOLE-FRAME, NOT MID-FRAME, and this is the whole shape of the decision the brief left
+// open. Item 11a proved the MID-FRAME door: a raster OP_SET_REG re-pointing ONE register
+// partway down the frame, self-restoring at the next VBlank flush because it never
+// touches the shadow. That door is the wrong fit here. A "set-piece" role swap is a
+// SETTLED state meant to survive many frames, not one band's worth of scanlines — so the
+// SETTLED door (`Set_VDP_Reg`, engine/system/vdp_init.emp, "SHIPS UNADOPTED" by its own
+// header before this parcel) is the cheaper, more correct fit: no re-install-every-frame
+// raster program, no HInt timing question, and §8 Q2's open mid-frame-latch question
+// never arises because nothing here writes VDP_CTRL from an HInt at all.
+//
+// WHAT MID-FRAME WOULD ADDITIONALLY COST, named because the escape hatch asks for it:
+// HScroll is ALREADY per-line (Hscroll_Buffer, one longword per scanline — Parallax_Fill_
+// PerLine below already visits every line), so a mid-frame split of ITS feed is free.
+// VSRAM is NOT: the whole-plane word and the per-column buffer are latched once per
+// FRAME (Vscroll_Write, at VBlank), not once per scanline. A vertically-split swap would
+// need a SECOND VSRAM write mid-frame from the HInt handler, landing inside its
+// column-fetch window — an unproven technique on this engine, and the reason a mid-frame
+// version of this item would cost real design work this parcel does not spend.
+//
+// THE REGISTERS ARE THE EASY HALF, exactly as design §2's row states, and `vdp_base_reg`
+// folds both directions through the SAME helper item 11a's OJZ_BaseSwap folds its word
+// through — a re-layout moves this with the planes, and a base the register cannot
+// encode fails the build by name rather than dropping bits silently.
+//
+// THE HARD HALF IS THE SCROLL FEEDS (design §8 Q4, confirmed here rather than assumed).
+// Both the HScroll table and VSRAM are addressed BY REGISTER SLOT, not by content: word 0
+// of every Hscroll_Buffer longword always lands in reg $02's per-line table entry, word 1
+// always lands in reg $04's, regardless of which nametable those registers currently
+// point at. Three sites pack those words FG-first/BG-second unconditionally today
+// (Parallax_Fill_PerLine's per-band pack, Parallax_Step5_Vscroll's whole-plane pack and
+// its per-column column-buffer fill) — so swapping the two base registers WITHOUT also
+// swapping which content lands in which slot gives each layer the OTHER layer's scroll,
+// exactly as §8 Q4 predicted. All three sites below now read `Parallax_Roles_Swapped`
+// and swap the pack order to match, so CONTENT keeps its own scroll behaviour (the
+// camera-locked plane still tracks the camera, the lerped plane still lerps) no matter
+// which register is currently presenting it.
+//
+// WHAT DOES NOT MOVE, checked rather than assumed: the STREAMING write targets.
+// engine/level/plane_buffer.emp and engine/level/section.emp DMA new foreground columns
+// to the PHYSICAL address `VRAM_PLANE_A` ($C000); engine/level/bg.emp writes background
+// rows at the physical `VRAM_PLANE_B_BYTES` ($E000). Neither reads a "which register is
+// Plane A right now" flag — they target fixed VRAM addresses. So a role swap moves
+// nothing in VRAM: the foreground's own tiles stay resident at $C000, the background's
+// stay at $E000, and only the REGISTER pointing at each — and the scroll feed riding
+// with it — changes. This is what makes the swap genuinely free of new engine code in
+// the streaming half; the design's zero-tiles pricing survives contact.
+const ROLE_SWAP_PLANE_A_NORMAL  = vdp_base_reg(VdpBase.PlaneA, VRAM_PLANE_A)
+const ROLE_SWAP_PLANE_A_SWAPPED = vdp_base_reg(VdpBase.PlaneA, VRAM_PLANE_B)
+const ROLE_SWAP_PLANE_B_NORMAL  = vdp_base_reg(VdpBase.PlaneB, VRAM_PLANE_B)
+const ROLE_SWAP_PLANE_B_SWAPPED = vdp_base_reg(VdpBase.PlaneB, VRAM_PLANE_A)
+// The demonstrability guard item 11a's OJZ_BaseSwap carries for the same reason: if a
+// re-layout ever made the two planes share a base, or changed either register's shift,
+// the swap would write the byte the register already carries and the picture would not
+// move while every other check here stayed green.
+ensure(ROLE_SWAP_PLANE_A_NORMAL != ROLE_SWAP_PLANE_A_SWAPPED,
+       "Parallax_Set_Roles_Swapped: reg $02's normal byte ({ROLE_SWAP_PLANE_A_NORMAL}) and its swapped byte ({ROLE_SWAP_PLANE_A_SWAPPED}) are the SAME — VRAM_PLANE_A and VRAM_PLANE_B must fold to DIFFERENT reg $02 bytes for the swap to be demonstrable at all")
+ensure(ROLE_SWAP_PLANE_B_NORMAL != ROLE_SWAP_PLANE_B_SWAPPED,
+       "Parallax_Set_Roles_Swapped: reg $04's normal byte ({ROLE_SWAP_PLANE_B_NORMAL}) and its swapped byte ({ROLE_SWAP_PLANE_B_SWAPPED}) are the SAME — VRAM_PLANE_A and VRAM_PLANE_B must fold to DIFFERENT reg $04 bytes for the swap to be demonstrable at all")
+
+// The last VSRAM column-pair's FIRST word (its plane-A-register slot), beside the
+// already-shipped VSCROLL_COL19_BG_OFF (its SECOND word, the plane-B-register slot) —
+// the column-19 borrow below needs to target whichever slot the CURRENTLY-STREAMED
+// (camera-tracked) plane occupies, and role swap moves that.
+pub const VSCROLL_COL19_FG_OFF = (VSCROLL_COL_PAIRS - 1) * 4
+ensure(VSCROLL_COL19_FG_OFF + 2 == VSCROLL_COL19_BG_OFF,
+       "VSCROLL_COL19_FG_OFF and VSCROLL_COL19_BG_OFF must name the two words of the SAME column pair — {VSCROLL_COL19_FG_OFF}+2 != {VSCROLL_COL19_BG_OFF}")
+
+// ----------------------------------------------------------------------
+// Parallax_Set_Roles_Swapped — EFFECTS-W1 item 10b's single entry point. Sets the flag
+// the HScroll/VSRAM feed packers below read, AND settles both base registers through
+// Set_VDP_Reg (the shadow write; Flush_VDP_Shadow's unconditional per-VBlank re-blit is
+// what reaches the hardware, exactly as it is for every other settled-state register in
+// this tree — engine/system/vdp_init.emp's own header names parallax.emp's two
+// PRE-EXISTING inline shadow writes, reg $0B just above in Parallax_Update, as the
+// pattern this proc is the first real adopter of via the helper instead of inline).
+//
+// NO PAD CHORD INSTALLS THIS. Debug_BandDemoHotkey's own header
+// (games/sonic4/test/ojz_scroll_test.emp) enumerates the 3-button pad down to nothing
+// free — every remaining chord is claimed or would be silently inert on a 3-button pad.
+// Item 10a hit the identical wall for OJZ_Reel_Active and its answer is this item's too:
+// no hotkey, a debug tool pokes the RAM cell directly (tools/reels_witness.py's pattern
+// for OJZ_Reel_Active, band_witness.py's for Raster_Pending before it). Here that cell is
+// `Parallax_Roles_Swapped` itself — poke it nonzero and the NEXT Parallax_Update call
+// reasserts both registers and starts packing the swapped order, no proc call needed at
+// all from outside; this proc exists as the API a game's OWN scripted set-piece calls.
+//
+// In:  d0.b = 0 (normal — FG on Plane A, BG on Plane B) or nonzero (swapped)
+// Out: none
+// Clobbers: d0-d1, a0
+// ----------------------------------------------------------------------
+pub proc Parallax_Set_Roles_Swapped (d0: u8) clobbers(d0-d1/a0) {
+    if (Game.SCANLINE_CAPS & CAP_ROLE_SWAP) != 0 {
+    .cap_role_swap_set_begin:
+        move.b  d0, Parallax_Roles_Swapped                  // (Parallax_Roles_Swapped).w
+        tst.b   d0
+        beq     .normal
+        move.w  #2, d0
+        move.b  #ROLE_SWAP_PLANE_A_SWAPPED, d1
+        jbsr    Set_VDP_Reg
+        move.w  #4, d0
+        move.b  #ROLE_SWAP_PLANE_B_SWAPPED, d1
+        jbra    Set_VDP_Reg                                 // tail call
+    .normal:
+        move.w  #2, d0
+        move.b  #ROLE_SWAP_PLANE_A_NORMAL, d1
+        jbsr    Set_VDP_Reg
+        move.w  #4, d0
+        move.b  #ROLE_SWAP_PLANE_B_NORMAL, d1
+        jbra    Set_VDP_Reg                                 // tail call
+    .cap_role_swap_set_end:
+    }
+}
+
 // ----------------------------------------------------------------------
 // Parallax_Update — per-frame parallax buffer build
 //
@@ -1330,6 +1487,28 @@ pub proc Parallax_Update () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
             }
         }
     .mode3_reg_live:
+
+        // EFFECTS-W1 item 10b — per-frame base-register reassert, the settled-state twin
+        // of the reg $0B reassert just above. UNLIKE that one, this does NOT compare
+        // against the shadow before writing: Set_VDP_Reg only stores to the SHADOW byte
+        // (a RAM store), never to live VDP_CTRL, so there is no bus-hold to spare by
+        // skipping an unchanged write — the reg $0B site's compare exists ONLY because
+        // that site writes hardware directly. Once per frame, not per band or per line,
+        // and inert (branches to `.normal`, restates the boot byte) on every frame a
+        // set-piece has not requested the swap.
+        //
+        // a0 (the resolved config pointer) crosses this call on the stack: it is read
+        // immediately below (`pcfg_band_count(a0)`) and Parallax_Set_Roles_Swapped
+        // declares a0 among its clobbers.
+    if (Game.SCANLINE_CAPS & CAP_ROLE_SWAP) != 0 {
+    .cap_role_swap_reassert_begin:
+        move.l  a0, -(sp)
+        moveq   #0, d0
+        move.b  Parallax_Roles_Swapped, d0
+        jbsr    Parallax_Set_Roles_Swapped
+        movea.l (sp)+, a0
+    .cap_role_swap_reassert_end:
+    }
 
         moveq   #0, d7
         move.b  parallax_config.pcfg_band_count(a0), d7
@@ -2217,8 +2396,29 @@ proc Parallax_Step5_Vscroll () clobbers(d0-d7/a0-a6) {
         move.w  d2, Parallax_Current_Vscroll_BG     // (Parallax_Current_Vscroll_BG).w
 
         // pack into Vscroll_Factor (used by Vscroll_Write whole-plane branch)
+        // EFFECTS-W1 item 10b: swap which value lands in VSRAM's plane-A-register slot
+        // (the HIGH word — VSRAM address $00, the first longword Vscroll_Write emits)
+        // when the planes have traded registers. Same reasoning as the HScroll pack
+        // above, ONCE PER FRAME here instead of once per band. d0 is free (Step 5b below
+        // reloads it before reading it).
+    if (Game.SCANLINE_CAPS & CAP_ROLE_SWAP) != 0 {
+    .cap_role_swap_vpack_begin:
+        tst.b   Parallax_Roles_Swapped
+        bne     .vpack_swapped
         swap    d1                                  // FG in high half
         move.w  d2, d1                              // BG in low half (d2 = current_vscroll_bg)
+        jbra    .vpacked
+    .vpack_swapped:
+        move.w  d1, d0                              // save FG (camY) — d1's low half
+        move.w  d2, d1                              // BG into low half...
+        swap    d1                                  // ...then promoted to the HIGH half
+        move.w  d0, d1                              // FG back into the low half
+    .vpacked:
+    .cap_role_swap_vpack_end:
+    } else {
+        swap    d1                                  // FG in high half
+        move.w  d2, d1                              // BG in low half (d2 = current_vscroll_bg)
+    }
         move.l  d1, Vscroll_Factor
 
         // --- Step 5b: per-column V-scroll buffer fill ---
@@ -2241,8 +2441,15 @@ proc Parallax_Step5_Vscroll () clobbers(d0-d7/a0-a6) {
         and.w   #$FF, Parallax_V_Deform_Phase_BG    // (Parallax_V_Deform_Phase_BG).w
 
         // fill 20 column-pairs (80 bytes total)
-        // d1 = camY (FG, swap'd into high half — restore low word)
+        // d1 = camY (FG). The whole-plane pack above left it as [FG:BG] in the NORMAL
+        // case (one more swap recovers camY into the low word) or as [BG:FG] in the
+        // SWAPPED case (item 10b) — camY is ALREADY in the low word there, and swapping
+        // again would overwrite it with BG. Same fact as the pack site, read the other
+        // way: whichever pack ran is undone (or not) by the matching arm here.
+        tst.b   Parallax_Roles_Swapped
+        bne     .col_fg_ready
         swap    d1                                  // restore d1.w = camY (FG)
+    .col_fg_ready:
         // d2 = current_vscroll_bg (BG base)
         movea.l d0, a1                              // a1 = v_deform_table_bg
         lea     Parallax_Vscroll_Column_Buf, a2     // (Parallax_Vscroll_Column_Buf).w
@@ -2257,6 +2464,13 @@ proc Parallax_Step5_Vscroll () clobbers(d0-d7/a0-a6) {
         moveq   #0, d4
         move.b  Parallax_V_Deform_Phase_BG+1, d4    // (Parallax_V_Deform_Phase_BG+1).w — phase low byte
         moveq   #20-1, d6                           // 20 column-pairs
+        // EFFECTS-W1 item 10b: which word each column-pair writes FIRST is which VSRAM
+        // register-slot it lands in (address N = reg $02's per-column entry, N+2 = reg
+        // $04's — VSRAM is addressed by SLOT, not by content, same fact as the HScroll
+        // pack above). Chosen ONCE here, not per column: two loop bodies, the same shape
+        // Parallax_Fill_PerLine's specialised line loops already use.
+        tst.b   Parallax_Roles_Swapped
+        bne     .col_swapped
     .col:
         move.b  (a1, d4.w), d5                      // sample (signed byte)
         ext.w   d5
@@ -2267,6 +2481,18 @@ proc Parallax_Step5_Vscroll () clobbers(d0-d7/a0-a6) {
         move.w  d0, (a2)+                           // BG word = base + offset
         addq.b  #1, d4
         dbf     d6, .col
+        jbra    .col_pairs_done
+    .col_swapped:
+        move.b  (a1, d4.w), d5                      // sample (signed byte)
+        ext.w   d5
+        asr.w   d3, d5                              // offset = sample >> v_deform_shift_bg
+        move.w  d2, d0
+        add.w   d5, d0
+        move.w  d0, (a2)+                           // BG word FIRST — now reg $02's slot
+        move.w  d1, (a2)+                           // FG word SECOND — now reg $04's slot
+        addq.b  #1, d4
+        dbf     d6, .col_swapped
+    .col_pairs_done:
 
         // ---- THE COLUMN-19 BORROW (d-40, 2026-08-29) — the leftmost-partial-column fix,
         // ---- PER SCENE SINCE d-50 (2026-09-02), default ON ----
@@ -2319,8 +2545,19 @@ proc Parallax_Step5_Vscroll () clobbers(d0-d7/a0-a6) {
         // H40-only — in H32 the leading sliver is pinned to V-scroll 0 and no VSRAM write
         // reaches it, so this store would be inert rather than wrong. The module-level
         // VSCROLL_COL19_BG_OFF ensure above is what keeps both facts honest.
+        // EFFECTS-W1 item 10b: the borrow must land on whichever word is the CURRENTLY-
+        // STREAMED (camera-tracked) plane's OWN register slot — normally the table's
+        // SECOND word (reg $04's, VSCROLL_COL19_BG_OFF); under a role swap that content
+        // now presents through reg $02 instead, so the borrow targets the FIRST word
+        // (VSCROLL_COL19_FG_OFF, the const's banner is above Parallax_Set_Roles_Swapped).
+        // d1 is still camY either way — neither loop variant above touches it.
         tst.b   parallax_config.pcfg_v_deform_shift_bg(a0)   // bit 7 = PCFG_VDS_DECLINE_BORROW
         bmi     .col19_borrow_declined
+        tst.b   Parallax_Roles_Swapped
+        beq     .col19_borrow_normal
+        move.w  d1, Parallax_Vscroll_Column_Buf + VSCROLL_COL19_FG_OFF
+        jbra    .col19_borrow_declined
+    .col19_borrow_normal:
         move.w  d1, Parallax_Vscroll_Column_Buf + VSCROLL_COL19_BG_OFF
     .col19_borrow_declined:
         // Declined: column-pair 19's plane-B word keeps what the fill loop wrote — plane B's
@@ -2491,9 +2728,31 @@ proc Parallax_Fill_PerLine () clobbers(d0-d6/a1-a6) preserves(a0/d7) {
     .have_end:
 
         // --- packed base scroll (constant per band) ---
+        // EFFECTS-W1 item 10b: swap which array packs into the HIGH word — the table
+        // slot reg $02's per-line HScroll entry always reads — when the planes have
+        // traded registers, so CONTENT keeps its own scroll behaviour under either
+        // register assignment (item 10b's banner, above Parallax_Set_Roles_Swapped).
+        // ONCE PER BAND, not per line: the five line loops below all consume this same
+        // d0 without re-reading (a2)/(a3), so one check here covers every line they emit.
+    if (Game.SCANLINE_CAPS & CAP_ROLE_SWAP) != 0 {
+    .cap_role_swap_pack_begin:
+        tst.b   Parallax_Roles_Swapped
+        bne     .pack_swapped
         move.w  (a2), d0                            // FG (already negated)
         swap    d0
         move.w  (a3), d0                            // BG → d0 = FG<<16 | BG
+        jbra    .packed
+    .pack_swapped:
+        move.w  (a3), d0                            // BG (already negated)
+        swap    d0
+        move.w  (a2), d0                            // FG → d0 = BG<<16 | FG
+    .packed:
+    .cap_role_swap_pack_end:
+    } else {
+        move.w  (a2), d0                            // FG (already negated)
+        swap    d0
+        move.w  (a3), d0                            // BG → d0 = FG<<16 | BG
+    }
 
         // ---- THE FIFTH LINE LOOP: a curve layer's ramping BG scroll (P3 Task 10) ----
         //
