@@ -5,7 +5,7 @@
 module games.sonic4.ojz_bg_anim_act1 in ojz_bg_anim
 
 pub data BgAnim_Table: u16 = 1   // band count
-// band 0: 32 tiles at BG slot 0, driver timer, 1px per 4 units
+// band 0: 32 tiles at BG slot 0, driver timer, horizontal (scrolls left), 1px per 4 units
 data _BgAnim_Band0_hdr: [u16; 6] = [2, 2, 63, 7, 32, $8000]
 data _BgAnim_Band0_banks: [*u8; 8] = [extern("BgAnim_Banks") + 0, extern("BgAnim_Banks") + 1024, extern("BgAnim_Banks") + 2048, extern("BgAnim_Banks") + 3072, extern("BgAnim_Banks") + 4096, extern("BgAnim_Banks") + 5120, extern("BgAnim_Banks") + 6144, extern("BgAnim_Banks") + 7168]
 pub data BgAnim_Banks = embed("games/sonic4/data/generated/ojz/act1/bg_anim_banks.bin")
