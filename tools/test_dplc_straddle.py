@@ -222,6 +222,17 @@ class TestAnimWalk(unittest.TestCase):
             by_id, _ = self.walk([[3, 0x20, term], [3, 0x21, AF_END]])
             self.assertEqual(by_id[0], {0x20}, f"${term:02X} terminates")
 
+    def test_an_underflowing_rewind_is_unmeasurable_not_silently_truncated(self):
+        # `.cc_back` subtracts with a byte `sub.b`, so a rewind bigger than the
+        # cursor wraps and the interpreter reads outside the body. Stopping the
+        # walk there would silently narrow the reachable set.
+        with self.assertRaises(D.Unmeasurable):
+            self.walk([[5, 0xC3, 0xC4, AF_BACK, 9], [5, 0x31, AF_END]])
+
+    def test_a_rewind_within_the_cursor_is_fine(self):
+        by_id, _ = self.walk([[5, 0xC3, 0xC4, AF_BACK, 2], [5, 0x31, AF_END]])
+        self.assertEqual(by_id[0], {0xC3, 0xC4})
+
     def test_a_body_with_no_terminator_is_unmeasurable(self):
         with self.assertRaises(D.Unmeasurable):
             self.walk([[3] + [0x20] * 8, [3, 0x21, AF_END]])

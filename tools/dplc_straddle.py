@@ -417,6 +417,21 @@ def parse_anim_table(rom, base, count_expected, who, af, events, mapframe_off):
                 frames.add(b)
                 p += 1
                 continue
+            if b == af["AF_BACK"]:
+                # Stopping here is only safe because the rewind lands on bytes
+                # this walk has already covered. `.cc_back` does a byte
+                # `sub.b d0, anim_frame(a0)`, so a rewind larger than the cursor
+                # UNDERFLOWS and the interpreter reads far outside the body —
+                # frames this walk would never see. That is a script bug and a
+                # hole in the reachable set at once, so it is loud, not assumed.
+                cursor = p - off - 1
+                n = rom[base + p + 1]
+                if n > cursor:
+                    raise Unmeasurable(
+                        f"{who}: animation {i} rewinds {n} from cursor {cursor} — the byte "
+                        f"`sub.b` underflows and the interpreter reads outside the script "
+                        f"body, so the reachable set cannot be established from it")
+                break
             if b in events:
                 if b == af["AF_SET_FIELD"] and rom[base + p + 1] == mapframe_off:
                     # A script writing mapping_frame through AF_SET_FIELD would
