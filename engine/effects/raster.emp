@@ -626,8 +626,12 @@ pub struct RasterRampProgram {
     rrp_op:         u16,
     rrp_cmd:        u32,    // constant VDP write command, re-issued every line
     rrp_lines:      u16,
-    rrp_start:      u32,    // 16.16 initial accumulator
-    rrp_step:       u32,    // 16.16 per-line delta, signed
+    rrp_start:      u32,    // the u32 IMAGE of a SIGNED 16.16 initial accumulator
+    rrp_step:       u32,    // the u32 IMAGE of a SIGNED 16.16 per-line delta
+                            // Both are two's-complement encoded by the constructor — see the
+                            // "TWO'S COMPLEMENT AT COMPTIME" banner in raster_ramp_program's
+                            // body. u32-carrying-a-signed-image is the tree's precedent, not a
+                            // preference: engine/level/parallax.emp's bd_rate_1616 banner.
     rrp_end_arm:    u16, rrp_end_ops: u16,  // terminator
 }
 
@@ -725,6 +729,40 @@ pub comptime fn raster_ramp_program(top: int, lines: int, cmd: int,
            "raster_ramp_program: start {start} outside fp16's authored range {fp16_min}..{fp16_max} (fp16(-512,255)..fp16(511,255)). start carries no ensure of its own beyond this one — route every authored value through fp16(whole, frac256) rather than a raw 16.16 literal.")
     ensure(step >= fp16_min && step <= fp16_max,
            "raster_ramp_program: step {step} outside fp16's authored range {fp16_min}..{fp16_max} (fp16(-512,255)..fp16(511,255)). step carries no ensure of its own beyond this one — route every authored value through fp16(whole, frac256) rather than a raw 16.16 literal.")
+    // TWO'S COMPLEMENT AT COMPTIME — THE MISSING HALF OF "SIGNED", FOUND 2026-09-03 BY THE
+    // FIRST DOCUMENT THAT EVER AUTHORED A NEGATIVE ONE.
+    //
+    // `rrp_start`/`rrp_step` are declared u32 and the comments beside them have always said
+    // "signed"; the runtime backs that up, since Raster_HInt consumes the step with a bare
+    // `add.l Raster_Ramp_Step, d1` (this file, the OP_RUN_RAMP arm) and two's complement is
+    // what `add.l` speaks. What was missing was the ENCODE. Every step authored before today
+    // was positive — OJZ_TestRamp's, ramp_probe.json's +1.5 — so `rrp_step: step` forwarded a
+    // non-negative int into a u32 field and nothing ever noticed. aurora's authored witness
+    // document (step -1.5 = fp16(-1, 128) = -98304) is the first negative one, and sigil
+    // refused it at EMISSION, not at any ensure:
+    //     [emit.out-of-range] -98304 does not fit u32 (0..=4294967295)
+    //             — in `EditorRaster_OJZ_Act1_aurora_local_rampctl_probe.rrp_step`
+    // So the sign rule reached the wire format and stopped one step short of it.
+    //
+    // THE FIX IS THE TREE'S OWN PRECEDENT, NOT A NEW IDEA. engine/level/parallax.emp's
+    // `band_drift.bd_rate_1616` banner states it as a rule — "THE FIELD IS u32 AND NOT i32,
+    // AND THAT IS THE TREE'S PRECEDENT RATHER THAN A PREFERENCE ... the emitted image is what
+    // matters and the runtime consumes it with a size-tagged add that does not care" — and
+    // names the two constructors that discharge it: `scene_hdr()` for `pcfg_v_offset` (+$10000,
+    // a word) and `scene_band()` for `bd_rate_1616` (+$100000000, a long). This is the third,
+    // and it is the long form. A statement `if`, not an if-expression (docs/EMP_PITFALLS.md §1).
+    //
+    // THE SINGLE ADD IS TOTAL, and the two ensures directly above are what make it so: both
+    // values are already bounded to fp16(-512,255)..fp16(511,255), i.e. |v| <= 33619968, which
+    // is under 2^31. Nothing here can wrap past 0 or collide with a legitimate large positive.
+    //
+    // ENCODE AFTER THE RANGE ENSURES, NEVER BEFORE. Those ensures compare against fp16_min,
+    // which is negative; run them on an already-encoded value and every negative step would
+    // read as ~4.2 billion and fail the upper bound with a number the author never wrote.
+    comptime var start_img = start
+    if start_img < 0 { start_img = start_img + $100000000 }
+    comptime var step_img = step
+    if step_img < 0 { step_img = step_img + $100000000 }
     return RasterRampProgram{
         rrp_mask:       mask,
         rrp_arm0:       raster_arm(1, top - 1),
@@ -736,12 +774,50 @@ pub comptime fn raster_ramp_program(top: int, lines: int, cmd: int,
         rrp_op:         OP_RUN_RAMP,
         rrp_cmd:        cmd,
         rrp_lines:      lines,
-        rrp_start:      start,
-        rrp_step:       step,
+        rrp_start:      start_img,
+        rrp_step:       step_img,
         rrp_end_arm:    RASTER_ARM_PARK,
         rrp_end_ops:    RASTER_OPS_END,
     }
 }
+
+// ---------------------------------------------------------------------------
+// THE SIGN PIN — proves the encode above, in BOTH directions, for ZERO ROM BYTES.
+//
+// `const`, so nothing is emitted; the pins are the two `ensure`s. This exists because the
+// defect it guards was invisible for the whole life of the ramp tier: every step authored
+// before 2026-09-03 was positive, so `rrp_step: step` forwarded a non-negative int into a
+// u32 field and no build ever complained. The first negative step (aurora's authored witness
+// document, -1.5 px/line) failed at EMISSION with `[emit.out-of-range] -98304 does not fit
+// u32`, which is a diagnostic pointing at the generated call site rather than at the
+// constructor that owes the encode.
+//
+// BOTH DIRECTIONS, AND THE POSITIVE ONE IS NOT DECORATION. A "fix" that encoded
+// unconditionally, or that added $100000000 to everything, would move every ramp already in
+// the tree by 4 gigabytes and still pass a negative-only pin. The positive arm is the control:
+// it says the encode is a NO-OP where it must be, which is what makes OJZ_TestRamp's and
+// ramp_probe's ROM images byte-identical across this change.
+//
+// EXPECTATIONS ARE DERIVED, NEVER TYPED. `fp16(-1, 128) + $100000000` is the same expression
+// the constructor runs, spelled from fp16 itself rather than from the number -98304 or the
+// image $FFFE8000 — so if fp16's encoding ever moves, this pin moves with it instead of
+// silently pinning a stale literal. `top`/`lines`/`cmd` are the cheapest legal values that
+// satisfy the constructor's own ensures and carry no meaning of their own.
+//
+// PROVEN RED 2026-09-03, both arms, each mutation applied ALONE and quoted back from disk:
+//   * delete the `if step_img < 0 { .. }` encode  -> the NEG arm, reporting
+//     "got start 4294868992, step -98304" (and the emission error returns behind it)
+//   * make the encode UNCONDITIONAL               -> the POS arm
+const RAMP_SIGN_PIN_NEG = raster_ramp_program(
+    top: 3, lines: 1, cmd: vdp_comm(2, VdpTarget.Vsram, VdpOp.Write),
+    start: fp16(-1, 128), step: fp16(-1, 128))
+const RAMP_SIGN_PIN_POS = raster_ramp_program(
+    top: 3, lines: 1, cmd: vdp_comm(2, VdpTarget.Vsram, VdpOp.Write),
+    start: fp16(1, 128), step: fp16(1, 128))
+ensure(RAMP_SIGN_PIN_NEG.rrp_step == fp16(-1, 128) + $100000000 && RAMP_SIGN_PIN_NEG.rrp_start == fp16(-1, 128) + $100000000,
+       "raster_ramp_program: a NEGATIVE start/step did not reach rrp_start/rrp_step as its two's-complement u32 image (got start {RAMP_SIGN_PIN_NEG.rrp_start}, step {RAMP_SIGN_PIN_NEG.rrp_step}; want {fp16(-1, 128) + $100000000} for both). Without the encode sigil refuses the emission outright — `[emit.out-of-range] ... does not fit u32` — pointing at whichever `pub data` named the ramp rather than at this constructor.")
+ensure(RAMP_SIGN_PIN_POS.rrp_step == fp16(1, 128) && RAMP_SIGN_PIN_POS.rrp_start == fp16(1, 128),
+       "raster_ramp_program: a POSITIVE start/step was ALTERED on its way into rrp_start/rrp_step (got start {RAMP_SIGN_PIN_POS.rrp_start}, step {RAMP_SIGN_PIN_POS.rrp_step}; want {fp16(1, 128)} for both). The two's-complement encode must be a NO-OP for non-negative values, or every ramp already in the tree moves.")
 
 // -----------------------------------------------
 // Raster_Install — stage a compiled program; it takes effect at the next
