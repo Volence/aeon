@@ -17068,8 +17068,22 @@ Item 2 is the only one that does not.
 | 10 | Reels / plane-role swap / window as third layer | **L** | aeon alone (the paired freeze ended 2026-09-02) | ~~**BLOCKED — see item 0 below.**~~ **UNBLOCKED on the VRAM axis 2026-09-03: item 0 landed as Option P** — `spare_nametable`, 128 tiles at tile 768 (`$6000`), a legal Plane A/B/Window base. **10a (reels) LANDED 2026-09-03, `parcel/item10a-reels`** — `OJZ_Reels_Fill` composes REEL_BAND_COUNT (5) independently-advancing, pairwise-distinct per-frame phase increments onto the shipped per-column VSRAM buffer's BG words; needed **zero** of item 0's tiles (design §2 row 10a's claim held). `tools/reels_gate.py` gates it on every canonical sonic4 build. **10b (plane-role swap) and 10c (window as third layer) are UNSTARTED** and 10c does need item 0's `spare_nametable` (10b needs none). See the item-10a block below. |
 | 11 | Nametable-base changes (frame swap, Plane Z, Batman mid-frame) | **L** | aeon alone (the paired freeze ended 2026-09-02) | ~~**BLOCKED — same item 0.**~~ **PARTLY DONE.** Item 0's design (§2) split this row into 11a (the mid-frame base change as a MECHANISM, zero tiles) and 11b (Plane Z, a distinct third picture, which does need tiles). **11a LANDED 2026-09-03, `parcel/item11a-midframe-base`, aeon `eb87d2ba`** — `OJZ_BaseSwap`, one `OP_SET_REG` re-pointing Plane A at Plane B's nametable at screen line 160, gated by `tools/plane_base_swap_gate.py` on every canonical sonic4 build. **The on-screen half is unrun** (no emulator in that lane) and is tagged for the controller. **11b is UNBLOCKED on the VRAM axis by item 0's landing** — but note there is no SECOND `$2000`-aligned run left: the remaining spendable run is at `$5000`, `$1000`-aligned, i.e. window-only, so 10c and 11b are competing for the one `$6000` run. See the item-11a and item-0 blocks below. |
 
-**⚠ ITEMS 10 AND 11 HAVE NO AUTHORING KEY, AND THE SPEC CONTRADICTS ITSELF ABOUT WHETHER THEY SHOULD
-(open scoping question, raised by the hub 2026-09-03, answered by this lane as a POSITION not a ruling).**
+**⚠ ITEMS 10 AND 11 HAVE NO AUTHORING KEY YET, AND THEY ARE SUPPOSED TO — RULED 2026-09-03, AND THE
+RULING CORRECTS THIS LANE.** ~~The spec contradicts itself about whether they should.~~ **IT DOES NOT.**
+I called it a contradiction after reading items 10/11's own text and item 12's closing clause; the
+decisive line is one section further down in the SAME document. **DoD item 13 reserves a CR for "the
+row-remap and plane-trick fields" by name** (empyrean `origin/main`, the spec's Contract section, read
+firsthand here). With item 12's "controls for items 7 to 11 as each lands", authorability for items 9,
+10 and 11 is inside the ratified definition of done and was never ambiguous. **Hub ruling in the owner's
+place, overturnable on read-back: wave 1 DOES expose 10 and 11 to an author.** This lane names each
+field's shape (name, type, units, range, and what refuses an illegal value), the hub files the CR, aurora
+writes the control — each AFTER its engine half is on master; 10b and 11b stay engine-first. Order:
+item 6's per-line field first (two lanes wait on it), then a reels field, then the item-11 field.
+**The lesson is worth more than the outcome: I reported a tension in a document I had read three
+sections of.** A spec that names its keys in a Contract section will answer "is there supposed to be a
+key" there, and that is where to look first — not in the item's own prose, which describes mechanisms.
+
+**What was measured and still stands (this part was right):**
 Measured: `tools/effects_gen.py` at `origin/master` accepts no reel, nametable, `plane_base` or
 `base_swap` key — enumerated from the generator's own key set, not inferred. That matches how the DoD
 describes items 10 and 11, which name no field and are costed as mechanisms ("a spare nametable region
