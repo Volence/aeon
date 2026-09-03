@@ -19160,3 +19160,24 @@ was. Fixed on branch `fix/reels-witness-expectation`.
   §2 is real (the existing per-column DSL cannot produce independent rates) rather than
   assuming the six shipped Rocking/Perspective scenes already satisfied item 10a, which
   would have been the wrong, no-code reading of "zero new engine mechanism".
+
+**Item 10a's DEMAND ARTIFACT exists (2026-09-03, `docs/item10a-key-shape`, documents
+only):** `docs/superpowers/specs/2026-09-03-item10a-reels-key-shape.md` transcribes from
+engine source the authoring shape a reels field would need if exposed to a document — and
+finds that no preset key, scene key, or reserved-by-name placeholder targets it today
+(zero hits for "reel"/"strip" in `tools/effects_gen.py`), and that the one scene-level key
+that IS adjacent, `v_deform`, is mechanically the WRONG surface: `SceneVDeform.Columns`
+samples one table at one shared, monotonically-advancing phase (verified at the
+instruction level against `engine/level/parallax.emp`'s per-column fill loop), so it can
+only ever produce columns that lag and periodically re-synchronise, never the pairwise-
+distinct, never-resynchronising independent per-band rates `OJZ_Reel_Speed` demonstrates.
+It also finds the feature has no reusable `comptime fn` constructor of any kind (unlike
+item 6's `raster_ramp_program`) and no capability-bit gate at all, names all four
+`ensure`s (by line) that refuse an illegal `OJZ_REEL_SPEEDS`/`REEL_BAND_COUNT`/
+`REEL_COLS_PER_BAND` combination, and states that no `ensure` bounds an individual speed's
+magnitude beyond its raw `i8` storage — the authored contract and the storage width are
+the same range here, the opposite asymmetry from item 6's ~64x gap. Ten items are listed
+as NOT ESTABLISHED, including whether a real per-section reels mechanism needs a new
+`Parallax_Update` engine hook or can keep the override-after-fill shape with per-scene
+rather than one fixed global rate storage — the source the item-13 contract CR would be
+drafted from, once the hub rules on the open questions §2 raises.
