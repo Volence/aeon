@@ -101,6 +101,20 @@ inside the constructor — the comment (`:611-615`) states the compensation woul
 conditional on the target, which is exactly the class of silent per-call surprise the sparse
 tier's single `-1` rule was designed to avoid.
 
+**AND STATED POSITIVELY, BECAUSE THE NEGATIVE FORM HAS ALREADY BEEN MISREAD ONCE: NOTHING ON THIS
+PATH COMPENSATES FOR THE LINE, AT ANY STAGE.** Not the constructor, not `tools/effects_gen.py`, and
+not the editor's codec — the editor's PREVIEW is the only place a `+1` legitimately exists, and it
+is theirs. On 2026-09-03 the editor lane reported building a brief on the premise that aeon's
+generator applies the compensation and quoted a sentence to that effect; **that sentence is in
+neither this tree's `master` nor the in-flight generator parcel** (searched for the wording and for
+the claim). What IS here and is structurally similar is `tools/effects_gen.py`'s drift comment —
+*"a multiply here would apply it twice and every authored rate would come out 256x too fast"* — which
+is about the `px/frame` to `1/256-px/frame` UNIT conversion, a different quantity, and which is
+correct. **Two "would be applied twice" comments about two different quantities on one path is
+exactly the confusion to expect**, so the rule is written here as a positive claim about every stage
+rather than as a denial about one: a reader who meets "the constructor does not do it" can still
+infer that something else does.
+
 ### 1.3 `fp16(whole, frac256)` — the ONLY authored-range enforcement in this whole feature
 
 `engine/effects/raster.emp:684-689`:
