@@ -68,25 +68,70 @@ That extra line is the same N+1 behaviour measured for a *sparse* `vsram` write 
 day: a VSRAM write issued in line N's HBlank takes effect on N+1, while CRAM applies to the line
 being set up. So a VSRAM ramp's `top` row still shows whatever scroll was live before the run.
 
-### ⚠ CONTESTED AT THE BOUNDARY (2026-09-03) — this section's rule may be one line early
+### ⚠ SETTLED 2026-09-03 — THE RULE ABOVE IS THIS DOCUMENT'S OWN, AND IT NO LONGER DESCRIBES THE ENGINE
 
-`tools/ramp_authored_witness.py` arm 4 measures the run's first line directly, with two FLAT twins
-of one record differing only in `rrp_start` — every line the run reaches takes a constant offset and
-no line it misses can move, so there is no floor-degeneracy at the boundary. It reads the first VSRAM
-line as **`top + 2`**, on two documents with different tops: `aurora_local_rampctl_probe` (top 3 ->
-first line 5) and `ramp_probe` (top 128 -> first line 130).
+`tools/ramp_boundary_probe.py`. Read this section before quoting anything above it.
 
-**The excerpt above cannot exclude that, and that is a fact about the sample, not about the care
-taken.** It lists rows 112, 116, 124, 140, 156, 172, 184 — `top` and then nothing until `top + 4`;
-the run's first three rows are absent. And at **+0.5 px/line** the first two emitted values floor to
-0 and are pixel-identical to an untouched line. Whether the FULL 74-row set also misses it has not
-been checked — if it does not, two instruments disagree, which is a larger problem than either
-number. Booked in `docs/DEFERRED_WORK.md`, "RAMP BOUNDARY", with what would settle it.
+**The rule holds, but `j` does not start at 0, and the section above never said which line the
+first DISPLAYED value lands on.** Measured on today's engine over **19 `top`s spanning 3..220** and
+**9 run lengths from 1 to 111**, with two FLAT twins (step 0) of one record differing only in
+`rrp_start` — every line the run reaches takes a constant offset and no line it misses can move, so
+the first differing line IS the first reached line, with no floor-degeneracy anywhere:
 
-Also measured in the same run and not documented anywhere before: a ramp WRITES the VSRAM entry, so
-after the run ends the entry keeps its final value and every line below the run stays shifted for
-the rest of the frame. `ramp_probe`'s 64-line run, declared to end at 192, changes the picture to
-223.
+| target | first screen line the run CHANGES | value on screen line `top + n` |
+|---|---|---|
+| VSRAM | **`top + 2`** — every one of the 19 tops, zero interior gaps | `start + (n-1) * step`, for `n >= 2` |
+| CRAM  | **`top + 1`** | `start + n * step`, for `n >= 1` |
+
+Equivalently, and this is the sentence the suite contract should carry: **value `j` = `start + j*step`
+displays on `top + j + 1` for VSRAM and on `top + j`  for CRAM — and `j` STARTS AT 1.** The
+interpreter adds the step *before* it writes (`move.l Raster_Ramp_Acc,d1; add.l Raster_Ramp_Step,d1;
+… swap d1`), so `start` itself is never emitted. Measured directly at **+1 px/line**, where every
+emitted value is distinct and the integer part is exact: screen line `top+1` is pixel-identical to a
+V=0 reference, `top+2` carries shift 1, `top+3` shift 2, `top+4` shift 3 — at both `top` 112 and
+`top` 40.
+
+**The one-line CRAM/VSRAM gap this section calls the N+1 VSRAM latency is CONFIRMED, and the CRAM
+half is measured here for the first time** — "What this does NOT establish" below says in as many
+words that it never was. CRAM was read on the three tops (150, 190, 220) where the probed palette
+entry demonstrably covers the `top` row itself, so "unreached" is distinguishable from "no pixel
+uses that colour there"; a full-screen coverage pass runs first and the probe refuses to report a
+boundary for an entry with no coverage.
+
+**THE EXCERPT ABOVE IS NOT BLIND TO THIS, AND THAT MATTERS — the two measurements genuinely
+disagree.** The published rows 116/124/140/156/172/184 are all *discriminating* (only row 112 is
+not). Both PNGs beside this file are the **full 320×224 originals**, committed in `c2a7e1a9` with
+this document, so every row can be re-derived rather than inferred from the seven: scored against
+the original captures, the earlier rule matches **187 of 187** scorable rows and **37 of 37**
+discriminating ones, while the rule measured today matches 157 and 7. The 2026-08-14 picture really
+was one line higher than today's.
+
+**Rebuilt on TODAY's ROM, the same fixture geometry gives the opposite verdict.** `top` 112,
+`lines` 96, `+0.5 px/line`, VSRAM byte 2, synthesised at runtime into scratch RAM: the top+2 rule
+matches 29 of 37 discriminating rows and the top+1 rule matches **0**. So the picture moved by
+exactly one line between 2026-08-14 and 2026-09-03, in the same direction for **both** targets (the
+gradient tier's documented CRAM landing is `top`; today it measures `top + 1`).
+
+**WHICH SIDE MOVED IS OPEN AND IS NOT ASSERTED HERE.** Two candidates, and nothing measured
+excludes either: (a) a change in the raster path after 2026-08-14 — `.dense_end` falling into
+`.park`, the frame-rewind interlock, the `-4(a2)` respellings all post-date these captures; or
+(b) the instrument — these PNGs came off the legacy Exodus-derived C++ core, and the Rust core
+became the ratified default on 2026-08-26. That both targets moved together by exactly one line is
+consistent with either. What would settle it: run a `c2a7e1a9`-era ROM (published `crc=475fa367`)
+on the Rust core, or today's ROM on the legacy core. Booked in `docs/DEFERRED_WORK.md`,
+"RAMP BOUNDARY".
+
+Also measured and not documented anywhere before: a ramp WRITES the VSRAM entry, so after the run
+ends the entry keeps its final value and every line below the run stays shifted for the rest of the
+frame. `ramp_probe`'s 64-line run, declared to end at 192, changes the picture to 223. **So "the
+last line that looks different" is not where a run ends** — measure the span by where the stepping
+stops, not by where the difference stops.
+
+And the consequence an author meets: a run of `lines` values occupies screen lines
+`top+2 .. top+lines+1`, so the constructor's `top + lines <= 223` admits a VSRAM run whose LAST
+value displays on line **224** and is never seen. `aurora_local_rampctl_probe` authors 220 lines and
+**219 of them render**. The ceiling is not tightened — it exists for the frame-rewind interlock, and
+tightening it would refuse a document that already ships — so it is stated at the `ensure` instead.
 
 **Not corrected inside the constructor, deliberately.** The bias would have to be conditional on
 the target, which would put a silent one-line shift between two calls differing only in their
@@ -103,8 +148,9 @@ profile it.
 
 ## What this does NOT establish
 
-- Not a CRAM ramp. Only the VSRAM target was measured; the CRAM landing line is asserted from
-  the gradient tier's behaviour, not re-measured.
+- ~~Not a CRAM ramp. Only the VSRAM target was measured; the CRAM landing line is asserted from
+  the gradient tier's behaviour, not re-measured.~~ **CLOSED 2026-09-03** — measured, and it is
+  `top + 1`, one line later than the gradient tier's documented `top`. See the SETTLED section.
 - Not runtime mutation. The accumulator *lives* in RAM and the wire format seeds it, but nothing
   yet rewrites `Raster_Ramp_Step` per frame. That is the capability this unlocks, not a thing
   this fixture demonstrates.

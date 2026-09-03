@@ -41,7 +41,7 @@ FIVE THINGS ARE MEASURED, and the first needs no emulator at all.
      and REFUSES to report a boundary for an entry with no coverage.
 
   §5 REPLICA — the 2026-08-14 fixture's exact geometry (top 112, lines 96, +0.5 px/line,
-     VSRAM byte 2, plane A and sprites muted) rebuilt on TODAY's ROM and scored against the
+     VSRAM byte 2) rebuilt on TODAY's ROM and scored against the
      same two rules. §0 asks what the old machine did; §5 asks whether this machine still
      does it. They are different questions and a difference between them is a finding.
 
@@ -57,6 +57,18 @@ docstring. `validate_synth()` builds records for the two shipped preset document
 OWN json and compares all 34 bytes against what `raster_ramp_program` actually emitted into
 the ROM. If they differ this script refuses to measure: a synthesiser that does not speak the
 constructor's language would produce a confident answer about a program the engine cannot author.
+
+⚠ LAYER MUTING IS REFUSED, AND THIS IS A MEASURED INSTRUMENT DEFECT, NOT A PREFERENCE.
+`emulator/set_layer_enabled` flips `emulator/scanlines` from `source: "raster"` to
+`source: "stateRender"` on the Rust core (measured 2026-09-03, both values on one boot):
+the rows stop being the per-scanline raster capture and become a RE-RENDER FROM
+END-OF-FRAME VDP STATE. A re-render has exactly ONE VSRAM value for the whole frame, so
+every per-line raster effect is ERASED from the picture it hands back — a flat-twin diff
+then comes out empty and reads as "the ramp changed nothing", which is indistinguishable
+from a real negative. The 2026-08-14 method muted plane A on the LEGACY C++ core, where
+the capture survived it; that is not transferable. So every arm here runs with all layers
+ON and asserts `source == "raster"` on every single chunk, and §3/§5 tolerate plane A by
+SCORING pixel matches instead of demanding whole-row equality.
 
 ⚠ VSCR IS RE-READ AT CAPTURE TIME AND PRINTED IN EVERY ARM. `addr 2` is "plane B, full
 width" only while VDP shadow register $0B reads $03; `engine/level/parallax.emp` writes that
@@ -282,7 +294,7 @@ async def _rows(b, start, count, chunk=8):
     return out
 
 
-def run(rom_path, lst_path, sym, record=None, mute=True, capture=True):
+def run(rom_path, lst_path, sym, record=None, mute=False, capture=True):
     """One instance, one arm. Returns (mode3, rows, bracket).
 
     `record` is the 34 bytes to stage in scratch RAM and install via Raster_Pending; None
@@ -306,10 +318,13 @@ def run(rom_path, lst_path, sym, record=None, mute=True, capture=True):
 
             await mark("connect")
             if mute:
-                await b.call("emulator/set_layer_enabled",
-                             {"layer": "planeA", "enabled": False})
-                await b.call("emulator/set_layer_enabled",
-                             {"layer": "sprites", "enabled": False})
+                raise SystemExit(
+                    "REFUSED: muting a layer flips emulator/scanlines to "
+                    "source='stateRender', a re-render from END-OF-FRAME VDP state that "
+                    "carries one VSRAM value for the whole frame and therefore ERASES "
+                    "every per-line raster effect. The resulting empty diff is "
+                    "indistinguishable from a real negative. Measured on this core "
+                    "2026-09-03; see this module's header.")
             done = 0
             while done < SETTLE:
                 n = min(100, SETTLE - done)
@@ -364,6 +379,36 @@ def pick_scratch(rom: bytes, sym: dict) -> int:
     print("  scratch $%08X   (Game_RAM_End $%08X, initial SP $%08X, %d bytes of stack "
           "headroom)" % (s, ram_end, init_sp, init_sp - s))
     return s
+
+
+def px_match(row_a: str, row_b: str) -> float:
+    """Fraction of the 320 pixels identical between two `emulator/scanlines` rgb rows.
+
+    WHY A FRACTION AND NOT EQUALITY. Plane A cannot be muted here (see the header), so a row
+    carries pixels that do NOT move with plane B's VSRAM entry — foreground art, the HUD,
+    anything on plane A. Demanding whole-row equality would score every such row a miss at
+    EVERY shift and report a value map full of holes it would be tempting to read as
+    "unreached". The fraction degrades gracefully instead, and it is PRINTED, so a weak fit
+    announces itself rather than passing as a strong one."""
+    a, b = row_a[2:], row_b[2:]           # both carry the protocol's 0x prefix
+    n = min(len(a), len(b)) // 6          # 3 bytes per pixel, 6 hex chars
+    if n == 0:
+        return 0.0
+    return sum(1 for i in range(n) if a[i*6:(i+1)*6] == b[i*6:(i+1)*6]) / n
+
+
+def best_shift(sub_rows, ref_rows, L, lo=-4, hi=80):
+    """(shift, score) maximising px_match(sub[L], ref[L+shift]); ties resolved to the
+    SMALLEST shift so an alias 64 lines down (plane B is 64 tiles tall) cannot win by
+    default."""
+    best = []
+    for sft in range(lo, hi + 1):
+        if 0 <= L + sft < len(ref_rows):
+            best.append((px_match(sub_rows[L], ref_rows[L + sft]), -abs(sft), sft))
+    if not best:
+        return None, 0.0
+    sc, _, sft = max(best)
+    return sft, sc
 
 
 def first_diff(a, b):
@@ -470,7 +515,7 @@ def main():
     VS, VA = "Vsram", 2
     PROBE_PX = -37          # odd on purpose: a multiple of the 8-px tile height could alias
 
-    def flat_pair(top, lines, target, addr, mute=True, lo=0, hi=None):
+    def flat_pair(top, lines, target, addr, mute=False, lo=0, hi=None):
         """The two FLAT twins. Returns (first_reached, all_diff, gaps, mode3s, brackets)."""
         hi = PROBE_PX if hi is None else hi
         ra = synth(top, lines, target, addr, fp16(lo, 0), 0)
@@ -482,8 +527,8 @@ def main():
 
     # ---- arm 1: control vs control ----------------------------------------
     print("§1a CONTROL vs CONTROL  (nothing is attributable until these agree)")
-    mA, rA, bA = run(a.rom, a.lst, sym, record=None, mute=True)
-    mB, rB, bB = run(a.rom, a.lst, sym, record=None, mute=True)
+    mA, rA, bA = run(a.rom, a.lst, sym, record=None, mute=False)
+    mB, rB, bB = run(a.rom, a.lst, sym, record=None, mute=False)
     same = sum(1 for x, y in zip(rA, rB) if x == y)
     print("    %d of %d lines identical (want all)   reg $0B %s / %s" % (same, len(rA), mA, mB))
     print("    frame brackets %s..%s and %s..%s" % (bA[0], bA[1], bB[0], bB[1]))
@@ -493,7 +538,7 @@ def main():
     print()
 
     # ---- §1: the top sweep -------------------------------------------------
-    print("§1  VSRAM FLAT-TWIN SWEEP over `top`  (offset %+d px, planeA+sprites muted)"
+    print("§1  VSRAM FLAT-TWIN SWEEP over `top`  (offset %+d px, ALL LAYERS ON)"
           % PROBE_PX)
     print("    %-5s %-6s %-7s %-7s %-6s %-6s %-5s %s"
           % ("top", "lines", "derived", "reached", "delta", "last", "gaps", "reg $0B"))
@@ -522,43 +567,54 @@ def main():
     print()
 
     # ---- §3: the value map -------------------------------------------------
-    print("§3  VSRAM VALUE MAP at +1 px/line  (no floor degeneracy anywhere)")
+    # WHAT THIS ANSWERS THAT THE FLAT TWINS CANNOT. §1 says which line the run first
+    # REACHES; it says nothing about which VALUE is on it, and the contract's sentence is a
+    # statement about values. At +1 px/line every emitted value is distinct and its integer
+    # part is exact, so the shift read off a line IS the value index that landed there — no
+    # floor degeneracy, unlike the 2026-08-14 fixture's +0.5 where the first values floor to
+    # 0 and are pixel-identical to an untouched line.
+    print("§3  VSRAM VALUE MAP at +1 px/line  (every emitted value distinct; no floor "
+          "degeneracy)")
+    print("    the REFERENCE is the SAME record with step 0 and start 0, so V = 0 on every "
+          "line the run reaches and the plane is otherwise untouched")
     for top, lines in ((112, 64), (40, 64)):
-        ref = synth(top, lines, VS, VA, 0, 0)              # the same record, step 0 => V = 0
+        ref = synth(top, lines, VS, VA, 0, 0)
         sub = synth(top, lines, VS, VA, 0, fp16(1, 0))
-        m1, rr, b1 = run(a.rom, a.lst, sym, record=ref, mute=True)
-        m2, rs, b2 = run(a.rom, a.lst, sym, record=sub, mute=True)
+        m1, rr, b1 = run(a.rom, a.lst, sym, record=ref, mute=False)
+        m2, rs, b2 = run(a.rom, a.lst, sym, record=sub, mute=False)
         print("    top %d, lines %d   reg $0B %s / %s   brackets %s..%s, %s..%s"
               % (top, lines, m1, m2, b1[0], b1[1], b2[0], b2[1]))
-        print("      %-5s %-8s %-8s %s" % ("line", "n=L-top", "shift(s)", "reading"))
-        for L in range(top - 2, min(top + 12, 224)):
-            ss = [s for s in range(-4, 80) if 0 <= L + s < 224 and rs[L] == rr[L + s]]
-            print("      %-5d %-8d %-8s %s"
-                  % (L, L - top, ss[:6],
-                     "identical to the V=0 reference" if 0 in ss else ""))
-        # the whole run, scored against both readings
+        print("      %-5s %-8s %-7s %-7s %-9s %s"
+              % ("line", "n=L-top", "shift", "score", "s=0 score", "reading"))
+        for L in range(top - 2, min(top + 14, 224)):
+            sft, sc = best_shift(rs, rr, L)
+            z = px_match(rs[L], rr[L])
+            print("      %-5d %-8d %-7s %-7.4f %-9.4f %s"
+                  % (L, L - top, sft, sc, z,
+                     "untouched (identical to the V=0 reference)" if z == 1.0 else ""))
+        # THE WHOLE RUN, scored against both readings. `value j` means start + j*step, so
+        # the shift a line should carry under a reading is exactly j.
         def score(vmap):
             hits = miss = 0
             for L in range(top, min(top + lines + 4, 224)):
                 v = vmap(L)
                 if not (0 <= L + v < 224):
                     continue
-                if rs[L] == rr[L + v]:
+                if px_match(rs[L], rr[L + v]) == 1.0:
                     hits += 1
                 else:
                     miss += 1
             return hits, miss
-        for name, vm in (("value j on top+j+1 (first reached top+1)",
+        for name, vm in (("value j displays on top+j+1  (first reached line top+1)",
                           lambda L: max(0, min(lines, L - top))),
-                         ("value j on top+j   (first reached top+2)",
-                          lambda L: max(0, min(lines + 1, L - top)) if L >= top + 2 else 0)):
+                         ("value j displays on top+j    (first reached line top+2)",
+                          lambda L: (L - top) if top + 2 <= L <= top + lines + 1 else 0)):
             h, m = score(vm)
-            print("      %-46s %d hit / %d miss" % (name, h, m))
+            print("      %-56s %d exact / %d miss" % (name, h, m))
         print()
 
     # ---- §4: CRAM ----------------------------------------------------------
-    print("§4  CRAM TARGET  (all layers ON — muting a plane removes the pixels that use "
-          "the entry)")
+    print("§4  CRAM TARGET  (all layers ON, as everywhere here)")
     BLACK, BRIGHT = 0x000, 0x0EE
     print("    coverage discovery: a FULL-SCREEN flat pair (top 3, lines 220) per entry, "
           "black $%03X vs $%03X" % (BLACK, BRIGHT))
@@ -597,15 +653,17 @@ def main():
     # ---- §5: the replica ---------------------------------------------------
     TOP, LINES, STEP = p0
     print("§5  REPLICA of the 2026-08-14 fixture on TODAY's ROM  (top %d, lines %d, "
-          "step %+.4f px/line)" % (TOP, LINES, STEP / 65536))
+          "step %+.4f px/line, plane A NOT muted -- see the header)" % (TOP, LINES, STEP / 65536))
     ref = synth(TOP, LINES, VS, VA, 0, 0)
     sub = synth(TOP, LINES, VS, VA, 0, STEP)
-    m1, rr, b1 = run(a.rom, a.lst, sym, record=ref, mute=True)
-    m2, rs, b2 = run(a.rom, a.lst, sym, record=sub, mute=True)
+    m1, rr, b1 = run(a.rom, a.lst, sym, record=ref, mute=False)
+    m2, rs, b2 = run(a.rom, a.lst, sym, record=sub, mute=False)
     print("    reg $0B %s / %s   brackets %s..%s and %s..%s" % (m1, m2, b1[0], b1[1],
                                                                 b2[0], b2[1]))
     ident = [L for L in range(224) if rs[L] == rr[L]]
     firstd = next((L for L in range(224) if rs[L] != rr[L]), None)
+    print("    NOTE: plane A is ON here (it cannot be muted -- see the header), so a row "
+          "carrying plane A pixels can miss at every shift. Scores are printed.")
     print("    rows identical to the flat control: %d, first differing row %s (= top %+d)"
           % (len(ident), firstd, (firstd - TOP) if firstd is not None else 0))
 
@@ -623,11 +681,11 @@ def main():
     scorable = [L for L in range(224) if 0 <= L + f1(L) < 224 and 0 <= L + f2(L) < 224]
     disc = [L for L in scorable if f1(L) != f2(L)]
     for lam, f in ((1, f1), (2, f2)):
-        hit = [L for L in scorable if rs[L] == rr[L + f(L)]]
-        print("    rule 'first reached line = top + %d' : %d of %d scorable rows match"
-              % (lam, len(hit), len(scorable)))
-    h1 = [L for L in disc if rs[L] == rr[L + f1(L)]]
-    h2 = [L for L in disc if rs[L] == rr[L + f2(L)]]
+        hit = [L for L in scorable if px_match(rs[L], rr[L + f(L)]) == 1.0]
+        print("    rule 'first reached line = top + %d' : %d of %d scorable rows match "
+              "exactly" % (lam, len(hit), len(scorable)))
+    h1 = [L for L in disc if px_match(rs[L], rr[L + f1(L)]) == 1.0]
+    h2 = [L for L in disc if px_match(rs[L], rr[L + f2(L)]) == 1.0]
     print("    DISCRIMINATING rows: %d — top+1 rule matches %d, top+2 rule matches %d"
           % (len(disc), len(h1), len(h2)))
     print()

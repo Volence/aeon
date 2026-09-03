@@ -20464,66 +20464,97 @@ creates a document through the panel needs that row; this lane has not audited w
 
 ---
 
-## RAMP BOUNDARY: the constructor's own N+1 rule is one line optimistic at the TOP (measured 2026-09-03)
+## RAMP BOUNDARY: SETTLED for the engine (2026-09-03) — one half stays open, and it is a DIFFERENT half
 
 **Discharged in the same parcel: the sign half.** `raster_ramp_program` never two's-complement
 encoded a NEGATIVE `start`/`step` into its u32 image fields, so **no ROM could hold a downward
 ramp at all** — sigil refused the emission (`[emit.out-of-range] -98304 does not fit u32`). Fixed
-on `parcel/aurora-ramp-witness` with the tree's own precedent (`scene_hdr`/`pcfg_v_offset`,
-`scene_band`/`bd_rate_1616`) plus a two-directional zero-byte pin. **That part is CLOSED.** What
-follows is what the resulting witness then found, and is NOT closed.
+on `parcel/aurora-ramp-witness`. **That part is CLOSED.**
 
-**THE OPEN ITEM.** `raster_ramp_program`'s banner says, and `docs/benchmarks/effects-p3/RAMP-EVIDENCE.md`
-concluded from 74/74 rows:
+**THE BOUNDARY IS NOW CLOSED TOO, on `parcel/ramp-boundary-settle`,** by
+`tools/ramp_boundary_probe.py`. The three statements that had to move together — the constructor
+banner, its ceiling `ensure`, and `docs/benchmarks/effects-p3/RAMP-EVIDENCE.md` — moved in one
+commit. What the engine does today, on the ratified instrument:
 
-> value `j` displays on screen line `top + j + 1` for a **VSRAM** target
+| target | first screen line the run CHANGES | value on screen line `top + n` |
+|---|---|---|
+| VSRAM | `top + 2` | `start + (n-1) * step`, `n >= 2` |
+| CRAM  | `top + 1` | `start + n * step`, `n >= 1` |
 
-Measured with `tools/ramp_authored_witness.py` arm 4 — two FLAT twins (step 0) of the same record
-differing only in `rrp_start`, so every line the run reaches takes a constant offset and no line it
-misses can move — **the first line a VSRAM ramp reaches is `top + 2`, not `top + 1`:**
+Equivalently: **value `j` = `start + j*step` displays on `top + j + 1` (VSRAM) / `top + j` (CRAM),
+and `j` STARTS AT 1** — the interpreter adds the step before it writes, so `start` is never emitted.
+Constant across **19 tops spanning 3..220** (zero interior gaps, every one exactly +2) and **9 run
+lengths 1..111**: nothing proportional to `top`, nothing edge-related, nothing length-dependent.
+Measured at **+1 px/line**, where no value can floor into its neighbour. The CRAM half is measured
+for the first time (RAMP-EVIDENCE listed it under "What this does NOT establish"), on the three
+tops where the probed palette entry demonstrably covers the `top` row itself.
 
-| document | `top` | derived first line | MEASURED first line | span measured |
-|---|---|---|---|---|
-| `aurora_local_rampctl_probe` (top 3, 220 lines, -1.5 px/line) | 3 | 4 | **5** | 5..223, 219 contiguous, 0 gaps |
-| `ramp_probe` (top 128, 64 lines, +1.5 px/line) | 128 | 129 | **130** | first reached line 130 |
+**THE MECHANISM STORY BOOKED HERE PREVIOUSLY IS REFUTED, and this is why it was booked as a story.**
+It said the accumulator's pre-advance would make a 0-based rule "land exactly one line early", which
+would reconcile `top+1` and `top+2` with no engine difference. It cannot: the pre-advance changes
+which VALUE is emitted, never which LINE is written, and the flat-twin instrument (step 0, both
+twins constant) is blind to values by construction. The +1 px/line value map settles it in the other
+direction — the pre-advance is real AND the line is `top + 2`; they are two independent facts, not
+one fact double-counted.
 
-Two documents, two different `top`s, the same `+1`. VDP shadow reg `$0B` read `$03` (full-screen
-vertical scroll) at capture in every instance, so `addr 2` really is plane B full width and the
-offset really is a whole-plane shear. No reset/restore/checkpoint/`run_to` anywhere; each arm gets
-its own instance booted paused at frame 0 and the frame index is bracketed and printed.
+### WHAT IS STILL OPEN — and it is bigger than the number it replaces
 
-**WHY RAMP-EVIDENCE COULD NOT HAVE SEEN THIS, which is a claim about its published sample and not
-a claim that it was careless.** Its excerpt samples rows 112, 116, 124, 140, 156, 172, 184 — `top`
-and then nothing until `top + 4`; the run's first three rows are absent. And its step is **+0.5
-px/line**, so the first two emitted values floor to 0 and are pixel-identical to an untouched line.
-A one-line boundary shift is structurally invisible to that combination. Whether its full 74-row
-set also misses it is NOT established here — someone should check, because if it does not, then
-two instruments disagree and that is a different and larger problem.
+**The 2026-08-14 captures show this ONE LINE HIGHER, and which side moved is not established.**
+Both PNGs beside RAMP-EVIDENCE.md are the full 320x224 originals, committed in `c2a7e1a9` with the
+document. Scored row by row rather than inferred from the published seven-row excerpt (**the
+excerpt is NOT blind — six of its seven rows are discriminating**, contrary to what this entry
+previously assumed):
 
-**MECHANISM IS OPEN AND IS NOT ASSERTED.** The interpreter advances the accumulator BEFORE emitting
-(`move.l Raster_Ramp_Acc,d1; add.l Raster_Ramp_Step,d1; ...; swap d1`), so the first emitted value is
-`start + step` and the emitted sequence is naturally 1-based; a rule written for a 0-based `j` would
-land exactly one line early. That reconciles both numbers and it is a STORY — the measurement above
-does not depend on it and does not establish it. Do not write it into the constructor as fact
-without an experiment that could have refuted it.
+| scored against | old rule (first line `top+1`) | new rule (first line `top+2`) |
+|---|---|---|
+| the ORIGINAL 2026-08-14 captures | 187/187 scorable, **37/37 discriminating** | 157/187, 7/37 |
+| the SAME geometry rebuilt on today's ROM | 141/187, **0/37 discriminating** | 170/187, 29/37 |
 
-**THE CONSEQUENCE AN AUTHOR MEETS.** `ensure(top + lines <= 223)` admits a run whose LAST value can
-never be seen. `aurora_local_rampctl_probe` authors 220 lines and **219 of them are visible**: first
-at 5, contiguous to 223, zero interior gaps. Under the measured `top + 2` first line the 220th value
-displays on line 224, which does not exist. (Derived from the measured first line plus contiguity —
-the instrument cannot distinguish "written and off-screen" from "never written", because a dense
-VSRAM run's last value PERSISTS to the bottom of the frame either way.) If the `+1` is confirmed,
-the ceiling ensure should become `top + lines <= 222` and say why, or the constructor should stop
-promising a line it does not deliver.
+So the picture moved by exactly one line, **in the same direction for BOTH targets** — the gradient
+tier's documented CRAM landing is `top`, and today it measures `top + 1`.
 
-**PERSISTENCE IS A SECOND THING THIS TIER DOES NOT DOCUMENT.** A ramp WRITES the VSRAM entry, so
-after the run ends the entry keeps its final value for the rest of the frame and every line below
-the run is shifted too. Measured on `ramp_probe`: a 64-line run declared to end at 192 changes the
-picture all the way to 223. This is correct behaviour and completely undocumented; it is also why
-"last differing line" is not a measurement of where a run ENDS.
+**A uniform instrument shift is EXCLUDED.** `vsplit_landing_gate` asserts that a SPARSE VSRAM op
+authored at screen line M has its first differing row at exactly M, on the Rust core via
+`emulator/scanlines`, and it PASSES on this ROM (effects_gates segment 7/15, 2026-09-03). A capture
+path reporting everything one line late would turn it red. So the shift is specific to the DENSE
+tier's ENTER schedule.
 
-**WHAT TO DO.** (a) Re-run the boundary probe on a third `top` to make it three points, ideally with
-a CRAM target too — the rule is stated for both tiers and only the VSRAM half has been probed here.
-(b) Reconcile against RAMP-EVIDENCE's full row set. (c) Then, and only then, correct the
-constructor's banner, the evidence doc and the ceiling ensure together, in one parcel, since they
-are three statements of one rule.
+**The remaining candidates, neither excluded:**
+  (a) a change in `engine/effects/raster.emp`'s dense path after 2026-08-14 — `.dense_end` falling
+      into `.park`, the frame-rewind interlock, the `-4(a2)` respellings all post-date the captures;
+  (b) a legacy-vs-Rust core difference SPECIFIC to dense per-line writes (the captures came off the
+      Exodus-derived C++ core; the Rust core became the ratified default 2026-08-26).
+
+Both are consistent with one arithmetic fact worth writing down and NOT asserting: the whole set of
+numbers collapses if the first `.dense_body` fires at `top + 1` rather than at `top`. Then CRAM
+lands on its own fire line (`top+1`) and VSRAM one later (`top+2`), which is the SAME fire+1 VSRAM
+rule the sparse tier obeys and `vsplit_landing` pins. That would mean the dense ENTER absorbs TWO
+lines where `raster_gradient_program`'s banner says its measured `T-1` setup line absorbs exactly
+one — i.e. **every shipped dense program renders one line lower than authored**, including
+`OJZ_TestGradient` at top 96. That is an arithmetic reconciliation and nothing here tests it.
+
+**WHAT WOULD SETTLE IT, exactly:** run a `c2a7e1a9`-era ROM (published `crc=475fa367`) on the Rust
+core, or today's ROM on the legacy core. Either one distinguishes (a) from (b) in a single capture.
+Failing that, break inside `.ramp_body` and read the HV counter on the first iteration — that reads
+the fire line directly and does not depend on either renderer.
+
+**PERSISTENCE, still undocumented anywhere but the banner and the evidence doc.** A ramp WRITES the
+VSRAM entry, so after the run ends the entry keeps its final value for the rest of the frame and
+every line below the run is shifted too. Measured on `ramp_probe`: a 64-line run declared to end at
+192 changes the picture to 223. Correct behaviour — and it is why "last differing line" is not a
+measurement of where a run ENDS.
+
+**THE CEILING IS DELIBERATELY NOT TIGHTENED.** A VSRAM run's values display on `top+2..top+lines+1`,
+so `ensure(top + lines <= 223)` admits a run whose last value lands on line 224 and is never seen
+(`aurora_local_rampctl_probe` authors 220 and renders 219). Tightening it to 222 would refuse a
+document that already ships, and this bound is the frame-rewind interlock's, not a visibility bound.
+The `ensure`'s message now says both things.
+
+**OWED TO THE HUB, NOT DONE HERE (the schema and the editor belong to other lanes).**
+`empyrean` `contract/schema/aurora-effects-preset.schema.json` carries the old number in two places,
+and aurora's editor REGEXES one of them (`/DISPLAYS on top \+ (\d+)/`) into
+`EFFECTS_PRESET_RAMP_VSRAM_DISPLAY_LAG`. The `ramp` description's "value j displays on top + j + 1"
+is CORRECT and needs only the `j >= 1` clause; the `top` property's "the first written value
+DISPLAYS on top + 1, not top" is WRONG and must read `top + 2`. Replacement strings are in the
+parcel report. Aurora must not change its constant unilaterally — it is parsed from the schema on
+purpose, and the schema is the thing to move.

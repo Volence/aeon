@@ -643,36 +643,50 @@ pub struct RasterRampProgram {
 // use fp16() above rather than writing the raw longword, so the scale is stated once.
 //
 // WHICH LINE THE FIRST VALUE LANDS ON DEPENDS ON THE TARGET, and it is MEASURED, not
-// assumed (docs/benchmarks/effects-p3/RAMP-EVIDENCE.md, 74 of 74 rows):
-//   CRAM target  — value j displays on screen line top + j     (like the gradient tier)
-//   VSRAM target — value j displays on screen line top + j + 1
-// The extra line is the same N+1 behaviour measured for a sparse `stream_vsram` write on
-// 2026-08-14: a VSRAM write issued in line N's HBlank takes effect on N+1, while CRAM
-// applies to the line being set up. So a VSRAM ramp's `top` line renders with whatever
-// scroll was live BEFORE the run, and the ramp proper starts one line down.
+// assumed — re-measured in full on 2026-09-03 by tools/ramp_boundary_probe.py over 19
+// `top`s spanning 3..220 and 9 run lengths from 1 to 111, with two FLAT twins (step 0) of
+// one record differing only in `rrp_start`, so every line the run reaches takes a constant
+// offset and no line it misses can move:
+//
+//   CRAM target  — value j displays on screen line top + j       first CHANGED line top + 1
+//   VSRAM target — value j displays on screen line top + j + 1   first CHANGED line top + 2
+//
+// AND `j` STARTS AT 1, WHICH IS THE HALF THAT WAS MISSING AND THE HALF THAT MISLEADS. Value
+// j means start + j*step, and the interpreter adds the step BEFORE it writes (.ramp_body:
+// `move.l Raster_Ramp_Acc,d1 / add.l Raster_Ramp_Step,d1 / ... / swap d1`), so `start`
+// itself — value 0 — is never emitted at all. The first value that ever displays is
+// start + 1*step, and it lands on top + 2 for VSRAM and top + 1 for CRAM. Measured directly
+// at +1 px/line, where every emitted value is distinct and its integer part is exact, so
+// there is no floor degeneracy: screen line top+1 is pixel-identical to a V=0 reference,
+// top+2 carries shift 1, top+3 shift 2, top+4 shift 3, at both top 112 and top 40.
+//
+// THE OFFSET IS CONSTANT — 19 tops from 3 to 220 all read exactly +2 with zero interior
+// gaps, and 9 run lengths (1, 2, 3, 4, 8, 16, 64, 96, 111) at one top all read +2. Nothing
+// here is proportional to `top`, and nothing is an artefact of either screen edge.
+//
+// The one-line CRAM/VSRAM gap is the same N+1 behaviour measured for a sparse `stream_vsram`
+// write on 2026-08-14 — a VSRAM write issued in line N's HBlank takes effect on N+1, while
+// CRAM applies to the line being set up — and the CRAM half is now measured rather than
+// inherited (RAMP-EVIDENCE.md's "What this does NOT establish" said it never had been).
 //
 // This is deliberately NOT corrected by biasing `top` inside the constructor. The bias
 // would have to be conditional on the target, which puts a silent one-line shift between
 // two calls that differ only in their command word — the exact class of surprise the
 // sparse tier's single `-1` rule was designed to avoid. Author the line you want the
-// ramp to START at and, for VSRAM, expect the line above it to hold the previous value.
+// ramp to START at and expect the line(s) above the first displayed value to hold whatever
+// was live before the run: ONE such line for CRAM, TWO for VSRAM.
 //
-// ⚠ THE RULE ABOVE MAY BE ONE LINE OPTIMISTIC AT THE TOP, AND `j`'s BASE IS NOT STATED.
-// Measured 2026-09-03 by `tools/ramp_authored_witness.py` arm 4 (two FLAT twins of one
-// record differing only in `rrp_start`, so every line the run reaches moves and no line it
-// misses can): the first VSRAM line a run actually reaches is `top + 2`, on TWO documents
-// with different tops — `aurora_local_rampctl_probe` (top 3 -> first line 5) and
-// `ramp_probe` (top 128 -> first line 130). RAMP-EVIDENCE's published excerpt cannot
-// exclude this: it samples `top` then `top + 4`, never the run's first three rows, and its
-// +0.5 px/line step floors the first two emitted values to 0.
-//
-// NOT CORRECTED HERE, ON PURPOSE. The banner, the ceiling ensure below and
-// docs/benchmarks/effects-p3/RAMP-EVIDENCE.md are three statements of ONE rule and must
-// move together, against a third data point and a CRAM-target probe. Booked in
-// docs/DEFERRED_WORK.md, "RAMP BOUNDARY", with what would settle it. Until then treat the
-// run's first line as UNCERTAIN between `top + 1` and `top + 2`, and note that
-// `top + lines <= 223` therefore admits a last value that may display on line 224 and
-// never be seen: the 220-line aurora document renders 219 lines.
+// ⚠ THE 2026-08-14 CAPTURES SHOW THIS ONE LINE HIGHER, AND WHICH SIDE MOVED IS OPEN. Both
+// PNGs beside RAMP-EVIDENCE.md are the full 320x224 originals; scored row by row, they match
+// the OLD rule on 37 of 37 discriminating rows, and the same fixture geometry rebuilt on
+// today's ROM matches the NEW rule on 29 of 37 and the old one on 0. So the picture moved by
+// exactly one line, in the same direction for BOTH targets, some time after 2026-08-14. Two
+// candidates and nothing measured excludes either: a change in this file's raster path (the
+// `.dense_end`-into-`.park` fall, the frame-rewind interlock and the `-4(a2)` respellings all
+// post-date those captures), or the instrument (they came off the legacy Exodus-derived C++
+// core; the Rust core became the ratified default 2026-08-26). Booked in
+// docs/DEFERRED_WORK.md, "RAMP BOUNDARY", with exactly what would settle it. The rule above
+// is what THIS engine does on the ratified instrument, which is the rule an author meets.
 //
 // AND A SECOND UNDOCUMENTED PROPERTY, measured in the same run: a ramp WRITES the entry, so
 // after the run ends the entry KEEPS its final value and every line below the run stays
@@ -703,8 +717,17 @@ pub comptime fn raster_ramp_program(top: int, lines: int, cmd: int,
     // interlock in Raster_HInt's `.priming` arm reads any fire at V >= RASTER_VBLANK_V as
     // stale, so 223 is the last line a run may end on without authoring work into that region.
     // Literal, not a named constant, for the comptime-emission-scope reason given there.
+    // AND IT IS NOT THE VISIBILITY BOUND — MEASURED 2026-09-03, and deliberately left as a
+    // documented consequence rather than tightened. A run of `lines` values DISPLAYS on
+    // screen lines top+2 .. top+lines+1 for a VSRAM target (top+1 .. top+lines for CRAM), so
+    // this ceiling admits a VSRAM run whose LAST value lands on line 224 and can never be
+    // seen: `aurora_local_rampctl_probe` authors 220 lines from top 3 and 219 of them render.
+    // Tightening this to 222 would refuse that document, which already ships — and this bound
+    // is not about visibility in the first place, it is the interlock's. An author who needs
+    // every authored value on screen keeps top + lines <= 222 (VSRAM); the ensure below says
+    // so in its message rather than enforcing it.
     ensure(top + lines <= 223,
-           "raster_ramp_program: run {top}..{top + lines - 1} must END at screen line 222 or above. The last line's LEAVE schedule puts a trailing fire one line below it, and the frame-rewind interlock (Raster_HInt's `.priming` arm) retires as stale any fire it reaches with the V counter at or past RASTER_VBLANK_V — so a run ending at 223 would be authoring work into the region the interlock treats as post-rewind. See the note at raster_gradient_program's matching ensure.")
+           "raster_ramp_program: run {top}..{top + lines - 1} must END at screen line 222 or above. The last line's LEAVE schedule puts a trailing fire one line below it, and the frame-rewind interlock (Raster_HInt's `.priming` arm) retires as stale any fire it reaches with the V counter at or past RASTER_VBLANK_V — so a run ending at 223 would be authoring work into the region the interlock treats as post-rewind. See the note at raster_gradient_program's matching ensure. SEPARATELY, AND NOT ENFORCED HERE: this bound is not the VISIBILITY bound. A VSRAM run's values display on screen lines top+2..top+lines+1 (measured, see this constructor's banner), so top + lines == 223 puts the last value on line 224 where nothing can see it. Keep top + lines <= 222 if every authored value must render.")
     let addr = vdp_comm_addr(cmd)
     // Exactly one of the two supported targets, and the mask follows from which. INT
     // flags, not booleans, and the mask is built in a comptime var rather than an
