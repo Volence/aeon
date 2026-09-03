@@ -19287,6 +19287,18 @@ the program REMOVED, and a removal has no line of its own to contaminate with.
    the backdrop, and the base readback is UNMEASURABLE above the boundary — which the first
    run reported as a FAILURE, correctly, rather than as a green. The default `--warp-dy -700`
    puts opaque foreground on both sides, and the reason is written at the flag.
+3. **THE FRAME INDEX REWINDS AT EVERY RESTORE** (oracle `91b21a8`, raised by the coordinator
+   mid-parcel). Logic gated on a strictly ADVANCING frame index silently does nothing across a
+   rewind instead of failing, and "no change observed" then reads exactly like a real negative.
+   This witness rewinds DELIBERATELY, once per arm — the checkpoint is what makes the treated
+   and removed frames comparable at all — so the audit was not enough on its own and the
+   property is now MEASURED: `Shape.rebaseline` is the only restore path, it re-reads the index
+   after the rewind and REFUSES unless the machine landed back on the checkpoint's own frame
+   (266 debug / 240 release, measured), and every compared arm must report the same measured
+   advance (`[4,4,4,4,4]` and `[12,12]`). Proven red by running one control arm for `n+1`
+   frames: the advance check fires AND control-vs-control reports **128 of 224 lines** moving —
+   which is also the measurement of why a checkpoint was needed instead of consecutive frames.
+   **So the negatives in the red-first table above are negatives, not rewinds.**
 
 ### Proven red-first, each mutation shown applied on disk and restored from a COMMITTED baseline
 
@@ -19296,6 +19308,7 @@ the program REMOVED, and a removal has no line of its own to contaminate with.
 | the same mutated ROM, witness reading the UNMUTATED tree (document still says 160) | **RED** — "first differing line 101, authored line 160 — the derived window is [160, 161]" |
 | `section_6.meta.json` `rasterRef` → `null`, regenerated + rebuilt, witness reading the bound tree | **RED, three arms** — `ep_raster` is `Raster_Program_None`; `Raster_Program` after the crossing is `$000000`, not the generated label; and the "poke changes nothing" arm reports 63 differing lines, because with the binding gone the poke is what installs the program. The picture arms stayed GREEN, correctly: they measure the PROGRAM, and the poked program still works |
 | `classify` made to guess "A" on a tie instead of returning "ambiguous" | unit cover **RED**, 2 of 18 (`test_found_in_both_is_ambiguous`, `test_found_in_neither_is_ambiguous`) |
+| one control arm run for `n+1` frames instead of `n` | **RED, two independent arms** — the frame-advance guard (`short arms advanced [4, 4, 4, 5, 4]`) and control-vs-control (`removed pair 128 differing lines`), then REFUSED |
 
 ### What is still NOT certified, and why
 
