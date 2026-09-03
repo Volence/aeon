@@ -12,6 +12,30 @@ its own inputs -- never copied off a nearby comment. That matters more than usua
 test that copied the comment would have pinned the wrong rectangle.
 
 Runner: `build.sh`'s tool-suite lane (`python3 -m pytest "${TOOLS}" -q`), build-fatal.
+
+RED-FIRST, MEASURED 2026-09-02 against the committed baseline. Ten mutations, each
+applied TO DISK, each run alone, each restored with `git checkout --`; both controls (the
+unapplied mutation and the restored baseline) green at 14 passed.
+
+    M1  FACT 1's disagreement filter inverted                        1 failed
+    M2  FACT 2's over-claim threshold raised past reach              1 failed
+    M3  the impossible-offset warning silenced                       1 failed
+    M4  FACT 3's row-ownership filter inverted                       1 failed
+    M5  the empty-record arm made unreachable                        1 failed
+    M6  C4's shortfall arithmetic sign-flipped                       1 failed
+    M7  geometry()'s tokeniser loses `>>`                            1 failed
+    M8  Canopy_Probe walks one column short (engine source)          1 failed
+    M9  a canopy call site put outside its DEBUG gate (engine)       1 failed
+    M10 the halt-arm report inverted                                 2 failed
+
+⚠ M10 FIRST CAME BACK GREEN, AND IT WAS A FALSE GREEN — worth recording because the
+mechanism is not the one the pitfall note describes. The sweep cleared `__pycache__` under
+the repo and set `PYTHONPYCACHEPREFIX` to a scratch directory, then REUSED that directory
+across all ten runs, so the repo sweep never touched the cache that was actually being
+read. Setting the prefix is not the protection; clearing it is. With a per-mutation prefix
+directory M10 fails both of its parametrised cases. A stale cache can only manufacture a
+false GREEN, so the nine reds above were never in doubt — but a tenth mutation that
+"passed" would have been read as a vacuous test and the test rewritten for no reason.
 """
 import pathlib
 import re

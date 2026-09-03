@@ -1516,6 +1516,15 @@ artifacts (VSRAM/HSCROLL, parallax, sprite masking); anything lasting under one 
 point; and — the deliberate one — a non-contiguous or unrepaired-but-repaired-looking column,
 which C1's cheap attribution may excuse.
 
+**EVIDENCE THE PARCEL CAN OFFER, and its limits.** Ten mutations red-first, each alone,
+both controls green (table in `tools/test_canopy_record.py`'s docstring). The DEBUG ROM's
+call chain is live, not decorative: `bsr.w` sites resolve `Section_UpdateColumns ->
+Canopy_Probe -> Canopy_Persist -> Canopy_Fire` and `Draw_TileRow_FromCache ->
+Canopy_Fire`. In the release listing all three procs are coincident zero-length labels —
+they emit nothing — and the CRCs above say the same thing decisively. **What NO evidence
+here covers: the predicates have never met a real sighting.** They are derived from the
+two routines, and derivation is the method with a 0-for-2 record on this bug.
+
 **FOREGROUND STEPS (nobody in this parcel could run an emulator).**
 1. `DEBUG=1 ./build.sh`, play OJZ act 1 normally, then
    `python3 tools/canopy_record.py`. Read `Canopy_Cost` FIRST — it is the price check, and if it
