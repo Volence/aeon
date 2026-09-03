@@ -414,6 +414,37 @@ class TestSubjectBindings(unittest.TestCase):
                           "two owners must read as undetermined, not as the first one")
 
 
+class TestConcurrentDemand(unittest.TestCase):
+    """The bound the 2026-09-03 emulator reading named as the one that breaks:
+    one straddling set per frame is survivable, two at once is not."""
+
+    def test_only_the_resident_sets_count(self):
+        splits = {"a": 1, "b": 1, "c": 1, "d": 1}
+        n, ranked, total = D.concurrent_demand(splits, n_players=2, n_appendage=1)
+        self.assertEqual(n, 3, "two player slots plus one appendage")
+        self.assertEqual(total, 3, "the three largest, not all four")
+
+    def test_it_takes_the_largest_not_the_first(self):
+        splits = {"a": 0, "b": 3, "c": 0, "d": 2}
+        _, ranked, total = D.concurrent_demand(splits, n_players=1, n_appendage=1)
+        self.assertEqual([k for k, _ in ranked], ["b", "d"])
+        self.assertEqual(total, 5)
+
+    def test_it_cannot_exceed_the_number_of_subjects(self):
+        n, _, total = D.concurrent_demand({"a": 1}, n_players=2, n_appendage=1)
+        self.assertEqual(n, 1)
+        self.assertEqual(total, 1)
+
+    def test_one_straddling_set_survives_a_two_slot_reserve_and_two_do_not(self):
+        # The arithmetic the reading states: a straddling landing needs two free
+        # slots, and .split_reject drops the whole transfer when only one is.
+        reserve = D.const_from_emp("engine/objects/dplc.emp", "DPLC_ENTRY_RESERVE")
+        _, _, one = D.concurrent_demand({"x": 1, "y": 0, "z": 0}, 2, 1)
+        _, _, three = D.concurrent_demand({"x": 1, "y": 1, "z": 1}, 2, 1)
+        self.assertLessEqual(one, reserve)
+        self.assertGreater(three, reserve)
+
+
 class TestLoudOnUnmeasurable(unittest.TestCase):
     def test_a_missing_constant_raises(self):
         with self.assertRaises(D.Unmeasurable):

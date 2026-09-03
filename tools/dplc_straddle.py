@@ -941,6 +941,23 @@ def load_subjects(labels):
 
 # --------------------------------------------------------------------- reports
 
+def concurrent_demand(per_subject_split, n_players, n_appendage):
+    """The worst straddle demand several RESIDENT sprite sets can make in one frame.
+
+    A per-subject bound is not the one the reserve has to survive: two player
+    slots plus Tails' appendage are drawn together, and each can land a
+    straddling transfer in the same frame. Summing the N LARGEST per-subject
+    splits is an upper bound over every residency combination without
+    enumerating them, with N = one character per player slot plus the appendages
+    that ride with them.
+
+    Returns (n_resident, ranked_pairs, total).
+    """
+    n_resident = min(n_players + n_appendage, len(per_subject_split))
+    ranked = sorted(per_subject_split.items(), key=lambda kv: (-kv[1], kv[0]))[:n_resident]
+    return n_resident, ranked, sum(v for _, v in ranked)
+
+
 def default_rom_for(lst_path):
     """The ROM a listing came from. Not a guess the tool then trusts: rom_bytes
     fails loud if it is not there, and the caller may name it with --rom."""
@@ -981,6 +998,7 @@ def report(lst_path, out=sys.stdout, sweep=None, sweep_range=(-512, 512),
     worst = 0
     worst_reach_slots = 0
     worst_reach_split = 0
+    per_subject_split = {}
     undetermined = []
     for s in subs:
         end = s["art_base"] + s["art_len"]
@@ -1038,13 +1056,40 @@ def report(lst_path, out=sys.stdout, sweep=None, sweep_range=(-512, 512),
             r_split = max(len(costs[i][2]) for i in in_range)
             worst_reach_slots = max(worst_reach_slots, r_peak)
             worst_reach_split = max(worst_reach_split, r_split)
+            per_subject_split[s["name"]] = r_split
             print(f"    peak SLOTS over REACHABLE frames: {r_peak} at "
                   f"{', '.join(f'${i:02X}' for i in r_at[:8])}"
                   f"{' ...' if len(r_at) > 8 else ''}   "
                   f"(worst reachable frame splits into {r_split} extra entry(ies))", file=out)
         else:
+            per_subject_split[s["name"]] = 0
             print(f"    peak SLOTS over REACHABLE frames: n/a — no frame of this art is "
                   f"reachable at all", file=out)
+
+    # --- the CONCURRENT demand on the reserve ----------------------------
+    #
+    # Everything above is per-subject, and a per-subject bound is not the one
+    # the reserve has to survive. Several sprite sets are resident at once — two
+    # player slots plus Tails' appendage — and each can land a straddling
+    # transfer in the SAME frame. The 2026-09-03 emulator reading measured a
+    # per-frame straddle peak of exactly 1 and named this as the bound that
+    # breaks: "it would break the moment an art-base move gives Sonic a
+    # reachable straddling frame, and then two straddling landings in one frame
+    # would need four slots against a reserve of two."
+    #
+    # So: sum the worst reachable split of the N subjects that can be resident
+    # together, N = NUM_PLAYERS (one character per slot) + the appendage
+    # subjects that ride with them, read from the engine constant rather than
+    # typed. Summing the N LARGEST is an upper bound over every residency
+    # combination without enumerating them.
+    n_players = const_from_emp("engine/system/constants.emp", "NUM_PLAYERS")
+    n_appendage = sum(1 for s in subs if s.get("kind") == "appendage")
+    n_resident, ranked, concurrent = concurrent_demand(
+        per_subject_split, n_players, n_appendage)
+    print(f"\n  CONCURRENT demand on the reserve: {n_resident} sprite set(s) resident at once "
+          f"(NUM_PLAYERS={n_players} + {n_appendage} appendage), worst case "
+          f"{' + '.join(f'{k} {v}' for k, v in ranked)} = {concurrent} split(s) "
+          f"against a {reserve}-slot reserve", file=out)
 
     if sweep:
         s = next((x for x in subs if x["art_label"] == sweep), None)
@@ -1133,10 +1178,23 @@ def report(lst_path, out=sys.stdout, sweep=None, sweep_range=(-512, 512),
                   f".split_reject), so this frame's art would not load — and it is a frame the "
                   f"game can display.", file=out)
             failed = True
+        # VERDICT C — the CONCURRENT demand, the bound the 2026-09-03 reading
+        # named as the one that breaks. Also not implied by A: every resident set
+        # can be comfortably under the slot bar on its own and still overrun the
+        # reserve between them in one frame.
+        if concurrent > reserve:
+            print(f"\ndplc_straddle: FAIL — {n_resident} sprite sets are resident at once and "
+                  f"their REACHABLE straddles total {concurrent} in one frame, past the "
+                  f"{reserve}-slot DPLC_ENTRY_RESERVE. Each straddling landing needs two free "
+                  f"slots and .split_reject drops the whole transfer when only one is free, so "
+                  f"one of these sets would lose its art. Contributors: "
+                  f"{', '.join(f'{k} {v}' for k, v in ranked if v)}.", file=out)
+            failed = True
         if failed:
             return 1
-        print(f"\ndplc_straddle: OK — no frame's SLOT cost exceeds the bar {ratchet}, and no "
-              f"REACHABLE frame splits past the {reserve}-slot reserve "
+        print(f"\ndplc_straddle: OK — no frame's SLOT cost exceeds the bar {ratchet}, no "
+              f"REACHABLE frame splits past the {reserve}-slot reserve, and the concurrent "
+              f"reachable demand is {concurrent} of {reserve} "
               f"(worst reachable peak {worst_reach_slots} slots, worst reachable split "
               f"{worst_reach_split})", file=out)
     return 0

@@ -266,12 +266,31 @@ inside that tile.** `QueueDMA` rejects a split outright when only one slot is fr
 a single frame's simultaneous splits is `DPLC_ENTRY_RESERVE`, and a frame can sit well under the
 slot bar and still breach it. That is the 21 KB-base-move case, and it is now a named failure.
 
+**And a third verdict, the one the emulator reading above asked for by name.** That reading
+measured a per-frame straddle peak of 1 against a reserve that holds exactly 1 landing, and said
+what breaks it: "it would break the moment an art-base move gives Sonic a reachable straddling
+frame, and then two straddling landings in one frame would need four slots against a reserve of
+two." **The gate now computes that.** Several sprite sets are resident at once —
+`NUM_PLAYERS` characters plus the appendage that rides with Tails, read from the engine constant
+— so it sums the worst reachable split of the N largest, an upper bound over every residency
+combination without enumerating them. **Today that is `tails 1 + knuckles 1 + sonic 0 = 2` against
+a 2-slot reserve: green, and exactly at the wall**, which is the same "sufficient, not
+comfortable" the runtime reading landed on, reached independently and statically. Give Sonic a
+reachable straddling frame and it goes to 3 and the gate FAILS — proven on disk, with the
+all-frames peak still sitting green at 10, which is precisely the failure the old gate could not
+produce.
+
 `--selftest` carries seven proofs, four of them new and all searched at run time: the reachable
 set is a proper non-empty subset for every subject; a base shift can MOVE the reachable straddle
 count (`+9209 B` on Sonic takes it 0 → 1); a base shift can make a REACHABLE frame split **7**
-ways past the 2-slot reserve (`+47968 B` on Sonic, frame `$1E`), so the new verdict is provably
-red; and an unclaimed writer widens rather than narrows. Zero ROM bytes moved: all four shapes
-are byte-identical to `5b35f083`.
+ways past the 2-slot reserve (`+47968 B` on Sonic, frame `$1E`), so that verdict is provably red;
+and an unclaimed writer widens rather than narrows. Zero ROM bytes moved: all four shapes are
+byte-identical to master, checked against controls built at two master commits.
+
+**The RELEASE shape straddles at DIFFERENT frames and the pattern holds** — Sonic `$6F`
+(unreachable), Tails `$A9` and Knuckles `$8F` (both reachable). Which frame straddles is a
+function of placement; whether it matters is a function of reachability. That is the whole
+argument in one line, and both shapes now answer it.
 
 ### THE ANCHOR MOVER HAS NO AUTHORING SURFACE, AND THE BLOCKER IS A CLOSED SCHEMA TWO LANES AWAY (booked 2026-09-03)
 
