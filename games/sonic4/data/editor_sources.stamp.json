@@ -1,10 +1,11 @@
 {
- "count": 110,
+ "count": 111,
  "files": {
   "games/sonic4/data/editor/bg_src/ojz_cave_lilypad.png": "492d187e5cca907fd9ea5844f94b14694b3039955fdfbc65a30756717ba428ad",
   "games/sonic4/data/editor/bg_src/ojz_forest_flowers.png": "2204777e2f106e7cd4c567873667355d1bb03bfc74653e09d0ec3215a4a1e09f",
   "games/sonic4/data/editor/effects/ojz_act1_depth.json": "6d69c6c23734d783abf4d72ecd375f6b2114df0190bec9203525869c9ae709cc",
   "games/sonic4/data/editor/effects/ojz_act1_start.json": "8529600d28936378940a2bfda65179af5db42157fd526cee9646d91617df11bd",
+  "games/sonic4/data/editor/effects/presets/aurora_local_rampctl_probe.json": "adfa5899818cb8a6a56f718a78b688e887a73f1069262da71b0355a86adb974a",
   "games/sonic4/data/editor/effects/presets/authored_probe.json": "97746b43e41aa33e3a0366e67777ff09d24af695c0ea1fafdad7069e9973d1b9",
   "games/sonic4/data/editor/effects/presets/ojz_sec3_shimmer.json": "ebfe5ec110bdc050b73246bc795fa88173f68a4207ff7428254e58358b1758bf",
   "games/sonic4/data/editor/effects/presets/ojz_sec5_showcase.json": "52f0807add4740c9d89e631b10e67d3cf6433df5f01eaa1f3fdb634961028cc1",

@@ -626,8 +626,12 @@ pub struct RasterRampProgram {
     rrp_op:         u16,
     rrp_cmd:        u32,    // constant VDP write command, re-issued every line
     rrp_lines:      u16,
-    rrp_start:      u32,    // 16.16 initial accumulator
-    rrp_step:       u32,    // 16.16 per-line delta, signed
+    rrp_start:      u32,    // the u32 IMAGE of a SIGNED 16.16 initial accumulator
+    rrp_step:       u32,    // the u32 IMAGE of a SIGNED 16.16 per-line delta
+                            // Both are two's-complement encoded by the constructor — see the
+                            // "TWO'S COMPLEMENT AT COMPTIME" banner in raster_ramp_program's
+                            // body. u32-carrying-a-signed-image is the tree's precedent, not a
+                            // preference: engine/level/parallax.emp's bd_rate_1616 banner.
     rrp_end_arm:    u16, rrp_end_ops: u16,  // terminator
 }
 
@@ -639,19 +643,83 @@ pub struct RasterRampProgram {
 // use fp16() above rather than writing the raw longword, so the scale is stated once.
 //
 // WHICH LINE THE FIRST VALUE LANDS ON DEPENDS ON THE TARGET, and it is MEASURED, not
-// assumed (docs/benchmarks/effects-p3/RAMP-EVIDENCE.md, 74 of 74 rows):
-//   CRAM target  — value j displays on screen line top + j     (like the gradient tier)
-//   VSRAM target — value j displays on screen line top + j + 1
-// The extra line is the same N+1 behaviour measured for a sparse `stream_vsram` write on
-// 2026-08-14: a VSRAM write issued in line N's HBlank takes effect on N+1, while CRAM
-// applies to the line being set up. So a VSRAM ramp's `top` line renders with whatever
-// scroll was live BEFORE the run, and the ramp proper starts one line down.
+// assumed — re-measured in full on 2026-09-03 by tools/ramp_boundary_probe.py over 19
+// `top`s spanning 3..220 and 9 run lengths from 1 to 111, with two FLAT twins (step 0) of
+// one record differing only in `rrp_start`, so every line the run reaches takes a constant
+// offset and no line it misses can move:
+//
+//   CRAM target  — value j displays on screen line top + j       first CHANGED line top + 1
+//   VSRAM target — value j displays on screen line top + j + 1   first CHANGED line top + 2
+//
+// AND `j` STARTS AT 1, WHICH IS THE HALF THAT WAS MISSING AND THE HALF THAT MISLEADS. Value
+// j means start + j*step, and the interpreter adds the step BEFORE it writes (.ramp_body:
+// `move.l Raster_Ramp_Acc,d1 / add.l Raster_Ramp_Step,d1 / ... / swap d1`), so `start`
+// itself — value 0 — is never emitted at all. The first value that ever displays is
+// start + 1*step, and it lands on top + 2 for VSRAM and top + 1 for CRAM. Measured directly
+// at +1 px/line, where every emitted value is distinct and its integer part is exact, so
+// there is no floor degeneracy: screen line top+1 is pixel-identical to a V=0 reference,
+// top+2 carries shift 1, top+3 shift 2, top+4 shift 3, at both top 112 and top 40.
+//
+// THE OFFSET IS CONSTANT — 19 tops from 3 to 220 all read exactly +2 with zero interior
+// gaps, and 9 run lengths (1, 2, 3, 4, 8, 16, 64, 96, 111) at one top all read +2. Nothing
+// here is proportional to `top`, and nothing is an artefact of either screen edge.
+//
+// The one-line CRAM/VSRAM gap is the same N+1 behaviour measured for a sparse `stream_vsram`
+// write on 2026-08-14 — a VSRAM write issued in line N's HBlank takes effect on N+1, while
+// CRAM applies to the line being set up — and the CRAM half is now measured rather than
+// inherited (RAMP-EVIDENCE.md's "What this does NOT establish" said it never had been).
 //
 // This is deliberately NOT corrected by biasing `top` inside the constructor. The bias
 // would have to be conditional on the target, which puts a silent one-line shift between
 // two calls that differ only in their command word — the exact class of surprise the
 // sparse tier's single `-1` rule was designed to avoid. Author the line you want the
-// ramp to START at and, for VSRAM, expect the line above it to hold the previous value.
+// ramp to START at and expect the line(s) above the first displayed value to hold whatever
+// was live before the run: ONE such line for CRAM, TWO for VSRAM.
+//
+// ⚠ THE 2026-08-14 CAPTURES SHOW THIS ONE LINE HIGHER, AND WHICH SIDE MOVED IS OPEN. Both
+// PNGs beside RAMP-EVIDENCE.md are the full 320x224 originals; scored row by row, they match
+// the OLD rule on 37 of 37 discriminating rows, and the same fixture geometry rebuilt on
+// today's ROM matches the NEW rule on 29 of 37 and the old one on 0. So the picture moved by
+// exactly one line, in the same direction for BOTH targets, some time after 2026-08-14. Two
+// candidates and nothing measured excludes either: a change in this file's raster path (the
+// `.dense_end`-into-`.park` fall, the frame-rewind interlock and the `-4(a2)` respellings all
+// post-date those captures), or the instrument (they came off the legacy Exodus-derived C++
+// core; the Rust core became the ratified default 2026-08-26).
+//
+// THE SCHEDULE DID NOT MOVE, AND THAT IS MEASURED TWICE. raster_arm and every schedule field
+// of this constructor (rrp_arm0/1/2, rrp_ops0/1/2, rrp_op, rrp_end_arm, rrp_end_ops) are
+// CHARACTER-IDENTICAL between c2a7e1a9 and today, so the ENTER is at top-1 and the first
+// .dense_body at top in both eras. And ramp_boundary_probe.py §6 confirms it with NO renderer
+// in the loop: a run authored longer than the screen can serve cannot retire, so the residue
+// left in Raster_Dense_Lines counts the fires, and `fires + top` reads exactly 224 at all
+// seven tops from 3 to 220.
+//
+// SO WHAT MOVED IS THE LANDING OFFSET, NOT THE SCHEDULE: a dense VSRAM write issued in the
+// fire on line `top` displayed from top+1 in 2026-08-14 and displays from top+2 today —
+// fire+1 to fire+2 — while the SPARSE tier is still fire+1 and vsplit_landing_gate pins that
+// green on this same core. Dense and sparse VSRAM agreed then and disagree by one line now.
+// Everything on the path from handler entry to this body's VDP write changed in one
+// perf(raster) batch on 2026-08-19 (c44c80ad, c2f9cfcd, aa139c75, 3c82c0b3, a02b30e0,
+// 727715f4); nothing after that day touches it, and item 6 (cf3dfb1a) is exonerated — its
+// only edit here is the CAP_DENSE_TIER comptime bracket below, which sonic4 takes.
+//
+// ⚠ AND THE CYCLE STORY PREDICTS THE WRONG DIRECTION. Today's path to the write is if
+// anything SHORTER than 2026-08-14's (it drops a `move.w sr,-(sp)` and a `tst.w (xxx).W` and
+// adds one taken `bmi.s`), and an EARLIER write cannot land a line LATER under a renderer
+// that samples VSRAM continuously or at a fixed point in the line. That is a CAUTION and not
+// a refutation — the arithmetic is hand-derived, ints_off vs ints_off_until_rte was not
+// expanded, and the notes in .dense_body warn at length that nominal timings over-predict
+// edits here because the VDP absorbs adjacent data accesses.
+//
+// Booked in docs/DEFERRED_WORK.md, "RAMP BOUNDARY", with exactly what would settle it. The
+// rule above is what THIS engine does on the ratified instrument, which is the rule an
+// author meets.
+//
+// AND A SECOND UNDOCUMENTED PROPERTY, measured in the same run: a ramp WRITES the entry, so
+// after the run ends the entry KEEPS its final value and every line below the run stays
+// shifted for the rest of the frame. `ramp_probe`'s 64-line run, declared to end at 192,
+// changes the picture to 223. Correct, and not a bug — but it means "the last line that
+// looks different" is not where a run ENDS.
 //
 // THE MASK IS DERIVED, exactly as the gradient constructor derives it, and for the same
 // reason — a pal_dirty_mask naming the wrong line leaves a mid-frame write latched
@@ -676,8 +744,17 @@ pub comptime fn raster_ramp_program(top: int, lines: int, cmd: int,
     // interlock in Raster_HInt's `.priming` arm reads any fire at V >= RASTER_VBLANK_V as
     // stale, so 223 is the last line a run may end on without authoring work into that region.
     // Literal, not a named constant, for the comptime-emission-scope reason given there.
+    // AND IT IS NOT THE VISIBILITY BOUND — MEASURED 2026-09-03, and deliberately left as a
+    // documented consequence rather than tightened. A run of `lines` values DISPLAYS on
+    // screen lines top+2 .. top+lines+1 for a VSRAM target (top+1 .. top+lines for CRAM), so
+    // this ceiling admits a VSRAM run whose LAST value lands on line 224 and can never be
+    // seen: `aurora_local_rampctl_probe` authors 220 lines from top 3 and 219 of them render.
+    // Tightening this to 222 would refuse that document, which already ships — and this bound
+    // is not about visibility in the first place, it is the interlock's. An author who needs
+    // every authored value on screen keeps top + lines <= 222 (VSRAM); the ensure below says
+    // so in its message rather than enforcing it.
     ensure(top + lines <= 223,
-           "raster_ramp_program: run {top}..{top + lines - 1} must END at screen line 222 or above. The last line's LEAVE schedule puts a trailing fire one line below it, and the frame-rewind interlock (Raster_HInt's `.priming` arm) retires as stale any fire it reaches with the V counter at or past RASTER_VBLANK_V — so a run ending at 223 would be authoring work into the region the interlock treats as post-rewind. See the note at raster_gradient_program's matching ensure.")
+           "raster_ramp_program: run {top}..{top + lines - 1} must END at screen line 222 or above. The last line's LEAVE schedule puts a trailing fire one line below it, and the frame-rewind interlock (Raster_HInt's `.priming` arm) retires as stale any fire it reaches with the V counter at or past RASTER_VBLANK_V — so a run ending at 223 would be authoring work into the region the interlock treats as post-rewind. See the note at raster_gradient_program's matching ensure. SEPARATELY, AND NOT ENFORCED HERE: this bound is not the VISIBILITY bound. A VSRAM run's values display on screen lines top+2..top+lines+1 (measured, see this constructor's banner), so top + lines == 223 puts the last value on line 224 where nothing can see it. Keep top + lines <= 222 if every authored value must render.")
     let addr = vdp_comm_addr(cmd)
     // Exactly one of the two supported targets, and the mask follows from which. INT
     // flags, not booleans, and the mask is built in a comptime var rather than an
@@ -725,6 +802,40 @@ pub comptime fn raster_ramp_program(top: int, lines: int, cmd: int,
            "raster_ramp_program: start {start} outside fp16's authored range {fp16_min}..{fp16_max} (fp16(-512,255)..fp16(511,255)). start carries no ensure of its own beyond this one — route every authored value through fp16(whole, frac256) rather than a raw 16.16 literal.")
     ensure(step >= fp16_min && step <= fp16_max,
            "raster_ramp_program: step {step} outside fp16's authored range {fp16_min}..{fp16_max} (fp16(-512,255)..fp16(511,255)). step carries no ensure of its own beyond this one — route every authored value through fp16(whole, frac256) rather than a raw 16.16 literal.")
+    // TWO'S COMPLEMENT AT COMPTIME — THE MISSING HALF OF "SIGNED", FOUND 2026-09-03 BY THE
+    // FIRST DOCUMENT THAT EVER AUTHORED A NEGATIVE ONE.
+    //
+    // `rrp_start`/`rrp_step` are declared u32 and the comments beside them have always said
+    // "signed"; the runtime backs that up, since Raster_HInt consumes the step with a bare
+    // `add.l Raster_Ramp_Step, d1` (this file, the OP_RUN_RAMP arm) and two's complement is
+    // what `add.l` speaks. What was missing was the ENCODE. Every step authored before today
+    // was positive — OJZ_TestRamp's, ramp_probe.json's +1.5 — so `rrp_step: step` forwarded a
+    // non-negative int into a u32 field and nothing ever noticed. aurora's authored witness
+    // document (step -1.5 = fp16(-1, 128) = -98304) is the first negative one, and sigil
+    // refused it at EMISSION, not at any ensure:
+    //     [emit.out-of-range] -98304 does not fit u32 (0..=4294967295)
+    //             — in `EditorRaster_OJZ_Act1_aurora_local_rampctl_probe.rrp_step`
+    // So the sign rule reached the wire format and stopped one step short of it.
+    //
+    // THE FIX IS THE TREE'S OWN PRECEDENT, NOT A NEW IDEA. engine/level/parallax.emp's
+    // `band_drift.bd_rate_1616` banner states it as a rule — "THE FIELD IS u32 AND NOT i32,
+    // AND THAT IS THE TREE'S PRECEDENT RATHER THAN A PREFERENCE ... the emitted image is what
+    // matters and the runtime consumes it with a size-tagged add that does not care" — and
+    // names the two constructors that discharge it: `scene_hdr()` for `pcfg_v_offset` (+$10000,
+    // a word) and `scene_band()` for `bd_rate_1616` (+$100000000, a long). This is the third,
+    // and it is the long form. A statement `if`, not an if-expression (docs/EMP_PITFALLS.md §1).
+    //
+    // THE SINGLE ADD IS TOTAL, and the two ensures directly above are what make it so: both
+    // values are already bounded to fp16(-512,255)..fp16(511,255), i.e. |v| <= 33619968, which
+    // is under 2^31. Nothing here can wrap past 0 or collide with a legitimate large positive.
+    //
+    // ENCODE AFTER THE RANGE ENSURES, NEVER BEFORE. Those ensures compare against fp16_min,
+    // which is negative; run them on an already-encoded value and every negative step would
+    // read as ~4.2 billion and fail the upper bound with a number the author never wrote.
+    comptime var start_img = start
+    if start_img < 0 { start_img = start_img + $100000000 }
+    comptime var step_img = step
+    if step_img < 0 { step_img = step_img + $100000000 }
     return RasterRampProgram{
         rrp_mask:       mask,
         rrp_arm0:       raster_arm(1, top - 1),
@@ -736,12 +847,50 @@ pub comptime fn raster_ramp_program(top: int, lines: int, cmd: int,
         rrp_op:         OP_RUN_RAMP,
         rrp_cmd:        cmd,
         rrp_lines:      lines,
-        rrp_start:      start,
-        rrp_step:       step,
+        rrp_start:      start_img,
+        rrp_step:       step_img,
         rrp_end_arm:    RASTER_ARM_PARK,
         rrp_end_ops:    RASTER_OPS_END,
     }
 }
+
+// ---------------------------------------------------------------------------
+// THE SIGN PIN — proves the encode above, in BOTH directions, for ZERO ROM BYTES.
+//
+// `const`, so nothing is emitted; the pins are the two `ensure`s. This exists because the
+// defect it guards was invisible for the whole life of the ramp tier: every step authored
+// before 2026-09-03 was positive, so `rrp_step: step` forwarded a non-negative int into a
+// u32 field and no build ever complained. The first negative step (aurora's authored witness
+// document, -1.5 px/line) failed at EMISSION with `[emit.out-of-range] -98304 does not fit
+// u32`, which is a diagnostic pointing at the generated call site rather than at the
+// constructor that owes the encode.
+//
+// BOTH DIRECTIONS, AND THE POSITIVE ONE IS NOT DECORATION. A "fix" that encoded
+// unconditionally, or that added $100000000 to everything, would move every ramp already in
+// the tree by 4 gigabytes and still pass a negative-only pin. The positive arm is the control:
+// it says the encode is a NO-OP where it must be, which is what makes OJZ_TestRamp's and
+// ramp_probe's ROM images byte-identical across this change.
+//
+// EXPECTATIONS ARE DERIVED, NEVER TYPED. `fp16(-1, 128) + $100000000` is the same expression
+// the constructor runs, spelled from fp16 itself rather than from the number -98304 or the
+// image $FFFE8000 — so if fp16's encoding ever moves, this pin moves with it instead of
+// silently pinning a stale literal. `top`/`lines`/`cmd` are the cheapest legal values that
+// satisfy the constructor's own ensures and carry no meaning of their own.
+//
+// PROVEN RED 2026-09-03, both arms, each mutation applied ALONE and quoted back from disk:
+//   * delete the `if step_img < 0 { .. }` encode  -> the NEG arm, reporting
+//     "got start 4294868992, step -98304" (and the emission error returns behind it)
+//   * make the encode UNCONDITIONAL               -> the POS arm
+const RAMP_SIGN_PIN_NEG = raster_ramp_program(
+    top: 3, lines: 1, cmd: vdp_comm(2, VdpTarget.Vsram, VdpOp.Write),
+    start: fp16(-1, 128), step: fp16(-1, 128))
+const RAMP_SIGN_PIN_POS = raster_ramp_program(
+    top: 3, lines: 1, cmd: vdp_comm(2, VdpTarget.Vsram, VdpOp.Write),
+    start: fp16(1, 128), step: fp16(1, 128))
+ensure(RAMP_SIGN_PIN_NEG.rrp_step == fp16(-1, 128) + $100000000 && RAMP_SIGN_PIN_NEG.rrp_start == fp16(-1, 128) + $100000000,
+       "raster_ramp_program: a NEGATIVE start/step did not reach rrp_start/rrp_step as its two's-complement u32 image (got start {RAMP_SIGN_PIN_NEG.rrp_start}, step {RAMP_SIGN_PIN_NEG.rrp_step}; want {fp16(-1, 128) + $100000000} for both). Without the encode sigil refuses the emission outright — `[emit.out-of-range] ... does not fit u32` — pointing at whichever `pub data` named the ramp rather than at this constructor.")
+ensure(RAMP_SIGN_PIN_POS.rrp_step == fp16(1, 128) && RAMP_SIGN_PIN_POS.rrp_start == fp16(1, 128),
+       "raster_ramp_program: a POSITIVE start/step was ALTERED on its way into rrp_start/rrp_step (got start {RAMP_SIGN_PIN_POS.rrp_start}, step {RAMP_SIGN_PIN_POS.rrp_step}; want {fp16(1, 128)} for both). The two's-complement encode must be a NO-OP for non-negative values, or every ramp already in the tree moves.")
 
 // -----------------------------------------------
 // Raster_Install — stage a compiled program; it takes effect at the next

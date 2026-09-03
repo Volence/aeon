@@ -20463,9 +20463,167 @@ silently, in exactly the direction that just bit aurora.
 **UNTIL IT LANDS: `ramp_probe` and `authored_probe` are RESERVED in the shared namespace.** Told to
 aurora and to the hub; aurora's is now `aurora_local_rampctl_probe`.
 
+**UPDATE 2026-09-03, `parcel/aurora-ramp-witness`:** `aurora_local_rampctl_probe` is now a COMMITTED
+preset in this tree (`games/sonic4/data/editor/effects/presets/`), copied byte-for-byte from aurora
+`b7e95791`. The fully-qualified id was kept deliberately and must not be shortened — the whole
+reason it is spelled that way is this entry. The two RESERVED ids are unchanged and still unfixed.
+
 **THE REUSABLE HALF, and it generalises past these two ids:** a panel's "New" is a namespace **write**
 that reads like a namespace **allocation**. Neither side can see the collision coming, because each
 one's view is locally consistent — their harness saw a document, we saw our file untouched. The only
 thing standing between that and a witness authored on a stranger's file is an **anti-vacuous fixture
 row that checks the fixture's identity before any assertion reads it.** Any fixture in this tree that
 creates a document through the panel needs that row; this lane has not audited which ones have it.
+
+---
+
+## RAMP BOUNDARY: SETTLED for the engine (2026-09-03) — one half stays open, and it is a DIFFERENT half
+
+**Discharged in the same parcel: the sign half.** `raster_ramp_program` never two's-complement
+encoded a NEGATIVE `start`/`step` into its u32 image fields, so **no ROM could hold a downward
+ramp at all** — sigil refused the emission (`[emit.out-of-range] -98304 does not fit u32`). Fixed
+on `parcel/aurora-ramp-witness`. **That part is CLOSED.**
+
+**THE BOUNDARY IS NOW CLOSED TOO, on `parcel/ramp-boundary-settle`,** by
+`tools/ramp_boundary_probe.py`. The three statements that had to move together — the constructor
+banner, its ceiling `ensure`, and `docs/benchmarks/effects-p3/RAMP-EVIDENCE.md` — moved in one
+commit. What the engine does today, on the ratified instrument:
+
+| target | first screen line the run CHANGES | value on screen line `top + n` |
+|---|---|---|
+| VSRAM | `top + 2` | `start + (n-1) * step`, `n >= 2` |
+| CRAM  | `top + 1` | `start + n * step`, `n >= 1` |
+
+Equivalently: **value `j` = `start + j*step` displays on `top + j + 1` (VSRAM) / `top + j` (CRAM),
+and `j` STARTS AT 1** — the interpreter adds the step before it writes, so `start` is never emitted.
+Constant across **19 tops spanning 3..220** (zero interior gaps, every one exactly +2) and **9 run
+lengths 1..111**: nothing proportional to `top`, nothing edge-related, nothing length-dependent.
+Measured at **+1 px/line**, where no value can floor into its neighbour. The CRAM half is measured
+for the first time (RAMP-EVIDENCE listed it under "What this does NOT establish"), on the three
+tops where the probed palette entry demonstrably covers the `top` row itself.
+
+**THE MECHANISM STORY BOOKED HERE PREVIOUSLY IS REFUTED, and this is why it was booked as a story.**
+It said the accumulator's pre-advance would make a 0-based rule "land exactly one line early", which
+would reconcile `top+1` and `top+2` with no engine difference. It cannot: the pre-advance changes
+which VALUE is emitted, never which LINE is written, and the flat-twin instrument (step 0, both
+twins constant) is blind to values by construction. The +1 px/line value map settles it in the other
+direction — the pre-advance is real AND the line is `top + 2`; they are two independent facts, not
+one fact double-counted.
+
+### WHAT IS STILL OPEN — and it is bigger than the number it replaces
+
+**The 2026-08-14 captures show this ONE LINE HIGHER, and which side moved is not established.**
+Both PNGs beside RAMP-EVIDENCE.md are the full 320x224 originals, committed in `c2a7e1a9` with the
+document. Scored row by row rather than inferred from the published seven-row excerpt (**the
+excerpt is NOT blind — six of its seven rows are discriminating**, contrary to what this entry
+previously assumed):
+
+| scored against | old rule (first line `top+1`) | new rule (first line `top+2`) |
+|---|---|---|
+| the ORIGINAL 2026-08-14 captures | 187/187 scorable, **37/37 discriminating** | 157/187, 7/37 |
+| the SAME geometry rebuilt on today's ROM | 141/187, **0/37 discriminating** | 170/187, 29/37 |
+
+So the picture moved by exactly one line, **in the same direction for BOTH targets** — the gradient
+tier's documented CRAM landing is `top`, and today it measures `top + 1`.
+
+**A uniform instrument shift is EXCLUDED.** `vsplit_landing_gate` asserts that a SPARSE VSRAM op
+authored at screen line M has its first differing row at exactly M, on the Rust core via
+`emulator/scanlines`, and it PASSES on this ROM (effects_gates segment 7/15, 2026-09-03). A capture
+path reporting everything one line late would turn it red. So the shift is specific to the DENSE
+tier's ENTER schedule.
+
+**THE SCHEDULE DID NOT MOVE — this is the first thing the archaeology settles.** `raster_arm`
+and every schedule field of `raster_ramp_program` (`rrp_arm0/1/2`, `rrp_ops0/1/2`, `rrp_op`,
+`rrp_end_arm`, `rrp_end_ops`) are **character-identical** between `c2a7e1a9` and HEAD. Record 0
+fires at line 0, record 1 at line 1, the ENTER at `top-1`, and record 1's every-line arm puts the
+first `.dense_body` at `top`. No commit changed which line a dense run fires on.
+
+**AND THE FIRE COUNT CONFIRMS IT WITHOUT A RENDERER.** `ramp_boundary_probe.py` §6 authors a run
+longer than the screen can serve, so it cannot retire, and reads the residue left in
+`Raster_Dense_Lines`: `N = lines - residue` is the number of `.ramp_body` executions in the frame,
+straight out of RAM with no pixels involved. Over 7 tops from 3 to 220, **`N + top` is exactly 224,
+every time**. That fixes `c - E = 0`, where the first body fires on `top + c` and `E` counts fires
+landing after screen line 223. The instrument cannot separate `c` from `E` — but the arm words
+above force `c = 0`, so `E = 0` and the first `.ramp_body` fires on line `top`, in both eras.
+
+**SO WHAT MOVED IS THE LANDING OFFSET, NOT THE SCHEDULE.** A dense VSRAM write issued in the fire
+on line `top` displayed from `top + 1` in 2026-08-14 and displays from `top + 2` today: fire+1 to
+fire+2. Meanwhile the SPARSE tier is still fire+1 and `vsplit_landing_gate` pins it green on this
+core. **Dense and sparse VSRAM agreed in 2026-08-14 and disagree by one line today.**
+
+**WHEN — bracketed to one day, not pinned to one commit.** Everything on the path from handler
+entry to the ramp's VDP write changed on **2026-08-19**, in a single `perf(raster)` batch:
+`c44c80ad` 04:23 (CRAM burst word to `-4(a2)`), `c2f9cfcd` 06:46 (hoist the dense KIND test —
+removes a `tst.w`+`bne` from before the write), `aa139c75` 09:27 (frame-rewind interlock),
+`3c82c0b3` 12:25 (the SR save removed, 22 cyc/fire), `a02b30e0` 18:54 (dense stream writes to
+`-4(a2)`), `727715f4` 20:47 (the dense LEAVE parks). Nothing after that day touches the write path.
+
+**ITEM 6 IS EXONERATED, and its own byte claim holds.** `cf3dfb1a` (2026-09-03) is the obvious
+suspect and is not the cause: its only raster.emp commit is `50c116db`, which wraps the ENTER body
+in a `CAP_DENSE_TIER` COMPTIME bracket — sonic4 raises the cap, so the guard is taken and no
+sonic4 byte moves ("EndOfRom moves in none of the four shapes"). And the mechanism it would have
+had to change, `Raster_Dense_Mode` replacing `Raster_Dense_Lines` as the arm test, landed in
+`c2f9cfcd` on 2026-08-19, two and a half weeks earlier.
+
+**⚠ AND THE CYCLE STORY PREDICTS THE WRONG DIRECTION, which is why (b) is still alive.** Read off
+the code diff, today's path to the ramp write is if anything SHORTER than 2026-08-14's — it drops a
+`move.w sr,-(sp)` and a `tst.w (xxx).W` and adds one taken `bmi.s`. An EARLIER write cannot land a
+line LATER under any renderer that samples VSRAM at a fixed point in the line, or continuously. So
+the batch above is where the change must live if it is in the engine, and the arithmetic says it
+should not be. **This is a caution, not a refutation**: the arithmetic is hand-derived, `ints_off`
+vs `ints_off_until_rte` was not expanded, and this file's own comments warn at length that nominal
+68000 timings over-predict edits inside this body because the VDP absorbs adjacent data accesses.
+
+**The remaining candidates, neither excluded:**
+  (a) a change in `engine/effects/raster.emp`'s dense path after 2026-08-14 — `.dense_end` falling
+      into `.park`, the frame-rewind interlock, the `-4(a2)` respellings all post-date the captures;
+  (b) a legacy-vs-Rust core difference SPECIFIC to dense per-line writes (the captures came off the
+      Exodus-derived C++ core; the Rust core became the ratified default 2026-08-26).
+
+Both are consistent with one arithmetic fact worth writing down and NOT asserting: the whole set of
+numbers collapses if the first `.dense_body` fires at `top + 1` rather than at `top`. Then CRAM
+lands on its own fire line (`top+1`) and VSRAM one later (`top+2`), which is the SAME fire+1 VSRAM
+rule the sparse tier obeys and `vsplit_landing` pins. That would mean the dense ENTER absorbs TWO
+lines where `raster_gradient_program`'s banner says its measured `T-1` setup line absorbs exactly
+one — i.e. **every shipped dense program renders one line lower than authored**, including
+`OJZ_TestGradient` at top 96. That is an arithmetic reconciliation and nothing here tests it.
+
+**WHAT WOULD SETTLE IT, exactly — and it was ATTEMPTED and is PRICED, not hand-waved.** Run a
+`c2a7e1a9`-era ROM on the Rust core (the probe already resolves every address from the `.lst`, so
+the ROM need not be byte-identical to the published `crc=475fa367` — only its raster code must be).
+**Blocked on an era-matched sigil.** Building `c2a7e1a9` with today's `sigil` gets past the sound
+blob's size tripwire (`SIGIL_BLOB_LEN_DRIFT=warn`) and past the contract gate (`CONTRACTS=0`), and
+then fails in the harness itself:
+
+    [Error] no module `engine.effects.preset` found under the scan root
+    [Error] no module `games.sonic4.scene_registry` found under the scan root
+    [Error] no module `games.sonic4.ojz_effects` found under the scan root
+
+Today's harness expects modules the 2026-08-14 tree does not contain. Doing it properly means
+building sigil at its own 08-14 state **into a private `CARGO_TARGET_DIR`** — the release binary is
+shared with every other lane, and a worktree sharing a target dir silently swaps artifacts. That is
+a parcel, not a step, and it was not taken here.
+
+The other half of the same question is cheaper and independent: run TODAY's ROM on the legacy core.
+That distinguishes (a) from (b) in one capture with no build at all.
+
+**PERSISTENCE, still undocumented anywhere but the banner and the evidence doc.** A ramp WRITES the
+VSRAM entry, so after the run ends the entry keeps its final value for the rest of the frame and
+every line below the run is shifted too. Measured on `ramp_probe`: a 64-line run declared to end at
+192 changes the picture to 223. Correct behaviour — and it is why "last differing line" is not a
+measurement of where a run ENDS.
+
+**THE CEILING IS DELIBERATELY NOT TIGHTENED.** A VSRAM run's values display on `top+2..top+lines+1`,
+so `ensure(top + lines <= 223)` admits a run whose last value lands on line 224 and is never seen
+(`aurora_local_rampctl_probe` authors 220 and renders 219). Tightening it to 222 would refuse a
+document that already ships, and this bound is the frame-rewind interlock's, not a visibility bound.
+The `ensure`'s message now says both things.
+
+**OWED TO THE HUB, NOT DONE HERE (the schema and the editor belong to other lanes).**
+`empyrean` `contract/schema/aurora-effects-preset.schema.json` carries the old number in two places,
+and aurora's editor REGEXES one of them (`/DISPLAYS on top \+ (\d+)/`) into
+`EFFECTS_PRESET_RAMP_VSRAM_DISPLAY_LAG`. The `ramp` description's "value j displays on top + j + 1"
+is CORRECT and needs only the `j >= 1` clause; the `top` property's "the first written value
+DISPLAYS on top + 1, not top" is WRONG and must read `top + 2`. Replacement strings are in the
+parcel report. Aurora must not change its constant unilaterally — it is parsed from the schema on
+purpose, and the schema is the thing to move.
