@@ -11,8 +11,12 @@ attempt, on 2026-09-02, was **uninterpretable and was not called clean**: the
 control counter read 0 after 4,200 frames, and the instrument's own pre-stated
 rule says a zero control means the run never exercised a straddle at all.
 
-This one is interpretable, in both halves: the control is still zero, and the
-zero is now **predicted** rather than unexplained.
+This one is interpretable, in both halves. For Sonic the control is still zero,
+and the zero is now **predicted** rather than unexplained. And a second run drove
+the straddle counter **positive** on Knuckles, which turns the whole reading from
+an absence with an explanation into an actual measurement of the number the
+booking asked for: **the per-frame straddle peak is 1, against a reserve that
+holds exactly 1.**
 
 ## What was measured
 
@@ -27,7 +31,47 @@ a nearby pin.
 | + one spindash charge | `$8C` = 140 B | **10** | 10 |
 
 `Dbg_DMA_Straddle_All` = 0, `Dbg_DMA_Straddle_Frame` = 0,
-`Dbg_DMA_Straddle_Peak` = 0, on every run.
+`Dbg_DMA_Straddle_Peak` = 0, on every **Sonic** run.
+
+### The straddle counter itself, driven positive
+
+A second run cycled the debug hotkey to Knuckles (`Character_ID` = 2, confirmed
+in RAM; `mappings` `$0004C0DC` and `anim_table` `$0002AFF6`, both different from
+Sonic's `$00070AA4` / `$0002AD30`, so the real Knuckles record loads) and
+spindashed, which reaches `$8B` — Knuckles' straddling frame.
+
+| | value |
+|---|---|
+| `Dbg_DMA_Straddle_All` | **6** |
+| `Dbg_DMA_Straddle_Peak` | **1** |
+| `DMA_Peak_Important` | `$38` = 56 B = 4 entries |
+
+**This is the answer the booking wanted.** `engine/ram.emp:1342-1348` states the
+open question exactly: the reserve "was sized from total art VOLUME … which
+bounds how many straddling entries EXIST IN THE ROM and says nothing about how
+many can want slots in ONE FRAME … NOTHING measured it."
+
+Measured: **the per-frame peak is 1.**
+
+One straddling landing costs two slots — `.split_reject` refuses both halves
+unless both are free — and `DPLC_ENTRY_RESERVE = 2` holds exactly those two
+open. The counter increments *before* the reject check and its own comment says
+it "counts DEMAND for the reserve", so a refused straddle would still have been
+counted. A peak of 1 with the reserve at 2 therefore means the reserve **held,
+and was exactly consumed**: it has room for one straddling landing per frame and
+not two. Against the thresholds stated before the run (0-1 fine, 2 at the wall,
+3+ provably too small), this is the good outcome — but it is *sufficient*, not
+*comfortable*, which is what `dplc.emp:76` already says in words: "Two is the
+floor, not a comfortable margin."
+
+The derived reason the peak is 1 and not more: each character's art has exactly
+**one** straddling frame, and a player displays one frame per frame, so a single
+player can demand the reserve at most once per frame. **That bound breaks with two
+straddling players at once.** It does not break today — Sonic's `$6A` is
+unreachable, so a Sonic+Tails pair still has only Tails able to straddle — but it
+would break the moment an art-base move gives Sonic a reachable straddling frame,
+and then two straddling landings in one frame would need four slots against a
+reserve of two, and one would be dropped whole.
 
 The reserve is 2 slots = 28 bytes, and it was untouched: 140 + 28 = 168 = the
 wall exactly.
@@ -74,10 +118,19 @@ refuted the whole argument. None appeared.
 
 - **It does not clear the reserve for the roster.** Tails' straddling frame
   `$A4` *is* scripted (FlyTired) and Knuckles' `$8B` *is* scripted (Spindash).
-  Both become reachable the moment those characters ship. Knuckles cannot be
-  reached at all today for an unrelated reason: the debug hotkey's
-  `CHAR_KNUCKLES` row is still the Sonic record
-  (`games/sonic4/test/ojz_scroll_test.emp`), so Knuckles art never loads.
+  Both become reachable the moment those characters ship — and Knuckles' was
+  reached here, which is how the counter was driven positive.
+
+  **A correction of record, made in the course of this.** The comment at
+  `games/sonic4/test/ojz_scroll_test.emp:1419` says "The CHAR_KNUCKLES row is
+  still the Sonic record". That is **stale**. `games/sonic4/player/characters.emp:73`
+  binds `extern("CharDef_Knuckles")` — "the real record (knuckles.emp)" — and the
+  comment just above it at `:68` says "The TEMP Sonic stub is GONE: all three ids
+  now resolve to their own complete record". The RAM readback above confirms the
+  built ROM agrees with the roster and not with the test comment. The stale
+  sentence cost real work: it is why the Knuckles positive control was abandoned
+  on the first pass and this reading nearly shipped as an absence with an
+  explanation instead of a measurement.
 - **The enumeration is over source scripts, matched by pattern, not over the
   built table.** A ROM-derived enumeration is the stronger form, and is what the
   gate should carry rather than this document.
