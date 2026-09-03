@@ -621,39 +621,67 @@ class TestBgAnimMotionAxis(unittest.TestCase):
         return d
 
     @staticmethod
-    def _grid(bank, cols, rows):
-        """A phase bank as a `rows*8` x `cols*8` pixel grid, column-major slot order.
+    def _cell(i, cols, rows, order):
+        """Slot index `i` -> band cell `(c, r)` under `order`.
 
-        Written out here rather than imported from the emitter so the test reads the
-        format independently of the code under test.
+        The two formulas of EFFECTS_CONSUMER_CONTRACT.md §1.2 obligation 1, spelled
+        out here rather than imported so the test reads the FORMAT independently of
+        the code under test: column-major `base + c*rows + r` is a horizontal band's
+        order, row-major `base + r*cols + c` is a vertical band's. `order` is
+        'column'/'row' rather than an axis so a fixture can deliberately pack a
+        vertical band in the WRONG order — which is what the control arm below does.
         """
+        if order == "row":
+            r, c = divmod(i, cols)
+        else:
+            c, r = divmod(i, rows)
+        return c, r
+
+    @classmethod
+    def _order_for(cls, axis):
+        """The slot order §1.2 obligation 1 assigns to `axis`."""
+        return "row" if axis == "vertical" else "column"
+
+    @classmethod
+    def _grid(cls, bank, cols, rows, order):
+        """A phase bank as a `rows*8` x `cols*8` pixel grid, in slot order `order`."""
         g = [[0] * (cols * 8) for _ in range(rows * 8)]
         for i, t in enumerate(bank):
-            c, r = divmod(i, rows)
+            c, r = cls._cell(i, cols, rows, order)
             for y in range(8):
                 for x in range(8):
                     g[r * 8 + y][c * 8 + x] = t[y * 8 + x] & 0xF
         return g
 
-    @staticmethod
-    def _bank(grid, cols, rows):
+    @classmethod
+    def _bank(cls, grid, cols, rows, order):
         """The inverse of `_grid`: a pixel grid back into `cols*rows` 64-px tiles."""
         bank = []
         for i in range(cols * rows):
-            c, r = divmod(i, rows)
+            c, r = cls._cell(i, cols, rows, order)
             bank.append([grid[r * 8 + y][c * 8 + x]
                          for y in range(8) for x in range(8)])
         return bank
 
-    def _band(self, cols, rows, axis, roll, pattern_px=None, **kw):
+    def _band(self, cols, rows, axis, roll, pattern_px=None, order=None, **kw):
         """One band whose 8 phases are `phase0` rolled `k` px along `roll`.
 
         `roll` is 'h', 'v' or None (None = a composite: a per-phase brightness step,
         which is what the shipped horizontal bands actually are — see
         `validate_band_phase_axis`'s docstring).
+
+        `order` is the SLOT order the phases are packed in, and it defaults to the one
+        §1.2 obligation 1 assigns to `axis` — so a fixture is a well-formed band of
+        its declared axis unless a caller deliberately says otherwise. It has to be a
+        parameter rather than always `axis`'s own order because the control arm of
+        `test_the_guard_reads_a_vertical_band_in_ITS_OWN_slot_order` needs the same
+        picture packed the wrong way, and because before 2026-09-03 EVERY fixture
+        here was packed column-major — including the vertical ones, which is what let
+        the guard's flagship test pass over a band no writer would ever emit.
         """
         n = cols * rows
-        base = self._grid(self.fixture["tiles"][:n], cols, rows)
+        order = order or self._order_for(axis)
+        base = self._grid(self.fixture["tiles"][:n], cols, rows, order)
         w, h = cols * 8, rows * 8
         phases = []
         for k in range(8):
@@ -663,7 +691,7 @@ class TestBgAnimMotionAxis(unittest.TestCase):
                 g = [[base[(y + k) % h][x] for x in range(w)] for y in range(h)]
             else:
                 g = [[(base[y][x] + k) & 0xF for x in range(w)] for y in range(h)]
-            phases.append(self._bank(g, cols, rows))
+            phases.append(self._bank(g, cols, rows, order))
         band = {"cols": cols, "rows": rows, "axis": axis,
                 "pattern_px": pattern_px if pattern_px is not None
                 else (cols * 8 if axis == "horizontal" else rows * 8),
@@ -806,6 +834,101 @@ class TestBgAnimMotionAxis(unittest.TestCase):
         msg = self._refusal(self._band(8, 4, "vertical", "h", pattern_px=32))
         self.assertIn("HORIZONTAL", msg)
         self.assertIn("row 55", msg)
+
+    # ---- the row-major false negative, and its control ----------------------
+    #
+    # Both rows below run the SAME picture through the guard and differ ONLY in the
+    # slot order the phases are packed in. Neither means anything alone: an admit on
+    # its own could just be malformed input, and a refusal on its own says nothing
+    # about whether the guard reads slot order at all. Kept as a pair permanently.
+    #
+    # Measured against the pre-fix code (2026-09-03), where the verdicts were the
+    # other way round:
+    #
+    #     column-major slots + x-rolled phases  ->  REFUSED   (control)
+    #     row-major    slots + x-rolled phases  ->  ADMITTED  (the hole)
+
+    def _x_rolled_vertical_band(self, order):
+        """A `axis: vertical` band whose 8 phases are exact x-rolls of phase 0.
+
+        2x2 so `cols*32 = 64` is a legal rotation unit, and the base picture is
+        `(x*7 + y*13) % 15 + 1` — period 15 against a 16 px pattern, so nothing in it
+        is accidentally symmetric in x, in y, or under the column/row-major relabel.
+        Synthetic rather than a cut of the historical act precisely because THIS row
+        needs art whose asymmetry is derivable rather than merely observed.
+        """
+        cols, rows = 2, 2
+        w, h = cols * 8, rows * 8
+        base = [[(x * 7 + y * 13) % 15 + 1 for x in range(w)] for y in range(h)]
+        phases = [self._bank([[base[y][(x + k) % w] for x in range(w)]
+                              for y in range(h)], cols, rows, order)
+                  for k in range(8)]
+        return {"cols": cols, "rows": rows, "axis": "vertical",
+                "pattern_px": rows * 8, "driver": "timer", "rate_shift": 3,
+                "slot_base": 0, "phases": phases}
+
+    def _verdict(self, band):
+        """'REFUSED' or 'ADMITTED' for `band`, through the emitter that calls the guard.
+
+        Driven end-to-end rather than by calling `validate_band_phase_axis` directly,
+        so an unwired guard reads as ADMITTED here instead of passing on a function
+        nothing calls.
+        """
+        doc = self._doc(band)
+        n = len(band["phases"][0])
+        doc["tiles"] = copy.deepcopy(band["phases"][0]) + doc["tiles"][n:]
+        try:
+            emit_over_document(doc)
+        except AssertionError:
+            return "REFUSED"
+        return "ADMITTED"
+
+    def test_the_guard_reads_a_vertical_band_in_ITS_OWN_slot_order(self):
+        """THE REGRESSION. A row-major vertical band of x-rolled phases is refused.
+
+        Row-major IS a vertical band's slot order (§1.2 obligation 1), so this is the
+        well-formed shape of the accident the guard exists for — and it is the shape
+        the guard used to miss. `_band_pixels` decoded every bank column-major, which
+        on a row-major band assembles a PERMUTATION of the real picture; the x-roll
+        stopped looking like an x-roll, `h_rolls` came out False, and the caller's
+        `continue` swallowed it.
+
+        Note which direction the old docstring's defence covered: "a consistent
+        relabelling of the slots cannot turn a non-translation into one" is true, and
+        it rules out FALSE POSITIVES. This is the false NEGATIVE — the relabelling
+        turned a translation INTO a non-translation.
+        """
+        self.assertEqual(self._verdict(self._x_rolled_vertical_band("row")), "REFUSED")
+
+    def test_the_column_major_control_is_what_makes_that_row_mean_anything(self):
+        """THE CONTROL, and it asserts the PAIR rather than one verdict.
+
+        Same picture, same phases, only the slot order changed. Two things are pinned:
+        the two arms really are a permutation of one another (so the row above is not
+        quietly testing different art), and the guard's verdict MOVES with slot order
+        in the stated direction. An emitter that refused everything, or admitted
+        everything, fails here even though one of the two verdicts would look right.
+
+        Why the control ADMITS rather than also refusing: a band that declares
+        `vertical` and emits column-major slots is broken in obligation 1, which is
+        explicitly not checked — the guard now reads the picture the declaration says
+        is there, and on such a band that picture is scrambled, so any refusal would
+        be incidental rather than earned. Widening the guard to catch it would be
+        widening what is refused past obligation 2, which §1.2 forbids.
+        """
+        col = self._x_rolled_vertical_band("column")
+        row = self._x_rolled_vertical_band("row")
+        self.assertEqual(
+            sorted(map(tuple, col["phases"][0])), sorted(map(tuple, row["phases"][0])),
+            "the two arms are not the same SET of tiles, so they differ in more than "
+            "slot order and neither row proves anything about slot order")
+        self.assertNotEqual(col["phases"][0], row["phases"][0],
+                            "the two arms are byte-identical — the fixture did not "
+                            "actually change slot order, so this control is vacuous")
+        self.assertEqual(
+            (self._verdict(col), self._verdict(row)), ("ADMITTED", "REFUSED"),
+            "the guard's verdict does not move with slot order in the direction the "
+            "declared axis requires")
 
     def test_the_guard_does_not_outlaw_composite_vertical_art(self):
         """Anti-vacuous, and the reason the guard is a converse rather than a roll check.

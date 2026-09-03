@@ -477,24 +477,49 @@ def validate_band_phase_axis(anims):
     horizontal translations, and are not also vertical ones, has been written by a
     horizontal-only writer. Anything else is admitted.
 
+    READ IN THE DECLARED AXIS'S SLOT ORDER (widened 2026-09-03). `_band_pixels` used
+    to decode column-major unconditionally, so on a row-major band — which is what
+    `axis: "vertical"` requires — it assembled a PERMUTATION of the real picture, a
+    true x-roll stopped looking like an x-roll, and the guard fell through its own
+    `continue`. Measured with a control before the fix, on one 2x2 band whose eight
+    phases are exact x-rolls of `(x*7 + y*13) % 15 + 1`, the two arms differing ONLY
+    in slot order:
+
+        column-major slots + x-rolled phases  ->  REFUSED   (control: guard reachable)
+        row-major    slots + x-rolled phases  ->  ADMITTED  (the shimmer ships)
+
+    The old docstring's defence — "a consistent relabelling of the slots cannot turn a
+    non-translation into one" — is TRUE and rules out FALSE POSITIVES. The exposure was
+    a FALSE NEGATIVE, the other direction: a relabelling turns a translation INTO a
+    non-translation. Certifying the half nobody was worried about.
+
+    THE PREDICATE IS UNCHANGED — only the decode is. Still "horizontal AND NOT
+    vertical", still admitting composites; nothing newly refused beyond the obligation
+    above. See §1.2 of the consumer contract for why composites stay legal.
+
     NOT PROVEN BY THIS: that a vertical band's art is right, or that `layout` places
     its slots row-major. Both are the writer's, and §1.2 of the consumer contract says
-    so.
+    so. Note the second one is what this decode now ASSUMES rather than checks: a band
+    that declares `vertical` and emits column-major slots is read as the picture its
+    declaration says it is, which is garbage — the refusal that lands on it, if any,
+    is incidental. Obligation 1 is discharged by asserting the order at named cells,
+    not here.
     """
     for i, a in enumerate(anims):
-        if a.get('axis', 'horizontal') != 'vertical':
+        axis = a.get('axis', 'horizontal')
+        if axis != 'vertical':
             continue
         cols, rows, phases = a['cols'], a['rows'], a['phases']
         if len(phases) < 2:
             continue
         w, h = cols * 8, rows * 8
-        base = _band_pixels(phases[0], cols, rows)
-        h_rolls = all(_band_pixels(phases[k], cols, rows)
+        base = _band_pixels(phases[0], cols, rows, axis)
+        h_rolls = all(_band_pixels(phases[k], cols, rows, axis)
                       == [[base[y][(x + k) % w] for x in range(w)] for y in range(h)]
                       for k in range(len(phases)))
         if not h_rolls:
             continue
-        v_rolls = all(_band_pixels(phases[k], cols, rows)
+        v_rolls = all(_band_pixels(phases[k], cols, rows, axis)
                       == [[base[(y + k) % h][x] for x in range(w)] for y in range(h)]
                       for k in range(len(phases)))
         if v_rolls:
@@ -509,19 +534,31 @@ def validate_band_phase_axis(anims):
             '"horizontal" if horizontal is what the band is meant to do.')
 
 
-def _band_pixels(bank, cols, rows):
+def _band_pixels(bank, cols, rows, axis):
     """One phase bank as a `rows*8` x `cols*8` grid of palette indices.
 
-    Column-major slot order (slot `c*rows + r` is band cell `(c, r)`) — the order the
-    HORIZONTAL arm's writers use, which is the order this check has to read in to see
-    a horizontal roll at all. A vertical band's own slot order is row-major; that
-    difference is irrelevant here because the check only ever asks whether the art is
-    a horizontal translation, and a consistent relabelling of the slots cannot turn a
-    non-translation into one.
+    DECODED IN `axis`'S OWN SLOT ORDER, which is the whole point: column-major
+    (slot `c*rows + r` is band cell `(c, r)`) on a horizontal band, ROW-major
+    (slot `r*cols + c`) on a vertical one — the two orders §1.2 obligation 1 assigns
+    to the two axes. `axis` is required rather than defaulted so no future caller can
+    inherit the unconditional column-major read this replaces.
+
+    WHY IT HAS TO BE CONDITIONAL, stated in the direction that actually bit us. Reading
+    a row-major band column-major yields a consistent RELABELLING of its cells. Such a
+    relabelling cannot turn a non-translation into a translation — that argument is
+    sound, and it is why the old code was safe against FALSE POSITIVES. But it says
+    nothing about the converse, and the converse is the live risk: a relabelling turns
+    a translation INTO a non-translation, `h_rolls` comes out False on art that really
+    is an x-roll, and the caller's `continue` swallows exactly the case the guard
+    exists to refuse. Measured with a control 2026-09-03; see the caller's docstring
+    and tools/EFFECTS_CONSUMER_CONTRACT.md §1.2 obligation 2.
     """
     g = [[0] * (cols * 8) for _ in range(rows * 8)]
     for i, t in enumerate(bank):
-        c, r = divmod(i, rows)
+        if axis == 'vertical':
+            r, c = divmod(i, cols)          # row-major
+        else:
+            c, r = divmod(i, rows)          # column-major
         for y in range(8):
             for x in range(8):
                 g[r * 8 + y][c * 8 + x] = t[y * 8 + x] & 0xF

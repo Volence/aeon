@@ -17082,11 +17082,22 @@ item did NOT hit the wall items 3 and 4 hit.
   brightness triangle, `forest_bg_gen.py` FF_TRI; only the live aurora-authored canopy is an
   exact roll, `phase0[y][(x+k) % 64]`), so demanding rolls would outlaw the same technique on
   the new axis before anyone has used it.
-- **13 tests** in `tools/test_bg_emit.py::TestBgAnimMotionAxis`, run by build.sh's pytest lane.
-  Red-first, four mutations each shown on disk and restored from the committed baseline:
+  **It read the band in the WRONG slot order until 2026-09-03**, which made it miss exactly
+  the case it exists for: `_band_pixels` decoded every bank column-major, so on a row-major
+  band — the order `axis: vertical` requires — it assembled a permutation of the real picture
+  and the x-roll stopped looking like one. Measured with a control (column-major arm REFUSED,
+  row-major arm ADMITTED, the two differing only in slot order) and closed the same day by
+  decoding per declared axis. The predicate was NOT widened; see
+  `tools/EFFECTS_CONSUMER_CONTRACT.md` §1.2 obligation 2 for the before/after table and for
+  why the two arms swap rather than both refusing.
+- **15 tests** in `tools/test_bg_emit.py::TestBgAnimMotionAxis`, run by build.sh's pytest lane.
+  Red-first, five mutations each shown on disk and restored from the committed baseline:
   swapping which dimension feeds the unit → 6 red; ignoring the `axis` key → 9 red; dropping
   the guard call → **exactly 1** red; making the guard unconditional → **exactly 1** red (a
-  different one). The last two are what say the guard's two halves each discriminate.
+  different one); restoring the unconditional column-major decode → **exactly 3** red (the
+  row-major regression, its column-major control, and the flagship refusal whose fixture was
+  itself column-major before this parcel). The middle two are what say the guard's two halves
+  each discriminate; the last is what says the decode does.
 
 ### The on-screen half is BLOCKED, and both reasons are numbers rather than judgement
 
