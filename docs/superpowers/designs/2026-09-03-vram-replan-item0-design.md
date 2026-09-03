@@ -228,6 +228,33 @@ with it or its `ensure` fails the build by name. `tools/test_gen_vram_map.py` as
 generated artifacts are in sync and will catch a skipped regenerate. New `[[region]]` for the
 spare nametable, or a `[[free]]` run if the parcel that consumes it lands later.
 
+**Mechanically validated, not just reasoned.** Option P was run through the real generator on a
+scratch copy of the TOML (pool `tiles = 768`, plus a 128-tile `kind = "plane"` region at base
+768). `python3 tools/gen_vram_map.py --game sonic4 --toml <trial> --map-doc <out>` reports
+`sonic4 OK — 18 regions, 12 free tiles`, exit 0: coverage stays complete, no overlap is
+introduced, the quantum check passes, and the four existing free runs are untouched. **No
+engine file was modified to establish this** — the generator takes `--toml` and `--map-doc` as
+explicit paths, so the trial ran entirely in the scratchpad.
+
+**⚠ A GAP FOUND WHILE VALIDATING, and it is exactly the class the fold in §7 was built to
+close.** The negative control — the same trial TOML with the pool at 832 and the spare
+nametable at base **832** (byte `$6800`, illegal for *every* plane and window base register) —
+also reports `sonic4 OK — 18 regions, 12 free tiles`, exit 0. **`tools/gen_vram_map.py` does
+not check base-register alignment.** Its documented checks are bounds, coverage, overlap,
+quantum, reserve and authority (`tools/gen_vram_map.py:12-30`); alignment is not among them,
+and the `register = "vdp:0x0N"` field is *"documented in the map only"* at T0 — spec §7.3 defers
+register emission to T2. So the only thing standing between a misaligned plane region and a VDP
+pointed at the wrong address is `vdp_base_reg`'s `ensure`, **and that only fires if somebody
+remembers to route the new region's base through it.** A spare nametable whose base is only
+ever written by a runtime `move.w #$8200|…` would bypass the wall entirely.
+
+**Rider (not this parcel, but it should ride the parcel that consumes the region):** teach
+`gen_vram_map.py` the granule table — a region with `register = "vdp:0x02"`/`0x03`/`0x04`/
+`0x05`/`0x0D` must have `base * 32` a multiple of the register's granule. It is ~10 lines, it
+duplicates `vdp_base_granule` in a second language *on purpose* (the two-runner pattern
+`DEFERRED_WORK` already argues for at this exact register family), and it moves the check to
+the file where the decision is actually made.
+
 **Stale comment found while deriving this, worth fixing in the same parcel:**
 `engine/system/constants.emp:282-284` still reads *"POOL_TILE_CEILING(960) /
 ART_POOL_PAGE_TILES(64) = 15 frames"* and line 284's trailing comment says `// 15`. The
