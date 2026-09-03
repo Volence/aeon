@@ -287,6 +287,14 @@ Stated plainly rather than reasoned around.
    `engine/ram.emp:580` and **written nowhere**), sampled over a real act run.
    **Tagged for foreground follow-up — no emulator was used in this parcel.**
 
+   > **ADDENDUM 2026-09-03** (`parcel/dma-straddle-counter`): that instrument is now
+   > **built** — both cells above plus `Dbg_DMA_Straddle_All` / `_Frame` / `_Peak`,
+   > which count the per-frame straddle DEMAND the reserve has to absorb. **The
+   > sampling is still owed**; it needs the emulator and no agent parcel can take it.
+   > Arming recipe and the meaning of each reading: `docs/DEFERRED_WORK.md`, "DMA
+   > SPLIT-REJECT NEEDS TWO FREE IMPORTANT SLOTS". This paragraph's claim that the
+   > page-in half "cannot be settled statically" is unchanged and is exactly right.
+
 2. **The re-cut is modelled, not executed.** This parcel moves **zero ROM bytes**
    (proven: `s4.bin` and `s4.debug.bin` are byte-identical with and without the
    gate wired in — `bd721e32…` / `f07cf7fd…` both ways). The post-re-cut numbers

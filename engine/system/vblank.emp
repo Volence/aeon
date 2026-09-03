@@ -202,6 +202,65 @@ pub proc VInt_Level () clobbers(d0-d4/a0-a3/a5-a6) requires(vblank) {
             // §4.6: VSRAM write must come AFTER HScroll DMA (CODING_CONVENTIONS §3.4)
             jbsr    Vscroll_Write
 
+            // DEBUG straddle instrument — the fold, and the sample that makes a peak
+            // interpretable. engine/ram.emp's tail block carries the full rationale;
+            // this comment is about the TIMING, which is the part that can be wrong.
+            //
+            // WHY HERE — immediately before the Important drain, and nowhere else.
+            // Everything queued since the previous VInt_Level's drain is still sitting
+            // in the Important queue at this instruction, and nothing removes an entry
+            // between enqueue and drain, so this is the window's MAXIMUM occupancy by
+            // construction rather than by sampling luck. The two instruments then
+            // describe exactly the same window: the entries about to be drained, and
+            // the straddles that produced them.
+            //
+            // WHY IT CANNOT DOUBLE-COUNT OR LOSE THE PEAK FRAME.
+            //  1. Every Important enqueue happens in MAIN-LOOP context — perform_dplc
+            //     during render, PageIn_EnqueueLanding from PageIn_Process inside
+            //     VSync_Wait. There is no Important enqueue inside a VBlank handler.
+            //  2. QueueDMA's core runs the whole enqueue, straddle bump included, under
+            //     `move.w #$2700, sr`. A VBlank cannot land inside one.
+            //  3. This code IS the VBlank handler. So (2) and (3) cannot interleave:
+            //     the read and the clear below are adjacent instructions in a context
+            //     no enqueue can cut into. No increment is lost between them, and no
+            //     window's count is folded twice — it is cleared in the same breath it
+            //     is read.
+            //  4. LAG FRAMES: VInt_Lag neither drains Important nor folds, so a lag
+            //     frame's straddles roll into the next VInt_Level's window. That
+            //     OVER-counts a physical frame and never loses one, so the peak is an
+            //     upper bound — the safe direction for "is the reserve big enough".
+            //     It is also exactly the frame convention DMA_Enq_Bytes_Frame already
+            //     uses (reset in VInt_Level only, :140).
+            //
+            // d0 is free here: VInt_Level's license is d0-d4, Vscroll_Write above
+            // already clobbers d0, and Process_DMA_Important below clobbers d0-d1.
+            //
+            // COST, derived from the encodings this build emits (s4.debug.bin $23EC,
+            // 36 bytes): MOVE.W (xxx).W,Dn 12 · SUBI.W #imm,Dn 8 · CMP.W (xxx).W,Dn 12
+            // · BCC.B 10 taken / 8 not · MOVE.W Dn,(xxx).W 12 · CLR.W (xxx).W 16 (the
+            // 68000 reads before it writes). Steady state, both branches taken:
+            // (12+8+12+10) + (12+16+12+10) = 92 cycles per VInt_Level frame. Both peaks
+            // new: (12+8+12+8+12) + (12+16+12+8+12) = 112. One-off, not per transfer;
+            // ~0.09% of a 128,010-cycle frame. DEBUG shape only.
+            if DEBUG == 1 {
+                // (a) peak Important occupancy this window, in BYTES from the queue
+                //     base — the slot cursor's delta. Divide by sizeof(DMAEntry) = 14
+                //     for entries; 12 slots = 168 is the wall.
+                move.w  DMA_Important_Slot, d0
+                subi.w  #DMA_Important, d0
+                cmp.w   DMA_Peak_Important, d0
+                bls     .no_new_important_peak
+                move.w  d0, DMA_Peak_Important  // the field declared at engine/ram.emp:582 and, until now, written nowhere
+            .no_new_important_peak:
+                // (b) fold + clear the window's straddling-Important count
+                move.w  Dbg_DMA_Straddle_Frame, d0
+                clr.w   Dbg_DMA_Straddle_Frame
+                cmp.w   Dbg_DMA_Straddle_Peak, d0
+                bls     .no_new_straddle_peak
+                move.w  d0, Dbg_DMA_Straddle_Peak
+            .no_new_straddle_peak:
+            }
+
             jbsr    Process_DMA_Important
             // Art-streaming P2a: a published page's staging->VRAM DMA rides the
             // Important queue. Once it has fully drained (the Important queue is
