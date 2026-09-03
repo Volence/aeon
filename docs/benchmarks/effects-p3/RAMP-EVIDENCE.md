@@ -112,14 +112,24 @@ matches 29 of 37 discriminating rows and the top+1 rule matches **0**. So the pi
 exactly one line between 2026-08-14 and 2026-09-03, in the same direction for **both** targets (the
 gradient tier's documented CRAM landing is `top`; today it measures `top + 1`).
 
-**WHICH SIDE MOVED IS OPEN AND IS NOT ASSERTED HERE.** Two candidates, and nothing measured
-excludes either: (a) a change in the raster path after 2026-08-14 — `.dense_end` falling into
-`.park`, the frame-rewind interlock, the `-4(a2)` respellings all post-date these captures; or
-(b) the instrument — these PNGs came off the legacy Exodus-derived C++ core, and the Rust core
-became the ratified default on 2026-08-26. That both targets moved together by exactly one line is
-consistent with either. What would settle it: run a `c2a7e1a9`-era ROM (published `crc=475fa367`)
-on the Rust core, or today's ROM on the legacy core. Booked in `docs/DEFERRED_WORK.md`,
-"RAMP BOUNDARY".
+**THE SCHEDULE DID NOT MOVE — measured twice.** `raster_arm` and every schedule field of
+`raster_ramp_program` are character-identical between `c2a7e1a9` and today, so the ENTER is at
+`top-1` and the first `.dense_body` at `top` in both eras. And the fire count confirms it with no
+renderer in the loop: a run authored longer than the screen can serve cannot retire, so the residue
+in `Raster_Dense_Lines` counts the fires, and `fires + top` reads exactly **224** at all seven tops
+from 3 to 220. **What moved is the LANDING OFFSET: a dense VSRAM write from the fire on line `top`
+displayed from `top+1` then and displays from `top+2` now — fire+1 to fire+2 — while the SPARSE
+tier is still fire+1 and `vsplit_landing_gate` pins that green on this same core.**
+
+**WHICH SIDE MOVED IS STILL OPEN AND IS NOT ASSERTED HERE.** Everything on the path from handler
+entry to the ramp's VDP write changed in one `perf(raster)` batch on **2026-08-19** (`c44c80ad`,
+`c2f9cfcd`, `aa139c75`, `3c82c0b3`, `a02b30e0`, `727715f4`); nothing after that day touches it, and
+item 6 (`cf3dfb1a`) is exonerated. But **the cycle story predicts the wrong direction** — today's
+path to the write is if anything shorter, and an earlier write cannot land a line later — which
+keeps the instrument alive as the other candidate (these PNGs came off the legacy Exodus-derived
+C++ core; the Rust core became the ratified default 2026-08-26). Booked in
+`docs/DEFERRED_WORK.md`, "RAMP BOUNDARY", with the era-matched build priced and the reason it was
+not taken.
 
 Also measured and not documented anywhere before: a ramp WRITES the VSRAM entry, so after the run
 ends the entry keeps its final value and every line below the run stays shifted for the rest of the

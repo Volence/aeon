@@ -411,6 +411,36 @@ def best_shift(sub_rows, ref_rows, L, lo=-4, hi=80):
     return sft, sc
 
 
+def run_read_word(rom_path, lst_path, sym, record, addr):
+    """Install `record`, run, and read ONE 16-bit word out of RAM. No pixels are captured, so
+    nothing this returns depends on the renderer."""
+    with aether_emulator(rom_path, symbols=lst_path) as sock:
+        async def go():
+            b = BusClient(socket_path=sock, client_id="rbp6", client_name="rbp6")
+            await b.connect()
+            last = (await b.call("emulator/status", {}))["frame"]
+            done = 0
+            while done < SETTLE:
+                n = min(100, SETTLE - done)
+                r = await b.call("emulator/run_frames", {"frames": n})
+                if r["frame"] < last:
+                    raise SystemExit("FRAME INDEX REWOUND inside §6's window")
+                last = r["frame"]
+                done += n
+            await b.call("emulator/write_memory",
+                         {"addr": "0x%08X" % bus24(SCRATCH[0]), "bytes": "0x" + record.hex()})
+            await b.call("emulator/write_memory",
+                         {"addr": "0x%08X" % bus24(sym["Raster_Pending"]),
+                          "bytes": "0x%08X" % SCRATCH[0]})
+            r = await b.call("emulator/run_frames", {"frames": AFTER})
+            if r["frame"] < last:
+                raise SystemExit("FRAME INDEX REWOUND inside §6's window")
+            w = (await b.call("emulator/read_memory",
+                              {"addr": "0x%08X" % bus24(addr), "len": 2}))["bytes"]
+            return int(w[2:], 16)
+        return asyncio.run(go())
+
+
 def first_diff(a, b):
     d = [i for i in range(min(len(a), len(b))) if a[i] != b[i]]
     if not d:
@@ -488,10 +518,69 @@ def section0():
     return TOP, LINES, STEP
 
 
+def section6(a, sym):
+    VS, VA = "Vsram", 2
+    # ---- §6: the fire count, with NO renderer in the loop ------------------
+    # WHY THIS EXISTS. Everything above reads PIXELS, so every number it produces is a
+    # statement about the engine AND the renderer together. The 2026-08-14 captures came off
+    # a different renderer, so "the engine moved" and "the instrument moved" both predict the
+    # one-line difference §0/§5 measure, and no pixel can separate them.
+    #
+    # `Raster_Dense_Lines` can. The ENTER stores the authored count and `.dense_body`
+    # decrements it once per FIRE, so a run authored LONGER than the screen can serve cannot
+    # retire, and the residue left in that word at the end of the frame counts the fires
+    # exactly: N = lines - residue. That is read straight out of RAM. No pixels, no palette
+    # coverage, no shift matching, no plane A.
+    #
+    # WHAT IT PINS AND WHAT IT DOES NOT. N(top) + top must be CONSTANT if the first fire is
+    # at a fixed offset from `top`; the constant is `224 + E - c`, where the first dense body
+    # fires on `top + c` and E is the number of fires that still land after screen line 223
+    # (Raster_VBlank clears the mode word, but tools/raster_frame_epoch_probe.py measured on
+    # 2026-08-19 that fires at 222, 223 and 224 all retire BEFORE it). So this separates
+    # `c` from `E` only up to their difference — it CANNOT by itself say the schedule is at
+    # `top` rather than `top + 1`, and it is not reported as if it could. What it does give
+    # is a renderer-free number that an era-matched build would compare against directly.
+    print("§6  THE FIRE COUNT  (Raster_Dense_Lines residue — no renderer in the loop)")
+    print("    a run authored longer than the screen can serve cannot retire, so")
+    print("    N = lines - residue is the number of .ramp_body executions in the frame")
+    OVER = 400
+    print("    %-6s %-8s %-8s %s" % ("top", "residue", "N fires", "N + top"))
+    ks = []
+    for top in (3, 40, 77, 112, 150, 190, 220):
+        rec = synth(top, 1, VS, VA, 0, 0)
+        # `lines` is deliberately OUT OF RANGE for the constructor's ceiling (that ensure is
+        # about where a run may END), so it is patched into the synthesised record directly
+        # rather than routed through synth(). Everything else is the constructor's own.
+        rb = bytearray(rec)
+        off = field_offset("rrp_lines")
+        rb[off:off + 2] = OVER.to_bytes(2, "big")
+        res = run_read_word(a.rom, a.lst, sym, bytes(rb), sym["Raster_Dense_Lines"])
+        n = OVER - res
+        ks.append(n + top)
+        print("    %-6d %-8d %-8d %d" % (top, res, n, n + top))
+    print("    N + top over %d tops: %s" % (len(ks), sorted(set(ks))))
+    if len(set(ks)) == 1:
+        K = ks[0]
+        print("    CONSTANT. K = %d = 224 + E - c, where the first .ramp_body fires on "
+              "top + c and E is the count of fires landing after screen line 223." % K)
+        print("    -> c - E = %d.  c = %d if E = 0; c = %d if E = 1; c = %d if E = 2."
+              % (224 - K, 224 - K, 225 - K, 226 - K))
+        print("    E is NOT measured here and is NOT assumed. The threshold-of-completion "
+              "shifts with E by exactly the same amount as N does, so no arrangement of "
+              "this instrument separates them.")
+    else:
+        print("    NOT CONSTANT — the first fire is not at a fixed offset from `top`, which "
+              "contradicts the identical arm words. Investigate before reading anything "
+              "above.")
+    print()
+
+
 # ---------------------------------------------------------------------------
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--pngs", action="store_true", help="§0 only, no emulator")
+    ap.add_argument("--fire-count", action="store_true",
+                    help="§6 only — the renderer-independent fire count")
     ap.add_argument("--rom", default=str(REPO / "s4.debug.bin"))
     ap.add_argument("--lst", default=str(REPO / "s4.debug.lst"))
     a = ap.parse_args()
@@ -513,6 +602,10 @@ def main():
     print()
 
     VS, VA = "Vsram", 2
+    if a.fire_count:
+        section6(a, sym)
+        print("elapsed %.1f s" % (time.time() - t0))
+        return 0
     PROBE_PX = -37          # odd on purpose: a multiple of the 8-px tile height could alias
 
     def flat_pair(top, lines, target, addr, mute=False, lo=0, hi=None):
@@ -649,6 +742,9 @@ def main():
                      "%s" % (near[:3] if near else "NONE"),
                      "/".join(x for x in ms)))
     print()
+
+
+    section6(a, sym)
 
     # ---- §5: the replica ---------------------------------------------------
     TOP, LINES, STEP = p0

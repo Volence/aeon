@@ -684,9 +684,36 @@ pub struct RasterRampProgram {
 // candidates and nothing measured excludes either: a change in this file's raster path (the
 // `.dense_end`-into-`.park` fall, the frame-rewind interlock and the `-4(a2)` respellings all
 // post-date those captures), or the instrument (they came off the legacy Exodus-derived C++
-// core; the Rust core became the ratified default 2026-08-26). Booked in
-// docs/DEFERRED_WORK.md, "RAMP BOUNDARY", with exactly what would settle it. The rule above
-// is what THIS engine does on the ratified instrument, which is the rule an author meets.
+// core; the Rust core became the ratified default 2026-08-26).
+//
+// THE SCHEDULE DID NOT MOVE, AND THAT IS MEASURED TWICE. raster_arm and every schedule field
+// of this constructor (rrp_arm0/1/2, rrp_ops0/1/2, rrp_op, rrp_end_arm, rrp_end_ops) are
+// CHARACTER-IDENTICAL between c2a7e1a9 and today, so the ENTER is at top-1 and the first
+// .dense_body at top in both eras. And ramp_boundary_probe.py §6 confirms it with NO renderer
+// in the loop: a run authored longer than the screen can serve cannot retire, so the residue
+// left in Raster_Dense_Lines counts the fires, and `fires + top` reads exactly 224 at all
+// seven tops from 3 to 220.
+//
+// SO WHAT MOVED IS THE LANDING OFFSET, NOT THE SCHEDULE: a dense VSRAM write issued in the
+// fire on line `top` displayed from top+1 in 2026-08-14 and displays from top+2 today —
+// fire+1 to fire+2 — while the SPARSE tier is still fire+1 and vsplit_landing_gate pins that
+// green on this same core. Dense and sparse VSRAM agreed then and disagree by one line now.
+// Everything on the path from handler entry to this body's VDP write changed in one
+// perf(raster) batch on 2026-08-19 (c44c80ad, c2f9cfcd, aa139c75, 3c82c0b3, a02b30e0,
+// 727715f4); nothing after that day touches it, and item 6 (cf3dfb1a) is exonerated — its
+// only edit here is the CAP_DENSE_TIER comptime bracket below, which sonic4 takes.
+//
+// ⚠ AND THE CYCLE STORY PREDICTS THE WRONG DIRECTION. Today's path to the write is if
+// anything SHORTER than 2026-08-14's (it drops a `move.w sr,-(sp)` and a `tst.w (xxx).W` and
+// adds one taken `bmi.s`), and an EARLIER write cannot land a line LATER under a renderer
+// that samples VSRAM continuously or at a fixed point in the line. That is a CAUTION and not
+// a refutation — the arithmetic is hand-derived, ints_off vs ints_off_until_rte was not
+// expanded, and the notes in .dense_body warn at length that nominal timings over-predict
+// edits here because the VDP absorbs adjacent data accesses.
+//
+// Booked in docs/DEFERRED_WORK.md, "RAMP BOUNDARY", with exactly what would settle it. The
+// rule above is what THIS engine does on the ratified instrument, which is the rule an
+// author meets.
 //
 // AND A SECOND UNDOCUMENTED PROPERTY, measured in the same run: a ramp WRITES the entry, so
 // after the run ends the entry KEEPS its final value and every line below the run stays

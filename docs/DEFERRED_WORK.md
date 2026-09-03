@@ -20519,6 +20519,48 @@ authored at screen line M has its first differing row at exactly M, on the Rust 
 path reporting everything one line late would turn it red. So the shift is specific to the DENSE
 tier's ENTER schedule.
 
+**THE SCHEDULE DID NOT MOVE — this is the first thing the archaeology settles.** `raster_arm`
+and every schedule field of `raster_ramp_program` (`rrp_arm0/1/2`, `rrp_ops0/1/2`, `rrp_op`,
+`rrp_end_arm`, `rrp_end_ops`) are **character-identical** between `c2a7e1a9` and HEAD. Record 0
+fires at line 0, record 1 at line 1, the ENTER at `top-1`, and record 1's every-line arm puts the
+first `.dense_body` at `top`. No commit changed which line a dense run fires on.
+
+**AND THE FIRE COUNT CONFIRMS IT WITHOUT A RENDERER.** `ramp_boundary_probe.py` §6 authors a run
+longer than the screen can serve, so it cannot retire, and reads the residue left in
+`Raster_Dense_Lines`: `N = lines - residue` is the number of `.ramp_body` executions in the frame,
+straight out of RAM with no pixels involved. Over 7 tops from 3 to 220, **`N + top` is exactly 224,
+every time**. That fixes `c - E = 0`, where the first body fires on `top + c` and `E` counts fires
+landing after screen line 223. The instrument cannot separate `c` from `E` — but the arm words
+above force `c = 0`, so `E = 0` and the first `.ramp_body` fires on line `top`, in both eras.
+
+**SO WHAT MOVED IS THE LANDING OFFSET, NOT THE SCHEDULE.** A dense VSRAM write issued in the fire
+on line `top` displayed from `top + 1` in 2026-08-14 and displays from `top + 2` today: fire+1 to
+fire+2. Meanwhile the SPARSE tier is still fire+1 and `vsplit_landing_gate` pins it green on this
+core. **Dense and sparse VSRAM agreed in 2026-08-14 and disagree by one line today.**
+
+**WHEN — bracketed to one day, not pinned to one commit.** Everything on the path from handler
+entry to the ramp's VDP write changed on **2026-08-19**, in a single `perf(raster)` batch:
+`c44c80ad` 04:23 (CRAM burst word to `-4(a2)`), `c2f9cfcd` 06:46 (hoist the dense KIND test —
+removes a `tst.w`+`bne` from before the write), `aa139c75` 09:27 (frame-rewind interlock),
+`3c82c0b3` 12:25 (the SR save removed, 22 cyc/fire), `a02b30e0` 18:54 (dense stream writes to
+`-4(a2)`), `727715f4` 20:47 (the dense LEAVE parks). Nothing after that day touches the write path.
+
+**ITEM 6 IS EXONERATED, and its own byte claim holds.** `cf3dfb1a` (2026-09-03) is the obvious
+suspect and is not the cause: its only raster.emp commit is `50c116db`, which wraps the ENTER body
+in a `CAP_DENSE_TIER` COMPTIME bracket — sonic4 raises the cap, so the guard is taken and no
+sonic4 byte moves ("EndOfRom moves in none of the four shapes"). And the mechanism it would have
+had to change, `Raster_Dense_Mode` replacing `Raster_Dense_Lines` as the arm test, landed in
+`c2f9cfcd` on 2026-08-19, two and a half weeks earlier.
+
+**⚠ AND THE CYCLE STORY PREDICTS THE WRONG DIRECTION, which is why (b) is still alive.** Read off
+the code diff, today's path to the ramp write is if anything SHORTER than 2026-08-14's — it drops a
+`move.w sr,-(sp)` and a `tst.w (xxx).W` and adds one taken `bmi.s`. An EARLIER write cannot land a
+line LATER under any renderer that samples VSRAM at a fixed point in the line, or continuously. So
+the batch above is where the change must live if it is in the engine, and the arithmetic says it
+should not be. **This is a caution, not a refutation**: the arithmetic is hand-derived, `ints_off`
+vs `ints_off_until_rte` was not expanded, and this file's own comments warn at length that nominal
+68000 timings over-predict edits inside this body because the VDP absorbs adjacent data accesses.
+
 **The remaining candidates, neither excluded:**
   (a) a change in `engine/effects/raster.emp`'s dense path after 2026-08-14 — `.dense_end` falling
       into `.park`, the frame-rewind interlock, the `-4(a2)` respellings all post-date the captures;
@@ -20533,10 +20575,24 @@ lines where `raster_gradient_program`'s banner says its measured `T-1` setup lin
 one — i.e. **every shipped dense program renders one line lower than authored**, including
 `OJZ_TestGradient` at top 96. That is an arithmetic reconciliation and nothing here tests it.
 
-**WHAT WOULD SETTLE IT, exactly:** run a `c2a7e1a9`-era ROM (published `crc=475fa367`) on the Rust
-core, or today's ROM on the legacy core. Either one distinguishes (a) from (b) in a single capture.
-Failing that, break inside `.ramp_body` and read the HV counter on the first iteration — that reads
-the fire line directly and does not depend on either renderer.
+**WHAT WOULD SETTLE IT, exactly — and it was ATTEMPTED and is PRICED, not hand-waved.** Run a
+`c2a7e1a9`-era ROM on the Rust core (the probe already resolves every address from the `.lst`, so
+the ROM need not be byte-identical to the published `crc=475fa367` — only its raster code must be).
+**Blocked on an era-matched sigil.** Building `c2a7e1a9` with today's `sigil` gets past the sound
+blob's size tripwire (`SIGIL_BLOB_LEN_DRIFT=warn`) and past the contract gate (`CONTRACTS=0`), and
+then fails in the harness itself:
+
+    [Error] no module `engine.effects.preset` found under the scan root
+    [Error] no module `games.sonic4.scene_registry` found under the scan root
+    [Error] no module `games.sonic4.ojz_effects` found under the scan root
+
+Today's harness expects modules the 2026-08-14 tree does not contain. Doing it properly means
+building sigil at its own 08-14 state **into a private `CARGO_TARGET_DIR`** — the release binary is
+shared with every other lane, and a worktree sharing a target dir silently swaps artifacts. That is
+a parcel, not a step, and it was not taken here.
+
+The other half of the same question is cheaper and independent: run TODAY's ROM on the legacy core.
+That distinguishes (a) from (b) in one capture with no build at all.
 
 **PERSISTENCE, still undocumented anywhere but the banner and the evidence doc.** A ramp WRITES the
 VSRAM entry, so after the run ends the entry keeps its final value for the rest of the frame and

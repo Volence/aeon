@@ -31,8 +31,9 @@ TWO HALVES, and the first one needs no emulator at all.
     1. CONTROL vs CONTROL — two independent instances, same frame count, same lines. They
        must agree completely, or no difference below is attributable to anything.
     2. RAMP vs CONTROL — install the document's program. Its DISPLAYED span is
-       `top+1 .. top+lines`, one line later than the written span, which is the VSRAM N+1
-       latency the engine documents.
+       `top+2 .. top+lines+1` (MEASURED 2026-09-03 by tools/ramp_boundary_probe.py over
+       19 tops and 9 run lengths; the older `top+1 ..` reading is the same rule with `j`
+       read as 0-based, and `start` is never emitted).
     3. RAMP vs ITS OWN STEP-0 TWIN — the discriminator, and it is the tree's own idiom
        rather than an invention: `games/sonic4/data/effects/ojz_effects.emp` says it in as
        many words beside OJZ_TestRamp — *"The run WRITES the VSRAM entry rather than adding
@@ -376,7 +377,15 @@ def main():
     # THE DERIVATION, stated before anything is measured so the report cannot be read as
     # having been fitted to the result.
     w_lo, w_hi = top, top + lines - 1
-    d_lo, d_hi = top + 1, top + lines
+    # THE DISPLAY SPAN IS `top + 2 .. top + lines + 1`, MEASURED — not `top + 1 ..`.
+    # tools/ramp_boundary_probe.py settled this on 2026-09-03 over 19 tops spanning 3..220
+    # and 9 run lengths: a VSRAM ramp's first CHANGED screen line is `top + 2`, every time,
+    # zero interior gaps. The value->line rule (`value j displays on top + j + 1`) was always
+    # right; what was missing is that `j` STARTS AT 1, because .ramp_body adds the step
+    # before it writes and `start` itself is never emitted. This derivation printed the
+    # 0-based reading and therefore disagreed with arm 4's own measurement by a line, on
+    # every run. See raster_ramp_program's banner.
+    d_lo, d_hi = top + 2, top + lines + 1
     print("THE DOCUMENT   %s" % a.preset)
     print("  top %d, lines %d, VSRAM byte %d, start %s, step %s"
           % (top, lines, addr, ramp["start"], ramp["step"]))
@@ -384,8 +393,12 @@ def main():
           % (start_v, start_v / 65536, step_v, step_v / 65536))
     print("THE DERIVATION (from raster_ramp_program's own ensures and its N+1 note)")
     print("  WRITE span   %d..%d engine lines   (top .. top+lines-1)" % (w_lo, w_hi))
-    print("  DISPLAY span %d..%d screen lines   (VSRAM: value j displays on top+j+1)"
+    print("  DISPLAY span %d..%d screen lines   (VSRAM, MEASURED: first changed line is "
+          "top+2; value j = start + j*step displays on top+j+1 with j starting at 1)"
           % (d_lo, d_hi))
+    if d_hi > 223:
+        print("  ⚠ the LAST value displays on line %d, which does not exist — %d of the %d "
+              "authored values can render" % (d_hi, 223 - d_lo + 1, lines))
     print("  the ceiling ensure is `top + lines <= 223`; this document sits at %d"
           % (top + lines))
     print("  the last line that exists is %d" % (SCREEN_LINES - 1))
