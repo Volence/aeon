@@ -17477,6 +17477,38 @@ Item 2 is the only one that does not.
 | 10 | Reels / plane-role swap / window as third layer | **L** | aeon alone (the paired freeze ended 2026-09-02) | ~~**BLOCKED — see item 0 below.**~~ **UNBLOCKED on the VRAM axis 2026-09-03: item 0 landed as Option P** — `spare_nametable`, 128 tiles at tile 768 (`$6000`), a legal Plane A/B/Window base. **10a (reels) LANDED 2026-09-03, `parcel/item10a-reels`** — `OJZ_Reels_Fill` composes REEL_BAND_COUNT (5) independently-advancing, pairwise-distinct per-frame phase increments onto the shipped per-column VSRAM buffer's BG words; needed **zero** of item 0's tiles (design §2 row 10a's claim held). `tools/reels_gate.py` gates it on every canonical sonic4 build. **`tools/reels_witness.py`'s tagged emulator pass has now been RUN (2026-09-03, `fix/reels-witness-expectation`)** — it found the mechanism sound and its OWN expectation wrong (assumed the fill runs once per requested frame; two real lag frames in the test scene's settle window mean it doesn't), fixed to derive the expectation from `Lag_Frame_Count` rather than the frame count. **10b (plane-role swap) IMPLEMENTED 2026-09-03 on `parcel/item10b-plane-role-swap`, unmerged** (rebased onto master post-item-6) — `engine.parallax.Parallax_Set_Roles_Swapped`, a WHOLE-FRAME settled-state register swap (`Set_VDP_Reg`, item 11a's mid-frame door does not fit a multi-frame set-piece) plus the HScroll/VSRAM feed-packer swap design §8 Q4 asked for; needed **zero** of item 0's tiles (design §2 row 10b's claim held) and the streaming write targets (`plane_buffer.emp`/`section.emp`/`bg.emp`) needed **zero** changes (they target physical VRAM addresses, not "whichever register is Plane A now"). Capability-gated behind `CAP_ROLE_SWAP` (took `$0400` after item 6's `CAP_DENSE_TIER` claimed `$0200` in parallel) — the unconditional version cost demo 104 bytes across five sites; gating measured to zero bytes for BOTH games. `tools/plane_role_swap_gate.py` gates it on every canonical sonic4 build. **10c (window as third layer) is UNSTARTED** and does need item 0's `spare_nametable`. See the item-10b block below. |
 | 11 | Nametable-base changes (frame swap, Plane Z, Batman mid-frame) | **L** | aeon alone (the paired freeze ended 2026-09-02) | ~~**BLOCKED — same item 0.**~~ **PARTLY DONE.** Item 0's design (§2) split this row into 11a (the mid-frame base change as a MECHANISM, zero tiles) and 11b (Plane Z, a distinct third picture, which does need tiles). **11a LANDED 2026-09-03, `parcel/item11a-midframe-base`, aeon `eb87d2ba`** — `OJZ_BaseSwap`, one `OP_SET_REG` re-pointing Plane A at Plane B's nametable at screen line 160, gated by `tools/plane_base_swap_gate.py` on every canonical sonic4 build. **The on-screen half is unrun** (no emulator in that lane) and is tagged for the controller. **11b is UNBLOCKED on the VRAM axis by item 0's landing** — but note there is no SECOND `$2000`-aligned run left: the remaining spendable run is at `$5000`, `$1000`-aligned, i.e. window-only, so 10c and 11b are competing for the one `$6000` run. See the item-11a and item-0 blocks below. |
 
+**✅ ITEM 6 IS CERTIFIED, NOT MERELY MERGED (2026-09-03, `tools/ramp_authored_witness.py`).** The
+hub's "closed on all four sides" was corrected by the editor lane and they were right: none of the
+three landings had seen a ROM honour an AUTHORED ramp. The engine half measured the HBlank budget,
+`OJZ_TestRamp` is a build-time fixture that never renders (§1.6 of the key-shape artifact), and step
+4 proved the generator READS the key. **The owner's standing rule is that a landing shows on screen
+or in a witness**, so the row rested on nothing until this.
+
+**THREE ARMS, and the second and third are the whole method.** A before/after on one instance is NOT
+a control here — the game keeps running, so every sampled line changes anyway, and my first attempt
+produced exactly that useless result.
+
+1. **Control against control** — two independent instances, same frame count, same lines:
+   **110 of 110 identical.** Without this arm nothing below is attributable to anything.
+2. **Ramp against control** — **all 64 lines of the authored DISPLAYED span 129..192 changed**, which
+   is `top+1 .. top+lines` from the document's own `top: 128, lines: 64`. The one-line offset is the
+   VSRAM N+1 latency the engine documents, not an error.
+3. **Ramp against a DIFFERENT program installed the same way** — installing any program replaces the
+   act's own, and that replacement changes lines outside the run. Installing `OJZ_BaseSwap` instead
+   changes **the same 46 outside lines**, with **zero unique to the ramp**. So the outside change is
+   the replacement and not the subject.
+
+**Two method errors of mine are recorded because they are the reusable part.** I ran control against
+treatment before running control against control, which is the wrong order — the second experiment
+is what says the first can mean anything. And arm 3's first run installed a stale hard-coded address
+for `OJZ_BaseSwap`, which had moved: the arithmetic came out the same but I could not have said what
+I installed. **Read a symbol's address out of the `.lst` at the moment of use; a program's address
+moves every time bytes move, and this session moved them fifteen times.**
+
+**Still open, and offered by the editor lane rather than owed by them:** their control now writes ramp
+documents through the real codec, so the same three arms against a document THEY authored would put
+their writer in the chain too. This witness starts at the JSON; that one would start at the UI.
+
 **⚠ ITEMS 10 AND 11 HAVE NO AUTHORING KEY YET, AND THEY ARE SUPPOSED TO — RULED 2026-09-03, AND THE
 RULING CORRECTS THIS LANE.** ~~The spec contradicts itself about whether they should.~~ **IT DOES NOT.**
 I called it a contradiction after reading items 10/11's own text and item 12's closing clause; the
