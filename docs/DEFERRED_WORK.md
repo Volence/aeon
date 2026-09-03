@@ -2029,9 +2029,21 @@ raising a number nobody has measured trades a possible drop for a certain cost.
 > discriminants once (the `target_bits`/`op_bits` pattern already in that file).
 > `boot_data.emp`'s five rows are now those folds. **The ROM is byte-identical on all four
 > shapes** — the derivation reproduces $30/$3C/$07/$5C/$2F exactly, which is also the check
-> that the shifts are right. They were re-derived rather than read off our own table:
-> s2disasm's VDP init (`s2.asm:288-303`) programs the same five registers at DIFFERENT bases
-> ($D800 sprites / $DC00 hscroll) and every shift reproduces its byte there too.
+> that the shifts are right. They were re-derived rather than read off our own table: **two
+> reference disassemblies, independently** — s2disasm's VDP init (`s2.asm:288-303`) and
+> skdisasm's (`sonic3k.asm:200-210`) both program these registers at DIFFERENT bases ($D800
+> sprites / $DC00 hscroll against our $B800 / $BC00) and every shift reproduces their bytes
+> there too ($6C, $37). s2disasm's plane-A site spells the derivation outright,
+> `$8200|(VRAM_Plane_A_Name_Table/$400)`.
+>
+> **THE GRANULES ARE THE HALF NOT CROSS-CHECKED AGAINST A REFERENCE, and the difference
+> matters.** The five shifts are confirmed by two disassemblies; the H40 ignored-bit rules
+> behind the $1000 (window) and $400 (SAT) granules come from the hardware documentation, and
+> no shipped base in either reference distinguishes them from the looser $800/$200 field
+> granularity. **The direction of that uncertainty is safe, and is why it was taken this
+> way:** the H40 pair is the STRICTER reading, so a wrong choice can only refuse a base that
+> would in fact have worked — never admit one that would not. Every base this tree ships
+> satisfies them, so there is no refusal today.
 >
 > **A SECOND, SMALLER FINDING, fixed with it:** `engine.constants` spells the Plane B base
 > TWICE — `VRAM_PLANE_B` ($E000, what the generated `vram.toml` cross-checks pin) and
