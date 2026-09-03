@@ -289,8 +289,37 @@ PRESET_SUBDIR = "presets"
 # `contract/schema/aurora-effects-preset.schema.json` §`ramp`/its top-level `oneOf`
 # (empyrean docs/AURORA_EFFECTS_SCHEMA.md §7.4) — the SCHEMA is the authority, not the
 # artifact's §5, which that page states outright is a proposal only.
+# `base_swap` joined 2026-09-03 too (EFFECTS-W1 DoD item 11a's authorable half). UNLIKE the
+# four keys above, THIS ONE SHIPS AHEAD OF A HUB RULING — the hub's own sequencing note
+# (docs/DEFERRED_WORK.md, the item-11a booking) calls 11a's authorable half strictly
+# SMALLER than item 10a's ("it already has its constructor... needs only a key and a
+# per-scene binding") and says its shape note "can be the two-line kind rather than a full
+# artifact" — i.e. build first, file the CR after, the opposite order from `ramp`'s
+# artifact-then-build sequence. The shape note is
+# `docs/superpowers/specs/2026-09-03-item11a-base-swap-key-shape.md`; there is no
+# `contract/schema/aurora-effects-preset.schema.json` entry for it yet in this tree — that
+# is the CR this note is filed against. `base_swap` occupies the SAME `ep_raster` channel
+# `bands`/`ramp` do (one mid-frame `OP_SET_REG`, `engine/effects/raster_dsl.emp`'s generic
+# `fire`/`reg_set`/`raster_program` — the exact three calls
+# `games/sonic4/data/effects/ojz_effects.emp`'s hand-authored `OJZ_BaseSwap` already makes),
+# so it joins the same exactly-one-of group below rather than opening a second `oneOf`.
 PRESET_KEYS = frozenset({"schema", "id", "bands", "cycles", "variants",
-                         "patch_world_ys", "patch_motion", "ramp"})
+                         "patch_world_ys", "patch_motion", "ramp", "base_swap"})
+
+# `base_swap`'s own shape (EFFECTS-W1 item 11a's authorable half; no schema `$defs` entry
+# exists yet — this generator IS the shape until the CR lands). Two fields, both required,
+# both forwarded VERBATIM to engine constructs that already own the range:
+#   `line`   — the screen line the swap fires on. `fire()`'s own ensure bounds it
+#              (engine/effects/raster_dsl.emp:360-361) — restated nowhere in this file.
+#   `target` — the VRAM byte address Plane A's base register is re-pointed at.
+#              `vdp_base_reg(VdpBase.PlaneA, target)`'s own ensure refuses anything that is
+#              not a multiple of reg $02's granule, $2000 (engine/vdp.emp:116-117), and
+#              names the granule in its own message — so an illegal `target` fails the BUILD
+#              by name, not a byte this file could silently mis-encode. Spelled as a raw
+#              VRAM address rather than a `VdpBase` enum name, the same "spelled out
+#              explicitly beats one fact computed twice" precedent `pal_region.addr` and
+#              `ramp.target.vsram.addr` already set.
+BASE_SWAP_KEYS = ("line", "target")
 
 # `ramp`'s own shape (contract §7.4, `$defs/ramp` / `$defs/ramp_target` / `$defs/fp16`).
 # SHAPE ONLY, this file's standing posture: every numeric bound named in the schema
@@ -686,28 +715,36 @@ def load_preset(path: str) -> dict:
     _check_keys(path, preset, PRESET_KEYS, PRESET_IGNORED_KEYS, PRESET_REFUSED_KEYS,
                 "preset")
 
-    # EXACTLY ONE OF `bands` OR `ramp` (contract §7.4's top-level `oneOf`, hub ruling: the
-    # strict side, widened only when a combinator ships — see RAMP_KEYS' banner above).
-    # Both lower into the SAME EffectsPreset.ep_raster channel and the engine has no
-    # combinator that mixes a sparse fire list with a dense run, so this is a real
-    # structural fact and not a style preference — refused here BECAUSE this file is the
-    # actual build gate (no schema validator runs against these documents in this repo).
-    has_bands, has_ramp = "bands" in preset, "ramp" in preset
-    if has_bands and has_ramp:
-        _refuse(path, "carries both `bands` and `ramp`. Exactly one raster program per "
-                      "preset document (contract §7.4's top-level `oneOf`): both lower "
-                      "into the same EffectsPreset.ep_raster channel and the engine has "
-                      "no combinator that mixes a sparse fire list with a dense run. Drop "
-                      "one — a future contract change may widen this once a combinator "
-                      "exists; today the schema refuses the pair on purpose (a schema can "
-                      "widen later and cannot narrow once a consumer has emitted the wider "
-                      "shape).")
-    if not has_bands and not has_ramp:
-        _refuse(path, "no `bands` and no `ramp` key. A preset document must carry exactly "
-                      "one raster program (hub ruling Q1a for `bands`; contract §7.4's "
-                      "`oneOf` for the pair): `bands` for the sparse fire-list tier, or "
-                      "`ramp` for the dense per-line vertical scroll (EFFECTS-W1 item 6). "
-                      "`cycles` and `variants` are optional channels beside either one, "
+    # EXACTLY ONE OF `bands`, `ramp` OR `base_swap` (contract §7.4's top-level `oneOf` for
+    # the first two, widened here to a third arm for EFFECTS-W1 item 11a's authorable
+    # half — see `base_swap`'s own banner above for why this key ships ahead of a schema
+    # entry). All three lower into the SAME EffectsPreset.ep_raster channel and the engine
+    # has no combinator that mixes any two of a sparse fire list, a dense run and a single
+    # mid-frame register op, so this is a real structural fact and not a style preference —
+    # refused here BECAUSE this file is the actual build gate (no schema validator runs
+    # against these documents in this repo).
+    has_bands, has_ramp, has_base_swap = ("bands" in preset, "ramp" in preset,
+                                          "base_swap" in preset)
+    chosen = [k for k, present in (("bands", has_bands), ("ramp", has_ramp),
+                                    ("base_swap", has_base_swap)) if present]
+    if len(chosen) > 1:
+        _refuse(path, f"carries more than one of `bands`/`ramp`/`base_swap` "
+                      f"({', '.join(chosen)}). Exactly one raster program per preset "
+                      f"document: all three lower into the same EffectsPreset.ep_raster "
+                      f"channel and the engine has no combinator that mixes any two of "
+                      f"them. Drop all but one — a future contract change may widen this "
+                      f"once a combinator exists; today the schema refuses the "
+                      f"combination on purpose (a schema can widen later and cannot "
+                      f"narrow once a consumer has emitted the wider shape).")
+    if not chosen:
+        _refuse(path, "no `bands`, `ramp` or `base_swap` key. A preset document must "
+                      "carry exactly one raster program (hub ruling Q1a for `bands`; "
+                      "contract §7.4's `oneOf` for `bands`/`ramp`; `base_swap`'s own "
+                      "banner above for the third arm): `bands` for the sparse "
+                      "fire-list tier, `ramp` for the dense per-line vertical scroll "
+                      "(EFFECTS-W1 item 6), or `base_swap` for the mid-frame "
+                      "nametable-base swap (EFFECTS-W1 item 11a). `cycles` and "
+                      "`variants` are optional channels beside any one of the three, "
                       "and a cycle-only or variant-only document is a future contract "
                       "change. The one name empyrean's schema doc §7 still reserves "
                       "(`fires`) is refused by name above.")
@@ -738,6 +775,7 @@ def load_preset(path: str) -> dict:
                                   f"stating at the call site.")
 
     _check_ramp(path, preset)
+    _check_base_swap(path, preset)
     _check_cycles(path, preset)
     _check_variants(path, preset)
     _check_cleared_slot_is_not_streamed(path, preset)
@@ -840,6 +878,50 @@ def _check_fp16(path: str, value, where: str) -> None:
         _refuse(path, f"{where}.frac256 must be an integer, got "
                       f"{type(frac256).__name__} {frac256!r}. Whether it is IN RANGE "
                       f"(0..255) is fp16's own ensure (raster.emp:685), not this file's.")
+
+
+def _check_base_swap(path: str, preset: dict) -> None:
+    """SHAPE of the `base_swap` key (EFFECTS-W1 item 11a's authorable half).
+
+    SHAPE ONLY, `_check_ramp`'s own posture: `line` and `target` are forwarded VERBATIM to
+    `fire()` and `vdp_base_reg()`, which own their own ranges (BASE_SWAP_KEYS' banner
+    above), so this function checks only that the document is the right SHAPE to forward
+    at all — closed keys, both fields required, both plain integers.
+    """
+    if "base_swap" not in preset:
+        return
+    bs = preset["base_swap"]
+    if not isinstance(bs, dict):
+        _refuse(path, f"`base_swap` must be an object, got {type(bs).__name__}. A preset "
+                      f"has exactly one raster: channel (EffectsPreset.ep_raster), so "
+                      f"there is one mid-frame base swap per document, never an array of "
+                      f"them.")
+    _check_keys(path, bs, frozenset(BASE_SWAP_KEYS), frozenset(), None, "base_swap")
+    for required in BASE_SWAP_KEYS:
+        if required not in bs:
+            _refuse(path, f"base_swap has no `{required}`. Both `line` and `target` are "
+                          f"required, no default on either — the hand-authored precedent "
+                          f"(`games/sonic4/data/effects/ojz_effects.emp`'s `OJZ_BaseSwap`) "
+                          f"authors both explicitly.")
+
+    line = bs["line"]
+    if isinstance(line, bool) or not isinstance(line, int):
+        _refuse(path, f"base_swap.line must be an integer, got {type(line).__name__} "
+                      f"{line!r}. Whether it is IN RANGE is fire()'s own ensure "
+                      f"(engine/effects/raster_dsl.emp:360-361), not this file's.")
+
+    target = bs["target"]
+    if isinstance(target, bool) or not isinstance(target, int):
+        _refuse(path, f"base_swap.target must be an integer VRAM byte address, got "
+                      f"{type(target).__name__} {target!r}. It must be a multiple of "
+                      f"$2000 — Plane A's base register (reg $02) encodes only the "
+                      f"address bits above that granule and drops the rest SILENTLY, so "
+                      f"an unaligned target would point the VDP at a different address "
+                      f"than every other VRAM_* consumer while nothing outside the "
+                      f"encoding could see the difference. Whether it IS a multiple of "
+                      f"$2000 is vdp_base_reg()'s own ensure (engine/vdp.emp:116-117), "
+                      f"not this file's — it fails the build by name rather than "
+                      f"silently encoding the wrong register byte.")
 
 
 def _check_cleared_slot_is_not_streamed(path: str, preset: dict) -> None:
@@ -1800,6 +1882,8 @@ def render_preset(path: str, preset: dict, names) -> str:
     pid = preset["id"]
     if "ramp" in preset:
         return render_ramp_preset(path, preset, names)
+    if "base_swap" in preset:
+        return render_base_swap_preset(path, preset, names)
     src, label = names.raster_src(pid), names.raster(pid)
     bands = [render_band(path, b, f"bands[{i}]")
              for i, b in enumerate(preset["bands"])]
@@ -1876,6 +1960,37 @@ def render_ramp_preset(path: str, preset: dict, names) -> str:
             f"    cmd:   {cmd},\n"
             f"    start: {start},\n"
             f"    step:  {step})")
+
+
+def render_base_swap_preset(path: str, preset: dict, names) -> str:
+    """One `base_swap` preset document → its `raster_program(...)` call (EFFECTS-W1 item
+    11a's authorable half).
+
+    NO CAPABILITY ENSURE IS RE-EMITTED HERE, unlike `render_ramp_preset` — and that
+    asymmetry is a fact about the mechanism, not an oversight. `OP_SET_REG` is `fire()`'s
+    cheapest op and dispatches UNCONDITIONALLY in every game (raster_dsl.emp's own `fire()`
+    banner: it "used to be the chain's fall-through and the DEAREST op to dispatch, and it
+    is now the cheapest"); there is no `CAP_*` bit anywhere in the tree that gates
+    constructing a register-write raster op the way `CAP_DENSE_TIER` gates a ramp/gradient
+    or `CAP_BAND_DRIFT` gates a drifting band — `games/sonic4/data/effects/ojz_effects.emp`'s
+    own hand-authored `OJZ_BaseSwap` checks none either.
+
+    Three calls, and they are the SAME three `OJZ_BaseSwap` already makes —
+    `fire`/`reg_set`/`raster_program` — reused verbatim rather than reimplemented, per the
+    brief's own instruction not to build a second constructor for a mechanism that already
+    has one. `VdpBase`/`vdp_base_reg` come from `engine.vdp`, ambient in every placed
+    module the same way `vdp_comm`/`VdpTarget`/`VdpOp` already are for `render_ramp_target`
+    above (verified against the shipped `ramp_probe` fixture in the generated module,
+    which calls `vdp_comm(...)` with no `use engine.vdp` line anywhere in this file).
+    """
+    pid = preset["id"]
+    src, label = names.raster_src(pid), names.raster(pid)
+    bs = preset["base_swap"]
+    line = _render_int(path, bs["line"], "base_swap.line")
+    target = _render_int(path, bs["target"], "base_swap.target")
+    word = f"$8200 | vdp_base_reg(VdpBase.PlaneA, {target})"
+    return (f"const {src} = [fire({line}, [reg_set({word})])]\n"
+            f"pub data {label}: [u16; raster_words({src})] = raster_program({src})")
 
 
 def render_cycle_channel(path: str, ch: dict, where: str) -> str:

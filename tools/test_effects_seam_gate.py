@@ -355,19 +355,23 @@ class TestRasterSeamAgainstTheRealTree(unittest.TestCase):
             f"threads — the generator emits the binding and nothing reads it, which "
             f"presents to the author as an assignment that did nothing")
 
-    def test_section_5_is_the_bound_one_and_its_id_is_the_shipped_document(self):
+    def test_section_5_and_6_are_the_bound_ones_and_their_ids_are_the_shipped_documents(self):
         """The content assertion, kept separate from the invariant above so a content
         change cannot look like a mechanism failure. Section 5 was the owner's ruling
-        (the 38-byte split that evicts nothing); the id must name a document that
-        really ships, which is what the reachability lint would otherwise catch late."""
+        (the 38-byte split that evicts nothing); section 6 joined it at EFFECTS-W1 item
+        11a's authorable half (the same split, paid again, for `base_swap`). The id must
+        name a document that really ships, which is what the reachability lint would
+        otherwise catch late."""
         bound = effects_gen.load_section_raster_refs(REPO)
-        self.assertEqual(sorted(bound), [5],
-                         f"the bound sections are {sorted(bound)}, not [5]")
+        self.assertEqual(sorted(bound), [5, 6],
+                         f"the bound sections are {sorted(bound)}, not [5, 6]")
         presets = effects_gen.load_preset_documents(REPO) \
             if hasattr(effects_gen, "load_preset_documents") else None
         if presets is not None:
             self.assertIn(bound[5], presets,
                           f"section 5 binds {bound[5]!r}, which names no shipped preset document")
+            self.assertIn(bound[6], presets,
+                          f"section 6 binds {bound[6]!r}, which names no shipped preset document")
 
 
 class TestSourceOnlyMode(unittest.TestCase):

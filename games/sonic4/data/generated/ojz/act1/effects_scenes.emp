@@ -154,6 +154,9 @@ const EditorRasterSrc_OJZ_Act1_ojz_sec5_showcase = compose([
 ])
 pub data EditorRaster_OJZ_Act1_ojz_sec5_showcase: [u16; raster_words(EditorRasterSrc_OJZ_Act1_ojz_sec5_showcase)] = raster_program(EditorRasterSrc_OJZ_Act1_ojz_sec5_showcase)
 
+const EditorRasterSrc_OJZ_Act1_ojz_sec6_baseswap = [fire(160, [reg_set($8200 | vdp_base_reg(VdpBase.PlaneA, 57344))])]
+pub data EditorRaster_OJZ_Act1_ojz_sec6_baseswap: [u16; raster_words(EditorRasterSrc_OJZ_Act1_ojz_sec6_baseswap)] = raster_program(EditorRasterSrc_OJZ_Act1_ojz_sec6_baseswap)
+
 ensure((Game.SCANLINE_CAPS & CAP_DENSE_TIER) != 0,
        "EditorRaster_OJZ_Act1_ramp_probe: this game's Game.SCANLINE_CAPS ({Game.SCANLINE_CAPS}) does not declare CAP_DENSE_TIER — EFFECTS-W1 item 6 gates construction of a dense-tier RAMP program on that bit (engine/level/scene_dsl.emp), so a game must declare intent to spend the dense tier's ramp axis before it may author one. Add CAP_DENSE_TIER to this game's SCANLINE_CAPS in its config/game.emp")
 pub data EditorRaster_OJZ_Act1_ramp_probe: RasterRampProgram = raster_ramp_program(
@@ -204,7 +207,7 @@ pub data EditorVariant_OJZ_Act1_ojz_sec3_shimmer_0: pal_variant = variant(shift_
 // `ensure(1 == 0)` here built GREEN with an unchanged CRC.
 pub equ EditorScenes_OJZ_Act1_Count = 2
 pub equ EditorScenes_OJZ_Act1_Bindings = 2
-pub equ EditorRaster_OJZ_Act1_Bindings = 1
+pub equ EditorRaster_OJZ_Act1_Bindings = 2
 pub equ EditorCycle_OJZ_Act1_Bindings = 0
 pub equ EditorVariant_OJZ_Act1_Bindings = 0
 pub equ EditorPatch_OJZ_Act1_Bindings = 1
@@ -258,6 +261,7 @@ pub comptime fn ojz_act1_sec_raster(sec: int, hand: Label = 0) -> Label {
     ensure(sec >= 0 && sec < 9, "ojz_act1_sec_raster(sec: {sec}): this act has 9 sections, so there is no binding slot for that index — the section preset and project.json's grid have drifted apart")
     comptime var out = hand
     if sec == 5 { out = EditorRaster_OJZ_Act1_ojz_sec5_showcase }
+    if sec == 6 { out = EditorRaster_OJZ_Act1_ojz_sec6_baseswap }
     return out
 }
 
