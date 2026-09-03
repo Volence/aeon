@@ -74,6 +74,15 @@ THE TWO INSTRUMENTS. Neither is a screenshot for a human to squint at.
      picture arm runs UNMASKED and asserts it (`grab` refuses on any other source), and the
      masks used by instrument I are applied only after every capture is taken.
 
+     ⚠ SECOND TRAP, the one the checkpoint itself creates: THE ABSOLUTE FRAME INDEX REWINDS
+     at every restore (oracle 91b21a8, 2026-09-03). Logic gated on a strictly ADVANCING frame
+     index silently does nothing across a rewind instead of failing — and "no change observed"
+     then reads exactly like a real negative. Nothing here is gated on one: every arm measures
+     a `run_frames` DELTA inside a single uninterrupted window, `Shape.rebaseline` re-reads the
+     index after each restore and REFUSES if the machine did not land back on the checkpoint's
+     own frame, and the run asserts that every arm it compares advanced the SAME number of
+     frames. So a negative from this instrument is a negative, not a rewind.
+
 ================================================================================
 EXPECTATIONS ARE DERIVED, NEVER TYPED:
   * the authored line L and target T          the preset JSON the sidecar names
@@ -395,13 +404,43 @@ class Shape:
             self.fail.append(f"{self.name}/{what}: {detail}")
         return ok
 
+    async def rebaseline(self, c, cp) -> int:
+        """Restore, then RE-READ the frame index and prove the rewind landed on the checkpoint.
+
+        THE REWIND HAZARD (oracle 91b21a8, 2026-09-03): the absolute frame index is not
+        monotonic — `reset`, `restore` and a backwards `run_to` all move it backwards, and any
+        logic gated on a strictly ADVANCING index silently does nothing instead of failing.
+        That is the worst possible shape for a witness: "no change observed" and a real
+        negative become indistinguishable.
+
+        This instrument rewinds DELIBERATELY, once per arm, because a checkpoint is what makes
+        the treated and removed frames comparable at all. So it does what `tools/reels_witness.py`
+        does: it never carries a frame number across a rewind, it measures in `run_frames`
+        DELTAS inside one uninterrupted window, and it re-baselines here — refusing if the
+        restore did not put the machine back on the checkpoint's own frame, which is the one
+        way a rewind could corrupt a sample without anything going red.
+        """
+        await c.call("emulator/restore", {"id": cp["id"]})
+        f = int((await c.call("emulator/status", {}))["frame"])
+        if f != cp["frame"]:
+            raise refuse(f"restore of checkpoint {cp['id']} left the machine at frame {f}, not the "
+                         f"checkpoint's own frame {cp['frame']} — every arm below would be sampling "
+                         f"a different scene, and the differential would be measuring the rewind")
+        return f
+
     async def install_arm(self, c, syms, cp, poke, frames):
-        """restore -> (optionally poke Raster_Pending) -> run -> (Raster_Program, frame hashes)."""
-        await c.call("emulator/restore", {"id": cp})
+        """restore -> re-baseline -> (poke Raster_Pending) -> run N -> (program, hashes, N).
+
+        Returns the MEASURED frame advance, not the requested one: the caller asserts that
+        every arm it intends to compare ended on the same absolute frame, which is what makes
+        a per-line diff attributable to the program rather than to a scene that moved.
+        """
+        f0 = await self.rebaseline(c, cp)
         if poke is not None:
             await wr(c, syms["Raster_Pending"], poke, 4)
         await c.call("emulator/run_frames", {"frames": frames})
-        return await rd(c, syms["Raster_Program"], 4), await frame_hashes(c)
+        f1 = int((await c.call("emulator/status", {}))["frame"])
+        return await rd(c, syms["Raster_Program"], 4), await frame_hashes(c), f1 - f0
 
     async def run(self, sock, blob):
         a, exp, geo = self.a, self.exp, self.geo
@@ -486,18 +525,32 @@ class Shape:
 
         # ================= INSTRUMENT II — the picture differential ===================
         await assert_unmasked(c)
-        cp = (await c.call("emulator/checkpoint", {}))["id"]
+        r = await c.call("emulator/checkpoint", {})
+        cp = {"id": r["id"], "frame": int(r["frame"])}
         n = a.frames
-        p_t1, t1 = await self.install_arm(c, syms, cp, gen, n)
-        p_t2, t2 = await self.install_arm(c, syms, cp, gen, n)
-        p_c1, c1 = await self.install_arm(c, syms, cp, none, n)
-        p_c2, c2 = await self.install_arm(c, syms, cp, none, n)
-        p_n1, n1 = (await self.install_arm(c, syms, cp, None, n)) if self.bound else (None, None)
+        p_t1, t1, a_t1 = await self.install_arm(c, syms, cp, gen, n)
+        p_t2, t2, a_t2 = await self.install_arm(c, syms, cp, gen, n)
+        p_c1, c1, a_c1 = await self.install_arm(c, syms, cp, none, n)
+        p_c2, c2, a_c2 = await self.install_arm(c, syms, cp, none, n)
+        p_n1, n1, a_n1 = ((await self.install_arm(c, syms, cp, None, n)) if self.bound
+                          else (None, None, None))
         # The no-accumulation pair is a PAIR, at the longer frame count: diffing a 12-frame
         # treated frame against a 4-frame control would report every line as changed and read
         # as drift, which is what the first draft of this arm did.
-        p_t3, t3 = await self.install_arm(c, syms, cp, gen, n + a.persist)
-        p_c3, c3 = await self.install_arm(c, syms, cp, none, n + a.persist)
+        p_t3, t3, a_t3 = await self.install_arm(c, syms, cp, gen, n + a.persist)
+        p_c3, c3, a_c3 = await self.install_arm(c, syms, cp, none, n + a.persist)
+
+        # ---- P0: the rewind is accounted for, not assumed away ------------------------
+        short = [x for x in (a_t1, a_t2, a_c1, a_c2, a_n1) if x is not None]
+        adv = {"checkpoint_frame": cp["frame"], "short_arms": short, "long_arms": [a_t3, a_c3],
+               "requested": [n, n + a.persist]}
+        self.out["frame_advance"] = adv
+        self.check(set(short) == {n} and set([a_t3, a_c3]) == {n + a.persist},
+                   "every compared arm advanced the SAME number of frames from the checkpoint",
+                   f"restores all re-baselined on frame {cp['frame']}; short arms advanced "
+                   f"{short} (want all {n}), long arms {[a_t3, a_c3]} (want both {n + a.persist}) "
+                   f"— the absolute frame index REWINDS at every restore, so this is measured "
+                   f"as a delta inside each window and never carried across one")
 
         def diff(x, y):
             return [i for i in range(ACTIVE_H) if x[i] != y[i]]
@@ -563,7 +616,7 @@ class Shape:
         # ================= INSTRUMENT I — the plane-base readback =====================
         # Masks LAST: every capture above is taken unmasked, because a masked scanline read
         # is a state render. pixel_attribution is a live-state query and is unaffected.
-        await c.call("emulator/restore", {"id": cp})
+        await self.rebaseline(c, cp)
         await wr(c, syms["Raster_Pending"], gen, 4)
         await c.call("emulator/run_frames", {"frames": n})
         for lay in ("planeB", "sprites", "window"):
@@ -577,7 +630,9 @@ class Shape:
         self.out["maps"] = {"a_distinct": len(set(map_a)), "t_distinct": len(set(map_t))}
 
         async def at(y):
-            await c.call("emulator/restore", {"id": cp})
+            # Re-baselined, never carried: run_to_scanline can land in a LATER frame than the
+            # one this arm ran to, and the next probe's restore rewinds the index under it.
+            await self.rebaseline(c, cp)
             await wr(c, syms["Raster_Pending"], gen, 4)
             await c.call("emulator/run_frames", {"frames": n})
             r = await c.call("emulator/run_to_scanline", {"line": y})
