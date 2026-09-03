@@ -1285,6 +1285,61 @@ pub vars upper_ram {
         Canopy_Snap_RowFrame:   [u16; PLANE_V_CELLS],
     }
 
+    // --- DMA 128 KB-straddle instrument (engine/system/dma_queue.emp `.split`,
+    //     folded in engine/system/vblank.emp's VInt_Level, DEBUG only) ---
+    //
+    // WHAT IT ANSWERS, and why a comptime `ensure` cannot. A transfer whose ROM
+    // source crosses the VDP's 128 KB DMA-source boundary is SPLIT into two queue
+    // entries, and `.split_reject` refuses BOTH halves when only one Important slot
+    // is free (enqueuing half would publish half-landed data — dma_queue.emp:224).
+    // So a straddling Important landing costs TWO slots or it is dropped whole, and
+    // `DPLC_ENTRY_RESERVE = 2` is what holds those two open.
+    //
+    // That reserve was sized from total art VOLUME — ~354 KB across the cast, i.e.
+    // ~2.7 × 128 KB — which bounds how many straddling entries EXIST IN THE ROM and
+    // says nothing about how many can want slots in ONE FRAME. `tools/dplc_straddle.py
+    // --gate` settles the static half (the DPLC blob's per-frame slot cost against the
+    // 12 - 2 = 10 wall); the per-frame count of straddling ENQUEUES is a run-time
+    // property of where art landed and of what the page-in streamer is doing, and
+    // NOTHING measured it. These four cells are that measurement.
+    //   (DEFERRED_WORK, "DMA SPLIT-REJECT NEEDS TWO FREE IMPORTANT SLOTS, AND NOTHING
+    //    COUNTS PER-FRAME STRADDLES"; d-47's instrument half.)
+    //
+    // Read them together — each one alone is uninterpretable:
+    //   Dbg_DMA_Straddle_All   free-running, EVERY queue. The positive control. A zero
+    //                          in the Important cells means "Important never straddled"
+    //                          only if this one is non-zero; otherwise it means
+    //                          "nothing straddled at all", which is also what a broken
+    //                          instrument reads like.
+    //   Dbg_DMA_Straddle_Frame this window's straddling IMPORTANT enqueues. Folded and
+    //                          cleared in one breath in VInt_Level — see vblank.emp.
+    //   Dbg_DMA_Straddle_Peak  high-water mark of the above. THE number the booking asks
+    //                          for. Compare against DMA_IMPORTANT_SLOTS - the measured
+    //                          DPLC peak entry count (12 - 10 = 2 today, printed by
+    //                          tools/dplc_straddle.py --gate on every sonic4 build).
+    //   DMA_Split_Reject_Count free-running count of transfers ACTUALLY dropped by
+    //                          `.split_reject`. Split out of DMA_Overflow_Count, which
+    //                          `.full` and `.split_reject` used to share — the reason
+    //                          nobody could tell a straddle-reject from a full queue.
+    //                          Any non-zero value here is the defect, observed directly.
+    //
+    // Straddles and rejects are DIFFERENT populations and both are here on purpose: a
+    // straddle that got its two slots is not a reject, and it is the straddle count —
+    // the DEMAND for the reserve — that says whether the reserve is sized right. The
+    // count is taken BEFORE the two-slot check, so a refused straddle is still counted.
+    //
+    // Placed at the RAM TAIL and @shape_divergent for the reason the three blocks above
+    // state: the DEBUG-shape addition ripples ZERO existing engine-RAM addresses; only
+    // Engine_RAM_End and the game RAM chained after it move, and only in the DEBUG
+    // shape. Deliberately NOT beside DMA_Overflow_Count in the profiling block at :577,
+    // which would have slid every engine-RAM field below it for no gain.
+    if DEBUG == 1 @shape_divergent {
+        Dbg_DMA_Straddle_All:   u16,    // ALL queues, never reset — the positive control
+        Dbg_DMA_Straddle_Frame: u16,    // this window's straddling Important enqueues
+        Dbg_DMA_Straddle_Peak:  u16,    // high-water mark of the above across the run
+        DMA_Split_Reject_Count: u16,    // transfers dropped whole by `.split_reject`
+    }
+
     // Engine RAM ends here — game RAM continues from Engine_RAM_End
     // (games/<game>/config/ram.emp declares `game_ram @ after(upper_ram)`).
     mark Engine_RAM_End,

@@ -167,7 +167,9 @@ pub proc QueueDMA_Deferrable (d1: u32, d2: u16, d3: u16) clobbers(d0-d4/a1-a2) o
 
     .full:
         if DEBUG == 1 {
-            addq.w  #1, DMA_Overflow_Count      // (DMA_Overflow_Count).w — debug-only profiling counter
+            addq.w  #1, DMA_Overflow_Count      // (DMA_Overflow_Count).w — debug-only profiling counter.
+                                                // QUEUE-FULL ONLY since the straddle instrument landed:
+                                                // `.split_reject` charges DMA_Split_Reject_Count instead.
         }
         move.w  (sp)+, sr
         ori.b   #1, ccr                         // carry SET = request dropped (queue full; pinned after the SR restore)
@@ -189,6 +191,32 @@ pub proc QueueDMA_Deferrable (d1: u32, d2: u16, d3: u16) clobbers(d0-d4/a1-a2) o
         // Split the transfer into two queue entries: one up to the boundary,
         // one for the remainder. Both go to the same sub-queue.
     .split:
+        // DEBUG straddle instrument (engine/ram.emp's tail block carries the whole
+        // rationale). Counted HERE — at the top of `.split`, where the crossing is a
+        // FACT the code under test just established with `blo` — and NOT re-derived
+        // from the source address somewhere else: a re-derivation can disagree with
+        // the branch it is meant to describe, which makes it useless exactly in the
+        // case worth measuring. It is also BEFORE the two-slot check below, so this
+        // counts DEMAND for the reserve — a straddle refused by `.split_reject` is
+        // still a straddle that wanted two slots, and is still counted.
+        //
+        // d4 is the sub-queue's END address, still untouched here (the `subi.w`
+        // below is what consumes it), so it is the cheapest thing in the machine
+        // that names which queue this enqueue is for.
+        //
+        // COST, derived from the encodings this builds emits (s4.debug.bin $1EB2,
+        // 14 bytes: `52 78 E8 6A` ADDQ.W #1,(xxx).W = 16 · `0C 44 81 62` CMPI.W
+        // #imm,Dn = 8 · `66 04` BCC.B = 10 taken / 8 not · `52 78 E8 6C` ADDQ.W = 16).
+        // Paid ONLY on the straddle path, which a non-crossing transfer never reaches
+        // — the ordinary enqueue pays ZERO added cycles. Straddling Important:
+        // 16+8+8+16 = 48 cycles. Straddling Critical/Deferrable: 16+8+10 = 34.
+        if DEBUG == 1 {
+            addq.w  #1, Dbg_DMA_Straddle_All    // (Dbg_DMA_Straddle_All).w — every queue; the positive control
+            cmpi.w  #DMA_Important_End, d4      // which sub-queue? d4 still holds its end address
+            bne     .straddle_other_queue
+            addq.w  #1, Dbg_DMA_Straddle_Frame  // (Dbg_DMA_Straddle_Frame).w — the measured subject
+        .straddle_other_queue:
+        }
         add.w   d3, d0                          // d0 = words until 128KB boundary
         movep.w d0, DMAEntry.SizeH(a1)          // write first part length
 
@@ -232,7 +260,13 @@ pub proc QueueDMA_Deferrable (d1: u32, d2: u16, d3: u16) clobbers(d0-d4/a1-a2) o
         add.w   d3, d3                          // length words -> bytes (whole transfer)
         sub.w   d3, DMA_Enq_Bytes_Frame         // roll back the byte-cap charge
         if DEBUG == 1 {
-            addq.w  #1, DMA_Overflow_Count
+            // Its OWN counter, not `.full`'s. The two used to share
+            // DMA_Overflow_Count, which is precisely why nobody could tell a
+            // straddle-reject (a two-slot demand the reserve failed to meet) from an
+            // ordinary full queue — DEFERRED_WORK's booking names the shared counter
+            // as the reason the measurement was impossible. Same instruction form,
+            // same 16 cycles, different address: zero added cost.
+            addq.w  #1, DMA_Split_Reject_Count  // (DMA_Split_Reject_Count).w
         }
         move.w  (sp)+, sr
         ori.b   #1, ccr                         // carry SET = request dropped (split needs 2 slots)
