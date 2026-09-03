@@ -19901,3 +19901,97 @@ matches what the already-committed fixtures from the unconditional attempt expec
 `demo_specialization_witness` is fully green via direct invocation (`python3
 tools/demo_specialization_witness.py --sonic4-lst s4.debug.lst --demo-lst
 demo.debug.lst`) apart from the one hub-owned, pre-existing `lst_proc_sizes` finding.
+
+### REBASE, BIT RENUMBER, AND THE Z80 FIX LANDING, 2026-09-03
+
+Three follow-ups from the coordinating hub's second review, in order.
+
+**1. `CAP_ROLE_SWAP` moved from the measurement-trial `$0200` to `$0400`, ruled.** Item 6
+independently landed `CAP_DENSE_TIER` at `$0200` on master while this parcel was still
+being built — a parallel-branch collision, not a queue-jump, and the hub ruled it: item 6
+landed first, so `CAP_DENSE_TIER` keeps `$0200` and `CAP_ROLE_SWAP` takes the next bit,
+`$0400`, with the four still-reserved names (`CAP_FG_SPRITE_STRIPS`, `CAP_BGANIM_BOUND`,
+`CAP_COMPUTED`, `CAP_DEGRADE`) shifted up one again to `$0800`/`$1000`/`$2000`/`$4000`.
+Re-verified the shift is free ON THIS TREE (not assumed from the hub's own check against
+master): `grep -rn` for all four reserved names across `engine/`, `games/` and `tools/`
+finds only prose — comments in `tools/scene_spans.py` and `tools/effects_budget_model.toml`,
+and `tools/test_scene_span_labels.py`'s reserved-name list, which iterates NAMES and never
+their numeric values. Nothing lowers, raises, brackets or masks against any of the four.
+
+**While there:** `tools/effects_budget_model.toml` carried `CAP_FG_SPRITE_STRIPS ($0080)`
+and `CAP_COMPUTED ($0400)` in four prose strings (three already-`SUPERSEDED`, one live),
+both stale by two prior shifts before this parcel's own third. Fixed by DELETING the
+numbers rather than retyping today's values, per this repo's standing rule that a fresh
+literal in prose goes stale on the identical clock a retyped one does.
+
+**2. Rebased onto current master, twice** (`origin/master` moved twice during review —
+once to `9e85baf0`, item 6's own landing, then again to `dfe22da7`, carrying the
+phased-VMA-symbol fix, `fix/z80-vma-address-collision`, merged as `9d7cefd5`). Four
+conflicts total, three semantic (resolved by hand) and one trivial union, exactly as the
+hub predicted:
+- `docs/DEFERRED_WORK.md` — the item 10 summary row (both parcels rewrote the same cell;
+  merged to state both 10a's reels-witness-run and 10b's capability-gated landing) and,
+  on the second rebase, an adjacent-append collision with the Z80-fix's own new booking
+  section (resolved by keeping both, in landing order).
+- `engine/level/scene_dsl.emp` — the capability banner (combined `CAP_DENSE_TIER`'s
+  existing banner with a new `CAP_ROLE_SWAP` one at `$0400`, ruling stated in-line).
+- `games/sonic4/config/game.emp` — the mask comment (both bits' rationale, kept) and the
+  value (`$01DE` → `$03DE` from item 6 → `$07DE` adding this parcel's `$0400`).
+- `tools/test_scene_span_labels.py` — plain union of `CAP_DENSE_TIER` and `CAP_ROLE_SWAP`
+  in the hardcoded declared-name list, as the hub said.
+- `tools/demo_specialization_witness.py` (second rebase only) — the Z80 fix's own
+  `RE-DERIVATION LOG` entry (removing the item-6 `PROC_SIZE_RIDER_BLIND_PROCS` allowlist
+  entirely, not just emptying it) collided textually with this parcel's own log entry at
+  the same append point; kept both, and updated this parcel's own `Parallax_Step5_Vscroll`
+  pin comment to drop its "unmeasurable past `$8000`" caveat now that the fix removes it.
+
+**3. The `PYTEST_ADDOPTS` deselection is GONE from the final verification, and the
+finding it was covering for is now fixed on master, not reported as a standing defect.**
+Building both DEBUG fixtures via two ordinary `build.sh` invocations before a third,
+un-deselected run — the hub's own recipe — does NOT bootstrap out of this repo's
+pytest-before-sigil ordering when BOTH fixtures are simultaneously affected by a
+capability-bit source change (measured: two such ordinary attempts, `s4` then `demo`,
+each individually fails at the SAME pre-sigil pytest gate before either can refresh the
+other's listing — a structural property of running pytest before sigil, not a mistake in
+sequencing). What DID clear it, confirmed as a real finding rather than worked around: a
+manual `sigil build` for each DEBUG shape (bypassing `build.sh` only to get past this
+one-time bootstrap gap, not to skip any check), followed by an ordinary `build.sh` run
+with nothing deselected — which then failed on exactly ONE thing,
+`test_effects_gates_segments.py::test_segmented_parent_checks_the_row_set_it_aggregated`,
+for exactly the reason already reported: `Parallax_Step5_Vscroll`'s sonic4 size read as
+64 (truncated at `SoundTablesZ80_Head`'s `$8000` phased VMA), same as before. That
+confirmed the earlier report's diagnosis was correct and not a staleness artifact.
+**Then `origin/master` moved again, carrying the Z80/phased-VMA fix
+(`fix/z80-vma-address-collision`, merged `9d7cefd5`), and after rebasing onto it the
+SAME four-shape sequence — nothing deselected, nothing bypassed — passes clean end to
+end.** `Parallax_Step5_Vscroll` now measures correctly for sonic4 too: **280 bytes**
+(previously unmeasurable, read as 64), confirming the fix's own claim
+(`vma_phased_symbol_names()` deriving the exclusion from every `section ... vma:`
+declaration rather than by name, catching both `SfxBlobWinTab` and `SoundTablesZ80_Head`
+from one mechanism).
+
+### Four-shape totals, FINAL, rebased onto `origin/master dfe22da7` + the Z80 fix
+
+Wall clock: `14:43:41 up 9 days, 6:32, load average: 5.25, 8.46, 7.86` at report time; All four `./build.sh` invocations exit **0**,
+**nothing deselected, nothing skipped for the row-set check**: `2171 passed, 4 skipped, 2
+warnings, 73 subtests passed` in every shape (up from 2163/2158 as master's own test
+count grew across the two rebases). `EndOfRom` unchanged from every prior measurement in
+this parcel, across the full history: sonic4 DEBUG `$A8258`, sonic4 RELEASE `$A5C82`,
+demo DEBUG/RELEASE `$1121A` both — three rebases, a bit renumber, and a rewrite of the
+measurement tool underneath it, and the placed ROM image never moved.
+
+`tools/demo_specialization_witness.py` (the tool `test_effects_gates_segments.py` runs):
+**`OK — span absence + image differential`**, all 13 pinned procs including the newly-
+correct `Parallax_Step5_Vscroll` sonic4 280 / demo 120. `tools/plane_role_swap_gate.py`:
+OK, both shapes, byte-identical addresses/words to every earlier measurement in this
+parcel's history (`$007BD6`/`$007BF6`/`$007C0E` debug, `$00640E` release,
+`$38`/`$06`/`$30`/`$07`). `band_drift_golden`, `plane_base_swap_gate` (item 11a),
+`reels_gate`, `instashield_gate`, `loop_crossover_gate`: all green, no fixture
+re-stamping needed.
+
+**Effects-gate ritual, re-run on the fully rebased tree, exit code included:**
+`python3 tools/effects_gates.py --rom s4.debug.bin --lst s4.debug.lst` → exit **0**:
+`effects_gates: OK — all 16 scheduled gate(s) produced a complete row set` (34 result
+rows total, a count rather than a pass/fail measure per the tool's own footnote). Zero
+failing rows, for the first time in this parcel's history — the Z80/phased-VMA fix
+landing is what closed the last one.

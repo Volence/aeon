@@ -396,7 +396,7 @@ DEMO_SPECIALISED_PROCS = {
     "Parallax_Set_Roles_Swapped": 0,   # CAP_ROLE_SWAP              (sonic4  56) — no unconditional caller, so the whole proc elides
     "Parallax_StartTransition":  78,   # CAP_PER_COL_VSRAM, CAP_TRANSITIONS  (sonic4 106)
     "Parallax_Step4_Fill":      194,   # CAP_ANCHORS, CAP_FACTOR_CURVE  (sonic4 670; 24 B record stride since CAP_BAND_DRIFT, 2026-09-02)
-    "Parallax_Step5_Vscroll":   120,   # CAP_PER_COL_VSRAM, CAP_TRANSITIONS, CAP_ROLE_SWAP  (sonic4 206 — sonic4's OWN size cannot currently be re-measured past $8000, see tools/scene_spans.py's booked lst_proc_sizes defect; 120 is demo's own number, unaffected by that collision)
+    "Parallax_Step5_Vscroll":   120,   # CAP_PER_COL_VSRAM, CAP_TRANSITIONS, CAP_ROLE_SWAP  (sonic4 280 — re-measurable now that tools/scene_spans.py's phased-VMA fix landed; it read as 64 before that fix, truncated at SoundTablesZ80_Head's $8000 VMA)
     "Parallax_Update":          246,   # CAP_ROLE_SWAP              (sonic4 276)
     "Raster_GetChannelBand":      8,   # CAP_ANCHORS                (sonic4  50)
     "Raster_HInt":              316,   # CAP_DENSE_TIER             (sonic4 338) — see the
