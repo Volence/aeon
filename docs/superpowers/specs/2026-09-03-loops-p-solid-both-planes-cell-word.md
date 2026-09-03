@@ -105,7 +105,7 @@ value 3; there is no path that reaches a return with `xover == 3`.
 different language: TypeScript, `aurora/src/core/collision/`. It is the producer's
 description of the file format; aeon's table above is the consumer's. They must agree, and
 they do. Split across two files that between them are the authority (their own
-`collision-cell-word.ts` docblock has drifted, see §1.1):**
+`collision-cell-word.ts` docblock has drifted, see §1.4):**
 
 - `src/core/collision/collision-cell-word.ts:1-19` (`06f1ecd5`) — shape/xFlip/yFlip/solidity,
   bits 0-13, matching aeon's `BLOCK_ID_MASK`/`CHUNK_XFLIP_BIT`/`CHUNK_YFLIP_BIT`/
@@ -200,7 +200,7 @@ worth running — it is the one place the premise could have broken in our favou
 came back negative for a reason (bitmask, not enum) that also rules out the cheapest
 version of Option A.
 
-### 1.1 One thing that does NOT agree, and does not matter to the answer
+### 1.4 One thing that does NOT agree, and does not matter to the answer
 
 `collision-cell-word.ts:10` (`06f1ecd5`) still comments bits 14-15 as *"spare"* — stale
 since `layer-transition.ts` claimed them on 2026-08-29, four days before this doc's cut. This
