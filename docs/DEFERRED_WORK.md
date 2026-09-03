@@ -19220,6 +19220,24 @@ reaches the 68000 listing at all; none of their proc names appear as top-level h
 `s4.debug.lst`, confirmed by direct grep). A name-based exclusion list (which is what item
 6 landed) is a per-instance patch on a defect that recurs by MECHANISM.
 
+**⚠ AND IT WAS ALREADY KNOWN. THIS FILE HAD BOOKED THE HAZARD, IN PROSE, AND IT BIT TWICE ANYWAY.**
+Search this file for *"Trap for the next parcel, worth knowing"* under the tile-cache entry: it
+records that the `.lst` *"interleaves Z80-space blob labels (`SfxBlobWinTab`, `DacSampleTable`,
+`MovingTrucks_PitchTable`, …) with 68k symbols at overlapping numeric addresses"*, that a naive
+*"span = next symbol's address"* diff *"splits unrelated procs at random and invents changes"*, and
+that it had already produced two fictional numbers — `Level_LoadArt` −89 and `Sound_GetComm` −448.
+**Its advice was "filter boundary candidates to symbols that actually shifted", and nothing in the
+tree was changed to do it.** So on 2026-09-03 the same defect produced two more confidently wrong
+verdicts, in two different consumers, and cost two review cycles.
+**The lesson is the one this file keeps re-learning and it is worth more than the fix: a hazard
+written into a booking is not a fix, and a booking that names a trap without building the check
+recruits the next reader into re-living it.** The old note also framed the population as *"Z80-space
+blob labels"*, which is the same framing this parcel had to correct — `soundbankhead` is
+`cpu: m68000` — and a wrong frame is exactly what stops a prose warning from generalising when the
+next instance arrives wearing different clothes.
+*(Recorded here rather than as a new bar: the moratorium on process bars is in force, and this is a
+fact about one defect, in the entry that fixes it.)*
+
 ### The discriminator, and how the population was enumerated
 
 **The listing itself carries no marker.** sigil-link's `emit_listing`
