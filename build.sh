@@ -853,6 +853,31 @@ if [[ "$FAST" == "0" ]]; then
             exit 1
         fi
 
+        # THE MID-FRAME NAMETABLE-BASE BYTE GOLDEN (EFFECTS-W1 item 11a). `OJZ_BaseSwap`
+        # is one OP_SET_REG that re-points Plane A's base at Plane B's nametable partway
+        # down the frame; this reads its 11 words back OUT OF THIS ROM at this listing's
+        # address and holds the register word against a byte re-derived from
+        # engine/system/constants.emp's VRAM_PLANE_B and engine/vdp.emp's own
+        # `vdp_base_shift` arm — the same fold boot_data.emp derives reg $02 from.
+        #
+        # The `.emp` fixture's `first_mismatch` pin cannot answer this: it compares the
+        # encoder against a hand twin, both comptime, and would stay green with the
+        # `pub data` emitting nothing at all. Same post-sigil placement and same
+        # --built-after provenance rule as the two goldens above.
+        #
+        # --shape IS PASSED, NOT SNIFFED, and the two shapes assert OPPOSITE things: the
+        # words present in DEBUG, and the symbol emitting ZERO bytes in release, because
+        # its only installer (Debug_BandDemoHotkey) emits zero release bytes and an
+        # unconditional program would be a dormant scaffold in the shipped ROM.
+        BASE_SWAP_SHAPE="release"
+        if [[ "${DEBUG:-0}" == "1" ]]; then BASE_SWAP_SHAPE="debug"; fi
+        if ! python3 "${TOOLS}/plane_base_swap_gate.py" --lst "${ROM_NAME}.lst" \
+                --rom "${ROM_NAME}.bin" --built-after "${SIGIL_T0}" \
+                --shape "${BASE_SWAP_SHAPE}"; then
+            echo "Mid-frame plane-base gate failed — see above (tools/plane_base_swap_gate.py)."
+            exit 1
+        fi
+
         # The BG-animation section's ROOM, re-derived from THIS build's listing
         # (decision d-9). `ojz_bg_anim` grows into the hole that ends
         # at the `dac_banks` map anchor — DERIVED by the bank placement rule since the
