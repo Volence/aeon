@@ -51,6 +51,21 @@ pub const CHEAT_DEBUG_FLY         = 1 << 0    // bit 0 of Cheat_Flags — free-f
 // another symbolic operand is not supported ([lower.imm-link]). The moveq/and pair
 // keeps one symbolic operand per instruction and costs the same 6 bytes.
 
+// -----------------------------------------------
+// EFFECTS-W1 item 10a "reels" — per-strip vertical scroll geometry
+// -----------------------------------------------
+// How the 20 column-pairs engine/level/parallax.emp's per-column VSRAM buffer
+// (VSCROLL_COL_PAIRS) holds are split into independently-scrolling vertical strips for
+// the OJZ_Reels_Fill demo (games/sonic4/data/effects/ojz_effects.emp). Declared here
+// (the SOLE game-constants module) rather than beside the demo because
+// games/sonic4/config/ram.emp also needs REEL_BAND_COUNT, for OJZ_Reel_Phase's array
+// length, and ram.emp cannot import the effects module without a cycle
+// (ojz_effects.emp reaches games.sonic4.scene_registry, which is deep in the game's
+// data tree). The REEL_BAND_COUNT * REEL_COLS_PER_BAND == VSCROLL_COL_PAIRS identity is
+// checked in ojz_effects.emp, the one place all three names are already in scope.
+pub const REEL_BAND_COUNT     = 5   // independently-scrolling vertical strips
+pub const REEL_COLS_PER_BAND  = 4   // 16-px column-pairs per strip (64 px wide on screen)
+
 // The per-slot player working block is a TYPE, not a constant here: see
 // `struct PlayerBlock` in config/ram.emp. Its stride is sizeof(PlayerBlock) and
 // its field displacements are offsetof(PlayerBlock, ...), so there is no

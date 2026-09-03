@@ -17039,7 +17039,7 @@ Item 2 is the only one that does not.
 | 7 | Vertical bob | **S-M** | yes, paired | **BUILT — `parcel/vertical-bob`, 2026-08-30, unlanded.** A scene-level term on `Parallax_Step5_Vscroll`'s `.v_pack`. 40 bytes of code, ZERO config bytes (the packed nibble pair claimed `pcfg_pad_29`), EndOfRom unmoved in all four shapes. Riders booked below. |
 | 8 | BgAnim vertical band motion | **M** | **no — zero ROM bytes** | **ENGINE HALF DONE 2026-09-02, `parcel/bganim-band-motion`; the ON-SCREEN half is BLOCKED and the reason is measured** — see the item-8 block below. The pricing was written on the belief that a vertical shift needed a different DMA shape; it does not, `BgAnim_Update` was always axis-agnostic, and the parcel moves no engine byte at all. So this row does NOT pair with sigil. |
 | 9 | Hydrocity row remap | **L** | yes, paired | Zone-specific by the survey's own estimate; he wants it; sequenced last by his preference. |
-| 10 | Reels / plane-role swap / window as third layer | **L** | aeon alone (the paired freeze ended 2026-09-02) | ~~**BLOCKED — see item 0 below.**~~ **UNBLOCKED on the VRAM axis 2026-09-03: item 0 landed as Option P** — `spare_nametable`, 128 tiles at tile 768 (`$6000`), a legal Plane A/B/Window base. Nothing is WIRED to it; that plumbing is this item's. **10a (reels) is IN FLIGHT** on `parcel/item10a-reels`; 10b (plane-role swap) is next. See the item-0 block below. |
+| 10 | Reels / plane-role swap / window as third layer | **L** | aeon alone (the paired freeze ended 2026-09-02) | ~~**BLOCKED — see item 0 below.**~~ **UNBLOCKED on the VRAM axis 2026-09-03: item 0 landed as Option P** — `spare_nametable`, 128 tiles at tile 768 (`$6000`), a legal Plane A/B/Window base. **10a (reels) LANDED 2026-09-03, `parcel/item10a-reels`** — `OJZ_Reels_Fill` composes REEL_BAND_COUNT (5) independently-advancing, pairwise-distinct per-frame phase increments onto the shipped per-column VSRAM buffer's BG words; needed **zero** of item 0's tiles (design §2 row 10a's claim held). `tools/reels_gate.py` gates it on every canonical sonic4 build. **10b (plane-role swap) and 10c (window as third layer) are UNSTARTED** and 10c does need item 0's `spare_nametable` (10b needs none). See the item-10a block below. |
 | 11 | Nametable-base changes (frame swap, Plane Z, Batman mid-frame) | **L** | aeon alone (the paired freeze ended 2026-09-02) | ~~**BLOCKED — same item 0.**~~ **PARTLY DONE.** Item 0's design (§2) split this row into 11a (the mid-frame base change as a MECHANISM, zero tiles) and 11b (Plane Z, a distinct third picture, which does need tiles). **11a LANDED 2026-09-03, `parcel/item11a-midframe-base`, aeon `eb87d2ba`** — `OJZ_BaseSwap`, one `OP_SET_REG` re-pointing Plane A at Plane B's nametable at screen line 160, gated by `tools/plane_base_swap_gate.py` on every canonical sonic4 build. **The on-screen half is unrun** (no emulator in that lane) and is tagged for the controller. **11b is UNBLOCKED on the VRAM axis by item 0's landing** — but note there is no SECOND `$2000`-aligned run left: the remaining spendable run is at `$5000`, `$1000`-aligned, i.e. window-only, so 10c and 11b are competing for the one `$6000` run. See the item-11a and item-0 blocks below. |
 
 **Item 5's DEMAND ARTIFACT exists (2026-08-30, `docs/item5-key-shapes`, documents only):** `docs/superpowers/specs/2026-08-30-item5-variants-cycles-key-shapes.md` transcribes from engine source the `cycles` / `variants` key shapes a preset document would carry (one script of 1..4 channels; two positional variant slots; every field 1:1 with `pal_cycle_channel` / `pal_variant`), what `effects_gen.py` would emit, the byte-golden against `OJZ_ShimmerCycle` / `Variant_Water_Deep`, and ten open questions (Q1 one-ref-or-three is the hub's) — the source the item-13 contract CR is drafted from.
@@ -18401,3 +18401,262 @@ No emulator was used. **A green gate is not the picture.** What to look for, in 
   checksum at `$00018E-$00018F`, and the appended deb2 symbol table above `$0A6117`
   (`EndOfRom` is `$A5C82` in both). That is the expected footprint of a `pub` symbol that
   emits no bytes, and it is the same footprint `OJZ_BandDemo` already has.
+
+## EFFECTS-W1 ITEM 10a — REELS: FIVE INDEPENDENT VERTICAL STRIPS ARE IN THE ROM; THE PICTURE IS UNRUN (2026-09-03, `parcel/item10a-reels`)
+
+Branch `parcel/item10a-reels`, based on aeon `origin/master` `296feb7e` (which already
+carries item 0's Option P landing and item 11a). Design:
+`docs/superpowers/designs/2026-09-03-vram-replan-item0-design.md` §2 row 10a and §4 step
+1 — "10a (reels — the per-column VSRAM buffer already exists) ... zero VRAM and zero new
+engine mechanism". DoD: empyrean `origin/main`
+`docs/superpowers/specs/2026-08-29-effects-definition-of-done.md` item 10 — "reels
+(per-strip vertical scroll content)", one third of "the three plane tricks" survey row
+23. Model: item 11a's own booking above, copied for SHAPE (authored effect, DEBUG-gated
+dormant scaffold, a python ROM gate with unit cover, a red-first mutation table), not
+content.
+
+### What "the mechanism ships" turned out to mean, and what still needed writing
+
+The design's claim is correct and was re-verified rather than assumed: the per-column
+VSRAM plumbing — `Parallax_Vscroll_Column_Buf` (80 bytes, `engine/ram.emp:380`) and its
+unconditional per-frame DMA to VSRAM (`Vscroll_Write`, `engine/level/parallax.emp:1177`)
+— already ships and needed zero changes. But the design's claim is about that low-level
+wire, not about "reels" as a demonstrable effect, and the only existing thing that DRIVES
+that wire — `SceneVDeform.Columns` (`engine/level/scene_dsl.emp`), shipped on six scenes
+(`Rocking_Slow/Rocking/Rocking_Fast` on `DeformTable_Rocking`,
+`Perspective_Subtle/Perspective/Perspective_Dramatic` on `DeformTable_Perspective`,
+`games/sonic4/data/effects/ojz_scenes.emp`) — samples ONE table at ONE GLOBAL phase
+across every column. Two adjacent columns are therefore always the same wave read a few
+degrees apart: they lag each other, they never diverge without bound, and every existing
+per-column scene reads as a ripple/wave/tilt, not as independently-scrolling strips. That
+is the DoD's own distinction (survey row 14, "Per-column vertical scroll", is separately
+marked "PARTIAL (Plane A collapse) / leave / OUT" from row 23's reels) and it is why the
+brief this parcel implements from anticipated real code: *"the per-column buffer is
+currently driven by parallax, so a reel source that overrides or composes with it is
+likely real code, and that is expected."*
+
+### What shipped
+
+`games/sonic4/data/effects/ojz_effects.emp` gains, at the end of the file (placement
+matters — see below): `OJZ_REEL_SPEEDS` (5 pairwise-distinct signed per-frame phase
+increments, `[3, -5, 2, -4, 6]`), `OJZ_Reel_Speed` (the same array, DEBUG-gated `pub
+data`), and `OJZ_Reels_Fill` (a DEBUG-gated `pub proc`). Two new game constants,
+`REEL_BAND_COUNT` (5) and `REEL_COLS_PER_BAND` (4), live in
+`games/sonic4/config/constants.emp` (the sole game-constants module; needed there rather
+than beside the demo because `games/sonic4/config/ram.emp` also needs
+`REEL_BAND_COUNT`, and `ram.emp` cannot import the effects module without a cycle).
+
+**What `OJZ_Reels_Fill` does, each frame it runs.** It advances 5 independent byte phase
+accumulators (`OJZ_Reel_Phase`, new DEBUG-only RAM) by their own constant speed — the
+reel source itself, and the one property that is not achievable with the shared-phase
+deform table: two bands can never share a rate (checked below) — then rebuilds all 20
+column-pairs of `Parallax_Vscroll_Column_Buf`: the FG word is preserved exactly as
+`Parallax_Update` already wrote it (camY, constant per column, undisturbed), and the BG
+word is replaced with `Parallax_Current_Vscroll_BG` (the camera's own BG base — composed,
+not discarded) plus the OWNING band's live phase. Called from
+`GameState_OJZScroll_Update` (`games/sonic4/test/ojz_scroll_test.emp`) immediately after
+`jbsr Parallax_Update` and before `jbsr BgAnim_Update`, gated on a RAM flag
+(`OJZ_Reel_Active`) so the call costs one `tst.b`/`beq` in the DEBUG shape and nothing in
+release.
+
+**Genuinely independent rates, not a shared wave sampled at nearby phases.** Every
+existing per-column mechanism in this tree computes `offset(column, t) =
+f(table[(phase(t) + column) mod 256])` for ONE shared `phase(t)` — so at any instant, two
+adjacent columns' velocities differ only by how steep the ONE table is between their two
+sample points, and a smooth table (sine, linear ramp) keeps that difference small.
+`OJZ_Reels_Fill` instead gives 5 bands their OWN accumulator advancing at their OWN
+CONSTANT rate forever (wrapping mod 256, byte add) — band 3's strip moves at -4 px/frame
+whether band 0's is moving at +3 or has been swapped for +30, permanently, not "for a few
+frames until the phases realign". That is the literal reading of "per-strip vertical
+scroll content": each strip owns its content's vertical position, not merely its sample
+of somebody else's wave.
+
+**No hotkey, and that is not an oversight.** `Debug_BandDemoHotkey`'s own header
+(`games/sonic4/test/ojz_scroll_test.emp`) enumerates every remaining pad chord against
+this shape's readers — START+LEFT/RIGHT is the scene cycle, START+UP/DOWN is the raster
+tier, START+A/B/C/X/Y/Z are each individually rejected by name (character-cycle
+collision, debug-fly-toggle collision, anchor-nudge-modifier collision, and 6-button-only
+existence respectively) — and finds nothing free. `OJZ_Reel_Active` is toggled only by
+`tools/reels_witness.py` poking the RAM cell directly, `band_witness.py`'s own pattern
+for `Raster_Pending`/`OJZ_BandDemo`.
+
+**Emission is DEBUG-gated**, for `OJZ_BaseSwap`'s reason exactly: nothing in the release
+shape can ever set `OJZ_Reel_Active`, so an unconditional emission would be a dormant
+scaffold in the ROM the owner ships. `OJZ_Reel_Speed`'s length itself is `if DEBUG == 1 {
+REEL_BAND_COUNT } else { 0 }` (the OJZ_BaseSwap pattern); `OJZ_Reels_Fill`'s whole body,
+`rts` included, sits inside `if DEBUG == 1 {}` (the `Debug_BandDemoHotkey` pattern for a
+zero-release-byte PROC rather than a zero-length DATA array). Every `ensure` below is
+UNGATED and runs in both shapes, every build — only the bytes are shape-dependent.
+
+**Two build-time guards, both re-derived rather than typed once and trusted:**
+`ensure(REEL_BAND_COUNT * REEL_COLS_PER_BAND == VSCROLL_COL_PAIRS, ...)` ties the reel
+split to the buffer it actually writes (would fire if `SCREEN_WIDTH` ever moved off
+320px, which is exactly the H40/H32 sensitivity the buffer's own `VSCROLL_COL_PAIRS`
+ensure already guards for a different reason); and `distinct5(...)` — a plain comptime fn
+with a single-level `return if` (the `iabs`/`tri_sample` precedent in
+`engine/level/parallax_dsl.emp` for why that folds to a value and not `()`, EMP_PITFALLS
+§1) — proves the five shipped speeds are pairwise distinct, independent of and in
+addition to `tools/reels_gate.py`'s own ROM-level distinctness check below.
+
+**PLACEMENT AT THE END OF THE FILE IS LOAD-BEARING, and the first draft got it wrong.**
+The first draft inserted the whole `OJZ_Reels` block between `OJZ_BaseSwap` and
+`OJZ_TestPal` — the obvious "beside its sibling demo" spot. That broke
+`tools/plane_base_swap_gate.py` at once: its `NEXT_SYM = "OJZ_TestPal"` assumes
+`OJZ_BaseSwap` and `OJZ_TestPal` are IMMEDIATELY adjacent in emission order (the gate's
+gap-gives-size technique, item 11a's own header), and inserting 70+ bytes between them
+made the gate UNMEASURABLE ("neither the 22-byte program ... nor the 0 bytes"), correctly
+refusing to guess rather than silently mis-measuring. Fixed by moving the whole block to
+the end of the file, restoring `OJZ_BaseSwap`→`OJZ_TestPal` adjacency, and re-deriving
+`tools/reels_gate.py`'s own boundary symbol from the ACTUAL next label in the built
+listing — `ObjDef_Static`, the section `games/sonic4/map.toml`'s `order` list names right
+after `OJZ_TestRaster` (this whole module's section head) — rather than a second
+plausible-looking neighbour name.
+
+### Two committed fixtures were re-stamped
+
+Both DEBUG-shape keys, both caught by their own gates by name, both the exact class item
+11a's booking already recorded (a downstream address/displacement move, not a routine
+change): `tools/fixtures/sprite_tilt_cut.json` (three `Ani_*` slab addresses shifted, byte
+content identical — refreshed via `sprite_tilt_gate.py --emit-fixture`) and
+`tools/fixtures/loop_crossover_cut.json` (2 of 64 bytes in `Player_LoopCrossover`'s cut
+differ — a `lea` operand's low byte following a symbol that moved, the gate's own
+displacement-vs-opcode discriminator answered as displacement — refreshed via
+`loop_crossover_gate.py --write-fixture`). Both refreshed against a build that
+post-dates every source change in this parcel.
+
+### The gate
+
+`tools/reels_gate.py`, wired into `build.sh`'s post-sigil sonic4 block immediately after
+`plane_base_swap_gate.py`, same `--built-after` provenance rule, same `--shape
+debug|release` (passed from `build.sh`'s `DEBUG`, never sniffed). It re-derives the
+expected image from files the fixture does not author twice — `REEL_BAND_COUNT` from
+`games/sonic4/config/constants.emp`, `OJZ_REEL_SPEEDS`'s literal values re-parsed (not
+re-typed) out of `games/sonic4/data/effects/ojz_effects.emp` — and asserts **opposite
+things in the two shapes**: the table's 5 bytes present and exactly the derived image
+plus `OJZ_Reels_Fill` occupying a nonzero number of bytes in DEBUG; both symbols emitting
+ZERO bytes in release. It does NOT decode `OJZ_Reels_Fill`'s instruction bytes — unlike
+`OJZ_BaseSwap`'s 11-word DSL-derived DATA program, this is CODE (a loop with a `dbf` and
+a shift), and pinning a compiler's exact encoding of a loop is the class of coupling this
+tree spends real effort avoiding elsewhere; the loop's correctness is covered by the
+`ensure`s above (comptime, every build) plus the TAGGED runtime pass below.
+
+**PROVEN RED, each mutation shown applied on disk and restored from the committed
+baseline (`git stash`'s snapshot commit, then `git checkout HEAD -- <path>` per file;
+`__pycache__` cleared under `tools/` before and after every run — the measured
+same-length/same-second stale-cache false-green this repo has hit before):**
+
+| mutation | result |
+|---|---|
+| `OJZ_REEL_SPEEDS`'s index 1 `-5` -> `3` (collides with index 0) | **build RED** — `games/sonic4/data/effects/ojz_effects.emp`'s own `distinct5()` ensure fires by name: *"OJZ_REEL_SPEEDS = [3, 3, 2, -4, 6] are not pairwise distinct"* |
+| `OJZ_REEL_SPEEDS` shortened to 4 entries, `REEL_BAND_COUNT` left at 5 | **build RED** — the array's own `.len == REEL_BAND_COUNT` ensure fires: *"OJZ_REEL_SPEEDS carries 4 rates, not one per REEL_BAND_COUNT (5) band"* |
+| the `if DEBUG == 1 { REEL_BAND_COUNT } else { 0 }` length and the `if DEBUG == 1 { OJZ_REEL_SPEEDS } else { [] }` value both made unconditional (`OJZ_Reel_Speed` ships in every shape) | release **build GREEN**, gate **RED**: *"`OJZ_Reel_Speed` emits 6 bytes in the RELEASE shape... Nothing in the release shape can ever set OJZ_Reel_Active... this is a dormant scaffold"* |
+| `OJZ_Reel_Speed`'s first ROM byte hand-patched post-build, `$03` -> `$04` (simulating a divergence no build-time check can see — the class `OJZ_BaseSwap`'s "literal bypass" mutation covers for item 11a) | build untouched (nothing at build time re-reads the ROM's own bytes), gate **RED**: *"band 0 ... 04 ... want 03 (+3) ... MISMATCH"* |
+
+`tools/test_reels_gate.py` covers the pure halves — array parsing (including a synthetic
+source, so the parser's shape is proven independent of today's five shipped values),
+two's-complement byte encoding, and distinctness — plus the two source reads; 12 tests,
+its own red-first table is in its docstring (`test_all_distinct_refuses_a_collision`
+covers the build-red mutation's PURE judgement without needing a build).
+
+### TAGGED FOR THE CONTROLLER'S EMULATOR PASS — the on-screen half is NOT run
+
+No emulator was used. `tools/reels_witness.py` is authored (mirroring `band_witness.py`'s
+structure and rigor) but NOT EXECUTED — no emulator in a subagent. What to look for, in
+the **DEBUG** shape (`DEBUG=1 ./build.sh` -> `s4.debug.bin`):
+
+1. `tools/reels_witness.py s4.debug.bin s4.debug.lst`. It pokes `OJZ_Reel_Active`
+   nonzero directly (there is no hotkey — see above), samples
+   `Parallax_Vscroll_Column_Buf` twice 30 frames apart, and checks each of the 5 bands'
+   BG-word delta against `speed x 30 frames (mod 256)`.
+2. **Expected, on screen:** the background visibly separates into 5 vertical strips (4
+   column-pairs = 64px wide each), each sliding vertically at its own steady rate — one
+   drifting up, the next down, at visibly different speeds — rather than the smooth,
+   in-step ripple every other per-column scene in this tree already shows. The strips
+   should NEVER re-synchronise (unlike a shared-phase wave, which periodically brings
+   every column back into alignment).
+3. **A failure looks like:** all 5 strips moving together (the witness's own vacuity
+   check — `OJZ_Reel_Active` never took effect, or `Parallax_Update`'s own fill is still
+   running unopposed the same frame, a call-order regression); a strip's rate not
+   matching its authored speed (the composing arithmetic, or the `lsr.b #2`
+   column->band map, is wrong); or the boundary between strips landing at the wrong
+   screen X (`REEL_COLS_PER_BAND` no longer matches what the loop's shift computes —
+   `tools/reels_gate.py` cannot see this, since it never runs the loop).
+4. The effects-gate ritual (`tools/effects_gates.py`) was NOT run — this parcel touches
+   `games/sonic4/data/effects/ojz_effects.emp` (an `engine/effects/*` sibling in the same
+   game-data directory, not the engine file itself) and no `engine/effects/*`,
+   `engine/level/bg_anim.emp` or `engine/system/buffers.emp` file, so the ritual is not
+   triggered by its letter; flagged here anyway because the parcel is raster/parallax-
+   adjacent, the same courtesy item 11a's booking extends.
+
+### What is NOT done, and what this does and does not unblock
+
+- **10b (plane-role swap) and 10c (window as third layer) are untouched, deliberately
+  out of scope for this parcel.** 10b needs no VRAM either (design §2) but does need the
+  HScroll/VSRAM scroll feeds re-plumbed (they are addressed by PLANE, not by content) —
+  code, separately sequenced. 10c needs item 0's `spare_nametable` region, which this
+  parcel spent none of.
+- **The Aurora authoring key was deliberately NOT built**, per this parcel's brief.
+  Costed rather than built: the write site would be
+  `games/sonic4/data/effects/scene_registry.emp`'s `SCENES: [Scene; 20]` array plus
+  `SCENE_CYCLE_COUNT` (currently `== 20`, a two-sided pin against
+  `SceneRegistry_CapsFolded`/`SceneRegistry_CapsExpected` and against
+  `SceneRegistry_BudgetChecked == 20`) plus `Debug_SceneCycleHotkey`'s `.scene_table`
+  `dc.l` rows (`games/sonic4/test/ojz_scroll_test.emp`) plus
+  `tools/test_scene_cycle_table_lint.py`'s row/registry-length agreement — FIVE files, at
+  least four load-bearing pins that move together, for a mechanism (`SceneVDeform`) that
+  cannot express independent per-band RATES at all (see "What still needed writing"
+  above), meaning the key would let an author reach the WRONG family of effect (a smooth
+  wave, not a reel) under a name that promises the DoD's row. The key that would actually
+  match this parcel's mechanism — an authoring surface for `OJZ_Reel_Speed`'s per-band
+  rate array — has no existing schema key, no existing generator support, and no
+  existing runtime hook outside this parcel's own DEBUG-only demo path; it would be new
+  surface through empyrean's contract (item 13's per-new-key CR), aurora's schema, and
+  `tools/effects_gen.py`, sized at least M and not startable without an owner decision on
+  whether reels are section-content at all or remain a fixed-band demo. **If reaching a
+  provable reels mechanism had required this key, that would have been a BLOCKED-and-
+  report; it did not** — the demo path (debug-only RAM poke) was sufficient to reach and
+  gate the ROM.
+- **PAIRED LANDING, measured rather than guessed.** Both endpoints measured on this box
+  with the same sigil binary (`md5 6c2378ae8a657e26684d4019a7d976d7`), building the branch
+  base (`origin/master` `296feb7e`) and this parcel's tip, each shape, and reading
+  `EndOfRom` out of each listing:
+
+  | pin | before (aeon `296feb7e`) | after (this parcel) | delta |
+  |---|---|---|---|
+  | `ASSEMBLED_LEN` (release `EndOfRom`) | `$A5C82` | `$A5C82` | **HOLDS** |
+  | `DEBUG_ASSEMBLED_LEN` (debug `EndOfRom`) | `$A824C` | `$A8258` | **+12 ($C)** |
+
+  The sigil pairing freeze ended 2026-09-02 (the owner's "cut the ceremony" ruling) — aeon
+  certifies alone. These two numbers are reported as information for whichever lane
+  tracks sigil's own pin fixtures next, not as a repin performed here.
+- **The release ROM image below `EndOfRom` is byte-identical**, the same measurement item
+  11a's booking made for its own parcel: `s4.bin` is unchanged apart from the header
+  checksum and the appended deb2 symbol table, `EndOfRom` `$A5C82` in both.
+
+### Research
+
+- **Reference disassemblies.** Batman & Robin's `objects_1.asm:585-620` (B2 in the
+  survey) is the only reference that rewrites a per-column VSRAM table mid-frame from a
+  RAM source rather than a static table — 20 entries, matching this engine's own
+  `VSCROLL_COL_PAIRS`. It is a per-frame VBlank rewrite from game logic, not a raster
+  fire, which is exactly `OJZ_Reels_Fill`'s shape (a VBlank-domain override, not a
+  raster-domain op) rather than the mid-frame HInt door item 11a used. S3K, Ristar,
+  Vectorman, Gunstar Heroes, Alien Soldier, Thunder Force IV and sonic_hack were checked
+  (per the standing research checklist) and none rewrites a per-column VSRAM table with
+  independent per-column RATES — every per-column effect in that set is a single sampled
+  wave (Chemical Plant/Aquatic Ruin-style camera curves, S3K's own per-band tables), the
+  same "shared phase" family this tree's `SceneVDeform.Columns` already covers. This
+  parcel's mechanism (independent per-band CONSTANT-rate accumulators) has no reference
+  precedent found in any of the eight; it is closest in SPIRIT to a slot-machine reel
+  (the DoD's own naming) than to any Genesis-era technique surveyed.
+- **Online sources.** plutiedev's VSRAM/per-column-scroll page and md.railgun.works both
+  describe the per-column VSRAM mechanism itself (already shipped, unchanged here) but
+  neither documents a "reels" pattern by name; SpritesMind's per-column-scroll threads
+  (the same ones item 0's design cites for the column-19 borrow) discuss the hardware
+  quirk, not content authoring. No modern-engine precedent changed the design: this is a
+  small, closed-form per-band phase accumulator, the same shape a modern particle
+  system's per-emitter phase would use, adapted to five bytes and a `dbf` loop.
+- **What the research changed:** confirmed the mechanism split in the design doc's own
+  §2 is real (the existing per-column DSL cannot produce independent rates) rather than
+  assuming the six shipped Rocking/Perspective scenes already satisfied item 10a, which
+  would have been the wrong, no-code reading of "zero new engine mechanism".

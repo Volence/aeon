@@ -878,6 +878,36 @@ if [[ "$FAST" == "0" ]]; then
             exit 1
         fi
 
+        # THE REELS BYTE GOLDEN (EFFECTS-W1 item 10a). `OJZ_Reel_Speed` is
+        # REEL_BAND_COUNT independently-authored, pairwise-distinct per-frame phase
+        # increments — the "reel source" `OJZ_Reels_Fill` advances every frame and
+        # composes onto the per-column VSRAM buffer's BG words, so adjacent 16-px strips
+        # scroll at genuinely different rates instead of the shared-phase deform table's
+        # lag. This reads the table's bytes back OUT OF THIS ROM and holds them against
+        # values re-parsed from games/sonic4/data/effects/ojz_effects.emp's own
+        # OJZ_REEL_SPEEDS array and games/sonic4/config/constants.emp's REEL_BAND_COUNT —
+        # and proves OJZ_Reels_Fill itself (the code, not just its data) reaches the ROM.
+        #
+        # The `.emp` `ensure`s (distinctness, the length identity) are comptime-vs-
+        # comptime and would stay green with the `pub data`/`pub proc` emitting nothing
+        # at all — the same gap plane_base_swap_gate.py's header names for OJZ_BaseSwap.
+        # Same post-sigil placement and same --built-after provenance rule as the goldens
+        # above.
+        #
+        # --shape IS PASSED, NOT SNIFFED, same reason as the base-swap gate: nothing in
+        # the release shape can ever set OJZ_Reel_Active (its only writer is
+        # tools/reels_witness.py poking a DEBUG-only RAM cell directly — there is no
+        # hotkey, Debug_BandDemoHotkey's own header enumerates the exhausted pad chords),
+        # so an unconditional emission would be a dormant scaffold in the shipped ROM.
+        REELS_SHAPE="release"
+        if [[ "${DEBUG:-0}" == "1" ]]; then REELS_SHAPE="debug"; fi
+        if ! python3 "${TOOLS}/reels_gate.py" --lst "${ROM_NAME}.lst" \
+                --rom "${ROM_NAME}.bin" --built-after "${SIGIL_T0}" \
+                --shape "${REELS_SHAPE}"; then
+            echo "Reels gate failed — see above (tools/reels_gate.py)."
+            exit 1
+        fi
+
         # The BG-animation section's ROOM, re-derived from THIS build's listing
         # (decision d-9). `ojz_bg_anim` grows into the hole that ends
         # at the `dac_banks` map anchor — DERIVED by the bank placement rule since the
