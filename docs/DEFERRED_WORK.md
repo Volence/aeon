@@ -19371,6 +19371,47 @@ commit) and rebuilding both canonical DEBUG fixtures fresh:
   built for this change, because `tools/` is Python read only by post-build gates and
   the pytest lane — nothing in this fix touches assembled bytes, headers, or anything a
   release-shape build reads differently from a debug one.
+**⚠ THE ITEM 10a CR IS NOT FILED, AND THAT IS THE ARTIFACT WORKING (hub ruling in the owner's place,
+2026-09-03, overturnable on read-back).** A document key would lower to NOTHING for a real section
+today: 10a shipped one fixed DEBUG demo — a hand loop, one global rate const, one global phase pair
+in DEBUG RAM, called from one game-state harness, with no constructor, no capability gate and no
+engine hook on a real per-frame path. **A key with nothing behind it is the anchor-mover rule's
+forbidden case**, and filing it would hand the editor a control that cannot reach the ROM.
+
+**SO ITEM 10a'S ORDER CHANGES, and step 1 is aeon's ENGINE work (this lane's own booking already
+sized it at M or larger):** per-scene reel rates reachable from a REAL section's per-frame path,
+with (a) the rate storage per SCENE rather than the one global pair; (b) the length and
+pairwise-distinct `ensure`s travelling with whatever construct carries the rates — a `comptime fn`
+constructor, so a copy cannot forget its checks, which is exactly the hazard the artifact found in
+the hand-written idiom; and (c) **a stated magnitude bound, with a number AND its reason.** None
+exists today: `i8` is the STORAGE and not a contract, which is the same storage-versus-contract
+confusion item 6 was corrected for. **Whether it is a `Parallax_Update` hook or the
+override-after-fill pattern with per-scene storage is THIS LANE'S design call**, named in the
+artifact's §8 as its largest open question; it is engine design and not contract. Step 2 is a short
+shape artifact naming the construct and its lowering, and the hub files the CR the same day.
+
+**THE SPELLING TO BUILD TOWARD, pre-declared by the hub so both sides aim at one target:** a
+SCENE-level key (reels are scene content, artifact §1.3), sibling to `v_deform` and **never an arm
+of it**, spelled **`reel_rates`**, a bare array of exactly `REEL_BAND_COUNT` signed integers, index
+= band left to right (index 0 owns columns 0-3), absent = no reels for this scene. The schema will
+encode the length and the magnitude bound this lane states; **duplicate-refusal cannot be expressed
+in JSON Schema, so the generator re-emits the distinctness `ensure`** — which is the artifact's
+"nothing enforces that a copy keeps its checks" finding arriving as a contract obligation.
+
+**SEQUENCE: after 10b lands, and NOT ahead of the item 6 generator half** (which unblocks the editor
+lane today). Both touch `engine/level/parallax.emp`.
+
+**AND ITEM 11a IS THE SAME SHAPE ON BINDABILITY BUT NOT ON COST — verified here rather than assumed,
+so no second full artifact is owed.** `OJZ_BaseSwap` is referenced by exactly two things: its own
+definition and `games/sonic4/test/ojz_scroll_test.emp:2368`, row 1 of the effects lab's raster
+table. It is bound to no preset and no scene, and its emission is DEBUG-gated
+(`ojz_effects.emp:591`), so a key for it would lower to nothing for the same reason 10a's would.
+**But unlike 10a it ALREADY HAS ITS CONSTRUCTOR:** it is `raster_program(OJZ_BASE_SWAP_PROG)`, a
+comptime DSL construct whose properties are checked by four `ensure`s, where 10a's `OJZ_Reels_Fill`
+is hand-written code with no reusable construct at all. **So item 11a's authorable half is strictly
+SMALLER than item 10a's** — what it lacks is a preset or scene key and a per-scene binding, not a
+construct to hang them on. Do not price the two together.
+
 **Item 10a's DEMAND ARTIFACT exists (2026-09-03, `docs/item10a-key-shape`, documents
 only):** `docs/superpowers/specs/2026-09-03-item10a-reels-key-shape.md` transcribes from
 engine source the authoring shape a reels field would need if exposed to a document — and
