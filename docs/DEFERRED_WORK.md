@@ -17495,9 +17495,31 @@ different thing).
 has no `v_deform`, and narrows to **one 16-pixel column** when it has one. It is a conjunction — the
 GAME must also declare `CAP_PER_COL_VSRAM`, which `demo` does not.
 
-**Certification status, stated rather than glossed:** the full-width arm is MEASURED (VDP shadow reg
-`$0B` = `$03` on a running DEBUG ROM at the effects-lab probe point, on a scene with no `v_deform`).
-The `v_deform` arm is SOURCE-DERIVED and unwitnessed. One probe would close it and nobody has run it.
+**✅ BOTH ARMS ARE NOW MEASURED (2026-09-03) — the editor lane asked for the second one because its
+panel would be ASSERTING this sentence to an author, and that is the right reason to want it.**
+* **Full-width arm:** reg `$0B` = `$03`, VSCR 0, on a scene with no `v_deform`.
+* **Per-column arm:** cycling the effects lab's scene chord, scenes 0-9 all read `$03`; **scene index
+  10 reads `$07`, VSCR 1** — the mode does reach per-column, driven by an installed scene exactly as
+  the source said.
+* **And the CONSEQUENCE, which is what an author would act on:** at scene 10 the ramp's effect is
+  confined to **x = 4..19, a 16-pixel column**, on every sampled line (135, 145, 150, 155, 158; line
+  140 showed nothing unique, which a uniform background explains). Not idealised — that is the
+  measured span, offset by the plane's own H-scroll rather than sitting at x 0..15.
+
+**THREE METHOD TRAPS ON THE WAY, all mine, all recorded because each nearly produced a wrong answer:**
+1. **The first probe was VACUOUS.** I poked `Debug_Scene_Index` and read the mode back: unchanged, on
+   every scene. That index is a COUNTER a hotkey handler advances and then installs from — poking it
+   re-reads nothing. **An instrument that reports an absence can manufacture it**, and this one did.
+   Driving the real chord (`START`+`RIGHT` held, `LEFT` pressed) made the index advance and scenes
+   install.
+2. **Stopping the sweep at scene 6 would have "refuted" the rule.** The per-column scene is index 10.
+   A short sweep and a confident negative were one step apart.
+3. **The width measurement was CONFOUNDED twice.** Installing any program replaces the scene's own,
+   so ramp-versus-nothing conflates two changes; holding it constant with `OJZ_BaseSwap` fixes that —
+   **but `OJZ_BaseSwap` re-points Plane A from line 160 down, so it is not inert below 160.** The
+   first held-constant run duly showed 151- and 297-pixel spreads on lines 170 and 180 and a clean 16
+   on 150. **Sampling only above the control's own boundary is what made the answer legible.** A
+   control is only a control where it does nothing.
 
 **And a pattern worth more than either instance: `v_deform` has now produced TWO authoring hazards in
 one day** — it is also the wrong surface for reels (item 10a's artifact, where it samples one shared
