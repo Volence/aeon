@@ -86,13 +86,38 @@ W = os.environ.get("RAMP_WITNESS_TREE", str(Path(__file__).resolve().parents[1])
 SCREEN_LINES = 224
 
 # The record's field offsets. NOT typed as magic numbers below: `decode_record` derives the
-# layout from this table and the table is checked against the struct declaration's own field
-# order in engine/effects/raster.emp by `test_ramp_authored_witness.py`.
+# layout from this table — and `check_record_layout()` re-derives the table from
+# engine/effects/raster.emp's own `struct RasterRampProgram` declaration on every run and
+# refuses to measure if they disagree. That check is not decoration: this whole script reads
+# a ROM record by OFFSET, so a field reordered or resized in the .emp would have it decoding
+# the wrong four bytes as the step and reporting a confident wrong number.
 REC_FIELDS = [("rrp_mask", 2), ("rrp_arm0", 2), ("rrp_ops0", 2), ("rrp_arm1", 2),
               ("rrp_ops1", 2), ("rrp_arm2", 2), ("rrp_ops2", 2), ("rrp_op", 2),
               ("rrp_cmd", 4), ("rrp_lines", 2), ("rrp_start", 4), ("rrp_step", 4),
               ("rrp_end_arm", 2), ("rrp_end_ops", 2)]
 REC_SIZE = sum(n for _, n in REC_FIELDS)
+
+
+def check_record_layout(repo: Path) -> None:
+    """REC_FIELDS must be exactly `struct RasterRampProgram`'s fields, in order, with the
+    sizes its `u16`/`u32` types imply. Raises rather than warning: a silent drift here is a
+    wrong number reported confidently, which is worse than no number."""
+    import re
+    src = (repo / "engine/effects/raster.emp").read_text()
+    m = re.search(r"pub struct RasterRampProgram \{(.*?)^\}", src, re.S | re.M)
+    if m is None:
+        raise SystemExit("engine/effects/raster.emp: cannot find `pub struct "
+                         "RasterRampProgram { ... }`. This script decodes that record BY "
+                         "OFFSET; with the declaration unreadable it must not guess.")
+    sizes = {"u8": 1, "u16": 2, "u32": 4}
+    found = [(n, sizes[t]) for n, t in
+             re.findall(r"(rrp_\w+):\s*(u8|u16|u32)", m.group(1))]
+    if found != REC_FIELDS:
+        raise SystemExit(
+            "RasterRampProgram's declared layout has DRIFTED from this script's REC_FIELDS.\n"
+            "  declared: %s\n  here    : %s\n"
+            "Update REC_FIELDS. Decoding by a stale offset table would read the wrong four "
+            "bytes as rrp_step and report a confident wrong sign." % (found, REC_FIELDS))
 
 SETTLE, AFTER = 400, 8
 
@@ -340,6 +365,7 @@ def main():
     rom = Path(a.rom or (repo / "s4.debug.bin"))
     lst = Path(a.lst or (repo / "s4.debug.lst"))
 
+    check_record_layout(repo)
     doc = load_document(repo, a.preset)
     ramp = doc["ramp"]
     top, lines = ramp["top"], ramp["lines"]
