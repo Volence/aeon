@@ -17066,7 +17066,21 @@ separate content decision from the mechanism landing.
   Parcel C2's total-binding conversion) is untouched — out of scope, and touching it risks
   the "stays, inert, for Task 13" note that already exists there.
 
-## ✅ RESOLVED PREDICTION — the rebuild changed nothing, and the outcome is recorded because the entry demanded it
+**Item 6's DEMAND ARTIFACT exists (2026-09-03, `docs/item6-key-shape`, documents only):**
+`docs/superpowers/specs/2026-09-03-item6-dense-perline-vscroll-key-shape.md` transcribes
+from engine source the authoring shape a per-line vertical scroll (`RasterRampProgram` /
+`raster_ramp_program`) would need if exposed to a document — and finds, exhaustively (zero
+hits for "gradient"/"ramp"/"dense" in `tools/effects_gen.py`), that **no preset key, scene
+key, or even reserved-by-name placeholder exists for it today**: it is authorable only by
+hand-writing `.emp`, one `raster:` Label at a time, and would compete with `bands` for that
+same single channel if a key were ever added. States the authored range from `fp16()`'s own
+`ensure`s (`whole` -512..511, `frac256` 0..255 — the STORAGE type is a wider 16.16 `u32`, and
+that gap, not the range itself, is what the editor lane's earlier report conflated), confirms
+`RasterRampProgram`/`raster_ramp_program`/`OP_RUN_RAMP` as the tree's own linear-ramp naming
+(no invention needed, no per-line-curve field exists to name), lists every refusal `ensure`
+by line, and flags as unresolved whether a `bands` program and a dense run can ever share one
+preset — the source the item-12/item-13 contract CR (empyrean's, once filed) would draft
+from.
 
 **RESULT, 2026-08-30: THE PREDICTION HELD. All four CRCs unchanged under a nameable assembler.**
 `36adb158`/719329, `eadd7175`/736331, `9223a60d`/96450, `d30c3636`/101333 — identical to the
