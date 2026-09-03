@@ -1,0 +1,21 @@
+// FIXTURE — NOT A BUILD INPUT. Read only by tools/test_anchor_sweep_band.py.
+//
+// Obligation (c) of the authoring-key spec's §4, in the generated shape: a sweep on a channel
+// that no `patchable(ch: ...)` call declares. Nothing consumes that channel's line, so the
+// sweep is simply invisible — no crash, no wrong picture, just an effect that is not there.
+// The amplitude below is the shipped rung, so the ONLY thing wrong with this document is the
+// channel; an arm that refused it for its amplitude would be refusing for the wrong reason.
+//
+// RASTER_MAX_PATCH is 4, so channel 3 is a legal index the engine would seed — which is what
+// makes it the interesting case rather than an out-of-range one.
+
+module games.sonic4.fixture_effects_editor_dead_channel in fixture_effects_editor_dead_channel
+
+use engine.effects.raster_dsl.{anchor_sweep, ANCHOR_MOTION_NONE}
+
+pub comptime fn fx_act1_sec_patch_motion(sec: int, ch: int, hand: int = ANCHOR_MOTION_NONE) -> int {
+    ensure(sec >= 0 && sec < 9, "fx_act1_sec_patch_motion(sec: {sec}): this act has 9 sections")
+    comptime var out = hand
+    if sec == 2 && ch == 3 { out = anchor_sweep(amp_shift: 4, period_shift: 1, phase: 0) }
+    return out
+}

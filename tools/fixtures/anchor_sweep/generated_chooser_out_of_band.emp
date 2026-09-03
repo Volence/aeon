@@ -1,0 +1,35 @@
+// FIXTURE — NOT A BUILD INPUT. Read only by tools/test_anchor_sweep_band.py.
+//
+// A synthetic `effects_scenes.emp` in the shape tools/effects_gen.py will emit once the
+// authoring key of docs/superpowers/specs/2026-09-03-anchor-authoring-key-shape.md has a
+// reader (step 4 of that document's four-step chain). It exists because the real generated
+// module's sweep population is EMPTY today, so the generated arm of the band check would
+// otherwise be green against nothing.
+//
+// THE SUBJECT: the sweep below is on channel 1, whose `patchable(ch: 1, lo: 222, hi: 223)`
+// band in games/sonic4/data/effects/ojz_effects.emp is TWO lines tall. `amp_shift: 7` is a
+// legal rung of `anchor_sweep()`'s own ladder — the compiler CANNOT refuse it — and its
+// peak-to-peak travel is 4 px, which does not fit. That is exactly the class of mistake this
+// file is the only scope able to see.
+//
+// The straddle is re-derived from the real band and the real amplitude by
+// `test_the_fixtures_still_straddle_the_real_band`, so if channel 1's band ever widens this
+// file stops being a valid subject and that test says so rather than going quietly vacuous.
+
+module games.sonic4.fixture_effects_editor_out_of_band in fixture_effects_editor_out_of_band
+
+use engine.effects.raster_dsl.{anchor_sweep, ANCHOR_MOTION_NONE}
+
+pub comptime fn fx_act1_sec_patch_motion(sec: int, ch: int, hand: int = ANCHOR_MOTION_NONE) -> int {
+    ensure(sec >= 0 && sec < 9, "fx_act1_sec_patch_motion(sec: {sec}): this act has 9 sections")
+    comptime var out = hand
+    if sec == 0 && ch == 1 { out = anchor_sweep(amp_shift: 7, period_shift: 1, phase: 0) }
+    return out
+}
+
+pub comptime fn fx_act1_sec_patch_world_y(sec: int, ch: int, hand: int = $7FFF) -> int {
+    ensure(sec >= 0 && sec < 9, "fx_act1_sec_patch_world_y(sec: {sec}): this act has 9 sections")
+    comptime var out = hand
+    if sec == 0 && ch == 1 { out = 366 }
+    return out
+}
