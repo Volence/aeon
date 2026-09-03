@@ -915,6 +915,35 @@ instruction touching `$EA44-$EA6A` shows **only regs `$01` and `$0F` are ever mo
 Gunstar Heroes has Alien Soldier's identical shadow and machinery and simply never uses it.
 S.C.E. has one fixed layout and no swaps at all outside its error-handler screen.
 
+#### The three conclusions from the online sources, reconciled against the sweep
+
+These came from the documentation/community pass and survived the local sweep, which is worth
+saying because two of them are about *absence* and absence is the claim a sweep can strengthen.
+
+- **The cheapest technique in the whole survey costs nothing: line-scroll banding.** Thunder
+  Force IV's celebrated five-layer stage-1 parallax uses **two** nametables, arranged so the
+  bands never overlap — rasterscroll.com, on that stage: *"the near foreground and the
+  background actually never overlap since they are the same layer."* The local sweep agrees on
+  mechanism from the other side: TF4's multi-speed parallax comes from **reg `$0B` granularity**
+  (per-line hscroll, per-2-cell-column vscroll) selected per stage from its 10-entry table array,
+  not from extra maps. *(Refinement the sweep forces on the online reading: TF4 **does** allocate
+  a window nametable at `$D000` and use it for a top 4-row band in one path — so "two
+  nametables" is right about scrolling planes and wrong about allocation.)* **Reach for banding
+  before spending tiles**; it is the technique with the best ratio in the survey and we already
+  have per-line hscroll unconditionally and per-column VSRAM shipped.
+- **Titan Overdrive 2 does not add a plane, and its trick is off our list.** Kabuto's notes: its
+  effects use the undocumented debug register at `$C0001C`, bits 7-8 of which *"force one plane
+  permanently active"* — a blending/masking trick, not an extra map, and explicitly fragile
+  across VDP revisions (*"stability of the debug registers mostly affects 1st generation VDP
+  chips"*). Given the standing no-real-hardware constraint, this is the one MD technique where
+  emulator agreement is worth least. **Recorded so nobody re-proposes it.**
+- **Nothing in either pass describes a genuine fourth map on screen.** The VDP has three name
+  tables; W substitutes for A rather than adding to it (§2.1); and the only way to exceed three
+  is to time-multiplex a base register across raster bands. **That is item 11, and it is why
+  item 11 is the item that buys capability while item 10c buys a band.** The sweep supports this
+  as more than a failure to find: ten commercial ROMs, and the *most* any of them has on screen
+  at once is A + W + B + sprites.
+
 #### ⚠ An unresolved contradiction about Batman & Robin — recorded, not adjudicated
 
 §10.1 rests on eke-eke's SpritesMind account and Genesis Plus GX's source comment
