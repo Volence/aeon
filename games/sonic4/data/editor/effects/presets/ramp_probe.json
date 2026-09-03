@@ -1,0 +1,22 @@
+{
+  "id": "ramp_probe",
+  "name": "Ramp probe (dense per-line VSRAM, EFFECTS-W1 item 6 step 4 wire-format proof)",
+  "schema": 1,
+  "ramp": {
+    "top": 128,
+    "lines": 64,
+    "target": {
+      "vsram": {
+        "addr": 2
+      }
+    },
+    "start": {
+      "whole": 0,
+      "frac256": 0
+    },
+    "step": {
+      "whole": 1,
+      "frac256": 128
+    }
+  }
+}

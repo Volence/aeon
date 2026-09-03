@@ -17064,11 +17064,32 @@ the dense-VSRAM axis, that is a content decision (bind `OJZ_TestRamp`, or a vari
 a section) explicitly left open below, matching how `OJZ_TestGradient`'s own binding was a
 separate content decision from the mechanism landing.
 
+**UPDATE 2026-09-03, `parcel/item6-ramp-generator` — STEP 4 (the generator) LANDED, closing
+the authoring gap this block's own demand artifact found.** `tools/effects_gen.py` now
+accepts a preset document's `ramp` key (empyrean `AURORA_EFFECTS_SCHEMA.md` §7.4, CR commit
+`9233883`, against the demand artifact below at aeon `9e85baf0`): a closed object
+(`top`/`lines`/`target.vsram.addr`/`start`/`step`, `start`/`step` as `fp16` OBJECTS so the
+generator emits `fp16(whole, frac256)` verbatim), exactly one of `bands`|`ramp` per document,
+`CAP_DENSE_TIER`'s `ensure` re-emitted at every generated call site (a comptime fn's free
+names resolve at the call site — the same gate the demand artifact's §1.4 and
+`docs/EMP_PITFALLS.md` §2 name), routed through the SAME `{act}_sec_raster` chooser `bands`
+already uses (no second raster-channel writer). **Also closed the engine-side gap the
+artifact's §7 found**: `raster_ramp_program`'s `start`/`step` now carry their OWN `ensure`,
+bounded by `fp16(-512, 255)`/`fp16(511, 255)` — called, not retyped as a literal — so a
+hand-written bypass of `fp16()` is refused at the constructor too, not just at the generator.
+Zero ROM bytes moved by the engine change (measured, both `DEBUG=1`/plain, FAST-build CRC
+identical before/after). Proof fixture: `games/sonic4/data/editor/effects/presets/
+ramp_probe.json`, reachable only through the DEBUG effects lab's `.raster_table` (row 4,
+`RASTER_CYCLE_COUNT` now 5) — **not bound to any section**, per this item's own "content
+adoption is a separate decision" note two bullets below, which still stands. See
+`docs/EDITOR_RASTER_PRESETS.md`'s new `ramp` row/bullet for the author-facing shape.
+
 ### What is left open, and why
 
 - **Content adoption.** No section renders a dense VSRAM ramp. Binding one is a content
   decision (which section, what rate, what look) outside this item's scope — the DoD text
-  asks for the OP, the capability, and the budget check, not a shipped scene.
+  asks for the OP, the capability, and the budget check, not a shipped scene. **Still true
+  after step 4**: `ramp_probe` is a DEBUG-lab fixture, not a section binding.
 - **The dense-tier reserved stream register** stays exactly where the hub's ruling left it:
   not raised by this measurement (not over budget), still the owner's irreversible bet to
   take on his own schedule.
@@ -17085,7 +17106,12 @@ from engine source the authoring shape a per-line vertical scroll (`RasterRampPr
 hits for "gradient"/"ramp"/"dense" in `tools/effects_gen.py`), that **no preset key, scene
 key, or even reserved-by-name placeholder exists for it today**: it is authorable only by
 hand-writing `.emp`, one `raster:` Label at a time, and would compete with `bands` for that
-same single channel if a key were ever added. States the authored range from `fp16()`'s own
+same single channel if a key were ever added. **This "no key exists" finding is now
+HISTORICAL, dated here rather than deleted — it was true as of `cf3dfb1a` and stopped being
+true 2026-09-03 when `parcel/item6-ramp-generator` shipped step 4 (the `ramp` key), per the
+update two paragraphs up.** Left in place because the artifact itself is the source a later
+reader would otherwise re-derive from scratch, and a stale finding dated is worth more than
+a silently-corrected one. States the authored range from `fp16()`'s own
 `ensure`s (`whole` -512..511, `frac256` 0..255 — the STORAGE type is a wider 16.16 `u32`, and
 that gap, not the range itself, is what the editor lane's earlier report conflated), confirms
 `RasterRampProgram`/`raster_ramp_program`/`OP_RUN_RAMP` as the tree's own linear-ramp naming

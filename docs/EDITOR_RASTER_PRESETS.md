@@ -47,7 +47,7 @@ author did not write.
 
 <!-- KEYS-CHECKED-AGAINST-effects_gen.py -->
 ```
-preset:          bands, cycles, id, patch_motion, patch_world_ys, schema, variants
+preset:          bands, cycles, id, patch_motion, patch_world_ys, ramp, schema, variants
 preset-ignored:  name
 preset-refused:  fires
 band:            bot, on, sh, top
@@ -68,9 +68,12 @@ Reading the rows:
   optional. `schema` must be `1`. `id` must match the filename stem and
   `^[a-z][a-z0-9_]{0,31}$`, because it becomes an `.emp` label component. `bands` is a
   list with at least one element; empty is refused, because a document that emits a zero-band
-  program is a document that should not exist. **`bands` stays required even on a document
-  whose point is the other two keys** (ruling Q1a): a cycle-only or variant-only document is
-  a future contract change, and it is the one that unblocks retiring the hand twins.
+  program is a document that should not exist. **Exactly one of `bands` or `ramp` is
+  required** (ruling Q1a for `bands` alone, widened by EFFECTS-W1 item 6's `ramp` and the
+  contract's top-level `oneOf`): both channels lower into the same `EffectsPreset.ep_raster`
+  slot, so a document naming neither or both is refused. A cycle-only or variant-only
+  document with neither `bands` nor `ramp` is a future contract change, and it is the one
+  that unblocks retiring the hand twins.
 - **`preset-ignored`** — `name` is the writer's display label. Any value; read by nothing;
   dropped on lowering. It is the one deliberate writer-only field.
 - **`preset-refused`** — `fires` is refused **by name**, with the reason. It is the last of
@@ -146,6 +149,24 @@ Reading the rows:
   `Effects_SetTargetY`, and a reserved arm would be a key with nothing behind it. Adding one
   is its own contract change. A sweep on a channel this same document sets to `null` is
   refused — a displacement with no anchor to displace.
+- **`ramp`** — the dense-tier alternative to `bands` (EFFECTS-W1 item 6): ONE linear
+  per-scanline vertical-scroll run, never an array (a preset has exactly one `raster:`
+  channel, so there is one ramp per document). A single closed object with all five of
+  `top` (3..222), `lines` (1..220), `target` (`{"vsram": {"addr": 0..78}}` — the only arm;
+  a `cram` arm is refused, since nothing reserves one until its own contract change),
+  `start` and `step` REQUIRED, none defaulted. **`start`/`step` are `fp16` OBJECTS,
+  `{"whole": -512..511, "frac256": 0..255}`, and MUST be** — a raw integer is refused,
+  because the generator emits `fp16(whole, frac256)` verbatim and that is the only thing
+  standing between an authored value and `raster_ramp_program()`, which carries no range
+  ensure of its own on either field. Value: `whole + frac256/256`, so `{"whole": -1,
+  "frac256": 128}` is `-1.5`, not `-0.5` — the magnitude ADDS for a negative whole, exactly
+  as `fp16()` computes it. **No `curve` key**: the object is closed, and a ramp authors
+  exactly one rate and one starting offset — `RasterRampProgram` has no field that could
+  receive a per-line table. **A VSRAM target's value `j` displays on screen line `top + j +
+  1`**, the N+1 VSRAM latency; the constructor does not compensate, so an author reads the
+  line below `top` as still showing whatever preceded the run. Whether this game declares
+  `CAP_DENSE_TIER` in its `SCANLINE_CAPS` is checked too — a game that has not is refused at
+  the generated call site rather than silently building a program the interpreter no-ops.
 - **`sweep` / `sweep-optional`** — `amp_shift` and `period_shift` are required, `phase` is
   optional (it is the only field `anchor_sweep()` itself defaults). **⚠ ALL THREE ARE
   QUANTIZED, and the first two are BASE-2 LOGARITHMS, not pixels or frames**: the peak

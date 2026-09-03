@@ -228,6 +228,15 @@ byte offsets NOT read in this pass** — out of scope for a document that change
 
 ## 2. Spine question 1 — the PRESET DOCUMENT key: **NONE EXISTS.** Not `bands`, not a sibling key, not even `scene_dsl`.
 
+**HISTORICAL as of 2026-09-03, dated rather than deleted.** This section's finding was true
+at `cf3dfb1a` (this artifact's own anchor commit) and stopped being true the same day, when
+`parcel/item6-ramp-generator` shipped step 4: `tools/effects_gen.py` now accepts a preset
+document's `ramp` key (empyrean `AURORA_EFFECTS_SCHEMA.md` §7.4, CR `9233883`), closing
+exactly the gap this section documents. See `docs/DEFERRED_WORK.md`'s EFFECTS-W1 item 6
+block for the landing note. The section below is left as it was written — it is the record
+of what step 1 found, and step 4's own commit message and the schema CR are what a later
+reader should treat as current for the key's actual shape.
+
 This is the "real answer" the brief flagged as plausible, and it is the true one — more
 starkly than "scene-only, no preset key" put it. Exhaustive checks, all at `cf3dfb1a`:
 

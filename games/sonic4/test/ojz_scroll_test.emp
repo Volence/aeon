@@ -128,10 +128,16 @@ use games.sonic4.scene_registry.{ParallaxConfig_OJZ_Default, ParallaxConfig_OJZ_
 // carries `cycles` and `variants`, and the DEBUG chord is what makes its BAND reachable
 // — its cycle and variant descriptors are bound through the generated choosers in
 // games/sonic4/data/effects/ojz_effects.emp instead, which is a different installer.
+// `ramp_probe` joined with EFFECTS-W1 item 6 step 4: it is a `ramp` document, not a
+// `bands` one — `Raster_Install` neither knows nor cares, since dispatch reads the OP
+// byte at runtime from whatever `RasterRampProgram`/`[u16; N]` this table hands it — so
+// the SAME chord and the SAME installer make a dense-tier program reviewable exactly as
+// they do a sparse one, with NO section binding (this is the lab, not a level; see the
+// header on `ramp_probe.json` for why it must stay unbound).
 // `Raster_Program_None` and `Raster_Install` are engine names the OFF arm
 // and both tails reach as externs, unchanged by this parcel.
 use games.sonic4.ojz_effects.{OJZ_BandDemo, OJZ_BaseSwap}
-use games.sonic4.ojz_effects_editor_act1.{EditorRaster_OJZ_Act1_authored_probe, EditorRaster_OJZ_Act1_ojz_sec3_shimmer}
+use games.sonic4.ojz_effects_editor_act1.{EditorRaster_OJZ_Act1_authored_probe, EditorRaster_OJZ_Act1_ojz_sec3_shimmer, EditorRaster_OJZ_Act1_ramp_probe}
 
 // player_block — the per-slot PlayerBlock derivation splice; PlayerV — the
 // player's SST overlay (the hotkey reads debug_flag off it). Both are
@@ -2142,6 +2148,7 @@ proc Debug_SceneReadout_Show () clobbers(d0-d4/a0-a2) {
 //   .raster_table[1]  OJZ_BaseSwap                            — HAND-authored, .emp
 //   .raster_table[2]  EditorRaster_OJZ_Act1_authored_probe    — EDITOR-authored, JSON
 //   .raster_table[3]  EditorRaster_OJZ_Act1_ojz_sec3_shimmer  — EDITOR-authored, JSON
+//   .raster_table[4]  EditorRaster_OJZ_Act1_ramp_probe        — EDITOR-authored, JSON (ramp, item 6)
 //
 // ROW 1 IS NOT A BAND, and it is in this table because this table is the only installer
 // the tree has for a hand-authored raster program. `OJZ_BaseSwap` is EFFECTS-W1 DoD item
@@ -2273,7 +2280,7 @@ proc Debug_SceneReadout_Show () clobbers(d0-d4/a0-a2) {
 // the table's end and hand it to Raster_Install as a raster program. Nothing in sigil
 // can see a `dc.l` run's length, so the coupling is checked as TEXT by
 // tools/test_raster_cycle_table_lint.py, which the build's pytest lane runs.
-const RASTER_CYCLE_COUNT = 4
+const RASTER_CYCLE_COUNT = 5
 
 proc Debug_BandDemoHotkey () clobbers(d0-d1/a0-a1) {
     if DEBUG == 1 {
@@ -2368,6 +2375,7 @@ proc Debug_BandDemoHotkey () clobbers(d0-d1/a0-a1) {
         dc.l    OJZ_BaseSwap                            // 1 — HAND-authored (.emp), item 11a
         dc.l    EditorRaster_OJZ_Act1_authored_probe    // 2 — EDITOR-authored (JSON)
         dc.l    EditorRaster_OJZ_Act1_ojz_sec3_shimmer  // 3 — EDITOR-authored (JSON)
+        dc.l    EditorRaster_OJZ_Act1_ramp_probe        // 4 — EDITOR-authored (JSON), item 6 ramp
     }
 }
 
