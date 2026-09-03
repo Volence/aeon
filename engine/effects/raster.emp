@@ -13,7 +13,7 @@ use engine.vdp.{VDP_HINT_OFF, vdp_comm, vdp_comm_addr, VdpTarget, VdpOp}
 use engine.constants.{VDP_CTRL, VDP_DATA, SINE_AMPLITUDE, SINE_CYCLE_ENTRIES, SCREEN_HEIGHT}
 use engine.irq.{ints_off_until_rte}
 // P2 §3.3 capability gate — see the CAP_* authority block in engine/level/scene_dsl.emp.
-use engine.level.scene_dsl.{CAP_ANCHORS, CAP_ANCHOR_MOTION}
+use engine.level.scene_dsl.{CAP_ANCHORS, CAP_ANCHOR_MOTION, CAP_DENSE_TIER}
 // The anchor mover's sine source. ONLY THE DATA LABEL is imported — the two sine FACTS come
 // in from engine.constants above and are pinned against raster_dsl's literals below; naming
 // them through engine.math would yield a LINK EXTERN (a Label) that fails arithmetic, which
@@ -1108,11 +1108,29 @@ pub proc Raster_HInt () clobbers() preserves(d0-d1/a1-a2) {
         // from the program instead of a ROM cursor. The seed is deliberate: re-entering a
         // section restarts the ramp from its authored start rather than wherever the last
         // run left the accumulator, so the effect is not history-dependent.
+        //
+        // CAP_DENSE_TIER (EFFECTS-W1 item 6) brackets ONLY this body, never the dispatch
+        // pair above (`cmpi.w #OP_RUN_RAMP, d1 / beq .op_run_ramp`) or `.ramp_body` below.
+        // Both of those stay permanently unconditional — see the capability's own comment
+        // in engine/level/scene_dsl.emp for why: eliding the compare-and-branch pair would
+        // move OP_PAL_RESTORE's dispatch depth for a game that declares no dense-VSRAM
+        // content, silently invalidating raster_dsl.emp's "depth is a function of opcode
+        // value alone" cost model. This ENTER body carries no such risk — it is a dispatch
+        // LEAF, reached only by the (permanent) `beq` above, and its size affects nothing
+        // else's dispatch depth. A game that declares no dense-VSRAM content still reaches
+        // this label (dead code cannot be un-dispatched-to without the risk above) but
+        // finds nothing here and falls straight into `.advance`, silently treating a stray
+        // OP_RUN_RAMP op as a no-op cursor-advance rather than arming a run — which is
+        // itself the correct behaviour for an opcode this game never authors.
+        if (Game.SCANLINE_CAPS & CAP_DENSE_TIER) != 0 {
+        .cap_dense_tier_enter_begin:
         move.l  (a1)+, Raster_Dense_Cmd     // constant VDP write command (VSRAM or CRAM)
         move.w  (a1)+, Raster_Dense_Lines   // L lines
         move.l  (a1)+, Raster_Ramp_Acc      // 16.16 start
         move.l  (a1)+, Raster_Ramp_Step     // 16.16 per-line delta (signed)
         move.w  #-1, Raster_Dense_Mode      // NEGATIVE = compute; the arming write, last
+        .cap_dense_tier_enter_end:
+        }
         // fall through to .advance
     .advance:
         move.l  a1, Raster_Cursor

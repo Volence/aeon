@@ -349,7 +349,44 @@ DEMO_SPECIALISED_PROCS = {
     "Parallax_Step5_Vscroll":   120,   # CAP_PER_COL_VSRAM, CAP_TRANSITIONS  (sonic4 206)
     "Raster_GetChannelBand":      8,   # CAP_ANCHORS                (sonic4  50)
     "Vscroll_Write":             26,   # CAP_PER_COL_VSRAM          (sonic4 118)
+    # Raster_HInt is deliberately NOT pinned here — see PROC_SIZE_RIDER_BLIND_PROCS below
+    # for why head-to-next-head cannot measure it at all, in either shape.
 }
+
+# ---------------------------------------------------------------------------
+# EFFECTS-W1 item 6, 2026-09-03: Raster_HInt hosts a gated span
+# (`cap_dense_tier_enter`, CAP_DENSE_TIER) for the first time, and `lst_proc_sizes`'s
+# head-to-NEXT-head measurement is provably meaningless for it — not a leak, a
+# property of what the LINKER happens to place beside it.
+#
+# MEASURED, not assumed: in s4.debug.lst the head immediately after `Raster_HInt`
+# ($844A) is `SfxBlobWinTab` at $845F — a `pub data` sound table, 21 bytes away,
+# wholly unrelated to Raster_HInt's own code (which continues for hundreds more
+# bytes through `.op_loop`/`.dense_body`/`.ramp_body`/`.park` — all MANGLED local
+# labels the head-scan does not see). `lst_proc_sizes` reports Raster_HInt as 21
+# bytes in sonic4 for this reason alone, an artifact of ROM placement, not of the
+# proc's real size in either shape. demo has no such neighbour (no SfxBlobWinTab at
+# all — sound content differs), so its measurement lands far larger (316, at time of
+# writing) despite the SAME 22-byte `.cap_dense_tier_enter` region being genuinely
+# and verifiably ABSENT there (confirmed by the SPAN half above, which reads
+# boundary SYMBOLS rather than head-to-head distance and is not subject to this
+# artifact at all).
+#
+# Both the pin-free rider's "demo must be smaller" check and a committed pin in
+# DEMO_SPECIALISED_PROCS above would therefore be measuring ROM NEIGHBOUR PLACEMENT,
+# not this proc's code — and would drift the moment an UNRELATED sound-table parcel
+# moved SfxBlobWinTab, which is exactly the "committed number chasing an unrelated
+# build" failure mode this file's own module docstring warns against under
+# RE-DERIVE, DO NOT RE-BASELINE. So Raster_HInt is excluded from the rider ONLY;
+# the SPAN half (boundary-symbol presence/absence, immune to this artifact) is what
+# actually proves the gate elides for demo and raises for sonic4, and it already
+# does — `scanline_spans CAP_DENSE_TIER (sonic4 raised, demo clear) — differential
+# ['dense_tier_enter']` passes both directions.
+#
+# If a FUTURE capability also lands inside Raster_HInt, re-measure before assuming
+# this same exemption still applies — it is scoped to the ONE proc whose ROM
+# neighbour is verified data, not a blanket "Raster_HInt is exempt forever" rule.
+PROC_SIZE_RIDER_BLIND_PROCS = {"Raster_HInt"}
 
 
 def main() -> int:
@@ -420,11 +457,15 @@ def main() -> int:
     # the Task-8 poison walked through it), but it costs nothing and it catches the
     # other direction: a gate that stopped gating while keeping its labels.
     checked = 0
+    blind = 0
     for proc, caps in sorted(gated_procs().items()):
         if proc not in s4_sizes or proc not in demo_sizes:
             continue                       # not linked into both fixtures
         if not any(caps_s4 & bits[c] for c in caps):
             continue                       # sonic4 elides it too; no differential
+        if proc in PROC_SIZE_RIDER_BLIND_PROCS:
+            blind += 1                     # head-to-next-head is measuring a ROM
+            continue                       # neighbour, not this proc — see the constant
         checked += 1
         if demo_sizes[proc] >= s4_sizes[proc]:
             fails.append(
@@ -443,12 +484,14 @@ def main() -> int:
           % (caps_s4, len(want_s4), len(s4_spans)))
     print("  demo   SCANLINE_CAPS %#06x -> %d spans found (must be 0)"
           % (caps_demo, len(demo_spans_found)))
-    print("  image differential over %d gated proc(s):" % checked)
+    print("  image differential over %d gated proc(s) (%d excluded, head-to-head blind):"
+          % (checked, blind))
     for proc, caps in sorted(gated_procs().items()):
         if proc in s4_sizes and proc in demo_sizes and any(caps_s4 & bits[c] for c in caps):
-            print("      %-28s sonic4 %5d  demo %5d  (%+d)"
+            tag = "  (EXCLUDED — see PROC_SIZE_RIDER_BLIND_PROCS)" if proc in PROC_SIZE_RIDER_BLIND_PROCS else ""
+            print("      %-28s sonic4 %5d  demo %5d  (%+d)%s"
                   % (proc, s4_sizes[proc], demo_sizes[proc],
-                     demo_sizes[proc] - s4_sizes[proc]))
+                     demo_sizes[proc] - s4_sizes[proc], tag))
     if fails:
         for f in fails:
             print("  FAIL  " + f)
