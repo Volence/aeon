@@ -6,6 +6,9 @@ module engine.plane_buffer in plane_buffer
 
 use engine.constants.{TILE_CACHE_COLS, TILE_CACHE_ROWS, TILE_CACHE_STRIDE, TILE_CACHE_NT_SIZE, PLANE_H_CELLS, VRAM_PLANE_B_BYTES}
 use engine.constants.{VRAM_PLANE_A, PLANE_V_CELLS, PLANE_BUFFER_SIZE, VDP_DATA, VDP_CTRL}
+// Canopy-gap capture instrument (DEBUG only) — the visible-viewport extents the C4 test
+// measures the row anchor against, and the fire code it reports.
+use engine.constants.{SCREEN_LAST_COL_MAX, SCREEN_LAST_ROW_MAX, CANOPY_C4}
 use engine.structs.{Act, Sec}
 use engine.vdp.{VdpTarget, VdpOp, vdp_comm_reg}
 use engine.irq.{vblank}
@@ -86,6 +89,29 @@ pub proc Draw_TileColumn (d0: u16, d1: u16) clobbers(d0-d5/a0-a2) {
         // release pays nothing — it does not quietly paper over a broken caller.
         move.w  Cache_Fill_Resume_Col, d3
         assert.w d1, ne, d3
+
+        // CANOPY SHADOW (engine/ram.emp, "Canopy-gap capture instrument"). Everything
+        // below this line WILL be written into plane col d1 & 63, so this is the last
+        // point at which the shadow can be recorded truthfully — every bail is above.
+        // Two facts about this write are recorded, because the two are what the row
+        // writer and the sweep respectively disagree with:
+        //   ColW   — the world column whose cache data lands there;
+        //   ColTop — the Cache_Top_Row anchor the row mapping below is built from
+        //            (`Cache_Top_Row & 63` = start_nt_row, then TILE_CACHE_ROWS of data
+        //            and the remainder zero-filled). A column drawn at one anchor and
+        //            read at another shows the wrong rows, which no VRAM read can tell
+        //            you afterwards because the tileset is deduplicated.
+        move.w  d1, d3
+        andi.w  #PLANE_H_CELLS-1, d3
+        add.w   d3, d3                          // d3 = plane col × 2
+        lea     Canopy_ColW, a0
+        move.w  d1, (a0, d3.w)
+        lea     Canopy_ColTop, a0
+        move.w  Cache_Top_Row, d2
+        move.w  d2, (a0, d3.w)
+        lea     Canopy_ColFrame, a0
+        move.w  Frame_Counter, d2
+        move.w  d2, (a0, d3.w)
     }
 
         // compute cache source pointer for cache[logical row 0][col]
@@ -282,6 +308,18 @@ pub proc Draw_TileRow_FromCache (d0: u16, d1: u16) clobbers(d0-d5/a0-a2) {
         // the caller refuses to ask, this shape shouts if it ever does.
         move.w  Cache_Fill_RowResume_Row, d3
         assert.w d1, ne, d3
+
+        // CANOPY SHADOW, part 1 of 2 (engine/ram.emp, "Canopy-gap capture instrument").
+        // The identity of the row about to be written is known HERE; the anchor it will
+        // be written WITH is not derived until .r_clamp_ok below, so the shadow write
+        // and the C4 test both live down there and this stashes what they will need.
+        // A RAM stash rather than a spare register on purpose: a DEBUG probe that quietly
+        // reserves a register across sixty lines of release code is a trap for whoever
+        // edits between the two halves.
+        move.w  d0, d3
+        add.w   d3, d3
+        move.w  d3, Canopy_Tmp_Idx              // plane row × 2
+        move.w  d1, Canopy_Tmp_V                // world row
     }
 
         lea     Plane_Buffer, a2
@@ -323,6 +361,65 @@ pub proc Draw_TileRow_FromCache (d0: u16, d1: u16) clobbers(d0-d5/a0-a2) {
         ble     .r_clamp_ok
         move.w  Cache_Head_Col, d4             // R = min(R, Cache_Head_Col)
     .r_clamp_ok:
+    if DEBUG == 1 {
+        // CANOPY SHADOW, part 2 of 2, and the C4 test. d4 is the anchor R this write is
+        // about to impose on ALL 64 plane columns of this row: plane col P gets the one
+        // world col congruent to P mod 64 that lies in [R-63, R]. Record it — no read of
+        // VRAM afterwards can recover it, because the act tileset is deduplicated and the
+        // same tile word legitimately belongs to many world columns.
+        move.w  Canopy_Tmp_Idx, d3
+        lea     Canopy_RowR, a1
+        move.w  d4, (a1, d3.w)
+        lea     Canopy_RowFrame, a1
+        move.w  Frame_Counter, d2
+        move.w  d2, (a1, d3.w)
+
+        // C4 — the (a) candidate, tested AT ITS SOURCE rather than by the sweep's
+        // after-the-fact scan, because here the anchor and the camera are the pair that
+        // actually met. This write is about to impose [R-63, R] on every plane column;
+        // the screen needs [camCol, camCol+SCREEN_LAST_COL_MAX]. If R falls short of the
+        // screen's right edge, the leading visible columns get the twin 64 columns BACK.
+        // If R runs more than 63 past camCol, the trailing ones get the twin 64 columns
+        // AHEAD. Either way this one write leaves ~40 of the row's 41 visible cells
+        // sourced from 512 px away, and only a later column write repairs them one column
+        // at a time. Restricted to rows that are on screen: .top_loop legitimately draws
+        // rows above the camera, and those are not a sighting.
+        move.w  Canopy_Tmp_V, d0
+        move.l  Camera_Y, d1
+        swap    d1
+        lsr.w   #3, d1                         // d1 = camRow
+        cmp.w   d1, d0
+        blt     .canopy_c4_done                // row above the screen
+        addi.w  #SCREEN_LAST_ROW_MAX, d1
+        cmp.w   d1, d0
+        bgt     .canopy_c4_done                // row below the screen
+        move.l  Camera_X, d1
+        swap    d1
+        lsr.w   #3, d1                         // d1 = camCol
+        move.w  d1, d2
+        addi.w  #SCREEN_LAST_COL_MAX, d2       // d2 = rightmost visible world col
+        cmp.w   d2, d4
+        blt     .canopy_c4_bad
+        addi.w  #PLANE_H_CELLS-1, d1           // d1 = camCol + 63
+        cmp.w   d1, d4
+        ble     .canopy_c4_done
+    .canopy_c4_bad:
+        move.w  d4, d3                         // got   = the anchor R
+        move.w  d0, d2                         // want  = the world row being written
+        move.w  Canopy_Tmp_Idx, d1
+        lsr.w   #1, d1                         // idx   = plane row
+        moveq   #CANOPY_C4, d0
+        // Canopy_Fire restores every register from its own movem, but d4 (the anchor the
+        // release code below still needs) is spilled here anyway: the contract-closure
+        // analysis reads liveness across the call and does not model a callee's movem, so
+        // without this it reports d4 live-clobbered — correctly, on the evidence it has.
+        // Two instructions on a path that never runs in a correct frame, in exchange for
+        // the call site stating its own contract instead of relying on a distant one.
+        move.w  d4, -(sp)
+        jbsr    Canopy_Fire
+        move.w  (sp)+, d4
+    .canopy_c4_done:
+    }
         // The NT-order walk is two monotonic world-col legs — A..R and
         // R-63..A-1 — and physical col = (W + Origin - Left) mod COLS is affine
         // in W, so each leg is a contiguous cache run split at most once by the
