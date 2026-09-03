@@ -185,8 +185,10 @@ Two separate gaps, and they are not the same size:
    authored preset costs ROM whether or not anything installs it.
 2. **Seeing it at all is a DEBUG chord.** `Debug_BandDemoHotkey`
    (`games/sonic4/test/ojz_scroll_test.emp`) steps a table: `START` held + `UP` installs the
-   next program, `START` + `DOWN` removes it. Row 0 is the hand-authored `OJZ_BandDemo`;
-   the editor-authored rows follow. **That table is a hand-typed `dc.l` list** — a new preset
+   next program, `START` + `DOWN` removes it. Rows 0 and 1 are hand-authored
+   (`OJZ_BandDemo`, then `OJZ_BaseSwap` — EFFECTS-W1 item 11a's mid-frame plane-base change,
+   which is a raster program but not a band); the editor-authored rows follow. **That table
+   is a hand-typed `dc.l` list** — a new preset
    document does not appear in it by itself. `tools/test_raster_cycle_table_lint.py` fails
    the build's pytest lane if a preset document has no row, so the omission is loud rather
    than silent, but the fix is still a programmer's edit.
@@ -249,7 +251,10 @@ Why these numbers, since every one of them is a choice an author has to make:
   because it is trying to look like art direction. This one is trying to be
   **unmistakable and unmistakably not that one**: two saturated bands against three muted
   ones is a difference nobody has to squint at, which is the whole point of having a
-  hand-authored control in row 0 and an editor-authored program in row 1.
+  hand-authored control in row 0 and an editor-authored program after it. (The editor rows
+  moved from index 1 to index 2 when `OJZ_BaseSwap` joined the table; the comparison the
+  sentence describes is unchanged — it is between the hand-authored bands and the
+  editor-authored ones, and `OJZ_BaseSwap` is neither, it is a register op.)
 - **`sh: false`** on both. Shadow/Highlight emits a third fire and a de-mix write; mixing it
   in would make a failure ambiguous between the band machinery and the S/H machinery.
 

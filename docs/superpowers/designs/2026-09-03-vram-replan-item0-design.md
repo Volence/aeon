@@ -498,6 +498,22 @@ The full comparison:
    change, authored as a `RasterOp.SetReg($8238)` on a shipped opcode, §2.0). Three of five
    sub-features, no tiles spent, and 11a is the *mechanism* both items are actually about —
    proving it early is cheap and it de-risks the expensive half.
+
+   > **11a IS DONE, 2026-09-03, `parcel/item11a-midframe-base`.** `OJZ_BaseSwap` in
+   > `games/sonic4/data/effects/ojz_effects.emp` — one `OP_SET_REG` at screen line 160,
+   > folded (not transcribed) as `$8200 | vdp_base_reg(VdpBase.PlaneA, VRAM_PLANE_B)`, bound
+   > as row 1 of the effects lab's raster cycle, DEBUG-gated for `OJZ_BandDemo`'s
+   > dormant-scaffold reason, and read back out of the built ROM by
+   > `tools/plane_base_swap_gate.py` on every canonical sonic4 build. **This section's two
+   > load-bearing claims were re-derived from source and both hold:** the byte is `$38`
+   > (`vdp_base_shift` PlaneA `=> 10`, `VRAM_PLANE_B = $E000`), and the mid-frame change
+   > self-restores because `Flush_VDP_Shadow` walks the shadow table with **no register
+   > filter** from reg `$00` and `VdpShadow` puts `vdp_plane_a` at offset 2 — i.e. §2.0's
+   > claim 1 is now confirmed at the flush loop and the struct, not only at the comment in
+   > `raster.emp` that asserts it. **What is NOT done is the picture**: no emulator ran, and
+   > §8's Q2 (does a base write inside HBlank take effect on the very next line, or partway
+   > across it?) is the open question the runtime pass will answer. Full booking, including
+   > the red-first table, is `docs/DEFERRED_WORK.md`, "EFFECTS-W1 ITEM 11a".
 2. **Then Option P**, one TOML edit plus a regenerate plus two engine constants.
 3. **Then** 10c and 11b, against the new region.
 

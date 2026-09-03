@@ -17030,7 +17030,7 @@ Item 2 is the only one that does not.
 | 8 | BgAnim vertical band motion | **M** | **no — zero ROM bytes** | **ENGINE HALF DONE 2026-09-02, `parcel/bganim-band-motion`; the ON-SCREEN half is BLOCKED and the reason is measured** — see the item-8 block below. The pricing was written on the belief that a vertical shift needed a different DMA shape; it does not, `BgAnim_Update` was always axis-agnostic, and the parcel moves no engine byte at all. So this row does NOT pair with sigil. |
 | 9 | Hydrocity row remap | **L** | yes, paired | Zone-specific by the survey's own estimate; he wants it; sequenced last by his preference. |
 | 10 | Reels / plane-role swap / window as third layer | **L** | yes, paired | **BLOCKED — see item 0 below.** |
-| 11 | Nametable-base changes (frame swap, Plane Z, Batman mid-frame) | **L** | yes, paired | **BLOCKED — same item 0.** |
+| 11 | Nametable-base changes (frame swap, Plane Z, Batman mid-frame) | **L** | yes, paired | ~~**BLOCKED — same item 0.**~~ **PARTLY DONE.** Item 0's design (§2) split this row into 11a (the mid-frame base change as a MECHANISM, zero tiles) and 11b (Plane Z, a distinct third picture, which does need tiles). **11a LANDED 2026-09-03, `parcel/item11a-midframe-base`** — `OJZ_BaseSwap`, one `OP_SET_REG` re-pointing Plane A at Plane B's nametable at screen line 160, gated by `tools/plane_base_swap_gate.py` on every canonical sonic4 build. **The on-screen half is unrun** (no emulator in that lane). **11b is still blocked on item 0's VRAM purchase.** See the item-11a block below. |
 
 **Item 5's DEMAND ARTIFACT exists (2026-08-30, `docs/item5-key-shapes`, documents only):** `docs/superpowers/specs/2026-08-30-item5-variants-cycles-key-shapes.md` transcribes from engine source the `cycles` / `variants` key shapes a preset document would carry (one script of 1..4 channels; two positional variant slots; every field 1:1 with `pal_cycle_channel` / `pal_variant`), what `effects_gen.py` would emit, the byte-golden against `OJZ_ShimmerCycle` / `Variant_Water_Deep`, and ten open questions (Q1 one-ref-or-three is the hub's) — the source the item-13 contract CR is drafted from.
 
@@ -18150,3 +18150,139 @@ calibration says loop terms come in LOW and frame constants HIGH.
   the mover is deterministic (`Logic_Tick` IS the replay timebase, lag-immune) so a pixel
   comparison is reproducible but frame-dependent. A pixel-diffing net, if one is ever built,
   inherits that; the hash net does not.
+
+---
+
+## EFFECTS-W1 ITEM 11a — THE MID-FRAME NAMETABLE-BASE CHANGE IS IN THE ROM; THE PICTURE IS UNRUN (2026-09-03, `parcel/item11a-midframe-base`)
+
+Branch `parcel/item11a-midframe-base`. Design:
+`docs/superpowers/designs/2026-09-03-vram-replan-item0-design.md` §2 (row 11a), §2.0 and §4
+step 1 — which sequences this **before** the Option-P VRAM purchase precisely because it
+costs no tiles and needs no new engine opcode.
+
+### What shipped
+
+`games/sonic4/data/effects/ojz_effects.emp` gains `OJZ_BaseSwap`: an 11-word sparse raster
+program whose single op is `OP_SET_REG` carrying `$8238` — reg `$02` re-pointed at
+`VRAM_PLANE_B`. It fires at screen line 160, so from there to the bottom of the display the
+**Plane-A layer draws Plane B's nametable**: the foreground map disappears and the
+background map is drawn a second time, at Plane A's scroll offsets rather than Plane B's.
+
+**The word is FOLDED, not written.** `$8200 | vdp_base_reg(VdpBase.PlaneA, VRAM_PLANE_B)` —
+the same comptime fold `engine/system/boot_data.emp` derives the boot register table from,
+carrying the residue `ensure` that refuses a base outside reg `$02`'s `$2000` granule. A
+re-layout moves the op with the plane; a base the register cannot encode fails the build.
+
+**There is no OFF edge, and that is the design, verified at the mechanism rather than at the
+comment.** `engine/system/vdp_init.emp`'s `Flush_VDP_Shadow` walks `VDP_Shadow_len` bytes
+from reg `$00` upward with **no register filter** (`move.b (a0)+, d0` / `move.w d0, (a1)` /
+`addi.w #VDP_REG_STEP, d0` / `dbf`), and `engine/structs.emp`'s `VdpShadow` puts
+`vdp_plane_a` at offset 2 of that table. `engine/system/vblank.emp` calls the flush on BOTH
+the VInt path (`:159`) and the lag path (`:352`), unconditionally, every frame. So reg `$02`
+is restored at frame top whatever a mid-frame op did to it.
+
+**Emission is DEBUG-gated**, for the ruling `OJZ_BandDemo`'s own gate note records: the only
+installer, `Debug_BandDemoHotkey`, emits zero bytes in the release shape, so an
+unconditionally-emitted program is a dormant scaffold in the ROM the owner ships. Every
+`ensure` on it is UNGATED and runs in both shapes — only the bytes are shape-dependent.
+
+**Binding:** row 1 of the effects lab's raster cycle (`START` held + `UP` steps the cursor),
+`RASTER_CYCLE_COUNT` 3 → 4, the editor rows shifting to 2 and 3.
+`tools/test_raster_cycle_table_lint.py` is unaffected by the insertion (its editor-row arms
+strip the generator's prefix, so a hand-authored row is invisible to them) except for the
+count arm, which is why the const moved in the same commit.
+
+### The ROM evidence
+
+`s4.debug.lst` puts `OJZ_BaseSwap` at `$013D1A` and `OJZ_TestPal` at `$013D30` — 22 bytes,
+the whole program. Read back out of `s4.debug.bin` at that address:
+
+```
+0000 8A9D 0000 8AFF 0000 8AFF 0001 0000 8238 8AFF FFFF
+ ^mask ^arm0     ^prime1    ^event hdr  ^^^^ ^^^^ ^terminator
+                                        op   arg
+```
+
+Word 7 is `OP_SET_REG` (0 — and its being zero is load-bearing: `Raster_HInt` dispatches it
+on the Z flag the op fetch itself sets). Word 8 is `$8238`. `$8A9D` is `$8A00 | (160 - 3)`,
+the two-priming-record schedule. In the RELEASE listing `OJZ_BaseSwap` and `OJZ_TestPal`
+share `$013478` — zero bytes, as the DEBUG gate requires.
+
+### The gate
+
+`tools/plane_base_swap_gate.py`, wired into `build.sh`'s post-sigil sonic4 block beside
+`band_drift_golden` and with the same `--built-after` provenance rule. It re-derives the
+expected image from files the fixture does not author — `VRAM_PLANE_A`/`VRAM_PLANE_B` from
+`engine/system/constants.emp`, the shift from `engine/vdp.emp`'s own `vdp_base_shift` match
+arm, `OP_SET_REG`/`RASTER_ARM_PARK`/`RASTER_OPS_END` from `engine/effects/raster.emp` — and
+asserts **opposite things in the two shapes**: the words present in DEBUG, the symbol
+emitting zero bytes in release. `--shape` is passed from build.sh's `DEBUG`, never sniffed
+from the artifact's name.
+
+**PROVEN RED, each mutation shown applied on disk and restored from a committed baseline:**
+
+| mutation | result |
+|---|---|
+| `vdp_base_reg(…, VRAM_PLANE_B)` → `VRAM_PLANE_A` | **build RED** — the `.emp` `ensure` fires by name ("the SAME word reg $02 already carries at frame top"), and the hand pin fires at index 8 |
+| `OJZ_BASE_SWAP_WORD` → literal `$8234`, hand pin → `$8234` (the fixture made self-consistent, bypassing the fold) | **build GREEN**, gate **RED**: "word 8 … `$8234` re-points Plane A at VRAM `$D000`; item 11a needs Plane B's nametable, `$E000`". This is the case only the independently-derived expectation can catch. |
+| DEBUG gate removed (unconditional emission) | release build green, gate **RED** — "emits 22 bytes in the RELEASE shape" |
+| DEBUG gate inverted (`if DEBUG == 0`) | debug build green, gate **RED** — "emits NO bytes in the DEBUG shape" |
+
+`tools/test_plane_base_swap_gate.py` covers the pure halves and the four source reads (8
+tests); its own red-first table is in its docstring, including one mutation that does NOT
+work and why.
+
+### ⚠ TAGGED FOR THE CONTROLLER'S EMULATOR PASS — the on-screen half is NOT run
+
+No emulator was used. **A green gate is not the picture.** What to look for, in the
+**DEBUG** shape (`DEBUG=1 ./build.sh` → `s4.debug.bin`), in OJZ act 1:
+
+1. Boot, then hold `START` and press `UP` **twice**. The first press installs row 0
+   (`OJZ_BandDemo`, three palette bands); the second installs row 1 (`OJZ_BaseSwap`).
+   Alternatively poke `Raster_Pending` with the symbol address directly, as
+   `tools/band_witness.py` does for `OJZ_BandDemo`.
+2. **Expected:** from around screen line 160 to the bottom of the display, the foreground
+   level art is replaced by a second copy of the BACKGROUND map, drawn at Plane A's scroll
+   offsets — so it is horizontally displaced from the real background still visible behind
+   the sprites. Above line 160 nothing changes. The effect must be **gone at frame top**:
+   line 0 of the next frame draws the normal foreground, with no accumulation and no drift.
+3. **Two known imprecisions, both expected and neither a failure.** (a) The boundary may
+   land on line 160 or 161: `raster.emp`'s row-119 note records that the blanking spin
+   guards the CRAM paths only, so a bare `OP_SET_REG` still switches its register partway
+   across the fire+1 line (measured at ~45% across that line for a mode register). The
+   design's §8 **Q2** asks exactly this for the base registers and is still open — a
+   partial first row is the *answer to Q2*, not a defect in this parcel. (b) Plane A's
+   scroll values are not Plane B's, so the duplicated map will be offset; that is the
+   mechanism working, not a bug.
+4. **A failure looks like:** no change at any line (the op did not execute — check
+   `Raster_Program` actually holds `OJZ_BaseSwap`), or the change persisting into the top of
+   the frame (the shadow flush is not restoring reg `$02`, which would refute the design's
+   §2.0 claim 1 and the source reading above), or a corrupted/garbage bottom band rather
+   than a recognisable second copy of the background (which would mean the base is landing
+   somewhere other than `$E000`).
+5. **The effects-gate ritual was not run** — `tools/effects_gates.py` boots a headless
+   emulator per gate. This parcel touches no `engine/effects/*` file, `engine/level/bg_anim.emp`
+   or `engine/system/buffers.emp`, so the ritual is not triggered by its letter; it is
+   flagged here anyway because the parcel is raster-adjacent.
+
+### What is NOT done, and what this does and does not unblock
+
+- **11b (Plane Z / the frame swap) is untouched and still needs item 0's tiles.** Its
+  *delivery* is the same `SetReg` proven here; what is missing is a `$2000`-aligned base
+  holding content nothing else owns. Nothing in this parcel makes that cheaper.
+- **10b (plane-role swap) is trivially adjacent and was deliberately NOT started.** It is
+  the same op on the same register — `$30`↔`$38` on `$02` and `$07`↔`$06` on `$04` — but it
+  additionally needs the scroll feeds re-plumbed (the HScroll table is A/B-interleaved per
+  line and VSRAM is even/odd **by plane, not by content**; design §8 Q4). That is code, and
+  it is separately sequenced.
+- **No cross-seam symbol was added.** `OJZ_BaseSwap` is a new `pub data` referenced by
+  `games/sonic4/test/ojz_scroll_test.emp` — a `dc.l` from another module, i.e. a **new
+  cross-module name**, so the sigil-side `*_port` test for that module may need re-pinning
+  as a paired landing. It is the same shape and the same file as the existing
+  `dc.l OJZ_BandDemo` row beside it, so the edge already exists between those two modules;
+  what is new is one name on it.
+- **The release ROM image below `EndOfRom` is byte-identical.** Measured: `s4.bin` is the
+  same 720010 bytes and differs from the pre-parcel build in exactly two places — the header
+  checksum at `$00018E-$00018F`, and the appended deb2 symbol table above `$0A6117`
+  (`EndOfRom` is `$A5C82` in both). That is the expected footprint of a `pub` symbol that
+  emits no bytes, and it is the same footprint `OJZ_BandDemo` already has.

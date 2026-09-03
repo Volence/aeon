@@ -8,15 +8,31 @@ is the two pieces of judgement the gate adds — the word derivation and the gap
 classification — plus the four facts it reads out of engine source, which are exactly the
 facts a source-level regression would break before any ROM existed.
 
-PROVEN RED, all four arms, by editing and restoring (2026-09-03):
-  * `PlaneA => 10` -> `=> 13` in engine/vdp.emp
-        -> test_the_two_planes_fold_to_different_reg02_bytes  (both fold to $8238)
-  * `VRAM_PLANE_B = $E000` -> `$C000` in engine/system/constants.emp
-        -> test_the_two_planes_fold_to_different_reg02_bytes
-  * `OJZ_BASE_SWAP_LINE = 160` -> `2`
-        -> test_the_fixtures_line_is_a_schedulable_screen_line
-  * `classify_gap` returning `"absent"` for any unrecognised gap
-        -> test_an_unrecognised_gap_is_not_classified
+PROVEN RED, by editing a COMMITTED baseline and restoring it, 2026-09-03. Four mutations,
+each shown applied on disk (`git diff -U0`) before the run, each restored with
+`git checkout HEAD -- <path>` afterwards. Every count below is the whole run, not a tail:
+
+  * `PlaneA => 10` -> `=> 16` in engine/vdp.emp's `vdp_base_shift`
+        -> 3 failed, 5 passed. test_the_two_planes_fold_to_different_reg02_bytes fires
+           first ("both fold to reg $02 word $8200"); the two derivation tests then fail
+           through `expected_words`' own degenerate-case refusal.
+        NOTE the mutation that does NOT work, so nobody wastes a run reproducing it:
+           `=> 13` leaves $C000 and $E000 folding to 6 and 7 — still different — so it is
+           green here. The arm is about the two bases COLLIDING, not about the shift's
+           value, and only a shift wide enough to erase the difference reaches it.
+  * `OJZ_BASE_SWAP_LINE = 160` -> `2` in the fixture
+        -> 2 failed, 6 passed (test_the_fixtures_line_is_a_schedulable_screen_line and
+           the framing pin; fire line 1 gives a priming gap of -1, not a legal reload).
+           `-> 3` is green: 3 is the lowest line `fire()` itself admits.
+  * `pub const OP_SET_REG = 0` -> `= 1` in engine/effects/raster.emp
+        -> 1 failed, 7 passed (test_op_set_reg_is_still_zero).
+  * `classify_gap`'s `return None` -> `return "absent"`
+        -> 1 failed, 7 passed (test_an_unrecognised_gap_is_not_classified).
+  * `expected_words`' degenerate-case `if word == home:` -> `if 0:`
+        -> 1 failed, 7 passed (test_two_identical_plane_bases_are_UNMEASURABLE_not_a_pass).
+
+The gate's own ROM arms are proven red in the parcel's DEFERRED_WORK entry, not here:
+they need a build, and a build is what this lane runs before.
 """
 
 import sys
@@ -62,17 +78,26 @@ def test_the_two_planes_fold_to_different_reg02_bytes():
         f"mid-frame swap left to demonstrate.")
 
 
-def test_op_set_reg_is_the_opcode_the_gate_expects():
-    """OP_SET_REG's VALUE is load-bearing in the handler, and it is the gate's word 7."""
-    f = _facts()
-    want = G.expected_words(f["line"], f["plane_b"], f["plane_a"], f["shift"],
-                            f["op_set_reg"], f["park"], f["ops_end"])
-    assert want[7] == f["op_set_reg"]
-    assert want[8] == 0x8200 | (f["plane_b"] >> f["shift"])
+def test_op_set_reg_is_still_zero():
+    """OP_SET_REG's VALUE is load-bearing, and this reads it out of the engine.
+
+    Not a restatement of the gate: `expected_words` puts whatever it is handed at word 7,
+    so nothing downstream would notice a renumbering. `engine/effects/raster.emp` says why
+    zero matters — `Raster_HInt`'s `.op_loop` dispatches a register write on the Z flag
+    that `move.w (a1)+, d1` sets while FETCHING the op, which is only the OP_SET_REG test
+    while the opcode is zero — and item 11a is entirely that path.
+    """
+    assert G.emp_const(G.RASTER, "OP_SET_REG") == 0
 
 
 def test_the_program_is_the_documented_sparse_framing():
-    """One header word, two priming records, one event record, one terminator."""
+    """One header word, two priming records, one event record, one terminator.
+
+    A STRUCTURAL PIN on `expected_words`, not an independent measurement of the ROM: it
+    holds the derivation to the schedule engine/effects/raster.emp documents, so a
+    refactor that moved the opcode or dropped a priming record fails here rather than in
+    a byte diff nobody can read.
+    """
     f = _facts()
     want = G.expected_words(f["line"], f["plane_b"], f["plane_a"], f["shift"],
                             f["op_set_reg"], f["park"], f["ops_end"])
