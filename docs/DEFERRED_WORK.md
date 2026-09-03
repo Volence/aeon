@@ -17454,12 +17454,28 @@ item did NOT hit the wall items 3 and 4 hit.
 The DoD wants a vertical band *visible in the OJZ scroll test*. That needs art, and art is
 where this stops:
 
-1. **No writer in either repo can produce vertical phases.** Aurora is the author of `anims`
-   (owner decision d-14) and its shift-fill derives bank k as phase 0 scrolled k px within the
-   pattern WIDTH. The column-wise twin is row 55's **S (aurora)** and is **not built**. Aeon
-   synthesising the phases instead would put a band into the shared document that the editor
-   silently destroys the next time anyone touches it — the guard above turns that into a build
-   refusal, but a refusal is not a band on screen.
+1. ~~**No writer in either repo can produce vertical phases.**~~ **STALE WITHIN ONE DAY — THE
+   WRITER SHIPPED 2026-09-03 AND THIS SENTENCE WENT ON READING AS THE BLOCKER.** Aurora
+   delivered the column-wise shift-fill twin on `feat/ew-band-axis-vertical` (`4b6fa93` the
+   code, `df1efa8` the obligations plus an aeon bake, `accf53d` aeon's real emitter);
+   `shiftedPhaseBanks` rolls y within `rows*8`, the axis is READ off the band so the
+   horizontal arm cannot be asked for on a vertical one, and ROADMAP row 55 is struck as
+   DELIVERED. **Verified firsthand here** by reading aurora `origin/master:docs/ROADMAP.md`
+   row 55, not relayed. They also measured that `validate_band_phase_axis` — the guard above,
+   whose population this file called empty — ADMITS their vertical band and REFUSES the same
+   art horizontally filled, which is the first real subject that guard has ever had.
+   **This is the class this file already names** (*a claim about another lane's tree, living
+   in yours, can never meet its contradiction*): the sentence was true when written on
+   2026-09-02, nothing in this tree could contradict it, and it was quoted onward to the owner
+   as a live blocker on 2026-09-03. Aeon synthesising phases itself is still the wrong move for
+   the same reason — the editor would destroy them — but that is now an argument about WHO
+   writes, not about whether anyone CAN.
+   **WHAT IS ACTUALLY OPEN, and it is smaller: no ROM has ever been built with a vertical band,
+   and nobody has looked at one.** Aurora's proof stopped at the bytes because `SIGIL_BUILD` and
+   `SIGIL_EMIT` are unset in their agent worktrees, which is a thing THIS lane can do in one
+   build. The remaining question is a content one — whether a vertical band goes into the
+   owner's authored act at all (his 2026-08-24 grant permits editing the background for
+   testing) — and it is answered by showing him one, not by deriving anything.
 2. **A second full-size band does not fit, and the ceiling says so in advance.** `ojz_bg_anim`
    holds the table and the bank blob for the whole act under the d-9 ROM-room ceiling of
    **12,288 B**. The live act sits at **8,238 B** (measured, this parcel's emitter run:
