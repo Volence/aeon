@@ -257,8 +257,38 @@ pub const CAP_BAND_DRIFT         = $0080
 // can place a horizontal edge read it. A mover at any other site puts the raster fire line and
 // the parallax split on different cameras on a VInt_Lag frame.
 pub const CAP_ANCHOR_MOTION      = $0100
-// Reserved (P4+): CAP_FG_SPRITE_STRIPS=$0200, CAP_BGANIM_BOUND=$0400,
-// CAP_DENSE_TIER=$0800, CAP_COMPUTED=$1000, CAP_DEGRADE=$2000
+// EFFECTS-W1 item 6: THE DENSE TIER'S VSRAM AXIS — a dense-run op whose per-line value is
+// written to VSRAM rather than CRAM, so a background's vertical scroll changes on every
+// scanline instead of once per section (Batman & Robin's pseudo-3D floor family: squash,
+// stretch, perspective). Promoted WITH its lowering and its three bracketed spans in one
+// commit, per the standing rule above.
+//
+// THE MECHANISM IS NOT NEW. `OP_RUN_RAMP` / `raster_ramp_program` (this module) landed
+// 2026-08-14 as the dense tier's second body — a 16.16 accumulator advanced once per
+// scanline, its integer half written through whatever VDP command the program carries —
+// and `games/sonic4/data/effects/ojz_effects.emp`'s `OJZ_TestRamp` has pointed it at Plane
+// B's VSRAM entry and shipped on a real section since the same day. What this bit adds is
+// the CAPABILITY GATE that mechanism never got: before this commit `.op_run_ramp` and
+// `.ramp_body` were unconditional engine code, present (and dead) in every game including
+// one with zero dense content. See docs/DEFERRED_WORK.md's DENSE PER-LINE VSRAM entry for
+// the full accounting of what was already shipped versus what this item closes.
+//
+// WHY ONLY THE RAMP HALF OF THE DENSE TIER, AND NOT `OP_RUN_GRADIENT` TOO. Gradient
+// targets CRAM (a colour stream) and is a different, older, already-ungated feature this
+// item was not asked to touch; the DoD text is explicit that the dense tier's existing
+// half — "OP_RUN_GRADIENT, the measured line cost, the fits-in-a-scanline invariant... —
+// already ship[s]" and only "per-LINE VSRAM inside a dense run is the new axis." Gating
+// `.dense_body`'s gradient path now would move bytes for a feature nobody asked to
+// re-scope. So CAP_DENSE_TIER's three brackets sit ONLY around the ramp op's dispatch
+// entry, its ENTER block, and its per-line body — see engine/effects/raster.emp.
+//
+// IT TAKES $0200, THE NEXT BIT, and the four still-reserved names shift up one AGAIN — the
+// same allocation rule every promotion above documents, for the same reason
+// (tools/test_scene_span_labels.py's gapless-run test). Nothing lowers, raises, brackets
+// or masks against any of the four, so the shift is free.
+pub const CAP_DENSE_TIER          = $0200
+// Reserved (P4+): CAP_FG_SPRITE_STRIPS=$0400, CAP_BGANIM_BOUND=$0800,
+// CAP_COMPUTED=$1000, CAP_DEGRADE=$2000
 //
 // THE LEFT-COLUMN POLICY (P3 Task 12) RAISES NO BIT, AND THAT IS A RULING, NOT AN
 // OVERSIGHT. Factor0Lock and Accept demand nothing of the runtime — one is a verified
@@ -266,8 +296,8 @@ pub const CAP_ANCHOR_MOTION      = $0100
 // code. SpriteMask WILL need a bit (its strip emitter is engine code a non-per-column
 // game must elide), but its emission has not landed and scene() refuses the variant
 // until it does; per the promotion note above, the bit arrives WITH its gated block in
-// the emission parcel, never ahead of it. CAP_FG_SPRITE_STRIPS ($0200 since the anchor mover
-// took $0100 — see that declaration for why a new bit takes the NEXT one) is NOT that bit —
+// the emission parcel, never ahead of it. CAP_FG_SPRITE_STRIPS ($0400 since the dense tier
+// took $0200 — see that declaration for why a new bit takes the NEXT one) is NOT that bit —
 // it is design §2's FG parallax strips, a different mechanism, and stays reserved.
 
 // ---- attachment enums (spec §2) ----
