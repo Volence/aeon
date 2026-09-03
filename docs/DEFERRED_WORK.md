@@ -2729,6 +2729,19 @@ with a genuinely broken instrument because its original coordinates were all-zer
 *"geometry held" cannot fail where there is no geometry to lose* — which is the anti-vacuous
 fixture rule earning its keep inside one edit.
 
+**Decision 4's "solid in both planes" half, costed and closed — see
+`docs/superpowers/specs/2026-09-03-loops-p-solid-both-planes-cell-word.md`.** Separate from
+the crossover field's own history above: `loops-and-sprite-rotation.md` §7 decision 4 also
+proposed a third cell-word state for "solid on both planes", on the premise that it "costs
+nothing extra to build alongside the rest." That premise was wrong about the mechanism
+(there is no spare bit left to hold it) and right about the cost for an unrelated reason
+(it needs no bit at all — the two collision planes are already independent per-cell words,
+so "solid on both" is just non-zero solidity in both, already measured at 1056 cells in OJZ
+act 1 section 0). Re-derived from source independently on the aeon side and cross-checked
+against aurora's already-shipped `both-planes-paint.ts` gesture (2026-08-29); the linked
+document costs the two alternatives (a format change, a second word) against real ROM/RAM
+numbers and recommends against both.
+
 ### A SECOND ACT'S BG ANIMATION HAS NOWHERE TO LIVE — the emitter takes an act, the ROM has one slot — booked 2026-08-27
 
 **What landed (parcel EFFECTS-W2, `tools/inject_editor_bg.py`).** The act is a parameter.
