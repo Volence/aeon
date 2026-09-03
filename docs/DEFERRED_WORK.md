@@ -6518,9 +6518,19 @@ TAGs T1-T4 in §9 of the research doc.
 OJZ scenes are **`Scene_OJZ_Default`** and `Scene_OJZ_Underwater`
 (`ojz_scenes.emp:123,137` / `:152,166`), not "`OJZ_Depth`" — `OJZ_Depth*` names
 effects objects, and `Scene_Editor_ojz_act1_depth` is `v_factor 15`, i.e. one of
-the LOCKED eighteen. Also `constants.emp:272-274`'s comment says
+the LOCKED eighteen. ~~Also `constants.emp:272-274`'s comment says
 `POOL_TILE_CEILING(960)` -> 15 frames; the value is 896 -> **14**. The `ensure`
-is right; only the prose is stale.
+is right; only the prose is stale.~~ **FIXED 2026-09-03**
+(`parcel/item0-optionp-pool-768`), and it had gone stale a SECOND time in the
+interval — the constant is 768 now, so the quotient is 12. The fix carries no
+replacement number at all: a fresh literal would go stale on the identical clock,
+and the `ensure` beneath it compares the quotient against its own dividend, so it
+catches inexact division and can NEVER catch the prose. Four more instances of
+the same drift class were swept in the same parcel (`constants.emp`'s
+`POOL_TILE_CEILING` block, which enumerated what sits above the ceiling and was
+already wrong about `insta_shield`; `page_cache.emp`'s `<= 959`; `ram.emp`'s
+"41 pages > 15 frames"; and `games/sonic4/vram.toml`'s "POOL_TILE_CEILING, which
+moves RAM", false since 2026-08-11).
 
 **When ready:** after step (2), the nametable streamer. Not before — see the hard
 dependency above.
@@ -17029,8 +17039,8 @@ Item 2 is the only one that does not.
 | 7 | Vertical bob | **S-M** | yes, paired | **BUILT — `parcel/vertical-bob`, 2026-08-30, unlanded.** A scene-level term on `Parallax_Step5_Vscroll`'s `.v_pack`. 40 bytes of code, ZERO config bytes (the packed nibble pair claimed `pcfg_pad_29`), EndOfRom unmoved in all four shapes. Riders booked below. |
 | 8 | BgAnim vertical band motion | **M** | **no — zero ROM bytes** | **ENGINE HALF DONE 2026-09-02, `parcel/bganim-band-motion`; the ON-SCREEN half is BLOCKED and the reason is measured** — see the item-8 block below. The pricing was written on the belief that a vertical shift needed a different DMA shape; it does not, `BgAnim_Update` was always axis-agnostic, and the parcel moves no engine byte at all. So this row does NOT pair with sigil. |
 | 9 | Hydrocity row remap | **L** | yes, paired | Zone-specific by the survey's own estimate; he wants it; sequenced last by his preference. |
-| 10 | Reels / plane-role swap / window as third layer | **L** | yes, paired | **BLOCKED — see item 0 below.** |
-| 11 | Nametable-base changes (frame swap, Plane Z, Batman mid-frame) | **L** | yes, paired | **BLOCKED — same item 0.** |
+| 10 | Reels / plane-role swap / window as third layer | **L** | yes, paired | ~~**BLOCKED — see item 0 below.**~~ **UNBLOCKED on the VRAM axis 2026-09-03: item 0 landed as Option P** — `spare_nametable`, 128 tiles at tile 768 (`$6000`), a legal Plane A/B/Window base. Nothing is WIRED to it; that plumbing is this item's. See the item-0 block below. |
+| 11 | Nametable-base changes (frame swap, Plane Z, Batman mid-frame) | **L** | yes, paired | ~~**BLOCKED — same item 0.**~~ **UNBLOCKED, same landing.** Note 11b would want a SECOND `$2000`-aligned run and there is none left — the remaining spendable run is at `$5000`, `$1000`-aligned, i.e. window-only. |
 
 **Item 5's DEMAND ARTIFACT exists (2026-08-30, `docs/item5-key-shapes`, documents only):** `docs/superpowers/specs/2026-08-30-item5-variants-cycles-key-shapes.md` transcribes from engine source the `cycles` / `variants` key shapes a preset document would carry (one script of 1..4 channels; two positional variant slots; every field 1:1 with `pal_cycle_channel` / `pal_variant`), what `effects_gen.py` would emit, the byte-golden against `OJZ_ShimmerCycle` / `Variant_Water_Deep`, and ten open questions (Q1 one-ref-or-three is the hub's) — the source the item-13 contract CR is drafted from.
 
@@ -17241,7 +17251,83 @@ thing `docs/EMP_PITFALLS.md` exists for. **Trigger:** the next parcel that hits 
 PITFALLS entry apiece is the right size, and (2) in particular deserves the "a pub const that must
 travel has to fold from literals" one-liner.
 
-### ⚠ ITEM 0 — the prerequisite for 10 and 11 that is not on the list, and it is L
+### ✅ ITEM 0 — LANDED 2026-09-03 as Option P (`parcel/item0-optionp-pool-768`)
+
+**The purchase is made. 10 and 11 are unblocked on the VRAM axis.** `POOL_TILE_CEILING`
+896 → 768 (`engine/system/constants.emp`), which frees **`$6000-$6FFF` — 128 tiles at tile
+768** — declared as the named region `spare_nametable` (`owner = "engine.system.boot"`, no
+`register` field) in **both** `games/sonic4/vram.toml` and `games/demo/vram.toml`. The FG art
+residency cache goes from 14 page-frames to 12. Nothing on screen changes.
+
+**Why that address and not a cheaper one.** `$6000` is a multiple of `$2000`, so it is
+simultaneously a legal Plane A base (reg `$02` = `$18`), Plane B base (reg `$04` = `$03`) and
+Window base (reg `$03` = `$18`). It is the only free-able `$2000`-aligned run in the map, and
+the pool's `quantum = 64` is what lands the cut on `$6000` rather than the useless `$6800`
+(832 tiles would free an `$800`-aligned run no base register can encode). Design and pricing:
+`docs/superpowers/designs/2026-09-03-vram-replan-item0-design.md` §3 Option P.
+
+**Named region, not `[[free]]`** — the design's own §11 Q5 recommendation. An unnamed run is
+exactly how the BG band reserve reached zero (`docs/BUGS.md` TOOL-01). What is scarce here is
+the ADDRESS, not the tiles.
+
+**The three falsifiers, each verified against source rather than the design's prose:**
+- **RAM does not move.** `engine/ram.emp:227` (`Page_Frames: [PageFrame; PAGE_FRAMES_MAX]`)
+  and `:674` (`Page_Audit_Scratch: [u16; PAGE_FRAMES_MAX]`) are CAPACITY-sized;
+  `PAGE_FRAMES_MAX` is a literal 15 (`engine/system/constants.emp`). Every other `PAGE_FRAMES`
+  use in the tree is a same-width immediate operand in `engine/level/page_cache.emp`, plus one
+  `ensure` (`page_cache.emp:74`) that only gets slacker as the count falls. Measured
+  confirmation: all four ROMs are byte-for-byte the same LENGTH as their baselines.
+- **No fixture re-stamps.** Every region from tile 896 up keeps its base — `character_window`
+  (960, baked into the player's `art_tile` word and covered by the replay hash) included. The
+  freed tiles are all BELOW the dust windows.
+- **OJZ act 1 stays fully resident.** `OJZ_ACT_POOL_PAGES = 10`
+  (`games/sonic4/data/generated/ojz/act1/ojz_act_pool_manifest.emp:7`), and
+  `PAGE_FRAMES_CLAMP = PAGE_FRAMES - STRESS_EVICT * (…)` = 12 at `STRESS_EVICT = 0`, so
+  `Level_LoadArt`'s `cmpi.w #PAGE_FRAMES_CLAMP, d6 / bhi .streaming_pool`
+  (`engine/level/load_art.emp:88-91`) still latches `PageIn_Fully_Resident`. Headroom drops
+  from 4 pages to 2.
+
+**THE FLOOR, and it is hard.** The pool may not go below **640 tiles / 10 frames** until C4-3
+(the famine capacity fix) lands — the STRESS_EVICT famine is measured evidence that
+tight-cache mode has an open defect. Between that floor and the old 896 there were 256 legally
+spendable tiles; item 0 spent 128. **What remains is one more 128-tile run at `$5000`, which is
+`$1000`-aligned and therefore WINDOW-ONLY** (reg `$03`'s granule) — it can never be a second
+Plane A/B base. Spend it knowing that.
+
+**What is NOT bought.** No consumer is wired: nothing points a VDP base register at `$6000`
+yet, and `spare_nametable` deliberately carries no `register` field until items 10c/11b add
+one. Item 0 was the procurement, not the plumbing.
+
+**Byte cost, measured against the branch point (`b7f4bdeb`), all four shapes:** ROM LENGTHS
+UNCHANGED in every shape. `s4.bin` 4 bytes differ, `s4.debug.bin` 11, `demo.bin` 4,
+`demo.debug.bin` 11 — in each case one header-checksum byte at `$00018F` plus the
+`PAGE_FRAMES`-derived immediates in `page_cache.emp` (`$0E`→`$0C`, `$0D`→`$0B`,
+`$68`→`$58` = `(PAGE_FRAMES-1)*sizeof(PageFrame)`, 104 → 88). No symbol moves.
+
+#### RIDER, booked here and NOT done in this parcel: `gen_vram_map.py` accepts a nametable at an address no base register can encode
+
+Found by the design while validating Option P, and reproduced: the negative control — the pool
+at 832 with the spare nametable at base **832** (byte `$6800`, illegal for *every* plane and
+window base register) — reports `sonic4 OK`, exit 0. **`tools/gen_vram_map.py` does not check
+base-register alignment.** Its documented checks are bounds, coverage, overlap, quantum,
+reserve and authority (`tools/gen_vram_map.py:12-30`); alignment is not among them, and
+`register = "vdp:0x0N"` is *"documented in the map only"* at T0. The only wall today is
+`vdp_base_reg`'s `ensure`, **and it fires only if somebody routes the new region's base through
+it** — a base written by a runtime `move.w #$8200|…` bypasses it entirely.
+
+**The fix (~10 lines):** teach the generator the granule table — a region with
+`register = "vdp:0x02"`/`0x03`/`0x04`/`0x05`/`0x0D` must have `base * 32` a multiple of that
+register's granule. It duplicates `vdp_base_granule` in a second language ON PURPOSE (the
+two-runner pattern this doc already argues for at this exact register family).
+
+**Deliberately NOT done in item 0, and this is the reasoning, not an excuse:** item 0's region
+declares no `register` field, so an alignment check keyed on `register` would have had nothing
+to check — a gate with no population. **It rides the parcel that CONSUMES the region** (10c or
+11b), which is where a `register` field first appears and where the alignment decision is
+actually made. Red-first is available for free there: the design's 832 control is the negative
+case, and it is already known to pass today.
+
+### ⚠ ITEM 0 — the original booking (the prerequisite for 10 and 11 that was not on the list)
 
 **Measured, not assumed** (`engine/system/constants.emp:386-388, 498-499, 504`): Plane A
 nametable `$C000`, Plane B `$E000`, SAT `$B800` (relocated from `$D800` to free plane rows 48-63),
@@ -17271,7 +17357,7 @@ enable. Cheap to accept now; note it in the VRAM re-plan so the trade is made on
   1 → 3 → 5.
 - **Wave B — time-driven motion.** 7 (cheapest, proves the Step-5 term), then 8, then 4 — 4 last in
   its wave because its anchor mover needs a design pass the other two do not.
-- **Wave C — the expensive axes.** 6, then **item 0**, then 10, 11.
+- **Wave C — the expensive axes.** 6, then ~~**item 0**~~ (**DONE 2026-09-03**), then 10, 11.
 - **Wave D.** 9.
 
 *Refinement 1: his ordering lists item 4 in both the 1-5 group and the motion group. Read as motion,
@@ -17280,8 +17366,14 @@ because it is the only item that can return information without moving a byte.*
 
 ### Needs a ruling before it can START
 
-- **Item 0 / the VRAM re-plan** — his, and it is the only genuinely blocking one. Moving the art
-  pool or a plane is not reversible by a revert once content is baked against it.
+- ~~**Item 0 / the VRAM re-plan** — his, and it is the only genuinely blocking one. Moving the art
+  pool or a plane is not reversible by a revert once content is baked against it.~~ **RULED and
+  LANDED 2026-09-03** — the hub ruled Option P in the owner's place and
+  `parcel/item0-optionp-pool-768` executed it. The irreversibility worry did not apply to the
+  option taken: P moves no plane and re-stamps no fixture, it only shrinks the pool's ceiling,
+  and nothing is baked against the tiles it freed. **Still open from the same block: the
+  HUD = sprites ruling** — aeon has concurred, but item 10c depends on the window nametable
+  NOT becoming the HUD, and that is the owner's to confirm.
 - Item 6's stream register — a card, but NOT a blocker (see the row).
 - Item 4's P3 both-edges — on demand only.
 - Item 9's relatives — after the mechanism exists.

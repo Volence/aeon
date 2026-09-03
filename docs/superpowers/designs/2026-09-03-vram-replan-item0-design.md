@@ -1,6 +1,22 @@
 # Item 0 — the VRAM re-plan: where a spare nametable comes from
 
-**Status:** DESIGN DRAFT, decision-ready. No engine code, no `.emp` touched.
+**Status:** ✅ **RULED AND EXECUTED 2026-09-03.** The hub ruled Option P in the owner's place
+and `parcel/item0-optionp-pool-768` landed it. Everything §3 Option P predicted was
+re-verified against source during execution and held — including the three "what it does NOT
+cost" claims, all of which were re-read rather than taken from this document. The execution
+record, the measured byte cost in all four shapes, and the booked alignment rider are in
+`docs/DEFERRED_WORK.md`, "ITEM 0 — LANDED 2026-09-03 as Option P".
+
+Two accounting notes for anyone reading §3/§5 as a checklist, neither of them a defect in the
+design's reasoning: (1) §5's *"four `ensure`s and three generated artifacts"* counts the
+sonic4 artifacts (`games/sonic4/config/constants.emp`, `tools/vram_map.py`,
+`docs/generated/vram-map-sonic4.md`) and names demo's separately — the total that has to move
+is **five** files across two games, and only **two** `ensure`s carry the literal 896 (the two
+generated authority checks); the other two read the symbol and move for free. (2)
+`tools/test_gen_vram_map.py:164`'s `assert ns["POOL_TILE_CEILING"] == 960` is a **synthetic**
+TOML fixture, not a touch site — a naive grep flags it and it must NOT be edited.
+
+**Original status:** DESIGN DRAFT, decision-ready. No engine code, no `.emp` touched.
 **Branch:** `design/vram-replan`, based on `origin/master` `5cdc5c19`.
 **Unblocks:** EFFECTS-W1 items 10 and 11, and nothing else in the queue.
 **Author's constraint:** every number below is derived from a file at a cited line. Where a
