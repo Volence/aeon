@@ -368,6 +368,166 @@ ACT = act_names()
 OUT_DIR = ACT.out_dir()
 OVERRIDE = ACT.override_path()
 
+# ── THE MOTION AXIS (EFFECTS-W1 DoD item 8) ────────────────────────────────────
+#
+# THE ENGINE IS AXIS-AGNOSTIC AND ALWAYS WAS. This is the finding the item turned on,
+# so it is written down here rather than left to be re-derived: `BgAnim_Update` does
+# not know which way a band moves. It reads `step` off a scalar, picks bank `step & 7`,
+# and rotates the band's byte image by `(step >> 3) << col_shift`. Both fields are
+# UNITS, not axes:
+#
+#   col_shift  log2 of the ROTATION UNIT in bytes — the byte distance one whole-tile
+#              step of motion moves the image. The name says "column" because the
+#              horizontal arm shipped first; the engine only ever shifts by it.
+#   step_mask  the pattern PERIOD in px, minus 1 — the ring the step wraps on.
+#
+# The axis is therefore a property of two things the engine never sees: how the eight
+# phase banks were shifted, and what order the band's slots are placed in on the plane.
+# The engine's own legality condition is the same on both axes — `units * unit_bytes`
+# must equal `tile_count * 32`, which is what keeps its piece-1 length positive:
+#
+#   horizontal   cols units x (rows * 32) B  = cols * rows * 32   ✓
+#   vertical     rows units x (cols * 32) B  = cols * rows * 32   ✓
+#
+# So aurora ROADMAP row 55's open question — *"whether a vertical shift can reuse the
+# column rotate at all or needs a different DMA shape"* — is answered REUSE, EXACTLY,
+# with no engine byte moved. What forbade vertical until 2026-09-02 was not the DMA:
+# it was the two asserts this table replaces, which spelled the horizontal reading of
+# both fields as if it were the only one.
+#
+#   axis          unit_bytes   period_px   slot order within the band
+#   horizontal    rows * 32    cols * 8    column-major: slot base + c*rows + r
+#   vertical      cols * 32    rows * 8    ROW-major:    slot base + r*cols + c
+#
+# THE SLOT ORDER IS THE AUTHOR'S OBLIGATION, NOT SOMETHING THIS TOOL CAN CHECK. A
+# band's slot order lives in `layout` — which cell references which slot — and the
+# same 32 slots read as a scroll under one order and as a shimmer under the other.
+# Nothing here can tell them apart, because a band's slots are also deduped against
+# the static blob and appear at many cells. It is stated in
+# tools/EFFECTS_CONSUMER_CONTRACT.md §1.2 as a writer obligation.
+#
+# DIRECTION IS FIXED, and it is fixed by the mechanism rather than by choice. Bank k
+# is phase 0 translated k px toward DECREASING coordinate (this is measured, not
+# assumed: the live act's eight phases are exactly `phase0[y][(x + k) % W]`), and the
+# coarse rotate carries the same sign — slot i takes the content of slot i + one unit.
+# So an increasing driver scrolls a horizontal band LEFT and a vertical band UP. A
+# `direction` key (the engine would need to reverse the step on the ring) is booked in
+# docs/DEFERRED_WORK.md, not built.
+BAND_AXES = ('horizontal', 'vertical')
+
+#: Which band dimension supplies the rotation unit on each axis. The OTHER dimension
+#: supplies the period. Named so the refusals below can say which key an author must
+#: change, instead of "column bytes must be a power of 2" on a band that has no
+#: columns in the relevant sense.
+_AXIS_UNIT_TILES = {'horizontal': 'rows', 'vertical': 'cols'}
+_AXIS_PERIOD_TILES = {'horizontal': 'cols', 'vertical': 'rows'}
+
+
+def band_axis_geometry(a, where='band'):
+    """`(axis, unit_bytes, unit_shift, period_px)` for one authored band.
+
+    The single derivation of both axis-dependent record fields. `where` is a caller
+    label so a refusal names the band rather than only the rule.
+    """
+    axis = a.get('axis', 'horizontal')
+    if axis not in BAND_AXES:
+        raise AssertionError(
+            f"{where}: axis {axis!r} is not one of {' / '.join(map(repr, BAND_AXES))}. "
+            "The axis names which way the band's pattern translates; it is NOT the "
+            "`driver`, which names the scalar the step is read from and never an axis.")
+    unit_tiles = a[_AXIS_UNIT_TILES[axis]]
+    period_tiles = a[_AXIS_PERIOD_TILES[axis]]
+    unit_bytes = unit_tiles * 32
+    unit_shift = unit_bytes.bit_length() - 1
+    if (1 << unit_shift) != unit_bytes:
+        raise AssertionError(
+            f"{where}: a {axis} band rotates by whole "
+            f"{'columns' if axis == 'horizontal' else 'rows'} of "
+            f"{_AXIS_UNIT_TILES[axis]}*32 = {unit_bytes} B, and BgAnim_Update shifts by "
+            f"that distance with `lsl`, so it must be a power of two — "
+            f"{_AXIS_UNIT_TILES[axis]}={unit_tiles} is not. (The power-of-two key is "
+            f"`rows` on a horizontal band and `cols` on a vertical one; this band is "
+            f"{axis}.)")
+    return axis, unit_bytes, unit_shift, period_tiles * 8
+
+
+def validate_band_phase_axis(anims):
+    """Refuse a VERTICAL band whose phases were regenerated by a HORIZONTAL writer.
+
+    NARROW ON PURPOSE, AND ITS POPULATION IS EMPTY TODAY. No act in this tree
+    authors a vertical band, so this runs over nothing on a real build; it is a guard
+    for the first one, placed now because the failure it catches is silent.
+
+    THE FAILURE. `axis` is a declaration about art this tool did not make. Aurora is
+    the author of `anims` (owner decision d-14) and its shift-fill regenerates bank k
+    as phase 0 scrolled k px within the pattern WIDTH — horizontal by construction,
+    with the column-wise twin costed but NOT BUILT (aurora ROADMAP row 55). So the
+    reachable accident is precise: someone opens a vertical band in the editor, touches
+    it, and the phases come back HORIZONTAL while `axis: vertical` stays in the file.
+    The bake is clean, every other assert passes, and the band ships as a shimmer.
+    That is docs/BUGS.md TOOL-01's shape exactly, one axis over.
+
+    WHAT IS CHECKED, and it is deliberately not "phase k is a vertical roll". The
+    horizontal arm's shipped bands are NOT pure rolls — measured 2026-09-02: the
+    historical two-band act's colonnade and firefly banks are composites (the firefly
+    band is a brightness triangle, `forest_bg_gen.py` FF_TRI), and the engine's own
+    header comment celebrates layers that stay glued under the rotation. Demanding an
+    exact roll would outlaw the same trick on the vertical arm before anyone has used
+    it. So the check is the CONVERSE: a vertical band whose phases are exactly
+    horizontal translations, and are not also vertical ones, has been written by a
+    horizontal-only writer. Anything else is admitted.
+
+    NOT PROVEN BY THIS: that a vertical band's art is right, or that `layout` places
+    its slots row-major. Both are the writer's, and §1.2 of the consumer contract says
+    so.
+    """
+    for i, a in enumerate(anims):
+        if a.get('axis', 'horizontal') != 'vertical':
+            continue
+        cols, rows, phases = a['cols'], a['rows'], a['phases']
+        if len(phases) < 2:
+            continue
+        w, h = cols * 8, rows * 8
+        base = _band_pixels(phases[0], cols, rows)
+        h_rolls = all(_band_pixels(phases[k], cols, rows)
+                      == [[base[y][(x + k) % w] for x in range(w)] for y in range(h)]
+                      for k in range(len(phases)))
+        if not h_rolls:
+            continue
+        v_rolls = all(_band_pixels(phases[k], cols, rows)
+                      == [[base[(y + k) % h][x] for x in range(w)] for y in range(h)]
+                      for k in range(len(phases)))
+        if v_rolls:
+            continue                        # ambiguous art (uniform along one axis) — admit
+        raise AssertionError(
+            f'band {i} declares axis "vertical" but every phase is an exact HORIZONTAL '
+            f'translation of phase 0 ({w}px pattern) and none is a vertical one. Its '
+            'banks were regenerated by a horizontal-only writer (aurora\'s shift-fill; '
+            'the column-wise twin is aurora ROADMAP row 55 and is not built). Baking '
+            'this would ship a clean build whose band shimmers instead of scrolling. '
+            'Regenerate the phases along the declared axis, or change `axis` back to '
+            '"horizontal" if horizontal is what the band is meant to do.')
+
+
+def _band_pixels(bank, cols, rows):
+    """One phase bank as a `rows*8` x `cols*8` grid of palette indices.
+
+    Column-major slot order (slot `c*rows + r` is band cell `(c, r)`) — the order the
+    HORIZONTAL arm's writers use, which is the order this check has to read in to see
+    a horizontal roll at all. A vertical band's own slot order is row-major; that
+    difference is irrelevant here because the check only ever asks whether the art is
+    a horizontal translation, and a consistent relabelling of the slots cannot turn a
+    non-translation into one.
+    """
+    g = [[0] * (cols * 8) for _ in range(rows * 8)]
+    for i, t in enumerate(bank):
+        c, r = divmod(i, rows)
+        for y in range(8):
+            for x in range(8):
+                g[r * 8 + y][c * 8 + x] = t[y * 8 + x] & 0xF
+    return g
+
+
 def validate_band_coherence(anims, tiles):
     """Assert each band's slots really are the front of the static tile blob.
 
@@ -430,6 +590,7 @@ def main(act=None):
         anims = [data['anim']]                  # legacy single-band shape
     if anims:
         validate_band_coherence(anims, tiles)
+        validate_band_phase_axis(anims)
         assert len(anims) <= BGANIM_MAX_BANDS, (
             f'{len(anims)} animated bands authored but the engine sizes BgAnim_LastStep '
             f'for at most BGANIM_MAX_BANDS={BGANIM_MAX_BANDS}. Raising it here is NOT '
@@ -449,10 +610,15 @@ def main(act=None):
             cols, rows = a['cols'], a['rows']
             n = cols * rows
             pattern_px = a['pattern_px']
-            col_bytes = rows * 32
-            col_shift = col_bytes.bit_length() - 1
-            assert (1 << col_shift) == col_bytes, 'column bytes must be a power of 2'
-            assert pattern_px == cols * 8, 'pattern width must equal cols*8'
+            # Both record fields are axis-derived; see the BAND_AXES block above for
+            # why the engine needs no change to read either one.
+            axis, _unit_bytes, col_shift, period_px = band_axis_geometry(
+                a, f'band {len(bands)}')
+            assert pattern_px == period_px, (
+                f'band {len(bands)}: a {axis} band\'s pattern period is '
+                f'{_AXIS_PERIOD_TILES[axis]}*8 = {period_px} px, but `pattern_px` says '
+                f'{pattern_px}. (`pattern_px` is the period ALONG THE AXIS — it is the '
+                f"band's width when horizontal and its HEIGHT when vertical.)")
             slot_base = a.get('slot_base', slot_cursor)
             assert slot_base == slot_cursor, 'bands must pack contiguously from slot 0'
             slot_cursor += n
@@ -466,6 +632,7 @@ def main(act=None):
                             lo = t[row*8 + col*2 + 1] & 0xF
                             banks.append((hi << 4) | lo)
             bands.append({
+                'axis': axis,
                 'driver': DRIVERS[a.get('driver', 'camera_x')],
                 'driver_name': a.get('driver', 'camera_x'),
                 'rate_shift': a.get('rate_shift', 2),
@@ -516,8 +683,14 @@ def main(act=None):
             f.write(f'pub data BgAnim_Table: u16 = {len(bands)}   // band count\n')
             for i, b in enumerate(bands):
                 vram_dest = BG_TILE_BASE_VRAM + b['slot_base'] * 32
+                # The axis and its direction are named here because the record cannot
+                # carry them: `col_shift` and `step_mask` are units, and a reader of
+                # the emitted table has no other way to tell a leftward band from an
+                # upward one. See the BAND_AXES block for why direction is fixed.
                 f.write(f'// band {i}: {b["tile_count"]} tiles at BG slot {b["slot_base"]}, '
-                        f'driver {b["driver_name"]}, 1px per {1 << b["rate_shift"]} units\n')
+                        f'driver {b["driver_name"]}, {b["axis"]} '
+                        f'(scrolls {"left" if b["axis"] == "horizontal" else "up"}), '
+                        f'1px per {1 << b["rate_shift"]} units\n')
                 f.write(f'data _BgAnim_Band{i}_hdr: [u16; 6] = '
                         f'[{b["driver"]}, {b["rate_shift"]}, {b["step_mask"]}, '
                         f'{b["col_shift"]}, {b["tile_count"]}, ${vram_dest:X}]\n')

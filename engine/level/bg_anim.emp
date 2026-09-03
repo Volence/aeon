@@ -2,16 +2,31 @@
 // (HCZ-pillar technique, modeled on S3K's AnimateTiles_HCZ2). Table-driven:
 // up to BGANIM_MAX_BANDS independent animated strips per act.
 //
-// Each band is a horizontally-periodic pattern held in a contiguous
-// range of BG tile slots, column-major (a pattern column's tiles are
-// contiguous in VRAM). The engine translates the pattern by 1 pixel
-// per (1 << rate_shift) units of the band's driver value:
+// Each band is a periodic pattern held in a contiguous range of BG tile
+// slots. The engine translates the pattern by 1 pixel per (1 << rate_shift)
+// units of the band's driver value:
 //   fine  (step & 7)  — selects one of 8 art banks pre-shifted 1px each
-//   coarse (step >> 3) — whole-column rotation done by splitting the
+//   coarse (step >> 3) — whole-unit rotation done by splitting the
 //                        bank DMA into two wrapped pieces (S3K's
 //                        word_27AB8 trick), no extra art needed
-// Composite rule: art layers inside the banks whose x-period divides
-// 8px are invariant under the rotation and stay glued to the plane
+//
+// THIS PROC IS AXIS-AGNOSTIC AND ALWAYS WAS — read this before concluding
+// otherwise from a field name (a whole item was priced on the belief that
+// vertical motion needed a different DMA shape; it does not). Nothing below
+// knows which way a band moves. `col_shift` is log2 of the ROTATION UNIT in
+// bytes and `step_mask` is the pattern PERIOD in px minus 1; the axis lives
+// entirely in how the eight banks were pre-shifted and in what order the
+// band's slots are placed on the plane, neither of which reaches this file.
+// Both axes satisfy the one condition the rotate needs — that
+// units * unit_bytes == tile_count * 32, which is what keeps piece 1 positive:
+//   horizontal  cols units x (rows * 32) B, slots column-major (c*rows + r)
+//   vertical    rows units x (cols * 32) B, slots ROW-major    (r*cols + c)
+// An increasing driver scrolls a horizontal band LEFT and a vertical band UP
+// (bank k is phase 0 moved k px toward decreasing coordinate, and the coarse
+// rotate carries the same sign). tools/inject_editor_bg.py's BAND_AXES block
+// is the authority on the emitter side and derives both fields from `axis`.
+// Composite rule: art layers inside the banks whose period ALONG THE AXIS
+// divides 8px are invariant under the rotation and stay glued to the plane
 // (or may slide at an integer px/step rate within their own wrap);
 // non-periodic layers translate at the full step rate.
 //
@@ -27,8 +42,10 @@
 //                         and playback (BG anims now freeze during lag frames, the
 //                         intended behavior; audit 2026-08-02)
 //   $02 dc.w rate_shift   step = driver_value >> rate_shift
-//   $04 dc.w step_mask    pattern width in px, minus 1
-//   $06 dc.w col_shift    log2 of column stride in bytes (rows*32)
+//   $04 dc.w step_mask    pattern period ALONG THE AXIS in px, minus 1
+//                         (cols*8 horizontal, rows*8 vertical)
+//   $06 dc.w col_shift    log2 of the ROTATION UNIT in bytes
+//                         (rows*32 horizontal, cols*32 vertical)
 //   $08 dc.w tile_count
 //   $0A dc.w vram_dest    VRAM byte address of the band's first slot
 //   $0C dc.l bank0..bank7 pre-shifted art, 1px per bank
@@ -67,8 +84,11 @@ struct bganim_band {
     driver:     u16,                // 0 = Camera_X, 1 = Camera_Y, 2 = Logic_Tick (low word,
                                     // lag-immune — record/playback phase can't diverge)
     rate_shift: u16,                // step = driver_value >> rate_shift
-    step_mask:  u16,                // pattern width in px, minus 1
-    col_shift:  u16,                // log2 of column stride in bytes (rows*32)
+    step_mask:  u16,                // pattern period along the axis in px, minus 1
+                                    // (cols*8 horizontal, rows*8 vertical)
+    col_shift:  u16,                // log2 of the ROTATION UNIT in bytes — the name is
+                                    // historical (the horizontal arm shipped first);
+                                    // rows*32 horizontal, cols*32 vertical
     tile_count: u16,
     vram_dest:  VramAddr,           // VRAM byte address of the band's first slot
     banks:      [*u8; BGANIM_BANKS], // bank0..bank7 pre-shifted art, 1px per bank
@@ -194,15 +214,15 @@ pub proc BgAnim_Update () clobbers(d0-d7/a1-a4) {
         add.w   d1, d1                          // fine phase × 4 (pointer table)
         move.l  BGANIM_COL_SHIFT_TO_BANKS(a3,d1.w), d6  // d6 = bank base
         // -- coarse: whole-column rotation in bytes --
-        lsr.w   #3, d0                          // step / BGANIM_BANKS → whole columns
-        move.w  (a3)+, d1                       // col_shift
+        lsr.w   #3, d0                          // step / BGANIM_BANKS → whole units
+        move.w  (a3)+, d1                       // col_shift = log2(unit bytes)
         lsl.w   d1, d0                          // d0 = shift bytes
         move.w  (a3)+, d3                       // tile_count
         lsl.w   #TILE_BYTES_SHIFT, d3           // total bytes
         move.w  (a3)+, d2                       // vram dest
         sub.w   d0, d3                          // d3 = piece 1 length — positive only under the
-                                                // emitter invariants (step_mask = 8*columns-1,
-                                                // tile_count = columns*rows); a drifted table row
+                                                // emitter invariant units*unit_bytes ==
+                                                // tile_count*32 (true on both axes); a drifted row
                                                 // would send QueueDMA length <= 0 = a 128KB spray
         assert.w d3, gt, #0                     // DEBUG-ONLY backstop for that drift class
         move.w  d0, -(sp)                       // piece 2 length (= shift bytes)

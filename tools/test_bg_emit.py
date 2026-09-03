@@ -358,6 +358,34 @@ def ceiling_lifted():
         inject_editor_bg.BGANIM_SECTION_CEILING = saved
 
 
+def emit_over_document(data):
+    """Run the REAL `inject_editor_bg.main()` over `data` into a temp dir.
+
+    Returns `(emitted bg_anim.emp text, bg_anim_banks.bin bytes)`. One authority for
+    "drive the emitter", shared by the spelling gate and the motion-axis gate so a
+    change to how the emitter is invoked cannot leave one of them exercising a
+    different path from the other. The size ceiling is lifted for the duration —
+    neither gate is asking whether the section fits (see `ceiling_lifted`).
+    """
+    saved = (inject_editor_bg.OUT_DIR, inject_editor_bg.OVERRIDE)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        override = os.path.join(tmpdir, "editor_bg_override.json")
+        with open(override, "w") as f:
+            json.dump(data, f)
+        try:
+            inject_editor_bg.OUT_DIR = tmpdir
+            inject_editor_bg.OVERRIDE = override
+            with ceiling_lifted():
+                inject_editor_bg.main()
+        finally:
+            inject_editor_bg.OUT_DIR, inject_editor_bg.OVERRIDE = saved
+        with open(os.path.join(tmpdir, "bg_anim.emp"), encoding="utf-8") as f:
+            emp = f.read()
+        with open(os.path.join(tmpdir, "bg_anim_banks.bin"), "rb") as f:
+            banks = f.read()
+    return emp, banks
+
+
 class TestBgAnimEmission(unittest.TestCase):
     """Drives inject_editor_bg's ANIMATED arm and gates the symbol spelling it emits.
 
@@ -421,23 +449,7 @@ class TestBgAnimEmission(unittest.TestCase):
 
     def _emit(self, data):
         """Run the real `main()` over `data` into a temp dir; return (emp_text, banks)."""
-        saved = (inject_editor_bg.OUT_DIR, inject_editor_bg.OVERRIDE)
-        with tempfile.TemporaryDirectory() as tmpdir:
-            override = os.path.join(tmpdir, "editor_bg_override.json")
-            with open(override, "w") as f:
-                json.dump(data, f)
-            try:
-                inject_editor_bg.OUT_DIR = tmpdir
-                inject_editor_bg.OVERRIDE = override
-                with ceiling_lifted():          # spelling gate, not the placement one
-                    inject_editor_bg.main()
-            finally:
-                inject_editor_bg.OUT_DIR, inject_editor_bg.OVERRIDE = saved
-            with open(os.path.join(tmpdir, "bg_anim.emp"), encoding="utf-8") as f:
-                emp = f.read()
-            with open(os.path.join(tmpdir, "bg_anim_banks.bin"), "rb") as f:
-                banks = f.read()
-        return emp, banks
+        return emit_over_document(data)
 
     def _expected_bank_offsets(self, anims):
         """Recompute the phase offsets from the FORMAT, not from the emitter's expression.
@@ -549,6 +561,287 @@ class TestBgAnimEmission(unittest.TestCase):
                 inject_editor_bg.OUT_DIR, inject_editor_bg.OVERRIDE = saved
             with open(os.path.join(tmpdir, "bg_anim.emp"), encoding="utf-8") as f:
                 return f.read(), None
+
+
+class TestBgAnimMotionAxis(unittest.TestCase):
+    """The band record's two axis-dependent fields, on BOTH axes (DoD item 8).
+
+    THE CLAIM THIS GATE HOLDS UP. `BgAnim_Update` never learns which way a band
+    moves: it rotates the band's byte image by `(step >> 3) << col_shift` and masks
+    the step with `step_mask`. Those are a UNIT and a PERIOD, not an axis, and the
+    horizontal and vertical readings of them differ only in which band dimension
+    supplies which. So a vertical band is emitted by the same emitter into the same
+    44-byte record and consumed by the same unchanged proc — the assertions below are
+    what keep that true, because a later edit that re-hardcodes the horizontal
+    reading would go unnoticed by every other test in this file (all of them predate
+    the axis and every fixture they use is horizontal).
+
+    EXPECTATIONS ARE DERIVED FROM THE GEOMETRY, never copied from the emitter. Each
+    test recomputes `unit_bytes`/`period_px` from `cols`/`rows` and the documented
+    rule, so an emitter that swapped the two would fail rather than agree with a
+    pinned number that was itself read out of the emitter.
+
+    THE ART IS REAL where it can be. Phase 0 of every band built here is a cut of the
+    historical two-band act's own tiles (`TestBgAnimEmission.HISTORICAL`); only the
+    per-phase transform is synthetic, and it has to be, because no writer in either
+    repo can produce vertical phases yet (aurora ROADMAP row 55's column-wise
+    shift-fill is costed and not built).
+    """
+
+    AEON = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+    @classmethod
+    def setUpClass(cls):
+        blob = subprocess.run(
+            ["git", "cat-file", "blob", TestBgAnimEmission.HISTORICAL],
+            cwd=cls.AEON, capture_output=True)
+        cls.fixture = json.loads(blob.stdout) if blob.returncode == 0 else None
+        cls.fixture_err = blob.stderr.decode("utf-8", "replace").strip()
+
+    # ---- fixture construction, from the FORMAT ------------------------------
+
+    def _doc(self, band):
+        """A one-band override document carrying `band`, on the historical act's art.
+
+        `layout`/`tiles` come from the real fixture so every check `main()` makes
+        before it reaches the band (tile capacity, nametable width, coherence of the
+        band against the front of the static blob) is satisfied by real data.
+        """
+        if self.fixture is None:
+            self.fail(
+                "could not read the two-band fixture blob "
+                f"{TestBgAnimEmission.HISTORICAL} from git "
+                f"(`git cat-file blob` said: {self.fixture_err or '<no stderr>'}). "
+                "NOTHING WAS MEASURED — no band reached the emitter in this session, "
+                "so every assertion in this class would pass vacuously. "
+                "`git fetch --unshallow` is the likely fix; do not convert this to a "
+                "skip.")
+        d = copy.deepcopy(self.fixture)
+        d["anims"] = [band]
+        return d
+
+    @staticmethod
+    def _grid(bank, cols, rows):
+        """A phase bank as a `rows*8` x `cols*8` pixel grid, column-major slot order.
+
+        Written out here rather than imported from the emitter so the test reads the
+        format independently of the code under test.
+        """
+        g = [[0] * (cols * 8) for _ in range(rows * 8)]
+        for i, t in enumerate(bank):
+            c, r = divmod(i, rows)
+            for y in range(8):
+                for x in range(8):
+                    g[r * 8 + y][c * 8 + x] = t[y * 8 + x] & 0xF
+        return g
+
+    @staticmethod
+    def _bank(grid, cols, rows):
+        """The inverse of `_grid`: a pixel grid back into `cols*rows` 64-px tiles."""
+        bank = []
+        for i in range(cols * rows):
+            c, r = divmod(i, rows)
+            bank.append([grid[r * 8 + y][c * 8 + x]
+                         for y in range(8) for x in range(8)])
+        return bank
+
+    def _band(self, cols, rows, axis, roll, pattern_px=None, **kw):
+        """One band whose 8 phases are `phase0` rolled `k` px along `roll`.
+
+        `roll` is 'h', 'v' or None (None = a composite: a per-phase brightness step,
+        which is what the shipped horizontal bands actually are — see
+        `validate_band_phase_axis`'s docstring).
+        """
+        n = cols * rows
+        base = self._grid(self.fixture["tiles"][:n], cols, rows)
+        w, h = cols * 8, rows * 8
+        phases = []
+        for k in range(8):
+            if roll == "h":
+                g = [[base[y][(x + k) % w] for x in range(w)] for y in range(h)]
+            elif roll == "v":
+                g = [[base[(y + k) % h][x] for x in range(w)] for y in range(h)]
+            else:
+                g = [[(base[y][x] + k) & 0xF for x in range(w)] for y in range(h)]
+            phases.append(self._bank(g, cols, rows))
+        band = {"cols": cols, "rows": rows, "axis": axis,
+                "pattern_px": pattern_px if pattern_px is not None
+                else (cols * 8 if axis == "horizontal" else rows * 8),
+                "driver": "timer", "rate_shift": 3, "slot_base": 0, "phases": phases}
+        band.update(kw)
+        return band
+
+    def _record(self, band):
+        """Emit `band` and return its six header words, parsed out of the module."""
+        emp, _ = emit_over_document(self._doc(band))
+        m = re.search(r"data _BgAnim_Band0_hdr: \[u16; 6\] = \[([^\]]+)\]", emp)
+        self.assertIsNotNone(
+            m, "no band-0 header row in the emitted module — the emitter took the "
+               "disabled-stub branch and nothing about the axis was measured")
+        words = [int(v.strip().lstrip("$"), 16 if v.strip().startswith("$") else 10)
+                 for v in m.group(1).split(",")]
+        keys = ("driver", "rate_shift", "step_mask", "col_shift", "tile_count",
+                "vram_dest")
+        return dict(zip(keys, words)), emp
+
+    # ---- the two derivations ------------------------------------------------
+
+    def test_the_default_axis_is_horizontal(self):
+        """A band with no `axis` key keeps the pre-2026-09-02 derivation exactly.
+
+        The anti-vacuous row for every existing document and for the shipped act: the
+        axis is opt-in, so `rows` still supplies the unit and `cols` still supplies
+        the period when nobody says otherwise.
+        """
+        band = self._band(8, 4, "horizontal", "h")
+        del band["axis"]
+        rec, _ = self._record(band)
+        self.assertEqual(rec["col_shift"], (4 * 32).bit_length() - 1)   # rows*32 = 128
+        self.assertEqual(rec["step_mask"], 8 * 8 - 1)                   # cols*8  = 64
+        self.assertEqual(rec["tile_count"], 32)
+
+    def test_a_vertical_band_takes_its_unit_from_cols_and_its_period_from_rows(self):
+        """The whole item, in one record: the two fields swap which dimension feeds them."""
+        cols, rows = 8, 4
+        rec, _ = self._record(self._band(cols, rows, "vertical", "v"))
+        self.assertEqual(
+            rec["col_shift"], (cols * 32).bit_length() - 1,
+            "a vertical band rotates by whole ROWS of cols*32 bytes; col_shift still "
+            "reads as rows*32, so the emitter is deriving the unit from the wrong "
+            "dimension")
+        self.assertEqual(
+            rec["step_mask"], rows * 8 - 1,
+            "a vertical band's pattern period is its HEIGHT (rows*8); step_mask still "
+            "reads as the width")
+        self.assertEqual(rec["tile_count"], cols * rows)
+
+    def test_the_two_axes_differ_in_the_record_on_the_same_geometry(self):
+        """Guards against an emitter that ignores `axis` and happens to agree.
+
+        8x4 is deliberately non-square: horizontal gives (unit 128, period 64) and
+        vertical gives (unit 256, period 32), so a record that is the same on both
+        axes proves the key was not read.
+        """
+        h, _ = self._record(self._band(8, 4, "horizontal", "h"))
+        v, _ = self._record(self._band(8, 4, "vertical", "v"))
+        self.assertNotEqual((h["col_shift"], h["step_mask"]),
+                            (v["col_shift"], v["step_mask"]))
+
+    def test_the_rotate_is_legal_on_both_axes(self):
+        """The one condition `BgAnim_Update` actually needs, read off the emitted record.
+
+        The coarse rotate walks `period_px/8` units of `1 << col_shift` bytes over an
+        image of `tile_count * 32` bytes. If the product overshoots, the proc's piece-1
+        length (`tile_count*32 - shift_bytes`) goes <= 0 and `QueueDMA_Deferrable` is
+        handed a length that sprays 128 KB. This is the assertion that says a vertical
+        band is safe for the UNCHANGED proc — it is not about the emitter's arithmetic
+        but about the invariant the engine's own assert.w backstops.
+        """
+        for axis, roll in (("horizontal", "h"), ("vertical", "v")):
+            with self.subTest(axis=axis):
+                rec, _ = self._record(self._band(8, 4, axis, roll))
+                units = (rec["step_mask"] + 1) // 8
+                self.assertEqual(units * (1 << rec["col_shift"]),
+                                 rec["tile_count"] * 32,
+                                 f"{axis}: the rotation ring does not cover the band "
+                                 "image exactly, so piece 1 can go non-positive")
+
+    def test_the_emitted_comment_names_the_axis_and_its_direction(self):
+        """The record cannot carry the axis; the generated module's comment must.
+
+        A reader of `data/generated/.../bg_anim.emp` sees six numbers. Which way the
+        band moves is not among them and is not recoverable from them.
+        """
+        _, emp = self._record(self._band(8, 4, "vertical", "v"))
+        self.assertIn("vertical (scrolls up)", emp)
+        _, emp = self._record(self._band(8, 4, "horizontal", "h"))
+        self.assertIn("horizontal (scrolls left)", emp)
+
+    # ---- the refusals -------------------------------------------------------
+
+    def _refusal(self, band):
+        with self.assertRaises(AssertionError) as cm:
+            self._record(band)
+        return str(cm.exception)
+
+    def test_an_unknown_axis_is_refused_naming_both_legal_spellings(self):
+        msg = self._refusal(self._band(8, 4, "up", "v", pattern_px=32))
+        self.assertIn("'horizontal'", msg)
+        self.assertIn("'vertical'", msg)
+
+    def test_the_power_of_two_key_MOVES_with_the_axis_rather_than_doubling(self):
+        """cols must be a power of two on a vertical band — and rows need not be.
+
+        Both halves matter. The first is the new constraint; the second is what says
+        the emitter MOVED the constraint instead of demanding both, which would refuse
+        bands that the engine runs perfectly well.
+        """
+        msg = self._refusal(self._band(3, 4, "vertical", "v"))
+        self.assertIn("cols", msg)
+        rec, _ = self._record(self._band(4, 3, "vertical", "v"))
+        self.assertEqual(rec["col_shift"], (4 * 32).bit_length() - 1)
+        self.assertEqual(rec["step_mask"], 3 * 8 - 1)
+
+    def test_rows_is_still_the_power_of_two_key_on_a_horizontal_band(self):
+        """The converse control: the old constraint did not simply disappear."""
+        msg = self._refusal(self._band(4, 3, "horizontal", "h"))
+        self.assertIn("rows", msg)
+
+    def test_pattern_px_is_the_period_ALONG_THE_AXIS(self):
+        """A vertical band declaring its WIDTH is refused, and the message says which."""
+        msg = self._refusal(self._band(8, 4, "vertical", "v", pattern_px=64))
+        self.assertIn("32", msg)
+        self.assertIn("HEIGHT", msg)
+
+    # ---- the horizontal-writer guard ----------------------------------------
+
+    def test_a_vertical_band_regenerated_by_a_horizontal_writer_is_refused(self):
+        """The silent failure this guard exists for, reproduced exactly.
+
+        Aurora's shift-fill derives bank k as phase 0 scrolled k px within the pattern
+        WIDTH — measured on the live act, whose eight phases are exactly
+        `phase0[y][(x + k) % W]`. Run over a band the author declared vertical, that
+        produces a clean bake and a band that shimmers instead of scrolling.
+        """
+        msg = self._refusal(self._band(8, 4, "vertical", "h", pattern_px=32))
+        self.assertIn("HORIZONTAL", msg)
+        self.assertIn("row 55", msg)
+
+    def test_the_guard_does_not_outlaw_composite_vertical_art(self):
+        """Anti-vacuous, and the reason the guard is a converse rather than a roll check.
+
+        The shipped horizontal bands are NOT pure rolls (the historical act's firefly
+        band is a brightness triangle, `forest_bg_gen.py` FF_TRI). Demanding that a
+        vertical band's phases BE vertical rolls would forbid the same technique on
+        the new axis before anyone has used it, so the guard must admit this.
+        """
+        rec, _ = self._record(self._band(8, 4, "vertical", None))
+        self.assertEqual(rec["step_mask"], 4 * 8 - 1)
+
+    def test_the_guard_admits_art_that_is_a_roll_on_BOTH_axes(self):
+        """Art uniform along one axis is legitimately ambiguous; refusing it would be wrong.
+
+        A band whose phase 0 is a single colour is a horizontal roll of itself and a
+        vertical one. The guard's job is to catch art that is horizontal AND NOT
+        vertical, so this must pass.
+        """
+        band = self._band(8, 4, "vertical", "v")
+        flat = [[7] * 64 for _ in range(32)]
+        band["phases"] = [copy.deepcopy(flat) for _ in range(8)]
+        doc = self._doc(band)
+        doc["tiles"] = copy.deepcopy(flat) + doc["tiles"][32:]
+        emp, _ = emit_over_document(doc)
+        self.assertIn("vertical (scrolls up)", emp)
+
+    def test_the_guard_leaves_horizontal_bands_alone(self):
+        """The shipped act's own phases ARE exact horizontal rolls and must stay legal.
+
+        Measured 2026-09-02 on games/sonic4/data/editor_bg_override.json. If the guard
+        ever ran on horizontal bands it would still pass here — which is exactly why
+        this row is paired with the composite row above rather than standing alone.
+        """
+        rec, _ = self._record(self._band(8, 4, "horizontal", "h"))
+        self.assertEqual(rec["step_mask"], 8 * 8 - 1)
 
 
 # ---------------------------------------------------------------------------
