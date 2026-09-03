@@ -36,6 +36,7 @@ use engine.level.parallax_dsl.*
 use games.sonic4.scene_registry.{SceneCfg5, lower5}
 use engine.effects.palette.{pal_cycle_channel, PalCycleScript1}
 use engine.effects.palette.{pal_variant}
+use engine.effects.raster.{RasterRampProgram, raster_ramp_program, fp16, OP_RUN_RAMP, RASTER_ARM_EVERY_LINE, RASTER_ARM_PARK, RASTER_OPS_END, raster_arm}
 
 // ---- deform tables, deduped by content across the act ----
 // ---- the authored scenes, through the REAL constructors ----
@@ -152,6 +153,15 @@ const EditorRasterSrc_OJZ_Act1_ojz_sec5_showcase = compose([
     band(top: 32, bot: 80, on: stream_cram(addr: 80, colours: [3748]), sh: 0),
 ])
 pub data EditorRaster_OJZ_Act1_ojz_sec5_showcase: [u16; raster_words(EditorRasterSrc_OJZ_Act1_ojz_sec5_showcase)] = raster_program(EditorRasterSrc_OJZ_Act1_ojz_sec5_showcase)
+
+ensure((Game.SCANLINE_CAPS & CAP_DENSE_TIER) != 0,
+       "EditorRaster_OJZ_Act1_ramp_probe: this game's Game.SCANLINE_CAPS ({Game.SCANLINE_CAPS}) does not declare CAP_DENSE_TIER — EFFECTS-W1 item 6 gates construction of a dense-tier RAMP program on that bit (engine/level/scene_dsl.emp), so a game must declare intent to spend the dense tier's ramp axis before it may author one. Add CAP_DENSE_TIER to this game's SCANLINE_CAPS in its config/game.emp")
+pub data EditorRaster_OJZ_Act1_ramp_probe: RasterRampProgram = raster_ramp_program(
+    top:   128,
+    lines: 64,
+    cmd:   vdp_comm(2, VdpTarget.Vsram, VdpOp.Write),
+    start: fp16(0, 0),
+    step:  fp16(1, 128))
 
 // ---- AURORA-AUTHORED PALETTE CYCLES AND VARIANTS, through the REAL constructors ----
 //

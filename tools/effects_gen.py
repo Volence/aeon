@@ -282,8 +282,32 @@ PRESET_SUBDIR = "presets"
 # `docs/superpowers/specs/2026-09-03-anchor-authoring-key-shape.md` §2 as ruled by the hub in
 # `empyrean docs/AURORA_EFFECTS_SCHEMA.md` §7.3, and the SCHEMA is the authority where the
 # two differ — §7.3 is STRICTER than the aeon artifact on purpose (see PATCH_* below).
+# `ramp` joined on 2026-09-03 too (EFFECTS-W1 DoD item 6, step 4 of four — the LAST of the
+# four keys this file's own step-1 artifact
+# (docs/superpowers/specs/2026-09-03-item6-dense-perline-vscroll-key-shape.md) named as
+# blocked). Shape and the exactly-one-of-bands-or-ramp rule are
+# `contract/schema/aurora-effects-preset.schema.json` §`ramp`/its top-level `oneOf`
+# (empyrean docs/AURORA_EFFECTS_SCHEMA.md §7.4) — the SCHEMA is the authority, not the
+# artifact's §5, which that page states outright is a proposal only.
 PRESET_KEYS = frozenset({"schema", "id", "bands", "cycles", "variants",
-                         "patch_world_ys", "patch_motion"})
+                         "patch_world_ys", "patch_motion", "ramp"})
+
+# `ramp`'s own shape (contract §7.4, `$defs/ramp` / `$defs/ramp_target` / `$defs/fp16`).
+# SHAPE ONLY, this file's standing posture: every numeric bound named in the schema
+# (top 3..222, lines 1..220, addr 0..78, fp16 whole -512..511 / frac256 0..255) is ALSO an
+# engine `ensure` — `raster_ramp_program()`'s own guards for top/lines/addr
+# (engine/effects/raster.emp:631/632/640-641/654-655) and `fp16()`'s own two guards for
+# whole/frac256 (:685-686, now ALSO restated as a direct start/step bound inside
+# raster_ramp_program itself — EFFECTS-W1 item 6 step 4's engine-side gap close) — so
+# restating any of them here would be the second copy that drifts (`bands`' top/bot
+# precedent: TestBandValuesAreNotValidatedHere). What IS this file's job, because nothing
+# else checks it: the OBJECT SHAPE (closed keys, all five required, the single `vsram` arm,
+# `start`/`step` as fp16 OBJECTS and never a raw integer) and the top-level exactly-one-of
+# rule, both structural facts the schema's `oneOf`/`unevaluatedProperties` encode and this
+# generator is the actual BUILD GATE for, since no schema validator runs in this build.
+RAMP_TARGET_ARM = "vsram"
+RAMP_KEYS = ("top", "lines", "target", "start", "step")
+FP16_KEYS = ("whole", "frac256")
 
 # `name` for the scene files' reason: a writer-owned display label.
 PRESET_IGNORED_KEYS = frozenset({"name"})
@@ -662,35 +686,58 @@ def load_preset(path: str) -> dict:
     _check_keys(path, preset, PRESET_KEYS, PRESET_IGNORED_KEYS, PRESET_REFUSED_KEYS,
                 "preset")
 
-    if "bands" not in preset:
-        _refuse(path, "no `bands` key. A preset document must carry `bands` (hub ruling "
-                      "Q1a: `required` is [schema, id, bands]); `cycles` and `variants` "
-                      "are optional channels beside it, and a cycle-only or variant-only "
-                      "document is a future contract change. The one name empyrean's "
-                      "schema doc §7 still reserves (`fires`) is refused by name above.")
-    bands = preset["bands"]
-    if not isinstance(bands, list):
-        _refuse(path, f"`bands` must be a list, got {type(bands).__name__}")
-    if not bands:
-        _refuse(path, "`bands` is empty. A preset document with no bands would lower to "
-                      "`compose([])` and then to an EMPTY raster program, which the "
-                      "engine refuses one layer down with a message about `compose` "
-                      "rather than about this file — and a document that emits a "
-                      "zero-band program is a document that should not exist. If the "
-                      "intent is 'no raster here', delete the file.")
+    # EXACTLY ONE OF `bands` OR `ramp` (contract §7.4's top-level `oneOf`, hub ruling: the
+    # strict side, widened only when a combinator ships — see RAMP_KEYS' banner above).
+    # Both lower into the SAME EffectsPreset.ep_raster channel and the engine has no
+    # combinator that mixes a sparse fire list with a dense run, so this is a real
+    # structural fact and not a style preference — refused here BECAUSE this file is the
+    # actual build gate (no schema validator runs against these documents in this repo).
+    has_bands, has_ramp = "bands" in preset, "ramp" in preset
+    if has_bands and has_ramp:
+        _refuse(path, "carries both `bands` and `ramp`. Exactly one raster program per "
+                      "preset document (contract §7.4's top-level `oneOf`): both lower "
+                      "into the same EffectsPreset.ep_raster channel and the engine has "
+                      "no combinator that mixes a sparse fire list with a dense run. Drop "
+                      "one — a future contract change may widen this once a combinator "
+                      "exists; today the schema refuses the pair on purpose (a schema can "
+                      "widen later and cannot narrow once a consumer has emitted the wider "
+                      "shape).")
+    if not has_bands and not has_ramp:
+        _refuse(path, "no `bands` and no `ramp` key. A preset document must carry exactly "
+                      "one raster program (hub ruling Q1a for `bands`; contract §7.4's "
+                      "`oneOf` for the pair): `bands` for the sparse fire-list tier, or "
+                      "`ramp` for the dense per-line vertical scroll (EFFECTS-W1 item 6). "
+                      "`cycles` and `variants` are optional channels beside either one, "
+                      "and a cycle-only or variant-only document is a future contract "
+                      "change. The one name empyrean's schema doc §7 still reserves "
+                      "(`fires`) is refused by name above.")
 
-    for i, band in enumerate(bands):
-        if not isinstance(band, dict):
-            _refuse(path, f"bands[{i}] must be an object, got {type(band).__name__}")
-        _check_keys(path, band, frozenset(BAND_KEYS), frozenset(), None, f"bands[{i}]")
-        for required in BAND_KEYS:
-            if required not in band:
-                _refuse(path, f"bands[{i}] has no `{required}`. A band is exactly "
-                              f"{', '.join(BAND_KEYS)} — all four, none with a default. "
-                              f"`sh` has none in the engine either: raster_dsl.emp's "
-                              f"`region_boundary` note is that whether an effect changes "
-                              f"a mode register is worth stating at the call site.")
+    if has_bands:
+        bands = preset["bands"]
+        if not isinstance(bands, list):
+            _refuse(path, f"`bands` must be a list, got {type(bands).__name__}")
+        if not bands:
+            _refuse(path, "`bands` is empty. A preset document with no bands would lower "
+                          "to `compose([])` and then to an EMPTY raster program, which "
+                          "the engine refuses one layer down with a message about "
+                          "`compose` rather than about this file — and a document that "
+                          "emits a zero-band program is a document that should not exist. "
+                          "If the intent is 'no raster here', delete the file.")
 
+        for i, band in enumerate(bands):
+            if not isinstance(band, dict):
+                _refuse(path, f"bands[{i}] must be an object, got {type(band).__name__}")
+            _check_keys(path, band, frozenset(BAND_KEYS), frozenset(), None, f"bands[{i}]")
+            for required in BAND_KEYS:
+                if required not in band:
+                    _refuse(path, f"bands[{i}] has no `{required}`. A band is exactly "
+                                  f"{', '.join(BAND_KEYS)} — all four, none with a "
+                                  f"default. `sh` has none in the engine either: "
+                                  f"raster_dsl.emp's `region_boundary` note is that "
+                                  f"whether an effect changes a mode register is worth "
+                                  f"stating at the call site.")
+
+    _check_ramp(path, preset)
     _check_cycles(path, preset)
     _check_variants(path, preset)
     _check_cleared_slot_is_not_streamed(path, preset)
@@ -698,6 +745,101 @@ def load_preset(path: str) -> dict:
     _check_patch_motion(path, preset)
     _check_motion_has_an_anchor(path, preset)
     return preset
+
+
+def _check_ramp(path: str, preset: dict) -> None:
+    """SHAPE of the `ramp` key (contract §7.4, `$defs/ramp`/`ramp_target`/`fp16`).
+
+    SHAPE ONLY — see RAMP_KEYS' banner above for why not one numeric bound is restated:
+    every range the schema names is ALSO an engine `ensure` (raster_ramp_program's own for
+    top/lines/addr, fp16's own — now also restated as a direct start/step bound inside
+    raster_ramp_program — for whole/frac256), so this function forwards top/lines/addr and
+    the fp16 fields VERBATIM and checks only that the document is the right SHAPE to
+    forward at all: closed keys, all five ramp fields required, the single `vsram` arm
+    (never `cram`, never a `curve` key), and `start`/`step` as fp16 OBJECTS rather than a
+    raw integer — clause 3 of the CR: a raw integer here would reach
+    `raster_ramp_program()` with no `fp16()` between it and the constructor, which is
+    exactly the bypass the schema's fp16-object shape exists to close on the generator
+    side (the engine-side close is the new ensure in raster_ramp_program itself).
+    """
+    if "ramp" not in preset:
+        return
+    ramp = preset["ramp"]
+    if not isinstance(ramp, dict):
+        _refuse(path, f"`ramp` must be an object, got {type(ramp).__name__}. A preset "
+                      f"has exactly one raster: channel (EffectsPreset.ep_raster), so "
+                      f"there is one ramp per document, never an array of them.")
+    _check_keys(path, ramp, frozenset(RAMP_KEYS), frozenset(), None, "ramp")
+    for required in RAMP_KEYS:
+        if required not in ramp:
+            _refuse(path, f"ramp has no `{required}`. All five of "
+                          f"{', '.join(RAMP_KEYS)} are required — "
+                          f"raster_ramp_program() defaults none of them "
+                          f"(engine/effects/raster.emp:629-678).")
+
+    top, lines = ramp["top"], ramp["lines"]
+    if isinstance(top, bool) or not isinstance(top, int):
+        _refuse(path, f"ramp.top must be an integer, got {type(top).__name__} {top!r}. "
+                      f"Whether it is IN RANGE (3..222) is raster_ramp_program's own "
+                      f"ensure (raster.emp:631, :640-641), not this file's.")
+    if isinstance(lines, bool) or not isinstance(lines, int):
+        _refuse(path, f"ramp.lines must be an integer, got {type(lines).__name__} "
+                      f"{lines!r}. Whether it is IN RANGE (1..220) is "
+                      f"raster_ramp_program's own ensure (raster.emp:632, :640-641), not "
+                      f"this file's.")
+
+    target = ramp["target"]
+    if not isinstance(target, dict):
+        _refuse(path, f"ramp.target must be an object, got {type(target).__name__}. "
+                      f"It names a target ARM plus an explicit byte address, the "
+                      f"`pal_region` precedent of spelling an address out rather than "
+                      f"deriving it (effects_gen.py's own PALETTE banner references "
+                      f"this precedent for `pal_region.addr`).")
+    vsram = _single_arm(path, target, RAMP_TARGET_ARM, "ramp.target")
+    if not isinstance(vsram, dict):
+        _refuse(path, f"ramp.target.{RAMP_TARGET_ARM} must be an object, got "
+                      f"{type(vsram).__name__}")
+    addr, = _fields(path, vsram, ("addr",), f"ramp.target.{RAMP_TARGET_ARM}")
+    if isinstance(addr, bool) or not isinstance(addr, int):
+        _refuse(path, f"ramp.target.{RAMP_TARGET_ARM}.addr must be an integer, got "
+                      f"{type(addr).__name__} {addr!r}. Whether it is IN RANGE (0..78) "
+                      f"is raster_ramp_program's own ensure (raster.emp:654-655; VSRAM "
+                      f"is 80 bytes), not this file's.")
+
+    for key in ("start", "step"):
+        _check_fp16(path, ramp[key], f"ramp.{key}")
+
+
+def _check_fp16(path: str, value, where: str) -> None:
+    """SHAPE of one fp16 object — clause 3 of the CR, made structural.
+
+    `start`/`step` route ONLY through `fp16(whole, frac256)`: this is the whole reason the
+    schema spells them as OBJECTS rather than raw 16.16 integers, so this check is a shape
+    gate for a real defect class (a bare integer here would emit a raw literal straight
+    into `raster_ramp_program`, bypassing fp16's own range ensures entirely) and not
+    decoration. `whole`/`frac256`'s RANGES are fp16's own ensures
+    (engine/effects/raster.emp:685-686); forwarded verbatim, not restated.
+    """
+    if not isinstance(value, dict):
+        _refuse(path, f"{where} must be an fp16 object ({{whole, frac256}}), got "
+                      f"{type(value).__name__} {value!r}. start/step are fp16 OBJECTS on "
+                      f"purpose: the generator emits `fp16(whole, frac256)` verbatim so "
+                      f"no raw 16.16 literal can reach raster_ramp_program() and bypass "
+                      f"fp16's own range ensures.")
+    _check_keys(path, value, frozenset(FP16_KEYS), frozenset(), None, where)
+    for required in FP16_KEYS:
+        if required not in value:
+            _refuse(path, f"{where} has no `{required}`. fp16 requires both `whole` and "
+                          f"`frac256`, no default on either (raster.emp:684).")
+    whole, frac256 = value["whole"], value["frac256"]
+    if isinstance(whole, bool) or not isinstance(whole, int):
+        _refuse(path, f"{where}.whole must be an integer, got {type(whole).__name__} "
+                      f"{whole!r}. Whether it is IN RANGE (-512..511) is fp16's own "
+                      f"ensure (raster.emp:686), not this file's.")
+    if isinstance(frac256, bool) or not isinstance(frac256, int):
+        _refuse(path, f"{where}.frac256 must be an integer, got "
+                      f"{type(frac256).__name__} {frac256!r}. Whether it is IN RANGE "
+                      f"(0..255) is fp16's own ensure (raster.emp:685), not this file's.")
 
 
 def _check_cleared_slot_is_not_streamed(path: str, preset: dict) -> None:
@@ -724,7 +866,8 @@ def _check_cleared_slot_is_not_streamed(path: str, preset: dict) -> None:
     cleared = {i for i, v in enumerate(slots) if v is None}
     if not cleared:
         return
-    for i, band in enumerate(preset["bands"]):
+    # A ramp document has no `bands` at all (contract §7.4's oneOf) — nothing to walk.
+    for i, band in enumerate(preset.get("bands") or []):
         if not isinstance(band, dict):
             continue
         on = band.get("on")
@@ -1655,12 +1798,84 @@ def render_preset(path: str, preset: dict, names) -> str:
     guard inside them fires on the authored numbers.
     """
     pid = preset["id"]
+    if "ramp" in preset:
+        return render_ramp_preset(path, preset, names)
     src, label = names.raster_src(pid), names.raster(pid)
     bands = [render_band(path, b, f"bands[{i}]")
              for i, b in enumerate(preset["bands"])]
     return (f"const {src} = compose([\n    "
             + ",\n    ".join(bands) + ",\n])\n"
             + f"pub data {label}: [u16; raster_words({src})] = raster_program({src})")
+
+
+def render_fp16(path: str, value: dict, where: str) -> str:
+    """One fp16 object → `fp16(whole, frac256)`, VERBATIM — clause 3 of the CR.
+
+    Never a computed integer, never the raw 16.16 longword: fp16()'s own two ensures
+    (whole -512..511, frac256 0..255, engine/effects/raster.emp:685-686) are the entire
+    authored-range enforcement for a ramp's rate and starting offset, so the ONLY thing
+    this function may do with `whole`/`frac256` is forward them into the `fp16(...)` call
+    unchanged.
+    """
+    return ("fp16(" + _render_int(path, value["whole"], where + ".whole")
+            + ", " + _render_int(path, value["frac256"], where + ".frac256") + ")")
+
+
+def render_ramp_target(path: str, target: dict, where: str) -> str:
+    """The `target` arm → the exact `vdp_comm(...)` word `raster_ramp_program` re-issues
+    every line — clause 2 of the CR: NEVER a raw command word from the document, always
+    built through `vdp_comm(addr, VdpTarget.Vsram, VdpOp.Write)` so the constructor's own
+    discriminant ensures (`is_cram + is_vsram == 1`, raster.emp:652-653) see exactly the
+    shape they expect. Only the `vsram` arm exists in this contract (§7.4); a `cram` arm
+    is refused at LOAD time (`_check_ramp`), so this function only ever sees `vsram`.
+    """
+    vsram = target[RAMP_TARGET_ARM]
+    addr = _render_int(path, vsram["addr"], where + f".{RAMP_TARGET_ARM}.addr")
+    return f"vdp_comm({addr}, VdpTarget.Vsram, VdpOp.Write)"
+
+
+def render_ramp_preset(path: str, preset: dict, names) -> str:
+    """One `ramp` preset document → its CAP_DENSE_TIER ensure plus its
+    `raster_ramp_program(...)` call, under the SAME `names.raster(pid)` label `bands`
+    uses (EFFECTS-W1 DoD item 6, contract §7.4).
+
+    ONE LABEL, EITHER SHAPE — this is what lets `{names.fn_sec_raster}` stay the single
+    chooser bands already uses (clause 5 of the CR, effects_gen.py's own
+    `RASTER_BINDING_BANNER`): the chooser only ever reads `names.raster(pid)` as a `Label`
+    and neither knows nor cares whether the bytes behind it are a `[u16; N]` compose or a
+    `RasterRampProgram` — so no second raster-channel writer is needed or added.
+
+    THE ENSURE IS RE-EMITTED HERE, NOT ONCE GLOBALLY, because a comptime fn's free names
+    resolve at the CALL SITE and `Game` does not travel into `raster_ramp_program`'s own
+    body (docs/EMP_PITFALLS.md §2; the game-side precedent this mirrors verbatim is
+    `games/sonic4/data/effects/ojz_effects.emp`'s own `OJZ_TestRamp` gate). Without a copy
+    beside EVERY generated call site, a game that has not declared CAP_DENSE_TIER would
+    build a `RasterRampProgram` the interpreter silently no-ops for, with no diagnostic
+    anywhere (artifact §1.4/§3.3).
+    """
+    pid = preset["id"]
+    label = names.raster(pid)
+    ramp = preset["ramp"]
+    top = _render_int(path, ramp["top"], "ramp.top")
+    lines = _render_int(path, ramp["lines"], "ramp.lines")
+    cmd = render_ramp_target(path, ramp["target"], "ramp.target")
+    start = render_fp16(path, ramp["start"], "ramp.start")
+    step = render_fp16(path, ramp["step"], "ramp.step")
+    ensure = (
+        f'ensure((Game.SCANLINE_CAPS & CAP_DENSE_TIER) != 0,\n'
+        f'       "{label}: this game\'s Game.SCANLINE_CAPS ({{Game.SCANLINE_CAPS}}) does '
+        f'not declare CAP_DENSE_TIER — EFFECTS-W1 item 6 gates construction of a '
+        f'dense-tier RAMP program on that bit (engine/level/scene_dsl.emp), so a game '
+        f'must declare intent to spend the dense tier\'s ramp axis before it may author '
+        f'one. Add CAP_DENSE_TIER to this game\'s SCANLINE_CAPS in its config/game.emp")'
+    )
+    return (f"{ensure}\n"
+            f"pub data {label}: RasterRampProgram = raster_ramp_program(\n"
+            f"    top:   {top},\n"
+            f"    lines: {lines},\n"
+            f"    cmd:   {cmd},\n"
+            f"    start: {start},\n"
+            f"    step:  {step})")
 
 
 def render_cycle_channel(path: str, ch: dict, where: str) -> str:
@@ -2185,6 +2400,11 @@ def render_module(scenes: dict, act_ref, sec_refs: dict, sections: int,
     any_variants = any(
         any(v is not None for v in (presets[pid].get("variants") or []))
         for pid in presets)
+    # EFFECTS-W1 item 6 — whether ANY document carries `ramp`, which decides two imports
+    # below: the dense-tier wire types and CAP_DENSE_TIER's own home. Not a per-section
+    # gate — every document with `ramp` re-emits its own `ensure` (render_ramp_preset), so
+    # this flag only decides whether the generated module needs the names at all.
+    any_ramp = any("ramp" in presets[pid] for pid in presets)
     # {section index: preset id} for the sections whose bound document carries each key.
     cycle_bound = {i: raster_bound[i] for i in raster_bound
                    if "cycles" in presets[raster_bound[i]]}
@@ -2259,6 +2479,34 @@ def render_module(scenes: dict, act_ref, sec_refs: dict, sections: int,
                    + ", ".join(f"PalCycleScript{n}" for n in sorted(cycle_names)) + "}")
     if any_variants:
         out.append("use engine.effects.palette.{pal_variant}")
+    # THE DENSE-TIER WIRE TYPES (item 6). `engine.effects.raster` is NOT a
+    # COMPTIME_HELPERS module (ojz_effects.emp imports these explicitly, the same
+    # precedent `pal_cycle_channel`'s own comment two lines up follows for `palette`), so
+    # they need an explicit import here too — and NOT JUST the three names the call site
+    # spells: `raster_ramp_program`'s OWN BODY is free names that resolve at ITS call
+    # site (docs/EMP_PITFALLS.md §2), so this list is every name that body references —
+    # `OP_RUN_RAMP`, `RASTER_ARM_EVERY_LINE`, `RASTER_ARM_PARK`, `RASTER_OPS_END` and
+    # `raster_arm` — the EXACT set `ojz_effects.emp` itself imports (its own two `use
+    # engine.effects.raster.{...}` lines) for the same constructor, for the same reason.
+    # Missing even one of these degrades silently into a link extern that only shows up
+    # as `expected an integer for u16, got label` at EMIT time, not at this file's own
+    # shape checks — measured red-first while writing this arm.
+    #
+    # `CAP_DENSE_TIER` lives in `engine.level.scene_dsl`, already glob-imported above
+    # whenever `used` is non-empty (`use engine.level.scene_dsl.*`) — a SECOND explicit
+    # import of the same name would be redundant, so this only adds one when a ramp
+    # document exists with NO scene bound at all (a preset needs no scene to emit —
+    # TestPresetsInTheGeneratedModule's own rule, one channel over).
+    #
+    # EMITTED ONLY WHEN A DOCUMENT CARRIES `ramp`, the `cycles`/`variants` rule one channel
+    # over: with no ramp document the no-content bake and every pre-item-6 bake stay
+    # TEXT-IDENTICAL and the four-CRC check stays a real check.
+    if any_ramp:
+        out.append("use engine.effects.raster.{RasterRampProgram, raster_ramp_program, "
+                   "fp16, OP_RUN_RAMP, RASTER_ARM_EVERY_LINE, RASTER_ARM_PARK, "
+                   "RASTER_OPS_END, raster_arm}")
+        if not used:
+            out.append("use engine.level.scene_dsl.{CAP_DENSE_TIER}")
     out.append("")
 
     if used:
@@ -2776,8 +3024,9 @@ if __name__ == "__main__":
                 print(f"effects_gen: {sid} — {len(scene['layers'])} layer(s), "
                       f"shape OK")
             for pid, preset in sorted(presets.items()):
-                print(f"effects_gen: preset {pid} — {len(preset['bands'])} band(s), "
-                      f"shape OK")
+                what = (f"{len(preset['bands'])} band(s)" if "bands" in preset
+                        else "1 ramp")
+                print(f"effects_gen: preset {pid} — {what}, shape OK")
     except SceneShapeError as e:
         print(f"effects_gen: REFUSED — {e}")
         sys.exit(1)

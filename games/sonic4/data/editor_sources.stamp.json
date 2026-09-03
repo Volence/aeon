@@ -1,5 +1,5 @@
 {
- "count": 107,
+ "count": 108,
  "files": {
   "games/sonic4/data/editor/bg_src/ojz_cave_lilypad.png": "492d187e5cca907fd9ea5844f94b14694b3039955fdfbc65a30756717ba428ad",
   "games/sonic4/data/editor/bg_src/ojz_forest_flowers.png": "2204777e2f106e7cd4c567873667355d1bb03bfc74653e09d0ec3215a4a1e09f",
@@ -8,6 +8,7 @@
   "games/sonic4/data/editor/effects/presets/authored_probe.json": "97746b43e41aa33e3a0366e67777ff09d24af695c0ea1fafdad7069e9973d1b9",
   "games/sonic4/data/editor/effects/presets/ojz_sec3_shimmer.json": "ebfe5ec110bdc050b73246bc795fa88173f68a4207ff7428254e58358b1758bf",
   "games/sonic4/data/editor/effects/presets/ojz_sec5_showcase.json": "52f0807add4740c9d89e631b10e67d3cf6433df5f01eaa1f3fdb634961028cc1",
+  "games/sonic4/data/editor/effects/presets/ramp_probe.json": "19e8f8f2f258923acee45b3ab88fd611b9d9cc457036cb049fcfd60e727e02cf",
   "games/sonic4/data/editor/objects.json": "e2b175ba70b8ac78d627b223320c657907ef1e6902b8c754080272713930ba84",
   "games/sonic4/data/editor/ojz/act1/section_0.coll.bin": "2bf1cd31563d21b8f592e2a74b65dee20d0bcea881db9b811ecf28a47ad9fd47",
   "games/sonic4/data/editor/ojz/act1/section_0.collattr.bin": "9639d6b293091c0aa7566ad3798185bb69dd26a197a88f6e9905363850a0a8e5",
