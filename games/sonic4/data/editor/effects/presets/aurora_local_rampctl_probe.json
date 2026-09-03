@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "id": "aurora_local_rampctl_probe",
+  "ramp": {
+    "top": 3,
+    "lines": 220,
+    "target": {
+      "vsram": {
+        "addr": 2
+      }
+    },
+    "start": {
+      "whole": 0,
+      "frac256": 0
+    },
+    "step": {
+      "whole": -1,
+      "frac256": 128
+    }
+  }
+}
