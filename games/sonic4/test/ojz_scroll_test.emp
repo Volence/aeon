@@ -2545,11 +2545,26 @@ proc Debug_BandDemoHotkey () clobbers(d0-d1/a0-a1) {
 // mid-playback and desync every downstream check.
 //
 // DEBUG-shape only: the body — the rts included — sits inside `if DEBUG == 1 {}`, so
-// the whole proc emits ZERO bytes in the plain shape. Parked as the FIFTH member of
-// this module's zero-release-byte run for the reason Debug_SceneCycleHotkey's header
-// records: both canonical shapes append the convsym deb2 symbol table, so a zero-byte
-// release LABEL still lands in the appendix, and a label parked INSIDE this run
-// coincides with an address the appendix already carries and dedupes away.
+// the whole proc emits ZERO bytes in the plain shape, and it is parked as the FIFTH
+// member of this module's zero-release-byte run.
+//
+// ---- WHAT THAT DOES AND DOES NOT BUY, MEASURED THIS PARCEL ----
+// Debug_SceneCycleHotkey's header states that a label parked in this run "coincides with
+// an address the appendix already carries and dedupes away". THE DEDUP HALF OF THAT IS
+// WRONG, and this parcel measured it rather than inheriting it: the release symbol set
+// went from 2376 names to 2378 — `Debug_PresetCycleHotkey` and `Debug_PresetReadout_Show`
+// BOTH landed in the convsym deb2 appendix, at $A45DC, the address `OJZ_SectionMarkerColors`
+// already occupies. convsym dedupes nothing; a zero-byte label is a name in the appendix
+// like any other.
+//
+// What the parking DOES buy is the thing that actually matters, and it held exactly:
+// s4.bin against master, byte for byte, differs in **two bytes below EndOfRom** — $18E-$18F,
+// the header checksum — and nowhere else in the executable image. The other 3,252 differing
+// bytes are all past EndOfRom ($A5C82), inside the appendix these two names rewrote; the
+// file length is 720,502 both ways. So the shipped CODE is unchanged and the CRC moved for
+// the reason release ships a symbol table at all. Anyone re-measuring this claim should
+// classify the diff by EndOfRom rather than reading the CRC, which cannot tell the two
+// apart.
 //
 // In:  none (reads Ctrl_1_Held / Ctrl_1_Press / Input_Source / Debug_Preset_Index /
 //      Current_Act_Ptr)
@@ -2729,7 +2744,10 @@ proc Debug_PresetCycleHotkey () clobbers(d0-d4/a0-a3) {
 //
 // DEBUG-shape only: the body, the `rts` and the verdict font are all inside
 // `if DEBUG == 1 {}`, so the whole proc emits ZERO bytes in the plain shape. Parked
-// inside this module's zero-release-byte run for the reason its siblings record.
+// inside this module's zero-release-byte run — see Debug_PresetCycleHotkey's header
+// above for what that buys (a byte-identical executable image) and what it does NOT
+// (the appendix does not dedupe; this label is one of the two names in it that moved
+// the release CRC).
 //
 // In:  none (reads Debug_Preset_Index, Current_Act_Ptr, Effects_World_Y,
 //      Effects_Screen_L and the named preset's channels)
