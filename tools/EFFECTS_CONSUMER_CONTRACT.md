@@ -122,27 +122,41 @@ about art, and three of the four things that have to be true for it are the writ
    else is admitted, deliberately: the shipped horizontal bands are composites rather than
    pure rolls, and demanding rolls would outlaw the same technique on the new axis before
    anyone has used it.
-   **⚠ THE CHECK IS NARROWER THAN THIS SENTENCE PROMISES, AND THE GAP IS MEASURED** (found by
-   the aurora lane, 2026-09-03, against a materialised copy of this tree with a control).
-   `validate_band_phase_axis` additionally requires **column-major slots**, because
-   `_band_pixels` decodes every bank column-major unconditionally. On a **row-major** band it
-   therefore assembles a permutation of the real picture, a true x-roll is no longer an x-roll
-   in the decoded grid, and the guard **stops firing on exactly the case it exists to refuse**:
+   **⚠ THE CHECK WAS NARROWER THAN THIS SENTENCE PROMISED, AND THE GAP WAS MEASURED — CLOSED
+   2026-09-03.** The measurement and the lesson are kept because both stay useful; only the
+   verdict table has moved. Found by the aurora lane against a materialised copy of this tree
+   with a control, and closed the same day. `validate_band_phase_axis` **additionally required
+   column-major slots**, because `_band_pixels` decoded every bank column-major unconditionally.
+   On a **row-major** band — which is what `axis: "vertical"` requires, obligation 1 above — it
+   therefore assembled a permutation of the real picture, a true x-roll was no longer an x-roll
+   in the decoded grid, and the guard **stopped firing on exactly the case it exists to refuse**.
+   One band, `cols=2 rows=2`, base picture `(x*7 + y*13) % 15 + 1`, eight phases that are exact
+   x-rolls of phase 0, the two arms differing **only in slot order**:
    ```
-   column-major slots + x-rolled phases  ->  REFUSED   (the control: fixture well-formed, guard reachable)
-   row-major    slots + x-rolled phases  ->  ADMITTED  (the shimmer ships)
+                                          BEFORE      AFTER (today)
+   column-major slots + x-rolled phases   REFUSED     ADMITTED
+   row-major    slots + x-rolled phases   ADMITTED    REFUSED     <- the case the guard is for
    ```
-   **So the sentence above is conditioned on the PHASES alone and the code is conditioned on
-   phases AND slot order.** A writer is entitled to rely on the sentence; until the code is
-   widened, rely on this paragraph instead — the check catches a writer that is horizontal in
-   BOTH respects, not one that gets slot order right and phases wrong.
+   **The sentence above is conditioned on the PHASES alone; the code used to be conditioned on
+   phases AND slot order, and now is not.** `_band_pixels` takes the band's declared `axis` and
+   decodes row-major for vertical, column-major for horizontal, so the guard sees the real
+   picture. A writer may now rely on the sentence as written.
+   **The verdicts SWAPPED rather than both becoming refusals, and that is deliberate.** A band
+   that declares `vertical` and emits column-major slots is broken in **obligation 1**, which is
+   explicitly not checkable here; the guard reads the picture the declaration says is there, and
+   on such a band that picture is scrambled, so any refusal it drew would be incidental rather
+   than earned. Refusing it anyway would widen the guard past obligation 2 and start outlawing
+   composites, which is the thing this obligation deliberately does not do.
    **And note WHY the docstring's own argument did not protect it**, because the shape recurs:
-   it says *"a consistent relabelling of the slots cannot turn a non-translation into one"* —
-   which is TRUE, and rules out FALSE POSITIVES. The exposure is a FALSE NEGATIVE: a relabelling
+   it said *"a consistent relabelling of the slots cannot turn a non-translation into one"* —
+   which is TRUE, and rules out FALSE POSITIVES. The exposure was a FALSE NEGATIVE: a relabelling
    turns a translation INTO a non-translation. A correct sentence certifying the half nobody was
-   worried about.
-   *Population is empty today, so nothing ships broken — but the first vertical band anyone
-   authors is precisely what would land on this.*
+   worried about. *The population was empty at the time, so nothing ever shipped broken — the
+   first vertical band anyone authors is what would have landed on it.*
+   The pair above is kept permanently as two rows in `tools/test_bg_emit.py`
+   (`TestBgAnimMotionAxis.test_the_guard_reads_a_vertical_band_in_ITS_OWN_slot_order` and
+   `..._the_column_major_control_is_what_makes_that_row_mean_anything`); neither means anything
+   alone.
 3. **`axis` must survive a round trip.** A writer that loads a document, edits something
    else and saves it back must preserve the key. Dropping it silently reverts the band to
    horizontal, and the guard in (2) cannot see a band that no longer claims to be vertical.
