@@ -19436,3 +19436,90 @@ as NOT ESTABLISHED, including whether a real per-section reels mechanism needs a
 `Parallax_Update` engine hook or can keep the override-after-fill shape with per-scene
 rather than one fixed global rate storage — the source the item-13 contract CR would be
 drafted from, once the hub rules on the open questions §2 raises.
+
+---
+
+### PAINTED-REGIONS AUDIT §1 TABLE — the four ARCH-doc rows are CLOSED; the rest are code/tool work, unowned by this pass — booked 2026-09-03
+
+**Source:** `docs/reviews/2026-08-29-painted-regions-findings-audit.md` §1, the twelve-item table.
+**Verified against, and fixed at:** aeon `dfe22da7` (branch `fix/arch-stale-claims`), documents
+only — no engine code or ROM byte touched.
+
+**CLOSED — `docs/ENGINE_ARCHITECTURE.md` corrected, both sides of every internal contradiction
+resolved:**
+
+- **Row 1** (`sec_pal`/`sec_raster_table` "live consumers … at the section-boundary crossing").
+  The §7 P1-snapshot blockquote was describing 2026-08-12 state that Parcel C2 (effects-P3-C2
+  Task 13) superseded: `Palette_LoadSection` and its raster/pal-cycle siblings — the code that
+  read `Sec.sec_pal`/`Sec.sec_raster_table` directly — were deleted; both fields are
+  descriptor-only today with zero code readers (`Palette_LoadPal` takes a plain pointer arg, fed
+  by `EffectsPreset.ep_pal`/`ep_raster` via `Effects_InstallPreset`, not by a `Sec*`). The
+  blockquote now says so and points at §7.1's "How a section binds all of this changed" as the
+  current description — which was already correct and needed no edit. Both halves of the
+  self-contradiction now agree.
+- **Row 2** (`sec_camera_lookahead` inside the list of fields engine code reads; "the camera
+  reads the current section's value"). Both false claims corrected in §4.2's palette-format
+  paragraph and in §4.5's per-section-lookahead paragraph: `sec_camera_lookahead` pulled out of
+  the "does read" enumeration and stated to have zero readers, same as `sec_pal`; the
+  present-tense "camera reads …" sentence replaced with the actual state — `Camera_Pan_Offset`
+  has exactly one writer (`Camera_Init`) and is write-only scaffolding by its own in-code comment
+  ("write-only until that ships — do not cut"), and the feature is marked "NOVEL, not yet wired".
+- **Row 5** (`Draw_BG_TileColumn` listed as a live producer; "fixed 32-word strip" vs the code's
+  64 words; self-contradiction against the doc's own 64-row statement elsewhere). Corrected in
+  §1.3's plane-buffer producer list: strip width fixed to 64 words (matches the already-correct
+  64-row statement in §4.2, so that side needed no change), and the routine flagged as having
+  zero callers today per its own header comment — listed as the intended per-section-BG-swap
+  producer, not a live one.
+- **Row 11**, all three parts, in §4.4's `Section_RedrawPlanes` paragraph and §4.2's engine-cost
+  line: (a) rows 0-31 → all 64 rows (`moveq #32-1` longwords/column = 64 words = rows 0..63,
+  matching the NEW-5 fix already described elsewhere in the doc); (b) "set once at level init" →
+  named as having exactly two setters (level init and the DEBUG warp), per
+  `engine/level/section.emp`'s own comment; (c) "one 4 KB nametable blit" → corrected to the
+  actual 8192-byte (8 KB) full-plane layout (`engine/level/bg.emp`'s own header states this), and
+  the "~0.6 ms" figure that hung off the wrong byte count was **deleted rather than re-typed** —
+  a note says to re-derive it from the real VDP DATA-port write loop before quoting a duration,
+  since a fresh literal here would go stale on the same clock as the one it replaces.
+
+**NOT ARCH-doc defects — read but correctly left alone (this pass touches documents only, and
+none of these three named an ARCH claim that needed fixing):**
+
+- **Row 4** (`SF_*` named in a comment, not defined) — novelty REFUTED, ARCH already books this
+  in the same paragraph row 2's fix lives in (the `sec_pal`-precedent sentence). No further ARCH
+  edit needed.
+- **Row 6** (camera-lookahead dead cells; "booked nowhere") — the "booked nowhere" half is
+  REFUTED: `Camera_Lookahead` is already named in this file's "orphaned teleport-era RAM" backlog
+  line (search this file for that line). **Genuinely still unbooked** at `dfe22da7`, and NOT
+  added by this pass because it is a RAM/backlog booking decision, not an ARCH-doc fix — flagging
+  for the next reader rather than silently extending someone else's backlog line:
+  `Camera_Pan_Offset`, `CAM_LOOKAHEAD_THRESHOLD` (`engine/system/constants.emp`), and
+  `Sec.sec_camera_lookahead` all have zero readers and are not named anywhere in this file. The
+  ARCH-side half of row 6 (the false "does read"/"camera reads" claims) is row 2 above, and is
+  closed.
+- **Row 8** (boot-position override headline) — headline REFUTED (the boot path does set
+  `Snap_Pending`, via `Parallax_Init`); the confirmed residue (palette/raster/variants arrive one
+  frame later than parallax on the boot path) is already stated as deliberate and documented in
+  ARCH §4.12b / §7.12 ("Both callers are gated … by different gates on purpose"). No ARCH claim
+  found that asserted the refuted headline.
+- **Row 9** (`inject_editor_bg.py` section-name/act collision) — novelty REFUTED; the generator's
+  own docstring and this file already book it (search this file for "SECOND ACT'S BG ANIMATION").
+  Not an ARCH-doc claim at all — `tools/inject_editor_bg.py` is a build tool, out of this pass's
+  scope (documents only).
+
+**OUT OF SCOPE for this pass, remaining OPEN — code or generator changes, per the dispatch brief
+that sequenced this work:**
+
+- **Row 3** — delete the nine dead `Sec` fields + `pal:`/`raster:`/`cycle:` constructor args
+  (§3 hypothesis (i) of the audit: this is a scheduled deletion whose precondition
+  (Task 12/13's reachability requirement) was already discharged and the deletion itself was
+  never carried out — a live TODO, not a doc fix).
+- **Row 7** — the release-shape `sec_effects == 0` guard living only inside `if DEBUG == 1` in
+  `engine/level/parallax.emp` — unreachable today per the audit's own enumeration (§2), but the
+  file two other agents are in per this pass's dispatch brief.
+- **Row 10** — `tools/ojz_strip_gen.py` has no content-dedup comparison where
+  `tools/ojz_block_gen.py` does (generator change).
+- **Row 12** — a `.lst` symbol listing is a snapshot, not a live instrument; the audit's
+  generalisation ("a listing from a prior build is never a valid subject") is already correct and
+  is a build-discipline note, not an ARCH-doc claim to fix.
+
+**Zero ROM bytes moved by this pass** — before/after `s4.debug.bin` md5 recorded in the branch's
+merge evidence; documents only.

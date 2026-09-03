@@ -1309,7 +1309,7 @@ Plane A and Plane B tile updates are interleaved as different entries in this **
 **How tile data reaches the buffer:** During the game loop, the producer routines detect that the camera has crossed a 16-pixel block boundary and do the addressing, cache lookup, and buffer write directly — there is no separate `Setup_TileColumnDraw`/`Setup_TileRowDraw` split (an earlier draft of this doc invented that split; it doesn't exist). The real routines:
 - `Draw_TileColumn` (`engine/level/plane_buffer.emp`) — Plane A, column mode
 - `Draw_TileRow_FromCache` — Plane A, row mode
-- `Draw_BG_TileColumn` (§4.2) — Plane B (background), always column-mode, fixed 32-word strip from `Sec.sec_bg_layout`/`Act.act_bg_layout`
+- `Draw_BG_TileColumn` (§4.2) — Plane B (background), always column-mode, a full 64-word strip (all 64 rows, not a 32-word half-strip — see §4.2/§4.4) from `Sec.sec_bg_layout`/`Act.act_bg_layout`. **`Draw_BG_TileColumn` itself has zero callers today** — its own header marks it "ZERO CALLERS TODAY", widened ahead of the deferred per-section-BG-swap work that will call it (§4.2). It is not one of the routines the game loop actually calls; list it here as the intended per-section-BG-swap producer, not a live one.
 
 Each of these does cache lookup + VRAM-address computation + buffer write in one routine:
 1. Calculates the VRAM nametable address for the new column/row
@@ -1730,7 +1730,7 @@ T1 ships with the shared region populated from `act_bg_tiles` (zone-wide pointer
 
 **Tier detection (build-time):** `sec_bg_layout=NULL` → T1; `sec_bg_layout≠NULL` and BG tile refs ⊆ shared BG region → T2; `sec_bg_layout≠NULL` with section-specific BG-only tiles → T3.
 
-**Engine cost:** T1 = one 4 KB nametable blit + one BG-tile-blob DMA at level init, zero per-frame. T2 = same load cost; a differing per-section BG layout would cost one 4 KB nametable blit when the camera crosses into that section (~0.6 ms blocking via VDP DATA port) — the deferred per-section BG swap above. T3 = nametable blit at init; its BG tiles ride the resident act art pool, so there is no per-section tile load. Deferrable-DMA optimisation tracked in DEFERRED_WORK.
+**Engine cost:** T1 = one full-plane nametable blit (the 8192-byte layout above, §4.2) + one BG-tile-blob DMA at level init, zero per-frame. T2 = same load cost; a differing per-section BG layout would cost one such blit when the camera crosses into that section, blocking via VDP DATA port for the time it takes to move 8192 bytes that way — the deferred per-section BG swap above. **No blocking-time figure is given here**: a prior draft quoted "~0.6 ms" against a 4 KB (half-size) blit, so the number does not carry over to the real 8 KB transfer; re-derive it from the actual VDP DATA-port write loop before citing a duration. T3 = nametable blit at init; its BG tiles ride the resident act art pool, so there is no per-section tile load. Deferrable-DMA optimisation tracked in DEFERRED_WORK.
 
 **Pool integration:** T3 BG tiles are part of the section's contribution to the global act art pool, so the build tool dedupes and pages them identically to FG tiles, and they ride the §9.7 residency cache with the FG pool — the combined pool is capped by ROM budget (`tools/art_rom_report.py`), not the FG VRAM region. The shared BG tile region (T1/T2) is a single permanent allocation at $8000 — loaded once, never freed.
 
@@ -2367,7 +2367,7 @@ Fields default to 0 (keep current state). Each section is effectively its own wo
 
 **Audit note (2026-08-02):** the layout table above matches `engine/structs.emp` field-for-field — all 21 members from `$00` to `$40`, `sizeof(Sec) = 66` (`$42`), which is `ensure`-guarded in `engine/level/section.emp` and `engine/level/tile_cache.emp`. Two names sometimes mistaken for `Sec` members are not fields of it: `sec_grid_ptr` is an **`Act`** field (`Act` +$00, the section-definition-array pointer), and `sec_id` is a **computed** flat index (`sec_y × grid_w + sec_x`, `engine/level/tile_cache.emp`) never stored in the struct. The `SF_*` bit names listed above are still descriptor surface ahead of code: the `sec_flags` field ($38) exists, but the individual `SF_*` constants are not yet defined anywhere in `engine/`/`games/` (the `sec_pal` precedent — a field/name documented ahead of a consumer).
 
-**Palette format:** `sec_pal` points to a full 128-byte palette copy (all 4 palette lines × 16 colors × 2 bytes) — raw CRAM data, no delta format, no compression. **Descriptor field only — no shipped consumer.** No section-transition code reads `sec_pal` today (engine level code reads `sec_bg_layout`/`sec_parallax_config`/`sec_block_dict`/`sec_block_index`/`sec_camera_lookahead`, not `sec_pal`); the descriptor-driven palette *load* on section transition — instant or cross-faded — is **design-stage** (§7.1, whose §7 banner marks the whole palette-transition/cross-fade/cycling cluster as PLANNED, not implemented). What ships today is the game-poked path: game code writes `Palette_Buffer` (128 B RAM) and sets `Palette_Dirty` bits, and `Enqueue_Dirty_Buffers` DMAs the dirty lines to CRAM (§7.1 "Per-palette-line dirty DMA").
+**Palette format:** `sec_pal` points to a full 128-byte palette copy (all 4 palette lines × 16 colors × 2 bytes) — raw CRAM data, no delta format, no compression. **Descriptor field only — no shipped consumer.** No section-transition code reads `sec_pal` today (engine level code reads `sec_bg_layout`/`sec_parallax_config`/`sec_block_dict`/`sec_block_index`, not `sec_pal`); **`sec_camera_lookahead` does not belong in that "does read" list either — it has zero readers today, same as `sec_pal` (see §4.5)**. The descriptor-driven palette *load* on section transition — instant or cross-faded — is **design-stage** (§7.1, whose §7 banner marks the whole palette-transition/cross-fade/cycling cluster as PLANNED, not implemented). What ships today is the game-poked path: game code writes `Palette_Buffer` (128 B RAM) and sets `Palette_Dirty` bits, and `Enqueue_Dirty_Buffers` DMAs the dirty lines to CRAM (§7.1 "Per-palette-line dirty DMA").
 
 ### 4.3 Pre-Computed Nametable Data (Block-Based) (confirmed by Batman & Robin)
 
@@ -2401,7 +2401,7 @@ Producer-consumer pattern: all tile writes are buffered in RAM during the game l
 
 **No seam, no redraw during play.** Continuous scrolling never rebases coordinates, so there is no per-section teleport frame and no synchronous full-screen redraw to hide. The VDP plane wrap (§4.1) reuses the 64 nametable cells in hardware as the world camera advances; the edge streamer (§4.7) keeps the leading cells filled. This matches S3K/S.C.E. level wrap, which redraws nothing at a section boundary (`docs/research/teleport-rebase.md`). Per-frame plane work during scroll is just the edge column/row updates the deferred buffer flushes in VBlank — bounded to ≤64 distinct columns by the fill-window clamp (sourced from `Camera_X>>3`).
 
-**`Section_RedrawPlanes` is the level-init draw only** (triggered by `Section_Plane_Dirty`, set once at level init). It writes rows 0-31 of all 64 Plane B columns + 64-column Plane A synchronously via direct VDP pokes with interrupts masked. Both planes are now written column-major (autoinc $80, per-column VDP address, one `move.l` = two vertically-adjacent cells); the mask (`move.w #$2700, sr`) is required because VBlank's `VInt_DrawLevel` repoints the VDP address and resets the autoincrement register to $02, which would corrupt remaining column writes mid-loop. After init, the camera scrolls freely with only edge streaming; there is no recovery redraw on the normal path.
+**`Section_RedrawPlanes` is the level-init / cache-recovery draw only** (triggered by `Section_Plane_Dirty`, which has exactly two setters in the tree today — level init and the DEBUG warp — per `engine/level/section.emp`'s own comment naming both). It writes **all 64 rows** of all 64 Plane B columns (`moveq #32-1` longwords per column = 64 words = rows 0..63, NEW-5 2026-08-05 — a prior 32-row half-strip silently reverted BG art in rows 32-63) + 64-column Plane A synchronously via direct VDP pokes with interrupts masked. Both planes are now written column-major (autoinc $80, per-column VDP address, one `move.l` = two vertically-adjacent cells); the mask (`move.w #$2700, sr`) is required because VBlank's `VInt_DrawLevel` repoints the VDP address and resets the autoincrement register to $02, which would corrupt remaining column writes mid-loop. After init, the camera scrolls freely with only edge streaming; there is no recovery redraw on the normal path.
 
 **Per-section parallax snap on boundary crossing.** Sections retain distinct parallax configs (§4.6). The snap that an earlier draft fired on teleport now fires on **section-boundary crossing**: the camera detects a change in `(Camera_X >> SECTION_SIZE_SHIFT)` (or Y) frame-to-frame, looks up the entered section's `sec_parallax_config`, and snaps (vs lerps) the parallax bands. `Parallax_Snap_Pending` is sourced from that boundary-crossing check rather than from a teleport handler.
 
@@ -2409,7 +2409,7 @@ Producer-consumer pattern: all tile writes are buffered in RAM during the game l
 
 Port S.C.E.'s `ExtendedCamera` with lookahead panning, then extend with novel features:
 
-**Per-section camera lookahead (NOVEL):** S.C.E. hardcodes ±64px. Our `sec_camera_lookahead` byte makes this per-section: wide-open jungle = 96px, tight cave = 32px, vertical shaft = 0px (vertical-only tracking). The camera reads the current section's value rather than a constant.
+**Per-section camera lookahead (NOVEL, not yet wired):** S.C.E. hardcodes ±64px. The design is per-section via a `sec_camera_lookahead` byte: wide-open jungle = 96px, tight cave = 32px, vertical shaft = 0px (vertical-only tracking). **This is not implemented today.** `Sec.sec_camera_lookahead`, `Camera_Lookahead`, and `CAM_LOOKAHEAD_THRESHOLD` all have zero readers; `Camera_Pan_Offset` has exactly one writer (`Camera_Init`'s `move.w #0, Camera_Pan_Offset`) and is explicitly write-only scaffolding — its own comment in `engine/level/camera.emp` says "write-only until that ships — do not cut". The camera does not read the current section's value; it reads nothing, because no consumer exists yet.
 
 **Velocity-adaptive deadzone (NOVEL):** `deadzone_width = base_deadzone + (abs(x_vel) >> shift_factor)`. At high speed, the deadzone widens to show more of what's ahead. At walking speed, tight tracking. No Genesis game adapts the camera deadzone to speed.
 
@@ -3853,8 +3853,15 @@ DAC (6.2, shipped shape)
 > visual gates are oracle-owned (see below).**
 >
 > **Shipped (P1):** the SPARSE tier of the raster engine (§7.2) and the per-section
-> palette load. `sec_raster_table` and `sec_pal` have live consumers wired at the
-> section-boundary crossing in `Parallax_CheckBoundary`. The dispatcher lives in
+> palette load. **This paragraph describes the P1 snapshot (2026-08-12) and is now
+> superseded by Parcel C2 — see §7.1's "How a section binds all of this changed"
+> below, which is current.** At P1, `sec_raster_table` and `sec_pal` were read
+> directly on the section-boundary crossing in `Parallax_CheckBoundary`. Parcel C2
+> deleted that direct-read path (`Palette_LoadSection` and its raster/pal-cycle
+> siblings, effects-P3-C2 Task 13): `Sec.sec_pal` / `Sec.sec_raster_table` are today
+> descriptor-only fields with **zero code readers** — a section instead names one
+> `EffectsPreset` via `Sec.sec_effects`, and `Effects_InstallPreset` resolves the
+> preset's own `ep_pal`/`ep_raster` pointers at the crossing. The dispatcher lives in
 > `engine/effects/raster.emp` and the palette module in `engine/effects/palette.emp`
 > (split out of `engine/system/hblank.emp` / `buffers.emp`; `hblank` is the RAM
 > jmp-slot trampoline — dispatch mechanism only — and `buffers` keeps the CRAM upload
