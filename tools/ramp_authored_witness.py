@@ -28,13 +28,14 @@ lines changed; arm 3 46 outside lines changed by BOTH and 0 unique to the ramp.
 Addresses are read from the .lst, never typed — a symbol moves every time bytes move, and
 this script was written once against a stale address before that rule was applied to it.
 """
-import sys, asyncio, hashlib, json
-sys.path.insert(0, "/home/volence/sonic_hacks/aeon/tools")
+import os, sys, asyncio, hashlib, json
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from suite_paths import add_client_path
 add_client_path()
 from aether import BusClient
 from aether_instance import aether_emulator
-W="/home/volence/sonic_hacks/.aeon-land-10a"
+W = os.environ.get("RAMP_WITNESS_TREE", str(Path(__file__).resolve().parents[1]))
 RAMP_ADDR="0x00013C7A"; PENDING="0xFF8B52"
 TOP, LINES = 128, 64
 SETTLE, AFTER = 400, 8
