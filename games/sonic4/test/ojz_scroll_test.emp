@@ -130,7 +130,7 @@ use games.sonic4.scene_registry.{ParallaxConfig_OJZ_Default, ParallaxConfig_OJZ_
 // games/sonic4/data/effects/ojz_effects.emp instead, which is a different installer.
 // `Raster_Program_None` and `Raster_Install` are engine names the OFF arm
 // and both tails reach as externs, unchanged by this parcel.
-use games.sonic4.ojz_effects.{OJZ_BandDemo}
+use games.sonic4.ojz_effects.{OJZ_BandDemo, OJZ_BaseSwap}
 use games.sonic4.ojz_effects_editor_act1.{EditorRaster_OJZ_Act1_authored_probe, EditorRaster_OJZ_Act1_ojz_sec3_shimmer}
 
 // player_block — the per-slot PlayerBlock derivation splice; PlayerV — the
@@ -2122,8 +2122,17 @@ proc Debug_SceneReadout_Show () clobbers(d0-d4/a0-a2) {
 //   START held + DOWN pressed  -> install Raster_Program_None (bands OFF)
 //
 //   .raster_table[0]  OJZ_BandDemo                            — HAND-authored, .emp
-//   .raster_table[1]  EditorRaster_OJZ_Act1_authored_probe    — EDITOR-authored, JSON
-//   .raster_table[2]  EditorRaster_OJZ_Act1_ojz_sec3_shimmer  — EDITOR-authored, JSON
+//   .raster_table[1]  OJZ_BaseSwap                            — HAND-authored, .emp
+//   .raster_table[2]  EditorRaster_OJZ_Act1_authored_probe    — EDITOR-authored, JSON
+//   .raster_table[3]  EditorRaster_OJZ_Act1_ojz_sec3_shimmer  — EDITOR-authored, JSON
+//
+// ROW 1 IS NOT A BAND, and it is in this table because this table is the only installer
+// the tree has for a hand-authored raster program. `OJZ_BaseSwap` is EFFECTS-W1 DoD item
+// 11a — one `OP_SET_REG` that re-points Plane A's nametable base at Plane B's map at
+// screen line 160, so the bottom 64 lines draw the BACKGROUND in the FOREGROUND layer and
+// the VBlank shadow flush puts it back. It shares the chord for the same reason the
+// editor rows do: the review question ("does the mechanism move the picture?") is asked
+// by stepping the cursor, not by rebuilding.
 //
 // ---- WHY IT IS A CYCLE NOW, AND WHY THE NAME DID NOT CHANGE ----
 // It shipped installing exactly one program, OJZ_BandDemo. The second program is
@@ -2247,7 +2256,7 @@ proc Debug_SceneReadout_Show () clobbers(d0-d4/a0-a2) {
 // the table's end and hand it to Raster_Install as a raster program. Nothing in sigil
 // can see a `dc.l` run's length, so the coupling is checked as TEXT by
 // tools/test_raster_cycle_table_lint.py, which the build's pytest lane runs.
-const RASTER_CYCLE_COUNT = 3
+const RASTER_CYCLE_COUNT = 4
 
 proc Debug_BandDemoHotkey () clobbers(d0-d1/a0-a1) {
     if DEBUG == 1 {
@@ -2339,8 +2348,9 @@ proc Debug_BandDemoHotkey () clobbers(d0-d1/a0-a1) {
         // ROM for a program nothing can install.
     .raster_table:
         dc.l    OJZ_BandDemo                            // 0 — HAND-authored (.emp)
-        dc.l    EditorRaster_OJZ_Act1_authored_probe    // 1 — EDITOR-authored (JSON)
-        dc.l    EditorRaster_OJZ_Act1_ojz_sec3_shimmer  // 2 — EDITOR-authored (JSON)
+        dc.l    OJZ_BaseSwap                            // 1 — HAND-authored (.emp), item 11a
+        dc.l    EditorRaster_OJZ_Act1_authored_probe    // 2 — EDITOR-authored (JSON)
+        dc.l    EditorRaster_OJZ_Act1_ojz_sec3_shimmer  // 3 — EDITOR-authored (JSON)
     }
 }
 

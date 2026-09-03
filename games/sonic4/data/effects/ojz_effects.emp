@@ -10,7 +10,14 @@ module games.sonic4.ojz_effects in ojz_effects
 
 // The effects gate fixtures (below) are pinned against engine.vdp's comptime CRAM
 // command builder.
-use engine.vdp.{VdpTarget, VdpOp, vdp_comm}
+// `vdp_base_reg` / `VdpBase` join them for EFFECTS-W1 item 11a: OJZ_BaseSwap folds its
+// mid-frame reg $02 word through the SAME helper engine/system/boot_data.emp folds the
+// boot register table through, so the two cannot disagree about where a plane lives.
+use engine.vdp.{VdpTarget, VdpOp, vdp_comm, VdpBase, vdp_base_reg}
+// The two plane bases item 11a's word is folded FROM. Named here rather than spelled as
+// literals so a re-layout moves the op instead of stranding it: engine.constants is the
+// engine-side truth and games/sonic4/config/constants.emp pins vram.toml against it.
+use engine.constants.{VRAM_PLANE_A, VRAM_PLANE_B}
 // The sparse fixtures are authored through engine.effects.raster_dsl, which is a
 // COMPTIME_HELPERS member and therefore ambient. What remains is the DENSE tier's
 // import surface: raster_gradient_program's BODY names these, and a comptime fn's
@@ -481,6 +488,101 @@ ensure(ojz_band_demo_effect_lines()[5] == OJZ_BAND_3_BOT, "OJZ_BandDemo: band 3 
 // exactly as the four zero-byte debug procs do.
 const OJZ_BAND_DEMO_EMIT_WORDS = if DEBUG == 1 { raster_words(OJZ_BAND_DEMO_PROG) } else { 0 }
 pub data OJZ_BandDemo: [u16; OJZ_BAND_DEMO_EMIT_WORDS] = if DEBUG == 1 { raster_program(OJZ_BAND_DEMO_PROG) } else { [] }
+
+// ===========================================================================
+// OJZ_BaseSwap — EFFECTS-W1 DoD ITEM 11a: THE MID-FRAME NAMETABLE-BASE CHANGE.
+//
+// Batman & Robin's trick, on this engine, with ZERO new VRAM and ZERO new engine code:
+// partway down the frame, re-point Plane A's base register at an address that ALREADY
+// holds a valid nametable — Plane B's — so the bottom band of the screen draws the
+// BACKGROUND map in the FOREGROUND layer. Design:
+// docs/superpowers/designs/2026-09-03-vram-replan-item0-design.md §2 row 11a and §4
+// step 1, which sequences this BEFORE the Option-P VRAM purchase precisely because it
+// costs no tiles.
+//
+// ---- WHY THIS IS ONE OP AND NOT TWO ----------------------------------------
+// There is no paired OFF edge and there must not be one. `engine/effects/raster.emp`
+// (the "A program carries NO frame-top register words" block) records the ruling:
+// Flush_VDP_Shadow re-blits ALL 19 shadowed registers from VDP_Shadow_Table
+// unconditionally at the top of every VBlank, and `vdp_plane_a` ($02) is one of them
+// (engine/structs.emp's VdpShadow) — so the base is back at VRAM_PLANE_A before the
+// next frame's first line WITHOUT the program naming it. VERIFIED at the flush rather
+// than taken from the comment: engine/system/vdp_init.emp's Flush_VDP_Shadow walks the
+// whole table with no register filter, and boot_data.emp's row for $02 is the same
+// `vdp_base_reg(VdpBase.PlaneA, VRAM_PLANE_A)` fold this file's HOME word below uses.
+//
+// A change meant to SURVIVE the frame would be `Set_VDP_Reg` instead (it writes the
+// shadow and the flush delivers it). This is the MID-FRAME door, so it is the raster op.
+//
+// ---- THE WORD IS FOLDED, NEVER TRANSCRIBED ---------------------------------
+// `vdp_base_reg` is the same comptime fold engine/system/boot_data.emp derives the boot
+// register table from, and it carries the residue `ensure` that refuses a base outside
+// reg $02's $2000 granule. So moving VRAM_PLANE_B moves this op with it, and a base the
+// register cannot encode fails the build by name instead of pointing the VDP at
+// `base - dropped` while every consumer writes `base`.
+const OJZ_BASE_SWAP_WORD = $8200 | vdp_base_reg(VdpBase.PlaneA, VRAM_PLANE_B)
+// The word Plane A carries at frame top, by the SAME fold from the SAME helper. It is
+// here to be COMPARED, not to be written: it is what the VBlank flush restores.
+const OJZ_BASE_SWAP_HOME = $8200 | vdp_base_reg(VdpBase.PlaneA, VRAM_PLANE_A)
+// The guard that makes this program a DEMONSTRATION rather than a no-op. If the two
+// planes' bases ever fold to the same register byte — because a re-layout moved one of
+// them, or because reg $02's shift changed — the op below would write the base Plane A
+// already has and the band would be invisible while every other check here stayed green.
+// That is the exact shape of failure this fixture exists to rule out, so it is refused by
+// name rather than left to a screenshot.
+ensure(OJZ_BASE_SWAP_WORD != OJZ_BASE_SWAP_HOME,
+       "OJZ_BaseSwap: the mid-frame word ({OJZ_BASE_SWAP_WORD}) is the SAME word reg $02 already carries at frame top ({OJZ_BASE_SWAP_HOME}), so the op re-points Plane A at the base it is already using and the band draws nothing different. VRAM_PLANE_A ({VRAM_PLANE_A}) and VRAM_PLANE_B ({VRAM_PLANE_B}) must fold to DIFFERENT reg $02 bytes for item 11a to be demonstrable at all — either the two planes now share a base, or vdp_base_reg's PlaneA shift changed.")
+
+// THE LINE. 160 puts the swap 64 lines above the bottom of a 224-line display: large
+// enough that the band cannot be mistaken for a one-line artifact, and far enough below
+// the OJZ water boundary (120, OJZ_WATER_LINE) that a reviewer stepping the lab's cycle
+// is never comparing two effects at the same edge.
+const OJZ_BASE_SWAP_LINE = 160
+
+const OJZ_BASE_SWAP_PROG = [
+    fire(OJZ_BASE_SWAP_LINE, [ reg_set(OJZ_BASE_SWAP_WORD) ]),
+]
+
+// THE PIN, the same shape (and the same reasoning) as OJZ_TEST_HAND above: literals on
+// purpose, because a pin sharing symbols with the encoder it pins is weaker. The two
+// values that are not framing were DERIVED here from source, not copied from the design
+// document that also names them:
+//   $8A9D  = $8A00 | (OJZ_BASE_SWAP_LINE - 3) = $8A00 | 157 — raster_arm(1, 159), the
+//            two-priming-record schedule spelled out at OJZ_TestRaster above.
+//   $8238  = $8200 | (VRAM_PLANE_B >> vdp_base_shift(PlaneA))
+//          = $8200 | ($E000 >> 10) — engine/vdp.emp's match arm gives PlaneA => 10, and
+//            engine/system/constants.emp gives VRAM_PLANE_B = $E000.
+const OJZ_BASE_SWAP_HAND = [
+    0,                          // pal_dirty_mask — a register op writes no CRAM, so no
+                                //   palette line is re-asserted at frame top
+    $8A9D, 0,                   // fire 0 — priming; arm = $8A00 | (160 - 3)
+    $8AFF, 0,                   // fire 1 — priming; nothing after the event, so park
+    $8AFF, 1,                   // fire 2 — the event, ONE op
+      0, $8238,                 // OP_SET_REG, then reg $02 <- Plane B's nametable
+    $8AFF, $FFFF,               // park + RASTER_OPS_END
+]
+ensure(raster_words(OJZ_BASE_SWAP_PROG) == OJZ_BASE_SWAP_HAND.len,
+       "OJZ_BaseSwap: DSL counts {raster_words(OJZ_BASE_SWAP_PROG)} words, the hand program is {OJZ_BASE_SWAP_HAND.len}")
+ensure(first_mismatch(raster_program(OJZ_BASE_SWAP_PROG), OJZ_BASE_SWAP_HAND) == -1,
+       "OJZ_BaseSwap: DSL output diverges from the hand-authored words at index {first_mismatch(raster_program(OJZ_BASE_SWAP_PROG), OJZ_BASE_SWAP_HAND)}")
+ensure(raster_program(OJZ_BASE_SWAP_PROG)[0] == 0,
+       "OJZ_BaseSwap: pal_dirty_mask is {raster_program(OJZ_BASE_SWAP_PROG)[0]}, not 0 — this program's only op is a VDP register write, which touches no CRAM line, so a nonzero mask would make Raster_VBlank re-assert a palette line every frame on a program that writes no colours")
+
+// ---- THE EMISSION IS DEBUG-GATED, FOR OJZ_BandDemo'S REASON EXACTLY ---------
+// The only installer is `Debug_BandDemoHotkey`, whose whole body sits inside
+// `if DEBUG == 1 {}` and emits zero bytes in the release shape. An unconditional
+// emission would therefore put a raster program in the shipped ROM that nothing in that
+// shape can install — the dormant scaffold this tree deletes rather than keeps "for
+// later" (see the gate note at OJZ_BandDemo above, which records the same correction
+// being made the wrong way round first).
+//
+// EVERY `ensure` ABOVE IS UNGATED and that is the point of spelling it this way: they are
+// comptime and emit nothing, so the fold, the HOME-vs-SWAP guard, the arm chain and the
+// whole `raster_program` guard stack run on this program in EVERY shape, on EVERY build.
+// Only the BYTES are shape-dependent, and `tools/plane_base_swap_gate.py` asserts BOTH
+// directions — the words in the DEBUG ROM, and their ABSENCE from the release one.
+const OJZ_BASE_SWAP_EMIT_WORDS = if DEBUG == 1 { raster_words(OJZ_BASE_SWAP_PROG) } else { 0 }
+pub data OJZ_BaseSwap: [u16; OJZ_BASE_SWAP_EMIT_WORDS] = if DEBUG == 1 { raster_program(OJZ_BASE_SWAP_PROG) } else { [] }
 
 // OJZ_TestPal — a deliberately unmistakable palette for the adjacent section, so
 // "did sec_pal load on the crossing?" is answerable from one CRAM read or
