@@ -75,11 +75,22 @@ PLANE_SOL_SHIFT = 12        # bits 13:12 — PER-PLANE cell word ONLY (bake_plan
 # indices — and is emitted as `crossover.bin`, a 5th 256-byte table addressed by
 # the same attr byte as solidity.bin. No per-cell ROM growth (anchor §5).
 #
-# ⚠ WHAT STILL DOES NOT HAPPEN, and it is the honest half of this comment: the
-# ENGINE does not read CrossoverTable yet (anchor §5 row 13 / §6 changes 2-5).
-# A painted crossover now reaches the ROM and changes its bytes; it does not yet
-# move any player's Sst.layer. Do not read a marked cell in a built ROM as a
-# working loop.
+# ⚠ WHAT IS AND IS NOT PROVEN — this paragraph said the engine did not read
+# CrossoverTable "yet", and that stopped being true on 2026-09-02 when the read
+# side landed (chain 208). `Player_LoopCrossover` runs once per player per frame
+# and writes `Sst.layer` on entering a marked cell. The stale sentence stood here
+# while `ojz_strip_gen.py` PRINTED the opposite on every bake, so the repo
+# contradicted itself in its own console output; caught by the aurora lane.
+#
+# THE NARROWER SENTENCE THAT IS STILL TRUE, and it is why the old one was easy to
+# leave standing: **no loop exists in OJZ act 1.** So the read side is proven by
+# EXECUTING THE ROM'S BYTES — `tools/loop_crossover_gate.py` decodes both routines
+# out of the built image, runs them, and varies one byte of the table requiring the
+# layer to follow — and NOT by anyone having driven a player through a loop. Those
+# are different claims and only the first has evidence.
+#
+# The gate runs on a CANONICAL build; `FAST=1` skips it. A fast build is therefore
+# not evidence about this table.
 # ---------------------------------------------------------------------------
 XOVER_SHIFT = 14            # per-plane cell word ONLY (bake_plane_cell)
 XOVER_MASK = 3
