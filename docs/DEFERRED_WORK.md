@@ -18275,12 +18275,35 @@ No emulator was used. **A green gate is not the picture.** What to look for, in 
   additionally needs the scroll feeds re-plumbed (the HScroll table is A/B-interleaved per
   line and VSRAM is even/odd **by plane, not by content**; design §8 Q4). That is code, and
   it is separately sequenced.
-- **No cross-seam symbol was added.** `OJZ_BaseSwap` is a new `pub data` referenced by
-  `games/sonic4/test/ojz_scroll_test.emp` — a `dc.l` from another module, i.e. a **new
-  cross-module name**, so the sigil-side `*_port` test for that module may need re-pinning
-  as a paired landing. It is the same shape and the same file as the existing
-  `dc.l OJZ_BandDemo` row beside it, so the edge already exists between those two modules;
-  what is new is one name on it.
+- **PAIRED LANDING, measured rather than guessed.** `OJZ_BaseSwap` is a new `pub data`
+  referenced by a `dc.l` in `games/sonic4/test/ojz_scroll_test.emp` — a new **cross-module
+  name** on an edge that already exists (the `dc.l OJZ_BandDemo` row beside it). The number
+  sigil's `crates/sigil-harness/tests/repin_pins.rs` needs is the tail:
+
+  | pin | before (aeon `b7f4bdeb`) | after | delta |
+  |---|---|---|---|
+  | `ASSEMBLED_LEN` (release `EndOfRom`) | `$A5C82` | `$A5C82` | **HOLDS** |
+  | `DEBUG_ASSEMBLED_LEN` (debug `EndOfRom`) | `$A8248` | `$A824C` | **+4** |
+
+  **+4, not +22, and the difference is the whole shape of the parcel.** The 22-byte program
+  is org-anchor absorbed exactly as `item5-cycles-variants`' 78-byte payload was; what
+  reaches the tail is the ONE `dc.l` row the `.raster_table` gains, inside
+  `if DEBUG == 1 {}`. Release holds because the emission is DEBUG-gated and the table row
+  does not exist in that shape at all (`Debug_BandDemoHotkey$raster_table` is absent from
+  `s4.lst`, which is the positive read that entry 198's own prose insists on).
+  **Both endpoints were measured on this box with the same sigil binary
+  (`md5 6c2378ae8a657e26684d4019a7d976d7`)**, by building the branch base's two `.emp` files
+  and reading `EndOfRom` out of each listing — not back-derived from the delta.
+  ⚠ Note for whoever re-pins: `repin_pins.rs` currently asserts `DEBUG_ASSEMBLED_LEN =
+  0xA81FC`, which is `$4C` **below** what aeon `b7f4bdeb` already builds. That gap predates
+  this parcel and is a separate pairing question.
+- **Two committed test fixtures were re-stamped**, both DEBUG-shape keys only, both caught
+  by their own gates by name: `tools/fixtures/sprite_tilt_cut.json` (the three `Ani_*` slab
+  addresses, +$16, byte content identical) and `tools/fixtures/loop_crossover_cut.json`
+  (`CrossoverTable` / `SolidityTable` +$16, plus one byte of `Player_LoopCrossover`'s image
+  — the low byte of a `lea $000709A4, a1` becoming `$000709BA`, which is the gate's own
+  displacement-vs-opcode discriminator answered as displacement; the gate had already
+  executed the routine to the same result as the release shape before reporting stale).
 - **The release ROM image below `EndOfRom` is byte-identical.** Measured: `s4.bin` is the
   same 720010 bytes and differs from the pre-parcel build in exactly two places — the header
   checksum at `$00018E-$00018F`, and the appended deb2 symbol table above `$0A6117`
