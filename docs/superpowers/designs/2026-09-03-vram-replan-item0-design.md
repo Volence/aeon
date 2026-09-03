@@ -437,10 +437,11 @@ The full comparison:
 
 **Sequencing that follows from §2:** do not wait for this parcel to start items 10 and 11.
 
-1. **Now, zero VRAM:** 10a (reels — the per-column VSRAM buffer already exists), 10b
-   (plane-role swap — both bases are already legal), 11a (mid-frame base change proven by
-   pointing Plane A at `$E000`). Three of five sub-features, no tiles spent, and 11a is the
-   *mechanism* both items are actually about — proving it early de-risks the expensive half.
+1. **Now, zero VRAM and zero new engine mechanism:** 10a (reels — the per-column VSRAM buffer
+   already exists), 10b (plane-role swap — both bases are already legal), 11a (mid-frame base
+   change, authored as a `RasterOp.SetReg($8238)` on a shipped opcode, §2.0). Three of five
+   sub-features, no tiles spent, and 11a is the *mechanism* both items are actually about —
+   proving it early is cheap and it de-risks the expensive half.
 2. **Then Option P**, one TOML edit plus a regenerate plus two engine constants.
 3. **Then** 10c and 11b, against the new region.
 
@@ -468,8 +469,12 @@ Specifics, so nobody has to re-derive them:
   final blob on `BG_TILE_CAPACITY` and the shipped blob is 448/448.
 - **Option C breaks `engine/level/parallax.emp`'s bob ladder by build-fatal `ensure`**, deletes
   the seam-free scroll range, and reverses the SAT/HScroll relocation that bought rows 48-63.
-- **Every option touches reg `$02`/`$03`/`$04`/`$05`/`$0D` derivation** — see §7. None of them
-  can silently point a register at a stale address any more, and that is new as of yesterday.
+- **Precision on which options touch a base register.** Option P by itself touches **none** of
+  the five: the pool has no base register, so cutting it changes no VDP byte. It touches one
+  the moment the freed run is *used* — rebasing `window_plane` to `$6000` changes reg `$03`
+  from `$3C` to `$18`. Options B and C both move a base register outright. In every case the
+  byte now follows the constant automatically and a misencodable base fails the build (§7),
+  which was **not** true before `parcel/item15-static-pair` closed the entry on 2026-09-03.
 
 ---
 
@@ -766,5 +771,17 @@ IV's top four rows are a window came from a search summary only and is **unverif
    set-pieces of items 10/11 also want. **If the HUD is ever to be the window instead, the
    window nametable stops being available as a third layer** and item 10c dies. Confirming
    "sprites" here is what makes the `$6000` region spendable on effects.
-3. **Do items 10a/10b/11a get started before this parcel?** §4 says they can. That is a
-   sequencing call, not a technical one.
+3. **Do items 10a/10b/11a get started before this parcel?** §4 says they can, and §2.0 says
+   they need no new engine mechanism to do it. That is a sequencing call, not a technical one.
+4. **Is the freed run declared as a `[[region]]` now, or as `[[free]]`?** Declaring it as a
+   named region immediately makes the map self-documenting and reserves the address against the
+   next person looking for 128 tiles; declaring it `[[free]]` keeps the parcel to one knob and
+   defers the naming to whoever consumes it. Either passes the generator (both were run, §3).
+   The recommendation is a named region with `owner = "engine.system.boot"` and no `register`
+   field until a consumer wires one, because an unnamed run is exactly how the BG band reserve
+   reached zero (`docs/BUGS.md` TOOL-01, the precedent the TOML's own comment cites).
+5. **Item 10c after §2.1 — do you still want it?** The window is a region-exclusive substitute
+   for Plane A, not a fourth layer. It buys a non-scrolling band. If what you pictured was a
+   third parallax layer, item 11b is the sub-feature that delivers it and 10c can be dropped —
+   which would not change the procurement (one `$2000`-aligned run serves either) but would
+   change what gets built on top of it.
