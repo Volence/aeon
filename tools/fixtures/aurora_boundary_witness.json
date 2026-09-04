@@ -17,5 +17,17 @@
   },
   "id": "aurora_boundary_witness",
   "name": "Aurora boundary witness",
+  "patch_motion": [
+    {
+      "sweep": {
+        "amp_shift": 2,
+        "period_shift": 0,
+        "phase": 0
+      }
+    }
+  ],
+  "patch_world_ys": [
+    5220
+  ],
   "schema": 1
 }

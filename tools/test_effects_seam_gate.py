@@ -28,6 +28,16 @@ import effects_seam_gate  # noqa: E402
 import effects_gen  # noqa: E402
 
 
+def real_channel_calls(lib: str, names) -> dict:
+    """The non-arm channels' call sites out of a real effects library, as `main` builds
+    them. Walked from `SECTION_CHANNELS` rather than listed, for the reason the gate
+    itself derives the required set: a seventh channel joins with no edit here."""
+    return {ch.channel: effects_seam_gate.channel_call_sites(
+                lib, getattr(names, ch.names_attr), ch.index_param)
+            for ch in effects_gen.SECTION_CHANNELS
+            if ch.channel not in effects_gen.ARM_CHANNELS}
+
+
 class TestEquParse(unittest.TestCase):
     """The listing parse, against the real emitted format."""
 
@@ -231,17 +241,28 @@ class TestSeamFaults(unittest.TestCase):
     RASTER_DOC = {"bands": []}
     BOUNDARY_DOC = {"boundary": {}}
 
-    def faults(self, calls, bindings, sections=9, refs=None, presets=None, patched=None):
+    def faults(self, calls, bindings, sections=9, refs=None, presets=None, patched=None,
+               channels=None):
         """`presets` DEFAULTS TO A RASTER-ARM DOCUMENT PER REF, and that default is
         stated rather than silent: every pre-2026-09-04 case in this class is a
         raster-arm one, so defaulting keeps those tests reading as what they test. The
-        unknown-document arm has its own test below, so the default cannot hide it."""
+        unknown-document arm has its own test below, so the default cannot hide it.
+
+        `RASTER_DOC` CARRIES NO NON-ARM KEY, so it owes no non-arm chooser and
+        `channels` defaulting to empty adds no fault to any pre-existing case. The
+        no-chooser arm is exercised by `TestChannelFaults` below, where the documents
+        carry the keys.
+
+        THE CHOOSER NAMES NOW ARRIVE AS `names` (2026-09-04). `FN`/`FN_PATCHED` above are
+        this act's real ones, so the assertions on message text are unchanged — and the
+        four other channels' names come from the same object rather than four more
+        arguments."""
         refs = refs or {}
         if presets is None:
             presets = {pid: self.RASTER_DOC for pid in refs.values()}
         return effects_seam_gate.seam_faults(
-            calls, patched or {}, bindings, sections, refs, presets,
-            self.FN, self.FN_PATCHED)
+            calls, patched or {}, channels or {}, bindings, sections, refs, presets,
+            effects_gen.act_names(REPO))
 
     # ---- the healthy state, which is also the committed one ----
     def test_the_committed_shape_has_NO_faults(self):
@@ -467,6 +488,231 @@ class TestSeamFaults(unittest.TestCase):
         self.assertEqual(len(self.faults({}, {})), 1)
 
 
+class TestChannelFaults(unittest.TestCase):
+    """`channel_faults` — the FOUR non-arm choosers the same `rasterRef` binds.
+
+    THE HOLE THESE CLOSE, stated as the measurement rather than as a design. Aurora bound
+    a section-6 document carrying `boundary` + `patch_world_ys` + `patch_motion`, threaded
+    the patched arm and neither patch chooser, and the build was GREEN AND BYTE-IDENTICAL
+    (their `docs/reviews/2026-09-04-boundary-moving-witness.md`, lane-log `630def5c`).
+    `TestAuroraNoChooserCase` below reproduces exactly that input; this class pins the
+    arm's shape on synthetic documents the real tree cannot produce.
+
+    WHY THE DOCUMENTS HERE ARE MINIMAL DICTS. `channel_faults` reads only which KEYS a
+    document carries and how long its arrays are — `effects_gen.SECTION_CHANNELS`' own
+    predicates — so a full document would add shape this arm never looks at.
+    `TestAuroraNoChooserCase` runs a REAL document through the generator's own reader,
+    which is where the "is the key where the table looks" question belongs.
+    """
+
+    NAMES = None            # set in setUpClass; the real act's chooser names
+
+    @classmethod
+    def setUpClass(cls):
+        cls.NAMES = effects_gen.act_names(REPO)
+
+    def faults(self, refs, presets, bindings, channels=None):
+        return effects_seam_gate.channel_faults(
+            channels or {}, bindings, refs, presets, self.NAMES)
+
+    # ---- a document carrying NO non-arm key owes nothing ----
+    def test_a_plain_raster_document_owes_no_non_arm_chooser(self):
+        """The control. Without it, an arm that faulted unconditionally would pass every
+        test below."""
+        self.assertEqual(
+            self.faults({5: "p"}, {"p": {"bands": []}}, {5: "OJZ_Preset_Sec5"}), [])
+
+    # ---- the four keys, one at a time, threaded NOWHERE ----
+    def one_key_unthreaded(self, ch):
+        """A document carrying ONLY this channel's key, beside a raster-arm program,
+        threaded nowhere. `ch.key` and NOT `ch.param`: the document key is `cycles` where
+        the `preset()` parameter is `cycle`, and conflating them is exactly the mistake
+        the table's two fields exist to prevent."""
+        doc = {"bands": [], ch.key: [{}]}
+        f = self.faults({5: "p"}, {"p": doc}, {5: "OJZ_Preset_Sec5"})
+        self.assertEqual(len(f), 1, f)
+        self.assertIn(getattr(self.NAMES, ch.names_attr), f[0])
+        self.assertIn("NOWHERE", f[0])
+        self.assertIn(f"carries `{ch.key}`", f[0])
+
+    def test_each_non_arm_key_owes_its_own_chooser(self):
+        """DERIVED FROM THE TABLE, NOT FROM A LIST OF FOUR. The cases are walked out of
+        `effects_gen.SECTION_CHANNELS`, so a seventh channel is covered by this test on
+        the commit that adds it — which is the whole point of deriving the required set.
+
+        NO `subTest` HERE, deliberately: a `subTest` failure does not propagate out of the
+        method, so the stub check below could not tell a green stub from a real pass."""
+        seen = 0
+        for ch in effects_gen.SECTION_CHANNELS:
+            if ch.channel in effects_gen.ARM_CHANNELS:
+                continue
+            self.one_key_unthreaded(ch)
+            seen += 1
+        self.assertEqual(seen, len(effects_gen.SECTION_CHANNELS)
+                         - len(effects_gen.ARM_CHANNELS))
+
+    def test_the_fault_prescribes_the_argument_to_WRITE(self):
+        """A gate's stated REASON is separately checkable from its verdict, and "the four
+        required threadings are only findable by copying Sec5" is the failure this fixes."""
+        doc = {"bands": [], "patch_motion": [None, None, None, None]}
+        f = self.faults({5: "p"}, {"p": doc}, {5: "OJZ_Preset_Sec5"})
+        self.assertEqual(len(f), 1)
+        self.assertIn("patch_motion: [", f[0])
+        self.assertIn(f"{self.NAMES.fn_sec_patch_motion}(sec: 5, ch: 0, "
+                      f"hand: ANCHOR_MOTION_NONE)", f[0])
+        # THE ARRAY IS THE ENGINE'S ARITY, not the document's: `preset()` asserts
+        # `patch_motion.len == RASTER_MAX_PATCH` at the call site, so a trimmed
+        # prescription would not build. Derived, never typed.
+        self.assertEqual(f[0].count(f"{self.NAMES.fn_sec_patch_motion}(sec: 5"),
+                         effects_gen.RASTER_MAX_PATCH)
+
+    def test_a_threaded_channel_is_NOT_a_fault(self):
+        doc = {"bands": [], "patch_motion": [None, None, None, None]}
+        ch = {"patch motion": {"OJZ_Preset_Sec5": {5: {0, 1, 2, 3}}}}
+        self.assertEqual(
+            self.faults({5: "p"}, {"p": doc}, {5: "OJZ_Preset_Sec5"}, ch), [])
+
+    def test_a_PARTIALLY_threaded_channel_is_a_fault_naming_the_missing_indices(self):
+        """`render_module` emits one row per index the document's array reaches, so a
+        call site that threads `ch: 0` alone leaves three rows emitted and unread."""
+        doc = {"bands": [], "patch_motion": [None, None, None, None]}
+        ch = {"patch motion": {"OJZ_Preset_Sec5": {5: {0}}}}
+        f = self.faults({5: "p"}, {"p": doc}, {5: "OJZ_Preset_Sec5"}, ch)
+        self.assertEqual(len(f), 1, f)
+        self.assertIn("only at ch [0]", f[0])
+        self.assertIn("ch [1, 2, 3] would be", f[0])
+
+    def test_a_SHORTER_document_array_owes_only_the_indices_it_reaches(self):
+        """The other half of the index rule: the document decides which indices are
+        CHOSEN, and a one-entry array does not owe channels 1-3."""
+        doc = {"bands": [], "patch_motion": [None]}
+        ch = {"patch motion": {"OJZ_Preset_Sec5": {5: {0}}}}
+        self.assertEqual(
+            self.faults({5: "p"}, {"p": doc}, {5: "OJZ_Preset_Sec5"}, ch), [])
+
+    def test_a_threading_on_ANOTHER_preset_does_not_count(self):
+        """The act-wide reading is exactly what was green: `OJZ_Preset_Sec5` calling the
+        chooser satisfied step 2b on behalf of every other section in the act."""
+        doc = {"bands": [], "patch_motion": [None]}
+        ch = {"patch motion": {"OJZ_Preset_Sec5": {5: {0}}}}
+        f = self.faults({6: "p"}, {"p": doc}, {6: "OJZ_Preset_Sec6"}, ch)
+        self.assertEqual(len(f), 1, f)
+        self.assertIn("OJZ_Preset_Sec6", f[0])
+
+    def test_a_section_binding_NO_preset_says_so(self):
+        doc = {"bands": [], "cycles": [{}]}
+        f = self.faults({6: "p"}, {"p": doc}, {})
+        self.assertEqual(len(f), 1, f)
+        self.assertIn("binds NO `effects:` preset at all", f[0])
+
+    def test_an_UNKNOWN_document_is_left_to_the_arm_partitions_loud_message(self):
+        """Silence here, not a second sentence: `seam_faults` already refuses to guess an
+        arm for a `rasterRef` naming no document, and two messages for one cause is worse
+        than one."""
+        self.assertEqual(self.faults({5: "nope"}, {}, {5: "OJZ_Preset_Sec5"}), [])
+
+    def test_stubbing_channel_faults_GREEN_breaks_these_tests(self):
+        """docs/EMP_PITFALLS.md §10 again: a stubbed-green checker must break the arms
+        above, or `assertEqual(f, [])` in the positive cases means nothing."""
+        real = effects_seam_gate.channel_faults
+        try:
+            effects_seam_gate.channel_faults = lambda *a, **k: []
+            for name in ("test_each_non_arm_key_owes_its_own_chooser",
+                         "test_the_fault_prescribes_the_argument_to_WRITE",
+                         "test_a_PARTIALLY_threaded_channel_is_a_fault_naming_the_"
+                         "missing_indices",
+                         "test_a_threading_on_ANOTHER_preset_does_not_count",
+                         "test_a_section_binding_NO_preset_says_so"):
+                with self.assertRaises(AssertionError, msg=name):
+                    getattr(self, name)()
+        finally:
+            effects_seam_gate.channel_faults = real
+
+
+class TestAuroraNoChooserCase(unittest.TestCase):
+    """THE DECISIVE CASE, reproduced: Aurora's section-6 binding, threading none of them.
+
+    Their packet `docs/reviews/2026-09-04-boundary-moving-witness.md` (aurora master
+    `80550655`, lane-log `630def5c`) lists what section 6 needed in `ojz_effects.emp`:
+    (1) `ojz_act1_sec_patched` in the editor-module import, (2)
+    `patched: ojz_act1_sec_patched(sec: 6)`, (3) `patch_world_ys: [...(sec: 6, ch: 0..3,
+    hand: PATCH_ANCHOR_NONE)]`, (4) `patch_motion: [...(sec: 6, ch: 0..3, hand:
+    ANCHOR_MOTION_NONE)]`. (1) and (2) went red under the gate's arm partition
+    (`aeb9cda7`). (3) and (4) did NOT: re-derived against the committed gate in this tree,
+    `seam_faults` returned ZERO faults for this exact input.
+
+    THE DOCUMENT IS THE COMMITTED FIXTURE, run through the generator's OWN reader, so a
+    schema move that renamed or nested a key fails here instead of silently un-requiring
+    the threading. Its two patch keys are transcribed from the packet's "What was
+    authored" section (`patch_world_ys: [5220]`, `patch_motion: [{sweep: {amp_shift: 2,
+    period_shift: 0, phase: 0}}]`) — the same transcription posture, and the same reasons
+    for living in `tools/fixtures/` rather than under `games/`, as
+    `TestBoundaryFixtureClassification` states.
+    """
+
+    FIXTURE = os.path.join(TOOLS, "fixtures", "aurora_boundary_witness.json")
+
+    def setUp(self):
+        self.doc = effects_gen.load_preset(self.FIXTURE)
+        self.names = effects_gen.act_names(REPO)
+        self.refs = {6: "aurora_boundary_witness"}
+        self.presets = {"aurora_boundary_witness": self.doc}
+        self.bindings = {5: "OJZ_Preset_Sec5", 6: "OJZ_Preset_Sec6"}
+
+    def run_gate(self, channels):
+        return effects_seam_gate.seam_faults(
+            {"OJZ_Preset_Sec5": (5, True)},          # the shipped raster-arm binding
+            {"OJZ_Preset_Sec6": (6, False)},         # (2), threaded correctly
+            channels, self.bindings, 9, self.refs, self.presets, self.names)
+
+    def test_the_fixture_carries_the_two_patch_keys_AURORA_AUTHORED(self):
+        """The transcription check for the added half, beside the boundary one next door."""
+        self.assertEqual(self.doc["patch_world_ys"], [5220])
+        self.assertEqual(self.doc["patch_motion"],
+                         [{"sweep": {"amp_shift": 2, "period_shift": 0, "phase": 0}}])
+
+    def test_the_document_owes_FOUR_threadings(self):
+        """Threadings (2), (3), (4) are channels; (1) is the import, checked in step 2b."""
+        owed = [c.channel for c in effects_gen.document_channels(self.doc)]
+        self.assertEqual(sorted(owed), ["patch motion", "patch world-Y", "patched"])
+
+    def test_threading_NONE_of_them_is_RED_and_names_BOTH_missing_choosers(self):
+        f = self.run_gate({})
+        self.assertEqual(len(f), 2, f)
+        joined = " | ".join(f)
+        self.assertIn(self.names.fn_sec_patch_world_y, joined)
+        self.assertIn(self.names.fn_sec_patch_motion, joined)
+        for s in f:
+            self.assertIn("Write, inside that `preset()`:", s)
+
+    def test_threading_ALL_of_them_is_GREEN(self):
+        """The positive control: the fix Aurora applied must satisfy this gate, or the arm
+        would demand a spelling nobody can write — the RASTER-BOUNDARY-2 failure."""
+        ch = {"patch world-Y": {"OJZ_Preset_Sec6": {6: {0, 1, 2, 3}}},
+              "patch motion": {"OJZ_Preset_Sec6": {6: {0, 1, 2, 3}}}}
+        self.assertEqual(self.run_gate(ch), [])
+
+    def test_the_prescribed_spelling_is_the_one_AURORA_APPLIED(self):
+        """A prescription is only useful if it is the thing that works. Compared against
+        their packet's list, not against this gate's own idea of it."""
+        f = self.run_gate({})
+        joined = "\n".join(f)
+        self.assertIn(f"{self.names.fn_sec_patch_world_y}(sec: 6, ch: 0, "
+                      f"hand: PATCH_ANCHOR_NONE)", joined)
+        self.assertIn(f"{self.names.fn_sec_patch_motion}(sec: 6, ch: 3, "
+                      f"hand: ANCHOR_MOTION_NONE)", joined)
+
+    def test_the_SHIPPED_spelling_matches_the_prescription(self):
+        """The prescription is checkable against the tree rather than asserted: every call
+        it prescribes for section 6 is the one `OJZ_Preset_Sec5` already carries for
+        section 5, and that record assembles in every shape this repo builds."""
+        with open(os.path.join(REPO, effects_seam_gate.EFFECTS_LIB)) as fh:
+            lib = fh.read()
+        for fn, hand in ((self.names.fn_sec_patch_world_y, "PATCH_ANCHOR_NONE"),
+                         (self.names.fn_sec_patch_motion, "ANCHOR_MOTION_NONE")):
+            self.assertIn(f"{fn}(sec: 5, ch: 0, hand: {hand})", lib)
+
+
 class TestRasterSeamAgainstTheRealTree(unittest.TestCase):
     """The committed effects library really does thread the chooser. No build needed."""
 
@@ -482,12 +728,12 @@ class TestRasterSeamAgainstTheRealTree(unittest.TestCase):
             effects_seam_gate.seam_faults(
                 calls,
                 effects_seam_gate.patched_call_sites(lib, names.fn_sec_patched),
+                real_channel_calls(lib, names),
                 effects_seam_gate.descriptor_effects_bindings(desc),
                 effects_gen.act_section_count(REPO),
                 effects_gen.load_section_raster_refs(REPO),
                 effects_gen.load_all_presets("sonic4", REPO),
-                names.fn_sec_raster,
-                names.fn_sec_patched),
+                names),
             [])
 
     def test_the_bound_sections_are_exactly_the_threaded_ones(self):
@@ -616,8 +862,7 @@ class TestSourceOnlyMode(unittest.TestCase):
         presets["cold_test_band"] = {"bands": []}  # a RASTER-arm document
         faults = effects_seam_gate.seam_faults(
             calls, effects_seam_gate.patched_call_sites(lib, names.fn_sec_patched),
-            bindings, sections, refs, presets,
-            names.fn_sec_raster, names.fn_sec_patched)
+            real_channel_calls(lib, names), bindings, sections, refs, presets, names)
         self.assertTrue(faults, f"binding section {unwired} raised no fault")
         self.assertIn(f"section {unwired}'s sidecar names rasterRef 'cold_test_band'",
                       faults[0])

@@ -52,6 +52,7 @@ MISSING scene directory is legitimately "no editor scenes" and is not an error, 
 UNREADABLE file fails the bake. "Degrade gracefully" must not collapse those two.
 """
 
+import collections
 import json
 import os
 import re
@@ -3137,6 +3138,105 @@ def act_section_count(repo: str = REPO, zone: int = 0, act: int = 0) -> int:
     return entry["gridWidth"] * entry["gridHeight"]
 
 
+# ===========================================================================
+# THE PER-SECTION CHOOSER CHANNELS, AS ONE TABLE
+# ===========================================================================
+#
+# ONE `rasterRef` BINDS THE WHOLE DOCUMENT (ruling Q1) — but a document is not one
+# channel. Each KEY it carries makes the generator emit binding rows into a DIFFERENT
+# `pub comptime fn` chooser, threaded into a DIFFERENT `preset()` parameter, and a row
+# nobody calls is a row nobody reads. So "which choosers does this section owe" is a
+# FUNCTION OF THE DOCUMENT'S KEYS, and this table is that function, written once.
+#
+# WHY A TABLE AND NOT SIX PREDICATES SPELLED WHERE THEY ARE USED. They already were:
+# `render_module` derived `raster_prog_bound` / `patched_bound` / `cycle_bound` /
+# `variant_bound` / `patch_bound` inline, and `tools/effects_seam_gate.py` re-derived the
+# arm half of the same partition on its own. The gate then checked TWO of the six
+# channels per section and the other four only ACT-WIDE ("something in this file calls
+# the cycle chooser"), so a section whose document carried `patch_world_ys` and
+# `patch_motion` while its `preset()` threaded neither built GREEN and byte-identical —
+# measured by Aurora 2026-09-04 (their `docs/reviews/2026-09-04-boundary-moving-witness.md`,
+# lane-log `630def5c`: "A section needs FOUR threadings and aeon's tree has none for
+# section 6"). Re-derived in this tree before the fix: `seam_faults` returned 0 faults for
+# exactly that input. A per-channel LIST in the gate would have closed that hole and
+# reopened it at the seventh key; a table both sides read cannot go stale on one side.
+#
+# `owed` IS THE PREDICATE, `indices` IS THE DOMAIN. `render_module` emits one row per
+# INDEX of the document's array (`enumerate(...)`, including `null` entries, which lower
+# to the engine sentinel), so a call site that threads `ch: 0` while the document authors
+# four channels leaves three rows unread. `indices` returns exactly the indices whose rows
+# are emitted; `None` means the chooser is not indexed.
+#
+# `hand` IS THE SENTINEL A FAULT MESSAGE MAY PRESCRIBE, and every one of them is a
+# spelling ALREADY IN `games/sonic4/data/effects/ojz_effects.emp` (Sec3 for cycle and
+# variants, Sec5 for the two patch channels, Sec0/Sec6 for the two arms). That is the
+# point: a gate must never prescribe a spelling nobody can write — the failure
+# docs/DEFERRED_WORK.md RASTER-BOUNDARY-2 is named for — so the prescriptions are copied
+# from records this repo assembles today rather than invented.
+# `key` IS THE DOCUMENT'S AND `param` IS THE `preset()` PARAMETER'S, and they are two
+# fields because they are not always the same word: the document key is `cycles` (plural,
+# an array of scripts) while the parameter is `cycle` (singular, one `ep_cycle` pointer).
+# A message that reported one as the other would send the author to edit the wrong file.
+# `key` is None for the raster arm alone, whose document side is three alternative keys
+# (`bands` / `ramp` / `base_swap`) rather than one.
+SectionChannel = collections.namedtuple(
+    "SectionChannel", "channel key param names_attr index_param owed indices hand")
+
+SECTION_CHANNELS = (
+    # THE TWO ARMS, mutually exclusive by construction: a document's ONE raster program
+    # lands in `ep_raster` or in `ep_patched`, never both (`preset()` asserts it).
+    SectionChannel("raster", None, "raster", "fn_sec_raster", None,
+                   lambda d: "boundary" not in d, lambda d: None,
+                   "Raster_Program_None"),
+    SectionChannel("patched", "boundary", "patched", "fn_sec_patched", None,
+                   lambda d: "boundary" in d, lambda d: None, None),
+    # THE PALETTE CHANNELS (item 5).
+    SectionChannel("cycle", "cycles", "cycle", "fn_sec_cycle", None,
+                   lambda d: "cycles" in d, lambda d: None, "Pal_Cycle_None"),
+    SectionChannel("variant", "variants", "variants", "fn_sec_variant", "slot",
+                   lambda d: d.get("variants") is not None,
+                   lambda d: range(len(d.get("variants") or [])), None),
+    # THE PATCH CHANNELS (item 4). EITHER key binds the section to the patch WITNESS, but
+    # each chooser's rows come from its OWN key, so each owes its own threading.
+    SectionChannel("patch world-Y", "patch_world_ys", "patch_world_ys",
+                   "fn_sec_patch_world_y", "ch",
+                   lambda d: "patch_world_ys" in d,
+                   lambda d: range(len(d.get("patch_world_ys") or [])),
+                   "PATCH_ANCHOR_NONE"),
+    SectionChannel("patch motion", "patch_motion", "patch_motion",
+                   "fn_sec_patch_motion", "ch",
+                   lambda d: "patch_motion" in d,
+                   lambda d: range(len(d.get("patch_motion") or [])),
+                   "ANCHOR_MOTION_NONE"),
+)
+
+CHANNEL = {c.channel: c for c in SECTION_CHANNELS}
+# The two that are one-or-the-other rather than one-more-beside: exactly one of them is
+# owed by every bound document, and `document_arm` is the name for which.
+ARM_CHANNELS = ("raster", "patched")
+
+
+def document_channels(preset: dict) -> tuple:
+    """The `SectionChannel`s one preset DOCUMENT owes, derived from the keys it carries.
+
+    Exactly one member is an arm (`ARM_CHANNELS`); the rest are the extra channels the
+    same `rasterRef` binds. Callers that want only the arm's name use `document_arm`.
+    """
+    return tuple(c for c in SECTION_CHANNELS if c.owed(preset))
+
+
+def document_arm(preset: dict) -> str:
+    """Which `preset()` parameter one document's raster program lands in.
+
+    `boundary` lowers through `patched_program()` into `EffectsPreset.ep_patched`;
+    everything else into `ep_raster`. Derived from `SECTION_CHANNELS` rather than spelled
+    again, so the arm and the other four channels cannot drift apart.
+    """
+    arms = [c.channel for c in document_channels(preset) if c.channel in ARM_CHANNELS]
+    assert len(arms) == 1, f"the arm channels are not exclusive for {preset.get('id')!r}"
+    return arms[0]
+
+
 class ActNames:
     """Every generated symbol/​path name for one act, derived from project.json ids.
 
@@ -3388,27 +3488,32 @@ def render_module(scenes: dict, act_ref, sec_refs: dict, sections: int,
     # this flag only decides whether the generated module needs the names at all.
     any_ramp = any("ramp" in presets[pid] for pid in presets)
     # {section index: preset id} for the sections whose bound document carries each key.
-    cycle_bound = {i: raster_bound[i] for i in raster_bound
-                   if "cycles" in presets[raster_bound[i]]}
-    variant_bound = {i: raster_bound[i] for i in raster_bound
-                     if presets[raster_bound[i]].get("variants") is not None}
+    # THE PREDICATES ARE `SECTION_CHANNELS`', not a second copy: `tools/effects_seam_gate.py`
+    # requires a threading for exactly the channels this partition emits rows for, and the
+    # two reading one table is what stops "which chooser does this document owe" from having
+    # two answers. See the SECTION_CHANNELS banner for the hole a second copy left open.
+    def _bound_for(channel):
+        owed = CHANNEL[channel].owed
+        return {i: pid for i, pid in raster_bound.items() if owed(presets[pid])}
+
+    cycle_bound = _bound_for("cycle")
+    variant_bound = _bound_for("variant")
     # The patch channels ride the SAME `rasterRef`, ruling Q1 again: one ref binds the whole
     # document. Either key alone is enough to bind — a document may author only the seed
     # (a boundary that sits somewhere new but does not move) or, having kept the section's
-    # hand anchor, only the motion.
-    patch_bound = {i: raster_bound[i] for i in raster_bound
-                   if ("patch_world_ys" in presets[raster_bound[i]]
-                       or "patch_motion" in presets[raster_bound[i]])}
+    # hand anchor, only the motion. So the WITNESS set is the union of the two channels,
+    # while each chooser below still emits rows from its own key alone.
+    patch_bound = {i: pid for i, pid in raster_bound.items()
+                   if any(CHANNEL[c].owed(presets[pid])
+                          for c in ("patch world-Y", "patch motion"))}
     # THE `rasterRef` SPLIT (contract §7.6). One ref still binds the whole document —
     # ruling Q1 is untouched — but the document's ONE raster program now lands in one of
     # TWO `preset()` parameters depending on which arm it carries, so the single map above
     # feeds two choosers. A boundary document must NOT appear in the raster chooser: a
     # patched image threaded into `raster:` would install a padded body with no patch
     # table and the boundary would never move, silently.
-    patched_bound = {i: pid for i, pid in raster_bound.items()
-                     if "boundary" in presets[pid]}
-    raster_prog_bound = {i: pid for i, pid in raster_bound.items()
-                         if i not in patched_bound}
+    patched_bound = _bound_for("patched")
+    raster_prog_bound = _bound_for("raster")
 
     # ---- (item 10) THE REELS KEY: refuse anything that is not a rung-1 binding ----
     #
