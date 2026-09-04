@@ -69,7 +69,7 @@ cursor starts at 0 and your first press installs **1**, because you boot standin
 |---|---|---|
 | 0 | **Water.** Two world-anchored boundaries with a sweep, plus the underwater parallax. | The camera near the **top of the act** — the boundaries are anchored at world Y 224 and 314. Anywhere else this reads `X`. |
 | 1 | **The sparse raster split** — shadow/highlight plus a backdrop change below screen line 120. | Nothing. On screen wherever you are. |
-| 2 | **The dense tier** — a 96-line gradient ramp down the lower half, plus this section's own palette. | Nothing. |
+| 2 | **The dense tier** — a 96-line gradient ramp down the lower half (screen lines 96-191). | Nothing, but **look closely**: the ramp moves three palette entries by one intensity step each, so it is a subtle shading change, not a rainbow. The blue test palette that used to hide it is gone. |
 | 3 | **A palette-cycling band** — no raster at all, the colours themselves animate (line 2, entries 8-11). | Nothing, but **watch, don't glance** — it is an 8-frame cycle. |
 | 4 | **The depth showcase** — the vertical-split program from this section's authored scene. | Nothing. |
 | 5 | The program section 5's editor sidecar binds (`$013C4C`, measured on the live ROM). | Nothing. |

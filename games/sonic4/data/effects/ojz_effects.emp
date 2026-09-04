@@ -1281,7 +1281,36 @@ pub data OJZ_Preset_Sec0:  EffectsPreset = preset(pal: OJZ_Palette, patched: OJZ
                                                                    ANCHOR_MOTION_NONE,
                                                                    ANCHOR_MOTION_NONE])
 pub data OJZ_Preset_Sec1:  EffectsPreset = preset(pal: OJZ_Palette, raster: OJZ_TestRaster,     cycle: Pal_Cycle_None,     variants: [Variant_Water_Deep, 0])
-pub data OJZ_Preset_Sec2:  EffectsPreset = preset(pal: OJZ_TestPal, raster: OJZ_TestGradient,   cycle: Pal_Cycle_None,     variants: [Variant_Water_Deep, 0])
+// SECTION 2 NO LONGER CARRIES OJZ_TestPal, and the reason is measured rather than
+// aesthetic (owner ruling 2026-09-03: "For 2 just get rid of the blue hiding the effect").
+// This preset installed a 96-line CRAM ramp AND a synthetic palette that floods the screen
+// blue, so the ramp had nothing to be seen against.
+//
+// THE RAMP WAS ALWAYS FIRING — measured on the running DEBUG ROM BEFORE the cut, with an
+// UNMASKED per-scanline framebuffer capture (`emulator/scanlines`, source == "raster"
+// asserted; a VBlank `read_cram` cannot see it, the writes are transient and re-asserted
+// every frame). With `Raster_Program` confirmed == OJZ_TestGradient, the ramp colours the
+// DSL predicts for line-2 entries 4/5/6 appear on screen in 12-line steps, rising from 0
+// pixels of 320 at screen line 96 to 200+ at line 191, and never outside 96..191. So the
+// owner's "I don't think there's a gradient ramp" was a report about VISIBILITY, not about
+// the mechanism, and swapping the palette is the right fix rather than a workaround.
+//
+// IT IS ONLY HALF THE VISIBILITY PROBLEM, and the other half is not fixed here. The ramp's
+// own three entries differ by ONE 3-bit intensity step (~36/255) — `test_palette()` folds a
+// near-monochrome blue ramp — so even against the real palette this is a subtle effect. If
+// section 2 is meant to SHOW the dense tier, the ramp's colour spread is what to widen next.
+//
+// WHAT THE CUT COSTS, stated because it is a real loss and no gate reports it: section 2 was
+// the ONLY section in OJZ act 1 with a palette differing from OJZ_Palette, so the act no
+// longer demonstrates sec_pal snapping on a crossing and restoring on the way out. Nothing
+// went red — no pytest and no effects-gates lane ever tested it; the only evidence that ever
+// existed is a manual oracle session in docs/benchmarks/effects-p1/GATE-EVIDENCE.md. The
+// choice of where that proof should live now is booked in docs/DEFERRED_WORK.md.
+//
+// `OJZ_TestPal` ITSELF IS UNTOUCHED and must stay where it is: tools/plane_base_swap_gate.py
+// derives OJZ_BaseSwap's emitted size from the gap to `NEXT_SYM = "OJZ_TestPal"`, so the
+// SYMBOL's position immediately after it is load-bearing even though this binding was not.
+pub data OJZ_Preset_Sec2:  EffectsPreset = preset(pal: OJZ_Palette, raster: OJZ_TestGradient,   cycle: Pal_Cycle_None,     variants: [Variant_Water_Deep, 0])
 // SECTION 3 THREADS THE PALETTE CHOOSERS (EFFECTS-W1 item 5). `hand:` is what this section
 // carries today — `OJZ_ShimmerCycle` on the cycle channel, `Variant_Water_Deep` in variant
 // slot 0 and nothing in slot 1 — so with no sidecar naming a document both choosers return
