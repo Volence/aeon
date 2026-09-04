@@ -49,6 +49,17 @@ Both halves are silent-and-green failures today: with no sidecar carrying a `ras
 the chooser resolves to `hand`, so deleting the call and typing the literal back leaves
 every witness value and every ROM byte identical.
 
+TWO CHOOSERS, NOT ONE — THE ARM PARTITION (2026-09-04, docs/DEFERRED_WORK.md
+RASTER-BOUNDARY-2). A preset document's ONE raster program lands in one of TWO `preset()`
+parameters: `boundary` lowers through `patched_program()` into `EffectsPreset.ep_patched`,
+everything else into `ep_raster`. One `rasterRef` still binds the whole document (ruling
+Q1) — the sidecar key is not split — but the CHOOSERS are, so this gate reads each bound
+document and requires the section to be threaded through the chooser THAT DOCUMENT names
+(`document_arm`). Before that it required the raster chooser for every `rasterRef`, which
+refused a correct patched binding outright (measured, and reported from Aurora's lane) and
+was blind to a dropped one. `seam_faults`' own docstring carries the design and what was
+rejected.
+
 --source-only — THE FAST LOOP'S ARM (2026-09-02, walkthrough finding b4).
 Steps 1, 2 and 2b below read SOURCE ONLY: the generated module, the descriptor, the
 effects library and the section sidecars. Step 3 is the one that needs the build's
@@ -136,6 +147,51 @@ def raster_call_sites(src: str, fn: str) -> dict:
     return out
 
 
+def patched_call_sites(src: str, fn: str) -> dict:
+    """{preset name: (sec index, whether a `hand:` argument was passed)}, `patched:` arm.
+
+    THE MIRROR OF `raster_call_sites`, ONE `preset()` PARAMETER OVER. `boundary` documents
+    lower into `EffectsPreset.ep_patched` through `patched_program()`, which is a DIFFERENT
+    `preset()` parameter from `raster:` — so they are chosen by a DIFFERENT generated
+    function (`names.fn_sec_patched`) and threaded at a different argument. A parse that
+    lumped the two would report a patched binding as a raster one and vice versa, which is
+    precisely the confusion this whole arm exists to end.
+
+    `hand:` IS RECORDED AND NOT REQUIRED, and that asymmetry against the raster arm is
+    deliberate rather than an omission. The raster arm demands `hand: Raster_Program_None`
+    because a real "no raster program" label exists and 0 means "keep" (ARCH §7.12). There
+    is NO `Patched_Program_None` in this tree — `patchable()` builds a patch table and there
+    is no empty one — so a gate that demanded `hand:` here would demand a spelling nobody
+    can write. What IS checked, below, is the case where omitting it does not assemble: a
+    section the chooser has no arm for.
+    """
+    call_re = re.compile(r"patched\s*:\s*" + re.escape(fn) +
+                         r"\s*\(\s*sec\s*:\s*(\d+)\s*(,\s*hand\s*:)?")
+    out = {}
+    for name, body in preset_records(src).items():
+        m = call_re.search(body)
+        if m:
+            out[name] = (int(m.group(1)), bool(m.group(2)))
+    return out
+
+
+def document_arm(preset: dict) -> str:
+    """Which `preset()` parameter one preset DOCUMENT's raster program lands in.
+
+    THE ARM IS THE DOCUMENT'S OWN PROPERTY, read from the document, and this function is
+    the gate's whole answer to "which chooser does this `rasterRef` owe". It is the SAME
+    predicate `effects_gen.render_module` partitions its two chooser tables with
+    (`patched_bound` = the bound refs whose document carries `boundary`; `raster_prog_bound`
+    = the rest), deliberately re-derived from the loaded documents rather than read out of
+    the generated module — the standing rule for every expectation in this gate.
+
+    ONE `rasterRef` STILL BINDS THE WHOLE DOCUMENT (ruling Q1). The sidecar key is not
+    split and must not be: the document already carries the fact, and a second copy in the
+    sidecar is a second authority that can disagree with it.
+    """
+    return "patched" if "boundary" in preset else "raster"
+
+
 def descriptor_effects_bindings(desc: str) -> dict:
     """{sec index: the preset name that section's `ojz_sec(...)` binds}.
 
@@ -151,32 +207,28 @@ def descriptor_effects_bindings(desc: str) -> dict:
     return out
 
 
-def raster_seam_faults(calls: dict, bindings: dict, sections: int,
-                       raster_refs: dict, fn: str) -> list:
-    """Every way the raster seam can be wrong, as sentences. Empty == the seam holds.
+def chooser_call_faults(calls: dict, bindings: dict, sections: int, fn: str,
+                        channel: str) -> list:
+    """The per-call-site invariants, shared by the `raster:` and `patched:` arms.
 
-    PURE, and separated from `main` for the same reason step 4's `unreachable_presets`
-    was: the combinations that matter (a shared preset, a mismatched index, a duplicate
-    index, a missing `hand:`) cannot all be produced by editing the real tree without
-    breaking the build, so the arms have to be exercisable on synthetic inputs.
+    THE INVARIANT, in one sentence: a preset whose channel is chosen BY SECTION INDEX must
+    belong to exactly one section, and to that index. `Sec.sec_effects` is a per-section
+    POINTER to a shared record (sections 6-8 share one today), so threading `<fn>(sec: N)`
+    into a record two sections point at silently gives BOTH the band — the design's §3.3(b)
+    hazard, which has no other symptom. That hazard is a property of SECTION-KEYED CHOOSING,
+    not of the raster channel, so it applies identically to `patched:` and the check is
+    factored rather than copied (a copied check is the one that drifts).
 
-    THE INVARIANT, in one sentence: a preset whose raster channel is chosen BY SECTION
-    INDEX must belong to exactly one section, and to that index. `Sec.sec_effects` is a
-    per-section POINTER to a shared record (sections 6-8 share one today), so threading
-    `<fn>(sec: N)` into a record two sections point at silently gives BOTH the band —
-    the design's §3.3(b) hazard, which has no other symptom.
+    `hand:` IS RASTER-ONLY, and the reason is in `patched_call_sites`' docstring: there is
+    no `Patched_Program_None` to demand. The patched arm's own `hand:` case — a call site
+    for a section the chooser has no arm for — is checked in `seam_faults` instead, where
+    the arming is known.
     """
     faults = []
-    if not calls:
-        faults.append(
-            f"no `preset()` in the effects library threads {fn} into its `raster:` — "
-            f"the chooser is generated for every act but nothing calls it, so no "
-            f"section can carry an editor-authored raster band and every raster "
-            f"channel is hand-typed again. Bind one section's preset through it.")
     seen = {}
     for name in sorted(calls):
         sec, has_hand = calls[name]
-        if not has_hand:
+        if channel == "raster" and not has_hand:
             faults.append(
                 f"{name} calls {fn}(sec: {sec}) with NO `hand:` argument. The "
                 f"parameter defaults to 0, and 0 in ep_raster means \"keep\", not "
@@ -196,14 +248,15 @@ def raster_seam_faults(calls: dict, bindings: dict, sections: int,
                 f"build time; it is caught here so the message names the preset.")
         if sec in seen:
             faults.append(
-                f"{name} and {seen[sec]} both choose on sec {sec}. Two presets keyed "
-                f"on one section index means one of them can never receive its band.")
+                f"{name} and {seen[sec]} both choose on sec {sec} in the {channel} "
+                f"chooser. Two presets keyed on one section index means one of them can "
+                f"never receive its band.")
         else:
             seen[sec] = name
         owners = sorted(i for i, p in bindings.items() if p == name)
         if not owners:
             faults.append(
-                f"{name} threads the chooser but NO section binds it in "
+                f"{name} threads the {channel} chooser but NO section binds it in "
                 f"{DESCRIPTOR}. A preset nothing points at is a record the crossing "
                 f"never installs.")
         elif owners != [sec]:
@@ -217,15 +270,186 @@ def raster_seam_faults(calls: dict, bindings: dict, sections: int,
                    if len(owners) > 1 else
                    f"The index and the binding disagree, so this section would "
                    f"receive another section's band."))
-    chosen = {s for s, _ in calls.values()}
-    for sec in sorted(raster_refs):
-        if sec not in chosen:
-            faults.append(
-                f"section {sec}'s sidecar names rasterRef {raster_refs[sec]!r}, but no "
-                f"preset threads {fn}(sec: {sec}) — the generator would emit the "
-                f"binding row and nothing would read it, which presents to the author "
-                f"as an assignment that did nothing.")
     return faults
+
+
+def seam_faults(raster_calls: dict, patched_calls: dict, bindings: dict, sections: int,
+                raster_refs: dict, presets: dict, fn: str, fn_patched: str) -> list:
+    """Every way the preset-binding seam can be wrong, as sentences. Empty == it holds.
+
+    PURE, and separated from `main` for the same reason step 4's `unreachable_presets`
+    was: the combinations that matter (a shared preset, a mismatched index, a duplicate
+    index, a missing `hand:`, a document on the wrong arm) cannot all be produced by
+    editing the real tree without breaking the build, so the arms have to be exercisable
+    on synthetic inputs.
+
+    ---- WHY THIS FUNCTION TOOK TWO CHOOSERS (2026-09-04, RASTER-BOUNDARY-2) ----
+
+    It used to take one. `raster_refs` counts EVERY sidecar `rasterRef` — the correct and
+    only key for binding a document to a section, ruling Q1 — but `chosen` came from the
+    RASTER chooser alone, so a section whose document lowers into `ep_patched` could not
+    satisfy this gate under ANY spelling: `raster:` with no arm is refused at type-check,
+    `raster:` with a non-zero hand trips `preset()`'s `ep_raster == 0 || ep_patched == 0`
+    ensure, and the buildable spelling (omit `raster:`, thread `patched:`) was INVISIBLE
+    here and fired the last arm. Measured refusing a correct binding on 2026-09-04.
+
+    The same blindness ran the other way: nothing in this tree required a `patched:` call
+    site at all, so DROPPING one was silent-and-green — the identical hole the raster arm
+    exists to close, one channel over.
+
+    ---- WHAT WAS CHOSEN, AND WHAT WAS REJECTED ----
+
+    The requirement is "a section carrying a `rasterRef` must be threaded". Three readings:
+
+      (A) THREADED IN EITHER CHOOSER. Rejected: it greens the genuinely silent failure.
+          A `boundary` document threaded through `raster: <fn>(sec: N, hand:
+          Raster_Program_None)` BUILDS — the raster chooser has no arm for N, so it
+          returns the hand label, `ep_raster` is set, `ep_patched` is 0, the exclusivity
+          ensure passes — and the authored boundary is simply never installed. "Either
+          arm" cannot see that, and it is the exact shape (`§3.3(b)`, and
+          `effects_gen.render_module`'s own note: "a patched image threaded into `raster:`
+          would install a padded body with no patch table") this seam is gated for.
+
+      (B) THE SIDECAR DECLARES THE ARM (a `patchedRef` key, or an arm tag beside
+          `rasterRef`). Rejected on three counts: it is a cross-repo schema change needing
+          the hub and Aurora's serializer, so it cannot be built from here at all; it
+          duplicates a fact the DOCUMENT already carries, giving one question two
+          authorities that can disagree; and ruling Q1 is explicitly that ONE ref binds
+          the whole document, which this would begin to unpick.
+
+      (C) DERIVE THE ARM FROM THE DOCUMENT — `document_arm`, above. CHOSEN. It is the same
+          predicate the generator already partitions its two chooser tables with, so the
+          gate and the generator cannot disagree about which chooser a document owes; it
+          needs no schema change and no other repo; and it is strictly stronger than (A),
+          which it contains.
+
+    ---- WHY THERE IS NO "NOTHING CALLS THE PATCHED CHOOSER" ARM ----
+
+    The raster arm has one ("the chooser is generated for every act but nothing calls it").
+    The patched arm deliberately does NOT, and this is a refusal rather than an oversight:
+    a `patched:` call site for a section no `boundary` document arms does not assemble
+    (`expected a label (a `Label` argument), got int` — the chooser returns its int default
+    and `preset(patched:)` is class-checked), and this tree carries no `boundary` document.
+    An arm demanding a spelling nobody can write is the failure RASTER-BOUNDARY-2 is about.
+    So the patched arm is CONDITIONAL: it fires exactly when a document that needs it is
+    bound. Until one is, it is vacuous and the gate's final line says so.
+    """
+    faults = []
+    if not raster_calls:
+        faults.append(
+            f"no `preset()` in the effects library threads {fn} into its `raster:` — "
+            f"the chooser is generated for every act but nothing calls it, so no "
+            f"section can carry an editor-authored raster band and every raster "
+            f"channel is hand-typed again. Bind one section's preset through it.")
+    faults += chooser_call_faults(raster_calls, bindings, sections, fn, "raster")
+    faults += chooser_call_faults(patched_calls, bindings, sections, fn_patched,
+                                  "patched")
+
+    for name in sorted(set(raster_calls) & set(patched_calls)):
+        faults.append(
+            f"{name} threads BOTH {fn} into `raster:` and {fn_patched} into "
+            f"`patched:`. `preset()` asserts `ep_raster == 0 || ep_patched == 0` because "
+            f"whichever installs LAST wins DESTRUCTIVELY (Raster_InstallPatched clears "
+            f"Raster_Pending), so this record cannot build. A section binds ONE arm: the "
+            f"one its document carries.")
+
+    raster_chosen = {sec: name for name, (sec, _h) in raster_calls.items()}
+    patched_chosen = {sec: name for name, (sec, _h) in patched_calls.items()}
+
+    # ---- THE ARM PARTITION: each `rasterRef` owes the chooser its DOCUMENT names ----
+    #
+    # THREE SITUATIONS, THREE SENTENCES. "No preset threads this section" used to be one
+    # message covering what are now three different states — threaded on raster, threaded
+    # on patched, threaded on neither — and this repo treats a gate's stated REASON as
+    # separately checkable from its verdict. The two wrong-arm directions do not even fail
+    # the same way (one is silent-and-green, the other is build-fatal), so they get their
+    # own sentences rather than a shared "wrong arm".
+    for sec in sorted(raster_refs):
+        pid = raster_refs[sec]
+        doc = presets.get(pid)
+        if doc is None:
+            faults.append(
+                f"section {sec}'s sidecar names rasterRef {pid!r}, but no preset "
+                f"document with that id loaded. This gate cannot tell which chooser "
+                f"that section owes without reading the document — it is the DOCUMENT "
+                f"that decides the arm (`boundary` lowers into ep_patched, everything "
+                f"else into ep_raster). Loud rather than assuming the raster arm.")
+            continue
+        arm = document_arm(doc)
+        if arm == "patched":
+            if sec in patched_chosen:
+                continue
+            if sec in raster_chosen:
+                faults.append(
+                    f"section {sec}'s sidecar names rasterRef {pid!r}, which carries "
+                    f"`boundary` — so it lowers through patched_program() into "
+                    f"EffectsPreset.ep_patched and the generator puts it in "
+                    f"{fn_patched}'s table, NOT {fn}'s. But {raster_chosen[sec]} threads "
+                    f"{fn}(sec: {sec}) instead. THAT COMBINATION BUILDS AND DOES "
+                    f"NOTHING: the raster chooser has no arm for {sec}, so it returns "
+                    f"the `hand:` program, ep_raster is set, the exclusivity ensure "
+                    f"passes, and the authored boundary is never installed. Omit the "
+                    f"`raster:` argument ALTOGETHER and thread "
+                    f"`patched: {fn_patched}(sec: {sec})`.")
+            else:
+                faults.append(
+                    f"section {sec}'s sidecar names rasterRef {pid!r}, which carries "
+                    f"`boundary` — so it owes a PATCHED binding — but no preset threads "
+                    f"{fn_patched}(sec: {sec}). Neither chooser reaches this section: "
+                    f"the generator would emit the binding row and nothing would read "
+                    f"it, which presents to the author as an assignment that did "
+                    f"nothing. Omit `raster:` from that section's preset() and thread "
+                    f"`patched: {fn_patched}(sec: {sec})`.")
+        else:
+            if sec in raster_chosen:
+                continue
+            if sec in patched_chosen:
+                faults.append(
+                    f"section {sec}'s sidecar names rasterRef {pid!r}, which carries no "
+                    f"`boundary` key — so its program lowers into "
+                    f"EffectsPreset.ep_raster and the generator puts it in {fn}'s table, "
+                    f"NOT {fn_patched}'s. But {patched_chosen[sec]} threads "
+                    f"{fn_patched}(sec: {sec}) instead. That does not assemble: the "
+                    f"patched chooser has no arm for {sec}, so it returns its int "
+                    f"default and `preset(patched:)` refuses it (`expected a label (a "
+                    f"`Label` argument), got int`). Thread "
+                    f"`raster: {fn}(sec: {sec}, hand: Raster_Program_None)`.")
+            else:
+                faults.append(
+                    f"section {sec}'s sidecar names rasterRef {pid!r}, but no "
+                    f"preset threads {fn}(sec: {sec}) — the generator would emit the "
+                    f"binding row and nothing would read it, which presents to the author "
+                    f"as an assignment that did nothing.")
+
+    # ---- the patched arm's own `hand:` case, which needs the arming to be known ----
+    for name in sorted(patched_calls):
+        sec, has_hand = patched_calls[name]
+        pid = raster_refs.get(sec)
+        armed = pid is not None and document_arm(presets.get(pid, {})) == "patched"
+        if not armed and not has_hand:
+            faults.append(
+                f"{name} calls {fn_patched}(sec: {sec}) with NO `hand:` argument, and no "
+                f"sidecar binds a `boundary` document to section {sec} — so the chooser "
+                f"has no arm for it and returns its int default, which "
+                f"`preset(patched:)` refuses (`expected a label (a `Label` argument), "
+                f"got int`, measured 2026-09-04). Either bind a `boundary` document to "
+                f"section {sec}'s `rasterRef`, or pass a real hand-authored patched "
+                f"program as `hand:` — there is no `Patched_Program_None` to pass.")
+    return faults
+
+
+def threaded_line(raster_calls: dict, patched_calls: dict) -> str:
+    """The gate's OK line names the presets AND THE ARM, never counts them.
+
+    "1 call site" would read the same whether it were section 5's or section 3's, and
+    WHICH section owns a section-keyed chooser is the entire property being checked. The
+    arm is now part of that: two presets can thread on the same index through different
+    choosers, and a line that hid the arm would read identically for a correct patched
+    binding and a silently-dead raster one.
+    """
+    parts = [f"raster {n}(sec: {raster_calls[n][0]})" for n in sorted(raster_calls)]
+    parts += [f"patched {n}(sec: {patched_calls[n][0]})" for n in sorted(patched_calls)]
+    return ", ".join(parts) if parts else "nothing threaded"
 
 
 def fail(msg: str) -> None:
@@ -365,25 +589,58 @@ def main() -> int:
                  f"legitimately stops calling it — and an uncalled `pub comptime fn` is "
                  f"never elaborated, which makes its own `ensure`s dead too.")
     raster_calls = raster_call_sites(lib, names.fn_sec_raster)
+    patched_calls = patched_call_sites(lib, names.fn_sec_patched)
     want_raster_refs = effects_gen.load_section_raster_refs(REPO)
-    faults = raster_seam_faults(raster_calls,
-                                descriptor_effects_bindings(desc),
-                                sections,
-                                want_raster_refs,
-                                names.fn_sec_raster)
+    # THE DOCUMENTS, read HERE and not only in step 3, because which chooser a section owes
+    # is a property of its DOCUMENT (`seam_faults`' design note (C)) and step 2b is the
+    # `--source-only` half. Both are source reads, so this costs the fast loop nothing it
+    # was not already paying in the canonical one.
+    try:
+        want_presets = effects_gen.load_all_presets("sonic4", REPO)
+    except effects_gen.SceneShapeError as e:
+        fail(f"a preset document does not load, so this gate cannot tell which chooser "
+             f"each bound section owes — the arm is the document's own property: {e}")
+    # THE PATCHED CHOOSER'S IMPORT, and it is the ONE conditional import check here while
+    # the five above are unconditional. The others are unconditional because every section
+    # can call them (they all take a real `hand:` fallback), so nothing legitimately stops
+    # calling them. `fn_sec_patched` cannot be called at all until a `boundary` document
+    # arms a section: the chooser would return its int default and `preset(patched:)`
+    # refuses it. Demanding the import (and the call) unconditionally would be a gate arm
+    # requiring a spelling nobody can write — the failure docs/DEFERRED_WORK.md
+    # RASTER-BOUNDARY-2 exists to name. So it is required exactly when it is buildable.
+    patched_needed = sorted(sec for sec, pid in want_raster_refs.items()
+                            if document_arm(want_presets.get(pid, {})) == "patched")
+    if (patched_needed or patched_calls) and names.fn_sec_patched not in lib_imported:
+        fail(f"{EFFECTS_LIB}'s import of {names.module} does not name "
+             f"{names.fn_sec_patched}, but "
+             + (f"section(s) {patched_needed} bind a `boundary` document"
+                if patched_needed else
+                f"a preset already threads it")
+             + f". A `boundary` document lowers into EffectsPreset.ep_patched through a "
+               f"DIFFERENT `preset()` parameter from `raster:`, so it is chosen by "
+               f"{names.fn_sec_patched} and an unimported chooser cannot be called — the "
+               f"authored boundary would be ROM nothing installs.")
+    faults = seam_faults(raster_calls,
+                         patched_calls,
+                         descriptor_effects_bindings(desc),
+                         sections,
+                         want_raster_refs,
+                         want_presets,
+                         names.fn_sec_raster,
+                         names.fn_sec_patched)
     if faults:
-        fail(f"the raster binding seam is broken in {EFFECTS_LIB}:\n  - "
+        fail(f"the preset binding seam is broken in {EFFECTS_LIB}:\n  - "
              + "\n  - ".join(faults))
 
     if source_only:
         # Say what was NOT measured, in the same breath as the pass. A gate that
         # reports only its green half is how a partial check gets read as the whole
         # one — and this half deliberately runs BEFORE the artifact exists.
-        threaded = ", ".join(f"{n}(sec: {raster_calls[n][0]})"
-                             for n in sorted(raster_calls))
-        print(f"effects_seam_gate: OK (--source-only) — seam spelling + raster binding "
-              f"in {EFFECTS_LIB} [{threaded}]; {calls} section call site(s), "
-              f"{len(want_raster_refs)} sidecar rasterRef(s).")
+        print(f"effects_seam_gate: OK (--source-only) — seam spelling + preset binding "
+              f"in {EFFECTS_LIB} [{threaded_line(raster_calls, patched_calls)}]; "
+              f"{calls} section call site(s), "
+              f"{len(want_raster_refs)} sidecar rasterRef(s) "
+              f"({len(patched_needed)} on the patched arm).")
         print("  NOT CHECKED here: the reachability witnesses and their values (step 3) "
               "— they live in the build's listing, which does not exist yet. Only the "
               "canonical `./build.sh` answers that.")
@@ -426,11 +683,10 @@ def main() -> int:
     # its raster binding filtered by which keys that document carries. Both are 0 today
     # and that is a state they have to be able to express — a value of 0 says "the module
     # was lowered and binds nothing", which is a DIFFERENT observation from absence.
-    try:
-        want_presets = effects_gen.load_all_presets("sonic4", REPO)
-    except effects_gen.SceneShapeError as e:
-        fail(f"a preset document does not load, so this gate cannot derive the palette "
-             f"witness counts: {e}")
+    # `want_presets` was loaded in step 2b — one read, one authority. It used to be loaded
+    # here as well, which was fine while only this step needed it; a second `load_all_presets`
+    # now would be a second chance for the two halves of one gate to disagree about the
+    # documents they are checking.
     want_cycle = sum(1 for sec, pid in want_raster_refs.items()
                      if "cycles" in want_presets.get(pid, {}))
     want_variant = sum(1 for sec, pid in want_raster_refs.items()
@@ -472,14 +728,17 @@ def main() -> int:
           f"{names.equ_variant_bindings}={want_variant}, "
           f"{names.equ_patch_bindings}={want_patch}, "
           f"{calls} section call site(s), {len(equs)} equates parsed from {lst})")
-    # The raster seam's own line, and it names the presets rather than counting them:
-    # "1 call site" would read the same whether it were section 5's or section 3's, and
-    # WHICH section owns a section-keyed chooser is the entire property being checked.
-    threaded = ", ".join(f"{n}(sec: {raster_calls[n][0]})" for n in sorted(raster_calls))
-    print(f"effects_seam_gate: OK — raster seam threaded in {EFFECTS_LIB} "
-          f"[{threaded}]; {len(want_raster_refs)} sidecar rasterRef(s)"
+    # The preset seam's own line — see `threaded_line` for why it names rather than counts.
+    print(f"effects_seam_gate: OK — preset seam threaded in {EFFECTS_LIB} "
+          f"[{threaded_line(raster_calls, patched_calls)}]; "
+          f"{len(want_raster_refs)} sidecar rasterRef(s)"
           + (" — the sidecar arm is VACUOUS today and says so rather than reading green"
-             if not want_raster_refs else ""))
+             if not want_raster_refs else
+             f", {len(patched_needed)} of them on the patched arm"
+             + (" — the PATCHED half of the arm partition is VACUOUS today (no bound "
+                "document carries `boundary`) and says so rather than reading green"
+                if not patched_needed else ""))
+          )
     return 0
 
 

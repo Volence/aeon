@@ -209,22 +209,39 @@ class TestDescriptorBindingParse(unittest.TestCase):
         self.assertNotIn(6, effects_seam_gate.descriptor_effects_bindings(self.SRC))
 
 
-class TestRasterSeamFaults(unittest.TestCase):
-    """`raster_seam_faults` — every combination, on synthetic inputs.
+class TestSeamFaults(unittest.TestCase):
+    """`seam_faults` — every combination, on synthetic inputs.
 
-    PURE ON PURPOSE. Two of these states cannot be produced by editing the real tree:
-    a duplicate index needs two chooser-threaded presets (the tree has one), and the
-    sidecar arm needs a `rasterRef` in a sidecar, which nothing in this tree carries
-    (that is step 6's landing, and step 3's four-CRC byte-identity depends on it staying
-    that way). An arm exercisable only by violating the precondition it waits on would
-    never be exercised, so it is exercised here instead.
+    PURE ON PURPOSE. Several of these states cannot be produced by editing the real tree:
+    a duplicate index needs two chooser-threaded presets (the tree has one per arm at
+    most), and EVERY patched-arm state needs a `boundary` document, which this tree
+    deliberately does not carry — "aeon's tree carries no boundary document" is a true
+    fact about the game and a test must not falsify it. An arm exercisable only by
+    violating the precondition it waits on would never be exercised, so it is exercised
+    here instead. `TestBoundaryFixtureClassification` below closes the one gap that
+    leaves: that a REAL boundary document, loaded through the generator's own reader,
+    classifies the way these synthetic dicts assume.
     """
 
     FN = "ojz_act1_sec_raster"
+    FN_PATCHED = "ojz_act1_sec_patched"
 
-    def faults(self, calls, bindings, sections=9, refs=None):
-        return effects_seam_gate.raster_seam_faults(
-            calls, bindings, sections, refs or {}, self.FN)
+    # A document dict as `document_arm` reads it. Only the presence of `boundary`
+    # matters, so the rest of the shape is deliberately absent rather than faked.
+    RASTER_DOC = {"bands": []}
+    BOUNDARY_DOC = {"boundary": {}}
+
+    def faults(self, calls, bindings, sections=9, refs=None, presets=None, patched=None):
+        """`presets` DEFAULTS TO A RASTER-ARM DOCUMENT PER REF, and that default is
+        stated rather than silent: every pre-2026-09-04 case in this class is a
+        raster-arm one, so defaulting keeps those tests reading as what they test. The
+        unknown-document arm has its own test below, so the default cannot hide it."""
+        refs = refs or {}
+        if presets is None:
+            presets = {pid: self.RASTER_DOC for pid in refs.values()}
+        return effects_seam_gate.seam_faults(
+            calls, patched or {}, bindings, sections, refs, presets,
+            self.FN, self.FN_PATCHED)
 
     # ---- the healthy state, which is also the committed one ----
     def test_the_committed_shape_has_NO_faults(self):
@@ -279,6 +296,133 @@ class TestRasterSeamFaults(unittest.TestCase):
         f = self.faults({"A": (5, True), "B": (5, True)}, {5: "A", 3: "B"})
         self.assertIn("both choose on sec 5", " | ".join(f))
 
+    # ---- THE ARM PARTITION (2026-09-04, RASTER-BOUNDARY-2) ----
+    #
+    # THREE SITUATIONS, THREE MESSAGES, and each is asserted on the sentence rather than
+    # only on "some fault fired". A gate that is right for the wrong reason is a defect
+    # here: "no preset threads this section" used to cover all three states below, and a
+    # reader acting on it would have deleted a correct binding.
+
+    def test_a_BOUNDARY_document_threaded_on_the_PATCHED_arm_is_NOT_a_fault(self):
+        """THE BUG. A correct patched binding — the spelling this tree's own docs
+        prescribe — was refused outright before the partition existed, under a message
+        telling the author to thread a raster chooser that has no arm for the section."""
+        self.assertEqual(
+            self.faults({"OJZ_Preset_Sec5": (5, True)},
+                        {5: "OJZ_Preset_Sec5", 6: "OJZ_Preset_Sec6"},
+                        refs={5: "kelp_shimmer", 6: "the_boundary"},
+                        presets={"kelp_shimmer": self.RASTER_DOC,
+                                 "the_boundary": self.BOUNDARY_DOC},
+                        patched={"OJZ_Preset_Sec6": (6, False)}), [])
+
+    def test_a_BOUNDARY_document_threaded_on_the_RASTER_arm_is_a_fault(self):
+        """THE HOLE, and the reason "threaded in either arm" was rejected: this
+        combination BUILDS. The raster chooser has no arm for the section, so it returns
+        the `hand:` label, ep_raster is set, ep_patched stays 0, the exclusivity ensure
+        passes — and the authored boundary is never installed, with no other symptom."""
+        f = self.faults({"OJZ_Preset_Sec6": (6, True)}, {6: "OJZ_Preset_Sec6"},
+                        refs={6: "the_boundary"},
+                        presets={"the_boundary": self.BOUNDARY_DOC})
+        self.assertEqual(len(f), 1)
+        self.assertIn("which carries `boundary`", f[0])
+        self.assertIn("BUILDS AND DOES NOTHING", f[0])
+        self.assertIn("patched: ojz_act1_sec_patched(sec: 6)", f[0])
+
+    def test_a_RASTER_document_threaded_on_the_PATCHED_arm_is_a_fault(self):
+        """The other direction, and it fails DIFFERENTLY — build-fatal, not silent — so
+        it gets its own sentence. Two faults fire: the wrong arm, and the `hand:`-less
+        call the unarmed chooser cannot satisfy."""
+        f = self.faults({}, {6: "OJZ_Preset_Sec6"},
+                        refs={6: "kelp_shimmer"},
+                        presets={"kelp_shimmer": self.RASTER_DOC},
+                        patched={"OJZ_Preset_Sec6": (6, False)})
+        joined = " | ".join(f)
+        self.assertIn("which carries no `boundary` key", joined)
+        self.assertIn("does not assemble", joined)
+        self.assertIn("raster: ojz_act1_sec_raster(sec: 6, hand: Raster_Program_None)",
+                      joined)
+
+    def test_a_BOUNDARY_document_threaded_on_NEITHER_arm_is_a_fault(self):
+        """The third situation, and its message must name the PATCHED chooser — the
+        pre-partition message named the raster one, which is the fix that cannot work."""
+        f = self.faults({"OJZ_Preset_Sec5": (5, True)}, {5: "OJZ_Preset_Sec5"},
+                        refs={6: "the_boundary"},
+                        presets={"the_boundary": self.BOUNDARY_DOC})
+        self.assertEqual(len(f), 1)
+        self.assertIn("owes a PATCHED binding", f[0])
+        self.assertIn("no preset threads ojz_act1_sec_patched(sec: 6)", f[0])
+        self.assertNotIn("threads ojz_act1_sec_raster(sec: 6)", f[0])
+
+    def test_the_THREE_situations_produce_THREE_DIFFERENT_sentences(self):
+        """Asserted as a set, because each message above could be checked in isolation
+        and still be the same string. The verdict is the same in all three cases; the
+        REASON is what the author acts on, and this repo treats a gate's stated reason
+        as separately checkable from its verdict."""
+        cases = {
+            "threaded on raster": dict(
+                calls={"P": (6, True)}, bindings={6: "P"}, refs={6: "b"},
+                presets={"b": self.BOUNDARY_DOC}),
+            "threaded on neither": dict(
+                calls={"OJZ_Preset_Sec5": (5, True)}, bindings={5: "OJZ_Preset_Sec5"},
+                refs={6: "b"}, presets={"b": self.BOUNDARY_DOC}),
+            # A raster call site is present in this one only to keep the "nothing calls
+            # the raster chooser" arm quiet, so the count below is about the arm
+            # partition and nothing else.
+            "threaded on patched": dict(
+                calls={"OJZ_Preset_Sec5": (5, True)},
+                bindings={5: "OJZ_Preset_Sec5", 6: "P"}, refs={6: "r"},
+                presets={"r": self.RASTER_DOC}, patched={"P": (6, True)}),
+        }
+        msgs = []
+        for label, kw in cases.items():
+            f = self.faults(**kw)
+            # Indexed only after the count is asserted, so a stubbed-green checker fails
+            # HERE with an AssertionError rather than an IndexError three lines down.
+            self.assertEqual(len(f), 1, f"{label!r} produced {len(f)} faults, not 1")
+            msgs.append(f[0])
+        self.assertEqual(len(set(msgs)), 3,
+                         "two of the three situations produce the SAME sentence")
+
+    def test_an_unknown_rasterRef_document_is_LOUD_and_not_assumed_raster(self):
+        """The arm is the DOCUMENT's property, so a ref naming no loadable document
+        leaves this gate unable to answer. Guessing the raster arm would have been the
+        convenient default and would silently re-create the bug for that section."""
+        f = self.faults({"OJZ_Preset_Sec5": (5, True)}, {5: "OJZ_Preset_Sec5"},
+                        refs={6: "nowhere"}, presets={})
+        self.assertEqual(len(f), 1)
+        self.assertIn("no preset document with that id loaded", f[0])
+
+    def test_a_preset_threading_BOTH_arms_is_a_fault(self):
+        f = self.faults({"P": (6, True)}, {6: "P"}, patched={"P": (6, True)})
+        self.assertIn("threads BOTH", " | ".join(f))
+
+    def test_a_SHARED_preset_is_a_fault_on_the_PATCHED_arm_TOO(self):
+        """§3.3(b) is a property of section-keyed CHOOSING, not of the raster channel.
+        The check is factored rather than copied for exactly this reason, and the
+        factoring is what this test pins."""
+        f = self.faults({}, {6: "P", 7: "P"}, refs={6: "b"},
+                        presets={"b": self.BOUNDARY_DOC},
+                        patched={"P": (6, False)})
+        self.assertIn("SHARED by 2 sections", " | ".join(f))
+
+    def test_a_patched_call_site_for_an_UNARMED_section_is_a_fault(self):
+        """`hand:` omitted and no `boundary` document bound: the chooser returns its int
+        default and `preset(patched:)` refuses it. Build-fatal, caught here so the
+        message names the preset — the out-of-range arm's precedent."""
+        f = self.faults({"OJZ_Preset_Sec5": (5, True)}, {5: "OJZ_Preset_Sec5", 6: "P"},
+                        patched={"P": (6, False)})
+        self.assertIn("there is no `Patched_Program_None` to pass", " | ".join(f))
+
+    def test_a_patched_call_site_with_a_real_hand_on_an_UNARMED_section_is_fine(self):
+        """The mirror of "a section bound to a preset that does NOT choose is fine": a
+        hand-authored patched program flowing through the chooser is what an unbound
+        patched section looks like, and demanding a binding would be demanding the
+        feature."""
+        self.assertEqual(
+            self.faults({"OJZ_Preset_Sec5": (5, True)},
+                        {5: "OJZ_Preset_Sec5", 6: "P"},
+                        patched={"P": (6, True)}), [])
+
     def test_a_sidecar_rasterRef_with_no_call_site_is_a_fault(self):
         """THE ARM THAT GOES LIVE AT STEP 6, exercised now because no sidecar in this
         tree carries the key. An author's assignment that reaches the generator but no
@@ -296,18 +440,29 @@ class TestRasterSeamFaults(unittest.TestCase):
     # ---- the inversion: stub the checker green and the arms above must go red ----
     def test_stubbing_the_checker_to_ALWAYS_HEALTHY_breaks_these_tests(self):
         """The countermeasure of docs/EMP_PITFALLS.md §10, applied to this gate: if
-        `raster_seam_faults` always returned [], every fault test above would pass a
-        `[] == []` comparison it never intended. Proven here rather than assumed."""
-        real = effects_seam_gate.raster_seam_faults
+        `seam_faults` always returned [], every fault test above would pass a
+        `[] == []` comparison it never intended. Proven here rather than assumed.
+
+        THE ARM-PARTITION TESTS ARE IN THE STUB SET TOO, and deliberately: the arm that
+        this parcel's whole point is a POSITIVE one ("a correct patched binding raises no
+        fault"), which a stubbed-green checker satisfies trivially. Its companions here
+        are what make that positive mean something."""
+        real = effects_seam_gate.seam_faults
         try:
-            effects_seam_gate.raster_seam_faults = lambda *a, **k: []
+            effects_seam_gate.seam_faults = lambda *a, **k: []
             self.assertEqual(self.faults({}, {}), [])          # would have been a fault
             with self.assertRaises(AssertionError):
                 self.test_a_SHARED_preset_is_a_fault_and_the_message_says_split_it()
             with self.assertRaises(AssertionError):
                 self.test_a_sidecar_rasterRef_with_no_call_site_is_a_fault()
+            with self.assertRaises(AssertionError):
+                self.test_a_BOUNDARY_document_threaded_on_the_RASTER_arm_is_a_fault()
+            with self.assertRaises(AssertionError):
+                self.test_a_BOUNDARY_document_threaded_on_NEITHER_arm_is_a_fault()
+            with self.assertRaises(AssertionError):
+                self.test_the_THREE_situations_produce_THREE_DIFFERENT_sentences()
         finally:
-            effects_seam_gate.raster_seam_faults = real
+            effects_seam_gate.seam_faults = real
         # and the real function is back
         self.assertEqual(len(self.faults({}, {})), 1)
 
@@ -324,12 +479,15 @@ class TestRasterSeamAgainstTheRealTree(unittest.TestCase):
         calls = effects_seam_gate.raster_call_sites(lib, names.fn_sec_raster)
         self.assertTrue(calls, "no preset threads the raster chooser")
         self.assertEqual(
-            effects_seam_gate.raster_seam_faults(
+            effects_seam_gate.seam_faults(
                 calls,
+                effects_seam_gate.patched_call_sites(lib, names.fn_sec_patched),
                 effects_seam_gate.descriptor_effects_bindings(desc),
                 effects_gen.act_section_count(REPO),
                 effects_gen.load_section_raster_refs(REPO),
-                names.fn_sec_raster),
+                effects_gen.load_all_presets("sonic4", REPO),
+                names.fn_sec_raster,
+                names.fn_sec_patched),
             [])
 
     def test_the_bound_sections_are_exactly_the_threaded_ones(self):
@@ -344,7 +502,12 @@ class TestRasterSeamAgainstTheRealTree(unittest.TestCase):
         expected dict would pin today's content and go stale the first time an author
         binds a second section; deriving it from the call sites cannot. The literal
         that remains is the section index, and it is cross-checked against the
-        threaded set rather than standing alone."""
+        threaded set rather than standing alone.
+
+        BOTH CHOOSERS COUNT AS THREADED (2026-09-04). `threaded` was the raster call
+        sites alone, which was the same blindness the gate itself carried: the first
+        `boundary` document bound would have failed this test for being spelled
+        correctly. The union is derived from the two parses, not typed."""
         bound = effects_gen.load_section_raster_refs(REPO)
         self.assertTrue(bound, "no sidecar carries a rasterRef — step 6's band is gone")
 
@@ -353,11 +516,15 @@ class TestRasterSeamAgainstTheRealTree(unittest.TestCase):
             lib = f.read()
         threaded = {sec for sec, _hand in
                     effects_seam_gate.raster_call_sites(lib, names.fn_sec_raster).values()}
+        threaded |= {sec for sec, _hand in
+                     effects_seam_gate.patched_call_sites(
+                         lib, names.fn_sec_patched).values()}
         self.assertTrue(
             set(bound) <= threaded,
             f"sections {sorted(set(bound) - threaded)} bind a rasterRef that no preset "
-            f"threads — the generator emits the binding and nothing reads it, which "
-            f"presents to the author as an assignment that did nothing")
+            f"threads through EITHER chooser — the generator emits the binding and "
+            f"nothing reads it, which presents to the author as an assignment that did "
+            f"nothing")
 
     def test_section_5_and_6_are_the_bound_ones_and_their_ids_are_the_shipped_documents(self):
         """The content assertion, kept separate from the invariant above so a content
@@ -432,11 +599,12 @@ class TestSourceOnlyMode(unittest.TestCase):
 
     def test_a_broken_raster_binding_FAILS_it(self):
         """The class FAST was blind to, driven through the same code path the flag
-        takes. `raster_seam_faults` is the only thing between the sidecars and the
+        takes. `seam_faults` is the only thing between the sidecars and the
         gate's exit code, so a fault here is a `--source-only` refusal there."""
         names = effects_gen.act_names(REPO)
         with open(os.path.join(REPO, effects_seam_gate.EFFECTS_LIB)) as f:
-            calls = effects_seam_gate.raster_call_sites(f.read(), names.fn_sec_raster)
+            lib = f.read()
+        calls = effects_seam_gate.raster_call_sites(lib, names.fn_sec_raster)
         threaded = {sec for sec, _h in calls.values()}
         sections = effects_gen.act_section_count(REPO)
         unwired = next(s for s in range(sections) if s not in threaded)
@@ -444,11 +612,78 @@ class TestSourceOnlyMode(unittest.TestCase):
             bindings = effects_seam_gate.descriptor_effects_bindings(f.read())
         refs = dict(effects_gen.load_section_raster_refs(REPO))
         refs[unwired] = "cold_test_band"          # the click Aurora offers
-        faults = effects_seam_gate.raster_seam_faults(
-            calls, bindings, sections, refs, names.fn_sec_raster)
+        presets = dict(effects_gen.load_all_presets("sonic4", REPO))
+        presets["cold_test_band"] = {"bands": []}  # a RASTER-arm document
+        faults = effects_seam_gate.seam_faults(
+            calls, effects_seam_gate.patched_call_sites(lib, names.fn_sec_patched),
+            bindings, sections, refs, presets,
+            names.fn_sec_raster, names.fn_sec_patched)
         self.assertTrue(faults, f"binding section {unwired} raised no fault")
         self.assertIn(f"section {unwired}'s sidecar names rasterRef 'cold_test_band'",
                       faults[0])
+
+
+class TestBoundaryFixtureClassification(unittest.TestCase):
+    """A REAL `boundary` document classifies onto the patched arm.
+
+    WHY A FIXTURE AND NOT A SYNTHETIC DICT. Every arm-partition test above asserts on
+    `{"boundary": {}}`, which pins the gate's LOGIC and says nothing about whether a
+    document an editor actually writes carries that key where `document_arm` looks. This
+    test closes that gap by running the generator's OWN reader over a real document — the
+    same `load_preset` the bake uses — so a schema move that renamed or nested the key
+    fails here instead of silently reclassifying every boundary document as a raster one.
+
+    WHY IT LIVES IN `tools/fixtures/` AND NOT UNDER `games/`. "aeon's tree carries no
+    `boundary` document" is a true fact about the GAME, and this parcel must not falsify
+    it to test itself: a document under `games/sonic4/data/editor/` is content, reaches
+    the bake, and would move ROM bytes. A fixture is an input to a test and reaches
+    nothing else.
+
+    PROVENANCE, stated because it is not what it might look like. The pose is Aurora's,
+    from their packet `docs/reviews/2026-09-04-boundary-seam-gate-conflict.md` (aurora
+    `c6acf1b4`) and its sibling `2026-09-04-boundary-reels-witness.md` §4, which records
+    the exact lowered call their `newBoundary()`-seeded document produced. Their
+    `aurora_boundary_witness.json` itself is NOT committed at that revision — it was
+    written into a disposable copy — so THIS FILE IS A TRANSCRIPTION, not their bytes.
+    What makes the transcription checkable rather than asserted is the test below: it
+    lowers the fixture through `render_boundary_preset` and compares against the call
+    Aurora measured, character for character. If the two ever disagree, the fixture is
+    wrong and this test says so.
+    """
+
+    FIXTURE = os.path.join(TOOLS, "fixtures", "aurora_boundary_witness.json")
+
+    # Aurora's packet §4, quoted. Their document lowered to exactly this.
+    AURORA_MEASURED = ("patchable(fx_tint_band(line: 100, slot: 0, pal_line: 2, "
+                       "entry: 4, count: 3, sh: 1),\n    ch: 0, lo: 3, hi: 220, "
+                       "offscreen_ship: 1)")
+
+    def test_the_generators_own_reader_accepts_it(self):
+        doc = effects_gen.load_preset(self.FIXTURE)
+        self.assertEqual(doc["id"], "aurora_boundary_witness")
+
+    def test_it_lowers_to_the_call_AURORA_MEASURED(self):
+        """The transcription check. Not a round-trip of Aurora's writer — we do not have
+        it — but a comparison against the one artifact of theirs that IS on the record."""
+        doc = effects_gen.load_preset(self.FIXTURE)
+        names = effects_gen.act_names(REPO)
+        lowered = effects_gen.render_boundary_preset(self.FIXTURE, doc, names)
+        self.assertIn(self.AURORA_MEASURED, lowered)
+
+    def test_document_arm_puts_it_on_the_PATCHED_arm(self):
+        """The one that matters to this gate, and the one a synthetic dict cannot ask."""
+        doc = effects_gen.load_preset(self.FIXTURE)
+        self.assertEqual(effects_seam_gate.document_arm(doc), "patched")
+
+    def test_a_SHIPPED_document_is_on_the_RASTER_arm(self):
+        """The control. Without it, `document_arm` returning "patched" unconditionally
+        would pass the test above."""
+        shipped = effects_gen.load_all_presets("sonic4", REPO)
+        self.assertTrue(shipped, "no preset documents ship — nothing to control against")
+        for pid, doc in shipped.items():
+            self.assertEqual(effects_seam_gate.document_arm(doc), "raster",
+                             f"{pid} classifies as patched; this tree is supposed to "
+                             f"carry no `boundary` document")
 
 
 if __name__ == "__main__":
