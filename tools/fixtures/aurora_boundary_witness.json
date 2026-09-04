@@ -1,0 +1,21 @@
+{
+  "boundary": {
+    "channel": 0,
+    "hi": 220,
+    "line": 100,
+    "lo": 3,
+    "offscreen_ship": true,
+    "on": {
+      "pal_region": {
+        "count": 3,
+        "entry": 4,
+        "pal_line": 2,
+        "slot": 0
+      }
+    },
+    "sh": true
+  },
+  "id": "aurora_boundary_witness",
+  "name": "Aurora boundary witness",
+  "schema": 1
+}
