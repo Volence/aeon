@@ -182,8 +182,13 @@ def raster_seam_faults(calls: dict, bindings: dict, sections: int,
                 f"parameter defaults to 0, and 0 in ep_raster means \"keep\", not "
                 f"\"off\" (ARCH §7.12) — an unbound section would inherit the previous "
                 f"section's program instead of clearing it. Pass "
-                f"`hand: Raster_Program_None` (or `hand: 0` on a section that binds "
-                f"`patched:`, where a non-zero hand fires preset()'s exclusivity ensure).")
+                f"`hand: Raster_Program_None`. A section that binds `patched:` is the "
+                f"one exception, and it is NOT spelled `hand: 0`: that spelling does not "
+                f"assemble (`expected a label (a `Label` argument), got int` — a bare 0 "
+                f"is not a `Value::Label`, measured 2026-09-04). Such a section omits the "
+                f"`raster:` argument ALTOGETHER, letting preset()'s own un-class-checked "
+                f"`raster: Label = 0` default land the same 0 in ep_raster, and threads "
+                f"only the patched chooser. See docs/DEFERRED_WORK.md RASTER-BOUNDARY-1.")
         if not 0 <= sec < sections:
             faults.append(
                 f"{name} calls {fn}(sec: {sec}) but this act has {sections} sections "

@@ -329,13 +329,38 @@ pub comptime fn ojz_act1_sec_scene(sec: int, hand: Label = 0) -> Label {
 // channel, so its call site is the section's own `preset()` in
 // games/sonic4/data/effects/ojz_effects.emp — `raster: <this>(sec: N, hand: ...)`.
 //
-// `hand:` IS THE CALLER'S, AND ON A PATCHED SECTION IT MUST BE `0`. `preset()` asserts
-// `ep_raster == 0 || ep_patched == 0` and that assert DOES read this function's result
-// (measured 2026-08-30, both arms). So a section that binds `patched:` must pass
-// `hand: 0`, because `Raster_Program_None` is a real non-zero label and would fire the
-// exclusivity ensure for a section that bound nothing at all. Every other section
-// passes `hand: Raster_Program_None`, since NULL cannot mean "off" while it also means
-// "keep" (ARCH §7.12).
+// `hand:` IS THE CALLER'S, AND A PATCHED SECTION OMITS `raster:` ALTOGETHER. `preset()`
+// asserts `ep_raster == 0 || ep_patched == 0` and that assert DOES read this function's
+// result (measured 2026-08-30, both arms), so a section that binds `patched:` may not pass
+// `hand: Raster_Program_None` — a real non-zero label, which would fire the exclusivity
+// ensure for a section that bound nothing at all. Every other section passes
+// `hand: Raster_Program_None`, since NULL cannot mean "off" while it also means "keep"
+// (ARCH §7.12).
+//
+// ⚠ IT MAY NOT PASS `hand: 0` EITHER — THAT SPELLING DOES NOT ASSEMBLE. Measured
+// 2026-09-04 against sigil 0.1.0 `0a58f2ec`: `<this>(sec: 6, hand: 0)` gives
+// `[Error] expected a label (a `Label` argument), got int`. `check_arg_class`
+// (sigil-frontend-emp `src/eval/call.rs:498`) requires a `Value::Label` for a `Label`
+// parameter and a bare `0` is a `Value::Int`. A declared DEFAULT is NOT class-checked
+// (`bind_args`, same file), which is the whole asymmetry: `hand: Label = 0` below declares
+// fine and refuses the identical value written out at a call site.
+//
+// OMITTING `hand:` DOES NOT RESCUE IT. With no arm for that section the body returns the
+// int default unchanged, and `preset(raster:)` — also a `Label` parameter — refuses it one
+// layer out with the same diagnostic (measured, same day). It happens to build on a
+// section that HAS an arm, because `comptime var out` retypes on reassignment; that is
+// luck, not the spelling working, and the patched case is by construction the unarmed one.
+//
+// THE BUILDABLE SPELLING IS TO OMIT THE `raster:` ARGUMENT ENTIRELY. `preset()`'s own
+// `raster: Label = 0` is a default, so it is not class-checked, and it puts in `ep_raster`
+// the same 0 `hand: 0` was reaching for. Measured buildable 2026-09-04 on the DEBUG shape
+// against a structural stand-in for this chooser (a `boundary` document is needed to arm
+// the real one, and this tree carries none).
+//
+// ⚠ ONE CONSEQUENCE, BOOKED AND NOT BUILT: a section spelled that way threads no raster
+// chooser at all, so `tools/effects_seam_gate.py`'s "sidecar names rasterRef but no preset
+// threads <fn>(sec: N)" arm fires on the first `boundary` document bound. See
+// docs/DEFERRED_WORK.md, RASTER-BOUNDARY-2.
 //
 // With no `rasterRef` in any sidecar the body below is `return hand` and this whole
 // block is zero ROM bytes — a `pub comptime fn` emits nothing.
@@ -361,12 +386,27 @@ pub comptime fn ojz_act1_sec_raster(sec: int, hand: Label = 0) -> Label {
 // one of two parameters depending on which arm it carries. A section whose `rasterRef`
 // names a `boundary` document therefore appears in THIS chooser and NOT in the raster one.
 //
-// ⚠ THE CALL SITE OWES `hand: 0` ON THE RASTER SIDE. `preset()` asserts
-// `ep_raster == 0 || ep_patched == 0`, and that assert reads both choosers' results. So a
-// section binding `patched:` must call the raster chooser with `hand: 0` and NOT with
-// `Raster_Program_None`, which is a real non-zero label and would fire the exclusivity
-// ensure. That is the same rule the raster banner above already states, now with a
-// generated producer on the other side of it.
+// ⚠ THE CALL SITE OWES AN ABSENT `raster:` — IT DOES NOT OWE `hand: 0`. `preset()` asserts
+// `ep_raster == 0 || ep_patched == 0`, and that assert reads both choosers' results, so a
+// section binding `patched:` may not pass the raster chooser `Raster_Program_None` (a real
+// non-zero label, which would fire the exclusivity ensure). Until 2026-09-04 this banner
+// and the raster one said to pass `hand: 0` instead. THAT SPELLING HAD NEVER BEEN
+// ASSEMBLED AND DOES NOT ASSEMBLE: `[Error] expected a label (a `Label` argument), got
+// int`, because a bare `0` is not a `Value::Label` and a `Label` parameter's DECLARED
+// DEFAULT is the one place sigil does not class-check (sigil-frontend-emp
+// `src/eval/call.rs`, `check_arg_class` vs `bind_args`). Omitting `hand:` fails the same
+// way here, since a patched-bound section has no raster arm to retype the result.
+//
+// WRITE IT WITH NO `raster:` ARGUMENT AT ALL:
+//
+//     pub data OJZ_Preset_SecN: EffectsPreset = preset(pal: OJZ_Palette,
+//                                                      patched: <this>(sec: N),
+//                                                      cycle: ..., variants: [...])
+//
+// `preset()`'s own `raster: Label = 0` default lands the same 0 in `ep_raster`, and a
+// default is not class-checked. Measured buildable 2026-09-04 (sigil 0.1.0 `0a58f2ec`,
+// DEBUG shape) against a structural stand-in for this chooser; see docs/DEFERRED_WORK.md,
+// RASTER-BOUNDARY-2, for the sigil ask that would make `hand: 0` legal.
 //
 // With no `boundary` document bound the body below is `return hand` and this whole block
 // is zero ROM bytes — a `pub comptime fn` emits nothing.

@@ -23139,10 +23139,12 @@ or call `ojz_act1_sec_patched`, and no section passes `patched:` from it. Nothin
 — no document carries `boundary`, so the chooser's body is `return hand` and it is zero ROM bytes —
 but **the first document that authors the key needs its section's `preset()` call amended in the
 same parcel**, and it owes TWO edits, not one: add `patched: ojz_act1_sec_patched(sec: N)`, and
-change that section's raster call to `hand: 0`. Not `Raster_Program_None`: that is a real non-zero
+**DELETE that section's `raster:` argument.** Not `Raster_Program_None`: that is a real non-zero
 label and `preset()`'s `ep_raster == 0 || ep_patched == 0` ensure would fire on a section that bound
-nothing at all. The generated banner says this; nothing enforces it, because no generator can see a
-hand-authored call site.
+nothing at all. Nothing enforces either edit, because no generator can see a hand-authored call site.
+
+⚠ **THIS PARAGRAPH SAID `hand: 0` UNTIL 2026-09-04 AND THAT SPELLING DOES NOT ASSEMBLE** — see
+RASTER-BOUNDARY-2 at the end of this file for the measurements and the sigil ask.
 
 **(b) NO PATCHED REACHABILITY WITNESS.** Every other channel mints a `pub equ
 Editor<Channel>_<ACT>_Bindings` that `tools/effects_seam_gate.py` derives and checks; the patched
@@ -23230,9 +23232,13 @@ has since moved to `1078a076`, i.e. the binary is deliberately behind its source
 unimported chooser makes a document's authoring "ROM nothing installs, with no other
 symptom". It does not yet require `sec_patched`. So the patched channel is the one channel
 whose binding route can be dropped silently — the exact shape that gate exists to catch.
-(Its `raster_seam_faults` already anticipates the other half: its missing-`hand:` message
-names `hand: 0` "on a section that binds `patched:`", so the seam was written expecting
-this arm.)
+(Its `raster_seam_faults` already anticipated the other half — its missing-`hand:` message
+named `hand: 0` "on a section that binds `patched:`", so the seam was written expecting this
+arm. ⚠ **That message was WRONG and is corrected as of 2026-09-04**: `hand: 0` does not
+assemble, and a patched-bound section omits `raster:` instead. **The gap is therefore worse
+than this paragraph read**, because the corrected spelling threads NO raster chooser at all:
+`raster_seam_faults`' last arm — "section N's sidecar names rasterRef but no preset threads
+`<fn>(sec: N)`" — will RED on the first bound `boundary` document. See RASTER-BOUNDARY-2.)
 
 ## A REFUSED BUILD HANDS BACK A PLAUSIBLE NUMBER — the wrong-artifact rule, live in our own build path
 
@@ -23728,3 +23734,124 @@ it was producing wrong reds today, which is what I said.**
 are byte-identical in this bake, **the witness's delta arm cannot tell the two tables apart at all**.
 The widened witness now detects that collision and says so loudly rather than passing — a green from
 a delta comparison of two identical tables is exactly the vacuous pass this repo keeps finding.
+
+
+---
+
+## RASTER-BOUNDARY-2 — `hand: 0` was prescribed in six places and does not assemble; the boundary call site now has a buildable spelling (2026-09-04)
+
+**THE SITUATION INHERITED.** RASTER-BOUNDARY-1 (a), above, told the first implementer of a
+`boundary` document to make two edits at the section's `preset()` call: add
+`patched: ojz_act1_sec_patched(sec: N)`, and change the raster call to `hand: 0`. The same
+instruction was written in five more places — both generated banners in
+`games/sonic4/data/generated/ojz/act1/effects_scenes.emp`, the two banner constants and one
+docstring in `tools/effects_gen.py`, `tools/effects_seam_gate.py`'s `raster_seam_faults`
+failure message, and the `boundary` row of `tools/EFFECTS_CONSUMER_CONTRACT.md`.
+**Not one of them had ever been assembled.** A previous parcel tried, got
+`[Error] expected a label (a `Label` argument), got int` twice, and BLOCKED rather than
+force a spelling through. That was the right call.
+
+**THE HYPOTHESIS THAT WAS TESTED AND REFUTED.** That omitting `hand:` entirely would let the
+declared default (`hand: Label = 0`) supply a Label-typed zero. It does not. Four
+measurements, all on `sigil build --native --game sonic4 --debug` with sigil 0.1.0
+`0a58f2ec` (md5 `6c2378ae8a657e26684d4019a7d976d7`), each one a single-edit probe on
+`OJZ_Preset_Sec6` reverted immediately after:
+
+| probe | result |
+|---|---|
+| `raster: ojz_act1_sec_raster(sec: 6, hand: 0)` | **refused** — `expected a label (a `Label` argument), got int`, span on `hand: 0` |
+| `patched: ojz_act1_sec_patched(sec: 6)` — `hand:` OMITTED, chooser has NO arm | **refused** — same diagnostic, span on the whole `patched: …(sec: 6)` argument |
+| `raster: ojz_act1_sec_raster(sec: 6)` — `hand:` OMITTED, chooser HAS an arm for 6 | **builds** (crc fb7970c4) |
+| a raster chooser whose arm assigns `out = 0` | **refused** — same diagnostic |
+
+**THE MECHANISM, read out of sigil rather than inferred.**
+`sigil-frontend-emp/src/eval/call.rs`: `check_arg_class` (:498) requires a `Value::Label`
+for a parameter whose type is `Label`, and a bare `0` evaluates to `Value::Int`. In the
+same file `bind_args` fills an unbound parameter from its declared default with
+`out.push(self.eval_expr(&default, …))` and **does not call `check_arg_class` on it.** That
+is the entire asymmetry: `hand: Label = 0` is declarable because defaults are unchecked, and
+the identical value is unpassable because arguments are checked. Omitting `hand:` therefore
+does not produce a Label — it produces the same `Value::Int(0)`, which is fine until the
+function returns it into another `Label` parameter (`preset(raster:)` / `preset(patched:)`),
+where it is refused one layer out with the same message. The third row above builds only
+because `comptime var out` **retypes on reassignment** and section 6 has a raster arm
+assigning a real label; that is luck, and the patched case is by construction the unarmed one.
+
+**THE SPELLING THAT WORKS — OMIT THE `raster:` ARGUMENT ENTIRELY.**
+
+```
+pub data OJZ_Preset_SecN: EffectsPreset = preset(pal: OJZ_Palette,
+                                                 patched: ojz_act1_sec_patched(sec: N),
+                                                 cycle: …, variants: [ …, … ])
+```
+
+`preset()`'s own `raster: Label = 0` is a DEFAULT, so it is not class-checked, and it lands
+in `ep_raster` the identical 0 that `hand: 0` was reaching for — same field, same value, and
+`preset()`'s `ep_raster == 0 || ep_patched == 0` ensure passes. **Measured buildable** with a
+structural stand-in for the patched chooser (a `comptime fn` with one arm returning
+`OJZ_TwoChannel`, a real patched program) threaded into `OJZ_Preset_Sec6` with `raster:`
+deleted: rc=0, `crc=ebf066da len=742018` against the canonical `fb7970c4`/742018 — the CRC
+moves and the length does not, which is what pointing `ep_patched` at an existing label and
+zeroing `ep_raster` should do. Reverted; nothing of that probe is in this parcel's diff.
+
+**WHAT THIS PARCEL CHANGED: the six sites, and nothing else.** All six now say "omit
+`raster:`", carry the refused diagnostic verbatim, and name the mechanism. A seventh site was
+found and fixed in passing — `tools/test_effects_seam_gate.py`'s fixture source string for
+"the raster chooser threaded into `patched:` is not a raster call site" spelled its call
+`hand: 0`; it is a parser input and never assembled, but a test that spells an unbuildable
+call teaches the spelling. **An EIGHTH site is CROSS-REPO and is NOT fixed here:** empyrean
+`docs/AURORA_EFFECTS_SCHEMA.md` §7.6 carries the same sentence ("a section binding `patched:`
+owes `hand: 0` on the raster side") — that is the contract this tree's row mirrors, and it
+needs the hub, not a grep from here.
+
+**⚠ THE GATE GAP GOT WORSE, NOT BETTER, AND IS BOOKED NOT BUILT.** RASTER-BOUNDARY-1's "one
+more gate gap" paragraph observed that `tools/effects_seam_gate.py` does not require
+`sec_patched` to be imported and called. With the corrected spelling the problem is sharper:
+a patched-bound section threads **no raster chooser at all**, so `raster_seam_faults`' last
+arm — *"section N's sidecar names `rasterRef` X, but no preset threads `<fn>(sec: N)`"* —
+**will fire on the first `boundary` document bound**, because `want_raster_refs` counts every
+`rasterRef` whichever arm it names. So the gate is simultaneously blind to a dropped
+`sec_patched` binding and about to red a correct one. **Both halves are one parcel:** teach
+`raster_seam_faults` which arm each document carries (partitioning `raster_refs` into raster
+and patched), add the `equ_patched_bindings` witness RASTER-BOUNDARY-1 (b) describes, and
+derive it. **Deliberately not built here** — a gate arm that demands a spelling nobody has
+ever bound is the failure this whole item is about, and there is still no `boundary` document
+in this tree to bind.
+
+**THE SIGIL ASK.** A `Label` parameter whose declared default is `0` accepts that default and
+refuses the identical value written explicitly. Minimal repro, three lines, no engine types
+involved — dropped into any module in the sonic4 build and measured refusing:
+
+```
+comptime fn probe_takes_label(x: Label) -> Label { return x }
+comptime fn probe_gives(hand: Label = 0) -> Label { return hand }
+ensure(probe_takes_label(probe_gives()) == 0, "probe")
+```
+
+→ `[Error] expected a label (a `Label` argument), got int`, span on `probe_gives()`.
+
+Two coherent resolutions, and the ask is for a ruling on which:
+1. **Accept an integer `0` in a `Label` argument position** as the null-pointer literal, so
+   `hand: 0` means what six places in this tree already say it means. This is the one that
+   makes the existing design spellable; ARCH §7.12's "NULL cannot mean off while it also
+   means keep" is about the ENGINE's semantics for the value, not about its type.
+2. **Refuse `Label = 0` at DECLARATION**, so the asymmetry is impossible to write. Cheaper to
+   implement and strictly better than today, but it invalidates every `hand: Label = 0`
+   chooser signature `tools/effects_gen.py` emits and needs a Label-typed "none" first.
+Doing neither is also a position — the omit-`raster:` spelling works — but then the
+declaration `Label = 0` remains a shape that reads as usable and is not.
+
+**One further datum for whoever takes it**, and it is why the ask is worth filing rather than
+routing around: this is the SECOND time this exact refusal has been booked here. `2026-08-30`
+recorded it for the variant chooser (search this file for *"A bare `0` is REFUSED in a `Label`
+argument position"*) and concluded "the call site relies on the chooser's declared
+`hand: Label = 0` default instead". **That conclusion is true of that call site and does not
+generalise, and the reason is worth having:** `ojz_act1_sec_variant(sec: 3, slot: 1)` is in
+this tree today with `hand:` omitted, its chooser has NO arm, so it returns `Value::Int(0)` —
+and it builds, because its result lands in `preset(variants: [Label; 2])`, an ARRAY parameter.
+`param_type_is_label` (same file, :858) matches only a bare named `Label`, so an array of
+Labels is never class-checked at all. The raster and patched choosers return into bare `Label`
+parameters, which is the only reason they are refused. So the tree contains a live, green,
+identically-shaped call that proves nothing about the one this item is about — and a finding
+recorded once, then generalised from by the next reader, is how the six wrong sites got
+written.
