@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "id": "aurora_local_rampctl_probe",
+  "id": "aurora_ramp_witness",
   "ramp": {
     "top": 3,
     "lines": 220,
