@@ -295,6 +295,41 @@ from scene_spans import (AEON, capability_bits, expected_spans, game_caps,
 # 192 / 120 / 8 / 26 on the run that failed this one, so Step4_Fill is the only row that
 # disagreed.
 #
+# RE-DERIVATION LOG — 2026-09-03, the row-remap ADOPTION parcel (EFFECTS-W1 item 9,
+# parcel/hcz-row-remap-9a). The pin FAILED and was right to. ONE row moved, the SAME row,
+# one tail further on — and it moved in the OTHER DIRECTION, which is the interesting part:
+#
+#   Parallax_Step4_Fill      194 -> 192  (-2)  `.copy_band` 44 -> 42, and that block is the
+#                                            WHOLE delta — every other local-label span in
+#                                            the proc is byte-identical between the two
+#                                            demo listings (checked by differencing
+#                                            consecutive sub-label addresses, not by
+#                                            eyeballing the total).
+#
+#   WHY IT SHRANK WHILE THE RECORD GREW, derived rather than asserted. `BAND_REMAP_N` is a
+#   pinned ENGINE literal, so `sizeof(band_record)` went 24 -> 32 in EVERY game, demo
+#   included. `.copy_band` has exactly two stride-driven constructs and they moved in
+#   OPPOSITE directions:
+#       copy_band_entry_fwd   +4   two more `move.l (a1)+,(a4)+` (24 B = 6 longs -> 32 B =
+#                                  8 longs) — the 09-02 entry above is the same effect at
+#                                  one long instead of two
+#       mul_const.w #stride   -6   24 is NOT a power of two and lowers to a shift/add chain
+#                                  (`move.w`+`lsl`+`lsl`+`add`, 8 B); 32 IS one, and lowers
+#                                  to a single `lsl.w #5` (2 B)
+#   Net -2, and the two terms account for it exactly. So the record's size being a POWER OF
+#   TWO is worth real bytes and real cycles at every site that indexes the shadow view by
+#   band — which is the same "the size is load-bearing" argument band_drift's banner makes
+#   for keeping the record a multiple of 4, one rung stronger. A future tail that takes the
+#   stride off a power of two pays this back with interest.
+#
+#   demo authors no ladder and emits NONE of the three `cap_row_remap_*` spans — the span
+#   half of this witness confirms it (demo 0 spans), which is again exactly why the image
+#   half exists.
+#
+# The other twelve rows are unchanged — measured, not assumed: this run's differential
+# printed 26 / 2 / 6 / 100 / 42 / 0 / 78 / 192 / 120 / 246 / 8 / 316 / 26 and Step4_Fill was
+# the only row this tool named.
+#
 # ONE OF THOSE FORTY IS RELAXATION-DEPENDENT AND WORTH KNOWING BEFORE THE NEXT REPIN. The
 # `lea` lowers to ABSOLUTE SHORT (4 B) because Sine_Table sits at $1258 in demo.debug and
 # $2B08 in s4.debug — both inside the sign-extended $0000..$7FFF that `.w` reaches. It
@@ -395,7 +430,7 @@ DEMO_SPECIALISED_PROCS = {
     "Parallax_Init":             42,   # CAP_ROLE_SWAP              (sonic4  46)
     "Parallax_Set_Roles_Swapped": 0,   # CAP_ROLE_SWAP              (sonic4  56) — no unconditional caller, so the whole proc elides
     "Parallax_StartTransition":  78,   # CAP_PER_COL_VSRAM, CAP_TRANSITIONS  (sonic4 106)
-    "Parallax_Step4_Fill":      194,   # CAP_ANCHORS, CAP_FACTOR_CURVE  (sonic4 670; 24 B record stride since CAP_BAND_DRIFT, 2026-09-02)
+    "Parallax_Step4_Fill":      192,   # CAP_ANCHORS, CAP_FACTOR_CURVE  (sonic4 656; 32 B record stride since CAP_ROW_REMAP, 2026-09-03)
     "Parallax_Step5_Vscroll":   120,   # CAP_PER_COL_VSRAM, CAP_TRANSITIONS, CAP_ROLE_SWAP  (sonic4 280 — re-measurable now that tools/scene_spans.py's phased-VMA fix landed; it read as 64 before that fix, truncated at SoundTablesZ80_Head's $8000 VMA)
     "Parallax_Update":          246,   # CAP_ROLE_SWAP              (sonic4 276)
     "Raster_GetChannelBand":      8,   # CAP_ANCHORS                (sonic4  50)

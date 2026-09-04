@@ -181,23 +181,42 @@ pub comptime fn v_column_floor(center: int, max_offset: int) -> [i8; 256] {
 // parcel 9b owns the generator that would settle it. What this one guarantees is the three
 // invariants above, which is what the runtime depends on.
 //
-// H IS FIXED AT 64 HERE, and the ladder is 65 x 64 = 4,160 bytes — exactly the size of S3K's
-// own `LBZ Waterline Scroll Data.bin`, which is that zone's waterline at the same height.
-// The return type must be concrete, so a parameterised H means a second fn rather than an
-// argument; 9b's generator is where that parameterisation belongs.
-pub const ROW_REMAP_H64 = 64
+// H IS FIXED AT 16 HERE, and the ladder is 17 x 16 = 272 bytes. The return type must be
+// concrete, so a parameterised H means a second fn rather than an argument; 9b's generator is
+// where that parameterisation belongs.
+//
+// ⚠ H IS 16 BECAUSE THE ROM SAID SO, TWICE, AND THE NUMBER THAT DECIDED IT IS WORTH KNOWING.
+// It started at 64 — a 65 x 64 = 4,160-byte table, exactly the size of S3K's own
+// `LBZ Waterline Scroll Data.bin` — and `tools/bganim_room.py` refused the canonical build:
+// packed data ran to within 15,092 B of the `dac_banks` anchor against a DATA_GROWTH_RESERVE
+// of 16,384 B. H = 32 (1,056 B) cleared the RELEASE shape (18,196 B free) and still failed
+// the DEBUG one (15,886 B free, 498 B short) — a four-shape gate needs a four-shape answer,
+// and the release shape passing was not one.
+//
+// THE MEASURED CEILING, DERIVED FROM THOSE TWO RUNS: the DEBUG shape has about 558 BYTES of
+// packed-data headroom before the bank-placement rule demands that both anchors move up a
+// 32 KB page. That is a whole-ROM re-layout and a frozen-table refreeze, which is not this
+// parcel's business — so ANY parcel adding more than ~558 B of packed data hits this wall
+// first, and it is not specific to a ladder. Booked in docs/DEFERRED_WORK.md.
+//
+// AUTHORING H DOWN IS THE DESIGN'S OWN FIRST LEVER (§6.1: "Author H down. The ladder is
+// quadratic in the band height."), and it is the one that fits inside a parcel. What it costs
+// is the remapped run's CEILING: |p| clamps at 15 lines rather than 63. The shipped binding's
+// surface plane line is chosen so its measured sweep sits under that clamp; a binding that
+// wants a taller band needs the bigger table AND the bank move, in that order.
+pub const ROW_REMAP_H16 = 16
 
 // One ladder entry, from the FLAT index. Split out of the `comptime for` element for
 // tri_sample's reason: an `if` in block-tail position inside the element folds to `()`
 // SILENTLY (docs/EMP_PITFALLS.md §1). There is no `if` here today, and keeping the body in a
 // named fn is what stops one being added inline later.
-comptime fn row_remap_entry64(k: int) -> int {
-    let r = k / ROW_REMAP_H64                      // the ladder row, 0 .. H
-    let i = k % ROW_REMAP_H64                      // the output line within the row
-    let p = ROW_REMAP_H64 - r                      // |p|: row H is the identity, row 0 is 2:1
-    return i + ((i * i * p) / (ROW_REMAP_H64 * (ROW_REMAP_H64 - 1)))
+comptime fn row_remap_entry16(k: int) -> int {
+    let r = k / ROW_REMAP_H16                      // the ladder row, 0 .. H
+    let i = k % ROW_REMAP_H16                      // the output line within the row
+    let p = ROW_REMAP_H16 - r                      // |p|: row H is the identity, row 0 is 2:1
+    return i + ((i * i * p) / (ROW_REMAP_H16 * (ROW_REMAP_H16 - 1)))
 }
 
-pub comptime fn row_remap_ladder64() -> [u8; 4160] {
-    return comptime for k in 0..4160 { row_remap_entry64(k) }
+pub comptime fn row_remap_ladder16() -> [u8; 272] {
+    return comptime for k in 0..272 { row_remap_entry16(k) }
 }

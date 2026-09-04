@@ -445,7 +445,7 @@ ensure((Game.SCANLINE_CAPS & CAP_ROW_REMAP) != 0 || BAND_REMAP_N == 0,
 // The scene half of the same fact, in the shape the drift arm above uses: a shipped scene
 // must actually AUTHOR a ladder, or the declared bit is a capability claim with no subject.
 ensure((SceneRegistry_CapsFolded & CAP_ROW_REMAP) != 0,
-       "scene registry: NO shipped scene folds CAP_ROW_REMAP any more, but this game still declares it in Game.SCANLINE_CAPS. Scene_OJZ_Underwater's layer 1 carried `rowRemap: SceneRemap.Ladder(RowRemapLadder_Waterline64, 128, 6)` as of EFFECTS-W1 item 9 parcel 9a — if that was deliberately dropped, this is a THREE-file retreat and not a scene-local edit: clear $0800 from SCANLINE_CAPS in games/sonic4/config/game.emp, put engine/level/parallax.emp's BAND_REMAP_N back to 0 and engine/ram.emp's BAND_REMAP_BYTES back to 0 in the SAME commit, re-derive SceneRegistry_CapsExpected above, drop the 4,160-byte RowRemapLadder_Waterline64 emission, and flip this arm back to `== 0`. Leaving it half-done costs the widened band record, 128 B of Parallax_State, 26 cycles per band per frame and 4,160 ROM bytes for a background that does not remap")
+       "scene registry: NO shipped scene folds CAP_ROW_REMAP any more, but this game still declares it in Game.SCANLINE_CAPS. Scene_OJZ_Underwater's layer 1 carried `rowRemap: SceneRemap.Ladder(RowRemapLadder_Waterline16, 94, 4)` as of EFFECTS-W1 item 9 parcel 9a — if that was deliberately dropped, this is a THREE-file retreat and not a scene-local edit: clear $0800 from SCANLINE_CAPS in games/sonic4/config/game.emp, put engine/level/parallax.emp's BAND_REMAP_N back to 0 and engine/ram.emp's BAND_REMAP_BYTES back to 0 in the SAME commit, re-derive SceneRegistry_CapsExpected above, drop the 272-byte RowRemapLadder_Waterline16 emission, and flip this arm back to `== 0`. Leaving it half-done costs the widened band record, 128 B of Parallax_State, 26 cycles per band per frame and 272 ROM bytes for a background that does not remap")
 
 ensure((Game.SCANLINE_CAPS & CAP_BAND_DRIFT) != 0 || BAND_DRIFT_N == 0,
        "engine/level/parallax.emp's BAND_DRIFT_N is {BAND_DRIFT_N} but this game does NOT declare CAP_BAND_DRIFT (Game.SCANLINE_CAPS = {Game.SCANLINE_CAPS}) — every band would carry sizeof(band_drift) bytes of ROM and shadow RAM that nothing reads, plus a whole accumulator array of RAM nothing advances, and the zero-capability lowering would stop being byte-identical to the legacy one")
@@ -503,7 +503,7 @@ pub const SceneRegistry_CapsFolded = fold_caps(SCENES)
 // `drift: SceneDrift.Rate(-32)`; derived_drift() raises it off a non-zero rate on any layer
 // inside `count`, so ONE band would raise it and four raise it once), and $0800
 // CAP_ROW_REMAP (2026-09-03, EFFECTS-W1 item 9 parcel 9a — Scene_OJZ_Underwater alone,
-// whose layer 1 carries `rowRemap: SceneRemap.Ladder(RowRemapLadder_Waterline64, 128, 6)`;
+// whose layer 1 carries `rowRemap: SceneRemap.Ladder(RowRemapLadder_Waterline16, 94, 4)`;
 // derived_remap() raises it off the VARIANT on any layer inside `count`, and scene() refuses
 // a second one). Writing it as
 // `fold_caps(SCENES)`
@@ -759,7 +759,7 @@ pub data ParallaxConfig_OJZ_LockedClouds:     SceneCfg5 = lower5(SCENES[19])
 
 // EFFECTS-W1 item 9's ROW REMAP LADDER, and it is LAST IN THIS MODULE ON PURPOSE. Every
 // address above is the input to a `pcfg_deform_table_*` word inside an emitted record, so a
-// 4,160-byte table inserted anywhere earlier would rewrite those words in every config —
+// 272-byte table inserted anywhere earlier would rewrite those words in every config —
 // which is precisely the churn the banner above pins the P1 image-identity gate on. Appended
 // after the last record it moves nothing before it, and the ONLY new pointer in the tree is
 // the one the remapped band's own tail carries.
@@ -767,4 +767,4 @@ pub data ParallaxConfig_OJZ_LockedClouds:     SceneCfg5 = lower5(SCENES[19])
 // AUTHORSHIP IS ojz_scenes.emp's, PLACEMENT IS THIS FILE'S — the same split the six deform
 // tables above use, and for the same reason: a Label's bytes are not comptime readable, so
 // the equivalence witness needs the array VALUE to have an importable name.
-pub data RowRemapLadder_Waterline64:          [u8; 4160] = SceneSrc_RowRemapLadder_Waterline64
+pub data RowRemapLadder_Waterline16:          [u8; 272] = SceneSrc_RowRemapLadder_Waterline16

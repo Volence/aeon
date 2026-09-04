@@ -2591,6 +2591,61 @@ canonical spelling and is what S2 DEZ's camera-locked star rows and S3K SSZ1's s
   walker that faithfully accumulates a rate of zero passes the first and fails the second. Whether
   the accumulate moves the PICTURE is still emulator work and is booked as unrun.
 
+**Row remap — the waterline's perspective compression (2026-09-03, `CAP_ROW_REMAP`).** A layer may
+carry `rowRemap: SceneRemap.Ladder(table, surface_plane_y, height_shift)`, and the first `|p|` lines
+of its band are then re-fetched through a viewpoint-selected index ladder: screen line *i* takes the
+plane-B scroll word that belonged to line `ladder[i]`. Rows are reordered and dropped, so the band
+compresses toward the surface as the viewpoint separates. This is S3K Hydrocity's waterline
+(`HCZ1_Deform`, `skdisasm/sonic3k.asm:105849-105876`) and S3K LBZ2's, which run the same
+three-instruction kernel at two different band heights.
+
+- **THE ITEM'S NAME IS WRONG AND THE CORRECTION IS ARCHITECTURAL.** This writes **no nametable word
+  and no VSRAM**. Per-line horizontal scroll is a VRAM TABLE the VDP fetches for itself, so there is
+  no per-line register an HBlank handler could write and nothing for the raster interpreter to do.
+  The whole mechanism runs in the game loop and reaches the VDP through the 896-byte static HScroll
+  DMA that already ships: **zero HBlank cycles, zero new VRAM, zero new DMA.**
+  `RASTER_DENSE_LINE_RAMP_CYC` (304 of 488) is not its budget. It spends **56 cyc/line of the
+  128,000-cycle frame**, plus ~26 cyc/band for a game that declares the bit and does not use it.
+- **IT IS A SECOND PASS, NOT A SIXTH LINE LOOP, AND THAT IS THE RULING.** `Parallax_Fill_PerLine`'s
+  five specialised loops stay five. The remap runs after the band loop, over longwords one of those
+  five already wrote, so it composes with **all** of them — and with drift, the anchored split and
+  the deform tables — instead of multiplying into a product with the FG/BG/curve matrix.
+  Remapping the source INDEX inside the value computation would have been cheaper per line and is
+  the shape `.lp_curve`'s banner says was avoided deliberately. It runs INSIDE the proc that owns
+  `Hscroll_Buffer`, which is the whole difference between it and a post-pass that overwrites what
+  the pipeline produced.
+- **The perspective quantity is a subtraction of two live terms.**
+  `p = brm_plane_y - Vscroll_BG - Effects_Screen_L[ch]` — the background's image of the surface minus
+  the foreground's truth about it. Both terms are quantities the engine already keeps every frame,
+  which is why this effect needs no new per-frame derivation. It reads the anchor LATCH rather than
+  recomputing `anchor - Camera_Y`, so the pass and Step 4b's split stay on one camera across a lag
+  frame. `|p|` selects the ladder row (`H - |p|`) AND sizes the band, as in S3K: the same number
+  deliberately, so the band grows as it compresses and `p == 0` turns the effect off with no special
+  case.
+- **REMAPPING A CONSTANT IS THE IDENTITY, and that is the load-bearing assertion.** A flat band
+  permuted by any ladder is byte-identical to itself: green build, pass runs, nothing on screen.
+  `scene()` refuses a `rowRemap` whose layer has no live BG variation (its own deform amplitude
+  against a table, the anchor's, or a curve), refuses one with no `anchor:`, and refuses a second
+  remapped layer. **Two subtler forms of the same failure were found by measurement and are
+  guarded separately:** an all-identity LADDER satisfies every ladder invariant
+  (`tools/row_remap_gate.py`'s fourth arm refuses it), and the ladder's quadratic compression makes
+  the first few lines of any row the identity, so a binding whose perspective sweep sits at small
+  `|p|` shows nothing (the equilibrium is authored to keep it clear of that).
+- **Only the BG word moves, by refusal rather than omission** — no field can say otherwise, for the
+  reason plane A is never lerped and carries no drift rate: any FG scroll offset drags the
+  plane-wrap seam on screen.
+- **The ladder is `(H+1)` rows of `H` bytes with `i <= entry[i] <= 2i`, non-decreasing.** All three
+  are correctness properties: `>= i` is what makes the in-place forward permute safe, non-decreasing
+  is what makes it compression rather than a tear, and `<= 2i` is the read bound the pass's span/2
+  cap rests on. `H` is a SHIFT, not a count, because the row select is `row * H`.
+  **H is 16 today because the ROM said so, not because the design did:** S3K's own 64 (a 4,160-byte
+  table) and an intermediate 32 (1,056 B) were both refused by `tools/bganim_room.py` — the DEBUG
+  shape has only about **558 bytes of packed-data headroom** before the bank-placement rule demands
+  a whole-ROM re-layout. A taller run needs the bigger table AND that move, in that order.
+- **The art half is NOT built and is not a BgAnim band.** S3K's second remap gathers pixel rows out
+  of a ROM image into a fixed VRAM tile run; it needs 48 tiles from `bg_region`, which is packed
+  448/448, and 8 phase banks cannot express 97 continuously-selected states. Booked as 9d.
+
 **Vertical bob — a scene-level sway on the whole background (2026-08-30, EFFECTS-W1 item 7).** A
 scene may carry `bob_shift` and `bob_period`, and Plane B's V-scroll then sways
 `SINE_AMPLITUDE >> bob_shift` pixels either side of wherever the camera term puts it, over

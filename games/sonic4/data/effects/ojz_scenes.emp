@@ -72,7 +72,7 @@ use engine.level.parallax_dsl.*
 // initializer re-evaluates in the consumer's scope. A label import is a symbol reference.)
 use games.sonic4.scene_registry.{DeformTable_Zero, DeformTable_OJZ_Calm, DeformTable_Shimmer,
                                  DeformTable_Haze, DeformTable_Rocking, DeformTable_Perspective,
-                                 RowRemapLadder_Waterline64}
+                                 RowRemapLadder_Waterline16}
 
 // =====================================================================
 // The six deformation tables, verbatim from configs.emp — same generators, same
@@ -105,12 +105,13 @@ pub const SceneSrc_DeformTable_Haze        = deform_sine(amplitude: 16, period: 
 pub const SceneSrc_DeformTable_Rocking     = deform_sine(amplitude: 20, period: 64)
 pub const SceneSrc_DeformTable_Perspective = v_column_floor(center: 20, max_offset: 24)
 // The seventh, and the first that is not a deform curve: EFFECTS-W1 item 9's ROW REMAP
-// LADDER. 65 rows of 64 bytes = 4,160 B — exactly the size of S3K's own
-// `LBZ Waterline Scroll Data.bin`, which is that zone's waterline at the same height. Row
-// `H - |p|` is selected each frame from the perspective quantity and its first `|p|` bytes
-// are consumed. See engine/level/parallax_dsl.emp for the three invariants it guarantees by
-// construction and for why the model is CHOSEN rather than fitted to S3K's own table.
-pub const SceneSrc_RowRemapLadder_Waterline64 = row_remap_ladder64()
+// LADDER. 17 rows of 16 bytes = 272 B. Row `H - |p|` is selected each frame from the
+// perspective quantity and its first `|p|` bytes are consumed. See
+// engine/level/parallax_dsl.emp for the three invariants it guarantees by construction, for
+// why the model is CHOSEN rather than fitted to S3K's own table, and for why H is 16 and not
+// the 64 this started at — the DEBUG shape has only ~558 B of packed-data headroom before the
+// bank-placement rule demands a whole-ROM re-layout, measured across two refused builds.
+pub const SceneSrc_RowRemapLadder_Waterline16 = row_remap_ladder16()
 
 // =====================================================================
 // OJZ_Default — configs.emp:107-114.
@@ -219,14 +220,25 @@ pub const Scene_OJZ_Underwater: Scene = scene(
               // picks the lower one, whose top IS the waterline. That is S3K's own window
               // (HScroll_table+$0DA, the rows below the surface).
               //
-              // THE SURFACE PLANE LINE IS 128, AND IT SETS THE EQUILIBRIUM. The perspective
-              // quantity is `p = 128 - Vscroll_BG - L`. At the measured rest state that is
-              // 128 - 0 - (75..93) = 35..53 lines: the effect is LIVE and ANIMATING with no
-              // player input, because the anchor sweeps. `p == 0` — the equilibrium, where
-              // the remap turns itself off with no special case — is L = 128, which is
-              // Camera_Y 96 at mid-sweep: about 48 px ABOVE the rest position, comfortably
-              // inside debug-fly reach. Flying up through it and out the far side is the
-              // "depending on your perspective" the effect is named for.
+              // THE SURFACE PLANE LINE IS 101, AND IT SETS THE EQUILIBRIUM. The perspective
+              // quantity is `p = 101 - Vscroll_BG - L`; at the measured rest state that is
+              // 101 - 0 - (75..93) = 8..26 lines, so the effect is LIVE and ANIMATING with no
+              // player input, because the anchor sweeps.
+              //
+              // 101 AND NOT 94, AND THE DIFFERENCE WAS MEASURED RATHER THAN TUNED BY EYE. The
+              // ladder's compression is QUADRATIC in the line index, so the first few lines of
+              // any row are the identity — `entry(r, i) = i + i*i*(H-r)/(H*(H-1))` has a zero
+              // quadratic term while i is small. At 94 the sweep ran p = 1..19 and
+              // tools/row_remap_witness.py separated the output from the FLAT prediction on
+              // only 10 of 12 samples: on the two shortest runs the remap was, truthfully,
+              // the identity — design §9.1 precondition 1 arriving through the LADDER rather
+              // than through a flat source. 101 puts the whole rest sweep at p >= 8, in the
+              // part of the row where the quadratic actually bites.
+              //
+              // `p == 0` — the equilibrium, where the remap turns itself off with no special
+              // case — is now L = 101, about 37 px above the rest position: fly UP through it
+              // and the effect thins to nothing and then grows back with the sign inverted.
+              // That is the "depending on your perspective" the effect is named for.
               //
               // WHAT VARIES, so the remap is not the identity (design §9.1 precondition 1):
               // this scene's `anchor: SceneAnchor.At(0, 15, 2)` writes dsb 2 into every band
@@ -237,7 +249,7 @@ pub const Scene_OJZ_Underwater: Scene = scene(
               // up is one number — the anchor's dsb — and it is OWNER CONTENT, not an engine
               // choice, so this parcel changed nothing about the shipped shimmer.
               layer(world_y: 1024, fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15,
-                    rowRemap: SceneRemap.Ladder(RowRemapLadder_Waterline64, 128, 6)),
+                    rowRemap: SceneRemap.Ladder(RowRemapLadder_Waterline16, 101, 4)),
               layer(world_y: 3072, fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15),
               layer(world_y: 3584, fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15),
               no_layer(), no_layer(), no_layer(), no_layer(),

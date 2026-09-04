@@ -2,7 +2,7 @@
 """row_remap_gate — the ROW REMAP LADDER's three invariants, checked IN THE BUILT ROM.
 
 EFFECTS-W1 item 9, parcel 9a. The ladder is generated at comptime by
-`row_remap_ladder64()` (engine/level/parallax_dsl.emp), and that generator's own
+`row_remap_ladder16()` (engine/level/parallax_dsl.emp), and that generator's own
 construction is what makes the invariants true. THIS GATE DOES NOT ASK THE GENERATOR. It
 reads the bytes out of the linked image, at the address the listing gives, and re-checks
 them — because "the generator is right" and "the right bytes reached the ROM" are two
