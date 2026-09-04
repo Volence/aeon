@@ -22176,6 +22176,67 @@ before acting, and re-derive any number before it enters a gate.
 
 ### (1) A TWO-WAY CROSSOVER PAIR HAS NO AUTHORING PATH FROM THE EDITOR, AND NOTHING SAYS SO
 
+**⚠ ATTRIBUTION CORRECTED 2026-09-04, AND THE CORRECTION IS THE POINT: THE AXIS WAS NEVER MISSING
+FROM AURORA'S ARTIFACT. IT WAS DROPPED IN RELAY — TWICE.** An earlier version of this entry read
+"sharpened by aurora", which says their finding was vague and got fixed. **It was not.** Verified
+here by reading their committed blob (aurora `origin/master`,
+`docs/reviews/2026-09-04-loops-test-loop-witness.md` §6) rather than accepting either the original
+paraphrase OR their correction of it: line 334 names both constants, line 339 says *"every mark an
+author can paint is an even number of trigger cells **wide**"*, and lines 352-353 say *"his Y stays
+inside one 16 px row, **so the Y half of the id adds no odd fire**"*. It was X-specific on the page.
+
+**Both relays lost it, and one of them was aurora's own.** The hub's message said "an 8x16 grid …
+while Aurora authors 16 px cells" — the numbers without which axis is which. Aurora's own message to
+this lane said "Aurora paints on a 16 px grid; your trigger tests on 8 px" — their compression of
+their own §6. So this is not one lane summarising another badly; it is what compression does to a
+qualifier, twice, independently.
+
+**THE DURABLE FORM, aurora's, and it is the mirror of this morning's unchecked integer.** *A relay
+keeps what sounds load-bearing and drops what sounds like precision — and the axis was the
+load-bearing part wearing precision's clothes.* This morning a bare integer was swallowed because
+numbers do not look like claims; here a qualifier was dropped because qualifiers look like detail.
+**Their operational rule, adopted here in both directions: relay the LOCATION, not the example.**
+**And aurora's sharpening, which is the operative half: APPLY IT TO YOUR OWN FINDINGS FIRST.** The
+rule survives the obvious objection — *"then summarise more carefully"* — only because the careful
+summariser here WAS the author, twice, on their own finding, within a day of writing it.
+
+**A SECOND RECEIVING BAR FELL OUT OF THIS AND IT IS THE ONE WITH NO EXISTING FORM HERE: REFUSE A
+PEER'S CORRECTION ON TRUST, NOT ONLY THEIR CLAIM.** This lane declined aurora's loose paraphrase,
+then declined their CORRECTION of it too and read the committed blob for both. The inconsistent
+posture — accepting a correction because it comes from the lane whose original you just declined —
+is the tempting one, **because a correction arrives sounding like a concession, and concessions do
+not invite scrutiny.** Had the correction been accepted on trust it would have been right anyway
+here; the point is that nothing in the receiving would have established that.
+Send `§6 of <file>` and let the reader hit the qualifier themselves, rather than sending a
+compression and hoping the qualifier survived it.
+
+**The geometry itself, verified firsthand from OUR source** (which is what surfaced the discrepancy
+at all — accepting either version would have left both lanes believing the artifact said something
+it does not):
+
+```
+engine/system/constants.emp:  COLL_CELL_W = 8 px      COLL_CELL_H = 16 px
+player_common.emp:            XOVER_CELL_MASK = (($10000 - COLL_CELL_W) << 16) | ($10000 - COLL_CELL_H)
+                                              == $FFF8FFF0   (pinned by an ensure)
+```
+
+So **X quantises on 8 px and Y on 16 px.** Both are derived from the block collision format
+(`BLOCK_COLL_COLS` / `BLOCK_COLL_ROWS`), not chosen — it is `Collision_GetType`'s own partition.
+
+**THE CONSEQUENCE FOR AUTHORING, which is the part that was missing:** a 16 px authored window
+spans **TWO** trigger cells in X and **exactly one** in Y. Aurora observed both ids inside one
+authored window — the id changed a second time at frame 1152 (744 -> 736) with `layer` already 1 and
+staying 1. Because the trigger is an **equality on a cell id**, one authored window can therefore
+present it with two distinct ids.
+
+It cost nothing in their fixture because entry landed cleanly inside cell 744, and the second id
+change was harmless with the layer already flipped. **But it is the first thing to check against any
+future entry-frame figure**, and it means the two-way cancellation this entry describes is an
+**X-axis phenomenon specifically** rather than a general grid mismatch. Anyone writing the contract
+fix should say which axis they mean.
+
+
+
 Aurora reports painting on a 16 px grid while the trigger tests on 8 px, so a matched two-way pair
 authored from their grid lands on the same 8 px cell and **cancels itself out**. The loop they built
 therefore uses two ONE-WAY marks, which works and is simpler. The gap is that the two-way form is
@@ -22193,7 +22254,94 @@ Aurora's row 147 carries the detail. If a shipped spec's worked example is wrong
 worked example is the part of a spec a reader is most likely to copy verbatim — which is what makes
 it worse than a wrong sentence elsewhere in the same document.
 
-### (3) `Player_Blocks.xover_cell` IS LATCHED ONE FRAME BEHIND THE POSITION READ BESIDE IT
+### ✅ CLOSED 2026-09-04 — NOT A DEFECT. MEASURED (1, 0): THE ENGINE DOES EXACTLY WHAT IT DOCUMENTS
+
+**Aurora re-ran it single-frame and the row closes.** Their result, on aurora master `23bdd1bb`
+(correction `629c2bc1`, merged `0f147a86`; remote confirmed by `ls-remote`, not by the push's own
+output). **Sampled frames 1147-1152, contiguous, no gaps** — they reported which frames they
+sampled and not only which they report, which is what made the earlier bracket visible at all.
+
+**Entry 1150, flip 1151, both OBSERVED integers.** Output 1 = **1 frame**. Output 2 = **0** — the
+cell change and the layer write land in the same frame. The flip was at 1151 the whole time and had
+simply never been sampled.
+
+**The anti-coincidence control is what makes this worth more than a boundary reading:** the
+one-frame derivation holds on **all five** sampled cell readings, not just at the crossing. One
+would have been a coincidence at a boundary; five for five is the design.
+
+**Their method disclosure, recorded because they changed the input shape and said so rather than
+letting it pass:** the resample split the recipe's tail `R3 R2` into five one-frame presses, and
+they verified the split reproduces the original at all three frames both paths observe. Same
+destination two ways. Free flight confirmed OFF (`debug_flag $FF9036` = `0x00`), so it is real
+physics rather than the hover that makes a run prove nothing.
+
+**The whole excursion — booked hypothesis, re-scope, retraction, measurement — cost two lanes an
+hour and produced no code change. It was still right to run.** What it replaced was a plausible
+story about a stale latch that would have justified touching a read site whose behaviour is load
+bearing for every two-way loop.
+
+### ~~(3) `Player_Blocks.xover_cell` IS LATCHED ONE FRAME BEHIND THE POSITION READ BESIDE IT~~ — RE-SCOPED 2026-09-04: THE ONE-FRAME LAG IS DESIGNED, AND NEITHER HYPOTHESIS BELOW IS THE LIVE ONE
+
+**Checked before anyone built a discriminator, and the two hypotheses this entry booked are both
+wrong.** `Player_LoopCrossover` consumes LAST frame's resolved position **by design and of
+necessity**. Verified at the CALL SITE as well as in the routine's own header, because a comment is
+a claim and one comment agreeing with itself is not evidence — `games/sonic4/player/player_common.emp`
+at the `jbsr`:
+
+> *"it is shared per-frame state derived once from the position the last frame resolved to, and it
+> must be in place before the state dispatch's sensors read `Sst.layer`"*
+
+It sits beside the quadrant derive, which does the same with last frame's angle, for the same
+reason. **The layer must be correct before this frame's sensors read it, so it can only be computed
+from the position the last frame resolved to.** A version using this frame's position would write
+`Sst.layer` after the sensors that consume it.
+
+**AURORA'S WARNING SURVIVES AND GETS STRONGER.** A gate asserting *"the crossover flips on the frame
+of entry"* would not merely be flaky — **it would be asserting a property the engine was built not
+to have, and would be wrong even when green.**
+
+**⚠ AMENDED 2026-09-04, WITHIN THE HOUR: THE "TWO FRAMES" FIGURE IS RETRACTED BY ITS AUTHOR AND
+THERE MAY BE NOTHING LEFT TO EXPLAIN.** Aurora found that their frame table's rows are **run-step
+boundaries, not per-frame samples** — replaying the recipe's own arithmetic reproduces exactly the
+ten rows in the table and no others, so frames 1148, 1149 and 1151 were **never observed**. Entry is
+therefore 1148, 1149 **or** 1150, and the flip is 1151 **or** 1152. **The observed lag is bracketed
+at 1 to 4 frames and the published number was 2.** The minimum of that bracket is 1, which is
+exactly what the design predicts — so the discrepancy that motivated this whole re-scope is **not
+established**. It is not refuted either; the measurement simply cannot distinguish 1 from 4.
+
+**WHAT SURVIVES THE RETRACTION:** the `xover_cell` high word reading the PREVIOUS frame's x. That is
+a single-frame observation at 1150 and does not depend on the row spacing — and it is explained by
+the design above rather than being a defect.
+
+**AND THE PART THAT IS MINE:** I built the sharp two-output test below on a peer's frame count
+without asking what its sample spacing was. A frame count is a measurement and it needs its
+referent; "two frames later" with a run-step table underneath it is the same class as a CRC without
+its baseline. The test below is still the right test — I am keeping it — but it is now aimed at
+ESTABLISHING the lag rather than at explaining a second frame that may not exist.
+
+**THE TEST, unchanged and still the way to settle it.** The design Two outputs separate the cases, sampled at a
+single consistent point in the frame across the entry:
+* **Output 1** — lag from *resolved position first lands in the marked cell* to *`xover_cell`
+  changes*. Design says **1**.
+* **Output 2** — lag from *`xover_cell` changes* to *`Sst.layer` changes*. Design says **0** (same
+  routine, same frame; the write follows the table fetch).
+
+`(1, 0)` = working as documented, the second frame is the observer's sampling point, close as NOT a
+defect. `(2, 0)` = a real extra frame upstream in the preamble or the position resolve, and ours.
+`(*, >=1)` = the layer write is not landing with the compare, which would be the serious case.
+
+**TWO TRAPS FOR WHOEVER RUNS IT.** (a) The trigger is an equality on a CELL ID, not a test of the
+mark, so it fires once on entry and never re-fires while you stand there — that is what stops a
+two-way pair ping-ponging every frame. Cross and keep moving; do not stop inside the cell and wait
+for a second event. (b) If the authored cell is 16 px in the direction of travel while the trigger
+quantises on 8, one authored cell spans TWO trigger cells and "the entry frame" is ambiguous by one.
+That is finding (1) of this same packet wearing a different coat, so check it before calling a `2`
+a defect.
+
+**The original booking follows, kept because its framing of what a report does and does not settle
+is still right — only its two candidate mechanisms were wrong.**
+
+~~(3) `Player_Blocks.xover_cell` IS LATCHED ONE FRAME BEHIND THE POSITION READ BESIDE IT~~
 
 Their observation, offered explicitly as an observation and NOT as a diagnosis of our read site: at
 frame 1150 the player is at `(748, 779)`, inside the crossover's trigger window on both axes, and
@@ -22275,6 +22423,132 @@ it turns out otherwise, the fallback is a per-section chooser in the
 **No build and no emulator in this pass** (docs-only). Nothing here claims reels have been seen
 on screen.
 
+## THE TWO FIXTURE GATES WERE PINNED TO ABSOLUTE ADDRESSES — CLOSED 2026-09-04 (`parcel/gate-fixtures-address-pinned`)
+
+`sprite_tilt_gate.py` and `loop_crossover_gate.py` are both **build-fatal** and both compared
+their committed cuts to the fresh ROM by **absolute address equality** plus **raw byte
+equality**. Neither survives a level/act content change, so correct content work went red on
+gates whose subject it had never touched. This is what blocked LOOPS-P from landing.
+
+Two independent measurements agree on the defect. Aurora authored 58 collision cells, which
+grew section 0's compressed block blob by 124 bytes, moved every symbol below `$90000` by
+`+$7C`, and produced `Ani_Sonic moved: fixture $02A94C, listing $02A9C8` — **red identically on
+the loop tree and on the control**, i.e. red-by-construction for any content edit, not a
+crossover effect. Aurora did not re-stamp either fixture (their lane does not write our tree),
+so there was no concurrent edit.
+
+### The hard half, and why deleting the address check was never enough
+
+The cut code **embeds absolute addresses**. `Player_ApplyTilt` ends in
+`jsr RefreshSpritePieceCount` with an absolute-**short** operand; `Player_LoopCrossover` calls
+`Collision_GetType` the same way; and `Collision_GetType` is fourteen `move.w Cache_*.w`
+operands and a `lea CrossoverTable.l` deep. Move the callee and **the caller's own bytes
+change**, so a byte comparison relocates the same false red one level down.
+
+Measured, not assumed. The two committed cuts are the same source in two real ROMs
+(release and DEBUG). `Player_ApplyTilt` is 110 bytes in both and they differ in exactly **two**
+— the `jsr` operand, `$353E` vs `$3EA8`, which is `RefreshSpritePieceCount` in each shape.
+
+### The fix
+
+Compare the **decoded instruction stream** with operands that name a *place* rewritten to what
+they mean: a target inside the routine becomes `<self+0xNN>`, an address naming a symbol
+becomes `<SymbolName>`, everything else is compared **verbatim**.
+`normalize_stream` / `stream_diff` / `unresolved_note` live in `sprite_tilt_gate.py`;
+`loop_crossover_gate.py` imports them. Opcodes, sizes, registers, immediates and
+`(a0)`-displacements are still compared exactly, so every logic change the byte check caught is
+still caught. **No fixture format change and no re-stamp** — both cuts already carried the
+symbol maps this needs.
+
+Rejected, with the reason:
+
+- **Relocate to a canonical base.** Its premise is false here: the two shapes' symbols move by
+  *different* deltas (routine `+194`, callee `+2410`). There is no single base.
+- **Store offsets relative to the routine's own start** (aurora converged on this
+  independently, from their own measurement). It fixes the address check and *not* the embedded
+  absolute-short operand, which is the actual hard half. Adopted as a component — `<self+0xNN>`
+  is exactly this — but it is not the whole fix.
+
+### The reason a gate prints is now derived from what it observed
+
+The old sprite-tilt text said *"the tilt was edited without refreshing the cut"* for **any**
+byte difference, which was fabricated whenever the cause was content movement — and that was
+the overwhelmingly common cause. Reasons now distinguish **edited** (instruction differs, with
+both spellings quoted) / **length changed** / **symbol vanished** / **unresolved literal**. A
+blind spot is never rendered as silence: absolute operands that named no symbol are reported by
+offset and token, so a future false red has its cause written down in advance.
+
+### Strengthened, not weakened
+
+- Symbol **existence** is now its own failure. The old addr check printed
+  `moved: listing $FFFFFFFF` for a deletion.
+- `loop_crossover_gate` now compares the **15 equates** its pytest lane models against. Drift
+  there previously let the lane grade a build against the old cache geometry in silence.
+
+### Evidence
+
+`tools/test_gate_fixtures.py`, 17 tests, run by build.sh's `pytest tools` lane. Every
+relocation-invariance test is **paired** with a mutation test proving the same comparison still
+goes red on a real logic change — a gate that is relocation-insensitive *by being*
+change-insensitive is the failure this parcel could produce while looking like a success.
+
+One relocation (`+$1000`, built the way a linker builds one: 9 absolute operands rewritten in
+place in the loop routines, opcodes untouched), fed to the pre-parcel code at `7c1a0f78` and
+then to this one:
+
+| | old `check_fixture` / `check_cut` | new |
+|---|---|---|
+| `sprite_tilt_gate` | **5 reds** (`routine moved`, `RefreshSpritePieceCount moved`, all three `Ani_* moved`) | 0 problems |
+| `loop_crossover_gate` | **red** (`the routines MOVED: cut [(65758,65822),(22318,22422)], build [(69854,69918),(26414,26518)]`) | green |
+| control: same relocation **plus** one changed immediate | — | **red**: ``Player_ApplyTilt: instruction 19 (cut offset +0x38) differs — cut `andi.w #$3, d2`, live `andi.w #$7, d2` `` |
+
+CLI end-to-end, the exact flags build.sh uses, against the real `s4`/`s4.debug` `.lst`+`.bin`:
+four runs, all `OK`, exit 0.
+
+### Two findings from running the protocol, both of which were green until they were looked at
+
+- **A redundant branch absorbed a mutation.** `normalize_stream` resolved symbols through two
+  branches, `ea in addr_names` then `(ea & 0xFFFFFFFF) in addr_names`; the masked one is a
+  strict superset. Disabling the bare one changed nothing observable, so the mutation aimed at
+  the resolver reported **green**. Not a stale-bytecode false green — a different mutation in
+  the same file under the same runner went red at 8/16. Two paths to one answer means a
+  mutation only has to survive one of them: a redundant branch does not merely fail to earn its
+  keep, it lowers the ceiling on what any mutation test of that function can prove. Now one
+  step, with the reasoning at the site.
+- **A guard assertion was vacuous because of line wrapping.** The test forbidding the
+  fabricated reason searched raw source for `the tilt was edited without refreshing the cut` —
+  a phrase the old code wrapped across a string-literal break, so the substring was absent from
+  the *old* file too and the assertion passed against exactly the code it was written to
+  forbid. Verified directly against `7c1a0f78`'s file. Now joins adjacent literals first, and
+  carries a positive control on the joiner.
+
+### STILL OPEN — the four-shape build was NOT run
+
+`SIGIL_BUILD` / `SIGIL_EMIT` are unset in this lane's shell and are declared by no dotfile and
+by nothing in the repo (`grep` over `build.sh`, `*.conf`, `*.env`, `*.toml`). Release binaries
+do exist at the location `CLAUDE.md` describes, but memory records that sigil master can couple
+to an *unmerged* aeon branch, so a self-chosen pairing would make the CRC comparison confounded
+evidence rather than evidence. **Not run: `./build.sh`, `DEBUG=1 ./build.sh`, and both again
+with `demo`; and the four-shape CRC comparison that would prove zero ROM bytes moved.**
+
+The structural argument, which is not a substitute: this parcel touches three `tools/*.py`
+files and no `.emp`, no `.asm`, no data, and no generator. Both gates are **post-sigil
+verifiers** — build.sh invokes them at lines 1039 and 1095, after the ROM exists — and neither
+writes anything the build consumes. That makes zero ROM movement extremely likely and unproven.
+It needs a foreground pass with the two export lines.
+
+### Noted and deliberately NOT acted on
+
+Aurora observed `Player_Blocks.xover_cell` latching **one frame behind** the position read
+beside it (frame 1150: inside the trigger window on both axes while `layer` is still 0, flipping
+two frames later). They report it as an observation, not a diagnosis of our read site, and the
+controller has not verified it. `loop_crossover_gate`'s existing `sweep_edge_trigger` case (1)
+does assert *"the first frame in a marked cell"* fires — but it executes the routine directly
+with the player already placed, so its "first frame" is "first invocation with the player in the
+cell", not "the frame of entry" in a running game loop. **That is a reconciliation hypothesis,
+not a finding.** This parcel did not touch `sweep_edge_trigger` and encoded no entry-frame
+claim. Separate row.
+
 ---
 
 ## EFFECTS-W1 item 10 step 4 — the `reels` authoring key LANDED (2026-09-04, `parcel/reels-authoring-key`)
@@ -22344,3 +22618,33 @@ through `parallax:`. Each refusal names the SECTION.
   `[$013E8A, $013FC6, 0]` and `$013E8A` is `EditorSceneBinding_OJZ_Act1_Sec4`). A runtime
   pass would set `OJZ_Reel_Active` with `tools/reels_witness.py` in a section bound to the
   authored scene and read `Parallax_Vscroll_Column_Buf`. **TAGGED for a foreground pass.**
+
+### ADDENDUM — the release CRC MOVED, and the split at `EndOfRom` is why that is not a regression
+
+The four-shape check said the release ROM's CRC changed (`cksum` 1839525780 -> 531019212,
+length unchanged at 720803). Root-caused rather than waved past, and the method is the
+reusable part.
+
+**Reproducibility established first**, because a moved CRC means nothing without it: both
+demo shapes came out **byte-identical** across two independent full runs, and the base tree
+rebuilt to the *same* release md5 it produced hours earlier (`30c8c8d8…`). The build is
+deterministic; the movement is real.
+
+**Then the byte diff, base vs parcel: 214 differing bytes, and they split cleanly.**
+
+- `$00018E-$00018F` — the ROM **header checksum**, which follows any content change.
+- 212 bytes, all at or past `EndOfRom` (`$0A5C82`) — inside the **`deb2` symbol appendix**
+  that `convsym` writes (the tail begins with the ASCII magic `deb2`).
+- **The assembled image `[0, EndOfRom)` is BYTE-IDENTICAL** once the checksum word is
+  excluded. Measured, not argued.
+
+So the parcel moves **zero release code or data bytes**, exactly as CR ruling (1) requires,
+and the CRC still moves because the DEBUG-gated block's symbol NAMES land in an appendix the
+release ROM carries.
+
+**A stale comment fell out of it.** `build.sh`'s build banner said *"DEBUG additionally gets
+the convsym deb2 appendix; release ships the assembled image alone (item 29)"*. It does not —
+`s4.bin` carries 41761 bytes of appendix. `CLAUDE.md`'s crash-report ruling (2026-08-04)
+already says both shapes carry deb2 symbols; the build.sh line had outlived it. Corrected in
+place, with the measurement, because that comment is exactly what the next person reading a
+moved release CRC would reach for.

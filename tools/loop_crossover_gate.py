@@ -90,6 +90,7 @@ sys.path.insert(0, str(TOOLS))
 from sprite_tilt_gate import (  # noqa: E402
     Micro, UnsupportedInstruction, _split_ops, parse_operand,
     SIZE_MASK, SIZE_BITS,
+    normalize_stream, stream_diff, unresolved_note,
 )
 
 READ_SITE = "Player_LoopCrossover"
@@ -692,8 +693,23 @@ def load_cut(path, shape=None):
     return bytes(rom), spans, cut["syms"], cut["equs"]
 
 
-def check_cut(rom, spans, syms, path, lst_path):
-    """THIS SHAPE's committed cut must still be what the fresh ROM holds."""
+def check_cut(rom, spans, syms, equs, path, lst_path):
+    """THIS SHAPE's committed cut must still be the same CODE and the same DATA the
+    fresh ROM holds — up to relocation, and nothing more than relocation.
+
+    This used to compare the spans' absolute addresses and then the spans' raw bytes.
+    Both are relocation-sensitive and this subject is the worst case for it: the read
+    site calls `jsr Collision_GetType` with an absolute-SHORT operand, and
+    Collision_GetType is fourteen `move.w Cache_*.w` / `lea SolidityTable.l` operands
+    deep, so a level content change that moves either one rewrites the other's bytes.
+    The old check called that "the ROUTINE changed", which was a fabricated reason: the
+    routine had not changed at all. See the normalisation note in sprite_tilt_gate.py.
+
+    Still proved: the decoded instruction stream of both routines, the shipped
+    CrossoverTable's bytes, the existence of every anchored symbol, and (new) that the
+    EQUATES the pytest lane models against are the ones this build was assembled with.
+    No longer required: that any of it sits at the address it did when stamped.
+    """
     doc = _read_cut_doc(path)
     shape = shape_key(lst_path)
     if shape not in doc["shapes"]:
@@ -702,35 +718,56 @@ def check_cut(rom, spans, syms, path, lst_path):
             "pytest lane covers the other shape(s) only. Regenerate with "
             "--write-fixture." % (path, shape, ", ".join(sorted(doc["shapes"]))))
     cut = doc["shapes"][shape]
-    old_spans = [tuple(s) for s in cut["spans"]]
-    if old_spans != list(spans):
+    problems = []
+
+    gone = [n for n in NEED_SYMS if n not in syms]
+    if gone:
+        problems.append("symbol(s) the cut anchors are GONE from the listing: %s — "
+                        "renamed or removed, not moved" % ", ".join(gone))
+
+    cut_names = {a: n for n, a in cut["syms"].items()}
+    live_names = {syms[n]: n for n in cut["syms"] if n in syms}
+    for i, (name, (a, b), hx) in enumerate(
+            zip((READ_SITE, LOOKUP), spans, cut["bytes"])):
+        cb = bytes.fromhex(hx)
+        ca, cbend = cut["spans"][i][0], cut["spans"][i][0] + len(cb)
+        if len(cb) != b - a:
+            problems.append("%s: the routine's LENGTH changed (cut %d B, live %d B) — "
+                            "it was edited, not moved" % (name, len(cb), b - a))
+            continue
+        img = bytearray(cbend)
+        img[ca:cbend] = cb
+        cut_rows, cut_unres = normalize_stream(bytes(img), ca, cbend, cut_names,
+                                               "loop_crossover_gate")
+        live_rows, live_unres = normalize_stream(rom, a, b, live_names,
+                                                 "loop_crossover_gate")
+        d = stream_diff(cut_rows, live_rows, name)
+        if d:
+            problems += d + unresolved_note(name, cut_unres + live_unres)
+
+    if "CrossoverTable" in syms:
+        shipped = rom[syms["CrossoverTable"]:syms["CrossoverTable"] + 256].hex()
+        if shipped != cut["table"]:
+            problems.append(
+                "the shipped CrossoverTable's BYTES changed (its address is allowed to "
+                "move and was not compared). That is the FIRST authored crossover "
+                "reaching the ROM, which is a thing to celebrate and then re-stamp "
+                "deliberately: the pytest lane's control row ('the unmodified ROM must "
+                "not move the layer') is graded against this blob.")
+
+    drift = ["%s: cut %s, build %s" % (n, cut["equs"][n], equs[n])
+             for n in sorted(cut["equs"]) if n in equs and equs[n] != cut["equs"][n]]
+    if drift:
+        problems.append("equate(s) the pytest lane models against changed — the lane "
+                        "would grade this build against the OLD geometry: %s"
+                        % "; ".join(drift))
+
+    if problems:
         raise SystemExit(
-            "loop_crossover_gate: %s shape %r is STALE — the routines MOVED: cut %s, "
-            "build %s. The pytest lane is grading code this build does not have. A "
-            "byte-moving parcel re-stamps; a changed EXTENT means the routine itself "
-            "changed and that needs explaining first. Regenerate with --write-fixture."
-            % (path, shape, old_spans, list(spans)))
-    for (a, b), hx in zip(spans, cut["bytes"]):
-        fresh = rom[a:b].hex()
-        if fresh != hx:
-            old_b, new_b = bytes.fromhex(hx), bytes.fromhex(fresh)
-            diffs = [i for i in range(len(old_b)) if old_b[i] != new_b[i]]
-            raise SystemExit(
-                "loop_crossover_gate: %s shape %r is STALE — $%06X..$%06X is at the "
-                "same address but its BYTES differ in %d of %d: %s. If that is "
-                "displacement bytes following a symbol move, re-stamp; if it is opcode "
-                "bytes, the ROUTINE changed. Regenerate with --write-fixture."
-                % (path, shape, a, b, len(diffs), len(old_b),
-                   ", ".join("+%d ($%02X->$%02X)" % (i, old_b[i], new_b[i])
-                             for i in diffs[:8]) + (" ..." if len(diffs) > 8 else "")))
-    shipped = rom[syms["CrossoverTable"]:syms["CrossoverTable"] + 256].hex()
-    if shipped != cut["table"]:
-        raise SystemExit(
-            "loop_crossover_gate: %s shape %r is STALE — the shipped CrossoverTable "
-            "changed. That is the FIRST authored crossover reaching the ROM, which is "
-            "a thing to celebrate and then re-stamp deliberately: the pytest lane's "
-            "control row ('the unmodified ROM must not move the layer') is graded "
-            "against this blob. Regenerate with --write-fixture." % (path, shape))
+            "loop_crossover_gate: %s shape %r is STALE — the pytest lane is grading "
+            "code or constants this build does not have:\n  %s\n  Regenerate with "
+            "tools/loop_crossover_gate.py --write-fixture."
+            % (path, shape, "\n  ".join(problems)))
 
 
 # --------------------------------------------------------------------------
@@ -820,13 +857,14 @@ def main():
 
     if pathlib.Path(args.fixture).exists():
         try:
-            check_cut(rom, spans, syms, args.fixture, args.lst)
+            check_cut(rom, spans, syms, equs, args.fixture, args.lst)
         except SystemExit as e:
             print("  %s" % e)
             return 1 if args.gate else 0
-        print("  fixture: %s [%s] — the committed cut is this build's routines and "
-              "table, byte-identical"
-              % (pathlib.Path(args.fixture).name, shape_key(args.lst)))
+        print("  fixture: %s [%s] — both routines' decoded instruction streams "
+              "identical (relocation normalised), CrossoverTable byte-identical, "
+              "%d equates match"
+              % (pathlib.Path(args.fixture).name, shape_key(args.lst), len(NEED_EQUS)))
     else:
         print("  fixture: %s MISSING — the pytest lane has nothing to grade "
               "(--write-fixture)" % args.fixture)
