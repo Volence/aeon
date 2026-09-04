@@ -159,6 +159,144 @@ def routine_extent(syms, name):
 
 
 # --------------------------------------------------------------------------
+# Relocation-invariant normalisation  (shared with loop_crossover_gate.py)
+#
+# WHY. The committed cuts under tools/fixtures/ are cuts of REAL ROMs, and the fixture
+# checks used to be absolute-address equality: `cut.addr == listing.addr`, plus raw byte
+# equality of the routine. Both of those are sensitive to something that is not a defect.
+# A level/act content change relocates everything downstream of it, so the routine's
+# address moves (red #1) and — because Player_ApplyTilt ends in `jsr
+# RefreshSpritePieceCount` with an ABSOLUTE-SHORT operand, and Collision_GetType is a
+# wall of `move.w Cache_Left_Col.w,d2` — the callee's new address is baked into the
+# routine's own bytes, so a byte comparison relocates the same false red one level down
+# (red #2). Both gates are build-fatal, so correct content work could not land.
+#
+# The fix is not to compare less. It is to compare the DECODED INSTRUCTION STREAM with
+# every operand that names a *place* rewritten to what it means:
+#
+#   a target inside the routine   ->  <self+0xNN>     (its own offset; moves with it)
+#   an address naming a symbol    ->  <SymbolName>    (resolved on BOTH sides)
+#   anything else                 ->  compared verbatim
+#
+# Opcodes, sizes, registers, immediates, and (a0)-relative displacements are all still
+# compared EXACTLY, so every logic change the raw-byte check caught is still caught:
+# change an instruction, a register, a constant, or an SST offset and the streams
+# differ. Only "where did a named thing land" is normalised away, and that is precisely
+# the noise. The two shapes' committed cuts — built minutes apart at genuinely different
+# addresses — are the standing proof: they normalise to identical streams
+# (test_gate_fixtures.py::test_tilt_routine_normalises_equal_across_shapes).
+#
+# The symbol set is deliberately the SAME on both sides (the names the cut already
+# carries), never "the fixture's few names vs the live listing's thousands" — an
+# asymmetric resolver invents differences of its own. An absolute operand that resolves
+# to no name in that set is left as a literal and REPORTED, so the comparison never has
+# a silent blind spot: see `unresolved` below and its use in the diff text.
+# --------------------------------------------------------------------------
+
+_TOK_TGT = re.compile(r"^\$([0-9a-fA-F]+)$")
+_TOK_ABSW = re.compile(r"^\$([0-9a-fA-F]+)\.w$")
+_TOK_ABSL = re.compile(r"^\$([0-9a-fA-F]+)\.l$")
+
+
+def _sign_extend_w(v):
+    """capstone renders an absolute-short operand unsigned ($adbc.w); the 68000
+    sign-extends it, so $ADBC really addresses $FFFFADBC. Symbol tables store the
+    extended form, so resolve on that."""
+    v &= 0xFFFF
+    return v - 0x10000 if v & 0x8000 else v
+
+
+def normalize_stream(rom, start, end, addr_names, decoder="sprite_tilt_gate"):
+    """Decode [start,end) and return (rows, unresolved).
+
+    rows        [(offset_from_start, mnemonic, normalised_operands_string)]
+    unresolved  [(offset_from_start, token)] — address-shaped operands that named
+                nothing in `addr_names`. These are still compared verbatim (so nothing
+                is skipped), but they are the only part of the stream that a relocation
+                could still move, and callers name them in the failure text.
+    """
+    import capstone
+    md = capstone.Cs(capstone.CS_ARCH_M68K,
+                     capstone.CS_MODE_BIG_ENDIAN | capstone.CS_MODE_M68K_000)
+    rows, unresolved, covered = [], [], 0
+    for insn in md.disasm(rom[start:end], start):
+        covered += insn.size
+        off = insn.address - start
+        toks = _split_ops(insn.op_str) if insn.op_str else []
+        out = []
+        for tok in toks:
+            ea = None
+            for rx, xf in ((_TOK_TGT, lambda x: x),
+                           (_TOK_ABSW, _sign_extend_w),
+                           (_TOK_ABSL, lambda x: x)):
+                m = rx.match(tok)
+                if m:
+                    ea = xf(int(m.group(1), 16))
+                    break
+            if ea is None:
+                out.append(tok)                       # register / immediate / (aN) form
+                continue
+            # ONE resolution step, deliberately. This was briefly two — a bare `ea in
+            # addr_names` ahead of the masked one — and the masked lookup is a strict
+            # superset of it (for a positive ea the mask is the identity; for a
+            # sign-extended negative one only the mask matches a table that stores
+            # $FFFFADBC as 4294946236). The dead branch was not merely redundant: it
+            # ABSORBED a mutation aimed at the resolver and made a change-blindness
+            # test pass. Two paths to one answer means a mutation only has to survive
+            # one of them.
+            key = ea & 0xFFFFFFFF
+            if start <= ea < end:
+                out.append("<self+0x%X>" % (ea - start))
+            elif key in addr_names:
+                out.append("<%s>" % addr_names[key])
+            else:
+                out.append(tok)
+                unresolved.append((off, tok))
+        rows.append((off, insn.mnemonic.strip(), ", ".join(out)))
+    if covered != end - start:
+        raise SystemExit("%s: capstone decoded %d of %d bytes in [$%06X,$%06X) — the "
+                         "extent is not a clean instruction run"
+                         % (decoder, covered, end - start, start, end))
+    return rows, unresolved
+
+
+def stream_diff(cut_rows, live_rows, label):
+    """Human-readable, HONEST differences between two normalised streams.
+
+    The reason a gate prints is separately checkable from its verdict, so this never
+    says 'edited' when what it observed was a length change, and never says anything at
+    all when the only difference was where the code landed (that difference cannot
+    reach here — it was normalised away upstream)."""
+    problems = []
+    if len(cut_rows) != len(live_rows):
+        problems.append("%s: the instruction COUNT changed (cut %d, live %d) — the "
+                        "routine was edited, not moved"
+                        % (label, len(cut_rows), len(live_rows)))
+    for i, (c, l) in enumerate(zip(cut_rows, live_rows)):
+        if c[1:] == l[1:]:
+            continue
+        problems.append("%s: instruction %d (cut offset +0x%X) differs — cut `%s %s`, "
+                        "live `%s %s`" % (label, i, c[0], c[1], c[2], l[1], l[2]))
+        if len(problems) >= 8:
+            problems.append("%s: ... further differences suppressed" % label)
+            break
+    return problems
+
+
+def unresolved_note(where, unresolved):
+    """Never render a blind spot as silence. Absolute operands that named no known
+    symbol were compared as literals, which is strict but relocation-SENSITIVE; say so
+    so a future false red has its cause written down."""
+    if not unresolved:
+        return []
+    return ["%s: %d absolute operand(s) named no symbol in the cut and were compared "
+            "as literals (%s) — if one of these is what differs, the cause is a symbol "
+            "this gate does not track, not an edit"
+            % (where, len(unresolved),
+               ", ".join("+0x%X %s" % u for u in unresolved[:6]))]
+
+
+# --------------------------------------------------------------------------
 # The strict micro-executor
 # --------------------------------------------------------------------------
 
@@ -739,8 +877,31 @@ def load_fixture(path, shape=None):
     return bytes(rom), syms
 
 
+def fixture_symbol_names(fx):
+    """The names THIS cut can resolve an address to. Deliberately the cut's own anchor
+    set and nothing more, so the live side resolves against exactly the same names (see
+    the normalisation note above on why an asymmetric resolver invents differences)."""
+    return ["RefreshSpritePieceCount"] + sorted(fx["anim_tables"])
+
+
 def check_fixture(rom, syms, path, lst_path):
-    """Every byte of THIS SHAPE's committed cut must still be what the fresh ROM holds."""
+    """THIS SHAPE's committed cut must still be the same ROUTINE and the same SCRIPTS —
+    up to relocation, and nothing more than relocation.
+
+    What this proves, and what it deliberately does not:
+      * the routine's decoded instruction stream is unchanged  (logic: still proved)
+      * every anim script's bytes are unchanged                (data: still proved)
+      * every symbol the cut anchors still EXISTS              (still proved)
+      * the routine, the callee and the scripts are at the same ABSOLUTE addresses as
+        when the cut was stamped                               (NO LONGER required)
+
+    That last one was never evidence of anything. The pre-build pytest lane runs over
+    the cut's own self-consistent sparse ROM, so where the live build placed these has
+    no bearing on whether the lane is grading the right code; and the anim slabs are
+    offset-based scripts whose bytes are byte-identical across the two shapes despite
+    landing 2394 bytes apart, so the addr equality was pure relocation sensitivity with
+    no detection behind it. Dropping it removes a false red and removes no proof.
+    """
     doc = _read_fixture(path)
     shape = _shape_key(lst_path)
     if shape not in doc["shapes"]:
@@ -748,23 +909,38 @@ def check_fixture(rom, syms, path, lst_path):
                 "cover the other shape(s) only" % (shape, ", ".join(sorted(doc["shapes"])))]
     fx = doc["shapes"][shape]
     problems = []
+
+    # Existence first: a symbol that VANISHED is a real failure, and it is a different
+    # failure from one that moved. The old addr-equality check conflated the two and
+    # printed "moved: listing $FFFFFFFF" for a deletion.
+    missing = [n for n in fixture_symbol_names(fx) if n not in syms]
+    if missing:
+        problems.append("symbol(s) the cut anchors are GONE from the listing: %s — "
+                        "renamed or removed, not moved" % ", ".join(missing))
+
     start, end = routine_extent(syms, "Player_ApplyTilt")
-    if fx["routine"]["addr"] != start:
-        problems.append("routine moved: fixture $%06X, listing $%06X"
-                        % (fx["routine"]["addr"], start))
-    elif fx["routine"]["bytes"] != rom[start:end].hex():
-        problems.append("routine bytes differ (fixture %d B, live %d B) — the tilt was "
-                        "edited without refreshing the cut"
-                        % (len(fx["routine"]["bytes"]) // 2, end - start))
-    if fx["refresh_addr"] != syms["RefreshSpritePieceCount"]:
-        problems.append("RefreshSpritePieceCount moved: fixture $%06X, listing $%06X"
-                        % (fx["refresh_addr"], syms["RefreshSpritePieceCount"]))
-    for name, s in fx["anim_tables"].items():
-        if s["addr"] != syms.get(name):
-            problems.append("%s moved: fixture $%06X, listing $%06X"
-                            % (name, s["addr"], syms.get(name, -1)))
-        elif rom[s["addr"]:s["addr"] + FIXTURE_SLAB].hex() != s["bytes"]:
-            problems.append("%s's script bytes changed" % name)
+    cut_start = fx["routine"]["addr"]
+    cut_bytes = bytes.fromhex(fx["routine"]["bytes"])
+    cut_names = {fx["refresh_addr"]: "RefreshSpritePieceCount"}
+    cut_names.update({s["addr"]: n for n, s in fx["anim_tables"].items()})
+    live_names = {syms[n]: n for n in fixture_symbol_names(fx) if n in syms}
+
+    cut_rom = bytearray(cut_start + len(cut_bytes))
+    cut_rom[cut_start:] = cut_bytes
+    cut_rows, cut_unres = normalize_stream(bytes(cut_rom), cut_start,
+                                           cut_start + len(cut_bytes), cut_names)
+    live_rows, live_unres = normalize_stream(rom, start, end, live_names)
+    problems += stream_diff(cut_rows, live_rows, "Player_ApplyTilt")
+    if problems:
+        problems += unresolved_note("Player_ApplyTilt", cut_unres + live_unres)
+
+    for name, s in sorted(fx["anim_tables"].items()):
+        if name not in syms:
+            continue                                  # already named as GONE above
+        if rom[syms[name]:syms[name] + FIXTURE_SLAB].hex() != s["bytes"]:
+            problems.append("%s's script bytes changed — the shipped animation script "
+                            "was edited (these slabs are offset-based and do not move "
+                            "with relocation, so this is content, not placement)" % name)
     return problems
 
 
@@ -829,7 +1005,8 @@ def main():
             print("    refresh: tools/sprite_tilt_gate.py --lst %s --rom %s "
                   "--emit-fixture %s" % (args.lst, args.rom, args.fixture))
         else:
-            print("  fixture: %s — routine and all three script slabs re-found byte-identical"
+            print("  fixture: %s — routine's decoded instruction stream identical "
+                  "(relocation normalised), all three script slabs byte-identical"
                   % pathlib.Path(args.fixture).name)
     if fails or stale:
         if fails:
