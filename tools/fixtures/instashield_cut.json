@@ -49,7 +49,7 @@
       }
     },
     "s4.lst": {
-      "bytes": "122800320c01000867060c01000a662e4a28004a66280c01000a660670086100eda612280033020100736612117c0001004a610c103c00424ef9000081204e75",
+      "bytes": "122800320c01000867060c01000a662e4a28004a66280c01000a660670086100eda612280033020100736612117c0001004a610c103c00424ef9000081a84e75",
       "constants": {
         "INSTASHIELD_ATTACKING": 1,
         "INSTASHIELD_READY": 0,
@@ -90,7 +90,7 @@
       "sst_custom": 48,
       "start": 71270,
       "stubs": {
-        "008120": "Sound_PlaySFX",
+        "0081A8": "Sound_PlaySFX",
         "01042C": "Player_SetState",
         "0116A6": "InstaShield_Spawn"
       }

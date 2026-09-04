@@ -1,9 +1,10 @@
 {
- "count": 111,
+ "count": 113,
  "files": {
   "games/sonic4/data/editor/bg_src/ojz_cave_lilypad.png": "492d187e5cca907fd9ea5844f94b14694b3039955fdfbc65a30756717ba428ad",
   "games/sonic4/data/editor/bg_src/ojz_forest_flowers.png": "2204777e2f106e7cd4c567873667355d1bb03bfc74653e09d0ec3215a4a1e09f",
   "games/sonic4/data/editor/effects/ojz_act1_depth.json": "6d69c6c23734d783abf4d72ecd375f6b2114df0190bec9203525869c9ae709cc",
+  "games/sonic4/data/editor/effects/ojz_act1_floor.json": "ed59e117795780d45f322b7011f3efce59a9b3ebb24d25d862ba6d4a640d0bf3",
   "games/sonic4/data/editor/effects/ojz_act1_start.json": "8529600d28936378940a2bfda65179af5db42157fd526cee9646d91617df11bd",
   "games/sonic4/data/editor/effects/presets/aurora_ramp_witness.json": "997eb79c8623ee10c02cd410d09976675351013a91cba1bb1dc93917c15da373",
   "games/sonic4/data/editor/effects/presets/authored_probe.json": "97746b43e41aa33e3a0366e67777ff09d24af695c0ea1fafdad7069e9973d1b9",
@@ -67,6 +68,7 @@
   "games/sonic4/data/editor/ojz/act1/section_8.coll.bin": "16150a474eabd48a4c082032ceb43502703cd3e07106afa9e7e6cbc0da5ff471",
   "games/sonic4/data/editor/ojz/act1/section_8.collattr.bin": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
   "games/sonic4/data/editor/ojz/act1/section_8.collattrb.bin": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471",
+  "games/sonic4/data/editor/ojz/act1/section_8.meta.json": "97b0adf56e499c537891df4de324add19ba21a67505231e3660f09f95ddcc8b2",
   "games/sonic4/data/editor/ojz/act1/section_8.objects.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
   "games/sonic4/data/editor/ojz/act1/section_8.rings.json": "8fc46775bdd908ae2c3823e2038ca7cf3a5562fbb6172f87dcad49a2568463d8",
   "games/sonic4/data/editor/ojz/act1/section_8.tiles.bin": "6646fed61cd2b2d2065ea720999bbda59eb281e528cbf614944b0ab473e3f406",
