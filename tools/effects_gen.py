@@ -3277,12 +3277,15 @@ def render_module(scenes: dict, act_ref, sec_refs: dict, sections: int,
         lit = "[" + ", ".join(str(r) for r in rates) + "]"
         src, ok, tbl = (names.reels_src(sid), names.reels_ok(sid), names.reels(sid))
         out.append(f"// section {i} <- scene {sid}: {lit} px/frame, left to right")
-        # UNANNOTATED ON PURPOSE. `reel_rates_ok`'s magnitude arm must see the RAW
-        # authored ints: whether sigil refuses an out-of-`i8` literal in an `[i8; N]`
-        # initializer is NOT ESTABLISHED, and if it silently narrowed instead, a
-        # `[i8; N]`-typed source would hand the guard an already-truncated value and the
-        # one check that catches Aurora's x256 drift-export mistake would pass
-        # vacuously. The length contract is carried by the guard and by the `pub data`.
+        # UNANNOTATED ON PURPOSE: `reel_rates_ok`'s magnitude arm sees the RAW authored
+        # ints, independent of emission rather than downstream of it. MEASURED
+        # 2026-09-04 (sigil 0a58f2ec), settling what the decision note and the CR both
+        # left NOT ESTABLISHED: sigil DOES refuse an out-of-`i8` literal in an
+        # `[i8; N]` initializer — `[emit.out-of-range] 768 does not fit i8` — so the
+        # narrowing hazard this shape was chosen against does not exist. It is kept
+        # anyway, because sigil's diagnostic names a SLOT and ours names the UNIT and
+        # the x256 drift-export cause, and ours fires first. The length contract is
+        # carried by the guard and by the `pub data`.
         out.append(f"const {src} = {lit}")
         out.append(f"const {ok} = reel_rates_ok({src}, REEL_BAND_COUNT)")
         out.append(f'ensure({ok} == REEL_BAND_COUNT,\n'

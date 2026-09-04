@@ -22274,3 +22274,73 @@ it turns out otherwise, the fallback is a per-section chooser in the
 
 **No build and no emulator in this pass** (docs-only). Nothing here claims reels have been seen
 on screen.
+
+---
+
+## EFFECTS-W1 item 10 step 4 — the `reels` authoring key LANDED (2026-09-04, `parcel/reels-authoring-key`)
+
+**What shipped.** The `reels` scene key from empyrean `docs/AURORA_EFFECTS_SCHEMA.md` §2.7
+(read at `ff3f43f2e9c2b0b98e6c283f5cb87eb106f0fe5c`), DEBUG tier, implemented against the
+ratified CR rather than the decision note where the two differ. The note is
+`docs/superpowers/specs/2026-09-04-reels-per-scene-key-shape.md`; its "CONTROLLER'S
+FOREGROUND PASS" section carries the rung constraint its body does not.
+
+- **`reel_rates_ok(rates, bands)`** — `games/sonic4/config/constants.emp`. ONE shared
+  `comptime fn` carrying LENGTH + per-rate MAGNITUDE + pairwise DISTINCTNESS, which the
+  hand table and every generated table route through. `distinct5` (five-ary, hand-called
+  beside the one hand table) is DELETED. The magnitude arm did not exist anywhere before
+  this parcel — CR ruling (6).
+- **`ensure(offsetof(SceneCfgN, hdr) == 0)` x16** — `games/sonic4/data/effects/
+  scene_registry.emp`. CR ruling (3). The whole binding rests on a pointer to a
+  `SceneCfgN` and a pointer to its `hdr` being one address; a reorder severs it with a
+  green build and every lookup missing.
+- **`tools/effects_gen.py`** — `reels` in `SCENE_KEYS`; `REEL_BAND_COUNT` re-derived from
+  `constants.emp` (never the schema's `minItems`); the payload shape checked and the
+  values left to sigil; per-scene `[i8; REEL_BAND_COUNT]` tables plus the association
+  table emitted into the GENERATED module inside `if DEBUG == 1`, in DOCUMENT ORDER.
+  Two new `.emp` scans (`preset_parallax_bindings`, `section_preset_symbols`) feed the
+  rung model and run ONLY when a scene authors the key.
+- **`OJZ_Reels_Fill`** now walks the association table against `Parallax_Current_Config`
+  and falls back to `OJZ_Reel_Speed` on a miss. `tools/EFFECTS_CONSUMER_CONTRACT.md` §2.1
+  amended per its own drift rule.
+- Authored content: `ojz_act1_depth` (section 4) carries `[3, -5, 2, -4, 6]`.
+
+**THE REFUSAL, and it is the part worth reading.** `Parallax_Current_Config` is a unique
+key only at `Effects_ResolveParallax`'s **rung 1** (`Sec.sec_parallax_config`, the editor's
+`sceneRef`). At rung 2 (`EffectsPreset.ep_parallax`, shared by every section naming that
+preset) or rung 3 (the act default) the pointer is SHARED, and a table keyed on it hands
+those sections **another section's motion** — it does not fail, the wrong strips scroll. So
+the generator refuses a `reels` key on a scene that is the act default, on a scene no
+section binds at rung 1, and on a scene whose lowered record a hand `preset()` also names
+through `parallax:`. Each refusal names the SECTION.
+
+**TWO CLAIMS THIS PARCEL REFUTED BY MEASUREMENT, both banked as open:**
+
+1. **Sigil DOES refuse an out-of-`i8` literal in an `[i8; N]` initializer.** Measured
+   2026-09-04 on sigil `0a58f2ec` by authoring `768` into `reels.rates`:
+   `[Error] [emit.out-of-range] 768 does not fit i8 (-128..=127) — in
+   EditorReels_OJZ_Act1_ojz_act1_depth[0]`. Both the decision note (§9, §4.1) and the CR
+   list this as NOT ESTABLISHED; it is now established, and it does not narrow silently.
+2. **The schema bound is therefore NOT "the only artifact in the chain that catches" the
+   x256 export mistake** (CR ruling 6's wording). It is one of three now — the schema,
+   sigil's emit-range check, and `reel_rates_ok`. The magnitude `ensure` is still worth
+   its line, for a narrower reason than the CR gave: sigil's diagnostic names a SLOT, not
+   a UNIT, and the guard fires first and says which.
+
+**Still open, deliberately.**
+
+- **Q1 (owner, PARKED): promotion into the release ROM.** Untouched, and nothing here
+  builds toward it. Everything this parcel emits is inside `if DEBUG == 1`;
+  `tools/reels_gate.py --shape release` stays green by the same construction.
+- **Q5: whether a second act needs a second association table.** Still not traced. The
+  generated module is per-act and the table is act-qualified
+  (`EditorReelBindings_<ZONE>_<Act>`), but `OJZ_Reels_Fill` names act 1's by hand — a
+  second act with reels needs that decided, not merely a second table emitted.
+- **NO EMULATOR RAN.** Nothing here claims reels have been seen on screen, and in
+  particular **the association walk has never been observed selecting an authored table at
+  runtime** — only that the right bytes are in the ROM at the right addresses
+  (`EditorReels_OJZ_Act1_ojz_act1_depth` at `$13FC6` reads `[3,-5,2,-4,6]`;
+  `EditorReelBindings_OJZ_Act1` at `$13FCC` reads
+  `[$013E8A, $013FC6, 0]` and `$013E8A` is `EditorSceneBinding_OJZ_Act1_Sec4`). A runtime
+  pass would set `OJZ_Reel_Active` with `tools/reels_witness.py` in a section bound to the
+  authored scene and read `Parallax_Vscroll_Column_Buf`. **TAGGED for a foreground pass.**

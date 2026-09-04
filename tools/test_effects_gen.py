@@ -3616,10 +3616,16 @@ class TestReelsEmission(ReelsBase):
                       text)
 
     def test_the_source_const_is_UNANNOTATED_so_the_magnitude_arm_sees_raw_ints(self):
-        """Whether sigil refuses an out-of-i8 literal in an `[i8; N]` initializer is
-        NOT ESTABLISHED. If it narrowed silently instead, an `[i8; N]`-typed source
-        would hand `reel_rates_ok` an already-truncated value and the one check that
-        catches Aurora's x256 drift-export mistake would pass vacuously."""
+        """`reel_rates_ok`'s magnitude arm reads the RAW authored ints, independent of
+        emission rather than downstream of it.
+
+        MEASURED 2026-09-04 (sigil 0a58f2ec, 768 authored into a scene's `reels.rates`):
+        sigil DOES refuse an out-of-i8 literal in an `[i8; N]` initializer
+        (`[emit.out-of-range] 768 does not fit i8`), which settles what the decision note
+        and the empyrean CR both left NOT ESTABLISHED — so the silent-narrowing hazard
+        this shape was chosen against does not exist. It is kept anyway: sigil's
+        diagnostic names a SLOT and `reel_rates_ok`'s names the UNIT and the x256
+        drift-export cause, and the guard fires first."""
         self.write_reels_scene("shimmer")
         self.write_sidecar(4, {"sceneRef": "shimmer"})
         names, text = self.render()

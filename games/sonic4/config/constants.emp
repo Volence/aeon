@@ -94,11 +94,23 @@ pub const REEL_COLS_PER_BAND  = 4   // 16-px column-pairs per strip (64 px wide 
 // parcel. A reel rate is SIGNED WHOLE PIXELS PER FRAME — `add.b (a2)+, d0` puts the
 // authored byte straight into the phase. `drift.rate` is 1/256 px/frame and Aurora
 // multiplies by 256 on export; a reels panel built by copying the drift panel's export
-// path emits 768 for an intended 3, and before this line the schema's -128..127 was the
-// only artifact in the whole chain that could catch it. It is checked on the RAW authored
-// ints (the generator hands this fn an unannotated `const`, not an `[i8; N]` one), so it
-// stays a real check whether or not sigil refuses an out-of-i8 literal in an `[i8; N]`
-// initializer — which is still NOT ESTABLISHED.
+// path emits 768 for an intended 3, and no `ensure` anywhere bounded a single rate
+// before this line.
+//
+// IT IS NOT THE ONLY THING THAT REFUSES 768, AND THE CR SAID IT WAS — corrected by
+// measurement here, 2026-09-04, sigil 0a58f2ec, with a 768 authored into an editor
+// scene's `reels.rates`. Sigil ALSO refuses, at emission:
+//     [Error] [emit.out-of-range] 768 does not fit i8 (-128..=127)
+//             — in `EditorReels_OJZ_Act1_ojz_act1_depth[0]`
+// which settles the question both the decision note and the CR left NOT ESTABLISHED:
+// sigil refuses an out-of-i8 literal in an `[i8; N]` initializer rather than silently
+// narrowing it. What that diagnostic does not carry is the CAUSE — it names a slot, not
+// a unit — so this ensure still earns its line: it fires first and says "signed whole
+// pixels, and this looks like drift's x256 export path".
+//
+// The check runs on the RAW authored ints (the generator hands this fn an unannotated
+// `const`, not an `[i8; N]` one), which keeps it independent of emission rather than
+// downstream of it.
 //
 // Returns the length so a caller can hold it in a `const` a module-level `ensure` reads:
 // an unreferenced top-level `const X = f(..)` is comptime-INERT and never folds

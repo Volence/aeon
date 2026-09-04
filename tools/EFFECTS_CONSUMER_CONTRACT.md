@@ -294,6 +294,13 @@ DSL constructor arguments 1:1 (`engine/level/scene_dsl.emp` `scene()`/`layer()`)
     drift panel's export path emits 768 for an intended 3.** The engine's guard is
     `reel_rates_ok`'s magnitude `ensure` (`games/sonic4/config/constants.emp`), added by the
     same parcel as this amendment because before it NOTHING bounded a single rate.
+    **The CR's ruling (6) says the schema bound is "the only artifact in the chain that
+    catches it today"; that is REFUTED by measurement** (2026-09-04, sigil `0a58f2ec`): a
+    768 authored here also draws `[emit.out-of-range] 768 does not fit i8 (-128..=127)`,
+    so sigil refuses rather than silently narrowing — which is the same question the CR
+    lists as still open two paragraphs later. What sigil's diagnostic does not carry is
+    the CAUSE: it names a slot, not a unit. `reel_rates_ok`'s ensure fires first and says
+    which.
   - **DOCUMENT ORDER IS SCREEN ORDER.** Index *i* owns column-pairs 4*i*..4*i*+3, screen X
     64*i*..64*i*+63; the map is a hardcoded `lsr.b #2` in `OJZ_Reels_Fill` that no JSON can
     see. The generator emits the array verbatim; an editor that sorts, reverses, or
