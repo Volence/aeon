@@ -19701,7 +19701,25 @@ two's-complement byte encoding, and distinctness — plus the two source reads; 
 its own red-first table is in its docstring (`test_all_distinct_refuses_a_collision`
 covers the build-red mutation's PURE judgement without needing a build).
 
-### TAGGED FOR THE CONTROLLER'S EMULATOR PASS — the on-screen half is NOT run
+### ~~TAGGED FOR THE CONTROLLER'S EMULATOR PASS — the on-screen half is NOT run~~ — RUN, AND RE-RUN 2026-09-04
+
+**This tag was stale and a reader sequencing off it would have re-done watched work.**
+`fix/reels-witness-expectation` (`43bfca5f`, on master) ran it on 2026-09-03. Re-run today
+against `s4.debug.bin` at `52be83a9` — a fix commit is evidence a run happened once, not
+that it passes now:
+
+```
+band 0 (col 0):  delta  87 = speed +3 x 29 actual runs   OK
+band 1 (col 4):  delta 111 = speed -5 x 29 actual runs   OK
+band 2 (col 8):  delta  58 = speed +2 x 29 actual runs   OK
+band 3 (col 12): delta 140 = speed -4 x 29 actual runs   OK
+band 4 (col 16): delta 174 = speed +6 x 29 actual runs   OK
+vacuity check: 5 distinct band deltas    RESULT: PASS (exit 0)
+```
+
+Note the run count: 29 executions over 30 requested frames, taken from `Lag_Frame_Count`
+rather than assumed — the correction `43bfca5f` exists for. Invocation takes two positional
+arguments (`reels_witness.py <rom> <lst>`) and tracebacks without them.
 
 No emulator was used. `tools/reels_witness.py` is authored (mirroring `band_witness.py`'s
 structure and rigor) but NOT EXECUTED — no emulator in a subagent. What to look for, in
