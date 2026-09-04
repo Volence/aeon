@@ -691,6 +691,155 @@ pub const Scene_Perspective:          Scene = perspective_scene_declined(v_shift
 pub const Scene_Perspective_Dramatic: Scene = perspective_scene(v_shift: 0, h_speed: 3, lean_gain: 4)           // :246  registry 15
 
 // =====================================================================
+// Perspective_Floor — EFFECTS-W1 T2. THE FLOOR ART IS ACTUALLY ON SCREEN AND THE
+// RECESSION IS A RAMP, which is the pair of things scenes 13/14/15 do not do.
+//
+// > "This doesn't really work, it just skews it or something slightly and moves
+// >  depending how you're facing like it just makes a v slightly move in the trees?"
+// > "for the skew floor I want it like the batman/toy story example which requires it
+// >  based on camera since its continuous is all."
+//
+// HIS FIRST SENTENCE IS LITERALLY EXACT AND IT DIAGNOSES ITSELF. "a v ... in the trees"
+// is the whole defect in five words: the per-column cone was landing on the CANOPY,
+// because the floor art and the window that shows it were never brought together.
+//
+//   * the art is at plane cell rows 48..63 (plane px 384..511)
+//   * every Perspective scene authors `v_factor: 15` (the lock) with `v_offset: 0`
+//   * a locked plane pins Vscroll_BG at v_offset, so screen line y shows plane line
+//     y + 0 -> the visible window is plane px 0..223, i.e. cell rows 0..27
+//
+// The cone was correct and it was pointed at the forest. This scene moves the window.
+//
+// ---- THE v_offset ARITHMETIC, DERIVED ----
+//
+// Under the lock the authoring space IS the plane (scene_plane_line()'s locked arm is the
+// identity) and the screen image of a plane line is
+//
+//     screen = plane_line - v_offset            (scene_dsl.emp:3344, the `.v_locked` arm)
+//
+// tools/perspective_floor_gen.py's shipped geometry is `--row0 48 --row1 63
+// --horizon-row 55`, so inside the band:
+//
+//     plane px 384..439   cell rows 48..54   the shadowed WALL above the vanishing point
+//     plane px 440        cell row 55        THE HORIZON — the vanishing point's own row
+//     plane px 440..511   cell rows 55..63   the fan, 72 px of floor
+//
+// The floor should reach the bottom of the display and no further, so its 72 px sit on
+// the last 72 of the 224 screen lines and the horizon lands at screen 224 - 72 = 152:
+//
+//     440 - v_offset = 152   ->   v_offset = 288
+//
+// Three checks on that one number, each of which would have caught a sign error:
+//   * bottom     screen 223 -> plane 223 + 288 = 511, exactly the last floor row. Exact fit.
+//   * the wall   plane 384..439 -> screen 96..151, directly above the horizon, unbroken.
+//   * the top    screen 0 -> plane 288 (cell row 36), which is existing canopy art, and
+//                288 is inside scene_plane_line()'s 0..511 span so no top aliases.
+//
+// ---- THE RAMP, AND WHY IT STARTS AT THE HORIZON AND NOT AT THE ART ----
+//
+// `fb: FACTOR_0` at a layer top ramping `curve: To(FACTOR_1)` at its bottom gives
+// rate(y) = camX * (y - top) / span. For that to be the depth relation the art was drawn
+// to, `top` must be the VANISHING POINT — plane 440 — and not the art band's top at 384.
+// Start the ramp at 384 and the 56 px of WALL get a non-zero and growing scroll rate
+// while the floor below them slides at its own: the wall shears against a floor that is
+// merely translating, and the join at the horizon opens. Starting at 440 makes the
+// ramp's value AT the horizon exactly FACTOR_0 — which is precisely the static wall
+// above it. The two agree at the seam by construction, so the horizon does not move and
+// the boards slide board-by-board past a fixed vanishing point.
+//
+// So the wall is its OWN band (top 384, flat FACTOR_0) and the floor is a second one
+// (top 440, ramping). This is the one thing the layer stack has to get right.
+//
+// ---- THE CONE IS REDUCED, AND HERE IS HOW THE REDUCTION WAS CHOSEN ----
+//
+// The V cone is per-SCREEN-column, so it displaces plane B vertically in 16-px steps. The
+// horizon is a HORIZONTAL line in the art; run a cone over it and it renders as a
+// staircase whose step is the difference between ADJACENT table samples, not the total
+// amplitude. That is the quantity to bound, and it is not the one the amplitude names.
+//
+// DeformTable_Perspective is v_column_floor_screen(edge_offset: 24), whose sample at d
+// column-pairs from the apex is (d*24)/10, and the runtime applies `asr.w #v_shift`
+// (parallax.emp's .col loop). Samples at d = 0..10 and their adjacent differences:
+//
+//   shift 0   0 2 4 7 9 12 14 16 19 21 24   steps 2,2,3,2,3,2,2,3,2,3   edge 24 px
+//   shift 1   0 1 2 3 4  6  7  8  9 10 12   steps 1,1,1,1,2,1,1,1,1,2   edge 12 px
+//   shift 2   0 0 1 1 2  3  3  4  4  5  6   steps 0,1,0,1,1,0,1,0,1,1   edge  6 px
+//   shift 3   0 0 0 0 1  1  1  2  2  2  3   steps 0,0,0,1,0,0,1,0,0,1   edge  3 px
+//
+// THE CRITERION IS THE GENERATOR'S OWN SHADOW LINE. render_band() draws "a hard shadow
+// line right under the horizon. Two pixel rows" — the strongest horizontal feature in the
+// art and the one a viewer reads the horizon's straightness off. A per-column step of 2 px
+// displaces that line by its ENTIRE thickness between neighbouring 16-px columns, which
+// breaks it into dashes; a step of 1 px moves it by half its thickness and it still reads
+// as one line. So the largest adjacent step must be strictly less than 2, and that is
+// first true at SHIFT 2. Shift 3 also satisfies it but its total bow is 3 px across a
+// screen half-width, thinner than a single board, so the cone stops reading at all.
+//
+//     v_shift: 2  -> 6 px of bow at the screen edge, max 1 px of step between columns.
+//
+// Note this is the SAME shift Perspective_Subtle carries, and that is a coincidence of
+// arithmetic, not an inheritance: 13 chose it as "half the cone" against a canopy, this
+// scene derives it from a 2-px art feature that 13 was never pointed at.
+//
+// ---- lean_gain 2, WHICH IS THE HALF OF HIS SENTENCE THAT ASKS FOR THE CAMERA ----
+//
+// "based on camera since its continuous" is the moving-apex reading, and gain 2 is the
+// rung the F3 ladder already bounds to the middle third via VP_LEAN_MAX. Gain 0 would pin
+// the apex dead centre, which is the OTHER reading of his sentence and is already on the
+// ballot as scene 13; this scene is not the place to re-ask that question.
+//
+// ---- DeclineBorrow, AND IT IS NOT THE MASK THE DESIGN NOTE EXPECTED ----
+//
+// A curve SPENDS THE Factor0Lock DODGE and that is real: scene()'s `lcm_curve_unlocked`
+// arm refuses Factor0Lock outright once a layer ramps plane B to a non-FACTOR_0 far end,
+// because the leftmost partial column returns the moment plane-B HScroll leaves the 16-px
+// grain. The mitigation named in T2's brief — SceneLeftColMask.SpriteMask — IS NOT
+// AVAILABLE: scene() refuses it with a permanent ensure (owner ruling d-40, 2026-08-29;
+// the strip emitter was CANCELLED, not deferred). The legal answers are Accept and
+// DeclineBorrow, and this scene takes DeclineBorrow for the owner's own d-50 reason: the
+// borrow overwrites plane B's column-19 word with plane A's, so plane B's RIGHTMOST 16 px
+// render at the foreground's V-scroll. On a floor with a hard horizon line that is a
+// visible tear at the right edge of the very feature the scene exists to show. The cost
+// is the one d-50 already accepted on scenes 13 and 14: plane A's leading sliver.
+//
+// ---- WHAT THIS SCENE GIVES UP, AND IT IS A REAL COST ----
+//
+// layer() refuses `curve` together with any live deform amplitude (dsa/dsb != 15) for a
+// measured register reason — the curve loop already spends all seven usable data
+// registers. So the FLOOR BAND ALONE carries no shimmer and no FG haze. The four bands
+// above it keep theirs. This is accepted, not overlooked.
+// =====================================================================
+pub comptime fn perspective_floor_layers() -> [SceneLayer; 16] {
+    return [ // plane px 288..383 -> screen 0..95: the existing canopy, above the art band.
+             layer(world_y: 288, fa: FACTOR_1, fb: FACTOR_0, dsa: 4, dsb: 15),
+             layer(world_y: 320, fa: FACTOR_1, fb: FACTOR_0, dsa: 4, dsb: 15),
+             layer(world_y: 352, fa: FACTOR_1, fb: FACTOR_0, dsa: 4, dsb: 15),
+             // plane px 384..439 -> screen 96..151: THE WALL. Flat FACTOR_0 and no curve,
+             // so it stays put while the floor below it slides. dsb 15 deliberately: a
+             // shimmering wall behind a rigid floor fights the floor's own motion.
+             layer(world_y: 384, fa: FACTOR_1, fb: FACTOR_0, dsa: 4, dsb: 15),
+             // plane px 440..511 -> screen 152..223: THE FLOOR. The ramp starts HERE, at
+             // the vanishing point, so its value at the horizon is FACTOR_0 = the wall's.
+             // Both shifts 15 because layer() refuses curve beside a live amplitude.
+             layer(world_y: 440, fa: FACTOR_1, fb: FACTOR_0, dsa: 15, dsb: 15,
+                   curve: SceneCurve.To(FACTOR_1)),
+             no_layer(), no_layer(), no_layer(),
+             no_layer(), no_layer(), no_layer(), no_layer(),
+             no_layer(), no_layer(), no_layer(), no_layer() ]
+}
+
+// The `left_column_mask:` is spelled as a literal `SceneLeftColMask.DeclineBorrow` at the
+// scene() call and NOT routed through a parameter, for the census reason the family banner
+// above gives: tools/effects_budget_check.py's axis-5 scan matches that exact text, and a
+// policy passed as an argument disappears from it.
+pub const Scene_Perspective_Floor: Scene = scene(
+    layers: perspective_floor_layers(),
+    count: 5, v_factor: 15, v_center: 0, v_offset: 288,
+    deform_bg: SceneDeform.Shared(DeformTable_Shimmer, 1),
+    v_deform: SceneVDeform.ScreenFloor(DeformTable_Perspective, 2, 2),
+    left_column_mask: SceneLeftColMask.DeclineBorrow)   // registry 20
+
+// =====================================================================
 // WindyHaze — configs.emp:253-262. Composite: a windy multi-band BG gradient (clouds get
 // the full wave at dsb 0, the ground none at 15) with a per-layer phase desync, under a
 // uniform FG haze at dsa 3. TWO tables, one per plane — the only pair in the set besides
