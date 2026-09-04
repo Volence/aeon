@@ -146,3 +146,58 @@ pub comptime fn v_column_floor(center: int, max_offset: int) -> [i8; 256] {
         (iabs((if i < 40 { i } else { 39 }) - center) * max_offset) / center
     }
 }
+
+// ---- the row-remap ladder (EFFECTS-W1 item 9, the Hydrocity waterline) ----
+//
+// A ladder is (H+1) rows of H bytes. Row `r` is selected each frame as `H - |p|`, where p is
+// the perspective quantity — the separation, in screen lines, between the BACKGROUND's image
+// of the surface and the FOREGROUND's truth about it — and the first `H - r` of that row's
+// bytes are consumed. `ladder[r][i]` says: screen line i of the band takes the plane-B scroll
+// word that belonged to line ladder[r][i].
+//
+// THREE INVARIANTS, AND ALL THREE ARE CORRECTNESS PROPERTIES RATHER THAN STYLE:
+//   entry[i] >= i        The permute is IN PLACE and forward — read base and write base are
+//                        the same address, S3K's own shape (sonic3k.asm:105849-105850). A
+//                        line either reads a slot it has not written yet, or reads its own
+//                        value back. Break this and the loop feeds on its own output.
+//   entry non-decreasing  Rows are reordered, repeated and dropped; they are never SWAPPED.
+//                        A descending pair is a scroll word moving backwards down the band,
+//                        which reads as a tear rather than as compression.
+//   entry[i] <= 2i       The read bound. It is what lets the runtime cap the remapped run at
+//                        span/2 and know that every fetch stays inside the band's OWN
+//                        longwords. Without it a tall |p| over a short band would pull the
+//                        next band's scroll words into this one — which looks like a
+//                        plausible effect and is not one.
+// tools/row_remap_gate.py re-checks all three IN THE BUILT ROM, off the .lst, because the
+// generator being right is a different claim from the right bytes reaching the image.
+//
+// THE MODEL IS CHOSEN, NOT FITTED, AND THAT IS BOOKED. `extra` is quadratic in i and linear
+// in |p|: the step grows smoothly from 1 line at the surface to 2 lines at the far end, and
+// the whole family scales with the viewpoint separation. S3K's shipped table is NOT this —
+// its rows are hand-shaped, its step histograms at rows 70 and 90 are nonlinear in a way no
+// single formula reproduces, and it carries exactly one large discontinuity per row (the
+// water SEAM), which belongs to the art half this parcel does not build. Fitting S3K's own
+// 97x96 table is a legitimate and cheap alternative and is open question 5 of the design;
+// parcel 9b owns the generator that would settle it. What this one guarantees is the three
+// invariants above, which is what the runtime depends on.
+//
+// H IS FIXED AT 64 HERE, and the ladder is 65 x 64 = 4,160 bytes — exactly the size of S3K's
+// own `LBZ Waterline Scroll Data.bin`, which is that zone's waterline at the same height.
+// The return type must be concrete, so a parameterised H means a second fn rather than an
+// argument; 9b's generator is where that parameterisation belongs.
+pub const ROW_REMAP_H64 = 64
+
+// One ladder entry, from the FLAT index. Split out of the `comptime for` element for
+// tri_sample's reason: an `if` in block-tail position inside the element folds to `()`
+// SILENTLY (docs/EMP_PITFALLS.md §1). There is no `if` here today, and keeping the body in a
+// named fn is what stops one being added inline later.
+comptime fn row_remap_entry64(k: int) -> int {
+    let r = k / ROW_REMAP_H64                      // the ladder row, 0 .. H
+    let i = k % ROW_REMAP_H64                      // the output line within the row
+    let p = ROW_REMAP_H64 - r                      // |p|: row H is the identity, row 0 is 2:1
+    return i + ((i * i * p) / (ROW_REMAP_H64 * (ROW_REMAP_H64 - 1)))
+}
+
+pub comptime fn row_remap_ladder64() -> [u8; 4160] {
+    return comptime for k in 0..4160 { row_remap_entry64(k) }
+}

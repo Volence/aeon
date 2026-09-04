@@ -55,7 +55,7 @@ module games.sonic4.scene_registry in scene_registry
 // plainly declares (measured 2026-08-20 — 40 diagnostics at a declaration site that was
 // correct).
 use engine.structs.{parallax_config}
-use engine.parallax.{band_entry, band_record, band_ext, BAND_EXT_N, band_curve, BAND_CURVE_N, band_drift, BAND_DRIFT_N}
+use engine.parallax.{band_entry, band_record, band_ext, BAND_EXT_N, band_curve, BAND_CURVE_N, band_drift, BAND_DRIFT_N, band_remap, BAND_REMAP_N}
 // GLOB IMPORTS, BOTH MANDATORY, AND NOT A STYLE CHOICE. A comptime fn's free names
 // resolve at the CALL SITE, so scene()/scene_caps()/scene_hdr() bodies reach their
 // helpers through whatever is in scope HERE. A selective `use ...{scene, layer}` is
