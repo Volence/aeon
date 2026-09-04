@@ -22852,8 +22852,8 @@ shape. Enumerated afterwards, over every file in `tools/fixtures/`:
 |---|---|---|
 | `sprite_tilt_cut.json` | `addr`, `refresh_addr` | **FIXED** (`9332587b`) |
 | `loop_crossover_cut.json` | `spans`, `syms` | **FIXED** (`9332587b`) |
-| `instashield_cut.json` | `start`, `end`, `stubs` | **re-stamped, NOT fixed** |
-| `tailsflight_cut.json` | `start`, `end`, `stubs` | **re-stamped, NOT fixed** |
+| `instashield_cut.json` | `start`, `end`, `stubs` | **FIXED** (`6ffd45b4`) |
+| `tailsflight_cut.json` | `start`, `end`, `stubs` | **FIXED** (`6ffd45b4`) |
 
 `decisions_ruled_unrepaired.json` pins nothing positional and is not in the class.
 
@@ -22873,11 +22873,20 @@ fixture diff before landing: `6100 ed5c -> ed54`, `6000 9d3e -> 9d36`, starts `7
 gets absorbed into a fixture** — which is precisely what the two remaining gates invite, because
 they will keep going red for an innocent reason and the cheap response will keep working.
 
-**THE ROW: port the normalised-stream comparison from `sprite_tilt_gate.py` to `instashield_gate.py`
-and `tailsflight_gate.py`.** The mechanism already exists and is proven; this is application, not
-design. Note their fixtures embed branch displacements exactly as the tilt routine's `jsr` operand
-did, so symbol-relative addressing alone will not close it — that was measured on the first pair and
-applies unchanged here.
+**~~THE ROW: port the normalised-stream comparison from `sprite_tilt_gate.py` to
+`instashield_gate.py` and `tailsflight_gate.py`.~~ CLOSED 2026-09-04 by `6ffd45b4` +
+`dd36c246`** (`parcel/gate-fixtures-remaining-two`). The mechanism already existed and was proven;
+this was application, not design. Their fixtures embed branch displacements exactly as the tilt
+routine's `jsr` operand did, so symbol-relative addressing alone would not have closed it — that was
+measured on the first pair and applied unchanged here.
+
+**One correction to the row as written: there is no `tools/tailsflight_gate.py`.** Both fixtures are
+graded by the single `tools/instashield_gate.py`, via `--fixture` and `--tails-fixture`, so the class
+was four FIXTURES across three GATE FILES. The row named a file that does not exist and nothing would
+have caught that before someone went looking for it.
+
+**The class is closed at four; the enumeration that produced it still stands** (every file under
+`tools/fixtures/`; `decisions_ruled_unrepaired.json` pins nothing positional).
 
 **THE BAR, and it is bar 8 arriving on my own remediation rather than on someone's data:** when a
 peer reports N instances of a defect, **the report is a sample, not a census.** Enumerate the
@@ -22956,3 +22965,38 @@ a world that did not happen.*
 *(Mechanical note for this repo's shells: use a quoted heredoc (`-F -` with `<<'MSG'`) for any commit
 message containing backticks, parentheses or `$`. Every message today that used one landed; the one
 that used `-m` did not.)*
+
+## A RELOCATION CAN CHANGE THE INSTRUCTION STREAM, NOT JUST THE ADDRESSES — booked 2026-09-04
+
+**Found while closing the gate-fixture class** (`parcel/gate-fixtures-remaining-two`, `6ffd45b4`).
+The ported comparison is "decode both sides, normalise every operand that names a *place*, compare
+the streams". Applied to `Ability_InstaShield` it went red on the two committed cuts — which are the
+same source in two real ROMs, i.e. the exact case it was written to accept.
+
+**Two mechanisms, both caused by relocation, neither an edit:**
+
+| what | measured instance |
+|---|---|
+| RELAXED | the release ROM's `Sound_PlaySFX` is out of `bra.w` reach, so sigil emitted `jmp $81a8.l` (6 B) where DEBUG got `bra.w` (4 B) |
+| SLID | that widening moved the routine's own `rts`, so three untouched `bne`s read `<self+0x3E>` on one side and `<self+0x3C>` on the other |
+
+**The tilt/loop pair never met this**, because neither of their routines contains a transfer the
+assembler can re-relax. So the mechanism ported cleanly and the *classification* had to be built
+here. The lesson generalises past gates: **"the code moved" and "the code is the same bytes" are not
+complements.** A reach-sensitive assembler makes relocation a source of genuine encoding differences,
+and any tool comparing a stored image of a routine against a rebuilt one has to say which it is
+looking at.
+
+**Both classes stay FATAL.** A relaxed routine genuinely is not the bytes the pytest lane grades, so
+re-stamping is still required and no detection was traded away — what changed is the SENTENCE. A
+SLID row is only excusable once a RELAXED row is on record in the same stream, so the excuse is never
+free, and a flipped condition (`bne` -> `beq`, same target, same reach) is an EDIT
+(`test_a_flipped_CONDITION_is_an_edit_not_a_relaxation`, added after mutation C showed nothing real
+was guarding that hole — `dd36c246`).
+
+**OPEN, small:** `sprite_tilt_gate.normalize_stream` still renders an internal target as
+`<self+0xNN>` — a byte offset. `<self#i>` (the instruction index) is strictly better and is what
+`instashield_gate._by_instruction` computes as a post-pass. Hoisting it into the shared normaliser
+would let the tilt and loop gates classify a slide too, but it changes a function three gates share
+and none of those three can currently produce the case, so it was NOT done inside a parcel whose job
+was the other two fixtures.
