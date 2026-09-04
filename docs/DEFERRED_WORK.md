@@ -24712,3 +24712,35 @@ Mechanism: a scene-bound band table selected by the chord. Most of it exists —
 branch), and `8bf6df74`'s DEBUG view twins already give two camera-driven views on C+A.
 **The missing pieces are a timer twin beside the camera one and the scene binding.** The
 20,480 ceiling (`7f16ae39`) is what leaves room for full-size bands here.
+
+## F7 — sprites sometimes get jumbled. OPEN, and the evidence I have does NOT close it.
+
+> "I paused the rom, but sometimes the sprites get jumbled like this [image]"
+
+Capture: `empyrean docs/captures/2026-09-04-owner-sprite-jumble.png`. Sonic's sprite
+scrambled — head, body and shoe pieces interleaved — in mid-air over the loop's right
+arc, background intact, intermittent.
+
+**Read from his live window at the paused frame (PC `Draw_Sprite.no_parent`, frame
+287972) before the reload destroyed it:**
+
+- `Sprite_Table_Buffer` is a **half-built list**: entry 5 carries link `$00`, which
+  terminates the chain, while entries 6 and 7 still hold data behind it.
+- SAT base tiles for the player run `$3C0 $3CC $3D4 $3D5 $3D1 $3D2` — **not ascending**.
+- A screenshot of that same paused frame shows **Sonic drawn correctly, not jumbled**.
+- DMA queue head held four queued transfers.
+
+**The benign reading, which is strong but NOT sufficient:** pausing *inside* the
+sprite-building loop shows a partially rebuilt SAT, so the scramble is the pause rather
+than a defect in the frame. The half-built link chain is direct evidence for it.
+
+**Why that does not close the row.** He said *"sometimes"*, describing something seen in
+play, not only when paused. And a screenshot of a paused machine is a **post-hoc render**,
+structurally blind to a mid-frame state — it fails by showing a CLEAN picture, which is
+exactly what it did. So it cannot refute a real mid-frame artifact.
+
+**NEXT STEP: capture while RUNNING**, not paused — the only observation that can tell the
+two apart. Candidates not ruled out: the DPLC transfer budget (thirteen transfers against
+twelve slots, d-47) and a DMA queue overflow during the loop's fast movement. The
+out-of-order base tiles above are also what a mapping reading a different DPLC frame's
+tiles would look like.
