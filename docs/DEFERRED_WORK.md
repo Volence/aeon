@@ -24205,3 +24205,32 @@ before the confirming build, then **restore `games/sonic4/data/generated/ojz/act
 from HEAD** — the re-bake stamps the RUNNING HEAD and its dirty flag into it, so a parcel that
 skips that step commits a generated-tree change it never intended. And read `rc` first: a refusal
 and a byte-neutral build print the same CRC.
+
+## 9c — PRICING THE raster-XOR-patched EXCLUSION (priced 2026-09-04, NOT built; parks for the owner)
+
+**The constraint, from source.** `engine/effects/preset.emp` asserts `raster == 0 || patched == 0`,
+and its own comment says why: *whichever installs last wins DESTRUCTIVELY* — `Raster_InstallPatched`
+clears `Raster_Pending`, killing a staged static program, and the reverse order lets VBlank re-point
+`Active_Buf` at `Buf_A` while the patcher keeps writing `Buf_B`. **This is a real double-buffer
+hazard, not a bookkeeping rule.**
+
+**What it costs 9c.** A row remap is a *scene* key lowering into `parallax_config`'s band array, and
+its anchored precondition needs live patch channels. The only OJZ section with those is **section 0**
+(`OJZ_TwoChannel`'s two `patchable()` records plus the underwater anchor) — and section 0 binds
+`patched:`, so it cannot also carry an editor document's raster arm. **The precondition and the
+authorable binding are mutually exclusive today.**
+
+**Three routes, priced:**
+* **Lift the exclusion** — make the two arms co-installable by ordering the installs and fencing the
+  buffer flip. Real engine work in the VBlank-critical path, and the ensure exists because someone
+  already met the corruption. **L, and the risk lands on every scene, not just 9c's.**
+* **Give another section live patch channels**, so a document-bindable section satisfies the
+  precondition. **S-M and content-shaped** — it changes what a section looks like, so it is the
+  owner's taste call, the same shape as `d-53`.
+* **Do nothing.** 9c stays parked; 9a (the engine half) and 9b (the ladder and its gate) are landed
+  and unaffected. **Costs nothing today.**
+
+**Recommendation: do nothing, and if it is ever wanted, take route 2.** Route 1 spends engine risk in
+the hardest part of the frame to buy an authoring convenience, and the hazard it removes is one the
+engine currently states rather than suffers. **Route 2 is reversible in a line** — the d-53 precedent
+is exactly this shape and cost one word. **Parks for the owner as a design call, priced, not built.**
