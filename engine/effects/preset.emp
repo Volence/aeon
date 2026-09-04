@@ -203,8 +203,29 @@ const EP_VARIANT_1 = EP_VARIANT_0 + 4
 //
 //   a0 = Sec*   (non-NULL — a caller with no section resolves the act default itself)
 //   Out: a0 = parallax_config*, never 0 while the act binds a default
+//
+// ---- `out(a0)` AND NOT `clobbers(a0)`, CORRECTED 2026-09-04 ----
+// This proc PRODUCES a0 on every one of its return paths — that is the whole contract,
+// and the two lines above have said so since it was written — but it declared the
+// register as CLOBBERED, which says the opposite: that a0 is trash on return. The
+// difference is invisible in the emitted bytes (a declaration lowers to nothing) and
+// entirely visible to the closure: `destroys_value` excuses a clobber only for an
+// UNCONDITIONAL `out`, so under the old spelling ANY caller that READ the result — as
+// opposed to handing it straight to the next call, which `live_after_call` deliberately
+// does not model as a read — earned a NEW `[call.live-clobbered]` firing for reading the
+// value this proc exists to hand back. The effects lab's verdict glyph is the first
+// caller to compare the result rather than pass it on, and it is what surfaced this.
+// `S4LZ_Decompress (a0: *u8, a1: *u8) clobbers(d0-d3/a1-a3) out(a0)` is the corpus form
+// for a register that is both an argument and the result: `out` and `clobbers` are
+// disjoint sets, so a0 leaves the clobber list as it joins the out list.
+//
+// BYTE-NEUTRAL AND BASELINE-NEUTRAL, both measured rather than asserted: all four shipped
+// shapes are byte-identical across this edit, and the D1c / out-unverified diffs are
+// empty — no row gained, no row gone. The existing call sites
+// (GameState_OJZScroll_Init's, and Effects_InstallPreset's own `jbra` tail) never fired
+// under the old spelling either, because both hand a0 straight on.
 // -----------------------------------------------
-pub proc Effects_ResolveParallax (a0: u32) clobbers(a0) {
+pub proc Effects_ResolveParallax (a0: u32) out(a0) {
         tst.l   Sec.sec_parallax_config(a0)     // (1) the per-section binding
         beq     .no_sec_binding
         movea.l Sec.sec_parallax_config(a0), a0

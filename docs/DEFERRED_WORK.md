@@ -21021,7 +21021,10 @@ on `START` held in the same file — the same shape as the `B` veto that hotkey 
    was written off a source comment in `ojz_effects.emp` (`ojz_act1_sec_raster(sec: 5, hand:
    Raster_Program_None)` — the *fallback*, not the resolved value) and the witness refuted it
    within the hour. **Only sections 7 and 8 read `-`**, both `OJZ_Preset_Plain`, and they are
-   the deliberate empty control. The correction is kept rather than deleted because it is the
+   the deliberate empty control. *(Superseded again 2026-09-04: with the fourth verdict state
+   live, only section **7** reads `-`. Section 8 reads the ARROW — same preset record, its own
+   background scene. The two sections sharing one preset is exactly why the parallax truth has
+   to be resolved from the SECTION; see RIDER 3 below.)* The correction is kept rather than deleted because it is the
    second time this parcel a hand-typed expectation lost to the ROM, and both times the thing
    under test was right — which is the argument for deriving expectations, made twice.
 
@@ -21162,18 +21165,34 @@ perspective floor for a Sonic act wants a section whose foreground is genuinely 
 a pit, a hall, an indoor room — rather than OJZ's jungle terrain. **The engine half is
 done; choosing where a floor belongs is a level-design question.**
 
-### RIDER 3 — the lab's verdict glyph is blind to the parallax channel
+### ~~RIDER 3 — the lab's verdict glyph is blind to the parallax channel~~ CLOSED 2026-09-04 (`parcel/lab-glyph-parallax`)
 
-`Debug_PresetReadout_Show`'s verdict inspects the raster, water and palette-cycle channels
-only. A preset that installs an entire authored background scene and nothing else reads
-`-` — "nothing is bound" — which `docs/EFFECTS_LAB.md` had, until this parcel, taught the
-reader to interpret as "there is genuinely nothing to look for". Section 8 is now exactly
-that case, and the doc says so in two places. **The glyph itself was NOT changed**: the
-readout lives in `games/sonic4/test/ojz_scroll_test.emp`, which another lane held during
-this parcel. The fix, when someone takes it, is a fourth verdict state (or folding
-`sec_parallax_config != 0` into the existing one) plus a row in the glyph sheet — and the
-sheet has no spare VRAM beside it (`games/sonic4/vram.toml`, region `debug_readout`, notes
-that 1022/1023 were the last free run adjacent to it).
+`Debug_PresetReadout_Show`'s verdict inspected the raster, water and palette-cycle channels
+only. A preset that installs an entire authored background scene and nothing else read
+`-` — "nothing is bound" — which `docs/EFFECTS_LAB.md` taught the reader to interpret as
+"there is genuinely nothing to look for", and section 8 was exactly that case. The prose
+defusal in two places was a workaround, not a fix.
+
+**Closed by a FOURTH verdict state**, an arrow at index 3 of the existing `.verdict_font`
+sheet, reached only when the other three channels bind nothing: *this section brings a
+background scene of its own — move.* Three findings from doing it:
+
+* **It could NOT be `sec_parallax_config != 0`**, the folding this rider proposed, and it
+  could not be `ep_parallax` either. Sections 7 and 8 share ONE `EffectsPreset`
+  (`OJZ_Preset_Plain`), so the preset record cannot tell them apart; and a bare
+  `sec_parallax_config != 0` test would miss a scene bound through the preset rung. The
+  verdict calls `Effects_ResolveParallax` — the engine's one three-way resolve — and
+  compares its answer against `Act.act_parallax_config`. Nothing lists a section number.
+* **No third VRAM cell was needed, and that is a real limitation rather than a saving.**
+  The four verdicts share one cell and therefore RANK against each other (LIVE > BLIND >
+  PARALLAX > NONE), so a preset binding both a raster program and its own scene reports
+  only the raster half. Reporting two channels at once still needs a second region, and
+  the run adjacent to `debug_readout` is still spent.
+* **`Effects_ResolveParallax` was mis-declared** `clobbers(a0)` while it PRODUCES a0 on
+  every return path. Under that spelling any caller that READS the result — rather than
+  handing it straight to the next call, which `live_after_call` does not model as a read —
+  earns a new `[call.live-clobbered]` firing. Corrected to `out(a0)` in the same commit;
+  byte-neutral on all four shipped shapes and baseline-neutral (no D1c row gained or gone).
 
 ### The tile accounting, and the half-truth it corrects
 
