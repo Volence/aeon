@@ -23585,3 +23585,41 @@ beside it without tripping `preset()`'s `ep_raster == 0 || ep_patched == 0`. **A
 "none" is still a pointer.** This tree has several: `PATCH_ANCHOR_NONE`, `Pal_Cycle_None`,
 `XOVER_NONE` (which IS 0, and whose own `ensure` exists because that is load-bearing). **Check which
 kind you have before reasoning about a zero test.**
+
+## ONE CORRECT READING, TWO TREES, TWO EXPLANATIONS — and the number could not separate them (2026-09-04)
+
+**`ep_patched = 0` was measured correctly by two lanes and meant something different in each tree.**
+Neither reading ever needed revising; the **tree it was attributed to** did.
+
+* **In aeon's tree:** no `boundary` document exists at all (six preset documents: `ramp` x2,
+  `bands` x3, `base_swap` x1), so `ojz_act1_sec_patched` has **zero arms** and returns int `0`
+  whatever the threading does. Section 6 carries `ojz_sec6_baseswap.json`, correctly routed to the
+  **raster** arm and live at `ep_raster = $140EC`.
+* **In aurora's disposable copy:** the chooser **did** have an arm and emitted the program at
+  `0x13FE0`, and the preset still did not reference it — the genuine unthreaded-call-site case. Their
+  copy reads `ep_raster = Raster_Program_None` rather than `$140EC` **because repointing section 6 at
+  their own document displaced `ojz_sec6_baseswap`** — which is also why their reading could not have
+  produced aeon's "section 6 is a base_swap section" fact.
+
+**THE DISCRIMINATOR WAS PROVENANCE, NOT MECHANISM.** Both explanations fit the number; only knowing
+*which tree* separates them. This lane took aurora's number, reasoned from its own tree, and shipped
+a confident diagnosis to two lanes — the failure was not in either measurement, it was in **not
+asking which tree the number came from before explaining it.**
+
+**Operational, and it is cheap: when a peer hands you a value from a build, ask what tree it was
+built from before you explain it** — especially when their measurement was taken to test *their*
+change, because a tree that carries their change is not yours. Same family as *a measurement
+recorded without the thing it was taken against decays into a false claim*, arriving on a cross-lane
+number where the missing referent is the tree rather than the baseline.
+
+**AND THE CRC RULE THIS LANE BOOKED TOO NARROWLY, NOW GENERALISED (aurora's formulation).** Booked
+earlier today as *"adding an editor input invalidates a canonical build, so the refused build hands
+back the previous ROM's number."* **Too narrow.** With failing edits in place, all four shapes
+reported identical CRCs and sizes **with exit 1**, and no editor input was touched — the pytest lane
+is build-fatal and runs *before* the artifact is written.
+
+**The true form: ANY build-fatal lane running before the artifact is written hands back the previous
+ROM's number.** Aurora's version, banked verbatim because it is the operational one: **a hash read
+after a non-zero build is a hash of whatever was there before, and the exit code has to be checked
+first.** They did exactly this today and got away with it — the reading happened to be right, which
+is the way this one usually passes.
