@@ -1,11 +1,6 @@
 {
-  "focus": "Ruled how the loop's two halves meet; Aurora is repainting; two effects parcels building.",
+  "focus": "The band scene is in and you liked it; the loop climbs a little then hits a wall.",
   "inFlight": [
-    {
-      "what": "The animation bands as their own scene, camera and timer side by side",
-      "where": "agent worktree, F6",
-      "agent": true
-    },
     {
       "what": "Two swap bands with the layer roles inverted, top and bottom",
       "where": "agent worktree, T3",
@@ -18,27 +13,19 @@
       "since": "2026-09-04"
     }
   ],
-  "nextBoundary": "After the loop climbs and the two effects parcels land.",
+  "nextBoundary": "After the loop's entry ramp stops blocking and the two-band swap lands.",
   "queue": [
     {
       "id": "T1",
-      "title": "The loop stops you - marks unreachable and no ramp to climb",
-      "state": "blocked",
-      "size": "M",
-      "blockedBy": "aurora repainting the halves and the two centre marks",
-      "project": "EFFECTS-W1"
-    },
-    {
-      "id": "T3",
-      "title": "Two swap bands, layer roles inverted top and bottom",
+      "title": "The loop climbs a little then hits a wall on the entry ramp",
       "state": "doing",
       "size": "M",
       "blockedBy": null,
       "project": "EFFECTS-W1"
     },
     {
-      "id": "F6",
-      "title": "Animation bands as their own scene, camera vs timer",
+      "id": "T3",
+      "title": "Two swap bands, layer roles inverted top and bottom",
       "state": "doing",
       "size": "M",
       "blockedBy": null,
@@ -59,9 +46,25 @@
       "size": "M",
       "blockedBy": null,
       "project": "EFFECTS-W1"
+    },
+    {
+      "id": "D1",
+      "title": "The debug build starts in fly mode instead of playing",
+      "state": "open",
+      "size": "S",
+      "blockedBy": null,
+      "project": "EFFECTS-W1"
+    },
+    {
+      "id": "F1",
+      "title": "Layout-space anchoring by default, screen-space only with a reason",
+      "state": "open",
+      "size": "L",
+      "blockedBy": null,
+      "project": "EFFECTS-W1"
     }
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-04T21:36:33Z"
+  "updatedAt": "2026-09-04T22:15:15Z"
 }

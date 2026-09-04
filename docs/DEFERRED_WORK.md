@@ -24814,3 +24814,39 @@ placed on the loop's ground at x 1088 / y 553, the player **falls through it** a
 also confirms the 8 px editor-row mapping a third time. **The loop's own ground at editor
 rows 72/73 (y 576) is solid in the editor file (`$10FF`, top-solidity) and does not hold
 the player in the ROM.** Either the bake drops it or the surface is wrong. Not diagnosed.
+
+## T1 — the loop CLIMBS then hits a wall on its entry ramp (2026-09-04, measured)
+
+The ground is fine and so is the bake. **My earlier "he falls through rows 72/73" was an
+instrument error, the fourth of that session: the player was teleported WITHOUT the camera,
+outside the streamed collision window.** The tile cache is camera-relative. Move the camera
+to the loop first and he lands at **y 557 and stays** — the derived grounded value.
+
+**What the honest drive shows** (physics on, gravity control first, camera moved, real input
+via `emulator/press`, offsets from the listing's own equates):
+
+- Driving right from **x 1168**: `angle` steps `$00 → $F4 → $F8` and he rises **33 px** to
+  y 543. **The ramp shapes do lift him.**
+- He then stalls at **x ≈ 1174–1191**, and **with `ground_speed` pinned at 1792 (above top
+  speed) he still does not move.** A blocking face, not lost momentum.
+- `layer` stays 0 throughout (`SST_layer = $2D`), so **the marks never fire because he never
+  reaches them** — nothing here yet tests the marks.
+- Independently, the approach from the left walls at **x 1010**, the pre-existing foliage
+  column at cols 126–127. **The whole flat run-up is ~190 px**, between that wall and the
+  ramp's foot.
+
+**Next:** shape fitting on the blocking face around cols 146–149 at y ≈ 543–553 (aurora's).
+And an owner call: whether the foliage column at 126–127 should be solid at all — if it is
+scenery, removing it gives the loop a real run-up, but that is level content.
+
+**A trap on the bake side, aurora's, recorded so nobody repeats it:** there are two strip
+artifacts per section. `sec0_strips_source.bin` is the pre-overlay **input** and reads air
+everywhere; `sec0_strips_a.bin` is the **output**. Same size, same stride, so the wrong one
+decodes perfectly and answers "the bake dropped everything" with total confidence.
+
+## D1 — the debug build starts in fly mode instead of playing
+
+In his terms, and the same family as "everything on by default". `DEBUG=1` boots with
+`Sst+$3C = $FF`, `Map_TestObj`, 16x16 — the yellow marker, not Sonic, with physics
+suspended. **B toggles it.** Release is clean (`$00`, 19/39 radii, real mappings), so this
+is not shipped. A fresh boot should have physics on and free flight behind the chord.
