@@ -2455,13 +2455,35 @@ cost of the re-layout.**
 > **So the reserve of 2 covers a worst reachable concurrent demand of 1, with a slot budget
 > exactly at its bar.** That is a stronger statement than "no frame in one exercise exceeded it".
 >
-> **WHAT WOULD ACTUALLY CLOSE THIS, and it is a choice for the owner or the hub rather than more
-> driving:** either (a) accept the static gate as the answer and close the row, recording that the
-> runtime cells stay as a regression tripwire rather than as the evidence; or (b) drive Knuckles
-> into animation frame `$88` specifically — a targeted animation, not general play — and read the
-> cells there. (b) costs a session and would corroborate (a) rather than extend it. **Nobody
-> should re-run the general-play recipe: it has now been run twice, as both subjects, for 25,560
-> frames, and it cannot reach the code under test.**
+> ## ✅ CLOSED 2026-09-04 ON `tools/dplc_straddle.py --gate` AT AEON `887dea80`
+>
+> **Hub ruling, in the owner's place under his 2026-09-02 delegation, overturnable on read-back:**
+> an exhaustive gate over reachable frames is stronger evidence than any sampled runtime peak, and
+> the 25,560-frame zero is structural rather than a pass. **The reserve of 2 stands on the gate.**
+> The runtime cells remain as a regression tripwire; they are not the evidence and were never able
+> to be.
+>
+> **⚠ DO NOT RE-RUN THE GENERAL-PLAY RECIPE.** It has been run twice, as both subjects, for 25,560
+> frames, against code it structurally cannot reach. That paragraph is struck above, not deleted,
+> so a reader meets the reason rather than the instruction.
+>
+> **THE ONE RUNTIME WITNESS WAS ATTEMPTED AND ABANDONED — reported because an abandoned attempt
+> that goes unrecorded reads as one nobody thought of.** The ruling allowed a deliberate drive to
+> Knuckles frame `$88` if it came in under an hour. Knuckles was put in play (`Character_ID` = 2,
+> verified) and driven through run / jump / glide-shaped / look-up / roll inputs with the camera
+> confirmed moving (`Camera_X` 5,696 -> 5,824). **It was abandoned because the observing instrument
+> is blind, not because the frame was not reached, and those are different findings.**
+> `Sst.mapping_frame` read through `Player_1 + $23` (`$FF901D` — the offset is `sst.emp:57`'s and
+> the base is the listing's `Object_RAM`/`Player_1`) returns **`$00` on every sample in every
+> state**, including states where the character is demonstrably running. **A value that is
+> constant across varied inputs is the confound signature this repo's own bar names**, so the
+> honest statement is *"I could not see which frames were visited"*, and **"$88 was not reached"
+> is NOT a result this run supports.**
+>
+> **What a future attempt needs FIRST**, and it is cheaper than more driving: find why that read is
+> constant. Candidates not yet separated — the player SST is not at `Player_1` in this shape, the
+> field is written somewhere else, or the read needs a different width/endianness. Settle the
+> instrument against a state whose frame is known before trusting any negative from it.
 >
 > *(Method note kept because it nearly went the other way: the probe's positive control —
 > `Dbg_DMA_Straddle_All`, free-running over every queue — is what stopped the first run being
