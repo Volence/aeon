@@ -2413,11 +2413,30 @@ cost of the re-layout.**
 >
 > **⚠ THE BOOKING'S OWN RECIPE CANNOT CLOSE THIS ROW, AND THAT IS THE REUSABLE HALF.** It says
 > "play an act for a few minutes reaching art-heavy states". `tools/dplc_straddle.py --gate`
-> settles why that is not enough: of every sprite set in the ROM, **only KNUCKLES' art crosses a
-> 128 KB boundary** (one boundary, `0x60000`), and it does so on **exactly ONE animation frame,
-> `$88`**. Sonic spans none. Tails spans none. `tails_tail` spans none. So `.split` runs only
-> while Knuckles is displaying that one frame, and general play — running, jumping, looking up,
-> in either direction — will not reach it. **A session following the recipe gets a zero and has
+> settles why that is not enough. **⚠ CORRECTED 2026-09-04, WITHIN THE HOUR, AND THE FIRST
+> VERSION OF THIS PARAGRAPH WAS WRONG IN THIS FILE, IN A PUSHED COMMIT MESSAGE, AND IN TWO
+> MESSAGES TO PEERS.** It said *"only KNUCKLES' art crosses a 128 KB boundary. Sonic spans none.
+> Tails spans none."* **Three of the four subjects' art crosses a boundary.** The measured table:
+>
+> | subject | art spans | straddling entry | REACHABLE? |
+> |---|---|---|---|
+> | sonic | 1 boundary, `0x80000` | frame `$68` | **no** — unreachable |
+> | tails | 1 boundary, `0x40000` | frame `$A2` | **no** — unreachable |
+> | tails_tail | none | — | — |
+> | knuckles | 1 boundary, `0x60000` | frame `$88` | **YES** |
+>
+> **The true statement is about REACHABILITY, not about spanning: the only straddling frame the
+> game can actually display is Knuckles' `$88`.** So `.split` runs only while Knuckles shows that
+> one frame, and general play — running, jumping, looking up, in either direction — will not
+> reach it. The conclusion is unchanged and in fact better supported (the other two straddles are
+> not merely unvisited, they are unreachable), but the reason given was false.
+>
+> **The defect is the one this lane had booked against itself an hour earlier**, in the
+> `docs/OVERSEER.md` bar about a true sentence doing a bigger sentence's work: *"no reachable
+> straddle"* is what the gate said, *"spans none"* is what got written, and the second is a claim
+> about the ROM's layout that the first does not make. It read as a crisper finding, which is why
+> it travelled. **State the SCOPE beside the claim** — and note that the wrong version was more
+> quotable than the right one, which is the mechanism rather than the excuse. **A session following the recipe gets a zero and has
 > to choose between reporting "the reserve holds" (wrong, it was never tested) and reporting
 > nothing.** The zero is STRUCTURAL, not evidence about the reserve.
 >
