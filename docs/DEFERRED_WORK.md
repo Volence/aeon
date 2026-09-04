@@ -23014,10 +23014,17 @@ tracking ref, so the remote question is answerable from the banner without the c
 So it is a statement about a revision, not about our tree, and they said so unprompted. **Re-run it
 at the moment of the parcel; that is the only form that means anything.**
 
-**AND THE BANNER MAY STILL MOVE:** sigil's shared-target parcel is merged at their `896a9b70` with
-its merged-tree suite still running, and they are explicitly not calling it green until it returns.
-If it comes back red, the lines this parcel would parse can change. **Do not schedule this against
-their banner until they confirm.**
+~~**AND THE BANNER MAY STILL MOVE:** sigil's shared-target parcel is merged at their `896a9b70` with
+its merged-tree suite still running.~~ **✅ CONFIRMED GREEN 2026-09-04 — the banner is stable.** Their
+merged-tree landing run on `896a9b70` came back 4429 passed / 0 failed / 2 ignored, 384 suites, 0
+`skip:`, 0 `ratchet:`, tree stamped clean, with both new gate files present **by name** in the run's
+own log (`shared_target_defaults`, `drift_anchor_is_named`) rather than inferred from the total.
+Their `origin/master` is `655af4eb`. So `published:`, `drift-check-published:`, the `anchors:`
+paragraph and `closure-revision` / `closure-paths` are landed and gated. **This parcel is unblocked.**
+
+**Still re-run our own extractor check at the moment of the parcel** — theirs was against
+`.aeon-f4ref` at `4f5ad5a1`, a statement about a revision and not about our tree, which they said
+themselves.
 
 **Not done now on purpose:** two parcels are in flight and `build.sh` is the kind of file a runner
 edit lands in. Doing it after avoids a three-way conflict on the one file that gates every build.
