@@ -22176,11 +22176,32 @@ before acting, and re-derive any number before it enters a gate.
 
 ### (1) A TWO-WAY CROSSOVER PAIR HAS NO AUTHORING PATH FROM THE EDITOR, AND NOTHING SAYS SO
 
-**⚠ SHARPENED 2026-09-04 AND THE GEOMETRY IS WORSE THAN THE ORIGINAL FRAMING — the trigger grid is
-ASYMMETRIC, and the relay's "16 px editor against an 8 px trigger" is true on ONE AXIS ONLY.**
-Found by aurora during the `xover_cell` resample; **verified firsthand here from source rather than
-taken from their message**, since this lane had already refused an earlier paraphrase of this
-finding:
+**⚠ ATTRIBUTION CORRECTED 2026-09-04, AND THE CORRECTION IS THE POINT: THE AXIS WAS NEVER MISSING
+FROM AURORA'S ARTIFACT. IT WAS DROPPED IN RELAY — TWICE.** An earlier version of this entry read
+"sharpened by aurora", which says their finding was vague and got fixed. **It was not.** Verified
+here by reading their committed blob (aurora `origin/master`,
+`docs/reviews/2026-09-04-loops-test-loop-witness.md` §6) rather than accepting either the original
+paraphrase OR their correction of it: line 334 names both constants, line 339 says *"every mark an
+author can paint is an even number of trigger cells **wide**"*, and lines 352-353 say *"his Y stays
+inside one 16 px row, **so the Y half of the id adds no odd fire**"*. It was X-specific on the page.
+
+**Both relays lost it, and one of them was aurora's own.** The hub's message said "an 8x16 grid …
+while Aurora authors 16 px cells" — the numbers without which axis is which. Aurora's own message to
+this lane said "Aurora paints on a 16 px grid; your trigger tests on 8 px" — their compression of
+their own §6. So this is not one lane summarising another badly; it is what compression does to a
+qualifier, twice, independently.
+
+**THE DURABLE FORM, aurora's, and it is the mirror of this morning's unchecked integer.** *A relay
+keeps what sounds load-bearing and drops what sounds like precision — and the axis was the
+load-bearing part wearing precision's clothes.* This morning a bare integer was swallowed because
+numbers do not look like claims; here a qualifier was dropped because qualifiers look like detail.
+**Their operational rule, adopted here in both directions: relay the LOCATION, not the example.**
+Send `§6 of <file>` and let the reader hit the qualifier themselves, rather than sending a
+compression and hoping the qualifier survived it.
+
+**The geometry itself, verified firsthand from OUR source** (which is what surfaced the discrepancy
+at all — accepting either version would have left both lanes believing the artifact said something
+it does not):
 
 ```
 engine/system/constants.emp:  COLL_CELL_W = 8 px      COLL_CELL_H = 16 px
