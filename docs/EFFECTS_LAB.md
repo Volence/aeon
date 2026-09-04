@@ -3,12 +3,12 @@
 **One page, for the person holding the pad.** Build `DEBUG=1 ./build.sh`, load `s4.debug.bin`,
 and stand still. Everything here is a chord on the pad. None of it exists in the release ROM.
 
-The lab has three tiers. They are independent: each one writes state the other two do not
+The lab has four tiers. They are independent: each one writes state the others do not
 touch, so you can stack them.
 
 ---
 
-## The three chords
+## The four chords
 
 | Hold | Press | What it does |
 |---|---|---|
@@ -16,6 +16,7 @@ touch, so you can stack them.
 | `START` | `UP` | step the **raster program** — bands only |
 | `START` | `DOWN` | raster program **off** |
 | `START` | `A` | step the **whole preset** — everything a section looks like |
+| `C` | `A` | step the **background tile animation** — off / horizontal / vertical |
 
 `START + A` is the one to reach for first. The other two change one channel each; this one
 installs an entire section's look — palette, palette cycling, palette variants, the raster or
@@ -72,7 +73,7 @@ cursor starts at 0 and your first press installs **1**, because you boot standin
 | 3 | **A palette-cycling band** — no raster at all, the colours themselves animate (line 2, entries 8-11). | Nothing, but **watch, don't glance** — it is an 8-frame cycle. |
 | 4 | **The depth showcase** — the vertical-split program from this section's authored scene. | Nothing. |
 | 5 | The program section 5's editor sidecar binds (`$013C4C`, measured on the live ROM). | Nothing. |
-| 6 | **The mid-frame plane swap** — 64 lines above the screen bottom, the foreground starts drawing the background's map. | Nothing. Look at the **bottom** of the screen. |
+| 6 | **The mid-frame plane swap** — from screen line 3 down, the foreground draws the background's map. | Nothing. It covers nearly the whole screen. |
 | 7 | **Plain.** Palette and parallax only. | — reads `-`. Deliberately empty; it is the control. |
 | 8 | Plain, the same record as 7. | — reads `-`. |
 
@@ -90,9 +91,13 @@ program.
   into). Every free button on a 3-button pad is a jump button or already taken; this was the
   cheapest collision left. In free flight it costs nothing.
 - **The cycle only goes forward.** Nine entries, so the far side is at most five presses.
-- **The three tiers stack.** `START + A` then `START + UP` puts a hand-authored band program on
+- **The tiers stack.** `START + A` then `START + UP` puts a hand-authored band program on
   top of a section's preset. `START + A` again wipes it, because a preset install writes every
   channel.
+- **The BG animation tier is the one exception to "it undoes itself".** The band table is not
+  an EffectsPreset channel, so walking across a section boundary does **not** put it back —
+  press `C + A` round the cycle to turn it off again. It is also the only tier whose default
+  is off in the shipped ROM as well as the debug one.
 - **Nothing here runs during a replay.** All three chords stand down unless input is live, so a
   recorded fixture cannot trip them.
 - **The readout is one digit.** An act with more than ten sections would have its eleventh
@@ -105,6 +110,42 @@ program.
 ## Where this lives
 
 `games/sonic4/test/ojz_scroll_test.emp` — `Debug_SceneCycleHotkey`, `Debug_BandDemoHotkey`,
-`Debug_PresetCycleHotkey`, and the two readouts. Each proc's header carries the argument for its
+`Debug_PresetCycleHotkey`, `Debug_BgAnimViewHotkey`, and the two readouts. Each proc's header carries the argument for its
 chord and the enumeration of what was already taken. The glyph cells are
 `games/sonic4/vram.toml`, region `debug_readout`.
+
+---
+
+## The background tile animation — `C + A`
+
+Three states, forward-only: **off → horizontal → vertical → off**.
+
+**Off is where the game now boots**, in the shipped ROM as well as this one. The band that
+used to animate the canopy on a free-running timer is still in the ROM, still authored, and
+still costs the same bytes — it is simply not counted in the act's band table, so nothing
+walks it. Nothing needs to be pressed to get the quiet screen; the chord exists to put a
+view **back**.
+
+The two views differ in **what drives the motion**, not in what moves:
+
+| State | Driven by | What you should see |
+|---|---|---|
+| off | — | still canopy |
+| horizontal | the camera's **X** | the canopy slides only while you run left or right, ~1 px per 16 px travelled — a full cycle is about three screen widths |
+| vertical | the camera's **Y** | the canopy slides only while you move up or down, about one full cycle per screen height |
+
+**Stand still and nothing moves.** That is the whole change from the old behaviour and it is
+the point: a timer animates whether or not you are there, which reads as an animation; a
+camera-driven band reads as depth.
+
+Two things worth knowing before you call one of them broken:
+
+- **Both views move the band the same way — sideways.** "Horizontal" and "vertical" name the
+  camera axis, not the art's. A band whose art genuinely scrolls *upward* needs vertically
+  pre-shifted phase art and a row-major slot order in the layout, and nothing in the tree can
+  author either yet (the bake refuses the mismatch by name rather than shipping a shimmer).
+  That is a content job, not a chord.
+- **Off freezes the band, it does not rewind it.** Once a view has run, turning it off leaves
+  the tiles wherever the last step put them — up to 63 px into their own 64 px pattern. A cold
+  boot is the only guaranteed rest state. Nothing looks broken, because the band's tiles are
+  reused all over the background and shift together.
