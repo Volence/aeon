@@ -237,9 +237,12 @@ BGANIM_WORST_CASE_BYTES = (BGANIM_COUNT_BYTES
 #   BgAnim_View_H   the authored band verbatim -- "H" for the HORIZONTAL camera axis it
 #                   is driven by (Camera_X), not for the band's own art axis.
 #   BgAnim_View_V   the same band re-driven off Camera_Y at its own rate (below).
+#   BgAnim_View_T   the same band re-driven off Logic_Tick -- the TIMER view, restored
+#                   2026-09-04 (EFFECTS-W1 F6) so "perspective vs timer" is a comparison
+#                   a reviewer can actually make. See BGANIM_VIEW_T_RATE_SHIFT.
 #
 # `engine/level/bg_anim.emp`'s DEBUG-only `BgAnim_SetTable` points the walk at one of the
-# three; the plain shape has no selector and permanently walks `BgAnim_Table`.
+# four; the plain shape has no selector and permanently walks `BgAnim_Table`.
 #
 # THE V VIEW'S RATE IS DERIVED, NOT COPIED. A camera-driven step at a tick-tuned rate is
 # wrong by construction, because the two drivers have different units (frames vs pixels).
@@ -276,8 +279,41 @@ BGANIM_VIEW_V_RATE_SHIFT = 2
 #: derivation above a claim about a band it was not computed for.
 BGANIM_VIEW_DERIVED_PERIOD_PX = 64
 
+# ── THE TIMER VIEW (owner ask, 2026-09-04, EFFECTS-W1 F6) ─────────────────────
+#
+# THE ASK, in the owner's words: "I just ddidn't want the experimental animation bands
+# right now for this, they showed we can do horizontal and vertical movement on a timer,
+# but it was on for every test and distracting. It should be its own scene with start +
+# button and should be tested for perspective vs timer, that's all"
+#
+# "Tested for perspective vs timer" is a COMPARISON, and yesterday's parcel removed one
+# of its two arms: the H and V views are both camera-driven, so there was nothing left in
+# the ROM to compare them against. This third twin puts the timer arm back.
+BGANIM_VIEW_T_DRIVER = 'timer'
+
+#: The T view's rate. NOT re-derived from the display: it is the rate the RETIRED TIMER
+#: VIEW ACTUALLY RAN AT, and that is the whole point of restoring it.
+#:
+#: THE DERIVATION IS BY IDENTITY, and it is stronger here than a fresh computation would
+#: be. The H rung above was derived by MATCHING this number ("Old view: driver Logic_Tick,
+#: rate_shift 2 = 1 px / 4 frames = 0.25 px/frame [...] s = 4 -> 0.375 px/frame [...]
+#: errs toward VISIBLE"). Pick any other rung for the timer arm and the H view's own
+#: derivation comment stops naming a band that exists in the ROM, and the owner's A/B
+#: silently becomes "perspective vs a DIFFERENT-TEMPO timer" -- two variables, one press.
+#:
+#: WHAT THE TWO ARMS ACTUALLY DIFFER BY, stated so the reviewer knows what to look for:
+#:   moving at PHYS_TOP_SPEED   H = 0.375 px/frame   T = 0.25 px/frame   (1.5x, same order)
+#:   standing still             H = 0     px/frame   T = 0.25 px/frame   (the whole point)
+#: The camera arm STOPS when the player stops; the timer arm does not. That difference,
+#: not the tempo, is what "perspective vs timer" is asking a reviewer to judge.
+#:
+#: PERIOD-INDEPENDENT, unlike the V rung: a tick-driven rate is px per FRAME and does not
+#: reference the band's geometry or the display at all, so `views_emitted`'s period
+#: refusal is not protecting this number. It is protecting the V one, as it always was.
+BGANIM_VIEW_T_RATE_SHIFT = 2
+
 #: How many DEBUG view twins a `default_off` act's table gets.
-BGANIM_VIEW_COUNT = 2
+BGANIM_VIEW_COUNT = 3
 
 
 def views_emitted(anims):
@@ -937,7 +973,7 @@ def main(act=None):
             # here on the way past.
             if n_views:
                 b = bands[0]
-                f.write("\n// The effects lab's two BG-animation views. Same band, same\n"
+                f.write("\n// The effects lab's three BG-animation views. Same band, same\n"
                         '// bank blob, same slots — they differ ONLY in which scalar the\n'
                         '// step is read from and how fast. Reached through\n'
                         '// BgAnim_SetTable (engine/level/bg_anim.emp), DEBUG shape only:\n'
@@ -951,6 +987,10 @@ def main(act=None):
                         'if DEBUG == 1 { [1] } else { [] }   // vertical camera motion\n')
                 _emit_record('ViewV', b, 0, BGANIM_VIEW_V_DRIVER,
                              BGANIM_VIEW_V_RATE_SHIFT, gated=True)
+                f.write('pub data BgAnim_View_T: [u16; BGANIM_VIEW_EMIT] = '
+                        'if DEBUG == 1 { [1] } else { [] }   // the TIMER arm of the A/B\n')
+                _emit_record('ViewT', b, 0, BGANIM_VIEW_T_DRIVER,
+                             BGANIM_VIEW_T_RATE_SHIFT, gated=True)
             f.write(f'pub data BgAnim_Banks = embed("{act.banks_embed}")\n')
         assert section_bytes == bganim_section_bytes(
                 len(bands), sum(b['tile_count'] for b in bands), n_views=n_views), (
