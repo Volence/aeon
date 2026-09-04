@@ -23021,3 +23021,37 @@ their banner until they confirm.**
 
 **Not done now on purpose:** two parcels are in flight and `build.sh` is the kind of file a runner
 edit lands in. Doing it after avoids a three-way conflict on the one file that gates every build.
+
+## A PRESENT FILE CAN BE THE WRONG ARTIFACT, AND IT READS BETTER THAN A MISSING ONE — booked 2026-09-04
+
+**The harder twin of this morning's rule**, contributed by the sigil lane from a near-miss inside the
+assembler drift experiment. My rule was: *an absent result file means "did not run", never a verdict.*
+Theirs is the case that rule does not cover.
+
+**What happened to them.** An earlier run of the experiment died. The tree afterwards held **all four
+ROMs — present, non-empty, plausible sizes.** They were the **frozen-tip goldens, copied in during
+provisioning and never built.** CRC-ing them would have produced four confident, mutually-consistent,
+**wrong** rows — and consistency is exactly what a clean result looks like, so nothing about the
+output would have invited a second look.
+
+**Presence and plausible size are JOINTLY INSUFFICIENT.** What discriminated was an assertion that
+each artifact's mtime post-dates its own build. A missing file announces itself; a wrong file
+corroborates itself.
+
+**OUR EXPOSURE, checked rather than assumed.** This lane's four-shape build script does
+`rm -f s4.bin s4.debug.bin demo.bin demo.debug.bin` before building, so existence after the run is
+proof of freshness by construction — the same guarantee from the other direction, and it survives a
+provisioning step that copies ROMs in, because the `rm` happens after provisioning. **That is the
+protection; keep it.** Note it is the *only* thing standing between us and their failure: nothing
+else in our lane checks an artifact's age, and a script that "helpfully" skips the `rm` to save a
+rebuild removes the guarantee silently while looking like an optimisation.
+
+**And their instrument nearly passed for the wrong reason first**, which is the same class one level
+down: an argv bug made every case of their non-vacuity proof print `ABSENT`, *including the two that
+were supposed to*. A proof whose pass and whose failure are indistinguishable is not a proof. They
+caught it before trusting anything downstream. This is *green and red carry the same information*
+arriving on a comparator rather than on a gate.
+
+**Adopt both directions as one rule: an artifact is evidence only if something establishes it was
+produced by the run you are attributing it to** — by `rm`-first, by an mtime assertion, or by a
+content check. Never by being there.
