@@ -2408,6 +2408,88 @@ class TestRasterRefResolution(RasterRefBase):
         self.assertIn(f"pub equ {names.equ_raster_bindings} = 2", self.render())
 
 
+class TestTheChooserSplitsByARM(RasterRefBase):
+    """ONE `rasterRef`, TWO CHOOSERS (contract §7.6). A `boundary` document lowers into
+    `EffectsPreset.ep_patched`, which is a DIFFERENT `preset()` parameter, so it must
+    reach the section through `sec_patched` and must NOT appear in `sec_raster`.
+
+    THE FAILURE THIS BLOCK EXISTS FOR IS SILENT. A patched image threaded into `raster:`
+    installs — it is a `[u16; N]` like any other program — but it is a padded body with
+    the patch table beyond the copy boundary, so the boundary sits at its authored line
+    forever and no diagnostic fires anywhere.
+    """
+
+    def write_boundary_preset(self, stem):
+        with open(os.path.join(self.presets, f"{stem}.json"), "w") as f:
+            json.dump(_boundary_preset(id=stem), f)
+
+    def patched_chooser(self, text):
+        head = (f"pub comptime fn "
+                f"{effects_gen.act_names(self.repo).fn_sec_patched}(")
+        start = text.find(head)
+        if start < 0:
+            self.fail(f"the generated module carries no {head!r} — the patched chooser "
+                      "is emitted for EVERY act, always, exactly like the raster one.")
+        end = text.find("\n}", start)
+        return text[start:end + 2]
+
+    def test_the_patched_chooser_is_emitted_with_NO_content_at_all(self):
+        """Always-emitted, the same owner ruling every other chooser rides: the call site
+        has ONE path, always live, and never a conditional."""
+        body = self.patched_chooser(self.render())
+        self.assertIn("comptime var out = hand", body)
+        self.assertNotIn("if sec ==", body)
+
+    def test_a_bound_boundary_reaches_the_PATCHED_chooser_and_not_the_raster_one(self):
+        self.write_boundary_preset("ojz_water_edge")
+        self.write_sidecar(5, {RASTER_KEY: "ojz_water_edge"})
+        names = effects_gen.act_names(self.repo)
+        text = self.render()
+        self.assertIn(f"    if sec == 5 {{ out = {names.patched('ojz_water_edge')} }}",
+                      self.patched_chooser(text))
+        raster_rows = [l for l in self.chooser(text).splitlines()
+                       if l.strip().startswith("if sec ==")]
+        self.assertEqual(raster_rows, [],
+                         "a boundary document reached the RASTER chooser — it would be "
+                         "threaded into `raster:` and never move.")
+
+    def test_a_bands_document_still_reaches_the_RASTER_chooser_only(self):
+        """The converse control. Without it the test above could pass on a generator
+        that had simply stopped emitting raster rows."""
+        self.write_preset("ojz_ground_wash")
+        self.write_sidecar(5, {RASTER_KEY: "ojz_ground_wash"})
+        names = effects_gen.act_names(self.repo)
+        text = self.render()
+        self.assertIn(f"    if sec == 5 {{ out = {names.raster('ojz_ground_wash')} }}",
+                      self.chooser(text))
+        self.assertNotIn("if sec ==", self.patched_chooser(text))
+
+    def test_the_two_arms_coexist_on_different_sections(self):
+        self.write_preset("ojz_ground_wash")
+        self.write_boundary_preset("ojz_water_edge")
+        self.write_sidecar(3, {RASTER_KEY: "ojz_ground_wash"})
+        self.write_sidecar(5, {RASTER_KEY: "ojz_water_edge"})
+        names = effects_gen.act_names(self.repo)
+        text = self.render()
+        self.assertIn(f"if sec == 3 {{ out = {names.raster('ojz_ground_wash')} }}",
+                      self.chooser(text))
+        self.assertNotIn("sec == 5", self.chooser(text))
+        self.assertIn(f"if sec == 5 {{ out = {names.patched('ojz_water_edge')} }}",
+                      self.patched_chooser(text))
+        self.assertNotIn("sec == 3", self.patched_chooser(text))
+
+    def test_the_bound_boundary_lowers_its_program_into_the_module(self):
+        """The chooser is a Label reference; without the `pub data` behind it the module
+        would name a symbol nothing declares."""
+        self.write_boundary_preset("ojz_water_edge")
+        self.write_sidecar(5, {RASTER_KEY: "ojz_water_edge"})
+        names = effects_gen.act_names(self.repo)
+        text = self.render()
+        self.assertIn(f"pub data {names.patched('ojz_water_edge')}: "
+                      f"[u16; patched_words({names.patched_src('ojz_water_edge')})] = "
+                      f"patched_program({names.patched_src('ojz_water_edge')})", text)
+
+
 class TestRasterArmIsINERT(RasterRefBase):
     """THE ZERO-BYTE CLAIM, made checkable rather than argued (design §3.4/§10).
 

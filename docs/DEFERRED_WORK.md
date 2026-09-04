@@ -22956,3 +22956,64 @@ a world that did not happen.*
 *(Mechanical note for this repo's shells: use a quoted heredoc (`-F -` with `<<'MSG'`) for any commit
 message containing backticks, parentheses or `$`. Every message today that used one landed; the one
 that used `-m` did not.)*
+
+---
+
+## RASTER-BOUNDARY-1 — the `boundary` preset key SHIPPED; three obligations from its CR did not (2026-09-04)
+
+`boundary` is now a preset-document key: `tools/effects_gen.py` accepts it, refuses it four ways,
+and lowers it to `patchable(fx_tint_band(...), ch:, lo:, hi:, offscreen_ship:)` under
+`patched_program()`, bound through the new `<act>_sec_patched(sec:)` chooser. Contract:
+empyrean `c4a1da23` `docs/AURORA_EFFECTS_SCHEMA.md` §7.6 (schema blob `0295b21b`); aeon shape note
+`docs/superpowers/specs/2026-09-04-channel-band-key-shape.md`.
+
+**Three things §7.6 names that this parcel deliberately did NOT build.** Each is recorded with why,
+because "shipped the key" reads as "shipped the item" otherwise.
+
+**(a) THE CALL SITE IS NOT THREADED.** `games/sonic4/data/effects/ojz_effects.emp` does not import
+or call `ojz_act1_sec_patched`, and no section passes `patched:` from it. Nothing is broken by that
+— no document carries `boundary`, so the chooser's body is `return hand` and it is zero ROM bytes —
+but **the first document that authors the key needs its section's `preset()` call amended in the
+same parcel**, and it owes TWO edits, not one: add `patched: ojz_act1_sec_patched(sec: N)`, and
+change that section's raster call to `hand: 0`. Not `Raster_Program_None`: that is a real non-zero
+label and `preset()`'s `ep_raster == 0 || ep_patched == 0` ensure would fire on a section that bound
+nothing at all. The generated banner says this; nothing enforces it, because no generator can see a
+hand-authored call site.
+
+**(b) NO PATCHED REACHABILITY WITNESS.** Every other channel mints a `pub equ
+Editor<Channel>_<ACT>_Bindings` that `tools/effects_seam_gate.py` derives and checks; the patched
+channel does not. **Deliberate, and the reason is a second consumer:** the gate derives
+`want_raster` as `len(want_raster_refs)` — every `rasterRef`, whichever arm it names — so
+partitioning the raster witness would silently red the gate the first time a boundary is bound, and
+adding a fifth witness without teaching the gate to derive it would add a symbol nothing checks.
+`equ_raster_bindings` therefore still counts ALL `rasterRef` bindings, boundary ones included, and
+its name is now slightly wider than it reads. The paired change — a `equ_patched_bindings` plus the
+seam gate's own derivation of it — is one small parcel and belongs with (a).
+
+**(c) THE SWEEP-FITS-THE-BAND CHECK HAS NOT MOVED.** §7.6 obligation (b): `2 * (256 >> amp_shift) <=
+hi - lo + 1` exists today only as `tools/test_anchor_sweep_band.py` (build-fatal, and it reads
+HAND-AUTHORED `.emp` only), and §7.6 says that once both numbers live in one document it belongs in
+`effects_gen.py` beside `_check_patch_context`. **They now do** — `boundary.lo`/`boundary.hi` and
+`patch_motion[ch].sweep.amp_shift`, same document, same channel — so this is UNBLOCKED as of this
+parcel and was left out only to keep it scoped. ⚠ Whoever builds it: the comparison is PEAK-TO-PEAK
+TRAVEL against an INCLUSIVE line count, not peak excursion — `games/sonic4/data/generated/
+effects_channel_bands.json`'s own `how_to_use` records that this sentence was wrong by a factor of
+two in the permissive direction until 2026-09-04, and derive it from the engine's ladder ensure
+rather than copying either sentence. The pytest lane stays as the backstop for hand-authored `.emp`.
+
+**(d) GUARD 11 ACROSS THE DOCUMENT/LIBRARY SEAM IS NOT CHECKED.** §7.6 obligation (c) — two patchable
+records may not share a channel — is structural WITHIN a document (`boundary` is one closed object,
+so a document cannot carry two records on one channel). The cross-source half is not: a document's
+boundary on a channel the section's hand-authored program already patches. **Not built because the
+generator cannot resolve it** — which hand program a section installs lives in the hand library and
+the act descriptor, and the library-wide grep `_check_patch_context` already uses is explicitly a
+SUPERSET check; used for THIS question it would over-refuse, since a section that binds a boundary
+document has its hand program replaced by the chooser anyway. It needs section resolution, which is
+the same missing capability the liveness check's own "a green is not a promise" caveat names.
+
+**What is NOT open:** the ruled shape itself. Every spelling in §7.6 was checked against source and
+they agree — `patchable(fires, ch, lo, hi, offscreen_ship = 0)` and `fx_tint_band(line, slot,
+pal_line, entry, count, sh)` at `engine/effects/raster_dsl.emp:460`/`:654`, and the CR's worked
+example is `games/sonic4/data/effects/ojz_effects.emp:1563-1564` character for character. `cram`,
+`vsplit` and a `boundary: null` spelling are RULED ABSENT, not pending; adding any of them is its own
+CR, and none should be pre-created.
