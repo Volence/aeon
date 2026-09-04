@@ -21569,3 +21569,29 @@ before this parcel** (the routine at effects-P3-C2 Task 13, 2026-08-15); it now 
 preset route, and notes that the NULL semantic **inverted** in that move (0 meant "keep", it now
 means "off"), which is the part a stale doc would have got backwards rather than merely
 out-of-date. `docs/BUGS.md`'s hits are historical bug records and were left alone.
+
+### Four-shape verification, and the control it is read against
+
+| shape | `origin/master` `f62fe9c5` (control worktree) | this parcel |
+|---|---|---|
+| `DEBUG=1 ./build.sh` | **FAILS** — `bganim_room`, 16354 B < 16384 B reserve | **exit 0**, `s4.debug.bin` 741,855 B, crc `7c4668fc` |
+| `./build.sh` | exit 0 (the release shape was never broken) | **exit 0**, `s4.bin` 720,803 B, crc `942aa077` |
+| `./build.sh demo` | exit 0 | **exit 0**, `demo.bin` 96,602 B, crc `11ebd7ab` |
+| `DEBUG=1 ./build.sh demo` | exit 0 | **exit 0**, `demo.debug.bin` 102,818 B, crc `9b0d2ce7` |
+
+Pytest, aggregate, never tailed: 2170 passed / 5 skipped (sonic4 debug) and 2171 / 4 (the other
+three), 73 subtests, 0 failures. All four cut fixtures re-found byte-identical in both shapes.
+**A correction to the standing lane note: it is the DEBUG shape alone that master cannot build.
+The release shape builds green on `f62fe9c5` — measured, not assumed.**
+
+**`EndOfRom` is identical in both shapes**, control and parcel: `$A852C` debug, `$A5C82` release.
+
+**`demo.bin` DOES change, and every byte of it is accounted for** — worth stating because "the
+engine is game-agnostic and demo has no `Sec` table" invites the wrong prediction. Demo links the
+whole engine, including the level code that READS `Sec`. Same length; **13 bytes differ, zero
+unexplained**: 2 are the header checksum, 9 are the renumbered field offsets in `d16(An)` operands
+(`sec_type_table` `$20`→`$14`, `sec_bg_layout` `$1C`→`$10` ×2, `sec_block_dict` `$2C`→`$18`,
+`sec_block_dict_len` `$40`→`$20`, `sec_parallax_config` `$14`→`$0C` ×2, `sec_effects` `$34`→`$1C`
+×2), and 2 are shift counts inside `mul_const.w dN, #sizeof(Sec)` — `lsl.w #5` → `lsl.w #4`,
+because 66 = ((x<<5)+x)<<1 and 34 = ((x<<4)+x)<<1. The stride multiply following the struct with no
+source edit is the `#sizeof(Sec)` spelling doing its job.
