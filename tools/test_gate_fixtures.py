@@ -761,6 +761,19 @@ def test_ability_normalisation_catches_a_changed_call_TARGET():
     assert relax == [], "a retarget was excused as a relaxation: %s" % relax
 
 
+def test_a_flipped_CONDITION_is_an_edit_not_a_relaxation():
+    """The semantic hole the relaxation excuse could open. `+0x0E 662e bne.b` and
+    `672e beq.b` branch to the SAME place with the same reach — the only difference is
+    which way the test goes, which is the whole meaning of the instruction. It must
+    classify as an EDIT."""
+    cut = _insta_shapes()["s4.lst"]
+    good, _ = _norm_ability(cut)
+    bad, _ = _norm_ability(cut, _patch_byte(cut["bytes"], 0x0E, 0x67))
+    edits, relax = isg.classify_stream(good, bad, INSTA_ROUTINE)
+    assert relax == [], "a flipped condition was excused as a relaxation: %s" % relax
+    assert edits and "bne" in edits[0] and "beq" in edits[0], edits
+
+
 def test_xfer_class_refuses_to_excuse_a_non_transfer():
     """The relaxation excuse is the one place this gate is allowed to forgive a
     difference, so pin what it will NOT forgive. `bclr`/`bset`/`btst`/`bchg` all start
