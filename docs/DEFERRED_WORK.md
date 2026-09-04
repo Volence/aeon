@@ -21077,3 +21077,187 @@ evidence: mutating the verdict's initial state from `PRESET_VERDICT_NONE` to
 `PRESET_VERDICT_LIVE` on disk and rebuilding (`crc c585c0fd`) made it exit 1 naming
 **exactly** sections 7 and 8, the only two whose verdict that mutation changes; restored from
 the committed baseline it is green again.
+
+---
+
+## THE PERSPECTIVE FLOOR IS IN THE ROM AND IS A PLACEHOLDER — four open riders (2026-09-03, `parcel/perspective-floor`)
+
+> **If you read one thing here, read RIDER 0 below.** It is not about the floor: the ROM
+> margin under `dac_banks` on master is **252 bytes in the debug shape**, and it is what
+> sized this parcel's art. The next content parcel of any size hits it too.
+
+The owner asked what the depth showcase (preset 4) is *for*, then sent two Toy Story
+(Mega Drive) screenshots of a wooden floor whose boards fan out from a vanishing point,
+and asked for it built. It is built: `tools/perspective_floor_gen.py` draws the fan into
+the Plane-B map, `games/sonic4/data/editor/effects/ojz_act1_floor.json` supplies the
+recession through the per-layer `curve`, and section 8's sidecar binds it so `START + A`
+reaches it. Driving instructions are in `docs/EFFECTS_LAB.md`, row 8.
+
+### Four-shape totals, and the one red that is NOT this parcel's
+
+Run at 2026-09-03 23:14-23:23 (`uptime` load 4.7 at start, 13.0 at end — two other lanes
+were building concurrently, so the seconds below are contended and not a cost measurement).
+
+| shape | this branch | master baseline | cause |
+|---|---|---|---|
+| `./build.sh` | EXIT 1, 132 s | EXIT 1, 122 s | `tools/fixtures/sprite_tilt_cut.json` STALE |
+| `DEBUG=1 ./build.sh` | EXIT 1, 147 s | EXIT 1, 125 s | same fixture |
+| `./build.sh demo` | **EXIT 0**, 132 s | EXIT 0, 123 s | — |
+| `DEBUG=1 ./build.sh demo` | **EXIT 0**, 143 s | EXIT 0, 119 s | — |
+
+**The failure set is identical to master's**, and its cause predates this parcel: the
+sprite-tilt gate's fixture records `Ani_Sonic`/`Ani_Tails`/`Ani_Knuckles` at addresses the
+listing no longer has (drift $22 on master, $7E0 on this branch — this parcel moves those
+symbols further, so the fixture will need re-emitting either way). It was NOT refreshed
+here: `tools/fixtures/sprite_tilt_cut.json` was open in another lane during this parcel, and
+a fixture pinned against either branch alone goes stale again the moment the other lands.
+**Refresh it once, after both land**, with the command the gate itself prints.
+
+pytest: 2171 passed, 4 skipped, 73 subtests (master baseline: 2168 passed, 7 skipped).
+
+Positive evidence the scene actually reaches the ROM, from the release listing rather than
+from the source: `EditorSceneBinding_OJZ_Act1_Sec8` is emitted at `$13714`, and the
+reachability witness `EditorScenes_OJZ_Act1_Bindings` equals 3.
+
+### The premise HELD, and here is the measurement that settles it
+
+The fan cannot be computed by this hardware. `engine/system/buffers.emp:149` DMAs an
+896-byte HScroll table = 224 lines x 2 planes x 2 bytes: **one scroll word per plane per
+scanline**, applied to the line as a whole. Per-line HScroll can only shear. A fan needs
+the horizontal shift to vary *across* one line; VSRAM varies per two-cell column but the
+quantity it varies is VERTICAL, and there is no scaler. The two mechanisms that do vary
+horizontal position within a line are sprites (a floor of them blows the sprite budget)
+and a per-frame nametable rewrite at 8-px granularity. So the splay is art. **No engine
+mechanism was built and none was needed.**
+
+### What the curve turns out to be, which is the answer to the owner's question
+
+`fb: FACTOR_0` at the layer top ramping to `to: FACTOR_1` at its bottom gives
+`rate(y) = camX * (y - horizon) / span` — scroll rate exactly proportional to depth.
+Translate a radial board lattice by `delta*dy/H` and it maps onto itself with the board
+index relabelled: the vanishing point does not move, the fan does not shear, the boards
+slide board-by-board. The art's board pitch and the scroll rate are proportional to the
+same `s(y)`. It is the correct construction, not a fudge that happens to look acceptable.
+**This is the reusable finding**: any receding ground plane on this engine is
+"draw the perspective, ramp the factor from 0 at the horizon", and the two must share
+their depth term.
+
+### RIDER 1 — the 512-px plane period puts a mirrored crease on screen after enough travel
+
+The dedup that makes the art affordable is a reflection symmetry (`x -> -x` mod 512),
+which gives mirror axes at the vanishing point AND 256 px either side of it. The apex is
+pinned at screen x 160 (see the fix commit's derivation — the horizon row's factor is 0,
+so its plane origin is pinned to the screen origin), and both creases start off-screen;
+but the near rows scroll at camera speed, so a crease sweeps in across the bottom of the
+screen once the camera has travelled a couple of hundred pixels. **Not fixable by tuning.**
+The exits are (a) a single-apex fan with one hard seam instead of two mirror axes, which
+costs roughly 360 tiles instead of 181 because it forfeits every H-flip match, or (b) art
+authored for a specific act's camera range. Both are art-pass questions, not engine ones.
+
+### RIDER 2 — the floor is BACKGROUND, so foreground terrain draws over it
+
+Nothing is wrong with this; it is what a background plane is. But it means the effect is
+reviewed from free flight rather than from the ground, and it means a real (non-placeholder)
+perspective floor for a Sonic act wants a section whose foreground is genuinely open —
+a pit, a hall, an indoor room — rather than OJZ's jungle terrain. **The engine half is
+done; choosing where a floor belongs is a level-design question.**
+
+### RIDER 3 — the lab's verdict glyph is blind to the parallax channel
+
+`Debug_PresetReadout_Show`'s verdict inspects the raster, water and palette-cycle channels
+only. A preset that installs an entire authored background scene and nothing else reads
+`-` — "nothing is bound" — which `docs/EFFECTS_LAB.md` had, until this parcel, taught the
+reader to interpret as "there is genuinely nothing to look for". Section 8 is now exactly
+that case, and the doc says so in two places. **The glyph itself was NOT changed**: the
+readout lives in `games/sonic4/test/ojz_scroll_test.emp`, which another lane held during
+this parcel. The fix, when someone takes it, is a fourth verdict state (or folding
+`sec_parallax_config != 0` into the existing one) plus a row in the glyph sheet — and the
+sheet has no spare VRAM beside it (`games/sonic4/vram.toml`, region `debug_readout`, notes
+that 1022/1023 were the last free run adjacent to it).
+
+### The tile accounting, and the half-truth it corrects
+
+An earlier lane reported `bg_region` full and the owner nearly authorised cutting real art
+on the strength of it. **Both halves are true and they are different numbers.** The region
+is 448 tiles; the shipped blob was 320, which is EXACTLY the static importer's budget
+(`448 - band_reserve 128`) — so the *importer* was full while 128 tiles of the *region*
+were physically free.
+
+What the floor actually costs is **nothing**:
+
+| | tiles |
+|---|---|
+| unique tiles the floor needs | 121 |
+| recycled from slots the floor's own band freed | 121 (123 free, 2 stranded) |
+| appended | **0** |
+| blob | 320 -> 320 |
+| `band_reserve` | 128, **unchanged** |
+
+The 123 are real: plane cell rows 48..63 were the ground-level undergrowth, rows 48..55
+repeated **verbatim** at 56..63, and 123 of their tiles were referenced by no other row.
+Reverting `games/sonic4/data/editor_bg_override.json` and re-baking restores the
+undergrowth — the floor is a placeholder and was built to be undone in one file.
+
+### RIDER 0, AND IT IS THE BIG ONE — THE ROM MARGIN UNDER `dac_banks` IS 252 BYTES ON MASTER
+
+**This constraint, not VRAM, is what sized the floor**, and it is about to block every
+content parcel, so it is booked first even though it is not this parcel's own work.
+
+A first cut of the floor was 181 tiles: 123 recycled plus **58 appended**, with
+`band_reserve` lowered 128 -> 70 to keep the declared contract honest. It built, and then
+`tools/bganim_room.py` failed the **DEBUG** shape. Measured, both arms:
+
+| | `Art_Sonic` end | room under `dac_banks` (0x90000) | vs `DATA_GROWTH_RESERVE` 16,384 B |
+|---|---|---|---|
+| master, s4.debug | 0x8BF04 | 16,636 B | **+252 B** — passes |
+| master, s4 (release) | 0x8B5FE | 18,946 B | +2,562 B — passes |
+| 181-tile floor, s4.debug | 0x8C6C2 | 14,654 B | **-1,730 B — FAILS** |
+| 181-tile floor, s4 (release) | 0x8BDBC | 16,964 B | +580 B — passes |
+| 121-tile floor (shipped), s4 (release) | 0x8B67C | 18,820 B | +2,436 B — passes |
+
+⚠ An earlier draft of this table put "16,964 B / +580 B" on the **master** release row.
+That figure is the 181-tile BRANCH's, not master's; master's release room was never in the
+same log and had to be re-read out of the baseline run. The correction does not move the
+headline — the binding shape is DEBUG and its margin is 252 B either way — but the release
+shape is four times roomier than the wrong number suggested, which is the whole reason a
+release-only check is not a check.
+
+The delta is 1,982 B = 58 tiles x 32 B of BG art + 126 B of scene record. So **the debug
+shape had 252 bytes of headroom and the parcel needed 1,982.** The gate's own remedy is the
+documented one (`games/sonic4/map.toml`, BANK PLACEMENT RULE): move BOTH anchors to
+`dac_banks` 0x98000 / `sound_bank` 0xA8000 and refreeze sigil's frozen tables — **a paired
+aeon+sigil landing**, which is out of scope for a content parcel and is not something to do
+unilaterally. So the floor was retuned to 121 tiles instead, which appends nothing and moves
+only the 126-byte scene record, comfortably inside 252 B.
+
+**What this means for everyone else.** On today's master, ~250 bytes of added packed data
+in the debug shape is the entire budget. Four background tiles is 128 B. The next content
+parcel that adds a sprite, a band, a scene or a program of any size trips this gate, and the
+fix is the paired re-layout every time. **Somebody should do that re-layout deliberately,
+before it is discovered accidentally by a parcel that has already been reviewed.** Note the
+release shape has TEN TIMES the room of debug (2,562 B against 252 B), so a parcel verified
+on `./build.sh` alone will pass and then fail on `DEBUG=1 ./build.sh` — check debug first.
+
+The 121-tile floor is therefore a **constrained** floor, not the best one available: the
+181-tile version had a longer fan (horizon at screen line 136 rather than 152, 88 lines of
+floor rather than 72) and finer boards near the horizon. Both were rendered and compared;
+the 121 reads correctly. If the re-layout lands, re-running
+`tools/perspective_floor_gen.py --horizon-row 53 --lod-px 12` restores the larger one in one
+command, and costs 58 of the 128 reserve tiles.
+
+### Two measured traps worth keeping, both baked into the generator as comments
+
+- **The reflection axis must sit at a half-pixel.** An axis on plane x 256 rather than
+  255.5 maps cell column 32 onto a pair of half-columns, forfeiting every H-flip match:
+  679 tiles instead of 355. Reflection about a whole pixel is not reflection about a cell
+  boundary.
+- **A faded plank-tone alternation reads as rubble.** Scaling the alternation amplitude
+  smoothly toward the horizon makes neighbouring boards round to different ramp steps at
+  different rows; the far half became blocky noise and cost 192 tiles across six cell
+  rows. A hard on/off cutoff fixes both the picture and the budget.
+
+`--sym 4` would roughly halve the cost again by adding the quarter-point mirror axes
+(measured 181 -> 99 on the larger configuration).
+It is **not** taken and should not be: it puts four vanishing points inside the 512-px
+plane, so a 320-px screen shows two or three of them and the picture reads as a hall of
+mirrors rather than one floor. Verified by rendering it.

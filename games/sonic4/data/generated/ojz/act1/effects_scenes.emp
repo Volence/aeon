@@ -5,8 +5,8 @@
 // tools/EFFECTS_CONSUMER_CONTRACT.md §2 and the design is
 // docs/superpowers/specs/2026-08-22-aurora-effects-wave1-design.md §3.
 //
-// STATE OF THIS BAKE: 2 editor scene(s) reached by an assignment,
-// 2 binding(s), 9 act sections. Authored but unassigned: none.
+// STATE OF THIS BAKE: 3 editor scene(s) reached by an assignment,
+// 3 binding(s), 9 act sections. Authored but unassigned: none.
 //
 // EVERY `pub comptime fn` AT THE BOTTOM IS EMITTED FOR EVERY ACT, ALWAYS — the act
 // default, the section scene, and one per `EffectsPreset` channel (raster, cycle,
@@ -33,7 +33,7 @@ use engine.structs.{parallax_config}
 use engine.parallax.{band_entry, band_record, band_ext, BAND_EXT_N, band_curve, BAND_CURVE_N, band_drift, BAND_DRIFT_N, band_remap, BAND_REMAP_N}
 use engine.level.scene_dsl.*
 use engine.level.parallax_dsl.*
-use games.sonic4.scene_registry.{SceneCfg5, lower5}
+use games.sonic4.scene_registry.{SceneCfg3, SceneCfg5, lower3, lower5}
 use engine.effects.palette.{pal_cycle_channel, PalCycleScript1}
 use engine.effects.palette.{pal_variant}
 use engine.effects.raster.{RasterRampProgram, raster_ramp_program, fp16, OP_RUN_RAMP, RASTER_ARM_EVERY_LINE, RASTER_ARM_PARK, RASTER_OPS_END, raster_arm}
@@ -66,6 +66,29 @@ pub const Scene_Editor_ojz_act1_depth: Scene = scene(
     v_offset: 0,
     transition: TRANS_INSTANT)
 
+pub const Scene_Editor_ojz_act1_floor: Scene = scene(
+    layers: [ layer(world_y: 0, fa: FACTOR_1, fb: FACTOR_1_16, dsa: 15, dsb: 15),
+              layer(world_y: 288, fa: FACTOR_1, fb: FACTOR_1_16, dsa: 15, dsb: 15),
+              layer(world_y: 440, fa: FACTOR_1, fb: FACTOR_0, dsa: 15, dsb: 15, curve: SceneCurve.To(FACTOR_1)),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer() ],
+    count: 3,
+    v_factor: 15,
+    v_center: 0,
+    v_offset: 288,
+    transition: TRANS_INSTANT)
+
 pub const Scene_Editor_ojz_act1_start: Scene = scene(
     layers: [ layer(world_y: 0, fa: FACTOR_1, fb: FACTOR_1_16, dsa: 15, dsb: 15),
               layer(world_y: 32, fa: FACTOR_1, fb: FACTOR_1_16, dsa: 15, dsb: 15),
@@ -90,8 +113,9 @@ pub const Scene_Editor_ojz_act1_start: Scene = scene(
     transition: TRANS_INSTANT,
     anchor: SceneAnchor.At(0, 15, 2))
 
-pub const EditorScenes_OJZ_Act1: [Scene; 2] = [
+pub const EditorScenes_OJZ_Act1: [Scene; 3] = [
     Scene_Editor_ojz_act1_depth,
+    Scene_Editor_ojz_act1_floor,
     Scene_Editor_ojz_act1_start,
 ]
 
@@ -104,8 +128,8 @@ pub const EditorScenes_OJZ_Act1: [Scene; 2] = [
 // unreferenced top-level `const X = f(..)` is comptime-INERT and the fold would
 // never run (docs/EMP_PITFALLS.md §3).
 pub const EditorScenes_OJZ_Act1_BudgetChecked = scene_budget_enforce(EditorScenes_OJZ_Act1)
-ensure(EditorScenes_OJZ_Act1_BudgetChecked == 2,
-       "editor scenes: the budget fold checked {EditorScenes_OJZ_Act1_BudgetChecked} scenes, not the 2 bound by this act's assignments — a fold that examines fewer scenes than it was handed is gating a subset")
+ensure(EditorScenes_OJZ_Act1_BudgetChecked == 3,
+       "editor scenes: the budget fold checked {EditorScenes_OJZ_Act1_BudgetChecked} scenes, not the 3 bound by this act's assignments — a fold that examines fewer scenes than it was handed is gating a subset")
 
 // THE CAPABILITY SUBSET TEST, one-sided exactly as the registry's is. An editor
 // scene that demands a scanline service the game does not declare would have its
@@ -117,8 +141,9 @@ ensure((EditorScenes_OJZ_Act1_CapsFolded & ~Game.SCANLINE_CAPS) == 0,
        "editor scenes: the folded capability mask {EditorScenes_OJZ_Act1_CapsFolded} is NOT a subset of Game.SCANLINE_CAPS {Game.SCANLINE_CAPS}; the UNDECLARED bits are {EditorScenes_OJZ_Act1_CapsFolded & ~Game.SCANLINE_CAPS} — an Aurora-authored scene demands a scanline service this game does not declare. Either widen SCANLINE_CAPS in games/sonic4/config/game.emp, or stop authoring the capability in the scene that raises it")
 
 // ---- the lowered records, under STABLE binding names ----
-pub data EditorSceneBinding_OJZ_Act1_Sec0: SceneCfg5 = lower5(EditorScenes_OJZ_Act1[1])
+pub data EditorSceneBinding_OJZ_Act1_Sec0: SceneCfg5 = lower5(EditorScenes_OJZ_Act1[2])
 pub data EditorSceneBinding_OJZ_Act1_Sec4: SceneCfg5 = lower5(EditorScenes_OJZ_Act1[0])
+pub data EditorSceneBinding_OJZ_Act1_Sec8: SceneCfg3 = lower3(EditorScenes_OJZ_Act1[1])
 
 // ---- AURORA-AUTHORED RASTER BANDS, through the REAL constructors ----
 //
@@ -214,8 +239,8 @@ pub data EditorVariant_OJZ_Act1_ojz_sec3_shimmer_0: pal_variant = variant(shift_
 // below, including the budget fold, builds green while asserting nothing. Measured
 // on this very module (2026-08-22): with the descriptor's `use` line removed, an
 // `ensure(1 == 0)` here built GREEN with an unchanged CRC.
-pub equ EditorScenes_OJZ_Act1_Count = 2
-pub equ EditorScenes_OJZ_Act1_Bindings = 2
+pub equ EditorScenes_OJZ_Act1_Count = 3
+pub equ EditorScenes_OJZ_Act1_Bindings = 3
 pub equ EditorRaster_OJZ_Act1_Bindings = 2
 pub equ EditorCycle_OJZ_Act1_Bindings = 0
 pub equ EditorVariant_OJZ_Act1_Bindings = 0
@@ -246,6 +271,7 @@ pub comptime fn ojz_act1_sec_scene(sec: int, hand: Label = 0) -> Label {
     comptime var out = hand
     if sec == 0 { out = EditorSceneBinding_OJZ_Act1_Sec0 }
     if sec == 4 { out = EditorSceneBinding_OJZ_Act1_Sec4 }
+    if sec == 8 { out = EditorSceneBinding_OJZ_Act1_Sec8 }
     return out
 }
 

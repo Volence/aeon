@@ -1,0 +1,35 @@
+{
+  "id": "ojz_act1_floor",
+  "layers": [
+    {
+      "dsa": 15,
+      "dsb": 15,
+      "fa": "FACTOR_1",
+      "fb": "FACTOR_1_16",
+      "world_y": 0
+    },
+    {
+      "dsa": 15,
+      "dsb": 15,
+      "fa": "FACTOR_1",
+      "fb": "FACTOR_1_16",
+      "world_y": 288
+    },
+    {
+      "curve": {
+        "to": "FACTOR_1"
+      },
+      "dsa": 15,
+      "dsb": 15,
+      "fa": "FACTOR_1",
+      "fb": "FACTOR_0",
+      "world_y": 440
+    }
+  ],
+  "name": "OJZ act 1 perspective floor - boards fan from a fixed vanishing point; the rate ramps from zero at the horizon to full camera speed underfoot",
+  "schema": 1,
+  "transition": "instant",
+  "v_center": 0,
+  "v_factor": 15,
+  "v_offset": 288
+}
