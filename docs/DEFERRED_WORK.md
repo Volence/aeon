@@ -24744,3 +24744,28 @@ two apart. Candidates not ruled out: the DPLC transfer budget (thirteen transfer
 twelve slots, d-47) and a DMA queue overflow during the loop's fast movement. The
 out-of-order base tiles above are also what a mapping reading a different DPLC frame's
 tiles would look like.
+
+## Air-cell crossover marks — HALF MEASURED (2026-09-04)
+
+`docs/LOOP_CROSSOVER_ENCODING.md` §11 carries a `[TAG-RUNTIME]` on two coupled claims.
+One is now measured; the other is **still derived from reading `probe_core`, never
+executed**, and the tag should stay open for it.
+
+**MEASURED — a crossover on an AIR cell fires, and solidity is structurally irrelevant
+to it.** Run in `tools/loop_crossover_gate.py`'s `World` (real 68000 execution), attr
+`$11`, both planes filled, one frame. With `XOVER_TO_B` the layer moves for solidity
+`$03`, `$01` **and `$00` (air)** alike; with `XOVER_NONE` it never moves.
+
+**The positive control is the whole value of that result:** the execution trace is
+byte-identical across all three solidity values — 51 steps with `NONE`, 53 with `TO_B`,
+same writes, same calls. **The crossover read path never consults `SolidityTable`.**
+
+**NOT MEASURED — "an air cell with a non-zero attr is invisible to every sensor."** That
+is about `probe_core`, which is **not in this cut**; the invariant trace above is
+precisely why this instrument cannot see it. Needs a different one.
+
+**Two vacuous results this produced before the control caught them, both printing clean
+numbers.** (a) The first run used `ATTR_A`'s shipped solidity as the "solid" control, but
+`ATTR_A` is **already air** — control and subject were the same experiment. (b) The cut's
+whole `SolidityTable` reads **zero for all 256 attrs** (the real ROM has 51 non-zero),
+so no solid attr existed to contrast against until one was written in.
