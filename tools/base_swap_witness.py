@@ -97,6 +97,22 @@ with an emulator runs it and pastes the counts.
                 BELOW 0. THE MIDDLE IS THE NEW ONE and it is the whole point: a nonzero
                 middle means the two bands are really one long swap.
 
+WHAT *HAS* BEEN EXERCISED HERE, so the distinction is not lost: `--dry-run` (everything up
+to the first emulator call) was run against the built s4.debug.bin, exit 0, and its two
+refusals were proven red against the COMMITTED baseline 84bb9e4a — each shown applied and
+then reversed with `git diff --stat` empty:
+  * `middle = list(range(top_end + 1, bot_line))` -> an empty range
+        -> exit 1: "THE MIDDLE REGION IS EMPTY (lines 3/64/159/220), so its assertion below
+           could not fail and a green would mean nothing." The vacuity guard fires BEFORE
+           anything is compared, which is where it has to fire.
+  * word 20 of a COPY of the ROM patched $8230 -> $8238 (the bottom band's OFF edge writing
+    Plane B, i.e. the band losing its bottom — the exact single-edge failure F2 fixed)
+        -> exit 1: "word 20 should be the BOTTOM band's OFF edge ... i.e. $8230, and it is
+           $8238." The source was never touched; the subject ROM is not writable by this
+           instrument and was not made so.
+Clean re-run after both: exit 0. That is evidence about the INSTRUMENT, not about the
+picture, and it is deliberately reported separately from the five-region prediction above.
+
 WHAT THIS DOES NOT ESTABLISH, stated because the boundary is where a raster effect fails:
   * It does not pin either transition to an exact line. `raster.emp`'s row-119 note records
     that a bare OP_SET_REG switches its register partway across the fire+1 line (~45%
