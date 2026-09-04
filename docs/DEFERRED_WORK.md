@@ -23307,3 +23307,52 @@ effort.**
 
 Recorded rather than quietly fixed because the wrong row would have sent whoever took it hunting for
 a file that was never there, and would have looked like the repo having lost something.
+
+---
+
+## OVERSEER-SPLIT-TRUNCATIONS — CLOSED 2026-09-04, and the census was 34 where 3 were reported
+
+**Status: CLOSED** by `parcel/overseer-truncation-repair`. Kept because the *method* is the
+transferable half, not the repair.
+
+**What was wrong.** The 2026-09-02 split of `docs/OVERSEER.md` into `docs/OVERSEER-LOG.md`
+(`52b6ad00`) declared itself lossless and was: *"2840 of 2840 lines accounted for, 0 leftover"*,
+`md5` equal on reassembly, `diff` exit 0. All true. Re-run here, that proof reproduces its own
+result exactly — **0 lines missing** — against a file carrying **34 sentences cut in half**. A
+multiset difference over LINES cannot see a cut INSIDE a line's sentence: the moved half is in the
+log, the kept half is in the head, and every line is present in the pair. The boot read said things
+like *"(added 2026-08-27; this lane's defect,"* and then started the next bullet.
+
+**The census, and how it was reached.** Four detectors, each able to see a class the others cannot,
+run over the split's own commit range rather than over a sample:
+
+| # | detector | finds | blind to |
+|---|---|---|---|
+| 1 | retained head line before a moved span does not terminate a sentence | 21 | a line ending `:` |
+| 2 | a moved LOG entry begins mid-sentence (independent, over the log's anchors) | 19 | `>`-, `(`- and backtick-initial lines |
+| 3 | a line ending `:` whose list moved | 4 | everything else |
+| 4 | the head RESUMES mid-sentence — the START of its sentence moved | 9 | — |
+
+Detectors 1 and 2 converge on the same 21 sites from opposite files, which is the only reason
+either can be trusted. **34 truncation points over 32 bullets** (two bullets are cut at BOTH ends).
+All 34 come from `52b6ad00`; `368988d9` and `632074a6` introduce none.
+
+**The bar this earns, and it generalises past this file.** *A losslessness proof is only as good as
+the unit it counts.* Lines, bytes, md5 and `diff` all agree with each other and all agree with a
+broken document, because the damage lives at a boundary INSIDE the unit they count. When you split
+prose, the proof has to be run at a unit BELOW the one you cut at — and the cheap one that works is
+**"does the retained side still end a sentence, and does the moved side still begin one"**, checked
+from BOTH files. Both detectors are ten lines of Python and each one alone would have missed a
+quarter of this.
+
+**Second bar, from the repair rather than the defect.** `docs/OVERSEER.md` was AT its ratchet
+(114,320 B) with zero headroom, so restoring every cut sentence in place would have gone red. It
+was not necessary: **11 of the cuts left a narrative OPENER stranded in the head and 9 left a
+narrative TAIL stranded**, and those fragments belong to the log entry that continues them. Moving
+them there repairs both files at once and the head SHRANK, 114,320 -> 113,863 B. Only the 8 cuts
+that severed a *rule's own provenance clause* needed verbatim restoration into the head. The rule:
+**when a split cuts a sentence, ask which side the sentence belongs to before deciding which side
+to repair** — half of them repair by moving, not by adding.
+
+**Residual, not a defect:** 9 log entries still open mid-clause. That is the split's own
+verbatim-body-under-an-anchor convention, and the boot read is complete without them.
