@@ -3,35 +3,49 @@
     {
       "bot": 80,
       "on": {
-        "cram": {
-          "addr": 80,
-          "colours": [
-            3748
-          ]
+        "pal_region": {
+          "addr": 70,
+          "count": 3,
+          "entry": 3,
+          "pal_line": 2,
+          "slot": 0
         }
       },
       "sh": false,
       "top": 32
+    },
+    {
+      "bot": 82,
+      "on": {
+        "pal_region": {
+          "addr": 80,
+          "count": 3,
+          "entry": 8,
+          "pal_line": 2,
+          "slot": 0
+        }
+      },
+      "sh": false,
+      "top": 34
+    },
+    {
+      "bot": 84,
+      "on": {
+        "pal_region": {
+          "addr": 88,
+          "count": 3,
+          "entry": 12,
+          "pal_line": 2,
+          "slot": 0
+        }
+      },
+      "sh": false,
+      "top": 36
     }
   ],
   "id": "ojz_sec5_showcase",
-  "name": "OJZ act 1 section 5 - moonlit canopy void",
-  "patch_motion": [
-    {
-      "sweep": {
-        "amp_shift": 4,
-        "period_shift": 1
-      }
-    },
-    null,
-    null,
-    null
-  ],
-  "patch_world_ys": [
-    2272,
-    null,
-    null,
-    null
-  ],
+  "name": "OJZ act 1 section 5 - moonlit canopy void, waterline over BOTH planes",
+  "patch_motion": [ { "sweep": { "amp_shift": 4, "period_shift": 1 } }, null, null, null ],
+  "patch_world_ys": [ 2272, null, null, null ],
   "schema": 1
 }

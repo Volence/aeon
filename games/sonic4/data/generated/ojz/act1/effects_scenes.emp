@@ -159,7 +159,9 @@ const EditorRasterSrc_OJZ_Act1_ojz_sec3_shimmer = compose([
 pub data EditorRaster_OJZ_Act1_ojz_sec3_shimmer: [u16; raster_words(EditorRasterSrc_OJZ_Act1_ojz_sec3_shimmer)] = raster_program(EditorRasterSrc_OJZ_Act1_ojz_sec3_shimmer)
 
 const EditorRasterSrc_OJZ_Act1_ojz_sec5_showcase = compose([
-    band(top: 32, bot: 80, on: stream_cram(addr: 80, colours: [3748]), sh: 0),
+    band(top: 32, bot: 80, on: stream_pal_region(addr: 70, slot: 0, pal_line: 2, entry: 3, count: 3), sh: 0),
+    band(top: 34, bot: 82, on: stream_pal_region(addr: 80, slot: 0, pal_line: 2, entry: 8, count: 3), sh: 0),
+    band(top: 36, bot: 84, on: stream_pal_region(addr: 88, slot: 0, pal_line: 2, entry: 12, count: 3), sh: 0),
 ])
 pub data EditorRaster_OJZ_Act1_ojz_sec5_showcase: [u16; raster_words(EditorRasterSrc_OJZ_Act1_ojz_sec5_showcase)] = raster_program(EditorRasterSrc_OJZ_Act1_ojz_sec5_showcase)
 
