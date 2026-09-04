@@ -22159,3 +22159,61 @@ height rather than typed (the file's pin block is the place). One line, one mess
 it lands, the empyrean schema's `rowRemap.plane_y` bound is the ONLY enforcement**, and 9c's
 schema description must say so rather than implying aeon checks it — the note's §6 carries
 that wording.
+
+## THREE FINDINGS FROM THE AURORA LANE'S DRIVEN-LOOP PACKET — booked 2026-09-04, NONE VERIFIED HERE
+
+**Source, and read it rather than this summary:** aurora master `24d5911d` (they report it pushed and
+`ls-remote` confirmed; **not verified here at the time of booking**), packet
+`docs/reviews/2026-09-04-loops-driven.md`, ROADMAP row 148; the build/authoring half is row 147 /
+`docs/reviews/2026-09-04-loops-test-loop-witness.md`. Measured on a private headless `oracle-aether`
+against two canonical DEBUG ROMs built from a clean clone of aeon `75da5e1c`.
+
+**Everything below is AURORA'S MEASUREMENT, transcribed. This lane has verified none of it.** That
+distinction is the point of the heading: a faithfully-copied number is indistinguishable from an
+independently-measured one, and a reader cannot recover what the writer did not record. Their own
+instruction was *"do not act on my summary where you can read the packet"* — so read the packet
+before acting, and re-derive any number before it enters a gate.
+
+### (1) A TWO-WAY CROSSOVER PAIR HAS NO AUTHORING PATH FROM THE EDITOR, AND NOTHING SAYS SO
+
+Aurora reports painting on a 16 px grid while the trigger tests on 8 px, so a matched two-way pair
+authored from their grid lands on the same 8 px cell and **cancels itself out**. The loop they built
+therefore uses two ONE-WAY marks, which works and is simpler. The gap is that the two-way form is
+expressible in our encoding and not reachable from the editor, with no document saying so.
+
+**Why this is booked as contract-shaped rather than as an Aurora bug:** it is a mismatch between two
+tools' grids, and neither lane can close it alone. **Do not take the 16/8 numbers from the relay** —
+this lane received an earlier paraphrase of this finding through the hub and deliberately refused to
+act on it until it arrived from aurora with anchors. Re-derive both grid sizes from source before
+writing anything that depends on them, including any claim about `XOVER_CELL_MASK`.
+
+### (2) THE ANCHOR SPEC'S WORKED EXAMPLE WALKS INTO A REAL LOOP'S LEFT LEG
+
+Aurora's row 147 carries the detail. If a shipped spec's worked example is wrong, it is ours, and a
+worked example is the part of a spec a reader is most likely to copy verbatim — which is what makes
+it worse than a wrong sentence elsewhere in the same document.
+
+### (3) `Player_Blocks.xover_cell` IS LATCHED ONE FRAME BEHIND THE POSITION READ BESIDE IT
+
+Their observation, offered explicitly as an observation and NOT as a diagnosis of our read site: at
+frame 1150 the player is at `(748, 779)`, inside the crossover's trigger window on both axes, and
+`layer` is still 0; it flips two frames later. `xover_cell` read `$02F0_0300` at that moment — the
+low word is `y & $FFF0` for y=779 correctly, while the high word is `x & $FFF8` for **x ~ 753**,
+which is where the player was on the PREVIOUS frame. The flip itself is correct and reliable.
+
+**THE OPERATIONAL CONSEQUENCE, WHICH IS THE REASON THIS IS BOOKED AT ALL:** a gate asserting the
+crossover *"flips on the frame of entry"* will be flaky, and aurora flags that this may include ours.
+Any parcel that writes such an assertion should STOP rather than encode it.
+
+**AND THE PART THAT MUST NOT BE LOST WHEN SOMEONE PICKS THIS UP: the observation does not
+distinguish two stories with different fixes.** Either (a) the read site latches a stale cell, or
+(b) a correctly-latched cell is being read one frame after the position it is compared against.
+Their measurement is consistent with both. Whoever takes this owes a discriminator BEFORE a fix —
+this repo's standing bar is to reproduce before fixing, and a hazard fixed without reproducing it
+was, when finally reproduced, half-misdiagnosed.
+
+**A note on how to receive this class, recorded because it applies to the receiver and not to
+aurora:** a peer's warning about YOUR OWN tree is the class to verify before acting on, and it is
+the one that feels least like it needs checking — it arrives as help, about your own code, from
+someone with no motive to be wrong. Nothing here doubts the measurement; the bar is on what this
+lane may assert as its own.
