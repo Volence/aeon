@@ -3307,3 +3307,392 @@ class TestPatchCapabilityAndLiveness(PatchShapeBase):
         frame and reads as a feature that does not work."""
         self.write("ojz_ground_wash", _preset(patch_world_ys=[None, None, 224]))
         self.assertIn("ojz_ground_wash", self.load_all())
+
+
+# =============================================================================
+# EFFECTS-W1 item 10 — the `reels` scene key (empyrean AURORA_EFFECTS_SCHEMA §2.7,
+# read at ff3f43f2e9c2b0b98e6c283f5cb87eb106f0fe5c).
+# =============================================================================
+
+REELS_CONSTANTS_EMP = """\
+module games.sonic4.constants
+pub const REEL_BAND_COUNT     = {bands}   // independently-scrolling vertical strips
+pub const REEL_COLS_PER_BAND  = 4
+"""
+
+
+class ReelsBase(AssignmentBase):
+    """AssignmentBase plus the two `.emp` surfaces the reels arm re-derives from.
+
+    The constants module is written into every fixture because `reel_band_count`
+    REFUSES rather than falling back on 5 — that refusal is itself under test below.
+    """
+
+    BANDS = 5
+    RATES = [3, -5, 2, -4, 6]
+
+    def setUp(self):
+        super().setUp()
+        self.config = os.path.join(self.repo, "games", "sonic4", "config")
+        os.makedirs(self.config)
+        self.write_constants()
+
+    def write_constants(self, bands=None):
+        with open(os.path.join(self.config, "constants.emp"), "w") as f:
+            f.write(REELS_CONSTANTS_EMP.format(
+                bands=self.BANDS if bands is None else bands))
+
+    def write_effects_lib(self, text):
+        lib = os.path.join(self.repo, "games", "sonic4", "data", "effects")
+        os.makedirs(lib, exist_ok=True)
+        with open(os.path.join(lib, "ojz_effects.emp"), "w") as f:
+            f.write(text)
+
+    def write_descriptor(self, text):
+        d = os.path.join(self.repo, "games", "sonic4", "data", "levels", "ojz",
+                         "act1")
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, "act_descriptor.emp"), "w") as f:
+            f.write(text)
+
+    def write_reels_scene(self, stem, rates=None, **over):
+        self.write_scene(stem, reels={"rates": self.RATES if rates is None
+                                      else rates}, **over)
+
+    def render(self):
+        names = effects_gen.act_names(self.repo)
+        return names, effects_gen.render_module(
+            effects_gen.load_all_scenes("sonic4", self.repo),
+            effects_gen.load_act_scene_ref(self.repo),
+            effects_gen.load_section_scene_refs(self.repo),
+            effects_gen.act_section_count(self.repo), names,
+            repo=self.repo)
+
+
+class TestReelBandCountIsDerived(unittest.TestCase):
+    """CR §2.7: `minItems: 5` in the schema is a COPY of an `.emp` constant in another
+    repo. The generator re-derives it, so a move of REEL_BAND_COUNT moves the check
+    with it instead of failing much later inside sigil on a length nobody typed."""
+
+    def test_it_reads_the_real_repos_declaration(self):
+        self.assertEqual(effects_gen.reel_band_count(), 5)
+
+    def test_it_agrees_with_the_gates_own_parser(self):
+        """Two parsers for one declaration is how they drift — this is the pin
+        MAX_PARALLAX_BANDS needed after months unpinned."""
+        import reels_gate
+        path = os.path.join(effects_gen.REPO, "games", "sonic4", "config",
+                            "constants.emp")
+        self.assertEqual(effects_gen.reel_band_count(),
+                         reels_gate.emp_const(path, "REEL_BAND_COUNT"))
+
+    def test_an_unreadable_constants_module_is_a_REFUSAL_not_a_zero(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(effects_gen.SceneShapeError) as ctx:
+                effects_gen.reel_band_count("sonic4", tmp)
+            self.assertIn("cannot read", str(ctx.exception))
+
+    def test_a_missing_declaration_is_a_REFUSAL_not_a_fallback_to_five(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = os.path.join(tmp, "games", "sonic4", "config")
+            os.makedirs(cfg)
+            with open(os.path.join(cfg, "constants.emp"), "w") as f:
+                f.write("module games.sonic4.constants\n")
+            with self.assertRaises(effects_gen.SceneShapeError) as ctx:
+                effects_gen.reel_band_count("sonic4", tmp)
+            self.assertIn("REEL_BAND_COUNT", str(ctx.exception))
+
+
+class TestReelsPayloadShape(ReelsBase):
+    """SHAPE only. The magnitude bound and pairwise distinctness are `reel_rates_ok`'s
+    ensures in games/sonic4/config/constants.emp and are deliberately NOT repeated
+    here — two sources for one rule is how they drift (module docstring's posture)."""
+
+    def load(self):
+        return effects_gen.load_all_scenes("sonic4", self.repo)
+
+    def test_the_key_is_accepted_at_all(self):
+        self.write_reels_scene("shimmer")
+        self.assertEqual(self.load()["shimmer"]["reels"]["rates"], self.RATES)
+
+    def test_a_singular_reel_is_still_an_unknown_key(self):
+        self.write_scene("shimmer", reel={"rates": self.RATES})
+        with self.assertRaises(effects_gen.SceneShapeError) as ctx:
+            self.load()
+        self.assertIn("unknown key `reel`", str(ctx.exception))
+
+    def test_null_is_refused_and_the_message_says_OMIT(self):
+        """CR ruling 2: there is no `none` spelling. The table is generated whole, so
+        'keep' and 'off' are one state and one state gets one spelling."""
+        self.write_scene("shimmer", reels=None)
+        with self.assertRaises(effects_gen.SceneShapeError) as ctx:
+            self.load()
+        self.assertIn("OMIT", str(ctx.exception))
+
+    def test_a_non_object_payload_is_refused(self):
+        self.write_scene("shimmer", reels=[3, -5, 2, -4, 6])
+        with self.assertRaises(effects_gen.SceneShapeError) as ctx:
+            self.load()
+        self.assertIn("must be an object", str(ctx.exception))
+
+    def test_cols_per_band_is_refused_BY_CLOSURE_and_named(self):
+        """CR ruling 5 fixes the geometry at REEL_BAND_COUNT x REEL_COLS_PER_BAND
+        because the column->band map is a compiled shift. The refusal names the key
+        so an author does not read it as a typo."""
+        self.write_scene("shimmer", reels={"rates": self.RATES, "cols_per_band": 2})
+        with self.assertRaises(effects_gen.SceneShapeError) as ctx:
+            self.load()
+        self.assertIn("cols_per_band", str(ctx.exception))
+
+    def test_a_missing_rates_member_is_refused(self):
+        self.write_scene("shimmer", reels={})
+        with self.assertRaises(effects_gen.SceneShapeError) as ctx:
+            self.load()
+        self.assertIn("has no `rates`", str(ctx.exception))
+
+    def test_a_non_integer_rate_is_refused(self):
+        self.write_scene("shimmer", reels={"rates": [3, "FACTOR_1", 2, -4, 6]})
+        with self.assertRaises(effects_gen.SceneShapeError) as ctx:
+            self.load()
+        self.assertIn("bare integer", str(ctx.exception))
+
+    def test_a_boolean_rate_is_refused_even_though_python_calls_it_an_int(self):
+        self.write_scene("shimmer", reels={"rates": [3, True, 2, -4, 6]})
+        with self.assertRaises(effects_gen.SceneShapeError) as ctx:
+            self.load()
+        self.assertIn("bare integer", str(ctx.exception))
+
+    def test_a_wrong_length_is_refused_against_the_DERIVED_count(self):
+        self.write_scene("shimmer", reels={"rates": [3, -5, 2, -4]})
+        with self.assertRaises(effects_gen.SceneShapeError) as ctx:
+            self.load()
+        msg = str(ctx.exception)
+        self.assertIn("4 rate(s)", msg)
+        self.assertIn("REEL_BAND_COUNT is 5", msg)
+
+    def test_the_length_check_FOLLOWS_the_constant_rather_than_the_schema(self):
+        """The whole point of re-deriving: move REEL_BAND_COUNT and the accepted
+        length moves with it. A hardcoded 5 would pass the first case and fail the
+        second, which is exactly backwards."""
+        self.write_constants(bands=4)
+        self.write_scene("shimmer", reels={"rates": [3, -5, 2, -4]})
+        effects_gen.load_all_scenes("sonic4", self.repo)     # accepted at 4
+        self.write_scene("shimmer", reels={"rates": self.RATES})
+        with self.assertRaises(effects_gen.SceneShapeError) as ctx:
+            effects_gen.load_all_scenes("sonic4", self.repo)
+        self.assertIn("REEL_BAND_COUNT is 4", str(ctx.exception))
+
+    def test_a_scene_with_no_reels_key_reads_NO_emp_at_all(self):
+        """The no-content path must not depend on the two `.emp` scans, or every
+        existing fixture in this file starts needing an effects library."""
+        os.remove(os.path.join(self.config, "constants.emp"))
+        self.write_scene("shimmer")
+        self.assertEqual(sorted(self.load()), ["shimmer"])
+
+
+class TestReelsRungRefusals(ReelsBase):
+    """CR ruling 4. `Parallax_Current_Config` is a UNIQUE key only at rung 1; at rung
+    2 or 3 the pointer is SHARED, and a table keyed on it hands those sections another
+    section's motion — silently, which is why each of these is a refusal by name."""
+
+    # The d-53 shape, and the asymmetry is the point: section 0 is the one bound at
+    # rung 1, so its OWN preset naming a config changes nothing. Section 5 has no
+    # sceneRef, so whatever its preset names is what section 5 RESOLVES to — and if
+    # that is section 4's lowered record, section 5 silently gets section 4's reels.
+    ALIASING_LIB = """\
+module games.sonic4.ojz_effects in ojz_effects
+pub data OJZ_Preset_Sec0: EffectsPreset = preset(pal: OJZ_Palette)
+pub data OJZ_Preset_Sec5: EffectsPreset = preset(pal: OJZ_Palette,
+                                                 parallax: {target})
+"""
+
+    DESCRIPTOR = """\
+pub data OJZ_Act1_Sections: [Sec; 9] = [
+    ojz_sec(sec: 0, blocks: A, effects: OJZ_Preset_Sec0),
+    ojz_sec(sec: 5, blocks: B, effects: OJZ_Preset_Sec5),
+]
+"""
+
+    def test_a_reels_scene_bound_at_rung_1_is_ACCEPTED(self):
+        """The control. Without it every refusal below could be firing for a reason
+        that has nothing to do with the rung."""
+        self.write_reels_scene("shimmer")
+        self.write_sidecar(4, {"sceneRef": "shimmer"})
+        names, text = self.render()
+        self.assertIn(f"pub data {names.reels('shimmer')}: [i8; ", text)
+
+    def test_the_ACT_DEFAULT_is_rung_3_and_is_REFUSED_naming_the_sections(self):
+        self.write_reels_scene("shimmer")
+        self.write_sidecar(4, {"sceneRef": "shimmer"})
+        self.write_project(act_ref="shimmer")
+        with self.assertRaises(effects_gen.SceneShapeError) as ctx:
+            self.render()
+        msg = str(ctx.exception)
+        self.assertIn("RUNG 3", msg)
+        # every section without a rung-1 binding, named
+        self.assertIn("0, 1, 2, 3, 5, 6, 7, 8", msg)
+
+    def test_a_reels_scene_no_section_binds_is_REFUSED(self):
+        self.write_reels_scene("shimmer")
+        with self.assertRaises(effects_gen.SceneShapeError) as ctx:
+            self.render()
+        self.assertIn("no section binds it", str(ctx.exception))
+
+    def test_a_preset_ALIASING_the_lowered_record_is_rung_2_and_names_the_section(self):
+        """The d-53 shape, reproduced: two sections, one pointer. Here the alias is
+        the editor binding itself, which is the case that would hand section 5 section
+        4's reels rates."""
+        self.write_reels_scene("shimmer")
+        self.write_sidecar(4, {"sceneRef": "shimmer"})
+        names = effects_gen.act_names(self.repo)
+        self.write_effects_lib(
+            self.ALIASING_LIB.format(target=names.binding_sec(4)))
+        self.write_descriptor(self.DESCRIPTOR)
+        with self.assertRaises(effects_gen.SceneShapeError) as ctx:
+            self.render()
+        msg = str(ctx.exception)
+        self.assertIn("RUNG 2", msg)
+        self.assertIn("OJZ_Preset_Sec5", msg)
+        self.assertIn("section(s) 5", msg)
+        # attributed to the section, not merely to the preset symbol
+        self.assertNotIn("UNKNOWN", msg)
+
+    def test_a_preset_naming_a_HAND_config_is_not_an_alias(self):
+        """Today's tree: OJZ_Preset_Sec0 and OJZ_Preset_Sec5 both name
+        ParallaxConfig_OJZ_Underwater, a hand record no editor scene lowers to. That
+        is rung-2 SHARING with nothing authored on it, and must stay green — otherwise
+        the refusal is measuring the existence of ep_parallax rather than the alias."""
+        self.write_reels_scene("shimmer")
+        self.write_sidecar(4, {"sceneRef": "shimmer"})
+        self.write_effects_lib(
+            self.ALIASING_LIB.format(target="ParallaxConfig_OJZ_Underwater"))
+        self.write_descriptor(self.DESCRIPTOR)
+        names, text = self.render()
+        self.assertIn(f"pub data {names.reels('shimmer')}: [i8; ", text)
+
+    def test_a_parallax_mentioned_only_in_a_COMMENT_is_not_an_alias(self):
+        """`OJZ_Preset_Sec5`'s own d-53 comment discusses its parallax binding two
+        lines above the argument. A scan that reads comments finds the word it is
+        looking for in a sentence about it."""
+        self.write_reels_scene("shimmer")
+        self.write_sidecar(4, {"sceneRef": "shimmer"})
+        names = effects_gen.act_names(self.repo)
+        self.write_effects_lib(
+            "module games.sonic4.ojz_effects in ojz_effects\n"
+            f"// its parallax: {names.binding_sec(4)} would be an alias\n"
+            "pub data OJZ_Preset_Sec5: EffectsPreset = preset(pal: OJZ_Palette)\n")
+        self.write_descriptor(self.DESCRIPTOR)
+        _names, text = self.render()
+        self.assertIn(f"pub data {names.reels('shimmer')}: [i8; ", text)
+
+
+class TestReelsEmission(ReelsBase):
+    def test_with_no_reels_the_binding_table_is_STILL_emitted_and_empty(self):
+        """`OJZ_Reels_Fill` names the table in a `lea`, so the symbol must exist in
+        every bake. One terminator long, and zero bytes in release."""
+        names, text = self.render()
+        self.assertIn(f"pub data {names.reel_bindings}: [*u8; ", text)
+        self.assertIn("if DEBUG == 1 { [0] } else { [] }", text)
+
+    def test_the_rates_are_emitted_in_DOCUMENT_ORDER_verbatim(self):
+        """CR §2.7: index i owns screen X 64i..64i+63 and the map is a compiled
+        `lsr.b #2` the JSON cannot see. Sorting or reversing relocates every strip."""
+        odd = [7, -1, 12, -9, 4]
+        self.write_reels_scene("shimmer", rates=odd)
+        self.write_sidecar(4, {"sceneRef": "shimmer"})
+        names, text = self.render()
+        self.assertIn(f"const {names.reels_src('shimmer')} = [7, -1, 12, -9, 4]", text)
+
+    def test_every_generated_table_routes_through_the_SHARED_guard(self):
+        """The guard has to travel: `distinct5` was five-ary and hand-called, so a
+        generated table inherited neither the length nor the distinctness ensure."""
+        self.write_reels_scene("shimmer")
+        self.write_sidecar(4, {"sceneRef": "shimmer"})
+        names, text = self.render()
+        self.assertIn(f"const {names.reels_ok('shimmer')} = reel_rates_ok("
+                      f"{names.reels_src('shimmer')}, REEL_BAND_COUNT)", text)
+        self.assertIn(f"ensure({names.reels_ok('shimmer')} == REEL_BAND_COUNT,", text)
+        self.assertIn("use games.sonic4.constants.{REEL_BAND_COUNT, reel_rates_ok}",
+                      text)
+
+    def test_the_source_const_is_UNANNOTATED_so_the_magnitude_arm_sees_raw_ints(self):
+        """Whether sigil refuses an out-of-i8 literal in an `[i8; N]` initializer is
+        NOT ESTABLISHED. If it narrowed silently instead, an `[i8; N]`-typed source
+        would hand `reel_rates_ok` an already-truncated value and the one check that
+        catches Aurora's x256 drift-export mistake would pass vacuously."""
+        self.write_reels_scene("shimmer")
+        self.write_sidecar(4, {"sceneRef": "shimmer"})
+        names, text = self.render()
+        self.assertNotIn(f"const {names.reels_src('shimmer')}: [i8;", text)
+
+    def test_the_binding_table_pairs_the_section_record_with_its_rates(self):
+        self.write_reels_scene("shimmer")
+        self.write_sidecar(4, {"sceneRef": "shimmer"})
+        names, text = self.render()
+        # `extern("Name")` and not a bare name, and this is a MEASURED spelling, not a
+        # style choice: a bare label inside a `[*u8; N]` array literal does not resolve
+        # even for a symbol declared in the same module (sigil 0a58f2ec, 2026-09-04).
+        self.assertIn(f'[extern("{names.binding_sec(4)}"), '
+                      f'extern("{names.reels("shimmer")}"), 0]', text)
+
+    def test_everything_it_emits_is_DEBUG_gated(self):
+        """CR ruling 1 as a gate: nothing in the release shape can set
+        OJZ_Reel_Active, so a release emission is a dormant scaffold."""
+        self.write_reels_scene("shimmer")
+        self.write_sidecar(4, {"sceneRef": "shimmer"})
+        names, text = self.render()
+        for line in text.splitlines():
+            if line.startswith(f"pub data {names.reels('shimmer')}") or \
+               line.startswith(f"pub data {names.reel_bindings}"):
+                self.assertIn("if DEBUG == 1 {", line)
+                self.assertIn("} else { [] }", line)
+
+    def test_the_pointer_table_is_ALIGNED(self):
+        """REEL_BAND_COUNT is odd, so an odd number of rate tables leaves the pointer
+        table on an odd address — and a `move.l` through an odd address is a 68000
+        ADDRESS ERROR, not a warning."""
+        self.write_reels_scene("shimmer")
+        self.write_sidecar(4, {"sceneRef": "shimmer"})
+        names, text = self.render()
+        head = text.split(f"pub data {names.reel_bindings}", 1)[0]
+        self.assertTrue(head.rstrip().endswith("align 2")
+                        or "align 2" in head.rsplit("\n\n", 1)[-1])
+
+    def test_two_sections_on_one_scene_each_get_their_OWN_binding_row(self):
+        """Each `EditorSceneBinding_*_SecN` is its own `pub data` at its own address,
+        so two sections sharing a scene are two rows keyed on two pointers — not one
+        row that would fire for whichever section installed last."""
+        self.write_reels_scene("shimmer")
+        self.write_sidecar(2, {"sceneRef": "shimmer"})
+        self.write_sidecar(4, {"sceneRef": "shimmer"})
+        names, text = self.render()
+        self.assertIn(f'[extern("{names.binding_sec(2)}"), '
+                      f'extern("{names.reels("shimmer")}"), '
+                      f'extern("{names.binding_sec(4)}"), '
+                      f'extern("{names.reels("shimmer")}"), 0]', text)
+
+    def test_the_witness_equ_counts_the_bindings(self):
+        self.write_reels_scene("shimmer")
+        self.write_sidecar(4, {"sceneRef": "shimmer"})
+        names, text = self.render()
+        self.assertIn(f"pub equ {names.equ_reel_bindings} = 1", text)
+
+
+class TestTheContractNamesTheReelsKey(unittest.TestCase):
+    """The drift rule at the top of tools/EFFECTS_CONSUMER_CONTRACT.md: growing a
+    reader is a CONTRACT change that amends that file and the empyrean schema pair in
+    the same series. Derived from the constant, never typed."""
+
+    DOC = os.path.join(effects_gen.REPO, "tools", "EFFECTS_CONSUMER_CONTRACT.md")
+
+    def test_section_2_1_names_it(self):
+        with open(self.DOC) as f:
+            text = f.read()
+        section = text.split("### 2.1 Scene definition files", 1)[-1] \
+                      .split("### 2.1b", 1)[0]
+        self.assertIn(
+            f"`{effects_gen.REELS_KEY}`", section,
+            f"tools/EFFECTS_CONSUMER_CONTRACT.md §2.1 never names "
+            f"`{effects_gen.REELS_KEY}`, which tools/effects_gen.py accepts as a "
+            f"scene key. Adding a read is a CONTRACT change under this document's "
+            f"own drift rule.")

@@ -3089,26 +3089,33 @@ def render_module(scenes: dict, act_ref, sec_refs: dict, sections: int,
                         f"lowered record, not to a scene in the library — assign the "
                         f"scene to a section, or drop the key.")
             emitted = {names.binding_sec(i) for i in rung1}
-            for a in aliases:
-                if a["target"] not in emitted:
-                    continue
-                owners = sorted(i for i, p in sec_presets.items()
-                                if p == a["preset"])
-                who = (f"section(s) {', '.join(str(i) for i in owners)}"
+            hits = [a for a in aliases if a["target"] in emitted]
+            if hits:
+                # EVERY alias, not the first: a refusal that stopped at one would send
+                # an author round the loop once per preset, and the set is what says
+                # whether the fix is one `parallax:` argument or a shared record.
+                where = []
+                owners = set()
+                for a in hits:
+                    mine = sorted(i for i, p in sec_presets.items()
+                                  if p == a["preset"])
+                    owners |= set(mine)
+                    where.append(f"`{a['preset']}` ({a['file']}:{a['line']}) -> "
+                                 f"`{a['target']}`")
+                who = (f"section(s) {', '.join(str(i) for i in sorted(owners))}"
                        if owners else
                        f"section(s) UNKNOWN — {names.descriptor_path(repo)} could not "
-                       f"be read to attribute the preset")
+                       f"be read to attribute the preset(s)")
                 _refuse(spath,
                         f"scene {sid!r} carries a `{REELS_KEY}` key, but its lowered "
-                        f"record `{a['target']}` is ALSO named by "
-                        f"`{a['preset']}`'s `parallax:` argument "
-                        f"({a['file']}:{a['line']}) — that is "
-                        f"Effects_ResolveParallax's RUNG 2, and it is bound by {who}. "
-                        f"Those sections resolve to the SAME pointer this scene's own "
-                        f"section does, so the reels binding table would hand them this "
-                        f"scene's motion rather than none. Point that preset's "
-                        f"`parallax:` at a record of its own, or drop the `{REELS_KEY}` "
-                        f"key.")
+                        f"record is ALSO named by a hand-authored preset's "
+                        f"`parallax:` argument — {'; '.join(where)} — which is "
+                        f"Effects_ResolveParallax's RUNG 2, bound by {who}. Those "
+                        f"sections resolve to the SAME pointer this scene's own "
+                        f"section does, so the reels binding table would hand them "
+                        f"this scene's motion rather than none. Point those presets' "
+                        f"`parallax:` at a record of their own, or drop the "
+                        f"`{REELS_KEY}` key.")
             for i in rung1:
                 reels_bound[i] = sid
 
