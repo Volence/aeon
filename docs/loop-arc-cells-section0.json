@@ -1,0 +1,908 @@
+{
+ "_what": "Explicit loop-arc cells for OJZ act 1 section 0, derived from the drawn art.",
+ "_frame": "EDITOR cell coords in section_0.*.bin: 256x256, one 16-bit word per 8px tile. cc = column (x/8). cell_row = editor row (y/8). engine_coll_row = cell_row//2, because a 16px engine collision row samples the TOP tile row of its pair (tools/ojz_strip_gen.py: o = (cr*2)*W + col). ODD cell rows are DISCARDED at bake, so every row below is EVEN by construction.",
+ "_art_test": "art = (word & 0x07FF) != 0, i.e. the TILE INDEX is non-zero. This is the discriminator: 176 cells inside this loop's interior carry a non-zero WORD with tile index 0 ($1000, $4000 - palette/priority bits on the blank tile). Testing `word != 0` counts those as art and makes the interior read as solid foliage. Control: the known-solid ground at rows 74-77 has ZERO tile-index-0 cells, so index 0 really is blank here.",
+ "_loop": {
+  "void_centre_px": [
+   1148,
+   488
+  ],
+  "void_bbox_px": {
+   "x": [
+    1056,
+    1240
+   ],
+   "y": [
+    408,
+    568
+   ]
+  },
+  "ground_solid_y": 576,
+  "player_measured_at": [
+   1146,
+   556
+  ],
+  "player_feet_y": 575
+ },
+ "_caveat": "These are the cells I can defend: art present, adjacent to the interior void. Thickness K=3 cells (24px) each side, chosen to match the 16px bottom track with one cell of margin. I cannot see the picture the way a person can - if a run looks wrong against the art, trust the art.",
+ "arc_cells": [
+  {
+   "cc": 137,
+   "cell_row": 48,
+   "engine_coll_row": 24,
+   "side": "top",
+   "world_x": 1096,
+   "world_y": 384,
+   "already_solid": false
+  },
+  {
+   "cc": 138,
+   "cell_row": 48,
+   "engine_coll_row": 24,
+   "side": "top",
+   "world_x": 1104,
+   "world_y": 384,
+   "already_solid": true
+  },
+  {
+   "cc": 139,
+   "cell_row": 48,
+   "engine_coll_row": 24,
+   "side": "top",
+   "world_x": 1112,
+   "world_y": 384,
+   "already_solid": true
+  },
+  {
+   "cc": 140,
+   "cell_row": 48,
+   "engine_coll_row": 24,
+   "side": "top",
+   "world_x": 1120,
+   "world_y": 384,
+   "already_solid": false
+  },
+  {
+   "cc": 141,
+   "cell_row": 48,
+   "engine_coll_row": 24,
+   "side": "top",
+   "world_x": 1128,
+   "world_y": 384,
+   "already_solid": false
+  },
+  {
+   "cc": 142,
+   "cell_row": 48,
+   "engine_coll_row": 24,
+   "side": "top",
+   "world_x": 1136,
+   "world_y": 384,
+   "already_solid": false
+  },
+  {
+   "cc": 143,
+   "cell_row": 48,
+   "engine_coll_row": 24,
+   "side": "top",
+   "world_x": 1144,
+   "world_y": 384,
+   "already_solid": false
+  },
+  {
+   "cc": 144,
+   "cell_row": 48,
+   "engine_coll_row": 24,
+   "side": "top",
+   "world_x": 1152,
+   "world_y": 384,
+   "already_solid": true
+  },
+  {
+   "cc": 145,
+   "cell_row": 48,
+   "engine_coll_row": 24,
+   "side": "top",
+   "world_x": 1160,
+   "world_y": 384,
+   "already_solid": true
+  },
+  {
+   "cc": 146,
+   "cell_row": 48,
+   "engine_coll_row": 24,
+   "side": "top",
+   "world_x": 1168,
+   "world_y": 384,
+   "already_solid": false
+  },
+  {
+   "cc": 147,
+   "cell_row": 48,
+   "engine_coll_row": 24,
+   "side": "top",
+   "world_x": 1176,
+   "world_y": 384,
+   "already_solid": false
+  },
+  {
+   "cc": 148,
+   "cell_row": 48,
+   "engine_coll_row": 24,
+   "side": "top",
+   "world_x": 1184,
+   "world_y": 384,
+   "already_solid": false
+  },
+  {
+   "cc": 149,
+   "cell_row": 48,
+   "engine_coll_row": 24,
+   "side": "top",
+   "world_x": 1192,
+   "world_y": 384,
+   "already_solid": false
+  },
+  {
+   "cc": 150,
+   "cell_row": 48,
+   "engine_coll_row": 24,
+   "side": "top",
+   "world_x": 1200,
+   "world_y": 384,
+   "already_solid": false
+  },
+  {
+   "cc": 137,
+   "cell_row": 50,
+   "engine_coll_row": 25,
+   "side": "top",
+   "world_x": 1096,
+   "world_y": 400,
+   "already_solid": false
+  },
+  {
+   "cc": 138,
+   "cell_row": 50,
+   "engine_coll_row": 25,
+   "side": "top",
+   "world_x": 1104,
+   "world_y": 400,
+   "already_solid": false
+  },
+  {
+   "cc": 139,
+   "cell_row": 50,
+   "engine_coll_row": 25,
+   "side": "top",
+   "world_x": 1112,
+   "world_y": 400,
+   "already_solid": false
+  },
+  {
+   "cc": 140,
+   "cell_row": 50,
+   "engine_coll_row": 25,
+   "side": "top",
+   "world_x": 1120,
+   "world_y": 400,
+   "already_solid": false
+  },
+  {
+   "cc": 141,
+   "cell_row": 50,
+   "engine_coll_row": 25,
+   "side": "top",
+   "world_x": 1128,
+   "world_y": 400,
+   "already_solid": false
+  },
+  {
+   "cc": 142,
+   "cell_row": 50,
+   "engine_coll_row": 25,
+   "side": "top",
+   "world_x": 1136,
+   "world_y": 400,
+   "already_solid": false
+  },
+  {
+   "cc": 143,
+   "cell_row": 50,
+   "engine_coll_row": 25,
+   "side": "top",
+   "world_x": 1144,
+   "world_y": 400,
+   "already_solid": false
+  },
+  {
+   "cc": 144,
+   "cell_row": 50,
+   "engine_coll_row": 25,
+   "side": "top",
+   "world_x": 1152,
+   "world_y": 400,
+   "already_solid": false
+  },
+  {
+   "cc": 145,
+   "cell_row": 50,
+   "engine_coll_row": 25,
+   "side": "top",
+   "world_x": 1160,
+   "world_y": 400,
+   "already_solid": false
+  },
+  {
+   "cc": 146,
+   "cell_row": 50,
+   "engine_coll_row": 25,
+   "side": "top",
+   "world_x": 1168,
+   "world_y": 400,
+   "already_solid": false
+  },
+  {
+   "cc": 147,
+   "cell_row": 50,
+   "engine_coll_row": 25,
+   "side": "top",
+   "world_x": 1176,
+   "world_y": 400,
+   "already_solid": false
+  },
+  {
+   "cc": 148,
+   "cell_row": 50,
+   "engine_coll_row": 25,
+   "side": "top",
+   "world_x": 1184,
+   "world_y": 400,
+   "already_solid": false
+  },
+  {
+   "cc": 149,
+   "cell_row": 50,
+   "engine_coll_row": 25,
+   "side": "top",
+   "world_x": 1192,
+   "world_y": 400,
+   "already_solid": false
+  },
+  {
+   "cc": 150,
+   "cell_row": 50,
+   "engine_coll_row": 25,
+   "side": "top",
+   "world_x": 1200,
+   "world_y": 400,
+   "already_solid": false
+  },
+  {
+   "cc": 135,
+   "cell_row": 52,
+   "engine_coll_row": 26,
+   "side": "left",
+   "world_x": 1080,
+   "world_y": 416,
+   "already_solid": false
+  },
+  {
+   "cc": 136,
+   "cell_row": 52,
+   "engine_coll_row": 26,
+   "side": "left",
+   "world_x": 1088,
+   "world_y": 416,
+   "already_solid": false
+  },
+  {
+   "cc": 137,
+   "cell_row": 52,
+   "engine_coll_row": 26,
+   "side": "left",
+   "world_x": 1096,
+   "world_y": 416,
+   "already_solid": false
+  },
+  {
+   "cc": 150,
+   "cell_row": 52,
+   "engine_coll_row": 26,
+   "side": "right",
+   "world_x": 1200,
+   "world_y": 416,
+   "already_solid": false
+  },
+  {
+   "cc": 151,
+   "cell_row": 52,
+   "engine_coll_row": 26,
+   "side": "right",
+   "world_x": 1208,
+   "world_y": 416,
+   "already_solid": false
+  },
+  {
+   "cc": 152,
+   "cell_row": 52,
+   "engine_coll_row": 26,
+   "side": "right",
+   "world_x": 1216,
+   "world_y": 416,
+   "already_solid": false
+  },
+  {
+   "cc": 133,
+   "cell_row": 54,
+   "engine_coll_row": 27,
+   "side": "left",
+   "world_x": 1064,
+   "world_y": 432,
+   "already_solid": false
+  },
+  {
+   "cc": 134,
+   "cell_row": 54,
+   "engine_coll_row": 27,
+   "side": "left",
+   "world_x": 1072,
+   "world_y": 432,
+   "already_solid": false
+  },
+  {
+   "cc": 135,
+   "cell_row": 54,
+   "engine_coll_row": 27,
+   "side": "left",
+   "world_x": 1080,
+   "world_y": 432,
+   "already_solid": false
+  },
+  {
+   "cc": 152,
+   "cell_row": 54,
+   "engine_coll_row": 27,
+   "side": "right",
+   "world_x": 1216,
+   "world_y": 432,
+   "already_solid": false
+  },
+  {
+   "cc": 153,
+   "cell_row": 54,
+   "engine_coll_row": 27,
+   "side": "right",
+   "world_x": 1224,
+   "world_y": 432,
+   "already_solid": false
+  },
+  {
+   "cc": 154,
+   "cell_row": 54,
+   "engine_coll_row": 27,
+   "side": "right",
+   "world_x": 1232,
+   "world_y": 432,
+   "already_solid": false
+  },
+  {
+   "cc": 131,
+   "cell_row": 56,
+   "engine_coll_row": 28,
+   "side": "left",
+   "world_x": 1048,
+   "world_y": 448,
+   "already_solid": false
+  },
+  {
+   "cc": 132,
+   "cell_row": 56,
+   "engine_coll_row": 28,
+   "side": "left",
+   "world_x": 1056,
+   "world_y": 448,
+   "already_solid": true
+  },
+  {
+   "cc": 133,
+   "cell_row": 56,
+   "engine_coll_row": 28,
+   "side": "left",
+   "world_x": 1064,
+   "world_y": 448,
+   "already_solid": true
+  },
+  {
+   "cc": 154,
+   "cell_row": 56,
+   "engine_coll_row": 28,
+   "side": "right",
+   "world_x": 1232,
+   "world_y": 448,
+   "already_solid": true
+  },
+  {
+   "cc": 155,
+   "cell_row": 56,
+   "engine_coll_row": 28,
+   "side": "right",
+   "world_x": 1240,
+   "world_y": 448,
+   "already_solid": true
+  },
+  {
+   "cc": 156,
+   "cell_row": 56,
+   "engine_coll_row": 28,
+   "side": "right",
+   "world_x": 1248,
+   "world_y": 448,
+   "already_solid": true
+  },
+  {
+   "cc": 130,
+   "cell_row": 58,
+   "engine_coll_row": 29,
+   "side": "left",
+   "world_x": 1040,
+   "world_y": 464,
+   "already_solid": false
+  },
+  {
+   "cc": 131,
+   "cell_row": 58,
+   "engine_coll_row": 29,
+   "side": "left",
+   "world_x": 1048,
+   "world_y": 464,
+   "already_solid": false
+  },
+  {
+   "cc": 132,
+   "cell_row": 58,
+   "engine_coll_row": 29,
+   "side": "left",
+   "world_x": 1056,
+   "world_y": 464,
+   "already_solid": true
+  },
+  {
+   "cc": 155,
+   "cell_row": 58,
+   "engine_coll_row": 29,
+   "side": "right",
+   "world_x": 1240,
+   "world_y": 464,
+   "already_solid": true
+  },
+  {
+   "cc": 156,
+   "cell_row": 58,
+   "engine_coll_row": 29,
+   "side": "right",
+   "world_x": 1248,
+   "world_y": 464,
+   "already_solid": true
+  },
+  {
+   "cc": 157,
+   "cell_row": 58,
+   "engine_coll_row": 29,
+   "side": "right",
+   "world_x": 1256,
+   "world_y": 464,
+   "already_solid": true
+  },
+  {
+   "cc": 130,
+   "cell_row": 60,
+   "engine_coll_row": 30,
+   "side": "left",
+   "world_x": 1040,
+   "world_y": 480,
+   "already_solid": false
+  },
+  {
+   "cc": 131,
+   "cell_row": 60,
+   "engine_coll_row": 30,
+   "side": "left",
+   "world_x": 1048,
+   "world_y": 480,
+   "already_solid": false
+  },
+  {
+   "cc": 132,
+   "cell_row": 60,
+   "engine_coll_row": 30,
+   "side": "left",
+   "world_x": 1056,
+   "world_y": 480,
+   "already_solid": false
+  },
+  {
+   "cc": 155,
+   "cell_row": 60,
+   "engine_coll_row": 30,
+   "side": "right",
+   "world_x": 1240,
+   "world_y": 480,
+   "already_solid": false
+  },
+  {
+   "cc": 156,
+   "cell_row": 60,
+   "engine_coll_row": 30,
+   "side": "right",
+   "world_x": 1248,
+   "world_y": 480,
+   "already_solid": true
+  },
+  {
+   "cc": 157,
+   "cell_row": 60,
+   "engine_coll_row": 30,
+   "side": "right",
+   "world_x": 1256,
+   "world_y": 480,
+   "already_solid": true
+  },
+  {
+   "cc": 129,
+   "cell_row": 62,
+   "engine_coll_row": 31,
+   "side": "left",
+   "world_x": 1032,
+   "world_y": 496,
+   "already_solid": false
+  },
+  {
+   "cc": 130,
+   "cell_row": 62,
+   "engine_coll_row": 31,
+   "side": "left",
+   "world_x": 1040,
+   "world_y": 496,
+   "already_solid": false
+  },
+  {
+   "cc": 131,
+   "cell_row": 62,
+   "engine_coll_row": 31,
+   "side": "left",
+   "world_x": 1048,
+   "world_y": 496,
+   "already_solid": false
+  },
+  {
+   "cc": 155,
+   "cell_row": 62,
+   "engine_coll_row": 31,
+   "side": "right",
+   "world_x": 1240,
+   "world_y": 496,
+   "already_solid": true
+  },
+  {
+   "cc": 156,
+   "cell_row": 62,
+   "engine_coll_row": 31,
+   "side": "right",
+   "world_x": 1248,
+   "world_y": 496,
+   "already_solid": true
+  },
+  {
+   "cc": 157,
+   "cell_row": 62,
+   "engine_coll_row": 31,
+   "side": "right",
+   "world_x": 1256,
+   "world_y": 496,
+   "already_solid": true
+  },
+  {
+   "cc": 131,
+   "cell_row": 64,
+   "engine_coll_row": 32,
+   "side": "left",
+   "world_x": 1048,
+   "world_y": 512,
+   "already_solid": false
+  },
+  {
+   "cc": 132,
+   "cell_row": 64,
+   "engine_coll_row": 32,
+   "side": "left",
+   "world_x": 1056,
+   "world_y": 512,
+   "already_solid": true
+  },
+  {
+   "cc": 133,
+   "cell_row": 64,
+   "engine_coll_row": 32,
+   "side": "left",
+   "world_x": 1064,
+   "world_y": 512,
+   "already_solid": true
+  },
+  {
+   "cc": 154,
+   "cell_row": 64,
+   "engine_coll_row": 32,
+   "side": "right",
+   "world_x": 1232,
+   "world_y": 512,
+   "already_solid": true
+  },
+  {
+   "cc": 155,
+   "cell_row": 64,
+   "engine_coll_row": 32,
+   "side": "right",
+   "world_x": 1240,
+   "world_y": 512,
+   "already_solid": true
+  },
+  {
+   "cc": 156,
+   "cell_row": 64,
+   "engine_coll_row": 32,
+   "side": "right",
+   "world_x": 1248,
+   "world_y": 512,
+   "already_solid": true
+  },
+  {
+   "cc": 132,
+   "cell_row": 66,
+   "engine_coll_row": 33,
+   "side": "left",
+   "world_x": 1056,
+   "world_y": 528,
+   "already_solid": false
+  },
+  {
+   "cc": 133,
+   "cell_row": 66,
+   "engine_coll_row": 33,
+   "side": "left",
+   "world_x": 1064,
+   "world_y": 528,
+   "already_solid": false
+  },
+  {
+   "cc": 134,
+   "cell_row": 66,
+   "engine_coll_row": 33,
+   "side": "left",
+   "world_x": 1072,
+   "world_y": 528,
+   "already_solid": false
+  },
+  {
+   "cc": 153,
+   "cell_row": 66,
+   "engine_coll_row": 33,
+   "side": "right",
+   "world_x": 1224,
+   "world_y": 528,
+   "already_solid": true
+  },
+  {
+   "cc": 154,
+   "cell_row": 66,
+   "engine_coll_row": 33,
+   "side": "right",
+   "world_x": 1232,
+   "world_y": 528,
+   "already_solid": true
+  },
+  {
+   "cc": 155,
+   "cell_row": 66,
+   "engine_coll_row": 33,
+   "side": "right",
+   "world_x": 1240,
+   "world_y": 528,
+   "already_solid": true
+  },
+  {
+   "cc": 133,
+   "cell_row": 68,
+   "engine_coll_row": 34,
+   "side": "left",
+   "world_x": 1064,
+   "world_y": 544,
+   "already_solid": false
+  },
+  {
+   "cc": 134,
+   "cell_row": 68,
+   "engine_coll_row": 34,
+   "side": "left",
+   "world_x": 1072,
+   "world_y": 544,
+   "already_solid": false
+  },
+  {
+   "cc": 135,
+   "cell_row": 68,
+   "engine_coll_row": 34,
+   "side": "left",
+   "world_x": 1080,
+   "world_y": 544,
+   "already_solid": false
+  },
+  {
+   "cc": 152,
+   "cell_row": 68,
+   "engine_coll_row": 34,
+   "side": "right",
+   "world_x": 1216,
+   "world_y": 544,
+   "already_solid": true
+  },
+  {
+   "cc": 153,
+   "cell_row": 68,
+   "engine_coll_row": 34,
+   "side": "right",
+   "world_x": 1224,
+   "world_y": 544,
+   "already_solid": true
+  },
+  {
+   "cc": 154,
+   "cell_row": 68,
+   "engine_coll_row": 34,
+   "side": "right",
+   "world_x": 1232,
+   "world_y": 544,
+   "already_solid": true
+  },
+  {
+   "cc": 135,
+   "cell_row": 70,
+   "engine_coll_row": 35,
+   "side": "left",
+   "world_x": 1080,
+   "world_y": 560,
+   "already_solid": false
+  },
+  {
+   "cc": 136,
+   "cell_row": 70,
+   "engine_coll_row": 35,
+   "side": "left",
+   "world_x": 1088,
+   "world_y": 560,
+   "already_solid": false
+  },
+  {
+   "cc": 137,
+   "cell_row": 70,
+   "engine_coll_row": 35,
+   "side": "left",
+   "world_x": 1096,
+   "world_y": 560,
+   "already_solid": false
+  },
+  {
+   "cc": 148,
+   "cell_row": 70,
+   "engine_coll_row": 35,
+   "side": "right",
+   "world_x": 1184,
+   "world_y": 560,
+   "already_solid": true
+  },
+  {
+   "cc": 149,
+   "cell_row": 70,
+   "engine_coll_row": 35,
+   "side": "right",
+   "world_x": 1192,
+   "world_y": 560,
+   "already_solid": true
+  },
+  {
+   "cc": 150,
+   "cell_row": 70,
+   "engine_coll_row": 35,
+   "side": "right",
+   "world_x": 1200,
+   "world_y": 560,
+   "already_solid": true
+  }
+ ],
+ "_counts": {
+  "arc_cells": 88,
+  "already_solid": 32,
+  "needing_paint": 56
+ },
+ "crossover_marks": {
+  "_what": "CANDIDATE cells for the two one-way crossover marks. Cells are mine; the DIRECTION is yours - you built the witness and rule R2 refuses a self-mark at bake (a plane-A word carrying XOVER_TO_A raises), so the pairing is your call.",
+  "_why_here": "The lowest even row where both arcs are still distinct from the ground (row 70, y 560; ground is solid at y 576). That is where the player enters and leaves the loop, which is where the front/back transition belongs - not at the crown, where a mis-fire strands the player mid-arc.",
+  "_entry_side": "RIGHT. In his screenshot the bright green running surface sweeps up on the right, so the right arc is the entry ramp and the left is the exit.",
+  "candidates": [
+   {
+    "cc": 148,
+    "cell_row": 70,
+    "engine_coll_row": 35,
+    "role": "entry (right arc)",
+    "recommend_plane": "A",
+    "recommend_mark": "XOVER_TO_B"
+   },
+   {
+    "cc": 137,
+    "cell_row": 70,
+    "engine_coll_row": 35,
+    "role": "exit (left arc)",
+    "recommend_plane": "B",
+    "recommend_mark": "XOVER_TO_A"
+   }
+  ],
+  "_verify": "After baking: python3 tools/loop_crossover_gate.py --lst s4.debug.lst --rom s4.debug.bin -v . Today it prints 'shipped CrossoverTable: 256 slots, 0 marked'. Non-zero after your paint; still 0 means the marks landed on ODD cell rows and were dropped at bake."
+ },
+ "stray_collision_cells": {
+  "_what": "Solid cells with no art behind them, in rows 38-76 x cols 118-170. You measured that all of these have solid support within two rows, so they are connected surface rather than floating - I take that. Listed only so the set is written down.",
+  "cells": [
+   {
+    "cc": 136,
+    "cell_row": 40
+   },
+   {
+    "cc": 133,
+    "cell_row": 58
+   },
+   {
+    "cc": 154,
+    "cell_row": 58
+   },
+   {
+    "cc": 132,
+    "cell_row": 62
+   },
+   {
+    "cc": 133,
+    "cell_row": 62
+   },
+   {
+    "cc": 154,
+    "cell_row": 62
+   },
+   {
+    "cc": 152,
+    "cell_row": 66
+   },
+   {
+    "cc": 150,
+    "cell_row": 68
+   },
+   {
+    "cc": 151,
+    "cell_row": 68
+   },
+   {
+    "cc": 144,
+    "cell_row": 70
+   },
+   {
+    "cc": 145,
+    "cell_row": 70
+   },
+   {
+    "cc": 146,
+    "cell_row": 70
+   },
+   {
+    "cc": 147,
+    "cell_row": 70
+   }
+  ]
+ }
+}
