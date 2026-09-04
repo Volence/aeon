@@ -21261,3 +21261,158 @@ command, and costs 58 of the 128 reserve tiles.
 It is **not** taken and should not be: it puts four vanishing points inside the 512-px
 plane, so a 320-px screen shows two or three of them and the picture reads as a hall of
 mirrors rather than one floor. Verified by rendering it.
+## THE OWNER'S 2026-09-03 LAB SESSION — what landed, and the four things it left open
+
+The owner drove `docs/EFFECTS_LAB.md`'s `START+A` cycle through all nine presets and reported
+five things. Three landed in `parcel/owner-demo-fixes` (the swap line, BG animation off with
+two camera-driven views, the section-2 palette). The rest are booked here.
+
+### A VERTICAL BgAnim BAND IS BLOCKED ON ART, NOT ON THE ENGINE
+
+The lab's new `C + A` tier calls its two views **horizontal** and **vertical**, and both of
+them move the same band **sideways**: the names describe the CAMERA AXIS the step is read
+from (`Camera_X` / `Camera_Y`), not the band's own art axis. A band whose pattern genuinely
+translates upward needs two things this tree cannot author:
+
+1. **Vertically pre-shifted phase banks.** Aurora's shift-fill regenerates bank `k` as phase 0
+   scrolled `k` px within the pattern WIDTH — horizontal by construction, with the column-wise
+   twin costed and NOT BUILT (aurora ROADMAP row 55). `tools/inject_editor_bg.py`'s
+   `validate_band_phase_axis` refuses the mismatch by name rather than shipping a shimmer, and
+   that refusal is the only thing standing between an author and a clean build that looks wrong.
+2. **A ROW-MAJOR slot order in `layout`.** A vertical band's slot `r*cols + c` is a different
+   permutation of the same 32 slots, and the band's slots are **deduped against the static blob
+   and appear at many cells** — so "re-order the band's cells" is not a local edit. It is a
+   whole-background regeneration (`tools/forest_bg_gen.py`, the only writer that authors
+   `layout`/`tiles`/`anims` as one coherent set — see TOOL-01).
+
+**So the two are one content call, not two**, exactly as TOOL-01 records for band insertion.
+The ENGINE has been axis-agnostic all along (`engine/level/bg_anim.emp`'s own banner, and
+`BAND_AXES` in the emitter derives both record fields from `axis`); nothing here needs an
+engine byte. What is missing is a vertical phase writer and a background generated with a
+row-major band in it.
+
+### BgAnim "OFF" FREEZES THE BAND, IT DOES NOT REWIND IT
+
+`Debug_BgAnimViewHotkey`'s OFF row points `BgAnim_Table_Ptr` at the act's own zero-count
+table, which stops the walk. It does not re-DMA phase 0, so the slots keep whatever phase last
+landed — up to 63 px into their own 64 px pattern. A cold boot is the only guaranteed rest
+state (the band's phase 0 IS its slots' static art; `validate_band_coherence` asserts
+`phases[0] == tiles[base:base+n]`).
+
+Accepted deliberately: rewinding means an extra queued DMA on a keypress for a debug view, and
+nothing reads as broken because the band's slots are reused all over the layout and shift
+together. **If it ever needs fixing**, the cheap shape is a one-shot in `BgAnim_SetTable` that
+queues bank 0 to `vram_dest` when the incoming table's count is 0 — it already has the record
+in hand and already poisons `BgAnim_LastStep`.
+
+### SECTION 2 IS NO LONGER THE ACT'S sec_pal WITNESS
+
+`OJZ_Preset_Sec2` stopped binding `OJZ_TestPal` so the 96-line gradient it also installs can
+be seen. **Section 2 was the ONLY section in OJZ act 1 with a palette different from
+`OJZ_Palette`** (the 2026-08-13 capability probe recorded exactly that: "there are no differing
+neighbours to prove — every OJZ section except section 2 passes the same `OJZ_Palette`"). So
+the act no longer demonstrates "crossing in snaps the palette, crossing back restores it" on a
+screen.
+
+**Nothing went red**, and that is the finding rather than the reassurance: no pytest and no
+`tools/effects_gates.py` lane ever tested it. The only evidence that ever existed is a manual
+oracle session written up in `docs/benchmarks/effects-p1/GATE-EVIDENCE.md`. `OJZ_TestPal`
+itself is still defined and still emitted — `tools/plane_base_swap_gate.py`'s `NEXT_SYM`
+depends on its ADDRESS being immediately after `OJZ_BaseSwap`, which the cut did not touch.
+
+**The open call is the owner's**: either accept that the act has one palette, or give a
+DIFFERENT section (7 or 8 — the two deliberate blanks, which have no raster program to hide)
+a real second palette and move the proof there. A test palette on a section with a raster
+program is what caused this in the first place.
+
+### THE SECTION-5 WATERLINE OVER THE FOREGROUND — measured, and the mechanism is not the one it looks like
+
+Owner ask: *"can you just make it so everything the underwater parallax config touches the blue
+band does too but on the foreground?"*
+
+**THE "DIFFERENT PALETTE LINE" THEORY IS WRONG, and this is measured off the act's own data.**
+Histogramming the palette bits (14-13) of every tile word in OJZ's donor 16x16 block map
+(`tools/ojz_strip_gen.py`'s `load_block_map(BLOCK_MAP_PATH)`, 374 blocks / 1496 tile words):
+
+| CRAM line | FG non-blank tile words | Plane B (`zone_bg.bin`) words |
+|---|---|---|
+| 0 (the character's) | **0** | 0 |
+| 1 | **0** | 0 |
+| 2 | 1122 (83%) | 3804 (93%) |
+| 3 | 224 (17%) | 292 (7%) |
+
+**Foreground and background already share CRAM line 2.** The band can reach the foreground
+today; nothing needs a new line binding.
+
+> ⚠ Do NOT re-derive this from `games/sonic4/data/generated/ojz/act1/sec{N}_blocks.bin` — those
+> are **S4LZ-compressed** (`tools/ojz_block_gen.py`: "block index + compressed blocks"), and a
+> palette histogram over them is a histogram of compressed bytes. That mistake was made and
+> caught here; it produced a confident, wrong answer (line 0 dominant) that would have sent the
+> next lane looking for a way to tint the character's palette line.
+
+**WHY IT STILL LOOKS LIKE A STRIPE BEHIND THE TREES — the entry, not the line.** Histogramming
+the 4bpp pixel nibbles of the shipped art:
+
+| palette entry | FG art pool (612 tiles) | BG tiles (320 tiles) |
+|---|---|---|
+| 8 (**what the band tints today**) | **1.67%** | **39.17%** |
+| 0 (transparent on Plane A) | 15.42% | 0% |
+| 1 | 10.76% | 3.94% |
+| 4 | 11.13% | 2.18% |
+| 3 | 8.47% | 9.02% |
+| 14 | 8.48% | 1.23% |
+| 11 | 8.43% | 2.18% |
+| 5 | 7.15% | 2.48% |
+| 12 | 6.72% | 2.09% |
+| 15 | 6.29% | 0.03% |
+| 10 | 6.13% | 20.62% |
+| 9 | 4.44% | 11.60% |
+| 13 | 3.36% | 0.24% |
+
+The band tints **exactly the one entry the background is made of and the foreground barely
+uses.** The foreground's colour mass is spread over ~10 entries with no dominant one.
+
+**WHAT THE BAND TIER CAN AND CANNOT EXPRESS.** One `stream_cram`/`stream_pal_region` op writes
+at most **3 words** (`RASTER_BURST_MAX_CRAM == RASTER_BURST_MAX_DEEP == 3`), in **one
+contiguous run inside ONE CRAM line** (`stream_cram`'s `((addr>>1)&15) + colours.len <= 16`;
+`stream_pal_region`'s `pal_line` is a single int 1..3). Only **one** stream op can be PLACED
+per fire — two bursts span ~116 cycles against a 122.9-cycle blanking window, and
+`check_landings` refuses the second by name. Bands must occupy strictly ascending disjoint
+fire-line intervals, so several bands' edges land 2+ scanlines apart, and the whole program
+must fit `RASTER_BUF_WORDS = 64` (three 1-word bands = 55 words; four = 71 and do not fit).
+
+**So a full-plane waterline is at most ~9 entries in three contiguous runs, on one CRAM line,
+with a 4-6 line staircase instead of one edge.** What shipped is entries **3-5** (26.8% FG /
+13.7% BG), **8-10** (12.2% / 71.4%) and **12-14** (18.6% / 3.6%) — together **57.6% of FG
+pixels and 88.6% of BG pixels**, keeping the existing blue void while finally putting the
+tint on the trees.
+
+⚠ **CORRECTION to this parcel's own commit message, which called that triple "the best three
+contiguous 3-entry runs available".** It is not, and the exhaustive search was run AFTER the
+claim rather than before it:
+
+| triple | FG coverage | BG coverage |
+|---|---|---|
+| **3 / 8 / 12 (shipped)** | 57.6% | 88.6% |
+| 3 / 8 / 11 — best by FG+BG combined | 57.5% | 89.6% |
+| 3 / 10 / 13 — best by FG alone | **66.2%** | 40.1% |
+
+The shipped triple is within one point of the combined optimum, so it is a fine choice — but
+it is NOT the foreground optimum, and the foreground optimum costs half the background's
+coverage, i.e. most of the blue void the owner already has. **That trade is a look call and
+belongs to him, not to a search.** Three 16-word bands plus the 7-word frame is 55 of the
+64-word buffer, so a fourth run does not fit and cannot buy both.
+
+**THE PLAYER CANNOT GO BLUE, by two independent mechanisms**, and this is the trap that was
+flagged: (1) CRAM line 0 is `CharacterDef.cd_palette`'s and **no non-blank OJZ foreground tile
+word uses it** (table above), so a line-2/3 tint cannot reach the character's colours; (2)
+`stream_cram` and `pal_restore` hard-refuse `addr >> 5 == 0` by name and `stream_pal_region`
+requires `pal_line >= 1`, so no DSL path can write that line at all.
+
+**The honest alternative if a whole-plane tint is what he means.** The band tier is a
+BOUNDARY mechanism, not a recolour: the engine already recolours whole palettes with
+`pal_variant` (`Variant_Water_Deep` = halve R+G keep B, live on variant slot 0 across all nine
+sections). A waterline that recolours EVERY entry below a line wants the variant image and the
+DENSE tier (`raster_gradient_program` / `raster_ramp_program`, 304-316 of 488 cycles per line)
+rather than three banded 3-entry runs. That is a bigger parcel than an edit to
+`ojz_sec5_showcase.json` and it should be costed before it is started.

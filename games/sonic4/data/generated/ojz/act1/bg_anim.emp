@@ -4,8 +4,24 @@
 // Natively placed at the ojz_bg_anim section.
 module games.sonic4.ojz_bg_anim_act1 in ojz_bg_anim
 
-pub data BgAnim_Table: u16 = 1   // band count
-// band 0: 32 tiles at BG slot 0, driver timer, horizontal (scrolls left), 1px per 4 units
-data _BgAnim_Band0_hdr: [u16; 6] = [2, 2, 63, 7, 32, $8000]
+pub data BgAnim_Table: u16 = 0   // band count  (default_off: the act boots with BG animation OFF)
+// band 0: 32 tiles at BG slot 0, driver camera_x, horizontal (scrolls left), 1px per 16 units
+data _BgAnim_Band0_hdr: [u16; 6] = [0, 4, 63, 7, 32, $8000]
 data _BgAnim_Band0_banks: [*u8; 8] = [extern("BgAnim_Banks") + 0, extern("BgAnim_Banks") + 1024, extern("BgAnim_Banks") + 2048, extern("BgAnim_Banks") + 3072, extern("BgAnim_Banks") + 4096, extern("BgAnim_Banks") + 5120, extern("BgAnim_Banks") + 6144, extern("BgAnim_Banks") + 7168]
+
+// The effects lab's two BG-animation views. Same band, same
+// bank blob, same slots — they differ ONLY in which scalar the
+// step is read from and how fast. Reached through
+// BgAnim_SetTable (engine/level/bg_anim.emp), DEBUG shape only:
+// every declaration below emits ZERO bytes in the plain shape,
+// where nothing can point the walk at them.
+const BGANIM_VIEW_EMIT = if DEBUG == 1 { 1 } else { 0 }
+pub data BgAnim_View_H: [u16; BGANIM_VIEW_EMIT] = if DEBUG == 1 { [1] } else { [] }   // horizontal camera motion
+// band 0: 32 tiles at BG slot 0, driver camera_x, horizontal (scrolls left), 1px per 16 units
+data _BgAnim_ViewH0_hdr: [u16; BGANIM_VIEW_EMIT * 6] = if DEBUG == 1 { [0, 4, 63, 7, 32, $8000] } else { [] }
+data _BgAnim_ViewH0_banks: [*u8; BGANIM_VIEW_EMIT * 8] = if DEBUG == 1 { [extern("BgAnim_Banks") + 0, extern("BgAnim_Banks") + 1024, extern("BgAnim_Banks") + 2048, extern("BgAnim_Banks") + 3072, extern("BgAnim_Banks") + 4096, extern("BgAnim_Banks") + 5120, extern("BgAnim_Banks") + 6144, extern("BgAnim_Banks") + 7168] } else { [] }
+pub data BgAnim_View_V: [u16; BGANIM_VIEW_EMIT] = if DEBUG == 1 { [1] } else { [] }   // vertical camera motion
+// band 0: 32 tiles at BG slot 0, driver camera_y, horizontal (scrolls left), 1px per 4 units
+data _BgAnim_ViewV0_hdr: [u16; BGANIM_VIEW_EMIT * 6] = if DEBUG == 1 { [1, 2, 63, 7, 32, $8000] } else { [] }
+data _BgAnim_ViewV0_banks: [*u8; BGANIM_VIEW_EMIT * 8] = if DEBUG == 1 { [extern("BgAnim_Banks") + 0, extern("BgAnim_Banks") + 1024, extern("BgAnim_Banks") + 2048, extern("BgAnim_Banks") + 3072, extern("BgAnim_Banks") + 4096, extern("BgAnim_Banks") + 5120, extern("BgAnim_Banks") + 6144, extern("BgAnim_Banks") + 7168] } else { [] }
 pub data BgAnim_Banks = embed("games/sonic4/data/generated/ojz/act1/bg_anim_banks.bin")

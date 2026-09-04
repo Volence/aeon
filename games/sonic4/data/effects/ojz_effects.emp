@@ -539,11 +539,33 @@ const OJZ_BASE_SWAP_HOME = $8200 | vdp_base_reg(VdpBase.PlaneA, VRAM_PLANE_A)
 ensure(OJZ_BASE_SWAP_WORD != OJZ_BASE_SWAP_HOME,
        "OJZ_BaseSwap: the mid-frame word ({OJZ_BASE_SWAP_WORD}) is the SAME word reg $02 already carries at frame top ({OJZ_BASE_SWAP_HOME}), so the op re-points Plane A at the base it is already using and the band draws nothing different. VRAM_PLANE_A ({VRAM_PLANE_A}) and VRAM_PLANE_B ({VRAM_PLANE_B}) must fold to DIFFERENT reg $02 bytes for item 11a to be demonstrable at all — either the two planes now share a base, or vdp_base_reg's PlaneA shift changed.")
 
-// THE LINE. 160 puts the swap 64 lines above the bottom of a 224-line display: large
-// enough that the band cannot be mistaken for a one-line artifact, and far enough below
-// the OJZ water boundary (120, OJZ_WATER_LINE) that a reviewer stepping the lab's cycle
-// is never comparing two effects at the same edge.
-const OJZ_BASE_SWAP_LINE = 160
+// THE LINE. 3 — THE LOWEST SCREEN LINE THE SPARSE TIER CAN SCHEDULE AT ALL, and it is
+// derived rather than picked (owner ask 2026-09-03: "I would like to see in the plane
+// swap the fg go to the bg at the top"). The floor is structural and comes from three
+// places that all agree:
+//   * `fire()` (engine/effects/raster_dsl.emp) refuses any screen line outside 3..223 —
+//     "lines 0-2 belong to the priming records".
+//   * `fire_lines` puts the two priming fires on fire lines 0 and 1 and the event at
+//     screen_line - 1 (Ruling 1a), then ensures STRICT ascent — so screen line 3 is the
+//     first event fire line (2) that clears priming record 1 at fire line 1. Screen line
+//     2 would want fire line 1, which is already taken.
+//   * `arm_at` encodes record 0's arm as $8A00 | (L[2] - L[1] - 1) = $8A00 | (LINE - 3),
+//     so LINE = 3 is exactly the value that makes the gap byte 0 — a legal reload
+//     meaning "fire every line" (engine/effects/raster.emp's dense-tier note). LINE = 2
+//     would make the gap byte -1 = $FF, which IS the PARK word: the schedule would die
+//     silently instead of failing. That is why the floor is a refusal and not a clamp.
+// tools/test_plane_base_swap_gate.py's own mutation ledger records the same number from
+// the other side: mutating this constant to 2 turns the gate red, and "`-> 3` is green:
+// 3 is the lowest line `fire()` itself admits".
+//
+// WHAT MOVING IT UP GAVE UP, stated because the previous value's argument was good and
+// is now spent: 160 sat 64 lines above the bottom (big enough not to read as a one-line
+// artifact) and 40 lines BELOW the OJZ water boundary (120, OJZ_WATER_LINE) so a reviewer
+// stepping the lab's cycle never compared two effects at the same edge. At 3 the band is
+// 221 lines — the size argument is satisfied far more strongly — and the separation
+// argument now runs the other way: the swap edge is 117 lines ABOVE the water boundary,
+// which is further from it than 160 was. Both of the original reasons survive the move.
+const OJZ_BASE_SWAP_LINE = 3
 
 const OJZ_BASE_SWAP_PROG = [
     fire(OJZ_BASE_SWAP_LINE, [ reg_set(OJZ_BASE_SWAP_WORD) ]),
@@ -553,15 +575,18 @@ const OJZ_BASE_SWAP_PROG = [
 // purpose, because a pin sharing symbols with the encoder it pins is weaker. The two
 // values that are not framing were DERIVED here from source, not copied from the design
 // document that also names them:
-//   $8A9D  = $8A00 | (OJZ_BASE_SWAP_LINE - 3) = $8A00 | 157 — raster_arm(1, 159), the
-//            two-priming-record schedule spelled out at OJZ_TestRaster above.
+//   $8A00  = $8A00 | (OJZ_BASE_SWAP_LINE - 3) = $8A00 | 0 — the two-priming-record
+//            schedule spelled out at OJZ_TestRaster above, at its floor. A gap byte of 0
+//            is the legal "fire every line" reload, not a missing arm; one line below
+//            this the byte would be $FF, the PARK word.
 //   $8238  = $8200 | (VRAM_PLANE_B >> vdp_base_shift(PlaneA))
 //          = $8200 | ($E000 >> 10) — engine/vdp.emp's match arm gives PlaneA => 10, and
 //            engine/system/constants.emp gives VRAM_PLANE_B = $E000.
 const OJZ_BASE_SWAP_HAND = [
     0,                          // pal_dirty_mask — a register op writes no CRAM, so no
                                 //   palette line is re-asserted at frame top
-    $8A9D, 0,                   // fire 0 — priming; arm = $8A00 | (160 - 3)
+    $8A00, 0,                   // fire 0 — priming; arm = $8A00 | (3 - 3) = the floor,
+                                //   a gap byte of 0 ("fire every line"), not a missing arm
     $8AFF, 0,                   // fire 1 — priming; nothing after the event, so park
     $8AFF, 1,                   // fire 2 — the event, ONE op
       0, $8238,                 // OP_SET_REG, then reg $02 <- Plane B's nametable
@@ -1256,7 +1281,36 @@ pub data OJZ_Preset_Sec0:  EffectsPreset = preset(pal: OJZ_Palette, patched: OJZ
                                                                    ANCHOR_MOTION_NONE,
                                                                    ANCHOR_MOTION_NONE])
 pub data OJZ_Preset_Sec1:  EffectsPreset = preset(pal: OJZ_Palette, raster: OJZ_TestRaster,     cycle: Pal_Cycle_None,     variants: [Variant_Water_Deep, 0])
-pub data OJZ_Preset_Sec2:  EffectsPreset = preset(pal: OJZ_TestPal, raster: OJZ_TestGradient,   cycle: Pal_Cycle_None,     variants: [Variant_Water_Deep, 0])
+// SECTION 2 NO LONGER CARRIES OJZ_TestPal, and the reason is measured rather than
+// aesthetic (owner ruling 2026-09-03: "For 2 just get rid of the blue hiding the effect").
+// This preset installed a 96-line CRAM ramp AND a synthetic palette that floods the screen
+// blue, so the ramp had nothing to be seen against.
+//
+// THE RAMP WAS ALWAYS FIRING — measured on the running DEBUG ROM BEFORE the cut, with an
+// UNMASKED per-scanline framebuffer capture (`emulator/scanlines`, source == "raster"
+// asserted; a VBlank `read_cram` cannot see it, the writes are transient and re-asserted
+// every frame). With `Raster_Program` confirmed == OJZ_TestGradient, the ramp colours the
+// DSL predicts for line-2 entries 4/5/6 appear on screen in 12-line steps, rising from 0
+// pixels of 320 at screen line 96 to 200+ at line 191, and never outside 96..191. So the
+// owner's "I don't think there's a gradient ramp" was a report about VISIBILITY, not about
+// the mechanism, and swapping the palette is the right fix rather than a workaround.
+//
+// IT IS ONLY HALF THE VISIBILITY PROBLEM, and the other half is not fixed here. The ramp's
+// own three entries differ by ONE 3-bit intensity step (~36/255) — `test_palette()` folds a
+// near-monochrome blue ramp — so even against the real palette this is a subtle effect. If
+// section 2 is meant to SHOW the dense tier, the ramp's colour spread is what to widen next.
+//
+// WHAT THE CUT COSTS, stated because it is a real loss and no gate reports it: section 2 was
+// the ONLY section in OJZ act 1 with a palette differing from OJZ_Palette, so the act no
+// longer demonstrates sec_pal snapping on a crossing and restoring on the way out. Nothing
+// went red — no pytest and no effects-gates lane ever tested it; the only evidence that ever
+// existed is a manual oracle session in docs/benchmarks/effects-p1/GATE-EVIDENCE.md. The
+// choice of where that proof should live now is booked in docs/DEFERRED_WORK.md.
+//
+// `OJZ_TestPal` ITSELF IS UNTOUCHED and must stay where it is: tools/plane_base_swap_gate.py
+// derives OJZ_BaseSwap's emitted size from the gap to `NEXT_SYM = "OJZ_TestPal"`, so the
+// SYMBOL's position immediately after it is load-bearing even though this binding was not.
+pub data OJZ_Preset_Sec2:  EffectsPreset = preset(pal: OJZ_Palette, raster: OJZ_TestGradient,   cycle: Pal_Cycle_None,     variants: [Variant_Water_Deep, 0])
 // SECTION 3 THREADS THE PALETTE CHOOSERS (EFFECTS-W1 item 5). `hand:` is what this section
 // carries today — `OJZ_ShimmerCycle` on the cycle channel, `Variant_Water_Deep` in variant
 // slot 0 and nothing in slot 1 — so with no sidecar naming a document both choosers return

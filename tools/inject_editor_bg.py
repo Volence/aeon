@@ -182,14 +182,122 @@ BGANIM_WORST_CASE_BYTES = (BGANIM_COUNT_BYTES
                            + BG_TILE_CAPACITY * BGANIM_BYTES_PER_SLOT)
 
 
-def bganim_section_bytes(n_bands, total_slots):
+# ── `default_off` AND THE DEBUG VIEW TWINS (owner ask, 2026-09-03) ────────────
+#
+# THE ASK, in the owner's words: "can we please just get rid of the animated tiles for
+# now, they're so distracting? Maybe have one view for horizontal and one for vertical?"
+# — and, separately, "it would be nice to see them perspective related instead of just
+# timer right now".
+#
+# THE MECHANISM, and why it is here rather than in the engine. A band's driver and rate
+# are BAKED into its 44-byte record, so "run this band off Camera_X" and "run it off
+# Camera_Y" are two different TABLES, not two states of one. This emitter therefore
+# writes three tables into the same section, sharing one bank blob:
+#
+#   BgAnim_Table    the act's own. A band marked `"default_off": true` is NOT counted
+#                   in it, so an act whose only band is default-off emits `count = 0`
+#                   and the whole system is off at boot in EVERY shape -- no runtime
+#                   flag, no engine gate, no cost. That is the "get rid of them" half,
+#                   and it is off in the RELEASE ROM too.
+#   BgAnim_View_H   the authored band verbatim -- "H" for the HORIZONTAL camera axis it
+#                   is driven by (Camera_X), not for the band's own art axis.
+#   BgAnim_View_V   the same band re-driven off Camera_Y at its own rate (below).
+#
+# `engine/level/bg_anim.emp`'s DEBUG-only `BgAnim_SetTable` points the walk at one of the
+# three; the plain shape has no selector and permanently walks `BgAnim_Table`.
+#
+# THE V VIEW'S RATE IS DERIVED, NOT COPIED. A camera-driven step at a tick-tuned rate is
+# wrong by construction, because the two drivers have different units (frames vs pixels).
+# Both rungs below are derived from the band's own pattern period P (px) and the display:
+#
+#   H view (Camera_X), authored in the override as `rate_shift`. The rung matches the
+#     TIMER view's apparent speed at running speed, so the change of driver is not also a
+#     change of tempo. Old view: driver Logic_Tick, rate_shift 2 = 1 px / 4 frames =
+#     0.25 px/frame. New view: 1 px per 2^s px of camera travel, and the camera at
+#     PHYS_TOP_SPEED ($600 = 6.0 px/frame, engine/system/constants.emp) gives
+#     6 / 2^s px/frame. s = 4 -> 0.375 px/frame; s = 5 -> 0.1875. Four is the nearer rung
+#     and errs toward VISIBLE, which is the right way to err on a review view. It also
+#     reads well as depth: a full P = 64 px cycle costs 64 * 16 = 1024 px of camera
+#     travel, 3.2 screen widths.
+#   V view (Camera_Y), BGANIM_VIEW_V_RATE_SHIFT below.
+BGANIM_VIEW_V_DRIVER = 'camera_y'
+
+#: The V view's rate, derived: one full pattern cycle should cost about one SCREEN HEIGHT
+#: of vertical camera travel, because that is the scale of a normal vertical excursion --
+#: a rung tuned to horizontal running distance would leave the band visually frozen when
+#: the player moves up and down. P * 2^s ~= 224 (the active display height) with P = 64
+#: gives 2^s ~= 3.5; s = 2 (256 px, 1.14 screen heights) is the rung, and s = 1 (128 px,
+#: 0.57) cycles twice per screen and reads as a flicker rather than as motion.
+#:
+#: STATED AS A SHIFT AND NOT A FORMULA ON PURPOSE: `P` is the band's own `pattern_px` and
+#: could differ per act, but `rate_shift` is a hardware shift count -- there are only
+#: whole rungs, and picking the nearest one to a computed real number would silently
+#: change with a band's geometry while claiming to be derived. This number is derived FOR
+#: the 64 px band this tree ships; `views_emitted` refuses any other period rather than
+#: extrapolating (see its own refusal).
+BGANIM_VIEW_V_RATE_SHIFT = 2
+
+#: The pattern period this V rate was derived against, in px. Any other period makes the
+#: derivation above a claim about a band it was not computed for.
+BGANIM_VIEW_DERIVED_PERIOD_PX = 64
+
+#: How many DEBUG view twins a `default_off` act's table gets.
+BGANIM_VIEW_COUNT = 2
+
+
+def views_emitted(anims):
+    """How many DEBUG view twins this act's `anims` produce (0 or BGANIM_VIEW_COUNT).
+
+    NARROW BY DESIGN. The twins exist for the effects lab, which drives ONE band, so
+    they are emitted only for the shape the lab can actually show: exactly one band,
+    marked `default_off`, whose pattern period is the one BGANIM_VIEW_V_RATE_SHIFT was
+    derived against. Anything else emits no twins and behaves exactly as before -- an
+    act that never sets `default_off` cannot notice this feature exists.
+
+    THE PERIOD CHECK IS A REFUSAL AND NOT A SILENT ZERO for the reason the rate constant
+    states: a 32 px band would take the same shift and get a different cadence while the
+    comment above still claimed the number was derived. Better to say so.
+    """
+    off = [a for a in anims if a.get('default_off', False)]
+    if not off:
+        return 0
+    if len(anims) != 1:
+        raise AssertionError(
+            f'`default_off` is set on {len(off)} of {len(anims)} bands. The debug view '
+            'twins are emitted only for a single-band act (the effects lab drives one '
+            'band), and a multi-band act would need a view table per band and a selector '
+            'that names both. Drop `default_off`, or extend BGANIM_VIEWS to a per-band '
+            'shape deliberately.')
+    period = anims[0]['pattern_px']
+    if period != BGANIM_VIEW_DERIVED_PERIOD_PX:
+        raise AssertionError(
+            f"band 0 is `default_off` with pattern_px {period}, but "
+            f"BGANIM_VIEW_V_RATE_SHIFT ({BGANIM_VIEW_V_RATE_SHIFT}) was DERIVED against a "
+            f"{BGANIM_VIEW_DERIVED_PERIOD_PX} px period (one full cycle ~= one screen "
+            f"height of vertical camera travel). At {period} px that shift gives a "
+            f"different cadence while the derivation comment still claims the number was "
+            f"computed for it. Re-derive the rung for this period and move "
+            f"BGANIM_VIEW_DERIVED_PERIOD_PX with it.")
+    return BGANIM_VIEW_COUNT
+
+
+def bganim_section_bytes(n_bands, total_slots, n_views=0):
     """Emitted `ojz_bg_anim` size for `n_bands` bands covering `total_slots` slots.
 
     The one authority for the section's size. `n_bands == 0` is the disabled stub
     (`BgAnim_Table: u16 = 0` plus `BgAnim_Banks = Data.empty`) = 2 bytes.
+
+    `n_views` is the number of DEBUG view twins emitted beside the act's own table
+    (`default_off` acts; see BGANIM_VIEWS). Each is its own count word plus its own
+    44-byte record -- the records differ from the authored one only in `driver` and
+    `rate_shift`, but a record is a contiguous image the engine walks with `(a3)+`,
+    so it cannot be shared and is written out again. The BANK BLOB is shared: every
+    view's pointer array names the same `extern("BgAnim_Banks")` offsets, which is
+    why the expensive half of the section does not multiply.
     """
     return (BGANIM_COUNT_BYTES
             + BGANIM_RECORD_BYTES * n_bands
+            + n_views * (BGANIM_COUNT_BYTES + BGANIM_RECORD_BYTES * n_bands)
             + total_slots * BGANIM_BYTES_PER_SLOT)
 
 
@@ -209,7 +317,7 @@ def check_bganim_section_fits(anims, section=None):
     section = section or ACT.section
     n_bands = len(anims)
     total_slots = sum(a['cols'] * a['rows'] for a in anims)
-    size = bganim_section_bytes(n_bands, total_slots)
+    size = bganim_section_bytes(n_bands, total_slots, n_views=views_emitted(anims))
     ceiling = BGANIM_SECTION_CEILING
     if size <= ceiling:
         return size
@@ -270,7 +378,8 @@ def live_section_bytes(aeon=None, act=None):
     if not anims:
         return bganim_section_bytes(0, 0)
     return bganim_section_bytes(len(anims),
-                                sum(a['cols'] * a['rows'] for a in anims))
+                                sum(a['cols'] * a['rows'] for a in anims),
+                                n_views=views_emitted(anims))
 
 
 REPO = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
@@ -640,6 +749,7 @@ def main(act=None):
         # any emission: an over-ceiling act must fail with a sentence naming the limit,
         # not by writing artifacts that make sigil report a section collision.
         section_bytes = check_bganim_section_fits(anims, act.section)
+        n_views = views_emitted(anims)
         banks = bytearray()
         bands = []
         slot_cursor = 0
@@ -670,6 +780,7 @@ def main(act=None):
                             banks.append((hi << 4) | lo)
             bands.append({
                 'axis': axis,
+                'default_off': bool(a.get('default_off', False)),
                 'driver': DRIVERS[a.get('driver', 'camera_x')],
                 'driver_name': a.get('driver', 'camera_x'),
                 'rate_shift': a.get('rate_shift', 2),
@@ -717,32 +828,103 @@ def main(act=None):
             f.write('// Mirrors engine/level/bg_anim.emp `struct bganim_band` (LOCKSTEP).\n')
             f.write(f'// Natively placed at the {act.section} section.\n')
             f.write(f'module {act.module} in {act.section}\n\n')
-            f.write(f'pub data BgAnim_Table: u16 = {len(bands)}   // band count\n')
-            for i, b in enumerate(bands):
+            # A `default_off` band is NOT counted in the act's own table — the whole
+            # system is off at boot, in every shape. See the `default_off` block at the
+            # head of this file. The records still follow the count word, so they are
+            # reachable through the view labels below and through nothing else.
+            live_bands = [b for b in bands if not b['default_off']]
+            assert all(b['default_off'] for b in bands[len(live_bands):]), (
+                'default_off bands must be the TAIL of the band list: the count word '
+                'says how many of the records that FOLLOW IT the engine walks, so a '
+                'default-off band ahead of a live one would silently disable the live '
+                'one instead of itself.')
+            f.write(f'pub data BgAnim_Table: u16 = {len(live_bands)}   // band count'
+                    + ('  (default_off: the act boots with BG animation OFF)\n'
+                       if len(live_bands) != len(bands) else '\n'))
+
+            def _emit_record(tag, b, i, driver, rate_shift, gated=False):
                 vram_dest = BG_TILE_BASE_VRAM + b['slot_base'] * 32
                 # The axis and its direction are named here because the record cannot
                 # carry them: `col_shift` and `step_mask` are units, and a reader of
                 # the emitted table has no other way to tell a leftward band from an
                 # upward one. See the BAND_AXES block for why direction is fixed.
                 f.write(f'// band {i}: {b["tile_count"]} tiles at BG slot {b["slot_base"]}, '
-                        f'driver {b["driver_name"]}, {b["axis"]} '
+                        f'driver {driver}, {b["axis"]} '
                         f'(scrolls {"left" if b["axis"] == "horizontal" else "up"}), '
-                        f'1px per {1 << b["rate_shift"]} units\n')
-                f.write(f'data _BgAnim_Band{i}_hdr: [u16; 6] = '
-                        f'[{b["driver"]}, {b["rate_shift"]}, {b["step_mask"]}, '
-                        f'{b["col_shift"]}, {b["tile_count"]}, ${vram_dest:X}]\n')
+                        f'1px per {1 << rate_shift} units\n')
+                hdr = (f'[{DRIVERS[driver]}, {rate_shift}, {b["step_mask"]}, '
+                       f'{b["col_shift"]}, {b["tile_count"]}, ${vram_dest:X}]')
+                if gated:
+                    f.write(f'data _BgAnim_{tag}{i}_hdr: [u16; BGANIM_VIEW_EMIT * 6] = '
+                            f'if DEBUG == 1 {{ {hdr} }} else {{ [] }}\n')
+                else:
+                    f.write(f'data _BgAnim_{tag}{i}_hdr: [u16; 6] = {hdr}\n')
                 # extern("BgAnim_Banks"), NOT a bare `BgAnim_Banks` — see the
                 # spelling note at :151. tools/test_bg_emit.py::TestBgAnimEmission
                 # is the gate on this line.
                 banks_list = ', '.join(f'extern("BgAnim_Banks") + {off}'
                                        for off in b['bank_offsets'])
-                f.write(f'data _BgAnim_Band{i}_banks: [*u8; 8] = [{banks_list}]\n')
+                if gated:
+                    f.write(f'data _BgAnim_{tag}{i}_banks: [*u8; BGANIM_VIEW_EMIT * 8] = '
+                            f'if DEBUG == 1 {{ [{banks_list}] }} else {{ [] }}\n')
+                else:
+                    f.write(f'data _BgAnim_{tag}{i}_banks: [*u8; 8] = [{banks_list}]\n')
+
+            for i, b in enumerate(bands):
+                _emit_record('Band', b, i, b['driver_name'], b['rate_shift'])
+
+            # ---- the DEBUG view twins (see the `default_off` block above) ----
+            #
+            # EVERY DECLARATION IS SHAPE-GATED, and that is not tidiness. The only
+            # installer is `Debug_BgAnimViewHotkey`, whose whole body is inside
+            # `if DEBUG == 1 {}`; an unconditional emission would put 92 bytes of band
+            # table in the SHIPPED ROM that nothing in that shape can point the walk at
+            # -- the dormant scaffold this tree deletes rather than keeps "for later",
+            # and the same ruling `OJZ_BaseSwap`'s own emission gate records. It also
+            # moved every release symbol after it by 92 bytes on the first draft, which
+            # turned three committed gate cuts stale for data the release cannot reach.
+            #
+            # THE IDIOM IS THE TREE'S OWN: a conditional ARRAY LENGTH plus an empty
+            # literal (`games/sonic4/data/effects/ojz_effects.emp`, OJZ_BandDemo and
+            # OJZ_BaseSwap). It has to be spelled per declaration because a band table is
+            # three declarations -- a count word, a `[u16; 6]` header and a `[*u8; 8]`
+            # pointer array -- and the pointer array cannot be folded into the others:
+            # its entries are LINK-TIME `extern()` relocations, not values this tool can
+            # split into words.
+            #
+            # WHAT IS **NOT** GATED, deliberately, and it is the bigger number: the act's
+            # own band records and the 8 KB `BgAnim_Banks` blob below stay unconditional.
+            # They are ACT DATA that predates this parcel -- all this parcel did to them
+            # is turn one count word from 1 to 0 -- and making them shape-divergent would
+            # shrink the release `ojz_bg_anim` section from ~8.3 KB to 2 B, i.e. an 8 KB
+            # release re-layout with the frozen placement tables to re-rule. That is a
+            # separate parcel and is booked in docs/DEFERRED_WORK.md rather than done
+            # here on the way past.
+            if n_views:
+                b = bands[0]
+                f.write("\n// The effects lab's two BG-animation views. Same band, same\n"
+                        '// bank blob, same slots — they differ ONLY in which scalar the\n'
+                        '// step is read from and how fast. Reached through\n'
+                        '// BgAnim_SetTable (engine/level/bg_anim.emp), DEBUG shape only:\n'
+                        '// every declaration below emits ZERO bytes in the plain shape,\n'
+                        '// where nothing can point the walk at them.\n')
+                f.write('const BGANIM_VIEW_EMIT = if DEBUG == 1 { 1 } else { 0 }\n')
+                f.write('pub data BgAnim_View_H: [u16; BGANIM_VIEW_EMIT] = '
+                        'if DEBUG == 1 { [1] } else { [] }   // horizontal camera motion\n')
+                _emit_record('ViewH', b, 0, b['driver_name'], b['rate_shift'], gated=True)
+                f.write('pub data BgAnim_View_V: [u16; BGANIM_VIEW_EMIT] = '
+                        'if DEBUG == 1 { [1] } else { [] }   // vertical camera motion\n')
+                _emit_record('ViewV', b, 0, BGANIM_VIEW_V_DRIVER,
+                             BGANIM_VIEW_V_RATE_SHIFT, gated=True)
             f.write(f'pub data BgAnim_Banks = embed("{act.banks_embed}")\n')
-        assert section_bytes == BGANIM_COUNT_BYTES + BGANIM_RECORD_BYTES * len(bands) + len(banks), (
+        assert section_bytes == bganim_section_bytes(
+                len(bands), sum(b['tile_count'] for b in bands), n_views=n_views), (
             f'bganim_section_bytes predicted {section_bytes} B but the emitted artifacts are '
-            f'{BGANIM_COUNT_BYTES + BGANIM_RECORD_BYTES * len(bands) + len(banks)} B — the '
+            f'{BGANIM_COUNT_BYTES + BGANIM_RECORD_BYTES * len(bands) + n_views * (BGANIM_COUNT_BYTES + BGANIM_RECORD_BYTES * len(bands)) + len(banks)} B — the '
             f'size formula and the emitter have diverged, so the ceiling gates nothing')
-        print(f'[inject_editor_bg] anim: {len(bands)} band(s), {len(banks)} bytes of banks; '
+        live = sum(0 if b['default_off'] else 1 for b in bands)
+        print(f'[inject_editor_bg] anim: {len(bands)} band(s), {live} live at boot, '
+              f'{n_views} debug view twin(s), {len(banks)} bytes of banks; '
               f'ojz_bg_anim {section_bytes}/{BGANIM_SECTION_CEILING} B (ROM-room ceiling)')
     else:
         # no animation: emit the disabled stub as a natively-placed `.emp` section
