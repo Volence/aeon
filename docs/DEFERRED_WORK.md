@@ -18316,7 +18316,20 @@ item did NOT hit the wall items 3 and 4 hit.
   itself column-major before this parcel). The middle two are what say the guard's two halves
   each discriminate; the last is what says the decode does.
 
-### The on-screen half is BLOCKED, and both reasons are numbers rather than judgement
+### ~~The on-screen half is BLOCKED, and both reasons are numbers rather than judgement~~
+
+**⚠ SUPERSEDED 2026-09-04 — SEE THE ITEM-8 BLOCK AT THE END OF THIS FILE BEFORE QUOTING
+ANYTHING BELOW.** Both numbered reasons are retired: a vertical band is in `s4.debug.bin`
+and has been witnessed rolling on its axis with a horizontal-axis control failing the same
+predicate. Neither reason was wrong — reason 2's arithmetic still holds — but both were
+prices for putting the band in the AUTHORED ACT, and the band did not have to go there. The
+owner's document is still untouched and the 12,288 B ceiling is still unspent. What remains
+open is narrower than either: nobody has SEEN one, because the probe band aims at VRAM
+tiles no plane cell references. This paragraph exists because the sentence beneath it went
+stale in a day once already and was quoted onward to the owner as a live blocker.
+
+The text below is kept unedited as the derivation.
+
 
 The DoD wants a vertical band *visible in the OJZ scroll test*. That needs art, and art is
 where this stops:
@@ -24291,3 +24304,168 @@ The owner's 2026-09-02 "CUT THE CEREMONY" ruling ended the paired *certification
 sigil refreeze no longer gates an ordinary aeon landing — but it did not, and could not, change
 this placement mechanism. Closing `SIGIL-DECOUPLE` step 2 (the frozen tables stop being the
 placement authority) is what would make a future anchor move an aeon-only change.
+
+## EFFECTS-W1 ITEM 8 — THE ON-SCREEN HALF: A VERTICAL BAND IS NOW IN A ROM AND HAS BEEN WITNESSED MOVING VERTICALLY (2026-09-04, `parcel/vertical-band-look`)
+
+**This supersedes the "the on-screen half is BLOCKED" section of the 2026-09-02 item-8 block
+above, on both of its two numbered reasons.** Read this one for the current state; that one
+is kept because it is where the derivation lives.
+
+### What was actually open, and what closes it
+
+The open half was not a design question and not an engine one. It was: **no ROM had ever
+been built containing a band whose axis is vertical, and nobody had looked at one.** The
+first half is now done and the second is a VRAM measurement — see the boundary section
+below, which is deliberately narrow.
+
+### The route: neither of the two the blocked block anticipated
+
+The 2026-09-02 block priced a vertical band as *"inserting 12 slots at the front of a 110 KB
+authored document and renumbering all 4,096 layout words, i.e. rewriting the owner's
+background, blind"*, and correctly refused to do it. **That price was for putting the band in
+the AUTHORED ACT. It is not the price of building one.** The band shipped here is debug-tier
+probe content at the foot of `games/sonic4/test/ojz_scroll_test.emp`:
+
+- **`games/sonic4/data/editor_bg_override.json` is untouched.** Not read, not regenerated, not
+  renumbered. `tools/forest_bg_gen.py`'s refusal was never approached.
+- **The act's ruled 12,288 B `ojz_bg_anim` budget is unspent.** `tools/bganim_room.py --lst
+  s4.debug.lst --gate` still measures that section at **8,330 B**, the baseline number. The
+  probe rides in the `ojz_scroll_test` section, which sits in the ROM TAIL after the Z80
+  banks, so its 2,140 debug bytes also cannot push `Art_Sonic` toward the `dac_banks` anchor.
+- **The band aims at $A800 (slot 1344) — the BG region's unused `band_reserve`** (128 tiles
+  withheld from the static importer, `games/sonic4/vram.toml`; the shipped static blob is 320
+  tiles, `bg_tiles.bin` = 2 + 320*32). Nothing else writes that run, which is what keeps the
+  measurement unconfounded and the owner's canopy intact.
+- **Zero release code/data bytes.** Measured, not asserted from the gating idiom: `s4.bin`
+  grew 18 B and its CRC moved, so a pristine rebuild off HEAD's `ojz_scroll_test.emp`
+  reproduced the baseline exactly (720,829 B, crc `D4BF05E5`) and a byte diff attributes every
+  changed byte — `$18E-$18F` (header checksum), `$1A7` (header ROM-end field), and everything
+  from `$A6085`, which is past `EndOfRom` = `$A5C82` **in both listings**, i.e. the deb2
+  appendix growing by three symbol names. In `s4.lst` all three labels sit at the same
+  address, `$A496E`.
+
+Geometry, derived rather than picked (`tools/bganim_vprobe_gen.py` carries the full
+derivation): **2 cols x 4 rows = 8 tiles = 2,048 B of banks**, driver `Logic_Tick`,
+`rate_shift` 3. `1x8` and `8x1` were rejected — with one rotation unit on an axis the coarse
+rotate is 0 mod total for every step, so the horizontal control arm would be a rotate that
+never rotates, i.e. no control at all.
+
+### The witness, and its control
+
+`tools/bganim_vprobe_witness.py` (headless Aether bus; no emulator MCP tool was used). It
+predicts the 256 bytes at the band's destination from the **record read out of the ROM
+image** and from `BgAnim_Update`'s own two-piece wrapped DMA, then reads VRAM. `s4.debug.bin`
+carries TWO probe tables — `BgAnim_View_Vert` and `BgAnim_View_VertCtl` — over the same art,
+driver, rate and destination, differing in exactly the two axis fields (`col_shift` 6 vs 7,
+`step_mask` 31 vs 15). They are rows 3 and 4 of `Debug_BgAnimViewHotkey`'s cycle.
+
+```
+arm 0 (nothing installed)  $A800 unchanged across 20 frames, first 8 B 0000000000000000
+                           matches none of the 32 vertical predictions before install
+vertical arm               16/16 own-prediction MATCH; 16/16 a y-roll of phase 0
+                           all 4 coarse rotation positions [0,1,2,3] exercised
+horizontal control         16/16 own-prediction MATCH  (the engine works on that axis too)
+                           11/16 samples DISCRIMINATING; vertical predicate FAILED on 11/11
+```
+
+The 5 non-discriminating control samples are structural and the script labels each one: at
+coarse 0 the shift is 0 bytes on both axes and the fine bank index is the same instruction
+either way, so the two predictions genuinely coincide there. A witness that counted those as
+passes would be counting its own blind spot. `STRIDE = 3` exists for the same reason — the
+first run of that file, at stride 1, hit only **2 of 4** coarse positions and would have been
+reporting on the fine phase alone.
+
+**The witness's own red-first is the part worth keeping.** Poison the banks with a HORIZONTAL
+shift-fill (bank k = phase 0 rolled LEFT k px) while the record still declares vertical —
+`docs/BUGS.md` TOOL-01's shape, one axis over — and the DMA-level arm **stays green**
+(16/16 own-prediction MATCH), because `BgAnim_Update` is still doing exactly what the record
+says. Only the y-roll assertion catches it: **14 of 16 red**. A witness with just the first
+arm would have passed a horizontally-rolled band and called it vertical.
+
+That take was the SECOND attempt. The first could not reach the witness at all: `build.sh`
+**refused to build the poisoned ROM**, because the lockstep gate added by this parcel is on
+its pytest lane and that lane is build-fatal (`2 failed, 2363 passed, 5 skipped, 73 subtests
+passed`). Reading `s4.debug.bin` after that non-zero build would have been reading the
+PREVIOUS build's bytes. The poisoned ROM was therefore built with the off-canonical
+`config_a` profile, whose clean twin was witnessed first as the control.
+
+### The gate
+
+`tools/test_bganim_vprobe.py`, 8 tests on `build.sh`'s pytest lane, locking the probe band's
+geometry across its three authors (the generator that DERIVES the fields and generates the
+art from them, the two `.emp` records the engine walks, and the blob they have to agree
+about). It opens no ROM: that lane runs BEFORE the sigil build. Red-first, five mutations
+each shown on disk as a diff and restored from the committed baseline, `__pycache__` cleared
+and a run-unique `PYTHONPYCACHEPREFIX` per run:
+
+| mutation | red |
+|---|---|
+| `.emp` vertical `step_mask` 31 -> 15 | **1** |
+| generator `ROWS` 4 -> 2 | **5** |
+| one flipped blob byte | **2** |
+| `.emp` control `driver` 2 -> 1 | **1** — the matched-pair test, and only it |
+| blob regenerated by a horizontal shift-fill | **2** |
+| restored | 8 passed |
+
+### WHAT IS DEMONSTRATED AND WHAT IS ONLY PRESENT IN BYTES — read this before quoting the above
+
+**Demonstrated:** the engine's vertical arm runs end to end — art, through a record carrying
+`axis`-derived fields, through `BgAnim_Update`'s bank select and two-piece wrapped coarse
+rotate, into VRAM — and what lands there is, at every sampled step and every coarse position,
+phase 0 rolled UP by exactly `step` pixels. The same art under a horizontal record is not.
+
+**NOT demonstrated: that anybody has seen a vertical band on a screen.** Nothing in this
+parcel looks at a rendered frame, and the band aims at VRAM tiles **no plane cell
+references**, deliberately. Pressing C+A past row 2 in the DEBUG shape makes the picture stop
+changing; it does not show a second animation. **Do not read "witnessed moving vertically" as
+"seen".** The missing half is plane cells in ROW-MAJOR order over the band's slots, which is
+an authoring change to the act's document — the same "slot-order obligation is unchecked"
+note `tools/EFFECTS_CONSUMER_CONTRACT.md` §1.2 already books, and still the owner's question
+rather than a lane's.
+
+**TAGGED FOR A PIXEL CAPTURE.** If the owner wants to LOOK at one, the cheapest honest route
+is not to renumber his document: point a handful of plane cells at slots 1344.. in row-major
+order (a runtime `write_vram` from a bus script, or a temporary debug paint), then capture.
+That is a separate, small piece of work and it is not done here.
+
+### Also corrected by this parcel
+
+The header of `Debug_BgAnimViewHotkey` said a genuinely vertical band *"needs vertically
+pre-shifted phase art and a ROW-MAJOR slot order in `layout`, neither of which any writer in
+this tree can produce today"*. The second clause still holds **of the authored act**; the
+first was overtaken the day after it was written and is now false in this tree as well.
+
+### Still open, unchanged by this parcel
+
+- **A vertical band in the AUTHORED ACT.** Still capped at 15 tiles by the 12,288 B ceiling,
+  still costs renumbering 4,096 layout words, still the owner's call. This parcel does not
+  make it cheaper; it makes the question answerable by showing him a working one first.
+- **`direction`** (downward / rightward). Unbuilt, no spare record word — unchanged.
+- **The slot-order obligation** stays unchecked on the authored side.
+
+### One arrangement a future reader will trip over, recorded because the failure was loud
+
+The probe was first written as its own module (`games.sonic4.bganim_vprobe in
+ojz_scroll_test`). That build was REFUSED, under two different module spellings:
+
+```
+[layout.undeclared-alignment] section `ojz_scroll_test`
+  (head label `BgAnim_VProbe_Banks`) has NO declared alignment in
+  `sigil_harness::section_align::DECLARED`
+```
+
+A section's head label is its **lowest-offset label** (sigil `native.rs::head_label`) and
+`section_align::DECLARED` is keyed **by that label** (`GameState_OJZScroll_Init`, their
+`section_align.rs:163`). A second module joining a section lands at offset 0 whatever it is
+called, which renames the head and drops the section out of a table that lives in the frozen
+assembler. Inside ONE module, emission follows declaration order — the four `data` items
+already at the foot of `ojz_scroll_test.emp` are the proof, since they sit after every proc
+and the head label is still the entry point. So the foot of that file is where this art can
+live. **Renaming or re-homing it fails the build rather than silently re-laying-out the ROM.**
+
+### Landing note
+
+Byte-moving in all four shapes, so the aeon+sigil repin/refreeze ritual applies and is the
+**controller's** step, not this lane's — the sigil binary was frozen by suite agreement for
+this run (`sigil 0.1.0 (0a58f2ec)`, md5 `6c2378ae8a657e26684d4019a7d976d7`) and no cargo
+command was run in that tree.
