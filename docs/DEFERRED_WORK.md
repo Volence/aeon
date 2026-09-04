@@ -23623,3 +23623,108 @@ ROM's number.** Aurora's version, banked verbatim because it is the operational 
 after a non-zero build is a hash of whatever was there before, and the exit code has to be checked
 first.** They did exactly this today and got away with it — the reading happened to be right, which
 is the way this one usually passes.
+
+---
+
+## EFFECTS-W1 item 10 — the reels INSTRUMENTS, widened to the authored table (2026-09-04)
+
+`parcel/reels-instruments-authored`. Python only; **zero ROM bytes moved** (all four shapes
+byte-identical, CRCs in the parcel report). Assembler pinned: sigil `0a58f2ec`, md5
+`6c2378ae8a657e26684d4019a7d976d7`.
+
+**The defect, and it failed in the worst available direction.** The reels authoring key landed at
+`09d964c7`: a scene document's `reels` key lowers into a per-scene `[i8; REEL_BAND_COUNT]` table plus
+an association table, and `OJZ_Reels_Fill` selects against `Parallax_Current_Config`, keeping
+`OJZ_Reel_Speed` on a miss. Both reels instruments still knew only the fallback.
+
+* `tools/reels_witness.py` hardcoded `SPEEDS = [3, -5, 2, -4, 6]` — a hand copy of the demo table.
+  Pointed at a ROM whose ACTIVE table is an authored one carrying different rates, it goes **red
+  because the authoring worked**. It does not merely fail to detect success; it accuses the feature
+  of failing at the moment it succeeds, and a red instrument gets the feature "fixed" until it
+  matches the stale copy.
+* `tools/reels_gate.py` read `OJZ_Reel_Speed` only. **The authored tables had no aeon gate at all.**
+
+**THE RULE THE PARCEL IS HELD TO: derive the expected rates from the bound scene document, never
+type them.** Re-typing today's authored values would reproduce the defect one document later.
+
+### What each instrument now derives, and from where
+
+| | source of truth |
+|---|---|
+| `REEL_BAND_COUNT`, `REEL_COLS_PER_BAND` | `games/sonic4/config/constants.emp` (`emp_const`) |
+| column-buffer length | `REEL_BAND_COUNT * REEL_COLS_PER_BAND * 4` — the product IS `VSCROLL_COL_PAIRS` by an ensure in `ojz_effects.emp`, so it is build-guaranteed rather than assumed |
+| the association table | walked out of the **ROM image** with `.bind`'s own loop shape (config long, stop on zero, else the rates long after it) |
+| the active config | read out of **live RAM** at `Parallax_Current_Config` |
+| the expected rates | signed bytes read from the **resolved** table's ROM address |
+| the author's intent | `reels.rates` in `games/sonic4/data/editor/effects/<scene_id>.json` |
+
+The gate now runs **three legs with three different authorities** — scene document vs generated
+`EditorReelsSrc_*` vs the emitted ROM bytes — plus the association table's pointers required to equal
+the listing addresses of the symbols the generator named, plus a release arm asserting the whole
+authored block collapses onto its neighbouring `pub data`.
+
+### ⚠ THE TRAP, twice over. Both halves are live in this tree today.
+
+1. **`d2` holds the authored table's address on the MISS path too.** `.bind` loads the candidate
+   rates pointer *before* it compares the config. Measured here, `s4.debug.bin`, 2026-09-04: with the
+   natural (unbound) config `$013DD4`, `a2 = $01476C` (fallback) while `d2 = $013FCE` (authored). So
+   "the authored address appears in a register" is satisfied by **both** outcomes. Only `a2`
+   separates them. (Aurora reached this first, at their `a36347cd`; reproduced here independently.)
+2. **The one authored scene authors rates BYTE-IDENTICAL to the fallback.**
+   `games/sonic4/data/editor/effects/ojz_act1_depth.json` carries `[3, -5, 2, -4, 6]`, exactly
+   `OJZ_REEL_SPEEDS`. **The per-band delta arm therefore cannot tell the two tables apart at all** —
+   it is green on either. The witness detects that collision and says so loudly, because a green
+   delta row read as evidence of *selection* is the same "true and worthless" reading as the `d2`
+   sighting. In this bake the resolution arm carries the entire discrimination.
+
+### The control is part of the instrument
+
+```
+tools/reels_witness.py s4.debug.bin s4.debug.lst                    # bound   -> PASS (exit 0)
+tools/reels_witness.py s4.debug.bin s4.debug.lst --config natural   # unbound -> FAIL (exit 1)
+```
+
+Two runs differing in **one value**, `Parallax_Current_Config`. Measured: the five per-band delta
+rows, the a2-vs-Python agreement row and the vacuity row are **green in BOTH arms** (5 OK rows each,
+"5 distinct band deltas" in both). Only the new expectation assertion separates them. If the second
+command ever passes, that assertion has stopped measuring the binding and the file is decorative.
+
+`--expect auto` (the default) reads the association table: `authored` when a scene bound rates,
+`fallback` when none. **A tree that authors no reels stays gradable with no flag.**
+
+### Runners
+
+* `tools/reels_gate.py` — `build.sh`'s post-sigil sonic4 block, both shapes, with `--built-after`.
+  Unchanged wiring; the widened checks ride the existing invocation.
+* `tools/test_reels_gate.py` (extended) and `tools/test_reels_witness.py` (new) — `build.sh`'s
+  `python3 -m pytest tools` lane, which is build-fatal. 39 tests in the two files.
+* `tools/reels_witness.py` — **run by hand; it is in NO automated runner.** It boots a headless
+  emulator, so it belongs in `tools/effects_gates.py`'s registry beside the other emulator-backed
+  witnesses. **TAGGED for the controller:** that edit is outside this parcel's scope fence
+  (`tools/reels_*.py` and their tests) and `effects_gates.py` is shared with a sibling lane.
+
+### Not claimed
+
+Both `OJZ_Reel_Active` and `Parallax_Current_Config` are **poked**. This does not establish that a
+player reaches the bound state by playing; whether a poke-driven witness meets item 10's done-test is
+the owner's and the hub's reading, recorded rather than assumed. The witness also reads Work RAM, not
+VSRAM, and samples one representative column per band.
+
+**⚠ AND A CORRECTION TO THE BRIEF'S OWN PREMISE, WHICH WAS MINE AND IS THE THIRD TREE-DEPENDENT
+CLAIM IN ONE AFTERNOON.** I told aurora and the hub that `reels_witness.py` *"goes red because the
+authoring worked — it accuses the feature of failing at the exact moment it succeeds."* **That is
+true of aurora's copy and FALSE of aeon master.** The shipped document `ojz_act1_depth.json` authors
+`[3, -5, 2, -4, 6]`, which is **byte-identical to `OJZ_REEL_SPEEDS`** — so here the hardcoded
+expectation happens to match, and the old witness was **latently** wrong rather than firing. Aurora's
+`[7, -6, 4, -2, 1]` is in their tree and not in ours.
+
+**The defect characterisation was right and its current symptom was not.** A hardcoded expectation
+genuinely cannot see an authored table; it simply was not producing a red here yet, and would the
+moment an author changed one rate. **The sequencing that put this ahead of the vertical band still
+holds, but for a PROSPECTIVE reason** — aurora's next authored run would have hit it — **not because
+it was producing wrong reds today, which is what I said.**
+
+**A second collision the parcel found and nobody had recorded:** because authored and fallback rates
+are byte-identical in this bake, **the witness's delta arm cannot tell the two tables apart at all**.
+The widened witness now detects that collision and says so loudly rather than passing — a green from
+a delta comparison of two identical tables is exactly the vacuous pass this repo keeps finding.

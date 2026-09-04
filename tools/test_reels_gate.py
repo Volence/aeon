@@ -152,3 +152,152 @@ def test_all_distinct_refuses_a_collision():
 def test_all_distinct_refuses_a_collision_at_the_far_end():
     """A collision is a collision anywhere in the list, not just index 0 vs 1."""
     assert G.all_distinct([3, -5, 2, -4, -5]) is False
+
+
+# ---------------------------------------------------------------------------
+# THE AUTHORED HALF (gate widened 2026-09-04, parcel/reels-instruments-authored).
+#
+# Same rule as everything above: no ROM is opened here, because build.sh's pytest lane
+# runs BEFORE the sigil build and a unit test reading s4.debug.bin would grade a PREVIOUS
+# build. What is covered is the JUDGEMENT the widening adds — the generated module's
+# parse, the association-table walk, the scene-document read — plus the three-way
+# agreement between the shipped document, the shipped generated module and REEL_BAND_COUNT
+# that a source-level regression would break before any ROM existed.
+#
+# PROVEN RED, on disk, against the built artifacts, 2026-09-04 (the ROM-level half cannot
+# live in this file; the evidence is in the parcel report and docs/DEFERRED_WORK.md):
+#   * the editor document's rates[0] 3 -> 7, generated module untouched
+#         -> reels_gate.py --shape debug exit 1, naming scene 'ojz_act1_depth' and both
+#            lists. This is the leg NOTHING covered before: a generator that drops,
+#            reorders or rescales an author's rates.
+#   * one ROM byte at EditorReels_OJZ_Act1_ojz_act1_depth+0, $03 -> $04
+#         -> exit 1, "band 0 ... MISMATCH". The emitted-bytes leg.
+#   * the association table's config long $013E92 -> $013DD4 (a real, valid, WRONG
+#     section-binding address)
+#         -> exit 1, "binding 0's config long is $013DD4, not ...Sec4's $013E92". A
+#            plausible-address mutation, which a byte-count check cannot see.
+#   * the release listing with EditorReelBindings_OJZ_Act1 12 bytes below its neighbour
+#         -> --shape release exit 1, "emits 12 bytes in the RELEASE shape".
+# ---------------------------------------------------------------------------
+
+import os  # noqa: E402
+
+
+def _generated():
+    mods = G.generated_modules()
+    assert mods, "generated_modules() must refuse an empty glob, not return one"
+    return mods[0]
+
+
+def test_generated_modules_finds_the_shipped_act_module():
+    assert any(p.endswith(os.path.join("ojz", "act1", "effects_scenes.emp"))
+               for p in G.generated_modules())
+
+
+def test_the_generated_module_parses_into_tables_and_bindings():
+    cap, tables, bind_sym, pairs, next_decl = G.authored_reels(_generated())
+    assert bind_sym == f"EditorReelBindings_{cap}"
+    assert next_decl.startswith("Editor"), (
+        f"the neighbour used for the size/collapse arithmetic is {next_decl!r}; if the "
+        f"generator's emission order changed, that arithmetic changed meaning")
+    for sym, scene_id, rates in tables:
+        assert sym == f"EditorReels_{cap}_{scene_id}"
+        assert len(rates) == G.emp_const(G.GAME_CONSTANTS, "REEL_BAND_COUNT")
+        assert G.all_distinct(rates)
+
+
+def test_every_binding_names_a_table_the_module_declares():
+    """The association table's rates half must name a symbol this module actually emits.
+    A binding pointing at a table from another act's module would link and then hand
+    OJZ_Reels_Fill a table it never validated."""
+    _, tables, bind_sym, pairs, _ = G.authored_reels(_generated())
+    declared = {sym for sym, _, _ in tables}
+    for n, (cfg_sym, rate_sym) in enumerate(pairs):
+        assert rate_sym in declared, (
+            f"`{bind_sym}` binding {n} names rates `{rate_sym}`, which this module does "
+            f"not declare (it declares {sorted(declared)})")
+        assert cfg_sym.startswith("EditorSceneBinding_"), (
+            f"`{bind_sym}` binding {n}'s config is `{cfg_sym}` — the walk compares it "
+            f"against Parallax_Current_Config, which only ever holds a scene binding's "
+            f"address")
+
+
+def test_every_authored_table_matches_its_scene_document():
+    """Leg 1 vs leg 2, without a ROM: what the author wrote against what the generator
+    emitted. The comparison is ORDER-SENSITIVE on purpose — index i owns screen X
+    64i..64i+63, so a sorted or reversed array silently relocates every strip."""
+    _, tables, _, _, _ = G.authored_reels(_generated())
+    for sym, scene_id, gen_rates in tables:
+        assert gen_rates == G.scene_doc_rates(scene_id), (
+            f"{sym}: generated {gen_rates}, document {G.scene_doc_rates(scene_id)}")
+
+
+def test_scene_doc_rates_refuses_a_scene_with_no_document():
+    try:
+        G.scene_doc_rates("this_scene_id_does_not_exist")
+    except G.Unmeasurable:
+        return
+    raise AssertionError("a missing scene document must be UNMEASURABLE, never a skip")
+
+
+def test_authored_reels_refuses_a_module_with_no_association_table(tmp_path):
+    """The table is emitted in EVERY bake (OJZ_Reels_Fill names it in a `lea`), so its
+    absence is a parse failure or a generator change — never 'no reels authored'."""
+    p = tmp_path / "effects_scenes.emp"
+    p.write_text("pub data Something: [u8; 1] = [0]\n")
+    try:
+        G.authored_reels(str(p))
+    except G.Unmeasurable:
+        return
+    raise AssertionError("a module with no EditorReelBindings_* must be UNMEASURABLE")
+
+
+def test_authored_reels_refuses_a_table_with_no_terminator(tmp_path):
+    p = tmp_path / "effects_scenes.emp"
+    p.write_text(
+        'pub data EditorReelBindings_X_Y: [*u8; 2] = if DEBUG == 1 '
+        '{ [extern("A"), extern("B")] } else { [] }\n'
+        'pub data After: [u8; 1] = [0]\n')
+    try:
+        G.authored_reels(str(p))
+    except G.Unmeasurable:
+        return
+    raise AssertionError("a table with no `0` terminator must be UNMEASURABLE — "
+                         "OJZ_Reels_Fill's walk would run past its end")
+
+
+def test_authored_reels_refuses_an_odd_entry_count(tmp_path):
+    """OJZ_Reels_Fill reads (config, rates) PAIRS; an odd count leaves it reading the
+    terminator as a rate table pointer."""
+    p = tmp_path / "effects_scenes.emp"
+    p.write_text(
+        'pub data EditorReelBindings_X_Y: [*u8; 2] = if DEBUG == 1 '
+        '{ [extern("A"), 0] } else { [] }\n'
+        'pub data After: [u8; 1] = [0]\n')
+    try:
+        G.authored_reels(str(p))
+    except G.Unmeasurable:
+        return
+    raise AssertionError("an odd entry count must be UNMEASURABLE")
+
+
+def test_authored_reels_refuses_a_module_with_no_following_declaration(tmp_path):
+    """Without a neighbour there is no size arithmetic, and a table emitting bytes in the
+    RELEASE shape would be invisible — the exact failure the release arm exists to catch."""
+    p = tmp_path / "effects_scenes.emp"
+    p.write_text('pub data EditorReelBindings_X_Y: [*u8; 1] = if DEBUG == 1 '
+                 '{ [0] } else { [] }\n')
+    try:
+        G.authored_reels(str(p))
+    except G.Unmeasurable:
+        return
+    raise AssertionError("no following `pub data` must be UNMEASURABLE")
+
+
+def test_emp_int_array_parses_an_unannotated_const(tmp_path):
+    """`EditorReelsSrc_*` carries no type annotation on purpose (so reel_rates_ok's
+    magnitude arm sees the RAW authored ints), while OJZ_REEL_SPEEDS carries one. One
+    parser must read both spellings or this gate drifts from the source it grades."""
+    p = tmp_path / "synthetic.emp"
+    p.write_text("const UNANNOTATED = [3, -5, 2, -4, 6]\n")
+    assert G.emp_int_array(str(p), "UNANNOTATED") == [3, -5, 2, -4, 6]
