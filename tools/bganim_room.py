@@ -44,13 +44,18 @@ WHAT LIMITS THE SECTION — AND WHAT NO LONGER DOES
   reserve. An anchor off the 0x8000 grid fails by name before any room arithmetic
   is trusted.
 
-  ⚠ THE "PAIRED aeon+sigil LANDING" THIS TEXT USED TO DEMAND IS RETIRED. The owner
-  ended the paired freeze on 2026-09-02 ("CUT THE CEREMONY", empyrean
-  docs/OVERSEER.md 2026-09-02T18:20:19Z): aeon freezes and certifies alone with its
-  own gates, and sigil's nightly drift observer is the safety net — drift is a sigil
-  finding after the fact, never a gate on an aeon landing. Sigil's frozen tables
-  DO hold resolved addresses that an anchor move staled, so an anchor move is still
-  something to HAND to the sigil lane; it is no longer something to block on.
+  ⚠ MOVING THE ANCHORS IS NOT SOMETHING AEON CAN DO ALONE, and that is a mechanism
+  rather than the retired ceremony. The owner ended the paired aeon+sigil freeze on
+  2026-09-02 ("CUT THE CEREMONY", empyrean docs/OVERSEER.md 2026-09-02T18:20:19Z),
+  so a sigil refreeze no longer GATES an ordinary aeon landing. But a `[[anchor]]`
+  in map.toml places nothing: sigil derives every section's provisional base from
+  its frozen table (`load_frozen_table` -> `true_bases_by_index`) and uses the map's
+  anchors only as an address set that AUTHORIZES a section to stay where the table
+  already puts it. Measured both ways on 2026-09-04 — moving the anchors alone gives
+  `[map.undeclared-island] ROM section at 0x90000`, and declaring a spare anchor at
+  0xA8000 with the tables unchanged gives `[map.anchor-absent] ... at 0xA8000 is not
+  an inferred island`. So an anchor move must be HANDED to the sigil lane with the
+  new addresses; see the same block in games/sonic4/map.toml.
 
   RULED AUTHORING CEILING (`BGANIM_SECTION_CEILINGS`, tools/inject_editor_bg.py) — the
   owner's budget inside that room, per shape since decision d-28-answered
@@ -434,10 +439,10 @@ def report(lst_path, aeon=AEON, gate=False, out=sys.stdout, rom_path=None,
                 f"dac_banks = align_up(packed_end + reserve + grace, 0x{BANK_ALIGN:X}) "
                 f"= 0x{want:X}, sound_bank = dac_banks + 0x{SOUND_BANK_OFFSET:X} "
                 f"= 0x{want + SOUND_BANK_OFFSET:X}.\n"
-                f"  Move BOTH anchors there. Do NOT shrink the reserve. Hand the new "
-                f"anchors to the sigil lane afterwards — their frozen tables hold "
-                f"resolved addresses this stales — but do NOT block on it: the paired "
-                f"aeon+sigil freeze ended 2026-09-02 (CUT THE CEREMONY).",
+                f"  Move BOTH anchors there AND hand the two addresses to the sigil "
+                f"lane: a map anchor VALIDATES placement, sigil's frozen tables PERFORM "
+                f"it, and until the matching rows move in every sound-on table the "
+                f"build stops at `[map.undeclared-island]`. Do NOT shrink the reserve.",
                 file=out)
             rc = 1 if gate else rc
         else:

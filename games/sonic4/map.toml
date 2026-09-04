@@ -250,14 +250,34 @@ at = 0x10000
 # drops below DATA_GROWTH_RESERVE — the remedy is to move BOTH anchors per the rule,
 # never to shrink the reserve.
 #
-# ⚠ THE "PAIRED aeon+sigil LANDING" THIS BLOCK USED TO DEMAND IS RETIRED. The owner
-# ended the paired freeze on 2026-09-02 ("CUT THE CEREMONY", empyrean
-# docs/OVERSEER.md 2026-09-02T18:20:19Z): aeon freezes and certifies alone with its
-# own gates, and sigil's nightly drift observer is the safety net — drift is a sigil
-# finding after the fact, never a gate on an aeon landing. The frozen tables remain
-# the placement AUTHORITY and these anchors validate them, so an anchor move still
-# stales resolved addresses on sigil's side and must be HANDED to the sigil lane;
-# it is no longer something an aeon landing blocks on.
+# ⚠ AN ANCHOR MOVE IS THE ONE aeon CHANGE THAT STILL CANNOT LAND ALONE, AND THAT IS
+# A MECHANISM, NOT A CEREMONY. The owner ended the paired aeon+sigil freeze on
+# 2026-09-02 ("CUT THE CEREMONY", empyrean docs/OVERSEER.md 2026-09-02T18:20:19Z) and
+# aeon now certifies alone with its own gates — but this file's own header sentence,
+# "the frozen tables are the placement authority, these anchors validate them", is
+# literally true of the code, and it means an anchor here PLACES NOTHING.
+#
+# MEASURED 2026-09-04 in sigil's source and then at the build, both directions:
+#   * `true_bases_by_index` (crates/sigil-harness/src/native.rs) builds every ROM
+#     section's provisional base from `profile.frozen_sizes` — the label -> LMA rows
+#     of golden/offcanonical_sizes/<shape>.txt, read from sigil's checkout at RUN
+#     time (`load_frozen_table`, CARGO_MANIFEST_DIR). `map.toml`'s anchors reach the
+#     walk only as `anchor_addrs`, a HashSet<u32> tested by `is_anchor_gap(prov)`.
+#     Anchors are matched by ADDRESS and never by name, so a declared anchor can only
+#     AUTHORIZE a section to stay at the address the frozen table already gives it.
+#   * Declaring dac_banks/sound_bank at 0xA8000/0xB8000 with the tables unchanged:
+#     `error: [map.undeclared-island] ROM section at 0x90000 is an ANCHOR_GAP-inferred
+#     island but no [[anchor]] at = 0x90000 is declared` — the DAC bank did not move.
+#   * Control, same tree: keep 0x90000/0xA0000 and add a third anchor at 0xA8000:
+#     `error: [map.anchor-absent] declared anchor `control_probe_a8000` at 0xA8000 is
+#     not an inferred island in this build` — nothing landed at the declared address.
+#   * `sigil build` has no frozen-table override flag.
+#
+# So moving these two lines requires the matching rows to move in sigil's frozen
+# tables for every sound-on shape (s4, s4_debug, config_a, lean; config_b is
+# sound-off and unaffected) — hand it to the sigil lane. What the 09-02 cut changed
+# is that a sigil refreeze is no longer a CERTIFICATION gate on an ordinary aeon
+# landing; it did not, and could not, change this placement mechanism.
 #
 # WHAT BOUNDS HOW FAR THE BANKS CAN MOVE (from source, 2026-08-26):
 #   * engine/sound/z80_sound_driver.emp `SndDrv_SetBank`: the bank id rides in the

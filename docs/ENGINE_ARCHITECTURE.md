@@ -171,10 +171,13 @@ has five kinds of entry:
   binding (DEBUG) shape. The rule is
   enforced post-sigil by `tools/bganim_room.py --gate` on both canonical listings (it
   fails naming the new anchor pair when a shape's room drops under the reserve; the
-  remedy is to move both anchors. The frozen tables stay the placement authority and an
-  anchor move stales resolved addresses on sigil's side, so it is handed to the sigil
-  lane — but it is no longer a paired landing an aeon merge blocks on: the owner ended
-  that on 2026-09-02, "CUT THE CEREMONY").
+  remedy is to move both anchors — and that move is the one aeon change that still
+  cannot land alone. A `[[anchor]]` PLACES NOTHING: sigil derives each section's base
+  from its frozen table and reads the map's anchors only as an address set that
+  authorizes a section to stay where the table already puts it (measured 2026-09-04,
+  both directions — see the block in `map.toml`). The matching rows must move in
+  sigil's sound-on frozen tables. The owner's 2026-09-02 "CUT THE CEREMONY" ruling
+  ended the paired *certification* freeze; it did not change this mechanism).
   What bounds the move: the driver's `SndDrv_SetBank` carries the bank id in 8 bits
   (latch bit 8 written 0 → LMA < 0x800000) and the cartridge space ends at 0x3FFFFF.
   Before the re-layout the anchors were `0x48000` / `0x58000` and capped the data region,

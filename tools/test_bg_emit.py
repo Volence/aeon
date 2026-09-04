@@ -1481,10 +1481,11 @@ class TestBgAnimRoomOverCommittedFixture(unittest.TestCase):
         self.assertIn(f"dac_banks = align_up(packed_end + reserve + grace, 0x8000) = 0x{want:X}", text)
         self.assertIn(f"sound_bank = dac_banks + 0x10000 = 0x{want + 0x10000:X}", text)
         self.assertIn("Do NOT shrink the reserve", text)
-        # the remedy text names the sigil hand-off WITHOUT making it a blocker — the
-        # paired aeon+sigil freeze ended 2026-09-02 (CUT THE CEREMONY)
-        self.assertIn("Hand the new anchors to the sigil lane", text)
-        self.assertIn("do NOT block on it", text)
+        # the remedy text names the sigil hand-off as a REQUIREMENT, because a map
+        # anchor places nothing (measured 2026-09-04, both directions — see the block
+        # in games/sonic4/map.toml)
+        self.assertIn("hand the two addresses to the sigil lane", text)
+        self.assertIn("map.undeclared-island", text)
         self.assertNotIn("a paired aeon+sigil landing)", text)
         # without --gate the same breach is reported, not enforced
         import io
