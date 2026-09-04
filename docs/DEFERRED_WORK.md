@@ -22925,3 +22925,34 @@ The asymmetry rule this lane built on the bad mechanism (*ask which path could h
 OTHER answer*) is a good rule and is kept — but its founding instance is **struck, not footnoted**,
 because the probe it described was a confound and not a structurally-blind instrument. A refuted
 mechanism does not leave its arithmetic standing.
+
+**⚠ AND A FALSE SUCCESS COMMITTED WHILE BANKING THE BAR ABOVE, worth recording because it is the
+cheapest possible instance of the class this file keeps cataloguing.** The commit for that entry was
+written as `git commit -m "...backticked text..."` in zsh, which **command-substituted the backticks**
+— git received mangled arguments and refused (`pathspec 'mv' did not match any file(s)`). The next
+line in the same block was:
+
+```sh
+git push -q origin HEAD:master && echo "banked: $(git rev-parse HEAD)"
+```
+
+Separate command, not chained to the commit. So the push succeeded (pushing the *previous*, already
+pushed commit), `rev-parse HEAD` resolved to that previous commit, and the block printed
+**`banked: 604be823`** — a real SHA, reachable at origin, and **not the commit it claimed to have
+made.** The entry was still sitting staged and uncommitted.
+
+**Every individual fact in that output was true.** The push worked; the SHA exists; it is an
+ancestor of `origin/master`. Only the *sentence* was false. That is the same shape as the killed
+build script earlier the same day — the loud steps succeeded and the quiet one that mattered did
+not — and as the worktree `git checkout` that fails while the `cargo build` after it succeeds.
+
+**Two correctives, and the second is the general one:** report a SHA only from a command whose
+success is the thing being reported (`git commit ... && echo`, never a bare `rev-parse` in a later
+statement); and **prefer `git show --stat HEAD` plus the stored subject line** over any echo, because
+that reads what was actually written rather than where a pointer happens to be. *Anywhere a status
+line is assembled from a separate query rather than from the operation's own result, it can describe
+a world that did not happen.*
+
+*(Mechanical note for this repo's shells: use a quoted heredoc (`-F -` with `<<'MSG'`) for any commit
+message containing backticks, parentheses or `$`. Every message today that used one landed; the one
+that used `-m` did not.)*
