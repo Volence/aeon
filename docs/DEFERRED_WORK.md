@@ -22956,3 +22956,49 @@ a world that did not happen.*
 *(Mechanical note for this repo's shells: use a quoted heredoc (`-F -` with `<<'MSG'`) for any commit
 message containing backticks, parentheses or `$`. Every message today that used one landed; the one
 that used `-m` did not.)*
+
+## OUR ASSEMBLER-STALENESS CHECK COMPARES THE FIELD SIGIL DOCUMENTS AS THE WRONG ONE — booked 2026-09-04
+
+**Found by the sigil lane, in our tree, and verified firsthand here before booking** (their warning
+about our own code is the class this repo says to check rather than accept):
+
+`build.sh:293` extracts `revision:` into `SIGIL_REV`, and `:326-330` compares it against
+`git -C "${SIGIL_SRC}" rev-parse HEAD`, reporting `_sigil_stale="revision"` on any difference.
+
+**`revision:` moves on EVERY commit in the sigil repository, including docs-only ones no compilation
+can see.** Sigil's own boot doc records this and keys their half on `closure-revision` for exactly
+that reason — *"a docs-only commit makes two byte-identical assemblers look like two different ones"*.
+Our script predates that finding.
+
+**The fix is available from the binary we already invoke, and needs no cooperation from sigil.**
+`sigil --version` on the pinned binary prints both:
+
+```
+revision:          0a58f2ecc8e77c9433bc0ea3f0549c1e0e556f3b
+closure-revision:  c27335d6dc3276f86fd229eeef5328f12017feb0
+closure-paths:     .cargo Cargo.lock Cargo.toml crates/... rust-toolchain rust-toolchain.toml
+```
+
+Note the two are **different commits** today, which is the point: `closure-revision` is the last
+commit touching the paths this binary is actually compiled from. **The comparison becomes**: extract
+`closure-revision` and `closure-paths`, then
+`git -C "${SIGIL_SRC}" log -1 --format=%H -- ${closure_paths}` and compare. Derived from the
+binary's own declaration rather than a list we would have to keep in step.
+
+**WHAT THIS COST ALREADY, so the row is priced honestly:** the warning fired this morning, this lane
+chased it, and the answer required a hand-run `git diff --stat <rev>..<remote> -- crates/` to decide
+whether it meant anything. It happened to be a real staleness that time — but the check cannot
+distinguish that from a docs-only commit, so **its green and its red carry the same information**,
+which is the property that makes a gate worth removing or fixing rather than reading.
+
+**⚠ AND THE REASON THIS IS NOT A ONE-LINE SWAP:** the anchor stays at **local HEAD**, deliberately.
+Sigil's agent refused to re-anchor their equivalent at `origin/master` and was right — that refuses
+every lane legitimately holding unpushed commits, which is the always-red check that trains people
+to delete the guard. Sigil instead added `published:` and `drift-check-published:` lines naming the
+tracking ref, so the remote question is answerable from the banner without the comparison moving.
+**Checked by them against our four `sed` extractors (`revision:`, `source:`, `tree:`, the
+`tree-tracked` note) before they landed it: none of the new lines collides, so our parsing does not
+break.** Verify that again at the moment of the parcel rather than inheriting it.
+
+**Not done now on purpose:** two parcels are in flight and `build.sh` is the kind of file a runner
+edit lands in. Doing it after avoids a three-way conflict on the one file that gates every build.
