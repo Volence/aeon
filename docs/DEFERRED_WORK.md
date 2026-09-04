@@ -2366,9 +2366,59 @@ shape. Uncomment the `ensure` only once the data satisfies it, or it is a build 
 
 ### DMA SPLIT-REJECT NEEDS TWO FREE IMPORTANT SLOTS, AND NOTHING COUNTS PER-FRAME STRADDLES — booked 2026-08-29
 
-> **THE INSTRUMENT IS BUILT 2026-09-03** (`parcel/dma-straddle-counter`). **THE MEASUREMENT IS
-> NOT — this entry stays OPEN, and the reserve is UNCHANGED at 2.** No emulator was used in that
-> parcel; the reading is owed by a foreground session and only that reading closes this.
+> **THE INSTRUMENT IS BUILT 2026-09-03** (`parcel/dma-straddle-counter`). **THE MEASUREMENT WAS
+> TAKEN 2026-09-04 (`tools/dma_straddle_reading.py`) AND IT IS ZERO — and the reason it is zero
+> is the finding. THE RESERVE IS UNCHANGED AT 2 and this entry stays OPEN, but the thing it is
+> waiting for is no longer "a foreground session with an emulator".**
+>
+> **WHAT WAS RUN.** `s4.debug.bin` at aeon `52be83a9`, headless, driven play: 14,580 frames as
+> Sonic (four legs, alternating right/left with jump pulses and a look-up leg) and a further
+> 10,980 as **Knuckles** (`Character_ID` = 2, cycled through `Debug_CharacterHotkey`'s A press
+> and verified, not hand-poked — `characters.emp` refuses a poked `Character_ID` that desyncs
+> from `Player_Chardef`). **All five cells read 0 in both runs.** `DMA_Peak_Important` = 14 bytes
+> = one entry; `DMA_Overflow_Count` = 0.
+>
+> **THE DRIVE IS NOT THE PROBLEM — that was checked rather than assumed.** Camera_X moves 96 ->
+> 5,824 in 600 frames of holding right, so the play is real and art is loading.
+>
+> **⚠ THE BOOKING'S OWN RECIPE CANNOT CLOSE THIS ROW, AND THAT IS THE REUSABLE HALF.** It says
+> "play an act for a few minutes reaching art-heavy states". `tools/dplc_straddle.py --gate`
+> settles why that is not enough: of every sprite set in the ROM, **only KNUCKLES' art crosses a
+> 128 KB boundary** (one boundary, `0x60000`), and it does so on **exactly ONE animation frame,
+> `$88`**. Sonic spans none. Tails spans none. `tails_tail` spans none. So `.split` runs only
+> while Knuckles is displaying that one frame, and general play — running, jumping, looking up,
+> in either direction — will not reach it. **A session following the recipe gets a zero and has
+> to choose between reporting "the reserve holds" (wrong, it was never tested) and reporting
+> nothing.** The zero is STRUCTURAL, not evidence about the reserve.
+>
+> **THE SUBSTANTIVE QUESTION IS ALREADY ANSWERED, AND MORE STRONGLY THAN A PEAK COULD ANSWER IT.**
+> The reserve exists because a straddling Important landing needs two slots. `dplc_straddle --gate`
+> is EXHAUSTIVE over reachable animation frames, where a runtime peak is exhaustive over nothing
+> but the frames one play happened to visit. Measured 2026-09-04, exit 0:
+>
+> ```
+> worst REACHABLE frame split: 1 extra entry against a 2-slot DPLC_ENTRY_RESERVE
+> CONCURRENT demand: knuckles 1 + sonic 0 + tails 0 = 1 split against a 2-slot reserve
+> worst peak SLOT cost over REACHABLE frames: 10, against the committed bar of 10
+>   (= DMA_IMPORTANT_SLOTS - DPLC_ENTRY_RESERVE = 12 - 2)
+> ```
+>
+> **So the reserve of 2 covers a worst reachable concurrent demand of 1, with a slot budget
+> exactly at its bar.** That is a stronger statement than "no frame in one exercise exceeded it".
+>
+> **WHAT WOULD ACTUALLY CLOSE THIS, and it is a choice for the owner or the hub rather than more
+> driving:** either (a) accept the static gate as the answer and close the row, recording that the
+> runtime cells stay as a regression tripwire rather than as the evidence; or (b) drive Knuckles
+> into animation frame `$88` specifically — a targeted animation, not general play — and read the
+> cells there. (b) costs a session and would corroborate (a) rather than extend it. **Nobody
+> should re-run the general-play recipe: it has now been run twice, as both subjects, for 25,560
+> frames, and it cannot reach the code under test.**
+>
+> *(Method note kept because it nearly went the other way: the probe's positive control —
+> `Dbg_DMA_Straddle_All`, free-running over every queue — is what stopped the first run being
+> written up as a pass. The good answer here IS a zero, which is exactly the shape that cannot be
+> accepted un-witnessed. The refusal now names which subjects straddle and tells the reader to
+> re-run with `--character 2`, so the next session meets the explanation instead of the puzzle.)*
 >
 > **What exists now**, all DEBUG-shape only (both release ROMs verified byte-identical:
 > `s4.bin` 719700 / `14ee2440`, `demo.bin` 96474 / `0c456778`):
