@@ -37,7 +37,7 @@ the game ships.
 Top-left corner, two rows of small yellow glyphs. They appear on your first press, not at boot.
 
 ```
-    1 4        <- row 1: the SCENE cursor (two digits, 00-19)
+    1 4        <- row 1: the SCENE cursor (two digits, 00-20)
     3 <>       <- row 2: the PRESET cursor (one digit) and its VERDICT
 ```
 
@@ -224,6 +224,45 @@ was invisible; it is 16 px now.
 > That was one end of a range read as a constant. The distance to equilibrium is not fixed — the
 > anchor sweep moves it continuously between 6 and 37 px — so the page now says the range and
 > says why it moves.
+
+---
+
+## Scene `20` — the perspective floor WITH the per-column cone, one press from boot
+
+**Press `START` + `LEFT` once.** The scene cursor boots at 0 and steps backwards with a
+wrap, so a single LEFT lands on the last scene in the registry. Row 1 reads `20` and
+`ParallaxConfig_Perspective_Floor` is live. Twenty presses of `START` + `RIGHT` reach the
+same place the long way round.
+
+**How this differs from preset `8`**, which is also "the perspective floor" and is
+documented above. Preset 8 installs section 8's *editor-authored* scene: correct window,
+correct ramp, and **no per-column deform at all**. Scene 20 is that same geometry with the
+F3 **vanishing-point cone** on top — the thing scenes `13`/`14`/`15` have and preset 8 does
+not. If you want to compare, `START + A` to preset 8 and `START + LEFT` to scene 20 show
+the floor with and without the cone.
+
+**What to look for, and all of it needs MOTION — a still frame shows none of it:**
+
+- **Hold LEFT or RIGHT and watch the floor, not the jungle.** Rows nearer the bottom sweep
+  past quickly and the row at the horizon does not move at all. The vanishing point stays
+  put while the boards slide past it.
+- **The horizon should read as a straight line, not a chevron.** The cone bows the plane by
+  6 px at the screen edges, chosen so the hard shadow line under the horizon never steps by
+  more than 1 px between neighbouring columns.
+- **The apex leans as you travel**, bounded to the middle third of the display.
+
+**The floor band deliberately has no shimmer and no haze.** A band that ramps its scroll
+factor cannot also sample a deform table — the fill's curve loop has no registers left — so
+the floor trades its wobble for its recession. The four bands above it keep theirs.
+
+**This is BACKGROUND**, so OJZ's foreground terrain draws over it. Review it from debug
+free-flight with the camera somewhere the foreground is open.
+
+> **Why scenes `13`, `14` and `15` show you a "V in the trees" and this one does not.**
+> They author `v_offset: 0`, which on a locked plane pins the visible window to plane rows
+> 0-27 — the canopy. The floor art is at rows 48-63. Their cone was always working; it was
+> pointed at the forest. They are the still-open F3 ballot on where the vanishing point
+> should sit, so they are left exactly as they are.
 
 ---
 

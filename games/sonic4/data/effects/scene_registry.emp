@@ -341,7 +341,7 @@ use games.sonic4.ojz_scenes.*
 // `SCENES[i]` the emission block below indexes — a record can only exist for a scene the
 // fold has already seen.
 // ---------------------------------------------------------------------
-pub const SCENES: [Scene; 20] = [
+pub const SCENES: [Scene; 21] = [
     Scene_OJZ_Default,             //  0  lower4
     Scene_OJZ_Underwater,          //  1  lower4
     Scene_OJZ_Windy,               //  2  lower1
@@ -362,6 +362,10 @@ pub const SCENES: [Scene; 20] = [
     Scene_SkyHaze,                 // 17  lower2
     Scene_OJZ_Caves,               // 18  lower5
     Scene_OJZ_LockedClouds,        // 19  lower5
+    // EFFECTS-W1 T2. APPENDED, never inserted: the registry index IS the lab's cycle
+    // position and the ROM emission order, so a scene added anywhere but the end
+    // renumbers every scene after it and silently re-points the owner's ballot.
+    Scene_Perspective_Floor,       // 20  lower5
 ]
 
 // ---------------------------------------------------------------------
@@ -384,7 +388,7 @@ pub const SCENES: [Scene; 20] = [
 //
 // PROVEN RED (2026-08-26): changing the literal to 19 fails with the message below
 // reading `19, but SCENES holds 20`.
-pub const SCENE_CYCLE_COUNT = 20
+pub const SCENE_CYCLE_COUNT = 21
 ensure(SCENE_CYCLE_COUNT == SCENES.len,
        "scene registry: SCENE_CYCLE_COUNT is {SCENE_CYCLE_COUNT}, but SCENES holds {SCENES.len} scenes. This const is the published LENGTH of the registry — a scene was added or removed without moving it. Update the literal, AND extend the `dc.l` table in Debug_SceneCycleHotkey (games/sonic4/test/ojz_scroll_test.emp) with the new record in the SAME registry order; tools/test_scene_cycle_table_lint.py fails the build if the two disagree")
 
@@ -551,7 +555,15 @@ pub const SceneRegistry_CapsFolded = fold_caps(SCENES)
 // $0040 on the scenes that adopt one; the correct response is to re-derive this word
 // from the roster and edit it, in the same commit as the adoption, never to widen the
 // test. A pin nobody has to touch is a pin nobody is checking.
-pub const SceneRegistry_CapsExpected = $089E
+// EFFECTS-W1 T2 RE-DERIVED THIS WORD, and it went red exactly as the paragraph above
+// predicts a capability landing would. $089E -> $08DE: the single new bit is $0040
+// CAP_FACTOR_CURVE, raised by Scene_Perspective_Floor (registry 20) alone — its floor
+// band authors `curve: SceneCurve.To(FACTOR_1)`, and derived_curve() raises the bit off
+// the VARIANT on any layer inside `count`. Nothing else moved: CAP_TRANSITIONS was
+// already set (fold_caps() adds it for len > 1, and 21 > 20 changes nothing), and the new
+// scene's other demands — CAP_PER_COL_VSRAM from its ScreenFloor table, CAP_DEFORM from
+// its four dsa-4 bands — were already raised by the three Perspective scenes.
+pub const SceneRegistry_CapsExpected = $08DE
 ensure(SceneRegistry_CapsFolded == SceneRegistry_CapsExpected,
        "scene registry: the twenty scenes fold to capability mask {SceneRegistry_CapsFolded}, not the hand-derived {SceneRegistry_CapsExpected}. This pin is two-sided ON PURPOSE — the subset test below cannot see a scene that STOPS raising a bit. If a scene gained a capability, re-derive this word from the per-scene roster in this file's banner and edit it in the same commit; if a scene LOST one, that is a lowering regression and the fold is telling you which way")
 
@@ -566,11 +578,22 @@ ensure(SceneRegistry_CapsFolded == SceneRegistry_CapsExpected,
 ensure((SceneRegistry_CapsFolded & CAP_MULTI_DEFORM_TABLE) == 0,
        "scene registry: a shipped scene now folds CAP_MULTI_DEFORM_TABLE — some layer authored `deform: SceneDeform.Own(..)`. Adopting a per-layer deform table is PARK-1 (owner-gated) and it is not a scene-local edit: it flips the lowered band record to the extended shape, so engine/level/parallax.emp's BAND_EXT_N must become 1 and engine/ram.emp's BAND_EXT_BYTES must become sizeof(band_ext) in the SAME commit, and every ROM image in the tree moves")
 // THE SECOND RECORD-SHAPE BIT (P3 Task 10). Same shape, same reason, different tail:
-// CAP_FACTOR_CURVE moves BAND_CURVE_N and BAND_CURVE_BYTES. Adopting a curve on a shipped
-// scene is the curve half of PARK-1 and is likewise NOT what Task 10 landed — it built the
-// mechanism and left all twenty scenes flat.
-ensure((SceneRegistry_CapsFolded & CAP_FACTOR_CURVE) == 0,
-       "scene registry: a shipped scene now folds CAP_FACTOR_CURVE — some layer authored `curve: SceneCurve.To(..)`. Adopting a ramping BG factor is owner-gated and is not a scene-local edit: it flips the lowered band record to carry the curve tail, so engine/level/parallax.emp's BAND_CURVE_N must become 1 and engine/ram.emp's BAND_CURVE_BYTES must become sizeof(band_curve) in the SAME commit, and every ROM image in the tree moves")
+// CAP_FACTOR_CURVE moves BAND_CURVE_N and BAND_CURVE_BYTES.
+//
+// THE GATE IS PASSED (EFFECTS-W1 T2) AND THIS ARM TURNS ROUND WITH IT, exactly as the
+// CAP_BAND_DRIFT arm below did when item 3 adopted drift. Scene_Perspective_Floor's floor
+// band authors `curve: SceneCurve.To(FACTOR_1)`, so the arm no longer refuses adoption —
+// it refuses the SILENT LOSS of it, which is now the expensive direction.
+//
+// ⚠ AND THE OLD MESSAGE'S PRICE WAS ALREADY PAID, WHICH IS WORTH SAYING BECAUSE IT READ
+// AS A BLOCKER AND IS NOT ONE. It demanded BAND_CURVE_N become 1 and BAND_CURVE_BYTES
+// become sizeof(band_curve) "in the SAME commit, and every ROM image in the tree moves".
+// Both were ALREADY 1 and 10 on master (engine/level/parallax.emp:273, engine/ram.emp:65)
+// — P3 Task 10 landed the tail itself, and the record-shape churn it warns about was
+// spent then, not now. So this adoption is genuinely scene-local: the band record does not
+// change shape, and no config's byte layout moves because a curve was authored.
+ensure((SceneRegistry_CapsFolded & CAP_FACTOR_CURVE) != 0,
+       "scene registry: NO shipped scene folds CAP_FACTOR_CURVE any more, but this game still declares it in Game.SCANLINE_CAPS and engine/level/parallax.emp still carries BAND_CURVE_N = 1. Scene_Perspective_Floor's floor band carried `curve: SceneCurve.To(FACTOR_1)` as of EFFECTS-W1 T2 — if that was deliberately dropped, this is a THREE-file retreat and not a scene-local edit: clear $0040 from SCANLINE_CAPS in games/sonic4/config/game.emp, put BAND_CURVE_N back to 0 and engine/ram.emp's BAND_CURVE_BYTES back to 0 in the SAME commit, re-derive SceneRegistry_CapsExpected above, and flip this arm back to `== 0`. Leaving it half-done costs sizeof(band_curve) = 10 bytes of ROM and shadow RAM in EVERY band of EVERY scene, plus the per-frame divide and the per-line Bresenham loop, for a background that ramps nothing")
 // CAP_BAND_DRIFT moves BAND_DRIFT_N and BAND_DRIFT_BYTES, and it ALSO adds a 64-byte
 // accumulator array to Parallax_State. Same owner gate, same reason: the mechanism landing at
 // BAND_DRIFT_N = 0 moves no byte, and adoption on a scene the owner sees does.
@@ -664,7 +687,12 @@ ensure(SceneRegistry_RebaseTagged > 0, "scene registry: the rebase structural ch
 // perturbation record in the P3 plan's Task 14 DONE block.
 // =====================================================================
 pub const SceneRegistry_BudgetChecked = scene_budget_enforce(SCENES)
-ensure(SceneRegistry_BudgetChecked == 20, "scene registry: the budget fold checked {SceneRegistry_BudgetChecked} scenes, not the 20 in SCENES — a fold that examines fewer scenes than the registry holds is gating a subset, and the axis ensures inside it would be silently unasked for the remainder")
+// The count is written as a LITERAL and not as `SCENES.len`, on this file's standing
+// mirror-with-a-pin discipline — but the pin is `SCENE_CYCLE_COUNT`, which is itself held
+// to `SCENES.len` by the ensure at its declaration. So the chain is
+// scene_budget_enforce(SCENES) == SCENE_CYCLE_COUNT == SCENES.len, and a registry that
+// grows moves exactly one literal (T2 moved it 20 -> 21).
+ensure(SceneRegistry_BudgetChecked == SCENE_CYCLE_COUNT, "scene registry: the budget fold checked {SceneRegistry_BudgetChecked} scenes, not the {SCENE_CYCLE_COUNT} in SCENES — a fold that examines fewer scenes than the registry holds is gating a subset, and the axis ensures inside it would be silently unasked for the remainder")
 
 // ---- THE LEDGER ROWS (Task 10) ----
 //
@@ -793,6 +821,12 @@ pub data ParallaxConfig_WindyHaze:            SceneCfg5 = lower5(SCENES[16])
 pub data ParallaxConfig_SkyHaze:              SceneCfg2 = lower2(SCENES[17])
 pub data ParallaxConfig_OJZ_Caves:            SceneCfg5 = lower5(SCENES[18])
 pub data ParallaxConfig_OJZ_LockedClouds:     SceneCfg5 = lower5(SCENES[19])
+
+// EFFECTS-W1 T2 — the first shipped scene to carry a `curve:` layer. It is emitted LAST
+// of the configs for the reason the row-remap ladder below is last in the module: every
+// address above feeds a `pcfg_deform_table_*` word inside an already-emitted record, so a
+// record inserted earlier would rewrite those words in every config that follows it.
+pub data ParallaxConfig_Perspective_Floor:    SceneCfg5 = lower5(SCENES[20])
 
 // EFFECTS-W1 item 9's ROW REMAP LADDER, and it is LAST IN THIS MODULE ON PURPOSE. Every
 // address above is the input to a `pcfg_deform_table_*` word inside an emitted record, so a

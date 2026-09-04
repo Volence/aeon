@@ -140,7 +140,7 @@ use games.sonic4.scene_registry.{ParallaxConfig_OJZ_Default, ParallaxConfig_OJZ_
     ParallaxConfig_Rocking, ParallaxConfig_Rocking_Fast, ParallaxConfig_Perspective_Subtle,
     ParallaxConfig_Perspective, ParallaxConfig_Perspective_Dramatic,
     ParallaxConfig_WindyHaze, ParallaxConfig_SkyHaze, ParallaxConfig_OJZ_Caves,
-    ParallaxConfig_OJZ_LockedClouds}
+    ParallaxConfig_OJZ_LockedClouds, ParallaxConfig_Perspective_Floor}
 
 // The raster programs Debug_BandDemoHotkey's `.raster_table` points at, imported
 // BY NAME for the reason the scene-registry list above is: an unknown name in a Label
@@ -2007,6 +2007,7 @@ proc Debug_SceneCycleHotkey () clobbers(d0-d4/a0-a2) {
         dc.l    ParallaxConfig_SkyHaze              // 17
         dc.l    ParallaxConfig_OJZ_Caves            // 18
         dc.l    ParallaxConfig_OJZ_LockedClouds     // 19
+        dc.l    ParallaxConfig_Perspective_Floor    // 20  EFFECTS-W1 T2
     }
 }
 
