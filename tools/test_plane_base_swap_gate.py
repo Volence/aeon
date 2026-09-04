@@ -86,20 +86,35 @@ on disk (`git diff -U0`) before its run and REVERSED afterwards (reversed, not
 
   * `expected_words`' top-band word, `sel_b | (plane_a >> shift_b)` -> `sel_b | (plane_b
     >> shift_b)` — the top band borrowing its OWN map, i.e. a silent no-op on screen
-        -> 1 failed, 12 passed (test_the_two_bands_borrow_from_EACH_OTHER). The degenerate
-           refusal inside `expected_words` fires and the test names the band.
+        -> 5 failed, 12 passed. `test_the_two_bands_borrow_from_EACH_OTHER` is the arm
+           aimed at it; the other four fail through the degenerate-case refusal inside
+           `expected_words`, which raises on EVERY call once the two words collide.
+        ⚠ THE SPREAD IS THE POINT AND ALSO THE LIMIT. A mutation that makes the
+           derivation raise takes out every test that calls it, so a wide red here is NOT
+           evidence that four independent checks noticed four things — three of those
+           four are the same refusal reported four times. The narrow mutation below is
+           the one that measures whether a single arm is load-bearing.
   * `expected_words`' bottom-band selector, `sel_a | (plane_b >> shift_a)` -> `sel_b |
     (plane_b >> shift_a)` — BOTH bands on reg $04, the failure T3 exists to rule out
-        -> 1 failed, 12 passed (test_the_two_bands_write_DIFFERENT_registers). Nothing
-           else notices: the framing, the arm chain, all four opcodes and the band widths
-           are unchanged by it, which is exactly why that test is stated separately.
+        -> 2 failed, 15 passed (test_the_two_bands_write_DIFFERENT_registers and
+           test_the_two_bands_borrow_from_EACH_OTHER). NOTHING ELSE NOTICES: the framing,
+           the arm chain, all four opcodes, the band widths and the reflection are
+           unchanged by it, and the image is still 23 well-formed words. That is exactly
+           why those two tests are stated separately from the framing pin.
   * `vdp_shadow_reg`'s regex, `reg\\s+\\$` -> `reg\\s+#`
-        -> 3 failed, 10 passed. The two register-number tests and the selector test all
-           report UNMEASURABLE naming the VdpShadow field, never a wrong number.
+        -> 7 failed, 10 passed. Every arm that needs a register number reports
+           UNMEASURABLE naming the VdpShadow field it could not parse — never a wrong
+           number, which is the property being checked.
   * `emp_const_expr`'s sign handling, `sign * v` -> `v`
-        -> 2 failed, 11 passed (test_the_bottom_band_is_the_top_band_REFLECTED and the
-           framing pin). The reflection reads 226/223 instead of 159/220 and the arm chain
-           collapses; the failure names the reflection, not a byte.
+        -> 5 failed, 12 passed. `test_the_bottom_band_is_the_top_band_REFLECTED` names the
+           reflection; the bottom band reads 287/226 instead of 159/220, which is
+           non-ascending against nothing and pushes the rest through the ordering refusal.
+           The failure is reported as a reflection/ordering fault, never as a byte
+           mismatch — which is the diagnosis this reader exists to keep honest.
+
+Each of the four was shown applied with `git diff -U0` before its run and reversed
+afterwards; `git diff --stat` was empty after each reversal, and the file was re-run green
+(17 passed) after the last one. `__pycache__` was cleared before every one of the five runs.
 """
 
 import sys
