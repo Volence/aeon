@@ -22992,13 +22992,32 @@ distinguish that from a docs-only commit, so **its green and its red carry the s
 which is the property that makes a gate worth removing or fixing rather than reading.
 
 **⚠ AND THE REASON THIS IS NOT A ONE-LINE SWAP:** the anchor stays at **local HEAD**, deliberately.
-Sigil's agent refused to re-anchor their equivalent at `origin/master` and was right — that refuses
-every lane legitimately holding unpushed commits, which is the always-red check that trains people
-to delete the guard. Sigil instead added `published:` and `drift-check-published:` lines naming the
+Re-anchoring at `origin/master` refuses every lane legitimately holding unpushed commits — the
+always-red check that trains people to delete the guard. **Do not "improve" it to the remote.**
+
+**⚠ CREDIT CORRECTED 2026-09-04, by the sigil lane against my own write-up of it, and the corrected
+version carries the better lesson.** I first booked this as *"sigil's agent refused and was right"*,
+framing it as an agent independently deriving an anchor bar from the situation. **It did not.**
+Sigil wrote *both* halves of the contradiction into its own brief — "compare against the remote" and
+"do not make it always-red", two paragraphs apart — so what the agent actually did was notice that
+its controller had asked for two incompatible things and **say so instead of silently picking one**.
+That is the behaviour worth dispatching for, and it is not the same as discovering the principle.
+
+**So the durable lesson is CHECK WHETHER YOUR INSTRUCTIONS CONTRADICT EACH OTHER BEFORE AN AGENT HAS
+TO** — not that an agent found an anchor bar. Recorded because I preferred the story where the agent
+was insightful, which is the same pull that put an invented mechanism into a peer's contract earlier
+today: **the version I was most pleased with was the one I had not checked.** Sigil instead added `published:` and `drift-check-published:` lines naming the
 tracking ref, so the remote question is answerable from the banner without the comparison moving.
 **Checked by them against our four `sed` extractors (`revision:`, `source:`, `tree:`, the
-`tree-tracked` note) before they landed it: none of the new lines collides, so our parsing does not
-break.** Verify that again at the moment of the parcel rather than inheriting it.
+`tree-tracked` note): none of the new lines collides.** ⚠ **But that check was run against
+`.aeon-f4ref`, a worktree pinned at `4f5ad5a1` — NOT master, and by now some distance behind it.**
+So it is a statement about a revision, not about our tree, and they said so unprompted. **Re-run it
+at the moment of the parcel; that is the only form that means anything.**
+
+**AND THE BANNER MAY STILL MOVE:** sigil's shared-target parcel is merged at their `896a9b70` with
+its merged-tree suite still running, and they are explicitly not calling it green until it returns.
+If it comes back red, the lines this parcel would parse can change. **Do not schedule this against
+their banner until they confirm.**
 
 **Not done now on purpose:** two parcels are in flight and `build.sh` is the kind of file a runner
 edit lands in. Doing it after avoids a three-way conflict on the one file that gates every build.
