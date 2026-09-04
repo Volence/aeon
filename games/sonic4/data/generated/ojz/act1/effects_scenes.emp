@@ -38,7 +38,6 @@ use games.sonic4.constants.{REEL_BAND_COUNT, reel_rates_ok}
 use engine.effects.palette.{pal_cycle_channel, PalCycleScript1}
 use engine.effects.palette.{pal_variant}
 use engine.effects.raster.{RasterRampProgram, raster_ramp_program, fp16, OP_RUN_RAMP, RASTER_ARM_EVERY_LINE, RASTER_ARM_PARK, RASTER_OPS_END, raster_arm}
-use engine.constants.{VRAM_PLANE_A}
 
 // ---- deform tables, deduped by content across the act ----
 // ---- the authored scenes, through the REAL constructors ----
@@ -235,8 +234,10 @@ const EditorRasterSrc_OJZ_Act1_ojz_sec5_showcase = compose([
 ])
 pub data EditorRaster_OJZ_Act1_ojz_sec5_showcase: [u16; raster_words(EditorRasterSrc_OJZ_Act1_ojz_sec5_showcase)] = raster_program(EditorRasterSrc_OJZ_Act1_ojz_sec5_showcase)
 
-const EditorRasterSrc_OJZ_Act1_ojz_sec6_baseswap = [fire(3, [reg_set($8200 | vdp_base_reg(VdpBase.PlaneA, 57344))]),
-                    fire(64, [reg_set($8200 | vdp_base_reg(VdpBase.PlaneA, VRAM_PLANE_A))])]
+const EditorRasterSrc_OJZ_Act1_ojz_sec6_baseswap = [fire(3, [reg_set(vdp_reg(VDP_PLANE_B_OFF, vdp_base_reg(VdpBase.PlaneB, 49152)))]),
+                    fire(64, [reg_set(vdp_reg(VDP_PLANE_B_OFF, vdp_base_reg(VdpBase.PlaneB, VRAM_PLANE_B)))]),
+                    fire(159, [reg_set(vdp_reg(VDP_PLANE_A_OFF, vdp_base_reg(VdpBase.PlaneA, 57344)))]),
+                    fire(220, [reg_set(vdp_reg(VDP_PLANE_A_OFF, vdp_base_reg(VdpBase.PlaneA, VRAM_PLANE_A)))])]
 pub data EditorRaster_OJZ_Act1_ojz_sec6_baseswap: [u16; raster_words(EditorRasterSrc_OJZ_Act1_ojz_sec6_baseswap)] = raster_program(EditorRasterSrc_OJZ_Act1_ojz_sec6_baseswap)
 
 ensure((Game.SCANLINE_CAPS & CAP_DENSE_TIER) != 0,

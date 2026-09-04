@@ -304,12 +304,25 @@ pub data OJZ_Act1_Sections: [Sec; 9] = [
             // nametable-base swap, bound through a `base_swap` preset document
             // (games/sonic4/data/editor/effects/presets/ojz_sec6_baseswap.json) instead
             // of existing only as OJZ_BaseSwap's DEBUG-only demo. Scroll right into
-            // section 6 to see it: a BAND ACROSS THE TOP of the screen — from line 3 to
-            // line 64 the foreground plane draws the background's map, and below line 64
-            // it goes back to its own. (⚠ This said "64 lines above the screen bottom"
-            // until 2026-09-04; that described the retired line-160 single-edge program,
-            // and stayed here through `8bf6df74`'s move to line 3. F2 gave the program its
-            // second edge, so the region it names is now the TOP band, not the bottom.)
+            // section 6 to see it: TWO BANDS WITH THE LAYERS' ROLES INVERTED BETWEEN THEM
+            // (T3, 2026-09-04, owner ask).
+            //   lines 3..64     the BACKGROUND layer draws the FOREGROUND's map
+            //                   (reg $04, Plane B's base, pointed at VRAM_PLANE_A)
+            //   lines 65..158   both layers normal — this gap is what makes them two
+            //                   bands rather than one long swap
+            //   lines 159..220  the FOREGROUND layer draws the BACKGROUND's map
+            //                   (reg $02, Plane A's base, pointed at VRAM_PLANE_B)
+            //   lines 221..223  normal again; the bottom band closes on its own edge
+            //                   rather than running off the screen
+            // The bottom band's lines are the top band's REFLECTED through the display's
+            // midline (223 - L), so both bands are 61 lines and the margins above and
+            // below are both 3 rows.
+            // (⚠ This said "64 lines above the screen bottom" until 2026-09-04; that
+            // described the retired line-160 single-edge program, and stayed here through
+            // `8bf6df74`'s move to line 3. F2 gave the program its second edge and T3 gave
+            // it a second band on the OTHER register — the two halves of the owner's
+            // sentence are two DIFFERENT VDP registers, which is why "move the band down"
+            // was not what was needed.)
             effects: OJZ_Preset_Sec6,
             dict: extern("OJZ_Sec6_Blocks") + extern("BLOCK_INDEX_SIZE"),
             dict_len: OJZ_SEC6_BLOCK_DICT_LEN),

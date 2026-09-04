@@ -227,18 +227,46 @@ Reading the rows:
   half, 2026-09-03). **NOT YET in the empyrean schema** — this generator ships the key
   ahead of a hub ruling, the reverse of `ramp`'s own sequence, because the item-11a booking
   called this half strictly smaller than a full demand artifact warrants ("it already has
-  its constructor... needs only a key and a per-scene binding"). A single closed object,
-  `{"line": .., "target": .., "restore_line": ..}` — the first two REQUIRED and undefaulted,
-  the third OPTIONAL. `line` is the screen
+  its constructor... needs only a key and a per-scene binding").
+
+  **A LIST OF BANDS SINCE 2026-09-04 (EFFECTS-W1 T3), not a single object.** It was one
+  closed object until then, and the refusal that guarded that shape said "there is one
+  mid-frame base swap per document, never an array of them" — which was wrong about the
+  mechanism it was defending. A document carries one raster PROGRAM, and a program is a
+  sequence of fires; one band per document was an assumption, and it was the assumption that
+  made the owner's own ask unauthorable: "the foreground in the background layer at the top
+  and the background in the foreground layer at the bottom of screen" names two LAYERS, and
+  the two layers' nametable bases are two DIFFERENT VDP registers ($02 for Plane A, $04 for
+  Plane B). The bands flatten into fires in document order, and overlapping or descending
+  lines — **including across bands** — are refused at build time by `fire_lines`'
+  strict-ascent ensure, by name.
+
+  Each band is a closed object, `{"plane": .., "line": .., "target": .., "restore_line": ..}`
+  — the first three REQUIRED and undefaulted, the fourth OPTIONAL.
+
+  `plane` names the `VdpBase` variant whose base register this band writes: `"PlaneA"` (the
+  FOREGROUND layer, reg $02) or `"PlaneB"` (the BACKGROUND layer, reg $04). **It is the one
+  field on this arm that is NOT forwarded verbatim**, and the reason is that forwarding
+  would succeed: `VdpBase` also carries `Window`, `SpriteTable` and `HScroll`, so
+  `"SpriteTable"` would emit a legal call that re-points the sprite table mid-frame and
+  assembles without a word of complaint. Nothing downstream can refuse a legal call, so the
+  set is closed here. It has NO DEFAULT because the register IS the content of the effect —
+  it says which layer borrows — and a default would let a band that means one direction
+  lower silently into the other. You cannot name a register directly: the register and the
+  variant must AGREE (`vdp_base_reg` shifts by the variant's own shift, 10 for PlaneA and 13
+  for PlaneB), so a mismatched pair would be a legal `$8xxx` word aimed three address bits
+  away from anything.
+
+  `line` is the screen
   line the swap fires on, forwarded verbatim to `fire()`'s own line-range ensure. `target`
-  is the raw VRAM byte address Plane A's base register (reg $02) is re-pointed at —
+  is the raw VRAM byte address that plane's base register is re-pointed at —
   **spelled as an address, not a `VdpBase` name**, the same "spelled out explicitly beats
   one fact computed twice" precedent `pal_region.addr` and `ramp.target.vsram.addr` already
-  set. **`target` MUST be a multiple of $2000** — reg $02 encodes only the address bits
-  above that granule and drops the rest SILENTLY, so a misaligned target would point the
-  VDP at a different address than every other `VRAM_*` consumer with nothing visible
-  anywhere else. This is enforced by `vdp_base_reg()`'s own ensure
-  (`engine/vdp.emp:116-117`), which names the granule in its refusal — never a byte this
+  set. **`target` MUST be a multiple of $2000** — both scroll-plane base registers encode
+  only the address bits above that granule and drop the rest SILENTLY, so a misaligned
+  target would point the VDP at a different address than every other `VRAM_*` consumer with
+  nothing visible anywhere else. This is enforced by `vdp_base_reg()`'s own ensure
+  (`engine/vdp.emp`), which names the granule in its refusal — never a byte this
   generator could silently mis-encode.
   **`restore_line` (EFFECTS-W1 F2, 2026-09-04) is what makes it a BAND.** With `line` and
   `target` alone the document lowers to ONE `OP_SET_REG`, and one edge is not a band: nothing
@@ -247,8 +275,10 @@ Reading the rows:
   lines of screen happened to remain under it; moved to `line: 3` it covered the whole screen
   and the owner reported, correctly, that he could not see anything. `restore_line` is the
   screen line the band CLOSES on, and **its target is DERIVED, never authored**: the
-  generator emits `VRAM_PLANE_A` — the base Plane A already owns, the very word the VBlank
-  flush would have written — so a document can never disagree with the flush. That asymmetry
+  generator emits the engine's own name for THAT PLANE's home base — `VRAM_PLANE_A` for a
+  `PlaneA` band, `VRAM_PLANE_B` for a `PlaneB` one — the base the register already owns and
+  the very word the VBlank flush would have written, so a document can never disagree with
+  the flush. That asymmetry
   is the design: you CHOOSE which map to borrow, you do not choose what to give back. A
   `swaps: [{line, target}, …]` list was rejected for exactly that reason (it would make an
   author type the home address, and its drift renders as a broken picture with every check
@@ -256,8 +286,10 @@ Reading the rows:
   but not what the register goes back to. **OMIT it** for a swap that runs to the bottom of
   the frame — a legitimate shape, and absence is how this schema already spells "off".
   Whether `restore_line` exceeds `line` is `fire_lines`' strict-ascent ensure, not this
-  generator's; whether the interval is wide enough to READ as a band is the hand-authored
-  twin's (`OJZ_BASE_SWAP_END_LINE - OJZ_BASE_SWAP_LINE >= 2`, each edge being a partial row).
+  generator's; whether the interval is wide enough to READ as a band, and whether two bands
+  leave a whole unswapped row between them, are the hand-authored twin's
+  (`OJZ_BASE_SWAP_TOP_END_LINE - OJZ_BASE_SWAP_TOP_LINE >= 2` and its two siblings, each
+  edge being a partial row).
   **Absent `base_swap` key entirely: no swap** — the section's raster
   channel is whatever `bands`/`ramp` (or neither, `Raster_Program_None`) says instead;
   `base_swap` cannot combine with either, for the same one-`ep_raster`-slot reason `ramp`

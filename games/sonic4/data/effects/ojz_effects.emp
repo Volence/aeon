@@ -13,7 +13,7 @@ module games.sonic4.ojz_effects in ojz_effects
 // `vdp_base_reg` / `VdpBase` join them for EFFECTS-W1 item 11a: OJZ_BaseSwap folds its
 // mid-frame reg $02 word through the SAME helper engine/system/boot_data.emp folds the
 // boot register table through, so the two cannot disagree about where a plane lives.
-use engine.vdp.{VdpTarget, VdpOp, vdp_comm, VdpBase, vdp_base_reg}
+use engine.vdp.{VdpTarget, VdpOp, vdp_comm, VdpBase, vdp_base_reg, vdp_reg, VDP_PLANE_A_OFF, VDP_PLANE_B_OFF}
 // The two plane bases item 11a's word is folded FROM. Named here rather than spelled as
 // literals so a re-layout moves the op instead of stranding it: engine.constants is the
 // engine-side truth and games/sonic4/config/constants.emp pins vram.toml against it.
@@ -29,7 +29,12 @@ use games.sonic4.constants.{REEL_BAND_COUNT, REEL_COLS_PER_BAND, reel_rates_ok}
 // import surface: raster_gradient_program's BODY names these, and a comptime fn's
 // free names resolve at the EMISSION site's scope, so they must be visible HERE or
 // they degrade to unresolved label refs.
-use engine.effects.raster.{RASTER_ARM_PARK, RASTER_OPS_END, raster_arm}
+// RASTER_MAX_FIRE_LINE joined for EFFECTS-W1 T3: OJZ_BaseSwap's BOTTOM band is the TOP
+// band's two edge lines reflected through the display's horizontal midline, and the
+// reflection is written against this name rather than a typed 223 so a display-height
+// change moves the second band with it instead of stranding it three lines from a bottom
+// that has moved.
+use engine.effects.raster.{RASTER_ARM_PARK, RASTER_OPS_END, raster_arm, RASTER_MAX_FIRE_LINE}
 // NOTE — no `use` of pal_stage_off is needed here, and briefly one was. fx_tint_band's body
 // called it, and a comptime fn's free names resolve at the CALL SITE, so constructing a tint
 // band from this file failed with four copies of "unknown function `pal_stage_off`" for a
@@ -506,66 +511,111 @@ pub data OJZ_BandDemo: [u16; OJZ_BAND_DEMO_EMIT_WORDS] = if DEBUG == 1 { raster_
 // OJZ_BaseSwap — EFFECTS-W1 DoD ITEM 11a: THE MID-FRAME NAMETABLE-BASE CHANGE.
 //
 // Batman & Robin's trick, on this engine, with ZERO new VRAM and ZERO new engine code:
-// partway down the frame, re-point Plane A's base register at an address that ALREADY
-// holds a valid nametable — Plane B's — so the bottom band of the screen draws the
-// BACKGROUND map in the FOREGROUND layer. Design:
+// partway down the frame, re-point a plane's base register at an address that ALREADY
+// holds a valid nametable — the OTHER plane's — so a band of the screen draws the wrong
+// map in that layer. Design:
 // docs/superpowers/designs/2026-09-03-vram-replan-item0-design.md §2 row 11a and §4
 // step 1, which sequences this BEFORE the Option-P VRAM purchase precisely because it
 // costs no tiles.
+//
+// ---- TWO BANDS, ROLES INVERTED BETWEEN THEM (EFFECTS-W1 T3, 2026-09-04) ----
+// ⚠ THIS PROGRAM GREW ITS SECOND BAND ON 2026-09-04 AND THE SECOND BAND WRITES A
+// DIFFERENT REGISTER. Owner ask, verbatim: "it should be the foreground in the background
+// layer at the top and the background in the foreground layer at the bottom of screen".
+// Plane A ($C000) is the foreground layer and Plane B ($E000) the background layer
+// (engine/system/constants.emp), so the two halves of that sentence are two DIFFERENT
+// registers, not one register at two lines:
+//
+//   TOP band     the BACKGROUND LAYER draws the FOREGROUND's map.
+//                Plane B's base register — reg $04, NOT $02 — points at VRAM_PLANE_A.
+//   BOTTOM band  the FOREGROUND LAYER draws the BACKGROUND's map.
+//                Plane A's base register — reg $02 — points at VRAM_PLANE_B.
+//                This is exactly what F2 shipped, moved from the top of the screen to
+//                the bottom, where the owner asked for it.
+//
+// THE TWO REGISTERS ARE INDEPENDENT AND BOTH ARE SHADOWED. engine/structs.emp's
+// `VdpShadow` carries `vdp_plane_a` (reg $02) and `vdp_plane_b` (reg $04) as separate
+// bytes, and engine/system/vdp_init.emp's Flush_VDP_Shadow walks the WHOLE table with no
+// register filter at the top of every VBlank — VERIFIED at the flush, not taken from a
+// comment. So neither band can leak into the next frame, and neither needs a frame-top
+// reset word in an `init[]` header (engine/effects/raster.emp's "a program carries NO
+// frame-top register words" ruling; see the next block for what that ruling does NOT say).
+//
+// WHY THE TWO BANDS DO NOT INTERFERE. They name disjoint registers, so nothing about the
+// top band's excursion constrains the bottom band's, and each closes on its OWN home word
+// — the very byte boot_data.emp's VDP_REG_PLANE_A / VDP_REG_PLANE_B fold through the same
+// `vdp_base_reg` helper. The four words below are FOUR SEPARATE FOLDS, never a hex
+// literal, so a VRAM re-layout moves all four together or fails the build by name.
 //
 // ---- WHY THERE IS NO FRAME-TOP OFF WORD, AND WHY THAT IS NOT THE SAME AS "ONE OP" ----
 // ⚠ CORRECTED 2026-09-04 (EFFECTS-W1 F2). This banner used to open "WHY THIS IS ONE OP
 // AND NOT TWO — there is no paired OFF edge and there must not be one", and that sentence
 // over-read its own ruling by exactly one scope. The ruling in `engine/effects/raster.emp`
-// (the "A program carries NO frame-top register words" block) is about a FRAME-TOP reset
-// word in an `init[]` header the VBlank would replay: Flush_VDP_Shadow re-blits ALL 19
-// shadowed registers from VDP_Shadow_Table unconditionally at the top of every VBlank, and
-// `vdp_plane_a` ($02) is one of them (engine/structs.emp's VdpShadow) — so the base is back
-// at VRAM_PLANE_A before the next frame's first line WITHOUT the program naming it.
-// VERIFIED at the flush rather than taken from the comment: engine/system/vdp_init.emp's
-// Flush_VDP_Shadow walks the whole table with no register filter, and boot_data.emp's row
-// for $02 is the same `vdp_base_reg(VdpBase.PlaneA, VRAM_PLANE_A)` fold this file's HOME
-// word below uses. So: no header reset word, and none is needed.
-//
-// THAT RULING SAYS NOTHING ABOUT A SECOND MID-FRAME FIRE, and reading it as "one op" cost
-// a whole review cycle. The frame-top restore is what makes the effect not leak into the
-// next frame; it is not what bounds it WITHIN a frame. A single ON edge therefore paints
-// from its line to the BOTTOM OF THE DISPLAY, which is not a band — it is the rest of the
-// screen. At the previous line of 160 that read as a band because 64 lines of screen
-// remained under it; moved to line 3 (`8bf6df74`) it re-pointed all 221 remaining lines and
-// the owner reported, correctly, that he could not see anything. A band needs an EDGE at
-// each end, so this program is TWO fires: ON at OJZ_BASE_SWAP_LINE, OFF at
-// OJZ_BASE_SWAP_END_LINE, the OFF edge writing the very HOME word the flush would have
-// written at the next frame top.
+// is about a FRAME-TOP reset word in an `init[]` header the VBlank would replay; the flush
+// makes that word unnecessary. THAT RULING SAYS NOTHING ABOUT A SECOND MID-FRAME FIRE, and
+// reading it as "one op" cost a whole review cycle. The frame-top restore is what makes an
+// effect not leak into the NEXT frame; it is not what bounds it WITHIN a frame. A single
+// ON edge therefore paints from its line to the BOTTOM OF THE DISPLAY, which is not a band
+// — it is the rest of the screen. So each band here is TWO fires, ON and OFF, and the OFF
+// edge writes the very HOME word the flush would have written at the next frame top.
 //
 // A change meant to SURVIVE the frame would be `Set_VDP_Reg` instead (it writes the
 // shadow and the flush delivers it). This is the MID-FRAME door, so it is the raster op.
+// A change meant to hold for the WHOLE frame on BOTH registers already exists and is not
+// this: `engine.parallax.Parallax_Set_Roles_Swapped` (item 10b).
 //
-// ---- THE WORD IS FOLDED, NEVER TRANSCRIBED ---------------------------------
+// ---- THE WORDS ARE FOLDED, NEVER TRANSCRIBED -------------------------------
 // `vdp_base_reg` is the same comptime fold engine/system/boot_data.emp derives the boot
-// register table from, and it carries the residue `ensure` that refuses a base outside
-// reg $02's $2000 granule. So moving VRAM_PLANE_B moves this op with it, and a base the
-// register cannot encode fails the build by name instead of pointing the VDP at
-// `base - dropped` while every consumer writes `base`.
-const OJZ_BASE_SWAP_WORD = $8200 | vdp_base_reg(VdpBase.PlaneA, VRAM_PLANE_B)
-// The word Plane A carries at frame top, by the SAME fold from the SAME helper — the one
-// the VBlank flush restores. ⚠ IT IS NOW WRITTEN AS WELL AS COMPARED (F2, 2026-09-04):
-// it used to be "here to be COMPARED, not to be written", and it is still the guard's
-// other operand below, but it is ALSO the OFF edge's argument — writing the flush's own
-// word mid-frame is what closes the band, and folding it from the same helper is what
-// keeps the closing edge honest if VRAM_PLANE_A ever moves.
-const OJZ_BASE_SWAP_HOME = $8200 | vdp_base_reg(VdpBase.PlaneA, VRAM_PLANE_A)
-// The guard that makes this program a DEMONSTRATION rather than a no-op. If the two
-// planes' bases ever fold to the same register byte — because a re-layout moved one of
-// them, or because reg $02's shift changed — the op below would write the base Plane A
-// already has and the band would be invisible while every other check here stayed green.
-// That is the exact shape of failure this fixture exists to rule out, so it is refused by
-// name rather than left to a screenshot.
-ensure(OJZ_BASE_SWAP_WORD != OJZ_BASE_SWAP_HOME,
-       "OJZ_BaseSwap: the mid-frame word ({OJZ_BASE_SWAP_WORD}) is the SAME word reg $02 already carries at frame top ({OJZ_BASE_SWAP_HOME}), so the op re-points Plane A at the base it is already using and the band draws nothing different. VRAM_PLANE_A ({VRAM_PLANE_A}) and VRAM_PLANE_B ({VRAM_PLANE_B}) must fold to DIFFERENT reg $02 bytes for item 11a to be demonstrable at all — either the two planes now share a base, or vdp_base_reg's PlaneA shift changed.")
+// register table from, and it carries the residue `ensure` that refuses a base outside the
+// register's own granule — $2000 for reg $02 (shift 10) and $2000 for reg $04 (shift 13),
+// engine/vdp.emp's `vdp_base_granule`/`vdp_base_shift` match arms. So moving either plane
+// moves the ops with it, and a base a register cannot encode fails the build by name
+// instead of pointing the VDP at `base - dropped` while every consumer writes `base`.
+//
+// THE REGISTER SELECTOR IS THE OTHER HALF OF THE FOLD AND IT IS NOT COSMETIC.
+// `vdp_base_reg` returns the register's BYTE; the caller supplies the register. Pairing
+// PlaneB's byte with Plane A's register would write reg $02 with a value shifted by 13
+// instead of 10 — a legal-looking $8xxx word pointing at a base three address bits away
+// from anything, invisible to everything downstream. So the selector is NOT a `$8200`/
+// `$8400` literal here either: `vdp_reg(VDP_PLANE_x_OFF, ...)` (engine/vdp.emp, the two
+// consts added for T3) puts the register and the `VdpBase` variant side by side at the
+// call site, where a mismatched pair can be seen. The guards below are what stop the
+// pairing from being expressible silently even so.
+const OJZ_BASE_SWAP_TOP_WORD = vdp_reg(VDP_PLANE_B_OFF, vdp_base_reg(VdpBase.PlaneB, VRAM_PLANE_A))
+// The word reg $04 carries at frame top, by the SAME fold from the SAME helper — the one
+// the VBlank flush restores, and the one boot_data.emp's VDP_REG_PLANE_B folds. It is the
+// TOP band's OFF-edge argument as well as the guard's other operand.
+const OJZ_BASE_SWAP_TOP_HOME = vdp_reg(VDP_PLANE_B_OFF, vdp_base_reg(VdpBase.PlaneB, VRAM_PLANE_B))
+// The BOTTOM band: reg $02 borrows Plane B's nametable. F2's word, unchanged.
+const OJZ_BASE_SWAP_BOT_WORD = vdp_reg(VDP_PLANE_A_OFF, vdp_base_reg(VdpBase.PlaneA, VRAM_PLANE_B))
+// The word Plane A carries at frame top, same fold, same helper — the BOTTOM band's OFF
+// edge, i.e. writing the flush's own word mid-frame is what closes the band.
+const OJZ_BASE_SWAP_BOT_HOME = vdp_reg(VDP_PLANE_A_OFF, vdp_base_reg(VdpBase.PlaneA, VRAM_PLANE_A))
+// The guards that make each band a DEMONSTRATION rather than a no-op. If a plane's borrowed
+// base and its own base ever fold to the same register byte — because a re-layout moved one
+// of them, or because a shift changed — the ON op would write the base that register already
+// has and the band would be invisible while every other check here stayed green. That is the
+// exact shape of failure this fixture exists to rule out, so it is refused by name rather
+// than left to a screenshot. TWO ensures, one per band, because the two bands name DIFFERENT
+// registers and a single check over one of them would leave the other's no-op unsaid.
+ensure(OJZ_BASE_SWAP_TOP_WORD != OJZ_BASE_SWAP_TOP_HOME,
+       "OJZ_BaseSwap TOP band: the mid-frame word ({OJZ_BASE_SWAP_TOP_WORD}) is the SAME word reg $04 already carries at frame top ({OJZ_BASE_SWAP_TOP_HOME}), so the op re-points Plane B at the base it is already using and the top band draws nothing different. VRAM_PLANE_A ({VRAM_PLANE_A}) and VRAM_PLANE_B ({VRAM_PLANE_B}) must fold to DIFFERENT reg $04 bytes for the top band to be demonstrable at all — either the two planes now share a base, or vdp_base_reg's PlaneB shift changed.")
+ensure(OJZ_BASE_SWAP_BOT_WORD != OJZ_BASE_SWAP_BOT_HOME,
+       "OJZ_BaseSwap BOTTOM band: the mid-frame word ({OJZ_BASE_SWAP_BOT_WORD}) is the SAME word reg $02 already carries at frame top ({OJZ_BASE_SWAP_BOT_HOME}), so the op re-points Plane A at the base it is already using and the bottom band draws nothing different. VRAM_PLANE_A ({VRAM_PLANE_A}) and VRAM_PLANE_B ({VRAM_PLANE_B}) must fold to DIFFERENT reg $02 bytes for the bottom band to be demonstrable at all.")
+// THE TWO BANDS MUST NAME DIFFERENT REGISTERS, and this is the T3 inversion stated as a
+// refusal rather than as prose. If both bands ever folded onto one register the program
+// would still assemble, still show two bands, and no longer be the thing the owner asked
+// for — the foreground and the background would be borrowing in the SAME direction twice.
+ensure((OJZ_BASE_SWAP_TOP_WORD >> 8) != (OJZ_BASE_SWAP_BOT_WORD >> 8),
+       "OJZ_BaseSwap: both bands write VDP register selector {OJZ_BASE_SWAP_TOP_WORD >> 8}. T3 is the ROLE INVERSION — the top band re-points the BACKGROUND layer (reg $04, Plane B) at the foreground's map and the bottom band re-points the FOREGROUND layer (reg $02, Plane A) at the background's. Two bands on one register are two of the same effect, not an inversion.")
 
-// THE LINE. 3 — THE LOWEST SCREEN LINE THE SPARSE TIER CAN SCHEDULE AT ALL, and it is
-// derived rather than picked (owner ask 2026-09-03: "I would like to see in the plane
+// ---- THE FOUR EDGE LINES, DERIVED ------------------------------------------
+// The display is 224 lines, 0..223. `RASTER_MAX_FIRE_LINE` (engine/effects/raster.emp) is
+// the last of them AND the last screen line `fire()` will schedule, which is why the
+// reflection below can be written against one name instead of a typed 223.
+//
+// TOP BAND ON EDGE. 3 — THE LOWEST SCREEN LINE THE SPARSE TIER CAN SCHEDULE AT ALL, and it
+// is derived rather than picked (owner ask 2026-09-03: "I would like to see in the plane
 // swap the fg go to the bg at the top"). The floor is structural and comes from three
 // places that all agree:
 //   * `fire()` (engine/effects/raster_dsl.emp) refuses any screen line outside 3..223 —
@@ -580,99 +630,139 @@ ensure(OJZ_BASE_SWAP_WORD != OJZ_BASE_SWAP_HOME,
 //     would make the gap byte -1 = $FF, which IS the PARK word: the schedule would die
 //     silently instead of failing. That is why the floor is a refusal and not a clamp.
 // tools/test_plane_base_swap_gate.py's own mutation ledger records the same number from
-// the other side: mutating this constant to 2 turns the gate red, and "`-> 3` is green:
-// 3 is the lowest line `fire()` itself admits".
-//
-// WHAT MOVING IT UP GAVE UP, stated because the previous value's argument was good and
-// is now spent: 160 sat 64 lines above the bottom (big enough not to read as a one-line
-// artifact) and 40 lines BELOW the OJZ water boundary (120, OJZ_WATER_LINE) so a reviewer
-// stepping the lab's cycle never compared two effects at the same edge. At 3 the swap edge
-// is 117 lines ABOVE the water boundary, further from it than 160 was; the SIZE argument is
-// what OJZ_BASE_SWAP_END_LINE below now carries, because at line 3 with no OFF edge there
-// was no size — there was the whole screen.
-const OJZ_BASE_SWAP_LINE = 3
+// the other side: mutating this constant to 2 turns the gate red.
+const OJZ_BASE_SWAP_TOP_LINE = 3
 
-// THE OFF EDGE. 64 — the line the band CLOSES on, and the whole of F2. The ON edge alone
-// re-points Plane A from line 3 to the bottom of the display; a band is two edges, and this
-// is the second. Derived the same way the floor above is — from the DSL's own guards plus
-// this file's own neighbours — and NOT a hard constant: the owner asked for "the fg in the
-// bg at the TOP", which names a region, not a number, so what is derived here is the
-// interval the number has to sit in and 64 is the value chosen inside it.
-//
-//   * FLOOR: `fire_lines` (engine/effects/raster_dsl.emp) ensures STRICT ascent of fire
-//     lines, so the OFF fire line (END - 1) must exceed the ON fire line (LINE - 1): any
-//     END > 3 assembles. That is the mechanical floor and it is far below anything useful.
-//   * FLOOR THAT MATTERS: the size argument the retired line-160 value made — a band must
-//     be big enough not to read as a one-line artifact. 160 left 64 lines under it and that
-//     was judged enough, so 64 lines is a value this file has already accepted as "a band".
-//     The ON edge is at 3, so END = 64 gives lines 3..63 plus part of 64 — 61 lines, within
-//     one line of the size that argument already bought.
+// TOP BAND OFF EDGE. 64 — F2's value, retained unchanged, and its derivation with it:
+//   * FLOOR: `fire_lines` ensures STRICT ascent of fire lines, so the OFF fire line
+//     (END - 1) must exceed the ON fire line (LINE - 1): any END > 3 assembles. That is
+//     the mechanical floor and it is far below anything useful.
+//   * FLOOR THAT MATTERS: a band must be big enough not to read as a one-line artifact.
+//     The retired line-160 single-band value left 64 lines under it and that was judged
+//     enough, so ~64 lines is a size this file has already accepted as "a band". ON at 3
+//     and END = 64 gives lines 3..63 plus part of 64 — 61 lines, within one line of it.
 //   * CEILING: OJZ_WATER_LINE = 120 (this file, below). The lab's raster cycle steps
 //     through these programs one after another; an edge near 120 would put two different
 //     effects' boundaries within a few lines of each other and a reviewer could not tell
-//     which one he was looking at. 64 sits 56 lines clear of it — the same separation
-//     argument the line-160 note made, now applied to the edge that moved.
+//     which one he was looking at. 64 sits 56 lines clear of it.
 //   * TIEBREAK inside 56..72, and it is a tiebreak and not a mechanism: 64 = 8 tile rows
 //     exactly, so the closing edge falls on an 8-pixel boundary rather than partway through
-//     a row of the borrowed map. Nothing enforces this and nothing depends on it; it is why
-//     64 rather than 60 or 70.
-//   * NOT A CEILING BUT WORTH KNOWING: the transition is not pixel-exact at either edge.
-//     engine/effects/raster.emp's row-119 note measured a bare OP_SET_REG switching its
-//     register ~45% across the fire+1 line, so each edge is a partial row. Two edges means
-//     two partial rows, at 3 and at 64.
-const OJZ_BASE_SWAP_END_LINE = 64
+//     a row of the borrowed map.
+const OJZ_BASE_SWAP_TOP_END_LINE = 64
 
-// THE GUARD F2 EXISTS TO ENCODE, and it is NOT a restatement of `fire_lines`' strict-ascent
-// ensure. That one refuses END <= LINE — a program whose records are out of order. This one
-// refuses a program that is ORDERED and still shows no band, which is the failure that
-// actually shipped. Each edge is a PARTIAL row (raster.emp's row-119 measurement: a bare
-// OP_SET_REG switches its register ~45% across the fire+1 line), so an interval of 1 line
-// is two partial rows and no complete row of borrowed map anywhere on screen; the effect
-// would be indistinguishable from the artifact its own edges make. Two lines is the
-// smallest interval that contains one fully-swapped row, so it is the floor, and it is
-// mechanical rather than a taste number.
-ensure(OJZ_BASE_SWAP_END_LINE - OJZ_BASE_SWAP_LINE >= 2,
-       "OJZ_BaseSwap: the band spans {OJZ_BASE_SWAP_END_LINE - OJZ_BASE_SWAP_LINE} line(s) (screen line {OJZ_BASE_SWAP_LINE} to {OJZ_BASE_SWAP_END_LINE}). Both edges are partial rows — engine/effects/raster.emp's row-119 note measured a bare OP_SET_REG switching its register ~45% across the fire+1 line — so an interval under 2 contains no COMPLETE swapped row and the band is indistinguishable from the artifact its own edges make. This is not fire_lines' ordering guard: that one refuses END <= LINE, and a program can satisfy it and still show nothing, which is exactly what shipped at 8bf6df74.")
+// ---- THE BOTTOM BAND'S TWO LINES ARE NOT CHOSEN AT ALL: THEY ARE THE TOP BAND'S,
+// ---- REFLECTED THROUGH THE DISPLAY'S HORIZONTAL MIDLINE.
+// The reflection on a 224-line display maps screen line L to RASTER_MAX_FIRE_LINE - L,
+// i.e. line 0 to line 223. Applied to the top band's edge pair {3, 64} it exchanges the two
+// edges' roles as well as their positions: the top band's OFF edge reflects to the bottom
+// band's ON edge and vice versa. That is one decision — "put the second band where the
+// first one would be if the screen were upside down" — instead of two more taste numbers,
+// and it is the decision the owner's sentence already contains ("at the top ... at the
+// bottom of screen").
+//
+// FIVE FACTS FALL OUT OF IT, and each one is checkable rather than asserted:
+//   1. the two bands are the SAME WIDTH — 64 - 3 = 61 = 220 - 159 — so the encoder emits
+//      the SAME arm word ($8A3C) for record 1 and record 3. That equality is visible in the
+//      hand pin below and is the cheapest way to see the reflection is intact.
+//   2. the two must-not-move margins are EQUAL: 3 rows above the top band (0..2, the
+//      priming lines, which no fire can reach anyway) and 3 rows below the bottom band
+//      (221..223). tools/base_swap_witness.py asserts both.
+//   3. the unswapped MIDDLE region (65..158, 94 rows) is centred on the display: its
+//      midpoint is 111.5, and the display's is 223/2 = 111.5.
+//   4. both bands stay clear of OJZ_WATER_LINE = 120 — the top band's OFF edge by 56 lines
+//      above it, the bottom band's ON edge by 39 below — so the cycle-stepping argument the
+//      top band's ceiling makes survives the reflection instead of being re-argued.
+//   5. every edge is inside `fire()`'s 3..223, the bottom band's OFF edge with 3 to spare.
+//
+// WHY THE BOTTOM BAND CLOSES AT ALL, rather than running off the bottom of the display and
+// letting the frame-top flush end it: a band that reaches the last line has no BELOW region,
+// and the below region is what distinguishes a bounded band from a swap with no OFF edge —
+// the exact program that shipped at 8bf6df74 and that the owner reported he could not see.
+// Closing at 220 costs three rows of picture and buys back the only assertion that can tell
+// those two apart at the bottom of the screen.
+const OJZ_BASE_SWAP_BOT_LINE     = RASTER_MAX_FIRE_LINE - OJZ_BASE_SWAP_TOP_END_LINE
+const OJZ_BASE_SWAP_BOT_END_LINE = RASTER_MAX_FIRE_LINE - OJZ_BASE_SWAP_TOP_LINE
 
-// TWO FIRES: the band's ON edge and its OFF edge. The OFF edge writes OJZ_BASE_SWAP_HOME —
-// the same word Flush_VDP_Shadow puts back at the next frame top — so the two mechanisms
-// agree by construction instead of by a second authored constant.
+// THE GUARD F2 EXISTS TO ENCODE, now applied to BOTH bands. It is NOT a restatement of
+// `fire_lines`' strict-ascent ensure. That one refuses END <= LINE — a program whose records
+// are out of order. This one refuses a program that is ORDERED and still shows no band,
+// which is the failure that actually shipped. Each edge is a PARTIAL row (raster.emp's
+// row-119 measurement: a bare OP_SET_REG switches its register ~45% across the fire+1 line),
+// so an interval of 1 line is two partial rows and no complete row of borrowed map anywhere
+// on screen. Two lines is the smallest interval that contains one fully-swapped row.
+ensure(OJZ_BASE_SWAP_TOP_END_LINE - OJZ_BASE_SWAP_TOP_LINE >= 2,
+       "OJZ_BaseSwap TOP band: the band spans {OJZ_BASE_SWAP_TOP_END_LINE - OJZ_BASE_SWAP_TOP_LINE} line(s) (screen line {OJZ_BASE_SWAP_TOP_LINE} to {OJZ_BASE_SWAP_TOP_END_LINE}). Both edges are partial rows — engine/effects/raster.emp's row-119 note measured a bare OP_SET_REG switching its register ~45% across the fire+1 line — so an interval under 2 contains no COMPLETE swapped row and the band is indistinguishable from the artifact its own edges make. This is not fire_lines' ordering guard: that one refuses END <= LINE, and a program can satisfy it and still show nothing, which is exactly what shipped at 8bf6df74.")
+ensure(OJZ_BASE_SWAP_BOT_END_LINE - OJZ_BASE_SWAP_BOT_LINE >= 2,
+       "OJZ_BaseSwap BOTTOM band: the band spans {OJZ_BASE_SWAP_BOT_END_LINE - OJZ_BASE_SWAP_BOT_LINE} line(s) (screen line {OJZ_BASE_SWAP_BOT_LINE} to {OJZ_BASE_SWAP_BOT_END_LINE}), which contains no COMPLETE swapped row. The bottom band is the top band reflected through RASTER_MAX_FIRE_LINE, so this can only fire if the top band's width already did.")
+// THE TWO BANDS MUST NOT TOUCH, and this is the middle region asserted at build time rather
+// than only on screen. tools/base_swap_witness.py's load-bearing assertion is that the rows
+// BETWEEN the bands do not move; if the bands met, that region would be empty and the
+// witness's middle arm would be vacuously green — a gate measuring nothing. Two lines is
+// the same floor and the same reason as the per-band widths above: below it there is no
+// complete UNswapped row between the two bands either.
+ensure(OJZ_BASE_SWAP_BOT_LINE - OJZ_BASE_SWAP_TOP_END_LINE >= 2,
+       "OJZ_BaseSwap: only {OJZ_BASE_SWAP_BOT_LINE - OJZ_BASE_SWAP_TOP_END_LINE} line(s) separate the top band's OFF edge (screen line {OJZ_BASE_SWAP_TOP_END_LINE}) from the bottom band's ON edge (screen line {OJZ_BASE_SWAP_BOT_LINE}). Both are partial rows, so under 2 lines there is no COMPLETE unswapped row between the bands — the two would read as one long swap, and tools/base_swap_witness.py's middle-region assertion (the one thing that tells two bounded bands from one) would be measuring an empty range.")
+// THE REFLECTION ITSELF, asserted so that editing one band's line and not the other's is a
+// build failure rather than a silently lopsided scene. Stated as the equal-width identity
+// the reflection implies, because that is the property the picture actually has.
+ensure(OJZ_BASE_SWAP_TOP_END_LINE - OJZ_BASE_SWAP_TOP_LINE == OJZ_BASE_SWAP_BOT_END_LINE - OJZ_BASE_SWAP_BOT_LINE,
+       "OJZ_BaseSwap: the top band is {OJZ_BASE_SWAP_TOP_END_LINE - OJZ_BASE_SWAP_TOP_LINE} lines and the bottom {OJZ_BASE_SWAP_BOT_END_LINE - OJZ_BASE_SWAP_BOT_LINE}. The bottom band's two lines are DERIVED as the top band's reflected through RASTER_MAX_FIRE_LINE, so unequal widths mean one of the four constants has been overridden by hand — and the equal arm words the hand pin below relies on would no longer be equal.")
+
+// FOUR FIRES: each band's ON edge and its OFF edge, in ascending screen-line order (which
+// is `fire_lines`' requirement over the WHOLE program, not per band). Each OFF edge writes
+// its own register's HOME word — the same word Flush_VDP_Shadow puts back at the next frame
+// top — so the two mechanisms agree by construction instead of by a second authored value.
 const OJZ_BASE_SWAP_PROG = [
-    fire(OJZ_BASE_SWAP_LINE,     [ reg_set(OJZ_BASE_SWAP_WORD) ]),
-    fire(OJZ_BASE_SWAP_END_LINE, [ reg_set(OJZ_BASE_SWAP_HOME) ]),
+    fire(OJZ_BASE_SWAP_TOP_LINE,     [ reg_set(OJZ_BASE_SWAP_TOP_WORD) ]),
+    fire(OJZ_BASE_SWAP_TOP_END_LINE, [ reg_set(OJZ_BASE_SWAP_TOP_HOME) ]),
+    fire(OJZ_BASE_SWAP_BOT_LINE,     [ reg_set(OJZ_BASE_SWAP_BOT_WORD) ]),
+    fire(OJZ_BASE_SWAP_BOT_END_LINE, [ reg_set(OJZ_BASE_SWAP_BOT_HOME) ]),
 ]
 
 // THE PIN, the same shape (and the same reasoning) as OJZ_TEST_HAND above: literals on
-// purpose, because a pin sharing symbols with the encoder it pins is weaker. The two
-// values that are not framing were DERIVED here from source, not copied from the design
-// document that also names them:
-//   $8A00  = $8A00 | (OJZ_BASE_SWAP_LINE - 3) = $8A00 | 0 — the two-priming-record
-//            schedule spelled out at OJZ_TestRaster above, at its floor. A gap byte of 0
-//            is the legal "fire every line" reload, not a missing arm; one line below
-//            this the byte would be $FF, the PARK word.
-//   $8A3C  = $8A00 | (OJZ_BASE_SWAP_END_LINE - OJZ_BASE_SWAP_LINE - 1)
-//          = $8A00 | (64 - 3 - 1) = $8A00 | 60 = $8A3C. `arm_at(L, i)` writes
-//            $8A00 | (L[i+2] - L[i+1] - 1) and the fire lines are L = [0, 1, 2, 63], so
-//            record 1's arm schedules the gap from the ON fire line (2) to the OFF one
-//            (63). It is the ONLY word in this program that both edges' lines touch.
-//   $8238  = $8200 | (VRAM_PLANE_B >> vdp_base_shift(PlaneA))
-//          = $8200 | ($E000 >> 10) — engine/vdp.emp's match arm gives PlaneA => 10, and
-//            engine/system/constants.emp gives VRAM_PLANE_B = $E000.
-//   $8230  = $8200 | (VRAM_PLANE_A >> 10) = $8200 | ($C000 >> 10) — the SAME fold on
-//            Plane A's own base, i.e. the word Flush_VDP_Shadow writes at frame top.
-//            This is the OFF edge, and it is the word the `ensure` above refuses as an
-//            ON edge by name — correctly: written at line 3 it would be a no-op, written
-//            at line 64 it is the bottom of the band.
+// purpose, because a pin sharing symbols with the encoder it pins is weaker. The values
+// that are not framing were DERIVED here from source, not copied from any design document:
+//   $8A00  = $8A00 | (TOP_LINE - 3) = $8A00 | 0 — the two-priming-record schedule spelled
+//            out at OJZ_TestRaster above, at its floor. A gap byte of 0 is the legal "fire
+//            every line" reload, not a missing arm; one line below this the byte would be
+//            $FF, the PARK word.
+//   $8A3C  = $8A00 | (TOP_END_LINE - TOP_LINE - 1) = $8A00 | (64 - 3 - 1) = $8A00 | 60.
+//            `arm_at(L, i)` writes $8A00 | (L[i+2] - L[i+1] - 1) and the fire lines are
+//            L = [0, 1, 2, 63, 158, 219], so record 1's arm schedules the gap from the top
+//            band's ON fire line (2) to its OFF one (63).
+//   $8A5E  = $8A00 | (BOT_LINE - TOP_END_LINE - 1) = $8A00 | (159 - 64 - 1) = $8A00 | 94 —
+//            the MIDDLE, i.e. the unswapped gap between the two bands, as one byte.
+//   $8A3C  AGAIN at record 3 = $8A00 | (BOT_END_LINE - BOT_LINE - 1) = $8A00 | (220 - 159
+//            - 1) = $8A00 | 60. IT IS THE SAME WORD AS RECORD 1 BY CONSTRUCTION: the bottom
+//            band is the top band reflected, so the two bands are the same width and their
+//            arm words are equal. If these two ever differ, the reflection has been broken.
+//   $8406  = $8400 | (VRAM_PLANE_A >> vdp_base_shift(PlaneB)) = $8400 | ($C000 >> 13) —
+//            engine/vdp.emp's match arm gives PlaneB => 13, engine/system/constants.emp
+//            gives VRAM_PLANE_A = $C000. Reg $04 <- the FOREGROUND's nametable: the top
+//            band's ON edge.
+//   $8407  = $8400 | ($E000 >> 13) — reg $04 back to Plane B's own map. The word
+//            boot_data.emp's VDP_REG_PLANE_B folds and the flush rewrites at frame top.
+//   $8238  = $8200 | (VRAM_PLANE_B >> vdp_base_shift(PlaneA)) = $8200 | ($E000 >> 10) —
+//            PlaneA => 10. Reg $02 <- the BACKGROUND's nametable: the bottom band's ON edge.
+//   $8230  = $8200 | ($C000 >> 10) — reg $02 back to Plane A's own base.
 const OJZ_BASE_SWAP_HAND = [
     0,                          // pal_dirty_mask — a register op writes no CRAM, so no
                                 //   palette line is re-asserted at frame top
     $8A00, 0,                   // fire 0 — priming; arm = $8A00 | (3 - 3) = the floor,
                                 //   a gap byte of 0 ("fire every line"), not a missing arm
-    $8A3C, 0,                   // fire 1 — priming; arm = the ON->OFF gap, 60 lines
-    $8AFF, 1,                   // fire 2 — the ON edge, ONE op; nothing follows the OFF
-                                //   edge, so this arm parks
-      0, $8238,                 // OP_SET_REG, then reg $02 <- Plane B's nametable
-    $8AFF, 1,                   // fire 3 — the OFF edge, ONE op; past the end, so park
+    $8A3C, 0,                   // fire 1 — priming; arm = the TOP band's width, 60 lines
+    $8A5E, 1,                   // fire 2 — TOP band ON, ONE op; its arm schedules the
+                                //   MIDDLE, 94 lines to the bottom band's ON edge
+      0, $8406,                 // OP_SET_REG, then reg $04 <- Plane A's nametable:
+                                //   the FOREGROUND's map drawn in the BACKGROUND layer
+    $8A3C, 1,                   // fire 3 — TOP band OFF; arm = the BOTTOM band's width,
+                                //   60 lines — the SAME word as record 1, by reflection
+      0, $8407,                 // OP_SET_REG, then reg $04 <- Plane B's own base again
+    $8AFF, 1,                   // fire 4 — BOTTOM band ON; nothing beyond the next record
+                                //   needs scheduling from here, so this arm parks
+      0, $8238,                 // OP_SET_REG, then reg $02 <- Plane B's nametable:
+                                //   the BACKGROUND's map drawn in the FOREGROUND layer
+    $8AFF, 1,                   // fire 5 — BOTTOM band OFF; past the end, so park
       0, $8230,                 // OP_SET_REG, then reg $02 <- Plane A's own base again
     $8AFF, $FFFF,               // park + RASTER_OPS_END
 ]
@@ -681,7 +771,7 @@ ensure(raster_words(OJZ_BASE_SWAP_PROG) == OJZ_BASE_SWAP_HAND.len,
 ensure(first_mismatch(raster_program(OJZ_BASE_SWAP_PROG), OJZ_BASE_SWAP_HAND) == -1,
        "OJZ_BaseSwap: DSL output diverges from the hand-authored words at index {first_mismatch(raster_program(OJZ_BASE_SWAP_PROG), OJZ_BASE_SWAP_HAND)}")
 ensure(raster_program(OJZ_BASE_SWAP_PROG)[0] == 0,
-       "OJZ_BaseSwap: pal_dirty_mask is {raster_program(OJZ_BASE_SWAP_PROG)[0]}, not 0 — this program's only op is a VDP register write, which touches no CRAM line, so a nonzero mask would make Raster_VBlank re-assert a palette line every frame on a program that writes no colours")
+       "OJZ_BaseSwap: pal_dirty_mask is {raster_program(OJZ_BASE_SWAP_PROG)[0]}, not 0 — this program's only ops are VDP register writes, which touch no CRAM line, so a nonzero mask would make Raster_VBlank re-assert a palette line every frame on a program that writes no colours")
 
 // ---- THE EMISSION IS DEBUG-GATED, FOR OJZ_BandDemo'S REASON EXACTLY ---------
 // The only installer is `Debug_BandDemoHotkey`, whose whole body sits inside
@@ -692,8 +782,9 @@ ensure(raster_program(OJZ_BASE_SWAP_PROG)[0] == 0,
 // being made the wrong way round first).
 //
 // EVERY `ensure` ABOVE IS UNGATED and that is the point of spelling it this way: they are
-// comptime and emit nothing, so the fold, the HOME-vs-SWAP guard, the arm chain and the
-// whole `raster_program` guard stack run on this program in EVERY shape, on EVERY build.
+// comptime and emit nothing, so the folds, the two HOME-vs-SWAP guards, the register
+// inversion guard, the reflection identity, the arm chain and the whole `raster_program`
+// guard stack run on this program in EVERY shape, on EVERY build.
 // Only the BYTES are shape-dependent, and `tools/plane_base_swap_gate.py` asserts BOTH
 // directions — the words in the DEBUG ROM, and their ABSENCE from the release one.
 const OJZ_BASE_SWAP_EMIT_WORDS = if DEBUG == 1 { raster_words(OJZ_BASE_SWAP_PROG) } else { 0 }

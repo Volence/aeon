@@ -637,8 +637,56 @@ PRESET_KEYS = frozenset({"schema", "id", "bands", "cycles", "variants",
 # does it check that the interval is big enough to READ as a band: the hand-authored twin
 # owns that judgement (`ojz_effects.emp`'s `OJZ_BASE_SWAP_END_LINE - OJZ_BASE_SWAP_LINE >= 2`
 # ensure) and a document-side copy would drift from it.
-BASE_SWAP_KEYS = ("line", "target")
+#
+# ---- `base_swap` IS A LIST, AND `plane` IS THE FOURTH KEY (T3, 2026-09-04) --------------
+# The document above expressed ONE band on ONE register, and reg $02 was hard-coded in the
+# renderer. The owner's ask names two LAYERS, not two lines: "the foreground in the
+# background layer at the top and the background in the foreground layer at the bottom of
+# screen". Plane A's nametable base is reg $02 and Plane B's is reg $04, so the two halves
+# of that sentence are two different registers — and a single-band, reg-$02-only document
+# could not spell the second half at all. TWO CHANGES, and both were forced by that:
+#
+#   (1) `base_swap` is now a LIST of band objects rather than one object. The refusal that
+#       used to stand here said "there is one mid-frame base swap per document, never an
+#       array of them", and that sentence was WRONG about the mechanism it was defending: a
+#       document carries one raster PROGRAM, and a program is a sequence of fires. One band
+#       per document was an assumption, not a constraint, and it is what made the inverted
+#       scene unauthorable. The list is FLATTENED in document order into the fires, so
+#       overlapping or descending bands are refused at BUILD time by `fire_lines`' own
+#       strict-ascent ensure, by name — not restated here (this arm's standing posture).
+#   (2) `plane` is REQUIRED on every band, and it is CLOSED to the two variants that name a
+#       scroll plane's nametable base. Required rather than defaulted to `PlaneA`: the
+#       register IS the content of the inversion, and a default would let a document that
+#       means "the foreground's map in the background layer" lower silently into the other
+#       register — a program that assembles, shows a band, and is the wrong effect.
+#       CLOSED rather than forwarded verbatim, which is a departure from this arm's
+#       everything-is-forwarded posture and is the one place it is right to depart:
+#       `VdpBase` has FIVE variants and three of them are not planes, so a forwarded
+#       `"SpriteTable"` would emit `VdpBase.SpriteTable`, assemble cleanly, and re-point the
+#       SPRITE TABLE mid-frame. sigil cannot refuse that — it is a legal call — so this is
+#       not a range the engine already owns, and it is checked here.
+#
+# The band's HOME base — what the register goes back to at `restore_line` — is still not
+# authorable, and now there are two of them: PlaneA returns to VRAM_PLANE_A and PlaneB to
+# VRAM_PLANE_B, spelled as NAMES in the generated source. The document names the base being
+# BORROWED because that is the author's choice; the base being RETURNED TO is the engine's
+# own fact (boot_data.emp folds both, and Flush_VDP_Shadow rewrites both at frame top), so a
+# document can never disagree with the flush.
+BASE_SWAP_KEYS = ("plane", "line", "target")
 BASE_SWAP_OPTIONAL_KEYS = ("restore_line",)
+# The `VdpBase` variants that name a SCROLL PLANE's nametable base, each with the
+# engine-side name of its own home base. Not a taste list: `Window`, `SpriteTable` and
+# `HScroll` are the other three variants, and every one of them would assemble.
+BASE_SWAP_PLANES = {"PlaneA": "VRAM_PLANE_A", "PlaneB": "VRAM_PLANE_B"}
+# The VDP register each plane's base lives in, as the engine.vdp const the generated source
+# names. NOT a `$8200`/`$8400` literal on either side of this seam: `vdp_base_reg` returns a
+# register's BYTE and the caller supplies the register, and the two registers use DIFFERENT
+# shifts (10 and 13), so a word built from one register's selector and the other's byte is a
+# legal $8xxx command pointing three address bits away from anything. Emitting
+# `vdp_reg(VDP_PLANE_x_OFF, vdp_base_reg(VdpBase.Planex, ...))` puts the register and the
+# variant side by side where a mismatched pair is visible — the same spelling the
+# hand-authored twin uses (games/sonic4/data/effects/ojz_effects.emp's OJZ_BaseSwap).
+BASE_SWAP_PLANE_REG = {"PlaneA": "VDP_PLANE_A_OFF", "PlaneB": "VDP_PLANE_B_OFF"}
 
 # `boundary`'s own shape (contract §7.6, `$defs/boundary` / `$defs/tint_region`). SIX
 # REQUIRED MEMBERS AND ONE OPTIONAL, and the whole object lowers to the one call the shipped
@@ -1296,62 +1344,110 @@ def _check_fp16(path: str, value, where: str) -> None:
 
 
 def _check_base_swap(path: str, preset: dict) -> None:
-    """SHAPE of the `base_swap` key (EFFECTS-W1 item 11a's authorable half).
+    """SHAPE of the `base_swap` key (EFFECTS-W1 item 11a's authorable half; a LIST since T3).
 
     SHAPE ONLY, `_check_ramp`'s own posture: `line`, `target` and the optional
     `restore_line` are forwarded VERBATIM to `fire()` and `vdp_base_reg()`, which own their
     own ranges (BASE_SWAP_KEYS' banner above), so this function checks only that the
-    document is the right SHAPE to forward at all — closed keys, both required fields
-    present, every present field a plain integer.
+    document is the right SHAPE to forward at all — a non-empty list, closed keys on every
+    band, all three required fields present, every present numeric field a plain integer.
+
+    `plane` IS THE ONE EXCEPTION TO THE FORWARD-VERBATIM POSTURE and the banner above says
+    why in full: `VdpBase` has five variants, three of them are not scroll planes, and
+    `VdpBase.SpriteTable` is a legal call sigil will happily assemble into a mid-frame
+    re-point of the sprite table. That is not a range the engine already owns, so it is
+    checked here rather than left to a build that would succeed.
+
+    ORDER IS STILL NOT CHECKED HERE. The bands flatten into fires in document order and
+    `fire_lines` (engine/effects/raster_dsl.emp) ensures STRICT ascent by name at build
+    time, so overlapping, descending or duplicated lines fail there — including ACROSS
+    bands, which is the check this file would be most tempted to duplicate now that there
+    is more than one. A copy would be the second statement of one fact and would drift the
+    day the DSL's rule changes.
     """
     if "base_swap" not in preset:
         return
-    bs = preset["base_swap"]
-    if not isinstance(bs, dict):
-        _refuse(path, f"`base_swap` must be an object, got {type(bs).__name__}. A preset "
-                      f"has exactly one raster: channel (EffectsPreset.ep_raster), so "
-                      f"there is one mid-frame base swap per document, never an array of "
-                      f"them.")
-    _check_keys(path, bs, frozenset(BASE_SWAP_KEYS) | frozenset(BASE_SWAP_OPTIONAL_KEYS),
-                frozenset(), None, "base_swap")
-    for required in BASE_SWAP_KEYS:
-        if required not in bs:
-            _refuse(path, f"base_swap has no `{required}`. Both `line` and `target` are "
-                          f"required, no default on either — the hand-authored precedent "
-                          f"(`games/sonic4/data/effects/ojz_effects.emp`'s `OJZ_BaseSwap`) "
-                          f"authors both explicitly.")
+    bands = preset["base_swap"]
+    if not isinstance(bands, list):
+        _refuse(path, f"`base_swap` must be a LIST of bands, got "
+                      f"{type(bands).__name__}. It was a single object until 2026-09-04 "
+                      f"(EFFECTS-W1 T3): a preset carries one raster PROGRAM, and a program "
+                      f"is a sequence of fires, so one band per document was an assumption "
+                      f"rather than a constraint — and it was the assumption that made an "
+                      f"inverted-roles scene (the foreground's map in the background layer "
+                      f"at the top, the background's in the foreground layer at the bottom) "
+                      f"unauthorable. Wrap the object in a list.")
+    if not bands:
+        _refuse(path, "`base_swap` is an empty list. A preset document must carry exactly "
+                      "one raster program, and a program with no fires is refused by "
+                      "raster_program() itself ('a program with no fires — use "
+                      "Raster_Program_None'). Spell 'no base swap here' by OMITTING the "
+                      "key, the way this schema already spells every other off state.")
 
-    line = bs["line"]
-    if isinstance(line, bool) or not isinstance(line, int):
-        _refuse(path, f"base_swap.line must be an integer, got {type(line).__name__} "
-                      f"{line!r}. Whether it is IN RANGE is fire()'s own ensure "
-                      f"(engine/effects/raster_dsl.emp:360-361), not this file's.")
+    for i, bs in enumerate(bands):
+        where = f"base_swap[{i}]"
+        if not isinstance(bs, dict):
+            _refuse(path, f"`{where}` must be an object, got {type(bs).__name__}.")
+        _check_keys(path, bs,
+                    frozenset(BASE_SWAP_KEYS) | frozenset(BASE_SWAP_OPTIONAL_KEYS),
+                    frozenset(), None, where)
+        for required in BASE_SWAP_KEYS:
+            if required not in bs:
+                _refuse(path, f"{where} has no `{required}`. `plane`, `line` and `target` "
+                              f"are all required, no default on any of them — the "
+                              f"hand-authored precedent "
+                              f"(`games/sonic4/data/effects/ojz_effects.emp`'s "
+                              f"`OJZ_BaseSwap`) authors all three explicitly for both of "
+                              f"its bands. `plane` in particular has no default BECAUSE it "
+                              f"is the content of the effect: it says which layer borrows, "
+                              f"and a default would let a band that means one direction "
+                              f"lower silently into the other.")
 
-    target = bs["target"]
-    if isinstance(target, bool) or not isinstance(target, int):
-        _refuse(path, f"base_swap.target must be an integer VRAM byte address, got "
-                      f"{type(target).__name__} {target!r}. It must be a multiple of "
-                      f"$2000 — Plane A's base register (reg $02) encodes only the "
-                      f"address bits above that granule and drops the rest SILENTLY, so "
-                      f"an unaligned target would point the VDP at a different address "
-                      f"than every other VRAM_* consumer while nothing outside the "
-                      f"encoding could see the difference. Whether it IS a multiple of "
-                      f"$2000 is vdp_base_reg()'s own ensure (engine/vdp.emp:116-117), "
-                      f"not this file's — it fails the build by name rather than "
-                      f"silently encoding the wrong register byte.")
+        plane = bs["plane"]
+        if plane not in BASE_SWAP_PLANES:
+            _refuse(path, f"{where}.plane is {plane!r}; it must be one of "
+                          f"{sorted(BASE_SWAP_PLANES)} — the `VdpBase` variants that name a "
+                          f"SCROLL PLANE's nametable base (engine/vdp.emp). This is the one "
+                          f"field on this arm that is NOT forwarded verbatim, and the "
+                          f"reason is that forwarding would succeed: `VdpBase` also carries "
+                          f"`Window`, `SpriteTable` and `HScroll`, so `\"SpriteTable\"` "
+                          f"would emit a legal call that re-points the SPRITE TABLE "
+                          f"mid-frame and assembles without a word of complaint. Nothing "
+                          f"downstream can refuse that, so it is refused here.")
 
-    if "restore_line" in bs:
-        restore_line = bs["restore_line"]
-        if isinstance(restore_line, bool) or not isinstance(restore_line, int):
-            _refuse(path, f"base_swap.restore_line must be an integer, got "
-                          f"{type(restore_line).__name__} {restore_line!r}. It is the "
-                          f"screen line the band CLOSES on — Plane A's base register goes "
-                          f"back to Plane A's own nametable there, which is the same word "
-                          f"Flush_VDP_Shadow would write at the next frame top. Whether it "
-                          f"is IN RANGE is fire()'s own ensure, and whether it exceeds "
-                          f"`line` is fire_lines()' strict-ascent ensure "
-                          f"(engine/effects/raster_dsl.emp) — neither is restated here. "
-                          f"OMIT the key for a swap that runs to the bottom of the display.")
+        line = bs["line"]
+        if isinstance(line, bool) or not isinstance(line, int):
+            _refuse(path, f"{where}.line must be an integer, got {type(line).__name__} "
+                          f"{line!r}. Whether it is IN RANGE is fire()'s own ensure "
+                          f"(engine/effects/raster_dsl.emp:360-361), not this file's.")
+
+        target = bs["target"]
+        if isinstance(target, bool) or not isinstance(target, int):
+            _refuse(path, f"{where}.target must be an integer VRAM byte address, got "
+                          f"{type(target).__name__} {target!r}. It must be a multiple of "
+                          f"the granule of the register `plane` names — $2000 for both "
+                          f"scroll-plane base registers — because that register encodes "
+                          f"only the address bits above its granule and drops the rest "
+                          f"SILENTLY, so an unaligned target would point the VDP at a "
+                          f"different address than every other VRAM_* consumer while "
+                          f"nothing outside the encoding could see the difference. Whether "
+                          f"it IS a multiple is vdp_base_reg()'s own ensure "
+                          f"(engine/vdp.emp:116-117), not this file's — it fails the build "
+                          f"by name rather than silently encoding the wrong register byte.")
+
+        if "restore_line" in bs:
+            restore_line = bs["restore_line"]
+            if isinstance(restore_line, bool) or not isinstance(restore_line, int):
+                _refuse(path, f"{where}.restore_line must be an integer, got "
+                              f"{type(restore_line).__name__} {restore_line!r}. It is the "
+                              f"screen line the band CLOSES on — the register `plane` names "
+                              f"goes back to that plane's OWN nametable there, which is the "
+                              f"same word Flush_VDP_Shadow would write at the next frame "
+                              f"top. Whether it is IN RANGE is fire()'s own ensure, and "
+                              f"whether it exceeds `line` is fire_lines()' strict-ascent "
+                              f"ensure (engine/effects/raster_dsl.emp) — neither is "
+                              f"restated here. OMIT the key for a swap that runs to the "
+                              f"bottom of the display.")
 
 
 def _check_boundary(path: str, preset: dict) -> None:
@@ -2790,36 +2886,55 @@ def render_base_swap_preset(path: str, preset: dict, names) -> str:
     or `CAP_BAND_DRIFT` gates a drifting band — `games/sonic4/data/effects/ojz_effects.emp`'s
     own hand-authored `OJZ_BaseSwap` checks none either.
 
-    Three calls, and they are the SAME three `OJZ_BaseSwap` already makes —
-    `fire`/`reg_set`/`raster_program` — reused verbatim rather than reimplemented, per the
-    brief's own instruction not to build a second constructor for a mechanism that already
-    has one. `VdpBase`/`vdp_base_reg` come from `engine.vdp`, ambient in every placed
-    module the same way `vdp_comm`/`VdpTarget`/`VdpOp` already are for `render_ramp_target`
-    above (verified against the shipped `ramp_probe` fixture in the generated module,
-    which calls `vdp_comm(...)` with no `use engine.vdp` line anywhere in this file).
+    The calls are the SAME ones `OJZ_BaseSwap` already makes —
+    `fire`/`reg_set`/`raster_program`, plus `vdp_reg`/`vdp_base_reg`/`VdpBase` — reused
+    verbatim rather than reimplemented, per the brief's own instruction not to build a
+    second constructor for a mechanism that already has one. All of them come from
+    `engine.vdp` / `engine.effects.raster_dsl`, ambient in every placed module the same way
+    `vdp_comm`/`VdpTarget`/`VdpOp` already are for `render_ramp_target` above (verified
+    against the shipped `ramp_probe` fixture in the generated module, which calls
+    `vdp_comm(...)` with no `use engine.vdp` line anywhere in this file).
 
-    TWO FIRES WHEN `restore_line` IS PRESENT (F2, 2026-09-04), one when it is not. The
-    second fire is the band's OFF edge and its argument is DERIVED, never read from the
-    document: `VRAM_PLANE_A` folded through the SAME `vdp_base_reg(VdpBase.PlaneA, ...)`
-    helper, i.e. the word `Flush_VDP_Shadow` writes at the next frame top. The document
-    names the base being BORROWED because that is the author's choice; the base being
-    RETURNED TO is not a choice, so the generator emits the engine's own name for it and a
-    document can never disagree with the flush. `VRAM_PLANE_A` is spelled as a NAME rather
-    than folded to an integer here for the reason every other value on this seam is
-    forwarded verbatim: a number would freeze today's layout into generated source and go
-    on emitting $C000 the day the constant moves.
+    N BANDS, FLATTENED IN DOCUMENT ORDER (T3, 2026-09-04). Each band contributes its ON
+    fire and, when `restore_line` is present, its OFF fire; the whole list is one ascending
+    fire sequence and `fire_lines` refuses it at build time if it is not. TWO FIRES PER BAND
+    WHEN `restore_line` IS PRESENT (F2), one when it is not — absence means the band runs to
+    the bottom of the display, which the frame-top flush ends.
+
+    TWO VALUES PER BAND ARE DERIVED, NEVER READ FROM THE DOCUMENT:
+
+      * the REGISTER. `plane` names a `VdpBase` variant, and `BASE_SWAP_PLANE_REG` maps it
+        to the engine.vdp const for the register that variant's base lives in. A document
+        cannot name a register directly, because the register and the variant must AGREE:
+        `vdp_base_reg` returns a byte shifted by the variant's own shift (10 for PlaneA, 13
+        for PlaneB), so a mismatched pair is a legal $8xxx word aimed three address bits
+        away from anything.
+      * the HOME base at `restore_line`. `BASE_SWAP_PLANES` maps the variant to the engine's
+        own name for that plane's base — `VRAM_PLANE_A` / `VRAM_PLANE_B`, i.e. the word
+        `Flush_VDP_Shadow` writes at the next frame top. The document names the base being
+        BORROWED because that is the author's choice; the base being RETURNED TO is not a
+        choice, so the generator emits the engine's own name for it and a document can never
+        disagree with the flush. It is spelled as a NAME rather than folded to an integer
+        for the reason every other value on this seam is forwarded verbatim: a number would
+        freeze today's layout into generated source and go on emitting $C000 the day the
+        constant moves.
     """
     pid = preset["id"]
     src, label = names.raster_src(pid), names.raster(pid)
-    bs = preset["base_swap"]
-    line = _render_int(path, bs["line"], "base_swap.line")
-    target = _render_int(path, bs["target"], "base_swap.target")
-    word = f"$8200 | vdp_base_reg(VdpBase.PlaneA, {target})"
-    fires = [f"fire({line}, [reg_set({word})])"]
-    if "restore_line" in bs:
-        restore_line = _render_int(path, bs["restore_line"], "base_swap.restore_line")
-        home = "$8200 | vdp_base_reg(VdpBase.PlaneA, VRAM_PLANE_A)"
-        fires.append(f"fire({restore_line}, [reg_set({home})])")
+    fires = []
+    for i, bs in enumerate(preset["base_swap"]):
+        plane = bs["plane"]
+        reg = BASE_SWAP_PLANE_REG[plane]
+        line = _render_int(path, bs["line"], f"base_swap[{i}].line")
+        target = _render_int(path, bs["target"], f"base_swap[{i}].target")
+        fires.append(f"fire({line}, [reg_set(vdp_reg({reg}, "
+                     f"vdp_base_reg(VdpBase.{plane}, {target})))])")
+        if "restore_line" in bs:
+            restore_line = _render_int(path, bs["restore_line"],
+                                       f"base_swap[{i}].restore_line")
+            home = BASE_SWAP_PLANES[plane]
+            fires.append(f"fire({restore_line}, [reg_set(vdp_reg({reg}, "
+                         f"vdp_base_reg(VdpBase.{plane}, {home})))])")
     return (f"const {src} = [" + ",\n                    ".join(fires) + "]\n"
             f"pub data {label}: [u16; raster_words({src})] = raster_program({src})")
 

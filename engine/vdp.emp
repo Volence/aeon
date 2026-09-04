@@ -32,6 +32,17 @@ pub const VDP_MODE1_OFF = $00                // reg $00 (Mode Set 1) — carries
 pub const VDP_MODE2_OFF = $01                // reg $01 (Mode Set 2) — carries VInt enable
 pub const VDP_MODE3_OFF = $0B                // reg $0B (Mode Set 3) — ext-int/scroll modes
 pub const VDP_HINT_OFF  = $0A                // reg $0A — HInt line counter
+// The two SCROLL-PLANE base registers. Added for EFFECTS-W1 T3, whose two-band program
+// writes BOTH of them mid-frame — `vdp_base_reg` returns a register's BYTE and the caller
+// supplies the register, so before these existed the caller supplied it as a bare `$8200`
+// or `$8400`. That is the one hex literal a folded word still had, and it is the dangerous
+// half: reg $02 and reg $04 use DIFFERENT shifts (10 and 13, `vdp_base_shift` below), so a
+// word built from one register's selector and the other's byte is a legal $8xxx command
+// aimed three address bits away from anything, with nothing downstream able to see it.
+// Written as `vdp_reg(VDP_PLANE_A_OFF, vdp_base_reg(VdpBase.PlaneA, ...))` the register and
+// the base variant sit side by side and a mismatched pair is visible at the call site.
+pub const VDP_PLANE_A_OFF = $02              // reg $02 — Plane A nametable base
+pub const VDP_PLANE_B_OFF = $04              // reg $04 — Plane B nametable base
 
 // vdp_reg: VDP register-set command word — $8000 base, register number in the
 // high byte, value in the low byte. The `where` bounds close the silent

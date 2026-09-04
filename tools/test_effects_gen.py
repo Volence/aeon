@@ -1984,29 +1984,73 @@ class TestBoundaryCrossFieldRefusals(PresetShapeBase):
         self.assertNotIn("outside its own band", msg)
 
 
-def _base_swap_preset(**over):
-    """A `base_swap` document that PASSES, in the SHIPPED shape (F2): two edges.
+def _base_swap_band(**over):
+    """One band of the SHIPPED document — the BOTTOM one, `PlaneA` borrowing Plane B's map.
 
-    The values are `ojz_sec6_baseswap.json`'s own — line 3, target $E000, restore_line 64
-    — for `_preset`'s reason one helper up: a fixture copied from content the tree has
-    already built and pinned is known to satisfy every raster_dsl guard, so a red here is
-    red about the GENERATOR rather than about a band nobody could author.
+    Chosen as the default band rather than the top one because it is the band that shipped
+    before T3, so a red on it is red about the change rather than about content nobody has
+    ever built.
     """
-    bs = {"line": 3, "target": 0xE000, "restore_line": 64}
-    bs.update(over.pop("base_swap", {}))
-    preset = {"schema": 1, "id": "ojz_sec6_baseswap", "base_swap": bs}
+    b = {"plane": "PlaneA", "line": 159, "target": 0xE000, "restore_line": 220}
+    b.update(over)
+    return b
+
+
+def _base_swap_preset(bands=None, **over):
+    """A `base_swap` document that PASSES, in the SHIPPED shape (T3): TWO bands, TWO planes.
+
+    The values are `ojz_sec6_baseswap.json`'s own — PlaneB borrowing $C000 across lines
+    3..64, PlaneA borrowing $E000 across 159..220 — for `_preset`'s reason one helper up: a
+    fixture copied from content the tree has already built and pinned is known to satisfy
+    every raster_dsl guard, so a red here is red about the GENERATOR rather than about a
+    band nobody could author.
+    """
+    if bands is None:
+        bands = [{"plane": "PlaneB", "line": 3, "target": 0xC000, "restore_line": 64},
+                 _base_swap_band()]
+    preset = {"schema": 1, "id": "ojz_sec6_baseswap", "base_swap": bands}
     preset.update(over)
     return preset
 
 
-class TestBaseSwapRestoreLine(PresetShapeBase):
-    """`base_swap.restore_line` — the band's OFF edge (EFFECTS-W1 F2, 2026-09-04).
+class TestBaseSwapBandsAndPlanes(PresetShapeBase):
+    """`base_swap` — a LIST of bands, each naming its own PLANE (EFFECTS-W1 T3, 2026-09-04),
+    each with an optional `restore_line` OFF edge (F2).
 
-    WHAT THE KEY IS FOR, because the shape alone does not say it: without it the document
-    lowers to ONE `OP_SET_REG`, and one edge is not a band — nothing puts reg $02 back
+    PROVEN RED against the COMMITTED baseline (f7f527e2), three mutations, each shown on
+    disk with `git diff -U0` before its run and reversed afterwards with `git diff --stat`
+    empty; `__pycache__` cleared before every run; whole-run totals, never a tail:
+
+      * `_check_base_swap`'s `if plane not in BASE_SWAP_PLANES:` -> `if False:`
+            -> 1 failed, 348 passed, 1 skipped
+               (test_a_NON_PLANE_VdpBase_variant_is_refused_by_NAME). EXACTLY one arm, which
+               is the point: the closed set is a refusal nothing else in the tree makes, so
+               nothing else can notice its absence.
+      * `_check_base_swap`'s `if not isinstance(bands, list):` -> `if False:`
+            -> 1 failed, 348 passed, 1 skipped
+               (test_a_bare_object_is_refused_naming_the_list).
+      * `render_base_swap_preset`'s derived register, `vdp_reg({reg}, ...)` ->
+        `vdp_reg(VDP_PLANE_A_OFF, ...)` — both bands on Plane A's register, the exact
+        mis-pairing the derivation exists to prevent
+            -> 4 failed, 346 passed. Two are this class's
+               (test_the_REGISTER_is_derived_from_the_plane_never_authored and the
+               shipped-document pin) and two are the generated-module reproduction pins in
+               TestJsonValuesBecomeSymbolSafeTokens / TestPresetConverseControl, which
+               notice because the committed `effects_scenes.emp` no longer round-trips.
+               That second pair is a REAL independent catch, not a duplicate: it compares
+               against a file on disk rather than against a string in this test.
+
+    Re-run green after the last reversal: 349 passed, 1 skipped, 71 subtests.
+
+    WHAT THE SHAPE IS FOR, because neither half says it alone. Without `restore_line` a band
+    lowers to ONE `OP_SET_REG`, and one edge is not a band: nothing puts the register back
     until Flush_VDP_Shadow at the next frame top, so the swap runs from its line to the
     BOTTOM OF THE DISPLAY. That is the program that shipped at `8bf6df74` with `line` 3,
-    where "to the bottom" is the whole screen and there is nothing to see.
+    where "to the bottom" is the whole screen and there is nothing to see. And without a
+    LIST there is one band on one register, which cannot spell the owner's ask — "the
+    foreground in the background layer at the top and the background in the foreground layer
+    at the bottom of screen" names two LAYERS, and the two layers' nametable bases are two
+    different VDP registers.
     """
 
     NAMES = effects_gen.ActNames("ojz", "act1")
@@ -2018,62 +2062,141 @@ class TestBaseSwapRestoreLine(PresetShapeBase):
         return effects_gen.render_preset(
             path, effects_gen.load_preset(path), self.NAMES)
 
-    def test_the_shipped_document_lowers_to_TWO_fires(self):
+    def test_the_shipped_document_lowers_to_FOUR_fires_on_TWO_registers(self):
         src = self.render()
-        self.assertIn("fire(3, [reg_set($8200 | vdp_base_reg(VdpBase.PlaneA, 57344))])", src)
-        self.assertIn("fire(64, [reg_set($8200 | vdp_base_reg(VdpBase.PlaneA, VRAM_PLANE_A))])",
-                      src)
-        self.assertEqual(src.count("fire("), 2)
-        self.assertEqual(src.count("reg_set("), 2)
+        self.assertIn("fire(3, [reg_set(vdp_reg(VDP_PLANE_B_OFF, "
+                      "vdp_base_reg(VdpBase.PlaneB, 49152)))])", src)
+        self.assertIn("fire(64, [reg_set(vdp_reg(VDP_PLANE_B_OFF, "
+                      "vdp_base_reg(VdpBase.PlaneB, VRAM_PLANE_B)))])", src)
+        self.assertIn("fire(159, [reg_set(vdp_reg(VDP_PLANE_A_OFF, "
+                      "vdp_base_reg(VdpBase.PlaneA, 57344)))])", src)
+        self.assertIn("fire(220, [reg_set(vdp_reg(VDP_PLANE_A_OFF, "
+                      "vdp_base_reg(VdpBase.PlaneA, VRAM_PLANE_A)))])", src)
+        self.assertEqual(src.count("fire("), 4)
+        self.assertEqual(src.count("reg_set("), 4)
+
+    def test_the_REGISTER_is_derived_from_the_plane_never_authored(self):
+        """A document names a `plane`; it can never name a register.
+
+        The two must AGREE: `vdp_base_reg` shifts by the variant's own shift (10 for PlaneA,
+        13 for PlaneB), so a word built from one register's selector and the other's byte is
+        a legal $8xxx command aimed three address bits away from anything, and nothing
+        downstream can see it. The mapping lives in one place and the document has no way to
+        express the mismatch.
+        """
+        src = self.render()
+        for reg, plane in (("VDP_PLANE_A_OFF", "VdpBase.PlaneA"),
+                           ("VDP_PLANE_B_OFF", "VdpBase.PlaneB")):
+            for line in src.splitlines():
+                if reg in line:
+                    self.assertIn(plane, line,
+                                  f"{reg} paired with something other than {plane}")
+        self.assertNotIn("$8200", src)
+        self.assertNotIn("$8400", src)
 
     def test_the_OFF_edge_target_is_DERIVED_never_read_from_the_document(self):
         """The document names the base being BORROWED; the base being RETURNED TO is not
         an authoring choice, so the generator emits the engine's own name for it.
 
-        THE ASSERTION IS ON THE ABSENCE OF A NUMBER. `VRAM_PLANE_A` is $C000 = 49152
-        today, and an implementation that folded it here would produce a lowering that
-        looks correct and freezes today's VRAM layout into generated source — going on
-        emitting $C000 the day the constant moves, with nothing anywhere saying so.
+        THE ASSERTION IS ON THE ABSENCE OF A NUMBER. `VRAM_PLANE_A` is $C000 = 49152 today
+        and `VRAM_PLANE_B` is $E000 = 57344, and an implementation that folded either here
+        would produce a lowering that looks correct and freezes today's VRAM layout into
+        generated source — going on emitting $C000 the day the constant moves, with nothing
+        anywhere saying so.
+
+        ⚠ THE TWO NUMBERS ARE NOT ASSERTED ABSENT, and T3 is why: 49152 IS in this lowering,
+        as the top band's `target`, because that band BORROWS Plane A's map and the borrowed
+        base is authored. What must be absent is a number standing where a HOME base goes,
+        so the assertion is on the shape of the restore fires, not on the file's vocabulary.
+        The F2 version of this test asserted `assertNotIn("49152")` over the whole string,
+        which was correct then and would fail on a correct lowering now.
         """
         src = self.render()
-        self.assertIn("VRAM_PLANE_A", src)
-        self.assertNotIn("49152", src)
-        self.assertNotIn("$C000", src)
+        restores = [ln for ln in src.splitlines() if "VRAM_PLANE_" in ln]
+        self.assertEqual(len(restores), 2, "one restore fire per band")
+        self.assertIn("VRAM_PLANE_B", restores[0])
+        self.assertIn("VRAM_PLANE_A", restores[1])
 
-    def test_OMITTING_it_lowers_to_ONE_fire(self):
+    def test_OMITTING_restore_line_lowers_that_band_to_ONE_fire(self):
         """The converse control, and a legitimate authoring shape rather than a leftover:
         a swap that runs to the bottom of the frame is what a document meant before F2,
-        and ABSENCE is how this schema already spells "this arm is off"."""
-        path = self.write("ojz_sec6_baseswap",
-                          {"schema": 1, "id": "ojz_sec6_baseswap",
-                           "base_swap": {"line": 3, "target": 0xE000}})
-        src = effects_gen.render_preset(path, effects_gen.load_preset(path), self.NAMES)
-        self.assertEqual(src.count("fire("), 1)
-        self.assertNotIn("VRAM_PLANE_A", src)
+        and ABSENCE is how this schema already spells "this arm is off". PER BAND since T3
+        — the other band keeps its OFF edge, which is what makes this a shape test rather
+        than a whole-document one."""
+        src = self.render(bands=[{"plane": "PlaneB", "line": 3, "target": 0xC000},
+                                 _base_swap_band()])
+        self.assertEqual(src.count("fire("), 3)
+        self.assertEqual(src.count("VRAM_PLANE_B"), 0)
+        self.assertEqual(src.count("VRAM_PLANE_A"), 1)
 
-    def test_a_non_integer_restore_line_is_refused_naming_the_field(self):
+    def test_a_bare_object_is_refused_naming_the_list(self):
+        """The pre-T3 spelling. It must be refused rather than accepted-and-reinterpreted:
+        a single object silently wrapped would author one band where the document's own
+        history says two, and the reader would never learn the shape changed."""
+        msg = self.refuse("ojz_sec6_baseswap",
+                          {"schema": 1, "id": "ojz_sec6_baseswap",
+                           "base_swap": _base_swap_band()})
+        self.assertIn("must be a LIST", msg)
+
+    def test_an_empty_list_is_refused_pointing_at_ABSENCE(self):
+        """`raster_program` refuses a program with no fires at build time; this refuses the
+        document that would produce one, and points at the spelling this schema already has
+        for 'no base swap here'."""
+        msg = self.refuse("ojz_sec6_baseswap", _base_swap_preset(bands=[]))
+        self.assertIn("empty list", msg)
+
+    def test_a_MISSING_plane_is_refused_naming_the_field(self):
+        """No default. The register IS the content of the effect — it says which layer
+        borrows — so a default would let a band that means one direction lower silently
+        into the other."""
+        msg = self.refuse("ojz_sec6_baseswap",
+                          _base_swap_preset(bands=[{"line": 3, "target": 0xC000}]))
+        self.assertIn("`plane`", msg)
+
+    def test_a_NON_PLANE_VdpBase_variant_is_refused_by_NAME(self):
+        """THE ONE PLACE THIS ARM DEPARTS FROM FORWARD-VERBATIM, and the test that says
+        why. `VdpBase` has five variants; three of them are not scroll planes. A forwarded
+        `"SpriteTable"` would emit `VdpBase.SpriteTable`, ASSEMBLE CLEANLY, and re-point the
+        sprite table mid-frame. sigil cannot refuse a legal call, so nothing downstream
+        would ever say a word — which is exactly the condition under which this file stops
+        being a shape checker and becomes the only checker.
+        """
+        for bad in ("SpriteTable", "Window", "HScroll", "planea", "PlaneC", 2, None):
+            msg = self.refuse("ojz_sec6_baseswap",
+                              _base_swap_preset(bands=[_base_swap_band(plane=bad)]))
+            self.assertIn("plane", msg)
+            self.assertIn("PlaneA", msg)
+
+    def test_a_non_integer_restore_line_is_refused_naming_the_field_AND_ITS_INDEX(self):
+        """The index matters now that there is more than one band: "restore_line must be an
+        integer" without it sends the author to the wrong band."""
         for bad in ("64", 64.0, True, None):
             msg = self.refuse("ojz_sec6_baseswap",
-                              _base_swap_preset(base_swap={"restore_line": bad}))
-            self.assertIn("base_swap.restore_line", msg)
+                              _base_swap_preset(bands=[_base_swap_band(),
+                                                       _base_swap_band(restore_line=bad)]))
+            self.assertIn("base_swap[1].restore_line", msg)
 
-    def test_an_unknown_key_beside_it_is_still_refused(self):
-        """`restore_line` widened the closed key set by exactly one; the set is still
-        closed. Without this, "add the key to the allowed set" and "stop checking keys"
-        would look the same from outside."""
+    def test_an_unknown_key_beside_them_is_still_refused(self):
+        """The key set grew by one for T3; it is still closed. Without this, "add the key to
+        the allowed set" and "stop checking keys" would look the same from outside."""
         msg = self.refuse("ojz_sec6_baseswap",
-                          _base_swap_preset(base_swap={"end_line": 64}))
+                          _base_swap_preset(bands=[_base_swap_band(end_line=64)]))
         self.assertIn("unknown key", msg)
         self.assertIn("end_line", msg)
 
-    def test_the_ORDERING_of_the_two_lines_is_NOT_this_files_refusal(self):
-        """SHAPE ONLY, this arm's standing posture. An inverted pair loads fine here and
-        is refused by `fire_lines`' strict-ascent ensure at BUILD time, by name. A copy
-        of that guard here would be the second statement of one fact — the thing every
-        banner on this seam refuses to add — and it would drift the day the DSL's rule
-        changes."""
+    def test_the_ORDERING_of_the_lines_is_NOT_this_files_refusal(self):
+        """SHAPE ONLY, this arm's standing posture. An inverted pair loads fine here and is
+        refused by `fire_lines`' strict-ascent ensure at BUILD time, by name. A copy of that
+        guard here would be the second statement of one fact — the thing every banner on
+        this seam refuses to add — and it would drift the day the DSL's rule changes.
+
+        ⚠ AND IT NOW COVERS THE ACROSS-BAND CASE, which is the one this file would be most
+        tempted to duplicate: two bands that overlap are ordered wrongly in a way no single
+        band can be, and it is STILL `fire_lines` that owns it.
+        """
         path = self.write("ojz_sec6_baseswap",
-                          _base_swap_preset(base_swap={"line": 64, "restore_line": 3}))
+                          _base_swap_preset(bands=[_base_swap_band(line=64, restore_line=3),
+                                                   _base_swap_band(line=10)]))
         effects_gen.load_preset(path)
 
 
@@ -2099,7 +2222,7 @@ class TestBoundaryIsTheFOURTHExclusiveArm(PresetShapeBase):
                                        "target": {"vsram": {"addr": 0}},
                                        "start": {"whole": 0, "frac256": 0},
                                        "step": {"whole": 0, "frac256": 8}}),
-                             ("base_swap", {"line": 3, "target": 0xE000})):
+                             ("base_swap", [{"plane": "PlaneA", "line": 3, "target": 0xE000}])):
             msg = self.refuse("ojz_water_edge",
                               _boundary_preset(**{other: extra}))
             self.assertIn("ep_patched", msg)
@@ -2111,7 +2234,7 @@ class TestBoundaryIsTheFOURTHExclusiveArm(PresetShapeBase):
         """The converse control. Without it the test above could pass on a message that
         had simply been rewritten for every combination."""
         msg = self.refuse("ojz_ground_wash",
-                          _preset(base_swap={"line": 3, "target": 0xE000}))
+                          _preset(base_swap=[{"plane": "PlaneA", "line": 3, "target": 0xE000}]))
         self.assertIn("ep_raster", msg)
         self.assertNotIn("ep_patched", msg)
 
