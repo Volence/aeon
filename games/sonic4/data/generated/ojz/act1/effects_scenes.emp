@@ -34,6 +34,7 @@ use engine.parallax.{band_entry, band_record, band_ext, BAND_EXT_N, band_curve, 
 use engine.level.scene_dsl.*
 use engine.level.parallax_dsl.*
 use games.sonic4.scene_registry.{SceneCfg3, SceneCfg5, lower3, lower5}
+use games.sonic4.constants.{REEL_BAND_COUNT, reel_rates_ok}
 use engine.effects.palette.{pal_cycle_channel, PalCycleScript1}
 use engine.effects.palette.{pal_variant}
 use engine.effects.raster.{RasterRampProgram, raster_ramp_program, fp16, OP_RUN_RAMP, RASTER_ARM_EVERY_LINE, RASTER_ARM_PARK, RASTER_OPS_END, raster_arm}
@@ -145,6 +146,49 @@ pub data EditorSceneBinding_OJZ_Act1_Sec0: SceneCfg5 = lower5(EditorScenes_OJZ_A
 pub data EditorSceneBinding_OJZ_Act1_Sec4: SceneCfg5 = lower5(EditorScenes_OJZ_Act1[0])
 pub data EditorSceneBinding_OJZ_Act1_Sec8: SceneCfg3 = lower3(EditorScenes_OJZ_Act1[1])
 
+// ---- AURORA-AUTHORED REEL RATES + THE BINDING TABLE (item 10, DEBUG TIER) ----
+//
+// The scene document's `reels: { "rates": [..] }` key. One `[i8; REEL_BAND_COUNT]` per
+// authoring scene, plus the flat (config label, rates label) list `OJZ_Reels_Fill`
+// walks against `Parallax_Current_Config` to pick a table — on a miss it keeps
+// `OJZ_Reel_Speed`, so the built-in demo and tools/reels_witness.py go on working.
+//
+// A RATE IS SIGNED WHOLE PIXELS PER FRAME, and there is no fixed point anywhere on this
+// path: `add.b (a2)+, d0` adds the authored byte straight into the strip's phase. This
+// is NOT item 3's `drift.rate`, which is 1/256 px per frame with the editor multiplying
+// by 256 on export — that conversion applied here emits 768 for an intended 3. Rates
+// are emitted in DOCUMENT ORDER, verbatim: index i owns column-pairs 4i..4i+3, screen X
+// 64i..64i+63, and that mapping is a hardcoded `lsr.b #2` the JSON cannot see.
+//
+// EVERYTHING HERE IS INSIDE `if DEBUG == 1` AND EMITS ZERO BYTES IN RELEASE, which is
+// the CR's ruling (1) carried as a prohibition rather than a caveat: nothing in the
+// release shape can set `OJZ_Reel_Active` (its only writer is tools/reels_witness.py
+// poking a DEBUG-only RAM cell), so a release emission would be a dormant scaffold in
+// the ROM the owner ships. Promotion is the owner's parked question and nothing here
+// designs it.
+//
+// THE BINDING TABLE IS ALWAYS EMITTED even with no authored reels — `OJZ_Reels_Fill`
+// names it in a `lea`, so the symbol must exist in every bake — and is then one
+// terminator long. Everything above it is emitted only when a scene authors the key.
+//
+// EVERY RATE TABLE ROUTES THROUGH `reel_rates_ok` (games/sonic4/config/constants.emp),
+// the same fn the hand-written table uses, so the length / magnitude / distinctness
+// rules travel instead of being copied. The generator repeats NONE of them: it checks
+// SHAPE (the key set, the element type, the array's LENGTH against REEL_BAND_COUNT
+// re-derived from constants.emp) and leaves the values to sigil.
+const REEL_RATE_EMIT_LEN_OJZ_Act1 = if DEBUG == 1 { REEL_BAND_COUNT } else { 0 }
+
+// section(s) 4 <- scene ojz_act1_depth: [3, -5, 2, -4, 6] px/frame, left to right
+const EditorReelsSrc_OJZ_Act1_ojz_act1_depth = [3, -5, 2, -4, 6]
+const EditorReelsOk_OJZ_Act1_ojz_act1_depth = reel_rates_ok(EditorReelsSrc_OJZ_Act1_ojz_act1_depth, REEL_BAND_COUNT)
+ensure(EditorReelsOk_OJZ_Act1_ojz_act1_depth == REEL_BAND_COUNT,
+       "EditorReels_OJZ_Act1_ojz_act1_depth: reel_rates_ok checked {EditorReelsOk_OJZ_Act1_ojz_act1_depth} rates, not the REEL_BAND_COUNT ({REEL_BAND_COUNT}) OJZ_Reels_Fill walks — a guard that examined a different number of rates than the loop reads is gating the wrong table")
+pub data EditorReels_OJZ_Act1_ojz_act1_depth: [i8; REEL_RATE_EMIT_LEN_OJZ_Act1] = if DEBUG == 1 { EditorReelsSrc_OJZ_Act1_ojz_act1_depth } else { [] }
+
+align 2
+const REEL_BINDING_EMIT_LEN_OJZ_Act1 = if DEBUG == 1 { 3 } else { 0 }
+pub data EditorReelBindings_OJZ_Act1: [*u8; REEL_BINDING_EMIT_LEN_OJZ_Act1] = if DEBUG == 1 { [extern("EditorSceneBinding_OJZ_Act1_Sec4"), extern("EditorReels_OJZ_Act1_ojz_act1_depth"), 0] } else { [] }
+
 // ---- AURORA-AUTHORED RASTER BANDS, through the REAL constructors ----
 //
 // One `pub data` per preset document in games/sonic4/data/editor/effects/presets/. These
@@ -247,6 +291,7 @@ pub equ EditorRaster_OJZ_Act1_Bindings = 2
 pub equ EditorCycle_OJZ_Act1_Bindings = 0
 pub equ EditorVariant_OJZ_Act1_Bindings = 0
 pub equ EditorPatch_OJZ_Act1_Bindings = 1
+pub equ EditorReels_OJZ_Act1_Bindings = 1
 
 // The binding table's domain, held against the engine's flat-section ceiling. The
 // literal below is repeated inside `sec_scene`'s ensure ON PURPOSE — a comptime fn's

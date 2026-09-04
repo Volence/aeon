@@ -66,6 +66,71 @@ pub const CHEAT_DEBUG_FLY         = 1 << 0    // bit 0 of Cheat_Flags — free-f
 pub const REEL_BAND_COUNT     = 5   // independently-scrolling vertical strips
 pub const REEL_COLS_PER_BAND  = 4   // 16-px column-pairs per strip (64 px wide on screen)
 
+// -----------------------------------------------
+// reel_rates_ok — THE ONE GUARD EVERY REEL RATE TABLE ROUTES THROUGH
+// -----------------------------------------------
+// EFFECTS-W1 item 10 step 4. Until this existed the reel source's two properties were
+// checked by a hand-written pair beside the ONE hand-written table
+// (`ensure(OJZ_REEL_SPEEDS.len == ..)` plus a literally five-ary `distinct5(a,b,c,d,e)`),
+// so a table written by tools/effects_gen.py would have inherited NEITHER. The check now
+// lives with the mechanism instead of beside one copy: `games/sonic4/data/effects/
+// ojz_effects.emp`'s hand table and every `EditorReels_*` table the generator emits call
+// THIS function, and there is no other spelling of the rule anywhere.
+//
+// WHY IT IS HERE and not beside the demo: same reason REEL_BAND_COUNT is (see above).
+// The generated module (`games/sonic4/data/generated/<zone>/<act>/effects_scenes.emp`)
+// cannot import `games.sonic4.ojz_effects` — ojz_effects.emp imports the generated
+// module, so that edge is a cycle. `games.sonic4.constants` imports nothing game-side and
+// is reachable from both.
+//
+// `bands` IS A PARAMETER AND NOT THE FREE NAME `REEL_BAND_COUNT`, deliberately:
+// docs/EMP_PITFALLS.md §2 — a comptime fn's free names resolve at the CALL SITE, so a
+// body naming REEL_BAND_COUNT would resolve in whatever scope called it (silently, on the
+// constant axis). Every caller passes its own imported REEL_BAND_COUNT, which is the same
+// contract `hand:` has on the generated choosers and for the same reason.
+//
+// THE MAGNITUDE ARM IS THE ONE THAT DID NOT EXIST BEFORE, and it is the whole reason the
+// empyrean CR (AURORA_EFFECTS_SCHEMA §2.7 ruling 6) asked for this in the implementing
+// parcel. A reel rate is SIGNED WHOLE PIXELS PER FRAME — `add.b (a2)+, d0` puts the
+// authored byte straight into the phase. `drift.rate` is 1/256 px/frame and Aurora
+// multiplies by 256 on export; a reels panel built by copying the drift panel's export
+// path emits 768 for an intended 3, and no `ensure` anywhere bounded a single rate
+// before this line.
+//
+// IT IS NOT THE ONLY THING THAT REFUSES 768, AND THE CR SAID IT WAS — corrected by
+// measurement here, 2026-09-04, sigil 0a58f2ec, with a 768 authored into an editor
+// scene's `reels.rates`. Sigil ALSO refuses, at emission:
+//     [Error] [emit.out-of-range] 768 does not fit i8 (-128..=127)
+//             — in `EditorReels_OJZ_Act1_ojz_act1_depth[0]`
+// which settles the question both the decision note and the CR left NOT ESTABLISHED:
+// sigil refuses an out-of-i8 literal in an `[i8; N]` initializer rather than silently
+// narrowing it. What that diagnostic does not carry is the CAUSE — it names a slot, not
+// a unit — so this ensure still earns its line: it fires first and says "signed whole
+// pixels, and this looks like drift's x256 export path".
+//
+// The check runs on the RAW authored ints (the generator hands this fn an unannotated
+// `const`, not an `[i8; N]` one), which keeps it independent of emission rather than
+// downstream of it.
+//
+// Returns the length so a caller can hold it in a `const` a module-level `ensure` reads:
+// an unreferenced top-level `const X = f(..)` is comptime-INERT and never folds
+// (docs/EMP_PITFALLS.md §3), so "call it and ignore the result" would check nothing.
+pub comptime fn reel_rates_ok(rates: array, bands: int) -> int {
+    ensure(rates.len == bands,
+           "reel_rates_ok: this reel rate table carries {rates.len} rates, not one per band ({bands}) — OJZ_Reels_Fill walks exactly REEL_BAND_COUNT signed bytes from whichever table it selected, so a short table feeds the phase accumulators whatever follows it in ROM and a long one silently drops its tail")
+    comptime var distinct = 1
+    for i in 0..rates.len {
+        ensure(rates[i] >= -128 && rates[i] <= 127,
+               "reel_rates_ok: rate {rates[i]} does not fit a signed byte (-128..127). A reel rate is SIGNED WHOLE PIXELS PER FRAME and nothing on this path is fixed point — if this number came from an editor panel that multiplied by 256 on export (which is `drift.rate`'s unit, not this one), 768 here means an intended 3")
+        for j in 0..rates.len {
+            if j > i && rates[i] == rates[j] { distinct = 0 }
+        }
+    }
+    ensure(distinct == 1,
+           "reel_rates_ok: the rates {rates} are not pairwise distinct — two reel bands sharing a rate would look like one wide strip on screen, not two independent ones, which is the whole property the reels vocabulary exists to show")
+    return rates.len
+}
+
 // The per-slot player working block is a TYPE, not a constant here: see
 // `struct PlayerBlock` in config/ram.emp. Its stride is sizeof(PlayerBlock) and
 // its field displacements are offsetof(PlayerBlock, ...), so there is no

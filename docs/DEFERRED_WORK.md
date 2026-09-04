@@ -22582,3 +22582,126 @@ with the player already placed, so its "first frame" is "first invocation with t
 cell", not "the frame of entry" in a running game loop. **That is a reconciliation hypothesis,
 not a finding.** This parcel did not touch `sweep_edge_trigger` and encoded no entry-frame
 claim. Separate row.
+
+---
+
+## EFFECTS-W1 item 10 step 4 — the `reels` authoring key LANDED (2026-09-04, `parcel/reels-authoring-key`)
+
+**What shipped.** The `reels` scene key from empyrean `docs/AURORA_EFFECTS_SCHEMA.md` §2.7
+(read at `ff3f43f2e9c2b0b98e6c283f5cb87eb106f0fe5c`), DEBUG tier, implemented against the
+ratified CR rather than the decision note where the two differ. The note is
+`docs/superpowers/specs/2026-09-04-reels-per-scene-key-shape.md`; its "CONTROLLER'S
+FOREGROUND PASS" section carries the rung constraint its body does not.
+
+- **`reel_rates_ok(rates, bands)`** — `games/sonic4/config/constants.emp`. ONE shared
+  `comptime fn` carrying LENGTH + per-rate MAGNITUDE + pairwise DISTINCTNESS, which the
+  hand table and every generated table route through. `distinct5` (five-ary, hand-called
+  beside the one hand table) is DELETED. The magnitude arm did not exist anywhere before
+  this parcel — CR ruling (6).
+- **`ensure(offsetof(SceneCfgN, hdr) == 0)` x16** — `games/sonic4/data/effects/
+  scene_registry.emp`. CR ruling (3). The whole binding rests on a pointer to a
+  `SceneCfgN` and a pointer to its `hdr` being one address; a reorder severs it with a
+  green build and every lookup missing.
+- **`tools/effects_gen.py`** — `reels` in `SCENE_KEYS`; `REEL_BAND_COUNT` re-derived from
+  `constants.emp` (never the schema's `minItems`); the payload shape checked and the
+  values left to sigil; per-scene `[i8; REEL_BAND_COUNT]` tables plus the association
+  table emitted into the GENERATED module inside `if DEBUG == 1`, in DOCUMENT ORDER.
+  Two new `.emp` scans (`preset_parallax_bindings`, `section_preset_symbols`) feed the
+  rung model and run ONLY when a scene authors the key.
+- **`OJZ_Reels_Fill`** now walks the association table against `Parallax_Current_Config`
+  and falls back to `OJZ_Reel_Speed` on a miss. `tools/EFFECTS_CONSUMER_CONTRACT.md` §2.1
+  amended per its own drift rule.
+- Authored content: `ojz_act1_depth` (section 4) carries `[3, -5, 2, -4, 6]`.
+
+**THE REFUSAL, and it is the part worth reading.** `Parallax_Current_Config` is a unique
+key only at `Effects_ResolveParallax`'s **rung 1** (`Sec.sec_parallax_config`, the editor's
+`sceneRef`). At rung 2 (`EffectsPreset.ep_parallax`, shared by every section naming that
+preset) or rung 3 (the act default) the pointer is SHARED, and a table keyed on it hands
+those sections **another section's motion** — it does not fail, the wrong strips scroll. So
+the generator refuses a `reels` key on a scene that is the act default, on a scene no
+section binds at rung 1, and on a scene whose lowered record a hand `preset()` also names
+through `parallax:`. Each refusal names the SECTION.
+
+**TWO CLAIMS THIS PARCEL REFUTED BY MEASUREMENT, both banked as open:**
+
+1. **Sigil DOES refuse an out-of-`i8` literal in an `[i8; N]` initializer.** Measured
+   2026-09-04 on sigil `0a58f2ec` by authoring `768` into `reels.rates`:
+   `[Error] [emit.out-of-range] 768 does not fit i8 (-128..=127) — in
+   EditorReels_OJZ_Act1_ojz_act1_depth[0]`. Both the decision note (§9, §4.1) and the CR
+   list this as NOT ESTABLISHED; it is now established, and it does not narrow silently.
+2. **The schema bound is therefore NOT "the only artifact in the chain that catches" the
+   x256 export mistake** (CR ruling 6's wording). It is one of three now — the schema,
+   sigil's emit-range check, and `reel_rates_ok`. The magnitude `ensure` is still worth
+   its line, for a narrower reason than the CR gave: sigil's diagnostic names a SLOT, not
+   a UNIT, and the guard fires first and says which.
+
+**Still open, deliberately.**
+
+- **Q1 (owner, PARKED): promotion into the release ROM.** Untouched, and nothing here
+  builds toward it. Everything this parcel emits is inside `if DEBUG == 1`;
+  `tools/reels_gate.py --shape release` stays green by the same construction.
+- **Q5: whether a second act needs a second association table.** Still not traced. The
+  generated module is per-act and the table is act-qualified
+  (`EditorReelBindings_<ZONE>_<Act>`), but `OJZ_Reels_Fill` names act 1's by hand — a
+  second act with reels needs that decided, not merely a second table emitted.
+- **NO EMULATOR RAN.** Nothing here claims reels have been seen on screen, and in
+  particular **the association walk has never been observed selecting an authored table at
+  runtime** — only that the right bytes are in the ROM at the right addresses
+  (`EditorReels_OJZ_Act1_ojz_act1_depth` at `$13FC6` reads `[3,-5,2,-4,6]`;
+  `EditorReelBindings_OJZ_Act1` at `$13FCC` reads
+  `[$013E8A, $013FC6, 0]` and `$013E8A` is `EditorSceneBinding_OJZ_Act1_Sec4`). A runtime
+  pass would set `OJZ_Reel_Active` with `tools/reels_witness.py` in a section bound to the
+  authored scene and read `Parallax_Vscroll_Column_Buf`. **TAGGED for a foreground pass.**
+
+### ADDENDUM — the release CRC MOVED, and the split at `EndOfRom` is why that is not a regression
+
+The four-shape check said the release ROM's CRC changed (`cksum` 1839525780 -> 531019212,
+length unchanged at 720803). Root-caused rather than waved past, and the method is the
+reusable part.
+
+**Reproducibility established first**, because a moved CRC means nothing without it: both
+demo shapes came out **byte-identical** across two independent full runs, and the base tree
+rebuilt to the *same* release md5 it produced hours earlier (`30c8c8d8…`). The build is
+deterministic; the movement is real.
+
+**Then the byte diff, base vs parcel: 214 differing bytes, and they split cleanly.**
+
+- `$00018E-$00018F` — the ROM **header checksum**, which follows any content change.
+- 212 bytes, all at or past `EndOfRom` (`$0A5C82`) — inside the **`deb2` symbol appendix**
+  that `convsym` writes (the tail begins with the ASCII magic `deb2`).
+- **The assembled image `[0, EndOfRom)` is BYTE-IDENTICAL** once the checksum word is
+  excluded. Measured, not argued.
+
+So the parcel moves **zero release code or data bytes**, exactly as CR ruling (1) requires,
+and the CRC still moves because the DEBUG-gated block's symbol NAMES land in an appendix the
+release ROM carries.
+
+**A stale comment fell out of it.** `build.sh`'s build banner said *"DEBUG additionally gets
+the convsym deb2 appendix; release ships the assembled image alone (item 29)"*. It does not —
+`s4.bin` carries 41761 bytes of appendix. `CLAUDE.md`'s crash-report ruling (2026-08-04)
+already says both shapes carry deb2 symbols; the build.sh line had outlived it. Corrected in
+place, with the measurement, because that comment is exactly what the next person reading a
+moved release CRC would reach for.
+
+**THE FOUR-SHAPE LANDING EVIDENCE (merged master `4927b8e1`, uptime beside each run).**
+
+| shape | master alone | with this parcel | verdict |
+|---|---|---|---|
+| `s4.bin` | `1839525780` / 720803 / `30c8c8d8…` | `531019212` / 720803 / `f856855a…` | assembled image **byte-identical**; only $18E and the deb2 appendix |
+| `s4.debug.bin` | `3955278714` / 741905 / `39ffd9f5…` | `2710925968` / 741993 / `05f0972f…` | **+88 bytes**, as designed |
+| `demo.bin` | `466287693` / 96602 | `466287693` / 96602 | **identical** |
+| `demo.debug.bin` | `3653723245` / 102818 | `3653723245` / 102818 | **identical** |
+
+All four exit 0 (`06:46:25` -> `06:55:02`, load 6.42 -> 3.78). `reels_gate` is build-fatal in
+both sonic4 shapes and passed in both: release "emit no bytes"; debug "5 pairwise-distinct
+per-band rates [3, -5, 2, -4, 6] at $014764, OJZ_Reels_Fill (86 bytes of code)". **The gate is
+still MEASURABLE** — its adjacency coupling survived, which is the check that the "emit into
+the generated module" rule was actually followed rather than merely intended.
+
+**A stale fixture on the branch base, not a defect of this parcel:** the first four-shape
+attempt failed `DEBUG=1 ./build.sh` on `sprite_tilt_gate`, whose committed cut pinned ABSOLUTE
+addresses (`Ani_Sonic moved: fixture $02B0BC, listing $02B0E4`) — any DEBUG byte movement went
+red on it. Master's `parcel/gate-fixtures-address-pinned` (`9332587b`) had already fixed
+exactly that, after this branch was cut. Merging master cleared it with no change to this
+parcel's own code, which is the discriminator between "my bytes broke a gate" and "a gate
+could not survive any bytes".

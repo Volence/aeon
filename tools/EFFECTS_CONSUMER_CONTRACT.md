@@ -198,7 +198,7 @@ DSL constructor arguments 1:1 (`engine/level/scene_dsl.emp` `scene()`/`layer()`)
 
 - Top level: `schema` (refuse ≠ 1), `id` (refuse ≠ filename stem or bad pattern),
   `layers`, `v_factor`, `v_center`, `v_offset`, `v_factor_fg`, `deform_fg`, `deform_bg`,
-  `v_deform`, `anchor`, `left_column_mask`, `transition`, `budget_class`
+  `v_deform`, `reels`, `anchor`, `left_column_mask`, `transition`, `budget_class`
   (passthrough, unvalidated — sigil is the validator).
 - **`left_column_mask` gained a fifth value, `decline_borrow` (owner ruling `d-50`,
   2026-09-02).** It is the only value of this key that changes emitted bytes: it ORs $80
@@ -278,6 +278,52 @@ DSL constructor arguments 1:1 (`engine/level/scene_dsl.emp` `scene()`/`layer()`)
     something to vary — all three are `scene()` refusals, not schema ones. Writer half:
     empyrean `contract/schema/aurora-effects-scene.schema.json` `$defs.layer.rowRemap`, key
     shape filed by `docs/superpowers/specs/2026-09-04-item9-row-remap-key-shape.md`.
+- **`reels` — READ SINCE 2026-09-04 (this amendment; contract change per the drift rule
+  above). DEBUG TIER: it moves DEBUG-shape ROM bytes and ZERO release bytes.** EFFECTS-W1
+  item 10's authoring half; the ratified writer half is empyrean
+  `docs/AURORA_EFFECTS_SCHEMA.md` §2.7 at `ff3f43f2e9c2b0b98e6c283f5cb87eb106f0fe5c`. Wire
+  form `{"rates": [<int> x REEL_BAND_COUNT]}`, a CLOSED object, absent = no reels; there is
+  **no `"none"` spelling** (CR ruling 2 — the binding table is generated whole, so "keep"
+  and "off" are one state). It is a SCENE key and not a layer key: a reel band is one of
+  five vertical COLUMN strips while `band_record` partitions the screen into horizontal ROW
+  bands, and the two share a noun and nothing else.
+  - **A RATE IS SIGNED WHOLE PIXELS PER FRAME, 1:1, AND THE x256 CONVERSION MUST NOT
+    HAPPEN.** `add.b (a2)+, d0` puts the authored byte straight into the strip's phase;
+    there is no fixed point on this path. `drift.rate` two bullets up is 1/256 px per frame
+    with the editor multiplying by 256 on export — **a reels panel built by copying the
+    drift panel's export path emits 768 for an intended 3.** The engine's guard is
+    `reel_rates_ok`'s magnitude `ensure` (`games/sonic4/config/constants.emp`), added by the
+    same parcel as this amendment because before it NOTHING bounded a single rate.
+    **The CR's ruling (6) says the schema bound is "the only artifact in the chain that
+    catches it today"; that is REFUTED by measurement** (2026-09-04, sigil `0a58f2ec`): a
+    768 authored here also draws `[emit.out-of-range] 768 does not fit i8 (-128..=127)`,
+    so sigil refuses rather than silently narrowing — which is the same question the CR
+    lists as still open two paragraphs later. What sigil's diagnostic does not carry is
+    the CAUSE: it names a slot, not a unit. `reel_rates_ok`'s ensure fires first and says
+    which.
+  - **DOCUMENT ORDER IS SCREEN ORDER.** Index *i* owns column-pairs 4*i*..4*i*+3, screen X
+    64*i*..64*i*+63; the map is a hardcoded `lsr.b #2` in `OJZ_Reels_Fill` that no JSON can
+    see. The generator emits the array verbatim; an editor that sorts, reverses, or
+    round-trips it through a dict keyed by band name silently relocates every strip.
+  - **THE LENGTH IS `REEL_BAND_COUNT`, RE-DERIVED, NOT 5.** The schema's `minItems`/
+    `maxItems` is a copy of `games/sonic4/config/constants.emp`'s constant in another repo;
+    the generator parses that declaration and refuses a disagreeing length naming both
+    numbers. `cols_per_band` is **refused by closure**: the geometry is fixed at
+    REEL_BAND_COUNT x REEL_COLS_PER_BAND because the column->band map is a compiled shift,
+    not a value read at runtime (CR ruling 5). It is recoverable additively later.
+  - **THE KEY IS LEGAL ONLY ON A SECTION BOUND AT RUNG 1** — `Sec.sec_parallax_config`, i.e.
+    a `sceneRef` sidecar. The generated binding is keyed on `Parallax_Current_Config`, and
+    that pointer is unique only at rung 1; a section resolving through a preset
+    (`EffectsPreset.ep_parallax`, rung 2, shared by every section naming that preset) or the
+    act default (rung 3) holds a SHARED pointer, so the table would hand it **another
+    section's motion** rather than none. The generator REFUSES all three cases by name — the
+    scene is the act default, no section binds it at rung 1, or a hand `preset(.. parallax:
+    ..)` also names its lowered record. Values (magnitude, pairwise distinctness) are
+    `reel_rates_ok`'s ensures and are NOT re-checked here, the same rule as `drift`.
+  - **Not expressible in the schema, so said here:** the effect reaches only the DEBUG
+    build shape (nothing in a release ROM can set `OJZ_Reel_Active`), the FOREGROUND is
+    untouched by construction, and the excursion is 0..255 px BELOW the camera's BG base —
+    always downward, with a negative rate reversing travel rather than lifting the strip.
 - Inside attachments: the factor spelling (named `FACTOR_*` or `{s1,s2,op}`) and the
   `tableRef` forms (`generator`: `sine`/`triangle`/`zero`/`v_column_perspective`/
   `v_column_floor` with their parameters, or `bin`).

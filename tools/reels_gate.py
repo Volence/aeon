@@ -33,9 +33,11 @@ THE EXPECTATION IS DERIVED FROM FILES THE FIXTURE DOES NOT AUTHOR-TWICE:
 Change the array's values without moving REEL_BAND_COUNT and this gate's byte compare
 goes red naming the mismatched index. Change any value so two entries collide and the
 gate's own distinctness check goes red BEFORE the ROM is even opened — the same
-property games/sonic4/data/effects/ojz_effects.emp's `distinct5()` ensure already
-proves at compile time, measured here a second, independent way, against the actual
-image.
+property `reel_rates_ok()` (games/sonic4/config/constants.emp) already proves at compile
+time, measured here a second, independent way, against the actual image. (That guard was
+`distinct5()` beside the array in ojz_effects.emp until EFFECTS-W1 item 10 step 4, which
+made it shared so a GENERATED reel table inherits it too; a five-ary hand-called fn
+could not travel.)
 
 THREE SYMBOLS, TWO GAPS. `OJZ_Reel_Speed` (data) is declared immediately before
 `OJZ_Reels_Fill` (code), which is declared immediately before `OJZ_TestPal` (the next
@@ -232,7 +234,7 @@ def main():
             raise Unmeasurable(
                 f"OJZ_REEL_SPEEDS = {speeds} are not pairwise distinct — the whole 'reels' "
                 f"claim is that every strip has its OWN rate; two bands sharing one would "
-                f"read as a single wide strip. The source's own distinct5() ensure should "
+                f"read as a single wide strip. The source's own reel_rates_ok() ensure should "
                 f"have refused this build before this gate ever ran")
 
         want_bytes = to_bytes_i8(speeds)

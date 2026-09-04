@@ -724,8 +724,19 @@ fi
 fi
 
 # THE BUILD: one sigil invocation — assemble -> declared-order link -> emit_rom
-# (checksum folded) -> sigil-canonical .lst -> ROM. DEBUG additionally gets the
-# convsym deb2 appendix; release ships the assembled image alone (item 29).
+# (checksum folded) -> sigil-canonical .lst -> ROM.
+#
+# ⚠ CORRECTED 2026-09-04, MEASURED. This comment used to end "DEBUG additionally gets
+# the convsym deb2 appendix; release ships the assembled image alone (item 29)". The
+# release ROM carries the appendix too: `s4.bin` holds 41761 bytes past `EndOfRom`
+# ($0A5C82) beginning with the ASCII magic `deb2`. CLAUDE.md's own crash-report ruling
+# (2026-08-04) says so — "both carry the MD Debugger island + deb2 symbols" — and this
+# line had outlived it. Found while root-causing a release CRC that moved: adding
+# symbols to a DEBUG-gated block changes the RELEASE ROM's bytes, because the symbol
+# NAMES land in that appendix. The assembled image [0, EndOfRom) was byte-identical
+# apart from the header checksum word at $18E, which follows any content change.
+# Whoever next reads a moved release CRC should split it at EndOfRom before calling it
+# a regression.
 if [[ "${STRESS_EVICT:-0}" == "1" ]]; then
     # The stress fixture fixes the shape (sonic4 debug + STRESS_EVICT define); it does
     # NOT combine with --game/--debug (the CLI rejects that).

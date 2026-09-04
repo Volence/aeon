@@ -17,8 +17,13 @@ including the ROM-level runs (which need a build and so cannot live in this file
 docs/DEFERRED_WORK.md's EFFECTS-W1 item 10a booking.
 
   * `OJZ_REEL_SPEEDS` collides two entries (index 1's `-5` -> `3`, matching index 0)
-        -> build RED: games/sonic4/data/effects/ojz_effects.emp's own `distinct5()`
-           ensure fires by name, naming the colliding array. This unit file's own
+        -> build RED: `reel_rates_ok()`'s distinctness ensure
+           (games/sonic4/config/constants.emp) fires by name, naming the colliding
+           array. Re-measured on a GENERATED table 2026-09-04 (EFFECTS-W1 item 10 step
+           4): authoring `[3, 3, 2, -4, 6]` into an editor scene's `reels.rates`
+           produces exactly ONE build error, that ensure — which is what "the guard
+           travels" means, and what the five-ary `distinct5()` it replaced could not
+           do. This unit file's own
            `test_all_distinct_refuses_a_collision` covers the PURE half of that same
            judgement without a build.
   * `OJZ_REEL_SPEEDS` shortened to 4 entries (REEL_BAND_COUNT left at 5)
@@ -71,7 +76,7 @@ def test_the_speed_array_matches_band_count():
 
 
 def test_the_shipped_speeds_are_pairwise_distinct():
-    """The whole 'reels' claim, re-measured independently of the .emp distinct5() ensure."""
+    """The whole 'reels' claim, re-measured independently of `reel_rates_ok()`'s ensure."""
     f = _facts()
     assert G.all_distinct(f["speeds"]), (
         f"OJZ_REEL_SPEEDS = {f['speeds']} collide — two reel bands would share a rate")

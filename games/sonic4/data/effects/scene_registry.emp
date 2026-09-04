@@ -136,6 +136,43 @@ pub struct SceneCfg15 { hdr: parallax_config, bands: [band_record; 15] }
 pub struct SceneCfg16 { hdr: parallax_config, bands: [band_record; 16] }
 
 // ---------------------------------------------------------------------
+// `hdr` IS FIRST, AND THAT IS A LOAD-BEARING FACT WITH NO OTHER GUARD — the pin below
+// is what makes reordering these structs a build error instead of a silent miss.
+//
+// Every consumer of a lowered record holds a `parallax_config*`, never a `SceneCfgN*`:
+// `Sec.sec_parallax_config` and `Act.act_parallax_config` are `*u8` (engine/structs.emp),
+// `EffectsPreset.ep_parallax` is `*u8` (engine/effects/preset.emp), and
+// `Parallax_Current_Config` (engine/ram.emp) is the `u32` all three funnel into via
+// `Parallax_StartTransition`'s `a0`. The generator, meanwhile, emits
+// `pub data EditorSceneBinding_<zone>_<act>_Sec<N>: SceneCfgN = lowerN(..)` — a DIFFERENT
+// type. The two agree only because `parallax_config` is the FIRST member here, so a
+// pointer to the binding label and a pointer to its `hdr` are the SAME ADDRESS.
+//
+// Put any member ahead of `hdr` and nothing announces it. The types still check, the
+// build stays green, and every consumer walks a `parallax_config` that starts somewhere
+// else. EFFECTS-W1 item 10's reels binding is the first thing in the tree to depend on
+// the identity as an IDENTITY rather than as an offset — it keys a table on the emitted
+// label and compares it against `Parallax_Current_Config` at runtime, so a reorder does
+// not corrupt a record, it just makes every lookup miss and the reels never play. Pinned
+// per the empyrean CR's ruling (3) on AURORA_EFFECTS_SCHEMA §2.7. Zero ROM bytes.
+ensure(offsetof(SceneCfg1, hdr) == 0, "SceneCfg1.hdr is at offset {offsetof(SceneCfg1, hdr)}, not 0 — a lowered record's parallax_config must start AT the record, because every consumer holds a parallax_config* to the SceneCfgN label itself")
+ensure(offsetof(SceneCfg2, hdr) == 0, "SceneCfg2.hdr is at offset {offsetof(SceneCfg2, hdr)}, not 0 — a lowered record's parallax_config must start AT the record, because every consumer holds a parallax_config* to the SceneCfgN label itself")
+ensure(offsetof(SceneCfg3, hdr) == 0, "SceneCfg3.hdr is at offset {offsetof(SceneCfg3, hdr)}, not 0 — a lowered record's parallax_config must start AT the record, because every consumer holds a parallax_config* to the SceneCfgN label itself")
+ensure(offsetof(SceneCfg4, hdr) == 0, "SceneCfg4.hdr is at offset {offsetof(SceneCfg4, hdr)}, not 0 — a lowered record's parallax_config must start AT the record, because every consumer holds a parallax_config* to the SceneCfgN label itself")
+ensure(offsetof(SceneCfg5, hdr) == 0, "SceneCfg5.hdr is at offset {offsetof(SceneCfg5, hdr)}, not 0 — a lowered record's parallax_config must start AT the record, because every consumer holds a parallax_config* to the SceneCfgN label itself. EFFECTS-W1 item 10's reels binding table keys on this identity: a reorder does not corrupt a record, it silently makes every lookup miss")
+ensure(offsetof(SceneCfg6, hdr) == 0, "SceneCfg6.hdr is at offset {offsetof(SceneCfg6, hdr)}, not 0 — a lowered record's parallax_config must start AT the record, because every consumer holds a parallax_config* to the SceneCfgN label itself")
+ensure(offsetof(SceneCfg7, hdr) == 0, "SceneCfg7.hdr is at offset {offsetof(SceneCfg7, hdr)}, not 0 — a lowered record's parallax_config must start AT the record, because every consumer holds a parallax_config* to the SceneCfgN label itself")
+ensure(offsetof(SceneCfg8, hdr) == 0, "SceneCfg8.hdr is at offset {offsetof(SceneCfg8, hdr)}, not 0 — a lowered record's parallax_config must start AT the record, because every consumer holds a parallax_config* to the SceneCfgN label itself")
+ensure(offsetof(SceneCfg9, hdr) == 0, "SceneCfg9.hdr is at offset {offsetof(SceneCfg9, hdr)}, not 0 — a lowered record's parallax_config must start AT the record, because every consumer holds a parallax_config* to the SceneCfgN label itself")
+ensure(offsetof(SceneCfg10, hdr) == 0, "SceneCfg10.hdr is at offset {offsetof(SceneCfg10, hdr)}, not 0 — a lowered record's parallax_config must start AT the record, because every consumer holds a parallax_config* to the SceneCfgN label itself")
+ensure(offsetof(SceneCfg11, hdr) == 0, "SceneCfg11.hdr is at offset {offsetof(SceneCfg11, hdr)}, not 0 — a lowered record's parallax_config must start AT the record, because every consumer holds a parallax_config* to the SceneCfgN label itself")
+ensure(offsetof(SceneCfg12, hdr) == 0, "SceneCfg12.hdr is at offset {offsetof(SceneCfg12, hdr)}, not 0 — a lowered record's parallax_config must start AT the record, because every consumer holds a parallax_config* to the SceneCfgN label itself")
+ensure(offsetof(SceneCfg13, hdr) == 0, "SceneCfg13.hdr is at offset {offsetof(SceneCfg13, hdr)}, not 0 — a lowered record's parallax_config must start AT the record, because every consumer holds a parallax_config* to the SceneCfgN label itself")
+ensure(offsetof(SceneCfg14, hdr) == 0, "SceneCfg14.hdr is at offset {offsetof(SceneCfg14, hdr)}, not 0 — a lowered record's parallax_config must start AT the record, because every consumer holds a parallax_config* to the SceneCfgN label itself")
+ensure(offsetof(SceneCfg15, hdr) == 0, "SceneCfg15.hdr is at offset {offsetof(SceneCfg15, hdr)}, not 0 — a lowered record's parallax_config must start AT the record, because every consumer holds a parallax_config* to the SceneCfgN label itself")
+ensure(offsetof(SceneCfg16, hdr) == 0, "SceneCfg16.hdr is at offset {offsetof(SceneCfg16, hdr)}, not 0 — a lowered record's parallax_config must start AT the record, because every consumer holds a parallax_config* to the SceneCfgN label itself")
+
+// ---------------------------------------------------------------------
 // lowerN — the emission fold for a scene with exactly N real layers.
 //
 // THE COUNT GUARD IS THE POINT OF THESE FUNCTIONS, not the array literal. The
