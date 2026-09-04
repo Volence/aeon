@@ -121,6 +121,15 @@ from 3 to 220. **What moved is the LANDING OFFSET: a dense VSRAM write from the 
 displayed from `top+1` then and displays from `top+2` now — fire+1 to fire+2 — while the SPARSE
 tier is still fire+1 and `vsplit_landing_gate` pins that green on this same core.**
 
+**⚠ RESOLVED 2026-09-04 — IT WAS THE INSTRUMENT. Same ROM on both cores: dense reads `top+1`
+legacy / `top+2` Rust, sparse reads `split+0` legacy / `split+1` Rust. BOTH TIERS SHIFT ONE LINE
+TOGETHER, so the dense/sparse divergence below DOES NOT EXIST and the 2026-08-19 bracket is a
+coincidence. The paragraph's own note — that these PNGs came off the legacy core while the Rust
+core became default 2026-08-26 — was the answer: era and instrument changed together, and
+"then vs now" was never a comparison of engines. See RAMP-CORE-VS-ROM.md. The text below is kept
+as written, unedited, because it recorded its own uncertainty honestly and the reader should see
+what a correct hedge looked like before it was settled.**
+
 **WHICH SIDE MOVED IS STILL OPEN AND IS NOT ASSERTED HERE.** Everything on the path from handler
 entry to the ramp's VDP write changed in one `perf(raster)` batch on **2026-08-19** (`c44c80ad`,
 `c2f9cfcd`, `aa139c75`, `3c82c0b3`, `a02b30e0`, `727715f4`); nothing after that day touches it, and

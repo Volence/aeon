@@ -694,14 +694,53 @@ pub struct RasterRampProgram {
 // left in Raster_Dense_Lines counts the fires, and `fires + top` reads exactly 224 at all
 // seven tops from 3 to 220.
 //
-// SO WHAT MOVED IS THE LANDING OFFSET, NOT THE SCHEDULE: a dense VSRAM write issued in the
-// fire on line `top` displayed from top+1 in 2026-08-14 and displays from top+2 today —
-// fire+1 to fire+2 — while the SPARSE tier is still fire+1 and vsplit_landing_gate pins that
-// green on this same core. Dense and sparse VSRAM agreed then and disagree by one line now.
-// Everything on the path from handler entry to this body's VDP write changed in one
-// perf(raster) batch on 2026-08-19 (c44c80ad, c2f9cfcd, aa139c75, 3c82c0b3, a02b30e0,
-// 727715f4); nothing after that day touches it, and item 6 (cf3dfb1a) is exonerated — its
-// only edit here is the CAP_DENSE_TIER comptime bracket below, which sonic4 takes.
+// ⚠ RESOLVED 2026-09-04, AND THE ANSWER IS THE INSTRUMENT: NOTHING IN THIS FILE MOVED.
+// This block previously read "what moved is the LANDING OFFSET... fire+1 to fire+2, while the
+// SPARSE tier is still fire+1... everything on the path changed in one perf(raster) batch on
+// 2026-08-19". EVERY CLAUSE OF THAT IS WITHDRAWN except the schedule half.
+//
+// MEASURED (tools/ramp_legacy_core_probe.py, docs/benchmarks/effects-p3/RAMP-CORE-VS-ROM.md):
+// ONE ROM, one probe, scene frozen, both cores read through emulator/screenshot — the only
+// capture both serve:
+//     dense (tops 40/112/190)   legacy core top+1   ·   Rust core top+2
+//     sparse (splits 112/140)   legacy core split+0 ·   Rust core split+1
+// BOTH TIERS SHIFT BY EXACTLY ONE LINE BETWEEN CORES, ON THE SAME BYTES. So:
+//   * the dense/sparse DIVERGENCE DOES NOT EXIST — the tiers agree with each other on each core
+//   * the 2026-08-19 bracket is a COINCIDENCE; those commits are exonerated along with item 6
+//   * the cycle story's "wrong direction" caution was the true signal and should have outranked
+//     the bracket: an earlier write cannot land later, and that was known before this measured
+//
+// ⚠ AND THE ARGUMENT THAT "A UNIFORM INSTRUMENT SHIFT IS EXCLUDED" WAS CIRCULAR. It rested on
+// vsplit_landing_gate being green on sparse — but that gate runs on the RUST CORE, so it
+// compared sparse-on-Rust against dense-on-Rust and by construction CANNOT SEE a shift that
+// moves both tiers together. It was offered as a control and was the same instrument twice.
+//
+// THE CONFOUND, stated so nobody rebuilds it: the 2026-08-14 captures were taken on the LEGACY
+// core and the Rust core became the ratified default on 2026-08-26. Era and instrument changed
+// together, so "then vs now" was never a comparison of engines. A cross-instrument comparison
+// is worthless until both instruments are read the same way — the first pass here read the two
+// cores through DIFFERENT capture APIs (legacy serves no emulator/scanlines), and closing that
+// escape is what makes the verdict stand.
+//
+// WHAT STILL STANDS: the value→line rule (value j displays on top+j+1, j starting at 1, CRAM
+// one line earlier) is untouched — it came from source semantics, not from a core comparison.
+//
+// ⚠ AND DO NOT WRITE "THE RUST CORE IS RIGHT" ANYWHERE. The correct sentence is "as read on
+// oracle's Rust core; THE LANDING LINE IS NOT PINNED IN ANY INSTRUMENT" (oracle's ruling,
+// 2026-09-04, from their committed recon):
+//   * the LEGACY core is disqualified as a referee because it disagrees WITH ITSELF — 79-83 of
+//     224 rows differing between two identical boots — NOT because it is known wrong on the
+//     landing. A self-inconsistent instrument cannot adjudicate; that is a different and weaker
+//     claim than "it is wrong", and collapsing the two would make the Rust core a winner by
+//     default rather than by evidence.
+//   * the RUST core's mid-line CRAM/VSRAM write timing is an INTERIM MODEL in oracle's own
+//     docs (2026-07-16-vdp-recon.md:174), and its pinned neighbour is reg 10, not VSRAM/CRAM.
+//     So the number everything here is measured against is unpinned in the instrument itself.
+//   * oracle's reading, offered WITH its limit: a one-line difference between two
+//     scanline-granularity models is the signature of a MODEL BOUNDARY rather than a hardware
+//     disagreement — a hypothesis to test, not an answer. Their sub-line modelling rows would
+//     settle it.
+// This project has no real hardware, so nothing here adjudicates and nothing should pretend to.
 //
 // ⚠ AND THE CYCLE STORY PREDICTS THE WRONG DIRECTION. Today's path to the write is if
 // anything SHORTER than 2026-08-14's (it drops a `move.w sr,-(sp)` and a `tst.w (xxx).W` and
