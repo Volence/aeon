@@ -1,9 +1,9 @@
 {
-  "focus": "Out of rows that do not need you. Everything left is waiting on your word.",
+  "focus": "Checking the board against the code; one question you already answered was still filed as open.",
   "inFlight": [],
   "blockedOnOwner": [
     {
-      "what": "How big the ROM re-layout should be. It is built, verified and waiting on your word. I wrongly dropped this from your card at 07:55Z because my own ledger said it was answered; the hub had withdrawn that answer nine minutes earlier. It is back.",
+      "what": "How big the ROM re-layout should be. Built, verified, and waiting on your word. The hub's stand-in answer was withdrawn, so it is genuinely yours again.",
       "since": "2026-09-04",
       "id": "relayout-magnitude-reopened"
     },
@@ -13,28 +13,70 @@
       "id": "canopy-gap-sighting"
     },
     {
-      "what": "Whether the plane-role swap READS as a clean role trade. Pictures are waiting for you at docs/captures/2026-09-04-role-swap/ - and fair warning, they look very alike, because the only place we have pointed this is dense green foliage on BOTH layers. That is about the scene, not the effect.",
+      "what": "Whether the plane-role swap READS as a clean role trade. Pictures at docs/captures/2026-09-04-role-swap/ - they look alike, because we pointed it at dense green foliage on BOTH layers. That is the scene, not the effect.",
       "since": "2026-09-04",
       "id": "role-swap-taste"
+    },
+    {
+      "what": "The water shimmer's speed. It ships at the speed it always had; nobody has asked you whether you want it a frame faster. This card has been filed since 2026-09-02 and was reaching you nowhere.",
+      "since": "2026-09-02",
+      "id": "d-51-shimmer-cadence-look"
+    },
+    {
+      "what": "Whether each section of the act should be allowed its own water tint, now that it is possible for the first time. It is one tint for the whole act today. Also filed 2026-09-02 and also invisible until now.",
+      "since": "2026-09-02",
+      "id": "d-52-water-tint-scope"
     }
   ],
-  "nextBoundary": "Here. Thirteen commits pushed, nothing half-applied, no agent holding a branch.",
+  "nextBoundary": "After the ledger closure and the stale write-up correction land - a small, self-contained piece of record repair.",
   "queue": [
     {
+      "id": "LEDGER-D53-CLOSE",
+      "title": "You answered this one out loud on 2026-09-03 and it was built the same hour; the card was never closed and the write-up still says it is open work for someone else.",
+      "state": "doing",
+      "size": "S",
+      "blockedBy": null,
+      "project": "EFFECTS-W1"
+    },
+    {
       "id": "ROM-RELAYOUT-MORE-ROOM",
-      "title": "Our half is built and verified; sigil's freeze is GREEN and held on their branch. It waits on your word about the size, not on sigil.",
+      "title": "Our half is built and verified; sigil's freeze is green and held on their branch. Waits on your word about the size, not on sigil.",
       "state": "blocked",
       "size": "M",
       "blockedBy": "the owner's answer to sigil's d-24",
       "project": "EFFECTS-W1"
     },
     {
-      "id": "LIVE-OBJECTS-SPAWN",
-      "title": "Not a task either: the debug spawn/move/delete mailbox landed 2026-09-02 with its own gate. The project board still lists it as unstarted.",
+      "id": "CANOPY-GAP",
+      "title": "The detector is fixed and clean everywhere it can see, so your words about where and when are the lever.",
+      "state": "blocked",
+      "size": "M",
+      "blockedBy": "owner sighting",
+      "project": "EFFECTS-W1"
+    },
+    {
+      "id": "EFFECTS-W1-10B-VISIBLE-SPAN",
+      "title": "The swap changes little because this scene has similar foliage on both planes. A demo wants a spot where they differ.",
       "state": "open",
       "size": "S",
       "blockedBy": null,
-      "project": "LIVE-OBJECTS"
+      "project": "EFFECTS-W1"
+    },
+    {
+      "id": "EFFECTS-W1-REELS-LEFT-EDGE",
+      "title": "The reels overwrite the left-edge repair. Fix is small; held on your word - you said leave it visible.",
+      "state": "open",
+      "size": "S",
+      "blockedBy": null,
+      "project": "EFFECTS-W1"
+    },
+    {
+      "id": "EFFECTS-W1-WATERLINE-FG-ANCHOR",
+      "title": "Still tied to the camera, not the foreground. You deprioritised it because Hydrocity supersedes the test; not closed.",
+      "state": "open",
+      "size": "M",
+      "blockedBy": null,
+      "project": "EFFECTS-W1"
     },
     {
       "id": "EFFECTS-W2-CONFIRM",
@@ -45,62 +87,6 @@
       "project": "EFFECTS-W2"
     },
     {
-      "id": "LOOPS-P-BAKE",
-      "title": "Not a task after all: the bake already carries the loop crossover into the ROM and refuses the illegal value. The write-up was three days stale.",
-      "state": "open",
-      "size": "S",
-      "blockedBy": null,
-      "project": "LOOPS-P"
-    },
-    {
-      "id": "EFFECTS-W1-PICTURES-UNRUN",
-      "title": "DONE. All three watched and landed: the mid-frame layer switch, the reels, and the plane-role swap. Two of the three write-ups had stale coordinates that would have faked a failure.",
-      "state": "open",
-      "size": "M",
-      "blockedBy": null,
-      "project": "EFFECTS-W1"
-    },
-    {
-      "id": "EFFECTS-W1-10B-VISIBLE-SPAN",
-      "title": "Answered enough to act on: the swap changes little because this scene has similar foliage on both planes. A demo wants a spot where they differ.",
-      "state": "open",
-      "size": "S",
-      "blockedBy": null,
-      "project": "EFFECTS-W1"
-    },
-    {
-      "id": "EFFECTS-W1-BUG-LIST-RECHECK",
-      "title": "CLOSED on the static gate, per the hub. The runtime cells stay as a tripwire; they were never able to be the evidence.",
-      "state": "open",
-      "size": "S",
-      "blockedBy": null,
-      "project": "EFFECTS-W1"
-    },
-    {
-      "id": "CANOPY-GAP",
-      "title": "The one thing left that only you can move. The detector is fixed and clean everywhere it can see, so your words about where and when are the lever.",
-      "state": "blocked",
-      "size": "M",
-      "blockedBy": "owner sighting",
-      "project": "EFFECTS-W1"
-    },
-    {
-      "id": "EFFECTS-W1-REELS-LEFT-EDGE",
-      "title": "The reels overwrite the left-edge repair you asked for. Fix is small; held on your word - you said leave it visible.",
-      "state": "open",
-      "size": "S",
-      "blockedBy": null,
-      "project": "EFFECTS-W1"
-    },
-    {
-      "id": "EFFECTS-W1-WATERLINE-FG-ANCHOR",
-      "title": "Still tied to the camera, not the foreground. YOU DEPRIORITISED IT because Hydrocity supersedes the test; not closed.",
-      "state": "open",
-      "size": "M",
-      "blockedBy": null,
-      "project": "EFFECTS-W1"
-    },
-    {
       "id": "QUEUE-REST-IN-ARCHIVE",
       "title": "The rest of the board lives in docs/QUEUE-ARCHIVE.md and docs/DEFERRED_WORK.md, addressed by the same id.",
       "state": "open",
@@ -109,8 +95,8 @@
       "project": null
     }
   ],
-  "awaiting": "four things when you wake: the ROM re-layout size, where you see the blank strip, whether the layer-swap pictures look right, and whether the background work counts as finished",
-  "atBoundary": true,
-  "updatedAt": "2026-09-04T08:40:46Z",
-  "resume": "2026-09-04, after the morning pictures pass. Master = origin/master @ 21917cfd, tree clean.\n\nLANDED THIS SESSION, all pushed and verified reachable: 51586998 (banked the three owner rulings that override the boot stop -- they were living in the hub's relay only, which is the same gap the CUT THE CEREMONY bullet records against itself), a8636c96 (item 11a witness), a690de1c (item 10a tag discharge + re-run), bcf46820 (item 10b witness), 21917cfd (lane log).\n\nTHE PICTURES ROW IS CLOSED. tools/base_swap_witness.py and tools/role_swap_witness.py are new, both hand-run (they boot a headless emulator per arm, so they cannot live in build.sh -- same reason as effects_gates.py). Both proven red and restored, restores verified by byte-identical output.\n\nDO NOT RE-DO THESE: item 11a (hand AND authored), item 10a reels, item 10b role swap have all been watched on s4.debug.bin at 52be83a9. The three 'TAGGED FOR THE CONTROLLER'S EMULATOR PASS' headings in DEFERRED_WORK are now struck through with their totals.\n\nTHE LESSON THAT COST THE MOST TIME AND IS WORTH THE MOST: THREE separate coordinates in DEFERRED_WORK were stale in the direction that fakes a failure. item 11a said fire line 160 / arm word $8A9D (it is 3 / $8A00 since the owner's 2026-09-03 ask); item 10b said poke $FFFF8B48 (the symbol is at $FF8BD0) and following it lands in that same entry's failure mode (a); item 10b was filed unmerged and is an ancestor of master. Derive every expectation from source at the moment of use -- a witness built on any of those three would have reported a confident FAILURE against a correct ROM.\n\nOPEN AND NEW: 10b's visible change is 27 rows (bands 64, 67-91, 223) where its prose predicts the whole picture. Registers trade exactly and reverse, so the mechanism is sound; the question is the scene. Reported without a mechanism attached because nobody has looked.\n\nSTILL BLOCKED ON SIGIL: parcel/rom-relayout-more-room @ 5875e60e. OWED TO THE HUB when it lands: the measured EndOfRom for both sonic4 shapes (before: s4 $A5C82, s4.debug $A852C).\n\nSHARED-MACHINE NOTE, not ours to fix: 13 leaked oracle-aether processes, oldest from 2026-08-28, all on /tmp/oracle-mcp-* sockets (the MCP shim's namespace, not our gates), ~38 MB total. Reported to the hub; not killed, because one was spawned seconds before I looked and they are not this lane's to reap.\n\n\u26a0 LEDGER CORRECTION MADE 08:23Z, AND IT IS A DEFECT OF MINE WORTH NOT REPEATING. relayout-magnitude is NOT answered. The hub's 05:14:51Z in-his-place ruling was WITHDRAWN at 07:46:36Z (empyrean 71aec597, docs/OVERSEER-LOG.md, verified reachable and read firsthand) because aeon's own 6048f065 cure removed the block the ruling rested on, so his answer can now precede the bytes. I wrote my boot status at 07:55:19Z and dropped the blocker on the strength of my ledger's answered block -- nine minutes after it had been un-settled somewhere I did not look. Superseded properly at docs/decisions.jsonl as relayout-magnitude-reopened. THE RULE: an `answered` field records that an answer was GIVEN, never that it still STANDS, and a ruling taken in the owner's place is precisely the kind that gets withdrawn -- check the ruler's own log before treating one as settled. AND: the owner's card for the re-layout is SIGIL's d-24, in sigil's ledger. Aeon's own d-24 is a settled Knuckles sound card; a cross-tree id without its tree named resolves to the wrong question here, and did.\n\nSECOND HALF OF THE MORNING. Bug-list re-check done: of item 15's nine rows only the DMA straddle reserve was still live, and it is now MEASURED (887dea80) -- zero across 25,560 frames driven as BOTH Sonic and Knuckles, with the drive verified (Camera_X 96 -> 5,824). The zero is STRUCTURAL: tools/dplc_straddle.py --gate shows only Knuckles' art crosses a 128 KB boundary, on exactly one animation frame ($88), so the booking's 'play for a few minutes' recipe cannot reach the code under test. DO NOT RE-RUN IT. The static gate already answers the real question exhaustively (worst reachable split 1 against a 2-slot reserve); closing the row on that is a judgement I left to the owner/hub.\n\nALSO: there is NO 1 MB ROM limit (57c6aa8f). sigil caught it; map.toml:216-223 derives the real bound (banks up to 0x3F8000 - 0x10000) and names 0x100000 only as an observation. The wrong framing is in our own decisions ledger's relayout-magnitude options[0].costs and is NOT repaired -- a rule-8c closure must reproduce options identically, and decisions_append.py refused the corrected version by name, which is the write site working. The correction is a section in DEFERRED_WORK; quote that, not the card, for the cost of the re-layout.\n\n10b captures are committed at docs/captures/2026-09-04-role-swap/ (c70f2dec) with a README saying plainly that they look alike and why.\n\nFALLBACK ATTEMPT, and it ended in a correction rather than a parcel. Took LOOPS-P per the hub's ruling; its first unblocked row (DEFERRED_WORK's crossover-dropped-at-the-bake hazard) describes in the present tense a defect fixed 2026-09-02. bake_plane_cell reads bits 15:14, REFUSES XOVER==3, emit_tables writes crossover.bin, collision_data.emp embeds it, and CrossoverTable sits at $70D30 in the debug listing with Player_LoopCrossover consuming it. Carried by 8a4313b5 + 5c251e5e, both ancestors of master. Corrected at a6c555c5.\n\nFIVE STALE COORDINATES IN ONE MORNING (11a's fire line, 10b's poke address, 10b's merge state, my own 'Sonic spans none', and this one). The first four would have faked a FAILURE; this one would have funded a parcel to rebuild working code. Before starting ANY booked row here, check its status against master first -- the booking is a pointer to where to look, not a statement of what is true.\n\nALSO CORRECTED, mine: I wrote 'Sonic spans none. Tails spans none' about DPLC straddles. THREE of four subjects' art crosses a 128 KB boundary; only Knuckles' straddling frame is REACHABLE. Conclusion survived, reason was false, and it had reached a commit message and two peers (9f82779a).\n\nFALLBACK EXHAUSTED HONESTLY, checked against master not the board. EFFECTS-W2: both halves landed (BgActNames in tools/inject_editor_bg.py, 5b09649c on master); needs only the owner's 'done'. LIVE-OBJECTS: select-and-inspect DONE (oracle 37a2d51); the SPAWN half is BUILT -- Obj_Req_* cells at $FFED12..$FFED20, objreq_consume() invoked at ojz_scroll_test.emp:927, landed 9608e190 + 3a520421 (2026-09-02), gated by tools/test_object_mailbox_contract.py -- while empyrean's contract/projects.json shape note of 2026-09-02T20:36:03Z still reads 'Aeon builds the DEBUG spawn mailbox'. Live preview is the only unbuilt half and it is sequenced behind EFFECTS-W1, which waits on him. SO THERE IS NO OWNER-FREE ROW. That is a fact for his card, not an invitation to invent one.\n\nSIX stale board entries in one morning now. The contract note is the HUB'S file -- reported to them, not edited by me."
+  "awaiting": null,
+  "atBoundary": false,
+  "updatedAt": "2026-09-04T08:59:07Z",
+  "resume": "2026-09-04 boot (fresh session after rotation). Master = origin/master @ 442935b1, tree clean, nothing unpushed.\n\nBOOT FINDING, and it is the seventh stale board entry in two days. docs/DEFERRED_WORK.md line 311 (blame ce1dfcec7, 2026-09-03 05:38:17 -0400) still says in the present tense that NOTHING AT SECTION 5 CONSUMES THE CHANNEL IT SWEEPS, and lists three ways out as 'all of them somebody else's call'. Option (a) LANDED five hours later: ef38d0a1 (2026-09-03 10:47:53 -0400, verified ancestor of master) adds `parallax: ParallaxConfig_OJZ_Underwater` to OJZ_Preset_Sec5, and its own comment quotes the owner answering d-53 verbatim: \"Sure let's do it to see it?\". So EFFECTS-W1 DoD item 4's open half is CLOSED and the write-up would have funded a parcel to build it again.\n\nLEDGER STATE, measured not inherited: d-51-shimmer-cadence-look, d-52-water-tint-scope and d-53-moving-band-needs-a-home are the only three ledger entries with answered=None and no supersede, and NONE of them was claimed by a blockedOnOwner id. Dominion builds the owner's cards ONLY from blockedOnOwner joined by id (banked in OVERSEER.md), so all three reached him nowhere - d-53 for a day after he had already answered it, d-51 and d-52 for two days. d-51 and d-52 are now on his card. d-53 gets a rule-8c closure through tools/decisions_append.py (the enforced write site), NOT a hand append.\n\nVERIFIED, DO NOT RE-DO: the three owner rulings that override the /overseer boot stop are ancestors of empyrean origin/main and were read firsthand out of cdb72e9b / 61dfcaa8 / f04afe32, not from a relay. Item 7 (vertical bob) IS merged (8c75722b) despite the DoD table still calling it 'unlanded'. parcel/d53-sec5-underwater is an ancestor of master, i.e. landed and empty.\n\nPRIOR SESSION'S FINDING RE-DERIVED AND IT HOLDS: there is no owner-free BUILD row. Every remaining EFFECTS-W1 feature is gated on VRAM tiles (which need the re-layout the owner must size), on his taste, or on a contract CR that is empyrean's. R7's alignment flip is ready on sigil's side but is neither a DoD item nor a bug, so CUT THE CEREMONY puts it out of scope.\n\nDECLARED TREES, do not sweep: /home/volence/sonic_hacks/.aeon-relayout-freeze, .aeon-attest-201, .aeon-land-182."
 }
