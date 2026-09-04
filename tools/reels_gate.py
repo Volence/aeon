@@ -73,6 +73,52 @@ full image nor zero (nor a plausible nonzero code size, for the proc), or a cons
 this file cannot parse out of its source is reported as UNMEASURABLE (exit 2), never as
 a pass.
 
+THE AUTHORED HALF (EFFECTS-W1 item 10 step 4, gate widened 2026-09-04). Everything above
+this paragraph describes `OJZ_Reel_Speed` — the FALLBACK table, this file's own five-band
+demo. Since aeon 09d964c7 a scene document can carry a `reels` key, which lowers into a
+per-scene `[i8; REEL_BAND_COUNT]` table plus a 0-terminated association table
+(`EditorReelBindings_<CAP>`) that `OJZ_Reels_Fill` walks against `Parallax_Current_Config`
+to pick a table, falling back to `OJZ_Reel_Speed` on a miss.
+
+    Until this widening the AUTHORED tables had NO aeon gate at all — this file read only
+    `SPEED_SYM`, so a generator that emitted the wrong rates, pointed a binding at the
+    wrong scene, or emitted the whole authored block into the RELEASE shape would have
+    left every check here green.
+
+THREE LEGS, and the point of having three is that each is a DIFFERENT authority, so no
+leg can be satisfied by restating another:
+
+  1. the editor SCENE DOCUMENT   games/sonic4/data/editor/effects/<scene_id>.json,
+                                 key `reels.rates` — what the author actually wrote
+  2. the GENERATED module        games/sonic4/data/generated/<zone>/<act>/effects_scenes.emp,
+                                 `const EditorReelsSrc_<CAP>_<scene_id> = [...]` — what
+                                 tools/effects_gen.py carried across
+  3. the ROM                     the bytes at the `EditorReels_*` label in THIS listing —
+                                 what sigil actually emitted
+
+Leg 1 vs leg 2 catches a generator that drops, reorders or rescales an author's rates
+(the CR's named hazard: item 3's `drift.rate` is 1/256 px per frame and the editor
+multiplies it by 256 on export, which applied here would emit 768 for an intended 3).
+Leg 2 vs leg 3 catches a table that never emitted, emitted DEBUG-gated the wrong way
+round, or was hand-patched in the image. NOTHING IS RE-TYPED into this file: a Python
+list of today's rates would make all three legs one leg wearing three hats.
+
+THE ASSOCIATION TABLE IS READ OUT OF THE ROM AND RESOLVED THE WAY THE ENGINE DOES —
+`(config, rates)` longs until a zero config — and each long is required to equal the
+listing address of the symbol the generated module names in that slot. That is what
+proves the binding points where the author aimed it; a table whose pointers are merely
+"plausible addresses" is exactly the failure a byte-count check cannot see.
+
+RELEASE: the authored tables AND the association table must emit ZERO bytes, for the
+same dormant-scaffold reason as the two symbols above, proven the same way — their
+labels must collapse onto the address of the next `pub data` declared after them in the
+generated module.
+
+A TREE WITH NO AUTHORED REELS IS STILL GRADABLE, deliberately: the association table is
+emitted in every bake (`OJZ_Reels_Fill` names it in a `lea`, so the symbol must exist),
+and with no `reels` key anywhere it is exactly one terminator long. This gate asserts
+that shape rather than skipping.
+
 Usage:
     tools/reels_gate.py --shape debug|release [--lst s4.lst] [--rom s4.bin]
                         [--built-after <epoch s>]
@@ -81,6 +127,8 @@ Exit 0 = the mechanism is in the ROM (or correctly absent). 1 = a real failure.
 2 = UNMEASURABLE.
 """
 
+import glob
+import json
 import os
 import re
 import sys
@@ -89,6 +137,16 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 GAME_CONSTANTS = os.path.join(REPO, "games", "sonic4", "config", "constants.emp")
 FIXTURE = os.path.join(REPO, "games", "sonic4", "data", "effects", "ojz_effects.emp")
+
+# The generator's own two paths, re-derived here rather than imported: importing
+# tools/effects_gen.py would make this gate's expectation and the thing it grades the
+# same object, which is the restatement failure the header refuses.
+# `ActNames.out_path` (tools/effects_gen.py) builds the first; `scene_dir()` the second,
+# where a document's `id` is REQUIRED to equal its filename stem (effects_gen refuses
+# otherwise), which is what makes scene_id -> document path a derivation and not a guess.
+GENERATED_GLOB = os.path.join(REPO, "games", "sonic4", "data", "generated",
+                              "*", "*", "effects_scenes.emp")
+SCENE_DOC_DIR = os.path.join(REPO, "games", "sonic4", "data", "editor", "effects")
 
 SPEED_SYM = "OJZ_Reel_Speed"
 FILL_SYM = "OJZ_Reels_Fill"
@@ -134,17 +192,24 @@ def emp_const(path, name):
 
 
 def emp_int_array(path, name):
-    """The literal ints inside `const NAME: [T; N] = [a, b, c, ...]`, in source order.
+    """The literal ints inside `const NAME[: [T; N]] = [a, b, c, ...]`, in source order.
 
     Pure text parse, deliberately: re-typing the values as a second Python list would
     make this a restatement rather than a re-derivation, exactly the gap OJZ_BaseSwap's
     header explains for its own five-source expectation.
+
+    THE TYPE ANNOTATION IS OPTIONAL and that is not laxity: `OJZ_REEL_SPEEDS` carries
+    `: [i8; REEL_BAND_COUNT]`, while every generated `EditorReelsSrc_*` is deliberately
+    UNANNOTATED so `reel_rates_ok`'s magnitude arm sees the RAW authored ints rather than
+    values already narrowed by emission (tools/effects_gen.py says so at the emission
+    site). Two parsers for the two spellings would be two places for this gate to drift
+    from the source it grades.
     """
-    m = re.search(rf"^\s*const\s+{re.escape(name)}\s*:\s*\[[^\]]*\]\s*=\s*\[([^\]]*)\]",
+    m = re.search(rf"^\s*const\s+{re.escape(name)}\s*(?::\s*\[[^\]]*\]\s*)?=\s*\[([^\]]*)\]",
                   _read(path), re.M)
     if not m:
         raise Unmeasurable(
-            f"cannot find `const {name}: [...] = [...]` in {os.path.relpath(path, REPO)}")
+            f"cannot find `const {name} = [...]` in {os.path.relpath(path, REPO)}")
     items = [x.strip() for x in m.group(1).split(",") if x.strip() != ""]
     if not items:
         raise Unmeasurable(f"`{name}` in {os.path.relpath(path, REPO)} parsed to an empty array")
@@ -163,6 +228,137 @@ def to_bytes_i8(values):
 
 def all_distinct(values):
     return len(set(values)) == len(values)
+
+
+# --------------------------------------------------------------------------------------
+# THE AUTHORED HALF — the three legs the header describes.
+# --------------------------------------------------------------------------------------
+
+_PUB_DATA = re.compile(r"^pub\s+data\s+([A-Za-z_$][\w$]*)\s*:", re.M)
+_REELS_TABLE = re.compile(r"^pub\s+data\s+(EditorReels_[\w$]+)\s*:\s*\[i8;", re.M)
+_BIND_TABLE = re.compile(
+    r"^pub\s+data\s+(EditorReelBindings_[\w$]+)\s*:\s*\[\*u8;[^\]]*\]\s*=\s*"
+    r"if\s+DEBUG\s*==\s*1\s*\{\s*\[([^\]]*)\]\s*\}\s*else\s*\{\s*\[\s*\]\s*\}", re.M)
+_EXTERN = re.compile(r'extern\("([A-Za-z_$][\w$]*)"\)')
+
+
+def generated_modules():
+    """Every generated per-act effects module, sorted. Zero of them is UNMEASURABLE.
+
+    An empty glob is NOT "this tree authors no reels" — it is indistinguishable from
+    "this gate is looking in the wrong directory", and the two demand opposite reactions.
+    """
+    mods = sorted(glob.glob(GENERATED_GLOB))
+    if not mods:
+        raise Unmeasurable(
+            f"no generated effects module matched {os.path.relpath(GENERATED_GLOB, REPO)} — "
+            f"the authored-reels half of this gate reads its expectation out of that file, "
+            f"and an empty glob cannot be told apart from a moved output path")
+    return mods
+
+
+def scene_doc_rates(scene_id):
+    """`reels.rates` out of the editor scene document whose stem is `scene_id`.
+
+    tools/effects_gen.py REFUSES a document whose `id` differs from its filename stem, so
+    the stem is a derivation of the symbol component and not a convention this file hopes
+    holds. A missing document, or one with no `reels` key, is UNMEASURABLE: the generated
+    module says a scene authored rates, so the document that authored them must exist.
+    """
+    path = os.path.join(SCENE_DOC_DIR, scene_id + ".json")
+    if not os.path.isfile(path):
+        raise Unmeasurable(
+            f"the generated module declares rates for scene {scene_id!r} but "
+            f"{os.path.relpath(path, REPO)} does not exist — this gate compares the "
+            f"generator's output against the AUTHOR's document, and with the document "
+            f"missing it would be comparing the generator against itself")
+    try:
+        doc = json.loads(_read(path))
+    except json.JSONDecodeError as e:
+        raise Unmeasurable(f"{os.path.relpath(path, REPO)} is not valid JSON: {e}")
+    reels = doc.get("reels")
+    if not isinstance(reels, dict) or "rates" not in reels:
+        raise Unmeasurable(
+            f"{os.path.relpath(path, REPO)} has no `reels.rates` key, but the generated "
+            f"module emitted a rate table for it — the two disagree about whether this "
+            f"scene authors reels at all")
+    rates = reels["rates"]
+    if not isinstance(rates, list) or not all(isinstance(r, int) for r in rates):
+        raise Unmeasurable(
+            f"{os.path.relpath(path, REPO)}'s `reels.rates` is {rates!r}, not a list of "
+            f"whole-pixel ints")
+    return rates
+
+
+def authored_reels(path):
+    """Parse ONE generated module's reels block.
+
+    Returns (cap, [(table_sym, scene_id, rates_from_generated)], bind_sym, [(cfg, rates)],
+             next_decl) where `next_decl` is the `pub data` declared immediately after the
+    association table — the neighbour whose address gives the table's byte size in DEBUG
+    and proves the whole block collapsed in release.
+    """
+    text = _read(path)
+    m = _BIND_TABLE.search(text)
+    if not m:
+        raise Unmeasurable(
+            f"cannot find `pub data EditorReelBindings_<CAP>: [*u8; ..] = if DEBUG == 1 "
+            f"{{ [..] }} else {{ [] }}` in {os.path.relpath(path, REPO)}. That table is "
+            f"emitted in EVERY bake (OJZ_Reels_Fill names it in a `lea`), so its absence "
+            f"is a parse failure or a generator change, never 'no reels authored'")
+    bind_sym = m.group(1)
+    cap = bind_sym[len("EditorReelBindings_"):]
+
+    # the initializer: (config, rates) extern pairs, then a literal 0 terminator
+    items = [x.strip() for x in m.group(2).split(",") if x.strip() != ""]
+    if not items or items[-1] != "0":
+        raise Unmeasurable(
+            f"`{bind_sym}`'s initializer in {os.path.relpath(path, REPO)} does not end in "
+            f"a literal `0` terminator (parsed {items!r}). OJZ_Reels_Fill walks it until a "
+            f"zero config long; without one the walk runs off the end of the table")
+    body = items[:-1]
+    if len(body) % 2:
+        raise Unmeasurable(
+            f"`{bind_sym}` carries {len(body)} entries before the terminator, which is odd "
+            f"— OJZ_Reels_Fill reads (config, rates) PAIRS, so an odd count would leave it "
+            f"reading the terminator as a rate table pointer")
+    pairs = []
+    for i in range(0, len(body), 2):
+        cfg, rates = _EXTERN.fullmatch(body[i]), _EXTERN.fullmatch(body[i + 1])
+        if not cfg or not rates:
+            raise Unmeasurable(
+                f"`{bind_sym}` entry {i // 2} is ({body[i]}, {body[i + 1]}), not the "
+                f"`extern(\"Name\")` pair this gate resolves against the listing")
+        pairs.append((cfg.group(1), rates.group(1)))
+
+    tables = []
+    for tm in _REELS_TABLE.finditer(text):
+        sym = tm.group(1)
+        prefix = f"EditorReels_{cap}_"
+        if not sym.startswith(prefix):
+            raise Unmeasurable(
+                f"{sym} in {os.path.relpath(path, REPO)} does not start with {prefix!r}, so "
+                f"this gate cannot derive its scene id — and a guessed scene id would read "
+                f"the wrong author's document")
+        scene_id = sym[len(prefix):]
+        tables.append((sym, scene_id, emp_int_array(path, f"EditorReelsSrc_{cap}_{scene_id}")))
+
+    # the neighbour: the first `pub data` DECLARED after the association table
+    after = [d for d in _PUB_DATA.finditer(text) if d.start() > m.start()]
+    if not after:
+        raise Unmeasurable(
+            f"`{bind_sym}` is the last `pub data` in {os.path.relpath(path, REPO)}, so this "
+            f"gate has no following symbol to measure its size against. The gap arithmetic "
+            f"below needs a neighbour; without one, a table emitting bytes in the RELEASE "
+            f"shape would be invisible here")
+    return cap, tables, bind_sym, pairs, after[0].group(1)
+
+
+def rom_longs(rom, addr, count):
+    if addr + count * 4 > len(rom):
+        raise Unmeasurable(
+            f"${addr:06X} + {count} long(s) runs past the end of the {len(rom)}-byte ROM")
+    return [int.from_bytes(rom[addr + i * 4: addr + i * 4 + 4], "big") for i in range(count)]
 
 
 def lst_labels(path):
@@ -185,6 +381,118 @@ def at(labels, name, path):
             f"at that label; a missing symbol is not a pass — the content may simply not "
             f"have been emitted at all")
     return labels[name]
+
+
+def authored_checks(shape, labels, rom, lst_path, band_count):
+    """The authored half, both shapes. Returns a list of FAILURE strings (empty = pass);
+    anything this gate cannot measure raises Unmeasurable, never a silent skip."""
+    fails = []
+    for mod in generated_modules():
+        rel = os.path.relpath(mod, REPO)
+        cap, tables, bind_sym, pairs, next_decl = authored_reels(mod)
+        bind_addr = at(labels, bind_sym, lst_path)
+        next_addr = at(labels, next_decl, lst_path)
+        bind_gap = next_addr - bind_addr
+        print(f"  [{rel}] cap={cap}, {len(tables)} authored table(s), "
+              f"{len(pairs)} binding(s); `{bind_sym}` at ${bind_addr:06X}, next declared "
+              f"`{next_decl}` at ${next_addr:06X} — {bind_gap} byte(s) between")
+
+        if shape == "release":
+            # Everything in the block must collapse onto the neighbour's address. Equality
+            # among the reels symbols alone would NOT do: a table emitting 0 and the
+            # association table emitting 12 would leave their labels equal and 12 bytes of
+            # dormant scaffold in the shipped ROM. The neighbour is what closes that.
+            if bind_gap != 0:
+                fails.append(f"`{bind_sym}` emits {bind_gap} bytes in the RELEASE shape")
+            for sym, scene_id, _ in tables:
+                a = at(labels, sym, lst_path)
+                if a != bind_addr:
+                    fails.append(
+                        f"`{sym}` is at ${a:06X} but `{bind_sym}` is at ${bind_addr:06X} — "
+                        f"the authored rate table for scene {scene_id!r} emits "
+                        f"{bind_addr - a} byte(s) in the RELEASE shape")
+            continue
+
+        # ---- debug shape ----
+        # leg 1 vs leg 2: the author's document against the generator's output
+        for sym, scene_id, gen_rates in tables:
+            doc_rates = scene_doc_rates(scene_id)
+            if gen_rates != doc_rates:
+                fails.append(
+                    f"scene {scene_id!r}: the document authored {doc_rates} but "
+                    f"{rel} emitted {gen_rates} — tools/effects_gen.py dropped, "
+                    f"reordered or rescaled the author's rates (index i owns screen X "
+                    f"64i..64i+63, so a reorder silently relocates every strip)")
+            if len(gen_rates) != band_count:
+                raise Unmeasurable(
+                    f"`EditorReelsSrc_{cap}_{scene_id}` has {len(gen_rates)} rates but "
+                    f"REEL_BAND_COUNT is {band_count} — the generated module's own "
+                    f"reel_rates_ok ensure should have refused this build first")
+            if not all_distinct(gen_rates):
+                raise Unmeasurable(
+                    f"scene {scene_id!r}'s rates {gen_rates} are not pairwise distinct; "
+                    f"reel_rates_ok should have refused this build before this gate ran")
+            # leg 2 vs leg 3: the generated source against the emitted bytes
+            addr = at(labels, sym, lst_path)
+            want = to_bytes_i8(gen_rates)
+            if addr + band_count > len(rom):
+                raise Unmeasurable(
+                    f"`{sym}` at ${addr:06X} + {band_count} bytes runs past the end of the "
+                    f"{len(rom)}-byte ROM")
+            got = list(rom[addr:addr + band_count])
+            for i, (g, w) in enumerate(zip(got, want)):
+                sgn = g - 256 if g >= 128 else g
+                ok = g == w
+                print(f"    {scene_id} band {i}  ${addr + i:06X}  {g:02X} ({sgn:+d})  "
+                      f"want {w:02X} ({gen_rates[i]:+d})  {'OK' if ok else 'MISMATCH'}")
+                if not ok:
+                    fails.append(f"`{sym}` band {i}: ROM {g:02X}, source wants {w:02X}")
+
+        # the association table, resolved OUT OF THE ROM the way OJZ_Reels_Fill does
+        want_longs = len(pairs) * 2 + 1
+        if bind_gap != want_longs * 4:
+            raise Unmeasurable(
+                f"`{bind_sym}` occupies {bind_gap} bytes, not the {want_longs * 4} "
+                f"({len(pairs)} (config, rates) pair(s) plus a terminator, 4 bytes each) "
+                f"this gate derived from {rel}. Either the symbols are no longer adjacent "
+                f"in emission order or the table's declared length moved — do NOT read "
+                f"this as a pointer mismatch")
+        longs = rom_longs(rom, bind_addr, want_longs)
+        walked = []
+        i = 0
+        while i < len(longs) and longs[i] != 0:      # OJZ_Reels_Fill's own loop shape
+            if i + 1 >= len(longs):
+                fails.append(f"`{bind_sym}`: config ${longs[i]:06X} has no rates long after "
+                             f"it before the table ends")
+                break
+            walked.append((longs[i], longs[i + 1]))
+            i += 2
+        if i >= len(longs):
+            fails.append(f"`{bind_sym}` has no zero terminator in its {want_longs} longs — "
+                         f"OJZ_Reels_Fill's `.bind` walk would run past the table")
+        if len(walked) != len(pairs):
+            fails.append(f"`{bind_sym}`: the ROM walk found {len(walked)} binding(s), the "
+                         f"source declares {len(pairs)}")
+        for n, ((cfg_sym, rate_sym), (cfg_val, rate_val)) in enumerate(zip(pairs, walked)):
+            cfg_want = at(labels, cfg_sym, lst_path)
+            rate_want = at(labels, rate_sym, lst_path)
+            ok = (cfg_val == cfg_want) and (rate_val == rate_want)
+            print(f"    binding {n}: config ${cfg_val:06X} (want ${cfg_want:06X} "
+                  f"{cfg_sym}), rates ${rate_val:06X} (want ${rate_want:06X} {rate_sym})  "
+                  f"{'OK' if ok else 'MISMATCH'}")
+            if cfg_val != cfg_want:
+                fails.append(f"`{bind_sym}` binding {n}'s config long is ${cfg_val:06X}, not "
+                             f"`{cfg_sym}`'s ${cfg_want:06X} — the binding selects on a "
+                             f"DIFFERENT section's config than the author aimed it at")
+            if rate_val != rate_want:
+                fails.append(f"`{bind_sym}` binding {n}'s rates long is ${rate_val:06X}, not "
+                             f"`{rate_sym}`'s ${rate_want:06X} — the binding hands "
+                             f"OJZ_Reels_Fill someone else's rate table")
+        if not pairs:
+            print(f"    no scene in this act authors `reels` — the association table is one "
+                  f"terminator long, and OJZ_Reels_Fill keeps `{SPEED_SYM}` for every "
+                  f"section. The fallback path is what this bake exercises.")
+    return fails
 
 
 def main():
@@ -253,22 +561,29 @@ def main():
         print(f"  {FILL_SYM} at ${fill_addr:06X}, {NEXT_SYM} at ${next_addr:06X} — "
               f"{proc_gap} byte(s) between (the proc)")
 
+        with open(rom_path, "rb") as f:
+            rom = f.read()
+
         if shape == "release":
             bad = []
             if table_gap != 0:
                 bad.append(f"`{SPEED_SYM}` emits {table_gap} bytes in the RELEASE shape")
             if proc_gap != 0:
                 bad.append(f"`{FILL_SYM}` emits {proc_gap} bytes in the RELEASE shape")
+            bad += authored_checks(shape, labels, rom, lst_path, band_count)
             if bad:
                 print("reels_gate: FAIL — " + "; ".join(bad) + ". Nothing in the release "
                       "shape can ever set OJZ_Reel_Active (its only writer is "
                       "tools/reels_witness.py poking a DEBUG-only RAM cell), so this is a "
                       "dormant scaffold in the shipped ROM. Restore the `if DEBUG == 1` / "
                       "else-empty gate on the `pub data` and the `if DEBUG == 1 {}` wrap on "
-                      "the `pub proc` in games/sonic4/data/effects/ojz_effects.emp.")
+                      "the `pub proc` in games/sonic4/data/effects/ojz_effects.emp (and, "
+                      "for an EditorReels_*/EditorReelBindings_* row, the same gate in "
+                      "tools/effects_gen.py's emitted module).")
                 return 1
-            print(f"reels_gate: OK — `{SPEED_SYM}` and `{FILL_SYM}` emit no bytes in the "
-                  f"release shape, as their DEBUG-only reason requires")
+            print(f"reels_gate: OK — `{SPEED_SYM}`, `{FILL_SYM}` and every authored reel "
+                  f"table + association table emit no bytes in the release shape, as their "
+                  f"DEBUG-only reason requires")
             return 0
 
         # shape == "debug"
@@ -293,30 +608,34 @@ def main():
                   f"wrap on the `pub proc` is inverted, or the proc stopped being emitted.")
             return 1
 
-        with open(rom_path, "rb") as f:
-            rom = f.read()
         if speed_addr + band_count > len(rom):
             raise Unmeasurable(
                 f"`{SPEED_SYM}` at ${speed_addr:06X} + {band_count} bytes runs past the "
                 f"end of the {len(rom)}-byte ROM")
         got_bytes = list(rom[speed_addr:speed_addr + band_count])
 
-        bad = 0
+        bad = []
         for i, (g, w) in enumerate(zip(got_bytes, want_bytes)):
             ok = g == w
-            bad += 0 if ok else 1
             signed = g - 256 if g >= 128 else g
             print(f"  band {i}  ${speed_addr + i:06X}  {g:02X} ({signed:+d})  "
                   f"want {w:02X} ({speeds[i]:+d})  {'OK' if ok else 'MISMATCH'}")
+            if not ok:
+                bad.append(f"`{SPEED_SYM}` band {i}: ROM {g:02X}, source wants {w:02X}")
+
+        bad += authored_checks(shape, labels, rom, lst_path, band_count)
 
         if bad:
-            print(f"reels_gate: FAIL — {bad} of {band_count} speed byte(s) differ")
+            print(f"reels_gate: FAIL — {len(bad)} failure(s):")
+            for line in bad:
+                print(f"  - {line}")
             return 1
 
         print(f"reels_gate: OK — the reel source is in this ROM: {band_count} pairwise-"
-              f"distinct per-band rates {speeds} at ${speed_addr:06X}, and "
+              f"distinct per-band FALLBACK rates {speeds} at ${speed_addr:06X}, "
               f"`{FILL_SYM}` ({proc_gap} bytes of code) reaches the ROM to advance and "
-              f"compose them")
+              f"compose them, and every AUTHORED table matches its scene document and its "
+              f"association-table pointers resolve to the symbols the generator named")
         return 0
 
     except Unmeasurable as e:
