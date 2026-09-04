@@ -2565,7 +2565,7 @@ def render_module(scenes: dict, act_ref, sec_refs: dict, sections: int,
         # §8 predicts. If you are adding a tail, this line is part of the parcel.
         out.append("use engine.structs.{parallax_config}")
         out.append("use engine.parallax.{band_entry, band_record, band_ext, "
-                   "BAND_EXT_N, band_curve, BAND_CURVE_N, band_drift, BAND_DRIFT_N}")
+                   "BAND_EXT_N, band_curve, BAND_CURVE_N, band_drift, BAND_DRIFT_N, band_remap, BAND_REMAP_N}")
         # GLOBS, MANDATORY. A comptime fn's free names resolve at the CALL SITE, so
         # scene()/layer()/lowerN reach their helpers through what is in scope HERE;
         # a selective import is LOUD on the function axis and SILENT on the constant

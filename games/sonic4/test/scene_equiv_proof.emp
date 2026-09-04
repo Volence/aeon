@@ -68,7 +68,7 @@
 module games.sonic4.scene_equiv_proof
 
 use engine.structs.{parallax_config}
-use engine.parallax.{band_entry, band_record, band_ext, BAND_EXT_N, band_curve, BAND_CURVE_N, band_drift, BAND_DRIFT_N}
+use engine.parallax.{band_entry, band_record, band_ext, BAND_EXT_N, band_curve, BAND_CURVE_N, band_drift, BAND_DRIFT_N, band_remap, BAND_REMAP_N}
 // Named for the two `hdr()` guards that fire inside the ORACLE's body when it is called
 // from here: a comptime fn's free names resolve at the call site. Both modules are sigil
 // COMPTIME_HELPERS (so these would also arrive glob-injected), and both are named anyway —

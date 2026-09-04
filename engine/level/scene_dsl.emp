@@ -19,7 +19,7 @@
 module engine.level.scene_dsl
 
 use engine.structs.{parallax_config}
-use engine.parallax.{band_entry, band_record, band_ext, BAND_EXT_N, band_curve, BAND_CURVE_N, band_drift, BAND_DRIFT_N, CURVE_FLAG_OP_BIT, CURVE_FLAG_ACTIVE_BIT, PLANE_B_SPAN, BAND_OP_BIT_A, BAND_OP_BIT_B, BOB_SHIFT_MIN, BOB_SHIFT_MAX, BOB_PERIOD_SHIFT_MAX, BOB_SHIFT_NONE, PCFG_VDS_SHIFT_MASK, PCFG_VDS_DECLINE_BORROW}
+use engine.parallax.{band_entry, band_record, band_ext, BAND_EXT_N, band_curve, BAND_CURVE_N, band_drift, BAND_DRIFT_N, band_remap, BAND_REMAP_N, CURVE_FLAG_OP_BIT, CURVE_FLAG_ACTIVE_BIT, PLANE_B_SPAN, BAND_OP_BIT_A, BAND_OP_BIT_B, BOB_SHIFT_MIN, BOB_SHIFT_MAX, BOB_PERIOD_SHIFT_MAX, BOB_SHIFT_NONE, PCFG_VDS_SHIFT_MASK, PCFG_VDS_DECLINE_BORROW}
 use engine.constants.{MAX_PARALLAX_BANDS, PARALLAX_ANCHOR_NONE}
 use engine.effects.raster_dsl.{RASTER_MAX_PATCH}
 
@@ -315,8 +315,28 @@ pub const CAP_DENSE_TIER          = $0200
 // because IT still has an unconditional caller). See docs/DEFERRED_WORK.md's item 10b
 // block, "CORRECTION AND FINAL DESIGN", for the full Q1/Q2/Q3 accounting.
 pub const CAP_ROLE_SWAP           = $0400
-// Reserved (P4+): CAP_FG_SPRITE_STRIPS=$0800, CAP_BGANIM_BOUND=$1000,
-// CAP_COMPUTED=$2000, CAP_DEGRADE=$4000
+// CAP_ROW_REMAP — EFFECTS-W1 item 9, the Hydrocity waterline's SCROLL half (parcel 9a):
+// engine/level/parallax.emp's `band_remap` tail, its per-band mark inside
+// Parallax_Fill_PerLine's band loop, and the `.lp_remap` second pass after that loop.
+//
+// $0800 RE-DERIVED ON THIS TREE AT IMPLEMENTATION TIME, not copied from the design doc
+// written hours earlier — three bits ($0100, $0200, $0400) moved on 2026-09-03 alone and a
+// design's bit claim is exactly the stale-fact class this repo has booked twice. The
+// declared run above is $0002..$0400 with $0001 retired, so $0800 is the next free bit; and
+// re-verified that taking it from the reserved list costs nothing, because every reference
+// to CAP_FG_SPRITE_STRIPS in engine/, games/ and tools/ is PROSE or a NAME
+// (tools/test_scene_span_labels.py iterates the reserved NAMES and never their values;
+// tools/scene_spans.py's mention is a comment). The four still-reserved names shift up one,
+// the same allocation rule every promotion above documents.
+//
+// WHAT THE BIT IS NOT. It is not a scanline count and it buys no HBlank time: per-line
+// horizontal scroll is a VRAM table the VDP fetches for itself, so the remap runs wholly in
+// the game loop and reaches the VDP through the 896-byte static HScroll DMA that already
+// ships. It gates three spans in parallax.emp — the per-frame mark clear, the per-band mark,
+// and the pass — and a game that does not declare it emits none of them and pays nothing.
+pub const CAP_ROW_REMAP           = $0800
+// Reserved (P4+): CAP_FG_SPRITE_STRIPS=$1000, CAP_BGANIM_BOUND=$2000,
+// CAP_COMPUTED=$4000, CAP_DEGRADE=$8000
 //
 // THE LEFT-COLUMN POLICY (P3 Task 12) RAISES NO BIT, AND THAT IS A RULING, NOT AN
 // OVERSIGHT. Factor0Lock and Accept demand nothing of the runtime — one is a verified
@@ -462,6 +482,42 @@ pub comptime enum SceneCurve {
 pub comptime enum SceneDrift {
     None,
     Rate(int),                  // signed 1/256 px per frame; 0 is REFUSED, see layer()
+}
+
+// SceneRemap — EFFECTS-W1 item 9's ROW REMAP: this layer's plane-B scroll words are
+// re-fetched through a viewpoint-selected index ladder, so screen line i of the band takes
+// the value that belonged to line ladder[i]. Rows are reordered, repeated and dropped, and
+// the band compresses toward the surface as the camera's viewpoint separates the
+// background's picture of that surface from the foreground's.
+//
+//   None            this layer's plane-B scroll words are whatever the five line loops
+//                   wrote. Every shipped layer but one.
+//   Ladder(t, y, h) `t` names the generated ladder ((H+1) rows of H bytes, H = 1 << h);
+//                   `y` is the BG PLANE LINE at which this layer's art paints the surface;
+//                   `h` is the height shift. It is the ONLY thing that raises
+//                   CAP_ROW_REMAP.
+//
+// IT NAMES NOTHING AQUATIC, DELIBERATELY. S3K ships this mechanism in two zones at two
+// different band heights on one parameterised kernel (HCZ1_Deform at H = 96, LBZ2_Deform at
+// H = 64 — sonic3k.asm:105799 and :111651, same three-instruction remap, different clamp and
+// row stride), and the operation generalises past water: a receding floor, a heat-haze
+// horizon, a mirror or a cylinder seen edge-on are the same fetch with a different ladder.
+// The DoD row's "zone-specific by the survey's own estimate" describes the ladder and the
+// art, which are content, and not the mechanism, which is a band property with two numbers
+// in it.
+//
+// THE HEIGHT IS A SHIFT AND NOT A COUNT, and that is a hardware argument rather than a
+// style one: the ladder row select is `row * H` once per frame, and this engine does not
+// reach for `mulu` to do what a shift does (CODING_CONVENTIONS §2.1). H = 1 << 6 = 64 is
+// LBZ2's own shipped height and gives a 4,160-byte ladder — exactly the size of
+// `LBZ Waterline Scroll Data.bin`.
+//
+// Comptime-only like the rest of this model: it lowers into band_remap's four fields, and
+// the anchor channel it needs comes from the SCENE's own `anchor:` rather than from a fifth
+// payload, because a remap without an anchor is refused outright (scene()'s guard).
+pub comptime enum SceneRemap {
+    None,
+    Ladder(Label, int, int),    // (ladder table Label, surface BG plane line, height shift)
 }
 
 // SceneVSplit — design §2's PER-LAYER VERTICAL DEPTH (P3 Task 11), and the only attachment
@@ -761,6 +817,12 @@ pub struct SceneLayer {
     // like the rest of this struct: it lowers into band_drift's single 16.16 long, pre-shifted
     // from the authored 8.8 by scene_band().
     ly_drift:    SceneDrift,
+    // EFFECTS-W1 item 9 — the layer's ROW REMAP. `None` = this layer's plane-B scroll words
+    // are whatever the line loops wrote (every shipped layer but one); `Ladder(..)` re-fetches
+    // them through a viewpoint-selected index ladder and is the ONLY thing that raises
+    // CAP_ROW_REMAP. Comptime-only like the rest of this struct: it lowers into band_remap's
+    // four fields, the anchor channel coming from the SCENE rather than this attachment.
+    ly_remap:    SceneRemap,
 }
 
 // -----------------------------------------------
@@ -794,7 +856,8 @@ pub comptime fn layer(world_y: int, fa: int, fb: int, dsa: int = 15, dsb: int = 
                       deform: SceneDeform = SceneDeform.None,
                       curve: SceneCurve = SceneCurve.None,
                       vsplit: SceneVSplit = SceneVSplit.None,
-                      drift: SceneDrift = SceneDrift.None) -> SceneLayer {
+                      drift: SceneDrift = SceneDrift.None,
+                      rowRemap: SceneRemap = SceneRemap.None) -> SceneLayer {
     // $8000 is inlined per the pin block at the top of this file (LAYER_WORLD_Y_MAX).
     ensure(world_y >= 0 && world_y < $8000,
            "layer(): world_y {world_y} is outside the engine's act-axis span (0 .. $8000). Every act descriptor asserts (GRID_H << SECTION_SIZE_SHIFT) <= $8000 and the camera's world coordinates are signed words, so a top above it names a Y the camera can never reach. NOTE this is the ENGINE-WIDE ceiling: the tight bound is this game's own act span and it is checked at the registry by assert_act_relative_tagged()")
@@ -936,10 +999,18 @@ pub comptime fn layer(world_y: int, fa: int, fb: int, dsa: int = 15, dsb: int = 
            "layer(): drift: SceneDrift.Rate(0) is not a slow drift, it is no drift — and it is REFUSED because `None` and `Rate(0)` lower to the SAME four zero bytes, so the band record could no longer say which one you wrote. Spell it `drift: SceneDrift.None` (the default) if the layer does not drift. THE UNIT IS 1/256 px PER FRAME, SIGNED: `Rate(256)` is one pixel per frame, `Rate(32)` is S3K AIZ1's clouds, `Rate(5)` is S3K MGZ1's slowest row, and the fastest rate in the whole S1/S2/S3K corpus is S2 DEZ's stars at `Rate(1536)` = 6 px/frame. If you meant one pixel per frame, you want 256")
     ensure(drift_none == 1 || (drift_rate >= -4096 && drift_rate <= 4096),
            "layer(): drift: SceneDrift.Rate({drift_rate}) is outside +/-4096. THE UNIT IS 1/256 px PER FRAME, SIGNED, so 4096 is 16 px/frame — and if you meant 16 px/frame you want 4096, not 16. THIS IS A TASTE BOUND, NOT A CORRECTNESS ONE, and the distinction is the point: nothing breaks above it. The accumulator is 32-bit and its wrap is seamless at ANY rate (the pixel part wraps at 65536 px = 128 x 512-px plane widths exactly), and the per-frame arithmetic is one add. The bound is 2.7x the fastest rate in the entire surveyed S1/S2/S3K corpus (S2 DEZ's stars, 6 px/frame = 1536). If you have a real reason to go faster, RAISE THIS BOUND in engine/level/scene_dsl.emp and say why in the commit — do not work around the guard")
+    // THE ROW REMAP'S TWO LAYER-LOCAL GUARDS. The one that decides whether anyone can SEE
+    // the effect is not here — it needs the scene's anchor and the scene's deform table, so
+    // it lives in scene(). These two are the ones a single layer can answer.
+    let remap_none = scene_remap_is_none(rowRemap)
+    ensure(remap_none == 1 || (scene_remap_hshift(rowRemap) >= 3 && scene_remap_hshift(rowRemap) <= 7),
+           "layer(): rowRemap height shift {scene_remap_hshift(rowRemap)} is outside 3..7. IT IS A SHIFT, NOT A LINE COUNT — H = 1 << shift, so 6 is a 64-line ladder (S3K LBZ2's own height, a 4,160-byte table) and 7 is 128 lines and 16,512 bytes. The ladder is QUADRATIC in H: (H+1) rows of H bytes. Below 3 the remapped run is under 8 lines and nothing is visible; above 7 the table is larger than the act's whole parallax data. If you meant 64 lines, you want 6")
+    ensure(remap_none == 1 || scene_remap_plane_y(rowRemap) >= 0,
+           "layer(): rowRemap surface plane line {scene_remap_plane_y(rowRemap)} is negative. IT IS A PLANE-B LINE (0..511), not a world Y and not a screen line: the runtime computes the background's image of the surface as `plane_y - Vscroll_BG`, so this is where the BG ART paints it, which is a different number from the layer's own world_y")
     return SceneLayer{ ly_world_y: world_y, ly_fa: fa, ly_fb: fb, ly_dsa: eff_dsa,
                        ly_dsb: eff_dsb, ly_phase: eff_phase, ly_enabled: enabled,
                        ly_deform: deform, ly_curve: curve, ly_vsplit: vsplit,
-                       ly_drift: drift }
+                       ly_drift: drift, ly_remap: rowRemap }
 }
 
 // no_layer — the padding element. `Scene.sc_layers` is a FIXED [SceneLayer; 16] (a
@@ -955,7 +1026,8 @@ pub comptime fn no_layer() -> SceneLayer {
     return SceneLayer{ ly_world_y: 0, ly_fa: 0, ly_fb: 0, ly_dsa: 15,
                        ly_dsb: 15, ly_phase: 0, ly_enabled: 0,
                        ly_deform: SceneDeform.None, ly_curve: SceneCurve.None,
-                       ly_vsplit: SceneVSplit.None, ly_drift: SceneDrift.None }
+                       ly_vsplit: SceneVSplit.None, ly_drift: SceneDrift.None,
+                       ly_remap: SceneRemap.None }
 }
 
 // derived_mask — the layer mask the model implies: bit i per enabled layer below count.
@@ -1007,6 +1079,22 @@ pub comptime fn derived_own(layers: [SceneLayer; 16], count: int) -> int {
 // impossible. Takes the ARRAY, because scene() has no Scene yet when it needs this.
 //
 // STOPS AT `count`: the pad slots past it are no_layer()s, whose ly_curve is None anyway.
+// derived_remap — 1 when any authored layer carries `rowRemap: Ladder(..)`. The same walk
+// shape as derived_curve/derived_drift, and used by BOTH scene()'s four refusals and
+// scene_caps()' $0800 arm so a scene the guards approved cannot fold to a different shape
+// than the one they checked.
+pub comptime fn derived_remap(layers: [SceneLayer; 16], count: int) -> int {
+    comptime var any = 0
+    // The one-dot rule — field, then index, then field (see scene_caps()).
+    for i in 0..count {
+        let l = layers[i]
+        if scene_remap_is_none(l.ly_remap) == 0 {
+            any = 1
+        }
+    }
+    return any
+}
+
 pub comptime fn derived_curve(layers: [SceneLayer; 16], count: int) -> int {
     comptime var any = 0
     // The one-dot rule — field, then index, then field (see scene_caps()).
@@ -1213,6 +1301,41 @@ pub comptime fn scene_drift_rate(d: SceneDrift) -> int {
     return match d {
         None    => 0,
         Rate(r) => r,
+    }
+}
+
+// THE ROW-REMAP QUESTION, asked of the VARIANT. 1 when this layer's plane-B scroll words are
+// left exactly as the line loops wrote them — i.e. when the band lowers a NULL ladder.
+// A VARIANT test and never a `ladder == 0` one, for SceneDeform's and SceneDrift's stated
+// reason: the emitted NULL is the inert value, but "did the author write a remap?" is a
+// question about the source, and the two must not be the same test.
+pub comptime fn scene_remap_is_none(r: SceneRemap) -> int {
+    return match r {
+        None                => 1,
+        Ladder(t, y, h)     => 0,
+    }
+}
+// The ladder Label. The None arm is 0, which IS the inert emitted pointer — NULL is the
+// per-band gate the runtime tests, so here the default and the payload's meaning agree.
+pub comptime fn scene_remap_ladder(r: SceneRemap) -> Label {
+    return match r {
+        None                => 0,
+        Ladder(t, y, h)     => t,
+    }
+}
+// The surface's BG plane line. 0 on the None arm and inert there: the runtime reads it only
+// after the NULL ladder test has already sent a non-remapping band past the pass.
+pub comptime fn scene_remap_plane_y(r: SceneRemap) -> int {
+    return match r {
+        None                => 0,
+        Ladder(t, y, h)     => y,
+    }
+}
+// The height shift, H = 1 << this. 0 on the None arm, inert for the reason above.
+pub comptime fn scene_remap_hshift(r: SceneRemap) -> int {
+    return match r {
+        None                => 0,
+        Ladder(t, y, h)     => h,
     }
 }
 
@@ -1726,6 +1849,77 @@ pub comptime fn scene(layers: [SceneLayer; 16], count: int,
     }
     ensure(any_curve == 0 || anchor_amp == 0,
            "scene(): this scene carries a curve layer AND an anchor with live deform shifts (anchor dsa {scene_anchor_dsa(anchor)} / dsb {scene_anchor_dsb(anchor)}; 15 is the no-deform sentinel). The overlay writes those shifts into every band from the split DOWN, including bands whose layer authored no deform — so a curve layer below the split would be curve ∧ deform at runtime, which design §2 forbids and the fill's register allocation cannot serve. A PURE-BOUNDARY anchor (dsa 15, dsb 15) composes with curves and is design §2's own case")
+
+    // ================= EFFECTS-W1 ITEM 9: THE ROW REMAP'S FOUR REFUSALS ================
+    //
+    // ---- THE FIRST ONE IS THE WHOLE PARCEL: REMAPPING A CONSTANT IS THE IDENTITY. ----
+    //
+    // A flat band carries ONE plane-B scroll word broadcast to every one of its lines
+    // (`.lp_flat`, parallax.emp). Permuting identical words through ANY ladder writes those
+    // same words back, in the same places, byte for byte. The build is green, the pass runs,
+    // 56 cycles a line are spent, and NOTHING IS ON SCREEN — not subtly, not faintly:
+    // absent. There is no runtime symptom to debug and no wrong value to find, which is why
+    // this has to be a comptime refusal and not a review note.
+    //
+    // THIS IS NOT A HYPOTHETICAL. On 2026-09-03 the reels demo was bound to a scene where
+    // per-column vertical scroll is off, so the hardware discarded every value it wrote, and
+    // the owner spent minutes hunting an effect that could never appear. The class is "an
+    // effect can be structurally invisible where it is bound", and a row remap on a flat
+    // band is the same class one layer earlier — invisible not because the hardware
+    // discards it but because the arithmetic is the identity.
+    //
+    // WHAT COUNTS AS LIVE VARIATION, and why the scan is cross-source. A band's plane-B
+    // scroll word varies down the band under exactly three mechanisms, and the remap
+    // composes with all three because it is a second pass over what they produced:
+    //   (a) the LAYER's own live BG deform amplitude (ly_dsb != 15) against a BG table;
+    //   (b) the ANCHOR's live BG shift (anchor dsb != 15) against a BG table — the overlay
+    //       writes it into every band from the split down, so it reaches the remapped band
+    //       even when that layer authored dsb 15. This is the arm the shipped adoption uses,
+    //       and a scan that only looked at (a) would refuse it;
+    //   (c) a CURVE on the layer (ly_curve != None), the ramping BG factor.
+    // A table is required alongside (a) and (b) because a live shift with no table attached
+    // is flat-pathed at runtime — the sample loop is skipped and the emitted HScroll is
+    // identical to the no-deform case. That is scene_caps()' own live_amp reasoning, and
+    // getting it wrong here would let a scene pass this guard and still show nothing.
+    comptime var any_remap   = 0
+    comptime var remap_lives = 0
+    let has_bg_table = if scene_deform_is_none(deform_bg) == 1 { 0 } else { 1 }
+    let rls = layers
+    for ri in 0..count {
+        let rl = rls[ri]
+        if scene_remap_is_none(rl.ly_remap) == 0 {
+            any_remap = any_remap + 1
+            if scene_curve_is_none(rl.ly_curve) == 0 {
+                remap_lives = 1
+            }
+            if has_bg_table == 1 {
+                if rl.ly_dsb != 15 {
+                    remap_lives = 1
+                }
+                if anchor_ch != $FF {
+                    if scene_anchor_dsb(anchor) != 15 {
+                        remap_lives = 1
+                    }
+                }
+            }
+        }
+    }
+    ensure(any_remap == 0 || remap_lives == 1,
+           "scene(): a layer carries `rowRemap:` but this scene gives its plane-B scroll NOTHING TO VARY, so the remap is the IDENTITY and the effect is ABSENT — not subtle, absent. Remapping a constant writes the same words back byte for byte. A remapped layer needs ONE of: (a) its own live BG deform amplitude (`dsb:` other than 15) with a `deform_bg:` table attached; (b) an anchor with a live `dsb` (`anchor: SceneAnchor.At(ch, dsa, dsb)`, dsb != 15) with a `deform_bg:` table — the overlay writes that shift into every band from the split down, which is how the shipped waterline gets its variation; or (c) a `curve:` on that layer. A live shift with NO table is flat-pathed at runtime and does not count. This is design section 9.1 precondition 1 and it is the assertion the whole parcel is built around")
+    // The remap's perspective quantity is `(surface plane line - Vscroll_BG) - Effects_Screen_L[ch]`
+    // and there is no channel to read without an anchor. An unseeded channel latches $7FFF,
+    // 256 lines below the screen, which would clamp the remapped height to zero every frame
+    // — the effect would be off, permanently, with a green build. Design §9.1 precondition 2.
+    ensure(any_remap == 0 || anchor_ch != $FF,
+           "scene(): a layer carries `rowRemap:` but this scene declares no `anchor:`. The remap's perspective quantity is the separation between the BACKGROUND's image of the surface and the FOREGROUND's truth about it, and the foreground half is `Effects_Screen_L[ch]` — there is no channel to read. Add `anchor: SceneAnchor.At(ch, dsa, dsb)` on the patch channel that carries the surface. This is design section 9.1 precondition 2")
+    // ONE REMAPPED BAND PER SCENE, and the ceiling is the engine's, not a taste bound:
+    // Parallax_Fill_PerLine keeps ONE per-frame mark (Parallax_Remap_State, two longs) and
+    // runs ONE pass after the band loop. A second remapped layer would silently lose to the
+    // later one — last mark wins, which is the behaviour the anchored SPLIT of a single
+    // layer needs and exactly the wrong behaviour for two authored layers.
+    ensure(any_remap <= 1,
+           "scene(): {any_remap} layers carry `rowRemap:` and the engine keeps ONE per-frame mark. The second would silently win and the first would never run — last-mark-wins is deliberate (it is how an anchored SPLIT of one remapped layer picks the half below the surface) and it is exactly the wrong answer for two authored layers. Widening this needs Parallax_Remap_State to become an array and the pass to become a loop; see the pass banner in engine/level/parallax.emp")
+    // ===================================================================================
     // ---- P3 TASK 11: THE TWO-WRITER RULING, and why both halves are SCENE-level ----
     //
     // Plane B's vertical scroll word is written by `Parallax_Step5_Vscroll`/`Vscroll_Write`
@@ -2108,6 +2302,26 @@ pub comptime fn scene_caps(s: Scene) -> int {
     if derived_drift(ls, n) == 1 {
         caps = caps | $0080
     }
+    // $0800 CAP_ROW_REMAP — EFFECTS-W1 item 9. THE ONE THING THAT RAISES IT: a layer
+    // carrying `rowRemap: Ladder(..)`. It is a property of the LAYER, never of the scene:
+    // there is no scene-level remap slot, because a ladder is a statement about one layer's
+    // own plane-B scroll — even though the ANCHOR it needs is scene-level, which is why
+    // scene() and not layer() carries the refusals.
+    //
+    // A VARIANT TEST, THROUGH derived_remap() — the same walk scene()'s four refusals use.
+    if derived_remap(ls, n) == 1 {
+        caps = caps | $0800
+    }
+    // CAP_ROW_REMAP IMPLIES CAP_ANCHORS, and the implication is STRUCTURAL: scene() refuses
+    // a rowRemap without an `anchor:` (design §9.1 precondition 2), so a remapping scene
+    // always raises $0008 too. Worth pinning rather than asserting in a comment for
+    // MULTI_DEFORM_TABLE's reason — the RUNTIME depends on it. The remap's perspective
+    // quantity reads Effects_Screen_L[ch], the latch Step 4b's CAP_ANCHORS overlay is the
+    // other consumer of; a mask carrying $0800 without $0008 would emit a pass that reads a
+    // channel no overlay resolves, and the remapped band's top would not be the anchored
+    // split it is supposed to start at.
+    ensure((caps & $0800) == 0 || (caps & $0008) != 0,
+           "scene_caps(): a scene raised CAP_ROW_REMAP ({caps}) without CAP_ANCHORS. It is supposed to follow structurally — scene() refuses a rowRemap on a scene with no anchor: — so this firing means that guard was relaxed. The remap's perspective quantity reads the anchor latch, and its band top IS the anchored split")
     // MULTI_DEFORM_TABLE IMPLIES CAP_DEFORM, and the implication is STRUCTURAL, not
     // hopeful — which is what makes it worth pinning rather than asserting in a comment:
     // layer() refuses an own() whose two shifts are both 15, so an own() layer always
@@ -3229,6 +3443,24 @@ pub comptime fn scene_band(s: Scene, i: int) -> band_record {
         // reason: a NESTED if-expression yields unit silently (docs/EMP_PITFALLS.md §1),
         // which here would fold the tail away with no diagnostic.
         br_drift: if BAND_DRIFT_N == 1 { [ band_drift{ bd_rate_1616: drift_1616 } ] } else { [] },
+        // THE ROW-REMAP TAIL (EFFECTS-W1 item 9). Three authored values and the scene's own
+        // anchor channel. A layer with no `rowRemap:` lowers a NULL ladder, which is the
+        // per-band gate the runtime tests — so an unremapped band in a remapping scene costs
+        // 8 ROM bytes and 26 cycles a frame and does nothing.
+        //
+        // THE ANCHOR CHANNEL COMES FROM THE SCENE, not from a fourth payload on the
+        // attachment. There is exactly one anchor per config (pcfg_anchor_ch) and scene()
+        // refuses a rowRemap without it, so a per-layer channel could only ever disagree with
+        // the one the overlay actually splits on — and the band top the remap starts at IS
+        // that split. One number, one authority.
+        //
+        // Same single-level if-expression as the three tails above, and for the same reason:
+        // a NESTED if-expression yields unit silently (docs/EMP_PITFALLS.md §1), which here
+        // would fold the tail away with no diagnostic.
+        br_remap: if BAND_REMAP_N == 1 { [ band_remap{ brm_ladder:    scene_remap_ladder(l.ly_remap),
+                                                       brm_plane_y:   scene_remap_plane_y(l.ly_remap),
+                                                       brm_hshift:    scene_remap_hshift(l.ly_remap),
+                                                       brm_anchor_ch: scene_anchor_ch(s.sc_anchor) } ] } else { [] },
     }
 }
 

@@ -33,11 +33,15 @@ EVERYTHING IS DERIVED, NOTHING IS COPIED:
 
   * the expected RATES come from the authored `.emp` (the `drift: SceneDrift.Rate(n)`
     arguments on `Scene_OJZ_Default`'s layers, in order), never from a number typed here;
-  * the record STRIDE comes from `engine/ram.emp`'s four tail mirrors, the same sum
+  * the record STRIDE comes from `engine/ram.emp`'s FIVE tail mirrors, the same sum
     `Parallax_Shadow_Bands` reserves by — `tools/parallax_hscroll_probe.py`'s banner is
     the story of what a hand-typed stride costs;
-  * the drift tail's OFFSET is `stride - BAND_DRIFT_BYTES`, because `band_drift` is the
-    LAST tail in `band_record` (parallax.emp says so at the struct);
+  * the drift tail's OFFSET is the sum of everything BEFORE it — `stride` minus every tail
+    that FOLLOWS it. It was `stride - BAND_DRIFT_BYTES` while `band_drift` was the last tail;
+    EFFECTS-W1 item 9 appended `band_remap` after it (2026-09-03) and this gate went red on
+    three of four correct bands until both the stride sum and this subtraction learned the
+    fifth mirror. "The last tail" is a fact with an expiry date, and the two lines that
+    encoded it now say so;
   * `sizeof(parallax_config)` is derived from THIS listing — the distance between two
     adjacent emitted records of a known band count — and cross-checked against a second,
     independent adjacent pair. `parallax_config` carries no `(size: N)` to read.
@@ -233,10 +237,19 @@ def main() -> int:
 
         # ---- the record geometry, out of the engine's own mirrors ----------------
         drift_bytes = emp_const(RAM, "BAND_DRIFT_BYTES")
+        # FIVE MIRRORS, NOT FOUR, SINCE EFFECTS-W1 ITEM 9 (2026-09-03). BAND_REMAP_BYTES is
+        # the row-remap tail and it sits AFTER br_drift, so it changes the STRIDE without
+        # changing this gate's subject or its offset arithmetic below. Leaving it out is not
+        # a smaller sum, it is the WRONG one: the gate read every band but the first at the
+        # wrong address and reported three of four correct rates as MISMATCH — measured on
+        # the item-9 adoption build before this line was added. A tail added to band_record
+        # must be added here in the same commit.
+        remap_bytes = emp_const(RAM, "BAND_REMAP_BYTES")
         stride = (emp_const(RAM, "BAND_ENTRY_LEN")
                   + emp_const(RAM, "BAND_EXT_BYTES")
                   + emp_const(RAM, "BAND_CURVE_BYTES")
-                  + drift_bytes)
+                  + drift_bytes
+                  + remap_bytes)
         drift_n = emp_const(PARALLAX, "BAND_DRIFT_N")
         if drift_bytes == 0 or drift_n == 0:
             raise Unmeasurable(
@@ -250,7 +263,11 @@ def main() -> int:
         # subtraction the offset rather than a guess (engine/level/parallax.emp, at the
         # struct: "LAST IN THE RECORD, so raising BAND_DRIFT_N alone moves neither
         # br_ext nor br_curve").
-        drift_off = stride - drift_bytes
+        # NO LONGER `stride - drift_bytes`, and the change is the whole lesson of the line
+        # above: br_drift is the last tail ONLY until another one is added after it. The
+        # offset is the sum of everything BEFORE it, which is stride minus every tail that
+        # follows — today just the remap tail.
+        drift_off = stride - drift_bytes - remap_bytes
 
         labels = lst_labels(lst_path)
         cfg = at(labels, CFG_SYM, lst_path)

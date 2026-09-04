@@ -123,7 +123,7 @@ pub implement Game {
     //                            only game with a scene worth demonstrating the swap on;
     //                            demo declares 0 and every gated site — including the
     //                            new proc itself — compiles to zero bytes.
-    const SCANLINE_CAPS = $07DE
+    const SCANLINE_CAPS = $0FDE
 
     // Boot enters ojz_scroll_test's GameState_OJZScroll_Init.
     const ENTRY_ID = GS_OJZ_SCROLL_TEST

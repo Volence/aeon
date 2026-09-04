@@ -69,7 +69,7 @@ use engine.math.{Sine_Table}
 // code, and Task 9 adds the first CODE site for the bit — the per-band table reload in
 // Parallax_Fill_PerLine. A comptime CONDITION resolves at the call site and fails LOUDLY
 // when it cannot (measured 2026-08-20 on the buffers.emp twin, since deleted), so this import is load-bearing.
-use engine.level.scene_dsl.{CAP_PER_COL_VSRAM, CAP_DEFORM, CAP_ANCHORS, CAP_TRANSITIONS, CAP_MULTI_DEFORM_TABLE, CAP_FACTOR_CURVE, CAP_BAND_DRIFT, CAP_ROLE_SWAP}
+use engine.level.scene_dsl.{CAP_PER_COL_VSRAM, CAP_DEFORM, CAP_ANCHORS, CAP_TRANSITIONS, CAP_MULTI_DEFORM_TABLE, CAP_FACTOR_CURVE, CAP_BAND_DRIFT, CAP_ROLE_SWAP, CAP_ROW_REMAP}
 
 // The a5-relative data-port derive (a5 = VDP_CTRL, so VDP_DATA_OFF(a5) hits
 // VDP_DATA). Port bases + their drift locks live in engine.vdp.
@@ -363,28 +363,113 @@ pub struct band_drift (size: 4) {
 // SCANLINE_CAPS stays 0 so it emits none of the three gated spans.
 pub const BAND_DRIFT_N = 1
 
+// ---------------------------------------------------------------------------
+// band_remap — THE ROW REMAP TAIL (EFFECTS-W1 item 9, parcel 9a). The Hydrocity
+// waterline, and the item's own name is wrong about which hardware it uses.
+//
+// WHAT THE EFFECT IS, SO THE FIELDS READ AS SOMETHING. S3K's HCZ1_Deform
+// (skdisasm/sonic3k.asm:105799) builds a per-source-row background HScroll gradient in
+// RAM and then OVERWRITES a window of it by reading it back through a byte index table:
+// `move.b (a6)+,d3 / add.w d3,d3 / move.w (a5,d3.w),(a1)+` (:105866-105871). Screen row i
+// of the band gets the scroll value that belonged to row table[i]; rows are reordered,
+// repeated and dropped. It writes NO nametable word and NO VSRAM — the booking's name
+// ("row remap") describes the per-line VSRAM family four other references are in, and
+// Hydrocity is not in it. The full survey is
+// docs/superpowers/specs/2026-09-03-hydrocity-row-remap-design.md §1-§3.
+//
+// SO THIS COSTS ZERO HBLANK CYCLES. Per-line HScroll is a VRAM TABLE the VDP fetches for
+// itself; there is no per-line register an HBlank handler could write, and there is
+// nothing for the raster interpreter to do. RASTER_DENSE_LINE_RAMP_CYC (304 of 488) is
+// NOT this effect's budget. It spends FRAME cycles: 56 per remapped line, derived from
+// the loop below, against 128,000 (design §7.2).
+//
+// THE FIELDS.
+//   brm_ladder     the (H+1) x H index table. Row `r` is `ladder + (r << brm_hshift)` and
+//                  the first `H - r` of its bytes are consumed. NULL = this band does not
+//                  remap, which is the per-band gate and the reason a scene may carry one
+//                  remapped band among sixteen flat ones.
+//   brm_plane_y    the BG PLANE LINE at which this layer's art paints the surface the
+//                  effect is about. Half of the perspective quantity: the BG's image of
+//                  that surface is at screen line `brm_plane_y - Vscroll_BG`.
+//   brm_hshift     H = 1 << brm_hshift. A SHIFT and not a count, because the ladder row
+//                  select is `row * H` and this engine does not reach for `mulu` to do
+//                  what a shift does (CODING_CONVENTIONS §2.1).
+//   brm_anchor_ch  the patch channel whose latched screen line is the OTHER half of the
+//                  perspective quantity — the FOREGROUND's truth about where the surface
+//                  is. Carried on the BAND rather than read from pcfg_anchor_ch because
+//                  the pass runs where a0 (the config pointer) has already been borrowed
+//                  by three of the six line loops and is dead.
+//
+// EIGHT BYTES, AND THE SIZE IS LOAD-BEARING for band_drift's stated reason: it keeps
+// sizeof(band_record) a multiple of 4 (24 -> 32), so copy_run_longs()' `% 4 == 0` fast
+// path survives and the whole-entry copy grows no trailing move.w; and it keeps the
+// record EVEN, which tools/parallax_crossing_gate.py and copy_band_entry's address-error
+// argument both need.
+//
+// LAST IN THE RECORD, after br_drift, so raising BAND_REMAP_N alone moves neither br_ext
+// nor br_curve nor br_drift and all three existing offsetof ensures stay true unedited.
+// This is the additive fourth.
+//
+// ONLY THE BG WORD IS REMAPPED, and no field exists to say otherwise. Plane A is never
+// remapped for the reason it is never lerped and carries no drift rate: the FG streaming
+// engine draws a camera-anchored 64-column window and any FG scroll offset drags the
+// plane-wrap seam on screen (ARCH §4.6). The mistake should be unspellable — band_drift's
+// precedent, verbatim.
+pub struct band_remap (size: 8) {
+    brm_ladder:    *u8,  // (H+1) x H index table; NULL = this band does not remap
+    brm_plane_y:   u16,  // BG plane line of the surface this layer's art paints
+    brm_hshift:    u8,   // H = 1 << brm_hshift
+    brm_anchor_ch: u8,   // patch channel carrying the FG's truth about the surface
+}
+
+// BAND_REMAP_N — 1 in a game whose SCANLINE_CAPS include CAP_ROW_REMAP, else 0. A PINNED
+// LITERAL for exactly BAND_EXT_N's, BAND_CURVE_N's and BAND_DRIFT_N's reason (BAND_EXT_N's
+// banner has the full evidence): the context that lays out an emitted `data` binding's
+// record type binds no contract members, so `Game.SCANLINE_CAPS` here is `unknown name`.
+// The capability is still the authority — games/sonic4/data/effects/scene_registry.emp
+// carries the two-directional pin, where both names are visible.
+//
+// IT IS ENGINE-WIDE, NOT PER-GAME. Flipping it to 1 widens band_record for BOTH games,
+// including `demo`, whose SCANLINE_CAPS is 0 and which will never remap a row, and every
+// ROM image in the tree moves. That is owner-gated (scene_registry.emp carries the
+// refusal), and it is why the mechanism lands at 0 first: THE MECHANISM MOVES NO BYTE,
+// ADOPTION DOES. Measured for this tail rather than asserted by analogy — parcel 9a built
+// all four canonical shapes at BAND_REMAP_N = 0 and got four byte-identical images, then
+// flipped to 1 in a second commit and recorded the deltas. See the parcel's commit
+// messages and docs/DEFERRED_WORK.md's item 9 block.
+//
+// RAISED TO 1 BY THE ADOPTION HALF OF PARCEL 9a (2026-09-03), in the same commit as
+// engine/ram.emp's BAND_REMAP_BYTES = 8, games/sonic4/config/game.emp's CAP_ROW_REMAP and
+// the authored ladder on Scene_OJZ_Underwater — which is exactly the set
+// scene_registry.emp's refusal message enumerates. `demo` pays the widened record and the
+// two-long frame mark and authors no ladder; that is the engine-wide price this banner
+// priced in advance, and its SCANLINE_CAPS stays 0 so it emits none of the three gated
+// spans.
+pub const BAND_REMAP_N = 1
+
 // band_record — WHAT A BAND OCCUPIES, in ROM and in the shadow view. This is the type the
 // registry emits arrays of, the type `scene_band()` builds, and the STRIDE every walker
 // loop advances by. The legacy prefix sits at offset 0, which is why every field reference
 // in this file is still spelled `band_entry.<field>(aN)`.
 //
 // A MODULE THAT IMPORTS `band_record` MUST IMPORT `band_entry`, `band_ext`, `BAND_EXT_N`,
-// `band_curve`, `BAND_CURVE_N`, `band_drift` AND `BAND_DRIFT_N` TOO. The declaration is re-elaborated in the importing
+// `band_curve`, `BAND_CURVE_N`, `band_drift`, `BAND_DRIFT_N`, `band_remap` AND `BAND_REMAP_N` TOO. The declaration is re-elaborated in the importing
 // module's own name environment, so a partial import fails there — and it fails pointing AT
 // THIS DECLARATION, in this file, naming a type this file plainly declares. Three importers
 // do it: engine.level.scene_dsl, games.sonic4.scene_registry, games.sonic4.scene_equiv_proof.
-pub struct band_record (size: sizeof(band_entry) + sizeof(band_ext) * BAND_EXT_N + sizeof(band_curve) * BAND_CURVE_N + sizeof(band_drift) * BAND_DRIFT_N) {
+pub struct band_record (size: sizeof(band_entry) + sizeof(band_ext) * BAND_EXT_N + sizeof(band_curve) * BAND_CURVE_N + sizeof(band_drift) * BAND_DRIFT_N + sizeof(band_remap) * BAND_REMAP_N) {
     br_base:  band_entry,
     br_ext:   [band_ext; BAND_EXT_N],
     br_curve: [band_curve; BAND_CURVE_N],
     br_drift: [band_drift; BAND_DRIFT_N],
+    br_remap: [band_remap; BAND_REMAP_N],
 }
 ensure(offsetof(band_record, br_base) == 0,
        "band_record's legacy prefix is at offset {offsetof(band_record, br_base)}, not 0 — every `band_entry.<field>(aN)` displacement in this file addresses through the record base, so a non-zero prefix offset silently mis-addresses all ten legacy fields")
 // THE CAPABILITY-OFF IDENTITY, as an assertion rather than a comment: with no extension the
 // record IS the legacy entry. Design section 8.1's claim, checked where it is decided.
-ensure(BAND_EXT_N != 0 || BAND_CURVE_N != 0 || BAND_DRIFT_N != 0 || sizeof(band_record) == sizeof(band_entry),
-       "all three capability tails are absent (BAND_EXT_N {BAND_EXT_N}, BAND_CURVE_N {BAND_CURVE_N}, BAND_DRIFT_N {BAND_DRIFT_N}) but band_record ({sizeof(band_record)}) is not the legacy band_entry ({sizeof(band_entry)}) — a no-new-capability game must lower byte-identically")
+ensure(BAND_EXT_N != 0 || BAND_CURVE_N != 0 || BAND_DRIFT_N != 0 || BAND_REMAP_N != 0 || sizeof(band_record) == sizeof(band_entry),
+       "all four capability tails are absent (BAND_EXT_N {BAND_EXT_N}, BAND_CURVE_N {BAND_CURVE_N}, BAND_DRIFT_N {BAND_DRIFT_N}, BAND_REMAP_N {BAND_REMAP_N}) but band_record ({sizeof(band_record)}) is not the legacy band_entry ({sizeof(band_entry)}) — a no-new-capability game must lower byte-identically")
 
 // THE SHADOW RESERVATION IS A MIRROR THIS MODULE HOLDS TO THE RECORD, for the same reason
 // BAND_EXT_N is: engine/ram.emp is lowered by a focused, CONTRACT-BLIND build, so it cannot
@@ -393,7 +478,7 @@ ensure(BAND_EXT_N != 0 || BAND_CURVE_N != 0 || BAND_DRIFT_N != 0 || sizeof(band_
 // record without widening ram.emp and the build fails naming the constant, instead of the
 // shadow view running off the end of its array at runtime.
 ensure(extern("Parallax_Shadow_Scroll_A") - extern("Parallax_Shadow_Bands") == sizeof(band_record) * MAX_PARALLAX_BANDS,
-       "Parallax_Shadow_Bands reserves fewer bytes than the shadow view needs: sizeof(band_record) x MAX_PARALLAX_BANDS = {sizeof(band_record) * MAX_PARALLAX_BANDS} — set BAND_EXT_BYTES (the deform tail, sizeof(band_ext) = 10), BAND_CURVE_BYTES (the curve tail, sizeof(band_curve) = 10) and/or BAND_DRIFT_BYTES (the drift tail, sizeof(band_drift) = 4) in engine/ram.emp to match the tails this game's capabilities select. Do NOT widen BAND_ENTRY_LEN: it mirrors the LEGACY band_entry, which sigil harvests ambiently, and the extern(\"band_entry_len\") pin beside it would go red")
+       "Parallax_Shadow_Bands reserves fewer bytes than the shadow view needs: sizeof(band_record) x MAX_PARALLAX_BANDS = {sizeof(band_record) * MAX_PARALLAX_BANDS} — set BAND_EXT_BYTES (the deform tail, sizeof(band_ext) = 10), BAND_CURVE_BYTES (the curve tail, sizeof(band_curve) = 10), BAND_DRIFT_BYTES (the drift tail, sizeof(band_drift) = 4) and/or BAND_REMAP_BYTES (the row-remap tail, sizeof(band_remap) = 8) in engine/ram.emp to match the tails this game's capabilities select. Do NOT widen BAND_ENTRY_LEN: it mirrors the LEGACY band_entry, which sigil harvests ambiently, and the extern(\"band_entry_len\") pin beside it would go red")
 
 // The two op bits, named once. Decode_Factor_A/B and the lowering are the only readers.
 pub const BAND_OP_BIT_A = 0
@@ -464,8 +549,8 @@ pub const BAND_OP_BIT_B = 1
 // THE SPAN AT MAX 16 IS 552 BYTES (138 longs), up from 328 (82) at MAX 8 — +224 B, the
 // whole RAM cost of the raise. Nothing here needed to change for it: both terms are
 // derived, and the drift ensure below checks them against the resolved RAM span.
-ensure(((sizeof(band_ext) * BAND_EXT_N + sizeof(band_curve) * BAND_CURVE_N + sizeof(band_drift) * BAND_DRIFT_N) * MAX_PARALLAX_BANDS) % 4 == 0,
-       "the band tails add {(sizeof(band_ext) * BAND_EXT_N + sizeof(band_curve) * BAND_CURVE_N + sizeof(band_drift) * BAND_DRIFT_N) * MAX_PARALLAX_BANDS} bytes to Parallax_State, which is not a whole number of longs — Parallax_Init clears in LONGS, so a non-multiple would under-clear the tail")
+ensure(((sizeof(band_ext) * BAND_EXT_N + sizeof(band_curve) * BAND_CURVE_N + sizeof(band_drift) * BAND_DRIFT_N + sizeof(band_remap) * BAND_REMAP_N) * MAX_PARALLAX_BANDS) % 4 == 0,
+       "the band tails add {(sizeof(band_ext) * BAND_EXT_N + sizeof(band_curve) * BAND_CURVE_N + sizeof(band_drift) * BAND_DRIFT_N + sizeof(band_remap) * BAND_REMAP_N) * MAX_PARALLAX_BANDS} bytes to Parallax_State, which is not a whole number of longs — Parallax_Init clears in LONGS, so a non-multiple would under-clear the tail")
 // The trailing `+ BAND_CURVE_N` is the two-word curve carry (P3 Task 10) — one long, in
 // the state span and therefore cleared by Parallax_Init, present only under the capability.
 // `+ BAND_DRIFT_N * MAX_PARALLAX_BANDS` is Parallax_Drift_Acc, the band-drift accumulator
@@ -474,7 +559,14 @@ ensure(((sizeof(band_ext) * BAND_EXT_N + sizeof(band_curve) * BAND_CURVE_N + siz
 // Parallax_Init clears the whole span in longs, so the accumulators zero themselves at level
 // init with no new code. The shadow-widening half of the drift cost rides in the tails term
 // above (sizeof(band_drift) * BAND_DRIFT_N), which is where every tail's shadow cost lives.
-const PARALLAX_STATE_LONGS = (100 + 18 * MAX_PARALLAX_BANDS) / 4 + ((sizeof(band_ext) * BAND_EXT_N + sizeof(band_curve) * BAND_CURVE_N + sizeof(band_drift) * BAND_DRIFT_N) * MAX_PARALLAX_BANDS) / 4 + BAND_CURVE_N + BAND_DRIFT_N * MAX_PARALLAX_BANDS
+// `+ 2 * BAND_REMAP_N` is Parallax_Remap_State, the row remap's per-FRAME mark: two longs
+// (the marked band's record pointer, then its top and end screen lines), not per band and
+// not per config. One mark, because one remapped band per config is the shape this parcel
+// lands and the shape scene()'s guard enforces; a second remapped band would need this to
+// become an array and the pass below to become a loop, which is a deliberate later cost
+// rather than a hidden one. It is inside this span for the accumulator's reason — the
+// long-counted Parallax_Init clear zeroes it at level init with no new code.
+const PARALLAX_STATE_LONGS = (100 + 18 * MAX_PARALLAX_BANDS) / 4 + ((sizeof(band_ext) * BAND_EXT_N + sizeof(band_curve) * BAND_CURVE_N + sizeof(band_drift) * BAND_DRIFT_N + sizeof(band_remap) * BAND_REMAP_N) * MAX_PARALLAX_BANDS) / 4 + BAND_CURVE_N + BAND_DRIFT_N * MAX_PARALLAX_BANDS + 2 * BAND_REMAP_N
 ensure(extern("Parallax_Shadow_Bands") - extern("Parallax_Curve_Carry") == 4 * BAND_CURVE_N,
        "the curve carry reserves {extern(\"Parallax_Shadow_Bands\") - extern(\"Parallax_Curve_Carry\")} bytes, not the {4 * BAND_CURVE_N} this capability needs — set CURVE_CARRY_WORDS in engine/ram.emp (it is derived from BAND_CURVE_BYTES, so the real edit is that mirror). A short reservation makes the fill's cross-band carry alias the shadow band array")
 // The drift accumulator's own reservation, the exact twin of the curve-carry pin above and
@@ -486,6 +578,15 @@ ensure(extern("Parallax_Shadow_Bands") - extern("Parallax_Curve_Carry") == 4 * B
 // differences; inserting anything between them breaks whichever one it splits.
 ensure(extern("Parallax_Curve_Carry") - extern("Parallax_Drift_Acc") == 4 * BAND_DRIFT_N * MAX_PARALLAX_BANDS,
        "the band-drift accumulator reserves {extern(\"Parallax_Curve_Carry\") - extern(\"Parallax_Drift_Acc\")} bytes, not the {4 * BAND_DRIFT_N * MAX_PARALLAX_BANDS} this capability needs (one 16.16 long per band, MAX_PARALLAX_BANDS of them) — set BAND_DRIFT_BYTES in engine/ram.emp (DRIFT_ACC_LONGS is derived from it, so the real edit is that one mirror). A short reservation makes Parallax_Update's accumulator cursor walk into Parallax_Curve_Carry and the shadow band array")
+// The row-remap mark's own reservation, the third adjacent-symbol pin in this run and for
+// the two before it's reason: the total-span ensure below can only say the sum is wrong,
+// never WHICH array is short. Parallax_Remap_State is placed immediately BEFORE
+// Parallax_Drift_Acc in engine/ram.emp so that all three pins are adjacent-symbol
+// differences; inserting anything between any two of the four symbols breaks whichever pin
+// it splits. Eight bytes under the capability, ZERO without it — and with BAND_REMAP_N at 0
+// the two symbols coincide, which is what makes this ensure true rather than vacuous.
+ensure(extern("Parallax_Drift_Acc") - extern("Parallax_Remap_State") == 8 * BAND_REMAP_N,
+       "the row-remap frame mark reserves {extern(\"Parallax_Drift_Acc\") - extern(\"Parallax_Remap_State\")} bytes, not the {8 * BAND_REMAP_N} this capability needs (a record pointer long plus a top/end word pair) — set BAND_REMAP_BYTES in engine/ram.emp (REMAP_STATE_LONGS is derived from it, so the real edit is that one mirror). A short reservation makes Parallax_Fill_PerLine's mark write the band pointer over the drift accumulators, which moves every drifting layer by a ROM address every frame")
 ensure((extern("Parallax_State_End") - extern("Parallax_State"))/4 == PARALLAX_STATE_LONGS, "Parallax_State clear span drifted from ram.asm: expected {PARALLAX_STATE_LONGS} longs")
 
 // The peek-ahead strides by the RECORD, not by the legacy prefix — the neighbour band is
@@ -550,6 +651,31 @@ ensure(BAND_DRIFT_N == 0 || offsetof(band_record, br_drift) == sizeof(band_entry
 // pin below, for the field that is read as a LONG rather than written as three words.
 ensure(BAND_DRIFT_N == 0 || band_drift_rate % 2 == 0,
        "the drift tail's rate lands on an ODD displacement from the record base ({band_drift_rate}) — Parallax_Update reads it with move.l and would address-error on every band")
+
+// THE ROW-REMAP TAIL'S FOUR DISPLACEMENTS FROM THE RECORD BASE, named for band_curve_*'s and
+// band_drift_rate's reason and NOT optional sugar: `band_remap.brm_ladder(a1)` would assemble
+// to displacement 0 — the field's offset WITHIN band_remap — and read band_top_plane +
+// band_factor_a as a ROM pointer, every band, every frame, with no diagnostic. The
+// .field-in-disp sugar does not compose through a containing struct. All four fold to
+// constants whatever BAND_REMAP_N is (a zero-length array still has a position), and their
+// only readers are the CAP_ROW_REMAP-gated mark and pass in Parallax_Fill_PerLine, which do
+// not exist when the array is empty.
+const band_remap_ladder    = offsetof(band_record, br_remap) + offsetof(band_remap, brm_ladder)
+const band_remap_plane_y   = offsetof(band_record, br_remap) + offsetof(band_remap, brm_plane_y)
+const band_remap_hshift    = offsetof(band_record, br_remap) + offsetof(band_remap, brm_hshift)
+const band_remap_anchor_ch = offsetof(band_record, br_remap) + offsetof(band_remap, brm_anchor_ch)
+// THE REMAP TAIL SITS AFTER THE LEGACY PREFIX AND ALL THREE OTHER TAILS — it is LAST by
+// design, so that raising BAND_REMAP_N alone moves none of br_ext, br_curve or br_drift and
+// the three existing offsetof ensures stay true without being edited. This is the additive
+// fourth.
+ensure(BAND_REMAP_N == 0 || offsetof(band_record, br_remap) == sizeof(band_entry) + sizeof(band_ext) * BAND_EXT_N + sizeof(band_curve) * BAND_CURVE_N + sizeof(band_drift) * BAND_DRIFT_N,
+       "band_record's remap tail starts at {offsetof(band_record, br_remap)}, not immediately after the legacy prefix plus the deform, curve and drift tails ({sizeof(band_entry) + sizeof(band_ext) * BAND_EXT_N + sizeof(band_curve) * BAND_CURVE_N + sizeof(band_drift) * BAND_DRIFT_N}) — the fill reads the ladder pointer by a constant displacement from the record base, so a gap or an overlap there reads two legacy or tail fields as a ROM address and indexes the HScroll buffer through whatever bytes live at it")
+// The ladder pointer is read with `movea.l` and the plane line with `move.w`, so both
+// displacements from an even record base must themselves be EVEN or every band's read is a
+// 68000 address error. Same claim as the curve and drift pins above, for the fields that are
+// read as a long and a word rather than as bytes.
+ensure(BAND_REMAP_N == 0 || (band_remap_ladder % 2 == 0 && band_remap_plane_y % 2 == 0),
+       "a remap tail field lands on an ODD displacement from the record base (ladder {band_remap_ladder}, plane_y {band_remap_plane_y}) — the fill reads them with movea.l and move.w and would address-error on every remapped band")
 // PLANE_B_SPAN — the Plane-B vertical span in pixels, the modulus Step 4a's rotation
 // works in and the ceiling every lowered `band_top_plane` must sit under. 64 rows of
 // 8-px cells: the engine's plane geometry, not a parallax choice, which is why it is
@@ -2657,6 +2783,16 @@ proc Decode_Factor_B () clobbers(d1-d2) preserves(d3) {
 // because a roster comment in this file went stale and was read as a measurement. A count
 // in a banner is a claim like any other.
 //
+// FIVE IS STILL FIVE AFTER EFFECTS-W1 ITEM 9, AND THAT IS THE RULING, NOT AN OVERSIGHT.
+// `.lp_remap` (the Hydrocity row remap, parcel 9a) is NOT a sixth member of this dispatch:
+// it is a SECOND PASS that runs after the band loop has finished, over longwords one of
+// these five already wrote. Design §5.1 costed both placements and chose the second pass
+// precisely so the count here stays five — remapping the SOURCE INDEX inside the value
+// computation would have been cheaper per line and would have multiplied into a product
+// with the FG/BG/both/curve matrix, which is the thing `.lp_curve`'s own banner says was
+// avoided deliberately. The pass composes with all five loops, with drift, with the
+// anchored split and with the deform tables, because it operates on what they produced.
+//
 // Registers at the point a band picks its loop:
 //   d0 = packed base scroll (FG<<16 | BG)   — constant per band
 //   d1 = scratch (index / sample / out word)
@@ -2710,6 +2846,19 @@ proc Parallax_Fill_PerLine () clobbers(d0-d6/a1-a6) preserves(a0/d7) {
     .cap_deform_tables_end:
     }
 
+        // EFFECTS-W1 item 9 — CLEAR THE ROW-REMAP MARK BEFORE THE BAND LOOP, not after
+        // the pass consumes it. The mark is per FRAME, and a config swap (or a transition,
+        // or an act load) can replace a scene that marks with one that does not; a mark
+        // cleared only by its consumer would then leave LAST frame's record pointer live
+        // and remap a band that no longer carries a ladder, against a top and end that
+        // belong to a different scene's band list. One `clr.l` per frame is what makes the
+        // mark's absence mean absence.
+    if (Game.SCANLINE_CAPS & CAP_ROW_REMAP) != 0 {
+    .cap_row_remap_clear_begin:
+        clr.l   Parallax_Remap_State                // (Parallax_Remap_State).w — no band marked yet
+    .cap_row_remap_clear_end:
+    }
+
         moveq   #0, d4                              // current line index (0..223)
 
     .next_band:
@@ -2726,6 +2875,35 @@ proc Parallax_Fill_PerLine () clobbers(d0-d6/a1-a6) preserves(a0/d7) {
         beq     .have_end                           // last band
         move.w  band_top_line_next(a1), d5  // band_top+band_entry_len(a1), SCREEN LINES
     .have_end:
+
+        // EFFECTS-W1 item 9 — MARK THIS BAND IF IT CARRIES A LADDER. The remap runs as a
+        // second pass after the loop (the banner's ruling), and the pass needs three things
+        // the loop knows and it does not: WHICH record (for the ladder pointer, the height
+        // and the anchor channel), and the band's TOP and END screen lines. d4 and d5 hold
+        // exactly those two here, before any line loop has moved d4 to the band end.
+        //
+        // A LATER MARK OVERWRITES AN EARLIER ONE, AND THAT IS THE BEHAVIOUR THE ANCHORED
+        // SPLIT NEEDS. Step 4b splits the band containing the anchor by copying the WHOLE
+        // record — tails included, `copy_band_entry_fwd` — so a remapped layer that the
+        // waterline crosses appears as TWO adjacent bands both carrying the ladder. The
+        // second one is the half that starts exactly AT the anchored line, which is S3K's
+        // own window (`HScroll_table+$0DA`, the 96 rows below the surface). Last-wins picks
+        // it without a test.
+        //
+        // TWENTY-SIX CYCLES PER BAND FOR A GAME THAT DECLARES THE BIT AND DOES NOT USE IT
+        // (`tst.l` 16 + `beq` 10), zero for a game that does not declare it — the same
+        // shape, and about a third of the cost, of band drift's measured 68 cyc/band for
+        // declaring ITS bit.
+    if (Game.SCANLINE_CAPS & CAP_ROW_REMAP) != 0 {
+    .cap_row_remap_mark_begin:
+        tst.l   band_remap_ladder(a1)
+        beq     .remap_unmarked                     // this band does not remap
+        move.l  a1, Parallax_Remap_State            // (Parallax_Remap_State).w — the record
+        move.w  d4, Parallax_Remap_State+4          // its top screen line
+        move.w  d5, Parallax_Remap_State+6          // its end screen line
+    .remap_unmarked:
+    .cap_row_remap_mark_end:
+    }
 
         // --- packed base scroll (constant per band) ---
         // EFFECTS-W1 item 10b: swap which array packs into the HIGH word — the table
@@ -3263,6 +3441,134 @@ proc Parallax_Fill_PerLine () clobbers(d0-d6/a1-a6) preserves(a0/d7) {
         addq.l  #2, a3
         tst.w   d7
         bne     .next_band
+
+        // ================= THE ROW REMAP (EFFECTS-W1 item 9, parcel 9a) =================
+        //
+        // A SECOND PASS OVER ONE BAND'S LONGWORDS, and its placement is the design's
+        // ruling rather than convenience (§5.1, §9.4). It runs HERE — inside the proc that
+        // owns Hscroll_Buffer, after the bands it depends on are written — and NOT as a
+        // post-pass from outside parallax.emp. That distinction is the whole difference
+        // between this and the live reels defect: `OJZ_Reels_Fill` runs after
+        // `Parallax_Update` and overwrites pair 19's BG word at buffer offset 78, which is
+        // VSCROLL_COL19_BG_OFF — destroying a repair the pipeline had just made, because it
+        // does not know what it is undoing. A stage of the pipeline knows.
+        //
+        // EVERY REGISTER IS FREE HERE. d0-d6 and a1-a6 are dead (the loop has exited), and
+        // a0/d7 are on the stack under the exit movem. That is what buys the pass its own
+        // clean allocation instead of a seventh register-starved variant fighting for
+        // scraps inside the dispatch — see the roster banner above for the ruling.
+        //
+        // WHAT A READER SHOULD BE ABLE TO SEE, because the answer is NOT "a wobble":
+        // remapping a CONSTANT is the identity. A flat band permuted by any ladder is
+        // byte-identical to itself — the effect is not subtle there, it is ABSENT. The
+        // refusal that stops that being discovered on hardware is a comptime `ensure` in
+        // engine/level/scene_dsl.emp's `scene()`, which requires a remapped layer to carry a
+        // live BG variation (its own deform amplitude, the scene anchor's, or a curve).
+        // This is design §9.1 precondition 1, and it is the assertion the whole parcel is
+        // built around.
+    if (Game.SCANLINE_CAPS & CAP_ROW_REMAP) != 0 {
+    .cap_row_remap_pass_begin:
+        movea.l Parallax_Remap_State, a1            // (Parallax_Remap_State).w — the marked
+        cmpa.w  #0, a1                              //   record, or 0 if no band remaps
+        beq     .remap_none
+
+        // --- p, THE PERSPECTIVE QUANTITY: two live terms and one authored one ---
+        //   p = (the BACKGROUND's image of the surface) - (the FOREGROUND's truth about it)
+        //     = (brm_plane_y - Vscroll_BG)             - Effects_Screen_L[ch]
+        // This is S3K's `d2` (sonic3k.asm:105799-105817) in this engine's own terms. There
+        // the background follows the camera at a quarter rate and `d2 = (delta>>2) - delta`
+        // is the number of screen lines by which the background's picture of the water
+        // surface has separated from the foreground's; it is published in `Events_bg+$10`
+        // so the art half can read the same number. Here that separation is the difference
+        // of two quantities the engine ALREADY keeps every frame, which is why this effect
+        // needs no new per-frame derivation and no authored field beyond the surface's own
+        // plane line. ARCH §4.6's World-Y re-glue section draws exactly this distinction
+        // and calls it parallax rather than an inconsistency.
+        //
+        // THE LATCH, NOT A RECOMPUTATION. Effects_Screen_L is what Effects_LatchWorldLines
+        // wrote this frame; recomputing `anchor - Camera_Y` here would put this pass on a
+        // different camera from Step 4b's split on a lag frame, where VBlank runs twice
+        // against one main-loop update — the split is the boundary this remap starts at, so
+        // the two disagreeing is a one-line seam that only appears under lag.
+        move.w  band_remap_plane_y(a1), d0
+        sub.w   Parallax_Current_Vscroll_BG, d0     // BG image: plane line -> screen line
+        moveq   #0, d1
+        move.b  band_remap_anchor_ch(a1), d1
+        add.w   d1, d1                              // channel -> word index
+        lea     Effects_Screen_L, a2                // (Effects_Screen_L).w
+        sub.w   (a2,d1.w), d0                       // d0 = p, signed
+        bpl     .remap_abs
+        neg.w   d0
+    .remap_abs:                                     // d0 = |p|
+
+        // --- the ladder row, and the band's remapped height, are the SAME number ---
+        // S3K's `x = $60 - |d2|` (:105853, :105880): perspective simultaneously SELECTS the
+        // ladder row and SIZES the band, and those are the same quantity deliberately — the
+        // band grows as it compresses. `p == 0` is therefore zero remapped lines, i.e. the
+        // effect turns itself off at the equilibrium point with no special case.
+        moveq   #0, d3
+        move.b  band_remap_hshift(a1), d3           // H = 1 << d3
+        moveq   #1, d2
+        lsl.w   d3, d2                              // d2 = H
+        move.w  d2, d1
+        subq.w  #1, d1                              // d1 = H - 1
+        cmp.w   d1, d0
+        bls     .remap_clamped
+        move.w  d1, d0                              // clamp |p| into the ladder
+    .remap_clamped:
+        tst.w   d0
+        beq     .remap_none                         // equilibrium: the identity, so do NOTHING
+        sub.w   d0, d2                              // d2 = row = H - |p|
+        lsl.w   d3, d2                              // ...x H, which is why H is a SHIFT
+        movea.l band_remap_ladder(a1), a3
+        adda.w  d2, a3                              // a3 = &ladder[row][0]
+
+        // --- n, the lines actually remapped: min(|p|, span/2) ---
+        // THE HALVING IS THE READ BOUND AND NOT A TASTE CHOICE. The ladder is generated with
+        // `i <= entry[i] <= 2i` (engine/level/parallax_dsl.emp's row_remap_ladder), so the
+        // furthest slot a run of n lines can read is 2n-2. Capping n at span/2 is what keeps
+        // every read inside THIS band's own longwords; without it a tall |p| over a short
+        // band would fetch the NEXT band's scroll words and paint them into this one, which
+        // looks like a plausible effect and is not one.
+        move.w  Parallax_Remap_State+6, d2          // the band's end screen line
+        sub.w   Parallax_Remap_State+4, d2          // ...minus its top = its line span
+        lsr.w   #1, d2
+        beq     .remap_none                         // a band under 2 lines cannot remap
+        cmp.w   d2, d0
+        bls     .remap_have_n
+        move.w  d2, d0
+    .remap_have_n:
+
+        // --- the read and write bases are THE SAME ADDRESS, and the permute is IN PLACE ---
+        // S3K's own shape (`lea (HScroll_table+$0DA).w,a1 / lea (a1),a5`, :105849-105850).
+        // It is safe only because the ladder satisfies `entry[i] >= i` — a line either reads
+        // a slot it has not written yet, or reads its own value back. That invariant is
+        // LOAD-BEARING, not stylistic: it is generated by construction and re-checked in the
+        // built ROM by tools/row_remap_gate.py.
+        move.w  Parallax_Remap_State+4, d1          // the band's top screen line
+        lsl.w   #2, d1                              // -> longword byte offset
+        lea     Hscroll_Buffer, a2
+        adda.w  d1, a2
+        movea.l a2, a4
+        addq.l  #2, a2                              // a2 = the BG word of the band's line 0
+        addq.l  #2, a4                              // a4 = the write cursor, same address
+        subq.w  #1, d0                              // -> dbf count (n >= 1 here)
+    .lp_remap:
+        moveq   #0, d1                              //  4
+        move.b  (a3)+, d1                           //  8   the ladder index
+        add.w   d1, d1                              //  4
+        add.w   d1, d1                              //  4   x4 = the longword stride
+        move.w  (a2,d1.w), (a4)                     // 18   line entry[i]'s BG word
+        addq.l  #4, a4                              //  8
+        dbf     d0, .lp_remap                       // 10   = 56 cycles per remapped line
+                                                    //   Only the BG word moves. The FG word
+                                                    //   at -2(a4) is left exactly as the
+                                                    //   primary loop wrote it — see the
+                                                    //   band_remap banner for why plane A is
+                                                    //   unremappable by refusal, not omission.
+    .remap_none:
+    .cap_row_remap_pass_end:
+    }
 
         movem.l (sp)+, a0/d7
         rts

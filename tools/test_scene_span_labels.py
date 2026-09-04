@@ -53,7 +53,13 @@ class TestCapabilityAuthority(unittest.TestCase):
         the SAME DAY, on a separate branch (EFFECTS-W1 item 10b, the plane-role swap),
         and independently derived $0200 too — the collision was ruled in item 6's favour
         (landed first) and CAP_ROLE_SWAP took $0400 instead, five sites in
-        engine/level/parallax.emp. CAP_PER_LINE was RETIRED
+        engine/level/parallax.emp. CAP_ROW_REMAP took $0800 on 2026-09-03 (EFFECTS-W1
+        item 9, parcel 9a — the Hydrocity waterline's scroll half), three sites in
+        engine/level/parallax.emp: the per-frame mark clear, the per-band mark inside
+        Parallax_Fill_PerLine's band loop, and the `.lp_remap` pass after that loop. Its
+        bit was RE-DERIVED against this tree at implementation time rather than copied out
+        of the design doc written hours earlier — three bits moved on 2026-09-03 alone.
+        CAP_PER_LINE was RETIRED
         2026-08-26 (d-29-corrected) when the per-cell HScroll path it selected against was
         deleted — it is parsed as retired, never as declared. This list is the whole
         promotion contract: it is the file that says which bits a span may name."""
@@ -62,7 +68,8 @@ class TestCapabilityAuthority(unittest.TestCase):
             sorted(bits),
             ["CAP_ANCHORS", "CAP_ANCHOR_MOTION", "CAP_BAND_DRIFT", "CAP_DEFORM",
              "CAP_DENSE_TIER", "CAP_FACTOR_CURVE", "CAP_MULTI_DEFORM_TABLE",
-             "CAP_PER_COL_VSRAM", "CAP_ROLE_SWAP", "CAP_TRANSITIONS"])
+             "CAP_PER_COL_VSRAM", "CAP_ROLE_SWAP", "CAP_ROW_REMAP",
+             "CAP_TRANSITIONS"])
         self.assertEqual(len(set(bits.values())), len(bits),
                          "two capabilities share a bit: %r" % (bits,))
         self.assertEqual(retired_capability_bits(), {"CAP_PER_LINE": 0x0001})
