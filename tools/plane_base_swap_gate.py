@@ -211,9 +211,22 @@ def main():
     def opt(flag, default=None):
         return args[args.index(flag) + 1] if flag in args else default
 
-    lst = opt("--lst", "s4.lst")
-    rom_name = opt("--rom", "s4.bin")
     shape = opt("--shape")
+    # THE DEFAULTS FOLLOW --shape, and before 2026-09-04 they did not. Both defaulted to
+    # the RELEASE artifact whatever --shape said, so `--shape debug` with no --lst read
+    # s4.lst, found OJZ_BaseSwap correctly absent (it is DEBUG-gated), and reported
+    # "emits NO bytes in the DEBUG shape, so item 11a's mechanism is not in this ROM at
+    # all" — a confident FAIL about an artifact it had not opened. It cost a real
+    # investigation on 2026-09-04 while diagnosing why the owner could not see the band.
+    # This gate asserts OPPOSITE things per shape, which is exactly why the shape must
+    # pick the artifact: a fixed default guarantees one of the two runs is a lie.
+    # An explicit --lst/--rom still wins, so the mismatched pairing stays expressible on
+    # purpose — that is the poison this gate's own fixtures need.
+    _DEFAULTS = {"debug": ("s4.debug.lst", "s4.debug.bin"),
+                 "release": ("s4.lst", "s4.bin")}
+    _dl, _dr = _DEFAULTS.get(shape, ("s4.lst", "s4.bin"))
+    lst = opt("--lst", _dl)
+    rom_name = opt("--rom", _dr)
     built_after = opt("--built-after")
     lst_path = lst if os.path.isabs(lst) else os.path.join(REPO, lst)
     rom_path = rom_name if os.path.isabs(rom_name) else os.path.join(REPO, rom_name)
