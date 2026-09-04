@@ -2,7 +2,7 @@
   "_note": "Ability_InstaShield's bytes, per BUILD SHAPE, and the constants each was built with. The two canonical shapes place the routine at different addresses, so one cut cannot serve both. Regenerate with tools/instashield_gate.py --write-fixture (it preserves the other shape).",
   "shapes": {
     "s4.debug.lst": {
-      "bytes": "122800320c01000867060c01000a662c4a28004a66260c01000a660670086100ed5c12280033020100736610117c0001004a610a103c004260009d3e4e75",
+      "bytes": "122800320c01000867060c01000a662c4a28004a66260c01000a660670086100ed5412280033020100736610117c0001004a610a103c004260009d364e75",
       "constants": {
         "INSTASHIELD_ATTACKING": 1,
         "INSTASHIELD_READY": 0,
@@ -14,7 +14,7 @@
         "PSTATE_JUMP": 8,
         "PSTATE_ROLLJUMP": 10
       },
-      "end": 71600,
+      "end": 71608,
       "offsets": {
         "air_left": 57,
         "climb_pad": 71,
@@ -41,15 +41,15 @@
         "stick_convex": 59
       },
       "sst_custom": 48,
-      "start": 71538,
+      "start": 71546,
       "stubs": {
         "00B4EA": "Sound_PlaySFX",
         "0104EE": "Player_SetState",
-        "0117B0": "InstaShield_Spawn"
+        "0117B8": "InstaShield_Spawn"
       }
     },
     "s4.lst": {
-      "bytes": "122800320c01000867060c01000a662e4a28004a66280c01000a660670086100eda612280033020100736612117c0001004a610c103c00424ef9000081a84e75",
+      "bytes": "122800320c01000867060c01000a662e4a28004a66280c01000a660670086100ed9e12280033020100736612117c0001004a610c103c00424ef9000081a84e75",
       "constants": {
         "INSTASHIELD_ATTACKING": 1,
         "INSTASHIELD_READY": 0,
@@ -61,7 +61,7 @@
         "PSTATE_JUMP": 8,
         "PSTATE_ROLLJUMP": 10
       },
-      "end": 71334,
+      "end": 71342,
       "offsets": {
         "air_left": 57,
         "climb_pad": 71,
@@ -88,11 +88,11 @@
         "stick_convex": 59
       },
       "sst_custom": 48,
-      "start": 71270,
+      "start": 71278,
       "stubs": {
         "0081A8": "Sound_PlaySFX",
         "01042C": "Player_SetState",
-        "0116A6": "InstaShield_Spawn"
+        "0116AE": "InstaShield_Spawn"
       }
     }
   }
