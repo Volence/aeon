@@ -9,8 +9,8 @@
 // 3 binding(s), 9 act sections. Authored but unassigned: none.
 //
 // EVERY `pub comptime fn` AT THE BOTTOM IS EMITTED FOR EVERY ACT, ALWAYS — the act
-// default, the section scene, and one per `EffectsPreset` channel (raster, cycle,
-// variant, patch world Y, patch motion) —
+// default, the section scene, and one per `EffectsPreset` channel (raster, patched,
+// cycle, variant, patch world Y, patch motion) —
 // owner ruling 2026-08-22 (design §9 Q-c, the always-emitted default). With no
 // editor content they return the `hand:` fallback their caller passes; with
 // editor content they return the lowered record above. The caller therefore
@@ -344,6 +344,35 @@ pub comptime fn ojz_act1_sec_raster(sec: int, hand: Label = 0) -> Label {
     comptime var out = hand
     if sec == 5 { out = EditorRaster_OJZ_Act1_ojz_sec5_showcase }
     if sec == 6 { out = EditorRaster_OJZ_Act1_ojz_sec6_baseswap }
+    return out
+}
+
+// ---- THE PATCHED BINDING — the `patched:` half of the same seam ----
+//
+// The fourth always-emitted chooser (contract §7.6, EFFECTS-W1 item 4's authoring half).
+// A `boundary` preset document lowers through `patched_program()` into
+// `EffectsPreset.ep_patched`, which is a DIFFERENT `preset()` parameter from `raster:` —
+// so it cannot ride the raster chooser above, and a patched image threaded into `raster:`
+// would install a padded body with no patch table: the boundary would sit at its authored
+// line forever and nothing anywhere would say why.
+//
+// ONE `rasterRef` STILL BINDS THE WHOLE DOCUMENT (ruling Q1, unchanged). The sidecar key
+// is not split; the two choosers are, because the ONE program a document carries lands in
+// one of two parameters depending on which arm it carries. A section whose `rasterRef`
+// names a `boundary` document therefore appears in THIS chooser and NOT in the raster one.
+//
+// ⚠ THE CALL SITE OWES `hand: 0` ON THE RASTER SIDE. `preset()` asserts
+// `ep_raster == 0 || ep_patched == 0`, and that assert reads both choosers' results. So a
+// section binding `patched:` must call the raster chooser with `hand: 0` and NOT with
+// `Raster_Program_None`, which is a real non-zero label and would fire the exclusivity
+// ensure. That is the same rule the raster banner above already states, now with a
+// generated producer on the other side of it.
+//
+// With no `boundary` document bound the body below is `return hand` and this whole block
+// is zero ROM bytes — a `pub comptime fn` emits nothing.
+pub comptime fn ojz_act1_sec_patched(sec: int, hand: Label = 0) -> Label {
+    ensure(sec >= 0 && sec < 9, "ojz_act1_sec_patched(sec: {sec}): this act has 9 sections, so there is no binding slot for that index — the section preset and project.json's grid have drifted apart")
+    comptime var out = hand
     return out
 }
 

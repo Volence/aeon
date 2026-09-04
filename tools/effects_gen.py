@@ -561,8 +561,28 @@ PRESET_SUBDIR = "presets"
 # `fire`/`reg_set`/`raster_program` — the exact three calls
 # `games/sonic4/data/effects/ojz_effects.emp`'s hand-authored `OJZ_BaseSwap` already makes),
 # so it joins the same exactly-one-of group below rather than opening a second `oneOf`.
+# `boundary` joined 2026-09-04 (EFFECTS-W1 DoD item 4's AUTHORING half). Ruled by the hub in
+# `empyrean docs/AURORA_EFFECTS_SCHEMA.md` §7.6 (schema blob `0295b21b`, filed at empyrean
+# `c4a1da23`) against aeon's own step-1 shape note
+# `docs/superpowers/specs/2026-09-04-channel-band-key-shape.md` §4. The SCHEMA is the
+# authority where the two differ, and it differs in one ruled place: the artifact proposed
+# the house three-state rule and the hub ruled M1, **there is NO null spelling for
+# `boundary`** — a top-level arm has no index to leave unreached, so "explicitly off" is
+# already spelled by ABSENCE the way `ramp` and `base_swap` spell it, and a second spelling
+# for one state is the drift hazard the contract exists to prevent.
+#
+# ⚠ IT IS THE FOURTH EXCLUSIVE ARM AND IT IS EXCLUSIVE FOR A DIFFERENT REASON, which is why
+# the refusal below enumerates its reason separately instead of lumping four keys under one
+# sentence. `bands`/`ramp`/`base_swap` compete for ONE FIELD, `EffectsPreset.ep_raster`.
+# `boundary` lowers into the SIBLING field `ep_patched` (`patched_program()`,
+# engine/effects/raster_dsl.emp), and `preset()` refuses a record carrying both because the
+# INSTALL ORDER IS DESTRUCTIVE: `Raster_InstallPatched` clears `Raster_Pending`, killing a
+# staged static program (engine/effects/preset.emp). A reader who generalised "they compete
+# for one field" to `boundary` would expect a combinator to unlock it, and no combinator
+# unlocks a destructive install order.
 PRESET_KEYS = frozenset({"schema", "id", "bands", "cycles", "variants",
-                         "patch_world_ys", "patch_motion", "ramp", "base_swap"})
+                         "patch_world_ys", "patch_motion", "ramp", "base_swap",
+                         "boundary"})
 
 # `base_swap`'s own shape (EFFECTS-W1 item 11a's authorable half; no schema `$defs` entry
 # exists yet — this generator IS the shape until the CR lands). Two fields, both required,
@@ -578,6 +598,56 @@ PRESET_KEYS = frozenset({"schema", "id", "bands", "cycles", "variants",
 #              explicitly beats one fact computed twice" precedent `pal_region.addr` and
 #              `ramp.target.vsram.addr` already set.
 BASE_SWAP_KEYS = ("line", "target")
+
+# `boundary`'s own shape (contract §7.6, `$defs/boundary` / `$defs/tint_region`). SIX
+# REQUIRED MEMBERS AND ONE OPTIONAL, and the whole object lowers to the one call the shipped
+# hand-authored water already makes:
+#
+#   patchable(fx_tint_band(line, slot, pal_line, entry, count, sh),
+#             ch: channel, lo, hi, offscreen_ship)
+#
+# SHAPE ONLY for every single-field range, this file's standing posture, and NO BOUND IS
+# SPELLED HERE — not even in a comment, which is the rule `TestBandValuesAreNotValidatedHere`
+# enforces structurally over this whole arm of the file. `line`'s screen-line range is
+# `fire()`'s ensure; `lo`/`hi`'s is `patchable()`'s; `channel`'s ceiling is `patchable()`'s
+# `RASTER_MAX_PATCH` ensure; `sh` and `offscreen_ship` are `region_boundary()`'s and
+# `patchable()`'s two-valued ensures; the four `tint_region` members are
+# `stream_pal_region()`'s. None is restated — the second copy is the one that drifts.
+#
+# TWO CROSS-FIELD REFUSALS ARE THIS FILE'S, and they are the reason this arm is not a
+# one-line key addition (contract §7.6, "Two refusals the schema CANNOT express and the
+# generator owes"): `lo <= hi`, and `line` within `[lo, hi]`. Both are cross-field
+# conditionals inside ONE object; JSON Schema can spell the second and no reader can read
+# it. The engine holds both too (`patchable()`), so these are deliberately the same
+# predicate in two languages rather than a bound copied down — the point is not to catch
+# something the engine would miss, it is that this file's message can name the JSON PATH the
+# author typed, where the engine's names a generated call. Same exception, same reason, as
+# the `cycles[i].period` document floor one channel over.
+BOUNDARY_REQUIRED_KEYS = ("line", "channel", "lo", "hi", "on", "sh")
+# `offscreen_ship` is the ONLY optional member, because it is the only one `patchable()`
+# itself defaults (`offscreen_ship: int = 0`). Absent means omitted from the emitted call so
+# the constructor's default stands — the `patch_motion[i].sweep.phase` precedent exactly.
+BOUNDARY_OPTIONAL_KEYS = ("offscreen_ship",)
+BOUNDARY_KEYS = BOUNDARY_REQUIRED_KEYS + BOUNDARY_OPTIONAL_KEYS
+
+# `on` HAS EXACTLY ONE ARM and the two absentees are RULED, not pending (contract §7.6,
+# "Not reserved, ruled", per §7.3's `approach` precedent that a reserved arm is a key with
+# nothing behind it):
+#   - no `cram` arm: `fx_tint_band` takes a STAGED REGION only, and a boundary writing raw
+#     CRAM words is a different constructor and its own CR;
+#   - no `vsplit` key: the shipped program's second patchable record IS `fx_vscroll_split`
+#     and is equally patchable, but `offscreen_ship` requires a `stream_pal_region` op a
+#     vscroll split does not have, so a reserved arm would carry a hole.
+BOUNDARY_ON_ARM = "pal_region"
+
+# `boundary.on.pal_region` is `$defs.tint_region`, NOT `$defs.pal_region`: the same four
+# members WITHOUT the address. `fx_tint_band` derives the CRAM address from `pal_line` and
+# `entry` (`0 * 128 + pal_line * 32 + entry * 2`, engine/effects/raster_dsl.emp), so a
+# document carrying `addr` would be one fact computed twice — refused by CLOSURE, by name,
+# rather than accepted and cross-checked. That is the exact INVERSE of `BAND_ON_ARMS`'
+# `pal_region`, which takes `addr` explicitly because `stream_pal_region` cross-checks it
+# against the line and entry; there the two facts check each other, here there is only one.
+TINT_REGION_KEYS = ("slot", "pal_line", "entry", "count")
 
 # `ramp`'s own shape (contract §7.4, `$defs/ramp` / `$defs/ramp_target` / `$defs/fp16`).
 # SHAPE ONLY, this file's standing posture: every numeric bound named in the schema
@@ -982,19 +1052,50 @@ def load_preset(path: str) -> dict:
     _check_keys(path, preset, PRESET_KEYS, PRESET_IGNORED_KEYS, PRESET_REFUSED_KEYS,
                 "preset")
 
-    # EXACTLY ONE OF `bands`, `ramp` OR `base_swap` (contract §7.4's top-level `oneOf` for
-    # the first two, widened here to a third arm for EFFECTS-W1 item 11a's authorable
-    # half — see `base_swap`'s own banner above for why this key ships ahead of a schema
-    # entry). All three lower into the SAME EffectsPreset.ep_raster channel and the engine
-    # has no combinator that mixes any two of a sparse fire list, a dense run and a single
-    # mid-frame register op, so this is a real structural fact and not a style preference —
-    # refused here BECAUSE this file is the actual build gate (no schema validator runs
+    # EXACTLY ONE OF `bands`, `ramp`, `base_swap` OR `boundary` (contract §7.4's top-level
+    # `oneOf` for the first two, a third arm for EFFECTS-W1 item 11a's authorable half —
+    # see `base_swap`'s own banner above for why that key shipped ahead of a schema entry —
+    # and a FOURTH arm for `boundary`, contract §7.6).
+    #
+    # ⚠ TWO REASONS, NOT ONE, AND THE MESSAGE MUST CARRY THE RIGHT ONE. `bands`/`ramp`/
+    # `base_swap` are mutually exclusive because all three lower into the SAME field,
+    # `EffectsPreset.ep_raster`, and the engine has no combinator that mixes a sparse fire
+    # list, a dense run and a single mid-frame register op. `boundary` lowers into the
+    # SIBLING field `ep_patched` and is exclusive with all three for a DIFFERENT reason:
+    # `preset()` refuses a record carrying both because whichever installs LAST wins
+    # DESTRUCTIVELY — `Raster_InstallPatched` clears `Raster_Pending` and kills a staged
+    # static program (engine/effects/preset.emp). The distinction is load-bearing rather
+    # than pedantic: a reader told "they compete for one field" would expect a combinator to
+    # unlock the pair, and NO COMBINATOR UNLOCKS A DESTRUCTIVE INSTALL ORDER. This repo
+    # treats a gate's stated reason as separately checkable from its verdict, so a message
+    # that lumped all four under one reason would be wrong even where the refusal is right.
+    #
+    # Refused HERE because this file is the actual build gate (no schema validator runs
     # against these documents in this repo).
-    has_bands, has_ramp, has_base_swap = ("bands" in preset, "ramp" in preset,
-                                          "base_swap" in preset)
+    has_bands, has_ramp, has_base_swap, has_boundary = (
+        "bands" in preset, "ramp" in preset, "base_swap" in preset,
+        "boundary" in preset)
     chosen = [k for k, present in (("bands", has_bands), ("ramp", has_ramp),
-                                    ("base_swap", has_base_swap)) if present]
+                                    ("base_swap", has_base_swap),
+                                    ("boundary", has_boundary)) if present]
     if len(chosen) > 1:
+        raster_arms = [k for k in chosen if k != "boundary"]
+        if has_boundary and raster_arms:
+            _refuse(path, f"carries `boundary` beside "
+                          f"{'/'.join('`' + k + '`' for k in raster_arms)} "
+                          f"({', '.join(chosen)}), and THAT PAIR IS REFUSED FOR A "
+                          f"DIFFERENT REASON than two raster arms are. "
+                          f"{'/'.join(raster_arms)} lower into "
+                          f"EffectsPreset.ep_raster; `boundary` lowers into the SIBLING "
+                          f"field ep_patched, through patched_program(). `preset()` "
+                          f"refuses a record carrying both because the install order is "
+                          f"DESTRUCTIVE: Raster_InstallPatched clears Raster_Pending, so "
+                          f"whichever installs last silently kills the other "
+                          f"(engine/effects/preset.emp). Do NOT read this as the "
+                          f"one-field competition the other three have — that one could "
+                          f"be widened the day a combinator exists, and no combinator "
+                          f"unlocks a destructive install order. Split them into two "
+                          f"documents bound to two sections.")
         _refuse(path, f"carries more than one of `bands`/`ramp`/`base_swap` "
                       f"({', '.join(chosen)}). Exactly one raster program per preset "
                       f"document: all three lower into the same EffectsPreset.ep_raster "
@@ -1004,17 +1105,22 @@ def load_preset(path: str) -> dict:
                       f"combination on purpose (a schema can widen later and cannot "
                       f"narrow once a consumer has emitted the wider shape).")
     if not chosen:
-        _refuse(path, "no `bands`, `ramp` or `base_swap` key. A preset document must "
-                      "carry exactly one raster program (hub ruling Q1a for `bands`; "
-                      "contract §7.4's `oneOf` for `bands`/`ramp`; `base_swap`'s own "
-                      "banner above for the third arm): `bands` for the sparse "
-                      "fire-list tier, `ramp` for the dense per-line vertical scroll "
-                      "(EFFECTS-W1 item 6), or `base_swap` for the mid-frame "
-                      "nametable-base swap (EFFECTS-W1 item 11a). `cycles` and "
-                      "`variants` are optional channels beside any one of the three, "
+        _refuse(path, "no `bands`, `ramp`, `base_swap` or `boundary` key. A preset "
+                      "document must carry exactly one raster program (hub ruling Q1a "
+                      "for `bands`; contract §7.4's `oneOf` for `bands`/`ramp`; "
+                      "`base_swap`'s own banner above for the third arm; contract §7.6 "
+                      "for the fourth): `bands` for the sparse fire-list tier, `ramp` "
+                      "for the dense per-line vertical scroll (EFFECTS-W1 item 6), "
+                      "`base_swap` for the mid-frame nametable-base swap (EFFECTS-W1 "
+                      "item 11a), or `boundary` for the movable single-fire tint "
+                      "boundary (EFFECTS-W1 item 4). `cycles` and "
+                      "`variants` are optional channels beside any one of the four, "
                       "and a cycle-only or variant-only document is a future contract "
-                      "change. The one name empyrean's schema doc §7 still reserves "
-                      "(`fires`) is refused by name above.")
+                      "change. There is NO `boundary: null` spelling — a top-level arm "
+                      "has no index to leave unreached, so 'no boundary here' is spelled "
+                      "by ABSENCE, exactly as `ramp` and `base_swap` spell it (contract "
+                      "§7.6 ruling M1). The one name empyrean's schema doc §7 still "
+                      "reserves (`fires`) is refused by name above.")
 
     if has_bands:
         bands = preset["bands"]
@@ -1043,6 +1149,7 @@ def load_preset(path: str) -> dict:
 
     _check_ramp(path, preset)
     _check_base_swap(path, preset)
+    _check_boundary(path, preset)
     _check_cycles(path, preset)
     _check_variants(path, preset)
     _check_cleared_slot_is_not_streamed(path, preset)
@@ -1191,6 +1298,135 @@ def _check_base_swap(path: str, preset: dict) -> None:
                       f"silently encoding the wrong register byte.")
 
 
+def _check_boundary(path: str, preset: dict) -> None:
+    """SHAPE of the `boundary` key, plus THE TWO CROSS-FIELD REFUSALS (contract §7.6).
+
+    SHAPE is `_check_ramp`'s and `_check_base_swap`'s posture: every single-field range is
+    an engine `ensure` (`fire()`, `patchable()`, `region_boundary()`, `stream_pal_region()`)
+    and none is restated here — see `BOUNDARY_REQUIRED_KEYS`' banner.
+
+    THE TWO CROSS-FIELD REFUSALS ARE DIFFERENT and are the reason this arm is not a one-line
+    key addition. `lo <= hi` and `line` within `[lo, hi]` are cross-field conditionals inside
+    ONE object; the schema structurally cannot express the first and can express the second
+    only in a form no reader can read, so contract §7.6 assigns both here. The engine holds
+    both as well (`patchable()`) — deliberately, and this is NOT the "second copy that
+    drifts" the range posture forbids. A range copied down here would be a second AUTHORITY
+    for a number; these two are the same predicate stated in two languages, where the second
+    exists only so the message can name the JSON PATH the author typed instead of a
+    generated call site. Precedent: the `cycles[i].period` document floor.
+
+    ORDER IS LOAD-BEARING: `lo <= hi` is checked FIRST. On an inverted band the second
+    message reads "the line is outside its own band <hi>..<lo>", which sends the author to
+    the wrong field entirely.
+    """
+    if "boundary" not in preset:
+        return
+    b = preset["boundary"]
+
+    # M1, RULED (contract §7.6): there is NO null spelling for `boundary`. Refused BY NAME
+    # rather than read as absent, the same way `variants: null` is — a silent read-as-absent
+    # would leave the author's "turn this off" doing nothing at all.
+    if b is None:
+        _refuse(path, "`boundary` is null, and THERE IS NO NULL SPELLING for this key "
+                      "(contract §7.6, ruling M1). The three-state rule (absent keeps, "
+                      "null is off, an object authors) was ruled for POSITIONAL ARRAYS — "
+                      "`variants`, `patch_world_ys`, `patch_motion` — where 'an index the "
+                      "array does not reach' and 'null AT an index' are different facts "
+                      "about one channel. A TOP-LEVEL ARM has no index to leave unreached: "
+                      "`boundary: null` is a document with zero programs, which the "
+                      "exactly-one-of rule refuses anyway, and 'explicitly off' is already "
+                      "spelled by ABSENCE exactly as `ramp` and `base_swap` spell it. Two "
+                      "spellings for one state is the drift hazard the contract exists to "
+                      "prevent. Delete the key.")
+    if not isinstance(b, dict):
+        _refuse(path, f"`boundary` must be an object, got {type(b).__name__}. A preset has "
+                      f"exactly one patched: channel (EffectsPreset.ep_patched) and "
+                      f"`patchable()` marks exactly ONE fire, so there is one boundary per "
+                      f"document, never an array of them.")
+
+    _check_keys(path, b, frozenset(BOUNDARY_KEYS), frozenset(), None, "boundary")
+    for required in BOUNDARY_REQUIRED_KEYS:
+        if required not in b:
+            _refuse(path, f"boundary has no `{required}`. All six of "
+                          f"{', '.join(BOUNDARY_REQUIRED_KEYS)} are required, no default "
+                          f"on any — `offscreen_ship` is the ONE optional member, because "
+                          f"it is the only one `patchable()` itself defaults. `sh` has no "
+                          f"default in the engine either: raster_dsl.emp's "
+                          f"`region_boundary` note is that whether an effect changes a "
+                          f"mode register is worth stating at the call site.")
+
+    # Scalar SHAPE, checked before the cross-field comparisons below so those can never
+    # compare a string against an integer and crash instead of refusing.
+    for field, engine_owner in (
+            ("line", "fire()'s own screen-line ensure"),
+            ("channel", "patchable()'s own RASTER_MAX_PATCH ensure"),
+            ("lo", "patchable()'s own band ensure against the screen lines"),
+            ("hi", "patchable()'s own band ensure against the screen lines")):
+        v = b[field]
+        if isinstance(v, bool) or not isinstance(v, int):
+            _refuse(path, f"boundary.{field} must be an integer, got "
+                          f"{type(v).__name__} {v!r}. Whether it is IN RANGE is "
+                          f"{engine_owner}, not this file's.")
+    _render_bool_int(path, b["sh"], "boundary.sh")
+    if "offscreen_ship" in b:
+        _render_bool_int(path, b["offscreen_ship"], "boundary.offscreen_ship")
+
+    # `on` — exactly one arm, `pal_region`. `_single_arm` gives the "the only arm here is
+    # `pal_region`" sentence, which is what refuses a `cram` arm by name (contract §7.6:
+    # `fx_tint_band` takes a staged region only; raw CRAM words are a different constructor
+    # and their own CR).
+    region = _single_arm(path, b["on"], BOUNDARY_ON_ARM, "boundary.on")
+    if not isinstance(region, dict):
+        _refuse(path, f"boundary.on.{BOUNDARY_ON_ARM} must be an object with "
+                      f"{', '.join(TINT_REGION_KEYS)}, got {type(region).__name__}")
+    # `addr` BY NAME AND BY REASON, ahead of the generic closure below: it is the one key an
+    # author is actively likely to carry over from a `bands[i].on.pal_region`, where it IS
+    # required, and "unknown key" would not tell them why the two differ.
+    if "addr" in region:
+        _refuse(path, f"boundary.on.{BOUNDARY_ON_ARM} carries `addr`, and this region is "
+                      f"`$defs.tint_region`, NOT `$defs.pal_region` — the same four "
+                      f"members WITHOUT the address. `fx_tint_band` DERIVES the CRAM "
+                      f"address from `pal_line` and `entry` "
+                      f"(0 * 128 + pal_line * 32 + entry * 2, "
+                      f"engine/effects/raster_dsl.emp), so a document carrying it is one "
+                      f"fact computed twice and the two copies can disagree. A `bands[i]` "
+                      f"band's `on.pal_region` DOES require `addr`, because there "
+                      f"`stream_pal_region` cross-checks the address against the line and "
+                      f"entry — two facts checking each other. Here there is only one. "
+                      f"Drop `addr`.")
+    _fields(path, region, TINT_REGION_KEYS, f"boundary.on.{BOUNDARY_ON_ARM}")
+    for field in TINT_REGION_KEYS:
+        v = region[field]
+        if isinstance(v, bool) or not isinstance(v, int):
+            _refuse(path, f"boundary.on.{BOUNDARY_ON_ARM}.{field} must be an integer, got "
+                          f"{type(v).__name__} {v!r}. Whether it is IN RANGE is "
+                          f"stream_pal_region()'s own ensure, not this file's.")
+
+    # ---- THE TWO CROSS-FIELD REFUSALS (contract §7.6) ----
+    line, lo, hi = b["line"], b["lo"], b["hi"]
+    if lo > hi:
+        _refuse(path, f"boundary.lo is {lo} and boundary.hi is {hi} — the band is "
+                      f"INVERTED. `lo` and `hi` are the inclusive SCREEN LINES the patched "
+                      f"boundary may travel between, so `lo` must not be below `hi` on the "
+                      f"screen: lower line numbers are higher up. They are SCREEN lines and "
+                      f"NOT fire lines — the engine subtracts 1 once, in "
+                      f"Raster_BuildSchedule, so a document that pre-subtracted would be "
+                      f"off by one everywhere. Refused here rather than left to "
+                      f"patchable()'s own `band {lo}..{hi} is inverted`, because this "
+                      f"message can name the JSON path you typed.")
+    if not (lo <= line <= hi):
+        _refuse(path, f"boundary.line is {line}, outside its own band "
+                      f"boundary.lo..boundary.hi ({lo}..{hi}). `line` is the TEMPLATE'S "
+                      f"DEFAULT schedule — where the boundary sits before any runtime "
+                      f"patch — so a line outside the band means the shipped template "
+                      f"violates the invariant it declares, and the first patch would move "
+                      f"the boundary somewhere you never saw. Either move `line` inside "
+                      f"[{lo}, {hi}], or widen the band to contain it. Refused here rather "
+                      f"than left to patchable()'s own `the authored line {line} is "
+                      f"outside its own band`, because this message can name the JSON path "
+                      f"you typed.")
+
+
 def _check_cleared_slot_is_not_streamed(path: str, preset: dict) -> None:
     """The NARROW half of ruling Q6, which is the half that is available today.
 
@@ -1236,6 +1472,25 @@ def _check_cleared_slot_is_not_streamed(path: str, preset: dict) -> None:
                           f"{slot}. Author the slot, or drop the null so the section's "
                           f"hand-authored variant keeps it, or point the band at the "
                           f"other slot.")
+
+    # THE SAME RULING, ONE ARM OVER. A `boundary` streams from a slot too — `fx_tint_band`
+    # lowers to exactly the `stream_pal_region` op a `pal_region` band's ON op is — so the
+    # narrow half of ruling Q6 applies unchanged. Without this the newer arm would carry a
+    # hole the older one does not, which is how the two authoring surfaces drift apart.
+    b = preset.get("boundary")
+    if isinstance(b, dict):
+        region = b.get("on", {})
+        region = region.get(BOUNDARY_ON_ARM) if isinstance(region, dict) else None
+        slot = region.get("slot") if isinstance(region, dict) else None
+        if (not isinstance(slot, bool)) and isinstance(slot, int) and slot in cleared:
+            _refuse(path, f"boundary streams from variant slot {slot} "
+                          f"(`boundary.on.{BOUNDARY_ON_ARM}.slot`), but this document sets "
+                          f"`variants[{slot}]` to null, which CLEARS that slot. The "
+                          f"boundary would stream whatever `Pal_Variant_Stage` last held "
+                          f"for slot {slot} — and `offscreen_ship` would re-ship those same "
+                          f"stale colours at frame top. Author the slot, or drop the null "
+                          f"so the section's hand-authored variant keeps it, or point the "
+                          f"boundary at the other slot.")
 
 
 def _check_cycles(path: str, preset: dict) -> None:
@@ -1779,7 +2034,24 @@ def load_all_presets(game: str = "sonic4", repo: str = REPO) -> dict:
             if caps is None:
                 caps, live = game_scanline_caps(game, repo), \
                              declared_patch_channels(game, repo)
-            _check_patch_context(path, preset, caps, live, game)
+            # A DOCUMENT'S OWN `boundary` IS A CONSUMER, and it is the only consumer this
+            # generator can see WITHOUT the superset caveat: `declared_patch_channels`
+            # greps the hand-authored `.emp` library, which by construction cannot contain
+            # a channel a document declares. Contract §7.6 obligation (a) — the whole
+            # moving water is `boundary` plus both positional keys at the same index in ONE
+            # document — is exactly that case, so without this the CR's own worked example
+            # would be refused for having no consumer while carrying its consumer.
+            doc_live = dict(live)
+            b = preset.get("boundary")
+            if isinstance(b, dict):
+                ch = b.get("channel")
+                if (not isinstance(ch, bool)) and isinstance(ch, int):
+                    # COPIED, not `setdefault(..).append(..)`: the lists in `live` are
+                    # shared across every document in this bake, so appending in place
+                    # would leak one document's boundary into the next one's liveness.
+                    doc_live[ch] = list(doc_live.get(ch, [])) + [
+                        f"{os.path.basename(path)} boundary"]
+            _check_patch_context(path, preset, caps, doc_live, game)
         presets[preset["id"]] = preset
     return presets
 
@@ -2369,6 +2641,8 @@ def render_preset(path: str, preset: dict, names) -> str:
         return render_ramp_preset(path, preset, names)
     if "base_swap" in preset:
         return render_base_swap_preset(path, preset, names)
+    if "boundary" in preset:
+        return render_boundary_preset(path, preset, names)
     src, label = names.raster_src(pid), names.raster(pid)
     bands = [render_band(path, b, f"bands[{i}]")
              for i, b in enumerate(preset["bands"])]
@@ -2476,6 +2750,60 @@ def render_base_swap_preset(path: str, preset: dict, names) -> str:
     word = f"$8200 | vdp_base_reg(VdpBase.PlaneA, {target})"
     return (f"const {src} = [fire({line}, [reg_set({word})])]\n"
             f"pub data {label}: [u16; raster_words({src})] = raster_program({src})")
+
+
+def render_boundary_preset(path: str, preset: dict, names) -> str:
+    """One `boundary` preset document → the `patchable(fx_tint_band(...), ...)` call the
+    shipped hand-authored water already makes, under `patched_program` (contract §7.6).
+
+    A DIFFERENT LABEL FROM `bands`/`ramp`/`base_swap`, and that asymmetry is the mechanism
+    rather than a naming taste. Those three lower into `EffectsPreset.ep_raster` and share
+    one label and one chooser precisely because the chooser reads a `Label` and does not
+    care what is behind it. `boundary` lowers into the SIBLING field `ep_patched`, which is
+    a DIFFERENT `preset()` parameter — so it needs its own label and its own chooser
+    (`names.fn_sec_patched`), and a section binding one must pass `hand: 0` to the raster
+    chooser. Threading a patched image into `raster:` would install a padded body with no
+    patch table: the boundary would sit at its authored line forever, with nothing anywhere
+    saying why. See PATCHED_BINDING_BANNER.
+
+    EVERY VALUE FORWARDED VERBATIM, 1:1, NO UNIT CONVERSION ON ANY FIELD — the standing rule
+    of this seam (`patch_world_ys`' own banner: "there is no `* 256` anywhere on this path
+    and there must never be one"). `lo`/`hi` in particular are SCREEN lines and stay screen
+    lines: the engine converts once, `subq.w #1` in Raster_BuildSchedule, and a generator
+    that subtracted 1 would be the exact class of bug that rule exists for.
+
+    `offscreen_ship` IS OMITTED WHEN ABSENT rather than emitted as 0, so `patchable()`'s own
+    default (`offscreen_ship: int = 0`) is what stands — the `patch_motion[i].sweep.phase`
+    precedent, and the reason it matters is that the default is the constructor's to change.
+
+    The `const` half is REFERENCED TWICE below for `render_preset`'s reason: an unreferenced
+    top-level `const X = f(..)` is comptime-INERT and would fold nothing, so every ensure
+    inside `patchable`/`fx_tint_band`/`region_boundary`/`patched_program` would never run.
+    """
+    pid = preset["id"]
+    src, label = names.patched_src(pid), names.patched(pid)
+    b = preset["boundary"]
+    region = b["on"][BOUNDARY_ON_ARM]
+    fire = ("fx_tint_band(line: " + _render_int(path, b["line"], "boundary.line")
+            + ", slot: " + _render_int(path, region["slot"],
+                                       f"boundary.on.{BOUNDARY_ON_ARM}.slot")
+            + ", pal_line: " + _render_int(path, region["pal_line"],
+                                           f"boundary.on.{BOUNDARY_ON_ARM}.pal_line")
+            + ", entry: " + _render_int(path, region["entry"],
+                                        f"boundary.on.{BOUNDARY_ON_ARM}.entry")
+            + ", count: " + _render_int(path, region["count"],
+                                        f"boundary.on.{BOUNDARY_ON_ARM}.count")
+            + ", sh: " + _render_bool_int(path, b["sh"], "boundary.sh") + ")")
+    args = ["ch: " + _render_int(path, b["channel"], "boundary.channel"),
+            "lo: " + _render_int(path, b["lo"], "boundary.lo"),
+            "hi: " + _render_int(path, b["hi"], "boundary.hi")]
+    if "offscreen_ship" in b:
+        args.append("offscreen_ship: "
+                    + _render_bool_int(path, b["offscreen_ship"],
+                                       "boundary.offscreen_ship"))
+    return (f"const {src} = patchable({fire},\n"
+            f"    " + ", ".join(args) + ")\n"
+            f"pub data {label}: [u16; patched_words({src})] = patched_program({src})")
 
 
 def render_cycle_channel(path: str, ch: dict, where: str) -> str:
@@ -2836,6 +3164,11 @@ class ActNames:
         self.fn_act_default = f"{stem}_act_default"
         self.fn_sec_scene = f"{stem}_sec_scene"
         self.fn_sec_raster = f"{stem}_sec_raster"
+        # THE PATCHED CHANNEL (item 4's authoring half, contract §7.6). A SECOND chooser and
+        # not a widening of `fn_sec_raster`, because `ep_raster` and `ep_patched` are two
+        # DIFFERENT `preset()` parameters and one Label cannot be handed to both — and
+        # `preset()` asserts they are never both non-zero. See PATCHED_BINDING_BANNER.
+        self.fn_sec_patched = f"{stem}_sec_patched"
         # The other two EffectsPreset channels (EFFECTS-W1 item 5). PER-SLOT for the
         # variant chooser, and that is a choice with a reason: ruling Q5's three states are
         # PER INDEX (absent keeps `hand:`, null clears, an object authors), and a single
@@ -2901,6 +3234,19 @@ class ActNames:
 
     def raster_src(self, preset_id: str) -> str:
         return f"EditorRasterSrc_{self.cap}_{preset_id}"
+
+    def patched(self, preset_id: str) -> str:
+        """The emitted PATCHED-program LABEL for one `boundary` document.
+
+        A distinct name from `raster()` because the bytes are a distinct SHAPE — a padded
+        body plus a patch table and a ship trailer, which only `Raster_InstallPatched`
+        knows how to read — and because it is bound through a distinct chooser into a
+        distinct `preset()` parameter. Act-qualified for `raster()`'s reason.
+        """
+        return f"EditorPatched_{self.cap}_{preset_id}"
+
+    def patched_src(self, preset_id: str) -> str:
+        return f"EditorPatchedSrc_{self.cap}_{preset_id}"
 
     def cycle(self, preset_id: str) -> str:
         """The emitted cycle-script LABEL for one preset document. Act-qualified for
@@ -3052,6 +3398,16 @@ def render_module(scenes: dict, act_ref, sec_refs: dict, sections: int,
     patch_bound = {i: raster_bound[i] for i in raster_bound
                    if ("patch_world_ys" in presets[raster_bound[i]]
                        or "patch_motion" in presets[raster_bound[i]])}
+    # THE `rasterRef` SPLIT (contract §7.6). One ref still binds the whole document —
+    # ruling Q1 is untouched — but the document's ONE raster program now lands in one of
+    # TWO `preset()` parameters depending on which arm it carries, so the single map above
+    # feeds two choosers. A boundary document must NOT appear in the raster chooser: a
+    # patched image threaded into `raster:` would install a padded body with no patch
+    # table and the boundary would never move, silently.
+    patched_bound = {i: pid for i, pid in raster_bound.items()
+                     if "boundary" in presets[pid]}
+    raster_prog_bound = {i: pid for i, pid in raster_bound.items()
+                         if i not in patched_bound}
 
     # ---- (item 10) THE REELS KEY: refuse anything that is not a rung-1 binding ----
     #
@@ -3404,8 +3760,22 @@ def render_module(scenes: dict, act_ref, sec_refs: dict, sections: int,
                f'slot for that index — the section preset and project.json\'s grid '
                f'have drifted apart")')
     out.append("    comptime var out = hand")
-    for i in sorted(raster_bound):
-        out.append(f"    if sec == {i} {{ out = {names.raster(raster_bound[i])} }}")
+    for i in sorted(raster_prog_bound):
+        out.append(f"    if sec == {i} {{ out = {names.raster(raster_prog_bound[i])} }}")
+    out.append("    return out")
+    out.append("}")
+    out.append("")
+
+    out.append(PATCHED_BINDING_BANNER)
+    out.append(f"pub comptime fn {names.fn_sec_patched}(sec: int, hand: Label = 0) "
+               f"-> Label {{")
+    out.append(f'    ensure(sec >= 0 && sec < {sections}, "{names.fn_sec_patched}(sec: '
+               f'{{sec}}): this act has {sections} sections, so there is no binding '
+               f'slot for that index — the section preset and project.json\'s grid '
+               f'have drifted apart")')
+    out.append("    comptime var out = hand")
+    for i in sorted(patched_bound):
+        out.append(f"    if sec == {i} {{ out = {names.patched(patched_bound[i])} }}")
     out.append("    return out")
     out.append("}")
     out.append("")
@@ -3527,8 +3897,8 @@ HEADER = """\
 // {bindings} binding(s), {sections} act sections. Authored but unassigned: {unused}.
 //
 // EVERY `pub comptime fn` AT THE BOTTOM IS EMITTED FOR EVERY ACT, ALWAYS — the act
-// default, the section scene, and one per `EffectsPreset` channel (raster, cycle,
-// variant, patch world Y, patch motion) —
+// default, the section scene, and one per `EffectsPreset` channel (raster, patched,
+// cycle, variant, patch world Y, patch motion) —
 // owner ruling 2026-08-22 (design §9 Q-c, the always-emitted default). With no
 // editor content they return the `hand:` fallback their caller passes; with
 // editor content they return the lowered record above. The caller therefore
@@ -3775,6 +4145,32 @@ RASTER_BINDING_BANNER = """\
 //
 // With no `rasterRef` in any sidecar the body below is `return hand` and this whole
 // block is zero ROM bytes — a `pub comptime fn` emits nothing.\
+"""
+
+PATCHED_BINDING_BANNER = """\
+// ---- THE PATCHED BINDING — the `patched:` half of the same seam ----
+//
+// The fourth always-emitted chooser (contract §7.6, EFFECTS-W1 item 4's authoring half).
+// A `boundary` preset document lowers through `patched_program()` into
+// `EffectsPreset.ep_patched`, which is a DIFFERENT `preset()` parameter from `raster:` —
+// so it cannot ride the raster chooser above, and a patched image threaded into `raster:`
+// would install a padded body with no patch table: the boundary would sit at its authored
+// line forever and nothing anywhere would say why.
+//
+// ONE `rasterRef` STILL BINDS THE WHOLE DOCUMENT (ruling Q1, unchanged). The sidecar key
+// is not split; the two choosers are, because the ONE program a document carries lands in
+// one of two parameters depending on which arm it carries. A section whose `rasterRef`
+// names a `boundary` document therefore appears in THIS chooser and NOT in the raster one.
+//
+// ⚠ THE CALL SITE OWES `hand: 0` ON THE RASTER SIDE. `preset()` asserts
+// `ep_raster == 0 || ep_patched == 0`, and that assert reads both choosers' results. So a
+// section binding `patched:` must call the raster chooser with `hand: 0` and NOT with
+// `Raster_Program_None`, which is a real non-zero label and would fire the exclusivity
+// ensure. That is the same rule the raster banner above already states, now with a
+// generated producer on the other side of it.
+//
+// With no `boundary` document bound the body below is `return hand` and this whole block
+// is zero ROM bytes — a `pub comptime fn` emits nothing.\
 """
 
 

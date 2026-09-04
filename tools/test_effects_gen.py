@@ -1808,6 +1808,310 @@ class TestBandValuesAreNotValidatedHere(PresetShapeBase):
                              f"does not own")
 
 
+# =============================================================================
+# THE `boundary` ARM — EFFECTS-W1 DoD item 4's AUTHORING half (contract §7.6).
+# =============================================================================
+#
+# THE ANTI-VACUITY NOTE, and it is the SAME trap the band block above records: NO SHIPPED
+# DOCUMENT CARRIES `boundary`. Nothing in `games/sonic4/data/editor/effects/presets/` has
+# the key, so a gate written over existing content could not fail. Every test below AUTHORS
+# one in a tmp tree.
+#
+# THE NUMBERS ARE THE SHIPPED WATER, VERBATIM, not invented: `games/sonic4/data/effects/
+# ojz_effects.emp`'s `OJZ_TC_PROG` first record is
+# `patchable(fx_tint_band(line: 100, slot: 0, pal_line: 2, entry: 4, count: 3, sh: 1),
+#            ch: 0, lo: 3, hi: 220, offscreen_ship: 1)`.
+# Copying a record the tree has already built and pinned means this fixture is known to
+# satisfy every engine guard on the path, so a red here is red about the GENERATOR rather
+# than about a boundary nobody could author.
+
+
+def _boundary(**over):
+    b = {"line": 100, "channel": 0, "lo": 3, "hi": 220, "offscreen_ship": True,
+         "on": {"pal_region": {"slot": 0, "pal_line": 2, "entry": 4, "count": 3}},
+         "sh": True}
+    b.update(over)
+    return b
+
+
+def _boundary_preset(**over):
+    p = {"schema": 1, "id": "ojz_water_edge", "boundary": _boundary()}
+    p.update(over)
+    return p
+
+
+class TestBoundaryShape(PresetShapeBase):
+    """The closed-object shape. Each test perturbs exactly one thing off a PASSING doc."""
+
+    def test_the_shipped_water_document_LOADS(self):
+        """The control, first: without it every refusal below could be passing for the
+        wrong reason (a fixture that is refused by something else entirely)."""
+        path = self.write("ojz_water_edge", _boundary_preset())
+        loaded = effects_gen.load_preset(path)
+        self.assertEqual(loaded["boundary"]["channel"], 0)
+        self.assertEqual(loaded["boundary"]["lo"], 3)
+        self.assertEqual(loaded["boundary"]["hi"], 220)
+
+    def test_offscreen_ship_is_the_ONLY_optional_member(self):
+        """It is optional because it is the only one `patchable()` itself defaults."""
+        b = _boundary()
+        del b["offscreen_ship"]
+        self.write("ojz_water_edge", _boundary_preset(boundary=b))
+        effects_gen.load_preset(
+            os.path.join(self.dir, "ojz_water_edge.json"))
+        for required in effects_gen.BOUNDARY_REQUIRED_KEYS:
+            b = _boundary()
+            del b[required]
+            msg = self.refuse("ojz_water_edge", _boundary_preset(boundary=b))
+            self.assertIn(f"boundary has no `{required}`", msg)
+
+    def test_a_null_boundary_is_refused_BY_NAME_and_never_read_as_absent(self):
+        """Contract §7.6 ruling M1. The failure this forbids is the QUIET one: read as
+        absent, an author's `"boundary": null` would leave the section's hand-authored
+        program installed while the document says it turned it off."""
+        msg = self.refuse("ojz_water_edge", _boundary_preset(boundary=None))
+        self.assertIn("NO NULL SPELLING", msg)
+        self.assertIn("M1", msg)
+
+    def test_an_unknown_member_is_refused_and_the_message_names_the_legal_set(self):
+        msg = self.refuse("ojz_water_edge",
+                          _boundary_preset(boundary=_boundary(top=100)))
+        self.assertIn("boundary carries unknown key `top`", msg)
+
+    def test_a_vsplit_KEY_is_an_unknown_preset_key_and_is_NOT_reserved(self):
+        """Contract §7.6 'Not reserved, ruled': a reserved arm is a key with nothing
+        behind it. `offscreen_ship` requires a `stream_pal_region` op a vscroll split does
+        not have, so a reserved `vsplit` would carry a hole."""
+        msg = self.refuse("ojz_water_edge",
+                          _boundary_preset(vsplit={"line": 222, "offset": 67}))
+        self.assertIn("preset carries unknown key `vsplit`", msg)
+
+    def test_a_cram_arm_on_on_is_refused_naming_the_one_legal_arm(self):
+        msg = self.refuse("ojz_water_edge", _boundary_preset(
+            boundary=_boundary(on={"cram": {"addr": 74, "colours": [548]}})))
+        self.assertIn("boundary.on", msg)
+        self.assertIn("pal_region", msg)
+
+    def test_two_arms_on_on_are_refused(self):
+        msg = self.refuse("ojz_water_edge", _boundary_preset(
+            boundary=_boundary(on={"pal_region": {"slot": 0, "pal_line": 2,
+                                                  "entry": 4, "count": 3},
+                                   "cram": {"addr": 74, "colours": [548]}})))
+        self.assertIn("unknown arm", msg)
+
+    def test_addr_on_the_region_is_refused_BY_NAME_with_the_derivation(self):
+        """`$defs.tint_region`, not `$defs.pal_region`. `fx_tint_band` DERIVES the CRAM
+        address from pal_line and entry, so a document carrying it is one fact computed
+        twice — and the generic 'unknown key' sentence would not tell an author who
+        copied a working `bands[i].on.pal_region` why the two differ."""
+        region = {"addr": 74, "slot": 0, "pal_line": 2, "entry": 4, "count": 3}
+        msg = self.refuse("ojz_water_edge",
+                          _boundary_preset(boundary=_boundary(
+                              on={"pal_region": region})))
+        self.assertIn("carries `addr`", msg)
+        self.assertIn("tint_region", msg)
+        self.assertIn("DERIVES", msg)
+
+    def test_a_missing_region_member_is_refused(self):
+        for field in effects_gen.TINT_REGION_KEYS:
+            region = {"slot": 0, "pal_line": 2, "entry": 4, "count": 3}
+            del region[field]
+            msg = self.refuse("ojz_water_edge", _boundary_preset(
+                boundary=_boundary(on={"pal_region": region})))
+            self.assertIn(field, msg)
+
+    def test_a_non_integer_scalar_is_a_SHAPE_refusal_naming_the_engine_owner(self):
+        """The `_render_int` class of defect, one arm over: a string here would be
+        interpolated into generated `.emp` as a bare SYMBOL."""
+        for field in ("line", "channel", "lo", "hi"):
+            msg = self.refuse("ojz_water_edge", _boundary_preset(
+                boundary=_boundary(**{field: "100"})))
+            self.assertIn(f"boundary.{field} must be an integer", msg)
+            self.assertIn("ensure", msg)
+
+    def test_the_single_field_RANGES_are_NOT_checked_here(self):
+        """This file's standing posture: a range checked in two places is a range that
+        drifts. An out-of-range `line`/`channel`/`lo`/`hi` LOADS, and the engine's own
+        ensure refuses it at build time with the measurement behind it.
+
+        `line` moves with the band so the cross-field rule stays satisfied — otherwise
+        this test would be measuring the cross-field refusal instead."""
+        for over in ({"channel": 99},
+                     {"line": 999, "lo": 999, "hi": 999},
+                     {"line": 0, "lo": 0, "hi": 0}):
+            path = self.write("ojz_water_edge",
+                              _boundary_preset(boundary=_boundary(**over)))
+            effects_gen.load_preset(path)          # loads: not this file's question
+
+
+class TestBoundaryCrossFieldRefusals(PresetShapeBase):
+    """THE TWO REFUSALS THE SCHEMA CANNOT EXPRESS (contract §7.6). They are the reason
+    this arm is not a one-line key addition, and they are the generator's BY RULING —
+    the engine holds both too, and the point of the second copy is that this message can
+    name the JSON PATH the author typed."""
+
+    def test_lo_above_hi_is_refused_naming_both_json_paths(self):
+        msg = self.refuse("ojz_water_edge",
+                          _boundary_preset(boundary=_boundary(lo=220, hi=3, line=100)))
+        self.assertIn("boundary.lo", msg)
+        self.assertIn("boundary.hi", msg)
+        self.assertIn("INVERTED", msg)
+
+    def test_line_outside_its_own_band_is_refused_naming_the_json_path(self):
+        for line in (2, 240):
+            msg = self.refuse("ojz_water_edge",
+                              _boundary_preset(boundary=_boundary(line=line,
+                                                                  lo=100, hi=200)))
+            self.assertIn("boundary.line", msg)
+            self.assertIn("outside its own band", msg)
+
+    def test_line_ON_either_edge_is_ACCEPTED(self):
+        """The bound is INCLUSIVE, matching `patchable()`'s `line >= lo && line <= hi`.
+        The control for the test above: without it a refusal that fired on every line
+        would look identical."""
+        for line in (100, 200):
+            path = self.write("ojz_water_edge",
+                              _boundary_preset(boundary=_boundary(line=line,
+                                                                  lo=100, hi=200)))
+            effects_gen.load_preset(path)
+
+    def test_the_inverted_band_is_reported_BEFORE_the_line(self):
+        """Order is load-bearing: on an inverted band the line message reads 'outside its
+        own band <hi>..<lo>' and sends the author to the wrong field."""
+        msg = self.refuse("ojz_water_edge",
+                          _boundary_preset(boundary=_boundary(lo=220, hi=3, line=999)))
+        self.assertIn("INVERTED", msg)
+        self.assertNotIn("outside its own band", msg)
+
+
+class TestBoundaryIsTheFOURTHExclusiveArm(PresetShapeBase):
+    """A document carries exactly one raster program. `boundary` joins that group, and
+    the REASON it is exclusive is different from the other three's — a fact this repo
+    treats as separately checkable from the verdict."""
+
+    def test_boundary_alone_satisfies_the_exactly_one_of_rule(self):
+        effects_gen.load_preset(self.write("ojz_water_edge", _boundary_preset()))
+
+    def test_a_document_with_NO_raster_arm_at_all_is_refused_naming_all_four(self):
+        msg = self.refuse("ojz_water_edge", {"schema": 1, "id": "ojz_water_edge"})
+        for key in ("bands", "ramp", "base_swap", "boundary"):
+            self.assertIn(key, msg)
+
+    def test_boundary_beside_a_raster_arm_carries_THE_OTHER_REASON(self):
+        """The whole point of this test: the refusal is right either way, but a message
+        that lumped four keys under `ep_raster` would teach a reader that a combinator
+        could unlock the pair. Nothing unlocks a destructive install order."""
+        for other, extra in (("bands", [_band()]),
+                             ("ramp", {"top": 8, "lines": 16,
+                                       "target": {"vsram": {"addr": 0}},
+                                       "start": {"whole": 0, "frac256": 0},
+                                       "step": {"whole": 0, "frac256": 8}}),
+                             ("base_swap", {"line": 3, "target": 0xE000})):
+            msg = self.refuse("ojz_water_edge",
+                              _boundary_preset(**{other: extra}))
+            self.assertIn("ep_patched", msg)
+            self.assertIn("DESTRUCTIVE", msg)
+            self.assertIn("Raster_InstallPatched", msg)
+            self.assertIn(other, msg)
+
+    def test_two_RASTER_arms_still_carry_the_ONE_FIELD_reason(self):
+        """The converse control. Without it the test above could pass on a message that
+        had simply been rewritten for every combination."""
+        msg = self.refuse("ojz_ground_wash",
+                          _preset(base_swap={"line": 3, "target": 0xE000}))
+        self.assertIn("ep_raster", msg)
+        self.assertNotIn("ep_patched", msg)
+
+
+class TestBoundaryLowering(PresetShapeBase):
+    """The emitted `.emp`. VERBATIM, 1:1, no unit conversion on any field."""
+
+    NAMES = effects_gen.ActNames("ojz", "act1")
+
+    def render(self, **over):
+        """Through `render_preset`, not `render_boundary_preset` directly: the DISPATCH
+        is part of the claim — a `boundary` document that fell through to the `bands` arm
+        would raise a KeyError, not lower wrong, and a test that called the renderer by
+        name could never see it."""
+        path = self.write("ojz_water_edge", _boundary_preset(**over))
+        return effects_gen.render_preset(
+            path, effects_gen.load_preset(path), self.NAMES)
+
+    def test_the_shipped_water_lowers_to_the_shipped_CALL(self):
+        out = self.render()
+        self.assertIn("fx_tint_band(line: 100, slot: 0, pal_line: 2, entry: 4, "
+                      "count: 3, sh: 1)", out)
+        self.assertIn("ch: 0, lo: 3, hi: 220, offscreen_ship: 1", out)
+        self.assertIn("patchable(", out)
+
+    def test_it_lowers_through_patched_program_and_NEVER_raster_program(self):
+        """The `ep_patched` half made checkable: `raster_program`/`raster_words` would
+        emit a static program with no patch table, and the boundary would never move."""
+        out = self.render()
+        self.assertIn("patched_program(", out)
+        self.assertIn("patched_words(", out)
+        self.assertNotIn("raster_program(", out)
+        self.assertNotIn("raster_words(", out)
+
+    def test_the_const_is_referenced_TWICE_so_the_comptime_fold_actually_runs(self):
+        """docs/EMP_PITFALLS.md §3: an unreferenced top-level `const X = f(..)` is
+        comptime-INERT, so every ensure inside patchable/fx_tint_band/patched_program
+        would never fire."""
+        out = self.render()
+        src = out.split("const ", 1)[1].split(" =", 1)[0]
+        self.assertEqual(out.count(src), 3)     # the declaration plus two references
+
+    def test_absent_offscreen_ship_is_OMITTED_so_the_constructors_default_stands(self):
+        b = _boundary()
+        del b["offscreen_ship"]
+        out = self.render(boundary=b)
+        self.assertNotIn("offscreen_ship", out)
+
+    def test_booleans_are_TRANSLATED_and_never_emitted_as_python_words(self):
+        """`f"{True}"` interpolates the bare word `True`, which is not an `.emp` integer
+        — the `_render_bool_int` class of defect, on this arm's two boolean fields."""
+        out = self.render(boundary=_boundary(sh=False, offscreen_ship=False))
+        self.assertNotIn("True", out)
+        self.assertNotIn("False", out)
+        self.assertIn("sh: 0)", out)
+        self.assertIn("offscreen_ship: 0", out)
+
+    def test_integer_0_and_1_are_accepted_as_synonyms_for_the_booleans(self):
+        out = self.render(boundary=_boundary(sh=1, offscreen_ship=0))
+        self.assertIn("sh: 1)", out)
+        self.assertIn("offscreen_ship: 0", out)
+
+    def test_the_label_is_the_PATCHED_one_and_not_the_raster_one(self):
+        out = self.render()
+        self.assertIn(f"pub data {self.NAMES.patched('ojz_water_edge')}:", out)
+        self.assertNotIn(self.NAMES.raster("ojz_water_edge"), out)
+
+    def test_lo_and_hi_are_forwarded_UNCONVERTED(self):
+        """SCREEN lines, not fire lines. The engine subtracts 1 once, in
+        Raster_BuildSchedule; a generator that pre-subtracted would be off by one
+        everywhere and nothing downstream could see it."""
+        out = self.render(boundary=_boundary(lo=50, hi=200, line=100))
+        self.assertIn("lo: 50", out)
+        self.assertIn("hi: 200", out)
+        self.assertNotIn("lo: 49", out)
+        self.assertNotIn("hi: 199", out)
+
+
+class TestBoundaryStreamsFromAClearedSlot(PresetShapeBase):
+    """Ruling Q6's narrow half, applied to the arm that came after it — otherwise the
+    newer authoring surface carries a hole the older one does not."""
+
+    def test_a_boundary_streaming_from_an_explicitly_nulled_slot_is_refused(self):
+        msg = self.refuse("ojz_water_edge",
+                          _boundary_preset(variants=[None, None]))
+        self.assertIn("boundary streams from variant slot 0", msg)
+
+    def test_a_slot_the_variants_array_does_not_REACH_is_not_refused(self):
+        """Absent means 'the section's hand-authored variant is still there', which the
+        generator cannot see — the same asymmetry the band arm has."""
+        effects_gen.load_preset(self.write("ojz_water_edge", _boundary_preset()))
+
+
 class TestPresetsInTheGeneratedModule(AssignmentBase):
     def setUp(self):
         super().setUp()
@@ -2864,7 +3168,8 @@ class TestEditorRasterPresetsDoc(unittest.TestCase):
     def test_the_block_covers_every_row_and_no_others(self):
         self.assertEqual(
             sorted(self.documented()),
-            ["band", "cycle-channel", "cycle-channel-optional", "on-arms", "on.cram",
+            ["band", "boundary", "boundary-optional", "boundary.pal_region",
+             "cycle-channel", "cycle-channel-optional", "on-arms", "on.cram",
              "on.pal_region", "preset", "preset-ignored", "preset-refused", "sweep",
              "sweep-optional", "variant"],
             "the key block in EDITOR_RASTER_PRESETS.md gained or lost a row. Each row is "
@@ -2901,6 +3206,20 @@ class TestEditorRasterPresetsDoc(unittest.TestCase):
 
     def test_the_documented_band_keys_are_the_generators(self):
         self.assertEqual(self.documented()["band"], sorted(effects_gen.BAND_KEYS))
+
+    def test_the_documented_boundary_keys_are_the_generators(self):
+        """The §7.6 rows. The `boundary.pal_region` row matters most of the three: it is
+        the `$defs.tint_region` shape, the SAME four members as a band's `on.pal_region`
+        MINUS `addr`, and a panel built from the band row would emit an `addr` the loader
+        refuses by name. Held against the constants so the two rows cannot converge."""
+        doc = self.documented()
+        self.assertEqual(doc["boundary"],
+                         sorted(effects_gen.BOUNDARY_REQUIRED_KEYS))
+        self.assertEqual(doc["boundary-optional"],
+                         sorted(effects_gen.BOUNDARY_OPTIONAL_KEYS))
+        self.assertEqual(doc["boundary.pal_region"],
+                         sorted(effects_gen.TINT_REGION_KEYS))
+        self.assertNotIn("addr", doc["boundary.pal_region"])
 
     def test_the_documented_on_arms_and_their_fields_are_the_generators(self):
         doc = self.documented()

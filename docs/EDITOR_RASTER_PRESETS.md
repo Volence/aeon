@@ -47,13 +47,16 @@ author did not write.
 
 <!-- KEYS-CHECKED-AGAINST-effects_gen.py -->
 ```
-preset:          bands, base_swap, cycles, id, patch_motion, patch_world_ys, ramp, schema, variants
+preset:          bands, base_swap, boundary, cycles, id, patch_motion, patch_world_ys, ramp, schema, variants
 preset-ignored:  name
 preset-refused:  fires
 band:            bot, on, sh, top
 on-arms:         cram, pal_region
 on.cram:         addr, colours
 on.pal_region:   addr, count, entry, pal_line, slot
+boundary:        channel, hi, line, lo, on, sh
+boundary-optional: offscreen_ship
+boundary.pal_region: count, entry, pal_line, slot
 cycle-channel:   count, first, line, period
 cycle-channel-optional: dir
 variant:         bias_b, bias_g, bias_r, lines, shift_b, shift_g, shift_r
@@ -68,14 +71,20 @@ Reading the rows:
   optional. `schema` must be `1`. `id` must match the filename stem and
   `^[a-z][a-z0-9_]{0,31}$`, because it becomes an `.emp` label component. `bands` is a
   list with at least one element; empty is refused, because a document that emits a zero-band
-  program is a document that should not exist. **Exactly one of `bands`, `ramp` or
-  `base_swap` is required** (ruling Q1a for `bands` alone, widened by EFFECTS-W1 item 6's
-  `ramp` and the contract's top-level `oneOf`, widened again by item 11a's `base_swap` —
-  see its own row below for why THAT widening ships ahead of a schema entry): all three
-  channels lower into the same `EffectsPreset.ep_raster` slot, so a document naming none
-  or more than one of them is refused. A cycle-only or variant-only document with none of
-  the three is a future contract change, and it is the one that unblocks retiring the hand
-  twins.
+  program is a document that should not exist. **Exactly one of `bands`, `ramp`,
+  `base_swap` or `boundary` is required** (ruling Q1a for `bands` alone, widened by
+  EFFECTS-W1 item 6's `ramp` and the contract's top-level `oneOf`, widened again by item
+  11a's `base_swap` — see its own row below for why THAT widening ships ahead of a schema
+  entry — and a fourth time by item 4's `boundary`, ruled in
+  `AURORA_EFFECTS_SCHEMA.md` §7.6). **The fourth arm is exclusive FOR A DIFFERENT REASON
+  and the refusal says so.** The first three lower into the same `EffectsPreset.ep_raster`
+  slot and compete for one field, so that group could widen the day a combinator exists.
+  `boundary` lowers into the sibling field `ep_patched`, and `preset()` refuses a record
+  carrying both because the install order is **destructive** — `Raster_InstallPatched`
+  clears `Raster_Pending`, so whichever installs last silently kills the other. No
+  combinator unlocks a destructive install order. A cycle-only or variant-only document
+  with none of the four is a future contract change, and it is the one that unblocks
+  retiring the hand twins.
 - **`preset-ignored`** — `name` is the writer's display label. Any value; read by nothing;
   dropped on lowering. It is the one deliberate writer-only field.
 - **`preset-refused`** — `fires` is refused **by name**, with the reason. It is the last of
@@ -93,6 +102,39 @@ Reading the rows:
   purpose: a band's restore is derived from the ON op's CRAM span, and a VSRAM op has none.
 - **`on.cram` / `on.pal_region`** — every listed field required, no extras. `colours` is a
   JSON array of integers; every other field is a bare integer.
+- **`boundary` / `boundary-optional`** — the fourth raster arm, and the only one that
+  **moves**. It is a single closed object, not a list: `patchable()` marks exactly one
+  fire. Six required members, one optional. It lowers to exactly the call the shipped
+  hand-authored water already makes,
+  `patchable(fx_tint_band(line, slot, pal_line, entry, count, sh), ch: channel, lo, hi,
+  offscreen_ship)`, **every value forwarded verbatim, 1:1, with no unit conversion on any
+  field**. `line` is the template's DEFAULT schedule — where the boundary sits before any
+  runtime patch. `channel` is the SAME index space as `patch_world_ys`, `patch_motion` and
+  a scene's `anchor.at.channel`; a boundary whose channel no document seeds sits at `line`
+  forever, and the whole moving water is `boundary` plus both positional keys at that index
+  in ONE document. **⚠ `lo` and `hi` are SCREEN lines, not fire lines** — the engine
+  subtracts 1 once, in `Raster_BuildSchedule`, and an editor that pre-subtracted would be
+  off by one everywhere. `offscreen_ship` is the one optional member, because it is the
+  only one `patchable()` itself defaults; absent means the constructor's default stands. It
+  is what keeps the tint alive when the camera leaves the band at the `lo` end. **There is
+  no `boundary: null`** (§7.6 ruling M1): a top-level arm has no index to leave unreached,
+  so "explicitly off" is spelled by ABSENCE exactly as `ramp` and `base_swap` spell it, and
+  a `null` is refused by name.
+- **Two cross-field rules the generator owns, and they are the reason this arm is not a
+  key addition:** `lo <= hi`, and `line` within `[lo, hi]`. Both are cross-field
+  conditionals inside one object, which JSON Schema cannot express readably, so both are
+  refused here — naming the JSON path you typed rather than the generated call site the
+  engine's own `patchable()` ensures would name.
+- **`boundary.pal_region`** — `on` has exactly ONE arm, `pal_region`, and the region
+  **carries no `addr`**: this is `$defs.tint_region`, not `$defs.pal_region`.
+  `fx_tint_band` derives the CRAM address from `pal_line` and `entry`, so a document
+  carrying `addr` would be one fact computed twice — it is refused by name. (A
+  `bands[i].on.pal_region` DOES require `addr`, because there `stream_pal_region`
+  cross-checks it against the line and entry: two facts checking each other. Here there is
+  only one.) **A `cram` arm and a `vsplit` key are RULED ABSENT, not reserved**: a boundary
+  writing raw CRAM words is a different constructor, and a vscroll split has no
+  `stream_pal_region` op for `offscreen_ship` to re-ship, so a reserved arm would carry a
+  hole. Adding either is its own contract change.
 - **`cycles`** — the section's ONE palette cycle script, spelled as its array of channels.
   **This is PALETTE cycling** (`Palette_DoCycle`), not the DEBUG hotkey's raster cycle table
   in §C, which steps through raster *programs*. Three states, one spelling each: the key
