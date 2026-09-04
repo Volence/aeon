@@ -157,13 +157,24 @@ has five kinds of entry:
   anchors are DERIVED, not hardware-fixed** (ROM re-layout, owner ruling d-28-answered
   option 2, 2026-08-26): the Z80 banks sit AFTER the data region by the BANK PLACEMENT
   RULE stated in `map.toml` — `dac_banks = align_up(max over sound-on shapes of
-  packed_data_end + 0x4000, 0x8000)`, `sound_bank = dac_banks + 0x10000`, where
+  packed_data_end + DATA_GROWTH_RESERVE + DATA_GROWTH_GRACE, 0x8000)`,
+  `sound_bank = dac_banks + 0x10000`, where
   `packed_data_end = LMA(Art_Sonic) + len(sonic.bin)` (collision_data is the last data
-  section by `order`; the 0x4000 reserve is two 8 KB BG-animation bands). Applied at the
-  re-layout: `0x90000` / `0xA0000` (bank ids $12/$13 DAC, $14 sound). The rule is
+  section by `order`). `DATA_GROWTH_RESERVE` is the floor the gate demands stays free;
+  `DATA_GROWTH_GRACE`, added at the SECOND re-layout, is the growth the layout is
+  guaranteed to absorb before the gate can fire again — without it that figure is the
+  `align_up` remainder, a draw that raising the reserve does not improve because the
+  demand and the anchor move together. Applied 2026-08-26: reserve `0x4000`, no grace,
+  `0x90000` / `0xA0000` (bank ids $12/$13 DAC, $14 sound) — the draw was 6,368 B and
+  content ate it in 8.2 days. Applied 2026-09-04: reserve `0xC000`, grace `0x8000`,
+  `0xA8000` / `0xB8000` (bank ids $15/$16 DAC, $17 sound), room 114,658 B in the
+  binding (DEBUG) shape. The rule is
   enforced post-sigil by `tools/bganim_room.py --gate` on both canonical listings (it
   fails naming the new anchor pair when a shape's room drops under the reserve; the
-  remedy is to move both anchors and refreeze sigil's frozen tables, a paired landing).
+  remedy is to move both anchors. The frozen tables stay the placement authority and an
+  anchor move stales resolved addresses on sigil's side, so it is handed to the sigil
+  lane — but it is no longer a paired landing an aeon merge blocks on: the owner ended
+  that on 2026-09-02, "CUT THE CEREMONY").
   What bounds the move: the driver's `SndDrv_SetBank` carries the bank id in 8 bits
   (latch bit 8 written 0 → LMA < 0x800000) and the cartridge space ends at 0x3FFFFF.
   Before the re-layout the anchors were `0x48000` / `0x58000` and capped the data region,
@@ -228,8 +239,8 @@ this seam; the `game_ram` region's `limit` (`SYSTEM_STACK`) is the overflow guar
 The engine's per-frame sequencer reads its lookup tables (pitch, SFX window, opcode dispatch,
 DAC sample descriptors) from fixed $8000-window VMAs. A sound-on game places them with a
 `section soundbankhead (cpu: m68000, vma: $8000)` in `games/sonic4/data/sound/soundbankhead.emp`
-(`module games.sonic4.soundbankhead`), which the map anchors at the `sound_bank` LMA (`0xA0000`
-since the 2026-08-26 re-layout; `0x58000` before it). The section
+(`module games.sonic4.soundbankhead`), which the map anchors at the `sound_bank` LMA (`0xB8000`
+since the 2026-09-04 re-layout; `0xA0000` from 2026-08-26, `0x58000` before that). The section
 `embed`s the seam-1-generated `.bin` artifacts (`SoundTablesZ80_Head` @ $8000,
 `SndDefaultPitchTable` @ $8357, `SfxBlobWinTab` @ $845F, `SeqOpcodeTable` @ $856D,
 `DacSampleTable` @ $85AD) at the exact VMAs the resident Z80 driver's banked carriers expect,

@@ -167,7 +167,7 @@ kind = "object_bank"
 # the proof it is inert. Renamed + moved with the anchor so the map stops lying.
 [[region]]
 name = "z80_sound_bank"
-lma_base = 0xA0000
+lma_base = 0xB8000
 size = 0x8000
 kind = "z80_bank"
 vma_base = 0x8000
@@ -195,23 +195,69 @@ at = 0x10000
 #   packed_data_end(shape) = LMA(Art_Sonic) + len(art/optimized/characters/sonic.bin)
 #                            read from that shape's sigil listing (`Art_Sonic` is the
 #                            LAST packed blob before the banks by `order`, above)
-#   DATA_GROWTH_RESERVE    = 0x4000  (16,384 B: two 8 KB BG-animation bands per act —
-#                            the d-28 acceptance; > the 12,288 B ruled ceiling)
+#   DATA_GROWTH_RESERVE    = 0xC000  (49,152 B — the floor the gate DEMANDS stays
+#                            free; raised from 0x4000 on 2026-09-04, derivation below)
+#   DATA_GROWTH_GRACE      = 0x8000  (32,768 B, one SetBank window — the growth the
+#                            layout is GUARANTEED to absorb before the gate re-fires;
+#                            added 2026-09-04, reason below)
 #   dac_banks  = align_up(max over the sound-on shapes of packed_data_end
-#                         + DATA_GROWTH_RESERVE, 0x8000)
+#                         + DATA_GROWTH_RESERVE + DATA_GROWTH_GRACE, 0x8000)
 #   sound_bank = dac_banks + 2 × 0x8000   (blip bank @ dac_banks, shared bank @
 #                                          dac_banks + 0x8000 via the intra-section
 #                                          `align $8000`, head bank next)
 #
-# Applied 2026-08-26 (this parcel, listings of the two canonical shapes at landing —
-# the report in docs/superpowers/2026-08-26-rom-relayout-report.md carries the
-# measured values): packed_data_end s4 / s4.debug both below 0x8C000, so
-# dac_banks = 0x90000 (bank $12; shared bank 0x98000 = $13), sound_bank = 0xA0000
-# (bank $14). tools/bganim_room.py --gate (build.sh, post-sigil, both canonical
-# shapes) enforces the rule: it FAILS naming the new anchor when the room under
-# `dac_banks` drops below DATA_GROWTH_RESERVE — the remedy is to move BOTH anchors
-# per the rule and refreeze sigil's frozen tables (a paired aeon+sigil landing; the
-# frozen tables are the placement authority, these anchors validate them).
+# ── WHY THE RULE GREW A SECOND TERM (2026-09-04) ──
+# The 08-26 rule was `align_up(packed_end + RESERVE)` and the gate fails when the
+# room drops under RESERVE. So the growth the tree may absorb before the gate fires
+# again is `align_up(end + R) - end - R` = the align_up REMAINDER — a lottery on
+# `end mod 0x8000`, uniform on [0, 0x8000). **Raising RESERVE alone does not raise
+# it**: the demand and the anchor move together (measured: at end 0x8C01E, R=0x4000
+# and R=0x8000 both give dac_banks 0x98000, with 16,354 B and 0 B of grace). 08-26
+# drew 6,368 B of grace; content ate it in 8.2 days and the gate re-fired 30 B under
+# the reserve. GRACE sits INSIDE the align_up and outside the gate's threshold, so
+# the room is `>= RESERVE + GRACE` and the recurrence period is bounded below by
+# GRACE rather than by the draw.
+#
+# ── WHERE 0xC000 COMES FROM (measured, not chosen round) ──
+#   The 08-26..09-04 cycle is the only complete cycle this rule has had. Measured
+#   from the two shapes' own listings at each end (DEBUG binds both times):
+#     packed_data_end  0x8A720 (08-26, the re-layout report)  ->  0x8C01E (09-04)
+#                      = 6,398 B in 8.2 days = 780 B/day, split
+#                        +2,814 B data ahead of Art_Sonic  and
+#                        +3,584 B art/optimized/characters/sonic.bin itself.
+#   RESERVE must still hold the d-28 BG-animation guarantee (16,384 B = two 8 KB
+#   bands per act) AND a normal working cycle on top of it:
+#     16,384 + 30 days x 780 B/day = 16,384 + 23,400 = 39,784
+#     -> rounded up to the reserve's own 0x4000 quantum = 0xC000 = 49,152 B.
+#   That the room has already cost real content is on the record: a 58-tile first
+#   cut of the perspective floor was BACKED OUT because 1,856 B of art pushed
+#   Art_Sonic past this reserve (games/sonic4/vram.toml, the floor-reserve note).
+#
+# Applied 2026-09-04 (this parcel — the report in
+# docs/superpowers/2026-09-04-rom-relayout-more-room-report.md carries the measured
+# values): packed_data_end s4 0x8B6BC / s4.debug 0x8C01E, DEBUG binds, so
+# dac_banks = align_up(0x8C01E + 0xC000 + 0x8000) = align_up(0xA001E) = 0xA8000
+# (bank $15; shared bank 0xB0000 = $16), sound_bank = 0xB8000 (bank $17). Room in
+# the binding shape 114,658 B, of which 65,506 B sits above the reserve.
+#
+# Superseded, kept for the reader who finds the old numbers elsewhere: applied
+# 2026-08-26 with RESERVE 0x4000 and no grace term — dac_banks 0x90000 (bank $12,
+# shared 0x98000 = $13), sound_bank 0xA0000 (bank $14); see
+# docs/superpowers/2026-08-26-rom-relayout-report.md.
+#
+# tools/bganim_room.py --gate (build.sh, post-sigil, both canonical shapes) enforces
+# the rule: it FAILS naming the new anchor pair when the room under `dac_banks`
+# drops below DATA_GROWTH_RESERVE — the remedy is to move BOTH anchors per the rule,
+# never to shrink the reserve.
+#
+# ⚠ THE "PAIRED aeon+sigil LANDING" THIS BLOCK USED TO DEMAND IS RETIRED. The owner
+# ended the paired freeze on 2026-09-02 ("CUT THE CEREMONY", empyrean
+# docs/OVERSEER.md 2026-09-02T18:20:19Z): aeon freezes and certifies alone with its
+# own gates, and sigil's nightly drift observer is the safety net — drift is a sigil
+# finding after the fact, never a gate on an aeon landing. The frozen tables remain
+# the placement AUTHORITY and these anchors validate them, so an anchor move still
+# stales resolved addresses on sigil's side and must be HANDED to the sigil lane;
+# it is no longer something an aeon landing blocks on.
 #
 # WHAT BOUNDS HOW FAR THE BANKS CAN MOVE (from source, 2026-08-26):
 #   * engine/sound/z80_sound_driver.emp `SndDrv_SetBank`: the bank id rides in the
@@ -219,8 +265,10 @@ at = 0x10000
 #     banks are < $100") -> bank id <= $FF -> bank LMA < 0x800000.
 #   * `bankid()` masks $7F8000 (sigil-frontend-emp eval/builtins.rs) -> the same $FF.
 #   * The cartridge address space ends at 0x3FFFFF -> bank id <= $7F, LMA <= 0x3F8000.
-#   So the rule can move the banks anywhere up to 0x3F8000 - 0x10000; today's ROM
-#   ends well under 0x100000.
+#   So the rule can move the banks anywhere up to 0x3F8000 - 0x10000. Re-derived
+#   2026-09-04 at the applied anchors: the highest bank is `sound_bank` 0xB8000 =
+#   bank $17 (23). Headroom to the driver's $FF cap = 232 windows = 7,602,176 B; to
+#   the cartridge's $7F cap = 104 windows = 3,407,872 B. The ROM ends under 0x110000.
 #
 # The DAC sample banks. Native since K4 inc-5 Stage 2: games/sonic4/data/sound/
 # dac_banks.emp embeds dac_blip_bank.bin @ dac_banks + dac_shared_bank.bin @
@@ -229,13 +277,13 @@ at = 0x10000
 # single anchor covers it (the shared bank is mid-section, not a separate island).
 # Matched by ADDRESS, so the section rename is transparent.
 [[anchor]]
-name = "dac_banks"       # dac_banks.emp section head (Dac_Temp_Blip) — bank $12
-at = 0x90000
+name = "dac_banks"       # dac_banks.emp section head (Dac_Temp_Blip) — bank $15
+at = 0xA8000
 when = "sound_on"
 
 [[anchor]]
-name = "sound_bank"      # SoundTablesZ80_Head — the MT/SFX phase bank (vma $8000), bank $14
-at = 0xA0000
+name = "sound_bank"      # SoundTablesZ80_Head — the MT/SFX phase bank (vma $8000), bank $17
+at = 0xB8000
 vma = 0x8000
 when = "sound_on"
 

@@ -131,23 +131,30 @@ BGANIM_MAX_BANDS = 4
 # day: the Z80 banks now sit AFTER the data region at LMAs the BANK PLACEMENT RULE in
 # games/sonic4/map.toml derives from the packed-data end —
 #
-#     dac_banks = align_up(max over sound-on shapes of packed_data_end + 0x4000, 0x8000)
+#     dac_banks = align_up(max over sound-on shapes of packed_data_end
+#                          + DATA_GROWTH_RESERVE + DATA_GROWTH_GRACE, 0x8000)
 #
-# — so every sound-on shape has at least DATA_GROWTH_RESERVE (0x4000 = 16,384 B, two
-# 8 KB bands) of room at every freeze, and the ceiling no longer depends on Sonic's art
-# size. Measured at the re-layout (both canonical listings; the parcel report
-# docs/superpowers/2026-08-26-rom-relayout-report.md carries the full table):
+# — so every sound-on shape has at least DATA_GROWTH_RESERVE of room at every freeze,
+# and the ceiling no longer depends on Sonic's art size. The reserve was 0x4000
+# (16,384 B, two 8 KB bands) from 08-26 until the SECOND re-layout on 2026-09-04,
+# which raised it to 0xC000 (49,152 B) and added the 0x8000 GRACE term; see the BANK
+# PLACEMENT RULE block in games/sonic4/map.toml for both derivations. Measured at each
+# re-layout (both canonical listings; the parcel reports
+# docs/superpowers/2026-08-26-rom-relayout-report.md and
+# docs/superpowers/2026-09-04-rom-relayout-more-room-report.md carry the full tables):
 #
-#     shape     Art_Sonic    + 97,472 (art blob)   anchor    room       + 8,238 held
-#     s4        0x72210      = 0x89ED0             0x90000   24,880 B   33,118 B
-#     s4.debug  0x72A60      = 0x8A720             0x90000   22,752 B   30,990 B
+#     date      shape     Art_Sonic  + art blob    = packed end  anchor    room
+#     08-26     s4        0x72210    + 97,472      = 0x89ED0     0x90000    24,880 B
+#     08-26     s4.debug  0x72A60    + 97,472      = 0x8A720     0x90000    22,752 B
+#     09-04     s4        0x72BFC    + 101,056     = 0x8B6BC     0xA8000   115,524 B
+#     09-04     s4.debug  0x7355E    + 101,056     = 0x8C01E     0xA8000   114,658 B
 #
-# Both rows are d-9's 12,288 again. The TABLE stays on purpose: the gate is per shape
-# and the listing IS the instrument — a third shape, or a renamed listing, must be
-# UNMEASURABLE in tools/bganim_room.py, never defaulted to another shape's number.
+# Both rows are d-9's 12,288 throughout. The TABLE stays on purpose: the gate is per
+# shape and the listing IS the instrument — a third shape, or a renamed listing, must
+# be UNMEASURABLE in tools/bganim_room.py, never defaulted to another shape's number.
 # That gate also enforces the placement rule itself (`--gate` fails naming the new
 # anchor pair the moment a shape's room drops under the reserve), which is the
-# re-ruling trigger: move BOTH anchors per the rule and refreeze sigil's tables.
+# re-ruling trigger: move BOTH anchors per the rule.
 #
 #   BGANIM_SECTION_CEILING_RULED   d-9's ruled 12,288 — the owner's authoring budget.
 #   BGANIM_SECTION_CEILINGS        the per-shape table tools/bganim_room.py gates
