@@ -24469,3 +24469,23 @@ Byte-moving in all four shapes, so the aeon+sigil repin/refreeze ritual applies 
 **controller's** step, not this lane's — the sigil binary was frozen by suite agreement for
 this run (`sigil 0.1.0 (0a58f2ec)`, md5 `6c2378ae8a657e26684d4019a7d976d7`) and no cargo
 command was run in that tree.
+
+## RASTER-BOUNDARY-3 — the seam gate greened a document that reached no chooser (CLOSED 2026-09-04)
+
+Aurora measured it (`630def5c`, packet `2026-09-04-boundary-moving-witness.md`): a section-6
+document carrying `boundary` + `patch_world_ys` + `patch_motion`, threaded on the patched arm
+and on neither patch chooser, built **green and byte-identical**. Re-derived against the gate
+at `753a7c93` before fixing: `seam_faults` returned **0 faults** for that exact input. The
+arms were checked per section; the other four choosers only **act-wide** (step 2b: "the
+library imports it and calls it somewhere"), which `OJZ_Preset_Sec5` satisfied for the whole
+act. Closed by `effects_gen.SECTION_CHANNELS` — one table of six channels that
+`render_module` partitions from AND `effects_seam_gate.channel_faults` requires from, so the
+required set is a function of the document's keys and a seventh key is gated on the commit
+that starts emitting its rows. Index-level too (a row per array index the document reaches).
+
+**Open riders, both content decisions rather than gate work.** (a) Nothing yet requires the
+*imports* of the four non-arm choosers to be conditional the way `fn_sec_patched`'s is; they
+are unconditional because every one takes a real `hand:`, which stays true only while that
+does. (b) The gate still cannot see a document bound to a section whose `preset()` is SHARED
+on the non-arm channels — `chooser_call_faults`' §3.3(b) owner check runs on the two arms
+only. No shipped preset is in that state (5 and 6 own theirs), so it is unmeasurable here.
