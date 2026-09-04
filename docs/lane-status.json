@@ -1,5 +1,5 @@
 {
-  "focus": "Checking the board against the code; one question you already answered was still filed as open.",
+  "focus": "One question you had already answered was still filed as open work; that is closed and the write-up corrected.",
   "inFlight": [],
   "blockedOnOwner": [
     {
@@ -28,12 +28,12 @@
       "id": "d-52-water-tint-scope"
     }
   ],
-  "nextBoundary": "After the ledger closure and the stale write-up correction land - a small, self-contained piece of record repair.",
+  "nextBoundary": "Here. Pushed and verified reachable, nothing half-applied, no agent holding a branch.",
   "queue": [
     {
       "id": "LEDGER-D53-CLOSE",
-      "title": "You answered this one out loud on 2026-09-03 and it was built the same hour; the card was never closed and the write-up still says it is open work for someone else.",
-      "state": "doing",
+      "title": "DONE. You answered it on 2026-09-03 and it was built the same hour; the card is closed and the write-up no longer calls it somebody else's job.",
+      "state": "open",
       "size": "S",
       "blockedBy": null,
       "project": "EFFECTS-W1"
@@ -95,8 +95,8 @@
       "project": null
     }
   ],
-  "awaiting": null,
-  "atBoundary": false,
-  "updatedAt": "2026-09-04T08:59:07Z",
-  "resume": "2026-09-04 boot (fresh session after rotation). Master = origin/master @ 442935b1, tree clean, nothing unpushed.\n\nBOOT FINDING, and it is the seventh stale board entry in two days. docs/DEFERRED_WORK.md line 311 (blame ce1dfcec7, 2026-09-03 05:38:17 -0400) still says in the present tense that NOTHING AT SECTION 5 CONSUMES THE CHANNEL IT SWEEPS, and lists three ways out as 'all of them somebody else's call'. Option (a) LANDED five hours later: ef38d0a1 (2026-09-03 10:47:53 -0400, verified ancestor of master) adds `parallax: ParallaxConfig_OJZ_Underwater` to OJZ_Preset_Sec5, and its own comment quotes the owner answering d-53 verbatim: \"Sure let's do it to see it?\". So EFFECTS-W1 DoD item 4's open half is CLOSED and the write-up would have funded a parcel to build it again.\n\nLEDGER STATE, measured not inherited: d-51-shimmer-cadence-look, d-52-water-tint-scope and d-53-moving-band-needs-a-home are the only three ledger entries with answered=None and no supersede, and NONE of them was claimed by a blockedOnOwner id. Dominion builds the owner's cards ONLY from blockedOnOwner joined by id (banked in OVERSEER.md), so all three reached him nowhere - d-53 for a day after he had already answered it, d-51 and d-52 for two days. d-51 and d-52 are now on his card. d-53 gets a rule-8c closure through tools/decisions_append.py (the enforced write site), NOT a hand append.\n\nVERIFIED, DO NOT RE-DO: the three owner rulings that override the /overseer boot stop are ancestors of empyrean origin/main and were read firsthand out of cdb72e9b / 61dfcaa8 / f04afe32, not from a relay. Item 7 (vertical bob) IS merged (8c75722b) despite the DoD table still calling it 'unlanded'. parcel/d53-sec5-underwater is an ancestor of master, i.e. landed and empty.\n\nPRIOR SESSION'S FINDING RE-DERIVED AND IT HOLDS: there is no owner-free BUILD row. Every remaining EFFECTS-W1 feature is gated on VRAM tiles (which need the re-layout the owner must size), on his taste, or on a contract CR that is empyrean's. R7's alignment flip is ready on sigil's side but is neither a DoD item nor a bug, so CUT THE CEREMONY puts it out of scope.\n\nDECLARED TREES, do not sweep: /home/volence/sonic_hacks/.aeon-relayout-freeze, .aeon-attest-201, .aeon-land-182."
+  "awaiting": "five things when you wake: the ROM re-layout size, where you see the blank strip, whether the layer-swap pictures look right, the water shimmer's speed, and whether each section may have its own water tint",
+  "atBoundary": true,
+  "updatedAt": "2026-09-04T09:02:11Z",
+  "resume": "2026-09-04 boot (fresh session after rotation). Master = origin/master @ fd406d6b, tree clean, nothing unpushed. LANDED THIS SESSION: fd406d6b (d-53 closure + three stale-status corrections), pushed and verified reachable.\n\nBOOT FINDING, and it is the seventh stale board entry in two days. docs/DEFERRED_WORK.md line 311 (blame ce1dfcec7, 2026-09-03 05:38:17 -0400) still says in the present tense that NOTHING AT SECTION 5 CONSUMES THE CHANNEL IT SWEEPS, and lists three ways out as 'all of them somebody else's call'. Option (a) LANDED five hours later: ef38d0a1 (2026-09-03 10:47:53 -0400, verified ancestor of master) adds `parallax: ParallaxConfig_OJZ_Underwater` to OJZ_Preset_Sec5, and its own comment quotes the owner answering d-53 verbatim: \"Sure let's do it to see it?\". So EFFECTS-W1 DoD item 4's open half is CLOSED and the write-up would have funded a parcel to build it again.\n\nLEDGER STATE, measured not inherited: d-51-shimmer-cadence-look, d-52-water-tint-scope and d-53-moving-band-needs-a-home are the only three ledger entries with answered=None and no supersede, and NONE of them was claimed by a blockedOnOwner id. Dominion builds the owner's cards ONLY from blockedOnOwner joined by id (banked in OVERSEER.md), so all three reached him nowhere - d-53 for a day after he had already answered it, d-51 and d-52 for two days. d-51 and d-52 are now on his card. d-53 gets a rule-8c closure through tools/decisions_append.py (the enforced write site), NOT a hand append.\n\nVERIFIED, DO NOT RE-DO: the three owner rulings that override the /overseer boot stop are ancestors of empyrean origin/main and were read firsthand out of cdb72e9b / 61dfcaa8 / f04afe32, not from a relay. Item 7 (vertical bob) IS merged (8c75722b) despite the DoD table still calling it 'unlanded'. parcel/d53-sec5-underwater is an ancestor of master, i.e. landed and empty.\n\nPRIOR SESSION'S FINDING RE-DERIVED AND IT HOLDS: there is no owner-free BUILD row. Every remaining EFFECTS-W1 feature is gated on VRAM tiles (which need the re-layout the owner must size), on his taste, or on a contract CR that is empyrean's. R7's alignment flip is ready on sigil's side but is neither a DoD item nor a bug, so CUT THE CEREMONY puts it out of scope.\n\nDECLARED TREES, do not sweep: /home/volence/sonic_hacks/.aeon-relayout-freeze, .aeon-attest-201, .aeon-land-182."
 }
