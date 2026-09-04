@@ -23062,3 +23062,40 @@ arriving on a comparator rather than on a gate.
 **Adopt both directions as one rule: an artifact is evidence only if something establishes it was
 produced by the run you are attributing it to** — by `rm`-first, by an mtime assertion, or by a
 content check. Never by being there.
+
+## THE 2026-09-02 OVERSEER.md SPLIT REPORTED ITSELF LOSSLESS AND WAS NOT — booked 2026-09-04
+
+**Found by the agent doing the SECOND split, and verified firsthand here before booking.** Two
+instances, both still on master at the time of writing:
+
+* `docs/OVERSEER.md`, the Instruments section: *"**✅ HOLD LIFTED 2026-08-24 …** Oracle fixed the
+  straddle defect (red-first tests `68461a7`, fix `4111c88`, merged `51143a5` — verified reachable
+  at their `origin/main` here,"* — **ends on a trailing comma**, body gone, followed by an orphaned
+  bullet with no parent.
+* The ledger bullet: *"Reasons (collected, so one line carries several):"* — a colon introducing a
+  list, and the next line is a different bullet. **The list is not there.**
+
+The agent also names three bars ending mid-sentence around the old lines 1029 and 1066.
+
+**Why this matters more than the missing sentences.** A split is exactly the operation whose whole
+safety argument is *"prove it lossless by reassembling and diffing"*. That proof was reported. So
+either it was not run, or it was run in a form that could not see a mid-bullet truncation — and
+those are different defects with different fixes, and **nothing in the record distinguishes them.**
+
+**The contrast is the useful part, because it says what a real proof looks like.** Today's split was
+checked independently here after the merge: set-difference over every non-blank line gave **1**
+unaccounted line — the single declared rewrap — resolved at token level with **18,667 tokens and 0
+absent**, and every prior line of the log intact. That is cheap, it is three commands, and it would
+have caught both instances above.
+
+**THE ROW: restore the truncated halves from `docs/OVERSEER-LOG.md`.** They are recoverable — the
+09-02 split moved text there, so the missing bodies should be in the log even though the head's
+pointers to them are broken. **That needs the log consulted per instance and is a separate parcel;
+do not guess the wording.** Anyone taking it should also re-run the token-level check over the
+09-02 split's own before/after to enumerate the full damage rather than fixing the three we happen
+to have noticed — **the two instances above were found incidentally, so they are a sample and not a
+census.**
+
+**And the general form, which this lane has now met twice in one day from opposite directions:** a
+lossless claim is only worth what its *method* was, and a method is not established by the claim
+having been made. Ask which check was run and what it could not have seen.
