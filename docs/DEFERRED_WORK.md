@@ -21048,7 +21048,11 @@ the committed baseline it is green again.
 
 ---
 
-## THE PERSPECTIVE FLOOR IS IN THE ROM AND IS A PLACEHOLDER — three open riders (2026-09-03, `parcel/perspective-floor`)
+## THE PERSPECTIVE FLOOR IS IN THE ROM AND IS A PLACEHOLDER — four open riders (2026-09-03, `parcel/perspective-floor`)
+
+> **If you read one thing here, read RIDER 0 below.** It is not about the floor: the ROM
+> margin under `dac_banks` on master is **252 bytes in the debug shape**, and it is what
+> sized this parcel's art. The next content parcel of any size hits it too.
 
 The owner asked what the depth showcase (preset 4) is *for*, then sent two Toy Story
 (Mega Drive) screenshots of a wooden floor whose boards fan out from a vanishing point,
@@ -21056,6 +21060,32 @@ and asked for it built. It is built: `tools/perspective_floor_gen.py` draws the 
 the Plane-B map, `games/sonic4/data/editor/effects/ojz_act1_floor.json` supplies the
 recession through the per-layer `curve`, and section 8's sidecar binds it so `START + A`
 reaches it. Driving instructions are in `docs/EFFECTS_LAB.md`, row 8.
+
+### Four-shape totals, and the one red that is NOT this parcel's
+
+Run at 2026-09-03 23:14-23:23 (`uptime` load 4.7 at start, 13.0 at end — two other lanes
+were building concurrently, so the seconds below are contended and not a cost measurement).
+
+| shape | this branch | master baseline | cause |
+|---|---|---|---|
+| `./build.sh` | EXIT 1, 132 s | EXIT 1, 122 s | `tools/fixtures/sprite_tilt_cut.json` STALE |
+| `DEBUG=1 ./build.sh` | EXIT 1, 147 s | EXIT 1, 125 s | same fixture |
+| `./build.sh demo` | **EXIT 0**, 132 s | EXIT 0, 123 s | — |
+| `DEBUG=1 ./build.sh demo` | **EXIT 0**, 143 s | EXIT 0, 119 s | — |
+
+**The failure set is identical to master's**, and its cause predates this parcel: the
+sprite-tilt gate's fixture records `Ani_Sonic`/`Ani_Tails`/`Ani_Knuckles` at addresses the
+listing no longer has (drift $22 on master, $7E0 on this branch — this parcel moves those
+symbols further, so the fixture will need re-emitting either way). It was NOT refreshed
+here: `tools/fixtures/sprite_tilt_cut.json` was open in another lane during this parcel, and
+a fixture pinned against either branch alone goes stale again the moment the other lands.
+**Refresh it once, after both land**, with the command the gate itself prints.
+
+pytest: 2171 passed, 4 skipped, 73 subtests (master baseline: 2168 passed, 7 skipped).
+
+Positive evidence the scene actually reaches the ROM, from the release listing rather than
+from the source: `EditorSceneBinding_OJZ_Act1_Sec8` is emitted at `$13714`, and the
+reachability witness `EditorScenes_OJZ_Act1_Bindings` equals 3.
 
 ### The premise HELD, and here is the measurement that settles it
 
@@ -21148,8 +21178,17 @@ A first cut of the floor was 181 tiles: 123 recycled plus **58 appended**, with
 | | `Art_Sonic` end | room under `dac_banks` (0x90000) | vs `DATA_GROWTH_RESERVE` 16,384 B |
 |---|---|---|---|
 | master, s4.debug | 0x8BF04 | 16,636 B | **+252 B** — passes |
-| master, s4 (release) | — | 16,964 B | +580 B — passes |
-| 58-tile floor, s4.debug | 0x8C6C2 | 14,654 B | **-1,730 B — FAILS** |
+| master, s4 (release) | 0x8B5FE | 18,946 B | +2,562 B — passes |
+| 181-tile floor, s4.debug | 0x8C6C2 | 14,654 B | **-1,730 B — FAILS** |
+| 181-tile floor, s4 (release) | 0x8BDBC | 16,964 B | +580 B — passes |
+| 121-tile floor (shipped), s4 (release) | 0x8B67C | 18,820 B | +2,436 B — passes |
+
+⚠ An earlier draft of this table put "16,964 B / +580 B" on the **master** release row.
+That figure is the 181-tile BRANCH's, not master's; master's release room was never in the
+same log and had to be re-read out of the baseline run. The correction does not move the
+headline — the binding shape is DEBUG and its margin is 252 B either way — but the release
+shape is four times roomier than the wrong number suggested, which is the whole reason a
+release-only check is not a check.
 
 The delta is 1,982 B = 58 tiles x 32 B of BG art + 126 B of scene record. So **the debug
 shape had 252 bytes of headroom and the parcel needed 1,982.** The gate's own remedy is the
@@ -21164,8 +21203,8 @@ in the debug shape is the entire budget. Four background tiles is 128 B. The nex
 parcel that adds a sprite, a band, a scene or a program of any size trips this gate, and the
 fix is the paired re-layout every time. **Somebody should do that re-layout deliberately,
 before it is discovered accidentally by a parcel that has already been reviewed.** Note the
-release shape has more room (580 B) than debug, so a parcel verified on `./build.sh` alone
-will pass and then fail on `DEBUG=1 ./build.sh` — check the debug shape first.
+release shape has TEN TIMES the room of debug (2,562 B against 252 B), so a parcel verified
+on `./build.sh` alone will pass and then fail on `DEBUG=1 ./build.sh` — check debug first.
 
 The 121-tile floor is therefore a **constrained** floor, not the best one available: the
 181-tile version had a longer fan (horizon at screen line 136 rather than 152, 88 lines of
