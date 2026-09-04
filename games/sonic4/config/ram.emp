@@ -169,10 +169,11 @@ pub vars game_ram {
     // clamp_and_publish (games/sonic4/test/ojz_scroll_test.emp).
     //
     // BOTH SHAPES, ON PURPOSE. External tools resolve these BY NAME out of the
-    // build's listing, per call and never cached, exactly as they do Camera_X/
-    // Camera_Y — so they must not sit inside an `if DEBUG == 1` group. That also
-    // means these two are the only fields in this file whose addresses a release
-    // consumer depends on being present at all.
+    // build's listing, per call and never cached, exactly as they do Camera_X /
+    // Camera_Y — so they must NOT be moved inside an `if DEBUG == 1` group, and
+    // must not be renamed without telling the consumers. (Their ADDRESSES are
+    // free to move between shapes and between builds; that is precisely what
+    // per-call name resolution buys.)
     //
     // MEGA-ACT CEILING — INHERITED, NOT WIDENED. These are u16 and word-wrap
     // above $FFFF px, i.e. a grid dimension > 31 sections, which is exactly the
