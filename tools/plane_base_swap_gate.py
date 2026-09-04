@@ -4,10 +4,12 @@
 EFFECTS-W1 DoD item 11a (`parcel/item11a-midframe-base`, 2026-09-03). One question:
 
     `OJZ_BaseSwap`, read out of THIS ROM at THIS listing's address, is a sparse raster
-    program of TWO `OP_SET_REG` ops: the first carries the VDP word that re-points Plane
-    A's nametable base at the address Plane B's nametable actually occupies, and the
-    second — at a later line — puts it back to Plane A's own. The pair is a BAND; the
-    first op alone is a swap that runs to the bottom of the display.
+    program of FOUR `OP_SET_REG` ops forming TWO BANDS ON TWO DIFFERENT REGISTERS. The
+    TOP band writes reg $04 — Plane B's nametable base — pointing the BACKGROUND layer at
+    the FOREGROUND's map, and closes on Plane B's own base. The BOTTOM band writes reg
+    $02 — Plane A's base — pointing the FOREGROUND layer at the BACKGROUND's map, and
+    closes on Plane A's own. Each pair is a BAND; an ON op alone is a swap that runs to
+    the bottom of the display.
 
 ⚠ THE SECOND OP JOINED 2026-09-04 (EFFECTS-W1 F2) AND THE GATE'S SUBJECT CHANGED WITH IT.
 This file used to derive an 11-word single-fire image and pass on it. That was a correct
@@ -15,6 +17,16 @@ measurement of the wrong claim: it asked "are the words right" and never "is the
 and the two came apart the moment the fire line moved to 3, where a single ON edge covers
 the WHOLE SCREEN and there is nothing to see. Deriving both edges is what makes the shape
 of the answer match the shape of the question.
+
+⚠ THE SECOND BAND JOINED LATER THE SAME DAY (EFFECTS-W1 T3) AND MOVED THE GATE'S SUBJECT
+AGAIN — 15 words to 23, ONE register to TWO. The owner's ask names two layers, not two
+lines: "the foreground in the background layer at the top and the background in the
+foreground layer at the bottom of screen". Plane A's base is reg $02 and Plane B's is reg
+$04, with DIFFERENT shifts (10 and 13, engine/vdp.emp's `vdp_base_shift` arms), so a gate
+written around one register and one shift could not tell the inversion from two copies of
+the same borrow. Both registers, both shifts and both selectors are derived below, and the
+selectors are asserted DIFFERENT by name — a program whose two bands share a register is
+ordered, assembles, shows two bands, and is not what was asked for.
 
 WHY A SOURCE-LEVEL CHECK CANNOT ANSWER IT, stated precisely so this is not a duplicate:
 
@@ -35,14 +47,26 @@ THE EXPECTATION IS DERIVED FROM FILES THE FIXTURE DOES NOT AUTHOR, which is what
 register-word arm an independent measurement rather than a restatement:
 
   * `VRAM_PLANE_A` / `VRAM_PLANE_B`   engine/system/constants.emp
-  * `vdp_base_shift(PlaneA)`          engine/vdp.emp, the `match` arm — the same fold
-                                      engine/system/boot_data.emp derives reg $02 from
+  * `vdp_base_shift(PlaneA)` and
+    `vdp_base_shift(PlaneB)`          engine/vdp.emp, the `match` arms — the same fold
+                                      engine/system/boot_data.emp derives reg $02 and reg
+                                      $04 from
+  * the two REGISTER NUMBERS          engine/structs.emp, `VdpShadow`'s `vdp_plane_a` /
+                                      `vdp_plane_b` field comments. Read from there rather
+                                      than typed, because that struct is ALSO the fact the
+                                      program depends on for its bottom: both registers are
+                                      shadowed, so Flush_VDP_Shadow restores both at frame
+                                      top and neither band needs a frame-top reset word. A
+                                      register that stopped being shadowed would still have
+                                      a number typed here and would silently leak.
   * `OP_SET_REG`, `RASTER_ARM_PARK`,
     `RASTER_OPS_END`                  engine/effects/raster.emp
-  * the two edge lines                games/sonic4/data/effects/ojz_effects.emp
-    (`OJZ_BASE_SWAP_LINE`, `OJZ_BASE_SWAP_END_LINE`)
+  * the FOUR edge lines               games/sonic4/data/effects/ojz_effects.emp
+    (`OJZ_BASE_SWAP_TOP_LINE`, `OJZ_BASE_SWAP_TOP_END_LINE`, and the two BOT_* lines,
+     which the fixture DERIVES as the top band's reflected through RASTER_MAX_FIRE_LINE —
+     see `emp_const_expr` below for why this gate reads the expression, not a literal)
 
-Change the fixture to write any other reg $02 word — including one that re-points Plane A
+Change the fixture to write any other register word — including one that re-points a plane
 at its OWN base, which is a silent no-op on screen — and the register arm goes red naming
 both addresses. That mutation is the gate's red-first proof (see the parcel's evidence).
 
@@ -83,6 +107,7 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONSTANTS = os.path.join(REPO, "engine", "system", "constants.emp")
 VDP = os.path.join(REPO, "engine", "vdp.emp")
 RASTER = os.path.join(REPO, "engine", "effects", "raster.emp")
+STRUCTS = os.path.join(REPO, "engine", "structs.emp")
 FIXTURE = os.path.join(REPO, "games", "sonic4", "data", "effects", "ojz_effects.emp")
 
 # The symbol under test and the neighbour that BOUNDS it. The neighbour is named rather
@@ -122,6 +147,88 @@ def emp_const(path, name):
     return _int(m.group(1))
 
 
+def emp_const_expr(path, name, env):
+    """A `const NAME = <sum of names and integers>` out of an `.emp`, resolved against `env`.
+
+    ADDED FOR T3, and the reason it exists rather than a second literal reader: the bottom
+    band's two lines are NOT literals in the fixture. They are DERIVED there —
+    `RASTER_MAX_FIRE_LINE - OJZ_BASE_SWAP_TOP_END_LINE` — because the bottom band is the
+    top band reflected through the display's horizontal midline, and freezing 159 and 220
+    into the source would be two more taste numbers that a display-height change would
+    strand. A gate that could only read literals would have forced the fixture to spell
+    them as literals, i.e. the measurement would have dictated the design.
+
+    THE GRAMMAR IS DELIBERATELY TINY — names and integers joined by `+`/`-`, nothing else,
+    no parentheses, no calls. `eval` is not used and must not be: this reads source the
+    build also reads, and a reader that could execute it would be a second, weaker
+    evaluator whose disagreements with sigil would be invisible. Anything outside the
+    grammar is UNMEASURABLE by name, which is the correct answer for "I cannot account for
+    this expression" — never a guess.
+    """
+    m = re.search(rf"^\s*(?:pub\s+)?const\s+{re.escape(name)}\s*=\s*([^/\n]+?)\s*(?://.*)?$",
+                  _read(path), re.M)
+    if not m:
+        raise Unmeasurable(
+            f"cannot find `const {name} = <expression>` in {os.path.relpath(path, REPO)}")
+    expr = m.group(1).strip()
+    toks = re.findall(r"[A-Za-z_][\w]*|\$[0-9A-Fa-f]+|\d+|[+-]", expr)
+    if "".join(toks) != expr.replace(" ", ""):
+        raise Unmeasurable(
+            f"`const {name}` in {os.path.relpath(path, REPO)} is `{expr}`, which is outside "
+            f"the names-and-integers-joined-by-plus-or-minus grammar this gate can account "
+            f"for. It refuses rather than evaluating it a second way — a reader that "
+            f"disagreed with sigil about this expression would be invisible")
+    total, sign, seen_term = 0, 1, False
+    for t in toks:
+        if t in "+-":
+            if not seen_term:
+                raise Unmeasurable(f"`const {name} = {expr}`: leading/duplicated operator")
+            sign, seen_term = (1 if t == "+" else -1), False
+            continue
+        if t[0].isalpha() or t[0] == "_":
+            if t not in env:
+                raise Unmeasurable(
+                    f"`const {name} = {expr}` names `{t}`, which this gate has not derived. "
+                    f"It knows {sorted(env)}; add the derivation rather than typing a number")
+            v = env[t]
+        else:
+            v = _int(t)
+        total += sign * v
+        seen_term = True
+    if not seen_term:
+        raise Unmeasurable(f"`const {name} = {expr}`: trailing operator")
+    return total
+
+
+def vdp_shadow_reg(field):
+    """A VdpShadow field's VDP register number, out of engine/structs.emp's own comment.
+
+    `vdp_plane_a: u8,   // reg $02`. The comment IS the source of truth for which register
+    the byte is flushed to — engine/system/vdp_init.emp's Flush_VDP_Shadow walks the table
+    by INDEX, so the struct's field order is the register order and the comment is what a
+    reader (and this gate) has to go on.
+
+    WHY THE NUMBER IS READ AND NOT TYPED, and it is not tidiness: the register selector
+    ($8200 vs $8400) is half of each word this gate derives, and pairing Plane B's byte
+    with Plane A's selector produces a legal-looking word pointing three bits away from
+    anything. Deriving the selector from the struct that also proves the register is
+    SHADOWED ties the two facts the program depends on to one file — if a register ever
+    left VdpShadow, the flush would stop restoring it at frame top and the band would leak
+    into the next frame, and this reader would go UNMEASURABLE instead of quietly
+    continuing with a typed number.
+    """
+    src = _read(STRUCTS)
+    m = re.search(rf"^\s*{re.escape(field)}\s*:\s*u8\s*,\s*//\s*reg\s+\$([0-9A-Fa-f]{{2}})",
+                  src, re.M)
+    if not m:
+        raise Unmeasurable(
+            f"engine/structs.emp's VdpShadow has no `{field}: u8, // reg $XX` line. This "
+            f"gate derives the register SELECTOR from that comment, and the same struct is "
+            f"what makes Flush_VDP_Shadow restore the register at frame top — a field that "
+            f"left the struct is a band that leaks, not a formatting change")
+    return int(m.group(1), 16)
+
+
 def vdp_base_shift(base_name):
     """`vdp_base_shift`'s match arm for one VdpBase variant, out of engine/vdp.emp.
 
@@ -144,67 +251,106 @@ def vdp_base_shift(base_name):
     return int(arm.group(1))
 
 
-def expected_words(line, end_line, plane_b, plane_a, shift, op_set_reg, park, ops_end):
-    """The 15-word image `raster_program([fire(line, ...), fire(end_line, ...)])` emits.
+def expected_words(top_line, top_end, bot_line, bot_end,
+                   plane_a, plane_b, shift_a, shift_b, reg_a, reg_b,
+                   op_set_reg, park, ops_end):
+    """The 23-word image the TWO-BAND, TWO-REGISTER program emits.
 
-    A PURE FUNCTION over the eight derived facts, so the derivation can be exercised
+    A PURE FUNCTION over the thirteen derived facts, so the derivation can be exercised
     without a ROM at all (tools/test_plane_base_swap_gate.py). The framing is the sparse
     tier's documented schedule — one header word, two priming records, ONE RECORD PER
     EDGE, the terminator — and every arm follows `arm_at(L, i)` over the fire-line list
-    L = [0, 1, line - 1, end_line - 1]:
+    L = [0, 1, top_line - 1, top_end - 1, bot_line - 1, bot_end - 1]:
 
-        record 0 (priming)   $8A00 | (L[2] - L[1] - 1)  = the gap to the ON edge
-        record 1 (priming)   $8A00 | (L[3] - L[2] - 1)  = the gap from ON to OFF
-        record 2 (the ON edge)   park — i + 2 is past the end of L
-        record 3 (the OFF edge)  park
+        record 0 (priming)        $8A00 | (L[2] - L[1] - 1)  = the gap to the TOP ON edge
+        record 1 (priming)        $8A00 | (L[3] - L[2] - 1)  = the TOP band's width
+        record 2 (TOP band ON)    $8A00 | (L[4] - L[3] - 1)  = the MIDDLE, between the bands
+        record 3 (TOP band OFF)   $8A00 | (L[5] - L[4] - 1)  = the BOTTOM band's width
+        record 4 (BOTTOM band ON)   park — i + 2 is past the end of L
+        record 5 (BOTTOM band OFF)  park
 
-    TWO EDGES IS THE SUBJECT, NOT AN IMPLEMENTATION DETAIL (EFFECTS-W1 F2, 2026-09-04).
-    Until then this derived an 11-word single-fire image, and that image was CORRECT for
-    the program in the ROM and still described something invisible: one OP_SET_REG has no
-    OFF edge, so at `line` 3 it re-pointed Plane A for the whole display and there was no
-    band to see. The gate went green on it, because "the words are right" and "the band
-    exists" are different claims and only the first one was ever being asked. The second
-    edge is what makes the interval finite, so the derivation is now shaped like a band:
-    an ON word, an OFF word, and an arm between them that names the distance.
+    TWO EDGES WAS THE SUBJECT OF F2; TWO BANDS ON TWO REGISTERS IS THE SUBJECT OF T3
+    (2026-09-04). Before F2 this derived an 11-word single-fire image that was CORRECT for
+    the program in the ROM and still described something invisible — one OP_SET_REG has no
+    OFF edge, so at line 3 it re-pointed Plane A for the whole display. Before T3 it derived
+    15 words on ONE register, and that image would have been just as correct for a program
+    with a second band on the SAME register, which is two copies of one borrow rather than
+    the inversion the owner asked for. So the two selectors are separate inputs here and
+    they are asserted DIFFERENT: the shape of the answer has to match the shape of the
+    question, and the question is now about two layers.
+
+    THE SELECTOR/SHIFT PAIRING IS THE SUBTLE HALF. `vdp_base_reg` returns a register BYTE;
+    the caller supplies the selector. reg $02 uses shift 10 and reg $04 uses shift 13
+    (engine/vdp.emp), so a word built from one register's selector and the other's shift is
+    a legal $8xxx word aimed three address bits away from anything, and nothing downstream
+    can see it. Each band below builds its word from ITS OWN (selector, shift) pair, once.
     """
-    word = 0x8200 | (plane_b >> shift)
-    home = 0x8200 | (plane_a >> shift)
-    if word == home:
+    sel_a = 0x8000 | (reg_a << 8)          # reg $02's selector word, $8200
+    sel_b = 0x8000 | (reg_b << 8)          # reg $04's selector word, $8400
+    if sel_a == sel_b:
         raise Unmeasurable(
-            f"Plane A (${plane_a:04X}) and Plane B (${plane_b:04X}) fold to the SAME reg "
-            f"$02 byte at shift {shift}, so there is no mid-frame swap to look for. The "
-            f"`.emp` fixture refuses this by name too; seeing it here means that ensure is "
-            f"no longer running")
-    fire_line = line - 1                       # an effect on screen line M fires at M-1
-    end_fire_line = end_line - 1
-    if end_fire_line <= fire_line:
-        raise Unmeasurable(
-            f"the OFF edge (screen line {end_line}, fire line {end_fire_line}) does not "
-            f"follow the ON edge (screen line {line}, fire line {fire_line}). "
-            f"`fire_lines` refuses a non-ascending program by name, so this gate cannot "
-            f"be looking at a built ROM with these two constants — do NOT read it as a "
-            f"byte mismatch")
-    arm0 = 0x8A00 | (fire_line - 1 - 1)        # raster_arm(1, fire_line)
-    arm1 = 0x8A00 | (end_fire_line - fire_line - 1)
-    if not 0 <= (fire_line - 2) <= 255:
-        raise Unmeasurable(
-            f"screen line {line} gives a priming gap of {fire_line - 2}, which is not a "
-            f"legal reg $0A reload — the fixture's line is outside the schedule this gate "
-            f"models")
-    if not 0 <= (end_fire_line - fire_line - 1) <= 255:
-        raise Unmeasurable(
-            f"the ON->OFF gap is {end_fire_line - fire_line - 1} lines (screen lines "
-            f"{line} -> {end_line}), which is not a legal reg $0A reload — the band is "
-            f"wider than one reload of the schedule this gate models")
+            f"both bands would write VDP register selector ${sel_a:04X}: Plane A's base "
+            f"register (${reg_a:02X}) and Plane B's (${reg_b:02X}) are the same register. "
+            f"T3 IS the role inversion — the top band drives the BACKGROUND layer's base "
+            f"and the bottom band the FOREGROUND layer's — so two bands on one register is "
+            f"not the effect this gate describes. The `.emp` fixture refuses this by name "
+            f"too")
+
+    # THE TOP BAND: the BACKGROUND layer (reg $04, Plane B's base) borrows the FOREGROUND's
+    # map, then returns to its own. THE BOTTOM BAND: the FOREGROUND layer (reg $02, Plane
+    # A's base) borrows the BACKGROUND's map, then returns to its own.
+    top_word, top_home = sel_b | (plane_a >> shift_b), sel_b | (plane_b >> shift_b)
+    bot_word, bot_home = sel_a | (plane_b >> shift_a), sel_a | (plane_a >> shift_a)
+    for tag, w, h, sel, shift in (("TOP", top_word, top_home, sel_b, shift_b),
+                                  ("BOTTOM", bot_word, bot_home, sel_a, shift_a)):
+        if w == h:
+            raise Unmeasurable(
+                f"the {tag} band's borrowed base and its own base both fold to ${w:04X} "
+                f"under selector ${sel:04X} at shift {shift} — Plane A is ${plane_a:04X} "
+                f"and Plane B ${plane_b:04X} — so that band re-points a register at the "
+                f"base it already has and there is no mid-frame swap to look for. The "
+                f"`.emp` fixture refuses this by name too; seeing it here means that "
+                f"ensure is no longer running")
+
+    # An effect on screen line M fires at M-1 (raster_dsl's Ruling 1a).
+    L = [0, 1, top_line - 1, top_end - 1, bot_line - 1, bot_end - 1]
+    NAMES = ("priming 0", "priming 1", "the TOP band's ON edge", "the TOP band's OFF edge",
+             "the BOTTOM band's ON edge", "the BOTTOM band's OFF edge")
+    for i in range(1, len(L)):
+        if L[i] <= L[i - 1]:
+            raise Unmeasurable(
+                f"{NAMES[i]} (fire line {L[i]}) does not follow {NAMES[i - 1]} (fire line "
+                f"{L[i - 1]}). `fire_lines` refuses a non-ascending program by name, so this "
+                f"gate cannot be looking at a built ROM with these four constants — do NOT "
+                f"read it as a byte mismatch. The four screen lines are "
+                f"{top_line}, {top_end}, {bot_line}, {bot_end}")
+
+    arms = []
+    for i in range(len(L)):
+        if i + 2 >= len(L):
+            arms.append(park)
+            continue
+        gap = L[i + 2] - L[i + 1] - 1
+        if not 0 <= gap <= 255:
+            raise Unmeasurable(
+                f"the gap from {NAMES[i + 1]} to {NAMES[i + 2]} is {gap} line(s), which is "
+                f"not a legal reg $0A reload — that interval is wider than one reload of "
+                f"the schedule this gate models, or the lines are outside it")
+        arms.append(0x8A00 | gap)
+
     return [
-        0x0000,                 # pal_dirty_mask — a register op writes no CRAM
-        arm0, 0x0000,           # fire 0 — priming; schedules the ON edge
-        arm1, 0x0000,           # fire 1 — priming; schedules the gap ON -> OFF
-        park, 0x0001,           # fire 2 — the ON edge, one op
-        op_set_reg, word,       # OP_SET_REG, then reg $02 <- Plane B's nametable
-        park, 0x0001,           # fire 3 — the OFF edge, one op
-        op_set_reg, home,       # OP_SET_REG, then reg $02 <- Plane A's own base again
-        park, ops_end,          # terminator
+        0x0000,                     # pal_dirty_mask — register ops write no CRAM
+        arms[0], 0x0000,            # record 0 — priming; schedules the TOP band's ON edge
+        arms[1], 0x0000,            # record 1 — priming; the TOP band's width
+        arms[2], 0x0001,            # record 2 — TOP band ON; its arm is the MIDDLE
+        op_set_reg, top_word,       # reg $04 <- Plane A's nametable: fg map, bg layer
+        arms[3], 0x0001,            # record 3 — TOP band OFF; its arm is the BOTTOM's width
+        op_set_reg, top_home,       # reg $04 <- Plane B's own base again
+        arms[4], 0x0001,            # record 4 — BOTTOM band ON; nothing left to schedule
+        op_set_reg, bot_word,       # reg $02 <- Plane B's nametable: bg map, fg layer
+        arms[5], 0x0001,            # record 5 — BOTTOM band OFF; past the end, so park
+        op_set_reg, bot_home,       # reg $02 <- Plane A's own base again
+        park, ops_end,              # terminator
     ]
 
 
@@ -296,18 +442,34 @@ def main():
                         f"{os.path.basename(p)} predates this invocation's sigil run; it is "
                         f"a PREVIOUS build's artifact and reading it would measure the past")
 
-        # ---- the expectation, out of five sources the fixture does not author -----
+        # ---- the expectation, out of SIX sources the fixture does not author ------
         plane_a = emp_const(CONSTANTS, "VRAM_PLANE_A")
         plane_b = emp_const(CONSTANTS, "VRAM_PLANE_B")
-        shift = vdp_base_shift("PlaneA")
+        shift_a = vdp_base_shift("PlaneA")
+        shift_b = vdp_base_shift("PlaneB")
+        reg_a = vdp_shadow_reg("vdp_plane_a")
+        reg_b = vdp_shadow_reg("vdp_plane_b")
         op_set_reg = emp_const(RASTER, "OP_SET_REG")
         park = emp_const(RASTER, "RASTER_ARM_PARK")
         ops_end = emp_const(RASTER, "RASTER_OPS_END")
-        line = emp_const(FIXTURE, "OJZ_BASE_SWAP_LINE")
-        end_line = emp_const(FIXTURE, "OJZ_BASE_SWAP_END_LINE")
+        max_fire = emp_const(RASTER, "RASTER_MAX_FIRE_LINE")
+        top_line = emp_const(FIXTURE, "OJZ_BASE_SWAP_TOP_LINE")
+        top_end = emp_const(FIXTURE, "OJZ_BASE_SWAP_TOP_END_LINE")
+        # The bottom band's lines are EXPRESSIONS in the fixture, not literals — it derives
+        # them as the top band's reflected through RASTER_MAX_FIRE_LINE. This gate resolves
+        # that expression against the names it has already derived rather than demanding
+        # literals in the source, so the fixture keeps its derivation and the gate keeps its
+        # independence: it still gets its numbers from the fixture, and it can still say
+        # what it read.
+        env = {"RASTER_MAX_FIRE_LINE": max_fire,
+               "OJZ_BASE_SWAP_TOP_LINE": top_line,
+               "OJZ_BASE_SWAP_TOP_END_LINE": top_end}
+        bot_line = emp_const_expr(FIXTURE, "OJZ_BASE_SWAP_BOT_LINE", env)
+        bot_end = emp_const_expr(FIXTURE, "OJZ_BASE_SWAP_BOT_END_LINE", env)
 
-        want = expected_words(line, end_line, plane_b, plane_a, shift, op_set_reg, park,
-                              ops_end)
+        want = expected_words(top_line, top_end, bot_line, bot_end,
+                              plane_a, plane_b, shift_a, shift_b, reg_a, reg_b,
+                              op_set_reg, park, ops_end)
         image_bytes = 2 * len(want)
 
         labels = lst_labels(lst_path)
@@ -315,14 +477,24 @@ def main():
         nxt = at(labels, NEXT_SYM, lst_path)
         gap = nxt - addr
 
+        sel_a, sel_b = 0x8000 | (reg_a << 8), 0x8000 | (reg_b << 8)
         print(f"plane_base_swap_gate [{os.path.basename(lst_path)}, shape={shape}]")
-        print(f"  derived: Plane A ${plane_a:04X} -> reg $02 ${0x8200 | (plane_a >> shift):04X}   "
-              f"Plane B ${plane_b:04X} -> reg $02 ${0x8200 | (plane_b >> shift):04X}   "
-              f"(vdp_base_shift PlaneA = {shift})")
-        print(f"  derived: OP_SET_REG {op_set_reg}, arm park ${park:04X}, ops end ${ops_end:04X}")
-        print(f"  derived: BAND screen lines {line}..{end_line} — ON edge at {line} "
-              f"(fire line {line - 1}), OFF edge at {end_line} (fire line {end_line - 1}), "
-              f"{end_line - line} line(s) wide")
+        print(f"  derived: Plane A ${plane_a:04X} (FOREGROUND layer, reg ${reg_a:02X}, "
+              f"shift {shift_a})   Plane B ${plane_b:04X} (BACKGROUND layer, reg "
+              f"${reg_b:02X}, shift {shift_b})")
+        print(f"  derived: OP_SET_REG {op_set_reg}, arm park ${park:04X}, ops end ${ops_end:04X}, "
+              f"last fire line {max_fire}")
+        print(f"  derived: TOP    band screen lines {top_line}..{top_end} "
+              f"({top_end - top_line} wide) — reg ${reg_b:02X} <- ${sel_b | (plane_a >> shift_b):04X} "
+              f"then home ${sel_b | (plane_b >> shift_b):04X}: the FOREGROUND's map in the "
+              f"BACKGROUND layer")
+        print(f"  derived: BOTTOM band screen lines {bot_line}..{bot_end} "
+              f"({bot_end - bot_line} wide) — reg ${reg_a:02X} <- ${sel_a | (plane_b >> shift_a):04X} "
+              f"then home ${sel_a | (plane_a >> shift_a):04X}: the BACKGROUND's map in the "
+              f"FOREGROUND layer")
+        print(f"  derived: MIDDLE (neither band) screen lines {top_end + 1}..{bot_line - 1}, "
+              f"{bot_line - top_end - 1} row(s); the bottom band is the top band reflected "
+              f"through line {max_fire}")
         print(f"  {SYM} at ${addr:06X}, {NEXT_SYM} at ${nxt:06X} — {gap} byte(s) between")
 
         state = classify_gap(gap, image_bytes)
@@ -370,47 +542,69 @@ def main():
                   f"{'OK' if ok else 'MISMATCH'}")
 
         # The item's own claim, asserted by name on top of the whole-image compare, because
-        # the image compare would blame "index 8" for what is really "the op points at the
-        # wrong plane" — and because these are the two words the DoD row is about.
-        if got[7] != op_set_reg:
-            print(f"        word 7 is the ON EDGE'S OPCODE and it is not OP_SET_REG "
-                  f"({op_set_reg}). Item 11a IS the OP_SET_REG path — "
-                  f"engine/effects/raster.emp's `.op_set_reg` arm, whose whole argument is "
-                  f"one `$8xxx` register word.")
-        if got[8] != want[8]:
-            decoded = (got[8] & 0xFF) << shift
-            print(f"        word 8 is the ON EDGE'S REGISTER WORD. ${got[8]:04X} re-points "
-                  f"Plane A at VRAM ${decoded:04X}; item 11a needs Plane B's nametable, "
-                  f"${plane_b:04X}. If it decodes to ${plane_a:04X} the op writes the base "
-                  f"Plane A already has and the band is invisible on screen while every "
-                  f"other check here stays green.")
-        if got[11] != op_set_reg:
-            print(f"        word 11 is the OFF EDGE'S OPCODE and it is not OP_SET_REG "
-                  f"({op_set_reg}). Without a second OP_SET_REG there is no OFF edge, and "
-                  f"the swap runs from its line to the BOTTOM OF THE DISPLAY — which is "
-                  f"not a band. That is the exact program that shipped at 8bf6df74 and "
-                  f"that the owner reported he could not see.")
-        if got[12] != want[12]:
-            decoded = (got[12] & 0xFF) << shift
-            print(f"        word 12 is the OFF EDGE'S REGISTER WORD. ${got[12]:04X} "
-                  f"re-points Plane A at VRAM ${decoded:04X}; closing the band needs Plane "
-                  f"A's OWN nametable, ${plane_a:04X} — the word Flush_VDP_Shadow writes at "
-                  f"the next frame top. If it decodes to ${plane_b:04X} instead, BOTH edges "
-                  f"write the same base: the second op costs its cycles, changes nothing, "
-                  f"and the band still runs to the bottom of the screen.")
+        # the image compare would blame "index 16" for what is really "the op points at the
+        # wrong plane" — and because these are the four words the DoD row is about. The four
+        # edges live at words 7/8, 11/12, 15/16 and 19/20; the table below is walked rather
+        # than the four cases being written out, because T3 doubled them and a fifth band
+        # would double them again.
+        EDGES = (
+            (7, 8, f"the TOP band's ON edge", reg_b, shift_b, plane_a,
+             "the BACKGROUND layer (reg $%02X) must borrow the FOREGROUND's map" % reg_b),
+            (11, 12, f"the TOP band's OFF edge", reg_b, shift_b, plane_b,
+             "closing the top band needs Plane B's OWN base — the word Flush_VDP_Shadow "
+             "writes at the next frame top"),
+            (15, 16, f"the BOTTOM band's ON edge", reg_a, shift_a, plane_b,
+             "the FOREGROUND layer (reg $%02X) must borrow the BACKGROUND's map" % reg_a),
+            (19, 20, f"the BOTTOM band's OFF edge", reg_a, shift_a, plane_a,
+             "closing the bottom band needs Plane A's OWN base — the word "
+             "Flush_VDP_Shadow writes at the next frame top"),
+        )
+        for op_i, arg_i, tag, reg, shift, wanted_base, why in EDGES:
+            if got[op_i] != op_set_reg:
+                print(f"        word {op_i} is {tag}'S OPCODE and it is not OP_SET_REG "
+                      f"({op_set_reg}). This effect IS the OP_SET_REG path — "
+                      f"engine/effects/raster.emp's `.op_set_reg` arm, whose whole argument "
+                      f"is one `$8xxx` register word. An edge without its opcode is an edge "
+                      f"that does not happen, and a band missing an OFF edge runs to the "
+                      f"BOTTOM OF THE DISPLAY — the exact program that shipped at 8bf6df74 "
+                      f"and that the owner reported he could not see.")
+            if got[arg_i] != want[arg_i]:
+                sel_got = got[arg_i] & 0xFF00
+                decoded = (got[arg_i] & 0xFF) << shift
+                print(f"        word {arg_i} is {tag}'S REGISTER WORD. ${got[arg_i]:04X} "
+                      f"writes selector ${sel_got:04X} and, read at shift {shift}, points at "
+                      f"VRAM ${decoded:04X}; this edge needs ${wanted_base:04X} through "
+                      f"selector ${0x8000 | (reg << 8):04X} — {why}. Note the two ways this "
+                      f"goes wrong SILENTLY: the right selector with the OTHER plane's base "
+                      f"is a no-op on screen, and the WRONG selector with a valid-looking "
+                      f"byte drives the other layer's register at the wrong shift.")
         if got[8] == got[12]:
-            print(f"        BOTH EDGES CARRY THE SAME WORD (${got[8]:04X}). Whatever the "
-                  f"two words are, a band needs them to DIFFER — this program has an "
+            print(f"        THE TOP BAND'S TWO EDGES CARRY THE SAME WORD (${got[8]:04X}). "
+                  f"Whatever the word is, a band needs its edges to DIFFER — this is an "
                   f"interval with no boundary at either end of it.")
+        if got[16] == got[20]:
+            print(f"        THE BOTTOM BAND'S TWO EDGES CARRY THE SAME WORD "
+                  f"(${got[16]:04X}). Same fault, other band.")
+        if (got[8] & 0xFF00) == (got[16] & 0xFF00):
+            print(f"        BOTH BANDS WRITE SELECTOR ${got[8] & 0xFF00:04X}. T3 is the "
+                  f"ROLE INVERSION: one band re-points the BACKGROUND layer's base at the "
+                  f"foreground's map and the other re-points the FOREGROUND layer's at the "
+                  f"background's. Two bands on one register are two of the same effect. "
+                  f"Every framing word above holds just as well for that program, which is "
+                  f"why this is said separately.")
 
         if bad:
             print(f"plane_base_swap_gate: FAIL — {bad} of {len(want)} word(s) differ")
             return 1
-        print(f"plane_base_swap_gate: OK — the mid-frame base BAND is in this ROM: "
-              f"OP_SET_REG ${got[8]:04X} at screen line {line} re-points Plane A at "
-              f"${plane_b:04X} (Plane B's nametable), and OP_SET_REG ${got[12]:04X} at "
-              f"screen line {end_line} puts it back to ${plane_a:04X} — a {end_line - line}"
-              f"-line band, closed mid-frame rather than at the VBlank shadow flush")
+        print(f"plane_base_swap_gate: OK — TWO mid-frame base bands are in this ROM, on TWO "
+              f"registers. Screen lines {top_line}..{top_end}: OP_SET_REG ${got[8]:04X} "
+              f"re-points reg ${reg_b:02X} (the BACKGROUND layer) at ${plane_a:04X} — the "
+              f"foreground's map — and ${got[12]:04X} puts it back. Screen lines "
+              f"{bot_line}..{bot_end}: OP_SET_REG ${got[16]:04X} re-points reg ${reg_a:02X} "
+              f"(the FOREGROUND layer) at ${plane_b:04X} — the background's map — and "
+              f"${got[20]:04X} puts it back. Both bands are {top_end - top_line} lines and "
+              f"both close mid-frame rather than at the VBlank shadow flush, leaving "
+              f"{bot_line - top_end - 1} unswapped rows between them.")
         return 0
 
     except Unmeasurable as e:
