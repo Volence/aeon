@@ -23866,7 +23866,32 @@ skipped / 0 failed (2357/5 on the demo shapes), `emp_expect_fail` 52/52, `effect
 OK on both halves. The effects-gate ritual does NOT apply: nothing under `engine/effects/`,
 `engine/level/bg_anim.emp` or `engine/system/buffers.emp` is touched.
 
-## ⚠ THE CORRECTED `hand:` SPELLING IS CONTINGENT ON AN OPEN OWNER DECISION — read before citing it
+## ~~⚠ THE CORRECTED `hand:` SPELLING IS CONTINGENT ON AN OPEN OWNER DECISION~~ — ✅ DISCHARGED 2026-09-04
+
+**The card is closed and the contingency below is spent.** `d-25` was ruled **ACCEPT** (option 1): an
+explicit `0` is a legal null-`Label` argument everywhere. So `hand: 0` becomes correct retroactively,
+the omit spelling keeps working, and **the ten corrections at `097c22f5` are correct under either
+outcome — leave them, do not churn ten sites back.** Discharged explicitly rather than left standing,
+because a live contingency pointing at a closed card is a booking that tells the next reader to go and
+check something already settled.
+
+**⚠ BUT THE AUTHORITY BEHIND IT IS THINNER THAN A CONSIDERED YES, and the sigil lane said so
+unprompted rather than banking a clean win.** His words: *"I guess we accept, I don't know where
+that's useful but I trust you guyys know more than me."* **That is a deferral, not a judgement.** The
+ruling therefore carries sigil's recommendation's weight, not his independent assessment — their
+framing, and they asked explicitly that if the consistency argument under it turns out wrong, it be
+raised rather than treated as settled by him.
+
+**Worth keeping as a class:** this repo already has a bar about a ruling relayed on the owner's behalf
+carrying constraints he never stated. This is the subtler sibling — **a ruling he genuinely gave, on
+a question he said he could not evaluate.** It is still his call and it still stands; what it does not
+carry is his scrutiny. Record which kind a ruling is, because they age differently: a considered yes
+survives new evidence, a deferred one should be re-opened by it.
+
+---
+
+**The original contingency follows, spent, kept for its reasoning.**
+
 
 **The ten sites corrected by `parcel/boundary-hand-spelling` are right TODAY and may not be right
 after the owner rules.** Recorded here because replacing one unbuildable prescription with another
