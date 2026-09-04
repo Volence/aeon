@@ -24850,3 +24850,48 @@ In his terms, and the same family as "everything on by default". `DEBUG=1` boots
 `Sst+$3C = $FF`, `Map_TestObj`, 16x16 — the yellow marker, not Sonic, with physics
 suspended. **B toggles it.** Release is clean (`$00`, 19/39 radii, real mappings), so this
 is not shipped. A fresh boot should have physics on and free flight behind the chord.
+
+## "don't forget the hydrocity thing" — item 9 finishes, it does not park (2026-09-04)
+
+His words. The hub reads it as a decision to complete DoD item 9, and that changes the
+standing recommendation on 9c, which was written when parking was the default.
+
+### 9d — the row-remap tile rebuild. OWNER-FREE NOW.
+
+**Not VRAM-blocked, and the sentence that said so was stale when written.** `bg_region` is
+**320/448** — the blob has been 320 tiles since `e192062e` (2026-08-26), leaving **128
+unresident**. **9d wants 48; they fit with 80 to spare.** What remained was a DECLARATION
+question — whose 48 those are — and `band_reserve = 128` in `games/sonic4/vram.toml` was
+declared the owner's dial. **His sentence is the word to spend it, so this is owner-free.**
+
+**BgAnim is ruled OUT by arithmetic, not preference, and the ruling is worth keeping so
+nobody spends a day rediscovering it.** BgAnim precomputes **8** phase banks; the waterline
+has **97** continuously-selected states. At d-9's ROM ceiling with the live act at 8,238 B a
+new band caps at **15 tiles against the 48 wanted**. S3K's own mechanism — a ROM source
+image, a runtime row gather, one DMA into a fixed run, guarded on a change in the
+perspective quantity — is **cheaper (3,072 B of ROM against 12,288)** and the only one that
+scales.
+
+**Witness:** if it can be shown on screen the way the small band's approach was, do that too.
+
+### 9c — the scene-key lowering. PRICED at `88547eda`, RECOMMENDATION NOW CHANGES.
+
+`preset()` asserts `raster == 0 || patched == 0` because whichever installs last wins
+destructively: `Raster_InstallPatched` clears `Raster_Pending`, and the reverse order lets
+VBlank re-point `Active_Buf` while the patcher writes the other buffer. **A real
+double-buffer hazard the engine states rather than suffers.** The cost to 9c: the only OJZ
+section with live patch channels is **section 0**, which binds `patched:` and therefore
+cannot also carry a document's raster arm — so the anchored precondition and the authorable
+binding are mutually exclusive.
+
+**Three routes, unchanged:** (1) lift the exclusion — **L**, engine work in the
+VBlank-critical path, risk on every scene, buying an authoring convenience against a hazard
+that is currently only stated; (2) **give another section live patch channels — S–M,
+content-shaped, reversible in a line**, the d-53 shape; (3) do nothing.
+
+**⚠ THE RECOMMENDATION MOVES, AND ONLY BECAUSE HIS FRAME MOVED.** `88547eda` recommended
+**do nothing**, correctly, when parking was the default. If item 9 is to finish, do-nothing
+stops being an answer, and **route 2 is the recommendation**: it is content-shaped, cheap,
+reversible, and does not put engine work in the VBlank-critical path for an authoring
+convenience. **Route 1 remains the wrong trade at any framing I can see.** This is an engine
+design change either way, so it goes to him before anything is built.
