@@ -84,6 +84,20 @@ async def main():
     a_err = await sym(b, "ErrorHandlerBlob")
 
     # Anchor: bp BEFORE reload (run_to after reload is wall-clock racy).
+    #
+    # AND A SECOND REASON THIS ORDERING IS LOAD-BEARING, recorded 2026-09-04 because the
+    # line above only documents the first: EVERY SYMBOL THIS TOOL NEEDS IS RESOLVED ABOVE,
+    # BEFORE THE RELOAD, AND THAT IS WHAT MAKES IT SAFE. `emulator/reload_rom` re-binds the
+    # symbol table it already holds and does NOT re-read the .lst from disk -- and it reports
+    # `symbolsDropped: false`, which reads as reassurance. So a symbol resolved AFTER a reload
+    # comes back `no such symbol` even while sitting in the listing you just grepped, and the
+    # honest-looking response is to conclude the symbol was never published. (Oracle's finding,
+    # 2026-09-04, from their own instrument nearly manufacturing a false report about this
+    # tree; they have booked it as a defect on their side.)
+    #
+    # So do not move the resolves below the reload for any reason. Today this tool is safe by
+    # a decision taken for an UNRELATED reason, which is indistinguishable from a design that
+    # prevents the bug right up until someone reorders it with a good argument.
     await b.call("emulator/breakpoint_add", {"addr": hex(a_init)})
     await b.call("emulator/reload_rom", {"path": str(rom_path)})
 
