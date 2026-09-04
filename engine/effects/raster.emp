@@ -2032,20 +2032,34 @@ proc Raster_BuildSchedule () clobbers(d0-d4/a0-a2) {
 
 // -----------------------------------------------
 // Raster_GetChannelBand — report the fire-line band the LIVE patched program declares for
-// a world-anchor channel, so a SECOND consumer of that anchor clamps exactly where
-// Raster_BuildSchedule clamps it (:895-901).
+// a world-anchor channel, so a SECOND consumer of that anchor lands exactly where
+// Raster_BuildSchedule puts the fire (:1979-1983).
+//
+// ⚠ THE TWO EDGES DO DIFFERENT THINGS, AND A CONSUMER THAT TREATS THEM ALIKE IS WRONG.
+// This banner said "clamps at BOTH edges" and cited :895-901 until 2026-09-04; both were
+// stale (:895-901 is raster_ramp_program's sign pin, and the hi edge was never a clamp).
+// What Raster_BuildSchedule actually does, at :1979-1983:
+//   * PAST band_hi — `cmp.w 2(a0), d2 / bgt .suppress` — the record is DROPPED. Not pinned
+//     to hi: not emitted at all this frame, so there is no boundary on screen anywhere and
+//     the band VANISHES until the latched line comes back inside [lo, hi].
+//   * BELOW band_lo — `cmp.w (a0), d2 / bge / move.w (a0), d2` — the record IS still
+//     emitted, CLAMPED UP to the floor. Asymmetric on purpose: the frame-top ship covers
+//     the rows above, so clamping up hides nothing, while clamping DOWN would paint rows
+//     the world says are dry. `engine/level/parallax.emp:2124-2143` is the consumer that
+//     gets this right and says so; it is the shape to copy.
 //
 // WHY THIS EXISTS AT ALL. Raster_BuildSchedule pins a patchable fire to its record's authored
-// band, and that clamp is load-bearing rather than cosmetic: a negative inter-record gap
+// band, and that pin is load-bearing rather than cosmetic: a negative inter-record gap
 // would store $FF, which IS the park word, killing every remaining fire in the frame
 // (see the note above that proc). Parcel W's parallax overlay reads the same anchor to
-// place a scroll boundary. If it clamped anywhere else, then outside the record's band the
+// place a scroll boundary. If it landed anywhere else, then outside the record's band the
 // palette boundary would pin while the scroll boundary kept following the camera — the two
 // separating, which is the exact defect that parcel exists to remove. Not hypothetical:
-// OJZ channel 0 is authored with band 3..120 and clamps at BOTH edges on the ordinary scroll
-// path — to lo on descent, and to hi whenever the camera sits more than ~104 px above the
-// water line (a plain jump from spawn reaches that). The band was 40..120 until the lo clamp
-// was seen pinning the boundary 40 lines down; see the note at that `patchable` call.
+// OJZ channel 0 is authored with band 3..220 (`ojz_effects.emp:1557`) and reaches the lo
+// edge on the ordinary scroll path — the band was 40..120 until the lo clamp was seen
+// pinning the boundary 40 lines down; see the note at that `patchable` call. The 2026-08-18
+// re-band bought the hi edge most of the screen, which is what makes the DROP rare rather
+// than absent — rare is not never, and the drop is the case a consumer forgets.
 //
 // READING THE TABLE BEATS DUPLICATING THE BAND. The alternative was carrying the band in
 // parallax data and keeping the two copies in step with a shared comptime const — still two

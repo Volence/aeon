@@ -999,14 +999,23 @@ pub comptime fn layer(world_y: int, fa: int, fb: int, dsa: int = 15, dsb: int = 
            "layer(): drift: SceneDrift.Rate(0) is not a slow drift, it is no drift — and it is REFUSED because `None` and `Rate(0)` lower to the SAME four zero bytes, so the band record could no longer say which one you wrote. Spell it `drift: SceneDrift.None` (the default) if the layer does not drift. THE UNIT IS 1/256 px PER FRAME, SIGNED: `Rate(256)` is one pixel per frame, `Rate(32)` is S3K AIZ1's clouds, `Rate(5)` is S3K MGZ1's slowest row, and the fastest rate in the whole S1/S2/S3K corpus is S2 DEZ's stars at `Rate(1536)` = 6 px/frame. If you meant one pixel per frame, you want 256")
     ensure(drift_none == 1 || (drift_rate >= -4096 && drift_rate <= 4096),
            "layer(): drift: SceneDrift.Rate({drift_rate}) is outside +/-4096. THE UNIT IS 1/256 px PER FRAME, SIGNED, so 4096 is 16 px/frame — and if you meant 16 px/frame you want 4096, not 16. THIS IS A TASTE BOUND, NOT A CORRECTNESS ONE, and the distinction is the point: nothing breaks above it. The accumulator is 32-bit and its wrap is seamless at ANY rate (the pixel part wraps at 65536 px = 128 x 512-px plane widths exactly), and the per-frame arithmetic is one add. The bound is 2.7x the fastest rate in the entire surveyed S1/S2/S3K corpus (S2 DEZ's stars, 6 px/frame = 1536). If you have a real reason to go faster, RAISE THIS BOUND in engine/level/scene_dsl.emp and say why in the commit — do not work around the guard")
-    // THE ROW REMAP'S TWO LAYER-LOCAL GUARDS. The one that decides whether anyone can SEE
+    // THE ROW REMAP'S THREE LAYER-LOCAL GUARDS. The one that decides whether anyone can SEE
     // the effect is not here — it needs the scene's anchor and the scene's deform table, so
-    // it lives in scene(). These two are the ones a single layer can answer.
+    // it lives in scene(). These three are the ones a single layer can answer.
     let remap_none = scene_remap_is_none(rowRemap)
     ensure(remap_none == 1 || (scene_remap_hshift(rowRemap) >= 3 && scene_remap_hshift(rowRemap) <= 7),
            "layer(): rowRemap height shift {scene_remap_hshift(rowRemap)} is outside 3..7. IT IS A SHIFT, NOT A LINE COUNT — H = 1 << shift, so 6 is a 64-line ladder (S3K LBZ2's own height, a 4,160-byte table) and 7 is 128 lines and 16,512 bytes. The ladder is QUADRATIC in H: (H+1) rows of H bytes. Below 3 the remapped run is under 8 lines and nothing is visible; above 7 the table is larger than the act's whole parallax data. If you meant 64 lines, you want 6")
     ensure(remap_none == 1 || scene_remap_plane_y(rowRemap) >= 0,
            "layer(): rowRemap surface plane line {scene_remap_plane_y(rowRemap)} is negative. IT IS A PLANE-B LINE (0..511), not a world Y and not a screen line: the runtime computes the background's image of the surface as `plane_y - Vscroll_BG`, so this is where the BG ART paints it, which is a different number from the layer's own world_y")
+    // THE CEILING. Until 2026-09-04 the guard above was the ONLY one and its "(0..511)" was
+    // PROSE: `brm_plane_y` is a u16 (engine/level/parallax.emp:420), so 512..65535 packed
+    // cleanly and the runtime read `plane_y - Vscroll_BG` against a plane 512 lines tall —
+    // representable, emitted, and silently the wrong window, with nothing anywhere refusing
+    // it. 512 is inlined per the pin block at the top of this file (PLANE_B_SPAN), which is
+    // exactly how the sibling vsplit guard at :966 spells the same bound in the same
+    // coordinate space. Found by the item-9c key-shape pass; booked ROWREMAP-PLANEY-CEILING.
+    ensure(remap_none == 1 || scene_remap_plane_y(rowRemap) < 512,
+           "layer(): rowRemap surface plane line {scene_remap_plane_y(rowRemap)} is outside the Plane-B span (0 .. 511). IT IS A PLANE-B LINE, not a world Y and not a screen line: the runtime computes the background's image of the surface as `plane_y - Vscroll_BG`. The plane is 512 lines tall in this engine's 64x64 configuration, so a larger value is not a lower surface — it is one of the 512 rows that already had a spelling, reached the long way round. Author the row you mean. If you meant a WORLD Y, this is not that field — the layer's own world_y is")
     return SceneLayer{ ly_world_y: world_y, ly_fa: fa, ly_fb: fb, ly_dsa: eff_dsa,
                        ly_dsb: eff_dsb, ly_phase: eff_phase, ly_enabled: enabled,
                        ly_deform: deform, ly_curve: curve, ly_vsplit: vsplit,

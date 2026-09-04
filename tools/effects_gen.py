@@ -117,10 +117,34 @@ SCENE_REFUSED_KEYS = {
 # --- contract §2.1, per layer -------------------------------------------------
 LAYER_KEYS = frozenset({
     "world_y", "fa", "fb", "dsa", "dsb", "phase", "enabled",
-    "deform", "curve", "vsplit", "drift",
+    "deform", "curve", "vsplit", "drift", "rowRemap",
 })
 
 LAYER_IGNORED_KEYS = frozenset({"name"})
+
+# THE LADDER IS NOT SPELLED, IT IS DERIVED — and the two names for it are refused BY NAME
+# rather than merely absent, because "unknown key `ladder`" would read as a typo when it is
+# actually a contract question. `rowRemap` lowers to `SceneRemap.Ladder(<Label>, plane_y,
+# height_shift)` and the Label is a pure function of `height_shift`: exactly one ladder
+# exists, `row_remap_ladder16()` (engine/level/parallax_dsl.emp:220), and its H is the module
+# const ROW_REMAP_H16 = 16 rather than a parameter. Naming it in the document would be one
+# number spelled twice, which is `layer()`'s own build error at scene_dsl.emp:879 ("two
+# sources for one byte is how they drift"), and it would ship a required field with one legal
+# value. A named ladder is the SECOND VARIANT extension when a non-perspective ladder is
+# wanted (heat haze, a mirror); a oneOf can widen where a required field cannot be taken back.
+LAYER_REFUSED_KEYS = {
+    "ladder": "the ladder is DERIVED from `height_shift`, not named. A named ladder is the "
+              "second-variant extension and is not in this contract yet",
+    "table": "the ladder is DERIVED from `height_shift`, not named. `table` is reserved for "
+             "the second-variant extension (a generated non-perspective ladder) and is not "
+             "in this contract yet",
+}
+
+# THE ONLY LADDER THAT EXISTS, keyed by the shift it is the ladder for. The other four legal
+# shifts (3, 5, 6, 7) are refused BY NAME below until EFFECTS-W1 item 9b's generator lands:
+# `layer()` accepts them (scene_dsl.emp:1006 bounds 3..7), so without this the emission would
+# fail on an undefined Label and name a missing symbol instead of the authoring mistake.
+ROW_REMAP_LADDERS = {4: "RowRemapLadder_Waterline16"}
 
 
 # --- factor vocabulary (contract §2.1: "named FACTOR_* or {s1,s2,op}") --------
@@ -634,7 +658,7 @@ def load_scene(path: str) -> dict:
     for i, layer in enumerate(layers):
         if not isinstance(layer, dict):
             _refuse(path, f"layers[{i}] must be an object, got {type(layer).__name__}")
-        _check_keys(path, layer, LAYER_KEYS, LAYER_IGNORED_KEYS, None,
+        _check_keys(path, layer, LAYER_KEYS, LAYER_IGNORED_KEYS, LAYER_REFUSED_KEYS,
                     f"layers[{i}]")
         for required in ("world_y", "fa", "fb"):
             if required not in layer:
@@ -1265,21 +1289,182 @@ def declared_patch_channels(game: str = "sonic4", repo: str = REPO) -> dict:
     "not checkable" must not print the same.
     """
     channels = {}
+    for site in walk_patch_sites(game, repo):
+        channels.setdefault(site["channel"], []).append(
+            f"{site['file']} {site['kind']}")
+    return channels
+
+
+def walk_patch_sites(game: str = "sonic4", repo: str = REPO) -> list:
+    """Every channel-consuming site in one game's effects library, in file order.
+
+    ONE WALK, TWO CONSUMERS, and the second one is why the bounds are kept. This walk
+    used to read each `patchable(` for its `ch:` and DROP the `lo:`/`hi:` beside it —
+    the only place in the repo where a band's screen extent is written down. Aurora's
+    timeline strip could therefore author a sweep whose travel leaves its channel's
+    band and say nothing, because the bounds were unknowable to it. They are now
+    captured here and published by `render_channel_bands()`; see RASTER-CHBAND-1.
+
+    THE WINDOW IS CLIPPED AT THE NEXT `patchable(`. The 400-char scan is the one this
+    function has always used, but reading three fields out of it instead of one makes
+    a cross-call read possible: a record missing its own `lo:` would otherwise silently
+    inherit the NEXT record's bounds and publish a band nobody authored. Clipping means
+    a missing bound is a refusal instead — see the `_refuse` below.
+    """
+    sites = []
     lib = os.path.join(repo, "games", game, "data", "effects")
     if not os.path.isdir(lib):
-        return channels
+        return sites
     for name in sorted(os.listdir(lib)):
         if not name.endswith(".emp"):
             continue
-        with open(os.path.join(lib, name), "r") as f:
+        path = os.path.join(lib, name)
+        with open(path, "r") as f:
             src = f.read()
-        for m in re.finditer(r"patchable\s*\(", src):
-            q = re.search(r"\bch\s*:\s*(\d+)", src[m.end():m.end() + 400])
-            if q:
-                channels.setdefault(int(q.group(1)), []).append(f"{name} patchable()")
-        for m in re.finditer(r"SceneAnchor\s*\.\s*At\s*\(\s*(\d+)", src):
-            channels.setdefault(int(m.group(1)), []).append(f"{name} SceneAnchor.At()")
-    return channels
+        starts = [m.end() for m in re.finditer(r"patchable\s*\(", src)]
+        for i, start in enumerate(starts):
+            stop = min(start + 400, starts[i + 1] if i + 1 < len(starts) else len(src))
+            window = src[start:stop]
+            q = re.search(r"\bch\s*:\s*(-?\d+)", window)
+            if not q:
+                continue
+            line = src.count("\n", 0, start) + 1
+            lo = re.search(r"\blo\s*:\s*(-?\d+)", window)
+            hi = re.search(r"\bhi\s*:\s*(-?\d+)", window)
+            if not lo or not hi:
+                _refuse(path, f"the `patchable(` at line {line} declares `ch: "
+                              f"{q.group(1)}` but no "
+                              f"{'`lo:`' if not lo else '`hi:`'} inside its own call. "
+                              f"Every patchable record carries a band — "
+                              f"`engine/effects/raster_dsl.emp` takes lo/hi as required "
+                              f"arguments — so this is either a call this 400-char scan "
+                              f"cannot see the end of, or a spelling it does not know. "
+                              f"Refusing rather than publishing a channel with no band: "
+                              f"the generated sidecar this walk feeds is the ONLY place "
+                              f"an editor can learn a channel's screen extent, and a "
+                              f"channel silently missing from it reads as \"no band "
+                              f"declared\", which is the one answer that must never be "
+                              f"guessed.")
+            sites.append({"channel": int(q.group(1)), "file": name, "line": line,
+                          "kind": "patchable()",
+                          "lo": int(lo.group(1)), "hi": int(hi.group(1))})
+        for m in re.finditer(r"SceneAnchor\s*\.\s*At\s*\(\s*(-?\d+)", src):
+            sites.append({"channel": int(m.group(1)), "file": name,
+                          "line": src.count("\n", 0, m.start()) + 1,
+                          "kind": "SceneAnchor.At()", "lo": None, "hi": None})
+    return sites
+
+
+# THE TWO EDGES DO DIFFERENT THINGS, AND A CONSUMER TOLD OTHERWISE WILL WARN WRONG.
+# Past `hi` Raster_BuildSchedule DROPS the record — no fire is emitted, so the band is
+# not pinned to hi, it is GONE until the latched line comes back inside [lo, hi]. Below
+# `lo` the record is still emitted, CLAMPED UP to the floor, because the frame-top ship
+# covers the rows above. Deliberate, and asymmetric.
+#
+# THESE LINE NUMBERS ARE DERIVED, NOT WRITTEN DOWN. `Raster_GetChannelBand`'s own banner
+# spent months citing :895-901 for this clamp and calling it symmetric (both corrected
+# 2026-09-04); a sidecar that hardcoded the same two facts would rot the same way and
+# take an editor's warning with it. So each edge is located by matching the INSTRUCTION
+# in engine/effects/raster.emp, and a marker that stops matching — or matches twice — is
+# a refusal, not a stale number quietly published to aurora.
+_EDGE_MARKERS = (
+    ("hi", "drop", r"^[ \t]*bgt[ \t]+\.suppress\b",
+     "Past hi the record is NOT EMITTED this frame: no boundary is drawn anywhere and "
+     "the band vanishes until the latched line re-enters [lo, hi]. It does NOT pin to hi."),
+    ("lo", "clamp_up", r"^[ \t]*move\.w[ \t]+\(a0\), d2[ \t]*//[ \t]*clamp UP",
+     "Below lo the record IS still emitted, clamped UP to lo, so the boundary pins at the "
+     "top of the band and stays visible. The frame-top ship covers what is above it."),
+)
+
+
+def _edge_behaviour(repo: str = REPO) -> dict:
+    """Each band edge's behaviour, with the engine line that implements it, located now."""
+    path = os.path.join(repo, "engine", "effects", "raster.emp")
+    with open(path, "r") as f:
+        lines = f.read().splitlines()
+    edges = {}
+    for edge, behaviour, pattern, note in _EDGE_MARKERS:
+        hits = [i + 1 for i, ln in enumerate(lines) if re.match(pattern, ln)]
+        if len(hits) != 1:
+            _refuse(path, f"the `{edge}` band edge's marker matched {len(hits)} lines "
+                          f"(expected exactly 1) for /{pattern}/. This walk publishes "
+                          f"`{behaviour}` at the {edge} edge to every editor that reads "
+                          f"the generated channel-band sidecar, and it refuses to publish "
+                          f"a behaviour it can no longer point at. If Raster_BuildSchedule "
+                          f"changed, fix the marker AND re-read the asymmetry: the hi edge "
+                          f"is a DROP and the lo edge is a CLAMP, and an editor that is "
+                          f"told they are the same warns in the wrong direction.")
+        edges[edge] = {"behaviour": behaviour, "note": note,
+                       "engine": f"engine/effects/raster.emp:{hits[0]}"}
+    return edges
+
+
+def channel_bands_path(game: str = "sonic4", repo: str = REPO) -> str:
+    """Where the generated read-only channel-band sidecar lives."""
+    return os.path.join(repo, "games", game, "data", "generated",
+                        "effects_channel_bands.json")
+
+
+def render_channel_bands(game: str = "sonic4", repo: str = REPO) -> str:
+    """The channel -> {lo, hi, source} sidecar, as JSON text. Reads only; writes nothing.
+
+    WHAT IT IS FOR, in one sentence: `patchable(fires, ch, lo, hi)` is hand-authored `.emp`
+    the editor cannot read, so aurora's timeline strip has no way to know that a sweep it
+    just authored — peak `256 >> amp_shift` px, a document key it already holds — does not
+    fit the band its channel is confined to. A 64 px sweep on a 40-line band was authorable
+    and silent. This publishes the missing half of that comparison. Booked RASTER-CHBAND-1.
+
+    IT IS DERIVED AND READ-ONLY. Nothing reads it back into the build; it is an export.
+    That is exactly the shape that goes vacuous unnoticed, so two things watch it: a
+    channel whose `patchable(` carries no `lo:`/`hi:` is a REFUSAL in `walk_patch_sites`
+    (an empty map can therefore only mean a library with no `patchable(` at all), and the
+    committed artifact is compared against a fresh render by `effects_gen.py check`, which
+    build.sh runs build-fatally. An emptied sidecar is a red build, not a quiet export.
+    """
+    channels = {}
+    for site in walk_patch_sites(game, repo):
+        if site["lo"] is None:
+            continue                      # SceneAnchor.At() consumes a channel, declares no band
+        ch = str(site["channel"])
+        if ch in channels:
+            continue                      # guard 11 refuses two records on one channel; first wins
+        channels[ch] = {
+            "lo": site["lo"], "hi": site["hi"],
+            "lines": site["hi"] - site["lo"] + 1,
+            "source": f"games/{game}/data/effects/{site['file']}:{site['line']}",
+        }
+    doc = {
+        "_generated_by": "GENERATED by tools/effects_gen.py. DO NOT EDIT; "
+                         "run `effects_gen.py emit`.",
+        "schema": "aeon-effects-channel-bands/1",
+        "game": game,
+        "units": "SCREEN LINES, 1:1 with the authored patchable(lo:, hi:). Not fire lines: "
+                 "the engine subtracts 1 once, in Raster_BuildSchedule. Do not convert.",
+        # ⚠ PEAK-TO-PEAK, NOT PEAK. The engine's own ladder ensure
+        # (engine/effects/raster.emp:397) compares `2 * (SINE_AMPLITUDE >> shift)` against
+        # SCREEN_HEIGHT -- the TRAVEL, not the excursion. This sentence said "peak excursion
+        # (256 >> amp_shift)" until 2026-09-04 and was wrong by a factor of two IN THE
+        # PERMISSIVE DIRECTION: on channel 1 (2 lines) an amp_shift of 7 gives excursion 2,
+        # which "fits", and travel 4, which cannot -- so a warning written faithfully to the
+        # old sentence green-lit the exact mistake this file exists to catch, on the narrower
+        # of the two live channels. Found by the aurora lane before anything was built
+        # against it.
+        "how_to_use": "A sweep on channel c fits when its PEAK-TO-PEAK TRAVEL "
+                      "(2 * (256 >> amp_shift), whole pixels) is <= channels[c].lines. "
+                      "It is travel, not peak excursion: the engine's own ladder ensure "
+                      "(engine/effects/raster.emp:397) compares 2 * (SINE_AMPLITUDE >> shift) "
+                      "against the screen. `lines` is an INCLUSIVE COUNT of lines in [lo, hi], "
+                      "and travel is a DISTANCE, so a sweep of travel == lines is the widest "
+                      "that fits. THE TEST IS ONE-DIRECTIONAL: travel > lines is a CERTAIN "
+                      "refusal and worth warning on; travel <= lines is CANNOT TELL, never a "
+                      "clearance -- the latched line is (anchor - Camera_Y), so where the sweep "
+                      "sits inside [lo, hi] is camera-dependent and unknowable at author time. "
+                      "Leaving the band is NOT symmetric: read `edges` below before writing "
+                      "the warning.",
+        "edges": _edge_behaviour(repo),
+        "channels": channels,
+    }
+    return json.dumps(doc, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
 
 
 def _check_patch_context(path: str, preset: dict, caps: int, live: dict, game: str) -> None:
@@ -1697,6 +1882,60 @@ def render_drift(path: str, value, where: str) -> str:
     return f"SceneDrift.Rate({_render_int(path, rate, where + '.rate')})"
 
 
+def render_row_remap(path: str, value, where: str) -> str:
+    """`{"plane_y": N, "height_shift": N}` → `SceneRemap.Ladder(<Label>, N, N)`.
+
+    THE PAYLOAD IS FLAT AND SPELLS NO VARIANT TAG, which is the house pattern rather than a
+    shortcut: `drift` is `{"rate": N}`, `vsplit` is `{"at": N}`, `curve` is `{"to": F}`, and
+    none of the three names its `SceneDrift.Rate` / `SceneVSplit.At` / `SceneCurve.To` tag.
+    A `rowRemap` spelling `"ladder"` would be the first, for a variant with no sibling. It
+    takes two fields rather than one, so it uses `_fields` where those three use `_single_arm`.
+
+    BOTH NUMBERS ARE FORWARDED 1:1, VERBATIM, WITH NO UNIT CONVERSION — the standing rule on
+    this seam (`patch_world_ys`' own banner: "there is no `* 256` anywhere on this path and
+    there must never be one"). `height_shift` is where a helpful editor does the most damage:
+    it is a SHIFT and `H = 1 << height_shift`, so an editor presenting "band height = 16
+    lines" and exporting `16` asks for H = 65536. `scene_dsl.emp:1006` catches 16 because it
+    is outside 3..7 — but every value 3..7 is legal, so a conversion bug inside that window
+    lands as a band four times too tall rather than as a refusal. The editor may DISPLAY
+    `1 << height_shift`; it must EXPORT the shift.
+
+    ABSENT AND `"none"` BOTH EMIT NO ARGUMENT, which follows the three siblings in
+    `render_layer` rather than the key-shape note's §5 table, and costs nothing to do so:
+    `layer()`'s default is `SceneRemap.None` (scene_dsl.emp:860) and a NULL `brm_ladder` is
+    the per-band gate (parallax.emp:419), so the two lower to the same eight bytes either
+    way. The distinction is an authoring one, not a ROM one; making this one key emit an
+    explicit `SceneRemap.None` where `curve`/`vsplit`/`drift` emit nothing would be a
+    difference a reader has to explain with no byte behind it.
+    """
+    body = value
+    if not isinstance(body, dict):
+        _refuse(path, f"{where}: must be \"none\" or an object carrying plane_y and "
+                      f"height_shift, got {type(body).__name__}")
+    vals = _fields(path, body, ("plane_y", "height_shift"), where)
+    plane_y, height_shift = vals
+    if not isinstance(height_shift, int) or isinstance(height_shift, bool):
+        _refuse(path, f"{where}.height_shift: must be an integer 3..7, got "
+                      f"{height_shift!r}. IT IS A SHIFT, NOT A LINE COUNT: H = "
+                      f"1 << height_shift, so 4 is a 16-line ladder and 6 is 64 lines. "
+                      f"If you meant 64 LINES, you want 6.")
+    if height_shift not in ROW_REMAP_LADDERS:
+        _refuse(path, f"{where}.height_shift: {height_shift} has no ladder. `layer()` "
+                      f"accepts shifts 3..7 (engine/level/scene_dsl.emp:1006), but only "
+                      f"{', '.join(str(s) for s in sorted(ROW_REMAP_LADDERS))} "
+                      f"{'has' if len(ROW_REMAP_LADDERS) == 1 else 'have'} a ladder the "
+                      f"engine can generate today: `row_remap_ladder16()` "
+                      f"(engine/level/parallax_dsl.emp:220) is the only one that exists, "
+                      f"and its H is the module const ROW_REMAP_H16 = 16 rather than a "
+                      f"parameter. Refusing here, by name, because the alternative is an "
+                      f"emission that fails on an undefined Label and names a missing "
+                      f"symbol instead of the thing you authored. The generated ladder for "
+                      f"the other shifts is EFFECTS-W1 item 9b.")
+    return (f"SceneRemap.Ladder({ROW_REMAP_LADDERS[height_shift]}, "
+            f"{_render_int(path, plane_y, where + '.plane_y')}, "
+            f"{_render_int(path, height_shift, where + '.height_shift')})")
+
+
 def render_anchor(path: str, value, where: str) -> str:
     """`{"at": {channel, dsa, dsb}}` → `SceneAnchor.At(channel, dsa, dsb)`."""
     at = _single_arm(path, value, "at", where)
@@ -1732,6 +1971,9 @@ def render_layer(path: str, layer: dict, where: str,
         args.append(f"vsplit: {render_vsplit(path, layer['vsplit'], where + '.vsplit')}")
     if not is_absent(layer.get("drift")):
         args.append(f"drift: {render_drift(path, layer['drift'], where + '.drift')}")
+    if not is_absent(layer.get("rowRemap")):
+        args.append("rowRemap: " + render_row_remap(
+            path, layer["rowRemap"], where + ".rowRemap"))
     for key, arm in LAYER_TABLE_ATTACHMENTS.items():
         if not is_absent(layer.get(key)):
             args.append(f"{key}: " + render_table_attachment(
@@ -3105,6 +3347,9 @@ if __name__ == "__main__":
             path, text = generate()
             _atomic_write(path, text)
             print(f"effects_gen: wrote {os.path.relpath(path, REPO)}")
+            band_path, band_text = channel_bands_path(), render_channel_bands()
+            _atomic_write(band_path, band_text)
+            print(f"effects_gen: wrote {os.path.relpath(band_path, REPO)}")
         elif cmd == "check":
             # THE DRIFT GATE. Regenerate in memory and compare against the committed
             # artifact — the generated tree is a committed input to the build, so
@@ -3127,7 +3372,29 @@ if __name__ == "__main__":
                 print("  Run tools/regenerate-level.sh (or `python3 "
                       "tools/effects_gen.py emit`) and commit the result.")
                 sys.exit(1)
+            # THE SIDECAR RIDES THE SAME GATE, and it needs one because nothing in the
+            # build READS it — it is an export to aurora, the shape that goes vacuous
+            # unnoticed. Here an emptied or stale channel map is a red build.
+            band_path, band_text = channel_bands_path(), render_channel_bands()
+            if not os.path.isfile(band_path):
+                print(f"effects_gen: MISSING — {os.path.relpath(band_path, REPO)} does "
+                      f"not exist. It is the generated read-only band sidecar aurora "
+                      f"reads to warn about a sweep that leaves its channel's band "
+                      f"(RASTER-CHBAND-1).")
+                print("  Run `python3 tools/effects_gen.py emit` and commit it.")
+                sys.exit(1)
+            with open(band_path, "r") as f:
+                have_bands = f.read()
+            if have_bands != band_text:
+                print(f"effects_gen: DRIFT — {os.path.relpath(band_path, REPO)} is not "
+                      f"what the current effects library declares. A `patchable(` band "
+                      f"moved, or the sidecar was hand-edited.")
+                print("  Run tools/regenerate-level.sh (or `python3 "
+                      "tools/effects_gen.py emit`) and commit the result.")
+                sys.exit(1)
             print("effects_gen: OK — generated effects module matches its inputs")
+            print(f"effects_gen: OK — channel-band sidecar matches the effects library "
+                  f"({len(json.loads(band_text)['channels'])} banded channel(s))")
         else:
             found = load_all_scenes()
             presets = load_all_presets()
