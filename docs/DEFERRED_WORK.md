@@ -24499,27 +24499,74 @@ Six rows from his display session, banked verbatim. Order is the hub's dispatch 
 exactly, typos included** — a cleaned-up paraphrase is where an ask quietly becomes the
 thing we already built, which is the failure F2 below actually is.
 
-## F2 — the plane-swap band he cannot see. NOT A LANDING FAILURE.
+## F2 — the plane-swap band he cannot see. ✅ BUILT 2026-09-04 (band lands; picture UNSEEN)
 
 > "Also the band that's supposede to have the fg in the bg at the top, I don't see it."
 
-`8bf6df74` landed and both spellings really are at line 3 (`OJZ_BASE_SWAP_LINE = 3`;
-`ojz_sec6_baseswap.json` `"line": 3`). **Two candidate causes, neither yet captured:**
+**CAUSE 1 WAS IT.** `8bf6df74` landed and both spellings really were at line 3, and the
+program was ONE `reg_set` with no OFF edge — so "swap at line 3" put Plane B's nametable
+in Plane A **from line 3 to the bottom: the whole screen**. Line 160 read as a band only
+because 64 lines of screen happened to remain under it; line 3 *deleted* the boundary.
+Nothing to see, from a correct build. Cause 2 (chord/shape) was not the fault, but is still
+true and is what he must press — see below.
 
-1. **The program is ONE op with no paired OFF edge, by design** — `Flush_VDP_Shadow`
-   restores reg $02 at every frame top. So "swap at line 3" puts Plane B's nametable in
-   Plane A **from line 3 to the bottom: the whole screen**. Line 160 showed a boundary;
-   line 3 *deleted* it. Nothing to see, from a correct build.
-2. **Chord/shape.** `OJZ_BaseSwap` (START+UP row 1) is DEBUG-gated to zero words
-   (`OJZ_BASE_SWAP_EMIT_WORDS`), and `plane_base_swap_gate.py` asserts its absence from
-   release — **on `s4.bin` that chord is structurally empty**. The preset twin is not
-   gated: **START+A preset 6** emits in every shape.
+**WHAT SHIPPED: the second edge.** `OJZ_BASE_SWAP_END_LINE = 64` and a second `fire`
+writing `OJZ_BASE_SWAP_HOME` — the very word `Flush_VDP_Shadow` puts back at frame top,
+folded through the same helper, never transcribed. Band = screen lines 3..64, 61 lines. The
+"no paired OFF edge" banner in `ojz_effects.emp` had over-read its own ruling by one scope
+and is corrected in place: `raster.emp`'s rule forbids a program carrying **frame-top**
+register words (the flush makes them unnecessary); it says nothing about a second
+**mid-frame** fire. Both spellings moved together, per `8bf6df74`'s own lockstep ruling —
+the hand fixture AND `ojz_sec6_baseswap.json`.
 
-**What his words ask for is a band AT THE TOP**, which needs TWO fires (line 3 → Plane B,
-~line 64 → back to Plane A). `8bf6df74` read it as moving the swap *line* to the top.
-The "no paired OFF edge" clause governs the FRAME-TOP restore and does not forbid a
-mid-frame swap-back, so this is expressible today. **Capture before changing anything.**
-Rider: `ojz_effects.emp:1466` still says the preset is at line 160. Prose only.
+**The 64 is derived, not picked**: floor = the size argument the retired line-160 value
+already bought (64 lines of band was judged "not a one-line artifact"); ceiling =
+`OJZ_WATER_LINE` 120, kept 56 lines clear so the lab's raster cycle never puts two effects'
+edges near each other; tiebreak = 64 is 8 tile rows exactly. Written out at the constant.
+
+**Schema decision (the document needed a second edge and had no way to say one):** ONE new
+OPTIONAL key, `base_swap.restore_line`. Rejected `swaps: [{line,target}, …]` — more general
+than the mechanism (there are two nametables, so the only second value is Plane A's own
+base) and it would make an author TYPE the home address, a fact the engine already owns;
+the drift renders as a broken picture with every check green. So `target` is authored (the
+author chooses which map to borrow) and the restore target is DERIVED: `effects_gen.py`
+emits `VRAM_PLANE_A` as a NAME and imports it (`engine.constants` is a placed module, not a
+comptime helper — an unimported name silently becomes a link extern). Optional because a
+swap running to the bottom of the frame is a legitimate shape and ABSENCE is how this
+schema already spells "off" (the hub's M1 `boundary` ruling).
+
+**Gate moved with it.** `plane_base_swap_gate.py` derives a 15-word two-edge image (was 11),
+with named diagnostics for the OFF opcode (word 11), the OFF argument (word 12) and a
+both-edges-carry-the-same-word arm; new UNMEASURABLE refusals for a non-ascending pair and
+for a band wider than one reg $0A reload. The `--lst`/`--rom`-follow-`--shape` fix
+(`2d28fda2`) is untouched and `--shape debug --lst s4.lst` still exits 1.
+
+**⚠ STILL OWED — THE PICTURE.** Nobody has looked at it. Every check here is a ROM-image or
+source-level check: they prove the two ops and their arguments reach the ROM at the derived
+addresses, and prove nothing about what the VDP draws. `tools/base_swap_witness.py` was
+reshaped for the band (15 words; **three** regions — above must not move, INSIDE must all
+move, BELOW must not move, with both edge rows excluded as partial rows) and **was not run**:
+it boots an emulator, and the parcel ran as a background agent where emulator tools deadlock.
+Its region result is a prediction with an instrument to test it. **The BELOW-the-band region
+is the new assertion and the only one that can tell a band from a swap that runs off the
+bottom of the screen** — which is the exact failure this row is about. Run:
+`python3 tools/base_swap_witness.py --rom s4.debug.bin --lst s4.debug.lst`.
+
+**WHAT TO PRESS.** The hand fixture `OJZ_BaseSwap` is DEBUG-gated to zero words, and the
+gate asserts its absence from release — **on `s4.bin` that chord is structurally empty**. So:
+* `s4.debug.bin` (`DEBUG=1 ./build.sh`), **START held + UP** twice — `Debug_BandDemoHotkey`'s
+  `.raster_table` row 1 is `OJZ_BaseSwap` (row 0 is `OJZ_BandDemo`).
+* Either shape: **walk right into section 6**, which binds the generated twin
+  `EditorRaster_OJZ_Act1_ojz_sec6_baseswap` through `OJZ_Preset_Sec6` — that one is not
+  DEBUG-gated and ships in `s4.bin` too. **START + A** cycles presets onto the current
+  section if walking there is inconvenient.
+A screenshot diff is NOT the check: this scene animates (36.8% pixel change measured between
+two captures of the *same* program). A band has an EDGE; look for a boundary at row 3 and
+another at row 64, or run the witness, which asserts exactly that.
+
+Rider CLOSED: `ojz_effects.emp`'s preset paragraph said `{line: 160, target: 57344}` — wrong
+since `8bf6df74` — and `act_descriptor.emp`'s section-6 note said "64 lines above the screen
+bottom", which described the retired program. Both now say what is true.
 
 ## F4 — an on-screen readout of the active effect
 
