@@ -233,6 +233,96 @@ pub comptime fn v_column_floor(center: int, max_offset: int) -> [i8; 256] {
     }
 }
 
+// ---- v_column_floor_screen — EFFECTS-W1 F3, the SCREEN-ANCHORED perspective floor ----
+//
+// THE ONE FACT THAT DECIDES THIS GENERATOR'S SHAPE: a per-column V-scroll table is indexed
+// by SCREEN column, never by plane column. VSRAM holds 20 column-pair entries in H40 and
+// each covers a fixed 16-px slice OF THE DISPLAY; a plane's H-scroll slides art past those
+// twenty stationary slots, it does not carry them. (rasterscroll.com, "Row/Column
+// Scrolling" and "The Inner Workings of the VDP"; Eke-Eke, SpritesMind t=737.) So the
+// vanishing point expressed through this table is inherently a viewport quantity — which is
+// exactly the EFFECTS-W1 F1 line: an effect is screen-based only when it names a reason of
+// that kind, and "a vanishing point is where the viewer's optical axis meets the floor" is
+// that reason.
+//
+// WHAT v_column_floor ABOVE GETS WRONG, and it is two separate things:
+//
+//   1. THE APEX IS OUTSIDE THE SCREEN. Only twenty entries are ever consumed (the fill loop
+//      in Parallax_Step5_Vscroll runs `moveq #20-1, d6`), so at phase 0 the visible shape is
+//      entries 0..19 — and `center: 20` puts the V's minimum at entry 20, one column PAST
+//      the right edge. The floor never converges on screen; it is a monotone ramp. That is
+//      the "the middle is [not] in the middle bottom of the screen" the owner reported.
+//   2. THE SHAPE DIES AT ENTRY 40. `if i < 40 { i } else { 39 }` clamps the index, so
+//      entries 40..255 are all one constant. A scene with a non-zero sample speed walks the
+//      read window into that flat region within 40 frames and stays there for the remaining
+//      216 of the 256-frame cycle: the effect is a constant plane-B offset with no shape at
+//      all for 84% of its period.
+//
+// AND WHY THE `/ center` NORMALISATION HAS TO GO WITH IT. It divides the ramp by the apex
+// column, so the arm's SLOPE is a function of where the apex sits: move the apex and the
+// cone changes steepness. Read as geometry that is a floor whose pitch changes as you look
+// around, which is not a floor. A perspective cone has ONE slope; where the apex sits only
+// decides how much of each arm is on screen. So this generator takes the slope (as the
+// offset a column `V_FLOOR_HALF_COLS` away from the apex receives) and never normalises.
+// The web sweep flagged the same hazard from the other side as an untested hypothesis — a
+// V sampled with unequal arm lengths "breathes" — and the fix it names is the one taken
+// here: keep BOTH arms full length in the table so the window can sit anywhere.
+//
+// SHAPE: 256 entries, apex (offset 0) at V_FLOOR_CENTER_IDX, both arms full length to the
+// table ends. Every index is a real sample — there is no sentinel region — so the 20-entry
+// read window is a correct cone slice at ANY phase, which is precisely what lets the
+// runtime move the vanishing point by moving the phase instead of rebuilding the table.
+pub const V_FLOOR_CENTER_IDX = 128   // the apex's table index
+pub const V_FLOOR_HALF_COLS  = 10    // half of H40's 20 column-pairs = the screen half-width
+
+// One sample. Split into a named fn for row_remap_entry16's reason: an `if` in block-tail
+// position inside a `comptime for` element folds to `()` SILENTLY (docs/EMP_PITFALLS.md §1),
+// and this body needs two of them. Flat statement-`if` accumulation, never nested.
+comptime fn v_floor_screen_sample(i: int, edge_offset: int) -> int {
+    let d = iabs(i - V_FLOOR_CENTER_IDX)
+    comptime var v = (d * edge_offset) / V_FLOOR_HALF_COLS
+    if v >  127 { v =  127 }
+    if v < -128 { v = -128 }
+    return v
+}
+
+// edge_offset — the raw sample handed to a column one screen half-width (10 column-pairs,
+// 160 px) from the apex. The runtime still divides it by the scene's amplitude shift, so
+// this is the shape's units, not pixels.
+pub comptime fn v_column_floor_screen(edge_offset: int) -> [i8; 256] {
+    return comptime for i in 0..256 {
+        v_floor_screen_sample(i, edge_offset)
+    }
+}
+
+// GUARD — the shape pins, on the same contract as deform_triangle's above and for the same
+// reason: these run on EVERY build (parallax_dsl is inside every profile's use closure), so
+// a fold to `()` or a slope regression cannot reach a ROM silently.
+//
+// The clamp exists for the TYPE, not for the effect. The reachable read window is
+// `phase .. phase+19` with `phase = V_FLOOR_CENTER_IDX - vp_col` and vp_col in 0..19, so the
+// indices any frame can touch are V_FLOOR_CENTER_IDX-19 .. V_FLOOR_CENTER_IDX+19 — |d| <= 19,
+// and at edge_offset 24 that peaks at 45. The last pin below is what holds that: if the
+// clamp ever bites inside the reachable window the cone is being flattened on one arm and
+// the floor tilts wrong, which is invisible in a screenshot.
+const VfsPin = v_column_floor_screen(edge_offset: 24)
+ensure(VfsPin[V_FLOOR_CENTER_IDX] == 0,
+       "v_column_floor_screen guard: the apex sample must be 0, got {VfsPin[V_FLOOR_CENTER_IDX]}")
+// THE INDEX IS THE LITERAL 10, NOT V_FLOOR_HALF_COLS, AND THAT IS THE POINT. Written the
+// obvious way — `VfsPin[V_FLOOR_CENTER_IDX + V_FLOOR_HALF_COLS]` — these two pins index
+// THEMSELVES by the constant they are pinning, so widening the slope denominator moves the
+// pin along with the curve and both stay green. Measured 2026-09-04: with the denominator
+// mutated 10 -> 20 these two passed and only the literal-indexed pins below went red. A pin
+// that travels with its subject is not a pin.
+ensure(VfsPin[V_FLOOR_CENTER_IDX + 10] == 24,
+       "v_column_floor_screen guard: the column 10 pairs (one H40 screen half-width) right of the apex must get edge_offset (24), got {VfsPin[V_FLOOR_CENTER_IDX + 10]} — the arm's SLOPE has moved")
+ensure(VfsPin[V_FLOOR_CENTER_IDX - 10] == 24,
+       "v_column_floor_screen guard: the curve must be SYMMETRIC about the apex — the column 10 pairs LEFT got {VfsPin[V_FLOOR_CENTER_IDX - 10]}, not 24")
+ensure(VfsPin[V_FLOOR_CENTER_IDX + 5] == 12,
+       "v_column_floor_screen guard: the arm must be LINEAR — half a screen half-width out should be half edge_offset (12), got {VfsPin[V_FLOOR_CENTER_IDX + 5]}")
+ensure(VfsPin[V_FLOOR_CENTER_IDX + 19] == 45 && VfsPin[V_FLOOR_CENTER_IDX - 19] == 45,
+       "v_column_floor_screen guard: the FURTHEST reachable sample (19 column-pairs from the apex, the phase extreme) must be an unclamped 45 on both arms, got {VfsPin[V_FLOOR_CENTER_IDX + 19]} and {VfsPin[V_FLOOR_CENTER_IDX - 19]} — a clamp inside the read window silently flattens one arm of the cone")
+
 // ---- the row-remap ladder (EFFECTS-W1 item 9, the Hydrocity waterline) ----
 //
 // A ladder is (H+1) rows of H bytes. Row `r` is selected each frame as `H - |p|`, where p is

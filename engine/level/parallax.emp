@@ -566,7 +566,9 @@ ensure(((sizeof(band_ext) * BAND_EXT_N + sizeof(band_curve) * BAND_CURVE_N + siz
 // become an array and the pass below to become a loop, which is a deliberate later cost
 // rather than a hidden one. It is inside this span for the accumulator's reason — the
 // long-counted Parallax_Init clear zeroes it at level init with no new code.
-const PARALLAX_STATE_LONGS = (100 + 18 * MAX_PARALLAX_BANDS) / 4 + ((sizeof(band_ext) * BAND_EXT_N + sizeof(band_curve) * BAND_CURVE_N + sizeof(band_drift) * BAND_DRIFT_N + sizeof(band_remap) * BAND_REMAP_N) * MAX_PARALLAX_BANDS) / 4 + BAND_CURVE_N + BAND_DRIFT_N * MAX_PARALLAX_BANDS + 2 * BAND_REMAP_N
+// The 104 was 100 until 2026-09-04: EFFECTS-W1 F3 added Parallax_VP_Prev_Cam_X and
+// Parallax_VP_Lean, one long, to the ceiling-independent head of the region.
+const PARALLAX_STATE_LONGS = (104 + 18 * MAX_PARALLAX_BANDS) / 4 + ((sizeof(band_ext) * BAND_EXT_N + sizeof(band_curve) * BAND_CURVE_N + sizeof(band_drift) * BAND_DRIFT_N + sizeof(band_remap) * BAND_REMAP_N) * MAX_PARALLAX_BANDS) / 4 + BAND_CURVE_N + BAND_DRIFT_N * MAX_PARALLAX_BANDS + 2 * BAND_REMAP_N
 ensure(extern("Parallax_Shadow_Bands") - extern("Parallax_Curve_Carry") == 4 * BAND_CURVE_N,
        "the curve carry reserves {extern(\"Parallax_Shadow_Bands\") - extern(\"Parallax_Curve_Carry\")} bytes, not the {4 * BAND_CURVE_N} this capability needs — set CURVE_CARRY_WORDS in engine/ram.emp (it is derived from BAND_CURVE_BYTES, so the real edit is that mirror). A short reservation makes the fill's cross-band carry alias the shadow band array")
 // The drift accumulator's own reservation, the exact twin of the curve-carry pin above and
@@ -901,6 +903,97 @@ ensure(PCFG_VDS_DECLINE_BORROW > PCFG_VDS_SHIFT_MASK,
        "the per-scene borrow flag ({PCFG_VDS_DECLINE_BORROW}) has fallen inside the authored amplitude ladder (0..{PCFG_VDS_SHIFT_MASK}) — scene()'s v_deform_shift_raw guard admits every value up to 15, so a scene authoring the widest legal shift would silently decline the borrow")
 ensure(PCFG_VDS_DECLINE_BORROW == $80,
        "the per-scene borrow flag is no longer bit 7 ({PCFG_VDS_DECLINE_BORROW}) — Step 5b tests it with `tst.b` + `bmi`, which reads the SIGN of the byte and nothing else. A flag anywhere else needs a `btst` there instead")
+
+// PCFG_VDSP_* — THE SCREEN-ANCHORED VANISHING POINT (EFFECTS-W1 F3, 2026-09-04), packed
+// into the top bit of parallax_config.pcfg_v_deform_speed_bg.
+//
+// TWO MODES FOR ONE BYTE, and which one a scene is in is the byte's sign:
+//
+//   bit 7 CLEAR   TIMER mode, and the only mode before F3. Bits 6-0 are the per-frame phase
+//                 INCREMENT: `Parallax_V_Deform_Phase_BG += speed` each frame, so the read
+//                 window walks the table on a free-running counter with nothing in the world
+//                 or on the screen anchoring it. Right for a rocking-boat tilt
+//                 (DeformTable_Rocking, speeds 0/1/2 — the phase IS the motion). Wrong for a
+//                 vanishing point, which is a place, not a rate.
+//   bit 7 SET     SCREEN-ANCHOR mode. Bits 3-0 are the LEAN GAIN (a left-shift count applied
+//                 to the camera's per-frame X delta). The phase is not accumulated at all —
+//                 it is DERIVED each frame from the camera so the table's apex lands on an
+//                 authored SCREEN pixel. See Parallax_Step5_Vscroll's `.vp_screen_anchor`.
+//
+// WHY THIS BYTE AND NOT A NEW FIELD, verbatim the PCFG_VDS_* argument above and for the same
+// arithmetic: sizeof(parallax_config) is 30, every byte is named, and a thirty-first is odd.
+// The mode bit is only ever consulted inside the `pcfg_v_deform_table_bg != 0` arm — the
+// same arm, the same frame and the same a0 as this field's only other read — and a scene
+// with no per-column V-deform emits 0 here today and forever.
+//
+// WHY THE GAIN NIBBLE IS ONLY FOUR BITS WIDE WHEN THE SPEED LADDER WAS SEVEN: a gain is a
+// SHIFT COUNT on a signed word, so anything past 15 is a `asl.w` the 68000 takes mod 64 and
+// a value past ~5 saturates the lean clamp on the first frame of motion anyway. Bits 6-4 are
+// deliberately left as a hole rather than widened into: the mode's arguments should grow into
+// a named field there (a lean direction, an authored apex X) rather than into a wider gain.
+pub const PCFG_VDSP_SCREEN_ANCHOR = $80   // bit 7 set = derive the phase from the camera
+pub const PCFG_VDSP_GAIN_MASK     = $0F   // the lean gain, bits 3-0 (screen-anchor mode only)
+ensure((PCFG_VDSP_GAIN_MASK & PCFG_VDSP_SCREEN_ANCHOR) == 0,
+       "the screen-anchor flag ({PCFG_VDSP_SCREEN_ANCHOR}) overlaps the lean-gain mask ({PCFG_VDSP_GAIN_MASK}) — an authored gain would read as a mode change, or a mode change would corrupt the gain")
+ensure(PCFG_VDSP_SCREEN_ANCHOR == $80,
+       "the screen-anchor flag is no longer bit 7 ({PCFG_VDSP_SCREEN_ANCHOR}) — Step 5b selects the mode with `tst.b` + `bmi` on the loaded byte, which reads its SIGN and nothing else. A flag anywhere else needs a `btst` there instead")
+// The TIMER ladder must stay clear of the flag. Every shipped timer scene authors 0..3, and
+// scene()'s own guard is what bounds it; this pin is what makes "a timer speed can never be
+// mistaken for a screen anchor" a property of the encoding rather than of the current values.
+pub const SCENE_VDEFORM_SPEED_MAX = $7F   // the widest timer speed the byte can carry
+ensure(SCENE_VDEFORM_SPEED_MAX < PCFG_VDSP_SCREEN_ANCHOR,
+       "the authored V-deform timer speed ceiling ({SCENE_VDEFORM_SPEED_MAX}) has reached the screen-anchor flag ({PCFG_VDSP_SCREEN_ANCHOR}) — a scene authoring the top speed would silently switch Step 5b into screen-anchor mode and hand its speed to the lean gain instead")
+
+// ---- the screen-anchor mode's runtime constants (EFFECTS-W1 F3) ----
+//
+// VSCROLL_COL_SHIFT — pixels-to-column-pair. The VDP's per-column V-scroll granularity is
+// TWO CELLS, i.e. 16 px, and that is silicon: VSRAM holds one entry per 16-px slice OF THE
+// DISPLAY (rasterscroll.com, "The Inner Workings of the VDP"). It is why the apex can only
+// ever sit on a 16-px boundary, and why the lean below is lerped rather than used raw.
+pub const VSCROLL_COL_SHIFT = 4
+// The curve's half-width and the screen's, pinned together. parallax_dsl cannot make this
+// check — it is a COMPTIME_HELPERS module with no imports, so SCREEN_WIDTH is not a name it
+// can see — and its own shape pins index by a LITERAL 10 for exactly that reason. This is
+// where the 10 is earned: half of H40's twenty column-pairs.
+ensure(V_FLOOR_HALF_COLS * 2 == VSCROLL_COL_PAIRS,
+       "the perspective curve's half-width (V_FLOOR_HALF_COLS = {V_FLOOR_HALF_COLS} column-pairs) is not half the screen's ({VSCROLL_COL_PAIRS}) — v_column_floor_screen's edge_offset would no longer be the offset at the screen edge, and its own shape pins (which index by a literal 10) would go red rather than follow it")
+ensure((1 << VSCROLL_COL_SHIFT) * VSCROLL_COL_PAIRS == SCREEN_WIDTH,
+       "VSCROLL_COL_SHIFT ({VSCROLL_COL_SHIFT}) and VSCROLL_COL_PAIRS ({VSCROLL_COL_PAIRS}) do not tile SCREEN_WIDTH ({SCREEN_WIDTH}) — the pixels-to-column conversion in Step 5b's screen-anchor arm would put the apex on the wrong column")
+
+// VP_SCREEN_CENTER_X — where the vanishing point sits with no lean: the middle of the
+// display, which is the owner's own words for this row ("the middle is always in the middle
+// bottom of the screen") AND what the reference does. Batman & Robin's per-column fan is
+// grown outward from a HARD-CODED centre — `lea $ffff9014, a0`, i.e. word index 10 of the
+// twenty, the exact middle (its disasm, code/effects/effects.asm:8288). It never moves that
+// centre in any of its per-column routines. So a gain of 0 here is not a degenerate case: it
+// is B&R's shipped answer, reproduced.
+pub const VP_SCREEN_CENTER_X = SCREEN_WIDTH / 2
+
+// VP_LEAN_MAX — how far, in SCREEN PIXELS, the vanishing point may travel from that centre.
+// 48 px is three column-pairs: the apex reaches column 7 or 13 of the twenty and never
+// leaves the middle third of the display, which is what keeps the owner's sentence TRUE
+// while still letting the point move. A wider clamp is not a free knob — at the extremes one
+// arm of the cone runs out of screen and the floor reads as a one-sided ramp again, which is
+// the defect F3 exists to remove.
+pub const VP_LEAN_MAX = 48
+// The apex column can never leave the buffer, and this is what says so rather than a runtime
+// clamp: with the lean bounded the apex's screen X is VP_SCREEN_CENTER_X +/- VP_LEAN_MAX, and
+// both ends must land on a real column-pair. A wider VP_LEAN_MAX fails HERE, at build time,
+// instead of indexing off the end of the twenty at run time.
+ensure((VP_SCREEN_CENTER_X - VP_LEAN_MAX) >> VSCROLL_COL_SHIFT >= 0,
+       "the vanishing point's leftmost reachable apex ({VP_SCREEN_CENTER_X - VP_LEAN_MAX} px) falls off the left of the column buffer — lower VP_LEAN_MAX ({VP_LEAN_MAX})")
+ensure((VP_SCREEN_CENTER_X + VP_LEAN_MAX) >> VSCROLL_COL_SHIFT <= VSCROLL_COL_PAIRS - 1,
+       "the vanishing point's rightmost reachable apex ({VP_SCREEN_CENTER_X + VP_LEAN_MAX} px) falls past column-pair {VSCROLL_COL_PAIRS - 1} — lower VP_LEAN_MAX ({VP_LEAN_MAX})")
+
+// VP_LEAN_LERP_SHIFT — the lean's approach rate toward the camera-derived target,
+// `lean += (target - lean) >> n`. It is here for a reason the output makes mandatory rather
+// than for taste: the apex is quantised to 16-px column-pairs, so an unfiltered lean sitting
+// near a column boundary would flip the apex between two adjacent columns on alternate
+// frames — a 16-px twitch in the floor, every frame, for a camera doing nothing unusual. The
+// lerp is what keeps the crossing a crossing. Same shape and same reason as the Plane-B
+// scroll lerp (PARALLAX_LERP_SHIFT); a separate constant because the two are answering to
+// different quantisations and there is no reason for them to move together.
+pub const VP_LEAN_LERP_SHIFT = 3
 
 // ---- THE THREE WHOLE-ENTRY COPIES, ALL GENERATED FROM ONE SIZE (P3 Task 8 Step 3) ----
 //
@@ -2579,11 +2672,103 @@ proc Parallax_Step5_Vscroll () clobbers(d0-d7/a0-a6) {
         move.l  parallax_config.pcfg_v_deform_table_bg(a0), d0
         beq     .v_done
 
-        // advance v_deform_phase_bg by speed
+        // ---- THE PHASE, AND THE TWO WAYS A SCENE GETS ONE (EFFECTS-W1 F3) ----
+        //
+        // The phase is the table index the LEFTMOST screen column reads, so it decides
+        // where in the 256-entry curve the twenty visible columns sit — i.e. where the
+        // shape's apex lands ON THE SCREEN. There are two answers, and the mode bit in
+        // pcfg_v_deform_speed_bg picks between them (PCFG_VDSP_*, module banner):
+        //
+        //   TIMER (bit 7 clear)   phase += speed. A free-running counter; nothing anchors
+        //                         it. Right for a rocking tilt, where the phase IS the
+        //                         motion. WRONG for a vanishing point, which is a place.
+        //   SCREEN ANCHOR (set)   phase is DERIVED from the live camera so the curve's apex
+        //                         lands on a screen pixel we choose. Nothing accumulates:
+        //                         this word is overwritten every frame.
+        //
+        // ONE `bmi` SEPARATES THEM AND IT IS FREE. The byte has to be loaded either way and
+        // `move.b` sets N from bit 7, so the timer scenes pay a not-taken branch and nothing
+        // else. The clear-mode arm below is byte-for-byte the code that was unconditional
+        // here before F3.
         moveq   #0, d3
         move.b  parallax_config.pcfg_v_deform_speed_bg(a0), d3
+        bmi     .vp_screen_anchor
         add.w   d3, Parallax_V_Deform_Phase_BG      // (Parallax_V_Deform_Phase_BG).w
         and.w   #$FF, Parallax_V_Deform_Phase_BG    // (Parallax_V_Deform_Phase_BG).w
+        jbra    .vp_phase_ready
+
+        // ---- the screen-anchored vanishing point ----
+        //
+        // WHY THE APEX IS A SCREEN QUANTITY AND NOT A WORLD ONE, which is the whole of F3
+        // and the half of it that is easiest to get backwards. A per-column V-scroll table
+        // is indexed by SCREEN COLUMN: VSRAM's twenty H40 entries each own a fixed 16-px
+        // slice OF THE DISPLAY, and a plane's H-scroll slides art past those stationary
+        // slots rather than carrying them (rasterscroll.com "Row/Column Scrolling"; Eke-Eke,
+        // SpritesMind t=737). So there is no world coordinate for this table to be anchored
+        // to in the first place, and the F1 standing rule is satisfied by naming the reason:
+        // a vanishing point is where the viewer's optical axis meets the floor, which is a
+        // property of the viewport and of nothing else.
+        //
+        // WHAT THE CAMERA IS ACTUALLY FOR, then. Two things, and only the second is a choice:
+        //   1. It is re-derived EVERY FRAME rather than baked, so the apex cannot drift with
+        //      anything the scene or the act does. That is the fix.
+        //   2. The apex LEANS with the camera's motion, bounded to the middle third of the
+        //      screen. Gain 0 turns the lean off and pins the apex dead centre — and that is
+        //      not a degenerate setting, it is what Batman & Robin ships (its per-column fan
+        //      grows outward from a hard-coded `lea $ffff9014` = column 10 of 20, and none of
+        //      its per-column routines ever move that centre). The lean's precedent is B&R's
+        //      other perspective reference point: its per-LINE horizon IS moved from the
+        //      camera each frame (`sub.w $ffe016.w, d7` then one hoisted divide to
+        //      renormalise, effects.asm:8325-8327). Both are shipped here, one per registry
+        //      slot, so the owner can see the pair and rule.
+        //
+        // NO MULTIPLY AND NO DIVIDE, which is what the references needed and we do not: B&R
+        // pays a `divs.w` per RLE run and Ristar a `muls.w` per run to SCALE their column
+        // profiles. Ours is a fixed-slope curve read at an offset, so moving the apex is an
+        // index subtraction. CODING_CONVENTIONS §2.1's four-point argument is not needed
+        // because there is no such instruction to argue for.
+        //
+        // ONCE PER FRAME, not per column — it runs before the twenty-iteration fill below.
+        // d1 (the packed FG/BG vscroll long) and d2 (current_vscroll_bg) are live across it
+        // and are not touched; d0 holds the table pointer the fill loop needs and is not
+        // touched either. d3/d4/d5 are this arm's scratch, and all three are reloaded by the
+        // fill loop before it reads them.
+    .vp_screen_anchor:
+        and.w   #PCFG_VDSP_GAIN_MASK, d3            // d3 = lean gain (a left-shift count)
+        move.l  Camera_X, d4                        // (Camera_X).w — 16.16
+        swap    d4                                  // d4.w = camera X, whole pixels
+        move.w  d4, d5
+        sub.w   Parallax_VP_Prev_Cam_X, d5          // (Parallax_VP_Prev_Cam_X).w — signed delta
+        move.w  d4, Parallax_VP_Prev_Cam_X          // (Parallax_VP_Prev_Cam_X).w
+        asl.w   d3, d5                              // target lean = delta << gain
+        // The clamp is what makes "the apex never leaves the middle third" a property of the
+        // code rather than of the camera's top speed, and it is what bounds frame 1: the
+        // previous-X word is zeroed by Parallax_Init, so the first delta is the whole camera
+        // X. Without these two compares that frame would throw the apex off the buffer.
+        cmp.w   #VP_LEAN_MAX, d5
+        ble     .vp_lean_hi_ok
+        move.w  #VP_LEAN_MAX, d5
+    .vp_lean_hi_ok:
+        cmp.w   #-VP_LEAN_MAX, d5
+        bge     .vp_lean_lo_ok
+        move.w  #-VP_LEAN_MAX, d5
+    .vp_lean_lo_ok:
+        move.w  Parallax_VP_Lean, d4                // (Parallax_VP_Lean).w — signed
+        sub.w   d4, d5                              // d5 = target - lean
+        asr.w   #VP_LEAN_LERP_SHIFT, d5
+        add.w   d5, d4                              // lean += (target - lean) >> n
+        move.w  d4, Parallax_VP_Lean                // (Parallax_VP_Lean).w
+        add.w   #VP_SCREEN_CENTER_X, d4             // d4 = the apex's screen X, in pixels
+        asr.w   #VSCROLL_COL_SHIFT, d4              // -> its column-pair. In range by the
+                                                    //    VP_LEAN_MAX ensures, not by a test.
+        // The phase is the index column 0 reads, and column `vp_col` must read the apex, so
+        // phase + vp_col = V_FLOOR_CENTER_IDX. `move.w` and not `moveq`: the apex index is
+        // 128, one past moveq's signed-byte reach.
+        move.w  #V_FLOOR_CENTER_IDX, d3
+        sub.w   d4, d3
+        and.w   #$FF, d3
+        move.w  d3, Parallax_V_Deform_Phase_BG      // (Parallax_V_Deform_Phase_BG).w
+    .vp_phase_ready:
 
         // fill 20 column-pairs (80 bytes total)
         // d1 = camY (FG). The whole-plane pack above left it as [FG:BG] in the NORMAL

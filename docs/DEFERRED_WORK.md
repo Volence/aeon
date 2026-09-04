@@ -24539,17 +24539,103 @@ Loop collision plus the layer swap so the loop is actually traversable. Open: wh
 two-way brush marks are an aurora authoring ask or an engine-side one. Engine half is ours
 either way.
 
-## F3 — the skew floor's vanishing point should track the screen
+## F3 — the skew floor's vanishing point should track the screen — **LANDED 2026-09-04**
 
 > "The one after it with the skew floor perspective thing works but it doesn't
 > continuously move the point so the middle is always in the middle bottom of the screen,
 > this one should actually be screen based not coordinate basewd."
 
-`SceneSrc_DeformTable_Perspective = v_column_floor(center: 20, max_offset: 24)`
-(`ojz_scenes.emp:106`). **`center` is a fixed column constant baked into the deform
-table**, so the vanishing point rides the world, not the screen — exactly his "coordinate
-based". Tracking means deriving the centre from camera position per frame instead of
-baking it. Same direction as F1, and its first instance.
+> "for the skew floor I want it like the batman/toy story example which requires it based
+> on camera since its continuous is all."
+
+**Landed on branch `effects-w1-f3-screen-vanishing-point` (`51f8a285` + `be4d510f`).**
+
+**THE BOOKING ABOVE WAS WRONG ABOUT THE MECHANISM AND THE CORRECTION MATTERS.** It said
+the vanishing point "rides the world". It does not, and it cannot:
+`Parallax_V_Deform_Phase_BG` had exactly one writer (`Parallax_Step5_Vscroll`) and that
+write was `phase += pcfg_v_deform_speed_bg` — **a free-running timer**, with no camera and
+no world in it. Two separate defects, both measurable off the pre-change ROM:
+
+1. **The apex sat off the right edge.** The fill loop consumes exactly twenty entries
+   (`moveq #20-1, d6`), so at phase 0 the visible shape was table entries 0..19 — and
+   `center: 20` puts the V's minimum at entry 20, one column *past* the last one drawn.
+   What reached the display was a monotone ramp, never a cone.
+2. **The shape died at entry 40.** `v_column_floor` clamps its index to 39, so entries
+   40..255 are one constant. `Scene_Perspective` (speed 1) walked the window into that
+   flat region in 40 frames and stayed there for the other 216 of its 256-frame cycle:
+   84% of the period had no shape at all.
+
+**THE HARDWARE FACT, which is also the F1 answer.** A per-column V-scroll table is indexed
+by SCREEN column: VSRAM's twenty H40 entries each own a fixed 16-px slice *of the display*,
+and a plane's H-scroll slides art past those stationary slots rather than carrying them
+(rasterscroll.com "Row/Column Scrolling"; Eke-Eke, SpritesMind t=737). So there is no world
+coordinate for this table to be anchored to. F3 sits on the **screen-based** side of F1's
+line and names the reason F1 requires: a vanishing point is where the viewer's optical axis
+meets the floor, which is a property of the viewport and of nothing else.
+
+**WHAT THE REFERENCES DO** (the row's required research, and it changed the design twice):
+
+- **Batman & Robin does NOT move its per-column vanishing point.** Its fan is grown outward
+  from a hard-coded centre — `lea $ffff9014, a0`, word index 10 of 20, the exact middle of
+  the screen (`code/effects/effects.asm:8288`) — and none of its per-column routines ever
+  move it. What tracks the camera is the per-column *amplitude* (`camera / depth[col]`,
+  `code/objects/objects_1.asm:634-647`, RLE divisor table at ROM `$024642`, 20 columns,
+  symmetric about column ~10).
+- **B&R does move a perspective reference point from the camera** — its per-LINE horizon
+  (`sub.w $ffe016.w, d7`, then one hoisted `divu` to renormalise the ramp,
+  `effects.asm:8325-8327`). That is the precedent for the lean.
+- **Ristar** is the same species: fixed RLE profile anchored to screen columns,
+  `camera * factor >> 8` for amplitude (`disasm.asm:14075-14093`, ROM table `$00B714`).
+- Thunder Force IV, Gunstar Heroes, Alien Soldier: **VSCR = 0 throughout**, no per-column
+  path at all. Vectorman has the upload but its table builder was not found.
+- **A moving per-column vanishing point was NOT FOUND in any of the eight trees or
+  anywhere online.** It is new, which is why it ships as an A/B rather than as one answer.
+
+**WHAT LANDED.** `v_column_floor_screen(edge_offset)` — 256 real samples, symmetric about
+index 128, fixed slope, no clamp region — so the 20-entry window is a correct cone slice at
+any phase and moving the apex is an index subtraction. Bit 7 of `pcfg_v_deform_speed_bg`
+(`PCFG_VDSP_SCREEN_ANCHOR`) switches Step 5b from the timer to a **per-frame derivation**
+from `Camera_X`; bits 3-0 carry a lean gain. Authored as
+`SceneVDeform.ScreenFloor(table, lean_gain, shift)`. RAM +4 B
+(`Parallax_VP_Prev_Cam_X`, `Parallax_VP_Lean`). No `mulu`/`divu`/`muls`/`divs` on the path.
+
+**REJECTED: recomputing the twenty offsets per frame.** It is what the references pay for
+(a `divs.w` per RLE run in B&R, a `muls.w` per run in Ristar) and it buys nothing here —
+the curve is camera-invariant and only its apex moves.
+
+**AND THE `/ center` NORMALISATION HAD TO GO WITH THE CLAMP**, but not for the reason the
+dispatch offered. It does not merely rescale the peak: it makes the arm's *slope* a
+function of where the apex sits, so moving the apex changes the cone's **pitch** — a floor
+that tilts differently depending on where you look. A cone has one slope; the apex only
+decides how much of each arm is on screen.
+
+**THE OPEN QUESTION IS THE OWNER'S TO RULE, and the three scenes are the ballot.** His
+sentence has two readings and the reference does not settle which he wants, so both ship:
+
+| Registry | Scene | Gain | Behaviour |
+|---|---|---|---|
+| 13 | `Perspective_Subtle` | 0 | apex PINNED dead centre — B&R's shipped answer, and the literal reading of "always in the middle bottom" |
+| 14 | `Perspective` | 2 | apex leans with travel, bounded to the middle third |
+| 15 | `Perspective_Dramatic` | 4 | the same at the top of the ladder |
+
+He walks all three with **START+LEFT/RIGHT** (`Debug_SceneCycleHotkey`) and picks. If he
+wants the pin everywhere, set 14 and 15 to gain 0; if he wants the lean everywhere, set 13
+to gain 2. One argument each.
+
+**NOT DONE, and it is the thing that would make the floor read as a floor:** these scenes
+author `fb: FACTOR_0` on all five layers, so plane B does not scroll with the camera at
+all. The apex is now correct in screen space, but the art under it is static. Giving the
+floor bands a real BG factor is a scene-authoring change with its own look consequences and
+was deliberately left to the owner rather than bundled here.
+
+**A PIN THAT TRAVELLED WITH ITS SUBJECT, found by the red-first run meant to confirm it
+(`be4d510f`).** Two of the new shape guards indexed themselves by the constant they were
+pinning (`VfsPin[V_FLOOR_CENTER_IDX + V_FLOOR_HALF_COLS] == 24`), so mutating the slope
+denominator 10 -> 20 moved the sample point along with the curve and both stayed green —
+only the two literal-indexed pins went red. Fixed by writing the literal 10 at the index,
+and the 10 is now *earned* in `parallax.emp` (`V_FLOOR_HALF_COLS * 2 == VSCROLL_COL_PAIRS`)
+because `parallax_dsl` is a COMPTIME_HELPERS module with no imports and cannot see
+`SCREEN_WIDTH`. Same mutation after the fix: five errors, exit 1.
 
 ## F1 — layout-space by default, screen-space only where inherently screen-based
 
