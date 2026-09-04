@@ -1367,6 +1367,18 @@ path, for the same reason the protocol is read that way.
 - **⚠ CHAIN 179's FREEZE COMMIT CARRIES A WRONG DESCRIPTION OF ITS OWN PIN MOVEMENT — DO NOT
   QUOTE IT; THE CORRECTION IS HERE AND OWES A LINE IN THE NEXT ENTRY'S PROSE.** `13a6d3c8`'s
 
+- **DECLARED TREES — `/home/volence/sonic_hacks/.aeon-relayout-freeze` (aeon `5875e60e`, all four
+  shapes built) and `/home/volence/sonic_hacks/.aeon-attest-201` (aeon `4f5ad5a1`). DO NOT SWEEP
+  EITHER.** They are **sigil's** reference worktrees for the parked ROM re-layout freeze (sigil
+  `parcel/relayout-refreeze-held`), relayed by the hub 2026-09-04 and **verified firsthand here:
+  both directories exist at those SHAs and both APPEAR IN AEON'S OWN `git worktree list`**, which
+  is the whole hazard — they are aeon worktrees by construction, so any prune driven by this
+  repo's worktree list matches another lane's reference trees. Sigil lost a reference tree to
+  exactly that sweep on 2026-08-27. Keep them until sigil says the freeze has landed or been
+  discarded. *(This is the "a shared directory is not a shared namespace" rule arriving from the
+  other side: previously this lane had to grep peers' docs before removing; here the peer
+  declared it first, which is the cheaper direction.)*
+
 - **DECLARED TREE — `/home/volence/sonic_hacks/.aeon-land-182`, do not sweep it.** A clean
   detached checkout of aeon `e99a2ca7`, the `aeon_rev` chain 182/183 is frozen at, carrying all
   four built shapes. `AEON_DIR` points here for anything asking what chain 182 actually froze.
