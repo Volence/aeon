@@ -21045,3 +21045,114 @@ evidence: mutating the verdict's initial state from `PRESET_VERDICT_NONE` to
 `PRESET_VERDICT_LIVE` on disk and rebuilding (`crc c585c0fd`) made it exit 1 naming
 **exactly** sections 7 and 8, the only two whose verdict that mutation changes; restored from
 the committed baseline it is green again.
+
+---
+
+## THE PERSPECTIVE FLOOR IS IN THE ROM AND IS A PLACEHOLDER — three open riders (2026-09-03, `parcel/perspective-floor`)
+
+The owner asked what the depth showcase (preset 4) is *for*, then sent two Toy Story
+(Mega Drive) screenshots of a wooden floor whose boards fan out from a vanishing point,
+and asked for it built. It is built: `tools/perspective_floor_gen.py` draws the fan into
+the Plane-B map, `games/sonic4/data/editor/effects/ojz_act1_floor.json` supplies the
+recession through the per-layer `curve`, and section 8's sidecar binds it so `START + A`
+reaches it. Driving instructions are in `docs/EFFECTS_LAB.md`, row 8.
+
+### The premise HELD, and here is the measurement that settles it
+
+The fan cannot be computed by this hardware. `engine/system/buffers.emp:149` DMAs an
+896-byte HScroll table = 224 lines x 2 planes x 2 bytes: **one scroll word per plane per
+scanline**, applied to the line as a whole. Per-line HScroll can only shear. A fan needs
+the horizontal shift to vary *across* one line; VSRAM varies per two-cell column but the
+quantity it varies is VERTICAL, and there is no scaler. The two mechanisms that do vary
+horizontal position within a line are sprites (a floor of them blows the sprite budget)
+and a per-frame nametable rewrite at 8-px granularity. So the splay is art. **No engine
+mechanism was built and none was needed.**
+
+### What the curve turns out to be, which is the answer to the owner's question
+
+`fb: FACTOR_0` at the layer top ramping to `to: FACTOR_1` at its bottom gives
+`rate(y) = camX * (y - horizon) / span` — scroll rate exactly proportional to depth.
+Translate a radial board lattice by `delta*dy/H` and it maps onto itself with the board
+index relabelled: the vanishing point does not move, the fan does not shear, the boards
+slide board-by-board. The art's board pitch and the scroll rate are proportional to the
+same `s(y)`. It is the correct construction, not a fudge that happens to look acceptable.
+**This is the reusable finding**: any receding ground plane on this engine is
+"draw the perspective, ramp the factor from 0 at the horizon", and the two must share
+their depth term.
+
+### RIDER 1 — the 512-px plane period puts a mirrored crease on screen after enough travel
+
+The dedup that makes the art affordable is a reflection symmetry (`x -> -x` mod 512),
+which gives mirror axes at the vanishing point AND 256 px either side of it. The apex is
+pinned at screen x 160 (see the fix commit's derivation — the horizon row's factor is 0,
+so its plane origin is pinned to the screen origin), and both creases start off-screen;
+but the near rows scroll at camera speed, so a crease sweeps in across the bottom of the
+screen once the camera has travelled a couple of hundred pixels. **Not fixable by tuning.**
+The exits are (a) a single-apex fan with one hard seam instead of two mirror axes, which
+costs roughly 360 tiles instead of 181 because it forfeits every H-flip match, or (b) art
+authored for a specific act's camera range. Both are art-pass questions, not engine ones.
+
+### RIDER 2 — the floor is BACKGROUND, so foreground terrain draws over it
+
+Nothing is wrong with this; it is what a background plane is. But it means the effect is
+reviewed from free flight rather than from the ground, and it means a real (non-placeholder)
+perspective floor for a Sonic act wants a section whose foreground is genuinely open —
+a pit, a hall, an indoor room — rather than OJZ's jungle terrain. **The engine half is
+done; choosing where a floor belongs is a level-design question.**
+
+### RIDER 3 — the lab's verdict glyph is blind to the parallax channel
+
+`Debug_PresetReadout_Show`'s verdict inspects the raster, water and palette-cycle channels
+only. A preset that installs an entire authored background scene and nothing else reads
+`-` — "nothing is bound" — which `docs/EFFECTS_LAB.md` had, until this parcel, taught the
+reader to interpret as "there is genuinely nothing to look for". Section 8 is now exactly
+that case, and the doc says so in two places. **The glyph itself was NOT changed**: the
+readout lives in `games/sonic4/test/ojz_scroll_test.emp`, which another lane held during
+this parcel. The fix, when someone takes it, is a fourth verdict state (or folding
+`sec_parallax_config != 0` into the existing one) plus a row in the glyph sheet — and the
+sheet has no spare VRAM beside it (`games/sonic4/vram.toml`, region `debug_readout`, notes
+that 1022/1023 were the last free run adjacent to it).
+
+### The tile accounting, and the half-truth it corrects
+
+An earlier lane reported `bg_region` full and the owner nearly authorised cutting real art
+on the strength of it. **Both halves are true and they are different numbers.** The region
+is 448 tiles; the shipped blob was 320, which is EXACTLY the static importer's budget
+(`448 - band_reserve 128`) — so the *importer* was full while 128 tiles of the *region*
+were physically free. What this parcel spent:
+
+| | tiles |
+|---|---|
+| unique tiles the floor needs | 181 |
+| recycled from slots the floor's own band freed | 123 |
+| genuinely new, taken from `band_reserve` | 58 |
+| blob | 320 -> 378 |
+| `band_reserve` | 128 -> 70 |
+
+The 123 are real: plane cell rows 48..63 were the ground-level undergrowth, rows 48..55
+repeated **verbatim** at 56..63, and 123 of their tiles were referenced by no other row.
+`band_reserve` was lowered rather than left stale because `inject_editor_bg.py` gates the
+final blob on `BG_TILE_CAPACITY` (448) and **not** on the static budget — a 378-tile blob
+under a `320` budget would have baked green with the declared contract silently wrong, the
+same class of quiet drift as `docs/BUGS.md` TOOL-01 arrived at from the other side.
+
+**70 tiles still buys one BgAnim band of up to 70 slots (16x4 = 64, or 8x8). It no longer
+buys the full 32x4 = 128 band the old number was sized for.** Reverting
+`games/sonic4/data/editor_bg_override.json` and re-baking restores the undergrowth and
+returns all 58 — the floor is a placeholder and was built to be undone in one file.
+
+### Two measured traps worth keeping, both baked into the generator as comments
+
+- **The reflection axis must sit at a half-pixel.** An axis on plane x 256 rather than
+  255.5 maps cell column 32 onto a pair of half-columns, forfeiting every H-flip match:
+  679 tiles instead of 355. Reflection about a whole pixel is not reflection about a cell
+  boundary.
+- **A faded plank-tone alternation reads as rubble.** Scaling the alternation amplitude
+  smoothly toward the horizon makes neighbouring boards round to different ramp steps at
+  different rows; the far half became blocky noise and cost 192 tiles across six cell
+  rows. A hard on/off cutoff fixes both the picture and the budget.
+
+`--sym 4` would halve the cost again (181 -> 99) by adding the quarter-point mirror axes.
+It is **not** taken and should not be: it puts four vanishing points inside the 512-px
+plane, so a 320-px screen shows two or three of them and the picture reads as a hall of
+mirrors rather than one floor. Verified by rendering it.
