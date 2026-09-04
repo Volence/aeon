@@ -1,12 +1,6 @@
 {
-  "focus": "Pricing the proper 3D floor - the art generator already exists and costs nothing; the scroll is the work.",
-  "inFlight": [
-    {
-      "what": "Pricing what a real pseudo-3D floor needs, before building any of it",
-      "where": "agent, T2",
-      "agent": true
-    }
-  ],
+  "focus": "The 3D floor is priced at zero net tiles - the picture is with you; the build waits on your word.",
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "what": "Whether to collapse the three START chords into one list",
@@ -15,9 +9,13 @@
     {
       "what": "Whether to give a second section live patch channels, so the Hydrocity scene key can be authored",
       "since": "2026-09-04"
+    },
+    {
+      "what": "Whether to build the perspective floor - it costs no tiles, but a VDP edge artifact comes back",
+      "since": "2026-09-04"
     }
   ],
-  "nextBoundary": "After the floor design comes back and you have picked from it.",
+  "nextBoundary": "Everything on your list is either landed or waiting on you.",
   "queue": [
     {
       "id": "T1",
@@ -29,10 +27,10 @@
     },
     {
       "id": "T2",
-      "title": "A real pseudo-3D floor, not the shallow V you saw",
-      "state": "doing",
+      "title": "The proper 3D floor - priced, picture sent, awaiting your word",
+      "state": "blocked",
       "size": "L",
-      "blockedBy": null,
+      "blockedBy": "your call on the floor design I sent",
       "project": "EFFECTS-W1"
     },
     {
@@ -68,7 +66,7 @@
       "project": "EFFECTS-W1"
     }
   ],
-  "awaiting": null,
+  "awaiting": "whether to build the perspective floor - the picture and the one real risk are with you",
   "atBoundary": true,
-  "updatedAt": "2026-09-04T23:02:59Z"
+  "updatedAt": "2026-09-04T23:06:03Z"
 }
