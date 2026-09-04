@@ -178,7 +178,7 @@ pub data EditorSceneBinding_OJZ_Act1_Sec8: SceneCfg3 = lower3(EditorScenes_OJZ_A
 // re-derived from constants.emp) and leaves the values to sigil.
 const REEL_RATE_EMIT_LEN_OJZ_Act1 = if DEBUG == 1 { REEL_BAND_COUNT } else { 0 }
 
-// section 4 <- scene ojz_act1_depth: [3, -5, 2, -4, 6] px/frame, left to right
+// section(s) 4 <- scene ojz_act1_depth: [3, -5, 2, -4, 6] px/frame, left to right
 const EditorReelsSrc_OJZ_Act1_ojz_act1_depth = [3, -5, 2, -4, 6]
 const EditorReelsOk_OJZ_Act1_ojz_act1_depth = reel_rates_ok(EditorReelsSrc_OJZ_Act1_ojz_act1_depth, REEL_BAND_COUNT)
 ensure(EditorReelsOk_OJZ_Act1_ojz_act1_depth == REEL_BAND_COUNT,

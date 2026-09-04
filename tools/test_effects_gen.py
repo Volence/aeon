@@ -3676,6 +3676,13 @@ class TestReelsEmission(ReelsBase):
                       f'extern("{names.reels("shimmer")}"), '
                       f'extern("{names.binding_sec(4)}"), '
                       f'extern("{names.reels("shimmer")}"), 0]', text)
+        # ...and the TABLE is emitted ONCE, per SCENE. Walking the section->scene map
+        # to emit tables declared this `pub data` once per bound section — a duplicate
+        # symbol. Found 2026-09-04 by reading the loop, not by a gate: the assertion
+        # above passes either way, which is what makes a count the thing to assert.
+        self.assertEqual(text.count(f"pub data {names.reels('shimmer')}: [i8;"), 1)
+        self.assertEqual(text.count(f"const {names.reels_src('shimmer')} = "), 1)
+        self.assertEqual(text.count(f"const {names.reels_ok('shimmer')} = "), 1)
 
     def test_the_witness_equ_counts_the_bindings(self):
         self.write_reels_scene("shimmer")

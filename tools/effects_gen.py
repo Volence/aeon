@@ -3266,9 +3266,17 @@ def render_module(scenes: dict, act_ref, sec_refs: dict, sections: int,
         out.append(f"const {reels_emit} = "
                    f"if DEBUG == 1 {{ REEL_BAND_COUNT }} else {{ 0 }}")
         out.append("")
-    for i in sorted(reels_bound):
-        sid = reels_bound[i]
+    # ONE TABLE PER SCENE, not per binding row — the CR's wording ("one generated
+    # `[i8; REEL_BAND_COUNT]` per authoring scene") is load-bearing, not incidental.
+    # Walking `reels_bound` (a section->scene map) emitted the same `pub data` name once
+    # per BOUND SECTION, so a scene two sidecars both name declared its table twice: a
+    # duplicate symbol, from a case no shipped tree has yet and a unit test that checked
+    # only the binding rows did not see. Sorted by scene id, which keeps the output
+    # deterministic and independent of the section order.
+    for sid in sorted(set(reels_bound.values())):
         rates = scenes[sid][REELS_KEY][REELS_RATES_KEY]
+        owners = ", ".join(str(i) for i in sorted(reels_bound)
+                           if reels_bound[i] == sid)
         # DOCUMENT ORDER, VERBATIM. Index i owns column-pairs 4i..4i+3, i.e. screen X
         # 64i..64i+63, and that mapping lives in a hardcoded `lsr.b #2` the JSON cannot
         # see. Sorting, reversing, or round-tripping this array through a dict keyed by
@@ -3276,7 +3284,8 @@ def render_module(scenes: dict, act_ref, sec_refs: dict, sections: int,
         # express", item 1).
         lit = "[" + ", ".join(str(r) for r in rates) + "]"
         src, ok, tbl = (names.reels_src(sid), names.reels_ok(sid), names.reels(sid))
-        out.append(f"// section {i} <- scene {sid}: {lit} px/frame, left to right")
+        out.append(f"// section(s) {owners} <- scene {sid}: {lit} px/frame, "
+                   f"left to right")
         # UNANNOTATED ON PURPOSE: `reel_rates_ok`'s magnitude arm sees the RAW authored
         # ints, independent of emission rather than downstream of it. MEASURED
         # 2026-09-04 (sigil 0a58f2ec), settling what the decision note and the CR both
