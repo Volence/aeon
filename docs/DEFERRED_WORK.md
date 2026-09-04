@@ -20477,7 +20477,58 @@ creates a document through the panel needs that row; this lane has not audited w
 
 ---
 
-## RAMP BOUNDARY: SETTLED for the engine (2026-09-03) — one half stays open, and it is a DIFFERENT half
+## RAMP BOUNDARY: the open half is CLOSED, and it closed AGAINST this entry (2026-09-03)
+
+> **⚠ READ THIS BOX BEFORE THE ENTRY BELOW IT. The entry's central conclusion — "the engine's
+> write LANDING moved, fire+1 -> fire+2, on 2026-08-19" — IS OVERTURNED.** Measured on
+> `measure/ramp-tier-legacy-core` by `tools/ramp_legacy_core_probe.py`; full write-up in
+> **`docs/benchmarks/effects-p3/RAMP-CORE-VS-ROM.md`**.
+>
+> **TODAY'S ROM READS `top + 1` ON THE LEGACY CORE.** One ROM (`s4.debug.bin` built at
+> `33e50207`, md5 `21c57d329caad5c20fe8b15455ae5374`), one probe, both cores, scene frozen on
+> both sides, every arm frame-locked, controls 224/224 on both:
+>
+> | capture | core | DENSE (tops 40/112/190) | SPARSE (splits 112/140) |
+> |---|---|---|---|
+> | `screenshot` | legacy `1eb09a9` | **`top + 1`** | **`split + 0`** (band 112..140, 29 rows) |
+> | `screenshot` | rust `40efbf8` | **`top + 2`** | **`split + 1`** (band 113..140, 28 rows) |
+> | `scanlines`  | rust `40efbf8` | **`top + 2`** | **`split + 1`** |
+>
+> **The difference is in the CORE. The 2026-08-19 `perf(raster)` bracket is a COINCIDENCE**, and
+> the wrong-direction cycle caution this entry recorded was right for the right reason: nothing
+> in the engine moved, so no cycle argument was ever needed.
+>
+> **"A uniform instrument shift is EXCLUDED" (below) is REFUTED, by the measurement it was
+> missing.** That exclusion rested on `vsplit_landing_gate` being green *on the Rust core* — a
+> comparison of sparse-on-Rust against dense-on-Rust, which by construction cannot see a shift
+> that moves both tiers together. **Both tiers move by exactly one line between the cores.**
+>
+> **The capture API is exonerated by its own control.** The legacy core has no
+> `emulator/scanlines` at all, so the two cores were read through different APIs; run through
+> `emulator/screenshot` — the legacy core's only reading — **the Rust core still reads `top + 2`**
+> on both tiers. Had it read `top + 1` there, the verdict would have been the API.
+>
+> **STILL OPEN (small):** the fourth cell of the 2x2, the 2026-08-14 ROM (`c2a7e1a9`) on the Rust
+> core, which would predict `top + 2`. Not required for the verdict — the era-matched cell
+> already reproduces the 2026-08-14 reading exactly — but it would close the square.
+>
+> **NEEDS CORRECTING, owner's call, NOT landed by that branch:** `engine/effects/raster.emp`'s
+> comment block, `docs/benchmarks/effects-p3/RAMP-EVIDENCE.md`, the entry below, and the amended
+> suite contract in empyrean's `aurora-effects-preset.schema.json` all attribute the shift to the
+> engine. **The `top + 2` NUMBER stands for anyone measuring on the Rust core today; the CAUSE
+> does not, and neither does any sentence saying the engine changed on 2026-08-19.**
+>
+> **TWO INSTRUMENT DEFECTS WERE MEASURED GETTING HERE, and both hand back a clean picture rather
+> than an error** (details in the write-up): the legacy render thread falls behind the machine —
+> unfrozen, two identical boots gave IDENTICAL `state_hash` combined and **79-83 of 224
+> screenshot rows differing**, with the band moving between runs — and `vsplit_landing_gate`'s
+> `SP_DRIVE = 2` produces a **silent null** on the legacy core (zero differing rows, all checks
+> passing) that reads exactly like "this core cannot render a mid-frame VSRAM split", which is
+> false at 8 frames. Before the frame lock existed, defect 1 produced a `top` 40 run apparently
+> differing from row 5 and a 28-row band coming back 146 rows wide.
+
+### The entry as it stood before that measurement — retained for the record, and WRONG where the box says
+
 
 **Discharged in the same parcel: the sign half.** `raster_ramp_program` never two's-complement
 encoded a NEGATIVE `start`/`step` into its u32 image fields, so **no ROM could hold a downward
@@ -20526,7 +20577,10 @@ previously assumed):
 So the picture moved by exactly one line, **in the same direction for BOTH targets** — the gradient
 tier's documented CRAM landing is `top`, and today it measures `top + 1`.
 
-**A uniform instrument shift is EXCLUDED.** `vsplit_landing_gate` asserts that a SPARSE VSRAM op
+**A uniform instrument shift is EXCLUDED.** ⚠ **REFUTED 2026-09-03 — see the box at the top of
+this entry. The sparse tier had never been measured on the legacy core, and when it was, it moved
+by the same one line the dense tier did.** The original argument follows.
+`vsplit_landing_gate` asserts that a SPARSE VSRAM op
 authored at screen line M has its first differing row at exactly M, on the Rust core via
 `emulator/scanlines`, and it PASSES on this ROM (effects_gates segment 7/15, 2026-09-03). A capture
 path reporting everything one line late would turn it red. So the shift is specific to the DENSE
@@ -20546,7 +20600,11 @@ every time**. That fixes `c - E = 0`, where the first body fires on `top + c` an
 landing after screen line 223. The instrument cannot separate `c` from `E` — but the arm words
 above force `c = 0`, so `E = 0` and the first `.ramp_body` fires on line `top`, in both eras.
 
-**SO WHAT MOVED IS THE LANDING OFFSET, NOT THE SCHEDULE.** A dense VSRAM write issued in the fire
+**SO WHAT MOVED IS THE LANDING OFFSET, NOT THE SCHEDULE.** ⚠ **THE FIRST HALF OF THIS HEADING IS
+OVERTURNED — the landing offset did not move either; the EMULATOR did. The second half stands:
+the schedule is unchanged, and §6 pins that with no renderer in the loop, which is exactly what
+leaves the instrument as the only candidate. See the box at the top of this entry.**
+A dense VSRAM write issued in the fire
 on line `top` displayed from `top + 1` in 2026-08-14 and displays from `top + 2` today: fire+1 to
 fire+2. Meanwhile the SPARSE tier is still fire+1 and `vsplit_landing_gate` pins it green on this
 core. **Dense and sparse VSRAM agreed in 2026-08-14 and disagree by one line today.**
