@@ -489,6 +489,27 @@ def run_arm5(rom, lst, sym, at, blob, scratch, top, lines, start_v, step_v):
     # sub-pixel step still admits its own alternation. Symmetric about zero on purpose.
     win = max(2, int(math.ceil(abs(step_px))) + 1)
 
+    # THE EXPECTED DIRECTION IS THE DOCUMENT'S OWN SIGN, NOT THIS PARCEL'S SUBJECT.
+    # An earlier shape of this arm hard-wired "the subject must DESCEND", because the
+    # document that motivated it descends. That is a gate that reads its own author's
+    # intention rather than the document in front of it, and it would have failed the
+    # DEFAULT preset (`ramp_probe`, +1.5 px/line) for being correct. The three expectations
+    # below are all functions of `step_v`.
+    sign = (step_v > 0) - (step_v < 0)
+    if sign == 0:
+        raise SystemExit(
+            "this document's step is ZERO, so it authors no direction and there is no sign "
+            "for arm 5 to measure. A flat run is arm 4's subject, not this one's — and "
+            "reporting 'the machine did not descend' about a document that never asked it "
+            "to would be a false red.")
+    NAMEX = {-1: "DOWNWARD", 0: "FLAT", 1: "UPWARD"}
+    TAGS = ("SUBJECT", "MIRROR", "FLAT")
+    step_of = {"SUBJECT": step_v, "MIRROR": -step_v, "FLAT": 0}
+    want_dir = {"SUBJECT": sign, "MIRROR": -sign, "FLAT": 0}
+    ROLE = {"SUBJECT": "the ROM's OWN record, at its OWN address",
+            "MIRROR":  "that record with the step's sign FLIPPED, staged in RAM",
+            "FLAT":    "that record with the step ZEROED, staged in RAM"}
+
     def want_val(L, step):
         """The integer the ROM should write for screen line L, from the document ALONE.
         `swap d1` selects the HIGH WORD of a two's-complement 16.16, which is floor()."""
@@ -594,11 +615,11 @@ def run_arm5(rom, lst, sym, at, blob, scratch, top, lines, start_v, step_v):
             return bytes(t)
 
         subs = {}
-        # NEG is the ROM's OWN bytes at their OWN address — never copied, never patched.
+        # SUBJECT is the ROM's OWN bytes at their OWN address — never copied, never patched.
         await install(at)
-        subs["NEG"] = await twice()
-        await mark("subject NEG")
-        for tag, img in (("POS", u32_image(-step_v)), ("ZERO", u32_image(0))):
+        subs["SUBJECT"] = await twice()
+        await mark("subject SUBJECT")
+        for tag, img in (("MIRROR", u32_image(-step_v)), ("FLAT", u32_image(0))):
             rec = variant(img)
             await wr(scratch, rec)
             await install(scratch)
@@ -707,15 +728,17 @@ def run_arm5(rom, lst, sym, at, blob, scratch, top, lines, start_v, step_v):
     say("  5b  THE VALUE AT THE DESTINATION — plane-B displacement, decoded by a %d-residue "
         "calibration sweep (%.1f s wall)" % (height, sweep_s))
     summary = {}
-    for tag in ("NEG", "POS", "ZERO"):
+    for tag in TAGS:
         c = cand[tag]
         unreached = [L for L in range(SCREEN_LINES) if len(c[L]) > height // 2]
         unstable = [L for L in range(SCREEN_LINES) if len(c[L]) == 0]
         decoded = [L for L in range(SCREEN_LINES) if 0 < len(c[L]) <= height // 2]
-        step_of = {"NEG": step_v, "POS": -step_v, "ZERO": 0}[tag]
-        say("    SUBJECT %-4s (step %+d = %+0.4f px/line)  decoded %d lines | unreached %d | "
-            "unstable/animating %d" % (tag, step_of, step_of / 65536.0,
-                                       len(decoded), len(unreached), len(unstable)))
+        st_ = step_of[tag]
+        say("    %-7s (step %+d = %+0.4f px/line — %s)" % (tag, st_, st_ / 65536.0, ROLE[tag]))
+        say("      decoded %d lines | unreached %d | unstable/animating %d"
+            % (len(decoded), len(unreached), len(unstable)))
+        say("      EXPECTED DIRECTION, derived from the document's step: %s"
+            % NAMEX[want_dir[tag]])
         if not decoded:
             say("      *** decoded NOTHING for %s. This arm MEASURED NOTHING here; do not "
                 "read it as a flat or an absent ramp." % tag)
@@ -782,7 +805,7 @@ def run_arm5(rom, lst, sym, at, blob, scratch, top, lines, start_v, step_v):
 
         wrong = []
         for L, d in sorted(deltas.items()):
-            a_, b_ = want_val(L, step_of), want_val(L + 1, step_of)
+            a_, b_ = want_val(L, st_), want_val(L + 1, st_)
             if a_ is None or b_ is None or d != b_ - a_:
                 wrong.append((L, d, None if (a_ is None or b_ is None) else b_ - a_))
         say("      differences EQUAL to the one the document derives for that pair: %d of %d"
@@ -793,8 +816,8 @@ def run_arm5(rom, lst, sym, at, blob, scratch, top, lines, start_v, step_v):
 
         alias = spacings[0] if spacings else height
         absmiss = [L for L in decoded
-                   if want_val(L, step_of) is None
-                   or (want_val(L, step_of) % height) not in c[L]]
+                   if want_val(L, st_) is None
+                   or (want_val(L, st_) % height) not in c[L]]
         say("      ABSOLUTE: the document's derived value is among the candidates on %d of %d "
             "decoded lines (pinned only mod %d — the artwork's own vertical period)"
             % (len(decoded) - len(absmiss), len(decoded), alias))
@@ -814,7 +837,7 @@ def run_arm5(rom, lst, sym, at, blob, scratch, top, lines, start_v, step_v):
             runs.append(cur)
         longest = max(runs, key=len)
         total = sum(deltas[L] for L in longest)
-        want_total = want_val(longest[-1] + 1, step_of) - want_val(longest[0], step_of)
+        want_total = want_val(longest[-1] + 1, st_) - want_val(longest[0], st_)
         say("      LONGEST unbroken decoded chain: screen lines %d..%d (%d differences)"
             % (longest[0], longest[-1] + 1, len(longest)))
         say("      TOTAL DISPLACEMENT ACROSS IT: %+d px MEASURED   %+d px DERIVED   %s"
@@ -828,28 +851,51 @@ def run_arm5(rom, lst, sym, at, blob, scratch, top, lines, start_v, step_v):
         say("      the measured sequence (every ~%dth decoded line):" % max(1, len(decoded) // 10))
         for L in show:
             say("        line %3d  candidates %-22s  document derives %5d (mod %d = %d)"
-                % (L, str(c[L]), want_val(L, step_of), height,
-                   want_val(L, step_of) % height))
-        summary[tag] = (neg, pos, zer, total)
+                % (L, str(c[L]), want_val(L, st_), height,
+                   want_val(L, st_) % height))
+        got_dir = (total > 0) - (total < 0)
+        pure = {-1: neg, 0: zer, 1: pos}[want_dir[tag]] == len(vals)
+        say("      DIRECTION VERDICT: measured %s, expected %s — %s"
+            % (NAMEX[got_dir], NAMEX[want_dir[tag]],
+               "ok" if (got_dir == want_dir[tag] and pure) else
+               "*** MISMATCH ***" if got_dir != want_dir[tag] else
+               "*** direction agrees but %d of %d differences go the OTHER WAY ***"
+               % (len(vals) - {-1: neg, 0: zer, 1: pos}[want_dir[tag]], len(vals))))
+        if got_dir != want_dir[tag] or not pure:
+            ok = False
+        summary[tag] = (neg, pos, zer, total, got_dir)
         say()
 
-    say("  THE THREE SUBJECTS, SIDE BY SIDE   (differences down / up / flat, total px)")
-    for tag in ("NEG", "POS", "ZERO"):
-        say("    %-4s  %s" % (tag, summary.get(tag, "NOT MEASURED")))
-    if all(t in summary for t in ("NEG", "POS", "ZERO")):
-        n, p, z = summary["NEG"], summary["POS"], summary["ZERO"]
-        good = (n[0] > 0 and n[1] == 0 and n[3] < 0 and
-                p[1] > 0 and p[0] == 0 and p[3] > 0 and
-                z[0] == 0 and z[1] == 0 and z[2] > 0 and z[3] == 0)
+    say("  THE THREE SUBJECTS, SIDE BY SIDE"
+        "   (differences down / up / flat, total px, measured direction)")
+    for tag in TAGS:
+        r = summary.get(tag)
+        say("    %-7s %s   expected %s"
+            % (tag,
+               "NOT MEASURED" if r is None else
+               "%4d / %4d / %4d  %+5d px  %s" % (r[0], r[1], r[2], r[3], NAMEX[r[4]]),
+               NAMEX[want_dir[tag]]))
+    if all(t in summary for t in TAGS):
+        got = tuple(summary[t][4] for t in TAGS)
+        exp = tuple(want_dir[t] for t in TAGS)
+        # THE SEPARATION TEST, and it is what stops "descending" from being a foregone
+        # conclusion. Three records differing in FOUR BYTES, decoded by ONE sweep on ONE
+        # scene in ONE instance, must come back with THREE DIFFERENT directions — the
+        # document's, its opposite, and none. An instrument that reported the subject's
+        # direction for all three would be reading the scene, not the values.
+        good = got == exp and len(set(got)) == 3
         say("  -> %s"
-            % ("THE SAME INSTRUMENT ON THE SAME SCENE reads the authored record as DOWNWARD, "
-               "its sign-flipped twin as UPWARD, and its step-0 twin as FLAT. The direction "
-               "is MEASURED, not assumed, and an instrument that could only ever say "
-               "'descending' is ruled out by its own two controls."
+            % ("THE SAME INSTRUMENT ON THE SAME SCENE reads the authored record as %s, its "
+               "sign-flipped twin as %s, and its step-0 twin as FLAT. Three records "
+               "differing in FOUR BYTES, three different answers. The direction is "
+               "MEASURED, not assumed — an instrument that could only ever return the "
+               "subject's own direction is ruled out by its own two controls."
+               % (NAMEX[exp[0]], NAMEX[exp[1]])
                if good else
-               "*** THE THREE SUBJECTS DO NOT SEPARATE. A reading of 'descending' from an "
-               "instrument that cannot also read 'ascending' and 'flat' on the same scene is "
-               "not a measurement of direction."))
+               "*** THE THREE SUBJECTS DO NOT SEPARATE (measured %s, expected %s). A "
+               "direction reported by an instrument that cannot also read the other two on "
+               "the same scene is not a measurement of direction."
+               % (tuple(NAMEX[g] for g in got), tuple(NAMEX[e] for e in exp))))
         ok = ok and good
     else:
         ok = False
