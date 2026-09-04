@@ -24769,3 +24769,30 @@ numbers.** (a) The first run used `ATTR_A`'s shipped solidity as the "solid" con
 `ATTR_A` is **already air** — control and subject were the same experiment. (b) The cut's
 whole `SolidityTable` reads **zero for all 256 attrs** (the real ROM has 51 non-zero),
 so no solid attr existed to contrast against until one was written in.
+
+## ⚠ THE ROM BOOTS INTO DEBUG FREE-FLIGHT — every headless drive before 2026-09-04 22:10Z is void
+
+`debug_flag` (PlayerV at `Sst.sst_custom` + 12 = **Sst+$3C**) reads **`$FF` on a fresh
+boot** of `s4.debug.bin`. In free flight the state dispatch is suspended: directions move
+the player, **gravity and collision do not apply**.
+
+**The control that caught it, and the only one that could:** dropped in mid-air at y 496,
+the player **does not fall** — 30 frames, y unchanged. Clear the flag and he falls
+immediately (496 → 578).
+
+**What it invalidated.** Three separate loop drives on 2026-09-04 reported "runs through
+the loop at constant y, zero pixels climbed", in both directions, at above top speed.
+**All three were measuring free flight.** The tells were there and were read as findings:
+`ground_speed` held **exactly −2048 for seventy consecutive steps** (real ground physics
+decays that within a few frames), y never moved, angle stayed `$00`. A constant that clean
+is the signature of a field nothing consumes.
+
+**Any headless drive must clear `Sst+$3C` first, and must carry the gravity control** —
+drop the player in mid-air and assert he falls — **before any conclusion about collision.**
+
+**What the honest instrument then showed, and what is still open.** With the flag cleared,
+placed on the loop's ground at x 1088 / y 553, the player **falls through it** and lands at
+**y 829** — the floor at editor rows 106–109 (106 × 8 = 848, feet 848 − 19 = 829), which
+also confirms the 8 px editor-row mapping a third time. **The loop's own ground at editor
+rows 72/73 (y 576) is solid in the editor file (`$10FF`, top-solidity) and does not hold
+the player in the ROM.** Either the bake drops it or the surface is wrong. Not diagnosed.
