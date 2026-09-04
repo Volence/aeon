@@ -25012,3 +25012,69 @@ nearest side-solid (`34FF`) is cols 154–156 at x 1232+, and his right edge is 
 **NEXT STEP IS A SENSOR TRACE, not more paint and not another drive:** which probe fires, at
 which coordinate, against which attr. Handing aurora another coordinate to fit would repeat
 tonight's mistake — a stall offered as evidence for a cell nobody has shown is involved.
+
+## T2 — the perspective floor: the tool landed, the BAKE never did. PRICED, not built.
+
+His words: *"This doesn't really work, it just skews it or something slightly and moves
+depedning how you're facing like it just makes a v slightly move in the trees?"*
+
+**He is describing exactly what the code does, and there are TWO reasons, both measured.**
+
+**(a) The floor art was never baked.** `tools/perspective_floor_gen.py` has been on master
+since `d5611886` (centred at `383002ca`, shrunk to 121 tiles at `f3c1b408`) — **but its
+output was never written.** `--report` prints `matched existing art : 0`; were it baked that
+would read 121. `editor_bg_override.json` still carries the original undergrowth.
+
+**(b) Even baked, it would be OFF SCREEN.** All three Perspective scenes author
+`v_factor: 15, v_offset: 0`. **`v_factor 15` is the documented lock sentinel** — parallax.emp
+Step 5: *"Lock sentinel: v_factor_bg = 15 → skip lerp, pin BG = vOffset."* So Plane B's
+visible window is permanently cell rows **0–27**; the tool writes rows **48–63**. The
+per-column V-deform has been landing on forest canopy. *"A v slightly moving in the trees"*
+is literally exact. **Verified independently at `parallax.emp` Step 5 and `ojz_scenes.emp`.**
+
+**COST — measured, not estimated, on master `f8beaad0`:** `perspective_floor_gen.py --report`
+→ **121 tiles needed, 121 recycled, 0 appended; blob 320 → 320; `band_reserve` untouched.**
+**Zero net tiles**, because the floor fits in the slots its own band frees. **No contention
+with 9d** — its 48 of the 128 unresident remain, 80 spare after.
+
+**Cycles (ESTIMATED from 68000 timings; the method reproduces the architecture doc's own
+published 4.2% row-remap figure exactly):** curve on the existing band ≈ **3,476 cyc ≈ 2.7%**
+of a 127,841-cycle frame. A full-screen floor is ≈ 8.2% for diminishing returns.
+
+**RECOMMENDATION: a data-and-authoring parcel, NOT an engine parcel — no engine code.** The
+mechanism already ships: HScroll is **per-line unconditionally** (reg `$0B` bits 1:0 hardcoded
+`%11`), `Hscroll_Buffer` is already 224×4 and DMA'd every frame, and `CAP_FACTOR_CURVE` is
+declared with `BAND_CURVE_N = 1` already paid. **A linear ramp is exact, not an
+approximation:** for a ground plane `z ∝ 1/(y−horizon)`, so scroll rate `∝ camX·(y−horizon)`.
+Add a NEW registry scene rather than editing 13/14/15 — it preserves the shipped ballot and
+avoids `scene_equiv_proof.emp`'s ~45 field-by-field `ensure`s. **~half a day.**
+
+**THREE CONSTRAINTS, and the second is the real risk.** (1) A curve layer may carry no deform
+on either plane (`scene_dsl.emp:955-956`, register pressure) — the floor band loses its
+shimmer. (2) **The `FACTOR_0` lock was load-bearing**: it dodged the leftmost-partial-column
+VDP artifact, and a curve spends that dodge, so the artifact returns on Plane B.
+`SceneLeftColMask.SpriteMask` is the declared mitigation. **A look question, not an
+arithmetic one.** (3) Keep the per-column cone at reduced amplitude or drop it — on a floor
+with a real horizon an unreduced cone makes that horizon visibly jagged.
+
+**Illustration: `tools/perspective_floor_predict.py`** — art from the generator's own
+`render_band()`, scroll from the engine's own Bresenham ramp, **labelled a COMPUTED
+PREDICTION on the image itself.** Horizon HScroll is 0 at every camera X while the near edge
+moves at full camera rate; **that ratio IS the perspective, and it is the axis per-column
+V-scroll cannot express at all.**
+
+**THE REFERENCE SWEEP'S PIVOTAL FINDING, across seven trees: NO reference achieves a
+perspective floor with per-column V-scroll alone.** `$8B07` couples per-column V with
+per-line H by construction in B&R, Ristar and S3K alike. The one place any tree selects
+V-only is Vectorman's `$8B0C` setter — **with zero callers.** The studio that built the mode
+never shipped it. In B&R the per-line H table is **~75% of the whole effect's cost**.
+
+**Correction to book: `docs/research/ristar-techniques.md:146-149` is WRONG.** It claims
+cell-scroll is "the workhorse" in Ristar; the disassembly carries only `#$8b00`, `#$8b03` and
+`#$8b07` and **zero** `$8b02`/`$8b06` — per-line everywhere. **No live consequence** (the
+engine hardcodes `%11` and the per-cell arm was deleted 2026-08-26), but it is cited as a
+design input and should not stand as evidence for a cell-mode decision.
+
+**Five look-calls TAGGED for the emulator:** does it look right in motion; real cycle cost vs
+the 3,476 estimate; whether the returning left-column artifact needs `SpriteMask`; whether
+`v_offset: 288` shows a seam at screen top; and the right residual cone amplitude.
