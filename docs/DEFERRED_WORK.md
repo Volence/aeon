@@ -22642,3 +22642,45 @@ mode is the ordinary one: a file-list grep hit was read as a code reference with
 lines. A hit in a `.py` can be a comment, and a hit in a captured `.lst` fixture is guaranteed
 not to be a consumer.
 
+
+#### Landing evidence (2026-09-04)
+
+Four shapes, all `REAL_EXIT=0`, built serially from a clean tree at `6e75d6d0`:
+
+| shape | CRC32 | size | RAM budget line |
+|---|---|---|---|
+| `./build.sh` | `727cec91` | 720829 | RAM 47.5 KB/64.0 KB (74.2%), Free 16.2 KB before stack |
+| `DEBUG=1 ./build.sh` | `9af4fccc` | 741930 | RAM 59.3 KB/64.0 KB (92.6%), Free 4.5 KB before stack |
+| `./build.sh demo` | `11ebd7ab` | 96602 | RAM 45.8 KB/64.0 KB (71.6%), Free 17.9 KB before stack |
+| `DEBUG=1 ./build.sh demo` | `9b0d2ce7` | 102818 | RAM 57.5 KB/64.0 KB (89.8%), Free 6.3 KB before stack |
+
+**The two cells cost ZERO game RAM**, and that is derived rather than A/B measured (no master
+baseline was built): the game-var block ended at `$FFFFBABE` before this parcel and ends at
+`$FFFFBAC2` after, both inside the same 256-byte block `[$FFFFBA00, $FFFFBB00)`, and the next
+field is `Player_Pos_Ring @align(256)`. Alignment is a function of the cursor alone, so it lands
+at `$FFFFBC00` either way and the four bytes come out of pad that already existed. `Game_RAM_End`
+is `$FFFFBE02` (release) / `$FFFFED28` (debug). Nothing was pushed toward a ceiling; the debug
+shape's 92.6% is its pre-existing figure, not something this parcel moved.
+
+Resolved addresses at this build — **and they differ between shapes, which is exactly why a
+consumer must resolve by name per call and never cache**:
+
+| symbol | `s4.lst` | `s4.debug.lst` |
+|---|---|---|
+| `Player_Bound_Right` | `$FFFFBABA` | `$FFFFE958` |
+| `Player_Bound_Bottom` | `$FFFFBABC` | `$FFFFE95A` |
+| `Level_Width` | `$FFFFBABE` | `$FFFFE95C` |
+| `Level_Height` | `$FFFFBAC0` | `$FFFFE95E` |
+
+Both appear in the listing's **symbol table** (the `Name : ADDR C |` rows), not as EQU lines, so
+they are reachable by the same mechanism that already resolves `Camera_X`/`Camera_Y`. Neither
+appears in `demo.lst` / `demo.debug.lst`, which is correct: `demo` carries no player code.
+
+**Byte-mover consequence, resolved:** both sonic4 shapes first went red on
+`tools/instashield_gate.py` because `instashield_cut.json` / `tailsflight_cut.json` pin absolute
+routine spans. All four cuts moved by exactly **+8 bytes** — derived, being the two new
+`move.w d1,(xxx).w` instructions at 4 bytes each — with every routine keeping its exact length,
+and every differing byte turning out to be the low half of a 16-bit `bsr.w`/`bra.w` displacement
+that re-resolves to an *unchanged* absolute target (`Player_SetState`, upstream of the insertion
+point). Re-stamped per shape and re-verified with the gate invoked as `build.sh` invokes it. Full
+derivation in commit `6e75d6d0`.
