@@ -23,10 +23,12 @@ So the witness splits the band against itself:
     It is solved for, over a window the subject never wrote.
 
     ⚠ THE TAIL ALONE CANNOT ALWAYS IDENTIFY THE PHASE, WHICH IS WHY IT IS NOT ASKED TO. At
-    the shipped amplitude (DeformTable_Shimmer at dsb 2) the per-line term is `sin*8 >> 2`, a
-    five-value staircase, and several phases produce the same quantised tail — measured, 3 or
-    4 candidates on 4 of 12 samples, and on 3 of them the candidates DISAGREED about the
-    verdict. Two earlier drafts got this wrong in the two available ways: the first DROPPED
+    the amplitude this shipped with until 2026-09-03 (DeformTable_Shimmer at dsb 2) the
+    per-line term is `sin*8 >> 2`, a five-value staircase, and several phases produce the same
+    quantised tail — measured, 3 or 4 candidates on 4 of 12 samples, and on 3 of them the
+    candidates DISAGREED about the verdict. (The shipped shift is 0 now and the staircase has
+    seventeen values, so the ambiguity is much rarer — but it is a property of the QUANTISATION
+    and not of any one shift, so nothing here was relaxed on the strength of it.) Two earlier drafts got this wrong in the two available ways: the first DROPPED
     the ambiguous samples (reporting 8/8 while a quarter of the run went unexamined — "a
     green row that never chose its bed cannot fail"), and the second failed them.
 
@@ -178,6 +180,24 @@ def field_offsets(repo: str, tail_base: int) -> dict:
     if off != size:
         raise refuse(f"band_remap fields sum to {off} bytes, declared size {size}")
     return out
+
+
+def pcfg_offset(repo: str, want: str) -> int:
+    """A parallax_config field's byte offset, WALKED off engine/structs.emp. Same derivation
+    tools/row_remap_gate.py uses, and for its reason: a typed offset makes the instrument
+    measure itself."""
+    import re
+    text = open(os.path.join(repo, "engine/structs.emp"), encoding="utf-8").read()
+    m = re.search(r"pub struct parallax_config[^{]*\{(.*?)\n\}", text, re.S)
+    if not m:
+        raise refuse("could not find `pub struct parallax_config` in engine/structs.emp")
+    widths = {"u8": 1, "u16": 2, "u32": 4, "*u8": 4, "i8": 1, "i16": 2}
+    off = 0
+    for name, ty in re.findall(r"\n\s+(pcfg_\w+):\s+(\*?[iu]\d+)[,\s]", m.group(1)):
+        if name == want:
+            return off
+        off += widths[ty]
+    raise refuse(f"parallax_config has no field {want!r}")
 
 
 def legacy_field_offset(repo: str, want: str) -> int:
@@ -396,6 +416,33 @@ async def run(a) -> int:
         out["config_under_test"] = {"name": a.config, "addr": f"${cfg:06X}"}
         print(f"  installed {a.config} = ${cfg:06X}, held for {a.install_settle} frames")
 
+        # ---- THE DEFORM SHIFT IS READ OFF THE ROM, not passed in (2026-09-03) ----
+        # It used to default to 2, and when the shipped anchor moved to 0 that default became
+        # a number that has to be remembered. A witness carrying its own copy of a value the
+        # subject also carries is a witness that can disagree with the ROM and still report a
+        # verdict — here it would have mis-solved the tail and blamed the phase derivation.
+        # WHICH shift: the config's anchor overlay writes pcfg_anchor_dsb into every band from
+        # the split down and the remapped band IS the split's lower half, so on an anchored
+        # config that is the one that reaches these lines. `--dsb` still overrides, for
+        # deliberately testing a shift the ROM does not carry.
+        anchor_ch_hdr = await rd(c, cfg + pcfg_offset(a.repo, "pcfg_anchor_ch"), 1)
+        rom_dsb = await rd(c, cfg + pcfg_offset(a.repo, "pcfg_anchor_dsb"), 1)
+        if a.dsb is None:
+            if anchor_ch_hdr == 0xFF:
+                raise refuse(
+                    f"{a.config} declares no anchor (pcfg_anchor_ch = $FF), so the shift that "
+                    f"reaches the remapped band is the BAND's own and this witness does not "
+                    f"read it yet. Pass --dsb explicitly.")
+            dsb = rom_dsb
+            print(f"  deform shift DERIVED from the ROM: pcfg_anchor_dsb = {dsb} "
+                  f"(anchor channel {anchor_ch_hdr})")
+        else:
+            dsb = a.dsb
+            note = "" if dsb == rom_dsb else f"  ⚠ the ROM says {rom_dsb} — this run is testing a shift the image does not carry"
+            print(f"  deform shift OVERRIDDEN on the command line: {dsb}{note}")
+        out["dsb"] = {"used": dsb, "rom_pcfg_anchor_dsb": rom_dsb,
+                      "anchor_ch_hdr": anchor_ch_hdr, "overridden": a.dsb is not None}
+
         ok_pos = ok_ctrl = unsolved = disagreed = 0
         ns, sigs = [], []
         for step in range(a.samples):
@@ -415,19 +462,19 @@ async def run(a) -> int:
             rec["n"] = n
             ns.append(n)
             if n > 0:
-                cands = solve_tail(s, curve, a.dsb)
+                cands = solve_tail(s, curve, dsb)
                 c0 = s["c_derived"]
                 rec["tail_candidates"] = len(cands)
                 rec["c_derived"] = c0
                 rec["c_derived_in_tail_candidates"] = c0 in [x for x, _ in cands]
-                base = base_for(s, curve, a.dsb, c0)
+                base = base_for(s, curve, dsb, c0)
                 if base is None or not rec["c_derived_in_tail_candidates"]:
                     rec["verdict"] = "tail-refutes-derived-phase"
                     unsolved += 1
                 else:
                     head = s["bg"][:n]
-                    pred = predict(c0, base, s["ladder_row"], curve, a.dsb)
-                    flat = predict(c0, base, list(range(n)), curve, a.dsb)
+                    pred = predict(c0, base, s["ladder_row"], curve, dsb)
+                    flat = predict(c0, base, list(range(n)), curve, dsb)
                     rec["base"] = base
                     rec["match_remapped"] = head == pred
                     rec["separates_from_flat"] = head != flat
@@ -524,8 +571,11 @@ def main() -> int:
     ap.add_argument("--repo", default=REPO)
     ap.add_argument("--curve", default="DeformTable_Shimmer",
                     help="the BG deform table the remapped band samples")
-    ap.add_argument("--dsb", type=int, default=2,
-                    help="the band's BG deform amplitude shift (the anchor's, from the split down)")
+    ap.add_argument("--dsb", type=int, default=None,
+                    help="override the BG deform amplitude shift. DEFAULT: read pcfg_anchor_dsb "
+                         "out of the installed config in the ROM, which is the shift the "
+                         "overlay writes into every band from the split down. Pass this only "
+                         "to test a shift the image does not carry.")
     ap.add_argument("--config", default="ParallaxConfig_OJZ_Underwater",
                     help="the parallax config to install (the DEBUG scene-cycle's scene 01)")
     ap.add_argument("--settle", type=int, default=240)
