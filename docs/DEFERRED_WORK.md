@@ -16763,22 +16763,29 @@ Full evidence, the twelve+two peer findings this came out of, and the two settle
 
 Riders booked in the same audit, smaller:
 
-- **`OJZ_Sec4_LocalMap` does not dedup though `OJZ_Sec4_Blocks` does** — `sec2_local_map.bin`
-  and `sec4_local_map.bin` are byte-identical (202 B, md5 `f51e8069c75be9a1aac8d376e30711fc`).
-  `ojz_block_gen.py` has content dedup; `ojz_strip_gen.py:842-853` emits local maps from an
-  unconditional loop with no content comparison. **~202 B, mechanism already exists next door.**
-- **Nine dead `Sec` fields, 32 of 66 bytes (288 B on act 1)** — and `act_descriptor.emp:186-193`
-  contains the work order ("deleting them is Task 13's job, once reachability of the preset path
-  is established"). Task 13 (`e6b016e5`) established exactly that reachability in its own commit
-  message and deleted only the installers; the constructor arguments and fields are untouched,
-  and `sec_pal:` is still a REQUIRED argument. This is skipped work, not deliberate residue.
-- **`ojz_sec()`'s `effects:` argument defaults to 0**, and the `sec_effects == 0` guard in
-  `engine/level/parallax.emp:723-728` is inside `if DEBUG == 1`. Release calls
-  `Effects_InstallPreset` unconditionally and would read the 68000 vector table as an
-  `EffectsPreset`. Unreachable today — enumerated: exactly one `[Sec; N]` array tree-wide, all
-  nine rows pass a non-zero preset, and `Parallax_CheckBoundary`'s only callers are in sonic4's
-  scroll test. The real fix is a build-time `ensure`, or making `effects:` required the way
-  `pal:` already is — not a release-side runtime guard.
+- ~~**`OJZ_Sec4_LocalMap` does not dedup though `OJZ_Sec4_Blocks` does**~~ — **DONE 2026-09-04,
+  `parcel/painted-regions-code-rows`.** The pair was re-measured before the change and is still
+  the only duplicate among the nine (202 B, md5 `f51e8069c75be9a1aac8d376e30711fc`);
+  `emit_section_local_maps` now carries `ojz_block_gen.py`'s sha256 content dedup and the
+  generator's own line reports it: `sec_local_maps: 9 sections, 8 distinct; map dedup saved 202
+  ROM bytes.`
+- ~~**Nine dead `Sec` fields, 32 of 66 bytes (288 B on act 1)**~~ — **DONE 2026-09-04,
+  `parcel/painted-regions-code-rows`.** All twelve names (the nine plus the three reserved pads)
+  re-verified dead at `f62fe9c5` before deletion, not taken from the audit. `sizeof(Sec)` 66 → 34,
+  288 ROM bytes recovered, `pal:`/`raster:`/`cycle:` constructor arguments gone with them. Two
+  things the audit had not named: a SECOND stride pin in `engine/level/tile_cache.emp`, and both
+  pins' claim that "the generated tables assume 66" — which is **false**, no generator emits `Sec`
+  rows; the real out-of-assembler readers are `tools/boot_override_gate.py` and
+  `tools/preset_lab_witness.py` (hardcoded) and `tools/parallax_crossing_gate.py` (parses the
+  offsets from the trailing `// $HH` comments).
+- ~~**`ojz_sec()`'s `effects:` argument defaults to 0**~~ — **DONE 2026-09-04,
+  `parcel/painted-regions-code-rows`, and the audit's own recommendation is what shipped.**
+  Unreachability re-derived independently (see the landing entry below for the enumeration, which
+  keys on `sec_effects` having **no runtime writer** rather than on the caller list), so the
+  instrument is comptime and the release byte cost is **zero**: `Sec.sec_effects` and `ojz_sec()`'s
+  `effects:` both lost their `= 0` defaults, making an omitted binding a compile error in every
+  shape. The `if DEBUG == 1` `raise_error` stays for what a comptime pin cannot see — a poked
+  `Sec*`, a corrupted `Act.sec_grid_ptr`.
 
 ## DENSE PER-LINE VSRAM — ruled IN by the owner 2026-08-29. ✅ DONE 2026-09-03 — see the EFFECTS-W1 ITEM 6 block further down for the landing (CAP_DENSE_TIER promoted, the HBlank budget measured at 304 cyc/line). This entry is kept intact below as the original booking; the "book only, do not start" and "not greenfield" framing turned out to be even more literally true than written — the mechanism itself (`OP_RUN_RAMP`) had ALREADY shipped 2026-08-14, before this entry was even authored.
 
@@ -20157,21 +20164,23 @@ none of these three named an ARCH claim that needed fixing):**
   Not an ARCH-doc claim at all — `tools/inject_editor_bg.py` is a build tool, out of this pass's
   scope (documents only).
 
-**OUT OF SCOPE for this pass, remaining OPEN — code or generator changes, per the dispatch brief
-that sequenced this work:**
+**~~OUT OF SCOPE for this pass~~ — rows 3, 7 and 10 CLOSED 2026-09-04 on
+`parcel/painted-regions-code-rows`; see the landing entry at the end of this file for the
+verification, the byte deltas, and the one finding that was not asked for. Row 12 needs no
+change:**
 
-- **Row 3** — delete the nine dead `Sec` fields + `pal:`/`raster:`/`cycle:` constructor args
-  (§3 hypothesis (i) of the audit: this is a scheduled deletion whose precondition
-  (Task 12/13's reachability requirement) was already discharged and the deletion itself was
-  never carried out — a live TODO, not a doc fix).
-- **Row 7** — the release-shape `sec_effects == 0` guard living only inside `if DEBUG == 1` in
-  `engine/level/parallax.emp` — unreachable today per the audit's own enumeration (§2), but the
-  file two other agents are in per this pass's dispatch brief.
-- **Row 10** — `tools/ojz_strip_gen.py` has no content-dedup comparison where
-  `tools/ojz_block_gen.py` does (generator change).
+- **Row 3** — ~~delete the nine dead `Sec` fields + `pal:`/`raster:`/`cycle:` constructor args~~
+  **DONE.** `sizeof(Sec)` 66 → 34; 288 ROM bytes. Each of the twelve names re-verified dead at
+  `f62fe9c5` rather than taken from the audit.
+- **Row 7** — ~~the release-shape `sec_effects == 0` guard living only inside `if DEBUG == 1`~~
+  **CLOSED AT COMPTIME, at zero release bytes.** Unreachability re-derived; `Sec.sec_effects` and
+  `ojz_sec()`'s `effects:` lost their `= 0` defaults, so an omitted binding is a compile error in
+  both shapes. The DEBUG `raise_error` stays for poked/corrupted pointers.
+- **Row 10** — ~~`tools/ojz_strip_gen.py` has no content-dedup comparison~~ **DONE, and the
+  measurement came first:** 202 B on today's content (sec2/sec4, the only duplicate pair of nine).
 - **Row 12** — a `.lst` symbol listing is a snapshot, not a live instrument; the audit's
   generalisation ("a listing from a prior build is never a valid subject") is already correct and
-  is a build-discipline note, not an ARCH-doc claim to fix.
+  is a build-discipline note, not an ARCH-doc claim to fix. **Still needs no change.**
 
 **Zero ROM bytes moved by this pass** — before/after `s4.debug.bin` md5 recorded in the branch's
 merge evidence; documents only.
@@ -21416,3 +21425,147 @@ sections). A waterline that recolours EVERY entry below a line wants the variant
 DENSE tier (`raster_gradient_program` / `raster_ramp_program`, 304-316 of 488 cycles per line)
 rather than three banded 3-entry runs. That is a bigger parcel than an edit to
 `ojz_sec5_showcase.json` and it should be costed before it is started.
+
+## PAINTED-REGIONS AUDIT — THE THREE CODE ROWS, CLOSED (2026-09-04, `parcel/painted-regions-code-rows`)
+
+Branch `parcel/painted-regions-code-rows`, based on aeon `origin/master` at `f62fe9c5`
+(fetched and re-derived with `git rev-parse origin/master`, not typed — master moved twice
+while this lane was reading). Closes rows **3**, **7** and **10** of
+`docs/reviews/2026-08-29-painted-regions-findings-audit.md` §1, the three the 2026-09-03
+documentation pass explicitly left out of scope. Row 12 needed no change then and still
+does not.
+
+### Row 7 — the guard that existed only in the shape we develop in
+
+**The asymmetry was real.** `Parallax_CheckBoundary`'s `tst.l Sec.sec_effects(a0)` /
+`raise_error` pair sits inside `if DEBUG == 1`, and `Effects_InstallPreset` dereferences the
+pointer untested — so a null would have raised in development and read the 68000 vector
+table as an `EffectsPreset` in the shape that ships.
+
+**The unreachability was re-derived rather than inherited, and NOT by the audit's route.**
+The audit enumerated CALLERS. A caller list is a population built from names, and a name-built
+population cannot contain the silent case, so this pass enumerated by what can REACH the value:
+
+1. **`Sec.sec_effects` has no runtime writer anywhere in `engine/` or `games/`.** Every
+   reference tree-wide is a READ (`preset.emp` ×2, `parallax.emp`, `ojz_scroll_test.emp` ×2)
+   or the struct/constructor. The value is ROM. That is the fact that makes the property
+   build-time — not the caller count, which a new caller could change tomorrow.
+2. **Every `Sec*` in the tree comes from `Act.sec_grid_ptr`** — `Section_GetSecPtrXY` and two
+   hand-rolled copies of its tail arithmetic in the debug lab (`ojz_scroll_test.emp:2681,3016`)
+   plus `tile_cache.emp:410`. There is no other producer.
+3. **There is exactly one `[Sec; N]` table**, `OJZ_Act1_Sections` (9 rows), and every row binds
+   a non-zero preset. `games/demo` has no `Sec` array and never reaches the proc.
+
+**Verdict: unreachable, confirmed — and the audit's own §1 detail is already stale.** It records
+`OJZ_Preset_Plain` for sections 5-8; at `f62fe9c5` sections 5 and 6 own `OJZ_Preset_Sec5` /
+`OJZ_Preset_Sec6`. The conclusion survives the drift; the enumeration is what was re-run.
+
+**So the instrument is comptime, and the release byte cost is ZERO.** `Sec.sec_effects` lost its
+`= 0` struct default and `ojz_sec()`'s `effects:` argument lost its own. An omitted binding — the
+risk shape the audit's §2 actually named, "the next author omits an optional argument" — is now a
+compile error in **both** shapes. A release-side runtime test would have paid bytes forever to
+look for a condition the ROM cannot contain.
+
+**What the comptime pin does NOT catch, stated because a guard's blind spot is part of it:** an
+author who writes an explicit `effects: 0`, and a generator that emits `Sec` rows as raw bytes.
+There is no such generator today. The `if DEBUG == 1` `raise_error` stays for the two runtime
+faults no comptime pin can see — a `Sec*` a debug tool poked, and a corrupted `Act.sec_grid_ptr`.
+
+### Row 3 — the deletion that was scheduled, precondition-discharged, and never carried out
+
+All twelve names (the nine fields plus the three reserved pads) re-verified dead **at `f62fe9c5`,
+not against the audit**: a grep of `engine/` and `games/` returns the struct definition,
+`act_descriptor.emp`'s constructor writes, and prose. Zero code readers.
+
+`sizeof(Sec)` **66 → 34** ($42 → $22); the eight surviving fields stay naturally aligned.
+**288 ROM bytes** (32 B × 9 sections). The `pal:` / `raster:` / `cycle:` constructor arguments went
+with them, and so did the now-unused Effects-P1-fixture `use` line — *checked, not assumed*: the
+sigil warning census is **identical to the control's**, `module.unreachable 55` in both, so no
+module left the reachability closure and no `ensure` went dark.
+
+**Two things the audit did not name, found by grepping for what touches the value:**
+
+- **A SECOND stride pin**, `engine/level/tile_cache.emp`, carrying its own copy of the 66.
+- **Both pins' stated reason was FALSE.** They said "the section GRID and its generated tables
+  assume 66". No generator emits `Sec` rows — the only `[Sec; N]` table in the tree is
+  hand-written. What actually hardcodes the layout is **outside the assembler**:
+  `tools/boot_override_gate.py` and `tools/preset_lab_witness.py` carry `SEC_SIZE` and per-field
+  offsets, and `tools/parallax_crossing_gate.py` PARSES the offsets out of the trailing `// $HH`
+  comments in `engine/structs.emp` (so those comments are a gate, not decoration). Both pins now
+  say that, and both hardcoding tools are updated: `SEC_SIZE` 66 → 34, `SEC_PARALLAX_CONFIG`
+  $14 → $0C, `SEC_EFFECTS` $34 → $1C.
+
+### Row 10 — the generator that never learned its neighbour's trick
+
+**Measured before it was built**, as the row asked: `sec2_local_map.bin` and `sec4_local_map.bin`
+are byte-identical (202 B, md5 `f51e8069c75be9a1aac8d376e30711fc`) and are still the only duplicate
+pair among the nine. `emit_section_local_maps` now carries `ojz_block_gen.py`'s sha256 content
+dedup; the generator reports it in its own line —
+`sec_local_maps: 9 sections, 8 distinct; map dedup saved 202 ROM bytes.` Owner is always the
+lowest flat id holding the content, so the output is order-deterministic. `verify_level_bin`'s
+`local-maps` lane passes on the aliased form.
+
+**Not "nothing on today's content", so the row closes as DONE rather than as not-worth-doing** —
+but 202 B is small, and the real value is that a zone whose sections share art (the normal case
+here: 3-8 all clone section 0's) stops paying per section for one table.
+
+### THE FINDING NOBODY ASKED FOR: this parcel CURES the inherited `bganim_room` failure
+
+`origin/master` at `f62fe9c5` **cannot complete `DEBUG=1 ./build.sh`** — established as a control
+in an unmodified worktree before any build result here was believed:
+
+```
+bganim_room: FAIL — the bank placement rule is broken in this shape.
+  `dac_banks` is declared at 0x90000 but packed data ends at 0x8C01E,
+  leaving 16354 B < DATA_GROWTH_RESERVE 16384 B.
+```
+
+**It was thirty bytes short.** 288 + 202 = **490 B** comes out of the packed data run this parcel
+touches, so `Art_Sonic` slides from `0x7355E` to `0x73374` and packed end from `0x8C01E` to
+`0x8BE34` — exactly −490 — leaving **16844 B ≥ 16384**. `bganim_room` **passes in both shapes**
+here (debug 16844 B free, release 19246 B). The mechanism is the one already written into the
+block-stream-dedup booking above: *"Removing N bytes slides `Art_Sonic` down by N and grows the
+room under `dac_banks` by N."*
+
+**This is NOT a reason to drop the ROM re-layout.** It buys 460 B of margin over the reserve in
+the binding shape. The re-layout buys `+0x18000`. Read this as "the DEBUG shape can build again
+while the re-layout freezes", not as "the re-layout is unnecessary" — the next data landing of any
+size puts the gate straight back where it was.
+
+### Byte accounting, classified the way the ritual requires
+
+**`EndOfRom` is UNCHANGED at `$A852C` in the debug shape** (control and parcel, both listings).
+The ROM does not shrink: the `dac_banks` / `sound_bank` anchors are fixed, so the 490 B is
+**headroom under an anchor**, not tail. (The `.bin` files differ by 18 B — that is the appended
+deb2 symbol table, whose text length moved with the label addresses. It is not a ROM-content
+delta, which is exactly why `EndOfRom` and not the file size is the instrument.)
+
+### Fixtures — three re-stamped, and ONE of them was already stale on master
+
+Two invocations per fixture, one per shape, and **each staleness was diagnosed before
+re-stamping** rather than re-stamped because a gate said so:
+
+| fixture | diagnosis | verdict |
+|---|---|---|
+| `sprite_tilt_cut.json` | 6 scalar diffs, all `Ani_Sonic`/`Ani_Tails`/`Ani_Knuckles` addresses, **every one exactly −490**, both shapes. No byte changed. | displacement, benign — re-stamped |
+| `loop_crossover_cut.json` | `lea $00070F1A,a1` → `lea $00070D30,a1` (debug) and `$05B8` → `$03CE` (release): the abs.l operand of one `lea`, **−490 in both**. `CrossoverTable` / `SolidityTable` / `table_addr` move by the same. | displacement, benign — re-stamped |
+| `instashield_cut.json` | **STALE ON `origin/master` TOO.** The control's own debug build reports the identical text (`+58 $9C→$9D, +59 $B6→$3E`), and the routine's bytes in this parcel's ROM are **byte-identical to the control's**. The delta is +136 on a `bra.w` displacement to `Sound_PlaySFX` — an earlier landing's, not this one's. Its RELEASE half was never stale. | inherited, not caused here — re-stamped, and recorded so nobody re-derives it |
+
+`tailsflight_cut.json` was re-emitted by the same tool and came back **byte-identical**; git shows
+it unmodified. Master never noticed the `instashield_cut` staleness because the DEBUG build died
+at `bganim_room` before reaching that gate — curing the earlier failure is what exposed it.
+
+### Documentation swept, including staleness this parcel did not create
+
+`docs/ENGINE_ARCHITECTURE.md` §4.2's `Sec` listing rewritten (it was **independently** wrong
+before this parcel — it still named `sec_collision_s4lz` at `+$34`, a field renamed to
+`sec_effects` by Parcel C2), plus fourteen other sites that asserted a now-deleted field in the
+present tense. `docs/LEVEL_EDITOR_SPEC.md` §2 rewritten — it described a **72-byte** record with a
+`sec_tile_art_s4lz` / `sec_tile_art_vram` tail that has not existed since the act-wide art pool
+landed; its per-section-tile-art subsection is **flagged as superseded and deliberately not
+rewritten** (different subject, different owner). `docs/EFFECTS_AUTHORING.md`'s "point a section
+at it" step told an author to pass `raster:` into `Sec.sec_raster_table` — **both already dead
+before this parcel** (the routine at effects-P3-C2 Task 13, 2026-08-15); it now describes the
+preset route, and notes that the NULL semantic **inverted** in that move (0 meant "keep", it now
+means "off"), which is the part a stale doc would have got backwards rather than merely
+out-of-date. `docs/BUGS.md`'s hits are historical bug records and were left alone.

@@ -61,84 +61,79 @@ OJZ_Act1_Descriptor:
 
 ---
 
-## 2. Section Definition (`Sec` struct) — 72 bytes ($48)
+## 2. Section Definition (`Sec` struct) — 34 bytes ($22)
 
-Sections are stored as a **contiguous flat array** pointed to by `Act.sec_grid_ptr`. A section at grid position `(sec_x, sec_y)` has flat index `flat_id = sec_y * grid_w + sec_x`. ROM offset: `sec_grid_ptr + flat_id * 72`.
+> **Corrected 2026-09-04 (painted-regions audit rows 3 and 7).** This section described a
+> **72-byte ($48)** record with a `sec_tile_art_s4lz` / `sec_tile_art_vram` tail. That record has
+> not existed for a long time — per-section tile art was replaced by the act-wide paged art pool,
+> and the struct had already shrunk to 66 bytes before this parcel touched it. It is now 34.
+> Anything downstream that copied the old table (an editor exporter, a script) is reading a layout
+> the engine has never had in this form; re-derive from `engine/structs.emp`, which is the truth.
 
-**Struct definition:** `engine/structs.emp` (`pub struct Sec`)
+Sections are stored as a **contiguous flat array** pointed to by `Act.sec_grid_ptr`. A section at grid position `(sec_x, sec_y)` has flat index `flat_id = sec_y * grid_w + sec_x`. ROM offset: `sec_grid_ptr + flat_id * 34`.
+
+**Struct definition:** `engine/structs.emp` (`pub struct Sec`). The stride is `ensure`-pinned in
+`engine/level/section.emp` and `engine/level/tile_cache.emp`, and the trailing `// $HH` offset
+comments in `structs.emp` are parsed as a gate by `tools/parallax_crossing_gate.py` — so a field
+added without renumbering stops that gate rather than silently sliding every read.
 
 | Offset | Size | Field | Description |
 |--------|------|-------|-------------|
 | $00 | long | `sec_block_index` | ROM pointer to 256-entry block index table. NULL = empty section. |
-| $04 | long | `sec_objects` | ROM pointer to compact 4-byte object entries (X-sorted, `dc.l 0` terminated) |
-| $08 | long | `sec_rings` | ROM pointer to ring list (`dc.w X, Y` pairs, `dc.l 0` terminated) |
-| $0C | long | `sec_plc` | S4LZ art PLC list pointer (0 = none) |
-| $10 | long | `sec_pal` | 128-byte palette pointer (4 CRAM lines × 32 bytes) |
-| $14 | long | `sec_parallax_config` | Parallax config pointer (0 = inherit `Act.act_parallax_config`) |
-| $18 | long | `sec_raster_table` | Raster command table pointer (0 = none) |
-| $1C | long | `sec_bg_layout` | Plane B layout pointer (NULL = use `Act.act_bg_layout`) |
-| $20 | long | `sec_type_table` | Type table pointer: `dc.b count, pad; dc.l ObjDef * N` |
-| $24 | long | `sec_pal_cycle` | Palette cycling script (reserved, Phase 4) |
-| $28 | long | `sec_sound_bank` | DAC sample bank pointer (0 = none) |
-| $2C | long | `sec_reserved_2C` | Reserved |
-| $30 | long | `sec_anim_blocks` | Animated tile script (reserved, Phase 4) |
-| $34 | long | `sec_collision_s4lz` | Reserved (collision embedded in block data) |
-| $38 | word | `sec_flags` | `SF_*` bitmask |
-| $3A | word | `sec_music` | Music track ID (0 = keep current) |
-| $3C | byte | reserved | (was `sec_layer_mask`) |
-| $3D | byte | `sec_camera_lookahead` | Lookahead pixels (0 = zone default) |
-| $3E | byte | reserved | |
-| $3F | byte | reserved | |
-| $40 | long | `sec_tile_art_s4lz` | Per-section S4LZ tile art blob pointer |
-| $44 | word | `sec_tile_art_vram` | VRAM byte destination (`color_base * 32`) |
-| $46 | word | (pad) | |
+| $04 | long | `sec_objects` | ROM pointer to compact object entries (X-sorted) |
+| $08 | long | `sec_rings` | ROM pointer to ring list (`dc.w X, Y` pairs) |
+| $0C | long | `sec_parallax_config` | Parallax config pointer; outranks the preset's `ep_parallax`. 0 = defer (`Effects_ResolveParallax`) |
+| $10 | long | `sec_bg_layout` | Plane B layout pointer (NULL = use `Act.act_bg_layout`) |
+| $14 | long | `sec_type_table` | Type table pointer: `dc.b count, pad; dc.l ObjDef * N` |
+| $18 | long | `sec_block_dict` | Raw block-dictionary pointer (block blob + index size; LZ window pre-seed) |
+| $1C | long | `sec_effects` | `EffectsPreset*` — **REQUIRED, no default**. Every per-section visual channel (palette, cycle, variants, raster, parallax) binds through this one pointer. |
+| $20 | word | `sec_block_dict_len` | Dict bytes (768 × K, K ≤ 3, word-even; 0 = no dict) |
+
+### What is NOT in this struct any more
+
+Nine fields and three reserved pads were deleted on 2026-09-04 after the effects-P3-C2 Task 13
+cutover left them with zero readers: `sec_plc`, `sec_pal`, `sec_raster_table`, `sec_pal_cycle`,
+`sec_sound_bank`, `sec_anim_blocks`, `sec_flags`, `sec_music`, `sec_camera_lookahead` and the
+`$3C`/`$3E`/`$3F` pads. **The palette, the palette-cycle script and the raster program did not go
+away — they moved**, onto the `EffectsPreset` the section names through `sec_effects`
+(`ep_pal` / `ep_cycle` / `ep_raster` / `ep_patched` / `ep_variants`). Music, sound bank, PLC list,
+animated-tile scripts and camera lookahead had no consumer at all and were reserving bytes in
+every section for features that are still unbuilt; when one of them ships it gets a preset channel
+or a re-added field, decided then.
+
+The `SF_*` flag names this section used to list (`SF_HAS_WATER`, `SF_UNDERGROUND`, `SF_NO_Y_WRAP`,
+`SF_PRESERVE_STATE`) were **never defined anywhere in `engine/` or `games/`** — they went with
+`sec_flags`.
 
 ### Null/zero convention
 
-- `sec_parallax_config = 0`: inherit `Act.act_parallax_config`
+A zero means "defer / none", never "keep whatever the previous section had". That older semantic
+belonged to the deleted per-field installers and is exactly what the total-binding preset exists
+to remove.
+
+- `sec_parallax_config = 0`: defer to the preset's `ep_parallax`, then `Act.act_parallax_config`
 - `sec_bg_layout = 0`: use `Act.act_bg_layout`
-- `sec_music = 0`: keep current music
-- `sec_block_index = 0`: empty section (no geometry)
+- `sec_block_index = 0`: empty section (no geometry) — `Section_GetSecPtrXY` treats it as out-of-grid
+- `sec_effects = 0`: **not legal, and not constructible** — the field has no default and neither
+  does `ojz_sec()`'s `effects:` argument, so an omitted binding fails the build in every shape
 
-### Section flags
+### Example (one row of the 3x3 section table)
+
+Sections are not hand-assembled as `dc.l` runs; they flow through one validating constructor in
+`games/sonic4/data/levels/ojz/act1/act_descriptor.emp`, which is where a new act should start:
 
 ```
-SF_HAS_WATER      = 1<<0    ; Section has a water line
-SF_UNDERGROUND    = 1<<1    ; Underground (affects lighting)
-SF_NO_Y_WRAP      = 1<<2    ; Disable Y wrapping
-SF_PRESERVE_STATE = 1<<3    ; Preserve object state on revisit
+ojz_sec(sec: 0, blocks: OJZ_Sec0_Blocks,
+        objects: OJZ_Sec0_Objects, rings: OJZ_Sec0_Rings,
+        type_table: OJZ_Sec0_TypeTable,
+        effects: OJZ_Preset_Sec0,
+        dict: extern("OJZ_Sec0_Blocks") + extern("BLOCK_INDEX_SIZE"),
+        dict_len: OJZ_SEC0_BLOCK_DICT_LEN),
 ```
 
-### Example (section table for 3×3 grid)
-
-```asm
-OJZ_Act1_Sections:
-; --- Section 0 (0,0) — flat_id 0 ---
-OJZ_Sec0:
-    dc.l    OJZ_Sec0_Blocks           ; sec_block_index
-    dc.l    OJZ_Sec0_Objects          ; sec_objects
-    dc.l    OJZ_Sec0_Rings            ; sec_rings
-    dc.l    0                         ; sec_plc
-    dc.l    OJZ_Palette               ; sec_pal
-    dc.l    0                         ; sec_parallax_config (inherit act default)
-    dc.l    0                         ; sec_raster_table
-    dc.l    0                         ; sec_bg_layout (use act default)
-    dc.l    OJZ_Sec0_TypeTable        ; sec_type_table
-    dc.l    0                         ; sec_pal_cycle
-    dc.l    0                         ; sec_sound_bank
-    dc.l    0                         ; sec_reserved_2C
-    dc.l    0                         ; sec_anim_blocks
-    dc.l    0                         ; sec_collision_s4lz
-    dc.w    0                         ; sec_flags
-    dc.w    0                         ; sec_music
-    dc.b    0, 0, 0, 0               ; reserved bytes
-    dc.l    OJZ_Sec0_Tiles_S4LZ       ; sec_tile_art_s4lz
-    dc.w    OJZ_SEC0_VRAM             ; sec_tile_art_vram
-    dc.w    0                         ; pad
-; --- Section 1 (1,0) — flat_id 1 ---
-OJZ_Sec1:
-    ; ... same 72-byte layout ...
-```
+`sec_parallax_config` is not an argument: it is filled by `ojz_act1_sec_scene(sec: N)`, the
+generated editor-binding function, so a section's parallax comes from its Aurora sidecar rather
+than from this file.
 
 ---
 
@@ -219,7 +214,17 @@ Custom word-aligned LZ compression.
 
 **Tile-delta preprocessing** (flag bit 0): After decompression, each 32-byte tile is XOR'd against the previous tile. Used for tile art blobs where adjacent tiles share patterns.
 
-### Per-section tile art
+### Per-section tile art — SUPERSEDED, and this subsection was not rewritten
+
+> **Flagged 2026-09-04 while correcting §2, NOT fixed** (it is a different subject from the
+> painted-regions rows that pass was closing, and rewriting it needs the art-pool owner). There is
+> no per-section tile art any more: `sec_tile_art_s4lz` and `sec_tile_art_vram` are not fields of
+> `Sec` and have not been for a long time. Art is the act-wide, globally-deduped **paged pool**
+> (`Act.act_art_pool_table` / `act_art_pool_pages`), streamed as 64-tile pages through the VRAM
+> residency cache — see `docs/ENGINE_ARCHITECTURE.md` §9.7. The "Critical: cloned sections sharing
+> block data MUST use the same `sec_tile_art_vram`" note above §3 is stale for the same reason;
+> the local→global translation at block decode (`Act.act_sec_local_maps`) is what makes shared
+> block data work now. Everything below in this subsection describes the superseded scheme.
 
 Each section has:
 - `sec_tile_art_s4lz`: S4LZ-compressed tile art blob (with tile-delta)
