@@ -211,18 +211,25 @@ jbsr    Palette_SetVariant
 line 1. **If it did not, nothing would catch you** — see the uncovered-line hole under the variant
 section.
 
-**4. Point a section at it.** In `games/sonic4/data/levels/ojz/act1/act_descriptor.emp`, the `ojz_sec`
-wrapper (`:137`) takes a `raster:` argument that lands in `Sec.sec_raster_table` (`engine/structs.emp:117`),
-exactly as section 1 already does for `OJZ_TestRaster` (`act_descriptor.emp:176`):
+**4. Point a section at it.** *(Rewritten 2026-09-04. This step used to say "the `ojz_sec` wrapper
+takes a `raster:` argument that lands in `Sec.sec_raster_table`". Both are gone: the field lost its
+reader at effects-P3-C2 Task 13 in 2026-08 and the field and the argument were deleted on 2026-09-04
+with the other dead `Sec` members. Following the old text would not have compiled.)*
+
+A section binds every visual channel through ONE `EffectsPreset`, named by its **required**
+`effects:` argument in `games/sonic4/data/levels/ojz/act1/act_descriptor.emp`. Put the program on
+the preset's `ep_raster` in `games/sonic4/data/effects/ojz_effects.emp` — section 5's
+`OJZ_Preset_Sec5` exists precisely so one section's raster channel can be rebound without dragging
+its neighbours — and point the section at that preset:
 
 ```
-    ojz_sec(blocks: OJZ_Sec4_Blocks,
+    ojz_sec(sec: 4, blocks: OJZ_Sec4_Blocks,
             …
-            raster: OJZ_DuskBand),
+            effects: OJZ_Preset_Dusk),
 ```
 
-**5. See it.** On a boundary crossing `Parallax_CheckBoundary` (`engine/level/parallax.emp:154`, calls at
-`:185-186`) invokes `Raster_InstallSection` (`raster.emp:545-555`), which stages the pointer; the next
+**5. See it.** On a boundary crossing `Parallax_CheckBoundary` (`engine/level/parallax.emp`) invokes
+`Effects_InstallPreset`, which stages the preset's `ep_raster` through `Raster_Install`; the next
 `Raster_VBlank` copies 128 bytes into `Raster_Buf_A`, re-asserts the program's palette lines, and leaves
 reg `$0A` = 0 so the pipeline primes on lines 0 and 1. Screen lines 0-95 show the base palette; from 96
 down, entries 8-10 of line 1 carry the dusk-derived colours, and the base is restored at the next frame
@@ -232,9 +239,12 @@ Confirm it the way the dense gate did, not by eyeballing a screenshot: oracle `r
 `read_cram` above and below line 96 answers "did the handler write the authored word on the authored
 line" directly, and cannot be confounded by art coverage.
 
-**6. Turning it off.** Crossing into a section whose `sec_raster_table` is 0 **keeps the program** —
-NULL means "keep current", not "no effects". A section that must kill a neighbour's effect points at
-`Raster_Program_None` (`raster.emp:560`), an explicit empty program.
+**6. Turning it off.** *(Also rewritten 2026-09-04 — the hazard MOVED, it did not go away.)* A
+preset whose `ep_raster` is 0 does **not** leave the previous section's program running: total
+binding exists to kill that semantic, and `Effects_InstallPreset` redirects a bare 0 to
+`Raster_Program_None` (`raster.emp`), an explicit empty program, at the call site. The "0 means
+keep" reading survives one rung lower, inside `Raster_VBlank`, which is why the redirect has to be
+there — see route 2 under "Install" below, which spells that out.
 
 ---
 
@@ -585,8 +595,9 @@ code, not reproduced.)
 
 **Cycling is a different mechanism on the same palette.** `cycle_channel` / `cycle_script1` /
 `cycle_script2` (`palette_dsl.emp:87-118`) rotate spans of CRAM entries *in place* each period, installed
-per section through `Sec.sec_pal_cycle` (`engine/structs.emp:120`) by `Palette_InstallCycleSection`
-(`palette.emp:324`). Cycling needs no raster program at all — it is a whole-screen effect. It composes
+per section through the preset's `ep_cycle` by `Palette_LoadCycle` (`palette.emp`). *(Corrected
+2026-09-04: this said `Sec.sec_pal_cycle` / `Palette_InstallCycleSection`. The routine was deleted
+at effects-P3-C2 Task 13 in 2026-08 and the field on 2026-09-04.)* Cycling needs no raster program at all — it is a whole-screen effect. It composes
 *before* variants, so a variant derived afterwards sees the rotated colours. Variants transform, cycling
 permutes; the raster tier is how either one becomes scoped to a band.
 
@@ -624,12 +635,16 @@ copied into prose (it reported 426 names across 14 helpers at `2dd5e35c`).
 
 **Install.** A compiled program is inert data; something has to point the runtime at it. Three routes:
 
-1. **Per-section (the normal one).** Point the section's `Sec.sec_raster_table` (`engine/structs.emp:117`)
-   at your `pub data`. `Raster_InstallSection` (`raster.emp:545-555`) consumes it on a boundary
-   crossing, from `Parallax_CheckBoundary` (`engine/level/parallax.emp:186`). NULL means "keep the
-   current program", *not* "no effects" — a section that must turn a neighbour's effect **off** points
-   at `Raster_Program_None` (`raster.emp:560`), an explicit empty program. Raster programs snap; they
-   are never lerped across a boundary.
+1. **Per-section (the normal one).** Put your `pub data` on the section's `EffectsPreset` as
+   `ep_raster` (or `ep_patched`); the section names that preset through its required `sec_effects`
+   binding. `Effects_InstallPreset` (`engine/effects/preset.emp`) consumes it on a boundary crossing,
+   from `Parallax_CheckBoundary` (`engine/level/parallax.emp`). **A 0 here means OFF, not "keep"** —
+   the installer redirects a bare 0 to `Raster_Program_None`, an explicit empty program, so a
+   neighbour's effect cannot survive into a section that did not ask for it. Raster programs snap;
+   they are never lerped across a boundary. *(Corrected 2026-09-04: this route used to name
+   `Sec.sec_raster_table` and `Raster_InstallSection`, both deleted — the routine at Task 13, the
+   field with the other dead `Sec` members. Note the semantic INVERTED in the move, which is the
+   whole point of total binding and the reason the stale text was worth catching.)*
 2. **Imperative.** `Raster_Install` with `a0` = the program (`raster.emp:295-298`). The install is
    *staged* and consumed at the next `Raster_VBlank`, so it can never tear a frame mid-walk. Main-loop
    context only.

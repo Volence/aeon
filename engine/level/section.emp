@@ -26,12 +26,23 @@ use engine.z80_bus.{z80_stopped}
 // Sec-Act layout all come from the shared engine.constants + engine.structs
 // modules (`use`d above), which carry the drift locks. ----
 // (Act/Sec field-offset drift guards now live in engine.structs' per-field wall.)
-// Section_GetSecPtrXY multiplies the flat id by sizeof(Sec) = 66; the `ensure`
-// keeps 66 the real stride.
-ensure(sizeof(Sec) == 66, "Section_GetSecPtrXY's stride pin: sizeof(Sec) moved off 66. The walk now spells #sizeof(Sec) so the STRIDE follows automatically — this pin exists because the section GRID and its generated tables assume 66, so a struct change is a data-format change, not just a stride change")
-// Section_GetSecPtrXY's `adda.w d0, a0` (d0 = flat × 66) sign-extends the word
-// offset: once flat × 66 crosses $7FFF the pointer wraps negative, capping an act
-// at $7FFF / 66 = 496 sections. That MAX_ACT_SECTIONS ≤ 496 ceiling is asserted at
+// Section_GetSecPtrXY multiplies the flat id by sizeof(Sec) = 34; the `ensure`
+// keeps 34 the real stride.
+//
+// 66 -> 34 ON 2026-09-04 (painted-regions audit row 3, nine dead fields + three pads
+// deleted). The old wording of this pin claimed "the section GRID and its generated
+// tables assume 66" — checked before moving it and that half is FALSE: no generator
+// emits Sec rows (the only [Sec; N] table in the tree is hand-written through
+// act_descriptor.emp's ojz_sec()), and every in-engine stride spells #sizeof(Sec).
+// What DOES hardcode the number is outside the assembler: tools/boot_override_gate.py
+// and tools/preset_lab_witness.py carry SEC_SIZE plus per-field offsets, and
+// tools/parallax_crossing_gate.py parses them out of engine/structs.emp's trailing
+// `// $HH` comments. That is the real reason this pin exists — a silent stride change
+// desynchronises the gates from the ROM they are reading.
+ensure(sizeof(Sec) == 34, "Section_GetSecPtrXY's stride pin: sizeof(Sec) moved off 34. The walk spells #sizeof(Sec) so the STRIDE follows automatically — this pin exists because the out-of-assembler readers of the Sec table (tools/boot_override_gate.py, tools/preset_lab_witness.py, tools/parallax_crossing_gate.py) carry their own copy of the layout, so a struct change is a gate-contract change, not just a stride change")
+// Section_GetSecPtrXY's `adda.w d0, a0` (d0 = flat × 34) sign-extends the word
+// offset: once flat × 34 crosses $7FFF the pointer wraps negative, capping an act
+// at $7FFF / 34 = 963 sections. That ceiling is asserted at
 // its owner (games/.../act_descriptor.emp, beside the other mega-act grid
 // ceilings) — MAX_ACT_SECTIONS is a drift-guarded const there, so the check stays
 // comptime and doesn't demand the extern when section is compiled standalone.

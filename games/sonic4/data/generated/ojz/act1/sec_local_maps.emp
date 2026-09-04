@@ -3,15 +3,17 @@
 // maps a block nametable word's 11-bit LOCAL index -> the GLOBAL VRAM slot;
 // the engine translates local->global at block decode
 // (TileCache_DecompressBlock via Act.act_sec_local_maps). OJZ_Sec_LocalMaps
-// is indexed by FLAT section id (sec_y*grid_w + sec_x). Natively placed at
-// the sec_local_maps section; consumed by act_descriptor.emp.
+// is indexed by FLAT section id (sec_y*grid_w + sec_x). Identical maps are
+// stored ONCE; duplicate sections alias via a zero-byte address equ
+// (content dedup). Natively placed at the sec_local_maps section;
+// consumed by act_descriptor.emp.
 module games.sonic4.ojz_sec_local_maps_act1 in sec_local_maps
 
 pub data OJZ_Sec0_LocalMap = embed("games/sonic4/data/generated/ojz/act1/sec0_local_map.bin")
 pub data OJZ_Sec1_LocalMap = embed("games/sonic4/data/generated/ojz/act1/sec1_local_map.bin")
 pub data OJZ_Sec2_LocalMap = embed("games/sonic4/data/generated/ojz/act1/sec2_local_map.bin")
 pub data OJZ_Sec3_LocalMap = embed("games/sonic4/data/generated/ojz/act1/sec3_local_map.bin")
-pub data OJZ_Sec4_LocalMap = embed("games/sonic4/data/generated/ojz/act1/sec4_local_map.bin")
+pub equ  OJZ_Sec4_LocalMap = extern("OJZ_Sec2_LocalMap")   // content-dedup: identical to sec2
 pub data OJZ_Sec5_LocalMap = embed("games/sonic4/data/generated/ojz/act1/sec5_local_map.bin")
 pub data OJZ_Sec6_LocalMap = embed("games/sonic4/data/generated/ojz/act1/sec6_local_map.bin")
 pub data OJZ_Sec7_LocalMap = embed("games/sonic4/data/generated/ojz/act1/sec7_local_map.bin")

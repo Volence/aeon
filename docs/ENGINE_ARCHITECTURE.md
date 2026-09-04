@@ -1777,8 +1777,10 @@ Camera scrolls toward a section boundary
     objects spawn at the camera edge (4.9) with their static art_tile
   → Camera crosses (Camera >> SECTION_SIZE_SHIFT) changes:
       → parallax config snap/lerp (shipped); palette cross-fade + music
-        swap are descriptor-driven design-stage (sec_pal/sec_music have no
-        transition consumer yet — §4.2, §7.1)
+        swap: the palette IS installed on the crossing now (EffectsPreset.ep_pal,
+        §4.12b) but the CROSS-FADE is design-stage, and music has no per-section
+        binding at all — sec_music was deleted 2026-09-04 with the other dead
+        Sec fields, so a music swap would need a new preset channel (§4.2, §7.1)
   → No art swap, no preload window, no Section_Enter event — the camera
     just keeps moving; the section is "entered" purely by world position
 ```
@@ -2335,39 +2337,29 @@ Example: Oracle Jungle Zone Act 1
 Each section in the 2D grid is fully self-describing — almost its own level:
 
 ```
-; Section definition — 66 bytes per (X, Y) cell (Sec struct in structs.emp):
+; Section definition — 34 bytes per (X, Y) cell (Sec struct in structs.emp):
     dc.l    sec_block_index      ; +$00: 256-entry block index (ROM pointer, see §4.3/§4.7)
     dc.l    sec_objects          ; +$04: object layout (6-byte objentry entries, X-sorted, see 4.9)
     dc.l    sec_rings            ; +$08: ring layout (flat X-sorted dc.w pairs, section-local coords, see 4.9)
-    dc.l    sec_plc              ; +$0C: art PLC list (S4LZ format)
-    dc.l    sec_pal              ; +$10: palette pointer — full 128-byte copy (0 = no change)
-    dc.l    sec_parallax_config  ; +$14: parallax_config pointer — outranks the preset's ep_parallax; 0 = defer (Effects_ResolveParallax, §4.6)
-    dc.l    sec_raster_table     ; +$18: raster command table pointer (0 = keep current, see §7.2)
-    dc.l    sec_bg_layout        ; +$1C: per-section Plane B layout pointer (NULL = use Act default; §2 A.5)
-    dc.l    sec_type_table       ; +$20: type table (ROM): dc.b count,pad; dc.l ObjDef×N (§4.9)
-    dc.l    sec_pal_cycle        ; +$24: palette cycling script (0 = keep current)
-    dc.l    sec_sound_bank       ; +$28: DAC sample bank pointer (0 = keep current)
-    dc.l    sec_block_dict       ; +$2C: raw block-dictionary ptr (block blob + index size; LZ window pre-seed)
-    dc.l    sec_anim_blocks      ; +$30: animated tile script (0 = none)
-    dc.l    sec_collision_s4lz   ; +$34: reserved (collision embedded in block data; §4.7)
-    dc.w    sec_flags            ; +$38: SF_* bitmask (see below)
-    dc.w    sec_music            ; +$3A: music change (0 = keep current)
-    dc.b    sec_pcfg_pad_3C      ; +$3C: reserved (parallax config moved to sec_parallax_config)
-    dc.b    sec_camera_lookahead ; +$3D: camera look-ahead pixels (0 = zone default)
-    dc.b    sec_pcfg_pad_3E      ; +$3E: reserved
-    dc.b    sec_pcfg_pad_3F      ; +$3F: reserved
-    dc.w    sec_block_dict_len   ; +$40: block-dict bytes (768×K, K≤3, word-even; 0 = no dict)
-; Sec_len = $42 (66 bytes). Per-section tile art removed — art is the act-wide
+    dc.l    sec_parallax_config  ; +$0C: parallax_config pointer — outranks the preset's ep_parallax; 0 = defer (Effects_ResolveParallax, §4.6)
+    dc.l    sec_bg_layout        ; +$10: per-section Plane B layout pointer (NULL = use Act default; §2 A.5)
+    dc.l    sec_type_table       ; +$14: type table (ROM): dc.b count,pad; dc.l ObjDef×N (§4.9)
+    dc.l    sec_block_dict       ; +$18: raw block-dictionary ptr (block blob + index size; LZ window pre-seed)
+    dc.l    sec_effects          ; +$1C: EffectsPreset* — TOTAL BINDING (§4.12b). REQUIRED, no default.
+    dc.w    sec_block_dict_len   ; +$20: block-dict bytes (768×K, K≤3, word-even; 0 = no dict)
+; Sec_len = $22 (34 bytes). Per-section tile art removed — art is the act-wide
 ; paged pool on the Act descriptor (act_art_pool_table / act_art_pool_pages).
-
-; sec_flags: SF_HAS_WATER | SF_UNDERGROUND | SF_NO_Y_WRAP | SF_PRESERVE_STATE | SF_HAS_ANIMATED_BLOCKS
 ```
 
-Fields default to 0 (keep current state). Each section is effectively its own world — unique terrain art, unique background motion, unique palette cycling, unique physics, unique music, unique parallax, all from data alone. No Genesis game has this level of per-area control within a single level.
+A surviving field's 0 means "defer / none", never "keep current". Each section is effectively its own world — unique terrain art, unique background motion, unique palette cycling, unique physics, unique music, unique parallax, all from data alone. Everything in that list except the terrain, object and layout pointers now arrives through the ONE `sec_effects` pointer rather than through a field of its own (§4.12b).
 
-**Audit note (2026-08-02):** the layout table above matches `engine/structs.emp` field-for-field — all 21 members from `$00` to `$40`, `sizeof(Sec) = 66` (`$42`), which is `ensure`-guarded in `engine/level/section.emp` and `engine/level/tile_cache.emp`. Two names sometimes mistaken for `Sec` members are not fields of it: `sec_grid_ptr` is an **`Act`** field (`Act` +$00, the section-definition-array pointer), and `sec_id` is a **computed** flat index (`sec_y × grid_w + sec_x`, `engine/level/tile_cache.emp`) never stored in the struct. The `SF_*` bit names listed above are still descriptor surface ahead of code: the `sec_flags` field ($38) exists, but the individual `SF_*` constants are not yet defined anywhere in `engine/`/`games/` (the `sec_pal` precedent — a field/name documented ahead of a consumer).
+**66 → 34 bytes on 2026-09-04 (painted-regions audit rows 3 and 7).** Nine fields and three reserved pads were deleted — `sec_plc`, `sec_pal`, `sec_raster_table`, `sec_pal_cycle`, `sec_sound_bank`, `sec_anim_blocks`, `sec_flags`, `sec_music`, `sec_camera_lookahead`, `sec_pcfg_pad_3C/_3E/_3F` — recovering 32 B × 9 sections = 288 ROM bytes. Every one had **zero code readers**, re-verified name by name on the day: the effects-P3-C2 Task 13 cutover (`e6b016e5`) deleted the readers (`Palette_LoadSection`, `Palette_InstallCycleSection`, `Raster_InstallSection`) and left the writers standing. The `SF_*` bit names this section used to list (`SF_HAS_WATER | SF_UNDERGROUND | SF_NO_Y_WRAP | SF_PRESERVE_STATE | SF_HAS_ANIMATED_BLOCKS`) went with `sec_flags`: they were never defined anywhere in `engine/`/`games/`, so nothing depended on them, and a per-section flag word can be re-added when a consumer wants one rather than reserved indefinitely. Two names sometimes mistaken for `Sec` members are still not fields of it: `sec_grid_ptr` is an **`Act`** field (`Act` +$00, the section-definition-array pointer), and `sec_id` is a **computed** flat index (`sec_y × grid_w + sec_x`, `engine/level/tile_cache.emp`) never stored in the struct.
 
-**Palette format:** `sec_pal` points to a full 128-byte palette copy (all 4 palette lines × 16 colors × 2 bytes) — raw CRAM data, no delta format, no compression. **Descriptor field only — no shipped consumer.** No section-transition code reads `sec_pal` today (engine level code reads `sec_bg_layout`/`sec_parallax_config`/`sec_block_dict`/`sec_block_index`, not `sec_pal`); **`sec_camera_lookahead` does not belong in that "does read" list either — it has zero readers today, same as `sec_pal` (see §4.5)**. The descriptor-driven palette *load* on section transition — instant or cross-faded — is **design-stage** (§7.1, whose §7 banner marks the whole palette-transition/cross-fade/cycling cluster as PLANNED, not implemented). What ships today is the game-poked path: game code writes `Palette_Buffer` (128 B RAM) and sets `Palette_Dirty` bits, and `Enqueue_Dirty_Buffers` DMAs the dirty lines to CRAM (§7.1 "Per-palette-line dirty DMA").
+**`sec_effects` is required, and that requirement is the null guard.** `Effects_InstallPreset` dereferences the pointer without testing it, and the only null test on the crossing path (`engine/level/parallax.emp`) sits inside `if DEBUG == 1` — so a null would have taken the *release* build into the 68000 vector table while the *development* build raised. The value has no runtime writer (it is ROM, reached only through `Section_GetSecPtrXY` over `Act.sec_grid_ptr`), which makes its nullity a build-time property, so the field and `ojz_sec()`'s `effects:` argument both dropped their `= 0` defaults instead: an omitted binding is now a compile error in every shape at zero ROM bytes. The DEBUG test survives for what a comptime pin cannot see — a poked `Sec*` or a corrupted `Act.sec_grid_ptr`.
+
+**`sizeof(Sec) = 34` (`$22`)** is `ensure`-guarded twice, in `engine/level/section.emp` and `engine/level/tile_cache.emp`. Both pins exist for the readers OUTSIDE the assembler: `tools/boot_override_gate.py` and `tools/preset_lab_witness.py` carry their own copy of the stride and the field offsets, and `tools/parallax_crossing_gate.py` parses the offsets out of the trailing `// $HH` comments in `engine/structs.emp` — which are therefore a gate, not decoration.
+
+**Palette format:** a section's base palette is a full 128-byte copy (all 4 palette lines × 16 colors × 2 bytes) — raw CRAM data, no delta format, no compression — and it reaches CRAM through `EffectsPreset.ep_pal` → `Palette_LoadPal`, installed by `Effects_InstallPreset` at the section-boundary crossing (§4.12b). There is no `sec_pal` field any more; the descriptor-driven *cross-fade* half of §7.1 remains design-stage. Engine level code reads `sec_bg_layout`/`sec_parallax_config`/`sec_block_dict`/`sec_block_index`/`sec_effects` — that is now the whole struct minus `sec_objects`/`sec_rings`/`sec_type_table` (the entity window's three) and `sec_block_dict_len`. Alongside it, the game-poked path still ships: game code writes `Palette_Buffer` (128 B RAM) and sets `Palette_Dirty` bits, and `Enqueue_Dirty_Buffers` DMAs the dirty lines to CRAM (§7.1 "Per-palette-line dirty DMA").
 
 ### 4.3 Pre-Computed Nametable Data (Block-Based) (confirmed by Batman & Robin)
 
@@ -2409,7 +2401,7 @@ Producer-consumer pattern: all tile writes are buffered in RAM during the game l
 
 Port S.C.E.'s `ExtendedCamera` with lookahead panning, then extend with novel features:
 
-**Per-section camera lookahead (NOVEL, not yet wired):** S.C.E. hardcodes ±64px. The design is per-section via a `sec_camera_lookahead` byte: wide-open jungle = 96px, tight cave = 32px, vertical shaft = 0px (vertical-only tracking). **This is not implemented today.** `Sec.sec_camera_lookahead`, `Camera_Lookahead`, and `CAM_LOOKAHEAD_THRESHOLD` all have zero readers; `Camera_Pan_Offset` has exactly one writer (`Camera_Init`'s `move.w #0, Camera_Pan_Offset`) and is explicitly write-only scaffolding — its own comment in `engine/level/camera.emp` says "write-only until that ships — do not cut". The camera does not read the current section's value; it reads nothing, because no consumer exists yet.
+**Per-section camera lookahead (NOVEL, not yet wired):** S.C.E. hardcodes ±64px. The design is per-section — wide-open jungle = 96px, tight cave = 32px, vertical shaft = 0px (vertical-only tracking). **This is not implemented today.** The `sec_camera_lookahead` byte that reserved the per-section half was **deleted on 2026-09-04** (§4.2, painted-regions audit row 3) after four years-equivalent of carrying zero readers; when the feature is built the per-section value belongs on the section's `EffectsPreset` or on a re-added field, decided then rather than reserved now. `Camera_Lookahead` and `CAM_LOOKAHEAD_THRESHOLD` still have zero readers; `Camera_Pan_Offset` has exactly one writer (`Camera_Init`'s `move.w #0, Camera_Pan_Offset`) and is explicitly write-only scaffolding — its own comment in `engine/level/camera.emp` says "write-only until that ships — do not cut". The camera does not read the current section's value; it reads nothing, because no consumer exists yet.
 
 **Velocity-adaptive deadzone (NOVEL):** `deadzone_width = base_deadzone + (abs(x_vel) >> shift_factor)`. At high speed, the deadzone widens to show more of what's ahead. At walking speed, tight tracking. No Genesis game adapts the camera deadzone to speed.
 
@@ -2804,13 +2796,13 @@ Continuous scrolling makes "streaming" a steady per-frame edge process rather th
 - Layer enable mask disables unused layers per section (saves cycles + DMA)
 
 **Animated Terrain Per-Section (NOVEL — PLANNED, not implemented):**
-Each section could define its own animated tile set via `sec_anim_blocks` — conveyor belts, pulsing lava, swaying grass, shimmering ice — cycled and DMA'd via the DMA queue (Priority 1), with the entered section's set starting and the exited one's stopping at each boundary crossing. **Status:** `sec_anim_blocks` is a reserved descriptor field with no runtime consumer (see the §7 banner). What ships today is *act-level* BG tile-band animation — `BgAnim` (`engine/level/bg_anim.emp`), driven by the act-wide `BgAnim_Table`, not per-section scripts. See DEFERRED_WORK.md "Animated Tile DMA Scripts" for the design backlog entry.
+Each section could define its own animated tile set via `sec_anim_blocks` — conveyor belts, pulsing lava, swaying grass, shimmering ice — cycled and DMA'd via the DMA queue (Priority 1), with the entered section's set starting and the exited one's stopping at each boundary crossing. **Status:** `sec_anim_blocks` was a reserved descriptor field with no runtime consumer and was **deleted on 2026-09-04** (§4.2, painted-regions audit row 3) — reserving a pointer in every section for an unbuilt feature cost 4 B × 9 sections and bought nothing; re-add it, or an `EffectsPreset` channel, when the consumer is actually built. What ships today is *act-level* BG tile-band animation — `BgAnim` (`engine/level/bg_anim.emp`), driven by the act-wide `BgAnim_Table`, not per-section scripts. See DEFERRED_WORK.md "Animated Tile DMA Scripts" for the design backlog entry.
 
 **Section State Preservation via Visibility Window:**
 The visibility-derived window preserves entity state for sections inside the 2×2 tracked window naturally — mask bits carry over by section identity at every slide. Collected rings stay collected, destroyed objects stay gone, as long as the section remains tracked. Once a section leaves the window, revisiting loads from ROM defaults — matching classic Sonic behavior where distant areas respawn. The 3×3 rolling collected bitmask (4.9.5), keyed by section_id, extends this to ±1 section of backtrack regardless of where the camera is in world space.
 
 **Transition / Blend Sections (NOVEL — PLANNED, not implemented):**
-Transition cells in the grid would interpolate between adjacent sections' palettes, parallax, and physics across the cell's width. Jungle gradually darkens into cave, water tint deepens as you descend, wind picks up as you climb. Creates seamless geographic flow instead of hard boundaries — the continuous camera makes the blend a function of world position within the cell rather than a discrete event. **Status:** only the parallax leg exists (per-section `sec_parallax_config` with the 16-frame lerp, above). No palette-transition code ships — `sec_pal` has no runtime consumer and palette cross-fade is design-stage (§7.1 and the §7 banner; see also DEFERRED_WORK.md "Palette transition on section crossing"); the physics leg is the deferred modifier half of §5.2 (DEFERRED_WORK.md §5).
+Transition cells in the grid would interpolate between adjacent sections' palettes, parallax, and physics across the cell's width. Jungle gradually darkens into cave, water tint deepens as you descend, wind picks up as you climb. Creates seamless geographic flow instead of hard boundaries — the continuous camera makes the blend a function of world position within the cell rather than a discrete event. **Status:** only the parallax leg exists (per-section `sec_parallax_config` with the 16-frame lerp, above). No palette-BLEND code ships — the per-section base palette does install on a crossing (`EffectsPreset.ep_pal`, §4.12b; the `sec_pal` field it used to come from is deleted) but interpolating BETWEEN two sections' palettes across a cell is design-stage (§7.1 and the §7 banner; see also DEFERRED_WORK.md "Palette transition on section crossing"); the physics leg is the deferred modifier half of §5.2 (DEFERRED_WORK.md §5).
 
 **Streaming During Cutscenes:**
 During boss deaths, story sequences, or triggered animations the camera is usually still, so the edge streamer is idle and the DMA queue has spare capacity. There is no per-section art preload to run (art is resident); cutscene time is instead free budget for effects and audio work.
@@ -3795,7 +3787,7 @@ DAC volume (revisit via `ds_vol` at ratification time).
 ### 6.4 Section-Aware Sound Banking (NOVEL) — DEFERRED (Phase 5)
 
 Batman uses static per-level sound banks. We make them per-section and dynamic:
-- `sec_music` and `sec_sound_bank` in section definitions trigger music changes or sample set swaps
+- Per-section music changes and sample-set swaps. (The `sec_music` / `sec_sound_bank` fields that were reserved for this were deleted on 2026-09-04 — §4.2 — having never acquired a consumer. The binding, when built, belongs on the `EffectsPreset` alongside every other per-section channel, not as two more always-present descriptor words.)
 - Different sections use different DAC samples (outdoor → nature, cave → echo/drip, boss → heavy percussion)
 - **Music anticipation:** as the camera nears a section boundary, the next section's sample bank is pre-loaded into the Z80 DAC buffer so the swap is gap-free when the camera crosses.
 - **Music transition types:** Per-section `sec_music_fade_type` controls how music changes:
@@ -3913,8 +3905,9 @@ DAC (6.2, shipped shape)
 > below, which is current.** At P1, `sec_raster_table` and `sec_pal` were read
 > directly on the section-boundary crossing in `Parallax_CheckBoundary`. Parcel C2
 > deleted that direct-read path (`Palette_LoadSection` and its raster/pal-cycle
-> siblings, effects-P3-C2 Task 13): `Sec.sec_pal` / `Sec.sec_raster_table` are today
-> descriptor-only fields with **zero code readers** — a section instead names one
+> siblings, effects-P3-C2 Task 13): `Sec.sec_pal` / `Sec.sec_raster_table` were left
+> as descriptor-only fields with **zero code readers**, and were **deleted on
+> 2026-09-04** (§4.2) — a section instead names one
 > `EffectsPreset` via `Sec.sec_effects`, and `Effects_InstallPreset` resolves the
 > preset's own `ep_pal`/`ep_raster` pointers at the crossing. The dispatcher lives in
 > `engine/effects/raster.emp` and the palette module in `engine/effects/palette.emp`
@@ -3982,10 +3975,15 @@ paragraph this replaces described a superseded design and is corrected on four
 counts: the owning file, the `sec_pal` contract, what ships, and how a section binds
 it.)*
 
-The **per-section palette load** ships: `Palette_LoadSection`
-(`engine/effects/palette.emp` — split out of `buffers.emp`, which keeps only the CRAM
-upload machinery) consumes `Sec.sec_pal` on a boundary crossing and copies it into
-`Pal_Base` for the compose to pick up.
+The **per-section palette load** ships — but not through the routine this paragraph
+named, and CORRECTED TWICE. `Palette_LoadSection` was deleted by effects-P3-C2 Task 13
+(2026-08-15) along with the `Sec.sec_pal` read it performed; this paragraph was not
+updated then, and the staleness was caught on 2026-09-04 while deleting the field
+itself (§4.2, painted-regions audit row 3). What ships today: `Palette_LoadPal`
+(`engine/effects/palette.emp`, split out of `buffers.emp`, which keeps only the CRAM
+upload machinery) takes a PLAIN POINTER, not a `Sec*`, and is called by
+`Effects_InstallPreset` with `EffectsPreset.ep_pal` on a boundary crossing; it copies
+into `Pal_Base` for the compose to pick up exactly as described.
 
 **The contract is 96 bytes = CRAM lines 1-3, and NEVER line 0.** This inverted at
 some point after the paragraph above was written: line 0 is the CHARACTER's
@@ -3995,8 +3993,10 @@ character's colours on every crossing — Knuckles turning into Sonic mid-act. T
 required, are both GONE (that symbol no longer exists in the tree). The engine writes
 lines 1-3 only, and the compose ORs at most `%1110` into `Palette_Dirty`.
 
-**Shipped as of effects P2/P3:** per-section cycling (`sec_pal_cycle` →
-`Palette_InstallCycleSection` → `Palette_DoCycle`), palette VARIANTS (per-channel
+**Shipped as of effects P2/P3:** per-section cycling (`EffectsPreset.ep_cycle` →
+`Palette_LoadCycle` → `Palette_DoCycle` — the `sec_pal_cycle` field and
+`Palette_InstallCycleSection` that this line named are both deleted, the routine at
+Task 13 and the field on 2026-09-04), palette VARIANTS (per-channel
 transforms derived into a staging image the raster tier streams), global operators
 (fade-to-black/white, white/negative flash), and per-scanline gradients (the dense
 raster tier, §7.2). The composition order is fixed: base → cycling → cross-fade →
@@ -4019,7 +4019,7 @@ parallax, raster, patched template, cycling, variants. See §7.12.
 
 **Computed water palette (NOVEL):** Instead of maintaining separate water palette data per zone, compute at runtime: `water_color = (base_color >> 1) + blue_bias`. Automatically adapts to palette cycling AND cross-fading — water palette is always derived from current palette, never stale. No Genesis game computes water palettes at runtime.
 
-**Per-section palette cycling (NOVEL):** Palette cycling scripts are per-section via `sec_pal_cycle` in the section definition. Different sections within a zone have different cycling effects (forest shimmer → ice sparkle → sunset glow). Combined with computed water palette, section transitions smoothly cross-fade both base and water palettes with cycling effects changing seamlessly.
+**Per-section palette cycling (NOVEL):** Palette cycling scripts are per-section via `EffectsPreset.ep_cycle`, named by the section's preset (`sec_pal_cycle`, the field this used to name, was deleted on 2026-09-04 — §4.2). Different sections within a zone have different cycling effects (forest shimmer → ice sparkle → sunset glow). Combined with computed water palette, section transitions smoothly cross-fade both base and water palettes with cycling effects changing seamlessly.
 
 **Palette DMA via queue:** All palette uploads route through Priority 0 (critical) DMA queue. Prevents CRAM dots, synchronizes with other VRAM updates.
 
@@ -4176,7 +4176,7 @@ All from ONE handler walking ONE table. No per-effect handler swapping, no prior
 
 **Corrected 2026-08-14 — there IS a limit, and it binds.** This paragraph used to claim "no limit on how many effects stack in a single frame". `RASTER_BUF_SIZE` is 128 bytes = 64 words, and `raster_program` refuses anything longer (the VBlank walker and the water installer both copy a fixed 128 bytes, so a longer program would be truncated live). Header + two priming records + terminator is ~9 words and a CRAM-class event is ~7-9, so **a program caps at roughly 6-8 events depending on op mix** — one full-line palette boundary alone is 51 of the 64. Raising the buffer is a RAM change (two arrays in `engine/ram.emp` plus the pins) and is not currently planned; see `docs/EFFECTS_AUTHORING.md`'s size-ceiling section for the arithmetic.
 
-**Section installs its raster table:** `sec_raster_table` pointer in the section definition. Section preload copies or points to the section's command table. Default is an empty table (just the terminator) — zero cost when no raster effects are needed.
+**Section installs its raster table:** through `EffectsPreset.ep_raster` / `ep_patched`, named by the section's `sec_effects` preset — `Effects_InstallPreset` stages it on the boundary crossing. (The `sec_raster_table` field this used to name lost its reader at effects-P3-C2 Task 13 and was deleted on 2026-09-04 — §4.2.) Default is an empty table (just the terminator) — zero cost when no raster effects are needed.
 
 **Build-time generation:** The build tool compiles high-level raster effect descriptions (water line, parallax bands, nametable splits) into sorted command tables. The 68K never sorts or builds tables at runtime.
 
@@ -4199,7 +4199,7 @@ VDP Register $0C enables per-pixel brightness manipulation at **zero CPU cost**:
 - High-priority tiles render at normal brightness
 - Palette line 4 sprite pixels 14/15 become transparent highlight/shadow operators
 
-**Section-aware S/H (planned):** a planned per-section S/H-enable flag (no such field exists in the `Sec` struct today — it would be added with this feature, e.g. as an `SF_*` bit in `sec_flags`). Sections would independently enable/disable S/H, with HInt toggling at the water line for zoned lighting.
+**Section-aware S/H (planned):** a planned per-section S/H-enable flag (no such field exists in the `Sec` struct today — `sec_flags` and its never-defined `SF_*` names were deleted on 2026-09-04, §4.2, so this would arrive as an `EffectsPreset` channel or a re-added flag word, whichever the consumer wants). Sections would independently enable/disable S/H, with HInt toggling at the water line for zoned lighting.
 
 **Applications:**
 - Semi-transparent water (Mega Turrican pattern — S/H enabled below water line)
@@ -4317,13 +4317,13 @@ Palette Cross-Fading (7.1)
           → Base + water + cycling + gradient all transition seamlessly
 
 Shadow/Highlight Mode (7.3)
-  → planned per-section S/H-enable flag (no Sec field today; future SF_* bit)
+  → planned per-section S/H-enable flag (no Sec field today; sec_flags/SF_* deleted 2026-09-04)
     → HInt toggles S/H at water line for zoned lighting
       → Highlight-operator sprites around player = spotlight in dark sections
         → Combines with computed water palette (shadow below water = auto-darker)
 
 Unified Raster Command Table (7.2)
-  → Section definition specifies sec_raster_table
+  → Section's EffectsPreset specifies ep_raster / ep_patched
     → Camera-boundary crossing installs the entered section's command table
       → Water palette swap + S/H toggle + gradient + nametable split + VSRAM deform stack in ONE table
         → Build tool compiles high-level effect descriptions into sorted commands
@@ -4381,10 +4381,14 @@ channel makes "off" expressible, which is why the `_None` sentinels exist:
 `Raster_Program_None` (a parked 3-word program) and `Pal_Cycle_None` (a non-NULL
 zero-channel script). A NULL cannot mean "off" while it also means "keep".
 
-**The field costs no bytes.** `sec_effects` is the RENAMED `sec_collision_s4lz` — a
-reserved `$34` slot with zero consumers. `sizeof(Sec)` stays 66, which matters because
-66 is pinned by three `ensure`s and spelled as a literal `#66` in two runtime
-multiplies (`section.emp`, `tile_cache.emp`).
+**The field cost no bytes when it landed, and its arrival later PAID bytes back.**
+`sec_effects` is the RENAMED `sec_collision_s4lz` — a reserved `$34` slot with zero
+consumers — so Parcel C2 widened nothing. Then, once every channel it replaced had lost
+its own reader, the nine fields it superseded were deleted (2026-09-04, §4.2): `sizeof(Sec)`
+went 66 → 34 and `sec_effects` moved to `$1C`. The stride is `ensure`-pinned in
+`section.emp` and `tile_cache.emp` and spelled `#sizeof(Sec)` in both runtime multiplies,
+so the move cost no engine edit — only the three gate tools that keep their own copy of
+the layout.
 
 **One patched channel, generically named.** `ep_raster` and `ep_patched` are mutually
 exclusive, enforced at comptime by `preset()`, because they route through DIFFERENT

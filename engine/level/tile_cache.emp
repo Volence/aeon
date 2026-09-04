@@ -28,9 +28,12 @@ use engine.constants.{SECTION_H_REACH_PX, SECTION_V_REACH_PX}
 // (`Sec.field(aN)` / `Act.field(aN)`, the grid-dim low-byte views via
 // Act_grid_w_lo / Act_grid_h_lo) — the file-local offset-const mirrors are gone. ----
 // (Act/Sec field-offset drift guards now live in engine.structs' per-field wall.)
-// TileCache_DecompressBlock multiplies the flat section id by sizeof(Sec) = 66;
-// the `ensure` keeps 66 the real stride.
-ensure(sizeof(Sec) == 66, "tile_cache's stride pin: sizeof(Sec) moved off 66. The walk now spells #sizeof(Sec) so the STRIDE follows automatically — this pin exists because the section GRID and its generated tables assume 66, so a struct change is a data-format change, not just a stride change")
+// TileCache_DecompressBlock multiplies the flat section id by sizeof(Sec) = 34;
+// the `ensure` keeps 34 the real stride. (66 -> 34 on 2026-09-04, painted-regions
+// audit row 3. This is the SECOND copy of section.emp's stride pin — the two are
+// deliberately independent so either module can be compiled standalone; see that
+// one for why the number is copied into the gate tools as well.)
+ensure(sizeof(Sec) == 34, "tile_cache's stride pin: sizeof(Sec) moved off 34. The walk spells #sizeof(Sec) so the STRIDE follows automatically — this pin exists because the out-of-assembler readers of the Sec table carry their own copy of the layout (see engine/level/section.emp's twin of this pin), so a struct change is a gate-contract change, not just a stride change")
 
 // coll_src_row_base — staged-block collision-row byte base from an intra-block
 // tile row (mirrors the AS `collSrcRowBase` macro). Parity-safe: halve the tile
