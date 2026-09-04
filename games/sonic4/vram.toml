@@ -156,23 +156,29 @@ name = "debug_readout"
 owner = "games.sonic4.ojz_scroll_test"
 kind = "window"
 base = 1020
-tiles = 2
+tiles = 4
 lifetime = "mode"
 const = "VRAM_DEBUG_READOUT"
-# The effects lab's scene readout: two 8x8 glyph cells, tens then ones, that
-# Debug_SceneReadout_Show repaints from its own digit font on every scene-cycle
-# press. RESERVED IN EVERY SHAPE, WRITTEN ONLY IN DEBUG — a VRAM reservation is
-# not a ROM byte, and declaring it in all shapes is what keeps this file the
-# single placement authority (the alternative, a shape-conditional region, would
-# make the map mean two different things and gen_vram_map.py checks adjacency
-# across the whole 0..2047 span). Two tiles because the readout is two decimal
-# digits and 0..SCENE_CYCLE_COUNT-1 fits in two; the glyph SHEET stays in ROM
-# and only the two selected glyphs are ever resident, which is why 10 font tiles
-# do not have to fit here (no free run in this map is that big).
-
-[[free]]
-base = 1022
-tiles = 2
+# The effects lab's readouts: FOUR 8x8 glyph cells, repainted from glyph sheets
+# that stay in ROM. RESERVED IN EVERY SHAPE, WRITTEN ONLY IN DEBUG — a VRAM
+# reservation is not a ROM byte, and declaring it in all shapes is what keeps this
+# file the single placement authority (the alternative, a shape-conditional region,
+# would make the map mean two different things and gen_vram_map.py checks adjacency
+# across the whole 0..2047 span).
+#
+#   +0, +1   the SCENE cursor, tens then ones (Debug_SceneReadout_Show). Two
+#            decimal digits because 0..SCENE_CYCLE_COUNT-1 fits in two.
+#   +2, +3   the PRESET cursor and its VERDICT glyph (Debug_PresetReadout_Show).
+#            One digit for the section whose preset is installed, one glyph that
+#            says whether that preset can show anything HERE (bar = nothing bound,
+#            X = bound but its boundary is off screen, diamond = live).
+#
+# Only the SELECTED glyphs are ever resident — the ten digit tiles and the three
+# verdict tiles live in ROM and are DMA'd one cell at a time — which is why 13 font
+# tiles do not have to fit here (no free run in this map is that big). Tiles 1022
+# and 1023 were the map's last declared [[free]] run adjacent to 1020; the preset
+# readout consumed it, so growing this readout again needs a run elsewhere
+# (957-959, 1501-1503, 1532-1535) and a second region, not an extension.
 
 [[region]]
 name = "bg_region"

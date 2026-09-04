@@ -281,7 +281,35 @@ pub vars game_ram {
         // without this whole block is BYTE-IDENTICAL (crc c9255279, 719235 B both ways,
         // release Game_RAM_End $FFFFBD02 both ways).
         Debug_Raster_Index: u8,     // effects-lab cursor: row in .raster_table
-        pad(1),                     // keep the following long even-aligned
+
+        // -----------------------------------------------
+        // Effects-lab PRESET cursor (DEBUG shapes only)
+        // -----------------------------------------------
+        // The SECTION whose EffectsPreset Debug_PresetCycleHotkey
+        // (games/sonic4/test/ojz_scroll_test.emp) last installed onto the section the
+        // camera is actually standing in. Range 0..PRESET_CYCLE_COUNT-1, where the count
+        // is read from the LIVE act (grid_w x grid_h, bounded by the readout's single
+        // digit); the hotkey asserts that before every use.
+        //
+        // THE BOOT VALUE 0 IS MEANINGFUL, and it means something different from the two
+        // cursors above. This hotkey ADVANCES BEFORE IT INSTALLS, so a cold boot's first
+        // press installs section 1's preset, not section 0's — and that is deliberate,
+        // because a boot lands the camera IN section 0 (Act.start_sec_x/y), where
+        // installing section 0's preset would change nothing on screen. The first press
+        // a reviewer makes has to change the picture or the tool has failed at its one
+        // job. The raster cursor beside this one installs BEFORE it advances for the
+        // opposite and equally deliberate reason, stated in its own block: there row 0 is
+        // a documented control that must be what the first press shows.
+        //
+        // IT IS A CURSOR, NOT A MIRROR of the live section: crossing a section boundary
+        // re-installs that section's own preset through Effects_InstallPreset and never
+        // touches this byte. Nothing reads it back except the hotkey and its readout.
+        //
+        // IT CONSUMED THE PAD BYTE THAT WAS ALREADY HERE, exactly as Debug_Scene_Index
+        // did: the pad existed only to keep Game_RAM_End even, and a u8 in the same slot
+        // does that job while carrying a value. So this field grows the DEBUG block by
+        // ZERO bytes and the release block by none.
+        Debug_Preset_Index: u8,     // effects-lab cursor: section whose preset is installed
 
         // -----------------------------------------------
         // Live-object mailbox (DEBUG shapes only) — the supported EXTERNAL

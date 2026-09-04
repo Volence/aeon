@@ -16,7 +16,7 @@ REGIONS = {
     'test_obj': {'base': 992, 'tiles': 8, 'lifetime': 'mode'},
     'ring_placeholder': {'base': 1000, 'tiles': 16, 'lifetime': 'act'},
     'test_marker': {'base': 1016, 'tiles': 4, 'lifetime': 'mode'},
-    'debug_readout': {'base': 1020, 'tiles': 2, 'lifetime': 'mode'},
+    'debug_readout': {'base': 1020, 'tiles': 4, 'lifetime': 'mode'},
     'bg_region': {'base': 1024, 'tiles': 448, 'lifetime': 'act'},
     'sprite_table': {'base': 1472, 'tiles': 20, 'lifetime': 'boot'},
     'tails_appendage': {'base': 1492, 'tiles': 9, 'lifetime': 'act'},

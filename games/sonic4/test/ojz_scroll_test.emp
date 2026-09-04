@@ -26,6 +26,19 @@ module games.sonic4.ojz_scroll_test in ojz_scroll_test
 // scene readout stamps into its two glyph objects (Debug_SceneReadout_Show).
 use engine.objects.objdef.{vram_bytes, vram_art}
 use engine.structs.{Act, Sec}
+// Act_grid_w_lo / Act_grid_h_lo — the blessed low-byte views of the word grid dims
+// (they live WITH the layout, engine.structs). Debug_PresetCycleHotkey reads the
+// LIVE act's section count out of them rather than mirroring a constant, which is
+// what keeps its cycle list from being able to drift from the act.
+use engine.structs.{Act_grid_w_lo, Act_grid_h_lo}
+// EffectsPreset — the preset tier's readout reads ep_patched / ep_raster / ep_cycle
+// off the record the cursor names to decide its verdict glyph. Type-only import; the
+// installer itself (Effects_InstallPreset) resolves as a link extern like every other
+// engine proc this module calls.
+use engine.effects.preset.{EffectsPreset}
+// RASTER_MAX_PATCH / PATCH_ANCHOR_NONE — the patch-channel width the verdict loop
+// walks, and the "this channel is not authored" sentinel it skips on.
+use engine.effects.raster_dsl.{RASTER_MAX_PATCH, PATCH_ANCHOR_NONE}
 use engine.constants.{SECTION_SIZE_SHIFT, SCREEN_WIDTH, SCREEN_HEIGHT, CAM_SCREEN_HALF_W, CAM_SCREEN_HALF_H, VDP_DATA, VDP_CTRL, BUTTON_A, BUTTON_B, BUTTON_C, BUTTON_UP, BUTTON_DOWN, INPUT_LIVE}
 // BUTTON_START / LEFT / RIGHT — the DEBUG effects-lab hotkey's chord
 // (Debug_SceneCycleHotkey, below).
@@ -35,7 +48,7 @@ use engine.constants.{BUTTON_START, BUTTON_LEFT, BUTTON_RIGHT}
 // NUM_SYSTEM — the readout's two glyph cells are the TOP TWO System slots, and
 // they are claimed by address (the System pool has no allocator).
 use engine.constants.{RF_COORDMODE, RF_PRIORITY_SHIFT, NUM_SYSTEM}
-use engine.constants.{PAGECACHE_AUDIT_INTERVAL}
+use engine.constants.{PAGECACHE_AUDIT_INTERVAL, MAX_ACT_SECTIONS}
 use engine.vdp.{VdpTarget, VdpOp, vdp_comm, VDP_MODE2_OFF, VDP_MODE3_OFF}
 use engine.z80_bus.{z80_stopped}
 use engine.irq.{ints_off}
@@ -946,6 +959,29 @@ pub proc GameState_OJZScroll_Update () clobbers(d0-d7/a0-a6) {
                 jbsr    Debug_BandDemoHotkey
         }
 
+        // -- DEBUG effects-lab PRESET tier (START held + A pressed): install the NEXT
+        //    section's WHOLE EffectsPreset — palette, cycle, variants, raster/patched,
+        //    the patch anchors and their sweeps, and the parallax config — onto the
+        //    section the camera is standing in, and paint which one it is plus whether
+        //    it can show anything here. This is the tier the owner asked for: the
+        //    effects reachable from ONE section, so a reviewer never has to know where
+        //    he is or walk across the act to compare two of them.
+        //
+        //    Polled beside the other two tiers because it is the same modifier and the
+        //    same review session, and LAST of the three because it is the only one that
+        //    writes every channel: a scene or a raster press in the same frame then
+        //    lands ON TOP of the preset rather than under it, which is the order a
+        //    reviewer means when he presses two of them together.
+        //
+        //    Ordering against Parallax_CheckBoundary later in the frame is load-bearing
+        //    for exactly the reason the two above record: installed here, the override
+        //    survives to be looked at, and a boundary crossing re-decides every channel
+        //    through Effects_InstallPreset so the override ends where it is documented
+        //    to end. Emits nothing in the plain shape. --
+        if DEBUG == 1 {
+                jbsr    Debug_PresetCycleHotkey
+        }
+
         // -- initialize sprite system for this frame --
         jbsr    InitSpriteSystem
 
@@ -1413,6 +1449,17 @@ proc Debug_CharacterHotkey () clobbers(d0-d2/a0-a2) {
         // to LEAVE debug-fly — the "A cycled unexpectedly" surprise. Fumbling B+A now
         // just exits fly, no cycle.
         andi.b  #BUTTON_B, d1
+        bne     .done
+        // START veto: START held is the effects lab's modifier, and START+A is the
+        // PRESET cycle's chord (Debug_PresetCycleHotkey, below). Without this the one
+        // free pad bit left over would swap Sonic for Tails on its way to installing a
+        // preset — the same "A cycled unexpectedly" surprise the B veto above exists to
+        // remove, arriving through the other button of the pair. HELD, not press, because
+        // START is a chord modifier and must still count on the frames after the one it
+        // went down on; that is also what makes the veto cost nothing to a reviewer who
+        // is not holding START.
+        move.b  Ctrl_1_Held, d1                 // tick-stable held latch
+        andi.b  #BUTTON_START, d1
         bne     .done
         lea     Player_1, a0                    // the leader slot — the only one this
                                                 // state spawns
@@ -2017,10 +2064,16 @@ ensure(SCENE_CYCLE_COUNT <= 99,
 proc Debug_SceneReadout_Show () clobbers(d0-d4/a0-a2) {
     if DEBUG == 1 {
         // -- (1) make sure the two glyph objects exist --
-        // a0 = the System slot, d1 = screen X as a 16.16 Coord, d3 = art_tile.
-        // Palette line 1 + priority 1 is PlayerMarkerTile's pairing, and it is
-        // chosen for the same reason: line 1 entry 12 is the bright yellow that
-        // the debug-fly marker is already known to be legible in over this act.
+        // a0 = the System slot, d1 = screen X as a 16.16 Coord, d4 = screen Y as a
+        // 16.16 Coord, d3 = art_tile. Palette line 1 + priority 1 is
+        // PlayerMarkerTile's pairing, and it is chosen for the same reason: line 1
+        // entry 12 is the bright yellow that the debug-fly marker is already known to
+        // be legible in over this act.
+        //
+        // Y IS A REGISTER, not the constant it used to be, because .ensure_glyph is
+        // shared with the PRESET readout below, whose two cells sit on a second row.
+        // Every cell of this readout is on one row, so the load is hoisted out.
+        move.l  #DEBUG_READOUT_Y << 16, d4
         movea.l #DEBUG_READOUT_SST_TENS, a0
         move.l  #DEBUG_READOUT_X << 16, d1
         move.w  #vram_art(VRAM_DEBUG_READOUT, 1, 1), d3     // tens cell
@@ -2069,14 +2122,20 @@ proc Debug_SceneReadout_Show () clobbers(d0-d4/a0-a2) {
 
         // -----------------------------------------------
         // .ensure_glyph — build one glyph object into its System slot, once.
-        // In:  a0 = the System slot's SST, d1 = screen X (16.16), d3 = art_tile word
+        // In:  a0 = the System slot's SST, d1 = screen X (16.16), d4 = screen Y
+        //      (16.16), d3 = art_tile word
         // Out: that slot holds a live display-only screen-space object
-        // Clobbers: d2 and a1, both via RefreshSpritePieceCount. a0/d1/d3 survive,
-        //      which is what lets the caller set up once per cell.
+        // Clobbers: d2 and a1, both via RefreshSpritePieceCount. a0/d1/d3/d4 survive,
+        //      which is what lets the caller set up once per cell AND once per row.
         // The whole "is it built" test is code_addr: boot clears Work RAM, and
-        // nothing else writes these two slots.
+        // nothing else writes these FOUR slots (two here, two for the preset
+        // readout below).
         // -----------------------------------------------
-    .ensure_glyph:
+        // EXPORTED (`export .name:`, §1.5) so the PRESET readout below can CALL it
+        // instead of carrying a second copy. Without the keyword the reference fails
+        // at link and sigil names the fix in the diagnostic, which is how this was
+        // found; the same is true of `.digit_font` below.
+    export .ensure_glyph:
         tst.w   (a0)                            // Sst.code_addr
         bne     .glyph_done                     // already built — leave it alone
         move.w  #TestStatic_Main - ObjCodeBase, Sst.code_addr(a0)
@@ -2088,7 +2147,7 @@ proc Debug_SceneReadout_Show () clobbers(d0-d4/a0-a2) {
         move.w  d3, Sst.art_tile(a0)
         move.b  #DEBUG_READOUT_FLAGS, Sst.render_flags(a0)
         move.l  d1, Sst.x_pos(a0)
-        move.l  #DEBUG_READOUT_Y << 16, Sst.y_pos(a0)
+        move.l  d4, Sst.y_pos(a0)
     .glyph_done:
         rts
 
@@ -2112,7 +2171,9 @@ proc Debug_SceneReadout_Show () clobbers(d0-d4/a0-a2) {
         // because a module-scope `data` item cannot be shape-gated in `.emp` (§1.7)
         // and 320 release bytes for a debug readout is precisely what this parcel
         // must not spend.
-    .digit_font:
+        // EXPORTED for `.ensure_glyph`'s reason: the PRESET readout reads its section
+        // digit out of this sheet rather than duplicating 320 DEBUG bytes of it.
+    export .digit_font:
         dc.l    $00CCC000, $0C000C00, $0C000C00, $0C000C00      // 0
         dc.l    $0C000C00, $0C000C00, $00CCC000, $00000000
         dc.l    $000C0000, $00CC0000, $000C0000, $000C0000      // 1
@@ -2382,6 +2443,478 @@ proc Debug_BandDemoHotkey () clobbers(d0-d1/a0-a1) {
         dc.l    EditorRaster_OJZ_Act1_authored_probe            // 3 — EDITOR-authored (JSON)
         dc.l    EditorRaster_OJZ_Act1_ojz_sec3_shimmer          // 4 — EDITOR-authored (JSON)
         dc.l    EditorRaster_OJZ_Act1_ramp_probe                // 5 — EDITOR-authored (JSON), item 6 ramp
+    }
+}
+
+// -----------------------------------------------
+// Debug_PresetCycleHotkey — THE EFFECTS LAB'S PRESET TIER, and the one the owner
+// asked for in his own words: "raster effects/parallax in just the first section
+// and switch them around ... cause I don't always know which section I'm in".
+//
+//   START held + A pressed  -> install the NEXT section's whole EffectsPreset onto
+//                              the section the camera is standing in, and say which
+//                              one, and say whether it can show anything HERE.
+//
+// It exists because the two tiers above it cannot answer that question. The scene
+// cycle steps parallax configs and deliberately never touches palette, cycle,
+// variants or raster (its header says so at length). The raster cycle steps ONE
+// channel — a bare program — with no palette, no parallax and no anchors, which is
+// exactly how an effect ends up installed somewhere it is structurally unable to
+// draw. A section's LOOK is the whole preset, and this is the only thing in the tree
+// that moves one of those from where it is authored to where you are standing.
+//
+// ---- THE CYCLE LIST IS THE ACT'S OWN SECTION TABLE ----
+// There is NO table here, and that is the design rather than an omission. The cursor
+// is a flat section index; the Sec* is `Act.sec_grid_ptr + cursor * sizeof(Sec)`,
+// which is `Section_GetSecPtrXY`'s own tail arithmetic, and the preset comes off that
+// record's `sec_effects`. So the list cannot drift from the act — adding a tenth
+// section to OJZ act 1 puts it in the cycle with no edit here and no lint to keep in
+// step, which is the failure mode the two `dc.l` tables above BOTH need a pytest lane
+// to guard against. For OJZ act 1 that list is:
+//
+//   0  patched water, two world-anchored boundaries (224 / 314) + a sweep, Underwater
+//   1  the sparse raster split — S/H + backdrop below screen line 120
+//   2  the DENSE tier — a 96-line gradient ramp, plus this section's own palette
+//   3  no raster at all: a palette-CYCLING band (line 2 entries 8-11)
+//   4  the depth showcase — the vertical-split program from this section's scene
+//   5  the program its editor sidecar's rasterRef binds. A source comment in
+//      ojz_effects.emp reads as "None" here — that is the `hand:` FALLBACK, not the
+//      resolved value, and tools/preset_lab_witness.py measured the real one on the
+//      running ROM ($013C4C). Section 5 is NOT the empty entry; 7 and 8 are.
+//   6  the mid-frame nametable-base swap — the foreground draws the background
+//   7  Plain — palette and parallax only; there is deliberately nothing to see
+//   8  Plain, the same record
+//
+// ---- HOW IT INSTALLS, AND WHY THAT IS NOT A SECOND MECHANISM ----
+// `Effects_InstallPreset` then `Parallax_StartTransition` — the exact pair, in the
+// exact order, that `Parallax_CheckBoundary` runs on a real crossing (parallax.emp:
+// 989-990), with only the crossing DETECTION left out. A hotkey install and a walked
+// crossing are therefore the same operation by construction: total binding writes
+// every channel (palette, cycle, variants, raster/patched, the patch anchors and
+// their sweeps) and returns the resolved parallax config for the tail. Nothing here
+// re-derives any of it, so there is no second path to keep in step.
+//
+// ---- IT DOES NOT CHANGE WHAT ANY SECTION SHIPS ----
+// It writes engine STATE, never content: the act's Sec records are read-only ROM here
+// and no binding is re-authored. The override's scope is identical to the two tiers
+// above — it survives until the camera crosses a section boundary, at which point
+// Parallax_CheckBoundary installs the section's own preset again. A review tool that
+// could leave the act mis-configured would be a worse problem than the one it solves.
+//
+// ---- ADVANCE-THEN-INSTALL, WHICH IS THE OPPOSITE OF THE RASTER CYCLE ----
+// And both orders are right for their own list. Boot clears Work RAM, so the cursor
+// reads 0, and a boot lands the camera IN section 0 (Act.start_sec_x/y) — so
+// install-then-advance would spend a reviewer's FIRST press re-installing the preset
+// already on screen and show him nothing. Advancing first makes the first press
+// install section 1, the sparse raster split, which is a visible change. The raster
+// cycle beside this one installs first for the opposite and equally deliberate
+// reason its own header gives: there row 0 is a documented control.
+//
+// ---- WHY START+A, WITH THE PAD ENUMERATED AGAIN RATHER THAN ASSUMED ----
+// Every MODIFIER+DIRECTION chord in this shape is already spent, and the count is
+// four, not two:
+//   START + LEFT/RIGHT   Debug_SceneCycleHotkey    (scene cycle)
+//   START + UP/DOWN      Debug_BandDemoHotkey      (raster program cycle / off)
+//   C     + UP/DOWN      the anchor nudge          (this module, in Update)
+//   C     + LEFT/RIGHT   the approach-ramp arm     (this module, in Update)
+// So the d-pad is exhausted against BOTH free modifiers, and a fifth direction chord
+// does not exist. What is left is a modifier plus a face button, and of the three:
+//   START+B  Player_Main's / TestPlayer_Main's CHEAT_DEBUG_FLY toggle is on the B
+//            press and is armed at boot in this shape — the chord would drop the
+//            player out of free flight on its way here. Its readers are in
+//            games/sonic4/player/ and games/sonic4/objects/test_player.emp, outside
+//            this file, so vetoing it would spread the lab across the player.
+//   START+C  C is in BOTH jump masks AND is the modifier for the two nudge chords in
+//            this very module, so START+C+direction would nudge as well as cycle.
+//   START+A  A has exactly one reader that is not the jump mask —
+//            Debug_CharacterHotkey, above, which is itself gated on being in debug
+//            free-flight, WHERE A OTHERWISE DOES NOTHING AT ALL (Player_DebugMove
+//            reads LEFT/RIGHT/UP/DOWN only). This shape boots into free flight. So
+//            in the state a reviewer is actually in, A is inert, and the single
+//            conflict is settled by a two-instruction START veto in that hotkey —
+//            the same shape as the B veto it already carries, in the same file.
+// X/Y/Z/MODE were rejected for the third time for the reason the scene cycle records:
+// they exist only when the pad enumerates as PAD_6BTN, so the chord would be silently
+// INERT on a 3-button pad, which is the worst failure a review tool can have.
+//
+// THE COST, STATED: outside debug free-flight A is the jump button, so START+A makes
+// the player jump as well as cycle. That is the same cost the two C chords in this
+// module already accept and document, and it is smaller — those jump on EVERY step.
+//
+// ---- ONE BUTTON, SO THE CYCLE IS FORWARD-ONLY ----
+// Nine entries, wrapping, so the far side is five presses away at worst; and the list
+// is short enough that going round is cheaper than a second button would be to find.
+// The raster cycle above already accepts exactly this, for exactly this reason.
+//
+// ---- LIVE INPUT ONLY ----
+// Required, not defensive, and the same gate for the same reason as its two siblings:
+// START and A both ride in the main controller byte that engine/system/replay.emp
+// records whole and replays whole, and the slide fixture deliberately enters
+// debug-fly. A fixture holding START across an A press would repaint the act
+// mid-playback and desync every downstream check.
+//
+// DEBUG-shape only: the body — the rts included — sits inside `if DEBUG == 1 {}`, so
+// the whole proc emits ZERO bytes in the plain shape, and it is parked as the FIFTH
+// member of this module's zero-release-byte run.
+//
+// ---- WHAT THAT DOES AND DOES NOT BUY, MEASURED THIS PARCEL ----
+// Debug_SceneCycleHotkey's header states that a label parked in this run "coincides with
+// an address the appendix already carries and dedupes away". THE DEDUP HALF OF THAT IS
+// WRONG, and this parcel measured it rather than inheriting it: the release symbol set
+// went from 2376 names to 2378 — `Debug_PresetCycleHotkey` and `Debug_PresetReadout_Show`
+// BOTH landed in the convsym deb2 appendix, at $A45DC, the address `OJZ_SectionMarkerColors`
+// already occupies. convsym dedupes nothing; a zero-byte label is a name in the appendix
+// like any other.
+//
+// What the parking DOES buy is the thing that actually matters, and it held exactly:
+// s4.bin against master, byte for byte, differs in **two bytes below EndOfRom** — $18E-$18F,
+// the header checksum — and nowhere else in the executable image. The other 3,252 differing
+// bytes are all past EndOfRom ($A5C82), inside the appendix these two names rewrote; the
+// file length is 720,502 both ways. So the shipped CODE is unchanged and the CRC moved for
+// the reason release ships a symbol table at all. Anyone re-measuring this claim should
+// classify the diff by EndOfRom rather than reading the CRC, which cannot tell the two
+// apart.
+//
+// In:  none (reads Ctrl_1_Held / Ctrl_1_Press / Input_Source / Debug_Preset_Index /
+//      Current_Act_Ptr)
+// Out: Debug_Preset_Index advanced, that section's preset installed on every channel,
+//      its parallax config transitioned in, and the readout repainted — iff the chord
+//      fired this frame
+// Clobbers: d0-d4, a0-a3 — Effects_InstallPreset's own declared set, which
+//      Parallax_StartTransition (d0-d1) and the readout call (d0-d4/a0-a3) both sit
+//      inside. Identical to Parallax_CheckBoundary's, which is the same pair of calls.
+// -----------------------------------------------
+// The readout is ONE decimal digit, so the cycle is bounded to ten entries. Held as a
+// runtime clamp and not a comptime ensure because the count is read from the LIVE act
+// (grid_w x grid_h) rather than from a constant — an act with more than ten sections
+// would otherwise show its eleventh as "1" and review the wrong preset under a
+// confident label. Clamping HIDES those sections instead, which is the honest half of
+// the trade and is why it is stated here and in the driving note rather than buried:
+// give the readout a second digit cell (games/sonic4/vram.toml, region debug_readout —
+// its adjacent free run is now spent, so that means a second region) before an act
+// this size exists.
+const PRESET_CYCLE_MAX = 10
+
+proc Debug_PresetCycleHotkey () clobbers(d0-d4/a0-a3) {
+    if DEBUG == 1 {
+        // Gate 1: live input only — see the header. A `tst.b` is the whole test
+        // because INPUT_LIVE is 0 (the ensure above Debug_CharacterHotkey pins it).
+        tst.b   Input_Source                    // (Input_Source).w
+        bne     .done                           // replaying or recording: stand down
+
+        // Gate 2: the modifier. HELD, not press — START is the chord's shift key.
+        move.b  Ctrl_1_Held, d0                 // tick-stable held latch
+        andi.b  #BUTTON_START, d0
+        beq     .done
+
+        // Gate 3: the step, EDGE-triggered so a held pad steps once rather than
+        // walking the whole act in nine frames.
+        move.b  Ctrl_1_Press, d0                // tick-stable press latch
+        andi.b  #BUTTON_A, d0
+        beq     .done
+
+        // -- how many entries the cycle has, read from the LIVE act --
+        // grid_w and grid_h are words whose low bytes are the blessed sub-field view
+        // (engine.structs Act_grid_w_lo/Act_grid_h_lo), safe because the act
+        // constructor bounds both by MAX_ACT_SECTIONS. mul_bounded elects between a
+        // repeated-add loop and mulu at build time on the worst case, which is what
+        // CODING_CONVENTIONS §2.1 asks for in place of a hand-written multiply — so no
+        // four-point argument is owed here. It runs once per PRESS, not per frame.
+        movea.l Current_Act_Ptr, a2             // (Current_Act_Ptr).w
+        moveq   #0, d0                          // index-register hygiene (§2.5b)
+        move.b  Act_grid_h_lo(a2), d0
+        moveq   #0, d1
+        move.b  Act_grid_w_lo(a2), d1
+        mul_bounded.w d0, d1, #MAX_ACT_SECTIONS // d0 = grid_h * grid_w = section count
+        cmpi.w  #PRESET_CYCLE_MAX, d0
+        bls     .count_ok
+        moveq   #PRESET_CYCLE_MAX, d0           // the readout's one digit — see above
+    .count_ok:
+
+        // -- ADVANCE FIRST (see the header), wrapping at the count --
+        moveq   #0, d1                          // index-register hygiene (§2.5b)
+        move.b  Debug_Preset_Index, d1          // (Debug_Preset_Index).w
+        addq.w  #1, d1
+        cmp.w   d0, d1                          // the cursor only ever steps by one, so
+        blo     .no_wrap                        // "reached the count" is the whole wrap
+        moveq   #0, d1
+    .no_wrap:
+        move.b  d1, Debug_Preset_Index          // (Debug_Preset_Index).w
+
+        // -- resolve the Sec* the cursor names --
+        // Section_GetSecPtrXY's own tail arithmetic, minus the grid decomposition: the
+        // cursor IS the flat id. The stride is spelled #sizeof(Sec) so it follows the
+        // struct, and adda.w sign-extends, which is safe because the clamp above bounds
+        // the cursor at 9 and 9 * 66 is nowhere near $8000.
+        movea.l Act.sec_grid_ptr(a2), a0
+        move.w  d1, d0
+        mul_const.w d0, #sizeof(Sec), d2        // d0 = cursor x the Sec stride (d2 scratch)
+        adda.w  d0, a0                          // a0 = Sec*
+
+        // -- install it, through the engine's own crossing path --
+        // This DEBUG block mirrors Parallax_CheckBoundary's: a section whose
+        // sec_effects is 0 is a content bug, and Effects_InstallPreset would follow the
+        // null into whatever ROM sits at offset 0. The crossing site raises there; here
+        // we STAND DOWN instead, because a review tool must not be the thing that kills
+        // the machine the review is running on — and the readout's own resolve below
+        // would fault on the same null.
+        tst.l   Sec.sec_effects(a0)             // (Sec.sec_effects)(a0)
+        beq     .done
+        jbsr    Effects_InstallPreset           // a0 = Sec* in, resolved parallax out
+        jbsr    Parallax_StartTransition        // snap/lerp + VDP $0B mode shadow
+
+        // -- and say WHAT it is and WHETHER it can show here --
+        // AFTER the install, not before it, which is the opposite of the scene cycle's
+        // order and for a reason that is specific rather than stylistic: the verdict
+        // reads Effects_Screen_L, and the only thing that latches it against this
+        // preset's anchors is Effects_InstallPreset's own Effects_LatchWorldLines call.
+        // Painting first would publish the PREVIOUS preset's verdict beside this
+        // preset's number, which is worse than no verdict at all.
+        jbra    Debug_PresetReadout_Show        // tail call (§2.8)
+    .done:
+        rts
+    }
+}
+
+// -----------------------------------------------
+// Debug_PresetReadout_Show — THE PRESET TIER'S READOUT, and the half of this parcel
+// that answers the owner's actual complaint. Cycling without a label reproduces the
+// problem it was built to fix ("there's like 6 in 1 section and I don't know what I'm
+// looking for"), so the picture has to name itself AND has to admit when it is empty.
+//
+// Two 8x8 cells on a second row under the scene readout:
+//
+//   cell 0 (screen 12..19 x 28..35)   the SECTION whose preset is installed, one
+//                                     decimal digit, from the scene readout's own
+//                                     ten-glyph font — the same numbering the act
+//                                     descriptor, the section markers and the owner
+//                                     all already use
+//   cell 1 (screen 20..27 x 28..35)   the VERDICT, one of three glyphs
+//
+// ---- THE VERDICT IS THE POINT, AND HERE IS WHAT EACH GLYPH MEANS ----
+//
+//   bar  "-"    NOTHING IS BOUND. The preset carries no raster program, no patched
+//               program and no palette cycle — palette and parallax only. Sections 7
+//               and 8 are this. It is not a failure; it is the difference between
+//               "I can't see it" and "it isn't there", and a reviewer who cannot tell
+//               those apart will hunt for minutes. (The owner just did.)
+//
+//   X           BOUND BUT BLIND HERE. The preset installs a PATCHED program, whose
+//               boundaries are WORLD Y anchors rather than screen lines, and after
+//               the install every one of them latched outside 0..SCREEN_HEIGHT-1 at
+//               this camera position. The effect is installed, the hardware is
+//               configured, and it draws nothing you can see, because the line it
+//               would draw on is above or below the screen. Section 0's preset is
+//               exactly this anywhere but the top of the act: its two water
+//               boundaries are anchored at world Y 224 and 314.
+//
+//   diamond     LIVE. Either a static raster program (whose bands are authored in
+//               SCREEN space, so they are on screen by construction), or a palette
+//               cycle (CRAM, visible wherever you stand), or a patched program with
+//               at least one boundary currently on screen.
+//
+// THIS IS THE DEFECT THAT MOTIVATED THE WHOLE PARCEL, generalised. An effect can be
+// structurally unable to draw where it is installed — a reels demo bound to a scene
+// with per-column vertical scroll off, a water boundary anchored off the top of the
+// screen — and the failure LOOKS EXACTLY LIKE a broken effect. "Selected but cannot
+// show here" is the single most valuable sentence a review tool can say.
+//
+// ---- WHAT THE VERDICT DOES NOT CLAIM, WHICH MATTERS MORE THAN WHAT IT DOES ----
+// It is a PRECONDITION test, not a proof of visibility. A diamond says the channel is
+// installed and its boundary is on screen; it does not say the colours differ from
+// the art behind them, that the band is taller than a scanline, or that the program
+// does anything interesting. And it is computed ONCE, at the press, against the
+// camera as it stood then — walk away and a diamond can go stale into an X without
+// the glyph changing. Recomputing per frame would mean a VRAM DMA every frame for a
+// debug label; the press is where the reviewer's question is asked, so the press is
+// where it is answered. Both limits are real and both are why the glyph vocabulary is
+// three states and not a green light.
+//
+// TWO PRECONDITIONS ARE MET BY CONSTRUCTION HERE, and are deliberately not tested:
+// the VDP mode bits (per-column vscroll, $0B bit 2) and the parallax config arrive
+// with the preset, because the lab installs the section's WHOLE preset and lets
+// Parallax_StartTransition rewrite the mode shadow from the incoming config — the
+// same tail a crossing takes. That is the structural fix for the reels class of
+// defect; testing for it here would be testing this proc's own caller.
+//
+// ---- WHY IT REUSES THE SCENE READOUT'S MACHINERY ----
+// The digit font (`.digit_font`) and the glyph-object builder (`.ensure_glyph`) are
+// Debug_SceneReadout_Show's, referenced module-qualified (§1.5). Duplicating either
+// would put 320 DEBUG bytes and a second copy of the System-slot claim rules in the
+// tree for a readout that wants the same digits in the same style. Everything that
+// header argues for its two cells holds unchanged for these two: System slots rather
+// than the dynamic pool (RunObjects culls the dynamic pool on WORLD distance and would
+// cull a screen-space object into invisibility), built on first press rather than at
+// level init (so every replay fixture keeps its sprite table byte for byte), and DMA
+// rather than a direct VDP write (the display is on here).
+//
+// The slots are the two BELOW the scene readout's, still counted from the top of the
+// System pool, still claimed by address because the pool has no allocator.
+//
+// DEBUG-shape only: the body, the `rts` and the verdict font are all inside
+// `if DEBUG == 1 {}`, so the whole proc emits ZERO bytes in the plain shape. Parked
+// inside this module's zero-release-byte run — see Debug_PresetCycleHotkey's header
+// above for what that buys (a byte-identical executable image) and what it does NOT
+// (the appendix does not dedupe; this label is one of the two names in it that moved
+// the release CRC).
+//
+// In:  none (reads Debug_Preset_Index, Current_Act_Ptr, Effects_World_Y,
+//      Effects_Screen_L and the named preset's channels)
+// Out: the two glyph objects exist and the two VRAM cells are queued to show the
+//      section digit and the verdict
+// Clobbers: d0-d4, a0-a3 — d0-d4/a1-a2 is QueueDMA_Critical's declared set, d2/a1
+//      also RefreshSpritePieceCount's, a3 holds the EffectsPreset* across the verdict,
+//      and a0 is the SST cursor, then the anchor cursor, then the font base.
+// -----------------------------------------------
+// Second row, 16 px under the scene readout's. Map_TestObj frame 2 is
+// `centered(half: 4, ...)`, so the object position is the CELL CENTRE: the digit
+// covers screen x 12..19 and the verdict x 20..27, both y 28..35.
+const DEBUG_PRESET_READOUT_X = 16
+const DEBUG_PRESET_READOUT_Y = 32
+// The two System slots the preset cells occupy — the pair below the scene readout's,
+// still counted from the TOP of the pool and still claimed by address (the System
+// pool has no allocator; see Debug_SceneReadout_Show's header).
+ensure(NUM_SYSTEM >= 4,
+       "preset readout: the effects lab now claims FOUR System slots by address (two scene cells, two preset cells), but NUM_SYSTEM is {NUM_SYSTEM}")
+equ DEBUG_PRESET_SST_SEC     = extern("System_Slots") + sizeof(Sst) * (NUM_SYSTEM - 4)
+equ DEBUG_PRESET_SST_VERDICT = extern("System_Slots") + sizeof(Sst) * (NUM_SYSTEM - 3)
+// The verdict glyph indices, which are also row numbers in `.verdict_font` below.
+const PRESET_VERDICT_NONE  = 0          // bar     — nothing bound
+const PRESET_VERDICT_BLIND = 1          // X       — bound, but off screen here
+const PRESET_VERDICT_LIVE  = 2          // diamond — bound and on screen
+proc Debug_PresetReadout_Show () clobbers(d0-d4/a0-a3) {
+    if DEBUG == 1 {
+        // -- (1) make sure the two glyph objects exist --
+        // Palette line 1 + priority 1, the pairing the scene readout and the debug-fly
+        // marker both use: line 1 entry 12 is the bright yellow that is known to stay
+        // legible over this act.
+        move.l  #DEBUG_PRESET_READOUT_Y << 16, d4   // the row; d4 survives the builder
+        movea.l #DEBUG_PRESET_SST_SEC, a0
+        move.l  #DEBUG_PRESET_READOUT_X << 16, d1
+        move.w  #vram_art(VRAM_DEBUG_READOUT + 2, 1, 1), d3     // section digit
+        jbsr    Debug_SceneReadout_Show.ensure_glyph
+        movea.l #DEBUG_PRESET_SST_VERDICT, a0
+        move.l  #(DEBUG_PRESET_READOUT_X + 8) << 16, d1
+        move.w  #vram_art(VRAM_DEBUG_READOUT + 3, 1, 1), d3     // verdict glyph
+        jbsr    Debug_SceneReadout_Show.ensure_glyph
+
+        // -- (2) resolve the preset the cursor names --
+        // The same arithmetic the hotkey used, repeated here rather than passed in a
+        // register, so this proc's contract is "reads the cursor" exactly like
+        // Debug_SceneReadout_Show's — a readout that had to be handed its subject
+        // could not be called from anywhere else, and this one is called from a tail.
+        movea.l Current_Act_Ptr, a2             // (Current_Act_Ptr).w
+        movea.l Act.sec_grid_ptr(a2), a0
+        moveq   #0, d0                          // index-register hygiene (§2.5b)
+        move.b  Debug_Preset_Index, d0          // (Debug_Preset_Index).w
+        move.w  d0, d4                          // d4 = the digit, kept across the verdict
+        mul_const.w d0, #sizeof(Sec), d1        // d0 = cursor x the Sec stride (d1 scratch)
+        adda.w  d0, a0
+        movea.l Sec.sec_effects(a0), a3         // a3 = EffectsPreset*
+
+        // -- (3) the verdict. See the header for what each state means. --
+        moveq   #PRESET_VERDICT_NONE, d3
+        tst.l   EffectsPreset.ep_patched(a3)
+        beq     .not_patched
+
+        // A patched program's boundaries are WORLD anchors, so "is it on screen" is a
+        // real question with a real answer, and this is where it is asked. BLIND until
+        // proven otherwise: one visible boundary is enough, because one visible
+        // boundary is something the reviewer can look at.
+        //
+        // Effects_Screen_L is `anchor - Camera_Y`, SIGNED and UNCLAMPED — that is the
+        // whole reason the engine keeps it (engine/ram.emp): Raster_BuildSchedule's own
+        // fire line is clamped into the record's band and therefore cannot express
+        // "the boundary is above the screen", which is exactly the state this reads.
+        // It was latched against THIS preset's anchors moments ago, by the
+        // Effects_LatchWorldLines call inside Effects_InstallPreset.
+        //
+        // The PATCH_ANCHOR_NONE test is not redundant with the range test even though
+        // $7FFF - Camera_Y is off screen for every camera this act can reach: an act
+        // whose vertical extent approached $7FFF would fold an unauthored channel back
+        // into range and report a boundary that does not exist. Cheaper to ask.
+        moveq   #PRESET_VERDICT_BLIND, d3
+        lea     Effects_World_Y, a0
+        lea     Effects_Screen_L, a1
+        moveq   #RASTER_MAX_PATCH-1, d0
+    .verdict_loop:
+        move.w  (a0)+, d1                       // this channel's world anchor
+        move.w  (a1)+, d2                       // ... and its latched screen line
+        cmpi.w  #PATCH_ANCHOR_NONE, d1
+        beq     .verdict_next                   // channel not authored
+        tst.w   d2
+        bmi     .verdict_next                   // above the screen
+        cmpi.w  #SCREEN_HEIGHT, d2
+        bge     .verdict_next                   // below it
+        moveq   #PRESET_VERDICT_LIVE, d3
+        jbra    .verdict_done
+    .verdict_next:
+        dbf     d0, .verdict_loop
+        jbra    .verdict_done
+
+    .not_patched:
+        // ep_raster and ep_patched are mutually exclusive (preset()'s own comptime
+        // ensure), so this arm covers the static tier. A static program's bands are
+        // authored in SCREEN space and are on screen by construction, so the only
+        // question left is whether anything is bound at all — and the sentinels are
+        // what answer it: a preset means "off" with the explicit empty program and the
+        // empty cycle script, never with a 0 (a 0 would mean "keep", which is the
+        // semantic total binding exists to delete).
+        move.l  EffectsPreset.ep_raster(a3), d1
+        cmpi.l  #Raster_Program_None, d1
+        bne     .verdict_live
+        move.l  EffectsPreset.ep_cycle(a3), d1
+        cmpi.l  #Pal_Cycle_None, d1
+        beq     .verdict_done                   // nothing bound: keep NONE
+    .verdict_live:
+        moveq   #PRESET_VERDICT_LIVE, d3
+    .verdict_done:
+
+        // -- (4) queue both cells. Two entries, not one: the sources are a row of the
+        //    scene readout's digit sheet and a row of the verdict sheet below, which
+        //    are two different tables in ROM. --
+        // The digit first. d4 holds the cursor, which the clamp in the hotkey bounds
+        // at 9, so it indexes the ten-glyph sheet directly with no tens split — the
+        // one place this readout is simpler than the scene readout rather than the
+        // same. The assert is the guard that keeps it that way if the clamp ever moves.
+        assert.w d4, ls, #9                     // one digit — see PRESET_CYCLE_MAX
+        move.w  d3, -(sp)                       // the verdict; d0-d4 do not survive the DMA
+        lea     Debug_SceneReadout_Show.digit_font(pc), a0
+        lsl.w   #5, d4                          // digit x 32 bytes per glyph
+        lea     (a0,d4.w), a1
+        move.l  a1, d1                          // d1 = DMA source
+        move.w  #vram_bytes(VRAM_DEBUG_READOUT + 2), d2
+        moveq   #32, d3                         // one 8x8 4bpp tile
+        jbsr    QueueDMA_Critical @discards(dropped)    // review tool: a dropped glyph
+                                                        // costs one stale cell, never a
+                                                        // missed preset install
+        move.w  (sp)+, d0                       // the verdict index
+        lea     .verdict_font(pc), a0
+        lsl.w   #5, d0                          // verdict x 32
+        lea     (a0,d0.w), a1
+        move.l  a1, d1
+        move.w  #vram_bytes(VRAM_DEBUG_READOUT + 3), d2
+        moveq   #32, d3
+        jbra    QueueDMA_Critical @discards(dropped)    // tail call (§2.8)
+
+        // -----------------------------------------------
+        // .verdict_font — three 8x8 4bpp tiles, 32 bytes each, in
+        // PRESET_VERDICT_* order. Same form and same colour as the scene readout's
+        // digit sheet: one hex nibble per pixel, left to right, colour index $C,
+        // which on palette line 1 is the bright yellow the debug-fly marker uses.
+        // The source IS the picture, for that sheet's stated reason.
+        //
+        // It lives INSIDE the `if DEBUG == 1` because a module-scope `data` item
+        // cannot be shape-gated in `.emp` (§1.7), and 96 release bytes for a debug
+        // glyph sheet is exactly what this parcel must not spend.
+        // -----------------------------------------------
+    .verdict_font:
+        dc.l    $00000000, $00000000, $00000000, $0CCCCC00      // 0 — bar: nothing bound
+        dc.l    $00000000, $00000000, $00000000, $00000000
+        dc.l    $00000000, $0C0000C0, $00C00C00, $000CC000      // 1 — X: bound, blind here
+        dc.l    $000CC000, $00C00C00, $0C0000C0, $00000000
+        dc.l    $00000000, $000CC000, $00CCCC00, $0CCCCCC0      // 2 — diamond: live
+        dc.l    $0CCCCCC0, $00CCCC00, $000CC000, $00000000
     }
 }
 

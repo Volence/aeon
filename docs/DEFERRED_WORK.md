@@ -20627,3 +20627,117 @@ is CORRECT and needs only the `j >= 1` clause; the `top` property's "the first w
 DISPLAYS on top + 1, not top" is WRONG and must read `top + 2`. Replacement strings are in the
 parcel report. Aurora must not change its constant unilaterally — it is parsed from the schema on
 purpose, and the schema is the thing to move.
+## THE EFFECTS LAB'S PRESET TIER SHIPPED — and three things it did NOT close (booked 2026-09-03, `parcel/effects-lab-one-section`)
+
+**The owner's words, at the keyboard, testing the effects showcase:** *"I really just think we have
+too many effects and it's hard to know what you want me to see because there's like 6 in 1 section
+and I don't know what I'm looking for."* His own fix, chosen over three alternatives offered:
+*"if we can have raster effects/parallax in just the first section and switch them around with
+start + arrow key, that's fine for me (cause I don't always know which section I'm in and it's more
+direct I think)."*
+
+**What shipped:** `Debug_PresetCycleHotkey` + `Debug_PresetReadout_Show`
+(`games/sonic4/test/ojz_scroll_test.emp`). `START` held + `A` pressed installs the NEXT section's
+whole `EffectsPreset` onto the section the camera is standing in, through
+`Effects_InstallPreset` -> `Parallax_StartTransition` — the exact pair, in the exact order,
+`Parallax_CheckBoundary` runs on a real crossing. Driving instructions: **`docs/EFFECTS_LAB.md`**.
+
+### The chord the obvious guess names is NOT free, and the enumeration is now four wide
+
+`START + UP/DOWN` reads as the obvious candidate and is **taken** — `Debug_BandDemoHotkey` has
+used it since the raster cycle landed. The full modifier+direction census over the canonical
+`DEBUG=1` shape:
+
+| chord | reader |
+|---|---|
+| `START` + `LEFT`/`RIGHT` | `Debug_SceneCycleHotkey` (scene cycle) |
+| `START` + `UP`/`DOWN` | `Debug_BandDemoHotkey` (raster cycle / off) |
+| `C` + `UP`/`DOWN` | the anchor nudge — `ojz_scroll_test.emp`, inline in `Update` |
+| `C` + `LEFT`/`RIGHT` | the approach-ramp arm — same file, same block |
+
+Both free modifiers are spent against the whole d-pad, so **a fifth direction chord does not
+exist**. `START + A` was taken instead, its one non-jump reader (`Debug_CharacterHotkey`) vetoed
+on `START` held in the same file — the same shape as the `B` veto that hotkey already carried.
+
+### What it did NOT close — three open items, none blocking
+
+1. **The verdict glyph is a PRECONDITION test, not a visibility proof, and it is computed at the
+   press.** A diamond says the channel is installed and (for a world-anchored program) its
+   boundary latched inside `0..SCREEN_HEIGHT-1`. It does not say the band's colours differ from
+   the art behind them, that the band is taller than a scanline, or that the program does
+   anything. And it is not re-derived as the camera moves — walk away and a diamond goes stale
+   without the glyph changing. Re-deriving per frame means a VRAM DMA per frame for a debug
+   label, which was refused; **if that trade ever looks wrong, the fix is a dirty-flag repaint
+   keyed on `Effects_Screen_L` crossing the screen edge, not an unconditional per-frame blit.**
+
+2. **The readout is ONE digit, so the cycle clamps at ten entries** (`PRESET_CYCLE_MAX`). OJZ act 1
+   has nine, so nothing is hidden today. An act with more than ten sections would have its
+   eleventh **hidden rather than mislabelled** — the honest half of the trade, chosen over a digit
+   that lies. Fixing it needs a second glyph cell, and **the map's free run adjacent to
+   `debug_readout` is now spent** (1022-1023 went to this parcel): that means a SECOND region out
+   of 957-959 / 1501-1503 / 1532-1535, not an extension. See `games/sonic4/vram.toml`.
+
+3. ~~**Sections 5, 7 and 8 read `-` ("nothing bound"), and 5 is the one worth looking at.**
+   Section 5 owns a preset specifically so its sidecar's `rasterRef` could bind a program,
+   and that sidecar binds nothing today.~~ **CORRECTED the same day, by
+   `tools/preset_lab_witness.py` against the running ROM: section 5's sidecar DOES bind a
+   program (`$013C4C`), the lab reads the diamond there, and it is right.** The claim above
+   was written off a source comment in `ojz_effects.emp` (`ojz_act1_sec_raster(sec: 5, hand:
+   Raster_Program_None)` — the *fallback*, not the resolved value) and the witness refuted it
+   within the hour. **Only sections 7 and 8 read `-`**, both `OJZ_Preset_Plain`, and they are
+   the deliberate empty control. The correction is kept rather than deleted because it is the
+   second time this parcel a hand-typed expectation lost to the ROM, and both times the thing
+   under test was right — which is the argument for deriving expectations, made twice.
+
+### Two preconditions are met BY CONSTRUCTION and are deliberately untested
+
+The VDP `$0B` mode bits (per-column vertical scroll among them) and the parallax config arrive
+**with** the preset, because the lab installs the section's WHOLE preset and lets
+`Parallax_StartTransition` rewrite the mode shadow from the incoming config. That is the
+structural fix for the class of defect where an effect is bound to a scene whose mode bits
+discard everything it writes — the reels demo against a scene with `$0B` bit 2 clear, measured
+`$03`. **Installing a single channel is what re-opens it**, which is precisely what the raster
+tier (`START + UP`) still does and why its own header carries the warning.
+
+### Measured, and worth keeping: sigil's cross-proc `.label` rules are asymmetric
+
+`jbsr Debug_SceneReadout_Show.ensure_glyph` fails the **span pass** ("unresolved branch/ladder
+target"); `lea Debug_SceneReadout_Show.digit_font(pc), a0` fails at **link**. Both are fixed by
+`export .name:` at the definition — and sigil's link diagnostic **names that fix in its own text**,
+which is how it was found. `CODING_CONVENTIONS.md` §1.5 states the `ProcName.label` reference form
+but does not say the export keyword is required for it; the rule in practice is **every
+cross-proc reference needs `export` at the definition, whether it is a branch or a data read.**
+
+### The zero-byte claim, measured by SPAN and by BYTE — and one inherited claim it refutes
+
+`Debug_SceneCycleHotkey`'s header says a zero-byte label parked in this module's
+zero-release-byte run "coincides with an address the appendix already carries and **dedupes
+away**". **The dedup half is wrong.** Measured on this parcel: the release symbol set went
+**2376 -> 2378 names**, and both `Debug_PresetCycleHotkey` and `Debug_PresetReadout_Show`
+landed in the convsym deb2 appendix at `$A45DC`, the address `OJZ_SectionMarkerColors`
+already occupies. convsym dedupes nothing.
+
+What the parking DOES buy held exactly, and it is the claim that matters. `s4.bin` against
+master, byte for byte:
+
+| where | differing bytes |
+|---|---|
+| `$000000`..`$A5C81` (the executable image, below `EndOfRom`) | **2** — `$18E`-`$18F`, the header checksum |
+| `$A5C82`.. (the deb2 appendix release ships by design) | 3,252 |
+| file length | 720,502 **both ways** |
+
+Both new procs' listing spans are **0** (`$A45DC`, the address `OJZ_SectionMarkerColors`
+emits at). **Anyone re-measuring a zero-byte claim in this tree should classify the diff by
+`EndOfRom` rather than reading the CRC**, which cannot tell a moved instruction from a new
+symbol name.
+
+### The witness is wired, and where
+
+`tools/preset_lab_witness.py` runs as a **second lane in
+`tools/nightly_effects_gates.sh`**, beside the effects gates, under the same
+loud-on-failure-and-on-could-not-run contract, combined worst-wins. It cannot live in
+`build.sh` — it boots a headless emulator, the same reason the gates cannot. Red-first
+evidence: mutating the verdict's initial state from `PRESET_VERDICT_NONE` to
+`PRESET_VERDICT_LIVE` on disk and rebuilding (`crc c585c0fd`) made it exit 1 naming
+**exactly** sections 7 and 8, the only two whose verdict that mutation changes; restored from
+the committed baseline it is green again.

@@ -78,4 +78,35 @@ case $rc in
     1) note "EFFECTS GATES FAILED at ${SHA:0:8} — see $STATE/gates.log" ;;
     *) note "COULD NOT RUN: gate setup problem (exit $rc) at ${SHA:0:8} — see $STATE/gates.log" ;;
 esac
-exit $rc
+
+# ---- second lane: the effects LAB itself -------------------------------------
+# The lab is the instrument the owner reviews effects THROUGH, so a lab that has
+# silently stopped installing (or stopped telling the truth about what it installed)
+# costs a review session before anyone notices. It rides here rather than in build.sh
+# for the same reason the gates do: it boots a headless emulator.
+#
+# It cannot be wired anywhere cheaper. The two older lab tiers each carry a `dc.l`
+# table and a pytest lint that counts its rows; this tier has NO table — its cycle
+# list is the act's own section grid — so there is nothing textual to lint and the
+# only question left is a runtime one.
+#
+# SAME EXIT CONTRACT, and it is combined WORST-WINS: a lane that could not run (2)
+# outranks a lane that failed (1). A backstop that reports the gates' green while its
+# own lane refused to run is the vacuous pattern this file exists to prevent.
+python3 tools/preset_lab_witness.py --rom s4.debug.bin --lst s4.debug.lst \
+    > "$STATE/preset_lab.log" 2>&1
+rc_lab=$?
+case $rc_lab in
+    0) echo "$(date -Is) OK at ${SHA:0:8} (preset lab witness)" >> "$LOG" ;;
+    1) note "PRESET LAB WITNESS FAILED at ${SHA:0:8} — see $STATE/preset_lab.log" ;;
+    *) note "COULD NOT RUN: preset lab witness (exit $rc_lab) at ${SHA:0:8} — see $STATE/preset_lab.log" ;;
+esac
+
+# worst-wins: 2 (could not run) beats 1 (failed) beats 0
+worst=0
+for r in "$rc" "$rc_lab"; do
+    if [ "$r" = 2 ] || { [ "$r" != 0 ] && [ "$worst" != 2 ]; }; then
+        [ "$r" = 2 ] && worst=2 || worst=1
+    fi
+done
+exit $worst
