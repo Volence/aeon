@@ -156,7 +156,8 @@ BGANIM_MAX_BANDS = 4
 # anchor pair the moment a shape's room drops under the reserve), which is the
 # re-ruling trigger: move BOTH anchors per the rule.
 #
-#   BGANIM_SECTION_CEILING_RULED   d-9's ruled 12,288 — the owner's authoring budget.
+#   BGANIM_SECTION_CEILING_RULED   d-9's budget, RAISED to 20,480 on 2026-09-04 (see
+#                                  the block at the constant) — the owner's authoring budget.
 #   BGANIM_SECTION_CEILINGS        the per-shape table tools/bganim_room.py gates
 #                                  against, keyed by the sigil listing that IS the
 #                                  shape's instrument.
@@ -164,7 +165,34 @@ BGANIM_MAX_BANDS = 4
 #                                  MINIMUM across shapes (== the ruled number while the
 #                                  rows agree; it must stay the minimum so a section can
 #                                  never pass this emitter and fail one shape's gate).
-BGANIM_SECTION_CEILING_RULED = 12288
+# ── RAISED 12,288 -> 20,480 (owner "Agrree", 2026-09-04, amending d-9) ────────
+#
+# THE ASK: a SECOND full-size band alongside the shipped canopy. What that costs is
+# derived from this file's own layout constants, never estimated:
+#
+#     canopy band = 8 cols x 4 rows = 32 slots; a slot is BGANIM_PHASES (8) x
+#     BGANIM_TILE_BYTES (32) = 256 B. Two of them = 64 slots = 16,384 B of blob,
+#     + BGANIM_COUNT_BYTES (2) + 2 x BGANIM_RECORD_BYTES (44)   = 16,474 B.
+#     With the two DEBUG view twins still emitted (2 x (2 + 44)) = 16,654 B.
+#
+# 20,480 (20 KiB) covers the larger of those with 3,826 B of margin — the SAME shape
+# of choice d-9 made at 12,288, which is why it is not sized to 16,654 exactly: the
+# margin is what lets the other band grow a row without re-ruling this number.
+#
+# WHY THIS IS NOW A FREE CHOICE, AND WAS NOT ON 2026-08-26. The block above still
+# says a second 8 KB band "needs the re-layout, not a bigger number here" — that was
+# TRUE WHEN WRITTEN and is spent: the re-layout landed (483b3e12) and moved the Z80
+# banks to 0xA8000. Re-measured live on this tree with tools/bganim_room.py rather
+# than trusting that sentence: room is 125,872 B (s4.lst) and 123,430 B
+# (s4.debug.lst), and the tool's own verdict is now "binding limit: the ruled
+# ceiling — it sits 111,142 B inside the ROM room". The room stopped being the
+# constraint; this number is the only thing in the way, which is exactly why it took
+# an owner ruling and not a measurement.
+#
+# STILL BOUNDED, in both directions: bganim_room.py fails the build if the ceiling
+# ever exceeds the room again, and test_bg_emit.py holds it <= the provable worst
+# case any legal authoring can produce (BGANIM_WORST_CASE_BYTES, 114,866 B).
+BGANIM_SECTION_CEILING_RULED = 20480
 BGANIM_SECTION_CEILINGS = {
     "s4.lst": BGANIM_SECTION_CEILING_RULED,
     "s4.debug.lst": BGANIM_SECTION_CEILING_RULED,

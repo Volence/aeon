@@ -1225,6 +1225,26 @@ class TestBgAnimSectionCeiling(unittest.TestCase):
             self.assertLessEqual(v, worst, f"{name} exceeds the largest section any "
                                            f"legal authoring can produce ({worst} B)")
 
+    def test_the_ruled_ceiling_admits_two_full_size_canopy_bands(self):
+        """WHY 20,480 and not some other number the owner might have said.
+
+        The 2026-09-04 raise exists for exactly one ask: a second band the size of the
+        shipped canopy. Derived from the emitter's own layout constants — if a record
+        or a phase count ever grows, this fails and names the new figure, which is the
+        whole point of not writing 16,654 down as a literal."""
+        canopy_slots = 8 * 4          # the shipped band: cols x rows
+        need_no_views = inject_editor_bg.bganim_section_bytes(2, canopy_slots * 2, 0)
+        need_with_views = inject_editor_bg.bganim_section_bytes(
+            2, canopy_slots * 2, inject_editor_bg.BGANIM_VIEW_COUNT)
+        self.assertLessEqual(
+            need_with_views, inject_editor_bg.BGANIM_SECTION_CEILING,
+            f"two canopy-sized bands need {need_with_views} B and the ruled ceiling is "
+            f"{inject_editor_bg.BGANIM_SECTION_CEILING} B — the raise no longer buys "
+            f"what it was ruled for")
+        self.assertLess(need_no_views, need_with_views,
+                        "view twins are supposed to COST bytes; if they do not, "
+                        "bganim_section_bytes has stopped counting them")
+
     # ---- the per-shape table (d-28-answered, then the ROM re-layout) ------------
 
     def test_per_shape_table_names_exactly_the_two_sonic4_listings(self):
@@ -1237,14 +1257,19 @@ class TestBgAnimSectionCeiling(unittest.TestCase):
                              inject_editor_bg.BGANIM_SECTION_CEILING_RULED)
 
     def test_both_shapes_carry_the_ruled_ceiling_after_the_relayout(self):
-        """d-9's 12,288 in EVERY shape (the re-layout's acceptance, 2026-08-26): the
+        """The ruled number in EVERY shape (the re-layout's acceptance, 2026-08-26): the
         DEBUG row is no longer derived from what a shape's room happened to hold —
         that derivation (anchor − packed end + held) was d-28-answered's one-day
         stopgap and is retired with its `_D28_*` terms. The number is typed here on
-        purpose: it is the owner's ruling, the one thing this file may not derive."""
-        self.assertEqual(inject_editor_bg.BGANIM_SECTION_CEILING_RULED, 12288,
+        purpose: it is the owner's ruling, the one thing this file may not derive.
+
+        RAISED 12,288 -> 20,480 on 2026-09-04 (owner "Agrree", amending d-9) so a
+        SECOND full-size band fits. This assertion is a tripwire for an UNRULED edit,
+        so it moves with the ruling rather than being loosened to a range — a `>=`
+        here would pass for any number anyone typed."""
+        self.assertEqual(inject_editor_bg.BGANIM_SECTION_CEILING_RULED, 20480,
                          "d-9's guarantee moved — that is an owner ruling")
-        self.assertEqual(inject_editor_bg.BGANIM_SECTION_CEILING, 12288)
+        self.assertEqual(inject_editor_bg.BGANIM_SECTION_CEILING, 20480)
         self.assertEqual(inject_editor_bg.BGANIM_SECTION_CEILING,
                          min(inject_editor_bg.BGANIM_SECTION_CEILINGS.values()))
         for stale in ("_D28_DAC_BANKS_ANCHOR", "_D28_ART_SONIC_LMA_DEBUG",
@@ -1550,7 +1575,7 @@ class TestBgAnimRoomOverCommittedFixture(unittest.TestCase):
         tree, lst = self._tree(lst="s4.lst")
         rc, text = self._report(tree, lst)
         self.assertEqual(rc, 0, text)
-        self.assertIn("BGANIM_SECTION_CEILINGS['s4.lst'] = 12288 B", text)
+        self.assertIn("BGANIM_SECTION_CEILINGS['s4.lst'] = 20480 B", text)
         headroom = (self.FIXTURE_ANCHOR - (self._hand_lma() + self.FIXTURE_ART_SONIC_BYTES)
                     + inject_editor_bg.bganim_section_bytes(1, 32))
         table = inject_editor_bg.BGANIM_SECTION_CEILINGS
