@@ -262,14 +262,21 @@ authority = ["engine-tiles:BG_TILE_CAPACITY", "engine-bytebase:BG_TILE_BASE_VRAM
 # A FIRST CUT SPENT 58 OF THESE TILES AND WAS BACKED OUT, and not because of this
 # region: 58 tiles is 1,856 B of ROM, which pushed `Art_Sonic`'s end past the
 # DATA_GROWTH_RESERVE under `dac_banks` and failed tools/bganim_room.py on the
-# DEBUG shape. **Master's margin there is 252 B** (room 16,636 B against a 16,384 B
-# reserve), so on today's tree this VRAM reserve is NOT the binding constraint on
-# background art — ROM room under the bank anchors is, and it is two orders of
-# magnitude tighter. See docs/DEFERRED_WORK.md, the perspective-floor entry.
+# DEBUG shape. At the time master's margin there was 252 B (room 16,636 B against a
+# 16,384 B reserve) — two orders of magnitude tighter than this VRAM reserve.
+#
+# ⚠ THAT ROM MARGIN IS NO LONGER THE CONSTRAINT (second ROM re-layout, 2026-09-04).
+# The same growth that back-out was avoiding kept coming and the gate did fire, 30 B
+# under; the banks moved to 0xA8000 / 0xB8000 and the reserve went 0x4000 -> 0xC000
+# with a new 0x8000 grace term. Measured on the DEBUG (binding) shape at that
+# landing: room 114,658 B, of which **65,506 B sits above the reserve**. So the 58
+# tiles this note records as unaffordable now cost 1.6 % of the available margin, and
+# the back-out reason has expired. See docs/DEFERRED_WORK.md, the perspective-floor
+# entry, and docs/superpowers/2026-09-04-rom-relayout-more-room-report.md.
 #
 # So: 128 still buys the full 32x4 band it was sized for. Anyone spending it should
-# check tools/bganim_room.py FIRST, because 4 tiles of art is ~128 B and the ROM
-# margin is 252 B.
+# still run tools/bganim_room.py — it is the only instrument that answers — but the
+# ROM room is no longer the tighter of the two.
 
 [[region]]
 name = "sprite_table"

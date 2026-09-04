@@ -24,6 +24,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import bganim_room
 import inject_editor_bg
 
 from ojz_strip_gen import (
@@ -1297,13 +1298,22 @@ class TestBgAnimRoomOverCommittedFixture(unittest.TestCase):
     shipping override held one 8x4 band (bganim_section_bytes(1, 32) = 8,238). So:
 
         packed end = 0x72A60 + 97472           = 0x8A720
-        room       = 0x90000 - 0x8A720         = 22,752
-        headroom   = 22,752 + 8,238            = 30,990   (ceiling 12,288 sits 18,702 inside)
-        rule       = align_up(0x8A720 + 0x4000, 0x8000) = 0x90000 == the declared anchor
+        rule       = align_up(0x8A720 + 0xC000 + 0x8000, 0x8000) = 0xA0000
+        room       = 0xA0000 - 0x8A720         = 88,288
+        headroom   = 88,288 + 8,238            = 96,526   (ceiling 12,288 sits 84,238 inside)
 
     — the tests below hold the tool to those four lines. The hermetic tree the tests
     build carries exactly the inputs the tool reads (map.toml anchor, the embed line,
     a blob of that length, the override) so no term leaks in from the live tree.
+
+    ⚠ THE HERMETIC ANCHOR IS DERIVED, NOT TYPED (2026-09-04). It used to be the
+    literal 0x90000 the live map declared at the 08-26 re-layout, which made every
+    number below a hostage of that one constant; the 09-04 re-layout (RESERVE 0x4000
+    -> 0xC000, plus the new GRACE term) moved it. `FIXTURE_ANCHOR` is now
+    `bganim_room.rule_anchor(packed end)` — the anchor THE RULE demands for this
+    fixture's own packed end — so these tests track the rule's constants. It is not
+    and need not be the live map's anchor: the fixture's packed end is 8+ days behind
+    master's, so the live anchor is legitimately higher.
 
     FRESHNESS. A committed cut has nothing re-deriving it. build.sh's post-sigil gate
     passes `--fixture` so every row here is re-found in the fresh listing with the
@@ -1315,8 +1325,10 @@ class TestBgAnimRoomOverCommittedFixture(unittest.TestCase):
     AEON = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     FIXTURE = os.path.join(AEON, "tools", "fixtures", "bganim_room_excerpt.lst")
     FIXTURE_ART_SONIC_BYTES = 97472        # git cat-file -s 0cddcaa9:art/optimized/characters/sonic.bin
-    FIXTURE_ANCHOR = 0x90000               # map.toml [[anchor]] dac_banks at the re-layout
     FIXTURE_ART_SONIC_LMA = 0x72A60        # the fixture's Art_Sonic row, hand-read below too
+    FIXTURE_PACKED_END = FIXTURE_ART_SONIC_LMA + FIXTURE_ART_SONIC_BYTES   # 0x8A720
+    # the hermetic tree's dac_banks — DERIVED from the rule, see the docstring
+    FIXTURE_ANCHOR = bganim_room.rule_anchor(FIXTURE_PACKED_END)
 
     def _tree(self, band=(8, 4), blob_len=FIXTURE_ART_SONIC_BYTES, lst="s4.debug.lst",
               anchor=FIXTURE_ANCHOR):
@@ -1393,7 +1405,7 @@ class TestBgAnimRoomOverCommittedFixture(unittest.TestCase):
         tree, lst = self._tree()
         lma = self._hand_lma()
         room = self.FIXTURE_ANCHOR - (lma + self.FIXTURE_ART_SONIC_BYTES)
-        self.assertEqual(room, 22752, "0x90000 - (0x72A60 + 97472), by hand")
+        self.assertEqual(room, 88288, "0xA0000 - (0x72A60 + 97472), by hand")
         r = bganim_room.rom_room(lst, tree)
         self.assertEqual(
             (r["art_sonic_lma"], r["art_blob_len"], r["anchor"], r["room"]),
@@ -1414,14 +1426,19 @@ class TestBgAnimRoomOverCommittedFixture(unittest.TestCase):
         packed_end = self._hand_lma() + self.FIXTURE_ART_SONIC_BYTES
         room = self.FIXTURE_ANCHOR - packed_end
         headroom = room + live
-        self.assertEqual(headroom, 30990)
+        self.assertEqual(headroom, 96526)
         ceiling = inject_editor_bg.BGANIM_SECTION_CEILINGS["s4.debug.lst"]
         self.assertGreater(headroom - ceiling, 0, "the re-layout must leave a POSITIVE margin")
-        # the rule, by hand: the first 0x8000 boundary at or above end + reserve
+        # the rule, by hand: the first 0x8000 boundary at or above end + reserve + grace
         reserve = bganim_room.DATA_GROWTH_RESERVE
-        self.assertEqual(reserve, 0x4000, "two 8 KB bands — the d-28 acceptance")
-        rule = -(-(packed_end + reserve) // 0x8000) * 0x8000
-        self.assertEqual(rule, 0x90000)
+        grace = bganim_room.DATA_GROWTH_GRACE
+        self.assertEqual(reserve, 0xC000, "the d-28 16,384 B band guarantee + 30 days of "
+                                          "the measured 08-26..09-04 consumption, rounded "
+                                          "up to the reserve's own 0x4000 quantum")
+        self.assertEqual(grace, 0x8000, "one SetBank window of guaranteed growth before "
+                                        "the gate can fire again")
+        rule = -(-(packed_end + reserve + grace) // 0x8000) * 0x8000
+        self.assertEqual(rule, 0xA0000)
         self.assertEqual(bganim_room.rule_anchor(packed_end), rule)
         rc, text = self._report(tree, lst)
         self.assertEqual(rc, 0, text)
@@ -1429,34 +1446,47 @@ class TestBgAnimRoomOverCommittedFixture(unittest.TestCase):
         self.assertRegex(text, rf"(?m)^\s*binding limit: the ruled ceiling \({ceiling} B\) — it "
                                rf"sits {headroom - ceiling} B inside the ROM room", text)
         self.assertRegex(text, rf"(?m)^\s*bank placement rule: packed end 0x{packed_end:X} \+ "
-                               rf"reserve {reserve} B -> dac_banks >= 0x{rule:X}; declared "
-                               rf"0x{self.FIXTURE_ANCHOR:X} \(this shape binds exactly\)", text)
+                               rf"reserve {reserve} B \+ grace {grace} B -> dac_banks >= "
+                               rf"0x{rule:X}; declared 0x{self.FIXTURE_ANCHOR:X} "
+                               rf"\(this shape binds exactly\)", text)
+        self.assertRegex(text, rf"(?m)^\s*growth before this gate fires again: "
+                               rf"{room - reserve} B ", text)
         self.assertNotIn("placer", text.lower(), text)
         self.assertNotIn("BGANIM-PLACE", text)
 
     def test_rule_fails_naming_the_new_anchor_pair_when_room_drops_under_the_reserve(self):
-        """RED-FIRST for the rule arm: the art blob grown 8 KB. The room (14,560 B) still
-        holds the 12,288 ceiling — so the CEILING arm passes and only the RULE arm can
-        fail — and the failure names the anchor pair the rule now demands."""
+        """RED-FIRST for the rule arm: the art blob grown 40 KB. The room (47,328 B)
+        still holds the 12,288 ceiling — so the CEILING arm passes and only the RULE
+        arm can fail — and the failure names the anchor pair the rule now demands.
+
+        The growth is 0xA000 and not the 0x2000 this test used before 2026-09-04
+        because the reserve is now 0xC000: 8 KB of growth no longer breaches it, and a
+        test that could not go red would have kept passing forever."""
         import bganim_room
-        grown = self.FIXTURE_ART_SONIC_BYTES + 0x2000
+        grown = self.FIXTURE_ART_SONIC_BYTES + 0xA000
         tree, lst = self._tree(blob_len=grown)
         packed_end = self._hand_lma() + grown
         room = self.FIXTURE_ANCHOR - packed_end
-        self.assertEqual(room, 14560)
+        self.assertEqual(room, 47328)
         self.assertGreater(room + 8238, inject_editor_bg.BGANIM_SECTION_CEILING)
         self.assertLess(room, bganim_room.DATA_GROWTH_RESERVE)
-        want = -(-(packed_end + bganim_room.DATA_GROWTH_RESERVE) // 0x8000) * 0x8000
-        self.assertEqual(want, 0x98000)
+        want = -(-(packed_end + bganim_room.DATA_GROWTH_RESERVE
+                   + bganim_room.DATA_GROWTH_GRACE) // 0x8000) * 0x8000
+        self.assertEqual(want, 0xB0000)
         rc, text = self._report(tree, lst)
         self.assertEqual(rc, 1, text)
         self.assertNotIn("the ruled BG-animation ceiling no longer fits", text)
         self.assertIn("FAIL — the bank placement rule is broken", text)
         self.assertIn(f"leaving {room} B < DATA_GROWTH_RESERVE {bganim_room.DATA_GROWTH_RESERVE} B", text)
-        self.assertIn(f"dac_banks = align_up(packed_end + reserve, 0x8000) = 0x{want:X}", text)
+        self.assertIn(f"dac_banks = align_up(packed_end + reserve + grace, 0x8000) = 0x{want:X}", text)
         self.assertIn(f"sound_bank = dac_banks + 0x10000 = 0x{want + 0x10000:X}", text)
-        self.assertIn("refreeze", text)
         self.assertIn("Do NOT shrink the reserve", text)
+        # the remedy text names the sigil hand-off as a REQUIREMENT, because a map
+        # anchor places nothing (measured 2026-09-04, both directions — see the block
+        # in games/sonic4/map.toml)
+        self.assertIn("hand the two addresses to the sigil lane", text)
+        self.assertIn("map.undeclared-island", text)
+        self.assertNotIn("a paired aeon+sigil landing)", text)
         # without --gate the same breach is reported, not enforced
         import io
         buf = io.StringIO()
@@ -1469,9 +1499,40 @@ class TestBgAnimRoomOverCommittedFixture(unittest.TestCase):
         tree, lst = self._tree(anchor=self.FIXTURE_ANCHOR + 0x8000)
         rc, text = self._report(tree, lst)
         self.assertEqual(rc, 0, text)
-        self.assertRegex(text, r"(?m)^\s*bank placement rule: .* declared 0x98000 \(0x8000 of "
+        self.assertRegex(text, r"(?m)^\s*bank placement rule: .* declared 0xA8000 \(0x8000 of "
                                r"slack above this shape's rule value — another sound-on "
                                r"shape binds, or the rule moved\)", text)
+
+    def test_grace_makes_the_room_above_the_reserve_a_guarantee_not_a_draw(self):
+        """The 2026-09-04 GRACE term, stated as the property it exists for.
+
+        The 08-26 rule was `align_up(end + RESERVE)` and the gate fails at
+        `room < RESERVE`, so the growth absorbable before the gate re-fires was
+        `align_up(end + R) - end - R` — the align_up remainder, a draw on
+        `end mod 0x8000` that is 0 whenever `end + R` lands exactly on a boundary,
+        and that RAISING R DOES NOT FIX (both terms move together). This test sweeps
+        every residue class of the quantum and asserts the floor holds in all of them.
+
+        RED-FIRST (2026-09-04, mutation applied on disk and reverted): dropping
+        `+ DATA_GROWTH_GRACE` from `rule_anchor` fails this at the very first residue
+        (`end = 0x8000`: room 0xC000, floor 0x14000), and leaves the whole rest of
+        this class green — which is exactly why the defect survived 08-26."""
+        import bganim_room
+        floor = bganim_room.DATA_GROWTH_RESERVE + bganim_room.DATA_GROWTH_GRACE
+        # every residue of the SetBank quantum, at a realistic ROM magnitude
+        for end in range(0x8000, 0x8000 + 0x8000 + 1, 0x40):
+            anchor = bganim_room.rule_anchor(end)
+            self.assertEqual(anchor % bganim_room.BANK_ALIGN, 0,
+                             f"0x{anchor:X} is not a SetBank window")
+            self.assertGreaterEqual(
+                anchor - end, floor,
+                f"packed end 0x{end:X} -> anchor 0x{anchor:X} leaves {anchor - end} B, "
+                f"under the RESERVE+GRACE floor of {floor} B: the grace term is not "
+                f"guaranteeing anything and the next re-layout is a lottery again")
+            # and the guarantee is TIGHT — the rule never buys a spare window it did
+            # not need, so the ROM cost is the minimum that satisfies the floor
+            self.assertLess(anchor - end, floor + bganim_room.BANK_ALIGN,
+                            f"packed end 0x{end:X} bought a window it did not need")
 
     def test_rule_rejects_an_anchor_that_is_not_bank_aligned(self):
         """A Z80 SetBank window is 0x8000; an anchor off that grid is unmeasurable as
@@ -1511,7 +1572,7 @@ class TestBgAnimRoomOverCommittedFixture(unittest.TestCase):
         tree, lst = self._tree()
         headroom = (bganim_room.rom_room(lst, tree)["room"]
                     + inject_editor_bg.live_section_bytes(tree))
-        self.assertEqual(headroom, 30990)
+        self.assertEqual(headroom, 96526)
         table = inject_editor_bg.BGANIM_SECTION_CEILINGS
         saved = table["s4.debug.lst"]
         table["s4.debug.lst"] = headroom + 1

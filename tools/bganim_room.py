@@ -26,17 +26,36 @@ WHAT LIMITS THE SECTION — AND WHAT NO LONGER DOES
   whatever Sonic's art left (~3.9 KB in the debug shape at d-28); since the re-layout
   the Z80 banks sit AFTER the data region and the anchor is DERIVED — see the rule.
 
-  BANK PLACEMENT RULE (games/sonic4/map.toml, enforced here since 2026-08-26) —
-      dac_banks = align_up(packed_end + DATA_GROWTH_RESERVE, 0x8000)
+  BANK PLACEMENT RULE (games/sonic4/map.toml, enforced here since 2026-08-26;
+  the GRACE term added 2026-09-04) —
+      dac_banks = align_up(packed_end + DATA_GROWTH_RESERVE + DATA_GROWTH_GRACE, 0x8000)
       sound_bank = dac_banks + 0x10000
-  with DATA_GROWTH_RESERVE = 0x4000 (16,384 B: two 8 KB bands per act, the d-28
-  acceptance). One anchor serves every sound-on shape, so the binding shape is the
+  with DATA_GROWTH_RESERVE = 0xC000 (49,152 B: the d-28 two-8 KB-bands-per-act
+  guarantee of 16,384 B plus 30 days of the measured 08-26..09-04 consumption,
+  rounded up to the reserve's own 0x4000 quantum) and DATA_GROWTH_GRACE = 0x8000
+  (32,768 B, one SetBank window: the growth this layout is GUARANTEED to absorb
+  before the gate fires again — see the constant's own note for why the 08-26
+  single-term rule could not guarantee that at any reserve).
+  One anchor serves every sound-on shape, so the binding shape is the
   one with the largest packed end; for the others the anchor sits ABOVE their rule
   value and that slack is reported, never failed. What DOES fail (with `--gate`): a
   shape whose room drops under the reserve — the report names the anchor pair the
-  rule now demands, and the remedy is to move BOTH anchors and refreeze sigil's
-  frozen tables (a paired aeon+sigil landing), never to shrink the reserve. An anchor
-  off the 0x8000 grid fails by name before any room arithmetic is trusted.
+  rule now demands, and the remedy is to move BOTH anchors, never to shrink the
+  reserve. An anchor off the 0x8000 grid fails by name before any room arithmetic
+  is trusted.
+
+  ⚠ MOVING THE ANCHORS IS NOT SOMETHING AEON CAN DO ALONE, and that is a mechanism
+  rather than the retired ceremony. The owner ended the paired aeon+sigil freeze on
+  2026-09-02 ("CUT THE CEREMONY", empyrean docs/OVERSEER.md 2026-09-02T18:20:19Z),
+  so a sigil refreeze no longer GATES an ordinary aeon landing. But a `[[anchor]]`
+  in map.toml places nothing: sigil derives every section's provisional base from
+  its frozen table (`load_frozen_table` -> `true_bases_by_index`) and uses the map's
+  anchors only as an address set that AUTHORIZES a section to stay where the table
+  already puts it. Measured both ways on 2026-09-04 — moving the anchors alone gives
+  `[map.undeclared-island] ROM section at 0x90000`, and declaring a spare anchor at
+  0xA8000 with the tables unchanged gives `[map.anchor-absent] ... at 0xA8000 is not
+  an inferred island`. So an anchor move must be HANDED to the sigil lane with the
+  new addresses; see the same block in games/sonic4/map.toml.
 
   RULED AUTHORING CEILING (`BGANIM_SECTION_CEILINGS`, tools/inject_editor_bg.py) — the
   owner's budget inside that room, per shape since decision d-28-answered
@@ -129,18 +148,37 @@ LAST_PACKED_LABEL = "Art_Sonic"
 ANCHOR_NAME = "dac_banks"
 
 #: The BANK PLACEMENT RULE's terms (games/sonic4/map.toml, "BANK PLACEMENT RULE").
-#: The reserve is a RULED number (two 8 KB BG-animation bands, the d-28 acceptance)
-#: and exceeds the ruled authoring ceiling on purpose; the alignment is a Z80 SetBank
-#: window; the sound bank follows the blip + shared DAC banks (two windows).
-DATA_GROWTH_RESERVE = 0x4000
+#:
+#: RESERVE is the floor this gate DEMANDS stays free under `dac_banks`. It holds the
+#: d-28 BG-animation guarantee (16,384 B = two 8 KB bands per act) and, since the
+#: 2026-09-04 re-layout, a measured runway on top of it — see the rule block in
+#: map.toml for the derivation from the 08-26..09-04 consumption.
+#:
+#: GRACE is the term the 2026-09-04 re-layout ADDED, and it exists because of a
+#: structural defect the 08-26 rule had: with `dac_banks = align_up(end + RESERVE)`
+#: the free room ABOVE the reserve — the growth the tree may absorb before this gate
+#: fires again — is the align_up remainder. That is a lottery on `end mod 0x8000`,
+#: uniform on [0, 0x8000), and RAISING RESERVE DOES NOT RAISE IT (the demand and the
+#: anchor move together). 08-26 drew 6,368 B and content ate it in 8 days; the gate
+#: re-fired 30 B under. Adding GRACE inside the align_up makes the room the anchor
+#: buys `>= RESERVE + GRACE`, so the growth absorbed before the next re-layout is
+#: bounded BELOW by GRACE instead of by the draw. GRACE = one full SetBank window.
+#:
+#: The alignment is a Z80 SetBank window; the sound bank follows the blip + shared
+#: DAC banks (two windows).
+DATA_GROWTH_RESERVE = 0xC000
+DATA_GROWTH_GRACE = 0x8000
 BANK_ALIGN = 0x8000
 SOUND_BANK_OFFSET = 2 * BANK_ALIGN
 
 
 def rule_anchor(packed_end):
     """The rule's `dac_banks` for a shape whose packed data ends at `packed_end`: the
-    first BANK_ALIGN boundary at or above `packed_end + DATA_GROWTH_RESERVE`."""
-    return -(-(packed_end + DATA_GROWTH_RESERVE) // BANK_ALIGN) * BANK_ALIGN
+    first BANK_ALIGN boundary at or above `packed_end + DATA_GROWTH_RESERVE +
+    DATA_GROWTH_GRACE`. The gate below fails on RESERVE alone, so the GRACE term is
+    exactly the growth this layout is guaranteed to absorb before it fires again."""
+    return (-(-(packed_end + DATA_GROWTH_RESERVE + DATA_GROWTH_GRACE) // BANK_ALIGN)
+            * BANK_ALIGN)
 
 
 class Unmeasurable(Exception):
@@ -398,10 +436,13 @@ def report(lst_path, aeon=AEON, gate=False, out=sys.stdout, rom_path=None,
                 f"0x{packed_end:X}, leaving {r['room']} B < DATA_GROWTH_RESERVE "
                 f"{DATA_GROWTH_RESERVE} B.\n"
                 f"  The rule (games/sonic4/map.toml, BANK PLACEMENT RULE): "
-                f"dac_banks = align_up(packed_end + reserve, 0x{BANK_ALIGN:X}) = 0x{want:X}, "
-                f"sound_bank = dac_banks + 0x{SOUND_BANK_OFFSET:X} = 0x{want + SOUND_BANK_OFFSET:X}.\n"
-                f"  Move BOTH anchors there and refreeze sigil's frozen tables (a paired "
-                f"aeon+sigil landing). Do NOT shrink the reserve.",
+                f"dac_banks = align_up(packed_end + reserve + grace, 0x{BANK_ALIGN:X}) "
+                f"= 0x{want:X}, sound_bank = dac_banks + 0x{SOUND_BANK_OFFSET:X} "
+                f"= 0x{want + SOUND_BANK_OFFSET:X}.\n"
+                f"  Move BOTH anchors there AND hand the two addresses to the sigil "
+                f"lane: a map anchor VALIDATES placement, sigil's frozen tables PERFORM "
+                f"it, and until the matching rows move in every sound-on table the "
+                f"build stops at `[map.undeclared-island]`. Do NOT shrink the reserve.",
                 file=out)
             rc = 1 if gate else rc
         else:
@@ -409,8 +450,11 @@ def report(lst_path, aeon=AEON, gate=False, out=sys.stdout, rom_path=None,
                      f"0x{anchor - want:X} of slack above this shape's rule value — another "
                      f"sound-on shape binds, or the rule moved")
             print(f"  bank placement rule: packed end 0x{packed_end:X} + reserve "
-                  f"{DATA_GROWTH_RESERVE} B -> {ANCHOR_NAME} >= 0x{want:X}; declared "
-                  f"0x{anchor:X} ({slack})", file=out)
+                  f"{DATA_GROWTH_RESERVE} B + grace {DATA_GROWTH_GRACE} B -> "
+                  f"{ANCHOR_NAME} >= 0x{want:X}; declared 0x{anchor:X} ({slack})", file=out)
+            print(f"  growth before this gate fires again: {r['room'] - DATA_GROWTH_RESERVE} B "
+                  f"(the room above the reserve; guaranteed >= grace "
+                  f"{DATA_GROWTH_GRACE} B by the rule)", file=out)
 
     if gate and ceiling > headroom:
         print(
@@ -422,7 +466,7 @@ def report(lst_path, aeon=AEON, gate=False, out=sys.stdout, rom_path=None,
             f"{r['art_blob_len']} B and it is the last packed blob before the anchor.\n"
             f"  Since the ROM re-layout (2026-08-26) the anchor is DERIVED by the bank "
             f"placement rule and the reserve exceeds this ceiling, so the rule arm above "
-            f"should have fired first: apply the rule (move both anchors, refreeze) rather "
+            f"should have fired first: apply the rule (move both anchors) rather "
             f"than shrinking the ceiling, which is an owner ruling (d-9).",
             file=out)
         rc = 1

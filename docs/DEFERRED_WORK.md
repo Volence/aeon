@@ -24234,3 +24234,60 @@ authorable binding are mutually exclusive today.**
 the hardest part of the frame to buy an authoring convenience, and the hazard it removes is one the
 engine currently states rather than suffers. **Route 2 is reversible in a line** — the d-53 precedent
 is exactly this shape and cost one word. **Parks for the owner as a design call, priced, not built.**
+
+---
+
+## ROM re-layout #2 — the reserve tripled and the rule grew a GRACE term (2026-09-04)
+
+**Status: the aeon half is done and RED until sigil moves two frozen-table rows.** The parcel
+(`parcel/rom-relayout-more-room`) cannot land alone; see the hand-off at the bottom.
+
+**What fired.** `tools/bganim_room.py --gate` failed the DEBUG shape by **30 B**: packed data
+ends at `0x8C01E`, `dac_banks` was declared at `0x90000`, room 16,354 B against a 16,384 B
+`DATA_GROWTH_RESERVE`. Release passed (18,756 B). Owner's ruling: *"re-layout and give extra
+room."*
+
+**The structural defect the minimum move would not have fixed, and the reason this is a
+deferred-work entry rather than a one-line anchor bump.** The 08-26 rule was
+`dac_banks = align_up(packed_end + RESERVE, 0x8000)` and the gate fails at `room < RESERVE`.
+The growth the tree can absorb before the gate re-fires is therefore
+`align_up(end + R) - end - R` — **the align_up remainder**. That is a draw on `end mod 0x8000`,
+uniform on `[0, 0x8000)`, and **raising RESERVE does not raise it**, because the demand and the
+anchor move together. Measured at today's end `0x8C01E`: `R = 0x4000` and `R = 0x8000` both give
+`dac_banks = 0x98000`, with 16,354 B and **0 B** of grace respectively. 08-26 drew 6,368 B and
+content ate it in 8.2 days.
+
+**Applied.** `DATA_GROWTH_RESERVE 0x4000 -> 0xC000` (49,152 B) and a new
+`DATA_GROWTH_GRACE = 0x8000` inside the align_up but outside the gate's threshold, so room is
+`>= RESERVE + GRACE` and the recurrence period is bounded below by GRACE instead of by the draw.
+`dac_banks 0x90000 -> 0xA8000`, `sound_bank 0xA0000 -> 0xB8000` (bank ids $15 / $16 / $17,
+`bankid()`-folded). Derivation of both constants, from the measured 08-26..09-04 consumption, is
+in the BANK PLACEMENT RULE block of `games/sonic4/map.toml`.
+
+**HAND-OFF TO SIGIL — required, and it is a mechanism, not the retired ceremony.** A
+`[[anchor]]` in `map.toml` **places nothing**. Sigil derives every section's provisional base
+from its frozen table (`load_frozen_table` -> `true_bases_by_index`,
+`crates/sigil-harness/src/native.rs`) and reads the map's anchors only as an address set tested
+by `is_anchor_gap(prov)` — matched by ADDRESS, never by name — so an anchor can only *authorize*
+a section to stay where the table already puts it. Measured both directions on 2026-09-04:
+moving the anchors alone gives `error: [map.undeclared-island] ROM section at 0x90000`; the
+control (keep `0x90000`/`0xA0000`, add a spare anchor at `0xA8000`) gives
+`error: [map.anchor-absent] declared anchor \`control_probe_a8000\` at 0xA8000 is not an
+inferred island in this build`. `sigil build` has no frozen-table override flag.
+
+What sigil must move, in every **sound-on** table
+(`crates/sigil-harness/golden/offcanonical_sizes/{s4,s4_debug,config_a,lean}.txt`; `config_b` is
+sound-off and unaffected), then re-derive with `golden/derive_offcanonical_sizes.sh` and re-pin
+`src/pins.rs` — the 08-26 precedent hand-moved the island rows only and let the derive re-pack
+the rest:
+
+| row | from | to | delta |
+|---|---|---|---|
+| `Dac_Temp_Blip` (island) | `0x90000` | `0xA8000` | `+0x18000` |
+| `SoundTablesZ80_Head` (phase bank, island) | `0xA0000` | `0xB8000` | `+0x18000` |
+| `Song_MovingTrucks`, `Sfx_33`, `GameState_*`, `Replay_OJZ_Fixture`, `BusError`/`ReleaseFault`, `EndOfRom` (packed) | — | — | `+0x18000`, re-derived |
+
+The owner's 2026-09-02 "CUT THE CEREMONY" ruling ended the paired *certification* freeze — a
+sigil refreeze no longer gates an ordinary aeon landing — but it did not, and could not, change
+this placement mechanism. Closing `SIGIL-DECOUPLE` step 2 (the frozen tables stop being the
+placement authority) is what would make a future anchor move an aeon-only change.
