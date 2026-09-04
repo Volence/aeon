@@ -18569,7 +18569,13 @@ should also assert the ladder is `(H+1) x H`, monotone per row, and `table[i] >=
   and the authorable binding are, today, mutually exclusive. Cheapest way out to check first:
   whether a section binding `raster:` can carry a seeded patch channel (the seed is installed
   unconditionally and may be independent of that choice). **Untested in this pass.**
-- **9d (the ART half) — BLOCKED, same wall as item 8's on-screen half.** It needs 48 tiles
+- **9d (the ART half) — BLOCKED. ⚠ NOT "the same wall as item 8's on-screen half" — that phrase was
+  here and it is WRONG, and it cost a wrong sentence to the hub and nearly to the owner on
+  2026-09-04.** The two are different constraints on different resources:
+  **9d is VRAM** (`bg_region`, 448/448 — a hard ceiling from the SAT at `$B800`), and **item 8's
+  on-screen half is ROM** (the BgAnim section's d-9 ceiling of 12,288 B, live act 8,238 B). **The
+  owner's ROM re-layout bears on item 8 and does NOT bear on 9d.** Conflating them makes his
+  re-layout answer look like it unblocks more than it does. It needs 48 tiles
   (two 16x96 strips) from `bg_region`, and the shipped BG blob is packed **448/448**;
   `band_reserve = 128` binds the NEXT import and frees nothing today
   (`inject_editor_bg.py:200` gates the final blob on `BG_TILE_CAPACITY`, not on the reserve).
