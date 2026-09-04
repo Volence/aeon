@@ -82,9 +82,15 @@ cursor starts at 0 and your first press installs **1**, because you boot standin
 
 **What you are looking at.** The bottom of the screen becomes a wooden floor.
 Its boards splay out from a single vanishing point pinned to the **centre of the
-screen**, at about 60% of the way down: the middle board points straight down,
-boards to the right of it lean right, boards to the left lean left. Above the
-floor is a dark shadow band, and above that the jungle undergrowth and flowers.
+screen**, at about 60% of the way down (screen line 136): boards right of centre
+lean right at the bottom, boards left of centre lean left, and the board sitting
+on the centre line runs straight down. Above the floor is a dark shadow band,
+and above that the jungle undergrowth and flowers.
+
+The vanishing point never moves — it is nailed to screen centre at every camera
+position, because the horizon row's scroll factor is exactly zero. What slides is
+which board sits on the centre line, so as you travel the centre alternates
+between a board and a seam. That is a plank floor behaving correctly, not drift.
 
 **Now hold LEFT or RIGHT and watch the floor, not the jungle.** The boards
 nearest the bottom of the screen sweep past quickly; the boards up at the
