@@ -598,7 +598,47 @@ PRESET_KEYS = frozenset({"schema", "id", "bands", "cycles", "variants",
 #              VRAM address rather than a `VdpBase` enum name, the same "spelled out
 #              explicitly beats one fact computed twice" precedent `pal_region.addr` and
 #              `ramp.target.vsram.addr` already set.
+#
+# ---- `restore_line` — THE THIRD KEY, AND THE SCHEMA DECISION BEHIND IT (F2, 2026-09-04) --
+# The document above expressed ONE line and ONE target, which is exactly one edge, and one
+# edge is not a band: the swap runs from its line to the BOTTOM OF THE DISPLAY, because the
+# only thing that puts reg $02 back is Flush_VDP_Shadow at the next frame top. At line 160
+# that read as a band (64 lines of screen remained under it); moved to line 3 it re-pointed
+# the whole screen and the owner reported he could not see anything. F2 is the second edge.
+#
+# THREE SPELLINGS WERE ON THE TABLE AND THIS ONE WAS CHOSEN:
+#
+#   (a) `restore_line: <int>`, OPTIONAL — CHOSEN. One new key, absent = the shipped
+#       single-edge meaning, present = close the band there by writing Plane A's OWN base.
+#   (b) `swaps: [{line, target}, ...]` — a general list of mid-frame reg $02 writes.
+#       REJECTED: it is more general than the mechanism. There are exactly two nametables,
+#       so the only second value a base swap can carry is Plane A's own base — and a list
+#       would make the author TYPE that address. The home base is a fact the engine already
+#       owns (`VRAM_PLANE_A`, and the flush restores it by that name); a document restating
+#       it can drift from it, and the drift's symptom is a "restore" to a base nothing else
+#       uses, which renders as a broken picture with every check green. `target` is
+#       authored because the author is CHOOSING which map to borrow; the restore target is
+#       not a choice, so it is derived.
+#   (c) `until: <int>` / `end_line: <int>` — same shape as (a), rejected on the NAME only:
+#       both read as "the band ends here" without saying what the register goes back to,
+#       and "restore" is the word this tree already uses for the frame-top flush that does
+#       the same thing. The key is named after the operation, not after the interval.
+#
+# OPTIONAL, NOT REQUIRED, and that is deliberate rather than compatibility drag: a swap
+# that runs to the bottom of the frame is a legitimate authoring shape (it is what shipped,
+# and at a low enough line it is a bottom band), and ABSENCE is how this schema already
+# spells "this arm is off" — the hub's M1 ruling on `boundary` (no null spelling; absence
+# IS the off state) applies to a member for the same reason it applies to a top-level arm.
+#
+# WHAT THIS FILE DOES **NOT** CHECK, this arm's standing posture: that `restore_line`
+# exceeds `line`. `fire_lines` (engine/effects/raster_dsl.emp) ensures STRICT ascent of fire
+# lines and would refuse the inverted pair by name at build time, so a copy here would be
+# the second statement of one fact — the thing every banner in this arm refuses to add. Nor
+# does it check that the interval is big enough to READ as a band: the hand-authored twin
+# owns that judgement (`ojz_effects.emp`'s `OJZ_BASE_SWAP_END_LINE - OJZ_BASE_SWAP_LINE >= 2`
+# ensure) and a document-side copy would drift from it.
 BASE_SWAP_KEYS = ("line", "target")
+BASE_SWAP_OPTIONAL_KEYS = ("restore_line",)
 
 # `boundary`'s own shape (contract §7.6, `$defs/boundary` / `$defs/tint_region`). SIX
 # REQUIRED MEMBERS AND ONE OPTIONAL, and the whole object lowers to the one call the shipped
@@ -1258,10 +1298,11 @@ def _check_fp16(path: str, value, where: str) -> None:
 def _check_base_swap(path: str, preset: dict) -> None:
     """SHAPE of the `base_swap` key (EFFECTS-W1 item 11a's authorable half).
 
-    SHAPE ONLY, `_check_ramp`'s own posture: `line` and `target` are forwarded VERBATIM to
-    `fire()` and `vdp_base_reg()`, which own their own ranges (BASE_SWAP_KEYS' banner
-    above), so this function checks only that the document is the right SHAPE to forward
-    at all — closed keys, both fields required, both plain integers.
+    SHAPE ONLY, `_check_ramp`'s own posture: `line`, `target` and the optional
+    `restore_line` are forwarded VERBATIM to `fire()` and `vdp_base_reg()`, which own their
+    own ranges (BASE_SWAP_KEYS' banner above), so this function checks only that the
+    document is the right SHAPE to forward at all — closed keys, both required fields
+    present, every present field a plain integer.
     """
     if "base_swap" not in preset:
         return
@@ -1271,7 +1312,8 @@ def _check_base_swap(path: str, preset: dict) -> None:
                       f"has exactly one raster: channel (EffectsPreset.ep_raster), so "
                       f"there is one mid-frame base swap per document, never an array of "
                       f"them.")
-    _check_keys(path, bs, frozenset(BASE_SWAP_KEYS), frozenset(), None, "base_swap")
+    _check_keys(path, bs, frozenset(BASE_SWAP_KEYS) | frozenset(BASE_SWAP_OPTIONAL_KEYS),
+                frozenset(), None, "base_swap")
     for required in BASE_SWAP_KEYS:
         if required not in bs:
             _refuse(path, f"base_swap has no `{required}`. Both `line` and `target` are "
@@ -1297,6 +1339,19 @@ def _check_base_swap(path: str, preset: dict) -> None:
                       f"$2000 is vdp_base_reg()'s own ensure (engine/vdp.emp:116-117), "
                       f"not this file's — it fails the build by name rather than "
                       f"silently encoding the wrong register byte.")
+
+    if "restore_line" in bs:
+        restore_line = bs["restore_line"]
+        if isinstance(restore_line, bool) or not isinstance(restore_line, int):
+            _refuse(path, f"base_swap.restore_line must be an integer, got "
+                          f"{type(restore_line).__name__} {restore_line!r}. It is the "
+                          f"screen line the band CLOSES on — Plane A's base register goes "
+                          f"back to Plane A's own nametable there, which is the same word "
+                          f"Flush_VDP_Shadow would write at the next frame top. Whether it "
+                          f"is IN RANGE is fire()'s own ensure, and whether it exceeds "
+                          f"`line` is fire_lines()' strict-ascent ensure "
+                          f"(engine/effects/raster_dsl.emp) — neither is restated here. "
+                          f"OMIT the key for a swap that runs to the bottom of the display.")
 
 
 def _check_boundary(path: str, preset: dict) -> None:
@@ -2742,6 +2797,17 @@ def render_base_swap_preset(path: str, preset: dict, names) -> str:
     module the same way `vdp_comm`/`VdpTarget`/`VdpOp` already are for `render_ramp_target`
     above (verified against the shipped `ramp_probe` fixture in the generated module,
     which calls `vdp_comm(...)` with no `use engine.vdp` line anywhere in this file).
+
+    TWO FIRES WHEN `restore_line` IS PRESENT (F2, 2026-09-04), one when it is not. The
+    second fire is the band's OFF edge and its argument is DERIVED, never read from the
+    document: `VRAM_PLANE_A` folded through the SAME `vdp_base_reg(VdpBase.PlaneA, ...)`
+    helper, i.e. the word `Flush_VDP_Shadow` writes at the next frame top. The document
+    names the base being BORROWED because that is the author's choice; the base being
+    RETURNED TO is not a choice, so the generator emits the engine's own name for it and a
+    document can never disagree with the flush. `VRAM_PLANE_A` is spelled as a NAME rather
+    than folded to an integer here for the reason every other value on this seam is
+    forwarded verbatim: a number would freeze today's layout into generated source and go
+    on emitting $C000 the day the constant moves.
     """
     pid = preset["id"]
     src, label = names.raster_src(pid), names.raster(pid)
@@ -2749,7 +2815,12 @@ def render_base_swap_preset(path: str, preset: dict, names) -> str:
     line = _render_int(path, bs["line"], "base_swap.line")
     target = _render_int(path, bs["target"], "base_swap.target")
     word = f"$8200 | vdp_base_reg(VdpBase.PlaneA, {target})"
-    return (f"const {src} = [fire({line}, [reg_set({word})])]\n"
+    fires = [f"fire({line}, [reg_set({word})])"]
+    if "restore_line" in bs:
+        restore_line = _render_int(path, bs["restore_line"], "base_swap.restore_line")
+        home = "$8200 | vdp_base_reg(VdpBase.PlaneA, VRAM_PLANE_A)"
+        fires.append(f"fire({restore_line}, [reg_set({home})])")
+    return (f"const {src} = [" + ",\n                    ".join(fires) + "]\n"
             f"pub data {label}: [u16; raster_words({src})] = raster_program({src})")
 
 
@@ -3487,6 +3558,21 @@ def render_module(scenes: dict, act_ref, sec_refs: dict, sections: int,
     # gate — every document with `ramp` re-emits its own `ensure` (render_ramp_preset), so
     # this flag only decides whether the generated module needs the names at all.
     any_ramp = any("ramp" in presets[pid] for pid in presets)
+    # EFFECTS-W1 F2 — whether ANY document carries `base_swap.restore_line`, which decides
+    # ONE import below: `VRAM_PLANE_A`. The band's OFF edge writes Plane A's OWN base and
+    # `render_base_swap_preset` emits that as a NAME rather than an integer, so the name has
+    # to be in the generated module's scope. It is NOT ambient: `engine.constants` is a
+    # PLACED module, not a sigil COMPTIME_HELPERS one (this file already imports
+    # MAX_ACT_SECTIONS from it explicitly, and `ojz_effects.emp` imports VRAM_PLANE_A/B the
+    # same way) — and an unimported name in `.emp` does not error, it becomes a link extern
+    # that poisons the surrounding expression's comptime-ness, surfacing far from here as
+    # `expected an integer for u16, got label`. Same failure mode `any_ramp`'s own banner
+    # records measuring red-first one channel over.
+    # GATED ON `restore_line`, NOT ON `base_swap`: a single-edge document names no home
+    # base, so a tree with only those keeps its bake TEXT-IDENTICAL and the four-CRC check
+    # stays a real check — the `cycles`/`variants`/`ramp` rule.
+    any_base_swap_restore = any(
+        "restore_line" in (presets[pid].get("base_swap") or {}) for pid in presets)
     # {section index: preset id} for the sections whose bound document carries each key.
     # THE PREDICATES ARE `SECTION_CHANNELS`', not a second copy: `tools/effects_seam_gate.py`
     # requires a threading for exactly the channels this partition emits rows for, and the
@@ -3679,6 +3765,10 @@ def render_module(scenes: dict, act_ref, sec_refs: dict, sections: int,
                    "RASTER_OPS_END, raster_arm}")
         if not used:
             out.append("use engine.level.scene_dsl.{CAP_DENSE_TIER}")
+    # THE BAND'S HOME BASE (F2). See `any_base_swap_restore`'s banner above for why this
+    # name must be imported and cannot be left to resolve.
+    if any_base_swap_restore:
+        out.append("use engine.constants.{VRAM_PLANE_A}")
     out.append("")
 
     if used:

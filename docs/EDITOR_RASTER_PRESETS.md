@@ -228,7 +228,8 @@ Reading the rows:
   ahead of a hub ruling, the reverse of `ramp`'s own sequence, because the item-11a booking
   called this half strictly smaller than a full demand artifact warrants ("it already has
   its constructor... needs only a key and a per-scene binding"). A single closed object,
-  `{"line": .., "target": ..}`, both fields REQUIRED, none defaulted. `line` is the screen
+  `{"line": .., "target": .., "restore_line": ..}` — the first two REQUIRED and undefaulted,
+  the third OPTIONAL. `line` is the screen
   line the swap fires on, forwarded verbatim to `fire()`'s own line-range ensure. `target`
   is the raw VRAM byte address Plane A's base register (reg $02) is re-pointed at —
   **spelled as an address, not a `VdpBase` name**, the same "spelled out explicitly beats
@@ -238,7 +239,26 @@ Reading the rows:
   VDP at a different address than every other `VRAM_*` consumer with nothing visible
   anywhere else. This is enforced by `vdp_base_reg()`'s own ensure
   (`engine/vdp.emp:116-117`), which names the granule in its refusal — never a byte this
-  generator could silently mis-encode. **Absent key: no swap** — the section's raster
+  generator could silently mis-encode.
+  **`restore_line` (EFFECTS-W1 F2, 2026-09-04) is what makes it a BAND.** With `line` and
+  `target` alone the document lowers to ONE `OP_SET_REG`, and one edge is not a band: nothing
+  puts reg $02 back until `Flush_VDP_Shadow` at the next frame top, so the swap runs from
+  its line **to the bottom of the display**. At `line: 160` that read as a band because 64
+  lines of screen happened to remain under it; moved to `line: 3` it covered the whole screen
+  and the owner reported, correctly, that he could not see anything. `restore_line` is the
+  screen line the band CLOSES on, and **its target is DERIVED, never authored**: the
+  generator emits `VRAM_PLANE_A` — the base Plane A already owns, the very word the VBlank
+  flush would have written — so a document can never disagree with the flush. That asymmetry
+  is the design: you CHOOSE which map to borrow, you do not choose what to give back. A
+  `swaps: [{line, target}, …]` list was rejected for exactly that reason (it would make an
+  author type the home address, and its drift renders as a broken picture with every check
+  green), and `until`/`end_line` were rejected on the name, which says where the band ends
+  but not what the register goes back to. **OMIT it** for a swap that runs to the bottom of
+  the frame — a legitimate shape, and absence is how this schema already spells "off".
+  Whether `restore_line` exceeds `line` is `fire_lines`' strict-ascent ensure, not this
+  generator's; whether the interval is wide enough to READ as a band is the hand-authored
+  twin's (`OJZ_BASE_SWAP_END_LINE - OJZ_BASE_SWAP_LINE >= 2`, each edge being a partial row).
+  **Absent `base_swap` key entirely: no swap** — the section's raster
   channel is whatever `bands`/`ramp` (or neither, `Raster_Program_None`) says instead;
   `base_swap` cannot combine with either, for the same one-`ep_raster`-slot reason `ramp`
   cannot combine with `bands`. No capability bit gates it — unlike `ramp`'s
@@ -287,7 +307,8 @@ Two separate gaps, and they are not the same size:
    (`games/sonic4/test/ojz_scroll_test.emp`) steps a table: `START` held + `UP` installs the
    next program, `START` + `DOWN` removes it. Rows 0 and 1 are hand-authored
    (`OJZ_BandDemo`, then `OJZ_BaseSwap` — EFFECTS-W1 item 11a's mid-frame plane-base change,
-   which is a raster program but not a band); the editor-authored rows follow. **That table
+   a raster program but not a COLOUR band; since F2 it is a two-edge band across screen
+   lines 3..64); the editor-authored rows follow. **That table
    is a hand-typed `dc.l` list** — a new preset
    document does not appear in it by itself. `tools/test_raster_cycle_table_lint.py` fails
    the build's pytest lane if a preset document has no row, so the omission is loud rather

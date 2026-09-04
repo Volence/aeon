@@ -1984,6 +1984,99 @@ class TestBoundaryCrossFieldRefusals(PresetShapeBase):
         self.assertNotIn("outside its own band", msg)
 
 
+def _base_swap_preset(**over):
+    """A `base_swap` document that PASSES, in the SHIPPED shape (F2): two edges.
+
+    The values are `ojz_sec6_baseswap.json`'s own — line 3, target $E000, restore_line 64
+    — for `_preset`'s reason one helper up: a fixture copied from content the tree has
+    already built and pinned is known to satisfy every raster_dsl guard, so a red here is
+    red about the GENERATOR rather than about a band nobody could author.
+    """
+    bs = {"line": 3, "target": 0xE000, "restore_line": 64}
+    bs.update(over.pop("base_swap", {}))
+    preset = {"schema": 1, "id": "ojz_sec6_baseswap", "base_swap": bs}
+    preset.update(over)
+    return preset
+
+
+class TestBaseSwapRestoreLine(PresetShapeBase):
+    """`base_swap.restore_line` — the band's OFF edge (EFFECTS-W1 F2, 2026-09-04).
+
+    WHAT THE KEY IS FOR, because the shape alone does not say it: without it the document
+    lowers to ONE `OP_SET_REG`, and one edge is not a band — nothing puts reg $02 back
+    until Flush_VDP_Shadow at the next frame top, so the swap runs from its line to the
+    BOTTOM OF THE DISPLAY. That is the program that shipped at `8bf6df74` with `line` 3,
+    where "to the bottom" is the whole screen and there is nothing to see.
+    """
+
+    NAMES = effects_gen.ActNames("ojz", "act1")
+
+    def render(self, **over):
+        """Through `render_preset`, `TestBoundaryLowering.render`'s reason: the DISPATCH
+        is part of the claim."""
+        path = self.write("ojz_sec6_baseswap", _base_swap_preset(**over))
+        return effects_gen.render_preset(
+            path, effects_gen.load_preset(path), self.NAMES)
+
+    def test_the_shipped_document_lowers_to_TWO_fires(self):
+        src = self.render()
+        self.assertIn("fire(3, [reg_set($8200 | vdp_base_reg(VdpBase.PlaneA, 57344))])", src)
+        self.assertIn("fire(64, [reg_set($8200 | vdp_base_reg(VdpBase.PlaneA, VRAM_PLANE_A))])",
+                      src)
+        self.assertEqual(src.count("fire("), 2)
+        self.assertEqual(src.count("reg_set("), 2)
+
+    def test_the_OFF_edge_target_is_DERIVED_never_read_from_the_document(self):
+        """The document names the base being BORROWED; the base being RETURNED TO is not
+        an authoring choice, so the generator emits the engine's own name for it.
+
+        THE ASSERTION IS ON THE ABSENCE OF A NUMBER. `VRAM_PLANE_A` is $C000 = 49152
+        today, and an implementation that folded it here would produce a lowering that
+        looks correct and freezes today's VRAM layout into generated source — going on
+        emitting $C000 the day the constant moves, with nothing anywhere saying so.
+        """
+        src = self.render()
+        self.assertIn("VRAM_PLANE_A", src)
+        self.assertNotIn("49152", src)
+        self.assertNotIn("$C000", src)
+
+    def test_OMITTING_it_lowers_to_ONE_fire(self):
+        """The converse control, and a legitimate authoring shape rather than a leftover:
+        a swap that runs to the bottom of the frame is what a document meant before F2,
+        and ABSENCE is how this schema already spells "this arm is off"."""
+        path = self.write("ojz_sec6_baseswap",
+                          {"schema": 1, "id": "ojz_sec6_baseswap",
+                           "base_swap": {"line": 3, "target": 0xE000}})
+        src = effects_gen.render_preset(path, effects_gen.load_preset(path), self.NAMES)
+        self.assertEqual(src.count("fire("), 1)
+        self.assertNotIn("VRAM_PLANE_A", src)
+
+    def test_a_non_integer_restore_line_is_refused_naming_the_field(self):
+        for bad in ("64", 64.0, True, None):
+            msg = self.refuse("ojz_sec6_baseswap",
+                              _base_swap_preset(base_swap={"restore_line": bad}))
+            self.assertIn("base_swap.restore_line", msg)
+
+    def test_an_unknown_key_beside_it_is_still_refused(self):
+        """`restore_line` widened the closed key set by exactly one; the set is still
+        closed. Without this, "add the key to the allowed set" and "stop checking keys"
+        would look the same from outside."""
+        msg = self.refuse("ojz_sec6_baseswap",
+                          _base_swap_preset(base_swap={"end_line": 64}))
+        self.assertIn("unknown key", msg)
+        self.assertIn("end_line", msg)
+
+    def test_the_ORDERING_of_the_two_lines_is_NOT_this_files_refusal(self):
+        """SHAPE ONLY, this arm's standing posture. An inverted pair loads fine here and
+        is refused by `fire_lines`' strict-ascent ensure at BUILD time, by name. A copy
+        of that guard here would be the second statement of one fact — the thing every
+        banner on this seam refuses to add — and it would drift the day the DSL's rule
+        changes."""
+        path = self.write("ojz_sec6_baseswap",
+                          _base_swap_preset(base_swap={"line": 64, "restore_line": 3}))
+        effects_gen.load_preset(path)
+
+
 class TestBoundaryIsTheFOURTHExclusiveArm(PresetShapeBase):
     """A document carries exactly one raster program. `boundary` joins that group, and
     the REASON it is exclusive is different from the other three's — a fact this repo

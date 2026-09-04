@@ -2250,13 +2250,16 @@ proc Debug_SceneReadout_Show () clobbers(d0-d4/a0-a2) {
 //   .raster_table[4]  EditorRaster_OJZ_Act1_ojz_sec3_shimmer             — EDITOR-authored, JSON
 //   .raster_table[5]  EditorRaster_OJZ_Act1_ramp_probe                   — EDITOR-authored, JSON (ramp, item 6)
 //
-// ROW 1 IS NOT A BAND, and it is in this table because this table is the only installer
-// the tree has for a hand-authored raster program. `OJZ_BaseSwap` is EFFECTS-W1 DoD item
-// 11a — one `OP_SET_REG` that re-points Plane A's nametable base at Plane B's map at
-// screen line 160, so the bottom 64 lines draw the BACKGROUND in the FOREGROUND layer and
-// the VBlank shadow flush puts it back. It shares the chord for the same reason the
-// editor rows do: the review question ("does the mechanism move the picture?") is asked
-// by stepping the cursor, not by rebuilding.
+// ROW 1 IS NOT A COLOUR BAND, and it is in this table because this table is the only
+// installer the tree has for a hand-authored raster program. `OJZ_BaseSwap` is EFFECTS-W1
+// DoD item 11a — TWO `OP_SET_REG` ops that re-point Plane A's nametable base at Plane B's
+// map at screen line 3 and back to Plane A's own at line 64, so the TOP 61 lines draw the
+// BACKGROUND in the FOREGROUND layer. It shares the chord for the same reason the editor
+// rows do: the review question ("does the mechanism move the picture?") is asked by
+// stepping the cursor, not by rebuilding.
+// (⚠ This paragraph said "one OP_SET_REG ... at screen line 160, so the bottom 64 lines"
+// until 2026-09-04. The line moved to 3 at `8bf6df74` and the OFF edge arrived with F2 —
+// where one op with no OFF edge covered the WHOLE screen and read as no band at all.)
 //
 // ---- WHY IT IS A CYCLE NOW, AND WHY THE NAME DID NOT CHANGE ----
 // It shipped installing exactly one program, OJZ_BandDemo. The second program is

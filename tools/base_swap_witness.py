@@ -14,15 +14,22 @@ the base swap. `band_witness` measured exactly that (122 of 124 rows moved both 
 `ramp_authored_witness` answered it with a matched twin. This witness takes the same
 instrument one step further, because item 11a admits a control the ramp could not:
 
-    THE TWIN IS THE SUBJECT'S OWN 22 BYTES WITH ONE WORD CHANGED.
+    THE TWIN IS THE SUBJECT'S OWN 30 BYTES WITH ONE WORD CHANGED.
 
-Word 8 is the op's argument. The subject carries $8238 — reg $02 <- VRAM_PLANE_B. The twin
-carries $8200 | (VRAM_PLANE_A >> 10) — reg $02 <- the base Plane A ALREADY has at frame
+Word 8 is the ON edge's argument. The subject carries $8238 — reg $02 <- VRAM_PLANE_B. The
+twin carries $8200 | (VRAM_PLANE_A >> 10) — reg $02 <- the base Plane A ALREADY has at frame
 top, so the op dispatches, costs the same cycles, writes the same register, and changes
-nothing. Every confound the replacement introduces is therefore present in BOTH arms and
+nothing; the OFF edge at word 12 then writes that same base a second time, equally inertly.
+Every confound the replacement introduces is therefore present in BOTH arms and
 subtracts out: same program length, same schedule, same arm words, same op count, same
 dispatch depth, same displaced act program. The only surviving difference is the value in
-reg $02, which is precisely the subject.
+reg $02 between the two edge lines, which is precisely the subject.
+
+⚠ THE PROGRAM GREW A SECOND EDGE ON 2026-09-04 (EFFECTS-W1 F2) and this witness's REGIONS
+changed with it — see the three-region block in `compare` below. It was 11 words and two
+regions; it is 15 words and three, and the new one (BELOW the band must not move) is the
+only assertion here that can tell a band from a swap that runs off the bottom of the
+screen. Everything else about the instrument, including the one-word twin, is unchanged.
 
     (`ojz_effects.emp`'s own `ensure` refuses that word in an AUTHORED program, by name —
     "the SAME word reg $02 already carries at frame top". That refusal is what makes it the
@@ -37,26 +44,35 @@ strictly better than a ROM patch would have been: the subject's bytes are never 
 the two arms are two installs of two records rather than one record mutated between runs.
 
 EVERY EXPECTATION IS DERIVED FROM THE TREE AT THE MOMENT OF USE, none typed in:
-  * the fire line from `OJZ_BASE_SWAP_LINE` in games/sonic4/data/effects/ojz_effects.emp
+  * both edge lines from `OJZ_BASE_SWAP_LINE` / `OJZ_BASE_SWAP_END_LINE` in
+    games/sonic4/data/effects/ojz_effects.emp
   * the program's address from the .lst passed on the command line
   * the subject word from the built ROM
   * the control word from VRAM_PLANE_A (engine/system/constants.emp) folded through
     vdp_base_shift's PlaneA arm (engine/vdp.emp)
 This matters more than usual here. `docs/DEFERRED_WORK.md`'s item-11a block still says the
 swap fires at line 160 and pins the arm word $8A9D; the owner moved it to line 3 on
-2026-09-03 ("I would like to see in the plane swap the fg go to the bg at the top") and the
-ROM reads $8A00. A witness that had copied the booking's 160 would have predicted an edge
-that is not there and reported a FAILURE on a correct ROM.
+2026-09-03 ("I would like to see in the plane swap the fg go to the bg at the top"), and F2
+gave it an OFF edge at 64 on 2026-09-04, so the ROM now reads $8A00 at word 1 and $8A3C at
+word 3. A witness that had copied the booking's 160 would have predicted an edge that is not
+there and reported a FAILURE on a correct ROM.
+
+⚠ NOT YET RUN AGAINST THE TWO-EDGE PROGRAM. The F2 parcel updated this instrument's shape
+(15 words, three regions) but could not exercise it: it boots an emulator, and the lane that
+made the change was a background agent, where emulator tools deadlock. The three-region
+result below is therefore a PREDICTION with an instrument to test it, not a measurement.
+Run it and read the region counts before quoting anything from this file as evidence.
 
 WHAT THIS DOES NOT ESTABLISH, stated because the boundary is where a raster effect fails:
-  * It does not pin the transition to an exact line. `raster.emp`'s row-119 note records
+  * It does not pin either transition to an exact line. `raster.emp`'s row-119 note records
     that a bare OP_SET_REG switches its register partway across the fire+1 line (~45%
-    across, measured), so the first changed row may be the fire line or the one after it.
-    The design's §8 Q2 asks exactly this and is open. Rows are compared as WHOLE-ROW
-    hashes, so a partial row reads as changed; that is why the control region is asserted
-    over lines strictly ABOVE the fire line rather than up to it.
-  * It does not say the bottom band is a RECOGNISABLE second copy of the background. It
-    says the picture below the fire line depends on the value written to reg $02. Whether
+    across, measured), so each edge's own row is half one picture and half the other. The
+    design's §8 Q2 asks exactly this and is open. Rows are compared as WHOLE-ROW hashes, so
+    a partial row reads as changed; that is why BOTH edge rows are excluded from the
+    assertions and merely printed, and why the two must-not-move regions stop strictly
+    short of them.
+  * It does not say the band is a RECOGNISABLE second copy of the background. It
+    says the picture between the two edges depends on the value written to reg $02. Whether
     that value renders as the intended nametable is a separate claim; the gate's four
     red-first mutations cover the word, and a human looking at it covers the taste.
   * It samples the composed frame. It cannot attribute a changed row to a layer.
@@ -71,8 +87,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from ramp_authored_witness import run, SCREEN_LINES  # noqa: E402
 from raster_cost_probe import parse_lst  # noqa: E402
 
-PROG_WORDS = 11          # the whole sparse program; asserted against the listing span
-ARG_WORD = 8             # OP_SET_REG's argument, per ojz_effects.emp's OJZ_BASE_SWAP_HAND
+PROG_WORDS = 15          # the whole sparse program; asserted against the listing span
+ARG_WORD = 8             # the ON edge's OP_SET_REG argument (OJZ_BASE_SWAP_HAND word 8)
+OFF_ARG_WORD = 12        # the OFF edge's, added with the band's second fire (F2)
 AUTHORED_SYM = "EditorRaster_OJZ_Act1_ojz_sec6_baseswap"
 
 
@@ -119,6 +136,7 @@ def main():
 
     effects = root / "games/sonic4/data/effects/ojz_effects.emp"
     line = read_const(effects, "OJZ_BASE_SWAP_LINE")
+    end_line = read_const(effects, "OJZ_BASE_SWAP_END_LINE")
     plane_a = read_const(root / "engine/system/constants.emp", "VRAM_PLANE_A")
     plane_b = read_const(root / "engine/system/constants.emp", "VRAM_PLANE_B")
     shift = read_plane_a_shift(root / "engine/vdp.emp")
@@ -146,7 +164,8 @@ def main():
     words = [int.from_bytes(subject[i:i + 2], "big") for i in range(0, len(subject), 2)]
 
     print("DERIVED FROM THE TREE, not copied from any booking or design doc")
-    print("  fire line          %d          (ojz_effects.emp OJZ_BASE_SWAP_LINE)" % line)
+    print("  ON edge line       %d          (ojz_effects.emp OJZ_BASE_SWAP_LINE)" % line)
+    print("  OFF edge line      %d         (ojz_effects.emp OJZ_BASE_SWAP_END_LINE)" % end_line)
     print("  VRAM_PLANE_A       $%04X       shift %d (vdp.emp PlaneA arm)" % (plane_a, shift))
     print("  VRAM_PLANE_B       $%04X" % plane_b)
     print("  subject word       $%04X      reg $%02X <- $%02X" %
@@ -164,6 +183,14 @@ def main():
             "is stale against the source, or the op no longer targets Plane B. Refusing to "
             "measure a program whose argument I cannot account for."
             % (ARG_WORD, words[ARG_WORD], away_word))
+    if words[OFF_ARG_WORD] != home_word:
+        raise SystemExit(
+            "THE ROM HAS NO OFF EDGE THIS WITNESS CAN USE: word %d of OJZ_BaseSwap is $%04X, "
+            "but Plane A's own base folded through PlaneA's shift is $%04X. The band's bottom "
+            "boundary is that word; without it the swap runs to the bottom of the display and "
+            "the region assertions below would be measuring a different effect than the one "
+            "they describe. Refusing to measure."
+            % (OFF_ARG_WORD, words[OFF_ARG_WORD], home_word))
     if home_word == away_word:
         raise SystemExit(
             "THERE IS NO CONTROL TO BUILD: VRAM_PLANE_A ($%04X) and VRAM_PLANE_B ($%04X) fold "
@@ -216,43 +243,84 @@ def main():
     print("  -> %d of %d rows identical. Differences in arm 2 are attributable.\n"
           % (SCREEN_LINES, SCREEN_LINES))
 
-    n_below_total = SCREEN_LINES - 1 - line
+    # ---- THE THREE REGIONS A BAND HAS (F2, 2026-09-04) ------------------------------
+    # This used to be TWO regions, "above the fire line" and "below the fire line", because
+    # the program was one op and had no bottom. A band has three, and the middle one is
+    # what the owner asked to see:
+    #
+    #     0 .. line-1          ABOVE   — must not move (the op has not run yet)
+    #     line                 the ON edge's own row — a PARTIAL row, excluded from both
+    #     line+1 .. end-1      INSIDE  — must ALL move (this is the band)
+    #     end                  the OFF edge's own row — partial, excluded
+    #     end+1 .. 223         BELOW   — must not move (reg $02 is back home)
+    #
+    # THE TWO EDGE ROWS ARE EXCLUDED, NOT ASSERTED, and that is the honest reading of
+    # engine/effects/raster.emp's row-119 measurement: a bare OP_SET_REG switches its
+    # register ~45% ACROSS the fire+1 line, so each edge row is half one picture and half
+    # the other. Asserting either way there would be asserting a timing this tree has not
+    # pinned. They are PRINTED, because where the transition actually lands is the open
+    # question the design's §8 Q2 asks.
+    #
+    # WHY THIS IS STRICTLY STRONGER THAN THE OLD SHAPE. The old below-region test could be
+    # satisfied by an effect with no bottom edge at all — which is precisely the program
+    # that shipped and that the owner could not see. Requiring the region below `end` to be
+    # UNCHANGED is the assertion that distinguishes a band from a swap that runs off the
+    # bottom of the screen, and nothing before F2 could make it.
+    inside = list(range(line + 1, end_line))
+    below_band = list(range(end_line + 1, SCREEN_LINES))
     fails = []
 
     def compare(tag, subj_addr, note):
         s = arm(tag, subj_addr)
         diff = [i for i in range(SCREEN_LINES) if s[i] != c1[i]]
         above = [i for i in diff if i < line]
-        below = [i for i in diff if i > line]
+        moved_inside = [i for i in diff if i in inside]
+        moved_below = [i for i in diff if i in below_band]
+        edges = [i for i in diff if i in (line, end_line)]
         print()
         print("  %s" % note)
         print("  rows changed            %d of %d" % (len(diff), SCREEN_LINES))
-        print("  ABOVE the fire line     %d  (lines 0..%d — must be 0)" % (len(above), line - 1))
-        print("  BELOW the fire line     %d of %d  (lines %d..%d)"
-              % (len(below), n_below_total, line + 1, SCREEN_LINES - 1))
+        print("  ABOVE the band          %d  (lines 0..%d — must be 0)" % (len(above), line - 1))
+        print("  INSIDE the band         %d of %d  (lines %d..%d — must be all)"
+              % (len(moved_inside), len(inside), line + 1, end_line - 1))
+        print("  BELOW the band          %d  (lines %d..%d — must be 0)"
+              % (len(moved_below), end_line + 1, SCREEN_LINES - 1))
+        print("  the two EDGE rows       %s  (lines %d and %d — partial rows, not asserted)"
+              % (edges or "neither", line, end_line))
         if diff:
-            print("  first changed row       %d   (fire line %d; a switch partway across the "
-                  "fire+1 line is expected)" % (diff[0], line))
+            print("  first changed row       %d   (ON edge at %d; a switch partway across the "
+                  "edge+1 row is expected)" % (diff[0], line))
+            print("  last  changed row       %d   (OFF edge at %d)" % (diff[-1], end_line))
         if above:
             fails.append(
-                "%s: %d row(s) ABOVE the fire line changed (%s...). The twin differs from the "
+                "%s: %d row(s) ABOVE the band changed (%s...). The twin differs from the "
                 "subject in ONE WORD — the argument of an op that has not run yet at those "
                 "lines — so nothing there may move. Something other than the base swap is "
                 "varying between the arms, and this result cannot be read as the swap's."
                 % (tag, len(above), above[:8]))
-        if not below:
+        if not moved_inside:
             fails.append(
-                "%s: NO row below the fire line changed. Either OP_SET_REG never executed, or "
+                "%s: NO row INSIDE the band changed. Either OP_SET_REG never executed, or "
                 "the control is not inert, or reg $02 is being restored before the beam "
                 "reaches the band. This is the refutation the arm exists to be able to "
                 "produce: the picture does NOT depend on the word, and item 11a's on-screen "
                 "claim is unsupported." % tag)
-        elif len(below) < n_below_total // 2:
+        elif len(moved_inside) < len(inside):
+            missed = [i for i in inside if i not in diff]
             fails.append(
-                "%s: only %d of %d rows below the fire line changed. The swap re-points the "
-                "whole plane for the rest of the frame, so a minority of changed rows "
-                "describes something narrower than the claimed effect — report the shape "
-                "rather than passing." % (tag, len(below), n_below_total))
+                "%s: only %d of %d rows inside the band changed (%s... unchanged). The swap "
+                "re-points the whole plane for every line between the two edges, so a hole "
+                "in the band describes something narrower than the claimed effect — report "
+                "the shape rather than passing."
+                % (tag, len(moved_inside), len(inside), missed[:8]))
+        if moved_below:
+            fails.append(
+                "%s: %d row(s) BELOW the band changed (%s...). The OFF edge writes Plane A's "
+                "own base back at line %d, so everything under it must be identical in both "
+                "arms. Rows moving there mean the band has NO BOTTOM — which is exactly the "
+                "single-edge program F2 replaced, the one that covers the whole screen and "
+                "reads as no band at all."
+                % (tag, len(moved_below), moved_below[:8], end_line))
         return diff
 
     print("ARM 2  THE HAND FIXTURE AGAINST ITS MATCHED TWIN — one word apart")
@@ -292,10 +360,11 @@ def main():
         for f in fails:
             print("  * %s" % f)
         return 1
-    print("PASSED — the picture below the fire line depends on reg $02's value, and nothing")
-    print("above it does. The base swap executes mid-frame and its effect is bounded by its")
-    print("own schedule, measured against a control identical to it in every byte but one —")
-    print("for the hand fixture AND for the program the generator lowered from a document.")
+    print("PASSED — the picture INSIDE the band depends on reg $02's value, and the picture")
+    print("above it and below it does not. The base swap executes mid-frame and is bounded")
+    print("at BOTH ends by its own schedule, measured against a control identical to it in")
+    print("every byte but one — for the hand fixture AND for the program the generator")
+    print("lowered from a document.")
     return 0
 
 
