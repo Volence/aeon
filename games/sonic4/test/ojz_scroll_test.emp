@@ -66,7 +66,18 @@ use engine.coords.{pixels_to_coord}
 // VRAM_DEBUG_READOUT — the two glyph cells (tiles 1020-1021) the DEBUG scene
 // readout repaints; declared in games/sonic4/vram.toml like every other region,
 // reserved in both shapes and written only in DEBUG.
-use games.sonic4.constants.{VRAM_TEST_OBJ, VRAM_TEST_MARKER, VRAM_DUST_PUFF, VRAM_RING_SPARKLE, CHEAT_DEBUG_FLY, CHAR_COUNT, PSTATE_AIR, VRAM_DEBUG_READOUT}
+// VRAM_DEBUG_RASTER_TAG / VRAM_DEBUG_BGANIM_TAG — the two NAME TAG strips
+// (EFFECTS-W1 F4): four cells at tiles 1532-1535 for the live raster program's
+// name, three at 1501-1503 for the BG-animation table's. Same authority, same
+// generated block, same rule as every other region const.
+//
+// AN UNIMPORTED VRAM CONST IS NOT A BUILD ERROR AT ITS DEFINITION SITE, which is
+// how this list is easy to forget: a bare name in `.emp` silently becomes a link
+// extern (EMP_PITFALLS §2/§12's family). Measured on this parcel, 2026-09-04 —
+// omitting the two names below built the generated block correctly and failed
+// FOUR call sites with `a label is not a valid VramTile argument`, all inside
+// Debug_TierTags_Update and none of them naming the missing `use`.
+use games.sonic4.constants.{VRAM_TEST_OBJ, VRAM_TEST_MARKER, VRAM_DUST_PUFF, VRAM_RING_SPARKLE, CHEAT_DEBUG_FLY, CHAR_COUNT, PSTATE_AIR, VRAM_DEBUG_READOUT, VRAM_DEBUG_RASTER_TAG, VRAM_DEBUG_BGANIM_TAG}
 
 // Sst — the object SST layout. The DEBUG warp consumer places the LEADER through
 // Camera_Target (an SST pointer), not through the Player_1 absolutes above: the
@@ -1007,6 +1018,27 @@ pub proc GameState_OJZScroll_Update () clobbers(d0-d7/a0-a6) {
         //    one that outlives the frame. Emits nothing in the plain shape. --
         if DEBUG == 1 {
                 jbsr    Debug_BgAnimViewHotkey
+        }
+
+        // -- DEBUG effects-lab NAME TAGS: spell out, in letters, which raster program
+        //    and which BG-animation band table are actually live (EFFECTS-W1 F4, the
+        //    owner's ask: "can we get it to write out what it's supposed to be in
+        //    oracle like start + left/right does?").
+        //
+        //    LAST of the five, and unlike the four above it this is NOT a hotkey: it is
+        //    a POLLER over two engine cells (Raster_Program, BgAnim_Table_Ptr). That is
+        //    what makes it truthful where a cursor-driven label would not be — a section
+        //    crossing re-installs a preset through Effects_InstallPreset and moves the
+        //    raster channel without touching any lab cursor, and this proc follows it.
+        //    See Debug_TierTags_Update's header for the whole argument.
+        //
+        //    Ordering IS load-bearing, in one direction only: it must run AFTER the four
+        //    chords so an arming press is seen on the frame it happens rather than the
+        //    next one. It reads engine state and writes only VRAM cells, two sprite
+        //    slots and its own two mirrors, so nothing downstream in the frame depends
+        //    on it. Emits nothing in the plain shape. --
+        if DEBUG == 1 {
+                jbsr    Debug_TierTags_Update
         }
 
         // -- initialize sprite system for this frame --
@@ -1989,7 +2021,21 @@ proc Debug_SceneCycleHotkey () clobbers(d0-d4/a0-a2) {
 // display would therefore need a hand-written twenty-row string table AND an
 // alphabet, and the alphabet is what actually rules it out: this map's largest
 // free VRAM run is four tiles (games/sonic4/vram.toml — 957-959, 1020-1023,
-// 1501-1503, 1532-1535), and 26 letters plus 10 digits is 36. The INDEX is what
+// 1501-1503, 1532-1535), and 26 letters plus 10 digits is 36.
+//
+// ⚠ THE ALPHABET HALF OF THAT ARGUMENT IS WRONG, and it was corrected on
+// 2026-09-04 by EFFECTS-W1 F4 (Debug_TierTags_Update, below), which ships a
+// 26-letter alphabet and four-letter names in FOUR VRAM tiles. It counts the ROM
+// SHEET against the free run, which is the very distinction the NEXT paragraph
+// here draws for the digits: only the SELECTED glyphs are ever resident, so an
+// N-character name costs N tiles and the sheet's size does not enter. What
+// survives, and is still decisive FOR THIS TIER, is the first half: the registry
+// carries no strings, so a scene name would need a hand-written twenty-row table
+// with nothing to derive it from and nothing to hold it in step. The raster and
+// BG-animation tiers do not have that problem — each already has a hand-written
+// row table for the names to sit beside — which is why they got names and this
+// one keeps its digits. The paragraph below is untouched and remains correct.
+// The INDEX is what
 // the cycle is defined in terms of anyway — the table rows below are numbered in
 // it, the lint counts it, and Debug_Scene_Index stores it — so the index is the
 // readout's natural unit rather than a fallback from a nicer one.
@@ -2470,7 +2516,12 @@ proc Debug_BandDemoHotkey () clobbers(d0-d1/a0-a1) {
         // games/sonic4/data/editor/effects/presets/, so authoring a preset without
         // adding a row here fails the build's pytest lane instead of silently costing
         // ROM for a program nothing can install.
-    .raster_table:
+        // EXPORTED (`export .name:`, §1.5) so Debug_TierTags_Update below can SCAN it:
+        // that proc turns the live `Raster_Program` pointer back into a row index, and
+        // this table is the tree's only statement of which pointer is which row. Without
+        // the keyword the reference fails at link and sigil names the fix in the
+        // diagnostic — the same way `.digit_font`'s export was found.
+    export .raster_table:
         dc.l    OJZ_BandDemo                            // 0 — HAND-authored (.emp)
         dc.l    OJZ_BaseSwap                            // 1 — HAND-authored (.emp), item 11a
         dc.l    EditorRaster_OJZ_Act1_aurora_ramp_witness // 2 — EDITOR-authored (JSON), item 6 ramp,
@@ -2905,7 +2956,9 @@ proc Debug_BgAnimViewHotkey () clobbers(d0-d1/a0-a1) {
         // does NOT error in `.emp`, it silently becomes a link extern, so a misspelled
         // row would resolve to nothing the build complains about and surface as a wild
         // band table handed to a DMA queue.
-    .view_table:
+        // EXPORTED for `.raster_table`'s reason: Debug_TierTags_Update scans it to turn
+        // the live `BgAnim_Table_Ptr` back into a row index for its name tag.
+    export .view_table:
         dc.l    BgAnim_Table                    // 0 — OFF (this act's own table; its
                                                 //     band count is 0, `default_off`)
         dc.l    BgAnim_View_H                   // 1 — Camera_X, the horizontal view
@@ -3269,6 +3322,572 @@ proc Debug_PresetReadout_Show () clobbers(d0-d4/a0-a3) {
         // set at 8x8.
         dc.l    $00000000, $0000C000, $00000C00, $0CCCCCC0
         dc.l    $00000C00, $0000C000, $00000000, $00000000
+    }
+}
+// -----------------------------------------------
+// Debug_TierTags_Update — THE EFFECTS LAB'S NAME TAGS. Spell out, in letters, what
+// the RASTER tier and the BG-ANIMATION tier are actually running, so the picture on
+// screen names its own cause instead of having to be inferred from a press count.
+//
+// ---- THE ASK, AND THE INVESTIGATION THAT PAID FOR IT ----
+// The owner, in his words: "can we get it to write out what it's supposed to be in
+// oracle like start + left/right does? This way I can relay info back to the agent
+// better." That is not a cosmetic request. On 2026-09-04 he reported a plane-swap band
+// missing and a full investigation followed; the installed raster program was a test
+// gradient and the swap had simply never been selected. A tag reading `SWAP` or not
+// reading it would have closed that in one glance. Everything below is sized against
+// that one sentence: the tag must NAME the thing, and it must not be able to lie.
+//
+// ---- WHAT IT SAYS AND WHERE ----
+// Two rows under the two readouts that already exist, same left edge, same 16 px pitch:
+//
+//   y 12   the SCENE cursor, two digits                (Debug_SceneReadout_Show)
+//   y 28   the PRESET cursor + its verdict glyph       (Debug_PresetReadout_Show)
+//   y 44   the RASTER program's name, four letters     <- this proc
+//   y 60   the BG-ANIMATION table's name, three letters<- this proc
+//
+//   RASTER    BAND  OJZ_BandDemo, the hand-authored control (cycle row 0)
+//             SWAP  OJZ_BaseSwap, the plane-base swap       (cycle row 1)
+//             RMPW  EditorRaster_OJZ_Act1_aurora_ramp_witness (row 2)
+//             PROB  EditorRaster_OJZ_Act1_authored_probe      (row 3)
+//             SHIM  EditorRaster_OJZ_Act1_ojz_sec3_shimmer    (row 4)
+//             RAMP  EditorRaster_OJZ_Act1_ramp_probe          (row 5)
+//             NONE  nothing installed (Raster_Program == 0)
+//             PTCH  a PATCHED program is live — its world anchors are being tracked,
+//                   so the live pointer is a working buffer and not a ROM template
+//             PSET  a static program that is NOT a row of the cycle table: in this
+//                   tree that means it arrived with an EffectsPreset, from the preset
+//                   chord or from a section crossing
+//
+//   BG-ANIM   ACT   the act's own band table (this act authors it `default_off`)
+//             CMX   the Camera_X view          (view cycle row 1)
+//             CMY   the Camera_Y view          (row 2)
+//             VRT   the vertical-axis probe band (row 3)
+//             VCT   row 3's horizontal-axis control (row 4)
+//             OTH   a table pointer that is not a row of the view cycle
+//
+// ---- WHY A NAME AND NOT A NUMBER, AND WHY THAT IS AFFORDABLE ----
+// Debug_SceneReadout_Show's header rules names out for its own tier, and the half of
+// that argument about the REGISTRY is still correct: `SCENES[]` carries no strings and
+// nothing comptime can reach the `pub const` identifiers, so a scene name would need a
+// hand-written twenty-row table. The half about VRAM does NOT survive contact with this
+// tier and is corrected at that header: "26 letters plus 10 digits is 36 [tiles]"
+// counts the ROM SHEET, not the resident cells, which is the very distinction that
+// header's own next paragraph draws ("WHY IT COSTS TWO VRAM TILES AND NOT TEN"). Only
+// the SELECTED glyphs are ever resident. A four-letter name costs FOUR tiles, the
+// alphabet stays in ROM, and that is why this exists.
+//
+// The tiers here also have what the scene tier lacks: a small hand-written table that
+// already enumerates every row (`.raster_table`, `.view_table`), so the name list is a
+// sibling column of a list that exists, not a new registry.
+//
+// ---- ONE SYSTEM SLOT PER TAG, NOT ONE PER LETTER ----
+// The System pool is eight slots and the two existing readouts claim four of them by
+// address. Four letters as four objects would spend the rest on one tag. So each tag is
+// ONE object drawing ONE VDP sprite piece four (or three) cells WIDE — `.tag_mappings`
+// below, the frame records this file writes by hand. Four is the VDP's maximum piece
+// width, and that is what fixes the raster tag at four characters; it is a hardware
+// limit, not a taste call, and a fifth letter would cost a second object and a second
+// slot. Everything else about the two objects is Debug_SceneReadout_Show's design and
+// its header is the reference: System slots rather than the dynamic pool (RunObjects
+// culls the dynamic pool on WORLD distance and would cull a screen-space object into
+// invisibility), screen coordinates on the front band, `TestStatic_Main` as the code,
+// and the DMA queue rather than a direct VDP write because the display is on here.
+//
+// The two slots are the pair BELOW the preset readout's, still counted from the top of
+// the pool, still claimed by address because the System pool has no allocator.
+//
+// ---- WHY IT IS DRIVEN BY THE ENGINE'S CELLS AND NOT BY THE CURSORS ----
+// This is the whole reason the proc is a per-frame poller and not a call at the foot of
+// each hotkey, and it is the difference between a tool and a liability.
+//
+// `Debug_Raster_Index` is documented in games/sonic4/config/ram.emp as "a CURSOR, NOT A
+// MIRROR of the live raster channel": a section crossing re-installs that section's own
+// program through Effects_InstallPreset and never touches the byte, and START+DOWN
+// leaves it alone on purpose. A tag painted from it would therefore be WRONG every time
+// the player walked across a boundary — reproducing, with more confidence and a nicer
+// font, exactly the defect this parcel exists to remove.
+//
+// So the subject is `Raster_Program` — the engine's own installed-program cell
+// (engine/ram.emp), written by Raster_VBlank from whatever Raster_Install staged and
+// cleared when a program is torn down. Every installer in the tree passes through it:
+// the raster chord, the preset chord, and a section crossing. `BgAnim_Table_Ptr` is the
+// same kind of cell for the other tier. The tag compares the live cell against a mirror
+// of what it currently spells and repaints on any difference, so it can be at most one
+// frame behind the machine and cannot disagree with it at all.
+//
+// TWO CONSEQUENCES WORTH STATING, because both are visible:
+//   * A chord press paints on the FOLLOWING frame, not the pressing one. Raster_Install
+//     only STAGES (Raster_Pending); Raster_VBlank is what installs. Painting at the
+//     press would publish what was REQUESTED — and the request loses to a same-frame
+//     boundary crossing, which is documented behaviour. One frame late and true beats
+//     instant and hopeful.
+//   * PTCH and PSET are honest about the limit of the mechanism rather than papering
+//     over it. A patched program's live pointer is a working BUFFER (Raster_Buf_A/B),
+//     so it can never match a ROM row; `Raster_Patch_Tab` is what distinguishes it, and
+//     it is read for that and nothing else.
+//
+// ---- WHY IT ARMS ON A CHORD AND DOES NOT SIMPLY RUN ----
+// The tags are sprites. Building them unconditionally would add two SAT entries to
+// every DEBUG frame from boot, which is the same cost Debug_SceneReadout_Show's
+// "built on first press, not at level init" rule exists to refuse — a readout that
+// perturbs the sprite table is a readout that can change the thing it reports. So
+// `Debug_Tags_Armed` (games/sonic4/config/ram.emp) latches the first frame the reviewer
+// HOLDS START or C, which is the moment he reaches for the effects lab at all. Until
+// then this proc reads two bytes and returns, and the sprite table is byte-for-byte
+// what it was before this parcel. Replays never arm it twice over: Input_Source gates
+// them out first, exactly as it gates out all five hotkeys.
+//
+// Arming on the HELD modifier rather than inside the hotkeys is deliberate — it keeps
+// the whole feature in one proc, and it makes the tags appear together, before the
+// press that changes anything, so the reviewer sees the state he is about to leave.
+//
+// ---- A DROPPED DMA RETRIES INSTEAD OF LYING ----
+// One Critical queue entry per glyph cell. The two existing readouts spend theirs with
+// `@discards(dropped)` and accept "one stale digit"; a four-letter word cannot accept
+// that, because one stale cell is not a stale name, it is a name that was never true
+// (`BANP`). So the carry is CONSUMED here: the painter bails on the first drop and
+// leaves the mirror unwritten, the next frame's compare therefore still differs, and
+// the whole tag is re-queued. The cost of a full queue is one frame of mixed letters.
+//
+// ---- WHAT IT DELIBERATELY DOES NOT DO ----
+//   * It does not report the PRESET or SCENE tiers. Both already have readouts two rows
+//     above, and a preset's raster channel shows up here anyway (as its row's name, or
+//     PSET, or PTCH) because the subject is the engine cell rather than any tier.
+//   * It says nothing about whether the named program can DRAW where you are standing.
+//     That is the preset readout's verdict glyph, and it is a different question with a
+//     different answer; duplicating a weaker version of it here would be worse than the
+//     silence.
+//   * It does not name WHICH preset a PSET came from. The section digit on the row above
+//     answers that when the preset chord put it there; after a crossing nothing in the
+//     tree records it, and inventing an answer is the failure this whole parcel is
+//     about.
+//
+// DEBUG-shape only: the body, the `rts`, the two local subroutines, the mapping records,
+// the two name tables AND the alphabet are all inside `if DEBUG == 1 {}`, so the whole
+// proc emits ZERO bytes in the plain shape. Parked as the SEVENTH member of this
+// module's zero-release-byte run for the reason Debug_SceneCycleHotkey's header records.
+//
+// In:  none (reads Input_Source, Ctrl_1_Held, Debug_Tags_Armed, Raster_Program,
+//      Raster_Patch_Tab, BgAnim_Table_Ptr and the two mirror cells)
+// Out: the two tag objects exist (once armed) and their VRAM cells are queued to spell
+//      the live raster program's and band table's names; the mirrors follow ONLY on a
+//      fully-queued repaint
+// Clobbers: d0-d4, a0-a3 — d0-d4/a1-a2 is QueueDMA_Critical's declared set, d2/a1 also
+//      RefreshSpritePieceCount's, a0 is the SST cursor then the name-table end, and a3
+//      is the letter cursor (chosen because it is the one address register
+//      QueueDMA_Critical does not clobber).
+// -----------------------------------------------
+// Both tags share the left edge of the two readouts above (Map_TestObj frame 2 is
+// `centered(half: 4, ...)`, so their cells start at screen x 12). These two frames put
+// x_off/y_off at ZERO instead, so the object position IS the tag's top-left corner —
+// every field of the two hand-written frame records below is therefore non-negative,
+// which is worth more here than symmetry with the readouts' centring.
+const DEBUG_TAG_X          = 12
+const DEBUG_RASTER_TAG_Y   = 44
+const DEBUG_BGANIM_TAG_Y   = 60
+// Frame indices into `.tag_mappings`.
+const DEBUG_TAG_FRAME_4    = 0      // one 4x1 piece — the raster tag
+const DEBUG_TAG_FRAME_3    = 1      // one 3x1 piece — the BG-animation tag
+const RTAG_CELLS           = 4
+const BTAG_CELLS           = 3
+// The two System slots the tags occupy — the pair below the preset readout's, still
+// counted from the TOP of the pool and still claimed by address (the System pool has no
+// allocator; see Debug_SceneReadout_Show's header).
+ensure(NUM_SYSTEM >= 6,
+       "tier name tags: the effects lab now claims SIX System slots by address (two scene cells, two preset cells, two tag objects), but NUM_SYSTEM is {NUM_SYSTEM}")
+equ DEBUG_RASTER_TAG_SST = extern("System_Slots") + sizeof(Sst) * (NUM_SYSTEM - 5)
+equ DEBUG_BGANIM_TAG_SST = extern("System_Slots") + sizeof(Sst) * (NUM_SYSTEM - 6)
+// The three synthetic raster rows, APPENDED after the cycle table's own rows so a row
+// added to `.raster_table` keeps every existing index. tools/test_tier_tag_tables.py
+// holds `.rtag_names` to RTAG_ROWS and `.btag_names` to BTAG_ROWS: the index reaches
+// the name table as a raw multiply-by-cell-count offset, so one row short would read
+// past the table's end and DMA whatever follows it into the tag — a garbage word, on
+// the readout whose entire job is to be trusted.
+const RTAG_NONE  = RASTER_CYCLE_COUNT           // nothing installed
+const RTAG_PTCH  = RASTER_CYCLE_COUNT + 1       // a patched program is live
+const RTAG_PSET  = RASTER_CYCLE_COUNT + 2       // a static program from a preset
+const RTAG_ROWS  = RASTER_CYCLE_COUNT + 3
+const BTAG_OTHER = BGANIM_VIEW_CYCLE_COUNT      // a table outside the view cycle
+const BTAG_ROWS  = BGANIM_VIEW_CYCLE_COUNT + 1
+// Letter indices into `.alphabet`. Named rather than numbered so the name tables below
+// SPELL their words in the source — the whole point of this parcel is a readout you can
+// read, and that has to start with the table.
+const LTR_A = 0
+const LTR_B = 1
+const LTR_C = 2
+const LTR_D = 3
+const LTR_E = 4
+const LTR_F = 5
+const LTR_G = 6
+const LTR_H = 7
+const LTR_I = 8
+const LTR_J = 9
+const LTR_K = 10
+const LTR_L = 11
+const LTR_M = 12
+const LTR_N = 13
+const LTR_O = 14
+const LTR_P = 15
+const LTR_Q = 16
+const LTR_R = 17
+const LTR_S = 18
+const LTR_T = 19
+const LTR_U = 20
+const LTR_V = 21
+const LTR_W = 22
+const LTR_X = 23
+const LTR_Y = 24
+const LTR_Z = 25
+const ALPHABET_GLYPHS = 26
+proc Debug_TierTags_Update () clobbers(d0-d4/a0-a3) {
+    if DEBUG == 1 {
+        // Gate 1: live input only. The same gate, for the same reason, as all five
+        // hotkeys: a replay drives Input_Source != INPUT_LIVE, and a fixture that built
+        // two extra sprites would re-stamp every downstream hash. INPUT_LIVE is 0, so a
+        // `tst.b` is the whole test.
+        tst.b   Input_Source                    // (Input_Source).w
+        bne     .done
+
+        // Gate 2: armed? Until the reviewer has held START or C at least once, this
+        // proc costs two byte reads and a branch and the sprite table is untouched —
+        // see "WHY IT ARMS ON A CHORD" above.
+        tst.b   Debug_Tags_Armed                // (Debug_Tags_Armed).w
+        bne     .armed
+        move.b  Ctrl_1_Held, d0                 // tick-stable held latch
+        andi.b  #BUTTON_START|BUTTON_C, d0
+        beq     .done
+        move.b  d0, Debug_Tags_Armed            // any nonzero value arms it
+    .armed:
+
+        // -- the RASTER tag. The subject is the ENGINE's installed-program cell, never
+        //    the cycle cursor; see the header for why that distinction is the parcel. --
+        move.l  Raster_Program, d0              // (Raster_Program).w
+        cmp.l   Debug_Raster_Shown, d0
+        beq     .bganim                         // already spelled — nothing to do
+        jbsr    .paint_raster
+
+    .bganim:
+        // -- the BG-ANIMATION tag, same shape against the other tier's engine cell. --
+        move.l  BgAnim_Table_Ptr, d0            // (BgAnim_Table_Ptr).w
+        cmp.l   Debug_BgAnim_Shown, d0
+        beq     .done
+        jbsr    .paint_bganim
+
+    .done:
+        rts
+
+        // -----------------------------------------------
+        // .paint_raster — resolve Raster_Program to a name and blit it.
+        // In:  d0 = the live Raster_Program value (0 = nothing installed)
+        // Out: the raster tag spells that program's name; Debug_Raster_Shown follows
+        //      ONLY if every cell was queued
+        // -----------------------------------------------
+    .paint_raster:
+        move.l  d0, -(sp)                       // d0-d4 do not survive the DMA below
+
+        // -- (1) the tag object, built once (boot clears Work RAM, so code_addr == 0
+        //    is a reliable "not built yet" — Debug_SceneReadout_Show's test). --
+        movea.l #DEBUG_RASTER_TAG_SST, a0
+        move.l  #DEBUG_TAG_X << 16, d1
+        move.l  #DEBUG_RASTER_TAG_Y << 16, d4
+        move.w  #vram_art(VRAM_DEBUG_RASTER_TAG, 1, 1), d3      // palette line 1 +
+        moveq   #DEBUG_TAG_FRAME_4, d2                          // priority 1: the
+        jbsr    .ensure_tag                                     // debug-fly marker's
+                                                                // known-legible pairing
+
+        // -- (2) which name. Rows first, so a program that IS a cycle row is named by
+        //    its row whatever installed it; the three synthetic rows are the fallbacks
+        //    and are ordered NONE (no program at all) > PTCH (a live patch table, so
+        //    the pointer is a working buffer and could not have matched) > PSET. --
+        move.l  (sp), d0
+        moveq   #RTAG_NONE, d1
+        tst.l   d0
+        beq     .rtag_named
+        lea     Debug_BandDemoHotkey.raster_table(pc), a1       // §1.5, the preset
+        moveq   #0, d1                                          // readout's spelling
+    .rtag_scan:
+        cmp.l   (a1)+, d0
+        beq     .rtag_named
+        addq.w  #1, d1
+        cmpi.w  #RASTER_CYCLE_COUNT, d1
+        blo     .rtag_scan
+        moveq   #RTAG_PSET, d1
+        tst.l   Raster_Patch_Tab                // (Raster_Patch_Tab).w
+        beq     .rtag_named
+        moveq   #RTAG_PTCH, d1
+    .rtag_named:
+
+        // -- (3) blit it. RTAG_CELLS is 4, so the row offset is a shift; no multiply. --
+        lsl.w   #2, d1                          // name index x RTAG_CELLS
+        lea     .rtag_names(pc), a3
+        adda.w  d1, a3                          // a3 = this name's first letter
+        lea     RTAG_CELLS(a3), a0              // a0 = one past its last
+        move.w  #vram_bytes(VRAM_DEBUG_RASTER_TAG), d2
+        jbsr    .paint_cells
+        bcs     .rtag_dropped
+        move.l  (sp)+, Debug_Raster_Shown       // the tag now spells THIS value
+        rts
+    .rtag_dropped:
+        addq.l  #4, sp                          // mirror UNWRITTEN on purpose: the next
+        rts                                     // frame's compare still differs and the
+                                                // whole tag is re-queued
+
+        // -----------------------------------------------
+        // .paint_bganim — resolve BgAnim_Table_Ptr to a name and blit it.
+        // In:  d0 = the live BgAnim_Table_Ptr value
+        // Out: the BG-animation tag spells that table's name; Debug_BgAnim_Shown
+        //      follows ONLY if every cell was queued
+        // -----------------------------------------------
+    .paint_bganim:
+        move.l  d0, -(sp)
+        movea.l #DEBUG_BGANIM_TAG_SST, a0
+        move.l  #DEBUG_TAG_X << 16, d1
+        move.l  #DEBUG_BGANIM_TAG_Y << 16, d4
+        move.w  #vram_art(VRAM_DEBUG_BGANIM_TAG, 1, 1), d3
+        moveq   #DEBUG_TAG_FRAME_3, d2
+        jbsr    .ensure_tag
+
+        move.l  (sp), d0
+        lea     Debug_BgAnimViewHotkey.view_table(pc), a1
+        moveq   #0, d1
+    .btag_scan:
+        cmp.l   (a1)+, d0
+        beq     .btag_named
+        addq.w  #1, d1
+        cmpi.w  #BGANIM_VIEW_CYCLE_COUNT, d1
+        blo     .btag_scan
+        moveq   #BTAG_OTHER, d1
+    .btag_named:
+        // BTAG_CELLS is 3, so the row offset is x2 + x1 rather than a shift — an add
+        // pair, not a `mulu` (CODING_CONVENTIONS §2.1: no casual hardware multiply).
+        move.w  d1, d0
+        add.w   d1, d1
+        add.w   d0, d1                          // name index x BTAG_CELLS
+        lea     .btag_names(pc), a3
+        adda.w  d1, a3
+        lea     BTAG_CELLS(a3), a0
+        move.w  #vram_bytes(VRAM_DEBUG_BGANIM_TAG), d2
+        jbsr    .paint_cells
+        bcs     .btag_dropped
+        move.l  (sp)+, Debug_BgAnim_Shown
+        rts
+    .btag_dropped:
+        addq.l  #4, sp
+        rts
+
+        // -----------------------------------------------
+        // .ensure_tag — build one tag object into its System slot, once.
+        // In:  a0 = the System slot's SST, d1 = screen X (16.16), d4 = screen Y
+        //      (16.16), d3 = art_tile word, d2 = mapping frame index
+        // Out: that slot holds a live display-only screen-space object
+        // Clobbers: d2 and a1, both via RefreshSpritePieceCount. a0/d1/d3/d4 survive.
+        //
+        // It is NOT Debug_SceneReadout_Show.ensure_glyph and could not be: that builder
+        // hard-codes `Map_TestObj` frame 2, the existing one-cell frame, and the whole
+        // point of these two objects is a WIDER piece. Everything else about it is that
+        // builder's, including `code_addr == 0` as the "not built yet" test.
+        // -----------------------------------------------
+    .ensure_tag:
+        tst.w   (a0)                            // Sst.code_addr
+        bne     .tag_built                      // already built — leave it alone
+        move.w  #TestStatic_Main - ObjCodeBase, Sst.code_addr(a0)
+        lea     .tag_mappings(pc), a1           // `lea` + store, not a `move.l #Label`
+        move.l  a1, Sst.mappings(a0)            // (bg_anim.emp's BgAnim_Table_Ptr note)
+        move.b  d2, Sst.mapping_frame(a0)
+        jbsr    RefreshSpritePieceCount         // mappings + mapping_frame written ->
+                                                // re-cache frame_off/piece count
+        move.w  d3, Sst.art_tile(a0)
+        move.b  #DEBUG_READOUT_FLAGS, Sst.render_flags(a0)
+        move.l  d1, Sst.x_pos(a0)
+        move.l  d4, Sst.y_pos(a0)
+    .tag_built:
+        rts
+
+        // -----------------------------------------------
+        // .paint_cells — queue one glyph per cell of a tag, left to right.
+        // In:  a3 = the name's first letter index, a0 = one past its last,
+        //      d2 = the VRAM byte address of the leftmost cell
+        // Out: carry CLEAR = every cell queued; carry SET = the queue was full and
+        //      the caller must NOT advance its mirror
+        // Clobbers: d0-d4, a1-a2 (QueueDMA_Critical's set); a3 advances to a0.
+        //
+        // Cells are queued as separate 32-byte entries because their SOURCES are
+        // arbitrary rows of one alphabet and are contiguous only by accident — the same
+        // reason the scene readout's two digits are two entries.
+        // -----------------------------------------------
+    .paint_cells:
+        move.w  d2, -(sp)                       // the running VRAM destination; d0-d4
+                                                // do not survive the queue call
+    .cell:
+        moveq   #0, d0                          // index-register hygiene (§2.5b)
+        move.b  (a3)+, d0                       // this cell's letter
+        lsl.w   #5, d0                          // x 32 bytes per glyph
+        lea     .alphabet(pc), a1
+        adda.w  d0, a1                          // §7: address-register destination
+        move.l  a1, d1                          // d1 = DMA source
+        move.w  (sp), d2                        // d2 = DMA destination
+        moveq   #32, d3                         // one 8x8 4bpp tile
+        jbsr    QueueDMA_Critical
+        bcs     .cell_dropped
+        addi.w  #32, (sp)                       // the next cell is the next VRAM tile
+        cmpa.l  a0, a3
+        blo     .cell
+        addq.l  #2, sp
+        andi.b  #$FE, ccr                       // carry CLEAR: the whole word is queued
+        rts
+    .cell_dropped:
+        addq.l  #2, sp                          // (this addq is what forces the ccr
+        ori.b   #$01, ccr                       //  write to come AFTER the pop)
+        rts
+
+        // -----------------------------------------------
+        // .tag_mappings — the two frame records these objects draw, written by hand.
+        // -----------------------------------------------
+        // A frame INDEX (word offsets from this label), then the frames: the 4-byte
+        // signed bounding box (far edges), the piece count word, then that many 8-byte
+        // VDP pieces (Y offset, size|link, tile attrs, X offset) — engine.objects
+        // .mapping_dsl's `MapFrame1`/`MapPiece`, spelled out.
+        //
+        // WHY BY HAND AND NOT THROUGH `centered()` / a new `Map_TestObj` frame: both
+        // would emit in the PLAIN shape. A module-scope `data`/`offsets` item cannot be
+        // shape-gated in `.emp` (§1.7), and this module's whole run of debug procs is
+        // built on emitting zero release bytes; ~32 bytes of mapping for a debug tag is
+        // exactly what it must not spend. `centered()` additionally cannot express these
+        // frames — it forces a square bbox and a centred offset, and both of these are
+        // 1 cell tall with the origin at the top-left corner.
+        //
+        // The size byte is the VDP packing (w-1) in bits 3:2, (h-1) in bits 1:0, which
+        // mapping_dsl.emp pins with its own non-square `ensure`: $0C = 4 wide x 1 tall,
+        // $08 = 3 wide x 1 tall. A multi-cell piece reads CONSECUTIVE VRAM tiles from
+        // the object's art_tile, which is why both tag regions are declared contiguous
+        // and in order in games/sonic4/vram.toml.
+        //
+        // ALIGNMENT: the label follows an `rts`, and every 68000 instruction is an even
+        // number of bytes, so it is word-aligned by construction — the reasoning
+        // `.raster_table` and `.scene_table` both record. Each frame record is 14 bytes
+        // and the index is 4, so every label below is even as well.
+    .tag_mappings:
+        dc.w    .tag_frame_4 - .tag_mappings    // frame 0 — the 4-cell tag
+        dc.w    .tag_frame_3 - .tag_mappings    // frame 1 — the 3-cell tag
+    .tag_frame_4:
+        dc.b    0, 32, 0, 8                     // bbox x_min/x_max/y_min/y_max
+        dc.w    1                               // one piece
+        dc.w    0                               // piece y_off
+        dc.b    $0C, 0                          // size (4x1), link
+        dc.w    0                               // tile offset from art_tile
+        dc.w    0                               // piece x_off
+    .tag_frame_3:
+        dc.b    0, 24, 0, 8
+        dc.w    1
+        dc.w    0
+        dc.b    $08, 0                          // size (3x1), link
+        dc.w    0
+        dc.w    0
+
+        // -----------------------------------------------
+        // .rtag_names — one four-letter name per raster row, cycle rows first.
+        // -----------------------------------------------
+        // ROW ORDER IS `.raster_table`'s, and it has to be: the scan above returns the
+        // row index and this table is indexed with it raw. The three synthetic rows are
+        // APPENDED so adding a cycle row never renumbers an existing name.
+        // 36 bytes — even, which keeps `.btag_names` and `.alphabet` below word-aligned.
+    .rtag_names:
+        dc.b    LTR_B, LTR_A, LTR_N, LTR_D      // 0 — OJZ_BandDemo, the control
+        dc.b    LTR_S, LTR_W, LTR_A, LTR_P      // 1 — OJZ_BaseSwap, the plane-base swap
+        dc.b    LTR_R, LTR_M, LTR_P, LTR_W      // 2 — aurora_ramp_witness (RaMP Witness)
+        dc.b    LTR_P, LTR_R, LTR_O, LTR_B      // 3 — authored_probe
+        dc.b    LTR_S, LTR_H, LTR_I, LTR_M      // 4 — ojz_sec3_shimmer
+        dc.b    LTR_R, LTR_A, LTR_M, LTR_P      // 5 — ramp_probe
+        dc.b    LTR_N, LTR_O, LTR_N, LTR_E      // 6 — RTAG_NONE: no program installed
+        dc.b    LTR_P, LTR_T, LTR_C, LTR_H      // 7 — RTAG_PTCH: a patched program
+        dc.b    LTR_P, LTR_S, LTR_E, LTR_T      // 8 — RTAG_PSET: came with a preset
+
+        // -----------------------------------------------
+        // .btag_names — one three-letter name per BG-animation view row.
+        // -----------------------------------------------
+        // ROW ORDER IS `.view_table`'s, for `.rtag_names`' reason. 18 bytes — even.
+    .btag_names:
+        dc.b    LTR_A, LTR_C, LTR_T             // 0 — BgAnim_Table, the act's own
+        dc.b    LTR_C, LTR_M, LTR_X             // 1 — BgAnim_View_H, the Camera_X view
+        dc.b    LTR_C, LTR_M, LTR_Y             // 2 — BgAnim_View_V, the Camera_Y view
+        dc.b    LTR_V, LTR_R, LTR_T             // 3 — BgAnim_View_Vert, the vertical band
+        dc.b    LTR_V, LTR_C, LTR_T             // 4 — BgAnim_View_VertCtl, its control
+        dc.b    LTR_O, LTR_T, LTR_H             // 5 — BTAG_OTHER: outside the cycle
+
+        // -----------------------------------------------
+        // .alphabet — twenty-six 8x8 4bpp tiles, 'A' to 'Z', 32 bytes each.
+        // -----------------------------------------------
+        // Same form, same geometry and same colour as Debug_SceneReadout_Show's
+        // `.digit_font`, so the two readouts and the two tags read as one display: a
+        // 5x7 glyph in an 8x8 cell (pixel columns 1-5, rows 0-6), ONE LONG PER PIXEL
+        // ROW and one hex nibble per pixel, left to right — the source IS the picture.
+        // Every set pixel is colour index $C, which on palette line 1 is the bright
+        // yellow PlayerMarkerTile uses ($00EE).
+        //
+        // IT LIVES INSIDE THE `if DEBUG == 1`, exactly as `.digit_font` and
+        // `.verdict_font` do, because a module-scope `data` item cannot be shape-gated
+        // in `.emp` (§1.7) and 832 release bytes for a debug alphabet is precisely what
+        // this module must not spend.
+        //
+        // ALL TWENTY-SIX ARE HERE even though eighteen would cover today's fourteen
+        // names: the letter index is a raw `lsl.w #5` offset into this sheet, so a sparse
+        // sheet would put a hole exactly where a future name lands, and the whole cost
+        // of the other eight is 256 DEBUG-only bytes in a section that already carries
+        // two kilobytes of probe art. tools/test_tier_tag_tables.py counts the rows.
+    .alphabet:
+        dc.l    $00CCC000, $0C000C00, $0C000C00, $0CCCCC00      // A (index 0)
+        dc.l    $0C000C00, $0C000C00, $0C000C00, $00000000
+        dc.l    $0CCCC000, $0C000C00, $0C000C00, $0CCCC000      // B (index 1)
+        dc.l    $0C000C00, $0C000C00, $0CCCC000, $00000000
+        dc.l    $00CCC000, $0C000C00, $0C000000, $0C000000      // C (index 2)
+        dc.l    $0C000000, $0C000C00, $00CCC000, $00000000
+        dc.l    $0CCCC000, $0C000C00, $0C000C00, $0C000C00      // D (index 3)
+        dc.l    $0C000C00, $0C000C00, $0CCCC000, $00000000
+        dc.l    $0CCCCC00, $0C000000, $0C000000, $0CCCC000      // E (index 4)
+        dc.l    $0C000000, $0C000000, $0CCCCC00, $00000000
+        dc.l    $0CCCCC00, $0C000000, $0C000000, $0CCCC000      // F (index 5)
+        dc.l    $0C000000, $0C000000, $0C000000, $00000000
+        dc.l    $00CCC000, $0C000C00, $0C000000, $0C0CCC00      // G (index 6)
+        dc.l    $0C000C00, $0C000C00, $00CCC000, $00000000
+        dc.l    $0C000C00, $0C000C00, $0C000C00, $0CCCCC00      // H (index 7)
+        dc.l    $0C000C00, $0C000C00, $0C000C00, $00000000
+        dc.l    $0CCCCC00, $000C0000, $000C0000, $000C0000      // I (index 8)
+        dc.l    $000C0000, $000C0000, $0CCCCC00, $00000000
+        dc.l    $000CCC00, $00000C00, $00000C00, $00000C00      // J (index 9)
+        dc.l    $0C000C00, $0C000C00, $00CCC000, $00000000
+        dc.l    $0C000C00, $0C00C000, $0C0C0000, $0CC00000      // K (index 10)
+        dc.l    $0C0C0000, $0C00C000, $0C000C00, $00000000
+        dc.l    $0C000000, $0C000000, $0C000000, $0C000000      // L (index 11)
+        dc.l    $0C000000, $0C000000, $0CCCCC00, $00000000
+        dc.l    $0C000C00, $0CC0CC00, $0C0C0C00, $0C000C00      // M (index 12)
+        dc.l    $0C000C00, $0C000C00, $0C000C00, $00000000
+        dc.l    $0C000C00, $0CC00C00, $0C0C0C00, $0C00CC00      // N (index 13)
+        dc.l    $0C000C00, $0C000C00, $0C000C00, $00000000
+        dc.l    $00CCC000, $0C000C00, $0C000C00, $0C000C00      // O (index 14)
+        dc.l    $0C000C00, $0C000C00, $00CCC000, $00000000
+        dc.l    $0CCCC000, $0C000C00, $0C000C00, $0CCCC000      // P (index 15)
+        dc.l    $0C000000, $0C000000, $0C000000, $00000000
+        dc.l    $00CCC000, $0C000C00, $0C000C00, $0C000C00      // Q (index 16)
+        dc.l    $0C0C0C00, $0C00C000, $00CC0C00, $00000000
+        dc.l    $0CCCC000, $0C000C00, $0C000C00, $0CCCC000      // R (index 17)
+        dc.l    $0C0C0000, $0C00C000, $0C000C00, $00000000
+        dc.l    $00CCC000, $0C000C00, $0C000000, $00CCC000      // S (index 18)
+        dc.l    $00000C00, $0C000C00, $00CCC000, $00000000
+        dc.l    $0CCCCC00, $000C0000, $000C0000, $000C0000      // T (index 19)
+        dc.l    $000C0000, $000C0000, $000C0000, $00000000
+        dc.l    $0C000C00, $0C000C00, $0C000C00, $0C000C00      // U (index 20)
+        dc.l    $0C000C00, $0C000C00, $00CCC000, $00000000
+        dc.l    $0C000C00, $0C000C00, $0C000C00, $0C000C00      // V (index 21)
+        dc.l    $0C000C00, $00C0C000, $000C0000, $00000000
+        dc.l    $0C000C00, $0C000C00, $0C000C00, $0C000C00      // W (index 22)
+        dc.l    $0C0C0C00, $0CC0CC00, $0C000C00, $00000000
+        dc.l    $0C000C00, $0C000C00, $00C0C000, $000C0000      // X (index 23)
+        dc.l    $00C0C000, $0C000C00, $0C000C00, $00000000
+        dc.l    $0C000C00, $0C000C00, $00C0C000, $000C0000      // Y (index 24)
+        dc.l    $000C0000, $000C0000, $000C0000, $00000000
+        dc.l    $0CCCCC00, $00000C00, $0000C000, $000C0000      // Z (index 25)
+        dc.l    $00C00000, $0C000000, $0CCCCC00, $00000000
     }
 }
 

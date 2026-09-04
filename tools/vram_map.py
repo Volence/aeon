@@ -20,7 +20,9 @@ REGIONS = {
     'bg_region': {'base': 1024, 'tiles': 448, 'lifetime': 'act'},
     'sprite_table': {'base': 1472, 'tiles': 20, 'lifetime': 'boot'},
     'tails_appendage': {'base': 1492, 'tiles': 9, 'lifetime': 'act'},
+    'debug_bganim_tag': {'base': 1501, 'tiles': 3, 'lifetime': 'mode'},
     'hscroll_table': {'base': 1504, 'tiles': 28, 'lifetime': 'boot'},
+    'debug_raster_tag': {'base': 1532, 'tiles': 4, 'lifetime': 'mode'},
     'plane_a': {'base': 1536, 'tiles': 256, 'lifetime': 'boot'},
     'plane_b': {'base': 1792, 'tiles': 256, 'lifetime': 'boot'},
     'window_plane': {'base': 1920, 'tiles': 128, 'lifetime': 'boot'},
@@ -39,3 +41,5 @@ VRAM_TEST_OBJ = 992
 VRAM_TEST_MARKER = 1016
 VRAM_DEBUG_READOUT = 1020
 VRAM_TAILS_APPENDAGE = 1492
+VRAM_DEBUG_BGANIM_TAG = 1501
+VRAM_DEBUG_RASTER_TAG = 1532

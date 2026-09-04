@@ -177,8 +177,13 @@ const = "VRAM_DEBUG_READOUT"
 # verdict tiles live in ROM and are DMA'd one cell at a time — which is why 13 font
 # tiles do not have to fit here (no free run in this map is that big). Tiles 1022
 # and 1023 were the map's last declared [[free]] run adjacent to 1020; the preset
-# readout consumed it, so growing this readout again needs a run elsewhere
-# (957-959, 1501-1503, 1532-1535) and a second region, not an extension.
+# readout consumed it, so growing this readout again needs a run elsewhere and a
+# second region, not an extension.
+#
+# THAT IS WHAT HAPPENED, 2026-09-04 (EFFECTS-W1 F4): the RASTER and BG-ANIMATION
+# tiers got NAME tags of their own, in two new regions — `debug_raster_tag`
+# (1532-1535) and `debug_bganim_tag` (1501-1503). Of the three runs this comment
+# used to offer, only 957-959 is left.
 
 [[region]]
 name = "bg_region"
@@ -297,9 +302,31 @@ tiles = 9
 lifetime = "act"
 const = "VRAM_TAILS_APPENDAGE"
 
-[[free]]
+[[region]]
+name = "debug_bganim_tag"
+owner = "games.sonic4.ojz_scroll_test"
+kind = "window"
 base = 1501
 tiles = 3
+lifetime = "mode"
+const = "VRAM_DEBUG_BGANIM_TAG"
+# The effects lab's BG-ANIMATION NAME TAG: three 8x8 cells forming ONE 3x1 VDP
+# sprite piece, so the whole tag costs one System object slot instead of three
+# (Debug_TierTags_Update, games/sonic4/test/ojz_scroll_test.emp). It spells the
+# live BgAnim band table's short name — ACT / CMX / CMY / VRT / VCT / OTH.
+#
+# THE THREE TILES MUST STAY CONTIGUOUS AND IN THIS ORDER: a multi-cell sprite
+# piece reads consecutive VRAM tiles from its base, so splitting this run would
+# not merely move the tag, it would draw three unrelated tiles as a word.
+#
+# RESERVED IN EVERY SHAPE, WRITTEN ONLY IN DEBUG, for the reason `debug_readout`
+# below records at length: a VRAM reservation is not a ROM byte, and declaring it
+# in all shapes keeps this file the single placement authority.
+#
+# It took the map's 1501-1503 [[free]] run, which `debug_readout`'s own comment
+# named as one of the three runs a grown readout would have to come from. Two of
+# those three are now spent (this and `debug_raster_tag` below); 957-959 is the
+# last one, and a fourth tag would have to take it or come out of a region.
 
 [[region]]
 name = "hscroll_table"
@@ -311,9 +338,27 @@ lifetime = "boot"
 register = "vdp:0x0D"
 authority = "engine-bytebase:VRAM_HSCROLL_TABLE"
 
-[[free]]
+[[region]]
+name = "debug_raster_tag"
+owner = "games.sonic4.ojz_scroll_test"
+kind = "window"
 base = 1532
 tiles = 4
+lifetime = "mode"
+const = "VRAM_DEBUG_RASTER_TAG"
+# The effects lab's RASTER NAME TAG: four 8x8 cells forming ONE 4x1 VDP sprite
+# piece (four is the VDP's maximum piece width, which is what fixes the tag at
+# four characters). It spells the name of the raster program that is ACTUALLY
+# installed — BAND / SWAP / RMPW / PROB / SHIM / RAMP / NONE / PTCH / PSET — read
+# every frame off the engine's own `Raster_Program` cell rather than off the
+# cycle cursor, so a section crossing or a preset install moves it too.
+#
+# THE FOUR TILES MUST STAY CONTIGUOUS AND IN THIS ORDER, for the reason
+# `debug_bganim_tag` above records: a multi-cell piece reads consecutive tiles.
+#
+# It took the map's 1532-1535 [[free]] run — the map's ONLY remaining four-tile
+# run, which is why the raster tag (nine names to tell apart) got it and the
+# BG-animation tag (six) took the three-tile one.
 
 [[region]]
 name = "plane_a"
