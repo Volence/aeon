@@ -24980,3 +24980,35 @@ assert a mid-air drop FALLS; move `Camera_X`/`Camera_Y` with the player or the c
 cache will not cover him; read offsets from the listing's own equates (`SST_x_pos = $02`,
 `SST_y_pos = $06`, `SST_layer = $2D`, `SST_angle = $1F`); and spawn one instance PER drive —
 runs 2 and 3 of a shared instance inherited the first run's player state and never fell.
+
+## T1 — the crossover WORKS; he stops on the ramp with speed to spare (2026-09-04, clean drive)
+
+**The first drive of the night that is not confounded.** Instrument: debug-fly cleared with a
+gravity control, camera moved with the player, one fresh instance, offsets from the listing's
+equates, sustained `emulator/press` (consecutive presses DO accumulate).
+
+Start x 1097 on clear plane-A ground, holding RIGHT:
+
+```
+ 20 frames  x 1106  gsp 240  layer 0  angle $00
+ 40 frames  x 1135  gsp 480  layer 0  angle $00
+ 60 frames  x 1147  gsp 552  layer 1  angle $FE   <- mark taken, on the slope
+300 further frames: x 1147, gsp 552, layer 1, angle $FE — frozen
+```
+
+**What this settles: the hand-off, the plane assignment and the swapped halves all work.**
+`layer` switches 0→1 at col 143 exactly as designed. The direction is **left to right** — plane
+A holds the left half, the mark toggles A→B, and the ramp is on B. ("Entry from the right"
+would put the player on A over a ramp that exists only on B.)
+
+**What is open: he stops dead at x 1147 while `gsp` still reads 552.** Speed retained,
+position frozen. **That is a wall sensor zeroing `x_vel` every frame, not lost momentum.**
+
+**And the cells do not explain it.** At his body height on plane B, rows 68/69 are EMPTY from
+col 144 to 149; rows 70/71 carry the top-solid ramp (`109A`, `10F8`, `1053`, `1047`); the
+nearest side-solid (`34FF`) is cols 154–156 at x 1232+, and his right edge is x 1156.
+**Nothing readable at his height blocks him.**
+
+**NEXT STEP IS A SENSOR TRACE, not more paint and not another drive:** which probe fires, at
+which coordinate, against which attr. Handing aurora another coordinate to fit would repeat
+tonight's mistake — a stall offered as evidence for a cell nobody has shown is involved.

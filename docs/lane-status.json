@@ -1,5 +1,5 @@
 {
-  "focus": "The two swap bands are on your screen; the loop now climbs but still stops one cell short.",
+  "focus": "The loop takes the layer switch now, then stops dead on the ramp with speed to spare.",
   "inFlight": [],
   "blockedOnOwner": [
     {
@@ -9,20 +9,16 @@
     {
       "what": "Whether to give a second section live patch channels, so the Hydrocity scene key can be authored",
       "since": "2026-09-04"
-    },
-    {
-      "what": "Whether the foliage column left of the loop should stay solid - it halves your run-up",
-      "since": "2026-09-04"
     }
   ],
   "nextBoundary": "After the loop rides and the perspective floor is designed.",
   "queue": [
     {
       "id": "T1",
-      "title": "The loop climbs but stops at the ramp foot, and the two marks cancel",
-      "state": "blocked",
+      "title": "The loop switches layers correctly, then stops on the ramp",
+      "state": "open",
       "size": "S",
-      "blockedBy": "aurora: the foot cell and the doubled mark column",
+      "blockedBy": null,
       "project": "EFFECTS-W1"
     },
     {
@@ -68,5 +64,5 @@
   ],
   "awaiting": null,
   "atBoundary": true,
-  "updatedAt": "2026-09-04T22:24:16Z"
+  "updatedAt": "2026-09-04T22:43:23Z"
 }
