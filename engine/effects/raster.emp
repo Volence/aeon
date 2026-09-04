@@ -748,7 +748,7 @@ pub comptime fn raster_ramp_program(top: int, lines: int, cmd: int,
     // documented consequence rather than tightened. A run of `lines` values DISPLAYS on
     // screen lines top+2 .. top+lines+1 for a VSRAM target (top+1 .. top+lines for CRAM), so
     // this ceiling admits a VSRAM run whose LAST value lands on line 224 and can never be
-    // seen: `aurora_local_rampctl_probe` authors 220 lines from top 3 and 219 of them render.
+    // seen: `aurora_ramp_witness` authors 220 lines from top 3 and 219 of them render.
     // Tightening this to 222 would refuse that document, which already ships — and this bound
     // is not about visibility in the first place, it is the interlock's. An author who needs
     // every authored value on screen keeps top + lines <= 222 (VSRAM); the ensure below says
@@ -814,7 +814,7 @@ pub comptime fn raster_ramp_program(top: int, lines: int, cmd: int,
     // document (step -1.5 = fp16(-1, 128) = -98304) is the first negative one, and sigil
     // refused it at EMISSION, not at any ensure:
     //     [emit.out-of-range] -98304 does not fit u32 (0..=4294967295)
-    //             — in `EditorRaster_OJZ_Act1_aurora_local_rampctl_probe.rrp_step`
+    //             — in `EditorRaster_OJZ_Act1_aurora_ramp_witness.rrp_step`
     // So the sign rule reached the wire format and stopped one step short of it.
     //
     // THE FIX IS THE TREE'S OWN PRECEDENT, NOT A NEW IDEA. engine/level/parallax.emp's

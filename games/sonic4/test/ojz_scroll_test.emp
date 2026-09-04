@@ -137,7 +137,7 @@ use games.sonic4.scene_registry.{ParallaxConfig_OJZ_Default, ParallaxConfig_OJZ_
 // `Raster_Program_None` and `Raster_Install` are engine names the OFF arm
 // and both tails reach as externs, unchanged by this parcel.
 use games.sonic4.ojz_effects.{OJZ_BandDemo, OJZ_BaseSwap}
-use games.sonic4.ojz_effects_editor_act1.{EditorRaster_OJZ_Act1_authored_probe, EditorRaster_OJZ_Act1_aurora_local_rampctl_probe, EditorRaster_OJZ_Act1_ojz_sec3_shimmer, EditorRaster_OJZ_Act1_ramp_probe}
+use games.sonic4.ojz_effects_editor_act1.{EditorRaster_OJZ_Act1_authored_probe, EditorRaster_OJZ_Act1_aurora_ramp_witness, EditorRaster_OJZ_Act1_ojz_sec3_shimmer, EditorRaster_OJZ_Act1_ramp_probe}
 
 // player_block — the per-slot PlayerBlock derivation splice; PlayerV — the
 // player's SST overlay (the hotkey reads debug_flag off it). Both are
@@ -2146,7 +2146,7 @@ proc Debug_SceneReadout_Show () clobbers(d0-d4/a0-a2) {
 //
 //   .raster_table[0]  OJZ_BandDemo                            — HAND-authored, .emp
 //   .raster_table[1]  OJZ_BaseSwap                            — HAND-authored, .emp
-//   .raster_table[2]  EditorRaster_OJZ_Act1_aurora_local_rampctl_probe   — EDITOR-authored, JSON (ramp, item 6 witness)
+//   .raster_table[2]  EditorRaster_OJZ_Act1_aurora_ramp_witness   — EDITOR-authored, JSON (ramp, item 6 witness)
 //   .raster_table[3]  EditorRaster_OJZ_Act1_authored_probe               — EDITOR-authored, JSON
 //   .raster_table[4]  EditorRaster_OJZ_Act1_ojz_sec3_shimmer             — EDITOR-authored, JSON
 //   .raster_table[5]  EditorRaster_OJZ_Act1_ramp_probe                   — EDITOR-authored, JSON (ramp, item 6)
@@ -2374,7 +2374,7 @@ proc Debug_BandDemoHotkey () clobbers(d0-d1/a0-a1) {
     .raster_table:
         dc.l    OJZ_BandDemo                            // 0 — HAND-authored (.emp)
         dc.l    OJZ_BaseSwap                            // 1 — HAND-authored (.emp), item 11a
-        dc.l    EditorRaster_OJZ_Act1_aurora_local_rampctl_probe // 2 — EDITOR-authored (JSON), item 6 ramp,
+        dc.l    EditorRaster_OJZ_Act1_aurora_ramp_witness // 2 — EDITOR-authored (JSON), item 6 ramp,
                                                                 //     the AUTHORING-END witness document.
                                                                 //     `aurora_local_` sorts BEFORE `authored_`
                                                                 //     ('r' < 't'), which is why it leads the

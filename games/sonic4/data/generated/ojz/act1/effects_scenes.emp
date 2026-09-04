@@ -139,8 +139,8 @@ pub data EditorSceneBinding_OJZ_Act1_Sec4: SceneCfg5 = lower5(EditorScenes_OJZ_A
 // elaborated unconditionally. The generator validates SHAPE only and repeats not one of
 // those bounds (tools/effects_gen.py, the RASTER BANDS banner).
 ensure((Game.SCANLINE_CAPS & CAP_DENSE_TIER) != 0,
-       "EditorRaster_OJZ_Act1_aurora_local_rampctl_probe: this game's Game.SCANLINE_CAPS ({Game.SCANLINE_CAPS}) does not declare CAP_DENSE_TIER — EFFECTS-W1 item 6 gates construction of a dense-tier RAMP program on that bit (engine/level/scene_dsl.emp), so a game must declare intent to spend the dense tier's ramp axis before it may author one. Add CAP_DENSE_TIER to this game's SCANLINE_CAPS in its config/game.emp")
-pub data EditorRaster_OJZ_Act1_aurora_local_rampctl_probe: RasterRampProgram = raster_ramp_program(
+       "EditorRaster_OJZ_Act1_aurora_ramp_witness: this game's Game.SCANLINE_CAPS ({Game.SCANLINE_CAPS}) does not declare CAP_DENSE_TIER — EFFECTS-W1 item 6 gates construction of a dense-tier RAMP program on that bit (engine/level/scene_dsl.emp), so a game must declare intent to spend the dense tier's ramp axis before it may author one. Add CAP_DENSE_TIER to this game's SCANLINE_CAPS in its config/game.emp")
+pub data EditorRaster_OJZ_Act1_aurora_ramp_witness: RasterRampProgram = raster_ramp_program(
     top:   3,
     lines: 220,
     cmd:   vdp_comm(2, VdpTarget.Vsram, VdpOp.Write),

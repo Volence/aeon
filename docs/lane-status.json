@@ -1,216 +1,103 @@
 {
-  "focus": "Item 5 is building; the compiler-pair half is finished and held back so it cannot break the agent that is still running.",
+  "focus": "Two effects certified and on your screen tonight. The ramp work is merged and verifying before I push.",
   "inFlight": [
     {
-      "what": "Item 5: teaching the generator the two authoring keys, so a cycle and its colour variants authored in the editor reach the ROM. Moves ROM bytes, so it lands as a paired freeze.",
-      "where": "branch parcel/item5-cycles-variants",
-      "agent": true
+      "what": "Oracle window running the vertical canopy band ROM you just confirmed working.",
+      "where": "s4.debug.bin from the .aeon-vband tree",
+      "agent": false
     },
     {
-      "what": "Our half of sigil's compiler pair - BUILT AND VERIFIED, deliberately not merged yet: merging it makes every build require sigil's new compiler, which would break the item-5 agent mid-run. It merges after item 5 lands.",
-      "where": "branch parcel/unit-fold-poison-repurpose",
+      "what": "Rebuilding and re-verifying all four shapes after renaming a file that carried a peer's throwaway id.",
+      "where": "master, merge 33e50207, NOT pushed",
       "agent": false
+    },
+    {
+      "what": "Building the Hydrocity waterline's engine half - the perspective remap, on the background you already have.",
+      "where": "branch parcel/hcz-row-remap-9a (worktree)",
+      "agent": true
     }
   ],
   "blockedOnOwner": [
     {
-      "what": "d-51: writing OJZ's shimmer faithfully means period 9; the spec's example says 8, which would speed up the shipped shimmer on screen",
-      "since": "2026-09-02",
-      "id": "d-51-shimmer-cadence-look"
+      "what": "Whether the oracle lane should show you their thirty-second breakpoint demo tonight, or leave it.",
+      "since": "2026-09-03",
+      "id": "oracle-panels-look-tonight"
     },
     {
-      "what": "d-52, LOOK HALF ONLY: whether you want each section to carry its own deep-water tint - colder caves, a murkier late section. This gates NOTHING and has no deadline. The mechanism half was ruled act_wide (the hub, in your place, 2026-09-02): the authoring reproduces today's single tint exactly, nothing changes on screen, and the per-section capability stays available for the day you want it. Answering per_section opens a new authoring row; it does not reopen item 5.",
-      "since": "2026-09-02",
-      "id": "d-52-water-tint-scope"
+      "what": "Whether you are done at the screen - it changes what I am willing to run while you look.",
+      "since": "2026-09-03",
+      "id": "sitting-still-live"
     }
   ],
-  "nextBoundary": "When item 5 returns: merge it, then the poison half, then release sigil's binary freeze, then the paired freeze.",
+  "nextBoundary": "When the four-shape verification is green and master is pushed.",
   "queue": [
     {
-      "id": "EFFECTS-W1-VARIANTS-CYCLES",
-      "title": "DoD item 5: the generator learns the two authoring keys. Unblocked both ways - chain 197 cleared the byte-mover queue and the fixture value does not wait on d-51. At landing the SHA goes to aurora and the hub in one message.",
+      "id": "EFFECTS-W1-RAMP-TIER-DIVERGENCE",
+      "title": "The two raster tiers stopped agreeing on 2026-08-19 and nobody booked it. The cheap half of the test needs no new build.",
+      "state": "next",
+      "size": "M",
+      "blockedBy": null,
+      "project": "EFFECTS-W1"
+    },
+    {
+      "id": "EFFECTS-W1-REELS-LEFT-EDGE",
+      "title": "The reels overwrite the left-edge repair you asked for. Fix is small and held on your word - you said leave it visible.",
+      "state": "open",
+      "size": "S",
+      "blockedBy": null,
+      "project": "EFFECTS-W1"
+    },
+    {
+      "id": "EFFECTS-W1-EFFECTS-LAB",
+      "title": "START held + A cycles every section's whole look onto where you stand, with a glyph saying when one cannot show there. Built, unlanded.",
+      "state": "open",
+      "size": "M",
+      "blockedBy": null,
+      "project": "EFFECTS-W1"
+    },
+    {
+      "id": "EFFECTS-W1-WATERLINE-FG-ANCHOR",
+      "title": "The water line follows the camera, not the foreground you swim in. Re-anchoring it; the oscillation stays, which was your correction.",
+      "state": "open",
+      "size": "M",
+      "blockedBy": null,
+      "project": "EFFECTS-W1"
+    },
+    {
+      "id": "EFFECTS-W1-HYDROCITY",
+      "title": "Item 9. The item's own name is wrong - it is a scroll remap, not a tile remap - and it costs no video memory at all.",
       "state": "doing",
-      "size": "M",
-      "blockedBy": null,
-      "project": "EFFECTS-W1"
-    },
-    {
-      "id": "FG-LEFT-EDGE-GATE-UNRUN",
-      "title": "The left-edge gate was rewritten in chain 197 and its new declining arm has NEVER EXECUTED - agents cannot touch the emulator. Reviewed, not attested. Five foreground minutes with the emulator up.",
-      "state": "open",
-      "size": "S",
-      "blockedBy": null,
-      "project": "EFFECTS-W1"
-    },
-    {
-      "id": "D41-LOAD-FOR-OWNER-LOOK",
-      "title": "Captures are waiting whenever you want to look at the left-edge trade. Gates nothing since the per-scene switch landed.",
-      "state": "open",
-      "size": "S",
-      "blockedBy": null,
-      "project": "EFFECTS-W1"
-    },
-    {
-      "id": "EFFECTS-W1-DRIFT-ON",
-      "title": "Switch the drifting-cloud mechanism on and author one layer with it. The engine half landed already and is sitting inert. Byte-mover; unblocked now that chain 197 is attested.",
-      "state": "open",
-      "size": "M",
-      "blockedBy": null,
-      "project": "EFFECTS-W1"
-    },
-    {
-      "id": "EFFECTS-W1-MOVING-BANDS",
-      "title": "DoD item 4: bands whose edges move over time while the player stands still. Needs a design pass first - the anchor mover is new.",
-      "state": "open",
       "size": "L",
       "blockedBy": null,
-      "project": "EFFECTS-W1"
-    },
-    {
-      "id": "EFFECTS-W1-BGANIM-BAND-MOTION",
-      "title": "DoD item 8: vertical band motion for the animated background. The mechanism is live and driven today.",
-      "state": "open",
-      "size": "M",
-      "blockedBy": null,
-      "project": "EFFECTS-W1"
-    },
-    {
-      "id": "EFFECTS-W1-ROW-REMAP",
-      "title": "DoD item 9: Hydrocity-style background rows re-ordered from a table. You want it; sequenced last by your own preference.",
-      "state": "open",
-      "size": "L",
-      "blockedBy": null,
-      "project": "EFFECTS-W1"
-    },
-    {
-      "id": "EFFECTS-W1-VRAM-REPLAN",
-      "title": "Free a spare nametable region. Video memory is measured full to the top. Ruled to wait until the two set-piece items are reached, so nothing is stopped on it today.",
-      "state": "open",
-      "size": "L",
-      "blockedBy": null,
-      "project": "EFFECTS-W1"
-    },
-    {
-      "id": "EFFECTS-W1-PLANE-TRICKS",
-      "title": "DoD item 10: reels, swapping which plane is the background, and the window as a third layer.",
-      "state": "blocked",
-      "size": "L",
-      "blockedBy": "the VRAM re-plan - no spare nametable region exists",
-      "project": "EFFECTS-W1"
-    },
-    {
-      "id": "EFFECTS-W1-NAMETABLE-BASE",
-      "title": "DoD item 11: swapping the picture by register, mid-frame and per-frame.",
-      "state": "blocked",
-      "size": "L",
-      "blockedBy": "the VRAM re-plan - no spare nametable region exists",
       "project": "EFFECTS-W1"
     },
     {
       "id": "CANOPY-GAP",
-      "title": "DoD item 17, and not backgroundable by your ruling. Two code-read explanations are refuted, so the plan is to instrument for the next sighting rather than derive a third.",
+      "title": "NOT closed. His blank-strip sighting is still unexplained; the detector is fixed and clean everywhere it can see. Different thing from the canopy BAND he confirmed tonight.",
       "state": "open",
       "size": "S",
-      "blockedBy": null,
-      "project": "EFFECTS-W1"
-    },
-    {
-      "id": "BUG-LOOP-CROSSOVER",
-      "title": "An authored loop crossover reaches the file and never the ROM. This is what blocks loops working at all.",
-      "state": "open",
-      "size": "M",
-      "blockedBy": null,
-      "project": "EFFECTS-W1"
-    },
-    {
-      "id": "BUG-INSTASHIELD-RIDERS",
-      "title": "RULED and ready to build: Tails gets the came-from-a-jump gate, Knuckles is left alone, the second gate is not taken.",
-      "state": "open",
-      "size": "S",
-      "blockedBy": null,
-      "project": "EFFECTS-W1"
-    },
-    {
-      "id": "BUG-DMA-SPLIT-RESERVE",
-      "title": "The DMA split-reject reserve is sized from art volume rather than per-frame count. Measure before changing it.",
-      "state": "open",
-      "size": "M",
-      "blockedBy": null,
-      "project": "EFFECTS-W1"
-    },
-    {
-      "id": "SCENE-READOUT",
-      "title": "Nothing tells you which of the twenty effects is on screen - you counted button presses to find scene 13. A gap, not a preference.",
-      "state": "open",
-      "size": "M",
-      "blockedBy": null,
-      "project": "EFFECTS-W1"
-    },
-    {
-      "id": "DENSE-PERLINE-VSRAM",
-      "title": "Per-line vertical-scroll effects, the Batman pseudo-3D floors. You ruled it in. The dense tier it hangs off already exists.",
-      "state": "open",
-      "size": "L",
       "blockedBy": null,
       "project": "EFFECTS-W1"
     },
     {
       "id": "PAINTED-REGIONS-FINDINGS",
-      "title": "Fourteen defects a peer study found, verified and booked: ten real, one refuted, three already known. Fixing them is not started.",
+      "title": "NOT closed. Three code rows remain, the sharpest being a safety check that exists only in the development build, so the version that ships runs without it.",
       "state": "open",
       "size": "M",
-      "blockedBy": null,
-      "project": "EFFECTS-W1"
-    },
-    {
-      "id": "BLOCK-STREAM-DEDUP",
-      "title": "About 21 KB freed for no behaviour change. It moves the same art base the DPLC fix depends on, by four times that fix's margin - re-measure whichever lands second.",
-      "state": "open",
-      "size": "M",
-      "blockedBy": null,
-      "project": "EFFECTS-W1"
-    },
-    {
-      "id": "VARIANT-TWO-SLOT-COST",
-      "title": "The published palette cost figure is a ONE-SLOT number, and the variants key is the first thing that makes two-slot binding easy - so it understates the case the key introduces. Runtime capture; needs the emulator.",
-      "state": "open",
-      "size": "S",
       "blockedBy": null,
       "project": "EFFECTS-W1"
     },
     {
       "id": "QUEUE-REST-IN-ARCHIVE",
+      "title": "The rest of the board lives in docs/QUEUE-ARCHIVE.md, addressed by the same id.",
       "state": "open",
       "size": "M",
       "blockedBy": null,
-      "project": null,
-      "title": "Thirty further rows - the finished ones and the smaller live ones - live in docs/QUEUE-ARCHIVE.md with their full text, addressed by the same id. Also open there: EMP_PITFALLS.md still ends at 11 and owes sigil's 12 and 13."
+      "project": null
     }
   ],
-  "awaiting": null,
+  "awaiting": "whether you want oracle's thirty-second demo tonight, and whether you are done at the screen",
   "atBoundary": false,
-  "updatedAt": "2026-09-02T13:34:49Z",
-  "resume": "2026-09-02T09:47Z. LANDED AND PUSHED this session: the item-5 spec reconciliation, merge 04aa4fb4 + lane-log a41f0848 (docs only, zero ROM bytes) - section 4's heading was the thing that lied, the worked example's period is 9 not 8, and 3.4's first_mismatch recommendation is withdrawn with the probe's Q2-e verdict in its place. Every probe citation in it was verified against the probe doc firsthand before landing. RUNNING: parcel/left-edge-perscene, the first byte-mover of the new chain - it delivers a branch only; the merge, the four-shape re-verify, the paired sigil freeze and the attest are MINE, not the agent's. AUTHORITY FOR STARTING IT: the owner's own words are recorded in d-50's closure ('Feel free to make some decisions in the direction you generally know I want to go... but you're an expert as well. Best of best no shortcuts'), and the hub confirmed the pick at 09:42Z under that delegation. The owner has NOT personally answered this session. PEER STATE: sigil-d8 has chain 196 attested and is idle on aeon's account; aurora-5d is waiting on the generator half's landing SHA and expects their preset-lag row to go red as the unblock signal, not as a defect. TAGGED FOR A FOREGROUND EMULATOR SESSION: the two-slot variant cost re-derive (the published 19,332 is one-slot), Q9's cycling cost capture, and looking at the two switched scenes once the parcel lands. SIGIL_BUILD/SIGIL_EMIT are set by no dotfile - paste both export lines into every build brief.",
-  "parkedQuestions": [
-    {
-      "id": "d-16",
-      "note": "a real question, in the decisions ledger, but nothing in the current plan waits on it"
-    },
-    {
-      "id": "d-17",
-      "note": "a real question, in the decisions ledger, but nothing in the current plan waits on it"
-    },
-    {
-      "id": "d-23",
-      "note": "a real question, in the decisions ledger, but nothing in the current plan waits on it"
-    },
-    {
-      "id": "d-31-scoped",
-      "note": "a real question, in the decisions ledger, but nothing in the current plan waits on it"
-    },
-    {
-      "id": "d-33",
-      "note": "a real question, in the decisions ledger, but nothing in the current plan waits on it"
-    }
-  ]
+  "updatedAt": "2026-09-04T00:13:18Z",
+  "resume": "2026-09-03 late. ⚠ THIS FILE WAS A DAY STALE FOR ~40 MINUTES: I ran `git stash push docs/lane-status.json` before merging parcel/ramp-boundary-settle and never popped it, so the tree served the committed 09-02 copy while the owner was at the screen. The hub caught it off the console, not me. NEVER STASH THE STATUS FILE - write it fresh instead. lane-log.jsonl and decisions.jsonl were NOT touched (verified clean). MERGED LOCALLY, NOT PUSHED: 33e50207 = aurora's ramp witness + the boundary settle. Renamed aurora_local_rampctl_probe -> aurora_ramp_witness before push (it was a peer's SCRATCH id; aurora_local_* announces one-run lifetime and I committed it anyway). Four shapes + effects-gate ritual re-running after the rename. BUILT AND UNLANDED: parcel/effects-lab-one-section (START+A, whole-preset install, verdict glyph; START+UP/DOWN is NOT free - Debug_BandDemoHotkey owns it), parcel/sec6-baseswap-certify (tip 7b11f929), parcel/item10a-per-scene-rates (⚠ DO NOT MERGE until it preserves column-pair 19 - OJZ_Reels_Fill overwrites the shipped left-edge borrow). THE BIG OPEN FINDING: the ramp's write LANDING moved fire+1 -> fire+2 in a perf(raster) batch on 2026-08-19 (c44c80ad, c2f9cfcd, aa139c75, 3c82c0b3, a02b30e0, 727715f4). The SPARSE tier is still fire+1 with a green gate on the same core, so the two tiers agreed then and disagree now - UNBOOKED behaviour divergence, and the cycle story predicts the WRONG DIRECTION so the mechanism is not settled. Cheap test first: today's ROM on the legacy core. Old-tree build needs sigil at its 08-14 state in a PRIVATE CARGO_TARGET_DIR - a parcel, not a step. OWNER RULINGS TONIGHT: waterlines MAY oscillate (I over-corrected; keep the sweep, fix the anchor); effects lab in one section with a START chord is HIS design, chosen over three alternatives; he authorised cutting BG tiles for testing - UNSPENT, the 128-tile band_reserve covers Hydrocity and the art half is blocked on OJZ having no water art, not on space. HE CONFIRMED the vertical canopy band works on his own eyes - item 8's on-screen half is CLOSED. ⚠ AND A SECOND STATUS ERROR THE HUB CAUGHT, NOT ME: rewriting the queue from scratch DROPPED CANOPY-GAP and PAINTED-REGIONS-FINDINGS, two of the owner's four EFFECTS-W1 completion requirements. Neither is closed. A row removed without a word reads as lost. When rewriting this file, DIFF THE ROW IDS against the previous version rather than retyping the list."
 }

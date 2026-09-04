@@ -139,7 +139,7 @@ stops, not by where the difference stops.
 
 And the consequence an author meets: a run of `lines` values occupies screen lines
 `top+2 .. top+lines+1`, so the constructor's `top + lines <= 223` admits a VSRAM run whose LAST
-value displays on line **224** and is never seen. `aurora_local_rampctl_probe` authors 220 lines and
+value displays on line **224** and is never seen. `aurora_ramp_witness` authors 220 lines and
 **219 of them render**. The ceiling is not tightened — it exists for the frame-rewind interlock, and
 tightening it would refuse a document that already ships — so it is stated at the `ensure` instead.
 

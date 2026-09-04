@@ -9,12 +9,12 @@ certified — the owner's standing rule is that a landing shows on screen or in 
 THE SUBJECT IS A PRESET DOCUMENT, NAMED ON THE COMMAND LINE, and every expectation below
 is DERIVED FROM THAT DOCUMENT — never typed here. `--preset` defaults to the original
 subject, `ramp_probe` (top 128, lines 64, VSRAM addr 2, +1.5 px/line). The document that
-motivated the 2026-09-03 rewrite is `aurora_local_rampctl_probe`: authored in aurora's real
+motivated the 2026-09-03 rewrite is `aurora_ramp_witness`: authored in aurora's real
 editor panel (top 3, lines 220, addr 2, start 0, step -1.5), the first NEGATIVE step
 anything in this tree ever authored, and the run that found `raster_ramp_program` was
 never encoding one.
 
-    python3 tools/ramp_authored_witness.py --preset aurora_local_rampctl_probe
+    python3 tools/ramp_authored_witness.py --preset aurora_ramp_witness
 
 TWO HALVES, and the first one needs no emulator at all.
 

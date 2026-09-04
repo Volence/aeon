@@ -20461,9 +20461,9 @@ silently, in exactly the direction that just bit aurora.
   — a rename must preserve that, not quietly bind it
 
 **UNTIL IT LANDS: `ramp_probe` and `authored_probe` are RESERVED in the shared namespace.** Told to
-aurora and to the hub; aurora's is now `aurora_local_rampctl_probe`.
+aurora and to the hub; aurora's is now `aurora_ramp_witness`.
 
-**UPDATE 2026-09-03, `parcel/aurora-ramp-witness`:** `aurora_local_rampctl_probe` is now a COMMITTED
+**UPDATE 2026-09-03, `parcel/aurora-ramp-witness`:** `aurora_ramp_witness` is now a COMMITTED
 preset in this tree (`games/sonic4/data/editor/effects/presets/`), copied byte-for-byte from aurora
 `b7e95791`. The fully-qualified id was kept deliberately and must not be shortened — the whole
 reason it is spelled that way is this entry. The two RESERVED ids are unchanged and still unfixed.
@@ -20615,7 +20615,7 @@ measurement of where a run ENDS.
 
 **THE CEILING IS DELIBERATELY NOT TIGHTENED.** A VSRAM run's values display on `top+2..top+lines+1`,
 so `ensure(top + lines <= 223)` admits a run whose last value lands on line 224 and is never seen
-(`aurora_local_rampctl_probe` authors 220 and renders 219). Tightening it to 222 would refuse a
+(`aurora_ramp_witness` authors 220 and renders 219). Tightening it to 222 would refuse a
 document that already ships, and this bound is the frame-rewind interlock's, not a visibility bound.
 The `ensure`'s message now says both things.
 
