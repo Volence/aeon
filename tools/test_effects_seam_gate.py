@@ -179,7 +179,11 @@ class TestRasterCallSiteParse(unittest.TestCase):
         """`patched:` is the exclusive twin of `raster:`; a chooser threaded there is a
         different (and build-fatal) mistake, and this parse must not launder it into a
         raster binding the gate then reports as healthy."""
-        src = f"pub data P: EffectsPreset = preset(pal: A, patched: {self.FN}(sec: 5, hand: 0))\n"
+        # `hand: Raster_Program_None` and not `hand: 0`: a bare 0 in a `Label` argument
+        # does not assemble (measured 2026-09-04), and a fixture that spells an
+        # unbuildable call teaches the spelling every time someone reads the test.
+        src = (f"pub data P: EffectsPreset = preset(pal: A, "
+               f"patched: {self.FN}(sec: 5, hand: Raster_Program_None))\n")
         self.assertEqual(effects_seam_gate.raster_call_sites(src, self.FN), {})
 
 
