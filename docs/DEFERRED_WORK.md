@@ -2364,6 +2364,36 @@ previous statement was false is a field nobody was measuring.
 optimizer's output as the real remedy; raising the slot count spends RAM to hide a fixable data
 shape. Uncomment the `ensure` only once the data satisfies it, or it is a build that cannot build.
 
+## ⚠ THERE IS NO 1 MB ROM LIMIT — the bound is derived in `games/sonic4/map.toml`, and 0x100000 is an OBSERVATION (2026-09-04)
+
+Found by the **sigil lane** against a framing this lane had defended. `map.toml:216-223` derives the
+real bound from source: the bank id rides in an 8-bit register (`SndDrv_SetBank`) and the cartridge
+address space ends at `0x3FFFFF`, so banks can move anywhere up to **`0x3F8000 - 0x10000`**. The file
+names `0x100000` only to say today's ROM "ends well under" it. **It is where we happen to sit, not a
+wall.**
+
+**Where the wrong framing reached, and it is this lane's own:** `docs/decisions.jsonl`'s
+`relayout-magnitude` card (and its `-reopened` supersede) says in `options[0].costs` *"No cartridge
+cost: both sizes fit the same 1 MB device."* The conclusion survives — 819,125 B = `0xC7FB5` is far
+under the derived bound, so there is still no device cost — but the REASON is wrong, because it
+treats an observation as a threshold.
+
+**THE METHOD DEFECT IS THE PART TO KEEP.** The hub justified zero cost by a power-of-two pad to
+1 MB; this lane correctly refuted that (aeon does not pad — `padToPowerOfTwo` is legacy
+`sonic_hack`'s) and then **substituted its own unchecked reason and never re-derived it**. That is
+`OVERSEER.md`'s refuted-mechanism bar exactly: partitioning someone else's error into a wrong half
+and a sound half, where the "sound" half is the one you supplied and never tested. **A correction
+attached to a claim makes the claim more persuasive, not less**, which is what carried it.
+
+**THE LEDGER IS NOT REPAIRED, deliberately, and the write site is why.** A conforming rule-8c
+closure must reproduce the settled card's `question`/`options`/`recommend` IDENTICALLY, so a
+corrected `options[0].costs` cannot be expressed as one — `tools/decisions_append.py` refused it by
+name (*"8c: options[0].costs differs from the settled card's"*), which is the check working rather
+than failing. Rule 8 forbids rewriting the line. So the correction lives **here**, per this repo's
+own "a detail-only correction is banked in your docs and named in the lane log" rule, and the hub
+has been told in case they want to rule on a repair. **Quote this section, not the card, for the
+cost of the re-layout.**
+
 ### DMA SPLIT-REJECT NEEDS TWO FREE IMPORTANT SLOTS, AND NOTHING COUNTS PER-FRAME STRADDLES — booked 2026-08-29
 
 > **THE INSTRUMENT IS BUILT 2026-09-03** (`parcel/dma-straddle-counter`). **THE MEASUREMENT WAS
