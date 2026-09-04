@@ -17,7 +17,7 @@ Do not edit; edit the TOML and regenerate.
 | 1000-1015 | ring_placeholder | window | act | engine.objects.rings | sigil-D:VRAM_RING_PLACEHOLDER |  |
 | 1016-1019 | test_marker | window | mode | games.sonic4.player_common | VRAM_TEST_MARKER |  |
 | 1020-1023 | debug_readout | window | mode | games.sonic4.ojz_scroll_test | VRAM_DEBUG_READOUT |  |
-| 1024-1471 | bg_region | arena | act | engine.bg | engine-tiles:BG_TILE_CAPACITY, engine-bytebase:BG_TILE_BASE_VRAM | band_reserve: 70 (static budget 378) |
+| 1024-1471 | bg_region | arena | act | engine.bg | engine-tiles:BG_TILE_CAPACITY, engine-bytebase:BG_TILE_BASE_VRAM | band_reserve: 128 (static budget 320) |
 | 1472-1491 | sprite_table | table | boot | engine.system.buffers | engine-bytebase:VRAM_SPRITE_TABLE |  |
 | 1492-1500 | tails_appendage | window | act | games.sonic4.tails_appendage | VRAM_TAILS_APPENDAGE |  |
 | 1501-1503 | FREE |  |  |  |  |  |

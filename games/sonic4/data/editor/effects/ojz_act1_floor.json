@@ -23,7 +23,7 @@
       "dsb": 15,
       "fa": "FACTOR_1",
       "fb": "FACTOR_0",
-      "world_y": 424
+      "world_y": 440
     }
   ],
   "name": "OJZ act 1 perspective floor - boards fan from a fixed vanishing point; the rate ramps from zero at the horizon to full camera speed underfoot",

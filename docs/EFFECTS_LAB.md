@@ -82,7 +82,7 @@ cursor starts at 0 and your first press installs **1**, because you boot standin
 
 **What you are looking at.** The bottom of the screen becomes a wooden floor.
 Its boards splay out from a single vanishing point pinned to the **centre of the
-screen**, at about 60% of the way down (screen line 136): boards right of centre
+screen**, at about two thirds of the way down (screen line 152): boards right of centre
 lean right at the bottom, boards left of centre lean left, and the board sitting
 on the centre line runs straight down. Above the floor is a dark shadow band,
 and above that the jungle undergrowth and flowers.
@@ -94,12 +94,18 @@ between a board and a seam. That is a plank floor behaving correctly, not drift.
 
 **Now hold LEFT or RIGHT and watch the floor, not the jungle.** The boards
 nearest the bottom of the screen sweep past quickly; the boards up at the
-horizon barely move at all; every row in between moves at its own speed, one
-pixel more per line down the screen. Travel 88 pixels and the bottom row of the
-floor has slid a full 87 pixels while the horizon row has not moved at all. That
-gradient is the whole effect — **at a standstill this is just a picture of a
-floor.** It is the motion that makes it a floor receding away from you rather
-than wallpaper.
+horizon do not move at all; every row in between moves at its own speed, one
+pixel more per line down the screen. Cross one screen width — 320 pixels — and
+the bottom row of the floor has slid **316 pixels** relative to the horizon row,
+which has not moved a pixel. That gradient is the whole effect: **at a standstill
+this is just a picture of a floor.** The motion is what makes it a floor
+receding away from you rather than wallpaper.
+
+For scale, the depth showcase on preset 4 ramps its fastest layer from half
+camera speed to full — a 2x difference across its band. This one ramps from
+*zero* to full across 72 lines. It is the largest rate difference the scene
+vocabulary can express in one layer, chosen precisely because every effect
+reviewed this week was too subtle to see.
 
 **Fly up if the level's own ground is in the way.** The floor is on the
 BACKGROUND plane, so foreground terrain draws over it. The debug build boots
@@ -141,9 +147,9 @@ correct**: the floor binds no raster, water or cycle program, so the bar is the 
 answer to the question the glyph asks. What changed is that the question stopped being
 the useful one for that row. Row 8's "what it needs" column above is derived from the
 scene document and the art, not re-measured off a ROM — the numbers in it (screen line
-136 for the horizon, an 88-line span, 87 pixels of near-row travel per 88 of camera) come
-from `Vscroll_BG = v_offset = 288`, the layer top at plane line 424, and the curve
-arithmetic in `engine/level/parallax.emp`.
+152 for the horizon, a 72-line span, 316 pixels of relative slide per 320 of camera) come
+from `Vscroll_BG = v_offset = 288`, the layer top at plane line 440, and the curve
+arithmetic in `engine/level/parallax.emp`, re-derived arm by arm.
 
 ---
 

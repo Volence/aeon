@@ -323,9 +323,9 @@ def main():
                          "row's scroll factor is 0 and every row below it "
                          "scrolls in proportion; 20 (plane x 160) is therefore "
                          "the centre of a 320-px screen")
-    ap.add_argument("--lod-px", type=float, default=12.0,
+    ap.add_argument("--lod-px", type=float, default=20.0,
                     help="board pitch below which seams stop being drawn")
-    ap.add_argument("--horizon-row", type=int, default=53,
+    ap.add_argument("--horizon-row", type=int, default=55,
                     help="cell row carrying the vanishing point; rows above it "
                          "are the shadowed wall behind the floor")
     ap.add_argument("--sym", type=int, default=2, choices=(2, 4),

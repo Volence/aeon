@@ -186,7 +186,7 @@ owner = "engine.bg"
 kind = "arena"
 base = 1024
 tiles = 448
-band_reserve = 70                # tiles withheld from the STATIC BG importer
+band_reserve = 128               # tiles withheld from the STATIC BG importer
 lifetime = "act"                 # (tools/png_to_bg_override.py) so a BgAnim band
 authority = ["engine-tiles:BG_TILE_CAPACITY", "engine-bytebase:BG_TILE_BASE_VRAM"]
 # can be inserted later. `tiles` is a hard VRAM boundary ($8000..$B7FF; the SAT
@@ -237,32 +237,30 @@ authority = ["engine-tiles:BG_TILE_CAPACITY", "engine-bytebase:BG_TILE_BASE_VRAM
 # extra machinery. The evidence arrives at exactly the moment the decision
 # becomes answerable. Re-tune this line then — it is one edit plus a regenerate.
 #
-# 128 -> 70 (2026-09-03, the PERSPECTIVE FLOOR placeholder). MEASURED, and the
-# arithmetic is the whole justification:
+# HELD AT 128 THROUGH THE PERSPECTIVE FLOOR (2026-09-03), and the near miss is
+# worth recording because it is the reason the number did not move.
 #
-#   the shipped blob was 320 tiles, exactly the old budget (448 - 128)
-#   the floor needs                                              181 unique
-#     recycled from the slots its OWN band freed                 123
-#       (plane cell rows 48..63 were the undergrowth, and 48..55
-#        repeated verbatim at 56..63; 123 of their tiles were
-#        referenced by no other row, so overwriting the band
-#        hands them straight back — measured, not estimated)
-#     genuinely NEW, and therefore taken from this reserve        58
-#   blob 320 -> 378, and 378 = 448 - 70, which is why 70
+# The floor placeholder (tools/perspective_floor_gen.py) repaints plane cell rows
+# 48..63. Rows 48..55 repeated VERBATIM at 56..63, so 123 of that band's tiles
+# were referenced by no other row and come back when it is overwritten. The floor
+# was tuned until it fits inside them:
 #
-# So the reserve pays 58, not 181, and this line is lowered rather than left
-# stale BECAUSE the alternative was to let a 378-tile blob sit under a `320`
-# budget that no longer described it. tools/inject_editor_bg.py gates the final
-# blob on BG_TILE_CAPACITY (448) and NOT on this budget, so an over-budget
-# static import would have baked green and shipped with the contract silently
-# wrong — the same class of quiet drift as TOOL-01, arrived at from the other
-# side. Lowering the number is what keeps this file the placement authority.
+#   unique tiles the floor needs            121
+#   recycled from the band's own freed slots 121   (123 free, 2 left stranded)
+#   appended                                   0
+#   blob                              320 -> 320   -> this reserve is UNTOUCHED
 #
-# WHAT 70 STILL BUYS: one band of up to 70 tiles (e.g. 16x4 = 64, or 8x8).
-# What it no longer buys is the full-size 32x4 = 128 band the old number was
-# sized for. If that band is what the next art pass wants, the floor is a
-# PLACEHOLDER and reverting games/sonic4/data/editor_bg_override.json plus a
-# re-bake returns all 58 — see tools/perspective_floor_gen.py's header.
+# A FIRST CUT SPENT 58 OF THESE TILES AND WAS BACKED OUT, and not because of this
+# region: 58 tiles is 1,856 B of ROM, which pushed `Art_Sonic`'s end past the
+# DATA_GROWTH_RESERVE under `dac_banks` and failed tools/bganim_room.py on the
+# DEBUG shape. **Master's margin there is 252 B** (room 16,636 B against a 16,384 B
+# reserve), so on today's tree this VRAM reserve is NOT the binding constraint on
+# background art — ROM room under the bank anchors is, and it is two orders of
+# magnitude tighter. See docs/DEFERRED_WORK.md, the perspective-floor entry.
+#
+# So: 128 still buys the full 32x4 band it was sized for. Anyone spending it should
+# check tools/bganim_room.py FIRST, because 4 tiles of art is ~128 B and the ROM
+# margin is 252 B.
 
 [[region]]
 name = "sprite_table"

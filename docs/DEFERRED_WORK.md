@@ -21119,27 +21119,60 @@ An earlier lane reported `bg_region` full and the owner nearly authorised cuttin
 on the strength of it. **Both halves are true and they are different numbers.** The region
 is 448 tiles; the shipped blob was 320, which is EXACTLY the static importer's budget
 (`448 - band_reserve 128`) — so the *importer* was full while 128 tiles of the *region*
-were physically free. What this parcel spent:
+were physically free.
+
+What the floor actually costs is **nothing**:
 
 | | tiles |
 |---|---|
-| unique tiles the floor needs | 181 |
-| recycled from slots the floor's own band freed | 123 |
-| genuinely new, taken from `band_reserve` | 58 |
-| blob | 320 -> 378 |
-| `band_reserve` | 128 -> 70 |
+| unique tiles the floor needs | 121 |
+| recycled from slots the floor's own band freed | 121 (123 free, 2 stranded) |
+| appended | **0** |
+| blob | 320 -> 320 |
+| `band_reserve` | 128, **unchanged** |
 
 The 123 are real: plane cell rows 48..63 were the ground-level undergrowth, rows 48..55
 repeated **verbatim** at 56..63, and 123 of their tiles were referenced by no other row.
-`band_reserve` was lowered rather than left stale because `inject_editor_bg.py` gates the
-final blob on `BG_TILE_CAPACITY` (448) and **not** on the static budget — a 378-tile blob
-under a `320` budget would have baked green with the declared contract silently wrong, the
-same class of quiet drift as `docs/BUGS.md` TOOL-01 arrived at from the other side.
+Reverting `games/sonic4/data/editor_bg_override.json` and re-baking restores the
+undergrowth — the floor is a placeholder and was built to be undone in one file.
 
-**70 tiles still buys one BgAnim band of up to 70 slots (16x4 = 64, or 8x8). It no longer
-buys the full 32x4 = 128 band the old number was sized for.** Reverting
-`games/sonic4/data/editor_bg_override.json` and re-baking restores the undergrowth and
-returns all 58 — the floor is a placeholder and was built to be undone in one file.
+### RIDER 0, AND IT IS THE BIG ONE — THE ROM MARGIN UNDER `dac_banks` IS 252 BYTES ON MASTER
+
+**This constraint, not VRAM, is what sized the floor**, and it is about to block every
+content parcel, so it is booked first even though it is not this parcel's own work.
+
+A first cut of the floor was 181 tiles: 123 recycled plus **58 appended**, with
+`band_reserve` lowered 128 -> 70 to keep the declared contract honest. It built, and then
+`tools/bganim_room.py` failed the **DEBUG** shape. Measured, both arms:
+
+| | `Art_Sonic` end | room under `dac_banks` (0x90000) | vs `DATA_GROWTH_RESERVE` 16,384 B |
+|---|---|---|---|
+| master, s4.debug | 0x8BF04 | 16,636 B | **+252 B** — passes |
+| master, s4 (release) | — | 16,964 B | +580 B — passes |
+| 58-tile floor, s4.debug | 0x8C6C2 | 14,654 B | **-1,730 B — FAILS** |
+
+The delta is 1,982 B = 58 tiles x 32 B of BG art + 126 B of scene record. So **the debug
+shape had 252 bytes of headroom and the parcel needed 1,982.** The gate's own remedy is the
+documented one (`games/sonic4/map.toml`, BANK PLACEMENT RULE): move BOTH anchors to
+`dac_banks` 0x98000 / `sound_bank` 0xA8000 and refreeze sigil's frozen tables — **a paired
+aeon+sigil landing**, which is out of scope for a content parcel and is not something to do
+unilaterally. So the floor was retuned to 121 tiles instead, which appends nothing and moves
+only the 126-byte scene record, comfortably inside 252 B.
+
+**What this means for everyone else.** On today's master, ~250 bytes of added packed data
+in the debug shape is the entire budget. Four background tiles is 128 B. The next content
+parcel that adds a sprite, a band, a scene or a program of any size trips this gate, and the
+fix is the paired re-layout every time. **Somebody should do that re-layout deliberately,
+before it is discovered accidentally by a parcel that has already been reviewed.** Note the
+release shape has more room (580 B) than debug, so a parcel verified on `./build.sh` alone
+will pass and then fail on `DEBUG=1 ./build.sh` — check the debug shape first.
+
+The 121-tile floor is therefore a **constrained** floor, not the best one available: the
+181-tile version had a longer fan (horizon at screen line 136 rather than 152, 88 lines of
+floor rather than 72) and finer boards near the horizon. Both were rendered and compared;
+the 121 reads correctly. If the re-layout lands, re-running
+`tools/perspective_floor_gen.py --horizon-row 53 --lod-px 12` restores the larger one in one
+command, and costs 58 of the 128 reserve tiles.
 
 ### Two measured traps worth keeping, both baked into the generator as comments
 
@@ -21152,7 +21185,8 @@ returns all 58 — the floor is a placeholder and was built to be undone in one 
   different rows; the far half became blocky noise and cost 192 tiles across six cell
   rows. A hard on/off cutoff fixes both the picture and the budget.
 
-`--sym 4` would halve the cost again (181 -> 99) by adding the quarter-point mirror axes.
+`--sym 4` would roughly halve the cost again by adding the quarter-point mirror axes
+(measured 181 -> 99 on the larger configuration).
 It is **not** taken and should not be: it puts four vanishing points inside the 512-px
 plane, so a 320-px screen shows two or three of them and the picture reads as a hall of
 mirrors rather than one floor. Verified by rendering it.
