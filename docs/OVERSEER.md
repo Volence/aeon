@@ -37,6 +37,27 @@ one ruling that outranks the rest of this file. The same gap was found at oracle
 the same night. That is the failure this repo keeps re-finding in other forms: **a rule that
 lives only in a message is not in force for your successor.**
 
+**2026-09-02T17:17:18Z / 2026-09-03T04:24:58Z / 2026-09-03T05:21:01Z — THREE OWNER RULINGS THAT
+TOGETHER OVERRIDE THE `/overseer` SKILL'S BOOT STOP.** Banked here 2026-09-04 for the same reason
+as the ruling above: a `grep` of this repo's `docs/` found none of the three, so every aeon boot
+was learning them from the hub's relay. Read them at their carrying commits, never from a relay
+and never from this summary:
+
+```sh
+git -C ../empyrean show cdb72e9b:docs/OVERSEER.md | grep -n -A5 '17:17:18Z'   # keep pushing the list
+git -C ../empyrean show 61dfcaa8:docs/OVERSEER.md | grep -n -A6 'Turning on sleep mode'
+git -C ../empyrean show f04afe32:docs/OVERSEER.md | grep -n -A4 'tell the agents any time'
+```
+
+All three verified here as ancestors of empyrean `origin/main` and read firsthand out of those
+blobs. In force: (1) a lane that reaches a boundary does **not** stop for a go — it takes the next
+item on its list, unless that item waits on another lane or on an owner call, in which case it
+takes the next one that does not; (2) overnight under sleep mode the same holds, with an exhausted
+lane taking fallback project work (aeon's fallbacks: EFFECTS-W2, LOOPS-P, LIVE-OBJECTS); (3)
+**every** finish or stop — a landing, a boundary, a block, an owner question, an agent returning
+with nothing next — sends the hub one message saying what landed or why you stopped and what you
+need. Byte-movers still serialize behind the aeon/sigil chain, and look/taste calls still park.
+
 ## The queue
 
 > ### RESUME BRIEF FOR THE NEXT AEON SESSION (first written 2026-08-30T00:38Z; **partly superseded, revised 2026-08-30T09:07Z** — read the strikes, they are the point)
