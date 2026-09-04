@@ -2017,6 +2017,31 @@ class TestBaseSwapBandsAndPlanes(PresetShapeBase):
     """`base_swap` — a LIST of bands, each naming its own PLANE (EFFECTS-W1 T3, 2026-09-04),
     each with an optional `restore_line` OFF edge (F2).
 
+    PROVEN RED against the COMMITTED baseline (f7f527e2), three mutations, each shown on
+    disk with `git diff -U0` before its run and reversed afterwards with `git diff --stat`
+    empty; `__pycache__` cleared before every run; whole-run totals, never a tail:
+
+      * `_check_base_swap`'s `if plane not in BASE_SWAP_PLANES:` -> `if False:`
+            -> 1 failed, 348 passed, 1 skipped
+               (test_a_NON_PLANE_VdpBase_variant_is_refused_by_NAME). EXACTLY one arm, which
+               is the point: the closed set is a refusal nothing else in the tree makes, so
+               nothing else can notice its absence.
+      * `_check_base_swap`'s `if not isinstance(bands, list):` -> `if False:`
+            -> 1 failed, 348 passed, 1 skipped
+               (test_a_bare_object_is_refused_naming_the_list).
+      * `render_base_swap_preset`'s derived register, `vdp_reg({reg}, ...)` ->
+        `vdp_reg(VDP_PLANE_A_OFF, ...)` — both bands on Plane A's register, the exact
+        mis-pairing the derivation exists to prevent
+            -> 4 failed, 346 passed. Two are this class's
+               (test_the_REGISTER_is_derived_from_the_plane_never_authored and the
+               shipped-document pin) and two are the generated-module reproduction pins in
+               TestJsonValuesBecomeSymbolSafeTokens / TestPresetConverseControl, which
+               notice because the committed `effects_scenes.emp` no longer round-trips.
+               That second pair is a REAL independent catch, not a duplicate: it compares
+               against a file on disk rather than against a string in this test.
+
+    Re-run green after the last reversal: 349 passed, 1 skipped, 71 subtests.
+
     WHAT THE SHAPE IS FOR, because neither half says it alone. Without `restore_line` a band
     lowers to ONE `OP_SET_REG`, and one edge is not a band: nothing puts the register back
     until Flush_VDP_Shadow at the next frame top, so the swap runs from its line to the
