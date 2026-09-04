@@ -20781,6 +20781,38 @@ creates a document through the panel needs that row; this lane has not audited w
 
 ---
 
+## ⚠ RAMP BOUNDARY — THE CAUSE BELOW IS WITHDRAWN (2026-09-04): IT WAS THE EMULATOR
+
+**Measured on one ROM, one probe, both cores read through `emulator/screenshot` (the only capture
+both serve):** dense reads `top+1` on the legacy core and `top+2` on the Rust core; sparse reads
+`split+0` legacy and `split+1` Rust. **Both tiers shift exactly one line together, on the same
+bytes.** So everything below about a dense/sparse DIVERGENCE and about the **2026-08-19
+`perf(raster)` batch** is withdrawn: the tiers agree with each other on each core, and those six
+commits are exonerated along with item 6.
+
+**The confound: the 2026-08-14 captures came off the LEGACY core; the Rust core became the
+ratified default 2026-08-26.** Era and instrument changed together, so "then vs now" never
+compared engines.
+
+**My own "a uniform instrument shift is EXCLUDED" argument was circular** — it rested on
+`vsplit_landing_gate` being green on sparse, but that gate runs on the RUST core, so it compared
+sparse-on-Rust against dense-on-Rust and by construction cannot see a shift moving both tiers
+together. Offered as a control; it was the same instrument twice.
+
+**And do NOT read this as "the Rust core is right"** (oracle's ruling): the legacy core is
+disqualified because it disagrees WITH ITSELF (79-83 of 224 rows between identical boots), not
+because it is wrong on the landing; and the Rust core's mid-line CRAM/VSRAM timing is an INTERIM
+model in oracle's own recon, pinned against reg 10 rather than VSRAM/CRAM. **The landing line is
+not pinned in any instrument, and this project has no hardware.** A one-line gap between two
+scanline-granularity models is the signature of a model boundary, not a hardware disagreement.
+
+**UNAFFECTED:** the value->line rule (value `j` displays on `top+j+1`, `j` starting at 1, CRAM one
+line earlier) is source semantics, not a core comparison. See
+`docs/benchmarks/effects-p3/RAMP-CORE-VS-ROM.md`.
+
+**The text below is left UNEDITED. It recorded its own uncertainty correctly and even noted the
+capture-core change; a reader should see what a correct hedge looked like before it was settled.**
+
 ## RAMP BOUNDARY: SETTLED for the engine (2026-09-03) — one half stays open, and it is a DIFFERENT half
 
 **Discharged in the same parcel: the sign half.** `raster_ramp_program` never two's-complement
