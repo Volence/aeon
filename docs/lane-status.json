@@ -1,6 +1,12 @@
 {
-  "focus": "The loop takes the layer switch now, then stops dead on the ramp with speed to spare.",
-  "inFlight": [],
+  "focus": "Pricing the proper 3D-looking floor you asked for; the loop takes its layer switch now.",
+  "inFlight": [
+    {
+      "what": "Pricing what a real pseudo-3D floor needs, before building any of it",
+      "where": "agent, T2",
+      "agent": true
+    }
+  ],
   "blockedOnOwner": [
     {
       "what": "Whether to collapse the three START chords into one list",
@@ -11,7 +17,7 @@
       "since": "2026-09-04"
     }
   ],
-  "nextBoundary": "After the loop rides and the perspective floor is designed.",
+  "nextBoundary": "After the floor design comes back and you have picked from it.",
   "queue": [
     {
       "id": "T1",
@@ -24,7 +30,7 @@
     {
       "id": "T2",
       "title": "A real pseudo-3D floor, not the shallow V you saw",
-      "state": "next",
+      "state": "doing",
       "size": "L",
       "blockedBy": null,
       "project": "EFFECTS-W1"
@@ -64,5 +70,5 @@
   ],
   "awaiting": null,
   "atBoundary": true,
-  "updatedAt": "2026-09-04T22:43:23Z"
+  "updatedAt": "2026-09-04T22:47:14Z"
 }
