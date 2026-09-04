@@ -24943,3 +24943,29 @@ here and don't continue down the loop"* at the upper-left arc **is exactly that.
 both are correct. Still open on the running surface: `34FF` solidity-3 side faces at **cols
 150–151 rows 72/73** and **cols 152–154 rows 70/71**, untested because the hand-off stops him
 first.
+
+## ⚠ The headless input harness cannot sustain movement — every "stall" measured 2026-09-04 is suspect
+
+**The tell was invariance and it was visible two collision states before I acted on it: every
+drive stalled at x 1150, IDENTICALLY, across FOUR different collision states.** A constant
+that survives changing the thing under test is a confound, and this repo already has that
+rule written down.
+
+**Confirmed directly:** one sustained `emulator/press {"buttons":["right"],"frames":240}`
+advances the player **16 px** and then `ground_speed` reads **0** for the remaining ~210
+frames. The press is not held the way `Player_Main`'s input read needs.
+
+**Consequence: "he stalls at x N" was never established as a collision fact**, including the
+coordinate handed to aurora as evidence for the cols 144–145 side face. That fix was
+independently right by inspection — a side face on a running surface is wrong regardless —
+but the stall was not evidence for it.
+
+**Before any future drive claims a stall, the harness needs a positive control of its own:**
+drive across KNOWN-clear flat ground and assert the player reaches the far end. Without it a
+harness that cannot move the player and a level that blocks him are the same reading.
+
+**Working parts of the instrument, for whoever picks it up:** clear `Sst+$3C` (debug-fly) and
+assert a mid-air drop FALLS; move `Camera_X`/`Camera_Y` with the player or the collision
+cache will not cover him; read offsets from the listing's own equates (`SST_x_pos = $02`,
+`SST_y_pos = $06`, `SST_layer = $2D`, `SST_angle = $1F`); and spawn one instance PER drive —
+runs 2 and 3 of a shared instance inherited the first run's player state and never fell.
