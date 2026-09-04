@@ -2898,15 +2898,26 @@ proc Debug_BgAnimViewHotkey () clobbers(d0-d1/a0-a1) {
 //                                     ten-glyph font — the same numbering the act
 //                                     descriptor, the section markers and the owner
 //                                     all already use
-//   cell 1 (screen 20..27 x 28..35)   the VERDICT, one of three glyphs
+//   cell 1 (screen 20..27 x 28..35)   the VERDICT, one of FOUR glyphs
 //
 // ---- THE VERDICT IS THE POINT, AND HERE IS WHAT EACH GLYPH MEANS ----
 //
-//   bar  "-"    NOTHING IS BOUND. The preset carries no raster program, no patched
-//               program and no palette cycle — palette and parallax only. Sections 7
-//               and 8 are this. It is not a failure; it is the difference between
-//               "I can't see it" and "it isn't there", and a reviewer who cannot tell
-//               those apart will hunt for minutes. (The owner just did.)
+//   bar  "-"    NOTHING IS BOUND, IN ANY CHANNEL THIS GLYPH CAN SEE — and since
+//               2026-09-04 that includes the parallax channel (see the arrow below).
+//               The preset carries no raster program, no patched program and no
+//               palette cycle, AND the background scene the section resolves to is
+//               the act's own default. Section 7 is this; it is the control. It is
+//               not a failure; it is the difference between "I can't see it" and
+//               "it isn't there", and a reviewer who cannot tell those apart will
+//               hunt for minutes. (The owner just did.)
+//
+//   arrow "->"  PARALLAX, AND YOU HAVE TO MOVE. Nothing is bound in the three
+//               channels above, but this section resolves a background scene of its
+//               OWN — a `parallax_config` record that is not the act default — so
+//               the preset does change the picture, through the one channel that
+//               only expresses itself while the camera travels. Section 8 (the
+//               perspective floor) is exactly this: at a standstill it is a picture
+//               of a floor, and the recession only exists while you move.
 //
 //   X           BOUND BUT BLIND HERE. The preset installs a PATCHED program, whose
 //               boundaries are WORLD Y anchors rather than screen lines, and after
@@ -2927,6 +2938,62 @@ proc Debug_BgAnimViewHotkey () clobbers(d0-d1/a0-a1) {
 // with per-column vertical scroll off, a water boundary anchored off the top of the
 // screen — and the failure LOOKS EXACTLY LIKE a broken effect. "Selected but cannot
 // show here" is the single most valuable sentence a review tool can say.
+//
+// ---- WHY THE ARROW EXISTS: THE SAME DEFECT, INVERTED ----
+//
+// The three-glyph vocabulary was blind to the parallax channel, and on 2026-09-03 that
+// blindness produced the exact failure this readout exists to prevent, running the other
+// way: section 8's perspective floor filled the bottom third of the screen while the
+// glyph read the BAR — "nothing is bound". A reviewer trusting the glyph would skip the
+// one preset that had something new to show. Under-reporting a live effect is strictly
+// worse than the over-hunting the bar was invented to stop, because the reviewer never
+// even looks.
+//
+// ---- HOW THE PARALLAX TRUTH IS DERIVED, AND WHY IT CANNOT BE THE PRESET RECORD ----
+//
+// SECTIONS 7 AND 8 SHARE ONE `EffectsPreset` — both bind `OJZ_Preset_Plain`
+// (games/sonic4/data/levels/ojz/act1/act_descriptor.emp), whose `ep_parallax` is 0. The
+// ONLY thing that differs is `Sec.sec_parallax_config`, which section 8 carries and
+// section 7 does not. So reading `ep_parallax` off `a3` — the obvious spelling, and the
+// one the other three channels use — gives BOTH sections the same answer and cannot tell
+// the floor from the control. The question has to be asked of the SECTION.
+//
+// It is asked through `Effects_ResolveParallax` — the engine's ONE three-way resolution
+// (Sec.sec_parallax_config > ep_parallax > Act.act_parallax_config), the same proc
+// `Effects_InstallPreset` tail-calls to decide what actually gets installed. Reusing it
+// rather than re-implementing the ladder is what stops the glyph and the install drifting
+// apart; that pair already drifted once (2026-08-26, two sites reading different rungs),
+// and the fix was to make there be one site.
+//
+// The BASELINE it is compared against is `Act.act_parallax_config`, read from the live
+// act. NOTHING IS LISTED AND NOTHING IS NAMED: no section index appears in the test, so a
+// scene attached to or detached from any section moves the glyph with it, and an act with
+// different sections needs no edit here. A hand-written "presets 4 and 8 are parallax"
+// table would have been wrong the first time a sidecar changed.
+//
+// WHAT THE ARROW PROMISES: this section resolves a parallax_config that is not the act's
+// default, and the other three channels bind nothing.
+// WHAT IT DOES NOT PROMISE, and each of these is real:
+//   * That the scene LOOKS different from the act default. The test is record IDENTITY,
+//     not record contents — an authored scene whose numbers happen to match the default
+//     still reads the arrow. Nothing here reads a band.
+//   * That any of it is on screen. Background bands are anchored to PLANE lines, and the
+//     BG plane draws BEHIND the level's own terrain; the floor is invisible from ground
+//     level and needs debug free-flight. This is the parallax analogue of the X state,
+//     and it is deliberately NOT tested — a plane-line-to-screen-line answer would need
+//     the same latch machinery the patch channels have and the bands do not.
+//   * That anything moves while you stand still. The arrow is precisely the state that
+//     says it will not.
+//
+// PRECEDENCE — the arrow OUTRANKS NOTHING. It is a refinement of the bar and only the
+// bar: a preset that binds a raster program AND its own scene still reads the diamond,
+// and section 0's water still reads X even though it also installs the underwater scene.
+// One cell holds one glyph, and of the four the ranking is LIVE > BLIND > PARALLAX >
+// NONE, because that is descending actionability — "look now" beats "move up or down
+// until it flips" beats "travel sideways" beats "there is nothing here". The cost is
+// stated rather than hidden: on a preset that binds both, the parallax half is not
+// reported. Giving it its own cell is a VRAM allocation (a THIRD region — the free run
+// beside `debug_readout` is spent), not a free change.
 //
 // ---- WHAT THE VERDICT DOES NOT CLAIM, WHICH MATTERS MORE THAN WHAT IT DOES ----
 // It is a PRECONDITION test, not a proof of visibility. A diamond says the channel is
@@ -2968,12 +3035,16 @@ proc Debug_BgAnimViewHotkey () clobbers(d0-d1/a0-a1) {
 // the release CRC).
 //
 // In:  none (reads Debug_Preset_Index, Current_Act_Ptr, Effects_World_Y,
-//      Effects_Screen_L and the named preset's channels)
+//      Effects_Screen_L, the named preset's channels, and — through
+//      Effects_ResolveParallax — the named SECTION's resolved parallax config)
 // Out: the two glyph objects exist and the two VRAM cells are queued to show the
 //      section digit and the verdict
 // Clobbers: d0-d4, a0-a3 — d0-d4/a1-a2 is QueueDMA_Critical's declared set, d2/a1
 //      also RefreshSpritePieceCount's, a3 holds the EffectsPreset* across the verdict,
-//      and a0 is the SST cursor, then the anchor cursor, then the font base.
+//      and a0 is the SST cursor, then the anchor cursor OR the Sec* handed to
+//      Effects_ResolveParallax (the two verdict arms are exclusive), then the font
+//      base. a1 additionally parks the act-default config across that call, which is
+//      safe because the callee declares a0 alone.
 // -----------------------------------------------
 // Second row, 16 px under the scene readout's. Map_TestObj frame 2 is
 // `centered(half: 4, ...)`, so the object position is the CELL CENTRE: the digit
@@ -2988,9 +3059,15 @@ ensure(NUM_SYSTEM >= 4,
 equ DEBUG_PRESET_SST_SEC     = extern("System_Slots") + sizeof(Sst) * (NUM_SYSTEM - 4)
 equ DEBUG_PRESET_SST_VERDICT = extern("System_Slots") + sizeof(Sst) * (NUM_SYSTEM - 3)
 // The verdict glyph indices, which are also row numbers in `.verdict_font` below.
-const PRESET_VERDICT_NONE  = 0          // bar     — nothing bound
-const PRESET_VERDICT_BLIND = 1          // X       — bound, but off screen here
-const PRESET_VERDICT_LIVE  = 2          // diamond — bound and on screen
+// APPENDED, NEVER RENUMBERED: PARALLAX takes index 3 so the three existing rows keep
+// their bytes and their meaning. tools/test_preset_verdict_font_lint.py holds the count
+// of these constants to the number of rows in the sheet — the index is used raw as a
+// `lsl.w #5` table offset, so one more constant than row reads 32 bytes past the sheet
+// and DMAs whatever follows it in ROM into the glyph cell.
+const PRESET_VERDICT_NONE     = 0       // bar     — nothing bound, parallax channel included
+const PRESET_VERDICT_BLIND    = 1       // X       — bound, but off screen here
+const PRESET_VERDICT_LIVE     = 2       // diamond — bound and on screen
+const PRESET_VERDICT_PARALLAX = 3       // arrow   — its own background scene; MOVE to see it
 proc Debug_PresetReadout_Show () clobbers(d0-d4/a0-a3) {
     if DEBUG == 1 {
         // -- (1) make sure the two glyph objects exist --
@@ -3074,7 +3151,27 @@ proc Debug_PresetReadout_Show () clobbers(d0-d4/a0-a3) {
         bne     .verdict_live
         move.l  EffectsPreset.ep_cycle(a3), d1
         cmpi.l  #Pal_Cycle_None, d1
-        beq     .verdict_done                   // nothing bound: keep NONE
+        bne     .verdict_live
+
+        // -- THE PARALLAX CHANNEL, asked last and only here. See the header for why the
+        //    question is put to the SECTION rather than to the preset record (sections 7
+        //    and 8 share one EffectsPreset and differ only in Sec.sec_parallax_config),
+        //    and for exactly what the arrow does and does not promise.
+        //
+        //    a0 is STILL the Sec* resolved in step (2) — the patched arm is what
+        //    repurposes it, and this arm never runs after that one. a2 is still
+        //    Current_Act_Ptr. Effects_ResolveParallax declares a0 alone, so the baseline
+        //    parked in a1 survives the call; a1 is inside this proc's declared set.
+        //
+        //    The baseline is read BEFORE the call and not after, because the callee's own
+        //    act-default rung reloads Current_Act_Ptr into a0 — reading it afterwards
+        //    would be reading it out of a register the callee has already overwritten.
+        movea.l Act.act_parallax_config(a2), a1 // the act's own background: the baseline
+        jbsr    Effects_ResolveParallax         // a0 = Sec* in, parallax_config* out
+        cmpa.l  a1, a0
+        beq     .verdict_done                   // the act default: nothing bound at all
+        moveq   #PRESET_VERDICT_PARALLAX, d3
+        jbra    .verdict_done
     .verdict_live:
         moveq   #PRESET_VERDICT_LIVE, d3
     .verdict_done:
@@ -3107,15 +3204,22 @@ proc Debug_PresetReadout_Show () clobbers(d0-d4/a0-a3) {
         jbra    QueueDMA_Critical @discards(dropped)    // tail call (§2.8)
 
         // -----------------------------------------------
-        // .verdict_font — three 8x8 4bpp tiles, 32 bytes each, in
+        // .verdict_font — FOUR 8x8 4bpp tiles, 32 bytes each, in
         // PRESET_VERDICT_* order. Same form and same colour as the scene readout's
         // digit sheet: one hex nibble per pixel, left to right, colour index $C,
         // which on palette line 1 is the bright yellow the debug-fly marker uses.
         // The source IS the picture, for that sheet's stated reason.
         //
         // It lives INSIDE the `if DEBUG == 1` because a module-scope `data` item
-        // cannot be shape-gated in `.emp` (§1.7), and 96 release bytes for a debug
+        // cannot be shape-gated in `.emp` (§1.7), and 128 release bytes for a debug
         // glyph sheet is exactly what this parcel must not spend.
+        //
+        // THE ROW COUNT IS A GATE, not a comment: the verdict index reaches this sheet
+        // as a raw `lsl.w #5` offset, so a PRESET_VERDICT_* constant with no row here
+        // would DMA the 32 bytes that follow the sheet into the glyph cell — a garbage
+        // tile, on the readout whose whole job is to be trusted. tools/
+        // test_preset_verdict_font_lint.py counts both and fails the build's pytest
+        // lane when they disagree.
         // -----------------------------------------------
     .verdict_font:
         dc.l    $00000000, $00000000, $00000000, $0CCCCC00      // 0 — bar: nothing bound
@@ -3124,6 +3228,15 @@ proc Debug_PresetReadout_Show () clobbers(d0-d4/a0-a3) {
         dc.l    $000CC000, $00C00C00, $0C0000C0, $00000000
         dc.l    $00000000, $000CC000, $00CCCC00, $0CCCCCC0      // 2 — diamond: live
         dc.l    $0CCCCCC0, $00CCCC00, $000CC000, $00000000
+        // 3 — the MOVE arrow: its own background scene, and it only shows while you
+        // travel. A right-pointing arrow rather than another abstract mark, because the
+        // instruction ("go") IS the verdict, and because the two chords that satisfy it
+        // are LEFT and RIGHT on the same pad. Shaft on row 3 across columns 1-6, tip at
+        // column 6, barbs stepping back to column 4 — the same 6-px span and the same
+        // one-pixel margin the bar and the diamond keep, so the four glyphs read as one
+        // set at 8x8.
+        dc.l    $00000000, $0000C000, $00000C00, $0CCCCCC0
+        dc.l    $00000C00, $0000C000, $00000000, $00000000
     }
 }
 

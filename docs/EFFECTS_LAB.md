@@ -47,16 +47,34 @@ standing*:
 
 | Glyph | Means | What to do |
 |---|---|---|
-| **`-`** a bar | **Nothing is bound *in the three channels this glyph can see*.** No raster program, no water program, no palette cycle. | Usually: nothing is wrong and there is nothing to look for — press again. **But the glyph is blind to the parallax channel**, and a preset can install an entire authored background scene while still reading `-`. Section 8 is exactly that case. |
+| **`-`** a bar | **Nothing is bound, in any channel this glyph can see.** No raster program, no water program, no palette cycle — and the background scene is the act's own default, the same one you would be looking at anyway. | Nothing is wrong and there is nothing to look for. Press again. Section 7 is the deliberate example. |
+| **`→`** an arrow | **Parallax, and you have to move.** Nothing in the three channels above, but this section brings a **background scene of its own**. Parallax is a motion channel: standing still it is just a picture. | **Hold LEFT or RIGHT and watch the background.** Section 8, the perspective floor, is this. |
 | **`X`** | **Bound, but blind here.** The preset installs a *water-style* program whose boundaries are anchored to **world** positions, and right now every one of them is above or below the screen. | Move up or down until it flips to a diamond, or accept that this one has to be reviewed where it lives. |
 | **`◇`** a diamond | **Live.** Something is installed and it is on screen. | Look at it. |
 
 The verdict is worked out **at the moment you press**, against the camera as it stood then. If
 you then walk away, a diamond can go stale. Press again to re-ask.
 
-And it is a *precondition* test, not a promise: a diamond means the effect is installed and its
-boundary is on screen. It does not promise the effect is interesting, or that its colours differ
-from the art behind it.
+**One cell, one glyph — and the ranking is diamond, then X, then arrow, then bar.** They are in
+descending order of "what do I do next": *look now* beats *move up or down until it flips* beats
+*travel sideways* beats *there is nothing here*. So a preset that binds **both** a raster program
+and its own background scene shows you only the raster verdict — the diamond wins and the arrow
+is not reported. Section 0 is the live case: it always answers for its **water** (a diamond near
+the top of the act, an `X` anywhere else) and never mentions that it also installs its own
+underwater background. There is no second cell to put the other half in; the free tiles beside
+this readout are spent.
+
+**What each glyph does not promise.** It is a *precondition* test, not a proof that something is
+worth looking at.
+
+- A **diamond** means the effect is installed and its boundary is on screen. It does not promise
+  the effect is interesting, or that its colours differ from the art behind it.
+- An **arrow** means this section resolves a background scene that is *not the act default*, and
+  that the other three channels are empty. It does **not** promise the scene looks different from
+  the default (the test is "is it a different scene", not "does it look different"); it does
+  **not** promise you can see it — the background plane draws *behind* the level's own terrain,
+  so you may need debug free-flight to get above the ground; and it explicitly does **not**
+  promise anything moves while you stand still. That is the whole content of the arrow: move.
 
 ---
 
@@ -74,8 +92,8 @@ cursor starts at 0 and your first press installs **1**, because you boot standin
 | 4 | **The depth showcase** — the vertical-split program from this section's authored scene. | Nothing. |
 | 5 | The program section 5's editor sidecar binds (`$013C4C`, measured on the live ROM). | Nothing. |
 | 6 | **The mid-frame plane swap** — from screen line 3 down, the foreground draws the background's map. | Nothing. It covers nearly the whole screen. |
-| 7 | **Plain.** Palette and parallax only. | — reads `-`. Deliberately empty; it is the control. |
-| 8 | **The perspective floor.** A wooden floor whose boards fan out from a vanishing point, with the rows nearer you scrolling faster than the rows at the horizon. | Nothing to reach, but **you have to MOVE to see the point of it**, and it **reads `-`**. Both explained below. |
+| 7 | **Plain.** Palette and the act's own default background, nothing else. | — reads `-`. Deliberately empty; it is the control. |
+| 8 | **The perspective floor.** A wooden floor whose boards fan out from a vanishing point, with the rows nearer you scrolling faster than the rows at the horizon. | Nothing to reach, but **you have to MOVE to see the point of it** — which is exactly what it **reads the arrow** for. |
 
 ### 8 — the perspective floor, and how to actually see it
 
@@ -112,11 +130,16 @@ reviewed this week was too subtle to see.
 BACKGROUND plane, so foreground terrain draws over it. The debug build boots
 into free flight; get above the terrain and the floor fills the lower screen.
 
-**It reads `-`, and that is not the bar's usual meaning.** The verdict glyph only
-inspects the raster, water and palette-cycle channels; this preset binds none of
-them, because a background scene is a *parallax* config and the verdict cannot
-see that channel at all. So section 8 shows the bar while displaying something.
-Ignore the glyph here and look at the screen.
+**It reads the arrow, and the arrow is telling you to move.** Until 2026-09-04 this
+row read the **bar** — "nothing is bound" — while filling the bottom third of the
+screen with a floor, because the glyph inspected only the raster, water and
+palette-cycle channels and a background scene is a *parallax* config. That was the
+readout's own failure inverted: it under-reported a live effect, and a reviewer
+trusting it would have skipped this preset entirely. The glyph now asks the parallax
+channel too. Sections 7 and 8 share one preset record and differ **only** in the
+background scene the section itself binds, which is why the glyph has to ask the
+question of the section rather than of the preset — and why the bar and the arrow
+land on the right rows.
 
 **Two honest limits.** The splay is drawn into the art and cannot be otherwise —
 see below — so the boards do not re-project as you move; they slide, which is
@@ -143,14 +166,18 @@ its first water boundary landing on screen line 90 from a boot camera. Section 5
 up as empty on the strength of a source comment and is not — its sidecar binds a real
 program.
 
-That witness run predates section 8's floor scene, and its verdict for row 8 is **still
-correct**: the floor binds no raster, water or cycle program, so the bar is the honest
-answer to the question the glyph asks. What changed is that the question stopped being
-the useful one for that row. Row 8's "what it needs" column above is derived from the
-scene document and the art, not re-measured off a ROM — the numbers in it (screen line
-152 for the horizon, a 72-line span, 316 pixels of relative slide per 320 of camera) come
-from `Vscroll_BG = v_offset = 288`, the layer top at plane line 440, and the curve
-arithmetic in `engine/level/parallax.emp`, re-derived arm by arm.
+**Re-measured on 2026-09-04**, after the arrow landed, by the same instrument against the
+same act: 1-6 read the diamond, 7 reads the bar, **8 reads the arrow**, and 0 reads the
+diamond with its first water boundary on screen line 90 from a boot camera. The witness
+derives every expectation from the ROM's own records — including its own reimplementation
+of the section > preset > act resolve the arrow is decided by — so the run is two
+independent implementations agreeing, not the readout marking its own homework.
+
+Row 8's "what it needs" column above is derived from the scene document and the art, not
+measured off a ROM — the numbers in it (screen line 152 for the horizon, a 72-line span,
+316 pixels of relative slide per 320 of camera) come from `Vscroll_BG = v_offset = 288`,
+the layer top at plane line 440, and the curve arithmetic in `engine/level/parallax.emp`,
+re-derived arm by arm.
 
 ---
 
@@ -219,6 +246,11 @@ was invisible; it is 16 px now.
   hidden rather than mislabelled — the cycle clamps. Nothing in the tree is that size yet;
   giving the readout a second digit means a second VRAM region, because the free tiles beside
   it are now spent.
+- **The verdict is one cell, and that is a VRAM fact rather than a design one.** The two cells
+  at VRAM tiles 1022/1023 were the last free run beside `debug_readout`, and it is spent. The
+  arrow was made to fit by adding a **fourth glyph to the existing sheet**, not a third cell —
+  which is why the four verdicts rank against each other instead of being reported together.
+  Reporting two channels at once needs a new VRAM region.
 
 ---
 
@@ -228,6 +260,19 @@ was invisible; it is 16 px now.
 `Debug_PresetCycleHotkey`, `Debug_BgAnimViewHotkey`, and the two readouts. Each proc's header carries the argument for its
 chord and the enumeration of what was already taken. The glyph cells are
 `games/sonic4/vram.toml`, region `debug_readout`.
+
+Two gates keep this page honest. `tools/test_preset_verdict_font_lint.py` (build-fatal, in
+the build's pytest lane) holds the glyph sheet to the verdict constants, so a fifth state
+cannot ship without a fifth glyph. `tools/preset_lab_witness.py` boots a headless machine,
+presses the chord round the whole cycle and compares every painted tile against an
+expectation it derives from the ROM's own records:
+
+```
+python3 tools/preset_lab_witness.py --rom s4.debug.bin --lst s4.debug.lst
+```
+
+None of it exists in the release ROM: `s4.bin` is byte-identical with and without the whole
+lab, `EndOfRom` and the symbol set included.
 
 ---
 
