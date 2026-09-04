@@ -24489,3 +24489,93 @@ are unconditional because every one takes a real `hand:`, which stays true only 
 does. (b) The gate still cannot see a document bound to a section whose `preset()` is SHARED
 on the non-arm channels — `chooser_call_faults`' §3.3(b) owner check runs on the two arms
 only. No shipped preset is in that state (5 and 6 own theirs), so it is unmeasurable here.
+
+---
+
+# EFFECTS-W1 — the owner's 2026-09-04 lab list, in his words
+
+Six rows from his display session, banked verbatim. Order is the hub's dispatch order
+(F2, F4, F5, F3, F1, F6), which is his urgency, not this file's. **His words are quoted
+exactly, typos included** — a cleaned-up paraphrase is where an ask quietly becomes the
+thing we already built, which is the failure F2 below actually is.
+
+## F2 — the plane-swap band he cannot see. NOT A LANDING FAILURE.
+
+> "Also the band that's supposede to have the fg in the bg at the top, I don't see it."
+
+`8bf6df74` landed and both spellings really are at line 3 (`OJZ_BASE_SWAP_LINE = 3`;
+`ojz_sec6_baseswap.json` `"line": 3`). **Two candidate causes, neither yet captured:**
+
+1. **The program is ONE op with no paired OFF edge, by design** — `Flush_VDP_Shadow`
+   restores reg $02 at every frame top. So "swap at line 3" puts Plane B's nametable in
+   Plane A **from line 3 to the bottom: the whole screen**. Line 160 showed a boundary;
+   line 3 *deleted* it. Nothing to see, from a correct build.
+2. **Chord/shape.** `OJZ_BaseSwap` (START+UP row 1) is DEBUG-gated to zero words
+   (`OJZ_BASE_SWAP_EMIT_WORDS`), and `plane_base_swap_gate.py` asserts its absence from
+   release — **on `s4.bin` that chord is structurally empty**. The preset twin is not
+   gated: **START+A preset 6** emits in every shape.
+
+**What his words ask for is a band AT THE TOP**, which needs TWO fires (line 3 → Plane B,
+~line 64 → back to Plane A). `8bf6df74` read it as moving the swap *line* to the top.
+The "no paired OFF edge" clause governs the FRAME-TOP restore and does not forbid a
+mid-frame swap-back, so this is expressible today. **Capture before changing anything.**
+Rider: `ojz_effects.emp:1466` still says the preset is at line 160. Prose only.
+
+## F4 — an on-screen readout of the active effect
+
+> "can we get it to write out what it's supposed to be in oracle like start + left/right
+> does? This way I can relayy info back to the agent better."
+
+Name the active preset/scene/row on screen, in the shape START+LEFT/RIGHT already uses.
+**This is the row that makes every other row cheaper to diagnose** — F2 cost a source
+investigation that a readout would have answered in one glance. F6's scene announces here too.
+
+## F5 — collision + the swap on the section-0 loop
+
+> "we have a loop in section 0, anyy chance you can add collision to it and the swap so
+> we can test?"
+
+Loop collision plus the layer swap so the loop is actually traversable. Open: whether the
+two-way brush marks are an aurora authoring ask or an engine-side one. Engine half is ours
+either way.
+
+## F3 — the skew floor's vanishing point should track the screen
+
+> "The one after it with the skew floor perspective thing works but it doesn't
+> continuously move the point so the middle is always in the middle bottom of the screen,
+> this one should actually be screen based not coordinate basewd."
+
+`SceneSrc_DeformTable_Perspective = v_column_floor(center: 20, max_offset: 24)`
+(`ojz_scenes.emp:106`). **`center` is a fixed column constant baked into the deform
+table**, so the vanishing point rides the world, not the screen — exactly his "coordinate
+based". Tracking means deriving the centre from camera position per frame instead of
+baking it. Same direction as F1, and its first instance.
+
+## F1 — layout-space by default, screen-space only where inherently screen-based
+
+> "can we also stop doing most things from camera perspective/on screene and more on
+> layout perspective as most are done that way?"
+
+A standing rule, applied as each effect is touched rather than as a sweep. **Note the
+tension with F3 and state it rather than smoothing it**: F3 asks for the floor's centre to
+become MORE screen-based. These agree — F1 is about what an effect is ANCHORED to
+(world/layout), F3 about a vanishing point that is inherently a property of the viewport.
+An effect is screen-based only when it names a reason of that kind.
+
+## F6 — the animation bands become their own scene, not a property of every scene
+
+> "I just ddidn't want the experimental animation bands right now for this, they showed we
+> can do horizontal and vertical movement on a timer, but it was on for every test and
+> distracting. It should be its own scene with start + button and should be tested for
+> perspective vs timer, that's all"
+
+**This REPLACES the drop-`default_off`-vs-extend-it question; neither is right.** The bands
+are not a per-scene flag: they live only in their own scene, under a START+button chord
+like the other START+ scenes, off everywhere else, and that scene carries **both drivers,
+camera (perspective) and timer, comparable side by side or by a toggle he can find**.
+
+Mechanism: a scene-bound band table selected by the chord. Most of it exists —
+`default_off` already yields "off in every other scene" (count word = 0, no runtime
+branch), and `8bf6df74`'s DEBUG view twins already give two camera-driven views on C+A.
+**The missing pieces are a timer twin beside the camera one and the scene binding.** The
+20,480 ceiling (`7f16ae39`) is what leaves room for full-size bands here.
