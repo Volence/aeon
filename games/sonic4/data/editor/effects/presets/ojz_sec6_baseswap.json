@@ -1,10 +1,19 @@
 {
   "id": "ojz_sec6_baseswap",
-  "name": "OJZ act 1 section 6 - mid-frame nametable base swap (EFFECTS-W1 item 11a)",
+  "name": "OJZ act 1 section 6 - two mid-frame nametable base bands, roles inverted (EFFECTS-W1 item 11a / T3)",
   "schema": 1,
-  "base_swap": {
-    "line": 3,
-    "target": 57344,
-    "restore_line": 64
-  }
+  "base_swap": [
+    {
+      "plane": "PlaneB",
+      "line": 3,
+      "target": 49152,
+      "restore_line": 64
+    },
+    {
+      "plane": "PlaneA",
+      "line": 159,
+      "target": 57344,
+      "restore_line": 220
+    }
+  ]
 }

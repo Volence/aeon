@@ -13,7 +13,7 @@ module games.sonic4.ojz_effects in ojz_effects
 // `vdp_base_reg` / `VdpBase` join them for EFFECTS-W1 item 11a: OJZ_BaseSwap folds its
 // mid-frame reg $02 word through the SAME helper engine/system/boot_data.emp folds the
 // boot register table through, so the two cannot disagree about where a plane lives.
-use engine.vdp.{VdpTarget, VdpOp, vdp_comm, VdpBase, vdp_base_reg}
+use engine.vdp.{VdpTarget, VdpOp, vdp_comm, VdpBase, vdp_base_reg, vdp_reg, VDP_PLANE_A_OFF, VDP_PLANE_B_OFF}
 // The two plane bases item 11a's word is folded FROM. Named here rather than spelled as
 // literals so a re-layout moves the op instead of stranding it: engine.constants is the
 // engine-side truth and games/sonic4/config/constants.emp pins vram.toml against it.
@@ -572,22 +572,25 @@ pub data OJZ_BandDemo: [u16; OJZ_BAND_DEMO_EMIT_WORDS] = if DEBUG == 1 { raster_
 // moves the ops with it, and a base a register cannot encode fails the build by name
 // instead of pointing the VDP at `base - dropped` while every consumer writes `base`.
 //
-// THE $8400 PREFIX IS THE OTHER HALF OF THE FOLD AND IT IS NOT COSMETIC. `vdp_base_reg`
-// returns the register's BYTE; the caller supplies the register selector. Reg $04's
-// selector is $8400 and reg $02's is $8200 — pairing PlaneB's byte with $8200 would write
-// Plane A's register with a value shifted by 13 instead of 10, which is a legal-looking
-// word pointing at a base three bits away from anything. The guards below are what stop
-// that pairing from being expressible silently.
-const OJZ_BASE_SWAP_TOP_WORD = $8400 | vdp_base_reg(VdpBase.PlaneB, VRAM_PLANE_A)
+// THE REGISTER SELECTOR IS THE OTHER HALF OF THE FOLD AND IT IS NOT COSMETIC.
+// `vdp_base_reg` returns the register's BYTE; the caller supplies the register. Pairing
+// PlaneB's byte with Plane A's register would write reg $02 with a value shifted by 13
+// instead of 10 — a legal-looking $8xxx word pointing at a base three address bits away
+// from anything, invisible to everything downstream. So the selector is NOT a `$8200`/
+// `$8400` literal here either: `vdp_reg(VDP_PLANE_x_OFF, ...)` (engine/vdp.emp, the two
+// consts added for T3) puts the register and the `VdpBase` variant side by side at the
+// call site, where a mismatched pair can be seen. The guards below are what stop the
+// pairing from being expressible silently even so.
+const OJZ_BASE_SWAP_TOP_WORD = vdp_reg(VDP_PLANE_B_OFF, vdp_base_reg(VdpBase.PlaneB, VRAM_PLANE_A))
 // The word reg $04 carries at frame top, by the SAME fold from the SAME helper — the one
 // the VBlank flush restores, and the one boot_data.emp's VDP_REG_PLANE_B folds. It is the
 // TOP band's OFF-edge argument as well as the guard's other operand.
-const OJZ_BASE_SWAP_TOP_HOME = $8400 | vdp_base_reg(VdpBase.PlaneB, VRAM_PLANE_B)
+const OJZ_BASE_SWAP_TOP_HOME = vdp_reg(VDP_PLANE_B_OFF, vdp_base_reg(VdpBase.PlaneB, VRAM_PLANE_B))
 // The BOTTOM band: reg $02 borrows Plane B's nametable. F2's word, unchanged.
-const OJZ_BASE_SWAP_BOT_WORD = $8200 | vdp_base_reg(VdpBase.PlaneA, VRAM_PLANE_B)
+const OJZ_BASE_SWAP_BOT_WORD = vdp_reg(VDP_PLANE_A_OFF, vdp_base_reg(VdpBase.PlaneA, VRAM_PLANE_B))
 // The word Plane A carries at frame top, same fold, same helper — the BOTTOM band's OFF
 // edge, i.e. writing the flush's own word mid-frame is what closes the band.
-const OJZ_BASE_SWAP_BOT_HOME = $8200 | vdp_base_reg(VdpBase.PlaneA, VRAM_PLANE_A)
+const OJZ_BASE_SWAP_BOT_HOME = vdp_reg(VDP_PLANE_A_OFF, vdp_base_reg(VdpBase.PlaneA, VRAM_PLANE_A))
 // The guards that make each band a DEMONSTRATION rather than a no-op. If a plane's borrowed
 // base and its own base ever fold to the same register byte — because a re-layout moved one
 // of them, or because a shift changed — the ON op would write the base that register already
