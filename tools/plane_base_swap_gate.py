@@ -4,8 +4,17 @@
 EFFECTS-W1 DoD item 11a (`parcel/item11a-midframe-base`, 2026-09-03). One question:
 
     `OJZ_BaseSwap`, read out of THIS ROM at THIS listing's address, is a sparse raster
-    program whose single op is `OP_SET_REG` carrying the VDP word that re-points Plane
-    A's nametable base at the address Plane B's nametable actually occupies.
+    program of TWO `OP_SET_REG` ops: the first carries the VDP word that re-points Plane
+    A's nametable base at the address Plane B's nametable actually occupies, and the
+    second — at a later line — puts it back to Plane A's own. The pair is a BAND; the
+    first op alone is a swap that runs to the bottom of the display.
+
+⚠ THE SECOND OP JOINED 2026-09-04 (EFFECTS-W1 F2) AND THE GATE'S SUBJECT CHANGED WITH IT.
+This file used to derive an 11-word single-fire image and pass on it. That was a correct
+measurement of the wrong claim: it asked "are the words right" and never "is there a band",
+and the two came apart the moment the fire line moved to 3, where a single ON edge covers
+the WHOLE SCREEN and there is nothing to see. Deriving both edges is what makes the shape
+of the answer match the shape of the question.
 
 WHY A SOURCE-LEVEL CHECK CANNOT ANSWER IT, stated precisely so this is not a duplicate:
 
@@ -30,7 +39,8 @@ register-word arm an independent measurement rather than a restatement:
                                       engine/system/boot_data.emp derives reg $02 from
   * `OP_SET_REG`, `RASTER_ARM_PARK`,
     `RASTER_OPS_END`                  engine/effects/raster.emp
-  * the fire line                     games/sonic4/data/effects/ojz_effects.emp
+  * the two edge lines                games/sonic4/data/effects/ojz_effects.emp
+    (`OJZ_BASE_SWAP_LINE`, `OJZ_BASE_SWAP_END_LINE`)
 
 Change the fixture to write any other reg $02 word — including one that re-points Plane A
 at its OWN base, which is a silent no-op on screen — and the register arm goes red naming
@@ -42,12 +52,13 @@ shape, so an unconditionally-emitted program would be a dormant scaffold in the 
 owner ships — the defect `OJZ_BandDemo`'s own gate note in ojz_effects.emp records being
 made the wrong way round first. So:
 
-    --shape debug     the 11 words are present and exactly the derived image
+    --shape debug     the 15 words are present and exactly the derived image
     --shape release   the symbol emits ZERO bytes (its label collapses onto its
                       neighbour's address, exactly as OJZ_BandDemo's does)
 
 WHAT IT CANNOT SAY. This is a ROM-image check. It proves the op and its argument reach the
-ROM; it does NOT prove the VDP draws Plane B's map in the Plane-A layer at scanline 160.
+ROM; it does NOT prove the VDP draws Plane B's map in the Plane-A layer between the two
+edge lines.
 That needs an emulator, which this lane does not have, and it is TAGGED in the parcel's
 DEFERRED_WORK entry. Do not read a green here as the picture having been looked at.
 
@@ -133,15 +144,28 @@ def vdp_base_shift(base_name):
     return int(arm.group(1))
 
 
-def expected_words(line, plane_b, plane_a, shift, op_set_reg, park, ops_end):
-    """The 11-word image `raster_program([fire(line, [reg_set(word)])])` must emit.
+def expected_words(line, end_line, plane_b, plane_a, shift, op_set_reg, park, ops_end):
+    """The 15-word image `raster_program([fire(line, ...), fire(end_line, ...)])` emits.
 
-    A PURE FUNCTION over the seven derived facts, so the derivation can be exercised
+    A PURE FUNCTION over the eight derived facts, so the derivation can be exercised
     without a ROM at all (tools/test_plane_base_swap_gate.py). The framing is the sparse
-    tier's documented schedule — one header word, two priming records, the event record,
-    the terminator — and the two priming arms follow `raster_arm(i+1, i+2)`: record 0
-    schedules the gap to the event's FIRE line (screen line - 1), record 1 parks because
-    nothing follows the event.
+    tier's documented schedule — one header word, two priming records, ONE RECORD PER
+    EDGE, the terminator — and every arm follows `arm_at(L, i)` over the fire-line list
+    L = [0, 1, line - 1, end_line - 1]:
+
+        record 0 (priming)   $8A00 | (L[2] - L[1] - 1)  = the gap to the ON edge
+        record 1 (priming)   $8A00 | (L[3] - L[2] - 1)  = the gap from ON to OFF
+        record 2 (the ON edge)   park — i + 2 is past the end of L
+        record 3 (the OFF edge)  park
+
+    TWO EDGES IS THE SUBJECT, NOT AN IMPLEMENTATION DETAIL (EFFECTS-W1 F2, 2026-09-04).
+    Until then this derived an 11-word single-fire image, and that image was CORRECT for
+    the program in the ROM and still described something invisible: one OP_SET_REG has no
+    OFF edge, so at `line` 3 it re-pointed Plane A for the whole display and there was no
+    band to see. The gate went green on it, because "the words are right" and "the band
+    exists" are different claims and only the first one was ever being asked. The second
+    edge is what makes the interval finite, so the derivation is now shaped like a band:
+    an ON word, an OFF word, and an arm between them that names the distance.
     """
     word = 0x8200 | (plane_b >> shift)
     home = 0x8200 | (plane_a >> shift)
@@ -152,18 +176,34 @@ def expected_words(line, plane_b, plane_a, shift, op_set_reg, park, ops_end):
             f"`.emp` fixture refuses this by name too; seeing it here means that ensure is "
             f"no longer running")
     fire_line = line - 1                       # an effect on screen line M fires at M-1
+    end_fire_line = end_line - 1
+    if end_fire_line <= fire_line:
+        raise Unmeasurable(
+            f"the OFF edge (screen line {end_line}, fire line {end_fire_line}) does not "
+            f"follow the ON edge (screen line {line}, fire line {fire_line}). "
+            f"`fire_lines` refuses a non-ascending program by name, so this gate cannot "
+            f"be looking at a built ROM with these two constants — do NOT read it as a "
+            f"byte mismatch")
     arm0 = 0x8A00 | (fire_line - 1 - 1)        # raster_arm(1, fire_line)
+    arm1 = 0x8A00 | (end_fire_line - fire_line - 1)
     if not 0 <= (fire_line - 2) <= 255:
         raise Unmeasurable(
             f"screen line {line} gives a priming gap of {fire_line - 2}, which is not a "
             f"legal reg $0A reload — the fixture's line is outside the schedule this gate "
             f"models")
+    if not 0 <= (end_fire_line - fire_line - 1) <= 255:
+        raise Unmeasurable(
+            f"the ON->OFF gap is {end_fire_line - fire_line - 1} lines (screen lines "
+            f"{line} -> {end_line}), which is not a legal reg $0A reload — the band is "
+            f"wider than one reload of the schedule this gate models")
     return [
         0x0000,                 # pal_dirty_mask — a register op writes no CRAM
-        arm0, 0x0000,           # fire 0 — priming
-        park, 0x0000,           # fire 1 — priming; nothing after the event, so park
-        park, 0x0001,           # fire 2 — the event, one op
+        arm0, 0x0000,           # fire 0 — priming; schedules the ON edge
+        arm1, 0x0000,           # fire 1 — priming; schedules the gap ON -> OFF
+        park, 0x0001,           # fire 2 — the ON edge, one op
         op_set_reg, word,       # OP_SET_REG, then reg $02 <- Plane B's nametable
+        park, 0x0001,           # fire 3 — the OFF edge, one op
+        op_set_reg, home,       # OP_SET_REG, then reg $02 <- Plane A's own base again
         park, ops_end,          # terminator
     ]
 
@@ -264,8 +304,10 @@ def main():
         park = emp_const(RASTER, "RASTER_ARM_PARK")
         ops_end = emp_const(RASTER, "RASTER_OPS_END")
         line = emp_const(FIXTURE, "OJZ_BASE_SWAP_LINE")
+        end_line = emp_const(FIXTURE, "OJZ_BASE_SWAP_END_LINE")
 
-        want = expected_words(line, plane_b, plane_a, shift, op_set_reg, park, ops_end)
+        want = expected_words(line, end_line, plane_b, plane_a, shift, op_set_reg, park,
+                              ops_end)
         image_bytes = 2 * len(want)
 
         labels = lst_labels(lst_path)
@@ -277,8 +319,10 @@ def main():
         print(f"  derived: Plane A ${plane_a:04X} -> reg $02 ${0x8200 | (plane_a >> shift):04X}   "
               f"Plane B ${plane_b:04X} -> reg $02 ${0x8200 | (plane_b >> shift):04X}   "
               f"(vdp_base_shift PlaneA = {shift})")
-        print(f"  derived: OP_SET_REG {op_set_reg}, arm park ${park:04X}, ops end ${ops_end:04X}, "
-              f"screen line {line} (fire line {line - 1})")
+        print(f"  derived: OP_SET_REG {op_set_reg}, arm park ${park:04X}, ops end ${ops_end:04X}")
+        print(f"  derived: BAND screen lines {line}..{end_line} — ON edge at {line} "
+              f"(fire line {line - 1}), OFF edge at {end_line} (fire line {end_line - 1}), "
+              f"{end_line - line} line(s) wide")
         print(f"  {SYM} at ${addr:06X}, {NEXT_SYM} at ${nxt:06X} — {gap} byte(s) between")
 
         state = classify_gap(gap, image_bytes)
@@ -329,23 +373,44 @@ def main():
         # the image compare would blame "index 8" for what is really "the op points at the
         # wrong plane" — and because these are the two words the DoD row is about.
         if got[7] != op_set_reg:
-            print(f"        word 7 is the OPCODE and it is not OP_SET_REG ({op_set_reg}). "
-                  f"Item 11a IS the OP_SET_REG path — engine/effects/raster.emp's "
-                  f"`.op_set_reg` arm, whose whole argument is one `$8xxx` register word.")
+            print(f"        word 7 is the ON EDGE'S OPCODE and it is not OP_SET_REG "
+                  f"({op_set_reg}). Item 11a IS the OP_SET_REG path — "
+                  f"engine/effects/raster.emp's `.op_set_reg` arm, whose whole argument is "
+                  f"one `$8xxx` register word.")
         if got[8] != want[8]:
             decoded = (got[8] & 0xFF) << shift
-            print(f"        word 8 is the REGISTER WORD. ${got[8]:04X} re-points Plane A at "
-                  f"VRAM ${decoded:04X}; item 11a needs Plane B's nametable, "
+            print(f"        word 8 is the ON EDGE'S REGISTER WORD. ${got[8]:04X} re-points "
+                  f"Plane A at VRAM ${decoded:04X}; item 11a needs Plane B's nametable, "
                   f"${plane_b:04X}. If it decodes to ${plane_a:04X} the op writes the base "
                   f"Plane A already has and the band is invisible on screen while every "
                   f"other check here stays green.")
+        if got[11] != op_set_reg:
+            print(f"        word 11 is the OFF EDGE'S OPCODE and it is not OP_SET_REG "
+                  f"({op_set_reg}). Without a second OP_SET_REG there is no OFF edge, and "
+                  f"the swap runs from its line to the BOTTOM OF THE DISPLAY — which is "
+                  f"not a band. That is the exact program that shipped at 8bf6df74 and "
+                  f"that the owner reported he could not see.")
+        if got[12] != want[12]:
+            decoded = (got[12] & 0xFF) << shift
+            print(f"        word 12 is the OFF EDGE'S REGISTER WORD. ${got[12]:04X} "
+                  f"re-points Plane A at VRAM ${decoded:04X}; closing the band needs Plane "
+                  f"A's OWN nametable, ${plane_a:04X} — the word Flush_VDP_Shadow writes at "
+                  f"the next frame top. If it decodes to ${plane_b:04X} instead, BOTH edges "
+                  f"write the same base: the second op costs its cycles, changes nothing, "
+                  f"and the band still runs to the bottom of the screen.")
+        if got[8] == got[12]:
+            print(f"        BOTH EDGES CARRY THE SAME WORD (${got[8]:04X}). Whatever the "
+                  f"two words are, a band needs them to DIFFER — this program has an "
+                  f"interval with no boundary at either end of it.")
 
         if bad:
             print(f"plane_base_swap_gate: FAIL — {bad} of {len(want)} word(s) differ")
             return 1
-        print(f"plane_base_swap_gate: OK — the mid-frame base change is in this ROM: "
-              f"OP_SET_REG ${got[8]:04X} at screen line {line}, re-pointing Plane A at "
-              f"${plane_b:04X} (Plane B's nametable), restored by the VBlank shadow flush")
+        print(f"plane_base_swap_gate: OK — the mid-frame base BAND is in this ROM: "
+              f"OP_SET_REG ${got[8]:04X} at screen line {line} re-points Plane A at "
+              f"${plane_b:04X} (Plane B's nametable), and OP_SET_REG ${got[12]:04X} at "
+              f"screen line {end_line} puts it back to ${plane_a:04X} — a {end_line - line}"
+              f"-line band, closed mid-frame rather than at the VBlank shadow flush")
         return 0
 
     except Unmeasurable as e:

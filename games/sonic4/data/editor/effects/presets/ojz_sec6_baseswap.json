@@ -4,6 +4,7 @@
   "schema": 1,
   "base_swap": {
     "line": 3,
-    "target": 57344
+    "target": 57344,
+    "restore_line": 64
   }
 }
