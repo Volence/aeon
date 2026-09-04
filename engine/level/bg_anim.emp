@@ -172,14 +172,20 @@ pub proc BgAnim_Init () clobbers(d0/a0) {
 // Out: BgAnim_Table_Ptr = a0, every band's LastStep poisoned to the Init sentinel
 // Clobbers: d0
 // -----------------------------------------------
+// DEBUG-shape only: the body — the `rts` INCLUDED — sits inside `if DEBUG == 1 {}`, so
+// this proc emits ZERO bytes in the plain shape (the Debug_AssertObjLoop idiom,
+// engine/objects/core.emp). The `rts` was outside on the first draft and cost the release
+// shape TWO bytes, which moved every symbol after it and turned three committed gate cuts
+// stale for a routine nothing in that shape can call. A proc whose only caller is
+// DEBUG-gated must emit nothing, not almost nothing.
 pub proc BgAnim_SetTable (a0: u32) clobbers(d0) {
         if DEBUG == 1 {
                 move.l  a0, BgAnim_Table_Ptr    // (BgAnim_Table_Ptr).w
                 moveq   #-1, d0
                 move.l  d0, BgAnim_LastStep     // (BgAnim_LastStep).w
                 move.l  d0, BgAnim_LastStep + 4 // (BgAnim_LastStep+4).w
+                rts
         }
-        rts
 }
 
 // -----------------------------------------------

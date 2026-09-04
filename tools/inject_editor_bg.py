@@ -842,7 +842,7 @@ def main(act=None):
                     + ('  (default_off: the act boots with BG animation OFF)\n'
                        if len(live_bands) != len(bands) else '\n'))
 
-            def _emit_record(tag, b, i, driver, rate_shift):
+            def _emit_record(tag, b, i, driver, rate_shift, gated=False):
                 vram_dest = BG_TILE_BASE_VRAM + b['slot_base'] * 32
                 # The axis and its direction are named here because the record cannot
                 # carry them: `col_shift` and `step_mask` are units, and a reader of
@@ -852,31 +852,70 @@ def main(act=None):
                         f'driver {driver}, {b["axis"]} '
                         f'(scrolls {"left" if b["axis"] == "horizontal" else "up"}), '
                         f'1px per {1 << rate_shift} units\n')
-                f.write(f'data _BgAnim_{tag}{i}_hdr: [u16; 6] = '
-                        f'[{DRIVERS[driver]}, {rate_shift}, {b["step_mask"]}, '
-                        f'{b["col_shift"]}, {b["tile_count"]}, ${vram_dest:X}]\n')
+                hdr = (f'[{DRIVERS[driver]}, {rate_shift}, {b["step_mask"]}, '
+                       f'{b["col_shift"]}, {b["tile_count"]}, ${vram_dest:X}]')
+                if gated:
+                    f.write(f'data _BgAnim_{tag}{i}_hdr: [u16; BGANIM_VIEW_EMIT * 6] = '
+                            f'if DEBUG == 1 {{ {hdr} }} else {{ [] }}\n')
+                else:
+                    f.write(f'data _BgAnim_{tag}{i}_hdr: [u16; 6] = {hdr}\n')
                 # extern("BgAnim_Banks"), NOT a bare `BgAnim_Banks` — see the
                 # spelling note at :151. tools/test_bg_emit.py::TestBgAnimEmission
                 # is the gate on this line.
                 banks_list = ', '.join(f'extern("BgAnim_Banks") + {off}'
                                        for off in b['bank_offsets'])
-                f.write(f'data _BgAnim_{tag}{i}_banks: [*u8; 8] = [{banks_list}]\n')
+                if gated:
+                    f.write(f'data _BgAnim_{tag}{i}_banks: [*u8; BGANIM_VIEW_EMIT * 8] = '
+                            f'if DEBUG == 1 {{ [{banks_list}] }} else {{ [] }}\n')
+                else:
+                    f.write(f'data _BgAnim_{tag}{i}_banks: [*u8; 8] = [{banks_list}]\n')
 
             for i, b in enumerate(bands):
                 _emit_record('Band', b, i, b['driver_name'], b['rate_shift'])
 
             # ---- the DEBUG view twins (see the `default_off` block above) ----
+            #
+            # EVERY DECLARATION IS SHAPE-GATED, and that is not tidiness. The only
+            # installer is `Debug_BgAnimViewHotkey`, whose whole body is inside
+            # `if DEBUG == 1 {}`; an unconditional emission would put 92 bytes of band
+            # table in the SHIPPED ROM that nothing in that shape can point the walk at
+            # -- the dormant scaffold this tree deletes rather than keeps "for later",
+            # and the same ruling `OJZ_BaseSwap`'s own emission gate records. It also
+            # moved every release symbol after it by 92 bytes on the first draft, which
+            # turned three committed gate cuts stale for data the release cannot reach.
+            #
+            # THE IDIOM IS THE TREE'S OWN: a conditional ARRAY LENGTH plus an empty
+            # literal (`games/sonic4/data/effects/ojz_effects.emp`, OJZ_BandDemo and
+            # OJZ_BaseSwap). It has to be spelled per declaration because a band table is
+            # three declarations -- a count word, a `[u16; 6]` header and a `[*u8; 8]`
+            # pointer array -- and the pointer array cannot be folded into the others:
+            # its entries are LINK-TIME `extern()` relocations, not values this tool can
+            # split into words.
+            #
+            # WHAT IS **NOT** GATED, deliberately, and it is the bigger number: the act's
+            # own band records and the 8 KB `BgAnim_Banks` blob below stay unconditional.
+            # They are ACT DATA that predates this parcel -- all this parcel did to them
+            # is turn one count word from 1 to 0 -- and making them shape-divergent would
+            # shrink the release `ojz_bg_anim` section from ~8.3 KB to 2 B, i.e. an 8 KB
+            # release re-layout with the frozen placement tables to re-rule. That is a
+            # separate parcel and is booked in docs/DEFERRED_WORK.md rather than done
+            # here on the way past.
             if n_views:
                 b = bands[0]
-                f.write('\n// The effects lab\'s two BG-animation views. Same band, same\n'
+                f.write("\n// The effects lab's two BG-animation views. Same band, same\n"
                         '// bank blob, same slots — they differ ONLY in which scalar the\n'
                         '// step is read from and how fast. Reached through\n'
-                        '// BgAnim_SetTable (engine/level/bg_anim.emp), DEBUG shape only;\n'
-                        '// nothing in the release ROM can point the walk at them.\n')
-                f.write('pub data BgAnim_View_H: u16 = 1   // horizontal camera motion\n')
-                _emit_record('ViewH', b, 0, b['driver_name'], b['rate_shift'])
-                f.write('pub data BgAnim_View_V: u16 = 1   // vertical camera motion\n')
-                _emit_record('ViewV', b, 0, BGANIM_VIEW_V_DRIVER, BGANIM_VIEW_V_RATE_SHIFT)
+                        '// BgAnim_SetTable (engine/level/bg_anim.emp), DEBUG shape only:\n'
+                        '// every declaration below emits ZERO bytes in the plain shape,\n'
+                        '// where nothing can point the walk at them.\n')
+                f.write('const BGANIM_VIEW_EMIT = if DEBUG == 1 { 1 } else { 0 }\n')
+                f.write('pub data BgAnim_View_H: [u16; BGANIM_VIEW_EMIT] = '
+                        'if DEBUG == 1 { [1] } else { [] }   // horizontal camera motion\n')
+                _emit_record('ViewH', b, 0, b['driver_name'], b['rate_shift'], gated=True)
+                f.write('pub data BgAnim_View_V: [u16; BGANIM_VIEW_EMIT] = '
+                        'if DEBUG == 1 { [1] } else { [] }   // vertical camera motion\n')
+                _emit_record('ViewV', b, 0, BGANIM_VIEW_V_DRIVER,
+                             BGANIM_VIEW_V_RATE_SHIFT, gated=True)
             f.write(f'pub data BgAnim_Banks = embed("{act.banks_embed}")\n')
         assert section_bytes == bganim_section_bytes(
                 len(bands), sum(b['tile_count'] for b in bands), n_views=n_views), (
