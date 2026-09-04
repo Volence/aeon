@@ -28,6 +28,14 @@ THE THREE INVARIANTS, and each is a correctness property rather than a style one
 Plus the SHAPE: the emitted table must be exactly (H+1) rows of H bytes, with H derived from
 the height shift authored on the band record — never typed here.
 
+AND, SINCE 2026-09-04 (parcel 9b), MODEL AGREEMENT. The three invariants are satisfied by
+MANY tables — the identity satisfies all three — so they say the emitted bytes are SAFE and
+cannot say they are THIS MODEL. That arm re-derives the whole table from
+`tools/row_remap_ladder_gen.py` at the H the record declares and compares. It is not a byte
+pin: nothing checked in is being matched, the table is recomputed from the parameterised
+model that `engine/level/parallax_dsl.emp`'s `row_remap_ladder16()` is one instantiation of.
+Two spellings of one model are two models unless something holds them together.
+
 AND, SINCE 2026-09-03, THE VISIBILITY ARM — because "the mechanism is live" was not the bar
 and had never been the bar. Parcel 9a shipped gated five ways, separating from its own flat
 control on 12 of 12 samples, and the owner looked at the screen and said "I don't see the
@@ -225,6 +233,35 @@ def ladder_symbols(syms: dict) -> list[str]:
     return sorted(n for n in syms if n.startswith("RowRemapLadder_"))
 
 
+def generator_ladder(H: int) -> bytes:
+    """The ladder `tools/row_remap_ladder_gen.py` produces at this H (parcel 9b).
+
+    ⚠ THIS IS NOT A BYTE PIN AND THE DIFFERENCE MATTERS. A pin would be a checked-in blob
+    that goes red on any deliberate change to H or to the model and never says which. This
+    RE-DERIVES the table from the parameterised generator and holds the linked image against
+    it, so it is an AGREEMENT between the model's two spellings: `row_remap_ladder16()`, the
+    `.emp` comptime fn that ships (fixed H, because an `.emp` fn must return a concrete array
+    type), and `row_remap_ladder_gen.py`, the same model with H as an argument. Two spellings
+    of one model is two models unless something checks. Change the model on purpose and BOTH
+    sides move together; change one and this is the arm that notices.
+
+    A MISSING GENERATOR IS UNMEASURABLE, never a skip — same rule as everything else here."""
+    path = os.path.join(REPO, "tools/row_remap_ladder_gen.py")
+    if not os.path.isfile(path):
+        raise Unmeasurable(
+            f"{path} does not exist — the ROM's ladder cannot be held against the model it is "
+            f"supposed to be an instantiation of (EFFECTS-W1 item 9b).")
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("row_remap_ladder_gen", path)
+    mod = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(mod)
+        return mod.ladder(H)
+    except Exception as exc:
+        raise Unmeasurable(f"tools/row_remap_ladder_gen.py could not produce a ladder at "
+                           f"H={H}: {exc}")
+
+
 def check_ladder(rom: bytes, addr: int, hshift: int, name: str, out: list) -> list:
     H = 1 << hshift
     rows = H + 1
@@ -266,6 +303,26 @@ def check_ladder(rom: bytes, addr: int, hshift: int, name: str, out: list) -> li
                f"(identity would be {list(range(H - 8, H))})")
     out.append(f"      row {rows - 1} (|p| = 0): {list(rom[addr + (rows - 1) * H + H - 8:addr + rows * H])}  "
                f"(the identity, by construction)")
+
+    # ---- THE MODEL-AGREEMENT ARM (parcel 9b, 2026-09-04) ----
+    # The three invariants above are satisfied by MANY tables — the identity satisfies all
+    # three, and so does any other monotone forward permute inside the bound. They say the
+    # emitted bytes are SAFE; they cannot say the emitted bytes are THIS MODEL. This arm does,
+    # by re-deriving the table at the H the record declares and comparing.
+    linked = list(rom[addr:addr + need])
+    want = list(generator_ladder(H))
+    if linked != want:
+        first = next(i for i in range(need) if linked[i] != want[i])
+        bad.append(
+            f"{name}: the linked table and tools/row_remap_ladder_gen.py at H={H} DISAGREE. "
+            f"First difference at flat index {first} (row {first // H}, line {first % H}): "
+            f"ROM has {linked[first]}, the generator derives {want[first]}; "
+            f"{sum(1 for a, b in zip(linked, want) if a != b)} of {need} bytes differ. "
+            f"engine/level/parallax_dsl.emp's row_remap_ladder16() and the generator are two "
+            f"spellings of ONE model — if they have separated, one of them was edited alone.")
+    else:
+        out.append(f"      agrees byte-for-byte with tools/row_remap_ladder_gen.py at H={H} "
+                   f"({need} B re-derived, not pinned)")
     return bad
 
 
@@ -410,7 +467,15 @@ def main() -> int:
             continue
         h = hs.pop()
         seen_h[n] = h
-        problems += check_ladder(rom, syms[n] & 0xFFFFFF, h, n, report)
+        try:
+            problems += check_ladder(rom, syms[n] & 0xFFFFFF, h, n, report)
+        except Unmeasurable as e:
+            # The model-agreement arm's only failure mode that is not a real disagreement:
+            # the generator is gone or unimportable. Loud, and NOT a pass.
+            for line in report:
+                print(line)
+            print(f"row_remap_gate: UNMEASURABLE — {e}")
+            return EXIT_UNMEASURABLE
 
     report.append("  remapped bands, and WHERE THEY ARE BOUND (design §9.2 step 3, informational):")
     for t in tails:
@@ -467,7 +532,8 @@ def main() -> int:
             print("  - " + p)
         return EXIT_FAIL
     print(f"row_remap_gate: OK — {len(names)} ladder(s), {len(tails)} remapped band(s), all "
-          f"three invariants hold on the emitted bytes")
+          f"three invariants hold on the emitted bytes, and each table agrees with "
+          f"tools/row_remap_ladder_gen.py re-derived at its own declared H")
     return EXIT_OK
 
 

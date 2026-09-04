@@ -17778,7 +17778,7 @@ Item 2 is the only one that does not.
 | 6 | Dense per-line VSRAM | **L** | yes, but **zero bytes moved for sonic4, one 22-byte leaf elided from demo** | **DONE 2026-09-03, `parcel/item6-dense-perline-vsram`.** The mechanism was NOT greenfield — `OP_RUN_RAMP` / `raster_ramp_program` (engine/effects/raster.emp) shipped 2026-08-14, two weeks before this DoD item was even written, and already writes a computed per-line value to VSRAM; the booking's "what does not exist" line was stale the day it was written. What this parcel closed: **`CAP_DENSE_TIER`** promoted at its derived next-free value ($0200), gating both an authoring-time `ensure` (a game must declare the bit before constructing a `RasterRampProgram` at all) AND one minimal §8.2 bracket — `.op_run_ramp`'s 5-instruction ENTER body only, a dispatch LEAF that never touches `Raster_HInt`'s opcode compare chain or `.ramp_body` (both stay byte-identical/unconditional in every game — the dispatch chain's cost model prices every op's depth as a function of opcode value alone, and eliding a compare pair there would silently move `OP_PAL_RESTORE`'s price); and the **HBlank budget check** the DoD asked for — `RASTER_DENSE_LINE_RAMP_CYC = 304` (measured, `tools/raster_cost_probe.py`'s new FR1/FR2 pair), 304 of 488 cycles, 62.3% headroom. **Not over budget**, so per the hub's 2026-09-02T20:25:12Z ruling the dense-tier reserved stream register card is NOT raised by this parcel — the conservative model ships, unchanged. **A side effect worth knowing about:** the new bracket is the FIRST ever placed inside `Raster_HInt`, and it exposed a genuine blind spot in `tools/demo_specialization_witness.py`'s automatic differential (a data table, `SfxBlobWinTab`, sits 21 bytes after `Raster_HInt` in sonic4's ROM, making head-to-next-head measure the wrong thing for that one proc) — fixed with a narrow, measured, documented exclusion (`PROC_SIZE_RIDER_BLIND_PROCS`) from the DERIVED check only, never from the SPAN half that actually proves the gate works. See the item-6 block below for the full accounting, the red-first proof, and both `EndOfRom` endpoints. |
 | 7 | Vertical bob | **S-M** | yes, paired | ~~**BUILT — `parcel/vertical-bob`, 2026-08-30, unlanded.**~~ **LANDED — merged `8c75722b`, verified ancestor of `master` 2026-09-04; this row said `unlanded` for five days.** A scene-level term on `Parallax_Step5_Vscroll`'s `.v_pack`. 40 bytes of code, ZERO config bytes (the packed nibble pair claimed `pcfg_pad_29`), EndOfRom unmoved in all four shapes. Riders booked below. |
 | 8 | BgAnim vertical band motion | **M** | **no — zero ROM bytes** | **ENGINE HALF DONE 2026-09-02, `parcel/bganim-band-motion`; the ON-SCREEN half is BLOCKED and the reason is measured** — see the item-8 block below. The pricing was written on the belief that a vertical shift needed a different DMA shape; it does not, `BgAnim_Update` was always axis-agnostic, and the parcel moves no engine byte at all. So this row does NOT pair with sigil. |
-| 9 | Hydrocity row remap | **L** | **9a LANDED 2026-09-03** · 9b/9c data only | **9a BUILT — `parcel/hcz-row-remap-9a`; +261/+263/+5/+17 bytes over the four shapes, mechanism proved separable at zero code bytes, ladder H=16 because the DEBUG shape has only ~558 B of packed-data headroom. See the item-9 landing block.** Designed 2026-09-03, `design/hydrocity-row-remap`. `docs/superpowers/specs/2026-09-03-hydrocity-row-remap-design.md`. **The row's own two claims are both corrected by the primary source.** (1) **It is not a nametable remap.** S3K's HCZ waterline writes ZERO nametable words and ZERO VSRAM: it is a per-line **HScroll table** row remap built in the game loop (`HCZ1_Deform`, `skdisasm/sonic3k.asm:105849-105876`) plus a tile-**art** row gather DMAd into a FIXED tile run (`loc_27888`, `:53981`), both indexing one 97×96 byte ladder by the same published quantity. (2) **"Zone-specific" is refuted by S3K itself** — `LBZ2_Deform` (`:111674`) runs the identical three-instruction kernel at band height `$40` instead of `$60` with its own `(H+1)×H` table (4,160 B = 65×64). Two zones, two parameterisations, one mechanism. **It costs ZERO HBlank cycles** — the 488-cycle scanline budget the DoD asked it to be priced against is not the budget it spends; family A is a seventh specialised loop inside `Parallax_Fill_PerLine` plus a fourth capability-selected `band_record` tail, derived at ~56 cyc/line = **4.2% of the 128,000-cycle frame** at S3K's 96-line height, and `Hscroll_Buffer`'s 896-byte static DMA already ships every frame so it adds **no VRAM and no DMA**. **9a (engine, hand-authored) is buildable today. 9d (the art half) is BLOCKED** on `bg_region` at 448/448 — the same wall item 8's on-screen half hit — and BgAnim is ruled out for it by arithmetic (8 phase banks cannot express 97 continuously-selected states). See the item-9 block below. |
+| 9 | Hydrocity row remap | **L** | **9a LANDED 2026-09-03 · 9b LANDED 2026-09-04** · 9c blocked, 9d blocked | **9a BUILT — `parcel/hcz-row-remap-9a`; +261/+263/+5/+17 bytes over the four shapes, mechanism proved separable at zero code bytes, ladder H=16 because the DEBUG shape has only ~558 B of packed-data headroom. See the item-9 landing block.** Designed 2026-09-03, `design/hydrocity-row-remap`. `docs/superpowers/specs/2026-09-03-hydrocity-row-remap-design.md`. **The row's own two claims are both corrected by the primary source.** (1) **It is not a nametable remap.** S3K's HCZ waterline writes ZERO nametable words and ZERO VSRAM: it is a per-line **HScroll table** row remap built in the game loop (`HCZ1_Deform`, `skdisasm/sonic3k.asm:105849-105876`) plus a tile-**art** row gather DMAd into a FIXED tile run (`loc_27888`, `:53981`), both indexing one 97×96 byte ladder by the same published quantity. (2) **"Zone-specific" is refuted by S3K itself** — `LBZ2_Deform` (`:111674`) runs the identical three-instruction kernel at band height `$40` instead of `$60` with its own `(H+1)×H` table (4,160 B = 65×64). Two zones, two parameterisations, one mechanism. **It costs ZERO HBlank cycles** — the 488-cycle scanline budget the DoD asked it to be priced against is not the budget it spends; family A is a seventh specialised loop inside `Parallax_Fill_PerLine` plus a fourth capability-selected `band_record` tail, derived at ~56 cyc/line = **4.2% of the 128,000-cycle frame** at S3K's 96-line height, and `Hscroll_Buffer`'s 896-byte static DMA already ships every frame so it adds **no VRAM and no DMA**. **9b (the ladder generator + its gate) LANDED 2026-09-04, `parcel/hcz-ladder-9b`, and it SETTLES the design's open question 5 in the negative: S3K's own tables are NOT importable.** Both donor files decode cleanly and both satisfy `entry[i] >= i` and non-decreasing with zero violations — and both fail aeon's read bound `entry[i] <= 2i` (5,871 of 9,312 entries in HCZ, 2,603 of 4,160 in LBZ), because S3K indexes a 192-row SOURCE image and selects an H-row window into it while aeon's pass permutes the band's own longwords in place. S3K's `H = 96` is also not a power of two, which `brm_hshift` cannot name. **9a (engine, hand-authored) is buildable today. 9d (the art half) is BLOCKED** on `bg_region` at 448/448 — the same wall item 8's on-screen half hit — and BgAnim is ruled out for it by arithmetic (8 phase banks cannot express 97 continuously-selected states). See the item-9 block below. |
 | 10 | Reels / plane-role swap / window as third layer | **L** | aeon alone (the paired freeze ended 2026-09-02) | ~~**BLOCKED — see item 0 below.**~~ **UNBLOCKED on the VRAM axis 2026-09-03: item 0 landed as Option P** — `spare_nametable`, 128 tiles at tile 768 (`$6000`), a legal Plane A/B/Window base. **10a (reels) LANDED 2026-09-03, `parcel/item10a-reels`** — `OJZ_Reels_Fill` composes REEL_BAND_COUNT (5) independently-advancing, pairwise-distinct per-frame phase increments onto the shipped per-column VSRAM buffer's BG words; needed **zero** of item 0's tiles (design §2 row 10a's claim held). `tools/reels_gate.py` gates it on every canonical sonic4 build. **`tools/reels_witness.py`'s tagged emulator pass has now been RUN (2026-09-03, `fix/reels-witness-expectation`)** — it found the mechanism sound and its OWN expectation wrong (assumed the fill runs once per requested frame; two real lag frames in the test scene's settle window mean it doesn't), fixed to derive the expectation from `Lag_Frame_Count` rather than the frame count. **10b (plane-role swap) IMPLEMENTED 2026-09-03 on `parcel/item10b-plane-role-swap`, ~~unmerged~~ MERGED (verified 2026-09-04: its tip is an ancestor of master and its symbols are in the built listing), and WATCHED 2026-09-04** (rebased onto master post-item-6) — `engine.parallax.Parallax_Set_Roles_Swapped`, a WHOLE-FRAME settled-state register swap (`Set_VDP_Reg`, item 11a's mid-frame door does not fit a multi-frame set-piece) plus the HScroll/VSRAM feed-packer swap design §8 Q4 asked for; needed **zero** of item 0's tiles (design §2 row 10b's claim held) and the streaming write targets (`plane_buffer.emp`/`section.emp`/`bg.emp`) needed **zero** changes (they target physical VRAM addresses, not "whichever register is Plane A now"). Capability-gated behind `CAP_ROLE_SWAP` (took `$0400` after item 6's `CAP_DENSE_TIER` claimed `$0200` in parallel) — the unconditional version cost demo 104 bytes across five sites; gating measured to zero bytes for BOTH games. `tools/plane_role_swap_gate.py` gates it on every canonical sonic4 build. **10c (window as third layer) is UNSTARTED** and does need item 0's `spare_nametable`. See the item-10b block below. |
 | 11 | Nametable-base changes (frame swap, Plane Z, Batman mid-frame) | **L** | aeon alone (the paired freeze ended 2026-09-02) | ~~**BLOCKED — same item 0.**~~ **PARTLY DONE.** Item 0's design (§2) split this row into 11a (the mid-frame base change as a MECHANISM, zero tiles) and 11b (Plane Z, a distinct third picture, which does need tiles). **11a LANDED 2026-09-03, `parcel/item11a-midframe-base`, aeon `eb87d2ba`** — `OJZ_BaseSwap`, one `OP_SET_REG` re-pointing Plane A at Plane B's nametable at screen line 160, gated by `tools/plane_base_swap_gate.py` on every canonical sonic4 build. **The on-screen half is unrun** (no emulator in that lane) and is tagged for the controller. **11b is UNBLOCKED on the VRAM axis by item 0's landing** — but note there is no SECOND `$2000`-aligned run left: the remaining spendable run is at `$5000`, `$1000`-aligned, i.e. window-only, so 10c and 11b are competing for the one `$6000` run. See the item-11a and item-0 blocks below. **11a's AUTHORABLE half also LANDED 2026-09-03, `parcel/item11a-authorable`** — a `base_swap` preset-document key ({line, target}) reusing `OJZ_BaseSwap`'s own `fire`/`reg_set`/`raster_program` calls (no new constructor), bound to a REAL section (section 6's own `OJZ_Preset_Sec6`, split off the shared `OJZ_Preset_Plain` the way section 5 was split for `bands`) rather than existing only as `OJZ_BaseSwap`'s DEBUG-only demo — reachability proved against the built listing (`EditorRaster_OJZ_Act1_Bindings=2` in both shapes' `s4.lst`/`s4.debug.lst`). Ships ahead of a hub schema ruling; the short shape note is `docs/superpowers/specs/2026-09-03-item11a-base-swap-key-shape.md`. See the item-11a-authorable block below. |
 
@@ -18558,7 +18558,13 @@ should also assert the ladder is `(H+1) x H`, monotone per row, and `table[i] >=
 - **9a — ⚙ BUILT AND LANDED 2026-09-03, `parcel/hcz-row-remap-9a`.** See the ALL-CAPS block below.
   (The "pairs with sigil" note is **stale** — the owner cut the paired freeze ceremony 2026-09-02;
   aeon certifies alone with its own gates. No pairing was opened and none was needed.)
-- **9b (ladder generator + gate) — `S`, data only.** Write the gate before the generator.
+- **9b (ladder generator + gate) — ⚙ BUILT AND LANDED 2026-09-04, `parcel/hcz-ladder-9b`.**
+  `tools/row_remap_ladder_gen.py` (the model with H as an argument), a
+  `tools/test_row_remap_ladder_gen.py` gate committed RED one commit before the generator
+  existed, and a fourth arm on `tools/row_remap_gate.py` holding the LINKED table against the
+  generator re-derived at the H the band record declares. **Design open question 5 is settled and
+  the answer is NO** — S3K's shipped tables cannot be imported; see the 9b block at the end of
+  this file for the measurement. Zero engine bytes; four canonical shapes unchanged.
 - **9c (the `rowRemap` scene key + a hub schema CR) — `M`, and it has a NEWLY FOUND blocker.** It is
   a **scene** key, not a preset key: a row remap lowers into `parallax_config`'s band array, not
   into `ep_raster`, so it must not join the preset schema's `bands | ramp | base_swap` `oneOf`.
@@ -23390,3 +23396,192 @@ mid-sentence. Convergence from opposite directions is the only reason either is 
 **Operational: a losslessness proof must be aimed at the failure the operation can actually cause.**
 Moving text between files cuts sentences, not lines — so a line-level proof is checking the one thing
 that operation cannot break.
+
+## THE LADDER GENERATOR, ITS GATE WRITTEN FIRST, AND S3K's TABLES RULED OUT (parcel 9b, 2026-09-04, `parcel/hcz-ladder-9b`)
+
+**What landed.** `tools/row_remap_ladder_gen.py` (the ladder model with `H` as an argument),
+`tools/test_row_remap_ladder_gen.py` (its gate, committed RED one commit before the generator
+existed), and a fourth arm on `tools/row_remap_gate.py` that holds the LINKED table against the
+generator re-derived at the H the band record declares. **Zero engine bytes**: no `.emp` file was
+touched, and the four canonical shapes are byte-identical to the pre-parcel tree.
+
+### THE GATE WAS WRITTEN FIRST, AND THAT IS ON THE RECORD RATHER THAN ASSERTED
+
+The item said *"Write the gate before the generator"*, which is an instruction and not a style
+note: a gate written afterwards is written against what the generator HAPPENED to emit, which makes
+it a transcription of the bug if there is one. So the gate is its own commit (`09206e39`), and the
+run recorded in that commit was made with `[ -f tools/row_remap_ladder_gen.py ]` reporting ABSENT
+in the same command:
+
+| run | result | exit |
+|---|---|---|
+| gate alone, generator ABSENT (`09206e39`) | 40 failed, 1 passed | 1 |
+| gate + generator (`2cfbcba3`) | 41 passed | 0 |
+
+The one arm that passes with no generator is the size identity, and it passes CORRECTLY — it reads
+`ROW_REMAP_H16 = 16` and the declared `row_remap_ladder16() -> [u8; 272]` out of
+`engine/level/parallax_dsl.emp` and checks `272 == (16+1)*16`. Nothing in it is typed.
+
+**Runner: `python3 -m pytest tools`**, which `build.sh` runs build-fatally ("Running the tool-suite
+unit tests"). It needs no ROM and no emulator, which is why it can live there rather than in
+`effects_gates.py`.
+
+### THE SIX PROPERTIES, AND THE TWO THAT THE INVARIANTS CANNOT SEE
+
+P1 size identity `(H+1)xH` against the compiled-in `ROW_REMAP_H16` and the declared `[u8; N]` ·
+P2 the generator spans every height `brm_hshift` can express (powers of two) up to a DERIVED ceiling
+`H <= 128` (largest entry is the saturating `2*(H-1)`, and `2*(H-1) <= 255`) and REFUSES the rest ·
+P3 the three runtime invariants at every such H · **P4 the anchor rungs** — row H is exactly the
+identity and row 0 saturates the read bound at exactly `2*(H-1)` · **P5 monotone in the selector** —
+for fixed `i`, `ladder[r][i]` is non-increasing in `r` · P6 not all-identity.
+
+**P4 and P5 exist because of a measured hole, not for symmetry.** Mutation M1, the selector sign
+flip `p = H - r` -> `p = r`, leaves ALL THREE INVARIANTS GREEN — a sign-flipped ladder is still a
+monotone forward permute inside the bound — and is caught only by P4 and P5. **The three invariants
+say the emitted bytes are SAFE. They cannot say the bytes are the right ones.** That is also the
+whole argument for the new arm on the ROM gate.
+
+### THE MUTATION EVIDENCE, AND THE ARGUMENT FOR SWEEPING H
+
+Every run: `__pycache__` cleared, `PYTHONPYCACHEPREFIX` at a fresh per-run scratch dir, 304 `.pyc`
+written into it — no cached verdicts. Each mutation applied ON DISK with its `git diff -U1` shown;
+each restore `git checkout 2cfbcba3 -- <path>` naming the commit, verified by an empty
+`git status --porcelain`.
+
+| mutation | result | exit | which arms |
+|---|---|---|---|
+| M1 `p = H - r` -> `p = r` | 22 failed, 19 passed | 1 | P4 x14, P5 x7, P6[2] — **P3 STAYS GREEN** |
+| M2 divisor `H*(H-1)` -> `H*(H-1) - 1` | 2 failed, 39 passed | 1 | P3[2], P4[2] — **H=2 ONLY** |
+| M3 extra term doubled | 17 failed, 24 passed | 1 | P3 x7, P4 x8, P5[128], P6[128] |
+
+**M2 is the reusable one.** At the shipped `H = 16` that perturbation computes `3600/239 = 15.06`
+-> `15`, still exactly on the bound — so a gate that tested only the height that ships would have
+MISSED it entirely. The sweep over every expressible height is load-bearing.
+
+### ⚠ DESIGN OPEN QUESTION 5 IS SETTLED AND THE ANSWER IS NO — S3K's TABLES ARE NOT IMPORTABLE
+
+The design left *"fit S3K's shipped 97x96 table instead of generating one"* open as a legitimate
+cheap alternative and handed 9b the job of settling it. Both donor files decoded
+(`row_remap_ladder_gen.py --donor`, against `skdisasm`):
+
+| | bytes | shape | `entry[i] >= i` | non-decreasing | `entry[i] <= 2i` |
+|---|---|---|---|---|---|
+| `HCZ Waterline Scroll Data.bin` | 9,312 | 97 x 96 ✓ `(H+1)xH` | 0 violations | 0 violations | **5,871 of 9,312 violated** |
+| `LBZ Waterline Scroll Data.bin` | 4,160 | 65 x 64 ✓ `(H+1)xH` | 0 violations | 0 violations | **2,603 of 4,160 violated** |
+
+**Two independent blockers, either one sufficient.**
+
+1. **The read bound fails, and structurally rather than marginally — 63% of HCZ's entries.** S3K's
+   table indexes a **192-row SOURCE image** and the selected row is an H-row WINDOW into it: HCZ's
+   row 96 is `96..191`, LBZ's row 64 is `128..191` — both identities shifted by a whole band — and
+   both files' row 0 is the plain identity. **Their rows therefore run in the OPPOSITE SENSE to
+   aeon's**, where `r = H - |p|` makes row H the identity. Aeon's `.lp_remap` permutes the band's
+   OWN longwords in place and caps its remapped run at span/2 on `entry[i] <= 2i`; importing S3K's
+   bytes would need a 2H-line source the pass does not have.
+2. **S3K's `H = 96` is not a power of two**, so `band_remap.brm_hshift` (consumed as `1 << s`)
+   cannot name it at all. Even a repaired table could not be pointed at without widening that field.
+
+**What the donor IS good for is a shape witness**, and it earned the size arm: two shipped
+commercial tables at two different band heights both satisfy `(H+1) x H` exactly. `--donor` is kept
+so the numbers above are re-measurable rather than believed.
+
+### THE MODEL-AGREEMENT ARM, AND WHY IT IS NOT A BYTE PIN
+
+`row_remap_gate.py` now re-derives the whole table from the generator at the H the record declares
+and compares it to the linked image. **This is deliberately not a checked-in blob.** A byte pin goes
+red on any deliberate change to H or to the model and never says which; this recomputes, so a
+deliberate change moves both sides together and only a one-sided edit is red. What it buys is the
+thing the three invariants cannot give: `engine/level/parallax_dsl.emp`'s `row_remap_ladder16()` and
+`tools/row_remap_ladder_gen.py` are **two spellings of one model**, and two spellings of one model
+are two models unless something holds them together. A missing or unimportable generator is
+`EXIT_UNMEASURABLE` (2), never a pass.
+
+### WHAT 9b DID NOT TOUCH
+
+Nothing in `build.sh` regenerates `parallax_dsl.emp` from the generator; `--emit emp` prints to
+stdout for a human to paste and review. A generator that silently rewrote a checked-in engine source
+would make the gate's subject and the gate's oracle the same file. **9c and 9d are unchanged** — 9c
+still blocked on the `raster:`/`patched:` exclusivity and the hub schema CR, 9d still blocked on
+`bg_region` at 448/448. One confirmatory note for whoever takes 9d: **both** S3K waterlines gather
+their art rows out of a **192-row** source image (LBZ's max window base is 128 and its height is 64),
+so the "two 16x96 strips" figure in the 9d booking is the HCZ instance of a shape LBZ shares.
+
+### FOUR SHAPES, MEASURED AGAINST A BUILT BASELINE RATHER THAN ARGUED
+
+Zero engine bytes was the expectation and the expectation is not the evidence, so the parcel base
+(`75cd390f`) was checked out and built too. Eight builds, every one `EXIT=0` read from the runner's
+own log rather than inferred from a CRC (a refused canonical build leaves the previous ROM on disk
+and reads exactly like "nothing moved"):
+
+| shape | base `75cd390f` | branch `parcel/hcz-ladder-9b` | delta |
+|---|---|---|---|
+| `s4.bin` | 720,829 B · crc32 `d4bf05e5` | 720,829 B · crc32 `d4bf05e5` | **0** |
+| `s4.debug.bin` | 742,018 B · crc32 `fb7970c4` | 742,018 B · crc32 `fb7970c4` | **0** |
+| `demo.bin` | 96,602 B · crc32 `11ebd7ab` | 96,602 B · crc32 `11ebd7ab` | **0** |
+| `demo.debug.bin` | 102,818 B · crc32 `9b0d2ce7` | 102,818 B · crc32 `9b0d2ce7` | **0** |
+
+md5 matches on all four as well. Assembler pinned: `sigil 0.1.0 (0a58f2ec)`, md5
+`6c2378ae8a657e26684d4019a7d976d7`; `emit_sound_blob` md5 `b9d971d4a322f98c803bc479ad3e1d9f`.
+Neither was rebuilt. Wall times 124-147 s per shape under a box whose load average ran 2.9 to 10.6
+across the two runs (a sibling lane was working), so read them as wall clock and not as cost.
+
+**WHICH CASE THIS MEASURES: the AUTHORED one.** `Scene_OJZ_Underwater` band 1 has carried a live
+`rowRemap` since 9a, so the sonic4 shapes DO contain a ladder and the model-agreement arm has a real
+subject rather than a vacuous pass. From `s4.bin`'s own gate output:
+
+```
+RowRemapLadder_Waterline16 @ $013490: 17 rows x 16 bytes = 272 B
+  rows differing from the identity: 15 of 16
+  agrees byte-for-byte with tools/row_remap_ladder_gen.py at H=16 (272 B re-derived, not pinned)
+row_remap_gate: OK - 1 ladder(s), 1 remapped band(s), ...
+```
+
+**That line IS the verification against 9a's shipped ladder**: the generator, written from the model
+rather than from the emitted bytes, reproduces all 272 bytes at the address 9a's band record points
+at. `demo` declares no `CAP_ROW_REMAP` and carries no ladder, which is the gate's derived
+undeclared path, not a skip.
+
+### THREE STALE NUMBERS IN THE 9a BLOCK ABOVE, FOUND WHILE MEASURING
+
+Not fixed in place, because the 9a block is a dated record of what was true when it was written;
+recorded here so a reader does not act on them.
+
+1. **The 9a block's "the visible amplitude is +/-2 px and that is OWNER CONTENT" is CLOSED**, by
+   `d37731ec` ("the waterline was never flat — it was four pixels"), which took the anchor's `dsb`
+   from 2 to 0. `s4.bin` measures **16 px peak to peak** against the 8 px `REMAP_VISIBLE_MIN_PX`
+   floor today. The "what is open" list above still reads as though it were 4.
+2. **`SCANLINE_CAPS` is `$0FDE`**, not the `$07DE` the 9a block records — a fifth move of a value
+   that block itself flagged as having gone `$00DE -> $01DE -> $03DE -> $07DE` in one day. The gate
+   reads it from `games/sonic4/config/game.emp` at run time and is unaffected; only prose is stale.
+3. **The shipped surface plane line is 101** (the re-bias 9a describes as a fix landed), which the
+   gate prints. Consistent, noted so the two numbers in the block are not read as alternatives.
+
+## A TAGGED ITEM IN A LANDING REPORT REACHES ONLY SOMEBODY WHO READS THAT REPORT — booked 2026-09-04
+
+**Both halves of this were paid for in one afternoon and they need each other.**
+
+The boundary parcel landed with a TAGGED item: *"call site not threaded — `ojz_effects.emp` neither
+imports nor calls `ojz_act1_sec_patched`; the first document authoring the key owes TWO edits."*
+Aurora then authored the first such document, measured carefully from four sources — the contract
+page, the generated source, the engine struct, the built ROM — and spent a session establishing the
+absence that item already named. All four sources were correct and none of them could say it.
+
+**AURORA'S HALF, and their formulation is better than mine:** *a contract page and generated output
+describe what a feature IS; a landing report is where its author records what they know is still
+OWED.* So: **when taking a witness on a peer's recently-landed feature, read that landing's own
+report first.** One file.
+
+**THIS LANE'S HALF, and it is the one that does not depend on the reader:** aurora told this lane
+they were taking the boundary runtime half, and this lane did not send them the tag. **A TAGGED item
+is durable but not addressed** — it sits in the right place and reaches whoever happens to look.
+The writer-side rule: **when a peer says they are taking the thing your TAGGED item is about, send
+it.** Same class as *a rule that lives only in a message is not in force for your successor*, with
+the failure inverted — this one lives only in an artifact and reaches nobody in particular.
+
+**A THIRD THING, worth more than either:** `Raster_Program_None` is a real non-zero label (`$86BC`).
+Aurora had that value in their own table and read it as *"section 6 has no raster program"*, which is
+the plain-English reading of the name and the wrong one — it is why `patched:` cannot simply be added
+beside it without tripping `preset()`'s `ep_raster == 0 || ep_patched == 0`. **A name that means
+"none" is still a pointer.** This tree has several: `PATCH_ANCHOR_NONE`, `Pal_Cycle_None`,
+`XOVER_NONE` (which IS 0, and whose own `ensure` exists because that is load-bearing). **Check which
+kind you have before reasoning about a zero test.**
