@@ -63,9 +63,26 @@ class SetupError(Exception):
     pass
 
 
-# The Rust core serves NO breakpoints (`capabilities.breakpoints: false`) and no
-# `wait_for_break`. `emulator/run_to` replaces the arm/resume/wait triple with one
-# synchronous call, and it keeps the semantics lesson 2 depends on: the predicate is
+# ⚠ THIS COMMENT'S ORIGINAL PREMISE EXPIRED. It read "the Rust core serves NO breakpoints
+# (`capabilities.breakpoints: false`) and no `wait_for_break`", which was true when written
+# and is FALSE now: the oracle lane read `capabilities.breakpoints: true` and a served
+# `wait_for_break` out of a LIVE `initialize` on 2026-09-03, and this repo's own
+# docs/OVERSEER.md has recorded breakpoints as served since 2026-08-27. The stale sentence
+# survived because a comment about ANOTHER repo's capabilities has no gate: neither tree can
+# tell you its claim about the other has gone stale, and "verified firsthand at a committed
+# revision" does not save it — the oracle lane hit the mirror-image of this the same night,
+# citing a booking of theirs about OUR call sites that had likewise expired.
+#
+# `run_to` REMAINS THE RIGHT CALL HERE, now as a choice rather than an inheritance: it is one
+# synchronous call instead of an arm/resume/wait triple, and it keeps the semantics lesson 2
+# depends on. Reach for a breakpoint only when you need arm -> run -> halt on a hit you did
+# not schedule, which `run_to` structurally cannot express.
+# ⚠ AND UNDER MACHINE LOAD `wait_for_break` CAN LIE: it has returned
+# `{waitedMs: 0, timeoutReached: true}` at frame 2 on a ten-second timeout (oracle,
+# 2026-09-03, `WAITFORBREAK-INSTANT-TIMEOUT`) — a plausible-looking wrong NEGATIVE. A reply
+# whose `waitedMs` is far below its `timeoutMs` is UNMEASURED, not a missed break: re-run.
+#
+# The semantics `run_to` preserves: the predicate is
 # evaluated at an instruction boundary, so the machine parks WITH pc == addr and that
 # instruction NOT yet executed — which is why a stop at `Enqueue_Dirty_Buffers+4` sees d0
 # already loaded by the move.b at +0. The captured mask is identical to the legacy run's,
