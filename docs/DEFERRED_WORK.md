@@ -22193,7 +22193,50 @@ Aurora's row 147 carries the detail. If a shipped spec's worked example is wrong
 worked example is the part of a spec a reader is most likely to copy verbatim — which is what makes
 it worse than a wrong sentence elsewhere in the same document.
 
-### (3) `Player_Blocks.xover_cell` IS LATCHED ONE FRAME BEHIND THE POSITION READ BESIDE IT
+### ~~(3) `Player_Blocks.xover_cell` IS LATCHED ONE FRAME BEHIND THE POSITION READ BESIDE IT~~ — RE-SCOPED 2026-09-04: THE ONE-FRAME LAG IS DESIGNED, AND NEITHER HYPOTHESIS BELOW IS THE LIVE ONE
+
+**Checked before anyone built a discriminator, and the two hypotheses this entry booked are both
+wrong.** `Player_LoopCrossover` consumes LAST frame's resolved position **by design and of
+necessity**. Verified at the CALL SITE as well as in the routine's own header, because a comment is
+a claim and one comment agreeing with itself is not evidence — `games/sonic4/player/player_common.emp`
+at the `jbsr`:
+
+> *"it is shared per-frame state derived once from the position the last frame resolved to, and it
+> must be in place before the state dispatch's sensors read `Sst.layer`"*
+
+It sits beside the quadrant derive, which does the same with last frame's angle, for the same
+reason. **The layer must be correct before this frame's sensors read it, so it can only be computed
+from the position the last frame resolved to.** A version using this frame's position would write
+`Sst.layer` after the sensors that consume it.
+
+**AURORA'S WARNING SURVIVES AND GETS STRONGER.** A gate asserting *"the crossover flips on the frame
+of entry"* would not merely be flaky — **it would be asserting a property the engine was built not
+to have, and would be wrong even when green.**
+
+**WHAT REMAINS IS ONE UNACCOUNTED FRAME, and it is a sharp question rather than a hunt.** The design
+predicts exactly ONE frame of lag; aurora observed TWO. Two outputs separate the cases, sampled at a
+single consistent point in the frame across the entry:
+* **Output 1** — lag from *resolved position first lands in the marked cell* to *`xover_cell`
+  changes*. Design says **1**.
+* **Output 2** — lag from *`xover_cell` changes* to *`Sst.layer` changes*. Design says **0** (same
+  routine, same frame; the write follows the table fetch).
+
+`(1, 0)` = working as documented, the second frame is the observer's sampling point, close as NOT a
+defect. `(2, 0)` = a real extra frame upstream in the preamble or the position resolve, and ours.
+`(*, >=1)` = the layer write is not landing with the compare, which would be the serious case.
+
+**TWO TRAPS FOR WHOEVER RUNS IT.** (a) The trigger is an equality on a CELL ID, not a test of the
+mark, so it fires once on entry and never re-fires while you stand there — that is what stops a
+two-way pair ping-ponging every frame. Cross and keep moving; do not stop inside the cell and wait
+for a second event. (b) If the authored cell is 16 px in the direction of travel while the trigger
+quantises on 8, one authored cell spans TWO trigger cells and "the entry frame" is ambiguous by one.
+That is finding (1) of this same packet wearing a different coat, so check it before calling a `2`
+a defect.
+
+**The original booking follows, kept because its framing of what a report does and does not settle
+is still right — only its two candidate mechanisms were wrong.**
+
+~~(3) `Player_Blocks.xover_cell` IS LATCHED ONE FRAME BEHIND THE POSITION READ BESIDE IT~~
 
 Their observation, offered explicitly as an observation and NOT as a diagnosis of our read site: at
 frame 1150 the player is at `(748, 779)`, inside the crossover's trigger window on both axes, and
