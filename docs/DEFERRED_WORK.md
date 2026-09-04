@@ -23855,3 +23855,13 @@ parameters, which is the only reason they are refused. So the tree contains a li
 identically-shaped call that proves nothing about the one this item is about — and a finding
 recorded once, then generalised from by the next reader, is how the six wrong sites got
 written.
+
+**THE PARCEL'S OWN EVIDENCE.** Comments and Python only — no `.emp` code, no engine file, so
+zero bytes should move and none did. Four canonical shapes, artifacts deleted first, exit
+code read BEFORE the hash in every case (all four rc=0): `s4.bin` **D4BF05E5** / 720829,
+`s4.debug.bin` **FB7970C4** / 742018, `demo.bin` **11EBD7AB** / 96602, `demo.debug.bin`
+**9B0D2CE7** / 102818 — identical to the set RASTER-BOUNDARY-1 recorded. Assembler pinned at
+sigil 0.1.0 `0a58f2ec`, md5 `6c2378ae8a657e26684d4019a7d976d7`. pytest 2355 passed / 7
+skipped / 0 failed (2357/5 on the demo shapes), `emp_expect_fail` 52/52, `effects_seam_gate`
+OK on both halves. The effects-gate ritual does NOT apply: nothing under `engine/effects/`,
+`engine/level/bg_anim.emp` or `engine/system/buffers.emp` is touched.
