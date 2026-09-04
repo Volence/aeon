@@ -1,14 +1,19 @@
 {
-  "focus": "Master builds all four shapes again, and everything from last night is merged into it.",
-  "inFlight": [
+  "focus": "Everything from last night is on master and it builds clean. One question waits on you.",
+  "inFlight": [],
+  "blockedOnOwner": [
     {
-      "what": "Verifying the fully merged tree - five parcels landed together and one of them cured the block.",
-      "where": "master, verification running",
-      "agent": false
+      "what": "How big the ROM re-layout should be. It is built, verified and PARKED on your word - no longer urgent because a cleanup freed the bytes that were blocking us.",
+      "since": "2026-09-04",
+      "id": "relayout-magnitude"
+    },
+    {
+      "what": "Where and when you see the blank strip. The detector is fixed and clean everywhere it can see, so your description is the only lever left.",
+      "since": "2026-09-03",
+      "id": "canopy-gap-sighting"
     }
   ],
-  "blockedOnOwner": [],
-  "nextBoundary": "When this verification is green and pushed. That is the boundary.",
+  "nextBoundary": "Here. Nothing is half-applied and no agent is holding a branch.",
   "queue": [
     {
       "id": "EFFECTS-W1-RAMP-TIER-DIVERGENCE",
@@ -91,8 +96,8 @@
       "project": null
     }
   ],
-  "awaiting": "whether you can say where and when you see the blank strip - it is the last item where measurement on my side has hit its limit",
-  "atBoundary": false,
-  "updatedAt": "2026-09-04T07:42:58Z",
+  "awaiting": "two things when you wake: how big the ROM re-layout should be (it is built and parked on your word), and where/when you see the blank strip",
+  "atBoundary": true,
+  "updatedAt": "2026-09-04T07:51:31Z",
   "resume": "2026-09-04, second night of the EFFECTS-W1 push. READ THESE FOUR THINGS BEFORE DOING ANYTHING.\n\n1) ⚠ THE ROM RE-LAYOUT CANNOT BE DONE FROM AEON AT ALL, AND THE OBVIOUS ATTEMPT IS THE WRONG ONE. A `[[anchor]]` in games/sonic4/map.toml PLACES NOTHING. sigil's `true_bases_by_index` builds every section's base from `profile.frozen_sizes` -- the label->LMA rows of sigil's golden/offcanonical_sizes/<shape>.txt, read from THEIR checkout at RUN time. Anchors reach the walk only as `anchor_addrs: HashSet<u32>` matched BY ADDRESS, never by name, and can only AUTHORIZE a section to stay where the table already puts it. PROVEN BOTH DIRECTIONS: (a) anchors moved to 0xA8000/0xB8000 with tables unchanged -> `[map.undeclared-island] ROM section at 0x90000`, the bank did not move; (b) control, spare anchor at an empty address -> `[map.anchor-absent] ... is not an inferred island`, nothing landed there. DO NOT RE-DERIVE THIS. The aeon half is complete on parcel/rom-relayout-more-room @ 5875e60e and sigil VERIFIED it (all four sound-on shapes build, Dac_Temp_Blip reads A8000, the shift is exactly +0x18000 on 8-9 symbols with zero movement elsewhere, controlled by deriving twice at one revision with the layout reverted). THE WRITE IS SIGIL'S. They were blocked on a fault in their own attest ratchet (it baselines strict_bodies on a FAILED chain entry, #200). Full workings: docs/superpowers/2026-09-04-rom-relayout-more-room-report.md.\n\n2) FIVE BRANCHES ARE STAGED, VERIFIED, AND WAIT ONLY ON SIGIL'S REFREEZE. Merge them when it lands, verify four shapes, push:\n   parcel/rom-relayout-more-room            5875e60e  the layout (aeon half)\n   parcel/row-remap-visible                 42e7c405  the amplitude fix, 4px -> 16px (2 bytes: SceneAnchor.At(0,15,2)->(0,15,0))\n   parcel/rowremap-gen-and-channel-sidecar  8d217dd4  rowRemap generator key + the ch->{lo,hi} sidecar aurora consumes\n   parcel/ramp-sign-witness                 fac5eae7  item 6's last sentence CLOSED (-303 px measured == -303 derived)\n   parcel/lab-glyph-parallax                ab0f1163  the lab's 4th verdict glyph (arrow) + an engine fix (clobbers(a0)->out(a0))\n\n3) ⚠ origin/master's DEBUG SONIC4 SHAPE CANNOT COMPLETE A CANONICAL BUILD. `bganim_room` fails it: dac_banks declared at 0x90000, packed data ends 0x8C01E, 16,354 B < the 16,384 B reserve -- THIRTY BYTES OVER. The other three shapes are green (2172 passed each). THIS IS THE RE-LAYOUT'S FAILURE, NOT A REGRESSION. Establish it as a control in an unmodified worktree before diagnosing any build failure; byte-identical failure text is the proof, and three agents did that correctly tonight. FAST=1 still produces a ROM.\n\n4) THE OWNER HAS A SHOWCASE ROM LOADED at /home/volence/sonic_hacks/.aeon-showcase/s4.debug.bin (a FAST build of master + row-remap-visible + lab-glyph-parallax, for looking at, not for landing). He drove it and confirmed the vertical canopy band works.\n\nTHE FIXTURE RITUAL, measured tonight at the cost of THREE misdiagnoses: tools/fixtures/*_cut.json hold BOTH shapes under a `shapes` key and EACH GENERATOR INVOCATION UPDATES ONLY THE SHAPE YOU POINT IT AT, preserving the other. A refresh is TWO invocations per fixture, one per shape, after a FAST=1 refresh of all four. And CHECK WHY a fixture staled before re-stamping -- the gates distinguish a displacement byte following a symbol move (benign) from an opcode change. One tonight was the low byte of a jmp target tracking Sound_PlaySFX. ⚠ A `--gate` run WITHOUT `--fixture` runs the sweep and never compares; it prints OK and answers nothing.\n\nOWED: the hub wants the measured EndOfRom for BOTH shapes when the refreeze lands, so the magnitude ruling pins to a measurement (before: s4 $A5C82, s4.debug $A852C). The owner is asked, unanswered, where and when he sees the blank strip (CANOPY-GAP) -- the detector is fixed and clean everywhere it can see, so his words are the only lever left. Report to empyrean-c0 at every landing or stop.\n\nMY CONTEXT IS HEAVY (~60-65%) and the hub has the owner's authorisation to clear+reboot at a clean boundary. atBoundary flips after the five merge, four shapes verify, and the EndOfRom figures go to the hub. Everything of value is on branches and in docs/; a reboot then loses only my recollection of the evening."
 }
