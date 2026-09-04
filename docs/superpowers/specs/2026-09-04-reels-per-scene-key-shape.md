@@ -563,3 +563,56 @@ each was re-derived; these are the ones that came back different):
 
 Appended at the end of `docs/DEFERRED_WORK.md` (tail, to keep a concurrent lane's conflict
 trivial). Nothing else in that file was touched.
+
+---
+
+## CONTROLLER'S FOREGROUND PASS ON THE WEAKEST CLAIM — it HOLDS, and it holds conditionally (2026-09-04)
+
+This note's own report flagged its weakest claim unprompted: *that `Parallax_Current_Config`
+holds the very label the generator emitted*, read structurally and not traced. The empyrean hub
+declined to file the CR until it was checked, because the association-table binding rests on it.
+Traced statically here — store sites, argument contract and struct layout, **not** on a running
+machine. That distinction matters and nothing below needs a machine.
+
+**THE CLAIM HOLDS, FOR A REASON THE NOTE DID NOT STATE.** `Parallax_Current_Config` is a `u32`
+holding a `parallax_config*`, with exactly three store sites (`engine/level/parallax.emp`: the
+init store, the `.instant` transition store, and the promote-target store), all storing what
+arrived as `a0 = new parallax_config*` into `Parallax_StartTransition`. The generator emits
+`EditorSceneBinding_*` as a `SceneCfg5`, which is a **different type** — so this looks like it
+should fail. It does not, because of `scene_registry.emp`:
+
+```
+pub struct SceneCfg5 { hdr: parallax_config, bands: [band_record; 5] }
+```
+
+`parallax_config` is the FIRST member, so a pointer to `EditorSceneBinding_*` and a pointer to
+its `hdr` **are the same address**. The emitted label is exactly what lands in the cell.
+
+**That reason is load-bearing and must be written down, because it is silent if it breaks.**
+Reordering `SceneCfg*` to put any member ahead of `hdr` severs the identity with nothing to
+announce it: the types still check, the build stays green, and the association table starts
+missing every lookup. Anyone touching that struct order owes this note a look.
+
+### THE LIMIT — the key is unique only at rung 1, and rung 2 COLLIDES today
+
+`Effects_ResolveParallax` (`engine/effects/preset.emp`) documents a three-rung precedence:
+
+1. `Sec.sec_parallax_config` — the per-section binding (the editor's `sceneRef`, lowered by
+   `tools/effects_gen.py`)
+2. `EffectsPreset.ep_parallax` — the preset binding, **shared by every section naming that preset**
+3. `Act.act_parallax_config` — the act default
+
+So `Parallax_Current_Config` is a **unique** key only for a section bound at **rung 1** — which is
+exactly the population an authoring key targets. A section resolving at rung 2 or 3 stores a
+pointer shared with every other section on that preset or act default, and an association table
+keyed on it would hand those sections **another section's reels rates** rather than none.
+
+**This is not hypothetical.** `d-53` (2026-09-04) gave section 5 `ParallaxConfig_OJZ_Underwater`
+through rung 2 — the same object section 0's binding resolves to. Two sections, one pointer, in
+the shipped tree today.
+
+**THE CONSEQUENCE IS A REFUSAL, NOT A DIFFERENT MECHANISM.** The key's shape is unchanged and the
+per-section-chooser fallback is NOT needed. What the CR must carry: a reels binding is legal only
+on a section that binds an editor-authored scene at rung 1, and the generator must **REFUSE** a
+reels key on a section resolving at rung 2 or 3 rather than silently accepting it. Silent
+acceptance is the bad case here — it does not fail, it gives a section someone else's motion.
