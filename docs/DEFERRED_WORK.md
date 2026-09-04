@@ -24004,3 +24004,33 @@ becomes correct retroactively, and **the ten corrections landed at `097c22f5` ar
 harmless** — which is the outcome the contingency note above predicted for option 1. The omit spelling
 also survives. **Nothing needs re-editing; leave the corrections in place** rather than churning ten
 sites back, and let sigil's language change land underneath them.
+
+## 10c / 11b — PRICING THE DROP-SOMETHING-TO-FIT QUESTION (priced 2026-09-04, NOT built)
+
+Both need a second `$2000`-aligned nametable run. There is none: Plane A `$C000`, Plane B
+`$E000-$FFFF`, SAT `$B800`, HScroll `$BC00`, BG pool `$8000-$B7FF`. Item 0 spent the last spare on
+`spare_nametable` (128 tiles at `$6000`). The remaining spendable run is `$5000`, `$1000`-aligned —
+**window-only**, and neither 10c nor 11b is a window feature.
+
+**So the question is what to drop, and there are three candidates with prices:**
+
+* **Shrink the BG pool.** `BG_TILE_CAPACITY` 448 → 384 frees `$1000`, still not `$2000`-aligned, and
+  costs 64 tiles of background art — the same resource the art pass is currently trying to *free*.
+  Self-defeating while 9d is open.
+* **Move the SAT.** It was relocated to `$B800` precisely to free plane rows 48-63. Moving it again
+  reopens a settled decision and touches sprite rendering for every object.
+* **Give up a 64×64 plane.** A 64×32 Plane B frees exactly `$1000` and halves vertical scroll room —
+  which is the thing the 64×64 planes were chosen for (vertical transitions, VSRAM effects).
+
+**None is cheap and none is obviously right, which is the finding.** Every route trades a shipped
+capability for a demo one, and the two features competing for it (window-as-third-layer, Plane Z) are
+both *L* and both showcase rather than gameplay.
+
+**Recommendation: do not spend VRAM on 10c/11b now.** They are the two DoD items whose value is
+demonstrative, and the owner's own stated direction — dynamic VRAM, art/level/objects/bg/fg streaming
+on demand — would dissolve the problem rather than trade against it. **Booked, priced, not built**, as
+instructed.
+
+**⚠ One thing that gets more expensive under that future direction:** `tools/gen_vram_map.py` does
+not check base-register alignment. Its negative control (a base illegal for every plane and window
+register) reports `sonic4 OK`, exit 0 today.
