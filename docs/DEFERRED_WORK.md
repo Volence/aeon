@@ -19255,7 +19255,39 @@ calibration says loop terms come in LOW and frame constants HIGH.
 
 ---
 
-## EFFECTS-W1 ITEM 11a — THE MID-FRAME NAMETABLE-BASE CHANGE IS IN THE ROM; THE PICTURE IS UNRUN (2026-09-03, `parcel/item11a-midframe-base`)
+## EFFECTS-W1 ITEM 11a — THE MID-FRAME NAMETABLE-BASE CHANGE IS IN THE ROM, AND AS OF 2026-09-04 IT HAS BEEN WATCHED (`tools/base_swap_witness.py`)
+
+> **⚠ EVERY "line 160" AND EVERY `$8A9D` BELOW THIS LINE IS STALE — THE FIRE LINE IS 3.**
+> The owner moved it on 2026-09-03 (*"I would like to see in the plane swap the fg go to the
+> bg at the top"*) and `ojz_effects.emp`'s `OJZ_BASE_SWAP_LINE = 3` carries a derivation of
+> why 3 is the floor rather than a preference. The ROM's arm word is `$8A00` =
+> `$8A00 | (3 - 3)`, which the source's own hand pin spells out. **The stale numbers are left
+> in place below rather than edited out, because the block's REASONING about them is still
+> the record of what was built; only the coordinates moved.** Read the source for the line.
+>
+> **This correction was found BY the witness, and it is the argument for deriving rather than
+> copying:** a witness built on this block's 160 would have predicted an edge that is not
+> there and reported a FAILURE against a correct ROM.
+>
+> **THE ON-SCREEN HALF IS NO LONGER OWED. Measured 2026-09-04 against a matched twin — the
+> subject's own 22 bytes with word 8 alone changed to the base Plane A already has, so the
+> program replacement, the schedule, the op count and the dispatch cost are all present in
+> both arms and subtract out.** Three arms, DEBUG shape, `s4.debug.bin` at aeon `52be83a9`:
+>
+> | arm | result |
+> |---|---|
+> | control vs control (same twin, two instances) | **224 of 224 rows identical** — differences are attributable |
+> | `OJZ_BaseSwap` (hand fixture) vs twin | **220 of 220 rows below the fire line changed; 0 of 3 above; first changed row 4** |
+> | `EditorRaster_OJZ_Act1_ojz_sec6_baseswap` (the AUTHORED program) vs the same twin | **identical to the hand fixture — exactly the same 220 rows** |
+>
+> First changed row 4 against fire line 3 is the fire+1 switch the design's §8 **Q2** predicts,
+> observed rather than argued. **Proven red:** making the twin byte-identical to the subject
+> gives 0 of 220 rows and exit 1 (`# POISON` applied on disk, output kept, line restored).
+> That poison also supplies a control nobody had asked for — the SAME program installed from
+> ROM and from RAM renders byte-identically, so arm 2's difference is not an artifact of where
+> the record lives. **What it still does not establish:** that the bottom band reads as a
+> recognisable second copy of the background. That is taste, and it wants the owner's eye.
+
 
 Branch `parcel/item11a-midframe-base`. Design:
 `docs/superpowers/designs/2026-09-03-vram-replan-item0-design.md` §2 (row 11a), §2.0 and §4
@@ -19334,7 +19366,12 @@ from the artifact's name.
 tests); its own red-first table is in its docstring, including one mutation that does NOT
 work and why.
 
-### ⚠ TAGGED FOR THE CONTROLLER'S EMULATOR PASS — the on-screen half is NOT run
+### ~~⚠ TAGGED FOR THE CONTROLLER'S EMULATOR PASS — the on-screen half is NOT run~~ — RUN 2026-09-04
+
+**Discharged by `tools/base_swap_witness.py`; the totals are in the corrected block at the
+top of this entry.** The steps below are kept because they are still the right way to LOOK
+at it by hand — but step 2's expectation is exactly the one that went stale: read
+`OJZ_BASE_SWAP_LINE` for the line, not the 160 written here.
 
 No emulator was used. **A green gate is not the picture.** What to look for, in the
 **DEBUG** shape (`DEBUG=1 ./build.sh` → `s4.debug.bin`), in OJZ act 1:
