@@ -23935,3 +23935,47 @@ asked for the quoted sentence and the revision, rather than either believing it 
 this lane relayed the one item in the report that was about somebody else's repository — the single
 item its own measurements could not have established. **The unverifiable item in an otherwise
 verified report is the one to check, and it is the one that reads as least worth checking.**
+
+## OWNER RULINGS 2026-09-04 ~15:2xZ — THE WALLED REMAINDER, AND A FRAMING OF MINE HE CORRECTED
+
+**His words on card 8, verbatim** (empyrean `docs/OVERSEER-LOG.md` at `origin/main`, the entry after
+"THE LIST AS PUT TO THE OWNER"): *"That's fine but honestly the bg we have is just test art so if
+it's causing the problem then we should look at it. We wanted dyynamic vram setup eventually anyyway
+since we have streaming art and streaming level with objects/bgs/fg all potentially changing and
+needing to be in vram, so something to think about in the future anyway."*
+
+**⚠ HE CORRECTED A CONSTRAINT I HAD BEEN TREATING AS HIS, AND IT WAS MINE.** Every recent booking —
+including the vertical-band brief I wrote hours ago — described inserting slots as *"rewriting the
+owner's authored background blind"*, and leaned on `forest_bg_gen.py` refusing by name to regenerate a
+document carrying `anims` as *"this repo's own statement that the document is not a tool's to
+regenerate."* **The refusal is real and the inference from it was not.** The document is **test art**.
+He says so, and says that if it is causing the problem we should look at it.
+
+**So the wall I priced as content-ownership was a wall I put there.** The generator's refusal protects
+against an *accidental* rewrite; it was never a statement that the content is precious. I converted a
+safety interlock into a property of the owner's intent, and then quoted his own tool back as the
+evidence.
+
+**WHAT IS NOW GO** (hub's application of his words, marked as the hub's reading):
+* **(a) The test-scope background art pass**, now: re-import the test background simplified to free
+  tiles under the importer's own budget (`png_to_bg_override.py` names the count). Target the **48
+  tiles 9d needs** plus whatever item 8's on-screen half needs beyond the small band already built.
+  **This lane owns it; aurora is writer-of-record and has been told.**
+* **(b) Price** the drop-something-to-fit question for 10c/11b. **Price it, do not build it.**
+* **(c) DYNAMIC VRAM IS HIS STATED FUTURE DIRECTION** — art, level, objects, bg and fg all streaming
+  in on demand. **Booked as a DESIGN CANDIDATE, not a row and not a project**, until he declares one.
+  Recorded here because his own sentence is the anchor and it should not live only in a relay.
+
+**AND THE VRAM MAP HAS A KNOWN HOLE THAT BEARS ON (c):** `tools/gen_vram_map.py` does **not** check
+base-register alignment — its documented checks are bounds, coverage, overlap, quantum, reserve and
+authority. The design's own negative control (a base illegal for every plane and window register)
+reports `sonic4 OK`, exit 0. That fix was parked to ride whichever parcel first consumes the spare
+region. **A dynamic-VRAM direction makes an unchecked alignment invariant considerably more
+expensive**, so it should be named in that design candidate rather than left riding a parcel that may
+never come.
+
+**Card 9 (`d-25`) = ACCEPT.** So an explicit `0` becomes a legal null-`Label` argument, `hand: 0`
+becomes correct retroactively, and **the ten corrections landed at `097c22f5` are unnecessary and
+harmless** — which is the outcome the contingency note above predicted for option 1. The omit spelling
+also survives. **Nothing needs re-editing; leave the corrections in place** rather than churning ten
+sites back, and let sigil's language change land underneath them.
