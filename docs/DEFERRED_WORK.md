@@ -20865,11 +20865,26 @@ fire-line intervals, so several bands' edges land 2+ scanlines apart, and the wh
 must fit `RASTER_BUF_WORDS = 64` (three 1-word bands = 55 words; four = 71 and do not fit).
 
 **So a full-plane waterline is at most ~9 entries in three contiguous runs, on one CRAM line,
-with a 4-6 line staircase instead of one edge.** The three runs with the best measured
-coverage are entries **3-5** (26.8% FG / 13.7% BG), **8-10** (12.2% / 71.4%) and **12-14**
-(18.6% / 3.6%) — together **57.6% of FG pixels and 88.6% of BG pixels**, keeping the existing
-blue stripe while finally putting the tint on the trees. Whether three 3-word `pal_region`
-bands fit 64 words is NOT derived here and must come off a build, not an estimate.
+with a 4-6 line staircase instead of one edge.** What shipped is entries **3-5** (26.8% FG /
+13.7% BG), **8-10** (12.2% / 71.4%) and **12-14** (18.6% / 3.6%) — together **57.6% of FG
+pixels and 88.6% of BG pixels**, keeping the existing blue void while finally putting the
+tint on the trees.
+
+⚠ **CORRECTION to this parcel's own commit message, which called that triple "the best three
+contiguous 3-entry runs available".** It is not, and the exhaustive search was run AFTER the
+claim rather than before it:
+
+| triple | FG coverage | BG coverage |
+|---|---|---|
+| **3 / 8 / 12 (shipped)** | 57.6% | 88.6% |
+| 3 / 8 / 11 — best by FG+BG combined | 57.5% | 89.6% |
+| 3 / 10 / 13 — best by FG alone | **66.2%** | 40.1% |
+
+The shipped triple is within one point of the combined optimum, so it is a fine choice — but
+it is NOT the foreground optimum, and the foreground optimum costs half the background's
+coverage, i.e. most of the blue void the owner already has. **That trade is a look call and
+belongs to him, not to a search.** Three 16-word bands plus the 7-word frame is 55 of the
+64-word buffer, so a fourth run does not fit and cannot buy both.
 
 **THE PLAYER CANNOT GO BLUE, by two independent mechanisms**, and this is the trap that was
 flagged: (1) CRAM line 0 is `CharacterDef.cd_palette`'s and **no non-blank OJZ foreground tile
