@@ -13,7 +13,19 @@ protocol doc. This file is what's aeon-specific.
 last, read by `tail`/`grep`, not at boot). Rules, rulings, bars, the landing lane and the
 quirks stay here. Each log entry carries an anchor `<!-- @L<first>-<last> -->` naming the
 line span it occupied in this file before the 2026-09-02 split, and entries are in this
-file's own order.
+file's own order. **A second pass ran 2026-09-04** — its bodies are under the log's
+*"Second pass — 2026-09-04, boot-read bound"* heading and its anchors name line spans at
+aeon `7accc2ef`, NOT at the 2026-09-02 revision the anchors above use.
+
+**⚠ THIS FILE IS STILL OVER THE SUITE'S BOOT-READ BOUND AND THE RESIDUAL IS THE OWNER'S
+PARCEL.** After the 2026-09-04 pass it is **114,320 bytes against 100,000** — 14,320 over.
+Everything the protocol's split procedure authorises moving has been moved: the dated tail,
+and the blocks marked CLOSED / STRUCK / RETIRED / HOLD LIFTED. Pointer-ising is **measured
+unavailable**: only **4 of 1,275** substantive lines here appear verbatim in
+`origin/main:docs/OVERSEER-PROTOCOL.md`, so the bars are local content and not
+shared-protocol copies. What is left is live repo-specific rulings interleaved with
+narrative, which the protocol's step 3 assigns to the owner. **Do not trim a ruling to hit
+the number.** `tools/test_overseer_bound.py` gates the bound and is RED until he rules.
 <!-- /SPLIT-NOTE -->
 
 ## ⚠ STANDING RULING THAT OUTRANKS EVERY BAR BELOW — read before the bars
@@ -134,10 +146,6 @@ rulings live in the session memory and the most recent `docs/superpowers/*handof
   token nobody audits) → commit `provenance.toml` → push both. Aggregate totals only, never
   a tail; the fully-green bar moves, so derive it and do not quote this file.
   `refreeze --check` is NOT the goldens.
-  ~~The hand-typed baseline test (`repin_pins.rs`) demands a per-parcel term with its story
-  when assembled lengths move.~~ **STRUCK 2026-08-30, measured, not assumed.** That test is
-  RETIRED: `secondary_pin_classes_match_the_hand_typed_baseline` reports
-  `ignored, RETIRED by Wave-B B-0 (packed placement): this test asserts literal pin VALUES`.
 
   **⚠ THE MANUAL STRICT SUITE IS SUPERSEDED — RUN THE TOOL (2026-08-27).** Where this file
   previously told you to run `SIGIL_STRICT_GATE=1 AEON_DIR=<clean> cargo test --release
@@ -221,13 +229,6 @@ rulings live in the session memory and the most recent `docs/superpowers/*handof
   i.e. a hard reclaim from a polite one. Without the stamp both outcomes and a completed run
   produce the same truncated artifact, which is the absence family rather than a mystery.
   Report the number either way.
-  **⚠ CORRECTED 2026-09-02, AND THE CORRECTION MATTERS MORE THAN THE RULE. This bullet first
-  read: "a clean completion REFUTES the harness story rather than merely failing to confirm it."
-  THAT IS BACKWARDS.** The hypothesis predicts that a detached run survives, so a clean
-  completion **CONFIRMS** it — weakly, at n=1. **A detached DEATH is what would refute it**, which
-  is why the death is the more valuable outcome. What a clean run refutes is the *competing*
-  story — the freeze is fragile, memory pressure kills it — and that is probably what the
-  sentence was reaching for, but it is not what it said.
   **THE HONEST STATE AS OF CHAIN 197: three observations, all consistent, none decisive.** Two
   freezes died as harness background tasks; a waiter died while its detached build lived (run-2
   shape, reproduced by the lane that did not form the hypothesis); a detached freeze ran to
@@ -256,8 +257,6 @@ rulings live in the session memory and the most recent `docs/superpowers/*handof
   *Cross-check: sigil's own write-up of both correctives is at their `1d1e3dc0`.*
 - **THIRTY-ONE LEDGER LINES DO NOT PARSE FOR THE OWNER'S READER — DO NOT REPAIR THEM** (measured
   2026-08-30 by running Dominion's own predicate over the file; hub-ruled not to repair).
-  **MEASURED: 86 lines · 55 parse · 31 REJECTED**, counted per LINE. Predicate transcribed from
-  dominion `796bc1e` `server/src/decisions.ts`. Reasons (collected, so one line carries several):
   **⚠ COUNT BY LINE, NOT BY ID.** My first run keyed results by `id` and reported 28, because
   `d-42-answered`, `d-43-answered` and `instashield-riders` each appear TWICE and a dict silently
   collapsed them. Three lines vanished into a container that deduplicates without saying so — the
@@ -286,13 +285,6 @@ rulings live in the session memory and the most recent `docs/superpowers/*handof
 
 - **SEVEN LEDGER ENTRIES ARE CLOSED OUT OF SHAPE — DO NOT REPAIR THEM** (added 2026-08-30; hub-ruled
   after this lane's boundary audit surfaced them).
-  `docs/decisions.jsonl` closes a decision per `contract/DECISIONS.md` rule 8c: append an entry with
-  `supersedes` set to the settled id and the question/options/recommend reproduced identically.
-  **These four closures did not do that.** Each was filed as a NEW id with `supersedes: null` and the
-  resolution written into the `question` field as a statement: `d-45-answered`, `d-46-downgraded`,
-  `d-47-revised-answered`, `vram-replan-deferred` — leaving their originals `d-45`, `d-46`,
-  `d-47-revised`, `vram-replan` unsuperseded too. **So each closure leaves TWO open-looking cards
-  instead of zero**, seven entries in total.
   **RULED: no repair appends.** Rule 8 forbids rewriting; Dominion builds owner-facing cards ONLY
   from `blockedOnOwner` joined by id (`decisionQueue.ts` at dominion `796bc1e`, read by the hub in
   their own tree), so every entry no live blocker claims goes to `settled` and **these reach him
@@ -650,10 +642,6 @@ copy against the other repo"); **name which question you are asking before choos
 
 ## Instruments (which oracle for what)
 
-**✅ HOLD LIFTED 2026-08-24 — read this before the block below, which is kept for its
-mechanism and its scope note only.** Oracle fixed the straddle defect (red-first tests
-`68461a7`, fix `4111c88`, merged `51143a5` — verified reachable at their `origin/main` here,
-
 
 **✅ Pixel capture is COMPOSABLE TODAY — and the "capture is impossible here" belief is a
 LEGACY-SERVER result that must not be carried forward.** `play_input` + `scanlines{}` +
@@ -917,11 +905,6 @@ path, for the same reason the protocol is read that way.
   no re-derivation of the half you declared sound.** It feels like precision — conceding narrowly
   rather than flinching is exactly the discipline — and it is what lets a wrong figure travel
   **with a concession attached**, which is more persuasive than the original claim was.
-  Lived: told that the causal story behind a byte decomposition was backwards, this lane replied
-  *"the arithmetic was right and the word 'leaving' was the whole defect"*. The arithmetic was the
-  part that was wrong. Chain 198's frozen prose says *"release +93 = 62 content + 31 appendix"*;
-  measured, it is +0 assembled / +93 appendix, because the content is absorbed at the org anchor
-  and never reaches the file end — and the entry's own held `anchor_end` refutes it.
   **Two separable failures with different fixes, and folding them into one keeps only the easy
   fix.** (a) The numbers first went out while their own check was still in flight — a SEQUENCING
   problem: do not quote a decomposition while the derivation that tests it is still running.
@@ -947,10 +930,6 @@ path, for the same reason the protocol is read that way.
   level short. **The variable is the TARGET DIR.** The single properly-guarded command is the only
   one that could not have done it, while every casual `cargo test -p …` in a shared checkout can —
   so guarding the named script harder would have prevented nothing.
-  **A second cost, and it is permanent: the binary that produced entry 198's goldens was
-  overwritten IN PLACE at the same path.** It no longer exists to compare against and is
-  recoverable only by rebuilding at 079cec97. A shared artifact pinned by md5 tells you it moved;
-  it does not give you back the thing that moved.
 
 - **A MEASUREMENT RECORDED WITHOUT THE THING IT WAS TAKEN AGAINST DECAYS INTO A FALSE CLAIM —
   SILENTLY, BECAUSE THE NUMBER ITSELF NEVER CHANGES** (added 2026-08-30T09:35Z; developed jointly
@@ -1291,19 +1270,13 @@ path, for the same reason the protocol is read that way.
   The stale prose says the old number by definition, so the new number cannot find it.
   *And fix it by DELETING the number, not by re-typing today's: a fresh literal goes stale on the
   identical clock, which is exactly how these got there.*
-  **✅ CLOSED 2026-08-29** by `fix/stale-dac-anchor-prose` — full write-up in `docs/DEFERRED_WORK.md`
-  ("THE STALE DAC/SOUND-BANK ANCHOR PROSE, SWEPT BY THE *OLD* VALUES"). Note for anyone reading this
-  bullet as the record: **the header fix it describes (`28c9ee02`, 2026-08-27) was not the sweep.**
-  It fixed the four sites in `dac_banks.emp`'s header and nothing else, and this bullet went on
-  reading as fully open, so the operational rule it states had never been run. Running it found **20
-  more live sites across 10 files** (enumerated in the DEFERRED_WORK entry so the count is
-  checkable) — one of them eight lines below `28c9ee02`'s own ⚠ warning. Two
-  classes the rule as written would still miss: (a) prose whose **mechanism** was deleted rather than
-  moved (`dac_samples.emp` described map regions removed 25 days *earlier*; the wrong-looking address
-  was the *less* wrong half), and (b) a **generator diverged from its own `DO NOT EDIT BY HAND`
-  output**, so regenerating would have reintroduced stale text. Add both to the sweep: after
-  relocating anything, also grep for mechanisms recently *deleted*, and re-run every generator to
-  confirm it round-trips against its checked-in output.
+  **✅ CLOSED 2026-08-29** by `fix/stale-dac-anchor-prose` — write-up in `docs/DEFERRED_WORK.md`
+  ("THE STALE DAC/SOUND-BANK ANCHOR PROSE, SWEPT BY THE *OLD* VALUES"); the closure narrative and the
+  20-live-sites count are in `docs/OVERSEER-LOG.md`. **Two classes the rule as written still misses, and
+  both are now part of the sweep: prose whose MECHANISM was deleted rather than moved, and a generator
+  diverged from its own `DO NOT EDIT BY HAND` output.** So after relocating anything, also grep for
+  mechanisms recently *deleted*, and re-run every generator to confirm it round-trips against its
+  checked-in output.
 - **PROSE BOUNDS ARE A POPULATION THE "IS IT DERIVED?" SWEEP DOES NOT REACH** (added
   2026-08-27; same source). After a sweep across every code consumer, one literal `8` survived
   in an agent-facing tool **description string**. Help text, `argparse` descriptions, docstrings,
@@ -1445,16 +1418,3 @@ path, for the same reason the protocol is read that way.
   built shapes and both `.lst` listings. It is the tree `AEON_DIR` should point at for anything
   asking what chain 179 actually froze, and rebuilding four shapes to recreate it is the
   expensive half of any artifact-dependent run.
-
-### 2026-08-30T16:25Z — CORRECTION: the d-41 left-edge fix has been ON MASTER since 2026-08-29 11:20 (def98ee5), not on a branch
-
-Three records in this lane and one in the hub said the fix was "reverted on master" and needed restoring: the d-32 retraction
-(`043cf485`), the two d-41 `answered` entries of 2026-08-30 02:05Z/02:10Z, the resume brief this session handed its look-build
-agent, and empyrean's 16:09Z check. All wrong the same way: the revert `48eded35` (08-29 10:30) was followed by the RE-LAND
-`def98ee5` (08-29 11:20, chain 186, attested) and everyone downstream copied the first half of the day. Verified firsthand:
-`git merge-base --is-ancestor 48eded35 def98ee5` = yes; `VSCROLL_COL19_BG_OFF` in master `engine/level/parallax.emp:717`; the
-store at `s4.debug.lst` `cap_per_col_vsram_fill_begin` 7C6C..7CB2. The agent sent to "restore" it produced an EMPTY revert-of-revert
-and reported that instead of committing nothing, which is the behaviour the escape hatch exists for. **Bar:** a claim about what is
-on master is checked with `git log -S <the fix's own symbol> -- <file>` before it goes in a brief; a revert's existence says
-nothing about what happened after it. The owner's window (master build) therefore already carried band + fix; it was stepped to
-scene 13 and left running at 16:25Z (this heading and this time are from the commit clock; the first version of this note wrote 16:27Z from memory).
