@@ -17602,7 +17602,7 @@ Item 2 is the only one that does not.
 | 7 | Vertical bob | **S-M** | yes, paired | **BUILT — `parcel/vertical-bob`, 2026-08-30, unlanded.** A scene-level term on `Parallax_Step5_Vscroll`'s `.v_pack`. 40 bytes of code, ZERO config bytes (the packed nibble pair claimed `pcfg_pad_29`), EndOfRom unmoved in all four shapes. Riders booked below. |
 | 8 | BgAnim vertical band motion | **M** | **no — zero ROM bytes** | **ENGINE HALF DONE 2026-09-02, `parcel/bganim-band-motion`; the ON-SCREEN half is BLOCKED and the reason is measured** — see the item-8 block below. The pricing was written on the belief that a vertical shift needed a different DMA shape; it does not, `BgAnim_Update` was always axis-agnostic, and the parcel moves no engine byte at all. So this row does NOT pair with sigil. |
 | 9 | Hydrocity row remap | **L** | **9a LANDED 2026-09-03** · 9b/9c data only | **9a BUILT — `parcel/hcz-row-remap-9a`; +261/+263/+5/+17 bytes over the four shapes, mechanism proved separable at zero code bytes, ladder H=16 because the DEBUG shape has only ~558 B of packed-data headroom. See the item-9 landing block.** Designed 2026-09-03, `design/hydrocity-row-remap`. `docs/superpowers/specs/2026-09-03-hydrocity-row-remap-design.md`. **The row's own two claims are both corrected by the primary source.** (1) **It is not a nametable remap.** S3K's HCZ waterline writes ZERO nametable words and ZERO VSRAM: it is a per-line **HScroll table** row remap built in the game loop (`HCZ1_Deform`, `skdisasm/sonic3k.asm:105849-105876`) plus a tile-**art** row gather DMAd into a FIXED tile run (`loc_27888`, `:53981`), both indexing one 97×96 byte ladder by the same published quantity. (2) **"Zone-specific" is refuted by S3K itself** — `LBZ2_Deform` (`:111674`) runs the identical three-instruction kernel at band height `$40` instead of `$60` with its own `(H+1)×H` table (4,160 B = 65×64). Two zones, two parameterisations, one mechanism. **It costs ZERO HBlank cycles** — the 488-cycle scanline budget the DoD asked it to be priced against is not the budget it spends; family A is a seventh specialised loop inside `Parallax_Fill_PerLine` plus a fourth capability-selected `band_record` tail, derived at ~56 cyc/line = **4.2% of the 128,000-cycle frame** at S3K's 96-line height, and `Hscroll_Buffer`'s 896-byte static DMA already ships every frame so it adds **no VRAM and no DMA**. **9a (engine, hand-authored) is buildable today. 9d (the art half) is BLOCKED** on `bg_region` at 448/448 — the same wall item 8's on-screen half hit — and BgAnim is ruled out for it by arithmetic (8 phase banks cannot express 97 continuously-selected states). See the item-9 block below. |
-| 10 | Reels / plane-role swap / window as third layer | **L** | aeon alone (the paired freeze ended 2026-09-02) | ~~**BLOCKED — see item 0 below.**~~ **UNBLOCKED on the VRAM axis 2026-09-03: item 0 landed as Option P** — `spare_nametable`, 128 tiles at tile 768 (`$6000`), a legal Plane A/B/Window base. **10a (reels) LANDED 2026-09-03, `parcel/item10a-reels`** — `OJZ_Reels_Fill` composes REEL_BAND_COUNT (5) independently-advancing, pairwise-distinct per-frame phase increments onto the shipped per-column VSRAM buffer's BG words; needed **zero** of item 0's tiles (design §2 row 10a's claim held). `tools/reels_gate.py` gates it on every canonical sonic4 build. **`tools/reels_witness.py`'s tagged emulator pass has now been RUN (2026-09-03, `fix/reels-witness-expectation`)** — it found the mechanism sound and its OWN expectation wrong (assumed the fill runs once per requested frame; two real lag frames in the test scene's settle window mean it doesn't), fixed to derive the expectation from `Lag_Frame_Count` rather than the frame count. **10b (plane-role swap) IMPLEMENTED 2026-09-03 on `parcel/item10b-plane-role-swap`, unmerged** (rebased onto master post-item-6) — `engine.parallax.Parallax_Set_Roles_Swapped`, a WHOLE-FRAME settled-state register swap (`Set_VDP_Reg`, item 11a's mid-frame door does not fit a multi-frame set-piece) plus the HScroll/VSRAM feed-packer swap design §8 Q4 asked for; needed **zero** of item 0's tiles (design §2 row 10b's claim held) and the streaming write targets (`plane_buffer.emp`/`section.emp`/`bg.emp`) needed **zero** changes (they target physical VRAM addresses, not "whichever register is Plane A now"). Capability-gated behind `CAP_ROLE_SWAP` (took `$0400` after item 6's `CAP_DENSE_TIER` claimed `$0200` in parallel) — the unconditional version cost demo 104 bytes across five sites; gating measured to zero bytes for BOTH games. `tools/plane_role_swap_gate.py` gates it on every canonical sonic4 build. **10c (window as third layer) is UNSTARTED** and does need item 0's `spare_nametable`. See the item-10b block below. |
+| 10 | Reels / plane-role swap / window as third layer | **L** | aeon alone (the paired freeze ended 2026-09-02) | ~~**BLOCKED — see item 0 below.**~~ **UNBLOCKED on the VRAM axis 2026-09-03: item 0 landed as Option P** — `spare_nametable`, 128 tiles at tile 768 (`$6000`), a legal Plane A/B/Window base. **10a (reels) LANDED 2026-09-03, `parcel/item10a-reels`** — `OJZ_Reels_Fill` composes REEL_BAND_COUNT (5) independently-advancing, pairwise-distinct per-frame phase increments onto the shipped per-column VSRAM buffer's BG words; needed **zero** of item 0's tiles (design §2 row 10a's claim held). `tools/reels_gate.py` gates it on every canonical sonic4 build. **`tools/reels_witness.py`'s tagged emulator pass has now been RUN (2026-09-03, `fix/reels-witness-expectation`)** — it found the mechanism sound and its OWN expectation wrong (assumed the fill runs once per requested frame; two real lag frames in the test scene's settle window mean it doesn't), fixed to derive the expectation from `Lag_Frame_Count` rather than the frame count. **10b (plane-role swap) IMPLEMENTED 2026-09-03 on `parcel/item10b-plane-role-swap`, ~~unmerged~~ MERGED (verified 2026-09-04: its tip is an ancestor of master and its symbols are in the built listing), and WATCHED 2026-09-04** (rebased onto master post-item-6) — `engine.parallax.Parallax_Set_Roles_Swapped`, a WHOLE-FRAME settled-state register swap (`Set_VDP_Reg`, item 11a's mid-frame door does not fit a multi-frame set-piece) plus the HScroll/VSRAM feed-packer swap design §8 Q4 asked for; needed **zero** of item 0's tiles (design §2 row 10b's claim held) and the streaming write targets (`plane_buffer.emp`/`section.emp`/`bg.emp`) needed **zero** changes (they target physical VRAM addresses, not "whichever register is Plane A now"). Capability-gated behind `CAP_ROLE_SWAP` (took `$0400` after item 6's `CAP_DENSE_TIER` claimed `$0200` in parallel) — the unconditional version cost demo 104 bytes across five sites; gating measured to zero bytes for BOTH games. `tools/plane_role_swap_gate.py` gates it on every canonical sonic4 build. **10c (window as third layer) is UNSTARTED** and does need item 0's `spare_nametable`. See the item-10b block below. |
 | 11 | Nametable-base changes (frame swap, Plane Z, Batman mid-frame) | **L** | aeon alone (the paired freeze ended 2026-09-02) | ~~**BLOCKED — same item 0.**~~ **PARTLY DONE.** Item 0's design (§2) split this row into 11a (the mid-frame base change as a MECHANISM, zero tiles) and 11b (Plane Z, a distinct third picture, which does need tiles). **11a LANDED 2026-09-03, `parcel/item11a-midframe-base`, aeon `eb87d2ba`** — `OJZ_BaseSwap`, one `OP_SET_REG` re-pointing Plane A at Plane B's nametable at screen line 160, gated by `tools/plane_base_swap_gate.py` on every canonical sonic4 build. **The on-screen half is unrun** (no emulator in that lane) and is tagged for the controller. **11b is UNBLOCKED on the VRAM axis by item 0's landing** — but note there is no SECOND `$2000`-aligned run left: the remaining spendable run is at `$5000`, `$1000`-aligned, i.e. window-only, so 10c and 11b are competing for the one `$6000` run. See the item-11a and item-0 blocks below. **11a's AUTHORABLE half also LANDED 2026-09-03, `parcel/item11a-authorable`** — a `base_swap` preset-document key ({line, target}) reusing `OJZ_BaseSwap`'s own `fire`/`reg_set`/`raster_program` calls (no new constructor), bound to a REAL section (section 6's own `OJZ_Preset_Sec6`, split off the shared `OJZ_Preset_Plain` the way section 5 was split for `bands`) rather than existing only as `OJZ_BaseSwap`'s DEBUG-only demo — reachability proved against the built listing (`EditorRaster_OJZ_Act1_Bindings=2` in both shapes' `s4.lst`/`s4.debug.lst`). Ships ahead of a hub schema ruling; the short shape note is `docs/superpowers/specs/2026-09-03-item11a-base-swap-key-shape.md`. See the item-11a-authorable block below. |
 
 **WHAT DECIDES A RAMP'S WIDTH, ANSWERED FOR THE EDITOR (2026-09-03).** A per-line VSRAM ramp is
@@ -20239,7 +20239,55 @@ change:**
 
 **Zero ROM bytes moved by this pass** — before/after `s4.debug.bin` md5 recorded in the branch's
 merge evidence; documents only.
-## EFFECTS-W1 ITEM 10b — THE PLANE-ROLE SWAP IS IN THE ROM; THE PICTURE IS UNRUN (2026-09-03, `parcel/item10b-plane-role-swap`)
+## EFFECTS-W1 ITEM 10b — THE PLANE-ROLE SWAP IS IN THE ROM, IT IS ON MASTER, AND AS OF 2026-09-04 IT HAS BEEN WATCHED (`tools/role_swap_witness.py`)
+
+> **⚠ TWO STALE FACTS IN THIS ENTRY AND IN THE DoD TABLE ABOVE IT, both of which would have
+> cost the next reader real work.**
+>
+> 1. **It is NOT unmerged.** `parcel/item10b-plane-role-swap` (`cb35c674`) is an ancestor of
+>    master; `Parallax_Set_Roles_Swapped` and `CAP_ROLE_SWAP` are in `master`'s
+>    `engine/level/parallax.emp` and in the built `s4.debug.lst`. The branch shows `0` commits
+>    against master with an EMPTY three-dot diff — which is the two-valued signature the shared
+>    protocol's bar 16(a) warns about ("never had commits" and "already merged" look identical).
+>    Disambiguated by `--is-ancestor` on the branch's own tip and by finding its symbols, not by
+>    the range.
+> 2. **The poke address below is stale.** Step 1 says write to `$FFFF8B48`; the symbol is at
+>    `$FF8BD0` in today's listing. A controller following the literal would have poked unrelated
+>    RAM and seen nothing — which is step 4's failure mode (a), reached by following step 1.
+>    **Read `Parallax_Roles_Swapped` out of the `.lst` at the moment of use.**
+>
+> **MEASURED 2026-09-04, DEBUG shape, `s4.debug.bin` at aeon `52be83a9`. Three arms, exit 0:**
+>
+> | arm | result |
+> |---|---|
+> | the act's own drift, 6 captures 8 frames apart | 18 of 224 rows move on their own — bands **5-20** and **65-66**; the other **206** carry arm 3 |
+> | the mechanism at the VDP shadow | reg `$02` **$30 -> $38**, reg `$04` **$07 -> $06**, and both back on clear — every byte matching the expectation folded from `VRAM_PLANE_A/B` and `vdp_base_shift` |
+> | the picture, stable rows only | **27 of 206 changed** (bands **64**, **67-91**, **223**); **0 rows** left changed after the flag was cleared |
+>
+> **Proven red:** aiming the flag write at unrelated RAM makes arm 2 report `$30/$07` where
+> `$38/$06` was derived AND arm 3 report 0 changed rows — both arms fail, exit 1. So both are
+> driven by the poke rather than by the passage of frames. Poison applied on disk, output kept,
+> line restored, and the restored file reproduces the pass byte-identically.
+>
+> **THE DRIFT SET IS MEASURED, NOT ASSUMED AWAY.** A 3-capture baseline called line 65 stable
+> and arm 3 then reported it as un-restored residue — a one-row "failure" sitting immediately
+> beside the drift band at 66. Six captures put 65-66 in the drift set and the residue went to
+> zero. The hypothesis was that 65 was a slow band edge; it was confirmed by lengthening the
+> baseline rather than by argument, which is the only reason it is written here as a fact.
+>
+> **⚠ WHAT IS NARROWER THAN THIS ENTRY'S PROSE PREDICTS, reported rather than smoothed.** Step 2
+> below describes a whole-picture role trade. What a frozen scene at the settle position actually
+> shows is a change confined to **roughly lines 64-91 plus line 223** — 27 rows, not 206. The
+> mechanism is not in doubt (the registers trade, exactly, and reverse), so this is a statement
+> about how much of THIS scene's two planes differ visibly at THIS camera position, and it is
+> offered as a measurement without a mechanism attached. **It is the open question on item 10b**:
+> either the swap is only visible where the planes' content differs (expected, and then the demo
+> wants a camera position where they differ more), or something narrows it. Nobody has looked.
+>
+> **Still owed, and it is the owner's:** whether the swapped picture READS as a clean role trade
+> — each layer keeping its own scroll feel, no seam and no snap. That is step 4's failure mode
+> (b), it is taste plus scroll judgement on a MOVING picture, and no row-hash witness can reach
+> it.
 
 Branch `parcel/item10b-plane-role-swap`, based on aeon `origin/master` at `b35b2d36`
 (fetched and re-derived, not typed — `git rev-parse origin/master`). Unmerged: item 6
@@ -20410,7 +20458,12 @@ the diff before the next mutation):**
 | `plane_role_swap_gate.py`'s `found_pairs`'s `_reg_num(ops[1]) == 1` → `== 2` | 1 failed, 9 passed — the fixture's `move.b` destinations are all `d1`, so nothing matches. |
 | **ROM-level:** `engine/level/parallax.emp`'s swapped arm, `move.b #ROLE_SWAP_PLANE_A_SWAPPED, d1` → `#ROLE_SWAP_PLANE_A_NORMAL, d1` (the swapped arm silently writes the wrong/normal value for plane A — a class NO comptime `ensure` in the file can see, since `ROLE_SWAP_PLANE_A_NORMAL` is a perfectly legal fold, just the wrong one here) | `DEBUG=1 ./build.sh` still exits 0 — 91 PASS/OK lines, the full pytest lane (2158 passed), every other gate green. **`tools/plane_role_swap_gate.py --shape debug` is the ONLY thing that catches it**, exiting 1 and naming the exact defect: `index 0: got (d0=$2, d1=$30) want (d0=$2, d1=$38)`. Restored, rebuilt, reconfirmed green (see the ROM evidence section above, measured on the restored build). |
 
-### ⚠ TAGGED FOR THE CONTROLLER'S EMULATOR PASS — the on-screen half is NOT run
+### ~~⚠ TAGGED FOR THE CONTROLLER'S EMULATOR PASS — the on-screen half is NOT run~~ — RUN 2026-09-04
+
+**Discharged by `tools/role_swap_witness.py`; the totals are in the corrected block at the
+top of this entry.** The steps below are still the right way to LOOK at it by hand — but
+step 1's `$FFFF8B48` is stale, and following it lands you in step 4's failure mode (a).
+Read the symbol out of the listing.
 
 No emulator was used (standing invariant). What to look for, in the **DEBUG** shape
 (`s4.debug.bin`), in OJZ act 1:
