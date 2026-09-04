@@ -115,15 +115,37 @@ def test_one_rom_byte_decides_the_layer(cut, K):
 
 
 def test_the_shipped_table_is_the_control(cut, K):
-    """The unmodified ROM must leave the layer alone — which today is also a statement
-    about the shipped content: all 256 slots hold XOVER_NONE (anchor §2.1). When the
-    first real crossover is authored this test's premise changes, and the gate's
-    staleness check on the table blob is what forces that to be noticed."""
+    """The unmodified ROM must leave the layer alone.
+
+    THE PREMISE CHANGED ON 2026-09-04 AND THIS IS THE RE-READ IT ASKED FOR. It used to
+    assert all 256 slots hold XOVER_NONE, and said in as many words: "when the first
+    real crossover is authored this test's premise changes, and the gate's staleness
+    check on the table blob is what forces that to be noticed." That happened — the
+    section-0 loop is authored and two slots are now marked — and the staleness check
+    did force it, exactly as designed.
+
+    WHAT THE TEST IS ACTUALLY FOR is the assertion below it: a shipped ROM, unmodified,
+    must not write the layer byte for a player standing on an UNMARKED cell. The
+    all-256-empty check was a PROXY for that precondition, sound only while nothing was
+    authored. The precondition itself is narrower and survives authored content: the
+    ONE attr this test places its player on (ATTR_A) must be unmarked.
+
+    NOT WEAKENED TO A RANGE. Asserting "few slots are marked" or dropping the check
+    would pass for any table anyone bakes, including one that marks ATTR_A and makes
+    the behavioural assertion below vacuous — the layer would move for a reason the
+    test would then read as normal. This names the exact slot the experiment depends
+    on, so authoring the wrong cell still fails here."""
     rom, prog, extents, syms, equs = cut
     table = rom[syms["CrossoverTable"]:syms["CrossoverTable"] + 256]
-    assert all(b == K["XOVER_NONE"] for b in table), \
-        "the shipped CrossoverTable is no longer empty — re-read this test before " \
-        "re-stamping the fixture"
+    assert table[lxg.ATTR_A] == K["XOVER_NONE"], \
+        f"the shipped CrossoverTable marks ATTR_A ({lxg.ATTR_A:#04x}) with " \
+        f"{table[lxg.ATTR_A]:#04x} — this test places its player on that attr, so the " \
+        "no-layer-write assertion below would be measuring the mark, not the control"
+    marked = sum(1 for b in table if b != K["XOVER_NONE"])
+    assert marked <= 8, \
+        f"{marked} of 256 CrossoverTable slots are marked. That is not wrong in " \
+        "itself, but it is far more than the authored loops in this act account for " \
+        "(2 as of 2026-09-04), so re-read this test rather than raising the number"
     w = lxg.World(rom, prog, extents, syms, equs)
     w.fill_plane(0, lxg.ATTR_A)
     w.place(lxg.IN_CELL[0], lxg.IN_CELL[1], K["LAYER_PATH_A"])
