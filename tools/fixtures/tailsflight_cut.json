@@ -2,7 +2,7 @@
   "_note": "Ability_TailsFlight's bytes, per BUILD SHAPE, and the constants each was built with. The two canonical shapes place the routine at different addresses, so one cut cannot serve both. Regenerate with tools/instashield_gate.py --write-fixture (it preserves the other shape).",
   "shapes": {
     "s4.debug.lst": {
-      "bytes": "102800320c00000867060c00000a661c3228000cb26c000e6d12117c00f00042117c00010043700e6000f3904e75",
+      "bytes": "102800320c00000867060c00000a661c3228000cb26c000e6d12117c00f00042117c00010043700e6000f3884e75",
       "constants": {
         "FLY_COAST": 1,
         "FLY_FUEL_TICKS": 240,
@@ -12,7 +12,7 @@
         "PSTATE_ROLLJUMP": 10,
         "SST_y_vel": 12
       },
-      "end": 69986,
+      "end": 69994,
       "offsets": {
         "air_left": 57,
         "climb_pad": 71,
@@ -39,13 +39,13 @@
         "stick_convex": 59
       },
       "sst_custom": 48,
-      "start": 69940,
+      "start": 69948,
       "stubs": {
         "0104EE": "Player_SetState"
       }
     },
     "s4.lst": {
-      "bytes": "102800320c00000867060c00000a661c3228000cb26c000e6d12117c00f00042117c00010043700e6000f3da4e75",
+      "bytes": "102800320c00000867060c00000a661c3228000cb26c000e6d12117c00f00042117c00010043700e6000f3d24e75",
       "constants": {
         "FLY_COAST": 1,
         "FLY_FUEL_TICKS": 240,
@@ -55,7 +55,7 @@
         "PSTATE_ROLLJUMP": 10,
         "SST_y_vel": 12
       },
-      "end": 69718,
+      "end": 69726,
       "offsets": {
         "air_left": 57,
         "climb_pad": 71,
@@ -82,7 +82,7 @@
         "stick_convex": 59
       },
       "sst_custom": 48,
-      "start": 69672,
+      "start": 69680,
       "stubs": {
         "01042C": "Player_SetState"
       }

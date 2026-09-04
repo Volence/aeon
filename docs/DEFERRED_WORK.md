@@ -22705,3 +22705,181 @@ red on it. Master's `parcel/gate-fixtures-address-pinned` (`9332587b`) had alrea
 exactly that, after this branch was cut. Merging master cleared it with no change to this
 parcel's own code, which is the discriminator between "my bytes broke a gate" and "a gate
 could not survive any bytes".
+
+## LEVEL-EXTENT-SYMBOLS — `Level_Width` / `Level_Height` published (2026-09-04)
+
+**Landed, not deferred** — recorded here because the two follow-ups below are.
+
+`Player_BoundsInit` (`games/sonic4/player/player_common.emp`) now also stores the two
+intermediates it already computed — `grid_w << SECTION_SIZE_SHIFT` and
+`grid_h << SECTION_SIZE_SHIFT` — into two new `u16` game-RAM cells `Level_Width` /
+`Level_Height` (`games/sonic4/config/ram.emp`), declared in **both** sonic4 shapes so an
+external tool can resolve them by name out of the listing per call, the way it resolves
+`Camera_X`/`Camera_Y`. The valid object box is `[0, Level_Width) × [0, Level_Height)`.
+
+**Why the symbols had to exist rather than be computed by the consumer.** The obvious
+workaround — read `Player_Bound_Right` and add `PBOUND_RIGHT_MARGIN` back — is *unavailable*
+to a listing-based symbol reader: a build-time constant is an EQU, and this repo's listing
+carries EQU lines such a reader structurally cannot see. The arithmetic workaround does not
+exist, so nobody should later "simplify" this away by telling a consumer to add a margin.
+
+**The trap, restated because it is the reason the parcel exists.** `Player_Bound_Right` /
+`Player_Bound_Bottom` are the PLAYER's clamp edges, inset by `PBOUND_RIGHT_MARGIN` and
+`SCREEN_HEIGHT`. Objects are deliberately unclamped, so an object between
+`Player_Bound_Right` and `Level_Width` is legal and renders. Using the bound symbols as the
+extent fails by *refusing* legitimate placements near the right edge — i.e. in the direction
+that looks correct, since a refusal near an edge is half-expected. There is also no
+`Player_Bound_Left`/`Top`; the low edge is a literal `0` in `clamp_and_publish`.
+
+**Mega-act ceiling: inherited, deliberately NOT widened.** The new cells are `u16` and wrap
+above `$FFFF` px (grid dimension > 31 sections) — the same ceiling the existing clamp-edge
+word stores already carry. Verified as actually held: `act_descriptor.emp:131-134` asserts
+`(GRID_W << SECTION_SIZE_SHIFT) <= $8000` and `(GRID_H << SECTION_SIZE_SHIFT) <= $8000`,
+which bounds both quantities to half a word. Widening these to `u32` would change a
+documented constraint shared with the clamp edges and was explicitly out of scope.
+
+**No gate added, and the reason.** An `ensure` tying the new cells to the derivation is not
+constructible here: `Player_BoundsInit` reads `grid_w`/`grid_h` from a runtime act-descriptor
+pointer, so nothing about the stored value is comptime-visible at the store site. The only
+comptime bound on the quantity is the act-descriptor pair above, which already exists and was
+verified rather than duplicated. A runtime witness would need an emulator.
+
+### Deferred out of this parcel
+
+- **Runtime confirmation of the two cells is UNVERIFIED here.** This parcel was static: the
+  stores were read out of the source and the four shapes were built, but nothing observed
+  `Level_Width`/`Level_Height` holding `3 << 11 = $1800` on a running act. That needs an
+  emulator pass (resolve both symbols, boot the act, read the words, compare against
+  `GRID_W`/`GRID_H` from the descriptor) and this lane is barred from the emulator.
+- **`Player_Bound_Right` is still computed by subtraction, not from `Level_Width`.** Now that
+  the extent is in RAM, the clamp edges could be derived from it, collapsing two derivations
+  into one. Not done: it would move more bytes than the ask, and the current spelling is
+  bit-identical to the retired per-frame chains by construction (`Player_BoundsInit`'s own
+  header makes that a stated property). Any such change must re-establish that property.
+
+### Also in this change (zero bytes)
+
+The `Obj_Req_X/Y` comment in `games/sonic4/config/ram.emp` said only *"the same convention as
+`Warp_Req_X/Y`"* — true about the coordinate space and misleading about the treatment, and
+other tools were reading it as a full description of the interface. Amended to state the
+asymmetry, each half re-derived at the consumers: same integer world-pixel space (SPAWN →
+`Load_Object` "integer, engine coords"; MOVE → `pixels_to_coord` → 16.16 `Sst.x_pos`), but the
+warp path CLAMPS via `clamp_and_publish` while the object path deliberately does not — an
+out-of-act object is skipped by `RunObjects`' camera-distance cull (`CULL_DISTANCE_X/Y`) where
+an out-of-act player would reach `SEC_VOID`. So an out-of-act spawn is **accepted and culled**,
+not clamped and not refused, and `OBJREQ_OK` means "applied", never "visible".
+
+No clamp or refusal was added to the object mailbox: that fix belongs to the client holding the
+click, and adding engine behaviour here would pre-empt its design.
+
+#### Correction to this parcel's own second commit (2026-09-04)
+
+Commit `2d1a88e7` removed an exclusivity claim from the `Level_Width` comment block and
+justified the removal by saying `tools/dma_straddle_reading.py` "resolves `Player_Bound_Right`,
+`Player_Pos_Ring` and `Player_Chardef` out of the listing by name". **That justification is
+wrong and was caught by re-reading the grep's own hits rather than its file list.** What is
+actually there:
+
+- `tools/dma_straddle_reading.py` names `Player_Chardef` **in a prose comment** about the
+  character hotkey. It resolves no symbol of that name.
+- `tools/fixtures/s4_listing_excerpt.lst` contains `Player_Pos_Ring` because it *is* a captured
+  listing excerpt — the name appearing in a listing is not a consumer.
+- `tools/fixtures/make_listing_excerpt.py` **does** name `Player_Pos_Ring` (and
+  `Player_Stat_Ring`, `Player_Ring_Index`, `Game_RAM_End`) deliberately, in its `WANT` set. That
+  is one genuine by-name consumer of a field in `games/sonic4/config/ram.emp` — chosen for
+  fixture *coverage*, not because anything depends on the address.
+- Nothing in `tools/` resolves `Player_Bound_Right` at all.
+
+**The comment edit itself stands and needs no revision** — the replacement sentence makes no
+exclusivity claim, only the load-bearing one (do not move these inside `if DEBUG == 1`, do not
+rename them; addresses are free to move). What was wrong was the *evidence*, and the failure
+mode is the ordinary one: a file-list grep hit was read as a code reference without opening the
+lines. A hit in a `.py` can be a comment, and a hit in a captured `.lst` fixture is guaranteed
+not to be a consumer.
+
+
+#### Landing evidence (2026-09-04)
+
+Four shapes, all `REAL_EXIT=0`, built serially from a clean tree at `6e75d6d0`:
+
+| shape | CRC32 | size | RAM budget line |
+|---|---|---|---|
+| `./build.sh` | `727cec91` | 720829 | RAM 47.5 KB/64.0 KB (74.2%), Free 16.2 KB before stack |
+| `DEBUG=1 ./build.sh` | `9af4fccc` | 741930 | RAM 59.3 KB/64.0 KB (92.6%), Free 4.5 KB before stack |
+| `./build.sh demo` | `11ebd7ab` | 96602 | RAM 45.8 KB/64.0 KB (71.6%), Free 17.9 KB before stack |
+| `DEBUG=1 ./build.sh demo` | `9b0d2ce7` | 102818 | RAM 57.5 KB/64.0 KB (89.8%), Free 6.3 KB before stack |
+
+**The two cells cost ZERO game RAM**, and that is derived rather than A/B measured (no master
+baseline was built): the game-var block ended at `$FFFFBABE` before this parcel and ends at
+`$FFFFBAC2` after, both inside the same 256-byte block `[$FFFFBA00, $FFFFBB00)`, and the next
+field is `Player_Pos_Ring @align(256)`. Alignment is a function of the cursor alone, so it lands
+at `$FFFFBC00` either way and the four bytes come out of pad that already existed. `Game_RAM_End`
+is `$FFFFBE02` (release) / `$FFFFED28` (debug). Nothing was pushed toward a ceiling; the debug
+shape's 92.6% is its pre-existing figure, not something this parcel moved.
+
+Resolved addresses at this build — **and they differ between shapes, which is exactly why a
+consumer must resolve by name per call and never cache**:
+
+| symbol | `s4.lst` | `s4.debug.lst` |
+|---|---|---|
+| `Player_Bound_Right` | `$FFFFBABA` | `$FFFFE958` |
+| `Player_Bound_Bottom` | `$FFFFBABC` | `$FFFFE95A` |
+| `Level_Width` | `$FFFFBABE` | `$FFFFE95C` |
+| `Level_Height` | `$FFFFBAC0` | `$FFFFE95E` |
+
+Both appear in the listing's **symbol table** (the `Name : ADDR C |` rows), not as EQU lines, so
+they are reachable by the same mechanism that already resolves `Camera_X`/`Camera_Y`. Neither
+appears in `demo.lst` / `demo.debug.lst`, which is correct: `demo` carries no player code.
+
+**Byte-mover consequence, resolved:** both sonic4 shapes first went red on
+`tools/instashield_gate.py` because `instashield_cut.json` / `tailsflight_cut.json` pin absolute
+routine spans. All four cuts moved by exactly **+8 bytes** — derived, being the two new
+`move.w d1,(xxx).w` instructions at 4 bytes each — with every routine keeping its exact length,
+and every differing byte turning out to be the low half of a 16-bit `bsr.w`/`bra.w` displacement
+that re-resolves to an *unchanged* absolute target (`Player_SetState`, upstream of the insertion
+point). Re-stamped per shape and re-verified with the gate invoked as `build.sh` invokes it. Full
+derivation in commit `6e75d6d0`.
+
+## FOUR GATE FIXTURES PIN ABSOLUTE ROM ADDRESSES; I FIXED THE TWO THAT WERE REPORTED — booked 2026-09-04
+
+**The class is not two members, it is four, and I learned that from a parcel tripping over the other
+two rather than from asking.** Aurora reported `sprite_tilt_cut.json` and `loop_crossover_cut.json`
+going red for any act-content change; `parcel/gate-fixtures-address-pinned` fixed both by comparing
+the **decoded instruction stream, symbol-normalised**. I never asked how many fixtures had the same
+shape. Enumerated afterwards, over every file in `tools/fixtures/`:
+
+| fixture | pins | status |
+|---|---|---|
+| `sprite_tilt_cut.json` | `addr`, `refresh_addr` | **FIXED** (`9332587b`) |
+| `loop_crossover_cut.json` | `spans`, `syms` | **FIXED** (`9332587b`) |
+| `instashield_cut.json` | `start`, `end`, `stubs` | **re-stamped, NOT fixed** |
+| `tailsflight_cut.json` | `start`, `end`, `stubs` | **re-stamped, NOT fixed** |
+
+`decisions_ruled_unrepaired.json` pins nothing positional and is not in the class.
+
+**So two gates still redden on any parcel that shifts player code**, and the next person to meet them
+will be holding a red build with a correct tree — exactly the state the first fix existed to remove.
+
+**THE RE-STAMP THAT HAPPENED WAS DONE PROPERLY, AND THAT IS THE PART TO NOT LOSE.** The
+`parcel/level-extent-symbols` agent hit both, and instead of re-stamping on the gate's say-so it
+proved displacement-only: all four cuts moved **+8**, which is *derived* (two `move.w` x 4 bytes) and
+not fitted; every routine kept its exact length (64/46 release, 62/46 debug); every differing byte is
+the low half of a 16-bit `bsr.w`/`bra.w` displacement shifting by exactly **-8**; and resolving each
+branch to its **absolute** target gives the same address on both sides. Verified here from the
+fixture diff before landing: `6100 ed5c -> ed54`, `6000 9d3e -> 9d36`, starts `71538 -> 71546` and
+`71270 -> 71278`, and the only stub that moved is the one sited after `Player_BoundsInit`.
+
+**A re-stamp with that proof attached is legitimate. A re-stamp without it is how a real defect
+gets absorbed into a fixture** — which is precisely what the two remaining gates invite, because
+they will keep going red for an innocent reason and the cheap response will keep working.
+
+**THE ROW: port the normalised-stream comparison from `sprite_tilt_gate.py` to `instashield_gate.py`
+and `tailsflight_gate.py`.** The mechanism already exists and is proven; this is application, not
+design. Note their fixtures embed branch displacements exactly as the tilt routine's `jsr` operand
+did, so symbol-relative addressing alone will not close it — that was measured on the first pair and
+applies unchanged here.
+
+**THE BAR, and it is bar 8 arriving on my own remediation rather than on someone's data:** when a
+peer reports N instances of a defect, **the report is a sample, not a census.** Enumerate the
+population from something that emits it — here, every file in `tools/fixtures/` — before calling the
+class closed. I fixed the reported set and wrote a commit message describing it as fixing the class.

@@ -149,6 +149,47 @@ pub vars game_ram {
     Player_Bound_Right:     u16,    // act right clamp edge (px): level_width − PBOUND_RIGHT_MARGIN
     Player_Bound_Bottom:    u16,    // act playable bottom edge (px): level_height − SCREEN_HEIGHT
 
+    // The act's TRUE pixel extent — the valid world box is [0, Level_Width) ×
+    // [0, Level_Height). Published by the SAME Player_BoundsInit pass that writes
+    // the two clamp edges above, from the values it already holds BEFORE it
+    // subtracts its margins (grid_w/grid_h << SECTION_SIZE_SHIFT off the act
+    // descriptor). Boot-cleared with all Work RAM, so both read 0 until an act
+    // init has run.
+    //
+    // THESE EXIST BECAUSE THE TWO SYMBOLS ABOVE ARE THE WRONG ANSWER TO THIS
+    // QUESTION, IN THE DIRECTION THAT LOOKS RIGHT. Player_Bound_Right/Bottom are
+    // the PLAYER's clamp edges, INSET by PBOUND_RIGHT_MARGIN and SCREEN_HEIGHT
+    // respectively — they are not the act extent. Objects are deliberately
+    // unclamped (see the Obj_Req_X/Y block below), so an object placed between
+    // Player_Bound_Right and Level_Width is LEGAL and renders. A tool that read
+    // the bound symbols as the extent would refuse legitimate placements in that
+    // strip — and a refusal near an edge is half-expected, so the bug would look
+    // like correct behaviour and survive review. Note also there is NO
+    // Player_Bound_Left / Player_Bound_Top: the low edge is a literal 0 in
+    // clamp_and_publish (games/sonic4/test/ojz_scroll_test.emp).
+    //
+    // BOTH SHAPES, ON PURPOSE. External tools resolve these BY NAME out of the
+    // build's listing, per call and never cached, exactly as they do Camera_X /
+    // Camera_Y — so they must NOT be moved inside an `if DEBUG == 1` group, and
+    // must not be renamed without telling the consumers. (Their ADDRESSES are
+    // free to move between shapes and between builds; that is precisely what
+    // per-call name resolution buys.)
+    //
+    // MEGA-ACT CEILING — INHERITED, NOT WIDENED. These are u16 and word-wrap
+    // above $FFFF px, i.e. a grid dimension > 31 sections, which is exactly the
+    // ceiling Player_BoundsInit's own word stores already carry. It is held today
+    // by the act descriptor's `(GRID_W << SECTION_SIZE_SHIFT) <= $8000` /
+    // `(GRID_H << SECTION_SIZE_SHIFT) <= $8000` ensures
+    // (games/sonic4/data/levels/ojz/act1/act_descriptor.emp), which bound both
+    // quantities to $8000 — half the word. DO NOT widen these to u32 to "fix"
+    // that: the constraint is documented, shared with the clamp edges beside
+    // them, and a downstream consumer has recorded the dependency in the
+    // direction that OUR word stores break before its own arithmetic does.
+    // Relaxing the ceiling is a change to Player_BoundsInit and to these cells
+    // together, never to these cells alone.
+    Level_Width:            u16,    // act extent X (px) = grid_w << SECTION_SIZE_SHIFT
+    Level_Height:           u16,    // act extent Y (px) = grid_h << SECTION_SIZE_SHIFT
+
     // -----------------------------------------------
     // Player history rings (§5)
     // -----------------------------------------------
@@ -364,8 +405,26 @@ pub vars game_ram {
                                 //   e.g. the deb2 value of `ObjDef_Solid`). Ignored by
                                 //   MOVE/DELETE. Validated even + nonzero + inside the
                                 //   cart window + nonzero ObjDef.code_addr.
-        Obj_Req_X:      u16,    // SPAWN/MOVE: world X in flat world PIXELS — the same
-        Obj_Req_Y:      u16,    //   convention as Warp_Req_X/Y. Ignored by DELETE.
+        // SAME COORDINATE SPACE AS Warp_Req_X/Y, OPPOSITE OUT-OF-RANGE TREATMENT —
+        // and the second half is the part a client has to know. The space is
+        // identical: integer, flat world PIXELS (SPAWN hands these to Load_Object as
+        // its "X/Y position (integer, engine coords)"; MOVE runs them through
+        // pixels_to_coord into the 16.16 Sst.x_pos/y_pos). But the WARP path CLAMPS
+        // — Warp_Req_X/Y go through clamp_and_publish against Player_Bound_Right /
+        // Player_Bound_Bottom and are rewritten in place with where the engine
+        // actually put the player — whereas THIS path deliberately does not clamp,
+        // does not refuse, and does not publish anything back into X/Y. An
+        // out-of-act OBJECT is simply skipped by RunObjects' camera-distance cull
+        // (CULL_DISTANCE_X/Y) and does nothing; an out-of-act PLAYER would reach
+        // SEC_VOID, which is the whole reason the warp clamps and this does not.
+        // CONSEQUENCE FOR A PLACEMENT TOOL: a request outside the act is ACCEPTED,
+        // acked with Obj_Req_Status = OBJREQ_OK, and then silently culled — "OK"
+        // here means the request was applied, NOT that anything will appear. A tool
+        // that wants to refuse such a placement must bound-check it itself, against
+        // Level_Width / Level_Height (declared above — NOT against Player_Bound_*,
+        // which are inset and would reject legal placements near the right edge).
+        Obj_Req_X:      u16,    // SPAWN/MOVE: world X in flat world PIXELS. Ignored by DELETE.
+        Obj_Req_Y:      u16,    // SPAWN/MOVE: world Y in flat world PIXELS. Ignored by DELETE.
         Obj_Req_Slot:   u16,    // MOVE/DELETE (in): the target slot handle = low 16 bits
                                 //   of its SST address, i.e. exactly what Dynamic_Live
                                 //   stores and what oracle's object_list reports.
