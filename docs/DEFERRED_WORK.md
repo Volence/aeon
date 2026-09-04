@@ -24790,6 +24790,24 @@ is the signature of a field nothing consumes.
 **Any headless drive must clear `Sst+$3C` first, and must carry the gravity control** —
 drop the player in mid-air and assert he falls — **before any conclusion about collision.**
 
+**SCOPE, measured after the above and narrowing it: this is the DEBUG SHAPE ONLY.** Fresh
+boot of `s4.bin`: `Sst+$3C = $00`, width/height `$13`/`$27` (19/39, Sonic's real radii),
+mappings `$70532`. Fresh boot of `s4.debug.bin`: `Sst+$3C = $FF`, width/height `$10`/`$10`,
+mappings **`Map_TestObj`** — the yellow 16x16 marker. **Not shipped, not a release defect**,
+but a poor default for anyone testing: the toggle is **B**, and until it is pressed the
+debug shape is not running the game's physics at all.
+
+**It also reconciles two reports that looked contradictory.** The owner's captures show
+**Sonic**, so he had already pressed B and was in real physics — his "I get stuck" is sound.
+The headless drives never pressed B. Same ROM, two states.
+
+**A SECOND INSTRUMENT ERROR FROM THE SAME PASS: `layer` and `angle` were read at the wrong
+offsets.** The listing's own equates give `SST_layer = $2D` and `SST_angle = $1F`; the drives
+used `$27` and `$26`, derived from a struct declaration's field order rather than grepped
+from the `.lst`. **Every "layer 0, angle $00" reported on 2026-09-04 was reading unrelated
+bytes.** Position (`SST_x_pos = $02`, `SST_y_pos = $06`) was right, which is why the
+coordinate work stands. Offsets come from the listing, not from counting fields.
+
 **What the honest instrument then showed, and what is still open.** With the flag cleared,
 placed on the loop's ground at x 1088 / y 553, the player **falls through it** and lands at
 **y 829** — the floor at editor rows 106–109 (106 × 8 = 848, feet 848 − 19 = 829), which

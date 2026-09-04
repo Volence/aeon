@@ -1,18 +1,36 @@
 {
-  "focus": "The loop with collision is in your window to test; two effects fixes are in, one still building.",
+  "focus": "Ruled how the loop's two halves meet; Aurora is repainting; two effects parcels building.",
   "inFlight": [
     {
-      "what": "An on-screen readout naming the active effect, so you can relay it",
-      "where": "agent worktree, F4",
+      "what": "The animation bands as their own scene, camera and timer side by side",
+      "where": "agent worktree, F6",
+      "agent": true
+    },
+    {
+      "what": "Two swap bands with the layer roles inverted, top and bottom",
+      "where": "agent worktree, T3",
       "agent": true
     }
   ],
-  "blockedOnOwner": [],
-  "nextBoundary": "After the readout lands and you have looked at the loop and the two effects ballots.",
+  "blockedOnOwner": [
+    {
+      "what": "Whether to collapse the three START chords into one list",
+      "since": "2026-09-04"
+    }
+  ],
+  "nextBoundary": "After the loop climbs and the two effects parcels land.",
   "queue": [
     {
-      "id": "F4",
-      "title": "On-screen readout naming the active effect",
+      "id": "T1",
+      "title": "The loop stops you - marks unreachable and no ramp to climb",
+      "state": "blocked",
+      "size": "M",
+      "blockedBy": "aurora repainting the halves and the two centre marks",
+      "project": "EFFECTS-W1"
+    },
+    {
+      "id": "T3",
+      "title": "Two swap bands, layer roles inverted top and bottom",
       "state": "doing",
       "size": "M",
       "blockedBy": null,
@@ -20,9 +38,17 @@
     },
     {
       "id": "F6",
-      "title": "Animation bands as their own scene, camera and timer to compare",
-      "state": "next",
+      "title": "Animation bands as their own scene, camera vs timer",
+      "state": "doing",
       "size": "M",
+      "blockedBy": null,
+      "project": "EFFECTS-W1"
+    },
+    {
+      "id": "T2",
+      "title": "A real pseudo-3D floor, not the shallow V you saw",
+      "state": "next",
+      "size": "L",
       "blockedBy": null,
       "project": "EFFECTS-W1"
     },
@@ -33,17 +59,9 @@
       "size": "M",
       "blockedBy": null,
       "project": "EFFECTS-W1"
-    },
-    {
-      "id": "F1",
-      "title": "Layout-space anchoring by default, screen-space only with a reason",
-      "state": "open",
-      "size": "L",
-      "blockedBy": null,
-      "project": "EFFECTS-W1"
     }
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-04T20:43:33Z"
+  "updatedAt": "2026-09-04T21:36:33Z"
 }
