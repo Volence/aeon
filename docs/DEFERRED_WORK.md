@@ -2801,7 +2801,40 @@ None of them can distinguish **"authored, and the bake has nowhere to put it yet
 **"never authored"**. Editor data can therefore diverge arbitrarily far from the ROM with no
 signal anywhere, and the costume is a green build.
 
-**Two consequences, both binding on the LOOPS-P bake parcel:**
+> ## ✅ STALE SINCE 2026-09-02 — THE BAKE READS THE FIELD AND THE CROSSOVER REACHES THE ROM
+>
+> **Everything above this line describes a hazard that was fixed three days before it was next
+> read, and it is written in the present tense, which is why it survived.** Measured 2026-09-04
+> against `master`, not inferred:
+>
+> * `tools/collision_pipeline.py:294` — `bake_plane_cell` reads `xover = (cell_word >>
+>   XOVER_SHIFT) & XOVER_MASK` and interns it. The docstring the booking quotes as "enumerates the
+>   bits it consumes, and 15:14 is not among them" has since been rewritten and now names them.
+>   The line number in the booking (`:229`) no longer points at the function either (`:267`).
+> * **`XOVER == 3` REFUSES.** It raises a `ValueError` naming the reserved value and the clamp
+>   trap. So the R1 complaint below — *"a detector that says `error` and blocks nothing"* — is
+>   answered ON THE AEON SIDE: the bake is a refusal, not a report. **The aurora-side half of that
+>   finding is theirs and is NOT re-derived here.**
+> * `emit_tables` emits `crossover.bin`; `collision_data.emp:17` embeds it, `:129` publishes
+>   `CrossoverTable`, and `s4.debug.lst` carries `CrossoverTable` at `$70D30` with a real consumer,
+>   `Player_LoopCrossover`, at `$1013C`.
+> * Carried by `8a4313b5` (2026-09-02, *"the loop crossover reaches the ROM — bake_plane_cell
+>   stopped dropping bits 15:14"*) and `5c251e5e` (2026-08-29, the repaint path), **both verified
+>   ancestors of `master`**. Covered by `tools/test_collision_consistency.py`.
+>
+> **SO THE HEADLINE CONCLUSION IS NO LONGER TRUE:** authored crossovers are not dropped, editor
+> data cannot silently diverge from the ROM through this path, and a CRC delta IS available as
+> evidence for this feature. **The two "consequences binding on the LOOPS-P bake parcel" below are
+> both spent** — do not design around them, and do not re-implement the bake.
+>
+> *Found 2026-09-04 while picking up LOOPS-P as fallback work: the hub's ruling sent me to "the
+> first unblocked row", and this booking IS that row, describing as undone something that landed
+> three days earlier. That is the fifth stale coordinate this lane has hit in one morning and the
+> most expensive shape of the five — the others would have faked a failure, this one would have
+> funded a parcel to rebuild working code. **A booking's status is a fact about `master`; the
+> booking is only a pointer to where to look.***
+
+**~~Two consequences, both binding on the LOOPS-P bake parcel:~~** (SPENT — see the block above.)
 1. **A CRC delta is not available as evidence for this feature in either direction** until the
    bake reads the field. Do not design a gate around one. This is the byte-neutral CRC trap in
    its purest form — the artifact cannot witness the thing, and agrees with the wrong answer.
