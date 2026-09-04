@@ -222,6 +222,15 @@ authority = ["engine-tiles:BG_TILE_CAPACITY", "engine-bytebase:BG_TILE_BASE_VRAM
 # discovering that as ugly art costs more than moving a number: tightening is an
 # edit, overshooting is the owner losing confidence in the tool.
 #
+# ⚠ THE PARAGRAPH BELOW WAS WRITTEN BEFORE THE 2026-08-26 RE-IMPORT AND ITS LAST
+# TWO SENTENCES ARE NOW FALSE. `e192062e` regenerated the background from aurora's
+# simplified source and the blob went 448 -> 320 tiles, so this setting DID get
+# spent: the full 128-tile reserve is unresident today (measured from the baked
+# artifact by tools/test_bg_tile_budget.py::TestBakedBlobOccupancy, not restated
+# here). Band INSERTION is possible now; it was impossible when this was written.
+# Kept rather than deleted because the REASONING is still correct and the reserve
+# is still the dial — only the "frees nothing today" verdict expired.
+#
 # THIS SETTING BINDS THE *NEXT* IMPORT AND FREES NOTHING TODAY. The importer
 # REFUSES above the budget; it cannot re-quantise art downward, and no lossy
 # path exists (perceptual tile merging was ruled out of scope — it exists only

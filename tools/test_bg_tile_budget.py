@@ -143,13 +143,21 @@ class TestShippedReserve(unittest.TestCase):
         check) or pin the new state (stale on the next change), the expectation
         is DERIVED from the data and the constant, so it holds at any reserve.
 
-        At the reserve shipped on 2026-08-22 this is the REFUSING branch and that
-        is intended: the live blob saturates the region at 448 tiles, so it
-        exceeds the 320-tile static budget and could not be re-imported without
-        simplifying the art. Nothing automated re-runs the importer — verified:
-        `png_to_bg_override.py` is invoked by no build path, only by hand — so
-        the shipped ROM is unaffected. If that ever becomes false, this test is
-        where it shows up.
+        ⚠ THE PROSE HERE WAS STALE AND IS CORRECTED (2026-09-04). It read: "this
+        is the REFUSING branch ... the live blob saturates the region at 448
+        tiles". That stopped being true on 2026-08-26, when `e192062e`
+        re-imported the background from aurora's simplified source and the blob
+        went 448 -> 320. Today n == BG_STATIC_TILE_BUDGET exactly, so this takes
+        the NON-refusing branch: today's art can be re-imported as-is.
+
+        The assertion itself never went stale — it branches on the measurement —
+        which is exactly why nobody noticed the sentence was wrong for nine days.
+        A derived test with a restated literal in its docstring still misinforms
+        every reader; see TestBakedBlobOccupancy for what that cost item 9d.
+
+        Nothing automated re-runs the importer — verified: `png_to_bg_override.py`
+        is invoked by no build path, only by hand — so the shipped ROM is
+        unaffected. If that ever becomes false, this test is where it shows up.
         """
         if not os.path.exists(LIVE_OVERRIDE):
             self.skipTest(f"no live override at {LIVE_OVERRIDE} — nothing to check "
@@ -330,3 +338,100 @@ class TestEndToEndThroughMain(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ── THE BAKED ARTIFACT, NOT THE JSON — bg_region's real occupancy ────────────
+#
+# WHY THIS CLASS EXISTS. Every test above reads editor_bg_override.json. None of
+# them reads what the ROM actually uploads, and that gap let a STALE LITERAL live
+# in the docs for eight days: `docs/DEFERRED_WORK.md` said `bg_region` was packed
+# "448/448" (written 2026-09-03), while the blob has been 320 tiles since
+# 2026-08-26 (`e192062e`, whose own commit message says so — "leaving the full
+# 128-tile band_reserve free"). Item 9d was booked BLOCKED on that number.
+#
+# A restated literal cannot be caught by a test that restates it too, so every
+# expectation here is READ from the artifact. The headroom is arithmetic on two
+# measurements, never a pin: it is correct at any future import size.
+BG_TILES_BIN = os.path.join(
+    REPO, "games/sonic4/data/generated/ojz/act1/bg_tiles.bin")
+
+TILE_BYTES = 32          # 8x8 at 4bpp — the VDP's tile size, not a tunable
+BLOB_HEADER_BYTES = 2    # leading big-endian byte count (engine/level/bg.emp,
+                         # BG_Init: `move.w (a1)+, d1` before the copy)
+
+
+def _baked_blob_tiles():
+    """Resident tile count, MEASURED from the blob the engine copies.
+
+    Returns (n_tiles, declared_len). Raises on a malformed blob rather than
+    returning a number that would make the assertions below vacuous.
+    """
+    with open(BG_TILES_BIN, "rb") as f:
+        raw = f.read()
+    if len(raw) < BLOB_HEADER_BYTES:
+        raise AssertionError(f"{BG_TILES_BIN} is {len(raw)} bytes — no length header")
+    declared = int.from_bytes(raw[:BLOB_HEADER_BYTES], "big")
+    payload = len(raw) - BLOB_HEADER_BYTES
+    if payload % TILE_BYTES:
+        raise AssertionError(
+            f"{payload}-byte payload is not a whole number of {TILE_BYTES}-byte tiles")
+    return payload // TILE_BYTES, declared
+
+
+class TestBakedBlobOccupancy(unittest.TestCase):
+    """What is ACTUALLY resident in bg_region, and how much is left.
+
+    LOUD ON UNMEASURABLE: a missing artifact is a skip naming the regenerator,
+    never a pass — the whole point is that a silent green here is what let the
+    stale number survive.
+    """
+
+    def setUp(self):
+        if not os.path.exists(BG_TILES_BIN):
+            self.skipTest(
+                f"no baked blob at {BG_TILES_BIN} — occupancy is UNMEASURED "
+                "(reported as a skip, not as a pass). Regenerate with "
+                "tools/regenerate-level.sh")
+        self.n_tiles, self.declared = _baked_blob_tiles()
+
+    def test_the_blob_header_agrees_with_the_file(self):
+        """BG_Init trusts this word for the copy length; a lie sprays VRAM."""
+        self.assertEqual(
+            self.declared, self.n_tiles * TILE_BYTES,
+            f"the blob declares {self.declared} bytes but carries "
+            f"{self.n_tiles * TILE_BYTES} — BG_Init copies the DECLARED length")
+
+    def test_the_baked_blob_agrees_with_the_editor_document(self):
+        """The drift catcher: JSON and baked artifact must be the same art.
+
+        These are two files with no build-time cross-check between them. If a
+        re-bake is skipped, or an override is hand-edited, this is where it shows.
+        """
+        if not os.path.exists(LIVE_OVERRIDE):
+            self.skipTest(f"no live override at {LIVE_OVERRIDE} — cannot cross-check")
+        n_json = len(json.load(open(LIVE_OVERRIDE))["tiles"])
+        self.assertEqual(
+            self.n_tiles, n_json,
+            f"the baked blob holds {self.n_tiles} tiles but the editor document "
+            f"declares {n_json} — the level bake is stale against the override "
+            "(tools/regenerate-level.sh)")
+
+    def test_occupancy_fits_the_hard_vram_boundary(self):
+        """bg_region ends at the SAT; overrunning it corrupts sprites."""
+        self.assertLessEqual(
+            self.n_tiles, tool.BG_TILE_CAPACITY,
+            f"{self.n_tiles} resident tiles past the "
+            f"{tool.BG_TILE_CAPACITY}-tile bg_region boundary")
+
+    def test_headroom_is_derived_and_non_negative(self):
+        """The number item 9d is priced against — arithmetic, never a pin.
+
+        Deliberately NOT `assertGreaterEqual(headroom, 48)`. 48 is one claimant's
+        current appetite, and pinning it here would fail a legitimately larger
+        future import while teaching nobody why. What must hold is that the
+        headroom is real and derived; what it is TODAY belongs in the report the
+        runner prints, not in an assertion that would rot.
+        """
+        headroom = tool.BG_TILE_CAPACITY - self.n_tiles
+        self.assertGreaterEqual(headroom, 0)
+        self.assertEqual(headroom + self.n_tiles, tool.BG_TILE_CAPACITY)
