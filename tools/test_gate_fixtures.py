@@ -132,6 +132,31 @@ def test_loop_routines_normalise_equal_across_shapes():
             "%s: unresolved absolute operands %s" % (name, unres_a + unres_b)
 
 
+def test_a_sign_extended_absolute_short_resolves():
+    """The resolver's only interesting case, pinned on its own rather than left to ride
+    along inside a bigger assertion.
+
+    `move.w $adbc.w,d2` addresses $FFFFADBC — the 68000 sign-extends an absolute-short
+    operand and capstone renders it unextended. Symbol tables store the extended form
+    (4294946236). Miss the extension and every RAM reference in Collision_GetType goes
+    unresolved and stays relocation-sensitive, which is the whole defect back again.
+
+    This test exists because a mutation aimed at the resolver was once absorbed by a
+    redundant second lookup branch and reported green; the branch is gone and this
+    names what the surviving one has to do.
+    """
+    cut = _loop_shapes()["s4.lst"]
+    assert cut["syms"]["Cache_Left_Col"] > 0x7FFFFFFF, \
+        "Cache_Left_Col is no longer a sign-extended address; this test's premise is gone"
+    rows, unres = _norm_loop(cut, 1)
+    assert unres == [], unres
+    flat = " ".join(r[2] for r in rows)
+    for name in ("Cache_Left_Col", "Cache_Head_Col", "Cache_Top_Row",
+                 "Cache_Bottom_Row", "Cache_Origin_Col", "Cache_Origin_Row"):
+        assert "<%s>" % name in flat, \
+            "%s was not resolved — its .w operand stayed a literal" % name
+
+
 def test_the_normalisation_is_what_absorbs_the_difference():
     """Establish the control the other way round: with the symbol map EMPTIED, the same
     two cuts must NOT compare equal. Otherwise the equality above could be coming from

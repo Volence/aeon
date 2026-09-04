@@ -236,12 +236,19 @@ def normalize_stream(rom, start, end, addr_names, decoder="sprite_tilt_gate"):
             if ea is None:
                 out.append(tok)                       # register / immediate / (aN) form
                 continue
+            # ONE resolution step, deliberately. This was briefly two — a bare `ea in
+            # addr_names` ahead of the masked one — and the masked lookup is a strict
+            # superset of it (for a positive ea the mask is the identity; for a
+            # sign-extended negative one only the mask matches a table that stores
+            # $FFFFADBC as 4294946236). The dead branch was not merely redundant: it
+            # ABSORBED a mutation aimed at the resolver and made a change-blindness
+            # test pass. Two paths to one answer means a mutation only has to survive
+            # one of them.
+            key = ea & 0xFFFFFFFF
             if start <= ea < end:
                 out.append("<self+0x%X>" % (ea - start))
-            elif ea in addr_names:
-                out.append("<%s>" % addr_names[ea])
-            elif (ea & 0xFFFFFFFF) in addr_names:
-                out.append("<%s>" % addr_names[ea & 0xFFFFFFFF])
+            elif key in addr_names:
+                out.append("<%s>" % addr_names[key])
             else:
                 out.append(tok)
                 unresolved.append((off, tok))
