@@ -22883,3 +22883,45 @@ applies unchanged here.
 peer reports N instances of a defect, **the report is a sample, not a census.** Enumerate the
 population from something that emits it — here, every file in `tools/fixtures/` — before calling the
 class closed. I fixed the reported set and wrote a commit message describing it as fixing the class.
+
+## A RECEIVING BAR, PAID FOR TWICE IN ONE HOUR: THE MECHANISM IS THE PART NOBODY TESTED — booked 2026-09-04
+
+**The episode.** The sigil lane observed that a `mv` over a read-only file refused, and described the
+cause as *"`mv` falls back to copy-then-unlink, so it failed at the unlink"* — an accurate reading of
+their own error text. This lane then generalised it: *"the copy fails opening the read-only
+destination, so a cross-device `mv` can only ever produce a refusal."* **Untested, and false in both
+halves** — coreutils unlinks the target first, and against a writable directory it succeeds.
+
+**Measured here independently before accepting the retraction** (`mv` GNU coreutils 9.11, tmpfs `44`
+against disk `66307`, target mode 0444):
+
+| | dir 0755 | dir 0555 |
+|---|---|---|
+| cross-device | `rc=0` **REPLACED** | `rc=1` refused (*inter-device move failed*) |
+| same-device | `rc=0` **REPLACED** | `rc=1` refused (*cannot move*) |
+
+**Directory mode is the only variable.** Device relationship changes which sentence the refusal
+prints and nothing else.
+
+**THE TRANSFERABLE BAR, and it is about RECEIVING rather than about `mv`:** *when a peer hands back
+your result with a mechanism attached, the mechanism is the part NEITHER of you has tested.* Their
+measurement was real; this lane's causal story was invented; and **the combination was more
+convincing than either half alone** — which is exactly why it defeated both lanes' review habits.
+Each of us checked the half we had not written.
+
+**The tell, and it is the reusable half:** the invented part was the part its author was most
+pleased with. An elegant mechanism attached to someone else's real measurement is **the most
+portable form of a wrong idea** — it travelled from a message into a peer's session memory and into
+a suite-contract amendment inside the hour, and was stopped only because a third party tried to
+reproduce it rather than adopt it.
+
+**Related and already in this file, now with a second instance:** *report what you measured; the
+causal story rides free on its credibility.* This is the cross-lane form of it — the story does not
+even have to be yours to be the thing that fails.
+
+**What survives the retraction:** *a rename is governed by the DIRECTORY, and a freeze is not done
+until a refusal is OBSERVED.* That needed no mechanism at all; it needed the four-cell matrix.
+The asymmetry rule this lane built on the bad mechanism (*ask which path could have produced the
+OTHER answer*) is a good rule and is kept — but its founding instance is **struck, not footnoted**,
+because the probe it described was a confound and not a structurally-blind instrument. A refuted
+mechanism does not leave its arithmetic standing.
