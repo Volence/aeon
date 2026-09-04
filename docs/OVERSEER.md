@@ -97,6 +97,7 @@ need. Byte-movers still serialize behind the aeon/sigil chain, and look/taste ca
 > and he moves or recolours it in aurora once `assign_section_preset` lands. Carrying commit
 > empyrean `e874427decc99c3717892a68a583f5a9bafc6dcc`, `docs/OVERSEER.md`, found with
 > `git log -1 -S 'SECTION 5, look parked' -- docs/OVERSEER.md`. **Reachable from `origin/main`,
+> re-verified here at 10:03Z after the hub pushed on this lane's catch.**
 >
 > **The falsifier travels with the ruling**, because the ruling rests on a number: if section 5's
 > split is not 38 bytes, or evicts anything when built, the ground under the choice is gone —
@@ -202,7 +203,7 @@ rulings live in the session memory and the most recent `docs/superpowers/*handof
   class is the harness reclaiming its own task, and NOTHING ABOUT THE FREEZE FAILED** (added
   2026-09-02; the sigil lane's mechanism, offered explicitly as a hypothesis, n=2, one data point
   accidental, harness lifecycle rules unread by either lane).
-  task, survived and the *watcher* was killed instead. **The variable is whether the work is a
+  **The variable is whether the work is a
   CHILD of the harness's background task.**
   **Operational form, and the second half is the one that matters:**
   ```sh
@@ -238,6 +239,7 @@ rulings live in the session memory and the most recent `docs/superpowers/*handof
 
 - **NEVER LEAVE A SHARED CHECKOUT ON A PRIVATE BRANCH — a repoint silently invalidates
   every other session's already-correct branch check** (added 2026-08-27; this lane's defect,
+  disclosed by the sigil lane who bore the cost).
   **Two correctives at opposite ends, both live:** the committer verifies the branch **in the
   same command that commits**, never at boot (sigil's, and it is the one that protects you
   against a peer doing this to you); and **this lane does freeze work in a dedicated worktree,
@@ -424,7 +426,7 @@ rulings live in the session memory and the most recent `docs/superpowers/*handof
   the sigil lane, and ruled by the hub under the owner's overnight grant; banked for his review).
   Re-attesting 181 would record a run that happened on tree `ed5a25ac` under an entry naming a
   commit whose tree is `7ccd5d3f` — **trading a dangling anchor for a resolvable one that points
-  at the wrong tree.** That is strictly worse for the only question `sigil_rev` exists to answer
+  at the wrong tree.**
   **THE REUSABLE HALF, and it is bar 8 arriving somewhere nobody points it:** before rebasing,
   this lane enumerated the consumer set correctly for the question it asked — *had this SHA been
   handed to any peer?* — and the answer was genuinely no. **The consumer was not a peer. It was
@@ -558,14 +560,16 @@ rulings live in the session memory and the most recent `docs/superpowers/*handof
   release deb2 appendix.
 - **A citation has TWO SHAs — the one you cite and the one you VERIFIED AT — and the
   second needs the same `ls-remote`** (lived 2026-08-22, this overseer's error, caught by
-  already and gone stale again. **Anchor to the SYMBOL; let the SHA date the CLAIM, never
+  aurora-86).
+  **Anchor to the SYMBOL; let the SHA date the CLAIM, never
   the coordinate.** Practical convention, agreed with aurora-86: state explicitly whether a
   SHA is at `origin` or local-only — "verified reachable at origin" and "verified in my
   object store" are indistinguishable in a message and only one is an anchor. Treat every
   Aurora SHA as local-only unless they say otherwise.
 - **On a byte-neutral parcel, byte identity stops being evidence about the BUILD and is
   only evidence about the SOURCE — freshness needs a separate witness** (lived 2026-08-22,
-  exit code disagreeing with the artifacts. **Remedy: `rm -f` all four ROMs before the
+  caught by one exit code).
+  **Remedy: `rm -f` all four ROMs before the
   rebuild, so existence proves freshness**, and check mtimes. Note the asymmetry with the
   ordinary failure — a missing ROM is loud, a stale one is silent and ships four perfect
   CRCs as proof. **Standing hazard as of `98100905`:** that parcel edited `project.json`, so
@@ -579,8 +583,6 @@ rulings live in the session memory and the most recent `docs/superpowers/*handof
   appending to it.)* The gate compares
   `newest mtime(editor sources) > newest mtime(generated tree)`, and `git worktree add` writes
   **every** file within the same second, so `>` is false and a fresh worktree does NOT trip it.
-  `DONOR_PROVENANCE.json` churn, since unchanged level bytes mean the existing stamp still
-  describes them).
   **The gate's input set is WIDER than `project.json`, and for some lanes the stop is
   CERTAIN rather than incidental** (sharpened 2026-08-22 by aurora-86, correcting this
   lane's narrower framing — which had made it contingent on a save path *incidentally*
@@ -601,7 +603,7 @@ rulings live in the session memory and the most recent `docs/superpowers/*handof
   `crates/sigil-cli/tests/` and is only ever updated by a **refreeze**; a refreeze only
   happens when **bytes move**. So a parcel that changes `.emp` source while holding all
   four CRCs moves a source-derived lint set with **nothing in the ritual able to notice**.
-  reach for and the one place nobody looks. **A zero-byte parcel that touches `.emp` owes
+  **A zero-byte parcel that touches `.emp` owes
   a source-drift check, not just a CRC check** — the two ask different questions, and the
   CRC is the one that cannot answer this. Corollary for reading a lint verdict: the
   failure named is not "the odd field", it is "the *undecided* odd field" — a deliberate
@@ -695,7 +697,7 @@ the piece nobody had noticed, and it is what makes this composable rather than n
   `cyclesSelfTotal` — but `set_profiler` must be armed with `{perFrame: true}` and the
   `perFrame[]` ROWS still carry only `cycles`/`hintCycles`/`vintCycles`/`stallCycles`, **no
   self field for either interrupt bucket**, which is exactly the gap the hold above names.
-  `tools/aether_instance.py`; other client patterns: `tools/hblank_window_sweep.py`,
+  Spawn through `tools/aether_instance.py`; other client patterns: `tools/hblank_window_sweep.py`,
   `tools/sh_probe.py`. Assert `source == "raster"` on every scanline capture.
 - **old oracle** (headless harness at `oracle-old/linux-port/harness`): FALLBACK ONLY, and
   what still uses it is now a short list — `ab_runner.py` (the `scene:*` gates) and the three
@@ -725,7 +727,7 @@ Around **fifteen** handoff docs still tell every session that tree is daemon ter
 *"never stage, revert or touch it"*, *"Not ours"*. **Ignore that instruction wherever you
 meet it.** `games/sonic4/data/editor/**` is ordinary work and is staged like any other.
 
-sitting unversioned. **An ownership claim needs a liveness check, not a citation:** before
+**An ownership claim needs a liveness check, not a citation:** before
 deferring to "something else owns this", confirm the something else exists.
 
 ## Worktree quirks (agents hit all of these)
@@ -779,7 +781,7 @@ deferring to "something else owns this", confirm the something else exists.
 
 - **A SHARED DIRECTORY IS NOT A SHARED NAMESPACE — "it is in my repo's worktree list" is a fact
   about BOOKKEEPING, not about who it belongs to** (added 2026-08-27; this lane's error, disclosed
-  unprompted). Pruning leftover worktrees on the owner's directive, this lane swept aeon's
+  unprompted).
   **Operational form: before removing ANYTHING under `~/sonic_hacks/`, grep the other lanes'
   `OVERSEER.md` for the path.** Cheap, and it is the only instrument that can see a declaration.
 - **AND CHECK WHETHER SOMETHING IS RUNNING IN IT** (aurora's, relayed by the hub the same hour,
@@ -792,6 +794,7 @@ deferring to "something else owns this", confirm the something else exists.
   removing a worktree that has them.
 - **A WORKTREE CAN HOLD THE ONLY COPY OF SOMETHING — check before deleting, not after.** Two of
   the four unmerged trees in this sweep carried content that exists nowhere else:
+  *(the two trees moved to the log — `@L1628-1632`)*
 
 - Export `AEON_SKDISASM_DIR=/home/volence/sonic_hacks/skdisasm`; the worktree root's
   PARENT DIRECTORY may carry a `sigil` symlink — **never the checkout itself, and this
@@ -822,6 +825,7 @@ deferring to "something else owns this", confirm the something else exists.
   SILENTLY IN EVERY DIMENSION AT ONCE** (added 2026-08-27; both instances this lane's, on one
   night, generalised by the sigil lane from them). Twice, *"invoke the prebuilt binary rather
   than `cargo run`"* was **individually correct and wrong in composition**:
+  *(the two instances moved to the log — `@L1663-1675`)*
   **Operational rule: when a tool's BEHAVIOUR is what you are reasoning about, run it from source
   or check what it was built from — a version banner or an mtime, never an assumption.**
   *Which is precisely what the assembler's version banner exists to answer, and both lanes spent
@@ -829,6 +833,7 @@ deferring to "something else owns this", confirm the something else exists.
 - **A GRANTED PERMISSION GOES STALE LIKE A STATUS FILE, AND HAS NO TIMESTAMP AT ALL** (added
   2026-08-27; the sigil lane's formulation, against their own lapse). This lane said *"safe to
   relink"* at a boundary with nothing measuring — true when said. **Then it dispatched a parcel**,
+  and from that moment a running build depended on the binary again.
   **Rule adopted, both directions and symmetric: announce a relink of the shared
   `target/release/sigil` at the time, every time, regardless of standing permission — and treat
   "safe to relink" as EXPIRING the moment the grantor dispatches anything.** Cheap, and it removes
@@ -837,7 +842,8 @@ deferring to "something else owns this", confirm the something else exists.
   **⚠ AMENDED WITHIN THE HOUR, AND THE AMENDMENT IS THE MORE IMPORTANT HALF (aurora's finding,
   relayed and endorsed by sigil, correcting a rule THIS LANE had just banked and proposed).**
   Three defects in the version above, all of which made it look complete from inside:
-  closed. **Announce to EVERY lane, not to the party who granted the hold.**
+  *(defect (a) moved to the log — `@L1699-1703`)*
+  **Announce to EVERY lane, not to the party who granted the hold.**
   **(b) THE PROHIBITION WAS WRITTEN AT THE WRONG LEVEL — the subcommand, not the artifact.** The
   standing rule said *do not run `cargo build --release` in sigil*. The relink came from
   `cargo test --release --workspace`, which is not `cargo build` and relinks the identical file.
@@ -851,7 +857,7 @@ deferring to "something else owns this", confirm the something else exists.
   legitimately happens in the main checkout, so the residual is open and is not closed.
 - **PIN A SHARED BINARY BY ITS md5, NOT BY ITS REVISION** (aurora's, 2026-08-27, correcting a pin
   THIS LANE handed them). We told aurora to quote the assembler `revision:` beside their CRCs.
-  it reads *correct* while the artifact changes underneath. **An md5 of the binary changes exactly
+  **An md5 of the binary changes exactly
   when the file changes and needs no cooperation from whoever relinks it.**
   **Operational form: quote `md5(SIGIL_BUILD)` AND the revision — the revision is what a human
   can look up in a history, the md5 is what identifies the artifact that actually ran.** Take the
@@ -872,7 +878,7 @@ deferring to "something else owns this", confirm the something else exists.
   NEVER EXIT** (measured 2026-08-27; the mechanism is the sigil lane's, the population and the
   ownership are this lane's correction of it). `until ! pgrep -f "refreeze --attest"; do sleep
   20; done` **never terminates**, because the waiting shell's own command line contains the
-  literal `refreeze --attest`, so `pgrep -f` matches at least itself on every pass. Three such
+  literal `refreeze --attest`, so `pgrep -f` matches at least itself on every pass.
   **And the shared-machine half, which is why the kill is by PID and never by pattern:** at the
   moment of reaping, a real `cargo test --workspace --no-fail-fast` was running — **oracle's**,
   in `oracle/.claude/worktrees/agent-a6f38c56c54c36360`, verified by `/proc/<pid>/cwd`. Any
@@ -1005,7 +1011,7 @@ path, for the same reason the protocol is read that way.
   designed for) but because in that environment it is not an instrument at all.
 
 - **A "KNOWN PRE-EXISTING FAILURE" NOTE ROTS INTO A LICENCE TO IGNORE RED — SECOND INSTANCE, AND
-  THIS ONE WAS IN A COMMIT MESSAGE** (added 2026-08-29, the repaint landing). This file already
+  THIS ONE WAS IN A COMMIT MESSAGE** (added 2026-08-29, the repaint landing).
   **Cost of the corrective: one `pytest` invocation on a clean checkout.** Pay it every time — and
   note that the measurement is what MADE the landing safe, since a genuine new failure introduced
   by that parcel would have been invisible behind the same sentence.
@@ -1044,6 +1050,7 @@ path, for the same reason the protocol is read that way.
 
 - **FINDING THE MACHINERY IS NOT FINDING IT RUN — shared-protocol bar 16 (name / presence /
   behaviour) arriving on a CODE PATH** (added 2026-08-27; this lane's over-claim, named by the
+  sigil lane).
   **The presence of a code path that WOULD explain a behaviour is not evidence that it DID.**
   It reads as an explanation because it is specific, it is real, and it is exactly the shape the
   question was looking for — which is precisely the trap: a plausible mechanism found while
@@ -1127,7 +1134,7 @@ path, for the same reason the protocol is read that way.
 - **Cross-repo claims verify against the described repo AT AUTHORING TIME, citing the SHA
   verified at** — now the shared protocol's rule too (empyrean `00334b6`, 2026-08-22), with
   this repo's effects-schema arc as its precedent, so put it in agent briefs that survey a
-  sibling tree. Lived here: an assessment quoted aurora's ROADMAP faithfully and shipped a
+  sibling tree.
 - **Check the CLASS of a SHA before citing it** — SHARED PROTOCOL, read it there, do not
   restate it here (empyrean `43fbfc9` + `6d38fbc`, both from this arc; the both-outcomes
   nuance this repo proposed is now upstream too). Summary only, so a brief author knows
@@ -1173,7 +1180,7 @@ path, for the same reason the protocol is read that way.
 
 - **A gap between BOUNDARY labels is never evidence of free space — and the rule must NAME
   the instrument that can answer, or everyone reaches the wrong answer politely** (lived
-  2026-08-24; three parties, one shared instrument). The frozen `offcanonical_sizes` tables
+  2026-08-24; three parties, one shared instrument).
   **What makes this a bar and not a repeat of the existing allotment rule:** the booking
   ALREADY said *"a gap is an ALLOTMENT, never proven free space"* — and then committed the
   error two paragraphs later on a different label pair, and two more lanes inherited it. A
@@ -1183,7 +1190,7 @@ path, for the same reason the protocol is read that way.
 
 - **A completeness claim about a TRUNCATED view — `head -N` on a definition — and the
   truncation leaves no mark** (lived 2026-08-24, this overseer's error, caught by the sigil
-  lane). Establishing whether a section qualified for a sigil mechanism, this lane read
+  lane).
   **Correctives, both cheap:** count the thing before characterising it (`grep -c` the variant
   pattern over the *whole* definition, never a window), and when a reduction rests on a
   category (*"all X are instructions"*), enumerate the category from the type and check each
@@ -1191,7 +1198,7 @@ path, for the same reason the protocol is read that way.
 
 - **A COMPILED-IN library and the INVOKED binary are two artifacts, and a suite green only
   witnesses the one it links** (added 2026-08-26; drawn by the sigil lane against this lane's
-  own assertion, mid-parcel). Landing the replay re-stamp, this overseer checked sigil's stale
+  own assertion, mid-parcel).
   **⚠ AND THE FALSE MECHANISM WAS THE DANGEROUS HALF, WHICH IS WHY THIS IS CORRECTED RATHER THAN
   ANNOTATED.** *"The suite does not touch the CLI binary"* licenses the inference *"so relinking
   it mid-run is harmless"* — and that is **genuinely unsafe**. A concurrent build swapping
@@ -1211,6 +1218,7 @@ path, for the same reason the protocol is read that way.
   whether the instrument could have produced the empty result** (added 2026-08-26; contributed
   by the sigil lane against their own near miss, and **framed at their insistence as the
   absence class rather than as a fact about one tool** — that framing correction is the
+  valuable half, see below).
   **The framing the finder insisted on, and it is the durable part:** the transferable lesson
   is NOT "`strings` is unreliable". It is that **an absence was read as a finding without
   asking whether the instrument could have produced it**. Booked as a tool fact, the next
@@ -1223,6 +1231,7 @@ path, for the same reason the protocol is read that way.
   than the retraction.
 - **EXACT-PATH STAGING CANNOT WITNESS WHAT WAS DIRTY — the count can, and only the count**
   (added 2026-08-26; this lane's wrong mechanism, corrected by the sigil lane, who verified the
+  claim and then refuted the reason given for it).
   **The general form, and why it is booked as a bar:** the verdict was right and the reason was
   wrong, and **the reason is what gets written down and reused** (shared-protocol bar 10,
   turned on one's own evidence instead of a gate's message). As stated it licensed *"my commit
@@ -1232,7 +1241,7 @@ path, for the same reason the protocol is read that way.
   count, a timestamp, or any figure produced by something other than the hand making the claim.
 - **A BOUND TEST THAT FIXES ITS INPUT IS ONE-DIRECTIONAL, and the direction it cannot see
   is the one that leaves it GREEN** (added 2026-08-27; found by the aurora lane during the
-  matching half of the 16-layer raise, relayed by the hub). Their instance: a test asserted an
+  matching half of the 16-layer raise, relayed by the hub).
   **The corrective is bar 1 (derived, never copied) pointed at FIXTURES rather than at
   expectations** — the over-long case is `MAX+1`, not `9` and not `17` — plus a test the
   one-directional version cannot pass: **prove it red at a ceiling moved DOWN as well as up.**
@@ -1259,7 +1268,7 @@ path, for the same reason the protocol is read that way.
 
 - **⚠ AND THE PROSE SWEEP HAS ITS OWN BLIND SPOT: A PARCEL MOVES ADDRESSES IT NEVER TOUCHES**
   (added 2026-08-27; found by the sigil lane in THIS tree, a day after this lane swept its own
-  prose and reported it clean). `games/sonic4/data/sound/dac_banks.emp`'s header described the
+  prose and reported it clean).
   **THE SWEEP'S RULE IS "GREP THE VALUES THIS PARCEL MOVED" AND THAT IS THE HOLE.** A prose sweep
   naturally enumerates from the diff — the values you changed. **This file was never edited. It
   started lying when something else moved underneath it.** Addresses a parcel **MOVES** are a
@@ -1334,11 +1343,11 @@ path, for the same reason the protocol is read that way.
 - **A PIN FIELD MEASURES WHERE PINS ARE, NOT WHERE CODE IS — and its silence is an absence in
   the INSTRUMENT** (added 2026-08-29, same chain; the sigil lane's instance, against
   themselves, banked here because this lane's own instruments have the same property).
-  reporting only `PSTATE_JUMP`/`PSTATE_ROLLJUMP` firing. **When an instrument reports an absence,
+  **When an instrument reports an absence,
   ask what it is a census OF before reporting what is missing from the subject.**
 
 - **⚠ CHAIN 179's FREEZE COMMIT CARRIES A WRONG DESCRIPTION OF ITS OWN PIN MOVEMENT — DO NOT
-  QUOTE IT; THE CORRECTION IS HERE AND OWES A LINE IN THE NEXT ENTRY'S PROSE.** `13a6d3c8`'s
+  QUOTE IT; THE CORRECTION IS HERE AND OWES A LINE IN THE NEXT ENTRY'S PROSE.**
 
 - **DECLARED STANDING ARTIFACT — `/home/volence/sonic_hacks/.pinned/sigil-0a58f2ec`. DO NOT DELETE,
   DO NOT SWEEP, DO NOT UNLOCK.** The assembler binary that produced this lane's 2026-09-04 landings,

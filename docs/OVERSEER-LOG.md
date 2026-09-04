@@ -71,6 +71,7 @@ file's order, earliest position first.
   story is DEMOTED.** Sigil got a controlled comparison by accident: the same work launched **as**
   a harness background task was reported killed — no OOM in `journalctl -k`, no orphan, swap fine
   — while the same work launched **detached** with `nohup … &`, watched by a separate background
+  task, survived and the *watcher* was killed instead.
 <!-- @L199-201 -->
   It explains both properties that made this confusing: **no exit status** because the process
   never returned one, and **no error** because nothing went wrong. It also explains why the
@@ -301,6 +302,7 @@ file's order, earliest position first.
   `7ccd5d3fe44414eadcb5324bf5bab12e43773903`. **So there is no reachable commit whose tree is the
   one that attest run actually happened on.**
 <!-- @L661-665 -->
+  That is strictly worse for the only question `sigil_rev` exists to answer
   (`provenance.rs:125`: *tree identity, so an attestation cannot silently travel to a different
   pair of trees*), and unlike a dangling anchor nothing downstream could ever detect it. **A
   dangling anchor with a written reason beats a resolvable anchor that lies.** Neither lane
@@ -484,6 +486,7 @@ file's order, earliest position first.
   `export interface Palette` (Act begins at `:235`, the field at `:243`), and `:227` had
   already been *two different types in one day*. **A correction that carries a line number
   inherits the defect it was correcting** — aurora's ROADMAP had "fixed" this number once
+  already and gone stale again.
 <!-- @L969-974 -->
   caught by one exit code). Advancing a landing worktree to a new SHA, the four CRCs came
   back matching the pins exactly — from a build that **never ran**. `git checkout` gives
@@ -491,6 +494,7 @@ file's order, earliest position first.
   the ROMs on disk were **leftovers from the previous build at the previous SHA**. Because
   the parcel was zero-byte, leftover and correct are byte-identical: **a CRC check cannot
   distinguish "built at the new SHA" from "never rebuilt at all."** The only tell was the
+  exit code disagreeing with the artifacts.
 <!-- @L989-999 -->
   What trips it is an **in-place `git checkout` into an existing tree**, which rewrites only the
   changed files and leaves `project.json` newer than an untouched generated tree. Read "checkout
@@ -503,6 +507,8 @@ file's order, earliest position first.
   that skipped the prophylactic and measured what happened.* The rest of this stanza stands;
   only the population it bites is narrower than written:
   `tools/regenerate-level.sh` clears it (level bytes unchanged — revert the
+  `DONOR_PROVENANCE.json` churn, since unchanged level bytes mean the existing stamp still
+  describes them).
 <!-- @L1022-1028 -->
   Lived: P3 T11-T16 were six consecutive zero-byte parcels (CRCs held at `060401e4` /
   `0dbaa80f` / `c708b114` / `dec88cc1` throughout — the identity we verified and cited at
@@ -511,6 +517,7 @@ file's order, earliest position first.
   `40f862e2` (2026-08-21T14:23, pairing aeon T10 `3c68ee11` at 14:06); aeon T11
   `b0b85f47` merged at **14:57**, *after* it — so **T11 is outside both the baseline and
   any diff range that starts at T11's own merge commit**, which is the natural range to
+  reach for and the one place nobody looks.
 <!-- @L1047-1052 -->
 Lived 2026-08-22: recovering the profiler-corpus ROM (`d22dda85`), this overseer checked
 `sigil master:crates/sigil-harness/golden/s4.debug.bin`, truthfully found `0dbaa80f` (correct for
@@ -799,7 +806,7 @@ fails if its handshake is accepted — run 2026-08-26, assertion fired.
   frame and discriminate nothing. `sum(perFrame[].vintCycles) == interrupts.vint.cyclesTotal` to the cycle
   (119/119 frames), so the column we already read IS the per-frame quantity. The 'half that matters' was
   a field that could not carry information; nothing remains of the ask. Migration of the three probes is
-  unblocked on this count.** Spawn through
+  unblocked on this count.**
 <!-- @L1421-1426 -->
   **Measured here, so the next session does not re-derive it: this lane's tools are structurally
   unexposed.** Zero hits for `content[0]` / `"content"` anywhere in `tools/` (positive control:
@@ -822,6 +829,7 @@ ignorable" is wrong and the repo already argues against it.
 PERMISSIVELY.** Nothing errors, no gate trips — the work simply never lands, and every
 session that reads the note reproduces the omission. Fourth of the day's stale-hazard
 family and the most expensive, because the others cost effort and this one cost data
+sitting unversioned.
 <!-- @L1463-1473 -->
   Disclosing that the band parcel had briefly been reverted off master, this lane told aurora
   *"if you fetched aeon master between roughly 11:48Z and 12:20Z you got a tree without the
@@ -924,6 +932,7 @@ family and the most expensive, because the others cost effort and this one cost 
   and the parcel's `--freeze` deliberately announces-and-replaces instead of refusing, so the
   recovery detector cannot brick the recovery.*
 <!-- @L1604-1615 -->
+  Pruning leftover worktrees on the owner's directive, this lane swept aeon's
   worktree list for **merged + detached + no-branch** trees under `~/sonic_hacks/` and removed
   eleven. **One was the sigil lane's standing reference tree**, `.aeon-ref-a6a7c23d`, declared in
   **their** `docs/OVERSEER.md:1028` and kept deliberately because four built shapes matching a tip
@@ -971,10 +980,12 @@ family and the most expensive, because the others cost effort and this one cost 
   against that same binary and was in none of the conversation** — they were mid-build when the
   relink landed, and found out by watching a pid. **The holder of a shared artifact cannot
   enumerate who depends on it**, so a two-party agreement covers the two parties and reads as
+  closed.
 <!-- @L1718-1720 -->
   They built the check around it faithfully — and **a revision pin cannot detect a relink**,
   because it names a property of the **source** while the thing that ran is a **file**. Two
   revisions can produce one binary; one revision can produce two; the pin is silent on both, and
+  it reads *correct* while the artifact changes underneath.
 <!-- @L1728-1747 -->
 - **Sigil's banner is GAINING FIELDS (announced 2026-08-27, landing behind chain 174).** `tree:`
   will report **`clean-sources`** when the only uncommitted changes are outside the assembler's
@@ -997,6 +1008,7 @@ family and the most expensive, because the others cost effort and this one cost 
   temporary pre-parse of the `ab = "…"` line only after a freeze has actually RUN through the new
   path — not when it merges** (a fix existing and a fix having fired are different facts).
 <!-- @L1763-1781 -->
+  Three such
   shells sat sleeping from 03:55/03:59/04:01 until reaped at 09:44 — 1h45m each — and their
   three background tasks then died together with the exact titles that named them, which is the
   clean confirmation that the population was three.
@@ -1161,6 +1173,7 @@ family and the most expensive, because the others cost effort and this one cost 
   state* the command met, which appears nowhere in its output. Ask it of any gate before quoting
   a pass, and especially of one you are running somewhere other than where it was written for.
 <!-- @L2015-2025 -->
+  This file already
   carries the `boot_override` instance, which said a brief must never repeat one unmeasured. Same
   class, new surface: `fix/repaint-preserve-crossover`'s own commit message declared its single
   failure *"pre-existing, red on master since `fde35b2f`, out of scope"*. **Measured on clean
@@ -1267,11 +1280,13 @@ family and the most expensive, because the others cost effort and this one cost 
   identical dots. That is the effects-lane `OK — 27 gates` shape exactly: a count derived from
   rows that actually appeared, shrinking silently while every printed row says PASS.
 <!-- @L2233-2236 -->
+  Lived here: an assessment quoted aurora's ROADMAP faithfully and shipped a
   caveat that had been false since a commit that was an ANCESTOR of the assessment's own
   survey pin, plus a ruling aimed at a field the sibling's save path never writes. A
   quoted survey, roadmap, or plan caveat can be stale before its pin; only reading the
   described tree catches it. Peer verification found both — reciprocate it.
 <!-- @L2283-2290 -->
+  The frozen `offcanonical_sizes` tables
   list a SUBSET of labels, so content between two listed labels is **invisible in them by
   construction**. This lane, the aurora lane, and this repo's own booking all read the
   `[HeightMapsRot+0x2000, Dac_Temp_Blip)` gap as ~119,072 B of slack; `s4.debug.lst:2225-2229`
@@ -1285,6 +1300,7 @@ family and the most expensive, because the others cost effort and this one cost 
   looks like corroboration and is propagation — aurora re-derived a margin from this lane's
   bad figure and the agreement read as two sources.
 <!-- @L2304-2318 -->
+  Establishing whether a section qualified for a sigil mechanism, this lane read
   `Fragment`'s variants with `sed -n '/pub enum Fragment/,/^}/p' … | head -40` and asserted
   *"exactly two length-variable variants"*. The enum is **94 lines** and that window holds
   exactly **5 of 7**: `RelaxLadder` (`:74`) and **`Org` (`:93`)** were below the cut.
@@ -1301,6 +1317,7 @@ family and the most expensive, because the others cost effort and this one cost 
   was the wrong one. **Bar 17 with the sign flipped: the completeness claim was the cheap half
   of the message and the cheap half is what failed.**
 <!-- @L2327-2345 -->
+  Landing the replay re-stamp, this overseer checked sigil's stale
   `target/release/sigil` against its source, correctly found that only tests, pins and goldens
   had moved since the binary was built, and told the sigil lane the staleness was harmless.
   **Their next merge falsified it**: that parcel moved emitter source (`sigil-frontend-emp`'s
@@ -1360,6 +1377,7 @@ family and the most expensive, because the others cost effort and this one cost 
   observable**. The evidence is an agreement between two independent numbers, **one of which
   the committer does not control**, which is the property the staging story lacked entirely.
 <!-- @L2423-2433 -->
+  Their instance: a test asserted an
   over-long fixture of length 9 against a max of 8. It went red when the ceiling moved UP to 16
   — correctly, and that is the trap, because the red **looks like the test working**. Had the
   ceiling moved DOWN, 9 would have sat under the new bound and the test would have kept
@@ -1391,6 +1409,7 @@ family and the most expensive, because the others cost effort and this one cost 
   worth catching, and is not corroboration. Do not report such a gate as "N independent
   witnesses"; say which rows are independent and which are temporal.
 <!-- @L2478-2481 -->
+  `games/sonic4/data/sound/dac_banks.emp`'s header described the
   blip bank at `$48000` (bank `$9`) and the shared drum bank at `$50000` (bank `$A`). The
   2026-08-26 re-layout moved them — `map.toml` records `dac_banks = 0x90000` (bank `$12`, shared
   `0x98000` = `$13`) and the `.lst` puts `Dac_Temp_Blip` at `0x90000`. **Four sites, wrong in both
@@ -1521,6 +1540,7 @@ family and the most expensive, because the others cost effort and this one cost 
   one that is not an inference: the new label present in BOTH listings at `+$10`; the routine's
   immediate neighbours moving `+14` in debug (`InstaShield_Spawn $1175C → $1176A`); and
   `tools/instashield_gate.py` decoding the DEBUG ROM's own bytes over 6,912 executions and
+  reporting only `PSTATE_JUMP`/`PSTATE_ROLLJUMP` firing.
 <!-- @L2683-2689 -->
   **Sub-finding, and it is the one most likely to recur: TWO CORRECT NUMBERS FOR TWO DIFFERENT
   QUANTITIES, WITH NOTHING SAYING WHICH.** This lane wrote 14 in a message and 16 in a commit and
@@ -1530,6 +1550,7 @@ family and the most expensive, because the others cost effort and this one cost 
   the roll-jump cancel that previously re-read it. The defect was never a wrong number — it was
   shipping two quantities under one name.
 <!-- @L2693-2706 -->
+  `13a6d3c8`'s
   message says the field is *"uniform +0x80 plain / +0x70 debug"* with `PLAYER_SNAP_TO_SURFACE`
   as the single straddler. Measured over all 134 changed entries it is **three-tiered**: 21
   entries at `+0x70` in both shapes (the 13 `P_STATE_*` pins, 6 `PLAYER_*` regions, 2 bare
@@ -1690,6 +1711,7 @@ commit the 2026-09-02 anchors above refer to. Entries are in that file's order.
 
   **MEASURED: 86 lines · 55 parse · 31 REJECTED**, counted per LINE. Predicate transcribed from
   dominion `796bc1e` `server/src/decisions.ts`. Reasons (collected, so one line carries several):
+  *(the list moved to the log — `@L298-304`, above)*
 
 <!-- @L289-295 -->
 *(landing lane: which four closures were out of shape, under a ruling that forbids repairing them)*
@@ -1708,6 +1730,8 @@ commit the 2026-09-02 anchors above refer to. Entries are in that file's order.
 **✅ HOLD LIFTED 2026-08-24 — read this before the block below, which is kept for its
 mechanism and its scope note only.** Oracle fixed the straddle defect (red-first tests
 `68461a7`, fix `4111c88`, merged `51143a5` — verified reachable at their `origin/main` here,
+*(the sentence continues, and the held block it introduces follows it, in the `@L1084-1089` and
+`@L1091-1128` entries above — the 2026-09-02 split cut it there.)*
 
 
 <!-- @L920-924 -->
