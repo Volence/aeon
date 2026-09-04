@@ -28,6 +28,27 @@ THE THREE INVARIANTS, and each is a correctness property rather than a style one
 Plus the SHAPE: the emitted table must be exactly (H+1) rows of H bytes, with H derived from
 the height shift authored on the band record — never typed here.
 
+AND, SINCE 2026-09-03, THE VISIBILITY ARM — because "the mechanism is live" was not the bar
+and had never been the bar. Parcel 9a shipped gated five ways, separating from its own flat
+control on 12 of 12 samples, and the owner looked at the screen and said "I don't see the
+effect at all". Every gate on it had asked a BOOLEAN question — does a band remap, does the
+ladder permute, does the source vary — and every one of them answered yes truthfully about a
+four-pixel wobble.
+
+So this arm asks the MAGNITUDE question, on the linked image: it reads the config's own
+plane-B deform table pointer and the shift that actually reaches the remapped band's lines,
+and computes the peak-to-peak horizontal travel in pixels. That number is not a proxy — it is
+exactly what a bus read of Hscroll_Buffer reports across those lines, verified against the
+machine both ways before it was trusted (Shimmer at shift 2 computes 4 and the live buffer
+measured 4; at shift 0 it computes 16 and the live buffer measured 16).
+
+⚠ THE FAILURE IT REFUSES IS NOT THE ONE THE DESIGN NAMED, and conflating them is what cost a
+night. Design §9.1 precondition 1 is REMAPPING A CONSTANT — a flat source, where the permute
+is byte-for-byte the identity. That is a real trap and `scene()` refuses it. What happened on
+2026-09-03 was the OTHER one: a source that varies correctly, on exactly the right rows, by an
+amount too small to see. The proposed fix for the first (move the band to where the variation
+is) would have produced a second invisible screen, because the band was already there.
+
 AND THE BINDING REPORT (design §9.2 step 3), which is PRINTED and not gated. Precondition 4
 — "the bound section must permit vertical camera travel across the anchor line" — is not
 machine-checkable: in a section the camera only crosses horizontally the effect is a still
@@ -154,6 +175,52 @@ def record_geometry(repo: str) -> tuple[int, int]:
     return tail, tail + sizes["band_remap"] * ns["BAND_REMAP_N"], ns["BAND_REMAP_N"]
 
 
+def band_entry_offset(repo: str, want: str) -> int:
+    """A band_entry field's displacement, WALKED off engine/level/parallax.emp. Same
+    discipline as pcfg_offset above and for the same measured reason."""
+    text = open(os.path.join(repo, "engine/level/parallax.emp"), encoding="utf-8").read()
+    m = re.search(r"pub struct band_entry \{(.*?)\n\}", text, re.S)
+    if not m:
+        raise Unmeasurable("could not find `pub struct band_entry` in engine/level/parallax.emp")
+    widths = {"u8": 1, "u16": 2, "u32": 4, "*u8": 4, "i8": 1, "i16": 2}
+    off = 0
+    for name, ty in re.findall(r"\n\s+(\w+):\s+(\*?[iu]\d+),", m.group(1)):
+        if name == want:
+            return off
+        off += widths[ty]
+    raise Unmeasurable(f"band_entry has no field {want!r}")
+
+
+def visibility_floor(repo: str) -> int:
+    """REMAP_VISIBLE_MIN_PX, read from engine/level/parallax_dsl.emp — the SAME constant the
+    comptime guard beside the scene uses. Two copies of a threshold is two thresholds."""
+    text = open(os.path.join(repo, "engine/level/parallax_dsl.emp"), encoding="utf-8").read()
+    m = re.search(r"pub const REMAP_VISIBLE_MIN_PX = (\d+)", text)
+    if not m:
+        raise Unmeasurable("REMAP_VISIBLE_MIN_PX is not declared in engine/level/parallax_dsl.emp")
+    return int(m.group(1))
+
+
+def asr(v: int, n: int) -> int:
+    """68000 `asr.w` — floor division by 2^n. Python's >> already floors."""
+    return v >> n
+
+
+def excursion(rom: bytes, table_addr: int, shift: int) -> int:
+    """The band's peak-to-peak horizontal travel in PIXELS, from the emitted 256-byte signed
+    table at the emitted shift: max(asr(t,s)) - min(asr(t,s)).
+
+    This is the SAME arithmetic as `deform_excursion` in engine/level/parallax_dsl.emp, and
+    the duplication is the point — one side reads the generator's comptime array, this one
+    reads the bytes that actually linked. A table that was generated correctly and emitted at
+    the wrong address, or a shift the lowering dropped, separates the two."""
+    tbl = [b - 256 if b >= 128 else b for b in rom[table_addr:table_addr + 256]]
+    if len(tbl) != 256:
+        raise Unmeasurable(f"the deform table at ${table_addr:06X} runs past the image")
+    vals = [asr(t, shift) for t in tbl]
+    return max(vals) - min(vals)
+
+
 def ladder_symbols(syms: dict) -> list[str]:
     return sorted(n for n in syms if n.startswith("RowRemapLadder_"))
 
@@ -203,7 +270,7 @@ def check_ladder(rom: bytes, addr: int, hshift: int, name: str, out: list) -> li
 
 
 def band_tails(rom: bytes, syms: dict, tail_off: int, stride: int,
-               hdr_len: int, anchor_off: int) -> list[dict]:
+               hdr_len: int, anchor_off: int, offs: dict = None) -> list[dict]:
     """Every emitted parallax config's bands, with their remap tails decoded. The config
     records are `ParallaxConfig_*` and `EditorSceneBinding_*` labels; a config's band count is
     its first header byte (pcfg_band_count), read from the image rather than assumed."""
@@ -224,14 +291,37 @@ def band_tails(rom: bytes, syms: dict, tail_off: int, stride: int,
             ladder = int.from_bytes(rom[base + tail_off:base + tail_off + 4], "big")
             if ladder == 0:
                 continue
-            found.append({
+            rec = {
                 "config": name, "band": b, "ladder": ladder & 0xFFFFFF,
                 "plane_y": int.from_bytes(rom[base + tail_off + 4:base + tail_off + 6], "big"),
                 "hshift": rom[base + tail_off + 6],
                 "anchor_ch": rom[base + tail_off + 7],
                 "anchor_ch_hdr": rom[a + anchor_off],
-            })
+            }
+            if offs:
+                # THE THREE BYTES THE VISIBILITY ARM NEEDS, all out of the linked image.
+                rec["deform_table_bg"] = int.from_bytes(
+                    rom[a + offs["tbl"]:a + offs["tbl"] + 4], "big") & 0xFFFFFF
+                rec["anchor_dsb"] = rom[a + offs["adsb"]]
+                rec["band_dsb"] = rom[base + offs["bdsb"]]
+            found.append(rec)
     return found
+
+
+def effective_dsb(t: dict) -> tuple:
+    """WHICH shift actually reaches the remapped band's lines, and why — returned with its
+    reason so the report can say it rather than the reader having to know it.
+
+    The remapped band is the anchored split's LOWER half, by construction: Step 4b splits the
+    band the anchor line falls in and Parallax_Fill_PerLine's last-mark-wins takes the lower
+    piece (see the mark banner in engine/level/parallax.emp). The overlay writes the config's
+    pcfg_anchor_dsb into every band from the split DOWN — so on an anchored config it is the
+    anchor's shift that reaches these lines, not the band's authored one, and reading the
+    band's own byte there would report the no-deform sentinel 15 and a 0 px excursion on a
+    scene that is working. Without an anchor the band keeps its own."""
+    if t.get("anchor_ch_hdr", 0xFF) != 0xFF:
+        return t["anchor_dsb"], "the config's pcfg_anchor_dsb (the overlay writes it into every band from the split down, and the remapped band IS the split's lower half)"
+    return t["band_dsb"], "the band's own band_deform_shift_b (this config declares no anchor)"
 
 
 def main() -> int:
@@ -263,6 +353,10 @@ def main() -> int:
         hdr_len = pcfg_size(a.repo)
         bit = cap_bit(a.repo, "CAP_ROW_REMAP")
         declared = bool(caps & bit)
+        offs = {"tbl": pcfg_offset(a.repo, "pcfg_deform_table_bg"),
+                "adsb": pcfg_offset(a.repo, "pcfg_anchor_dsb"),
+                "bdsb": band_entry_offset(a.repo, "band_deform_shift_b")}
+        floor_px = visibility_floor(a.repo)
     except Unmeasurable as e:
         print(f"row_remap_gate: UNMEASURABLE — {e}")
         return EXIT_UNMEASURABLE
@@ -273,7 +367,7 @@ def main() -> int:
           f"pcfg_anchor_ch at {anchor_off}")
 
     names = ladder_symbols(syms)
-    tails = band_tails(rom, syms, tail_off, stride, hdr_len, anchor_off) if remap_n else []
+    tails = band_tails(rom, syms, tail_off, stride, hdr_len, anchor_off, offs) if remap_n else []
 
     if not declared:
         # DERIVED, not assumed: an undeclared game must emit NEITHER a ladder NOR a tail that
@@ -329,6 +423,37 @@ def main() -> int:
                             f"{t['anchor_ch_hdr']} — the remap would read a channel the "
                             f"overlay does not split on, so its band top would not be the "
                             f"anchored line")
+
+        # ---- THE VISIBILITY ARM (added 2026-09-03) ----
+        dsb, why = effective_dsb(t)
+        if t["deform_table_bg"] == 0:
+            problems.append(f"{t['config']} band {t['band']}: pcfg_deform_table_bg is NULL, so "
+                            f"the per-line sample loop is flat-pathed and every line of this "
+                            f"band gets the same plane-B scroll word. Remapping that is the "
+                            f"identity. `scene()`'s comptime guard requires a table alongside a "
+                            f"live shift; a NULL here means the lowering dropped it")
+            continue
+        px = excursion(rom, t["deform_table_bg"], dsb)
+        report.append(f"      plane-B travel across these lines: {px} px peak to peak "
+                      f"(table ${t['deform_table_bg']:06X} at shift {dsb} — {why}); "
+                      f"floor {floor_px} px")
+        if px < floor_px:
+            problems.append(
+                f"{t['config']} band {t['band']}: the plane-B scroll this band remaps travels "
+                f"only {px} px peak to peak, under the {floor_px} px visibility floor — the "
+                f"remap runs, costs its cycles, and NOBODY CAN SEE IT. Read this as a MAGNITUDE "
+                f"failure and not as design §9.1 precondition 1's flat-source failure: those "
+                f"are different faults with different fixes, and on 2026-09-03 the shipped "
+                f"waterline was misdiagnosed as the flat one. It was not flat — the anchor's "
+                f"shift reached exactly the band the mark named, tools/row_remap_witness.py "
+                f"separated the head from the flat prediction on 12 of 12 samples, and the "
+                f"whole excursion was 4 px. Moving the band would have produced a second "
+                f"invisible screen; RAISING THE AMPLITUDE is the fix. The shift above is the "
+                f"control (lower it toward 0), or attach a bigger table — DeformTable_Shimmer "
+                f"is amplitude 8 where DeformTable_OJZ_Calm is 96. A taller ladder is NOT the "
+                f"lever: H = 32 costs 1,056 B of packed data against ~558 B of DEBUG-shape "
+                f"headroom. The floor's provenance is an observation and is recorded at "
+                f"REMAP_VISIBLE_MIN_PX in engine/level/parallax_dsl.emp")
     report.append("    NOT GATED, and it cannot be: whether the bound section lets the camera "
                   "cross the anchor line VERTICALLY decides whether a human ever sees this. In "
                   "a horizontally-crossed section the effect is a still picture. Read the list "

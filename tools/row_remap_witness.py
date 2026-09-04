@@ -433,6 +433,19 @@ async def run(a) -> int:
                     rec["separates_from_flat"] = head != flat
                     rec["flat_differences"] = sum(1 for x, y in zip(head, flat) if x != y)
                     rec["peak_to_peak"] = max(head) - min(head) if head else 0
+                    # ---- HOW BIG IS IT, added 2026-09-03 ----
+                    # `separates_from_flat` is a BOOLEAN and it was 12/12 true on a version
+                    # of this effect the owner could not see. A count of differing lines is
+                    # no better: 9 lines that each differ by one pixel is nine differences
+                    # and no effect. These two are the magnitudes.
+                    #   flat_peak_to_peak — what the band would span with no remap, i.e. how
+                    #     much of the shimmer's own wave those lines cover.
+                    #   max_flat_delta    — the largest single-line displacement the REMAP
+                    #     is responsible for, in pixels. This is the mechanism's own visible
+                    #     contribution, separated from the wave it is compressing.
+                    rec["flat_peak_to_peak"] = max(flat) - min(flat) if flat else 0
+                    rec["max_flat_delta"] = max(
+                        (abs(s16(x) - s16(y)) for x, y in zip(head, flat)), default=0)
                     ok_pos += 1 if head == pred else 0
                     ok_ctrl += 1 if head != flat else 0
                     if head != pred:
@@ -460,6 +473,14 @@ async def run(a) -> int:
     print(f"  remapped height n      {ns} (changed: {out['n_changed']})")
     print(f"  POSITIVE  head == remapped prediction   {ok_pos}/{len(sigs)}")
     print(f"  CONTROL   head != flat prediction       {ok_ctrl}/{len(sigs)}")
+    p2p = [f["peak_to_peak"] for f in out["frames"] if "peak_to_peak" in f]
+    fp2p = [f["flat_peak_to_peak"] for f in out["frames"] if "flat_peak_to_peak" in f]
+    dlt = [f["max_flat_delta"] for f in out["frames"] if "max_flat_delta" in f]
+    if p2p:
+        print(f"  MAGNITUDE, over the remapped lines (the arm that would have caught 9a):")
+        print(f"    band peak-to-peak         {min(p2p)}..{max(p2p)} px "
+              f"(a flat band would span {min(fp2p)}..{max(fp2p)} px)")
+        print(f"    largest single-line shift the REMAP itself causes: {max(dlt)} px")
     print(f"  buffer signature changed across frames  {out['signature_changed']}")
     print(f"  samples where the tail REFUTED the phase {out['tail_unsolved']}")
 

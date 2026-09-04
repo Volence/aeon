@@ -84,6 +84,52 @@ program.
 
 ---
 
+## Scene `01` — the Hydrocity waterline, and how to actually see it
+
+This one is on the **scene** chord, not the preset chord, and it is worth its own section
+because it is the only effect in the lab whose subject is fifteen scanlines tall.
+
+**Press `START` + `RIGHT` once.** You boot with the section's own scene installed and the
+cursor at 0, so the first press lands on **`01`** — the row-1 readout says `01` and
+`ParallaxConfig_OJZ_Underwater` is live. That is the whole setup. You do not need to be
+anywhere in particular and you do not need to press anything else.
+
+**Then look at the background just below the waterline**, which sits between screen lines
+**64 and 95** and drifts. Two things are happening and they are different things:
+
+- **Everywhere below the waterline**, the background scrolls left and right by **16 pixels
+  peak to peak** in a slow wave. That is the shimmer, and it is the thing you can see from
+  across the room.
+- **In the strip immediately under the surface** — between 6 and 15 scanlines of it — the
+  ripples are visibly **bunched together**, tighter than the ones further down, and they relax
+  back to normal spacing below the strip. That is the row remap. It squeezes about 27 lines of
+  wave into 15, so the effect is *compression near the surface*, not a wobble.
+
+**Stand still and it animates on its own.** The section sweeps the water anchor on a cycle of
+roughly **15 seconds**, and the strip breathes with it: it grows from 6 scanlines to 15 and
+tightens, then thins and relaxes. Nothing to press, nothing to hold.
+
+**To see it invert, fly up.** In free flight (the debug build boots into it) every pixel you
+climb takes one pixel off the compression. Somewhere between **6 and 37 pixels up** — the exact
+figure depends on where the 15-second sweep happens to be when you start — the strip thins to
+nothing and the effect switches off completely, with no seam. Keep climbing and it grows back
+with the compression running the *other* way. That is the "depending on your perspective" the
+effect is named for, and the equilibrium is real: the arithmetic turns itself off at zero
+rather than being clamped there.
+
+**If you cannot see it, that is a bug and not your eyes.** Two gates exist specifically so this
+cannot ship invisible again — `tools/row_remap_gate.py` computes the wave's peak-to-peak travel
+in pixels out of the linked ROM and fails the build under 8 px, and a comptime `ensure` beside
+the scene does the same from the generator's own array. It shipped at 4 px on 2026-09-03 and
+was invisible; it is 16 px now.
+
+> **A number that was here and is gone.** An earlier version of this page said "fly up ~37 px".
+> That was one end of a range read as a constant. The distance to equilibrium is not fixed — the
+> anchor sweep moves it continuously between 6 and 37 px — so the page now says the range and
+> says why it moves.
+
+---
+
 ## Things worth knowing
 
 - **`START + A` makes you jump** unless you are in debug free-flight (which the debug build boots

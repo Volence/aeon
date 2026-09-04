@@ -381,10 +381,24 @@ const EQ_OJZ_Default_b3 = band_eq(scene_band(Scene_OJZ_Default, 3),
 ensure(EQ_OJZ_Default_b3 == -1, "scene equivalence: Scene_OJZ_Default BAND 3 differs at band field {EQ_OJZ_Default_b3}")
 
 // ---- OJZ_Underwater — configs.emp:163 (the anchored overlay; Parcel W fixture) --------
+//
+// ⚠ anchor_dsb IS 0 HERE AND WAS 2 IN configs.emp:163. This twin no longer reproduces the
+// pre-scene-model record, and that is DELIBERATE and dated: 2026-09-03, EFFECTS-W1 item 9's
+// visibility parcel raised the anchor's plane-B amplitude from +/-2 px to +/-8 px because
+// the row remap was measured live and reported invisible by the owner. See the amplitude
+// banner on Scene_OJZ_Underwater in games/sonic4/data/effects/ojz_scenes.emp.
+//
+// THE TWIN STILL EARNS ITS KEEP, and this edit is the evidence rather than a hole in it: the
+// change to the scene was a ONE-CHARACTER edit to a payload three arguments deep, and this
+// differ is what turned it into a build failure naming cfg field 15 instead of a silently
+// different ROM. Any FUTURE drift here that nobody meant still fails the same way. What must
+// never happen is this line being edited to chase a lowering change nobody intended — the
+// question to answer before touching it is "did I mean to move an emitted byte", and the
+// answer here is yes, with the measurement in the banner above.
 const EQ_OJZ_Underwater_h = cfg_eq(scene_hdr(Scene_OJZ_Underwater),
     hdr(band_count: 4, layer_mask: $1F, v_factor_bg: 3, v_center: 512, v_offset: 0,
         deform_bg: DeformTable_Shimmer, deform_speed_bg: 3,
-        anchor_ch: 0, anchor_dsa: 15, anchor_dsb: 2))
+        anchor_ch: 0, anchor_dsa: 15, anchor_dsb: 0))
 ensure(EQ_OJZ_Underwater_h == -1, "scene equivalence: Scene_OJZ_Underwater's lowered HEADER differs from ParallaxConfig_OJZ_Underwater's at cfg field {EQ_OJZ_Underwater_h}")
 const EQ_OJZ_Underwater_b0 = band_eq(scene_band(Scene_OJZ_Underwater, 0),
     cfg_band(cell: 0, fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15))

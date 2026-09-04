@@ -241,13 +241,47 @@ pub const Scene_OJZ_Underwater: Scene = scene(
               // That is the "depending on your perspective" the effect is named for.
               //
               // WHAT VARIES, so the remap is not the identity (design §9.1 precondition 1):
-              // this scene's `anchor: SceneAnchor.At(0, 15, 2)` writes dsb 2 into every band
-              // from the split down, against DeformTable_Shimmer. That is a +/-2 px per-line
+              // this scene's `anchor: SceneAnchor.At(0, 15, 0)` writes dsb 0 into every band
+              // from the split down, against DeformTable_Shimmer. That is a +/-8 px per-line
               // wave, and the remap compresses its period toward the far end of the run.
-              // THE AMPLITUDE IS THE HONEST WEAK POINT: precondition 1 asks whether the
-              // source varies AT ALL, and +/-2 px passes that and is still faint. Turning it
-              // up is one number — the anchor's dsb — and it is OWNER CONTENT, not an engine
-              // choice, so this parcel changed nothing about the shipped shimmer.
+              //
+              // THE AMPLITUDE WAS THE WEAK POINT AND IT HAS BEEN RAISED (2026-09-03, owner
+              // sanction). It was `dsb: 2` — +/-2 px — and the previous parcel left it alone
+              // as a look call. It was measured invisible: the owner looked at the shipped
+              // build and reported "I don't see the effect at all", then "I think I see a
+              // singular 2 pixel line above the water line".
+              //
+              // ⚠ THE DIAGNOSIS THAT NEARLY GOT WRITTEN WAS THE WRONG ONE, and it is worth
+              // keeping because it is the plausible one. It was proposed that the band sat on
+              // FLAT rows and that remapping a constant is the identity. That is design §9.1's
+              // own named trap and it is NOT what was happening here. Measured on
+              // s4.debug.bin at 3d00e2c6, ParallaxConfig_OJZ_Underwater installed: the plane-B
+              // scroll word is constant $FFD0 on screen lines 0..89 and first varies at line
+              // 90, which is the split line itself — the anchor's shift reaches exactly the
+              // band the remap marks, precisely as designed, and tools/row_remap_witness.py
+              // separates the head from the flat prediction on 12 of 12 samples. The band was
+              // never flat. It was FOUR PIXELS peak to peak, which is a different failure with
+              // a different fix: not "move the band to the variation" but "make the variation
+              // big enough to see". Moving the band would have produced a second invisible
+              // screen.
+              //
+              // WHY 0 AND NOT 1. DeformTable_Shimmer is `deform_sine(amplitude: 8, period: 32)`,
+              // so the shift is the whole amplitude control and 0 is the largest this table
+              // offers: 16 px peak to peak, four times what shipped. `dsb: 1` is 8 px — it
+              // would sit exactly ON the visibility floor rather than clearing it, and the
+              // whole point of tonight is not to hand back another screen to squint at. It
+              // costs ZERO ROM bytes (pcfg_anchor_dsb is one byte either way, and it was
+              // claimed from a pad — see engine/structs.emp) and it is four cycles per
+              // deformed line CHEAPER, because the sample loop's `asr.w` is 6 + 2n cycles and
+              // n went from 2 to 0. `dsb: 0` is not a novel value: OJZ_Windy has shipped it
+              // on a layer since the scene model landed.
+              //
+              // THE OTHER LEVER IS WALLED OFF AND WAS CHECKED FIRST. Making the remapped run
+              // TALLER means a bigger ladder: H is 16 because H = 32 needs 1,056 B of packed
+              // data and the DEBUG shape has ~558 B of headroom before the bank-placement rule
+              // demands a whole-ROM re-layout (measured across two refused builds — see the H
+              // banner in engine/level/parallax_dsl.emp). So amplitude was not the lever of
+              // convenience; it was the only lever inside this parcel.
               layer(world_y: 1024, fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15,
                     rowRemap: SceneRemap.Ladder(RowRemapLadder_Waterline16, 101, 4)),
               layer(world_y: 3072, fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15),
@@ -263,8 +297,39 @@ pub const Scene_OJZ_Underwater: Scene = scene(
               no_layer() ],
     count: 4, v_factor: 3, v_center: 512, v_offset: 0,
     deform_bg: SceneDeform.Shared(DeformTable_Shimmer, 3),
-    anchor: SceneAnchor.At(0, 15, 2),
+    anchor: SceneAnchor.At(0, 15, 0),
     layer_mask_raw: $1F)
+
+// =====================================================================
+// THE VISIBILITY FLOOR ON THE REMAPPED BAND — the magnitude half of design §9.1
+// precondition 1, and the guard that would have stopped 2026-09-03's invisible ship.
+//
+// WHAT THE ENGINE-SIDE GUARD CANNOT ASK. `scene()` in engine/level/scene_dsl.emp already
+// refuses a `rowRemap:` layer whose scene gives plane B nothing to vary. That guard is
+// correct about WHERE — it checks the remapped layer's own dsb, the anchor's dsb (the arm
+// this scene uses) and a curve, and it requires a table alongside a live shift. It passed
+// here, truthfully. What it cannot ask is HOW BIG, because `SceneDeform.Shared` carries a
+// `pub data` Label and a label's bytes do not exist at comptime.
+//
+// THIS IS THE SITE WHERE BOTH HALVES HAVE NAMES. `SceneSrc_DeformTable_Shimmer` is the
+// array VALUE (that is why the `SceneSrc_*` consts exist at all), and the anchor's shift is
+// read back OFF THE SCENE rather than retyped, so the number checked is the number emitted:
+// change `SceneAnchor.At(0, 15, ...)` above and this moves with it. A guard holding its own
+// private copy of the value it guards is a guard that agrees with itself.
+//
+// WHY IT CATCHES TONIGHT'S CONFIGURATION AND THE OLD GUARD DID NOT. At the shipped
+// `dsb: 2` this evaluates to 4 and REFUSES; at `dsb: 0` it evaluates to 16 and passes. The
+// old guard evaluates to "yes, something varies" at both, which is true at both and decides
+// nothing. Red-first proof: reverting the anchor to `dsb: 2` fails this build.
+//
+// ZERO BYTES. A `const` emits nothing, in any shape, and this is elaborated because
+// ojz_scenes is in every sonic4 target's use closure (scene_registry lowers these scenes).
+// =====================================================================
+const OJZ_UNDERWATER_REMAP_DSB = scene_anchor_dsb(Scene_OJZ_Underwater.sc_anchor)
+const OJZ_UNDERWATER_REMAP_PX  = deform_excursion(SceneSrc_DeformTable_Shimmer,
+                                                  OJZ_UNDERWATER_REMAP_DSB)
+ensure(OJZ_UNDERWATER_REMAP_PX >= REMAP_VISIBLE_MIN_PX,
+       "Scene_OJZ_Underwater carries EFFECTS-W1 item 9's row remap, and the plane-B scroll it remaps travels only {OJZ_UNDERWATER_REMAP_PX} px peak to peak — under the {REMAP_VISIBLE_MIN_PX} px visibility floor, so the effect is ON but NOBODY CAN SEE IT. That is not the same failure as remapping a constant, and the fix is not the same either: the band is on live rows (measured 2026-09-03 — the plane-B word is flat on screen lines 0..89 and first varies at 90, which IS the split), the arithmetic is not the identity, and the row remap witness separates it from the flat prediction on every sample. It is simply too small. The travel is `max(asr(t,dsb)) - min(asr(t,dsb))` over DeformTable_Shimmer, which is deform_sine(amplitude: 8, period: 32), at the anchor's dsb {OJZ_UNDERWATER_REMAP_DSB}. RAISE THE AMPLITUDE: the anchor's dsb is the whole control (`anchor: SceneAnchor.At(0, 15, dsb)` above) and 0 is this table's maximum at 16 px. Do NOT reach for a taller ladder instead — H is 16 because H = 32 costs 1,056 B of packed data against ~558 B of DEBUG-shape headroom (see engine/level/parallax_dsl.emp). The floor itself is an observation, not a derivation, and engine/level/parallax_dsl.emp records what was looked at to set it")
 
 // =====================================================================
 // Scene_VSplitWitness — P3 TASK 11's ACCEPTANCE PROOF, and NOT CONTENT.
