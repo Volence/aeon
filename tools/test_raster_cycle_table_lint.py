@@ -98,8 +98,14 @@ HOTKEY = REPO / "games/sonic4/test/ojz_scroll_test.emp"
 HAND_LIB = REPO / "games/sonic4/data/effects/ojz_effects.emp"
 
 _CYCLE_COUNT = re.compile(r"^const\s+RASTER_CYCLE_COUNT\s*=\s*(\d+)\s*$", re.M)
-# the table body: `.raster_table:` up to the closing of the DEBUG block
-_TABLE_BODY = re.compile(r"^\s*\.raster_table:\s*$(.*?)^\s*\}", re.M | re.S)
+# the table body: `.raster_table:` up to the closing of the DEBUG block.
+# The `export` keyword is OPTIONAL in the pattern rather than assumed absent: the
+# label became `export .raster_table:` with EFFECTS-W1 F4, so Debug_TierTags_Update
+# could scan it (§1.5). A pattern that spelled the bare form went silently
+# unmatched — and this lint's `_read`-and-raise contract turned that into five loud
+# failures naming a table it could no longer see, which is the behaviour that is
+# wanted; it is only recorded here so the next reader knows why the group is here.
+_TABLE_BODY = re.compile(r"^\s*(?:export\s+)?\.raster_table:\s*$(.*?)^\s*\}", re.M | re.S)
 _TABLE_ROW = re.compile(r"^\s*dc\.l\s+(\w+)\s*(?://.*)?$", re.M)
 _HAND_DATA = re.compile(r"^pub\s+data\s+(\w+)\s*:", re.M)
 
