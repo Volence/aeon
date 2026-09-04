@@ -166,7 +166,7 @@ use games.sonic4.ojz_effects.{OJZ_BandDemo, OJZ_BaseSwap}
 // which scalar the step is read from (tools/inject_editor_bg.py's `default_off`
 // block). BgAnim_Table is the act's own, and for this act its band count is 0 — it
 // IS the OFF row, not a stand-in for one.
-use games.sonic4.ojz_bg_anim_act1.{BgAnim_Table, BgAnim_View_H, BgAnim_View_V}
+use games.sonic4.ojz_bg_anim_act1.{BgAnim_Table, BgAnim_View_H, BgAnim_View_V, BgAnim_View_T}
 // Rows 3 and 4 — the VERTICAL-AXIS band and its horizontal-axis control — are NOT
 // imported: they are declared at the FOOT OF THIS FILE (see the block there for why they
 // could not be their own module). They do NOT come from the act's generated section and
@@ -1005,8 +1005,9 @@ pub proc GameState_OJZScroll_Update () clobbers(d0-d7/a0-a6) {
                 jbsr    Debug_PresetCycleHotkey
         }
 
-        // -- DEBUG effects-lab BG-ANIMATION tier (C held + A pressed): step the BG
-        //    tile-band animation OFF -> the Camera_X view -> the Camera_Y view -> OFF.
+        // -- DEBUG effects-lab BG-ANIMATION tier (START held + C pressed, no direction):
+        //    step the BG tile-band animation OFF -> the Camera_X view -> the Camera_Y
+        //    view -> the TIMER view -> the two off-screen axis probes -> OFF.
         //    Polled beside the other three because it is the same review session, and
         //    LAST because it is the only tier a preset install does NOT overwrite: the
         //    BG band table is not an EffectsPreset channel, so unlike the scene, raster
@@ -1521,11 +1522,19 @@ proc Debug_CharacterHotkey () clobbers(d0-d2/a0-a2) {
         move.b  d1, d2                          // keep the held byte for the C veto
         andi.b  #BUTTON_START, d1
         bne     .done
-        // C veto: C held is the effects lab's OTHER modifier, and C+A is the
-        // BG-ANIMATION cycle's chord (Debug_BgAnimViewHotkey, below). Third veto of this
-        // exact shape in this proc — B, then START, now C — and for the same reason each
-        // time: the chord's own button is A, so without the veto every press of it would
-        // ALSO swap Sonic for Tails on its way to doing what the reviewer asked for.
+        // C veto: C held is the effects lab's OTHER modifier — the anchor-nudge and
+        // approach-ramp chords in this module. Third veto of this exact shape in this
+        // proc (B, then START, now C) and for the same reason each time: a reviewer
+        // holding a lab modifier who taps A means the lab, not a character swap.
+        //
+        // ⚠ ITS ORIGINAL REASON EXPIRED ON 2026-09-04 AND THE VETO WAS KEPT ANYWAY, so
+        // read this before deleting it as dead. It was planted for C+A, which WAS the
+        // BG-animation cycle's chord; that chord moved to START+C (see
+        // Debug_BgAnimViewHotkey's header), so C+A now collides with nothing. What is
+        // left is the sentence above, which was always the general form of the argument
+        // and still holds on its own: C+UP/DOWN and C+LEFT/RIGHT are live chords, a
+        // reviewer nudging with C who fumbles A would otherwise swap Sonic for Tails,
+        // and that is the same surprise the B and START vetoes exist to remove.
         // HELD, not press, because C is a chord modifier and must still count on the
         // frames after the one it went down on; a reviewer not holding C pays nothing.
         // d2 is free here — the character index does not land in it until below.
@@ -1817,7 +1826,8 @@ proc Debug_Warp_Consume () clobbers(d0-d7/a0-a6) {
 //         hotkey above while in debug-fly — which this shape boots into.
 //   B     the CHEAT_DEBUG_FLY free-flight toggle (armed at boot in DEBUG), plus the
 //         B-veto above; masked out of the jump mask precisely because it is taken.
-//   C     in BOTH jump masks, plus the C+UP/DOWN anchor nudge in this very module.
+//   C     in BOTH jump masks, plus the C+UP/DOWN anchor nudge in this very module and
+//         (since 2026-09-04) the BG-animation cycle's own button under START.
 //   U/D/L/R  steering, spindash, roll, duck, look-up, climb, debug-fly movement, and
 //         the C chord.
 //   START its only reader is engine/system/replay.emp:157, structurally unreachable
@@ -2771,13 +2781,28 @@ proc Debug_PresetCycleHotkey () clobbers(d0-d4/a0-a3) {
 // -----------------------------------------------
 // Debug_BgAnimViewHotkey — THE EFFECTS LAB'S BG-ANIMATION TIER.
 //
-//   C held + A pressed  -> step the BG tile-band animation: OFF -> the horizontal
-//                          (Camera_X) view -> the vertical (Camera_Y) view -> OFF
+//   START held + C pressed, NO DIRECTION HELD
+//                       -> step the BG tile-band animation: OFF -> the horizontal
+//                          (Camera_X) view -> the vertical (Camera_Y) view -> the TIMER
+//                          view -> the vertical-axis probe -> its control -> OFF
 //
 // THE ASK, in the owner's words: "can we please just get rid of the animated tiles for
 // now, they're so distracting? Maybe have one view for horizontal and one for vertical?"
 // and, on the same pass, "it would be nice to see them perspective related instead of
-// just timer right now".
+// just timer right now" — then, a day later, having seen the result:
+//
+//   "I just ddidn't want the experimental animation bands right now for this, they showed
+//    we can do horizontal and vertical movement on a timer, but it was on for every test
+//    and distracting. It should be its own scene with start + button and should be tested
+//    for perspective vs timer, that's all"
+//
+// TWO CHANGES CAME OUT OF THAT SECOND READING, and neither is a restatement of the first.
+// "Tested for perspective vs timer" is a COMPARISON, and yesterday's parcel left only one
+// arm of it in the ROM — both views were camera-driven, so there was nothing to compare
+// them AGAINST. Row 3 below is the timer arm, restored at the rate the retired timer view
+// actually ran at (tools/inject_editor_bg.py, BGANIM_VIEW_T_RATE_SHIFT: identity, not a
+// fresh derivation, so the A/B varies the DRIVER and nothing else). And the chord moved
+// from C+A to START+C, because he asked for START+button; see the enumeration below.
 //
 // ---- OFF IS NOT THIS CHORD'S DOING, AND THAT IS THE POINT ----
 // The act boots SILENT, in every shape including release, because
@@ -2788,21 +2813,30 @@ proc Debug_PresetCycleHotkey () clobbers(d0-d4/a0-a3) {
 // BACK, which is why row 0 of its table is the act's own table rather than a synthetic
 // empty one: OFF and "what the game ships" are the same object here.
 //
-// ---- WHY TWO TABLES AND NOT TWO STATES ----
+// ---- WHY THREE TABLES AND NOT THREE STATES ----
 // A band's driver and rate are baked into its 44-byte ROM record, so "run this band off
-// Camera_X" and "run it off Camera_Y" are two different TABLES. The emitter writes all
-// three into one section sharing one bank blob (+92 bytes total, 8330 of a 12288 B
-// ceiling), and `BgAnim_SetTable` (engine/level/bg_anim.emp) says which one the walk
-// uses. That selector is DEBUG-only: the plain shape keeps its `lea BgAnim_Table` and
-// gains neither the cell nor the indirection.
+// Camera_X", "run it off Camera_Y" and "run it off Logic_Tick" are three different
+// TABLES. The emitter writes all four into one section sharing one bank blob (+138 bytes
+// total, 8376 of the 20480 B ruled ceiling), and `BgAnim_SetTable`
+// (engine/level/bg_anim.emp) says which one the walk uses. That selector is DEBUG-only:
+// the plain shape keeps its `lea BgAnim_Table` and gains neither the cell nor the
+// indirection.
 //
 // ---- WHICH VIEW IS WHICH, AND WHY THE RATES DIFFER ----
 // H and V name the CAMERA AXIS rows 1 and 2 are driven by, not the band's own art axis —
-// both of those views move the same HORIZONTAL band. The two rates are derived in the
+// all three of those views move the same HORIZONTAL band. The rates are derived in the
 // emitter, not picked: the Camera_X view matches the retired timer view's apparent speed
-// at PHYS_TOP_SPEED, and the Camera_Y view is tuned so one full pattern cycle costs about
-// one screen height of vertical travel. See tools/inject_editor_bg.py's `default_off`
-// block for both derivations.
+// at PHYS_TOP_SPEED, the Camera_Y view is tuned so one full pattern cycle costs about
+// one screen height of vertical travel, and the TIMER view (row 3) is the retired view's
+// own rate restored unchanged, so the A/B the owner asked for varies the driver and
+// nothing else. See tools/inject_editor_bg.py's `default_off` block for all three.
+//
+// ---- WHAT "PERSPECTIVE VS TIMER" ACTUALLY LOOKS LIKE, so the reviewer knows ----
+// Rows 1 and 3 are the comparison; row 2 is the vertical variant of row 1.
+//   moving at PHYS_TOP_SPEED   row 1 = 0.375 px/frame   row 3 = 0.25 px/frame
+//   standing still             row 1 = 0     px/frame   row 3 = 0.25 px/frame
+// The tempos are within 1.5x of each other on purpose. The DIFFERENCE to judge is the
+// second line: the camera arm stops when the player stops and the timer arm does not.
 //
 // ⚠ THE SENTENCE THAT USED TO SIT HERE WAS STALE AND IS CORRECTED (2026-09-04). It said a
 // genuinely vertical band "needs vertically pre-shifted phase art and a ROW-MAJOR slot
@@ -2811,60 +2845,94 @@ proc Debug_PresetCycleHotkey () clobbers(d0-d4/a0-a3) {
 // need row-major layout words he has not authored — but the first was overtaken the day
 // after it was written: `axis` is an emitter-understood band key, aurora shipped the
 // column-wise shift-fill writer, and tools/bganim_vprobe_gen.py produces vertically
-// pre-shifted banks right here. Rows 3 and 4 below are the consequence.
+// pre-shifted banks right here. Rows 4 and 5 below are the consequence.
 //
-// ---- ROWS 3 AND 4: THE VERTICAL BAND AND ITS CONTROL ----
-// Row 3 is the first band in any ROM this project has built whose axis is VERTICAL: its
+// ---- ROWS 4 AND 5: THE VERTICAL BAND AND ITS CONTROL ----
+// (They were rows 3 and 4 until 2026-09-04, when the TIMER view was inserted at 3 so the
+// owner's A/B is one press wide. Every mention of them below moved with them.)
+// Row 4 is the first band in any ROM this project has built whose axis is VERTICAL: its
 // own 2,048 B of art, rolled UP one pixel per bank, slots in row-major order, rotation
-// unit COLS*32 = 64 B, period ROWS*8 = 32 px. Row 4 is the SAME art, driver and rate with
+// unit COLS*32 = 64 B, period ROWS*8 = 32 px. Row 5 is the SAME art, driver and rate with
 // the two axis-carrying fields set horizontally (unit 128 B, period 16 px) — it is not a
-// band anyone would author, it is the control that makes row 3's witness mean something.
+// band anyone would author, it is the control that makes row 4's witness mean something.
 // Declared at the foot of this file.
 //
-// ⚠ ROWS 3 AND 4 PUT NOTHING ON THE SCREEN, BY CONSTRUCTION. They aim at the BG region's
+// ⚠ ROWS 4 AND 5 PUT NOTHING ON THE SCREEN, BY CONSTRUCTION. They aim at the BG region's
 // unused band reserve ($A800 = slot 1344; games/sonic4/vram.toml `band_reserve`), which
 // no plane cell references. That keeps the owner's canopy intact and keeps a VRAM
-// measurement unconfounded, and it means a reviewer pressing past row 2 sees the picture
+// measurement unconfounded, and it means a reviewer pressing past row 3 sees the picture
 // stop changing rather than a second animation. Making it visible needs plane cells in
 // row-major order over those slots — an authoring change to the act's document, not an
 // engine one.
 //
-// ---- WHY C+A, WITH THE PAD ENUMERATED A FOURTH TIME ----
-// Debug_PresetCycleHotkey's header enumerates FIVE spent chords and finds the d-pad
-// exhausted against both free modifiers:
-//   START + LEFT/RIGHT   scene cycle          START + UP/DOWN   raster cycle / off
-//   C     + LEFT/RIGHT   approach-ramp arm    C     + UP/DOWN   anchor nudge
-//   START + A            preset cycle
-// So a sixth chord has to be a MODIFIER + FACE BUTTON, and of the three remaining
-// pairings only one is reachable:
-//   START+B / C+B  Player_Main's and TestPlayer_Main's CHEAT_DEBUG_FLY toggle is on the
-//                  B PRESS and is armed at boot in this shape — either chord would drop
-//                  the player out of free flight on its way here, and its readers live
-//                  in games/sonic4/player/ and games/sonic4/objects/test_player.emp, so
-//                  vetoing it would spread the lab across the player. Rejected, for the
-//                  reason START+B was already rejected.
-//   START+C        C is in BOTH jump masks AND is the modifier for the two nudge chords
-//                  in this module, so START+C+direction would nudge as well as cycle.
-//   C+A            REACHABLE. In debug free-flight — which this shape boots into —
-//                  Player_DebugMove reads LEFT/RIGHT/UP/DOWN only, so A and C are both
-//                  inert; C's own two chords take DIRECTIONS, so C+A collides with
-//                  neither. The single conflict is Debug_CharacterHotkey, which fires on
-//                  the A press while in debug-fly, and it is settled by a two-instruction
-//                  C veto in that hotkey — the THIRD veto of that exact shape in that
-//                  proc (B, then START, now C), in this same file.
-// X/Y/Z/MODE were rejected for the fourth time for the reason the scene cycle records:
+// ---- WHY START+C, WITH THE PAD RE-ENUMERATED FROM THE CODE (2026-09-04) ----
+// The owner asked for "start + button". Yesterday's header said no START+face pairing was
+// reachable and settled on C+A; that paragraph was a DAY OLD and F4 had landed since, so
+// the pad was walked again from the call sites rather than from the paragraph. Every line
+// below was read out of this tree today, and the conclusion CHANGED — not because
+// anything moved, but because the earlier pass rejected START+C on a collision that only
+// exists WITH A DIRECTION HELD, which is a condition a gate can test.
+//
+// EVERY CONSUMER OF THE PAD IN THE SHAPE THIS LAB RUNS IN (canonical DEBUG, OJZ scene):
+//   START + LEFT/RIGHT   Debug_SceneCycleHotkey     scene cycle       (direction PRESS)
+//   START + UP/DOWN      Debug_BandDemoHotkey       raster cycle/off  (direction PRESS)
+//   START + A            Debug_PresetCycleHotkey    preset cycle      (A PRESS)
+//   C     + LEFT/RIGHT   this module, ~:1343        approach-ramp arm (direction HELD)
+//   C     + UP/DOWN      this module, ~:1255        anchor nudge      (direction HELD)
+//   A                    Debug_CharacterHotkey      character cycle   (A PRESS, in fly)
+//   B                    Player_Main / TestPlayer_Main   CHEAT_DEBUG_FLY toggle (B PRESS)
+//   START or C held      Debug_TierTags_Update      ARMS the two name tags (F4)
+//   directions           Player_DebugMove           free flight — DIRECTIONS ONLY
+// and nothing anywhere reads a C PRESS. (Debug_MusicToggle in games/sonic4/debug/ does
+// claim A/B/C/UP/START, but config/game.emp binds `debug_tick` only under
+// SOUND_DEBUG_HOTKEYS — the off-canonical Config-A profile — so it emits nothing in
+// either canonical shape. In THAT profile a START+C press also fires its drum-test song,
+// exactly as today's START+A also fires its music restart: a pre-existing property of a
+// shape the lab is not played in, not something this chord introduces.)
+//
+// So the three modifier+face pairings, judged against that list:
+//   START+A        SPENT — the preset tier. Not available, and moving it would change a
+//                  chord the owner already uses to reach preset 6.
+//   START+B        REJECTED, unchanged: the CHEAT_DEBUG_FLY toggle is on the B PRESS and
+//                  is armed at boot in this shape, so the chord would drop the player out
+//                  of free flight on its way here. Its readers live in
+//                  games/sonic4/player/ and games/sonic4/objects/test_player.emp, so
+//                  vetoing it would spread the lab across the player.
+//   START+C        REACHABLE, and this is where the earlier pass was wrong. Its stated
+//                  objection was "START+C+direction would nudge as well as cycle" — true,
+//                  and it names its own remedy: the two C chords are the ONLY other
+//                  readers of C, they are the two rows above marked "direction HELD", and
+//                  BOTH of them already return without doing anything when no direction
+//                  is held ("C alone, or C with both: no move"). A NO-DIRECTION-HELD veto
+//                  on this chord therefore partitions C cleanly, with nothing to change
+//                  outside this proc:
+//                      START + C, no direction   this cycle, and only this
+//                      C + direction             nudge / ramp, exactly as before
+//                      START + direction         scene / raster, exactly as before
+//                  One `andi.b #$0F` and a branch buy that. It is also the same mask the
+//                  START+direction chords occupy, so the one veto covers both families.
+// X/Y/Z/MODE were rejected for the fifth time for the reason the scene cycle records:
 // they exist only when the pad enumerates as PAD_6BTN, so the chord would be silently
 // INERT on a 3-button pad — the worst failure a review tool can have.
 //
-// THE COST, STATED: outside debug free-flight both C and A are jump buttons, so C+A
-// makes the player jump as well as step. That is the same cost the two C chords and the
-// preset chord in this module already accept, and it is nothing in free flight.
+// TWO THINGS THE MOVE BUYS BEYOND ANSWERING THE ASK. START+C is already the gesture that
+// ARMS F4's name tags (Debug_TierTags_Update reads `START|C` held), so the first press of
+// this chord now also puts the readout on screen that says which view it just installed —
+// the two used to need separate gestures. And Debug_CharacterHotkey's C veto stops being
+// load-bearing for THIS chord; it is kept anyway, re-justified in place, because C is
+// still a lab modifier and a reviewer nudging with C who taps A should still not swap
+// characters.
 //
-// ---- A SECOND MODIFIER GATE, WHICH THE OTHER FIVE DO NOT NEED ----
-// This is the only chord whose modifier is a SUBSET of another chord's press: START+A is
-// the preset tier and C+A is this one, and a reviewer holding both would fire both. The
-// `START held` veto below makes the two mutually exclusive, so holding START keeps its
-// documented meaning and the preset tier's behaviour is unchanged by this parcel.
+// THE COST, STATED: outside debug free-flight C is a jump button, so START+C makes the
+// player jump as well as step. That is the same cost every other chord in this module
+// already accepts, and it is nothing in free flight, where Player_DebugMove reads
+// directions only and C is inert.
+//
+// ---- WHAT REPLACED THE OLD SECOND MODIFIER GATE ----
+// C+A needed a `START held` veto because START+A is the preset tier and a reviewer
+// holding both modifiers would fire both. With the chord on START+C that veto is gone —
+// START is now this chord's OWN modifier — and the direction veto above takes its place,
+// doing the same job for the other overlap. The count of gates is unchanged at four.
 //
 // ---- OFF FREEZES THE BAND, IT DOES NOT REWIND IT ----
 // Stated because it is visible and a reader would otherwise call it a bug. Turning a
@@ -2877,8 +2945,8 @@ proc Debug_PresetCycleHotkey () clobbers(d0-d4/a0-a3) {
 // mean an extra DMA on a keypress for a debug view, which is not worth the code.
 //
 // ---- LIVE INPUT ONLY ----
-// Required, not defensive, and the same gate for the same reason as its five siblings: C
-// and A both ride in the main controller byte that engine/system/replay.emp records
+// Required, not defensive, and the same gate for the same reason as its five siblings:
+// START and C both ride in the main controller byte that engine/system/replay.emp records
 // whole and replays whole, and the slide fixture deliberately enters debug-fly.
 //
 // DEBUG-shape only: the body — the rts AND the pointer table included — sits inside
@@ -2894,9 +2962,9 @@ proc Debug_PresetCycleHotkey () clobbers(d0-d4/a0-a3) {
 // -----------------------------------------------
 // The row count, stated ONCE. The cursor wraps at this and then indexes the table, so a
 // mirror drifting above it would fetch a pointer past the table's end and hand it to
-// BgAnim_SetTable as a band table. Five rows: OFF, the Camera_X view, the Camera_Y view,
-// the VERTICAL-AXIS probe band, and that band's horizontal-axis control.
-const BGANIM_VIEW_CYCLE_COUNT = 5
+// BgAnim_SetTable as a band table. Six rows: OFF, the Camera_X view, the Camera_Y view,
+// the TIMER view, the VERTICAL-AXIS probe band, and that band's horizontal-axis control.
+const BGANIM_VIEW_CYCLE_COUNT = 6
 
 proc Debug_BgAnimViewHotkey () clobbers(d0-d1/a0-a1) {
     if DEBUG == 1 {
@@ -2905,21 +2973,38 @@ proc Debug_BgAnimViewHotkey () clobbers(d0-d1/a0-a1) {
         tst.b   Input_Source                    // (Input_Source).w
         bne     .done
 
-        // Gate 2: the modifier, and Gate 3: the START veto that keeps this chord and
-        // the preset tier's disjoint. Both read from ONE fetch of the held latch into
-        // two registers, the idiom the raster cycle uses for its two directions.
+        // Gate 2: the modifier, and Gate 3: the NO-DIRECTION veto that keeps this chord
+        // disjoint from the four direction chords. Both read from ONE fetch of the held
+        // latch into two registers, the idiom the raster cycle uses for its two
+        // directions.
+        //
+        // THE VETO IS THE WHOLE REASON START+C IS AVAILABLE (see the header). C is also
+        // the modifier for this module's anchor-nudge and approach-ramp chords, and
+        // START is the modifier for the scene and raster cycles — every one of those
+        // four needs a DIRECTION, and the two C ones already do nothing without one.
+        // Standing this chord down whenever any direction is held therefore partitions
+        // the pad with nothing to change outside this proc, and it is why no veto had to
+        // be planted in a sibling hotkey the way C+A needed one in
+        // Debug_CharacterHotkey.
+        //
+        // HELD for both halves, not press: START is a chord modifier and must still
+        // count on the frames after it went down, and a direction the reviewer is
+        // leaning on must keep vetoing for as long as he leans on it (a press-only test
+        // would let a HELD direction through one frame later).
         move.b  Ctrl_1_Held, d0                 // tick-stable held latch
         move.b  d0, d1
-        andi.b  #BUTTON_C, d0
-        beq     .done                           // C is this chord's shift key
-        andi.b  #BUTTON_START, d1
-        bne     .done                           // START+A is the PRESET tier, not this
+        andi.b  #BUTTON_START, d0
+        beq     .done                           // START is this chord's shift key
+        andi.b  #BUTTON_UP|BUTTON_DOWN|BUTTON_LEFT|BUTTON_RIGHT, d1
+        bne     .done                           // a direction is held: that is one of the
+                                                // four direction chords, not this one
 
-        // Gate 4: the button, EDGE-triggered so holding A does not re-install every
+        // Gate 4: the button, EDGE-triggered so holding C does not re-install every
         // frame (which would poison BgAnim_LastStep every frame and re-DMA the band
-        // continuously).
+        // continuously). Nothing else in this shape reads a C PRESS — the header's
+        // enumeration is the check on that.
         move.b  Ctrl_1_Press, d0                // tick-stable press latch
-        andi.b  #BUTTON_A, d0
+        andi.b  #BUTTON_C, d0
         beq     .done
 
         // ADVANCE-THEN-INSTALL, the preset cycle's order and for its reason: boot
@@ -2966,9 +3051,13 @@ proc Debug_BgAnimViewHotkey () clobbers(d0-d1/a0-a1) {
                                                 //     band count is 0, `default_off`)
         dc.l    BgAnim_View_H                   // 1 — Camera_X, the horizontal view
         dc.l    BgAnim_View_V                   // 2 — Camera_Y, the vertical view
-        dc.l    BgAnim_View_Vert                // 3 — the VERTICAL-AXIS band (own art,
+        dc.l    BgAnim_View_T                   // 3 — Logic_Tick, the TIMER view: the
+                                                //     other arm of "perspective vs timer".
+                                                //     INSERTED here, not appended, so the
+                                                //     A/B against row 1 is one press wide
+        dc.l    BgAnim_View_Vert                // 4 — the VERTICAL-AXIS band (own art,
                                                 //     $A800, off-screen — see the header)
-        dc.l    BgAnim_View_VertCtl             // 4 — row 3's horizontal-axis control
+        dc.l    BgAnim_View_VertCtl             // 5 — row 4's horizontal-axis control
     }
 }
 
@@ -3806,7 +3895,8 @@ proc Debug_TierTags_Update () clobbers(d0-d4/a0-a3) {
         // ROW ORDER IS `.raster_table`'s, and it has to be: the scan above returns the
         // row index and this table is indexed with it raw. The three synthetic rows are
         // APPENDED so adding a cycle row never renumbers an existing name.
-        // 36 bytes — even, which keeps `.btag_names` and `.alphabet` below word-aligned.
+        // 36 bytes — even, so `.btag_names` below starts word-aligned with no padding.
+        // (`.btag_names` itself is odd and carries its own `.btag_pad` byte.)
     .rtag_names:
         dc.b    LTR_B, LTR_A, LTR_N, LTR_D      // 0 — OJZ_BandDemo, the control
         dc.b    LTR_S, LTR_W, LTR_A, LTR_P      // 1 — OJZ_BaseSwap, the plane-base swap
@@ -3821,14 +3911,42 @@ proc Debug_TierTags_Update () clobbers(d0-d4/a0-a3) {
         // -----------------------------------------------
         // .btag_names — one three-letter name per BG-animation view row.
         // -----------------------------------------------
-        // ROW ORDER IS `.view_table`'s, for `.rtag_names`' reason. 18 bytes — even.
+        // ROW ORDER IS `.view_table`'s, for `.rtag_names`' reason. 21 bytes — ODD, so it
+        // is followed by `.btag_pad`; see the note at the foot of the table.
     .btag_names:
         dc.b    LTR_A, LTR_C, LTR_T             // 0 — BgAnim_Table, the act's own
         dc.b    LTR_C, LTR_M, LTR_X             // 1 — BgAnim_View_H, the Camera_X view
         dc.b    LTR_C, LTR_M, LTR_Y             // 2 — BgAnim_View_V, the Camera_Y view
-        dc.b    LTR_V, LTR_R, LTR_T             // 3 — BgAnim_View_Vert, the vertical band
-        dc.b    LTR_V, LTR_C, LTR_T             // 4 — BgAnim_View_VertCtl, its control
-        dc.b    LTR_O, LTR_T, LTR_H             // 5 — BTAG_OTHER: outside the cycle
+        dc.b    LTR_T, LTR_M, LTR_R             // 3 — BgAnim_View_T, the Logic_Tick view
+        dc.b    LTR_V, LTR_R, LTR_T             // 4 — BgAnim_View_Vert, the vertical band
+        dc.b    LTR_V, LTR_C, LTR_T             // 5 — BgAnim_View_VertCtl, its control
+        dc.b    LTR_O, LTR_T, LTR_H             // 6 — BTAG_OTHER: outside the cycle
+
+        // -----------------------------------------------
+        // .btag_pad — ONE BYTE, AND IT IS LOAD-BEARING.
+        // -----------------------------------------------
+        // Seven three-letter rows are 21 bytes, ODD. `.alphabet` below is `dc.l` art
+        // that `.paint_cells` DMAs from a `lsl.w #5` offset off its own label, and a
+        // VDP DMA source is a WORD address — an odd `.alphabet` base does not fail
+        // loudly, it paints shifted garbage on the readout whose whole job is to be
+        // trusted. This file's own "36 bytes — even" / "18 bytes — even" notes were the
+        // previous, MANUAL form of the same guarantee, and the row added on 2026-09-04
+        // is what broke the parity they were quietly relying on.
+        //
+        // A BYTE AND NOT `align 2`, measured rather than assumed: `align` is a
+        // module-scope directive and is not a mnemonic inside a proc body — sigil
+        // rejects it with "`align` is not a recognized 68000 mnemonic". (It is spelled
+        // at module scope in games/sonic4/debug/game_debug.emp:193 and
+        // engine/system/boot_data.emp:214; neither of those is inside a proc.)
+        //
+        // IT HAS ITS OWN LABEL so it is not inside `.btag_names`: that table is parsed
+        // by tools/test_tier_tag_tables.py as "one LTR_ triple per row", and a bare
+        // `dc.b 0` in the middle of it would be read as a fourth letter. The label ends
+        // the block for that parser and names the byte for a human at the same time.
+        // The gate on the parity itself is that file's
+        // test_name_tables_leave_the_alphabet_word_aligned.
+    .btag_pad:
+        dc.b    0
 
         // -----------------------------------------------
         // .alphabet — twenty-six 8x8 4bpp tiles, 'A' to 'Z', 32 bytes each.

@@ -44,7 +44,11 @@ WHAT IT CHECKS
   7. no two names within a tier are the same word (two rows that paint the same letters
      cannot be told apart, which deletes the tag's value silently);
   8. each tag's cell count equals its VRAM region's declared `tiles`, and the VDP piece
-     size byte in `.tag_frame_*` packs exactly that width at one cell tall.
+     size byte in `.tag_frame_*` packs exactly that width at one cell tall;
+  9. the `dc.b` run from the first name table to `.alphabet` is an EVEN number of bytes,
+     so `.alphabet`'s `dc.l` tiles keep the parity their DMA source needs (added
+     2026-09-04, when a seventh `.btag_names` row made that run odd for the first time
+     and the two prose "bytes — even" comments went stale without failing anything).
 
 LOUD RATHER THAN GREEN WHEN IT CANNOT MEASURE. Every parse raises with the file and the
 pattern it could not find; a gate that quietly finds zero rows and passes is the vacuity
@@ -311,6 +315,69 @@ def test_alphabet_is_complete_and_well_formed():
         + ". Two letters that paint the same tile make every name containing either of "
         "them ambiguous on screen — a confident answer carrying less information than it "
         "appears to, which is the failure the whole lab exists to remove."
+    )
+
+
+def test_name_tables_leave_the_alphabet_word_aligned():
+    """`.alphabet` must sit at the same parity as the first name table.
+
+    WHY THIS IS A GATE AND NOT A COMMENT. `.alphabet` is `dc.l` tile art that
+    `.paint_cells` hands to the DMA queue at a `lsl.w #5` offset from its own label. A
+    VDP DMA source is a WORD address, so an odd `.alphabet` base does not fail loudly —
+    it paints shifted garbage on the readout whose entire job is to be trusted. Nothing
+    in `.emp` aligns a `dc.b` run for you, and `align` is a module-scope directive that
+    sigil rejects inside a proc body, so the parity is carried by hand-placed pad bytes.
+
+    Until 2026-09-04 it was carried by two PROSE comments ("36 bytes — even", "18 bytes
+    — even") that a new name row silently invalidated: `.btag_names` went to seven rows
+    of three, 21 bytes, and the comments still said 18.
+
+    WHAT IT MEASURES, AND WHAT IT DOES NOT. It counts every `dc.b` byte from the first
+    name table's label up to `.alphabet` and requires the total to be EVEN, i.e. that
+    `.alphabet` has the same parity as `.rtag_names`. It cannot see `.rtag_names`' own
+    absolute address (that is a link-time fact this text lint has no access to), so it
+    proves RELATIVE parity only — but relative parity is exactly what a name row added
+    to a table can break, which is the failure this exists for.
+    """
+    src = _read()
+    first = TIERS[0]["names_label"]
+    start = re.search(rf"^\s*(?:export\s+)?\.{re.escape(first)}:\s*$", src, re.M)
+    end = re.search(r"^\s*(?:export\s+)?\.alphabet:\s*$", src, re.M)
+    if start is None or end is None:
+        raise AssertionError(
+            f"{READOUT.name}: could not find `.{first}:` and `.alphabet:` — this lint "
+            "cannot measure the run between them and must not pass without doing so."
+        )
+    assert start.end() < end.start(), (
+        f"{READOUT.name}: `.alphabet:` no longer follows `.{first}:`. This lint measures "
+        "the byte run between them; reordering them makes it measure nothing."
+    )
+    span = src[start.end():end.start()]
+    counted = 0
+    for line in re.findall(r"^\s*dc\.b\s+([^/\n]+?)\s*(?://.*)?$", span, re.M):
+        counted += len([tok for tok in line.split(",") if tok.strip()])
+    assert counted, (
+        f"{READOUT.name}: found no `dc.b` bytes between `.{first}:` and `.alphabet:`. "
+        "A zero count would make this parity check vacuous."
+    )
+    # The names' own contribution, derived from the same constants every other check
+    # here reads. Anything above this is padding, which is what the parity needs.
+    names_bytes = sum(const(t["rows_const"]) * const(t["cells_const"]) for t in TIERS)
+    padding = counted - names_bytes
+    assert padding >= 0, (
+        f"{READOUT.name}: the run from `.{first}:` to `.alphabet:` holds {counted} "
+        f"`dc.b` bytes but the name tables alone need {names_bytes} "
+        "(sum of rows x cells). One of the tables is short, or this lint is reading "
+        "the wrong span."
+    )
+    assert counted % 2 == 0, (
+        f"{READOUT.name}: the `dc.b` run from `.{first}:` to `.alphabet:` is {counted} "
+        f"bytes — ODD — so `.alphabet` starts on the opposite parity from `.{first}` and "
+        "its `dc.l` tiles are a misaligned DMA source. The name tables account for "
+        f"{names_bytes} of that ({', '.join(t['name'] + ': ' + str(const(t['rows_const'])) + 'x' + str(const(t['cells_const'])) for t in TIERS)}) "
+        f"and {padding} byte(s) of padding follow them. Add or remove one pad byte "
+        "(`.btag_pad` in that file is the existing one); `align` is module-scope in "
+        "`.emp` and sigil rejects it inside a proc body."
     )
 
 
