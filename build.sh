@@ -798,6 +798,30 @@ if [[ "$FAST" == "0" ]]; then
         exit 1
     fi
 
+    # THE ROW REMAP LADDER'S INVARIANTS, on the emitted bytes (EFFECTS-W1 item 9).
+    # Post-sigil, with the same --built-after provenance rule as the goldens below, for the
+    # same reason: the pytest lane runs BEFORE the build, so a unit test opening s4.bin would
+    # check a previous invocation's ladder.
+    #
+    # WHAT ONLY THE ROM CAN ANSWER. The three invariants (entry[i] >= i, non-decreasing,
+    # entry[i] <= 2i) hold BY CONSTRUCTION in row_remap_ladder64() — and "the generator is
+    # right" is a different claim from "those bytes reached the image at the address the band
+    # record points at", which is what the 68000 indexes through. It also refuses an
+    # ALL-IDENTITY ladder, which the three invariants cannot see (entry[i] = i satisfies every
+    # one of them) and which would spend the pass's cycles writing the buffer back unchanged.
+    #
+    # RUN FOR BOTH GAMES, DELIBERATELY OUTSIDE THE sonic4 ARM BELOW. demo declares no
+    # CAP_ROW_REMAP, and the gate's undeclared path is not a skip — it asserts that demo's
+    # image carries NEITHER a ladder symbol NOR a non-NULL remap tail, in both directions.
+    # That is the shape this capability actually threatens demo in: BAND_REMAP_N is
+    # ENGINE-WIDE, so demo's band record widened for it, and a gate that only looked at
+    # sonic4 would be blind to a pointer leaking into the game that can never use one.
+    if ! python3 "${TOOLS}/row_remap_gate.py" --lst "${ROM_NAME}.lst" \
+            --rom "${ROM_NAME}.bin" --built-after "${SIGIL_T0}" --game "${GAME}"; then
+        echo "Row remap ladder — see above (tools/row_remap_gate.py, the post-sigil gate)."
+        exit 1
+    fi
+
     # The editor-scene binding seam's REACHABILITY gate (scanline P5 slice 5).
     # Reads the listing because that is the only place the answer exists: an
     # unreached `.emp` module still parses, still scans, and still builds green

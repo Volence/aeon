@@ -1,0 +1,350 @@
+#!/usr/bin/env python3
+"""row_remap_gate — the ROW REMAP LADDER's three invariants, checked IN THE BUILT ROM.
+
+EFFECTS-W1 item 9, parcel 9a. The ladder is generated at comptime by
+`row_remap_ladder64()` (engine/level/parallax_dsl.emp), and that generator's own
+construction is what makes the invariants true. THIS GATE DOES NOT ASK THE GENERATOR. It
+reads the bytes out of the linked image, at the address the listing gives, and re-checks
+them — because "the generator is right" and "the right bytes reached the ROM" are two
+different claims, and only the second one is what the 68000 indexes through.
+
+THE THREE INVARIANTS, and each is a correctness property rather than a style one:
+
+  entry[i] >= i         The permute is IN PLACE and FORWARD — Parallax_Fill_PerLine's pass
+                        uses one address for both the read base and the write cursor, which
+                        is S3K's own shape (sonic3k.asm:105849-105850). A line either reads a
+                        slot it has not written yet or reads its own value back. Break this
+                        and the loop feeds on its own output, which does not crash and does
+                        not look obviously wrong.
+  entry non-decreasing  Rows are reordered, repeated and dropped; never SWAPPED. A descending
+                        pair is a scroll word travelling backwards down the band, which reads
+                        as a tear rather than as compression.
+  entry[i] <= 2i        The READ BOUND. It is what lets the pass cap the remapped run at
+                        span/2 and know every fetch lands inside the band's OWN longwords.
+                        Without it a tall |p| over a short band pulls the NEXT band's scroll
+                        words into this one — which looks like a plausible effect and is not
+                        one.
+
+Plus the SHAPE: the emitted table must be exactly (H+1) rows of H bytes, with H derived from
+the height shift authored on the band record — never typed here.
+
+AND THE BINDING REPORT (design §9.2 step 3), which is PRINTED and not gated. Precondition 4
+— "the bound section must permit vertical camera travel across the anchor line" — is not
+machine-checkable: in a section the camera only crosses horizontally the effect is a still
+picture and nobody will find it. It belongs in a gate's OUTPUT, where a reviewer sees it, and
+not in its exit code, where it would become a guess with authority.
+
+WHAT THIS GATE DELIBERATELY DOES NOT DO. It does not run an emulator and it does not look at
+Hscroll_Buffer. Whether the pass actually RAN, on the band the mark named, with the ladder row
+the perspective quantity selected, is tools/row_remap_witness.py's question, and it needs a
+machine. Keeping them apart is what lets this one be build-fatal in every canonical shape.
+
+⚠ A GAME WITH NO LADDER IS A PASS, AND IT IS DERIVED, NOT ASSUMED. `demo` declares no
+CAP_ROW_REMAP and emits no ladder, so there is nothing in its image to check. That is read off
+the game's own SCANLINE_CAPS and CAP_ROW_REMAP declarations — if a game DECLARES the bit and
+its image carries no ladder, that is a FAILURE, not an absence. A gate that answered "no
+symbol, nothing to do" would pass hardest exactly when the emission had been lost.
+"""
+from __future__ import annotations
+
+import argparse
+import os
+import re
+import sys
+
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+EXIT_OK, EXIT_FAIL, EXIT_UNMEASURABLE = 0, 1, 2
+
+
+class Unmeasurable(RuntimeError):
+    pass
+
+
+def parse_lst(path: str) -> dict:
+    out = {}
+    with open(path, encoding="utf-8", errors="replace") as fh:
+        for ln in fh:
+            m = re.match(r"\(\d+\) \d+/([0-9A-Fa-f]+) :\s+(\S+):", ln)
+            if m:
+                out[m.group(2)] = int(m.group(1), 16)
+    if not out:
+        raise Unmeasurable(f"{path} yielded no symbols — not a sigil listing")
+    return out
+
+
+def cap_bit(repo: str, name: str) -> int:
+    text = open(os.path.join(repo, "engine/level/scene_dsl.emp"), encoding="utf-8").read()
+    m = re.search(r"pub const " + name + r"\s+= \$([0-9A-Fa-f]+)", text)
+    if not m:
+        raise Unmeasurable(f"{name} is not declared in engine/level/scene_dsl.emp")
+    return int(m.group(1), 16)
+
+
+def game_caps(repo: str, game: str) -> int:
+    """This game's declared mask. BOTH SPELLINGS ARE ACCEPTED because both ship: sonic4
+    writes `$07DE` and demo writes a bare `0`, and a regex that only knew the hex form
+    reported demo as UNMEASURABLE — which on a four-shape gate is two shapes silently not
+    gated. Measured 2026-09-03."""
+    p = os.path.join(repo, "games", game, "config", "game.emp")
+    if not os.path.isfile(p):
+        raise Unmeasurable(f"{p} does not exist — cannot read this game's SCANLINE_CAPS")
+    text = open(p, encoding="utf-8").read()
+    m = re.search(r"const SCANLINE_CAPS = \$([0-9A-Fa-f]+)", text)
+    if m:
+        return int(m.group(1), 16)
+    m = re.search(r"const SCANLINE_CAPS = (\d+)", text)
+    if not m:
+        raise Unmeasurable(f"SCANLINE_CAPS is not declared in {p}")
+    return int(m.group(1))
+
+
+def pcfg_offset(repo: str, want: str) -> int:
+    """A parallax_config field's byte offset, WALKED off engine/structs.emp rather than typed.
+    The first draft of this gate typed 25 for pcfg_anchor_ch (it is 11) and reported a correct
+    ROM as broken — the gate measuring the gate, which is the failure mode a hand-copied
+    offset always has."""
+    text = open(os.path.join(repo, "engine/structs.emp"), encoding="utf-8").read()
+    m = re.search(r"pub struct parallax_config[^{]*\{(.*?)\n\}", text, re.S)
+    if not m:
+        raise Unmeasurable("could not find `pub struct parallax_config` in engine/structs.emp")
+    widths = {"u8": 1, "u16": 2, "u32": 4, "*u8": 4, "i8": 1, "i16": 2}
+    off = 0
+    for name, ty in re.findall(r"\n\s+(pcfg_\w+):\s+(\*?[iu]\d+)[,\s]", m.group(1)):
+        if want is not None and name == want:
+            return off
+        off += widths[ty]
+    if want is None:
+        return off          # the whole header's length
+    raise Unmeasurable(f"parallax_config has no field {want!r}")
+
+
+def pcfg_size(repo: str) -> int:
+    """The config header's length — SUMMED over parallax_config's own fields, because the
+    struct carries no `(size: N)` claim. It is the stride between a config's base and its
+    band array, and the design's own note that the header is 30 bytes is a fact about the
+    fields, not a declaration to read."""
+    return pcfg_offset(repo, None)
+
+
+def record_geometry(repo: str) -> tuple[int, int]:
+    """(offsetof(band_record, br_remap), sizeof(band_record)) — derived from the four tail
+    declarations and their capability counts, never typed."""
+    text = open(os.path.join(repo, "engine/level/parallax.emp"), encoding="utf-8").read()
+    sizes = {}
+    for nm in ("band_ext", "band_curve", "band_drift", "band_remap"):
+        m = re.search(r"pub struct " + nm + r" \(size: (\d+)\)", text)
+        if not m:
+            raise Unmeasurable(f"could not size `{nm}`")
+        sizes[nm] = int(m.group(1))
+    ram = open(os.path.join(repo, "engine/ram.emp"), encoding="utf-8").read()
+    m = re.search(r"const BAND_ENTRY_LEN\s+= (\d+)", ram)
+    if not m:
+        raise Unmeasurable("could not read BAND_ENTRY_LEN from engine/ram.emp")
+    sizes["band_entry"] = int(m.group(1))
+    ns = {}
+    for nm in ("BAND_EXT_N", "BAND_CURVE_N", "BAND_DRIFT_N", "BAND_REMAP_N"):
+        m = re.search(r"pub const " + nm + r" = (\d+)", text)
+        if not m:
+            raise Unmeasurable(f"could not read `{nm}`")
+        ns[nm] = int(m.group(1))
+    tail = (sizes["band_entry"] + sizes["band_ext"] * ns["BAND_EXT_N"]
+            + sizes["band_curve"] * ns["BAND_CURVE_N"]
+            + sizes["band_drift"] * ns["BAND_DRIFT_N"])
+    return tail, tail + sizes["band_remap"] * ns["BAND_REMAP_N"], ns["BAND_REMAP_N"]
+
+
+def ladder_symbols(syms: dict) -> list[str]:
+    return sorted(n for n in syms if n.startswith("RowRemapLadder_"))
+
+
+def check_ladder(rom: bytes, addr: int, hshift: int, name: str, out: list) -> list:
+    H = 1 << hshift
+    rows = H + 1
+    need = rows * H
+    if addr + need > len(rom):
+        return [f"{name}: the declared (H+1)xH table ({rows}x{H} = {need} B) runs past the "
+                f"{len(rom)}-byte image from ${addr:06X}"]
+    bad = []
+    moved = 0
+    for r in range(rows):
+        row = rom[addr + r * H: addr + (r + 1) * H]
+        prev = -1
+        for i, v in enumerate(row):
+            if v < i:
+                bad.append(f"{name}: row {r} entry {i} = {v} < i — the in-place forward "
+                           f"permute would read a slot it has already written")
+                break
+            if v > 2 * i:
+                bad.append(f"{name}: row {r} entry {i} = {v} > 2i — the pass caps its run at "
+                           f"span/2 on the strength of this bound, so the fetch would leave "
+                           f"the band")
+                break
+            if v < prev:
+                bad.append(f"{name}: row {r} entry {i} = {v} descends from {prev} — a scroll "
+                           f"word travelling backwards down the band is a tear, not compression")
+                break
+            prev = v
+        if r != H and list(row) != list(range(H)):
+            moved += 1
+    if moved == 0:
+        bad.append(f"{name}: EVERY row is the identity. The three invariants above cannot see "
+                   f"this — `entry[i] = i` satisfies all of them — but a remap through the "
+                   f"identity writes the buffer back unchanged and NOTHING IS ON SCREEN. This "
+                   f"is design §9.1 precondition 1 in the ladder rather than in the source")
+    out.append(f"    {name} @ ${addr:06X}: {rows} rows x {H} bytes = {need} B")
+    out.append(f"      rows differing from the identity: {moved} of {rows - 1} "
+               f"(row {H} is the identity by construction and is exempt)")
+    out.append(f"      row 0 (max |p|) tail : {list(rom[addr + H - 8:addr + H])}  "
+               f"(identity would be {list(range(H - 8, H))})")
+    out.append(f"      row {rows - 1} (|p| = 0): {list(rom[addr + (rows - 1) * H + H - 8:addr + rows * H])}  "
+               f"(the identity, by construction)")
+    return bad
+
+
+def band_tails(rom: bytes, syms: dict, tail_off: int, stride: int,
+               hdr_len: int, anchor_off: int) -> list[dict]:
+    """Every emitted parallax config's bands, with their remap tails decoded. The config
+    records are `ParallaxConfig_*` and `EditorSceneBinding_*` labels; a config's band count is
+    its first header byte (pcfg_band_count), read from the image rather than assumed."""
+    found = []
+    for name, addr in sorted(syms.items(), key=lambda kv: kv[1]):
+        if not (name.startswith("ParallaxConfig_") or name.startswith("EditorSceneBinding_")):
+            continue
+        a = addr & 0xFFFFFF
+        if a + hdr_len > len(rom):
+            continue
+        n = rom[a]
+        if not (1 <= n <= 16):
+            continue
+        for b in range(n):
+            base = a + hdr_len + stride * b
+            if base + stride > len(rom):
+                break
+            ladder = int.from_bytes(rom[base + tail_off:base + tail_off + 4], "big")
+            if ladder == 0:
+                continue
+            found.append({
+                "config": name, "band": b, "ladder": ladder & 0xFFFFFF,
+                "plane_y": int.from_bytes(rom[base + tail_off + 4:base + tail_off + 6], "big"),
+                "hshift": rom[base + tail_off + 6],
+                "anchor_ch": rom[base + tail_off + 7],
+                "anchor_ch_hdr": rom[a + anchor_off],
+            })
+    return found
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--lst", required=True)
+    ap.add_argument("--rom", required=True)
+    ap.add_argument("--repo", default=REPO)
+    ap.add_argument("--game", default="sonic4")
+    ap.add_argument("--built-after", type=float, default=None,
+                    help="epoch seconds; listing and ROM must both post-date it")
+    a = ap.parse_args()
+
+    try:
+        if a.built_after is not None:
+            for p in (a.lst, a.rom):
+                if not os.path.isfile(p):
+                    raise Unmeasurable(f"{p} does not exist")
+                if os.path.getmtime(p) < a.built_after:
+                    raise Unmeasurable(
+                        f"{p} predates this build ({os.path.getmtime(p):.0f} < {a.built_after:.0f}) "
+                        f"— it is a PREVIOUS invocation's artifact and gating on it would be "
+                        f"measuring the wrong ROM")
+        syms = parse_lst(a.lst)
+        rom = open(a.rom, "rb").read()
+        tail_off, stride, remap_n = record_geometry(a.repo)
+        caps = game_caps(a.repo, a.game)
+        anchor_off = pcfg_offset(a.repo, "pcfg_anchor_ch")
+        hdr_len = pcfg_size(a.repo)
+        bit = cap_bit(a.repo, "CAP_ROW_REMAP")
+        declared = bool(caps & bit)
+    except Unmeasurable as e:
+        print(f"row_remap_gate: UNMEASURABLE — {e}")
+        return EXIT_UNMEASURABLE
+
+    print(f"row_remap_gate: {a.game} SCANLINE_CAPS ${caps:04X}, CAP_ROW_REMAP ${bit:04X} "
+          f"-> declared={declared}; BAND_REMAP_N={remap_n}, br_remap at record offset "
+          f"{tail_off}, sizeof(band_record)={stride}, header {hdr_len} B, "
+          f"pcfg_anchor_ch at {anchor_off}")
+
+    names = ladder_symbols(syms)
+    tails = band_tails(rom, syms, tail_off, stride, hdr_len, anchor_off) if remap_n else []
+
+    if not declared:
+        # DERIVED, not assumed: an undeclared game must emit NEITHER a ladder NOR a tail that
+        # points at one. Both directions, so the absence is a checked fact.
+        bad = []
+        if names:
+            bad.append(f"{a.game} does not declare CAP_ROW_REMAP but the image carries "
+                       f"{names} — a table nothing can index")
+        if tails:
+            bad.append(f"{a.game} does not declare CAP_ROW_REMAP but {len(tails)} band(s) "
+                       f"carry a non-NULL ladder pointer")
+        if bad:
+            print("row_remap_gate: FAIL")
+            for b in bad:
+                print("  - " + b)
+            return EXIT_FAIL
+        print("row_remap_gate: OK — capability undeclared, and the image carries no ladder "
+              "symbol and no non-NULL remap tail (both checked)")
+        return EXIT_OK
+
+    problems, report = [], []
+    if not names:
+        problems.append("this game DECLARES CAP_ROW_REMAP but no RowRemapLadder_* symbol is "
+                        "in the listing — the emission was lost and every remapping band "
+                        "would index through a stale address")
+    if not tails:
+        problems.append("this game DECLARES CAP_ROW_REMAP but NO emitted band carries a "
+                        "non-NULL ladder pointer — the capability has no subject, which is "
+                        "the vacuous-gate shape the registry's own pin exists to refuse")
+
+    report.append("  ladders in the image:")
+    seen_h = {}
+    for n in names:
+        # H comes from the BAND that points at this table, never from the table's own size —
+        # sizing a table by its own length would make the shape check tautological.
+        hs = {t["hshift"] for t in tails if t["ladder"] == (syms[n] & 0xFFFFFF)}
+        if len(hs) != 1:
+            problems.append(f"{n} is referenced by {len(hs)} distinct height shifts {sorted(hs)} "
+                            f"— the table's shape is then not decidable from the record")
+            continue
+        h = hs.pop()
+        seen_h[n] = h
+        problems += check_ladder(rom, syms[n] & 0xFFFFFF, h, n, report)
+
+    report.append("  remapped bands, and WHERE THEY ARE BOUND (design §9.2 step 3, informational):")
+    for t in tails:
+        lname = next((n for n in names if (syms[n] & 0xFFFFFF) == t["ladder"]), f"${t['ladder']:06X}")
+        report.append(f"    {t['config']} band {t['band']}: ladder {lname}, surface plane line "
+                      f"{t['plane_y']}, H={1 << t['hshift']}, anchor ch {t['anchor_ch']}")
+        if t["anchor_ch"] != t["anchor_ch_hdr"]:
+            problems.append(f"{t['config']} band {t['band']}: the tail names anchor channel "
+                            f"{t['anchor_ch']} but the config header's pcfg_anchor_ch is "
+                            f"{t['anchor_ch_hdr']} — the remap would read a channel the "
+                            f"overlay does not split on, so its band top would not be the "
+                            f"anchored line")
+    report.append("    NOT GATED, and it cannot be: whether the bound section lets the camera "
+                  "cross the anchor line VERTICALLY decides whether a human ever sees this. In "
+                  "a horizontally-crossed section the effect is a still picture. Read the list "
+                  "above against the act's camera paths (design §9.1 precondition 4).")
+
+    for line in report:
+        print(line)
+    if problems:
+        print("row_remap_gate: FAIL")
+        for p in problems:
+            print("  - " + p)
+        return EXIT_FAIL
+    print(f"row_remap_gate: OK — {len(names)} ladder(s), {len(tails)} remapped band(s), all "
+          f"three invariants hold on the emitted bytes")
+    return EXIT_OK
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
