@@ -1440,9 +1440,27 @@ def render_channel_bands(game: str = "sonic4", repo: str = REPO) -> str:
         "game": game,
         "units": "SCREEN LINES, 1:1 with the authored patchable(lo:, hi:). Not fire lines: "
                  "the engine subtracts 1 once, in Raster_BuildSchedule. Do not convert.",
-        "how_to_use": "A sweep on channel c fits when its peak excursion (256 >> amp_shift, "
-                      "whole pixels) fits channels[c].lines. Leaving the band is NOT "
-                      "symmetric: read `edges` below before writing the warning.",
+        # ⚠ PEAK-TO-PEAK, NOT PEAK. The engine's own ladder ensure
+        # (engine/effects/raster.emp:397) compares `2 * (SINE_AMPLITUDE >> shift)` against
+        # SCREEN_HEIGHT -- the TRAVEL, not the excursion. This sentence said "peak excursion
+        # (256 >> amp_shift)" until 2026-09-04 and was wrong by a factor of two IN THE
+        # PERMISSIVE DIRECTION: on channel 1 (2 lines) an amp_shift of 7 gives excursion 2,
+        # which "fits", and travel 4, which cannot -- so a warning written faithfully to the
+        # old sentence green-lit the exact mistake this file exists to catch, on the narrower
+        # of the two live channels. Found by the aurora lane before anything was built
+        # against it.
+        "how_to_use": "A sweep on channel c fits when its PEAK-TO-PEAK TRAVEL "
+                      "(2 * (256 >> amp_shift), whole pixels) is <= channels[c].lines. "
+                      "It is travel, not peak excursion: the engine's own ladder ensure "
+                      "(engine/effects/raster.emp:397) compares 2 * (SINE_AMPLITUDE >> shift) "
+                      "against the screen. `lines` is an INCLUSIVE COUNT of lines in [lo, hi], "
+                      "and travel is a DISTANCE, so a sweep of travel == lines is the widest "
+                      "that fits. THE TEST IS ONE-DIRECTIONAL: travel > lines is a CERTAIN "
+                      "refusal and worth warning on; travel <= lines is CANNOT TELL, never a "
+                      "clearance -- the latched line is (anchor - Camera_Y), so where the sweep "
+                      "sits inside [lo, hi] is camera-dependent and unknowable at author time. "
+                      "Leaving the band is NOT symmetric: read `edges` below before writing "
+                      "the warning.",
         "edges": _edge_behaviour(repo),
         "channels": channels,
     }
