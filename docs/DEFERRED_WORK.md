@@ -23313,3 +23313,162 @@ effort.**
 
 Recorded rather than quietly fixed because the wrong row would have sent whoever took it hunting for
 a file that was never there, and would have looked like the repo having lost something.
+
+## THE LADDER GENERATOR, ITS GATE WRITTEN FIRST, AND S3K's TABLES RULED OUT (parcel 9b, 2026-09-04, `parcel/hcz-ladder-9b`)
+
+**What landed.** `tools/row_remap_ladder_gen.py` (the ladder model with `H` as an argument),
+`tools/test_row_remap_ladder_gen.py` (its gate, committed RED one commit before the generator
+existed), and a fourth arm on `tools/row_remap_gate.py` that holds the LINKED table against the
+generator re-derived at the H the band record declares. **Zero engine bytes**: no `.emp` file was
+touched, and the four canonical shapes are byte-identical to the pre-parcel tree.
+
+### THE GATE WAS WRITTEN FIRST, AND THAT IS ON THE RECORD RATHER THAN ASSERTED
+
+The item said *"Write the gate before the generator"*, which is an instruction and not a style
+note: a gate written afterwards is written against what the generator HAPPENED to emit, which makes
+it a transcription of the bug if there is one. So the gate is its own commit (`09206e39`), and the
+run recorded in that commit was made with `[ -f tools/row_remap_ladder_gen.py ]` reporting ABSENT
+in the same command:
+
+| run | result | exit |
+|---|---|---|
+| gate alone, generator ABSENT (`09206e39`) | 40 failed, 1 passed | 1 |
+| gate + generator (`2cfbcba3`) | 41 passed | 0 |
+
+The one arm that passes with no generator is the size identity, and it passes CORRECTLY — it reads
+`ROW_REMAP_H16 = 16` and the declared `row_remap_ladder16() -> [u8; 272]` out of
+`engine/level/parallax_dsl.emp` and checks `272 == (16+1)*16`. Nothing in it is typed.
+
+**Runner: `python3 -m pytest tools`**, which `build.sh` runs build-fatally ("Running the tool-suite
+unit tests"). It needs no ROM and no emulator, which is why it can live there rather than in
+`effects_gates.py`.
+
+### THE SIX PROPERTIES, AND THE TWO THAT THE INVARIANTS CANNOT SEE
+
+P1 size identity `(H+1)xH` against the compiled-in `ROW_REMAP_H16` and the declared `[u8; N]` ·
+P2 the generator spans every height `brm_hshift` can express (powers of two) up to a DERIVED ceiling
+`H <= 128` (largest entry is the saturating `2*(H-1)`, and `2*(H-1) <= 255`) and REFUSES the rest ·
+P3 the three runtime invariants at every such H · **P4 the anchor rungs** — row H is exactly the
+identity and row 0 saturates the read bound at exactly `2*(H-1)` · **P5 monotone in the selector** —
+for fixed `i`, `ladder[r][i]` is non-increasing in `r` · P6 not all-identity.
+
+**P4 and P5 exist because of a measured hole, not for symmetry.** Mutation M1, the selector sign
+flip `p = H - r` -> `p = r`, leaves ALL THREE INVARIANTS GREEN — a sign-flipped ladder is still a
+monotone forward permute inside the bound — and is caught only by P4 and P5. **The three invariants
+say the emitted bytes are SAFE. They cannot say the bytes are the right ones.** That is also the
+whole argument for the new arm on the ROM gate.
+
+### THE MUTATION EVIDENCE, AND THE ARGUMENT FOR SWEEPING H
+
+Every run: `__pycache__` cleared, `PYTHONPYCACHEPREFIX` at a fresh per-run scratch dir, 304 `.pyc`
+written into it — no cached verdicts. Each mutation applied ON DISK with its `git diff -U1` shown;
+each restore `git checkout 2cfbcba3 -- <path>` naming the commit, verified by an empty
+`git status --porcelain`.
+
+| mutation | result | exit | which arms |
+|---|---|---|---|
+| M1 `p = H - r` -> `p = r` | 22 failed, 19 passed | 1 | P4 x14, P5 x7, P6[2] — **P3 STAYS GREEN** |
+| M2 divisor `H*(H-1)` -> `H*(H-1) - 1` | 2 failed, 39 passed | 1 | P3[2], P4[2] — **H=2 ONLY** |
+| M3 extra term doubled | 17 failed, 24 passed | 1 | P3 x7, P4 x8, P5[128], P6[128] |
+
+**M2 is the reusable one.** At the shipped `H = 16` that perturbation computes `3600/239 = 15.06`
+-> `15`, still exactly on the bound — so a gate that tested only the height that ships would have
+MISSED it entirely. The sweep over every expressible height is load-bearing.
+
+### ⚠ DESIGN OPEN QUESTION 5 IS SETTLED AND THE ANSWER IS NO — S3K's TABLES ARE NOT IMPORTABLE
+
+The design left *"fit S3K's shipped 97x96 table instead of generating one"* open as a legitimate
+cheap alternative and handed 9b the job of settling it. Both donor files decoded
+(`row_remap_ladder_gen.py --donor`, against `skdisasm`):
+
+| | bytes | shape | `entry[i] >= i` | non-decreasing | `entry[i] <= 2i` |
+|---|---|---|---|---|---|
+| `HCZ Waterline Scroll Data.bin` | 9,312 | 97 x 96 ✓ `(H+1)xH` | 0 violations | 0 violations | **5,871 of 9,312 violated** |
+| `LBZ Waterline Scroll Data.bin` | 4,160 | 65 x 64 ✓ `(H+1)xH` | 0 violations | 0 violations | **2,603 of 4,160 violated** |
+
+**Two independent blockers, either one sufficient.**
+
+1. **The read bound fails, and structurally rather than marginally — 63% of HCZ's entries.** S3K's
+   table indexes a **192-row SOURCE image** and the selected row is an H-row WINDOW into it: HCZ's
+   row 96 is `96..191`, LBZ's row 64 is `128..191` — both identities shifted by a whole band — and
+   both files' row 0 is the plain identity. **Their rows therefore run in the OPPOSITE SENSE to
+   aeon's**, where `r = H - |p|` makes row H the identity. Aeon's `.lp_remap` permutes the band's
+   OWN longwords in place and caps its remapped run at span/2 on `entry[i] <= 2i`; importing S3K's
+   bytes would need a 2H-line source the pass does not have.
+2. **S3K's `H = 96` is not a power of two**, so `band_remap.brm_hshift` (consumed as `1 << s`)
+   cannot name it at all. Even a repaired table could not be pointed at without widening that field.
+
+**What the donor IS good for is a shape witness**, and it earned the size arm: two shipped
+commercial tables at two different band heights both satisfy `(H+1) x H` exactly. `--donor` is kept
+so the numbers above are re-measurable rather than believed.
+
+### THE MODEL-AGREEMENT ARM, AND WHY IT IS NOT A BYTE PIN
+
+`row_remap_gate.py` now re-derives the whole table from the generator at the H the record declares
+and compares it to the linked image. **This is deliberately not a checked-in blob.** A byte pin goes
+red on any deliberate change to H or to the model and never says which; this recomputes, so a
+deliberate change moves both sides together and only a one-sided edit is red. What it buys is the
+thing the three invariants cannot give: `engine/level/parallax_dsl.emp`'s `row_remap_ladder16()` and
+`tools/row_remap_ladder_gen.py` are **two spellings of one model**, and two spellings of one model
+are two models unless something holds them together. A missing or unimportable generator is
+`EXIT_UNMEASURABLE` (2), never a pass.
+
+### WHAT 9b DID NOT TOUCH
+
+Nothing in `build.sh` regenerates `parallax_dsl.emp` from the generator; `--emit emp` prints to
+stdout for a human to paste and review. A generator that silently rewrote a checked-in engine source
+would make the gate's subject and the gate's oracle the same file. **9c and 9d are unchanged** — 9c
+still blocked on the `raster:`/`patched:` exclusivity and the hub schema CR, 9d still blocked on
+`bg_region` at 448/448. One confirmatory note for whoever takes 9d: **both** S3K waterlines gather
+their art rows out of a **192-row** source image (LBZ's max window base is 128 and its height is 64),
+so the "two 16x96 strips" figure in the 9d booking is the HCZ instance of a shape LBZ shares.
+
+### FOUR SHAPES, MEASURED AGAINST A BUILT BASELINE RATHER THAN ARGUED
+
+Zero engine bytes was the expectation and the expectation is not the evidence, so the parcel base
+(`75cd390f`) was checked out and built too. Eight builds, every one `EXIT=0` read from the runner's
+own log rather than inferred from a CRC (a refused canonical build leaves the previous ROM on disk
+and reads exactly like "nothing moved"):
+
+| shape | base `75cd390f` | branch `parcel/hcz-ladder-9b` | delta |
+|---|---|---|---|
+| `s4.bin` | 720,829 B · crc32 `d4bf05e5` | 720,829 B · crc32 `d4bf05e5` | **0** |
+| `s4.debug.bin` | 742,018 B · crc32 `fb7970c4` | 742,018 B · crc32 `fb7970c4` | **0** |
+| `demo.bin` | 96,602 B · crc32 `11ebd7ab` | 96,602 B · crc32 `11ebd7ab` | **0** |
+| `demo.debug.bin` | 102,818 B · crc32 `9b0d2ce7` | 102,818 B · crc32 `9b0d2ce7` | **0** |
+
+md5 matches on all four as well. Assembler pinned: `sigil 0.1.0 (0a58f2ec)`, md5
+`6c2378ae8a657e26684d4019a7d976d7`; `emit_sound_blob` md5 `b9d971d4a322f98c803bc479ad3e1d9f`.
+Neither was rebuilt. Wall times 124-147 s per shape under a box whose load average ran 2.9 to 10.6
+across the two runs (a sibling lane was working), so read them as wall clock and not as cost.
+
+**WHICH CASE THIS MEASURES: the AUTHORED one.** `Scene_OJZ_Underwater` band 1 has carried a live
+`rowRemap` since 9a, so the sonic4 shapes DO contain a ladder and the model-agreement arm has a real
+subject rather than a vacuous pass. From `s4.bin`'s own gate output:
+
+```
+RowRemapLadder_Waterline16 @ $013490: 17 rows x 16 bytes = 272 B
+  rows differing from the identity: 15 of 16
+  agrees byte-for-byte with tools/row_remap_ladder_gen.py at H=16 (272 B re-derived, not pinned)
+row_remap_gate: OK - 1 ladder(s), 1 remapped band(s), ...
+```
+
+**That line IS the verification against 9a's shipped ladder**: the generator, written from the model
+rather than from the emitted bytes, reproduces all 272 bytes at the address 9a's band record points
+at. `demo` declares no `CAP_ROW_REMAP` and carries no ladder, which is the gate's derived
+undeclared path, not a skip.
+
+### THREE STALE NUMBERS IN THE 9a BLOCK ABOVE, FOUND WHILE MEASURING
+
+Not fixed in place, because the 9a block is a dated record of what was true when it was written;
+recorded here so a reader does not act on them.
+
+1. **The 9a block's "the visible amplitude is +/-2 px and that is OWNER CONTENT" is CLOSED**, by
+   `d37731ec` ("the waterline was never flat — it was four pixels"), which took the anchor's `dsb`
+   from 2 to 0. `s4.bin` measures **16 px peak to peak** against the 8 px `REMAP_VISIBLE_MIN_PX`
+   floor today. The "what is open" list above still reads as though it were 4.
+2. **`SCANLINE_CAPS` is `$0FDE`**, not the `$07DE` the 9a block records — a fifth move of a value
+   that block itself flagged as having gone `$00DE -> $01DE -> $03DE -> $07DE` in one day. The gate
+   reads it from `games/sonic4/config/game.emp` at run time and is unaffected; only prose is stale.
+3. **The shipped surface plane line is 101** (the re-bias 9a describes as a fix landed), which the
+   gate prints. Consistent, noted so the two numbers in the block are not read as alternatives.
