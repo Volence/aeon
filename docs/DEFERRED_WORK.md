@@ -22159,3 +22159,60 @@ height rather than typed (the file's pin block is the place). One line, one mess
 it lands, the empyrean schema's `rowRemap.plane_y` bound is the ONLY enforcement**, and 9c's
 schema description must say so rather than implying aeon checks it — the note's §6 carries
 that wording.
+
+---
+
+## EFFECTS-W1 item 10 — the reels' PER-SCENE AUTHORING KEY (DEBUG tier) — key shape DECIDED, not built
+
+**Artifact: `docs/superpowers/specs/2026-09-04-reels-per-scene-key-shape.md`**, written against
+`e2c66e6ff0bdc7740ef2b76e52da88edcc6ee9b5`. Documents only — no `.emp`, no generator, no build.
+
+`docs/superpowers/specs/2026-09-03-item10a-reels-key-shape.md` is the SURVEY (no key exists;
+`v_deform` is the wrong surface). It closed with five things NOT ESTABLISHED. The new artifact
+decides the three that block a CR, at DEBUG tier:
+
+1. **The key.** Scene-level, sibling to `v_deform`: `"reels": {"rates": [i8 x 5]}` — exactly 5
+   signed integers, `-128..127`, `uniqueItems`, zero ALLOWED (unlike `drift.rate`), order =
+   left-to-right screen position (index *i* owns screen X 64*i*..64*i*+63). Absent = no reels,
+   matching `v_deform`'s precedent (`engine/level/scene_dsl.emp:1665`).
+   **Units are WHOLE signed pixels per frame — NOT `drift.rate`'s 1/256.** Reusing drift's
+   x256 export path would emit 768 for an intended 3.
+2. **The source shape.** The brief's premise that "no consumer exists" is half wrong:
+   `OJZ_Reels_Fill`'s advance loop (`games/sonic4/data/effects/ojz_effects.emp:1798`-`:1806`)
+   already reads its rates from a ROM byte table through a generic walk. What is missing is
+   SELECTION — `a2` is loaded from a fixed label. Proposed: one generated `[i8; REEL_BAND_COUNT]`
+   per authoring scene plus an association table keyed by the LOWERED CONFIG LABEL the generator
+   already emits (`EditorSceneBinding_*`, `games/sonic4/data/generated/ojz/act1/effects_scenes.emp:144`),
+   matched at runtime against `Parallax_Current_Config` (`engine/ram.emp:390`). All of it inside
+   `if DEBUG == 1`. No `Scene` field, no `Sec` field, no engine hook, zero release bytes.
+3. **The geometry.** **FIXED at 5 x 4; only the rates vary.** `REEL_COLS_PER_BAND` is compiled
+   into `lsr.b #2` (`ojz_effects.emp:1817`) and an `ensure` names the file that must move with it
+   (`:1738`). A later optional `cols_per_band` member is additive and costs nothing to defer.
+
+**Three findings the implementing parcel needs:**
+
+- **No `ensure` bounds a rate's magnitude.** The only per-array checks are length (`:1757`) and
+  pairwise distinctness (`:1759`). The schema bound would be sole enforcement unless the parcel
+  adds one. Recommend adding it — XS.
+- **`distinct5` is literally five-ary and hand-called** (`:1753`-`:1755`), so a generated table
+  inherits NEITHER guard. Route every table through one shared `comptime fn`, or the check does
+  not travel.
+- **`tools/reels_gate.py` is ADJACENCY-coupled**: it measures spans by the gap
+  `OJZ_Reel_Speed` -> `OJZ_Reels_Fill` -> `ObjDef_Static` (`:102`, `:249`-`:252`). New
+  byte-emitting content between those pairs raises `Unmeasurable`. Emit generated reel content
+  into the generated module, not into `ojz_effects.emp`.
+
+**Open for the owner, priced:** promoting reels into the release ROM (**M**, and mostly a LOOK
+call, not code — everything about the current shape is deliberately release-dormant); association
+table vs. a cheaper `OJZ_Reel_Active`-as-selector first slice (**S** either way); the magnitude
+`ensure` (**XS**); generalizing `distinct5` (**S**); whether a second act needs a second
+association table (**unknown, not traced**).
+
+**Most-worth-checking-first claim:** that `Parallax_Current_Config` holds the very label the
+generator emitted. Read structurally from `engine/ram.emp:390` and
+`engine/effects/preset.emp:229`-`:231`; the store was not traced instruction by instruction. If
+it turns out otherwise, the fallback is a per-section chooser in the
+`ojz_act1_sec_scene`/`ojz_act1_sec_raster` family.
+
+**No build and no emulator in this pass** (docs-only). Nothing here claims reels have been seen
+on screen.
