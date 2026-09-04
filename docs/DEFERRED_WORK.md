@@ -22176,6 +22176,35 @@ before acting, and re-derive any number before it enters a gate.
 
 ### (1) A TWO-WAY CROSSOVER PAIR HAS NO AUTHORING PATH FROM THE EDITOR, AND NOTHING SAYS SO
 
+**⚠ SHARPENED 2026-09-04 AND THE GEOMETRY IS WORSE THAN THE ORIGINAL FRAMING — the trigger grid is
+ASYMMETRIC, and the relay's "16 px editor against an 8 px trigger" is true on ONE AXIS ONLY.**
+Found by aurora during the `xover_cell` resample; **verified firsthand here from source rather than
+taken from their message**, since this lane had already refused an earlier paraphrase of this
+finding:
+
+```
+engine/system/constants.emp:  COLL_CELL_W = 8 px      COLL_CELL_H = 16 px
+player_common.emp:            XOVER_CELL_MASK = (($10000 - COLL_CELL_W) << 16) | ($10000 - COLL_CELL_H)
+                                              == $FFF8FFF0   (pinned by an ensure)
+```
+
+So **X quantises on 8 px and Y on 16 px.** Both are derived from the block collision format
+(`BLOCK_COLL_COLS` / `BLOCK_COLL_ROWS`), not chosen — it is `Collision_GetType`'s own partition.
+
+**THE CONSEQUENCE FOR AUTHORING, which is the part that was missing:** a 16 px authored window
+spans **TWO** trigger cells in X and **exactly one** in Y. Aurora observed both ids inside one
+authored window — the id changed a second time at frame 1152 (744 -> 736) with `layer` already 1 and
+staying 1. Because the trigger is an **equality on a cell id**, one authored window can therefore
+present it with two distinct ids.
+
+It cost nothing in their fixture because entry landed cleanly inside cell 744, and the second id
+change was harmless with the layer already flipped. **But it is the first thing to check against any
+future entry-frame figure**, and it means the two-way cancellation this entry describes is an
+**X-axis phenomenon specifically** rather than a general grid mismatch. Anyone writing the contract
+fix should say which axis they mean.
+
+
+
 Aurora reports painting on a 16 px grid while the trigger tests on 8 px, so a matched two-way pair
 authored from their grid lands on the same 8 px cell and **cancels itself out**. The loop they built
 therefore uses two ONE-WAY marks, which works and is simpler. The gap is that the two-way form is
@@ -22192,6 +22221,32 @@ writing anything that depends on them, including any claim about `XOVER_CELL_MAS
 Aurora's row 147 carries the detail. If a shipped spec's worked example is wrong, it is ours, and a
 worked example is the part of a spec a reader is most likely to copy verbatim — which is what makes
 it worse than a wrong sentence elsewhere in the same document.
+
+### ✅ CLOSED 2026-09-04 — NOT A DEFECT. MEASURED (1, 0): THE ENGINE DOES EXACTLY WHAT IT DOCUMENTS
+
+**Aurora re-ran it single-frame and the row closes.** Their result, on aurora master `23bdd1bb`
+(correction `629c2bc1`, merged `0f147a86`; remote confirmed by `ls-remote`, not by the push's own
+output). **Sampled frames 1147-1152, contiguous, no gaps** — they reported which frames they
+sampled and not only which they report, which is what made the earlier bracket visible at all.
+
+**Entry 1150, flip 1151, both OBSERVED integers.** Output 1 = **1 frame**. Output 2 = **0** — the
+cell change and the layer write land in the same frame. The flip was at 1151 the whole time and had
+simply never been sampled.
+
+**The anti-coincidence control is what makes this worth more than a boundary reading:** the
+one-frame derivation holds on **all five** sampled cell readings, not just at the crossing. One
+would have been a coincidence at a boundary; five for five is the design.
+
+**Their method disclosure, recorded because they changed the input shape and said so rather than
+letting it pass:** the resample split the recipe's tail `R3 R2` into five one-frame presses, and
+they verified the split reproduces the original at all three frames both paths observe. Same
+destination two ways. Free flight confirmed OFF (`debug_flag $FF9036` = `0x00`), so it is real
+physics rather than the hover that makes a run prove nothing.
+
+**The whole excursion — booked hypothesis, re-scope, retraction, measurement — cost two lanes an
+hour and produced no code change. It was still right to run.** What it replaced was a plausible
+story about a stale latch that would have justified touching a read site whose behaviour is load
+bearing for every two-way loop.
 
 ### ~~(3) `Player_Blocks.xover_cell` IS LATCHED ONE FRAME BEHIND THE POSITION READ BESIDE IT~~ — RE-SCOPED 2026-09-04: THE ONE-FRAME LAG IS DESIGNED, AND NEITHER HYPOTHESIS BELOW IS THE LIVE ONE
 
