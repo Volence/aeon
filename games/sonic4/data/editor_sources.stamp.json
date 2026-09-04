@@ -112,7 +112,7 @@
   "games/sonic4/data/editor/ojz_bg_ingame-forest-v15-1786630615596_tiles.bin": "ec3b04e6634cb71cc0f160659dff7c8abfbb51c5608abc07aed90543d4c4567c",
   "games/sonic4/data/editor/ojz_bglib.json": "5658cc3c26c54be69c280f55139c5257277ba75b301e8e3a5c4becd01afa9d71",
   "games/sonic4/data/editor/ojz_tiles.bin": "4eaa426b28b295c7fb6aacf7d574228c0f8373b2d852fc3bbd841ab11ce6afe2",
-  "games/sonic4/data/editor_bg_override.json": "21f06ba6fb8f6a4283a1ae557eba8bc4d3762904e8d78b299b398857e9d2f990",
+  "games/sonic4/data/editor_bg_override.json": "78cc24bd434738b6c9a45c3bf7e4db606ea6e2fe15ceb94eb7bc1fb58bc32918",
   "project.json": "edf4a81bb8f5afe3b126ce1fc5b6db6aea1f22c73808e1620c3fb627e3fd1ef7"
  },
  "game": "sonic4",
