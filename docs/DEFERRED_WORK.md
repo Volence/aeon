@@ -22060,3 +22060,129 @@ number should go up — it is a record of what has been looked at.
 - **The `--dsb` argument on `row_remap_witness.py` is still hand-passed** and must match the
   scene, which is exactly the double-authoring the gate above avoids. It should read
   `pcfg_anchor_dsb` off the ROM the way the gate does.
+
+## THE TWO FIXTURE GATES WERE PINNED TO ABSOLUTE ADDRESSES — CLOSED 2026-09-04 (`parcel/gate-fixtures-address-pinned`)
+
+`sprite_tilt_gate.py` and `loop_crossover_gate.py` are both **build-fatal** and both compared
+their committed cuts to the fresh ROM by **absolute address equality** plus **raw byte
+equality**. Neither survives a level/act content change, so correct content work went red on
+gates whose subject it had never touched. This is what blocked LOOPS-P from landing.
+
+Two independent measurements agree on the defect. Aurora authored 58 collision cells, which
+grew section 0's compressed block blob by 124 bytes, moved every symbol below `$90000` by
+`+$7C`, and produced `Ani_Sonic moved: fixture $02A94C, listing $02A9C8` — **red identically on
+the loop tree and on the control**, i.e. red-by-construction for any content edit, not a
+crossover effect. Aurora did not re-stamp either fixture (their lane does not write our tree),
+so there was no concurrent edit.
+
+### The hard half, and why deleting the address check was never enough
+
+The cut code **embeds absolute addresses**. `Player_ApplyTilt` ends in
+`jsr RefreshSpritePieceCount` with an absolute-**short** operand; `Player_LoopCrossover` calls
+`Collision_GetType` the same way; and `Collision_GetType` is fourteen `move.w Cache_*.w`
+operands and a `lea CrossoverTable.l` deep. Move the callee and **the caller's own bytes
+change**, so a byte comparison relocates the same false red one level down.
+
+Measured, not assumed. The two committed cuts are the same source in two real ROMs
+(release and DEBUG). `Player_ApplyTilt` is 110 bytes in both and they differ in exactly **two**
+— the `jsr` operand, `$353E` vs `$3EA8`, which is `RefreshSpritePieceCount` in each shape.
+
+### The fix
+
+Compare the **decoded instruction stream** with operands that name a *place* rewritten to what
+they mean: a target inside the routine becomes `<self+0xNN>`, an address naming a symbol
+becomes `<SymbolName>`, everything else is compared **verbatim**.
+`normalize_stream` / `stream_diff` / `unresolved_note` live in `sprite_tilt_gate.py`;
+`loop_crossover_gate.py` imports them. Opcodes, sizes, registers, immediates and
+`(a0)`-displacements are still compared exactly, so every logic change the byte check caught is
+still caught. **No fixture format change and no re-stamp** — both cuts already carried the
+symbol maps this needs.
+
+Rejected, with the reason:
+
+- **Relocate to a canonical base.** Its premise is false here: the two shapes' symbols move by
+  *different* deltas (routine `+194`, callee `+2410`). There is no single base.
+- **Store offsets relative to the routine's own start** (aurora converged on this
+  independently, from their own measurement). It fixes the address check and *not* the embedded
+  absolute-short operand, which is the actual hard half. Adopted as a component — `<self+0xNN>`
+  is exactly this — but it is not the whole fix.
+
+### The reason a gate prints is now derived from what it observed
+
+The old sprite-tilt text said *"the tilt was edited without refreshing the cut"* for **any**
+byte difference, which was fabricated whenever the cause was content movement — and that was
+the overwhelmingly common cause. Reasons now distinguish **edited** (instruction differs, with
+both spellings quoted) / **length changed** / **symbol vanished** / **unresolved literal**. A
+blind spot is never rendered as silence: absolute operands that named no symbol are reported by
+offset and token, so a future false red has its cause written down in advance.
+
+### Strengthened, not weakened
+
+- Symbol **existence** is now its own failure. The old addr check printed
+  `moved: listing $FFFFFFFF` for a deletion.
+- `loop_crossover_gate` now compares the **15 equates** its pytest lane models against. Drift
+  there previously let the lane grade a build against the old cache geometry in silence.
+
+### Evidence
+
+`tools/test_gate_fixtures.py`, 17 tests, run by build.sh's `pytest tools` lane. Every
+relocation-invariance test is **paired** with a mutation test proving the same comparison still
+goes red on a real logic change — a gate that is relocation-insensitive *by being*
+change-insensitive is the failure this parcel could produce while looking like a success.
+
+One relocation (`+$1000`, built the way a linker builds one: 9 absolute operands rewritten in
+place in the loop routines, opcodes untouched), fed to the pre-parcel code at `7c1a0f78` and
+then to this one:
+
+| | old `check_fixture` / `check_cut` | new |
+|---|---|---|
+| `sprite_tilt_gate` | **5 reds** (`routine moved`, `RefreshSpritePieceCount moved`, all three `Ani_* moved`) | 0 problems |
+| `loop_crossover_gate` | **red** (`the routines MOVED: cut [(65758,65822),(22318,22422)], build [(69854,69918),(26414,26518)]`) | green |
+| control: same relocation **plus** one changed immediate | — | **red**: ``Player_ApplyTilt: instruction 19 (cut offset +0x38) differs — cut `andi.w #$3, d2`, live `andi.w #$7, d2` `` |
+
+CLI end-to-end, the exact flags build.sh uses, against the real `s4`/`s4.debug` `.lst`+`.bin`:
+four runs, all `OK`, exit 0.
+
+### Two findings from running the protocol, both of which were green until they were looked at
+
+- **A redundant branch absorbed a mutation.** `normalize_stream` resolved symbols through two
+  branches, `ea in addr_names` then `(ea & 0xFFFFFFFF) in addr_names`; the masked one is a
+  strict superset. Disabling the bare one changed nothing observable, so the mutation aimed at
+  the resolver reported **green**. Not a stale-bytecode false green — a different mutation in
+  the same file under the same runner went red at 8/16. Two paths to one answer means a
+  mutation only has to survive one of them: a redundant branch does not merely fail to earn its
+  keep, it lowers the ceiling on what any mutation test of that function can prove. Now one
+  step, with the reasoning at the site.
+- **A guard assertion was vacuous because of line wrapping.** The test forbidding the
+  fabricated reason searched raw source for `the tilt was edited without refreshing the cut` —
+  a phrase the old code wrapped across a string-literal break, so the substring was absent from
+  the *old* file too and the assertion passed against exactly the code it was written to
+  forbid. Verified directly against `7c1a0f78`'s file. Now joins adjacent literals first, and
+  carries a positive control on the joiner.
+
+### STILL OPEN — the four-shape build was NOT run
+
+`SIGIL_BUILD` / `SIGIL_EMIT` are unset in this lane's shell and are declared by no dotfile and
+by nothing in the repo (`grep` over `build.sh`, `*.conf`, `*.env`, `*.toml`). Release binaries
+do exist at the location `CLAUDE.md` describes, but memory records that sigil master can couple
+to an *unmerged* aeon branch, so a self-chosen pairing would make the CRC comparison confounded
+evidence rather than evidence. **Not run: `./build.sh`, `DEBUG=1 ./build.sh`, and both again
+with `demo`; and the four-shape CRC comparison that would prove zero ROM bytes moved.**
+
+The structural argument, which is not a substitute: this parcel touches three `tools/*.py`
+files and no `.emp`, no `.asm`, no data, and no generator. Both gates are **post-sigil
+verifiers** — build.sh invokes them at lines 1039 and 1095, after the ROM exists — and neither
+writes anything the build consumes. That makes zero ROM movement extremely likely and unproven.
+It needs a foreground pass with the two export lines.
+
+### Noted and deliberately NOT acted on
+
+Aurora observed `Player_Blocks.xover_cell` latching **one frame behind** the position read
+beside it (frame 1150: inside the trigger window on both axes while `layer` is still 0, flipping
+two frames later). They report it as an observation, not a diagnosis of our read site, and the
+controller has not verified it. `loop_crossover_gate`'s existing `sweep_edge_trigger` case (1)
+does assert *"the first frame in a marked cell"* fires — but it executes the routine directly
+with the player already placed, so its "first frame" is "first invocation with the player in the
+cell", not "the frame of entry" in a running game loop. **That is a reconciliation hypothesis,
+not a finding.** This parcel did not touch `sweep_edge_trigger` and encoded no entry-frame
+claim. Separate row.

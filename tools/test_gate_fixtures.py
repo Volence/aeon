@@ -259,16 +259,36 @@ def test_loop_normalisation_catches_a_changed_call_TARGET():
 # 3. The failure REASON is checkable on its own (shared-protocol bar 10)
 # --------------------------------------------------------------------------
 
+def _joined(path):
+    """Source with adjacent string literals joined, so a phrase can be searched for as
+    the user SEES it rather than as the formatter happened to wrap it.
+
+    This exists because the first version of the test below searched the raw source for
+    'the tilt was edited without refreshing the cut' -- a phrase the old code wrapped as
+    `"...the tilt was "` / `"edited without refreshing the cut"`. The raw substring was
+    therefore absent from the OLD file too, so the assertion passed against exactly the
+    code it was written to forbid. A check that a mutation cannot fail is not a check.
+    """
+    import re as _re
+    return _re.sub(r'"\s*\n\s*"', '', pathlib.Path(path).read_text())
+
+
 def test_no_reason_string_claims_an_edit_for_a_move():
     """The old sprite-tilt text said 'the tilt was edited without refreshing the cut'
     whenever the bytes differed, which was false for the overwhelmingly common cause.
     That sentence must be gone, and nothing may have replaced it with the same claim."""
-    src = (TOOLS / "sprite_tilt_gate.py").read_text()
+    src = _joined(TOOLS / "sprite_tilt_gate.py")
+    # Positive control on the matcher: a phrase that IS wrapped across a line break in
+    # this very file must be findable, or the absence below proves nothing.
+    assert "the routine was edited, not moved" in src, \
+        "the joiner is not joining — every absence assertion here would be vacuous"
     assert "the tilt was edited without refreshing the cut" not in src
-    loop_src = (TOOLS / "loop_crossover_gate.py").read_text()
+
+    loop_src = _joined(TOOLS / "loop_crossover_gate.py")
     # The loop gate may still SAY a routine changed -- but only from a length or
     # stream difference, never from a raw byte compare of a relocatable span.
     assert "its BYTES differ in %d of %d" not in loop_src
+    assert "the routines MOVED" not in loop_src
 
 
 def test_moving_everything_is_not_a_failure():
