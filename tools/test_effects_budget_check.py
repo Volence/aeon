@@ -215,21 +215,34 @@ class TestAxis5MaskPricing(unittest.TestCase):
         self.assertTrue(any("engine_reservation" in f for f in failures), failures)
 
     def test_the_census_counts_declaration_sites_not_comments(self):
-        """The shipped tree has exactly three DECLARATION SITES and zero SpriteMask
+        """The shipped tree has exactly four DECLARATION SITES and zero SpriteMask
         adopters — while the word SpriteMask appears in comments/messages that
         strip_comments must be discarding.
 
         THE THIRD SITE ARRIVED WITH d-50 (2026-09-02). The Perspective family split into
-        two constructors, one per left-column policy, so the census now sees Accept twice
+        two constructors, one per left-column policy, so the census saw Accept twice
         (Rocking's helper and perspective_scene) and DeclineBorrow once
         (perspective_scene_declined). That split was chosen OVER routing the policy through
         a constructor parameter precisely so this census keeps seeing the family: a
         parameter would have removed the declaration from these modules and dropped a whole
-        per-column family out of the adopter count silently."""
+        per-column family out of the adopter count silently.
+
+        THE FOURTH SITE ARRIVED WITH EFFECTS-W1 T2 (2026-09-04): Scene_Perspective_Floor
+        spells DeclineBorrow at its own scene() call rather than reusing a constructor,
+        for that same census reason, so DeclineBorrow goes 1 -> 2.
+
+        NOTE WHAT DID *NOT* MOVE, because it is the assertion that carries this test.
+        T2 is the first scene whose plane B genuinely H-scrolls (its floor band ramps
+        `curve: To(FACTOR_1)`), which is exactly the condition that brings the leftmost
+        partial column back — the case a sprite mask would have covered. It still reports
+        SpriteMask adopters: 0, and that is correct rather than a miss: scene() REFUSES
+        SpriteMask outright (owner ruling d-40 cancelled the strip emitter), so 0 is the
+        only value this line can ever take while that ensure stands. If it is ever
+        non-zero, the ruling was reversed and this docstring is stale."""
         _, info = check_axis5_mask_pricing(self._model(), AEON)
         self.assertIn("SpriteMask adopters: 0", info)
         self.assertIn("Accept:2", info)
-        self.assertIn("DeclineBorrow:1", info)
+        self.assertIn("DeclineBorrow:2", info)
 
 
 class TestLiveTree(unittest.TestCase):
