@@ -22648,3 +22648,26 @@ the convsym deb2 appendix; release ships the assembled image alone (item 29)"*. 
 already says both shapes carry deb2 symbols; the build.sh line had outlived it. Corrected in
 place, with the measurement, because that comment is exactly what the next person reading a
 moved release CRC would reach for.
+
+**THE FOUR-SHAPE LANDING EVIDENCE (merged master `4927b8e1`, uptime beside each run).**
+
+| shape | master alone | with this parcel | verdict |
+|---|---|---|---|
+| `s4.bin` | `1839525780` / 720803 / `30c8c8d8…` | `531019212` / 720803 / `f856855a…` | assembled image **byte-identical**; only $18E and the deb2 appendix |
+| `s4.debug.bin` | `3955278714` / 741905 / `39ffd9f5…` | `2710925968` / 741993 / `05f0972f…` | **+88 bytes**, as designed |
+| `demo.bin` | `466287693` / 96602 | `466287693` / 96602 | **identical** |
+| `demo.debug.bin` | `3653723245` / 102818 | `3653723245` / 102818 | **identical** |
+
+All four exit 0 (`06:46:25` -> `06:55:02`, load 6.42 -> 3.78). `reels_gate` is build-fatal in
+both sonic4 shapes and passed in both: release "emit no bytes"; debug "5 pairwise-distinct
+per-band rates [3, -5, 2, -4, 6] at $014764, OJZ_Reels_Fill (86 bytes of code)". **The gate is
+still MEASURABLE** — its adjacency coupling survived, which is the check that the "emit into
+the generated module" rule was actually followed rather than merely intended.
+
+**A stale fixture on the branch base, not a defect of this parcel:** the first four-shape
+attempt failed `DEBUG=1 ./build.sh` on `sprite_tilt_gate`, whose committed cut pinned ABSOLUTE
+addresses (`Ani_Sonic moved: fixture $02B0BC, listing $02B0E4`) — any DEBUG byte movement went
+red on it. Master's `parcel/gate-fixtures-address-pinned` (`9332587b`) had already fixed
+exactly that, after this branch was cut. Merging master cleared it with no change to this
+parcel's own code, which is the discriminator between "my bytes broke a gate" and "a gate
+could not survive any bytes".
