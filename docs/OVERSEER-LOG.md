@@ -1656,3 +1656,107 @@ family and the most expensive, because the others cost effort and this one cost 
   line  84  `vram-replan-deferred` — options missing; recommend missing
   line  85  `d-46-downgraded` — options missing; recommend missing
   line  86  `instashield-riders` — option missing key; option missing name; recommend.key names no option
+
+
+## Second pass — 2026-09-04, boot-read bound
+
+Closed history moved out of `docs/OVERSEER.md` on 2026-09-04 under the same suite ruling as the
+2026-09-02 split (empyrean `docs/OVERSEER-PROTOCOL.md`, "The boot read is bounded", read at
+`origin/main`). Every body below is VERBATIM. Anchors `<!-- @L<first>-<last> -->` give the line
+span the body occupied in `docs/OVERSEER.md` at commit 7accc2ef13a95ffa261f4868e422d1f20d3885d6 — NOT at the
+commit the 2026-09-02 anchors above refer to. Entries are in that file's order.
+
+<!-- @L137-140 -->
+*(landing lane: the hand-typed baseline test, STRUCK 2026-08-30 and RETIRED in sigil)*
+
+  ~~The hand-typed baseline test (`repin_pins.rs`) demands a per-parcel term with its story
+  when assembled lengths move.~~ **STRUCK 2026-08-30, measured, not assumed.** That test is
+  RETIRED: `secondary_pin_classes_match_the_hand_typed_baseline` reports
+  `ignored, RETIRED by Wave-B B-0 (packed placement): this test asserts literal pin VALUES`.
+
+<!-- @L224-230 -->
+*(landing lane: the detached-freeze bullet's correction of its own earlier wording)*
+
+  **⚠ CORRECTED 2026-09-02, AND THE CORRECTION MATTERS MORE THAN THE RULE. This bullet first
+  read: "a clean completion REFUTES the harness story rather than merely failing to confirm it."
+  THAT IS BACKWARDS.** The hypothesis predicts that a detached run survives, so a clean
+  completion **CONFIRMS** it — weakly, at n=1. **A detached DEATH is what would refute it**, which
+  is why the death is the more valuable outcome. What a clean run refutes is the *competing*
+  story — the freeze is fragile, memory pressure kills it — and that is probably what the
+  sentence was reaching for, but it is not what it said.
+
+<!-- @L259-260 -->
+*(landing lane: the 86/55/31 ledger measurement (the reasons list it introduces was moved 2026-09-02))*
+
+  **MEASURED: 86 lines · 55 parse · 31 REJECTED**, counted per LINE. Predicate transcribed from
+  dominion `796bc1e` `server/src/decisions.ts`. Reasons (collected, so one line carries several):
+
+<!-- @L289-295 -->
+*(landing lane: which four closures were out of shape, under a ruling that forbids repairing them)*
+
+  `docs/decisions.jsonl` closes a decision per `contract/DECISIONS.md` rule 8c: append an entry with
+  `supersedes` set to the settled id and the question/options/recommend reproduced identically.
+  **These four closures did not do that.** Each was filed as a NEW id with `supersedes: null` and the
+  resolution written into the `question` field as a statement: `d-45-answered`, `d-46-downgraded`,
+  `d-47-revised-answered`, `vram-replan-deferred` — leaving their originals `d-45`, `d-46`,
+  `d-47-revised`, `vram-replan` unsuperseded too. **So each closure leaves TWO open-looking cards
+  instead of zero**, seven entries in total.
+
+<!-- @L653-656 -->
+*(instruments: the 2026-08-24 straddle hold, lifted)*
+
+**✅ HOLD LIFTED 2026-08-24 — read this before the block below, which is kept for its
+mechanism and its scope note only.** Oracle fixed the straddle defect (red-first tests
+`68461a7`, fix `4111c88`, merged `51143a5` — verified reachable at their `origin/main` here,
+
+
+<!-- @L920-924 -->
+*(bars: the byte-decomposition instance under the re-derive-the-arithmetic bar)*
+
+  Lived: told that the causal story behind a byte decomposition was backwards, this lane replied
+  *"the arithmetic was right and the word 'leaving' was the whole defect"*. The arithmetic was the
+  part that was wrong. Chain 198's frozen prose says *"release +93 = 62 content + 31 appendix"*;
+  measured, it is +0 assembled / +93 appendix, because the content is absorbed at the org anchor
+  and never reaches the file end — and the entry's own held `anchor_end` refutes it.
+
+<!-- @L950-953 -->
+*(bars: the overwritten-binary cost under the same bar)*
+
+  **A second cost, and it is permanent: the binary that produced entry 198's goldens was
+  overwritten IN PLACE at the same path.** It no longer exists to compare against and is
+  recoverable only by rebuilding at 079cec97. A shared artifact pinned by md5 tells you it moved;
+  it does not give you back the thing that moved.
+
+<!-- @L1294-1306 -->
+*(bars: the stale DAC/sound-bank anchor prose sweep, CLOSED 2026-08-29)*
+
+  **✅ CLOSED 2026-08-29** by `fix/stale-dac-anchor-prose` — full write-up in `docs/DEFERRED_WORK.md`
+  ("THE STALE DAC/SOUND-BANK ANCHOR PROSE, SWEPT BY THE *OLD* VALUES"). Note for anyone reading this
+  bullet as the record: **the header fix it describes (`28c9ee02`, 2026-08-27) was not the sweep.**
+  It fixed the four sites in `dac_banks.emp`'s header and nothing else, and this bullet went on
+  reading as fully open, so the operational rule it states had never been run. Running it found **20
+  more live sites across 10 files** (enumerated in the DEFERRED_WORK entry so the count is
+  checkable) — one of them eight lines below `28c9ee02`'s own ⚠ warning. Two
+  classes the rule as written would still miss: (a) prose whose **mechanism** was deleted rather than
+  moved (`dac_samples.emp` described map regions removed 25 days *earlier*; the wrong-looking address
+  was the *less* wrong half), and (b) a **generator diverged from its own `DO NOT EDIT BY HAND`
+  output**, so regenerating would have reintroduced stale text. Add both to the sweep: after
+  relocating anything, also grep for mechanisms recently *deleted*, and re-run every generator to
+  confirm it round-trips against its checked-in output.
+
+<!-- @L1448-1460 -->
+*(the dated tail: 2026-08-30T16:25Z d-41 correction)*
+
+
+### 2026-08-30T16:25Z — CORRECTION: the d-41 left-edge fix has been ON MASTER since 2026-08-29 11:20 (def98ee5), not on a branch
+
+Three records in this lane and one in the hub said the fix was "reverted on master" and needed restoring: the d-32 retraction
+(`043cf485`), the two d-41 `answered` entries of 2026-08-30 02:05Z/02:10Z, the resume brief this session handed its look-build
+agent, and empyrean's 16:09Z check. All wrong the same way: the revert `48eded35` (08-29 10:30) was followed by the RE-LAND
+`def98ee5` (08-29 11:20, chain 186, attested) and everyone downstream copied the first half of the day. Verified firsthand:
+`git merge-base --is-ancestor 48eded35 def98ee5` = yes; `VSCROLL_COL19_BG_OFF` in master `engine/level/parallax.emp:717`; the
+store at `s4.debug.lst` `cap_per_col_vsram_fill_begin` 7C6C..7CB2. The agent sent to "restore" it produced an EMPTY revert-of-revert
+and reported that instead of committing nothing, which is the behaviour the escape hatch exists for. **Bar:** a claim about what is
+on master is checked with `git log -S <the fix's own symbol> -- <file>` before it goes in a brief; a revert's existence says
+nothing about what happened after it. The owner's window (master build) therefore already carried band + fix; it was stepped to
+scene 13 and left running at 16:25Z (this heading and this time are from the commit clock; the first version of this note wrote 16:27Z from memory).
