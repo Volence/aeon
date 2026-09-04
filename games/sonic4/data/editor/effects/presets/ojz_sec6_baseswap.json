@@ -3,7 +3,7 @@
   "name": "OJZ act 1 section 6 - mid-frame nametable base swap (EFFECTS-W1 item 11a)",
   "schema": 1,
   "base_swap": {
-    "line": 160,
+    "line": 3,
     "target": 57344
   }
 }

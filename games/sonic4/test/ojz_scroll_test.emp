@@ -150,6 +150,12 @@ use games.sonic4.scene_registry.{ParallaxConfig_OJZ_Default, ParallaxConfig_OJZ_
 // `Raster_Program_None` and `Raster_Install` are engine names the OFF arm
 // and both tails reach as externs, unchanged by this parcel.
 use games.sonic4.ojz_effects.{OJZ_BandDemo, OJZ_BaseSwap}
+// The three BG-animation tables the lab's fourth tier selects between. All three
+// live in the SAME generated section and share one bank blob; they differ only in
+// which scalar the step is read from (tools/inject_editor_bg.py's `default_off`
+// block). BgAnim_Table is the act's own, and for this act its band count is 0 — it
+// IS the OFF row, not a stand-in for one.
+use games.sonic4.ojz_bg_anim_act1.{BgAnim_Table, BgAnim_View_H, BgAnim_View_V}
 use games.sonic4.ojz_effects_editor_act1.{EditorRaster_OJZ_Act1_authored_probe, EditorRaster_OJZ_Act1_aurora_ramp_witness, EditorRaster_OJZ_Act1_ojz_sec3_shimmer, EditorRaster_OJZ_Act1_ramp_probe}
 
 // player_block — the per-slot PlayerBlock derivation splice; PlayerV — the
@@ -982,6 +988,21 @@ pub proc GameState_OJZScroll_Update () clobbers(d0-d7/a0-a6) {
                 jbsr    Debug_PresetCycleHotkey
         }
 
+        // -- DEBUG effects-lab BG-ANIMATION tier (C held + A pressed): step the BG
+        //    tile-band animation OFF -> the Camera_X view -> the Camera_Y view -> OFF.
+        //    Polled beside the other three because it is the same review session, and
+        //    LAST because it is the only tier a preset install does NOT overwrite: the
+        //    BG band table is not an EffectsPreset channel, so unlike the scene, raster
+        //    and preset tiers this one survives a section crossing and is undone only by
+        //    pressing it round. Ordering against the three above is therefore not
+        //    load-bearing in either direction — they write disjoint state
+        //    (BgAnim_Table_Ptr vs. Raster_Pending / Parallax_Active_Config / the palette
+        //    channels) — and it is last so the read of the frame's chords ends with the
+        //    one that outlives the frame. Emits nothing in the plain shape. --
+        if DEBUG == 1 {
+                jbsr    Debug_BgAnimViewHotkey
+        }
+
         // -- initialize sprite system for this frame --
         jbsr    InitSpriteSystem
 
@@ -1459,7 +1480,18 @@ proc Debug_CharacterHotkey () clobbers(d0-d2/a0-a2) {
         // went down on; that is also what makes the veto cost nothing to a reviewer who
         // is not holding START.
         move.b  Ctrl_1_Held, d1                 // tick-stable held latch
+        move.b  d1, d2                          // keep the held byte for the C veto
         andi.b  #BUTTON_START, d1
+        bne     .done
+        // C veto: C held is the effects lab's OTHER modifier, and C+A is the
+        // BG-ANIMATION cycle's chord (Debug_BgAnimViewHotkey, below). Third veto of this
+        // exact shape in this proc — B, then START, now C — and for the same reason each
+        // time: the chord's own button is A, so without the veto every press of it would
+        // ALSO swap Sonic for Tails on its way to doing what the reviewer asked for.
+        // HELD, not press, because C is a chord modifier and must still count on the
+        // frames after the one it went down on; a reviewer not holding C pays nothing.
+        // d2 is free here — the character index does not land in it until below.
+        andi.b  #BUTTON_C, d2
         bne     .done
         lea     Player_1, a0                    // the leader slot — the only one this
                                                 // state spawns
@@ -2675,6 +2707,183 @@ proc Debug_PresetCycleHotkey () clobbers(d0-d4/a0-a3) {
         rts
     }
 }
+
+// -----------------------------------------------
+// Debug_BgAnimViewHotkey — THE EFFECTS LAB'S BG-ANIMATION TIER.
+//
+//   C held + A pressed  -> step the BG tile-band animation: OFF -> the horizontal
+//                          (Camera_X) view -> the vertical (Camera_Y) view -> OFF
+//
+// THE ASK, in the owner's words: "can we please just get rid of the animated tiles for
+// now, they're so distracting? Maybe have one view for horizontal and one for vertical?"
+// and, on the same pass, "it would be nice to see them perspective related instead of
+// just timer right now".
+//
+// ---- OFF IS NOT THIS CHORD'S DOING, AND THAT IS THE POINT ----
+// The act boots SILENT, in every shape including release, because
+// tools/inject_editor_bg.py emits `BgAnim_Table: u16 = 0` for a band marked
+// `default_off` in games/sonic4/data/editor_bg_override.json. The "get rid of them"
+// half therefore costs no code, no flag and no chord — `BgAnim_Update` walks a
+// zero-count table and returns. This proc exists only so the DEBUG shape can put a view
+// BACK, which is why row 0 of its table is the act's own table rather than a synthetic
+// empty one: OFF and "what the game ships" are the same object here.
+//
+// ---- WHY TWO TABLES AND NOT TWO STATES ----
+// A band's driver and rate are baked into its 44-byte ROM record, so "run this band off
+// Camera_X" and "run it off Camera_Y" are two different TABLES. The emitter writes all
+// three into one section sharing one bank blob (+92 bytes total, 8330 of a 12288 B
+// ceiling), and `BgAnim_SetTable` (engine/level/bg_anim.emp) says which one the walk
+// uses. That selector is DEBUG-only: the plain shape keeps its `lea BgAnim_Table` and
+// gains neither the cell nor the indirection.
+//
+// ---- WHICH VIEW IS WHICH, AND WHY THE RATES DIFFER ----
+// H and V name the CAMERA AXIS the band is driven by, not the band's own art axis —
+// both views move the same horizontal band, because a genuinely vertical band needs
+// vertically pre-shifted phase art and a ROW-MAJOR slot order in `layout`, neither of
+// which any writer in this tree can produce today (tools/inject_editor_bg.py's
+// `validate_band_phase_axis` refuses the mismatch by name rather than shipping a
+// shimmer). The two rates are derived in the emitter, not picked: the Camera_X view
+// matches the retired timer view's apparent speed at PHYS_TOP_SPEED, and the Camera_Y
+// view is tuned so one full pattern cycle costs about one screen height of vertical
+// travel. See tools/inject_editor_bg.py's `default_off` block for both derivations.
+//
+// ---- WHY C+A, WITH THE PAD ENUMERATED A FOURTH TIME ----
+// Debug_PresetCycleHotkey's header enumerates FIVE spent chords and finds the d-pad
+// exhausted against both free modifiers:
+//   START + LEFT/RIGHT   scene cycle          START + UP/DOWN   raster cycle / off
+//   C     + LEFT/RIGHT   approach-ramp arm    C     + UP/DOWN   anchor nudge
+//   START + A            preset cycle
+// So a sixth chord has to be a MODIFIER + FACE BUTTON, and of the three remaining
+// pairings only one is reachable:
+//   START+B / C+B  Player_Main's and TestPlayer_Main's CHEAT_DEBUG_FLY toggle is on the
+//                  B PRESS and is armed at boot in this shape — either chord would drop
+//                  the player out of free flight on its way here, and its readers live
+//                  in games/sonic4/player/ and games/sonic4/objects/test_player.emp, so
+//                  vetoing it would spread the lab across the player. Rejected, for the
+//                  reason START+B was already rejected.
+//   START+C        C is in BOTH jump masks AND is the modifier for the two nudge chords
+//                  in this module, so START+C+direction would nudge as well as cycle.
+//   C+A            REACHABLE. In debug free-flight — which this shape boots into —
+//                  Player_DebugMove reads LEFT/RIGHT/UP/DOWN only, so A and C are both
+//                  inert; C's own two chords take DIRECTIONS, so C+A collides with
+//                  neither. The single conflict is Debug_CharacterHotkey, which fires on
+//                  the A press while in debug-fly, and it is settled by a two-instruction
+//                  C veto in that hotkey — the THIRD veto of that exact shape in that
+//                  proc (B, then START, now C), in this same file.
+// X/Y/Z/MODE were rejected for the fourth time for the reason the scene cycle records:
+// they exist only when the pad enumerates as PAD_6BTN, so the chord would be silently
+// INERT on a 3-button pad — the worst failure a review tool can have.
+//
+// THE COST, STATED: outside debug free-flight both C and A are jump buttons, so C+A
+// makes the player jump as well as step. That is the same cost the two C chords and the
+// preset chord in this module already accept, and it is nothing in free flight.
+//
+// ---- A SECOND MODIFIER GATE, WHICH THE OTHER FIVE DO NOT NEED ----
+// This is the only chord whose modifier is a SUBSET of another chord's press: START+A is
+// the preset tier and C+A is this one, and a reviewer holding both would fire both. The
+// `START held` veto below makes the two mutually exclusive, so holding START keeps its
+// documented meaning and the preset tier's behaviour is unchanged by this parcel.
+//
+// ---- OFF FREEZES THE BAND, IT DOES NOT REWIND IT ----
+// Stated because it is visible and a reader would otherwise call it a bug. Turning a
+// view off stops the walk; it does not re-DMA phase 0, so the slots keep whatever phase
+// last landed. The band's phase 0 IS its slots' static rest state
+// (`validate_band_coherence` asserts `phases[0] == tiles[base:base+n]`), so a cold boot
+// is the only guaranteed phase-0 picture — after that OFF shows the art shifted by up to
+// 63 px within its own 64 px pattern. Nothing in the act reads as broken, because the
+// band's slots are deduped across the whole layout and shift together; rewinding would
+// mean an extra DMA on a keypress for a debug view, which is not worth the code.
+//
+// ---- LIVE INPUT ONLY ----
+// Required, not defensive, and the same gate for the same reason as its five siblings: C
+// and A both ride in the main controller byte that engine/system/replay.emp records
+// whole and replays whole, and the slide fixture deliberately enters debug-fly.
+//
+// DEBUG-shape only: the body — the rts AND the pointer table included — sits inside
+// `if DEBUG == 1 {}`, so the whole proc emits ZERO bytes in the plain shape, and it is
+// parked as the SIXTH member of this module's zero-release-byte run.
+//
+// In:  none (reads Ctrl_1_Held / Ctrl_1_Press / Input_Source / Debug_BgAnim_View)
+// Out: Debug_BgAnim_View advanced and the named table handed to BgAnim_SetTable, iff
+//      the chord fired this frame
+// Clobbers: d0-d1 (the two input latches, then the cursor), a0 (the table pointer handed
+//      to BgAnim_SetTable, which declares d0), a1 (the table cursor — the raster cycle's
+//      a1, same job).
+// -----------------------------------------------
+// The row count, stated ONCE. The cursor wraps at this and then indexes the table, so a
+// mirror drifting above it would fetch a pointer past the table's end and hand it to
+// BgAnim_SetTable as a band table. Three rows: OFF, the Camera_X view, the Camera_Y view.
+const BGANIM_VIEW_CYCLE_COUNT = 3
+
+proc Debug_BgAnimViewHotkey () clobbers(d0-d1/a0-a1) {
+    if DEBUG == 1 {
+        // Gate 1: live input only — see the header. INPUT_LIVE is 0, so a `tst.b` is
+        // the whole test; the ensure that pins that sits at Debug_CharacterHotkey.
+        tst.b   Input_Source                    // (Input_Source).w
+        bne     .done
+
+        // Gate 2: the modifier, and Gate 3: the START veto that keeps this chord and
+        // the preset tier's disjoint. Both read from ONE fetch of the held latch into
+        // two registers, the idiom the raster cycle uses for its two directions.
+        move.b  Ctrl_1_Held, d0                 // tick-stable held latch
+        move.b  d0, d1
+        andi.b  #BUTTON_C, d0
+        beq     .done                           // C is this chord's shift key
+        andi.b  #BUTTON_START, d1
+        bne     .done                           // START+A is the PRESET tier, not this
+
+        // Gate 4: the button, EDGE-triggered so holding A does not re-install every
+        // frame (which would poison BgAnim_LastStep every frame and re-DMA the band
+        // continuously).
+        move.b  Ctrl_1_Press, d0                // tick-stable press latch
+        andi.b  #BUTTON_A, d0
+        beq     .done
+
+        // ADVANCE-THEN-INSTALL, the preset cycle's order and for its reason: boot
+        // clears Work RAM so the cursor reads 0, and row 0 is OFF — which is already
+        // what is on screen. Installing first would spend a reviewer's FIRST press
+        // showing him no change at all.
+        moveq   #0, d0                          // index-register hygiene (§2.5b)
+        move.b  Debug_BgAnim_View, d0           // (Debug_BgAnim_View).w
+        assert.w d0, ls, #BGANIM_VIEW_CYCLE_COUNT-1  // in table range — checked BEFORE
+                                                // the advance, so a corrupt cursor can
+                                                // neither be written back nor fetch a
+                                                // pointer from past the table
+        addq.w  #1, d0                          // the cursor only ever steps by one, so
+        cmpi.w  #BGANIM_VIEW_CYCLE_COUNT, d0    // equality is the whole wrap condition
+        bne     .no_wrap
+        moveq   #0, d0
+    .no_wrap:
+        move.b  d0, Debug_BgAnim_View           // (Debug_BgAnim_View).w
+
+        // Tail call (§2.8): BgAnim_SetTable declares d0, which is inside this proc's
+        // set, and nothing follows it on this arm.
+        lsl.w   #2, d0                          // x sizeof(pointer); no scaled indexing
+                                                // on the 68000
+        lea     .view_table(pc), a1
+        movea.l (a1,d0.w), a0                   // the table this press installs
+        jbra    BgAnim_SetTable
+
+    .done:
+        rts
+
+        // THE TABLE. Every 68000 instruction is an even number of bytes, so the label
+        // after `rts` is word-aligned by construction — the reasoning `.raster_table`
+        // and `.scene_table` both record above.
+        //
+        // THE ROWS ARE IMPORTED BY NAME (the `use` at the head of this file), for the
+        // reason the raster cycle's header states: an unknown name in a Label position
+        // does NOT error in `.emp`, it silently becomes a link extern, so a misspelled
+        // row would resolve to nothing the build complains about and surface as a wild
+        // band table handed to a DMA queue.
+    .view_table:
+        dc.l    BgAnim_Table                    // 0 — OFF (this act's own table; its
+                                                //     band count is 0, `default_off`)
+        dc.l    BgAnim_View_H                   // 1 — Camera_X, the horizontal view
+        dc.l    BgAnim_View_V                   // 2 — Camera_Y, the vertical view
+    }
+}
+
 
 // -----------------------------------------------
 // Debug_PresetReadout_Show — THE PRESET TIER'S READOUT, and the half of this parcel

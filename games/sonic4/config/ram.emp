@@ -311,6 +311,23 @@ pub vars game_ram {
         // ZERO bytes and the release block by none.
         Debug_Preset_Index: u8,     // effects-lab cursor: section whose preset is installed
 
+        // The effects lab's BG-ANIMATION tier (owner ask 2026-09-03: "can we please just
+        // get rid of the animated tiles for now, they're so distracting? Maybe have one
+        // view for horizontal and one for vertical?"). 0 = OFF, 1 = the Camera_X view,
+        // 2 = the Camera_Y view; the cursor indexes Debug_BgAnimViewHotkey's `.view_table`.
+        //
+        // OFF IS THE BOOT STATE AND IT IS NOT THIS BYTE'S DOING. Boot clears Work RAM so
+        // the cursor reads 0, but what actually makes the act boot silent is that
+        // tools/inject_editor_bg.py emits `BgAnim_Table: u16 = 0` for a `default_off`
+        // band — in EVERY shape, release included. This byte only exists so the DEBUG
+        // shape can put a view back.
+        //
+        // UNLIKE its three neighbours this one could NOT consume a pre-existing pad: the
+        // pad Debug_Scene_Index and Debug_Preset_Index each took is spent. So it brings
+        // its own, which is what keeps Game_RAM_End even.
+        Debug_BgAnim_View:  u8,     // effects-lab cursor: 0 = off, 1 = Camera_X, 2 = Camera_Y
+        Debug_BgAnim_Pad:   u8,     // even-alignment pad for the byte above
+
         // -----------------------------------------------
         // Live-object mailbox (DEBUG shapes only) — the supported EXTERNAL
         // spawn / move / delete interface

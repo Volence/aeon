@@ -37,10 +37,29 @@
 // Table format:
 //   dc.w band_count                      (0 = system disabled)
 //   then per band, a 44-byte record:
-//   $00 dc.w driver       0 = Camera_X, 1 = Camera_Y, 2 = Logic_Tick (low word) —
-//                         lag-immune so BG anim phase can't diverge between record
-//                         and playback (BG anims now freeze during lag frames, the
-//                         intended behavior; audit 2026-08-02)
+//   $00 dc.w driver       0 = Camera_X, 1 = Camera_Y, 2 = Logic_Tick (low word)
+//
+//                         WHAT EACH ONE BUYS, because the choice is not free either way:
+//                         Logic_Tick is LAG-IMMUNE, so a band's phase cannot diverge
+//                         between a recorded run and its playback (BG anims freeze during
+//                         lag frames, the intended behavior; audit 2026-08-02). A CAMERA
+//                         driver gives that up in exchange for the thing a timer can never
+//                         do — the band stops when the player stops, which is what makes
+//                         it read as depth rather than as a looping animation.
+//
+//                         THE DIVERGENCE RISK IS NOT WHAT IT SOUNDS LIKE, and it was
+//                         checked rather than assumed (2026-09-03): Camera_X/Camera_Y are
+//                         themselves DERIVED from the player, which is derived from the
+//                         replayed input, so a camera-driven band is exactly as
+//                         reproducible as the camera is. What a camera driver actually
+//                         costs is that a band's phase is now a FUNCTION OF POSITION —
+//                         two runs that reach the same place by different routes show the
+//                         same phase, where the timer would show different ones. Nothing
+//                         in this tree gates on BG-anim phase in either form (no replay
+//                         fixture, no state hash, no effects gate reads BgAnim_LastStep or
+//                         the band's VRAM), so neither property is load-bearing today —
+//                         but a future determinism gate wanting a phase that does NOT
+//                         depend on route must use driver 2.
 //   $02 dc.w rate_shift   step = driver_value >> rate_shift
 //   $04 dc.w step_mask    pattern period ALONG THE AXIS in px, minus 1
 //                         (cols*8 horizontal, rows*8 vertical)
@@ -112,10 +131,54 @@ const TILE_BYTES_SHIFT          = 5 // log2(32 bytes per 8x8 tile)
 // BgAnim_Init — force a bank DMA on each band's first Update.
 // In: none. Clobbers: d0
 // -----------------------------------------------
-pub proc BgAnim_Init () clobbers(d0) {
+pub proc BgAnim_Init () clobbers(d0/a0) {
+        // DEBUG only: seed the table selector with the act's own table, so a shape that
+        // HAS a selector starts exactly where the plain shape permanently sits. See the
+        // BgAnim_Table_Ptr block in engine/ram.emp for why the selector is a pointer.
+        //
+        // `lea` + store, NOT `move.l #BgAnim_Table, BgAnim_Table_Ptr`: sigil refuses a
+        // link-time immediate combined with another symbolic operand ("[lower.imm-link]
+        // ... not yet supported"), measured on this very line. That is why the DEBUG
+        // shape's clobber set carries a0 — both callers in this tree already declare
+        // d0-d7/a0-a6, so it costs nothing, and it is declared in BOTH shapes so the
+        // published contract does not itself become shape-divergent.
+        if DEBUG == 1 {
+                lea     BgAnim_Table, a0
+                move.l  a0, BgAnim_Table_Ptr    // (BgAnim_Table_Ptr).w
+        }
         moveq   #-1, d0
         move.l  d0, BgAnim_LastStep             // (BgAnim_LastStep).w
         move.l  d0, BgAnim_LastStep + 4         // (BgAnim_LastStep+4).w
+        rts
+}
+
+// -----------------------------------------------
+// BgAnim_SetTable — DEBUG-shape band-table selector. Point BgAnim_Update at a different
+// band table (the act's own, or one of the debug view twins tools/inject_editor_bg.py
+// emits beside it), and force a full re-DMA so the new table's first Update repaints the
+// slots rather than inheriting the outgoing table's committed step.
+//
+// WHY THE RE-DMA IS PART OF THE SWITCH AND NOT THE CALLER'S JOB: BgAnim_LastStep is
+// per-BAND-INDEX, not per band identity. Two tables' band 0 occupy the same state word,
+// so a switch between two tables whose bands happen to be on the same step would take
+// the `.skip_band` arm forever and the new table would never paint. Poisoning the state
+// here makes the switch atomic — there is no way to call this and get the stale picture.
+//
+// A table whose count is 0 turns the whole system off; that is what the act's own
+// default table is today (tools/inject_editor_bg.py's `default_off` key), so "off" needs
+// no separate mechanism.
+//
+// In:  a0 = band table (a `dc.w count` followed by count 44-byte records)
+// Out: BgAnim_Table_Ptr = a0, every band's LastStep poisoned to the Init sentinel
+// Clobbers: d0
+// -----------------------------------------------
+pub proc BgAnim_SetTable (a0: u32) clobbers(d0) {
+        if DEBUG == 1 {
+                move.l  a0, BgAnim_Table_Ptr    // (BgAnim_Table_Ptr).w
+                moveq   #-1, d0
+                move.l  d0, BgAnim_LastStep     // (BgAnim_LastStep).w
+                move.l  d0, BgAnim_LastStep + 4 // (BgAnim_LastStep+4).w
+        }
         rts
 }
 
@@ -174,7 +237,16 @@ pub proc BgAnim_Init () clobbers(d0) {
 // -----------------------------------------------
 pub proc BgAnim_Update () clobbers(d0-d7/a1-a4) {
         movem.l a3-a4, -(sp)
-        lea     BgAnim_Table, a3                // (BgAnim_Table).l
+        // The table this frame. The plain shape has exactly one and reaches it with the
+        // same `lea` it always did — no cell, no load, no release cost. The DEBUG shape
+        // reads the selector, so the lab can put a view twin in front of the walk
+        // (engine/ram.emp, BgAnim_Table_Ptr; BgAnim_SetTable above).
+        if DEBUG == 1 {
+                movea.l BgAnim_Table_Ptr, a3    // (BgAnim_Table_Ptr).w
+        }
+        if DEBUG == 0 {
+                lea     BgAnim_Table, a3        // (BgAnim_Table).l
+        }
         lea     BgAnim_LastStep, a4             // (BgAnim_LastStep).w
         move.w  (a3)+, d7                       // band count
         assert.w d7, ls, #BGANIM_MAX_BANDS      // table wider than BgAnim_LastStep = a4 walk

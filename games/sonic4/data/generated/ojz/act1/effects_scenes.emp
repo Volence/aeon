@@ -163,7 +163,7 @@ const EditorRasterSrc_OJZ_Act1_ojz_sec5_showcase = compose([
 ])
 pub data EditorRaster_OJZ_Act1_ojz_sec5_showcase: [u16; raster_words(EditorRasterSrc_OJZ_Act1_ojz_sec5_showcase)] = raster_program(EditorRasterSrc_OJZ_Act1_ojz_sec5_showcase)
 
-const EditorRasterSrc_OJZ_Act1_ojz_sec6_baseswap = [fire(160, [reg_set($8200 | vdp_base_reg(VdpBase.PlaneA, 57344))])]
+const EditorRasterSrc_OJZ_Act1_ojz_sec6_baseswap = [fire(3, [reg_set($8200 | vdp_base_reg(VdpBase.PlaneA, 57344))])]
 pub data EditorRaster_OJZ_Act1_ojz_sec6_baseswap: [u16; raster_words(EditorRasterSrc_OJZ_Act1_ojz_sec6_baseswap)] = raster_program(EditorRasterSrc_OJZ_Act1_ojz_sec6_baseswap)
 
 ensure((Game.SCANLINE_CAPS & CAP_DENSE_TIER) != 0,

@@ -1405,6 +1405,28 @@ pub vars upper_ram {
         DMA_Split_Reject_Count: u16,    // transfers dropped whole by `.split_reject`
     }
 
+    // BgAnim's DEBUG-only table selector (engine/level/bg_anim.emp).
+    //
+    // WHY IT IS A POINTER AND NOT A FLAG. An act's `BgAnim_Table` is ROM — the band's
+    // driver, rate and geometry are baked into the 44-byte record by
+    // tools/inject_editor_bg.py — so "run this band off Camera_X" and "run it off
+    // Camera_Y" are two DIFFERENT tables, not two states of one. The emitter therefore
+    // emits the act's default table plus the debug view twins side by side in the same
+    // section, all sharing one bank blob, and this cell says which one BgAnim_Update
+    // walks this frame. The plain shape has no selector at all: `BgAnim_Update` keeps
+    // its `lea BgAnim_Table` there, so the release ROM gains neither this longword nor
+    // the indirection.
+    //
+    // Placed at the RAM TAIL and @shape_divergent for the reason the four blocks above
+    // state: the DEBUG-shape addition ripples ZERO existing engine-RAM addresses; only
+    // Engine_RAM_End and the game RAM chained after it move, and only in the DEBUG
+    // shape. Putting it beside BgAnim_LastStep at :627 would have slid every engine-RAM
+    // field below it under DEBUG for no gain.
+    if DEBUG == 1 @shape_divergent {
+        BgAnim_Table_Ptr:       u32,    // the band table BgAnim_Update walks (0 is never
+                                        // valid — BgAnim_Init seeds the act's own table)
+    }
+
     // Engine RAM ends here — game RAM continues from Engine_RAM_End
     // (games/<game>/config/ram.emp declares `game_ram @ after(upper_ram)`).
     mark Engine_RAM_End,
