@@ -60,6 +60,20 @@ refused a correct patched binding outright (measured, and reported from Aurora's
 was blind to a dropped one. `seam_faults`' own docstring carries the design and what was
 rejected.
 
+SIX CHOOSERS, NOT TWO — THE REQUIRED SET IS A FUNCTION OF THE DOCUMENT (2026-09-04).
+The two arms above are the document's ONE raster program. The same `rasterRef` also binds
+every other channel the document carries — `cycles`, `variants`, `patch_world_ys`,
+`patch_motion` — and each of those is a SEPARATE generated chooser threaded into a
+SEPARATE `preset()` parameter. Those four used to be checked only ACT-WIDE (step 2b: the
+library imports each one and calls it somewhere), which `OJZ_Preset_Sec5` satisfied on
+behalf of every other section, so a section whose document carried the two patch keys
+while its own `preset()` threaded neither built GREEN AND BYTE-IDENTICAL — Aurora measured
+exactly that (their `docs/reviews/2026-09-04-boundary-moving-witness.md`), and it was
+re-derived against the committed gate here before the fix: zero faults. `channel_faults`
+closes it, and it derives the required set from `effects_gen.SECTION_CHANNELS` — the same
+table `render_module` partitions its chooser tables with — rather than from a list of
+four names, so the seventh key is required on the commit that starts emitting its rows.
+
 --source-only — THE FAST LOOP'S ARM (2026-09-02, walkthrough finding b4).
 Steps 1, 2 and 2b below read SOURCE ONLY: the generated module, the descriptor, the
 effects library and the section sidecars. Step 3 is the one that needs the build's
@@ -179,17 +193,72 @@ def document_arm(preset: dict) -> str:
     """Which `preset()` parameter one preset DOCUMENT's raster program lands in.
 
     THE ARM IS THE DOCUMENT'S OWN PROPERTY, read from the document, and this function is
-    the gate's whole answer to "which chooser does this `rasterRef` owe". It is the SAME
-    predicate `effects_gen.render_module` partitions its two chooser tables with
-    (`patched_bound` = the bound refs whose document carries `boundary`; `raster_prog_bound`
-    = the rest), deliberately re-derived from the loaded documents rather than read out of
-    the generated module — the standing rule for every expectation in this gate.
+    the gate's answer to "which of the two ARMS does this `rasterRef` owe". It is now
+    literally `effects_gen`'s own function rather than a second spelling of the same
+    predicate: `SECTION_CHANNELS` is the one table both the generator's chooser partition
+    and this gate's requirement derive from, so they cannot disagree about a document.
 
-    ONE `rasterRef` STILL BINDS THE WHOLE DOCUMENT (ruling Q1). The sidecar key is not
-    split and must not be: the document already carries the fact, and a second copy in the
-    sidecar is a second authority that can disagree with it.
+    IT IS ONLY THE ARM. The same `rasterRef` binds every OTHER channel the document
+    carries too (ruling Q1: one ref binds the whole document), and those are
+    `document_channels` — see `channel_faults` for the hole that cost.
     """
-    return "patched" if "boundary" in preset else "raster"
+    return effects_gen.document_arm(preset)
+
+
+def channel_call_sites(src: str, fn: str, index_param: str) -> dict:
+    """{preset name: {sec index: set of INDEX arguments}} for one chooser, matched BY NAME.
+
+    THE NON-ARM CHANNELS' PARSE, and it is deliberately parameter-BLIND where
+    `raster_call_sites` / `patched_call_sites` are parameter-AWARE. Those two exist to tell
+    `raster:` from `patched:`, because ONE document lands in one of them and threading the
+    wrong one is the silent failure the arm partition is for. The other four choosers have
+    exactly one legal `preset()` parameter each AND a name of their own, so the name alone
+    identifies the channel and a call anywhere in the record's body is the evidence.
+
+    `index_param` is `"slot"` / `"ch"` / None, from `SECTION_CHANNELS` — a chooser that is
+    not indexed records the sentinel index 0 so the callers can treat all six alike.
+    """
+    if index_param:
+        pat = re.compile(re.escape(fn) + r"\s*\(\s*sec\s*:\s*(\d+)\s*,\s*"
+                         + re.escape(index_param) + r"\s*:\s*(\d+)")
+    else:
+        pat = re.compile(re.escape(fn) + r"\s*\(\s*sec\s*:\s*(\d+)")
+    out = {}
+    for name, body in preset_records(src).items():
+        for m in pat.finditer(body):
+            sec = int(m.group(1))
+            idx = int(m.group(2)) if index_param else 0
+            out.setdefault(name, {}).setdefault(sec, set()).add(idx)
+    return out
+
+
+def prescription(ch, fn: str, sec: int) -> str:
+    """The `preset()` argument to WRITE for one owed channel, spelled as it assembles.
+
+    A GATE MUST NEVER PRESCRIBE A SPELLING NOBODY CAN WRITE — the failure
+    docs/DEFERRED_WORK.md RASTER-BOUNDARY-2 is named for, and the reason two earlier
+    parcels refused to add an arm at all. So every form below is COPIED from a record
+    `games/sonic4/data/effects/ojz_effects.emp` already carries and this repo already
+    assembles: `OJZ_Preset_Sec3` for `cycle:` and `variants:`, `OJZ_Preset_Sec5` for the
+    two patch arrays.
+
+    THE ARRAY LENGTH IS THE ENGINE'S, NOT THE DOCUMENT'S, and the difference is
+    load-bearing. `preset()` ensures `variants.len == PAL_MAX_VARIANTS` and
+    `patch_world_ys.len == patch_motion.len == RASTER_MAX_PATCH` AT THE CALL SITE, so a
+    prescription trimmed to the indices the document authors would not build. What the
+    document decides is which indices must be CHOSEN (`SectionChannel.indices`); the rest
+    of the array is still spelled, and the chooser returns their `hand:` untouched.
+    """
+    if ch.index_param is None:
+        return f"{ch.param}: {fn}(sec: {sec}, hand: {ch.hand})"
+    arity = (effects_gen.PAL_MAX_VARIANTS if ch.index_param == "slot"
+             else effects_gen.RASTER_MAX_PATCH)
+    hand = (f", hand: {ch.hand}" if ch.hand else
+            ", hand: <the literal that slot carries today; a slot whose literal is 0 "
+            "omits `hand:` — 0 CLEARS here, it does not mean \"keep\">")
+    args = ", ".join(f"{fn}(sec: {sec}, {ch.index_param}: {i}{hand})"
+                     for i in range(arity))
+    return f"{ch.param}: [{args}]"
 
 
 def descriptor_effects_bindings(desc: str) -> dict:
@@ -273,8 +342,97 @@ def chooser_call_faults(calls: dict, bindings: dict, sections: int, fn: str,
     return faults
 
 
-def seam_faults(raster_calls: dict, patched_calls: dict, bindings: dict, sections: int,
-                raster_refs: dict, presets: dict, fn: str, fn_patched: str) -> list:
+def channel_faults(channel_calls: dict, bindings: dict, raster_refs: dict, presets: dict,
+                   names) -> list:
+    """The NON-ARM channels: every chooser a bound DOCUMENT owes is actually threaded.
+
+    ---- THE HOLE THIS CLOSES (2026-09-04) ----
+
+    Before this arm the gate checked SIX choosers at two different resolutions. The two
+    arms (`raster:` / `patched:`) were checked PER SECTION — does the preset section N
+    binds thread the chooser on index N. The other four (`cycle:`, `variants:`,
+    `patch_world_ys:`, `patch_motion:`) were checked only ACT-WIDE, in step 2b: the
+    effects library must IMPORT each one and must CALL it somewhere. `OJZ_Preset_Sec5`
+    calls all four, so the act-wide half was satisfied by section 5 for every other
+    section in the act.
+
+    MEASURED CONSEQUENCE, which is Aurora's and not a hypothesis. Their
+    `docs/reviews/2026-09-04-boundary-moving-witness.md` (lane-log `630def5c`): a section-6
+    document carrying `boundary` + `patch_world_ys` + `patch_motion`, bound by
+    `section_6.meta.json`'s `rasterRef`, whose `OJZ_Preset_Sec6` threaded the patched arm
+    and neither patch chooser — "the first rebuild was green and byte-identical because
+    the preset did not thread the choosers; import, patched:, patch_world_ys: and
+    patch_motion: all needed, spelling copied from Sec5". Re-derived here against the
+    committed gate before the fix: `seam_faults` returned ZERO faults for exactly that
+    input. The author's only route to the four required threadings was copying
+    `OJZ_Preset_Sec5` and noticing what it had.
+
+    ---- WHY THE REQUIRED SET IS DERIVED AND NOT LISTED ----
+
+    A gate that named the four channels would close this hole and reopen it at the fifth
+    key — `boundary` itself was the fourth key added in a fortnight. The requirement is a
+    FUNCTION of the document (`effects_gen.document_channels`), evaluated against
+    `effects_gen.SECTION_CHANNELS`, which is the SAME table `render_module` partitions its
+    chooser tables with. A key that starts emitting rows starts being required here on the
+    same commit, with no edit to this file.
+
+    ---- WHY THE INDICES AND NOT ONLY THE CHANNEL ----
+
+    `render_module` emits one row per INDEX of the document's array (`enumerate`, `null`
+    entries included — they lower to the engine sentinel). A `preset()` that threads
+    `ch: 0` while the document authors four channels leaves three rows emitted and unread,
+    which is the same silent-and-green shape one tier down. So the requirement is the
+    index SET `SectionChannel.indices` returns, and a partial threading gets its own
+    sentence rather than passing as "threaded".
+
+    THIS ARM IS PURELY ADDITIVE ON A CORRECT TREE: it requires threadings, it never
+    forbids one. A preset threading a chooser for a section no document binds is the
+    ordinary `hand:` pass-through (`OJZ_Preset_Sec3` does exactly that today) and is not
+    a fault here.
+    """
+    faults = []
+    for sec in sorted(raster_refs):
+        doc = presets.get(raster_refs[sec])
+        if doc is None:
+            continue            # already faulted, loudly, in the arm partition below
+        owner = bindings.get(sec)
+        where = (f"{owner}, the preset section {sec} binds in {DESCRIPTOR},"
+                 if owner else
+                 f"section {sec} binds NO `effects:` preset at all in {DESCRIPTOR}, so")
+        for ch in effects_gen.document_channels(doc):
+            if ch.channel in effects_gen.ARM_CHANNELS:
+                continue        # the arms have their own three sentences below
+            fn = getattr(names, ch.names_attr)
+            want = set(ch.indices(doc) or {0})
+            got = (channel_calls.get(ch.channel) or {}).get(owner, {}).get(sec, set())
+            if not got:
+                faults.append(
+                    f"section {sec}'s sidecar names rasterRef {raster_refs[sec]!r}, whose "
+                    f"document carries `{ch.key}` — so the generator emits {len(want)} "
+                    f"{ch.channel} binding row(s) for sec {sec} into {fn}. But {where} "
+                    f"threads {fn} for sec {sec} NOWHERE. One `rasterRef` binds the WHOLE "
+                    f"document (ruling Q1), so every key it carries owes its own chooser "
+                    f"at that section's `preset()` — a row nothing calls is a row nothing "
+                    f"reads, which presents to the author as an assignment that did "
+                    f"nothing, and this is what made the whole binding green and "
+                    f"byte-identical (Aurora, 2026-09-04). Write, inside that `preset()`:"
+                    f"\n      {prescription(ch, fn, sec)}")
+            elif want - got:
+                missing = sorted(want - got)
+                faults.append(
+                    f"section {sec}'s sidecar names rasterRef {raster_refs[sec]!r}, whose "
+                    f"document authors {ch.channel} {ch.index_param}(s) "
+                    f"{sorted(want)} — but {where} threads {fn} for sec {sec} only at "
+                    f"{ch.index_param} {sorted(got)}. The generator emits a row per index "
+                    f"the document's array reaches, so {ch.index_param} {missing} would be "
+                    f"emitted and never read. Thread every index:"
+                    f"\n      {prescription(ch, fn, sec)}")
+    return faults
+
+
+def seam_faults(raster_calls: dict, patched_calls: dict, channel_calls: dict,
+                bindings: dict, sections: int, raster_refs: dict, presets: dict,
+                names) -> list:
     """Every way the preset-binding seam can be wrong, as sentences. Empty == it holds.
 
     PURE, and separated from `main` for the same reason step 4's `unreachable_presets`
@@ -333,7 +491,17 @@ def seam_faults(raster_calls: dict, patched_calls: dict, bindings: dict, section
     An arm demanding a spelling nobody can write is the failure RASTER-BOUNDARY-2 is about.
     So the patched arm is CONDITIONAL: it fires exactly when a document that needs it is
     bound. Until one is, it is vacuous and the gate's final line says so.
+
+    ---- WHY IT NOW TAKES `names` AND `channel_calls` (2026-09-04, the no-chooser hole) ----
+
+    The two chooser NAMES used to be passed as two strings, because the two arms were the
+    only choosers this function knew about. There are six, `effects_gen.SECTION_CHANNELS`
+    is the table that says which of them a document owes, and each entry names its own
+    `ActNames` attribute — so the whole set arrives as one `names` object rather than as a
+    growing argument list, and `channel_calls` carries the other four channels' call sites
+    keyed by that same table's channel names. See `channel_faults` for what was green.
     """
+    fn, fn_patched = names.fn_sec_raster, names.fn_sec_patched
     faults = []
     if not raster_calls:
         faults.append(
@@ -435,6 +603,9 @@ def seam_faults(raster_calls: dict, patched_calls: dict, bindings: dict, section
                 f"got int`, measured 2026-09-04). Either bind a `boundary` document to "
                 f"section {sec}'s `rasterRef`, or pass a real hand-authored patched "
                 f"program as `hand:` — there is no `Patched_Program_None` to pass.")
+
+    # ---- the OTHER FOUR channels the same `rasterRef` binds; see `channel_faults` ----
+    faults += channel_faults(channel_calls or {}, bindings, raster_refs, presets, names)
     return faults
 
 
@@ -590,6 +761,15 @@ def main() -> int:
                  f"never elaborated, which makes its own `ensure`s dead too.")
     raster_calls = raster_call_sites(lib, names.fn_sec_raster)
     patched_calls = patched_call_sites(lib, names.fn_sec_patched)
+    # THE OTHER FOUR CHANNELS' CALL SITES, per preset and per index. Step 2b's loop above
+    # only asks whether each chooser is imported and called SOMEWHERE in the act; this is
+    # the per-section reading `channel_faults` needs, and the two are different questions
+    # (`OJZ_Preset_Sec5` satisfied the act-wide one on behalf of every other section).
+    # Walked from `SECTION_CHANNELS` so a seventh channel is collected without an edit here.
+    channel_calls = {
+        ch.channel: channel_call_sites(lib, getattr(names, ch.names_attr), ch.index_param)
+        for ch in effects_gen.SECTION_CHANNELS
+        if ch.channel not in effects_gen.ARM_CHANNELS}
     want_raster_refs = effects_gen.load_section_raster_refs(REPO)
     # THE DOCUMENTS, read HERE and not only in step 3, because which chooser a section owes
     # is a property of its DOCUMENT (`seam_faults`' design note (C)) and step 2b is the
@@ -622,15 +802,27 @@ def main() -> int:
                f"authored boundary would be ROM nothing installs.")
     faults = seam_faults(raster_calls,
                          patched_calls,
+                         channel_calls,
                          descriptor_effects_bindings(desc),
                          sections,
                          want_raster_refs,
                          want_presets,
-                         names.fn_sec_raster,
-                         names.fn_sec_patched)
+                         names)
     if faults:
         fail(f"the preset binding seam is broken in {EFFECTS_LIB}:\n  - "
              + "\n  - ".join(faults))
+
+    # WHAT THE NON-ARM ARM ACTUALLY MEASURED, counted rather than assumed. A channel arm
+    # that fires only when a bound document carries the key can be VACUOUS, and this repo's
+    # rule is that a vacuous arm says so rather than reading green (the patched half's own
+    # line below does exactly this). Derived from the documents, not from a nearby pin.
+    owed = sorted((sec, c.channel)
+                  for sec, pid in want_raster_refs.items()
+                  for c in effects_gen.document_channels(want_presets.get(pid, {}))
+                  if c.channel not in effects_gen.ARM_CHANNELS)
+    owed_line = (", ".join(f"sec {s} {c}" for s, c in owed) if owed else
+                 "NONE — the non-arm channel arm is VACUOUS in this tree and says so "
+                 "rather than reading green")
 
     if source_only:
         # Say what was NOT measured, in the same breath as the pass. A gate that
@@ -640,7 +832,8 @@ def main() -> int:
               f"in {EFFECTS_LIB} [{threaded_line(raster_calls, patched_calls)}]; "
               f"{calls} section call site(s), "
               f"{len(want_raster_refs)} sidecar rasterRef(s) "
-              f"({len(patched_needed)} on the patched arm).")
+              f"({len(patched_needed)} on the patched arm); "
+              f"non-arm channel threadings required and found: {owed_line}.")
         print("  NOT CHECKED here: the reachability witnesses and their values (step 3) "
               "— they live in the build's listing, which does not exist yet. Only the "
               "canonical `./build.sh` answers that.")
@@ -738,7 +931,7 @@ def main() -> int:
              + (" — the PATCHED half of the arm partition is VACUOUS today (no bound "
                 "document carries `boundary`) and says so rather than reading green"
                 if not patched_needed else ""))
-          )
+          + f"; non-arm channel threadings required and found: {owed_line}")
     return 0
 
 
