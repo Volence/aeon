@@ -121,14 +121,20 @@ sys.path.insert(0, str(TOOLS))
 # re-implemented: same memory model, same flag arithmetic, same operand grammar, same
 # "raise on anything not modelled" contract. Only the executor LOOP differs, because
 # this routine's callees are events to observe rather than side-effect-free stubs.
-# normalize_stream/stream_diff/unresolved_note come from the same place for the same
-# reason: the relocation-invariant fixture comparison was designed, argued and proved on
-# the tilt gate (parcel/gate-fixtures-address-pinned, 9332587b) and this is its
-# APPLICATION, not a second implementation of it. See the long WHY note above
-# `normalize_stream` in sprite_tilt_gate.py — every word of it holds here.
+# normalize_stream/unresolved_note come from the same place for the same reason: the
+# relocation-invariant fixture comparison was designed, argued and proved on the tilt
+# gate (parcel/gate-fixtures-address-pinned, 9332587b) and this is its APPLICATION, not a
+# second implementation of it. See the long WHY note above `normalize_stream` in
+# sprite_tilt_gate.py — every word of it holds here.
+#
+# `stream_diff` is deliberately NOT imported: these two routines contain a transfer the
+# assembler re-relaxes by reach, which the tilt and loop routines do not, so their
+# differences need a CLASSIFIER (`classify_stream` below) rather than a flat list. Its
+# `differs` line is stream_diff's, word for word, so the two gates' edit reports read
+# identically.
 from sprite_tilt_gate import (  # noqa: E402
     Micro, UnsupportedInstruction, _split_ops, parse_operand,
-    normalize_stream, stream_diff, unresolved_note,
+    normalize_stream, unresolved_note,
 )
 
 # --------------------------------------------------------------------------
