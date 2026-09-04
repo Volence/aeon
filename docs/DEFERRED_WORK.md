@@ -24895,3 +24895,51 @@ stops being an answer, and **route 2 is the recommendation**: it is content-shap
 reversible, and does not put engine work in the VBlank-critical path for an authoring
 convenience. **Route 1 remains the wrong trade at any framing I can see.** This is an engine
 design change either way, so it goes to him before anything is built.
+
+## ⚠ The crossover mark is 8 px wide and a player can step 16 px. ENGINE ROW.
+
+**Aurora raised it, asked for the premise to be checked rather than taken, and the premise
+holds.** `engine/objects/core.emp`'s `ObjectMove` is `move.w x_vel / ext.l / asl.l #8 /
+add.l` — **one unconditional add. Horizontal movement is not substepped anywhere**, and
+`Player_LoopCrossover` reads the position the frame RESOLVED to, once per frame, so a cell
+stepped over is never read at all.
+
+`COLL_CELL_W = 8`. `PHYS_GSP_CAP = $1000` = **16 px/frame**. **A mark column is half the
+largest step a player can take**, so above `$800` he can begin left of the mark and end right
+of it without ever occupying it.
+
+**THE VERTICAL TWIN IS ALREADY FIXED IN THIS REPO, which is what makes this decisive rather
+than theoretical.** `PHYS_FALL_CAP = $F00` = 15 px against `COLL_CELL_H = 16` — deliberately
+ONE PIXEL under, guarded by an `ensure` in both directions, and its comment records the
+shipped 1 px tunnelling hole it closed. **The horizontal axis is eight pixels hot and has no
+`ensure` at all.**
+
+`PHYS_TOP_SPEED = $600` = 6 px/frame is safe with 2 px to spare, **so a loop can pass a
+top-speed drive and still fail later at rolling or slope-boosted speed — intermittently, in
+exactly the situation the feature exists for.** Two candidate guards, neither built: an edge
+trigger on entering a contiguous marked RUN rather than a cell, or a swept test across the
+frame's movement (the fall cap's own shape).
+
+## ⚠ T1: the loop's two halves are on the WRONG PLANES — and it was my ruling
+
+Measured over rows 48–71: **LEFT half (cols 128–141) is plane B (100 cells, 2 on A); RIGHT
+half (cols 144–159) is plane A (140 cells, 0 on B).** The marks at col 143 are plane A =
+`TO_B`, plane B = `TO_A`.
+
+**§3.3: plane L holds the LEFT half and carries `XOVER_TO_B`.** Plane A carries `TO_B`, so
+**plane A must be the LEFT half — and it holds the right. The halves are swapped relative to
+the mark directions.**
+
+**The error is mine.** I ruled *"cols ≤ 141 plane B only, cols ≥ 144 plane A only"*, which is
+exactly backwards, and aurora built faithfully to it. Correct: **cols ≤ 141 → plane A, cols
+≥ 144 → plane B**, 142/143 and the ground on both.
+
+**It explains his original report and nothing else did.** He runs right on A, takes the
+col-143 mark to B — **and plane B has no ramp, only flat ground.** Round the top it is the
+same the other way: after the top hand-off to A, the left half is not on A. *"I get stuck
+here and don't continue down the loop"* at the upper-left arc **is exactly that.**
+
+**Cheapest fix is to swap the two MARK WORDS (4 cells) rather than the halves (~240 cells);**
+both are correct. Still open on the running surface: `34FF` solidity-3 side faces at **cols
+150–151 rows 72/73** and **cols 152–154 rows 70/71**, untested because the hand-off stops him
+first.

@@ -1,34 +1,28 @@
 {
-  "focus": "The band scene is in and you liked it; the loop climbs a little then hits a wall.",
-  "inFlight": [
-    {
-      "what": "Two swap bands with the layer roles inverted, top and bottom",
-      "where": "agent worktree, T3",
-      "agent": true
-    }
-  ],
+  "focus": "The two swap bands are on your screen; the loop now climbs but still stops one cell short.",
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "what": "Whether to collapse the three START chords into one list",
       "since": "2026-09-04"
+    },
+    {
+      "what": "Whether to give a second section live patch channels, so the Hydrocity scene key can be authored",
+      "since": "2026-09-04"
+    },
+    {
+      "what": "Whether the foliage column left of the loop should stay solid - it halves your run-up",
+      "since": "2026-09-04"
     }
   ],
-  "nextBoundary": "After the loop's entry ramp stops blocking and the two-band swap lands.",
+  "nextBoundary": "After the loop rides and the perspective floor is designed.",
   "queue": [
     {
       "id": "T1",
-      "title": "The loop climbs a little then hits a wall on the entry ramp",
-      "state": "doing",
-      "size": "M",
-      "blockedBy": null,
-      "project": "EFFECTS-W1"
-    },
-    {
-      "id": "T3",
-      "title": "Two swap bands, layer roles inverted top and bottom",
-      "state": "doing",
-      "size": "M",
-      "blockedBy": null,
+      "title": "The loop climbs but stops at the ramp foot, and the two marks cancel",
+      "state": "blocked",
+      "size": "S",
+      "blockedBy": "aurora: the foot cell and the doubled mark column",
       "project": "EFFECTS-W1"
     },
     {
@@ -36,6 +30,14 @@
       "title": "A real pseudo-3D floor, not the shallow V you saw",
       "state": "next",
       "size": "L",
+      "blockedBy": null,
+      "project": "EFFECTS-W1"
+    },
+    {
+      "id": "9d",
+      "title": "The Hydrocity waterline art you asked us not to forget",
+      "state": "open",
+      "size": "M",
       "blockedBy": null,
       "project": "EFFECTS-W1"
     },
@@ -65,6 +67,6 @@
     }
   ],
   "awaiting": null,
-  "atBoundary": false,
-  "updatedAt": "2026-09-04T22:15:15Z"
+  "atBoundary": true,
+  "updatedAt": "2026-09-04T22:24:16Z"
 }
