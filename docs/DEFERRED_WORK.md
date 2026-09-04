@@ -23240,6 +23240,14 @@ than this paragraph read**, because the corrected spelling threads NO raster cho
 `raster_seam_faults`' last arm — "section N's sidecar names rasterRef but no preset threads
 `<fn>(sec: N)`" — will RED on the first bound `boundary` document. See RASTER-BOUNDARY-2.)
 
+**✅ BOTH SENTENCES IN THAT PARAGRAPH ARE NOW HISTORY (2026-09-04, `6808327b`).** The gate
+requires `sec_patched` — conditionally, when a `boundary` document is bound, because
+unconditionally would demand a spelling nobody can write — and `seam_faults` partitions each
+`rasterRef` onto the arm its DOCUMENT names, so a correct patched binding passes and a dropped
+one reds. Read the closure note under RASTER-BOUNDARY-2, not this paragraph. **What is still
+open from (b) is only the `equ_patched_bindings` witness**, and the reason it was left is
+recorded there.
+
 ## A REFUSED BUILD HANDS BACK A PLAUSIBLE NUMBER — the wrong-artifact rule, live in our own build path
 
 **Booked 2026-09-04, from the boundary parcel, and it is a CONCRETE instance of the rule banked
@@ -23804,6 +23812,81 @@ call teaches the spelling. **An EIGHTH site is CROSS-REPO and is NOT fixed here:
 owes `hand: 0` on the raster side") — that is the contract this tree's row mirrors, and it
 needs the hub, not a grep from here.
 
+**✅ THE GATE GAP IS CLOSED (2026-09-04, `parcel/seam-gate-patched-arm`, `6808327b`).** The
+paragraph below is the booking; what follows here is what actually shipped, so a reader does
+not go and re-build it. **Both halves closed, and BOTH were measured before and after:**
+
+- **The correct patched binding is no longer refused.** Pre-fix, with Aurora's pose on disk
+  (`rasterRef: aurora_boundary_witness` on section 6, `raster:` omitted, `patched:
+  ojz_act1_sec_patched(sec: 6)` threaded): `FAIL — … but no preset threads
+  ojz_act1_sec_raster(sec: 6)`, rc=1. Post-fix on the identical tree: `OK … [raster
+  OJZ_Preset_Sec5(sec: 5), patched OJZ_Preset_Sec6(sec: 6)]`, rc=0.
+- **The dropped `sec_patched` binding is no longer invisible, and it was worse than "no
+  check".** The genuinely silent shape is not "nothing threads it" — it is the boundary
+  document bound while the library still threads `raster: …(sec: 6, hand:
+  Raster_Program_None)`. That **assembles** (the raster chooser has no arm for 6, returns the
+  hand label, `ep_raster` set, exclusivity ensure passes) and never installs the boundary.
+  **Pre-fix gate on that tree: `OK`, rc=0.** Post-fix: red, naming it.
+
+**THE DESIGN, and it is NOT the "either arm" the booking's shortest reading suggests.** Three
+readings were weighed. **(A) threaded in EITHER chooser — rejected**, because it greens the
+silent case immediately above, which is the whole hazard. **(B) the SIDECAR declares the arm —
+rejected**: a cross-repo schema change (hub + Aurora's serializer), a second authority for a
+fact the document already carries, and it begins to unpick ruling Q1. **(C) DERIVE the arm from
+the DOCUMENT — chosen**: `document_arm(preset)` is the same predicate `effects_gen`'s
+`render_module` already partitions `patched_bound` from `raster_prog_bound` with, so the gate
+and the generator cannot disagree about which chooser a document owes; no schema change, no
+other repo; and it strictly contains (A).
+
+**THREE SITUATIONS, THREE SENTENCES**, because a fault message that is right for the wrong
+reason is a defect here and the old one covered all three: *threaded on raster while owing
+patched* ("THAT COMBINATION BUILDS AND DOES NOTHING", names the patched spelling); *threaded on
+patched while owing raster* ("does not assemble", names the raster spelling); *threaded on
+neither* (names the chooser the DOCUMENT owes — the old message named the raster one, which for
+a boundary document is the fix that cannot work). A fourth, for a `rasterRef` naming no loadable
+document, is LOUD rather than defaulting to the raster arm.
+
+**WHAT WAS DELIBERATELY NOT BUILT, and it is the same call the `hand: 0` parcel made.** There is
+no "nothing calls the patched chooser" arm mirroring the raster one, and the patched chooser's
+IMPORT check is conditional rather than unconditional like the other five. A `patched:` call
+site for a section no `boundary` document arms does not assemble, and this tree carries none —
+an arm demanding a spelling nobody can write is the failure this whole item is about. Both fire
+exactly when a `boundary` document is bound; until then the gate's own line says the patched
+half is **VACUOUS** rather than reading green.
+
+**STILL OPEN from RASTER-BOUNDARY-1 (b): the `equ_patched_bindings` witness.** Not built here,
+and deliberately: it is a change to `effects_gen.py`'s emitted WITNESS_BLOCK and therefore to
+the committed generated `.emp`, which is a different ritual from a Python-only parcel and owes
+its own byte-neutrality evidence. It is also 0-vs-0 until a `boundary` document exists, and
+nothing is WRONG without it — `equ_raster_bindings` counts every `rasterRef` and the gate
+derives `want_raster` the same way, so the two agree today and will agree when a boundary lands.
+What it would buy is a per-channel value check and a narrower name. Whoever takes it must move
+BOTH sides together: narrowing the emitted `equ_raster_bindings` without the gate's matching
+derivation is the silent-red this item's (b) already warns about.
+
+**THE FIXTURE.** `tools/fixtures/aurora_boundary_witness.json`, and it is a **TRANSCRIPTION of
+Aurora's pose, not their bytes** — their file is not committed at aurora `c6acf1b4` (it was
+written into a disposable copy). It is checkable anyway: the test lowers it through
+`render_boundary_preset` and compares against the call their packet §4 recorded, character for
+character. It sits in `tools/fixtures/` and **NOT** under `games/`: "aeon's tree carries no
+`boundary` document" is a true fact about the game and a test must not falsify it.
+
+**FOUR SHAPES, unchanged, artifacts deleted first and rc read BEFORE the hash in every leg**
+(all four rc=0): `s4.bin` **D4BF05E5** / 720829, `s4.debug.bin` **FB7970C4** / 742018,
+`demo.bin` **11EBD7AB** / 96602, `demo.debug.bin` **9B0D2CE7** / 102818 — identical to the set
+recorded above. sigil 0.1.0 `0a58f2ec`, md5 `6c2378ae8a657e26684d4019a7d976d7`. pytest 2369
+passed / 7 skipped / 0 failed / 73 subtests. ⚠ **The first attempt at those four was REFUSED on
+both sonic4 legs and it is the exact trap this file warns about one section up:** the red-first
+probes restored `section_6.meta.json` with `git checkout`, which bumps its MTIME, and
+`level_staleness.py` refuses on the mtime arm alone even when the stamp arm reports all 113
+sources matching. `rc=1` is the only thing that distinguished a refusal from the byte-neutral
+answer everyone expected. Remedy taken: `tools/regenerate-level.sh`, then restore
+`DONOR_PROVENANCE.json` from HEAD (the re-bake stamps the running HEAD into it), then rebuild.
+
+---
+
+**The original booking follows, kept for its reasoning.**
+
 **⚠ THE GATE GAP GOT WORSE, NOT BETTER, AND IS BOOKED NOT BUILT.** RASTER-BOUNDARY-1's "one
 more gate gap" paragraph observed that `tools/effects_seam_gate.py` does not require
 `sec_patched` to be imported and called. With the corrected spelling the problem is sharper:
@@ -24004,3 +24087,56 @@ becomes correct retroactively, and **the ten corrections landed at `097c22f5` ar
 harmless** — which is the outcome the contingency note above predicted for option 1. The omit spelling
 also survives. **Nothing needs re-editing; leave the corrections in place** rather than churning ten
 sites back, and let sigil's language change land underneath them.
+
+## A GENERATOR THAT SPLITS ONE INPUT ACROSS TWO OUTPUTS SPLITS EVERY CONSUMER WITH IT — booked 2026-09-04
+
+**Found closing RASTER-BOUNDARY-2** (`parcel/seam-gate-patched-arm`, `6808327b`). The shape is
+general and it has a distinctive, nasty signature: **the same one-line omission both REFUSES the
+correct case and MISSES the broken one**, so whichever direction you happen to test first tells
+you a coherent story about the other.
+
+**The instance.** `effects_gen.render_module` had, correctly, split one input — the section
+sidecar's `rasterRef` — across two generated choosers, by a predicate on the bound DOCUMENT
+(`boundary` present -> `sec_patched`, else `sec_raster`). `tools/effects_seam_gate.py` still
+counted `rasterRef`s on one side of that split and chooser call sites on the other. So a section
+whose document lowered into the patched arm **could not satisfy the gate under any spelling**,
+and a section whose patched binding was silently replaced by a raster one **passed**. One
+omission, two opposite failures, and the gate's own message named the fix that cannot work.
+
+**WHY THE OBVIOUS PATCH IS THE WRONG ONE, and this is the part worth keeping.** The natural
+repair is "count it threaded if it appears in EITHER output". That reads as strictly more
+permissive and therefore safe. It is not: it greens the one combination that BUILDS and does
+nothing — the boundary document threaded through the raster chooser, which returns its `hand:`
+label, sets the sibling field, passes the exclusivity ensure, and never installs the authored
+program. **A union over the outputs is not the same predicate as the generator's partition over
+the input**, and only the second can tell "threaded on the wrong arm" from "threaded". The rule:
+**re-derive the generator's own partition in the consumer**, from the same source of truth, so
+the two cannot disagree. Not a union, and not a new flag on the input either — a second copy of
+a fact the input already carries is a second authority.
+
+**THE TELL, for spotting the next one:** a generator that grew a second output for an input it
+already had, plus any consumer of that input written before the split. `grep -c` for the new
+output's name in each consumer is a thirty-second check and it returned **0** here.
+
+## `git checkout` ON A PROBE'S FILE REFUSES THE NEXT CANONICAL BUILD — booked 2026-09-04
+
+**A concrete second instance of "A REFUSED BUILD HANDS BACK A PLAUSIBLE NUMBER" above, reached
+by a route that section does not name**, and it cost a full four-shape run.
+
+Red-first probes edited `games/sonic4/data/editor/ojz/act1/section_6.meta.json` and restored it
+with `git checkout --`. **Content restored exactly; MTIME set to now.** `tools/level_staleness.py`
+has two arms, and the STAMP arm passed loudly — *"stamp ok (113 editor source(s) match)"* — while
+the MTIME arm refused the build. Both sonic4 legs came back `rc=1` in **0 seconds**, and the ROMs
+on disk were the previous ones.
+
+**Why this is worth its own entry:** the file was byte-identical to HEAD and `git status` was
+clean, so every instinct says nothing was disturbed. The staleness check is deliberately
+mtime-sensitive because a DELETE lowers no mtime, and that design is right — but it means **a
+probe you correctly reverted still refuses your next build**, with a message about editor content
+you did not change.
+
+**Operational:** after any probe that touches an editor source, run `tools/regenerate-level.sh`
+before the confirming build, then **restore `games/sonic4/data/generated/ojz/act1/DONOR_PROVENANCE.json`
+from HEAD** — the re-bake stamps the RUNNING HEAD and its dirty flag into it, so a parcel that
+skips that step commits a generated-tree change it never intended. And read `rc` first: a refusal
+and a byte-neutral build print the same CRC.

@@ -4164,9 +4164,12 @@ RASTER_BINDING_BANNER = """\
 // against a structural stand-in for this chooser (a `boundary` document is needed to arm
 // the real one, and this tree carries none).
 //
-// ⚠ ONE CONSEQUENCE, BOOKED AND NOT BUILT: a section spelled that way threads no raster
-// chooser at all, so `tools/effects_seam_gate.py`'s "sidecar names rasterRef but no preset
-// threads <fn>(sec: N)" arm fires on the first `boundary` document bound. See
+// ONE CONSEQUENCE, AND IT IS HANDLED AS OF 2026-09-04: a section spelled that way threads no
+// raster chooser at all. `tools/effects_seam_gate.py`'s "sidecar names rasterRef but no preset
+// threads <fn>(sec: N)" arm used to fire on it — it now partitions each `rasterRef` onto the
+// arm its DOCUMENT names (`boundary` -> the patched chooser, everything else -> this one), so
+// the spelling above PASSES and the wrong one reds with a sentence naming which arm it owes.
+// Do NOT reach for `hand: 0` to satisfy that arm; it never assembled. See
 // docs/DEFERRED_WORK.md, RASTER-BOUNDARY-2.
 //
 // With no `rasterRef` in any sidecar the body below is `return hand` and this whole
