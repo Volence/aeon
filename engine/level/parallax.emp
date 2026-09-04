@@ -951,6 +951,12 @@ ensure(SCENE_VDEFORM_SPEED_MAX < PCFG_VDSP_SCREEN_ANCHOR,
 // DISPLAY (rasterscroll.com, "The Inner Workings of the VDP"). It is why the apex can only
 // ever sit on a 16-px boundary, and why the lean below is lerped rather than used raw.
 pub const VSCROLL_COL_SHIFT = 4
+// The curve's half-width and the screen's, pinned together. parallax_dsl cannot make this
+// check — it is a COMPTIME_HELPERS module with no imports, so SCREEN_WIDTH is not a name it
+// can see — and its own shape pins index by a LITERAL 10 for exactly that reason. This is
+// where the 10 is earned: half of H40's twenty column-pairs.
+ensure(V_FLOOR_HALF_COLS * 2 == VSCROLL_COL_PAIRS,
+       "the perspective curve's half-width (V_FLOOR_HALF_COLS = {V_FLOOR_HALF_COLS} column-pairs) is not half the screen's ({VSCROLL_COL_PAIRS}) — v_column_floor_screen's edge_offset would no longer be the offset at the screen edge, and its own shape pins (which index by a literal 10) would go red rather than follow it")
 ensure((1 << VSCROLL_COL_SHIFT) * VSCROLL_COL_PAIRS == SCREEN_WIDTH,
        "VSCROLL_COL_SHIFT ({VSCROLL_COL_SHIFT}) and VSCROLL_COL_PAIRS ({VSCROLL_COL_PAIRS}) do not tile SCREEN_WIDTH ({SCREEN_WIDTH}) — the pixels-to-column conversion in Step 5b's screen-anchor arm would put the apex on the wrong column")
 

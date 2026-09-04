@@ -308,10 +308,16 @@ pub comptime fn v_column_floor_screen(edge_offset: int) -> [i8; 256] {
 const VfsPin = v_column_floor_screen(edge_offset: 24)
 ensure(VfsPin[V_FLOOR_CENTER_IDX] == 0,
        "v_column_floor_screen guard: the apex sample must be 0, got {VfsPin[V_FLOOR_CENTER_IDX]}")
-ensure(VfsPin[V_FLOOR_CENTER_IDX + V_FLOOR_HALF_COLS] == 24,
-       "v_column_floor_screen guard: a column one screen half-width right of the apex must get edge_offset (24), got {VfsPin[V_FLOOR_CENTER_IDX + V_FLOOR_HALF_COLS]}")
-ensure(VfsPin[V_FLOOR_CENTER_IDX - V_FLOOR_HALF_COLS] == 24,
-       "v_column_floor_screen guard: the curve must be SYMMETRIC about the apex — the column one half-width LEFT got {VfsPin[V_FLOOR_CENTER_IDX - V_FLOOR_HALF_COLS]}, not 24")
+// THE INDEX IS THE LITERAL 10, NOT V_FLOOR_HALF_COLS, AND THAT IS THE POINT. Written the
+// obvious way — `VfsPin[V_FLOOR_CENTER_IDX + V_FLOOR_HALF_COLS]` — these two pins index
+// THEMSELVES by the constant they are pinning, so widening the slope denominator moves the
+// pin along with the curve and both stay green. Measured 2026-09-04: with the denominator
+// mutated 10 -> 20 these two passed and only the literal-indexed pins below went red. A pin
+// that travels with its subject is not a pin.
+ensure(VfsPin[V_FLOOR_CENTER_IDX + 10] == 24,
+       "v_column_floor_screen guard: the column 10 pairs (one H40 screen half-width) right of the apex must get edge_offset (24), got {VfsPin[V_FLOOR_CENTER_IDX + 10]} — the arm's SLOPE has moved")
+ensure(VfsPin[V_FLOOR_CENTER_IDX - 10] == 24,
+       "v_column_floor_screen guard: the curve must be SYMMETRIC about the apex — the column 10 pairs LEFT got {VfsPin[V_FLOOR_CENTER_IDX - 10]}, not 24")
 ensure(VfsPin[V_FLOOR_CENTER_IDX + 5] == 12,
        "v_column_floor_screen guard: the arm must be LINEAR — half a screen half-width out should be half edge_offset (12), got {VfsPin[V_FLOOR_CENTER_IDX + 5]}")
 ensure(VfsPin[V_FLOOR_CENTER_IDX + 19] == 45 && VfsPin[V_FLOOR_CENTER_IDX - 19] == 45,
