@@ -25115,3 +25115,38 @@ design input and should not stand as evidence for a cell-mode decision.
 **Five look-calls TAGGED for the emulator:** does it look right in motion; real cycle cost vs
 the 3,476 estimate; whether the returning left-column artifact needs `SpriteMask`; whether
 `v_offset: 288` shows a seam at screen top; and the right residual cone amplitude.
+
+## ⚠ `git push origin master && echo "pushed $(git rev-parse --short HEAD)"` REPORTS A SHA IT DID NOT PUSH
+
+**Four consecutive landing reports on 2026-09-04 cited SHAs that were not on origin.** The
+hub caught it by fetching; nothing was lost, but the reports were false when made.
+
+**Two faults compounded, and the second is the dangerous one.**
+
+**(a) A non-isolated agent left the main tree on its branch.** The T2 *pricing* agent was
+dispatched **without worktree isolation** (it was a read-mostly design task, so the isolation
+was skipped), and it created and checked out `design/effects-w1-t2-perspective-floor` in the
+main tree. Every later commit — a merge, a correction, three status commits — went there.
+
+**(b) THE ECHO PRINTS `HEAD`, WHICH IS NOT WHAT `push origin master` PUSHED.** With master
+unchanged and already on origin, `git push -q origin master` **succeeds trivially and
+silently**, and the `&&` then prints the *branch tip*. So the line reads
+`pushed dcf73e28` while origin sits at `f8beaad0`. **The success and the SHA come from two
+different objects and nothing in the output says so.**
+
+**This is the same shape as the already-booked `banked: $(git rev-parse HEAD)` error** — a
+SHA echoed from a command that did not move it. **The general form of that rule did not stop
+the specific repeat, so the push variant is named here explicitly.**
+
+**The fix is to verify the REMOTE, never the local echo:**
+
+```sh
+git push origin master && git fetch -q origin && \
+  echo "origin/master now $(git rev-parse --short origin/master)"
+```
+
+and, before citing any SHA as landed, `git merge-base --is-ancestor <sha> origin/master`.
+
+**Also worth carrying: `git branch --show-current` belongs in the pre-commit check, not just
+before a merge.** A non-isolated agent can move the main tree's branch under a controller
+that never ran a checkout itself.
