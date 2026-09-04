@@ -23099,3 +23099,152 @@ census.**
 **And the general form, which this lane has now met twice in one day from opposite directions:** a
 lossless claim is only worth what its *method* was, and a method is not established by the claim
 having been made. Ask which check was run and what it could not have seen.
+
+---
+
+## RASTER-BOUNDARY-1 — the `boundary` preset key SHIPPED; three obligations from its CR did not (2026-09-04)
+
+`boundary` is now a preset-document key: `tools/effects_gen.py` accepts it, refuses it four ways,
+and lowers it to `patchable(fx_tint_band(...), ch:, lo:, hi:, offscreen_ship:)` under
+`patched_program()`, bound through the new `<act>_sec_patched(sec:)` chooser. Contract:
+empyrean `c4a1da23` `docs/AURORA_EFFECTS_SCHEMA.md` §7.6 (schema blob `0295b21b`); aeon shape note
+`docs/superpowers/specs/2026-09-04-channel-band-key-shape.md`.
+
+**Three things §7.6 names that this parcel deliberately did NOT build.** Each is recorded with why,
+because "shipped the key" reads as "shipped the item" otherwise.
+
+**(a) THE CALL SITE IS NOT THREADED.** `games/sonic4/data/effects/ojz_effects.emp` does not import
+or call `ojz_act1_sec_patched`, and no section passes `patched:` from it. Nothing is broken by that
+— no document carries `boundary`, so the chooser's body is `return hand` and it is zero ROM bytes —
+but **the first document that authors the key needs its section's `preset()` call amended in the
+same parcel**, and it owes TWO edits, not one: add `patched: ojz_act1_sec_patched(sec: N)`, and
+change that section's raster call to `hand: 0`. Not `Raster_Program_None`: that is a real non-zero
+label and `preset()`'s `ep_raster == 0 || ep_patched == 0` ensure would fire on a section that bound
+nothing at all. The generated banner says this; nothing enforces it, because no generator can see a
+hand-authored call site.
+
+**(b) NO PATCHED REACHABILITY WITNESS.** Every other channel mints a `pub equ
+Editor<Channel>_<ACT>_Bindings` that `tools/effects_seam_gate.py` derives and checks; the patched
+channel does not. **Deliberate, and the reason is a second consumer:** the gate derives
+`want_raster` as `len(want_raster_refs)` — every `rasterRef`, whichever arm it names — so
+partitioning the raster witness would silently red the gate the first time a boundary is bound, and
+adding a fifth witness without teaching the gate to derive it would add a symbol nothing checks.
+`equ_raster_bindings` therefore still counts ALL `rasterRef` bindings, boundary ones included, and
+its name is now slightly wider than it reads. The paired change — a `equ_patched_bindings` plus the
+seam gate's own derivation of it — is one small parcel and belongs with (a).
+
+**(c) THE SWEEP-FITS-THE-BAND CHECK HAS NOT MOVED.** §7.6 obligation (b): `2 * (256 >> amp_shift) <=
+hi - lo + 1` exists today only as `tools/test_anchor_sweep_band.py` (build-fatal, and it reads
+HAND-AUTHORED `.emp` only), and §7.6 says that once both numbers live in one document it belongs in
+`effects_gen.py` beside `_check_patch_context`. **They now do** — `boundary.lo`/`boundary.hi` and
+`patch_motion[ch].sweep.amp_shift`, same document, same channel — so this is UNBLOCKED as of this
+parcel and was left out only to keep it scoped. ⚠ Whoever builds it: the comparison is PEAK-TO-PEAK
+TRAVEL against an INCLUSIVE line count, not peak excursion — `games/sonic4/data/generated/
+effects_channel_bands.json`'s own `how_to_use` records that this sentence was wrong by a factor of
+two in the permissive direction until 2026-09-04, and derive it from the engine's ladder ensure
+rather than copying either sentence. The pytest lane stays as the backstop for hand-authored `.emp`.
+
+**(d) GUARD 11 ACROSS THE DOCUMENT/LIBRARY SEAM IS NOT CHECKED.** §7.6 obligation (c) — two patchable
+records may not share a channel — is structural WITHIN a document (`boundary` is one closed object,
+so a document cannot carry two records on one channel). The cross-source half is not: a document's
+boundary on a channel the section's hand-authored program already patches. **Not built because the
+generator cannot resolve it** — which hand program a section installs lives in the hand library and
+the act descriptor, and the library-wide grep `_check_patch_context` already uses is explicitly a
+SUPERSET check; used for THIS question it would over-refuse, since a section that binds a boundary
+document has its hand program replaced by the chooser anyway. It needs section resolution, which is
+the same missing capability the liveness check's own "a green is not a promise" caveat names.
+
+**What is NOT open:** the ruled shape itself. Every spelling in §7.6 was checked against source and
+they agree — `patchable(fires, ch, lo, hi, offscreen_ship = 0)` and `fx_tint_band(line, slot,
+pal_line, entry, count, sh)` at `engine/effects/raster_dsl.emp:460`/`:654`, and the CR's worked
+example is `games/sonic4/data/effects/ojz_effects.emp:1563-1564` character for character. `cram`,
+`vsplit` and a `boundary: null` spelling are RULED ABSENT, not pending; adding any of them is its own
+CR, and none should be pre-created.
+
+### RASTER-BOUNDARY-1 — what was MEASURED when the key landed (2026-09-04)
+
+Recorded here because the interesting half of this parcel's evidence is a result that had
+to be **thrown away**, and discarding that silently is the failure mode.
+
+**The measurement the unit tests could not make.** `render_boundary_preset` emits
+`patchable(fx_tint_band(...))` + `patched_program(...)` into the GENERATED module, and
+whether those names RESOLVE there was an open question rather than an assumption:
+`raster_dsl` is a `COMPTIME_HELPERS` module (glob-injected), but `raster_ramp_program`
+lives in `engine.effects.raster`, which is not — and item 6 had to emit eight explicit
+imports beside every generated ramp call, because a `comptime fn`'s free names resolve at
+the CALL SITE. `patched_program`'s body reaches `check_arm_layout`, `patch_table`,
+`ship_trailer` and `RASTER_BUF_WORDS`, so the same failure was available.
+
+Measured: a `boundary_probe.json` carrying the shipped water verbatim was authored, and
+`FAST=1 DEBUG=1 ./build.sh` returned **rc=0**. `s4.debug.bin` grew to 742048 B from the
+canonical 742018 B, and `EditorPatched_OJZ_Act1_boundary_probe` reaches `s4.debug.lst`.
+**No import was needed beside the generated call — the ramp precedent does NOT apply
+here.** Document then deleted and the module re-emitted.
+
+**⚠ THE DISCARDED RESULT, and it is the one worth reading.** The first attempt ran plain
+`DEBUG=1 ./build.sh` with the document in place. It printed a CRC and a size — and the
+build had NOT RUN: `tools/level_staleness.py` refused it ("added since the bake (1):
+.../boundary_probe.json"), so what got measured was the PREVIOUS artifact still sitting on
+disk, whose CRC was of course identical to the canonical one. **That reads exactly like
+"zero bytes moved, proof complete."** The `rc=1` captured in the same log is the only thing
+that caught it. `FAST=1` auto-re-bakes, which is the fix the gate itself names. The same
+trap bit the revert leg — deleting the document is also a change since the bake — so that
+leg's "WITHOUT-BOUNDARY" CRC is equally worthless and is quoted nowhere. **General form:
+adding or removing ANY editor input invalidates a canonical-path build in this tree, and
+the invalid build hands back a plausible number instead of nothing.**
+
+The `FAST` re-bake left `editor_sources.stamp.json` and
+`generated/ojz/act1/DONOR_PROVENANCE.json` dirty (the latter is ALREADY stale on master —
+its committed `head` is `436ec380`, so any full re-bake rewrites it). Both restored from
+HEAD, tree verified clean, and the four canonical shapes were then rebuilt and compared
+against the run taken BEFORE the probe: identical CRC and size on all four
+(`s4.bin` D4BF05E5 / 720829, `s4.debug.bin` FB7970C4 / 742018, `demo.bin` 11EBD7AB / 96602,
+`demo.debug.bin` 9B0D2CE7 / 102818). Assembler pinned at sigil 0.1.0 `0a58f2ec`, md5
+`6c2378ae8a657e26684d4019a7d976d7` — note build.sh's own banner reports the sigil tree HEAD
+has since moved to `1078a076`, i.e. the binary is deliberately behind its source today.
+
+**One more gate gap, found while checking for collateral and belonging with (a)/(b) above:**
+`tools/effects_seam_gate.py` requires the library to IMPORT AND CALL `sec_raster`,
+`sec_cycle`, `sec_variant`, `sec_patch_world_y` and `sec_patch_motion`, precisely because an
+unimported chooser makes a document's authoring "ROM nothing installs, with no other
+symptom". It does not yet require `sec_patched`. So the patched channel is the one channel
+whose binding route can be dropped silently — the exact shape that gate exists to catch.
+(Its `raster_seam_faults` already anticipates the other half: its missing-`hand:` message
+names `hand: 0` "on a section that binds `patched:`", so the seam was written expecting
+this arm.)
+
+## A REFUSED BUILD HANDS BACK A PLAUSIBLE NUMBER — the wrong-artifact rule, live in our own build path
+
+**Booked 2026-09-04, from the boundary parcel, and it is a CONCRETE instance of the rule banked
+abstractly an hour earlier** (*"a present file can be the wrong artifact, and it corroborates
+itself"*). That one came from sigil's provisioning. This one is ours and it is reachable on any day
+somebody adds an editor input.
+
+**What happened.** The agent added an editor document authoring `boundary`, then ran a plain
+`DEBUG=1 ./build.sh` to measure the delta. The command **printed a CRC and a size** — and **the build
+had not run**: `tools/level_staleness.py` refused it, because adding an editor input makes the
+generated tree stale by construction. So the CRC measured **the previous artifact still on disk**,
+whose value was of course identical to the canonical one.
+
+**That reads exactly like the answer everyone expects: "zero bytes moved, proof complete."** The
+only thing that caught it was `rc=1` in the same log. The agent discarded the result and quoted the
+revert leg's figure nowhere, because the same trap had bitten it too.
+
+**THE GENERAL FORM, and it is nastier than the sigil case because no provisioning step is
+involved:** adding or removing ANY editor input invalidates a canonical-path build here, and
+**the invalid build hands back a plausible number rather than nothing.** Our own `rm -f`-before-build
+discipline does NOT protect this path — the refusal happens before any artifact is written, so an
+old ROM sitting there is exactly what gets measured.
+
+**Operational, for anyone measuring a delta that involves an editor document:**
+1. **Read the exit code, not the CRC.** A refused build and a byte-neutral build print the same
+   number; only `rc` distinguishes them.
+2. Run `tools/regenerate-level.sh` between adding the document and building, or use `FAST=1`, which
+   re-bakes on staleness rather than refusing.
+3. Restore the generated fallout (`editor_sources.stamp.json`, `DONOR_PROVENANCE.json`) from HEAD
+   before any confirming run, or the next build measures your probe's leftovers.
+
+**This is why the parcel's zero-byte claim is quoted for the case it actually measured** — no
+shipped document authors the key, so the canonical ROMs are untouched — **and the authored case is
+reported separately as a `FAST=1` build that genuinely ran.** Two different questions, two different
+measurements, neither standing in for the other.
