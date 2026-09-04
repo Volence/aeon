@@ -24,7 +24,9 @@ TWO HALVES, and the first one needs no emulator at all.
   a sign defect shows: the two's-complement image of a negative step is a fact about the
   bytes, not about the picture.
 
-  THE PICTURE HALF is three arms, and the second and third are the point — a single
+  THE PICTURE HALF is five arms. Arms 1-4 all answer ONE question — WHICH SCREEN LINES
+  CHANGE — and arm 5 answers a different one, WHAT VALUE IS WRITTEN, which is the only
+  question that has a sign in it. Arms 2 and 3 are the point of the first group — a single
   before/after is NOT a control here, because the game keeps running and every line changes
   anyway:
 
@@ -42,6 +44,21 @@ TWO HALVES, and the first one needs no emulator at all.
        scroll'."* Arm 3 builds that twin AT RUNTIME by copying the subject's own record and
        zeroing `rrp_step`, so the two programs differ in FOUR BYTES and nothing else. Every
        line that differs between arm 2 and arm 3 is attributable to the STEP alone.
+
+    4. THE SPAN ITSELF — two FLAT twins (step 0) differing only in `rrp_start`, so every
+       line the run REACHES moves and no line it misses can. This separates "written" from
+       "changed", which arms 2 and 3 cannot: near a run's top the accumulator is still small
+       and a line the run genuinely writes can render identically to one it does not.
+    5. THE VALUE ITSELF, AND ITS SIGN — the arm that reads WHAT IS WRITTEN rather than
+       WHICH LINES MOVED, added 2026-09-04 to close EFFECTS-W1 item 6's last open sentence.
+       Arms 1-4 are all blind to direction BY CONSTRUCTION — arm 4's twins are flat on
+       purpose, and A FLAT TWIN HAS NO DIRECTION — so before this arm the only evidence that
+       aurora's step of -1.5 px/line ever went DOWN was that the ROM CONTAINED a negative
+       two's-complement image. Nothing had watched the machine CONSUME one. Arm 5 reads the
+       16.16 accumulator mid-frame (5a) and decodes the plane-B displacement the VDP
+       actually applied (5b), and it runs the authored record beside a sign-flipped twin and
+       a step-0 twin so that "descending" is a reading the instrument could have failed to
+       produce. See its banner above `run_arm5`.
 
 WHY NOT THE OLD ARM 3 (install `OJZ_BaseSwap` instead). It was the right discriminator for
 a 64-line run in the middle of the screen, where "outside the span" was 110 - 64 lines of
@@ -72,7 +89,7 @@ arm 2 all 64 displayed lines changed; the old arm 3 found 46 outside lines chang
 and 0 unique to the ramp. Those numbers were taken with the old sampling window and the old
 arm 3; re-run rather than compared against.
 """
-import os, sys, asyncio, hashlib, json, argparse
+import os, sys, asyncio, hashlib, json, argparse, time, math
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from suite_paths import add_client_path
@@ -354,6 +371,539 @@ def run(rom, lst, sym, install=None, patch=None):
         return asyncio.run(go())
 
 
+# ---------------------------------------------------------------------------
+# ARM 5 — THE VALUE ITSELF, AND ITS SIGN.
+#
+# EVERY ARM ABOVE MEASURES WHICH SCREEN LINES CHANGE. None reads what value is written, and
+# arm 4 cannot: its two twins are FLAT on purpose, and A FLAT TWIN HAS NO DIRECTION. So the
+# tree's entire evidence for aurora's negative document was that the ROM CONTAINS a negative
+# image — `raster_ramp_program`'s two's-complement comptime pin, which is a check on BYTES —
+# plus 219 contiguous lines that CHANGED. Nothing had ever watched the machine CONSUME one.
+# This arm is that measurement, and it asks a third question the other four cannot: not "did
+# the program install", not "did the picture change", but "IS THE VALUE RIGHT, AND DOES IT
+# GO DOWN".
+#
+# TWO INSTRUMENTS, DELIBERATELY DIFFERENT, BECAUSE EACH ONE'S BLIND SPOT IS THE OTHER'S
+# SUBJECT.
+#
+#   5a  ON THE WIRE — `Raster_Ramp_Acc`, read MID-FRAME.
+#       This is the exact longword `.ramp_body` writes back on every line, one instruction
+#       before `swap d1 / move.w d1, -4(a2)` puts its integer half on the VDP data port.
+#       Park the raster at a line with `run_to_scanline`, read four bytes, decode as a
+#       SIGNED 16.16. It is a full 32-bit signed quantity with NO aliasing of any kind, so
+#       it pins the step EXACTLY, in fixed point, not merely to the pixel. What it cannot
+#       say is whether the VDP did anything with it — which is 5b's whole job.
+#
+#   5b  AT THE DESTINATION — the plane-B vertical displacement the VDP ACTUALLY APPLIED.
+#       The destination is VSRAM entry 1, and THE BUS SERVES NO VSRAM READ: the method list
+#       ends at `read_vram` / `read_cram`, there is no `read_vsram`. The only observable of
+#       that entry is the one thing it exists to do — which plane row the VDP fetches for
+#       each screen line — so this half measures THAT, by CALIBRATION. For every residue C
+#       the plane can hold, install a FLAT twin pinned at C and record which screen lines
+#       then render exactly as the subject does. A line's decoded value is the C (or C's)
+#       that reproduce it.
+#
+#       WHY A SWEEP AND NOT A ONE-SHOT DICTIONARY. The cheap form — hash plane-B rows once
+#       and look the subject's rows up at any line — was TRIED HERE AND MEASURED FALSE: a
+#       row is `compose(planeA(L), planeB(L + V))`, not a function of the plane-B row alone.
+#       The check (`rows_flat[-60][L] == rows_flat[0][L-60]`) read 4/159. Plane A and the
+#       sprites ride on every row, so a candidate C is admissible only AT THE SAME SCREEN
+#       LINE. That is what the sweep does and what a dictionary cannot.
+#
+#       ⚠ AND THE MASKED SHORTCUT IS DISQUALIFIED, NOT MERELY DECLINED. Turning plane A off
+#       with `set_layer_enabled` would make rows a pure plane-B function and collapse the
+#       sweep to one capture. It would also turn `emulator/scanlines` into a POST-HOC STATE
+#       RENDER — `source` flips to "stateRender", which is structurally BLIND to every
+#       mid-frame effect and therefore blind to this entire subject. It fails by showing a
+#       CLEAN PICTURE rather than an error, and would decode every line as the run's final
+#       value. Every capture below asserts `source == "raster"` and refuses otherwise.
+#
+# THE ALIAS IS REAL, IT IS MEASURED, AND THE SIGN QUESTION IS IMMUNE TO IT.
+# The sweep does not return one C per line. On this scene it returns TWO, 64 apart, because
+# plane B's artwork repeats vertically with a 64-pixel period, so V and V+64 draw the
+# identical row. That ambiguity is a fact about the ARTWORK and no amount of looking harder
+# at one line removes it. It is also IRRELEVANT to what this arm is for:
+#
+#   * the ABSOLUTE value is measured MODULO the alias spacing, and is reported as such;
+#   * the per-line DIFFERENCE is measured EXACTLY, because the difference of two candidate
+#     sets 64 apart has exactly ONE representative inside a window derived from the
+#     document's own step (+/-3 px here), and 3 < 64/2. The alias cannot move a difference.
+#
+# So the descent, its rate and its total are ALIAS-FREE; only the absolute offset carries a
+# mod. THE WINDOW IS SYMMETRIC ABOUT ZERO — an UPWARD ramp is decoded exactly as well as a
+# downward one — which is the property that makes this a measurement OF the sign rather than
+# a search FOR the sign we hoped for.
+#
+# THE SWEEP RANGE IS DERIVED FROM THE HARDWARE, NOT CHOSEN. VDP register $10's VSZ field
+# gives plane B's height in tiles; the sweep is every residue that height admits (0..511
+# here: VSZ=1 -> 64 tiles -> 512 px). No window is picked, so no direction is presupposed.
+#
+# THREE SUBJECTS AGAINST ONE SWEEP, AND THE OTHER TWO ARE WHAT MAKE THE FIRST ONE MEAN
+# ANYTHING. The calibration captures do not depend on the subject, so one sweep decodes as
+# many subjects as we like at two captures each. This arm runs three, and together they are
+# the whole answer to "would this instrument have said DESCENDING no matter what you showed
+# it":
+#
+#     NEG   the ROM's own authored record, at its own ROM address        -> must DESCEND
+#     POS   that record with the step's sign flipped, staged in RAM      -> must ASCEND
+#     ZERO  that record with the step zeroed, staged in RAM              -> must be FLAT
+#
+# All three are the SAME 34 bytes differing in FOUR, all three are walked by the same
+# interpreter through the same pointer, and all three are decoded by the same sweep on the
+# same scene in the same instance at the same frame cadence. If this arm reported DESCENDING
+# for POS, or for ZERO, it would not be reading values at all.
+#
+# ⚠ SIXTEEN LINES ANIMATE, AND THEY ARE EXCLUDED BY A RULE, NOT BY NAME. The OJZ scene's
+# background animation moves ~16 of the 224 rows frame to frame (measured: 207-208 of 224
+# identical across an 8-frame advance, and the same count across 16). A line whose hash is
+# not stable cannot be compared against a capture taken at a different frame, so every match
+# below requires the line to hash IDENTICALLY in two captures 8 frames apart on BOTH sides,
+# subject and calibration. An animating line then matches no C at all and is reported as
+# UNSTABLE rather than silently decoded wrong.
+#
+# ⚠ A LINE THE RUN NEVER REACHES MATCHES *EVERY* C, and that is its signature, not a decode.
+# Above the run's first displayed line the VSRAM entry is whatever the parallax system left
+# — identical in every twin — so the line matches all 512 residues. Reported as UNREACHED.
+#
+# ⚠ WHICH CORE, AND WHAT IS NOT PINNED. Every number below is the RUST core (oracle-aether;
+# `aether_instance.assert_rust_server` refuses the legacy C++ server outright). The landing
+# rule this arm uses — value `j` displays on `top + j + 1` for VSRAM, `j` starting at 1 — is
+# the ratified reading, and 5a CORROBORATES it from a non-pixel instrument: the accumulator
+# parked at screen line L holds exactly value `j = L - top - 1`. It does NOT pin it. The
+# legacy core reads one line earlier on the same bytes, and the Rust core's mid-line VSRAM
+# timing is an INTERIM model in oracle's own recon. THE SIGN RESULT DOES NOT REST ON THE
+# LANDING RULE AT ALL: a one-line shift moves every value by one index and changes no
+# difference, no direction and no total.
+def run_arm5(rom, lst, sym, at, blob, scratch, top, lines, start_v, step_v):
+    """The value arm. Prints its own report; returns True if every check held."""
+    R = []
+
+    def say(s=""):
+        R.append(s)
+        print(s)
+
+    step_px = step_v / 65536.0
+    # THE DELTA-RESOLUTION WINDOW, DERIVED FROM THE DOCUMENT'S OWN STEP. Consecutive integer
+    # parts of a `step_px`-per-line ramp differ by floor(step_px) or ceil(step_px), so every
+    # true difference has |d| <= ceil(|step_px|). One pixel of slack, and a floor of 2 so a
+    # sub-pixel step still admits its own alternation. Symmetric about zero on purpose.
+    win = max(2, int(math.ceil(abs(step_px))) + 1)
+
+    # THE EXPECTED DIRECTION IS THE DOCUMENT'S OWN SIGN, NOT THIS PARCEL'S SUBJECT.
+    # An earlier shape of this arm hard-wired "the subject must DESCEND", because the
+    # document that motivated it descends. That is a gate that reads its own author's
+    # intention rather than the document in front of it, and it would have failed the
+    # DEFAULT preset (`ramp_probe`, +1.5 px/line) for being correct. The three expectations
+    # below are all functions of `step_v`.
+    sign = (step_v > 0) - (step_v < 0)
+    if sign == 0:
+        raise SystemExit(
+            "this document's step is ZERO, so it authors no direction and there is no sign "
+            "for arm 5 to measure. A flat run is arm 4's subject, not this one's — and "
+            "reporting 'the machine did not descend' about a document that never asked it "
+            "to would be a false red.")
+    NAMEX = {-1: "DOWNWARD", 0: "FLAT", 1: "UPWARD"}
+    TAGS = ("SUBJECT", "MIRROR", "FLAT")
+    step_of = {"SUBJECT": step_v, "MIRROR": -step_v, "FLAT": 0}
+    want_dir = {"SUBJECT": sign, "MIRROR": -sign, "FLAT": 0}
+    ROLE = {"SUBJECT": "the ROM's OWN record, at its OWN address",
+            "MIRROR":  "that record with the step's sign FLIPPED, staged in RAM",
+            "FLAT":    "that record with the step ZEROED, staged in RAM"}
+
+    def want_val(L, step):
+        """The integer the ROM should write for screen line L, from the document ALONE.
+        `swap d1` selects the HIGH WORD of a two's-complement 16.16, which is floor()."""
+        j = L - top - 1                        # the VSRAM landing rule, with j starting at 1
+        if not (1 <= j <= lines):
+            return None
+        return (start_v + j * step) >> 16      # arithmetic shift == floor, negatives included
+
+    async def go(b):
+        track = []
+
+        async def mark(what, r=None):
+            f = (r or await b.call("emulator/status", {}))["frame"]
+            if track and f < track[-1][1]:
+                raise SystemExit(
+                    "FRAME INDEX REWOUND inside arm 5's window: %s -> %s. A rewind reads as "
+                    "'nothing changed', which is indistinguishable from a real negative, so "
+                    "every value below is void." % (track[-1], (what, f)))
+            track.append((what, f))
+            return f
+
+        async def wr(a, by):
+            await b.call("emulator/write_memory",
+                         {"addr": "0x%08X" % bus24(a), "bytes": "0x" + by.hex()})
+
+        async def install(addr):
+            await b.call("emulator/write_memory",
+                         {"addr": "0x%08X" % bus24(sym["Raster_Pending"]),
+                          "bytes": "0x%08X" % addr})
+
+        async def shot(chunk=28):
+            """One full-screen row-hash capture.
+
+            ⚠ CHUNKED AT 28, AND THAT IS A CLIENT LIMIT, NOT A PROTOCOL ONE. The schema
+            allows count=224 in a single call; the Python bus client cannot receive it. A
+            224-row H40 reply is ~430 KB on ONE line and asyncio's StreamReader caps a line
+            at 64 KiB, so the call does not fail cleanly — THE CONNECTION DIES, surfacing
+            later as `[-32000] bus connection closed`. 28 rows is ~54 KB.
+            """
+            out, got = [], 0
+            while got < SCREEN_LINES:
+                n = min(chunk, SCREEN_LINES - got)
+                r = await b.call("emulator/scanlines", {"startLine": got, "count": n})
+                if r.get("source") != "raster":
+                    raise SystemExit(
+                        "ARM 5 IS VOID: emulator/scanlines answered source=%r, not 'raster'. "
+                        "A stateRender capture cannot see a mid-frame VSRAM write at all, so "
+                        "every value this arm would report would be the end-of-frame state "
+                        "rather than the per-line one — and it would look clean."
+                        % r.get("source"))
+                out += [hashlib.md5(row["rgb"].encode()).hexdigest()[:10] for row in r["rows"]]
+                got += n
+            return out
+
+        async def twice():
+            """Two captures AFTER frames apart. A line differing between them is animating."""
+            await b.call("emulator/run_frames", {"frames": AFTER})
+            a1 = await shot()
+            await b.call("emulator/run_frames", {"frames": AFTER})
+            a2 = await shot()
+            return a1, a2
+
+        await mark("connect")
+        done = 0
+        while done < SETTLE:
+            n = min(100, SETTLE - done)
+            r = await b.call("emulator/run_frames", {"frames": n})
+            done += n
+            await mark("settle+%d" % done, r)
+
+        # --- the registers that decide what "addr 2" MEANS, read HERE, at capture time ---
+        async def reg(off):
+            return (await b.call("emulator/read_memory",
+                                 {"addr": "0x%08X" % bus24(sym["VDP_Shadow_Table"] + off),
+                                  "len": 1}))["bytes"]
+        mode3, planesz, mode4 = await reg(0x0B), await reg(0x10), await reg(0x0C)
+        vsz = (int(planesz, 16) >> 4) & 3
+        tiles = {0: 32, 1: 64, 3: 128}.get(vsz)
+        if tiles is None:
+            raise SystemExit("VDP reg $10 = %s: VSZ=%d is the RESERVED plane height. This "
+                             "arm DERIVES its sweep range from that field and will not "
+                             "derive it from a reserved encoding." % (planesz, vsz))
+        height = tiles * 8
+        say("  VDP shadow reg $0B AT CAPTURE TIME: %s   %s"
+            % (mode3,
+               "($03 = FULL-SCREEN vertical scroll: VSRAM entry 1 moves ALL of plane B)"
+               if int(mode3, 16) == 0x03 else
+               "(NOT $03 — entry 1 no longer moves the whole plane. In per-column mode ($07) "
+               "this write moves a SIXTEEN-PIXEL COLUMN and every span claim below is about "
+               "that column, not the plane. See this file's VSCR banner.)"))
+        say("  VDP shadow reg $10 AT CAPTURE TIME: %s   -> VSZ=%d, plane B %d tiles = %d px "
+            "tall" % (planesz, vsz, tiles, height))
+        say("  VDP shadow reg $0C AT CAPTURE TIME: %s   -> %s"
+            % (mode4, "H40, 320 px rows" if int(mode4, 16) & 0x81 == 0x81 else "H32"))
+        say("  the residue sweep is therefore 0..%d — EVERY value the plane admits, so no "
+            "window is chosen and no direction is presupposed." % (height - 1))
+        say()
+
+        # ================= the three subjects ==========================================
+        def variant(step_img):
+            t = bytearray(blob)
+            t[field_offset("rrp_step"):field_offset("rrp_step") + 4] = step_img.to_bytes(4, "big")
+            return bytes(t)
+
+        subs = {}
+        # SUBJECT is the ROM's OWN bytes at their OWN address — never copied, never patched.
+        await install(at)
+        subs["SUBJECT"] = await twice()
+        await mark("subject SUBJECT")
+        for tag, img in (("MIRROR", u32_image(-step_v)), ("FLAT", u32_image(0))):
+            rec = variant(img)
+            await wr(scratch, rec)
+            await install(scratch)
+            subs[tag] = await twice()
+            await mark("subject " + tag)
+            back = (await b.call("emulator/read_memory",
+                                 {"addr": "0x%08X" % bus24(scratch),
+                                  "len": len(rec)}))["bytes"]
+            if bytes.fromhex(back[2:] if back.startswith("0x") else back) != rec:
+                raise SystemExit(
+                    "the %s control record at $%06X was CLOBBERED while it was live. Its "
+                    "decode would be attributed to a step it no longer holds, and the "
+                    "three-way separation below would be meaningless." % (tag, bus24(scratch)))
+
+        # ================= the calibration sweep =======================================
+        t0 = time.time()
+        cand = {tag: {L: [] for L in range(SCREEN_LINES)} for tag in subs}
+        for C in range(height):
+            flat = bytearray(blob)
+            flat[field_offset("rrp_step"):field_offset("rrp_step") + 4] = (0).to_bytes(4, "big")
+            flat[field_offset("rrp_start"):field_offset("rrp_start") + 4] = \
+                u32_image(fp16(C, 0)).to_bytes(4, "big")
+            await wr(scratch, bytes(flat))
+            await install(scratch)
+            c1, c2 = await twice()
+            for tag, (s1, s2) in subs.items():
+                for L in range(SCREEN_LINES):
+                    if s1[L] == s2[L] == c1[L] == c2[L]:
+                        cand[tag][L].append(C)
+        sweep_s = time.time() - t0
+        await mark("sweep done")
+
+        # ================= 5a: the value ON THE WIRE, mid-frame ========================
+        # Done LAST because it parks the machine mid-frame; every capture above wants whole
+        # frames. The subject is re-installed from its own ROM address first.
+        await install(at)
+        await b.call("emulator/run_frames", {"frames": AFTER})
+        await mark("5a install")
+        accs = []
+        for L in range(top + 2, SCREEN_LINES, 10):
+            await b.call("emulator/run_to_scanline", {"line": L})
+            st = await b.call("emulator/status", {})
+            m = (await b.call("emulator/read_memory",
+                              {"symbol": "Raster_Ramp_Acc", "len": 4}))["bytes"]
+            v = int(m[2:] if m.startswith("0x") else m, 16)
+            accs.append((L, st["frame"], v - (1 << 32) if v >= (1 << 31) else v))
+        return cand, height, track, (mode3, planesz, mode4), accs, sweep_s
+
+    with aether_emulator(rom, symbols=lst) as sock:
+        async def boot():
+            b = BusClient(socket_path=sock, client_id="arm5", client_name="arm5")
+            await b.connect()
+            return await go(b)
+        cand, height, track, regs, accs, sweep_s = asyncio.run(boot())
+
+    ok = True
+
+    # ---------------- 5a report ----------------------------------------------------
+    say("  5a  THE VALUE ON THE WIRE — Raster_Ramp_Acc, read mid-frame at %d parked lines"
+        % len(accs))
+    frames = {f for _, f, _ in accs}
+    if len(frames) != 1:
+        say("    *** the %d stops did NOT all land in one frame (%s). run_to_scanline wrapped "
+            "to a later frame, where the accumulator has been REWOUND to `start` — the "
+            "differences below would straddle a reset. NOT MEASURED." % (len(accs), sorted(frames)))
+        ok = False
+    else:
+        say("    all %d stops inside frame %d (the accumulator is rewound every frame, so a "
+            "straddle would be a false reading)" % (len(accs), frames.pop()))
+        for L, _, v in accs[:6] + ([("...", 0, 0)] if len(accs) > 9 else []) + accs[-3:]:
+            if L == "...":
+                say("      ...")
+                continue
+            j = L - top - 1
+            w = start_v + j * step_v
+            say("      line %3d  j=%3d  acc %+12d = %+9.3f px   document derives %+12d  %s"
+                % (L, j, v, v / 65536.0, w, "ok" if v == w else "*** MISMATCH ***"))
+        bad = [(L, v, start_v + (L - top - 1) * step_v) for L, _, v in accs
+               if v != start_v + (L - top - 1) * step_v]
+        say("    accumulator EQUALS the document's derived value at %d of %d stops"
+            % (len(accs) - len(bad), len(accs)))
+        if bad:
+            say("    disagreeing stops (line, measured, derived): %s" % bad[:6])
+            ok = False
+        else:
+            say("    -> and that is a SECOND, non-pixel corroboration of the landing rule: "
+                "the accumulator parked at screen line L holds exactly value j = L-top-1, "
+                "i.e. value j is the one live on line top+j+1. It does not PIN the rule "
+                "(see this arm's core note); it agrees with it from a different instrument.")
+        slopes = {(accs[i + 1][2] - accs[i][2]) / (accs[i + 1][0] - accs[i][0])
+                  for i in range(len(accs) - 1)}
+        say("    per-line slope across every consecutive pair: %s   document derives %+d "
+            "(= fp16(%d, %d)) %s"
+            % (sorted(slopes), step_v, step_v // 65536 if step_v >= 0 else -((-step_v) // 65536),
+               (abs(step_v) % 65536) // 256,
+               "ok" if slopes == {float(step_v)} else "*** MISMATCH ***"))
+        if slopes != {float(step_v)}:
+            ok = False
+        say("    SIGN ON THE WIRE: %s"
+            % ("DOWNWARD — the accumulator strictly decreases, exactly %+0.4f px per line"
+               % step_px if all(accs[i + 1][2] < accs[i][2] for i in range(len(accs) - 1))
+               else "*** NOT strictly decreasing ***"))
+    say()
+
+    # ---------------- 5b report ----------------------------------------------------
+    say("  5b  THE VALUE AT THE DESTINATION — plane-B displacement, decoded by a %d-residue "
+        "calibration sweep (%.1f s wall)" % (height, sweep_s))
+    summary = {}
+    for tag in TAGS:
+        c = cand[tag]
+        unreached = [L for L in range(SCREEN_LINES) if len(c[L]) > height // 2]
+        unstable = [L for L in range(SCREEN_LINES) if len(c[L]) == 0]
+        decoded = [L for L in range(SCREEN_LINES) if 0 < len(c[L]) <= height // 2]
+        st_ = step_of[tag]
+        say("    %-7s (step %+d = %+0.4f px/line — %s)" % (tag, st_, st_ / 65536.0, ROLE[tag]))
+        say("      decoded %d lines | unreached %d | unstable/animating %d"
+            % (len(decoded), len(unreached), len(unstable)))
+        say("      EXPECTED DIRECTION, derived from the document's step: %s"
+            % NAMEX[want_dir[tag]])
+        if not decoded:
+            say("      *** decoded NOTHING for %s. This arm MEASURED NOTHING here; do not "
+                "read it as a flat or an absent ramp." % tag)
+            ok = False
+            continue
+        say("      unreached lines: %s" % (unreached if len(unreached) <= 12 else
+                                           "%d of them, %d..%d" % (len(unreached),
+                                                                   min(unreached),
+                                                                   max(unreached))))
+        spacings = sorted({y - x for L in decoded for x, y in zip(c[L], c[L][1:])})
+        say("      candidates per decoded line: %s ; alias spacing MEASURED: %s"
+            % (sorted({len(c[L]) for L in decoded}), spacings or ["none — unique"]))
+        # THE GUARD IS PER PAIR, NOT GLOBAL, AND THE DIFFERENCE MATTERS.
+        # An earlier shape of this arm aborted a whole subject when the SMALLEST alias
+        # spacing anywhere on screen was not wider than twice the window. That threw away
+        # the ZERO control outright: a constant-value subject sits on lines where two
+        # adjacent plane rows are identical, so its candidate sets are sometimes one apart,
+        # and one global tight pair killed 203 good lines. The sound test is the one already
+        # applied below, PAIR BY PAIR: the sweep is EXHAUSTIVE over every residue, so a
+        # line's candidate set is COMPLETE and provably contains the true value; therefore
+        # the difference set of two complete sets contains the true difference; therefore if
+        # exactly ONE difference falls inside the window, it IS the true one. A pair whose
+        # window admits two or more is reported UNRESOLVED, never guessed.
+        #
+        # WHAT THAT ARGUMENT ASSUMES, AND WHAT BACKS IT: it assumes the TRUE difference is
+        # inside the window, which is derived from the document. A ROM whose real step were
+        # grossly larger could in principle put an aliased difference inside the window while
+        # the true one sat outside. That case is not left to this half — 5a reads the step
+        # off a full 32-bit signed accumulator with NO alias of any kind, and the ABSOLUTE
+        # check below independently requires the derived value to be among the candidates.
+        if spacings and min(spacings) <= 2 * win:
+            say("      note: the tightest alias spacing on this subject is %d px, which is "
+                "not wider than twice the +/-%d window. Resolution is therefore decided PAIR "
+                "BY PAIR (unique-in-window or nothing); 5a's alias-free slope and the "
+                "absolute check below are what stand behind a gross step error."
+                % (min(spacings), win))
+
+        deltas, unresolved = {}, []
+        for L in decoded:
+            if L + 1 >= SCREEN_LINES or not (0 < len(c[L + 1]) <= height // 2):
+                continue
+            got = sorted({y - x for x in c[L] for y in c[L + 1] if abs(y - x) <= win})
+            if len(got) == 1:
+                deltas[L] = got[0]
+            else:
+                unresolved.append((L, got))
+        say("      adjacent pairs with a UNIQUELY resolved difference: %d   (window +/-%d px, "
+            "DERIVED from the document's step %+0.4f px/line; the alias is %s px so the "
+            "window cannot straddle it)"
+            % (len(deltas), win, step_px, spacings[0] if spacings else "n/a"))
+        if unresolved:
+            say("      pairs the window could not resolve: %d %s" % (len(unresolved),
+                                                                     unresolved[:6]))
+        if not deltas:
+            say("      *** no difference resolved; NOTHING is said about direction for %s." % tag)
+            ok = False
+            continue
+        vals = list(deltas.values())
+        neg, pos, zer = sum(1 for d in vals if d < 0), sum(1 for d in vals if d > 0), \
+            sum(1 for d in vals if d == 0)
+        say("      DIRECTION: %d differences DOWN(<0), %d UP(>0), %d FLAT(==0)" % (neg, pos, zer))
+        say("      difference histogram: %s"
+            % sorted((d, vals.count(d)) for d in set(vals)))
+
+        wrong = []
+        for L, d in sorted(deltas.items()):
+            a_, b_ = want_val(L, st_), want_val(L + 1, st_)
+            if a_ is None or b_ is None or d != b_ - a_:
+                wrong.append((L, d, None if (a_ is None or b_ is None) else b_ - a_))
+        say("      differences EQUAL to the one the document derives for that pair: %d of %d"
+            % (len(deltas) - len(wrong), len(deltas)))
+        if wrong:
+            say("      disagreeing pairs (line, measured, derived): %s" % wrong[:8])
+            ok = False
+
+        alias = spacings[0] if spacings else height
+        absmiss = [L for L in decoded
+                   if want_val(L, st_) is None
+                   or (want_val(L, st_) % height) not in c[L]]
+        say("      ABSOLUTE: the document's derived value is among the candidates on %d of %d "
+            "decoded lines (pinned only mod %d — the artwork's own vertical period)"
+            % (len(decoded) - len(absmiss), len(decoded), alias))
+        if absmiss:
+            say("      lines where it is NOT: %s" % absmiss[:10])
+            ok = False
+
+        runs, cur = [], []
+        for L in sorted(deltas):
+            if cur and L == cur[-1] + 1:
+                cur.append(L)
+            else:
+                if cur:
+                    runs.append(cur)
+                cur = [L]
+        if cur:
+            runs.append(cur)
+        longest = max(runs, key=len)
+        total = sum(deltas[L] for L in longest)
+        want_total = want_val(longest[-1] + 1, st_) - want_val(longest[0], st_)
+        say("      LONGEST unbroken decoded chain: screen lines %d..%d (%d differences)"
+            % (longest[0], longest[-1] + 1, len(longest)))
+        say("      TOTAL DISPLACEMENT ACROSS IT: %+d px MEASURED   %+d px DERIVED   %s"
+            % (total, want_total, "agree" if total == want_total else "*** DISAGREE ***"))
+        say("        (alias-free: a sum of differences each resolved inside +/-%d, so the "
+            "mod-%d ambiguity on the absolute value cannot reach it)" % (win, alias))
+        if total != want_total:
+            ok = False
+        # THE MEASURED SEQUENCE, shown rather than summarised.
+        show = decoded[::max(1, len(decoded) // 10)][:10]
+        say("      the measured sequence (every ~%dth decoded line):" % max(1, len(decoded) // 10))
+        for L in show:
+            say("        line %3d  candidates %-22s  document derives %5d (mod %d = %d)"
+                % (L, str(c[L]), want_val(L, st_), height,
+                   want_val(L, st_) % height))
+        got_dir = (total > 0) - (total < 0)
+        pure = {-1: neg, 0: zer, 1: pos}[want_dir[tag]] == len(vals)
+        say("      DIRECTION VERDICT: measured %s, expected %s — %s"
+            % (NAMEX[got_dir], NAMEX[want_dir[tag]],
+               "ok" if (got_dir == want_dir[tag] and pure) else
+               "*** MISMATCH ***" if got_dir != want_dir[tag] else
+               "*** direction agrees but %d of %d differences go the OTHER WAY ***"
+               % (len(vals) - {-1: neg, 0: zer, 1: pos}[want_dir[tag]], len(vals))))
+        if got_dir != want_dir[tag] or not pure:
+            ok = False
+        summary[tag] = (neg, pos, zer, total, got_dir)
+        say()
+
+    say("  THE THREE SUBJECTS, SIDE BY SIDE"
+        "   (differences down / up / flat, total px, measured direction)")
+    for tag in TAGS:
+        r = summary.get(tag)
+        say("    %-7s %s   expected %s"
+            % (tag,
+               "NOT MEASURED" if r is None else
+               "%4d / %4d / %4d  %+5d px  %s" % (r[0], r[1], r[2], r[3], NAMEX[r[4]]),
+               NAMEX[want_dir[tag]]))
+    if all(t in summary for t in TAGS):
+        got = tuple(summary[t][4] for t in TAGS)
+        exp = tuple(want_dir[t] for t in TAGS)
+        # THE SEPARATION TEST, and it is what stops "descending" from being a foregone
+        # conclusion. Three records differing in FOUR BYTES, decoded by ONE sweep on ONE
+        # scene in ONE instance, must come back with THREE DIFFERENT directions — the
+        # document's, its opposite, and none. An instrument that reported the subject's
+        # direction for all three would be reading the scene, not the values.
+        good = got == exp and len(set(got)) == 3
+        say("  -> %s"
+            % ("THE SAME INSTRUMENT ON THE SAME SCENE reads the authored record as %s, its "
+               "sign-flipped twin as %s, and its step-0 twin as FLAT. Three records "
+               "differing in FOUR BYTES, three different answers. The direction is "
+               "MEASURED, not assumed — an instrument that could only ever return the "
+               "subject's own direction is ruled out by its own two controls."
+               % (NAMEX[exp[0]], NAMEX[exp[1]])
+               if good else
+               "*** THE THREE SUBJECTS DO NOT SEPARATE (measured %s, expected %s). A "
+               "direction reported by an instrument that cannot also read the other two on "
+               "the same scene is not a measurement of direction."
+               % (tuple(NAMEX[g] for g in got), tuple(NAMEX[e] for e in exp))))
+        ok = ok and good
+    else:
+        ok = False
+    say("  frame bracket: %s .. %s   (strictly advancing; no reset, restore or checkpoint "
+        "was called, so no rewind could occur)" % (track[0], track[-1]))
+    return ok
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--preset", default="ramp_probe")
@@ -361,6 +911,8 @@ def main():
     ap.add_argument("--lst", default=None)
     ap.add_argument("--wire-only", action="store_true",
                     help="the ROM-file half only; no emulator")
+    ap.add_argument("--arm5-only", action="store_true",
+                    help="the VALUE arm only (arm 5) — skips arms 1-4's six instances")
     a = ap.parse_args()
     repo = Path(W)
     rom = Path(a.rom or (repo / "s4.debug.bin"))
@@ -447,6 +999,28 @@ def main():
         return 0
 
     # ---- THE PICTURE HALF --------------------------------------------------
+    # WHERE A CONTROL RECORD GOES, DERIVED FROM THE TREE rather than picked, and HOISTED
+    # here because arms 3 and 5 both stage records in it. `Game_RAM_End` is the last address
+    # any RAM region claims; the ROM header's first longword is the initial stack pointer,
+    # and the stack grows DOWN from it. The scratch sits a page above the one and thousands
+    # of bytes below the other, and both margins are ASSERTED here rather than in prose.
+    ram_end = sym["Game_RAM_End"]
+    init_sp = int.from_bytes(rom.read_bytes()[0:4], "big")
+    scratch = (ram_end + 0x1DA) & ~1          # a page-ish above the last claimed byte, even
+    if not (ram_end < scratch and scratch + REC_SIZE + 0x800 < init_sp):
+        raise SystemExit(
+            "no safe scratch for a control record: Game_RAM_End $%08X, initial SP $%08X, "
+            "candidate $%08X. Refusing to place a control record where it might be the "
+            "stack or a RAM region." % (ram_end, init_sp, scratch))
+
+    if a.arm5_only:
+        print("ARMS 1-4 SKIPPED (--arm5-only). They measure WHICH LINES CHANGE; arm 5 "
+              "measures WHAT VALUE IS WRITTEN, and is the only one that answers the sign.")
+        print()
+        print("ARM 5  THE VALUE ITSELF, AND ITS SIGN")
+        return 0 if run_arm5(str(rom), str(lst), sym, at, blob, scratch,
+                             top, lines, start_v, step_v) else 1
+
     print("ARM 1  CONTROL vs CONTROL")
     p0, m0, base, t0 = run(str(rom), str(lst), sym)
     p0b, m0b, base2, t0b = run(str(rom), str(lst), sym)
@@ -482,19 +1056,7 @@ def main():
     twin = bytearray(blob)
     off = field_offset("rrp_step")
     twin[off:off + 4] = (0).to_bytes(4, "big")
-    # WHERE THE TWIN GOES, DERIVED FROM THE TREE rather than picked. `Game_RAM_End` is the
-    # last address any RAM region claims; the ROM header's first longword is the initial
-    # stack pointer, and the stack grows DOWN from it. The scratch sits a page above the
-    # one and thousands of bytes below the other, and both margins are asserted here rather
-    # than asserted in prose.
-    ram_end = sym["Game_RAM_End"]
-    init_sp = int.from_bytes(rom.read_bytes()[0:4], "big")
-    scratch = (ram_end + 0x1DA) & ~1          # a page-ish above the last claimed byte, even
-    if not (ram_end < scratch and scratch + REC_SIZE + 0x800 < init_sp):
-        raise SystemExit(
-            "no safe scratch for the step-0 twin: Game_RAM_End $%08X, initial SP $%08X, "
-            "candidate $%08X. Refusing to place a control record where it might be the "
-            "stack or a RAM region." % (ram_end, init_sp, scratch))
+    # `scratch` is derived above, before arm 1 — arms 3 and 5 both stage records there.
     print("  twin at $%08X   (Game_RAM_End $%08X, initial SP $%08X, %d bytes of stack "
           "headroom below it)" % (scratch, ram_end, init_sp, init_sp - scratch))
     p2, m2, flat, t2 = run(str(rom), str(lst), sym, install=scratch,
@@ -563,6 +1125,12 @@ def main():
         print("  agreement              : %s"
               % ("EXACT" if (reached[0], reached[-1]) == (d_lo, d_hi)
                  else "top %+d, bottom %+d" % (reached[0] - d_lo, reached[-1] - d_hi)))
+    print()
+
+    print("ARM 5  THE VALUE ITSELF, AND ITS SIGN")
+    if not run_arm5(str(rom), str(lst), sym, at, blob, scratch,
+                    top, lines, start_v, step_v):
+        return 1
     return 0
 
 

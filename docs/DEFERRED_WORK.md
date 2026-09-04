@@ -20829,6 +20829,80 @@ encoded a NEGATIVE `start`/`step` into its u32 image fields, so **no ROM could h
 ramp at all** — sigil refused the emission (`[emit.out-of-range] -98304 does not fit u32`). Fixed
 on `parcel/aurora-ramp-witness`. **That part is CLOSED.**
 
+> **⚠ "CLOSED" THERE MEANT THE BYTES, AND IT WAS READ AS MEANING THE PICTURE.** The comptime
+> pin is two-directional and it is a fact about the ROM's CONTENTS: a negative step now
+> reaches `rrp_step` as its two's-complement image, and a positive one is unchanged. What it
+> cannot say is that the machine CONSUMES one. Everything else that ran aurora's document —
+> all four arms of `tools/ramp_authored_witness.py` — measures WHICH SCREEN LINES CHANGE, and
+> arm 4 is blind to direction BY CONSTRUCTION because its two twins are FLAT on purpose. **A
+> flat twin has no direction.** So for a day the tree's whole evidence for a downward ramp was
+> a byte check plus 219 contiguous changed lines, neither of which has a sign in it.
+
+## THE SIGN IS NOW WITNESSED ON THE HARDWARE — 2026-09-04, `parcel/ramp-sign-witness`
+
+`tools/ramp_authored_witness.py` **arm 5** reads WHAT VALUE IS WRITTEN rather than which lines
+moved. Two instruments, because each one's blind spot is the other's subject:
+
+* **5a, on the wire** — `Raster_Ramp_Acc` read MID-FRAME at 22 parked scanlines
+  (`run_to_scanline`). This is the exact longword `.ramp_body` writes back one instruction
+  before `swap d1 / move.w d1, -4(a2)` puts its integer half on the data port. A full 32-bit
+  signed 16.16 with **no alias of any kind**, so it pins the step exactly rather than to the
+  pixel.
+* **5b, at the destination** — the plane-B displacement the VDP actually applied. **The bus
+  serves no VSRAM read** (the method list ends at `read_vram`/`read_cram`), so the only
+  observable of VSRAM entry 1 is which plane row the VDP fetches per line. Decoded by an
+  EXHAUSTIVE residue calibration sweep: for every value the plane admits, install a flat twin
+  pinned there and record which lines then render as the subject does.
+
+**MEASURED, Rust core (`oracle-aether`), subject `aurora_ramp_witness` (top 3, lines 220,
+VSRAM byte 2, start 0, step `fp16(-1,128)` = -1.5 px/line):**
+
+| | 5a | 5b |
+|---|---|---|
+| per-line step | `{-98304.0}` on every consecutive pair — `fp16(-1,128)` exactly | 202/202 differences equal the document's; histogram `[(-2,101), (-1,101)]` |
+| absolute value | equals the document's derived value at **22 of 22** stops | among the candidates on **203 of 203** decoded lines (mod 64) |
+| direction | strictly decreasing | 202 differences DOWN, 0 UP, 0 flat |
+| total | — | chain 21..223: **-303 px measured == -303 px derived** |
+
+Registers **read at capture time and quoted**: `$0B = $03` (full-screen vscroll, so entry 1
+moves ALL of plane B, not a 16-px column), `$10 = $11` (VSZ=1 -> 64 tiles -> 512 px, which is
+what DERIVES the 0..511 sweep range), `$0C = $81` (H40).
+
+**THE ALIAS IS REAL AND THE SIGN IS IMMUNE TO IT.** The sweep returns TWO candidates 64 apart,
+because plane B's artwork repeats vertically every 64 px. The ABSOLUTE value is therefore
+pinned only **mod 64** and is reported that way. But the DIFFERENCE of two candidate sets 64
+apart has exactly one representative inside the +/-3 window derived from the document's own
+step, and 3 < 64/2 — so **descent, rate and total are alias-free**. Only the offset carries a
+mod.
+
+**AND THE READING COULD HAVE COME OUT OTHERWISE.** Arm 5 runs THREE subjects against ONE sweep
+— the same 34 bytes differing in FOUR, the same walker, the same pointer, the same scene, the
+same instance: the ROM's own record, its sign-flipped MIRROR, and its step-0 FLAT twin. They
+come back **DOWNWARD / UPWARD / FLAT**. An instrument that returned the subject's direction for
+all three would be reading the scene rather than the values, and it is ruled out by its own two
+controls.
+
+**THE RED-FIRST IS THE POINT, AND IT IS THE ONE THE BYTE PIN CANNOT DO.** `.ramp_body`'s
+`add.l Raster_Ramp_Step, d1` was changed to `sub.l` on disk and the ROM rebuilt. The record is
+UNTOUCHED — `rrp_step` still reads `$FFFE8000`, the wire half still reports "the ROM record
+matches the document in every field", and the comptime pin still passes, because none of them
+is looking at the machine. Arm 5 went RED: slope `+98304`, accumulator disagreeing at 22/22
+stops, destination **+303 px UPWARD**. Restored from the committed baseline, rebuilt, green.
+**That is precisely the defect class — a ROM that CONTAINS a downward ramp running on a machine
+that does not CONSUME one — that nothing in this tree could previously see.**
+
+**WHICH CORE, AND WHAT IS STILL NOT PINNED.** Rust core throughout
+(`aether_instance.assert_rust_server` refuses the legacy C++ server). 5a CORROBORATES the
+landing rule from a non-pixel instrument — the accumulator parked at screen line L holds exactly
+value `j = L - top - 1`, i.e. value `j` is live on `top + j + 1`, `j` starting at 1 — but it does
+NOT pin it, and the caveat above this section stands unchanged. **The sign result does not rest
+on the landing rule at all:** a one-line shift moves every value by one index and changes no
+difference, no direction and no total.
+
+**Scope, stated so it is not over-read:** this witnesses ONE document on ONE scene on ONE core.
+It says nothing about CRAM-target ramps, about per-column mode (`$0B = $07`, where the same
+write moves a 16-pixel column), or about any `top`/`lines` other than this document's.
+
 **THE BOUNDARY IS NOW CLOSED TOO, on `parcel/ramp-boundary-settle`,** by
 `tools/ramp_boundary_probe.py`. The three statements that had to move together — the constructor
 banner, its ceiling `ensure`, and `docs/benchmarks/effects-p3/RAMP-EVIDENCE.md` — moved in one
