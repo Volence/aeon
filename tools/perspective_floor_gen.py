@@ -317,8 +317,12 @@ def main():
     ap.add_argument("--row1", type=int, default=63, help="last cell row (inclusive)")
     ap.add_argument("--pitch", type=int, default=64,
                     help="board pitch in px at the near (bottom) row")
-    ap.add_argument("--vp-col", type=int, default=32,
-                    help="vanishing-point cell column (32 = plane x 256)")
+    ap.add_argument("--vp-col", type=int, default=20,
+                    help="vanishing-point cell column. The apex sits at a FIXED "
+                         "SCREEN x equal to this plane x, because the horizon "
+                         "row's scroll factor is 0 and every row below it "
+                         "scrolls in proportion; 20 (plane x 160) is therefore "
+                         "the centre of a 320-px screen")
     ap.add_argument("--lod-px", type=float, default=12.0,
                     help="board pitch below which seams stop being drawn")
     ap.add_argument("--horizon-row", type=int, default=53,
@@ -453,14 +457,21 @@ def main():
             print("  --report: nothing written")
             return
         sys.exit(f"ERROR: {msg}")
-    if appended:
-        print(f"  ** {appended} tile(s) came out of the {RESERVE}-tile "
-              f"band_reserve. The reserve is held for BgAnim band art "
-              f"(games/sonic4/vram.toml); spending it is an owner-visible "
-              f"trade, not a free win. **")
-    else:
+    if not appended:
         print("  ** zero net tiles: the floor fits entirely in the slots its "
               "own band freed. band_reserve is untouched. **")
+    elif after > STATIC_BUDGET:
+        print(f"  ** OVER THE DECLARED STATIC BUDGET: {after} tiles against "
+              f"{STATIC_BUDGET}. Nothing in the bake enforces this — "
+              f"inject_editor_bg.py gates on BG_TILE_CAPACITY ({CAP}) only — so "
+              f"the blob would ship with games/sonic4/vram.toml's contract "
+              f"silently wrong. Lower bg_region's band_reserve to "
+              f"{CAP - after} and re-run tools/gen_vram_map.py. **")
+    else:
+        print(f"  ** {appended} appended tile(s), inside the declared static "
+              f"budget of {STATIC_BUDGET} with {STATIC_BUDGET - after} to "
+              f"spare. band_reserve stands at {RESERVE}; that is what a future "
+              f"BgAnim band has left. **")
 
     if args.report:
         print("  --report: nothing written")
