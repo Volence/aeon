@@ -21595,3 +21595,90 @@ unexplained**: 2 are the header checksum, 9 are the renumbered field offsets in 
 ×2), and 2 are shift counts inside `mul_const.w dN, #sizeof(Sec)` — `lsl.w #5` → `lsl.w #4`,
 because 66 = ((x<<5)+x)<<1 and 34 = ((x<<4)+x)<<1. The stride multiply following the struct with no
 source edit is the `#sizeof(Sec)` spelling doing its job.
+## EFFECTS-W1 item 9 (row remap) — the visibility parcel, 2026-09-03
+
+### What was wrong, and it was not what it looked like
+
+Parcel 9a shipped the Hydrocity waterline's row remap gated five ways, separating from its
+own flat control on 12 of 12 samples, at 0.82% of a frame — **and the owner could not see it.**
+
+The diagnosis that nearly got written was design §9.1 precondition 1's own named trap:
+*remapping a constant is the identity*, so the band must be sitting on flat rows. **It was
+not.** Measured on `s4.debug.bin` at `3d00e2c6` with `ParallaxConfig_OJZ_Underwater`
+installed, reading the whole 224-line `Hscroll_Buffer`:
+
+| | measured |
+|---|---|
+| plane-B scroll, screen lines 0..89 | constant `$FFD0` |
+| first line differing | **90** — which *is* the split line |
+| band mark | `top=90 end=224`, remapped run 15 lines |
+| band's own lines, distinct values / peak-to-peak | 4 / **3 px** |
+| whole band span 90..223 | 5 / **4 px** |
+
+The anchor's `dsb` reached exactly the band the mark named, precisely as designed. The band
+was never flat. It was **four pixels**. That is a *magnitude* failure, and the fix for the
+flat-source failure — move the band to where the variation is — would have produced a second
+invisible screen, because the band was already there.
+
+> A separate reading circulated that the buffer was flat to line 176 and first varied at 177.
+> Re-measured twice on a private instance: the boundary is **90**, not 177. The 160-line
+> boundary in the *section's own* config (`$013DCC`, no chord pressed) is the nearest thing to
+> it, and that config marks **no remap band at all**.
+
+### The fix
+
+`Scene_OJZ_Underwater`'s `anchor: SceneAnchor.At(0, 15, 2)` -> `At(0, 15, 0)`.
+`DeformTable_Shimmer` is `deform_sine(amplitude: 8, period: 32)`, so the anchor's `dsb` is the
+whole amplitude control and 0 is that table's maximum: **16 px peak to peak, 4x what shipped.**
+Zero ROM bytes (`pcfg_anchor_dsb` is one byte either way) and four cycles per deformed line
+*cheaper* (`asr.w` is 6+2n). `dsb: 0` is not novel — `OJZ_Windy` has shipped it on a layer
+since the scene model landed.
+
+**The other lever was checked first and is walled off.** A taller remapped run means a bigger
+ladder, and H is 16 because H = 32 costs 1,056 B of packed data against ~558 B of DEBUG-shape
+headroom before the bank-placement rule demands a whole-ROM re-layout. Amplitude was not the
+lever of convenience; it was the only lever inside the parcel.
+
+### The guard, and why the old one passed
+
+`scene()`'s remap guard asks **"does this scene's plane-B scroll vary at all?"** — a boolean —
+and this scene answered *yes*, truthfully, at 4 px. It is correct about **where** (it checks
+the remapped layer's own `dsb`, the anchor's `dsb`, and a curve, and requires a table beside a
+live shift). It is structurally blind to **how much**, and it cannot be fixed in place:
+`SceneDeform.Shared` carries a `pub data` **Label**, and a label's bytes do not exist at
+comptime. Nor does a shift-only bound substitute — `dsb: 2` is 4 px against Shimmer
+(amplitude 8) and 48 px against `DeformTable_OJZ_Calm` (amplitude 96).
+
+So the magnitude question is asked in the two places where it *can* be:
+
+1. **Comptime, beside the scene** (`games/sonic4/data/effects/ojz_scenes.emp`) — the one site
+   where both halves have names: `SceneSrc_DeformTable_Shimmer` is the array *value*, and the
+   shift is read back **off the scene** rather than retyped, so the number checked is the
+   number emitted. `deform_excursion()` / `REMAP_VISIBLE_MIN_PX` live in
+   `engine/level/parallax_dsl.emp`.
+2. **On the linked image** (`tools/row_remap_gate.py`, already build-fatal in all four shapes)
+   — reads the config's own `pcfg_deform_table_bg` and the shift that reaches the band, and
+   computes the same number from bytes that actually linked. This one covers every config and
+   needs no comptime name.
+
+**The floor is 8 px and its provenance is an observation, stated as one.** Nothing about the
+VDP implies a number here. 4 px was looked at and reported invisible; 16 px is the fix. 8 is
+twice the measured-invisible figure and half the measured-visible one, so the shipped scene
+clears it by 2x rather than squeaking past. If something is ever found invisible at 8 px, the
+number should go up — it is a record of what has been looked at.
+
+### Still open
+
+- **The `n`-never-changed arm fails on the RELEASE shape.** Running
+  `tools/row_remap_witness.py --rom s4.bin --dsb 2` reported `n = 15` on all 12 samples where
+  the DEBUG shape sweeps 11 -> 15. Not chased — the lab is a DEBUG-shape instrument and the
+  witness's defaults are the debug ROM — but it means the witness has never actually exercised
+  its motion arm against a release image, and "it passed on debug" is not "it passed".
+- **`SceneDeform.Shared` cannot carry an amplitude**, so guard (1) above is a per-scene call
+  rather than something `scene()` enforces for every future remapped scene. Closing that means
+  a third payload on the variant (a `deform_peak(SceneSrc_*)` call, derived not typed) and it
+  moves all twenty records and `scene_equiv_proof`. Worth doing when a second scene wants a
+  remap; not worth it for one.
+- **The `--dsb` argument on `row_remap_witness.py` is still hand-passed** and must match the
+  scene, which is exactly the double-authoring the gate above avoids. It should read
+  `pcfg_anchor_dsb` off the ROM the way the gate does.
