@@ -121,8 +121,20 @@ sys.path.insert(0, str(TOOLS))
 # re-implemented: same memory model, same flag arithmetic, same operand grammar, same
 # "raise on anything not modelled" contract. Only the executor LOOP differs, because
 # this routine's callees are events to observe rather than side-effect-free stubs.
+# normalize_stream/unresolved_note come from the same place for the same reason: the
+# relocation-invariant fixture comparison was designed, argued and proved on the tilt
+# gate (parcel/gate-fixtures-address-pinned, 9332587b) and this is its APPLICATION, not a
+# second implementation of it. See the long WHY note above `normalize_stream` in
+# sprite_tilt_gate.py — every word of it holds here.
+#
+# `stream_diff` is deliberately NOT imported: these two routines contain a transfer the
+# assembler re-relaxes by reach, which the tilt and loop routines do not, so their
+# differences need a CLASSIFIER (`classify_stream` below) rather than a flat list. Its
+# `differs` line is stream_diff's, word for word, so the two gates' edit reports read
+# identically.
 from sprite_tilt_gate import (  # noqa: E402
     Micro, UnsupportedInstruction, _split_ops, parse_operand,
+    normalize_stream, unresolved_note,
 )
 
 # --------------------------------------------------------------------------
@@ -721,8 +733,182 @@ def load_cut(path, shape=None):
             cut["constants"], cut["sst_custom"])
 
 
-def check_cut(rom, start, end, path, lst_path):
-    """THIS SHAPE's committed cut must still be what the fresh ROM holds."""
+# --------------------------------------------------------------------------
+# Relocation-invariant fixture comparison  (ported from sprite_tilt_gate.py)
+#
+# WHAT WAS WRONG. `check_cut` used to require `cut["start"] == start and cut["end"] ==
+# end`, and then raw byte equality of the routine. Both of those go red for something
+# that is NOT a defect. These two routines each end in a transfer to a symbol outside
+# themselves — Ability_InstaShield tails into `Sound_PlaySFX` and calls
+# `Player_SetState`/`InstaShield_Spawn`; Ability_TailsFlight tails into
+# `Player_SetState` — so ANY parcel that shifts player code moves the routine (red #1)
+# AND rewrites the displacement bytes baked into the routine's own body (red #2).
+# Re-keying the fixture on symbol-relative offsets alone would only relocate the same
+# false red one level down into the byte comparison; that was measured on the tilt/loop
+# pair and it applies here unchanged.
+#
+# A canonical-base relocation is NOT available as a fix: the two build shapes' symbols
+# move by DIFFERENT deltas (here, Sound_PlaySFX sits at $0081A8 in the release shape and
+# $00B4EA in DEBUG while the routine itself moves by only $10C), so no single base
+# exists. That was measured on the first pair too, and is why the answer is a
+# normalisation rather than a rebasing.
+#
+# WHAT IT DOES NOW. The comparison is over the DECODED INSTRUCTION STREAM with every
+# operand that names a *place* rewritten to what it means (see the long note over
+# `normalize_stream` in sprite_tilt_gate.py):
+#
+#   a target inside the routine  ->  <self+0xNN>
+#   an address naming a symbol   ->  <SymbolName>     (the cut's OWN stub names, and the
+#                                                      SAME name set on both sides)
+#   anything else                ->  compared verbatim, and REPORTED as unresolved
+#
+# Opcodes, sizes, registers, immediates and (a0)/(a4) displacements are all still
+# compared exactly, so every logic change the raw-byte check caught is still caught.
+# --------------------------------------------------------------------------
+
+# Transfer-of-control mnemonics whose ENCODING the assembler picks by reach, not by
+# meaning. `bra`/`jmp` are one transfer at two reaches and so are `bsr`/`jsr`; a
+# conditional branch relaxes between `.b` and `.w` with its base mnemonic unchanged.
+# A difference confined to these, with the resolved TARGET identical, was caused by
+# relocation and must not be described as an edit.
+_XFER_ALIAS = {"bra": "goto", "jmp": "goto", "bsr": "call", "jsr": "call"}
+
+
+def xfer_class(mnem):
+    """The relaxation class of a mnemonic, or None if it has none.
+
+    None is the safe answer: an instruction with no class can never be excused as a
+    relaxation, so a mnemonic this does not recognise is reported as an EDIT.
+    """
+    base = mnem.split(".", 1)[0].lower()
+    if base in _XFER_ALIAS:
+        return _XFER_ALIAS[base]
+    # bcc/bne/beq/bge/... — exactly three letters, and `bra`/`bsr` are already taken
+    # above. `bclr`/`bchg`/`bset`/`btst` are four and correctly fall through to None.
+    if len(base) == 3 and base.startswith("b"):
+        return "b" + base[1:]
+    return None
+
+
+_SELF_TOK = re.compile(r"<self\+0x([0-9A-F]+)>")
+
+
+def _by_instruction(op_str, rows):
+    """Rewrite `<self+0xNN>` to `<self#i>`, naming the INSTRUCTION it targets rather than
+    the byte offset it happens to sit at.
+
+    An internal branch's byte offset is not stable under a relaxation EARLIER in the same
+    routine: widen one transfer and every offset behind it slides, so three untouched
+    `bne` instructions in Ability_InstaShield read as `<self+0x3E>` in one shape and
+    `<self+0x3C>` in the other while pointing at the same `rts`. Measured on the two
+    committed cuts — it is why this pass exists at all. An offset that is not the start
+    of any instruction is left alone, so a branch into the middle of one (which would be
+    a real finding) can never be smoothed away.
+    """
+    at = {r[0]: i for i, r in enumerate(rows)}
+    return _SELF_TOK.sub(
+        lambda m: ("<self#%d>" % at[int(m.group(1), 16)]
+                   if int(m.group(1), 16) in at else m.group(0)),
+        op_str)
+
+
+def classify_stream(cut_rows, live_rows, name):
+    """Split the differences between two normalised streams by CAUSE.
+
+    Returns (edits, relaxations). BOTH ARE FATAL — a relaxed routine is genuinely not the
+    bytes the pytest lane grades, and re-stamping is still required — so nothing is
+    forgiven here and no detection is lost. What differs is the SENTENCE, and the
+    sentence is what a reader carries forward. Calling a reach-driven `bra.w` -> `jmp.l`
+    "the routine was edited" is the fabricated-reason failure this parcel exists to
+    remove, one level in from the address check.
+
+    Three classes:
+      RELAXED  the same transfer to the same named target at a different reach
+      SLID     an untouched instruction whose internal target moved because something
+               ahead of it relaxed — only ever attributed once a relaxation is present
+      differs  everything else: a real edit
+    """
+    edits, relax = [], []
+    if len(cut_rows) != len(live_rows):
+        edits.append("%s: the instruction COUNT changed (cut %d, live %d) — the routine "
+                     "was edited, not moved" % (name, len(cut_rows), len(live_rows)))
+        return edits, relax
+
+    # Pass 1: name every difference, and note which ones are pure internal slides.
+    findings, relaxed_any = [], False
+    for i, (c, l) in enumerate(zip(cut_rows, live_rows)):
+        if c[1:] == l[1:]:
+            continue
+        cc, lc = xfer_class(c[1]), xfer_class(l[1])
+        if c[2] == l[2] and cc is not None and cc == lc:
+            relaxed_any = True
+            findings.append(("relax", i, c, l))
+        elif c[1] == l[1] and (_by_instruction(c[2], cut_rows)
+                               == _by_instruction(l[2], live_rows)):
+            findings.append(("slide", i, c, l))
+        else:
+            findings.append(("edit", i, c, l))
+
+    # Pass 2: a slide is only explainable once a relaxation is on record. With no
+    # relaxation, an instruction that moved inside its own routine means the routine's
+    # geometry changed for some other reason, and that is an EDIT — the excuse must not
+    # be available for free.
+    for kind, i, c, l in findings:
+        if kind == "relax":
+            relax.append("%s: instruction %d (cut offset +0x%X) RELAXED — `%s` became "
+                         "`%s`, same target `%s`. The assembler picked a different reach "
+                         "because the code MOVED; the routine was not edited"
+                         % (name, i, c[0], c[1], l[1], c[2]))
+        elif kind == "slide" and relaxed_any:
+            relax.append("%s: instruction %d (cut +0x%X, live +0x%X) still reaches the "
+                         "SAME instruction of this routine, which SLID — `%s %s` now "
+                         "reads `%s`. Something between them relaxed; this instruction "
+                         "was not edited"
+                         % (name, i, c[0], l[0], c[1], c[2], l[2]))
+        else:
+            edits.append("%s: instruction %d (cut offset +0x%X) differs — cut `%s %s`, "
+                         "live `%s %s`" % (name, i, c[0], c[1], c[2], l[1], l[2]))
+        if len(edits) + len(relax) >= 8:
+            edits.append("%s: ... further differences suppressed" % name)
+            break
+    return edits, relax
+
+
+def placement_notes(cut, start, end, syms):
+    """What MOVED, said out loud on the success path.
+
+    A relocation is not a failure any more, but it is also not nothing: it is the
+    explanation a reader needs for why the fixture's numbers no longer match the build's.
+    Printing it is what keeps 'the gate is green' and 'the addresses differ' from looking
+    like a contradiction the next time someone diffs the fixture by hand.
+    """
+    notes = []
+    if (start, end) != (cut["start"], cut["end"]):
+        notes.append("the routine MOVED (not edited): cut $%06X..$%06X, this build "
+                     "$%06X..$%06X (%+d bytes, length %d -> %d)"
+                     % (cut["start"], cut["end"], start, end,
+                        start - cut["start"], cut["end"] - cut["start"], end - start))
+    moved = ["%s $%06X -> $%06X" % (n, a, syms[n])
+             for a, n in sorted(((int(a, 16), n) for a, n in cut["stubs"].items()))
+             if n in syms and syms[n] != a]
+    if moved:
+        notes.append("symbol(s) it references MOVED (not renamed, not edited): %s"
+                     % "; ".join(moved))
+    return notes
+
+
+def check_cut(rom, start, end, syms, path, lst_path, routine=ROUTINE):
+    """THIS SHAPE's committed cut must still be the same ROUTINE the fresh ROM holds —
+    up to relocation, and nothing more than relocation.
+
+    Still proved: the decoded instruction stream (so every opcode, size, register,
+    immediate and SST/PlayerBlock displacement), that each transfer still reaches the
+    SAME NAMED symbol, and that every symbol the cut anchors still exists.
+    No longer required: that any of it sits at the address it did when stamped.
+
+    Raises SystemExit on a real difference; returns the informational placement notes
+    otherwise.
+    """
     doc = _read_cut_doc(path)
     shape = shape_key(lst_path)
     if shape not in doc["shapes"]:
@@ -731,34 +917,56 @@ def check_cut(rom, start, end, path, lst_path):
             "lane covers the other shape(s) only. Regenerate with --write-fixture."
             % (path, shape, ", ".join(sorted(doc["shapes"]))))
     cut = doc["shapes"][shape]
-    fresh = rom[start:end].hex()
-    moved = cut["start"] != start or cut["end"] != end
-    if moved or cut["bytes"] != fresh:
-        # SAY WHICH OF THE THREE DIFFERED. This message printed the two spans and nothing
-        # else until 2026-08-29, so a pure BYTE difference rendered as "it holds
-        # $01172C..$01176A but this build has $01172C..$01176A" — the same numbers twice,
-        # which reads as a tool fault rather than the finding. A byte-only difference is
-        # the COMMON case: the routine's tail branches to Sound_PlaySFX, so any parcel that
-        # moves that symbol changes one displacement byte here without moving the routine.
-        if moved:
-            why = ("the routine MOVED: cut $%06X..$%06X (%d bytes), build $%06X..$%06X (%d bytes)"
-                   % (cut["start"], cut["end"], cut["end"] - cut["start"],
-                      start, end, end - start))
-        else:
-            old_b, new_b = bytes.fromhex(cut["bytes"]), bytes.fromhex(fresh)
-            diffs = [i for i in range(len(old_b)) if old_b[i] != new_b[i]]
-            why = ("the routine is at the same $%06X..$%06X but its BYTES differ in %d of "
-                   "%d: %s" % (start, end, len(diffs), len(old_b),
-                               ", ".join("+%d ($%02X->$%02X)" % (i, old_b[i], new_b[i])
-                                         for i in diffs[:8])
-                               + (" ..." if len(diffs) > 8 else "")))
+    problems = []
+
+    # The cut's own stub names, and nothing more, resolved on BOTH sides. An asymmetric
+    # resolver — the fixture's three names against the listing's thousands — would invent
+    # differences of its own.
+    cut_names = {int(a, 16): n for a, n in cut["stubs"].items()}
+    names = sorted(set(cut_names.values()))
+
+    # Existence first, because a symbol that VANISHED is a different failure from one
+    # that moved, and the old address check conflated them.
+    gone = [n for n in names if n not in syms]
+    if gone:
+        problems.append("symbol(s) the cut anchors are GONE from the listing: %s — "
+                        "renamed or removed, not moved" % ", ".join(gone))
+    live_names = {syms[n]: n for n in names if n in syms}
+
+    cb = bytes.fromhex(cut["bytes"])
+    if len(cb) != cut["end"] - cut["start"]:
+        raise SystemExit(
+            "instashield_gate: %s shape %r is INTERNALLY INCONSISTENT — it holds %d "
+            "bytes for the span $%06X..$%06X (%d bytes). This is a broken fixture, not "
+            "a finding about the build. Regenerate with --write-fixture."
+            % (path, shape, len(cb), cut["start"], cut["end"],
+               cut["end"] - cut["start"]))
+
+    img = bytearray(cut["end"])
+    img[cut["start"]:cut["end"]] = cb
+    cut_rows, cut_unres = normalize_stream(bytes(img), cut["start"], cut["end"],
+                                           cut_names, "instashield_gate")
+    live_rows, live_unres = normalize_stream(rom, start, end, live_names,
+                                             "instashield_gate")
+    edits, relax = classify_stream(cut_rows, live_rows, routine)
+    problems += edits + relax
+    notes = placement_notes(cut, start, end, syms)
+
+    if problems:
+        if edits or relax:
+            problems += unresolved_note(routine, cut_unres + live_unres)
+        headline = ("the ROUTINE CHANGED" if edits else
+                    "the routine RELAXED under a relocation" if relax else
+                    "a symbol it anchors is gone")
         raise SystemExit(
             "instashield_gate: %s shape %r is STALE — %s. The pytest lane is grading a "
-            "routine this build does not have. If the difference is displacement bytes "
-            "following a symbol move, that is expected of a byte-moving parcel and the "
-            "fixture is re-stamped; if it is opcode bytes, the ROUTINE changed and that "
-            "needs explaining before re-stamping. Regenerate with --write-fixture."
-            % (path, shape, why))
+            "routine this build does not have:\n  %s%s\n  If every line above says "
+            "RELAXED or MOVED, no logic changed and the fixture is simply re-stamped; an "
+            "instruction that `differs` is a real edit and needs explaining first. "
+            "Regenerate with tools/instashield_gate.py --write-fixture."
+            % (path, shape, headline, "\n  ".join(problems),
+               ("\n  " + "\n  ".join(notes)) if notes else ""))
+    return notes
 
 
 # --------------------------------------------------------------------------
@@ -817,16 +1025,20 @@ def _staleness_ok(args):
     return True
 
 
-def _fixture_verdict(rom, start, end, fixture, lst, gate):
+def _fixture_verdict(rom, start, end, syms, fixture, lst, gate, routine=ROUTINE):
     """(ok, hard_fail). Shared by both passes."""
     if pathlib.Path(fixture).exists():
         try:
-            check_cut(rom, start, end, fixture, lst)
+            notes = check_cut(rom, start, end, syms, fixture, lst, routine)
         except SystemExit as e:
             print("  %s" % e)
             return False, gate
-        print("  fixture: %s [%s] — the committed cut is this build's routine, "
-              "byte-identical" % (pathlib.Path(fixture).name, shape_key(lst)))
+        print("  fixture: %s [%s] — the committed cut is this build's %s: decoded "
+              "instruction stream identical, every transfer reaching the same named "
+              "symbol (relocation normalised)"
+              % (pathlib.Path(fixture).name, shape_key(lst), routine))
+        for n in notes:
+            print("    note: %s" % n)
         return True, False
     print("  fixture: %s MISSING — the pytest lane has nothing to grade "
           "(--write-fixture)" % fixture)
@@ -881,7 +1093,8 @@ def pass_instashield(args, rom, syms, equs, offs, overlay_len):
         if len(fails) > 20:
             print("    ... and %d more" % (len(fails) - 20))
 
-    _, hard = _fixture_verdict(rom, start, end, args.fixture, args.lst, args.gate)
+    _, hard = _fixture_verdict(rom, start, end, syms, args.fixture, args.lst,
+                               args.gate, ROUTINE)
     if hard:
         return 1
     if fails:
@@ -944,7 +1157,8 @@ def pass_tailsflight(args, rom, syms, equs, offs, overlay_len):
         if len(fails) > 20:
             print("    ... and %d more" % (len(fails) - 20))
 
-    _, hard = _fixture_verdict(rom, start, end, args.tails_fixture, args.lst, args.gate)
+    _, hard = _fixture_verdict(rom, start, end, syms, args.tails_fixture, args.lst,
+                               args.gate, TAILS_ROUTINE)
     if hard:
         return 1
     if fails:
