@@ -1106,6 +1106,25 @@ pub proc Parallax_CheckBoundary () clobbers(d0-d4/a0-a3) {
         // Palette_InstallCycleSection, Raster_InstallSection) are deleted —
         // effects-P3-C2 Task 13; a0 = Sec* with sec_effects == 0 reaching here
         // is a content bug, not a runtime state to degrade gracefully into.
+        //
+        // WHY THE TEST BELOW STAYS DEBUG-ONLY, AND WHAT REPLACED IT IN RELEASE
+        // (painted-regions audit row 7, closed 2026-09-04). The asymmetry is real and
+        // was stated plainly by the audit: this `tst.l` is the only null test on the
+        // path, `Effects_InstallPreset` dereferences the pointer untested, and release
+        // therefore had nothing between a null and reading the 68000 vector table as an
+        // EffectsPreset. The fix is NOT a release-side copy of this test. Re-enumerating
+        // by what can REACH the value — not by what names it — the Sec* here comes from
+        // `Section_GetSecPtrXY` over `Act.sec_grid_ptr`, there is exactly one `[Sec; N]`
+        // table in the tree (`OJZ_Act1_Sections`; games/demo has none and never calls
+        // this proc), and `Sec.sec_effects` has no runtime writer anywhere — it is ROM.
+        // So the value is fixed at build time, which makes it a BUILD-TIME property, and
+        // `Sec.sec_effects` accordingly lost its `= 0` struct default (engine/structs.emp)
+        // and `ojz_sec()`'s `effects:` argument lost its own (act_descriptor.emp). An
+        // omitted binding is now a compile error in EVERY shape for zero ROM bytes,
+        // instead of a runtime test that ships in one shape and can never fire in either.
+        // This test survives for what the comptime pin cannot see: a Sec* that a debug
+        // tool poked, or a corrupted `Act.sec_grid_ptr` — development-time faults, caught
+        // in the shape development runs.
     if DEBUG == 1 {
         tst.l   Sec.sec_effects(a0)                  // (Sec.sec_effects)(a0)
         bne     .have_preset

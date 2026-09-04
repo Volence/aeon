@@ -138,11 +138,13 @@ SCANLINE_START, SCANLINE_COUNT = 100, 8
 # only, and these two are the whole of what a placement check needs.
 SST_X_POS, SST_Y_POS = 0x02, 0x06
 
-# Sec record (engine/structs.emp `struct Sec`, sizeof 66 — pinned by an `ensure` in
-# engine/level/section.emp because the generated grid data assumes it).
-SEC_SIZE = 66
-SEC_PARALLAX_CONFIG = 0x14
-SEC_EFFECTS = 0x34
+# Sec record (engine/structs.emp `struct Sec`, sizeof 34 — pinned by an `ensure` in
+# engine/level/section.emp, which names THIS file as one of the reasons the pin exists:
+# the layout is copied here, so a struct change desynchronises this gate from the ROM.
+# 66 -> 34 on 2026-09-04, painted-regions audit row 3 (nine dead fields + three pads).
+SEC_SIZE = 34
+SEC_PARALLAX_CONFIG = 0x0C
+SEC_EFFECTS = 0x1C
 ACT_SEC_GRID_PTR = 0x00
 
 # Act descriptor field offsets (engine/structs.emp `struct Act`).

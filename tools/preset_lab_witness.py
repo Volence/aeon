@@ -84,8 +84,9 @@ VRAM_DEBUG_READOUT = 1020   # games/sonic4/vram.toml, region debug_readout; re-d
 V_NONE, V_BLIND, V_LIVE = 0, 1, 2
 V_NAMES = {V_NONE: "bar/none", V_BLIND: "X/blind", V_LIVE: "diamond/live"}
 
-SEC_SIZE = 66                  # sizeof(Sec) — engine/structs.emp's own stride pin
-SEC_EFFECTS = 0x34             # Sec.sec_effects
+SEC_SIZE = 34                  # sizeof(Sec) — engine/structs.emp's own stride pin
+                               # (66 -> 34 on 2026-09-04, painted-regions audit row 3)
+SEC_EFFECTS = 0x1C             # Sec.sec_effects
 EP_RASTER, EP_PATCHED, EP_CYCLE = 0x08, 0x0C, 0x10   # EffectsPreset field offsets
 ACT_SEC_GRID, ACT_GRID_W, ACT_GRID_H = 0x00, 0x04, 0x06
 PATCH_ANCHOR_NONE = 0x7FFF     # engine/effects/raster_dsl.emp; pinned below against ROM

@@ -104,32 +104,56 @@ pub struct PageFrame {
 }
 
 // -----------------------------------------------
-// Section Definition (§4) — 66 bytes ($42), ROM table
-// All fields: 0 = keep current / no change
+// Section Definition (§4) — 34 bytes ($22), ROM table
+//
+// 66 -> 34 ON 2026-09-04 (painted-regions audit row 3). Nine fields and the three
+// reserved pads were deleted: sec_plc, sec_pal, sec_raster_table, sec_pal_cycle,
+// sec_sound_bank, sec_anim_blocks, sec_flags, sec_music, sec_camera_lookahead,
+// sec_pcfg_pad_3C/_3E/_3F. This was not a discretionary cleanup — it is the second
+// half of a work order written into games/sonic4/.../act_descriptor.emp ("deleting
+// them is Task 13's job, once reachability of the preset path is established"),
+// whose precondition Task 13 (e6b016e5, effects-P3-C2) discharged in the same commit
+// that was to perform it and then did not perform. Re-verified field by field at
+// 2026-09-04: a grep of engine/ games/ for all twelve names returned this definition,
+// act_descriptor.emp's writes, and PROSE ONLY — zero code readers. The three that were
+// still fed live values (sec_pal / sec_raster_table / sec_pal_cycle) were fed by
+// constructor arguments that had themselves been inert since Task 13 deleted their
+// readers (Palette_LoadSection, Palette_InstallCycleSection, Raster_InstallSection);
+// every channel they used to name now arrives through sec_effects -> EffectsPreset.
+// 32 B x 9 sections = 288 ROM bytes.
+//
+// THE TRAILING `// $HH` COMMENTS ARE A GATE, NOT DECORATION — tools/
+// parallax_crossing_gate.py's struct_offsets() accumulates offsets from the field
+// TYPES and raises a setup error on any that disagrees. Renumber when you edit.
+//
+// Surviving fields whose value may be 0: 0 = "defer / none", never "keep current".
+// The pre-Task-13 "0 = keep whatever the previous section had" semantic is gone with
+// the fields that carried it.
 // -----------------------------------------------
 pub struct Sec {
     sec_block_index:     *u8,           // $00 — 256-entry block index table
     sec_objects:         *u8,           // $04 — objentry list (dc.w -1 terminated)
     sec_rings:           *u8,           // $08 — X-sorted ring entries
-    sec_plc:             *u8 = 0,       // $0C — S4LZ art PLC list
-    sec_pal:             *u8,           // $10 — 128-byte palette
-    sec_parallax_config: *u8 = 0,       // $14 — per-section parallax config; outranks the preset's
+    sec_parallax_config: *u8 = 0,       // $0C — per-section parallax config; outranks the preset's
                                         //       ep_parallax; 0 = defer (Effects_ResolveParallax)
-    sec_raster_table:    *u8 = 0,       // $18 — raster command table
-    sec_bg_layout:       *u8 = 0,       // $1C — NULL = use Act_act_bg_layout
-    sec_type_table:      *u8,           // $20 — dc.b count,pad; dc.l ObjDef×N
-    sec_pal_cycle:       *u8 = 0,       // $24 — palette cycling script
-    sec_sound_bank:      *u8 = 0,       // $28 — DAC sample bank
-    sec_block_dict:      *u8,           // $2C — raw dict region (LZ pre-seed)
-    sec_anim_blocks:     *u8 = 0,       // $30 — animated tile script
-    sec_effects:         *u8 = 0,       // $34 — EffectsPreset* (0 = use the legacy fields)
-    sec_flags:           u16 = 0,       // $38 — SF_* bitmask
-    sec_music:           u16 = 0,       // $3A — music track (0 = keep current)
-    sec_pcfg_pad_3C:     u8 = 0,        // $3C — reserved
-    sec_camera_lookahead: u8 = 0,       // $3D — lookahead px (0 = zone default)
-    sec_pcfg_pad_3E:     u8 = 0,        // $3E — reserved
-    sec_pcfg_pad_3F:     u8 = 0,        // $3F — reserved
-    sec_block_dict_len:  u16,           // $40 — dict bytes (768×K, K≤3)
+    sec_bg_layout:       *u8 = 0,       // $10 — NULL = use Act_act_bg_layout
+    sec_type_table:      *u8,           // $14 — dc.b count,pad; dc.l ObjDef×N
+    sec_block_dict:      *u8,           // $18 — raw dict region (LZ pre-seed)
+    // REQUIRED, and the requirement IS the guard (painted-regions audit row 7).
+    // Effects_InstallPreset dereferences this pointer without testing it, and the
+    // test that does exist at the crossing site (engine/level/parallax.emp) is inside
+    // `if DEBUG == 1` — so the shape that catches a null is the one we develop in and
+    // the shape that ships would read the 68000 vector table as an EffectsPreset. The
+    // audit's own §2 enumeration, re-derived here at 2026-09-04, found that null
+    // UNREACHABLE today; the risk it named was the NEXT author omitting an optional
+    // argument. Dropping the `= 0` default makes the omission a compile error in every
+    // shape at zero ROM bytes, which is strictly stronger than a release-side runtime
+    // test of a condition that cannot arise. What it does NOT catch: an author who
+    // writes an explicit zero, or a generator that emits Sec rows as raw bytes (there
+    // is no such generator today — the only [Sec; N] table in the tree is built by
+    // ojz_sec(), whose own `effects:` argument lost its default in the same change).
+    sec_effects:         *u8,           // $1C — EffectsPreset* (total binding; see above)
+    sec_block_dict_len:  u16,           // $20 — dict bytes (768×K, K≤3)
 }
 
 // -----------------------------------------------
