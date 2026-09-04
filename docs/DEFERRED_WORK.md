@@ -22196,6 +22196,17 @@ keeps what sounds load-bearing and drops what sounds like precision — and the 
 load-bearing part wearing precision's clothes.* This morning a bare integer was swallowed because
 numbers do not look like claims; here a qualifier was dropped because qualifiers look like detail.
 **Their operational rule, adopted here in both directions: relay the LOCATION, not the example.**
+**And aurora's sharpening, which is the operative half: APPLY IT TO YOUR OWN FINDINGS FIRST.** The
+rule survives the obvious objection — *"then summarise more carefully"* — only because the careful
+summariser here WAS the author, twice, on their own finding, within a day of writing it.
+
+**A SECOND RECEIVING BAR FELL OUT OF THIS AND IT IS THE ONE WITH NO EXISTING FORM HERE: REFUSE A
+PEER'S CORRECTION ON TRUST, NOT ONLY THEIR CLAIM.** This lane declined aurora's loose paraphrase,
+then declined their CORRECTION of it too and read the committed blob for both. The inconsistent
+posture — accepting a correction because it comes from the lane whose original you just declined —
+is the tempting one, **because a correction arrives sounding like a concession, and concessions do
+not invite scrutiny.** Had the correction been accepted on trust it would have been right anyway
+here; the point is that nothing in the receiving would have established that.
 Send `§6 of <file>` and let the reader hit the qualifier themselves, rather than sending a
 compression and hoping the qualifier survived it.
 
