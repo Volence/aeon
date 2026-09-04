@@ -34,7 +34,7 @@ THE PROPERTIES, and where each one comes from:
        which the runtime would index straight past the end of.
 
   (P2) THE GENERATOR SPANS THE RUNTIME'S EXPRESSIBLE HEIGHTS. The band record stores the
-       height as a SHIFT (`br_remap`'s `hshift`, consumed as `1 << hshift`), so the
+       height as a SHIFT (`band_remap.brm_hshift`, consumed as `1 << brm_hshift`), so the
        expressible set is powers of two. The upper end is derived, not chosen: the ladder is
        `[u8]`, the model's largest entry is `2*(H-1)`, so `2*(H-1) <= 255` gives `H <= 128`.
        The generator must produce a correct ladder at every such H and must REFUSE the ones
@@ -150,7 +150,7 @@ def derived_max_h() -> int:
 
 
 def derived_heights() -> list[int]:
-    """Every band height the runtime can EXPRESS: `br_remap.hshift` is consumed as `1 << s`,
+    """Every band height the runtime can EXPRESS: `band_remap.brm_hshift` is consumed as `1 << s`,
     so the set is the powers of two from 2 (the model divides by H-1) up to derived_max_h()."""
     out, h = [], 2
     while h <= derived_max_h():
@@ -206,7 +206,7 @@ def test_p2_generator_max_h_is_the_derived_u8_ceiling():
 def test_p2_generator_spans_every_expressible_height():
     gen = load_gen()
     assert list(gen.expressible_heights()) == derived_heights(), (
-        f"P2: the generator offers {list(gen.expressible_heights())}; `br_remap.hshift` is "
+        f"P2: the generator offers {list(gen.expressible_heights())}; `band_remap.brm_hshift` is "
         f"consumed as `1 << s`, so the expressible set is {derived_heights()}.")
 
 
@@ -218,7 +218,7 @@ def test_p2_generator_refuses_a_height_that_would_not_fit_u8():
 
 
 def test_p2_generator_refuses_a_non_power_of_two_height():
-    """`hshift` cannot express it, so emitting one would produce a table no band record can
+    """`brm_hshift` cannot express it, so emitting one would produce a table no band record can
     name — bytes in the ROM that nothing indexes."""
     gen = load_gen()
     with pytest.raises(Exception):
