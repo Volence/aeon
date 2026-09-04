@@ -24951,9 +24951,20 @@ drive stalled at x 1150, IDENTICALLY, across FOUR different collision states.** 
 that survives changing the thing under test is a confound, and this repo already has that
 rule written down.
 
-**Confirmed directly:** one sustained `emulator/press {"buttons":["right"],"frames":240}`
-advances the player **16 px** and then `ground_speed` reads **0** for the remaining ~210
-frames. The press is not held the way `Player_Main`'s input read needs.
+**⚠ MY FIRST DIAGNOSIS OF THIS WAS WRONG AND IS CORRECTED HERE. `emulator/press` HOLDS THE
+BUTTON CORRECTLY.** Measured on known-clear flat ground: `gsp` after a single press grows
+**exactly linearly with the frame count** — 12, 24, 60, 120, 240 for frames 1, 2, 5, 10, 20.
+That is the player's own acceleration of 12/256 px per frame, applied every frame of the
+press. **The bus method is not at fault and no bug report to oracle is owed.**
+
+**The real cause is two faults of mine, and both are about how the harness was driven.**
+(a) **Short presses with releases between them.** At 12/256 px per frame of accel, reaching
+`PHYS_TOP_SPEED` takes ~128 held frames; `frames=4` calls with friction decaying between
+them never build speed at all. (b) **Placements that start the player INSIDE the ring.** A
+long press from x 1024 always ends at **x 1062, identically for frames = 60, 80, 120 and
+200** — that is not a press expiring, it is the loop's **left arc**, which after the plane
+swap is solid on plane A at rows 68–71, meeting the player's upper body as he walks the
+ground beneath it. x 1024 is inside the ring's left wall.
 
 **Consequence: "he stalls at x N" was never established as a collision fact**, including the
 coordinate handed to aurora as evidence for the cols 144–145 side face. That fix was
