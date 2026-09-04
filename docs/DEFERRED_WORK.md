@@ -22548,3 +22548,71 @@ with the player already placed, so its "first frame" is "first invocation with t
 cell", not "the frame of entry" in a running game loop. **That is a reconciliation hypothesis,
 not a finding.** This parcel did not touch `sweep_edge_trigger` and encoded no entry-frame
 claim. Separate row.
+
+---
+
+## LEVEL-EXTENT-SYMBOLS — `Level_Width` / `Level_Height` published (2026-09-04)
+
+**Landed, not deferred** — recorded here because the two follow-ups below are.
+
+`Player_BoundsInit` (`games/sonic4/player/player_common.emp`) now also stores the two
+intermediates it already computed — `grid_w << SECTION_SIZE_SHIFT` and
+`grid_h << SECTION_SIZE_SHIFT` — into two new `u16` game-RAM cells `Level_Width` /
+`Level_Height` (`games/sonic4/config/ram.emp`), declared in **both** sonic4 shapes so an
+external tool can resolve them by name out of the listing per call, the way it resolves
+`Camera_X`/`Camera_Y`. The valid object box is `[0, Level_Width) × [0, Level_Height)`.
+
+**Why the symbols had to exist rather than be computed by the consumer.** The obvious
+workaround — read `Player_Bound_Right` and add `PBOUND_RIGHT_MARGIN` back — is *unavailable*
+to a listing-based symbol reader: a build-time constant is an EQU, and this repo's listing
+carries EQU lines such a reader structurally cannot see. The arithmetic workaround does not
+exist, so nobody should later "simplify" this away by telling a consumer to add a margin.
+
+**The trap, restated because it is the reason the parcel exists.** `Player_Bound_Right` /
+`Player_Bound_Bottom` are the PLAYER's clamp edges, inset by `PBOUND_RIGHT_MARGIN` and
+`SCREEN_HEIGHT`. Objects are deliberately unclamped, so an object between
+`Player_Bound_Right` and `Level_Width` is legal and renders. Using the bound symbols as the
+extent fails by *refusing* legitimate placements near the right edge — i.e. in the direction
+that looks correct, since a refusal near an edge is half-expected. There is also no
+`Player_Bound_Left`/`Top`; the low edge is a literal `0` in `clamp_and_publish`.
+
+**Mega-act ceiling: inherited, deliberately NOT widened.** The new cells are `u16` and wrap
+above `$FFFF` px (grid dimension > 31 sections) — the same ceiling the existing clamp-edge
+word stores already carry. Verified as actually held: `act_descriptor.emp:131-134` asserts
+`(GRID_W << SECTION_SIZE_SHIFT) <= $8000` and `(GRID_H << SECTION_SIZE_SHIFT) <= $8000`,
+which bounds both quantities to half a word. Widening these to `u32` would change a
+documented constraint shared with the clamp edges and was explicitly out of scope.
+
+**No gate added, and the reason.** An `ensure` tying the new cells to the derivation is not
+constructible here: `Player_BoundsInit` reads `grid_w`/`grid_h` from a runtime act-descriptor
+pointer, so nothing about the stored value is comptime-visible at the store site. The only
+comptime bound on the quantity is the act-descriptor pair above, which already exists and was
+verified rather than duplicated. A runtime witness would need an emulator.
+
+### Deferred out of this parcel
+
+- **Runtime confirmation of the two cells is UNVERIFIED here.** This parcel was static: the
+  stores were read out of the source and the four shapes were built, but nothing observed
+  `Level_Width`/`Level_Height` holding `3 << 11 = $1800` on a running act. That needs an
+  emulator pass (resolve both symbols, boot the act, read the words, compare against
+  `GRID_W`/`GRID_H` from the descriptor) and this lane is barred from the emulator.
+- **`Player_Bound_Right` is still computed by subtraction, not from `Level_Width`.** Now that
+  the extent is in RAM, the clamp edges could be derived from it, collapsing two derivations
+  into one. Not done: it would move more bytes than the ask, and the current spelling is
+  bit-identical to the retired per-frame chains by construction (`Player_BoundsInit`'s own
+  header makes that a stated property). Any such change must re-establish that property.
+
+### Also in this change (zero bytes)
+
+The `Obj_Req_X/Y` comment in `games/sonic4/config/ram.emp` said only *"the same convention as
+`Warp_Req_X/Y`"* — true about the coordinate space and misleading about the treatment, and
+other tools were reading it as a full description of the interface. Amended to state the
+asymmetry, each half re-derived at the consumers: same integer world-pixel space (SPAWN →
+`Load_Object` "integer, engine coords"; MOVE → `pixels_to_coord` → 16.16 `Sst.x_pos`), but the
+warp path CLAMPS via `clamp_and_publish` while the object path deliberately does not — an
+out-of-act object is skipped by `RunObjects`' camera-distance cull (`CULL_DISTANCE_X/Y`) where
+an out-of-act player would reach `SEC_VOID`. So an out-of-act spawn is **accepted and culled**,
+not clamped and not refused, and `OBJREQ_OK` means "applied", never "visible".
+
+No clamp or refusal was added to the object mailbox: that fix belongs to the client holding the
+click, and adding engine behaviour here would pre-empt its design.

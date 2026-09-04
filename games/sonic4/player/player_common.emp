@@ -1779,6 +1779,18 @@ ensure(PBOUND_BOTTOM_MARGIN > (PHYS_FALL_CAP >> 8), "PBOUND_BOTTOM_MARGIN must e
 // MEGA-ACT CEILING: the word store word-wraps for level_width/height above
 // $FFFF px — grid dim > 31 sections; guarded by act_descriptor's <= $8000
 // ensure. That trap now lives HERE only.
+//
+// IT ALSO PUBLISHES THE UNSUBTRACTED EXTENTS as Level_Width / Level_Height,
+// because the two intermediates it already holds ARE the act's true pixel box —
+// [0, Level_Width) × [0, Level_Height) — and nothing else in the build exposes
+// that box under a name. The clamp edges below them are INSET and are therefore
+// the wrong answer for anyone asking "where does the act end": objects are
+// deliberately unclamped, so the strip between Player_Bound_Right and
+// Level_Width is legal, occupied ground. The full statement of that trap, and
+// the reason the cells are u16 and must stay u16, lives at their declaration in
+// games/sonic4/config/ram.emp — read it before touching either store.
+// This costs two `move.w` to absolute and no extra register: the value being
+// published is the one already in d1 on the way to the subtract.
 // In:  a0 = act descriptor
 // Out: none
 // Clobbers: d1
@@ -1788,12 +1800,14 @@ pub proc Player_BoundsInit (a0: *Act) clobbers(d1) {
         move.w  Act.grid_w(a0), d1
         lsl.l   #8, d1
         lsl.l   #3, d1                          // grid_w × 2048 = level_width (px)
+        move.w  d1, Level_Width                 // the TRUE extent, before the inset
         subi.w  #PBOUND_RIGHT_MARGIN, d1
         move.w  d1, Player_Bound_Right
         moveq   #0, d1
         move.w  Act.grid_h(a0), d1
         lsl.l   #8, d1
         lsl.l   #3, d1                          // grid_h × 2048 = level_height (px)
+        move.w  d1, Level_Height                // the TRUE extent, before the inset
         subi.w  #SCREEN_HEIGHT, d1
         move.w  d1, Player_Bound_Bottom
         rts
