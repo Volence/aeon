@@ -73,8 +73,8 @@
     },
     {
       "id": "RAMP-NEGATIVE-DIRECTION-UNWITNESSED",
-      "title": "Nothing has watched a ROM ramp DOWNWARD. The tool that ran aurora's document measures which lines change, never what value is written - its span arm uses flat twins on purpose, and a flat twin has no direction. One new arm closes item 6's last sentence.",
-      "state": "open",
+      "title": "DONE 2026-09-04 on parcel/ramp-sign-witness. ramp_authored_witness.py arm 5 reads WHAT VALUE IS WRITTEN, not which lines changed: 5a the mid-frame 16.16 accumulator (slope {-98304.0}, 22/22 stops equal the document), 5b the plane-B displacement the VDP applied, decoded by an exhaustive 0..511 residue sweep (202/202 differences, chain 21..223 total -303 px measured == derived). Three subjects on one sweep read DOWNWARD / UPWARD / FLAT, so the direction could have come out otherwise. Red-first was the engine, not the document: .ramp_body add.l -> sub.l leaves rrp_step at $FFFE8000 and the wire half green, and arm 5 still went red. Left in the queue rather than deleted - this file says a row removed without a word reads as lost; prune when convenient.",
+      "state": "done",
       "size": "S",
       "blockedBy": null,
       "project": "EFFECTS-W1"
