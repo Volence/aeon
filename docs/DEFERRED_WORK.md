@@ -22616,3 +22616,29 @@ not clamped and not refused, and `OBJREQ_OK` means "applied", never "visible".
 
 No clamp or refusal was added to the object mailbox: that fix belongs to the client holding the
 click, and adding engine behaviour here would pre-empt its design.
+
+#### Correction to this parcel's own second commit (2026-09-04)
+
+Commit `2d1a88e7` removed an exclusivity claim from the `Level_Width` comment block and
+justified the removal by saying `tools/dma_straddle_reading.py` "resolves `Player_Bound_Right`,
+`Player_Pos_Ring` and `Player_Chardef` out of the listing by name". **That justification is
+wrong and was caught by re-reading the grep's own hits rather than its file list.** What is
+actually there:
+
+- `tools/dma_straddle_reading.py` names `Player_Chardef` **in a prose comment** about the
+  character hotkey. It resolves no symbol of that name.
+- `tools/fixtures/s4_listing_excerpt.lst` contains `Player_Pos_Ring` because it *is* a captured
+  listing excerpt — the name appearing in a listing is not a consumer.
+- `tools/fixtures/make_listing_excerpt.py` **does** name `Player_Pos_Ring` (and
+  `Player_Stat_Ring`, `Player_Ring_Index`, `Game_RAM_End`) deliberately, in its `WANT` set. That
+  is one genuine by-name consumer of a field in `games/sonic4/config/ram.emp` — chosen for
+  fixture *coverage*, not because anything depends on the address.
+- Nothing in `tools/` resolves `Player_Bound_Right` at all.
+
+**The comment edit itself stands and needs no revision** — the replacement sentence makes no
+exclusivity claim, only the load-bearing one (do not move these inside `if DEBUG == 1`, do not
+rename them; addresses are free to move). What was wrong was the *evidence*, and the failure
+mode is the ordinary one: a file-list grep hit was read as a code reference without opening the
+lines. A hit in a `.py` can be a comment, and a hit in a captured `.lst` fixture is guaranteed
+not to be a consumer.
+
