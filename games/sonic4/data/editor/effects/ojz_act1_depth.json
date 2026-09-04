@@ -50,6 +50,15 @@
     }
   ],
   "name": "OJZ act 1 depth — curved horizon over a split canopy",
+  "reels": {
+    "rates": [
+      3,
+      -5,
+      2,
+      -4,
+      6
+    ]
+  },
   "schema": 1,
   "transition": "instant",
   "v_center": 0,

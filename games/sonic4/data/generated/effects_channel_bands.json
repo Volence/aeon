@@ -5,13 +5,13 @@
       "hi": 220,
       "lines": 218,
       "lo": 3,
-      "source": "games/sonic4/data/effects/ojz_effects.emp:1556"
+      "source": "games/sonic4/data/effects/ojz_effects.emp:1563"
     },
     "1": {
       "hi": 223,
       "lines": 2,
       "lo": 222,
-      "source": "games/sonic4/data/effects/ojz_effects.emp:1558"
+      "source": "games/sonic4/data/effects/ojz_effects.emp:1565"
     }
   },
   "edges": {

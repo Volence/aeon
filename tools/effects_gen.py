@@ -86,6 +86,10 @@ SCENE_KEYS = frozenset({
     # SCENE_IGNORED_KEYS.) The schema row is booked in docs/DEFERRED_WORK.md.
     "bob_shift", "bob_period",
     "deform_fg", "deform_bg", "v_deform",
+    # EFFECTS-W1 item 10's authoring half — the reels' per-band rates. Sibling to
+    # `v_deform` and NOT a layer key; the REELS banner further down carries the whole
+    # account, including why it lowers into the generated module and nowhere else.
+    "reels",
     "anchor", "left_column_mask", "transition", "budget_class",
 })
 
@@ -237,6 +241,236 @@ LEFT_COL_MASK_NAMES = {
 # the engine silently in either direction. tools/test_scene_band_shape_coverage.py now
 # reads the engine constant and pins this against it.
 MAX_PARALLAX_BANDS = 16
+
+# =============================================================================
+# REELS — the scene's independently scrolling background strips (item 10, step 4).
+# =============================================================================
+#
+# The key is `reels` on a SCENE document, and it is NOT a layer key: a reel band is
+# one of five vertical COLUMN strips, while `band_record` partitions the screen into
+# horizontal ROW bands. Those two share a noun and nothing else — this is the third
+# meaning of "band" on this seam (`BAND_KEYS` below is the raster preset's scanline
+# region, the second) and this arm adds no fourth.
+#
+# NORMATIVE: empyrean docs/AURORA_EFFECTS_SCHEMA.md §2.7 read at
+# ff3f43f2e9c2b0b98e6c283f5cb87eb106f0fe5c. The aeon decision note it ratifies is
+# docs/superpowers/specs/2026-09-04-reels-per-scene-key-shape.md.
+#
+# DEBUG TIER, AND THE PROHIBITION IS A PROHIBITION (CR ruling 1). Everything this arm
+# emits sits inside `if DEBUG == 1`, in THIS generated module, and MUST NOT become a
+# field of `Scene`, `parallax_config` or `Sec`. Any of those three puts reels bytes in
+# the shipped ROM and turns an owner-free parcel into a look call — promotion is the
+# owner's parked question, not this arm's. `tools/reels_gate.py --shape release`
+# asserts the absence and stays green by construction.
+#
+# AND THE GENERATED MODULE IS NOT AN ARBITRARY CHOICE OF SITE. `tools/reels_gate.py`
+# is ADJACENCY-COUPLED: it measures the table as the gap `OJZ_Reel_Speed` ->
+# `OJZ_Reels_Fill` and the proc as `OJZ_Reels_Fill` -> `ObjDef_Static`. New
+# byte-emitting content between either pair makes it raise `Unmeasurable` — not FAIL —
+# so emitting these tables into games/sonic4/data/effects/ojz_effects.emp, the natural
+# place beside the hand table, would silently DISARM the gate that proves the reel
+# source reaches the ROM.
+REELS_KEY = "reels"
+REELS_RATES_KEY = "rates"
+
+# `const REEL_BAND_COUNT = <literal>` in the game's own constants module. Same shape as
+# tools/reels_gate.py's `emp_const`, and tools/test_effects_gen.py pins the two against
+# each other rather than letting a second parser drift — the remedy MAX_PARALLAX_BANDS
+# above needed after it spent months unpinned.
+_EMP_INT_CONST = r"^\s*(?:pub\s+)?const\s+{}\s*=\s*(\$[0-9A-Fa-f]+|-?\d+)\s*(?://.*)?$"
+
+
+def reel_band_count(game: str = "sonic4", repo: str = REPO) -> int:
+    """REEL_BAND_COUNT, RE-DERIVED from the game's constants module — never 5.
+
+    The schema's `minItems: 5` / `maxItems: 5` is a hardcoded COPY of an `.emp`
+    constant in another repo (CR §2.7, "what the schema cannot express"). If
+    REEL_BAND_COUNT ever moves, that copy is silently wrong in the permissive
+    direction and the build fails much later, inside sigil, on a length the author
+    never typed. So the length check the generator applies is derived from the
+    declaration itself, and a declaration this function cannot find is a REFUSAL:
+    reading "no bands" out of a file it failed to parse is how a length check goes
+    vacuous.
+    """
+    path = os.path.join(repo, "games", game, "config", "constants.emp")
+    try:
+        with open(path, "r") as f:
+            src = f.read()
+    except OSError as e:
+        _refuse(path, f"cannot read the game constants module to re-derive "
+                      f"REEL_BAND_COUNT: {e}. The `reels` key's length check derives "
+                      f"its expectation from that declaration, and a check that "
+                      f"cannot run must not pass.")
+    m = re.search(_EMP_INT_CONST.format(re.escape("REEL_BAND_COUNT")), src, re.M)
+    if not m:
+        _refuse(path, "no `const REEL_BAND_COUNT = <literal>` declaration. The "
+                      "`reels` key's rate array is exactly one rate per reel band and "
+                      "that count is the engine's, not the schema's — this generator "
+                      "refuses rather than falling back on the 5 the schema happens "
+                      "to spell today.")
+    tok = m.group(1)
+    return int(tok[1:], 16) if tok.startswith("$") else int(tok)
+
+
+def _check_reels(path: str, scene: dict, bands: int) -> None:
+    """SHAPE-validate a `reels` payload. Values are sigil's (`reel_rates_ok`).
+
+    On the right side of the shape/value line, deliberately and per the module
+    docstring's rule: a TYPE is shape, a LENGTH is shape, a RANGE is value. So the
+    magnitude bound (-128..127) and pairwise distinctness are NOT checked here —
+    they are `reel_rates_ok`'s ensures in games/sonic4/config/constants.emp, which
+    every generated AND hand-written rate table routes through. Two sources for one
+    rule is how they drift.
+    """
+    body = scene[REELS_KEY]
+    if body is None:
+        _refuse(path, f"scene.{REELS_KEY} is null. There is no `none` spelling for "
+                      f"reels (CR ruling 2): the binding table is generated whole, so "
+                      f"\"keep\" and \"off\" are one state and one state gets one "
+                      f"spelling — OMIT the key.")
+    if not isinstance(body, dict):
+        _refuse(path, f"scene.{REELS_KEY} must be an object with one member "
+                      f"`{REELS_RATES_KEY}`, got {type(body).__name__}")
+    unknown = sorted(set(body) - {REELS_RATES_KEY})
+    if unknown:
+        _refuse(path, f"scene.{REELS_KEY} carries unknown member(s) "
+                      f"{', '.join(repr(k) for k in unknown)}. The object is CLOSED "
+                      f"and carries exactly `{REELS_RATES_KEY}`. In particular "
+                      f"`cols_per_band` is refused by closure and not by oversight: "
+                      f"the geometry is FIXED at "
+                      f"REEL_BAND_COUNT x REEL_COLS_PER_BAND (CR ruling 5) because "
+                      f"the column->band map is a hardcoded shift, not a value read "
+                      f"at runtime. It is recoverable additively later.")
+    if REELS_RATES_KEY not in body:
+        _refuse(path, f"scene.{REELS_KEY} has no `{REELS_RATES_KEY}`. It is the "
+                      f"object's one member and it has no default.")
+    rates = body[REELS_RATES_KEY]
+    if not isinstance(rates, list):
+        _refuse(path, f"scene.{REELS_KEY}.{REELS_RATES_KEY} must be an array, got "
+                      f"{type(rates).__name__}")
+    for i, r in enumerate(rates):
+        # `bool` is an `int` in Python and would render as `True` — a bare symbol in
+        # generated source. Same trap `_render_int` carries, same exclusion.
+        if isinstance(r, bool) or not isinstance(r, int):
+            _refuse(path, f"scene.{REELS_KEY}.{REELS_RATES_KEY}[{i}] must be a bare "
+                          f"integer, got {type(r).__name__} ({r!r}). A rate is "
+                          f"SIGNED WHOLE PIXELS PER FRAME and is emitted as a bare "
+                          f"`.emp` literal; anything else lands in generated source "
+                          f"as a symbol.")
+    if len(rates) != bands:
+        _refuse(path, f"scene.{REELS_KEY}.{REELS_RATES_KEY} carries {len(rates)} "
+                      f"rate(s), not one per reel band. REEL_BAND_COUNT is {bands}, "
+                      f"re-derived from games/sonic4/config/constants.emp rather than "
+                      f"copied from the schema's minItems — OJZ_Reels_Fill walks "
+                      f"exactly that many signed bytes from whichever table it "
+                      f"selected, so a short array feeds the phase accumulators "
+                      f"whatever follows it in ROM.")
+
+
+# --- the RUNG model: which sections a lowered config can be reached through ---
+#
+# THE REFUSAL THE CR ADDS (ruling 4), and it exists because the silent case is the bad
+# one. The reels binding table is keyed on `Parallax_Current_Config`, the pointer the
+# engine holds to the ACTIVE parallax_config. `Effects_ResolveParallax`
+# (engine/effects/preset.emp) resolves that pointer through three rungs:
+#
+#   1. Sec.sec_parallax_config   the PER-SECTION binding — the editor's `sceneRef`,
+#                                lowered by THIS generator, one `pub data` per section
+#   2. EffectsPreset.ep_parallax the PRESET binding, SHARED by every section whose
+#                                `preset()` names it
+#   3. Act.act_parallax_config   the act default, shared by everything that falls through
+#
+# The pointer is a UNIQUE key only at rung 1 — which is exactly the population an
+# authoring key targets, because rung 1 is what a `sceneRef` produces. A section
+# resolving at rung 2 or 3 holds a pointer SHARED with other sections, so a table keyed
+# on it hands those sections ANOTHER SECTION'S MOTION rather than none. That failure is
+# silent: nothing errors, nothing is missing, the wrong strips simply scroll.
+#
+# So a `reels` key is legal only on a scene every one of whose bindings is rung 1, and
+# the three arms below refuse the rest BY NAME. Not hypothetical: `d-53` gave section 5
+# `ParallaxConfig_OJZ_Underwater` through rung 2, the same object `OJZ_Preset_Sec0`
+# names — two sections, one pointer, in the shipped tree today.
+#
+# THESE SCANS RUN ONLY WHEN A SCENE AUTHORS `reels`. A tree with no reels key reads no
+# `.emp` at all and is byte-identical to what it baked before this arm existed.
+
+# A `pub data <Name>: EffectsPreset = preset(` declaration, and the `parallax:` argument
+# inside one. The window is CLIPPED AT THE NEXT declaration, `walk_patch_sites`'s rule
+# and for its reason: a preset with no `parallax:` of its own must not inherit the next
+# preset's.
+_PRESET_DECL = re.compile(
+    r"^[ \t]*(?:pub[ \t]+)?data[ \t]+([A-Za-z_]\w*)[ \t]*:[ \t]*EffectsPreset[ \t]*=",
+    re.M)
+_PARALLAX_ARG = re.compile(r"\bparallax[ \t]*:[ \t]*([A-Za-z_]\w*)")
+# `ojz_sec(sec: N, ..., effects: OJZ_Preset_SecN, ...)` in the act descriptor. Read as
+# two independent streams and paired by position — each `effects:` belongs to the
+# nearest NUMERIC `sec:` before it — rather than by a game-specific constructor name,
+# which this generator does not know and must not hardcode.
+_SEC_INDEX = re.compile(r"\bsec[ \t]*:[ \t]*(\d+)\b")
+_SEC_EFFECTS = re.compile(r"\beffects[ \t]*:[ \t]*([A-Za-z_]\w*)")
+
+
+def _strip_line_comments(src: str) -> str:
+    """`//` comments removed, line structure preserved (offsets are NOT preserved).
+
+    Crude on purpose and safe for what these two scans read: a `parallax:` or an
+    `effects:` argument is never written inside a string literal. It exists because the
+    prose in this tree is dense enough that a scan reading comments finds the WORD it
+    is looking for in a sentence about it — `OJZ_Preset_Sec5`'s own d-53 comment
+    discusses its parallax binding two lines above the argument.
+    """
+    return "\n".join(line.split("//", 1)[0] for line in src.splitlines())
+
+
+def preset_parallax_bindings(game: str = "sonic4", repo: str = REPO) -> list:
+    """Every `preset(.. parallax: X ..)` in a game's effects library, in file order.
+
+    Each entry is {"preset", "target", "file", "line"} — the rung-2 population. An
+    ABSENT library is an empty list and not a refusal: a game with no effects library
+    genuinely has no preset bindings, which is a different observation from a library
+    this walk could not read (that raises, per contract §3's bare-open posture).
+    """
+    out = []
+    lib = os.path.join(repo, "games", game, "data", "effects")
+    if not os.path.isdir(lib):
+        return out
+    for name in sorted(os.listdir(lib)):
+        if not name.endswith(".emp"):
+            continue
+        with open(os.path.join(lib, name), "r") as f:
+            src = _strip_line_comments(f.read())
+        decls = list(_PRESET_DECL.finditer(src))
+        for i, m in enumerate(decls):
+            stop = decls[i + 1].start() if i + 1 < len(decls) else len(src)
+            window = src[m.end():stop]
+            q = _PARALLAX_ARG.search(window)
+            if not q:
+                continue
+            out.append({"preset": m.group(1), "target": q.group(1), "file": name,
+                        "line": src.count("\n", 0, m.start()) + 1})
+    return out
+
+
+def section_preset_symbols(names: "ActNames", repo: str = REPO) -> dict:
+    """{section index: the EffectsPreset symbol its `Sec` record binds}.
+
+    Read from the act descriptor, which is the only place the section->preset edge is
+    written down. Returns {} when the descriptor is absent — the caller then refuses
+    WITHOUT a section number rather than inventing one, and says so in the message.
+    """
+    path = names.descriptor_path(repo)
+    if not os.path.isfile(path):
+        return {}
+    with open(path, "r") as f:
+        src = _strip_line_comments(f.read())
+    indices = [(m.start(), int(m.group(1))) for m in _SEC_INDEX.finditer(src)]
+    out = {}
+    for m in _SEC_EFFECTS.finditer(src):
+        prior = [sec for pos, sec in indices if pos < m.start()]
+        if prior:
+            out[prior[-1]] = m.group(1)
+    return out
+
 
 # =============================================================================
 # RASTER BANDS — the preset-document arm (contract §2.4).
@@ -611,11 +845,17 @@ def _check_keys(path: str, obj: dict, allowed, ignored, refused, where: str):
                       f"Known here: {', '.join(sorted(allowed))}.")
 
 
-def load_scene(path: str) -> dict:
+def load_scene(path: str, game: str = "sonic4", repo: str = REPO) -> dict:
     """Load and SHAPE-validate one scene file. Raises on anything malformed.
 
     Deliberately bare `json.load` + direct subscripting (contract §3): a broken
     file must stop the build, not be repaired or routed around.
+
+    `game`/`repo` exist for ONE check: the `reels` key's rate-array length, which is
+    REEL_BAND_COUNT re-derived from the game's own constants module rather than copied
+    from the schema's `minItems` (CR §2.7). They are read ONLY when a scene carries the
+    key, so a tree with no reels authored opens no `.emp` at all and every fixture that
+    predates this arm keeps working with no game sources on disk.
     """
     with open(path, "r") as f:
         scene = json.load(f)
@@ -665,6 +905,9 @@ def load_scene(path: str) -> dict:
                 _refuse(path, f"layers[{i}] has no `{required}`. world_y/fa/fb are "
                               f"the three `layer()` arguments with no default.")
 
+    if REELS_KEY in scene:
+        _check_reels(path, scene, reel_band_count(game, repo))
+
     return scene
 
 
@@ -672,7 +915,7 @@ def load_all_scenes(game: str = "sonic4", repo: str = REPO) -> dict:
     """All editor scenes for a game, keyed by id. Empty dict when none exist."""
     scenes = {}
     for path in discover_scene_files(game, repo):
-        scene = load_scene(path)
+        scene = load_scene(path, game, repo)
         if scene["id"] in scenes:
             _refuse(path, f"duplicate scene id {scene['id']!r}")
         scenes[scene["id"]] = scene
@@ -2629,6 +2872,16 @@ class ActNames:
         self.equ_cycle_bindings = f"EditorCycle_{cap}_Bindings"
         self.equ_variant_bindings = f"EditorVariant_{cap}_Bindings"
         self.equ_patch_bindings = f"EditorPatch_{cap}_Bindings"
+        # The reels channel (item 10). Same near-miss as the raster witness and safe
+        # for the same reason: `_Bindings` is capitalised and a scene id is
+        # `^[a-z]...` by SCENE_ID_RE, so the witness cannot collide with `reels(sid)`.
+        self.equ_reel_bindings = f"EditorReels_{cap}_Bindings"
+        # THE ASSOCIATION TABLE, act-qualified for `raster()`'s reason: this generator
+        # emits one module PER ACT and an unqualified name collides the day a second
+        # act's module renders. `OJZ_Reels_Fill` names act 1's by hand today — whether
+        # a second act needs a second table, or one global one, is aeon Q5 and is NOT
+        # traced (docs/DEFERRED_WORK.md).
+        self.reel_bindings = f"EditorReelBindings_{cap}"
 
     def binding_sec(self, i: int) -> str:
         return f"EditorSceneBinding_{self.zone_id.upper()}_" \
@@ -2659,6 +2912,31 @@ class ActNames:
         name because the array is positional and two slots of one document are two
         descriptors, not one."""
         return f"EditorVariant_{self.cap}_{preset_id}_{slot}"
+
+    def reels(self, scene_id: str) -> str:
+        """The emitted rate-table LABEL for one authoring scene. Act-qualified for
+        `raster()`'s reason, and named the way `EditorCycle_*`/`EditorVariant_*` are so
+        the naming rule needed no invention."""
+        return f"EditorReels_{self.cap}_{scene_id}"
+
+    def reels_src(self, scene_id: str) -> str:
+        """The UNANNOTATED source const the guard reads. `EditorRasterSrc_*`'s shape."""
+        return f"EditorReelsSrc_{self.cap}_{scene_id}"
+
+    def reels_ok(self, scene_id: str) -> str:
+        """The guard's result, held in a const an `ensure` reads — an unreferenced
+        top-level `const X = f(..)` is comptime-INERT (docs/EMP_PITFALLS.md §3)."""
+        return f"EditorReelsOk_{self.cap}_{scene_id}"
+
+    def descriptor_path(self, repo: str = REPO) -> str:
+        """The act descriptor — the only place the section->preset edge is written.
+
+        Derived from the zone/act ids by the tree's own convention rather than declared
+        in project.json, which carries no path for it. A caller that cannot find it
+        refuses WITHOUT a section number rather than inventing one.
+        """
+        return os.path.join(repo, "games", "sonic4", "data", "levels",
+                            self.zone_id, self.act_id, "act_descriptor.emp")
 
     def out_path(self, repo: str = REPO) -> str:
         return os.path.join(repo, "games", "sonic4", "data", "generated",
@@ -2702,7 +2980,7 @@ def _lowering(path: str, scene: dict) -> tuple:
 
 def render_module(scenes: dict, act_ref, sec_refs: dict, sections: int,
                   names: ActNames, presets: dict = None,
-                  sec_raster_refs: dict = None) -> str:
+                  sec_raster_refs: dict = None, repo: str = REPO) -> str:
     """The whole generated `.emp` module, for any content state including none.
 
     Deterministic for a given input: scenes are walked in sorted-id order and the
@@ -2775,6 +3053,65 @@ def render_module(scenes: dict, act_ref, sec_refs: dict, sections: int,
                    if ("patch_world_ys" in presets[raster_bound[i]]
                        or "patch_motion" in presets[raster_bound[i]])}
 
+    # ---- (item 10) THE REELS KEY: refuse anything that is not a rung-1 binding ----
+    #
+    # See the REELS banner above for the mechanism. The three arms are the CR's ruling
+    # (4) split by what the generator can see, and every one of them names the SECTION
+    # rather than only the scene, because the section is what receives the wrong motion.
+    reels_authored = sorted(sid for sid in scenes if REELS_KEY in scenes[sid])
+    reels_bound = {}                        # section index -> scene id, rung 1 only
+    if reels_authored:
+        aliases = preset_parallax_bindings("sonic4", repo)
+        sec_presets = section_preset_symbols(names, repo)
+        for sid in reels_authored:
+            spath = os.path.join(scene_dir("sonic4", repo), sid + ".json")
+            rung1 = [i for i in sorted(bound) if bound[i] == sid]
+            if act_ref == sid:
+                fallthrough = sorted(set(range(sections)) - set(bound))
+                _refuse(spath,
+                        f"scene {sid!r} carries a `{REELS_KEY}` key AND is this act's "
+                        f"DEFAULT scene ({PROJECT_JSON}'s `{ACT_SCENE_REF_KEY}`), which "
+                        f"is Effects_ResolveParallax's RUNG 3. The act default is ONE "
+                        f"lowered record shared by every section that falls through to "
+                        f"it — here section(s) "
+                        f"{', '.join(str(i) for i in fallthrough) or '(none)'} do not "
+                        f"bind a scene at rung 1, so each resolves to this same pointer "
+                        f"unless its own preset binds `ep_parallax` (rung 2). A reels "
+                        f"table keyed on a shared pointer hands all of them one "
+                        f"section's motion, silently. Bind the scene per section with a "
+                        f"`{ACT_SCENE_REF_KEY}` sidecar, or drop the `{REELS_KEY}` key.")
+            if not rung1:
+                _refuse(spath,
+                        f"scene {sid!r} carries a `{REELS_KEY}` key but no section binds "
+                        f"it with a `{ACT_SCENE_REF_KEY}` sidecar, so it is never "
+                        f"Effects_ResolveParallax's rung 1 and the binding table would "
+                        f"have no config pointer to key on. Reels bind to a SECTION's "
+                        f"lowered record, not to a scene in the library — assign the "
+                        f"scene to a section, or drop the key.")
+            emitted = {names.binding_sec(i) for i in rung1}
+            for a in aliases:
+                if a["target"] not in emitted:
+                    continue
+                owners = sorted(i for i, p in sec_presets.items()
+                                if p == a["preset"])
+                who = (f"section(s) {', '.join(str(i) for i in owners)}"
+                       if owners else
+                       f"section(s) UNKNOWN — {names.descriptor_path(repo)} could not "
+                       f"be read to attribute the preset")
+                _refuse(spath,
+                        f"scene {sid!r} carries a `{REELS_KEY}` key, but its lowered "
+                        f"record `{a['target']}` is ALSO named by "
+                        f"`{a['preset']}`'s `parallax:` argument "
+                        f"({a['file']}:{a['line']}) — that is "
+                        f"Effects_ResolveParallax's RUNG 2, and it is bound by {who}. "
+                        f"Those sections resolve to the SAME pointer this scene's own "
+                        f"section does, so the reels binding table would hand them this "
+                        f"scene's motion rather than none. Point that preset's "
+                        f"`parallax:` at a record of its own, or drop the `{REELS_KEY}` "
+                        f"key.")
+            for i in rung1:
+                reels_bound[i] = sid
+
     used = sorted(set(bound.values()) | ({act_ref} if act_ref else set()))
     unused = sorted(set(scenes) - set(used))
 
@@ -2831,6 +3168,15 @@ def render_module(scenes: dict, act_ref, sec_refs: dict, sections: int,
     # EMITTED ONLY WHEN A DOCUMENT CARRIES THE KEY, so the no-content bake and every bake
     # of the pre-item-5 documents stay TEXT-IDENTICAL and the four-CRC check stays a real
     # check (the `bands` arm's rule, one channel over).
+    # THE REELS IMPORTS (item 10). `REEL_BAND_COUNT` types the rate tables and
+    # `reel_rates_ok` is the ONE guard every rate table in the tree routes through, both
+    # from games.sonic4.constants — which imports nothing game-side, so this edge cannot
+    # cycle the way an import of games.sonic4.ojz_effects would (that module imports
+    # THIS one). EMITTED ONLY WHEN A SCENE AUTHORS `reels`, the `cycles`/`variants`
+    # rule: with no reels key the bake stays text-identical apart from the always-
+    # emitted binding table below.
+    if reels_bound:
+        out.append("use games.sonic4.constants.{REEL_BAND_COUNT, reel_rates_ok}")
     if cycle_names:
         out.append("use engine.effects.palette.{pal_cycle_channel, "
                    + ", ".join(f"PalCycleScript{n}" for n in sorted(cycle_names)) + "}")
@@ -2897,6 +3243,72 @@ def render_module(scenes: dict, act_ref, sec_refs: dict, sections: int,
                        f"{lower}({names.scene_array}[{used.index(bound[i])}])")
         out.append("")
 
+    # ---- (item 10) THE REEL RATE TABLES AND THE ASSOCIATION TABLE ----
+    #
+    # ALWAYS EMITTED, unlike the raster/palette arms above, and for a mechanical reason
+    # rather than a stylistic one: `OJZ_Reels_Fill` (games/sonic4/data/effects/
+    # ojz_effects.emp) names the association table in a `lea`, so the symbol has to
+    # EXIST in every bake or the game does not link. With no authored reels it is one
+    # terminator long — 4 bytes in the DEBUG shape, ZERO in release.
+    out.append(REELS_BANNER)
+    reels_emit = f"REEL_RATE_EMIT_LEN_{names.cap}"
+    if reels_bound:
+        # Guarded with the tables it lengths, not emitted unconditionally: its
+        # `REEL_BAND_COUNT` arrives on the `use games.sonic4.constants` line above,
+        # which is itself emitted only when a scene authors the key.
+        out.append(f"const {reels_emit} = "
+                   f"if DEBUG == 1 {{ REEL_BAND_COUNT }} else {{ 0 }}")
+        out.append("")
+    for i in sorted(reels_bound):
+        sid = reels_bound[i]
+        rates = scenes[sid][REELS_KEY][REELS_RATES_KEY]
+        # DOCUMENT ORDER, VERBATIM. Index i owns column-pairs 4i..4i+3, i.e. screen X
+        # 64i..64i+63, and that mapping lives in a hardcoded `lsr.b #2` the JSON cannot
+        # see. Sorting, reversing, or round-tripping this array through a dict keyed by
+        # band name silently relocates every strip (CR §2.7, "what the schema cannot
+        # express", item 1).
+        lit = "[" + ", ".join(str(r) for r in rates) + "]"
+        src, ok, tbl = (names.reels_src(sid), names.reels_ok(sid), names.reels(sid))
+        out.append(f"// section {i} <- scene {sid}: {lit} px/frame, left to right")
+        # UNANNOTATED ON PURPOSE. `reel_rates_ok`'s magnitude arm must see the RAW
+        # authored ints: whether sigil refuses an out-of-`i8` literal in an `[i8; N]`
+        # initializer is NOT ESTABLISHED, and if it silently narrowed instead, a
+        # `[i8; N]`-typed source would hand the guard an already-truncated value and the
+        # one check that catches Aurora's x256 drift-export mistake would pass
+        # vacuously. The length contract is carried by the guard and by the `pub data`.
+        out.append(f"const {src} = {lit}")
+        out.append(f"const {ok} = reel_rates_ok({src}, REEL_BAND_COUNT)")
+        out.append(f'ensure({ok} == REEL_BAND_COUNT,\n'
+                   f'       "{tbl}: reel_rates_ok checked {{{ok}}} rates, not the '
+                   f'REEL_BAND_COUNT ({{REEL_BAND_COUNT}}) OJZ_Reels_Fill walks — a '
+                   f'guard that examined a different number of rates than the loop '
+                   f'reads is gating the wrong table")')
+        out.append(f"pub data {tbl}: [i8; {reels_emit}] = "
+                   f"if DEBUG == 1 {{ {src} }} else {{ [] }}")
+        out.append("")
+    # EVEN, and load-bearing: REEL_BAND_COUNT is odd today, so an odd number of rate
+    # tables leaves the pointer table below on an odd address — and a `move.l` through
+    # an odd address is a 68000 ADDRESS ERROR, not a warning. `align 2` on an
+    # already-even address costs nothing, so it is unconditional.
+    out.append("align 2")
+    # `extern("Name")` AND NOT A BARE NAME, measured rather than chosen: a bare label
+    # inside a `[*u8; N]` array literal does not resolve, even for a symbol declared in
+    # this same module ten lines up — `unknown name EditorSceneBinding_OJZ_Act1_Sec4`,
+    # sigil 0a58f2ec, 2026-09-04. `extern()` is how every address table in the tree
+    # spells its entries (games/sonic4/player/characters.emp's `CharacterDefs`, the
+    # generated bg_anim.emp's bank tables), which is why the idiom exists.
+    pairs = []
+    for i in sorted(reels_bound):
+        pairs.append(f'extern("{names.binding_sec(i)}"), '
+                     f'extern("{names.reels(reels_bound[i])}")')
+    pairs.append("0")
+    bind_emit = f"REEL_BINDING_EMIT_LEN_{names.cap}"
+    out.append(f"const {bind_emit} = if DEBUG == 1 {{ {2 * len(reels_bound) + 1} }} "
+               f"else {{ 0 }}")
+    out.append(f"pub data {names.reel_bindings}: [*u8; {bind_emit}] = "
+               f"if DEBUG == 1 {{ [" + ", ".join(pairs) + "] } else { [] }")
+    out.append("")
+
     # ---- the raster BANDS from the preset documents ----
     # APPENDS NOTHING AT ALL when there are none — not a banner, not a blank line. That is
     # what makes "adding this capability moved zero bytes" checkable by CRC rather than
@@ -2938,7 +3350,9 @@ def render_module(scenes: dict, act_ref, sec_refs: dict, sections: int,
         equ_variant_bindings=names.equ_variant_bindings,
         variant_bindings=len(variant_bound),
         equ_patch_bindings=names.equ_patch_bindings,
-        patch_bindings=len(patch_bound)))
+        patch_bindings=len(patch_bound),
+        equ_reel_bindings=names.equ_reel_bindings,
+        reel_bindings=len(reels_bound)))
     out.append("")
     out.append(SECTION_PIN.format(sections=sections))
     out.append("")
@@ -3132,7 +3546,8 @@ pub equ {equ_bindings} = {bindings}
 pub equ {equ_raster_bindings} = {raster_bindings}
 pub equ {equ_cycle_bindings} = {cycle_bindings}
 pub equ {equ_variant_bindings} = {variant_bindings}
-pub equ {equ_patch_bindings} = {patch_bindings}\
+pub equ {equ_patch_bindings} = {patch_bindings}
+pub equ {equ_reel_bindings} = {reel_bindings}\
 """
 
 SECTION_PIN = """\
@@ -3166,6 +3581,39 @@ ensure({array}_BudgetChecked == {n},
 pub const {array}_CapsFolded = fold_caps({array})
 ensure(({array}_CapsFolded & ~Game.SCANLINE_CAPS) == 0,
        "editor scenes: the folded capability mask {{{array}_CapsFolded}} is NOT a subset of Game.SCANLINE_CAPS {{Game.SCANLINE_CAPS}}; the UNDECLARED bits are {{{array}_CapsFolded & ~Game.SCANLINE_CAPS}} — an Aurora-authored scene demands a scanline service this game does not declare. Either widen SCANLINE_CAPS in games/sonic4/config/game.emp, or stop authoring the capability in the scene that raises it")\
+"""
+
+REELS_BANNER = """\
+// ---- AURORA-AUTHORED REEL RATES + THE BINDING TABLE (item 10, DEBUG TIER) ----
+//
+// The scene document's `reels: { "rates": [..] }` key. One `[i8; REEL_BAND_COUNT]` per
+// authoring scene, plus the flat (config label, rates label) list `OJZ_Reels_Fill`
+// walks against `Parallax_Current_Config` to pick a table — on a miss it keeps
+// `OJZ_Reel_Speed`, so the built-in demo and tools/reels_witness.py go on working.
+//
+// A RATE IS SIGNED WHOLE PIXELS PER FRAME, and there is no fixed point anywhere on this
+// path: `add.b (a2)+, d0` adds the authored byte straight into the strip's phase. This
+// is NOT item 3's `drift.rate`, which is 1/256 px per frame with the editor multiplying
+// by 256 on export — that conversion applied here emits 768 for an intended 3. Rates
+// are emitted in DOCUMENT ORDER, verbatim: index i owns column-pairs 4i..4i+3, screen X
+// 64i..64i+63, and that mapping is a hardcoded `lsr.b #2` the JSON cannot see.
+//
+// EVERYTHING HERE IS INSIDE `if DEBUG == 1` AND EMITS ZERO BYTES IN RELEASE, which is
+// the CR's ruling (1) carried as a prohibition rather than a caveat: nothing in the
+// release shape can set `OJZ_Reel_Active` (its only writer is tools/reels_witness.py
+// poking a DEBUG-only RAM cell), so a release emission would be a dormant scaffold in
+// the ROM the owner ships. Promotion is the owner's parked question and nothing here
+// designs it.
+//
+// THE BINDING TABLE IS ALWAYS EMITTED even with no authored reels — `OJZ_Reels_Fill`
+// names it in a `lea`, so the symbol must exist in every bake — and is then one
+// terminator long. Everything above it is emitted only when a scene authors the key.
+//
+// EVERY RATE TABLE ROUTES THROUGH `reel_rates_ok` (games/sonic4/config/constants.emp),
+// the same fn the hand-written table uses, so the length / magnitude / distinctness
+// rules travel instead of being copied. The generator repeats NONE of them: it checks
+// SHAPE (the key set, the element type, the array's LENGTH against REEL_BAND_COUNT
+// re-derived from constants.emp) and leaves the values to sigil.\
 """
 
 RASTER_BANNER = """\
@@ -3321,7 +3769,8 @@ def generate(repo: str = REPO, zone: int = 0, act: int = 0) -> tuple:
         act_section_count(repo, zone, act),
         names,
         load_all_presets("sonic4", repo),
-        load_section_raster_refs(repo, zone, act))
+        load_section_raster_refs(repo, zone, act),
+        repo)
 
 
 def _atomic_write(path: str, text: str) -> None:

@@ -104,6 +104,13 @@ use engine.effects.preset.{EffectsPreset, preset}
 // chooser's per-slot reason, and they return `int` rather than `Label` because a world Y and
 // a packed sweep word are values, not addresses.
 use games.sonic4.ojz_effects_editor_act1.{ojz_act1_sec_raster, ojz_act1_sec_cycle, ojz_act1_sec_variant, ojz_act1_sec_patch_world_y, ojz_act1_sec_patch_motion}
+// THE REELS ASSOCIATION TABLE (EFFECTS-W1 item 10 step 4), from the same generated
+// module. A DATA import and not a chooser, unlike its five neighbours above, because
+// OJZ_Reels_Fill selects at RUNTIME rather than at comptime — the active scene is not
+// known until the section is entered. It is therefore ALWAYS EMITTED by the generator
+// (one terminator long with no authored reels, zero bytes in release), which is what
+// lets the `lea` below be unconditional.
+use games.sonic4.ojz_effects_editor_act1.{EditorReelBindings_OJZ_Act1}
 // Parcel W: section 0 binds its parallax config through the PRESET (ep_parallax) rather
 // than inheriting the act default, because the overlay's anchor channel has to be the same
 // channel the patched palette boundary rides. This is also the first ep_parallax binding in
@@ -1793,16 +1800,56 @@ align 2
 // DEBUG-shape only: the whole body, RTS included, sits inside `if DEBUG == 1 {}`,
 // Debug_BandDemoHotkey's pattern, so the proc emits ZERO bytes in the plain shape.
 //
-// In:  none (reads OJZ_Reel_Phase, OJZ_Reel_Speed, Parallax_Current_Vscroll_BG)
+// In:  none (reads OJZ_Reel_Phase, Parallax_Current_Config, EditorReelBindings_OJZ_Act1,
+//       the selected rate table — OJZ_Reel_Speed or an authored one, Parallax_Current_Vscroll_BG)
 // Out: OJZ_Reel_Phase advanced; Parallax_Vscroll_Column_Buf's 20 BG words replaced
 // Clobbers: d0-d5/a0-a2
 pub proc OJZ_Reels_Fill () clobbers(d0-d5/a0-a2) {
     if DEBUG == 1 {
+        // SELECT THIS SCENE'S RATE TABLE — EFFECTS-W1 item 10 step 4, the authoring
+        // half. Everything below the two `lea`s was ALREADY a generic "read
+        // REEL_BAND_COUNT signed bytes from ROM and accumulate"; it never knew which
+        // table it was reading. The only missing half was SELECTION, and this walk is
+        // it: EditorReelBindings_OJZ_Act1 (the generated module, emitted from a scene
+        // document's `reels` key) is a 0-terminated list of
+        // (parallax_config label, rate table label) longs, and the config half is
+        // compared against Parallax_Current_Config — the pointer the engine holds to
+        // the ACTIVE config.
+        //
+        // WHY THAT COMPARISON WORKS AT ALL, since the two sides are different types:
+        // the generator emits `EditorSceneBinding_*: SceneCfgN`, while the cell holds a
+        // `parallax_config*`. They are the SAME ADDRESS because `parallax_config` is
+        // the FIRST member of every SceneCfgN (games/sonic4/data/effects/
+        // scene_registry.emp), which that file pins with an
+        // `ensure(offsetof(SceneCfgN, hdr) == 0)` per struct — a reorder would sever
+        // this SILENTLY, leaving a green build in which every lookup misses.
+        //
+        // A MISS KEEPS OJZ_Reel_Speed, deliberately: this file's own five-band demo is
+        // the fallback, so it and tools/reels_witness.py go on working with no authored
+        // content anywhere. With no `reels` key in any scene the table is one
+        // terminator long and this walk is four instructions.
+        //
+        // The key is a UNIQUE handle only for a section bound at
+        // Effects_ResolveParallax's RUNG 1 (Sec.sec_parallax_config, the editor's
+        // sceneRef). A section resolving through a preset (rung 2) or the act default
+        // (rung 3) holds a pointer SHARED with other sections — tools/effects_gen.py
+        // REFUSES a `reels` key in either case, by name, because that failure is
+        // silent: it does not drop the effect, it hands a section someone else's motion.
+        lea     OJZ_Reel_Speed(pc), a2          // fallback: this file's own demo rates
+        lea     EditorReelBindings_OJZ_Act1, a0 // (config, rates) longs, 0-terminated
+        move.l  Parallax_Current_Config, d0     // (Parallax_Current_Config).w
+    .bind:
+        move.l  (a0)+, d1                       // a bound config, or the terminator
+        beq     .bound                          // end of list: keep the fallback
+        move.l  (a0)+, d2                       // that binding's authored rate table
+        cmp.l   d1, d0
+        bne     .bind
+        movea.l d2, a2                          // this scene's authored rates
+    .bound:
         // advance each band's phase accumulator by its own constant speed — the reel
         // source itself. Wraps at 256 (byte add), which is the loop: a band's strip
         // scrolls forever rather than settling, exactly like a slot-machine reel.
         lea     OJZ_Reel_Phase, a1              // (OJZ_Reel_Phase).w — REEL_BAND_COUNT bytes
-        lea     OJZ_Reel_Speed(pc), a2          // ROM: REEL_BAND_COUNT signed byte speeds
         moveq   #REEL_BAND_COUNT-1, d5
     .advance:
         move.b  (a1), d0
