@@ -369,10 +369,11 @@ pub vars upper_ram {
 
     Vscroll_Factor:         u32,        // FG word + BG word
 
-    // --- Parallax state (§4.6) — `104 + 28 * MAX_PARALLAX_BANDS` bytes at the shipped
-    // capability set (BAND_EXT_N 0, BAND_CURVE_N 1, BAND_DRIFT_N 0): 552 B at MAX 16, up
-    // from 328 B at MAX 8 (+224 on 2026-08-27). ---
-    // (104 ceiling-independent = 3 phase words + vscroll word + 2 config longs +
+    // --- Parallax state (§4.6) — `108 + 28 * MAX_PARALLAX_BANDS` bytes at the shipped
+    // capability set (BAND_EXT_N 0, BAND_CURVE_N 1, BAND_DRIFT_N 0): 556 B at MAX 16, up
+    // from 328 B at MAX 8 (+224 on 2026-08-27, +4 on 2026-09-04 for F3's two VP words). ---
+    // (108 ceiling-independent = 3 phase words + 2 vanishing-point words + vscroll word +
+    //  2 config longs +
     //  4 transition/section bytes + 80 B column buf + 4 B curve carry. 28 per band =
     //  2 current-scroll words + a 20 B shadow band + 2 shadow-scroll words.
     //  RAISING BAND_DRIFT_N TO 1 TAKES THE PER-BAND TERM TO 36 and the span to 680 B at
@@ -384,6 +385,25 @@ pub vars upper_ram {
     Parallax_Deform_Phase_FG:    u16,   // (frame_counter * speed_fg) & $FF
     Parallax_Deform_Phase_BG:    u16,
     Parallax_V_Deform_Phase_BG:  u16,   // for animated per-column V-scroll
+    // The screen-anchored vanishing point's two live words (EFFECTS-W1 F3). Read and
+    // written ONLY inside Step 5b's screen-anchor arm, which is the arm that does NOT
+    // accumulate Parallax_V_Deform_Phase_BG — it derives that word from these instead.
+    //   Prev_Cam_X  last frame's camera X in whole pixels, so the arm can take a DELTA.
+    //               Zero out of Parallax_Init, which makes frame 1's delta the whole camera
+    //               X; the lean clamp is what bounds that, and the lerp absorbs it within a
+    //               few frames. Deliberately not seeded — a sentinel here would need a
+    //               branch on every frame to save one frame's overshoot that is already
+    //               clamped.
+    //   Lean        the vanishing point's SIGNED displacement from the screen centre, in
+    //               pixels, lerped toward the camera-derived target. Signed despite the u16
+    //               (ram.emp reserves bytes and names no signed type); every read of it is
+    //               a word op on a value the arm treats as two's complement.
+    // Both live INSIDE Parallax_State/_End so Parallax_Init's clear zeroes them, and both
+    // sit here rather than at the end of the region because the last four symbols of it
+    // (Remap_State / Drift_Acc / Curve_Carry / Shadow_Bands) are pinned by ADJACENT-SYMBOL
+    // DIFFERENCE — inserting anything between any two of those four breaks the pin it splits.
+    Parallax_VP_Prev_Cam_X:      u16,
+    Parallax_VP_Lean:            u16,   // signed; see above
     Parallax_Current_Scroll_A:   [u16; MAX_PARALLAX_BANDS],  // lerp accumulators, Plane A
     Parallax_Current_Scroll_B:   [u16; MAX_PARALLAX_BANDS],  // Plane B
     Parallax_Current_Vscroll_BG: u16,

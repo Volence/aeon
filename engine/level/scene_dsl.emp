@@ -19,7 +19,7 @@
 module engine.level.scene_dsl
 
 use engine.structs.{parallax_config}
-use engine.parallax.{band_entry, band_record, band_ext, BAND_EXT_N, band_curve, BAND_CURVE_N, band_drift, BAND_DRIFT_N, band_remap, BAND_REMAP_N, CURVE_FLAG_OP_BIT, CURVE_FLAG_ACTIVE_BIT, PLANE_B_SPAN, BAND_OP_BIT_A, BAND_OP_BIT_B, BOB_SHIFT_MIN, BOB_SHIFT_MAX, BOB_PERIOD_SHIFT_MAX, BOB_SHIFT_NONE, PCFG_VDS_SHIFT_MASK, PCFG_VDS_DECLINE_BORROW}
+use engine.parallax.{band_entry, band_record, band_ext, BAND_EXT_N, band_curve, BAND_CURVE_N, band_drift, BAND_DRIFT_N, band_remap, BAND_REMAP_N, CURVE_FLAG_OP_BIT, CURVE_FLAG_ACTIVE_BIT, PLANE_B_SPAN, BAND_OP_BIT_A, BAND_OP_BIT_B, BOB_SHIFT_MIN, BOB_SHIFT_MAX, BOB_PERIOD_SHIFT_MAX, BOB_SHIFT_NONE, PCFG_VDS_SHIFT_MASK, PCFG_VDS_DECLINE_BORROW, PCFG_VDSP_SCREEN_ANCHOR, PCFG_VDSP_GAIN_MASK}
 use engine.constants.{MAX_PARALLAX_BANDS, PARALLAX_ANCHOR_NONE}
 use engine.effects.raster_dsl.{RASTER_MAX_PATCH}
 
@@ -94,6 +94,14 @@ ensure(FACTOR_0 == $0FF, "scene_dsl's inlined locked-factor encoding ($0FF) drif
 // shift into a decline.
 ensure(PCFG_VDS_DECLINE_BORROW == $80 && PCFG_VDS_SHIFT_MASK == $0F,
        "scene_dsl's inlined per-scene borrow encoding ($80 flag / $0F shift mask) drifted from engine.parallax.PCFG_VDS_DECLINE_BORROW / PCFG_VDS_SHIFT_MASK — scene_vds_byte() packs pcfg_v_deform_shift_bg from those two literals and Parallax_Step5_Vscroll unpacks it with the engine's")
+// F3 (2026-09-04) adds the third of the species, on a DIFFERENT byte:
+// scene_vdeform_speed()'s ScreenFloor arm packs pcfg_v_deform_speed_bg as $80 | (gain & $0F),
+// and Step 5b selects the mode on the byte's sign. Same literal-inlining reason, same
+// silence if it drifts — a moved flag turns a screen-anchored scene into a timer running at
+// whatever its gain happened to be, which is a WORKING effect at the wrong anchor and
+// therefore the hardest kind to notice.
+ensure(PCFG_VDSP_SCREEN_ANCHOR == $80 && PCFG_VDSP_GAIN_MASK == $0F,
+       "scene_dsl's inlined screen-anchor encoding ($80 flag / $0F gain mask) drifted from engine.parallax.PCFG_VDSP_SCREEN_ANCHOR / PCFG_VDSP_GAIN_MASK — scene_vdeform_speed() packs pcfg_v_deform_speed_bg from those two literals and Parallax_Step5_Vscroll unpacks it with the engine's")
 
 // LAYER_WORLD_Y_MAX — the engine-wide ceiling on an act's vertical extent, and the bound
 // `layer()` replaced its `world_y < 512` with. It is NOT a parallax number and NOT a
@@ -398,9 +406,28 @@ pub comptime enum SceneDeform {
     Own(Label, int, int, int, int),  // (table, shift_a, shift_b, phase, speed) — PER-LAYER
 }
 
+// SceneVDeform — how a scene drives the per-column V-scroll table.
+//
+//   None            no per-column V-deform; the plane takes the whole-plane vscroll word.
+//   Columns         the phase is a free-running TIMER: `phase += speed` every frame. The
+//                   shape walks the table on a counter and nothing anchors it. Right for a
+//                   rocking tilt, where the phase IS the motion.
+//   ScreenFloor     EFFECTS-W1 F3. The phase is DERIVED from the live camera every frame so
+//                   the curve's apex — the vanishing point — lands on the middle of the
+//                   SCREEN. `lean_gain` is a left-shift on the camera's per-frame X delta;
+//                   0 pins the apex dead centre (Batman & Robin's own answer: its per-column
+//                   fan grows from a hard-coded column 10 of 20 and never moves), higher
+//                   values let it lean with travel, bounded to the middle third by
+//                   VP_LEAN_MAX. Nothing accumulates — see Parallax_Step5_Vscroll.
+//
+// WHY IT IS A THIRD VARIANT AND NOT A FLAG ON `Columns`: the second field means a different
+// KIND of thing in each (a rate vs. a gain), and a scene that authored a speed under a
+// screen anchor would be authoring nothing. A distinct variant makes the two unmixable at
+// the source instead of at the wire.
 pub comptime enum SceneVDeform {
-    None,                       // no per-column V-deform
-    Columns(Label, int, int),   // (column table Label, sample speed, amplitude shift)
+    None,                          // no per-column V-deform
+    Columns(Label, int, int),      // (column table Label, sample speed, amplitude shift)
+    ScreenFloor(Label, int, int),  // (column table Label, lean gain, amplitude shift)
 }
 
 pub comptime enum SceneAnchor {
@@ -1416,29 +1443,57 @@ pub comptime fn scene_lcm_is_decline_borrow(m: SceneLeftColMask) -> int {
 // V-column table Label; hdr() default 0 (= whole-plane V-scroll).
 pub comptime fn scene_vdeform_table(v: SceneVDeform) -> Label {
     return match v {
-        None                       => 0,
-        Columns(tbl, speed, shift) => tbl,
+        None                           => 0,
+        Columns(tbl, speed, shift)     => tbl,
+        ScreenFloor(tbl, gain, shift)  => tbl,
     }
 }
 // V-column sample speed; hdr() default ZERO (static column shape). Note this is the
 // opposite default from the H-deform speed above — both are reproduced literally.
+//
+// THE SCREEN-ANCHOR ARM PACKS ITS MODE BIT HERE, and that is the whole wire for F3: the byte
+// carries a per-frame phase INCREMENT with bit 7 clear and a lean GAIN with it set, and
+// Parallax_Step5_Vscroll selects on the byte's sign. $80 and $0F are LITERALS for the
+// call-site resolution rule (EMP_PITFALLS §2 — this body elaborates inside a GAME module,
+// where an import made here resolves to nothing); the pin block at the top of this file is
+// what holds them to engine.parallax.PCFG_VDSP_*.
 pub comptime fn scene_vdeform_speed(v: SceneVDeform) -> int {
     return match v {
-        None                       => 0,
-        Columns(tbl, speed, shift) => speed,
+        None                           => 0,
+        Columns(tbl, speed, shift)     => speed,
+        ScreenFloor(tbl, gain, shift)  => $80 | (gain & $0F),
     }
 }
 // V-column amplitude shift; hdr() default 4.
 pub comptime fn scene_vdeform_shift(v: SceneVDeform) -> int {
     return match v {
-        None                       => 4,
-        Columns(tbl, speed, shift) => shift,
+        None                           => 4,
+        Columns(tbl, speed, shift)     => shift,
+        ScreenFloor(tbl, gain, shift)  => shift,
     }
 }
 pub comptime fn scene_vdeform_is_none(v: SceneVDeform) -> int {
     return match v {
-        None                       => 1,
-        Columns(tbl, speed, shift) => 0,
+        None                           => 1,
+        Columns(tbl, speed, shift)     => 0,
+        ScreenFloor(tbl, gain, shift)  => 0,
+    }
+}
+// The authored lean gain, BEFORE it is packed — the number scene()'s guard bounds and the
+// number a diagnostic should print. A timer scene has no gain, and 0 is the right answer for
+// it in the only place this is consulted (a guard that only fires on ScreenFloor).
+pub comptime fn scene_vdeform_lean_gain(v: SceneVDeform) -> int {
+    return match v {
+        None                           => 0,
+        Columns(tbl, speed, shift)     => 0,
+        ScreenFloor(tbl, gain, shift)  => gain,
+    }
+}
+pub comptime fn scene_vdeform_is_screen_anchored(v: SceneVDeform) -> int {
+    return match v {
+        None                           => 0,
+        Columns(tbl, speed, shift)     => 0,
+        ScreenFloor(tbl, gain, shift)  => 1,
     }
 }
 
@@ -1721,6 +1776,20 @@ pub comptime fn scene(layers: [SceneLayer; 16], count: int,
     // exactly the class of error that belongs to the build.
     ensure(v_deform_shift_raw >= -1 && v_deform_shift_raw <= 15,
            "scene(): v_deform_shift_raw {v_deform_shift_raw} outside -1 (derive) .. 15 — the runtime samples the column table with asr.w, so a wider shift saturates to sign instead of failing")
+    // ---- THE SCREEN-ANCHOR LEAN GAIN'S RANGE (EFFECTS-W1 F3) ----
+    //
+    // The gain rides in four bits of pcfg_v_deform_speed_bg, so anything past 15 TRUNCATES
+    // into a different gain rather than failing — the silent-wrong-picture class this file's
+    // other range guards exist for. It is also a `asl.w d3, d5` shift count at the runtime,
+    // which the 68000 takes mod 64, so an out-of-range value is not even reliably large.
+    //
+    // THE UPPER BOUND IS 4 AND IT IS DERIVED, not chosen for roundness: the lean target is
+    // `camera_delta << gain` and it is clamped at VP_LEAN_MAX (48 px). A camera moving one
+    // pixel a frame — the slowest motion that exists — already saturates that clamp at gain
+    // 6, so every gain above ~5 is the same effect with a harder edge. 4 keeps the whole
+    // ladder inside the region where the gain still means something.
+    ensure(scene_vdeform_lean_gain(v_deform) >= 0 && scene_vdeform_lean_gain(v_deform) <= 4,
+           "scene(): SceneVDeform.ScreenFloor lean gain {scene_vdeform_lean_gain(v_deform)} outside 0 .. 4. It is packed into four bits of pcfg_v_deform_speed_bg (so a wider value truncates into a different gain, silently) and used as an `asl.w` count on the camera delta (so it is taken mod 64, not clamped). Gain 0 pins the vanishing point dead centre, which is the shipped Batman & Robin behaviour and a legitimate answer, not an off switch")
     // ---- THE WHOLE-PLANE VERTICAL SHIFT'S RANGE, which had no owner ----
     //
     // THE BOUND IS DERIVED FROM THE ONE CONSUMER, not from the sentinel. sc_v_factor

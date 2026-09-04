@@ -84,7 +84,7 @@ use games.sonic4.scene_registry.{DeformTable_Zero, DeformTable_OJZ_Calm, DeformT
 //   DeformTable_Shimmer      deform_sine(amplitude: 8,  period: 32)
 //   DeformTable_Haze         deform_sine(amplitude: 16, period: 64)
 //   DeformTable_Rocking      deform_sine(amplitude: 20, period: 64)
-//   DeformTable_Perspective  v_column_floor(center: 20, max_offset: 24)
+//   DeformTable_Perspective  v_column_floor_screen(edge_offset: 24)   (F3, 2026-09-04)
 //
 // Declared in configs.emp's own order so a diff against the deleted file reads straight
 // across (`git show <pre-P1>:games/sonic4/data/parallax/configs.emp`; the `configs.emp:NNN`
@@ -103,7 +103,25 @@ pub const SceneSrc_DeformTable_OJZ_Calm    = deform_sine(amplitude: 96, period: 
 pub const SceneSrc_DeformTable_Shimmer     = deform_sine(amplitude: 8,  period: 32)
 pub const SceneSrc_DeformTable_Haze        = deform_sine(amplitude: 16, period: 64)
 pub const SceneSrc_DeformTable_Rocking     = deform_sine(amplitude: 20, period: 64)
-pub const SceneSrc_DeformTable_Perspective = v_column_floor(center: 20, max_offset: 24)
+// EFFECTS-W1 F3 (2026-09-04) — WAS `v_column_floor(center: 20, max_offset: 24)`, and the
+// swap is the whole of this row. Two defects, both in that one call:
+//
+//   THE APEX WAS OFF THE SCREEN. Only twenty entries are consumed each frame (the fill loop
+//   runs `moveq #20-1, d6`), so at phase 0 the visible shape was entries 0..19 while
+//   `center: 20` put the V's minimum at entry 20 — one column PAST the right edge. What
+//   reached the display was a monotone ramp, never a cone. That is exactly the owner's
+//   report: the middle was not in the middle of the screen.
+//   THE SHAPE DIED AT ENTRY 40. `v_column_floor` clamps its index to 39, so entries 40..255
+//   are one constant. Scene_Perspective (speed 1) and Scene_Perspective_Dramatic (speed 2)
+//   walked the read window into that flat region within 40 and 20 frames and stayed there
+//   for the rest of the 256-frame cycle — a constant plane-B offset with no shape at all for
+//   the large majority of the period.
+//
+// The replacement is full-range and fixed-slope (see engine/level/parallax_dsl.emp for why
+// the `/ center` normalisation had to go with the clamp: it made the cone's PITCH a function
+// of where its apex sat, which is not a floor), and the apex is placed by the runtime rather
+// than by this call — see SceneVDeform.ScreenFloor below.
+pub const SceneSrc_DeformTable_Perspective = v_column_floor_screen(edge_offset: 24)
 // The seventh, and the first that is not a deform curve: EFFECTS-W1 item 9's ROW REMAP
 // LADDER. 17 rows of 16 bytes = 272 B. Row `H - |p|` is selected each frame from the
 // perspective quantity and its first `|p|` bytes are consumed. See
@@ -620,33 +638,57 @@ pub comptime fn perspective_layers() -> [SceneLayer; 16] {
 // the build with the differing field named.
 
 // PERSPECTIVE, BORROW KEPT — the pre-d-50 behaviour and the family's original constructor.
-pub comptime fn perspective_scene(v_shift: int, h_speed: int, v_speed: int) -> Scene {
+pub comptime fn perspective_scene(v_shift: int, h_speed: int, lean_gain: int) -> Scene {
     return scene(
         layers: perspective_layers(),
         count: 5, v_factor: 15, v_center: 0, v_offset: 0,
         deform_bg: SceneDeform.Shared(DeformTable_Shimmer, h_speed),
-        v_deform: SceneVDeform.Columns(DeformTable_Perspective, v_speed, v_shift),
+        v_deform: SceneVDeform.ScreenFloor(DeformTable_Perspective, lean_gain, v_shift),
         left_column_mask: SceneLeftColMask.Accept)
 }
 
 // PERSPECTIVE, BORROW DECLINED — d-50, and the only difference from the constructor above
 // is the last argument. Plane B keeps both its edges; plane A's leading sliver goes back to
 // the pre-d-40 artifact. See the family banner for why that is the better trade here.
-pub comptime fn perspective_scene_declined(v_shift: int, h_speed: int, v_speed: int) -> Scene {
+pub comptime fn perspective_scene_declined(v_shift: int, h_speed: int, lean_gain: int) -> Scene {
     return scene(
         layers: perspective_layers(),
         count: 5, v_factor: 15, v_center: 0, v_offset: 0,
         deform_bg: SceneDeform.Shared(DeformTable_Shimmer, h_speed),
-        v_deform: SceneVDeform.Columns(DeformTable_Perspective, v_speed, v_shift),
+        v_deform: SceneVDeform.ScreenFloor(DeformTable_Perspective, lean_gain, v_shift),
         left_column_mask: SceneLeftColMask.DeclineBorrow)
 }
 
 // THE POLICY IS PER INSTANCE, NOT PER FAMILY. The ruling names two scenes, not the family
 // (d-50: "the shimmer scenes he saw (13 and 14)"), so Dramatic keeps the borrow and each
 // call site below names the constructor that carries its own answer.
-pub const Scene_Perspective_Subtle:   Scene = perspective_scene_declined(v_shift: 2, h_speed: 1, v_speed: 0)  // :244  registry 13
-pub const Scene_Perspective:          Scene = perspective_scene_declined(v_shift: 0, h_speed: 2, v_speed: 1)  // :245  registry 14
-pub const Scene_Perspective_Dramatic: Scene = perspective_scene(v_shift: 0, h_speed: 3, v_speed: 2)           // :246  registry 15
+// ---- THE THIRD ARGUMENT CHANGED MEANING (EFFECTS-W1 F3, 2026-09-04) ----
+//
+// It was `v_speed`, a free-running phase increment: the shape walked the table on a counter
+// and nothing anchored it to the screen or to the world. It is now `lean_gain`, and the
+// phase is derived from the live camera every frame so the cone's apex lands on the middle
+// of the display. The gain is a left-shift on the camera's per-frame X delta.
+//
+// THE THREE VALUES ARE AN A/B THE OWNER CAN WALK WITH ONE CHORD, and that is deliberate,
+// because the row's two readings disagree and the reference does not settle it:
+//
+//   13 Subtle    gain 0 — the apex is PINNED dead centre and never moves. This is Batman &
+//                Robin's shipped answer verbatim: its per-column fan is grown outward from
+//                `lea $ffff9014, a0`, word index 10 of 20, and none of its per-column
+//                routines ever move that centre. It is also the literal reading of "the
+//                middle is always in the middle bottom of the screen".
+//   14 Perspective  gain 2 — the apex leans with travel, bounded to the middle third by
+//                VP_LEAN_MAX. This is the "continuously move the point ... based on camera"
+//                half of the same sentence. Its precedent is B&R's OTHER perspective
+//                reference point: its per-line horizon IS moved from the camera every frame
+//                (effects.asm:8325-8327).
+//   15 Dramatic  gain 4 — the same, at the top of the authored ladder.
+//
+// Amplitude still rides `v_shift` as before (2 halves the cone, 0 is full), so 13 differs
+// from 14 in BOTH axes exactly as it did when the third argument was a speed.
+pub const Scene_Perspective_Subtle:   Scene = perspective_scene_declined(v_shift: 2, h_speed: 1, lean_gain: 0)  // :244  registry 13
+pub const Scene_Perspective:          Scene = perspective_scene_declined(v_shift: 0, h_speed: 2, lean_gain: 2)  // :245  registry 14
+pub const Scene_Perspective_Dramatic: Scene = perspective_scene(v_shift: 0, h_speed: 3, lean_gain: 4)           // :246  registry 15
 
 // =====================================================================
 // WindyHaze — configs.emp:253-262. Composite: a windy multi-band BG gradient (clouds get

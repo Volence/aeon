@@ -582,7 +582,7 @@ ensure(EQ_Rocking_Fast_b0 == -1, "scene equivalence: Scene_Rocking_Fast BAND 0 d
 const EQ_Perspective_Subtle_h = cfg_eq(scene_hdr(Scene_Perspective_Subtle),
     hdr(band_count: 5, layer_mask: $1F, v_factor_bg: 15, v_center: 0, v_offset: 0,
         deform_bg: DeformTable_Shimmer, deform_speed_bg: 1,
-        v_deform_bg: DeformTable_Perspective, v_deform_speed_bg: 0, v_deform_shift_bg: $80 | 2))
+        v_deform_bg: DeformTable_Perspective, v_deform_speed_bg: $80 | 0, v_deform_shift_bg: $80 | 2))
 ensure(EQ_Perspective_Subtle_h == -1, "scene equivalence: Scene_Perspective_Subtle's lowered HEADER differs from ParallaxConfig_Perspective_Subtle's at cfg field {EQ_Perspective_Subtle_h}")
 const EQ_Perspective_Subtle_b0 = band_eq(scene_band(Scene_Perspective_Subtle, 0),
     cfg_band(cell: 0, fa: FACTOR_1, fb: FACTOR_0, dsa: 4, dsb: 15))
@@ -603,7 +603,7 @@ ensure(EQ_Perspective_Subtle_b4 == -1, "scene equivalence: Scene_Perspective_Sub
 const EQ_Perspective_h = cfg_eq(scene_hdr(Scene_Perspective),
     hdr(band_count: 5, layer_mask: $1F, v_factor_bg: 15, v_center: 0, v_offset: 0,
         deform_bg: DeformTable_Shimmer, deform_speed_bg: 2,
-        v_deform_bg: DeformTable_Perspective, v_deform_speed_bg: 1, v_deform_shift_bg: $80 | 0))
+        v_deform_bg: DeformTable_Perspective, v_deform_speed_bg: $80 | 2, v_deform_shift_bg: $80 | 0))
 ensure(EQ_Perspective_h == -1, "scene equivalence: Scene_Perspective's lowered HEADER differs from ParallaxConfig_Perspective's at cfg field {EQ_Perspective_h}")
 const EQ_Perspective_b0 = band_eq(scene_band(Scene_Perspective, 0),
     cfg_band(cell: 0, fa: FACTOR_1, fb: FACTOR_0, dsa: 4, dsb: 15))
@@ -624,7 +624,7 @@ ensure(EQ_Perspective_b4 == -1, "scene equivalence: Scene_Perspective BAND 4 dif
 const EQ_Perspective_Dramatic_h = cfg_eq(scene_hdr(Scene_Perspective_Dramatic),
     hdr(band_count: 5, layer_mask: $1F, v_factor_bg: 15, v_center: 0, v_offset: 0,
         deform_bg: DeformTable_Shimmer, deform_speed_bg: 3,
-        v_deform_bg: DeformTable_Perspective, v_deform_speed_bg: 2, v_deform_shift_bg: 0))
+        v_deform_bg: DeformTable_Perspective, v_deform_speed_bg: $80 | 4, v_deform_shift_bg: 0))
 ensure(EQ_Perspective_Dramatic_h == -1, "scene equivalence: Scene_Perspective_Dramatic's lowered HEADER differs from ParallaxConfig_Perspective_Dramatic's at cfg field {EQ_Perspective_Dramatic_h}")
 const EQ_Perspective_Dramatic_b0 = band_eq(scene_band(Scene_Perspective_Dramatic, 0),
     cfg_band(cell: 0, fa: FACTOR_1, fb: FACTOR_0, dsa: 4, dsb: 15))
@@ -761,6 +761,6 @@ const EQ_TBL_Rocking = first_mismatch(SceneSrc_DeformTable_Rocking, deform_sine(
 ensure(SceneSrc_DeformTable_Rocking.len == 256, "scene equivalence: SceneSrc_DeformTable_Rocking is {SceneSrc_DeformTable_Rocking.len} entries, not 256")
 ensure(EQ_TBL_Rocking == -1, "scene equivalence: DeformTable_Rocking's source diverges from configs.emp:242's deform_sine(amplitude: 20, period: 64) at index {EQ_TBL_Rocking}")
 
-const EQ_TBL_Perspective = first_mismatch(SceneSrc_DeformTable_Perspective, v_column_floor(center: 20, max_offset: 24))
+const EQ_TBL_Perspective = first_mismatch(SceneSrc_DeformTable_Perspective, v_column_floor_screen(edge_offset: 24))
 ensure(SceneSrc_DeformTable_Perspective.len == 256, "scene equivalence: SceneSrc_DeformTable_Perspective is {SceneSrc_DeformTable_Perspective.len} entries, not 256")
-ensure(EQ_TBL_Perspective == -1, "scene equivalence: DeformTable_Perspective's source diverges from configs.emp:261's v_column_floor(center: 20, max_offset: 24) at index {EQ_TBL_Perspective}")
+ensure(EQ_TBL_Perspective == -1, "scene equivalence: DeformTable_Perspective's source diverges from v_column_floor_screen(edge_offset: 24) at index {EQ_TBL_Perspective}. This oracle NO LONGER cites configs.emp:261 — EFFECTS-W1 F3 (2026-09-04) replaced that call, because its apex sat at entry 20 (one column past the right edge of the twenty this table is ever read at) and its shape died at entry 40. See games/sonic4/data/effects/ojz_scenes.emp for the derivation")
