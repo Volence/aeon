@@ -459,7 +459,56 @@ pub vars game_ram {
         // none of it.
         OJZ_Reel_Active: u8,                     // 0 = normal parallax fill; nonzero = reels demo live
         OJZ_Reel_Phase:  [u8; REEL_BAND_COUNT],  // per-band phase accumulators (0..255, wraps)
-        pad(1),                 // keep Game_RAM_End even
+        pad(1),                 // even-alignment pad for the odd byte run above
+
+        // -----------------------------------------------
+        // Effects-lab TIER NAME TAGS (DEBUG shapes only) — EFFECTS-W1 F4
+        // -----------------------------------------------
+        // The owner's ask, in his words: "can we get it to write out what it's
+        // supposed to be in oracle like start + left/right does? This way I can
+        // relay info back to the agent better." These three cells are what let
+        // Debug_TierTags_Update (games/sonic4/test/ojz_scroll_test.emp) paint the
+        // RASTER and BG-ANIMATION tiers' names without repainting them every frame.
+        //
+        // THE TWO `Shown` CELLS ARE MIRRORS, NOT CURSORS, and that is the whole
+        // difference between this readout and the three above it. Debug_Scene_Index,
+        // Debug_Raster_Index and Debug_Preset_Index are all documented as "a cursor,
+        // NOT a mirror of the live channel" — which is exactly why a tag driven off
+        // one of them would go stale the moment a section crossing re-installed a
+        // preset through Effects_InstallPreset. Each of these holds the ENGINE value
+        // the tag currently spells (Raster_Program / BgAnim_Table_Ptr), so the
+        // painter's whole liveness test is a long compare against the live cell and
+        // the tag cannot disagree with the machine for more than one frame.
+        //
+        // A DROPPED DMA DELIBERATELY LEAVES THESE UNWRITTEN. The painter queues one
+        // Critical entry per glyph cell and bails on the first `dropped` carry
+        // without updating the mirror, so the next frame's compare still differs and
+        // the whole tag is re-queued. That converts a full DMA queue from "a name
+        // with one wrong letter, forever" into "one frame of mixed letters".
+        //
+        // $FFFFFFFF IS THE ONE POISON VALUE, and it is written exactly once per boot:
+        // on the frame the arming flag below latches. Boot clears Work RAM so both
+        // mirrors read 0 — and 0 is a LEGAL value of both subjects ("no raster program
+        // at all"), so without the poison a reviewer who first reached for the lab
+        // while standing in a section that binds no raster program would see the
+        // compare match, no tag built, and NOTHING on screen where the answer `NONE`
+        // belongs. $FFFFFFFF is safe as the poison because it is neither 0 nor any
+        // address in a 4 MB ROM.
+        Debug_Raster_Shown: u32,   // the Raster_Program value the raster tag spells
+        Debug_BgAnim_Shown: u32,   // the BgAnim_Table_Ptr value the BG-anim tag spells
+
+        // Nonzero once the reviewer has HELD START or C at least once this boot —
+        // i.e. once he has reached for the effects lab at all.
+        //
+        // IT EXISTS TO KEEP EVERY REPLAY FIXTURE AND EVERY BOOT FRAME BYTE-FOR-BYTE.
+        // The tags are sprites; building them unconditionally would add two SAT
+        // entries to every DEBUG frame from boot, which is precisely what the scene
+        // readout's "built on first press, not at level init" rule exists to avoid.
+        // Input_Source gates replays out on its own, so this flag is about LIVE
+        // boot frames: until it is set, Debug_TierTags_Update reads two bytes and
+        // returns, and the sprite table is exactly what it was before this parcel.
+        Debug_Tags_Armed:   u8,
+        Debug_Tags_Pad:     u8,    // even-alignment pad for the byte above
     }
 
     mark Game_RAM_End,

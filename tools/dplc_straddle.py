@@ -681,6 +681,19 @@ WRITERS = {
         evidence=[(r'move\.l\s+#Map_TestObj,\s*Sst\.mappings\(a0\)',
                    "the glyph slot is built on Map_TestObj")],
         why="the debug readout glyph, against Map_TestObj"),
+    # EFFECTS-W1 F4. Same class as the readout above and reached the same way (a
+    # System slot the effects lab builds by hand), but its mappings are NOT
+    # Map_TestObj: these tags draw a 4x1 / 3x1 letter strip, and the two frame
+    # records for that are written by hand inside the proc's own DEBUG block —
+    # a module-scope mapping would emit in the plain shape. So the evidence
+    # pattern is the `lea` that binds that local table rather than the readout's
+    # `move.l #Map_TestObj`, and it is what proves the slot never holds a
+    # character sheet at the frame write.
+    ("games/sonic4/test/ojz_scroll_test.emp", "Debug_TierTags_Update"): dict(
+        sites=1, art="other", frames="none",
+        evidence=[(r'lea\s+\.tag_mappings\(pc\),\s*a1\b',
+                   "the tag slot is built on the proc's own .tag_mappings strip frames")],
+        why="the effects-lab tier name tag, against .tag_mappings"),
 }
 
 

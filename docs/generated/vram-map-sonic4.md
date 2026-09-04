@@ -20,11 +20,11 @@ Do not edit; edit the TOML and regenerate.
 | 1024-1471 | bg_region | arena | act | engine.bg | engine-tiles:BG_TILE_CAPACITY, engine-bytebase:BG_TILE_BASE_VRAM | band_reserve: 128 (static budget 320) |
 | 1472-1491 | sprite_table | table | boot | engine.system.buffers | engine-bytebase:VRAM_SPRITE_TABLE |  |
 | 1492-1500 | tails_appendage | window | act | games.sonic4.tails_appendage | VRAM_TAILS_APPENDAGE |  |
-| 1501-1503 | FREE |  |  |  |  |  |
+| 1501-1503 | debug_bganim_tag | window | mode | games.sonic4.ojz_scroll_test | VRAM_DEBUG_BGANIM_TAG |  |
 | 1504-1531 | hscroll_table | table | boot | engine.system.buffers | engine-bytebase:VRAM_HSCROLL_TABLE |  |
-| 1532-1535 | FREE |  |  |  |  |  |
+| 1532-1535 | debug_raster_tag | window | mode | games.sonic4.ojz_scroll_test | VRAM_DEBUG_RASTER_TAG |  |
 | 1536-1791 | plane_a | plane | boot | engine.system.boot | engine-bytebase:VRAM_PLANE_A |  |
 | 1792-2047 | plane_b | plane | boot | engine.system.boot | engine-bytebase:VRAM_PLANE_B |  |
 | 1920-2047 | window_plane | plane | boot | engine.system.boot | engine-bytebase:VRAM_WINDOW | overlay: plane_b |
 
-Free: 10 tiles across 3 runs.
+Free: 3 tiles across 1 runs.
