@@ -25013,7 +25013,44 @@ nearest side-solid (`34FF`) is cols 154–156 at x 1232+, and his right edge is 
 which coordinate, against which attr. Handing aurora another coordinate to fit would repeat
 tonight's mistake — a stall offered as evidence for a cell nobody has shown is involved.
 
-## T2 — the perspective floor: the tool landed, the BAKE never did. PRICED, not built.
+## T2 — the perspective floor. BUILT 2026-09-04. ⚠ THIS SECTION'S ORIGINAL HEADLINE WAS WRONG.
+
+**It read "the tool landed, the BAKE never did". The bake DID land, at `17ac0eff`, and a
+MERGE dropped it.** Verified by blob hash, not by reading history:
+
+```
+17ac0eff  editor_bg_override.json -> 29c018c5   (with the floor)
+afd6f784  parent d8baf84f         -> 29c018c5   (with the floor)
+afd6f784  parent 76e407f3         -> b2b32382   (pre-floor)
+afd6f784  RESULT                  -> b2b32382   (pre-floor)
+```
+
+`17ac0eff` is an ancestor of `afd6f784`, so the merge **reverted committed content** by
+resolving a half-owned generated file to one side. `265bf6fa` then honestly re-baked *from
+the reverted override* and reported "no byte count change", **laundering the loss into a
+green, self-consistent tree**. `git log -- <path>` does not even list the floor commits from
+HEAD, because history simplification follows the TREESAME parent.
+
+**A second measured instance of "merge conflicts: regenerate, do not choose" — and the
+expensive kind: nothing was red, nothing was missing from a build, and the only surviving
+symptom was a feature the owner could not see.**
+
+**And the tell named below was the WRONG one.** `--report`'s `matched existing art : 0` does
+NOT show the bake never ran — the generator drops recyclable slots' keys before matching, so
+it reads 0 either way. **The real tell is `slots the band freed`: 123 with 2 stranded before
+the bake, 121 with 0 after.**
+
+**`SceneLeftColMask.SpriteMask` DOES NOT EXIST as an option.** `scene()` refuses it — owner
+ruling **d-40 (2026-08-29) cancelled the strip emitter** rather than deferring it, so the only
+legal answers are `Accept` and `DeclineBorrow`. **`DeclineBorrow` was taken**, on the owner's
+own d-50 reasoning: the borrow renders plane B's rightmost 16 px at the *foreground's*
+V-scroll, a visible tear at the right edge of the very feature the scene exists to show.
+
+The original pricing below stands and is kept for its arithmetic.
+
+---
+
+## T2 — the original pricing (kept; headline superseded above)
 
 His words: *"This doesn't really work, it just skews it or something slightly and moves
 depedning how you're facing like it just makes a v slightly move in the trees?"*
