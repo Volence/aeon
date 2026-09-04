@@ -1,12 +1,6 @@
 {
-  "focus": "Building the 3D floor you asked for; a real capture comes to you when it runs.",
-  "inFlight": [
-    {
-      "what": "The perspective floor as a new scene, your existing three untouched",
-      "where": "agent worktree, T2",
-      "agent": true
-    }
-  ],
+  "focus": "The 3D floor is running and you have a real capture of it; two look calls are yours.",
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "what": "Whether to collapse the three START chords into one list",
@@ -15,23 +9,23 @@
     {
       "what": "Whether to give a second section live patch channels, so the Hydrocity scene key can be authored",
       "since": "2026-09-04"
+    },
+    {
+      "what": "The floor's left-edge stripe and its darkness - both look calls, capture sent",
+      "since": "2026-09-04"
+    },
+    {
+      "what": "Turning the curve-capability gate arm round - an adoption that wants your word",
+      "since": "2026-09-04"
     }
   ],
-  "nextBoundary": "After the floor runs and you have seen a real capture of it.",
+  "nextBoundary": "Everything on your list is landed; what remains is your look at the floor and the loop trace.",
   "queue": [
     {
       "id": "T1",
       "title": "The loop switches layers correctly, then stops on the ramp",
-      "state": "open",
-      "size": "S",
-      "blockedBy": null,
-      "project": "EFFECTS-W1"
-    },
-    {
-      "id": "T2",
-      "title": "The proper 3D floor, as a new scene",
-      "state": "doing",
-      "size": "L",
+      "state": "next",
+      "size": "M",
       "blockedBy": null,
       "project": "EFFECTS-W1"
     },
@@ -68,7 +62,7 @@
       "project": "EFFECTS-W1"
     }
   ],
-  "awaiting": null,
-  "atBoundary": false,
-  "updatedAt": "2026-09-04T23:07:14Z"
+  "awaiting": "your look at the floor - the left-edge stripe and how dark it is are the two calls I cannot make",
+  "atBoundary": true,
+  "updatedAt": "2026-09-04T23:54:15Z"
 }
