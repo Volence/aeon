@@ -2,9 +2,19 @@
   "focus": "The re-layout size is answered and sigil is freezing. Two independent rows starting that do not wait on it.",
   "inFlight": [
     {
-      "what": "The ROM re-layout is with the assembler lane now - it turned out we structurally cannot do it ourselves.",
+      "what": "The ROM re-layout is with the assembler lane - we structurally cannot do it ourselves.",
       "where": "branch parcel/rom-relayout-more-room at 5875e60e, handed to sigil",
       "agent": false
+    },
+    {
+      "what": "Watching a ROM actually count downward - the last unproven sentence about the ramp, and our own tool cannot answer it.",
+      "where": "branch parcel/ramp-sign-witness (worktree)",
+      "agent": true
+    },
+    {
+      "what": "Fixing the lab indicator that says 'nothing here' while the perspective floor is on screen.",
+      "where": "branch parcel/lab-glyph-parallax (worktree)",
+      "agent": true
     }
   ],
   "blockedOnOwner": [],
@@ -28,8 +38,8 @@
     },
     {
       "id": "EFFECTS-W1-EFFECTS-LAB",
-      "title": "LANDED. Your four demo fixes are merged locally but HELD - the debug shape fails a bank-room gate by 30 bytes until the re-layout lands.",
-      "state": "open",
+      "title": "LANDED - and its verdict glyph is BLIND to parallax, so it reports 'nothing bound' while the floor fills a third of the screen. Being fixed.",
+      "state": "doing",
       "size": "M",
       "blockedBy": null,
       "project": "EFFECTS-W1"
@@ -69,7 +79,7 @@
     {
       "id": "RAMP-NEGATIVE-DIRECTION-UNWITNESSED",
       "title": "Nothing has watched a ROM ramp DOWNWARD. The tool that ran aurora's document measures which lines change, never what value is written - its span arm uses flat twins on purpose, and a flat twin has no direction. One new arm closes item 6's last sentence.",
-      "state": "open",
+      "state": "doing",
       "size": "S",
       "blockedBy": null,
       "project": "EFFECTS-W1"
@@ -101,6 +111,6 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-04T05:15:06Z",
+  "updatedAt": "2026-09-04T05:43:35Z",
   "resume": "2026-09-03 late. ⚠ THIS FILE WAS A DAY STALE FOR ~40 MINUTES: I ran `git stash push docs/lane-status.json` before merging parcel/ramp-boundary-settle and never popped it, so the tree served the committed 09-02 copy while the owner was at the screen. The hub caught it off the console, not me. NEVER STASH THE STATUS FILE - write it fresh instead. lane-log.jsonl and decisions.jsonl were NOT touched (verified clean). MERGED LOCALLY, NOT PUSHED: 33e50207 = aurora's ramp witness + the boundary settle. Renamed aurora_local_rampctl_probe -> aurora_ramp_witness before push (it was a peer's SCRATCH id; aurora_local_* announces one-run lifetime and I committed it anyway). Four shapes + effects-gate ritual re-running after the rename. BUILT AND UNLANDED: parcel/effects-lab-one-section (START+A, whole-preset install, verdict glyph; START+UP/DOWN is NOT free - Debug_BandDemoHotkey owns it), parcel/sec6-baseswap-certify (tip 7b11f929), parcel/item10a-per-scene-rates (⚠ DO NOT MERGE until it preserves column-pair 19 - OJZ_Reels_Fill overwrites the shipped left-edge borrow). RESOLVED AND IT OVERTURNED ME: the ramp shift was the EMULATOR, not the engine. Same ROM, both cores: dense top+1 legacy / top+2 rust, sparse split+0 / split+1 - BOTH TIERS SHIFT ONE LINE TOGETHER, so the dense/sparse divergence does not exist and the 2026-08-19 batch is exonerated. My 'uniform instrument shift is excluded' argument was CIRCULAR (the gate it rested on runs on the rust core, so it was the same instrument twice). Do NOT write 'the rust core is right': the legacy core is disqualified for disagreeing WITH ITSELF, and the rust core's mid-line timing is an interim model.  Old-tree build needs sigil at its 08-14 state in a PRIVATE CARGO_TARGET_DIR - a parcel, not a step. OWNER RULINGS TONIGHT: waterlines MAY oscillate (I over-corrected; keep the sweep, fix the anchor); effects lab in one section with a START chord is HIS design, chosen over three alternatives; he authorised cutting BG tiles for testing - UNSPENT, the 128-tile band_reserve covers Hydrocity and the art half is blocked on OJZ having no water art, not on space. HE CONFIRMED the vertical canopy band works on his own eyes - item 8's on-screen half is CLOSED. ⚠ AND A SECOND STATUS ERROR THE HUB CAUGHT, NOT ME: rewriting the queue from scratch DROPPED CANOPY-GAP and PAINTED-REGIONS-FINDINGS, two of the owner's four EFFECTS-W1 completion requirements. Neither is closed. A row removed without a word reads as lost. When rewriting this file, DIFF THE ROW IDS against the previous version rather than retyping the list."
 }
