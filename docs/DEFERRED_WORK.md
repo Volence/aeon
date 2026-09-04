@@ -22060,3 +22060,102 @@ number should go up — it is a record of what has been looked at.
 - **The `--dsb` argument on `row_remap_witness.py` is still hand-passed** and must match the
   scene, which is exactly the double-authoring the gate above avoids. It should read
   `pcfg_anchor_dsb` off the ROM the way the gate does.
+
+
+## RASTER-CHBAND-1 — A DOCUMENT CANNOT DECLARE A BAND'S PATCH CHANNEL; `$defs.band` IS TWO FIRES AND `patchable()` TAKES ONE (booked 2026-09-04, `docs/key-shapes-9c-and-channel-band`)
+
+**Row id for aurora to cite: `RASTER-CHBAND-1`.** Full working, with every `file:line` read at
+`origin/master` `d8baf84f`, is
+`docs/superpowers/specs/2026-09-04-channel-band-key-shape.md`. This entry is the pointer, not
+the argument.
+
+**The measured blocker.** A preset document's band (`contract/schema/aurora-effects-preset.schema.json`
+`$defs.band`, closed, `required: [top, bot, sh, on]`) lowers through
+`tools/effects_gen.py:1849-1863` to `band(top, bot, on, sh)`, which emits **2 fires** (`sh: 0`)
+or **3** (`sh: 1`) — `engine/effects/raster_dsl.emp:689-760`. `patchable()` opens with
+`ensure(fires.len == 1, ...)` (`:461-462`). `band()`'s own banner states it as a ruling rather
+than an accident: *"Static by construction — BOTH fires (spec §4.2 rule 6); not handable to
+`patchable`"* (`:678`). Two more things close the workarounds: the patch table entry holds ONE
+`line_src` per record (`engine/effects/raster.emp:1941-1943`), and guard 11 refuses two
+patchable records on one channel (`raster_dsl.emp:3144-3166`).
+
+**Three answers, and the cheapest one needs no engine work at all:**
+
+- **(A) — ZERO ENGINE WORK, and this is the one to file.** The shipped moving water is not a
+  `band()`. It is `patchable(fx_tint_band(...), ch: 0, lo: 3, hi: 220, offscreen_ship: 1)`
+  (`games/sonic4/data/effects/ojz_effects.emp:1501-1505`), and `fx_tint_band` emits exactly
+  ONE fire (`raster_dsl.emp:654-663` → `region_boundary`, `:436-443`). A new preset-document
+  key `boundary`, lowering to that call verbatim, is a generator + schema change only. It is a
+  **fourth exclusive arm** beside `bands`/`ramp`/`base_swap` and for a DIFFERENT reason than
+  they are exclusive with each other: those three share `ep_raster`; this one lowers into
+  `ep_patched` via `patched_program()` (`raster_dsl.emp:3576`), and `preset()` refuses both
+  (`engine/effects/preset.emp:153-154`). Key text and per-field ownership in the note's §4.
+- **(B) — DRAWING ONLY, ~20 lines of `tools/`.** `_collect_live_channels`
+  (`tools/effects_gen.py:1267-1283`) already regex-walks every `patchable(` in the game's
+  `.emp` library for its `ch:` and throws `lo:`/`hi:` away. Capturing them into a generated
+  read-only sidecar would let aurora's timeline strip DRAW the shipped band and warn about a
+  too-wide sweep with no schema change and no engine change. **If aurora is blocked on drawing
+  rather than on authoring, this is the whole fix.**
+- **(C) — THE ENGINE WORK, and it is Q5 of the anchor-mover design.** Making `$defs.band`
+  itself patchable needs a `patchable_band()` constructor, a patch record widened by one word,
+  and a `Raster_BuildSchedule` that emits both edges from one latched L. Priced by the
+  band-ownership design at *+2 B/patch record and ~+8 NOMINAL cycles per patchable record per
+  VBlank (unmeasured — that is the design's own word)*. **Owner-gated**: it is
+  `docs/superpowers/specs/2026-09-02-moving-bands-anchor-mover-design.md` §11 **Q5** ("P3 —
+  both edges moving"), deferred there to *"only if the owner asks."*
+
+**⚠ Q4 IS NOT THIS QUESTION.** Q4 asks whether a free-running `Rate` that wraps its band is
+wanted — a taste question about a motion law. It is untouched by any of the above and stays
+open on its own terms. A brief that pairs Q4 with Q5 here is wrong.
+
+**THE DESIGN CALL, MADE (note §6): when a band becomes patchable, the anchor translates the
+WHOLE band — both edges by the same delta, the height a constant of the record.** The
+decisive reason is not taste: under rigid motion `top' < bot'` for every delta *by
+construction*, so the negative-inter-record-gap failure cannot occur. A top-only band can
+drive its ON edge past its own restore, and a negative gap stores `$FF`, **which is the park
+word, killing every remaining fire in the frame** (`raster.emp:2038-2040`). Top-only is not a
+cheap first version; it is a version that needs a runtime clamp and a degenerate-height case
+before it can ship.
+
+**Who owns "the sweep's travel leaves `[lo, hi]`" — already owned, and the key MOVES it.**
+`tools/test_anchor_sweep_band.py` exists, runs build-fatally in build.sh's `pytest tools`
+lane, and already has a generated-chooser arm. It lives in Python because `lo`/`hi` are in the
+raster program and `amp_shift` is in the preset, associated by a pointer at runtime — no
+comptime scope holds both (`tools/effects_gen.py:3026-3033` says exactly this and names the
+file). **Once (A) lands, both numbers are keys of the same document and the check should move
+into `tools/effects_gen.py`** beside `_check_patch_context`'s two refusals (`:1300-1315`,
+`:1316-1333`); the pytest lane stays as the backstop for hand-authored `.emp`. Aurora's own
+check is a warning at authoring time — worth having for *when* it fires, never the only check.
+
+**One stale banner found in passing, NOT fixed here (no engine writes in that parcel):**
+`engine/effects/raster.emp:2036` says *"Raster_BuildSchedule clamps it (:895-901)"* and `:2045`
+says the channel *"clamps at BOTH edges."* The clamp is at `:1979-1983`, not `:895-901` (which
+is `raster_ramp_program`'s sign pin), and at the `hi` edge it is a **drop** (`bgt .suppress`),
+not a clamp. Behaviour is right everywhere it matters — `engine/level/parallax.emp:2124-2143`
+handles the drop explicitly — it is one banner describing the old shape.
+
+## ROWREMAP-PLANEY-CEILING — `rowRemap`'s surface plane line HAS NO UPPER GUARD ANYWHERE IN THE TREE (booked 2026-09-04, `docs/key-shapes-9c-and-channel-band`)
+
+**Row id: `ROWREMAP-PLANEY-CEILING`.** Size `XS`. Found while transcribing item 9's landed
+constructor for the 9c key shape
+(`docs/superpowers/specs/2026-09-04-item9-row-remap-key-shape.md` §1, §6).
+
+`SceneRemap.Ladder(t, y, h)`'s `y` is a **Plane-B line**, and `engine/level/scene_dsl.emp:1008`
+guards it with `scene_remap_plane_y(rowRemap) >= 0` — **the lower bound only**. Its own message
+at `:1009` says *"IT IS A PLANE-B LINE (0..511)"*, so the ceiling is stated as prose and
+enforced nowhere. `brm_plane_y` is `u16` (`engine/level/parallax.emp:420`), so **512..65535 is
+a silently-wrong window**: representable, emitted without complaint, and read by a runtime that
+computes `plane_y - Vscroll_BG` against a plane 512 lines tall. Only 65536+ fails, and it fails
+at emission with a `u16` range error that names the generated call site rather than the
+mistake.
+
+**The comparison that makes this a defect rather than an omission:** `vsplit`, the sibling
+attachment in the same coordinate space, carries `minimum: 0, maximum: 511` in
+`contract/schema/aurora-effects-scene.schema.json` `$defs.layer.vsplit.at`. One plane-line
+field is bounded and the other is not.
+
+**Fix:** widen `scene_dsl.emp:1008` to `>= 0 && < 512`, with the 512 derived from the plane
+height rather than typed (the file's pin block is the place). One line, one message. **Until
+it lands, the empyrean schema's `rowRemap.plane_y` bound is the ONLY enforcement**, and 9c's
+schema description must say so rather than implying aeon checks it — the note's §6 carries
+that wording.
