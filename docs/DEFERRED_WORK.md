@@ -22213,8 +22213,26 @@ from the position the last frame resolved to.** A version using this frame's pos
 of entry"* would not merely be flaky — **it would be asserting a property the engine was built not
 to have, and would be wrong even when green.**
 
-**WHAT REMAINS IS ONE UNACCOUNTED FRAME, and it is a sharp question rather than a hunt.** The design
-predicts exactly ONE frame of lag; aurora observed TWO. Two outputs separate the cases, sampled at a
+**⚠ AMENDED 2026-09-04, WITHIN THE HOUR: THE "TWO FRAMES" FIGURE IS RETRACTED BY ITS AUTHOR AND
+THERE MAY BE NOTHING LEFT TO EXPLAIN.** Aurora found that their frame table's rows are **run-step
+boundaries, not per-frame samples** — replaying the recipe's own arithmetic reproduces exactly the
+ten rows in the table and no others, so frames 1148, 1149 and 1151 were **never observed**. Entry is
+therefore 1148, 1149 **or** 1150, and the flip is 1151 **or** 1152. **The observed lag is bracketed
+at 1 to 4 frames and the published number was 2.** The minimum of that bracket is 1, which is
+exactly what the design predicts — so the discrepancy that motivated this whole re-scope is **not
+established**. It is not refuted either; the measurement simply cannot distinguish 1 from 4.
+
+**WHAT SURVIVES THE RETRACTION:** the `xover_cell` high word reading the PREVIOUS frame's x. That is
+a single-frame observation at 1150 and does not depend on the row spacing — and it is explained by
+the design above rather than being a defect.
+
+**AND THE PART THAT IS MINE:** I built the sharp two-output test below on a peer's frame count
+without asking what its sample spacing was. A frame count is a measurement and it needs its
+referent; "two frames later" with a run-step table underneath it is the same class as a CRC without
+its baseline. The test below is still the right test — I am keeping it — but it is now aimed at
+ESTABLISHING the lag rather than at explaining a second frame that may not exist.
+
+**THE TEST, unchanged and still the way to settle it.** The design Two outputs separate the cases, sampled at a
 single consistent point in the frame across the entry:
 * **Output 1** — lag from *resolved position first lands in the marked cell* to *`xover_cell`
   changes*. Design says **1**.
