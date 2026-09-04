@@ -98,9 +98,9 @@ V_NONE, V_BLIND, V_LIVE, V_PARALLAX = 0, 1, 2, 3
 V_NAMES = {V_NONE: "bar/none", V_BLIND: "X/blind", V_LIVE: "diamond/live",
            V_PARALLAX: "arrow/parallax"}
 
-SEC_SIZE = 66                  # sizeof(Sec) — engine/structs.emp's own stride pin
-SEC_EFFECTS = 0x34             # Sec.sec_effects
-SEC_PARALLAX_CONFIG = 0x14     # Sec.sec_parallax_config — rung 1 of the resolve
+SEC_SIZE = 34                  # sizeof(Sec) — engine/structs.emp's own stride pin
+SEC_EFFECTS = 0x1C             # Sec.sec_effects
+SEC_PARALLAX_CONFIG = 0x0C     # Sec.sec_parallax_config — rung 1 of the resolve
 EP_RASTER, EP_PATCHED, EP_CYCLE = 0x08, 0x0C, 0x10   # EffectsPreset field offsets
 EP_PARALLAX = 0x04             # EffectsPreset.ep_parallax — rung 2 of the resolve
 ACT_SEC_GRID, ACT_GRID_W, ACT_GRID_H = 0x00, 0x04, 0x06
