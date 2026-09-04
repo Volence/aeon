@@ -89,7 +89,9 @@ const DRIFT_ACC_LONGS       = BAND_DRIFT_BYTES / 4
 // capability bit (CAP_ROW_REMAP), and a game may declare any subset of the four. A shadow
 // band occupies BAND_ENTRY_LEN + BAND_EXT_BYTES + BAND_CURVE_BYTES + BAND_DRIFT_BYTES +
 // BAND_REMAP_BYTES, and parallax.emp's reservation guard names whichever one is short.
-const BAND_REMAP_BYTES      = 0     // sizeof(band_remap) * BAND_REMAP_N; pinned in parallax.emp
+// MOVED TO 8 BY THE ADOPTION HALF OF PARCEL 9a (EFFECTS-W1 item 9, 2026-09-03), in the same
+// commit as parallax.emp's BAND_REMAP_N = 1, because Scene_OJZ_Underwater now authors a ladder.
+const BAND_REMAP_BYTES      = 8     // sizeof(band_remap) * BAND_REMAP_N; pinned in parallax.emp
 // REMAP_STATE_LONGS — the row remap's per-FRAME mark (Parallax_Remap_State), DERIVED from
 // the tail mirror above rather than being a sixth constant a capability flip would have to
 // remember. This copies CURVE_CARRY_WORDS' and DRIFT_ACC_LONGS' shape deliberately: A

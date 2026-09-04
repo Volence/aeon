@@ -434,6 +434,19 @@ ensure((Game.SCANLINE_CAPS & CAP_FACTOR_CURVE) != 0 || BAND_CURVE_N == 0,
 // and the record shape are two numbers that must agree and only this file can see both.
 ensure((Game.SCANLINE_CAPS & CAP_BAND_DRIFT) == 0 || BAND_DRIFT_N == 1,
        "this game declares CAP_BAND_DRIFT in Game.SCANLINE_CAPS ({Game.SCANLINE_CAPS}) but engine/level/parallax.emp's BAND_DRIFT_N is {BAND_DRIFT_N} — the lowered band record would carry no drift tail while the scenes demand one, so every drifting layer would lower to a still one with no diagnostic AND the gated accumulate would read the record base as a rate. Set BAND_DRIFT_N to 1 and set BAND_DRIFT_BYTES in engine/ram.emp to sizeof(band_drift)")
+// THE FOURTH TAIL: CAP_ROW_REMAP <-> BAND_REMAP_N, the same two-directional pin for the same
+// reason. parallax.emp's BAND_REMAP_N cannot read Game.SCANLINE_CAPS (a `data` record type's
+// layout context binds no contract members — its banner has the evidence), so the capability
+// and the record shape are two numbers that must agree and only this file can see both.
+ensure((Game.SCANLINE_CAPS & CAP_ROW_REMAP) == 0 || BAND_REMAP_N == 1,
+       "this game declares CAP_ROW_REMAP in Game.SCANLINE_CAPS ({Game.SCANLINE_CAPS}) but engine/level/parallax.emp's BAND_REMAP_N is {BAND_REMAP_N} — the lowered band record would carry no remap tail while the scenes demand one, so every remapping layer would lower to a still one with no diagnostic AND the gated per-band mark would read the record base as a ROM pointer and index the HScroll buffer through it. Set BAND_REMAP_N to 1 and set BAND_REMAP_BYTES in engine/ram.emp to sizeof(band_remap)")
+ensure((Game.SCANLINE_CAPS & CAP_ROW_REMAP) != 0 || BAND_REMAP_N == 0,
+       "engine/level/parallax.emp's BAND_REMAP_N is {BAND_REMAP_N} but this game does NOT declare CAP_ROW_REMAP (Game.SCANLINE_CAPS = {Game.SCANLINE_CAPS}) — every band would carry sizeof(band_remap) bytes of ROM and shadow RAM that nothing reads, plus two longs of frame mark nothing writes, and the zero-capability lowering would stop being byte-identical to the legacy one")
+// The scene half of the same fact, in the shape the drift arm above uses: a shipped scene
+// must actually AUTHOR a ladder, or the declared bit is a capability claim with no subject.
+ensure((SceneRegistry_CapsFolded & CAP_ROW_REMAP) != 0,
+       "scene registry: NO shipped scene folds CAP_ROW_REMAP any more, but this game still declares it in Game.SCANLINE_CAPS. Scene_OJZ_Underwater's layer 1 carried `rowRemap: SceneRemap.Ladder(RowRemapLadder_Waterline64, 128, 6)` as of EFFECTS-W1 item 9 parcel 9a — if that was deliberately dropped, this is a THREE-file retreat and not a scene-local edit: clear $0800 from SCANLINE_CAPS in games/sonic4/config/game.emp, put engine/level/parallax.emp's BAND_REMAP_N back to 0 and engine/ram.emp's BAND_REMAP_BYTES back to 0 in the SAME commit, re-derive SceneRegistry_CapsExpected above, drop the 4,160-byte RowRemapLadder_Waterline64 emission, and flip this arm back to `== 0`. Leaving it half-done costs the widened band record, 128 B of Parallax_State, 26 cycles per band per frame and 4,160 ROM bytes for a background that does not remap")
+
 ensure((Game.SCANLINE_CAPS & CAP_BAND_DRIFT) != 0 || BAND_DRIFT_N == 0,
        "engine/level/parallax.emp's BAND_DRIFT_N is {BAND_DRIFT_N} but this game does NOT declare CAP_BAND_DRIFT (Game.SCANLINE_CAPS = {Game.SCANLINE_CAPS}) — every band would carry sizeof(band_drift) bytes of ROM and shadow RAM that nothing reads, plus a whole accumulator array of RAM nothing advances, and the zero-capability lowering would stop being byte-identical to the legacy one")
 
@@ -488,7 +501,11 @@ pub const SceneRegistry_CapsFolded = fold_caps(SCENES)
 // (fold_caps() adds it because SCENES.len is 20 > 1), $0080 CAP_BAND_DRIFT (2026-09-02,
 // EFFECTS-W1 item 3 — Scene_OJZ_Default alone, whose four bands carry
 // `drift: SceneDrift.Rate(-32)`; derived_drift() raises it off a non-zero rate on any layer
-// inside `count`, so ONE band would raise it and four raise it once). Writing it as
+// inside `count`, so ONE band would raise it and four raise it once), and $0800
+// CAP_ROW_REMAP (2026-09-03, EFFECTS-W1 item 9 parcel 9a — Scene_OJZ_Underwater alone,
+// whose layer 1 carries `rowRemap: SceneRemap.Ladder(RowRemapLadder_Waterline64, 128, 6)`;
+// derived_remap() raises it off the VARIANT on any layer inside `count`, and scene() refuses
+// a second one). Writing it as
 // `fold_caps(SCENES)`
 // would make the test `x == x`, which is the vacuity poison_scene_mask.emp's header
 // warns about in the same words.
@@ -497,7 +514,7 @@ pub const SceneRegistry_CapsFolded = fold_caps(SCENES)
 // $0040 on the scenes that adopt one; the correct response is to re-derive this word
 // from the roster and edit it, in the same commit as the adoption, never to widen the
 // test. A pin nobody has to touch is a pin nobody is checking.
-pub const SceneRegistry_CapsExpected = $009E
+pub const SceneRegistry_CapsExpected = $089E
 ensure(SceneRegistry_CapsFolded == SceneRegistry_CapsExpected,
        "scene registry: the twenty scenes fold to capability mask {SceneRegistry_CapsFolded}, not the hand-derived {SceneRegistry_CapsExpected}. This pin is two-sided ON PURPOSE — the subset test below cannot see a scene that STOPS raising a bit. If a scene gained a capability, re-derive this word from the per-scene roster in this file's banner and edit it in the same commit; if a scene LOST one, that is a lowering regression and the fold is telling you which way")
 
@@ -739,3 +756,15 @@ pub data ParallaxConfig_WindyHaze:            SceneCfg5 = lower5(SCENES[16])
 pub data ParallaxConfig_SkyHaze:              SceneCfg2 = lower2(SCENES[17])
 pub data ParallaxConfig_OJZ_Caves:            SceneCfg5 = lower5(SCENES[18])
 pub data ParallaxConfig_OJZ_LockedClouds:     SceneCfg5 = lower5(SCENES[19])
+
+// EFFECTS-W1 item 9's ROW REMAP LADDER, and it is LAST IN THIS MODULE ON PURPOSE. Every
+// address above is the input to a `pcfg_deform_table_*` word inside an emitted record, so a
+// 4,160-byte table inserted anywhere earlier would rewrite those words in every config —
+// which is precisely the churn the banner above pins the P1 image-identity gate on. Appended
+// after the last record it moves nothing before it, and the ONLY new pointer in the tree is
+// the one the remapped band's own tail carries.
+//
+// AUTHORSHIP IS ojz_scenes.emp's, PLACEMENT IS THIS FILE'S — the same split the six deform
+// tables above use, and for the same reason: a Label's bytes are not comptime readable, so
+// the equivalence witness needs the array VALUE to have an importable name.
+pub data RowRemapLadder_Waterline64:          [u8; 4160] = SceneSrc_RowRemapLadder_Waterline64

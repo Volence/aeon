@@ -71,7 +71,8 @@ use engine.level.parallax_dsl.*
 // LABELS. (The Task-5 clone-injection trap is a CONST-axis trap — an imported const's
 // initializer re-evaluates in the consumer's scope. A label import is a symbol reference.)
 use games.sonic4.scene_registry.{DeformTable_Zero, DeformTable_OJZ_Calm, DeformTable_Shimmer,
-                                 DeformTable_Haze, DeformTable_Rocking, DeformTable_Perspective}
+                                 DeformTable_Haze, DeformTable_Rocking, DeformTable_Perspective,
+                                 RowRemapLadder_Waterline64}
 
 // =====================================================================
 // The six deformation tables, verbatim from configs.emp — same generators, same
@@ -103,6 +104,13 @@ pub const SceneSrc_DeformTable_Shimmer     = deform_sine(amplitude: 8,  period: 
 pub const SceneSrc_DeformTable_Haze        = deform_sine(amplitude: 16, period: 64)
 pub const SceneSrc_DeformTable_Rocking     = deform_sine(amplitude: 20, period: 64)
 pub const SceneSrc_DeformTable_Perspective = v_column_floor(center: 20, max_offset: 24)
+// The seventh, and the first that is not a deform curve: EFFECTS-W1 item 9's ROW REMAP
+// LADDER. 65 rows of 64 bytes = 4,160 B — exactly the size of S3K's own
+// `LBZ Waterline Scroll Data.bin`, which is that zone's waterline at the same height. Row
+// `H - |p|` is selected each frame from the perspective quantity and its first `|p|` bytes
+// are consumed. See engine/level/parallax_dsl.emp for the three invariants it guarantees by
+// construction and for why the model is CHOSEN rather than fitted to S3K's own table.
+pub const SceneSrc_RowRemapLadder_Waterline64 = row_remap_ladder64()
 
 // =====================================================================
 // OJZ_Default — configs.emp:107-114.
@@ -197,7 +205,39 @@ pub const Scene_OJZ_Default: Scene = scene(
 // =====================================================================
 pub const Scene_OJZ_Underwater: Scene = scene(
     layers: [ layer(world_y: 512,  fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15),
-              layer(world_y: 1024, fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15),
+              // ---- EFFECTS-W1 item 9: THE WATERLINE'S ROW REMAP LANDS ON THIS LAYER ----
+              //
+              // WHY LAYER 1 AND NOT ANOTHER, MEASURED RATHER THAN REASONED. On the shipped
+              // build in OJZ act 1 section 0 (the only section that binds this config and the
+              // only one with a live patch channel): Camera_Y 144, Parallax_Current_Vscroll_BG
+              // 0, and Effects_Screen_L[0] sweeping 93 -> 75 unattended under the section's
+              // `anchor_sweep`. This scene's four tops map to plane lines 0 / 64 / 320 / 384
+              // (v_factor 3, v_center 512), so with Vscroll_BG 0 the on-screen bands are
+              // 0..63 and 64..223 and the anchor line sits inside the SECOND one. Step 4b
+              // splits that band at L and the split inherits the whole record — tail
+              // included — so the ladder reaches BOTH halves and the fill's last-wins mark
+              // picks the lower one, whose top IS the waterline. That is S3K's own window
+              // (HScroll_table+$0DA, the rows below the surface).
+              //
+              // THE SURFACE PLANE LINE IS 128, AND IT SETS THE EQUILIBRIUM. The perspective
+              // quantity is `p = 128 - Vscroll_BG - L`. At the measured rest state that is
+              // 128 - 0 - (75..93) = 35..53 lines: the effect is LIVE and ANIMATING with no
+              // player input, because the anchor sweeps. `p == 0` — the equilibrium, where
+              // the remap turns itself off with no special case — is L = 128, which is
+              // Camera_Y 96 at mid-sweep: about 48 px ABOVE the rest position, comfortably
+              // inside debug-fly reach. Flying up through it and out the far side is the
+              // "depending on your perspective" the effect is named for.
+              //
+              // WHAT VARIES, so the remap is not the identity (design §9.1 precondition 1):
+              // this scene's `anchor: SceneAnchor.At(0, 15, 2)` writes dsb 2 into every band
+              // from the split down, against DeformTable_Shimmer. That is a +/-2 px per-line
+              // wave, and the remap compresses its period toward the far end of the run.
+              // THE AMPLITUDE IS THE HONEST WEAK POINT: precondition 1 asks whether the
+              // source varies AT ALL, and +/-2 px passes that and is still faint. Turning it
+              // up is one number — the anchor's dsb — and it is OWNER CONTENT, not an engine
+              // choice, so this parcel changed nothing about the shipped shimmer.
+              layer(world_y: 1024, fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15,
+                    rowRemap: SceneRemap.Ladder(RowRemapLadder_Waterline64, 128, 6)),
               layer(world_y: 3072, fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15),
               layer(world_y: 3584, fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15),
               no_layer(), no_layer(), no_layer(), no_layer(),
