@@ -156,6 +156,12 @@ use games.sonic4.ojz_effects.{OJZ_BandDemo, OJZ_BaseSwap}
 // block). BgAnim_Table is the act's own, and for this act its band count is 0 — it
 // IS the OFF row, not a stand-in for one.
 use games.sonic4.ojz_bg_anim_act1.{BgAnim_Table, BgAnim_View_H, BgAnim_View_V}
+// Rows 3 and 4 — the VERTICAL-AXIS band and its horizontal-axis control — are NOT
+// imported: they are declared at the FOOT OF THIS FILE (see the block there for why they
+// could not be their own module). They do NOT come from the act's generated section and
+// do NOT share its bank blob: they are debug-tier probe content with their own 2,048 B of
+// vertically pre-shifted art, aimed at the BG region's unused band RESERVE ($A800) rather
+// than at the authored canopy's slots.
 use games.sonic4.ojz_effects_editor_act1.{EditorRaster_OJZ_Act1_authored_probe, EditorRaster_OJZ_Act1_aurora_ramp_witness, EditorRaster_OJZ_Act1_ojz_sec3_shimmer, EditorRaster_OJZ_Act1_ramp_probe}
 
 // player_block — the per-slot PlayerBlock derivation splice; PlayerV — the
@@ -2737,15 +2743,37 @@ proc Debug_PresetCycleHotkey () clobbers(d0-d4/a0-a3) {
 // gains neither the cell nor the indirection.
 //
 // ---- WHICH VIEW IS WHICH, AND WHY THE RATES DIFFER ----
-// H and V name the CAMERA AXIS the band is driven by, not the band's own art axis —
-// both views move the same horizontal band, because a genuinely vertical band needs
-// vertically pre-shifted phase art and a ROW-MAJOR slot order in `layout`, neither of
-// which any writer in this tree can produce today (tools/inject_editor_bg.py's
-// `validate_band_phase_axis` refuses the mismatch by name rather than shipping a
-// shimmer). The two rates are derived in the emitter, not picked: the Camera_X view
-// matches the retired timer view's apparent speed at PHYS_TOP_SPEED, and the Camera_Y
-// view is tuned so one full pattern cycle costs about one screen height of vertical
-// travel. See tools/inject_editor_bg.py's `default_off` block for both derivations.
+// H and V name the CAMERA AXIS rows 1 and 2 are driven by, not the band's own art axis —
+// both of those views move the same HORIZONTAL band. The two rates are derived in the
+// emitter, not picked: the Camera_X view matches the retired timer view's apparent speed
+// at PHYS_TOP_SPEED, and the Camera_Y view is tuned so one full pattern cycle costs about
+// one screen height of vertical travel. See tools/inject_editor_bg.py's `default_off`
+// block for both derivations.
+//
+// ⚠ THE SENTENCE THAT USED TO SIT HERE WAS STALE AND IS CORRECTED (2026-09-04). It said a
+// genuinely vertical band "needs vertically pre-shifted phase art and a ROW-MAJOR slot
+// order in `layout`, neither of which any writer in this tree can produce today". The
+// second clause is still true of the AUTHORED ACT — a band in the owner's background does
+// need row-major layout words he has not authored — but the first was overtaken the day
+// after it was written: `axis` is an emitter-understood band key, aurora shipped the
+// column-wise shift-fill writer, and tools/bganim_vprobe_gen.py produces vertically
+// pre-shifted banks right here. Rows 3 and 4 below are the consequence.
+//
+// ---- ROWS 3 AND 4: THE VERTICAL BAND AND ITS CONTROL ----
+// Row 3 is the first band in any ROM this project has built whose axis is VERTICAL: its
+// own 2,048 B of art, rolled UP one pixel per bank, slots in row-major order, rotation
+// unit COLS*32 = 64 B, period ROWS*8 = 32 px. Row 4 is the SAME art, driver and rate with
+// the two axis-carrying fields set horizontally (unit 128 B, period 16 px) — it is not a
+// band anyone would author, it is the control that makes row 3's witness mean something.
+// Declared at the foot of this file.
+//
+// ⚠ ROWS 3 AND 4 PUT NOTHING ON THE SCREEN, BY CONSTRUCTION. They aim at the BG region's
+// unused band reserve ($A800 = slot 1344; games/sonic4/vram.toml `band_reserve`), which
+// no plane cell references. That keeps the owner's canopy intact and keeps a VRAM
+// measurement unconfounded, and it means a reviewer pressing past row 2 sees the picture
+// stop changing rather than a second animation. Making it visible needs plane cells in
+// row-major order over those slots — an authoring change to the act's document, not an
+// engine one.
 //
 // ---- WHY C+A, WITH THE PAD ENUMERATED A FOURTH TIME ----
 // Debug_PresetCycleHotkey's header enumerates FIVE spent chords and finds the d-pad
@@ -2812,8 +2840,9 @@ proc Debug_PresetCycleHotkey () clobbers(d0-d4/a0-a3) {
 // -----------------------------------------------
 // The row count, stated ONCE. The cursor wraps at this and then indexes the table, so a
 // mirror drifting above it would fetch a pointer past the table's end and hand it to
-// BgAnim_SetTable as a band table. Three rows: OFF, the Camera_X view, the Camera_Y view.
-const BGANIM_VIEW_CYCLE_COUNT = 3
+// BgAnim_SetTable as a band table. Five rows: OFF, the Camera_X view, the Camera_Y view,
+// the VERTICAL-AXIS probe band, and that band's horizontal-axis control.
+const BGANIM_VIEW_CYCLE_COUNT = 5
 
 proc Debug_BgAnimViewHotkey () clobbers(d0-d1/a0-a1) {
     if DEBUG == 1 {
@@ -2881,6 +2910,9 @@ proc Debug_BgAnimViewHotkey () clobbers(d0-d1/a0-a1) {
                                                 //     band count is 0, `default_off`)
         dc.l    BgAnim_View_H                   // 1 — Camera_X, the horizontal view
         dc.l    BgAnim_View_V                   // 2 — Camera_Y, the vertical view
+        dc.l    BgAnim_View_Vert                // 3 — the VERTICAL-AXIS band (own art,
+                                                //     $A800, off-screen — see the header)
+        dc.l    BgAnim_View_VertCtl             // 4 — row 3's horizontal-axis control
     }
 }
 
@@ -3314,3 +3346,126 @@ data TestArt_Square2: [u32; 32] = [
 // entries 5/6/12/13 that colour the ring.
 // DrawRings picks a frame with base + Ring_Anim_Frame×4.
 data TestArt_Ring = RingArt
+
+
+// ===============================================================================
+// THE VERTICAL-AXIS BgAnim BAND — THE FIRST ONE IN ANY ROM THIS PROJECT HAS BUILT —
+// plus its horizontal-axis CONTROL over the same art. DEBUG shape only; zero release bytes.
+//
+// EFFECTS-W1 item 8's engine half has been done since 2026-09-02 and moves no bytes —
+// `BgAnim_Update` never knew which way a band travels. What was still open on 2026-09-04
+// is smaller and entirely empirical: **no ROM had ever been built containing a band whose
+// axis is vertical, and nobody had looked at one.** This module is that ROM's content.
+//
+// ---- WHY THIS IS A SEPARATE MODULE AND NOT A BAND IN THE ACT ----
+// The act's band table is generated by tools/inject_editor_bg.py from the owner's
+// authored background document (games/sonic4/data/editor_bg_override.json). Inserting a
+// band there means inserting slots at the FRONT of that 110 KB document and renumbering
+// all 4,096 of its layout words — rewriting his content blind. tools/forest_bg_gen.py
+// already refuses by name to rewrite a document carrying `anims`, and that refusal is
+// this repo's own statement that the document is not a tool's to regenerate. So this
+// band is authored HERE instead, as debug-tier probe content that touches nothing of his.
+// Whether a vertical band goes into the authored act, and how big, stays the owner's
+// question (his 2026-08-24 grant permits editing the background for testing, but the
+// document is not this lane's to renumber).
+//
+// ---- WHERE IT LANDS IN VRAM, AND WHY NOT THE ACT'S BAND BASE ----
+// `VPROBE_VRAM_DEST` = $A800 = slot 1344 — the BG region's BAND RESERVE.
+// games/sonic4/vram.toml pins `bg_region` at slot 1024 for 448 tiles with
+// `band_reserve = 128` withheld from the static importer, and the shipped static blob is
+// 320 tiles (bg_tiles.bin = 2 + 320*32), so slots 1344..1471 are reserved and NO OTHER
+// WRITER TOUCHES THEM. The act's own debug view twins aim at $8000 and therefore repaint
+// live canopy tiles; this one deliberately does not, which keeps the owner's picture
+// intact and keeps a VRAM witness free of a confound.
+//
+// ⚠ THE CONSEQUENCE, STATED SO NOBODY READS MORE INTO THIS THAN IT SAYS: no plane cell
+// points at slots 1344..1471 today, so installing this view puts a vertically scrolling
+// band in VRAM and NOTHING on the screen. That is a LAYOUT fact, not an engine one — the
+// missing half is plane cells in row-major order over the band's slots, which is the
+// authored document's job (and is the same "slot-order obligation is unchecked" note
+// tools/EFFECTS_CONSUMER_CONTRACT.md §1.2 already books). What this module demonstrates
+// is that the engine's vertical arm runs end to end into VRAM; what it does NOT
+// demonstrate is a picture on a screen.
+//
+// ---- THE TWO RECORDS ARE A MATCHED PAIR, AND THAT IS THE POINT ----
+// Row 3 and row 4 of the view cycle are the SAME art, the SAME driver, the SAME rate and
+// the SAME destination. They differ in exactly the two fields that carry the axis:
+//
+//   arm          col_shift              step_mask                coarse positions
+//   vertical     log2(COLS*32) = 6      ROWS*8 - 1 = 31          4
+//   horizontal   log2(ROWS*32) = 7      COLS*8 - 1 = 15          2
+//
+// so a witness can ask the sharp question — does the band move on the axis its record
+// DECLARES — rather than the weak one, does it move at all. tools/bganim_vprobe_witness.py
+// runs both arms and requires the vertical prediction to hold on row 3 and to FAIL on
+// row 4. Without row 4 a green witness would say nothing.
+//
+// ---- THE GEOMETRY NUMBERS ARE GATED, NOT SYNCHRONISED BY HAND ----
+// tools/bganim_vprobe_gen.py derives COLS/ROWS/col_shift/step_mask/tile_count/vram_dest
+// and generates the banks from them; tools/test_bganim_vprobe.py reads BOTH this file's
+// records and that generator and fails the build's pytest lane on any disagreement.
+// This is the same lockstep the generated act table keeps with engine/level/bg_anim.emp.
+//
+// ---- SHAPE GATING ----
+// Every declaration below is sized by `BGANIM_VPROBE_EMIT`, so the plain shape emits
+// ZERO bytes — the idiom the act's own view twins use (see the generated
+// games/sonic4/data/generated/ojz/act1/bg_anim.emp). It rides in the `ojz_scroll_test`
+// section, which sits in the ROM TAIL after the Z80 banks, so its 2,140 debug bytes
+// cannot push `Art_Sonic` toward the `dac_banks` anchor and cannot spend any of the
+// act's ruled 12,288 B `ojz_bg_anim` authoring budget.
+// ===============================================================================
+
+// ---- WHY THIS LIVES AT THE FOOT OF THIS FILE AND NOT IN ITS OWN MODULE ----
+// It was written as one (`games/sonic4/test/bganim_vprobe.emp`, module
+// `games.sonic4.bganim_vprobe in ojz_scroll_test`) and that build was REFUSED, twice,
+// under both module spellings tried:
+//
+//   [layout.undeclared-alignment] section `ojz_scroll_test`
+//     (head label `BgAnim_VProbe_Banks`) has NO declared alignment in
+//     `sigil_harness::section_align::DECLARED`
+//
+// A section's head label is its LOWEST-OFFSET label (sigil `native.rs::head_label`) and
+// `section_align::DECLARED` is keyed BY THAT LABEL (`GameState_OJZScroll_Init`, row at
+// `section_align.rs:163`). A second module joining the section landed its data at offset
+// 0 regardless of module or file name, which renames the section's head and so takes it
+// out of a table that lives in the frozen assembler — not this repo's to edit. Inside a
+// single module, emission follows DECLARATION order (the four `data` items above are
+// already proof: they sit after every proc and the head label is still the entry point),
+// so the foot of this file is the one place this art can live without moving a section
+// head. The failure mode is loud, which is why the arrangement is safe to rely on.
+
+const BGANIM_VPROBE_EMIT = if DEBUG == 1 { 1 } else { 0 }
+
+// The bank blob: 8 phases x 8 tiles x 32 B = 2,048 B, each phase the previous one rolled
+// UP by one pixel within the band's 32 px height, every phase serialised in ROW-MAJOR
+// slot order. Generated by tools/bganim_vprobe_gen.py — see that file for why bank k
+// must roll toward DECREASING y (it has to carry the same sign as the coarse rotate).
+const _vprobe_banks = embed("games/sonic4/data/generated/bganim_vprobe_banks.bin")
+pub data BgAnim_VProbe_Banks = if DEBUG == 1 { _vprobe_banks } else { Data.empty }
+
+// ---- row 3 of the view cycle: the VERTICAL band ----
+// driver 2 = Logic_Tick low word (lag-immune, and the one driver a headless witness can
+// predict without touching the player); rate_shift 3 = 1 px per 8 ticks, which gives a
+// witness an 8-frame plateau to sample inside and a reviewer ~7.5 px/s to look at.
+pub data BgAnim_View_Vert: [u16; BGANIM_VPROBE_EMIT] = if DEBUG == 1 { [1] } else { [] }
+data _VProbe_V_hdr: [u16; BGANIM_VPROBE_EMIT * 6] = if DEBUG == 1 { [2, 3, 31, 6, 8, $A800] } else { [] }
+data _VProbe_V_banks: [*u8; BGANIM_VPROBE_EMIT * 8] = if DEBUG == 1 {
+    [extern("BgAnim_VProbe_Banks") + 0,   extern("BgAnim_VProbe_Banks") + 256,
+     extern("BgAnim_VProbe_Banks") + 512, extern("BgAnim_VProbe_Banks") + 768,
+     extern("BgAnim_VProbe_Banks") + 1024, extern("BgAnim_VProbe_Banks") + 1280,
+     extern("BgAnim_VProbe_Banks") + 1536, extern("BgAnim_VProbe_Banks") + 1792]
+} else { [] }
+
+// ---- row 4 of the view cycle: the HORIZONTAL-AXIS CONTROL over the same art ----
+// Not a band anyone would author — its banks are rolled on the wrong axis for it and its
+// slots are in the wrong order for it. It exists so the witness's vertical predicate has
+// something it must REFUSE. Same art, same driver, same rate, same destination; only
+// `step_mask` and `col_shift` change.
+pub data BgAnim_View_VertCtl: [u16; BGANIM_VPROBE_EMIT] = if DEBUG == 1 { [1] } else { [] }
+data _VProbe_H_hdr: [u16; BGANIM_VPROBE_EMIT * 6] = if DEBUG == 1 { [2, 3, 15, 7, 8, $A800] } else { [] }
+data _VProbe_H_banks: [*u8; BGANIM_VPROBE_EMIT * 8] = if DEBUG == 1 {
+    [extern("BgAnim_VProbe_Banks") + 0,   extern("BgAnim_VProbe_Banks") + 256,
+     extern("BgAnim_VProbe_Banks") + 512, extern("BgAnim_VProbe_Banks") + 768,
+     extern("BgAnim_VProbe_Banks") + 1024, extern("BgAnim_VProbe_Banks") + 1280,
+     extern("BgAnim_VProbe_Banks") + 1536, extern("BgAnim_VProbe_Banks") + 1792]
+} else { [] }
