@@ -22242,8 +22242,42 @@ authored from their grid lands on the same 8 px cell and **cancels itself out**.
 therefore uses two ONE-WAY marks, which works and is simpler. The gap is that the two-way form is
 expressible in our encoding and not reachable from the editor, with no document saying so.
 
-**Why this is booked as contract-shaped rather than as an Aurora bug:** it is a mismatch between two
-tools' grids, and neither lane can close it alone. **Do not take the 16/8 numbers from the relay** —
+**⚠ THAT FRAMING IS WRONG AND IT IS CORRECTED HERE 2026-09-04 — THIS IS AN EDITOR-ONLY GAP WITH NO
+CONTRACT SURFACE AND NOTHING WAITING ON AEON.** The original line read *"a mismatch between two
+tools' grids, and neither lane can close it alone"*, and **that line is the one that would have made
+this row sit forever**: booked as contract-shaped it needs two lanes to converge before anyone may
+start, which in practice means nobody does. Challenged by aurora, who were right.
+
+**Three legs, and the third is the one only this lane could supply:**
+1. **Aurora's on-disk collision overlay is ALREADY per-8px sub-tile.** Verified here by reading their
+   committed blob, not their message (aurora `origin/master`,
+   `docs/reviews/2026-08-29-crossover-paint-loop.md`): a 4-cell rect moves **16** words per plane,
+   caught when `paint_collision` replied `painted: 16` to a 4-cell request against a harness
+   expecting 4.
+2. **The 16 px quantisation is Aurora's BRUSH and nothing else.** Their
+   `src/core/collision/collision-cell.ts`: *"A 16px collision cell = the 2x2 block of 8px tiles.
+   Both tiles of each axis carry the same engine attr byte, so painting a cell writes all four
+   indices."* `cellTileIndices` returns four indices from `tc = cellCol * 2`.
+3. **OUR side preserves 8 px end to end — the check aurora could not run.** The crossover mark rides
+   in bits 15:14 of the per-plane cell word, is interned into `crossover.bin` addressed by collision
+   index, and the engine looks it up through `Collision_GetType`'s own partition, which is
+   `COLL_CELL_W` = **8** px in X. Storage, bake, index and engine are all 8 px granular; nothing on
+   this side collapses a sub-tile.
+
+**So the format expresses a two-way pair, the engine expresses it, and only the brush cannot paint
+it.** Editor-only. **No aeon parcel, no contract change, nothing blocked on this lane.**
+
+**THE ONE PLACE A CONTRACT SURFACE COULD STILL HIDE, flagged by aurora as genuinely open rather than
+settled:** whether Aurora's SAVE path preserves sub-cell writes end to end. Storage and the paint
+entry point are proven 8 px granular; the round trip is not. Their agent is instructed to confirm or
+refute that FIRST and to stop rather than build around it. If it turns out the save path collapses,
+a surface may reappear — and that would be a real finding rather than a return to the old framing.
+
+**The reusable half, and it is about booking rather than about grids:** *"neither lane can close it
+alone"* is an expensive sentence. It converts a row into a negotiation, and a row that needs
+convergence before it needs work is one nobody picks up. Before writing it, check whether your own
+side is actually implicated — here it was not, and one grep of our own bake granularity would have
+told me so at booking time. **Do not take the 16/8 numbers from the relay** —
 this lane received an earlier paraphrase of this finding through the hub and deliberately refused to
 act on it until it arrived from aurora with anchors. Re-derive both grid sizes from source before
 writing anything that depends on them, including any claim about `XOVER_CELL_MASK`.
