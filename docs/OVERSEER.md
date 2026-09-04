@@ -1367,6 +1367,21 @@ path, for the same reason the protocol is read that way.
 - **⚠ CHAIN 179's FREEZE COMMIT CARRIES A WRONG DESCRIPTION OF ITS OWN PIN MOVEMENT — DO NOT
   QUOTE IT; THE CORRECTION IS HERE AND OWES A LINE IN THE NEXT ENTRY'S PROSE.** `13a6d3c8`'s
 
+- **DECLARED STANDING ARTIFACT — `/home/volence/sonic_hacks/.pinned/sigil-0a58f2ec`. DO NOT DELETE,
+  DO NOT SWEEP, DO NOT UNLOCK.** The assembler binary that produced this lane's 2026-09-04 landings,
+  md5 `6c2378ae8a657e26684d4019a7d976d7`, `sigil 0.1.0 (0a58f2ec)`. It lives in **sigil's** tree by
+  their hand and is declared in their `docs/OVERSEER.md` too; this entry is the CONSUMER half,
+  because **the dependency is ours** — commits `09d964c7` and `4f7ff49b` pin that md5 by name, and a
+  pin whose referent has been deleted is a citation to nothing. This repo has already paid that once:
+  the binary behind an earlier frozen chain's goldens was overwritten in place and is now recoverable
+  only by rebuilding, which produces *a different artifact answering a slightly different question*.
+  **Rebuilding at the revision is NOT a substitute.**
+  It is file-and-directory locked (`r-xr-xr-x` inside `dr-xr-xr-x`) because a rename is a DIRECTORY
+  operation and a file-only `chmod` does not survive `mv` — verified by observing a same-device
+  refusal, not by setting the mode. **Execution is unaffected**; running it is the point.
+  **AEON OWNS THE END CONDITION.** Sigil will ask before moving it and will not move it until we
+  answer. If a sweep or a disk-space pass meets it, the answer is to ask this lane, not to reclaim.
+
 - **DECLARED TREES — `/home/volence/sonic_hacks/.aeon-relayout-freeze` (aeon `5875e60e`, all four
   shapes built) and `/home/volence/sonic_hacks/.aeon-attest-201` (aeon `4f5ad5a1`). DO NOT SWEEP
   EITHER.** They are **sigil's** reference worktrees for the parked ROM re-layout freeze (sigil
