@@ -218,7 +218,7 @@ DSL constructor arguments 1:1 (`engine/level/scene_dsl.emp` `scene()`/`layer()`)
   `docs/DEFERRED_WORK.md` ("Per-cell HScroll fill — DELETED"); when it lands, the key
   moves from the generator's ignored set to its refused set.
 - Per layer: `world_y`, `fa`, `fb`, `dsa`, `dsb`, `phase`, `enabled`, `deform`, `curve`,
-  `vsplit`, `drift`.
+  `vsplit`, `drift`, `rowRemap`.
 - **`drift` — READ SINCE 2026-09-02 (this amendment; contract change per the drift rule
   above).** Wire form `"none"` / absent / `{"rate": <signed int>}`; lowers to
   `layer(drift: SceneDrift.Rate(<rate>))`, and absent lowers to the argument being
@@ -238,6 +238,46 @@ DSL constructor arguments 1:1 (`engine/level/scene_dsl.emp` `scene()`/`layer()`)
   at empyrean `041e5e8` — **its description's closing clause ("until then
   `effects_gen.py` refuses the key") is stale as of this amendment and is empyrean's to
   cut.**
+- **`rowRemap` — READ SINCE 2026-09-04 (this amendment; contract change per the drift rule
+  above).** EFFECTS-W1 item 9's row remap: this layer's plane-B scroll words are re-fetched
+  through a perspective-selected index ladder. Wire form `"none"` / absent /
+  `{"plane_y": <int>, "height_shift": <int>}` — the payload is **FLAT and spells no variant
+  tag**, exactly as `drift`/`vsplit`/`curve` spell no `SceneDrift.Rate`/`SceneVSplit.At`/
+  `SceneCurve.To`. Lowers to
+  `layer(rowRemap: SceneRemap.Ladder(RowRemapLadder_Waterline16, <plane_y>, <height_shift>))`;
+  absent **and** `"none"` both lower to the argument being omitted (`SceneRemap.None` is
+  `layer()`'s default, and a NULL `brm_ladder` is the per-band gate, so the two are the same
+  eight bytes).
+  - **BOTH NUMBERS ARE 1:1, VERBATIM, WITH NO UNIT CONVERSION**, the standing rule on this
+    seam. `plane_y` is a **PLANE-B LINE, 0..511** — not a world Y and not a screen line; the
+    runtime's only use of it is `plane_y - Vscroll_BG`, a subtraction whose second term is a
+    per-frame runtime quantity, so no editor arithmetic can improve it.
+  - **`height_shift` IS A SHIFT, NOT A LINE COUNT: `H = 1 << height_shift`.** This is where a
+    helpful editor does the most damage — presenting "band height = 16 lines" and exporting
+    `16` asks for H = 65536. **The editor may DISPLAY `1 << height_shift`; it must EXPORT the
+    shift.** Every value 3..7 is legal to `layer()`, so a conversion bug inside that window
+    lands as a band four times too tall rather than as a refusal.
+  - **THE LADDER IS DERIVED FROM `height_shift`, NEVER NAMED.** `ladder` and `table` are
+    **reserved names, refused BY NAME** (`LAYER_REFUSED_KEYS`): exactly one ladder exists,
+    `row_remap_ladder16()` (`engine/level/parallax_dsl.emp:220`), whose H is the module const
+    `ROW_REMAP_H16 = 16` rather than a parameter, so naming it would be one number spelled
+    twice. A named ladder is the **second-variant** extension when a non-perspective ladder
+    is wanted (heat haze, a mirror); a `oneOf` can widen where a required field cannot be
+    taken back.
+  - **⚠ TODAY ONLY `height_shift: 4` BUILDS.** `layer()` accepts 3..7
+    (`engine/level/scene_dsl.emp:1006`), but 3/5/6/7 have no generated ladder, so the
+    generator refuses them **by name** — the alternative is an emission that fails on an
+    undefined Label and names a missing symbol instead of the thing the author wrote. The
+    generated ladder for the other four shifts is EFFECTS-W1 item **9b**.
+  - `plane_y`'s bounds are `layer()`'s two `ensure`s (`scene_dsl.emp:1008` for `>= 0`,
+    `:1017` for the `< 512` ceiling added 2026-09-04 — before that the upper bound was PROSE
+    and `brm_plane_y` is a `u16`, so 512..65535 was silently a wrong window). Not re-checked
+    here, per the same rule as `drift`. This key is only authorable in a game whose
+    `SCANLINE_CAPS` raise `CAP_ROW_REMAP` (`$0800`). **AT MOST ONE LAYER PER SCENE** may
+    carry it, and `scene()` additionally requires the scene to have an `anchor:` and
+    something to vary — all three are `scene()` refusals, not schema ones. Writer half:
+    empyrean `contract/schema/aurora-effects-scene.schema.json` `$defs.layer.rowRemap`, key
+    shape filed by `docs/superpowers/specs/2026-09-04-item9-row-remap-key-shape.md`.
 - Inside attachments: the factor spelling (named `FACTOR_*` or `{s1,s2,op}`) and the
   `tableRef` forms (`generator`: `sine`/`triangle`/`zero`/`v_column_perspective`/
   `v_column_floor` with their parameters, or `bin`).
@@ -745,6 +785,22 @@ on the aeon side today and unsafe on the Aurora side today.**
   `docs/aurora-effects-schema`; SHA at landing to be pinned by Aurora).
 - Wave 2 (raster preset composition) will add its own consumer rows here when its schema
   is cut; its writer surface is reserved-by-name-only in the empyrean doc §7.
+- **PUBLISHED THE OTHER WAY (aeon → the writer), new 2026-09-04:**
+  `games/sonic4/data/generated/effects_channel_bands.json` — a GENERATED, READ-ONLY sidecar
+  giving each patch channel the screen band its `patchable(fires, ch, lo, hi)` record
+  declares, as `ch -> {lo, hi, lines, source}` with `source` a `file:line` into the
+  hand-authored `.emp`. It exists because those bounds live nowhere a writer can read them,
+  so a panel could author a sweep whose travel leaves its channel's band and say nothing:
+  a sweep fits when its peak excursion (`256 >> amp_shift`, whole pixels, and `amp_shift` is
+  already a document key) fits `channels[c].lines`. **⚠ THE TWO EDGES ARE NOT SYMMETRIC and
+  a warning that treats them alike is wrong** — past `hi` the record is DROPPED (no boundary
+  anywhere; the band vanishes until the latched line re-enters the band), while below `lo` it
+  is CLAMPED UP and still drawn. The file's own `edges` block carries both behaviours and the
+  engine line implementing each, located at generation time rather than written down.
+  Regenerated by `effects_gen.py emit` and drift-checked by `effects_gen.py check`, which
+  `build.sh` runs build-fatally. Booked `RASTER-CHBAND-1`; the authoring key that would let a
+  document declare a band is a separate, larger question answered in
+  `docs/superpowers/specs/2026-09-04-channel-band-key-shape.md`.
 
 
 ## 5. Canonical serialization — normative for every writer of these files
