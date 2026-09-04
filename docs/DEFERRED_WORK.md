@@ -24061,3 +24061,11 @@ inherited it. All corrected here.
 measures the baked blob and cross-checks it against the editor document — nothing did before. Three
 red-first mutations on disk (dropped tile / lying header / 449-tile overrun), restored from the
 committed baseline. Asserts headroom *derived and non-negative*, deliberately not `>= 48`.
+
+**MESSAGE/DIFF MISMATCH ON `dba76bee`, corrected here rather than rewritten.** That commit's subject
+reads *"status: strike BG-ART-PASS"* but it is the **merge of the bg-tile-budget parcel**
+(`87ccf161`) — two parents, and it carries `vram.toml`, `test_bg_tile_budget.py` and the
+`DEFERRED_WORK` corrections as well as the status file. Cause: a `git commit` for the status file ran
+while the merge was staged, and consumed it. Not rewritten because it is pushed and a rebase orphans
+SHAs already recorded. **What is true: `dba76bee` is the bg-tile-budget landing.** Its content is
+correct and was verified — four shapes byte-identical, three red-first mutations, pytest 2359.
