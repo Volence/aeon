@@ -1943,14 +1943,21 @@ ensure(first_mismatch(patched_program(OJZ_TC_PROG),
 // ---- THE CHANNELS ARE 2 AND 3, NOT 0 AND 1, AND THAT IS THE ONE DECISION HERE ----------
 // Channels are a PER-PROGRAM index — guard 11 only refuses two records on one channel within
 // one program, so `ch: 0` here would have been legal and would have mirrored section 0.
-// It is 2 and 3 because the TOOLS associate a channel with a band ACT-WIDE, not per program:
-// tools/effects_gates.py builds `{ch0..ch3: (lo, hi)}` from every `ch:/lo:/hi:` triple in
-// this file and would have silently taken the LAST match for ch0, and
-// tools/test_anchor_sweep_band.py resolves every authored sweep's amplitude against the same
-// map. Distinct channels keep both readings unambiguous with no tool surgery, and
-// `test_no_two_patched_programs_declare_the_same_channel` now holds that property instead of
-// the one-program assumption it replaced. Cost: nothing. RASTER_MAX_PATCH is 4, section 0
-// uses two of them and section 7 uses the other two, and no section installs both programs.
+// It is 2 and 3 because THREE TOOLS associate a channel with a band ACT-WIDE, not per program:
+// tools/effects_gates.py builds `{ch0..ch3: (lo, hi)}` from every `ch:/lo:/hi:` triple in this
+// file and would have silently taken the LAST match for ch0;
+// games/sonic4/data/generated/effects_channel_bands.json — Aurora's read-only band sidecar —
+// is keyed by channel with no program or section in it at all; and
+// tools/test_anchor_sweep_band.py resolved every authored sweep's amplitude against the same
+// flat map. Distinct channels keep all three readings unambiguous.
+//
+// TWO OF THE THREE WERE FIXED RATHER THAN RELIED ON, because "it happens not to collide" is a
+// property of today's content: test_anchor_sweep_band.py now resolves a sweep's band per
+// (section -> preset -> patched program), the way the runtime does, and effects_gates.py
+// REFUSES (exit 2) a channel declared with two different bands rather than picking one. The
+// sidecar is generated and is Aurora's to widen if they ever want two programs on one channel.
+// Cost of the choice: nothing. RASTER_MAX_PATCH is 4, section 0 uses two of them and section 7
+// uses the other two, and no section installs both programs.
 //
 // The anchors and the two authored lines are declared with the preset that seeds them —
 // see OJZ_SEC7_CAMERA_Y and its warning above OJZ_Preset_Sec7. They are `camera + line`
