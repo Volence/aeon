@@ -25197,7 +25197,28 @@ drives stayed inside the window by accident; long ones do not.
 established: the crossover fires and `layer` switches 0→1 at col 143. Everything I reported
 after that point was an artifact.
 
-## T1 — ✅ THE LOOP RIDES. Full circumference, both marks, measured 2026-09-04.
+## T1 — THE LOOP RIDES AT TOP SPEED, AND TUNNELS ABOVE IT. Measured 2026-09-04.
+
+**⚠ THE HEADLINE IS NOT "the loop works", and the distinction is measured rather than
+cautious.** The drive that proves it rides was run at `PHYS_TOP_SPEED` **`$600` = 6 px/frame
+— the one speed at which the 8 px mark column is provably safe, with 2 px to spare.** A green
+drive at that speed cannot reveal the hazard, because it is the speed the hazard excludes.
+
+**The hazard, now MEASURED rather than predicted (aurora raised it; this is the control):**
+
+| injected gsp | px/frame | layer flips | outcome |
+|---|---|---|---|
+| `$600` TOP_SPEED | 6 | **3** | rides the loop, 132 px climbed, max x 1221 |
+| `$900` | 9 | **0** | stuck on plane B, blew past to x 2985, climbed 13 px |
+| `$1000` GSP_CAP | 16 | **0** | mark never fired at all, straight through to x 2696 |
+
+**Above ~8 px/frame the marks are skipped and the loop silently stops being a loop.**
+`PHYS_GSP_CAP` permits 16 px/frame, and a loop is the one place in a level where rolling and
+slope factor drive speed toward the cap by design. **The engine guard row above (edge trigger
+on a contiguous marked RUN, or a swept test) is not theoretical — this is its failure,
+reproduced at two speeds.**
+
+## T1 — the ride itself: full circumference, both marks, at $600
 
 **Instrument, all five corrections in place:** leave debug-fly with **`B`** (never a write to
 `Sst+$3C` — that skips `Player_DebugExit` and crashes on `Map_TestObj`); **set the camera
