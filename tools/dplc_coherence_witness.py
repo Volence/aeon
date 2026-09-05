@@ -564,8 +564,62 @@ def report(rows, tail, gsp, label, verbose, model, mapmodel, poison=0):
     return kinds, tail, len(live)
 
 
+def decode_run(mapmodel, tiles, base):
+    """Offline: explain an OBSERVED run of SAT tile numbers against Map_Sonic.
+
+    This is the half of F7 that needs no emulator. The reading taken from the owner's
+    paused machine was `$3C0 $3CC $3D4 $3D5 $3D1 $3D2` and was recorded as "not
+    ascending", with no statement of what ascending would have meant. It means
+    something exact: EVERY one of the 224 Sonic frames lists its pieces with strictly
+    ascending tile offsets starting at 0 (measured — 0 exceptions), because the DPLC
+    loads a frame's tiles in the order its pieces consume them. So a run that does not
+    ascend from 0 did not come from one frame, and a run that cannot be partitioned
+    into whole frames did not come from several objects either. What is left is a
+    buffer holding one frame's entries over another frame's residue — and if exactly
+    one (new frame, old frame) pair explains the bytes, that pair is named.
+    """
+    offs = [(t - base) & 0x7FF for t in tiles]
+    print("  observed SAT tiles: %s  ->  offsets from art base $%03X: %s"
+          % (" ".join("$%03X" % t for t in tiles), base, offs))
+    sigs = [[t & 0x7FF for (_y, _s, t) in (mapmodel.pieces(f) or [])]
+            for f in range(mapmodel.frames)]
+    exact = [f for f, g in enumerate(sigs) if g == offs]
+    asc = sum(1 for g in sigs if g and (g != sorted(g) or g[0] != 0))
+    print("    frames whose piece tile offsets are NOT ascending-from-0: %d of %d"
+          % (asc, mapmodel.frames))
+    print("    frames producing this exact run: %s" % (exact or "NONE"))
+    print("    partitions into whole frames (several objects drawing Map_Sonic): %s"
+          % ([k for k in range(1, len(offs))
+              if any(g == offs[:k] for g in sigs)
+              and any(g == offs[k:] for g in sigs)] or "NONE — no frame's list "
+             "starts anywhere but 0, so no split works"))
+    pairs = []
+    for k in range(1, len(offs)):
+        new = [f for f, g in enumerate(sigs) if g == offs[:k]]
+        old = [f for f, g in enumerate(sigs) if len(g) == len(offs)
+               and g[k:] == offs[k:]]
+        for a in new:
+            for c in old:
+                pairs.append((k, a, c))
+    print("    OVERLAY explanations (frame A's complete %d-piece list written over "
+          "frame B's longer one, B's tail surviving):" % len(offs))
+    for k, a, c in pairs:
+        print("      %d entries of frame %-3d %s over frame %-3d %s"
+              % (k, a, sigs[a], c, sigs[c]))
+    if not pairs:
+        print("      NONE")
+    return pairs
+
+
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument("--decode", default=None,
+                    help="offline: explain an observed run of SAT tile numbers "
+                         "(hex, space or comma separated) against Map_Sonic. "
+                         "No emulator is spawned.")
+    ap.add_argument("--decode-base", default="0x3C0",
+                    help="the player's art_tile base for --decode (default $3C0 = "
+                         "VRAM_TEST_SONIC)")
     ap.add_argument("--rom", required=True)
     ap.add_argument("--lst", required=True)
     ap.add_argument("--gsp", default=None, help="ground speed to inject once (hex ok)")
@@ -591,6 +645,11 @@ def main():
     print("  DPLC_Sonic=$%05X Art_Sonic=$%05X frames=%d  peak entries/frame=%d"
           % (syms["DPLC_Sonic"], syms["Art_Sonic"], model.frames,
              max(model.entries(f) for f in range(model.frames))))
+
+    if a.decode:
+        tiles = [int(t, 16) for t in a.decode.replace(",", " ").split()]
+        decode_run(mapmodel, tiles, int(a.decode_base, 0))
+        return 0
 
     gsp = int(a.gsp, 0) if a.gsp else None
     with aether_emulator(a.rom, symbols=a.lst) as sock:
