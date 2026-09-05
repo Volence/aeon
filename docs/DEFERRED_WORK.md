@@ -26179,6 +26179,22 @@ case-sensitive search; both were present in the F7 instance.
 
 ---
 
+### Withdrawing a TRUE claim was still correct - 2026-09-05
+
+**A fourth shape, and it is the inverse of the other three.** Oracle claimed early that the floor
+and the region above it scroll by different amounts, then withdrew it because the measurement had
+compared nametable column indices across DIFFERENT rows, which is not a comparison. The scroll
+table now shows the claim was TRUE: 203 above line 175, -4 below it, two regimes, exactly as first
+stated.
+
+**Withdrawing it was still the right move.** A conclusion resting on an instrument that cannot see
+the quantity is not a finding, it is a coincidence, and keeping it would have meant being right by
+luck without knowing which claims were luck and which were evidence. The three other shapes tonight
+were null instruments read as positives; this is a correct answer reached by an invalid route, and
+the correct handling is identical: withdraw on the method, re-establish on a real one.
+
+---
+
 ### Floor geometry: SPREAD is the art, APEX is the correction - 2026-09-05
 
 **Verified numerically, and it retired three separate conclusions today.** A per-row horizontal
@@ -26231,11 +26247,18 @@ quantity is real rather than an artifact of one pair. **Ours responds about 4.2x
 background movement**, and that, not any raw gain, is the tuning target if the owner wants ours to
 feel like theirs.
 
-Caveats, stated rather than left to be found: it takes the entry at line 176 as the whole-plane
-component, which is safe for ours (the ramp starts at zero at the vanishing point) and less safe
-for theirs (their base is already nonzero at the top of the floor, so their `d(base)` may mix base
-and gain, making 0.00986 an UNDERestimate of the difference). Linearity is measured for ours at
-three points and assumed for theirs at two. **Oracle's 96 px plane displacement is WITHDRAWN** by
+**That caveat was TESTED and resolves in the ratio's favour.** The worry was that their base at
+line 176 might already carry part of the ramp, mixing base and gain. It does not: their table holds
+a constant 16331 (203 after the hardware's 10-bit mask) for lines 1 to 174, a single transition
+value at 175, and the floor regime from 176 onward. **The base at 176 is the TOP of the ramp, not a
+point partway down it**, so the two regimes are genuinely separate and 0.00986 stands as measured.
+Linearity remains measured for ours at three points and assumed for theirs at two.
+
+**STEP DENSITY says the same thing without any arithmetic**, which is the version to show the
+owner: theirs takes 3 distinct scroll values over 48 floor lines at its weaker camera and 16 at its
+stronger, so it steps about every 16 lines and then every 3. **Ours steps on EVERY row at every
+camera measured** (91, 150 and 229 px over 71 rows with per-row deltas of only -1 and -2). The
+difference between a barely-active correction and a hard-working one is visible in the raw table. **Oracle's 96 px plane displacement is WITHDRAWN** by
 its own author: the table says -37 px over the same lines, and the 96 came from a first-match index
 lookup into nametable rows where about 21 of 64 tiles repeat, an instrument they had already
 flagged as unsound and then continued to quote.
