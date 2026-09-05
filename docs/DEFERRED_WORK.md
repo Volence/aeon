@@ -26023,37 +26023,43 @@ section. When wave 2 lands, that hand-side install and this quarantine are both 
 
 ---
 
-### RETRACTED: "recursive grep skips gitignored files" - 2026-09-05
+### Recursive `grep` here SKIPS GITIGNORED FILES, and the retraction of this was wrong - 2026-09-05
 
-**The mechanism in the original version of this entry is WRONG and is withdrawn.** It claimed
-recursive `grep` here is a shell function that silently skips gitignored files, which would make
-build listings invisible to `grep -r`. **It does not reproduce.**
+**CONFIRMED, mechanism READ rather than inferred.** The Claude harness shell snapshot
+(`~/.claude/shell-snapshots/*.sh`) defines `grep` as a **shell function** that runs the claude
+binary as ugrep with `-G --ignore-files --hidden -I --exclude-dir=.git ...`. `--ignore-files`
+honours `.gitignore`, so **`*.lst`, ROMs, generated artifacts and `target/` are skipped**; `-I`
+skips binaries. A few flags (`-Z`, `--null`, `--config`) fall through to `command grep`.
 
-Tested directly, shell-function `grep` against `/usr/bin/grep`, same pattern and paths:
-no `--include` 741 vs 741, `--include='*'` 741 vs 741, `--include='*.lst'` **343 vs 343**,
-`--include='*.emp'` 125 vs 125. Identical every time, gitignored `.lst` files included. Re-running
-the exact original pipeline **without its `head -5`** returns 12 files of which SIX are `.lst`,
-`s4.debug.lst` among them, and `/usr/bin/grep` returns the same 12. A later report that the shell
-grep UNDER-reports non-empty counts did not reproduce here either.
+Measured in the real shell, `grep -rl 'Draw_Sprite' . --include='*.lst'`:
 
-**What survives is the instance, not the explanation.** A search of mine did report the F7 symbol
-absent when it was present at 370A, and that absence went into an agent brief. Two candidate
-causes remain and cannot now be distinguished: the `head -5` that truncated the output, and a
-four-shape build rewriting the `.lst` files while the search ran. **The cause is UNESTABLISHED.**
-Picking the tidier one is exactly what produced the retracted claim.
+    shell function : 0 files
+    command grep   : 343 files
+    /usr/bin/grep  : 343 files
 
-**Why this entry stays rather than being deleted.** The failure is the one this repo spent the day
-booking against other people, committed by its own controller one layer up: a real symptom, a
-confident mechanism, and that mechanism written into a repo note, a memory file, an agent brief
-and a message to another lane before anything tested it. **A refuted mechanism invalidates its
-arithmetic**, so the "family of four" framing keeps only its independently verified members - the
-eza column that read an 845,972 byte ROM as 5 bytes, `git status` blind to ignored state, and the
-`ls` alias swallowing its path. This one is withdrawn from that list until someone reproduces it.
+**Use `command grep`, `git grep`, or `/usr/bin/grep`** for anything that must see build outputs.
+It fails by returning a smaller result with no error, so a partial count reads as a real one and
+watching for a suspicious *empty* result will not catch it.
 
-**Still worth doing, on much weaker grounds than first claimed:** comparing the two greps costs
-nothing and is a fine canary for any absence claim. That stands on its own merits.
+**THIS ENTRY WAS RETRACTED FOR ABOUT AN HOUR, AND THE RETRACTION IS THE MORE USEFUL RECORD.**
+Having written the claim, this lane "tested" it by running the two greps through
+`subprocess.run(..., executable='/bin/bash')`. **Inside `bash -c`, `grep` resolves to
+/usr/bin/grep, not to the zsh shell function.** So the canary compared /usr/bin/grep against
+/usr/bin/grep: both sides were the same tool, they agreed perfectly at 741, 741, 343 and 125,
+and that agreement was read as proof the hazard did not exist. The retraction was then broadcast
+to the hub, to aurora, and to a running agent, and a correct entry was replaced with a wrong one.
 
-**And the second, independent reason that same search failed IS verified and unaffected:** a `.emp`
-local label has three renderings and no two match as strings - the listing's mangled
-`$module$Proc$local`, the debugger's demangled `Proc.local`, and prose that uppercases it. A
-case-sensitive search for one finds neither of the others.
+**A test that bypasses its own subject cannot fail, and its passing is indistinguishable from a
+clean refutation.** That is the same defect this repo spent the day booking against gates that
+never executed what they patched - committed here on a *retraction*, which is the one place
+nobody thinks to apply the rule, because a retraction feels like the humble move and humility
+reads as rigour.
+
+**Two working notes from the episode.** `wc` and `tr` were both absent from PATH in that shell.
+And one version of the canary printed `same` when BOTH sides had measured nothing, because empty
+equals empty: make a comparison LOUD on an unmeasured side rather than letting two blanks agree.
+
+**Separately verified and independent of all of the above:** a `.emp` local label has three
+renderings and no two match as strings - the listing's mangled `$module$Proc$local`, the
+debugger's demangled `Proc.local`, and prose that uppercases it. Either cause alone defeats a
+case-sensitive search; both were present in the F7 instance.
