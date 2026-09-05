@@ -63,6 +63,35 @@ per line these two routines contain and raises on anything else, so a future edi
 reaching for a new addressing mode stops the build instead of being silently skipped.
 That refusal is the only reason its green is worth anything.
 
+PROVEN RED, 2026-09-05, on `parcel/loop-crossover-direction`. A gate nobody has watched
+fail is a gate nobody knows executes what it claims to. Three source mutations were
+applied to `games/sonic4/player/player_common.emp`, each rebuilt (`FAST=1 DEBUG=1
+./build.sh`) and re-run through THIS file, and each restored from the committed
+baseline afterwards. The runner is `build.sh`'s post-sigil block, which calls this file
+with `--gate` for each canonical shape and exits 1 on a non-zero status.
+
+  M1  the direction gate deleted (the pre-ruling, plane-keyed routine)
+      -> 9 findings: 4 consumption, 2 plane-select, 3 direction — including the row
+         this file names as the witnessed defect, "a leftward player put onto the plane
+         whose left half is not solid"
+  M2  `bhi .snap` -> `bra .snap`, so every cell change snaps and the walk is ONE probe
+      at the destination (the pre-sweep routine)
+      -> 65 findings: 63 step-over, 2 step-over-marks. The 2 are the WRITE-ORDER method
+         that replaced parity, red on both directions, and they are the whole reason
+         that replacement is not a weakening
+  M3  the edge trigger's `andi.l` mask coarsened to $FFF0FFF0, so a one-cell X step no
+      longer re-arms it
+      -> 120 findings: 119 step-over, 1 edge ("stepping one whole cell -X did NOT
+         re-read the crossover") — the edge case (4) assertion that changed from a
+         layer WRITE to a PROBE, shown live. Only -X and not +X, because the base cell
+         sits in the upper half of the coarsened block; that asymmetry is the mutation's
+         and not the gate's
+
+A fourth mutation was tried and DISCARDED rather than counted: seeding the cursor from
+the swapped `d0` made the walk never terminate, so it was red by hanging, not by the
+property. It is recorded because a red for the wrong reason is the failure mode this
+list exists to rule out.
+
 Usage (the post-sigil gate; see build.sh):
 
     loop_crossover_gate.py --lst s4.debug.lst --rom s4.debug.bin \
