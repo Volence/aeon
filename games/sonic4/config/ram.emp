@@ -86,6 +86,29 @@ pub struct PlayerBlock {
                             // XOVER_NONE like every other unmarked cell.
                             // Even offset (20), so the `move.l`/`cmp.l` pair below is
                             // aligned in BOTH slots at the 24-byte stride.
+    xover_cursor:   u32,    // THE SWEEP's walking cursor, same packing as xover_cell.
+                            // A frame can move 16 px (PHYS_GSP_CAP) against an 8 px
+                            // collision cell and nothing substeps horizontal movement,
+                            // so the crossover read WALKS from the cell it last ran in
+                            // to the cell it resolved to, probing each — otherwise a
+                            // mark one cell wide is stepped clean over above ~8 px/frame
+                            // and never fires. This is that walk's only state.
+                            //
+                            // TRANSIENT, not persistent: it is initialised and consumed
+                            // inside one Player_LoopCrossover call and means nothing
+                            // between frames. It lives HERE, per slot, rather than on
+                            // the stack because sigil's contract closure only recognises
+                            // a `move.l a0,-(sp)` / `movea.l (sp)+,a0` save across a
+                            // call while the stack is otherwise balanced at that point
+                            // — a sweep frame underneath it makes the analysis report
+                            // Player_LoopCrossover as clobbering a0, which is a
+                            // `preserves(a0)` violation at Player_Main's call site
+                            // (measured 2026-09-04; both a stack frame and a
+                            // register-to-register save reproduce it on their own).
+                            // Per SLOT rather than one global for the same reason
+                            // xover_cell is: the two are read and written together and
+                            // a follower running two preambles must not share either.
+                            // Even offset (24) — read and written with move.l/cmp.l.
 }
 
 pub region game_ram @ after(upper_ram) .. SYSTEM_STACK, w_addressable

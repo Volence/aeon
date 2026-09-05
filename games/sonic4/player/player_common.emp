@@ -24,7 +24,7 @@ use engine.coords.{pixels_to_coord, abs_w}
 use engine.objects.objdef.{vram_art}
 use engine.constants.{NUM_PLAYERS,
         RF_PRIORITY_SHIFT, RF_PRIORITY_MASK, RF_XFLIP, RF_YFLIP, ST_IN_AIR, BUTTON_LEFT, BUTTON_RIGHT, SECTION_SIZE_SHIFT, SCREEN_HEIGHT,
-        PHYS_SKID_MIN, PHYS_JUMP_BUFFER, PHYS_FALL_CAP,
+        PHYS_SKID_MIN, PHYS_JUMP_BUFFER, PHYS_FALL_CAP, PHYS_GSP_CAP,
         ST_ROLLING, ST_PUSHING, ST_XFLIP, COLLISION_NONE, EDGE_WRAP_V, EDGE_KILL, BUTTON_A, BUTTON_B, BUTTON_C,
         BUTTON_UP_BIT, BUTTON_B_BIT, BUTTON_DOWN_BIT, BUTTON_LEFT_BIT, BUTTON_RIGHT_BIT,
         // loop crossover — the read site (Player_LoopCrossover) and its R6 guard block
@@ -281,6 +281,12 @@ const PBLK_QUADRANT  = 16
 const PBLK_JUMPBUF   = 17
 const PBLK_DUSTTIMER = 18
 const PBLK_XOVERCELL = 20
+const PBLK_XOVERCURSOR = 24
+// The two halves of each packed cell id, addressed separately by the sweep's per-axis
+// legs. Derived, not typed, so a re-packing that swaps the halves cannot leave one of
+// four displacements pointing at the wrong word.
+const PBLK_XOVERCELL_Y   = PBLK_XOVERCELL + 2
+const PBLK_XOVERCURSOR_Y = PBLK_XOVERCURSOR + 2
 
 // -----------------------------------------------
 // player_block — point a register at the CALLING SLOT's PlayerBlock
@@ -349,8 +355,12 @@ ensure(PBLK_XOVERCELL == offsetof(PlayerBlock, xover_cell),
 // must be even — the field's own offset and the array stride. sizeof(PlayerBlock)
 // being even is already the `pad` byte's job; this is the half that pad cannot state,
 // because a field can sit at an odd offset inside an even-sized struct.
+ensure(PBLK_XOVERCURSOR == offsetof(PlayerBlock, xover_cursor),
+       "PBLK_XOVERCURSOR out of sync with PlayerBlock.xover_cursor (config/ram.emp)")
 ensure((PBLK_XOVERCELL & 1) == 0,
        "PlayerBlock.xover_cell is at an ODD offset — Player_LoopCrossover's move.l/cmp.l pair would ADDRESS ERROR on slot 0; re-order the byte fields above it")
+ensure((PBLK_XOVERCURSOR & 1) == 0,
+       "PlayerBlock.xover_cursor is at an ODD offset — the sweep's move.l/cmp.l pair would ADDRESS ERROR on slot 0; re-order the byte fields above it")
 ensure((sizeof(PlayerBlock) & 1) == 0,
        "sizeof(PlayerBlock) is ODD — slot 1's xover_cell (and its whole physics row) would land on an odd address; restore the pad byte in config/ram.emp")
 
@@ -374,6 +384,68 @@ ensure((COLL_CELL_H & (COLL_CELL_H - 1)) == 0,
        "COLL_CELL_H is {COLL_CELL_H}, not a power of two — Player_LoopCrossover quantises the cell id with an AND mask, which cannot express a non-power-of-two cell height")
 ensure(XOVER_CELL_MASK == $FFF8FFF0,
        "the collision cell footprint moved: the crossover edge trigger's mask derives to {XOVER_CELL_MASK} instead of $FFF8FFF0. That is not necessarily wrong, but Player_LoopCrossover's cost note and the loop_crossover_gate fixture both quote the 8x16 grid — re-check both before re-pinning this number")
+
+// -----------------------------------------------
+// THE SWEEP'S REACH — the horizontal twin of PHYS_FALL_CAP's own `ensure`.
+//
+// PHYS_FALL_CAP is $F00 = 15 px against a COLL_CELL_H of 16: deliberately ONE PIXEL
+// under one cell, guarded in engine/system/constants.emp by an `ensure` that says
+// straight out what a whole-cell fall step would do ("can begin flush on the thinnest
+// floor the world can express and end below it, tunnelling through"). The X axis has
+// no such cap and cannot be given one — the horizontal budget IS PHYS_GSP_CAP, 16
+// px/frame, against a COLL_CELL_W of 8, and `ObjectMove` (engine/objects/core.emp) is
+// a single unconditional add with no substepping anywhere. Lowering the ground-speed
+// cap to 8 px/frame would close the hole by making the game slower, which is not a
+// trade worth making for a collision-lookup detail.
+//
+// So the read site SWEEPS instead of sampling, and these are the bounds it sweeps
+// between. XOVER_STEP_MAX_* is the largest displacement one frame can put on each
+// axis; XOVER_SWEEP_REACH_* is that rounded up to a whole number of cells, which is
+// the most the two quantised endpoints can ever be apart. Every one of them is
+// DERIVED from the physics caps — nothing here is a number that can go stale silently
+// while the cap it describes moves.
+const XOVER_STEP_MAX_X    = PHYS_GSP_CAP >> 8           // 16 px: the ground-speed cap
+                                                        // is the only bound on a
+                                                        // horizontal step
+const XOVER_STEP_MAX_Y    = PHYS_GSP_CAP >> 8           // 16 px: a ground step on a
+                                                        // vertical wall decomposes the
+                                                        // WHOLE of the ground speed
+                                                        // onto Y, which is above the
+                                                        // air fall cap (the ensure
+                                                        // below is what states that)
+const XOVER_SWEEP_CELLS_X = (XOVER_STEP_MAX_X + COLL_CELL_W - 1) / COLL_CELL_W   // 2
+const XOVER_SWEEP_CELLS_Y = (XOVER_STEP_MAX_Y + COLL_CELL_H - 1) / COLL_CELL_H   // 1
+const XOVER_SWEEP_REACH_X = XOVER_SWEEP_CELLS_X * COLL_CELL_W                    // 16 px
+const XOVER_SWEEP_REACH_Y = XOVER_SWEEP_CELLS_Y * COLL_CELL_H                    // 16 px
+// The reach test is one UNSIGNED compare per axis, not two signed ones: bias the
+// signed delta by +REACH and the whole legal band becomes [0, 2*REACH], so a value
+// below -REACH wraps to a large unsigned and fails the same `bhi` that catches one
+// above +REACH. 8 cycles and 4 bytes an axis cheaper than the pair of signed tests,
+// and it cannot disagree with itself about where the band ends.
+const XOVER_SWEEP_SPAN_X  = XOVER_SWEEP_REACH_X * 2
+const XOVER_SWEEP_SPAN_Y  = XOVER_SWEEP_REACH_Y * 2
+
+// THE GUARD, in the direction that matters: the sweep must reach at least as far as a
+// frame can move. A step longer than the reach is treated as a discontinuity and only
+// its endpoint is read — correct for a teleport, and a silently reopened tunnelling
+// hole for anything that is actually a run.
+ensure(XOVER_SWEEP_REACH_X >= XOVER_STEP_MAX_X,
+       "the crossover sweep reaches {XOVER_SWEEP_REACH_X} px on X but one frame can move {XOVER_STEP_MAX_X} px — a step longer than the reach snaps to its endpoint, so a one-cell mark inside the gap is stepped over and never fires. This is the horizontal twin of PHYS_FALL_CAP's ensure in engine/system/constants.emp")
+ensure(XOVER_SWEEP_REACH_Y >= XOVER_STEP_MAX_Y,
+       "the crossover sweep reaches {XOVER_SWEEP_REACH_Y} px on Y but one frame can move {XOVER_STEP_MAX_Y} px — see the X ensure above; the same hole, on the other axis")
+ensure(XOVER_STEP_MAX_Y >= (PHYS_FALL_CAP >> 8),
+       "PHYS_FALL_CAP is now {PHYS_FALL_CAP >> 8} px/frame, ABOVE the ground-speed cap XOVER_STEP_MAX_Y derives from — a falling frame can out-step the crossover sweep. Re-derive XOVER_STEP_MAX_Y from whichever cap is now the larger")
+// ... and in the direction that pays for it. Every cell the walk visits costs one
+// Collision_GetType, and the walk advances BOTH axes on every iteration, so the probe
+// count is the LARGER of the two per-axis reaches in cells, not their sum. That is
+// also why a one-cell diagonal step still costs exactly one probe — the same as the
+// pre-sweep routine — and why the extra cost lands only on steps that genuinely cross
+// more than one cell. Player_LoopCrossover's cost note quotes these bounds; the
+// `ensure`s are what stop the note going stale without anyone re-measuring it.
+ensure(XOVER_SWEEP_CELLS_X <= 2,
+       "the crossover sweep can now walk {XOVER_SWEEP_CELLS_X} cells of X in one frame per player, not 2 — that is a per-frame cost change in the shared player preamble. Re-measure the cost block on Player_LoopCrossover from the listing and re-pin this bound")
+ensure(XOVER_SWEEP_CELLS_Y <= 2,
+       "the crossover sweep can now walk {XOVER_SWEEP_CELLS_Y} cells of Y in one frame per player, not 2 — see the X bound above; the same cost, on the other axis")
 
 // R6 — THE ENGINE MUST NOT RE-DERIVE THE ENCODING'S MAPPING. The read site's whole
 // value->layer step is one `subq.b #XOVER_LAYER_BIAS`; these bind that immediate to
@@ -693,6 +765,33 @@ pub proc Player_RefreshPhysics (a2: *PlayerBlock) clobbers(d0/a1-a2) {
 //     not a chosen granularity. Coarser would step over a marked cell; finer would
 //     re-fire inside one, which for a two-way pair is the ping-pong above.
 //
+// (4b) AND WHY THAT WAS NOT ENOUGH — the step-over, fixed 2026-09-04. Everything in (4)
+//     is about a trigger that fires TOO OFTEN. It says nothing about one that never
+//     fires at all, and this one did not, above about 8 px/frame. A mark is ONE cell,
+//     COLL_CELL_W is 8 px, PHYS_GSP_CAP is 16 px/frame, and `ObjectMove`
+//     (engine/objects/core.emp) is a single unconditional add: horizontal movement is
+//     not substepped anywhere. A read taken once against the position the frame
+//     RESOLVED to therefore steps clean over a mark it passed through, and the mark
+//     never fires.
+//
+//     Measured on the section-0 loop in s4.debug.bin, ground speed injected once at the
+//     ramp foot: at $600 (TOP_SPEED, 6 px/frame) three layer flips and a clean ride; at
+//     $900 (9 px/frame) the player rides the geometry, MISSES the top mark, comes down
+//     the left half still on plane B, and falls through the floor a screen later — the
+//     symptom displaced far enough from the cause that a bug report would name the
+//     floor; at $1000 (the cap) the mark never fires at all.
+//
+//     The vertical twin of this hole was already closed the other way: PHYS_FALL_CAP is
+//     one pixel UNDER COLL_CELL_H so a falling step cannot span a cell. X cannot be
+//     capped the same way without making the game slower, so the read SWEEPS: it walks
+//     from the cell it last ran in to the cell it resolved to and probes each. Both
+//     properties in (4) survive intact, because the walk ADVANCES BEFORE IT PROBES —
+//     the cell it swept from is never re-read, so standing still is still the `beq`,
+//     and a two-way pair still cannot ping-pong. The reach it walks, and the `ensure`
+//     that ties it to the physics caps, are in the constant block above; the gate that
+//     grades it is `sweep_step_over` / `sweep_step_over_marks` in
+//     tools/loop_crossover_gate.py, which are RED on the pre-sweep routine.
+//
 // (5) THE WRITE. `subq.b #XOVER_LAYER_BIAS` IS the encoding — XOVER_TO_A(1) -> layer 0,
 //     XOVER_TO_B(2) -> layer 1 — and the R6 guards bind that one immediate to
 //     LAYER_PATH_A / LAYER_PATH_B so the engine does not re-derive the mapping.
@@ -710,21 +809,36 @@ pub proc Player_RefreshPhysics (a2: *PlayerBlock) clobbers(d0/a1-a2) {
 //
 //   same cell (the whole steady state: bsr.w 18, move.l d(An),Dn 16, move.w d(An),Dn
 //     12, andi.l # 16, cmp.l d(An),Dn 18, beq taken 10, rts 16)                106
-//   cell changed, position off the tile cache (GetType's early air exit, 58)   284
-//   cell changed, no mark  (GetType in-window: plane A 292 / plane B 298)  518 / 524
-//   cell changed, fires                                                   532 / 538
+//   cell changed, position off the tile cache (GetType's early air exit, 58)   570
+//   cell changed, one cell of X, no mark (plane A 292 / plane B 298)       804 / 810
+//   cell changed, one cell DIAGONALLY, no mark (plane A)                       846
+//   cell changed, one cell, FIRES (plane A)                                    822
+//   a discontinuity — teleport/respawn/act start — snapped to one probe          700
+//   TWO cells of X in one frame (>8 px/frame: the step-over the sweep exists
+//     for), no mark / the first cell marked                              1356 / 1374
 //
-// Two players at 60 Hz against a ~127,800-cycle NTSC frame: 0.17% standing still,
-// 0.81% on a frame where both changed cell. A player running at speed changes cell
-// most frames, so 0.8% is the honest running figure and 0.17% is only the floor.
-// 64 bytes of code, measured from the listing.
+// WHAT THE SWEEP COST AND WHAT IT DID NOT. The steady state is 106 — the same figure,
+// instruction for instruction, as before the sweep: the `beq` on the cell id still
+// leaves before a byte of the walk is reached, so a standing or sub-cell-moving player
+// pays nothing at all. A frame that CHANGED cell went from 518 to 804, +286. The
+// diagonal case is why the walk advances both axes together rather than turning a
+// corner: an ordinary frame on a slope moves one cell on each axis and still costs ONE
+// probe (846), where an L-shaped path would have cost two (~1350).
+//
+// Two players at 60 Hz against a ~127,800-cycle NTSC frame: 0.17% standing still
+// (unchanged), 1.26% on a frame where both changed cell (was 0.81%), 2.1% in the
+// two-cell case that only happens above 8 px/frame. A player running at speed changes
+// cell most frames, so 1.26% is the honest running figure. 182 bytes of code, measured
+// from the listing.
 //
 // The cheap gate that is NOT here, named so it is a decision and not an oversight:
-// every shipped act holds XOVER_NONE in all 256 slots, so today the whole 0.8% buys
-// nothing. A per-act "this act has crossovers" flag would collapse it to about 12
-// cycles — but that flag does not exist, it is a bake-side field, and adding one in
-// this parcel would be a second encoding shipped ahead of its first user. Booked in
-// docs/DEFERRED_WORK.md instead.
+// a per-act "this act has crossovers" flag would collapse the whole per-frame cost to
+// about 12 cycles for any act that has none — but that flag does not exist, it is a
+// bake-side field, and adding one here would be a second encoding shipped ahead of its
+// first user. Booked in docs/DEFERRED_WORK.md instead. NOTE that the premise this
+// paragraph used to rest on has expired: the shipped CrossoverTable now holds TWO
+// marked slots (the section-0 loop), so the cost is no longer buying nothing, and the
+// flag is a saving for OTHER acts rather than for every act.
 //
 // In:  a0 = player SST, a4 = this slot's PlayerBlock
 // Out: none
@@ -740,25 +854,114 @@ pub proc Player_LoopCrossover (a0: *Sst, a4: *PlayerBlock) clobbers(d0-d3/a1) pr
         move.w  y_pos(a0), d0                   // Y px into the low word
         andi.l  #XOVER_CELL_MASK, d0            // -> the world cell, one long
         cmp.l   PBLK_XOVERCELL(a4), d0
-        beq     .done                           // same cell — THE edge trigger
-        move.l  d0, PBLK_XOVERCELL(a4)
+        beq     .done                           // same cell — THE edge trigger, and the
+                                                // whole steady state: not one byte of
+                                                // the sweep below is reached from here
+        move.l  PBLK_XOVERCELL(a4), d1          // the cell the last sweep ENDED on
+        move.l  d0, PBLK_XOVERCELL(a4)          // ... and from here on, THE DESTINATION
 
-        // The lookup's arguments come OUT OF THE ID, not out of a second pair of
-        // position reads — 8 cycles and 4 bytes instead of 24 and 8, and, worth more
-        // than either, it makes "the cell the trigger compared" and "the cell the
-        // lookup fetched" the same value by construction rather than by two reads
-        // agreeing. Clearing the low bits first is provably free: Collision_GetType
-        // does `lsr.w #3` on X (so bits 2:0 never survive) and `lsr.w #3` then
-        // `lsr.w #1` on Y, and forcing Y's bit 3 low only selects the EVEN tile row of
-        // the pair the halving folds together — which lands on the same collision row,
-        // because Cache_Top_Row is even and the subtraction between them preserves that.
-        move.l  d0, d1                          // d1.w = Y, quantised
-        swap    d0                              // d0.w = X, quantised
+        // --- IS THE GAP WALKABLE? ----------------------------------------------
+        // Two signed word deltas against the reaches derived above. A step inside the
+        // reach is a RUN the player traversed and gets walked cell by cell; a step
+        // beyond it is a discontinuity and only its endpoint is read. Word arithmetic
+        // throughout, so a world coordinate that wraps $FFFF->$0000 still yields the
+        // right sign and magnitude and the walk still lands on the destination exactly.
+        move.w  d0, d3
+        sub.w   d1, d3                          // dY = destY - prevY
+        addi.w  #XOVER_SWEEP_REACH_Y, d3        // bias into [0, 2*REACH] — see the
+        cmpi.w  #XOVER_SWEEP_SPAN_Y, d3         // constant block: ONE unsigned compare
+        bhi     .snap                           // catches both ends of the band
+        swap    d0
+        swap    d1
+        move.w  d0, d3
+        sub.w   d1, d3                          // dX = destX - prevX
+        addi.w  #XOVER_SWEEP_REACH_X, d3
+        cmpi.w  #XOVER_SWEEP_SPAN_X, d3
+        bhi     .snap_hi
+        swap    d1
+        move.l  d1, PBLK_XOVERCURSOR(a4)        // the walk starts on the cell we swept
+        bra     .walk                           // FROM — and advances before it probes,
+                                                // so that cell is never re-read
+
+    .snap_hi:
+        swap    d0                              // the X leg arrives here with d0 swapped
+    .snap:
+        // A DISCONTINUITY, not a run: a teleport, a respawn, the first frame of an act,
+        // or a launcher faster than the reach the physics caps derive. There is no path
+        // between the two cells for the player to have crossed, so the cursor starts AT
+        // the destination and the walk below makes exactly the one lookup this routine
+        // made before it swept — the right answer for a move that did not traverse the
+        // space, which is why this is a snap and not a clamp.
+        move.l  d0, PBLK_XOVERCURSOR(a4)
+
+    .walk:
+        // ONE CELL PER ITERATION, ON BOTH AXES AT ONCE — a diagonal walk from the cell
+        // we swept from to the cell we resolved to, each axis advancing until it
+        // arrives. The probe count is therefore max(|dX|,|dY|) in cells, NOT their sum,
+        // and the case that matters most is the consequence: a one-cell diagonal step —
+        // an ordinary frame on a slope — still costs exactly ONE probe, the same as the
+        // routine cost before it swept. Only a step that genuinely crosses more than one
+        // cell pays for a second.
+        //
+        // The path visits every column index between the endpoints and every row index
+        // between them, so a mark painted as a BARRIER ACROSS THE PATH — which is what a
+        // loop crossover is — cannot end up on the far side of it. It is NOT a
+        // supercover: an isolated single cell that the true segment only clips the corner
+        // of can still be missed, and that is stated here rather than left to be
+        // discovered. `sweep_step_over` in tools/loop_crossover_gate.py grades exactly
+        // the property claimed and says the same thing about what it does not prove.
+        //
+        // The direction is RE-DERIVED per axis per iteration instead of being carried,
+        // because carrying it costs a second RAM long and the derivation is three
+        // instructions. The cursor is the only state, and it is the only thing that
+        // moves, so the loop cannot desynchronise from it.
+        move.w  PBLK_XOVERCELL(a4), d0          // destination X
+        move.w  PBLK_XOVERCURSOR(a4), d1        // cursor X
+        sub.w   d1, d0                          // ... still to go on X
+        beq     .x_settled
+        bmi     .x_back
+        addi.w  #COLL_CELL_W, d1
+        bra     .x_store
+    .x_back:
+        subi.w  #COLL_CELL_W, d1
+    .x_store:
+        move.w  d1, PBLK_XOVERCURSOR(a4)
+    .x_settled:
+        move.w  d1, d2                          // hold this cell's X px across the Y leg
+        move.w  PBLK_XOVERCELL_Y(a4), d0        // destination Y
+        move.w  PBLK_XOVERCURSOR_Y(a4), d1      // cursor Y
+        sub.w   d1, d0                          // ... still to go on Y
+        beq     .y_settled
+        bmi     .y_back
+        addi.w  #COLL_CELL_H, d1
+        bra     .y_store
+    .y_back:
+        subi.w  #COLL_CELL_H, d1
+    .y_store:
+        move.w  d1, PBLK_XOVERCURSOR_Y(a4)
+    .y_settled:
+        move.w  d2, d0                          // d0 = this cell's X px, d1 = its Y px.
+                                                // Both axes settled and unmoved is THE
+                                                // destination probe, which every walk
+                                                // ends on and a snapped one consists of.
+
+        // d0/d1 are the cursor's own halves, so "the cell the walk is standing on" and
+        // "the cell the lookup fetches" are the same value by construction rather than
+        // by two reads agreeing. The low bits being clear is provably free:
+        // Collision_GetType does `lsr.w #3` on X (so bits 2:0 never survive) and
+        // `lsr.w #3` then `lsr.w #1` on Y, and forcing Y's bit 3 low only selects the
+        // EVEN tile row of the pair the halving folds together — which lands on the
+        // same collision row, because Cache_Top_Row is even and the subtraction between
+        // them preserves that.
         move.b  layer(a0), d3                   // read the mark from the plane we are ON
                                                 // (§3.3: a plane's mark is only ever
                                                 // read by an object already on it, which
                                                 // is what makes one painted pair serve
-                                                // both directions of travel)
+                                                // both directions of travel). Re-read
+                                                // per cell on purpose: a fire earlier in
+                                                // the walk changes which plane the rest
+                                                // of the walk reads, exactly as it would
+                                                // have frame by frame at a lower speed.
         move.l  a0, -(sp)                       // Collision_GetType clobbers a0
         jbsr    Collision_GetType               // d0.b = attr index (0 = air / off-cache)
         movea.l (sp)+, a0
@@ -768,10 +971,14 @@ pub proc Player_LoopCrossover (a0: *Sst, a4: *PlayerBlock) clobbers(d0-d3/a1) pr
                                                 // bits dirty (only its air path moveq's)
         lea     CrossoverTable, a1
         move.b  (a1, d1.w), d0
-        beq     .done                           // XOVER_NONE — every cell in every
-                                                // shipped act, today
+        beq     .unmarked                       // XOVER_NONE — all but two slots of the
+                                                // shipped table, today
         subq.b  #XOVER_LAYER_BIAS, d0
         move.b  d0, layer(a0)
+    .unmarked:
+        move.l  PBLK_XOVERCURSOR(a4), d0
+        cmp.l   PBLK_XOVERCELL(a4), d0
+        bne     .walk
     .done:
         rts
 }

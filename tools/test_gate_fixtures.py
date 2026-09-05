@@ -245,10 +245,16 @@ def test_loop_normalisation_catches_a_changed_call_TARGET():
     cut = copy.deepcopy(_loop_shapes()["s4.lst"])
     good, _ = _norm_loop(cut, 0)
     b = bytearray.fromhex(cut["bytes"][0])
-    # `4eb8 572e` at +0x22 -> the absolute-short jsr. Retarget it at a symbol that is
-    # in the cut's map but is NOT Collision_GetType.
-    assert b[0x22:0x24] == b"\x4e\xb8", "the jsr is not where this test thinks it is"
-    b[0x24:0x26] = (0x0000).to_bytes(2, "big")
+    # The absolute-short `jsr` (opcode $4eb8), FOUND rather than pinned at an offset:
+    # this used to be hard-coded at +0x22 and went red for the wrong reason the first
+    # time the read site grew a sweep loop in front of the call (2026-09-04). Retarget
+    # it at a symbol that is in the cut's map but is NOT Collision_GetType.
+    at = [i for i in range(0, len(b) - 3, 2) if b[i:i + 2] == b"\x4e\xb8"]
+    assert len(at) == 1, \
+        "expected exactly one absolute-short jsr in %s, found %d at %s — this test " \
+        "retargets THE call to Collision_GetType and cannot choose between several" \
+        % (lcg.READ_SITE, len(at), [hex(i) for i in at])
+    b[at[0] + 2:at[0] + 4] = (0x0000).to_bytes(2, "big")
     cut2 = dict(cut)
     cut2["syms"] = dict(cut["syms"])
     cut2["syms"]["ZeroPage"] = 0
