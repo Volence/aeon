@@ -25870,3 +25870,33 @@ and the camera range over which `|p|` stays inside `0..H-1` and the effect actua
 **Not started, and NOT to be built as a bar while EFFECTS-W1 is open.** Booked so it is not
 rediscovered. Whoever takes it: the static one is the whole value; the other two are a preview
 feature more than a gate. All three are read from source and have not been run.
+
+### RASTER-HEADROOM-CAM: the seeded-headroom bound has one camera and there are nine sections - 2026-09-05
+
+**Found by the first hand-authored sweep that is not on section 0.** `OJZ_Preset_Sec7` channel 2
+took `anchor_sweep(amp_shift: 5, period_shift: 0)` today (the owner's waterline bob) and
+`tools/test_anchor_sweep_band.py`'s `test_every_authored_sweep_leaves_headroom_at_its_seeded_position`
+went RED on it, build-fatally, on all four shapes. Nothing was wrong with the content: that arm
+had no notion a sweep might belong to a section other than the spawn one. It failed on "the
+seeded anchor 'OJZ_SEC7_SURFACE_Y' is not a literal", and had the anchor been the literal 4320 it
+would have failed harder - 4320 - `SPAWN_CAMERA_Y` (144) is a screen line of 4176 against a band
+of 3..160, a violation that is an artifact of the wrong camera.
+
+**Fixed narrowly today:** the hand arm now applies the SPAWN_SECTION scoping this file already
+states at its `SPAWN_SECTION` constant and already applies to the generated arm in
+`headroom_violations`. A sweep whose preset no section 0 installs is reported as NOT APPLIED
+through a `UserWarning` naming it, and the test now refuses to pass having judged zero sweeps.
+
+**What is still open, and it is the real item.** Band fit and channel liveness cover every sweep;
+the SEEDED-POSITION bound now covers only section 0's. Section 7's headroom was derived by hand
+instead (screen lines 72..88 about the authored 80, inside the band 3..160) and nothing re-derives
+it if someone edits either number. Making the bound evaluable elsewhere needs two things this file
+does not have: a per-section camera (`OJZ_SEC7_CAMERA_Y` exists but is labelled an ASSUMPTION in
+`ojz_effects.emp`), and a resolver for derived `const` anchors, since section 7 deliberately
+authors the SCREEN LINE and derives the world Y from it rather than typing both.
+
+**The cheaper shape, for whoever takes it:** check the AUTHORED LINE, not the anchor. Where a
+preset's `patch_world_ys[ch]` is `<camera const> + <line const>`, the camera cancels and the bound
+is `line +/- (ANCHOR_SINE_AMP >> amp_shift)` inside `(lo, hi)` with no camera needed at all. That
+covers section 7 exactly and needs no new authored number. **Not to be built as a standing bar
+while EFFECTS-W1 is open** - it is a widening of a bound that exists, not a new gate.
