@@ -67,8 +67,23 @@ LONGS_PER_TILE = 8      # an 8x8 4bpp tile: 8 rows of 8 nibbles = 8 longs = 32 b
 _VERDICT_CONST = re.compile(
     r"^\s*const\s+PRESET_VERDICT_(\w+)\s*=\s*(\d+)\s*(?://.*)?$", re.M
 )
-# the sheet body: `.verdict_font:` up to the close of the enclosing DEBUG block
-_FONT_BODY = re.compile(r"^\s*\.verdict_font:\s*$(.*?)^\s*\}", re.M | re.S)
+# The sheet body: `.verdict_font:` up to the NEXT LABEL or the close of the enclosing
+# DEBUG block, whichever comes first.
+#
+# BOTH HALVES OF THAT WERE WIDENED ON 2026-09-05 AND EACH FIXED A REAL MIS-READ. The
+# label became `export .verdict_font:` (Debug_PresetReadout_Blank reads the sheet's blank
+# row from another proc), which a pattern spelling the bare form simply did not match —
+# and the raise-on-no-match contract below turned that into three loud failures naming a
+# sheet it could no longer see, which is the behaviour that is wanted. And the sheet
+# stopped being the LAST `dc.l` run in its proc: `.ensure_glyph` and `.digit_font` moved
+# in beside it when the retired Debug_SceneReadout_Show was deleted, so a body that ran
+# to the closing brace swallowed the ten digit tiles and reported fifteen glyph rows for
+# five constants. Stopping at the next label is what `tools/test_tier_tag_tables.py`'s
+# own `_block` does, and for the same reason.
+_FONT_BODY = re.compile(
+    r"^\s*(?:export\s+)?\.verdict_font:\s*$(.*?)(?=^\s*(?:export\s+)?[.\w]+:\s*$|^\s*\}\s*$)",
+    re.M | re.S,
+)
 # one emission line: `dc.l  $00000000, $0000C000, ...` (comment tail allowed)
 _FONT_LINE = re.compile(r"^\s*dc\.l\s+([^/\n]+?)\s*(?://.*)?$", re.M)
 

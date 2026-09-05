@@ -676,11 +676,16 @@ WRITERS = {
         evidence=[(r'move\.l\s+#Map_TestObj,\s*mappings\(a0\)',
                    "the prolog sets Map_TestObj in the same splice")],
         why="the shared test-object prolog frame, against Map_TestObj"),
-    ("games/sonic4/test/ojz_scroll_test.emp", "Debug_SceneReadout_Show"): dict(
+    # RENAMED 2026-09-05, not added: the write site is the SAME `.ensure_glyph`
+    # builder, which moved from the retired Debug_SceneReadout_Show into
+    # Debug_PresetReadout_Show when the effects lab's three selection chords collapsed
+    # into one list and the two-digit cursor readout it used to draw went with them.
+    # One site, same evidence, same argument.
+    ("games/sonic4/test/ojz_scroll_test.emp", "Debug_PresetReadout_Show"): dict(
         sites=1, art="other", frames="none",
         evidence=[(r'move\.l\s+#Map_TestObj,\s*Sst\.mappings\(a0\)',
                    "the glyph slot is built on Map_TestObj")],
-        why="the debug readout glyph, against Map_TestObj"),
+        why="the debug preset readout glyph, against Map_TestObj"),
     # EFFECTS-W1 F4. Same class as the readout above and reached the same way (a
     # System slot the effects lab builds by hand), but its mappings are NOT
     # Map_TestObj: these tags draw a 4x1 / 3x1 letter strip, and the two frame
