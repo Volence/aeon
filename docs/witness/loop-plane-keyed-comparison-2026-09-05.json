@@ -1,0 +1,30 @@
+{
+  "_what": "The comparison the hub ruled: direction gate reverted on a scratch branch (a9bf1807, DEBUG only, s4.debug.bin 845594), same leftward circuit at $600 with SUSTAINED held input, against the same fixed ground.",
+  "_headline": "IT REFUTES MY OWN EARLIER CLAIM. Leftward gives ZERO toggles under BOTH rules, so the direction gate is NOT what broke leftward entry.",
+  "instrument_control_FIRST": {
+    "_why": "A zero toggle count is ambiguous between 'nothing fired' and 'the ring is stuck'. The ring already held 8 orphaned hits from previous epochs and watchpoint_clear --all does NOT drain them, so the stuck reading was live.",
+    "method": "fresh watchpoint w5, reset, boot 240 frames — boot is known to write Sst.layer",
+    "result": "a NEW w5 hit recorded at seq 8, frame 54, this epoch",
+    "verdict": "RING IS LIVE. The zero readings below are real, not vacuous.",
+    "note": "This control was run BEFORE interpreting any zero. Without it the whole comparison would have been unfalsifiable."
+  },
+  "runs": [
+    {"rule": "direction-keyed (master e99b9d54)", "direction": "leftward", "input": "press 150f", "toggles": 0, "end": {"x": 639, "y": 829, "layer": 0}},
+    {"rule": "plane-keyed (scratch a9bf1807, gate reverted)", "direction": "leftward", "input": "sustained hold 200f", "toggles": 0, "end": {"x": 339, "y": 829, "layer": 0}}
+  ],
+  "marks_are_intact": {
+    "gate": "tools/loop_crossover_gate.py on the reverted build, EXIT 0",
+    "shipped": "256 slots, 2 marked, 0 reserved",
+    "consumption": "proven against the unmodified-table control",
+    "meaning": "the marks were NOT destroyed by aurora's fill. This rules out the obvious explanation."
+  },
+  "what_this_overturns": {
+    "my_claim": "I told the hub 'the direction rule FAILS condition (a) leftward' and 'the direction gate is what broke leftward entry'. The second half is now refuted: leftward does not cross under the plane-keyed rule either.",
+    "aurora_pre_registration": "Their derivation predicted a leftward entrant crosses at the bottom mark BECAUSE the toggle is direction-blind, climbs the right arc on B, and completes. Measured against the reverted gate on this data, it does NOT. The pre-registration is honoured as a real prediction and it did not survive contact.",
+    "what_DID_change": "In the FIRST build of this session (before the ground fill), the same leftward drive DID cross — one toggle at frame 397, x 1151. So the leftward crossing was lost somewhere between that build and this one, and the crossover RULE is not the variable. The remaining candidates are the collision-data changes: aurora's 532-cell fill and/or the crown curve re-bake, both of which renumber the content-addressed attr set."
+  },
+  "_not_established": [
+    "why the leftward crossing was lost. The marks ship and are consumed, so it is not mark destruction. Most likely the player's PATH no longer intersects the mark cell — his trajectory differs on the new ground (he now runs 300px further west unobstructed) — but I have not traced his y against the mark cell's row and will not assert it.",
+    "the rightward circuit under the reverted rule. Not driven; my context budget went to the instrument control instead, which was the right trade because without it every number here is worthless."
+  ]
+}
