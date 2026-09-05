@@ -305,6 +305,15 @@ authority = ["engine-tiles:BG_TILE_CAPACITY", "engine-bytebase:BG_TILE_BASE_VRAM
 #   appended                                   0
 #   blob                              320 -> 320   -> this reserve is UNTOUCHED
 #
+# RE-MEASURED 2026-09-05, when the floor's fan was rebuilt as a true radial one
+# (parcel/perspective-floor-radial: the even-snap made the drawn pitch a nine-step
+# staircase, which sheared under scroll). The band is now 120 unique tiles into
+# 121 recycled slots, 0 appended, blob still 320, and this reserve is STILL
+# untouched. That budget is what set the new art's `lod_px` and shade ramp — a
+# real fan puts every seam at a different sub-pixel offset on every row, so it
+# costs tiles the vertical stripes deduped away, and the old lod/ramp pairing
+# needs 145..159 and fits at no shading. Buying it back is a raise HERE.
+#
 # A FIRST CUT SPENT 58 OF THESE TILES AND WAS BACKED OUT, and not because of this
 # region: 58 tiles is 1,856 B of ROM, which pushed `Art_Sonic`'s end past the
 # DATA_GROWTH_RESERVE under `dac_banks` and failed tools/bganim_room.py on the
