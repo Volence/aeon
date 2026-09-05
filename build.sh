@@ -729,7 +729,7 @@ fi
 # ⚠ CORRECTED 2026-09-04, MEASURED. This comment used to end "DEBUG additionally gets
 # the convsym deb2 appendix; release ships the assembled image alone (item 29)". The
 # release ROM carries the appendix too: `s4.bin` holds 41761 bytes past `EndOfRom`
-# ($0A5C82) beginning with the ASCII magic `deb2`. CLAUDE.md's own crash-report ruling
+# ($0A5C82) beginning with the appendix magic. CLAUDE.md's own crash-report ruling
 # (2026-08-04) says so — "both carry the MD Debugger island + deb2 symbols" — and this
 # line had outlived it. Found while root-causing a release CRC that moved: adding
 # symbols to a DEBUG-gated block changes the RELEASE ROM's bytes, because the symbol
@@ -737,6 +737,22 @@ fi
 # apart from the header checksum word at $18E, which follows any content change.
 # Whoever next reads a moved release CRC should split it at EndOfRom before calling it
 # a regression.
+#
+# ⚠ THE MAGIC IS THE BYTE PAIR DE B2, NOT THE ASCII STRING `deb2`. This comment said
+# "the ASCII magic `deb2`" until 2026-09-05 and that string is in NEITHER ROM: measured
+# with a binary-aware read, s4.bin holds 0 occurrences of ASCII `deb2` and 3 of the bytes
+# DE B2 (first at 0xBD38C); s4.debug.bin holds 0 and 5 (first at 0xC0BEE). Neither .lst
+# carries the ASCII form either.
+#
+# HOW THE WRONG CLAIM GOT HERE, which is the part worth keeping: ASCII `deb2` IS in this
+# file, nine times, every one of them the NAME of the feature in prose ("the deb2 symbol
+# table"). Somebody read the name and wrote a claim about the bytes. The identifier and
+# the thing it identifies are different claims, and the first reads as evidence for the
+# second for free. Note the line carried "CORRECTED, MEASURED" while being wrong.
+#
+# AND DO NOT CHECK THIS WITH EITHER GREP. The harness grep skips binaries (-I) and on
+# s4.bin produces literally NOTHING, not even a zero count; /usr/bin/grep prints 0. A
+# magic-bytes check wants a binary-aware tool, not a string search.
 if [[ "${STRESS_EVICT:-0}" == "1" ]]; then
     # The stress fixture fixes the shape (sonic4 debug + STRESS_EVICT define); it does
     # NOT combine with --game/--debug (the CLI rejects that).
