@@ -1758,12 +1758,72 @@ const OJZ_SEC7_SPLIT_Y      = OJZ_SEC7_CAMERA_Y + OJZ_SEC7_SPLIT_LINE
 // as water on OJZ's line 2. `fx_tint_band`'s "the variant bound to slot must cover pal_line"
 // hazard still applies and still cannot be checked at build time: Variant_OJZ_Water takes the
 // default lines mask %1110, which covers line 2.
+// ---- THE WATERLINE BOBS, AND ONLY THE WATERLINE (owner request, 2026-09-05) ------------
+// "waterline palette looks good, can we have it like oscillate/move up and down slightly?"
+// Channel 2 gets a sweep. Channel 3 stays static, and that is the whole content of the
+// decision below, so it is written down rather than left as an omission.
+//
+// THE TWO CHANNELS ARE TWO BOUNDARIES, NOT ONE SURFACE, and the encoding already proves it
+// rather than merely suggesting it. `check_intervals` forces the patchable bands to be
+// strictly ascending and DISJOINT: channel 2 owns 3..160 and channel 3 owns 162..223, so the
+// two records can never occupy one screen line in any frame, at any amplitude. A pair that
+// cannot ever coincide is not a surface seen twice. What they actually are: channel 2 is the
+// water surface (the palette swap - the colour above it is dry, below it is wet) and channel
+// 3 is a plane-B vertical scroll split 90 px lower, which stops the BACKGROUND tracking the
+// camera. Sweeping the split "to keep it with the surface" would have banded the background
+// on a moving line for no reason the art asks for, so it does not sweep.
+//
+// (This is the one place where `anchor_sweep`'s phase-byte banner does NOT apply. It warns
+// that two channels at one period with no phase offset move in lockstep and read as one
+// boundary, which is Ristar's reason for per-band phase. There is one sweeping channel here,
+// so there is no relationship for a phase to express, and phase 0 is the only meaning
+// available - the same reason OJZ_Preset_Sec0 gives for its own 0.)
+//
+// AMPLITUDE: shift 5 = 256 >> 5 = 8 px peak, so 16 px PEAK TO PEAK, the surface travelling
+// screen lines 72..88 about its authored 80. Half of section 0's 32 px, which is what
+// "slightly" buys against the one travel the owner has already seen move.
+//
+// PERIOD: shift 0 = 256 ticks = 4.27 s per full cycle at 60 Hz, so ~2.1 s up and ~2.1 s down.
+//
+// WHY THAT PAIR AND NOT ITS NEIGHBOURS, since the two are not free to choose separately. The
+// peak rate of a sine of amplitude A over period T is A * 2*pi / T px/frame, and section 0's
+// own note fixes the two ends of the useful window with measured numbers: 0.39 px/frame
+// "reads as chop rather than swell" and 0.098 px/frame steps, because the INTEGER screen line
+// only advances once per ~10 frames. Ours is 8 * 2*pi / 256 = 0.196 px/frame - the identical
+// rate section 0 ships and was chosen on, at half its travel. The neighbours all fail:
+//     amp 4, period 0 -> 16 px peak at 0.39 px/f   - chop, and not "slightly" either
+//     amp 6, period 0 ->  4 px peak at 0.098 px/f  - the stepping figure exactly
+//     amp 5, period 1 ->  8 px peak at 0.098 px/f  - same stepping, from the slow side
+// So shift 5 / period 0 is not a taste pick among many; it is the only rung that is both
+// smaller than the travel already on screen and above the stepping floor.
+//
+// NOTHING ABOUT THE FIRE CHANGES. `patch_motion` is a field of the preset RECORD and the
+// program image is a separate `data` array, so the sweep moves the ANCHOR the fire is clamped
+// against and cannot add a fire or a colour word: OJZ_WorldWater is still one 3-word
+// `stream_pal_region` per the `raster_words(..) == 23` / `patched_words(..) == 81` pins below,
+// and its emitted bytes are unchanged by this commit.
+//
+// THE DENSITY MARGIN DOES NOT MOVE EITHER, and the reason is worth stating because the
+// instinct is that a moving fire must spend margin. `check_density` measures the gap between
+// the fire lines the two records can REACH - their band edges, 159 and 161 - and never
+// between where they sit today. That worst case was already being paid at a static anchor;
+// the sweep only visits lines the check had already assumed. Bands unchanged, margin
+// unchanged: 666 cycles against 976, 310 to spare.
+//
+// AND THE SWEEP CANNOT LEAVE ITS BAND, which is the failure that would look like a bug rather
+// than an amplitude (Raster_BuildSchedule DROPS an out-of-band record for the frame, so the
+// tint would vanish once per cycle). 72..88 sits well inside 3..160, and
+// tools/test_anchor_sweep_band.py is the cross-file check that says so - the band lives in
+// `patchable()` and the amplitude in the preset, so no comptime scope holds both.
+// `offscreen_ship: 1` therefore still holds and still never fires here: the bob cannot carry
+// the anchor above the screen, and the trailer is the covered path if a camera move ever does.
 pub data OJZ_Preset_Sec7:  EffectsPreset = preset(pal: OJZ_Palette, patched: OJZ_WorldWater,
                                                   cycle: Pal_Cycle_None,    variants: [Variant_OJZ_Water, 0],
                                                   patch_world_ys: [PATCH_ANCHOR_NONE, PATCH_ANCHOR_NONE,
                                                                    OJZ_SEC7_SURFACE_Y, OJZ_SEC7_SPLIT_Y],
                                                   patch_motion:   [ANCHOR_MOTION_NONE, ANCHOR_MOTION_NONE,
-                                                                   ANCHOR_MOTION_NONE, ANCHOR_MOTION_NONE])
+                                                                   anchor_sweep(amp_shift: 5, period_shift: 0),
+                                                                   ANCHOR_MOTION_NONE])
 
 // ===========================================================================
 // OJZ_TwoChannel — the Parcel P-a gate. TWO independently patchable boundaries in ONE
