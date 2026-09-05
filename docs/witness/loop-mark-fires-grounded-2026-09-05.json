@@ -1,0 +1,32 @@
+{
+  "_headline": "MY 'REFUTATION' WAS MY OWN START POSITION. With a GROUNDED start the mark FIRES. Aurora's pre-registration is CONFIRMED for the crossing, and my two previous reports on this are wrong.",
+  "_build": "scratch a9bf1807 (direction gate REVERTED, plane-keyed), s4.debug.bin 845594",
+  "the_confound": {
+    "what_I_did": "started every leftward drive at x1230, y556 — the placement that was GROUNDED on the session's first build.",
+    "what_is_true_now": "x1230/y556 is AIRBORNE on this build. The player free-falls from frame 1.",
+    "measured_fall": [
+      {"frame": 267, "x": 1229, "y": 559, "y_vel": 504, "note": "already falling"},
+      {"frame": 299, "x": 1197, "y": 666, "engine_row": 41},
+      {"frame": 315, "x": 1145, "y": 808, "engine_row": 50, "note": "INSIDE the mark columns (142-143) — at row 50"}
+    ],
+    "the_mark_rows": [27, 34],
+    "why_nothing_fired": "he crosses the marked column at engine row 50. The mark is at row 34. He misses it by 16 engine rows because he is in free fall, not because the mark moved or the rule refused.",
+    "verdict": "every leftward zero I reported — under BOTH rules — is an artifact of an airborne start. They measured a falling player who was never in the marked row."
+  },
+  "the_correct_run": {
+    "setup": "aurora's: grounded start x1600, y557 = engine row 34 = THE MARKED ROW, plane A, gsp -$600, sustained held left",
+    "confirmed_grounded_before_driving": {"x": 1533, "y": 557, "y_vel": 0},
+    "crossover": {"frame": 417, "pc": "0x000101E2", "symbol": "Player_LoopCrossover.y_settled+32", "value": "0 -> 1", "guard": "frame 417 >= run start 351, so it belongs to THIS run"},
+    "end": {"frame": 471, "x": 824, "y": 557, "y_vel": 0, "layer": 1, "gsp": "-$600"},
+    "verdict": "THE MARK FIRES. He crosses to plane B and continues west GROUNDED and upright at y557 — wrong-planed but not falling, which is exactly the property the both-planes ground fill was bought for."
+  },
+  "what_is_still_not_observed": "the ARC. Aurora predicted he crosses AND climbs the right arc. He crosses; he does not climb — he runs from x1600 to x824 at ground level, passing the loop without either arc engaging. So the pre-registration is confirmed on its first half and still open on its second.",
+  "_corrections_this_overturns": [
+    "'the direction rule FAILS condition (a) leftward' — withdrawn; the leftward runs were airborne.",
+    "'the direction gate is what broke leftward entry' — withdrawn.",
+    "'leftward gives zero toggles under BOTH rules' — true of my runs, but they were not valid tests.",
+    "'aurora's pre-registration did not survive contact' — WRONG. It survived; my setup did not.",
+    "'his path no longer intersects the mark cell' — right conclusion about MY runs, wrong cause: it was my start height, not the collision data."
+  ],
+  "_what_this_does_NOT_settle": "whether the direction-keyed rule passes, since this run was on the REVERTED build. The direction rule must be re-driven from the same grounded start before anything is concluded about it."
+}
