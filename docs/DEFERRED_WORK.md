@@ -26460,3 +26460,26 @@ about a scene, and which scene is a separate fact.**
 Two sources for one floor is how a whole evening of tuning missed the thing he walks on. Any
 proposal has to decide which is canonical and how the other stops existing, and it crosses the
 editor seam, so it is aurora's and the owner's rather than a lane-local tidy.
+
+---
+
+### Worktree and branch prune: measured, deferred to a boundary - 2026-09-05
+
+**Measured, not cleaned:** 236 worktrees, 488 local branches, **30 NOT merged to master**, 458
+removable, and `.claude/worktrees` alone is **6.2 GB**. Aurora found the same class on their tree
+(88 worktrees, 154 branches, 6.6 GB, 87 of the 88 already ancestors of master).
+
+**RULES FOR WHOEVER RUNS IT.**
+- **Remove only what is an ancestor of master, checked PER BRANCH, never by pattern.** A pattern
+  cannot tell a dead tree from a live one.
+- **The 30 unmerged STAY and are named** in the message of this commit's neighbour. Two are from
+  today and about subjects still open (`fix/floor-kink-stale-rom-2026-09-05`,
+  `fix/sec7-scene-fg-tear-witness`); read a branch before deciding it is dead.
+- **SORT BY `du`, NOT BY COUNT** (oracle's figure): their THREE dead worktrees held **25 GB**,
+  nearly all `target/`. Count does not predict disk, so a prune ordered by count spends its effort
+  in the wrong place.
+- **Never while an agent is live.** Deferred tonight for exactly this: both running agents held
+  worktrees that appear in `git worktree list`, and a prune racing one deletes a tree mid-write,
+  which is unrecoverable. Note both happened to sit OUTSIDE `.claude/worktrees`, so the obvious
+  "remove that directory" would have missed them - **that is luck of placement, not a property of
+  the layout, and a prune must not be built on it.**
