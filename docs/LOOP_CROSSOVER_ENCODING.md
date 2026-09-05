@@ -10,15 +10,21 @@ through `bake_plane_cell`, into the attr-set's dedup key, out as `crossover.bin`
 the ROM as `CrossoverTable`. §5 **row 13**: `Player_LoopCrossover` reads that table once per
 player per frame and writes `Sst.layer`. Rules R1-R6 are all built.
 
-**WHAT IS STILL NOT TRUE IS THE SENTENCE THAT MATTERS MOST, AND IT IS NOT AN ENGINE GAP.**
-*Nobody has driven a player through a painted crossover*, because §0's provenance limit is
-unchanged: there is no loop geometry anywhere in OJZ act 1, and all 256 slots of the shipped
-`CrossoverTable` hold `XOVER_NONE`. The read side is proven by EXECUTING the built ROM's own
-bytes — `tools/loop_crossover_gate.py` varies one byte of `CrossoverTable` in the ROM image
-with every other input held fixed and requires `Sst.layer` to follow it — which separates
-"the value is readable" from "the value is consumed" and goes no further. **Four claims, and
-say which one you mean: the bytes reach the FILE · they reach the ROM · the engine READS
-them · a player MOVES. The first three are true.**
+**ALL FOUR CLAIMS ARE NOW TRUE — AMENDED 2026-09-04.** This paragraph used to say the
+opposite, and the sentence it turned on ("all 256 slots of the shipped `CrossoverTable` hold
+`XOVER_NONE`") has expired: the table now holds **two** marked slots, section 0 carries loop
+geometry with four painted marks (see §11 and §12), and a player has been driven through one.
+**Four claims, and say which one you mean: the bytes reach the FILE · they reach the ROM ·
+the engine READS them · a player MOVES.** The first three are proved by EXECUTING the built
+ROM's own bytes (`tools/loop_crossover_gate.py` varies one byte of `CrossoverTable` in the
+ROM image with every other input held fixed and requires `Sst.layer` to follow it, which
+separates "readable" from "consumed"); the fourth by `tools/loop_step_over_witness.py`, which
+drives a real player over the painted mark on a real ROM.
+
+**Driving him is also what found the step-over defect** — the read site sampled once per
+frame against a one-cell mark, so above ~8 px/frame the mark was invisible and the player ran
+straight through the loop and fell through a floor a screen later. Fixed 2026-09-04; **§12**
+is the whole account.
 
 **Read the §5 and §7 tables' status columns for what exists** — every row carries its own
 verdict and the commit that earned it. Do not read any prose in this document, including
@@ -39,11 +45,12 @@ document was taken at that commit. See §10 for what that invalidates in older d
 is the corrected answer `d-39-corrected` promised. Nothing in `d-39`'s three options
 survives unmodified.
 
-**Provenance limit, stated up front:** *no loop geometry exists anywhere in OJZ act 1.*
-This encoding has therefore not been validated against real geometry and cannot be until a
-throwaway test loop is painted. Every claim below is derived from source and from
-measurements of non-loop content. An untested encoding honestly labelled beats one that
-looks confirmed because it was checked against content that could not have falsified it.
+**Provenance limit, LIFTED 2026-09-04.** This used to read *"no loop geometry exists anywhere
+in OJZ act 1 ... this encoding has therefore not been validated against real geometry and
+cannot be until a throwaway test loop is painted."* Section 0 now has a loop and four painted
+marks (§12 gives their world coordinates), and the encoding has been driven end to end on a
+real ROM. Claims below that were derived from source and from non-loop content are still
+labelled as such — read each section's own status line, not this one.
 
 ---
 
@@ -650,15 +657,16 @@ run. Three items are tagged for the controller, none of which gate Aurora:
   (`loops-and-sprite-rotation.md` §10.4). Painted crossovers do not have this failure mode at
   all, which is a further argument for Route P — but the object survives (§6 change 7) and
   the behaviour still wants a deliberate test on a real loop.
-- **[TAG-RUNTIME]** the whole encoding, against the first painted loop. §0. **This is now
-  the ONLY open item in the whole document, and it is the one the controller has to close by
-  hand.** The named check: paint a crossover pair (a loop, or just two marked cells on flat
-  OJZ ground — `XOVER_TO_B` in `section_N.collattr.bin`, `XOVER_TO_A` in the `.collattrb.bin`
-  twin at the same cell, which is §3.3's pair), build, and watch the byte at `Player_1 + $2D`
-  (`Sst.layer`) in the emulator. It must change on the frame the player ENTERS the marked
-  cell and must NOT change again while the player stays in it — the second half is the whole
-  point, because it is what a re-arming edge trigger gets wrong and what
-  `tools/loop_crossover_gate.py` can only demonstrate against a synthetic tile cache.
+- **[TAG-RUNTIME] — CLOSED 2026-09-04, and it found a defect on the way.** The named check
+  was: paint a crossover pair, build, and watch the byte at `Player_1 + $2D` (`Sst.layer`) in
+  the emulator; it must change on the frame the player ENTERS the marked cell and must NOT
+  change again while he stays in it. The paint now exists (two cells at section-0 column 143,
+  world x 1144..1151, rows y 432..447 and y 544..559, each marked `XOVER_TO_B` on plane A and
+  `XOVER_TO_A` on plane B — §3.3's pair, twice), and `tools/loop_step_over_witness.py` drives
+  a real player over the lower one on a real ROM. Both halves hold: the layer goes 0 -> 1 on
+  the frame he reaches column 143 and stays 1 for the rest of the run.
+
+  **What it also found: the mark was invisible above ~8 px/frame.** See §12.
 
 **For the owner — one item, and it is not a blocker.** `loops-and-sprite-rotation.md` §6
 recommends keeping `path_swap.emp` alongside Route P as the escape hatch for the dynamic
@@ -671,3 +679,67 @@ does not need answering before the editor lane proceeds.
 
 **Not re-opened:** whether the crossover is painted or placed as an object. The owner ruled
 painted. Everything above assumes it.
+
+---
+
+## 12. The step-over — the read site sampled, and a mark is one cell (fixed 2026-09-04)
+
+Everything §6 change (4) says about the edge trigger is about a trigger that fires TOO
+OFTEN. It says nothing about one that never fires at all, and that is what the shipped read
+site did above about 8 px/frame.
+
+The arithmetic is not subtle. A mark is ONE cell; `COLL_CELL_W` is 8 px; `PHYS_GSP_CAP` is
+`$1000` = 16 px/frame; and `ObjectMove` (`engine/objects/core.emp`) is a single unconditional
+add, so horizontal movement is not substepped anywhere. `Player_LoopCrossover` read the
+position the frame RESOLVED to, once. A frame can therefore begin on one side of a marked
+cell and end on the other without ever occupying it.
+
+The vertical axis had already been protected the other way round: `PHYS_FALL_CAP` is `$F00`
+= 15 px, deliberately ONE PIXEL under `COLL_CELL_H`, with an `ensure` in
+`engine/system/constants.emp` that says in as many words what a whole-cell fall step would
+do. X cannot be capped like that without making the game slower, so the read now SWEEPS: it
+walks from the cell it last ran in to the cell it resolved to and probes each. The reach it
+walks is derived from the physics caps and guarded in both directions by `ensure`s at the
+read site (`games/sonic4/player/player_common.emp`).
+
+### What it looked like on a real ROM
+
+`tools/loop_step_over_witness.py` drives a player right from the section-0 ramp foot at an
+injected ground speed and samples `Sst.layer` EVERY FRAME (at 9 px/frame a player crosses an
+8 px cell in under one frame, so any coarser interval cannot resolve a flip even in
+principle). The only variable swept is the sub-cell PHASE the run starts on — which is
+exactly what decides whether a 16 px stride lands on the marked column or straddles it.
+Two ROMs, differing only by this fix:
+
+| ground speed | px/frame | start phase | pre-fix | post-fix |
+|---|---|---|---|---|
+| `$600` (`PHYS_TOP_SPEED`) | 6 | any of 8 | 1 flip, rides the loop | 1 flip, rides the loop |
+| `$900` | 9 | +1 | **0 flips**, never enters the loop, runs on to x 2700 and falls 1923 px | 2 flips, climbs 143 px |
+| `$1000` (`PHYS_GSP_CAP`) | 16 | +7 | **0 flips**, never enters the loop, falls 768 px | 1 flip, climbs 72 px |
+
+The `$600` row is the negative control and it is the point: at 6 px/frame no phase of the
+eight changes the outcome, because 6 px cannot straddle an 8 px cell. The defect is
+speed-dependent, which is what makes it nasty — the player falls through a floor a long way
+from the loop he apparently completed, so a bug report names the floor.
+
+### What grades it now
+
+- `tools/loop_crossover_gate.py`, families `sweep_step_over` (which cells the frame ASKED
+  about, read out of `Collision_GetType`'s own arguments) and `sweep_step_over_marks` (the
+  parity of the layer byte after crossing k marked cells, with no per-cell address
+  arithmetic). Both derive their sweep from the build's own `PHYS_GSP_CAP` / `PHYS_FALL_CAP`
+  and both go LOUD rather than quiet if those caps ever stop being able to skip a cell.
+- The property graded is: every column index and every row index between the previous cell
+  and the resolved cell must be among the cells asked about, plus the resolved cell itself.
+  That is "a mark painted as a barrier across the path always fires". It is NOT a supercover
+  claim — an isolated cell the true segment only clips the corner of can still be missed, and
+  the gate's own docstring says so.
+
+### One thing this turned up that is not an engine matter
+
+`docs/loop-arc-cells-section0.json` recommends marks at the loop's entry/exit height on each
+arc (cc 148 and cc 137 at row 70), explicitly "not at the crown, where a mis-fire strands the
+player mid-arc". The shipped paint is not that: it is a single midline column (cc 143) marked
+on BOTH planes at BOTH the crown and the floor. That is a content question for whoever owns
+the paint, not a bug in the encoding — recorded here because the engine now honours whatever
+is painted and the difference will start to matter.
