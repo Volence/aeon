@@ -1,13 +1,8 @@
 {
-  "focus": "Making an inert vertical split fail the build; the floor waits on his choice of technique",
+  "focus": "Landed the vsplit refusal; three content decisions now waiting on him",
   "inFlight": [
     {
       "what": "FLOOR-FAN -- beams converge on the screen centre column at every camera X",
-      "where": "agent worktree",
-      "agent": true
-    },
-    {
-      "what": "vsplit build-time refusal",
       "where": "agent worktree",
       "agent": true
     }
@@ -20,9 +15,13 @@
     {
       "what": "the floor: painted perspective that travels with the world (Toy Story's way), or the scroll effect that keeps convergence under the screen centre",
       "since": "2026-09-05"
+    },
+    {
+      "what": "section 7 declares a vertical scroll split that reaches no ROM byte: bind it (costs bytes, changes the picture) or delete it (discards a deliberate authoring act)",
+      "since": "2026-09-05"
     }
   ],
-  "nextBoundary": "After the rowRemap loop opens and the floor skew lands.",
+  "nextBoundary": "F7-EMIT is the next dispatch and nothing is half-applied",
   "queue": [
     {
       "id": "FLOOR-FAN",
@@ -36,13 +35,6 @@
       "title": "Remove em/en dashes from strings and agent docs -- scope ruled, sequenced third",
       "state": "open",
       "size": "S",
-      "blockedBy": null
-    },
-    {
-      "id": "VSPLIT-NOOP",
-      "title": "vsplit needs a hand-written call site; RULED build-time refusal over the registry",
-      "state": "doing",
-      "size": "M",
       "blockedBy": null
     },
     {
@@ -81,7 +73,7 @@
       "blockedBy": null
     }
   ],
-  "awaiting": "which of the two floor techniques he actually wants -- ours is the second and Toy Story is only a reference for the first",
-  "atBoundary": false,
-  "updatedAt": "2026-09-05T18:29:06Z"
+  "awaiting": "three content calls: the floor technique, the section 7 seam, and the dead vertical split",
+  "atBoundary": true,
+  "updatedAt": "2026-09-05T18:44:17Z"
 }
