@@ -25546,3 +25546,25 @@ at col 132 or 134.
 **AND IT LIKELY EXPLAINS THE `$900` POST-FIX 413 px DROP** booked as unestablished: a player
 completing the loop leftward arrives at this same wall from the far side. **Not established —
 noted as a candidate, to be checked when the ramp lands rather than assumed.**
+
+## Practice: two error shapes from the loop's left-arc fix, neither the same as an instrument fault
+
+**1. A MECHANISM GENERALISED ONE LAYER PAST WHERE IT OPERATES (aurora's, self-reported).** The
+two-plane collision system exists so a player can pass *through geometry*; from that it was
+reasoned that a plane change could make him pass through **art**. It cannot. A collision cell
+word is shape (bits 0–9), xflip (10), yflip (11), solidity (12–13), crossover (14–15) — **no
+tile index anywhere in it.** The art word is a different word in a different file, so a plane
+change moves *who a cell stops*, never *what is drawn*. **Worse than a wrong fix: a wrong fix
+the owner might have waited for.** And aurora had read that packing earlier the same session
+and quoted it in a commit message — **knowing a fact and applying it are separate events.**
+
+**2. A WHOLESALE REWRITE REINTRODUCES DELIBERATELY-REMOVED ITEMS (mine).** The foliage-column
+card was dropped once as a duplicate of aurora's, then came back because I rebuilt
+`lane-status.json` from scratch at a boundary instead of editing it. **A deliberate removal
+leaves no trace in the file to remember it by**, so any reconstruction from memory restores
+it. **Edit the field; do not rebuild the document.**
+
+**3. And the one worth keeping about recovery, aurora's framing:** the `x 1062` mis-filing cost
+six hours and the owner found it — but it was recovered the moment the note was re-read with
+the right question. **The failures that matter are the ones that stay buried because nothing
+ever re-reads the note.** A record only helps if something later interrogates it.
