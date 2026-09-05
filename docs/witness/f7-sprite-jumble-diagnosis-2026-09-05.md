@@ -256,3 +256,66 @@ NTSC budget 6144 - plane drain 1536 - Critical (128 palette + 640 SAT + 896 HScr
 Sonic's two peak-byte frames are `$0E` and `$1E` -- both walk-tilt frames, which is his
 "rotated slightly". Every charge is that rider's MAXIMUM, so this is an ENVELOPE and not
 an observed frame: it says the window is open and how wide, never that play enters it.
+
+## THE FOREGROUND RECIPE -- run this at the machine, it needs no rebuild
+
+The whole hypothesis has a **cause-side knob in RAM**: `DMA_Budget_Default` at
+**`$FFFF8210`**, re-read into `DMA_Budget_Remaining` at the top of every `VInt_Level`
+(`vblank.emp:136`). Turning it down makes the deficit permanent; turning it up switches the
+mechanism off. That is a control on the proposed cause, not a correlation with a symptom.
+
+**Addresses, all from `s4.debug.lst` on this branch.**
+
+| what | address | reading |
+|---|---|---|
+| `DMA_Budget_Default` | `$FFFF8210` | the knob (word) |
+| `DMA_Important_Slot` | `$FFFF820C` | post-drain occupancy (word) |
+| `DMA_Important` (base) | `$FFFF80BA` | slot == base means fully drained |
+| `DMA_Peak_Important` | `$FFFF8F74` | BYTES from base; one entry = 14 |
+| `DMA_Overflow_Count` | `$FFFF8F78` | drops. Must stay 0 |
+| `Dbg_DMA_Enq_Capped` | `$FFFF8F7A` | byte-cap rejects. Must stay 0 |
+
+**The breakpoint: `$002414`.** Decoded from this build's own bytes, it is the
+`tst.b PageIn_Staging_Busy` immediately after `bsr.w Process_DMA_Important` at `$002410`,
+reached unconditionally every `VInt_Level` frame before anything else touches the queue.
+`(DMA_Important_Slot - $80BA) / 14` = entries the drain **deferred**.
+
+**STEP 0, and skipping it voids everything after it.** `DEBUG=1` boots in debug fly, where
+`mapping_frame` is pinned `$00`, `prev_frame` `$FF`, and `Perform_DPLC` early-outs every
+frame. **Press B** to leave it, then run 300 frames of movement and read
+`DMA_Peak_Important`. **If it is <= 14 (one entry), the DPLC never ran, the subject was
+switched OFF, and the run must be discarded -- not reported as a zero.** A prior 600-frame
+run measured exactly this and read clean. Also compare `romBytes` against the ROM on disk
+before any measurement.
+
+**ARM 1 -- does it happen on its own.** Break at `$002414`, play a grounded run through the
+loop (warp with `Warp_Req_X` `$FFEE02`, `Warp_Req_Y` `$FFEE04`, `Warp_Req_Flag` `$FFEE06`
+u8; ack is the flag clearing and `Camera_Y` moving). CONFIRMED = `DMA_Important_Slot` reads
+above `$80BA` on at least one frame while `DMA_Overflow_Count` and `Dbg_DMA_Enq_Capped`
+both stay `0`. That combination -- **survivors without drops** -- belongs to this mechanism
+and to no other: the booked stale-`prev_frame` hazard requires a drop and predicts the
+opposite sign on the same two cells.
+
+**ARM 2 -- the decisive one, because it is two-sided.**
+Write `DMA_Budget_Default` = `$0400` mid-level (after `Level_LoadArt`, which sets it
+itself). The Important queue can then never drain while the SAT keeps shipping.
+**Predicted: a continuous, severe jumble while running, worst on the loop.**
+Then write `$7FFF` and repeat the heaviest play you can. **Predicted: it never appears.**
+For his intermittent picture rather than a constant one, try `$0BB8` (3000).
+
+**WHAT REFUTES IT, and this outcome is reachable and cheap.** If `$0400` -- outright
+starvation of the Important queue with the player animating -- does **not** make Sonic
+jumble, then deferred art is not the mechanism and this whole line is dead, whatever
+arm 1 says. Run `$0400` FIRST: it is the arm that can kill the hypothesis, and running it
+first stops arm 1's result from being read in its light.
+
+**A third prediction the other candidates do not make.** The NTSC residual is 2944 B
+against a 2976 B demand; PAL's is 8448 B with 5472 B spare. **This mechanism should be
+NTSC-only.** A mapping-table or emit defect would not care about the region.
+
+**Still BLOCKED, and not by anything at the machine.** Whether the owner's picture is THIS
+and not the mid-rebuild transient already booked cannot be settled here: his capture was
+never committed, `git log --all` over that path is empty, and no reading of it can be
+checked by anyone. The narrowest question that would settle it is his, not the debugger's:
+**does he see it while PLAYING, or only after pausing?** A mid-rebuild RAM transient cannot
+reach the screen during play. This one can, because the SAT was shipped and its art was not.
