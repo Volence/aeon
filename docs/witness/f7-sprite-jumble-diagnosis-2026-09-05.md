@@ -197,3 +197,125 @@ sprite emit.** Two corrections to what is written above:
 - The "2 at boot, 2 at the end" control reading above does not reproduce: on
   `s4.debug.bin` crc32 `8bb835d7` built from `1f2aab07`, `Dbg_DMA_Straddle_All` reads **0**
   at boot and 0 after 36829 frames, which the static survey says is the correct value.
+
+---
+
+## THE OTHER WALL: the drain defers, and nothing counts a deferral (2026-09-05)
+
+**Three corrections to this document first, all found while checking its references.**
+
+1. **`DRAW_SPRITE.NO_PARENT` is real, and this doc's spelling is the third of three.**
+   `s4.debug.lst:3355` carries `$engine.objects.sprites$Draw_Sprite$no_parent : 370A`.
+   Oracle demangles a mangled name to its **last two `$` components joined with a dot**
+   (`oracle/crates/oracle-core/src/symbols.rs:1295`), which is exactly
+   `Draw_Sprite.no_parent`; this doc then upper-cased it. **A recursive `grep` for it in an
+   agent shell finds nothing**, and the mechanism is READ, not inferred: the harness shell
+   snapshot defines `grep` as a function running the claude binary as **`ugrep
+   --ignore-files ... -I`**, so it honours `.gitignore` (and `*.lst` is ignored at
+   `.gitignore:20`) and skips binaries. Measured from the repo root: shell `grep -rl` over
+   `*.lst` returns **0** files, `command grep` and `/usr/bin/grep` return **343**. Use
+   `command grep`, `git grep` or `/usr/bin/grep` for anything that must see build outputs.
+
+   **⚠ Two control designs make this hazard look refuted, and both were run today.**
+   (a) A canary that starts its walk BELOW the `.gitignore` never reads it -- put marker
+   files in `<repo>/x/` and search `x` and both greps agree, search `.` and they diverge.
+   (b) A canary run through `subprocess.run(..., executable='/bin/bash')` resolves `grep`
+   to `/usr/bin/grep`, so it compares the tool with ITSELF and agrees perfectly. A test
+   that bypasses its own subject cannot fail, and its passing is indistinguishable from a
+   clean refutation. Compare two greps only in the shell whose `grep` is under test.
+2. **`.no_parent` is not the child-skip guard, it is the CULL BLOCK.** It spans
+   `$370A-$3765` (the next symbol, `.screen_coords`, is at `$3766`), so a PC there means
+   only "inside `Draw_Sprite`'s culling, mid-`RunObjects`" -- it says nothing about
+   multisprite parents. And `Render_Sprites` has not run yet at that PC, so the buffer read
+   at it is the LAST COMPLETE emit plus an uncleared tail, which is by design: `H3` ships
+   `Sprites_Rendered * 4` words, so entries past the live count are never sent.
+3. **`Dbg_DMA_Straddle_All` is at `$FFE912`, not `$FFE91A`** as the cell table above says.
+   `$FFE91A` is `BgAnim_Table_Ptr`. The campaign tools resolve the symbol from the listing
+   and were never wrong; only this table is.
+
+**The mechanism this doc's exoneration does not cover.** Every instrument read so far
+counts a DROP. The Important queue has a second wall that is not a drop:
+`Drain_Budgeted_Queue` (`engine/system/dma_queue.emp`) hits `.out_of_budget`, **compacts
+the survivors to the base and leaves them for next frame**. The enqueue already returned
+**carry clear**, so `perform_dplc` has ALREADY committed `prev_frame`; no counter moves.
+Meanwhile `VInt_Level` ships the SAT on **Critical, which is unbudgeted and always fully
+drains** (`vblank.emp:200`), before it ever calls the budgeted `Process_DMA_Important`
+(`:264`). Nothing interlocks the two. So the VDP is handed the new frame's mappings over
+partly-old art, for exactly one frame, silently.
+
+**Order decides who loses.** One `GameLoop` pass runs `VSync_Wait` -- where
+`PageIn_Process` enqueues a 2048 B page landing on Important -- **before** the state
+dispatch where `perform_dplc` enqueues the player's art. The queue is FIFO and the drain
+walks from the base, so the page landing spends the budget first and the player's art is
+what gets deferred.
+
+**The arithmetic, derived in `tools/dma_defer_headroom.py` (gated in build.sh).**
+NTSC budget 6144 - plane drain 1536 - Critical (128 palette + 640 SAT + 896 HScroll)
+= **residual 2944 B**. Worst-case demand = 2048 page landing + 928 peak Sonic DPLC frame
+= **2976 B**. **Deficit +32 B, one tile.** PAL's residual is 8448 B and has 5472 B spare.
+Sonic's two peak-byte frames are `$0E` and `$1E` -- both walk-tilt frames, which is his
+"rotated slightly". Every charge is that rider's MAXIMUM, so this is an ENVELOPE and not
+an observed frame: it says the window is open and how wide, never that play enters it.
+
+## THE FOREGROUND RECIPE -- run this at the machine, it needs no rebuild
+
+The whole hypothesis has a **cause-side knob in RAM**: `DMA_Budget_Default` at
+**`$FFFF8210`**, re-read into `DMA_Budget_Remaining` at the top of every `VInt_Level`
+(`vblank.emp:136`). Turning it down makes the deficit permanent; turning it up switches the
+mechanism off. That is a control on the proposed cause, not a correlation with a symptom.
+
+**Addresses, all from `s4.debug.lst` on this branch.**
+
+| what | address | reading |
+|---|---|---|
+| `DMA_Budget_Default` | `$FFFF8210` | the knob (word) |
+| `DMA_Important_Slot` | `$FFFF820C` | post-drain occupancy (word) |
+| `DMA_Important` (base) | `$FFFF80BA` | slot == base means fully drained |
+| `DMA_Peak_Important` | `$FFFF8F74` | BYTES from base; one entry = 14 |
+| `DMA_Overflow_Count` | `$FFFF8F78` | drops. Must stay 0 |
+| `Dbg_DMA_Enq_Capped` | `$FFFF8F7A` | byte-cap rejects. Must stay 0 |
+
+**The breakpoint: `$002414`.** Decoded from this build's own bytes, it is the
+`tst.b PageIn_Staging_Busy` immediately after `bsr.w Process_DMA_Important` at `$002410`,
+reached unconditionally every `VInt_Level` frame before anything else touches the queue.
+`(DMA_Important_Slot - $80BA) / 14` = entries the drain **deferred**.
+
+**STEP 0, and skipping it voids everything after it.** `DEBUG=1` boots in debug fly, where
+`mapping_frame` is pinned `$00`, `prev_frame` `$FF`, and `Perform_DPLC` early-outs every
+frame. **Press B** to leave it, then run 300 frames of movement and read
+`DMA_Peak_Important`. **If it is <= 14 (one entry), the DPLC never ran, the subject was
+switched OFF, and the run must be discarded -- not reported as a zero.** A prior 600-frame
+run measured exactly this and read clean. Also compare `romBytes` against the ROM on disk
+before any measurement.
+
+**ARM 1 -- does it happen on its own.** Break at `$002414`, play a grounded run through the
+loop (warp with `Warp_Req_X` `$FFEE02`, `Warp_Req_Y` `$FFEE04`, `Warp_Req_Flag` `$FFEE06`
+u8; ack is the flag clearing and `Camera_Y` moving). CONFIRMED = `DMA_Important_Slot` reads
+above `$80BA` on at least one frame while `DMA_Overflow_Count` and `Dbg_DMA_Enq_Capped`
+both stay `0`. That combination -- **survivors without drops** -- belongs to this mechanism
+and to no other: the booked stale-`prev_frame` hazard requires a drop and predicts the
+opposite sign on the same two cells.
+
+**ARM 2 -- the decisive one, because it is two-sided.**
+Write `DMA_Budget_Default` = `$0400` mid-level (after `Level_LoadArt`, which sets it
+itself). The Important queue can then never drain while the SAT keeps shipping.
+**Predicted: a continuous, severe jumble while running, worst on the loop.**
+Then write `$7FFF` and repeat the heaviest play you can. **Predicted: it never appears.**
+For his intermittent picture rather than a constant one, try `$0BB8` (3000).
+
+**WHAT REFUTES IT, and this outcome is reachable and cheap.** If `$0400` -- outright
+starvation of the Important queue with the player animating -- does **not** make Sonic
+jumble, then deferred art is not the mechanism and this whole line is dead, whatever
+arm 1 says. Run `$0400` FIRST: it is the arm that can kill the hypothesis, and running it
+first stops arm 1's result from being read in its light.
+
+**A third prediction the other candidates do not make.** The NTSC residual is 2944 B
+against a 2976 B demand; PAL's is 8448 B with 5472 B spare. **This mechanism should be
+NTSC-only.** A mapping-table or emit defect would not care about the region.
+
+**Still BLOCKED, and not by anything at the machine.** Whether the owner's picture is THIS
+and not the mid-rebuild transient already booked cannot be settled here: his capture was
+never committed, `git log --all` over that path is empty, and no reading of it can be
+checked by anyone. The narrowest question that would settle it is his, not the debugger's:
+**does he see it while PLAYING, or only after pausing?** A mid-rebuild RAM transient cannot
+reach the screen during play. This one can, because the SAT was shipped and its art was not.

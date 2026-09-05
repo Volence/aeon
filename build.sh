@@ -1059,6 +1059,30 @@ if [[ "$FAST" == "0" ]]; then
             exit 1
         fi
 
+        # The straddle gate above asks whether the Important queue has enough
+        # SLOTS. This one asks whether the frame has enough BYTES, which is the
+        # OTHER wall and fails in the opposite way: a slot refusal sets carry and
+        # `perform_dplc` retries, while a byte shortfall is handled entirely
+        # inside `Drain_Budgeted_Queue`, which COMPACTS the survivors and leaves
+        # them for next frame -- carry clear, `prev_frame` already committed, no
+        # counter moved. Meanwhile the SAT for that same frame has already
+        # shipped on the UNBUDGETED Critical queue. New mappings over partly-old
+        # art, one frame, silent. That is the F7 mechanism.
+        #
+        # It runs HERE, after sigil, because the per-frame DPLC byte totals come
+        # out of the shipped blobs via the listing's labels. It does NOT fail on
+        # the deficit -- the engine ships with one on NTSC and the frames it takes
+        # to bite are rare. It fails when a DERIVED INPUT MOVES without the pin
+        # being re-cut, so whoever next changes a budget, a buffer size or the
+        # cast's art volume is told what they did to a +32 B margin.
+        # tools/dma_defer_headroom.py --selftest (not run in the build) proves it
+        # red three ways: a constant, a static DMA length, and the premise pin
+        # that Process_DMA_Critical is unbudgeted.
+        if ! python3 "${TOOLS}/dma_defer_headroom.py" --lst "${ROM_NAME}.lst" --gate; then
+            echo "DMA defer-headroom gate failed -- see above (tools/dma_defer_headroom.py)."
+            exit 1
+        fi
+
         # The ground-angle sprite tilt, checked by EXECUTING the routine this build
         # just emitted. The claim the tilt parcel makes is not "it assembles" but
         # "the selected mapping frame is a function of the terrain angle, at the S3K

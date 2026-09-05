@@ -1,0 +1,44 @@
+{
+  "constants": {
+    "ART_STAGING_BUFFER_SIZE": 2048,
+    "DMA_BUDGET_NTSC": 6144,
+    "DMA_BUDGET_PAL": 11648,
+    "MAX_VDP_SPRITES": 80,
+    "PLANE_BUFFER_SIZE": 1536,
+    "TILE_SIZE": 32
+  },
+  "critical_entry_bytes": {
+    "hscroll": 896,
+    "palette_line": 32,
+    "palette_lines": 4,
+    "sat": 640
+  },
+  "dplc_peak_bytes": {
+    "knuckles": 928,
+    "sonic": 928,
+    "tails": 768,
+    "tails_tail": 288
+  },
+  "regions": {
+    "NTSC": {
+      "budget": 6144,
+      "charge_critical_max": 1664,
+      "charge_plane_max": 1536,
+      "deficit_duo": 1088,
+      "deficit_solo": 32,
+      "demand_duo": 4032,
+      "demand_solo": 2976,
+      "residual": 2944
+    },
+    "PAL": {
+      "budget": 11648,
+      "charge_critical_max": 1664,
+      "charge_plane_max": 1536,
+      "deficit_duo": -4416,
+      "deficit_solo": -5472,
+      "demand_duo": 4032,
+      "demand_solo": 2976,
+      "residual": 8448
+    }
+  }
+}
