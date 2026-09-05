@@ -45,8 +45,29 @@
     "verdict": "COMPLETES. Rides the left arc on plane A where it is solid, crests at y426, descends and exits grounded on plane A. This is invariant (a) satisfied leftward \u2014 the first time tonight any leftward run has done anything but run flat."
   },
   "drive_3_outer_face": {
-    "status": "NOT RUN \u2014 needs disambiguation, see below",
-    "why": "the ruling asks for 'a drive from the west against the outer left face that must not climb it'. But the rightward control IS a westward approach at ground level and it climbs to y430 BY DESIGN \u2014 that is the intended entry. So 'from the west against the outer face' must mean a different approach than the one already passing, and I am not going to invent which one and then report a pass against my own invention."
+    "status": "RUN \u2014 PASSES, with its control",
+    "_named_by_the_hub": "a jump from the west at x~1000 into the outer west face (cols 130-131, rows 28-32, y440-500), expecting no landing and no climb; same jump on e59c5a99 as the control.",
+    "method": "grounded-asserted at x960/y557 plane A, gsp +$400, RIGHT and JUMP held together (C), trajectory followed to landing",
+    "subject_build_c9a6fe8b": {
+      "lands_at": {
+        "x": 1078,
+        "y": 557
+      },
+      "angle": "$00",
+      "layer": 0,
+      "verdict": "returns to the GROUND. Passes over the face columns (x1040-1055) without landing on or climbing them."
+    },
+    "control_e59c5a99": {
+      "lands_at": {
+        "x": 1035,
+        "y": 557
+      },
+      "angle": "$00",
+      "layer": 0,
+      "verdict": "same \u2014 returns to the ground, no face landing."
+    },
+    "conclusion": "the arc fit did NOT make the outer west face climbable from outside. Both builds behave the same way, which is what makes this a control rather than a single reassuring reading.",
+    "_honest_limit": "landing x differs between the two (1078 vs 1035). Both are on flat ground at y557 and neither is on the face, which is what the drive asks. I have not chased the 43px difference and it is not what this drive tests."
   },
   "NEW_FINDING_eastern_approach_blocked": {
     "what": "from a grounded start at x1350 with gsp -$600 held, the player STOPS at x1258 (col 157), gsp 0, x_vel -12, y 557 constant. He never reaches the loop.",
