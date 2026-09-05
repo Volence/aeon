@@ -1,0 +1,37 @@
+{
+  "_headline": "THE ROLLING DEFECT IS AURORA'S PREDICTED ONE-ROW HOLE, CONFIRMED. A rolling player's centre sits in engine row 35; the bottom crossover mark exists only in row 34. He never crosses to plane B, so the right arc — solid only on B — is not there for him.",
+  "_build": "master 19dcebd1, s4.debug.bin 845638",
+  "measurement": {
+    "setup": "grounded-asserted x1000 (settles y557, y_vel 0, plane A), gsp +$600, DOWN held to roll",
+    "roll_confirmed": {"x": 1046, "y": 562, "note": "5px lower than standing — the ball hitbox"},
+    "samples": [
+      {"x": 1046, "y": 562, "angle": "$00", "layer": 0},
+      {"x": 1203, "y": 562, "angle": "$00", "layer": 0},
+      {"x": 1333, "y": 562, "angle": "$00", "layer": 0, "note": "PAST the loop footprint (bbox 1056-1240), still dead flat"}
+    ],
+    "toggles": 0,
+    "verdict": "rolls straight through the entire loop at ground level. No climb, no crossover, plane A throughout."
+  },
+  "the_control": "STANDING from the same start at the same speed climbs to y430 at angle $A0 — a full circuit. The ONLY difference is the 5px hitbox drop.",
+  "the_arithmetic": {
+    "standing_centre_y": 557, "standing_engine_row": 34,
+    "rolling_centre_y": 562, "rolling_engine_row": 35,
+    "mark_rows_present": [34],
+    "consequence": "row 35 carries no mark, so the read finds nothing, so no toggle, so he stays on plane A. The right arc is solid only on plane B. Nothing is there to climb and nothing is there to stop him."
+  },
+  "_aurora_predicted_this_verbatim": {
+    "when": "hours before the rolling report existed",
+    "what_they_said": "THE BOTTOM MARK IS EXACTLY ONE ENGINE ROW TALL. A centre at y557 is row 34; a centre at y560 or below is row 35, which carries no mark. So the mark is hit or missed depending on height_pixels, which your engine varies by state. If a rolling or otherwise shorter player sits 3px lower, he crosses that column in an unmarked row and nothing fires.",
+    "what_they_offered": "marking row 35 as well — 4 tile-words, col 143, editor rows 70/71, both planes, air cells carrying only crossover bits, exactly the shape of the four that already work",
+    "why_it_was_not_built": "I asked them to hold until a run stayed on the floor from a defensible start, so that 'it fires now' would mean the mark and not my setup. That was right at the time and the hold has now expired: the standing circuit completes from two starts and drive 3 passes with a control.",
+    "note": "this is a PRE-REGISTERED prediction confirmed by a defect report that arrived independently from the owner. It is not a post-hoc match."
+  },
+  "the_fix_NOT_BUILT": {
+    "owner": "aurora (paint)",
+    "cells": "col 143, engine row 35, both planes — the row-35 twin of the existing bottom mark",
+    "size": "4 tile-words",
+    "keys": "same direction/selection as the row-34 mark it twins",
+    "open_question_for_aurora_and_the_hub": "the APEX mark at engine row 27 has the same one-row exposure, and an inverted rolling player has his own height offset. Aurora raised this and I declined to rule on it while nothing had reached the apex. Something has now: the standing circuit crests at y426. So it is answerable and should be answered in the same parcel rather than found later by another capture."
+  },
+  "_what_I_did_NOT_reproduce": "the owner's exact capture shows him BALLED AT THE LEFT ARC'S INNER EDGE MID-HEIGHT with PC in CL_AIR. Mine passes through at ground level and never leaves the floor. Both are 'rolling does not ride the loop' but they are not the same picture, and I am not going to claim my run is his. His may be a rolling entry that DID cross (a different approach height) and then clipped on the descent, which the row-35 fix would not address."
+}
