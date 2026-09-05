@@ -24,7 +24,8 @@
       "title": "Floor: mechanism reopened -- he watched planks change ANGLE, which painted art cannot do",
       "state": "blocked",
       "size": "L",
-      "blockedBy": "his Toy Story observation reopened the mechanism; oracle re-reading the scroll table"
+      "blockedBy": "his Toy Story observation reopened the mechanism; oracle re-reading the scroll table",
+      "project": "EFFECTS-W1"
     },
     {
       "id": "EMDASH",
@@ -38,14 +39,16 @@
       "title": "ENGINE DEFECT: descending parallax curve garbles the BG; mechanism unestablished",
       "state": "next",
       "size": "M",
-      "blockedBy": null
+      "blockedBy": null,
+      "project": "EFFECTS-W1"
     },
     {
       "id": "F7-EMIT",
       "title": "F7: load path exonerated -- the jumble is in the sprite emit",
       "state": "doing",
       "size": "M",
-      "blockedBy": null
+      "blockedBy": null,
+      "project": "EFFECTS-W1"
     },
     {
       "id": "ICON",
@@ -59,7 +62,8 @@
       "title": "Sigil's routed findings",
       "state": "open",
       "size": "M",
-      "blockedBy": null
+      "blockedBy": null,
+      "project": "EFFECTS-W1"
     },
     {
       "id": "LOOP-ROLL",
@@ -78,5 +82,5 @@
   ],
   "awaiting": "which floor option: the free one that slows the scroll, or spending tiles",
   "atBoundary": false,
-  "updatedAt": "2026-09-05T21:42:30Z"
+  "updatedAt": "2026-09-05T22:37:20Z"
 }
