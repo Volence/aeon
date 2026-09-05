@@ -26179,6 +26179,25 @@ case-sensitive search; both were present in the F7 instance.
 
 ---
 
+### The register peek that contradicted the table, and why it did not - 2026-09-05
+
+**Toy Story switches scroll mode BY SCREEN REGION, from an H-interrupt.** A peek at `$0B` read
+whole-plane, which flatly contradicted a floor that demonstrably fans. The register file resolved
+it: `raw[0x00] = 0x14` has H-interrupt enable set, and `raw[0x0A] = 0xAE = 174` is the H-interrupt
+counter, **two lines above the first floor row at 176**. So the game runs per-line HSCR for the
+floor region and switches back for the room above, and a single peek taken outside that window
+sees the outside value.
+
+**A register is not a constant, and a peek at one is a sample.** This is the same family as the
+night's other instrument failures with the polarity reversed: not an instrument blind to the
+quantity, but a quantity that CHANGES within a frame while the instrument reports one value. Both
+fail by returning something true about a moment and reading as true about the frame.
+
+**Banked for later, NOT for the current parcel unless it turns out free:** per-line mode only where
+the floor is, freeing the rows above. That is the region-switch idea and it is theirs, measured.
+
+---
+
 ### Withdrawing a TRUE claim was still correct - 2026-09-05
 
 **A fourth shape, and it is the inverse of the other three.** Oracle claimed early that the floor
@@ -26239,8 +26258,14 @@ the whole-plane base live inside the scroll table, so `dk / |d(base)|` is measur
 with no camera variable, no symbols and no plane-to-camera substitution:
 
     OURS    736->1216   dk +0.831, d(base) -20   ratio 0.04155
-           1216->1856   dk +1.112, d(base) -27   ratio 0.04119
+           1216->1856   dk +1.112, d(base) -27   ratio 0.04119   mean 0.04137, spread 0.9%
     THEIRS  pos1->pos2  dk +0.276, d(base) -28   ratio 0.00986
+            pos2->pos3  dk +0.490, d(base) -46   ratio 0.01065   mean 0.01025, spread 7.8%
+
+**Ours / theirs = 4.03x.** The third Toy Story position (from the clean floor read, k -0.809) was
+NOT used to derive the ratio, it TESTS it: the value predicted from the first two intervals held
+to 7.8% on data taken afterwards. Their three gains -0.043, -0.319, -0.809 are the tracking
+signature; a painted fan requires zero at all three.
 
 Ours is stable to about half a percent across two independent intervals, which checks that the
 quantity is real rather than an artifact of one pair. **Ours responds about 4.2x more per unit of
