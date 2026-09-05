@@ -855,8 +855,12 @@ pub comptime fn perspective_floor_layers() -> [SceneLayer; 16] {
              // screen. 1_8 puts the landing at the halfway mark with ~800 px of
              // clean travel ahead of it.
              //
-             // The cost is scroll RATE: the floor's near row now moves at a
-             // quarter of the camera rate. The fan's GEOMETRY does not care —
+             // The cost is scroll RATE: the floor's near row now moves at an
+             // EIGHTH of the camera rate (FACTOR_1_8, the value actually
+             // shipped below). This said "a quarter" until 2026-09-05: it was
+             // left over from the FACTOR_1_4 candidate the paragraph above
+             // rejects, and it is the one line a reader would use to judge
+             // whether the trade is worth it. The fan's GEOMETRY does not care —
              // the apex stays on the centre column for any F, because the art's
              // period and the ramp are both linear in the depth row and only
              // their ratio matters. Move this one identifier along
