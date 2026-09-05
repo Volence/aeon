@@ -26061,7 +26061,18 @@ and `.json` here is unaffected, measured rather than assumed. They are additiona
 (source, linenum, pattern, pathname). Pairing them two at a time yields a confident wrong
 answer - 289 exposed files, 275 of them extensionless - which does not error and does not
 look absurd. It looks like a finding. Caught only because it disagreed with a count taken
-earlier by a different route. No `.emp` or `.py` is currently affected, which is why the VSPLIT-NO-OP consumer
+earlier by a different route. **If you only need the paths, drop `-v`:** the plain form emits ONE
+field per record and there is nothing to mis-pair. The verbose form buys you the pattern and the
+risk of silently reading the file as twice as long as it is. And **a file matched only by a
+NEGATION is fine** - counting those as exposed turns a clean result into an alarming one, which
+is how 14 became "289, 275 of them extensionless".
+
+**THE METHOD, stated compactly, and it is the day's real output:** keep a second route's answer
+around, and treat any disagreement as a STOP before treating either number as a result. It saved,
+today: a count of aeon's, a count of aurora's, aurora's clearance on the band sidecar's `source`
+field, and aeon's grep mechanism - which was retracted on an invalid test and only restored
+because a peer's reading disagreed with it. None of those wrong numbers looked wrong. Each looked
+like a finding. No `.emp` or `.py` is currently affected, which is why the VSPLIT-NO-OP consumer
 audit stood - though that was settled by comparing the two greps, which is the method that does
 not depend on knowing any of this.
 
