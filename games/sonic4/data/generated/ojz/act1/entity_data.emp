@@ -34,7 +34,7 @@ struct ObjTypeTable2 { count: u8, pad: u8, t0: *u8, t1: *u8 }
 
 // ---- Sec0 ----
 pub data OJZ_Sec0_TypeTable: ObjTypeTable2 = ObjTypeTable2{ count: 2, pad: 0, t0: ObjDef_Spring, t1: ObjDef_Solid }
-pub data OJZ_Sec0_Objects: [u16; 13] = [$12C, $498, $0000, $230, $438, $0000, $328, $0D2, $0100, $352, $478, $0000, $FFFF]
+pub data OJZ_Sec0_Objects: [u16; 13] = [$12C, $248, $0000, $2BC, $278, $0000, $328, $0D2, $0100, $438, $348, $0000, $FFFF]
 pub data OJZ_Sec0_Rings: [u16; 16] = [$080, $060, $090, $060, $0A0, $060, $0B0, $060, $0C0, $060, $134, $09D, $144, $09D, $000, $000]
 
 // ---- Sec1 ----
