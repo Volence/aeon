@@ -1,5 +1,5 @@
 {
-  "focus": "Floor measurement blocked on a keystroke only he can make; nothing drawn",
+  "focus": "Running the sprite-jumble experiment; the floor waits on his budget call, nothing drawn",
   "inFlight": [
     {
       "what": "sprite jumble: emit-path static analysis",
@@ -13,7 +13,7 @@
       "since": "2026-09-05"
     },
     {
-      "what": "one keystroke: press the save-state key in the Toy Story window before doing anything else, so the floor measurement can run without risking your paused position",
+      "what": "one keystroke, worth ten seconds and no longer blocking: press the save-state key in the Toy Story window before doing anything else, so the register read can confirm what the art comparison already answered",
       "since": "2026-09-05"
     }
   ],
@@ -69,7 +69,7 @@
       "blockedBy": null
     }
   ],
-  "awaiting": "one keystroke in the Toy Story window to save its position to a file; the floor measurement cannot start without it",
+  "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-05T20:28:20Z"
+  "updatedAt": "2026-09-05T20:30:15Z"
 }
