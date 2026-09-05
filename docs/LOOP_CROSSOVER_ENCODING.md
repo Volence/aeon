@@ -250,6 +250,29 @@ pair strictly dominates.
 > example was wrong. Recorded rather than silently edited, because a spec that contradicts
 > itself four lines apart is worth knowing about even after it stops doing so.
 
+> **⚠ AMENDED 2026-09-05 — the worked table above is the ENCODING, and the encoding alone
+> is not sufficient.** Nothing in this section changes: the bits, the values, the per-plane
+> rule and rule R2 are all exactly as written. What changed is the READ SITE. The table's
+> two rows quietly assume that a player arriving at the bottom centre on plane L is
+> travelling rightward and one arriving on plane R is travelling leftward — and R2 makes
+> that assumption unfalsifiable from the paint, because a plane-A cell can only ever carry
+> `XOVER_TO_B`. `docs/witness/loop-plane-b-exit-2026-09-05.json` measured what actually
+> happens: a LEFTWARD player on plane A read `XOVER_TO_B` at the bottom centre, was moved
+> onto the plane whose left half is not solid, and fell through the floor. Every traversal
+> tested toggled the layer exactly once, in both directions.
+>
+> `Player_LoopCrossover` is therefore **direction-keyed** as of the owner's ruling that day:
+> a mark fires only when the player's screen-space `Sst.x_vel` is heading for the arc that
+> mark leads onto — `XOVER_TO_B` rightward, `XOVER_TO_A` leftward, neither at zero. The
+> table's LEFTWARD row is then correct end to end. **Its RIGHTWARD row is still not**, and
+> that is a paint problem, not a runtime one: a centre mark is crossed TWICE by a completing
+> circuit, and the rightward entry and exit are the same cell, the same plane and the same
+> direction, so no stateless rule can give them opposite answers. Sonic 2 resolves it with a
+> return-to-default swapper past the exit foot. Booked in `docs/DEFERRED_WORK.md`.
+>
+> The commentary block on `Player_LoopCrossover` (5b) carries the rule, the argument for
+> `x_vel` over `PlayerV.ground_speed`, and the cell-by-cell circuit analysis.
+
 **Self-marks are illegal.** A plane-A cell carrying `XOVER_TO_A` (or plane-B carrying
 `XOVER_TO_B`) is provably a no-op: to read it you must already be on that plane. It is
 always an authoring mistake, it is decidable at bake time, and the bake refuses it (§7 rule

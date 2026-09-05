@@ -889,35 +889,59 @@ pub proc Player_RefreshPhysics (a2: *PlayerBlock) clobbers(d0/a1-a2) {
 // clamp here would give the illegal value a quiet meaning, which is the exact thing
 // §3.2 reserved it to prevent.
 //
-// COST, per player per frame. Every figure below was summed from the ENCODINGS this
-// build emitted (read back out of s4.debug.lst / .bin with capstone), against the
-// MC68000UM tables — not from a cycle count written next to the source. The dominant
-// term is Collision_GetType's own 292/298, which is why guessing it is not an option:
-// an earlier draft of this comment put it at ~150 and was wrong by a factor of two.
+// COST, per player per frame. RE-DERIVED 2026-09-05 for the direction gate, and it is
+// no longer a table anyone types: `tools/loop_crossover_cost.py` sums it from the
+// ENCODINGS this build emitted, by executing the routine in the gate's own micro-CPU
+// (capstone-decoded out of s4.debug.bin) and costing every instruction it actually ran
+// against the MC68000UM tables. Re-run it after any edit here rather than adjusting a
+// number by hand. Guessing is not an option: an earlier draft of this comment put
+// Collision_GetType at ~150 and was wrong by a factor of two.
 //
-//   same cell (the whole steady state: bsr.w 18, move.l d(An),Dn 16, move.w d(An),Dn
-//     12, andi.l # 16, cmp.l d(An),Dn 18, beq taken 10, rts 16)                106
-//   cell changed, position off the tile cache (GetType's early air exit, 58)   570
-//   cell changed, one cell of X, no mark (plane A 292 / plane B 298)       804 / 810
-//   cell changed, one cell DIAGONALLY, no mark (plane A)                       846
-//   cell changed, one cell, FIRES (plane A)                                    822
-//   a discontinuity — teleport/respawn/act start — snapped to one probe          700
+// Basis, stated so the rows stay comparable with the pre-gate ones: each figure
+// includes the caller's `bsr.w` (18), and none of them model the bus contention a real
+// Mega Drive imposes on the 68000 — every row is a FLOOR for the CPU's own work.
+//
+//   same cell (the whole steady state)                                        106
+//   cell changed, position off the tile cache (GetType's air exit, 58)        580
+//   cell changed, one cell of X, no mark (plane A / plane B)              794 / 800
+//   cell changed, one cell DIAGONALLY, no mark (plane A)                      830
+//   cell changed, one cell, FIRES rightward (TO_B on plane A)                 862
+//   cell changed, one cell, FIRES leftward (TO_A on plane B)                  852
+//   cell changed, one cell, REFUSED by direction (TO_A going right)           848
+//   cell changed, one cell, REFUSED by direction (TO_B going left)            836
+//   cell changed, one cell, REFUSED by direction (x_vel == 0)                 818
+//   a discontinuity — teleport/respawn/act start — snapped to one probe       750
 //   TWO cells of X in one frame (>8 px/frame: the step-over the sweep exists
-//     for), no mark / the first cell marked                              1356 / 1374
+//     for), no mark / marked field firing on both                     1348 / 1490
+//
+// HOW MUCH OF THAT IS TRUSTWORTHY, and the answer is checkable rather than asserted.
+// The summer reproduces three figures the previous note derived independently and by a
+// different route, EXACTLY: the steady state (106), Collision_GetType's whole body
+// (292), and its early air exit (58). The composite rows differ from the previous
+// note's by -16..+50 — those were scenario differences, not timing ones, and the old
+// scenarios were not recorded closely enough to reconcile, so that attribution is an
+// inference and is flagged as one. The three anchors are the measurement.
+//
+// WHAT THE DIRECTION GATE COST. Nothing at all on the two rows that matter most: the
+// steady state is unchanged at 106, and a frame that changes cell WITHOUT meeting a
+// mark is unchanged, because the whole gate lives below the `beq .unmarked`. The cost
+// lands only where a mark is actually met — +54 cycles on a rightward fire, +46 on a
+// leftward one, and +34/+36 where the gate REFUSES a mark (which also skips the
+// 12-cycle layer write, so a refusal is cheaper than a fire). Two marked slots exist in
+// the whole shipped table, so this is a cost on the loop and on nothing else.
 //
 // WHAT THE SWEEP COST AND WHAT IT DID NOT. The steady state is 106 — the same figure,
 // instruction for instruction, as before the sweep: the `beq` on the cell id still
 // leaves before a byte of the walk is reached, so a standing or sub-cell-moving player
-// pays nothing at all. A frame that CHANGED cell went from 518 to 804, +286. The
-// diagonal case is why the walk advances both axes together rather than turning a
-// corner: an ordinary frame on a slope moves one cell on each axis and still costs ONE
-// probe (846), where an L-shaped path would have cost two (~1350).
+// pays nothing at all. The diagonal case is why the walk advances both axes together
+// rather than turning a corner: an ordinary frame on a slope moves one cell on each
+// axis and still costs ONE probe (830), where an L-shaped path would have cost two.
 //
-// Two players at 60 Hz against a ~127,800-cycle NTSC frame: 0.17% standing still
-// (unchanged), 1.26% on a frame where both changed cell (was 0.81%), 2.1% in the
-// two-cell case that only happens above 8 px/frame. A player running at speed changes
-// cell most frames, so 1.26% is the honest running figure. 182 bytes of code, measured
-// from the listing.
+// Two players at 60 Hz against a ~127,800-cycle NTSC frame: 0.17% standing still,
+// 1.24% on a frame where both changed cell, 2.11% in the two-cell case that only
+// happens above 8 px/frame. A player running at speed changes cell most frames, so
+// 1.24% is the honest running figure. 204 bytes of code (was 182), measured from the
+// listing.
 //
 // The cheap gate that is NOT here, named so it is a decision and not an oversight:
 // a per-act "this act has crossovers" flag would collapse the whole per-frame cost to

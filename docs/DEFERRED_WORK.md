@@ -2750,10 +2750,37 @@ booking cannot answer today.
 > standing on it. The gate cannot do this — it has no emulator and no geometry — and it is
 > the only remaining question the encoding has left.
 >
-> **DELIBERATELY LEFT OPEN — the per-act crossover gate.** The read costs ~0.81% of an NTSC
-> frame for two players on a frame where both changed cell (derived from the emitted
-> encodings, see the routine's own cost note), and today it buys nothing because every act's
-> table is empty. A per-act "this act has crossovers" flag would collapse that to ~12 cycles.
+> **THE RIGHTWARD CIRCUIT STILL EXITS ON THE WRONG PLANE — and it is a PAINT question, not
+> a runtime one** — booked 2026-09-05 by `parcel/loop-crossover-direction`.
+>
+> The read site is now DIRECTION-keyed (owner ruling 2026-09-05): a mark fires only when the
+> player's screen-space `Sst.x_vel` matches the arc it leads onto — `XOVER_TO_B` rightward,
+> `XOVER_TO_A` leftward, neither at zero. That closes the measured defect
+> (`docs/witness/loop-plane-b-exit-2026-09-05.json`: a LEFTWARD player read plane A's
+> `XOVER_TO_B` at the loop's bottom centre and was put on the plane whose left half is not
+> solid). The LEFTWARD circuit is now correct end to end: two toggles, exits on plane A.
+>
+> **The RIGHTWARD circuit is not, and no runtime rule can fix it.** A centre-placed mark is
+> crossed TWICE by a completing circuit, and the rightward entry and exit cross the
+> bottom-centre cell at the same position, on the same plane (A) and in the same direction
+> (right). Those two crossings need opposite answers from identical inputs, so a rule keyed
+> on position + plane + direction cannot separate them; the exit fires a third time and
+> leaves the player on B. Sonic 2's arrangement is a **return-to-default swapper past the
+> exit foot** — here, either a third outward-keyed mark at the right foot selecting A (the
+> encoding already permits it: it is an ordinary mark cell), or the ground after the loop
+> living on B until such a mark. **Both are collision-paint changes and belong to the paint
+> lane**, which is why the runtime parcel stopped here and reported rather than adding one.
+>
+> **[TAG-RUNTIME] the check, once the paint lands:** a full circuit in EACH direction at
+> `$600` must ride every arc on the plane where that arc is solid and end with layer 0 at
+> the exit; a low-speed pass under the crown that never enters the loop must change nothing.
+> The toggle count is data, not the criterion.
+>
+> **DELIBERATELY LEFT OPEN — the per-act crossover gate.** The read costs ~1.24% of an NTSC
+> frame for two players on a frame where both changed cell (re-derived 2026-09-05 by
+> `tools/loop_crossover_cost.py` from the emitted encodings; the older ~0.81% predates both
+> the sweep and the direction gate), and today it buys nothing for any act but the one with
+> the section-0 loop in it. A per-act "this act has crossovers" flag would collapse that to ~12 cycles.
 > It is not built because the flag does not exist, it is a BAKE-side field, and adding one
 > here would ship a second encoding ahead of its first user — the same mistake this booking
 > exists to record. Revisit when the first real loop lands, which is also when the cost
