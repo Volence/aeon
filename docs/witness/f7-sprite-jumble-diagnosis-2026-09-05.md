@@ -171,3 +171,29 @@ before any Important zero is read as meaning anything.
 If `DMA_Split_Reject_Count` goes non-zero during play, F7's cause is found and the engine
 said so itself. If it stays zero across representative play **with a moving control**, the
 DPLC starvation path is exonerated and `DRAW_SPRITE.NO_PARENT` points at the sprite emit.
+
+---
+
+## ANSWERED — see `f7-straddle-instrument-read-2026-09-05.md` (same day)
+
+The parcel this section asks for has been run. 36829 frames of grounded play, 735 polls,
+62.7% grounded, 28 of the walk/run tilt frames `$01-$30` exercised across all nine
+sections. **All four cells stayed at 0, and so did the two other drop paths
+(`DMA_Overflow_Count`, `Dbg_DMA_Enq_Capped`).** The control did not move in play — and the
+act's page manifest says it *cannot*: OJZ's whole art pool sits inside one 128 KB block, so
+no page-in landing can straddle, and `dplc_straddle` already had every straddling DPLC
+frame in the cast unreachable. A forced control (Sonic's `$65`, on a separate machine)
+moved both `Dbg_DMA_Straddle_All` and the Important-only `Dbg_DMA_Straddle_Frame` 0 → 1,
+proving the instrument live.
+
+**So the DPLC starvation path is exonerated and `DRAW_SPRITE.NO_PARENT` points at the
+sprite emit.** Two corrections to what is written above:
+
+- The "600 frames of RIGHT" run had a **second** defect beyond the free fall: the canonical
+  DEBUG shape boots **already in debug fly**, where `mapping_frame` is pinned at `$00`,
+  `prev_frame` at `$FF`, and the player never animates — so `Perform_DPLC` early-outs every
+  frame and the player enqueues nothing at all. That window measured the subject system
+  switched off. A B press is what turns it on.
+- The "2 at boot, 2 at the end" control reading above does not reproduce: on
+  `s4.debug.bin` crc32 `8bb835d7` built from `1f2aab07`, `Dbg_DMA_Straddle_All` reads **0**
+  at boot and 0 after 36829 frames, which the static survey says is the correct value.

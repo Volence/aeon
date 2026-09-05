@@ -106,8 +106,8 @@ PHASES, all GROUNDED except P5 which is labelled:
   P6  a final long grounded RIGHT run
 
 EXIT CODES (the house contract, same as tools/canopy_gap_exercise.py): 0 the campaign ran
-to completion and the control moved -- the numbers in the report are readable; 2 setup, or
-the control did not move, or the run was capped/reaped short. This script never returns 1:
+to completion and a control FIRED -- the numbers in the report are readable; 2 setup, or
+NEITHER control fired, or the run was capped/reaped short. This script never returns 1:
 a non-zero DMA_Split_Reject_Count is a FINDING to be reported, not a gate failure, and
 turning it into an exit code would invite someone to "fix the red" instead of reading it.
 
