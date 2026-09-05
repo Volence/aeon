@@ -14,9 +14,6 @@
     {
       "fa": "FACTOR_1",
       "fb": "FACTOR_1_2",
-      "vsplit": {
-        "at": 67
-      },
       "world_y": 162
     }
   ],

@@ -256,16 +256,25 @@ def scan() -> tuple[list[VSplitAuthoring], dict[str, list[Path]], dict[str, tupl
 # name -> why it is here and who owns the decision.
 # ---------------------------------------------------------------------------
 KNOWN_UNBOUND: dict[str, str] = {
-    "Scene_Editor_ojz_act1_sec7_worldwater": (
-        "Aurora authored `vsplit: At(67)` on the world_y-162 layer; the bisect in commit "
-        "df3b8810 measured the arm `vsplit removed -> byte-identical ROM`, so the "
-        "attachment reaches zero ROM bytes today. Its disposition is a CONTENT decision "
-        "the owner has to make and a lint may not: binding it (a scene_vsplit_fires fold "
-        "plus a raster channel on section 7's preset) ADDS ROM bytes and changes what "
-        "section 7 looks like, and deleting the attachment destroys a deliberate "
-        "authoring act. Booked as VSPLIT-NO-OP in docs/DEFERRED_WORK.md. Remove this "
-        "entry in the same change that resolves it -- the tests below force that."
-    ),
+    # EMPTY, and it should stay that way. Its one entry,
+    # Scene_Editor_ojz_act1_sec7_worldwater, was removed 2026-09-05 when aurora deleted
+    # the attachment itself rather than binding it. Their evidence for the disposition
+    # was the packet's own words: the design table annotated that layer as "underwater,
+    # channel 3's band top, AND THE SPLIT ITSELF", so the author believed the scene-level
+    # vsplit WAS the split for that band and was mirroring the hand-authored channel 3
+    # into the scene document. It was never meant as a second split, so there was nothing
+    # to bind.
+    #
+    # NOT AN AUTHORING ERROR, and the framing matters for whoever reads this next. From
+    # inside the editor a split the section already has and a split the scene declares
+    # look identical, because nothing on the surface says one of them is inert. The
+    # author used a control that named exactly the effect they had been told the section
+    # has. The panel-side half of that -- a control that authors something inert should
+    # say so when it is offered -- is aurora's, and is open on their board.
+    #
+    # Adding an entry here is a LAST resort and it is not a way to silence the arms
+    # below: they force the entry out again the moment its scene gains a consumer or
+    # loses its vsplit, which is exactly how this one left.
 }
 
 

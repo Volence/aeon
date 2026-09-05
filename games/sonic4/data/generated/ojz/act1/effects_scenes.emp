@@ -92,7 +92,7 @@ pub const Scene_Editor_ojz_act1_floor: Scene = scene(
 pub const Scene_Editor_ojz_act1_sec7_worldwater: Scene = scene(
     layers: [ layer(world_y: 0, fa: FACTOR_1, fb: FACTOR_1_8),
               layer(world_y: 40, fa: FACTOR_1, fb: FACTOR_1_2),
-              layer(world_y: 162, fa: FACTOR_1, fb: FACTOR_1_2, vsplit: SceneVSplit.At(67)),
+              layer(world_y: 162, fa: FACTOR_1, fb: FACTOR_1_2),
               no_layer(),
               no_layer(),
               no_layer(),
