@@ -1,0 +1,33 @@
+{
+  "_what": "Grounded-asserted drives after landing aurora's left-foot ramp (78ac6882). Build s4.debug.bin 845638.",
+  "rightward_CONTROL": {
+    "start": "x1000, settled to y557 y_vel 0, plane A, gsp +$600 sustained held right",
+    "max_climb_y": 430,
+    "climb_px": 127,
+    "angles": ["$A0"],
+    "verdict": "STILL RIDES. y430 against y429 before the ramp — ONE PIXEL different, reported as measured rather than rounded to 'unchanged'. The ramp did not break the working direction."
+  },
+  "leftward_from_the_right_ramp": {
+    "start": "x1200 placed, settled to x1192 y542 angle $F4 — on the loop's own right foot, not flat",
+    "max_climb_y": 458,
+    "climb_px": 99,
+    "angles": ["$F4", "$0A", "$40", "$16"],
+    "verdict": "THE CLIMB STARTS. $0A is one of the ramp's authored angles ($02 $06 $0A $0C), so he is demonstrably on the new surface. Peaks at y458 then loses momentum and slides back."
+  },
+  "leftward_FAIR_RUN_UP": {
+    "_why": "the first leftward start was on a slope while the rightward control got a flat run-up. This gives leftward the same.",
+    "start": "x1350, settled to y557 y_vel 0 angle $00 — flat, plane A, gsp -$600 sustained held left",
+    "max_climb_y": 454,
+    "climb_px": 103,
+    "angles": ["$40", "$36"],
+    "verdict": "CLIMBS, DOES NOT CREST. Peaks at y454 and slides back."
+  },
+  "the_gap": {
+    "rightward_apex": 430,
+    "leftward_apex": 454,
+    "shortfall_px": 24,
+    "meaning": "the ramp fixed the thing it was built to fix — leftward went from DEAD FLAT at y557 with no arc contact at all, to 103px of genuine climb on authored angles. It does not by itself complete a leftward circuit at $600.",
+    "_not_diagnosed": "why the 24px. Candidates I have NOT separated: the left ramp is shallower by design (16px over 56px of run) so preserves less speed; the left arc may be steeper above the join; or $600 is simply under the leftward threshold where it is over the rightward one. I am not guessing between them."
+  },
+  "_still_open": "the leftward rule comparison (both crossover rules, leftward from a grounded start) now has a floor to run on for the first time tonight, which is what it never had."
+}
