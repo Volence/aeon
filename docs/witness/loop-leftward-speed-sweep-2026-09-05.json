@@ -1,0 +1,19 @@
+{
+  "_headline": "SPEED IS NOT THE LIMITER. Three speeds, ONE PIXEL of spread. The 24px shortfall is geometric, and the peak angles say where.",
+  "_build": "master + ramp, s4.debug.bin 845638",
+  "_protocol": "identical: grounded-asserted at x1350 (settles y557, y_vel 0, angle $00, plane A), gsp set, sustained held LEFT. Max climb = minimum y.",
+  "sweep": [
+    {"gsp": "$600", "max_climb_y": 454, "climb_px": 103, "peak_angle": "$36", "angles_seen": ["$40", "$36"]},
+    {"gsp": "$700", "max_climb_y": 453, "climb_px": 104, "peak_angle": "$32", "angles_seen": ["$1C", "$40", "$32"]},
+    {"gsp": "$800", "max_climb_y": 454, "climb_px": 103, "peak_angle": "$38", "angles_seen": ["$40", "$38"]}
+  ],
+  "control_rightward": {"gsp": "$600", "max_climb_y": 430, "climb_px": 127, "peak_angle": "$A0"},
+  "the_finding": {
+    "speed_independence": "453 / 454 / 454 across $600, $700, $800. A 33% speed increase buys ONE PIXEL. Momentum is not what stops him.",
+    "where_he_stops": "peak angles cluster $32-$40. $40 is VERTICAL. So the leftward climb dies at or just before the vertical section of the left arc.",
+    "the_control_says_it_is_passable": "rightward peaks at angle $A0 — PAST vertical, into the inverted run. The same player at the same speed gets beyond vertical on the right arc and cannot on the left.",
+    "therefore": "the left arc between the ramp's join and vertical is where the difference lives. Whether that is the ramp's slope, a discontinuity at the join, or the arc's own fit above it, is aurora's to read from the bytes — this measurement narrows it to that span and to the approach to $40, without anyone guessing."
+  },
+  "_no_speed_completes": "none of $600/$700/$800 completes a leftward circuit, so per the ruling I am stopping here and handing the angles to aurora rather than proceeding to the rule comparison, which still has no completing leftward circuit to run on.",
+  "_owner_window": "still closed (no oracle_gui process). Nothing reloaded, nothing launched."
+}
