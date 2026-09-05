@@ -25301,6 +25301,28 @@ STE; or the halving has a different origin entirely.
 **What IS safe to say to the owner: the floor's colours are correct in CRAM, so this is a
 rendering or compositing question, not an art or palette one.** Nothing needs repainting.
 
+**4. AURORA'S ARITHMETIC NARROWS IT FURTHER, and it is checkable in a minute: 18/54/91/127
+are NOT rungs on the MD ladder at all** (0 36 72 109 145 182 218 255), and each is exactly
+half of rungs 1/3/5/7. **No CRAM entry can hold them, on any palette line, however written** —
+so the whole family of "the floor draws from a wrong palette line" is excluded, because a
+wrong line would still yield LEGAL levels, just wrong ones. **The halving is downstream of
+CRAM and nothing Aurora paints can cause or fix it.**
+
+**5. And full-level pixels coexisting in the same frame exclude a global capture transform** —
+a gamma or screenshot step would halve everything. Whatever halves is **per-pixel, inside the
+renderer's per-pixel path.** That is the one instrument-fault family this symptom has already
+ruled out.
+
+**6. NO RASTER PROGRAM WRITES REG `$0C`.** Scanned `OJZ_BaseSwap`, `OJZ_BandDemo`,
+`OJZ_TestGradient` and `Raster_Patch_Tab` for `$8Cxx` words within their real lengths: none.
+So a mid-frame STE enable by a raster program is excluded too.
+
+**7. ⚠ THE CONTROL THAT BOUNDS IT: earlier captures of the same ROM family are 0% off-ladder.**
+`owner_screen.png`, `now.png` and `crash.png` contain **only legal MD levels**. The two
+captures that carry 18/54/91/127 are the loop ride (14.8% of channels) and the floor scene
+(34.2%). **So this is not universal to the renderer or to the capture path** — it appears in
+some frames and not others of the same build.
+
 **Next step is a question for oracle** (does its renderer apply shadow with STE clear?) or a
 direct read of the live VDP register rather than the shadow copy. **Deliberately NOT booked
 with a mechanism attached** — five mechanisms were published and killed by controls tonight,
