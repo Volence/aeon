@@ -75,11 +75,15 @@ in this parcel's report. The arms and their mutations:
 and, on docs/EFFECTS_LAB.md, four more against the page arm — rename an entry, drop a
 row, misnumber a row, rename the section heading — each caught by
 test_the_effects_lab_page_lists_the_same_words alone. Eleven source mutations and four
-page mutations; every one of the eleven arms went red at least once, and the file's
-sha256 was restored after each.
+page mutations; and two more against the tag-width arm (narrow `debug_lab_name`'s VRAM
+run in vram.toml; mis-pack `.tag_frame_4`'s VDP size nibble), each caught by
+test_the_name_tag_is_as_wide_as_its_vram_run_and_its_sprite_piece alone. Every one of
+the twelve arms went red at least once, and every mutated file's sha256 was restored
+after each.
 """
 
 import re
+import tomllib
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -87,6 +91,7 @@ LAB = REPO / "games/sonic4/test/ojz_scroll_test.emp"
 REGISTRY = REPO / "games/sonic4/data/effects/scene_registry.emp"
 ACT = REPO / "games/sonic4/data/levels/ojz/act1/act_descriptor.emp"
 PAGE = REPO / "docs/EFFECTS_LAB.md"
+VRAM_TOML = REPO / "games/sonic4/vram.toml"
 
 _PLAIN_CONST = re.compile(r"^\s*(?:pub\s+)?const\s+(\w+)\s*=\s*(\d+)\s*(?://.*)?$", re.M)
 # `const LAB_RASTER_OFF = RASTER_CYCLE_COUNT` / `const RTAG_NONE = RASTER_CYCLE_COUNT + 1`
@@ -598,4 +603,56 @@ def test_the_effects_lab_page_lists_the_same_words():
         f"{PAGE.name} and `.lab_index` disagree: " + "; ".join(wrong) +
         ". Fix the page in the same commit as the table — an entry name is the unit the "
         "owner relays to an agent, so a stale page is a wrong answer on both ends."
+    )
+
+
+def test_the_name_tag_is_as_wide_as_its_vram_run_and_its_sprite_piece():
+    """One number, said in three places: the letters, the VRAM run, the VDP size nibble.
+
+    A multi-cell VDP sprite piece reads CONSECUTIVE tiles from its base, so a tag wider
+    than the region it draws from paints the first tiles of whatever follows as letters,
+    and a size nibble narrower than the name silently drops its last letters. Neither
+    fails a build. tools/test_tier_tag_tables.py holds this for the two TIER tags; this
+    arm holds it for the entry name tag, which is a third tag of the same construction
+    and was not covered by anything when it landed.
+    """
+    cells = const("LAB_NAME_CELLS")
+
+    if not VRAM_TOML.is_file():
+        raise AssertionError(
+            f"{VRAM_TOML} does not exist — this arm cannot check the tag's cell count "
+            "against the VRAM run it draws from, and must not pass without doing so."
+        )
+    with VRAM_TOML.open("rb") as fh:
+        regions = {r["name"]: r for r in tomllib.load(fh).get("region", [])}
+    region = regions.get("debug_lab_name")
+    assert region is not None, (
+        f"{VRAM_TOML.name}: no region named `debug_lab_name`. The entry name tag draws "
+        "its cells from that run; without it declared, the tag's tiles belong to nobody "
+        "and the next region to need space will take them."
+    )
+    assert region["tiles"] == cells, (
+        f"{VRAM_TOML.name}: region `debug_lab_name` declares {region['tiles']} tile(s) "
+        f"but LAB_NAME_CELLS is {cells}. A multi-cell VDP sprite piece reads CONSECUTIVE "
+        f"tiles from its base, so a tag wider than its run draws the first tiles of "
+        f"whatever follows tile {region['base'] + region['tiles']} as letters."
+    )
+
+    # The frame the tag draws with, and the VDP packing engine/objects/mapping_dsl.emp
+    # pins with its own non-square `ensure`: (w-1) in bits 3:2, (h-1) in bits 1:0. This
+    # tag is one cell tall. The frame is named by DEBUG_TAG_FRAME_4, whose value IS the
+    # frame index; the record it selects is `.tag_frame_4`.
+    frame = _block("tag_frame_4")
+    size_bytes = re.findall(r"^\s*dc\.b\s+\$([0-9A-Fa-f]{2})\s*,", frame, re.M)
+    assert len(size_bytes) == 1, (
+        f"{LAB.name}: expected exactly one `dc.b $XX, <link>` size line in "
+        f"`.tag_frame_4`, found {len(size_bytes)}. This arm cannot check a piece width it "
+        "cannot find, and must not pass without checking it."
+    )
+    expected = (cells - 1) << 2
+    assert int(size_bytes[0], 16) == expected, (
+        f"{LAB.name}: `.tag_frame_4` packs size byte ${size_bytes[0].upper()}, but "
+        f"{cells} cells wide x 1 tall is ${expected:02X}. A size byte that disagrees with "
+        "the name width draws the wrong number of tiles — too few and the last letters "
+        "vanish, too many and it reads into the next VRAM region."
     )
