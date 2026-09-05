@@ -9,7 +9,8 @@ things that are already in this tree, and from nothing else:
      CLI defaults are built from. So the boards you see are the boards that tool
      would bake, not an artist's impression of them — and not, as they were until
      2026-09-05, a set of parameters this file had copied and the bake had since
-     moved off (it was still drawing `lod_px 20, sym 2, shade 3.2/2.7`).
+     moved off (it was, that morning, still drawing `sym 2, shade 3.2/2.7`
+     from a fan the bake had already replaced twice).
   2. THE SCROLL — tools/curve_probe.py's `derive_curve_buffer()`, which is the
      transcription of the engine's own per-line Bresenham ramp
      (engine/level/parallax.emp `.lp_curve`, and Step 4a's step/rem/span hoist).
@@ -56,6 +57,11 @@ import curve_probe as cp
 # assert below is the drift guard: these are the only three this tool uses.
 FACTOR_0 = 0x0FF
 FACTOR_1 = 0x0F0
+# The scene's curve END factor. It is FACTOR_1_4 since 2026-09-05: the fan is
+# drawn once into a 512-px wrapping plane and the near row may slide only
+# PLANE_W - SCREEN_W = 192 px before the wrap's next apex reaches the screen, so
+# the clean camera range is 192/F. See ojz_scenes.emp's comment on that layer.
+FACTOR_1_4 = (15 << 4) | 2
 
 SCREEN_W = 320
 SCREEN_H = 224
@@ -100,12 +106,14 @@ def hscroll(cam_x):
 
     Layer set: everything above HORIZON_LINE locked (FACTOR_0, no curve); the
     floor layer from HORIZON_LINE to line 223 with `fb: FACTOR_0, curve:
-    To(FACTOR_1)`.
+    To(FACTOR_1_4)` — the factor the scene authors, NOT FACTOR_1, which it
+    carried until 2026-09-05 and which limits the fan to 192 px of camera
+    travel.
     That is the authored shape the report recommends, spelled as curve_probe
     takes it: (top, fa, fb, curve_to).
     """
     layers = [(0, FACTOR_1, FACTOR_0, None),
-              (HORIZON_LINE, FACTOR_1, FACTOR_0, FACTOR_1)]
+              (HORIZON_LINE, FACTOR_1, FACTOR_0, FACTOR_1_4)]
     buf = cp.derive_curve_buffer(layers, cam_x)
     return [cp.php.s16(buf[y][1]) for y in range(cp.php.HSCROLL_LINES)]
 
@@ -165,7 +173,7 @@ def write_png(panels, labels, path):
 def ascii_figure(cams):
     """The per-line HScroll ramp, as text. Pure arithmetic, no art."""
     print("Plane-B HScroll word per screen line "
-          "(fb: FACTOR_0 at the horizon, line %d; curve: To(FACTOR_1) at line 223)"
+          "(fb: FACTOR_0 at the horizon, line %d; curve: To(FACTOR_1_4) at line 223)"
           % HORIZON_LINE)
     print("Values from curve_probe.derive_curve_buffer() = the engine's own ramp.\n")
     hs = {c: hscroll(c) for c in cams}
@@ -193,7 +201,8 @@ def main():
                     help="camera X positions to render, comma-separated")
     args = ap.parse_args()
 
-    assert FACTOR_0 == 0x0FF and FACTOR_1 == 0x0F0, "FACTOR_* mirror drifted"
+    assert FACTOR_0 == 0x0FF and FACTOR_1 == 0x0F0 and FACTOR_1_4 == 0xF2, \
+        "FACTOR_* mirror drifted"
     cams = [int(c) for c in args.cams.split(",")]
 
     if args.ascii or not args.out:
