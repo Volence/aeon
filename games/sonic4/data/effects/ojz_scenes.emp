@@ -845,7 +845,22 @@ pub const Scene_Perspective_Floor: Scene = scene(
     layers: perspective_floor_layers(),
     count: 5, v_factor: 15, v_center: 0, v_offset: 288,
     deform_bg: SceneDeform.Shared(DeformTable_Shimmer, 1),
-    v_deform: SceneVDeform.ScreenFloor(DeformTable_Perspective, 2, 2),
+    // lean_gain 2 -> 0 (2026-09-05, HIS CALL, casting F3's ballot). His words:
+    // "That floor perspective is cool to start but sort of loses its positioning
+    // after a little bit of moving, see how it's like staying pointed to the left
+    // of the screen instead of center?" -- gain 2 leans the apex with travel, which
+    // is exactly the drift he is describing. 0 PINS it at screen centre for every
+    // camera x, so the floor slides UNDER a fixed convergence.
+    //
+    // This is the reading Batman & Robin ships: it does NOT move its per-column
+    // vanishing point, pinning the fan at word index 10 of 20 (dead screen middle,
+    // code/effects/effects.asm:8288) and moving the per-column AMPLITUDE with the
+    // camera instead. F3 shipped 13/14/15 as a ballot precisely because his sentence
+    // had two readings and no reference settled it. He has now settled it.
+    //
+    // Scenes 13/14/15 are UNTOUCHED, so the ballot survives and this is reversible
+    // by one digit.
+    v_deform: SceneVDeform.ScreenFloor(DeformTable_Perspective, 0, 2),
     left_column_mask: SceneLeftColMask.DeclineBorrow)   // registry 20
 
 // =====================================================================
