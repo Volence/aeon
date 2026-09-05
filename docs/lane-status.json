@@ -67,9 +67,16 @@
       "state": "open",
       "size": "M",
       "blockedBy": null
+    },
+    {
+      "id": "CR-Q-REVIEW",
+      "title": "Review oracle's machineReplaced event -- named reviewer, needs a state load I may not be able to trigger",
+      "state": "open",
+      "size": "S",
+      "blockedBy": "a keyed save-state load; no key-injection exists here (Wayland, no tooling)"
     }
   ],
   "awaiting": "which floor option: the free one that slows the scroll, or spending tiles",
   "atBoundary": false,
-  "updatedAt": "2026-09-05T21:38:03Z"
+  "updatedAt": "2026-09-05T21:41:16Z"
 }
