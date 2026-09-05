@@ -1,0 +1,17 @@
+{
+  "_headline": "NO BUILD BROKE THE CLIMB. All four climb identically. The variable was MY DRIVE DIRECTION, and my 'the arcs never engage in either direction' was an over-generalisation from a leftward-only run.",
+  "_protocol": "identical every time: grounded-asserted at x1000 (settles to y557, y_vel 0, engine row 34, plane A), then gsp +$600 with sustained held RIGHT. Max climb = minimum y reached.",
+  "results": [
+    {"build": "e59c5a99", "rom": 845147, "at_frame_350": {"x": 1167, "y": 553, "angle": "$FA"}, "at_frame_380": {"x": 1192, "y": 429, "angle": "$A0"}, "at_frame_410": {"x": 1054, "y": 449, "angle": "$9E"}, "max_climb_y": 429, "climb_px": 128, "verdict": "FULL CIRCUIT — up the right arc, over the crown, down the left"},
+    {"build": "26750443 (ground fill + east extension)", "rom": 845594, "at_frame_350": {"x": 1167, "y": 553, "angle": "$FA"}, "at_frame_380": {"x": 1192, "y": 429, "angle": "$A0"}, "max_climb_y": 429, "climb_px": 128, "verdict": "IDENTICAL to e59c5a99"},
+    {"build": "97d7851a (532-cell plane fill)", "rom": 845594, "at_frame_380": {"x": 1192, "y": 429, "angle": "$A0"}, "max_climb_y": 429, "climb_px": 128, "verdict": "IDENTICAL"},
+    {"build": "master e99b9d54 (direction gate + floor fan + chords)", "rom": 845638, "at_frame_380": {"x": 1192, "y": 429, "angle": "$A0"}, "max_climb_y": 429, "climb_px": 128, "verdict": "IDENTICAL — the loop is NOT broken on master"}
+  ],
+  "_correction": {
+    "my_claim": "'the arcs do not pick up a ground-level runner in either direction' (f478fe25) and 'stop testing crossover rules until a drive climbs'.",
+    "what_is_true": "RIGHTWARD climbs on every build including master, to the same pixel and the same angle. Only LEFTWARD does not climb. I measured one direction and wrote 'either direction'.",
+    "why_leftward_not_climbing_is_EXPECTED": "travelling west, the first arc met is the RIGHT arc, solid only on plane B. On plane A without a crossing there is nothing to climb. That is the hub's original geometry, and it means leftward non-climb is a CONSEQUENCE of the crossover question rather than evidence about it."
+  },
+  "_what_this_re_opens": "the crossover comparison is live again and was never invalidated by a broken loop. Under the direction rule leftward correctly refuses TO_B and therefore cannot climb; under the plane-keyed rule it should cross at the bottom mark and climb the right arc on B. That comparison now needs re-running from a VALID grounded start (x1200), which my earlier x1600 attempt was not.",
+  "_owed": "aurora's boundary prediction (ground holds to x1279, fails from x1280, because the block/map layer never placed cols 160+) is UNTESTED. Two drives."
+}
