@@ -25209,8 +25209,27 @@ drive at that speed cannot reveal the hazard, because it is the speed the hazard
 | injected gsp | px/frame | layer flips | outcome |
 |---|---|---|---|
 | `$600` TOP_SPEED | 6 | **3** | rides the loop, 132 px climbed, max x 1221 |
-| `$900` | 9 | **0** | stuck on plane B, blew past to x 2985, climbed 13 px |
+| `$900` | 9 | 0 in-window | **rides the geometry, SKIPS THE TOP MARK, then falls through** (below) |
 | `$1000` GSP_CAP | 16 | **0** | mark never fired at all, straight through to x 2696 |
+
+**⚠ THE `$900` ROW ABOVE WAS UNDER-SAMPLED IN MY FIRST CONTROL, and the denser run tells a
+worse and more specific story than "the mark is skipped".** At 9 px/frame, sampled every 8
+frames:
+
+```
+  8  x1168 y553 layer 1   bottom mark fired
+ 16  x1229 y505 layer 1   up the right half
+ 32  x1175 y418 layer 1   over the top -- TOP MARK NOT TAKEN, still layer 1
+ 48  x1065 y422 layer 1   down the LEFT half, still on plane B
+ 80  x1064 y557 layer 1   back on the ground, still on the wrong plane
+112  x1151 y557 layer 0   takes the BOTTOM mark again on the way through
+  + release input, 120 frames -> (1450, 1416): FALLS THROUGH THE LEVEL
+```
+
+**So the geometry carries him round either way. What fails is the TOP hand-off: he descends
+the left half on plane B, which does not own it, and ends on a plane whose ground runs out.**
+The visible symptom is not "he misses the loop" — it is **falling through the floor some
+distance later**, which is far harder to trace back to a loop.
 
 **Above ~8 px/frame the marks are skipped and the loop silently stops being a loop.**
 `PHYS_GSP_CAP` permits 16 px/frame, and a loop is the one place in a level where rolling and
