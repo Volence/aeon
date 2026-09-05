@@ -2,23 +2,17 @@
   "id": "ojz_act1_sec7_worldwater",
   "layers": [
     {
-      "fa": "FACTOR_1_8",
+      "fa": "FACTOR_1",
       "fb": "FACTOR_1_8",
       "world_y": 0
     },
     {
-      "curve": {
-        "to": "FACTOR_1_4"
-      },
       "fa": "FACTOR_1",
       "fb": "FACTOR_1_2",
-      "world_y": 3
+      "world_y": 40
     },
     {
-      "curve": {
-        "to": "FACTOR_1_8"
-      },
-      "fa": "FACTOR_3_4",
+      "fa": "FACTOR_1",
       "fb": "FACTOR_1_2",
       "vsplit": {
         "at": 67
@@ -27,5 +21,6 @@
     }
   ],
   "schema": 1,
-  "v_factor": 15
+  "v_factor": 15,
+  "v_offset": 288
 }

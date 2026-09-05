@@ -91,9 +91,9 @@ pub const Scene_Editor_ojz_act1_floor: Scene = scene(
     transition: TRANS_INSTANT)
 
 pub const Scene_Editor_ojz_act1_sec7_worldwater: Scene = scene(
-    layers: [ layer(world_y: 0, fa: FACTOR_1_8, fb: FACTOR_1_8),
-              layer(world_y: 3, fa: FACTOR_1, fb: FACTOR_1_2, curve: SceneCurve.To(FACTOR_1_4)),
-              layer(world_y: 162, fa: FACTOR_3_4, fb: FACTOR_1_2, curve: SceneCurve.To(FACTOR_1_8), vsplit: SceneVSplit.At(67)),
+    layers: [ layer(world_y: 0, fa: FACTOR_1, fb: FACTOR_1_8),
+              layer(world_y: 40, fa: FACTOR_1, fb: FACTOR_1_2),
+              layer(world_y: 162, fa: FACTOR_1, fb: FACTOR_1_2, vsplit: SceneVSplit.At(67)),
               no_layer(),
               no_layer(),
               no_layer(),
@@ -108,7 +108,8 @@ pub const Scene_Editor_ojz_act1_sec7_worldwater: Scene = scene(
               no_layer(),
               no_layer() ],
     count: 3,
-    v_factor: 15)
+    v_factor: 15,
+    v_offset: 288)
 
 pub const Scene_Editor_ojz_act1_start: Scene = scene(
     layers: [ layer(world_y: 0, fa: FACTOR_1, fb: FACTOR_1_16, dsa: 15, dsb: 15),
