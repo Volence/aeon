@@ -28,10 +28,12 @@ They are cheap and boot nothing: build.sh's pytest lane sweeps tools/test_*.py.
 import json
 import os
 import re
+import struct
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import perspective_floor_gen as pfg
+import inject_editor_bg as ieb
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OVERRIDE = os.path.join(REPO, "games/sonic4/data/editor_bg_override.json")
@@ -201,6 +203,70 @@ def estimate_skew(rows_seams, period, tol=1.2):
                 best = (hits, k, phase)
         k += 0.01
     return best
+
+
+def baked_band_pixels():
+    """The floor band as the BAKE left it, decoded out of the two files the ROM embeds.
+
+    NOT the same source as override_band_pixels(). That one reads the editor JSON;
+    this one reads games/sonic4/data/generated/<zone>/<act>/zone_bg.bin and
+    bg_tiles.bin, which is what `embed(...)` puts in the ROM. Three things differ
+    between the two representations and every one of them is a place a bake can go
+    wrong silently:
+
+      * the nametable is COLUMN-MAJOR (`blob[col * 64 + row]`), transposed by
+        inject_editor_bg.py at the editor->engine boundary, while the JSON layout is
+        row-major;
+      * tile indices are VRAM-ABSOLUTE (blob-local + BG_TILE_BASE_SLOT);
+      * the tile blob is packed 4bpp behind a big-endian byte-length header.
+
+    The paths are DERIVED through inject_editor_bg.act_names(), the same reader the
+    emitter uses, so renaming the act moves this arm with it instead of leaving it
+    reading a file nothing embeds.
+    """
+    act = ieb.act_names(repo=REPO)
+    out_dir = act.out_dir(REPO)
+    with open(os.path.join(out_dir, "zone_bg.bin"), "rb") as fh:
+        nt = fh.read()
+    with open(os.path.join(out_dir, "bg_tiles.bin"), "rb") as fh:
+        blob = fh.read()
+    cols = rows = pfg.PLANE_COLS
+    assert len(nt) == cols * rows * 2, (
+        "%s/zone_bg.bin is %d bytes, not the %d a %dx%d nametable of words is"
+        % (out_dir, len(nt), cols * rows * 2, cols, rows))
+    body_len = struct.unpack(">H", blob[:2])[0]
+    assert body_len == len(blob) - 2 and body_len % 32 == 0, (
+        "%s/bg_tiles.bin declares %d body bytes behind its header but carries %d, "
+        "or the body is not a whole number of 32-byte tiles" % (out_dir, body_len, len(blob) - 2))
+    body = blob[2:]
+
+    def tile(i):
+        packed = body[i * 32:(i + 1) * 32]
+        out = []
+        for byte in packed:
+            out.append(byte >> 4)
+            out.append(byte & 0xF)
+        return out
+
+    s = pfg.SHIPPED
+    out = []
+    for cy in range(s["row0"], s["row1"] + 1):
+        for iy in range(8):
+            line = []
+            for cx in range(cols):
+                w = struct.unpack_from(">H", nt, (cx * rows + cy) * 2)[0]
+                idx = (w & 0x7FF) - ieb.BG_TILE_BASE_SLOT
+                assert 0 <= idx * 32 < len(body), (
+                    "baked cell (col %d, row %d) addresses VRAM tile %d, which is "
+                    "outside the %d-tile blob once BG_TILE_BASE_SLOT (%d) is taken off"
+                    % (cx, cy, w & 0x7FF, len(body) // 32, ieb.BG_TILE_BASE_SLOT))
+                t = tile(idx)
+                sy = 7 - iy if (w >> 12) & 1 else iy
+                for ix in range(8):
+                    sx = 7 - ix if (w >> 11) & 1 else ix
+                    line.append(t[sy * 8 + sx])
+            out.append(line)
+    return out
 
 
 def override_band_pixels():
@@ -421,6 +487,48 @@ def test_committed_override_carries_the_generated_band():
             % (pfg.SHIPPED["row0"] * 8 + i, pfg.SHIPPED["row0"] + i // 8))
 
 
+def test_baked_plane_b_carries_the_generated_band():
+    """THE LAST LINK, and the one the arm above only CLAIMED to hold.
+
+    test_committed_override_carries_the_generated_band's docstring opens "The ROM's
+    art must BE the generator's art" and then reads editor_bg_override.json, which is
+    the editor SOURCE. Nothing in this file had ever opened the two binaries the ROM
+    actually embeds. The chain the picture depends on has two links:
+
+        SHIPPED --(perspective_floor_gen.py)--> editor_bg_override.json
+                --(inject_editor_bg.py)-------> zone_bg.bin + bg_tiles.bin --> ROM
+
+    The first link is gated above. The second was gated only INDIRECTLY, by
+    tools/level_staleness.py arm B, which hashes the editor sources and fails the
+    build when they move without a re-stamp. That answers "were the inputs re-baked",
+    never "did the bake produce this picture" — a transposition or base-slot fault in
+    the emitter leaves every existing gate green, and the blob length cannot see it
+    either, because the floor recycles its own slots and 320 stays 320.
+
+    THIS COSTS THE SAME MEASUREMENT EVERY TIME AND IT IS WORTH SAYING WHY. On
+    2026-09-05 the owner reported the floor still reading as two floors with a kink,
+    against a tree where all three links were already correct — diagnosing it meant
+    hand-decoding these two files at the terminal to prove the ROM's payload WAS the
+    shear. That decode belongs in the suite, where it answers the question in one
+    exit code instead of in a transcript.
+
+    Voted off pixels, like every other arm here: it compares decoded 8x8 pixel rows,
+    not tile indices, so a re-dedup that reshuffles slots and flips is invisible to it
+    and only a changed PICTURE is a failure.
+    """
+    px, rows, _, _ = pfg.shipped_band()
+    got = baked_band_pixels()
+    assert len(got) == len(px) == len(rows) * 8
+    for i, (a, b) in enumerate(zip(px, got)):
+        assert a == b, (
+            "plane pixel row %d (cell row %d) of the BAKED plane-B band is not what "
+            "tools/perspective_floor_gen.py renders today: the ROM would carry a "
+            "different floor from the one every other arm in this file measures. "
+            "Re-run `python3 tools/perspective_floor_gen.py && "
+            "./tools/regenerate-level.sh`."
+            % (pfg.SHIPPED["row0"] * 8 + i, pfg.SHIPPED["row0"] + i // 8))
+
+
 def test_scene_curve_band_matches_the_art_band():
     """THE CROSS-FILE SEAM, and the one nothing could see.
 
@@ -491,5 +599,6 @@ def test_scene_curve_band_matches_the_art_band():
 if __name__ == "__main__":
     test_drawn_planks_are_one_translation_tiled_lattice()
     test_committed_override_carries_the_generated_band()
+    test_baked_plane_b_carries_the_generated_band()
     test_scene_curve_band_matches_the_art_band()
-    print("perspective floor: all three checks pass")
+    print("perspective floor: all four checks pass")
