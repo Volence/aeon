@@ -26041,6 +26041,21 @@ Measured in the real shell, `grep -rl 'Draw_Sprite' . --include='*.lst'`:
 It fails by returning a smaller result with no error, so a partial count reads as a real one and
 watching for a suspicious *empty* result will not catch it.
 
+**AND `git check-ignore` DOES NOT PREDICT WHAT `grep` WILL SEE.** ugrep matches the .gitignore
+PATTERNS; git exempts a file that is TRACKED even when a pattern matches it. Isolated in a scratch
+repo (`.gitignore` = `*.log`, `tracked.log` force-added and committed, `untracked.log` left alone):
+
+    git check-ignore tracked.log   -> NO, not ignored
+    shell-function grep -rl        -> plain.txt only
+    command grep -rl               -> plain.txt, tracked.log, untracked.log
+
+So a file can be **tracked, committed, visible in `git status`, and still invisible to recursive
+`grep`.** This tree carries 14 such files today (all `.bin`, matched by the `*.bin` pattern and
+force-added), and they are additionally hidden by ugrep's `-I` binary skip, so the two causes
+overlap there. No `.emp` or `.py` is currently affected, which is why the VSPLIT-NO-OP consumer
+audit stood - though that was settled by comparing the two greps, which is the method that does
+not depend on knowing any of this.
+
 **THIS ENTRY WAS RETRACTED FOR ABOUT AN HOUR, AND THE RETRACTION IS THE MORE USEFUL RECORD.**
 Having written the claim, this lane "tested" it by running the two greps through
 `subprocess.run(..., executable='/bin/bash')`. **Inside `bash -c`, `grep` resolves to
