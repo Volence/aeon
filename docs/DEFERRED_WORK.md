@@ -26206,6 +26206,26 @@ Each excluded something real and was reported as excluding more. **This lane acc
 WITHDREW a correct prediction on it** - withdrawing on a null instrument is the same error as
 concluding on one, and it feels like rigour rather than overreach, which is why it is worse.
 
+**OUR GAIN IS LINEAR IN CAMERA X, MEASURED ON THE RUNNING ROM AT THREE POSITIONS:**
+
+    camera  736   k = -1.282 px/row    camX/|k| = 574.1
+    camera 1216   k = -2.113 px/row    camX/|k| = 575.5
+    camera 1856   k = -3.225 px/row    camX/|k| = 575.5
+
+So `k = camX / 575.5`, linear through the origin, and our floor is screen-anchored by the same
+signature oracle measured on Toy Story (their k moved -0.043 to -0.319 between camera positions;
+a painted fan requires k = 0). It also confirms the parcel's derived formula against the running
+ROM rather than on paper: `shear = camX * F / 72` with `F` the curve end factor predicts
+`camX/|k| = 72/F = 576.0` at `FACTOR_1_8`, against **575.5 measured**.
+
+**CONSEQUENCE: "theirs is about half our gain" IS NOT A COMPARISON.** If both gains are linear in
+camera x then k depends on WHERE THE CAMERA IS, and comparing our k at camera 736 against theirs
+at an unstated camera compares two points on two different lines. The comparable quantity is the
+SLOPE `dk/dcamX`, equivalently the constant `camX/|k|`. Ours is 575.5; theirs needs their camera
+x, which has not been published. Do not substitute their 96 px PLANE displacement for a camera
+displacement: a plane B movement is not a camera movement unless plane B tracks 1:1, and that
+substitution is the same class of error that cost this thread three instruments.
+
 **The quantity to measure is the APEX, or the table's per-row deltas directly**: `k = ds/dy` IS
 the added lean, so the deltas do not merely answer whether a correction exists, they measure it,
 and it can be checked independently against the apex offset in the drawn pixels. Ours reads -1
