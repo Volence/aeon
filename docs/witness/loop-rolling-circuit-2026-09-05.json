@@ -1,0 +1,30 @@
+{
+  "_headline": "The row-35 twin WORKS — rolling now crosses and climbs. The circuit still does NOT complete: he loses surface contact after the crown and reaches the apex mark's column ~100px below it. Booked and parked per the one-parcel ruling.",
+  "_build": "master 962400e8, s4.debug.bin 845638, CrossoverTable 3 marked, gate exit 0",
+  "rolling_circuit": {
+    "setup": "grounded-asserted x1000 (y557, y_vel 0, plane A), gsp +$600, DOWN held",
+    "samples": [
+      {"frame": 360, "x": 1211, "y": 535, "angle": "$EC", "layer": 1, "note": "CROSSED and CLIMBING — the row-35 twin fired. Before the twin this run was dead flat at y562 through the whole footprint."},
+      {"frame": 390, "x": 1204, "y": 435, "angle": "$A0", "layer": 1, "note": "crown reached"},
+      {"frame": 430, "x": 1141, "y": 550, "angle": "$E8", "layer": 1, "y_vel": 1904, "note": "FALLING FAST on plane B over the left half, where nothing is solid"}
+    ],
+    "verdict_fixed": "the bottom half of the defect is fixed. Rolling crosses to plane B and rides the right arc, which it could not do at all before.",
+    "verdict_open": "the circuit does not complete. He crests, loses contact, and falls."
+  },
+  "why_the_apex_mark_does_not_save_him": {
+    "crest": {"x": 1204, "y": 435, "engine_row": 27},
+    "apex_mark_column": "col 143 = x1144-1151",
+    "y_when_he_reaches_that_column": "~537 by interpolation between the frame-390 and frame-430 samples (x1204/y435 -> x1141/y550)",
+    "engine_row_there": 33,
+    "consequence": "he is ~100px below the apex mark by the time he reaches its column, so no toggle back to plane A, so he descends the left half on B where the arc is not solid. That is the clip.",
+    "_this_is_an_interpolation": "the y at col 143 is derived between two samples, not measured at that x. The direction is not in doubt (he is falling at 7.4px/frame) but the exact row is not a measurement."
+  },
+  "AURORA_S_APEX_DERIVATION_IS_REFUTED": {
+    "their_derivation": "standing crest y434 -> row 27; invert the 5px ball drop -> rolling crest y429 -> row 26; therefore build a row-26 twin",
+    "measured": "rolling crest y435 -> engine row 27 — the SAME row as standing, not one above",
+    "so": "the row-26 twin is harmless but UNNECESSARY. They asked explicitly to be told which it was, and flagged it as their arithmetic against my two observations. It was the weaker half and it did not survive.",
+    "note": "the 5px ball drop is a drop in SCREEN y at the bottom of the loop. Inverted at the crown the ball centre sits 5px LOWER on screen too (435 vs 430), not higher — the inversion flips the surface, not the sign of the centre offset in screen space. That is the step the derivation missed."
+  },
+  "_matches_his_capture_now": "his picture is a ball at the left arc's inner edge, mid-height, in CL_AIR. This run produces exactly that: plane B, left half, airborne, mid-height. The earlier repro (dead flat, never leaving the floor) did NOT match it; this one does.",
+  "_parked": "per the one-parcel ruling: the bottom half is fixed and landed; the crown-contact half is booked here and the loop is parked. Not diagnosed: whether the crown loses contact for a speed reason, a rolling-hitbox reason, or a seam in the fitted cells."
+}
