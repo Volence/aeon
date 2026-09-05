@@ -3,30 +3,66 @@
   "_build": "master + left-arc fit, c9a6fe8b, s4.debug.bin 845638",
   "drive_1_rightward_control": {
     "start": "grounded-asserted x1000, y557, plane A, gsp +$600 held",
-    "max_climb_y": 430, "angle": "$A0",
+    "max_climb_y": 430,
+    "angle": "$A0",
     "verdict": "HOLDS. Unchanged by the arc fit."
   },
   "drive_2_leftward_circuit": {
     "start": "x1200 placed, settles x1160 y554 angle $FA (the right foot), plane A, gsp -$600 sustained held left",
     "samples": [
-      {"frame": 652, "x": 1085, "y": 454, "angle": "$54", "note": "$54 is one of the NEWLY FITTED angles — past the old stall at 454, on the new span"},
-      {"frame": 672, "x": 1167, "y": 426, "angle": "$82", "note": "CROWN height, inverted, now travelling right"},
-      {"frame": 712, "x": 1279, "y": 557, "angle": "$00", "layer": 0, "note": "down and out, grounded"}
+      {
+        "frame": 652,
+        "x": 1085,
+        "y": 454,
+        "angle": "$54",
+        "note": "$54 is one of the NEWLY FITTED angles \u2014 past the old stall at 454, on the new span"
+      },
+      {
+        "frame": 672,
+        "x": 1167,
+        "y": 426,
+        "angle": "$82",
+        "note": "CROWN height, inverted, now travelling right"
+      },
+      {
+        "frame": 712,
+        "x": 1279,
+        "y": 557,
+        "angle": "$00",
+        "layer": 0,
+        "note": "down and out, grounded"
+      }
     ],
     "max_climb_y": 426,
     "climb_px": 131,
-    "angles": ["$FA", "$54", "$82", "$00"],
+    "angles": [
+      "$FA",
+      "$54",
+      "$82",
+      "$00"
+    ],
     "exit_plane": "A (layer 0)",
-    "verdict": "COMPLETES. Rides the left arc on plane A where it is solid, crests at y426, descends and exits grounded on plane A. This is invariant (a) satisfied leftward — the first time tonight any leftward run has done anything but run flat."
+    "verdict": "COMPLETES. Rides the left arc on plane A where it is solid, crests at y426, descends and exits grounded on plane A. This is invariant (a) satisfied leftward \u2014 the first time tonight any leftward run has done anything but run flat."
   },
   "drive_3_outer_face": {
-    "status": "NOT RUN — needs disambiguation, see below",
-    "why": "the ruling asks for 'a drive from the west against the outer left face that must not climb it'. But the rightward control IS a westward approach at ground level and it climbs to y430 BY DESIGN — that is the intended entry. So 'from the west against the outer face' must mean a different approach than the one already passing, and I am not going to invent which one and then report a pass against my own invention."
+    "status": "NOT RUN \u2014 needs disambiguation, see below",
+    "why": "the ruling asks for 'a drive from the west against the outer left face that must not climb it'. But the rightward control IS a westward approach at ground level and it climbs to y430 BY DESIGN \u2014 that is the intended entry. So 'from the west against the outer face' must mean a different approach than the one already passing, and I am not going to invent which one and then report a pass against my own invention."
   },
   "NEW_FINDING_eastern_approach_blocked": {
     "what": "from a grounded start at x1350 with gsp -$600 held, the player STOPS at x1258 (col 157), gsp 0, x_vel -12, y 557 constant. He never reaches the loop.",
     "why_it_matters": "the SAME start reached x1074 and climbed to y454 on the previous build (ac1f921a, ramp only). This is new since the left-arc fit.",
     "why_it_is_odd": "the fit touched cols 130-133. Col 157 is untouched by it. The candidate I have not verified is the content-addressed attr set renumbering, which regenerated angles/solidity/heightmaps wholesale.",
-    "_not_diagnosed": "I am reporting this as a measured regression candidate, not diagnosing it. It could also be that the x1350 approach never worked the way I remember and the earlier run differed in a way I have not isolated — that possibility has been the correct answer three times tonight."
+    "_not_diagnosed": "I am reporting this as a measured regression candidate, not diagnosing it. It could also be that the x1350 approach never worked the way I remember and the earlier run differed in a way I have not isolated \u2014 that possibility has been the correct answer three times tonight.",
+    "RETRACTED": {
+      "verdict": "NOT A REGRESSION. It was my own uncleaned state.",
+      "what_happened": "I placed x/y for the x1350 run but never reset Sst.layer, so the player carried PLANE B out of the preceding rightward control run, which crosses to B mid-circuit.",
+      "aurora_found_it_from_the_bytes": "cols 156-158 rows 68-71 are $0000 in BOTH revisions and plane A is air across cols 144-179 at rows 34/35 \u2014 so nothing on plane A can stop him there. The ONLY side-solid cell at that coordinate is PLANE B col 156-157 engine row 34, attr 62, solidity 3: the right arc's outer body, which stops a B player at x1256. My stop was x1258.",
+      "and_my_own_read_said_so": "the 48-byte read from that run has layer = 01 at idx43. I had it in hand and did not check it, because I was looking for a wall rather than at the state.",
+      "reverified": "same start, same speed, with Sst.layer explicitly cleared to 0: passes x1258, climbs at x1086/y459/$4C, and completes \u2014 exits x1289, y557, grounded, PLANE A.",
+      "so_the_circuit_completes_from_BOTH_leftward_starts": [
+        "x1200",
+        "x1350"
+      ]
+    }
   }
 }
