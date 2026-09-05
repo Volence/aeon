@@ -282,11 +282,21 @@ pub offsets Ani_Spring {
 }
 
 // -----------------------------------------------
-// The archetype. width/height are the FULL box (the AABB combines
+// The archetype. width/height are the FULL box in THIS engine (the AABB combines
 // player.width + target.width and halves the sum), so 16x16 is the spring's own
-// 16x16 footprint — the same box ObjDef_Solid declares, and the same 16px width
-// S3K's Obj_Spring_Up reaches through `move.w #$1B, d1` = its 16px width plus
-// Sonic's 11px radius (sonic3k.asm:47507, :47660).
+// 16x16 footprint — the box that matches its placeholder art, and the same box
+// ObjDef_Solid declares.
+//
+// IT IS NOT S3K'S BOX, and the two are easy to conflate because the engines mean
+// different things by the same field name. S3K's `width_pixels` is a HALF-width:
+// Obj_Spring writes $10 (sonic3k.asm:47507) and Obj_Spring_Up then passes
+// `move.w #$1B, d1` (:47660) = that 16 PLUS Sonic's own 11px half-width, so S3K's
+// vertical spring is 32 PX WIDE and 16 tall (its `move.w #8, d2` half-height,
+// :47661) — which matches its 4-tile-wide top plate in Map - Spring.asm. Ours is
+// 16 wide because its placeholder art is one 16x16 square. Raise `width` to 32 in
+// the same commit that gives the spring real 32px art: the box should follow the
+// art, not the reference's field name. (I had this backwards in the first draft
+// of this comment and caught it only by re-reading :47660 against the mapping.)
 //
 // y_vel IS THE LAUNCH STRENGTH — Touch_Spring reads it out of the spring and
 // writes it into the player. The spring itself never moves: nothing in

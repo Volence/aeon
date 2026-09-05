@@ -26552,6 +26552,15 @@ Also open, and cheap: the spring's three mapping frames are two colour squares a
 three offsets. Real art changes **three lines** in `Map_Spring` plus a `vram.toml`
 region and a regenerate.
 
+**And raise `width` to 32 in the same commit.** Our spring's box is 16x16 to match its
+16x16 placeholder square. S3K's vertical spring is **32 px wide** and 16 tall — its
+`width_pixels` is a HALF-width (`$10` at sonic3k.asm:47507, confirmed by
+`Obj_Spring_Up`'s `move.w #$1B, d1` at :47660 = 16 + Sonic's own 11), and its top plate
+is 4 tiles across. This engine's `width_pixels` is the FULL width, so the same spring
+wants `width: 32`. The box should follow the art rather than the reference's field name,
+which is why it is not raised now — a 32px hitbox on a 16px square is a spring that stops
+the player 8px short of touching it.
+
 ### SP-4 — the spring lives in test_solid.emp and wants its own module
 
 A new `.emp` module is a new SECTION, and an undeclared section head makes sigil's
