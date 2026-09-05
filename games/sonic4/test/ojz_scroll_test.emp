@@ -63,9 +63,10 @@ use engine.coords.{pixels_to_coord}
 // (config/constants.emp). VRAM_TEST_MARKER = VRAM_RING_PLACEHOLDER+16 =
 // VRAM_TEST_OBJ+$18. CHAR_COUNT is the roster length the DEBUG character-cycle
 // hotkey wraps at.
-// VRAM_DEBUG_READOUT — the two glyph cells (tiles 1020-1021) the DEBUG scene
-// readout repaints; declared in games/sonic4/vram.toml like every other region,
-// reserved in both shapes and written only in DEBUG.
+// VRAM_DEBUG_LAB_NAME — the FOUR glyph cells (tiles 1020-1023) the effects lab's
+// ENTRY NAME TAG repaints; VRAM_DEBUG_PRESET_READOUT — the two (957-958) the preset
+// section digit and verdict glyph sit in. Both declared in games/sonic4/vram.toml like
+// every other region, reserved in both shapes and written only in DEBUG.
 // VRAM_DEBUG_RASTER_TAG / VRAM_DEBUG_BGANIM_TAG — the two NAME TAG strips
 // (EFFECTS-W1 F4): four cells at tiles 1532-1535 for the live raster program's
 // name, three at 1501-1503 for the BG-animation table's. Same authority, same
@@ -77,7 +78,7 @@ use engine.coords.{pixels_to_coord}
 // omitting the two names below built the generated block correctly and failed
 // FOUR call sites with `a label is not a valid VramTile argument`, all inside
 // Debug_TierTags_Update and none of them naming the missing `use`.
-use games.sonic4.constants.{VRAM_TEST_OBJ, VRAM_TEST_MARKER, VRAM_DUST_PUFF, VRAM_RING_SPARKLE, CHEAT_DEBUG_FLY, CHAR_COUNT, PSTATE_AIR, VRAM_DEBUG_READOUT, VRAM_DEBUG_RASTER_TAG, VRAM_DEBUG_BGANIM_TAG}
+use games.sonic4.constants.{VRAM_TEST_OBJ, VRAM_TEST_MARKER, VRAM_DUST_PUFF, VRAM_RING_SPARKLE, CHEAT_DEBUG_FLY, CHAR_COUNT, PSTATE_AIR, VRAM_DEBUG_LAB_NAME, VRAM_DEBUG_PRESET_READOUT, VRAM_DEBUG_RASTER_TAG, VRAM_DEBUG_BGANIM_TAG}
 
 // Sst — the object SST layout. The DEBUG warp consumer places the LEADER through
 // Camera_Target (an SST pointer), not through the Player_1 absolutes above: the
@@ -953,56 +954,25 @@ pub proc GameState_OJZScroll_Update () clobbers(d0-d7/a0-a6) {
                 jbsr    Debug_CharacterHotkey
         }
 
-        // -- DEBUG effects-lab hotkey (START held + LEFT/RIGHT pressed): step the
-        //    live background scene through the shipped registry. Polled beside the
-        //    character hotkey, before RunObjects, so the swap is whole before the
-        //    camera moves and before Parallax_CheckBoundary runs later in the frame —
-        //    a swap installed AFTER the boundary check would be re-decided by the
-        //    check on the next crossing frame instead of surviving to be looked at.
+        // -- DEBUG effects-lab hotkey (START held + LEFT/RIGHT pressed): step the ONE
+        //    list — scenes, raster programs (bands OFF among them) and per-section
+        //    presets, in one ordered run — and install whatever the cursor lands on
+        //    through that entry's own engine slot. Polled beside the character hotkey,
+        //    before RunObjects, so the swap is whole before the camera moves and before
+        //    Parallax_CheckBoundary runs later in the frame — an install made AFTER the
+        //    boundary check would be re-decided by the check on the next crossing frame
+        //    instead of surviving to be looked at.
+        //
+        //    IT REPLACED THREE CALLS HERE, not one: the scene cycle, the raster cycle
+        //    and the preset cycle were three procs polled in a fixed order, and the
+        //    order was load-bearing (the preset install writes every channel, so it had
+        //    to run LAST or a same-frame scene press would land underneath it). One
+        //    list of mutually-exclusive entries deletes that ordering problem outright —
+        //    a press installs exactly one thing.
+        //
         //    Emits nothing in the plain shape. --
         if DEBUG == 1 {
-                jbsr    Debug_SceneCycleHotkey
-        }
-
-        // -- DEBUG effects-lab RASTER tier (START held + UP/DOWN pressed): step the
-        //    live raster program through the lab's table (row 0 OJZ_BandDemo, the
-        //    hand-authored control; row 1 the editor-authored program lowered from
-        //    games/sonic4/data/editor/effects/presets/), or remove it. Polled beside
-        //    the scene cycle because it is the same modifier and the same review
-        //    session; independent of it because a scene is a parallax config and the
-        //    raster program is a preset channel (see Debug_BandDemoHotkey's header).
-        //    Ordering is not load-bearing against the scene cycle — the two write
-        //    disjoint state (Parallax_Active_Config vs. Raster_Pending) — but it IS
-        //    load-bearing against Parallax_CheckBoundary later in the frame, exactly as
-        //    the scene cycle's is: staged here, the install is consumed by the next
-        //    Raster_VBlank, so a boundary crossing in the same frame re-decides the
-        //    channel through Effects_InstallPreset and the override ends where it is
-        //    documented to end. Emits nothing in the plain shape. --
-        if DEBUG == 1 {
-                jbsr    Debug_BandDemoHotkey
-        }
-
-        // -- DEBUG effects-lab PRESET tier (START held + A pressed): install the NEXT
-        //    section's WHOLE EffectsPreset — palette, cycle, variants, raster/patched,
-        //    the patch anchors and their sweeps, and the parallax config — onto the
-        //    section the camera is standing in, and paint which one it is plus whether
-        //    it can show anything here. This is the tier the owner asked for: the
-        //    effects reachable from ONE section, so a reviewer never has to know where
-        //    he is or walk across the act to compare two of them.
-        //
-        //    Polled beside the other two tiers because it is the same modifier and the
-        //    same review session, and LAST of the three because it is the only one that
-        //    writes every channel: a scene or a raster press in the same frame then
-        //    lands ON TOP of the preset rather than under it, which is the order a
-        //    reviewer means when he presses two of them together.
-        //
-        //    Ordering against Parallax_CheckBoundary later in the frame is load-bearing
-        //    for exactly the reason the two above record: installed here, the override
-        //    survives to be looked at, and a boundary crossing re-decides every channel
-        //    through Effects_InstallPreset so the override ends where it is documented
-        //    to end. Emits nothing in the plain shape. --
-        if DEBUG == 1 {
-                jbsr    Debug_PresetCycleHotkey
+                jbsr    Debug_LabCycleHotkey
         }
 
         // -- DEBUG effects-lab BG-ANIMATION tier (START held + C pressed, no direction):
@@ -1523,34 +1493,36 @@ proc Debug_CharacterHotkey () clobbers(d0-d2/a0-a2) {
         // just exits fly, no cycle.
         andi.b  #BUTTON_B, d1
         bne     .done
-        // START veto: START held is the effects lab's modifier, and START+A is the
-        // PRESET cycle's chord (Debug_PresetCycleHotkey, below). Without this the one
-        // free pad bit left over would swap Sonic for Tails on its way to installing a
-        // preset — the same "A cycled unexpectedly" surprise the B veto above exists to
-        // remove, arriving through the other button of the pair. HELD, not press, because
-        // START is a chord modifier and must still count on the frames after the one it
-        // went down on; that is also what makes the veto cost nothing to a reviewer who
-        // is not holding START.
-        move.b  Ctrl_1_Held, d1                 // tick-stable held latch
-        move.b  d1, d2                          // keep the held byte for the C veto
-        andi.b  #BUTTON_START, d1
-        bne     .done
+        // ⚠ A THIRD VETO STOOD HERE UNTIL 2026-09-05 AND IS DELETED, not lost. It
+        // vetoed START held, and it existed for exactly one reason: START+A was the
+        // PRESET cycle's chord. The chord consolidation retired that chord — the preset
+        // list is now rows of Debug_LabCycleHotkey's ONE list, walked with
+        // START+LEFT/RIGHT — so nothing anywhere pairs START with A any more, and a veto
+        // whose subject no longer exists is a dormant scaffold that quietly makes
+        // START+A inert for the next person who tries to use it. A alone cycles
+        // characters again, which is what it did before that chord was minted. The pad
+        // space this frees is stated in Debug_LabCycleHotkey's header.
+        //
         // C veto: C held is the effects lab's OTHER modifier — the anchor-nudge and
-        // approach-ramp chords in this module. Third veto of this exact shape in this
-        // proc (B, then START, now C) and for the same reason each time: a reviewer
-        // holding a lab modifier who taps A means the lab, not a character swap.
+        // approach-ramp chords in this module, and (with START) the BG-animation cycle.
+        // Same shape as the B veto above and for the same reason: a reviewer holding a
+        // lab modifier who taps A means the lab, not a character swap.
         //
         // ⚠ ITS ORIGINAL REASON EXPIRED ON 2026-09-04 AND THE VETO WAS KEPT ANYWAY, so
-        // read this before deleting it as dead. It was planted for C+A, which WAS the
+        // read this before deleting it as dead (the START veto beside it, whose reason
+        // expired the same way a day later, WAS deleted — the difference is that C is
+        // still a live modifier and START+A is now nothing at all). It was planted for
+        // C+A, which WAS the
         // BG-animation cycle's chord; that chord moved to START+C (see
         // Debug_BgAnimViewHotkey's header), so C+A now collides with nothing. What is
         // left is the sentence above, which was always the general form of the argument
         // and still holds on its own: C+UP/DOWN and C+LEFT/RIGHT are live chords, a
         // reviewer nudging with C who fumbles A would otherwise swap Sonic for Tails,
-        // and that is the same surprise the B and START vetoes exist to remove.
+        // and that is the same surprise the B veto exists to remove.
         // HELD, not press, because C is a chord modifier and must still count on the
         // frames after the one it went down on; a reviewer not holding C pays nothing.
         // d2 is free here — the character index does not land in it until below.
+        move.b  Ctrl_1_Held, d2                 // tick-stable held latch
         andi.b  #BUTTON_C, d2
         bne     .done
         lea     Player_1, a0                    // the leader slot — the only one this
@@ -1817,111 +1789,217 @@ proc Debug_Warp_Consume () clobbers(d0-d7/a0-a6) {
 }
 
 // -----------------------------------------------
-// Debug_SceneCycleHotkey — THE EFFECTS LAB. Step the live background scene through
-// the shipped registry with the pad, so all twenty can be reviewed in a minute
-// instead of one headless-emulator gate boot per scene.
+// Debug_LabCycleHotkey — THE EFFECTS LAB, AND NOW THE WHOLE OF IT. One ordered list
+// of everything this act can demonstrate, walked with one chord, with the entry's
+// NAME on screen as you pass it.
 //
-//   START held + RIGHT pressed  -> next scene      (SCENES[i+1], wrapping)
-//   START held + LEFT  pressed  -> previous scene  (SCENES[i-1], wrapping)
+//   START held + RIGHT pressed  -> the next entry  (wrapping)
+//   START held + LEFT  pressed  -> the previous    (wrapping)
 //
-// CYCLE ORDER IS THE REGISTRY ORDER — games/sonic4/data/effects/scene_registry.emp's
-// `SCENES[]`, index 0..19, which is also the ROM emission order. The `dc.l` table
-// below is that list transcribed, and the index comment on each row is the SCENES[]
-// index it mirrors. WHICH scene is up is now ON SCREEN: every step calls
-// Debug_SceneReadout_Show (below), which paints the cursor as two decimal digits in
-// the top-left corner. The cursor is also readable from a debugger as
-// `Debug_Scene_Index`, which is what it was before the readout existed.
+// ---- WHY IT IS ONE LIST NOW, IN THE OWNER'S WORDS ----
+// "why are there 3 ways to do things now? start + left/right, start + up/down,
+// start + a". He was right, and it happened by accretion rather than by design:
+// START+LEFT/RIGHT walked the SCENE registry (parallax configs — how the layers
+// move), START+UP/DOWN walked the RASTER program table (per-line effects — gradients,
+// the plane swap), START+A walked the PRESET list (whole packages a section installs
+// by itself). Three chords because they write three different ENGINE SLOTS — which is
+// a reason that matters to the code and not to the person holding the pad. The ruling
+// (2026-09-05, "This sounds best cleaning it up like that"): collapse them into one
+// list of everything demonstrable, walked by START+LEFT/RIGHT, with the on-screen
+// readout naming each entry as you pass it. The other two chords retire.
 //
-// ---- WHY THIS CHORD, AND NOT A BARE BUTTON ----
-// Enumerated over the canonical `DEBUG=1 ./build.sh` shape in live gameplay, START is
-// the ONLY free bit on a 3-button pad:
-//   A     jump (press latch + air/fly/glide/climb sustain), and the character-cycle
-//         hotkey above while in debug-fly — which this shape boots into.
-//   B     the CHEAT_DEBUG_FLY free-flight toggle (armed at boot in DEBUG), plus the
-//         B-veto above; masked out of the jump mask precisely because it is taken.
-//   C     in BOTH jump masks, plus the C+UP/DOWN anchor nudge in this very module and
-//         (since 2026-09-04) the BG-animation cycle's own button under START.
-//   U/D/L/R  steering, spindash, roll, duck, look-up, climb, debug-fly movement, and
-//         the C chord.
-//   START its only reader is engine/system/replay.emp:157, structurally unreachable
-//         with Input_Source == INPUT_LIVE (Input_Tick returns at `.live` first). No
-//         pause handler exists anywhere in engine/ or games/.
-// X/Y/Z/MODE have literally no reader in the tree, and were REJECTED as the binding:
-// they exist only when the pad enumerates as PAD_6BTN (engine/system/controllers.emp),
-// so on a 3-button pad the hotkey would be silently INERT — the owner presses and
-// nothing happens, which is the worst failure mode a review tool can have.
+// ---- WHAT IS IN THE LIST, AND IN WHAT ORDER ----
+//   rows 0 .. SCENE_CYCLE_COUNT-1                      the shipped SCENES, registry order
+//   the next RASTER_CYCLE_COUNT+1 rows                 the lab's raster programs, then
+//                                                      bands OFF as the last of them
+//   the last rows                                      the act's per-section PRESETS
 //
-// So one free bit has to carry two directions, and it does it as a chord — the idiom
-// this module already uses for the anchor nudge (C held + UP/DOWN). This chord is the
-// gentler of the two: START does nothing on its own, where C is a jump button, so the
-// anchor nudge makes the player jump on every step and this one does not. LEFT/RIGHT
-// still steer while the chord is held; for a background review the player is standing
-// still, and that is the whole cost.
+// THE SCENE ROWS KEEP THEIR OLD INDICES, deliberately: row 13 is still
+// ParallaxConfig_Perspective_Subtle, so every note, gate and probe that names a scene
+// by number still lands. `tools/fg_left_edge_gate.py` and `tools/left_edge_vsram_probe.py`
+// both walk this cursor to a numbered scene and both keep working for that reason.
 //
-// ---- WHAT THE SWAP REUSES, AND WHY THAT IS THE WHOLE RE-SEED ----
-// `Parallax_StartTransition` (engine/level/parallax.emp) IS the engine's live
-// scene-swap: it is what Parallax_CheckBoundary hands the resolved config to on every
-// section-boundary crossing. This hotkey calls the SAME proc with the SAME contract, so
-// a hotkey swap and a crossing swap are the same operation by construction and there is
-// no second mechanism to keep in step. It picks snap vs. lerp from the new config's
-// `pcfg_transition`, re-writes the VDP $0B (Mode Set 3) shadow from the new config, sets
-// Parallax_Snap_Pending on the instant arm, and no-ops on a re-select of the live config.
+// ---- THE ENTRY TYPE IS DISCRIMINATED, NOT INFERRED FROM A RANGE ----
+// Each row carries its KIND as a byte. A range split (scenes below N, raster below M)
+// would have been two compares cheaper and would have made moving a row across a
+// boundary silently change which engine slot it installs into — the exact class of
+// silent-wrong-picture failure the tables in this file are gated against. So the byte
+// is spelled per row, `tools/test_lab_index_lint.py` checks every row's kind against
+// the sub-table its sub-index indexes, and the dispatch below asserts the kind is in
+// range before it branches.
 //
-// Everything else a scene needs is re-derived per frame FROM the config, so there is
-// nothing else to re-seed: the band screen-space view (Parallax_Shadow_Bands), the
-// per-line HScroll fill, the VSRAM stride and the deform table reads all read the
-// ACTIVE config (Parallax_Active_Config) every Update. The three deform PHASE
-// accumulators are free-running and masked to $FF, so any value is valid — the crossing
-// path does not reset them either. `Parallax_Init` is deliberately NOT used: besides
-// wiping state a crossing does not wipe, it re-seeds Parallax_Prev_Sec_X/Y to $FF, which
-// would make the very next Parallax_CheckBoundary re-install the section's own config
-// and undo the swap on the following frame.
+// ---- IT IS AN INDEX, NOT A REPLACEMENT FOR THE THREE TABLES ----
+// `.lab_index` names a KIND and a SUB-INDEX into the table that kind dispatches
+// through — `.scene_table` and `.raster_table` below, and for a preset the act's OWN
+// section grid, which has no table here at all (the Sec* is
+// `Act.sec_grid_ptr + sub * sizeof(Sec)`, `Section_GetSecPtrXY`'s own tail arithmetic).
+// That is deliberate and it is the cheap half of this parcel: the sub-tables stay
+// exactly what they were, so `tools/test_scene_cycle_table_lint.py` (which holds
+// `.scene_table` to the scene registry, row for row, in emission order) and
+// `tools/test_raster_cycle_table_lint.py` (which holds `.raster_table` to the preset
+// documents on disk, in BOTH directions) keep measuring what they always measured.
+// This proc changed the SELECTION SURFACE and nothing else: no installer moved, and
+// `Parallax_StartTransition` / `Raster_Install` / `Effects_InstallPreset` are called
+// with the arguments, in the orders, they were called with before.
 //
-// PALETTE AND RASTER ARE NOT TOUCHED, and that is correct rather than a shortcut: a
-// scene IS a parallax_config. Palette, cycle, variants and the raster program are the
-// EffectsPreset's channels (engine/effects/preset.emp), bound per SECTION, not per
-// scene. Cycling scenes must not repaint the act.
+// ---- WHAT EACH KIND INSTALLS, AND WHY THAT IS NOT A SECOND MECHANISM ----
+//   SCENE   `Parallax_StartTransition` — the engine's own live scene-swap, the same
+//           proc `Parallax_CheckBoundary` hands a resolved config to on every
+//           section-boundary crossing. Picks snap vs. lerp from the new config's
+//           `pcfg_transition`, re-writes the VDP $0B (Mode Set 3) shadow, sets
+//           Parallax_Snap_Pending on the instant arm, no-ops on a re-select.
+//           PALETTE AND RASTER ARE NOT TOUCHED, and that is correct rather than a
+//           shortcut: a scene IS a parallax_config. Everything else a scene needs is
+//           re-derived per frame FROM the config, so there is nothing else to re-seed.
+//           `Parallax_Init` is deliberately NOT used — it re-seeds
+//           Parallax_Prev_Sec_X/Y to $FF, which would make the very next
+//           Parallax_CheckBoundary undo the swap on the following frame.
+//   RASTER  `Raster_Install`, staging Raster_Pending for the next Raster_VBlank. The
+//           LAST raster row is bands OFF, and it installs `Raster_Program_None` — the
+//           EMPTY program, never 0: `Raster_Install` documents a0 = 0 as "nothing
+//           staged this frame", i.e. KEEP whatever is live, so passing 0 to turn the
+//           tier off would silently leave the bands running.
+//   PRESET  `Effects_InstallPreset` then `Parallax_StartTransition` — the exact pair,
+//           in the exact order, that `Parallax_CheckBoundary` runs on a real crossing
+//           (parallax.emp: 989-990), with only the crossing DETECTION left out. Total
+//           binding writes every channel (palette, cycle, variants, raster/patched,
+//           the patch anchors and their sweeps) and returns the resolved parallax
+//           config for the tail.
 //
-// SCOPE OF THE OVERRIDE: it survives until the camera crosses a section boundary, at
-// which point Parallax_CheckBoundary installs that section's own scene again. Stand
-// still to review the twenty. This is a property worth having rather than a limitation
-// to fix — a debug override can never leave the act permanently mis-configured.
+// ---- SCOPE OF EVERY OVERRIDE, AND WHY IT IS A FEATURE ----
+// Unchanged from all three retired chords: the override survives until the camera
+// crosses a section boundary, at which point Parallax_CheckBoundary installs that
+// section's own scene/preset again. Stand still to review. A debug override can never
+// leave the act permanently mis-configured.
+//
+// ---- ADVANCE-THEN-INSTALL, WHICH IS ONE ORDER WHERE THERE USED TO BE TWO ----
+// The scene chord advanced first; the raster chord installed first (row 0 was a
+// documented control that had to be what a cold boot's first press showed); the preset
+// chord advanced first (a boot stands in section 0, so installing section 0 would have
+// shown nothing). A BIDIRECTIONAL walk cannot express "install, then advance" — LEFT
+// and RIGHT would install the same entry and diverge only afterwards — so the merged
+// list advances first, which is what LEFT/RIGHT already did. The consequence, stated
+// because it is a real change: the raster control OJZ_BandDemo is no longer what the
+// first press of anything installs. It is a named row you step to (`BAND`), and the
+// name tag says so when you arrive, which is a better answer to "which one am I
+// looking at" than an ordering convention was.
+//
+// ---- WHAT THE READOUT SAYS ----
+// The ENTRY NAME TAG — four letters, top-left, painted by Debug_TierTags_Update from
+// this cursor. Four is the VDP's MAXIMUM sprite-piece width, so four characters is a
+// hardware limit and not a taste call; every row's name is exactly four letters and
+// `tools/test_lab_index_lint.py` fails the build if two rows spell the same word,
+// because two entries that read the same on screen cannot be told apart by the person
+// holding the pad — which is the whole purpose. Under it, on preset entries only, the
+// PRESET readout's two cells (the section digit and the verdict glyph) say which
+// section the preset came from and whether it can show anything HERE; on every other
+// entry those two cells are BLANKED rather than left showing a previous preset's
+// answer. Below both, the two TIER tags keep saying what is ACTUALLY INSTALLED in the
+// raster and BG-animation channels, polled off the engine's own cells — see
+// Debug_TierTags_Update's header for why that distinction is load-bearing and why this
+// cursor could never serve it.
+//
+// ---- WHICH CHORDS THIS RETIRES, AND WHAT THAT FREES ----
+// RETIRED: START+UP/DOWN (the raster tier) and START+A (the preset tier). Both are now
+// unclaimed in this shape. The pad was measured EXHAUSTED when the BG-animation tier
+// needed a chord — five spent, START+B and C+B both on CHEAT_DEBUG_FLY, START+C the
+// only reachable pairing left — so a whole direction pair plus a face pairing coming
+// back is the largest piece of pad this lab has ever had spare. Two consequences
+// landed with the retirement:
+//   * `Debug_CharacterHotkey`'s START veto is DELETED. It existed for one reason, and
+//     the reason was START+A; with the preset tier gone, A alone cycles characters
+//     again, which is what it did before that chord was minted.
+//   * START+C (the BG-animation tier) STAYS ITS OWN CHORD and is deliberately NOT in
+//     this list. Everything in the list is MUTUALLY EXCLUSIVE — each install evicts
+//     the last, and a section crossing re-decides all of it. The BG-animation tier is
+//     ORTHOGONAL: it is not an EffectsPreset channel, so it survives a crossing, and
+//     it composes with whatever entry is selected. Folding it in would mean stepping
+//     PAST an animation row to reach a scene turned the animation on, and turning it
+//     off again meant walking the list back to the OFF row — the list would stop being
+//     a selection of one thing and start being a set of latches. The owner also likes
+//     that tier as it stands ("oh I see now, awesome great work"), and it answers a
+//     different question: not "which effect am I looking at" but "is the band
+//     animation running".
+//
+// ---- WHY A CHORD AND NOT A BARE BUTTON (the enumeration, unchanged) ----
+// Over the canonical `DEBUG=1 ./build.sh` shape in live gameplay, START is the only
+// free bit on a 3-button pad: A is jump plus the character-cycle hotkey, B is the
+// CHEAT_DEBUG_FLY toggle armed at boot in this shape, C is in both jump masks plus the
+// two nudge chords in this module plus the BG-animation cycle's button, and the
+// directions are steering. START's only reader is engine/system/replay.emp:157,
+// structurally unreachable with Input_Source == INPUT_LIVE. X/Y/Z/MODE were REJECTED
+// again: they exist only when the pad enumerates as PAD_6BTN, so the chord would be
+// silently INERT on a 3-button pad, which is the worst failure a review tool can have.
+// The cost this chord accepts, unchanged: LEFT/RIGHT still steer while it is held.
 //
 // ---- CAPABILITY SAFETY ----
-// Installing any of the twenty at runtime is safe by CONSTRUCTION, not by inspection:
-// scene_registry.emp folds every scene's demands into SceneRegistry_CapsFolded and
-// holds it build-fatally to $001E (two-sided pin) and to a subset of
-// Game.SCANLINE_CAPS ($005E). The capability spans compiled into parallax.emp are
-// therefore present for every scene in the table, so none needs skipping.
+// Installing any scene at runtime is safe by CONSTRUCTION: scene_registry.emp folds
+// every scene's demands into SceneRegistry_CapsFolded and holds it build-fatally to
+// $001E and to a subset of Game.SCANLINE_CAPS ($005E), so the capability spans
+// compiled into parallax.emp are present for every row.
 //
 // ---- LIVE INPUT ONLY ----
-// The `tst.b Input_Source` gate is REQUIRED, not defensive. START is part of the main
-// controller byte, which engine/system/replay.emp records whole into a fixture (:250)
-// and replays whole (:200) — a fixture that happens to hold START across a LEFT/RIGHT
-// press would flip the scene during playback and desync every downstream check. Same
-// gate, same reason, as Debug_CharacterHotkey's.
+// REQUIRED, not defensive. START rides in the main controller byte that
+// engine/system/replay.emp records whole (:250) and replays whole (:200) — a fixture
+// holding START across a LEFT/RIGHT press would flip an entry during playback and
+// desync every downstream check.
 //
-// DEBUG-shape only: the body — the rts AND the pointer table included — sits inside
-// `if DEBUG == 1 {}`, so the whole proc emits ZERO bytes in the plain shape.
+// DEBUG-shape only: the body — the rts AND all three tables included — sits inside
+// `if DEBUG == 1 {}`, so the whole proc emits ZERO bytes in the plain shape. Its
+// PLACEMENT is load-bearing: both canonical shapes append the convsym deb2 symbol
+// table, so a zero-byte release LABEL still lands in the appendix and moves the ROM
+// CRC plus the header ROM-end/checksum words. Parked as the THIRD member of this
+// module's zero-release-byte run.
 //
-// PLACEMENT IS LOAD-BEARING, and it is the SAME fact Debug_Warp_Consume's header
-// records above: both canonical shapes append the convsym deb2 symbol table, so a
-// zero-byte release LABEL still lands in the appendix and moves the ROM CRC plus the
-// header ROM-end/checksum words. Parked as the THIRD member of this zero-release-byte
-// run, this proc's release label coincides with an address the appendix already carries
-// and dedupes away. Re-measured for this parcel: s4.bin CRC32 f81c6811 before and after,
-// byte-identical. Move it anywhere a real emitting symbol follows and the release ROM
-// changes for a routine that emits nothing.
-//
-// In:  none (reads Ctrl_1_Held / Ctrl_1_Press / Input_Source / Debug_Scene_Index)
-// Out: Debug_Scene_Index advanced and the named config handed to
-//      Parallax_StartTransition, iff the chord fired this frame
-// Clobbers: d0-d4, a0-a2 — a0/d0-d1 via the Parallax_StartTransition tail (it declares
-//           d0-d1), a1 is the table cursor, and d0-d4/a0-a2 is what the readout call
-//           below spends (its own header says why). Still narrower than the character
-//           hotkey's, because nothing here reaches the player.
+// In:  none (reads Ctrl_1_Held / Ctrl_1_Press / Input_Source / Debug_Lab_Index and,
+//      on a preset row, Current_Act_Ptr)
+// Out: Debug_Lab_Index advanced and the named entry installed through its own engine
+//      slot, iff the chord fired this frame
+// Clobbers: d0-d4, a0-a3 — Effects_InstallPreset's own declared set, which
+//      Parallax_StartTransition (d0-d1), Raster_Install (nothing) and the two readout
+//      calls all sit inside. Identical to Parallax_CheckBoundary's, which is the same
+//      pair of calls.
 // -----------------------------------------------
-proc Debug_SceneCycleHotkey () clobbers(d0-d4/a0-a2) {
+// The list's length, stated ONCE. The cursor wraps at this and then indexes
+// `.lab_index`, so a mirror that drifted above the row count would read a KIND and a
+// SUB-INDEX from past the table's end and dispatch on them.
+// tools/test_lab_index_lint.py holds it to the rows, and holds every row's sub-index
+// to the sub-table its kind names.
+const LAB_CYCLE_COUNT = 37
+// One row of `.lab_index`: the kind byte, the sub-index byte, then the four letters of
+// the entry's name (indices into Debug_TierTags_Update's `.alphabet`).
+//
+// SIX BYTES, AND THE EVENNESS IS LOAD-BEARING: `.scene_table` follows this table and is
+// `dc.l`, so an odd row size would leave it on the wrong parity and every pointer it
+// holds would be fetched from an odd address. `.lab_index` itself starts on an even
+// address by construction (it follows an `rts`, and every 68000 instruction is an even
+// number of bytes). tools/test_lab_index_lint.py gates the product.
+const LAB_ENTRY_SIZE = 6
+const LAB_NAME_OFF   = 2        // the first name letter's offset within a row
+const LAB_NAME_CELLS = 4        // the VDP's maximum sprite-piece width; see the header
+// The kinds. DENSE from 0, because the dispatch asserts the kind is in range and then
+// branches on it — a gap would let a corrupt byte pass the assert and fall through to
+// the scene arm with a sub-index meant for another table.
+const LAB_KIND_SCENE  = 0
+const LAB_KIND_RASTER = 1
+const LAB_KIND_PRESET = 2
+// The number of `.raster_table` rows. Held to the rows themselves, and to the preset
+// documents in games/sonic4/data/editor/effects/presets/, by
+// tools/test_raster_cycle_table_lint.py — which the build's pytest lane runs. Nothing
+// in sigil can see a `dc.l` run's length.
+const RASTER_CYCLE_COUNT = 6
+// The raster sub-index that means BANDS OFF: one past the last `.raster_table` row.
+// Spelled as a constant rather than as a bare compare so the OFF row and the table's
+// length cannot drift apart.
+const LAB_RASTER_OFF = RASTER_CYCLE_COUNT
+// The preset readout is ONE decimal digit, so a preset row's sub-index has to fit in
+// one. Asserted at the readout rather than clamped here: the rows are authored, not
+// computed, and tools/test_lab_index_lint.py checks every preset row's section against
+// the act's own grid, so an out-of-range section fails the BUILD rather than showing
+// its eleventh section as "1".
+const PRESET_CYCLE_MAX = 10
+
+proc Debug_LabCycleHotkey () clobbers(d0-d4/a0-a3) {
     if DEBUG == 1 {
         // Gate 1: live input only — see the header. A `tst.b` is the whole test
         // because INPUT_LIVE is 0; the same ensure Debug_CharacterHotkey declares
@@ -1936,7 +2014,7 @@ proc Debug_SceneCycleHotkey () clobbers(d0-d4/a0-a2) {
         beq     .done
 
         // Gate 3: the step, EDGE-triggered on the direction so a held pad steps once
-        // rather than flipping through twenty scenes in twenty frames.
+        // rather than flipping through the whole list in as many frames.
         move.b  Ctrl_1_Press, d1                // tick-stable press latch
         moveq   #0, d2                          // d2 = signed step; 0 until a direction
         move.b  d1, d0
@@ -1954,51 +2032,212 @@ proc Debug_SceneCycleHotkey () clobbers(d0-d4/a0-a2) {
         tst.w   d2
         beq     .done                           // START held with no fresh L/R this frame
 
-        // -- advance the cursor, wrapping both ways over the registry --
+        // -- advance the cursor, wrapping both ways over the list --
         moveq   #0, d0                          // index-register hygiene (§2.5b)
-        move.b  Debug_Scene_Index, d0           // (Debug_Scene_Index).w
+        move.b  Debug_Lab_Index, d0             // (Debug_Lab_Index).w
         add.w   d2, d0
         bpl     .no_underflow                   // d2 is ±1, so the only underflow is 0-1
-        moveq   #SCENE_CYCLE_COUNT-1, d0
+        moveq   #LAB_CYCLE_COUNT-1, d0
     .no_underflow:
-        cmpi.w  #SCENE_CYCLE_COUNT, d0          // the cursor only ever steps by one, so
+        cmpi.w  #LAB_CYCLE_COUNT, d0            // the cursor only ever steps by one, so
         bne     .no_overflow                    // equality is the whole wrap condition
         moveq   #0, d0
     .no_overflow:
-        assert.w d0, ls, #SCENE_CYCLE_COUNT-1   // in table range — checked BEFORE the
+        assert.w d0, ls, #LAB_CYCLE_COUNT-1     // in table range — checked BEFORE the
                                                 // store and before the indexed read, so
                                                 // a bad cursor can neither reach RAM nor
-                                                // fetch a pointer from past the table
-        move.b  d0, Debug_Scene_Index           // (Debug_Scene_Index).w
+                                                // fetch a row from past the table
+        move.b  d0, Debug_Lab_Index             // (Debug_Lab_Index).w
+                                                // The NAME is painted by
+                                                // Debug_TierTags_Update, which polls this
+                                                // byte — so it lands one frame later, and
+                                                // it retries a dropped DMA instead of
+                                                // showing three letters of a word that
+                                                // was never true. See its header.
 
-        // -- say WHICH one, on screen (see Debug_SceneReadout_Show below) --
-        // Ordered before the install and not after it for one reason: the install
-        // is a TAIL call, so anything after it would have to stop being one.
-        // Nothing about the readout depends on the scene actually being installed —
-        // it publishes the CURSOR, which is already stored above.
-        jbsr    Debug_SceneReadout_Show         // reads Debug_Scene_Index; owns d0-d4/a0-a2
+        // -- read the row the cursor names: its KIND and its SUB-INDEX --
+        // mul_const elects between a shift/add chain and mulu at build time
+        // (CODING_CONVENTIONS §2.1), so no four-point argument is owed for a stride of 6.
+        mul_const.w d0, #LAB_ENTRY_SIZE, d1     // d0 = row byte offset (d1 scratch)
+        lea     .lab_index(pc), a1
+        adda.w  d0, a1                          // a1 = the row
         moveq   #0, d0                          // index-register hygiene (§2.5b)
-        move.b  Debug_Scene_Index, d0           // reload — the readout owns d0 (and d1-d3)
+        move.b  (a1)+, d0                       // d0 = kind
+        moveq   #0, d1
+        move.b  (a1)+, d1                       // d1 = sub-index (the four name letters
+                                                // follow; only the tag painter reads them)
+        assert.w d0, ls, #LAB_KIND_PRESET       // a kind past the last one would fall
+                                                // through to the scene arm with a
+                                                // sub-index meant for another table
+        cmpi.w  #LAB_KIND_RASTER, d0
+        beq     .raster
+        cmpi.w  #LAB_KIND_PRESET, d0
+        beq     .preset
 
-        // -- install it, through the engine's own live scene-swap --
+        // -- SCENE: a parallax config, installed through the engine's own live swap --
+        // The preset cells are BLANKED first: they answer a question about a PRESET,
+        // and on a scene row there is no preset to answer it about. Leaving the last
+        // preset's digit and verdict standing would be the readout lying by staleness,
+        // which is the whole defect this parcel exists to remove. The call clobbers
+        // d0-d4/a0-a2, so the sub-index rides the stack across it.
+        move.w  d1, -(sp)
+        jbsr    Debug_PresetReadout_Blank
+        move.w  (sp)+, d0
+        assert.w d0, ls, #SCENE_CYCLE_COUNT-1   // in `.scene_table` range, checked before
+                                                // the indexed read
         lsl.w   #2, d0                          // × sizeof(pointer); no scaled indexing
                                                 // on the 68000
         lea     .scene_table(pc), a1
         movea.l (a1,d0.w), a0
         jbra    Parallax_StartTransition        // snap/lerp + mode shadow; tail call (§2.8)
+
+    .raster:
+        // -- RASTER: a per-line program, staged for the next Raster_VBlank --
+        move.w  d1, -(sp)
+        jbsr    Debug_PresetReadout_Blank
+        move.w  (sp)+, d0
+        assert.w d0, ls, #LAB_RASTER_OFF        // the OFF row is one PAST the last table
+                                                // row, so `ls` against it and not `lo`
+        cmpi.w  #LAB_RASTER_OFF, d0
+        beq     .raster_off
+        lsl.w   #2, d0                          // × sizeof(pointer)
+        lea     .raster_table(pc), a1
+        movea.l (a1,d0.w), a0                   // the program this row installs
+        jbra    Raster_Install                  // tail call (§2.8); it clobbers nothing
+
+    .raster_off:
+        // BANDS OFF is the EMPTY program, never 0 — see the header.
+        lea     Raster_Program_None, a0         // (Raster_Program_None).l
+        jbra    Raster_Install
+
+    .preset:
+        // -- PRESET: a whole EffectsPreset, installed onto the section the camera is
+        //    actually standing in, through the engine's own crossing path.
+        //
+        //    THE ROW'S SECTION IS CHECKED AGAINST THE LIVE ACT FIRST. The rows are
+        //    authored here and the act's grid is data, so a row could name a section
+        //    this act does not have — and `Act.sec_grid_ptr + sub * sizeof(Sec)` would
+        //    happily resolve to whatever ROM follows the grid. tools/test_lab_index_lint.py
+        //    fails the build on that, and this is the runtime backstop for an act loaded
+        //    at runtime that the lint never saw. grid_w/grid_h's low bytes are the
+        //    blessed sub-field view (engine.structs Act_grid_w_lo/Act_grid_h_lo), safe
+        //    because the act constructor bounds both by MAX_ACT_SECTIONS; mul_bounded
+        //    elects between a repeated-add loop and mulu at build time on the worst case,
+        //    which is what CODING_CONVENTIONS §2.1 asks for in place of a hand-written
+        //    multiply, so no four-point argument is owed. It runs once per PRESS.
+        move.w  d1, d4                          // d4 = the section this row names
+        movea.l Current_Act_Ptr, a2             // (Current_Act_Ptr).w
+        moveq   #0, d0                          // index-register hygiene (§2.5b)
+        move.b  Act_grid_h_lo(a2), d0
+        moveq   #0, d1
+        move.b  Act_grid_w_lo(a2), d1
+        mul_bounded.w d0, d1, #MAX_ACT_SECTIONS // d0 = grid_h * grid_w = section count
+        cmp.w   d0, d4
+        bhs     .done                           // this act has no such section
+
+        // The Sec*: `Section_GetSecPtrXY`'s own tail arithmetic, minus the grid
+        // decomposition — the sub-index IS the flat id. The stride is spelled
+        // #sizeof(Sec) so it follows the struct, and adda.w sign-extends, which is safe
+        // because the check above bounds the index by MAX_ACT_SECTIONS.
+        movea.l Act.sec_grid_ptr(a2), a0
+        move.w  d4, d0
+        mul_const.w d0, #sizeof(Sec), d2        // d0 = section × the Sec stride (d2 scratch)
+        adda.w  d0, a0                          // a0 = Sec*
+
+        // This DEBUG block mirrors Parallax_CheckBoundary's: a section whose
+        // sec_effects is 0 is a content bug, and Effects_InstallPreset would follow the
+        // null into whatever ROM sits at offset 0. The crossing site raises there; here
+        // we STAND DOWN instead, because a review tool must not be the thing that kills
+        // the machine the review is running on — and the readout's own resolve would
+        // fault on the same null.
+        tst.l   Sec.sec_effects(a0)             // (Sec.sec_effects)(a0)
+        beq     .done
+        jbsr    Effects_InstallPreset           // a0 = Sec* in, resolved parallax out
+        jbsr    Parallax_StartTransition        // snap/lerp + VDP $0B mode shadow
+
+        // -- and say WHICH section it came from and WHETHER it can show here --
+        // AFTER the install, not before it, and for a reason that is specific rather
+        // than stylistic: the verdict reads Effects_Screen_L, and the only thing that
+        // latches it against this preset's anchors is Effects_InstallPreset's own
+        // Effects_LatchWorldLines call. Painting first would publish the PREVIOUS
+        // preset's verdict beside this preset's section, which is worse than no verdict.
+        jbra    Debug_PresetReadout_Show        // tail call (§2.8)
+
     .done:
         rts
 
-        // THE TABLE, IN SCENES[] ORDER. Every 68000 instruction is an even number of
-        // bytes, so the label after `rts` is word-aligned by construction — no `align`
-        // directive, which would need every preceding instruction size fixed (the
-        // game_debug.emp width-pin hazard) for no gain.
+        // ---- THE LIST ----
+        // Every 68000 instruction is an even number of bytes, so the label after `rts`
+        // is word-aligned by construction — no `align` directive, which would need
+        // every preceding instruction size fixed (the game_debug.emp width-pin hazard)
+        // for no gain. LAB_ENTRY_SIZE is even, so `.scene_table` below inherits that
+        // parity; tools/test_lab_index_lint.py gates both facts.
         //
-        // ITS LENGTH IS GATED: tools/test_scene_cycle_table_lint.py counts these rows
-        // against scene_registry.emp's `pub data ParallaxConfig_*` emissions and against
-        // SCENE_CYCLE_COUNT, and fails the build's pytest lane on any drift. Adding a
-        // twenty-first scene to the registry without adding a row here is exactly the
-        // edit that would otherwise leave the cursor indexing past the table.
+        // ONE ROW: kind, sub-index, then the four letters of the name. The NAME SITS
+        // BESIDE THE ENTRY IT NAMES — that is the point of the row shape. The retired
+        // three-chord lab kept its names in a separate parallel table
+        // (`.rtag_names`, which survives for the LIVE-state raster tag and is a
+        // different vocabulary), and a name table that can drift from the thing it names
+        // is a readout that can lie.
+        //
+        // WHAT THE LINT HOLDS (tools/test_lab_index_lint.py, run by the build's pytest
+        // lane): the row count against LAB_CYCLE_COUNT; every scene sub-index a dense
+        // 0..SCENE_CYCLE_COUNT-1 run in order; every raster sub-index a dense
+        // 0..RASTER_CYCLE_COUNT run with exactly one OFF row, last; every preset
+        // sub-index a dense run inside the act's own grid_w × grid_h; every name exactly
+        // four defined `LTR_*` glyphs; no two rows spelling the same word; and the
+        // raster rows' names equal `.rtag_names`' rows for the same programs, so the
+        // selection name and the live-state name for one program cannot disagree.
+        //
+        // EXPORTED (`export .name:`, §1.5) so Debug_TierTags_Update below can read a
+        // row's four name letters out of it. Without the keyword the reference fails at
+        // link and sigil names the fix in the diagnostic.
+    export .lab_index:
+        //       kind             sub  name
+        dc.b    LAB_KIND_SCENE,    0,  LTR_D, LTR_F, LTR_L, LTR_T   //  0  OJZ_Default
+        dc.b    LAB_KIND_SCENE,    1,  LTR_U, LTR_W, LTR_T, LTR_R   //  1  OJZ_Underwater
+        dc.b    LAB_KIND_SCENE,    2,  LTR_W, LTR_N, LTR_D, LTR_Y   //  2  OJZ_Windy
+        dc.b    LAB_KIND_SCENE,    3,  LTR_S, LTR_H, LTR_M, LTR_S   //  3  Shimmer_Slow
+        dc.b    LAB_KIND_SCENE,    4,  LTR_S, LTR_H, LTR_M, LTR_R   //  4  Shimmer
+        dc.b    LAB_KIND_SCENE,    5,  LTR_S, LTR_H, LTR_M, LTR_F   //  5  Shimmer_Fast
+        dc.b    LAB_KIND_SCENE,    6,  LTR_H, LTR_A, LTR_Z, LTR_S   //  6  Haze_Slow
+        dc.b    LAB_KIND_SCENE,    7,  LTR_H, LTR_A, LTR_Z, LTR_E   //  7  Haze
+        dc.b    LAB_KIND_SCENE,    8,  LTR_H, LTR_A, LTR_Z, LTR_F   //  8  Haze_Fast
+        dc.b    LAB_KIND_SCENE,    9,  LTR_H, LTR_A, LTR_Z, LTR_U   //  9  Haze_Uniform
+        dc.b    LAB_KIND_SCENE,   10,  LTR_R, LTR_C, LTR_K, LTR_S   // 10  Rocking_Slow
+        dc.b    LAB_KIND_SCENE,   11,  LTR_R, LTR_O, LTR_C, LTR_K   // 11  Rocking
+        dc.b    LAB_KIND_SCENE,   12,  LTR_R, LTR_C, LTR_K, LTR_F   // 12  Rocking_Fast
+        dc.b    LAB_KIND_SCENE,   13,  LTR_P, LTR_R, LTR_S, LTR_S   // 13  Perspective_Subtle
+        dc.b    LAB_KIND_SCENE,   14,  LTR_P, LTR_R, LTR_S, LTR_P   // 14  Perspective
+        dc.b    LAB_KIND_SCENE,   15,  LTR_P, LTR_R, LTR_S, LTR_D   // 15  Perspective_Dramatic
+        dc.b    LAB_KIND_SCENE,   16,  LTR_W, LTR_N, LTR_H, LTR_Z   // 16  WindyHaze
+        dc.b    LAB_KIND_SCENE,   17,  LTR_S, LTR_K, LTR_H, LTR_Z   // 17  SkyHaze
+        dc.b    LAB_KIND_SCENE,   18,  LTR_C, LTR_A, LTR_V, LTR_E   // 18  OJZ_Caves
+        dc.b    LAB_KIND_SCENE,   19,  LTR_L, LTR_C, LTR_L, LTR_D   // 19  OJZ_LockedClouds
+        dc.b    LAB_KIND_SCENE,   20,  LTR_P, LTR_F, LTR_L, LTR_R   // 20  Perspective_Floor
+        dc.b    LAB_KIND_RASTER,   0,  LTR_B, LTR_A, LTR_N, LTR_D   // 21  OJZ_BandDemo (control)
+        dc.b    LAB_KIND_RASTER,   1,  LTR_S, LTR_W, LTR_A, LTR_P   // 22  OJZ_BaseSwap
+        dc.b    LAB_KIND_RASTER,   2,  LTR_R, LTR_M, LTR_P, LTR_W   // 23  aurora_ramp_witness
+        dc.b    LAB_KIND_RASTER,   3,  LTR_P, LTR_R, LTR_O, LTR_B   // 24  authored_probe
+        dc.b    LAB_KIND_RASTER,   4,  LTR_S, LTR_H, LTR_I, LTR_M   // 25  ojz_sec3_shimmer
+        dc.b    LAB_KIND_RASTER,   5,  LTR_R, LTR_A, LTR_M, LTR_P   // 26  ramp_probe
+        dc.b    LAB_KIND_RASTER,   6,  LTR_N, LTR_O, LTR_N, LTR_E   // 27  bands OFF (LAB_RASTER_OFF)
+        dc.b    LAB_KIND_PRESET,   0,  LTR_W, LTR_A, LTR_T, LTR_R   // 28  sec 0 patched water
+        dc.b    LAB_KIND_PRESET,   1,  LTR_S, LTR_P, LTR_L, LTR_T   // 29  sec 1 sparse raster split
+        dc.b    LAB_KIND_PRESET,   2,  LTR_D, LTR_E, LTR_N, LTR_S   // 30  sec 2 dense gradient ramp
+        dc.b    LAB_KIND_PRESET,   3,  LTR_C, LTR_Y, LTR_C, LTR_L   // 31  sec 3 palette-cycling band
+        dc.b    LAB_KIND_PRESET,   4,  LTR_D, LTR_P, LTR_T, LTR_H   // 32  sec 4 depth showcase
+        dc.b    LAB_KIND_PRESET,   5,  LTR_S, LTR_R, LTR_E, LTR_F   // 33  sec 5 the sidecar rasterRef
+        dc.b    LAB_KIND_PRESET,   6,  LTR_B, LTR_S, LTR_W, LTR_P   // 34  sec 6 nametable-base swap
+        dc.b    LAB_KIND_PRESET,   7,  LTR_B, LTR_A, LTR_R, LTR_E   // 35  sec 7 plain, nothing bound
+        dc.b    LAB_KIND_PRESET,   8,  LTR_G, LTR_R, LTR_N, LTR_D   // 36  sec 8 plain + the floor
+
+        // ---- THE SCENE SUB-TABLE, IN SCENES[] ORDER ----
+        // Unchanged by the consolidation, deliberately: it is what
+        // tools/test_scene_cycle_table_lint.py holds to the registry's own `pub data
+        // ParallaxConfig_X = lowerN(SCENES[i])` emission block, row for row, in order.
+        // Adding a twenty-second scene means a row here, a `.lab_index` row, and a
+        // SCENE_CYCLE_COUNT bump — and the two lints fail the build until all three land.
     .scene_table:
         dc.l    ParallaxConfig_OJZ_Default          //  0
         dc.l    ParallaxConfig_OJZ_Underwater       //  1
@@ -2021,533 +2260,29 @@ proc Debug_SceneCycleHotkey () clobbers(d0-d4/a0-a2) {
         dc.l    ParallaxConfig_OJZ_Caves            // 18
         dc.l    ParallaxConfig_OJZ_LockedClouds     // 19
         dc.l    ParallaxConfig_Perspective_Floor    // 20  EFFECTS-W1 T2
-    }
-}
 
-// -----------------------------------------------
-// Debug_SceneReadout_Show — THE EFFECTS LAB'S READOUT. Paint Debug_Scene_Index as
-// two decimal digits in the top-left corner, so the scene on screen NAMES ITSELF
-// instead of having to be counted in button presses. Called by
-// Debug_SceneCycleHotkey on every step it takes.
-//
-// ---- THE PROBLEM IT SOLVES, STATED AS A FACT ABOUT THE OLD BUILD ----
-// The cycle wraps over twenty entries and had no display of any kind, so finding
-// SCENES[13] meant counting presses from a boot value and trusting the count. That
-// is not a preference — a review tool whose position can only be inferred is one
-// mis-press away from reviewing the wrong scene and recording the verdict against
-// its neighbour.
-//
-// ---- WHY DIGITS AND NOT NAMES ----
-// The registry carries no names. `SCENES[]` (games/sonic4/data/effects/scene_registry.emp)
-// is an array of Scene VALUES, and the `Scene` struct (engine/level/scene_dsl.emp)
-// has no string field — the only human-readable names are the `pub const`
-// identifiers themselves, which no comptime string builder can reach. A name
-// display would therefore need a hand-written twenty-row string table AND an
-// alphabet, and the alphabet is what actually rules it out: this map's largest
-// free VRAM run is four tiles (games/sonic4/vram.toml — 957-959, 1020-1023,
-// 1501-1503, 1532-1535), and 26 letters plus 10 digits is 36.
-//
-// ⚠ THE ALPHABET HALF OF THAT ARGUMENT IS WRONG, and it was corrected on
-// 2026-09-04 by EFFECTS-W1 F4 (Debug_TierTags_Update, below), which ships a
-// 26-letter alphabet and four-letter names in FOUR VRAM tiles. It counts the ROM
-// SHEET against the free run, which is the very distinction the NEXT paragraph
-// here draws for the digits: only the SELECTED glyphs are ever resident, so an
-// N-character name costs N tiles and the sheet's size does not enter. What
-// survives, and is still decisive FOR THIS TIER, is the first half: the registry
-// carries no strings, so a scene name would need a hand-written twenty-row table
-// with nothing to derive it from and nothing to hold it in step. The raster and
-// BG-animation tiers do not have that problem — each already has a hand-written
-// row table for the names to sit beside — which is why they got names and this
-// one keeps its digits. The paragraph below is untouched and remains correct.
-// The INDEX is what
-// the cycle is defined in terms of anyway — the table rows below are numbered in
-// it, the lint counts it, and Debug_Scene_Index stores it — so the index is the
-// readout's natural unit rather than a fallback from a nicer one.
-//
-// ---- WHY IT COSTS TWO VRAM TILES AND NOT TEN ----
-// The ten-glyph FONT lives in ROM (`.digit_font` below, DEBUG shapes only, inside
-// this `if DEBUG == 1` like `.scene_table` is). Only the two SELECTED glyphs are
-// ever resident, re-blitted on each press, so the VRAM claim is 2 tiles and fits
-// the 1020-1023 free run with two tiles left over. That is the whole reason a
-// readout is affordable in a map with no ten-tile hole in it.
-//
-// ---- WHY OBJECTS, AND WHY THE OBJECTS ARE THE ENGINE'S OWN ----
-// A sprite is the only surface here that does not scroll with the level and does
-// not have to be re-drawn every frame by hand: Plane A is the streaming tile
-// cache, Plane B is the background, and the window plane's nametable base
-// ($F000) is inside Plane B's own 64x64 table, so there is no free window to
-// point at. So: two objects in SCREEN coordinates (RF_COORDMODE), one glyph cell
-// each, front priority band. Their code is `TestStatic_Main`
-// (games/sonic4/objects/test_static.emp) — the engine's display-only object, a
-// single `jbra Draw_Sprite` — and their mapping is `Map_TestObj` frame 2, the
-// existing 8x8 one-tile frame. Nothing new is emitted for either, which is what
-// keeps this parcel's release cost at zero bytes rather than at "a small mapping
-// table and a stub".
-//
-// ---- SYSTEM SLOTS, AND THE DYNAMIC POOL IS A TRAP HERE ----
-// The two cells are the TOP TWO System slots, claimed by address, not allocated.
-// `AllocDynamic` was the obvious choice and it is WRONG for this object: the
-// dynamic pool is dispatched by `RunObjects`' `.run_culled`, which culls on WORLD
-// distance from the camera (CULL_DISTANCE_X/Y) and does not look at RF_COORDMODE
-// at all. A screen-space object still carries a world x_pos/y_pos for that test —
-// ours would read as (16,16) — so the readout would be culled, never dispatched,
-// never call Draw_Sprite, and be invisible everywhere in the act except near the
-// origin. System slots go through `.run_always` (and through RunObjects_Frozen's
-// fixed sweep, so the readout survives a frozen frame too), which is exactly the
-// "runs regardless of where the camera is" contract a screen-space element needs.
-//
-// The top two rather than the bottom two, and by address rather than through an
-// allocator, because the System pool HAS no allocator — nothing in engine/ or
-// games/ claims a System slot today, so claiming from the top leaves the natural
-// growth direction (slot 0 upward) free for the first real system object.
-// `Touch_TestTargets` sweeps these slots but front-guards on collision_resp,
-// which is 0 on a slot we build ourselves, so they are inert to collision.
-//
-// ---- WHY IT IS BUILT ON FIRST PRESS AND NOT AT LEVEL INIT ----
-// Not laziness, and not cost: it is what keeps every existing replay fixture
-// byte-for-byte on its old hashes. Replay drives Input_Source != INPUT_LIVE, the
-// hotkey stands down on that gate before it ever reaches here, so a replayed run
-// never builds these objects and its sprite table is exactly what it was. An
-// always-on readout would add two SAT entries to every DEBUG frame and re-stamp
-// every fixture for a debug convenience. The visible consequence is that the
-// readout appears on the first press rather than at boot — which is also the
-// first moment it has anything to say that Debug_Scene_Index's boot value 0 did
-// not already say. Boot clears all of Work RAM, so `code_addr == 0` on the two
-// slots is a reliable "not built yet" and needs no flag of its own.
-//
-// ---- DMA, NOT A DIRECT VDP WRITE ----
-// §3.1/2 of CODING_CONVENTIONS: tile updates go through the DMA queue, never
-// direct from the game loop. The neighbouring direct VRAM write in this file
-// (PlayerMarkerTile, in Init) is legal because the display is still off there;
-// this runs mid-frame with the display on. Two 32-byte Critical entries, one per
-// glyph. `@discards(dropped)` for the same reason the init art DMA above uses it
-// — a full queue costs one press's worth of stale digit, and blocking a review
-// hotkey on queue pressure would be worse than showing the previous number for a
-// frame.
-//
-// DEBUG-shape only: the body, the `rts`, the local subroutine AND the font table
-// are all inside `if DEBUG == 1 {}`, so the whole proc emits ZERO bytes in the
-// plain shape. Its PLACEMENT is load-bearing for exactly the reason
-// Debug_SceneCycleHotkey's header states above: it is parked INSIDE that run of
-// zero-release-byte procs (between the scene cycle and the band demo), so its
-// release label coincides with an address the deb2 appendix already carries.
-//
-// In:  none (reads Debug_Scene_Index and the two System slots)
-// Out: the two glyph objects exist and the two VRAM cells are queued to show the
-//      cursor's decimal digits
-// Clobbers: d0-d4, a0-a2 — d0-d4/a1-a2 is QueueDMA_Critical's declared set, d2/a1
-//           also RefreshSpritePieceCount's, and a0 is the SST cursor in the build
-//           half and the font base in the blit half.
-// -----------------------------------------------
-// Screen-space placement of the two glyph cells. Map_TestObj frame 2 is
-// `centered(half: 4, ...)`, so the object position is the CELL CENTRE and the two
-// cells are 8 px apart: tens covers screen x 12..19, ones x 20..27, both y 12..19.
-const DEBUG_READOUT_X = 16
-const DEBUG_READOUT_Y = 16
-// render_flags, written WHOLE rather than or-ed in: front band (7) + screen
-// coordinates. A whole-byte write has no C1c inherited-band hazard by
-// construction (there is nothing to union with), and these two objects' flags are
-// owned here and nowhere else.
-const DEBUG_READOUT_FLAGS = (7 << RF_PRIORITY_SHIFT) | (1 << RF_COORDMODE)
-// Map_TestObj's third frame: one 8x8 piece at art_tile + 0. See
-// games/sonic4/data/mappings/test_mappings.emp.
-const DEBUG_READOUT_FRAME = 2
-// The two System slots the glyph cells occupy, counted from the TOP of the pool.
-ensure(NUM_SYSTEM >= 2,
-       "scene readout: the two glyph cells are the top two System slots, but NUM_SYSTEM is {NUM_SYSTEM}")
-// Resolved at link, consumed as a plain immediate — the `equ`-at-module-scope
-// shape `extern()` is documented to work in (EMP_PITFALLS §5; buffers.emp's
-// SRC_SPRITE_TABLE is the worked example). Spelled this way rather than as
-// `lea sizeof(Sst)*N(a0), a0` because that displacement form is DROPPED by the
-// contract-closure analysis — it built, and the closure gate then reported two
-// instructions it could not see, which makes every contract finding under it
-// unreliable. A form the analysis can read is worth two bytes per cell.
-equ DEBUG_READOUT_SST_TENS = extern("System_Slots") + sizeof(Sst) * (NUM_SYSTEM - 2)
-equ DEBUG_READOUT_SST_ONES = extern("System_Slots") + sizeof(Sst) * (NUM_SYSTEM - 1)
-// The readout is two decimal digits, so the cycle has to fit in two. Held here
-// rather than assumed: a registry grown past 99 would silently show its cursor
-// modulo nothing sensible, and the tens loop below would spin the wrong count.
-ensure(SCENE_CYCLE_COUNT <= 99,
-       "scene readout: SCENE_CYCLE_COUNT is {SCENE_CYCLE_COUNT}, which does not fit the two-digit readout in Debug_SceneReadout_Show — give it a third glyph cell (games/sonic4/vram.toml, region debug_readout) before growing the registry past 99")
-proc Debug_SceneReadout_Show () clobbers(d0-d4/a0-a2) {
-    if DEBUG == 1 {
-        // -- (1) make sure the two glyph objects exist --
-        // a0 = the System slot, d1 = screen X as a 16.16 Coord, d4 = screen Y as a
-        // 16.16 Coord, d3 = art_tile. Palette line 1 + priority 1 is
-        // PlayerMarkerTile's pairing, and it is chosen for the same reason: line 1
-        // entry 12 is the bright yellow that the debug-fly marker is already known to
-        // be legible in over this act.
+        // ---- THE RASTER SUB-TABLE ----
+        // Also unchanged: tools/test_raster_cycle_table_lint.py holds it to the preset
+        // documents in games/sonic4/data/editor/effects/presets/ in BOTH directions —
+        // every document must be reachable by a row here or by a `rasterRef` binding in
+        // a section sidecar, and every editor row must name a document that exists.
+        // Row 0 must be a hand-authored `pub data` in the game's effects library; that
+        // arm survives the consolidation even though "row 0 is what the first press
+        // shows" no longer does (see ADVANCE-THEN-INSTALL in the header), because the
+        // control still has to BE a control.
         //
-        // Y IS A REGISTER, not the constant it used to be, because .ensure_glyph is
-        // shared with the PRESET readout below, whose two cells sit on a second row.
-        // Every cell of this readout is on one row, so the load is hoisted out.
-        move.l  #DEBUG_READOUT_Y << 16, d4
-        movea.l #DEBUG_READOUT_SST_TENS, a0
-        move.l  #DEBUG_READOUT_X << 16, d1
-        move.w  #vram_art(VRAM_DEBUG_READOUT, 1, 1), d3     // tens cell
-        jbsr    .ensure_glyph
-        movea.l #DEBUG_READOUT_SST_ONES, a0
-        move.l  #(DEBUG_READOUT_X + 8) << 16, d1
-        move.w  #vram_art(VRAM_DEBUG_READOUT + 1, 1, 1), d3 // ones cell
-        jbsr    .ensure_glyph
-
-        // -- (2) split the cursor into tens and ones --
-        // Repeated subtraction, not `divu`: the divisor is the literal 10 and the
-        // dividend is bounded by SCENE_CYCLE_COUNT (the ensure above), so the loop
-        // runs at most 9 times on a press the player made by hand. §2.1's four-point
-        // argument is not needed because there is no divide.
-        moveq   #0, d0                          // index-register hygiene (§2.5b)
-        move.b  Debug_Scene_Index, d0           // (Debug_Scene_Index).w
-        moveq   #0, d1                          // d1 = tens
-    .tens_loop:
-        cmpi.w  #10, d0
-        blt     .tens_done
-        subi.w  #10, d0                         // d0 -> ones
-        addq.w  #1, d1
-        bra     .tens_loop
-    .tens_done:
-
-        // -- (3) queue both glyph cells. The two tiles are adjacent, but they are
-        //    queued as two entries rather than one: the SOURCES are two arbitrary
-        //    rows of the font and are only contiguous when the digits happen to be. --
-        lea     .digit_font(pc), a0             // a0 survives QueueDMA_Critical
-        lsl.w   #5, d0                          // ones × 32 bytes per glyph
-        move.w  d0, -(sp)                       // ... and d0-d4 do not survive it
-        lsl.w   #5, d1                          // tens × 32
-        lea     (a0,d1.w), a1
-        move.l  a1, d1                          // d1 = DMA source
-        move.w  #vram_bytes(VRAM_DEBUG_READOUT), d2
-        moveq   #32, d3                         // one 8x8 4bpp tile
-        jbsr    QueueDMA_Critical @discards(dropped)    // review tool: a dropped glyph
-                                                        // costs one stale digit, never a
-                                                        // missed scene install
-        move.w  (sp)+, d0                       // ones × 32
-        lea     (a0,d0.w), a1
-        move.l  a1, d1
-        move.w  #vram_bytes(VRAM_DEBUG_READOUT + 1), d2
-        moveq   #32, d3
-        jbra    QueueDMA_Critical @discards(dropped)    // tail call (§2.8)
-
-        // -----------------------------------------------
-        // .ensure_glyph — build one glyph object into its System slot, once.
-        // In:  a0 = the System slot's SST, d1 = screen X (16.16), d4 = screen Y
-        //      (16.16), d3 = art_tile word
-        // Out: that slot holds a live display-only screen-space object
-        // Clobbers: d2 and a1, both via RefreshSpritePieceCount. a0/d1/d3/d4 survive,
-        //      which is what lets the caller set up once per cell AND once per row.
-        // The whole "is it built" test is code_addr: boot clears Work RAM, and
-        // nothing else writes these FOUR slots (two here, two for the preset
-        // readout below).
-        // -----------------------------------------------
-        // EXPORTED (`export .name:`, §1.5) so the PRESET readout below can CALL it
-        // instead of carrying a second copy. Without the keyword the reference fails
-        // at link and sigil names the fix in the diagnostic, which is how this was
-        // found; the same is true of `.digit_font` below.
-    export .ensure_glyph:
-        tst.w   (a0)                            // Sst.code_addr
-        bne     .glyph_done                     // already built — leave it alone
-        move.w  #TestStatic_Main - ObjCodeBase, Sst.code_addr(a0)
-        move.l  #Map_TestObj, Sst.mappings(a0)
-        move.b  #DEBUG_READOUT_FRAME, Sst.mapping_frame(a0)
-        jbsr    RefreshSpritePieceCount         // mappings + mapping_frame written ->
-                                                // re-cache frame_off/piece count (the
-                                                // Sst.frame_off contract)
-        move.w  d3, Sst.art_tile(a0)
-        move.b  #DEBUG_READOUT_FLAGS, Sst.render_flags(a0)
-        move.l  d1, Sst.x_pos(a0)
-        move.l  d4, Sst.y_pos(a0)
-    .glyph_done:
-        rts
-
-        // -----------------------------------------------
-        // .digit_font — ten 8x8 4bpp tiles, '0' to '9', 32 bytes each.
-        // -----------------------------------------------
-        // A 5x7 glyph in an 8x8 cell: pixel columns 1-5, rows 0-6, so consecutive
-        // cells leave a 3 px gap and the digits do not touch. Every set pixel is
-        // colour index $C, which on palette line 1 is the same bright yellow
-        // PlayerMarkerTile uses ($00EE) — one colour, so the glyphs stay legible
-        // over whatever the act's line 1 happens to be doing elsewhere.
+        // ROW ORDER IS HAND-AUTHORED FIRST, EDITOR-AUTHORED AFTER, the editor rows in
+        // the generator's own emission order (sorted by preset id — tools/effects_gen.py
+        // `render_module`), so the table and the generated module read in the same order.
         //
-        // ONE LONG PER PIXEL ROW, one hex nibble per pixel, left to right: the
-        // source IS the picture. That is why this is a hand table and not a
-        // comptime expansion of a packed 1bpp form — a bitmap you can read is worth
-        // more here than a bitmap you have to decode, and there is nothing to
-        // derive it FROM (no font asset exists in this tree outside the MD
-        // Debugger's own 1bpp blob, which is reachable only at a blob offset).
-        //
-        // IT LIVES INSIDE THE `if DEBUG == 1`, exactly as `.scene_table` does above,
-        // because a module-scope `data` item cannot be shape-gated in `.emp` (§1.7)
-        // and 320 release bytes for a debug readout is precisely what this parcel
-        // must not spend.
-        // EXPORTED for `.ensure_glyph`'s reason: the PRESET readout reads its section
-        // digit out of this sheet rather than duplicating 320 DEBUG bytes of it.
-    export .digit_font:
-        dc.l    $00CCC000, $0C000C00, $0C000C00, $0C000C00      // 0
-        dc.l    $0C000C00, $0C000C00, $00CCC000, $00000000
-        dc.l    $000C0000, $00CC0000, $000C0000, $000C0000      // 1
-        dc.l    $000C0000, $000C0000, $00CCC000, $00000000
-        dc.l    $00CCC000, $0C000C00, $00000C00, $0000C000      // 2
-        dc.l    $000C0000, $00C00000, $0CCCCC00, $00000000
-        dc.l    $00CCC000, $0C000C00, $00000C00, $000CC000      // 3
-        dc.l    $00000C00, $0C000C00, $00CCC000, $00000000
-        dc.l    $0000C000, $000CC000, $00C0C000, $0C00C000      // 4
-        dc.l    $0CCCCC00, $0000C000, $0000C000, $00000000
-        dc.l    $0CCCCC00, $0C000000, $0CCCC000, $00000C00      // 5
-        dc.l    $00000C00, $0C000C00, $00CCC000, $00000000
-        dc.l    $000CC000, $00C00000, $0C000000, $0CCCC000      // 6
-        dc.l    $0C000C00, $0C000C00, $00CCC000, $00000000
-        dc.l    $0CCCCC00, $00000C00, $0000C000, $000C0000      // 7
-        dc.l    $00C00000, $00C00000, $00C00000, $00000000
-        dc.l    $00CCC000, $0C000C00, $0C000C00, $00CCC000      // 8
-        dc.l    $0C000C00, $0C000C00, $00CCC000, $00000000
-        dc.l    $00CCC000, $0C000C00, $0C000C00, $00CCCC00      // 9
-        dc.l    $00000C00, $0000C000, $00CC0000, $00000000
-    }
-}
-
-// -----------------------------------------------
-// Debug_BandDemoHotkey — THE EFFECTS LAB'S RASTER TIER. Step the live raster program
-// through the lab's table, so a band program can be looked at without binding it to a
-// section.
-//
-//   START held + UP   pressed  -> install .raster_table[cursor], then advance the cursor
-//   START held + DOWN pressed  -> install Raster_Program_None (bands OFF)
-//
-//   .raster_table[0]  OJZ_BandDemo                            — HAND-authored, .emp
-//   .raster_table[1]  OJZ_BaseSwap                            — HAND-authored, .emp
-//   .raster_table[2]  EditorRaster_OJZ_Act1_aurora_ramp_witness   — EDITOR-authored, JSON (ramp, item 6 witness)
-//   .raster_table[3]  EditorRaster_OJZ_Act1_authored_probe               — EDITOR-authored, JSON
-//   .raster_table[4]  EditorRaster_OJZ_Act1_ojz_sec3_shimmer             — EDITOR-authored, JSON
-//   .raster_table[5]  EditorRaster_OJZ_Act1_ramp_probe                   — EDITOR-authored, JSON (ramp, item 6)
-//
-// ROW 1 IS NOT A COLOUR BAND, and it is in this table because this table is the only
-// installer the tree has for a hand-authored raster program. `OJZ_BaseSwap` is EFFECTS-W1
-// DoD item 11a — TWO `OP_SET_REG` ops that re-point Plane A's nametable base at Plane B's
-// map at screen line 3 and back to Plane A's own at line 64, so the TOP 61 lines draw the
-// BACKGROUND in the FOREGROUND layer. It shares the chord for the same reason the editor
-// rows do: the review question ("does the mechanism move the picture?") is asked by
-// stepping the cursor, not by rebuilding.
-// (⚠ This paragraph said "one OP_SET_REG ... at screen line 160, so the bottom 64 lines"
-// until 2026-09-04. The line moved to 3 at `8bf6df74` and the OFF edge arrived with F2 —
-// where one op with no OFF edge covered the WHOLE screen and read as no band at all.)
-//
-// ---- WHY IT IS A CYCLE NOW, AND WHY THE NAME DID NOT CHANGE ----
-// It shipped installing exactly one program, OJZ_BandDemo. The second program is
-// EDITOR-authored — `games/sonic4/data/editor/effects/presets/authored_probe.json`,
-// lowered by tools/effects_gen.py into the generated module — and the whole point of
-// having it on screen is being able to put it BESIDE the hand-authored one, because
-// that comparison is the only thing that distinguishes "the lab works" from "the
-// editor's document works". So the table needs both rows, and the two rows need a
-// cursor.
-//
-// A THIRD CHORD WAS ENUMERATED AND IS NOT AVAILABLE. Debug_SceneCycleHotkey's header
-// enumerates the pad over this shape and finds START to be the only free bit; that
-// chord spends LEFT/RIGHT and this one spends UP/DOWN, so the d-pad is exhausted.
-// The remaining pairings were checked individually against their readers rather than
-// assumed:
-//   START+A  Debug_CharacterHotkey fires on the A PRESS whenever debug_flag is set,
-//            and the DEBUG shape boots into debug-fly — the chord would swap Sonic
-//            for Tails on its way to installing a raster program.
-//   START+B  Player_Main's CHEAT_DEBUG_FLY toggle is on the B press, armed at boot in
-//            this shape — the chord would drop the player out of free flight.
-//   START+C  C is in BOTH jump masks AND is the anchor-nudge modifier in this very
-//            module (C held + UP/DOWN), so START+C+UP would ALSO nudge the anchor.
-//   X/Y/Z/MODE  exist only when the pad enumerates as PAD_6BTN, so the chord would be
-//            silently inert on a 3-button pad — rejected for the scene cycle for that
-//            reason and rejected again here.
-// A cursor on the chord that already exists costs one DEBUG-only RAM byte and no
-// button, and it is the SAME shape as the scene cycle beside it, which is worth more
-// than novelty in a review tool the owner drives with one hand.
-//
-// The proc keeps its name because the name is cited from a landed design document
-// (docs/superpowers/specs/2026-08-28-raster-band-ownership-design.md §16.1, §16.2a and
-// the placement table) which is a historical record and is not rewritten. It is still
-// accurate for the press a reader makes first: the cursor boots at 0 and row 0 is
-// OJZ_BandDemo.
-//
-// ---- WHAT THE SECOND ROW PROVES, AND WHAT IT DOES NOT ----
-// It proves the editor path end to end: a JSON document in the editor tree -> the
-// generator's SHAPE validation -> `band()`/`stream_cram()`/`compose()`/
-// `raster_program()` with every engine ensure firing on the authored numbers -> words
-// in the ROM -> pixels. It does NOT prove that an author can put a band on screen
-// without a programmer: THIS TABLE IS THE PROGRAMMER'S EDIT. Nothing in the generator
-// binds a preset to anything, and the row below had to be typed by hand. See §C of
-// docs/EDITOR_RASTER_PRESETS.md, which states that limit in the terms an author needs.
-//
-// ---- WHY THIS IS A SECOND CHORD AND NOT A TWENTY-FIRST SCENE ----
-// It was specified as "a new entry in the scene cycle", and it cannot be one. A scene
-// in this engine IS a parallax_config, and Debug_SceneCycleHotkey's own header states
-// the reason in its own words: "PALETTE AND RASTER ARE NOT TOUCHED, and that is correct
-// rather than a shortcut ... Palette, cycle, variants and the raster program are the
-// EffectsPreset's channels, bound per SECTION, not per scene. Cycling scenes must not
-// repaint the act." Adding a row to `.scene_table` therefore could not put a band on
-// screen; it would add a parallax config that looks like the one beside it. Making the
-// cursor ALSO drive the raster channel would give every one of the twenty existing
-// scenes a raster side effect it does not have today, which is the one thing a review
-// tool must never do to the scenes the owner is already evaluating.
-//
-// So the raster tier gets its own chord on the same modifier, and the two are
-// independent by construction: cycling scenes never touches raster, and this never
-// touches parallax. START + UP/DOWN is free — Debug_SceneCycleHotkey's enumeration
-// found START to be the only unclaimed bit on a 3-button pad and spends only its
-// LEFT/RIGHT pair, and no reader anywhere pairs START with UP or DOWN. The cost is the
-// same one that chord already accepts and documents: UP/DOWN still look up and duck
-// while the chord is held, which for a background review (player standing still, or in
-// debug free-flight) is nothing.
-//
-// ---- SCOPE, AND WHY IT IS A FEATURE ----
-// Identical to the scene cycle's: the override survives until the camera crosses a
-// section boundary, at which point Parallax_CheckBoundary -> Effects_InstallPreset
-// installs that section's own raster channel again. A debug override can never leave
-// the act permanently mis-configured, and the owner's default boot is untouched because
-// nothing here runs unless the chord is pressed.
-//
-// ---- INSTALLING OVER A PATCHED SECTION IS SAFE, AND IT TAKES OVER ----
-// Section 0 binds OJZ_TwoChannel on the PATCHED channel. Raster_VBlank's
-// `.copy_program` arm clears Raster_Patch_Tab and Effects_Offscreen_Entry before
-// pointing Raster_Active_Buf at Buf_A, so a static install cleanly evicts a patched
-// program rather than racing the schedule builder for its buffer. What the owner sees
-// in section 0 is therefore the bands INSTEAD OF the two water boundaries, not both and
-// not corruption. This is also why OJZ_BandDemo could never simply be bound to section
-// 0 as content: CLAIM 6 refuses a band in any program carrying an `offscreen_ship`
-// fire, which excludes OJZ_TwoChannel's section outright.
-//
-// ---- BANDS OFF IS AN EMPTY PROGRAM, NOT A ZERO ----
-// `Raster_Install` documents a0 = 0 as "nothing staged this frame", i.e. KEEP whatever
-// is live — so passing 0 to turn the tier off silently leaves the bands running. The
-// OFF arm installs Raster_Program_None, the empty program Raster_VBlank recognises and
-// answers by uninstalling the HBlank handler outright.
-//
-// OFF DOES NOT TOUCH THE CURSOR, deliberately. OFF is a view of the act without the
-// tier, not a reset of the tier; leaving the cursor where it stands makes ON-OFF-ON a
-// way to A/B one program against bare art, which is the comparison the seams inside a
-// band program cannot give you. The cost is that OFF-then-ON advances rather than
-// repeating, and that is the same cost the scene cycle's forward-only stepping accepts.
-//
-// ---- WHY THE ROWS ARE IMPORTED BY NAME ----
-// `use games.sonic4.ojz_effects.{OJZ_BandDemo}` and the editor module's line beside it
-// are part of the mechanism, not tidiness. An unknown name in a Label position does NOT
-// error in `.emp` — it silently becomes a link extern — so a misspelled row would
-// resolve to nothing the build ever complains about and surface as a wrong picture or a
-// wild pointer. tools/test_raster_cycle_table_lint.py checks that every row is in a
-// name list, and checks the table against the preset documents on disk so an authored
-// preset cannot go unreachable in silence.
-//
-// DEBUG-shape only: the body — the rts included — sits inside `if DEBUG == 1 {}`, so
-// the whole proc emits ZERO bytes in the plain shape. Parked as the FOURTH member of
-// this module's zero-release-byte run for the reason Debug_SceneCycleHotkey's header
-// records: both canonical shapes append the convsym deb2 symbol table, so a zero-byte
-// release LABEL still lands in the appendix, and a label parked in this run coincides
-// with an address the appendix already carries and dedupes away.
-//
-// In:  none (reads Ctrl_1_Held / Ctrl_1_Press / Input_Source / Debug_Raster_Index)
-// Out: Raster_Pending staged with .raster_table[cursor] (and the cursor advanced) or
-//      with Raster_Program_None, iff the chord fired this frame. Takes effect at the
-//      next Raster_VBlank.
-// Clobbers: d0-d1 (the two input latches, then the cursor and its successor), a0 (the
-//           program pointer handed to Raster_Install, which itself clobbers nothing),
-//           a1 (the table cursor — the scene cycle's a1, same job).
-// -----------------------------------------------
-// The row count, stated ONCE and gated. The cursor wraps at this and then indexes the
-// table, so a mirror that drifted above the row count would fetch a pointer from past
-// the table's end and hand it to Raster_Install as a raster program. Nothing in sigil
-// can see a `dc.l` run's length, so the coupling is checked as TEXT by
-// tools/test_raster_cycle_table_lint.py, which the build's pytest lane runs.
-const RASTER_CYCLE_COUNT = 6
-
-proc Debug_BandDemoHotkey () clobbers(d0-d1/a0-a1) {
-    if DEBUG == 1 {
-        // Gate 1: live input only. Same gate, same reason, as the two hotkeys above —
-        // START rides in the main controller byte that engine/system/replay.emp records
-        // and replays whole, so a fixture holding START across a UP/DOWN press would
-        // install a raster program mid-playback and desync every downstream check.
-        // INPUT_LIVE is 0, so a `tst.b` is the whole test.
-        tst.b   Input_Source                    // (Input_Source).w
-        bne     .done
-
-        // Gate 2: the modifier. HELD, not press — START is the chord's shift key.
-        move.b  Ctrl_1_Held, d0                 // tick-stable held latch
-        andi.b  #BUTTON_START, d0
-        beq     .done
-
-        // Gate 3: the direction, EDGE-triggered so holding the pad does not re-stage
-        // the same program every frame. Both directions are read from ONE fetch of the
-        // press latch into two registers: a second `move.b Ctrl_1_Press` would be a
-        // second read of a byte the input tick has already latched, which is harmless
-        // but says the value might change between them.
-        move.b  Ctrl_1_Press, d0                // tick-stable press latch
-        move.b  d0, d1                          // d1 = the DOWN copy; d0 masked for UP
-        andi.b  #BUTTON_UP, d0
-        beq     .not_on
-
-        // -- BANDS ON: install the row the cursor names, then advance it.
-        //
-        //    INSTALL-THEN-ADVANCE, not advance-then-install, and the difference is the
-        //    press a cold boot makes first: RAM is cleared at boot
-        //    (engine/system/boot.emp `.clear_ram`), so the cursor reads 0 and this order
-        //    is what makes the first press install row 0 — OJZ_BandDemo, the
-        //    hand-authored control, which is the behaviour this chord shipped with.
-        //    Advance-first would make the first press install row 1 and quietly change
-        //    what a reader of the landed design document gets.
-        moveq   #0, d0                          // index-register hygiene (§2.5b)
-        move.b  Debug_Raster_Index, d0          // (Debug_Raster_Index).w
-        assert.w d0, ls, #RASTER_CYCLE_COUNT-1  // in table range — checked BEFORE both
-                                                // the indexed read and the store, so a
-                                                // corrupt cursor can neither fetch a
-                                                // pointer from past the table nor be
-                                                // written back
-        move.w  d0, d1                          // d1 is free on this arm: the DOWN copy
-        addq.w  #1, d1                          // is only read after `.not_on`
-        cmpi.w  #RASTER_CYCLE_COUNT, d1         // the cursor only ever steps by one, so
-        bne     .no_wrap                        // equality is the whole wrap condition
-        moveq   #0, d1
-    .no_wrap:
-        move.b  d1, Debug_Raster_Index          // (Debug_Raster_Index).w
-
-        //    Tail call (§2.8): Raster_Install clobbers nothing, is inside this proc's
-        //    declared set, and nothing follows it on this arm.
-        lsl.w   #2, d0                          // × sizeof(pointer); no scaled indexing
-                                                // on the 68000
-        lea     .raster_table(pc), a1
-        movea.l (a1,d0.w), a0                   // the program this press installs
-        jbra    Raster_Install
-
-    .not_on:
-        // UP wins a same-frame UP+DOWN chord, by falling through first. An opposing
-        // pair is not a direction, and landing on ON is the half a second press undoes.
-        andi.b  #BUTTON_DOWN, d1
-        beq     .done
-
-        // -- BANDS OFF. The EMPTY program, never 0 — see the header. The cursor is
-        //    deliberately NOT reset; see "OFF DOES NOT TOUCH THE CURSOR" above.
-        lea     Raster_Program_None, a0         // (Raster_Program_None).l
-        jbra    Raster_Install
-
-    .done:
-        rts
-
-        // THE TABLE. Every 68000 instruction is an even number of bytes, so the label
-        // after `rts` is word-aligned by construction — no `align` directive, the same
-        // reasoning `.scene_table` records above.
-        //
-        // ROW ORDER IS HAND-AUTHORED FIRST, EDITOR-AUTHORED AFTER, and it is not
-        // arbitrary: row 0 is what a cold boot's first press installs, and the control
-        // has to be the thing you see first for the comparison to mean anything. The
-        // editor rows that follow are in the generator's own emission order (sorted by
-        // preset id — tools/effects_gen.py `render_module`), so the table and the
-        // generated module read in the same order.
-        //
-        // ITS LENGTH IS GATED, and against a stronger authority than the scene table's:
-        // tools/test_raster_cycle_table_lint.py counts these rows against
-        // RASTER_CYCLE_COUNT *and* against the preset documents in
-        // games/sonic4/data/editor/effects/presets/, so authoring a preset without
-        // adding a row here fails the build's pytest lane instead of silently costing
-        // ROM for a program nothing can install.
         // EXPORTED (`export .name:`, §1.5) so Debug_TierTags_Update below can SCAN it:
         // that proc turns the live `Raster_Program` pointer back into a row index, and
-        // this table is the tree's only statement of which pointer is which row. Without
-        // the keyword the reference fails at link and sigil names the fix in the
-        // diagnostic — the same way `.digit_font`'s export was found.
+        // this table is the tree's only statement of which pointer is which row.
+        //
+        // IT IS LAST IN THIS PROC, and that is not arbitrary: two of the text lints that
+        // read this file match a table's body as "the label, up to the next line that is
+        // just a closing brace". A `dc.l` table between `.raster_table:` and the brace
+        // would be read as raster rows.
     export .raster_table:
         dc.l    OJZ_BandDemo                            // 0 — HAND-authored (.emp)
         dc.l    OJZ_BaseSwap                            // 1 — HAND-authored (.emp), item 11a
@@ -2559,236 +2294,6 @@ proc Debug_BandDemoHotkey () clobbers(d0-d1/a0-a1) {
         dc.l    EditorRaster_OJZ_Act1_authored_probe            // 3 — EDITOR-authored (JSON)
         dc.l    EditorRaster_OJZ_Act1_ojz_sec3_shimmer          // 4 — EDITOR-authored (JSON)
         dc.l    EditorRaster_OJZ_Act1_ramp_probe                // 5 — EDITOR-authored (JSON), item 6 ramp
-    }
-}
-
-// -----------------------------------------------
-// Debug_PresetCycleHotkey — THE EFFECTS LAB'S PRESET TIER, and the one the owner
-// asked for in his own words: "raster effects/parallax in just the first section
-// and switch them around ... cause I don't always know which section I'm in".
-//
-//   START held + A pressed  -> install the NEXT section's whole EffectsPreset onto
-//                              the section the camera is standing in, and say which
-//                              one, and say whether it can show anything HERE.
-//
-// It exists because the two tiers above it cannot answer that question. The scene
-// cycle steps parallax configs and deliberately never touches palette, cycle,
-// variants or raster (its header says so at length). The raster cycle steps ONE
-// channel — a bare program — with no palette, no parallax and no anchors, which is
-// exactly how an effect ends up installed somewhere it is structurally unable to
-// draw. A section's LOOK is the whole preset, and this is the only thing in the tree
-// that moves one of those from where it is authored to where you are standing.
-//
-// ---- THE CYCLE LIST IS THE ACT'S OWN SECTION TABLE ----
-// There is NO table here, and that is the design rather than an omission. The cursor
-// is a flat section index; the Sec* is `Act.sec_grid_ptr + cursor * sizeof(Sec)`,
-// which is `Section_GetSecPtrXY`'s own tail arithmetic, and the preset comes off that
-// record's `sec_effects`. So the list cannot drift from the act — adding a tenth
-// section to OJZ act 1 puts it in the cycle with no edit here and no lint to keep in
-// step, which is the failure mode the two `dc.l` tables above BOTH need a pytest lane
-// to guard against. For OJZ act 1 that list is:
-//
-//   0  patched water, two world-anchored boundaries (224 / 314) + a sweep, Underwater
-//   1  the sparse raster split — S/H + backdrop below screen line 120
-//   2  the DENSE tier — a 96-line gradient ramp, plus this section's own palette
-//   3  no raster at all: a palette-CYCLING band (line 2 entries 8-11)
-//   4  the depth showcase — the vertical-split program from this section's scene
-//   5  the program its editor sidecar's rasterRef binds. A source comment in
-//      ojz_effects.emp reads as "None" here — that is the `hand:` FALLBACK, not the
-//      resolved value, and tools/preset_lab_witness.py measured the real one on the
-//      running ROM ($013C4C). Section 5 is NOT the empty entry; 7 and 8 are.
-//   6  the mid-frame nametable-base swap — the foreground draws the background
-//   7  Plain — palette and parallax only; there is deliberately nothing to see
-//   8  Plain, the same record
-//
-// ---- HOW IT INSTALLS, AND WHY THAT IS NOT A SECOND MECHANISM ----
-// `Effects_InstallPreset` then `Parallax_StartTransition` — the exact pair, in the
-// exact order, that `Parallax_CheckBoundary` runs on a real crossing (parallax.emp:
-// 989-990), with only the crossing DETECTION left out. A hotkey install and a walked
-// crossing are therefore the same operation by construction: total binding writes
-// every channel (palette, cycle, variants, raster/patched, the patch anchors and
-// their sweeps) and returns the resolved parallax config for the tail. Nothing here
-// re-derives any of it, so there is no second path to keep in step.
-//
-// ---- IT DOES NOT CHANGE WHAT ANY SECTION SHIPS ----
-// It writes engine STATE, never content: the act's Sec records are read-only ROM here
-// and no binding is re-authored. The override's scope is identical to the two tiers
-// above — it survives until the camera crosses a section boundary, at which point
-// Parallax_CheckBoundary installs the section's own preset again. A review tool that
-// could leave the act mis-configured would be a worse problem than the one it solves.
-//
-// ---- ADVANCE-THEN-INSTALL, WHICH IS THE OPPOSITE OF THE RASTER CYCLE ----
-// And both orders are right for their own list. Boot clears Work RAM, so the cursor
-// reads 0, and a boot lands the camera IN section 0 (Act.start_sec_x/y) — so
-// install-then-advance would spend a reviewer's FIRST press re-installing the preset
-// already on screen and show him nothing. Advancing first makes the first press
-// install section 1, the sparse raster split, which is a visible change. The raster
-// cycle beside this one installs first for the opposite and equally deliberate
-// reason its own header gives: there row 0 is a documented control.
-//
-// ---- WHY START+A, WITH THE PAD ENUMERATED AGAIN RATHER THAN ASSUMED ----
-// Every MODIFIER+DIRECTION chord in this shape is already spent, and the count is
-// four, not two:
-//   START + LEFT/RIGHT   Debug_SceneCycleHotkey    (scene cycle)
-//   START + UP/DOWN      Debug_BandDemoHotkey      (raster program cycle / off)
-//   C     + UP/DOWN      the anchor nudge          (this module, in Update)
-//   C     + LEFT/RIGHT   the approach-ramp arm     (this module, in Update)
-// So the d-pad is exhausted against BOTH free modifiers, and a fifth direction chord
-// does not exist. What is left is a modifier plus a face button, and of the three:
-//   START+B  Player_Main's / TestPlayer_Main's CHEAT_DEBUG_FLY toggle is on the B
-//            press and is armed at boot in this shape — the chord would drop the
-//            player out of free flight on its way here. Its readers are in
-//            games/sonic4/player/ and games/sonic4/objects/test_player.emp, outside
-//            this file, so vetoing it would spread the lab across the player.
-//   START+C  C is in BOTH jump masks AND is the modifier for the two nudge chords in
-//            this very module, so START+C+direction would nudge as well as cycle.
-//   START+A  A has exactly one reader that is not the jump mask —
-//            Debug_CharacterHotkey, above, which is itself gated on being in debug
-//            free-flight, WHERE A OTHERWISE DOES NOTHING AT ALL (Player_DebugMove
-//            reads LEFT/RIGHT/UP/DOWN only). This shape boots into free flight. So
-//            in the state a reviewer is actually in, A is inert, and the single
-//            conflict is settled by a two-instruction START veto in that hotkey —
-//            the same shape as the B veto it already carries, in the same file.
-// X/Y/Z/MODE were rejected for the third time for the reason the scene cycle records:
-// they exist only when the pad enumerates as PAD_6BTN, so the chord would be silently
-// INERT on a 3-button pad, which is the worst failure a review tool can have.
-//
-// THE COST, STATED: outside debug free-flight A is the jump button, so START+A makes
-// the player jump as well as cycle. That is the same cost the two C chords in this
-// module already accept and document, and it is smaller — those jump on EVERY step.
-//
-// ---- ONE BUTTON, SO THE CYCLE IS FORWARD-ONLY ----
-// Nine entries, wrapping, so the far side is five presses away at worst; and the list
-// is short enough that going round is cheaper than a second button would be to find.
-// The raster cycle above already accepts exactly this, for exactly this reason.
-//
-// ---- LIVE INPUT ONLY ----
-// Required, not defensive, and the same gate for the same reason as its two siblings:
-// START and A both ride in the main controller byte that engine/system/replay.emp
-// records whole and replays whole, and the slide fixture deliberately enters
-// debug-fly. A fixture holding START across an A press would repaint the act
-// mid-playback and desync every downstream check.
-//
-// DEBUG-shape only: the body — the rts included — sits inside `if DEBUG == 1 {}`, so
-// the whole proc emits ZERO bytes in the plain shape, and it is parked as the FIFTH
-// member of this module's zero-release-byte run.
-//
-// ---- WHAT THAT DOES AND DOES NOT BUY, MEASURED THIS PARCEL ----
-// Debug_SceneCycleHotkey's header states that a label parked in this run "coincides with
-// an address the appendix already carries and dedupes away". THE DEDUP HALF OF THAT IS
-// WRONG, and this parcel measured it rather than inheriting it: the release symbol set
-// went from 2376 names to 2378 — `Debug_PresetCycleHotkey` and `Debug_PresetReadout_Show`
-// BOTH landed in the convsym deb2 appendix, at $A45DC, the address `OJZ_SectionMarkerColors`
-// already occupies. convsym dedupes nothing; a zero-byte label is a name in the appendix
-// like any other.
-//
-// What the parking DOES buy is the thing that actually matters, and it held exactly:
-// s4.bin against master, byte for byte, differs in **two bytes below EndOfRom** — $18E-$18F,
-// the header checksum — and nowhere else in the executable image. The other 3,252 differing
-// bytes are all past EndOfRom ($A5C82), inside the appendix these two names rewrote; the
-// file length is 720,502 both ways. So the shipped CODE is unchanged and the CRC moved for
-// the reason release ships a symbol table at all. Anyone re-measuring this claim should
-// classify the diff by EndOfRom rather than reading the CRC, which cannot tell the two
-// apart.
-//
-// In:  none (reads Ctrl_1_Held / Ctrl_1_Press / Input_Source / Debug_Preset_Index /
-//      Current_Act_Ptr)
-// Out: Debug_Preset_Index advanced, that section's preset installed on every channel,
-//      its parallax config transitioned in, and the readout repainted — iff the chord
-//      fired this frame
-// Clobbers: d0-d4, a0-a3 — Effects_InstallPreset's own declared set, which
-//      Parallax_StartTransition (d0-d1) and the readout call (d0-d4/a0-a3) both sit
-//      inside. Identical to Parallax_CheckBoundary's, which is the same pair of calls.
-// -----------------------------------------------
-// The readout is ONE decimal digit, so the cycle is bounded to ten entries. Held as a
-// runtime clamp and not a comptime ensure because the count is read from the LIVE act
-// (grid_w x grid_h) rather than from a constant — an act with more than ten sections
-// would otherwise show its eleventh as "1" and review the wrong preset under a
-// confident label. Clamping HIDES those sections instead, which is the honest half of
-// the trade and is why it is stated here and in the driving note rather than buried:
-// give the readout a second digit cell (games/sonic4/vram.toml, region debug_readout —
-// its adjacent free run is now spent, so that means a second region) before an act
-// this size exists.
-const PRESET_CYCLE_MAX = 10
-
-proc Debug_PresetCycleHotkey () clobbers(d0-d4/a0-a3) {
-    if DEBUG == 1 {
-        // Gate 1: live input only — see the header. A `tst.b` is the whole test
-        // because INPUT_LIVE is 0 (the ensure above Debug_CharacterHotkey pins it).
-        tst.b   Input_Source                    // (Input_Source).w
-        bne     .done                           // replaying or recording: stand down
-
-        // Gate 2: the modifier. HELD, not press — START is the chord's shift key.
-        move.b  Ctrl_1_Held, d0                 // tick-stable held latch
-        andi.b  #BUTTON_START, d0
-        beq     .done
-
-        // Gate 3: the step, EDGE-triggered so a held pad steps once rather than
-        // walking the whole act in nine frames.
-        move.b  Ctrl_1_Press, d0                // tick-stable press latch
-        andi.b  #BUTTON_A, d0
-        beq     .done
-
-        // -- how many entries the cycle has, read from the LIVE act --
-        // grid_w and grid_h are words whose low bytes are the blessed sub-field view
-        // (engine.structs Act_grid_w_lo/Act_grid_h_lo), safe because the act
-        // constructor bounds both by MAX_ACT_SECTIONS. mul_bounded elects between a
-        // repeated-add loop and mulu at build time on the worst case, which is what
-        // CODING_CONVENTIONS §2.1 asks for in place of a hand-written multiply — so no
-        // four-point argument is owed here. It runs once per PRESS, not per frame.
-        movea.l Current_Act_Ptr, a2             // (Current_Act_Ptr).w
-        moveq   #0, d0                          // index-register hygiene (§2.5b)
-        move.b  Act_grid_h_lo(a2), d0
-        moveq   #0, d1
-        move.b  Act_grid_w_lo(a2), d1
-        mul_bounded.w d0, d1, #MAX_ACT_SECTIONS // d0 = grid_h * grid_w = section count
-        cmpi.w  #PRESET_CYCLE_MAX, d0
-        bls     .count_ok
-        moveq   #PRESET_CYCLE_MAX, d0           // the readout's one digit — see above
-    .count_ok:
-
-        // -- ADVANCE FIRST (see the header), wrapping at the count --
-        moveq   #0, d1                          // index-register hygiene (§2.5b)
-        move.b  Debug_Preset_Index, d1          // (Debug_Preset_Index).w
-        addq.w  #1, d1
-        cmp.w   d0, d1                          // the cursor only ever steps by one, so
-        blo     .no_wrap                        // "reached the count" is the whole wrap
-        moveq   #0, d1
-    .no_wrap:
-        move.b  d1, Debug_Preset_Index          // (Debug_Preset_Index).w
-
-        // -- resolve the Sec* the cursor names --
-        // Section_GetSecPtrXY's own tail arithmetic, minus the grid decomposition: the
-        // cursor IS the flat id. The stride is spelled #sizeof(Sec) so it follows the
-        // struct, and adda.w sign-extends, which is safe because the clamp above bounds
-        // the cursor at 9 and 9 * 66 is nowhere near $8000.
-        movea.l Act.sec_grid_ptr(a2), a0
-        move.w  d1, d0
-        mul_const.w d0, #sizeof(Sec), d2        // d0 = cursor x the Sec stride (d2 scratch)
-        adda.w  d0, a0                          // a0 = Sec*
-
-        // -- install it, through the engine's own crossing path --
-        // This DEBUG block mirrors Parallax_CheckBoundary's: a section whose
-        // sec_effects is 0 is a content bug, and Effects_InstallPreset would follow the
-        // null into whatever ROM sits at offset 0. The crossing site raises there; here
-        // we STAND DOWN instead, because a review tool must not be the thing that kills
-        // the machine the review is running on — and the readout's own resolve below
-        // would fault on the same null.
-        tst.l   Sec.sec_effects(a0)             // (Sec.sec_effects)(a0)
-        beq     .done
-        jbsr    Effects_InstallPreset           // a0 = Sec* in, resolved parallax out
-        jbsr    Parallax_StartTransition        // snap/lerp + VDP $0B mode shadow
-
-        // -- and say WHAT it is and WHETHER it can show here --
-        // AFTER the install, not before it, which is the opposite of the scene cycle's
-        // order and for a reason that is specific rather than stylistic: the verdict
-        // reads Effects_Screen_L, and the only thing that latches it against this
-        // preset's anchors is Effects_InstallPreset's own Effects_LatchWorldLines call.
-        // Painting first would publish the PREVIOUS preset's verdict beside this
-        // preset's number, which is worse than no verdict at all.
-        jbra    Debug_PresetReadout_Show        // tail call (§2.8)
-    .done:
-        rts
     }
 }
 
@@ -3237,28 +2742,47 @@ proc Debug_BgAnimViewHotkey () clobbers(d0-d1/a0-a1) {
 //      base. a1 additionally parks the act-default config across that call, which is
 //      safe because the callee declares a0 alone.
 // -----------------------------------------------
-// Second row, 16 px under the scene readout's. Map_TestObj frame 2 is
+// render_flags for every screen-space cell this lab draws — both preset cells here and
+// both tier tags below — written WHOLE rather than or-ed in: front band (7) + screen
+// coordinates. A whole-byte write has no C1c inherited-band hazard by construction
+// (there is nothing to union with), and these objects' flags are owned here and nowhere
+// else. Declared at this readout because the retired Debug_SceneReadout_Show, which
+// declared them while the lab had a cursor-digit readout, is gone; the NAMES are kept as
+// they were so nothing that greps for them has to be re-taught.
+const DEBUG_READOUT_FLAGS = (7 << RF_PRIORITY_SHIFT) | (1 << RF_COORDMODE)
+// Map_TestObj's third frame: one 8x8 piece at art_tile + 0. See
+// games/sonic4/data/mappings/test_mappings.emp. The two tier tags below do NOT use it —
+// they need a WIDER piece and carry their own hand-written frame records.
+const DEBUG_READOUT_FRAME = 2
+// Second row, 20 px under the entry name tag's. Map_TestObj frame 2 is
 // `centered(half: 4, ...)`, so the object position is the CELL CENTRE: the digit
 // covers screen x 12..19 and the verdict x 20..27, both y 28..35.
 const DEBUG_PRESET_READOUT_X = 16
 const DEBUG_PRESET_READOUT_Y = 32
-// The two System slots the preset cells occupy — the pair below the scene readout's,
-// still counted from the TOP of the pool and still claimed by address (the System
-// pool has no allocator; see Debug_SceneReadout_Show's header).
+// The two System slots the preset cells occupy — counted from the TOP of the pool and
+// claimed by address (the System pool has no allocator; see Debug_TierTags_Update's
+// header, which now carries that argument since the scene readout that first made it
+// retired with the three-chord lab).
+//
+// THE SLOT NUMBERS DID NOT MOVE when the lab lost a readout. NUM_SYSTEM-2 — the scene
+// readout's ones digit — is simply FREE now, and the four survivors keep the addresses
+// they had, so nothing that inspected a slot by address in a debugger session has to be
+// re-derived.
 ensure(NUM_SYSTEM >= 4,
-       "preset readout: the effects lab now claims FOUR System slots by address (two scene cells, two preset cells), but NUM_SYSTEM is {NUM_SYSTEM}")
+       "preset readout: the effects lab claims FOUR System slots by address (the entry name tag, the two preset cells, the two tier tags), but NUM_SYSTEM is {NUM_SYSTEM}")
 equ DEBUG_PRESET_SST_SEC     = extern("System_Slots") + sizeof(Sst) * (NUM_SYSTEM - 4)
 equ DEBUG_PRESET_SST_VERDICT = extern("System_Slots") + sizeof(Sst) * (NUM_SYSTEM - 3)
 // The verdict glyph indices, which are also row numbers in `.verdict_font` below.
-// APPENDED, NEVER RENUMBERED: PARALLAX takes index 3 so the three existing rows keep
-// their bytes and their meaning. tools/test_preset_verdict_font_lint.py holds the count
-// of these constants to the number of rows in the sheet — the index is used raw as a
-// `lsl.w #5` table offset, so one more constant than row reads 32 bytes past the sheet
-// and DMAs whatever follows it in ROM into the glyph cell.
+// APPENDED, NEVER RENUMBERED: PARALLAX took index 3 and BLANK took index 4, so every
+// existing row keeps its bytes and its meaning. tools/test_preset_verdict_font_lint.py
+// holds the count of these constants to the number of rows in the sheet — the index is
+// used raw as a `lsl.w #5` table offset, so one more constant than row reads 32 bytes
+// past the sheet and DMAs whatever follows it in ROM into the glyph cell.
 const PRESET_VERDICT_NONE     = 0       // bar     — nothing bound, parallax channel included
 const PRESET_VERDICT_BLIND    = 1       // X       — bound, but off screen here
 const PRESET_VERDICT_LIVE     = 2       // diamond — bound and on screen
 const PRESET_VERDICT_PARALLAX = 3       // arrow   — its own background scene; MOVE to see it
+const PRESET_VERDICT_BLANK    = 4       // nothing — the lab cursor is not on a preset row
 proc Debug_PresetReadout_Show () clobbers(d0-d4/a0-a3) {
     if DEBUG == 1 {
         // -- (1) make sure the two glyph objects exist --
@@ -3268,24 +2792,37 @@ proc Debug_PresetReadout_Show () clobbers(d0-d4/a0-a3) {
         move.l  #DEBUG_PRESET_READOUT_Y << 16, d4   // the row; d4 survives the builder
         movea.l #DEBUG_PRESET_SST_SEC, a0
         move.l  #DEBUG_PRESET_READOUT_X << 16, d1
-        move.w  #vram_art(VRAM_DEBUG_READOUT + 2, 1, 1), d3     // section digit
-        jbsr    Debug_SceneReadout_Show.ensure_glyph
+        move.w  #vram_art(VRAM_DEBUG_PRESET_READOUT, 1, 1), d3     // section digit
+        jbsr    .ensure_glyph
         movea.l #DEBUG_PRESET_SST_VERDICT, a0
         move.l  #(DEBUG_PRESET_READOUT_X + 8) << 16, d1
-        move.w  #vram_art(VRAM_DEBUG_READOUT + 3, 1, 1), d3     // verdict glyph
-        jbsr    Debug_SceneReadout_Show.ensure_glyph
+        move.w  #vram_art(VRAM_DEBUG_PRESET_READOUT + 1, 1, 1), d3 // verdict glyph
+        jbsr    .ensure_glyph
 
         // -- (2) resolve the preset the cursor names --
-        // The same arithmetic the hotkey used, repeated here rather than passed in a
-        // register, so this proc's contract is "reads the cursor" exactly like
-        // Debug_SceneReadout_Show's — a readout that had to be handed its subject
-        // could not be called from anywhere else, and this one is called from a tail.
+        // The SECTION comes out of the lab list's own row, not out of a cursor of this
+        // readout's own: `Debug_Lab_Index` names a row of `.lab_index`, and on a PRESET
+        // row that row's sub-index IS the flat section id. Re-derived here rather than
+        // passed in a register so this proc's contract stays "reads the cursor" — a
+        // readout that had to be handed its subject could not be called from a tail, and
+        // this one is.
+        //
+        // IT IS ONLY EVER CALLED ON A PRESET ROW (Debug_LabCycleHotkey's `.preset` arm);
+        // every other row calls Debug_PresetReadout_Blank below instead. The assert on
+        // the sub-index is what makes that a checked precondition rather than a comment:
+        // a scene row's sub-index can reach 20, which is past this act's section count
+        // and past the single digit this readout can draw.
+        moveq   #0, d0                          // index-register hygiene (§2.5b)
+        move.b  Debug_Lab_Index, d0             // (Debug_Lab_Index).w
+        mul_const.w d0, #LAB_ENTRY_SIZE, d1     // d0 = row byte offset (d1 scratch)
+        lea     Debug_LabCycleHotkey.lab_index(pc), a1
+        adda.w  d0, a1                          // a1 = the row
+        moveq   #0, d0
+        move.b  1(a1), d0                       // d0 = the row's sub-index = the section
         movea.l Current_Act_Ptr, a2             // (Current_Act_Ptr).w
         movea.l Act.sec_grid_ptr(a2), a0
-        moveq   #0, d0                          // index-register hygiene (§2.5b)
-        move.b  Debug_Preset_Index, d0          // (Debug_Preset_Index).w
         move.w  d0, d4                          // d4 = the digit, kept across the verdict
-        mul_const.w d0, #sizeof(Sec), d1        // d0 = cursor x the Sec stride (d1 scratch)
+        mul_const.w d0, #sizeof(Sec), d1        // d0 = section x the Sec stride (d1 scratch)
         adda.w  d0, a0
         movea.l Sec.sec_effects(a0), a3         // a3 = EffectsPreset*
 
@@ -3374,13 +2911,14 @@ proc Debug_PresetReadout_Show () clobbers(d0-d4/a0-a3) {
         // at 9, so it indexes the ten-glyph sheet directly with no tens split — the
         // one place this readout is simpler than the scene readout rather than the
         // same. The assert is the guard that keeps it that way if the clamp ever moves.
-        assert.w d4, ls, #9                     // one digit — see PRESET_CYCLE_MAX
+        assert.w d4, ls, #PRESET_CYCLE_MAX-1    // one digit — see PRESET_CYCLE_MAX, and
+                                                // the precondition in step (2)
         move.w  d3, -(sp)                       // the verdict; d0-d4 do not survive the DMA
-        lea     Debug_SceneReadout_Show.digit_font(pc), a0
+        lea     .digit_font(pc), a0
         lsl.w   #5, d4                          // digit x 32 bytes per glyph
         lea     (a0,d4.w), a1
         move.l  a1, d1                          // d1 = DMA source
-        move.w  #vram_bytes(VRAM_DEBUG_READOUT + 2), d2
+        move.w  #vram_bytes(VRAM_DEBUG_PRESET_READOUT), d2
         moveq   #32, d3                         // one 8x8 4bpp tile
         jbsr    QueueDMA_Critical @discards(dropped)    // review tool: a dropped glyph
                                                         // costs one stale cell, never a
@@ -3390,7 +2928,7 @@ proc Debug_PresetReadout_Show () clobbers(d0-d4/a0-a3) {
         lsl.w   #5, d0                          // verdict x 32
         lea     (a0,d0.w), a1
         move.l  a1, d1
-        move.w  #vram_bytes(VRAM_DEBUG_READOUT + 3), d2
+        move.w  #vram_bytes(VRAM_DEBUG_PRESET_READOUT + 1), d2
         moveq   #32, d3
         jbra    QueueDMA_Critical @discards(dropped)    // tail call (§2.8)
 
@@ -3412,7 +2950,7 @@ proc Debug_PresetReadout_Show () clobbers(d0-d4/a0-a3) {
         // test_preset_verdict_font_lint.py counts both and fails the build's pytest
         // lane when they disagree.
         // -----------------------------------------------
-    .verdict_font:
+    export .verdict_font:
         dc.l    $00000000, $00000000, $00000000, $0CCCCC00      // 0 — bar: nothing bound
         dc.l    $00000000, $00000000, $00000000, $00000000
         dc.l    $00000000, $0C0000C0, $00C00C00, $000CC000      // 1 — X: bound, blind here
@@ -3428,12 +2966,179 @@ proc Debug_PresetReadout_Show () clobbers(d0-d4/a0-a3) {
         // set at 8x8.
         dc.l    $00000000, $0000C000, $00000C00, $0CCCCCC0
         dc.l    $00000C00, $0000C000, $00000000, $00000000
+        // 4 — BLANK: not a verdict at all, and that is what it says. The lab cursor is
+        // standing on a SCENE or a RASTER row, so there is no preset for these two cells
+        // to be about. An all-zero 4bpp tile is fully transparent, so both cells read as
+        // empty screen rather than as an answer. It exists because the alternative —
+        // leaving the last preset's digit and verdict standing while the cursor walks
+        // away — is the readout lying by staleness, which is the one failure mode this
+        // whole family of readouts exists to remove.
+        dc.l    $00000000, $00000000, $00000000, $00000000
+        dc.l    $00000000, $00000000, $00000000, $00000000
+
+        // -----------------------------------------------
+        // .ensure_glyph — build one glyph object into its System slot, once.
+        // In:  a0 = the System slot's SST, d1 = screen X (16.16), d4 = screen Y
+        //      (16.16), d3 = art_tile word
+        // Out: that slot holds a live display-only screen-space object
+        // Clobbers: d2 and a1, both via RefreshSpritePieceCount. a0/d1/d3/d4 survive,
+        //      which is what lets the caller set up once per cell AND once per row.
+        // -----------------------------------------------
+        // IT MOVED HERE ON 2026-09-05 from the retired Debug_SceneReadout_Show, which
+        // owned it while the lab had a two-digit cursor readout to draw with it. This
+        // readout is now its only caller, so it lives with its caller. Everything about
+        // it is unchanged, including `code_addr == 0` as the "not built yet" test: boot
+        // clears all of Work RAM (engine/system/boot.emp `.clear_ram`), and nothing else
+        // writes these two slots.
+        //
+        // WHY OBJECTS, AND WHY SYSTEM SLOTS — the argument in full, because its previous
+        // home is gone. A sprite is the only surface here that does not scroll with the
+        // level and does not have to be re-drawn every frame by hand: Plane A is the
+        // streaming tile cache, Plane B is the background, and the window plane's
+        // nametable base ($F000) is inside Plane B's own 64x64 table, so there is no free
+        // window to point at. `AllocDynamic` is the trap: the dynamic pool is dispatched
+        // by `RunObjects`' `.run_culled`, which culls on WORLD distance from the camera
+        // and does not look at RF_COORDMODE at all — a screen-space object still carries
+        // a world x_pos/y_pos for that test, so the readout would be culled everywhere in
+        // the act except near the origin. System slots go through `.run_always` (and
+        // through RunObjects_Frozen's fixed sweep, so the readout survives a frozen frame
+        // too), which is exactly the contract a screen-space element needs.
+        // `Touch_TestTargets` sweeps these slots but front-guards on collision_resp,
+        // which is 0 on a slot we build ourselves, so they are inert to collision.
+    .ensure_glyph:
+        tst.w   (a0)                            // Sst.code_addr
+        bne     .glyph_done                     // already built — leave it alone
+        move.w  #TestStatic_Main - ObjCodeBase, Sst.code_addr(a0)
+        move.l  #Map_TestObj, Sst.mappings(a0)
+        move.b  #DEBUG_READOUT_FRAME, Sst.mapping_frame(a0)
+        jbsr    RefreshSpritePieceCount         // mappings + mapping_frame written ->
+                                                // re-cache frame_off/piece count (the
+                                                // Sst.frame_off contract)
+        move.w  d3, Sst.art_tile(a0)
+        move.b  #DEBUG_READOUT_FLAGS, Sst.render_flags(a0)
+        move.l  d1, Sst.x_pos(a0)
+        move.l  d4, Sst.y_pos(a0)
+    .glyph_done:
+        rts
+
+        // -----------------------------------------------
+        // .digit_font — ten 8x8 4bpp tiles, '0' to '9', 32 bytes each.
+        // -----------------------------------------------
+        // ALSO MOVED HERE from Debug_SceneReadout_Show, and this readout's section digit
+        // is now its only reader. A 5x7 glyph in an 8x8 cell: pixel columns 1-5, rows
+        // 0-6, so consecutive cells leave a 3 px gap and the digits do not touch. Every
+        // set pixel is colour index $C, which on palette line 1 is the same bright yellow
+        // PlayerMarkerTile uses ($00EE) — one colour, so the glyphs stay legible over
+        // whatever the act's line 1 happens to be doing elsewhere.
+        //
+        // ONE LONG PER PIXEL ROW, one hex nibble per pixel, left to right: the source IS
+        // the picture. That is why this is a hand table and not a comptime expansion of a
+        // packed 1bpp form — a bitmap you can read is worth more here than a bitmap you
+        // have to decode, and there is nothing to derive it FROM (no font asset exists in
+        // this tree outside the MD Debugger's own 1bpp blob, which is reachable only at a
+        // blob offset).
+        //
+        // IT LIVES INSIDE THE `if DEBUG == 1`, exactly as `.verdict_font` above does,
+        // because a module-scope `data` item cannot be shape-gated in `.emp` (§1.7) and
+        // 320 release bytes for a debug readout is precisely what this module must not
+        // spend.
+        //
+        // IT IS NOT MERGED WITH Debug_TierTags_Update's 26-letter `.alphabet`, and that
+        // was a deliberate call rather than an oversight: merging would let a lab entry's
+        // four-letter name carry a digit (`PLN7`), which is worth something, but it would
+        // also renumber nothing and cost nothing — the two sheets are DMA'd from
+        // different labels by different painters and neither indexes past its own end.
+        // The reason to leave them apart is that `.alphabet`'s letter indices are a dense
+        // A..Z run that tools/test_tier_tag_tables.py checks against the `LTR_*`
+        // constants in alphabetical order; appending ten digits to it makes that check
+        // stop being a statement about the alphabet. Preset rows 35 and 36 are named
+        // `BARE` and `GRND` instead of `PLN7`/`PLN8` for exactly this reason.
+    .digit_font:
+        dc.l    $00CCC000, $0C000C00, $0C000C00, $0C000C00      // 0
+        dc.l    $0C000C00, $0C000C00, $00CCC000, $00000000
+        dc.l    $000C0000, $00CC0000, $000C0000, $000C0000      // 1
+        dc.l    $000C0000, $000C0000, $00CCC000, $00000000
+        dc.l    $00CCC000, $0C000C00, $00000C00, $0000C000      // 2
+        dc.l    $000C0000, $00C00000, $0CCCCC00, $00000000
+        dc.l    $00CCC000, $0C000C00, $00000C00, $000CC000      // 3
+        dc.l    $00000C00, $0C000C00, $00CCC000, $00000000
+        dc.l    $0000C000, $000CC000, $00C0C000, $0C00C000      // 4
+        dc.l    $0CCCCC00, $0000C000, $0000C000, $00000000
+        dc.l    $0CCCCC00, $0C000000, $0CCCC000, $00000C00      // 5
+        dc.l    $00000C00, $0C000C00, $00CCC000, $00000000
+        dc.l    $000CC000, $00C00000, $0C000000, $0CCCC000      // 6
+        dc.l    $0C000C00, $0C000C00, $00CCC000, $00000000
+        dc.l    $0CCCCC00, $00000C00, $0000C000, $000C0000      // 7
+        dc.l    $00C00000, $00C00000, $00C00000, $00000000
+        dc.l    $00CCC000, $0C000C00, $0C000C00, $00CCC000      // 8
+        dc.l    $0C000C00, $0C000C00, $00CCC000, $00000000
+        dc.l    $00CCC000, $0C000C00, $0C000C00, $00CCCC00      // 9
+        dc.l    $00000C00, $0000C000, $00CC0000, $00000000
+    }
+}
+
+// -----------------------------------------------
+// Debug_PresetReadout_Blank — WIPE the two preset cells, because the cursor has walked
+// off the preset rows and there is nothing for them to be about.
+//
+// Called by Debug_LabCycleHotkey's SCENE and RASTER arms, once per press. The preset
+// readout above is called by the PRESET arm. Between them, the two cells are repainted
+// on EVERY step of the one list, so what they show is always about the row the cursor is
+// standing on and never about a row it has left.
+//
+// ---- WHY THIS EXISTS AT ALL, WHICH IS NOT OBVIOUS UNTIL IT BITES ----
+// Under the retired three-chord lab the preset cells could only ever be stale in one
+// direction — a section crossing re-installed a preset without touching them — and that
+// was documented and lived with. The ONE list makes staleness routine instead of rare: a
+// reviewer who steps from `WATR` (section 0's patched water) to `HAZE` (a scene) would
+// otherwise still be looking at a "0" and a diamond, and the diamond means "bound and on
+// screen" about a preset he just walked away from. A readout that is confidently wrong
+// is worse than no readout, and this is the whole defect the parcel it landed in exists
+// to remove.
+//
+// ---- IT DOES NOT BUILD THE OBJECTS, DELIBERATELY ----
+// If the two glyph objects have never been built, their cells are not drawn by anything,
+// so there is nothing on screen to wipe and building them here would ADD two SAT entries
+// for the sole purpose of drawing two transparent tiles. The VRAM write is unconditional
+// because it is cheaper than the test and harmless either way: an unread tile that holds
+// zeros is an unread tile.
+//
+// ---- A DROPPED GLYPH IS ACCEPTED, unlike a dropped LETTER of a name ----
+// `@discards(dropped)`, the same call the readout above makes and for the same reason: a
+// full DMA queue costs one press's worth of a stale cell, and blocking a review hotkey on
+// queue pressure would be worse. A four-letter NAME cannot accept that (one stale cell of
+// a word is a word that was never true), which is why Debug_TierTags_Update consumes its
+// carry instead — see its header.
+//
+// DEBUG-shape only: the body and the rts sit inside `if DEBUG == 1 {}`, so the whole proc
+// emits ZERO bytes in the plain shape, and it is parked inside this module's
+// zero-release-byte run.
+//
+// In:  none
+// Out: both preset cells queued to the blank glyph
+// Clobbers: d0-d4, a0-a2 — QueueDMA_Critical's declared set.
+// -----------------------------------------------
+proc Debug_PresetReadout_Blank () clobbers(d0-d4/a0-a2) {
+    if DEBUG == 1 {
+        lea     Debug_PresetReadout_Show.verdict_font(pc), a0
+        lea     PRESET_VERDICT_BLANK * 32(a0), a1   // the blank row of that sheet
+        move.l  a1, d1                          // d1 = DMA source; a1 does not survive
+        move.w  #vram_bytes(VRAM_DEBUG_PRESET_READOUT), d2
+        moveq   #32, d3                         // one 8x8 4bpp tile
+        jbsr    QueueDMA_Critical @discards(dropped)
+        lea     Debug_PresetReadout_Show.verdict_font(pc), a0
+        lea     PRESET_VERDICT_BLANK * 32(a0), a1
+        move.l  a1, d1
+        move.w  #vram_bytes(VRAM_DEBUG_PRESET_READOUT + 1), d2
+        moveq   #32, d3
+        jbra    QueueDMA_Critical @discards(dropped)    // tail call (§2.8)
     }
 }
 // -----------------------------------------------
-// Debug_TierTags_Update — THE EFFECTS LAB'S NAME TAGS. Spell out, in letters, what
-// the RASTER tier and the BG-ANIMATION tier are actually running, so the picture on
-// screen names its own cause instead of having to be inferred from a press count.
+// Debug_TierTags_Update — THE EFFECTS LAB'S NAME TAGS. Spell out, in letters, WHERE
+// THE LIST CURSOR IS and what the RASTER and BG-ANIMATION channels are actually
+// running, so the picture on screen names its own cause instead of having to be
+// inferred from a press count.
 //
 // ---- THE ASK, AND THE INVESTIGATION THAT PAID FOR IT ----
 // The owner, in his words: "can we get it to write out what it's supposed to be in
@@ -3445,12 +3150,22 @@ proc Debug_PresetReadout_Show () clobbers(d0-d4/a0-a3) {
 // that one sentence: the tag must NAME the thing, and it must not be able to lie.
 //
 // ---- WHAT IT SAYS AND WHERE ----
-// Two rows under the two readouts that already exist, same left edge, same 16 px pitch:
+// Four rows down the left edge. THREE of the four are this proc's, and that is new
+// (2026-09-05): the entry name tag joined when the lab's three selection chords
+// collapsed into one list and the two-digit cursor readout that used to own the top row
+// retired.
 //
-//   y 12   the SCENE cursor, two digits                (Debug_SceneReadout_Show)
-//   y 28   the PRESET cursor + its verdict glyph       (Debug_PresetReadout_Show)
+//   y 12   the LIST CURSOR's entry name, four letters  <- this proc
+//   y 32   the PRESET section digit + verdict glyph    (Debug_PresetReadout_Show /
+//                                                       Debug_PresetReadout_Blank)
 //   y 44   the RASTER program's name, four letters     <- this proc
 //   y 60   the BG-ANIMATION table's name, three letters<- this proc
+//
+//   ENTRY     the four letters of `.lab_index[Debug_Lab_Index]`'s own name field —
+//             DFLT / UWTR / ... / BAND / SWAP / ... / WATR / SPLT / ... — one word per
+//             row of the one list, and the ONLY tag here whose subject is a CURSOR
+//             rather than an engine cell. See the paragraphs below on why that
+//             distinction is stated on screen rather than glossed.
 //
 //   RASTER    BAND  OJZ_BandDemo, the hand-authored control (cycle row 0)
 //             SWAP  OJZ_BaseSwap, the plane-base swap       (cycle row 1)
@@ -3502,6 +3217,21 @@ proc Debug_PresetReadout_Show () clobbers(d0-d4/a0-a3) {
 //
 // The two slots are the pair BELOW the preset readout's, still counted from the top of
 // the pool, still claimed by address because the System pool has no allocator.
+//
+// ---- THE ENTRY TAG IS THE ONE EXCEPTION, AND IT IS AN HONEST ONE ----
+// Everything in the section below is about the two TIER tags and stands unchanged: their
+// subjects are `Raster_Program` and `BgAnim_Table_Ptr`, the engine's own cells, because a
+// tag driven off a cursor goes wrong the moment a section crossing re-installs a preset.
+//
+// The ENTRY tag's subject is `Debug_Lab_Index`, a cursor, and it could not be anything
+// else: its question is "where in the list am I", and no engine cell knows that. So the
+// two claims are deliberately different and the display keeps them apart BY ROW. The top
+// row says what you last SELECTED. The two bottom rows say what is INSTALLED. After a
+// section crossing they will disagree — the entry tag still reads `SWAP` while the raster
+// tag has moved to whatever that section binds — and THAT DISAGREEMENT IS THE ANSWER, not
+// a bug: it is the readout telling you the crossing took your override away. A single
+// merged tag could not express it, which is why the tier tags were not simply retired
+// when the entry tag arrived.
 //
 // ---- WHY IT IS DRIVEN BY THE ENGINE'S CELLS AND NOT BY THE CURSORS ----
 // This is the whole reason the proc is a per-frame poller and not a call at the foot of
@@ -3557,9 +3287,10 @@ proc Debug_PresetReadout_Show () clobbers(d0-d4/a0-a3) {
 // the whole tag is re-queued. The cost of a full queue is one frame of mixed letters.
 //
 // ---- WHAT IT DELIBERATELY DOES NOT DO ----
-//   * It does not report the PRESET or SCENE tiers. Both already have readouts two rows
-//     above, and a preset's raster channel shows up here anyway (as its row's name, or
-//     PSET, or PTCH) because the subject is the engine cell rather than any tier.
+//   * The entry tag does not say whether the entry it names is still INSTALLED. That is
+//     what the two tier tags under it are for, and a preset's raster channel shows up
+//     there anyway (as its row's name, or PSET, or PTCH) because their subject is the
+//     engine cell rather than any cursor.
 //   * It says nothing about whether the named program can DRAW where you are standing.
 //     That is the preset readout's verdict glyph, and it is a different question with a
 //     different answer; duplicating a weaker version of it here would be worse than the
@@ -3574,11 +3305,11 @@ proc Debug_PresetReadout_Show () clobbers(d0-d4/a0-a3) {
 // proc emits ZERO bytes in the plain shape. Parked as the SEVENTH member of this
 // module's zero-release-byte run for the reason Debug_SceneCycleHotkey's header records.
 //
-// In:  none (reads Input_Source, Ctrl_1_Held, Debug_Tags_Armed, Raster_Program,
-//      Raster_Patch_Tab, BgAnim_Table_Ptr and the two mirror cells)
-// Out: the two tag objects exist (once armed) and their VRAM cells are queued to spell
-//      the live raster program's and band table's names; the mirrors follow ONLY on a
-//      fully-queued repaint
+// In:  none (reads Input_Source, Ctrl_1_Held, Debug_Tags_Armed, Debug_Lab_Index,
+//      Raster_Program, Raster_Patch_Tab, BgAnim_Table_Ptr and the three mirror cells)
+// Out: the three tag objects exist (once armed) and their VRAM cells are queued to spell
+//      the list cursor's entry name and the live raster program's and band table's names;
+//      each mirror follows ONLY on a fully-queued repaint of its own tag
 // Clobbers: d0-d4, a0-a3 — d0-d4/a1-a2 is QueueDMA_Critical's declared set, d2/a1 also
 //      RefreshSpritePieceCount's, a0 is the SST cursor then the name-table end, and a3
 //      is the letter cursor (chosen because it is the one address register
@@ -3590,6 +3321,7 @@ proc Debug_PresetReadout_Show () clobbers(d0-d4/a0-a3) {
 // every field of the two hand-written frame records below is therefore non-negative,
 // which is worth more here than symmetry with the readouts' centring.
 const DEBUG_TAG_X          = 12
+const DEBUG_LABNAME_TAG_Y  = 12
 const DEBUG_RASTER_TAG_Y   = 44
 const DEBUG_BGANIM_TAG_Y   = 60
 // Frame indices into `.tag_mappings`.
@@ -3600,8 +3332,14 @@ const BTAG_CELLS           = 3
 // The two System slots the tags occupy — the pair below the preset readout's, still
 // counted from the TOP of the pool and still claimed by address (the System pool has no
 // allocator; see Debug_SceneReadout_Show's header).
+// The entry name tag takes NUM_SYSTEM-1 — the slot the retired scene readout's ONES
+// digit held. Nothing else moved: the preset cells keep NUM_SYSTEM-3/-4 and the two tier
+// tags keep NUM_SYSTEM-5/-6, so FIVE of the eight are claimed and NUM_SYSTEM-2 (the
+// retired readout's TENS digit) is now free. That is the whole System-slot consequence
+// of the chord consolidation: one slot back, and no surviving object re-addressed.
 ensure(NUM_SYSTEM >= 6,
-       "tier name tags: the effects lab now claims SIX System slots by address (two scene cells, two preset cells, two tag objects), but NUM_SYSTEM is {NUM_SYSTEM}")
+       "effects-lab tags: the lab claims FIVE System slots by address (the entry name tag at the top, the two preset cells, the two tier tags), and the tier tags are counted from NUM_SYSTEM-6, but NUM_SYSTEM is {NUM_SYSTEM}")
+equ DEBUG_LABNAME_TAG_SST = extern("System_Slots") + sizeof(Sst) * (NUM_SYSTEM - 1)
 equ DEBUG_RASTER_TAG_SST = extern("System_Slots") + sizeof(Sst) * (NUM_SYSTEM - 5)
 equ DEBUG_BGANIM_TAG_SST = extern("System_Slots") + sizeof(Sst) * (NUM_SYSTEM - 6)
 // The three synthetic raster rows, APPENDED after the cycle table's own rows so a row
@@ -3676,8 +3414,21 @@ proc Debug_TierTags_Update () clobbers(d0-d4/a0-a3) {
         moveq   #-1, d0
         move.l  d0, Debug_Raster_Shown          // (Debug_Raster_Shown).w
         move.l  d0, Debug_BgAnim_Shown          // (Debug_BgAnim_Shown).w
+        move.b  d0, Debug_Lab_Shown             // (Debug_Lab_Shown).w — $FF, and the
+                                                // cursor's range is 0..LAB_CYCLE_COUNT-1,
+                                                // so it can never be a legal value either
     .armed:
 
+        // -- the ENTRY NAME tag. Its subject is the LIST CURSOR, which is the one thing
+        //    here no engine cell knows; see the header for why that exception is stated
+        //    on screen by row rather than glossed. --
+        moveq   #0, d0                          // index-register hygiene (2.5b)
+        move.b  Debug_Lab_Index, d0             // (Debug_Lab_Index).w
+        cmp.b   Debug_Lab_Shown, d0             // (Debug_Lab_Shown).w
+        beq     .raster_tier                    // already spelled — nothing to do
+        jbsr    .paint_labname
+
+    .raster_tier:
         // -- the RASTER tag. The subject is the ENGINE's installed-program cell, never
         //    the cycle cursor; see the header for why that distinction is the parcel. --
         move.l  Raster_Program, d0              // (Raster_Program).w
@@ -3694,6 +3445,47 @@ proc Debug_TierTags_Update () clobbers(d0-d4/a0-a3) {
 
     .done:
         rts
+
+        // -----------------------------------------------
+        // .paint_labname — spell the list cursor's entry name.
+        // In:  d0 = the live Debug_Lab_Index value
+        // Out: the entry tag spells that row's four-letter name; Debug_Lab_Shown follows
+        //      ONLY if every cell was queued
+        //
+        // NO NAME TABLE OF ITS OWN, and that is the point of `.lab_index`'s row shape:
+        // the four letters live IN the row, two bytes past its kind and sub-index, so
+        // the name and the entry it names cannot drift apart. The two tier tags below
+        // DO have parallel name tables, because their subject is a POINTER they have to
+        // scan back to a row first, and because their vocabularies include states that
+        // are not rows at all (PTCH, PSET, OTH).
+        // -----------------------------------------------
+    .paint_labname:
+        move.w  d0, -(sp)                       // the row; d0-d4 do not survive the DMA
+
+        movea.l #DEBUG_LABNAME_TAG_SST, a0
+        move.l  #DEBUG_TAG_X << 16, d1
+        move.l  #DEBUG_LABNAME_TAG_Y << 16, d4
+        move.w  #vram_art(VRAM_DEBUG_LAB_NAME, 1, 1), d3        // palette line 1 +
+        moveq   #DEBUG_TAG_FRAME_4, d2                          // priority 1, the
+        jbsr    .ensure_tag                                     // debug-fly marker's
+                                                                // known-legible pairing
+
+        move.w  (sp), d0
+        mul_const.w d0, #LAB_ENTRY_SIZE, d1     // d0 = row byte offset (d1 scratch)
+        lea     Debug_LabCycleHotkey.lab_index(pc), a3          // 1.5
+        adda.w  d0, a3
+        addq.l  #LAB_NAME_OFF, a3               // past the kind and sub-index bytes
+        lea     LAB_NAME_CELLS(a3), a0          // a0 = one past the last letter
+        move.w  #vram_bytes(VRAM_DEBUG_LAB_NAME), d2
+        jbsr    .paint_cells
+        bcs     .labname_dropped
+        move.w  (sp)+, d0
+        move.b  d0, Debug_Lab_Shown             // the tag now spells THIS row
+        rts
+    .labname_dropped:
+        addq.l  #2, sp                          // mirror UNWRITTEN on purpose: the next
+        rts                                     // frame's compare still differs and the
+                                                // whole word is re-queued
 
         // -----------------------------------------------
         // .paint_raster — resolve Raster_Program to a name and blit it.
@@ -3722,7 +3514,7 @@ proc Debug_TierTags_Update () clobbers(d0-d4/a0-a3) {
         moveq   #RTAG_NONE, d1
         tst.l   d0
         beq     .rtag_named
-        lea     Debug_BandDemoHotkey.raster_table(pc), a1       // §1.5, the preset
+        lea     Debug_LabCycleHotkey.raster_table(pc), a1       // §1.5, the preset
         moveq   #0, d1                                          // readout's spelling
     .rtag_scan:
         cmp.l   (a1)+, d0

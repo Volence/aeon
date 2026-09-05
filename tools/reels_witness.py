@@ -84,9 +84,9 @@ config is forced. The base is read at both sample points and its delta removed; 
 also PRINTED, so a nonzero one is visible rather than silently absorbed.
 
 THERE IS NO HOTKEY. `OJZ_Reel_Speed`/`OJZ_Reels_Fill`'s own header
-(games/sonic4/data/effects/ojz_effects.emp) records why: `Debug_BandDemoHotkey`'s header
+(games/sonic4/data/effects/ojz_effects.emp) records why: `Debug_LabCycleHotkey`'s header
 enumerates every remaining pad chord against this shape and finds none free. So this
-witness pokes `OJZ_Reel_Active` directly — `Debug_BandDemoHotkey`'s own header names
+witness pokes `OJZ_Reel_Active` directly — `Debug_LabCycleHotkey`'s own header names
 this as the alternative to a chord, and `band_witness.py` uses the identical pattern for
 `Raster_Pending`/OJZ_BandDemo. `Parallax_Current_Config` is poked the same way and for
 the same reason: `Parallax_StartTransition` writes it only on a SECTION CROSSING, and the

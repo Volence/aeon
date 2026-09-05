@@ -115,7 +115,7 @@ def main():
         st = await c.call("emulator/status", {})
         if st["romBytes"] != len(blob):
             raise SystemExit(f"REFUSED: server serves {st['romBytes']} B, {a.rom} is {len(blob)}")
-        syms = {n: await G.lookup(c, n) for n in ("Debug_Scene_Index", "Camera_Y")}
+        syms = {n: await G.lookup(c, n) for n in ("Debug_Lab_Index", "Camera_Y")}
         await c.call("emulator/run_frames", {"frames": a.settle})
         if a.travel:
             await c.call("emulator/play_input",
@@ -123,14 +123,11 @@ def main():
                           "maxFrames": a.travel})
             await c.call("emulator/release_all", {})
             await c.call("emulator/run_frames", {"frames": 30})
-        for _ in range(40):
-            at = await G.read_bus(c, addr=syms["Debug_Scene_Index"], length=1)
-            if at == a.scene:
-                break
-            await G.step_scene(c)
-        else:
-            raise SystemExit(f"REFUSED: could not drive the scene cursor to {a.scene}")
-        at = await G.read_bus(c, addr=syms["Debug_Scene_Index"], length=1)
+        # Directional, so a walk between two scene rows never steps into the raster or
+        # preset rows of the one list and installs one as a side effect — see
+        # fg_left_edge_gate.py's head note.
+        await G.drive_cursor(c, syms["Debug_Lab_Index"], a.scene)
+        at = await G.read_bus(c, addr=syms["Debug_Lab_Index"], length=1)
         if at != a.scene:
             raise SystemExit(f"REFUSED: cursor reads {at}, wanted {a.scene}")
         mode3 = await G.read_bus(c, symbol=None, addr=await G.lookup(c, "VDP_Shadow_Table") + G.VDP_MODE3_OFF, length=1)

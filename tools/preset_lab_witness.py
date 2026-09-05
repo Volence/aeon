@@ -1,11 +1,32 @@
 #!/usr/bin/env python3
-"""preset_lab_witness — does START+A actually install a section's preset, and does the
-readout on screen tell the truth about it?
+"""preset_lab_witness — do the lab's PRESET rows actually install a section's preset, and
+does the readout on screen tell the truth about it?
 
-THE SUBJECT. `Debug_PresetCycleHotkey` / `Debug_PresetReadout_Show`
-(games/sonic4/test/ojz_scroll_test.emp), the effects lab's PRESET tier: START held + A
-pressed installs the NEXT section's whole EffectsPreset onto the section the camera is
-standing in, and paints a section digit plus a verdict glyph in the top-left corner.
+THE SUBJECT. `Debug_LabCycleHotkey`'s PRESET arm / `Debug_PresetReadout_Show`
+(games/sonic4/test/ojz_scroll_test.emp): stepping the effects lab's one list onto a
+PRESET row installs that section's whole EffectsPreset onto the section the camera is
+standing in, and paints a section digit plus a verdict glyph under the entry name.
+
+⚠ THE CHORD MOVED ON 2026-09-05, and so did the walk. This tier used to have a chord of
+its own (START+A) and a cursor of its own (`Debug_Preset_Index`) counting sections
+0..N-1. The owner asked why there were three ways to do one thing, and the three chords
+collapsed into ONE list walked by START+LEFT/RIGHT with a single cursor
+(`Debug_Lab_Index`) over `.lab_index`, whose rows are {kind, sub-index, four-letter
+name}. The preset entries are the LAST rows of that list, so this instrument now:
+
+  * presses START+LEFT, not START+A;
+  * walks BACKWARD from the boot cursor 0, which WRAPS straight onto the last row — the
+    highest-numbered section's preset — and then steps down through every preset row to
+    section 0. That is nine presses that never touch a scene or a raster row, so nothing
+    this instrument installs on its way to its subject is a confound. Walking forward
+    would have crossed all twenty-eight of them;
+  * ends on section 0 for the reason it always did — it is the act's only PATCHED preset,
+    the only entry that exercises the verdict's world-anchor arm — and reaching it by
+    wrapping is now also the proof that the cursor wraps at LAB_CYCLE_COUNT;
+  * derives the preset rows' POSITIONS in the list rather than assuming them: the
+    `.lab_index` table is read out of the running ROM at its own listing symbol, split by
+    LAB_ENTRY_SIZE, and cross-checked against the listing's own
+    `lab_index`..`scene_table` span before a single press is made.
 
 WHY AN INSTRUMENT AND NOT A LINT. The two tiers beside this one each carry a `dc.l` table
 and a pytest lane that counts its rows, because a table can drift from the registry it
@@ -21,9 +42,12 @@ WHAT IT MEASURES.
      section 2 -> OJZ_TestGradient, section 7 -> Raster_Program_None) and
      `Pal_Cycle_Script` becomes section 3's OJZ_ShimmerCycle. These are the cells
      `Raster_VBlank` and `Palette_LoadCycle` write, not cells the hotkey touches.
-  3. The READOUT is on screen and correct, byte for byte: VRAM tile VRAM_DEBUG_READOUT+2
-     equals the digit sheet's row for the cursor, and tile +3 equals the verdict sheet's
-     row for the state the preset is actually in.
+  3. The READOUT is on screen and correct, byte for byte: VRAM tile
+     VRAM_DEBUG_PRESET_READOUT+0 equals the digit sheet's row for the section, and tile +1
+     equals the verdict sheet's row for the state the preset is actually in. (Both cells
+     moved from 1022-1023 to 957-958 with the consolidation; the four tiles they used to
+     share became the entry NAME tag, which this instrument does not sample — see WHAT IT
+     DOES NOT MEASURE.)
 
 EVERY EXPECTATION IS DERIVED, NEVER TYPED — and the first draft of this file proves why
 the rule is worth the trouble. It carried a hand-typed section-to-verdict table, and TWO
@@ -51,6 +75,12 @@ and the expectation was wrong. So nothing is typed now:
   * `Raster_Program_None` and `Pal_Cycle_None` come from the listing, not from a literal.
 
 WHAT IT DOES NOT MEASURE.
+  * It does not sample the ENTRY NAME tag (the four-letter word above the two cells it
+    does sample). That tag is painted by Debug_TierTags_Update from `Debug_Lab_Index`,
+    it is armed by the same held START this instrument's chord supplies, and checking it
+    would be worth doing — it is simply not this file's subject, and adding it would mean
+    reading the alphabet sheet and the row's own name bytes. Booked as unmeasured here
+    rather than assumed correct.
   * It does not look at pixels, and it does not read the sprite attribute table. It DOES
     check the two glyph objects' own SSTs — built (code_addr non-zero) and at the screen
     coordinates the readout declares — which closes the "the tile is right but nothing
@@ -78,7 +108,7 @@ least one did not; 2 REFUSED (unmeasurable).
 """
 from __future__ import annotations
 
-import argparse, asyncio, sys, zlib
+import argparse, asyncio, re, sys, zlib
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -91,7 +121,7 @@ from raster_cost_probe import parse_lst           # noqa: E402
 BOOT_FRAMES = 180        # into real gameplay before the first press
 SETTLE_FRAMES = 6        # let VBlank consume Raster_Pending and the glyph DMAs land
 TILE = 32                # one 8x8 4bpp tile
-VRAM_DEBUG_READOUT = 1020   # games/sonic4/vram.toml, region debug_readout; re-derived below
+VRAM_DEBUG_PRESET_READOUT = 957  # games/sonic4/vram.toml, region debug_preset_readout
 
 # The verdict glyph indices, which are also row numbers in `.verdict_font`.
 V_NONE, V_BLIND, V_LIVE, V_PARALLAX = 0, 1, 2, 3
@@ -152,17 +182,22 @@ async def rd_vram(b, addr: int, n: int) -> bytes:
     return raw
 
 
+LAB_SOURCE = Path(__file__).resolve().parent.parent / "games/sonic4/test/ojz_scroll_test.emp"
 HOLD_FRAMES = 2          # see press_chord: one VIDEO frame can be a lag frame
 RELEASE_FRAMES = 2
 PRESS_RETRIES = 3
 
 
 async def press_chord(b) -> None:
-    """Hold START+A for HOLD_FRAMES video frames, then release for RELEASE_FRAMES.
+    """Hold START+LEFT for HOLD_FRAMES video frames, then release for RELEASE_FRAMES.
 
-    Both buttons together IS the chord: START is read from `Ctrl_1_Held` and A from
+    Both buttons together IS the chord: START is read from `Ctrl_1_Held` and LEFT from
     `Ctrl_1_Press`, and on the first frame of a fresh hold the press latch carries both.
     The RELEASED frames after it are what make the next press an edge again.
+
+    LEFT and not RIGHT — see the header: backward from the boot cursor 0 wraps straight
+    onto the last preset row, so the walk never crosses a scene or a raster row and
+    installs nothing that could confound its own subject.
 
     TWO FRAMES AND NOT ONE, and this was measured rather than chosen: at one frame each
     the third press of a run was swallowed while the other nine landed. `play_input`
@@ -175,14 +210,14 @@ async def press_chord(b) -> None:
     """
     r = await b.call("emulator/play_input",
                      {"rows": [{"start": 0, "end": HOLD_FRAMES,
-                                "buttons": ["start", "a"], "port": 0}]})
+                                "buttons": ["start", "left"], "port": 0}]})
     if int(r.get("frames", -1)) != HOLD_FRAMES:
         raise RuntimeError(f"play_input advanced {r.get('frames')} frames, wanted {HOLD_FRAMES}")
     await b.call("emulator/run_frames", {"frames": RELEASE_FRAMES})
 
 
-async def step_cursor(b, sym, want: int) -> tuple[bool, int]:
-    """Press until `Debug_Preset_Index` reads `want`, at most PRESS_RETRIES times.
+async def step_cursor(b, sym, want_row: int) -> tuple[bool, int]:
+    """Press START+LEFT until `Debug_Lab_Index` reads `want_row`, at most PRESS_RETRIES.
 
     Returns (arrived, presses_spent). A step that needs more than one press is REPORTED
     rather than hidden — a retry loop that is silent about retrying is how a systematically
@@ -190,9 +225,30 @@ async def step_cursor(b, sym, want: int) -> tuple[bool, int]:
     """
     for n in range(1, PRESS_RETRIES + 1):
         await press_chord(b)
-        if (await rd(b, sym["Debug_Preset_Index"], 1))[0] == want:
+        if (await rd(b, sym["Debug_Lab_Index"], 1))[0] == want_row:
             return True, n
     return False, PRESS_RETRIES
+
+
+def source_const(name: str) -> int:
+    """One `const NAME = <int>` out of the lab's own source.
+
+    The list's SHAPE — how wide a row is, which byte is the kind, what value means PRESET
+    — is compile-time and reaches neither the symbol table nor the ROM as a symbol, so it
+    is read from the file that declares it. Every value read this way is cross-checked
+    against the running ROM below (row width x row count against the listing's own
+    lab_index..scene_table span, and the preset rows' own kind bytes), so a source that
+    drifted from the build under test cannot pass silently.
+    """
+    if not LAB_SOURCE.is_file():
+        raise RuntimeError(f"{LAB_SOURCE} does not exist; the lab list's shape cannot be read")
+    m = re.search(rf"^\s*const\s+{re.escape(name)}\s*=\s*(\d+)\s*(?://.*)?$",
+                  LAB_SOURCE.read_text(), re.M)
+    if m is None:
+        raise RuntimeError(f"could not find `const {name}` in {LAB_SOURCE.name} — this "
+                           f"instrument derives the lab list's shape from it and must not "
+                           f"guess")
+    return int(m.group(1))
 
 
 async def run(sock: str, rom: str, lst: str) -> tuple[int, list[str]]:
@@ -210,7 +266,7 @@ async def run(sock: str, rom: str, lst: str) -> tuple[int, list[str]]:
                    f"disk — a stale instance; nothing below would be about this build"]
 
     # --- the glyph sheets, read out of the ROM the machine is running ---
-    digit_sym = "Debug_SceneReadout_Show.digit_font"
+    digit_sym = "$games.sonic4.ojz_scroll_test$Debug_PresetReadout_Show$digit_font"
     verdict_sym = "$games.sonic4.ojz_scroll_test$Debug_PresetReadout_Show$verdict_font"
     digit_at = sym.get(digit_sym) or lst_symbol(lst, digit_sym)
     verdict_at = lst_symbol(lst, verdict_sym)
@@ -233,12 +289,50 @@ async def run(sock: str, rom: str, lst: str) -> tuple[int, list[str]]:
     await b.call("emulator/run_frames", {"frames": BOOT_FRAMES})
 
     fails: list[str] = []
-    cur = (await rd(b, sym["Debug_Preset_Index"], 1))[0]
+    cur = (await rd(b, sym["Debug_Lab_Index"], 1))[0]
     if cur != 0:
-        return 2, [f"Debug_Preset_Index reads {cur} at boot, not 0 — boot's Work-RAM clear "
+        return 2, [f"Debug_Lab_Index reads {cur} at boot, not 0 — boot's Work-RAM clear "
                    f"did not happen or something else writes this cell; every step below "
                    f"is indexed off it"]
-    print(f"boot: Debug_Preset_Index = 0 (Work RAM cleared), {BOOT_FRAMES} frames in")
+    print(f"boot: Debug_Lab_Index = 0 (Work RAM cleared), {BOOT_FRAMES} frames in")
+
+    # --- WHERE THE PRESET ROWS ARE, read off the running ROM's own table ---
+    # The listing carries both ends of `.lab_index`, so its byte length is a fact about
+    # THIS build; the row width and the PRESET kind value come from the source that
+    # declares them, and the two are cross-checked before anything is pressed. A source
+    # that drifted from the build fails here rather than sending the walk to a scene row.
+    try:
+        entry_size = source_const("LAB_ENTRY_SIZE")
+        cycle_count = source_const("LAB_CYCLE_COUNT")
+        kind_preset = source_const("LAB_KIND_PRESET")
+    except RuntimeError as e:
+        return 2, [str(e)]
+    lab_at = sym.get("Debug_LabCycleHotkey.lab_index") or \
+        lst_symbol(lst, "Debug_LabCycleHotkey.lab_index")
+    scene_at = lst_symbol(lst, "$games.sonic4.ojz_scroll_test$Debug_LabCycleHotkey$scene_table")
+    if lab_at is None or scene_at is None:
+        return 2, ["`Debug_LabCycleHotkey.lab_index` and/or its `.scene_table` are not in "
+                   f"{lst} — the preset rows' positions are derived from that span and "
+                   "cannot be guessed"]
+    span = scene_at - lab_at
+    if span != entry_size * cycle_count:
+        return 2, [f"the listing's lab_index..scene_table span is {span} B but the source "
+                   f"declares LAB_ENTRY_SIZE {entry_size} x LAB_CYCLE_COUNT {cycle_count} "
+                   f"= {entry_size * cycle_count} B — {LAB_SOURCE.name} is not the source "
+                   f"of this build, so nothing derived from it is about the machine here"]
+    table = await rd(b, lab_at, span)
+    preset_rows = [i for i in range(cycle_count)
+                   if table[i * entry_size] == kind_preset]
+    if not preset_rows or preset_rows != list(range(preset_rows[0], cycle_count)):
+        return 2, [f"the PRESET rows of `.lab_index` are {preset_rows}, which is not a "
+                   f"contiguous run ending at the last row. This instrument walks BACKWARD "
+                   f"from the wrap so it never crosses a scene or raster row; if the preset "
+                   f"block moved, that property is gone and the walk has to be redesigned "
+                   f"rather than re-pointed"]
+    row_of_section = {table[i * entry_size + 1]: i for i in preset_rows}
+    print(f"lab list: {cycle_count} rows of {entry_size} B at ${lab_at:06X}; "
+          f"preset rows {preset_rows[0]}..{cycle_count - 1} -> sections "
+          f"{sorted(row_of_section)}")
 
     # --- the act's own section table, read the way the hotkey walks it ---
     act = u32(await rd(b, sym["Current_Act_Ptr"], 4))
@@ -315,20 +409,28 @@ async def run(sock: str, rom: str, lst: str) -> tuple[int, list[str]]:
         return V_NONE, ("no raster, no patched program, no palette cycle, and the act's "
                         "own default background")
 
-    # 1..count-1 then the WRAP back to 0. Section 0 is last and is not an afterthought:
-    # it is the act's only PATCHED preset, so it is the only entry that exercises the
-    # verdict's world-anchor arm, and reaching it also proves the cursor wraps at the
-    # act's own section count rather than at a constant.
+    if sorted(row_of_section) != list(range(count)):
+        return 2, [f"the act reports {count} sections but `.lab_index`'s preset rows name "
+                   f"{sorted(row_of_section)} — the list and the act disagree, so a walk "
+                   f"over one of them says nothing about the other. "
+                   f"tools/test_lab_index_lint.py fails the build on this too"]
+
+    # The act's sections in DESCENDING order, which is what walking BACKWARD from the boot
+    # cursor visits: press one, wrap onto the last row (the highest section), then step
+    # down. Section 0 is last for the reason it always was — it is the act's only PATCHED
+    # preset, so it is the only entry that exercises the verdict's world-anchor arm — and
+    # the FIRST press is now also the proof that the cursor wraps at LAB_CYCLE_COUNT.
     retries = 0
-    for want_cursor in list(range(1, count)) + [0]:
-        ok, spent = await step_cursor(b, sym, want_cursor)
+    for want_cursor in sorted(row_of_section, reverse=True):
+        want_row = row_of_section[want_cursor]
+        ok, spent = await step_cursor(b, sym, want_row)
         retries += spent - 1
         await b.call("emulator/run_frames", {"frames": SETTLE_FRAMES})
 
-        got = (await rd(b, sym["Debug_Preset_Index"], 1))[0]
-        if not ok or got != want_cursor:
-            fails.append(f"Debug_Preset_Index {got} after {spent} press(es), wanted "
-                         f"{want_cursor} — the cursor did not advance")
+        got = (await rd(b, sym["Debug_Lab_Index"], 1))[0]
+        if not ok or got != want_row:
+            fails.append(f"Debug_Lab_Index {got} after {spent} press(es), wanted row "
+                         f"{want_row} (section {want_cursor}) — the cursor did not step")
             break                       # every later expectation is indexed off the cursor
 
         ep, raster, patched, cycle, parallax = await preset_of(want_cursor)
@@ -357,8 +459,8 @@ async def run(sock: str, rom: str, lst: str) -> tuple[int, list[str]]:
                              f"this preset's ep_cycle ${cycle:06X}")
 
         # --- the readout, on screen ---
-        dig = await rd_vram(b, (VRAM_DEBUG_READOUT + 2) * TILE, TILE)
-        ver = await rd_vram(b, (VRAM_DEBUG_READOUT + 3) * TILE, TILE)
+        dig = await rd_vram(b, (VRAM_DEBUG_PRESET_READOUT + 0) * TILE, TILE)
+        ver = await rd_vram(b, (VRAM_DEBUG_PRESET_READOUT + 1) * TILE, TILE)
         if dig == b"\0" * TILE or ver == b"\0" * TILE:
             fails.append(f"section {want_cursor}: a readout tile is all zeroes — the cell "
                          f"was never painted, which is not the same as painted wrong")
@@ -375,7 +477,7 @@ async def run(sock: str, rom: str, lst: str) -> tuple[int, list[str]]:
         # --- the two glyph OBJECTS: built, and where the readout says they are ---
         # Slots NUM_SYSTEM-4 and NUM_SYSTEM-3, claimed by address (the System pool has no
         # allocator). Checked once, on the first step, because they are built once.
-        if want_cursor == 1:
+        if want_cursor == max(row_of_section):
             for i, (slot, x) in enumerate(zip((NUM_SYSTEM - 4, NUM_SYSTEM - 3), PRESET_CELL_X)):
                 sst = sym["System_Slots"] + slot * SST_SIZE
                 blob = await rd(b, sst, 0x10)
@@ -396,7 +498,7 @@ async def run(sock: str, rom: str, lst: str) -> tuple[int, list[str]]:
               f"verdict {V_NAMES[want_verdict]} ({why})")
 
     if retries:
-        print(f"  NOTE: {retries} extra press(es) were needed across {count - 1} steps — "
+        print(f"  NOTE: {retries} extra press(es) were needed across {count} steps — "
               f"a press landing entirely inside a lag frame is not sampled by Input_Tick. "
               f"This is an instrument property, not a hotkey one; a step that needed more "
               f"than {PRESS_RETRIES} would have failed above.")
@@ -425,7 +527,7 @@ def main() -> int:
     for f in fails:
         print(f"  - {f}")
     if code == 0:
-        print("\nOK — every press advanced the cursor, installed that section's channels, "
+        print("\nOK — every press stepped the cursor, installed that section's channels, "
               "and painted a digit + verdict that match the ROM's own glyph sheets and the "
               "preset's own fields.")
     return code

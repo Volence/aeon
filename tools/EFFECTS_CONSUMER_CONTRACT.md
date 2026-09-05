@@ -719,7 +719,7 @@ which reads `effects_gen.py`'s raster arm and fails if it spells one of those nu
 
   **HALF OF IT IS NOW CHECKED, and stating which half is the point** (2026-08-29).
   `tools/test_raster_cycle_table_lint.py` holds the DEBUG effects-lab's `.raster_table`
-  (`games/sonic4/test/ojz_scroll_test.emp`, `Debug_BandDemoHotkey`) to the preset documents
+  (`games/sonic4/test/ojz_scroll_test.emp`, `Debug_LabCycleHotkey`) to the preset documents
   on disk in both directions, so a preset with no row — i.e. a program *nothing in either
   shape can install* — fails the build's pytest lane. What is still unchecked, and is the
   larger half: **binding to a SECTION**. A preset reachable only from a debug chord is not

@@ -41,7 +41,7 @@ LOUD ON UNMEASURABLE. Every way this run can fail to reach its subject is a FAIL
 a zero and never a green: the scene cursor not landing where it was driven, reg $0B bit 2
 clear at the sample point, the server serving a different ROM, a symbol that will not
 resolve. Two of those manufactured a false negative on 2026-08-27 — the DEBUG warp clears
-bit 2, and travelling re-applies the section's own scene while `Debug_Scene_Index` still
+bit 2, and travelling re-applies the section's own scene while `Debug_Lab_Index` still
 reads 10 — so the mode bit is re-read at every sample point and never inferred from the
 cursor.
 
@@ -86,6 +86,27 @@ USAGE
 
 RUN IT FOREGROUND. It boots a headless emulator; oracle from a background agent deadlocks.
 """
+
+# ---------------------------------------------------------------------------
+# THE CURSOR THIS FILE DRIVES CHANGED SHAPE ON 2026-09-05, and the rename is the
+# small half of it. `Debug_Scene_Index` became `Debug_Lab_Index` when the effects
+# lab's three selection chords collapsed into ONE list walked by START+LEFT/RIGHT
+# (games/sonic4/test/ojz_scroll_test.emp, Debug_LabCycleHotkey).
+#
+# THE SCENE INDICES DID NOT MOVE: rows 0..SCENE_CYCLE_COUNT-1 of the one list are
+# the same twenty-one scenes in the same registry order, so every scene number in
+# this file still names the same scene. What DID change is what lies past them:
+# rows 21..27 install RASTER programs and rows 28..36 install whole per-section
+# PRESETS. Stepping the cursor forward off the end of the scene block therefore
+# has SIDE EFFECTS a scene walk never used to have, and wrapping round from the
+# last scene to the first now walks through all sixteen of them.
+#
+# So stepping is DIRECTIONAL here now, and that is not a tidiness change: it is
+# what keeps this gate's subject uncontaminated. `drive_cursor` presses RIGHT to
+# go up and LEFT to go down, so a walk between two scene rows stays inside the
+# scene block by construction and never installs a raster program or a preset on
+# its way.
+# ---------------------------------------------------------------------------
 import argparse
 import asyncio
 import os
@@ -195,6 +216,56 @@ async def step_scene(client):
     await client.call("emulator/run_frames", {"frames": 4})
 
 
+async def step_scene_back(client):
+    """One BACKWARD step of the effects-lab cursor: START held, LEFT pressed on one frame.
+
+    The mirror of `step_scene`, and load-bearing since the one-list consolidation — see
+    the note at the head of this file. It used to live only in
+    tools/left_edge_vsram_probe.py; it is here now because every caller needs it.
+    """
+    await client.call("emulator/play_input", {
+        "rows": [
+            {"start": 0, "end": 2, "buttons": ["start"]},
+            {"start": 2, "end": 3, "buttons": ["start", "left"]},
+            {"start": 3, "end": 8, "buttons": ["start"]},
+        ],
+        "maxFrames": 8,
+    })
+    await client.call("emulator/release_all", {})
+    await client.call("emulator/run_frames", {"frames": 4})
+
+
+async def drive_cursor(client, addr, index, limit=40):
+    """Step the lab cursor to `index`, in the SHORTER direction, and return where it ended.
+
+    Raises SystemExit rather than returning a wrong answer on either unmeasurable
+    condition: a press that does not move the cursor (wrong shape, or replaying input),
+    and a walk that runs out of steps.
+
+    DIRECTIONAL BY CONSTRUCTION — see the note at the head of this file. Between two
+    SCENE rows this never leaves the scene block, so it cannot install a raster program
+    or a preset as a side effect of getting where it is going.
+    """
+    for _ in range(limit):
+        at = await read_bus(client, addr=addr, length=1)
+        if at == index:
+            return at
+        before = at
+        if at < index:
+            await step_scene(client)
+        else:
+            await step_scene_back(client)
+        after = await read_bus(client, addr=addr, length=1)
+        if after == before:
+            raise SystemExit(
+                f"UNMEASURABLE: the effects-lab cursor did not move from {before} "
+                f"(START+{'RIGHT' if before < index else 'LEFT'} produced no step). The "
+                f"hotkey needs a DEBUG shape and live input (Input_Source == 0); gating "
+                f"on a shape that has no lab cycle would report green having tested "
+                f"nothing")
+    raise SystemExit(
+        f"UNMEASURABLE: could not drive the effects-lab cursor to {index} in {limit} steps")
+
 async def sample_plane(client, layer, cols, rows):
     out = {}
     for y in rows:
@@ -218,7 +289,7 @@ def render(title, grid, cols, rows):
 
 async def check_scene(client, syms, index, want_pixels):
     """Return (ok, message). Every unmeasurable condition returns ok=False."""
-    cursor = await read_bus(client, addr=syms["Debug_Scene_Index"], length=1)
+    cursor = await read_bus(client, addr=syms["Debug_Lab_Index"], length=1)
     if cursor != index:
         return False, (f"UNMEASURABLE scene {index}: the effects-lab cursor reads {cursor} after "
                        f"being driven to {index}. The scene was never installed, so nothing here "
@@ -347,7 +418,7 @@ def main():
         # had never executed once. The failure looked like "nobody ran it"; it was
         # "it could not run". Those two leave the same evidence: no result.
         # If you add a syms[...] read to check_scene(), add its name HERE in the same edit.
-        for name in ("Debug_Scene_Index", "Camera_Y", "VDP_Shadow_Table",
+        for name in ("Debug_Lab_Index", "Camera_Y", "VDP_Shadow_Table",
                      "Parallax_Current_Config"):
             syms[name] = await lookup(c, name)
 
@@ -359,18 +430,8 @@ def main():
             await c.call("emulator/release_all", {})
             await c.call("emulator/run_frames", {"frames": 30})
 
-        at = await read_bus(c, addr=syms["Debug_Scene_Index"], length=1)
         for index in scenes:
-            while at != index:
-                await step_scene(c)
-                nxt = await read_bus(c, addr=syms["Debug_Scene_Index"], length=1)
-                if nxt == at:
-                    raise SystemExit(
-                        f"UNMEASURABLE: the effects-lab cursor did not advance from {at} "
-                        f"(START+RIGHT produced no step). The hotkey needs a DEBUG shape and live "
-                        f"input (Input_Source == 0); gating on a shape that has no scene cycle "
-                        f"would report green having tested nothing")
-                at = nxt
+            at = await drive_cursor(c, syms["Debug_Lab_Index"], index)
             ok, msg = await check_scene(c, syms, index, args.pixels)
             if msg:
                 print(f"  {msg}")
