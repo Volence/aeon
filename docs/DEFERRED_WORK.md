@@ -25797,23 +25797,22 @@ strictness.** Same family as this repo's own "enumerate by what touches the valu
 
 ---
 
-### OJZ floor: the fan is retired, and the plank angle now rotates with the camera — 2026-09-05
+### OJZ floor: BLOCKED on an owner choice, plus one unnamed defect - 2026-09-05
 
-**Not a blocker; a consequence the owner has not yet seen in a capture.** The floor's art is
-now parallel planks (`vx + j*64 + 0.5*dy`), chosen over the fan because Plane B's 512-px wrap
-COPIES a fan's apex every 512 px and the boards belonging to an off-screen copy converge off
-the side of the screen — his *"a few after get weird and point away"*. Forcing the fan's
-period to divide 512 does not fail on budget, it fails on geometry: 6 distinct periods over
-the 43 rows that draw seams, runs of up to 12 pixel rows, i.e. vertical stripes.
+**Stop-and-ask, not work.** Evidence: `docs/witness/floor-still-wrong-2026-09-05.md`.
+Reference: oracle `247d316` `docs/2026-09-05-toystory-floor-recon.md`.
 
-**The open item is cost (b) in `docs/witness/floor-outer-stripes-2026-09-05.md`:** on-screen
-slope is `skew - C`, so the planks lean +0.50 px/row at camera 0, stand VERTICAL at camera
-x ~= 36, and reach -5.35 by camera 420, where the prediction shows near-horizontal streaking.
-Uniform at every instant, but not a fixed angle. **`--skew` only moves the crossing point**
-(~2.7 re-centres camera 0..420 at +-2.7 instead of +0.5..-5.3). The only lever that reduces
-the rotation is the layer's `curve` end factor — a shallower ramp rotates slower and recedes
-less — and that is the per-row gain, which is correct and was explicitly ruled out of scope.
-**Decide it from a capture at three camera positions, not from this note.**
+**1. HIS PICTURE IS NOT OUR MODEL'S OUTPUT, cause unnamed.** The artwork in his
+capture IS ours (its four cross seams sit at the computed spacings 6, 10, 33
+screen lines; measured 6.11, 9.77, 33.15, residual 0.36 crop px). The beam
+lattice matches nothing: over 200,859 combinations of camera x, horizontal scale,
+offset, curve end factor and ramp top line the best fit is 6.11 px, while the
+same machinery recovers a synthetic art-plus-ramp picture at 0.88 px. Cross seams
+are scroll-invariant and the lattice is not, so the departure is in the per-line
+horizontal scroll APPLIED, not in the art. NEXT MEASUREMENT, needs an emulator:
+read the live 224-entry Plane-B HScroll table at his camera and compare against
+`curve_probe.derive_curve_buffer`. Agreement moves the fault downstream of the
+table; disagreement names what writes it.
 
 Also parked: `crown` is shipped at 0.0. At 0.45 it costs +24 tiles and still fits (63 of 120),
 but the highlight crosses a wood-ramp rounding step part-way down each plank and reads as pale
@@ -25939,3 +25938,16 @@ preset's `patch_world_ys[ch]` is `<camera const> + <line const>`, the camera can
 is `line +/- (ANCHOR_SINE_AMP >> amp_shift)` inside `(lo, hi)` with no camera needed at all. That
 covers section 7 exactly and needs no new authored number. **Not to be built as a standing bar
 while EFFECTS-W1 is open** - it is a widening of a bound that exists, not a new gate.
+
+**2. THE TECHNIQUE CHOICE IS HIS.** Toy Story paints convergence into fixed
+unique art (~190+ tiles over five cell-rows, streamed) and scrolls uniformly, so
+its vanishing point TRAVELS WITH THE WORLD. Ours pins it to the SCREEN centre at
+every camera x, which is what he asked for and has no known commercial
+reference. Ours costs 121 tiles for 27 of 72 rows (204 for 40), does not stream,
+and carries a 192/F px travel budget before the 512 px wrap admits the next apex.
+**Draw nothing until he picks world-anchored or screen-anchored.**
+
+**Not a defect:** the flat top of the band is the art (`lod_px` 20 suppresses
+seams on 45 of 72 floor rows). A per-line HScroll translates each row rigidly and
+cannot create or destroy horizontal variation within a row, so the scroll cannot
+be a cause of flatness at any setting.
