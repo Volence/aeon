@@ -25844,3 +25844,40 @@ every live branch in the suite. The no-new-dashes half applies to everything wri
 Ground: his ruling names the tools, his sweep words name tool agents, and oracle had already
 applied this reading. **The wide count is the measurement; the narrow cut is the ruling. Do not
 gate the whole tree to zero — the gate must be pointed at the narrow scope or it fails forever.**
+
+---
+
+### SEC7-SEAM: the vertical edge is AUTHORED. What is open is the tint's COVERAGE — 2026-09-05
+
+Owner's report: "only thing I see in section 7 is the fg loading wrong?" **The FG is not
+loading wrong.** `tools/verify_level_bin.py`'s new `verify_editor_bake_fidelity` (landed
+`8706d8f2`) proves the generated tree carries the authored nametable and art pixel for pixel:
+9 sections, 589,824 words, three claims clean, and red-first on three mutations.
+
+The edge is at **world X 2944** and it is a chunk-column boundary in the inherited donor
+layout: `sonic_hack/level/layout/OJZ_1_sec7.bin` chunk row 2 reads `3D 3B 3D 3C 3C 3C 3B | 28
+28 28 1D 1D 00 00 00 1D`. Hand-built terrain chunks end at chunk column 7; generic fill chunk
+`$28` begins there. Geometry check: chunk col 7 -> tile col 112 -> section-local X 896 ->
+2048+896 = 2944, which with the player at X 3000 lands ~88 px from screen left. That matches
+the reported ~90 px, so the reported edge and this boundary are the same object.
+
+**What turns an ordinary authored edge into a seam is the waterline's coverage.**
+`fx_tint_band(pal_line: 2, entry: 3, count: 3)` recolours 3 of the 16 entries in one CRAM line,
+and the two sides are painted out of nearly disjoint parts of that line
+(`tools/waterline_tint_coverage.py`, rows 28:52, share of pixels on the tinted entries):
+
+    chunk col   0..6  ->  0.0-0.7%      (terrain: entries 10-13, greens)
+    chunk col      7  ->  46.2%   <-- the seam
+    chunk col  10,11,15 -> 58.1%        (fill $1D: entries 4,5,6)
+
+So below the surface the fill goes blue and the terrain does not move at all.
+
+**OPEN, and it is the owner's call — do NOT pick one unasked.** (a) accept it, the edge is
+level design and a wider shot may read fine; (b) widen the tint to the terrain's greens —
+blocked as one fire: `RASTER_BURST_MAX_DEEP` is 3 and `patchable()` takes exactly one fire, so
+a moving boundary gets three colour words and no more (see `c9b6db23`); a second channel or a
+static boundary would be needed; (c) re-author chunk cols 7-11 so both sides share a ramp,
+which is content work, not engine work. Re-measure with the tool before choosing.
+
+⚠ Unconfirmed at runtime: the dry/wet renders in `docs/captures/sec7-seam/` MODEL the variant
+arithmetic offline. Nothing here was read off a running ROM.
