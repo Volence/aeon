@@ -17593,14 +17593,31 @@ margin 36. **A shrink of ONE byte upstream is enough.** 14 real transfer sites r
 `Sound_PlaySFX` (`jbsr`/`jsr`/`jbra`/`jmp`); 36 total occurrences of the name, the rest being the
 declaration, an error string and comments.
 
-**THE COMMAND IS THE DURABLE HALF — run it, do not quote this entry's numbers:**
+**⚠ CORRECTED 2026-09-05 — THE CHECK PRESCRIBED BELOW WAS VACUOUS AND THE BINDING SYMBOL WAS WRONG.**
+Raised by sigil's decouple inventory (P1-b, `ba94655`), confirmed and re-measured here.
+`SoundTablesZ80_Head` heads `section soundbankhead (cpu: m68000, vma: $8000)`; `map.toml`'s
+`[[anchor]] sound_bank` reads `at = 0xB8000, vma = 0x8000`. The `8000` the old grep printed is its
+declared **VMA**, not a ROM address — its LMA is `0xB8000`, no upstream shrink can move the printed
+value, and the check could never go red. Same class as `9d7cefd5` (2026-09-03, *"a phased section's
+VMA was being read as a ROM address"*), never back-applied here.
+
+**Re-derived from `s4.lst` built 2026-09-05** (branch `confirm/effects-w1-item14-decouple-inventory`,
+tree `722d1cf2`): the neighbourhood at the ceiling is **not the sound region**. `BG_Init`
+(`engine/level/bg.emp`, unphased) sits at `0x7F6C` and its body already STRADDLES `0x8000`; the
+lowest real ROM address at or above the ceiling is `$engine.bg$BG_Init$nt_row` at **`0x801A` —
+margin 26 B**, and the lowest exported symbol is `BgAnim_Init` at **`0x8040` — margin 64 B**.
+`Sound_PlaySFX` is at **`0x825A`, margin 602 B**, not `0x8024`/36; those figures are from 2026-08-30.
+
+**THE COMMAND IS THE DURABLE HALF — it now MEASURES the margin instead of naming a symbol:**
 
 ```sh
-grep -nE "SoundTablesZ80_Head|Sound_PlaySFX" s4.lst
+awk '/^ [^ ]+ : [0-9A-F]+ /{split($0,a," : ");n=a[1];gsub(/^ +| +$/,"",n);split(a[2],b," ");
+     v=strtonum("0x" b[1]); if(v>=0x8000&&v<0x8400) printf "%06X %s\n",v,n}' s4.lst | sort | head
 ```
 
-`SoundTablesZ80_Head` at `8000` or above = clear. Below = every `abs.w`/`abs.l` decision in that
-neighbourhood has flipped and your measured byte delta is not the whole story.
+Ignore `SoundTablesZ80_Head` in that reading (phased, always `8000`). The **next** row is the
+binding symbol and `addr - 0x8000` is your margin. Shrink more than that upstream and every
+`abs.w`/`abs.l` decision in that neighbourhood flips.
 
 **Provenance, and it is the reason this entry is written in this shape.** The sigil lane carried a
 row naming `Sound_PlaySFX` as the binding constraint at 36 bytes' margin; re-measuring found the
