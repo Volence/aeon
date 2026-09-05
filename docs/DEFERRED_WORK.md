@@ -26023,48 +26023,37 @@ section. When wave 2 lands, that hand-side install and this quarantine are both 
 
 ---
 
-### `grep` here is a SHELL FUNCTION that skips gitignored files - 2026-09-05
+### RETRACTED: "recursive grep skips gitignored files" - 2026-09-05
 
-**Every recursive `grep` in this workspace silently excludes the build outputs.** `grep` is a
-shell function from the Claude shell snapshot, not `/usr/bin/grep`, and recursively it filters
-gitignored paths. `.gitignore:20` ignores `*.lst`, so **`s4.debug.lst` and every other listing,
-ROM and generated artifact is invisible to `grep -r`** while a direct `grep pattern file.lst`
-works normally. It is the recursive walk that filters.
+**The mechanism in the original version of this entry is WRONG and is withdrawn.** It claimed
+recursive `grep` here is a shell function that silently skips gitignored files, which would make
+build listings invisible to `grep -r`. **It does not reproduce.**
 
-**It fails by returning a clean empty result, never an error**, which is the expensive way for
-it to fail: an absence you did not ask for looks exactly like an absence you established.
+Tested directly, shell-function `grep` against `/usr/bin/grep`, same pattern and paths:
+no `--include` 741 vs 741, `--include='*'` 741 vs 741, `--include='*.lst'` **343 vs 343**,
+`--include='*.emp'` 125 vs 125. Identical every time, gitignored `.lst` files included. Re-running
+the exact original pipeline **without its `head -5`** returns 12 files of which SIX are `.lst`,
+`s4.debug.lst` among them, and `/usr/bin/grep` returns the same 12. A later report that the shell
+grep UNDER-reports non-empty counts did not reproduce here either.
 
-**Measured cost today.** Searching for the F7 fault symbol, `grep -r` over the tree returned
-nothing from the symbol table, and on that basis this lane wrote "appears NOWHERE in this repo,
-and not in `s4.debug.lst`" INTO AN AGENT BRIEF. The symbol is there:
-`$engine.objects.sprites$Draw_Sprite$no_parent` at 370A. Aurora caught it from firsthand
-evidence and supplied an unplanned control (a morning PC of 0x370E resolving to
-`Draw_Sprite.no_parent` at disp 4, and 370A + 4 = 370E). The agent was corrected mid-run.
+**What survives is the instance, not the explanation.** A search of mine did report the F7 symbol
+absent when it was present at 370A, and that absence went into an agent brief. Two candidate
+causes remain and cannot now be distinguished: the `head -5` that truncated the output, and a
+four-shape build rewriting the `.lst` files while the search ran. **The cause is UNESTABLISHED.**
+Picking the tidier one is exactly what produced the retracted claim.
 
-**A second reason the same search failed, independent of the first, so fixing one would not
-have saved it.** The symbol has THREE renderings and no two match as strings: the listing's
-mangled `$module$Proc$local`, the debugger's demangled `Proc.local`, and the doc's uppercased
-`PROC.LOCAL`. A case-sensitive search for any one finds neither of the others.
+**Why this entry stays rather than being deleted.** The failure is the one this repo spent the day
+booking against other people, committed by its own controller one layer up: a real symptom, a
+confident mechanism, and that mechanism written into a repo note, a memory file, an agent brief
+and a message to another lane before anything tested it. **A refuted mechanism invalidates its
+arithmetic**, so the "family of four" framing keeps only its independently verified members - the
+eza column that read an 845,972 byte ROM as 5 bytes, `git status` blind to ignored state, and the
+`ls` alias swallowing its path. This one is withdrawn from that list until someone reproduces it.
 
-**Use `/usr/bin/grep -r` explicitly when searching build outputs**, or name the file. Nothing
-enforces this; the habit is the enforcement, which is why it is written here rather than
-assumed.
+**Still worth doing, on much weaker grounds than first claimed:** comparing the two greps costs
+nothing and is a fine canary for any absence claim. That stands on its own merits.
 
-**IT IS A FAMILY OF FOUR, AND THE DEFENCE IS NOT REMEMBERING FOUR SPECIAL CASES.** Aurora
-reproduced the grep hazard with a canary in their own shell and added the fourth member: `ls`
-here is eza, so `ls -la | awk '{print $5}'` reads the wrong column and reported an 845,972 byte
-ROM as **5 bytes**, briefly diagnosed as a build defect. With `git status` unable to see ignored
-state and the `ls <path>` alias swallowing its argument, all four share one signature: **each
-substitutes a different POPULATION or FORMAT than the caller asked for, and reports success.
-None of them errors.** The fifth will not be on any list, so the rule is: **any tool whose
-output feeds a claim of ABSENCE or a COUNT gets a canary first.** `git grep` is the better
-default for questions about tracked source, because it is explicit about its population rather
-than silently choosing one. Language-level tree walks (pathlib, node) were never affected.
-
-**Both lanes audited their own prior absence claims on discovering this.** Aurora's clearance
-that nothing parses the band sidecar's `source` field held, but held by luck of which files are
-tracked. Aeon's claim that only two `scene_vsplit_fires()` consumers exist -- the premise of the
-VSPLIT-NO-OP lint landed the same hour -- was re-run under `/usr/bin/grep` and the two
-populations AGREE, consumer set identical and 7 vsplit sites either way, so it holds by
-verification rather than by luck. The registry scan and both dash counts were pathlib walks and
-were never exposed.
+**And the second, independent reason that same search failed IS verified and unaffected:** a `.emp`
+local label has three renderings and no two match as strings - the listing's mangled
+`$module$Proc$local`, the debugger's demangled `Proc.local`, and prose that uppercases it. A
+case-sensitive search for one finds neither of the others.
