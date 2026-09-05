@@ -25150,3 +25150,49 @@ and, before citing any SHA as landed, `git merge-base --is-ancestor <sha> origin
 **Also worth carrying: `git branch --show-current` belongs in the pre-commit check, not just
 before a merge.** A non-isolated agent can move the main tree's branch under a controller
 that never ran a checkout itself.
+
+## ⚠ THE LOOP "STOP AT x 1147" WAS A ROM CRASH THAT MY OWN INSTRUMENT CAUSED
+
+**Booked as a finding on 2026-09-04 ("the crossover works, then he stops on the ramp with
+speed to spare"). That finding is WITHDRAWN. The player was not stopping — the ROM had
+crashed, and my harness crashed it.**
+
+**The evidence, in the order it forced the conclusion:**
+
+- `x_pos` at the "stop" is **bit-identical frame after frame**, sub-pixel included — not
+  oscillating, so not a wall snap.
+- `x_vel` reads **552, not zero**, so nothing was zeroing velocity either. My reported
+  mechanism ("a wall sensor zeroing `x_vel` every frame") was wrong on its own data.
+- **`Logic_Tick` is FROZEN.** The game logic was not ticking at all.
+- PC is in **`ErrorHandlerBlob`**, `display=False`, SR `$270C`.
+
+**The crash screen names it exactly:**
+
+```
+ADDRESS ERROR
+Address:  02A665  Map_TestObj+5
+Offset:   003EC2  RefreshSpritePieceCount
+Caller:   0102B0  Player_Display+C
+```
+
+**CAUSE, AND IT IS THE HARNESS.** The drives cleared `debug_flag` by **writing `Sst+$3C`
+directly**. That is not how you leave debug-fly. `Player_DebugExit` does `sf debug_flag`
+**and then `Player_InitAssets` + `set_standing_size`** — it is what restores `mappings` from
+`Map_TestObj` (the 16×16 yellow marker) back to the character's. Writing the byte alone
+leaves the player rendering the marker's mappings with Sonic's piece count, and
+`RefreshSpritePieceCount` walks it to the **odd address** `$02A665`.
+
+**Verified both ways:** with the flag hand-cleared the fault reproduces after ~50 frames of
+input; **pressing `B` — the real toggle — gives `debug_flag 0x00` with `mappings 0x00070FDE`
+(a character mapping, not `Map_TestObj`) and 320 frames of clean running with no fault.**
+
+**USE THE REAL TOGGLE. `emulator/press {"buttons":["b"]}`, never a write to `Sst+$3C`.**
+
+**And a second harness rule the corrected run then exposed: the camera must FOLLOW.** With
+the camera pinned and the player accelerating away from it, he leaves the streamed collision
+window and falls through the level (measured: y 829 → 3488 while x ran 1106 → 2550). Short
+drives stayed inside the window by accident; long ones do not.
+
+**So the loop's actual behaviour past the hand-off is STILL NOT ESTABLISHED.** What is
+established: the crossover fires and `layer` switches 0→1 at col 143. Everything I reported
+after that point was an artifact.
