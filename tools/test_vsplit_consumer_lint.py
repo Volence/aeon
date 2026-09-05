@@ -75,11 +75,18 @@ authoring scene or no consumer at all -- the state a broken regex would produce.
 
 THE QUARANTINE, AND WHY IT IS NOT AN EXCUSE
 ===========================================
-One live scene fails this check today: `Scene_Editor_ojz_act1_sec7_worldwater`. Its
-disposition is a CONTENT decision that is the owner's, not a lint's -- binding it adds ROM
-bytes and changes what section 7 looks like, and deleting the attachment destroys an
-authoring act Aurora made on purpose. So it is listed in `KNOWN_UNBOUND` below with the
-reason, and:
+NOTHING FAILS THIS CHECK TODAY AND `KNOWN_UNBOUND` IS EMPTY (2026-09-05). This section
+described one live offender, `Scene_Editor_ojz_act1_sec7_worldwater`, in the present
+tense; aurora removed the attachment rather than binding it and the entry went with it in
+the same change, which the arms below forced. The sentence outlived its fact by one
+commit, in the file whose whole subject is claims outliving their facts, and a reader
+meets this docstring before the dict twenty lines down. Kept as a worked example rather
+than deleted.
+
+When an entry does exist, its disposition is a CONTENT decision that is the owner's, not
+a lint's -- binding an inert vsplit adds ROM bytes and changes what a section looks like,
+and deleting the attachment destroys an authoring act somebody made on purpose. So such a
+scene is listed in `KNOWN_UNBOUND` below with the reason, and:
 
   * `test_quarantine_entries_are_still_unbound` FAILS if a quarantined scene ever gains a
     consumer, so the entry cannot rot into permanent cover -- fixing the scene forces the
