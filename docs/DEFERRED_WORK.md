@@ -25939,3 +25939,45 @@ preset's `patch_world_ys[ch]` is `<camera const> + <line const>`, the camera can
 is `line +/- (ANCHOR_SINE_AMP >> amp_shift)` inside `(lo, hi)` with no camera needed at all. That
 covers section 7 exactly and needs no new authored number. **Not to be built as a standing bar
 while EFFECTS-W1 is open** - it is a widening of a bound that exists, not a new gate.
+
+### VSPLIT-NO-OP: the silent half is CLOSED; one live scene is quarantined for an owner call - 2026-09-05
+
+**The defect, restated from `df3b8810`'s booking.** `vsplit:` is the one scene-layer attachment
+that does not lower to a band record. Every other one rides the `SceneCfgN` record `lowerN()`
+already emits, so authoring it is enough to make it real. A vsplit lowers to a RASTER PROGRAM
+instead, and that program exists only if a human calls `scene_vsplit_fires(<Scene>)` and binds the
+result - `tools/effects_gen.py` renders the attachment and emits no program, because raster preset
+composition from the editor is wave 2 and has not landed (`tools/EFFECTS_CONSUMER_CONTRACT.md`).
+So an author could set a vsplit in Aurora, watch all four shapes build green, and get nothing.
+
+**Closed today: the refusal.** `tools/test_vsplit_consumer_lint.py`, run by the existing
+build-fatal `python3 -m pytest tools` lane in `build.sh`. It scans every `.emp` under `engine/` and
+`games/` (152 files; poison fixtures excluded and that exclusion is itself asserted), pulls every
+`vsplit: SceneVSplit.At(..)` out of a `const <Name>: Scene = scene(..)` body, and refuses a build in
+which any such scene has no `scene_vsplit_fires()` call. A second arm refuses a fold whose const is
+never referenced again, because an unreferenced top-level `const X = f(..)` is comptime-INERT
+(`docs/EMP_PITFALLS.md` section 3) - it would satisfy "a consumer exists" while emitting nothing.
+
+**Which half is comptime and which is not.** "Did the fold lose a fire?" IS comptime and was
+already covered - `ojz_effects.emp:1364` compares `.len` against `scene_vsplit_count()`, and
+:1175-1177 pins the witness word for word. The lint repeats neither. "Did anybody call the fold on
+this scene?" is NOT comptime and cannot be made so: a `use` edge re-evaluates an imported const's
+initializer in the CONSUMER's scope (injecting a clone, measured), `comptime var` is function-local,
+and a guard in an unreachable module is dead. There is no construct that accumulates a fact across
+modules, and the authoring module and the folding module are different by construction.
+
+**Open, and it is an OWNER CONTENT DECISION, not a lint's.**
+`Scene_Editor_ojz_act1_sec7_worldwater` authors `vsplit: At(67)` on its world_y-162 layer and has no
+consumer - `df3b8810`'s own bisect measured the arm `vsplit removed -> byte-identical ROM`, so the
+attachment reaches zero ROM bytes today. Both dispositions cost something a lint may not spend:
+BINDING it adds ROM bytes and changes what section 7 looks like (a fold plus a raster channel on
+section 7's preset, and the picture wants a look), and DELETING it destroys a deliberate authoring
+act of Aurora's. So it sits in `KNOWN_UNBOUND` in the lint, which raises a `UserWarning` naming it on
+every build rather than passing in silence, and two arms force the entry's deletion the moment the
+scene gains a consumer or loses its vsplit. The quarantine cannot rot into permanent cover and
+nothing new may be added to it.
+
+**For whoever takes the owner call:** the shape to copy is `Scene_Editor_ojz_act1_depth` in
+`games/sonic4/data/effects/ojz_effects.emp` (owner decision d-15) - `const P = scene_vsplit_fires(S)`,
+`pub data X: [u16; raster_words(P)] = raster_program(P)`, then `preset(raster: X, ..)` on the
+section. When wave 2 lands, that hand-side install and this quarantine are both what it replaces.
