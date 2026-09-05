@@ -89,6 +89,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 LAB = REPO / "games/sonic4/test/ojz_scroll_test.emp"
 REGISTRY = REPO / "games/sonic4/data/effects/scene_registry.emp"
+SCENES_SRC = REPO / "games/sonic4/data/effects/ojz_scenes.emp"
 ACT = REPO / "games/sonic4/data/levels/ojz/act1/act_descriptor.emp"
 PAGE = REPO / "docs/EFFECTS_LAB.md"
 VRAM_TOML = REPO / "games/sonic4/vram.toml"
@@ -422,6 +423,157 @@ def test_preset_rows_are_inside_the_acts_own_grid():
         f"digit and PRESET_CYCLE_MAX is {digit_max}. Section {digit_max} would show as "
         f"'{digit_max % 10}' and a reviewer would record his verdict against the wrong "
         "section. Give the readout a second cell (games/sonic4/vram.toml) first."
+    )
+
+
+def _scene_registry_order() -> list[str]:
+    """The `Scene_*` names of `pub const SCENES: [Scene; N] = [ ... ]`, in order.
+
+    That order IS `.scene_table`'s and IS the lab's scene sub-index, which is the whole
+    reason a sub-index can be joined to a scene at all.
+    """
+    src = _read(REGISTRY)
+    m = re.search(r"^pub\s+const\s+SCENES\s*:\s*\[\s*Scene\s*;\s*(\d+)\s*\]\s*=\s*\[",
+                  src, re.M)
+    if m is None:
+        raise AssertionError(
+            f"{REGISTRY.name}: could not find `pub const SCENES: [Scene; N] = [`. The lab's "
+            "scene sub-index is a position in that list; without it this lint cannot join a "
+            "sub-index to a scene and must not pass."
+        )
+    body = src[m.end():]
+    close = body.find("\n]")
+    if close < 0:
+        raise AssertionError(
+            f"{REGISTRY.name}: the SCENES array is not closed by a `]` at the start of a "
+            "line. This lint reads the list textually and must fail rather than measure a "
+            "truncated one."
+        )
+    names = re.findall(r"^\s*(Scene_\w+)\s*,", body[:close], re.M)
+    declared = int(m.group(1))
+    assert len(names) == declared, (
+        f"{REGISTRY.name}: SCENES is declared `[Scene; {declared}]` but {len(names)} "
+        f"`Scene_*` entries were read out of it. sigil fails the build on that too; until "
+        "it is fixed this lint cannot say which registry index a scene holds."
+    )
+    return names
+
+
+def _the_scene_that_carries_the_ladder() -> tuple[int, str]:
+    """(registry index, name) of the ONE authored scene with a live `rowRemap:`.
+
+    DERIVED, never named here. engine/level/scene_dsl.emp refuses more than one remapping
+    layer per scene ("the engine keeps ONE per-frame mark"), and the act declares exactly
+    one such scene today — but this reads the source rather than restating either fact, so
+    a second one shows up as a failure with both names in it instead of as a silent pick.
+    """
+    src = _read(SCENES_SRC)
+    # Comments mention `rowRemap:` in prose several times in this file, so strip them
+    # before looking. BOTH the declarations and the hits are located in the STRIPPED text
+    # and never across the two — offsets into the original and into the stripped copy are
+    # different numbers, and mixing them once reported the first hit as preceding every
+    # declaration. A `//` inside a string would over-strip; there are none in .emp scene
+    # declarations, and an over-strip can only ever LOSE a hit and fail loudly.
+    stripped = "\n".join(line.split("//", 1)[0] for line in src.splitlines())
+    starts = [(m.start(), m.group(1))
+              for m in re.finditer(r"^pub\s+const\s+(Scene_\w+)\s*:\s*Scene\s*=",
+                                   stripped, re.M)]
+    if not starts:
+        raise AssertionError(
+            f"{SCENES_SRC.name}: found no `pub const Scene_<name>: Scene =` declarations. "
+            "This arm locates the remapping scene by which declaration encloses the "
+            "`rowRemap:` argument; with no declarations found it would measure nothing."
+        )
+    hits = [m.start() for m in re.finditer(r"\browRemap\s*:", stripped)]
+    live = []
+    for off in hits:
+        arg = stripped[off:off + 200]
+        if re.match(r"\browRemap\s*:\s*SceneRemap\s*\.\s*None\b", arg):
+            continue                                    # explicitly no remap
+        owner = [name for start, name in starts if start <= off]
+        if not owner:
+            raise AssertionError(
+                f"{SCENES_SRC.name}: a `rowRemap:` at offset {off} sits before the first "
+                "`pub const Scene_*: Scene =` declaration, so this arm cannot say which "
+                "scene owns it."
+            )
+        live.append(owner[-1])
+    live = sorted(set(live))
+    assert len(live) == 1, (
+        f"{SCENES_SRC.name}: expected exactly ONE authored scene carrying a live "
+        f"`rowRemap:`, found {live or 'none'}. None and the lab's WLINE row has no ladder "
+        "to point at — the row-remap pass would publish no row, the gather would never "
+        "run, and the stamp would show nothing while the build stayed green. More than one "
+        "and this arm cannot say which scene the row should name; engine/level/"
+        "scene_dsl.emp already refuses two remapping LAYERS in one scene, but two remapping "
+        "SCENES is legal and the lab has to choose."
+    )
+    order = _scene_registry_order()
+    name = live[0]
+    assert name in order, (
+        f"{REGISTRY.name}: {name} carries the row remap but is not in SCENES[], so it is "
+        "not emitted as a ParallaxConfig and the lab cannot install it at all."
+    )
+    return order.index(name), name
+
+
+def test_there_is_exactly_one_waterline_row():
+    """One stamp, one System slot, one row.
+
+    The waterline stamp is a single object at a single claimed System slot
+    (DEBUG_WLINE_SST). Two WLINE rows would be two names for one object: the second would
+    silently re-point the same slot, and the retirement at the dispatch fork would make the
+    two indistinguishable on screen. There is also only ever one remapping scene to point
+    at — see the arm below.
+    """
+    rows = [r for r in lab_rows() if r and r[0] == "LAB_KIND_WLINE"]
+    assert len(rows) == 1, (
+        f"{LAB.name}: `.lab_index` holds {len(rows)} LAB_KIND_WLINE row(s), expected "
+        "exactly one. Zero means the waterline art is back to being resident and "
+        "invisible with only a Python witness for evidence, which is the gap the row "
+        "closes; more than one means two entries drive one System slot."
+    )
+
+
+def test_the_waterline_row_names_the_scene_that_carries_the_ladder():
+    """The WLINE row's sub-index must be the remapping scene's registry index.
+
+    THIS IS THE ONE FACT NOTHING ELSE CAN SEE, and it is why this arm exists rather than a
+    comptime `ensure`: the row is a `dc.b` inside an `if DEBUG == 1 {}` block, so sigil
+    cannot read it, and the scene it has to agree with is authored in a third file.
+
+    What goes wrong if it drifts is silent and it looks like a hardware bug. The stamp
+    draws the eight tiles at VRAM_WATERLINE_STRIPS; those tiles are only ever written by
+    Waterline_Art_Update, which only runs when the row-remap pass published a ladder row,
+    which only happens under a scene carrying `rowRemap:`. Point the row at any other scene
+    and the pass publishes 0, the gather never runs, the stamp's own honesty arm retires
+    the object on its first frame — and the reviewer presses the chord and sees NOTHING,
+    with every gate green and no message anywhere.
+    """
+    want, scene = _the_scene_that_carries_the_ladder()
+    subs = sub_indices("LAB_KIND_WLINE")
+    assert subs == [want], (
+        f"{LAB.name}: the WLINE row's sub-index is {subs}, but {scene} — the only authored "
+        f"scene carrying a live `rowRemap:` — is SCENES[{want}] in {REGISTRY.name}, which "
+        f"is `.scene_table` row {want}. A WLINE row pointing anywhere else installs a scene "
+        "with no ladder: nothing publishes Waterline_Art_Row, nothing gathers the strips, "
+        "and the stamp retires itself on the frame it is built. The visible symptom is a "
+        "chord that does nothing."
+    )
+
+    # ...and the third file: `.scene_table` row `want` must actually be that scene's
+    # emitted record. The two halves of the join are checked separately so a failure names
+    # which one moved.
+    table = _dc_l_rows("scene_table")
+    assert want < len(table), (
+        f"{LAB.name}: `.scene_table` holds {len(table)} rows, so row {want} — where "
+        f"{scene} sits in the registry — is past its end."
+    )
+    expected = "ParallaxConfig_" + scene[len("Scene_"):]
+    assert table[want] == expected, (
+        f"{LAB.name}: `.scene_table` row {want} is `{table[want]}`, but {scene} is "
+        f"SCENES[{want}] and {REGISTRY.name} emits it as `{expected}`. The WLINE row's "
+        "sub-index indexes THIS table, so the join is only as good as this row."
     )
 
 

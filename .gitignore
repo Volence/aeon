@@ -174,3 +174,11 @@ docs/research/external/
 
 # staged S3K character extraction (design #3 prep) — data, not build output
 !games/sonic4/data/characters_staging/**/*.bin
+
+# Emulator witness result files written beside the ROM at the repo root — each is one
+# run's JSON transcript (tools/waterline_art_witness.py, tools/waterline_stamp_witness.py
+# and their siblings all default `--out` to the repo root, and tools/effects_gates.py
+# invokes them with that default). Ephemeral and specific to one ROM build, like the ROMs
+# and the save-states above. ROOT-ANCHORED on purpose: the witness transcripts that are
+# deliberately KEPT live under docs/witness/ and stay tracked.
+/*_witness.json

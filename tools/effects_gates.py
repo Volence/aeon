@@ -229,6 +229,17 @@ def gate_registry() -> list[tuple[str, bool, int]]:
         # inline lane (a headless boot plus 30 settled samples), which is exactly why it is
         # here and in the nightly.
         ("tile_cache_fill", True, GATE_EMU_BUDGET),
+        # waterline_stamp is EFFECTS-W1 item 9d's ON-SCREEN half, and it rides here for the
+        # reason every non-effects member above does: this is the tree's only emulator-gate
+        # runner. It is also the lane's only gate whose subject is the SPRITE TABLE. It
+        # exists because of a measured defect that everything else in the tree said was
+        # fine: the stamp's first shape was built by the lab hotkey and retired by the
+        # per-frame poller, which runs BEFORE Parallax_Update, so the object was cleared on
+        # the frame it was built, on every press — with all four shapes green, 2,476 tests
+        # passing, the art witness passing byte-for-byte, and the lint arm that checks the
+        # row names the right scene passing. None of them can see whether an object SURVIVES
+        # the frame it is built in. One oracle-aether process, three arms.
+        ("waterline_stamp", True, GATE_EMU_BUDGET),
         ("cost_model", True, 900),
         ("scanline_spans", False, 120),
         ("demo_witness", False, 120),
@@ -971,6 +982,18 @@ def main() -> int:
                            "tile_cache_fill (every plane-A cell the section streamer RECORDS "
                            "as written matches the tile cache, and no partially filled column "
                            "or row is ever inside the recorded window)", ok, msg, final=True))
+
+    if wanted("waterline_stamp"):
+        ok, msg = run(["python3", str(AEON / "tools/waterline_stamp_witness.py"),
+                       "--rom", rom, "--lst", lst],
+                      "waterline_stamp")
+        results.append(row("waterline_stamp",
+                           "waterline_stamp (the row-remap's ART half is actually POINTED "
+                           "AT: an SAT entry names the waterline run at the derived 4x2 "
+                           "size, on screen, on every sampled frame while the lab cursor "
+                           "is on the WLINE row; it retires when the cursor leaves, and "
+                           "when the engine stops publishing a ladder row)", ok, msg,
+                           final=True))
 
     if wanted("cost_model"):
         base = emp_int("engine/effects/raster_dsl.emp", "RASTER_FIRE_BASE_CYC")

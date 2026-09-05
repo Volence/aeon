@@ -49,6 +49,17 @@ use engine.constants.{BUTTON_START, BUTTON_LEFT, BUTTON_RIGHT}
 // they are claimed by address (the System pool has no allocator).
 use engine.constants.{RF_COORDMODE, RF_PRIORITY_SHIFT, NUM_SYSTEM}
 use engine.constants.{PAGECACHE_AUDIT_INTERVAL, MAX_ACT_SECTIONS}
+// VRAM_WATERLINE_STRIPS — the fixed VRAM run engine/level/bg_anim.emp's
+// Waterline_Art_Update DMAs the row-gathered waterline strips into (EFFECTS-W1 item 9d).
+// It is a BYTE address, engine-owned, and games/sonic4/vram.toml declares no VramTile
+// constant for it (its `authority` is engine-side), so the lab's stamp derives the tile
+// index itself — see VRAM_WLINE_STAMP at Debug_WaterlineStamp_Show.
+use engine.constants.{VRAM_WATERLINE_STRIPS}
+// WATERLINE_TILES — how many 8x8 tiles that run actually holds (WATERLINE_DST_BYTES / 32).
+// The stamp draws ALL of them as one VDP sprite piece, so this is what its size nibble is
+// pinned against: a change to WATERLINE_H must fail the build here rather than leave the
+// stamp drawing half a picture and the tiles after it.
+use engine.level.parallax_dsl.{WATERLINE_H, WATERLINE_TILES}
 use engine.vdp.{VdpTarget, VdpOp, vdp_comm, VDP_MODE2_OFF, VDP_MODE3_OFF}
 use engine.z80_bus.{z80_stopped}
 use engine.irq.{ints_off}
@@ -1859,6 +1870,21 @@ proc Debug_Warp_Consume () clobbers(d0-d7/a0-a6) {
 //           EMPTY program, never 0: `Raster_Install` documents a0 = 0 as "nothing
 //           staged this frame", i.e. KEEP whatever is live, so passing 0 to turn the
 //           tier off would silently leave the bands running.
+//   WLINE   `Parallax_StartTransition`, through the SAME arm as SCENE and with the same
+//           kind of sub-index — a `.scene_table` row. This proc installs nothing else.
+//           What makes the row different is that the WATERLINE STAMP exists while the
+//           cursor is on it: Debug_TierTags_Update reads this row's KIND once a frame and
+//           builds or retires one screen-space object drawing the eight tiles at
+//           VRAM_WATERLINE_STRIPS. The decision lives there and not here because this
+//           proc runs BEFORE Parallax_Update, so on the pressing frame the engine has not
+//           yet published the row the stamp's honesty test reads.
+//           It exists because EFFECTS-W1 item 9d's art half was resident, correct and
+//           INVISIBLE: nothing in the shipped nametable references VRAM_WATERLINE_STRIPS
+//           (the OJZ background has no water surface to promote), so the only evidence the
+//           gather worked was tools/waterline_art_witness.py. This row is the picture.
+//           The scene has to be the one carrying the `rowRemap:` ladder or the pass never
+//           publishes a row and the strips are never gathered; tools/test_lab_index_lint.py
+//           derives WHICH scene that is from ojz_scenes.emp and fails the build otherwise.
 //   PRESET  `Effects_InstallPreset` then `Parallax_StartTransition` — the exact pair,
 //           in the exact order, that `Parallax_CheckBoundary` runs on a real crossing
 //           (parallax.emp: 989-990), with only the crossing DETECTION left out. Total
@@ -1965,7 +1991,7 @@ proc Debug_Warp_Consume () clobbers(d0-d7/a0-a6) {
 // SUB-INDEX from past the table's end and dispatch on them.
 // tools/test_lab_index_lint.py holds it to the rows, and holds every row's sub-index
 // to the sub-table its kind names.
-const LAB_CYCLE_COUNT = 37
+const LAB_CYCLE_COUNT = 38
 // One row of `.lab_index`: the kind byte, the sub-index byte, then the four letters of
 // the entry's name (indices into Debug_TierTags_Update's `.alphabet`).
 //
@@ -1983,6 +2009,33 @@ const LAB_NAME_CELLS = 4        // the VDP's maximum sprite-piece width; see the
 const LAB_KIND_SCENE  = 0
 const LAB_KIND_RASTER = 1
 const LAB_KIND_PRESET = 2
+// WLINE — a SCENE plus the waterline STAMP (EFFECTS-W1 item 9d). It is a fourth kind and
+// not a scene row with a flag, because it installs into two places rather than one: the
+// parallax slot (through the same Parallax_StartTransition every scene row uses) AND a
+// System object slot. Its sub-index is a `.scene_table` index like a scene row's, and it
+// has to name the scene that carries the ladder — tools/test_lab_index_lint.py derives
+// WHICH scene that is out of ojz_scenes.emp's own `rowRemap:` and fails the build if this
+// row names any other.
+//
+// WHY THIS ROW EXISTS AT ALL. The art half of the row remap has shipped and been proven
+// resident since 9d landed — tools/waterline_art_witness.py reads the 256 bytes at
+// VRAM_WATERLINE_STRIPS and matches them byte for byte against an independently spelled
+// gather, POSITIVE 12/12 — and NOTHING ON SCREEN POINTED AT THEM. The OJZ background has
+// no water surface to promote (item-9 design section 6.2), and the effect's own design
+// forbids the engine writing a nametable cell for it. So the tiles were correct and
+// invisible, and the only evidence was a witness. This row is the picture.
+const LAB_KIND_WLINE  = 3
+// The System slot the waterline stamp occupies. NUM_SYSTEM-2 is the slot the retired
+// scene readout's TENS digit held, and Debug_TierTags_Update's header records it as FREE
+// since the chord consolidation ("NUM_SYSTEM-2 is now free"). Taking it brings the lab
+// back to SIX of the eight claimed and re-addresses nothing: the entry name tag keeps
+// NUM_SYSTEM-1, the preset cells -3/-4, the tier tags -5/-6.
+//
+// Declared HERE, ahead of the hotkey, because the hotkey's dispatch RETIRES the stamp by
+// address on every step — see the teardown in Debug_LabCycleHotkey below. Everything else
+// about the stamp (its geometry, its art word, the object builder) lives with
+// Debug_WaterlineStamp_Show further down.
+equ DEBUG_WLINE_SST = extern("System_Slots") + sizeof(Sst) * (NUM_SYSTEM - 2)
 // The number of `.raster_table` rows. Held to the rows themselves, and to the preset
 // documents in games/sonic4/data/editor/effects/presets/, by
 // tools/test_raster_cycle_table_lint.py — which the build's pytest lane runs. Nothing
@@ -2066,15 +2119,33 @@ proc Debug_LabCycleHotkey () clobbers(d0-d4/a0-a3) {
         moveq   #0, d1
         move.b  (a1)+, d1                       // d1 = sub-index (the four name letters
                                                 // follow; only the tag painter reads them)
-        assert.w d0, ls, #LAB_KIND_PRESET       // a kind past the last one would fall
+        assert.w d0, ls, #LAB_KIND_WLINE        // a kind past the last one would fall
                                                 // through to the scene arm with a
-                                                // sub-index meant for another table
+                                                // sub-index meant for another table.
+                                                // ⚠ THIS BOUND IS ALSO WHAT KEEPS THE
+                                                // FALL-THROUGH BELOW HONEST: a FIFTH kind
+                                                // has to raise it, and whoever raises it
+                                                // lands on the paragraph that says why
+                                                // SCENE and WLINE share one arm
         cmpi.w  #LAB_KIND_RASTER, d0
         beq     .raster
         cmpi.w  #LAB_KIND_PRESET, d0
         beq     .preset
 
-        // -- SCENE: a parallax config, installed through the engine's own live swap --
+        // -- SCENE **and WLINE**: a parallax config, installed through the engine's own
+        //    live swap. The two kinds share this arm because they do the same thing HERE:
+        //    both sub-indices are `.scene_table` rows and both install through
+        //    Parallax_StartTransition. THE DIFFERENCE IS NOT IN THIS PROC — the kind byte
+        //    is read once a frame by Debug_TierTags_Update's stamp arm, which is what
+        //    puts the waterline strips on screen and takes them off again. Installing the
+        //    stamp from here was tried and is WRONG, and the reason is worth keeping:
+        //    this proc runs BEFORE Parallax_Update in the frame (:986 vs :1377), so on the
+        //    pressing frame Waterline_Art_Row still holds the PREVIOUS scene's value —
+        //    usually 0 — and the honesty arm would have retired the object on the very
+        //    frame the press built it, every time, silently. Deciding once a frame from
+        //    the cursor and the engine's own cell has no such ordering to get wrong.
+        //
+        // -- installed through the engine's own live swap --
         // The preset cells are BLANKED first: they answer a question about a PRESET,
         // and on a scene row there is no preset to answer it about. Leaving the last
         // preset's digit and verdict standing would be the readout lying by staleness,
@@ -2231,6 +2302,13 @@ proc Debug_LabCycleHotkey () clobbers(d0-d4/a0-a3) {
         dc.b    LAB_KIND_PRESET,   6,  LTR_B, LTR_S, LTR_W, LTR_P   // 34  sec 6 nametable-base swap
         dc.b    LAB_KIND_PRESET,   7,  LTR_B, LTR_A, LTR_R, LTR_E   // 35  sec 7 plain, nothing bound
         dc.b    LAB_KIND_PRESET,   8,  LTR_G, LTR_R, LTR_N, LTR_D   // 36  sec 8 plain + the floor
+        // APPENDED, and appended is the whole placement argument: every scene, raster and
+        // preset row above keeps the index it had, so every note, gate and probe that
+        // names a row by number still lands. The sub-index is 1 because `.scene_table`
+        // row 1 is ParallaxConfig_OJZ_Underwater, the ONE scene in the registry that
+        // carries `rowRemap:` — tools/test_lab_index_lint.py derives that from
+        // ojz_scenes.emp rather than trusting this comment.
+        dc.b    LAB_KIND_WLINE,    1,  LTR_W, LTR_L, LTR_I, LTR_N   // 37  waterline strips
 
         // ---- THE SCENE SUB-TABLE, IN SCENES[] ORDER ----
         // Unchanged by the consolidation, deliberately: it is what
@@ -3135,6 +3213,166 @@ proc Debug_PresetReadout_Blank () clobbers(d0-d4/a0-a2) {
     }
 }
 // -----------------------------------------------
+// Debug_WaterlineStamp_Show — PUT THE WATERLINE STRIPS ON SCREEN. EFFECTS-W1 item 9d.
+//
+// ---- THE GAP THIS CLOSES, STATED AS IT WAS FOUND ----
+// The row remap's ART half has shipped since 9d landed and has been proven correct in
+// VRAM: tools/waterline_art_witness.py reads the 256 bytes at VRAM_WATERLINE_STRIPS and
+// compares them, byte for byte, against a gather spelled independently in Python from the
+// ladder row the engine published that frame — POSITIVE 12/12, CONTROL 12/12, GUARD
+// 11 consistent. And that witness's own last paragraph says what it cannot say: "WHAT IT
+// STILL DOES NOT SHOW: a picture. These 8 tiles are in VRAM and correct, and NO PLANE
+// CELL POINTS AT THEM." The OJZ background has no water surface to promote (item-9 design
+// section 6.2), and the effect's design forbids the engine writing a nametable cell for
+// it in either half (engine/level/bg_anim.emp's banner states that as a PROHIBITION). So
+// the art was resident, correct, and invisible. This object is the only thing in the tree
+// that points at those tiles.
+//
+// ---- WHY A SPRITE AND NOT A NAMETABLE STAMP ----
+// Three reasons, in the order they rule:
+//   1. A nametable stamp would violate the prohibition above in spirit even from a debug
+//      module — the whole point of the design note is that nobody should learn the effect
+//      by reading a cell write. A sprite makes the tiles visible without ever teaching
+//      that the effect writes a plane.
+//   2. Plane A is the streaming tile cache and Plane B is the background; both are
+//      re-written under the camera by the section streamer, so a one-shot cell stamp
+//      would be scrubbed as soon as the reviewer moved — the exact motion the effect
+//      needs to be seen. The window plane's nametable base ($F000) is inside Plane B's
+//      own 64x64 table, so there is no free window to point at either. That argument is
+//      Debug_PresetReadout_Show's `.ensure_glyph` header, and it holds here unchanged.
+//   3. IT COSTS NO VRAM. The tiles are already resident and already refreshed by
+//      Waterline_Art_Update's DMA; this object only names them. The VRAM map had ONE
+//      free tile after the chord parcel, and this parcel spends ZERO.
+//
+// ---- ONE PIECE, AND THE VDP'S TILE ORDER IS WHY IT IS EXACTLY RIGHT ----
+// A multi-cell VDP sprite piece reads consecutive tiles from its base COLUMN-MAJOR: down
+// column 0, then down column 1, and so on. engine/level/bg_anim.emp's gather lands the
+// four tile runs in VRAM in the order (strip0 col0, strip0 col1, strip1 col0, strip1
+// col1), each column a contiguous H/8 tiles. Those are the same order. So ONE piece,
+// WL_STAMP_CELLS_W x WL_STAMP_CELLS_H, based at the run's first tile, draws:
+//
+//      +----------------+----------------+
+//      | ABOVE the      | BELOW the      |     32 x 16 px at H = 16
+//      | surface        | surface        |
+//      +----------------+----------------+
+//
+// with no reordering, no second object and no second SAT entry. That is not a coincidence
+// worth trusting silently, which is why the geometry below is DERIVED from WATERLINE_H
+// and WATERLINE_TILES rather than written as 4 and 2, and why the derivation fails the
+// build the moment H stops fitting one piece.
+//
+// ---- WHAT IT DOES NOT DO ----
+// It does not gather, does not DMA, and does not read Waterline_Art_Row. It builds one
+// object and returns. Everything the picture DOES is the engine's own per-frame work
+// (Waterline_Art_Update), which is the point: if the stamp shows a still picture while
+// the reviewer walks, that is the effect being still, not the readout being late.
+//
+// ---- WHO CALLS IT, AND HOW IT STOPS BEING SHOWN ----
+// ONE caller: Debug_TierTags_Update's per-frame stamp arm, which builds when BOTH the lab
+// cursor is on a WLINE row AND `Waterline_Art_Row` is non-zero, and clears the slot
+// otherwise. The existence of the object is recomputed from those two subjects every
+// frame; there is no latch and no build-on-press. That arm's header carries the full
+// argument, including why building from the hotkey CANNOT work (the hotkey runs before
+// Parallax_Update, so the honesty test would read the previous scene's cell and retire the
+// object on the frame the press built it).
+//
+// This proc is therefore IDEMPOTENT and called once a frame while the stamp is up: the
+// `code_addr == 0` test at the top is what makes the repeat cost a load and a branch.
+//
+// DEBUG-shape only: the body, the `rts` and the mapping record all sit inside
+// `if DEBUG == 1 {}`, so the whole proc emits ZERO bytes in the plain shape. Parked in
+// this module's zero-release-byte run; a module-scope `data` item cannot be shape-gated
+// in `.emp` (§1.7), which is why the frame record is written by hand inside the block
+// exactly as `.tag_mappings` below is.
+//
+// In:  none
+// Out: DEBUG_WLINE_SST holds a live screen-space object drawing the waterline run
+// Clobbers: d0-d2, a0-a1 — d2/a1 is RefreshSpritePieceCount's declared set.
+// -----------------------------------------------
+// THE GEOMETRY, DERIVED. Nothing here is a 4, a 2 or an 8 typed from the picture above.
+// A tile column is 8 px tall, so the strip is WATERLINE_H/8 cells tall; the run holds
+// WATERLINE_TILES tiles in all, so it is that many cells wide. At H = 16 that is 4 x 2.
+const WL_STAMP_CELLS_H = WATERLINE_H / 8
+const WL_STAMP_CELLS_W = WATERLINE_TILES / WL_STAMP_CELLS_H
+ensure(WL_STAMP_CELLS_W * WL_STAMP_CELLS_H == WATERLINE_TILES,
+       "the waterline run holds {WATERLINE_TILES} tiles, which is not {WL_STAMP_CELLS_W} x {WL_STAMP_CELLS_H} — the stamp would draw a rectangle that is not the picture the gather wrote, and the cells past the end would be whatever VRAM follows the run")
+ensure(WL_STAMP_CELLS_W >= 1 && WL_STAMP_CELLS_W <= 4 && WL_STAMP_CELLS_H >= 1 && WL_STAMP_CELLS_H <= 4,
+       "the waterline stamp is {WL_STAMP_CELLS_W} x {WL_STAMP_CELLS_H} cells and a VDP sprite piece is at most 4 x 4. At WATERLINE_H = {WATERLINE_H} the strips no longer fit ONE piece, so the stamp needs a second piece (a second `MapPiece` in `.wl_frame`, linked) or a second object and a second System slot. It is NOT enough to widen the size nibble — the packing only has two bits per axis")
+// The VDP size byte: (w-1) in bits 3:2, (h-1) in bits 1:0 — the packing
+// engine/objects/mapping_dsl.emp pins with its own non-square `ensure`. $0D at 4 x 2.
+const WL_STAMP_SIZE  = ((WL_STAMP_CELLS_W - 1) << 2) | (WL_STAMP_CELLS_H - 1)
+const WL_STAMP_W_PX  = WL_STAMP_CELLS_W * 8
+const WL_STAMP_H_PX  = WL_STAMP_CELLS_H * 8
+// The run's first TILE. VRAM_WATERLINE_STRIPS is a BYTE address (engine-owned; the region
+// in games/sonic4/vram.toml carries `authority = "engine-bytebase:..."` and therefore
+// generates no VramTile constant), and `vram_art` takes a tile index — so the conversion
+// happens once, here, with the round-trip checked rather than assumed.
+const VRAM_WLINE_STAMP: VramTile = VRAM_WATERLINE_STRIPS / 32
+ensure(VRAM_WLINE_STAMP * 32 == VRAM_WATERLINE_STRIPS,
+       "VRAM_WATERLINE_STRIPS ({VRAM_WATERLINE_STRIPS}) is not a whole tile boundary, so the stamp's art word cannot name its first tile. A sprite base is a TILE index; there is no sub-tile form")
+// Top-right, clear of the four readout rows down the left edge (x 12, y 12..68). Screen
+// coordinates: the renderer's `.screen_pos` arm adds the +128 SAT offset to x_pos and
+// nothing else (engine/objects/sprites.emp), and RF_COORDMODE objects skip the cull
+// entirely, so these are literal screen pixels.
+const DEBUG_WLINE_X  = 264
+const DEBUG_WLINE_Y  = 16
+// Palette line 1, the line every other element of this lab draws through and the one
+// Debug_PresetReadout_Show's header calls "known to stay legible over this act". THE
+// COLOURS ARE NOT WATER COLOURS and are not meant to be: the strip art is authored as
+// colour indices 1..7 (above) and 8..14 (below) — see `waterline_px` in
+// engine/level/parallax_dsl.emp — so what line 1 renders is a fourteen-step ramp of
+// whatever that line holds. The stamp's subject is the SHAPE the gather produced and how
+// it moves, not the hue.
+const DEBUG_WLINE_PAL = 1
+const DEBUG_WLINE_FRAME = 0     // the only frame in `.wl_mappings`
+proc Debug_WaterlineStamp_Show () clobbers(d0-d2/a0-a1) {
+    if DEBUG == 1 {
+        // `code_addr == 0` is the "not built yet" test, the same one `.ensure_glyph` and
+        // `.ensure_tag` use: boot clears all of Work RAM (engine/system/boot.emp
+        // `.clear_ram`), and the only other writer of this slot is the pair of
+        // retirements in the header, both of which clear that word.
+        movea.l #DEBUG_WLINE_SST, a0
+        tst.w   (a0)                            // Sst.code_addr
+        bne     .built                          // already standing — leave it alone
+        move.w  #TestStatic_Main - ObjCodeBase, Sst.code_addr(a0)
+        lea     .wl_mappings(pc), a1            // `lea` + store, not `move.l #Label`
+        move.l  a1, Sst.mappings(a0)
+        move.b  #DEBUG_WLINE_FRAME, Sst.mapping_frame(a0)
+        jbsr    RefreshSpritePieceCount         // mappings + mapping_frame written ->
+                                                // re-cache frame_off/piece count (the
+                                                // Sst.frame_off contract)
+        move.w  #vram_art(VRAM_WLINE_STAMP, DEBUG_WLINE_PAL, 1), Sst.art_tile(a0)
+        move.b  #DEBUG_READOUT_FLAGS, Sst.render_flags(a0)
+        move.l  #DEBUG_WLINE_X << 16, Sst.x_pos(a0)
+        move.l  #DEBUG_WLINE_Y << 16, Sst.y_pos(a0)
+    .built:
+        rts
+
+        // -----------------------------------------------
+        // .wl_mappings — the one frame this object draws, written by hand.
+        // -----------------------------------------------
+        // Same form and the same reason as `.tag_mappings` below: a frame INDEX (word
+        // offsets from this label), then the frame — the 4-byte signed bounding box (far
+        // edges), the piece count word, then that many 8-byte VDP pieces (Y offset,
+        // size|link, tile attrs, X offset). `centered()` cannot express it (it forces a
+        // square bbox and a centred offset; this frame's origin is its top-left corner)
+        // and a module-scope `data` item cannot be shape-gated, so it is spelled here.
+        //
+        // ALIGNMENT: the label follows an `rts` and every 68000 instruction is an even
+        // number of bytes, so `.wl_mappings` is word-aligned by construction; the index
+        // is one word, so `.wl_frame` is even too.
+    .wl_mappings:
+        dc.w    .wl_frame - .wl_mappings        // frame 0 — DEBUG_WLINE_FRAME
+    .wl_frame:
+        dc.b    0, WL_STAMP_W_PX, 0, WL_STAMP_H_PX      // bbox x_min/x_max/y_min/y_max
+        dc.w    1                               // one piece
+        dc.w    0                               // piece y_off
+        dc.b    WL_STAMP_SIZE, 0                // size (W x H cells), link
+        dc.w    0                               // tile offset from art_tile
+        dc.w    0                               // piece x_off
+    }
+}
+// -----------------------------------------------
 // Debug_TierTags_Update — THE EFFECTS LAB'S NAME TAGS. Spell out, in letters, WHERE
 // THE LIST CURSOR IS and what the RASTER and BG-ANIMATION channels are actually
 // running, so the picture on screen names its own cause instead of having to be
@@ -3306,7 +3544,8 @@ proc Debug_PresetReadout_Blank () clobbers(d0-d4/a0-a2) {
 // module's zero-release-byte run for the reason Debug_SceneCycleHotkey's header records.
 //
 // In:  none (reads Input_Source, Ctrl_1_Held, Debug_Tags_Armed, Debug_Lab_Index,
-//      Raster_Program, Raster_Patch_Tab, BgAnim_Table_Ptr and the three mirror cells)
+//      Raster_Program, Raster_Patch_Tab, BgAnim_Table_Ptr, Waterline_Art_Row and the
+//      three mirror cells)
 // Out: the three tag objects exist (once armed) and their VRAM cells are queued to spell
 //      the list cursor's entry name and the live raster program's and band table's names;
 //      each mirror follows ONLY on a fully-queued repaint of its own tag
@@ -3419,6 +3658,59 @@ proc Debug_TierTags_Update () clobbers(d0-d4/a0-a3) {
                                                 // so it can never be a legal value either
     .armed:
 
+        // -- THE WATERLINE STAMP. Not a tag — it paints no glyph — but it belongs here
+        //    for the reason every tag below does: this is the lab's one per-frame poller,
+        //    and the question is the same one. Is what is on screen still true?
+        //
+        //    IT IS DECLARATIVE, NOT LATCHED, and that is the whole design. Two facts are
+        //    read every frame and the object's existence is their AND:
+        //      1. the cursor is standing on a WLINE row  (the kind byte of `.lab_index`,
+        //         read out of the row `Debug_Lab_Index` names — the same row shape the
+        //         name tag reads its letters from);
+        //      2. `Waterline_Art_Row` is non-zero — the engine is actually gathering.
+        //    Either one false and the slot is cleared. There is no "shown" mirror, no
+        //    build-on-press and no teardown at the hotkey: a state that is recomputed
+        //    from its two subjects cannot go stale against either of them.
+        //
+        //    WHY THAT MATTERS RATHER THAN BEING TIDIER. The first shape of this parcel
+        //    DID build on the press and retire here, and it could never have worked: this
+        //    proc runs BEFORE Parallax_Update in the frame (:1023 vs :1377), so on the
+        //    pressing frame `Waterline_Art_Row` still holds the PREVIOUS scene's value,
+        //    which is 0 for every scene but this one — the arm would have retired the
+        //    object on the frame the press built it, and the chord would have done
+        //    nothing at all, silently, with every gate green. The declarative form has no
+        //    such ordering to get wrong: at worst the stamp appears ONE FRAME after the
+        //    press, exactly as the three tags below do, and for the same reason.
+        //
+        //    WHAT CONDITION 2 BUYS. When the remap pass marks no band it writes
+        //    `Waterline_Art_Row` = 0 (engine/level/parallax.emp) and the eight tiles at
+        //    VRAM_WATERLINE_STRIPS FREEZE at their last content. A section crossing does
+        //    exactly that — it re-installs the section's own scene over the lab's — and a
+        //    stamp left standing would be a still picture confidently about a state the
+        //    machine has left. It also covers the transition: a lerping scene swap
+        //    publishes no row until it arrives, and the stamp simply waits.
+        //
+        //    The `clr.w` is unconditional on the false arm rather than guarded by a
+        //    `tst.w`: it is idempotent, this module is the slot's only writer, and a
+        //    branch to save one word write on a DEBUG frame is not a trade worth making.
+        moveq   #0, d0                          // index-register hygiene (§2.5b)
+        move.b  Debug_Lab_Index, d0             // (Debug_Lab_Index).w
+        mul_const.w d0, #LAB_ENTRY_SIZE, d1     // d0 = row byte offset (d1 scratch)
+        lea     Debug_LabCycleHotkey.lab_index(pc), a1          // §1.5
+        adda.w  d0, a1                          // a1 = the row; (a1) is its KIND
+        cmpi.b  #LAB_KIND_WLINE, (a1)
+        bne     .wl_retire                      // the cursor is somewhere else
+        tst.l   Waterline_Art_Row               // (Waterline_Art_Row).w
+        beq     .wl_retire                      // nothing is being gathered to look at
+        jbsr    Debug_WaterlineStamp_Show       // idempotent — builds once, then no-ops
+        jbra    .lab_tier
+    .wl_retire:
+        movea.l #DEBUG_WLINE_SST, a0
+        clr.w   (a0)                            // Sst.code_addr — RunObjects' `.run_always`
+                                                // `beq`s past a zero slot, so this is the
+                                                // whole retirement
+
+    .lab_tier:
         // -- the ENTRY NAME tag. Its subject is the LIST CURSOR, which is the one thing
         //    here no engine cell knows; see the header for why that exception is stated
         //    on screen by row rather than glossed. --

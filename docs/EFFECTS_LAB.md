@@ -19,8 +19,8 @@ That is it. It used to be three separate chords — `START + LEFT/RIGHT` for bac
 `START + UP/DOWN` for raster programs, `START + A` for whole section presets — because those are
 three different engine slots. **That is a reason that matters to the code and not to you**, so
 they are now one list: the twenty-one background scenes, then the raster programs (with *bands
-off* among them), then the act's nine per-section presets. Thirty-seven entries; hold `START` and
-walk it with `LEFT` and `RIGHT`.
+off* among them), then the act's nine per-section presets, and last the waterline strips. Thirty-eight
+entries; hold `START` and walk it with `LEFT` and `RIGHT`.
 
 `START + UP/DOWN` and `START + A` do **nothing** now. They are free pad.
 
@@ -69,7 +69,7 @@ The whole list is below.
 ## The whole list, in order
 
 Row 0 is where a cold boot leaves the cursor. `RIGHT` goes down this table, `LEFT` goes up it,
-and both wrap — so **one press of `LEFT` from boot lands on `GRND`**, the last entry.
+and both wrap — so **one press of `LEFT` from boot lands on `WLIN`**, the last entry.
 
 | # | Name | What it is |
 |---|---|---|
@@ -110,11 +110,13 @@ and both wrap — so **one press of `LEFT` from boot lands on `GRND`**, the last
 | 34 | `BSWP` | preset: section 6 — the plane-base swap |
 | 35 | `BARE` | preset: section 7 — plain, the control |
 | 36 | `GRND` | preset: section 8 — plain + the perspective floor |
+| 37 | `WLIN` | the Hydrocity waterline strips, on screen |
 
 Entries 0-20 are **background scenes** (parallax only). 21-27 are **raster programs** (per-line
-effects only). 28-36 are **whole section presets**. You do not have to care which is which —
-that is the point — but it is why some entries change the background as you move and others
-change what is drawn on a line.
+effects only). 28-36 are **whole section presets**. 37 is the **waterline stamp**, which is a
+background scene *plus* a picture. You do not have to care which is which — that is the point —
+but it is why some entries change the background as you move and others change what is drawn on
+a line.
 
 **Row 2 is the one that matters on a preset entry.** The digit is the section whose preset is now
 installed. The glyph beside it says whether that preset can show you anything *from where you are
@@ -304,6 +306,60 @@ was invisible; it is 16 px now.
 
 ---
 
+## Entry `37` — `WLIN`, the waterline strips themselves
+
+Everything in the section above is the waterline's **scroll** half: the background's rows,
+permuted. The effect has a second half that permutes **pixel rows of an image** into eight tiles
+of VRAM every frame the perspective quantity moves, and until this entry existed **nothing on
+screen pointed at those tiles**. They were resident, correct and invisible: the OJZ background
+has no water surface to promote, and the effect writes no nametable cell by design. The only
+evidence was a Python witness.
+
+**Press `START + LEFT` once from a cold boot.** The list wraps straight onto `WLIN`, the last
+entry — one press, from anywhere, standing still.
+
+**What it does.** Two things, in this order: it installs `ParallaxConfig_OJZ_Underwater` (so it
+is entry `01` plus something, and the background changes exactly as `01` does), and it puts a
+**32 x 16 pixel picture in the top-right corner of the screen**. That picture *is* the eight
+tiles the gather writes. Nothing copies them; the sprite names them.
+
+```
+      +--------+--------+
+      | ABOVE  | BELOW  |    <- top-right corner, 32 x 16 px
+      +--------+--------+
+```
+
+The left half is the strip that draws **above** the surface, the right half the strip **below**
+it. Both are 16 x 16.
+
+**The colours are wrong on purpose.** The stamp draws through palette line 1 — the lab's own
+line, the one the four readout rows use — so what you see is a fourteen-step ramp of whatever
+that line holds, not water. **The subject is the shape and how it moves**, not the hue.
+
+**What to watch for.** The picture is only rebuilt on frames where the ladder row changes, which
+is the engine's own guard and not a limitation of the stamp. So:
+
+- **Fly up and down** (the debug build boots into free flight). The bands inside each half
+  visibly **bunch and relax** as you climb — that is the same row permutation the background is
+  doing, shown directly instead of at fifteen scanlines tall.
+- **Stand still** and it breathes anyway, on the section's ~15-second anchor sweep.
+- **A picture that never moves at all** means the ladder row is pinned, not that the stamp is
+  broken; that is a real answer about the effect.
+
+**It disappears when it stops being true, and that is the feature.** The picture is on screen
+exactly while two things hold: you are standing on `WLIN`, **and** the engine is actually
+gathering. Walk across a section boundary and the section re-installs its own scene, the remap
+stops being marked, and the eight tiles freeze at their last content — so the stamp **removes
+itself** on that frame rather than leaving a still picture of a state the machine has left.
+Stepping to any other entry removes it too. If it vanishes while you are standing on `WLIN`, you
+crossed a boundary; press `START + LEFT`/`RIGHT` round to it again and it comes straight back.
+
+**It appears one frame after the press**, the same beat the three tag rows take, so it will look
+instant.
+
+**It costs no VRAM.** The eight tiles were already reserved and already written every frame; this
+entry is one sprite that names them, in the DEBUG shape only.
+
 ## Scene `20` — the perspective floor WITH the per-column cone, one press from boot
 
 **Press `START` + `LEFT` once.** The scene cursor boots at 0 and steps backwards with a
@@ -350,8 +406,8 @@ free-flight with the camera somewhere the foreground is open.
   `START` is the only free bit on a 3-button pad; X/Y/Z/MODE exist only on a 6-button pad, so a
   chord on them would be silently dead on a 3-button one, which is the worst thing a review tool
   can be.
-- **The list goes both ways.** Thirty-seven entries, so the far side is at most eighteen presses,
-  and `LEFT` from the first entry wraps onto the last (which is where the presets live).
+- **The list goes both ways.** Thirty-eight entries, so the far side is at most nineteen presses,
+  and `LEFT` from the first entry wraps onto the last (`WLIN`, just past the presets).
 - **Entries are mutually exclusive.** Each one evicts the last, because each is an install into an
   engine slot. Selecting a scene and then a preset gives you the preset; the preset writes every
   channel including the one the scene wrote.
