@@ -199,6 +199,63 @@ def band_entry_offset(repo: str, want: str) -> int:
     raise Unmeasurable(f"band_entry has no field {want!r}")
 
 
+def struct_field_offset(repo: str, struct: str, want: str) -> int:
+    """A field's displacement inside any `pub struct` in engine/level/parallax.emp.
+
+    `band_entry_offset` above is this walk specialised to one struct; the visibility arm
+    needs the same walk over `band_curve`, so the general one lives here and that one is
+    left alone (it is quoted by name in the arms that use it). Same discipline, same
+    reason: never type a displacement a declaration already states."""
+    text = open(os.path.join(repo, "engine/level/parallax.emp"), encoding="utf-8").read()
+    m = re.search(r"pub struct " + re.escape(struct) + r"[^{]*\{(.*?)\n\}", text, re.S)
+    if not m:
+        raise Unmeasurable(f"could not find `pub struct {struct}` in "
+                           f"engine/level/parallax.emp")
+    widths = {"u8": 1, "u16": 2, "u32": 4, "*u8": 4, "i8": 1, "i16": 2}
+    off = 0
+    for name, ty in re.findall(r"\n\s+(\w+):\s+(\*?[iu]\d+),", m.group(1)):
+        if name == want:
+            return off
+        off += widths[ty]
+    raise Unmeasurable(f"{struct} has no field {want!r}")
+
+
+def curve_geometry(repo: str) -> tuple:
+    """(offset of band_curve.bc_flags inside a band_record, CURVE_FLAG_ACTIVE_BIT), or
+    (None, None) when this game compiles BAND_CURVE_N = 0 and no band can carry a curve.
+
+    DERIVED, never typed — the tail's position is `sizeof(band_entry) + sizeof(band_ext) *
+    BAND_EXT_N`, exactly the prefix `record_geometry` already sums, and the bit position is
+    the `pub const` in engine/level/parallax.emp that `Parallax_Fill_PerLine` btsts.
+
+    THE (None, None) CASE IS NOT AN UNMEASURABLE. With the capability compiled out there is
+    no curve tail, so "does this band carry an active curve" has a correct answer and it is
+    NO for every band. Raising Unmeasurable there would refuse a game that simply does not
+    have the feature."""
+    text = open(os.path.join(repo, "engine/level/parallax.emp"), encoding="utf-8").read()
+    m = re.search(r"pub const BAND_CURVE_N = (\d+)", text)
+    if not m:
+        raise Unmeasurable("could not read `BAND_CURVE_N` from engine/level/parallax.emp")
+    if int(m.group(1)) == 0:
+        return None, None
+    m = re.search(r"pub const CURVE_FLAG_ACTIVE_BIT\s*=\s*(\d+)", text)
+    if not m:
+        raise Unmeasurable("CURVE_FLAG_ACTIVE_BIT is not declared in "
+                           "engine/level/parallax.emp — the arm that reads a band's curve "
+                           "bit cannot name the bit")
+    bit = int(m.group(1))
+    ram = open(os.path.join(repo, "engine/ram.emp"), encoding="utf-8").read()
+    m2 = re.search(r"const BAND_ENTRY_LEN\s+= (\d+)", ram)
+    if not m2:
+        raise Unmeasurable("could not read BAND_ENTRY_LEN from engine/ram.emp")
+    m3 = re.search(r"pub struct band_ext \(size: (\d+)\)", text)
+    m4 = re.search(r"pub const BAND_EXT_N = (\d+)", text)
+    if not (m3 and m4):
+        raise Unmeasurable("could not size the band_ext tail that precedes band_curve")
+    prefix = int(m2.group(1)) + int(m3.group(1)) * int(m4.group(1))
+    return prefix + struct_field_offset(repo, "band_curve", "bc_flags"), bit
+
+
 def visibility_floor(repo: str) -> int:
     """REMAP_VISIBLE_MIN_PX, read from engine/level/parallax_dsl.emp — the SAME constant the
     comptime guard beside the scene uses. Two copies of a threshold is two thresholds."""
@@ -361,6 +418,12 @@ def band_tails(rom: bytes, syms: dict, tail_off: int, stride: int,
                     rom[a + offs["tbl"]:a + offs["tbl"] + 4], "big") & 0xFFFFFF
                 rec["anchor_dsb"] = rom[a + offs["adsb"]]
                 rec["band_dsb"] = rom[base + offs["bdsb"]]
+                # THE CURVE BIT, out of the same linked image and off THIS band's record.
+                # `offs["curve"]` is None only when BAND_CURVE_N == 0, i.e. no band in this
+                # game HAS a curve tail — which is a definite NO, not a missing reading.
+                rec["curve_active"] = (
+                    0 if offs["curve"] is None
+                    else (rom[base + offs["curve"]] >> offs["curve_bit"]) & 1)
             found.append(rec)
     return found
 
@@ -379,6 +442,110 @@ def effective_dsb(t: dict) -> tuple:
     if t.get("anchor_ch_hdr", 0xFF) != 0xFF:
         return t["anchor_dsb"], "the config's pcfg_anchor_dsb (the overlay writes it into every band from the split down, and the remapped band IS the split's lower half)"
     return t["band_dsb"], "the band's own band_deform_shift_b (this config declares no anchor)"
+
+
+def band_varies(t: dict) -> tuple:
+    """(does this band's plane-B scroll take a PER-LINE value, why) — the visibility arm's
+    one decision, as a function so it can be exercised on mutated bytes below.
+
+    TWO SOURCES, EITHER SUFFICIENT, which is `scene()`'s own comptime guard restated over
+    the emitted record rather than over the authored scene:
+
+      * A DEFORM TABLE on the config (`pcfg_deform_table_bg` non-NULL). The sample loop
+        indexes it per line. This is the shipped waterline's source.
+      * AN ACTIVE CURVE on the band (`band_curve.bc_flags` bit CURVE_FLAG_ACTIVE_BIT). The
+        curve hoist decodes the far-end factor to a real scroll value and Bresenhams
+        `spread/span` per line, so every line differs BY CONSTRUCTION.
+
+    A curve layer structurally cannot also carry a live deform amplitude — `layer()` refuses
+    `curve` together with `dsa`/`dsb` != 15 — so demanding the table of a curve band asks for
+    something the constructor forbids. That was this arm's bug until 2026-09-05; see the
+    banner at its call site and docs/witness/rowremap-gate-vs-guard-2026-09-05.md."""
+    if t["deform_table_bg"] != 0:
+        return True, "a deform table is attached to the config"
+    if t["curve_active"]:
+        return True, "the band carries an active curve"
+    return False, "no deform table and no active curve"
+
+
+def visibility_arm_self_test(rom: bytes, syms: dict, tail_off: int, stride: int,
+                             hdr_len: int, anchor_off: int, offs: dict,
+                             out: list) -> list:
+    """THE ARM THAT TESTS THE ARM, on the REAL linked record, by MUTATING BYTES.
+
+    ⚠ WHY THIS EXISTS AND WHY IT IS NOT A UNIT TEST. The visibility arm's 2026-09-05 fix
+    turns on ONE bit in ONE byte at a DERIVED offset inside the band record. Three things
+    can be wrong with that and only one of them is the logic: the offset can be derived
+    wrong, the bit position can be read wrong, and the decision can be right about a dict
+    while reading the wrong byte. A fixture built from this file's own model would agree
+    with all three mistakes. So the subject here is the SHIPPED record, out of the image the
+    gate was just handed, mutated in place — the mutation is quoted from disk by
+    construction because the thing being mutated came off disk.
+
+    The three cases, and each one is a different prediction:
+
+      NULL table + curve bit SET   -> VARIES     (the case the old arm refused; the fix)
+      NULL table + curve bit CLEAR -> DOES NOT   (the control: the fix did not make the arm
+                                                  vacuous — a genuinely flat band is still
+                                                  caught)
+      the record UNMUTATED         -> VARIES     (the shipped waterline, unchanged)
+
+    LOUD, NEVER SKIPPED: reaching this with no remapped band is Unmeasurable. It cannot go
+    vacuous quietly, because the caller only gets here when the capability is declared and
+    the main arm has already refused an image with no subject."""
+    live = band_tails(rom, syms, tail_off, stride, hdr_len, anchor_off, offs)
+    if not live:
+        raise Unmeasurable("the visibility arm's self-test has no remapped band to mutate")
+    t0 = live[0]
+    a = next((v & 0xFFFFFF for k, v in syms.items() if k == t0["config"]), None)
+    if a is None:
+        raise Unmeasurable(f"cannot re-find the config symbol {t0['config']} to mutate")
+    base = a + hdr_len + stride * t0["band"]
+
+    def decide(null_table: bool, curve_bit: int) -> bool:
+        img = bytearray(rom)
+        if null_table:
+            img[a + offs["tbl"]:a + offs["tbl"] + 4] = b"\x00\x00\x00\x00"
+        if offs["curve"] is not None:
+            p = base + offs["curve"]
+            img[p] = (img[p] | (1 << offs["curve_bit"])) if curve_bit else \
+                     (img[p] & ~(1 << offs["curve_bit"]) & 0xFF)
+        again = band_tails(bytes(img), syms, tail_off, stride, hdr_len, anchor_off, offs)
+        hit = next((x for x in again
+                    if x["config"] == t0["config"] and x["band"] == t0["band"]), None)
+        if hit is None:
+            raise Unmeasurable("the mutated image no longer carries the band being tested — "
+                               "the mutation reached the remap tail, which it must not")
+        return band_varies(hit)[0]
+
+    if offs["curve"] is None:
+        out.append("    visibility self-test: NOT RUN — this game compiles BAND_CURVE_N = 0, "
+                   "so no band has a curve tail and the OR arm has nothing to exercise. The "
+                   "table arm below still ran.")
+        if decide(True, 0):
+            return ["visibility self-test: with BAND_CURVE_N = 0 and the table NULLed, the "
+                    "arm still reports the band as varying — it is reading something that "
+                    "is not there"]
+        return []
+
+    bad = []
+    if not decide(True, 1):
+        bad.append("visibility self-test: with pcfg_deform_table_bg NULLed and "
+                   "CURVE_FLAG_ACTIVE_BIT SET on the real band record, the arm still says "
+                   "this band does not vary. That is the exact case the 2026-09-05 ruling "
+                   "corrected — either the bc_flags offset or the bit position is wrong")
+    if decide(True, 0):
+        bad.append("visibility self-test: with pcfg_deform_table_bg NULLed and "
+                   "CURVE_FLAG_ACTIVE_BIT CLEAR, the arm says the band varies anyway. The "
+                   "fix has gone VACUOUS — a genuinely flat band would now pass")
+    if not decide(False, 1):
+        bad.append("visibility self-test: the UNMUTATED shipped record does not read as "
+                   "varying — the parse itself is wrong, not the decision")
+    if not bad:
+        out.append(f"    visibility self-test on {t0['config']} band {t0['band']} "
+                   f"(bc_flags at record offset {offs['curve']}, bit {offs['curve_bit']}): "
+                   f"NULL+curve VARIES · NULL+no-curve DOES NOT · unmutated VARIES — 3/3")
+    return bad
 
 
 def main() -> int:
@@ -413,6 +580,7 @@ def main() -> int:
         offs = {"tbl": pcfg_offset(a.repo, "pcfg_deform_table_bg"),
                 "adsb": pcfg_offset(a.repo, "pcfg_anchor_dsb"),
                 "bdsb": band_entry_offset(a.repo, "band_deform_shift_b")}
+        offs["curve"], offs["curve_bit"] = curve_geometry(a.repo)
         floor_px = visibility_floor(a.repo)
     except Unmeasurable as e:
         print(f"row_remap_gate: UNMEASURABLE — {e}")
@@ -489,20 +657,74 @@ def main() -> int:
                             f"overlay does not split on, so its band top would not be the "
                             f"anchored line")
 
-        # ---- THE VISIBILITY ARM (added 2026-09-03) ----
+        # ---- THE VISIBILITY ARM (added 2026-09-03; CORRECTED 2026-09-05) ----
+        #
+        # A BAND VARIES IF EITHER A DEFORM TABLE IS PRESENT **OR** IT CARRIES AN ACTIVE
+        # CURVE. It used to demand the table unconditionally, and that was wrong twice over
+        # — owner ruling, docs/witness/rowremap-gate-vs-guard-2026-09-05.md:
+        #
+        #   1. OVER-STRICT. The authority it cited, `scene()`'s comptime guard, requires a
+        #      table "alongside a live shift". A curve layer STRUCTURALLY CANNOT have a live
+        #      shift: `layer()` refuses `curve` together with any live deform amplitude
+        #      (`dsa`/`dsb` != 15) for a measured register reason. So a curve band has
+        #      dsb = 15, no live shift, and the guard correctly requires no table — while
+        #      this arm demanded one anyway. It enforced something its own quotation
+        #      conditioned away. `scene()`'s guard is UNCHANGED by this fix and must stay so:
+        #      it already lists `(c) a curve: on that layer` as a sufficient source.
+        #
+        #   2. ITS STATED REASON WAS FALSE HERE, WHICH MATTERS MORE. It said a NULL table
+        #      means "every line of this band gets the same plane-B scroll word". With a
+        #      curve present that is simply untrue: the curve hoist
+        #      (engine/level/parallax.emp, `.cap_factor_curve_hoist`) decodes the far-end
+        #      factor to a real scroll value, takes `spread = far_end - base`, and
+        #      Bresenhams `spread/span` PER LINE. Every line differs — that is what a curve
+        #      IS. So the remap was not the identity, and the refusal was for a reason that
+        #      did not hold.
+        #
+        # A gate that quotes an authority has to be tested against that authority. This one
+        # was not, and the citation is what made it look right.
         dsb, why = effective_dsb(t)
+        varies, _how = band_varies(t)
+        if not varies:
+            problems.append(f"{t['config']} band {t['band']}: pcfg_deform_table_bg is NULL "
+                            f"AND this band's band_curve.bc_flags has no "
+                            f"CURVE_FLAG_ACTIVE_BIT, so nothing gives its plane-B scroll a "
+                            f"per-line value: the sample loop is flat-pathed and every line "
+                            f"gets the same word. Remapping that is the identity. Give the "
+                            f"band ONE of the sources `scene()`'s own guard names — a "
+                            f"`deform_bg:` table with a live shift (its own `dsb:` or the "
+                            f"anchor's), or a `curve:` on that layer. A live shift with no "
+                            f"table is flat-pathed at runtime and does not count")
+            continue
         if t["deform_table_bg"] == 0:
-            problems.append(f"{t['config']} band {t['band']}: pcfg_deform_table_bg is NULL, so "
-                            f"the per-line sample loop is flat-pathed and every line of this "
-                            f"band gets the same plane-B scroll word. Remapping that is the "
-                            f"identity. `scene()`'s comptime guard requires a table alongside a "
-                            f"live shift; a NULL here means the lowering dropped it")
+            # THE CURVE-ONLY BAND. It varies, so it is not refused — and its MAGNITUDE is
+            # deliberately not gated here. The curve's per-line delta is Bresenhamed from
+            # `spread/span` over the layer's whole on-screen span, while the remap acts on
+            # the anchored split's LOWER half; deriving the travel across just those lines
+            # needs the split line, which is a runtime quantity (`plane_y - Vscroll_BG`
+            # minus `Effects_Screen_L[ch]`) and is not in the image. Printing a whole-span
+            # number and calling it this band's travel would be a measurement without its
+            # referent. The floor arm below therefore owns the table case only, and this
+            # line says so rather than leaving a silent gap.
+            report.append(f"      varies by CURVE, not by a deform table (bc_flags carries "
+                          f"CURVE_FLAG_ACTIVE_BIT). NOT magnitude-gated: the curve's travel "
+                          f"across the REMAPPED lines depends on the runtime split line, "
+                          f"which is not in the image. Design §9.1 precondition 1 is "
+                          f"satisfied — the source is not flat")
             continue
         px = excursion(rom, t["deform_table_bg"], dsb)
         report.append(f"      plane-B travel across these lines: {px} px peak to peak "
                       f"(table ${t['deform_table_bg']:06X} at shift {dsb} — {why}); "
                       f"floor {floor_px} px")
-        if px < floor_px:
+        if px < floor_px and t["curve_active"]:
+            # TABLE **AND** CURVE. Failing here on the table's excursion alone would be the
+            # same defect one line down: the curve adds travel this number does not contain,
+            # so `px < floor` is not evidence the band is invisible. Reported, not gated.
+            report.append(f"      ...and this band ALSO carries an active curve, so the "
+                          f"{px} px above is the deform half ONLY and is not the band's "
+                          f"travel. NOT FAILED on it: the floor gate owns table-only bands, "
+                          f"for the reason in the curve-only note above")
+        elif px < floor_px:
             problems.append(
                 f"{t['config']} band {t['band']}: the plane-B scroll this band remaps travels "
                 f"only {px} px peak to peak, under the {floor_px} px visibility floor — the "
@@ -519,6 +741,18 @@ def main() -> int:
                 f"lever: H = 32 costs 1,056 B of packed data against ~558 B of DEBUG-shape "
                 f"headroom. The floor's provenance is an observation and is recorded at "
                 f"REMAP_VISIBLE_MIN_PX in engine/level/parallax_dsl.emp")
+    # THE VISIBILITY ARM'S OWN RED/GREEN, on the shipped record. See the function's banner
+    # for why this is here and not in the pytest lane: the thing under test is a derived
+    # BYTE OFFSET into a linked image, and the pytest lane runs before a ROM exists.
+    try:
+        problems += visibility_arm_self_test(rom, syms, tail_off, stride, hdr_len,
+                                             anchor_off, offs, report)
+    except Unmeasurable as e:
+        for line in report:
+            print(line)
+        print(f"row_remap_gate: UNMEASURABLE — {e}")
+        return EXIT_UNMEASURABLE
+
     report.append("    NOT GATED, and it cannot be: whether the bound section lets the camera "
                   "cross the anchor line VERTICALLY decides whether a human ever sees this. In "
                   "a horizontally-crossed section the effect is a still picture. Read the list "

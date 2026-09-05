@@ -39,7 +39,6 @@ use engine.effects.palette.{pal_cycle_channel, PalCycleScript1}
 use engine.effects.palette.{pal_variant}
 use engine.effects.raster.{RasterRampProgram, raster_ramp_program, fp16, OP_RUN_RAMP, RASTER_ARM_EVERY_LINE, RASTER_ARM_PARK, RASTER_OPS_END, raster_arm}
 
-// ---- deform tables, deduped by content across the act ----
 // ---- the authored scenes, through the REAL constructors ----
 // Every `ensure` in layer()/scene() fires on authored content here;
 // this generator validates SHAPE only and never duplicates a

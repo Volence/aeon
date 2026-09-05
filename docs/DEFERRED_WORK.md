@@ -18622,6 +18622,30 @@ should also assert the ladder is `(H+1) x H`, monotone per row, and `table[i] >=
   generator re-derived at the H the band record declares. **Design open question 5 is settled and
   the answer is NO** — S3K's shipped tables cannot be imported; see the 9b block at the end of
   this file for the measurement. Zero engine bytes; four canonical shapes unchanged.
+- **9c's TWO MECHANISM BLOCKERS ARE BOTH GONE, 2026-09-05** (`parcel/rowremap-routes`). Zero bytes:
+  all four shapes MD5-identical to master. **What is left is the authored document + the hub schema
+  CR — no mechanism.**
+  - **(b) the editor-TABLE route could not link.** `tools/effects_gen.py` emitted the deform-table
+    block FIRST, so attaching any table renamed the section's HEAD LABEL to one spelling the table's
+    parameters and sigil refused: `[layout.undeclared-alignment] section ojz_effects_editor_act1
+    (head label EditorDeform_sine_1_256) has NO declared alignment` (the row names
+    `EditorSceneBinding_OJZ_Act1_Sec0`; sigil refused both alternatives — a DECLARED pattern rule,
+    and re-keying off the head label). The block now emits AFTER the bindings. **The old order was
+    INCIDENTAL, established by BUILDING**: red with it first, green with it last, bare-name
+    constructor arguments resolving backwards. Guarded by
+    `test_effects_gen.py::TestTheHeadLabelIsABindingAndNeverAPayloadName` (3 arms + no-table control).
+  - **(c) the CURVE route linked and was then refused** for a NULL `pcfg_deform_table_bg` — the arm
+    was over-strict AND its stated reason was false (`docs/witness/rowremap-gate-vs-guard-2026-09-05.md`).
+    It now treats a band as varying if a table is attached **OR** `CURVE_FLAG_ACTIVE_BIT` is set.
+    `scene()`'s comptime guard is UNCHANGED and stays so. Riders: a curve-only band is not
+    magnitude-gated (the travel across the remapped lines needs the runtime split line, absent from
+    the image), and a table+curve band no longer fails the floor on the table's excursion alone.
+    New `visibility_arm_self_test` mutates the SHIPPED record every build — 3/3.
+  - **Route (c) was proved END TO END** with a probe (`anchor: {ch 2, 15, 15}` + `rowRemap: {plane_y
+    160, height_shift 4}` on section 7's curve layer): baked, linked, gate said
+    `EditorSceneBinding_OJZ_Act1_Sec7 band 1 ... varies by CURVE`, and the PRE-FIX gate refused that
+    same ROM. **REVERTED deliberately** — `plane_y` had no visual basis and precondition 4 is not
+    machine-checkable; this item has already shipped two invisible screens. **Ask aurora to author.**
 - **9c (the `rowRemap` scene key + a hub schema CR) — `M`, and it has a NEWLY FOUND blocker.** It is
   a **scene** key, not a preset key: a row remap lowers into `parallax_config`'s band array, not
   into `ep_raster`, so it must not join the preset schema's `bands | ramp | base_swap` `oneOf`.
