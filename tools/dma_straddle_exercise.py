@@ -29,7 +29,11 @@ that distinction turned out to be the whole result:
   CONTROL A, natural -- did Dbg_DMA_Straddle_All move during ordinary play?
   CONTROL B, forced  -- write a straddling DPLC frame into the player's mapping_frame, run
       ONE frame, and watch the counter. This uses the ROM's own data and no source change,
-      and it is run LAST so it cannot contaminate the campaign it vouches for.
+      It runs on its OWN emulator instance with a fresh boot per attempt, because a force
+      -- whether or not it fires -- leaves the machine in the MD Debugger island, and on a
+      single machine that gives the control exactly one roll of an intra-frame phase race.
+      Three full campaigns reported UNMEASURABLE that way while the instrument was fine.
+      See control_body().
 
 Control A failing is not the same as a broken instrument, and the difference is decidable:
 static_straddle_survey() reads the act's page manifest out of the ROM and asks whether any
@@ -261,8 +265,11 @@ class Driver:
         self.ground_anchors: list[tuple[int, int]] = []
         self.campaign_frames = 0          # frames driven before the post-campaign control
         self.campaign_final: dict = {}    # the cells as the CAMPAIGN left them
-        self.control: dict = {}           # positive_control()'s record
+        self.control: dict = {}           # control_body()'s record
         self.recover_after = 2            # consecutive airborne polls before a rescue warp
+        # The straddling frame per character, from tools/dplc_straddle.py's per-build report.
+        self.control_ladder = (0x65, 0x9F, 0x85)
+        self.control_tries = 12           # attempts per frame: the force is a PHASE RACE
         # first non-zero sighting of each subject cell: (frame, phase, value, x, y, in_air)
         self.first_hit: dict[str, dict] = {}
 
@@ -436,80 +443,6 @@ class Driver:
         await self.call("emulator/run_frames", {"frames": 2})
         self.frames_driven += 4
 
-    async def positive_control(self, scan: bool) -> dict:
-        """THE POSITIVE CONTROL, and the thing that turns this run's zeros from
-        uninterpretable into a result.
-
-        ram.emp's reading rule says an Important zero means "Important never straddled"
-        only while Dbg_DMA_Straddle_All is non-zero -- otherwise it means "nothing
-        straddled at all, which is also what a broken instrument reads like". That rule
-        assumes ordinary play can move the control. In THIS act it structurally cannot
-        (see static_straddle_survey), so waiting for the control to move is waiting
-        forever, and calling the wait a failure would throw away a real answer.
-
-        So the control is made to fire deliberately instead, using the ROM's OWN data and
-        no source change: force the player's mapping_frame to a DPLC frame whose art
-        crosses the 128 KB boundary, run ONE frame, and watch the counters. Perform_DPLC
-        sees mapping_frame != prev_frame, walks that frame's entries, and the straddling
-        one takes `.split` -- which is the exact instruction path the four cells sit on.
-        If the counters move, the instrument works and every zero above is a real zero.
-
-        RUN LAST. It enqueues DMA the game did not ask for, so it must not contaminate the
-        campaign it is vouching for -- the caller snapshots the campaign numbers first.
-
-        AND RUN IT SOMEWHERE THE SUBJECT CODE EXECUTES. Measured the hard way: the first
-        full campaign ended with the player fallen out of the world (y 65469), and the
-        forced control did not fire there -- not because the instrument is dead, but
-        because Perform_DPLC is reached through the object's display path, which an object
-        that far out of the world does not take. A control that can fail for a reason
-        unrelated to its subject is worse than no control, so this warps back to a surveyed
-        ground anchor and REQUIRES the player to be animating (mapping_frame moving on its
-        own) before it forces anything.
-
-        `scan` sweeps all 256 mapping frames instead of stopping at the first hit, which
-        MEASURES the straddling-frame set off the live machine and can be compared against
-        tools/dplc_straddle.py's static claim (it says Sonic has exactly one, $65, and that
-        it is unreachable through Ani_Sonic)."""
-        if self.ground_anchors:
-            await self.warp(*self.ground_anchors[0])
-        await self.call("emulator/run_frames", {"frames": 60})
-        self.frames_driven += 60
-        seen = set()
-        for _ in range(8):
-            await self.call("emulator/run_frames", {"frames": 8})
-            self.frames_driven += 8
-            seen.add((await self.player_state())[3])
-        x, y, in_air, _ = await self.player_state()
-        print(f"  control staged at player ({x},{y}) in_air={in_air}; mapping_frame moved "
-              f"through {sorted(f'${f:02X}' for f in seen)} on its own "
-              f"({'ANIMATING' if len(seen) > 1 else 'STATIC -- the control may be staged in '
-                 'a state where Perform_DPLC is not reached'})")
-        before = await self.read_cells()
-        hits: list[int] = []
-        important_hits: list[int] = []
-        frames = range(0x00, 0x100) if scan else (0x65,)
-        for f in frames:
-            pre = await self.read_cells()
-            await self.call("emulator/write_memory",
-                            {"addr": hex(self.player + self.off["prev_frame"]),
-                             "value": (f ^ 0xFF) & 0xFF, "width": 1})
-            await self.call("emulator/write_memory",
-                            {"addr": hex(self.player + self.off["mapping_frame"]),
-                             "value": f, "width": 1})
-            await self.call("emulator/run_frames", {"frames": 1})
-            self.frames_driven += 1
-            post = await self.read_cells()
-            if post["Dbg_DMA_Straddle_All"] > pre["Dbg_DMA_Straddle_All"]:
-                hits.append(f)
-                if post["Dbg_DMA_Straddle_Frame"] > pre["Dbg_DMA_Straddle_Frame"]:
-                    important_hits.append(f)
-                if not scan:
-                    break
-        after = await self.read_cells()
-        return {"before": before, "after": after, "frames_that_straddled": hits,
-                "of_which_important": important_hits, "scanned": bool(scan)}
-
-
 # ---------------------------------------------------------------------------
 
 
@@ -633,6 +566,8 @@ async def body(sock: str, rom: str, lst: str, blob: bytes, args) -> Driver:
     await b.connect()
     d = Driver(b, sym, off, air_bit)
     d.recover_after = max(1, args.recover_after)
+    d.control_ladder = tuple(f & 0xFF for f in args.control_frame)
+    d.control_tries = max(1, args.control_tries)
 
     st = await d.call("emulator/status", {})
     if st["romBytes"] != len(blob):
@@ -772,28 +707,145 @@ async def body(sock: str, rom: str, lst: str, blob: bytes, args) -> Driver:
                       lambda n: hold_with_pulses(n, ["right"], JUMP_BUTTON, 89, 8),
                       chunk_size=args.chunk)
 
-    # ---- THE CAMPAIGN ENDS HERE. Everything below deliberately writes RAM the game did
-    #      not ask to have written, so the campaign's numbers are frozen first. ----
+    # ---- THE CAMPAIGN ENDS HERE. ----
     d.campaign_frames = d.frames_driven
     d.campaign_final = await d.read_cells()
 
+    await b.close()
+    return d
+
+
+async def control_body(sock: str, lst: str, blob: bytes, args, d: Driver) -> dict:
+    """CONTROL B on its OWN MACHINE. Measured reason, not tidiness: a force that works
+    ends the run -- the enqueue completes and then the out-of-range frame is guarded
+    downstream, leaving the machine in the MD Debugger island with Logic_Tick frozen. A
+    force the DPLC never sees ALSO ends the run the same way, without having enqueued
+    anything. So on a single machine the control gets exactly ONE attempt, and a miss is
+    indistinguishable from a dead instrument -- which is how three full campaigns in a row
+    reported UNMEASURABLE while the instrument was fine.
+
+    And a miss is not bad luck. Whether Perform_DPLC sees the forced value is DETERMINISTIC
+    in the frame the machine is stopped on: the base staging below fired on six resets out
+    of six, and the same staging with two extra frames in it missed on six out of six. So
+    each attempt here gets a fresh boot AND a settle one frame longer than the last, which
+    sweeps that offset instead of re-rolling it. It also removes the last contamination worry:
+    the campaign's numbers were read on a machine this never touched.
+
+    WHY A FORCED CONTROL AT ALL. ram.emp's reading rule says an Important zero means
+    "Important never straddled" only while Dbg_DMA_Straddle_All is non-zero -- otherwise it
+    means "nothing straddled at all", which is also what a broken instrument reads like.
+    That rule assumes ordinary play can move the control. In this act it structurally
+    cannot (see static_straddle_survey), so waiting for the control to move is waiting
+    forever, and calling the wait a failure throws away a real answer. The force uses the
+    ROM's own data and no source change: Perform_DPLC sees mapping_frame != prev_frame,
+    walks that frame's entries, and the straddling one takes `.split` -- the exact
+    instruction path the four cells sit on.
+
+    THE TWO WAYS AN EARLIER VERSION OF THIS GOT A CONFIDENT WRONG ANSWER, both measured:
+      * It ran at the END of the campaign, where the player had fallen out of the world at
+        y65469. Perform_DPLC is reached through the object's display path, which an object
+        that far out does not take, so the force did nothing and read as "instrument dead".
+        A fresh boot puts the player at spawn, grounded and animating, by construction.
+      * It SWEPT all 256 mapping frames looking for the straddling set. The sweep started
+        at $00, that first force stopped the machine, and it then reported that NOTHING
+        straddles -- an answer manufactured entirely by the control's own side effect.
+
+    WHY THE INCREMENT IS A REAL STRADDLE AND NOT A CRASH ARTIFACT: prev_frame is committed
+    only after every entry enqueued (dplc.emp:214-262) and the commit is observed, and the
+    Important-only counter Dbg_DMA_Straddle_Frame moves alongside the all-queue one. The
+    guard that stops the machine is downstream of the queue.
+
+    THE LADDER IS PER CHARACTER: the DPLC walks only the ACTIVE character's table, and
+    Debug_CharacterHotkey can cycle the roster off a campaign's own A presses, so a control
+    pinned to Sonic's frame could read "did not fire" for a reason with nothing to do with
+    the subject. Character_ID is reported beside the result."""
+    b = BusClient(sock, client_id="dma_straddle_ctl", client_name="dma_straddle_control")
+    await b.connect()
+    c = Driver(b, d.sym, d.off, d.air_bit)
+    c.control_ladder = d.control_ladder
+    c.control_tries = d.control_tries
+    hits: list[int] = []
+    important: list[int] = []
+    attempts = 0
+    commits = 0
+    before = after = {}
+    char = -1
+    for f in c.control_ladder:
+        if hits:
+            break
+        for extra in range(c.control_tries):
+            # THE STAGING IS EXACT, and the offset sweep is why. Whether the force is seen
+            # by Perform_DPLC that frame is DETERMINISTIC in the frame the machine is
+            # stopped on, not random: measured, `reset -> 180f -> B(2f) -> release ->
+            # 120f -> force` FIRES every run, and the same sequence with two extra frames
+            # in it FAILS every run -- six resets each way, no exceptions. So this does not
+            # retry the same thing hoping for luck; it steps the settle by one frame per
+            # attempt, on a fresh boot each time, and sweeps the phase.
+            await c.call("emulator/reset", {})
+            await c.call("emulator/run_frames", {"frames": args.settle})
+            await c.call("emulator/play_input",
+                         {"rows": [{"start": 0, "end": 2, "buttons": ["b"]}], "maxFrames": 2})
+            await c.call("emulator/release_all", {})
+            await c.call("emulator/run_frames", {"frames": 120 + extra})
+            if "Character_ID" in c.sym:
+                char = (await c.read_bytes(c.sym["Character_ID"], 2))[1]
+            pre = await c.read_cells()
+            before = before or pre
+            await c.call("emulator/write_memory",
+                         {"addr": hex(c.player + c.off["prev_frame"]),
+                          "value": (f ^ 0xFF) & 0xFF, "width": 1})
+            await c.call("emulator/write_memory",
+                         {"addr": hex(c.player + c.off["mapping_frame"]),
+                          "value": f, "width": 1})
+            await c.call("emulator/run_frames", {"frames": 1})
+            attempts += 1
+            post = await c.read_cells()
+            after = post
+            if (await c.read_bytes(c.player + c.off["prev_frame"], 1))[0] == f:
+                commits += 1
+            if post["Dbg_DMA_Straddle_All"] > pre["Dbg_DMA_Straddle_All"]:
+                hits.append(f)
+                if post["Dbg_DMA_Straddle_Frame"] > pre["Dbg_DMA_Straddle_Frame"]:
+                    important.append(f)
+                break
+    tick = await c.read_long("Logic_Tick")
+    await b.close()
+    return {"before": before, "after": after, "frames_that_straddled": hits,
+            "of_which_important": important,
+            "forced_frames_tried": list(c.control_ladder),
+            "character_id": char, "attempts": attempts, "dplc_commits": commits,
+            "prev_frame_committed_to": (hits[0] if hits else -1),
+            "logic_tick_after": tick, "own_machine": True}
+
+
+def report_control(d: Driver) -> None:
     print()
-    print("  --- POSITIVE CONTROL (post-campaign; the campaign numbers above are frozen) ---")
-    d.control = await d.positive_control(args.control_scan)
+    print("  --- POSITIVE CONTROL (its own machine, fresh boot per attempt) ---")
+    print(f"  Character_ID at the control: {d.control['character_id']} "
+          f"({ {0: 'sonic', 1: 'tails', 2: 'knuckles'}.get(d.control['character_id'], '?') })")
     hits = d.control["frames_that_straddled"]
     if hits:
         print(f"  the instrument FIRES: forcing mapping_frame ${hits[0]:02X} moved "
               f"Dbg_DMA_Straddle_All {d.control['before']['Dbg_DMA_Straddle_All']} -> "
-              f"{d.control['after']['Dbg_DMA_Straddle_All']} in ONE frame.")
-        print(f"  straddling mapping frames observed live: "
-              f"{', '.join(f'${f:02X}' for f in hits)}"
-              f"   (of which counted as IMPORTANT: "
-              f"{', '.join(f'${f:02X}' for f in d.control['of_which_important']) or 'none'})")
+              f"{d.control['after']['Dbg_DMA_Straddle_All']} in ONE frame; the "
+              f"Important-only cell Dbg_DMA_Straddle_Frame moved "
+              f"{d.control['before']['Dbg_DMA_Straddle_Frame']} -> "
+              f"{d.control['after']['Dbg_DMA_Straddle_Frame']}"
+              + ("" if d.control['of_which_important'] else " (NOT counted as Important)"))
+        print(f"  the DPLC committed prev_frame to "
+              f"${d.control['prev_frame_committed_to']:02X}, i.e. EVERY entry of that frame "
+              f"enqueued -- the straddling one included. "
+              f"({d.control['dplc_commits']} DPLC commit(s) over "
+              f"{d.control['attempts']} attempt(s) at stepped settle offsets.)")
     else:
-        print("  the instrument did NOT fire even on a forced straddling DPLC frame.")
-
-    await b.close()
-    return d
+        print(f"  the instrument did NOT fire on any forced mapping frame of "
+              f"{', '.join(f'${f:02X}' for f in d.control['forced_frames_tried'])}.")
+    print(f"  ({d.control['attempts']} attempt(s), each on a fresh boot; "
+          f"{d.control['dplc_commits']} of them got the DPLC to commit prev_frame. "
+          f"Logic_Tick on the control machine afterwards: {d.control['logic_tick_after']} "
+          f"-- an out-of-range mapping frame is guarded downstream of the queue, so a "
+          f"fired control leaves its own machine in the MD Debugger island. The campaign "
+          f"machine was never touched by any of this.)")
 
 
 def summarise(d: Driver, args, elapsed: float) -> int:
@@ -901,7 +953,7 @@ def summarise(d: Driver, args, elapsed: float) -> int:
                    "first_hit": d.first_hit,
                    "campaign_frames": d.campaign_frames,
                    "campaign_final": d.campaign_final,
-                   "positive_control": d.control,
+                   "control": d.control,
                    "static_survey": getattr(d, "static_survey", {}),
                    "counters_in_rom": getattr(d, "counters_in_rom", {}),
                    "boot": boot, "final": final,
@@ -936,11 +988,20 @@ def main() -> int:
                     help="direction flips per ground anchor in the P4b shuttle")
     ap.add_argument("--recover-after", type=int, default=2,
                     help="consecutive airborne polls before warping back to a ground anchor")
-    ap.add_argument("--control-scan", action="store_true",
-                    help="post-campaign, force ALL 256 mapping frames one at a time and "
-                         "record which ones actually straddle on the live machine, rather "
-                         "than stopping at the first hit. Measures the straddling-frame set "
-                         "independently of tools/dplc_straddle.py's static claim.")
+    ap.add_argument("--control-tries", type=int, default=12,
+                    help="attempts per control frame, each a fresh boot with the settle one "
+                         "frame longer than the last. Whether Perform_DPLC sees the forced "
+                         "value is DETERMINISTIC in the stop frame, not random -- measured "
+                         "as fire-every-time at the base offset and fail-every-time two "
+                         "frames off it -- so this sweeps the phase rather than retrying.")
+    ap.add_argument("--control-frame", type=lambda v: int(v, 0), nargs="+",
+                    default=[0x65, 0x9F, 0x85],
+                    help="mapping frames the post-campaign positive control tries, in order, "
+                         "stopping at the first that fires. Defaults are the ONE straddling "
+                         "frame per character that tools/dplc_straddle.py names on every "
+                         "build: sonic $65, tails $9F, knuckles $85. The ladder exists "
+                         "because the campaign's own A presses can cycle the active "
+                         "character, and the DPLC only walks the active one's table.")
     ap.add_argument("--physics-probe", type=int, default=180,
                     help="frames to wait for the player to start animating after the B "
                          "press that leaves debug fly, before declaring the run unmeasurable")
@@ -994,6 +1055,27 @@ def main() -> int:
         return 2
     finally:
         inst.reap()
+
+    # ---- CONTROL B on a second, untouched machine. The campaign's numbers are already
+    #      read; this only has to answer "does the counter increment on a real straddling
+    #      enqueue". A fresh boot per attempt is what makes the intra-frame phase race
+    #      survivable instead of fatal -- see control_body's docstring. ----
+    cinst = AetherInstance(rom, symbols=lst)
+    try:
+        csock = cinst.start()
+        d.control = asyncio.run(control_body(csock, lst, blob, args, d))
+    except (SetupError, asyncio.TimeoutError, Exception) as e:   # noqa: BLE001
+        print(f"dma_straddle_exercise: the positive control could not be run ({e!r}) -- "
+              f"the campaign numbers below are therefore UNREADABLE, not zero",
+              file=sys.stderr)
+        d.control = {"before": {}, "after": {}, "frames_that_straddled": [],
+                     "of_which_important": [], "forced_frames_tried": list(d.control_ladder),
+                     "character_id": -1, "attempts": 0, "dplc_commits": 0,
+                     "prev_frame_committed_to": -1, "logic_tick_after": -1,
+                     "own_machine": True, "error": repr(e)}
+    finally:
+        cinst.reap()
+    report_control(d)
     return summarise(d, args, time.monotonic() - t0)
 
 
