@@ -25349,7 +25349,45 @@ direct read of the live VDP register rather than the shadow copy. **Deliberately
 with a mechanism attached** — five mechanisms were published and killed by controls tonight,
 and the pattern was publishing the story before running the test.
 
-## ✅ THE FLOOR DARKNESS IS DIAGNOSED: a PROBE word is a live op in section 0's raster program
+## ⚠⚠ THE PROBE-WORD STORY BELOW IS WRONG. THE DARKNESS IS A DELIBERATE UNDERWATER TINT BAND.
+
+**There is no bug, no leaked probe, and nothing to fix. I published the section below before
+reading the DSL that generates the word, and it is my seventh unverified mechanism of the
+night — sent to two lanes this time.**
+
+**What actually produces `$8C89`:** `OJZ_TC_PROG` composes
+
+```
+patchable(fx_tint_band(line: 100, slot: 0, pal_line: 2, entry: 4, count: 3, sh: 1),
+          ch: 0, lo: 3, hi: 220, offscreen_ship: 1)
+```
+
+**`sh: 1` is a documented parameter of `fx_tint_band`** (`raster_dsl.emp:654`) meaning
+shadow/highlight on. The `$8C89` word is its intended output. **That the value coincides with
+two timing probes is a coincidence of both writing the same legal mode word** — `$81 | $08`
+is the only way to say "H40 plus S/H" — and I read a coincidence as a provenance.
+
+**And there is no missing OFF fire.** `reg_set`'s own contract: *"It carries NO frame-top
+reset, because it does not need one: `Flush_VDP_Shadow` re-blits all 19 shadowed registers
+from `VDP_Shadow_Table` unconditionally at the top of every VBlank ... 'A mode change cannot
+latch past the frame' is a property of the ENGINE now."* **Shadow-to-the-bottom-of-frame,
+undone at frame top, is the design.**
+
+**SO THE REAL ANSWER, AND IT IS BETTER THAN A BUG: the perspective floor is being drawn
+UNDERWATER.** Channel 0 is the underwater band — `ParallaxConfig_OJZ_Underwater` anchors its
+band split on the same channel (`ojz_effects.emp:1407`) — and the anchor sweeps with the
+camera, which is why the boundary sat at ~73 in my capture and at 100 in the authored source.
+**The owner already knows this feature; he asked about it tonight** ("everything the
+underwater parallax config touches"). **The floor scene simply inherits section 0's raster
+program, and section 0 is underwater.**
+
+**What is actually open is a SCENE COMPOSITION question, not a defect:** should the
+perspective-floor scene run inside the underwater tint? That is a look call, and it is his.
+
+**The section below is kept for its measurements — the live-program read, the line agreement
+and the 34.2% arithmetic all stand. Only its conclusion is retracted.**
+
+## ~~THE FLOOR DARKNESS IS DIAGNOSED: a PROBE word is a live op~~ — RETRACTED, see above
 
 **Not the floor, not the art, not the palette, not oracle. The engine enables shadow/highlight
 mid-frame and never clears it.**
