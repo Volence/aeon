@@ -833,6 +833,25 @@ if [[ "$FAST" == "0" ]]; then
         exit 1
     fi
 
+    # The row remap's ART half (EFFECTS-W1 item 9d): the ROM source image, the gather's own
+    # geometry immediates, and the publication that wires the two halves together.
+    #
+    # WHY IT IS A SECOND GATE AND NOT AN ARM OF THE ONE ABOVE. That one asks whether the
+    # LADDER is safe and is the model's; this asks whether the IMAGE and the LOOP THAT
+    # INDEXES IT agree with each other and with the declared VRAM map. Its decisive arm
+    # decodes five immediates out of Waterline_Art_Update's own instruction bytes, which is
+    # the only place the "image and gather changed apart" failure is visible: a stale stride
+    # reads plausible pixels from the wrong rows and every byte-level check stays green.
+    #
+    # RUN FOR BOTH GAMES, for the reason above: the gather is ENGINE code and ships in every
+    # game, so the undeclared path is not a skip — it asserts demo's image carries NO source
+    # art AND a Waterline_Art_Update that is exactly `rts`.
+    if ! python3 "${TOOLS}/waterline_art_gate.py" --lst "${ROM_NAME}.lst" \
+            --rom "${ROM_NAME}.bin" --game "${GAME}"; then
+        echo "Waterline art half — see above (tools/waterline_art_gate.py, the post-sigil gate)."
+        exit 1
+    fi
+
     # The editor-scene binding seam's REACHABILITY gate (scanline P5 slice 5).
     # Reads the listing because that is the only place the answer exists: an
     # unreached `.emp` module still parses, still scans, and still builds green

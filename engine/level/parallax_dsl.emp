@@ -435,18 +435,31 @@ pub comptime fn row_remap_ladder16() -> [u8; 272] {
 // procedurally generated ripple, not authored water: the OJZ background has no water surface
 // to promote (design section 6.2 says so), so the art half would otherwise have nothing to
 // move. What the model guarantees is the two properties the mechanism actually depends on —
-// every one of the 2H source rows is DISTINCT (a row-uniform image makes the gather
-// invisible, and "invisible" is the failure mode this whole effect fails by), and the whole
-// range stays inside one palette line's nibbles. Replacing these pixels with real art is a
-// content edit and touches nothing else.
+// no two source rows INSIDE THE LADDER'S OWN REACH are identical (a row-uniform image makes
+// the gather invisible, and "invisible" is the failure mode this whole effect fails by), and
+// the whole range stays inside one palette line's nibbles, never touching index 0.
+// Replacing these pixels with real art is a content edit and touches nothing else.
 //
-// HOW EVERY ROW IS MADE DISTINCT, because it is the load-bearing property. The ripple is a
-// triangle wave in x whose phase advances 3 px per source row: gcd(3,16) = 1, so the H rows
-// of each half of the image take all 16 phases and no two of them repeat. The two halves
-// would then collide row-for-row, so the SECOND half (rows H..2H-1, the deep end) drops its
-// amplitude 6 -> 4 — which also reads as depth attenuation. Pairwise distinctness is checked
-// where it can be checked exhaustively, in tools/test_waterline_art_gen.py, and re-checked in
-// the built ROM by tools/waterline_art_gate.py.
+// ⚠ THE PROPERTY IS LOCAL, AND THE FIRST SPELLING OF IT HERE WAS GLOBAL AND WRONG. "All 2H
+// rows pairwise distinct" holds at H = 16 and FAILS at 32, 64 and 128 — the ripple has 16
+// phases and a half of the image has H rows — so the global claim would have shipped a model
+// that silently could not be raised to the H = 64 the 48-tile VRAM region was sized for. The
+// parameterised test refuted it, and it is recorded because the claim was true of every case
+// anyone would have looked at. The LOCAL form is what the gather needs (the ladder advances
+// the source row by 1 or 2 per output line) and it holds at every expressible height.
+//
+// HOW LOCAL DISTINCTNESS IS OBTAINED. The ripple is a triangle wave in x whose phase advances
+// 3 px per source row: gcd(3,16) = 1, so any 16 consecutive rows take all 16 phases and none
+// of them repeat. The deep half (rows H..2H-1) additionally drops its amplitude 6 -> 4 —
+// which reads as depth attenuation and is what buys GLOBAL distinctness at the shipped H.
+// Both are checked at five heights in tools/test_waterline_art_gen.py and re-checked in the
+// built ROM by tools/waterline_art_gate.py.
+//
+// AND THE PROPERTY THAT DECIDES WHAT IS ON SCREEN, which is neither of those: how many of the
+// H+1 perspective states gather to a DIFFERENT picture. Measured over the real ladder and the
+// real transform: H of H+1, at every expressible height. The single collision is ladder rows
+// H and H-1 — at |p| = 1 the ladder's own `extra` term floors to zero — so it belongs to the
+// ladder above and not to these pixels.
 pub const WATERLINE_H          = ROW_REMAP_H16     // the band height the strips are cut for
 pub const WATERLINE_STRIPS     = 2                 // above the surface, below it
 pub const WATERLINE_ROW_BYTES  = 8                 // 16 px, 4bpp, two per byte
