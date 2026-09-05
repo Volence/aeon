@@ -333,12 +333,23 @@ async def test_side(pr, spring, want_launch, out):
     else:
         out.append(f"  side: x drift over the last 30 held frames = {drift}px — stopped dead")
 
-    if min_yv <= want_launch:
-        fails.append(f"SIDE CONTACT LAUNCHED HIM: y_vel reached {min_yv} (launch is "
-                     f"{want_launch}) while only ever touching the side face")
+    # A THRESHOLD, NOT AN EQUALITY, and the red run is why. This check first read
+    # `min_yv <= want_launch`, which CANNOT FIRE: a frame-boundary sample of a launch is
+    # the launch plus one gravity step (see test_top), so a real side-launch reads -4040
+    # against a -4096 launch and compares as "never launched". Proved by the red-first
+    # mutation that deletes the side push: the player walked through the spring, WAS
+    # launched off its top face at -4040, and this line called that no-launch. Half the
+    # launch is a threshold nothing else in a walking player's motion reaches -- he has
+    # no jump input and no other spring within reach -- and it is unambiguous in both
+    # directions: the green run reads 0.
+    launch_floor = want_launch // 2
+    if min_yv <= launch_floor:
+        fails.append(f"SIDE CONTACT LAUNCHED HIM: y_vel reached {min_yv}, past the "
+                     f"{launch_floor} threshold (half the {want_launch} launch), while he "
+                     f"should only ever have touched the side face")
     else:
-        out.append(f"  side: most negative y_vel seen = {min_yv}, never the launch "
-                   f"{want_launch} — a side hit does not fire the spring")
+        out.append(f"  side: most negative y_vel seen = {min_yv}, nowhere near the "
+                   f"{launch_floor} launch threshold — a side hit does not fire the spring")
     return fails
 
 
