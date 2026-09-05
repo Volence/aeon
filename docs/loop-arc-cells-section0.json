@@ -826,7 +826,7 @@
  },
  "crossover_marks": {
   "_what": "CANDIDATE cells for the two one-way crossover marks. Cells are mine; the DIRECTION is yours - you built the witness and rule R2 refuses a self-mark at bake (a plane-A word carrying XOVER_TO_A raises), so the pairing is your call.",
-  "_why_here": "The lowest even row where both arcs are still distinct from the ground (row 70, y 560; ground is solid at y 576). That is where the player enters and leaves the loop, which is where the front/back transition belongs - not at the crown, where a mis-fire strands the player mid-arc.",
+  "_why_here": "CORRECTED 2026-09-05: this field previously recommended the LOWEST even row where both arcs are distinct from the ground, and said marks should be there 'not at the crown, where a mis-fire strands the player mid-arc'. THAT WAS WRONG and it contradicted docs/LOOP_CROSSOVER_ENCODING.md 3.3, which puts the two marked columns at the loop's BOTTOM-CENTRE and TOP-CENTRE cells. 3.3's model is what shipped and it is what works: measured 2026-09-05, the player takes the bottom mark on entry and the top mark at angle $80 inverted, and rides the full circumference. The 'strands the player mid-arc' worry was mine and unfounded -- a crown mark is exactly where the hand-off belongs, because that is where the half he is riding ends.",
   "_entry_side": "RIGHT. In his screenshot the bright green running surface sweeps up on the right, so the right arc is the entry ramp and the left is the exit.",
   "candidates": [
    {
@@ -846,7 +846,8 @@
     "recommend_mark": "XOVER_TO_A"
    }
   ],
-  "_verify": "After baking: python3 tools/loop_crossover_gate.py --lst s4.debug.lst --rom s4.debug.bin -v . Today it prints 'shipped CrossoverTable: 256 slots, 0 marked'. Non-zero after your paint; still 0 means the marks landed on ODD cell rows and were dropped at bake."
+  "_verify": "After baking: python3 tools/loop_crossover_gate.py --lst s4.debug.lst --rom s4.debug.bin -v . Today it prints 'shipped CrossoverTable: 256 slots, 0 marked'. Non-zero after your paint; still 0 means the marks landed on ODD cell rows and were dropped at bake.",
+  "_superseded_recommendation": "The lowest even row where both arcs are still distinct from the ground (row 70, y 560; ground is solid at y 576). That is where the player enters and leaves the loop, which is where the front/back transition belongs - not at the crown, where a mis-fire strands the player mid-arc."
  },
  "stray_collision_cells": {
   "_what": "Solid cells with no art behind them, in rows 38-76 x cols 118-170. You measured that all of these have solid support within two rows, so they are connected surface rather than floating - I take that. Listed only so the set is written down.",
