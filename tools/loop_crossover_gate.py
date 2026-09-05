@@ -109,7 +109,12 @@ NEED_SYMS = (READ_SITE, LOOKUP, "CrossoverTable", "SolidityTable",
 NEED_EQUS = ("XOVER_NONE", "XOVER_TO_A", "XOVER_TO_B", "XOVER_LAYER_BIAS",
              "LAYER_PATH_A", "LAYER_PATH_B", "COLL_CELL_W", "COLL_CELL_H",
              "CTYPE_AIR", "SST_x_pos", "SST_y_pos", "SST_layer",
-             "TILE_CACHE_COLS", "TILE_CACHE_ROWS", "TILE_CACHE_COLL_SIZE")
+             "TILE_CACHE_COLS", "TILE_CACHE_ROWS", "TILE_CACHE_COLL_SIZE",
+             # the two per-frame displacement caps. The step-over family derives its
+             # WHOLE sweep from these rather than from a number written here, so a cap
+             # that moves moves the sweep with it — and the family says so out loud if
+             # they ever stop being able to produce a skipped cell.
+             "PHYS_GSP_CAP", "PHYS_FALL_CAP")
 
 
 def parse_lst(path):
@@ -221,6 +226,10 @@ class Trace:
     def __init__(self):
         self.writes = []          # (addr, size) in program order
         self.called = []
+        self.calls = []           # (target, d0, d1, d3) at each call — the LOOKUP's
+                                  # arguments are its X px, Y px and plane, so this is
+                                  # the record of WHICH CELLS the frame actually asked
+                                  # about. The step-over family grades that set.
         self.steps = 0
 
 
@@ -270,6 +279,8 @@ def execute(cpu, prog, entry, extents, trace, limit=600):
                     "A new callee has to be understood before its effect on the layer "
                     "byte can be assumed to be none." % tgt)
             trace.called.append(tgt)
+            trace.calls.append((tgt, cpu.d[0] & 0xFFFF, cpu.d[1] & 0xFFFF,
+                                cpu.d[3] & 0xFF))
             ret.append(nxt)
             pc = tgt
             continue
@@ -436,6 +447,17 @@ class World:
         want = SST + self.k["SST_layer"]
         return [w for w in trace.writes if w[0] == want]
 
+    def cells_probed(self, trace):
+        """(col, row) of every cell the frame asked Collision_GetType about, in order.
+
+        Read out of the LOOKUP's own arguments (d0 = X px, d1 = Y px), so it is the set
+        of cells the routine looked at — not a set this file predicted it would look at.
+        The quantisation is the lookup's own: it does `lsr.w #3` on X and `lsr.w #3`
+        then `lsr.w #1` on Y, which is exactly COLL_CELL_W x COLL_CELL_H."""
+        lk = self.syms[LOOKUP]
+        return [(x // self.k["COLL_CELL_W"], y // self.k["COLL_CELL_H"])
+                for tgt, x, y, _ in trace.calls if tgt == lk]
+
 
 # --------------------------------------------------------------------------
 # The sweeps
@@ -584,6 +606,189 @@ def sweep_edge_trigger(rom, prog, extents, syms, equs, fails):
         if not w.layer_writes(trace):
             fails.append(("edge", "stepping one whole cell %s did NOT re-read the "
                                   "crossover" % name))
+    return total
+
+
+def step_caps(equs):
+    """The largest per-frame displacement the SHIPPED physics can put on each axis, in
+    pixels, taken from the build's own caps — nothing here is a number chosen by this
+    file. X: the ground-speed cap is the only thing that bounds a horizontal step
+    (`ObjectMove` is one unconditional add and is not substepped). Y: the same cap,
+    because a ground step on a vertical wall decomposes the WHOLE of the ground speed
+    onto Y, or the air fall cap, whichever is larger."""
+    gsp = equs["PHYS_GSP_CAP"] >> 8
+    fall = equs["PHYS_FALL_CAP"] >> 8
+    return gsp, max(gsp, fall)
+
+
+def _path_cells(a, b):
+    """The cell indices a path from `a` to `b` must visit on one axis: everything
+    strictly between them PLUS the destination.
+
+    `a` itself is excluded on purpose — the previous frame already tested that cell,
+    and re-testing it is exactly the double-fire the edge trigger exists to prevent.
+    So this set is the anti-tunnelling requirement and the no-double-fire requirement
+    at the same time, which is why the family grades against it rather than against a
+    count of probes."""
+    if a == b:
+        return set()
+    step = 1 if b > a else -1
+    return set(range(a + step, b + step, step))
+
+
+def sweep_step_over(rom, prog, extents, syms, equs, fails, notes):
+    """THE STEP-OVER FAMILY, part 1: WHICH CELLS a frame asked about.
+
+    A crossover mark is ONE cell. `COLL_CELL_W` is 8 px and the ground-speed cap is
+    16 px/frame, and horizontal movement is not substepped anywhere (`ObjectMove` in
+    engine/objects/core.emp is a single unconditional add), so a frame can begin on one
+    side of a marked cell and end on the other without ever occupying it. Nothing in
+    the edge-trigger family above can see that: every one of its cases moves at most one
+    cell, which is the only speed at which "the cell I resolved to" and "the cells I
+    crossed" are the same set.
+
+    THE PROPERTY GRADED, stated so it is independent of how the sweep is implemented:
+    for a step from cell (c0x,c0y) to (c1x,c1y), every column index between c0x and c1x
+    and every row index between c0y and c1y must appear among the cells the frame asked
+    about, and the destination cell itself must be among them. That is precisely "a mark
+    painted as a barrier across the path always fires", which is what a loop crossover
+    is. It is NOT "every cell the true segment clips": a 4-connected walk satisfies this
+    and can still miss a single isolated cell that the segment only cuts a corner of —
+    named here so the family's green is not read as more than it is.
+
+    The sweep's extent is DERIVED from the caps the build was assembled with, so a cap
+    that moves moves this family with it.
+    """
+    cw, ch = equs["COLL_CELL_W"], equs["COLL_CELL_H"]
+    max_dx, max_dy = step_caps(equs)
+
+    # LOUD ON UNMEASURABLE. This family can only discriminate while one frame's
+    # displacement can exceed one cell. If the caps ever fall under the cell footprint
+    # every case below reduces to a one-cell move, the family passes for a reason that
+    # has nothing to do with the subject, and that silent green is worse than no gate.
+    if max_dx <= cw and max_dy <= ch:
+        fails.append(("step-over",
+                      "UNMEASURABLE: this build's caps (%d px/frame X, %d px/frame Y) "
+                      "can no longer exceed one %dx%d cell, so no case in this family "
+                      "can skip a cell and its green would mean nothing. Re-derive the "
+                      "family against whatever bounds a step now, or delete it."
+                      % (max_dx, max_dy, cw, ch)))
+        return 0
+
+    w = World(rom, prog, extents, syms, equs)
+    w.fill_plane(0, ATTR_A)
+    w.fill_plane(1, ATTR_A)
+    w.set_crossover(ATTR_A, equs["XOVER_NONE"])   # marks are part 2's business; this
+                                                  # half grades the QUESTION, not the
+                                                  # answer, so the layer must not move
+    base = (IN_CELL[0] & ~(cw - 1), IN_CELL[1] & ~(ch - 1))
+    dys = sorted({0, 1, ch - 1, ch, max_dy, -1, -(ch - 1), -ch, -max_dy})
+
+    total = skipping = 0
+    for dx in range(-max_dx, max_dx + 1):
+        for dy in dys:
+            w.place(base[0], base[1], equs["LAYER_PATH_A"])
+            w.frame()                                   # settle: this is the "from" cell
+            w.place(base[0] + dx, base[1] + dy, equs["LAYER_PATH_A"])
+            trace = w.frame()
+            total += 1
+            probed = w.cells_probed(trace)
+            c0 = (base[0] // cw, base[1] // ch)
+            c1 = ((base[0] + dx) // cw, (base[1] + dy) // ch)
+            if c0 == c1:
+                if probed:
+                    fails.append(("step-over",
+                                  "a %+d,%+d px move that stayed inside one cell asked "
+                                  "about %d cell(s) — the edge trigger must not look at "
+                                  "all" % (dx, dy, len(probed))))
+                continue
+            want_cols = _path_cells(c0[0], c1[0])
+            want_rows = _path_cells(c0[1], c1[1])
+            if len(want_cols) > 1 or len(want_rows) > 1:
+                skipping += 1
+            cols = {c for c, _ in probed}
+            rows = {r for _, r in probed}
+            miss_c = sorted(want_cols - cols)
+            miss_r = sorted(want_rows - rows)
+            if c1 not in probed:
+                fails.append(("step-over",
+                              "a %+d,%+d px step did not ask about the cell it "
+                              "RESOLVED to (%s); it asked about %s"
+                              % (dx, dy, c1, probed)))
+            elif miss_c or miss_r:
+                fails.append(("step-over",
+                              "a %+d,%+d px step (cell %s -> %s) STEPPED OVER "
+                              "column(s) %s row(s) %s: it asked about %s only. A mark "
+                              "painted in a skipped cell never fires, and the player "
+                              "carries the wrong collision plane out of the loop."
+                              % (dx, dy, c0, c1, miss_c, miss_r, probed)))
+    notes.append("step-over sweep: %d cases from the build's own caps "
+                 "(X +/-%d px, Y %s px) against a %dx%d cell; %d of them cross more "
+                 "than one cell on some axis and are the only ones that can tunnel"
+                 % (total, max_dx, "/".join(str(d) for d in dys), cw, ch, skipping))
+    return total
+
+
+def sweep_step_over_marks(rom, prog, extents, syms, equs, fails, notes):
+    """THE STEP-OVER FAMILY, part 2: what the LAYER BYTE does. No address arithmetic.
+
+    Part 1 grades the questions asked. This half grades the answer, and it does it
+    without ever painting one cell differently from another — the gate's whole design
+    refuses per-cell cache arithmetic, because arithmetic here could agree with a bug
+    in the routine's own cell derivation.
+
+    The trick is PARITY. Fill plane A with an attr marked XOVER_TO_B and plane B with an
+    attr marked XOVER_TO_A: the anchor's §3.3 two-way pair, but at EVERY cell. Then every
+    cell a frame passes through flips the layer exactly once, so after crossing k cells
+    the layer has flipped k times — and k's parity is visible in one byte. A routine that
+    reads only the cell it resolved to flips ONCE however far it travelled, so k=2 lands
+    it on the wrong plane while k=1 is indistinguishable. That is the discriminator, and
+    it is the shipped symptom: a player who crosses a loop's mark at speed keeps the
+    plane he arrived on.
+    """
+    cw = equs["COLL_CELL_W"]
+    ch = equs["COLL_CELL_H"]
+    max_dx, _y = step_caps(equs)
+    ncells = max_dx // cw
+    if ncells < 2:
+        fails.append(("step-over-marks",
+                      "UNMEASURABLE: %d px/frame over a %d px cell crosses at most one "
+                      "cell, so parity cannot distinguish a swept read from a single "
+                      "one and this family's green would mean nothing"
+                      % (max_dx, cw)))
+        return 0
+
+    total = 0
+    for k in range(1, ncells + 1):
+        w = World(rom, prog, extents, syms, equs)
+        w.fill_plane(0, ATTR_A)
+        w.fill_plane(1, ATTR_B)
+        w.set_crossover(ATTR_A, equs["XOVER_TO_B"])     # on plane A -> go to B
+        w.set_crossover(ATTR_B, equs["XOVER_TO_A"])     # on plane B -> go back to A
+        base = (IN_CELL[0] & ~(cw - 1), IN_CELL[1] & ~(ch - 1))
+        w.place(base[0], base[1], equs["LAYER_PATH_A"])
+        w.frame()
+        start = w.layer()
+        total += 1
+        if start != equs["LAYER_PATH_B"]:
+            fails.append(("step-over-marks", "the settling frame did not fire"))
+            continue
+        w.place(base[0] + k * cw, base[1], start)       # k whole cells of X in ONE frame
+        trace = w.frame()
+        total += 1
+        flips = [equs["LAYER_PATH_A"], equs["LAYER_PATH_B"]]
+        want = flips[(flips.index(start) + k) % 2]
+        got = w.layer()
+        if got != want:
+            probed = w.cells_probed(trace)
+            fails.append(("step-over-marks",
+                          "a %d px step crossed %d marked cells in one frame and the "
+                          "layer ended at %d, not %d — %d crossings must flip it %d "
+                          "time(s). The frame asked about %s: %d cell(s), not %d."
+                          % (k * cw, k, got, want, k, k, probed, len(probed), k)))
+    notes.append("step-over parity: crossings of 1..%d whole cells in ONE frame, each "
+                 "graded on the parity of the layer byte (%d px/frame cap over a %d px "
+                 "cell)" % (ncells, max_dx, cw))
     return total
 
 
@@ -779,15 +984,17 @@ def run_all(rom, prog, extents, syms, equs):
     n2 = sweep_plane_select(rom, prog, extents, syms, equs, fails)
     n3 = sweep_edge_trigger(rom, prog, extents, syms, equs, fails)
     n4 = sweep_off_cache(rom, prog, extents, syms, equs, fails)
+    n5 = sweep_step_over(rom, prog, extents, syms, equs, fails, notes)
+    n6 = sweep_step_over_marks(rom, prog, extents, syms, equs, fails, notes)
     if moved == 0:
         fails.append(("consumption", "NOT ONE execution changed the layer because of a "
                                      "ROM byte this gate authored. Either the read site "
                                      "never fires, or this gate is not varying what it "
                                      "thinks it is — an all-green run with moved=0 is "
                                      "the vacuous result this file exists to refuse."))
-    return {"executions": n1 + n2 + n3 + n4, "consumption": n1, "plane": n2,
-            "edge": n3, "off_cache": n4, "moved_by_rom": moved, "marked": marked,
-            "fails": fails, "notes": notes}
+    return {"executions": n1 + n2 + n3 + n4 + n5 + n6, "consumption": n1, "plane": n2,
+            "edge": n3, "off_cache": n4, "step_over": n5, "step_over_marks": n6,
+            "moved_by_rom": moved, "marked": marked, "fails": fails, "notes": notes}
 
 
 def main():
@@ -842,8 +1049,9 @@ def main():
     for n in r["notes"]:
         print("  %s" % n)
     print("  %d executions: %d consumption, %d plane-select, %d edge-trigger, "
-          "%d off-cache" % (r["executions"], r["consumption"], r["plane"],
-                            r["edge"], r["off_cache"]))
+          "%d off-cache, %d step-over, %d step-over parity"
+          % (r["executions"], r["consumption"], r["plane"], r["edge"],
+             r["off_cache"], r["step_over"], r["step_over_marks"]))
     print("  %d of them changed Sst.layer BECAUSE a byte of CrossoverTable in the ROM "
           "image was changed and nothing else was — that is the consumption claim, and "
           "the unmodified table is its control" % r["moved_by_rom"])
