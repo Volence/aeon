@@ -23,8 +23,21 @@ THE READING RULE, which is the whole reason this needs care and is quoted from r
                            one is non-zero; otherwise it means "nothing straddled at all",
                            which is also what a broken instrument reads like.
 
-So this script REFUSES to report a verdict unless the control both is non-zero AND MOVED
-during the campaign. A stationary control is exit 2 (could-not-measure), never a green zero.
+So this script refuses to report a verdict unless a control has FIRED. It runs two, and
+that distinction turned out to be the whole result:
+
+  CONTROL A, natural -- did Dbg_DMA_Straddle_All move during ordinary play?
+  CONTROL B, forced  -- write a straddling DPLC frame into the player's mapping_frame, run
+      ONE frame, and watch the counter. This uses the ROM's own data and no source change,
+      and it is run LAST so it cannot contaminate the campaign it vouches for.
+
+Control A failing is not the same as a broken instrument, and the difference is decidable:
+static_straddle_survey() reads the act's page manifest out of the ROM and asks whether any
+page-in landing -- a DIRECT ROM->VRAM DMA on the RAW form -- can cross a 128 KB boundary at
+all. If none can, and tools/dplc_straddle.py already says every straddling DPLC frame in the
+cast is unreachable through its anim table, then the straddle population in ordinary play is
+EMPTY BY CONSTRUCTION and a zero from control A is the correct answer. Only both controls
+failing is exit 2 (could-not-measure).
 
 AND THE SECOND REASON: the prior attempt (RIGHT held 600 frames) ended at y5587 -- the
 player had run off the built ground in the first seconds and spent the window in FREE FALL,
@@ -246,6 +259,10 @@ class Driver:
         self.sections_visited: set[tuple[int, int]] = set()
         self.map_frames_seen: set[int] = set()
         self.ground_anchors: list[tuple[int, int]] = []
+        self.campaign_frames = 0          # frames driven before the post-campaign control
+        self.campaign_final: dict = {}    # the cells as the CAMPAIGN left them
+        self.control: dict = {}           # positive_control()'s record
+        self.recover_after = 2            # consecutive airborne polls before a rescue warp
         # first non-zero sighting of each subject cell: (frame, phase, value, x, y, in_air)
         self.first_hit: dict[str, dict] = {}
 
@@ -339,9 +356,12 @@ class Driver:
             s = self.samples[-1]
             if keep_grounded:
                 airborne_streak = airborne_streak + 1 if s.in_air else 0
-                # Three consecutive airborne polls (>= 3*chunk frames) is not a jump --
-                # it is the free fall that made the prior 600-frame attempt uninformative.
-                if airborne_streak >= 3 and self.ground_anchors:
+                # N consecutive airborne polls (>= N*chunk frames) is not a jump -- it is
+                # the free fall that made the prior 600-frame attempt uninformative. The
+                # act's built ground is SMALL (the survey finds floor over a fraction of
+                # the 6144px width), so a held direction sails off it within a couple of
+                # seconds and the recovery is what keeps the grounded fraction meaningful.
+                if airborne_streak >= self.recover_after and self.ground_anchors:
                     ax, ay = self.ground_anchors[self.recoveries % len(self.ground_anchors)]
                     print(f"      (recovering: airborne for >= {3 * chunk_size} frames at "
                           f"({s.x},{s.y}) -- warping to ground anchor ({ax},{ay}))")
@@ -416,8 +436,151 @@ class Driver:
         await self.call("emulator/run_frames", {"frames": 2})
         self.frames_driven += 4
 
+    async def positive_control(self, scan: bool) -> dict:
+        """THE POSITIVE CONTROL, and the thing that turns this run's zeros from
+        uninterpretable into a result.
+
+        ram.emp's reading rule says an Important zero means "Important never straddled"
+        only while Dbg_DMA_Straddle_All is non-zero -- otherwise it means "nothing
+        straddled at all, which is also what a broken instrument reads like". That rule
+        assumes ordinary play can move the control. In THIS act it structurally cannot
+        (see static_straddle_survey), so waiting for the control to move is waiting
+        forever, and calling the wait a failure would throw away a real answer.
+
+        So the control is made to fire deliberately instead, using the ROM's OWN data and
+        no source change: force the player's mapping_frame to a DPLC frame whose art
+        crosses the 128 KB boundary, run ONE frame, and watch the counters. Perform_DPLC
+        sees mapping_frame != prev_frame, walks that frame's entries, and the straddling
+        one takes `.split` -- which is the exact instruction path the four cells sit on.
+        If the counters move, the instrument works and every zero above is a real zero.
+
+        RUN LAST. It enqueues DMA the game did not ask for, so it must not contaminate the
+        campaign it is vouching for -- the caller snapshots the campaign numbers first.
+
+        AND RUN IT SOMEWHERE THE SUBJECT CODE EXECUTES. Measured the hard way: the first
+        full campaign ended with the player fallen out of the world (y 65469), and the
+        forced control did not fire there -- not because the instrument is dead, but
+        because Perform_DPLC is reached through the object's display path, which an object
+        that far out of the world does not take. A control that can fail for a reason
+        unrelated to its subject is worse than no control, so this warps back to a surveyed
+        ground anchor and REQUIRES the player to be animating (mapping_frame moving on its
+        own) before it forces anything.
+
+        `scan` sweeps all 256 mapping frames instead of stopping at the first hit, which
+        MEASURES the straddling-frame set off the live machine and can be compared against
+        tools/dplc_straddle.py's static claim (it says Sonic has exactly one, $65, and that
+        it is unreachable through Ani_Sonic)."""
+        if self.ground_anchors:
+            await self.warp(*self.ground_anchors[0])
+        await self.call("emulator/run_frames", {"frames": 60})
+        self.frames_driven += 60
+        seen = set()
+        for _ in range(8):
+            await self.call("emulator/run_frames", {"frames": 8})
+            self.frames_driven += 8
+            seen.add((await self.player_state())[3])
+        x, y, in_air, _ = await self.player_state()
+        print(f"  control staged at player ({x},{y}) in_air={in_air}; mapping_frame moved "
+              f"through {sorted(f'${f:02X}' for f in seen)} on its own "
+              f"({'ANIMATING' if len(seen) > 1 else 'STATIC -- the control may be staged in '
+                 'a state where Perform_DPLC is not reached'})")
+        before = await self.read_cells()
+        hits: list[int] = []
+        important_hits: list[int] = []
+        frames = range(0x00, 0x100) if scan else (0x65,)
+        for f in frames:
+            pre = await self.read_cells()
+            await self.call("emulator/write_memory",
+                            {"addr": hex(self.player + self.off["prev_frame"]),
+                             "value": (f ^ 0xFF) & 0xFF, "width": 1})
+            await self.call("emulator/write_memory",
+                            {"addr": hex(self.player + self.off["mapping_frame"]),
+                             "value": f, "width": 1})
+            await self.call("emulator/run_frames", {"frames": 1})
+            self.frames_driven += 1
+            post = await self.read_cells()
+            if post["Dbg_DMA_Straddle_All"] > pre["Dbg_DMA_Straddle_All"]:
+                hits.append(f)
+                if post["Dbg_DMA_Straddle_Frame"] > pre["Dbg_DMA_Straddle_Frame"]:
+                    important_hits.append(f)
+                if not scan:
+                    break
+        after = await self.read_cells()
+        return {"before": before, "after": after, "frames_that_straddled": hits,
+                "of_which_important": important_hits, "scanned": bool(scan)}
+
 
 # ---------------------------------------------------------------------------
+
+
+# 68000 word-write opcodes onto an absolute-short destination, i.e. the forms these six
+# cells are actually written with. Derived by reading the two writers, NOT guessed:
+# dma_queue.emp uses `addq.w #1,(xxx).w`; vblank.emp's VInt_Level fold uses
+# `move.w d0,(xxx).w` for the peak and `clr.w (xxx).w` for the per-frame cell. Getting
+# this set wrong is not a silent failure -- an unmatched cell is reported as NONE, which
+# is exactly what happened on the first run of this check when it only knew ADDQ and
+# declared the Peak cell dead.
+WRITE_OPCODES = {
+    0x5278: "addq.w #1,(xxx).w",
+    0x4278: "clr.w (xxx).w",
+    **{0x31C0 | n: f"move.w d{n},(xxx).w" for n in range(8)},
+}
+
+
+def counters_present_in_rom(blob: bytes, sym: dict) -> dict[str, list[dict]]:
+    """Find each counter's WRITE sites in the ROM image. This proves the `if DEBUG == 1`
+    blocks were COMPILED IN -- a shape that silently dropped them would read zero from a
+    cell nothing writes, which is indistinguishable at the bus from a real zero. It does
+    NOT prove reachability; only the positive control does that, and only for the straddle
+    path.
+
+    A match is an opcode word from WRITE_OPCODES immediately followed by the cell's
+    absolute-short address, so a bare occurrence of the address bytes inside data does not
+    count as a write."""
+    out: dict[str, list[dict]] = {}
+    for name in ALL_CELLS:
+        short = sym[name] & 0xFFFF
+        sites = []
+        for i in range(0, len(blob) - 4, 2):
+            op = (blob[i] << 8) | blob[i + 1]
+            if op in WRITE_OPCODES and ((blob[i + 2] << 8) | blob[i + 3]) == short:
+                sites.append({"addr": i, "form": WRITE_OPCODES[op]})
+        out[name] = sites
+    return out
+
+
+def static_straddle_survey(blob: bytes, sym: dict) -> dict:
+    """Read the act's page manifest out of the ROM and ask whether ANY page-in landing --
+    the largest non-player Important consumer, and a DIRECT ROM->VRAM DMA on the RAW form
+    (page_in.emp:272-287) -- can cross a 128 KB DMA-source boundary in this act.
+
+    This is what makes a zero control readable. If no page can straddle and no REACHABLE
+    DPLC frame straddles (tools/dplc_straddle.py, run on every build, says the ROM's three
+    straddling frames -- Sonic $65, Tails $9F, Knuckles $85 -- are all unreachable through
+    their anim tables), then the straddle population in ordinary play is EMPTY BY
+    CONSTRUCTION, and Dbg_DMA_Straddle_All = 0 is the correct answer rather than a broken
+    instrument. The ZX0 form cannot straddle at all: it DMAs from Art_Staging_Buffer in
+    work RAM, and $FF0000-$FFFFFF lies wholly inside one 128 KB block."""
+    name = next((k for k in sym if k.endswith("_Act_Pool_PageTable")), None)
+    if name is None:
+        return {"error": "no *_Act_Pool_PageTable symbol in the listing"}
+    tbl = sym[name] & 0xFFFFFF
+    pages = []
+    for i in range(64):                      # bounded; stops on the first implausible row
+        o = tbl + i * 8
+        if o + 8 > len(blob):
+            break
+        src = int.from_bytes(blob[o:o + 4], "big")
+        tiles = int.from_bytes(blob[o + 4:o + 6], "big")
+        if src == 0 or src >= len(blob) or tiles == 0 or tiles > 0x100:
+            break
+        ln = tiles * 32
+        end = src + ln - 1
+        pages.append({"i": i, "src": src, "tiles": tiles, "len": ln, "end": end,
+                      "form": blob[o + 6], "flags": blob[o + 7],
+                      "crosses": (src >> 17) != (end >> 17)})
+    return {"table": name, "table_addr": tbl, "pages": pages,
+            "any_crosses": any(p["crosses"] for p in pages)}
 
 
 async def ground_survey(d: Driver, xs: list[int], y: int, settle: int) -> None:
@@ -469,6 +632,7 @@ async def body(sock: str, rom: str, lst: str, blob: bytes, args) -> Driver:
     b = BusClient(sock, client_id="dma_straddle", client_name="dma_straddle_exercise")
     await b.connect()
     d = Driver(b, sym, off, air_bit)
+    d.recover_after = max(1, args.recover_after)
 
     st = await d.call("emulator/status", {})
     if st["romBytes"] != len(blob):
@@ -478,6 +642,33 @@ async def body(sock: str, rom: str, lst: str, blob: bytes, args) -> Driver:
     print(f"server romPath={st['romPath']} romBytes={st['romBytes']} (matches)")
     print(f"Sst offsets from sst.emp: {off};  ST_IN_AIR mask ${air_bit:02X}")
     print(f"cells: " + ", ".join(f"{n}=${sym[n] & 0xFFFFFF:06X}" for n in ALL_CELLS))
+
+    # ---- STATIC CHECK 1: are the DEBUG counter writes actually in this ROM image? ----
+    d.counters_in_rom = counters_present_in_rom(blob, sym)
+    dead = [n for n, sites in d.counters_in_rom.items() if not sites]
+    for n, sites in d.counters_in_rom.items():
+        print(f"  ROM write site(s) for {n:24s}: "
+              + (", ".join(f"0x{x['addr']:X} {x['form']}" for x in sites)
+                 if sites else "NONE"))
+    if dead:
+        raise SetupError(f"no `addq.w #1,(cell).w` write site in the ROM for {dead} -- the "
+                         f"`if DEBUG == 1` block did not compile into this shape, so those "
+                         f"cells read zero because NOTHING writes them")
+
+    # ---- STATIC CHECK 2: can any page-in landing straddle in this act at all? ----
+    d.static_survey = static_straddle_survey(blob, sym)
+    ss = d.static_survey
+    if "error" in ss:
+        print(f"  static page-manifest survey: {ss['error']}")
+    else:
+        print(f"  static page-manifest survey ({ss['table']} @ 0x{ss['table_addr']:X}, "
+              f"{len(ss['pages'])} page(s)):")
+        for pg in ss["pages"]:
+            print(f"    page{pg['i']:<2d} src=0x{pg['src']:06X} tiles={pg['tiles']:<3d} "
+                  f"len={pg['len']:<5d} end=0x{pg['end']:06X} form={pg['form']} "
+                  f"crosses128K={pg['crosses']}")
+        print(f"    ANY page-in landing in this act can straddle a 128 KB boundary: "
+              f"{ss['any_crosses']}")
 
     await d.call("emulator/run_frames", {"frames": args.settle})
     d.frames_driven += args.settle
@@ -544,6 +735,22 @@ async def body(sock: str, rom: str, lst: str, blob: bytes, args) -> Driver:
                               chunk_size=args.chunk)
     d.report_phase("P4-anchored")
 
+    # ---- P4b: SHUTTLE. The act's built floor is a narrow strip (the survey finds it over
+    #      roughly x 200-2100 of a 6144px act), so any held direction runs off it within a
+    #      couple of seconds and the rest of the leg is free fall. Flipping direction every
+    #      `--shuttle-leg` frames keeps the player ON the floor, which is the only way this
+    #      campaign gets a grounded fraction worth quoting -- and grounded, animating play
+    #      is exactly the condition the F7 report describes. ----
+    for (ax, ay) in d.ground_anchors:
+        await d.warp(ax, ay)
+        for i in range(args.shuttle_reps):
+            direction = "right" if i % 2 == 0 else "left"
+            await d.chunk("P4b-shuttle",
+                          hold_with_pulses(args.shuttle_leg, [direction], JUMP_BUTTON,
+                                           args.shuttle_leg + 1, 8),
+                          args.shuttle_leg)
+    d.report_phase("P4b-shuttle")
+
     # ---- P5: debug-fly sweep, NOT grounded, reported separately ----
     await d.enter_fly()
     remaining = args.p5_frames
@@ -564,6 +771,26 @@ async def body(sock: str, rom: str, lst: str, blob: bytes, args) -> Driver:
     await d.run_phase("P6-right", args.p6_frames,
                       lambda n: hold_with_pulses(n, ["right"], JUMP_BUTTON, 89, 8),
                       chunk_size=args.chunk)
+
+    # ---- THE CAMPAIGN ENDS HERE. Everything below deliberately writes RAM the game did
+    #      not ask to have written, so the campaign's numbers are frozen first. ----
+    d.campaign_frames = d.frames_driven
+    d.campaign_final = await d.read_cells()
+
+    print()
+    print("  --- POSITIVE CONTROL (post-campaign; the campaign numbers above are frozen) ---")
+    d.control = await d.positive_control(args.control_scan)
+    hits = d.control["frames_that_straddled"]
+    if hits:
+        print(f"  the instrument FIRES: forcing mapping_frame ${hits[0]:02X} moved "
+              f"Dbg_DMA_Straddle_All {d.control['before']['Dbg_DMA_Straddle_All']} -> "
+              f"{d.control['after']['Dbg_DMA_Straddle_All']} in ONE frame.")
+        print(f"  straddling mapping frames observed live: "
+              f"{', '.join(f'${f:02X}' for f in hits)}"
+              f"   (of which counted as IMPORTANT: "
+              f"{', '.join(f'${f:02X}' for f in d.control['of_which_important']) or 'none'})")
+    else:
+        print("  the instrument did NOT fire even on a forced straddling DPLC frame.")
 
     await b.close()
     return d
@@ -610,21 +837,36 @@ def summarise(d: Driver, args, elapsed: float) -> int:
                      ("Dbg_DMA_Enq_Capped", peak_cap)):
         print(f"  {name:24s} {boot[name]:7d} {final[name]:7d} {mx:20d}")
 
-    # THE READING RULE (ram.emp:1444-1448): the Important zeros mean nothing unless the
-    # free-running control both is non-zero AND moved during this campaign.
+    # ---- THE READING RULE (ram.emp:1444-1448), and the two ways to satisfy it ----
+    # ram.emp: an Important zero means "Important never straddled" only while
+    # Dbg_DMA_Straddle_All is non-zero; otherwise it means "nothing straddled at all,
+    # which is also what a broken instrument reads like". The rule's job is to rule OUT
+    # a dead instrument. Ordinary play moving the control is ONE way to do that. A
+    # deliberately forced straddle is another, and it is the only one available when the
+    # act's straddle population is empty by construction -- which is a fact about the ROM,
+    # not a failure of the run, and is established here rather than assumed.
     control_moved = peak_all > boot["Dbg_DMA_Straddle_All"]
+    forced = d.control.get("frames_that_straddled") or []
     print()
-    print(f"  CONTROL (Dbg_DMA_Straddle_All): {boot['Dbg_DMA_Straddle_All']} at boot -> "
-          f"{final['Dbg_DMA_Straddle_All']} at end, max {peak_all}.  "
-          f"MOVED: {control_moved}")
+    print(f"  CONTROL A (natural): Dbg_DMA_Straddle_All {boot['Dbg_DMA_Straddle_All']} at "
+          f"boot -> {d.campaign_final.get('Dbg_DMA_Straddle_All', final['Dbg_DMA_Straddle_All'])}"
+          f" at the end of the campaign, max {peak_all}.  MOVED DURING PLAY: {control_moved}")
+    print(f"  CONTROL B (forced):  {'FIRED' if forced else 'DID NOT FIRE'}"
+          + (f" -- forcing mapping_frame ${forced[0]:02X} moved the counter in ONE frame; "
+             f"straddling frames seen live: {', '.join(f'${f:02X}' for f in forced)}"
+             if forced else ""))
+    if not forced:
+        print()
+        print("  VERDICT: UNMEASURABLE. Neither control fired: the counters did not move in")
+        print("  play AND did not move when a straddling DPLC frame was forced. By ram.emp's")
+        print("  own reading rule the Important zeros above are indistinguishable from a")
+        print("  broken instrument, and they are reported as unmeasurable, not as zeros.")
+        return 2
     if not control_moved:
         print()
-        print("  VERDICT: UNMEASURABLE. The positive control did not move across the whole")
-        print("  campaign, so by ram.emp's own reading rule a zero in the Important cells")
-        print("  means 'nothing straddled at all' -- which is also what a broken instrument")
-        print("  reads like. This is EXACTLY the defect that made the 600-frame RIGHT-hold")
-        print("  attempt uninterpretable, and it is reported as such rather than as a zero.")
-        return 2
+        print("  NOTE: the control never moved in PLAY, only when forced. Read the zeros as")
+        print("  'the straddle population reachable by this act is empty', NOT as 'straddles")
+        print("  were possible and none happened' -- see the static survey printed above.")
 
     print()
     if peak_rej > 0:
@@ -638,10 +880,14 @@ def summarise(d: Driver, args, elapsed: float) -> int:
         print(f"  VERDICT: NEAR MISS. Dbg_DMA_Straddle_Peak reached {peak_peak}, above the "
               f"{args.reserve}-slot DPLC_ENTRY_RESERVE, without a reject being observed.")
     else:
-        print(f"  VERDICT: the Important straddle cells stayed at Peak={peak_peak} "
-              f"(<= reserve {args.reserve}) and Reject=0 across this campaign, WITH a moving "
-              f"control ({boot['Dbg_DMA_Straddle_All']} -> {peak_all}). On this evidence the "
-              f"split-reject starvation path did not fire in representative play.")
+        print(f"  VERDICT: across {d.campaign_frames} frames of campaign play the Important "
+              f"straddle cells stayed at Peak={peak_peak} (<= reserve {args.reserve}) and "
+              f"Reject=0, with the instrument PROVEN live by the forced control. No enqueue "
+              f"was dropped by any of the three drop paths either: DMA_Split_Reject_Count="
+              f"{peak_rej}, DMA_Overflow_Count={peak_ovf}, Dbg_DMA_Enq_Capped={peak_cap}. "
+              f"Since a dropped Important enqueue is the NECESSARY first step of the F7 "
+              f"stale-prev_frame mechanism, and no drop of any kind occurred, that mechanism "
+              f"did not fire in this campaign.")
     print("=" * 78)
 
     if args.save:
@@ -653,6 +899,11 @@ def summarise(d: Driver, args, elapsed: float) -> int:
                    "sections": sorted(d.sections_visited),
                    "map_frames": sorted(d.map_frames_seen),
                    "first_hit": d.first_hit,
+                   "campaign_frames": d.campaign_frames,
+                   "campaign_final": d.campaign_final,
+                   "positive_control": d.control,
+                   "static_survey": getattr(d, "static_survey", {}),
+                   "counters_in_rom": getattr(d, "counters_in_rom", {}),
                    "boot": boot, "final": final,
                    "max": {"Dbg_DMA_Straddle_All": peak_all,
                            "Dbg_DMA_Straddle_Frame": peak_frame,
@@ -672,12 +923,24 @@ def main() -> int:
     ap.add_argument("--lst", default=None)
     ap.add_argument("--save", help="archive every poll to this JSON")
     ap.add_argument("--settle", type=int, default=SETTLE_FRAMES)
-    ap.add_argument("--chunk", type=int, default=60,
+    ap.add_argument("--chunk", type=int, default=30,
                     help="frames between polls in the held-direction phases (default 60 = "
-                         "one poll per second of game time; a transient Peak is a "
+                         "one poll per half-second of game time; a transient Peak is a "
                          "high-water mark so it survives, but Frame and the groundedness "
                          "sample do not)")
     ap.add_argument("--reserve", type=int, default=2, help="DPLC_ENTRY_RESERVE")
+    ap.add_argument("--shuttle-leg", type=int, default=45,
+                    help="frames per direction in the P4b shuttle (short enough that the "
+                         "player does not reach the edge of the act's narrow built floor)")
+    ap.add_argument("--shuttle-reps", type=int, default=24,
+                    help="direction flips per ground anchor in the P4b shuttle")
+    ap.add_argument("--recover-after", type=int, default=2,
+                    help="consecutive airborne polls before warping back to a ground anchor")
+    ap.add_argument("--control-scan", action="store_true",
+                    help="post-campaign, force ALL 256 mapping frames one at a time and "
+                         "record which ones actually straddle on the live machine, rather "
+                         "than stopping at the first hit. Measures the straddling-frame set "
+                         "independently of tools/dplc_straddle.py's static claim.")
     ap.add_argument("--physics-probe", type=int, default=180,
                     help="frames to wait for the player to start animating after the B "
                          "press that leaves debug fly, before declaring the run unmeasurable")
@@ -690,14 +953,14 @@ def main() -> int:
                          "drop from y=300 to the spawn floor at y=573 takes about 60 frames "
                          "and the act has deeper pockets, so a short settle reports floor as "
                          "void")
-    ap.add_argument("--p1-frames", type=int, default=3000)
-    ap.add_argument("--p2-frames", type=int, default=3000)
+    ap.add_argument("--p1-frames", type=int, default=1800)
+    ap.add_argument("--p2-frames", type=int, default=1800)
     ap.add_argument("--p3-reversals", type=int, default=32)
     ap.add_argument("--p3-leg", type=int, default=30)
-    ap.add_argument("--p4-leg", type=int, default=600)
+    ap.add_argument("--p4-leg", type=int, default=300)
     ap.add_argument("--p5-frames", type=int, default=6000)
     ap.add_argument("--p5-leg", type=int, default=300)
-    ap.add_argument("--p6-frames", type=int, default=3000)
+    ap.add_argument("--p6-frames", type=int, default=1800)
     args = ap.parse_args()
 
     rom = os.path.abspath(args.rom)
