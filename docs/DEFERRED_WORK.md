@@ -25438,3 +25438,30 @@ tension.**
 
 **OPEN: how a probe word became a live op in section 0's patched program** (section 0 binds
 `patched: OJZ_TwoChannel`). That is the fix, and it is bug tier.
+
+## Practice: label measured vs inferred AT SEND TIME, and relay a peer's confidence not your own
+
+**From the `$8C89` retraction, and oracle's half is the better half.**
+
+**1. THE RETRACTION SHARPENED THE RESULT RATHER THAN WEAKENING IT, and this is the argument
+for reaching for a runtime instrument at all.** Oracle's per-scanline transition sat at **line
+73**. The **authored source** says `fx_tint_band(line: 100, ...)`. The **emitted schedule
+word** is `$8A45` — counter 69. **The measurement agreed with the emitted program and
+disagreed with the source by 27 lines — and those 27 lines ARE the camera sweep on channel
+0's anchor.** So the instrument discriminated between what the code says and what the machine
+did. **That is a cleaner demonstration of its value than the version in which there was a
+bug.**
+
+**2. THE HABIT THAT WOULD HAVE COST ONE CLAUSE: at the moment of sending, name which part is
+MEASURED and which is INFERRED.** Oracle's per-line table was measured. "The write is a leaked
+probe" was **inferred, by me**, and was forwarded onward without the label, so the hub banked
+an aeon bug on a story an hour old that nobody had confirmed. **Two labels would have cost one
+clause and saved an entry in three trees.**
+
+**3. AND THE COMPANION RULE, WHICH IS ORACLE'S: when you relay a peer's conclusion, carry
+THEIR confidence, not your own.** A confident mechanism absorbs rather than competes — a
+measurement lends its own certainty to whatever story travels attached to it. **The relaying
+lane is where an inference gets promoted to a finding, and neither lane notices, because each
+is looking at the half it owns.**
+
+**Applies in both directions and is cheap. Adopt it on every hand-off.**
