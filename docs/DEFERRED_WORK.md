@@ -25348,3 +25348,49 @@ about the thing under test.**
 direct read of the live VDP register rather than the shadow copy. **Deliberately NOT booked
 with a mechanism attached** — five mechanisms were published and killed by controls tonight,
 and the pattern was publishing the story before running the test.
+
+## ✅ THE FLOOR DARKNESS IS DIAGNOSED: a PROBE word is a live op in section 0's raster program
+
+**Not the floor, not the art, not the palette, not oracle. The engine enables shadow/highlight
+mid-frame and never clears it.**
+
+**The word, read out of the LIVE program in RAM** (`Raster_Program` → `Raster_Buf_B` at
+`$FF8C64`; the readout tag says `PTCH`, so it is assembled at runtime and **a ROM scan
+structurally cannot see it** — that is why my earlier "no raster program writes `$0C`" was
+true and useless):
+
+```
+ 0: 0004 8A45 0000 8A95 0000 8AFF 0002 0000 8C89 0004
+10: C048 0000 000B 0002 0048 8AFF 0001 0002 4002 0010
+20: 0016 0000 0043 8AFF FFFF
+```
+
+**Word 8 is `$8C89` — `OP_SET_REG` writing VDP reg `$0C` = `$89`.** The frame-top shadow value
+is `$81`; `$89` is `$81 | $08`, i.e. **the same mode word with STE (shadow/highlight) SET.**
+Nothing clears it before the end of active display, which is exactly why a post-frame read of
+reg `$0C` returns the flushed `$81` and says nothing.
+
+**Corroboration on the line: word 1 is `$8A45` — reg `$0A`, HInt counter = 69.** Oracle
+measured the shadow transition at **line 73**, one transition, no return. The schedule and the
+measurement agree.
+
+**⚠ `$8C89` OCCURS NOWHERE ELSE IN THE TREE EXCEPT TWO TIMING PROBES** —
+`tools/test_raster_wire_pin.py` and `tools/hblank_window_sweep.py`, where it is documented as
+*"($8C89 = reg $0C, H40 + S/H), which moves most of the row"*. **It was chosen for a probe
+precisely because enabling shadow is an expensive, visually obvious write. It is now a live
+op in shipped content.**
+
+**WHAT THIS RETIRES.** The owner's "the floor is darker than predicted" look call is answered
+and is not about the floor: **everything below line 73 is half-brightness, canopy included**
+(oracle measured line 100, in the canopy, uniformly `18,0,0` — every pixel shadowed). The
+floor is merely where a flat expanse of one colour makes it obvious. **Nothing needs
+repainting and the prediction tool was not flattering the art.**
+
+**And it explains the 34.2% independently:** shadow levels 0/2/4/6 land on 0/36/72/109, which
+are also legal Normal values, so an off-ladder count can only see ODD shadow levels — about
+half. 151 of 224 lines shadowed = 67%, × ~50% detectable = **~34%**. Measured 34.2%.
+**Off-ladder counting structurally undercounts shadow by half; the two numbers were never in
+tension.**
+
+**OPEN: how a probe word became a live op in section 0's patched program** (section 0 binds
+`patched: OJZ_TwoChannel`). That is the fix, and it is bug tier.
