@@ -1,5 +1,5 @@
 {
-  "focus": "Chasing the sprite jumble; the floor waits on his choice of technique",
+  "focus": "Floor mechanism reopened by his own observation; running the sprite-jumble experiment",
   "inFlight": [
     {
       "what": "sprite jumble: emit-path static analysis",
@@ -13,7 +13,7 @@
       "since": "2026-09-05"
     },
     {
-      "what": "the floor: painted perspective that travels with the world (Toy Story's way), or the scroll effect that keeps convergence under the screen centre",
+      "what": "the section 7 seam: accept it, spend a second effect channel, or redraw those chunk columns as art",
       "since": "2026-09-05"
     }
   ],
@@ -21,10 +21,10 @@
   "queue": [
     {
       "id": "FLOOR-FAN",
-      "title": "Floor: which perspective technique he actually wants -- decision, not work",
+      "title": "Floor: mechanism reopened -- he watched planks change ANGLE, which painted art cannot do",
       "state": "blocked",
       "size": "L",
-      "blockedBy": "his choice: world-anchored like Toy Story, or screen-anchored"
+      "blockedBy": "his Toy Story observation reopened the mechanism; oracle re-reading the scroll table"
     },
     {
       "id": "EMDASH",
@@ -71,5 +71,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-05T19:07:24Z"
+  "updatedAt": "2026-09-05T19:34:06Z"
 }
