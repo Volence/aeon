@@ -1,9 +1,9 @@
 {
-  "focus": "Rebuilding the Hydrocity waterline you asked us not to forget; the loop is done.",
+  "focus": "Chasing the jumbled sprites you saw; the Hydrocity art is in but not yet on screen.",
   "inFlight": [
     {
-      "what": "The Hydrocity waterline art, on the reserve tiles you set aside",
-      "where": "agent worktree, 9d",
+      "what": "Why the sprites sometimes come out jumbled",
+      "where": "agent worktree, F7",
       "agent": true
     }
   ],
@@ -29,12 +29,12 @@
       "since": "2026-09-04"
     }
   ],
-  "nextBoundary": "After the waterline lands; everything else waits on your look calls.",
+  "nextBoundary": "After the jumble is understood and the waterline is pointed at by a scene.",
   "queue": [
     {
       "id": "9d",
-      "title": "The Hydrocity waterline art you asked us not to forget",
-      "state": "doing",
+      "title": "Hydrocity waterline - built, but no plane cell points at it yet",
+      "state": "open",
       "size": "M",
       "blockedBy": null,
       "project": "EFFECTS-W1"
@@ -42,7 +42,7 @@
     {
       "id": "F7",
       "title": "Sprites sometimes get jumbled - capture it while running",
-      "state": "next",
+      "state": "doing",
       "size": "M",
       "blockedBy": null,
       "project": "EFFECTS-W1"
@@ -50,7 +50,7 @@
     {
       "id": "D1",
       "title": "The debug build starts in fly mode instead of playing",
-      "state": "open",
+      "state": "next",
       "size": "S",
       "blockedBy": null,
       "project": "EFFECTS-W1"
@@ -66,5 +66,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-05T02:13:32Z"
+  "updatedAt": "2026-09-05T03:32:11Z"
 }
