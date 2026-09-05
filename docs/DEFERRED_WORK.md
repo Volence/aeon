@@ -26176,3 +26176,37 @@ equals empty: make a comparison LOUD on an unmeasured side rather than letting t
 renderings and no two match as strings - the listing's mangled `$module$Proc$local`, the
 debugger's demangled `Proc.local`, and prose that uppercases it. Either cause alone defeats a
 case-sensitive search; both were present in the F7 instance.
+
+---
+
+### Floor geometry: SPREAD is the art, APEX is the correction - 2026-09-05
+
+**Verified numerically, and it retired three separate conclusions today.** A per-row horizontal
+scroll adds `s(y)` to every pixel on row `y` IDENTICALLY, so with a ramp `s(y) = k*y` every
+board's lean gains the SAME `k`. Modelled with four boards, as `k` moves through 0.00, +0.10,
++0.25, -0.20 the **spread of leans is 0.600 at every value, unchanged**, while the **apex screen
+x moves 0, -20, -50, +40**.
+
+    SPREAD of leans  = the ART's fan. A per-row correction cannot change it at any magnitude.
+    APEX screen x    = art PLUS the correction. This is the screen-anchoring quantity.
+
+**So any comparison of SPREAD is blind to a per-row correction by construction**, and its
+agreement is predicted under both hypotheses. That is what made the art-versus-drawn-fan
+comparison look decisive when it could not have been.
+
+**THREE NULL INSTRUMENTS WERE READ AS POSITIVES IN ONE EVENING**, all on the same question and
+all feeling like corroboration:
+1. constant 8 px cell phase down the screen, against WHOLE-CELL shear (a multiple of 8 changes
+   no phase);
+2. a VSRAM tail of zeroes, against per-column MODE (whole-plane mode consumes only the first
+   longword, so the tail is unused either way);
+3. spread agreement, against a per-row CORRECTION (above).
+
+Each excluded something real and was reported as excluding more. **This lane accepted (3) and
+WITHDREW a correct prediction on it** - withdrawing on a null instrument is the same error as
+concluding on one, and it feels like rigour rather than overreach, which is why it is worse.
+
+**The quantity to measure is the APEX, or the table's per-row deltas directly**: `k = ds/dy` IS
+the added lean, so the deltas do not merely answer whether a correction exists, they measure it,
+and it can be checked independently against the apex offset in the drawn pixels. Ours reads -1
+and -2 px per row over 71 of 71 floor rows, `k` about -1.28.
