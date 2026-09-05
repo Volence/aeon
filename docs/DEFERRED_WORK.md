@@ -25858,8 +25858,12 @@ The edge is at **world X 2944** and it is a chunk-column boundary in the inherit
 layout: `sonic_hack/level/layout/OJZ_1_sec7.bin` chunk row 2 reads `3D 3B 3D 3C 3C 3C 3B | 28
 28 28 1D 1D 00 00 00 1D`. Hand-built terrain chunks end at chunk column 7; generic fill chunk
 `$28` begins there. Geometry check: chunk col 7 -> tile col 112 -> section-local X 896 ->
-2048+896 = 2944, which with the player at X 3000 lands ~88 px from screen left. That matches
-the reported ~90 px, so the reported edge and this boundary are the same object.
+2048+896 = 2944. `engine/level/camera.emp` holds the player at screen-x 144..160 (the classic
+S3K asymmetric window: `CAM_SCREEN_HALF_W` 160, `CAM_X_DEADZONE_INIT` $10), so with the player
+warped to X 3000 `Camera_X` is 2840..2856 and the boundary lands at screen x **88..104**. The
+report said ~90 px, which is inside that window, so the reported edge and this chunk boundary
+are the same object. Corroboration that the camera had settled: the measured `Camera_Y` 4288
+against the warp's 4400 is exactly the 112-px screen half-height.
 
 **What turns an ordinary authored edge into a seam is the waterline's coverage.**
 `fx_tint_band(pal_line: 2, entry: 3, count: 3)` recolours 3 of the 16 entries in one CRAM line,
