@@ -5,9 +5,11 @@ THIS IS NOT A CAPTURE. No emulator ran. Every pixel below is computed from two
 things that are already in this tree, and from nothing else:
 
   1. THE ART — tools/perspective_floor_gen.py's own `render_band()`, called with
-     that tool's shipped argument defaults (rows 48..63, pitch 64, vp_col 20,
-     lod_px 20, horizon_row 55, sym 2, shade 3.2/2.7). So the boards you see are
-     the boards that tool would bake, not an artist's impression of them.
+     every argument taken from that tool's `SHIPPED` dict, which is also what its
+     CLI defaults are built from. So the boards you see are the boards that tool
+     would bake, not an artist's impression of them — and not, as they were until
+     2026-09-05, a set of parameters this file had copied and the bake had since
+     moved off (it was still drawing `lod_px 20, sym 2, shade 3.2/2.7`).
   2. THE SCROLL — tools/curve_probe.py's `derive_curve_buffer()`, which is the
      transcription of the engine's own per-line Bresenham ramp
      (engine/level/parallax.emp `.lp_curve`, and Step 4a's step/rem/span hoist).
@@ -22,10 +24,12 @@ screen at each camera X.
 
 ASSUMED (stated so it is not mistaken for a result):
   * that the floor art is baked into plane cell rows the visible window reaches.
-    It is NOT baked today — games/sonic4/data/editor_bg_override.json still
-    carries the original undergrowth (rows 48..55 repeat verbatim at 56..63).
-  * that the scene authors `v_offset` so the band is on screen. Every shipped
-    scene authors `v_offset: 0`, which shows plane rows 0..27 only.
+    It IS baked today (it was not when this file was written): the floor reached
+    games/sonic4/data/editor_bg_override.json at 3ce1ac10.
+  * that the scene authors `v_offset` so the band is on screen.
+    Scene_Perspective_Floor (registry 20) authors `v_offset: 288`, which is what
+    puts plane rows 36..63 on screen lines 0..223; the other scenes author 0 and
+    would show plane rows 0..27 only.
   * the composite ignores Plane A entirely (no foreground, no sprites) and
     ignores the per-column V-deform, which is a SEPARATE axis — see the report.
   * colours are the OJZ act-1 wood ramp (palette SOURCE line 1, which the
@@ -58,8 +62,9 @@ SCREEN_H = 224
 PLANE_W = pfg.PLANE_W            # 512
 
 # The art band and where it lands on screen.
-BAND_ROW0, BAND_ROW1 = 48, 63    # perspective_floor_gen's shipped --row0/--row1
-HORIZON_ROW = 55                 # its shipped --horizon-row
+BAND_ROW0 = pfg.SHIPPED["row0"]        # perspective_floor_gen's shipped --row0
+BAND_ROW1 = pfg.SHIPPED["row1"]        # ...its --row1
+HORIZON_ROW = pfg.SHIPPED["horizon_row"]   # ...and its --horizon-row
 BAND_TOP = 96                    # screen line the 128-px art band starts at.
                                  # Reached with `v_offset: 288` on a LOCKED plane
                                  # (Vscroll_BG = v_offset), because plane y 384
@@ -78,11 +83,20 @@ PAL_SRC_LINE = 1
 
 
 def floor_art():
-    """The floor band exactly as perspective_floor_gen would bake it."""
-    rows = list(range(BAND_ROW0, BAND_ROW1 + 1))
-    return pfg.render_band(rows, pitch=64, vp_col=20, seam_rows=0.0,
-                           lod_px=20.0, horizon_row=HORIZON_ROW,
-                           shade_near=3.2, shade_far=2.7, sym=2)
+    """The floor band exactly as perspective_floor_gen would bake it.
+
+    EVERY parameter comes from perspective_floor_gen.SHIPPED, never restated
+    here. This function DID restate them, and by 2026-09-05 it was rendering
+    `lod_px=20, shade 3.2/2.7, sym=2` — a picture the bake had moved off. A
+    previewer that disagrees with the bake is worse than no previewer.
+    """
+    s = pfg.SHIPPED
+    rows = list(range(s["row0"], s["row1"] + 1))
+    return pfg.render_band(rows, pitch=s["pitch"], vp_col=s["vp_col"],
+                           seam_rows=s["cross_seam_px"], lod_px=s["lod_px"],
+                           horizon_row=s["horizon_row"],
+                           shade_near=s["shade_near"], shade_far=s["shade_far"],
+                           crown=s["crown"])
 
 
 def hscroll(cam_x):
