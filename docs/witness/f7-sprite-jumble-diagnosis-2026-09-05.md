@@ -319,3 +319,48 @@ never committed, `git log --all` over that path is empty, and no reading of it c
 checked by anyone. The narrowest question that would settle it is his, not the debugger's:
 **does he see it while PLAYING, or only after pausing?** A mid-rebuild RAM transient cannot
 reach the screen during play. This one can, because the SAT was shipped and its art was not.
+
+---
+
+## 2026-09-05, later: the eliminating drive did not contain the subject
+
+**The measurement that eliminated the deferred-Important-DMA path reported
+`DMA_Peak_Important = $0070` = 8 entries, FLAT across a 1900-frame RIGHT-held drive.**
+Derived here from the shipped `dplc/optimized/sonic.bin` and this build's own `Ani_Sonic`
+(walked with `tools/dplc_straddle.py`'s machinery, so the strides come from
+`Player_ApplyTilt`'s own constants, not from prose):
+
+| block | walk frames | peak ENTRIES | peak BYTES | run frames | peak ENTRIES |
+|---|---|---|---|---|---|
+| 0 (upright) | `$01-$08` | **8** (`$05`) | 704 | `$21-$24` | **8** |
+| 1 | `$09-$10` | 9 (`$0F`) | 928 (`$0E`) | `$25-$28` | 8 |
+| 2 | `$11-$18` | 5 | 736 | `$29-$2C` | 2 |
+| 3 | `$19-$20` | **10** (`$1E`) | 928 (`$1E`) | `$2D-$30` | 7 |
+
+**8 is exactly the block-0 ceiling.** A flat peak of 8 over 1900 frames is what a player who
+never leaves the upright block produces; it also proves no 9- or 10-entry frame (`$0F`,
+`$19`, `$1E`) was ever enqueued, i.e. the top two rungs of the slot budget -- and both
+928-byte frames -- were never exercised. The drive did not contain the population the
+symptom is reported on. That does not resurrect the mechanism; it withdraws the elimination.
+
+**The corollary IS sound, and now checked against source.** All three carry-set exits of
+`QueueDMA` bump a counter (`.full` -> `DMA_Overflow_Count`, `.byte_capped` ->
+`Dbg_DMA_Enq_Capped`, `.split_reject` -> `DMA_Split_Reject_Count`, all `if DEBUG == 1`,
+`dma_queue.emp:168/178/250`). With all three at 0 in a DEBUG shape, `perform_dplc`'s
+`bcs .done` never ran, so `prev_frame` was never left stale -- **for those runs**.
+
+**A silent path with no counter at all**: `Drain_Budgeted_Queue.out_of_budget`
+(`dma_queue.emp:459`) leaves entries queued and compacts them to the next frame. It is not a
+drop, bumps nothing, and the SAT for that frame has already shipped above it. Read it as
+`DMA_Important_Slot > DMA_Important` at the post-drain breakpoint.
+
+**Statically refuted, so stop re-proposing it:** every one of Sonic's 224 frames has
+`max mapping tile index + cells <= DPLC tile count` (both tables are indexed `frame*2`, so
+they cannot disagree by construction), and `tools/dplc_straddle.py --gate` is green with 0
+straddling REACHABLE frames. A per-frame mapping/DPLC index mismatch is not the cause.
+
+**The instrument now refuses a vacuous drive.** `tools/dplc_coherence_witness.py` gained a
+TILT POPULATION control that censuses the sampled `mapping_frame`s per orientation block and
+prints a loud VACUOUS banner when none were tilted, plus a `DEFERRAL` line reading
+`imp_left`, plus `--start X,Y` / `--cam X,Y` so the drive can be placed on a slope. Run it
+with `--start` on the loop and check the census line **before** reading any verdict.
