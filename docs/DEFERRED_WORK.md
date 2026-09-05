@@ -25558,11 +25558,27 @@ change moves *who a cell stops*, never *what is drawn*. **Worse than a wrong fix
 the owner might have waited for.** And aurora had read that packing earlier the same session
 and quoted it in a commit message — **knowing a fact and applying it are separate events.**
 
-**2. A WHOLESALE REWRITE REINTRODUCES DELIBERATELY-REMOVED ITEMS (mine).** The foliage-column
+**2. A WHOLESALE REWRITE FAILS IN BOTH DIRECTIONS, and the second is the quieter one.**
+
+**(a) It RESTORES what you deliberately removed (mine).** The foliage-column
 card was dropped once as a duplicate of aurora's, then came back because I rebuilt
 `lane-status.json` from scratch at a boundary instead of editing it. **A deliberate removal
 leaves no trace in the file to remember it by**, so any reconstruction from memory restores
 it. **Edit the field; do not rebuild the document.**
+
+**(b) It LEAVES OUT what nothing remembers to add (aurora's, found by auditing themselves
+against (a)).** Their queue ended with **ZERO rows in state `next`**, where the contract wants
+exactly one — completed rows removed without anything promoted, so a fresh session resuming
+that lane would have had nine parked rows and **no starting point at all**.
+
+**⚠ AND THE CONSOLE SAID `ok` THROUGH ALL OF IT.** It validates the state enum but does **not**
+check the exactly-one-`next` rule, so this is a class of error **the tooling will not catch
+for any lane**. **A missing `next` row looks exactly like a lane with nothing to do.**
+
+**Same cause both ways — reconstructing a document from what you currently hold in mind. Edit
+the field; do not rebuild the document. And if you must rebuild, audit for BOTH directions:
+what came back that you removed, and what never arrived that nothing prompted you for.**
+*(Audited this lane on hearing it: `doing 1 / next 1 / open 2` — one `next`, correct.)*
 
 **3. And the one worth keeping about recovery, aurora's framing:** the `x 1062` mis-filing cost
 six hours and the owner found it — but it was recovered the moment the note was re-read with
