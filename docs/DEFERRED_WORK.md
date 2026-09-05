@@ -26210,3 +26210,58 @@ concluding on one, and it feels like rigour rather than overreach, which is why 
 the added lean, so the deltas do not merely answer whether a correction exists, they measure it,
 and it can be checked independently against the apex offset in the drawn pixels. Ours reads -1
 and -2 px per row over 71 of 71 floor rows, `k` about -1.28.
+
+---
+
+### Floor: a no-repeat fan is costed, and the cheap fix is not the art - 2026-09-05
+
+**COSTING ONLY, nothing baked.** Full arithmetic with its inputs:
+`docs/witness/floor-art-period-costing-2026-09-05.md`.
+
+**The band's hard ceiling, which was not written down before: 203 tiles.** The blob is
+320, the band owns 121 exclusively + 2 unreferenced and matches 0 shared art, so the rest
+of the plane owns 197 that this band can never touch, and `197 + X <= BG_TILE_CAPACITY 400`.
+`band_reserve` is policy (a generator budget, `gen_vram_map.py:42-47`); 400 is hardware.
+
+**We already have the per-row period, and 82% of the no-repeat.** Measured per cell:
+the fan draws on 3 cell rows (61/62/63), raw-unique 54/54/49 of 64. Only **35 of 192 fan
+cells are exact repeats**; the other 41 merges are lossless VDP flips, and the V flips
+were checked specifically - no wrong-leaning tile is emitted. Toy Story's ~38 unique per
+cell row sits inside our 37..40, so we are behind on ROW COUNT (3 vs 5) and on the wrap,
+not on per-row variety.
+
+**Costs.** No repeat = `7 + 64*artrows`. 3 rows = **199** (over the 123 available by 76,
+fits at `band_reserve` 80->4). 5 rows = **326**, blob 523 vs capacity 400, **BLOCKED, over
+by 123** - needs a VRAM re-layout, not a bake. Today's repeat level at 5 rows: lod 16 =
+176 (fits, reserve->27); lod 14 = 204, **exactly one tile over capacity**.
+
+**AND IT BUYS NOTHING FOR THE REPORTED DEFECT.** "The first few are good then a few after
+get weird and point away" is the 512 px plane wrap re-showing the SAME 512 px. Unique
+tiles inside one copy do not remove the second copy.
+
+**What does fix it, for zero tiles: `To(FACTOR_1_32)` at `ojz_scenes.emp:870`.** OJZ act 1
+is `GRID_W 3 * SECTION_SIZE $800` = 6144 px, camera range 5824. At 1_32 the plane travels
+182 px, window sweep 502 px < the 512 px plane: **the wrap never reaches the screen
+anywhere in the act** (clean range `192/F` = 6144 >= 5824; 1_32 is the first factor that
+covers it). Cost is scroll rate only. `FACTOR_1_16` covers 53% and puts `k` at 0.639 at
+camera 736, essentially Toy Story's 0.6.
+
+**CORRECTION to "SPREAD is the art, APEX is the correction" above.** That entry offers
+`dk/|d(base)|` as the camera-free tuning target (ours 0.0416, theirs 0.00986). For our ROM
+**that ratio is identically 1/24 for EVERY F and cannot be tuned by the curve factor**:
+the layer is `fb: FACTOR_0`, so the line-176 "base" is the ramp's own value 24 lines below
+its zero, and F cancels - `(F/72)/(F*24/72) = 1/24 = 0.04167` against 0.04155/0.04119
+measured. Moving it means moving the apex row (`horizon_row` + layer `world_y`), which
+re-rasterises the band. The raw gain `k` IS free and F-linear; the ratio is not.
+
+**Streaming, if wanted:** already specified as "SPEC: BG tile paging" (4+1 parcels,
+`PAGE_FRAMES_MAX` 15->23 owing the pin/goldens ritual) BEHIND the nametable streamer,
+whose horizontal axis is step (c) of five. That spec's "1,856 tiles/window" refusal is for
+a 29-row window and does NOT transfer to a 3-row band: our band needs 393 ROM tiles
+(12.6 KB) at 1_8, ~132 resident. **Streaming buys scroll RATE, not uniqueness** - at 1_32
+unique art needs no streamer at all.
+
+**TAGGED for the foreground (no emulator from a background agent):** their camera x at the
+two floor captures; a clean `$0D` read at their floor; and the derived prediction that
+`To(FACTOR_1_16)` turns our line deltas from -1/-2 into -1/0 at camera 736, which
+`tools/floor_hscroll_dump.py` settles in one run.
