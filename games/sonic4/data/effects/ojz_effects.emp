@@ -1280,6 +1280,37 @@ pub data Variant_Poison:      pal_variant = variant(shift_r: 1, shift_b: 1, bias
 pub data Variant_CaveDark:    pal_variant = variant(shift_r: 1, shift_g: 1, shift_b: 1)     // halve all
 pub data Variant_Dusk:        pal_variant = variant(shift_b: 1, bias_r: 1)                  // halve B, small R bias
 
+// ---------------------------------------------------------------------------
+// Variant_OJZ_Water — SECTION 7'S WATERLINE VARIANT. Not a seed: this one has a consumer
+// (OJZ_Preset_Sec7's slot 0) and it exists because Variant_Water_Deep DOES NOT READ AS WATER
+// ON THIS ACT'S PALETTE. That is a measurement, not a preference.
+//
+// Variant_Water_Deep is "halve R and G, keep B", which only turns a colour blue if the colour
+// HAS blue to keep. OJZ's CRAM line 2 entries 3..7 are the terrain ramp and their B channel is
+// 1,1,1,2,3 out of 7 (games/sonic4/data/generated/ojz/act1/ojz_palette.bin, line 2 =
+// $0224 $0248 $026A $048C $06AE). Run through Water_Deep, entry 3 (2,1,1) becomes (1,0,1) and
+// entries 4 and 5 both become (2,1,1): DARKER BROWN. The palette half of the old water boundary
+// was therefore doing almost nothing visible, and Shadow/Highlight — which dims the whole
+// screen including sprites and every other palette line — was carrying the entire effect. That
+// is precisely what the owner asked us to stop doing here.
+//
+// So this variant BIASES BLUE UP rather than relying on blue already being there:
+//   shift_r: 1   halve red      — the terrain ramp's dominant channel, pulled down hard
+//   bias_g: -1   nudge green down (a shift would collapse the ramp: G is 1,2,3, and >>1 maps
+//                2 and 3 to the same value, which is what flattens Water_Deep's output)
+//   bias_b: +4   push blue up — this is the term that makes it water rather than dusk
+// On line 2 entries 3,4,5 that gives (1,0,5) (2,1,5) (2,2,5) = $0A02 $0A24 $0A44: three
+// distinct steps, every one blue-dominant. Derived with palette_dsl's own variant_word model
+// (clamp07((chan >> shift) + bias) per channel), which is the same arithmetic
+// Palette_DeriveVariant is held to by tools/palette_variant_gate.py.
+//
+// It is BOUND ONLY BY SECTION 7, which answers the question the "EVERY preset here carries
+// variants: [Variant_Water_Deep, 0]" note above parks ("whether the variant should be
+// section-scoped is a content question for a later parcel"). Total binding makes the scoping
+// free and safe: crossing out of section 7 installs a neighbour preset that rebinds
+// Variant_Water_Deep to slot 0, so nothing leaks either way.
+pub data Variant_OJZ_Water:   pal_variant = variant(shift_r: 1, bias_g: -1, bias_b: 4)      // submerged blue for OJZ line 2
+
 // ===========================================================================
 // THE SHOWCASE VERTICAL SPLIT (owner decision d-15, 2026-08-26) — P3 Task 11's
 // per-layer vertical depth, ADOPTED, on the section-4 Aurora scene.
@@ -1721,8 +1752,14 @@ const OJZ_SEC7_SURFACE_LINE = 80                         // ch 2's authored + se
 const OJZ_SEC7_SPLIT_LINE   = 170                        // ch 3's authored + seeded screen line
 const OJZ_SEC7_SURFACE_Y    = OJZ_SEC7_CAMERA_Y + OJZ_SEC7_SURFACE_LINE
 const OJZ_SEC7_SPLIT_Y      = OJZ_SEC7_CAMERA_Y + OJZ_SEC7_SPLIT_LINE
+// ⚠ SLOT 0 IS Variant_OJZ_Water HERE, NOT Variant_Water_Deep — the ONE preset in this file
+// where that differs. Channel 2's fire streams slot 0's derived colours, so this binding IS
+// the waterline's colour; see Variant_OJZ_Water's own block for why Water_Deep does not read
+// as water on OJZ's line 2. `fx_tint_band`'s "the variant bound to slot must cover pal_line"
+// hazard still applies and still cannot be checked at build time: Variant_OJZ_Water takes the
+// default lines mask %1110, which covers line 2.
 pub data OJZ_Preset_Sec7:  EffectsPreset = preset(pal: OJZ_Palette, patched: OJZ_WorldWater,
-                                                  cycle: Pal_Cycle_None,    variants: [Variant_Water_Deep, 0],
+                                                  cycle: Pal_Cycle_None,    variants: [Variant_OJZ_Water, 0],
                                                   patch_world_ys: [PATCH_ANCHOR_NONE, PATCH_ANCHOR_NONE,
                                                                    OJZ_SEC7_SURFACE_Y, OJZ_SEC7_SPLIT_Y],
                                                   patch_motion:   [ANCHOR_MOTION_NONE, ANCHOR_MOTION_NONE,
@@ -1927,11 +1964,15 @@ ensure(first_mismatch(patched_program(OJZ_TC_PROG),
 // OJZ_WorldWater — SECTION 7's TWO WORLD-ANCHORED BOUNDARIES. The act's SECOND set of live
 // patch channels, and the thing EFFECTS-W1 item 9c was blocked behind.
 //
-// It is the same PAIR of effects OJZ_TwoChannel carries — a tint band and a plane-B vertical
-// scroll split — and it is not a copy of it. In OJZ_TwoChannel the split is a GATE FIXTURE
-// parked in the bottom two screen lines (its own note says so, and says its position is the
-// negotiable part); here both records are content and both have real travel. That is the
-// whole difference and it is the reason for every number below.
+// It is the same PAIR of EFFECT KINDS OJZ_TwoChannel carries — a colour boundary and a plane-B
+// vertical scroll split — and it is not a copy of it, in two ways now. First: in
+// OJZ_TwoChannel the split is a GATE FIXTURE parked in the bottom two screen lines (its own
+// note says so, and says its position is the negotiable part); here both records are content
+// and both have real travel. Second, since 2026-09-05: OJZ_TwoChannel's channel 0 is the
+// SHADOW/HIGHLIGHT form of the water boundary and this one is the PALETTE form (`sh: 0`, a
+// bare region swap onto a variant that actually biases blue). The two sections are now the
+// A/B of that choice rather than two spellings of one effect — see the "WHY THIS IS A PALETTE
+// SWAP" block below.
 //
 // ---- WHY IT IS NOT A `band()` -----------------------------------------------
 // Design rule 6, both halves, is still in force (P2b is unbuilt): neither a band's ON fire
@@ -1981,19 +2022,56 @@ ensure(first_mismatch(patched_program(OJZ_TC_PROG),
 // bought here cost the split nothing it needs: 62 lines of travel is a quarter of the screen.
 //
 // DENSITY, WORST CASE (check_density's own arithmetic, spelled so a future op sees the
-// margin it is spending): channel 2's fire is `reg_sh_on` + a 3-word `stream_pal_region`,
-// modelled at 302 + 40 + 336 = 678 cycles. The gap is measured between the fire lines the two
-// records can actually REACH — 159 and 161 — so it is 2 scanlines = 976 cycles at
-// RASTER_SCANLINE_CYC 488. 678 < 976 with 298 cycles of margin. Channel 3 is last and is
-// unconstrained. (Two lines is the same separation OJZ_TwoChannel runs at, and its note is
-// right that this is the first thing that fails if channel 2's fire grows an op.)
+// margin it is spending): channel 2's fire is a LEADING 3-word `stream_pal_region` and
+// nothing else, modelled at 666 cycles (raster_dsl.emp's F4 fixture pin is that exact fire).
+// The gap is measured between the fire lines the two records can actually REACH — 159 and
+// 161 — so it is 2 scanlines = 976 cycles at RASTER_SCANLINE_CYC 488. 666 < 976 with 310
+// cycles of margin. Channel 3 is last and is unconstrained. (This said 678 = 302 + 40 + 336
+// while the fire carried `reg_sh_on` as well; dropping the SetReg bought back its 40 cycles
+// and moved the region from second-in-fire to leading, which re-solves its spin — the
+// lowering does that itself, and check_density adjudicates the result at build time.)
+//
+// ---- WHY THIS IS A PALETTE SWAP AND NOT SHADOW/HIGHLIGHT (owner request, 2026-09-05) -----
+// It carried `sh: 1` until now: Shadow/Highlight ON below the line, plus a 3-colour region
+// swap. The owner's word is that a waterline in a real OJZ map would be a palette change, not
+// an S/H mode change ("in game most likely we'd use palette changes in the map for water over
+// shadow/highlight"), and that section 0 had already demonstrated the S/H form. So channel 2
+// is now `sh: 0` — ONE `stream_pal_region` op and nothing else.
+//
+// THAT ALSO FIXED A DEFECT NOBODY HAD NAMED. With `sh: 1` the S/H half was carrying the whole
+// look, because the palette half was nearly invisible: Variant_Water_Deep is "halve R and G,
+// keep B" and OJZ's line-2 terrain ramp has almost no B to keep, so entries 4,5,6 came out
+// darker brown rather than blue. Both halves are addressed here — the variant (see
+// Variant_OJZ_Water) and the entries (below).
+//
+// WHY ENTRIES 3,4,5 AND NOT 4,5,6. RASTER_BURST_MAX_DEEP is 3 and `patchable` takes exactly
+// ONE fire, so a MOVING boundary gets three colour words, full stop — a full 16-colour line is
+// authored as ceil(16/3) = 6 consecutive fires on successive lines, which cannot be one
+// patchable record (they would share one world anchor and clamp onto one line). Three is
+// therefore the budget, and the only question is which three. Measured: a pixel-index
+// histogram over the act's whole tile pool (all ten `act_pool_page*.bin`, 39168 pixels)
+// gives 3: 8.47%, 4: 11.13%, 5: 7.15%, 6: 1.15%, 7: 0.38%. The old window 4,5,6 covered
+// 19.4% of pool pixels; 3,4,5 covers 26.8% — the densest contiguous run of three inside the
+// terrain ramp, and it drops entry 6, which is nearly unused art. (Entries 9..15 are the
+// foliage ramp and are denser still, but they are a DIFFERENT ramp: swapping three of them
+// would tint leaves and leave the ground dry.)
 //
 // SLOT 0 MUST BE A VARIANT COVERING PALETTE LINE 2, and the preset above binds
-// Variant_Water_Deep there — `fx_tint_band`'s own note names this as the thing no comptime
+// Variant_OJZ_Water there — `fx_tint_band`'s own note names this as the thing no comptime
 // guard can see, because the binding is a runtime call.
+//
+// `offscreen_ship` SURVIVES THE CHANGE AND NEEDS NO EQUIVALENT — it was already general. The
+// trailer entry is [channel][stage off][count][CRAM addr][reg count][reg words...], and
+// ship_trailer builds the reg list from the fire's own SetRegs; with `sh: 0` that list is
+// empty and the count word is 0, which Enqueue_Dirty_Buffers (engine/system/buffers.emp,
+// `move.w 8(a2), d0 / beq .ship_dma`) already branches over. The frame-top CRAM DMA still
+// ships all three colours, so a camera below the surface still gets the whole screen
+// submerged. This shape is not new: games/sonic4/test/poison/poison_ship_plus_restore.emp
+// has authored `fx_tint_band(sh: 0)` + `offscreen_ship: 1` since the ship shipped. The only
+// thing that goes away is the register replay, which had nothing left to replay.
 const OJZ_WORLD_WATER_PROG = compose([
     patchable(fx_tint_band(line: OJZ_SEC7_SURFACE_LINE,
-                           slot: 0, pal_line: 2, entry: 4, count: 3, sh: 1),
+                           slot: 0, pal_line: 2, entry: 3, count: 3, sh: 0),
               ch: 2, lo: 3,   hi: 160, offscreen_ship: 1),
     patchable(fx_vscroll_split(line: OJZ_SEC7_SPLIT_LINE, offset: $0043),
               ch: 3, lo: 162, hi: 223),
@@ -2006,16 +2084,23 @@ const OJZ_WORLD_WATER_PROG = compose([
 // twin because it is the fixture that PROVED the encoder; this is content built on it.
 //
 // The two numbers are derived from the wire shape, not read off OJZ_TwoChannel's pins:
-//   body  = 1 header + 2 priming fires x 2 + (arm, count, SetReg x2, PalRegion x6)
-//                                          + (arm, count, OP_CRAM x6) + park x2 = 25 words.
+//   body  = 1 header + 2 priming fires x 2 + (arm, count, PalRegion x6)
+//                                          + (arm, count, OP_CRAM x6) + park x2 = 23 words.
 //   image = 64 padded body words + (1 count + 2 records x 5) + (1 + channel + stage off
-//           + count + CRAM addr + 1 + the replayed SetReg) = 64 + 11 + 7 = 82 words.
+//           + count + CRAM addr + a reg count of 0) = 64 + 11 + 6 = 81 words.
 // The image number is what the runtime walks; the body number is what the padding is written
 // against, and a body over 64 words would silently overrun the patch table.
-ensure(raster_words(OJZ_WORLD_WATER_PROG) == 25,
-       "OJZ_WorldWater: the DSL counts {raster_words(OJZ_WORLD_WATER_PROG)} body words, not the 25 the shape above derives (header + two priming fires + a 10-word record + an 8-word record + park). A THIRD record, or an op added to either fire, lands here first")
-ensure(patched_words(OJZ_WORLD_WATER_PROG) == 82,
-       "OJZ_WorldWater: patched_words says {patched_words(OJZ_WORLD_WATER_PROG)}, not the 82 the shape above derives (64 padded body + 11 table + 7 trailer). If the trailer moved, channel 2's offscreen_ship entry is the thing that changed shape")
+//
+// BOTH DROPPED BY 2 WHEN CHANNEL 2 WENT `sh: 0` (25 -> 23, 82 -> 81), and the two 2s are the
+// same op counted twice: the fire's `reg_sh_on` SetReg is two body words (opcode + $8C89),
+// and the ship trailer re-issues the whole fire, so it carried a copy of that word plus the
+// count word in front of it. OJZ_TwoChannel (section 0) still carries the S/H form and its
+// pins still read 25 and 82 — which is now the CONTRAST between the two sections rather than
+// a coincidence, and is why these numbers are derived here instead of shared.
+ensure(raster_words(OJZ_WORLD_WATER_PROG) == 23,
+       "OJZ_WorldWater: the DSL counts {raster_words(OJZ_WORLD_WATER_PROG)} body words, not the 23 the shape above derives (header + two priming fires + an 8-word record + an 8-word record + park). A THIRD record, or an op added to either fire — `sh: 1` on channel 2 would be exactly that, and costs 2 — lands here first")
+ensure(patched_words(OJZ_WORLD_WATER_PROG) == 81,
+       "OJZ_WorldWater: patched_words says {patched_words(OJZ_WORLD_WATER_PROG)}, not the 81 the shape above derives (64 padded body + 11 table + 6 trailer). If the trailer moved, channel 2's offscreen_ship entry is the thing that changed shape — its reg list is empty while the fire is `sh: 0`, and each SetReg the fire regains adds one word here")
 
 pub data OJZ_WorldWater: [u16; patched_words(OJZ_WORLD_WATER_PROG)] = patched_program(OJZ_WORLD_WATER_PROG)
 
