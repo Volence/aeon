@@ -163,5 +163,48 @@
       "ruling": "aurora extends the test ground east to the section edge, solid on both planes (hub, in the owner's place, 2026-09-05). Lands as its own commit BEFORE the direction-keyed verification, so the rightward circuit is measured against ground that exists."
     },
     "_consequence": "These are two defects, not one. Fixing the mark rule cannot fix the eastward fall, and extending the ground east cannot fix the westward one."
+  },
+  "both_planes_falsification_attempt": {
+    "_what": "Aurora's account predicts: a player handed to the WRONG plane anywhere over x464..x2047 now stays upright and is merely wrong-planed. Their framing, deliberately: 'I would rather your drive tried to BREAK the both-planes account than confirm it.'",
+    "_build": {
+      "rom": "s4.debug.bin",
+      "rom_bytes": 845594,
+      "sha": "26750443",
+      "symbols": 3037
+    },
+    "_method": "player placed on the ground (y_pos 556) at each x with Sst.layer FORCED to 1 (plane B), camera settled 14 frames first, then 50 frames run. Upright = y_pos still ~557; fallen = y_pos grows without bound.",
+    "_what_would_have_refuted_it": "any test point falling. A fall anywhere in the span refutes the account regardless of how well the story reads.",
+    "points": [
+      {
+        "x": 900,
+        "why_this_x": "middle of the old A-ONLY band (cols 88-127 = x704..x1023)",
+        "y_after_50_frames": 557,
+        "layer_held": 1,
+        "result": "UPRIGHT"
+      },
+      {
+        "x": 1023,
+        "why_this_x": "the EXACT former boundary \u2014 the column where B-solidity used to stop and where the westward fall began",
+        "y_after_50_frames": 557,
+        "layer_held": 1,
+        "result": "UPRIGHT"
+      },
+      {
+        "x": 1600,
+        "why_this_x": "inside the new east extension, where before there was no floor at any depth",
+        "y_after_50_frames": 557,
+        "layer_held": 1,
+        "result": "UPRIGHT"
+      },
+      {
+        "x": 2000,
+        "why_this_x": "near the section edge (2047) \u2014 the end of the extension, where an off-by-one in 'extend to the edge' would show",
+        "y_after_50_frames": 557,
+        "layer_held": 1,
+        "result": "UPRIGHT"
+      }
+    ],
+    "verdict": "The account SURVIVED the attempt at all four points. Layer stayed 1 throughout, so these are genuine wrong-plane stands and not a silent toggle back to A.",
+    "_scope_limit": "FOUR SAMPLED POINTS, not 'everywhere over x464..x2047'. They were chosen as the ones most able to fail \u2014 the old A-only band, its exact boundary, the new ground, and the extension's far end \u2014 but a sampled pass is not a proof over the span. A column-by-column assertion would need a static check over the baked plane data, not a drive."
   }
 }
