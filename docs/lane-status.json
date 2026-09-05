@@ -1,12 +1,6 @@
 {
-  "focus": "Fixing the loop's speed limit; the floor's darkness turned out to be the water, not a fault.",
-  "inFlight": [
-    {
-      "what": "The loop's crossover being skipped at high speed",
-      "where": "agent worktree, tunnelling guard",
-      "agent": true
-    }
-  ],
+  "focus": "The loop now works at any speed; everything else on your list is waiting on you.",
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "what": "Whether to collapse the three START chords into one list",
@@ -27,18 +21,14 @@
     {
       "what": "Turning the curve-capability gate arm round - an adoption that wants your word",
       "since": "2026-09-04"
+    },
+    {
+      "what": "Whether the foliage column left of the loop should stay solid - it halves your run-up",
+      "since": "2026-09-04"
     }
   ],
-  "nextBoundary": "After the loop's speed limit is fixed; everything else waits on you.",
+  "nextBoundary": "Here. Everything landed; five look calls and a level-design call are yours.",
   "queue": [
-    {
-      "id": "GUARD",
-      "title": "The loop stops working above running speed",
-      "state": "doing",
-      "size": "M",
-      "blockedBy": null,
-      "project": "EFFECTS-W1"
-    },
     {
       "id": "9d",
       "title": "The Hydrocity waterline art you asked us not to forget",
@@ -73,6 +63,6 @@
     }
   ],
   "awaiting": null,
-  "atBoundary": false,
-  "updatedAt": "2026-09-05T00:43:30Z"
+  "atBoundary": true,
+  "updatedAt": "2026-09-05T01:49:57Z"
 }
