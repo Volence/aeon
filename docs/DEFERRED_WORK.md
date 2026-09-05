@@ -18588,7 +18588,23 @@ should also assert the ladder is `(H+1) x H`, monotone per row, and `table[i] >=
   and the authorable binding are, today, mutually exclusive. Cheapest way out to check first:
   whether a section binding `raster:` can carry a seeded patch channel (the seed is installed
   unconditionally and may be independent of that choice). **Untested in this pass.**
-- **9d (the ART half) — BLOCKED. ⚠ NOT "the same wall as item 8's on-screen half" — that phrase was
+- **9d (the ART half) — ✅ BUILT 2026-09-05 (merge `957b380f`). ⚠ AND THE 48-TILE FIGURE BELOW
+  IS S3K's, NOT THIS ENGINE'S.** `tiles = 2 strips x 2 cols x H/8 = H/2` reaches 48 only at
+  **H = 96**, and `brm_hshift` is consumed as `1 << shift`, so **96 has no spelling here** —
+  the same fact 9b measured for the ladder. **At the shipped H = 16 the derived need is EIGHT
+  tiles**; the largest expressible height inside 48 is **H = 64** (32 tiles). The 48 were spent
+  as sanctioned and the H→tiles table is in `vram.toml`, so the 40 spare are named rather than
+  silent. Tiles came from the reserve: `bg_region` 448→400, `band_reserve` 128→80, **static
+  importer budget unchanged at 320**, the perspective floor's 121 recycled tiles unaffected.
+  **⚠ NOTHING IS ON SCREEN YET: the 8 tiles are in VRAM and correct, but NO PLANE CELL POINTS
+  AT THEM** — the OJZ background has no water surface to promote, so the shipped nametable
+  never references `VRAM_WATERLINE_STRIPS`. **The witness is the whole of the visual evidence**
+  (`tools/waterline_art_witness.py`, run on the merged tree: POSITIVE 12/12 byte-for-byte,
+  CONTROL 12/12 separable, GUARD 2 REBUILT / 9 SKIPPED, exit 0). A DEBUG-only plane stamp is
+  cheap and available; **it is content-shaped and left for the owner.** The pixels are a
+  generated ripple placeholder, not water.
+
+- **9d's ORIGINAL blocked note, kept for its arithmetic:** BLOCKED. ⚠ NOT "the same wall as item 8's on-screen half" — that phrase was
   here and it is WRONG, and it cost a wrong sentence to the hub and nearly to the owner on
   2026-09-04.** The two are different constraints on different resources:
   **9d is VRAM** (`bg_region`, ~~448/448~~ **320/448 measured** — 448 is a hard ceiling from the SAT at `$B800`), and **item 8's
@@ -25584,3 +25600,27 @@ what came back that you removed, and what never arrived that nothing prompted yo
 six hours and the owner found it — but it was recovered the moment the note was re-read with
 the right question. **The failures that matter are the ones that stay buried because nothing
 ever re-reads the note.** A record only helps if something later interrogates it.
+
+## Two booked items from the 9d landing, neither urgent
+
+**1. A new `.cap_*` span needs one `FAST=1` pass per game before the canonical build.**
+`build.sh`'s pre-build pytest lane runs `effects_gates` against the `.lst` files **already in
+the tree**, so a span the current listing does not carry makes the canonical build refuse
+before it can emit one. **Not a defect in either — an ordering** — costing one
+`FAST=1 DEBUG=1 ./build.sh` per game. Confirmed on the merge: both FAST passes exit 0, then
+all four canonical shapes exit 0, 2456 passed.
+
+**2. `tools/s4budget.py` says "a sigil listing emits no constants" (lines 342, 426) and prints
+`VRAM: UNMEASURED` on that basis** — while **17 `EQU VRAM_*` rows now sit in the listing it
+reads**, and `MAX_RING_BUFFER` is per-shape (128 sonic4, 16 demo). Sigil's finding, relayed
+via the hub. **Low priority; take it when convenient.** It joins the already-booked "verified
+vacuous gates" family: a check that reports UNMEASURED on a premise that has stopped being
+true reads as caution and is indistinguishable from a check that works.
+
+**3. And sigil's enumeration finding, which generalises past their tree:** a rule was cited as
+holding "across five aeon trees" and **the five were five revisions of sonic4 alone**. On demo
+the equate sets are identical (555/555), so a gate asserting `debug == release + 1` would have
+been **red on demo on correct code**. **The enumeration parameter that never varied was the
+GAME.** When a suite has more than one shape, **vary the shape before writing a number down as
+a property of the shapes; assert containment, report the reverse difference, never
+strictness.** Same family as this repo's own "enumerate by what touches the value".
