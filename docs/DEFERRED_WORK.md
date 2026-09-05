@@ -25844,3 +25844,29 @@ every live branch in the suite. The no-new-dashes half applies to everything wri
 Ground: his ruling names the tools, his sweep words name tool agents, and oracle had already
 applied this reading. **The wide count is the measurement; the narrow cut is the ruling. Do not
 gate the whole tree to zero — the gate must be pointed at the narrow scope or it fails forever.**
+
+---
+
+### row_remap_gate prints plane_y but checks nothing about it — 2026-09-05
+
+**Found while answering aurora's question, not by the gate failing.** `tools/row_remap_gate.py:652`
+prints `plane_y` in its summary line and asserts nothing about it. Aurora's editor refuses a
+value outside 0..511 and says why, which is honest but tells an author nothing about whether
+the value is RIGHT. Neither side checks the one relationship that needs no runtime knowledge.
+
+**The check that is available, from `engine/level/parallax.emp:3745-3757`:** the lines actually
+remapped are `n = min(|p|, span/2)`, where `span` is the band's own screen-line span, and a band
+with `span < 2` cannot remap at all. `|p|` is separately clamped to `H-1` at :3717, with
+`H = 1 << brm_hshift`. **So if `span/2 < H-1`, the upper ladder rows are UNREACHABLE for that
+band at any camera position** — a tall ladder on a short band, which currently fails by quietly
+doing less than the author asked rather than by failing. Both terms are authored, so this is a
+pure static comparison with nothing runtime in it.
+
+**Two weaker checks exist but need the scene's vertical scroll law.** `p = (plane_y - Vscroll_BG)
+- Effects_Screen_L[ch]` (:3681), so with the authored scroll expression you can compute the camera
+Y at which `p == 0` — where the effect switches ITSELF off (:3737, the permute is the identity) —
+and the camera range over which `|p|` stays inside `0..H-1` and the effect actually animates.
+
+**Not started, and NOT to be built as a bar while EFFECTS-W1 is open.** Booked so it is not
+rediscovered. Whoever takes it: the static one is the whole value; the other two are a preview
+feature more than a gate. All three are read from source and have not been run.
