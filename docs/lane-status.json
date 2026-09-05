@@ -1,6 +1,12 @@
 {
-  "focus": "The loop now works at any speed; everything else on your list is waiting on you.",
-  "inFlight": [],
+  "focus": "Rebuilding the Hydrocity waterline you asked us not to forget; the loop is done.",
+  "inFlight": [
+    {
+      "what": "The Hydrocity waterline art, on the reserve tiles you set aside",
+      "where": "agent worktree, 9d",
+      "agent": true
+    }
+  ],
   "blockedOnOwner": [
     {
       "what": "Whether to collapse the three START chords into one list",
@@ -27,12 +33,12 @@
       "since": "2026-09-04"
     }
   ],
-  "nextBoundary": "Here. Everything landed; five look calls and a level-design call are yours.",
+  "nextBoundary": "After the waterline lands; everything else waits on your look calls.",
   "queue": [
     {
       "id": "9d",
       "title": "The Hydrocity waterline art you asked us not to forget",
-      "state": "next",
+      "state": "doing",
       "size": "M",
       "blockedBy": null,
       "project": "EFFECTS-W1"
@@ -40,7 +46,7 @@
     {
       "id": "F7",
       "title": "Sprites sometimes get jumbled - capture it while running",
-      "state": "open",
+      "state": "next",
       "size": "M",
       "blockedBy": null,
       "project": "EFFECTS-W1"
@@ -63,6 +69,6 @@
     }
   ],
   "awaiting": null,
-  "atBoundary": true,
-  "updatedAt": "2026-09-05T01:49:57Z"
+  "atBoundary": false,
+  "updatedAt": "2026-09-05T01:51:54Z"
 }
