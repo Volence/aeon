@@ -26049,3 +26049,22 @@ mangled `$module$Proc$local`, the debugger's demangled `Proc.local`, and the doc
 **Use `/usr/bin/grep -r` explicitly when searching build outputs**, or name the file. Nothing
 enforces this; the habit is the enforcement, which is why it is written here rather than
 assumed.
+
+**IT IS A FAMILY OF FOUR, AND THE DEFENCE IS NOT REMEMBERING FOUR SPECIAL CASES.** Aurora
+reproduced the grep hazard with a canary in their own shell and added the fourth member: `ls`
+here is eza, so `ls -la | awk '{print $5}'` reads the wrong column and reported an 845,972 byte
+ROM as **5 bytes**, briefly diagnosed as a build defect. With `git status` unable to see ignored
+state and the `ls <path>` alias swallowing its argument, all four share one signature: **each
+substitutes a different POPULATION or FORMAT than the caller asked for, and reports success.
+None of them errors.** The fifth will not be on any list, so the rule is: **any tool whose
+output feeds a claim of ABSENCE or a COUNT gets a canary first.** `git grep` is the better
+default for questions about tracked source, because it is explicit about its population rather
+than silently choosing one. Language-level tree walks (pathlib, node) were never affected.
+
+**Both lanes audited their own prior absence claims on discovering this.** Aurora's clearance
+that nothing parses the band sidecar's `source` field held, but held by luck of which files are
+tracked. Aeon's claim that only two `scene_vsplit_fires()` consumers exist -- the premise of the
+VSPLIT-NO-OP lint landed the same hour -- was re-run under `/usr/bin/grep` and the two
+populations AGREE, consumer set identical and 7 vsplit sites either way, so it holds by
+verification rather than by luck. The registry scan and both dash counts were pathlib walks and
+were never exposed.
