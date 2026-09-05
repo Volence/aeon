@@ -761,7 +761,28 @@ def main() -> int:
     # a preset call with its own parentheses, so any pattern trying to span from `patchable(` to
     # the band arguments has to cross a nested `)` and will not match.
     pat = re.findall(r"\bch:\s*(\d+)\s*,\s*lo:\s*(\d+)\s*,\s*hi:\s*(\d+)", src, re.S)
-    bands = {f"ch{c}": (int(lo), int(hi)) for c, lo, hi in pat}
+    # A CHANNEL IS A PER-PROGRAM INDEX AND THIS MAP IS ACT-WIDE, so two programs declaring the
+    # same channel with different bands is a real state the source can reach — `raster_program`'s
+    # guard 11 only refuses a repeat WITHIN one program. A dict comprehension would take the LAST
+    # match and every expectation below would be derived, silently, from the wrong band.
+    #
+    # THIS BECAME REACHABLE ON 2026-09-05, when section 7's OJZ_WorldWater made this act's second
+    # patched program (EFFECTS-W1 item 9c's precondition). It uses channels 2 and 3 precisely so
+    # this map stays unambiguous, so the refusal below fires on nothing today — it is the net
+    # under that choice, not a report about it. Identical (lo, hi) on two programs is NOT refused:
+    # the map's answer is then the same either way, and the gates only ever read ch0 and ch1.
+    bands = {}
+    for c, lo, hi in pat:
+        key, band = f"ch{c}", (int(lo), int(hi))
+        if key in bands and bands[key] != band:
+            print(f"effects_gates: {key} is declared with two different bands in "
+                  f"ojz_effects.emp — {bands[key]} and {band}. A channel is a PER-PROGRAM index, "
+                  f"so this map cannot answer 'the band of channel {c}' for the act any more, "
+                  f"and every arm word and predicted row below is derived from it. Give the "
+                  f"second program a free channel, or teach this gate which program the ROM "
+                  f"under test installs.", file=sys.stderr)
+            return 2
+        bands[key] = band
     if "ch0" not in bands or "ch1" not in bands:
         print("effects_gates: could not read both patchable bands out of ojz_effects.emp — the "
               "call spelling changed, so every derived expectation below would be guesswork",
