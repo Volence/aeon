@@ -24729,7 +24729,45 @@ branch), and `8bf6df74`'s DEBUG view twins already give two camera-driven views 
 **The missing pieces are a timer twin beside the camera one and the scene binding.** The
 20,480 ceiling (`7f16ae39`) is what leaves room for full-size bands here.
 
-## F7 — sprites sometimes get jumbled. OPEN, and the evidence I have does NOT close it.
+## F7 — the SAT reading decodes to a mid-rebuild transient; 4100 played frames are clean
+
+**MEASURED (2026-09-05, merge `0f204907`).** All 224 Sonic mapping frames list their pieces
+with **strictly ascending tile offsets starting at 0 — 0 exceptions**, because the DPLC loads a
+frame's tiles in the order its pieces consume them. Against that, his
+`$3C0 $3CC $3D4 $3D5 $3D1 $3D2` (offsets `0,12,20,21,17,18`) is produced by **no single frame**,
+and by **no partition into whole frames** either. **Exactly ONE overlay in the table fits:**
+frame **9** `[0,12,20,21]` written over frame **8** `[0,12,13,14,17,18]`, frame 8's tail
+surviving. Frames 8 and 9 are consecutive walk frames, and that also explains the terminator at
+entry 5 with 6–7 holding older data. **The buffer was caught BETWEEN TWO EMITS — a RAM-side
+transient, not a state the VDP was handed.** Reproduce:
+`tools/dplc_coherence_witness.py --decode "3C0 3CC 3D4 3D5 3D1 3D2"`.
+
+**AND THE PLAYED STATE IS COHERENT**, sampled where no phase is inferred — the pc right after
+`Process_DMA_Important` returns. Two instruments per sample (VRAM DPLC window vs the ROM's own
+DPLC walk; the VDP's `$B800` table vs the frame's piece list). **4100 consecutive frames, EVERY
+frame, 4100/4100 clean on both** — no gaps, because the candidate event lasts one frame.
+Controls both ways: 18–21 distinct frames and `DMA_Peak_Important` 8–9 entries positive;
+`--poison 1/7/50` turns the art instrument 300/300 red.
+
+**⚠ AND A CORRECTION TO AN ALREADY-BANKED MEASUREMENT — the reusable half.** The 2026-09-04
+straddle reading (all five cells zero across 14,580 frames) had **`DMA_Peak_Important` = 1
+entry**. This drive peaks at **8–9**. **A player who is not animating cannot exercise the DPLC,
+so that population could not have shown this defect.** Its zero was true and about a different
+question. **A drive's own instrumentation can say whether the drive reached the state under
+test; that one did, and nobody read it.**
+
+**NOT ESTABLISHED, and the population is stated rather than implied:** 18–21 of Sonic's 224
+frames; Sonic only; one act, one section; the Deferrable drain (spindash dust, insta-shield)
+untested; release shape untested (its `Dbg_*` cells do not exist). The SAT instrument is blind
+between the 128 of 224 frames sharing a `(tile,size)` signature — **the ART instrument (213/224
+window images distinct) is the fine one**.
+
+**OPEN QUESTION FOR HIM, and it is the discriminator:** does he see it **while playing**, or
+only after pausing? **A mid-rebuild RAM transient cannot reach the screen during play** — if he
+sees it in motion, this finding does not cover it and the search population above is where to
+widen.
+
+## ~~F7 — the evidence does NOT close it~~ — superseded above, kept for its reading
 
 > "I paused the rom, but sometimes the sprites get jumbled like this [image]"
 
