@@ -11,7 +11,7 @@
 // Stats:
 //   grid: 3x3 (9 sections)
 //   rings: 60 total (sec0=7, sec1=9, sec2=12, sec4=12, sec5=8, sec7=8, sec8=4)
-//   objects: 6 total (sec0=1, sec1=3, sec2=2)
+//   objects: 9 total (sec0=4, sec1=3, sec2=2)
 //   ring pressure (736px Y band over 2x2 section blocks):
 //     block (0,0): 13
 //     block (1,0): 19
@@ -33,8 +33,8 @@ struct ObjTypeTable1 { count: u8, pad: u8, t0: *u8 }
 struct ObjTypeTable2 { count: u8, pad: u8, t0: *u8, t1: *u8 }
 
 // ---- Sec0 ----
-pub data OJZ_Sec0_TypeTable: ObjTypeTable1 = ObjTypeTable1{ count: 1, pad: 0, t0: ObjDef_Solid }
-pub data OJZ_Sec0_Objects: [u16; 4] = [$328, $0D2, $0000, $FFFF]
+pub data OJZ_Sec0_TypeTable: ObjTypeTable2 = ObjTypeTable2{ count: 2, pad: 0, t0: ObjDef_Spring, t1: ObjDef_Solid }
+pub data OJZ_Sec0_Objects: [u16; 13] = [$12C, $498, $0000, $230, $438, $0000, $328, $0D2, $0100, $352, $478, $0000, $FFFF]
 pub data OJZ_Sec0_Rings: [u16; 16] = [$080, $060, $090, $060, $0A0, $060, $0B0, $060, $0C0, $060, $134, $09D, $144, $09D, $000, $000]
 
 // ---- Sec1 ----

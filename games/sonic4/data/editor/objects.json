@@ -26,5 +26,12 @@
     "codeLabel": "ObjDef_PathSwap",
     "defaultSubtype": 0,
     "properties": {}
+  },
+  {
+    "id": "spring",
+    "name": "Spring (red, vertical)",
+    "codeLabel": "ObjDef_Spring",
+    "defaultSubtype": 0,
+    "properties": {}
   }
 ]
