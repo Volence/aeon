@@ -49,7 +49,22 @@ dma_queue.emp `Drain_Budgeted_Queue.out_of_budget`) leaves the window wrong for 
 ONE frame: the surviving entries are compacted and drain in the next VBlank. So the
 event lasts one frame, and every frame is sampled — there are no gaps to hide in.
 
-TWO CONTROLS, because a green from an instrument that cannot go red is worth nothing.
+THREE CONTROLS, because a green from an instrument that cannot go red is worth nothing.
+Two of the three ask whether the INSTRUMENT can fail; the third asks whether the DRIVE
+contained the subject, which is a different way to be vacuous and the one that has
+actually bitten here.
+
+  TILT POPULATION CONTROL (printed with every run; `TiltPopulation` below). The symptom
+  is reported as tilt-correlated, and `Player_ApplyTilt` biases mapping_frame into one
+  of four stored orientation blocks - so an UPRIGHT drive never displays a rotated frame
+  at all and cannot observe it, at any sample count. The same fact is a queue-budget
+  fact: derived off the shipped blob and the ROM's own Ani_Sonic, walk block 0 peaks at
+  8 Important ENTRIES per frame and run block 0 at 8, while walk block 1 reaches 9 and
+  walk block 3 reaches 10 ($1E) against a wall of DMA_IMPORTANT_SLOTS -
+  DPLC_ENTRY_RESERVE = 10. An upright drive therefore cannot exercise the top two rungs
+  of the slot budget, and a DMA_Peak_Important of 8 entries from one is the block-0
+  ceiling rather than evidence of headroom. The run prints the per-block sample census,
+  the entry ceilings, and a loud VACUOUS banner when no tilted frame was displayed.
 
   POSITIVE CONTROL (printed with every run). A drive in which the player never animates
   never enqueues a DPLC entry, so it CANNOT show this defect. The run prints the count
@@ -242,6 +257,106 @@ class DplcModel:
         return out
 
 
+class TiltPopulation:
+    """The walk/run TILT BLOCKS, derived - the population control this witness was
+    missing, and the one whose absence made two earlier F7 eliminations vacuous.
+
+    WHY IT EXISTS. The owner's symptom is stated as tilt-correlated ("its when a
+    sprite is rotated slightly"). `Player_ApplyTilt` biases `mapping_frame` into one
+    of TILT_SETS stored orientation blocks, so an UPRIGHT drive - a flat RIGHT-hold -
+    never displays a single frame of blocks 1..3 and therefore cannot observe the
+    symptom, however many frames it samples. A clean ART verdict from such a drive
+    says nothing about F7, exactly as a drive in which the player never animates says
+    nothing (the existing positive control).
+
+    IT IS ALSO THE DPLC COST CONTROL, and the two are the same fact. Measured off the
+    shipped blob and the ROM's own `Ani_Sonic`: walk block 0 peaks at 8 Important
+    ENTRIES per frame and run block 0 at 8, while walk block 1 reaches 9 and walk
+    block 3 reaches 10 ($1E) - the wall being DMA_IMPORTANT_SLOTS - DPLC_ENTRY_RESERVE
+    = 10. So an upright drive cannot exercise the top two rungs of the queue-slot
+    budget AT ALL, and its `DMA_Peak_Important` of 8 entries is the block-0 ceiling
+    rather than evidence of headroom.
+
+    EVERY NUMBER IS DERIVED, none transcribed: the script frames come out of the
+    built ROM's animation table and the block strides out of `Player_ApplyTilt`'s own
+    constants, both through `tools/dplc_straddle.py`, which re-reads the five
+    instruction spellings the formula depends on and raises rather than answer from a
+    stale one. A derivation that cannot be completed is UNMEASURABLE and says so
+    loudly - it never degrades into a quiet pass.
+    """
+
+    def __init__(self, rom_path, lst_path):
+        self.error = None
+        self.blocks = {}          # (anim_name, block) -> frozenset(frames)
+        self.note = ""
+        try:
+            self._derive(rom_path, lst_path)
+        except Exception as exc:                      # noqa: BLE001 - loud, never silent
+            self.error = "%s: %s" % (type(exc).__name__, exc)
+
+    def _derive(self, rom_path, lst_path):
+        import importlib.util
+        import os
+        root = TOOLS.parent
+        spec = importlib.util.spec_from_file_location("ds", str(TOOLS / "dplc_straddle.py"))
+        ds = importlib.util.module_from_spec(spec)
+        cwd = os.getcwd()
+        os.chdir(root)                # dplc_straddle reads source paths from the root
+        try:
+            spec.loader.exec_module(ds)
+            labels = ds.lst_labels(pathlib.Path(lst_path))
+            rom = ds.rom_bytes(pathlib.Path(rom_path))
+            subs = ds.load_subjects(labels)
+            bind = ds.subject_bindings()
+            af, events, _ = ds.anim_opcodes()
+            off = ds.sst_offsets()
+            cfg = "games/sonic4/config/constants.emp"
+            pcm = "games/sonic4/player/player_common.emp"
+            anim_count = ds.const_from_emp(cfg, "ANIM_COUNT")
+            sub = [s for s in subs if s["name"] == "sonic"][0]
+            b = bind[sub["art_label"]]
+            by_id, _notes = ds.parse_anim_table(rom, labels[b["anim"]], anim_count,
+                                                b["anim"], af, events,
+                                                off["mapping_frame"])
+            # tilt_expansion() is the authority on WHICH anims tilt and on the
+            # strides; call it purely for its spelling re-checks, then split the
+            # same formula per block (it returns the union, and the whole point
+            # here is to know which BLOCK a sampled frame came from).
+            ds.tilt_expansion(by_id)
+            sets = ds.local_const(pcm, "TILT_SETS")
+            shifts = {"WALK": ds.local_const(pcm, "TILT_WALK_SHIFT"),
+                      "RUN": ds.local_const(pcm, "TILT_RUN_SHIFT")}
+            ids = {"WALK": ds.const_from_emp(cfg, "ANIM_WALK"),
+                   "RUN": ds.const_from_emp(cfg, "ANIM_RUN")}
+            for name, anim_id in ids.items():
+                base = by_id.get(anim_id, ())
+                if not base:
+                    raise RuntimeError(
+                        "Ani_Sonic row %d (%s) resolved to no frames - the anim table "
+                        "walk is wrong, so the tilt population cannot be built"
+                        % (anim_id, name))
+                for blk in range(sets):
+                    self.blocks[(name, blk)] = frozenset(
+                        (f + (blk << shifts[name])) & 0xFF for f in base)
+            self.note = ("Ani_Sonic rows WALK=%d RUN=%d, %d blocks, strides 1<<%d/1<<%d"
+                         % (ids["WALK"], ids["RUN"], sets,
+                            shifts["WALK"], shifts["RUN"]))
+        finally:
+            os.chdir(cwd)
+
+    def upright(self):
+        """Every block-0 frame - the frames an UPRIGHT drive can display."""
+        return frozenset().union(*(v for k, v in self.blocks.items() if k[1] == 0))
+
+    def tilted(self):
+        """Every block-1..N frame - the frames the symptom is reported on."""
+        return frozenset().union(*(v for k, v in self.blocks.items() if k[1] != 0))
+
+    def ceiling(self, model, blocks):
+        """The peak per-frame DPLC ENTRY count over a set of frames."""
+        return max((model.entries(f) for f in blocks), default=0)
+
+
 class MapModel:
     """The ROM's own answer to 'which SAT entries must the player occupy?'
 
@@ -330,7 +445,7 @@ def classify(live, want, want_prev):
 
 
 async def drive(sock, syms, equs, model, gsp, frames, verbose, force=False,
-                jump=0):
+                jump=0, start=None, cam=None):
     client = BusClient(socket_path=sock, client_id="dplcw", client_name="dplc-coherence")
     await client.connect()
     b = Bus(client)
@@ -353,13 +468,15 @@ async def drive(sock, syms, equs, model, gsp, frames, verbose, force=False,
         await b.frames(4)
     await b.check_alive("debug-fly exit")
 
-    await b.write(syms["Camera_X"], CAM_X << 16, 4)
-    await b.write(syms["Camera_Y"], CAM_Y << 16, 4)
+    cam_x, cam_y = cam or (CAM_X, CAM_Y)
+    start_x, start_y = start or (START_X, START_Y)
+    await b.write(syms["Camera_X"], cam_x << 16, 4)
+    await b.write(syms["Camera_Y"], cam_y << 16, 4)
     await b.frames(SETTLE_FRAMES)
     await b.check_alive("streaming settle")
 
-    await b.write(A_X, START_X << 16, 4)
-    await b.write(A_Y, START_Y << 16, 4)
+    await b.write(A_X, start_x << 16, 4)
+    await b.write(A_Y, start_y << 16, 4)
     await b.frames(LAND_FRAMES)
     await b.check_alive("placement")
 
@@ -449,7 +566,58 @@ async def drive(sock, syms, equs, model, gsp, frames, verbose, force=False,
     return rows, tail
 
 
-def report(rows, tail, gsp, label, verbose, model, mapmodel, poison=0):
+def population_control(live, model, tilt, peak_entries, out=print):
+    """The TILT POPULATION control. Returns True when the drive contained the
+    subject, False when a clean verdict from it would be VACUOUS for F7.
+
+    Two independent readings of the same question, both printed:
+
+      * WHICH BLOCKS were displayed - counted from the sampled `mapping_frame`s
+        against the derived block sets. Zero tilted samples means the rotated
+        frames the symptom is reported on never appeared.
+      * WHAT THE QUEUE WAS ASKED FOR - the peak per-frame DPLC entry cost the drive
+        actually exercised, against the block-0 ceiling and the tilted ceiling. A
+        `DMA_Peak_Important` that never exceeds the block-0 ceiling is the
+        signature of an upright drive even if the block census is somehow wrong,
+        because the top rungs of the slot budget live only in the tilt blocks.
+    """
+    if tilt.error:
+        out("    *** TILT POPULATION CONTROL UNMEASURABLE: %s" % tilt.error)
+        out("        The block census could not be derived, so this run CANNOT say "
+            "whether it displayed a rotated frame. Treat any verdict below as "
+            "UNSCOPED for F7 - fix the derivation, do not read the numbers.")
+        return False
+    census = {}
+    for r in live:
+        for key, frames in sorted(tilt.blocks.items()):
+            if r["mf"] in frames:
+                census[key] = census.get(key, 0) + 1
+    tilted = sum(n for k, n in census.items() if k[1] != 0)
+    upright = sum(n for k, n in census.items() if k[1] == 0)
+    up_ceil = tilt.ceiling(model, tilt.upright())
+    tl_ceil = tilt.ceiling(model, tilt.tilted())
+    seen_peak = max((model.entries(r["mf"]) for r in live), default=0)
+    out("    TILT POPULATION CONTROL (%s): samples in walk/run blocks = %s"
+        % (tilt.note,
+           "  ".join("%s.%d=%d" % (k[0], k[1], n) for k, n in sorted(census.items()))
+           or "none"))
+    out("      upright (block 0) samples=%d   TILTED (blocks 1+) samples=%d   %s"
+        % (upright, tilted,
+           "(OK - the drive displayed rotated frames)" if tilted else
+           "(*** THE DRIVE NEVER DISPLAYED A ROTATED FRAME - a clean ART verdict "
+           "below is VACUOUS for F7 ***)"))
+    out("      per-frame DPLC entry ceilings: block 0 = %d, tilt blocks = %d; "
+        "peak this drive ASKED FOR = %d; DMA_Peak_Important = %d entries"
+        % (up_ceil, tl_ceil, seen_peak, peak_entries))
+    if peak_entries <= up_ceil and tl_ceil > up_ceil:
+        out("      *** DMA_Peak_Important (%d) does not exceed the block-0 ceiling "
+            "(%d) while the tilt blocks reach %d - the top %d rung(s) of the "
+            "Important-slot budget were NEVER EXERCISED by this drive ***"
+            % (peak_entries, up_ceil, tl_ceil, tl_ceil - up_ceil))
+    return bool(tilted) and peak_entries > up_ceil
+
+
+def report(rows, tail, gsp, label, verbose, model, mapmodel, poison=0, tilt=None):
     """`poison` shifts the mapping frame the expectations are built from. It is the
     CONTROL: a checker that cannot fail proves nothing, so `--poison 1` re-runs the
     identical drive comparing every frame against the NEXT animation frame's art and
@@ -518,6 +686,8 @@ def report(rows, tail, gsp, label, verbose, model, mapmodel, poison=0):
              "(OK — the DPLC really enqueued)" if peak_entries > 1 else
              "(*** at most one Important entry ever queued — the player's DPLC did "
              "NOT run; a clean result is VACUOUS ***)"))
+    if tilt is not None:
+        population_control(live, model, tilt, peak_entries)
     print("    enqueue-side drops: DMA_Overflow_Count=%d  DMA_Split_Reject_Count=%d  "
           "Dbg_DMA_Enq_Capped=%d" % (tail["overflow"], tail["split_reject"],
                                      tail["enq_capped"]))
@@ -542,6 +712,23 @@ def report(rows, tail, gsp, label, verbose, model, mapmodel, poison=0):
         print("    DMA_Budget_Remaining after the drains: min=%d max=%d   "
               "Important entries still queued: max=%d   Plane_Buffer_Ptr max=%d"
               % (min(budgets), max(budgets), max(lefts), max(planes)))
+        # THE DEFERRAL READING, said out loud because the number alone is easy to
+        # walk past. The sample pc is AFTER Process_DMA_Important has returned, so
+        # any entry still in the queue at this instant is one the byte budget
+        # refused this frame (dma_queue.emp Drain_Budgeted_Queue.out_of_budget
+        # compacts the survivors and leaves them for the next VBlank). That is a
+        # SILENT path - it bumps no counter, so DMA_Overflow_Count and
+        # Dbg_DMA_Enq_Capped both read 0 while it happens. The SAT for this frame
+        # has already shipped (Critical drained above it), so a non-zero number
+        # here means the displayed frame's mappings are standing over art that has
+        # not all landed: the jumble, without a single drop.
+        n_def = sum(1 for r in live if r["imp_left"] > 0)
+        print("      DEFERRAL (budget, not a drop - bumps no counter): %d of %d "
+              "samples left Important entries undrained %s"
+              % (n_def, len(live),
+                 "(none - the byte budget never refused an entry in this drive)"
+                 if not n_def else
+                 "*** the SAT shipped ahead of the art on those frames ***"))
     for r in live:
         if r["sat_kind"] != "OK":
             print("      f%-3d x=%-5d y=%-5d mf=%d  SAT %s: %s"
@@ -631,6 +818,14 @@ def main():
     ap.add_argument("--jump", type=int, default=0,
                     help="press C every N sampled frames — exercises the air/roll "
                          "frames and the Deferrable-DPLC companions")
+    ap.add_argument("--start", default=None, metavar="X,Y",
+                    help="place the player here instead of the default ramp foot "
+                         "(%d,%d). The TILT POPULATION control says whether the "
+                         "place you chose actually produced rotated frames."
+                         % (START_X, START_Y))
+    ap.add_argument("--cam", default=None, metavar="X,Y",
+                    help="camera position to settle streaming at before placement "
+                         "(default %d,%d)" % (CAM_X, CAM_Y))
     ap.add_argument("--force-gsp", action="store_true",
                     help="rewrite ground_speed every tick (stress driver — see the "
                          "note at the injection site)")
@@ -651,11 +846,26 @@ def main():
         decode_run(mapmodel, tiles, int(a.decode_base, 0))
         return 0
 
+    tilt = TiltPopulation(a.rom, a.lst)
+    if tilt.error:
+        print("  *** TILT POPULATION derivation FAILED: %s" % tilt.error)
+    else:
+        print("  tilt population: %s - block-0 entry ceiling %d, tilt-block ceiling %d"
+              % (tilt.note, tilt.ceiling(model, tilt.upright()),
+                 tilt.ceiling(model, tilt.tilted())))
+
+    def _xy(v):
+        if not v:
+            return None
+        a_, b_ = v.replace(",", " ").split()
+        return int(a_, 0), int(b_, 0)
+
     gsp = int(a.gsp, 0) if a.gsp else None
     with aether_emulator(a.rom, symbols=a.lst) as sock:
         rows, tail = asyncio.run(drive(sock, syms, equs, model, gsp, a.frames,
-                                       a.verbose, a.force_gsp, a.jump))
-    report(rows, tail, gsp, "run-right", a.verbose, model, mapmodel, a.poison)
+                                       a.verbose, a.force_gsp, a.jump,
+                                       _xy(a.start), _xy(a.cam)))
+    report(rows, tail, gsp, "run-right", a.verbose, model, mapmodel, a.poison, tilt)
     return 0
 
 

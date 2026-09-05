@@ -26368,3 +26368,31 @@ unique art needs no streamer at all.
 two floor captures; a clean `$0D` read at their floor; and the derived prediction that
 `To(FACTOR_1_16)` turns our line deltas from -1/-2 into -1/0 at camera 736, which
 `tools/floor_hscroll_dump.py` settles in one run.
+
+---
+
+## F7 sprite jumble -- the DMA elimination is WITHDRAWN, the drive was upright (2026-09-05)
+
+`DMA_Peak_Important = 8` entries flat over the 1900-frame RIGHT-held drive that eliminated
+the deferred-Important-DMA path is **exactly the walk/run block-0 (upright) ceiling**,
+derived from the shipped `dplc/optimized/sonic.bin` and this build's `Ani_Sonic`. The tilt
+blocks reach 9 (`$0F`) and 10 (`$1E`) entries and 928 bytes, so that drive never enqueued a
+rotated frame's DPLC at all -- it did not contain the population the owner's symptom is
+reported on. Full table in `docs/witness/f7-sprite-jumble-diagnosis-2026-09-05.md`.
+
+Settled and not to be re-proposed: a per-frame mapping/DPLC index mismatch (all 224 frames
+have mapping tile demand <= DPLC tile supply; both tables are indexed `frame*2`), and
+straddle splits (`tools/dplc_straddle.py --gate` green, 0 straddling REACHABLE frames).
+
+**Still open, and both need a SLOPE drive:** (a) `perform_dplc`'s `bcs .done` on a
+10-entry tilt frame that meets a PageIn landing -- a real drop, so `DMA_Overflow_Count` /
+`DMA_Split_Reject_Count` must go non-zero; (b) `Drain_Budgeted_Queue.out_of_budget`
+(`dma_queue.emp:459`) -- a **silent** deferral that bumps no counter, read as
+`DMA_Important_Slot > DMA_Important` at the post-drain breakpoint. (a) and (b) are
+distinguished by exactly those counters.
+
+**Blocked on a foreground run** (no emulator from a background agent):
+`tools/dplc_coherence_witness.py --rom s4.debug.bin --lst s4.debug.lst --start X,Y
+--gsp 0x1000 --force-gsp --frames 600`, placed so the TILT POPULATION control it now prints
+reports non-zero tilted samples. A run whose census says `TILTED ... samples=0` is vacuous
+for F7 and must not be reported as a clean result.
