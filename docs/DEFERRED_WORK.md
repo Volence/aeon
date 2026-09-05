@@ -26428,3 +26428,35 @@ happen exactly when the ground angle crosses a boundary, which is exactly "walki
 slope", and they are occasional rather than every frame** - which is his word for the symptom. That
 is the population the next arm must drive, and it is narrower than "any slope": the interesting
 frames are the crossings, not the slope.
+
+---
+
+### TWO FLOORS, and he walks on the one nobody edits - 2026-09-05
+
+**The floor layer is defined twice, with an identical signature, and only one of them was being
+tuned all evening:**
+
+    games/sonic4/data/effects/ojz_scenes.emp  perspective_floor_layers()   -> Scene_Perspective_Floor
+        lab row 20, hand-authored, the one every measurement in this repo was taken on
+    games/sonic4/data/generated/ojz/act1/effects_scenes.emp:72  Scene_Editor_ojz_act1_floor
+        lab row 36 ("sec 8 plain + the floor"), generated from
+        games/sonic4/data/editor/effects/ojz_act1_floor.json, AURORA'S document
+
+Both are `layer(world_y: 440, fa: FACTOR_1, fb: FACTOR_0, dsa: 15, dsb: 15, curve: ...)`. Option A
+set the FIRST to `To(FACTOR_1_32)`. The owner walks on the SECOND, which was still `To(FACTOR_1)`.
+
+**Measured on his live window, pure reads:** Camera_X 406, plane B over floor rows 153..223 running
+-6 to -401, span 395 px, per-row deltas -5 and -6. The ramp is `camX*F/72`, which at camera 406 is
+5.639 px/row at `FACTOR_1` and 0.176 at `FACTOR_1_32`; measured 395/71 = **5.563**, i.e. FACTOR_1
+to within the integer quantisation. **56 of 71 floor rows had their 320 px on-screen span crossing
+the 512 px plane seam**, which is his slanted region.
+
+**WHAT CAUGHT IT WAS READING `Debug_Lab_Index` BEFORE INTERPRETING THE TABLE.** It read 36, not 20.
+Without that the scroll numbers would have been reported as a floor measurement about a different
+floor, with his live window in front of me. **Read the referent before the quantity; a table is
+about a scene, and which scene is a separate fact.**
+
+**The two-floors question is the real finding and is banked for after tonight, not proposed here.**
+Two sources for one floor is how a whole evening of tuning missed the thing he walks on. Any
+proposal has to decide which is canonical and how the other stops existing, and it crosses the
+editor seam, so it is aurora's and the owner's rather than a lane-local tidy.
