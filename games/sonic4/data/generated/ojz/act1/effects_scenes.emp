@@ -69,7 +69,7 @@ pub const Scene_Editor_ojz_act1_depth: Scene = scene(
 pub const Scene_Editor_ojz_act1_floor: Scene = scene(
     layers: [ layer(world_y: 0, fa: FACTOR_1, fb: FACTOR_1_16, dsa: 15, dsb: 15),
               layer(world_y: 288, fa: FACTOR_1, fb: FACTOR_1_16, dsa: 15, dsb: 15),
-              layer(world_y: 440, fa: FACTOR_1, fb: FACTOR_0, dsa: 15, dsb: 15, curve: SceneCurve.To(FACTOR_1)),
+              layer(world_y: 440, fa: FACTOR_1, fb: FACTOR_0, dsa: 15, dsb: 15, curve: SceneCurve.To(FACTOR_1_32)),
               no_layer(),
               no_layer(),
               no_layer(),

@@ -1,8 +1,13 @@
 {
-  "focus": "Floor costed: a zero-tile fix exists for the defect he reported; waiting on his word",
+  "focus": "Building him a spring; the floor he walks on is rebuilding with the corrected value",
   "inFlight": [
     {
       "what": "sprite jumble: emit-path static analysis",
+      "where": "agent worktree",
+      "agent": true
+    },
+    {
+      "what": "the spring, S3K physics on our own object model",
       "where": "agent worktree",
       "agent": true
     }
@@ -11,14 +16,17 @@
     {
       "what": "the section 7 seam: it is authored content, not a bug -- accept it, spend a second effect channel, or redraw those chunk columns as art",
       "since": "2026-09-05"
-    },
-    {
-      "what": "the floor: the wrap you reported can be fixed for ZERO tiles by slowing the floor's scroll (one value), or you can spend 76 tiles removing repeats that may not even be visible -- costs are written up",
-      "since": "2026-09-05"
     }
   ],
   "nextBoundary": "when the sprite analysis reports; nothing else is half-applied",
   "queue": [
+    {
+      "id": "SPRING",
+      "title": "A spring, his own idea: S3K physics on our object model, and the first real test of side solidity",
+      "state": "doing",
+      "size": "M",
+      "blockedBy": null
+    },
     {
       "id": "FLOOR-FAN",
       "title": "Floor: mechanism reopened -- he watched planks change ANGLE, which painted art cannot do",
@@ -80,7 +88,7 @@
       "blockedBy": "ruled: restore does NOT share the path (contract 11.40), so it must be a real keyed load; deferred to ten seconds of his time arranged through the hub"
     }
   ],
-  "awaiting": "which floor option: the free one that slows the scroll, or spending tiles",
+  "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-05T22:37:20Z"
+  "updatedAt": "2026-09-05T22:45:22Z"
 }
