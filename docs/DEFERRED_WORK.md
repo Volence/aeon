@@ -26050,9 +26050,18 @@ repo (`.gitignore` = `*.log`, `tracked.log` force-added and committed, `untracke
     command grep -rl               -> plain.txt, tracked.log, untracked.log
 
 So a file can be **tracked, committed, visible in `git status`, and still invisible to recursive
-`grep`.** This tree carries 14 such files today (all `.bin`, matched by the `*.bin` pattern and
-force-added), and they are additionally hidden by ugrep's `-I` binary skip, so the two causes
-overlap there. No `.emp` or `.py` is currently affected, which is why the VSPLIT-NO-OP consumer
+`grep`.** **MEASURE YOUR EXPOSURE, do not reason about it:**
+`git ls-files -z | git check-ignore --no-index --stdin -z -v`, then keep only records whose
+pattern does NOT start with `!`. In this tree: 275 tracked files match some rule, 261 by a
+NEGATION (explicitly re-included, fine), and **14 by a positive pattern - all `.bin`,
+force-added, zero source/docs/config/test.** So every absence claim over `.emp`, `.py`, `.md`
+and `.json` here is unaffected, measured rather than assumed. They are additionally hidden by ugrep's `-I` binary skip, so the two causes overlap there.
+
+**A parse trap in that very command.** `-z -v` emits FOUR NUL-separated fields per record
+(source, linenum, pattern, pathname). Pairing them two at a time yields a confident wrong
+answer - 289 exposed files, 275 of them extensionless - which does not error and does not
+look absurd. It looks like a finding. Caught only because it disagreed with a count taken
+earlier by a different route. No `.emp` or `.py` is currently affected, which is why the VSPLIT-NO-OP consumer
 audit stood - though that was settled by comparing the two greps, which is the method that does
 not depend on knowing any of this.
 
