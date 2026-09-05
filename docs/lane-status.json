@@ -1,5 +1,5 @@
 {
-  "focus": "Section 7's dead effect removed; the floor mechanism is unresolved and nothing is drawn",
+  "focus": "Floor measurement blocked on a keystroke only he can make; nothing drawn",
   "inFlight": [
     {
       "what": "sprite jumble: emit-path static analysis",
@@ -10,6 +10,10 @@
   "blockedOnOwner": [
     {
       "what": "the section 7 seam: it is authored content, not a bug -- accept it, spend a second effect channel, or redraw those chunk columns as art",
+      "since": "2026-09-05"
+    },
+    {
+      "what": "one keystroke: press the save-state key in the Toy Story window before doing anything else, so the floor measurement can run without risking your paused position",
       "since": "2026-09-05"
     }
   ],
@@ -65,7 +69,7 @@
       "blockedBy": null
     }
   ],
-  "awaiting": null,
+  "awaiting": "one keystroke in the Toy Story window to save its position to a file; the floor measurement cannot start without it",
   "atBoundary": false,
-  "updatedAt": "2026-09-05T20:02:28Z"
+  "updatedAt": "2026-09-05T20:28:20Z"
 }
