@@ -25503,3 +25503,46 @@ lane is where an inference gets promoted to a finding, and neither lane notices,
 is looking at the half it owns.**
 
 **Applies in both directions and is cheap. Adopt it on every hand-off.**
+
+## ⚠ The loop blocks a player arriving from the LEFT — and I measured it and mis-filed it
+
+**The owner, 2026-09-05, with a screenshot:** *"with the loop, with collision on the one side,
+I can't get past it if coming from the left"*. Sonic pressed against the left arc at ground
+level, unable to continue right.
+
+**MY OWN ERROR FIRST: I measured this exact stop hours earlier and filed it as an instrument
+artifact.** I wrote *"a long press from x 1024 always ends at x 1062 ... that is the loop's
+LEFT ARC, solid on plane A at rows 68–71, meeting his upper body as he walks the ground
+beneath it"* — and concluded *"my placements started the player inside the ring"*. **The
+observation was right and the classification was wrong.** It was a gameplay blocker, not a
+placement mistake, and it sat in the record as the latter for six hours.
+
+**THE ASYMMETRY, measured on the landed bytes.** Plane A (the plane a player walks in on),
+editor rows 66–71, cols 132–135: **every cell is `sol=3` — left/right/bottom solid, a SIDE
+FACE — at body height directly above the ground at row 72.**
+
+```
+ r68/69   132:30FB  133:30FB  134:3451  135:3451     sol=3, all-solid
+ r70/71     .         .       134:30FB  135:30FB     sol=3
+ r72/73   10FF across                                the ground
+```
+
+**Against the right arc's foot on plane B, row 70, which works:** `109A` / `10F8` / `1053` /
+`1047`, **all `sol=1` (top only)**, shapes 154 / 248 / 83 / 71 — a fitted ramp with monotonic
+angles.
+
+**WHY THE ASYMMETRY, AND IT IS NOBODY'S MISTAKE: the right ramp is aurora's fitted work; the
+left arc's cells are the PRE-EXISTING ones swapped B→A during the half swap.** They were never
+fitted as a running surface because they never were one — original level collision that only
+ever had to be a wall.
+
+**FIX (aurora's paint): give the left arc's foot the same treatment the right one got** —
+`A[68..71][132..135]` solidity ALL → top, with fitted slope shapes rising continuously from
+row 72 into the arc, mirroring `$FE → $FA → $F6 → $F4`. **Open and deliberately not decided
+here:** whether the *upper* left arc should stay side-solid (probably yes — on the inside of a
+loop a side face is right, and only the foot needs to be a ramp), and whether the ramp starts
+at col 132 or 134.
+
+**AND IT LIKELY EXPLAINS THE `$900` POST-FIX 413 px DROP** booked as unestablished: a player
+completing the loop leftward arrives at this same wall from the far side. **Not established —
+noted as a candidate, to be checked when the ramp lands rather than assumed.**
