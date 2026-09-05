@@ -346,12 +346,16 @@ is the engine's own guard and not a limitation of the stamp. So:
 - **A picture that never moves at all** means the ladder row is pinned, not that the stamp is
   broken; that is a real answer about the effect.
 
-**It disappears when it stops being true, and that is the feature.** Walk across a section
-boundary and the section re-installs its own scene, the remap stops being marked, and the eight
-tiles freeze at their last content — so the stamp **removes itself** on that frame rather than
-leaving a still picture of a state the machine has left. Stepping to any other entry removes it
-too. If it vanishes while you are standing on `WLIN`, you crossed a boundary; press `START +
-LEFT`/`RIGHT` round to it again.
+**It disappears when it stops being true, and that is the feature.** The picture is on screen
+exactly while two things hold: you are standing on `WLIN`, **and** the engine is actually
+gathering. Walk across a section boundary and the section re-installs its own scene, the remap
+stops being marked, and the eight tiles freeze at their last content — so the stamp **removes
+itself** on that frame rather than leaving a still picture of a state the machine has left.
+Stepping to any other entry removes it too. If it vanishes while you are standing on `WLIN`, you
+crossed a boundary; press `START + LEFT`/`RIGHT` round to it again and it comes straight back.
+
+**It appears one frame after the press**, the same beat the three tag rows take, so it will look
+instant.
 
 **It costs no VRAM.** The eight tiles were already reserved and already written every frame; this
 entry is one sprite that names them, in the DEBUG shape only.

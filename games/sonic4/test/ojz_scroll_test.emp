@@ -1870,9 +1870,15 @@ proc Debug_Warp_Consume () clobbers(d0-d7/a0-a6) {
 //           EMPTY program, never 0: `Raster_Install` documents a0 = 0 as "nothing
 //           staged this frame", i.e. KEEP whatever is live, so passing 0 to turn the
 //           tier off would silently leave the bands running.
-//   WLINE   `Parallax_StartTransition` with the scene its sub-index names, then
-//           `Debug_WaterlineStamp_Show`. The ONE row that installs into two places, and
-//           it exists because EFFECTS-W1 item 9d's art half was resident, correct and
+//   WLINE   `Parallax_StartTransition`, through the SAME arm as SCENE and with the same
+//           kind of sub-index — a `.scene_table` row. This proc installs nothing else.
+//           What makes the row different is that the WATERLINE STAMP exists while the
+//           cursor is on it: Debug_TierTags_Update reads this row's KIND once a frame and
+//           builds or retires one screen-space object drawing the eight tiles at
+//           VRAM_WATERLINE_STRIPS. The decision lives there and not here because this
+//           proc runs BEFORE Parallax_Update, so on the pressing frame the engine has not
+//           yet published the row the stamp's honesty test reads.
+//           It exists because EFFECTS-W1 item 9d's art half was resident, correct and
 //           INVISIBLE: nothing in the shipped nametable references VRAM_WATERLINE_STRIPS
 //           (the OJZ background has no water surface to promote), so the only evidence the
 //           gather worked was tools/waterline_art_witness.py. This row is the picture.
@@ -2115,28 +2121,31 @@ proc Debug_LabCycleHotkey () clobbers(d0-d4/a0-a3) {
                                                 // follow; only the tag painter reads them)
         assert.w d0, ls, #LAB_KIND_WLINE        // a kind past the last one would fall
                                                 // through to the scene arm with a
-                                                // sub-index meant for another table
-
-        // -- RETIRE THE WATERLINE STAMP, on every step, BEFORE the dispatch --
-        // The `.waterline` arm below re-builds it; every other row leaves it retired. One
-        // unconditional teardown at the fork rather than a call in each of the other three
-        // arms, and it is Debug_PresetReadout_Blank's rule applied to a sprite: what is on
-        // screen is about the row the cursor is STANDING ON, never about a row it left.
-        // Clearing Sst.code_addr is the whole retirement — RunObjects' `.run_always` loads
-        // that word and `beq`s past a zero slot (engine/objects/core.emp), so the object
-        // stops being dispatched and therefore stops being drawn. a2 is inside this proc's
-        // declared set and the preset arm below reloads it before its first use.
-        movea.l #DEBUG_WLINE_SST, a2
-        clr.w   (a2)                            // Sst.code_addr
-
+                                                // sub-index meant for another table.
+                                                // ⚠ THIS BOUND IS ALSO WHAT KEEPS THE
+                                                // FALL-THROUGH BELOW HONEST: a FIFTH kind
+                                                // has to raise it, and whoever raises it
+                                                // lands on the paragraph that says why
+                                                // SCENE and WLINE share one arm
         cmpi.w  #LAB_KIND_RASTER, d0
         beq     .raster
         cmpi.w  #LAB_KIND_PRESET, d0
         beq     .preset
-        cmpi.w  #LAB_KIND_WLINE, d0
-        beq     .waterline
 
-        // -- SCENE: a parallax config, installed through the engine's own live swap --
+        // -- SCENE **and WLINE**: a parallax config, installed through the engine's own
+        //    live swap. The two kinds share this arm because they do the same thing HERE:
+        //    both sub-indices are `.scene_table` rows and both install through
+        //    Parallax_StartTransition. THE DIFFERENCE IS NOT IN THIS PROC — the kind byte
+        //    is read once a frame by Debug_TierTags_Update's stamp arm, which is what
+        //    puts the waterline strips on screen and takes them off again. Installing the
+        //    stamp from here was tried and is WRONG, and the reason is worth keeping:
+        //    this proc runs BEFORE Parallax_Update in the frame (:986 vs :1377), so on the
+        //    pressing frame Waterline_Art_Row still holds the PREVIOUS scene's value —
+        //    usually 0 — and the honesty arm would have retired the object on the very
+        //    frame the press built it, every time, silently. Deciding once a frame from
+        //    the cursor and the engine's own cell has no such ordering to get wrong.
+        //
+        // -- installed through the engine's own live swap --
         // The preset cells are BLANKED first: they answer a question about a PRESET,
         // and on a scene row there is no preset to answer it about. Leaving the last
         // preset's digit and verdict standing would be the readout lying by staleness,
@@ -2224,30 +2233,6 @@ proc Debug_LabCycleHotkey () clobbers(d0-d4/a0-a3) {
         // Effects_LatchWorldLines call. Painting first would publish the PREVIOUS
         // preset's verdict beside this preset's section, which is worse than no verdict.
         jbra    Debug_PresetReadout_Show        // tail call (§2.8)
-
-    .waterline:
-        // -- WLINE: the scene that carries the ladder, PLUS the stamp that shows what the
-        //    gather put in VRAM. Two installs, in this order, and the order is required:
-        //    Parallax_StartTransition is what makes the row-remap pass publish
-        //    Waterline_Art_Row at all, and the stamp's own honesty arm (in
-        //    Debug_TierTags_Update) RETIRES the object on any frame that cell reads 0. So
-        //    building the object first would have it torn down on the next frame by the
-        //    arm that exists to keep it honest — and then rebuilt only on the next press.
-        //
-        //    The sub-index is a `.scene_table` index, exactly as a SCENE row's is, so this
-        //    arm is the scene arm plus a tail. It is NOT folded into the scene arm with a
-        //    flag byte: the kind is what the dispatch branches on, and a scene row and a
-        //    stamp row install into a different number of engine slots.
-        move.w  d1, -(sp)
-        jbsr    Debug_PresetReadout_Blank
-        move.w  (sp)+, d0
-        assert.w d0, ls, #SCENE_CYCLE_COUNT-1   // in `.scene_table` range, checked before
-                                                // the indexed read
-        lsl.w   #2, d0                          // × sizeof(pointer)
-        lea     .scene_table(pc), a1
-        movea.l (a1,d0.w), a0
-        jbsr    Parallax_StartTransition        // snap/lerp + mode shadow
-        jbra    Debug_WaterlineStamp_Show       // tail call (§2.8)
 
     .done:
         rts
@@ -3282,17 +3267,17 @@ proc Debug_PresetReadout_Blank () clobbers(d0-d4/a0-a2) {
 // (Waterline_Art_Update), which is the point: if the stamp shows a still picture while
 // the reviewer walks, that is the effect being still, not the readout being late.
 //
-// ---- HOW IT STOPS BEING SHOWN ----
-// Two independent retirements, because the two failure modes are different:
-//   * Walking to any other row of the lab list — Debug_LabCycleHotkey clears this slot's
-//     code_addr at its dispatch fork, before any arm runs.
-//   * The engine ceasing to gather — Debug_TierTags_Update's per-frame arm clears the
-//     slot on any frame `Waterline_Art_Row` reads 0. That covers the case the press
-//     cannot: a SECTION CROSSING re-installs that section's own scene, the remap stops
-//     being marked, and the strips in VRAM FREEZE at their last content. A stamp left
-//     standing over frozen tiles is a picture that is confidently about a state the
-//     machine has left — the staleness class this whole family of readouts exists to
-//     remove.
+// ---- WHO CALLS IT, AND HOW IT STOPS BEING SHOWN ----
+// ONE caller: Debug_TierTags_Update's per-frame stamp arm, which builds when BOTH the lab
+// cursor is on a WLINE row AND `Waterline_Art_Row` is non-zero, and clears the slot
+// otherwise. The existence of the object is recomputed from those two subjects every
+// frame; there is no latch and no build-on-press. That arm's header carries the full
+// argument, including why building from the hotkey CANNOT work (the hotkey runs before
+// Parallax_Update, so the honesty test would read the previous scene's cell and retire the
+// object on the frame the press built it).
+//
+// This proc is therefore IDEMPOTENT and called once a frame while the stamp is up: the
+// `code_addr == 0` test at the top is what makes the repeat cost a load and a branch.
 //
 // DEBUG-shape only: the body, the `rts` and the mapping record all sit inside
 // `if DEBUG == 1 {}`, so the whole proc emits ZERO bytes in the plain shape. Parked in
@@ -3673,29 +3658,57 @@ proc Debug_TierTags_Update () clobbers(d0-d4/a0-a3) {
                                                 // so it can never be a legal value either
     .armed:
 
-        // -- THE WATERLINE STAMP'S HONESTY ARM. Not a tag, and it paints nothing; it is
-        //    here because this is the lab's one per-frame poller and the question is the
-        //    same one every tag below asks: is what is on screen still true?
+        // -- THE WATERLINE STAMP. Not a tag — it paints no glyph — but it belongs here
+        //    for the reason every tag below does: this is the lab's one per-frame poller,
+        //    and the question is the same one. Is what is on screen still true?
         //
-        //    The stamp (Debug_WaterlineStamp_Show) draws the eight tiles at
-        //    VRAM_WATERLINE_STRIPS. Those tiles are only refreshed on frames where the
-        //    row-remap pass published a new ladder row; when the pass marks NO band it
-        //    writes `Waterline_Art_Row` = 0 (engine/level/parallax.emp) and the tiles
-        //    FREEZE at their last content. A section crossing does exactly that — it
-        //    re-installs the section's own scene over the lab's — and the reviewer would
-        //    be left looking at a still picture of a state the machine has left, with
-        //    nothing on screen saying so. So the object is retired instead.
+        //    IT IS DECLARATIVE, NOT LATCHED, and that is the whole design. Two facts are
+        //    read every frame and the object's existence is their AND:
+        //      1. the cursor is standing on a WLINE row  (the kind byte of `.lab_index`,
+        //         read out of the row `Debug_Lab_Index` names — the same row shape the
+        //         name tag reads its letters from);
+        //      2. `Waterline_Art_Row` is non-zero — the engine is actually gathering.
+        //    Either one false and the slot is cleared. There is no "shown" mirror, no
+        //    build-on-press and no teardown at the hotkey: a state that is recomputed
+        //    from its two subjects cannot go stale against either of them.
         //
-        //    THE PRESS-SIDE RETIREMENT IS SEPARATE AND BOTH ARE NEEDED: the hotkey's own
-        //    teardown covers "walked to another row", which does not always clear the
-        //    cell (row 1 installs the same scene), and this arm covers "the engine
-        //    stopped gathering", which no press can see.
-        movea.l #DEBUG_WLINE_SST, a0
-        tst.w   (a0)                            // Sst.code_addr
-        beq     .lab_tier                       // never built — nothing to retire
+        //    WHY THAT MATTERS RATHER THAN BEING TIDIER. The first shape of this parcel
+        //    DID build on the press and retire here, and it could never have worked: this
+        //    proc runs BEFORE Parallax_Update in the frame (:1023 vs :1377), so on the
+        //    pressing frame `Waterline_Art_Row` still holds the PREVIOUS scene's value,
+        //    which is 0 for every scene but this one — the arm would have retired the
+        //    object on the frame the press built it, and the chord would have done
+        //    nothing at all, silently, with every gate green. The declarative form has no
+        //    such ordering to get wrong: at worst the stamp appears ONE FRAME after the
+        //    press, exactly as the three tags below do, and for the same reason.
+        //
+        //    WHAT CONDITION 2 BUYS. When the remap pass marks no band it writes
+        //    `Waterline_Art_Row` = 0 (engine/level/parallax.emp) and the eight tiles at
+        //    VRAM_WATERLINE_STRIPS FREEZE at their last content. A section crossing does
+        //    exactly that — it re-installs the section's own scene over the lab's — and a
+        //    stamp left standing would be a still picture confidently about a state the
+        //    machine has left. It also covers the transition: a lerping scene swap
+        //    publishes no row until it arrives, and the stamp simply waits.
+        //
+        //    The `clr.w` is unconditional on the false arm rather than guarded by a
+        //    `tst.w`: it is idempotent, this module is the slot's only writer, and a
+        //    branch to save one word write on a DEBUG frame is not a trade worth making.
+        moveq   #0, d0                          // index-register hygiene (§2.5b)
+        move.b  Debug_Lab_Index, d0             // (Debug_Lab_Index).w
+        mul_const.w d0, #LAB_ENTRY_SIZE, d1     // d0 = row byte offset (d1 scratch)
+        lea     Debug_LabCycleHotkey.lab_index(pc), a1          // §1.5
+        adda.w  d0, a1                          // a1 = the row; (a1) is its KIND
+        cmpi.b  #LAB_KIND_WLINE, (a1)
+        bne     .wl_retire                      // the cursor is somewhere else
         tst.l   Waterline_Art_Row               // (Waterline_Art_Row).w
-        bne     .lab_tier                       // still being gathered — leave it standing
-        clr.w   (a0)                            // the picture stopped being true
+        beq     .wl_retire                      // nothing is being gathered to look at
+        jbsr    Debug_WaterlineStamp_Show       // idempotent — builds once, then no-ops
+        jbra    .lab_tier
+    .wl_retire:
+        movea.l #DEBUG_WLINE_SST, a0
+        clr.w   (a0)                            // Sst.code_addr — RunObjects' `.run_always`
+                                                // `beq`s past a zero slot, so this is the
+                                                // whole retirement
 
     .lab_tier:
         // -- the ENTRY NAME tag. Its subject is the LIST CURSOR, which is the one thing
