@@ -1,0 +1,37 @@
+{
+  "_headline": "DISCRIMINATOR SETTLED: the left arc has NO FOOT on plane A. Heights do not rise, so by the rule set before either side looked, this is PAINT with coordinates — not the engine.",
+  "_discriminator_set_in_advance": "heights RISE and he ignores them -> engine, mine. Heights do NOT rise -> paint, aurora's. Set before either half was measured, precisely because we had each had a confident derivation refuted tonight.",
+  "runtime_half_MINE": {
+    "build": "master, s4.debug.bin 845638",
+    "setup": "grounded-asserted at x1200 (settles y557, y_vel 0, engine row 34, plane A), gsp -$600, sustained held LEFT",
+    "samples": [
+      {"x": 1152, "col": 144, "y": 557, "angle": "$00"},
+      {"x": 1140, "col": 142, "y": 557, "angle": "$00"},
+      {"x": 1128, "col": 141, "y": 557, "angle": "$00"},
+      {"x": 1110, "col": 138, "y": 557, "angle": "$00"},
+      {"x": 1092, "col": 136, "y": 557, "angle": "$00"},
+      {"x": 1074, "col": 134, "y": 557, "angle": "$00"}
+    ],
+    "verdict": "y CONSTANT at 557, angle CONSTANT at $00 across the whole span. He runs dead flat."
+  },
+  "bake_half_AURORA": {
+    "engine_row_34": "col 134 attr 23 sol 1 ang $24 h 11..16 | col 135 attr 23 h 1..10 | COLS 136-142 AIR | col 143 attr 30 sol 0 (the mark, air)",
+    "engine_row_35": "col 134 attr 19 sol 1 ang $E0 h 16 | col 135 attr 19 h 16 | COLS 136-142 AIR",
+    "engine_row_36": "cols 134-144 all attr 1 sol 1 ang $FF h 16 — the flat ground",
+    "verdict": "no rising surface between the bottom centre and col 135. Seven columns of pure air above flat ground. The first thing on his plane is col 135's 16px step from y576 to y560 — a wall-height step arriving side-on, not a slope."
+  },
+  "the_two_halves_agree": "He does not ignore a surface; there is no surface. The engine is behaving correctly on the data it has.",
+  "_a_proposal_of_mine_that_was_declined_and_was_right": {
+    "what_I_proposed": "give the left arc's foot a ramp, mirror of the $FE -> $FA -> $F6 -> $F4 progression on the right foot.",
+    "why_it_was_declined": "cols 136-142 were empty and that emptiness was the walk-in path.",
+    "why_that_did_not_follow": "both halves of the objection were TRUE and the conclusion was not: the columns being empty is the walk-in working AND the climb having nothing, simultaneously. The reasoning was correct for the RIGHTWARD circuit and applied to the loop as a whole.",
+    "note": "recorded because I accepted the objection at the time and dropped the proposal. I did not re-derive it; aurora found it again from the bytes."
+  },
+  "the_fix_NOT_BUILT": {
+    "owner": "aurora (paint)",
+    "cells": "cols 136-142 (x1088-1143), engine rows 34/35, PLANE A ONLY",
+    "shape": "a ramp rising leftward from the ground at y576 near col 142 to meet col 135's existing surface at y560 — ~16px over 56px of run, shallower than the right foot; fitted to the same void ellipse with angles progressing to meet col 134's $24/$E0 rather than jumping",
+    "size": "~28 tile-words"
+  },
+  "_caveat_carried_from_aurora": "their bake reading is from the current build, whose east extension mostly does not ship. Cols 134-144 are inside the placed extent (block cols 8/9) so it does not touch this measurement, but the artifact is named rather than assumed clean."
+}
