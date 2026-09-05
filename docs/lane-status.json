@@ -9,11 +9,7 @@
   ],
   "blockedOnOwner": [
     {
-      "what": "the section 7 edge is authored content, not a bug: accept it, spend a second channel, or re-author the chunk columns",
-      "since": "2026-09-05"
-    },
-    {
-      "what": "the section 7 seam: accept it, spend a second effect channel, or redraw those chunk columns as art",
+      "what": "the section 7 seam: it is authored content, not a bug -- accept it, spend a second effect channel, or redraw those chunk columns as art",
       "since": "2026-09-05"
     }
   ],
@@ -71,5 +67,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-05T19:34:06Z"
+  "updatedAt": "2026-09-05T19:34:18Z"
 }
