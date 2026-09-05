@@ -84,7 +84,7 @@ ROWS = list(range(96, 216 + 1, 8))
 MIN_FRAMES = 8                       # fewer valid frames than this is a refusal, not a short table
 D32_COLS = list(range(0, 16)) + [16, 24]
 
-SYMBOLS = ("Debug_Scene_Index", "Camera_X", "Camera_Y", "VDP_Shadow_Table",
+SYMBOLS = ("Debug_Lab_Index", "Camera_X", "Camera_Y", "VDP_Shadow_Table",
            "Parallax_Vscroll_Column_Buf", "Hscroll_Buffer", "Parallax_V_Deform_Phase_BG",
            "Parallax_Current_Vscroll_BG", "Parallax_Transition_Frames",
            "Warp_Req_X", "Warp_Req_Y", "Warp_Req_Flag")
@@ -113,18 +113,11 @@ async def read_bus_bytes(c, addr, length):
     return await read_space(c, "bus", addr, length)
 
 
-async def step_scene_back(c):
-    """START held, LEFT pressed on one frame — the mirror of G.step_scene."""
-    await c.call("emulator/play_input", {
-        "rows": [
-            {"start": 0, "end": 2, "buttons": ["start"]},
-            {"start": 2, "end": 3, "buttons": ["start", "left"]},
-            {"start": 3, "end": 8, "buttons": ["start"]},
-        ],
-        "maxFrames": 8,
-    })
-    await c.call("emulator/release_all", {})
-    await c.call("emulator/run_frames", {"frames": 4})
+# MOVED to fg_left_edge_gate.py on 2026-09-05: every caller needs a BACKWARD step now
+# that the effects lab is one list whose rows past the scenes install raster programs and
+# presets — see that file's head note. Re-exported here so this file's own call sites read
+# the way they always did.
+step_scene_back = G.step_scene_back
 
 
 async def settle_transition(c, syms, limit=300):
@@ -139,27 +132,22 @@ async def settle_transition(c, syms, limit=300):
 
 
 async def drive_cursor(c, syms, index):
-    for _ in range(40):
-        at = await G.read_bus(c, addr=syms["Debug_Scene_Index"], length=1)
-        if at == index:
-            break
-        await G.step_scene(c)
-    else:
-        raise SystemExit(f"UNMEASURABLE: could not drive the scene cursor to {index}")
+    """Directional now — see fg_left_edge_gate.py's head note."""
+    await G.drive_cursor(c, syms["Debug_Lab_Index"], index)
 
 
 async def reinstall_scene(c, syms, index):
     """The DEBUG warp re-applies the section's own scene while the cursor still reads
     `index`; step back one and forward one so SCENES[index] is installed again."""
-    await step_scene_back(c)
+    await G.step_scene_back(c)
     await G.step_scene(c)
-    at = await G.read_bus(c, addr=syms["Debug_Scene_Index"], length=1)
+    at = await G.read_bus(c, addr=syms["Debug_Lab_Index"], length=1)
     if at != index:
         raise SystemExit(f"UNMEASURABLE: after back+forward the cursor reads {at}, wanted {index}")
 
 
 async def assert_subject(c, syms, index):
-    at = await G.read_bus(c, addr=syms["Debug_Scene_Index"], length=1)
+    at = await G.read_bus(c, addr=syms["Debug_Lab_Index"], length=1)
     if at != index:
         raise SystemExit(f"UNMEASURABLE scene {index}: cursor reads {at} at the sample point")
     mode3 = await G.read_bus(c, addr=syms["VDP_Shadow_Table"] + G.VDP_MODE3_OFF, length=1)

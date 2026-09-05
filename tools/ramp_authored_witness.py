@@ -75,7 +75,8 @@ per-column mode ($07), and there a plane-B VSRAM entry-1 write moves a SIXTEEN-P
 not the plane. A full-width shear claim resting on an unverified register is not a result, so
 this script reads `VDP_Shadow_Table + VDP_MODE3_OFF` in every arm and prints what it found.
 
-⚠ NOTHING HERE POKES `Debug_Scene_Index`. It is a cursor a hotkey INSTALLS FROM; writing it
+⚠ NOTHING HERE POKES `Debug_Lab_Index` (`Debug_Scene_Index` until the 2026-09-05 chord
+consolidation merged the lab's three cursors into one). It is a cursor a hotkey INSTALLS FROM; writing it
 installs nothing, so a sweep driven that way reads "unchanged on every scene" and looks like
 a clean refutation. This script does not change scenes at all — it measures the boot scene.
 

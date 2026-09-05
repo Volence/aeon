@@ -3,28 +3,34 @@
 **One page, for the person holding the pad.** Build `DEBUG=1 ./build.sh`, load `s4.debug.bin`,
 and stand still. Everything here is a chord on the pad. None of it exists in the release ROM.
 
-The lab has four tiers. They are independent: each one writes state the others do not
-touch, so you can stack them.
+There is **one list** and **one chord** to walk it. Everything the act can demonstrate is in
+it, in one order, and the screen names each entry as you pass it.
 
 ---
 
-## The four chords
+## The two chords
 
 | Hold | Press | What it does |
 |---|---|---|
-| `START` | `LEFT` / `RIGHT` | step the **background scene** — parallax only |
-| `START` | `UP` | step the **raster program** — bands only |
-| `START` | `DOWN` | raster program **off** |
-| `START` | `A` | step the **whole preset** — everything a section looks like |
-| `C` | `A` | step the **background tile animation** — off / horizontal / vertical |
+| `START` | `LEFT` / `RIGHT` | step the **one list** — the next / previous thing to look at |
+| `START` | `C` | step the **background tile animation** (no direction held) |
 
-`START + A` is the one to reach for first. The other two change one channel each; this one
-installs an entire section's look — palette, palette cycling, palette variants, the raster or
-water program, the water anchors and their motion, and the parallax config — onto the section
-you are standing in. It is the same operation the engine runs when you walk across a section
-boundary, so what you see is what that section really looks like.
+That is it. It used to be three separate chords — `START + LEFT/RIGHT` for background scenes,
+`START + UP/DOWN` for raster programs, `START + A` for whole section presets — because those are
+three different engine slots. **That is a reason that matters to the code and not to you**, so
+they are now one list: the twenty-one background scenes, then the raster programs (with *bands
+off* among them), then the act's nine per-section presets. Thirty-seven entries; hold `START` and
+walk it with `LEFT` and `RIGHT`.
 
-**You do not need to know where you are.** That was the whole point. Stand anywhere and cycle.
+`START + UP/DOWN` and `START + A` do **nothing** now. They are free pad.
+
+The presets are the ones to reach for. A scene changes parallax only and a raster program changes
+one channel; a preset installs an entire section's look — palette, palette cycling, palette
+variants, the raster or water program, the water anchors and their motion, and the parallax
+config — onto the section you are standing in. It is the same operation the engine runs when you
+walk across a section boundary, so what you see is what that section really looks like.
+
+**You do not need to know where you are.** That was the whole point. Stand anywhere and walk.
 
 **It undoes itself.** Walk across any section boundary and the section's own effects come back.
 Nothing you press here can leave the act mis-configured, and nothing you press here changes what
@@ -34,14 +40,83 @@ the game ships.
 
 ## Reading the screen
 
-Top-left corner, two rows of small yellow glyphs. They appear on your first press, not at boot.
+Top-left corner, four rows of small yellow glyphs. They appear once you hold `START` or `C`, not
+at boot.
 
 ```
-    1 4        <- row 1: the SCENE cursor (two digits, 00-20)
-    3 <>       <- row 2: the PRESET cursor (one digit) and its VERDICT
+    HAZE       <- row 1: the ENTRY you are standing on, by NAME
+    3 <>       <- row 2: on a PRESET entry only — the section digit and its VERDICT
+    BAND       <- row 3: the raster program that is actually INSTALLED
+    CMX        <- row 4: the BG tile-animation table that is actually installed
 ```
 
-**Row 2 is the one that matters for `START + A`.** The digit is the section whose preset is now
+**Row 1 is where you are. Rows 3 and 4 are what the machine is doing.** That difference is
+deliberate and it is useful: row 1 follows your cursor, rows 3 and 4 are read off the engine's
+own cells every frame. Walk across a section boundary and row 1 still says `SWAP` while row 3
+has moved to whatever that section binds — **that disagreement is the answer**, not a bug. It is
+the readout telling you the crossing took your override away.
+
+Row 2 is blank unless you are standing on a preset entry. It is not left showing the last preset
+you visited, because a readout that is confidently about something you walked away from is worse
+than no readout.
+
+**Every entry's name is four letters** — four cells is the widest a single VDP sprite piece can
+be, so that is a hardware limit rather than a taste call, and no two entries spell the same word.
+The whole list is below.
+
+---
+
+## The whole list, in order
+
+Row 0 is where a cold boot leaves the cursor. `RIGHT` goes down this table, `LEFT` goes up it,
+and both wrap — so **one press of `LEFT` from boot lands on `GRND`**, the last entry.
+
+| # | Name | What it is |
+|---|---|---|
+| 0 | `DFLT` | the act's own default background |
+| 1 | `UWTR` | underwater |
+| 2 | `WNDY` | windy |
+| 3 | `SHMS` | shimmer, slow |
+| 4 | `SHMR` | shimmer |
+| 5 | `SHMF` | shimmer, fast |
+| 6 | `HAZS` | haze, slow |
+| 7 | `HAZE` | haze |
+| 8 | `HAZF` | haze, fast |
+| 9 | `HAZU` | haze, uniform |
+| 10 | `RCKS` | rocking, slow |
+| 11 | `ROCK` | rocking |
+| 12 | `RCKF` | rocking, fast |
+| 13 | `PRSS` | perspective, subtle |
+| 14 | `PRSP` | perspective |
+| 15 | `PRSD` | perspective, dramatic |
+| 16 | `WNHZ` | windy + haze |
+| 17 | `SKHZ` | sky + haze |
+| 18 | `CAVE` | caves |
+| 19 | `LCLD` | locked clouds |
+| 20 | `PFLR` | the perspective floor scene |
+| 21 | `BAND` | raster: the hand-authored band demo (the control) |
+| 22 | `SWAP` | raster: the mid-frame plane-base swap |
+| 23 | `RMPW` | raster: the authored ramp witness (editor-authored) |
+| 24 | `PROB` | raster: the authored probe (editor-authored) |
+| 25 | `SHIM` | raster: the section-3 shimmer document (editor-authored) |
+| 26 | `RAMP` | raster: the ramp probe (editor-authored) |
+| 27 | `NONE` | raster: **off** |
+| 28 | `WATR` | preset: section 0 — water |
+| 29 | `SPLT` | preset: section 1 — the sparse raster split |
+| 30 | `DENS` | preset: section 2 — the dense gradient ramp |
+| 31 | `CYCL` | preset: section 3 — the palette-cycling band |
+| 32 | `DPTH` | preset: section 4 — the depth showcase |
+| 33 | `SREF` | preset: section 5 — the sidecar-bound program |
+| 34 | `BSWP` | preset: section 6 — the plane-base swap |
+| 35 | `BARE` | preset: section 7 — plain, the control |
+| 36 | `GRND` | preset: section 8 — plain + the perspective floor |
+
+Entries 0-20 are **background scenes** (parallax only). 21-27 are **raster programs** (per-line
+effects only). 28-36 are **whole section presets**. You do not have to care which is which —
+that is the point — but it is why some entries change the background as you move and others
+change what is drawn on a line.
+
+**Row 2 is the one that matters on a preset entry.** The digit is the section whose preset is now
 installed. The glyph beside it says whether that preset can show you anything *from where you are
 standing*:
 
@@ -78,26 +153,28 @@ worth looking at.
 
 ---
 
-## What is in the `START + A` cycle, and what each one needs to be visible
+## The PRESET entries, and what each one needs to be visible
 
-The list is the act's own section table, in order. For OJZ act 1 that is nine entries. The
-cursor starts at 0 and your first press installs **1**, because you boot standing in 0.
+These are the **last nine entries of the list** — one per section of OJZ act 1, in order. The
+quickest way to reach them from a cold boot is **one press of `START + LEFT`**, which wraps you
+straight onto the last of them (`GRND`, section 8); keep pressing `LEFT` to walk down through
+them to `WATR` (section 0).
 
-| # | What it is | What it needs |
-|---|---|---|
-| 0 | **Water.** Two world-anchored boundaries with a sweep, plus the underwater parallax. | The camera near the **top of the act** — the boundaries are anchored at world Y 224 and 314. Anywhere else this reads `X`. |
-| 1 | **The sparse raster split** — shadow/highlight plus a backdrop change below screen line 120. | Nothing. On screen wherever you are. |
-| 2 | **The dense tier** — a 96-line gradient ramp down the lower half (screen lines 96-191). | Nothing, but **look closely**: the ramp moves three palette entries by one intensity step each, so it is a subtle shading change, not a rainbow. The blue test palette that used to hide it is gone. |
-| 3 | **A palette-cycling band** — no raster at all, the colours themselves animate (line 2, entries 8-11). | Nothing, but **watch, don't glance** — it is an 8-frame cycle. |
-| 4 | **The depth showcase** — the vertical-split program from this section's authored scene. | Nothing. |
-| 5 | The program section 5's editor sidecar binds (`$013C4C`, measured on the live ROM). | Nothing. |
-| 6 | **The mid-frame plane swap** — from screen line 3 down, the foreground draws the background's map. | Nothing. It covers nearly the whole screen. |
-| 7 | **Plain.** Palette and the act's own default background, nothing else. | — reads `-`. Deliberately empty; it is the control. |
-| 8 | **The perspective floor.** A wooden floor whose boards fan out from a vanishing point, with the rows nearer you scrolling faster than the rows at the horizon. | Nothing to reach, but **you have to MOVE to see the point of it** — which is exactly what it **reads the arrow** for. |
+| # | Name | What it is | What it needs |
+|---|---|---|---|
+| 0 | `WATR` | **Water.** Two world-anchored boundaries with a sweep, plus the underwater parallax. | The camera near the **top of the act** — the boundaries are anchored at world Y 224 and 314. Anywhere else this reads `X`. |
+| 1 | `SPLT` | **The sparse raster split** — shadow/highlight plus a backdrop change below screen line 120. | Nothing. On screen wherever you are. |
+| 2 | `DENS` | **The dense tier** — a 96-line gradient ramp down the lower half (screen lines 96-191). | Nothing, but **look closely**: the ramp moves three palette entries by one intensity step each, so it is a subtle shading change, not a rainbow. The blue test palette that used to hide it is gone. |
+| 3 | `CYCL` | **A palette-cycling band** — no raster at all, the colours themselves animate (line 2, entries 8-11). | Nothing, but **watch, don't glance** — it is an 8-frame cycle. |
+| 4 | `DPTH` | **The depth showcase** — the vertical-split program from this section's authored scene. | Nothing. |
+| 5 | `SREF` | The program section 5's editor sidecar binds (`$013C4C`, measured on the live ROM). | Nothing. |
+| 6 | `BSWP` | **The mid-frame plane swap** — from screen line 3 down, the foreground draws the background's map. | Nothing. It covers nearly the whole screen. |
+| 7 | `BARE` | **Plain.** Palette and the act's own default background, nothing else. | — reads `-`. Deliberately empty; it is the control. |
+| 8 | `GRND` | **The perspective floor.** A wooden floor whose boards fan out from a vanishing point, with the rows nearer you scrolling faster than the rows at the horizon. | Nothing to reach, but **you have to MOVE to see the point of it** — which is exactly what it **reads the arrow** for. |
 
 ### 8 — the perspective floor, and how to actually see it
 
-**Press `START + A` until the preset digit reads `8`.**
+**Press `START + LEFT` once from a cold boot** — it wraps straight onto `GRND`, section 8.
 
 **What you are looking at.** The bottom of the screen becomes a wooden floor.
 Its boards splay out from a single vanishing point pinned to the **centre of the
@@ -238,7 +315,7 @@ same place the long way round.
 documented above. Preset 8 installs section 8's *editor-authored* scene: correct window,
 correct ramp, and **no per-column deform at all**. Scene 20 is that same geometry with the
 F3 **vanishing-point cone** on top — the thing scenes `13`/`14`/`15` have and preset 8 does
-not. If you want to compare, `START + A` to preset 8 and `START + LEFT` to scene 20 show
+not. If you want to compare, walk to `GRND` (preset 8) and to `PFLR` (scene 20) — they show
 the floor with and without the cone.
 
 **What to look for, and all of it needs MOTION — a still frame shows none of it:**
@@ -268,43 +345,55 @@ free-flight with the camera somewhere the foreground is open.
 
 ## Things worth knowing
 
-- **`START + A` makes you jump** unless you are in debug free-flight (which the debug build boots
-  into). Every free button on a 3-button pad is a jump button or already taken; this was the
-  cheapest collision left. In free flight it costs nothing.
-- **The cycle only goes forward.** Nine entries, so the far side is at most five presses.
-- **The tiers stack.** `START + A` then `START + UP` puts a hand-authored band program on
-  top of a section's preset. `START + A` again wipes it, because a preset install writes every
-  channel.
-- **The BG animation tier is the one exception to "it undoes itself".** The band table is not
-  an EffectsPreset channel, so walking across a section boundary does **not** put it back —
-  press `C + A` round the cycle to turn it off again. It is also the only tier whose default
-  is off in the shipped ROM as well as the debug one.
-- **Nothing here runs during a replay.** All three chords stand down unless input is live, so a
+- **`START + LEFT/RIGHT` still steers you** — the directions keep their normal meaning while the
+  chord is held. For a background review you are standing still, and that is the whole cost.
+  `START` is the only free bit on a 3-button pad; X/Y/Z/MODE exist only on a 6-button pad, so a
+  chord on them would be silently dead on a 3-button one, which is the worst thing a review tool
+  can be.
+- **The list goes both ways.** Thirty-seven entries, so the far side is at most eighteen presses,
+  and `LEFT` from the first entry wraps onto the last (which is where the presets live).
+- **Entries are mutually exclusive.** Each one evicts the last, because each is an install into an
+  engine slot. Selecting a scene and then a preset gives you the preset; the preset writes every
+  channel including the one the scene wrote.
+- **The BG animation chord is the one exception to "it undoes itself".** The band table is not an
+  EffectsPreset channel, so walking across a section boundary does **not** put it back — press
+  `START + C` round its cycle to turn it off again. It is also the only tier whose default is off
+  in the shipped ROM as well as the debug one. That orthogonality is exactly why it is **not** in
+  the one list: everything in the list replaces what came before it, and a latch that survives a
+  crossing would turn the list into a set of switches you have to walk back through.
+- **Nothing here runs during a replay.** Both chords stand down unless input is live, so a
   recorded fixture cannot trip them.
-- **The readout is one digit.** An act with more than ten sections would have its eleventh
-  hidden rather than mislabelled — the cycle clamps. Nothing in the tree is that size yet;
-  giving the readout a second digit means a second VRAM region, because the free tiles beside
-  it are now spent.
-- **The verdict is one cell, and that is a VRAM fact rather than a design one.** The two cells
-  at VRAM tiles 1022/1023 were the last free run beside `debug_readout`, and it is spent. The
-  arrow was made to fit by adding a **fourth glyph to the existing sheet**, not a third cell —
-  which is why the four verdicts rank against each other instead of being reported together.
-  Reporting two channels at once needs a new VRAM region.
+- **The section digit is one digit.** An act with more than ten sections cannot be labelled by
+  this readout; giving it a second digit means a second VRAM region, because the free tiles
+  beside it are spent. The build fails rather than mislabelling — a lint checks the preset
+  entries against the act's own grid.
+- **The verdict is one cell, and that is a VRAM fact rather than a design one.** The map has
+  **one free tile left** (959) in the whole 2048. The arrow was made to fit by adding a glyph to
+  the existing sheet, not a cell — which is why the verdicts rank against each other instead of
+  being reported together. Reporting two channels at once needs a region taken from something
+  else.
 
 ---
 
 ## Where this lives
 
-`games/sonic4/test/ojz_scroll_test.emp` — `Debug_SceneCycleHotkey`, `Debug_BandDemoHotkey`,
-`Debug_PresetCycleHotkey`, `Debug_BgAnimViewHotkey`, and the two readouts. Each proc's header carries the argument for its
+`games/sonic4/test/ojz_scroll_test.emp` — `Debug_LabCycleHotkey` (the one list and its
+dispatch), `Debug_BgAnimViewHotkey`, `Debug_PresetReadout_Show` / `_Blank`, and
+`Debug_TierTags_Update` (all three name tags). Each proc's header carries the argument for its
 chord and the enumeration of what was already taken. The glyph cells are
-`games/sonic4/vram.toml`, region `debug_readout`.
+`games/sonic4/vram.toml`, regions `debug_lab_name` (the entry name), `debug_preset_readout`
+(the digit and verdict), `debug_raster_tag` and `debug_bganim_tag`.
 
-Two gates keep this page honest. `tools/test_preset_verdict_font_lint.py` (build-fatal, in
-the build's pytest lane) holds the glyph sheet to the verdict constants, so a fifth state
-cannot ship without a fifth glyph. `tools/preset_lab_witness.py` boots a headless machine,
-presses the chord round the whole cycle and compares every painted tile against an
-expectation it derives from the ROM's own records:
+Four gates keep this page honest, all build-fatal in the build's pytest lane.
+`tools/test_lab_index_lint.py` holds the one list to the three tables it dispatches into —
+every scene reachable, every raster program reachable, every preset entry inside the act's own
+grid, every name four defined letters, and no two entries spelling the same word.
+`tools/test_scene_cycle_table_lint.py` and `tools/test_raster_cycle_table_lint.py` hold those
+two sub-tables to the scene registry and to the preset documents on disk.
+`tools/test_preset_verdict_font_lint.py` holds the verdict glyph sheet to the verdict
+constants, so a state cannot ship without a glyph. Beyond the lane,
+`tools/preset_lab_witness.py` boots a headless machine, walks the preset entries and compares
+every painted tile against an expectation it derives from the ROM's own records:
 
 ```
 python3 tools/preset_lab_witness.py --rom s4.debug.bin --lst s4.debug.lst
@@ -315,9 +404,17 @@ lab, `EndOfRom` and the symbol set included.
 
 ---
 
-## The background tile animation — `C + A`
+## The background tile animation — `START + C`
 
-Three states, forward-only: **off → horizontal → vertical → off**.
+Its own chord, deliberately, and **not** part of the one list — see "Things worth knowing"
+above for why. Hold `START` and press `C` with **no direction held**; each press steps it
+round: **off → horizontal (camera X) → vertical (camera Y) → timer → an off-screen vertical
+probe → that probe's control → off**. Row 4 of the readout names the live one
+(`ACT` / `CMX` / `CMY` / `TMR` / `VRT` / `VCT`), so you never have to count presses.
+
+The two probe states put nothing on the screen by construction — they aim at an unused VRAM
+band reserve — so if the picture stops changing after `TMR`, that is them, and one or two more
+presses brings you back to `ACT`.
 
 **Off is where the game now boots**, in the shipped ROM as well as this one. The band that
 used to animate the canopy on a free-running timer is still in the ROM, still authored, and

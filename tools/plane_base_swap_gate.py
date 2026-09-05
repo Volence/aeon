@@ -71,7 +71,8 @@ at its OWN base, which is a silent no-op on screen — and the register arm goes
 both addresses. That mutation is the gate's red-first proof (see the parcel's evidence).
 
 BOTH SHAPES ARE ASSERTED, IN OPPOSITE DIRECTIONS, and the release arm is not decoration.
-The only installer is `Debug_BandDemoHotkey`, whose body emits zero bytes in the release
+The only installer is `Debug_LabCycleHotkey` (`Debug_BandDemoHotkey` until the 2026-09-05
+chord consolidation folded the raster tier into the one list), whose body emits zero bytes in the release
 shape, so an unconditionally-emitted program would be a dormant scaffold in the ROM the
 owner ships — the defect `OJZ_BandDemo`'s own gate note in ojz_effects.emp records being
 made the wrong way round first. So:
@@ -510,7 +511,7 @@ def main():
         if shape == "release":
             if state != "absent":
                 print(f"plane_base_swap_gate: FAIL — `{SYM}` emits {gap} bytes in the "
-                      f"RELEASE shape. Its only installer, Debug_BandDemoHotkey, emits zero "
+                      f"RELEASE shape. Its only installer, Debug_LabCycleHotkey, emits zero "
                       f"bytes there, so this is a raster program in the shipped ROM that "
                       f"nothing in that shape can point the raster engine at. Restore the "
                       f"`if DEBUG == 1` / else-empty gate on the `pub data` in "

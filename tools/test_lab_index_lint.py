@@ -67,6 +67,16 @@ in this parcel's report. The arms and their mutations:
   * copy one row's name onto another        -> test_no_two_entries_spell_the_same_word
   * change a raster row's name to a word
     the tier tag does not use               -> test_raster_names_match_the_live_state_tag
+  * misspell a KIND name                    -> test_every_row_names_a_defined_kind_and_the_kinds_are_dense
+  * a stray `dc.b 0` before `.scene_table`  -> test_the_scene_table_is_word_aligned_after_the_list
+  * swap two SCENE rows                     -> test_scene_rows_are_a_dense_run_over_the_scene_table
+  * drop the raster OFF row                 -> test_raster_rows_are_a_dense_run_with_one_off_row_last
+  * LAB_ENTRY_SIZE 6 -> 5                   -> test_every_row_is_one_entry_wide_and_the_stride_is_even
+and, on docs/EFFECTS_LAB.md, four more against the page arm — rename an entry, drop a
+row, misnumber a row, rename the section heading — each caught by
+test_the_effects_lab_page_lists_the_same_words alone. Eleven source mutations and four
+page mutations; every one of the eleven arms went red at least once, and the file's
+sha256 was restored after each.
 """
 
 import re
@@ -76,6 +86,7 @@ REPO = Path(__file__).resolve().parent.parent
 LAB = REPO / "games/sonic4/test/ojz_scroll_test.emp"
 REGISTRY = REPO / "games/sonic4/data/effects/scene_registry.emp"
 ACT = REPO / "games/sonic4/data/levels/ojz/act1/act_descriptor.emp"
+PAGE = REPO / "docs/EFFECTS_LAB.md"
 
 _PLAIN_CONST = re.compile(r"^\s*(?:pub\s+)?const\s+(\w+)\s*=\s*(\d+)\s*(?://.*)?$", re.M)
 # `const LAB_RASTER_OFF = RASTER_CYCLE_COUNT` / `const RTAG_NONE = RASTER_CYCLE_COUNT + 1`
@@ -519,4 +530,72 @@ def test_raster_names_match_the_live_state_tag():
         "it installed must read as the SAME word in both rows; two words for one program "
         "makes the disagreement that IS meaningful — cursor vs. engine after a section "
         "crossing — impossible to read."
+    )
+
+
+def test_the_effects_lab_page_lists_the_same_words():
+    """docs/EFFECTS_LAB.md's "whole list" table must be the ROM's list, row for row.
+
+    THAT PAGE IS THE ONLY THING THE OWNER READS BEFORE PICKING UP THE PAD, and its whole
+    job since the chord consolidation is to let him say "I am on HAZE" and have an agent
+    know which entry that is. A page whose words drift from the table is worse than no
+    page: it is a name that resolves to the wrong entry, confidently, on both ends of the
+    conversation.
+
+    Nothing else can catch it. The page is prose; the table is `dc.b`; sigil sees neither
+    as related. So the page's table is parsed and compared index for index, and a page
+    that has no such table at all FAILS rather than passing vacuously.
+    """
+    if not PAGE.is_file():
+        raise AssertionError(
+            f"{PAGE} does not exist. It is the effects lab's user-facing page and this arm "
+            "holds its entry table to the ROM's; with the page gone the arm cannot measure "
+            "anything. If the page was deliberately removed, delete this arm in the same "
+            "commit."
+        )
+    text = PAGE.read_text()
+    marker = "## The whole list, in order"
+    if marker not in text:
+        raise AssertionError(
+            f"{PAGE.name}: could not find the `{marker}` heading. That section is the "
+            "table this arm compares against `.lab_index`; if it was renamed, update this "
+            "pattern in the same commit — it must not silently pass."
+        )
+    # BOUNDED AT THE NEXT HEADING, not left to run to the end of the file: the page
+    # carries a SECOND table further down (the preset entries, numbered 0..8 by SECTION),
+    # and an unbounded split matched both and reported 46 rows for 37 entries.
+    section = re.split(r"^## ", text.split(marker, 1)[1], maxsplit=1, flags=re.M)[0]
+    listed = re.findall(r"^\|\s*(\d+)\s*\|\s*`([A-Z]{4})`\s*\|", section, re.M)
+    if not listed:
+        raise AssertionError(
+            f"{PAGE.name}: the `{marker}` section holds no `| <n> | \u0060NAME\u0060 |` rows. A "
+            "zero-row page table would make this comparison vacuous."
+        )
+
+    off = const("LAB_NAME_OFF")
+    cells = const("LAB_NAME_CELLS")
+    letters = letter_constants()
+    inv = {v: k[len("LTR_"):] for k, v in letters.items()}
+    words = []
+    for row in lab_rows():
+        try:
+            words.append("".join(inv[letters[t]] for t in row[off:off + cells]))
+        except KeyError:
+            words.append(None)      # an undefined letter; the arm above owns that failure
+
+    assert len(listed) == len(words), (
+        f"{PAGE.name} lists {len(listed)} entries but `.lab_index` holds {len(words)}. The "
+        "page is what the owner reads to know what he is looking at; a page that is short "
+        "or long by one renames every entry after the gap."
+    )
+    wrong = []
+    for i, (idx, name) in enumerate(listed):
+        if int(idx) != i:
+            wrong.append(f"page row {i} is numbered {idx}")
+        elif words[i] is not None and words[i] != name:
+            wrong.append(f"entry {i}: the page says {name}, the ROM spells {words[i]}")
+    assert not wrong, (
+        f"{PAGE.name} and `.lab_index` disagree: " + "; ".join(wrong) +
+        ". Fix the page in the same commit as the table — an entry name is the unit the "
+        "owner relays to an agent, so a stale page is a wrong answer on both ends."
     )
