@@ -65,10 +65,23 @@ reached through the same hand install):
     DEBUG=1 ./build.sh                      # s4.debug.bin + s4.debug.lst
     python3 tools/waterline_art_witness.py  # defaults to s4.debug.bin
 
-WHAT IT STILL DOES NOT SHOW: a picture. These 8 tiles are in VRAM and correct, and NO PLANE
-CELL POINTS AT THEM — the OJZ background has no water surface to promote (item-9 design
-section 6.2), so nothing in the shipped nametable references VRAM_WATERLINE_STRIPS. This
-witness is the whole of the on-screen evidence until an authored background places them.
+WHAT IT SHOWS AND WHAT NOW SHOWS THE PICTURE. This is the BYTE evidence and it stays that:
+it is the only thing in the tree that says the eight tiles equal the gather predicted from
+the row the engine published, and a picture can never say that.
+
+⚠ THE PARAGRAPH THAT USED TO BE HERE IS NO LONGER TRUE, and it is corrected rather than
+deleted because a reader who remembers it would otherwise go looking for a gap that is
+closed. It said: "WHAT IT STILL DOES NOT SHOW: a picture. These 8 tiles are in VRAM and
+correct, and NO PLANE CELL POINTS AT THEM ... This witness is the whole of the on-screen
+evidence until an authored background places them." The first half is still exactly right —
+no plane cell points at them, the OJZ background has no water surface to promote (item-9
+design section 6.2), and engine/level/bg_anim.emp's banner states writing the nametable as a
+PROHIBITION. What changed on 2026-09-05 is that the strips are drawn by a SPRITE instead:
+DEBUG lab entry 37, `WLIN` (one `START + LEFT` from a cold boot), builds one 4x2 VDP piece
+based at VRAM_WATERLINE_STRIPS in the top-right corner — above-strip left, below-strip right,
+in the gather's own column-major order. See docs/EFFECTS_LAB.md and
+games/sonic4/test/ojz_scroll_test.emp's Debug_WaterlineStamp_Show. It costs no VRAM, no
+release bytes, and no nametable word.
 """
 from __future__ import annotations
 

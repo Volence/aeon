@@ -699,6 +699,20 @@ WRITERS = {
         evidence=[(r'lea\s+\.tag_mappings\(pc\),\s*a1\b',
                    "the tag slot is built on the proc's own .tag_mappings strip frames")],
         why="the effects-lab tier name tag, against .tag_mappings"),
+    # EFFECTS-W1 item 9d, the waterline stamp. The same class again — a System slot the
+    # effects lab builds by hand — and it carries the tier tags' argument rather than the
+    # readout's: its mappings are a hand-written frame inside the proc's own DEBUG block
+    # (`.wl_mappings`), not Map_TestObj, because a module-scope mapping would emit in the
+    # plain shape. The art it names is the ENGINE's waterline run at VRAM_WATERLINE_STRIPS,
+    # which is not a character sheet and is not DPLC'd at all: it is filled by one whole-run
+    # DMA from Waterline_Art_Update (engine/level/bg_anim.emp) and never by a DPLC list. So
+    # this site cannot widen any subject's reachable frame set, and the `lea` is what proves
+    # the slot never holds a character sheet at the frame write.
+    ("games/sonic4/test/ojz_scroll_test.emp", "Debug_WaterlineStamp_Show"): dict(
+        sites=1, art="other", frames="none",
+        evidence=[(r'lea\s+\.wl_mappings\(pc\),\s*a1\b',
+                   "the stamp slot is built on the proc's own .wl_mappings frame")],
+        why="the effects-lab waterline stamp, against .wl_mappings"),
 }
 
 
