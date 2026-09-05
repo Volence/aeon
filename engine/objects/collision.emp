@@ -210,8 +210,7 @@ proc Touch_Monitor () clobbers() falls_into Touch_Ring {}
 proc Touch_Ring () clobbers() falls_into Touch_Bubble {}
 proc Touch_Bubble () clobbers() falls_into Touch_Projectile {}
 proc Touch_Projectile () clobbers() falls_into Touch_SolidBreak {}
-proc Touch_SolidBreak () clobbers() falls_into Touch_Spring {}
-proc Touch_Spring () clobbers() falls_into Touch_SolidHurt {}
+proc Touch_SolidBreak () clobbers() falls_into Touch_SolidHurt {}
 proc Touch_SolidHurt () clobbers() falls_into Touch_Touch {}
 proc Touch_Touch () clobbers() {
         rts
@@ -228,6 +227,99 @@ proc Touch_Hurt (d0: u16, d1: i16, d2: u16, d3: i16, a2: *Sst, a3: *Sst) clobber
 }
 
 // -----------------------------------------------
+// solid_face_response — the contact-face decision and push-out that every solid
+// share, whatever its top face then means.
+//
+// Contains: the minimum-penetration-axis choice, both horizontal pushes, and the
+// stop-a-rising-player push-down-from-below. It does NOT contain what a TOP
+// contact means, because that is the only thing the solid family disagrees
+// about — a block is landed on, a spring launches — so the caller supplies that
+// as `{top}`, which this template branches to and never returns from. Every
+// other path `rts` inside the template.
+//
+// Splicing it beats giving Touch_Spring its own copy of the penetration
+// arithmetic, and beats the reference: S3K routes each spring orientation
+// through SolidObjectFull2_1P and then RE-DERIVES the contact face per
+// orientation afterwards (Obj_Spring_Up's standing-bit test at
+// sonic3k.asm:47668 vs Obj_Spring_Horizontal's status/x_pos compare at
+// :47786-47794), which is the duplication this exists not to reproduce.
+//
+// In:  a2 = player SST, a3 = target SST
+//      d0.w = combined_w, d1.w = signed delta_x
+//      d2.w = combined_h, d3.w = signed delta_y
+// At {top}: d2.w = pen_y and d3.w = |delta_y|, a2/a3 untouched — `add.w d3, d2`
+//      recovers combined_half_h, which is what a top-edge snap needs. Both
+//      consumers do exactly that as their first instruction.
+// Clobbers: d0-d5
+//
+// Template labels are hygienic, so each instantiation gets its own .sfr_*.
+// -----------------------------------------------
+comptime fn solid_face_response(top: Label) -> Code {
+    return asm {
+        lsr.w   #1, d0                  // d0 = combined_half_w
+        lsr.w   #1, d2                  // d2 = combined_half_h
+
+        // pen_x = combined_half_w - abs(delta_x)
+        move.w  d1, d4                  // d4 = signed delta_x (for direction)
+        abs_w(d1)
+        sub.w   d1, d0                  // d0 = pen_x
+        ble     .sfr_done
+
+        // pen_y = combined_half_h - abs(delta_y)
+        move.w  d3, d5                  // d5 = signed delta_y (for direction)
+        abs_w(d3)
+        sub.w   d3, d2                  // d2 = pen_y
+        ble     .sfr_done
+
+        // Minimum penetration axis: pen_x vs pen_y
+        cmp.w   d2, d0
+        blo     .sfr_side               // pen_x < pen_y → side contact
+
+        // --- Vertical contact (pen_y <= pen_x) ---
+        tst.w   d5
+        bmi     .sfr_above              // player above target
+
+        // Player below target — snap below, zero y_vel if rising
+        // +1/-1 offsets keep 1px overlap so next frame's AABB check still passes
+        add.w   d3, d2                  // restore combined_half_h
+        move.w  y_pos(a3), d1
+        add.w   d2, d1                  // target.y + combined_half_h
+        subq.w  #1, d1                  // maintain contact
+        move.w  d1, y_pos(a2)
+        tst.w   y_vel(a2)
+        bpl     .sfr_done
+        clr.w   y_vel(a2)
+        rts
+
+    .sfr_above:
+        // Only a FALLING player makes top contact. For a block that is "don't
+        // snap a player rising through it"; for a spring it is additionally the
+        // whole re-fire interlock, which is why the test lives in the shared
+        // half rather than in either consumer.
+        tst.w   y_vel(a2)
+        bmi     .sfr_done               // still rising — no top contact
+        jbra    {top}
+
+    .sfr_side:
+        // Push player horizontally — subtract 1 from pen to maintain contact
+        subq.w  #1, d0
+        tst.w   d4
+        bmi     .sfr_push_left
+
+        add.w   d0, x_pos(a2)           // push right
+        clr.w   x_vel(a2)
+        rts
+
+    .sfr_push_left:
+        sub.w   d0, x_pos(a2)           // push left
+        clr.w   x_vel(a2)
+
+    .sfr_done:
+        rts
+    }
+}
+
+// -----------------------------------------------
 // Touch_Solid — AABB solid object collision response
 // Determines contact face via minimum-penetration-axis,
 // then pushes the player out and zeroes the relevant velocity.
@@ -239,46 +331,9 @@ proc Touch_Hurt (d0: u16, d1: i16, d2: u16, d3: i16, a2: *Sst, a3: *Sst) clobber
 // Clobbers: d0-d5
 // -----------------------------------------------
 proc Touch_Solid (d0: u16, d1: i16, d2: u16, d3: i16, a2: *Sst, a3: *Sst) clobbers(d0-d5) {
-        lsr.w   #1, d0                  // d0 = combined_half_w
-        lsr.w   #1, d2                  // d2 = combined_half_h
-
-        // pen_x = combined_half_w - abs(delta_x)
-        move.w  d1, d4                  // d4 = signed delta_x (for direction)
-        abs_w(d1)
-        sub.w   d1, d0                  // d0 = pen_x
-        ble     .solid_done
-
-        // pen_y = combined_half_h - abs(delta_y)
-        move.w  d3, d5                  // d5 = signed delta_y (for direction)
-        abs_w(d3)
-        sub.w   d3, d2                  // d2 = pen_y
-        ble     .solid_done
-
-        // Minimum penetration axis: pen_x vs pen_y
-        cmp.w   d2, d0
-        blo     .solid_side             // pen_x < pen_y → side contact
-
-        // --- Vertical contact (pen_y <= pen_x) ---
-        tst.w   d5
-        bmi     .solid_top              // player above target
-
-        // Player below target — snap below, zero y_vel if rising
-        // +1/-1 offsets keep 1px overlap so next frame's AABB check still passes
-        add.w   d3, d2                  // restore combined_half_h
-        move.w  y_pos(a3), d1
-        add.w   d2, d1                  // target.y + combined_half_h
-        subq.w  #1, d1                  // maintain contact
-        move.w  d1, y_pos(a2)
-        tst.w   y_vel(a2)
-        bpl     .solid_done
-        clr.w   y_vel(a2)
-        rts
+        solid_face_response(.solid_top)
 
     .solid_top:
-        // Only land if player is falling (y_vel >= 0)
-        tst.w   y_vel(a2)
-        bmi     .solid_done             // still rising — don't snap to top
-
         // Player above target — snap above, zero y_vel, set grounded
         add.w   d3, d2                  // restore combined_half_h
         move.w  y_pos(a3), d1
@@ -294,21 +349,60 @@ proc Touch_Solid (d0: u16, d1: i16, d2: u16, d3: i16, a2: *Sst, a3: *Sst) clobbe
         // never needs per-player bit selection.
         move.w  a3, interact_off()(a2)
         rts
+}
 
-    .solid_side:
-        // Push player horizontally — subtract 1 from pen to maintain contact
-        subq.w  #1, d0
-        tst.w   d4
-        bmi     .solid_push_left
+// -----------------------------------------------
+// Touch_Spring — a solid that LAUNCHES instead of being landed on.
+//
+// Side-solid and bottom-solid in exactly the sense COLLISION_SOLID is: the body
+// above this line is literally Touch_Solid's, spliced from the same template, so
+// walking into a spring from either side pushes out and kills x_vel, and jumping
+// into its underside stops a rising player. Only the TOP face differs.
+//
+// THE SPRING'S OWN y_vel IS ITS LAUNCH STRENGTH. A spring never moves, so the
+// field is free, and spending it this way means the strength rides in the
+// 26-byte ObjDef template: a second spring at a different strength is a second
+// objdef and NO new code — no init routine, no subtype decode, no custom SST
+// byte. S3K instead keeps it in $30(a0) and decodes subtype bit 1 into it at
+// spawn (sonic3k.asm:47641-47643, table at :47654-47656), which is a spawn-time
+// branch, a data field and a per-orientation entry point to say one number.
+//
+// The player's STATE is not the engine's business — the engine has no player
+// state machine — so the transition leaves through Game.spring_launched with
+// a2 = player, a3 = spring, and the game decides what airborne means for it.
+// A game that places a COLLISION_SPRING object MUST bind that hook: unbound, the
+// launch would set a velocity on a player whose own grounded state re-attaches
+// him on the next tick, i.e. a spring that visibly does nothing.
+//
+// NO COOLDOWN FIELD, AND NONE IS MISSING. The re-fire interlock is the falling
+// test inside the shared template: a launched player's y_vel is large and
+// negative for far longer than it takes to clear the box, so `bmi` refuses every
+// contact until he is on his way down again. S3K's vertical spring likewise
+// carries no timer (Obj_Spring_Up, sonic3k.asm:47659-47684, and sub_22F98,
+// :47717-47770, hold no counter between them) — its interlock is the standing
+// bit rather than the sign of y_vel, but the shape of the answer is the same.
+//
+// In:  a2 = player SST, a3 = target SST
+//      d0.w = combined_w, d1.w = signed delta_x
+//      d2.w = combined_h, d3.w = signed delta_y
+// Out: none
+// Clobbers: d0-d5 (the template's) + the hook's declared d0-d2/a0-a2
+// -----------------------------------------------
+proc Touch_Spring (d0: u16, d1: i16, d2: u16, d3: i16, a2: *Sst, a3: *Sst) clobbers(d0-d5/a0-a2) {
+        solid_face_response(.spring_top)
 
-        add.w   d0, x_pos(a2)           // push right
-        clr.w   x_vel(a2)
-        rts
+    .spring_top:
+        // Seat the player on the spring's top edge exactly as a solid would —
+        // same +1 contact bias — and only THEN write the impulse. The order
+        // matters: the hook may hand the player to an enter hook that shifts
+        // y_pos (the uncurl), and it must shift from the seated position.
+        add.w   d3, d2                  // restore combined_half_h
+        move.w  y_pos(a3), d1
+        sub.w   d2, d1                  // target.y - combined_half_h
+        addq.w  #1, d1                  // maintain contact
+        move.w  d1, y_pos(a2)
 
-    .solid_push_left:
-        sub.w   d0, x_pos(a2)           // push left
-        clr.w   x_vel(a2)
-
-    .solid_done:
+        move.w  y_vel(a3), y_vel(a2)    // THE LAUNCH — see the header
+        invoke  Game.spring_launched
         rts
 }

@@ -1,9 +1,25 @@
-// Test solid block — static platform with COLLISION_SOLID response
-// Base fields set by Load_Object from ObjDef_Solid.
-// Uses subtype as mapping_frame selector.
+// Solid level objects — the test block, and the vertical spring.
+//
+// TWO OBJECTS IN ONE FILE, AND IT IS NOT WHERE THE SPRING WANTS TO LIVE. A new
+// `.emp` module is also a new SECTION, and a new section needs a row in sigil's
+// `crates/sigil-harness/src/section_align.rs` (`required_for` returns None for an
+// undeclared head label and the caller REFUSES the build naming the section) —
+// i.e. a paired sigil landing and a rebuild of the shared `sigil` binary every
+// other lane in the suite is currently linking against. The spring is a fun
+// sidestep, not a cross-repo parcel, so it rides in the nearest already-declared
+// section instead: `test_solid`, whose head label `TestSolid_Init` MUST therefore
+// stay the first emitting item in this file (map.toml's `order` and
+// section_align both key on it). Splitting the spring into
+// `games/sonic4/objects/spring.emp` is booked in docs/DEFERRED_WORK.md.
+//
+// Base fields for both objects are set by Load_Object from their ObjDefs.
 module games.sonic4.test_solid in test_solid
 
-use engine.objects.sst.{Sst}
+use engine.objects.sst.{Sst, ObjDef}
+use engine.objects.objdef.{objdef, vram_art}
+use engine.objects.mapping_dsl.{MapPiece, MapFrame1, centered, piece}
+use engine.constants.{AF_END, AF_CHANGE, AF_SET_FIELD, COLLISION_SPRING, ST_ROLLING}
+use games.sonic4.constants.{VRAM_TEST_OBJ, PSTATE_AIR, PSTATE_AIRBALL}
 
 // -----------------------------------------------
 // TestSolid_Init — set mapping frame from subtype
@@ -35,3 +51,248 @@ pub proc TestSolid_Init (a0: *Sst) clobbers(d0-d3/a1) falls_into TestSolid_Main 
 pub proc TestSolid_Main (a0: *Sst) clobbers(d0-d3/a1) preserves(a0) {
         jbra    Draw_Sprite
 }
+
+// ===========================================================================
+// THE SPRING — S3K's vertical red spring, on this engine's own collision path
+// ===========================================================================
+// The PHYSICS is S3K's, cited below to file and line at skdisasm revision
+// 2fcd861c208f342b6d14df694c6422c74f20a4be. The CODE is not: solidity lives in
+// engine/objects/collision.emp's Touch_Spring, which splices the same
+// face-resolution template Touch_Solid does, so the side and underside faces of
+// a spring are the same code as the side and underside of a block. This file
+// holds only what is Sonic-4's: the launch's meaning for the player state
+// machine, the animation, the mapping frames and the archetype.
+//
+// WHAT IS DELIBERATELY NOT PORTED, and why:
+//   * the five-way Spring_Index subtype dispatch (sonic3k.asm:47512-47525) —
+//     only the vertical spring is in scope, and the diagonal ones are a
+//     different physics problem (they set ground_vel and flip_angle);
+//   * the `$30(a0)` launch-strength field and the subtype-bit-1 decode that
+//     fills it (:47641-47643) — the strength rides in the ObjDef's y_vel
+//     instead, so a second strength is data and not code (Touch_Spring's header
+//     carries the argument);
+//   * the 2P/Competition_mode variants and the reverse-gravity arms.
+//
+// THE THREE REFERENCE NUMBERS, quoted:
+//   launch velocity  -$1000   sonic3k.asm:47655   (word_22EF0's first entry,
+//                                                  selected by subtype bit 1
+//                                                  CLEAR at :47641-47643)
+//   fire animation   dc.b 0, 1, 0, 0, 2, 2, 2, 2, 2, 2, $FD, 0
+//                    General/Sprites/Level Misc/Anim - Spring.asm:9
+//   idle animation   dc.b $F, 0, $FF        same file:8
+//   sound            sfx_Spring = $B1        sonic3k.constants.asm:1304,
+//                                            played at sonic3k.asm:47768-47769
+//
+// A FOURTH NUMBER DOES NOT EXIST: there is no cooldown constant. S3K's vertical
+// spring holds no timer anywhere between Obj_Spring_Up (:47659-47684) and
+// sub_22F98 (:47717-47770); re-firing is interlocked by the contact test alone.
+// Ours is interlocked the same way — see Touch_Spring's header.
+//
+// THE SOUND IS NOT WIRED, and the omission is loud rather than quiet: sfx $B1 is
+// not in this game's SFX bank, and adding it is a multi-commit lane, not a
+// constant (the transcoder refuses `smpsModOff`, which no shipped SFX uses; and
+// any byte added to the SFX bank blob moves the ROM and takes sigil's
+// repin/refreeze ritual). Booked in docs/DEFERRED_WORK.md. When it lands, the
+// spring needs no code change: an `AF_SOUND, SFXID_SPRING` pair goes in front of
+// the fire script's first frame byte and the animator plays it exactly once per
+// launch, because the launch is what restarts the script.
+// ===========================================================================
+
+// The launch impulse, 8.8 fixed point (-$1000 = -16.0 px/frame). Rides in the
+// ObjDef's y_vel — see Touch_Spring.
+pub const SPRING_RED_VELOCITY    = -$1000       // sonic3k.asm:47655
+// The yellow spring's, from the same two-entry table. NOTED, NOT PLACED: no
+// yellow spring exists yet, and this is here so that adding one is visibly a
+// second `objdef(...)` with a different y_vel rather than a new number to go
+// and look up.
+pub const SPRING_YELLOW_VELOCITY = -$A00        // sonic3k.asm:47656
+
+// Animation ids, indexing Ani_Spring's offset table.
+pub const SPRING_ANIM_IDLE = 0
+pub const SPRING_ANIM_FIRE = 1
+
+// Mapping frame ids, indexing Map_Spring.
+const SPRING_FRAME_IDLE   = 0
+const SPRING_FRAME_SQUASH = 1
+const SPRING_FRAME_EXTEND = 2
+
+// -----------------------------------------------
+// Spring_Launched — bound to Game.spring_launched (config/game.emp).
+//
+// Touch_Spring has already seated the player on the spring's top edge and
+// written the impulse into his y_vel. What is left is the two things only the
+// game can say: that he is now airborne, and that the spring should visibly
+// react.
+//
+// In:  a2 = player SST, a3 = spring SST
+// Out: none (tail-jumps Player_SetState)
+// Clobbers: d0-d2, a0-a2 — the hook's declared bound: d0 carries the state,
+//   a0 carries the player into Player_SetState's slot, and Player_SetState
+//   itself clobbers d1-d2/a1-a2 (its own plus its enter hook's).
+// -----------------------------------------------
+pub proc Spring_Launched (a2: *Sst, a3: *Sst) clobbers(d0-d2/a0-a2) {
+        // Restart the fire animation. Writing `anim` ALONE is not enough and the
+        // bug it would hide is subtle: AnimateSprite's change detection is
+        // `anim != prev_anim`, so a spring hit again while still playing its
+        // extend frames would take the unchanged path and simply carry on from
+        // wherever it was — the second bounce would launch the player silently,
+        // with no visible spring motion. S3K forces the same restart in one word
+        // write because its anim/prev_anim are adjacent (sonic3k.asm:47718,
+        // `move.w #1<<8, anim(a0)`); ours sit at $18 and $20, so it is two byte
+        // writes that say what they mean.
+        move.b  #SPRING_ANIM_FIRE, Sst.anim(a3)
+        move.b  #$FF, Sst.prev_anim(a3)
+
+        // PSTATE_AIR or PSTATE_AIRBALL, NEVER PSTATE_JUMP. The pair
+        // {PSTATE_JUMP, PSTATE_ROLLJUMP} is this engine's exact equivalent of
+        // S3K's `jumping` byte, and it is what grants Sonic the insta-shield;
+        // player_instashield.emp enumerates every writer of player_state to
+        // establish that, and names THIS site — "springs, badnik bounces and
+        // knockback ... when they are built they must install PSTATE_AIR /
+        // PSTATE_AIRBALL" — as the one that would break it. S3K agrees from the
+        // other side: sub_22F98 does `clr.b jumping(a1)` (sonic3k.asm:47728).
+        //
+        // Curl is PRESERVED across the launch: S3K's launcher never touches its
+        // rolling status bit either, and keeping it spares a rolling player the
+        // uncurl y-shift PHook_EnsureStanding would otherwise apply on top of
+        // the seat Touch_Spring just wrote. Same one-decision shape as
+        // Ground_DetachState (player_ground.emp).
+        moveq   #PSTATE_AIR, d0
+        btst    #ST_ROLLING, Sst.status(a2)
+        beq     .set_state
+        moveq   #PSTATE_AIRBALL, d0
+    .set_state:
+        movea.l a2, a0                  // Player_SetState takes the player in a0
+        jbra    Player_SetState
+}
+
+// -----------------------------------------------
+// Spring_Main — animate and draw. Solidity and the launch are TouchResponse's
+// (engine/objects/collision.emp), exactly as TestSolid_Main's are, so this is
+// the same two-call body plus the animator.
+//
+// In:  a0 = own SST
+// Clobbers: d0-d3, a1-a2 — AnimateSprite (d0-d2/a1-a2) union Draw_Sprite
+//   (d0-d3/a1).
+// -----------------------------------------------
+pub proc Spring_Main (a0: *Sst) clobbers(d0-d3/a1-a2) preserves(a0) {
+        jbsr    AnimateSprite
+        jbra    Draw_Sprite
+}
+
+// -----------------------------------------------
+// Mapping frames.
+//
+// ART: NONE OF ITS OWN — these three frames draw out of the resident test-object
+// block at VRAM_TEST_OBJ, the same 8 tiles ObjDef_Solid / ObjDef_Static /
+// ObjDef_PathSwap already draw from, so the spring costs ZERO new VRAM. That is
+// not the art anyone wants and it is not a silent substitution: S3K's vertical
+// spring needs 12 tiles (the union of frames 0/1/2 in Map - Spring.asm — tiles
+// 0-3, 8-9 and $A-$F of its 16-tile block at art base $4A4), and
+// games/sonic4/vram.toml has exactly ONE free tile in the whole 2048-tile map
+// (the [[free]] run at base 959). The numbers, the carve options and the
+// recommendation are in docs/DEFERRED_WORK.md; a real spring sheet is a
+// vram.toml edit plus a regenerate, and only these three lines change here.
+//
+// The three frames are the two colour squares of that block read as spring
+// states: idle sits centred, squash swaps colour and sinks 4px, extend swaps
+// back and lifts 12px. Distinct enough to see the object fire from across the
+// screen, which is what the frames are for until the art exists.
+const SPRING_TILE_A = 0                 // test block's first 16x16 square (tiles 0-3)
+const SPRING_TILE_B = 4                 // its second colour (tiles 4-7)
+
+pub offsets Map_Spring {
+    Idle: MapFrame1 = MapFrame1{
+        x_min: -8, x_max: 8, y_min: -8, y_max: 8, piece_count: 1,
+        piece: piece(x: -8, y: -8, w: 2, h: 2, tile: SPRING_TILE_A) },
+    Squash: MapFrame1 = MapFrame1{
+        x_min: -8, x_max: 8, y_min: -4, y_max: 12, piece_count: 1,
+        piece: piece(x: -8, y: -4, w: 2, h: 2, tile: SPRING_TILE_B) },
+    Extend: MapFrame1 = MapFrame1{
+        x_min: -8, x_max: 8, y_min: -20, y_max: -4, piece_count: 1,
+        piece: piece(x: -8, y: -20, w: 2, h: 2, tile: SPRING_TILE_A) },
+}
+
+// -----------------------------------------------
+// Animation scripts.
+//
+// IDLE — S3K byte_2372E, `dc.b $F, 0, $FF`: hold frame 0 for $F+1 frames, loop.
+// The trailing pad byte is NEVER READ (AF_END restarts the script from byte 1
+// before the cursor could reach it); it is there so this item is EVEN-sized and
+// the MapFrame1 records above stay word-aligned whatever order the placer packs
+// them in. Stated rather than left as a mystery byte.
+const SPRING_IDLE_SCRIPT: [u8; 4] = [$F, SPRING_FRAME_IDLE, AF_END, 0]
+
+// FIRE — S3K byte_23731 transcribed, Anim - Spring.asm:9:
+//   dc.b 0, 1, 0, 0, 2, 2, 2, 2, 2, 2, $FD, 0
+// Duration 0 = one display frame per entry (both S3K's Animate_Sprite and this
+// engine's show a frame for duration+1 frames), so: squash for 1, idle for 2,
+// extend for 6, then AF_CHANGE back to the idle animation. Nine display frames
+// of visible reaction, which is also how long the spring looks busy — but NOT
+// how long it is busy: nothing in the fire path blocks a re-launch, in S3K or
+// here. The interlock is the falling test in Touch_Spring.
+const SPRING_FIRE_SCRIPT: [u8; 12] = [
+    0,
+    SPRING_FRAME_SQUASH,
+    SPRING_FRAME_IDLE, SPRING_FRAME_IDLE,
+    SPRING_FRAME_EXTEND, SPRING_FRAME_EXTEND, SPRING_FRAME_EXTEND,
+    SPRING_FRAME_EXTEND, SPRING_FRAME_EXTEND, SPRING_FRAME_EXTEND,
+    AF_CHANGE, SPRING_ANIM_IDLE,
+]
+
+// The reference's display-frame count, re-derived from OUR bytes rather than
+// asserted: count the frame bytes after the duration byte and multiply by the
+// hold. S3K's script shows 9 x (0+1) = 9. A transcription that dropped or
+// duplicated a frame byte fails here by name, which is the failure this guard
+// exists for — the bytes above are hand-copied from a listing.
+pub const S3K_SPRING_FIRE_FRAMES = 9    // frame bytes in Anim - Spring.asm:9
+pub const S3K_SPRING_FIRE_HOLD   = 0    // its duration byte
+
+// Count frame bytes from byte 1 up to the FIRST control code, then multiply by
+// the hold. Stopping at the control code is the load-bearing part: this script's
+// terminator is the two-byte `AF_CHANGE, id` pair, and the id is an ORDINARY
+// byte value ($00) that a bare "is it below the control threshold" test counts
+// as a tenth frame. It did, on the first build of this file — the guard below
+// fired with 10-vs-9 before this `live` flag existed, which is the only reason
+// the count is right now. (ring_sparkle's equivalent has no such flag because
+// its terminator, AF_DELETE, carries no argument.)
+//
+// Flat accumulators over STATEMENT ifs, never a nested if-expression
+// (docs/EMP_PITFALLS.md §1 — the silent unit fold).
+comptime fn spring_display_frames(script: [u8; 12]) -> int {
+    comptime var frames = 0
+    comptime var live = 1
+    for i in 1..12 {
+        if script[i] >= AF_SET_FIELD { live = 0 }      // $F7+ = control/event
+        if live == 1 { frames = frames + 1 }
+    }
+    return frames * (script[0] + 1)
+}
+
+ensure(spring_display_frames(SPRING_FIRE_SCRIPT) == S3K_SPRING_FIRE_FRAMES * (S3K_SPRING_FIRE_HOLD + 1),
+       "the spring's fire script shows {spring_display_frames(SPRING_FIRE_SCRIPT)} display frames; S3K's Ani_Spring anim 1 shows {S3K_SPRING_FIRE_FRAMES * (S3K_SPRING_FIRE_HOLD + 1)} (9 frame bytes at duration 0) — re-derive the script from Anim - Spring.asm:9, do not retune the reference")
+ensure(SPRING_FIRE_SCRIPT[10] == AF_CHANGE && SPRING_FIRE_SCRIPT[11] == SPRING_ANIM_IDLE,
+       "the fire script must end by switching back to the idle animation — AF_CHANGE to any other id, or a missing terminator, leaves the spring stuck extended")
+ensure(SPRING_IDLE_SCRIPT[2] == AF_END,
+       "the idle script must LOOP — without the terminator the animator walks off the end of the script into the fire script's bytes")
+
+pub offsets Ani_Spring {
+    Idle: [u8; 4]  = SPRING_IDLE_SCRIPT,        // SPRING_ANIM_IDLE
+    Fire: [u8; 12] = SPRING_FIRE_SCRIPT,        // SPRING_ANIM_FIRE
+}
+
+// -----------------------------------------------
+// The archetype. width/height are the FULL box (the AABB combines
+// player.width + target.width and halves the sum), so 16x16 is the spring's own
+// 16x16 footprint — the same box ObjDef_Solid declares, and the same 16px width
+// S3K's Obj_Spring_Up reaches through `move.w #$1B, d1` = its 16px width plus
+// Sonic's 11px radius (sonic3k.asm:47507, :47660).
+//
+// y_vel IS THE LAUNCH STRENGTH — Touch_Spring reads it out of the spring and
+// writes it into the player. The spring itself never moves: nothing in
+// Spring_Main integrates velocity.
+// -----------------------------------------------
+pub data ObjDef_Spring: ObjDef = objdef(
+    code: "Spring_Main", map: "Map_Spring", art: vram_art(VRAM_TEST_OBJ),
+    priority: 3, width: 16, height: 16, collision: COLLISION_SPRING,
+    y_vel: SPRING_RED_VELOCITY, anim_table: extern("Ani_Spring"))

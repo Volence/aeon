@@ -51,8 +51,36 @@ pub comptime fn centered(half: int, w: int where 1..4, h: int where 1..4, tile: 
     }
 }
 
+// One piece at an EXPLICIT offset from the object's origin — the general form
+// that `centered` is the symmetric special case of. w/h are cell counts (8px);
+// `tile` is the attribute word the render loop ADDS to the object's art_tile, so
+// flip bits belong in it (sprites.emp tile_term). The `link` byte is a pad here
+// exactly as it is in `centered`: the SAT writer overwrites it with its own
+// chain counter (sprites.emp size_link).
+//
+// Wanted by any frame whose art does not sit centred on the object's origin — a
+// spring's squash frame sinks 4px and its extend frame lifts 12px off the same
+// origin, and neither is expressible through `centered(half:)`.
+pub comptime fn piece(x: int, y: int, w: int where 1..4, h: int where 1..4, tile: int) -> MapPiece {
+    return MapPiece{
+        y_off: y,
+        size:  ((w - 1) << 2) | (h - 1),
+        link:  0,
+        tile:  tile,
+        x_off: x,
+    }
+}
+
 // A non-square witness locks the packing orientation: every live caller is
 // square (where the swap is invisible), so this is the one guard that makes a
 // width/height transposition a build error instead of a CRC-silent latent bug.
 ensure(centered(half: 8, w: 2, h: 1, tile: 0).piece.size == 0b0100,
        "sprSize must pack (w-1) in bits 3:2 and (h-1) in bits 1:0")
+
+// The same witness against `piece`, spelled INDEPENDENTLY rather than by
+// comparing the two constructors to each other: they pack the size byte with two
+// separate expressions, so a transposition introduced in one has to fail on its
+// own terms. A constructor-vs-constructor guard would go green if both drifted
+// the same way, which is how a shared-helper refactor silently voids a guard.
+ensure(piece(x: 0, y: 0, w: 2, h: 1, tile: 0).size == 0b0100,
+       "piece() must pack (w-1) in bits 3:2 and (h-1) in bits 1:0, as centered() does")
