@@ -26396,3 +26396,35 @@ distinguished by exactly those counters.
 --gsp 0x1000 --force-gsp --frames 600`, placed so the TILT POPULATION control it now prints
 reports non-zero tilted samples. A run whose census says `TILTED ... samples=0` is vacuous
 for F7 and must not be reported as a clean result.
+
+---
+
+### F7: the "animation that does not exist" is refuted, and a latent hazard is not - 2026-09-05
+
+**His hypothesis, verbatim: "it seems like sprites jumble occasionally just walking there like it's
+maybe going to an animation that doesn't exist?"** Checkable statically, and it does not hold today.
+
+`Player_ApplyTilt` computes `mapping_frame = untilted_frame + (block << shift)`, block 0..3, shift
+3 for walk and 2 for run. Every walk and run script in the tree lies inside block 0, so the tilt
+cannot index outside its designed span:
+
+    walk scripts (sonic, tails, knuckles):  7 8 1 2 3 4 5 6   all in $01..$08, max tilted $20
+    run scripts  (sonic, tails, knuckles):  $21 $22 $23 $24   all in $21..$24, max tilted $30
+
+Designed spans are `$01..$20` and `$21..$30`, both inside the 224 frames that exist. **The frame
+index cannot leave the table.**
+
+**THE LATENT HAZARD THAT IS NOT COVERED, and it is one edit away.** The four `ensure`s at
+`player_common.emp:253-259` pin the CONSTANTS' relationship to each other. **Nothing pins that a
+SCRIPT's frames lie inside block 0.** Add frame `9` to a walk script and `9 + 24 = $21`, which is a
+RUN frame: real art, wrong art, silently. That is the bitmask-spare-capacity shape - an index that
+looks free is not free once something else consumes the range. Worth one comptime `ensure` per
+script; not built here because the live defect has priority.
+
+**WHAT THE CHECK ACTUALLY TURNED UP, which is better than the hypothesis.** A block transition
+changes `mapping_frame` by 8 in one frame, so it re-enqueues the WHOLE DPLC set rather than a
+delta, and the tilt blocks are the 9- and 10-entry rungs against block 0's 8. **Block transitions
+happen exactly when the ground angle crosses a boundary, which is exactly "walking up or down a
+slope", and they are occasional rather than every frame** - which is his word for the symptom. That
+is the population the next arm must drive, and it is narrower than "any slope": the interesting
+frames are the crossings, not the slope.

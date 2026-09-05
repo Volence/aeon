@@ -855,19 +855,37 @@ pub comptime fn perspective_floor_layers() -> [SceneLayer; 16] {
              // screen. 1_8 puts the landing at the halfway mark with ~800 px of
              // clean travel ahead of it.
              //
-             // The cost is scroll RATE: the floor's near row now moves at an
-             // EIGHTH of the camera rate (FACTOR_1_8, the value actually
-             // shipped below). This said "a quarter" until 2026-09-05: it was
-             // left over from the FACTOR_1_4 candidate the paragraph above
-             // rejects, and it is the one line a reader would use to judge
-             // whether the trade is worth it. The fan's GEOMETRY does not care —
-             // the apex stays on the centre column for any F, because the art's
-             // period and the ramp are both linear in the depth row and only
-             // their ratio matters. Move this one identifier along
-             // FACTOR_1/1_2/1_4/1_8 to trade rate against clean travel
-             // (192/389/768/1557 px). Nothing else has to change with it.
+             // 1_8 -> 1_32, 2026-09-05, ON THE OWNER'S WORD, and it retires the
+             // whole paragraph above rather than adjusting it. That paragraph
+             // treated the wrap as a range to be MAXIMISED and picked the
+             // largest factor whose clean range beat the lab's landing camera.
+             // It never asked the question that dissolves it: what factor makes
+             // the clean range exceed the ACT?
+             //
+             // OJZ act 1 is GRID_W 3 * SECTION_SIZE $800 = 6144 px with a camera
+             // range of 5824. The clean range is 192/F, so:
+             //     1_8   1536 px   covers 26% of the act
+             //     1_16  3072 px   covers 53%
+             //     1_32  6144 px   covers 100%
+             // At 1_32 the window sweeps 502 px over the whole act, which is
+             // under the 512 px plane, SO THE WRAP NEVER REACHES THE SCREEN
+             // ANYWHERE. That is his reported defect gone for ZERO TILES, and
+             // no-repeat art (option B, costed in
+             // docs/witness/floor-art-period-costing-2026-09-05.md) would not
+             // have fixed it: the wrap re-shows the SAME 512 px, so unique
+             // tiles inside one copy do not remove the second copy.
+             //
+             // THE COST IS SCROLL RATE, stated plainly: the floor's near row now
+             // moves at a THIRTY-SECOND of the camera rate, k about 0.32 px/row
+             // at camera 736 against 1.28 before. He accepted that trade knowing
+             // it ("budgets don't matter right now, this is just a test").
+             // The fan's GEOMETRY does not care: the apex stays on the centre
+             // column for any F, because the art's period and the ramp are both
+             // linear in the depth row and only their ratio matters. Move this
+             // one identifier along FACTOR_1/1_2/1_4/1_8/1_16/1_32 to trade rate
+             // against clean travel (192/389/768/1557/3072/6144 px).
              layer(world_y: 440, fa: FACTOR_1, fb: FACTOR_0, dsa: 15, dsb: 15,
-                   curve: SceneCurve.To(FACTOR_1_8)),
+                   curve: SceneCurve.To(FACTOR_1_32)),
              no_layer(), no_layer(), no_layer(),
              no_layer(), no_layer(), no_layer(), no_layer(),
              no_layer(), no_layer(), no_layer(), no_layer() ]
