@@ -1,0 +1,39 @@
+{
+  "_what": "Condition (a) verification of the direction-keyed crossover rule, on the merged tree e99b9d54 (s4.debug.bin 845638). This is the [TAG-RUNTIME] the implementing agent left for me.",
+  "_instrument_caveat": "The watchpoint hit ring SURVIVES a ROM reload and a reset. My first read returned frames 397/655 from watchpoints of a PREVIOUS build and would have been read as this run's toggles. Hits must be filtered by watch handle AND by frame >= the run's start frame. Recorded because it produced a plausible wrong answer, not an error.",
+  "runs": [
+    {
+      "id": "leftward",
+      "label": "enter from the RIGHT moving left at $600 — HIS reported direction",
+      "start": {"x": 1230, "y": 556, "layer": 0, "gsp": "-$600"},
+      "frames": 150,
+      "toggles": 0,
+      "end": {"x": 639, "y": 829, "layer": 0},
+      "arcs_ridden": "NONE",
+      "verdict": "FAILS condition (a)",
+      "why": "The rule correctly refuses XOVER_TO_B when moving left. But the first arc a rightward-entering... i.e. a LEFTWARD-TRAVELLING player meets is the RIGHT arc, and the right arc is solid ONLY on plane B. Refusing the cross means he cannot ride it: he passes under the loop, exits west, and drops into the pit at x639/y829. He ends on plane A, which satisfies the exit-plane half of (a) while riding no arc at all."
+    },
+    {
+      "id": "rightward",
+      "label": "enter from the LEFT moving right at $600",
+      "start": {"x": 1120, "y": 556, "layer": 0, "gsp": "+$600"},
+      "frames": 180,
+      "toggles": 1,
+      "toggle_detail": {"frame": 484, "pc": "0x000101F8", "symbol": "Player_LoopCrossover.fire", "value": "0 -> 1"},
+      "end": {"x": 1184, "y": 515, "layer": 1, "gsp": 0, "x_vel": -508},
+      "arcs_ridden": "the RIGHT arc, on plane B — correct",
+      "verdict": "INCOMPLETE, not refuted",
+      "why": "y 515 is above the ground (556), so he did climb the right arc on the plane where it is solid. But gsp decayed to 0 and he is sliding back. 180 frames did not complete a circuit, so this run says nothing about the apex mark or the exit plane."
+    }
+  ],
+  "_my_error": {
+    "what": "I told aurora that a leftward entrant 'climbs the LEFT arc, which is solid on A', and used that to rule that their 240-tile half-assignment did not need to move.",
+    "why_wrong": "Geometrically wrong. Entering from the RIGHT and travelling left, the first arc met is the RIGHT one. The left arc is what you descend at the END of that circuit, not what you climb at its start.",
+    "consequence": "The half-assignment ruling still holds — the split is unchanged either way — but it held for a reason I stated incorrectly. Aurora asked exactly the right question ('is the half he then climbs solid on it?') and I answered it about the wrong arc."
+  },
+  "_hypothesis_not_tested": {
+    "claim": "With the both-planes ground fix already landed, the OLD plane-keyed rule may produce a CORRECT leftward circuit: cross to B at bottom-centre, ride the right arc on B, apex to A, descend the left arc on A, exit on A.",
+    "status": "NOT TESTED. The westward fall that made the old rule look broken was the A-only ground, which is now fixed, so the old rule has never been evaluated against fixed ground.",
+    "how_to_test": "revert only the direction gate on a scratch branch, rebuild, and drive the same two circuits against the same fixed ground."
+  }
+}
