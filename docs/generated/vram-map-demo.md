@@ -11,7 +11,8 @@ Do not edit; edit the TOML and regenerate.
 | 992-995 | demo_obj | window | boot | games.demo.demo_state | VRAM_DEMO_OBJ |  |
 | 996-996 | ring_placeholder | window | boot | engine.objects.rings | sigil-D:VRAM_RING_PLACEHOLDER |  |
 | 997-1023 | FREE |  |  |  |  |  |
-| 1024-1471 | bg_region | arena | act | engine.bg | engine-tiles:BG_TILE_CAPACITY, engine-bytebase:BG_TILE_BASE_VRAM |  |
+| 1024-1423 | bg_region | arena | act | engine.bg | engine-tiles:BG_TILE_CAPACITY, engine-bytebase:BG_TILE_BASE_VRAM |  |
+| 1424-1471 | waterline_strips | window | act | engine.bg_anim | engine-bytebase:VRAM_WATERLINE_STRIPS |  |
 | 1472-1491 | sprite_table | table | boot | engine.system.buffers | engine-bytebase:VRAM_SPRITE_TABLE |  |
 | 1492-1503 | FREE |  |  |  |  |  |
 | 1504-1531 | hscroll_table | table | boot | engine.system.buffers | engine-bytebase:VRAM_HSCROLL_TABLE |  |

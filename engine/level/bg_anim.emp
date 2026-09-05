@@ -346,3 +346,138 @@ pub proc BgAnim_Update () clobbers(d0-d7/a1-a4) {
         movem.l (sp)+, a3-a4
         rts
 }
+
+// =====================================================================
+// THE HYDROCITY WATERLINE'S ART HALF — EFFECTS-W1 item 9d
+// =====================================================================
+//
+// The row remap has two halves and they are the same permutation applied to two different
+// things. engine/level/parallax.emp's `.lp_remap` permutes plane-B SCROLL words; this
+// permutes PIXEL ROWS out of a ROM image into a fixed VRAM run. S3K runs both every frame
+// off one published quantity — `HCZ1_Deform` (sonic3k.asm:105849) and `loc_278C6` (:53981),
+// both indexing one ladder by `Events_bg+$10`. Here that publication is
+// `Waterline_Art_Row`, and it is the ladder ROW POINTER rather than the quantity, so this
+// file carries no copy of the p derivation and cannot disagree with the pass about which
+// row is selected.
+//
+// WHY THIS IS NOT A BgAnim BAND, ruled by arithmetic and booked so nobody re-derives it:
+// BgAnim precomputes EIGHT phase banks and rotates between them. The waterline has H+1 = 17
+// states here (97 in S3K), CONTINUOUSLY selected by a camera quantity, and eight banks
+// cannot express seventeen. Widening the bank set is not affordable either — at the d-9 ROM
+// ceiling a new band caps at 15 tiles. A row gather costs 32*H bytes of ROM (512 here)
+// against 8 * tiles * 32 for a strictly worse result. It lives in THIS file anyway because
+// the DMA shape is BgAnim_Update's, which is the part worth sharing.
+//
+// THE NAMETABLE IS NEVER WRITTEN, in either half — design section 1.5 states this as a
+// prohibition because the booking's own name ("row remap") reads as a nametable effect and
+// the primary source writes zero nametable words. A plane cell pointing at these tiles sees
+// the strip change under it; nothing here moves a cell.
+//
+// GEOMETRY. Source: 2 strips x 2H rows x 8 bytes-per-16px-row, flat and row-major.
+// Destination: 2 strips x 2 tile columns x H rows x 4 bytes, COLUMN-major, because that is
+// what a vertical run of 8x8 tiles is in VRAM. The gather is the transpose between them,
+// which is why it carries two write cursors against one read cursor. The four tile runs land
+// in VRAM in the order (strip0 col0, strip0 col1, strip1 col0, strip1 col1), each column a
+// contiguous H/8 tiles — so a plane placing the ABOVE strip draws tiles
+// VRAM_WATERLINE_STRIPS + 0..H/8-1 down its left cell column and + H/8..2H/8-1 down its
+// right one.
+use engine.level.scene_dsl.{CAP_ROW_REMAP}
+use engine.level.parallax_dsl.{WATERLINE_H, WATERLINE_STRIPS, WATERLINE_ROW_BYTES,
+                               WATERLINE_SRC_BYTES, WATERLINE_DST_BYTES, WATERLINE_TILES}
+use engine.constants.{VRAM_WATERLINE_STRIPS}
+
+// The three strides the loop needs, each DERIVED from the geometry above and each spelled
+// once. A selective `use` of a constant is SILENT when the name does not resolve
+// (docs/EMP_PITFALLS.md section 2 — loud on functions, silent on constants), so the pins
+// below are not decoration: a mis-spelled import lands here as 0 and the ensures catch it.
+const WL_COL_BYTES       = WATERLINE_H * 4                      // one dest tile column: 64
+const WL_SRC_STRIP_BYTES = 2 * WATERLINE_H * WATERLINE_ROW_BYTES // one source strip: 256
+const WL_DST_STRIP_BYTES = WATERLINE_H * WATERLINE_ROW_BYTES     // one dest strip: 128
+ensure(WATERLINE_H == 16 && WATERLINE_ROW_BYTES == 8 && WATERLINE_STRIPS == 2,
+       "the waterline geometry imported from engine/level/parallax_dsl.emp is H = {WATERLINE_H}, row = {WATERLINE_ROW_BYTES} B, strips = {WATERLINE_STRIPS} — expected 16 / 8 / 2. A zero here is the SILENT failure mode of a selective constant import, not a geometry change")
+// THE RESERVATION GUARD, and it reads the RAM layout rather than a mirror constant. The
+// buffer's declared span is Waterline_Art_Buffer .. Waterline_Art_State_End (engine/ram.emp
+// marks both), so this compares what was RESERVED against what the loop below WRITES. A
+// short reservation is not a smaller effect — the gather writes the derived size regardless
+// and the overrun lands in whatever engine/ram.emp placed after it.
+ensure(extern("Waterline_Art_State_End") - extern("Waterline_Art_Buffer") == WATERLINE_DST_BYTES,
+       "engine/ram.emp reserves {extern(\"Waterline_Art_State_End\") - extern(\"Waterline_Art_Buffer\")} bytes for Waterline_Art_Buffer but the geometry needs {WATERLINE_DST_BYTES}. WATERLINE_ART_BYTES in engine/ram.emp is the one number a change to H has to move on that side")
+ensure(WL_SRC_STRIP_BYTES * WATERLINE_STRIPS == WATERLINE_SRC_BYTES,
+       "the source strip stride ({WL_SRC_STRIP_BYTES}) times {WATERLINE_STRIPS} strips is not the emitted image size ({WATERLINE_SRC_BYTES}) — the gather would walk off the end of the game's art on the last strip")
+// $B800 spelled as a literal, not as the imported VRAM_SPRITE_TABLE, for the reason the pin
+// block above gives: a guard that can pass by having its bound resolve to nothing is worse
+// than no guard. engine/system/constants.emp holds the real one and carries its own ensure.
+const VRAM_SAT_PIN = $B800
+ensure(VRAM_WATERLINE_STRIPS + WATERLINE_DST_BYTES <= VRAM_SAT_PIN,
+       "the waterline DMA ({WATERLINE_DST_BYTES} B at {VRAM_WATERLINE_STRIPS}) runs past {VRAM_SAT_PIN} and would overwrite the sprite attribute table")
+
+// -----------------------------------------------
+// Waterline_Art_Update — row-gather the two waterline strips and DMA them.
+//
+// CALL CONTRACT: once per frame, AFTER Parallax_Update (which is what publishes
+// Waterline_Art_Row) and, like BgAnim_Update, BEFORE VSync_Wait — deferrable entries drain
+// only in VInt_Level, which cannot run until VBlank_Ready is set, so the enqueue needs no
+// interrupt bracket. There is only one enqueue here, so BgAnim_Update's pair-atomicity
+// paragraph does not apply.
+//
+// In:  a0 = the GAME's waterline source image. It is an argument and not a well-known
+//           symbol (BgAnim_Table's shape) so that a game without a waterline emits no art
+//           at all: demo would otherwise have to supply 512 bytes it can never show.
+// Out: none
+// Clobbers: d0-d4, a0-a5 (d0-d4/a1-a2 of that is QueueDMA_Deferrable's own license)
+//
+// COST. The gather is 2 strips x H lines of {moveq, move.b, lsl, two move.l} — about 70
+// cycles a line, ~2,240 cycles a frame at H = 16, and ONLY on frames where the published
+// row changed. Standing still costs one long compare and a branch. That guard is S3K's
+// (`cmp.w (a3),d1 / beq`, :53984) and it is why the art half can be ~9x the scroll half's
+// per-line cost and still not matter.
+// -----------------------------------------------
+pub proc Waterline_Art_Update (a0: *u8) clobbers(d0-d4/a0-a5) {
+    if (Game.SCANLINE_CAPS & CAP_ROW_REMAP) != 0 {
+    .cap_row_remap_art_begin:
+        move.l  Waterline_Art_Row, d0           // (Waterline_Art_Row).w — &ladder[row][0]
+        beq     .exit                           // 0 = no band remapped this frame
+        cmp.l   Waterline_Art_LastRow, d0       // (Waterline_Art_LastRow).w
+        beq     .exit                           // unchanged since last frame -> do nothing
+        movea.l d0, a1                          // a1 = the ladder row (re-read per strip)
+        movea.l d0, a5                          // a5 = the commit value; QueueDMA eats d0
+
+        lea     Waterline_Art_Buffer, a2        // (Waterline_Art_Buffer).w — dest cursor
+        moveq   #WATERLINE_STRIPS-1, d4
+    .strip:
+        movea.l a1, a3                          // ladder row cursor for THIS strip
+        lea     WL_COL_BYTES(a2), a4            // a4 = tile column 1's write cursor
+        move.w  #WATERLINE_H-1, d3
+    .line:
+        moveq   #0, d1                          //  4
+        move.b  (a3)+, d1                       //  8   the ladder entry, 0 .. 2H-1
+        lsl.w   #3, d1                          // 12   x 8 = the source row stride
+        move.l  (a0,d1.w), (a2)+                // 24   px 0..7  -> tile column 0
+        move.l  4(a0,d1.w), (a4)+               // 28   px 8..15 -> tile column 1
+        dbf     d3, .line                       // 10   ~ 86 cycles per line
+        // a2 has advanced exactly one tile column and a4 sits one past the strip, so a4 IS
+        // the next strip's dest base. Not an optimisation — writing `lea` arithmetic here
+        // instead would be a second expression of the same stride.
+        movea.l a4, a2
+        lea     WL_SRC_STRIP_BYTES(a0), a0
+        dbf     d4, .strip
+
+        // ONE DMA for both strips. The four tile columns are contiguous in the buffer and
+        // contiguous in VRAM, so the split S3K makes (two runs, $2DC and $2F4) buys nothing
+        // here — its two runs are not adjacent in HCZ's own tile map, ours are.
+        lea     Waterline_Art_Buffer, a1
+        move.l  a1, d1                          // src
+        move.w  #VRAM_WATERLINE_STRIPS, d2      // dest (byte address)
+        move.w  #WATERLINE_DST_BYTES, d3        // length
+        jbsr    QueueDMA_Deferrable
+        bcs     .exit                           // queue full: LastRow uncommitted, so the
+                                                // whole gather is redone next frame. The
+                                                // buffer rebuild is idempotent, which is why
+                                                // this needs no unwind (BgAnim's .queue_full
+                                                // exists to pop a stack spill this has none of)
+        move.l  a5, Waterline_Art_LastRow       // commit only after the transfer is accepted
+    .exit:
+    .cap_row_remap_art_end:
+    }
+        rts
+}

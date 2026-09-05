@@ -839,3 +839,14 @@ pub data ParallaxConfig_Perspective_Floor:    SceneCfg5 = lower5(SCENES[20])
 // tables above use, and for the same reason: a Label's bytes are not comptime readable, so
 // the equivalence witness needs the array VALUE to have an importable name.
 pub data RowRemapLadder_Waterline16:          [u8; 272] = SceneSrc_RowRemapLadder_Waterline16
+
+// ...and the ART the same ladder row indexes (EFFECTS-W1 item 9d), immediately after it and
+// last in the module for the reason the ladder's own banner gives: appended after every
+// emitted record, it moves no address any `pcfg_deform_table_*` word points at.
+//
+// IT IS HERE AND NOT IN AN ART FILE BECAUSE THE LADDER IS HERE. These 512 bytes and the 272
+// above are indexed by the SAME row pointer in the same frame — `Waterline_Art_Update`
+// (engine/level/bg_anim.emp) walks the ladder row this file emits across the image this file
+// emits — and splitting a pair that is read together into two placement units buys nothing
+// and lets one move without the other.
+pub data WaterlineStripArt:                   [u8; 512] = SceneSrc_WaterlineStripArt

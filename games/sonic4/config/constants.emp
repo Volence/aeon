@@ -29,6 +29,7 @@ use engine.constants.{VRAM_SPRITE_TABLE, VRAM_HSCROLL_TABLE, MAX_VDP_SPRITES}
 // The generated vram-map block's authority cross-checks reference these engine
 // names (gen_vram_map.py emits the ensures; the imports are hand-owned here):
 use engine.constants.{POOL_TILE_CEILING, BG_TILE_CAPACITY, BG_TILE_BASE_VRAM,
+                      VRAM_WATERLINE_STRIPS,
                       VRAM_PLANE_A, VRAM_PLANE_B, VRAM_WINDOW}
 
 // Game state ids
@@ -500,8 +501,9 @@ pub const VRAM_DEBUG_BGANIM_TAG   : VramTile = $05DD   // debug_bganim_tag: tile
 pub const VRAM_DEBUG_RASTER_TAG   : VramTile = $05FC   // debug_raster_tag: tiles 1532..1535 (4), mode, owner games.sonic4.ojz_scroll_test
 // Authority cross-checks — the engine constant vs the declared map:
 ensure(POOL_TILE_CEILING == 768, "vram.toml fg_art_pool drifted from engine POOL_TILE_CEILING — edit games/sonic4/vram.toml and regenerate")
-ensure(BG_TILE_CAPACITY == 448, "vram.toml bg_region drifted from engine BG_TILE_CAPACITY — edit games/sonic4/vram.toml and regenerate")
+ensure(BG_TILE_CAPACITY == 400, "vram.toml bg_region drifted from engine BG_TILE_CAPACITY — edit games/sonic4/vram.toml and regenerate")
 ensure(BG_TILE_BASE_VRAM == $8000, "vram.toml bg_region drifted from engine BG_TILE_BASE_VRAM — edit games/sonic4/vram.toml and regenerate")
+ensure(VRAM_WATERLINE_STRIPS == $B200, "vram.toml waterline_strips drifted from engine VRAM_WATERLINE_STRIPS — edit games/sonic4/vram.toml and regenerate")
 ensure(VRAM_SPRITE_TABLE == $B800, "vram.toml sprite_table drifted from engine VRAM_SPRITE_TABLE — edit games/sonic4/vram.toml and regenerate")
 ensure(VRAM_HSCROLL_TABLE == $BC00, "vram.toml hscroll_table drifted from engine VRAM_HSCROLL_TABLE — edit games/sonic4/vram.toml and regenerate")
 ensure(VRAM_PLANE_A == $C000, "vram.toml plane_a drifted from engine VRAM_PLANE_A — edit games/sonic4/vram.toml and regenerate")

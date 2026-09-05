@@ -90,7 +90,7 @@ H_COL_SHIFT = (ROWS * 32).bit_length() - 1      # log2(128) = 7
 H_STEP_MASK = W - 1                             # 15
 
 # VRAM destination: the BG region's BAND RESERVE, not the act's live tiles.
-# games/sonic4/vram.toml pins bg_region at slot 1024 (byte $8000) for 448 tiles with
+# games/sonic4/vram.toml pins bg_region at slot 1024 (byte $8000) for 400 tiles with
 # `band_reserve = 128` withheld from the static importer; the shipped static blob is
 # 320 tiles (bg_tiles.bin = 2 + 320*32), so slots 1024+320 = 1344 upward are reserved
 # and no other writer touches them. 1344 * 32 = $A800. Aiming the probe here rather

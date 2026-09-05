@@ -104,6 +104,24 @@ const BAND_REMAP_BYTES      = 8     // sizeof(band_remap) * BAND_REMAP_N; pinned
 // 8, so the division is by 8 and the two-value pin below is what keeps that honest.
 ensure(BAND_REMAP_BYTES == 0 || BAND_REMAP_BYTES == 8, "BAND_REMAP_BYTES is {BAND_REMAP_BYTES}, which is neither 0 (no remap tail) nor sizeof(band_remap) = 8 — REMAP_STATE_LONGS below divides it, and parallax.emp's reservation guard is what checks the 8")
 const REMAP_STATE_LONGS     = BAND_REMAP_BYTES / 4
+// WATERLINE_ART_BYTES — the row remap's ART half (EFFECTS-W1 item 9d): the staging buffer
+// Waterline_Art_Update row-gathers into before its single DMA. A SIXTH mirror for the same
+// reason as the five above — it sizes an array here and is DERIVED there, and the two must
+// not be allowed to drift silently.
+//
+// THE DERIVATION, so this number is checkable without leaving the file:
+//   2 strips x 2 tile columns x H rows x 4 bytes-per-8px-row = 16 * H,  H = 16  ->  256.
+// engine/level/bg_anim.emp pins it against engine/level/parallax_dsl.emp's own
+// WATERLINE_DST_BYTES, which is where the geometry actually lives. Raising the ladder's H
+// moves BOTH, and the pin is what makes forgetting one a build error rather than a buffer
+// overrun into the block below.
+//
+// IT IS NOT GATED ON BAND_REMAP_BYTES, deliberately. The gate on the CODE is the game's
+// CAP_ROW_REMAP bit, exactly as for the pass in parallax.emp; the gate on the RAM would have
+// to be a second authority for the same fact, and `BAND_REMAP_N` is engine-wide anyway (demo
+// already pays 8 bytes per band for a capability it does not declare — the precedent, not an
+// accident). 256 bytes is what demo pays here.
+const WATERLINE_ART_BYTES   = 256   // 16 * H; pinned against parallax_dsl in bg_anim.emp
 ensure(extern("EntityScanState_len") == ENTITY_SCAN_STATE_LEN, "EntityScanState size drifted from ram.emp's mirror — update ENTITY_SCAN_STATE_LEN")
 ensure(extern("band_entry_len") == BAND_ENTRY_LEN, "band_entry size drifted from ram.emp's mirror — update BAND_ENTRY_LEN")
 
@@ -1478,6 +1496,38 @@ pub vars upper_ram {
         BgAnim_Table_Ptr:       u32,    // the band table BgAnim_Update walks (0 is never
                                         // valid — BgAnim_Init seeds the act's own table)
     }
+
+    // The Hydrocity waterline's ART half (EFFECTS-W1 item 9d) — engine/level/bg_anim.emp's
+    // Waterline_Art_Update, fed by the row-remap pass in engine/level/parallax.emp.
+    //
+    // Waterline_Art_Row is S3K's `Events_bg+$10` in this engine's terms: the ONE number the
+    // two halves share. The scroll pass has already computed the ladder row for this frame's
+    // perspective quantity (`ladder + (H - |p|) * H`), so it publishes the POINTER rather
+    // than the quantity — which means the art half needs no copy of the p derivation, no
+    // access to the band record, and cannot disagree with the scroll half about which row
+    // is selected. 0 = no band remapped this frame.
+    //
+    // Waterline_Art_LastRow is S3K's `cmp.w (a3),d1 / beq` guard (sonic3k.asm:53984): the
+    // gather runs ONLY on frames where the row changed. Standing still costs one long
+    // compare. A pointer compare rather than a |p| compare because the pointer is injective
+    // in |p| for a fixed band AND changes when the band itself changes, which |p| does not.
+    // 0 from the boot clear means "nothing built yet", and no live row is ever 0, so the
+    // first frame with a remapping band always builds.
+    //
+    // Placed at the RAM TAIL for the reason the five blocks above state — the addition
+    // ripples ZERO existing engine-RAM addresses; only Engine_RAM_End and the game RAM
+    // chained after it move. Unlike those five this one is in BOTH shapes, so both move.
+    //
+    // MARKED AT BOTH ENDS so the RESERVATION is checkable from the file that WRITES it:
+    // engine/level/bg_anim.emp compares Waterline_Art_State_End - Waterline_Art_Buffer
+    // against its own derived DMA length. The marks, not WATERLINE_ART_BYTES, are what that
+    // guard reads — a mirror compared against itself proves nothing, and a later tail block
+    // appended after this one must not be able to make a short buffer look long.
+    mark Waterline_Art_State,
+    Waterline_Art_Row:      u32,        // ladder row for this frame (0 = no remapping band)
+    Waterline_Art_LastRow:  u32,        // the row the VRAM strips were built from
+    Waterline_Art_Buffer:   [u8; WATERLINE_ART_BYTES],  // gather target; one DMA source
+    mark Waterline_Art_State_End,
 
     // Engine RAM ends here — game RAM continues from Engine_RAM_End
     // (games/<game>/config/ram.emp declares `game_ram @ after(upper_ram)`).

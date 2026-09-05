@@ -73,9 +73,12 @@ columns 32..63 are their H-flips, which the nametable expresses for free.
 WHERE THE TILES COME FROM (measured, not asserted)
 ==================================================
 `games/sonic4/data/editor_bg_override.json` holds 320 unique tiles. The region
-`bg_region` (games/sonic4/vram.toml) is 448 tiles with `band_reserve = 128`
-withheld from the static importer, so 128 tiles are PHYSICALLY free but are
-policy-reserved for BgAnim band art.
+`bg_region` (games/sonic4/vram.toml) is 400 tiles with `band_reserve = 80`
+withheld from the static importer, so 80 tiles are PHYSICALLY free but are
+policy-reserved for BgAnim band art. (It was 448/128 until EFFECTS-W1 item 9d
+moved the top 48 slots into the `waterline_strips` region; the reserve moved with
+it in the same edit, so the static budget this tool measures against is unchanged
+at 320 and the numbers below did not move.)
 
 **This tool spends none of them.** Cell rows 48..63 of the plane (the ground-
 level undergrowth) currently repeat rows 48..55 verbatim at 56..63, and 123 of
@@ -115,7 +118,10 @@ OVERRIDE = "games/sonic4/data/editor_bg_override.json"
 PLANE_COLS = 64                 # cells; 512 px, the horizontal wrap period
 PLANE_ROWS = 64                 # cells; Plane B is 64x64 for OJZ
 PLANE_W = PLANE_COLS * 8        # 512
-BG_TILE_CAPACITY = 448          # cross-checked against tools/vram_map.py below
+BG_TILE_CAPACITY = 400          # cross-checked against tools/vram_map.py below
+                                # (448 -> 400 with EFFECTS-W1 item 9d: the top 48
+                                #  slots are `waterline_strips`, and the reserve
+                                #  went 128 -> 80 so the STATIC budget stayed 320)
 
 # ── The wood ramp, straight out of the palette already in CRAM ────────────────
 # games/sonic4/data/generated/ojz/act1/ojz_palette.bin source line 1 -> CRAM

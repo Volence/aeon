@@ -131,6 +131,15 @@ pub const SceneSrc_DeformTable_Perspective = v_column_floor_screen(edge_offset: 
 // bank-placement rule demands a whole-ROM re-layout, measured across two refused builds.
 pub const SceneSrc_RowRemapLadder_Waterline16 = row_remap_ladder16()
 
+// The EIGHTH, and the row remap's other half: EFFECTS-W1 item 9d's WATERLINE SOURCE STRIPS.
+// 2 strips x 2 tile columns x 32 source rows x 4 B = 512 B. The runtime gathers H = 16 of
+// those 32 rows per column through the SAME ladder row the scroll half selects, and DMAs the
+// result into `waterline_strips` (games/sonic4/vram.toml, 48 tiles at slot 1424) — S3K's
+// `loc_278C6` in this engine's terms. See engine/level/parallax_dsl.emp for the geometry,
+// for why the source is 2H rows and not S3K's 192, and for the fact that these pixels are a
+// generated PLACEHOLDER: the shape is the engine's, the water is not.
+pub const SceneSrc_WaterlineStripArt = waterline_strip_art16()
+
 // =====================================================================
 // OJZ_Default — configs.emp:107-114.
 //

@@ -3674,7 +3674,7 @@ proc Parallax_Fill_PerLine () clobbers(d0-d6/a1-a6) preserves(a0/d7) {
     .cap_row_remap_pass_begin:
         movea.l Parallax_Remap_State, a1            // (Parallax_Remap_State).w — the marked
         cmpa.w  #0, a1                              //   record, or 0 if no band remaps
-        beq     .remap_none
+        beq     .remap_no_band
 
         // --- p, THE PERSPECTIVE QUANTITY: two live terms and one authored one ---
         //   p = (the BACKGROUND's image of the surface) - (the FOREGROUND's truth about it)
@@ -3720,12 +3720,28 @@ proc Parallax_Fill_PerLine () clobbers(d0-d6/a1-a6) preserves(a0/d7) {
         bls     .remap_clamped
         move.w  d1, d0                              // clamp |p| into the ladder
     .remap_clamped:
-        tst.w   d0
-        beq     .remap_none                         // equilibrium: the identity, so do NOTHING
-        sub.w   d0, d2                              // d2 = row = H - |p|
+        // THE ROW IS COMPUTED BEFORE THE EQUILIBRIUM EARLY-OUT, and that ordering is the
+        // ART half's (EFFECTS-W1 item 9d). The scroll half has nothing to do at |p| = 0 —
+        // the permute is the identity — but the art half does: row H IS the uncompressed
+        // surface, and it still has to reach VRAM the first time it is selected. Computing
+        // the row here and branching after costs the scroll half nothing (the two
+        // instructions moved, none added) and lets both halves read ONE published row.
+        sub.w   d0, d2                              // d2 = row = H - |p| (H at equilibrium)
         lsl.w   d3, d2                              // ...x H, which is why H is a SHIFT
         movea.l band_remap_ladder(a1), a3
         adda.w  d2, a3                              // a3 = &ladder[row][0]
+
+        // --- PUBLISH, S3K's `move.w d2,(Events_bg+$10).w` (sonic3k.asm:105817) ---
+        // The art half (Waterline_Art_Update, engine/level/bg_anim.emp) indexes the SAME
+        // ladder row into a ROM source image and DMAs the gather into a fixed VRAM run. It
+        // reads this longword and nothing else — not the band record, not Effects_Screen_L,
+        // not Vscroll_BG. That is deliberate: a second copy of the p derivation is a second
+        // authority, and the two would disagree on exactly the frames that are hard to
+        // observe (a lag frame, where VBlank runs twice against one main-loop update).
+        move.l  a3, Waterline_Art_Row               // (Waterline_Art_Row).w
+
+        tst.w   d0
+        beq     .remap_none                         // equilibrium: the identity, so do NOTHING
 
         // --- n, the lines actually remapped: min(|p|, span/2) ---
         // THE HALVING IS THE READ BOUND AND NOT A TASTE CHOICE. The ladder is generated with
@@ -3770,6 +3786,12 @@ proc Parallax_Fill_PerLine () clobbers(d0-d6/a1-a6) preserves(a0/d7) {
                                                     //   primary loop wrote it — see the
                                                     //   band_remap banner for why plane A is
                                                     //   unremappable by refusal, not omission.
+        jbra    .remap_none
+    .remap_no_band:
+        // No band marked: retract the publication. Without this the art half would keep
+        // re-gathering the LAST remapping scene's row after a scene change that dropped the
+        // remap, which is a stale strip that never refreshes rather than a visible fault.
+        clr.l   Waterline_Art_Row                   // (Waterline_Art_Row).w
     .remap_none:
     .cap_row_remap_pass_end:
     }

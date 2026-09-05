@@ -396,3 +396,131 @@ comptime fn row_remap_entry16(k: int) -> int {
 pub comptime fn row_remap_ladder16() -> [u8; 272] {
     return comptime for k in 0..272 { row_remap_entry16(k) }
 }
+
+// ---- the waterline SOURCE STRIPS (EFFECTS-W1 item 9d, the row remap's ART half) ----
+//
+// The ladder above permutes plane-B SCROLL words. This is the other half of S3K's waterline
+// and it permutes PIXEL ROWS, out of a ROM source image, through the SAME ladder row, into a
+// fixed VRAM run — `loc_278C6`, sonic3k.asm:53981. Nothing here touches the nametable; S3K's
+// does not either, in either half (design section 1.5, stated there as a prohibition).
+//
+// GEOMETRY, ALL OF IT DERIVED FROM H AND NOTHING ELSE:
+//   a strip is 16 px wide  = 2 tile columns   (the band repeats horizontally on the plane,
+//                                              and because the period is 16 px the repeat is
+//                                              invisible — S3K's reason for 16 and not 320)
+//   a strip is H px tall   = H / 8 tiles per column
+//   there are 2 strips     (above the surface and below it, S3K's
+//                           ArtUnc_AniHCZ1_WaterlineAbove / _Below)
+//   => VRAM  = 2 * 2 * H/8 = H/2 tiles      (H=16 -> 8 tiles, of the 48 declared)
+//   => a frame's DMA = 2 strips * 2 cols * H rows * 4 B = 16H bytes  (H=16 -> 256)
+//   => this ROM image  = 2 strips * 2 cols * 2H rows * 4 B = 32H bytes (H=16 -> 512)
+//
+// WHY THE SOURCE IS 2H ROWS AND NOT H, AND WHY IT IS NOT 192 EITHER. S3K's source is a
+// 192-row image because S3K's ladder entries are unbounded above. THIS ladder guarantees
+// `entry[i] <= 2i` (the read bound the scroll half's span/2 cap rests on), so the furthest
+// row any gather can reach is 2(H-1) = 2H-2. 2H rows is therefore the DERIVED size, exactly
+// covering the model's own bound with one row to spare — not a copied literal. It also
+// reproduces the design's own 3,072 B figure at S3K's H (32 * 96 = 3,072), which is the
+// check that says the derivation is the same one.
+//
+// BYTE ORDER. Flat, row-major, 8 bytes per source row: pixels x = 0..15 packed two per byte,
+// high nibble left. Bytes 0..3 of a row ARE tile column 0 and bytes 4..7 ARE tile column 1,
+// so the split into columns costs the gather one displacement (`4(a2,d1.w)`) and no
+// arithmetic. The DESTINATION is the other order — column-major, each column's H rows
+// contiguous — because that is what a vertical run of 8x8 tiles is in VRAM. The gather is
+// exactly the transpose between the two, which is why it needs two write cursors and one
+// read cursor.
+//
+// ⚠ THE PIXELS ARE A PLACEHOLDER AND THE ENGINE OWNS ONLY THEIR SHAPE. This is a
+// procedurally generated ripple, not authored water: the OJZ background has no water surface
+// to promote (design section 6.2 says so), so the art half would otherwise have nothing to
+// move. What the model guarantees is the two properties the mechanism actually depends on —
+// no two source rows INSIDE THE LADDER'S OWN REACH are identical (a row-uniform image makes
+// the gather invisible, and "invisible" is the failure mode this whole effect fails by), and
+// the whole range stays inside one palette line's nibbles, never touching index 0.
+// Replacing these pixels with real art is a content edit and touches nothing else.
+//
+// ⚠ THE PROPERTY IS LOCAL, AND THE FIRST SPELLING OF IT HERE WAS GLOBAL AND WRONG. "All 2H
+// rows pairwise distinct" holds at H = 16 and FAILS at 32, 64 and 128 — the ripple has 16
+// phases and a half of the image has H rows — so the global claim would have shipped a model
+// that silently could not be raised to the H = 64 the 48-tile VRAM region was sized for. The
+// parameterised test refuted it, and it is recorded because the claim was true of every case
+// anyone would have looked at. The LOCAL form is what the gather needs (the ladder advances
+// the source row by 1 or 2 per output line) and it holds at every expressible height.
+//
+// HOW LOCAL DISTINCTNESS IS OBTAINED. The ripple is a triangle wave in x whose phase advances
+// 3 px per source row: gcd(3,16) = 1, so any 16 consecutive rows take all 16 phases and none
+// of them repeat. The deep half (rows H..2H-1) additionally drops its amplitude 6 -> 4 —
+// which reads as depth attenuation and is what buys GLOBAL distinctness at the shipped H.
+// Both are checked at five heights in tools/test_waterline_art_gen.py and re-checked in the
+// built ROM by tools/waterline_art_gate.py.
+//
+// AND THE PROPERTY THAT DECIDES WHAT IS ON SCREEN, which is neither of those: how many of the
+// H+1 perspective states gather to a DIFFERENT picture. Measured over the real ladder and the
+// real transform: H of H+1, at every expressible height. The single collision is ladder rows
+// H and H-1 — at |p| = 1 the ladder's own `extra` term floors to zero — so it belongs to the
+// ladder above and not to these pixels.
+pub const WATERLINE_H          = ROW_REMAP_H16     // the band height the strips are cut for
+pub const WATERLINE_STRIPS     = 2                 // above the surface, below it
+pub const WATERLINE_ROW_BYTES  = 8                 // 16 px, 4bpp, two per byte
+pub const WATERLINE_SRC_BYTES  = WATERLINE_STRIPS * 2 * WATERLINE_H * WATERLINE_ROW_BYTES
+pub const WATERLINE_DST_BYTES  = WATERLINE_STRIPS * WATERLINE_H * WATERLINE_ROW_BYTES
+pub const WATERLINE_TILES      = WATERLINE_DST_BYTES / 32
+
+// A 0..7 triangle over a 0..15 input, BRANCHLESS on purpose. `t + (t/8)*(15 - 2t)` is `t`
+// below 8 and `15 - t` at or above it. Written this way and not as an `if` because an `if`
+// in block-tail position folds to `()` SILENTLY (docs/EMP_PITFALLS.md section 1) and a wave
+// that folded to unit would emit a zero image — which is exactly the failure this art is
+// built to be incapable of.
+pub const WATERLINE_H_HALF_PERIOD = 8              // half the 16-px ripple period
+comptime fn waterline_tri(t: int) -> int {
+    return t + (t / WATERLINE_H_HALF_PERIOD) * (15 - 2 * t)
+}
+
+// One pixel index. `strip` 0 = above the surface (palette nibbles 1..7), 1 = below it
+// (8..14): two disjoint bands of one line, so the two strips are told apart on screen by
+// colour and not only by position, and neither uses index 0 (which is the plane's backdrop
+// and would punch a hole in the band).
+comptime fn waterline_px(strip: int, r: int, x: int) -> int {
+    let phase = (x + 3 * r) % 16                   // 3 px/row: 16 distinct phases per half
+    let amp   = 6 - 2 * (r / WATERLINE_H)          // deep half attenuates 6 -> 4
+    return 1 + 7 * strip + ((waterline_tri(phase) * amp) / 7)
+}
+
+// The flat byte, from the flat index. Split into a named fn for row_remap_entry16's reason.
+comptime fn waterline_byte(k: int) -> int {
+    let strip = k / (2 * WATERLINE_H * WATERLINE_ROW_BYTES)
+    let rem   = k % (2 * WATERLINE_H * WATERLINE_ROW_BYTES)
+    let r     = rem / WATERLINE_ROW_BYTES          // source row, 0 .. 2H-1
+    let b     = rem % WATERLINE_ROW_BYTES          // byte within the row, 0 .. 7
+    return waterline_px(strip, r, 2 * b) * 16 + waterline_px(strip, r, 2 * b + 1)
+}
+
+pub comptime fn waterline_strip_art16() -> [u8; 512] {
+    return comptime for k in 0..512 { waterline_byte(k) }
+}
+
+// PINS, INDEXED BY LITERALS ON PURPOSE. The lesson three pins above this file already
+// records: a pin that indexes itself by the constant it is pinning travels with its subject
+// and stays green through the mutation it exists to catch. These name absolute offsets.
+const WlPin = waterline_strip_art16()
+ensure(WATERLINE_SRC_BYTES == 512,
+       "waterline_strip_art16() returns a FIXED [u8; 512] and the geometry now derives {WATERLINE_SRC_BYTES} bytes (H = {WATERLINE_H}). The return length is a real contract since 2026-09-02 (docs/EMP_PITFALLS.md section 13), so this is the one edit that must move with H: 32*H bytes, and the gather's own strides in engine/level/bg_anim.emp move with it")
+ensure(WATERLINE_TILES * 32 == WATERLINE_DST_BYTES,
+       "the waterline's per-frame DMA ({WATERLINE_DST_BYTES} B) is not a whole number of tiles ({WATERLINE_TILES}) — H must be a multiple of 8 for a strip to be a whole tile column, and brm_hshift only names powers of two, so this can only fire at H < 8")
+// Row 0, byte 0: phase = 0 and 1 -> tri 0 and 1 -> (0*6)/7 = 0, (1*6)/7 = 0 -> $11.
+ensure(WlPin[0] == $11,
+       "waterline art: strip 0 row 0 byte 0 is {WlPin[0]}, not $11 — the ABOVE strip's base nibble (1) or the ripple's phase origin has moved")
+// Row 0, byte 2 covers x = 4,5: tri 4,5 -> 1 + (4*6)/7 = 4, 1 + (5*6)/7 = 5 -> $45. The wave
+// is real, and $45 against $11 two bytes earlier is the amplitude the gather has to move.
+ensure(WlPin[2] == $45,
+       "waterline art: strip 0 row 0 byte 2 is {WlPin[2]}, not $45 — the ripple AMPLITUDE has moved, and a flat wave is an invisible gather")
+// The deep half's attenuation, same byte offset as the pin above, row H: phase = (4 + 3H) % 16
+// = 4 again at H = 16, and amp drops 6 -> 4: 1 + (4*4)/7 = 3, 1 + (5*4)/7 = 3 -> $33 against
+// the shallow half's $45. THAT INEQUALITY IS THE POINT — it is the whole reason the deep half
+// exists as a separate amplitude.
+ensure(WlPin[WATERLINE_H * WATERLINE_ROW_BYTES + 2] == $33,
+       "waterline art: the DEEP half's byte at the same x as the pin above is {WlPin[WATERLINE_H * WATERLINE_ROW_BYTES + 2]}, not $33 — the 6 -> 4 amplitude drop is what makes the two halves' rows distinct, and without it 16 pairs of source rows are byte-identical")
+// The BELOW strip starts at 2*H*8 and is the same wave shifted into nibbles 8..14.
+ensure(WlPin[2 * WATERLINE_H * WATERLINE_ROW_BYTES] == $88,
+       "waterline art: strip 1 row 0 byte 0 is {WlPin[2 * WATERLINE_H * WATERLINE_ROW_BYTES]}, not $88 — the BELOW strip's base nibble (8) has moved, and the two strips would share a colour band")
