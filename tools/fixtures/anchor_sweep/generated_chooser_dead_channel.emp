@@ -6,8 +6,19 @@
 // The amplitude below is the shipped rung, so the ONLY thing wrong with this document is the
 // channel; an arm that refused it for its amplitude would be refusing for the wrong reason.
 //
-// RASTER_MAX_PATCH is 4, so channel 3 is a legal index the engine would seed — which is what
-// makes it the interesting case rather than an out-of-range one.
+// RASTER_MAX_PATCH is 4, so the channel below is a legal index the engine would seed — which
+// is what makes it the interesting case rather than an out-of-range one.
+//
+// ⚠ IT MOVED FROM `sec == 2 && ch == 3` TO `sec == 0 && ch == 2` ON 2026-09-05, and the move
+// made it a STRONGER subject rather than an equivalent one. Bands are resolved per
+// (section -> preset -> patched program) since a second patched program landed
+// (`OJZ_WorldWater`, section 7), and section 2's preset binds `raster:` — it installs no
+// patched program AT ALL, so under the new resolution that pair is "no band exists to fit",
+// which the reader reports as UNEVALUATED rather than as a dead channel. Section 0 installs
+// `OJZ_TwoChannel`, whose records are channels 0 and 1, so channel 2 there is dead for
+// exactly the reason this fixture is named after: the program is present and has no record
+// on the channel. The old pair also stopped being safely dead the moment ANY section used
+// channel 3 — which is what the act-wide map could not see.
 
 module games.sonic4.fixture_effects_editor_dead_channel in fixture_effects_editor_dead_channel
 
@@ -16,6 +27,6 @@ use engine.effects.raster_dsl.{anchor_sweep, ANCHOR_MOTION_NONE}
 pub comptime fn fx_act1_sec_patch_motion(sec: int, ch: int, hand: int = ANCHOR_MOTION_NONE) -> int {
     ensure(sec >= 0 && sec < 9, "fx_act1_sec_patch_motion(sec: {sec}): this act has 9 sections")
     comptime var out = hand
-    if sec == 2 && ch == 3 { out = anchor_sweep(amp_shift: 4, period_shift: 1, phase: 0) }
+    if sec == 0 && ch == 2 { out = anchor_sweep(amp_shift: 4, period_shift: 1, phase: 0) }
     return out
 }
