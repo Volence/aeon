@@ -18,7 +18,7 @@ Do not edit; edit the TOML and regenerate.
 | 1016-1019 | test_marker | window | mode | games.sonic4.player_common | VRAM_TEST_MARKER |  |
 | 1020-1023 | debug_readout | window | mode | games.sonic4.ojz_scroll_test | VRAM_DEBUG_READOUT |  |
 | 1024-1423 | bg_region | arena | act | engine.bg | engine-tiles:BG_TILE_CAPACITY, engine-bytebase:BG_TILE_BASE_VRAM | band_reserve: 80 (static budget 320) |
-| 1424-1471 | waterline_strips | window | act | engine.bg_anim | VRAM_WATERLINE_STRIPS |  |
+| 1424-1471 | waterline_strips | window | act | engine.bg_anim | engine-bytebase:VRAM_WATERLINE_STRIPS |  |
 | 1472-1491 | sprite_table | table | boot | engine.system.buffers | engine-bytebase:VRAM_SPRITE_TABLE |  |
 | 1492-1500 | tails_appendage | window | act | games.sonic4.tails_appendage | VRAM_TAILS_APPENDAGE |  |
 | 1501-1503 | debug_bganim_tag | window | mode | games.sonic4.ojz_scroll_test | VRAM_DEBUG_BGANIM_TAG |  |

@@ -530,6 +530,15 @@ pub const PLANE_V_CELLS    = 64
 pub const BG_TILE_BASE_VRAM = $8000              // byte address (slot 1024)
 pub const BG_TILE_BASE_SLOT = BG_TILE_BASE_VRAM / 32   // 1024 — nametable index remap
 pub const BG_TILE_CAPACITY  = 400
+// The Hydrocity waterline's fixed VRAM run (EFFECTS-W1 item 9d) — the 48 slots directly
+// above the BG arena and directly below the SAT, filled by Waterline_Art_Update's single
+// DMA (engine/level/bg_anim.emp). Byte address, like VRAM_SPRITE_TABLE: slot 1424 * 32.
+// Both games' vram.toml carry `engine-bytebase:VRAM_WATERLINE_STRIPS` against this, so the
+// declaration and the constant cannot drift. See games/sonic4/vram.toml's own region
+// comment for where the 48 came from and why the DERIVED need at today's H is 8 of them.
+pub const VRAM_WATERLINE_STRIPS = BG_TILE_BASE_VRAM + BG_TILE_CAPACITY * 32   // $B200 (slot 1424)
+ensure(VRAM_WATERLINE_STRIPS + 48 * 32 <= VRAM_SPRITE_TABLE,
+       "the waterline strips ({VRAM_WATERLINE_STRIPS} .. {VRAM_WATERLINE_STRIPS + 48 * 32}) run into the sprite attribute table at {VRAM_SPRITE_TABLE} — the BG arena and the strips together must fit under it, and the strips are what a too-large BG_TILE_CAPACITY now pushes over the edge")
 
 // -----------------------------------------------
 // Controller button masks (complete the d-pad/face-button set above).

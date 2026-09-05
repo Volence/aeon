@@ -1413,6 +1413,19 @@ pub proc GameState_OJZScroll_Update () clobbers(d0-d7/a0-a6) {
 
         // -- camera-driven BG tile animation (trunk cores) --
         jbsr    BgAnim_Update
+
+        // -- the Hydrocity waterline's ART half (EFFECTS-W1 item 9d) --
+        //    AFTER Parallax_Update, which is what publishes Waterline_Art_Row, and before
+        //    VSync_Wait, for BgAnim_Update's reason: deferrable entries drain only in
+        //    VInt_Level, which cannot run until VBlank_Ready is set.
+        //
+        //    UNCONDITIONAL, like the call above it, and gated INSIDE the proc on this
+        //    game's CAP_ROW_REMAP. The source image is passed rather than looked up by a
+        //    well-known name so that a game with no waterline emits no art (see the proc's
+        //    header). It is the game's data because the ladder it is indexed by is the
+        //    game's data — both live in data/effects/scene_registry.emp, emitted adjacently.
+        lea     WaterlineStripArt, a0
+        jbsr    Waterline_Art_Update
         rts
 }
 

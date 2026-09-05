@@ -297,7 +297,12 @@ kind = "window"
 base = 1424
 tiles = 48
 lifetime = "act"
-const = "VRAM_WATERLINE_STRIPS"
+authority = "engine-bytebase:VRAM_WATERLINE_STRIPS"
+# ENGINE-OWNED, so the authority is engine-side and not a game `const =` line: the DMA that
+# fills this run is Waterline_Art_Update in engine/level/bg_anim.emp, which cannot see a
+# game constant. Same shape as `sprite_table` and `hscroll_table` above — the engine names
+# the byte address, this file cross-checks it, and both games declare the region so one
+# address means one thing in both maps.
 # EFFECTS-W1 item 9d — the Hydrocity waterline's ART half: the fixed VRAM run
 # that Waterline_Art_Update (engine/level/bg_anim.emp) DMAs its row-gathered
 # strips into every frame the perspective quantity changes. S3K writes tiles

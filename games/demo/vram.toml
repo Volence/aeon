@@ -74,13 +74,20 @@ authority = ["engine-tiles:BG_TILE_CAPACITY", "engine-bytebase:BG_TILE_BASE_VRAM
 # from), so the 48 tiles cost it nothing; they are declared [[free]] below rather
 # than named, because nothing in demo owns them.
 
-[[free]]
+[[region]]
+name = "waterline_strips"
+owner = "engine.bg_anim"
+kind = "window"
 base = 1424
 tiles = 48
-# the 48 tiles sonic4 spends on `waterline_strips` (games/sonic4/vram.toml). Free
-# here: demo has no waterline, no row remap (it declares no CAP_ROW_REMAP) and no
-# BG art. Declared rather than left as a coverage gap because gen_vram_map.py
-# requires every one of tiles 0..2047 to be a region or a DECLARED free run.
+lifetime = "act"
+authority = "engine-bytebase:VRAM_WATERLINE_STRIPS"
+# EFFECTS-W1 item 9d's fixed VRAM run, DECLARED HERE TOO even though demo can never fill
+# it: the region is ENGINE-owned (Waterline_Art_Update lives in engine/level/bg_anim.emp)
+# and its base is an engine constant, so leaving these 48 tiles as an anonymous [[free]]
+# run here would let one address mean two things in two maps — the exact drift the
+# `authority` cross-check exists to catch. Demo declares no CAP_ROW_REMAP, so its build
+# emits no gather and no DMA and these tiles are never written; they are reserved, not used.
 
 [[region]]
 name = "sprite_table"
