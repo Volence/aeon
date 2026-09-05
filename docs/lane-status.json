@@ -1,17 +1,13 @@
 {
-  "focus": "Chasing the jumbled sprites you saw; the Hydrocity art is in but not yet on screen.",
+  "focus": "Collapsing the three lab chords into one list, as you asked; the floor now points where it should.",
   "inFlight": [
     {
-      "what": "Why the sprites sometimes come out jumbled",
-      "where": "agent worktree, F7",
+      "what": "One list for everything demonstrable, instead of three chords",
+      "where": "agent worktree",
       "agent": true
     }
   ],
   "blockedOnOwner": [
-    {
-      "what": "Whether to collapse the three START chords into one list",
-      "since": "2026-09-04"
-    },
     {
       "what": "Whether to give a second section live patch channels, so the Hydrocity scene key can be authored",
       "since": "2026-09-04"
@@ -27,10 +23,34 @@
     {
       "what": "Turning the curve-capability gate arm round - an adoption that wants your word",
       "since": "2026-09-04"
+    },
+    {
+      "what": "Which way you were going through the loop when you fell through at the right foot",
+      "since": "2026-09-05"
+    },
+    {
+      "what": "Do the jumbled sprites show while playing, or only after you pause",
+      "since": "2026-09-05"
     }
   ],
-  "nextBoundary": "After the jumble is understood and the waterline is pointed at by a scene.",
+  "nextBoundary": "After the chord list lands and the loop's ceiling curves.",
   "queue": [
+    {
+      "id": "CHORDS",
+      "title": "One list for everything demonstrable",
+      "state": "doing",
+      "size": "L",
+      "blockedBy": null,
+      "project": "EFFECTS-W1"
+    },
+    {
+      "id": "CROWN",
+      "title": "The loop's ceiling is flat - you walk along it",
+      "state": "next",
+      "size": "M",
+      "blockedBy": "aurora painting the crown's curve",
+      "project": "EFFECTS-W1"
+    },
     {
       "id": "9d",
       "title": "Hydrocity waterline - built, but no plane cell points at it yet",
@@ -41,8 +61,8 @@
     },
     {
       "id": "F7",
-      "title": "Sprites sometimes get jumbled - capture it while running",
-      "state": "doing",
+      "title": "Jumbled sprites - decoded to a pause artifact, awaiting your answer",
+      "state": "open",
       "size": "M",
       "blockedBy": null,
       "project": "EFFECTS-W1"
@@ -50,7 +70,7 @@
     {
       "id": "D1",
       "title": "The debug build starts in fly mode instead of playing",
-      "state": "next",
+      "state": "open",
       "size": "S",
       "blockedBy": null,
       "project": "EFFECTS-W1"
@@ -66,5 +86,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-05T03:32:11Z"
+  "updatedAt": "2026-09-05T04:44:46Z"
 }
