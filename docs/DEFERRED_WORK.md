@@ -26218,6 +26218,28 @@ a painted fan requires k = 0). It also confirms the parcel's derived formula aga
 ROM rather than on paper: `shear = camX * F / 72` with `F` the curve end factor predicts
 `camX/|k| = 72/F = 576.0` at `FACTOR_1_8`, against **575.5 measured**.
 
+**THE CAMERA-FREE COMPARABLE, which replaces the ratio nobody could compute.** Both the gain and
+the whole-plane base live inside the scroll table, so `dk / |d(base)|` is measurable on either ROM
+with no camera variable, no symbols and no plane-to-camera substitution:
+
+    OURS    736->1216   dk +0.831, d(base) -20   ratio 0.04155
+           1216->1856   dk +1.112, d(base) -27   ratio 0.04119
+    THEIRS  pos1->pos2  dk +0.276, d(base) -28   ratio 0.00986
+
+Ours is stable to about half a percent across two independent intervals, which checks that the
+quantity is real rather than an artifact of one pair. **Ours responds about 4.2x more per unit of
+background movement**, and that, not any raw gain, is the tuning target if the owner wants ours to
+feel like theirs.
+
+Caveats, stated rather than left to be found: it takes the entry at line 176 as the whole-plane
+component, which is safe for ours (the ramp starts at zero at the vanishing point) and less safe
+for theirs (their base is already nonzero at the top of the floor, so their `d(base)` may mix base
+and gain, making 0.00986 an UNDERestimate of the difference). Linearity is measured for ours at
+three points and assumed for theirs at two. **Oracle's 96 px plane displacement is WITHDRAWN** by
+its own author: the table says -37 px over the same lines, and the 96 came from a first-match index
+lookup into nametable rows where about 21 of 64 tiles repeat, an instrument they had already
+flagged as unsound and then continued to quote.
+
 **CONSEQUENCE: "theirs is about half our gain" IS NOT A COMPARISON.** If both gains are linear in
 camera x then k depends on WHERE THE CAMERA IS, and comparing our k at camera 736 against theirs
 at an unstated camera compares two points on two different lines. The comparable quantity is the
