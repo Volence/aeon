@@ -1,8 +1,13 @@
 {
-  "focus": "Landed the vsplit refusal; three content decisions now waiting on him",
+  "focus": "Chasing the sprite jumble; the floor waits on his choice of technique",
   "inFlight": [
     {
       "what": "FLOOR-FAN -- beams converge on the screen centre column at every camera X",
+      "where": "agent worktree",
+      "agent": true
+    },
+    {
+      "what": "sprite jumble: emit-path static analysis",
       "where": "agent worktree",
       "agent": true
     }
@@ -15,13 +20,9 @@
     {
       "what": "the floor: painted perspective that travels with the world (Toy Story's way), or the scroll effect that keeps convergence under the screen centre",
       "since": "2026-09-05"
-    },
-    {
-      "what": "section 7 declares a vertical scroll split that reaches no ROM byte: bind it (costs bytes, changes the picture) or delete it (discards a deliberate authoring act)",
-      "since": "2026-09-05"
     }
   ],
-  "nextBoundary": "F7-EMIT is the next dispatch and nothing is half-applied",
+  "nextBoundary": "when the sprite analysis reports; nothing else is half-applied",
   "queue": [
     {
       "id": "FLOOR-FAN",
@@ -40,14 +41,14 @@
     {
       "id": "CURVE-DESC",
       "title": "ENGINE DEFECT: descending parallax curve garbles the BG; mechanism unestablished",
-      "state": "open",
+      "state": "next",
       "size": "M",
       "blockedBy": null
     },
     {
       "id": "F7-EMIT",
       "title": "F7: load path exonerated -- the jumble is in the sprite emit",
-      "state": "next",
+      "state": "doing",
       "size": "M",
       "blockedBy": null
     },
@@ -73,7 +74,7 @@
       "blockedBy": null
     }
   ],
-  "awaiting": "three content calls: the floor technique, the section 7 seam, and the dead vertical split",
-  "atBoundary": true,
-  "updatedAt": "2026-09-05T18:44:17Z"
+  "awaiting": null,
+  "atBoundary": false,
+  "updatedAt": "2026-09-05T19:07:14Z"
 }
