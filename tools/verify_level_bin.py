@@ -29,6 +29,10 @@ ART_POOL_PAGE_BYTES = 2048  # ART_POOL_PAGE_TILES (64) * 32
 TILE_SIZE = 32
 BLOCK_INDEX_BYTES = 1024   # 256 * 4-byte block index table (ojz_block_gen)
 BLOCK_RAW_SIZE = 768       # one raw 16x16 block (dict region is a multiple)
+PROJECT_JSON = os.path.join(ROOT, "project.json")
+STRIP_GEN_SRC = os.path.join(ROOT, "tools", "ojz_strip_gen.py")
+NAMETABLE_TILE_MASK = 0x07FF   # bits 0-10 of a VDP nametable word
+NAMETABLE_ATTR_MASK = 0xE000   # priority + palette line (flip bits are NOT here)
 
 _fail = []
 
@@ -416,15 +420,231 @@ def verify_collision_is_interned():
         )
 
 
+def _strip_gen_int(name):
+    """Read a plain-integer constant out of tools/ojz_strip_gen.py's SOURCE.
+
+    Derived from the generator rather than re-declared here: the strip layout is
+    the generator's to define, and a second literal 776 in this file is exactly
+    the pin that goes stale with nothing noticing. Parsed rather than imported
+    because verify_level_bin is deliberately donor-free and dependency-free,
+    while ojz_strip_gen pulls in collision_pipeline / vram_map / donor_provenance
+    at import time. A constant that has moved or gone non-literal returns None
+    and records a failure -- loud, never green.
+    """
+    if not os.path.isfile(STRIP_GEN_SRC):
+        check(False, f"editor bake: {STRIP_GEN_SRC} missing -- cannot derive the "
+                     f"strip layout, so the bake-fidelity check cannot run")
+        return None
+    m = re.search(rf"^{name}\s*=\s*(\d+)\b", open(STRIP_GEN_SRC).read(), re.M)
+    if not m:
+        check(False, f"editor bake: ojz_strip_gen.py no longer defines {name} as a "
+                     f"plain integer -- the strip layout moved and this check is "
+                     f"reading a shape that no longer exists; re-derive it")
+        return None
+    return int(m.group(1))
+
+
+def _tile_pixels(blob, idx, hflip, vflip):
+    """The 32 bytes of tile `idx` in `blob`, with the VDP flips applied.
+
+    Out-of-range indices resolve to the zero tile, matching what the generator's
+    collect_referenced_tiles substitutes -- so an out-of-range source reference
+    is still CHECKED (against blank) rather than skipped.
+    """
+    base = idx * TILE_SIZE
+    if base + TILE_SIZE > len(blob):
+        return bytes(TILE_SIZE)
+    rows = [blob[base + i * 4: base + i * 4 + 4] for i in range(8)]
+    if hflip:
+        rows = [bytes((((b & 0x0F) << 4) | (b >> 4)) for b in reversed(r))
+                for r in rows]
+    if vflip:
+        rows = rows[::-1]
+    return b"".join(rows)
+
+
+def verify_editor_bake_fidelity():
+    """The committed generated tree must carry the EDITOR's authored nametable,
+    pixel for pixel, into the artifacts the ROM consumes. Donor-free.
+
+    Three claims, checked per section over every one of its 65536 words:
+      1. sec{N}_strips_source.bin's nametable equals section_{N}.tiles.bin word
+         for word (the generator's column-major strip vs the editor's row-major
+         grid).
+      2. sec{N}_strips_a.bin preserves each source word's priority and
+         palette-line bits. Only the tile index and the flip bits are the
+         remapper's to rewrite; an attribute that moved is a palette bug that
+         renders as a recoloured region.
+      3. Resolving a strips_a word through sec{N}_local_map.bin into the act art
+         pool pages yields the SAME 8x8 pixels as the source word resolves to in
+         the editor tileset, flips applied on both sides.
+
+    WHY IT EXISTS. The OJZ section-7 vertical-seam probe (2026-09-05) asked "is
+    the FG loading wrong?" and nothing in the tree could answer it offline.
+    verify_act_pool and verify_local_maps check that the generated tree is
+    internally CONSISTENT -- sizes line up, indices are in range, the .zx0 pages
+    round-trip. None of them compares it against what the editor authored, so a
+    dedupe / spatial-order / paging regression that is merely self-consistent
+    (wrong tile, right shape) passes every existing gate and is first seen as
+    garbage on a screen. This is the check that distinguishes "the bake is
+    wrong" from "the level data says that".
+    """
+    fails_before = len(_fail)
+    strip_rows = _strip_gen_int("STRIP_TILE_HEIGHT")
+    pad = _strip_gen_int("STRIP_COLLISION_PAD")
+    if strip_rows is None or pad is None:
+        return
+    # ojz_strip_gen's own formula (its module docstring):
+    #   WIDE_STRIP_SIZE = STRIP_TILE_HEIGHT*2 + 2*COLLISION_ROWS_PER_STRIP + PAD
+    #   COLLISION_ROWS_PER_STRIP = STRIP_TILE_HEIGHT // 2
+    stride = strip_rows * 2 + 2 * (strip_rows // 2) + pad
+    grid = strip_rows            # editor grid is square, one strip per tile column
+
+    if not os.path.isfile(PROJECT_JSON):
+        check(False, "editor bake: project.json missing -- cannot locate the editor tree")
+        return
+    with open(PROJECT_JSON) as f:
+        proj = json.load(f)
+    zone = proj["zones"][0]
+    act = zone["acts"][0]
+    tileset_path = os.path.join(ROOT, zone["tileset"])
+    data_path = os.path.join(ROOT, act["dataPath"])
+    declared = act["gridWidth"] * act["gridHeight"]
+    check(declared == NUM_SECTIONS,
+          f"editor bake: project.json declares {declared} sections but this file "
+          f"is written against {NUM_SECTIONS} -- update NUM_SECTIONS")
+
+    if not os.path.isfile(tileset_path):
+        check(False, f"editor bake: editor tileset {tileset_path} missing")
+        return
+    art = read(tileset_path)
+    check(len(art) > 0 and len(art) % TILE_SIZE == 0,
+          f"editor bake: editor tileset is {len(art)} bytes -- not a whole number "
+          f"of {TILE_SIZE}-byte tiles (a 0-byte tileset bakes a blank level and "
+          f"passes every other gate)")
+    if not art:
+        return
+
+    pages = []
+    idx = 0
+    while os.path.isfile(os.path.join(GEN, f"act_pool_page{idx}.bin")):
+        pages.append(read(os.path.join(GEN, f"act_pool_page{idx}.bin")))
+        idx += 1
+    check(bool(pages), "editor bake: no act_pool_page*.bin -- nothing to resolve "
+                       "remapped tiles against")
+    if not pages:
+        return
+    pool = b"".join(pages)
+
+    sections_checked = 0
+    words_checked = 0
+    for n in range(min(declared, NUM_SECTIONS)):
+        ed_path = os.path.join(data_path, f"section_{n}.tiles.bin")
+        src_path = os.path.join(GEN, f"sec{n}_strips_source.bin")
+        rem_path = os.path.join(GEN, f"sec{n}_strips_a.bin")
+        map_path = os.path.join(GEN, f"sec{n}_local_map.bin")
+        if not os.path.isfile(ed_path):
+            continue         # generate() skips sections with no editor tiles
+        missing = [p for p in (src_path, rem_path, map_path) if not os.path.isfile(p)]
+        if missing:
+            check(False, f"editor bake: sec{n} has editor tiles but is missing "
+                         f"{', '.join(os.path.basename(p) for p in missing)}")
+            continue
+
+        ed = read(ed_path)
+        if len(ed) != grid * grid * 2:
+            check(False, f"editor bake: {os.path.basename(ed_path)} is {len(ed)} "
+                         f"bytes, expected {grid * grid * 2} for a {grid}x{grid} grid")
+            continue
+        ed_words = struct.unpack(f">{grid * grid}H", ed)
+        src = read(src_path)
+        rem = read(rem_path)
+        for label, blob, path in (("source", src, src_path), ("a", rem, rem_path)):
+            check(len(blob) == grid * stride,
+                  f"editor bake: sec{n}_strips_{label}.bin is {len(blob)} bytes, "
+                  f"expected {grid} columns x {stride} (derived from "
+                  f"ojz_strip_gen's STRIP_TILE_HEIGHT/STRIP_COLLISION_PAD)")
+        if len(src) != grid * stride or len(rem) != grid * stride:
+            continue
+        lm_raw = read(map_path)
+        local_map = struct.unpack(f">{len(lm_raw) // 2}H", lm_raw)
+
+        nt_bad = attr_bad = art_bad = range_bad = 0
+        first = None
+        seen = set()
+        for c in range(grid):
+            off = c * stride
+            col_src = struct.unpack(f">{grid}H", src[off: off + grid * 2])
+            col_rem = struct.unpack(f">{grid}H", rem[off: off + grid * 2])
+            ed_col = ed_words[c::grid]
+            if col_src != ed_col:
+                for r in range(grid):
+                    if col_src[r] != ed_col[r]:
+                        nt_bad += 1
+                        if first is None:
+                            first = (r, c, ed_col[r], col_src[r])
+            for r in range(grid):
+                pair = (col_src[r], col_rem[r])
+                if pair in seen:
+                    continue
+                seen.add(pair)
+                sw, rw = pair
+                if (sw & NAMETABLE_ATTR_MASK) != (rw & NAMETABLE_ATTR_MASK):
+                    attr_bad += 1
+                    continue
+                li = rw & NAMETABLE_TILE_MASK
+                if li >= len(local_map):
+                    range_bad += 1
+                    continue
+                g = local_map[li]
+                if (g + 1) * TILE_SIZE > len(pool):
+                    range_bad += 1
+                    continue
+                want = _tile_pixels(art, sw & NAMETABLE_TILE_MASK,
+                                    (sw >> 11) & 1, (sw >> 12) & 1)
+                got = _tile_pixels(pool, g, (rw >> 11) & 1, (rw >> 12) & 1)
+                if want != got:
+                    art_bad += 1
+            words_checked += grid
+
+        check(nt_bad == 0,
+              f"editor bake: sec{n} strips_source disagrees with the editor "
+              f"nametable in {nt_bad} word(s) -- the generated tree does NOT carry "
+              f"what the editor authored (first: row {first[0]} col {first[1]}, "
+              f"editor ${first[2]:04X} vs strips ${first[3]:04X})"
+              if first else f"editor bake: sec{n} nametable mismatch")
+        check(attr_bad == 0,
+              f"editor bake: sec{n} strips_a changed the priority/palette bits on "
+              f"{attr_bad} distinct word shape(s) -- the remapper may rewrite the "
+              f"tile index and the flips, nothing else")
+        check(range_bad == 0,
+              f"editor bake: sec{n} has {range_bad} distinct word shape(s) whose "
+              f"local index or resolved global slot falls outside the committed "
+              f"local map / art pool")
+        check(art_bad == 0,
+              f"editor bake: sec{n} resolves {art_bad} distinct word shape(s) to "
+              f"DIFFERENT pixels than the editor authored -- same layout, wrong "
+              f"art (dedupe / spatial-order / paging drift)")
+        sections_checked += 1
+
+    check(sections_checked > 0,
+          "editor bake: zero sections had editor tiles to check -- this gate "
+          "measured nothing, which is not a pass")
+    if sections_checked and len(_fail) == fails_before:
+        print(f"verify_level_bin: editor bake fidelity OK "
+              f"({sections_checked} section(s), {words_checked} nametable words)")
+
+
 def main():
     verify_act_pool()
     verify_local_maps()
     verify_block_blobs()
     verify_bininclude_targets()
     verify_collision_is_interned()
+    verify_editor_bake_fidelity()
     verify_no_orphans()
     checks_run = ("act-pool+content+sidecar / local-maps / block-blobs / "
-                  "bininclude-targets / collision-interned / orphans")
+                  "bininclude-targets / collision-interned / editor-bake / orphans")
     if _fail:
         print(f"verify_level_bin: FAIL ({len(_fail)} issue(s)) [{checks_run}]", file=sys.stderr)
         for m in _fail:
