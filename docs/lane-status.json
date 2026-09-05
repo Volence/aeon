@@ -1,6 +1,12 @@
 {
-  "focus": "The 3D floor is running and you have a real capture of it; two look calls are yours.",
-  "inFlight": [],
+  "focus": "Fixing the loop's speed limit; the floor's darkness turned out to be the water, not a fault.",
+  "inFlight": [
+    {
+      "what": "The loop's crossover being skipped at high speed",
+      "where": "agent worktree, tunnelling guard",
+      "agent": true
+    }
+  ],
   "blockedOnOwner": [
     {
       "what": "Whether to collapse the three START chords into one list",
@@ -11,7 +17,11 @@
       "since": "2026-09-04"
     },
     {
-      "what": "The floor's left-edge stripe and its darkness - both look calls, capture sent",
+      "what": "Should the perspective floor run inside the water tint, or get a dry section of its own",
+      "since": "2026-09-04"
+    },
+    {
+      "what": "The floor's left-edge stripe - a look call",
       "since": "2026-09-04"
     },
     {
@@ -19,12 +29,12 @@
       "since": "2026-09-04"
     }
   ],
-  "nextBoundary": "Everything on your list is landed; what remains is your look at the floor and the loop trace.",
+  "nextBoundary": "After the loop's speed limit is fixed; everything else waits on you.",
   "queue": [
     {
-      "id": "T1",
-      "title": "The loop switches layers correctly, then stops on the ramp",
-      "state": "next",
+      "id": "GUARD",
+      "title": "The loop stops working above running speed",
+      "state": "doing",
       "size": "M",
       "blockedBy": null,
       "project": "EFFECTS-W1"
@@ -32,7 +42,7 @@
     {
       "id": "9d",
       "title": "The Hydrocity waterline art you asked us not to forget",
-      "state": "open",
+      "state": "next",
       "size": "M",
       "blockedBy": null,
       "project": "EFFECTS-W1"
@@ -62,7 +72,7 @@
       "project": "EFFECTS-W1"
     }
   ],
-  "awaiting": "your look at the floor - the left-edge stripe and how dark it is are the two calls I cannot make",
-  "atBoundary": true,
-  "updatedAt": "2026-09-04T23:54:15Z"
+  "awaiting": null,
+  "atBoundary": false,
+  "updatedAt": "2026-09-05T00:43:30Z"
 }
