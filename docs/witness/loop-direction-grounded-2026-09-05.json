@@ -1,0 +1,32 @@
+{
+  "_what": "The hub's prediction, driven: grounded leftward at $600 under the CURRENT direction-keyed rule. Predicted: zero toggles, climb observed, fall at the right arc.",
+  "_build": "master, s4.debug.bin 845638 (direction-keyed)",
+  "grounded_assertion_APPLIED_FIRST": {
+    "_why": "My last three reports were confounded by an airborne start. The start is now asserted, not assumed.",
+    "placed": {"x": 1200, "y": 528},
+    "settled_60_frames": {"x": 1200, "y": 557, "y_vel": 0, "engine_row": 34, "layer": 0},
+    "verdict": "GROUNDED at the marked row, east of the mark column (x1144-1151). Valid start.",
+    "_a_start_I_rejected": "x1600 — it FALLS on this build (y566 at 20 frames, y695 at 50). My earlier 'grounded at x1600' run was luck: leftover gsp from a previous write carried him west onto solid ground before he fell far. Recorded because it passed while being invalid."
+  },
+  "run": {
+    "input": "gsp -$600, sustained held left, frames 386-426",
+    "samples": [
+      {"frame": 386, "x": 1200, "y": 557, "y_vel": 0, "layer": 0},
+      {"frame": 406, "x": 1080, "y": 557, "y_vel": 0, "layer": 0},
+      {"frame": 426, "x": 960,  "y": 557, "y_vel": 0, "layer": 0}
+    ],
+    "toggles": 0,
+    "toggle_evidence": "only a boot-init write at frame 54, which is BEFORE the run start of 386 and is excluded by the frame guard"
+  },
+  "prediction_scorecard": {
+    "zero_toggles": "CONFIRMED",
+    "climb_observed": "REFUTED — y is CONSTANT at 557 for the whole traverse, y_vel 0 throughout",
+    "fall_at_right_arc": "REFUTED — he never leaves the ground, so there is no fall"
+  },
+  "the_actual_finding": {
+    "what": "He traverses the ENTIRE loop footprint (bbox x1056-1240) at ground level, y557, without either arc engaging. He enters at x1200 and exits at x960 having never left the floor.",
+    "why_it_matters": "This is not a crossover-rule result at all. The arcs do not pick up a ground-level runner in either direction, which subsumes every 'circuit did not complete' observation tonight — including the earlier speed decay, which was him grinding along the floor rather than climbing.",
+    "and_it_is_not_universal": "the loop CAN be climbed: the crown drive earlier this session measured a pass at y426-432 through nine distinct angles. So the arcs engage under some approach and not this one. What differs between those approaches is the open question."
+  },
+  "_not_established": "why the arcs do not engage. Candidates I have NOT separated: the ramp foot's surface angle, the approach height, or whether the new ground (east extension + both-planes fill) lets a runner pass under an entry the loop previously forced him onto. I am not guessing between them."
+}
