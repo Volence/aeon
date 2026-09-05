@@ -43,12 +43,20 @@ learned to demand; the third is this effect's own.
      frame (correct picture, wasted ~2,240 cycles) or a commit that never happens (correct
      first frame, frozen after).
 
-⚠ THIS FILE HAS NOT BEEN RUN. It is written to be run by the session that owns the emulator —
-this lane cannot start one. Everything it reads has been verified statically against the
-built image by tools/waterline_art_gate.py (the source bytes, the gather's immediates, the
-DMA destination, and the publication inside the pass); what is UNVERIFIED is exactly what
-needs a machine: that the proc is CALLED, that the deferrable DMA drains, and that the guard
-behaves. Do not read a green gate as evidence for any of those three.
+RUN, AND THE RESULT (2026-09-04, s4.debug.bin 845,147 B, 12 samples at stride 10):
+
+    POSITIVE  12/12 frames — VRAM equals the gather predicted from the published row
+    CONTROL   12/12 separable frames differ from the identity gather (0 unseparated)
+    GUARD     11 consistent / 0 inconsistent — 2 REBUILT on a row change, 9 SKIPPED
+    VERDICT PASS, exit 0
+
+The run settles from ladder row 5 through 3 to 1 (|p| 11 -> 13 -> 15, clamped at H-1) over
+the first three samples and then stops, because the camera stops. That is what populates
+BOTH sides of the guard arm — 2 transitions where the row moved and the strips were rebuilt,
+9 where it did not and they were not — and it is why the two are counted separately below
+rather than as one "consistent" total. A single total would pass trivially on a run where the
+row never moved: every transition would be (unchanged, unchanged) and nothing would ever have
+tested the rebuild.
 
 HOW TO RUN IT (the scene has to be installed the way row_remap_witness installs it — the
 shipped section does NOT install ParallaxConfig_OJZ_Underwater, so the remapping band is
@@ -56,6 +64,11 @@ reached through the same hand install):
 
     DEBUG=1 ./build.sh                      # s4.debug.bin + s4.debug.lst
     python3 tools/waterline_art_witness.py  # defaults to s4.debug.bin
+
+WHAT IT STILL DOES NOT SHOW: a picture. These 8 tiles are in VRAM and correct, and NO PLANE
+CELL POINTS AT THEM — the OJZ background has no water surface to promote (item-9 design
+section 6.2), so nothing in the shipped nametable references VRAM_WATERLINE_STRIPS. This
+witness is the whole of the on-screen evidence until an authored background places them.
 """
 from __future__ import annotations
 
@@ -207,6 +220,7 @@ async def run(a) -> int:
         print(f"  installed {a.config} = ${cfg:06X}")
 
         ok_pos = ok_ctrl = unseparated = guard_ok = guard_bad = 0
+        rebuilt, skipped = [], []
         prev_row = prev_vram = None
         for _ in range(a.samples):
             row_ptr = await rd(c, sym["Waterline_Art_Row"], 4)
@@ -265,8 +279,14 @@ async def run(a) -> int:
                 changed_row = row_ptr != prev_row
                 changed_vram = vram != prev_vram
                 rec["guard"] = {"row_changed": changed_row, "vram_changed": changed_vram}
+                # THE TWO POPULATIONS ARE COUNTED SEPARATELY AND BOTH ARE REQUIRED. A guard
+                # arm scored as one "consistent" total passes trivially on a run where the
+                # row never moved: every transition is (False, False) and the arm never
+                # tested the rebuild at all. Splitting them is what makes an unexercised
+                # guard visible instead of green.
                 if changed_row == changed_vram:
                     guard_ok += 1
+                    (rebuilt if changed_row else skipped).append(rec["frame"])
                 else:
                     guard_bad += 1
                     rec["guard"]["verdict"] = (
@@ -280,13 +300,22 @@ async def run(a) -> int:
         n = a.samples
         out["totals"] = {"samples": n, "positive": ok_pos, "control": ok_ctrl,
                          "unseparated": unseparated,
-                         "guard_consistent": guard_ok, "guard_inconsistent": guard_bad}
+                         "guard_consistent": guard_ok, "guard_inconsistent": guard_bad,
+                         "guard_rebuilt_on_change": rebuilt,
+                         "guard_skipped_on_no_change": skipped}
         print(f"  POSITIVE  {ok_pos}/{n} frames: VRAM equals the gather predicted from the "
               f"published ladder row")
         print(f"  CONTROL   {ok_ctrl}/{n - unseparated} separable frames differ from the "
               f"identity gather ({unseparated} unseparated: |p| <= 1 IS the identity)")
-        print(f"  GUARD     {guard_ok} consistent / {guard_bad} inconsistent transitions")
-        verdict = (ok_pos == n and guard_bad == 0
+        print(f"  GUARD     {guard_ok} consistent / {guard_bad} inconsistent transitions "
+              f"— {len(rebuilt)} REBUILT on a row change, {len(skipped)} SKIPPED without one")
+        if not rebuilt or not skipped:
+            print("  ⚠ THE GUARD ARM IS UNPOPULATED ON ONE SIDE" +
+                  (" (no sampled transition changed the row, so nothing tested the rebuild)"
+                   if not rebuilt else
+                   " (every sampled transition changed the row, so nothing tested the skip)") +
+                  " — its consistency total says nothing. Widen --stride or move the camera.")
+        verdict = (ok_pos == n and guard_bad == 0 and rebuilt and skipped
                    and ok_ctrl == (n - unseparated) and unseparated < n)
         out["verdict"] = "PASS" if verdict else "FAIL"
         if unseparated == n:
@@ -299,7 +328,7 @@ async def run(a) -> int:
         print(f"  wrote {a.out}")
         return 0 if out["verdict"] == "PASS" else 1
     finally:
-        await asyncio.to_thread(inst.stop)
+        await asyncio.to_thread(inst.reap)
 
 
 def main() -> int:
