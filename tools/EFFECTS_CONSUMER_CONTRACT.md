@@ -851,8 +851,15 @@ on the aeon side today and unsafe on the Aurora side today.**
   declares, as `ch -> {lo, hi, lines, source}` with `source` a `file:line` into the
   hand-authored `.emp`. It exists because those bounds live nowhere a writer can read them,
   so a panel could author a sweep whose travel leaves its channel's band and say nothing:
-  a sweep fits when its peak excursion (`256 >> amp_shift`, whole pixels, and `amp_shift` is
-  already a document key) fits `channels[c].lines`. **⚠ THE TWO EDGES ARE NOT SYMMETRIC and
+  a sweep is a CERTAIN REFUSAL when its PEAK-TO-PEAK TRAVEL (`2 * (256 >> amp_shift)`, whole
+  pixels, and `amp_shift` is already a document key) EXCEEDS `channels[c].lines`. Travel
+  within `lines` is NOT a clearance — the latched line is (anchor - Camera_Y), so whether it
+  fits is camera-dependent and unknowable at author time. **This line carried BOTH of the
+  errors the sidecar's own `how_to_use` exists to prevent, until 2026-09-05: it said
+  "fits when" (a clearance the test cannot give) AND it used PEAK EXCURSION rather than
+  peak-to-peak travel — the 2x permissive error whose fix in the sidecar was never
+  back-applied here.** Found by grepping this tree for the old phrasing after aurora asked
+  me to confirm nothing else keyed on it; the phrasing search found the stale QUANTITY too. **⚠ THE TWO EDGES ARE NOT SYMMETRIC and
   a warning that treats them alike is wrong** — past `hi` the record is DROPPED (no boundary
   anywhere; the band vanishes until the latched line re-enters the band), while below `lo` it
   is CLAMPED UP and still drawn. The file's own `edges` block carries both behaviours and the
