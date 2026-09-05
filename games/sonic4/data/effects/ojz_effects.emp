@@ -17,7 +17,11 @@ use engine.vdp.{VdpTarget, VdpOp, vdp_comm, VdpBase, vdp_base_reg, vdp_reg, VDP_
 // The two plane bases item 11a's word is folded FROM. Named here rather than spelled as
 // literals so a re-layout moves the op instead of stranding it: engine.constants is the
 // engine-side truth and games/sonic4/config/constants.emp pins vram.toml against it.
-use engine.constants.{VRAM_PLANE_A, VRAM_PLANE_B}
+// SECTION_SIZE_SHIFT joins them for OJZ_WorldWater's world anchors (item 9c precondition,
+// below): section 7 is in grid row 2, so its world-Y origin is `2 << SECTION_SIZE_SHIFT`.
+// Imported rather than typed as 4096 for the reason the line above gives — the act's own
+// geometry is the authority, and a section-size change must move the anchors with it.
+use engine.constants.{VRAM_PLANE_A, VRAM_PLANE_B, SECTION_SIZE_SHIFT}
 // EFFECTS-W1 item 10a (OJZ_Reels, below): VSCROLL_COL_PAIRS is the per-column VSRAM
 // buffer's own column-pair count (engine/level/parallax.emp), and the two REEL_* geometry
 // constants are the game's own (games/sonic4/config/constants.emp) — both are needed by
@@ -1658,6 +1662,72 @@ pub data OJZ_Preset_Sec6:  EffectsPreset = preset(pal: OJZ_Palette,
                                                   raster: ojz_act1_sec_raster(sec: 6, hand: Raster_Program_None),
                                                   cycle: Pal_Cycle_None,    variants: [Variant_Water_Deep, 0])
 
+// SECTION 7 IS THE ACT'S SECOND SECTION WITH LIVE PATCH CHANNELS (EFFECTS-W1 item 9c
+// precondition, 2026-09-05). It carries OJZ_WorldWater — two `patchable()` records with
+// world anchors — and nothing else that OJZ_Preset_Plain did not already have.
+//
+// WHY THIS RECORD EXISTS AT ALL, and it is NOT the `OJZ_Preset_Sec5`/`Sec6` reason. Those
+// two split off the shared Plain record so a section-keyed CHOOSER could be threaded. This
+// one splits off so the section can bind `patched:` and its own anchor bank: `ep_patched`,
+// `ep_patch_world_ys` and `ep_patch_motion` are fields of the preset RECORD, so sections 7
+// and 8 sharing one record would have given section 8 the same two boundaries.
+//
+// ⚠ WHAT THIS UNBLOCKS, stated because the blocker is written down and this is its answer.
+// DEFERRED_WORK's item-9 row says of 9c: *"the only OJZ section with live patch channels is
+// section 0, which CANNOT bind an editor document at all"*, and concludes that the anchored
+// precondition and the authorable binding are mutually exclusive. The half of that which is
+// still true is section 0's; the conclusion is not, because `rowRemap` is a SCENE key and a
+// scene binds through `section_N.meta.json`'s `sceneRef` -> `Sec.sec_parallax_config` (rung 1
+// of Effects_ResolveParallax), which has NO interaction with `ep_raster`/`ep_patched`
+// exclusivity. Section 7 has no sidecar at all today, so its `sceneRef` is free, and
+// `ojz_sec()` in act_descriptor.emp already calls `ojz_act1_sec_scene(sec: 7)` for it. An
+// author wanting an anchored scene here therefore writes JSON and touches no `.emp`.
+//
+// `parallax:` IS DELIBERATELY UNBOUND, unlike OJZ_Preset_Sec0 (which binds
+// ParallaxConfig_OJZ_Underwater) and unlike section 5's d-53 LOAN of the same record. Rung 1
+// beats rung 2, so a bound record here would be overwritten by the first `sceneRef` anyway
+// — and until one exists, an author looking at section 7 should see the act default and know
+// the scene half is theirs. Binding Underwater would have made section 7 a second copy of
+// section 0's look and hidden that. Reversible in one word if a stopgap is ever wanted.
+//
+// THE CHOOSERS ARE NOT THREADED HERE, and that is a scope call rather than an oversight. A
+// `rasterRef` document could carry `boundary` (tools/effects_gen.py's `BOUNDARY_REQUIRED_KEYS`)
+// and lower to exactly the `patchable(fx_tint_band(..))` call below, at which point this
+// record would owe `patched:` plus BOTH patch choosers per tools/effects_seam_gate.py's
+// `channel_faults`. That is purely additive on this record when someone wants it; nothing
+// here has to move first.
+//
+// ---- THE ANCHORS ARE DERIVED FROM THE AUTHORED LINES, NOT TYPED BESIDE THEM ------------
+// `Effects_LatchWorldLines` derives each channel's screen line as `anchor - Camera_Y` every
+// frame, so an anchor is only meaningful against a camera. Section 7 is grid row 2
+// (sections 6, 7, 8), so its world-Y origin is `2 << SECTION_SIZE_SHIFT`.
+//
+// ⚠ OJZ_SEC7_CAMERA_Y IS AN ASSUMPTION AND IS LABELLED ONE. The act spawns at
+// `start_local_y = $0100` with `Camera_Y` measured at $0090 = 144 on oracle, i.e. the camera
+// sits 112 px above the player at the row's local ground level. Rebasing that one grid row
+// down is exactly what section 5's own authored anchor does (2272 = 2048 + 224, "section 0's
+// own channel-0 anchor one section row down"), so this file already had the convention; this
+// is its second use, not a new rule. IF THE LAB DROPS THE PLAYER SOMEWHERE ELSE IN SECTION 7,
+// the fix is this ONE constant — both anchors move with it and both authored lines stay put.
+//
+// The two SCREEN lines are the authored quantity and the two WORLD Ys are derived from them,
+// rather than the other way round, so that `patchable()`'s own "the authored line {line} is
+// outside its own band" refusal is also the check on the SEEDED line. A hand-typed anchor
+// beside a hand-typed line is two copies of one fact, and the tree has measured that drift
+// twice in this file's own comments.
+const OJZ_SEC7_ROW_TOP      = 2 << SECTION_SIZE_SHIFT    // grid row 2 = sections 6, 7, 8
+const OJZ_SEC7_CAMERA_Y     = OJZ_SEC7_ROW_TOP + 144     // ASSUMED — see the warning above
+const OJZ_SEC7_SURFACE_LINE = 80                         // ch 2's authored + seeded screen line
+const OJZ_SEC7_SPLIT_LINE   = 170                        // ch 3's authored + seeded screen line
+const OJZ_SEC7_SURFACE_Y    = OJZ_SEC7_CAMERA_Y + OJZ_SEC7_SURFACE_LINE
+const OJZ_SEC7_SPLIT_Y      = OJZ_SEC7_CAMERA_Y + OJZ_SEC7_SPLIT_LINE
+pub data OJZ_Preset_Sec7:  EffectsPreset = preset(pal: OJZ_Palette, patched: OJZ_WorldWater,
+                                                  cycle: Pal_Cycle_None,    variants: [Variant_Water_Deep, 0],
+                                                  patch_world_ys: [PATCH_ANCHOR_NONE, PATCH_ANCHOR_NONE,
+                                                                   OJZ_SEC7_SURFACE_Y, OJZ_SEC7_SPLIT_Y],
+                                                  patch_motion:   [ANCHOR_MOTION_NONE, ANCHOR_MOTION_NONE,
+                                                                   ANCHOR_MOTION_NONE, ANCHOR_MOTION_NONE])
+
 // ===========================================================================
 // OJZ_TwoChannel — the Parcel P-a gate. TWO independently patchable boundaries in ONE
 // program, which is exactly what the Phase-3 design declared out of scope for Parcel C
@@ -1852,6 +1922,102 @@ ensure(OJZ_TC_HAND.len == 25,
 ensure(first_mismatch(patched_program(OJZ_TC_PROG),
                       OJZ_TC_HAND ++ OJZ_TC_PAD ++ OJZ_TC_TABLE_HAND ++ OJZ_TC_TRAILER_HAND) == -1,
        "OJZ_TwoChannel: the emitted patched image diverges from the hand twin at index {first_mismatch(patched_program(OJZ_TC_PROG), OJZ_TC_HAND ++ OJZ_TC_PAD ++ OJZ_TC_TABLE_HAND ++ OJZ_TC_TRAILER_HAND)}")
+
+// ===========================================================================
+// OJZ_WorldWater — SECTION 7's TWO WORLD-ANCHORED BOUNDARIES. The act's SECOND set of live
+// patch channels, and the thing EFFECTS-W1 item 9c was blocked behind.
+//
+// It is the same PAIR of effects OJZ_TwoChannel carries — a tint band and a plane-B vertical
+// scroll split — and it is not a copy of it. In OJZ_TwoChannel the split is a GATE FIXTURE
+// parked in the bottom two screen lines (its own note says so, and says its position is the
+// negotiable part); here both records are content and both have real travel. That is the
+// whole difference and it is the reason for every number below.
+//
+// ---- WHY IT IS NOT A `band()` -----------------------------------------------
+// Design rule 6, both halves, is still in force (P2b is unbuilt): neither a band's ON fire
+// nor its restore fire may be patchable, and `band()`'s own banner says so. A boundary that
+// MOVES is authored as `patchable(fx_*(..))`, which is one fire — see OJZ_TwoChannel, and
+// RASTER-CHBAND-1 in docs/DEFERRED_WORK.md for the three ways out of that and which one is
+// cheap. Nothing here needs any of them: neither of these two effects is a band.
+//
+// ---- THE CHANNELS ARE 2 AND 3, NOT 0 AND 1, AND THAT IS THE ONE DECISION HERE ----------
+// Channels are a PER-PROGRAM index — guard 11 only refuses two records on one channel within
+// one program, so `ch: 0` here would have been legal and would have mirrored section 0.
+// It is 2 and 3 because THREE TOOLS associate a channel with a band ACT-WIDE, not per program:
+// tools/effects_gates.py builds `{ch0..ch3: (lo, hi)}` from every `ch:/lo:/hi:` triple in this
+// file and would have silently taken the LAST match for ch0;
+// games/sonic4/data/generated/effects_channel_bands.json — Aurora's read-only band sidecar —
+// is keyed by channel with no program or section in it at all; and
+// tools/test_anchor_sweep_band.py resolved every authored sweep's amplitude against the same
+// flat map. Distinct channels keep all three readings unambiguous.
+//
+// TWO OF THE THREE WERE FIXED RATHER THAN RELIED ON, because "it happens not to collide" is a
+// property of today's content: test_anchor_sweep_band.py now resolves a sweep's band per
+// (section -> preset -> patched program), the way the runtime does, and effects_gates.py
+// REFUSES (exit 2) a channel declared with two different bands rather than picking one. The
+// sidecar is generated and is Aurora's to widen if they ever want two programs on one channel.
+// Cost of the choice: nothing. RASTER_MAX_PATCH is 4, section 0 uses two of them and section 7
+// uses the other two, and no section installs both programs.
+//
+// The anchors and the two authored lines are declared with the preset that seeds them —
+// see OJZ_SEC7_CAMERA_Y and its warning above OJZ_Preset_Sec7. They are `camera + line`
+// by construction, so `patchable()`'s own "the authored line is inside its own band"
+// refusal IS the check that the seeded line is in band; there is no retyped second copy
+// of those numbers here, deliberately.
+//
+// ---- THE TWO BANDS, AND THE BUDGET THEY SPEND ------------------------------
+// Disjoint bands over screen lines 3..223 must satisfy sum(hi - lo + 1) + (N - 1) <= 221
+// (RASTER_MAX_PATCH's own note, and check_intervals is what enforces it):
+//     (160 - 3 + 1) + (223 - 162 + 1) + 1  =  158 + 62 + 1  =  221.
+// EXACTLY FULL, the same as OJZ_TwoChannel — the budget is a property of the screen, so any
+// two-record program that wants both records mobile spends all of it. The SPLIT of it is
+// where this differs: 158/62 instead of 218/2.
+//
+// WHY THE SURFACE GETS THE LARGER SHARE. Below `lo` the fire clamps UP (covered here, because
+// channel 2 declares `offscreen_ship` and the frame-top DMA tints the whole screen — S3K's
+// Water_full_screen_flag answer). Above `hi` Raster_BuildSchedule DROPS the record and the
+// tint VANISHES for that frame, which is an uncovered error whose SIZE is the distance from
+// `hi` to the screen bottom. So the edge worth buying is the surface's `hi`, and the 63 lines
+// bought here cost the split nothing it needs: 62 lines of travel is a quarter of the screen.
+//
+// DENSITY, WORST CASE (check_density's own arithmetic, spelled so a future op sees the
+// margin it is spending): channel 2's fire is `reg_sh_on` + a 3-word `stream_pal_region`,
+// modelled at 302 + 40 + 336 = 678 cycles. The gap is measured between the fire lines the two
+// records can actually REACH — 159 and 161 — so it is 2 scanlines = 976 cycles at
+// RASTER_SCANLINE_CYC 488. 678 < 976 with 298 cycles of margin. Channel 3 is last and is
+// unconstrained. (Two lines is the same separation OJZ_TwoChannel runs at, and its note is
+// right that this is the first thing that fails if channel 2's fire grows an op.)
+//
+// SLOT 0 MUST BE A VARIANT COVERING PALETTE LINE 2, and the preset above binds
+// Variant_Water_Deep there — `fx_tint_band`'s own note names this as the thing no comptime
+// guard can see, because the binding is a runtime call.
+const OJZ_WORLD_WATER_PROG = compose([
+    patchable(fx_tint_band(line: OJZ_SEC7_SURFACE_LINE,
+                           slot: 0, pal_line: 2, entry: 4, count: 3, sh: 1),
+              ch: 2, lo: 3,   hi: 160, offscreen_ship: 1),
+    patchable(fx_vscroll_split(line: OJZ_SEC7_SPLIT_LINE, offset: $0043),
+              ch: 3, lo: 162, hi: 223),
+])
+
+// THE PINS ARE STRUCTURAL, NOT WORD-FOR-WORD, and that follows OJZ_BandDemo's ruling rather
+// than OJZ_TwoChannel's: every stream op carries a SOLVED spin word the lowering derives from
+// the op's position in its fire, so a hand twin would mean transcribing the solver's own
+// output — a copy of the encoder, not an independent check of it. OJZ_TwoChannel keeps its
+// twin because it is the fixture that PROVED the encoder; this is content built on it.
+//
+// The two numbers are derived from the wire shape, not read off OJZ_TwoChannel's pins:
+//   body  = 1 header + 2 priming fires x 2 + (arm, count, SetReg x2, PalRegion x6)
+//                                          + (arm, count, OP_CRAM x6) + park x2 = 25 words.
+//   image = 64 padded body words + (1 count + 2 records x 5) + (1 + channel + stage off
+//           + count + CRAM addr + 1 + the replayed SetReg) = 64 + 11 + 7 = 82 words.
+// The image number is what the runtime walks; the body number is what the padding is written
+// against, and a body over 64 words would silently overrun the patch table.
+ensure(raster_words(OJZ_WORLD_WATER_PROG) == 25,
+       "OJZ_WorldWater: the DSL counts {raster_words(OJZ_WORLD_WATER_PROG)} body words, not the 25 the shape above derives (header + two priming fires + a 10-word record + an 8-word record + park). A THIRD record, or an op added to either fire, lands here first")
+ensure(patched_words(OJZ_WORLD_WATER_PROG) == 82,
+       "OJZ_WorldWater: patched_words says {patched_words(OJZ_WORLD_WATER_PROG)}, not the 82 the shape above derives (64 padded body + 11 table + 7 trailer). If the trailer moved, channel 2's offscreen_ship entry is the thing that changed shape")
+
+pub data OJZ_WorldWater: [u16; patched_words(OJZ_WORLD_WATER_PROG)] = patched_program(OJZ_WORLD_WATER_PROG)
 
 // ===========================================================================
 // OJZ_Reels — EFFECTS-W1 DoD ITEM 10a: REELS (per-strip vertical scroll content).

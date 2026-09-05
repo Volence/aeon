@@ -109,6 +109,10 @@ AEON = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RASTER_DSL = os.path.join(AEON, "engine/effects/raster_dsl.emp")
 CONSTANTS = os.path.join(AEON, "engine/system/constants.emp")
 OJZ_EFFECTS = os.path.join(AEON, "games/sonic4/data/effects/ojz_effects.emp")
+# The section -> preset edge. A generated sweep is keyed on a SECTION, and a section names
+# a patchable band only through the preset its `effects:` argument binds, so the band
+# resolution crosses out of the effects library exactly here.
+DESCRIPTOR = os.path.join(AEON, "games/sonic4/data/levels/ojz/act1/act_descriptor.emp")
 SCENES_DIR = os.path.join(AEON, "tools/scenes")
 
 # THE TWO MODULE SETS THIS FILE COVERS. Globs and not literals: a second game, a second act
@@ -190,15 +194,179 @@ def _period_shift_max(entries, width):
     return p
 
 
-def patchable_bands():
-    """{channel: (lo, hi)} in SCREEN lines, from the `ch:/lo:/hi:` triples in ojz_effects.emp.
+def _balanced(src, start, opener="(", closer=")"):
+    """The substring inside the bracket at/after `start`, by balance. Returns (body, end)."""
+    i = src.index(opener, start)
+    depth, j = 0, i
+    while j < len(src):
+        if src[j] == opener:
+            depth += 1
+        elif src[j] == closer:
+            depth -= 1
+            if depth == 0:
+                return src[i + 1:j], j
+        j += 1
+    raise AssertionError("unbalanced %s from offset %d" % (opener, start))
 
-    Same read tools/effects_gates.py does, and for the same reason it does it there: the bands
-    are a property of the source, and a test restating them is a test of its own copy.
-    """
-    src = _read(OJZ_EFFECTS)
-    triples = re.findall(r"\bch:\s*(\d+)\s*,\s*lo:\s*(\d+)\s*,\s*hi:\s*(\d+)", src)
-    return {int(c): (int(lo), int(hi)) for c, lo, hi in triples}
+
+_BAND_TRIPLE = re.compile(r"\bch:\s*(\d+)\s*,\s*lo:\s*(\d+)\s*,\s*hi:\s*(\d+)")
+
+
+def patched_programs():
+    """{program label: {channel: (lo, hi)}} — one map PER PATCHED PROGRAM, in SCREEN lines.
+
+    ---- WHY THIS IS NOT ONE ACT-WIDE MAP ANY MORE (2026-09-05) ----
+
+    It was, and the test that guarded that shape said what would end it, in its own words:
+    *"One patched program in the tree means one band per channel. The moment a second one
+    exists, `patchable(ch: 0, ...)` names two different bands and this file's association is
+    wrong — so it must refuse rather than pick one."* EFFECTS-W1 item 9c's precondition landed
+    that second program (`OJZ_WorldWater` on section 7, channels 2 and 3), so the map is built
+    the way that refusal prescribed: per program, resolved through the section that installs it.
+
+    A CHANNEL IS A PER-PROGRAM INDEX and always was — `raster_program`'s guard 11 refuses two
+    records on one channel WITHIN one program and says nothing across programs. The act-wide
+    union was only ever sound because there was one program; under two it answers the wrong
+    question in the one case that matters, and it answers it QUIETLY: a sweep authored for a
+    section whose preset binds no patched program at all would have been resolved against some
+    other section's band and reported in-band. That is the dead-channel fixture exactly
+    (`sec == 2 && ch == 3`), and it went green under the union the moment channel 3 acquired a
+    band anywhere in the act.
+
+    Read from the source, never restated: `pub data <label>: [u16; patched_words(<P>)] =
+    patched_program(<P>)` gives label -> program const, and `const <P> = compose([..])` carries
+    the `patchable(.., ch:, lo:, hi:)` calls."""
+    src = _blank(_read(OJZ_EFFECTS))
+    out = {}
+    for m in re.finditer(r"pub data (\w+)\s*:\s*\[u16;\s*patched_words\(\s*(\w+)\s*\)\s*\]"
+                         r"\s*=\s*patched_program\(\s*(\w+)\s*\)", src):
+        label, sized_by, emitted = m.group(1), m.group(2), m.group(3)
+        if sized_by != emitted:
+            raise AssertionError(
+                "%s: `pub data %s` is SIZED by patched_words(%s) and EMITTED from "
+                "patched_program(%s). Those must be the same program — a mismatch would emit "
+                "one image into another's length, and this reader would attribute the wrong "
+                "bands to the label."
+                % (os.path.relpath(OJZ_EFFECTS, AEON), label, sized_by, emitted))
+        cm = re.search(r"\bconst\s+%s\s*=\s*compose\s*\(" % re.escape(emitted), src)
+        if not cm:
+            raise AssertionError(
+                "%s: `pub data %s` is built from patched_program(%s), but there is no "
+                "`const %s = compose(` for this reader to take the bands out of. Teach it the "
+                "new spelling — a program whose bands cannot be read is a program every band "
+                "bound in this file silently skips."
+                % (os.path.relpath(OJZ_EFFECTS, AEON), label, emitted, emitted))
+        body, _ = _balanced(src, cm.end() - 1)
+        out[label] = {int(c): (int(lo), int(hi))
+                      for c, lo, hi in _BAND_TRIPLE.findall(body)}
+    return out
+
+
+def preset_patched_programs():
+    """{preset name: the label its `patched:` argument names} for every preset that binds one.
+
+    A preset that binds none is ABSENT rather than empty: "this section installs no patched
+    program" and "this section installs one with no channels" are different facts and only the
+    first is a legitimate dead channel."""
+    src = _blank(_read(OJZ_EFFECTS))
+    out = {}
+    for m in re.finditer(r"pub data (\w+)\s*:\s*EffectsPreset\s*=\s*preset\s*\(", src):
+        body, _ = _balanced(src, m.end() - 1)
+        pm = re.search(r"\bpatched:\s*([A-Za-z_]\w*)", body)
+        if pm:
+            out[m.group(1)] = pm.group(1)
+    return out
+
+
+def section_presets():
+    """{section index: the preset name its `effects:` argument names}, from act_descriptor.emp.
+
+    The generated arm's sweeps are keyed on a SECTION, and a section names a band only through
+    the preset it binds. This is the one edge that crosses out of the effects library, and it
+    is read rather than assumed for the same reason everything else here is."""
+    src = _blank(_read(DESCRIPTOR))
+    out = {}
+    for m in re.finditer(r"\bojz_sec\s*\(", src):
+        body, _ = _balanced(src, m.end() - 1)
+        sm = re.search(r"\bsec:\s*(\d+)", body)
+        em = re.search(r"\beffects:\s*([A-Za-z_]\w*)", body)
+        if sm and em:
+            out[int(sm.group(1))] = em.group(1)
+    return out
+
+
+def _sweep_section(s):
+    """The section a scanned sweep is authored for, or None. Chooser sites carry it."""
+    m = re.search(r"sec:\s*(\d+)", s.site)
+    return int(m.group(1)) if m else None
+
+
+def bands_for_preset(name, progs=None, presets=None):
+    """({channel: (lo, hi)}, provenance, installs_a_program) for one preset.
+
+    THE THIRD MEMBER IS NOT A CONVENIENCE. "This section installs a patched program that has
+    no record on channel N" and "this section installs no patched program at all" look the
+    same from the bands dict and are different facts:
+
+      * the first is a DEAD raster channel — the program is there, the record is not, and
+        nothing about the section can consume that channel's line as a raster boundary;
+      * the second means there is NO BAND TO FIT, so the band-fit bound does not apply and
+        cannot be evaluated either way. It is ALSO not proof the sweep is idle: a channel's
+        line is latched into `Effects_Screen_L[ch]` for every channel every frame, and a
+        SCENE anchor (`SceneAnchor.At(ch, ..)`) consumes it with no `patchable()` record
+        anywhere — which is exactly what `OJZ_Preset_Sec5`'s d-53 `parallax:` loan does for
+        the one live generated sweep in this tree.
+
+    Reporting the second as a violation would turn a deliberate, documented arrangement red
+    and would be a claim this file cannot support: it does not read scene anchors."""
+    progs = patched_programs() if progs is None else progs
+    presets = preset_patched_programs() if presets is None else presets
+    prog = presets.get(name)
+    if prog is None:
+        return {}, ("preset %s binds no `patched:` program, so there is no raster band on any "
+                    "channel in the section(s) that install it" % name), False
+    if prog not in progs:
+        raise AssertionError(
+            "preset %s binds `patched: %s`, which is not a `patched_program(..)` this reader "
+            "can find in %s. If the argument became a chooser call (the `boundary` document "
+            "key's shape), teach bands_for_preset() to resolve it — resolving it to nothing "
+            "would silently disable every band bound in this file for that section."
+            % (name, prog, os.path.relpath(OJZ_EFFECTS, AEON)))
+    return progs[prog], "preset %s -> %s" % (name, prog), True
+
+
+def bands_for_sweep(s, progs=None, presets=None, sections=None):
+    """({channel: (lo, hi)}, provenance) for ONE scanned sweep, resolved the way the RUNTIME
+    resolves it: the sweep's section installs a preset, the preset installs a patched program,
+    and that program's `patchable()` records are the only bands that sweep can ever move."""
+    sections = section_presets() if sections is None else sections
+    if s.shape == "array":
+        return bands_for_preset(s.site, progs, presets)
+    sec = _sweep_section(s)
+    if sec is None:
+        return {}, ("the site %r names no section, so no preset and no program can be "
+                    "resolved for it" % s.site), False
+    name = sections.get(sec)
+    if name is None:
+        return {}, ("no `ojz_sec(sec: %d, .., effects: ..)` row in %s, so the section binds no "
+                    "preset this reader can see"
+                    % (sec, os.path.relpath(DESCRIPTOR, AEON))), False
+    bands, why, has_prog = bands_for_preset(name, progs, presets)
+    return bands, "section %d -> %s" % (sec, why), has_prog
+
+
+def patchable_bands():
+    """The ACT-WIDE UNION of every program's bands — FOR THE COVERAGE REPORT ONLY.
+
+    Deliberately not used by any bound: with two patched programs in the act a channel index
+    alone does not name a band (see `patched_programs()`). It is still worth PRINTING, because
+    the report's job is to say what the source contains, and a per-channel line is how a reader
+    checks the numbers against the file."""
+    out = {}
+    for label, bands in sorted(patched_programs().items()):
+        for ch, band in bands.items():
+            out.setdefault(ch, []).append((label, band))
+    return out
 
 
 def authored_sweeps():
@@ -542,19 +710,28 @@ def scan_all():
 # calls in source and the peak excursion from `ANCHOR_SINE_AMP` in raster_dsl.emp. Not one
 # number below is transcribed from a nearby pin.
 
-def band_violations(sweeps, bands=None, amp=None):
-    """[(sweep, kind, message)] — the checks that need only the sweep and its channel's band."""
-    bands = patchable_bands() if bands is None else bands
+def band_violations(sweeps, amp=None):
+    """[(sweep, kind, message)] — the checks that need only the sweep and its channel's band.
+
+    The band comes from `bands_for_sweep`, i.e. from the program the sweep's own SECTION
+    installs. Under one patched program that was the same answer as the act-wide union; under
+    two it is not, and the union's answer is wrong in the direction that reads as a pass."""
     amp = _const(_read(RASTER_DSL), "ANCHOR_SINE_AMP", RASTER_DSL) if amp is None else amp
+    progs, presets, sections = patched_programs(), preset_patched_programs(), section_presets()
     out = []
     for s in sweeps:
+        bands, why, has_prog = bands_for_sweep(s, progs, presets, sections)
+        if not has_prog:
+            continue                      # no band exists to fit — see band_unevaluated()
         if s.channel not in bands:
             out.append((s, "dead-channel",
                         "%s (%s, %s) authors a sweep on channel %d, which no patchable() call "
-                        "declares a band for. Nothing consumes that channel's line, so the "
+                        "REACHABLE FROM THAT SECTION declares a band for (%s; channels with a "
+                        "band there: %s). Nothing consumes that channel's line, so the "
                         "sweep is invisible — and if a band is added later it inherits an "
                         "amplitude nobody checked against it."
-                        % (s.site, s.shape, os.path.relpath(s.path, AEON), s.channel)))
+                        % (s.site, s.shape, os.path.relpath(s.path, AEON), s.channel, why,
+                           sorted(bands) or "none")))
             continue
         lo, hi = bands[s.channel]
         height = hi - lo + 1
@@ -569,6 +746,22 @@ def band_violations(sweeps, bands=None, amp=None):
                         "widen the channel's patchable band."
                         % (s.site, s.shape, os.path.relpath(s.path, AEON), s.channel,
                            peak_to_peak, lo, hi, height, s.amp_shift, s.amp_shift + 1)))
+    return out
+
+
+def band_unevaluated(sweeps):
+    """[(sweep, why)] for the sweeps the band-fit bound CANNOT be evaluated for.
+
+    A sweep whose section installs no patched program has no band to fit. That is not a pass
+    and it is not a violation, and the one thing it must never be is invisible — this file has
+    booked "a green that states nothing" as its own failure mode more than once, so the count
+    goes into the coverage report and a test asserts every member really is in this state."""
+    progs, presets, sections = patched_programs(), preset_patched_programs(), section_presets()
+    out = []
+    for s in sweeps:
+        _bands, why, has_prog = bands_for_sweep(s, progs, presets, sections)
+        if not has_prog:
+            out.append((s, why))
     return out
 
 
@@ -592,15 +785,16 @@ def chooser_seeds(path):
     return seeds
 
 
-def headroom_violations(sweeps, seeds_by_path, bands=None, amp=None):
+def headroom_violations(sweeps, seeds_by_path, amp=None):
     """[(sweep, kind, message)] for the sweeps whose seeded anchor is in reach.
 
     Returns the violations AND the set of sweeps it could not evaluate, because "not checked"
     has to be reportable rather than indistinguishable from "checked and fine"."""
-    bands = patchable_bands() if bands is None else bands
     amp = _const(_read(RASTER_DSL), "ANCHOR_SINE_AMP", RASTER_DSL) if amp is None else amp
+    progs, presets, sections = patched_programs(), preset_patched_programs(), section_presets()
     out, unevaluated = [], []
     for s in sweeps:
+        bands, _why, _has = bands_for_sweep(s, progs, presets, sections)
         if s.channel not in bands:
             continue                      # already reported by band_violations
         seed = seeds_by_path.get(s.path, {})
@@ -647,6 +841,7 @@ def coverage_report():
     because there is nothing wrong. This is the difference, spelled out."""
     lines = ["anchor-sweep band scan — coverage, stated because a green cannot state it:"]
     bands = patchable_bands()
+    sections = section_presets()
     for label, paths in (("hand-authored (%s)" % os.path.relpath(HAND_GLOB, AEON),
                           hand_modules()),
                          ("generated (%s)" % os.path.relpath(GENERATED_GLOB, AEON),
@@ -663,10 +858,15 @@ def coverage_report():
                             ", ".join("%d %s" % (v, k) for k, v in sorted(shapes.items()))
                             or "none",
                             "  UNRESOLVED: %d" % len(u) if u else ""))
-    lines.append("  bands read from %s: %s"
-                 % (os.path.relpath(OJZ_EFFECTS, AEON),
-                    ", ".join("ch %d = %d..%d (%d lines)" % (c, lo, hi, hi - lo + 1)
-                              for c, (lo, hi) in sorted(bands.items()))))
+    lines.append("  bands read from %s, PER PATCHED PROGRAM (a channel is a per-program "
+                 "index): %s" % (os.path.relpath(OJZ_EFFECTS, AEON),
+                                 "; ".join("%s ch %d = %d..%d (%d lines)"
+                                           % (label, c, lo, hi, hi - lo + 1)
+                                           for c, entries in sorted(bands.items())
+                                           for label, (lo, hi) in entries)))
+    lines.append("  sections -> presets (%s): %s"
+                 % (os.path.relpath(DESCRIPTOR, AEON),
+                    ", ".join("%d=%s" % (k, v) for k, v in sorted(sections.items()))))
     sweeps, unresolved = scan_all()
     gen = [s for s in sweeps if s.path in set(generated_modules())]
     lines.append("  LIVE GENERATED POPULATION: %d sweep(s). %s"
@@ -677,13 +877,18 @@ def coverage_report():
                     "instead by tools/fixtures/anchor_sweep/." if not gen
                     else "the arm has a real subject; the fixtures remain as its floor."))
     seeds = {p: chooser_seeds(p) for p in generated_modules()}
-    _, unevaluated = headroom_violations(gen, seeds, bands)
+    _, unevaluated = headroom_violations(gen, seeds)
     lines.append("  NOT CHECKED: seeded headroom for %d of the %d generated sweep(s) — either "
                  "the anchor is not in this file's reach (a document may legally keep the "
                  "section's hand-authored patch_world_ys) or the sweep is not on the spawn "
                  "section %d, the only section SPAWN_CAMERA_Y (%d) is the camera for. Band "
                  "fit and channel liveness ARE checked for all %d scanned sweep(s)."
                  % (len(unevaluated), len(gen), SPAWN_SECTION, SPAWN_CAMERA_Y, len(sweeps)))
+    no_band = band_unevaluated(sweeps)
+    lines.append("  NO BAND TO FIT: %d of the %d scanned sweep(s)%s" %
+                 (len(no_band), len(sweeps),
+                  "" if not no_band else " — " + "; ".join(
+                      "%s (%s)" % (s.site, why) for s, why in no_band)))
     if unresolved:
         lines.append("  UNRESOLVED OCCURRENCES: %d — see the failing test" % len(unresolved))
     return "\n".join(lines)
@@ -735,19 +940,55 @@ class TestTheLaddersAreDerivedFromTheConstantsTheyClaim(unittest.TestCase):
 class TestAuthoredSweepsFitTheirBands(unittest.TestCase):
     """THE CHECK THE COMPILER CANNOT MAKE — the design's §11 Q1, answered outside comptime."""
 
-    def test_the_channel_to_band_map_is_unambiguous(self):
-        """One patched program in the tree means one band per channel. The moment a second
-        one exists, `patchable(ch: 0, ...)` names two different bands and this file's
-        association is wrong — so it must refuse rather than pick one."""
-        src = _read(OJZ_EFFECTS)
-        n = len(re.findall(r"\bpatched:\s*(\w+)", src))
-        progs = set(re.findall(r"\bpatched:\s*(\w+)", src))
+    def test_every_patchable_band_in_the_source_is_reachable_through_a_program(self):
+        """THE ANTI-SILENCE EDGE OF THE RESOLVER, and the successor to
+        `test_the_channel_to_band_map_is_unambiguous`.
+
+        That test asserted ONE patched program in the tree and said, in its own message, what
+        to do when a second appeared: *"the map has to be built per (preset -> program) before
+        this test means anything again."* EFFECTS-W1 item 9c's precondition landed the second
+        program and `patched_programs()` is that map. What has to hold now is not uniqueness —
+        two programs may legitimately both use channel 0 — but that the resolver SEES every
+        band the source declares. A `patchable()` outside any program this reader can find
+        would make every bound below skip it silently, which is the failure mode the old test
+        was really protecting against."""
+        src = _blank(_read(OJZ_EFFECTS))
+        in_source = len(_BAND_TRIPLE.findall(src))
+        progs = patched_programs()
+        reached = sum(len(b) for b in progs.values())
+        self.assertTrue(progs, "no patched program at all was found in %s — every band bound "
+                               "in this file would be vacuous"
+                               % os.path.relpath(OJZ_EFFECTS, AEON))
         self.assertEqual(
-            len(progs), 1,
-            "ojz_effects.emp now binds %d distinct patched programs (%s) across %d presets. "
-            "A channel index no longer names one band, so the band bound below cannot be "
-            "resolved by channel alone — the map has to be built per (preset -> program) "
-            "before this test means anything again." % (len(progs), sorted(progs), n))
+            in_source, reached,
+            "%s declares %d `patchable(ch:, lo:, hi:)` band(s) but the resolver reaches only "
+            "%d of them through %d patched program(s) (%r). A band the resolver cannot see is "
+            "a band no bound in this file applies to — teach patched_programs() the spelling "
+            "rather than widening a pattern."
+            % (os.path.relpath(OJZ_EFFECTS, AEON), in_source, reached, len(progs),
+               {k: sorted(v) for k, v in progs.items()}))
+
+    def test_every_section_resolves_to_a_preset_and_every_patched_preset_to_a_program(self):
+        """The two edges `bands_for_sweep` walks, asserted where a break names itself.
+
+        Without this, a descriptor that stopped spelling `effects:` in a readable form would
+        make every generated sweep resolve to "no preset", i.e. to a dead channel — which is a
+        LOUD failure, but one whose message would blame the document instead of this reader.
+        With a preset that binds `patched:` through a chooser it is the opposite: silence."""
+        sections = section_presets()
+        self.assertEqual(
+            sorted(sections), list(range(9)),
+            "%s no longer yields one `ojz_sec(sec: N, .., effects: ..)` row per section 0..8; "
+            "got %r. Every generated sweep resolves its band through this map."
+            % (os.path.relpath(DESCRIPTOR, AEON), sorted(sections)))
+        progs = patched_programs()
+        for name, prog in sorted(preset_patched_programs().items()):
+            self.assertIn(
+                prog, progs,
+                "preset %s binds `patched: %s`, which is not a program patched_programs() "
+                "found. bands_for_preset() raises on this rather than resolving to nothing, "
+                "so it is a hard stop either way — this test is the one that names it before "
+                "a sweep does." % (name, prog))
 
     def test_there_is_at_least_one_authored_sweep(self):
         """The anchor mover's engine half landed with exactly one authored edge. A tree with
@@ -762,15 +1003,16 @@ class TestAuthoredSweepsFitTheirBands(unittest.TestCase):
             "nothing raises and should come out in the same commit")
 
     def test_every_authored_sweep_fits_its_channels_patchable_band(self):
-        bands = patchable_bands()
         amp = _const(_read(RASTER_DSL), "ANCHOR_SINE_AMP", RASTER_DSL)
         for name, ch, a, p, ph in authored_sweeps():
+            bands, why, _has = bands_for_preset(name)
             self.assertIn(
                 ch, bands,
-                "%s authors a sweep on channel %d, which no patchable() call declares a band "
-                "for. Nothing consumes that channel's line, so the sweep is invisible — and "
+                "%s authors a sweep on channel %d, which no patchable() call in the program "
+                "THAT PRESET installs declares a band for (%s; channels with a band there: "
+                "%s). Nothing consumes that channel's line, so the sweep is invisible — and "
                 "if a band is added later it inherits an amplitude nobody checked against it."
-                % (name, ch))
+                % (name, ch, why, sorted(bands) or "none"))
             lo, hi = bands[ch]
             height = hi - lo + 1
             peak_to_peak = 2 * (amp >> a)
@@ -787,10 +1029,10 @@ class TestAuthoredSweepsFitTheirBands(unittest.TestCase):
         """Fitting the band is necessary; sitting somewhere the excursion actually fits is the
         rest of it. The seeded anchor and the band are both in the source, and the camera at
         which they are compared is the one the gate scenes and the act's own notes use."""
-        bands = patchable_bands()
         amp = _const(_read(RASTER_DSL), "ANCHOR_SINE_AMP", RASTER_DSL)
         src = _read(OJZ_EFFECTS)
         for name, ch, a, p, ph in authored_sweeps():
+            bands, _why, _has = bands_for_preset(name)
             m = re.search(r"pub data %s:\s*EffectsPreset\s*=\s*preset\(" % re.escape(name), src)
             body = src[m.end():m.end() + 4000]
             wy = re.search(r"patch_world_ys:\s*\[([^\]]*)\]", body)
@@ -1045,7 +1287,6 @@ class TestTheGeneratedArmIsProvenByItsFixtures(unittest.TestCase):
         amp = _const(dsl, "ANCHOR_SINE_AMP", RASTER_DSL)
         lines = _const(dsl, "ANCHOR_SCREEN_LINES", RASTER_DSL)
         lo_rung, hi_rung = _shift_min(amp, lines), _shift_max(amp)
-        bands = patchable_bands()
         for path, must_fit in ((self.OUT_OF_BAND, False), (self.IN_BAND, True)):
             sweeps, unresolved = scan_module(path)
             self.assertEqual([], unresolved, "%s: %r" % (path, unresolved))
@@ -1060,9 +1301,11 @@ class TestTheGeneratedArmIsProvenByItsFixtures(unittest.TestCase):
                 "The compiler would refuse it, so the fixture would be exercising a bound "
                 "that already exists instead of the band bound that does not."
                 % (path, s.amp_shift, lo_rung, hi_rung))
+            bands, why, _has = bands_for_sweep(s)
             self.assertIn(s.channel, bands,
-                          "%s authors channel %d, which no patchable() declares — it would be "
-                          "refused for its channel, not its amplitude" % (path, s.channel))
+                          "%s authors channel %d, which no patchable() reachable from its own "
+                          "section declares (%s) — it would be refused for its channel, not "
+                          "its amplitude" % (path, s.channel, why))
             lo, hi = bands[s.channel]
             fits = 2 * (amp >> s.amp_shift) <= hi - lo + 1
             self.assertEqual(
@@ -1111,6 +1354,33 @@ class TestTheGeneratedArmIsProvenByItsFixtures(unittest.TestCase):
             "%r). Nothing consumes that channel's line, so the authored effect is simply not "
             "there — and the amplitude is the shipped rung, so nothing else about the "
             "document is wrong." % (kinds,))
+
+    def test_a_sweep_with_no_band_to_fit_is_NAMED_and_not_silently_passed(self):
+        """The partition's own control. `band_violations` skips a sweep whose section installs
+        no patched program — correctly, since there is no band to fit — and a skip that
+        nothing reports is the silence this file exists to end.
+
+        Asserted as a PROPERTY, not as a list: every member really is in that state, and the
+        coverage report carries the count. The live member today is section 5's generated
+        sweep, whose `OJZ_Preset_Sec5` binds `raster:` and reaches channel 0 through the d-53
+        `parallax:` loan instead — the arrangement that file documents at length."""
+        sweeps, _ = scan_all()
+        presets, sections = preset_patched_programs(), section_presets()
+        for sw, why in band_unevaluated(sweeps):
+            sec = _sweep_section(sw)
+            name = sections.get(sec) if sec is not None else sw.site
+            self.assertNotIn(
+                name, presets,
+                "%s was skipped by the band-fit bound as having no band to fit, but its "
+                "preset %s DOES bind `patched: %s`. The partition is misreading a dead "
+                "channel as an absent program, which turns a real violation into a skip."
+                % (sw.site, name, presets.get(name)))
+            self.assertIn("no `patched:` program", why,
+                          "%s is unevaluated for a reason this test does not recognise: %r"
+                          % (sw.site, why))
+        self.assertIn("NO BAND TO FIT", coverage_report(),
+                      "the coverage report no longer states how many scanned sweeps had no "
+                      "band to fit, so the partition's skipped half is invisible again")
 
     def test_the_unguarded_fixture_is_refused_as_unresolved(self):
         """THE ANTI-SILENCE PROOF. The emitted shape is a prediction; this is what happens when

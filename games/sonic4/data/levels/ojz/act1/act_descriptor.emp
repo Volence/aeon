@@ -32,7 +32,11 @@ use engine.structs.{Act, Sec}
 // (STALE AGAIN AS OF 2026-09-03: "one shared instance for the three identical plain
 // sections (6-8)" is now two — section 6 took OJZ_Preset_Sec6 at EFFECTS-W1 item 11a's
 // authorable half, so only 7 and 8 still share OJZ_Preset_Plain.)
-use games.sonic4.ojz_effects.{OJZ_Preset_Sec0, OJZ_Preset_Sec1, OJZ_Preset_Sec2, OJZ_Preset_Sec3, OJZ_Preset_Plain, OJZ_Preset_Depth, OJZ_Preset_Sec5, OJZ_Preset_Sec6}
+//
+// (AND AS OF 2026-09-05 it is ONE: section 7 took OJZ_Preset_Sec7 for item 9c's live patch
+// channels, so OJZ_Preset_Plain is section 8's alone. The record is still SHARED-SHAPED and
+// stays that way — a ninth section would point at it — but nothing shares it today.)
+use games.sonic4.ojz_effects.{OJZ_Preset_Sec0, OJZ_Preset_Sec1, OJZ_Preset_Sec2, OJZ_Preset_Sec3, OJZ_Preset_Plain, OJZ_Preset_Depth, OJZ_Preset_Sec5, OJZ_Preset_Sec6, OJZ_Preset_Sec7}
 // The act-default parallax record (`act_parallax_config` below — the fallback for sections
 // that declare none). NAMED rather than left to resolve as a link extern (scanline-P1
 // Task 9): an unknown name in a Label position does not error in .emp, it silently becomes
@@ -329,7 +333,22 @@ pub data OJZ_Act1_Sections: [Sec; 9] = [
     ojz_sec(sec: 7, blocks: OJZ_Sec7_Blocks,
             objects: OJZ_Sec7_Objects, rings: OJZ_Sec7_Rings,
             type_table: OJZ_Sec7_TypeTable,
-            effects: OJZ_Preset_Plain,
+            // THE ACT'S SECOND SECTION WITH LIVE PATCH CHANNELS (EFFECTS-W1 item 9c
+            // precondition, 2026-09-05). OJZ_WorldWater's two `patchable()` records ride
+            // channels 2 and 3 with world anchors in THIS section's row, so both boundaries
+            // track the world instead of the screen:
+            //   ch 2  the water surface — a 3-colour tint band + S/H, band 3..160,
+            //         `offscreen_ship` so a camera below the surface tints the whole screen
+            //   ch 3  a plane-B vertical scroll split ($0043), band 162..223
+            // Channels 2 and 3 rather than 0 and 1 so the act-wide channel->band map the
+            // effects tools build stays unambiguous; see OJZ_WorldWater's own note.
+            //
+            // THE SCENE HALF IS UNBOUND ON PURPOSE. Section 7 has no `section_7.meta.json`,
+            // so `ojz_act1_sec_scene(sec: 7)` returns 0 and the act default stands. An
+            // anchored scene (`anchor: SceneAnchor.At(2, ..)`, and `rowRemap:` behind it) is
+            // authored by adding that sidecar — this call site already threads the chooser
+            // and needs no edit for it.
+            effects: OJZ_Preset_Sec7,
             dict: extern("OJZ_Sec7_Blocks") + extern("BLOCK_INDEX_SIZE"),
             dict_len: OJZ_SEC7_BLOCK_DICT_LEN),
     ojz_sec(sec: 8, blocks: OJZ_Sec8_Blocks,
