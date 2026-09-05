@@ -25818,3 +25818,29 @@ less — and that is the per-row gain, which is correct and was explicitly ruled
 Also parked: `crown` is shipped at 0.0. At 0.45 it costs +24 tiles and still fits (63 of 120),
 but the highlight crosses a wood-ramp rounding step part-way down each plank and reads as pale
 notches rather than a continuous crown. It is a palette/ramp problem, not a budget one.
+
+---
+
+### EMDASH: instrument and before-count landed, scope narrowed by the hub — 2026-09-05
+
+**Before-count 45,967** (`python3 tools/emdash/count_dashes.py`; em 44,713, en 1,254), taken
+over the tree BEFORE any edit so the after-run has a referent. Run the SAME instrument at both
+ends: per sigil's landing a hand-rolled counter desynchronised on a char literal and reported
+582 then 595 when the truth was 1,031. **A lone after-run of zero is UNVERIFIED** — zero is
+also what a broken counter prints. `--gate` exits 1 with the count on stderr.
+
+**Two instrument failures are recorded in `e6ec01a4`'s message and are the reason the counter
+is a committed file rather than a pipeline.** `grep -rohP '[\x{2014}\x{2013}]'` reported
+5,007,443: without a UTF-8 locale PCRE does not read `\x{2014}` as that code point and the
+class matches bytes. It failed by printing a precise, confident, absurd number. Then the
+committed replacement crashed on `\x{` in its own non-raw docstring and that crash's exit=1
+was briefly read as the gate arm going red. Both arms are now verified separately.
+
+**Scope, ruled by the hub in the owner's place 2026-09-05, OVERTURNABLE ON HIS READ-BACK.**
+Remove from: user-visible strings in tools and build/gate output, generated help, status files
+the console renders, and the dispatch/instruction docs agents actually read. **Leave committed
+design prose alone** — that is 31,576 of the 45,967, 69%, and a churn that size collides with
+every live branch in the suite. The no-new-dashes half applies to everything written from now.
+Ground: his ruling names the tools, his sweep words name tool agents, and oracle had already
+applied this reading. **The wide count is the measurement; the narrow cut is the ruling. Do not
+gate the whole tree to zero — the gate must be pointed at the narrow scope or it fails forever.**
