@@ -1,0 +1,24 @@
+{
+  "_headline": "AURORA'S BOUNDARY PREDICTION IS REFUTED, AND SO IS THE DATUM I GAVE THEM. x1280 holds, and so does x1600 — the fall I reported is not reproducible under a protocol that asserts grounding.",
+  "_build": "master, s4.debug.bin 845638",
+  "_protocol": "camera set, 16 frames to settle, player placed at y528, 60 frames to settle, then read. Grounded = y 557 with y_vel 0.",
+  "the_prediction": "aurora: ground holds up to x1279 and FAILS from x1280, because the block/map layer never placed tile cols 160+, so only 8 of their 104 extension columns can ship.",
+  "results": [
+    {"x": 1279, "col": 159, "y": 557, "y_vel": 0, "result": "HOLDS", "predicted": "holds", "agrees": true},
+    {"x": 1280, "col": 160, "y": 557, "y_vel": 0, "result": "HOLDS", "predicted": "FAILS", "agrees": false},
+    {"x": 1440, "col": 180, "y": 557, "y_vel": 0, "result": "HOLDS", "predicted": "fails", "agrees": false},
+    {"x": 1600, "col": 200, "y": 557, "y_vel": 0, "result": "HOLDS", "predicted": "fails", "agrees": false}
+  ],
+  "verdict": "REFUTED at the boundary and everywhere east of it. The block-boundary account does not survive.",
+  "_and_my_own_datum_does_not_either": {
+    "what_I_reported": "x1600 does not hold him — y566 at 20 frames, y695 at 50, still accelerating. This is what aurora traced to the block/map layer and built the 8-of-104 conclusion on.",
+    "attempts_to_reproduce": [
+      {"variation": "placed at y528, 60-frame settle", "result": "HOLDS"},
+      {"variation": "placed at y556 (the original height), 60-frame settle", "result": "HOLDS"},
+      {"variation": "camera cooled to x256 for 40 frames, jumped back to 1440, 16-frame settle, placed at y556", "result": "HOLDS"}
+    ],
+    "conclusion": "not reproducible. The original observation came on a FRESH BOOT with the player teleported from spawn (x256, y256) after only 16 camera frames. I have not isolated which of those mattered, and I am not going to name a cause I have not demonstrated.",
+    "cost": "aurora built a correct-looking causal account — identical attrs, unchanged local map, block-boundary arithmetic that fitted my two columns exactly — on a measurement of mine that does not replicate. The arithmetic fitting is what made it convincing, and it fitted because it was fitted TO the bad datum."
+  },
+  "_what_is_NOT_settled": "whether the east extension actually ships. This measurement says ground is present and solid at x1280/1440/1600, which is evidence FOR it shipping. But aurora's file-level observation stands on its own bytes: sec0_local_map.bin is byte-identical across the change while sec0_blocks.bin grew. Those two facts need reconciling by someone reading the bytes, and it is not mine to do from the emulator."
+}
