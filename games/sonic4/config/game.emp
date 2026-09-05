@@ -123,6 +123,24 @@ pub implement Game {
     //                            only game with a scene worth demonstrating the swap on;
     //                            demo declares 0 and every gated site — including the
     //                            new proc itself — compiles to zero bytes.
+    //
+    //   $0020 CAP_MULTI_DEFORM_TABLE is DELIBERATELY CLEAR, and the ruling is not here.
+    //                            Every raised bit above documents itself; this cleared one
+    //                            did not, and a peer lane reasonably read the silence as an
+    //                            oversight and asked (aurora, 2026-09-05). It is not.
+    //                            games/sonic4/data/effects/scene_registry.emp rules it
+    //                            PARK-1, OWNER-GATED: adopting a per-layer deform table is
+    //                            not a scene-local edit — it flips the lowered band record
+    //                            to the extended shape, so BAND_EXT_N becomes 1 and
+    //                            BAND_EXT_BYTES becomes sizeof(band_ext) in the SAME commit,
+    //                            and EVERY ROM IMAGE IN THE TREE MOVES. Corroborating, not
+    //                            resting on that one sentence: every shipped sonic4 scene
+    //                            uses SceneDeform.Shared and none uses .Own, and
+    //                            games/sonic4/test/scene_equiv_proof.emp pins the clear bit
+    //                            as a DESIGNED state ("lowers to the legacy 10-byte entries
+    //                            BYTE-IDENTICALLY") — which is not what an oversight looks
+    //                            like. CAP_DEFORM ($0004) IS set, so shared deform works;
+    //                            only the per-layer own-table route is closed.
     const SCANLINE_CAPS = $0FDE
 
     // Boot enters ojz_scroll_test's GameState_OJZScroll_Init.
