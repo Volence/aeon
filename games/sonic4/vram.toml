@@ -106,10 +106,40 @@ const = "VRAM_INSTA_SHIELD"
 # re-derives it from the blob rather than trusting this number
 # (docs/superpowers/notes/2026-08-26-instashield-design.md §2.6).
 
-[[free]]
+[[region]]
+name = "debug_preset_readout"
+owner = "games.sonic4.ojz_scroll_test"
+kind = "window"
 base = 957
-tiles = 3
-# the page-quantised carve's remainder — future sprite art
+tiles = 2
+lifetime = "mode"
+const = "VRAM_DEBUG_PRESET_READOUT"
+# The effects lab's PRESET cells, MOVED here from 1022-1023 by the 2026-09-05 chord
+# consolidation. Two 8x8 cells, one System object each (they are single cells, not a
+# multi-cell piece, so they need no contiguity beyond their own order):
+#
+#   +0   the SECTION whose EffectsPreset is installed, one decimal digit
+#   +1   the VERDICT glyph — bar (nothing bound) / X (bound but off screen here) /
+#        diamond (live) / arrow (its own background scene; move to see it) / blank
+#        (the lab cursor is not on a preset entry at all)
+#
+# WHY THEY MOVED. The three lab chords collapsed into ONE list walked by
+# START+LEFT/RIGHT, and a single list wants a single NAME rather than a cursor
+# number. The name is four cells wide (the VDP's maximum sprite-piece width), and
+# the map's only free four-tile run was already spent on `debug_raster_tag`. So the
+# retiring two-digit cursor readout's own run — 1020-1023, four contiguous tiles —
+# became the name tag (`debug_lab_name` below) and these two cells came here, into
+# the last [[free]] run, leaving 959 free.
+#
+# RESERVED IN EVERY SHAPE, WRITTEN ONLY IN DEBUG, for the reason `debug_lab_name`
+# below records at length.
+
+[[free]]
+base = 959
+tiles = 1
+# the page-quantised carve's remainder — future sprite art. It was 957-959 (3
+# tiles) until the 2026-09-05 chord consolidation moved the preset readout's two
+# cells into 957-958; this is what is left of it, and it is the map's LAST free run.
 
 [[region]]
 name = "character_window"
@@ -152,38 +182,42 @@ lifetime = "mode"
 const = "VRAM_TEST_MARKER"
 
 [[region]]
-name = "debug_readout"
+name = "debug_lab_name"
 owner = "games.sonic4.ojz_scroll_test"
 kind = "window"
 base = 1020
 tiles = 4
 lifetime = "mode"
-const = "VRAM_DEBUG_READOUT"
-# The effects lab's readouts: FOUR 8x8 glyph cells, repainted from glyph sheets
-# that stay in ROM. RESERVED IN EVERY SHAPE, WRITTEN ONLY IN DEBUG — a VRAM
-# reservation is not a ROM byte, and declaring it in all shapes is what keeps this
-# file the single placement authority (the alternative, a shape-conditional region,
-# would make the map mean two different things and gen_vram_map.py checks adjacency
-# across the whole 0..2047 span).
+const = "VRAM_DEBUG_LAB_NAME"
+# The effects lab's ENTRY NAME TAG: four 8x8 cells forming ONE 4x1 VDP sprite piece,
+# so the whole tag costs one System object slot instead of four. It spells the name
+# of the entry the ONE lab list's cursor is standing on — DFLT / HAZE / BAND / SWAP /
+# WATR / ... — one four-letter word per entry, whatever KIND of entry it is.
 #
-#   +0, +1   the SCENE cursor, tens then ones (Debug_SceneReadout_Show). Two
-#            decimal digits because 0..SCENE_CYCLE_COUNT-1 fits in two.
-#   +2, +3   the PRESET cursor and its VERDICT glyph (Debug_PresetReadout_Show).
-#            One digit for the section whose preset is installed, one glyph that
-#            says whether that preset can show anything HERE (bar = nothing bound,
-#            X = bound but its boundary is off screen, diamond = live).
+# THIS RUN USED TO BE THE TWO-DIGIT CURSOR READOUT plus the preset digit and verdict
+# (`debug_readout`, retired 2026-09-05). The owner's ask was "why are there 3 ways to
+# do things now?" and the answer was one list, walked by START+LEFT/RIGHT, with the
+# readout NAMING each entry as you pass it. A name beats a number for the thing he
+# actually does with it — relaying what he is looking at — so the digits went and the
+# four tiles they sat in became the name. The preset digit and verdict moved to
+# `debug_preset_readout` (957-958), the map's last free run.
 #
-# Only the SELECTED glyphs are ever resident — the ten digit tiles and the three
-# verdict tiles live in ROM and are DMA'd one cell at a time — which is why 13 font
-# tiles do not have to fit here (no free run in this map is that big). Tiles 1022
-# and 1023 were the map's last declared [[free]] run adjacent to 1020; the preset
-# readout consumed it, so growing this readout again needs a run elsewhere and a
-# second region, not an extension.
+# THE FOUR TILES MUST STAY CONTIGUOUS AND IN THIS ORDER: a multi-cell sprite piece
+# reads consecutive VRAM tiles from its base, so splitting this run would not merely
+# move the tag, it would draw four unrelated tiles as a word. Four is the VDP's
+# MAXIMUM piece width — that is what fixes lab entry names at four characters, and it
+# is a hardware limit, not a taste call. A fifth letter costs a second object, a
+# second System slot and a second VRAM run, and the map has one free tile left.
 #
-# THAT IS WHAT HAPPENED, 2026-09-04 (EFFECTS-W1 F4): the RASTER and BG-ANIMATION
-# tiers got NAME tags of their own, in two new regions — `debug_raster_tag`
-# (1532-1535) and `debug_bganim_tag` (1501-1503). Of the three runs this comment
-# used to offer, only 957-959 is left.
+# RESERVED IN EVERY SHAPE, WRITTEN ONLY IN DEBUG — a VRAM reservation is not a ROM
+# byte, and declaring it in all shapes is what keeps this file the single placement
+# authority (the alternative, a shape-conditional region, would make the map mean two
+# different things and gen_vram_map.py checks adjacency across the whole 0..2047 span).
+#
+# Only the SELECTED glyphs are ever resident: the 26-letter alphabet stays in ROM and
+# is DMA'd one cell at a time, which is why a 26-tile sheet does not have to fit here.
+# THE MAP HAS ONE FREE TILE LEFT (959). A fourth tag, or a fifth letter, has to come
+# out of a region.
 
 [[region]]
 name = "bg_region"
@@ -375,14 +409,15 @@ const = "VRAM_DEBUG_BGANIM_TAG"
 # piece reads consecutive VRAM tiles from its base, so splitting this run would
 # not merely move the tag, it would draw three unrelated tiles as a word.
 #
-# RESERVED IN EVERY SHAPE, WRITTEN ONLY IN DEBUG, for the reason `debug_readout`
-# below records at length: a VRAM reservation is not a ROM byte, and declaring it
+# RESERVED IN EVERY SHAPE, WRITTEN ONLY IN DEBUG, for the reason `debug_lab_name`
+# above records at length: a VRAM reservation is not a ROM byte, and declaring it
 # in all shapes keeps this file the single placement authority.
 #
-# It took the map's 1501-1503 [[free]] run, which `debug_readout`'s own comment
-# named as one of the three runs a grown readout would have to come from. Two of
-# those three are now spent (this and `debug_raster_tag` below); 957-959 is the
-# last one, and a fourth tag would have to take it or come out of a region.
+# It took the map's 1501-1503 [[free]] run, which the retired `debug_readout`
+# region's own comment named as one of the three runs a grown readout would have to
+# come from. All three are now spent — this, `debug_raster_tag` below, and 957-958
+# (`debug_preset_readout`, taken by the 2026-09-05 chord consolidation). ONE free
+# tile is left in the whole map (959), so a fourth tag comes out of a region.
 
 [[region]]
 name = "hscroll_table"

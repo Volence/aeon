@@ -11,12 +11,13 @@ Do not edit; edit the TOML and regenerate.
 | 912-923 | dust_spindash | window | act | games.sonic4.dust_spindash | VRAM_DUST_SPINDASH |  |
 | 924-927 | ring_sparkle | window | act | games.sonic4.ring_sparkle | VRAM_RING_SPARKLE |  |
 | 928-956 | insta_shield | window | act | games.sonic4.insta_shield | VRAM_INSTA_SHIELD |  |
-| 957-959 | FREE |  |  |  |  |  |
+| 957-958 | debug_preset_readout | window | mode | games.sonic4.ojz_scroll_test | VRAM_DEBUG_PRESET_READOUT |  |
+| 959-959 | FREE |  |  |  |  |  |
 | 960-991 | character_window | window | act | games.sonic4.player | VRAM_TEST_SONIC |  |
 | 992-999 | test_obj | window | mode | games.sonic4.test_objects | VRAM_TEST_OBJ |  |
 | 1000-1015 | ring_placeholder | window | act | engine.objects.rings | sigil-D:VRAM_RING_PLACEHOLDER |  |
 | 1016-1019 | test_marker | window | mode | games.sonic4.player_common | VRAM_TEST_MARKER |  |
-| 1020-1023 | debug_readout | window | mode | games.sonic4.ojz_scroll_test | VRAM_DEBUG_READOUT |  |
+| 1020-1023 | debug_lab_name | window | mode | games.sonic4.ojz_scroll_test | VRAM_DEBUG_LAB_NAME |  |
 | 1024-1423 | bg_region | arena | act | engine.bg | engine-tiles:BG_TILE_CAPACITY, engine-bytebase:BG_TILE_BASE_VRAM | band_reserve: 80 (static budget 320) |
 | 1424-1471 | waterline_strips | window | act | engine.bg_anim | engine-bytebase:VRAM_WATERLINE_STRIPS |  |
 | 1472-1491 | sprite_table | table | boot | engine.system.buffers | engine-bytebase:VRAM_SPRITE_TABLE |  |
@@ -28,4 +29,4 @@ Do not edit; edit the TOML and regenerate.
 | 1792-2047 | plane_b | plane | boot | engine.system.boot | engine-bytebase:VRAM_PLANE_B |  |
 | 1920-2047 | window_plane | plane | boot | engine.system.boot | engine-bytebase:VRAM_WINDOW | overlay: plane_b |
 
-Free: 3 tiles across 1 runs.
+Free: 1 tiles across 1 runs.

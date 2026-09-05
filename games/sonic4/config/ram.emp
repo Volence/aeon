@@ -287,93 +287,69 @@ pub vars game_ram {
         Boot_At_Flag:       u8,     // 0 = idle / consumed (the ack); nonzero = pending
 
         // -----------------------------------------------
-        // Effects-lab scene cursor (DEBUG shapes only)
+        // Effects-lab LIST cursor (DEBUG shapes only)
         // -----------------------------------------------
-        // The index into games/sonic4/data/effects/scene_registry.emp's `SCENES[]`
-        // that Debug_SceneCycleHotkey (games/sonic4/test/ojz_scroll_test.emp) last
-        // installed. Range 0..SCENE_CYCLE_COUNT-1; the hotkey asserts that before
-        // every table read.
+        // THE ONE CURSOR. It replaced three — Debug_Scene_Index, Debug_Raster_Index
+        // and Debug_Preset_Index — on 2026-09-05, when the lab's three selection
+        // chords collapsed into one. The owner's words: "why are there 3 ways to do
+        // things now? start + left/right, start + up/down, start + a". They were three
+        // because they wrote three different ENGINE SLOTS, which is a reason that
+        // matters to the code and not to him.
         //
-        // THE BOOT VALUE 0 IS MEANINGFUL, not just the RAM clear showing through.
-        // Boot clears all of Work RAM (engine/system/boot.emp `.clear_ram`), so this
-        // reads 0 on the first frame — and SCENES[0] is Scene_OJZ_Default, which is
-        // also `Act.act_parallax_config` for OJZ act 1 (act_descriptor.emp:159). So
-        // on the ordinary boot the cursor already names the scene on screen, and the
-        // first forward press steps to 1 as a reader would expect. A boot into a
-        // section whose preset binds something else (OJZ_Preset_Depth binds
-        // ParallaxConfig_OJZ_Underwater) starts the cursor one entry off the visible
-        // scene for exactly one press; it is a cursor, not a mirror of the engine's
-        // live config, and nothing reads it back.
+        // It is a row of `Debug_LabCycleHotkey`'s `.lab_index`
+        // (games/sonic4/test/ojz_scroll_test.emp) — ONE ordered list of every
+        // demonstrable thing in the act: the shipped scenes, then the lab's raster
+        // programs (bands OFF among them), then the act's per-section presets. Range
+        // 0..LAB_CYCLE_COUNT-1; the hotkey asserts that before every table read, and
+        // tools/test_lab_index_lint.py holds the count to the rows and each row's
+        // sub-index to the table it dispatches into.
         //
-        // IT CONSUMED THE PAD BYTE THAT WAS ALREADY HERE — when this field landed the
-        // DEBUG block grew by ZERO bytes. The pad existed only to keep Game_RAM_End
-        // even; a u8 in the same slot did the same job and carried a value. That is
-        // why this one sits at an ODD address ($FFFFE60D, measured in s4.debug.lst)
-        // and the raster cursor below sits at the even one, needing its own pad —
-        // "add another u8 and it is free" was never the rule; the rule is that
-        // Game_RAM_End stays even.
-        Debug_Scene_Index:  u8,     // effects-lab cursor: index into SCENES[]
-
-        // -----------------------------------------------
-        // Effects-lab RASTER cursor (DEBUG shapes only)
-        // -----------------------------------------------
-        // The row of Debug_BandDemoHotkey's `.raster_table` that the NEXT START+UP
-        // press will install (games/sonic4/test/ojz_scroll_test.emp). Range
-        // 0..RASTER_CYCLE_COUNT-1; the hotkey asserts that before every table read,
-        // and tools/test_raster_cycle_table_lint.py holds the count to the rows.
+        // THE BOOT VALUE 0 IS MEANINGFUL, and it is the SCENE cursor's old meaning
+        // unchanged, which is why the scene rows kept indices 0..SCENE_CYCLE_COUNT-1
+        // in the merged list. Boot clears all of Work RAM (engine/system/boot.emp
+        // `.clear_ram`), so this reads 0 on the first frame — and row 0 is
+        // ParallaxConfig_OJZ_Default, which is also `Act.act_parallax_config` for OJZ
+        // act 1. So on the ordinary boot the cursor already names the scene on screen,
+        // and the first forward press steps to 1 as a reader would expect.
         //
-        // THE BOOT VALUE 0 IS MEANINGFUL, exactly as the scene cursor's is, and for a
-        // sharper reason: boot clears all of Work RAM (engine/system/boot.emp
-        // `.clear_ram`), so row 0 is what the FIRST press from a cold boot installs —
-        // and row 0 is OJZ_BandDemo, the hand-authored control. That is what keeps
-        // "START held + UP installs OJZ_BandDemo", the documented behaviour this
-        // cursor generalises, true for the press a reader actually makes first.
-        //
-        // IT IS A CURSOR, NOT A MIRROR of the live raster channel: a section crossing
-        // re-installs that section's own program through Effects_InstallPreset and
-        // never touches this byte, and START+DOWN (bands OFF) deliberately leaves it
-        // alone so OFF-then-ON resumes the cycle rather than restarting it. Nothing
-        // reads it back.
-        //
-        // THIS FIELD GROWS THE DEBUG BLOCK BY 2 BYTES (itself, plus the pad that puts
-        // Game_RAM_End back on an even address) and the RELEASE block by NONE: the
-        // whole group is `if DEBUG == 1 @shape_divergent` and sits at the RAM tail, so
-        // no address below it moves in either shape.
-        //
-        // MEASURED rather than argued, 2026-08-29: DEBUG Game_RAM_End $FFFFE60E ->
-        // $FFFFE610 with this field at $FFFFE60E, and the release shape built with and
-        // without this whole block is BYTE-IDENTICAL (crc c9255279, 719235 B both ways,
-        // release Game_RAM_End $FFFFBD02 both ways).
-        Debug_Raster_Index: u8,     // effects-lab cursor: row in .raster_table
-
-        // -----------------------------------------------
-        // Effects-lab PRESET cursor (DEBUG shapes only)
-        // -----------------------------------------------
-        // The SECTION whose EffectsPreset Debug_PresetCycleHotkey
-        // (games/sonic4/test/ojz_scroll_test.emp) last installed onto the section the
-        // camera is actually standing in. Range 0..PRESET_CYCLE_COUNT-1, where the count
-        // is read from the LIVE act (grid_w x grid_h, bounded by the readout's single
-        // digit); the hotkey asserts that before every use.
-        //
-        // THE BOOT VALUE 0 IS MEANINGFUL, and it means something different from the two
-        // cursors above. This hotkey ADVANCES BEFORE IT INSTALLS, so a cold boot's first
-        // press installs section 1's preset, not section 0's — and that is deliberate,
-        // because a boot lands the camera IN section 0 (Act.start_sec_x/y), where
-        // installing section 0's preset would change nothing on screen. The first press
-        // a reviewer makes has to change the picture or the tool has failed at its one
-        // job. The raster cursor beside this one installs BEFORE it advances for the
-        // opposite and equally deliberate reason, stated in its own block: there row 0 is
-        // a documented control that must be what the first press shows.
-        //
-        // IT IS A CURSOR, NOT A MIRROR of the live section: crossing a section boundary
-        // re-installs that section's own preset through Effects_InstallPreset and never
-        // touches this byte. Nothing reads it back except the hotkey and its readout.
+        // IT IS A CURSOR, NOT A MIRROR of any live engine channel, exactly as its
+        // three predecessors were: a section crossing re-installs that section's own
+        // preset through Effects_InstallPreset and never touches this byte. That is
+        // why the two TIER tags below are driven off the engine's own cells instead,
+        // and why the entry-NAME tag this cursor does drive is documented on screen as
+        // "what you last selected" rather than "what is installed".
         //
         // IT CONSUMED THE PAD BYTE THAT WAS ALREADY HERE, exactly as Debug_Scene_Index
-        // did: the pad existed only to keep Game_RAM_End even, and a u8 in the same slot
-        // does that job while carrying a value. So this field grows the DEBUG block by
-        // ZERO bytes and the release block by none.
-        Debug_Preset_Index: u8,     // effects-lab cursor: section whose preset is installed
+        // did before it. The three cursors plus the BG-anim view and its pad were FIVE
+        // bytes; the one cursor, its name-tag mirror and the BG-anim view are THREE, and
+        // the BG-anim pad went with them because the parity it existed to fix is now
+        // fixed by the count. So the DEBUG block shrinks by two bytes and the release
+        // block is unaffected — this whole group is `if DEBUG == 1 @shape_divergent` and
+        // sits at the RAM tail, so no address below it moves in either shape. MEASURED,
+        // not argued: see this parcel's report for the two Game_RAM_End values.
+        Debug_Lab_Index:    u8,     // effects-lab cursor: row in .lab_index
+
+        // The row of `.lab_index` that the ENTRY NAME TAG currently spells.
+        //
+        // IT IS A MIRROR, NOT A SECOND CURSOR, and the distinction is the same one the
+        // two `Shown` cells at the foot of this block draw: Debug_TierTags_Update paints
+        // all three tags, and it paints each one only when its subject differs from what
+        // the tag is already showing. For the two TIER tags the subject is an engine cell
+        // (Raster_Program / BgAnim_Table_Ptr); for this one the subject is the cursor
+        // above, because the name tag's whole job is to say WHERE IN THE LIST YOU ARE and
+        // no engine cell knows that.
+        //
+        // A DROPPED DMA DELIBERATELY LEAVES IT UNWRITTEN, for the tier tags' reason: one
+        // stale cell of a four-letter word is not a stale name, it is a name that was
+        // never true. Leaving the mirror behind makes the next frame's compare still
+        // differ and re-queues the whole word.
+        //
+        // $FF IS THE POISON, written on the arming frame like the two long mirrors': the
+        // cursor's legal range is 0..LAB_CYCLE_COUNT-1 and LAB_CYCLE_COUNT is far below
+        // 255, so $FF can never be a value the subject legitimately holds — and without
+        // the poison a reviewer who armed the tags at the boot cursor 0 would see the
+        // compare match and NOTHING on screen where the answer belongs.
+        Debug_Lab_Shown:    u8,     // the .lab_index row the entry name tag spells
 
         // The effects lab's BG-ANIMATION tier (owner ask 2026-09-03: "can we please just
         // get rid of the animated tiles for now, they're so distracting? Maybe have one
@@ -386,11 +362,12 @@ pub vars game_ram {
         // band — in EVERY shape, release included. This byte only exists so the DEBUG
         // shape can put a view back.
         //
-        // UNLIKE its three neighbours this one could NOT consume a pre-existing pad: the
-        // pad Debug_Scene_Index and Debug_Preset_Index each took is spent. So it brings
-        // its own, which is what keeps Game_RAM_End even.
+        // IT USED TO BRING ITS OWN PAD BYTE and no longer does. That pad existed only
+        // because this byte followed an ODD run — the three lab cursors it sat under.
+        // The 2026-09-05 chord consolidation replaced those three with two (the one list
+        // cursor and its name-tag mirror), so this byte now closes an EVEN run on its
+        // own and the pad would have broken the parity it was added to keep.
         Debug_BgAnim_View:  u8,     // effects-lab cursor: 0 = off, 1 = Camera_X, 2 = Camera_Y
-        Debug_BgAnim_Pad:   u8,     // even-alignment pad for the byte above
 
         // -----------------------------------------------
         // Live-object mailbox (DEBUG shapes only) — the supported EXTERNAL
