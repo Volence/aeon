@@ -85,18 +85,14 @@ PAL_SRC_LINE = 1
 def floor_art():
     """The floor band exactly as perspective_floor_gen would bake it.
 
-    EVERY parameter comes from perspective_floor_gen.SHIPPED, never restated
-    here. This function DID restate them, and by 2026-09-05 it was rendering
-    `lod_px=20, shade 3.2/2.7, sym=2` — a picture the bake had moved off. A
-    previewer that disagrees with the bake is worse than no previewer.
+    ONE CALL, and it takes NO parameters. This function used to restate the
+    bake's arguments and by 2026-09-05 it was rendering `lod_px 20, sym 2, shade
+    3.2/2.7` — a picture the bake had moved off. A previewer that disagrees with
+    the bake is worse than no previewer. `perspective_floor_gen.shipped_band()`
+    is now the single entry point that reads SHIPPED, so there is nothing here
+    left to drift.
     """
-    s = pfg.SHIPPED
-    rows = list(range(s["row0"], s["row1"] + 1))
-    return pfg.render_band(rows, pitch=s["pitch"], vp_col=s["vp_col"],
-                           seam_rows=s["cross_seam_px"], lod_px=s["lod_px"],
-                           horizon_row=s["horizon_row"],
-                           shade_near=s["shade_near"], shade_far=s["shade_far"],
-                           crown=s["crown"])
+    return pfg.shipped_band()[0]
 
 
 def hscroll(cam_x):

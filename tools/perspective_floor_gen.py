@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""perspective_floor_gen — a PLACEHOLDER fanned wooden floor for the OJZ Plane-B map.
+"""perspective_floor_gen — a PLACEHOLDER skewed wooden floor for the OJZ Plane-B map.
+
+IT DREW A FAN UNTIL 2026-09-05. It now draws PARALLEL planks, all leaning one
+way, because the owner chose that over a fan whose apex the 512-px wrap copies
+off the side of the screen. The two sections after the next one are the whole
+argument; the next one is the hardware background and is unchanged.
 
 WHY THIS TOOL EXISTS, AND WHAT THE HARDWARE ACTUALLY ALLOWS
 ===========================================================
@@ -19,7 +24,9 @@ that put differing horizontal displacement inside one line are sprites (a floor
 of them blows the sprite budget) and redrawing the nametable (8-px granularity,
 a plane rewrite per frame).
 
-So the splay lives in the ART. That is what this tool draws.
+So the splay lives in the ART. That is what this tool draws — and note that the
+only thing the hardware CAN do to a whole line is exactly the uniform shear the
+art is now drawn as, which is why the two now agree instead of fighting.
 
 WHAT THE ENGINE CONTRIBUTES, AND WHY IT IS EXACTLY RIGHT
 ========================================================
@@ -51,43 +58,86 @@ and the curve's factor ramp are proportional to the same s(y), so they are
 self-consistent. This is not an approximation that happens to look acceptable;
 it is the correct construction for this hardware.
 
-THE LAW ABOVE HAS ONE PRECONDITION, AND IT WAS VIOLATED FOR THREE WEEKS
-=======================================================================
-The relabelling argument holds only while the art's board pitch is EXACTLY
-proportional to dy — the same dy the curve ramps against. Until 2026-09-05 it was
-not. `boards_across()` snapped the board COUNT to an even integer per row so the
-lattice would close on the 512-px wrap, and MEASURED off the shipped override
-that snap made the pitch a NINE-STEP STAIRCASE: 24 boards over dy 24..25, 22 over
-26..27, 20 over 28..30, 18 over 31..33, 16 over 34..38, 14 over 39..44, 12 over
-45..52, 10 over 53..63, 8 over 64..72. A pitch held constant over a run of rows
-is a run of VERTICAL boards, so the drawn "fan" was a stack of vertical-stripe
-bands whose width stepped, and the ratio scroll/pitch — the quantity the law says
-must be constant — swung 0.887 .. 1.092 and varied monotonically INSIDE every
-run. That is a shear, and it is what the owner reported: "it's just a line
-pointing down" at rest, "they all just wind up skewing to the left" in motion.
-`board_pitch()` now draws the exact radial fan. See its docstring for the whole
-derivation and for what the change costs.
+THE FAN IS GONE. THE OWNER CHOSE A UNIFORM SKEW INSTEAD (2026-09-05)
+====================================================================
+Everything above still describes the SCROLL, which is unchanged and correct. What
+changed is the ART. A radial fan cannot live in a plane that wraps every 512 px,
+and the reason is not a budget and not a bug — it is that periodicity copies the
+apex:
 
-THE 512-PX WRAP, AND THE ONE PLANK THAT PAYS FOR IT
+    a drawn board is the locus |u| = j*p(dy), i.e. plane x = vx +- j*P*dy + 512m,
+    so on screen it is the straight line  x = vx + dy*(+-jP - C) + 512m.
+
+Every board is therefore a line through an apex at screen x = vx + 512m. ONE of
+those apexes is on screen; the copies at vx +- 512 are not. The boards belonging
+to an off-screen copy converge somewhere off the side of the screen — which is
+exactly the owner's report: *"the first few are good then a few after get weird
+and point away"*. Making the wrap period a divisor of the pitch would remove the
+copies, but the pitch has to be proportional to dy (that is the whole scroll law
+above) and 512/p(dy) is then a hyperbola, not an integer. Forcing it to an even
+integer quantises the pitch, and MEASURED on this band that leaves only 6 distinct
+periods over the 43 rows that draw seams, held for runs of up to 12 pixel rows. A
+pitch held constant over a run of rows IS a run of vertical stripes — the exact
+defect commit 5751123d removed. Fan + wrap + closure: pick two.
+
+So the owner picked differently, and named the trade himself: *"we need it all
+just skewed in one direction instead of trying to work around it having one part
+point at us, so the art is consistent and the effect is consistent in what it's
+doing."*
+
+THE SHEAR, AND WHY IT CLOSES ON THE WRAP FOR FREE
+=================================================
+The planks are now PARALLEL. Plank centres sit at
+
+    plane x = vx + j*PITCH + SKEW*dy          (j integer, PITCH divides 512)
+
+so the whole band is one lattice of period PITCH, translated by SKEW px per pixel
+row. Two consequences, both of them the point:
+
+  * IT TILES BY TRANSLATION. `PITCH` divides 512 and 512/PITCH is EVEN (the
+    plank-alternation parity has to survive the wrap too), so the pattern is
+    exactly 512-periodic on every row with no fold, no mirror axis, no straddling
+    plank and no apex to copy. `render_band` therefore has no `% 512` fold at
+    all — the periodicity is a property of the lattice, not something recovered
+    afterwards.
+  * IT IS MUCH CHEAPER. The fan put every seam at a different sub-pixel offset on
+    every row; a shear puts row r's pattern exactly SKEW*r px from row 0's, and
+    the HV-flip of a diagonal stripe is the same stripe, so the band repeats
+    along its own diagonal. MEASURED on this band: 39 unique tiles against the
+    fan's 120, into 120 recycled slots, 0 appended, 81 slots left stranded.
+
+WHAT THE SHEAR COSTS, STATED RATHER THAN DISCOVERED
 ===================================================
-Plane B wraps horizontally every 512 px (parallax.emp: PLANE_B_SPAN) and the
-window is never wider than that, so an unbounded radial fan — whose pitch is a
-real number, not a divisor of 512 — cannot be 512-periodic. **Exact wrap closure
-and an exactly-linear pitch are incompatible; one of them has to give, and the
-one that gives must be closure, because it is closure that shears.** The fold in
-`render_band()` (x -> u in [-256,256), pattern keyed on |u|) buys periodicity and
-mirror symmetry back:
+  1. THERE IS NO VANISHING POINT. Parallel planks converge nowhere; the apex at
+     screen centre is gone. That is not a regression, it is the owner's choice —
+     he asked for it in place of "having one part point at us".
+  2. THE PLANK ANGLE ROTATES WITH THE CAMERA, and this is the one the owner has
+     not seen yet. The band's scroll is C*dy px with C proportional to camera x,
+     so the angle on screen is (SKEW - C) px per row. MEASURED off the engine's
+     own ramp (tools/curve_probe.py, via the previewer's hscroll()):
 
-  * even about u=0 and about u=+-256, so the pattern is exactly 512-periodic and
-    the mirror axes sit at the vanishing point and at the wrap — the same two
-    axes the even-snap construction had;
-  * that symmetry is also the tile budget: only half the plane's columns are
-    unique and the rest are their H-flips, which the nametable expresses free.
+         camera x      0     36     90    180    300    420    600
+         C px/row  +0.000 +0.507 +1.254 +2.507 +4.169 +5.845 +8.338
+         on screen +0.500 -0.007 -0.754 -2.007 -3.669 -5.345 -7.838
 
-The whole closure error is therefore concentrated in ONE plank — the one
-straddling |u| = 256 — whose width runs 0.47x .. 1.95x its neighbours' and steps
-as the rows recede. One column of the plane, against a defect that was previously
-every plank on the floor.
+     so the planks lean right at camera 0, stand VERTICAL at camera x ~= 36, and
+     lean progressively further left after that. Uniform at every instant —
+     never two directions at once, which is the whole ask — but not a fixed
+     angle, and by camera 420 they are steeper than anything the fan drew. This
+     is inherent to "one plank angle in the art plus a depth-ramped scroll": the
+     fan avoided it only by drawing every angle at once, which is exactly what
+     produced the apex copies the owner rejected. If the rotation reads badly,
+     the lever is the layer's `curve` end factor (a shallower ramp rotates
+     slower and recedes less), NOT `--skew`, which only moves where the vertical
+     crossing happens.
+  3. PLANK WIDTH NO LONGER FORESHORTENS. Constant period is what buys exact
+     closure. The recession is carried instead by the depth SHADE ramp — which
+     the freed budget let us take from 0.9 ramp steps to 1.6 — by the seam
+     contrast fading out toward the horizon (`--fade-rows`), and by the
+     perspective-spaced CROSS seams (the plank ends, `--cross-seam-px`), which
+     are horizontal and therefore both scroll-invariant and nearly free
+     (measured: +7 tiles, and they were OFF under the fan because they did not
+     fit).
 
 WHERE THE TILES COME FROM (measured, not asserted)
 ==================================================
@@ -119,6 +169,7 @@ USAGE
     python3 tools/inject_editor_bg.py                    # bake it
 """
 import argparse
+import math
 import os
 import sys
 
@@ -158,78 +209,63 @@ SEAM = 1                        # the near-black warm — plank seams and shadow
 # that shows different art from the bake is worse than no previewer, because it
 # is believed.
 #
-# WHY lod_px AND THE SHADE RAMP BOTH MOVED WITH THE RADIAL FAN (2026-09-05). The
-# band has to fit the 121 slots its own rows recycle, or it appends past the 320
-# static budget games/sonic4/vram.toml declares and spends the BgAnim reserve —
-# which is the owner's number, not this tool's. Vertical stripes deduped for free
-# down the height of a run; a real fan puts every seam at a different sub-pixel
-# offset on every row, so the same picture costs more. MEASURED against the 121:
-# the shipped `lod 20 / ramp 0.5` construction costs 145-159 radially and does not
-# fit at any shading; lod 23 fits only with the ramp flattened to 0.2. The pairing
-# taken here is the opposite trade and the coherent one — MORE lod, so the drawn
-# planks stop 5 screen lines lower (line 181 rather than 176), and a DEEPER depth
-# ramp (0.9 against the old 0.5) to carry the recession over the extra flat rows,
-# which is the cue the original construction already named as the strongest one
-# once the boards are too fine to resolve. 120 tiles, one spare.
-SHIPPED = dict(row0=48, row1=63, pitch=64, vp_col=20, lod_px=26.0,
-               horizon_row=55, shade_near=3.4, shade_far=2.5, cross_seam_px=0.0,
-               crown=0.45)
+# WHY EVERY NUMBER HERE MOVED WITH THE SHEAR (2026-09-05). The band has to fit
+# the 121 slots its own rows recycle, or it appends past the 320 static budget
+# games/sonic4/vram.toml declares and spends the BgAnim reserve — which is the
+# owner's number, not this tool's. The radial fan cost 120 of the 121 and that
+# ceiling is what had forced `lod_px` to 26 and flattened the depth ramp to 0.9
+# steps. A shear repeats along its own diagonal, so the same picture costs far
+# less: MEASURED on this band, 39 tiles with the cross seams ON, against the
+# fan's 120. The 81 slots that bought back are spent on the recession cues the
+# constant plank width no longer provides — a 1.6-step depth ramp (against 0.9),
+# a seam contrast that fades out over the 24 rows below the horizon, and
+# perspective-spaced cross seams, which were OFF under the fan because they did
+# not fit. `crown` is DOWN to 0.0 and that is a look call, not a budget one: at
+# 0.45 it costs +24 tiles (63 total, still inside the 120) but the highlight
+# crosses a wood-ramp rounding step part-way down each plank and renders as pale
+# notches rather than a continuous crown. The knob stays for when the palette or
+# the ramp makes it land cleanly.
+#
+# `lod_px` is GONE, not renamed: it thresholded on the per-row board pitch, and
+# under the shear there is no per-row pitch to threshold on. `fade_rows` is the
+# replacement cue and it is indexed on the depth row directly.
+SHIPPED = dict(row0=48, row1=63, pitch=64, vp_col=20, skew=0.5,
+               horizon_row=55, shade_near=3.8, shade_far=2.2, cross_seam_px=14.0,
+               cross_near_frac=0.9, fade_rows=24.0, crown=0.0)
 
 
-def board_pitch(dy, span, pitch):
-    """Board pitch in plane px at depth row `dy` (0 at the horizon, span-1 near).
+def plank_lattice(pitch):
+    """Validate the plank period against the 512-px wrap, and return 512/pitch.
 
-    EXACTLY LINEAR IN `dy`, AND THAT IS THE WHOLE FIX (2026-09-05). The engine's
-    per-line scroll for this band is linear in the screen line — `BG(line) =
-    floor((line - top) * camX / span)`, the Bresenham ramp at parallax.emp's
-    `.lp_curve`. A drawn fan survives horizontal scroll if and only if each row's
-    scroll is proportional to THAT ROW's drawn board pitch, so the pitch must be
-    linear in the same index. It is, here, by construction:
+    THE ONE CONSTRAINT THE SHEAR HAS, AND THE WHOLE REASON IT CLOSES. Plane B
+    wraps horizontally every 512 px (parallax.emp: PLANE_B_SPAN). A lattice of
+    period `pitch`, translated by `skew` px per row, is exactly 512-periodic on
+    every row if and only if 512 is a whole number of periods — and the plank
+    ALTERNATION (neighbouring planks take different wood tones) is 512-periodic
+    only if that whole number is EVEN, since crossing the wrap advances the plank
+    index by 512/pitch and the tone is its parity.
 
-        p(dy) = pitch * dy / (span - 1)          scroll(dy) = camX * dy / span
+    Get either wrong and the wrap becomes a seam again: an odd count flips the
+    tone across x = 0, a non-divisor leaves a straddling plank of the wrong width.
+    Both are exactly the artefacts the fan had, so they are asserted, not hoped.
 
-    and the ratio scroll/p = camX*(span-1)/(pitch*span) is one constant for every
-    row. A board at plane x = vx +- j*p(dy) therefore lands at screen
-
-        vx + dy * (+-j*pitch/(span-1) - camX/span)
-
-    which is a straight line through (vx, dy=0) FOR EVERY camX: the boards slide
-    board-by-board past a vanishing point pinned at plane x `vx`, exactly as the
-    header's law requires. `dy` starts at 0, not 1, because 0 is the ramp index
-    the engine hands the band's FIRST line; starting at 1 left a constant camX/span
-    px offset on every row, which translated the whole floor (and its apex) at
-    1/72 of camera travel.
-
-    WHAT THIS REPLACED, AND WHY IT WAS WRONG. Until 2026-09-05 this function was
-    `boards_across()`, which snapped the board COUNT across the 512-px plane to an
-    even integer so the lattice closed exactly on the wrap. Snapping the count
-    quantises the pitch, and MEASURED on the shipped art the quantisation was not
-    a rounding wobble but a STAIRCASE: the whole drawn band held only nine
-    distinct pitches, each held constant over a run of 5..20 pixel rows (n=24 over
-    dy 24..25, 22 over 26..27, 20 over 28..30, 18 over 31..33, 16 over 34..38,
-    14 over 39..44, 12 over 45..52, 10 over 53..63, 8 over 64..72). A constant
-    pitch over a run of rows draws VERTICAL boards — so at camera x 0 every plank
-    pointed straight down instead of fanning, and under scroll every plank in a
-    run picked up the same added slope and leaned the same way. Both halves of the
-    owner's report ("it's just a line pointing down"; "they all just wind up
-    skewing to the left") are that one defect. The ratio scroll/pitch swung 0.887
-    .. 1.092 across the band and, fatally, varied MONOTONICALLY inside every run;
-    only a CONSTANT ratio survives scroll.
-
-    WHAT IT COSTS: EXACT CLOSURE ON THE WRAP. 512/p(dy) is an integer at only a
-    handful of rows, so an unbounded radial fan cannot be 512-periodic and the
-    plane wraps every 512 px. `render_band` recovers periodicity by folding x into
-    u = ((x - vx + 256) mod 512) - 256 and keying the pattern on |u| — even about
-    u=0 and about u=+-256, hence exactly 512-periodic, and it keeps the H-flip
-    dedup the tile budget lives on. The residual artefact is ONE plank, the one
-    straddling |u| = 256, whose width is 0.47x .. 1.95x its neighbours' and steps
-    as the rows recede. That is a single column of the plane, against a defect
-    that was previously the whole floor. The mirror axis at |u| = 256 is not new:
-    the even-snap construction had it too (its own docstring called it "a mirror
-    line, not a discontinuity"), it was simply invisible while every board was
-    vertical.
+    WHY THIS IS NOT THE QUANTISATION THAT KILLED THE FAN. The fan needed the
+    period to be proportional to the depth row AND to divide 512 at every row,
+    which is a hyperbola forced onto a discrete set — measured, 6 distinct periods
+    over 43 rows, held for runs of up to 12 pixel rows, i.e. vertical stripes. The
+    shear needs ONE period to divide 512, once, for the whole band. There is
+    nothing left to quantise.
     """
-    return pitch * dy / float(span - 1) if span > 1 else 0.0
+    assert pitch > 0 and PLANE_W % pitch == 0, (
+        "plank pitch %r does not divide the %d-px plane wrap: the pattern would "
+        "not tile by translation and the wrap would carry a straddling plank"
+        % (pitch, PLANE_W))
+    n = PLANE_W // pitch
+    assert n % 2 == 0, (
+        "%d planks across the %d-px wrap is ODD: the plank tone alternation has "
+        "period 2, so it would flip across the wrap and put a same-tone pair at "
+        "plane x 0" % (n, PLANE_W))
+    return n
 
 
 def shade(level):
@@ -238,33 +274,42 @@ def shade(level):
     return WOOD[max(0, min(len(WOOD) - 1, i))]
 
 
-def render_band(rows, pitch, vp_col, seam_rows, lod_px, horizon_row=None,
-                shade_near=3.5, shade_far=2.0, crown=0.45):
+def render_band(rows, pitch, vp_col, skew, horizon_row, shade_near, shade_far,
+                crown, fade_rows, cross_seam_px, cross_near_frac):
     """Rasterise the floor into a (rows*8) x 512 array of palette indices.
 
-    `horizon_row` is the CELL ROW carrying the vanishing point. Rows above it
+    `horizon_row` is the CELL ROW where the floor meets the wall. Rows above it
     are the shadowed wall behind the floor — a pure vertical gradient, which is
     both the right picture (the jungle floor in shade, meeting the boards at a
     hard line) and nearly free: a gradient row is one tile wide-flipped, so the
-    whole upper half costs single digits. Rows at and below it carry the fan.
+    whole upper half costs single digits. Rows at and below it carry the planks.
+
+    THE PLANKS ARE PARALLEL. Centres at plane x = vx + j*pitch + skew*dy, one
+    lattice for the whole band, translated `skew` px per pixel row. There is no
+    fold and no `% 512` anywhere below: `pitch` divides 512 an even number of
+    times (plank_lattice() asserts it), so the lattice is already exactly
+    512-periodic on every row. See the module header for why the fan it replaced
+    could not be, and for what parallel planks cost.
 
     Returns a list of pixel rows, each a list of 512 ints in 1..15.
     """
     top_row = rows[0]
     horizon = top_row if horizon_row is None else horizon_row
-    shade_px = (horizon - top_row) * 8    # pixel rows above the vanishing point
-    span = len(rows) * 8 - shade_px       # the fan's own height in pixels
-    # THE HALF-PIXEL IS LOAD-BEARING. The reflection that makes the pattern
-    # seamless across the 512-px wrap must map CELL column c to column 63-c, so
-    # its axis sits BETWEEN pixels 255 and 256, not on pixel 256. Reflecting
-    # about a whole pixel maps col 32 onto a pair of half-columns, every H-flip
-    # match is lost, and the tile count roughly doubles (measured: 679 -> 355).
-    vx = vp_col * 8 - 0.5                 # vanishing point x, plane pixels
+    shade_px = (horizon - top_row) * 8    # pixel rows above the floor's top edge
+    span = len(rows) * 8 - shade_px       # the floor's own height in pixels
+    plank_lattice(pitch)                  # the closure precondition, asserted
+    # The lattice PHASE, in plane pixels. Under the fan this was the vanishing
+    # point and the half-pixel was load-bearing (it put the mirror axis between
+    # cells). There is no mirror any more, so the half-pixel is now only a
+    # phase choice: it centres a plank on the cell boundary rather than a seam,
+    # which is what keeps the seam off the cell edges where it would cost a
+    # tile for a single dark column.
+    vx = vp_col * 8 - 0.5
     out = []
-    # `dy` is BOTH the art's depth index and the engine's per-line ramp index, and
-    # they have to be the same number — see board_pitch()'s note. The band's first
-    # pixel row is dy 0 (the horizon itself, pitch 0, scroll 0) and its last is
-    # dy span-1, where the pitch is exactly `pitch` px.
+    # `dy` is BOTH the art's depth index and the engine's per-line ramp index,
+    # and they have to be the same number (test_scene_curve_band_matches_the_art
+    # _band checks the two windows agree). The band's first pixel row is dy 0,
+    # where the engine's ramp is 0.
     # The shadowed wall above the horizon: darkest at the join with the jungle,
     # lifting slightly toward the horizon line so the two do not merge.
     for sy in range(shade_px):
@@ -273,41 +318,43 @@ def render_band(rows, pitch, vp_col, seam_rows, lod_px, horizon_row=None,
 
     for dy in range(span):
         t = dy / max(1, span - 1)         # 0 at the horizon, 1 at the near row
-        p = board_pitch(dy, span, pitch)  # board pitch at this row, px
 
-        # Depth shading: dark at the horizon, bright underfoot. The ramp is the
-        # single strongest "this recedes" cue once the boards get too fine to
-        # resolve, so it runs the whole height and not just the far rows.
+        # Depth shading, and now the PRIMARY recession cue: the plank width no
+        # longer foreshortens, so this ramp and the cross seams below are what
+        # say "this recedes". Under the fan it had to stay inside 0.9 ramp steps
+        # to fit the tile budget; the shear's dedup bought that back and it runs
+        # at 1.6 here.
         #
-        # DELIBERATELY SHALLOW. A steep ramp (0.6 -> 4.2 was the first try)
-        # crosses four of the six ramp steps, and because the plank alternation
-        # rides on top of it, neighbouring boards cross each step at DIFFERENT
-        # rows — so the floor read as a flight of stairs rather than a plane.
-        # Keeping the ramp inside ~1.5 steps lets the alternation dominate and
-        # the boards read as continuous stripes. It also halves the tile count,
-        # because far fewer rows differ.
+        # STILL DELIBERATELY SHORT OF THE FULL RAMP. A steep ramp (0.6 -> 4.2
+        # was the first try) crosses four of the six wood steps, and because the
+        # plank alternation rides on top of it, neighbouring planks cross each
+        # step at DIFFERENT rows — so the floor reads as a flight of stairs
+        # rather than a plane. Under the shear the tile count barely notices the
+        # ramp at all (0.9 steps -> 40 tiles, 1.6 -> 39, 2.8 -> 40), so 1.6 is
+        # chosen on the PICTURE: it is the deepest ramp that still crosses only
+        # one wood step inside a plank.
         base = shade_near + (shade_far - shade_near) * (1.0 - t)
 
-        # dy 0 IS the vanishing point's own row: every board is at plane x vx
-        # there, so there is no lattice to draw and no scroll to draw it under.
-        # It gets the darkest of the two horizon shadow rows and nothing else.
-        if p <= 0.0:
-            out.append([shade(base - 1.8)] * PLANE_W)
-            continue
-
-        # Level of detail. Below ~lod_px the seams alias into noise and cost a
-        # unique tile per cell; blend them out instead and let the shading carry
-        # the depth. This is also what makes the far rows dedup to a handful.
-        detail = 0.0 if p < lod_px else min(1.0, (p - lod_px) / lod_px)
+        # Seam contrast fades OUT toward the horizon. Under the fan this was
+        # `lod_px`, a threshold on the per-row board pitch; a shear has no
+        # per-row pitch, so the cue is indexed on the depth row directly. It is
+        # doing the same two jobs: it keeps the far rows from becoming a hard
+        # grid where a real floor would blur, and it is most of why the top of
+        # the band dedups to a handful of tiles.
+        detail = min(1.0, dy / float(fade_rows)) if fade_rows > 0 else 1.0
 
         # A perspective-spaced cross seam (the plank ENDS): constant-depth lines
-        # sit at dy = span/m. Horizontal lines are invariant under horizontal
-        # scroll, so these cost nothing under motion and stay put.
+        # sit at dy = cross_near_frac * span / m. Horizontal lines are invariant
+        # under horizontal scroll, so these cost nothing under motion and stay
+        # put — and with the plank width no longer receding they are the only
+        # thing in the art that measures depth. `cross_near_frac` pulls the
+        # nearest row of ends up off the band's bottom edge; at 1.0 the m=1 line
+        # lands below the last row and the whole near half has no ends at all.
         cross = False
-        if seam_rows > 0:
+        if cross_seam_px > 0:
             for m in range(1, 64):
-                d = span / m
-                if d < seam_rows:           # stop before the ends alias into a grid
+                d = cross_near_frac * span / m
+                if d < cross_seam_px:       # stop before the ends alias into a grid
                     break
                 if int(round(d)) == dy:
                     cross = True
@@ -315,63 +362,67 @@ def render_band(rows, pitch, vp_col, seam_rows, lod_px, horizon_row=None,
 
         line = []
         for x in range(PLANE_W):
-            # THE WRAP FOLD. Board centres are at vx +- j*p, an unbounded radial
-            # lattice that is NOT 512-periodic (board_pitch()'s closure note).
-            # Folding x to u in [-256, 256) and keying on |u| makes the pattern
-            # even about u=0 and about u=+-256, hence exactly 512-periodic AND
-            # H-flip-symmetric about both axes — which is the same symmetry the
-            # even-snap bought with its lattice, and the same tile dedup.
-            u = ((x - vx + 256.0) % 512.0) - 256.0
-            off = abs(u) / p
-            j = int(round(off))
-            frac = abs(off - j)           # 0 at a board centre, 0.5 at a seam
+            # The lattice. `q` is the plank index as a real number; the sheared
+            # term is what leans every plank the same way. No fold: q advances by
+            # exactly PLANE_W/pitch (an even integer) across the wrap, so both
+            # `frac` and the tone parity come back to themselves at x = 512.
+            q = (x - vx - skew * dy) / float(pitch)
+            j = int(math.floor(q + 0.5))
+            frac = abs(q - j)             # 0 at a plank centre, 0.5 at a seam
 
             level = base
-            # Alternating plank tones. Keyed on the PARITY of |j|, which is the
-            # only per-board variation that survives the reflection x -> -x: it
-            # is what keeps the wrap seam a mirror line, and it is also what
-            # keeps the tile count finite (two variants, not one per board).
-            #
-            # SCALED BY `detail`, and that is not cosmetic. Left unfaded, the
-            # alternation keeps flipping once the boards are thinner than a
-            # pixel, so the far rows become per-pixel noise: every one of the 32
-            # unique columns became a distinct tile and the top six cell rows
-            # alone cost 192 of them (measured). Faded, they cost 1-3 each.
-            # A HARD cutoff, not the seam's smooth fade. Fading the amplitude
-            # through the middle values makes neighbouring boards round to
-            # different ramp steps at different rows, which reads as blocky
-            # rubble rather than distance. On/off keeps the far half clean.
-            if p >= lod_px:
-                level += 0.6 if (abs(j) & 1) else -0.6
+            # Alternating plank tones, on the parity of the plank index. Unlike
+            # the fan's `abs(j)` this is the SIGNED index, which is what makes
+            # the pattern even nowhere — a fan is mirror-symmetric about its
+            # apex and that symmetry is precisely what the owner rejected.
+            level += 0.6 if (j & 1) else -0.6
 
             if detail > 0.0:
-                seam_w = 0.5 - (0.9 / p)          # ~0.9 px of seam, in board units
-                if frac > max(0.30, seam_w):
+                seam_w = 0.5 - (0.9 / pitch)     # ~0.9 px of seam, in plank units
+                if frac > seam_w:
                     # the seam itself
                     level -= 2.4 * detail
                 elif frac < 0.10 and crown > 0.0:
-                    # A soft highlight along the board's crown, and the band's
-                    # most expensive feature per unit of picture. A genuinely
-                    # fanned lattice puts the crown at a different sub-pixel
-                    # offset on EVERY row, so it costs tiles the vertical-stripe
-                    # staircase never paid for (measured on this bake: 0.55 costs
-                    # 19 more unique tiles than 0.0). It is a `--crown` knob for
-                    # exactly that reason — it is the dial you turn when the band
-                    # will not fit its own recyclable slots.
+                    # A soft highlight along the plank's crown. Under the fan
+                    # this was the band's most expensive feature (every row put
+                    # it at a different sub-pixel offset, +19 tiles for 0.55).
+                    # Under the shear every row's crown is the previous row's
+                    # translated by `skew`, so it costs +24 tiles rather than
+                    # being unaffordable — but it is SHIPPED AT 0.0 anyway,
+                    # because the highlight crosses a wood-ramp rounding step
+                    # part-way down each plank and reads as pale notches. Budget
+                    # is no longer what decides this knob; the picture is.
                     level += crown * detail
             if cross:
                 level -= 1.6
 
             # A hard shadow line right under the horizon. Two pixel rows, so it
-            # costs almost nothing, and it is what stops the far boards bleeding
-            # into the wall above and turning the join into mush. dy 0 takes the
-            # -1.8 row on the p <= 0 path above; this is its dy 1 partner.
+            # costs almost nothing, and it is what stops the far planks bleeding
+            # into the wall above and turning the join into mush.
             if dy < 2:
                 level -= (2 - dy) * 0.9
 
             line.append(shade(level))
         out.append(line)
     return out
+
+
+def shipped_band():
+    """The band exactly as the bake draws it, from SHIPPED and nothing else.
+
+    THE SINGLE ENTRY POINT, and it exists because a previewer that restates the
+    bake's parameters drifts off it silently. tools/perspective_floor_predict.py
+    did exactly that until 2026-09-05 and spent weeks rendering a picture the ROM
+    had not carried. Everything that wants "the floor as it ships" — the
+    previewer, the gate, this tool's own main() — calls THIS, so a parameter can
+    only be changed in one place. Returns (pixels, rows, shade_px, span).
+    """
+    s = SHIPPED
+    rows = list(range(s["row0"], s["row1"] + 1))
+    kw = {k: v for k, v in s.items() if k not in ("row0", "row1")}
+    px = render_band(rows, **kw)
+    shade_px = (s["horizon_row"] - s["row0"]) * 8
+    return px, rows, shade_px, len(rows) * 8 - shade_px
 
 
 def canon(tile):
@@ -418,18 +469,33 @@ def main():
     ap.add_argument("--row1", type=int, default=SHIPPED["row1"],
                     help="last cell row (inclusive)")
     ap.add_argument("--pitch", type=int, default=SHIPPED["pitch"],
-                    help="board pitch in px at the near (bottom) row — exact, "
-                         "because the pitch is linear in the depth row")
+                    help="plank period in plane px, the SAME at every depth row. "
+                         "MUST divide 512 an even number of times or the pattern "
+                         "stops tiling the wrap by translation — see "
+                         "plank_lattice()")
+    ap.add_argument("--skew", type=float, default=SHIPPED["skew"],
+                    help="plane px the whole lattice slides per pixel row: the "
+                         "plank lean, and the ONLY thing that leans them. Every "
+                         "plank takes the same value, which is the point — a "
+                         "per-plank lean is a fan, and a fan in a wrapping plane "
+                         "copies its apex every 512 px")
     ap.add_argument("--vp-col", type=int, default=SHIPPED["vp_col"],
-                    help="vanishing-point cell column. The apex sits at a FIXED "
-                         "SCREEN x equal to this plane x, because the horizon "
-                         "row's scroll factor is 0 and every row below it "
-                         "scrolls in proportion; 20 (plane x 160) is therefore "
-                         "the centre of a 320-px screen")
-    ap.add_argument("--lod-px", type=float, default=SHIPPED["lod_px"],
-                    help="board pitch below which seams stop being drawn")
+                    help="lattice phase, in cell columns. There is no vanishing "
+                         "point any more; this only chooses which plane x a "
+                         "plank is centred on, and 20 keeps the seams off the "
+                         "cell boundaries")
+    ap.add_argument("--fade-rows", type=float, default=SHIPPED["fade_rows"],
+                    help="depth rows over which the seam contrast fades in below "
+                         "the horizon; 0 = full contrast everywhere. Replaces "
+                         "the fan's --lod-px, which thresholded on a per-row "
+                         "pitch the shear does not have")
+    ap.add_argument("--cross-near-frac", type=float,
+                    default=SHIPPED["cross_near_frac"],
+                    help="depth fraction of the NEAREST row of plank ends; 1.0 "
+                         "puts it below the band and leaves the near half with "
+                         "no ends at all")
     ap.add_argument("--horizon-row", type=int, default=SHIPPED["horizon_row"],
-                    help="cell row carrying the vanishing point; rows above it "
+                    help="cell row where the floor meets the wall; rows above it "
                          "are the shadowed wall behind the floor")
     ap.add_argument("--shade-near", type=float, default=SHIPPED["shade_near"],
                     help="wood-ramp level at the near (bottom) row, 0..5")
@@ -481,11 +547,12 @@ def main():
     recyclable = [t for t in recyclable if t >= anim_slots]
 
     # ── Rasterise ────────────────────────────────────────────────────────────
-    px = render_band(rows, args.pitch, args.vp_col,
-                     seam_rows=args.cross_seam_px, lod_px=args.lod_px,
-                     horizon_row=args.horizon_row,
+    px = render_band(rows, pitch=args.pitch, vp_col=args.vp_col,
+                     skew=args.skew, horizon_row=args.horizon_row,
                      shade_near=args.shade_near, shade_far=args.shade_far,
-                     crown=args.crown)
+                     crown=args.crown, fade_rows=args.fade_rows,
+                     cross_seam_px=args.cross_seam_px,
+                     cross_near_frac=args.cross_near_frac)
 
     # ── Cut into tiles, dedup flip-canonically against the WHOLE blob ─────────
     existing = {}
@@ -537,8 +604,8 @@ def main():
     before = len(data["tiles"])
     after = len(tiles)
     print(f"perspective floor: plane rows {args.row0}..{args.row1} "
-          f"({len(rows) * 8} px), board pitch {args.pitch} px at the near row, "
-          f"vanishing point at plane x {args.vp_col * 8}")
+          f"({len(rows) * 8} px), plank period {args.pitch} px "
+          f"({PLANE_W // args.pitch} across the wrap), skew {args.skew} px/row")
     print(f"  unique tiles the floor needs      : {len(new_keys)}")
     print(f"    of which matched existing art   : {reused_existing}")
     print(f"    of which written into recycled  : {len(fresh) - appended}")
