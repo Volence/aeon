@@ -1031,6 +1031,8 @@ class TestAuthoredSweepsFitTheirBands(unittest.TestCase):
         which they are compared is the one the gate scenes and the act's own notes use."""
         amp = _const(_read(RASTER_DSL), "ANCHOR_SINE_AMP", RASTER_DSL)
         src = _read(OJZ_EFFECTS)
+        secs = section_presets()
+        skipped, judged = [], 0
         for name, ch, a, p, ph in authored_sweeps():
             bands, _why, _has = bands_for_preset(name)
             m = re.search(r"pub data %s:\s*EffectsPreset\s*=\s*preset\(" % re.escape(name), src)
@@ -1042,9 +1044,25 @@ class TestAuthoredSweepsFitTheirBands(unittest.TestCase):
             elems = [e.strip() for e in wy.group(1).split(",")]
             self.assertGreater(len(elems), ch, "%s: patch_world_ys is shorter than the "
                                                "channel its motion is authored on" % name)
+            # THE CAMERA HAS TO BELONG TO THE SECTION. It is the SPAWN_SECTION rule this file
+            # already states above and that `headroom_violations` already applies to the
+            # generated arm. It was never applied HERE because every hand-authored sweep sat
+            # on section 0 until 2026-09-05, when OJZ_Preset_Sec7 channel 2 became the first
+            # that does not. Section 7 is grid row 2, so its anchor is ~4320 and holding that
+            # against a camera of 144 yields a screen line of ~4176 against a band of 3..160:
+            # a violation that is an artifact of the wrong camera, not a property of the
+            # sweep. (Section 7 seeds its anchors as DERIVED constants rather than literals,
+            # so what the old code actually raised was "not a literal, so this bound cannot be
+            # evaluated": an unevaluatable bound reported as a FAILURE. Both halves are the
+            # same defect: this arm had no notion that a sweep might not be section 0's.)
+            installed = sorted(k for k, v in secs.items() if v == name)
+            if SPAWN_SECTION not in installed:
+                skipped.append((name, ch, installed))
+                continue
             self.assertTrue(elems[ch].lstrip("-").isdigit(),
                             "%s channel %d: the seeded anchor %r is not a literal, so this "
                             "bound cannot be evaluated" % (name, ch, elems[ch]))
+            judged += 1
             line = int(elems[ch]) - SPAWN_CAMERA_Y
             lo, hi = bands[ch]
             peak = amp >> a
@@ -1060,6 +1078,27 @@ class TestAuthoredSweepsFitTheirBands(unittest.TestCase):
                 "sweep's peak takes it to %d, past the band ceiling %d, where the record is "
                 "DROPPED and the band disappears for that frame."
                 % (name, ch, SPAWN_CAMERA_Y, line, line + peak, hi))
+        # LOUD, NOT SILENT, on both ends. A skip that nobody sees is how a bound stops
+        # applying without anyone deciding it should, and a run that judged NOTHING is a
+        # vacuous green rather than a pass.
+        if skipped:
+            warnings.warn(
+                "\nseeded-headroom bound NOT APPLIED to %d hand-authored sweep(s). The "
+                "preset is installed by section(s) that do not include the spawn section %d, "
+                "the only section SPAWN_CAMERA_Y (%d) is the camera for:\n%s\n  Band fit and "
+                "channel liveness still cover them. Evaluating this bound for another section "
+                "needs a per-section camera; see RASTER-HEADROOM-CAM in docs/DEFERRED_WORK.md."
+                % (len(skipped), SPAWN_SECTION, SPAWN_CAMERA_Y,
+                   "\n".join("    %s channel %d (installed by section(s) %s)"
+                              % (n, c, i or "none") for n, c, i in skipped)),
+                UserWarning, stacklevel=1)
+        self.assertGreater(
+            judged, 0,
+            "the seeded-headroom bound judged NO hand-authored sweep at all, so this test "
+            "passed without measuring anything. Every sweep was skipped as belonging to a "
+            "section other than the spawn section %d, which means either the spawn-section "
+            "sweep was removed, or section_presets() stopped resolving the preset names."
+            % SPAWN_SECTION)
 
 
 class TestTheGateScenesHoldTheMoverStill(unittest.TestCase):
