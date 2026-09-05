@@ -108,7 +108,7 @@ NEED_SYMS = (READ_SITE, LOOKUP, "CrossoverTable", "SolidityTable",
              "Cache_Origin_Row")
 NEED_EQUS = ("XOVER_NONE", "XOVER_TO_A", "XOVER_TO_B", "XOVER_LAYER_BIAS",
              "LAYER_PATH_A", "LAYER_PATH_B", "COLL_CELL_W", "COLL_CELL_H",
-             "CTYPE_AIR", "SST_x_pos", "SST_y_pos", "SST_layer",
+             "CTYPE_AIR", "SST_x_pos", "SST_y_pos", "SST_layer", "SST_x_vel",
              "TILE_CACHE_COLS", "TILE_CACHE_ROWS", "TILE_CACHE_COLL_SIZE",
              # the two per-frame displacement caps. The step-over family derives its
              # WHOLE sweep from these rather than from a number written here, so a cap
@@ -157,12 +157,38 @@ def routine_extent(syms, name):
 # The model — the anchor's §3.2 value table and §6 change (5), and nothing else
 # --------------------------------------------------------------------------
 
-def model(layer, xover_value, k):
-    """What the encoding says must happen. `k` carries the constants the build was
-    assembled with, so this cannot drift from them by being written down twice."""
+def mark_target(xover_value, k):
+    """The ENCODING's half, alone: which plane a mark leads onto. Anchor §3.2 + §6
+    change (5). Kept separate from `model` so the bijection this map is can be
+    asserted on its own, without the direction rule's gating hiding it."""
+    return (xover_value - k["XOVER_LAYER_BIAS"]) & 0xFF
+
+
+def travel_plane(x_vel, k):
+    """Which arc a player travelling at `x_vel` is entering, or None for neither.
+
+    DERIVED, not tabulated: plane B carries the RIGHT half of a loop's arc and plane A
+    the LEFT half, so rightward travel is the B side and leftward the A side. Zero is
+    neither — no horizontal travel means no arc is being entered."""
+    if x_vel == 0:
+        return None
+    return k["LAYER_PATH_B"] if x_vel > 0 else k["LAYER_PATH_A"]
+
+
+def model(layer, xover_value, k, x_vel):
+    """What the encoding AND the direction rule together say must happen. `k` carries
+    the constants the build was assembled with, so this cannot drift from them by
+    being written down twice.
+
+    THE DIRECTION RULE (owner ruling 2026-09-05, Player_LoopCrossover comment (5b)):
+    a mark fires only when the player's screen-space horizontal travel matches the arc
+    the mark leads onto. Before it, the mark was plane-keyed alone, and a LEFTWARD
+    player read plane A's XOVER_TO_B at a loop's bottom centre and was put on the plane
+    whose left half is not solid — docs/witness/loop-plane-b-exit-2026-09-05.json."""
     if xover_value == k["XOVER_NONE"]:
         return layer                       # the cell is not a crossover
-    return (xover_value - k["XOVER_LAYER_BIAS"]) & 0xFF
+    want = mark_target(xover_value, k)
+    return want if want == travel_plane(x_vel, k) else layer
 
 
 # --------------------------------------------------------------------------
@@ -230,6 +256,14 @@ class Trace:
                                   # arguments are its X px, Y px and plane, so this is
                                   # the record of WHICH CELLS the frame actually asked
                                   # about. The step-over family grades that set.
+        self.insns = []           # every instruction ACTUALLY executed, in order, as
+                                  # (pc, mnemonic, operands). Nothing in this gate
+                                  # grades it — it exists so Player_LoopCrossover's
+                                  # cost note can be re-summed from the encodings the
+                                  # build emitted (tools/loop_crossover_cost.py)
+                                  # instead of being written next to the source and
+                                  # going stale. Pair each entry with the NEXT pc to
+                                  # see whether a branch was taken.
         self.steps = 0
 
 
@@ -253,6 +287,7 @@ def execute(cpu, prog, entry, extents, trace, limit=600):
                 "execution left the decoded extents at $%06X — a callee this gate does "
                 "not model, or a branch into the middle of an instruction" % pc)
         mnem_full, ops, nxt = prog[pc]
+        trace.insns.append((pc, mnem_full, ops))
         parts = mnem_full.split(".")
         base, size = parts[0], (parts[1] if len(parts) > 1 else None)
         _sized(cpu, size or "w")
@@ -383,6 +418,13 @@ class World:
         self.prog, self.extents, self.syms, self.k = prog, extents, syms, equs
         self.cpu = Cpu(bytes(self.rom), SST)
         self.cpu.RAM_LO = 0xFF0000
+        # LOUD ON UNMEASURABLE. Since the direction rule landed, a mark fires only when
+        # Sst.x_vel agrees with the arc it leads onto — so a world that never chose a
+        # travel direction has x_vel = 0 and NOTHING can ever fire in it. Every leg
+        # would then pass for a reason that has nothing to do with its subject, which
+        # is the vacuous green this whole file exists to refuse. `frame()` therefore
+        # refuses to run until a direction has been chosen explicitly.
+        self._x_vel = None
         for name, val in (("Cache_Left_Col", 0),
                           ("Cache_Head_Col", equs["TILE_CACHE_COLS"] - 1),
                           ("Cache_Top_Row", 0),
@@ -415,11 +457,28 @@ class World:
         self.cpu.write(SST + self.k["SST_y_pos"], (y & 0xFFFF) << 16, "l")
         self.cpu.wb(SST + self.k["SST_layer"], layer & 0xFF)
 
+    def set_x_vel(self, v):
+        """The frame's screen-space horizontal velocity, 8.8 signed, as the routine's
+        direction gate reads it. A leg passes the velocity that PRODUCED the step it is
+        about to make, so the two cannot disagree; `travel_of_step` below is the
+        derivation, not a value chosen per leg."""
+        self._x_vel = v
+        self.cpu.write(SST + self.k["SST_x_vel"], v & 0xFFFF, "w")
+
+    def x_vel(self):
+        return self._x_vel
+
     def layer(self):
         return self.cpu.rb(SST + self.k["SST_layer"])
 
     # --- one frame --------------------------------------------------------
     def frame(self):
+        if self._x_vel is None:
+            raise AssertionError(
+                "this world ran a frame without ever choosing a travel direction. "
+                "Since the direction rule, x_vel = 0 means NO mark can fire, so a leg "
+                "that forgets set_x_vel() passes vacuously. Call set_x_vel() — with 0 "
+                "if a standing player is genuinely the subject.")
         cpu = self.cpu
         cpu.a[0], cpu.a[4], cpu.a[7] = SST, BLOCK, STACK
         for i, v in enumerate(POISON):
@@ -447,6 +506,22 @@ class World:
         want = SST + self.k["SST_layer"]
         return [w for w in trace.writes if w[0] == want]
 
+    def write_order(self, trace):
+        """(kind, index) for every write the frame made, in program order — "layer" for
+        the Sst byte the routine decides, "block" for anything in the PlayerBlock (the
+        edge-trigger cell id and the sweep's cursor). The BLOCK region is identified by
+        its address range rather than by a PBLK_* symbol on purpose: this file already
+        refuses to re-derive the routine's own addressing, and a range needs no symbol
+        the listing might rename."""
+        out = []
+        layer = SST + self.k["SST_layer"]
+        for i, (addr, _size) in enumerate(trace.writes):
+            if addr == layer:
+                out.append(("layer", i))
+            elif BLOCK <= addr < BLOCK + 0x100:
+                out.append(("block", i))
+        return out
+
     def cells_probed(self, trace):
         """(col, row) of every cell the frame asked Collision_GetType about, in order.
 
@@ -468,32 +543,52 @@ class World:
 ATTR_A, ATTR_B = 0x11, 0x22
 IN_CELL = (200, 200)        # comfortably inside the synthetic cache window
 
+# The two travel directions a leg can choose, as 8.8 velocities. Only the SIGN reaches
+# the routine, but the magnitudes are real ones (3 px/frame) so nothing here reads as a
+# flag pretending to be a velocity. STILL is the third case the rule names.
+RIGHT, LEFT, STILL = 0x0300, -0x0300, 0
+
+
+def travel_of_step(dx):
+    """The velocity that PRODUCED a step of `dx` pixels. Legs pass this rather than
+    picking a direction, so a leg's velocity cannot contradict the motion it makes —
+    which is also what the routine assumes, since it runs in the preamble against the
+    position the previous frame's velocity resolved to."""
+    if dx == 0:
+        return STILL
+    return RIGHT if dx > 0 else LEFT
+
 
 def sweep_consumption(rom, prog, extents, syms, equs, fails):
     """THE experiment: hold everything fixed, vary one ROM byte.
 
-    Runs the full cross product of {every legal crossover value} x {both layers}, each
-    from a FRESH world, and grades the layer byte against the model. The XOVER_NONE row
-    is the control and is also the shipped ROM's own state."""
+    Runs the full cross product of {every legal crossover value} x {both layers} x
+    {both travel directions and standing still}, each from a FRESH world, and grades
+    the layer byte against the model. The XOVER_NONE row is the control and is also the
+    shipped ROM's own state; the STILL rows are the direction rule's own zero case."""
     total = 0
     moved_by_rom = 0
     for value in (equs["XOVER_NONE"], equs["XOVER_TO_A"], equs["XOVER_TO_B"]):
         for layer in (equs["LAYER_PATH_A"], equs["LAYER_PATH_B"]):
-            w = World(rom, prog, extents, syms, equs)
-            w.fill_plane(0, ATTR_A)
-            w.fill_plane(1, ATTR_A)
-            if value != equs["XOVER_NONE"]:
-                w.set_crossover(ATTR_A, value)
-            shipped = rom[syms["CrossoverTable"] + ATTR_A]
-            w.place(IN_CELL[0], IN_CELL[1], layer)
-            trace = w.frame()
-            got, want = w.layer(), model(layer, value, equs)
-            total += 1
-            if got != want:
-                fails.append(("consumption", "CrossoverTable[$%02X]=%d layer=%d: layer "
-                              "became %d, model says %d" % (ATTR_A, value, layer, got, want)))
-            elif value != shipped and got != layer:
-                moved_by_rom += 1
+            for vel in (RIGHT, LEFT, STILL):
+                w = World(rom, prog, extents, syms, equs)
+                w.fill_plane(0, ATTR_A)
+                w.fill_plane(1, ATTR_A)
+                if value != equs["XOVER_NONE"]:
+                    w.set_crossover(ATTR_A, value)
+                shipped = rom[syms["CrossoverTable"] + ATTR_A]
+                w.place(IN_CELL[0], IN_CELL[1], layer)
+                w.set_x_vel(vel)
+                w.frame()
+                got, want = w.layer(), model(layer, value, equs, vel)
+                total += 1
+                if got != want:
+                    fails.append(("consumption",
+                                  "CrossoverTable[$%02X]=%d layer=%d x_vel=%d: layer "
+                                  "became %d, model says %d"
+                                  % (ATTR_A, value, layer, vel, got, want)))
+                elif value != shipped and got != layer:
+                    moved_by_rom += 1
             # the mark must not fire from the wrong plane's fill either: both planes
             # carry ATTR_A here, so this row also pins that a plane-agnostic read would
             # not have been distinguishable — the plane sweep below is what separates them
@@ -503,24 +598,35 @@ def sweep_consumption(rom, prog, extents, syms, equs, fails):
 def sweep_plane_select(rom, prog, extents, syms, equs, fails):
     """Anchor §3.3: the mark is read from the plane the player is ON. Plane A and plane
     B carry DIFFERENT attrs at the same cell, and the two attrs carry DIFFERENT marks,
-    so a read that ignored the layer would land on the wrong one in half the cases."""
+    so a read that ignored the layer would land on the wrong one in half the cases.
+
+    BOTH travel directions are run at every cell, and that is not padding: with the
+    direction rule a single direction makes one of the two rows VACUOUS. Moving right
+    on layer B, plane B's XOVER_TO_A is refused by direction and plane A's XOVER_TO_B
+    would have been a no-op — both readings leave the layer on B, so that row would
+    prove nothing. Moving left it separates them cleanly. Running both means at least
+    one direction discriminates at each row, whichever way the encoding is painted."""
     total = 0
     for layer, expect_attr in ((equs["LAYER_PATH_A"], ATTR_A),
                                (equs["LAYER_PATH_B"], ATTR_B)):
-        w = World(rom, prog, extents, syms, equs)
-        w.fill_plane(0, ATTR_A)
-        w.fill_plane(1, ATTR_B)
-        # plane A's cell sends you to B, plane B's cell sends you to A: the §3.3 pair
-        w.set_crossover(ATTR_A, equs["XOVER_TO_B"])
-        w.set_crossover(ATTR_B, equs["XOVER_TO_A"])
-        w.place(IN_CELL[0], IN_CELL[1], layer)
-        w.frame()
-        want = model(layer, w.crossover_of(expect_attr), equs)
-        total += 1
-        if w.layer() != want:
-            fails.append(("plane-select",
-                          "starting on layer %d the mark of the OTHER plane was used: "
-                          "layer became %d, want %d" % (layer, w.layer(), want)))
+        for vel in (RIGHT, LEFT):
+            w = World(rom, prog, extents, syms, equs)
+            w.fill_plane(0, ATTR_A)
+            w.fill_plane(1, ATTR_B)
+            # plane A's cell sends you to B, plane B's cell sends you to A: §3.3's pair
+            w.set_crossover(ATTR_A, equs["XOVER_TO_B"])
+            w.set_crossover(ATTR_B, equs["XOVER_TO_A"])
+            w.place(IN_CELL[0], IN_CELL[1], layer)
+            w.set_x_vel(vel)
+            w.frame()
+            want = model(layer, w.crossover_of(expect_attr), equs, vel)
+            total += 1
+            if w.layer() != want:
+                fails.append(("plane-select",
+                              "starting on layer %d travelling %s, the mark of the "
+                              "OTHER plane was used: layer became %d, want %d"
+                              % (layer, "right" if vel > 0 else "left",
+                                 w.layer(), want)))
     return total
 
 
@@ -530,17 +636,22 @@ def sweep_edge_trigger(rom, prog, extents, syms, equs, fails):
     total = 0
     SENTINEL = 0x5A
 
-    def fresh(pair):
+    def fresh(pair, vel=RIGHT):
         w = World(rom, prog, extents, syms, equs)
         w.fill_plane(0, ATTR_A)
         w.fill_plane(1, ATTR_B if pair else ATTR_A)
         w.set_crossover(ATTR_A, equs["XOVER_TO_B"])
         if pair:
             w.set_crossover(ATTR_B, equs["XOVER_TO_A"])
+        w.set_x_vel(vel)
         return w
 
     # (1) standing still does not re-fire. Weak triggers pass this too — it is here as
-    #     the floor, not as the discriminator.
+    #     the floor, not as the discriminator. The player is travelling RIGHT and the
+    #     fill is XOVER_TO_B, so the direction rule lets the first frame fire; "standing
+    #     still" here means the POSITION does not change, which is what the edge trigger
+    #     is about, and holding the velocity non-zero is what stops the second frame's
+    #     silence from being the direction gate's doing rather than the trigger's.
     w = fresh(False)
     w.place(*IN_CELL, layer=equs["LAYER_PATH_A"])
     w.frame()
@@ -569,12 +680,15 @@ def sweep_edge_trigger(rom, prog, extents, syms, equs, fails):
                                   "layer again while the player had not moved" % frame))
             break
 
-    # (3) sub-cell motion must not re-fire, at every offset inside one cell.
+    # (3) sub-cell motion must not re-fire, at every offset inside one cell. Graded on
+    #     the PROBE as well as the write: since the direction rule, a missing write is
+    #     ambiguous (it could be the gate refusing a mark rather than the trigger
+    #     declining to look), and the probe is not.
     for dx in range(equs["COLL_CELL_W"]):
         for dy in range(equs["COLL_CELL_H"]):
             if dx == 0 and dy == 0:
                 continue
-            w = fresh(True)
+            w = fresh(True, travel_of_step(dx))
             base = (IN_CELL[0] & ~(equs["COLL_CELL_W"] - 1),
                     IN_CELL[1] & ~(equs["COLL_CELL_H"] - 1))
             w.place(base[0], base[1], equs["LAYER_PATH_A"])
@@ -583,18 +697,29 @@ def sweep_edge_trigger(rom, prog, extents, syms, equs, fails):
             w.place(base[0] + dx, base[1] + dy, SENTINEL)
             trace = w.frame()
             total += 1
-            if w.layer_writes(trace):
+            if w.layer_writes(trace) or w.cells_probed(trace):
                 fails.append(("edge", "moving +%d,+%d px — still inside one %dx%d cell "
-                                      "— re-fired the crossover"
-                              % (dx, dy, equs["COLL_CELL_W"], equs["COLL_CELL_H"])))
+                                      "— re-read the crossover (%d probe(s), %d write(s))"
+                              % (dx, dy, equs["COLL_CELL_W"], equs["COLL_CELL_H"],
+                                 len(w.cells_probed(trace)), len(w.layer_writes(trace)))))
 
-    # (4) ... and stepping into the NEXT cell on either axis must fire again. This is
-    #     the half that stops (3) from being satisfiable by never firing at all.
+    # (4) ... and stepping into the NEXT cell on either axis must LOOK again. This is
+    #     the half that stops (3) from being satisfiable by never looking at all.
+    #
+    #     METHOD CHANGED 2026-09-05, and the old one could not survive the direction
+    #     rule: this used to require a LAYER WRITE. Two of its four steps are leftward
+    #     or vertical, and against a XOVER_TO_B fill the direction rule correctly
+    #     refuses both — so the old assertion would have gone red on correct behaviour.
+    #     What (4) always meant is that the trigger RE-ARMS on a whole-cell step, and
+    #     the probe is the direct observable for that. It is also strictly stronger:
+    #     a write implies a probe, not the other way round, so nothing that used to be
+    #     caught here escapes now. The "a mark actually fires" half lives in the
+    #     consumption and direction families, where the direction is chosen with it.
     for name, dx, dy in (("+X", equs["COLL_CELL_W"], 0),
                          ("+Y", 0, equs["COLL_CELL_H"]),
                          ("-X", -equs["COLL_CELL_W"], 0),
                          ("-Y", 0, -equs["COLL_CELL_H"])):
-        w = fresh(False)
+        w = fresh(False, travel_of_step(dx))
         base = (IN_CELL[0] & ~(equs["COLL_CELL_W"] - 1),
                 IN_CELL[1] & ~(equs["COLL_CELL_H"] - 1))
         w.place(base[0], base[1], equs["LAYER_PATH_A"])
@@ -603,7 +728,7 @@ def sweep_edge_trigger(rom, prog, extents, syms, equs, fails):
         w.place(base[0] + dx, base[1] + dy, equs["LAYER_PATH_A"])
         trace = w.frame()
         total += 1
-        if not w.layer_writes(trace):
+        if not w.cells_probed(trace):
             fails.append(("edge", "stepping one whole cell %s did NOT re-read the "
                                   "crossover" % name))
     return total
@@ -687,6 +812,7 @@ def sweep_step_over(rom, prog, extents, syms, equs, fails, notes):
     total = skipping = 0
     for dx in range(-max_dx, max_dx + 1):
         for dy in dys:
+            w.set_x_vel(travel_of_step(dx))             # the velocity that made the step
             w.place(base[0], base[1], equs["LAYER_PATH_A"])
             w.frame()                                   # settle: this is the "from" cell
             w.place(base[0] + dx, base[1] + dy, equs["LAYER_PATH_A"])
@@ -730,21 +856,35 @@ def sweep_step_over(rom, prog, extents, syms, equs, fails, notes):
 
 
 def sweep_step_over_marks(rom, prog, extents, syms, equs, fails, notes):
-    """THE STEP-OVER FAMILY, part 2: what the LAYER BYTE does. No address arithmetic.
+    """THE STEP-OVER FAMILY, part 2: WHEN the layer byte moved. No address arithmetic.
 
     Part 1 grades the questions asked. This half grades the answer, and it does it
     without ever painting one cell differently from another — the gate's whole design
     refuses per-cell cache arithmetic, because arithmetic here could agree with a bug
     in the routine's own cell derivation.
 
-    The trick is PARITY. Fill plane A with an attr marked XOVER_TO_B and plane B with an
-    attr marked XOVER_TO_A: the anchor's §3.3 two-way pair, but at EVERY cell. Then every
-    cell a frame passes through flips the layer exactly once, so after crossing k cells
-    the layer has flipped k times — and k's parity is visible in one byte. A routine that
-    reads only the cell it resolved to flips ONCE however far it travelled, so k=2 lands
-    it on the wrong plane while k=1 is indistinguishable. That is the discriminator, and
-    it is the shipped symptom: a player who crosses a loop's mark at speed keeps the
-    plane he arrived on.
+    METHOD CHANGED 2026-09-05, and the OLD one is stated first because its death is the
+    reason this one exists. It was PARITY: fill plane A with a XOVER_TO_B attr and plane
+    B with a XOVER_TO_A one — §3.3's two-way pair at every cell — so each cell crossed
+    flipped the layer once and the parity of k flips was visible in one byte. THE
+    DIRECTION RULE KILLS THAT OUTRIGHT. Travelling right, plane A's TO_B fires and plane
+    B's TO_A is refused, so a uniform field can flip AT MOST ONCE per frame however many
+    cells are crossed, in either direction. Parity is not weakened, it is gone: k=1 and
+    k=2 now produce the same byte for a correct routine AND for a destination-only one.
+    Keeping it would have been a green that meant nothing.
+
+    WHAT REPLACES IT IS WRITE ORDER, which the direction rule cannot flatten. The walk
+    ADVANCES THE CURSOR BEFORE IT PROBES, so on a k-cell step a fire on the FIRST cell
+    is followed by k-1 further cursor advances into the PlayerBlock. A routine that
+    reads only the cell it resolved to has no advances left after its write. So:
+
+        for k >= 2, at least one BLOCK write must follow the LAYER write.
+
+    That is a strictly ORDERED property of one frame's writes; it needs no second cell
+    to be painted differently, no arithmetic, and no parity. It is red on exactly the
+    defect part 1 names — a destination-only read — and the pre-sweep routine fails it.
+    The k=1 case is excluded because a one-cell step has nothing after the fire, which
+    is why the family is loud when the caps can no longer produce k >= 2.
     """
     cw = equs["COLL_CELL_W"]
     ch = equs["COLL_CELL_H"]
@@ -753,42 +893,132 @@ def sweep_step_over_marks(rom, prog, extents, syms, equs, fails, notes):
     if ncells < 2:
         fails.append(("step-over-marks",
                       "UNMEASURABLE: %d px/frame over a %d px cell crosses at most one "
-                      "cell, so parity cannot distinguish a swept read from a single "
-                      "one and this family's green would mean nothing"
-                      % (max_dx, cw)))
+                      "cell, so no step can have a cell AFTER the one that fires and "
+                      "this family's green would mean nothing" % (max_dx, cw)))
         return 0
 
     total = 0
-    for k in range(1, ncells + 1):
-        w = World(rom, prog, extents, syms, equs)
-        w.fill_plane(0, ATTR_A)
-        w.fill_plane(1, ATTR_B)
-        w.set_crossover(ATTR_A, equs["XOVER_TO_B"])     # on plane A -> go to B
-        w.set_crossover(ATTR_B, equs["XOVER_TO_A"])     # on plane B -> go back to A
-        base = (IN_CELL[0] & ~(cw - 1), IN_CELL[1] & ~(ch - 1))
-        w.place(base[0], base[1], equs["LAYER_PATH_A"])
-        w.frame()
-        start = w.layer()
-        total += 1
-        if start != equs["LAYER_PATH_B"]:
-            fails.append(("step-over-marks", "the settling frame did not fire"))
-            continue
-        w.place(base[0] + k * cw, base[1], start)       # k whole cells of X in ONE frame
-        trace = w.frame()
-        total += 1
-        flips = [equs["LAYER_PATH_A"], equs["LAYER_PATH_B"]]
-        want = flips[(flips.index(start) + k) % 2]
-        got = w.layer()
-        if got != want:
+    for k in range(2, ncells + 1):
+        for vel, mark, start_layer in (
+                (RIGHT, equs["XOVER_TO_B"], equs["LAYER_PATH_A"]),
+                (LEFT, equs["XOVER_TO_A"], equs["LAYER_PATH_B"])):
+            w = World(rom, prog, extents, syms, equs)
+            w.fill_plane(0, ATTR_A)
+            w.fill_plane(1, ATTR_A)          # ONE attr, both planes: no per-cell paint
+            w.set_crossover(ATTR_A, mark)
+            w.set_x_vel(vel)
+            base = (IN_CELL[0] & ~(cw - 1), IN_CELL[1] & ~(ch - 1))
+            w.place(base[0], base[1], start_layer)
+            w.frame()                        # settle on the "from" cell (it fires here)
+            total += 1
+            fired = mark_target(mark, equs)
+            if w.layer() != fired:
+                fails.append(("step-over-marks",
+                              "the settling frame did not fire travelling %s onto a "
+                              "%s mark: layer %d, want %d"
+                              % ("right" if vel > 0 else "left",
+                                 "TO_B" if mark == equs["XOVER_TO_B"] else "TO_A",
+                                 w.layer(), fired)))
+                continue
+            # Put the layer back so the k-cell step has a fire to make, then take the
+            # whole step in ONE frame — the step-over the sweep exists for.
+            w.cpu.wb(SST + equs["SST_layer"], start_layer)
+            step = k * cw if vel > 0 else -k * cw
+            w.place(base[0] + step, base[1], start_layer)
+            trace = w.frame()
+            total += 1
+            order = w.write_order(trace)
+            layer_at = [i for kind, i in order if kind == "layer"]
+            block_at = [i for kind, i in order if kind == "block"]
             probed = w.cells_probed(trace)
-            fails.append(("step-over-marks",
-                          "a %d px step crossed %d marked cells in one frame and the "
-                          "layer ended at %d, not %d — %d crossings must flip it %d "
-                          "time(s). The frame asked about %s: %d cell(s), not %d."
-                          % (k * cw, k, got, want, k, k, probed, len(probed), k)))
-    notes.append("step-over parity: crossings of 1..%d whole cells in ONE frame, each "
-                 "graded on the parity of the layer byte (%d px/frame cap over a %d px "
-                 "cell)" % (ncells, max_dx, cw))
+            if not layer_at:
+                fails.append(("step-over-marks",
+                              "a %d px step travelling %s over a marked field never "
+                              "wrote the layer at all (asked about %s)"
+                              % (abs(step), "right" if vel > 0 else "left", probed)))
+                continue
+            if not any(b > layer_at[0] for b in block_at):
+                fails.append(("step-over-marks",
+                              "a %d px step crossed %d marked cells in one frame and "
+                              "the layer write was the LAST thing it did — nothing "
+                              "advanced the sweep cursor after it, so the fire happened "
+                              "on the cell it RESOLVED to and the %d cell(s) before it "
+                              "were stepped over. The frame asked about %s."
+                              % (abs(step), k, k - 1, probed)))
+    notes.append("step-over write-order: %d-cell steps (k=2..%d) in ONE frame, both "
+                 "directions, each requiring the fire to precede a later cursor "
+                 "advance (%d px/frame cap over a %d px cell)"
+                 % (ncells, ncells, max_dx, cw))
+    return total
+
+
+def sweep_direction(rom, prog, extents, syms, equs, fails, notes):
+    """THE DIRECTION RULE (owner ruling 2026-09-05), and the measured defect it closes.
+
+    docs/witness/loop-plane-b-exit-2026-09-05.json: every traversal of the section-0
+    loop toggled Sst.layer exactly once, in BOTH directions, so the player always ended
+    on plane B — ground plus the RIGHT half — and fell through the plane-A collision
+    that is most of the level. The read site was PLANE-keyed and nothing more, and R2
+    forbids a self-mark, so a loop's bottom-centre cell can only carry XOVER_TO_B on
+    plane A and a LEFTWARD player read it too.
+
+    This family runs §3.3's two-way pair at one cell — plane A says TO_B where plane B
+    says TO_A, which is what a real loop's bottom centre holds — from both planes and
+    at both travel directions, and grades every one against the model.
+
+    THE RED CASE IS ROW (A, left): a plane-A player travelling LEFT over a TO_B mark
+    must stay on A. The pre-ruling routine put him on B, which is the witness's ODD
+    verdict exactly. It is named here so the family's green is attached to the defect
+    it closes rather than to a table of eight rows.
+
+    NON-VACUITY. Half the rows must MOVE the layer and half must not; a routine that
+    fired always and one that fired never would each fail four of the eight. That count
+    is asserted, derived from the model rather than from the routine, so a future rule
+    that quietly stopped firing cannot pass by producing no writes."""
+    total = fires = 0
+    for layer in (equs["LAYER_PATH_A"], equs["LAYER_PATH_B"]):
+        for vel in (RIGHT, LEFT):
+            for pair in (True, False):
+                w = World(rom, prog, extents, syms, equs)
+                w.fill_plane(0, ATTR_A)
+                w.fill_plane(1, ATTR_B if pair else ATTR_A)
+                w.set_crossover(ATTR_A, equs["XOVER_TO_B"])
+                if pair:
+                    w.set_crossover(ATTR_B, equs["XOVER_TO_A"])
+                w.place(IN_CELL[0], IN_CELL[1], layer)
+                w.set_x_vel(vel)
+                trace = w.frame()
+                seen = w.crossover_of(ATTR_A if (layer == equs["LAYER_PATH_A"]
+                                                 or not pair) else ATTR_B)
+                want = model(layer, seen, equs, vel)
+                total += 1
+                if want != layer:
+                    fires += 1
+                if w.layer() != want:
+                    fails.append((
+                        "direction",
+                        "on plane %d travelling %s over a %s mark the layer became %d, "
+                        "the rule says %d.%s"
+                        % (layer, "right" if vel > 0 else "left",
+                           "TO_B" if seen == equs["XOVER_TO_B"] else "TO_A",
+                           w.layer(), want,
+                           "  THIS IS THE WITNESSED DEFECT: a leftward player put onto "
+                           "the plane whose left half is not solid."
+                           if (layer == equs["LAYER_PATH_A"] and vel < 0
+                               and seen == equs["XOVER_TO_B"]) else "")))
+                if not w.cells_probed(trace):
+                    fails.append(("direction",
+                                  "the direction rule was graded on a frame that never "
+                                  "probed a cell — plane %d, vel %d" % (layer, vel)))
+    if fires == 0 or fires == total:
+        fails.append(("direction",
+                      "UNMEASURABLE: the model says %d of %d rows move the layer. The "
+                      "family only discriminates while some rows fire and some do not; "
+                      "at 0 or all, a routine that always fired and one that never did "
+                      "would both pass." % (fires, total)))
+    notes.append("direction rule: %d rows (both planes x both travel directions x "
+                 "{two-way pair, single mark}); the model fires on %d of them"
+                 % (total, fires))
     return total
 
 
@@ -804,6 +1034,8 @@ def sweep_off_cache(rom, prog, extents, syms, equs, fails):
         w.fill_plane(0, ATTR_A)
         w.set_crossover(ATTR_A, equs["XOVER_TO_B"])
         w.place(x, y, equs["LAYER_PATH_A"])
+        w.set_x_vel(RIGHT)              # the direction the TO_B fill WOULD fire on, so
+                                        # a silent pass here cannot be the gate's doing
         trace = w.frame()
         total += 1
         if w.layer_writes(trace):
@@ -986,14 +1218,16 @@ def run_all(rom, prog, extents, syms, equs):
     n4 = sweep_off_cache(rom, prog, extents, syms, equs, fails)
     n5 = sweep_step_over(rom, prog, extents, syms, equs, fails, notes)
     n6 = sweep_step_over_marks(rom, prog, extents, syms, equs, fails, notes)
+    n7 = sweep_direction(rom, prog, extents, syms, equs, fails, notes)
     if moved == 0:
         fails.append(("consumption", "NOT ONE execution changed the layer because of a "
                                      "ROM byte this gate authored. Either the read site "
                                      "never fires, or this gate is not varying what it "
                                      "thinks it is — an all-green run with moved=0 is "
                                      "the vacuous result this file exists to refuse."))
-    return {"executions": n1 + n2 + n3 + n4 + n5 + n6, "consumption": n1, "plane": n2,
-            "edge": n3, "off_cache": n4, "step_over": n5, "step_over_marks": n6,
+    return {"executions": n1 + n2 + n3 + n4 + n5 + n6 + n7, "consumption": n1,
+            "plane": n2, "edge": n3, "off_cache": n4, "step_over": n5,
+            "step_over_marks": n6, "direction": n7,
             "moved_by_rom": moved, "marked": marked, "fails": fails, "notes": notes}
 
 
@@ -1049,9 +1283,9 @@ def main():
     for n in r["notes"]:
         print("  %s" % n)
     print("  %d executions: %d consumption, %d plane-select, %d edge-trigger, "
-          "%d off-cache, %d step-over, %d step-over parity"
+          "%d off-cache, %d step-over, %d step-over write-order, %d direction"
           % (r["executions"], r["consumption"], r["plane"], r["edge"],
-             r["off_cache"], r["step_over"], r["step_over_marks"]))
+             r["off_cache"], r["step_over"], r["step_over_marks"], r["direction"]))
     print("  %d of them changed Sst.layer BECAUSE a byte of CrossoverTable in the ROM "
           "image was changed and nothing else was — that is the consumption claim, and "
           "the unmodified table is its control" % r["moved_by_rom"])

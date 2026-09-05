@@ -774,12 +774,20 @@ pub proc Player_RefreshPhysics (a2: *PlayerBlock) clobbers(d0/a1-a2) {
 //     RESOLVED to therefore steps clean over a mark it passed through, and the mark
 //     never fires.
 //
-//     Measured on the section-0 loop in s4.debug.bin, ground speed injected once at the
-//     ramp foot: at $600 (TOP_SPEED, 6 px/frame) three layer flips and a clean ride; at
-//     $900 (9 px/frame) the player rides the geometry, MISSES the top mark, comes down
-//     the left half still on plane B, and falls through the floor a screen later — the
-//     symptom displaced far enough from the cause that a bug report would name the
-//     floor; at $1000 (the cap) the mark never fires at all.
+//     Measured 2026-09-04 on the section-0 loop in s4.debug.bin, ground speed injected
+//     once at the ramp foot: at $600 (TOP_SPEED, 6 px/frame) three layer flips and a
+//     clean ride; at $900 (9 px/frame) the player rides the geometry, MISSES the top
+//     mark, comes down the left half still on plane B, and falls through the floor a
+//     screen later — the symptom displaced far enough from the cause that a bug report
+//     would name the floor; at $1000 (the cap) the mark never fires at all.
+//
+//     ⚠ THOSE THREE FIGURES ARE OF THE PRE-CROWN-CURVE GEOMETRY AND ARE NOT A CONTROL
+//     FOR THIS BUILD. The crown-curve re-bake (67042d2d / e59c5a99) landed after them
+//     and moved the arc: on e59c5a99 the same $600 run flips the layer ONCE, not three
+//     times (docs/witness/loop-plane-b-exit-2026-09-05.json). They are kept, dated, and
+//     labelled because they are what the SWEEP was built against — the step-over
+//     conclusion they support is about the READ SITE and still holds — but do not read
+//     them as a description of what the current ROM does.
 //
 //     The vertical twin of this hole was already closed the other way: PHYS_FALL_CAP is
 //     one pixel UNDER COLL_CELL_H so a falling step cannot span a cell. X cannot be
@@ -795,6 +803,86 @@ pub proc Player_RefreshPhysics (a2: *PlayerBlock) clobbers(d0/a1-a2) {
 // (5) THE WRITE. `subq.b #XOVER_LAYER_BIAS` IS the encoding — XOVER_TO_A(1) -> layer 0,
 //     XOVER_TO_B(2) -> layer 1 — and the R6 guards bind that one immediate to
 //     LAYER_PATH_A / LAYER_PATH_B so the engine does not re-derive the mapping.
+//
+// (5b) THE DIRECTION GATE — owner ruling 2026-09-05, and the whole subject of this
+//     revision. Everything above decides WHICH cell and WHICH plane's word. It said
+//     nothing about which WAY the player was going, and that was the defect:
+//     docs/witness/loop-plane-b-exit-2026-09-05.json measured every traversal of the
+//     section-0 loop toggling the layer exactly ONCE, in both directions, so the
+//     player always ended on plane B — which carries only the ground and the RIGHT
+//     half — and then fell through the plane-A collision that is most of the level.
+//     The cause is that the mark was PLANE-keyed and nothing more. R2 forbids a
+//     self-mark, so the bottom-centre cell's plane-A word can only be XOVER_TO_B, and
+//     a plane-A player read it whichever way he was travelling: a LEFTWARD entrant was
+//     sent onto the right arc, where the half he was about to occupy is not solid.
+//
+//     THE RULE. Plane B carries the RIGHT half of the arc, plane A the LEFT half, so
+//     a mark leading onto B is a rightward-travel mark and one leading onto A is a
+//     leftward-travel mark:
+//
+//         mark        leads onto     fires when x_vel is
+//         XOVER_TO_B  right arc (B)  > 0   (travelling right)
+//         XOVER_TO_A  left arc  (A)  < 0   (travelling left)
+//         either      —              never, when x_vel == 0
+//
+//     After the subq, d0 IS the plane the mark leads onto, so the test is one compare
+//     of d0 against LAYER_PATH_B / LAYER_PATH_A — the same two names the R6 guards
+//     bind the subq's immediate to, rather than a second spelling of 0 and 1.
+//
+//     WHY Sst.x_vel AND NOT PlayerV.ground_speed, which is the other candidate and
+//     the one that looks more physical. ground_speed is signed ALONG THE SURFACE;
+//     x_vel is signed in SCREEN SPACE, and the ground path rebuilds it every frame as
+//     cos(angle)*gsp>>8 (player_ground.emp, the inertia->velocity projection, with an
+//     exact angle-0 fast path). Those two agree only while the surface is near flat.
+//     THE CASE THAT BREAKS ground_speed IS THE TOP-CENTRE MARK ITSELF: at the top of
+//     a loop the player is inverted, angle ~ $80, cos ~ -1, so a player who entered
+//     rightward still carries a POSITIVE ground_speed while physically moving LEFT
+//     across the apex. A ground_speed-keyed gate would read "travelling right" there
+//     and refuse the XOVER_TO_A that hands him the left arc — it would break the exact
+//     cell it was meant to serve. x_vel reports left, and fires. The converse case
+//     costs nothing: both marked cells sit where |cos(angle)| is at its LARGEST (the
+//     bottom centre at angle ~ 0 and the apex at angle ~ $80), so x_vel is at its
+//     most decisive precisely where the marks are, and it is the loop's SIDES — where
+//     x_vel collapses toward zero — that carry no mark. x_vel is also the only signal
+//     that means anything airborne, which §6 change (1) requires ("you can enter a
+//     loop's far side airborne").
+//
+//     AND WHY LAST FRAME'S x_vel IS THE RIGHT ONE, not a stale one. This routine runs
+//     in the preamble, before the state dispatch, against the position LAST frame
+//     resolved to (see (3)). x_vel at that moment is the velocity that PRODUCED the
+//     step the sweep is walking. Pairing the walk with the velocity that made it is
+//     exactly right; reading a velocity computed after the dispatch would describe a
+//     step that has not happened yet.
+//
+//     WHERE THE TEST SITS, and it is deliberately NOT hoisted above the walk. x_vel
+//     is frame-constant here — this routine writes only Sst.layer and the two
+//     PlayerBlock cell fields, so nothing in the walk can change it — which makes a
+//     per-cell re-read semantically identical to a hoist. Given that, the cheaper
+//     placement wins, and it is the one BELOW the `beq .unmarked`: an unmarked cell
+//     is every cell but two in the shipped table, so the walk's hot path does not
+//     execute one byte of the gate and the "no mark" cost rows below are unchanged
+//     from the pre-gate routine. A true hoist would have paid ~22 cycles on EVERY
+//     frame that changed cell — the common case for a running player — to save ~12 on
+//     the rare frame that crosses two marked cells. It would also have needed a
+//     register to survive Collision_GetType, which clobbers d1-d3 and takes d3 as its
+//     plane argument, so the value would have had to live on the stack across the
+//     call: more cost, more code, and a stack discipline to get wrong.
+//
+//     WHAT THIS RULE DOES NOT FIX, stated here because the analysis is done and the
+//     next reader should not have to redo it. A CENTRE-placed mark is crossed TWICE
+//     by a completing circuit. Leftward from the right of the loop: bottom centre on
+//     A moving left (refused, correct — he rides the left arc, which is A), apex on A
+//     moving right (fires -> B, rides the right arc), bottom centre on B moving left
+//     (fires -> A) — two toggles, exits on A, correct. Rightward: bottom centre on A
+//     moving right (fires -> B), apex on B moving left (fires -> A, rides the left
+//     arc), and then bottom centre AGAIN on A moving right, which is the same cell,
+//     the same plane and the same direction as the entry crossing and therefore fires
+//     a THIRD time, leaving him on B as he exits. Entry and exit need opposite answers
+//     from inputs that are identical, so no rule keyed on position, plane and
+//     direction alone can separate them. The fix is a PAINT change and belongs to the
+//     collision lane, not here: Sonic 2's arrangement is a return-to-default swapper
+//     past the exit foot. Reported to the owner 2026-09-05; see
+//     docs/DEFERRED_WORK.md.
 //
 // Value 3 is not tested for. The bake refuses it (rule R1, tools/collision_pipeline.py
 // bake_plane_cell raises), so it cannot reach CrossoverTable; adding a silent runtime
@@ -973,7 +1061,27 @@ pub proc Player_LoopCrossover (a0: *Sst, a4: *PlayerBlock) clobbers(d0-d3/a1) pr
         move.b  (a1, d1.w), d0
         beq     .unmarked                       // XOVER_NONE — all but two slots of the
                                                 // shipped table, today
-        subq.b  #XOVER_LAYER_BIAS, d0
+        subq.b  #XOVER_LAYER_BIAS, d0           // d0 = the plane this mark LEADS ONTO
+
+        // --- THE DIRECTION GATE (5b). A mark fires only when the player's
+        // screen-space horizontal travel matches the arc the mark leads onto: the
+        // right arc is solid on path B, the left arc on path A, so TO_B is a
+        // rightward-only mark and TO_A a leftward-only one. Sst.x_vel is the signal
+        // and the long comment above says why; zero means no arc is being entered
+        // and nothing fires. Bound to the LAYER_PATH_* names rather than to 0/1 so
+        // this reads the same encoding the R6 `ensure` pair binds the subq to.
+        move.w  x_vel(a0), d1                   // last frame's velocity — the one that
+                                                // produced the step this walk is
+                                                // WALKING; flags set by the move
+        beq     .unmarked                       // no horizontal travel, no arc entered
+        bmi     .dir_left
+        cmpi.b  #LAYER_PATH_B, d0               // travelling RIGHT: only a mark leading
+        bne     .unmarked                       // onto the RIGHT arc may fire
+        bra     .fire
+    .dir_left:
+        cmpi.b  #LAYER_PATH_A, d0               // travelling LEFT: only a mark leading
+        bne     .unmarked                       // onto the LEFT arc may fire
+    .fire:
         move.b  d0, layer(a0)
     .unmarked:
         move.l  PBLK_XOVERCURSOR(a4), d0
