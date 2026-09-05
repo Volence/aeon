@@ -2095,6 +2095,19 @@ def render_channel_bands(game: str = "sonic4", repo: str = REPO) -> str:
         channels[ch] = {
             "lo": site["lo"], "hi": site["hi"],
             "lines": site["hi"] - site["lo"] + 1,
+            # NOT AN IDENTIFIER. NEVER KEY A MAP BY THIS FIELD. It sits INSIDE the
+            # per-channel object whose key is the channel, so the key already
+            # identifies the record and this contributes nothing to identity: it is a
+            # POINTER FOR A HUMAN and the only question about it is whether it still
+            # points somewhere useful. Anchors are deliberately NOT unique -- channels
+            # 0 and 1 share OJZ_TC_PROG and 2 and 3 share OJZ_WORLD_WATER_PROG,
+            # because each pair is declared in one declaration -- so anything that
+            # grouped by it would silently collapse two channels into one. Verified
+            # 2026-09-05 that nothing does: effects_gen writes it and never indexes
+            # by it, sec7_waterline_probe.py names it only in a docstring, and
+            # aurora's channel-bands.ts validates it as a non-empty string and stops.
+            # aurora named this risk; the check is theirs, the wording is the record.
+            #
             # `#<declaration>` and NOT `:<line>` -- see walk_patch_sites' note. Loud
             # rather than silent when the declaration cannot be found: an unresolved
             # anchor is published as such instead of degrading to a bare filename that
