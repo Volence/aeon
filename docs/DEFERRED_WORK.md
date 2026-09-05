@@ -25323,6 +25323,27 @@ captures that carry 18/54/91/127 are the loop ride (14.8% of channels) and the f
 (34.2%). **So this is not universal to the renderer or to the capture path** — it appears in
 some frames and not others of the same build.
 
+**8. ⚠ ORACLE'S REFRAME, WHICH CORRECTS FACT 5 ABOVE: `sh` IS SAMPLED PER SCANLINE.** All
+three `PixelState::Shadow` producers in `crates/oracle-core/src/render.rs` (:449, :466, :1490)
+sit behind one gate, `sh = regs[0x0C] & 0x08`, **sampled inside `resolve_line_masked` (:1590)
+— per LINE, not per frame.** So a frame mixing half- and full-level pixels is exactly what a
+**per-line toggle of reg `$0C` bit 3** produces, and **my single post-frame register read was
+truthful and IRRELEVANT: it answered a different question than the frame asks.** Oracle also
+confirms the half levels are exactly its shadow ramp (step = level for Shadow vs level×2 for
+Normal, with 18/54/91/127 pinned by its own suite) and **refutes "composites regardless of
+STE" by enumeration** — every path returns Normal when the bit is clear.
+
+**THE SETTLING MEASUREMENT (oracle is running it): read reg `$0C` once per SCANLINE across the
+frame.** Bit 3 set on the floor band and clear elsewhere ⇒ the engine is doing S/H deliberately
+on those lines and the picture is correct. **Clear on every line ⇒ an oracle defect.** Fact 6
+above — no raster program writes `$0C` — is what sharpens it toward oracle in the second case.
+
+**THE LESSON, AND IT IS THE SAME ONE TWICE TONIGHT IN TWO DOMAINS: a measurement whose
+RESOLUTION cannot contain the phenomenon is not a weak measurement, it is a different
+measurement.** A 4-frame sample interval over an 8 px cell crossed in under one frame, and a
+once-per-frame register read over a once-per-line gate. **Both read as facts. Neither was
+about the thing under test.**
+
 **Next step is a question for oracle** (does its renderer apply shadow with STE clear?) or a
 direct read of the live VDP register rather than the shadow copy. **Deliberately NOT booked
 with a mechanism attached** — five mechanisms were published and killed by controls tonight,
