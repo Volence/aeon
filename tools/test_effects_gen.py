@@ -1132,6 +1132,110 @@ class TestGeneratedModuleShape(AssignmentBase):
             os.path.join("generated", "ojz", "act1", "effects_scenes.emp")))
 
 
+class TestTheHeadLabelIsABindingAndNeverAPayloadName(AssignmentBase):
+    """A SECTION'S HEAD LABEL IS ITS IDENTITY AND MUST NOT ENCODE PAYLOAD PARAMETERS.
+
+    The generated module is one ROM section (`ojz_effects_editor_act1`) and sigil keys
+    its declared alignment on the section's HEAD LABEL — its lowest-offset label, i.e.
+    the FIRST byte-emitting declaration this generator writes
+    (`sigil_harness::section_align::DECLARED`, "THE KEY IS THE HEAD LABEL"). The row
+    that exists names `EditorSceneBinding_OJZ_Act1_Sec0`.
+
+    THE DEFECT THIS REFUSES, measured on this repo 2026-09-05: the deform-table block
+    used to be emitted BEFORE the scenes, so attaching any table to any authored scene
+    silently renamed the section's head to a label spelling the table's PARAMETERS —
+    `EditorDeform_sine_1_256` — and the build stopped linking:
+
+        error: native build (sonic4 plain): [layout.undeclared-alignment] 1 section(s):
+          - section `ojz_effects_editor_act1` (head label `EditorDeform_sine_1_256`)
+            has NO declared alignment in `sigil_harness::section_align::DECLARED`.
+
+    `sine_1_256` is DATA. The refusal is sigil's and it is correct; the fix was on this
+    side, and it is an ORDERING one, which is exactly the kind of property no build can
+    check until someone authors a table. Hence this test: it authors one.
+
+    THE EXPECTATION IS DERIVED, not copied off the current artifact — `binding_sec(0)`
+    is asked of the same `ActNames` the generator uses, so a rename of the binding
+    scheme moves this test with it rather than pinning a string.
+
+    NOT A DUPLICATE of the committed-artifact drift check
+    (`test_the_committed_generated_module_is_reproduced_label_for_label`): that one is
+    text identity against whatever the shipped scenes happen to be, and it SKIPS its
+    label half today precisely because no shipped scene attaches a table. This one
+    supplies the table itself, so it does not depend on repo content to have a subject.
+    """
+
+    def render(self):
+        names = effects_gen.act_names(self.repo)
+        return names, effects_gen.render_module(
+            effects_gen.load_all_scenes("sonic4", self.repo),
+            effects_gen.load_act_scene_ref(self.repo),
+            effects_gen.load_section_scene_refs(self.repo),
+            effects_gen.act_section_count(self.repo), names)
+
+    # A scene-level shared table: the cheapest attachment that interns a table without
+    # perturbing any layer's shift, so the ONLY thing this fixture varies is "a table
+    # exists". The generator name and parameters are arbitrary; the label they fold to
+    # is not asserted, only that it is not the head.
+    TABLE = {"shared": {"table": {"generator": "sine", "amplitude": 1, "period": 256},
+                        "speed": 1}}
+
+    @staticmethod
+    def _first_emitting_label(text):
+        """The module's HEAD LABEL: the first `pub data` declaration. `pub const` and
+        `pub equ` emit no bytes and carry no address, so they cannot be a section head
+        — reading the first `pub ` line of any kind would report `SceneSrc_...` and be
+        wrong in the safe direction, which is the worst kind."""
+        for line in text.splitlines():
+            if line.startswith("pub data "):
+                return line[len("pub data "):].split(":")[0].split(" ")[0].strip()
+        return None
+
+    def test_with_a_table_attached_the_head_label_is_still_the_section_0_binding(self):
+        self.write_scene("shimmer", deform_bg=self.TABLE)
+        self.write_sidecar(0, {"sceneRef": "shimmer"})
+        names, text = self.render()
+        self.assertIn("EditorDeform_", text)          # the fixture really has a table
+        self.assertEqual(self._first_emitting_label(text), names.binding_sec(0))
+
+    def test_no_EditorDeform_label_can_be_the_head_under_any_attachment_arm(self):
+        """All three table-bearing arms, because they intern through one registry but
+        are rendered at different points in the walk — a re-ordering that fixed only
+        the scene-level arm would leave the layer-level one still able to lead."""
+        arms = {
+            "deform_bg": self.TABLE,
+            "deform_fg": self.TABLE,
+            "layer_own": None,
+        }
+        for arm in arms:
+            with self.subTest(arm=arm):
+                if arm == "layer_own":
+                    self.write_scene("shimmer", layers=[
+                        {"world_y": 0, "fa": "FACTOR_1", "fb": "FACTOR_1",
+                         "deform": {"own": {
+                             "table": {"generator": "sine", "amplitude": 1,
+                                       "period": 256},
+                             "shift_a": 1, "shift_b": 2, "phase": 0, "speed": 1}}}])
+                else:
+                    self.write_scene("shimmer", **{arm: arms[arm]})
+                self.write_sidecar(0, {"sceneRef": "shimmer"})
+                names, text = self.render()
+                self.assertIn("pub data EditorDeform_", text)
+                head = self._first_emitting_label(text)
+                self.assertFalse(head.startswith("EditorDeform_"), head)
+                self.assertEqual(head, names.binding_sec(0))
+
+    def test_without_any_table_the_head_label_is_unchanged(self):
+        """The control. If the head were the binding only because the fixture has no
+        table, the two assertions above would be measuring the fixture and not the
+        ordering."""
+        self.write_scene("shimmer")
+        self.write_sidecar(0, {"sceneRef": "shimmer"})
+        names, text = self.render()
+        self.assertNotIn("EditorDeform_", text)
+        self.assertEqual(self._first_emitting_label(text), names.binding_sec(0))
+
+
 if __name__ == "__main__":
     unittest.main()
 

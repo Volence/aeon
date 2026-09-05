@@ -3895,11 +3895,6 @@ def render_module(scenes: dict, act_ref, sec_refs: dict, sections: int,
     out.append("")
 
     if used:
-        out.append("// ---- deform tables, deduped by content across the act ----")
-        decls = tables.declarations()
-        if decls:
-            out.append(decls)
-            out.append("")
         out.append("// ---- the authored scenes, through the REAL constructors ----")
         out.append("// Every `ensure` in layer()/scene() fires on authored content here;")
         out.append("// this generator validates SHAPE only and never duplicates a")
@@ -3924,6 +3919,51 @@ def render_module(scenes: dict, act_ref, sec_refs: dict, sections: int,
             out.append(f"pub data {names.binding_sec(i)}: {shape} = "
                        f"{lower}({names.scene_array}[{used.index(bound[i])}])")
         out.append("")
+        # ---- THE DEFORM TABLES, AFTER THE BINDINGS AND NOT BEFORE THEM ----
+        #
+        # A SECTION'S HEAD LABEL IS ITS IDENTITY AND MUST NOT ENCODE PAYLOAD PARAMETERS.
+        # This block used to sit ahead of the scenes, so the first BYTE-EMITTING
+        # declaration in the module — its head label — was whatever table happened to be
+        # interned first: `EditorDeform_sine_1_256`. `sine_1_256` is DATA. The head label
+        # is the key `sigil_harness::section_align::DECLARED` matches on
+        # (sigil crates/sigil-harness/src/section_align.rs, "THE KEY IS THE HEAD LABEL"),
+        # and the row that exists for this section names `EditorSceneBinding_OJZ_Act1_Sec0`
+        # — so the moment any authored scene attached a table the build stopped linking:
+        #
+        #     error: native build (sonic4 plain): [layout.undeclared-alignment] 1 section(s):
+        #       - section `ojz_effects_editor_act1` (head label `EditorDeform_sine_1_256`)
+        #         has NO declared alignment in `sigil_harness::section_align::DECLARED`.
+        #
+        # MEASURED 2026-09-05, red-first, by attaching `deform_bg` to an authored scene and
+        # building: refusal above with the block first, all four shapes green with it here.
+        # Sigil ruled the refusal loud and correct and REFUSED both alternatives — a
+        # DECLARED pattern rule, and re-keying the row off the head label (which
+        # desynchronises from `map.toml` order, section_align.rs:61).
+        #
+        # WAS THE OLD ORDER LOAD-BEARING? NO — established by building, not by reading.
+        # The scenes reference a table by BARE NAME as a constructor argument
+        # (`deform: SceneDeform.Own(EditorDeform_x, ..)`) and those names now resolve
+        # BACKWARDS to a declaration further down the module. That is a different construct
+        # from the `[*u8; N]` array literal thirty lines below, where a bare label does NOT
+        # resolve even for a symbol declared ten lines up and `extern("Name")` is the idiom
+        # — the two facts are compatible and neither predicts the other, which is why this
+        # one was measured rather than argued.
+        #
+        # Nothing else about the block changed: still first-seen order, still deduped by
+        # content across the act, still the two-step `pub const SceneSrc_X` / `pub data X`
+        # idiom the hand tables use. Only its POSITION in the module moved.
+        #
+        # The BANNER is now inside the `if decls` too, where the old spelling emitted it
+        # unconditionally: a heading over nothing was already odd, and here it would sit
+        # directly above the reels banner and read as labelling it.
+        decls = tables.declarations()
+        if decls:
+            out.append("// ---- deform tables, deduped by content across the act ----")
+            out.append("// LAST, not first: the head label is the section's identity, and")
+            out.append("// the binding above is the name section_align::DECLARED carries.")
+            out.append("// See render_module's banner in tools/effects_gen.py.")
+            out.append(decls)
+            out.append("")
 
     # ---- (item 10) THE REEL RATE TABLES AND THE ASSOCIATION TABLE ----
     #
