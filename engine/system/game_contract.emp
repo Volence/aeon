@@ -96,7 +96,19 @@ pub interface Game {
     // The bound is the sonic4 impl's exact need — a state value in d0, the
     // player pointer moved into a0 for Player_SetState's a0 slot, and
     // Player_SetState's own d1-d2/a1-a2 — plus the two input registers it is
-    // free to consume. `= empty` costs zero bytes, so the demo ROM is
-    // byte-identical with or without the member (it places no springs).
+    // free to consume.
+    //
+    // `= empty` costs zero bytes AT THE CALL SITE. That is a claim about this
+    // MEMBER and it is easy to over-read into "a game without springs pays
+    // nothing", which is false and was measured: Touch_Spring's BODY is engine
+    // code, so demo carries it whether or not it binds the hook. Measured
+    // 2026-09-05 (demo.debug.bin, baseline vs the spring parcel): the collision
+    // section grew 116 bytes and every symbol after it shifted by exactly that,
+    // while EndOfRom stayed at $1121A — the growth fits the slack before the
+    // next fixed anchor, so the ASSEMBLED ROM is the same length and only the
+    // deb2 appendix moved (35062 -> 35036 B, tracking the changed symbol names).
+    // 116 bytes of a second inlined solid_face_response for a handler demo never
+    // dispatches. Cheap, and worth saying out loud rather than leaving a reader
+    // to infer zero from the hook's zero.
     hook spring_launched (a2: *u8, a3: *u8) clobbers(d0-d2/a0-a2) = empty
 }
