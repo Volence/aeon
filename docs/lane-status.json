@@ -1,13 +1,13 @@
 {
-  "focus": "Building him a spring; the floor he walks on is rebuilding with the corrected value",
+  "focus": "Both his windows on the new Oracle with the plane viewer; a spring and the sprite jumble in flight",
   "inFlight": [
     {
-      "what": "sprite jumble: emit-path static analysis",
+      "what": "the spring, S3K physics on our own object model",
       "where": "agent worktree",
       "agent": true
     },
     {
-      "what": "the spring, S3K physics on our own object model",
+      "what": "sprite jumble: the emit path on the rotated frames",
       "where": "agent worktree",
       "agent": true
     }
@@ -18,7 +18,7 @@
       "since": "2026-09-05"
     }
   ],
-  "nextBoundary": "when the sprite analysis reports; nothing else is half-applied",
+  "nextBoundary": "when the spring and the sprite-jumble agents report; nothing half-applied",
   "queue": [
     {
       "id": "SPRING",
@@ -90,5 +90,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-05T22:45:22Z"
+  "updatedAt": "2026-09-05T23:43:56Z"
 }
