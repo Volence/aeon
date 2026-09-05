@@ -26482,6 +26482,20 @@ worktree lock, which makes `git worktree remove --force` refuse with exit 128. C
 `aeon-spring` both report `locked: no`. So the protection that worked for aurora is absent here,
 and a prune trusting it would have destroyed uncommitted work.
 
+**THE LOCK'S PID IS THE SESSION'S, NOT THE AGENT'S** (oracle's finding, reproduced here). All 5
+locked trees carry the identical reason shape `claude agent agent-<id> (pid 2022819 start
+78417804)`, and **2022819 is one pid on every lock, alive, and is this session's `claude`
+process**. So "unlock if the pid is gone" would unlock every tree a session made the moment that
+session restarts, live ones included. **The lock is a reliable REFUSAL and a useless LIVENESS
+SIGNAL.** Liveness comes from knowing which agents you started, nothing else.
+
+**AND THE LOCKING IS NOT UNIFORM HERE, which is why aurora's protection was absent.** All 5 locked
+trees are harness-created under `.claude/worktrees/agent-*`, and they are from EARLIER runs whose
+agents are long dead, still locked by a live session pid. Tonight's two live agents created their
+own worktrees at SIBLING paths (`/home/volence/sonic_hacks/.aeon-f7-tilt`, `aeon-spring`) and those
+carry no lock at all. So the lock tracks HOW a tree was created, not whether anything is using it,
+and it is present on dead trees and absent on live ones simultaneously.
+
 **NEVER PASS A SECOND `-f`.** `git worktree remove -f -f` overrides the lock and destroys a live
 agent's uncommitted work. Treat a lock refusal as the answer, not an obstacle.
 
