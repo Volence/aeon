@@ -70,13 +70,13 @@
     },
     {
       "id": "CR-Q-REVIEW",
-      "title": "Review oracle's machineReplaced event -- named reviewer, needs a state load I may not be able to trigger",
+      "title": "Review oracle's machineReplaced event -- deferred by ruling, needs a keyed load only he can make",
       "state": "open",
       "size": "S",
-      "blockedBy": "a keyed save-state load; no key-injection exists here (Wayland, no tooling)"
+      "blockedBy": "ruled: restore does NOT share the path (contract 11.40), so it must be a real keyed load; deferred to ten seconds of his time arranged through the hub"
     }
   ],
   "awaiting": "which floor option: the free one that slows the scroll, or spending tiles",
   "atBoundary": false,
-  "updatedAt": "2026-09-05T21:41:16Z"
+  "updatedAt": "2026-09-05T21:42:30Z"
 }
