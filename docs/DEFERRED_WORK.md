@@ -26020,3 +26020,32 @@ nothing new may be added to it.
 `games/sonic4/data/effects/ojz_effects.emp` (owner decision d-15) - `const P = scene_vsplit_fires(S)`,
 `pub data X: [u16; raster_words(P)] = raster_program(P)`, then `preset(raster: X, ..)` on the
 section. When wave 2 lands, that hand-side install and this quarantine are both what it replaces.
+
+---
+
+### `grep` here is a SHELL FUNCTION that skips gitignored files - 2026-09-05
+
+**Every recursive `grep` in this workspace silently excludes the build outputs.** `grep` is a
+shell function from the Claude shell snapshot, not `/usr/bin/grep`, and recursively it filters
+gitignored paths. `.gitignore:20` ignores `*.lst`, so **`s4.debug.lst` and every other listing,
+ROM and generated artifact is invisible to `grep -r`** while a direct `grep pattern file.lst`
+works normally. It is the recursive walk that filters.
+
+**It fails by returning a clean empty result, never an error**, which is the expensive way for
+it to fail: an absence you did not ask for looks exactly like an absence you established.
+
+**Measured cost today.** Searching for the F7 fault symbol, `grep -r` over the tree returned
+nothing from the symbol table, and on that basis this lane wrote "appears NOWHERE in this repo,
+and not in `s4.debug.lst`" INTO AN AGENT BRIEF. The symbol is there:
+`$engine.objects.sprites$Draw_Sprite$no_parent` at 370A. Aurora caught it from firsthand
+evidence and supplied an unplanned control (a morning PC of 0x370E resolving to
+`Draw_Sprite.no_parent` at disp 4, and 370A + 4 = 370E). The agent was corrected mid-run.
+
+**A second reason the same search failed, independent of the first, so fixing one would not
+have saved it.** The symbol has THREE renderings and no two match as strings: the listing's
+mangled `$module$Proc$local`, the debugger's demangled `Proc.local`, and the doc's uppercased
+`PROC.LOCAL`. A case-sensitive search for any one finds neither of the others.
+
+**Use `/usr/bin/grep -r` explicitly when searching build outputs**, or name the file. Nothing
+enforces this; the habit is the enforcement, which is why it is written here rather than
+assumed.
