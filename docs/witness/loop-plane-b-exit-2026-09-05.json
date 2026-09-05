@@ -1,0 +1,74 @@
+{
+  "_what": "Reproduction of the owner's loop defect: 'once I go through the other side, I stay on plane b and continue to fall through collision on plane A, which is most of the collision, and there's no easy way to get back'.",
+  "_build": {
+    "sha": "e59c5a99",
+    "rom": "s4.debug.bin",
+    "rom_bytes": 845147,
+    "symbols": 3038,
+    "note": "server ROM byte-compared against disk before any measurement; a stale 741905-byte image was reloaded first"
+  },
+  "_method": {
+    "instrument": "record-mode write watchpoint on Sst.layer at $FF902B (player base $FF8FFE + $2D)",
+    "why_watchpoint": "a per-frame sampled read under-samples: an 8px cell is crossed in under one frame at gsp $600. The watchpoint records EVERY write, so the toggle count is exact rather than sampled.",
+    "placement_rule": "camera written and settled 12 frames BEFORE the player, or the player lands outside the streamed collision cache",
+    "debug_exit": "emulator/press b — NEVER by writing debug_flag ($FF903A), which skips Player_DebugExit and leaves mappings on Map_TestObj (address error in RefreshSpritePieceCount)"
+  },
+  "_geometry_source": "docs/loop-arc-cells-section0.json",
+  "_geometry": {
+    "void_centre_px": [1148, 488],
+    "void_bbox_px": {"x": [1056, 1240], "y": [408, 568]},
+    "ground_solid_y": 576,
+    "player_ypos_when_standing": 556
+  },
+  "runs": [
+    {
+      "id": "A",
+      "label": "leftward entry — THE OWNER'S DIRECTION",
+      "start": {"x": 1230, "y": 556, "layer": 0, "gsp": "-$600"},
+      "crossover_writes": [
+        {"frame": 397, "pc": "0x000101E2", "symbol": "Player_LoopCrossover.y_settled+32",
+         "layer": "0 -> 1", "player_x_at_write": 1151,
+         "note": "x 1151 is the loop's bottom-CENTRE (void centre x 1148), not an arc foot"}
+      ],
+      "frames_after_crossover": 90,
+      "second_write": null,
+      "end": {"x": 665, "y": 829, "layer": 1, "gsp": "-$600"},
+      "toggle_count": 1,
+      "verdict": "ODD. Exits on plane B. y 829 is 253px BELOW ground_solid_y 576 — he fell through plane-A collision, exactly as reported."
+    },
+    {
+      "id": "B",
+      "label": "rightward entry",
+      "start": {"x": 1120, "y": 556, "layer": 0, "gsp": "+$600"},
+      "speed_collapse": {"frames": 18, "x": [1120, 1129], "gsp": ["$600", "$FC"],
+                         "note": "9px of travel in 18 frames — this is the 'can't get past it coming from the left' complaint"},
+      "crossover_writes": [
+        {"frame": 655, "layer": "0 -> 1"}
+      ],
+      "end_after_138_frames": {"x": 1171, "y": 552, "layer": 1, "gsp": "$8E", "angle": "$FA"},
+      "toggle_count": 1,
+      "verdict": "ODD. Crosses to B and then STALLS on the arc at gsp $8E. Never reaches the top-centre mark."
+    },
+    {
+      "id": "C",
+      "label": "rightward from x 1070 — DISCARDED as a control",
+      "start": {"x": 1070, "y": 556, "layer": 0, "gsp": "+$600"},
+      "toggle_count": 0,
+      "end": {"x": 1497, "y": 952, "layer": 0},
+      "why_discarded": "he fell before reaching the mark, so the zero is 'never arrived', not 'arrived and did not fire'. Run B replaced it with a grounded pass. Recorded so the discard is visible rather than silent."
+    }
+  ],
+  "static_check": {
+    "command": "python3 tools/loop_crossover_gate.py --lst s4.debug.lst --rom s4.debug.bin -v",
+    "exit_code": 0,
+    "shipped_table": "256 slots, 2 marked, 0 holding the reserved value 3",
+    "consumption": "proven by the gate: 2 marks changed Sst.layer BECAUSE a CrossoverTable byte changed and nothing else did; the unmodified table is the control",
+    "meaning": "BOTH marks are present in the ROM and BOTH are consumed. The defect is NOT a missing or unbaked mark."
+  },
+  "finding": {
+    "measured": "Every traversal tested toggles the layer exactly ONCE, in both directions. The player therefore always ends on plane B, which carries only ground + the RIGHT half; plane A carries most of the collision, so he falls through everything.",
+    "primary_defect": "The bottom-centre mark is plane-keyed, not direction-keyed (rule R2 raises on self-marks, so a plane-A player reads XOVER_TO_B regardless of travel direction). A LEFTWARD traveller therefore crosses to B at the bottom centre and immediately has no left arc to stand on, because the left half is solid only on A.",
+    "secondary_defect": "Rightward entry bleeds gsp $600 -> $FC over 18 frames and stalls on the arc, so it never reaches the top-centre mark either. This is the owner's original screenshot complaint.",
+    "not_yet_established": "Whether a traversal at a speed high enough to survive the arc reaches the top-centre mark and toggles back. No run in this set completed a circuit, so the second mark has never been observed firing."
+  }
+}
