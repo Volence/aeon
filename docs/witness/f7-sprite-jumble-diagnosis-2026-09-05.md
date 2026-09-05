@@ -115,3 +115,59 @@ emit rather than the load.
 and numbers that summed to exactly the budget, and I read "exactly full" as "over". The
 arithmetic was right and the conclusion did not follow from it. The corroboration I myself
 called cheapest is what caught it — one frame in six, not six in six.
+
+---
+
+## THE INSTRUMENT ALREADY EXISTS, and it is aimed at exactly this question
+
+`engine/ram.emp:1424-1460` documents four DEBUG cells built for the d-47 booking
+*"DMA SPLIT-REJECT NEEDS TWO FREE IMPORTANT SLOTS, AND NOTHING COUNTS PER-FRAME
+STRADDLES"*:
+
+| cell | addr | what it is |
+|---|---|---|
+| `Dbg_DMA_Straddle_Frame` | `$FFE914` | this window's straddling IMPORTANT enqueues |
+| `Dbg_DMA_Straddle_Peak` | `$FFE916` | high-water mark — **the number the booking asks for** |
+| `DMA_Split_Reject_Count` | `$FFE918` | **"Any non-zero value here is the defect, observed directly"** |
+| `Dbg_DMA_Straddle_All` | `$FFE91A` | free-running, EVERY queue — **the positive control** |
+
+And `ram.emp` states the gap my corrected diagnosis was groping for, in its own words:
+
+> That reserve was sized from total art VOLUME — ~354 KB across the cast — which bounds how
+> many straddling entries EXIST IN THE ROM and **says nothing about how many can want slots
+> in ONE FRAME**. … the per-frame count of straddling ENQUEUES is a run-time property … and
+> **NOTHING measured it. These four cells are that measurement.**
+
+So the F7 question — can non-player Important consumers want more than the reserved 2 — is
+precisely the question these cells were added to answer, and the answer has never been read.
+
+## What I measured, and why it is weak
+
+Boot, then `RIGHT` held for 600 frames on `s4.debug.bin` (845944):
+
+| | at boot | after 600 frames |
+|---|---|---|
+| `Straddle_Frame` | 0 | 0 |
+| `Straddle_Peak` | 0 | 0 |
+| `Split_Reject_Count` | **0** | **0** |
+| `Straddle_All` (control) | 2 | 2 |
+
+**No split rejects. But this run is NOT representative and I am not going to present it as
+one.** The player ended at x3401, **y5587** — he ran off the built ground early and spent
+most of those 600 frames in free fall. Free fall streams nothing and animates almost
+nothing, so the zero is close to uninformative.
+
+**And the control did not move either** (2 at boot, 2 after), which by `ram.emp`'s own
+reading rule makes the Important zeros uninterpretable for THIS window: a zero means
+"Important never straddled" only while the control is moving.
+
+## The parcel this needs
+
+Long, varied, **grounded** play driven headlessly through `tools/aether_instance.py` — the
+harness `tools/canopy_gap_exercise.py` already uses to drive 21,439 frames across all nine
+sections — polling the four cells throughout, with the control asserted non-zero-and-moving
+before any Important zero is read as meaning anything.
+
+If `DMA_Split_Reject_Count` goes non-zero during play, F7's cause is found and the engine
+said so itself. If it stays zero across representative play **with a moving control**, the
+DPLC starvation path is exonerated and `DRAW_SPRITE.NO_PARENT` points at the sprite emit.
