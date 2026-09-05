@@ -25,12 +25,29 @@ lexer is exactly what desynchronised on sigil's char literal.
 import argparse, collections, pathlib, sys
 
 EXTS = {'.emp', '.py', '.sh', '.md', '.toml', '.json'}
-EM, EN = '—', '–'
+EM, EN = '\u2014', '\u2013'
+
+# ESCAPED SPELLINGS. A dash written as an escape RENDERS IDENTICALLY and is
+# INVISIBLE to str.count, so a character-based count cannot find it and cannot
+# know it is wrong. Aurora hit this first (their sweep total was 209 and the
+# truth was 210, the missing one spelled as a backslash-u escape), flagged it,
+# and this counter had the same blind spot. Checking rather than assuming found
+# it live in OUR OWN OUTPUT: json.dumps defaults to ensure_ascii=True, so every
+# em dash this lane wrote into docs/lane-status.json -- a file the owner's
+# console renders on his card -- was stored as \u2014 and counted as zero.
+# These are reported SEPARATELY rather than folded into the total, because they
+# are a different remediation: the character ones are edits, these are usually a
+# serializer setting (pass ensure_ascii=False and they become visible).
+ESCAPED = [
+    r'\u2014', r'\u2013', r'\U00002014', r'\U00002013',
+    '&mdash;', '&ndash;', '&#8212;', '&#8211;', '&#x2014;', '&#x2013;',
+]
 
 
 def scan(root: pathlib.Path):
     per = collections.Counter()
     files = collections.Counter()
+    escaped = collections.Counter()
     em = en = 0
     for p in sorted(root.rglob('*')):
         if not p.is_file() or p.suffix not in EXTS:
@@ -43,12 +60,16 @@ def scan(root: pathlib.Path):
         except (UnicodeDecodeError, OSError):
             continue
         a, b = t.count(EM), t.count(EN)
+        low = t.lower()
+        esc = sum(low.count(s.lower()) for s in ESCAPED)
         if a or b:
             per[p.suffix] += a + b
             files[p.suffix] += 1
             em += a
             en += b
-    return per, files, em, en
+        if esc:
+            escaped[p.suffix] += esc
+    return per, files, em, en, escaped
 
 
 def main() -> int:
@@ -57,11 +78,21 @@ def main() -> int:
     ap.add_argument('--gate', action='store_true',
                     help='exit 1 if any occurrence remains')
     a = ap.parse_args()
-    per, files, em, en = scan(pathlib.Path(a.root))
+    per, files, em, en, escaped = scan(pathlib.Path(a.root))
     for ext in sorted(per, key=lambda e: -per[e]):
         print(f"  {ext:<6} {files[ext]:4} files  {per[ext]:6} occurrences")
     total = em + en
     print(f"\n  TOTAL  em {em}  en {en}  = {total}")
+    if escaped:
+        esc_total = sum(escaped.values())
+        print(f"\n  PLUS {esc_total} dash(es) spelled as an ESCAPE, which render "
+              f"identically and which the count above CANNOT see:")
+        for ext in sorted(escaped, key=lambda e: -escaped[e]):
+            print(f"    {ext:<6} {escaped[ext]:6}")
+        print("  These usually mean a serializer wrote them (json.dumps defaults to "
+              "ensure_ascii=True); pass ensure_ascii=False to make them visible.")
+    else:
+        print("\n  No dashes spelled as escapes.")
     if a.gate and total:
         print(f"\nFAIL: {total} em/en dash(es) remain.", file=sys.stderr)
         return 1

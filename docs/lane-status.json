@@ -1,90 +1,87 @@
 {
-  "focus": "Collapsing the three lab chords into one list, as you asked; the floor now points where it should.",
+  "focus": "Making an inert vertical split fail the build; the floor waits on his choice of technique",
   "inFlight": [
     {
-      "what": "One list for everything demonstrable, instead of three chords",
+      "what": "FLOOR-FAN -- beams converge on the screen centre column at every camera X",
+      "where": "agent worktree",
+      "agent": true
+    },
+    {
+      "what": "vsplit build-time refusal",
       "where": "agent worktree",
       "agent": true
     }
   ],
   "blockedOnOwner": [
     {
-      "what": "Whether to give a second section live patch channels, so the Hydrocity scene key can be authored",
-      "since": "2026-09-04"
-    },
-    {
-      "what": "Should the perspective floor run inside the water tint, or get a dry section of its own",
-      "since": "2026-09-04"
-    },
-    {
-      "what": "The floor's left-edge stripe - a look call",
-      "since": "2026-09-04"
-    },
-    {
-      "what": "Turning the curve-capability gate arm round - an adoption that wants your word",
-      "since": "2026-09-04"
-    },
-    {
-      "what": "Which way you were going through the loop when you fell through at the right foot",
+      "what": "the section 7 edge is authored content, not a bug: accept it, spend a second channel, or re-author the chunk columns",
       "since": "2026-09-05"
     },
     {
-      "what": "Do the jumbled sprites show while playing, or only after you pause",
+      "what": "the floor: painted perspective that travels with the world (Toy Story's way), or the scroll effect that keeps convergence under the screen centre",
       "since": "2026-09-05"
     }
   ],
-  "nextBoundary": "After the chord list lands and the loop's ceiling curves.",
+  "nextBoundary": "After the rowRemap loop opens and the floor skew lands.",
   "queue": [
     {
-      "id": "CHORDS",
-      "title": "One list for everything demonstrable",
-      "state": "doing",
+      "id": "FLOOR-FAN",
+      "title": "Floor: which perspective technique he actually wants -- decision, not work",
+      "state": "blocked",
       "size": "L",
-      "blockedBy": null,
-      "project": "EFFECTS-W1"
+      "blockedBy": "his choice: world-anchored like Toy Story, or screen-anchored"
     },
     {
-      "id": "CROWN",
-      "title": "The loop's ceiling is flat - you walk along it",
-      "state": "next",
-      "size": "M",
-      "blockedBy": "aurora painting the crown's curve",
-      "project": "EFFECTS-W1"
-    },
-    {
-      "id": "9d",
-      "title": "Hydrocity waterline - built, but no plane cell points at it yet",
-      "state": "open",
-      "size": "M",
-      "blockedBy": null,
-      "project": "EFFECTS-W1"
-    },
-    {
-      "id": "F7",
-      "title": "Jumbled sprites - decoded to a pause artifact, awaiting your answer",
-      "state": "open",
-      "size": "M",
-      "blockedBy": null,
-      "project": "EFFECTS-W1"
-    },
-    {
-      "id": "D1",
-      "title": "The debug build starts in fly mode instead of playing",
+      "id": "EMDASH",
+      "title": "Remove em/en dashes from strings and agent docs -- scope ruled, sequenced third",
       "state": "open",
       "size": "S",
-      "blockedBy": null,
-      "project": "EFFECTS-W1"
+      "blockedBy": null
     },
     {
-      "id": "F1",
-      "title": "Layout-space anchoring by default, screen-space only with a reason",
+      "id": "VSPLIT-NOOP",
+      "title": "vsplit needs a hand-written call site; RULED build-time refusal over the registry",
+      "state": "doing",
+      "size": "M",
+      "blockedBy": null
+    },
+    {
+      "id": "CURVE-DESC",
+      "title": "ENGINE DEFECT: descending parallax curve garbles the BG; mechanism unestablished",
       "state": "open",
-      "size": "L",
-      "blockedBy": null,
-      "project": "EFFECTS-W1"
+      "size": "M",
+      "blockedBy": null
+    },
+    {
+      "id": "F7-EMIT",
+      "title": "F7: load path exonerated -- the jumble is in the sprite emit",
+      "state": "next",
+      "size": "M",
+      "blockedBy": null
+    },
+    {
+      "id": "ICON",
+      "title": "Wayland icon: install-desktop.sh writes into his home and OVERWRITES one file -- needs his word",
+      "state": "open",
+      "size": "S",
+      "blockedBy": "his explicit say-so"
+    },
+    {
+      "id": "S1S3S9",
+      "title": "Sigil's routed findings",
+      "state": "open",
+      "size": "M",
+      "blockedBy": null
+    },
+    {
+      "id": "LOOP-ROLL",
+      "title": "PARKED: rolling loses crown contact after the crest",
+      "state": "open",
+      "size": "M",
+      "blockedBy": null
     }
   ],
-  "awaiting": null,
+  "awaiting": "which of the two floor techniques he actually wants -- ours is the second and Toy Story is only a reference for the first",
   "atBoundary": false,
-  "updatedAt": "2026-09-05T04:44:46Z"
+  "updatedAt": "2026-09-05T18:00:09Z"
 }
