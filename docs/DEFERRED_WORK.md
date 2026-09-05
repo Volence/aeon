@@ -24896,7 +24896,13 @@ reversible, and does not put engine work in the VBlank-critical path for an auth
 convenience. **Route 1 remains the wrong trade at any framing I can see.** This is an engine
 design change either way, so it goes to him before anything is built.
 
-## ⚠ The crossover mark is 8 px wide and a player can step 16 px. ENGINE ROW.
+## ⚠ The crossover mark is 8 px wide and a player can step 16 px. ENGINE ROW — THE one row.
+
+**ONE ROW FOR THIS FACT, and it is this one.** Aurora booked the same arithmetic in their own
+tree as `XOVER-8PX-VS-CAP`; **that is the same defect seen from the authoring side, not a
+second item.** They raised it, I ran the controls that turned it from arithmetic into a
+reproduced failure at two speeds, and the fix is engine-side, so the row lives here and
+theirs references it. **Do not open a third.**
 
 **Aurora raised it, asked for the premise to be checked rather than taken, and the premise
 holds.** `engine/objects/core.emp`'s `ObjectMove` is `move.w x_vel / ext.l / asl.l #8 /
