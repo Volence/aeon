@@ -25273,3 +25273,35 @@ OWNER.** The flat approach is ~55 px (x 1097 → 1152) because the pre-existing 
 at cols 126–127 walls it at x 1010. At 12/256 px per frame of acceleration that is nowhere
 near enough. **Aurora's card — remove the foliage column and the approach roughly doubles —
 is the fix, and it is his call, not ours.**
+
+## The "darker than predicted" floor — NOT the palette, and NOT resolved. Measured 2026-09-04.
+
+**Three measurements, and I am stopping at them rather than publishing a sixth mechanism.**
+
+**1. The palette is NOT the cause.** Runtime CRAM **line 2** — the floor's destination line —
+is **byte-identical** to the palette source line the prediction tool drew with: `0x0002,
+0x0800, 0x0224, 0x0248, 0x026A, 0x048C, 0x06AE`, the wood ramp. **The prediction used exactly
+the right colours.**
+
+**2. The captured frame contains pixel values that are NOT legal Mega Drive levels.** MD
+levels are `0 36 72 109 145 182 218 255`. The frame also carries **18, 54, 91 and 127** — and
+**every one is exactly half an MD level** (36, 109, 182, 255). Full-level and half-level
+pixels appear **in the same frame**.
+
+**3. But the VDP shadow table reads STE OFF.** Reg `$0C` = `$81`, bit 3 (shadow/highlight
+enable) = 0. Corroborating that the table read is sound: reg `$0F` = `$02` (auto-increment),
+reg `$0B` = `$07` (per-line HScroll `%11` plus per-column VSCROLL) — both exactly what the
+engine hardcodes.
+
+**(2) AND (3) ARE IN TENSION AND I HAVE NOT RESOLVED THEM.** Half-brightness pixels are what
+shadow mode produces, and shadow mode reads disabled. Candidates not tested: the shadow table
+is a shadow *copy* and the live register differs; the emulator composites shadow regardless of
+STE; or the halving has a different origin entirely.
+
+**What IS safe to say to the owner: the floor's colours are correct in CRAM, so this is a
+rendering or compositing question, not an art or palette one.** Nothing needs repainting.
+
+**Next step is a question for oracle** (does its renderer apply shadow with STE clear?) or a
+direct read of the live VDP register rather than the shadow copy. **Deliberately NOT booked
+with a mechanism attached** — five mechanisms were published and killed by controls tonight,
+and the pattern was publishing the story before running the test.
