@@ -1,5 +1,5 @@
 {
-  "focus": "Floor mechanism reopened by his own observation; running the sprite-jumble experiment",
+  "focus": "Section 7's dead effect removed; the floor mechanism is unresolved and nothing is drawn",
   "inFlight": [
     {
       "what": "sprite jumble: emit-path static analysis",
@@ -67,5 +67,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-05T19:34:18Z"
+  "updatedAt": "2026-09-05T20:02:28Z"
 }
