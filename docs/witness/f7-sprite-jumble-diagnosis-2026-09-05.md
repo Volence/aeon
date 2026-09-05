@@ -70,3 +70,48 @@ jumble. **I did not reproduce his picture.**
 
 Corroborate the frame IDs against the rotation set first — if `$1E $8B $90 $C2 $C7 $DF` are
 not the tilt frames, this diagnosis is wrong and cheaply so.
+
+---
+
+## CORRECTION, same session, before anyone acted on the above
+
+**I overstated "zero headroom" as if it were a defect. It is the design.**
+
+`DPLC_ENTRY_RESERVE = 2` is not slack that the player is eating — it is the allowance
+**reserved for everyone else**. Player peak 10 + reserve 2 = 12 = `DMA_IMPORTANT_SLOTS` is
+the budget being spent exactly as intended, and the gate is green because it *is* correct.
+A drop needs non-player consumers to want **more than 2** Important slots on a peak player
+frame. I did not check whether they can.
+
+**And the frame-ID corroboration I called the cheapest next check has now been done, and it
+mostly fails.** From `player_common.emp:224-244`, the tilt frames are walk `$01-$20` and run
+`$21-$30`:
+
+| peak frame | is it a tilt frame? |
+|---|---|
+| `$1E` | **yes** — walk tilt block 3 |
+| `$8B` `$90` `$C2` `$C7` `$DF` | **no** — outside `$01-$30` |
+
+**One of six.** So "the peak frames are the rotated frames" is not true as stated.
+
+**The historical breach is also confirmed CLOSED rather than merely superseded**
+(`collision_data.emp:65-78`): `$C4` (LookUp) and `$0E` (walk tilt block 1) each sat at 12,
+the whole queue, and were re-cut by `tools/dedup_art.py` trading entries for bytes on
+exactly the six frames that were over the wall. That is the fix that already shipped.
+
+## So what F7 actually needs next
+
+The mechanism (drop → stale `prev_frame` → SAT drawn against unloaded tiles) is real and is
+still the only candidate that produces his picture. What is missing is a reason the drop
+happens **today**, and the specific question is now:
+
+**can non-player Important-queue consumers want more than `DPLC_ENTRY_RESERVE = 2` slots on
+a frame where the player wants 10?** Enumerate every `QueueDMA`-Important caller and its
+worst-case per-frame demand. If the answer is no, the DPLC path is exonerated and the
+jumble is something else — and `DRAW_SPRITE.NO_PARENT` in his capture points at the sprite
+emit rather than the load.
+
+**What I got wrong and why it is worth recording:** I had a mechanism, a matching symptom,
+and numbers that summed to exactly the budget, and I read "exactly full" as "over". The
+arithmetic was right and the conclusion did not follow from it. The corroboration I myself
+called cheapest is what caught it — one frame in six, not six in six.
