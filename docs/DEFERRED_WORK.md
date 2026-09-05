@@ -25196,3 +25196,40 @@ drives stayed inside the window by accident; long ones do not.
 **So the loop's actual behaviour past the hand-off is STILL NOT ESTABLISHED.** What is
 established: the crossover fires and `layer` switches 0→1 at col 143. Everything I reported
 after that point was an artifact.
+
+## T1 — ✅ THE LOOP RIDES. Full circumference, both marks, measured 2026-09-04.
+
+**Instrument, all five corrections in place:** leave debug-fly with **`B`** (never a write to
+`Sst+$3C` — that skips `Player_DebugExit` and crashes on `Map_TestObj`); **set the camera
+FIRST and let streaming settle, then the player** (the reverse order drops him through the
+ground before the collision cache covers him); let the camera **follow**; real sustained
+input over the bus; offsets from the listing's equates.
+
+**Natural run-up (no injection):** accelerates 96 → 480 on the flat, **layer 0 → 1 at
+x 1152**, climbs the ramp through `$FE → $FA → $F4 → $EC → $CC`, reaches **y 507 (50 px up)**,
+then loses momentum and slides back. Repeats. **Correct Sonic physics: he does not have the
+speed to get round.**
+
+**With `PHYS_TOP_SPEED` ($600) injected ONCE at the ramp foot and nothing else touched:**
+
+```
+  8  x1145 y557  layer 0  angle $00   on the flat
+ 16  x1192 y542  layer 1  angle $F4   bottom mark fired
+ 24  x1220 y504  layer 1  angle $CC   climbing the right half
+ 32  x1219 y466  layer 1  angle $B4
+ 40  x1200 y438  layer 1  angle $A0
+ 48  x1170 y434  layer 1  angle $80   INVERTED at the top
+ 56  x1130 y434  layer 0  angle $80   TOP MARK FIRED — handed back to A
+ 64  x1087 y446  layer 0  angle $80   descending the left half
+104  x1111 y557  layer 0  angle $00   back on the ground
+```
+
+**15 distinct angles, 123 px climbed, BOTH crossover marks fired, both halves traversed on
+their own plane.** The hand-off design, the plane assignment, the swapped halves, the ramp
+shapes and the mark rows are all correct and all working.
+
+**THE ONLY REMAINING LIMIT IS RUN-UP, AND IT IS A LEVEL-DESIGN QUESTION ALREADY WITH THE
+OWNER.** The flat approach is ~55 px (x 1097 → 1152) because the pre-existing foliage column
+at cols 126–127 walls it at x 1010. At 12/256 px per frame of acceleration that is nowhere
+near enough. **Aurora's card — remove the foliage column and the approach roughly doubles —
+is the fix, and it is his call, not ours.**
