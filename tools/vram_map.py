@@ -17,7 +17,8 @@ REGIONS = {
     'ring_placeholder': {'base': 1000, 'tiles': 16, 'lifetime': 'act'},
     'test_marker': {'base': 1016, 'tiles': 4, 'lifetime': 'mode'},
     'debug_readout': {'base': 1020, 'tiles': 4, 'lifetime': 'mode'},
-    'bg_region': {'base': 1024, 'tiles': 448, 'lifetime': 'act'},
+    'bg_region': {'base': 1024, 'tiles': 400, 'lifetime': 'act'},
+    'waterline_strips': {'base': 1424, 'tiles': 48, 'lifetime': 'act'},
     'sprite_table': {'base': 1472, 'tiles': 20, 'lifetime': 'boot'},
     'tails_appendage': {'base': 1492, 'tiles': 9, 'lifetime': 'act'},
     'debug_bganim_tag': {'base': 1501, 'tiles': 3, 'lifetime': 'mode'},
@@ -29,8 +30,8 @@ REGIONS = {
 }
 POOL_TILE_CEILING = 768
 BG_TILE_BASE_SLOT = 1024
-BG_TILE_CAPACITY = 448
-BG_BAND_RESERVE = 128
+BG_TILE_CAPACITY = 400
+BG_BAND_RESERVE = 80
 BG_STATIC_TILE_BUDGET = 320
 VRAM_DUST_PUFF = 896
 VRAM_DUST_SPINDASH = 912
@@ -40,6 +41,7 @@ VRAM_TEST_SONIC = 960
 VRAM_TEST_OBJ = 992
 VRAM_TEST_MARKER = 1016
 VRAM_DEBUG_READOUT = 1020
+VRAM_WATERLINE_STRIPS = 1424
 VRAM_TAILS_APPENDAGE = 1492
 VRAM_DEBUG_BGANIM_TAG = 1501
 VRAM_DEBUG_RASTER_TAG = 1532

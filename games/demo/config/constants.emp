@@ -47,7 +47,7 @@ pub const GS_DEMO                 = 2
 pub const VRAM_DEMO_OBJ           : VramTile = $03E0   // demo_obj: tiles 992..995 (4), boot, owner games.demo.demo_state
 // Authority cross-checks — the engine constant vs the declared map:
 ensure(POOL_TILE_CEILING == 768, "vram.toml fg_art_pool drifted from engine POOL_TILE_CEILING — edit games/demo/vram.toml and regenerate")
-ensure(BG_TILE_CAPACITY == 448, "vram.toml bg_region drifted from engine BG_TILE_CAPACITY — edit games/demo/vram.toml and regenerate")
+ensure(BG_TILE_CAPACITY == 400, "vram.toml bg_region drifted from engine BG_TILE_CAPACITY — edit games/demo/vram.toml and regenerate")
 ensure(BG_TILE_BASE_VRAM == $8000, "vram.toml bg_region drifted from engine BG_TILE_BASE_VRAM — edit games/demo/vram.toml and regenerate")
 ensure(VRAM_SPRITE_TABLE == $B800, "vram.toml sprite_table drifted from engine VRAM_SPRITE_TABLE — edit games/demo/vram.toml and regenerate")
 ensure(VRAM_HSCROLL_TABLE == $BC00, "vram.toml hscroll_table drifted from engine VRAM_HSCROLL_TABLE — edit games/demo/vram.toml and regenerate")

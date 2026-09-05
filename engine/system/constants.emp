@@ -517,11 +517,19 @@ pub const VRAM_WINDOW      = $F000
 pub const PLANE_V_CELLS    = 64
 // Shared BG tile region: reserved permanent VRAM slot range for zone-wide BG
 // tile art, loaded once at level init between the FG section pools and the Plane
-// A nametable. 448 slots ($8000..$B7FF; the SAT sits at $B800) cover the measured
-// worst case. BG_TILE_CAPACITY gates the build tools; engine code doesn't read it.
+// A nametable. The PHYSICAL run is $8000..$B7FF = 448 slots (the SAT sits at
+// $B800); BG_TILE_CAPACITY is what the BG arena is DECLARED to own inside it, and
+// since EFFECTS-W1 item 9d that is 400 — the top 48 slots (1424..1471) are the
+// `waterline_strips` region in games/sonic4/vram.toml. The two numbers being
+// different is the point: bg.emp's blob-copy clamp must use the CAPACITY, not the
+// physical run, or a maximal BG blob sprays over the waterline strips.
+// BG_TILE_CAPACITY gates the build tools; engine code reads it only for that clamp.
+// It is ENGINE-WIDE: both games' vram.toml carry an `engine-tiles:BG_TILE_CAPACITY`
+// authority line, so the two maps cannot disagree — see games/demo/vram.toml's
+// bg_region comment for why demo's map moved for a sonic4 feature.
 pub const BG_TILE_BASE_VRAM = $8000              // byte address (slot 1024)
 pub const BG_TILE_BASE_SLOT = BG_TILE_BASE_VRAM / 32   // 1024 — nametable index remap
-pub const BG_TILE_CAPACITY  = 448
+pub const BG_TILE_CAPACITY  = 400
 
 // -----------------------------------------------
 // Controller button masks (complete the d-pad/face-button set above).

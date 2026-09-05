@@ -190,8 +190,15 @@ name = "bg_region"
 owner = "engine.bg"
 kind = "arena"
 base = 1024
-tiles = 448
-band_reserve = 128               # tiles withheld from the STATIC BG importer
+tiles = 400                      # 448 -> 400: the top 48 tiles became the
+band_reserve = 80                # `waterline_strips` region below (EFFECTS-W1
+                                 # item 9d). Reserve 128 -> 80 in the SAME edit
+                                 # so the STATIC budget (tiles - reserve) stays
+                                 # 320 — the 48 came out of the RESERVE, not out
+                                 # of the shipped background. Verify with
+                                 # `python3 tools/perspective_floor_gen.py --report`,
+                                 # which prints capacity / static budget / reserve.
+                                 # tiles withheld from the STATIC BG importer
 lifetime = "act"                 # (tools/png_to_bg_override.py) so a BgAnim band
 authority = ["engine-tiles:BG_TILE_CAPACITY", "engine-bytebase:BG_TILE_BASE_VRAM"]
 # can be inserted later. `tiles` is a hard VRAM boundary ($8000..$B7FF; the SAT
@@ -282,6 +289,50 @@ authority = ["engine-tiles:BG_TILE_CAPACITY", "engine-bytebase:BG_TILE_BASE_VRAM
 # So: 128 still buys the full 32x4 band it was sized for. Anyone spending it should
 # still run tools/bganim_room.py — it is the only instrument that answers — but the
 # ROM room is no longer the tighter of the two.
+
+[[region]]
+name = "waterline_strips"
+owner = "engine.bg_anim"
+kind = "window"
+base = 1424
+tiles = 48
+lifetime = "act"
+const = "VRAM_WATERLINE_STRIPS"
+# EFFECTS-W1 item 9d — the Hydrocity waterline's ART half: the fixed VRAM run
+# that Waterline_Art_Update (engine/level/bg_anim.emp) DMAs its row-gathered
+# strips into every frame the perspective quantity changes. S3K writes tiles
+# $2DC/$2F4 the same way (sonic3k.asm:53981) and never touches the nametable.
+#
+# WHERE THESE 48 CAME FROM, because the answer is the owner's dial and not spare
+# space: `bg_region` above went 448 -> 400 and its `band_reserve` went 128 -> 80
+# in the same edit, so the STATIC importer budget (tiles - reserve) is unchanged
+# at 320 and the shipped background blob (320 tiles, measured by
+# tools/test_bg_tile_budget.py::TestBakedBlobOccupancy) is untouched. The 48
+# came out of the 128 unresident reserve tiles; 80 of them remain reserved for a
+# BgAnim band. The owner's "don't forget the hydrocity thing" (2026-09-04) is the
+# word that spends them.
+#
+# ⚠ 48 IS THE OWNER-SANCTIONED SPEND, NOT THE DERIVED NEED, AND THE TWO DIFFER.
+# The strip geometry is fully determined by the band height H:
+#
+#     tiles = 2 strips x 2 tile-columns x (H / 8 rows-per-tile) = H / 2
+#
+#   H (= 1 << brm_hshift)   8    16    32    64   [96]   128
+#   tiles                   4     8    16    32   [48]    64
+#
+# S3K's waterline is H = 96 and that is where the booking's "48 tiles (two 16x96
+# strips)" comes from. `band_remap.brm_hshift` consumes H as `1 << shift`, so 96
+# is not a height this engine can NAME — the same fact parcel 9b measured for the
+# ladder ("S3K's H = 96 is also not a power of two"). The art half inherits it.
+# TODAY'S SHIPPED H IS 16 (Scene_OJZ_Underwater's `SceneRemap.Ladder(.., 101, 4)`),
+# so 8 of these 48 tiles carry art and the region's own ceiling is H = 64.
+# Raising the ladder to H = 32 or H = 64 therefore needs NO further VRAM
+# negotiation; H = 128 would need 64 tiles and a second one.
+#
+# WHY A NAMED REGION AND NOT SLACK LEFT INSIDE `bg_region`: the reason that region's
+# own comment gives at length (docs/BUGS.md TOOL-01) — unowned free space is spent
+# by the next person who needs tiles and does not know what it was for. The address
+# is the thing being reserved.
 
 [[region]]
 name = "sprite_table"

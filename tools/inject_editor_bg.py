@@ -27,9 +27,11 @@ import argparse, json, struct, os, sys
 # BgAnim_Update). A record-format change edits BOTH together.
 # BG_TILE_BASE_SLOT / BG_TILE_CAPACITY are imported from the generated registry
 # mirror — ONE authority (tools/vram_map.py <- games/sonic4/vram.toml), not
-# restated literals (the four-copies-of-448 incident). The capacity is 448, not
-# constants.asm's old 512 nominal: the sprite table ($B800) and HScroll table
-# ($BC00) live in the top of the $8000-$BFFF region.
+# restated literals (the four-copies-of-448 incident). The capacity is 400 since
+# EFFECTS-W1 item 9d (the top 48 of the physical 448-slot run became the
+# `waterline_strips` region), and was never constants.asm's old 512 nominal:
+# the sprite table ($B800) and HScroll table ($BC00) live in the top of the
+# $8000-$BFFF region. Do not restate the number here — read it from the import.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from vram_map import GAME as _VRAM_MAP_GAME, BG_TILE_BASE_SLOT, BG_TILE_CAPACITY
 assert _VRAM_MAP_GAME == 'sonic4', (
@@ -112,7 +114,7 @@ BGANIM_MAX_BANDS = 4
 # whole act, so a per-band cap is unsound: this zone's own shipped content (32x4 +
 # 16x4, recoverable at b0e5a661) passes any generous per-band limit while its SUM is
 # 49,242 B. Decision d-6 made that error and this repo's deleted content refuted it.
-# Total slots are bounded above by BG_TILE_CAPACITY (448) because bands pack
+# Total slots are bounded above by BG_TILE_CAPACITY (400) because bands pack
 # contiguously from slot 0 as a prefix of `tiles` -- `validate_band_coherence` is the
 # authority -- so the provable worst case is BGANIM_WORST_CASE_BYTES below.
 #

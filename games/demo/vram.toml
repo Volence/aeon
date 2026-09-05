@@ -61,9 +61,26 @@ name = "bg_region"
 owner = "engine.bg"
 kind = "arena"
 base = 1024
-tiles = 448
+tiles = 400
 lifetime = "act"
 authority = ["engine-tiles:BG_TILE_CAPACITY", "engine-bytebase:BG_TILE_BASE_VRAM"]
+# 448 -> 400 (EFFECTS-W1 item 9d, 2026-09-04). THIS IS NOT A DEMO DECISION — it
+# is forced, and the forcing is worth stating because the next person to read this
+# will want to put it back. `BG_TILE_CAPACITY` is ONE engine-wide constant
+# (engine/system/constants.emp) and BOTH games' `engine-tiles:` authority lines
+# cross-check against it, so the two maps cannot declare different bg_region sizes:
+# sonic4 carving `waterline_strips` out of its own reserve moves the shared number.
+# Demo ships NO background art at all (it has no BG blob and no act to load one
+# from), so the 48 tiles cost it nothing; they are declared [[free]] below rather
+# than named, because nothing in demo owns them.
+
+[[free]]
+base = 1424
+tiles = 48
+# the 48 tiles sonic4 spends on `waterline_strips` (games/sonic4/vram.toml). Free
+# here: demo has no waterline, no row remap (it declares no CAP_ROW_REMAP) and no
+# BG art. Declared rather than left as a coverage gap because gen_vram_map.py
+# requires every one of tiles 0..2047 to be a region or a DECLARED free run.
 
 [[region]]
 name = "sprite_table"
