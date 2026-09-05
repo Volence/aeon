@@ -80,9 +80,14 @@ up to 5 px/row mis-match occasionally:
     FACTOR_1_8            8%   11%   18%   21%   18%   10%   15%   19%
 
 The onset is at camX = 192/F px, and the table lands on it: 195, 389, 778, 1557.
-THE SHIPPED SCENE AUTHORS `To(FACTOR_1_4)` and is therefore clean out to camera
-x ~778. This is a TRADE THE OWNER SHOULD SEE: the floor's near row now scrolls
-at a quarter of the camera rate instead of the full rate. It is one identifier
+THE SHIPPED SCENE AUTHORS `To(FACTOR_1_8)` and is therefore clean out to camera
+x ~1536. FACTOR_1_4 was the first choice and is NOT enough, for a reason only the
+running ROM could say: the lab chord that selects this scene is START+RIGHT x20,
+and RIGHT is a direction as well as a hotkey, so simply SELECTING the row leaves
+the camera at x 736 (measured, tools/perspective_floor_witness.py). At 1_4's
+clean range of 768 the owner arrives 32 px inside the edge. This is a TRADE HE
+SHOULD SEE: the floor's near row now scrolls at an eighth of the camera rate
+instead of the full rate. It is one identifier
 in games/sonic4/data/effects/ojz_scenes.emp and moving it up or down trades
 scroll rate against clean travel along that table.
 
@@ -556,9 +561,10 @@ def main():
     print(f"  reclaimable slots left stranded   : {stranded}")
     print(f"  blob length  {before} -> {after}   (capacity {CAP}, "
           f"static budget {STATIC_BUDGET}, band reserve {RESERVE})")
-    print(f"  clean camera range at curve To(FACTOR_1_4): "
-          f"{clean_camera_range(0.25):.0f} px "
-          f"(FACTOR_1 would give {clean_camera_range(1.0):.0f})")
+    print(f"  clean camera range at curve To(FACTOR_1_8): "
+          f"{clean_camera_range(0.125):.0f} px "
+          f"(FACTOR_1 would give {clean_camera_range(1.0):.0f}; the lab chord "
+          f"that selects this scene already lands the camera at x 736)")
     if args.preview:
         write_preview(layout, tiles, args.preview)
         print(f"  preview -> {args.preview}")

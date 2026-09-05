@@ -515,6 +515,82 @@ def test_committed_override_carries_the_generated_band():
             % (pfg.SHIPPED["row0"] * 8 + i, pfg.SHIPPED["row0"] + i // 8))
 
 
+def test_baked_plane_b_carries_the_generated_band():
+    """The BAKED artifacts, not the editor document, must carry the fan.
+
+    test_committed_override_carries_the_generated_band above compares the
+    generator against `editor_bg_override.json` — the editor-side SOURCE. This
+    arm goes one stage further down the pipeline and decodes what the build
+    actually consumes: `zone_bg.bin` (the 64x64 nametable, COLUMN-major, with
+    BG_TILE_BASE_SLOT already folded into every non-zero word) and
+    `bg_tiles.bin` (a 2-byte BE blob LENGTH then 4bpp tile data). The build reads
+    games/sonic4/data/generated/ DIRECTLY — prebuild.sh is a no-op — so these
+    two files are the plane the ROM ships.
+
+    The gap this closes is real and was live for part of 2026-09-05: running
+    `tools/inject_editor_bg.py` by hand updates these files but not the editor
+    stamp, and running neither leaves them from the PREVIOUS art while the
+    override and every generator-side check agree with each other perfectly.
+    tools/level_staleness.py catches the stamp; this catches the pixels.
+    """
+    import struct
+    from vram_map import BG_TILE_BASE_SLOT
+    gen = os.path.join(REPO, "games/sonic4/data/generated/ojz/act1")
+    nt_path = os.path.join(gen, "zone_bg.bin")
+    tl_path = os.path.join(gen, "bg_tiles.bin")
+    for f in (nt_path, tl_path):
+        assert os.path.isfile(f), (
+            "%s is missing — the level tree has never been baked, and this arm "
+            "would otherwise pass by not running" % f)
+
+    nt = open(nt_path, "rb").read()
+    raw = open(tl_path, "rb").read()
+    assert len(nt) == pfg.PLANE_COLS * pfg.PLANE_ROWS * 2, (
+        "zone_bg.bin is %d bytes, expected %d for a 64x64 nametable"
+        % (len(nt), pfg.PLANE_COLS * pfg.PLANE_ROWS * 2))
+    # The 2-byte BE header is the BLOB LENGTH IN BYTES, not a tile count —
+    # measured: it reads 10240 for a 320-tile blob.
+    nbytes = struct.unpack_from(">H", raw, 0)[0]
+    assert len(raw) == 2 + nbytes and nbytes % 32 == 0, (
+        "bg_tiles.bin declares %d bytes of tile data but carries %d, or the "
+        "length is not a whole number of 32-byte tiles" % (nbytes, len(raw) - 2))
+    count = nbytes // 32
+
+    def tile_px(idx):
+        out = []
+        for b in raw[2 + idx * 32:2 + idx * 32 + 32]:
+            out.append((b >> 4) & 15)
+            out.append(b & 15)
+        return out
+
+    px, rows, _shade, _span = pfg.shipped_band()
+    s = pfg.SHIPPED
+    for ri, cy in enumerate(range(s["row0"], s["row1"] + 1)):
+        for iy in range(8):
+            want = px[ri * 8 + iy]
+            for cx in range(pfg.PLANE_COLS):
+                # COLUMN-major: inject_editor_bg.py packs at (col*ROWS + row)*2
+                w = struct.unpack_from(">H", nt, (cx * pfg.PLANE_ROWS + cy) * 2)[0]
+                idx = (w & 0x7FF) - BG_TILE_BASE_SLOT
+                assert 0 <= idx < count, (
+                    "plane cell (%d,%d) addresses VRAM tile %d, which is %d "
+                    "after removing BG_TILE_BASE_SLOT %d — outside the %d-tile "
+                    "blob" % (cx, cy, w & 0x7FF, idx, BG_TILE_BASE_SLOT, count))
+                t = tile_px(idx)
+                sy = 7 - iy if (w >> 12) & 1 else iy
+                for ix in range(8):
+                    sx = 7 - ix if (w >> 11) & 1 else ix
+                    assert t[sy * 8 + sx] == want[cx * 8 + ix], (
+                        "the BAKED plane differs from the art at plane pixel "
+                        "(%d,%d): zone_bg.bin/bg_tiles.bin say %d, "
+                        "perspective_floor_gen renders %d. The generated tree "
+                        "was not re-baked from the current art — run "
+                        "`tools/regenerate-level.sh` (NOT inject_editor_bg.py "
+                        "alone, which leaves the editor stamp behind)."
+                        % (cx * 8 + ix, cy * 8 + iy, t[sy * 8 + sx],
+                           want[cx * 8 + ix]))
+
+
 def test_scene_curve_band_matches_the_art_band():
     """THE CROSS-FILE SEAM, and the one nothing could see.
 
@@ -585,5 +661,6 @@ if __name__ == "__main__":
     test_drawn_beam_period_is_proportional_to_the_depth_row()
     test_composited_beams_converge_on_the_screen_centre_column()
     test_committed_override_carries_the_generated_band()
+    test_baked_plane_b_carries_the_generated_band()
     test_scene_curve_band_matches_the_art_band()
-    print("perspective floor: all four checks pass")
+    print("perspective floor: all five checks pass")

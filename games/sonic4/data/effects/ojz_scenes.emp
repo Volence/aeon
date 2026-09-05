@@ -830,7 +830,7 @@ pub comptime fn perspective_floor_layers() -> [SceneLayer; 16] {
              // plane px 440..511 -> screen 152..223: THE FLOOR. The ramp starts HERE, at
              // the vanishing point, so its value at the horizon is FACTOR_0 = the wall's.
              // Both shifts 15 because layer() refuses curve beside a live amplitude.
-             // To(FACTOR_1) -> To(FACTOR_1_4), 2026-09-05, and this is a TRADE
+             // To(FACTOR_1) -> To(FACTOR_1_8), 2026-09-05, and this is a TRADE
              // the owner should see rather than discover. The art below this
              // layer is a FAN with its apex pinned to screen column 159.5. The
              // fan is drawn once into a plane that wraps every 512 px while the
@@ -843,7 +843,17 @@ pub comptime fn perspective_floor_layers() -> [SceneLayer; 16] {
              // at To(FACTOR_1) 62% of beams vote for the wrong apex by camera x
              // 420 and 97% by 600 — that IS the owner's "the first few are good
              // then a few after get weird and point away". At To(FACTOR_1_4) it
-             // is 17% at 420 and 14% at 900, against an 8-20% matcher baseline.
+             // is 17% at 420 and 14% at 900, and at To(FACTOR_1_8) it is 18% at
+             // 420 and 19% at 1400, against an 8-20% matcher baseline.
+             //
+             // WHY 1_8 AND NOT 1_4. MEASURED on the ROM, not reasoned: the lab
+             // chord that selects this scene is START+RIGHT x20, and RIGHT is a
+             // direction as well as a hotkey, so selecting the row LEAVES THE
+             // CAMERA AT x 736 (tools/perspective_floor_witness.py reads
+             // Camera_X back). FACTOR_1_4's clean range is 768 — he arrives
+             // 32 px inside the edge and is past it before he has walked a
+             // screen. 1_8 puts the landing at the halfway mark with ~800 px of
+             // clean travel ahead of it.
              //
              // The cost is scroll RATE: the floor's near row now moves at a
              // quarter of the camera rate. The fan's GEOMETRY does not care —
@@ -853,7 +863,7 @@ pub comptime fn perspective_floor_layers() -> [SceneLayer; 16] {
              // FACTOR_1/1_2/1_4/1_8 to trade rate against clean travel
              // (192/389/768/1557 px). Nothing else has to change with it.
              layer(world_y: 440, fa: FACTOR_1, fb: FACTOR_0, dsa: 15, dsb: 15,
-                   curve: SceneCurve.To(FACTOR_1_4)),
+                   curve: SceneCurve.To(FACTOR_1_8)),
              no_layer(), no_layer(), no_layer(),
              no_layer(), no_layer(), no_layer(), no_layer(),
              no_layer(), no_layer(), no_layer(), no_layer() ]
