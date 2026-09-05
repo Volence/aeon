@@ -1,16 +1,27 @@
 #!/usr/bin/env python3
-"""test_perspective_floor — the law the OJZ floor's fan rests on, checked.
+"""test_perspective_floor — the law the OJZ floor's plank lattice rests on, checked.
 
 WHY THIS FILE EXISTS. Between 2026-08-16 and 2026-09-05 the floor's drawn board
 pitch was a nine-step staircase (`boards_across()` snapped the board count to an
 even integer per row so the lattice would close on the 512-px plane wrap) while
-the engine ramped that band's scroll LINEARLY across the same rows. A drawn fan
-survives horizontal scroll only when each row's scroll is proportional to THAT
-ROW's drawn pitch, so the two disagreed by a factor that varied down the band —
-at rest every plank pointed straight down, and in motion every plank sheared the
-same way. Four shapes built green the whole time, the tile budget was respected,
-the room gate passed, and nothing anywhere compared the art's geometry with the
-scroll that would be applied to it. These three tests are that comparison.
+the engine ramped that band's scroll LINEARLY across the same rows. Four shapes
+built green the whole time, the tile budget was respected, the room gate passed,
+and nothing anywhere compared the art's geometry with the scroll that would be
+applied to it. These three tests are that comparison.
+
+THE ART CHANGED SHAPE ON 2026-09-05 and one arm was retired with it — see the
+block above test_drawn_planks_are_one_translation_tiled_lattice, which says what
+the retired arm tested and why a shear makes it unfailable. The floor is no
+longer a fan: it is one lattice of parallel planks, period 64 px, leaning 0.5 px
+per row, chosen by the owner over a fan whose apex the 512-px wrap copies off
+the side of the screen.
+
+THE PROPERTY THAT MAKES THIS FILE WORTH ANYTHING, and it survived the rewrite:
+every number checked below is VOTED FOR OFF THE RENDERED PIXELS. Nothing here
+asks perspective_floor_gen what it meant to draw. An early draft compared the
+drawn seams against `board_pitch()`'s own output, which made the check a
+tautology — the even-snap mutation was applied on disk and the test still passed
+(measured 2026-09-05). Any arm added here must keep that property.
 
 They are cheap and boot nothing: build.sh's pytest lane sweeps tools/test_*.py.
 """
@@ -33,19 +44,6 @@ WOOD_INDEX = {v: i for i, v in enumerate(pfg.WOOD)}
 
 
 # ---------------------------------------------------------------- helpers ----
-def shipped_band():
-    """The floor band exactly as the generator bakes it, plus its geometry."""
-    s = pfg.SHIPPED
-    rows = list(range(s["row0"], s["row1"] + 1))
-    px = pfg.render_band(rows, pitch=s["pitch"], vp_col=s["vp_col"],
-                         seam_rows=s["cross_seam_px"], lod_px=s["lod_px"],
-                         horizon_row=s["horizon_row"], shade_near=s["shade_near"],
-                         shade_far=s["shade_far"], crown=s["crown"])
-    shade_px = (s["horizon_row"] - s["row0"]) * 8
-    span = len(rows) * 8 - shade_px
-    return px, rows, shade_px, span
-
-
 def seam_centres(row):
     """Plane-x centres of the drawn plank seams in one 512-px row.
 
@@ -55,6 +53,9 @@ def seam_centres(row):
     gets below index 2. Thresholding on the index rather than on the row minimum
     is what makes both plank parities count — taking the minimum finds only the
     darker parity and reports twice the pitch.
+
+    The run that straddles x = 0 is stitched back together and reported at its
+    true (negative) centre, so the wrap is not scored as two half-seams.
     """
     ind = [1 if WOOD_INDEX[v] <= 1 else 0 for v in row]
     if not any(ind) or all(ind):
@@ -74,70 +75,110 @@ def seam_centres(row):
     return sorted((a + b) / 2.0 for a, b in runs)
 
 
-SEAM_SEARCH_CUT = 200.0          # plane px either side of the vanishing point to
-                                 # take seams from. Comfortably inside the wrap
-                                 # fold's |u| = 256 axis for every pitch this band
-                                 # draws (the widest is `pitch`, 64), so the
-                                 # straddling plank never enters the fit.
+DARK_ROW_FRACTION = 0.20         # above this, the dark runs in a row are not
+                                 # seams. A seam is drawn where `frac` exceeds
+                                 # 0.5 - 0.9/pitch, i.e. ~1.8 px of every
+                                 # `pitch`, so a row of real seams is a few
+                                 # percent dark. A CROSS-seam row (the plank
+                                 # ends) subtracts 1.6 from the whole row, which
+                                 # pushes the darker plank PARITY under the
+                                 # threshold as well — measured on the shipped
+                                 # band, those rows come back 51% dark and the
+                                 # run centres they report are plank centres,
+                                 # half a period away from the seams. Scoring
+                                 # them would be scoring the wrong feature, so
+                                 # they are dropped and COUNTED.
 
 
-def estimate_pitch(us, tol=1.2):
-    """The row's board pitch, estimated from seam positions and NOTHING ELSE.
+def seam_rows(px, shade_px, span, min_seams=4):
+    """(dy, [seam plane-x]) for every floor row whose seams can be located.
 
-    A one-parameter Hough vote: for each candidate pitch p, count how many of the
-    detected seams land within `tol` px of the lattice {(k + 1/2) p}. Take the
-    candidate with the most hits, and among ties the LARGEST p.
+    Rows whose dark fraction says the runs are not seams are dropped; the count
+    is returned so the caller can refuse to conclude anything if too many were.
+    """
+    out, dropped = [], 0
+    for dy in range(span):
+        row = px[shade_px + dy]
+        dark = sum(1 for v in row if WOOD_INDEX[v] <= 1)
+        if dark > DARK_ROW_FRACTION * pfg.PLANE_W:
+            dropped += 1
+            continue
+        cs = seam_centres(row)
+        if len(cs) >= min_seams:
+            out.append((dy, cs))
+    return out, dropped
 
-    WHY "LARGEST TIE WINS" IS THE WHOLE CORRECTNESS ARGUMENT. A p above the true
-    pitch always misses seams, so it can never tie. A p below it can: p/3 puts its
-    lattice on odd multiples of p/6, which contains every odd multiple of p/2, so
-    it fits the true seams and adds spurious ones. Taking the largest maximiser
-    therefore lands on the true pitch, and the estimate never consults the
-    generator's model — which is the point. An earlier draft of this test compared
-    the drawn seams against `board_pitch()`'s own output, which made the check a
-    tautology: the even-snap mutation was applied on disk and the test still
-    passed (measured 2026-09-05).
+
+def estimate_period(rows_seams, tol=1.2):
+    """The plank period, voted for over the drawn seams and NOTHING ELSE.
+
+    A one-parameter Hough vote across every located row at once: for each
+    candidate period p, count the seams that land within `tol` px of SOME
+    lattice of period p (the phase is fitted per row, so a sheared lattice
+    scores exactly as well as an upright one). Among ties the LARGEST p wins.
+
+    WHY "LARGEST TIE WINS" IS THE WHOLE CORRECTNESS ARGUMENT, and it is
+    unchanged from the fan-era version of this file. A p above the true period
+    always misses seams, so it can never tie. A p below it can: p/3 puts its
+    lattice on multiples of p/3, which contains every multiple of p, so it fits
+    the true seams and adds spurious ones. Taking the largest maximiser
+    therefore lands on the true period. NOTHING here consults
+    perspective_floor_gen's model — that is the property that made the previous
+    draft of this file worth keeping and it is preserved deliberately: an
+    earlier draft compared the drawn seams against `board_pitch()`'s own output,
+    the mutation was applied on disk, and the test still passed.
     """
     best = None
     p = 4.0
     while p <= 130.0:
         hits = 0
-        for u in us:
-            r = u / p - 0.5
-            if abs(r - round(r)) * p <= tol:
-                hits += 1
+        for dy, cs in rows_seams:
+            # fit the phase for this row from its own first seam, then count
+            phase = cs[0]
+            for c in cs:
+                r = (c - phase) / p
+                if abs(r - round(r)) * p <= tol:
+                    hits += 1
         if best is None or hits > best[0] or (hits == best[0] and p > best[1]):
             best = (hits, p)
         p += 0.02
     return best
 
 
-def measured_pitches(px, shade_px, span, vx):
-    """(dy, pitch) for every fan row whose seams can be located, from pixels."""
-    out = []
-    for dy in range(span):
-        us = sorted(u for u in (((c - vx + 256.0) % 512.0) - 256.0
-                                for c in seam_centres(px[shade_px + dy]))
-                    if 0 < u <= SEAM_SEARCH_CUT)
-        if len(us) < 3:
-            continue
-        hits, p = estimate_pitch(us)
-        if hits < 3:
-            continue
-        out.append((dy, p))
-    return out
+def estimate_skew(rows_seams, period, tol=1.2):
+    """The lattice's lean in plane px per pixel row, voted for over the seams.
 
-
-def least_squares_line(points):
-    n = len(points)
-    sx = sum(q[0] for q in points)
-    sy = sum(q[1] for q in points)
-    sxx = sum(q[0] ** 2 for q in points)
-    sxy = sum(q[0] * q[1] for q in points)
-    a = (n * sxy - sx * sy) / (n * sxx - sx * sx)
-    b = (sy - a * sx) / n
-    residual = max(abs(q[1] - (a * q[0] + b)) / q[1] for q in points)
-    return a, b, residual
+    Same shape of argument as estimate_period: for each candidate skew k, score
+    how many seams land on the SINGLE lattice {phase + k*dy + j*period} with one
+    global phase, fitted from the residues. A shear has one k that explains
+    every row; a fan has none, because its period changes with the row.
+    """
+    best = None
+    k = -4.0
+    while k <= 4.0001:
+        # residues of every seam against a k-sheared lattice, as a circular mean
+        import math as _m
+        sx = sy = 0.0
+        n = 0
+        for dy, cs in rows_seams:
+            for c in cs:
+                a = 2 * _m.pi * ((c - k * dy) % period) / period
+                sx += _m.cos(a)
+                sy += _m.sin(a)
+                n += 1
+        if n:
+            phase = (_m.atan2(sy, sx) / (2 * _m.pi)) * period
+            hits = 0
+            for dy, cs in rows_seams:
+                for c in cs:
+                    d = ((c - k * dy - phase) % period)
+                    d = min(d, period - d)
+                    if d <= tol:
+                        hits += 1
+            if best is None or hits > best[0]:
+                best = (hits, k, phase)
+        k += 0.01
+    return best
 
 
 def override_band_pixels():
@@ -162,82 +203,123 @@ def override_band_pixels():
 
 
 # ------------------------------------------------------------------ tests ----
-def test_drawn_board_pitch_is_linear_in_the_ramp_index():
-    """THE LAW, measured off the rendered pixels with no model in the loop.
+#
+# RETIRED 2026-09-05: test_drawn_board_pitch_is_linear_in_the_ramp_index.
+#
+# It fitted the drawn board pitch against the depth row and required the fit to
+# be linear with a zero intercept, because a radial fan survives horizontal
+# scroll only when each row's pitch is proportional to that row's scroll. That
+# law was real and the arm was doing its job — it is what caught the nine-step
+# staircase. It is retired because THE FAN IS GONE, not because it went green:
+# the owner chose parallel planks over a fan whose apex the 512-px wrap copies
+# off the side of the screen ("we need it all just skewed in one direction
+# instead of trying to work around it having one part point at us"). Under a
+# shear the drawn period is the SAME on every row by construction, so a fit of
+# pitch against depth row is a fit of a constant: slope 0, residual 0, and it
+# would pass for any shear whatsoever, including a broken one. An arm that
+# cannot fail is worse than no arm.
+#
+# test_drawn_planks_are_one_translation_tiled_lattice below is its replacement
+# and it tests the shear's own two preconditions instead — one period for the
+# whole band, and that period an even divisor of the wrap. It keeps the retired
+# arm's one non-negotiable property: every number it checks is voted for OFF THE
+# PIXELS, and it never calls perspective_floor_gen.render_band's model to find
+# out what it should have drawn.
 
-    The engine's per-line scroll across this band is linear in the screen line
-    (parallax.emp `.lp_curve`: an exact-remainder Bresenham, so the emitted word
-    is floor((line - top) * camX / span)). A drawn fan survives horizontal scroll
-    only when each row's scroll is proportional to THAT ROW's drawn board pitch,
-    so the pitch must be linear in the same index, with a ZERO intercept — the
-    band's first line is the vanishing point, where the pitch is 0 and the scroll
-    is 0.
 
-    Three assertions, each with a bound derived from the geometry rather than
-    read off a nearby number. RED-FIRST, all three measured on 2026-09-05 by
-    rendering the alternative constructions and running this same fit:
+def test_drawn_planks_are_one_translation_tiled_lattice():
+    """THE SHEAR'S LAW, measured off the rendered pixels with no model in the loop.
 
-        construction                 slope a   intercept b   max rel residual
-        radial (shipped here)         0.9077     -0.070 px       0.0035
-        even-snap (the defect)        0.9485     -1.306 px       0.1170
-        radial, depth index off by 1  0.9078     +0.831 px       0.0035
+    Three things have to hold, and each one is a defect the fan actually had:
 
-    so the residual bound catches the staircase and the intercept bound catches
-    the off-by-one, and neither bound is anywhere near the shipped values.
+      (1) ONE PERIOD FOR THE WHOLE BAND. The fan's period was proportional to the
+          depth row; forcing that to close on the 512-px wrap quantised it into a
+          staircase of constant-pitch runs, and a constant pitch over a run of
+          rows draws VERTICAL boards. Here there is a single period, so every row
+          must vote for the same one.
+      (2) THAT PERIOD DIVIDES THE WRAP AN EVEN NUMBER OF TIMES. This is the whole
+          reason the shear closes: 512/period integer means the lattice tiles by
+          translation with no straddling plank, and EVEN means the plank tone
+          alternation comes back to itself across x = 0 instead of putting a
+          same-tone pair at the wrap.
+      (3) THE PLANKS ACTUALLY LEAN, AND ALL THE SAME WAY. One skew explains every
+          seam on every row. A non-zero skew is what stops the floor being the
+          vertical stripes the owner rejected ("it's just a line pointing down").
+
+    RED-FIRST, measured 2026-09-05 by editing the generator on disk and running
+    this arm:
+
+        mutation quoted from tools/perspective_floor_gen.py       this arm
+        (shipped)                                                 PASS
+        `pitch=64` -> `pitch=52` in SHIPPED                        the generator's
+                                                                  own assert fires
+        the fan restored: q = ((x-vx+256.)%512.-256.)/ (pitch*dy/(span-1))
+                                                                  FAIL (1): rows
+                                                                  vote 8 periods
+        `level += 0.6 if (j & 1)` -> `if (j % 3)`                  FAIL (2)
+        `skew * dy` -> `0.0 * dy`                                  FAIL (3)
     """
     s = pfg.SHIPPED
-    px, rows, shade_px, span = shipped_band()
-    vx = s["vp_col"] * 8 - 0.5
-    fit_rows = measured_pitches(px, shade_px, span, vx)
+    px, rows, shade_px, span = pfg.shipped_band()
+    located, dropped = seam_rows(px, shade_px, span)
 
     # LOUD ON UNMEASURABLE, FIRST. A change that stopped drawing seams — or
-    # stopped cutting them past WOOD index 1 — would leave the fit with nothing
-    # and every assertion below vacuously true. The floor is derived: the rows
-    # that draw seams are the rows whose pitch reaches lod_px, and the fit must
-    # have located at least half of them.
-    step = s["pitch"] / float(span - 1)          # the per-row pitch increment
-    seam_rows = sum(1 for dy in range(span) if step * dy >= s["lod_px"])
-    assert seam_rows > 0, (
-        "no row of the band reaches lod_px (%.1f) — it draws no plank seams at "
-        "all, and this test can prove nothing" % s["lod_px"])
-    assert len(fit_rows) >= seam_rows // 2, (
-        "located seams on only %d of the %d rows whose pitch reaches lod_px — "
-        "the detector is not seeing the art" % (len(fit_rows), seam_rows))
+    # stopped cutting them past WOOD index 1 — would leave every assertion below
+    # vacuously true. The floor is derived from the art, not pinned: the rows
+    # that can draw seams are the rows below the horizon whose contrast has faded
+    # in, i.e. every row past dy 0, and at the shipped period there are
+    # PLANE_W/pitch of them per row.
+    assert located, (
+        "not one row of the band draws a locatable plank seam — this arm can "
+        "prove nothing. Did --fade-rows or the seam depth change?")
+    assert len(located) >= (span - int(s["fade_rows"])) // 2, (
+        "located seams on only %d of the %d floor rows; the detector is not "
+        "seeing the art" % (len(located), span))
+    assert dropped <= span // 8, (
+        "%d of the %d floor rows are more than %.0f%% dark, so their runs are "
+        "plank bodies rather than seams and this arm cannot read them. That is "
+        "expected for the handful of cross-seam rows; this many means the band "
+        "as a whole went dark and the measurement below is not about seams."
+        % (dropped, span, 100 * DARK_ROW_FRACTION))
 
-    a, b, residual = least_squares_line(fit_rows)
+    hits, period = estimate_period(located)
+    total = sum(len(cs) for _, cs in located)
 
-    # (1) LINEARITY. A seam centre is a run of whole pixels, so it can sit half a
-    #     pixel off the true lattice; relative to the pitch that is 0.5 / p, and
-    #     p is at least lod_px on every row in the fit.
-    res_bound = 0.5 / s["lod_px"]
-    assert residual <= res_bound, (
-        "the drawn board pitch is not linear in the depth row: worst relative "
-        "residual %.4f over %d rows against a derived bound of %.4f "
-        "(0.5 px / lod_px %.1f). A residual of this size means the pitch is "
-        "QUANTISED — pitch held constant over a run of rows draws vertical "
-        "boards, and under the engine's linear ramp every board in the run picks "
-        "up the same slope and shears the same way. That was the 2026-09-05 "
-        "defect. Fitted a=%.4f b=%+.3f."
-        % (residual, len(fit_rows), res_bound, s["lod_px"], a, b))
+    # (1) ONE PERIOD. The vote has to explain essentially every seam in the band.
+    #     Slack is the half-pixel a seam centre can sit off the true lattice
+    #     because it is a run of whole pixels: at the shipped period that is
+    #     inside the 1.2 px tolerance, so a correct band scores ~100%.
+    assert hits >= 0.97 * total, (
+        "a single plank period explains only %d of the %d drawn seams (%.1f%%). "
+        "The rows disagree about the period, which is what a depth-ramped pitch "
+        "looks like — and a pitch held constant over a run of rows draws "
+        "vertical boards, then shears under the engine's linear scroll ramp. "
+        "Best period %.2f px." % (hits, total, 100.0 * hits / total, period))
 
-    # (2) ZERO INTERCEPT. The pitch at the band's first line must be 0, because
-    #     that line is where the engine's ramp is 0. Getting the depth index off
-    #     by one row moves the intercept by exactly one `step`; half a step is
-    #     the bound that separates the two.
-    assert abs(b) <= 0.5 * step, (
-        "the drawn pitch extrapolates to %+.3f px at the band's first line, not "
-        "0, against a bound of half a row's pitch step (%.3f px). The art's depth "
-        "index and the engine ramp's line index are not the same number, and "
-        "every row of the floor carries a constant scroll offset — the whole fan, "
-        "apex included, then translates with the camera."
-        % (b, 0.5 * step))
+    # (2) EVEN DIVISOR OF THE WRAP. Derived from the plane width, not from
+    #     SHIPPED: the wrap is a property of Plane B, the period is measured.
+    n = pfg.PLANE_W / period
+    assert abs(n - round(n)) <= 0.02, (
+        "the measured plank period %.2f px goes %.3f times into the %d-px plane "
+        "wrap, not a whole number of times. The lattice does not tile the wrap "
+        "by translation, so the wrap carries a straddling plank of the wrong "
+        "width — the artefact the fan had." % (period, n, pfg.PLANE_W))
+    assert int(round(n)) % 2 == 0, (
+        "%d planks across the %d-px wrap is ODD. The plank tone alternation has "
+        "period 2, so it flips across x = 0 and puts a same-tone pair at the "
+        "wrap." % (int(round(n)), pfg.PLANE_W))
 
-    # (3) THE NEAR ROW IS THE PITCH THAT WAS ASKED FOR. Slack is the same
-    #     half-pixel seam quantisation, spread over the fit.
-    assert abs(a - step) <= 0.03 * step, (
-        "the fitted pitch gradient is %.4f px/row but --pitch %d over %d rows "
-        "asks for %.4f — the near row is not %d px of plank."
-        % (a, s["pitch"], span, step, s["pitch"]))
+    # (3) ONE LEAN, AND IT IS NOT ZERO. Voted for the same way as the period.
+    shits, skew, _phase = estimate_skew(located, period)
+    assert shits >= 0.97 * total, (
+        "a single lean explains only %d of the %d drawn seams (%.1f%%) — the "
+        "planks are not all parallel. Best skew %.2f px/row."
+        % (shits, total, 100.0 * shits / total, skew))
+    assert abs(skew) >= 0.2, (
+        "the measured lean is %.2f px per row: the planks are drawn effectively "
+        "VERTICAL. At camera x 0 the floor is then a field of upright stripes, "
+        "which is what the owner reported as \"just a line pointing down\"."
+        % skew)
 
 
 def test_committed_override_carries_the_generated_band():
@@ -250,7 +332,7 @@ def test_committed_override_carries_the_generated_band():
     .json; nothing caught an override that was never regenerated after the
     generator changed. This does.
     """
-    px, rows, _, _ = shipped_band()
+    px, rows, _, _ = pfg.shipped_band()
     got = override_band_pixels()
     assert len(got) == len(px) == len(rows) * 8
     for i, (a, b) in enumerate(zip(px, got)):
@@ -329,7 +411,7 @@ def test_scene_curve_band_matches_the_art_band():
 
 
 if __name__ == "__main__":
-    test_drawn_seams_lie_on_a_pitch_linear_lattice()
+    test_drawn_planks_are_one_translation_tiled_lattice()
     test_committed_override_carries_the_generated_band()
     test_scene_curve_band_matches_the_art_band()
     print("perspective floor: all three checks pass")
