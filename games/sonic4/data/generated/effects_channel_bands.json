@@ -5,25 +5,25 @@
       "hi": 220,
       "lines": 218,
       "lo": 3,
-      "source": "games/sonic4/data/effects/ojz_effects.emp:1906"
+      "source": "games/sonic4/data/effects/ojz_effects.emp#OJZ_TC_PROG"
     },
     "1": {
       "hi": 223,
       "lines": 2,
       "lo": 222,
-      "source": "games/sonic4/data/effects/ojz_effects.emp:1908"
+      "source": "games/sonic4/data/effects/ojz_effects.emp#OJZ_TC_PROG"
     },
     "2": {
       "hi": 160,
       "lines": 158,
       "lo": 3,
-      "source": "games/sonic4/data/effects/ojz_effects.emp:2133"
+      "source": "games/sonic4/data/effects/ojz_effects.emp#OJZ_WORLD_WATER_PROG"
     },
     "3": {
       "hi": 223,
       "lines": 62,
       "lo": 162,
-      "source": "games/sonic4/data/effects/ojz_effects.emp:2136"
+      "source": "games/sonic4/data/effects/ojz_effects.emp#OJZ_WORLD_WATER_PROG"
     }
   },
   "edges": {
