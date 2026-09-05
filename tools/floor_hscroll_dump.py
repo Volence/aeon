@@ -17,6 +17,27 @@ It reports the table as DIFFERENCES between adjacent lines as well as absolute
 values, because the shear is what matters and the absolute value carries a whole
 frame offset that says nothing about the fan.
 
+WHY A SINGLE READ OF THIS TABLE IS VALID, WHICH IS NOT TRUE OF EVERY VDP READ.
+Oracle found (2026-09-05) that every instrument resolving against ONE VDP state
+is blind to mid-frame writes by construction: constant phase down the screen,
+identical columns per row and "no shearing table found" are all exactly what a
+mid-frame fan produces through such an instrument, so three independent-looking
+results shared one blind spot and their agreement read as corroboration.
+
+This tool is safe from that, but by a property of OUR engine rather than of the
+method, and the distinction is the point. The hscroll table is DMA'd from
+Hscroll_Buffer in VBlank (engine/system/buffers.emp, "the ONE table"), and the
+raster interpreter never touches it: engine/effects/raster_dsl.emp writes only
+CRAM (7 sites) and VSRAM (2). So the table the VDP fetches for every line of a
+frame is the table one read returns.
+
+THE SAME CANNOT BE SAID OF A CRAM OR VSRAM READ HERE. `OP_PAL_REGION` streams
+CRAM mid-frame and `fx_vscroll_split` writes VSRAM mid-frame, so a single-state
+read of either shows the last write and not what the frame drew. Anything asking
+what the SCREEN showed must read the drawn raster and require source == "raster";
+a reply of source == "stateRender" is a post-hoc render that cannot witness a
+per-line effect at all, and it fails by showing a clean picture.
+
 VRAM_HSCROLL_TABLE is $BC00 (engine/system/constants.emp:403) and the buffer is
 896 bytes = 224 lines x 4 (plane A word then plane B word, per the VDP's
 per-line format). The floor is Plane B, so plane B is the column to read; plane A
