@@ -2,11 +2,6 @@
   "focus": "Chasing the sprite jumble; the floor waits on his choice of technique",
   "inFlight": [
     {
-      "what": "FLOOR-FAN -- beams converge on the screen centre column at every camera X",
-      "where": "agent worktree",
-      "agent": true
-    },
-    {
       "what": "sprite jumble: emit-path static analysis",
       "where": "agent worktree",
       "agent": true
@@ -76,5 +71,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-05T19:07:14Z"
+  "updatedAt": "2026-09-05T19:07:24Z"
 }
