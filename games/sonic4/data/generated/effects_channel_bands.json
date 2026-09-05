@@ -17,13 +17,13 @@
       "hi": 160,
       "lines": 158,
       "lo": 3,
-      "source": "games/sonic4/data/effects/ojz_effects.emp:1988"
+      "source": "games/sonic4/data/effects/ojz_effects.emp:1995"
     },
     "3": {
       "hi": 223,
       "lines": 62,
       "lo": 162,
-      "source": "games/sonic4/data/effects/ojz_effects.emp:1991"
+      "source": "games/sonic4/data/effects/ojz_effects.emp:1998"
     }
   },
   "edges": {
