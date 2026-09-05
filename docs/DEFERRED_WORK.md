@@ -26262,6 +26262,19 @@ with no camera variable, no symbols and no plane-to-camera substitution:
     THEIRS  pos1->pos2  dk +0.276, d(base) -28   ratio 0.00986
             pos2->pos3  dk +0.490, d(base) -46   ratio 0.01065   mean 0.01025, spread 7.8%
 
+**⚠ CORRECTION 2026-09-05, TO THIS LANE'S OWN NUMBER: `dk/|d(base)|` IS NOT A TUNING TARGET FOR
+US.** It is identically **1/24 = 0.04167** for EVERY curve end factor, because the layer is
+`fb: FACTOR_0` so the ramp starts at zero at the vanishing point and the line-176 sample sits 24
+rows into it (band top 152). Then `k = camX*F/72` and `base = 24*camX*F/72`, so **F cancels
+exactly**. Checked at three factors: `1_8` gives k 1.278 and base 30.7, `1_16` gives 0.639 and
+15.3, `1_32` gives 0.319 and 7.7, and all three give 0.04167 against 0.04155 and 0.04119 measured.
+
+So the ratio is a STRUCTURAL CONSTANT of where the sample line sits relative to the ramp's zero,
+not a knob. Moving it means moving the apex row (`horizon_row` plus `world_y`), which re-rasterises
+the band. The cross-ROM comparison below still stands as a description of the difference; what does
+not stand is this lane's implication that it is the thing to dial. That claim went to two lanes
+before it was checked.
+
 **Ours / theirs = 4.03x.** The third Toy Story position (from the clean floor read, k -0.809) was
 NOT used to derive the ratio, it TESTS it: the value predicted from the first two intervals held
 to 7.8% on data taken afterwards. Their three gains -0.043, -0.319, -0.809 are the tracking
