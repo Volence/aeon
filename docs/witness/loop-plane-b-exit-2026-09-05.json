@@ -11,50 +11,110 @@
     "instrument": "record-mode write watchpoint on Sst.layer at $FF902B (player base $FF8FFE + $2D)",
     "why_watchpoint": "a per-frame sampled read under-samples: an 8px cell is crossed in under one frame at gsp $600. The watchpoint records EVERY write, so the toggle count is exact rather than sampled.",
     "placement_rule": "camera written and settled 12 frames BEFORE the player, or the player lands outside the streamed collision cache",
-    "debug_exit": "emulator/press b — NEVER by writing debug_flag ($FF903A), which skips Player_DebugExit and leaves mappings on Map_TestObj (address error in RefreshSpritePieceCount)"
+    "debug_exit": "emulator/press b \u2014 NEVER by writing debug_flag ($FF903A), which skips Player_DebugExit and leaves mappings on Map_TestObj (address error in RefreshSpritePieceCount)"
   },
   "_geometry_source": "docs/loop-arc-cells-section0.json",
   "_geometry": {
-    "void_centre_px": [1148, 488],
-    "void_bbox_px": {"x": [1056, 1240], "y": [408, 568]},
+    "void_centre_px": [
+      1148,
+      488
+    ],
+    "void_bbox_px": {
+      "x": [
+        1056,
+        1240
+      ],
+      "y": [
+        408,
+        568
+      ]
+    },
     "ground_solid_y": 576,
     "player_ypos_when_standing": 556
   },
   "runs": [
     {
       "id": "A",
-      "label": "leftward entry — THE OWNER'S DIRECTION",
-      "start": {"x": 1230, "y": 556, "layer": 0, "gsp": "-$600"},
+      "label": "leftward entry \u2014 THE OWNER'S DIRECTION",
+      "start": {
+        "x": 1230,
+        "y": 556,
+        "layer": 0,
+        "gsp": "-$600"
+      },
       "crossover_writes": [
-        {"frame": 397, "pc": "0x000101E2", "symbol": "Player_LoopCrossover.y_settled+32",
-         "layer": "0 -> 1", "player_x_at_write": 1151,
-         "note": "x 1151 is the loop's bottom-CENTRE (void centre x 1148), not an arc foot"}
+        {
+          "frame": 397,
+          "pc": "0x000101E2",
+          "symbol": "Player_LoopCrossover.y_settled+32",
+          "layer": "0 -> 1",
+          "player_x_at_write": 1151,
+          "note": "x 1151 is the loop's bottom-CENTRE (void centre x 1148), not an arc foot"
+        }
       ],
       "frames_after_crossover": 90,
       "second_write": null,
-      "end": {"x": 665, "y": 829, "layer": 1, "gsp": "-$600"},
+      "end": {
+        "x": 665,
+        "y": 829,
+        "layer": 1,
+        "gsp": "-$600"
+      },
       "toggle_count": 1,
-      "verdict": "ODD. Exits on plane B. y 829 is 253px BELOW ground_solid_y 576 — he fell through plane-A collision, exactly as reported."
+      "verdict": "ODD. Exits on plane B. y 829 is 253px BELOW ground_solid_y 576 \u2014 he fell through plane-A collision, exactly as reported."
     },
     {
       "id": "B",
       "label": "rightward entry",
-      "start": {"x": 1120, "y": 556, "layer": 0, "gsp": "+$600"},
-      "speed_collapse": {"frames": 18, "x": [1120, 1129], "gsp": ["$600", "$FC"],
-                         "note": "9px of travel in 18 frames — this is the 'can't get past it coming from the left' complaint"},
+      "start": {
+        "x": 1120,
+        "y": 556,
+        "layer": 0,
+        "gsp": "+$600"
+      },
+      "speed_collapse": {
+        "frames": 18,
+        "x": [
+          1120,
+          1129
+        ],
+        "gsp": [
+          "$600",
+          "$FC"
+        ],
+        "note": "9px of travel in 18 frames \u2014 this is the 'can't get past it coming from the left' complaint"
+      },
       "crossover_writes": [
-        {"frame": 655, "layer": "0 -> 1"}
+        {
+          "frame": 655,
+          "layer": "0 -> 1"
+        }
       ],
-      "end_after_138_frames": {"x": 1171, "y": 552, "layer": 1, "gsp": "$8E", "angle": "$FA"},
+      "end_after_138_frames": {
+        "x": 1171,
+        "y": 552,
+        "layer": 1,
+        "gsp": "$8E",
+        "angle": "$FA"
+      },
       "toggle_count": 1,
       "verdict": "ODD. Crosses to B and then STALLS on the arc at gsp $8E. Never reaches the top-centre mark."
     },
     {
       "id": "C",
-      "label": "rightward from x 1070 — DISCARDED as a control",
-      "start": {"x": 1070, "y": 556, "layer": 0, "gsp": "+$600"},
+      "label": "rightward from x 1070 \u2014 DISCARDED as a control",
+      "start": {
+        "x": 1070,
+        "y": 556,
+        "layer": 0,
+        "gsp": "+$600"
+      },
       "toggle_count": 0,
-      "end": {"x": 1497, "y": 952, "layer": 0},
+      "end": {
+        "x": 1497,
+        "y": 952,
+        "layer": 0
+      },
       "why_discarded": "he fell before reaching the mark, so the zero is 'never arrived', not 'arrived and did not fire'. Run B replaced it with a grounded pass. Recorded so the discard is visible rather than silent."
     }
   ],
@@ -70,5 +130,38 @@
     "primary_defect": "The bottom-centre mark is plane-keyed, not direction-keyed (rule R2 raises on self-marks, so a plane-A player reads XOVER_TO_B regardless of travel direction). A LEFTWARD traveller therefore crosses to B at the bottom centre and immediately has no left arc to stand on, because the left half is solid only on A.",
     "secondary_defect": "Rightward entry bleeds gsp $600 -> $FC over 18 frames and stalls on the arc, so it never reaches the top-centre mark either. This is the owner's original screenshot complaint.",
     "not_yet_established": "Whether a traversal at a speed high enough to survive the arc reaches the top-centre mark and toggles back. No run in this set completed a circuit, so the second mark has never been observed firing."
+  },
+  "two_defects_separated_by_trajectory": {
+    "_why": "Hub ask 2026-09-05: his two reports may have different causes and were being treated as one. Separated here by direction of travel, with the evidence class marked per row.",
+    "westward": {
+      "report": "leftward entry, crosses to plane B and falls through collision",
+      "evidence": "MEASURED (this file, run A)",
+      "fall_at": {
+        "x": 665,
+        "y": 829
+      },
+      "path_over_built_ground": "crossed at x 1151 (col 143), ended x 665 (col 83); aurora measures main ground row 72 spanning cols 58..151, so EVERY column on that path has floor",
+      "cause": "plane. He fell through ground that exists, for ~480px of travel. The level-edge account cannot produce this because he never reached an edge.",
+      "open_question": "is editor row 72 solid on BOTH planes or A-only? \u00a73.3 requires both. His words -- 'fall through collision on plane A, which is most of the collision' -- read as a report that it is A-only. If A-only, THAT is the root cause of the westward fall, not the mark rule.",
+      "status": "NOT addressed by the ground extension east; that extension is about the other trajectory"
+    },
+    "eastward": {
+      "report": "his right-foot fall",
+      "evidence": "INFERRED for causation, MEASURED for the geometry (aurora's extents)",
+      "his_fall_at": {
+        "x": 1450,
+        "y": 1416
+      },
+      "my_corroborating_run": {
+        "id": "C",
+        "x": 1497,
+        "y": 952,
+        "note": "discarded as a crossover control for an unrelated reason, but as evidence for the edge account it fits: eastward, past x1280, nothing at any depth"
+      },
+      "geometry": "aurora: main ground row 72 ends at col 151 = x1215 = the loop's right foot; first column with NO floor below y576 is col 160 = x1280; nothing from there to the section edge at x2047; cols 156-158 carry a ledge at y848",
+      "cause": "the built ground ends at the loop's right foot. A rightward exit runs off the end of the level.",
+      "ruling": "aurora extends the test ground east to the section edge, solid on both planes (hub, in the owner's place, 2026-09-05). Lands as its own commit BEFORE the direction-keyed verification, so the rightward circuit is measured against ground that exists."
+    },
+    "_consequence": "These are two defects, not one. Fixing the mark rule cannot fix the eastward fall, and extending the ground east cannot fix the westward one."
   }
 }
