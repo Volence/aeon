@@ -21677,6 +21677,42 @@ the 121 reads correctly. If the re-layout lands, re-running
 `tools/perspective_floor_gen.py --horizon-row 53 --lod-px 12` restores the larger one in one
 command, and costs 58 of the 128 reserve tiles.
 
+⚠ **THE ROM HALF OF THE THREE PARAGRAPHS ABOVE IS SUPERSEDED. The re-layout landed.**
+`tools/bganim_room.py --lst s4.debug.lst --gate` on 2026-09-05 reports **64,936 B** of growth
+before the gate fires, not 252 B; the binding limit is now the ruled 20,480 B authoring
+ceiling, and `dac_banks` is a derived anchor at 0xA8000. The tile budget paragraphs still
+stand — the **VRAM** ceiling (400 tiles, 320 static, `band_reserve` 80) is untouched by the
+re-layout and is what actually constrains this band. Read the room gate, never these numbers.
+
+### The fan was not a fan (fixed 2026-09-05, parcel/perspective-floor-radial)
+
+`boards_across()` snapped the board count to an even integer per row so the lattice would
+close on the 512-px plane wrap. Measured off the shipped override, that made the drawn pitch
+a **nine-step staircase** — pitch constant over runs of 2..20 pixel rows, i.e. runs of
+VERTICAL boards — while the engine ramped the same band's scroll linearly. The ratio
+scroll/pitch, which the perspective law requires to be one constant, swung 0.887..1.092 and
+varied monotonically inside every run. That is both halves of the owner's report: "just a
+line pointing down" at rest, "they all just wind up skewing to the left" in motion. A second
+defect rode along: the art indexed depth from 1 while the engine's ramp hands the band's
+first line index 0, a constant camX/72 px on every row that translated the whole fan.
+`board_pitch()` now draws the exact radial fan and indexes from 0. Exact wrap closure and an
+exactly-linear pitch are incompatible, so closure gave: `render_band` folds x to |u| in
+[0,256], which is exactly 512-periodic and keeps the H-flip dedup, and concentrates the whole
+closure error in the one plank straddling |u|=256 (width 0.47x..1.95x its neighbours').
+120 tiles, 0 appended, blob 320, `band_reserve` untouched, zero ROM movement.
+
+**OPEN, and both are the owner's calls, not blockers.**
+1. **No runtime confirmation.** No emulator has run this ROM. The evidence is
+   `tools/perspective_floor_predict.py`, which composites the generator's art under
+   `curve_probe.derive_curve_buffer()`'s transcription of the engine's own Bresenham ramp —
+   a computed prediction, not a capture.
+2. **`lod_px` 20 -> 26 and the depth ramp 0.5 -> 0.9 were forced by the 121-slot budget**,
+   not chosen for the picture: a real fan puts every seam at a different sub-pixel offset on
+   every row, so it costs tiles the vertical-stripe staircase deduped away. The shipped
+   `lod 20 / ramp 0.5` geometry costs 145..159 tiles radially and fits at NO shading. Buying
+   those 5 screen lines of drawn plank back means spending `band_reserve`, which
+   `games/sonic4/vram.toml` says is the owner's number to set.
+
 ### Two measured traps worth keeping, both baked into the generator as comments
 
 - **The reflection axis must sit at a half-pixel.** An axis on plane x 256 rather than
