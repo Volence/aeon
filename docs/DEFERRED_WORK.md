@@ -26463,23 +26463,39 @@ editor seam, so it is aurora's and the owner's rather than a lane-local tidy.
 
 ---
 
-### Worktree and branch prune: measured, deferred to a boundary - 2026-09-05
+### Worktree prune: BOTH proposed safety criteria FAIL on this tree - 2026-09-05
 
-**Measured, not cleaned:** 236 worktrees, 488 local branches, **30 NOT merged to master**, 458
-removable, and `.claude/worktrees` alone is **6.2 GB**. Aurora found the same class on their tree
-(88 worktrees, 154 branches, 6.6 GB, 87 of the 88 already ancestors of master).
+**Measured:** 236 worktrees, 488 local branches, 30 NOT merged to master, 6.2 GB in
+`.claude/worktrees` alone.
 
-**RULES FOR WHOEVER RUNS IT.**
-- **Remove only what is an ancestor of master, checked PER BRANCH, never by pattern.** A pattern
-  cannot tell a dead tree from a live one.
-- **The 30 unmerged STAY and are named** in the message of this commit's neighbour. Two are from
-  today and about subjects still open (`fix/floor-kink-stale-rom-2026-09-05`,
-  `fix/sec7-scene-fg-tear-witness`); read a branch before deciding it is dead.
-- **SORT BY `du`, NOT BY COUNT** (oracle's figure): their THREE dead worktrees held **25 GB**,
-  nearly all `target/`. Count does not predict disk, so a prune ordered by count spends its effort
-  in the wrong place.
-- **Never while an agent is live.** Deferred tonight for exactly this: both running agents held
-  worktrees that appear in `git worktree list`, and a prune racing one deletes a tree mid-write,
-  which is unrecoverable. Note both happened to sit OUTSIDE `.claude/worktrees`, so the obvious
-  "remove that directory" would have missed them - **that is luck of placement, not a property of
-  the layout, and a prune must not be built on it.**
+**⚠ THE ANCESTOR CRITERION IS UNSAFE AND THIS ENTRY ORIGINALLY GAVE IT AS THE RULE.** "Tip is an
+ancestor of master" calls a FRESH agent worktree removable: a tree started at master HEAD, or one
+whose work has just been merged, is trivially an ancestor while the agent is still running in it.
+**Demonstrated here, on a LIVE agent's tree:** `.aeon-f7-tilt` at tip `07e10b05` IS an ancestor of
+master (its parcel was merged at `47218de1`) while its agent was still working. The criterion would
+have deleted a running agent's tree. Aurora caught the general case against their own repo; this is
+the specific case sitting in mine.
+
+**⚠ AND THE LOCK DOES NOT PROTECT THIS TREE.** Aurora's live worktrees were saved by Claude Code's
+worktree lock, which makes `git worktree remove --force` refuse with exit 128. Checked here:
+**5 of 236 worktrees are locked, and NEITHER live agent tree is among them.** `.aeon-f7-tilt` and
+`aeon-spring` both report `locked: no`. So the protection that worked for aurora is absent here,
+and a prune trusting it would have destroyed uncommitted work.
+
+**NEVER PASS A SECOND `-f`.** `git worktree remove -f -f` overrides the lock and destroys a live
+agent's uncommitted work. Treat a lock refusal as the answer, not an obstacle.
+
+**WHAT ACTUALLY PROTECTED THIS TREE TONIGHT WAS THE DEFERRAL**, nothing else. Not the lock, which
+is absent, and not the ancestor test, which pointed the wrong way. That is the argument for the
+ordering below rather than for any single check.
+
+**SAFE ORDER when it is finally run:**
+1. **Live agents first.** If any agent holds a tree, DEFER. This is the only step that worked.
+2. **Honour a lock refusal** where a lock exists; never `-f -f`.
+3. **Ancestor test only as a staleness HINT** among unlocked, agent-free trees, and it cuts both
+   ways: a squash or rebase merge makes a landed branch a NON-ancestor too.
+4. **`du -sh` per tree before count.** Oracle's three dead worktrees held 25 GB, nearly all
+   `target/`; count does not predict disk.
+
+**The 30 unmerged branches STAY and are named in `901f4d87`'s message.** Two are from today about
+subjects still open (`fix/floor-kink-stale-rom-2026-09-05`, `fix/sec7-scene-fg-tear-witness`).
