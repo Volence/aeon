@@ -24861,6 +24861,60 @@ branch), and `8bf6df74`'s DEBUG view twins already give two camera-driven views 
 **The missing pieces are a timer twin beside the camera one and the scene binding.** The
 20,480 ceiling (`7f16ae39`) is what leaves room for full-size bands here.
 
+## F7 -- the OTHER wall: the Important drain DEFERS, and no counter watches it
+
+**STATIC, MEASURED (2026-09-05, `tools/dma_defer_headroom.py`, gated in build.sh).** Every
+F7 instrument so far counted a DROP. There is a second wall that is not a drop, and it is
+invisible to all of them. `Drain_Budgeted_Queue` (`engine/system/dma_queue.emp`) reaches
+`.out_of_budget`, **compacts the survivors to the queue base and leaves them for next
+frame**. The enqueue already returned **carry clear**, so `perform_dplc` has ALREADY
+committed `prev_frame`. Nothing increments. Meanwhile `VInt_Level` drains **Critical
+unbudgeted** (`vblank.emp:200`) -- the SAT always ships -- before it calls the **budgeted**
+`Process_DMA_Important` (`:264`). **The SAT ship is not gated on its art having landed.**
+Result: one frame of the new `mapping_frame`'s mappings over partly-old tiles. A jumble,
+lasting exactly one frame, with every drop counter at zero.
+
+**Order decides who loses.** One `GameLoop` pass (`game_loop.emp:29`) runs `VSync_Wait` --
+where `PageIn_Process` enqueues a 2048 B page landing on Important -- **before** the state
+dispatch where `perform_dplc` enqueues the player's art. FIFO, drained from the base: the
+page landing spends the budget first, the player's art is what gets deferred. And the drain
+stops at the FIRST entry that does not fit rather than skipping it, so a cut DPLC leaves
+some pieces new and some old -- right tiles, wrong places.
+
+**THE ARITHMETIC.** NTSC 6144 − plane 1536 − Critical 1664 (128 palette + 640 SAT + 896
+HScroll) = **residual 2944 B**; demand 2048 + 928 (Sonic's peak DPLC frame) = **2976 B**;
+**deficit +32 B, one tile**. Sonic's peak-byte frames are `$0E` and `$1E`, **both walk-tilt
+frames** -- his "rotated slightly". PAL residual is 8448 B with 5472 B spare.
+
+**WHAT IS ENVELOPE, NOT OBSERVATION.** Every charge above is that rider's MAXIMUM. The
+tool says the window is open and how wide; it CANNOT say play enters it. The conjunction
+(plane drain full + page landing queued + player on a peak frame) is a runtime question.
+
+**THE DISCRIMINATOR, and what it forbids.** `DMA_Important_Slot` (`$FFFF820C`) ≠
+`DMA_Important` (`$FFFF80BA`) at the return of `Process_DMA_Important` = survivors = art
+deferred while the SAT shipped. The hypothesis FORBIDS a full drain on every frame of a
+drive that also shows the jumble. It is separable from the booked stale-`prev_frame`
+hazard by SIGN on independent cells: this predicts drops **0** (`DMA_Overflow_Count`
+`$FFFF8F78`, `Dbg_DMA_Enq_Capped` `$FFFF8F7A`) with survivors **> 0**; that one predicts
+drops > 0. It is separable from a mapping-table defect because it is **budget**-dependent,
+not frame-dependent: the same `mapping_frame` is clean on a calm frame and jumbled on a
+loaded one.
+
+**THE KNOB, and it needs no rebuild.** `DMA_Budget_Default` is RAM at **`$FFFF8210`**.
+Lower it and the deficit becomes permanent; raise it and the mechanism is switched off.
+That is a cause-side control, not a correlation. ⚠ `DEBUG=1` boots **in debug fly**, where
+`mapping_frame` is pinned `$00` and `Perform_DPLC` early-outs every frame -- the subject is
+OFF until **B** is pressed. Any run whose `DMA_Peak_Important` (`$FFFF8F74`) stays ≤ 14
+(one entry) measured the subject switched off and must be discarded, not reported as zero.
+
+**NOT ESTABLISHED.** That play reaches the deficit; that the owner's picture is this and
+not the mid-rebuild transient booked below. His capture
+(`docs/captures/2026-09-04-owner-sprite-jumble.png`) was **never committed** -- `git log
+--all` over that path is empty -- so nobody can re-examine it and no reading of it can be
+checked. **A candidate fix is named but unbuilt:** hold the SAT ship one frame when the
+previous drain left survivors, so the screen shows a coherent old frame instead of a
+jumbled new one.
+
 ## F7 — the SAT reading decodes to a mid-rebuild transient; 4100 played frames are clean
 
 **MEASURED (2026-09-05, merge `0f204907`).** All 224 Sonic mapping frames list their pieces

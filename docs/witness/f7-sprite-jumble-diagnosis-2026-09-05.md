@@ -197,3 +197,62 @@ sprite emit.** Two corrections to what is written above:
 - The "2 at boot, 2 at the end" control reading above does not reproduce: on
   `s4.debug.bin` crc32 `8bb835d7` built from `1f2aab07`, `Dbg_DMA_Straddle_All` reads **0**
   at boot and 0 after 36829 frames, which the static survey says is the correct value.
+
+---
+
+## THE OTHER WALL: the drain defers, and nothing counts a deferral (2026-09-05)
+
+**Three corrections to this document first, all found while checking its references.**
+
+1. **`DRAW_SPRITE.NO_PARENT` is real, and this doc's spelling is the third of three.**
+   `s4.debug.lst:3355` carries `$engine.objects.sprites$Draw_Sprite$no_parent : 370A`.
+   Oracle demangles a mangled name to its **last two `$` components joined with a dot**
+   (`oracle/crates/oracle-core/src/symbols.rs:1295`), which is exactly
+   `Draw_Sprite.no_parent`; this doc then upper-cased it. **A recursive `grep` for it in an
+   agent shell finds nothing**, and the mechanism is READ, not inferred: the harness shell
+   snapshot defines `grep` as a function running the claude binary as **`ugrep
+   --ignore-files ... -I`**, so it honours `.gitignore` (and `*.lst` is ignored at
+   `.gitignore:20`) and skips binaries. Measured from the repo root: shell `grep -rl` over
+   `*.lst` returns **0** files, `command grep` and `/usr/bin/grep` return **343**. Use
+   `command grep`, `git grep` or `/usr/bin/grep` for anything that must see build outputs.
+
+   **⚠ Two control designs make this hazard look refuted, and both were run today.**
+   (a) A canary that starts its walk BELOW the `.gitignore` never reads it -- put marker
+   files in `<repo>/x/` and search `x` and both greps agree, search `.` and they diverge.
+   (b) A canary run through `subprocess.run(..., executable='/bin/bash')` resolves `grep`
+   to `/usr/bin/grep`, so it compares the tool with ITSELF and agrees perfectly. A test
+   that bypasses its own subject cannot fail, and its passing is indistinguishable from a
+   clean refutation. Compare two greps only in the shell whose `grep` is under test.
+2. **`.no_parent` is not the child-skip guard, it is the CULL BLOCK.** It spans
+   `$370A-$3765` (the next symbol, `.screen_coords`, is at `$3766`), so a PC there means
+   only "inside `Draw_Sprite`'s culling, mid-`RunObjects`" -- it says nothing about
+   multisprite parents. And `Render_Sprites` has not run yet at that PC, so the buffer read
+   at it is the LAST COMPLETE emit plus an uncleared tail, which is by design: `H3` ships
+   `Sprites_Rendered * 4` words, so entries past the live count are never sent.
+3. **`Dbg_DMA_Straddle_All` is at `$FFE912`, not `$FFE91A`** as the cell table above says.
+   `$FFE91A` is `BgAnim_Table_Ptr`. The campaign tools resolve the symbol from the listing
+   and were never wrong; only this table is.
+
+**The mechanism this doc's exoneration does not cover.** Every instrument read so far
+counts a DROP. The Important queue has a second wall that is not a drop:
+`Drain_Budgeted_Queue` (`engine/system/dma_queue.emp`) hits `.out_of_budget`, **compacts
+the survivors to the base and leaves them for next frame**. The enqueue already returned
+**carry clear**, so `perform_dplc` has ALREADY committed `prev_frame`; no counter moves.
+Meanwhile `VInt_Level` ships the SAT on **Critical, which is unbudgeted and always fully
+drains** (`vblank.emp:200`), before it ever calls the budgeted `Process_DMA_Important`
+(`:264`). Nothing interlocks the two. So the VDP is handed the new frame's mappings over
+partly-old art, for exactly one frame, silently.
+
+**Order decides who loses.** One `GameLoop` pass runs `VSync_Wait` -- where
+`PageIn_Process` enqueues a 2048 B page landing on Important -- **before** the state
+dispatch where `perform_dplc` enqueues the player's art. The queue is FIFO and the drain
+walks from the base, so the page landing spends the budget first and the player's art is
+what gets deferred.
+
+**The arithmetic, derived in `tools/dma_defer_headroom.py` (gated in build.sh).**
+NTSC budget 6144 - plane drain 1536 - Critical (128 palette + 640 SAT + 896 HScroll)
+= **residual 2944 B**. Worst-case demand = 2048 page landing + 928 peak Sonic DPLC frame
+= **2976 B**. **Deficit +32 B, one tile.** PAL's residual is 8448 B and has 5472 B spare.
+Sonic's two peak-byte frames are `$0E` and `$1E` -- both walk-tilt frames, which is his
+"rotated slightly". Every charge is that rider's MAXIMUM, so this is an ENVELOPE and not
+an observed frame: it says the window is open and how wide, never that play enters it.
