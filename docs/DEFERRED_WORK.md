@@ -25770,3 +25770,27 @@ been **red on demo on correct code**. **The enumeration parameter that never var
 GAME.** When a suite has more than one shape, **vary the shape before writing a number down as
 a property of the shapes; assert containment, report the reverse difference, never
 strictness.** Same family as this repo's own "enumerate by what touches the value".
+
+---
+
+### OJZ floor: the fan is retired, and the plank angle now rotates with the camera — 2026-09-05
+
+**Not a blocker; a consequence the owner has not yet seen in a capture.** The floor's art is
+now parallel planks (`vx + j*64 + 0.5*dy`), chosen over the fan because Plane B's 512-px wrap
+COPIES a fan's apex every 512 px and the boards belonging to an off-screen copy converge off
+the side of the screen — his *"a few after get weird and point away"*. Forcing the fan's
+period to divide 512 does not fail on budget, it fails on geometry: 6 distinct periods over
+the 43 rows that draw seams, runs of up to 12 pixel rows, i.e. vertical stripes.
+
+**The open item is cost (b) in `docs/witness/floor-outer-stripes-2026-09-05.md`:** on-screen
+slope is `skew - C`, so the planks lean +0.50 px/row at camera 0, stand VERTICAL at camera
+x ~= 36, and reach -5.35 by camera 420, where the prediction shows near-horizontal streaking.
+Uniform at every instant, but not a fixed angle. **`--skew` only moves the crossing point**
+(~2.7 re-centres camera 0..420 at +-2.7 instead of +0.5..-5.3). The only lever that reduces
+the rotation is the layer's `curve` end factor — a shallower ramp rotates slower and recedes
+less — and that is the per-row gain, which is correct and was explicitly ruled out of scope.
+**Decide it from a capture at three camera positions, not from this note.**
+
+Also parked: `crown` is shipped at 0.0. At 0.45 it costs +24 tiles and still fits (63 of 120),
+but the highlight crosses a wood-ramp rounding step part-way down each plank and reads as pale
+notches rather than a continuous crown. It is a palette/ramp problem, not a budget one.

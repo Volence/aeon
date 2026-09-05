@@ -109,6 +109,28 @@ def seam_rows(px, shade_px, span, min_seams=4):
     return out, dropped
 
 
+def plank_tones(px, shade_px, span, period, phase):
+    """Mean wood index of each plank's interior, averaged down the whole floor.
+
+    The plank interior is the middle half of each period, which keeps the seam
+    and the crown out of the mean. `phase` and `period` are the values VOTED FOR
+    off the pixels by estimate_skew/estimate_period, so this reads the planks the
+    art actually drew, not the ones the generator meant to.
+    """
+    n = int(round(pfg.PLANE_W / period))
+    sums = [0.0] * n
+    counts = [0] * n
+    for dy, _cs in seam_rows(px, shade_px, span)[0]:
+        row = px[shade_px + dy]
+        for k in range(n):
+            centre = phase + period * (k + 0.5)
+            for t in range(int(-period / 4), int(period / 4) + 1):
+                x = int(round(centre + t)) % pfg.PLANE_W
+                sums[k] += WOOD_INDEX[row[x]]
+                counts[k] += 1
+    return [sums[k] / counts[k] for k in range(n) if counts[k]]
+
+
 def estimate_period(rows_seams, tol=1.2):
     """The plank period, voted for over the drawn seams and NOTHING ELSE.
 
@@ -246,18 +268,45 @@ def test_drawn_planks_are_one_translation_tiled_lattice():
           seam on every row. A non-zero skew is what stops the floor being the
           vertical stripes the owner rejected ("it's just a line pointing down").
 
-    RED-FIRST, measured 2026-09-05 by editing the generator on disk and running
-    this arm:
+    RED-FIRST. Every row below was measured on 2026-09-05 by rewriting
+    tools/perspective_floor_gen.py ON DISK, running this arm alone, and restoring
+    the file from the COMMITTED baseline (`git show HEAD:...`) before the next
+    one. The mutation text is quoted from the file after the edit, not from the
+    patch that made it. Exit codes are pytest's, read directly.
 
-        mutation quoted from tools/perspective_floor_gen.py       this arm
-        (shipped)                                                 PASS
-        `pitch=64` -> `pitch=52` in SHIPPED                        the generator's
-                                                                  own assert fires
-        the fan restored: q = ((x-vx+256.)%512.-256.)/ (pitch*dy/(span-1))
-                                                                  FAIL (1): rows
-                                                                  vote 8 periods
-        `level += 0.6 if (j & 1)` -> `if (j % 3)`                  FAIL (2)
-        `skew * dy` -> `0.0 * dy`                                  FAIL (3)
+      mutation, as it read on disk                              exit  arm
+      (unmutated baseline)                                        0   pass
+      q = (((x-vx+256.0)%512.0)-256.0)/max(1e-6,pitch*dy/(span-1))  1   (1): one
+        [the fan restored: period proportional to the depth row]        period
+                                                                        explains
+                                                                        523/676
+                                                                        seams
+      level += 0.6 if (j % 3) else -0.6                            1   (4): same-
+                                                                        tone
+                                                                        neighbours
+                                                                        at planks
+                                                                        [0,3,6,7]
+      q = (x - vx - 0.0 * dy) / float(pitch)                       1   (3): lean
+                                                                        -0.01
+      SHIPPED pitch=52 (does not divide 512)                       1   caught
+                                                                        UPSTREAM by
+                                                                        plank_lattice
+                                                                        (), not by
+                                                                        this arm
+      q = (x - vx - skew * dy) / float(52)                         1   (2): 52.02
+        [52 in the rasteriser only, so plank_lattice() sees 64]          px goes
+                                                                        9.842 times
+                                                                        into 512
+      SHIPPED pitch=128 (divides 512 four times, EVEN)             0   pass
+        [the CONTROL: a different-but-legal lattice must stay green]
+
+    THE METHOD CHANGED PART-WAY, and the earlier rows were re-run after it did.
+    The first battery had arms (1)-(3) only, and `if (j % 3)` came back GREEN —
+    applied-and-still-green, which is a defect in the arm and not a pass. Arms
+    (1)-(3) only ever look at where the SEAMS are, and every tone scheme puts its
+    seams in the same places. Arm (4) was added for exactly that hole and the
+    WHOLE battery above, including the rows that had already gone red, was re-run
+    against the arm as it now stands.
     """
     s = pfg.SHIPPED
     px, rows, shade_px, span = pfg.shipped_band()
@@ -315,6 +364,35 @@ def test_drawn_planks_are_one_translation_tiled_lattice():
         "a single lean explains only %d of the %d drawn seams (%.1f%%) — the "
         "planks are not all parallel. Best skew %.2f px/row."
         % (shits, total, 100.0 * shits / total, skew))
+    # (4) THE PLANK TONE ALTERNATION CLOSES ON THE WRAP. Added 2026-09-05 after
+    #     the red-first battery found arms (1)-(3) BLIND to it: mutating
+    #     `level += 0.6 if (j & 1)` to `if (j % 3)` left all three green, because
+    #     they only ever looked at where the SEAMS are, and a tone scheme of any
+    #     period puts its seams in the same places. A 3-periodic tone over the 8
+    #     planks of the wrap draws +,-,-,+,-,-,+,- and the wrap then butts two
+    #     same-tone planks together at plane x 0 — a plank of double width, which
+    #     is the straddling-plank artefact wearing a different hat.
+    #
+    #     Read cyclically INCLUDING the pair that straddles x = 0, adjacent plank
+    #     tones must differ. Measured off the plank interiors, and the two-class
+    #     split is taken from the data (the midpoint of the observed means), not
+    #     from the generator's +-0.6.
+    tones = plank_tones(px, shade_px, span, period, _phase)
+    assert len(tones) >= 4, (
+        "read only %d plank tones; cannot say whether they alternate" % len(tones))
+    mid = (min(tones) + max(tones)) / 2.0
+    assert max(tones) - min(tones) > 0.5, (
+        "the planks are all one tone (spread %.2f wood steps): there is no "
+        "alternation to close on the wrap, and neighbouring planks are told "
+        "apart by the seam alone" % (max(tones) - min(tones)))
+    cls = [t > mid for t in tones]
+    bad = [i for i in range(len(cls)) if cls[i] == cls[(i + 1) % len(cls)]]
+    assert not bad, (
+        "plank tones do not alternate around the wrap: same-tone neighbours at "
+        "plank index %s of %d (the last entry is the pair that straddles plane "
+        "x 0). Two same-tone planks butted together read as one plank of double "
+        "width." % (bad, len(cls)))
+
     assert abs(skew) >= 0.2, (
         "the measured lean is %.2f px per row: the planks are drawn effectively "
         "VERTICAL. At camera x 0 the floor is then a field of upright stripes, "
