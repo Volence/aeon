@@ -24896,7 +24896,45 @@ reversible, and does not put engine work in the VBlank-critical path for an auth
 convenience. **Route 1 remains the wrong trade at any framing I can see.** This is an engine
 design change either way, so it goes to him before anything is built.
 
-## ⚠ The crossover mark is 8 px wide and a player can step 16 px. ENGINE ROW — THE one row.
+## ✅ FIXED 2026-09-05: the crossover mark is 8 px wide and a player can step 16 px
+
+**Fixed by a SWEPT test** (merge `4df9bebf`): the read walks from the cell it last ran in to
+the cell this frame resolved to, one cell per iteration, **advancing both axes per iteration**
+so probes are `max(|dX|,|dY|)` rather than their sum — an ordinary diagonal frame on a slope
+still costs one probe. **The steady state (same cell, almost every frame) is unchanged
+instruction for instruction at 106 cycles.**
+
+**Green on the real ROM at all three speeds, against a control ROM built from the pre-fix
+engine so the two differ only by this fix:**
+
+| gsp | px/f | before | after |
+|---|---|---|---|
+| `$600` | 6 | 1 flip, rides | 1 flip, rides |
+| `$900` | 9 | **0 flips, falls 1923 px** | **2 flips, +143 px** |
+| `$1000` | 16 | **0 flips, falls 768 px** | **1 flip, +72 px** |
+
+**The `$600` row is the NEGATIVE CONTROL and is the point:** 6 px cannot straddle an 8 px
+cell, so the fix must be a no-op there, and no sub-cell phase of the eight changes it.
+
+**And the sample spacing was DERIVED BEFORE THE COUNTS** — a mark is occupied `ceil(8/v)`
+frames, so **1 frame** at both 9 and 16 px/f, meaning any interval above one frame cannot
+resolve a flip at the speeds that matter. **That is the rule this repo learned the hard way
+earlier the same day**, applied by the producer rather than caught by a reviewer.
+
+**NOT a supercover:** an isolated cell the segment only clips the corner of can still be
+missed. The code and both gate docstrings say so rather than implying completeness.
+
+**Open, and NOT chased:** the `$900` post-fix run still ends with a 413 px drop after
+correctly riding the loop (x 1589, y 970 at 200 frames). Pit, end of the streamed window, or a
+second defect — unestablished, and recorded as unestablished.
+
+**⚠ Content question raised by the fix, not acted on: the shipped paint contradicts its own
+design note.** `docs/loop-arc-cells-section0.json` recommends marks at entry/exit height and
+explicitly *"not at the crown, where a mis-fire strands the player mid-arc"* — **that
+recommendation was mine and it contradicts §3.3**, which puts them at bottom-centre and
+top-centre. What shipped follows §3.3. **The file should be corrected, not the paint.**
+
+## ~~The crossover mark is 8 px wide~~ — the original booking, kept for its arithmetic
 
 **ONE ROW FOR THIS FACT, and it is this one.** Aurora booked the same arithmetic in their own
 tree as `XOVER-8PX-VS-CAP`; **that is the same defect seen from the authoring side, not a
