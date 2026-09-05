@@ -83,6 +83,7 @@ def test_both_routines_are_executed_not_stubbed(cut):
     w = lxg.World(rom, prog, extents, syms, equs)
     w.fill_plane(0, lxg.ATTR_A)
     w.place(lxg.IN_CELL[0], lxg.IN_CELL[1], equs["LAYER_PATH_A"])
+    w.set_x_vel(lxg.RIGHT)
     trace = w.frame()
     assert syms["Collision_GetType"] in trace.called, \
         "the read site did not call Collision_GetType"
@@ -104,6 +105,7 @@ def test_one_rom_byte_decides_the_layer(cut, K):
         w.fill_plane(1, lxg.ATTR_A)
         w.set_crossover(lxg.ATTR_A, table_value)
         w.place(lxg.IN_CELL[0], lxg.IN_CELL[1], K["LAYER_PATH_A"])
+        w.set_x_vel(lxg.RIGHT)          # XOVER_TO_B leads onto the RIGHT arc
         w.frame()
         return w.layer()
 
@@ -149,6 +151,8 @@ def test_the_shipped_table_is_the_control(cut, K):
     w = lxg.World(rom, prog, extents, syms, equs)
     w.fill_plane(0, lxg.ATTR_A)
     w.place(lxg.IN_CELL[0], lxg.IN_CELL[1], K["LAYER_PATH_A"])
+    w.set_x_vel(lxg.RIGHT)              # a LIVE direction: a silent pass here must be
+                                        # the unmarked cell's doing, not x_vel == 0
     trace = w.frame()
     assert not w.layer_writes(trace), \
         "the shipped, unmarked ROM wrote the layer byte — every act would be a loop"
@@ -191,16 +195,60 @@ def test_the_gate_refuses_a_vacuous_pass(cut, K):
 
 def test_the_model_is_a_bijection_onto_the_two_layers(K):
     """A restatement of `1 -> 0, 2 -> 1` would pass with a mis-typed bias. What must
-    hold is that the two legal values map onto the two legal layers, one each."""
-    out = [lxg.model(K["LAYER_PATH_A"], v, K)
-           for v in (K["XOVER_TO_A"], K["XOVER_TO_B"])]
+    hold is that the two legal values map onto the two legal layers, one each.
+
+    Asserted on `mark_target`, the ENCODING's half alone. The direction rule gates
+    whether that target is taken; it does not change what the target IS, and folding
+    the two together here would let a broken bias hide behind a refused fire."""
+    out = [lxg.mark_target(v, K) for v in (K["XOVER_TO_A"], K["XOVER_TO_B"])]
     assert sorted(out) == sorted([K["LAYER_PATH_A"], K["LAYER_PATH_B"]]), \
         "the crossover values do not cover the two layers exactly once: %r" % out
 
 
 def test_xover_none_is_the_identity_on_both_layers(K):
     for layer in (K["LAYER_PATH_A"], K["LAYER_PATH_B"]):
-        assert lxg.model(layer, K["XOVER_NONE"], K) == layer
+        for vel in (lxg.RIGHT, lxg.LEFT, lxg.STILL):
+            assert lxg.model(layer, K["XOVER_NONE"], K, vel) == layer
+
+
+def test_the_direction_rule_is_the_arc_the_mark_leads_onto(K):
+    """The rule, DERIVED from the plane split rather than transcribed as a table.
+
+    Plane B carries a loop's RIGHT arc and plane A its LEFT arc, so a mark fires only
+    when the player's screen-space horizontal travel is heading for the arc that mark
+    leads onto. Everything below follows from `mark_target` and `travel_plane`; nothing
+    here spells 0, 1 or a direction constant, so a flipped LAYER_PATH_* would move the
+    expectation with the rule instead of being caught by a stale literal."""
+    for value in (K["XOVER_TO_A"], K["XOVER_TO_B"]):
+        target = lxg.mark_target(value, K)
+        matching = lxg.RIGHT if target == K["LAYER_PATH_B"] else lxg.LEFT
+        opposing = lxg.LEFT if matching == lxg.RIGHT else lxg.RIGHT
+        for layer in (K["LAYER_PATH_A"], K["LAYER_PATH_B"]):
+            assert lxg.model(layer, value, K, matching) == target, \
+                "a mark leading onto plane %d did not fire for a player travelling " \
+                "onto that arc" % target
+            assert lxg.model(layer, value, K, opposing) == layer, \
+                "a mark leading onto plane %d fired for a player travelling AWAY " \
+                "from that arc — this is the witnessed defect" % target
+            assert lxg.model(layer, value, K, lxg.STILL) == layer, \
+                "a mark fired for a player with no horizontal travel at all"
+
+
+def test_the_direction_rule_is_what_the_witness_measured_wrong(K):
+    """The witnessed defect, named as its own case so the fix has an address.
+
+    docs/witness/loop-plane-b-exit-2026-09-05.json run A: a player on plane A moving
+    LEFT crossed a loop's bottom centre — which carries XOVER_TO_B on plane A, the only
+    value R2 permits there — and was moved to plane B, whose LEFT half is not solid. He
+    ended 253 px below the ground he should have been standing on."""
+    assert lxg.model(K["LAYER_PATH_A"], K["XOVER_TO_B"], K, lxg.LEFT) \
+        == K["LAYER_PATH_A"], \
+        "a leftward player on plane A is still sent to plane B by a bottom-centre " \
+        "XOVER_TO_B — the defect the direction rule exists to close"
+    assert lxg.model(K["LAYER_PATH_A"], K["XOVER_TO_B"], K, lxg.RIGHT) \
+        == K["LAYER_PATH_B"], \
+        "the RIGHTWARD entrant, which was the one case that already worked, stopped " \
+        "working — the rule must not close the defect by refusing everything"
 
 
 def test_the_bias_the_routine_emits_is_the_one_the_model_uses(cut, K):
