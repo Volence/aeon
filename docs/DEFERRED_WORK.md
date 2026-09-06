@@ -26513,3 +26513,18 @@ ordering below rather than for any single check.
 
 **The 30 unmerged branches STAY and are named in `901f4d87`'s message.** Two are from today about
 subjects still open (`fix/floor-kink-stale-rom-2026-09-05`, `fix/sec7-scene-fg-tear-witness`).
+
+**ORACLE'S REORDERING, strongest evidence first, and it replaces the order above.** Ask "what is
+destroyed if I am wrong", not "is this agent alive":
+
+1. **What is IN THE TREE** - uncommitted work and non-`target/` size. Use
+   `git status --porcelain --ignored`: **plain porcelain HIDES ignored scratch**, which is exactly
+   the unrecoverable material.
+2. **Deferral while agents run.**
+3. **Lock refusal** where a lock exists.
+4. **Your own record of what you started.**
+5. **Ancestor status**, last and weakest.
+
+**PID AND "CWD INSIDE THE TREE" ARE EXCLUDED OUTRIGHT.** An agent between tool calls has no process
+anywhere near its worktree, so a zero there is an absence with no control behind it - the same
+shape as every null instrument booked tonight.

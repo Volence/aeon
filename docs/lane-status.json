@@ -1,14 +1,9 @@
 {
-  "focus": "Both his windows on the new Oracle with the plane viewer; a spring and the sprite jumble in flight",
+  "focus": "Building him a spring; the sprite jumble is narrowed to the tilt-block crossings",
   "inFlight": [
     {
       "what": "the spring, S3K physics on our own object model",
-      "where": "agent worktree",
-      "agent": true
-    },
-    {
-      "what": "sprite jumble: the emit path on the rotated frames",
-      "where": "agent worktree",
+      "where": "worktree aeon-spring, branch spring-object",
       "agent": true
     }
   ],
@@ -52,8 +47,8 @@
     },
     {
       "id": "F7-EMIT",
-      "title": "F7: load path exonerated -- the jumble is in the sprite emit",
-      "state": "doing",
+      "title": "Sprite jumble: starvation ruled out, the block CROSSINGS are the remaining arm",
+      "state": "next",
       "size": "M",
       "blockedBy": null,
       "project": "EFFECTS-W1"
@@ -90,5 +85,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-05T23:43:56Z"
+  "updatedAt": "2026-09-06T00:00:08Z"
 }
