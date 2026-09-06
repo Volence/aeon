@@ -18,12 +18,12 @@ descoped.
 | 1 | **OPEN** | binding half landed (`ACT_RASTER_REF_KEY`, sections 5/6 sidecars carry live `rasterRef`); the spec's second clause is not done — see contradiction 7 |
 | 2 | LANDED `fa99b257` | `tools/sec5_band_witness.py` + the BAND SEEN measurement; the owner has since seen bands himself |
 | 3 | LANDED `b81e5daa` + `ce4dbb7c` | chains 201 and 205 |
-| 4 | **OPEN** | engine half LANDED `094496ca` (chain 215); authoring half needs two keys and a schema CR |
+| 4 | ~~**OPEN**~~ **LANDED** — corrected 2026-09-06, see contradiction 8 | engine half `094496ca` (chain 215); **the authoring half needs NEITHER key: both are at empyrean `origin/main` since `d36d704` (2026-09-03) and both readers land here** (`grep -c` over `tools/effects_gen.py`: `patch_world_ys` 29, `patch_motion` 35, `anchor_sweep` 10, against the 0/0/0 the booking measured at `e190297c`). A document authoring both SHIPS: `games/sonic4/data/editor/effects/presets/ojz_sec5_showcase.json` |
 | 5 | LANDED `445a5856` | the generator learns cycles and variants |
 | 6 | LANDED `cf3dfb1a` | `RASTER_DENSE_LINE_RAMP_CYC = 304` with its `ensure`; certified on an authored ramp |
 | 7 | LANDED `8c75722b` | **booked "unlanded" for five days; it is an ancestor** |
 | 8 | LANDED `f0aebbd3` | a vertical band in a ROM, witnessed moving; debug-tier probe content, not the authored act — scope flag below |
-| 9 | **OPEN on 9c** | 9a `3d00e2c6`, 9b `6381a736`, 9d `957b380f` + on screen `722d1cf2`; 9c needs a scene key + schema CR |
+| 9 | **OPEN on 9c, but it is CONTENT** — corrected 2026-09-06, see contradiction 8 | 9a `3d00e2c6`, 9b `6381a736`, 9d `957b380f` + on screen `722d1cf2`; **9c's scene key is NOT missing** — `layer.rowRemap` is at empyrean `origin/main` since `3992d16` (2026-09-04 00:24:54 -0400) and its reader landed here in `d593070a` **ten minutes later**. What is left is an authored scene with a `plane_y` that has a visual basis — the 9c block's own last words, *"Ask aurora to author"* |
 | 10 | 10a `cb088530`, 10b `577cefd2` LANDED; **10c OUT** | both gates wired in `build.sh` |
 | 11 | 11a LANDED **`3d5e0764`**; **11b OUT** | see contradiction 1 — the booked SHA is docs-only |
 
@@ -46,7 +46,8 @@ descoped.
 
 - **LANDED (16 rows):** items 0, 2, 3, 5, 6, 7, 8, 10a, 10b, 11a; scroll clamp, d-34, d-32
   re-measure, DMA split-reject reserve, base-residue ensures, `dplc-budget-breach`.
-- **OPEN (4):** item 1, item 4, item 9c, `side-items-first`.
+- **OPEN (4):** item 1, item 4, item 9c, `side-items-first`. **⚠ CORRECTED 2026-09-06 to OPEN (3):
+  item 1, item 9c (as CONTENT), `side-items-first`. Item 4 moves to LANDED (17 rows).**
 - **OWNER (2):** `canopy-gap`, `FLOOR-FAN`.
 - **OUT (3):** item 10c, item 11b, d-35.
 - **Unclassifiable (1):** `sigil-decouple`.
@@ -95,6 +96,29 @@ author and is checkable like any other peer claim.
 still emitted (`effects_scenes.emp:241,245`), still bound as row 3 of the effects lab's raster
 table (`ojz_scroll_test.emp:2372`), and still stamped. The spec's own cost argument for item 1 —
 that deleting the probe removes the cross-seam symbol chain 182 added — has not been collected.
+
+**8. THE THREE "MISSING AUTHORING KEYS" (items 4 and 9c) ARE ALL PRESENT AT CONTRACT TIP, AND
+THE REAL CONTRACT GAP IS SOMEWHERE ELSE.** Measured 2026-09-06 against empyrean `origin/main`
+`b6913fae`, read with `git -C ../empyrean show "<rev>:<path>"`. This inventory booked 3 keys as
+absent; **the count is 0**. Item 4's `patch_world_ys` and `patch_motion` landed empyrean
+`d36d704` on 2026-09-03 — the same day the merge message that booked them as blocked was
+written, hours later; 9c's `layer.rowRemap` landed `3992d16` on 2026-09-04, ten minutes before
+its reader. Neither booking could be contradicted from inside this tree, which is why both
+survived: **a green build says nothing about a schema in another repo.**
+
+**What IS a live contract defect, and nobody booked it because it is not a missing key:**
+`rowRemap.height_shift` is encoded `3..7` in the scene schema and **only 4 can build** —
+`row_remap_ladder16()` (`engine/level/parallax_dsl.emp:396`) is the one ladder that exists, and
+the refusal of the other four lives only in `tools/effects_gen.py:152`. The refusal's own
+escape hatch is stale too: it names 9b as the fix, and 9b landed a generator that
+**deliberately does not write into the tree.** Full derivation, the three closing options, and
+the two stale sentences inside the contract itself:
+**`docs/2026-09-06-w1-authoring-keys-note.md`.**
+
+**⚠ ALSO CORRECTED THERE: the schema path in every dispatch and doc that names it.** It is
+`contract/schema/aurora-effects-preset.schema.json`, not `contract/aurora-…`. A `git show` at
+the wrong path fails with "does not exist", **which reads as "the key is absent"** — the exact
+misreading this contradiction is about.
 
 ## Flagged rather than decided
 

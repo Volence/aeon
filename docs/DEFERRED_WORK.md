@@ -19231,7 +19231,14 @@ should also assert the ladder is `(H+1) x H`, monotone per row, and `table[i] >=
     because the effects TOOLS map channel -> band act-wide even though the engine scopes it per
     program. Section 7 has no sidecar, so its `sceneRef` is free and `ojz_sec()` already calls
     `ojz_act1_sec_scene(sec: 7)`: **an anchored scene here is JSON only, no `.emp` edit.** What
-    is left of 9c is the scene key itself + the hub schema CR. **The `OJZ_SEC7_CAMERA_Y`
+    is left of 9c is ~~the scene key itself + the hub schema CR~~ — **⚠ THAT CLAUSE WAS ALREADY
+    FALSE WHEN IT WAS WRITTEN (corrected 2026-09-06, `parcel/w1-keys-note`): the scene key
+    landed at empyrean `3992d16` on 2026-09-04 00:24:54 -0400 and its reader here in
+    `d593070a` TEN MINUTES LATER. There is no key left and no schema CR left.** What is
+    actually left is this block's own words two bullets up — the route was proved end to end
+    and **deliberately reverted** because `plane_y` had no visual basis — so 9c is **CONTENT**:
+    *"Ask aurora to author."* See `docs/2026-09-06-w1-authoring-keys-note.md` §2.
+    **The `OJZ_SEC7_CAMERA_Y`
     assumption (row top + 144) is the one thing to re-aim if the lab drops the player
     elsewhere.** Same parcel: `tools/test_anchor_sweep_band.py` now resolves a sweep's band per
     (section -> preset -> program) as its own retired test prescribed, and partitions "dead
@@ -22874,7 +22881,65 @@ is `raster_ramp_program`'s sign pin), and at the `hi` edge it is a **drop** (`bg
 not a clamp. Behaviour is right everywhere it matters — `engine/level/parallax.emp:2124-2143`
 handles the drop explicitly — it is one banner describing the old shape.
 
-## ROWREMAP-PLANEY-CEILING — `rowRemap`'s surface plane line HAS NO UPPER GUARD ANYWHERE IN THE TREE (booked 2026-09-04, `docs/key-shapes-9c-and-channel-band`)
+## ROWREMAP-HSHIFT-RUNGS — the scene schema offers FIVE `height_shift` values and exactly ONE builds (booked 2026-09-06, `parcel/w1-keys-note`)
+
+**Row id: `ROWREMAP-HSHIFT-RUNGS`.** Size `S` for option (a)+(c), `M` for (b). Found by the
+EFFECTS-W1 keys pass; full derivation in `docs/2026-09-06-w1-authoring-keys-note.md` §4.
+
+`contract/schema/aurora-effects-scene.schema.json` at empyrean `origin/main` `b6913fae` encodes
+`$defs.layer.rowRemap.height_shift` as `{minimum: 3, maximum: 7}`, and `layer()` really does
+accept 3..7 (`engine/level/scene_dsl.emp:1033`). **But `ROW_REMAP_LADDERS = {4: …}`
+(`tools/effects_gen.py:152`) refuses the other four by name**, because `row_remap_ladder16()`
+(`engine/level/parallax_dsl.emp:396`) is the only ladder that exists — an `.emp` `comptime fn`
+must return a concrete array type, so it cannot take H as an argument.
+
+**THE AUTHORITY LIVES ONLY IN OUR TOOL'S SOURCE**, which is the `default_off` class
+(`tools/EFFECTS_CONSUMER_CONTRACT.md` §1.2). The schema does carry it in the field's `description`
+prose — better than `default_off` was — but **prose in a `description` is not what a validator
+enforces, and the validator is what an editor's slider gets built against.** A UI offering 3..7
+is a correct reading of the schema's shape and a wrong reading of reality.
+
+**The refusal's own escape hatch is stale.** Its message says *"The generated ladder for the
+other shifts is EFFECTS-W1 item 9b."* **9b landed 2026-09-04** and shipped
+`tools/row_remap_ladder_gen.py`, whose docstring says **"WHAT THIS DOES NOT DO. It does not
+write into the tree."** `--emit emp` prints to stdout; nothing regenerates `parallax_dsl.emp`.
+So the other four shifts are a paste-in away, not automatic, and the pointer now names
+something that already happened without changing the answer.
+
+**Three closings, consequences in the note's §4 table.** (a) narrow the schema to `const: 4`
+(a hub CR); (b) paste in the emitted ladders and widen `ROW_REMAP_LADDERS` — **prices ROM: the
+ladder is `(H+1)×H` bytes, 272 B at H=16 but 4,160 B at H=64 and 16,512 B at H=128**, for
+heights no authored scene has asked for; (c) zero-byte, correct the refusal's message.
+**Recommended (a)+(c), stated as a recommendation.** Rider, one line each side:
+`tools/effects_gen.py:2716` and the empyrean description both cite `parallax_dsl.emp:220` for
+`row_remap_ladder16()`; it is at **396**, the second copied the first.
+
+## ~~ROWREMAP-PLANEY-CEILING — `rowRemap`'s surface plane line HAS NO UPPER GUARD ANYWHERE IN THE TREE~~ — **CLOSED, and it was closed THE SAME DAY IT WAS BOOKED** (booked 2026-09-04, `docs/key-shapes-9c-and-channel-band`; closure found 2026-09-06)
+
+**✅ THE FIX LANDED IN `d593070a` (2026-09-04 00:34:52 -0400), and this row has read OPEN for
+two days.** `engine/level/scene_dsl.emp:1044` is now
+`ensure(remap_none == 1 || scene_remap_plane_y(rowRemap) < 512, …)` — **exactly the one line
+with the one message the "Fix" paragraph below prescribes**, with 512 inlined per the file's
+pin block (`PLANE_B_SPAN`) rather than typed, and spelled the way the sibling `vsplit` guard
+spells the same bound in the same coordinate space. Verified by `git log -S` on the message
+text, not inferred from the row.
+
+**⚠ AND THE CONSEQUENCE CROSSES A REPO, WHICH IS WHY IT SURVIVED.** The last paragraph's
+instruction — *"9c's schema description must say so rather than implying aeon checks it"* — was
+carried out: `contract/schema/aurora-effects-scene.schema.json` at empyrean `origin/main`
+`b6913fae` says **"THIS SCHEMA IS THE ONLY ENFORCEMENT OF THE 511 CEILING: aeon's ensure at
+scene_dsl.emp:1008 tests >= 0 only"**. That sentence was committed at 2026-09-04 00:24:54 -0400
+and was false **ten minutes later**. It is now the *second* enforcement, which is the state
+anyone would want — but **a future reader trimming the "redundant" aeon ensure on the schema's
+authority would delete the only one that fires at build time for a hand-authored scene.**
+Reported to the hub rather than fixed here; the schema is empyrean's. See
+`docs/2026-09-06-w1-authoring-keys-note.md` §5.
+
+**The original row follows, kept because its `vsplit` comparison is the argument that made this
+a defect rather than an omission, and because a fix that lands ten minutes after its booking is
+exactly the shape a status line cannot record.**
+
+## ~~ROWREMAP-PLANEY-CEILING (original text)~~
 
 **Row id: `ROWREMAP-PLANEY-CEILING`.** Size `XS`. Found while transcribing item 9's landed
 constructor for the 9c key shape
