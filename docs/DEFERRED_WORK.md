@@ -28291,3 +28291,42 @@ the boot doc** — deliberate, confirmed by the hub, and one line is queued for 
 saying which file answers which question. This lane got it wrong while actively looking for
 exactly that, which is why the pair above is booked as the wrong-artifact class rather than as a
 bug in one tool.
+
+## THE DEPTH SHOWCASE GARBLE IS REAL AND NO PLAYER CAN CURRENTLY REACH IT — measured, and it changes what the item is (2026-09-06T12:43:50Z)
+
+**The parcel's own gating question was: does ordinary play reach Camera_Y 2888, or only a debug
+warp? Answered here, and the answer is neither hedged nor a warp artefact.**
+
+**MEASURED OVER ALL NINE SECTIONS OF OJZ ACT 1, BOTH PLANES, counting non-zero collision cells
+straight out of the editor files:**
+
+    section 0:  collattr 2076   collattrb 2084
+    sections 1-8: 0 and 0, every one
+
+**Section 4 — the section `ojz_act1_depth` is bound to — has NO collision on either plane, and
+neither does any other section but 0.** There is nothing in section 4 to stand on. The camera
+position the garble was photographed at is not somewhere a player can be placed by walking; the
+probe reached it through the debug mailbox.
+
+**SO THE ITEM IS NOT "HIS SHOWCASE IS BROKEN". IT IS "HIS SHOWCASE WILL BE BROKEN THE DAY THAT
+SECTION GETS A FLOOR", WITH THE PROOF IN HAND BEFORE THE CONTENT EXISTS.** That is a better item
+and a cheaper one: the fix is an authoring change to two `curve:` values, and making it now costs
+nothing because nothing is built on top of them yet.
+
+**WHAT IS NOT CLAIMED, because it was not measured.** A player who runs off section 0's floor
+FALLS, and whether the camera transits section 4's coordinates during that fall is **unmeasured
+here**. The practical conclusion does not turn on it — a background evaluated during an
+uncontrolled fall is not the showcase he means — but "no player can ever see it" would be a
+stronger sentence than the evidence supports, and this is not that sentence.
+
+**THE GARBLE ITSELF IS SOUND AND CONTROLLED**, which is why this is worth his time at all: a ROM
+rebuilt from the same scene with its two `curve:` keys deleted renders those rows as clear
+foliage at the same camera, with the **Plane-B nametable hashed IDENTICAL on both ROMs**. Same
+tiles, different scroll. It is the curve and not the art.
+
+**AND THE THRESHOLD THAT PREDICTED IT NO LONGER EXPLAINS IT** — the parcel corrected its own
+earlier reading rather than defending it. The 192 px geometry stays true; it is no longer the
+better-supported account of the visible break, because severity tracks RATE monotonically with art
+held fixed and this scene's two bands stay nearly proportional on both metrics. **The fixture that
+would settle it is named and unbuilt: one scene, two curve bands of span 64 and 192 at the same
+per-line rate.**
