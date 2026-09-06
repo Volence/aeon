@@ -48,6 +48,82 @@ against the AS-era tree and cite `.asm` paths and line numbers into files that *
 
 ## NOW UNBLOCKED — actionable (compiled 2026-08-05)
 
+### CURVE-DESC — REPRODUCED, AND THE DIRECTION IT NAMES IS REFUTED. The engine's ramp is exact; what garbles is the per-band EXCURSION — booked 2026-09-06 (`parcel/curve-desc`)
+
+**Witness:** `docs/witness/curve-desc-2026-09-06.md` (+ `.json`, + four PNGs).
+**Instrument:** `tools/curve_desc_probe.py` (new; a witness, wired into no runner).
+**Row:** `docs/lane-status.json` id `CURVE-DESC`, "ENGINE DEFECT: descending parallax curve
+garbles the BG; mechanism unestablished". Its only prior record was the body of `df3b8810`
+(+ `05b8ad10`) and the empyrean hub log — **no DEFERRED_WORK entry existed until this one**,
+which is exactly what aurora's `docs/reviews/2026-09-05-rowremap-author.md` §9.3 said.
+
+**Reproduced first.** Four canonical `DEBUG=1` ROMs, one authored variable apart in
+`games/sonic4/data/editor/effects/ojz_act1_sec7_worldwater.json`, each warped through the
+DEBUG mailbox to `df3b8810`'s own coordinates (player 3000/4400 → `Camera_X` 2840,
+`Camera_Y` 4288, ack 18 frames on all four):
+
+| arm | live band's `fb` → `curve: To(..)` | direction | measured BG excursion | picture |
+|---|---|---|---|---|
+| `flat` (master today) | `FACTOR_1_2`, no curve | — | 0 px | CLEAN |
+| `descsmall` | `FACTOR_1_2` → `FACTOR_7_16` | descending | 176 px | **CLEAN** |
+| `desc` (`df3b8810`'s own) | `FACTOR_1_2` → `FACTOR_1_8` | descending | 1060 px | GARBLED |
+| `asc` (the mirror) | `FACTOR_1_8` → `FACTOR_1_2` | ascending | 1061 px | **GARBLED** |
+
+**THE WALKER IS NOT WRONG.** Derived-vs-measured on `Hscroll_Buffer` is **0 of 224 lines
+differing, max |delta| 0, on all four arms**, both planes — the expectation derived from the
+scene's authored factors plus the live `Camera_X`, never read back off the band records the
+walker wrote. The curve hoist's `divs.w` + negative-remainder floor normalisation and
+`.lp_curve`'s Bresenham accumulate emit exactly the authored ramp, in **both** directions.
+
+**THE DIRECTION CLAIM IS REFUTED FROM BOTH SIDES**, against falsifiers named before the
+runs: an ascending mirror of the same span and `|spread|` garbles, and a descending curve
+with a small spread is clean. `df3b8810`'s "upward curve → CORRECT" arm is the one whose
+parameters were never recorded (aurora flagged that gap independently), and a small-`|Δf|`
+upward curve would be clean for the reason below — so nothing now distinguishes that arm
+from the direction reading.
+
+**WHAT MOVES: `camX × |Δf|` against `PLANE_W − SCREEN_W = 512 − 320 = 192 px`.** Plane B is
+64×64 (VDP reg `$10` = `$11`, `engine/system/boot_data.emp`:186) so it wraps every 512 px;
+a band that shears its Plane-B HScroll further than 192 px brings the wrap seam onto the
+screen and rows of one band show plane columns 512 px apart. This is **not a new law** —
+the perspective-floor lane derived and measured it for its own **ascending** curve
+(`tools/perspective_floor_predict.py`:60-63, `tools/perspective_floor_gen.py`:70-95, onset
+table 195/389/778/1557 against a predicted `192/F` of 192/384/768/1536), which is a second
+independent reason the sign is not the variable.
+
+**NOT ESTABLISHED — do not read these as measured:**
+1. **The onset is not bisected.** Two points either side of a derived threshold (176 clean,
+   1060 garbled) is consistent with 192 and does not measure it.
+2. **`ojz_act1_depth` is a SHIPPED scene carrying `fb: FACTOR_1_2, curve: To(FACTOR_1)` at
+   `world_y: 160`** — `|Δf|` = 1/2, so the **derived** onset is `camX` 384. **This is
+   arithmetic on the authored factors, NOT a run**; the band's live span and the camera
+   range reachable in section (1,1) are both unchecked. If it holds, the d-15 showcase
+   garbles past camera x 384 and its curve is ascending. Worth a drive. The other two
+   shipped curves are far out (`ojz_act1_depth` `world_y: 112`, onset 1536;
+   `ojz_act1_floor` `world_y: 440`, onset 6144).
+3. **`df3b8810`'s other seven arms were not re-run.** All four arms here sit on the CURRENT
+   scene geometry; the original `fa`, `world_y: 3` and no-`v_offset` arms are untouched and
+   this parcel says nothing about them.
+
+**SECOND FINDING, unrelated to curves and the reason the curve's span is 224 lines:
+this scene renders as ONE band, not three.** `scene_plane_line()` is the identity on a
+vertically locked plane — it returns the authored `world_y` and does **not** add `v_offset`
+(`engine/level/scene_dsl.emp`:3313-3332). sec7 is the first locked scene in the tree with a
+non-zero `v_offset` (288), so its tops 0/40/162 are *plane* lines below the visible window,
+Step 4a's `.find_k` rotation picks **k = 2**, forces that band to screen line 0, and the
+clamp zeroes the other two. Measured: `flat` is one run of −1420 over 224 lines (the first
+layer's `FACTOR_1_8` appears nowhere) and `desc` is one ramp with **no discontinuity at line
+40 or 162**; `Parallax_Current_Vscroll_BG` reads 288. The engine is doing what the data
+says, so this is not an engine defect — but the three authored layers have no effect at this
+camera position, which is a content call for the scene's author and the owner. **No guard in
+`layer()` or `scene()` relates an authored top to the visible window `[v_offset,
+v_offset + 224)`**; that is the shape a guard would take if one is wanted.
+
+**FOR AURORA:** `curveDescendingAdvisory` needs **re-pointing, not deleting** — their own
+review §9.2 asks for exactly that if the cause turned out bounded or direction-independent.
+It is both. The sentence that fits the measurement is about `camX × |Δf|` against 192 px and
+applies to both directions.
+
 ### ✅ CLOSED — THE STALE DAC/SOUND-BANK ANCHOR PROSE, SWEPT BY THE *OLD* VALUES — closed 2026-08-29
 
 **Parcel:** `fix/stale-dac-anchor-prose`. Closes the `docs/OVERSEER.md` bullet beginning
