@@ -399,12 +399,12 @@ failure is not silent loss on save, it is that every author on a tree carrying t
 
 ### ~~`bganim_room.py` ASSUMED ITS OWN TERMINUS AND NOTHING ASSERTED IT~~ — CLOSED 2026-09-06 (`parcel/bganim-room-terminus`)
 
-**PROVENANCE: this came from the SIGIL LANE, not from us.** Their `e5b47915`,
-`docs/superpowers/notes/2026-09-05-decouple-aeon-side-inventory.md`, rows **F1**, **F2** and **F6**
-(the controller's brief calls the first of these B7). We had shipped the tool, the gate, and the
-prose asserting the fact, and we were the party that could not see it. Worth keeping as an instance:
-the three defects were all *stated confidently in our own docstring* and the checking code for none
-of them existed.
+**PROVENANCE: this came from the SIGIL LANE, not from us.** Their `e5b47915` (F1, dispatched to us
+as B7) and `b0cf2eeb` (F2 and F6), both in
+`docs/superpowers/notes/2026-09-05-decouple-aeon-side-inventory.md`. We had shipped the tool, the
+gate, and the prose asserting the facts, and we were the party that could not see them. Worth
+keeping as an instance: the three defects were all *stated confidently in our own docstring* and the
+checking code for none of them existed.
 
 **WHAT WAS WRONG.** `rom_room()` derives `packed_end = LMA(Art_Sonic) + len(sonic.bin)` and every
 number the tool reports is `anchor - packed_end`. Two consumers read it: the **reserve gate**
@@ -451,6 +451,21 @@ terminus and the anchor** — zero labels and zero non-zero bytes in both canoni
 `art/optimized/characters/sonic.bin` in both ROMs, and `0xA8000 + 0x10000 == 0xB8000` as declared.
 Room figures are **identical before and after**. There is no live breach; what changed is that a
 green now states what it proved.
+
+**THE CONTROL, and it is the part worth remembering.** The red-first proof perturbed the
+*arrangement*, not the tool: a real 1,024 B `pub data B7_Probe` appended to `collision_data.emp`,
+built for real (`DEBUG=1 ./build.sh`), landing at `0x8C61E` — exactly the terminus. Running
+**master's** `bganim_room.py` against those same artifacts prints
+
+    ROM room 113122 B free ... binding limit: the ruled ceiling (20480 B)    rc=0
+
+— **bit-for-bit the number it prints on the clean tree**, green, with 1,024 B of real content
+sitting in the region it calls free. That is the failure this entry describes, reproduced on a real
+ROM rather than argued. The new code refuses the same artifacts three separate ways: the source arm
+names `B7_Probe` as trailing the terminus (this is what the in-build gate hit, and the build
+stopped); with the source restored, the symbol arm names `B7_Probe` **AT the terminus** and the
+image arm corroborates with *1020 non-zero bytes, the first at 0x8C61F*; and with `B7_Probe`'s row
+removed from the listing — the unlabelled case the `.lst` cannot see — the image arm fires alone.
 
 ---
 
