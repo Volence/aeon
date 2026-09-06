@@ -1784,3 +1784,62 @@ and reported that instead of committing nothing, which is the behaviour the esca
 on master is checked with `git log -S <the fix's own symbol> -- <file>` before it goes in a brief; a revert's existence says
 nothing about what happened after it. The owner's window (master build) therefore already carried band + fix; it was stepped to
 scene 13 and left running at 16:25Z (this heading and this time are from the commit clock; the first version of this note wrote 16:27Z from memory).
+
+## BANNER VOCABULARY — the word changed, the notice never came, and this lane misdescribed its own consumer (2026-09-06T11:21:25Z)
+
+**The wording.** The assembler banner's parenthesised `tree` field used to read
+`dirty at capture — 0 modified, 1 untracked` on every invocation, the one untracked file being
+`docs/lane-status.json` — read by no build, incapable of moving a byte, which is exactly what
+made the word a stuck constant and earned the boot doc's *quote the revision, not the whole
+banner* rule. **Sigil fixed it.** The vocabulary is now exactly {`clean`, `clean-sources`,
+`dirty`, `unknown`}, defined in `crates/sigil-cli/src/tree_class.rs::state_and_detail` and
+pinned by `crates/sigil-cli/tests/version_provenance.rs`; `clean-sources` means uncommitted
+changes exist and none are in the sources the binary is compiled from. Today's clean-tree
+reading, observed firsthand across eight builds on 2026-09-06:
+`clean-sources at capture, N uncommitted change(s), none of them in the sources this binary is
+compiled from`. *(Their account of their own tree, landed at their `9d71d8f4` via merge
+`d7f3f632`, banked forward at `686f114d` — not re-read in their tree here.)*
+
+**THE PROCESS FAILURE, which outlives the wording.** This lane holds a standing two-way contract
+that neither side moves that banner without agreeing here first. The commit adding the word opened
+with `DO NOT MERGE THIS COMMIT until the banner's shape is agreed with the aeon lane`, naming our
+test as the thing it breaks — **and the hold was retired by READING our consumer rather than by
+asking us.** So the notice the contract is owed was never sent and the change arrived anyway.
+Sigil's own formulation, and it is the transferable half: **a DO-NOT-MERGE in a commit message is
+not a gate, it is a note travelling with the thing it is trying to stop.** Going forward they owe
+a message BEFORE a fifth word lands, and an unrecognised word is their failure and never a reason
+to weaken our check.
+
+**⚠ AND THIS LANE'S OWN ERROR IN THE SAME EXCHANGE — the durable half, and it is worse than
+theirs.** I told the sigil lane *"nothing parses that banner on our side"* **without reading our
+own `build.sh`.** It is false. `build.sh:295` reads `tree:` into `SIGIL_TREE`, `:296` prints it,
+and **`:353` switches on it**:
+
+```sh
+case "${SIGIL_TREE}" in
+    clean|clean\ *|clean-sources|clean-sources\ *) ;;
+    *) _sigil_stale="${_sigil_stale:+${_sigil_stale}+}dirty" ;;
+esac
+```
+
+under a comment that spells the cross-repo coupling out in capitals and states that an
+unrecognised word makes this build warn and, under `SIGIL_VERSION_STRICT=1`, **refuse a tree that
+is fine**. Nothing of ours moved only because **this lane had already widened that arm at
+`306608f2` on 2026-08-30**, three days after the word landed — a fix, not an immunity.
+
+**Why it is booked rather than shrugged off.** (1) It is a claim about MY OWN tree, asserted from
+memory, in the field that feels like transcription rather than argument — the exact class this
+repo books against peers twice over, committed outbound. (2) It was sent within the hour of my
+invoking that rule at two separate lanes and explicitly inviting sigil to hold me to it; they did,
+which is the system working, and *"apply your own rule inward"* is the memory that should have
+fired and did not. (3) The consequence is a **mispricing**: "nothing parses it" prices a future
+word addition at zero, while our own comment prices it correctly as a consumer arm somebody must
+edit. A wrong price travels further than a wrong fact, because nobody re-derives it.
+
+**And a severity correction owed in the other direction, banked as this lane's** (an earlier aeon
+session's, per sigil): their retirement note called the effect a false warning, noisy and in the
+safe direction. `306608f2`'s message shows the same flag reaching `exit 1` under
+`SIGIL_VERSION_STRICT=1`, so on a correct tree with uncommitted sigil docs, STRICT **refuses the
+build** — latent only because nothing in-tree sets that variable. **Reading a consumer settles
+more than reasoning about a producer can, and it still under-reads if you stop at the first arm
+the value reaches.**

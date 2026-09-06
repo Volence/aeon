@@ -514,9 +514,13 @@ rulings live in the session memory and the most recent `docs/superpowers/*handof
   same revision.** Costs nothing; `build.sh:266` already computes it.
   **⚠ QUOTE THE REVISION, NOT THE WHOLE BANNER — one half of it is a stuck constant** (caught
   by the sigil lane within the hour of this rule being written; verified firsthand here).
-  `build.sh` prints `Assembler: sigil <rev> (<tree>)`, and that parenthesised `tree` field
-  reads **`dirty at capture — 0 modified, 1 untracked`** on every invocation. The one untracked
-  file was `docs/lane-status.json` — read by no build, incapable of moving a byte.
+  `build.sh` prints `Assembler: sigil <rev> (<tree>)`. **The `dirty at capture` wording is GONE
+  — dated, not deleted: true when written, unbounded. Vocabulary today is {`clean`,
+  `clean-sources`, `dirty`, `unknown`} and a clean tree reads `clean-sources at capture`.
+  `build.sh:353` SWITCHES on it, so a fifth word warns and under `SIGIL_VERSION_STRICT=1`
+  REFUSES a fine tree — the arm must be edited, never removed. Sigil owes us a message before
+  a fifth word lands.** Narrative, and this lane's own "nothing parses that banner" error
+  against its own `build.sh`, in `docs/OVERSEER-LOG.md` (search `BANNER VOCABULARY`).
   **The general form, and it is the durable output — a provenance record is not ONE claim, it
   is several, and they do not share a clock.** `revision:` follows git refs; `tree:` follows a
   build. Same line of output, two different freshnesses, and **nothing in the formatting says
