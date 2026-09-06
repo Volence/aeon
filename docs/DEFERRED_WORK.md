@@ -26845,3 +26845,33 @@ Do not open a fifth. **What is needed is a capture from the owner**, and the fou
 must carry are listed at the end of the witness doc; the cheapest single one is the question
 **does he see it WHILE PLAYING or only after pausing** -- a mid-rebuild RAM transient cannot
 reach the screen during play, a deferred DMA can, and that one answer separates the families.
+
+---
+
+### RING-PLACE — a runtime-placed ring cannot work by writing a buffer record - 2026-09-06
+
+Publishing the ring record's layout (`RING_ENTRY_*_OFFSET`, this parcel) makes it look like a
+debugger or a script could add a ring by writing six bytes and bumping `Ring_Count`. **It
+cannot**, for two independent reasons, and both fail silently.
+
+**It aliases a real ring's collected bit.** `Collected_MarkRing` (`entity_window.emp:205`)
+bsets into the owning section's collected bitmask at the bit numbered by the record's
+`list_index`, guarded by `assert.w d1, lo, #MAX_LIST_ENTRIES` (128). A fabricated index inside
+that range marks some OTHER ring collected, and that ring then never spawns again.
+
+**It dies on the next scroll.** `EntityWindow_DespawnRings` deletes any record that leaves the
+camera window; `EntityWindow_TrySpawnRing` only ever re-adds from the section's ROM ring list.
+A record with no ROM entry behind it is removed once and never returns. `SEC_VOID` is a
+section-id sentinel only — there is no `list_index` counterpart.
+
+**The escape hatch is real but bounded, and it needs a walk.** An index at or above the
+section's real ring count aliases nothing — but **there is no stored per-section ring count**.
+The ROM ring list is a null-terminated array of 4-byte `dc.w X, dc.w Y` entries (pointer at
+`EntityScanState.ess_rom_ring_ptr`, offset `$04`), walked by a ratchet index in
+`EntityWindow_ScanRingsRight`, which finds the end with `move.l (a0), d0` / `beq
+.at_terminator`. So the count must be DERIVED by walking to the terminator, the free span is
+only `[count, MAX_LIST_ENTRIES-1]`, and a section already holding 128 rings has no free index
+at all. The record still dies on the next scroll either way.
+
+**Durable placement means editing the section's ring list and re-baking** — the editor's path
+(`tools/regenerate-level.sh`), not a runtime poke.
