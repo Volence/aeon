@@ -198,6 +198,21 @@ pub vars PlayerV: Sst.sst_custom {
 // other `_pl_*` offset needs a link symbol.
 equ _pl_state = offsetof(Sst, sst_custom) + offsetof(PlayerV, player_state)
 
+// _pl_gsp — the inertia field's SST-custom offset. NO CODE READS THIS, in either
+// tree: it exists so that an out-of-process WITNESS can name the field the
+// engine deliberately cannot (tools/spring_launch_witness.py's SP-1 legs read
+// the player's ground speed while he pushes into a solid). An `equ` emits no
+// bytes, so both ROMs are byte-identical with and without this line; it only
+// adds a name to the `.lst`.
+//
+// The alternative was for the witness to hardcode $30, or to recover it as
+// "PlayerV's first field, so it equals offsetof(Sst, sst_custom)" — both are
+// facts about today's field ORDER that would go silently wrong the first time
+// somebody reorders the overlay, and the witness would then measure a
+// neighbouring field and report a green. Naming it here makes the reorder move
+// the number instead.
+equ _pl_gsp = offsetof(Sst, sst_custom) + offsetof(PlayerV, ground_speed)
+
 // Sub-field displacement consts — the 16.16 subpixel low words (LevelBound
 // clears them). `Sst.field + N` does not compose inside a displacement, so name
 // the offset (the Act_grid_w_lo precedent).
