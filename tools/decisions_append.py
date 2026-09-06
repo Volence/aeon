@@ -223,6 +223,122 @@ def refusals(entry: dict, rows, is_closure: bool) -> list[str]:
     return e
 
 
+# ── FILE-TIME CHECK AGAINST THE HUB'S OPEN LIST (aurora's mechanism, 2026-09-06) ──────
+#
+# WHY IT IS AT FILE TIME AND NOT AT DRAFT TIME. A card is drafted, then validated, then
+# appended, and the hub can rule on the same question inside that window -- measured: it
+# happened here, a card for `bganim-second-band-refusal` was drafted and passing
+# validation when the ruling arrived, and filing it would have handed the owner a decision
+# already answered and already on his card. **A draft's premise ages exactly like a peer's
+# status file** (shared-protocol bar 22), so the check has to bind where the write happens.
+#
+# The near-miss is the argument for a MECHANISM rather than care: the same lane had
+# deliberately declined to file a duplicate two hours earlier, on a judgement about whose
+# question it was. That is the discriminator-that-fires-by-luck bar arriving on the very
+# rule it had just applied on purpose.
+#
+# FAIL-SOFT, LOUDLY. An unreachable empyrean must not block a legitimate append, and must
+# never be silently green: it prints that it COULD NOT CHECK, which is a different artifact
+# from a clean check.
+def hub_open_list_warnings(entry: dict) -> list[str]:
+    """Lines to show the operator before the write. Empty means nothing matched."""
+    id_ = str(entry.get("id", ""))
+    q = " ".join(str(entry.get("question", "")).split())
+    try:
+        subprocess.run(["git", "-C", "../empyrean", "fetch", "-q", "origin"],
+                       check=True, capture_output=True, timeout=60)
+        # BOTH artifacts, and pointing at only the first was a measured defect. The
+        # hub's BOARD carries standing rulings; their LOG carries the dated ones, and a
+        # ruling that pre-empts a card drafted today is by definition recent, so it is in
+        # the log. Measured at the moment this was written: OVERSEER.md held 0
+        # recent ruling-shaped lines and OVERSEER-LOG.md held 142. Reading the board alone
+        # made this check STRUCTURALLY UNABLE TO FIRE -- found by running a positive
+        # control, not by reading the code.
+        board = ""
+        for path in ("docs/OVERSEER.md", "docs/OVERSEER-LOG.md"):
+            board += subprocess.run(
+                ["git", "-C", "../empyrean", "show", f"origin/main:{path}"],
+                check=True, capture_output=True, text=True, timeout=60).stdout + "\n"
+    except Exception as ex:
+        return [f"COULD NOT CHECK the hub's open list ({type(ex).__name__}). That is NOT a "
+                f"clean check -- it is an absent one. Read it by hand before filing: "
+                f"git -C ../empyrean show origin/main:docs/OVERSEER.md"]
+    out = []
+    if id_ and id_ in board:
+        out.append(f"the hub's board already NAMES `{id_}` -- it may already be ruled or "
+                   f"listed for him; filing would be a second framing of one question")
+
+    # THE DISCRIMINATOR, and its first version was USELESS -- kept as a comment because
+    # the failure is the lesson. A per-token probe over 5+ char words matched a
+    # ruling-shaped line for EVERY id tried, including the nonsense control
+    # `a-question-nobody-has-asked-xyzzy` (3 warnings), because tokens like "second",
+    # "question" and "refusal" are everywhere on a board made of rulings. A warning that
+    # fires on every run trains the reader to skip it, which is strictly worse than no
+    # warning: the bar against a refusal that can fire on a correct run, arriving on a
+    # WARNING. Caught by running the negative control, not by reading the code.
+    #
+    # What replaces it: a token is only evidence if it is RARE on the board, and a ruling
+    # is only relevant if it is RECENT. Both bounds are derived from what actually failed.
+    lines = board.splitlines()
+    recent = _recent_cutoff()
+
+    # A RARE-TOKEN MATCHER WAS BUILT HERE AND WITHDRAWN. It filtered out tokens appearing
+    # on more than a few board lines, which killed the fires-on-everything noise -- and
+    # then STILL did not catch the case that motivated the whole check, because the
+    # motivating card was about a topic the board had been discussing all day, so every
+    # one of its words was common ("decouple" alone: 52 lines). **The rarity filter is
+    # backwards for the case that matters: duplication is likeliest exactly where the
+    # topic is hot, which is where the tokens are common.** Measured, not reasoned.
+    #
+    # So the matcher is gone and what replaces it makes NO relevance claim at all. The
+    # failure was never a bad match; it was that NOBODY LOOKED. This prints the recent
+    # rulings and makes the operator read them -- an instrument that cannot be vacuous
+    # because it does not judge, and cannot fire wrongly because it does not fire.
+    rulings = [ln.strip() for ln in lines
+               if any(k in ln.lower() for k in ("ruled", "ruling", "his card"))
+               and _stamp_is_after(ln, recent)]
+    if rulings:
+        out.append(f"{len(rulings)} ruling-shaped line(s) on the hub's board/log in the "
+                   f"last {RECENT_HOURS}h. READ THESE before filing -- the check does not "
+                   f"judge relevance, you do:")
+        for ln in rulings[-RECENT_SHOW:]:
+            out.append(f"    {ln[:150]}")
+    else:
+        out.append(f"no ruling-shaped lines on the hub's board/log in the last "
+                   f"{RECENT_HOURS}h -- nothing recent could have pre-empted this card.")
+    return out
+
+
+#: How far back a ruling can be and still plausibly pre-empt a card drafted today.
+RECENT_HOURS = 48
+#: How many of the recent rulings to print. Bounded so the prompt stays readable; the
+#: COUNT is always stated, so a truncated list announces itself rather than looking whole.
+RECENT_SHOW = 8
+
+
+def _recent_cutoff():
+    from datetime import datetime, timedelta, timezone
+    return datetime.now(timezone.utc) - timedelta(hours=RECENT_HOURS)
+
+
+def _stamp_is_after(line: str, cutoff) -> bool:
+    """True iff the line carries an ISO stamp at or after `cutoff`. No stamp -> False:
+    an undated ruling cannot be shown to be recent, and guessing would re-introduce the
+    fires-on-everything failure this replaced."""
+    import re
+    from datetime import datetime, timezone
+    m = re.search(r"(20\d\d-\d\d-\d\d)(?:T(\d\d):(\d\d):(\d\d)Z)?", line)
+    if not m:
+        return False
+    try:
+        d = datetime.strptime(m.group(1), "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return False
+    if m.group(2):
+        d = d.replace(hour=int(m.group(2)), minute=int(m.group(3)), second=int(m.group(4)))
+    return d >= cutoff
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("entry", nargs="?", default="-", help="JSON file with ONE entry, or - for stdin")
@@ -232,6 +348,8 @@ def main() -> int:
                     help="treat as an 8c closure even without `answered` (enforces identity)")
     ap.add_argument("--check-only", action="store_true", help="validate, write nothing")
     ap.add_argument("--ledger", default=conf.LEDGER)
+    ap.add_argument("--skip-hub-check", action="store_true",
+                    help="do not consult the hub's open list (say why in the report)")
     args = ap.parse_args()
 
     try:
@@ -273,6 +391,27 @@ def main() -> int:
         for r in reasons:
             print(f"  - {r}")
         return 1
+
+    # THE FILE-TIME CHECK. After validation and BEFORE the write, because that window is
+    # exactly where a draft's premise goes stale. It WARNS rather than refuses: a genuine
+    # second card on a related question is legitimate, and a refusal that can fire on a
+    # correct run is worse than the silence it replaces. What it removes is the case where
+    # nobody looked.
+    if args.skip_hub_check:
+        print("hub open-list check SKIPPED by flag -- say why in the report; a skipped "
+              "check and a clean one are the same artifact to a later reader.")
+    else:
+        warns = hub_open_list_warnings(entry)
+        if warns:
+            print("⚠ HUB OPEN-LIST CHECK, at file time:")
+            for w in warns:
+                print(f"  - {w}")
+            print("  If this question is already answered or already listed for him, do "
+                  "NOT file: two framings of one decision means he answers one and the "
+                  "other reads as dealt with. Re-check before proceeding.")
+        else:
+            print("hub open-list check: nothing on the hub's board names this id or a "
+                  "ruling-shaped line matching it (checked at file time, not at draft).")
 
     line = json.dumps(entry, ensure_ascii=False)
     if args.check_only:
