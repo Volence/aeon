@@ -1,27 +1,14 @@
 {
-  "focus": "Building him a spring; the sprite jumble is narrowed to the tilt-block crossings",
-  "inFlight": [
-    {
-      "what": "the spring, S3K physics on our own object model",
-      "where": "worktree aeon-spring, branch spring-object",
-      "agent": true
-    }
-  ],
+  "focus": "His spring is in and side collision has a measured gap; nothing running",
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "what": "the section 7 seam: it is authored content, not a bug -- accept it, spend a second effect channel, or redraw those chunk columns as art",
       "since": "2026-09-05"
     }
   ],
-  "nextBoundary": "when the spring and the sprite-jumble agents report; nothing half-applied",
+  "nextBoundary": "here: nothing in flight, nothing half-applied",
   "queue": [
-    {
-      "id": "SPRING",
-      "title": "A spring, his own idea: S3K physics on our object model, and the first real test of side solidity",
-      "state": "doing",
-      "size": "M",
-      "blockedBy": null
-    },
     {
       "id": "FLOOR-FAN",
       "title": "Floor: mechanism reopened -- he watched planks change ANGLE, which painted art cannot do",
@@ -81,9 +68,16 @@
       "state": "open",
       "size": "S",
       "blockedBy": "ruled: restore does NOT share the path (contract 11.40), so it must be a real keyed load; deferred to ten seconds of his time arranged through the hub"
+    },
+    {
+      "id": "LST-VMA-LMA",
+      "title": "Adopt sigil's VMA/LMA listing marker, one tool at a time; stop re-deriving phasing from source",
+      "state": "open",
+      "size": "S",
+      "blockedBy": "the shared sigil binary is stale (built 756c7efd); sigil to refresh and announce the SHA"
     }
   ],
   "awaiting": null,
-  "atBoundary": false,
-  "updatedAt": "2026-09-06T00:00:08Z"
+  "atBoundary": true,
+  "updatedAt": "2026-09-06T01:35:35Z"
 }
