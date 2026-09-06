@@ -3011,6 +3011,13 @@ on: X/Y adjacent and aligned (`RingBuffer_Remove` copies both with one `move.l`)
 section_id/list_index an aligned adjacent byte pair (`EntityWindow_TrySpawnRing`'s dedup scan
 compares them as one word).
 
+**The per-section ROM ring list is a different format** and is the array a section spawns rings
+FROM: null-terminated 4-byte `dc.w X, dc.w Y` entries (`RING_LIST_ENTRY_SIZE`,
+`RING_LIST_TERMINATOR`), reached through `EntityScanState.ess_rom_ring_ptr` (`$04`) and walked
+by `EntityWindow_ScanRingsRight`. There is **no stored per-section ring count** — the only way
+to learn one is to walk to the terminator, which is what the debugger's temporary-ring path has
+to do to pick a `list_index` that aliases no real ring.
+
 **Published for the debugger (2026-09-06).** The four offsets and the entry size are EQUATES
 and reach `lookup_equate`; the ring RAM locations (`Ring_Buffer`, `Ring_Count`,
 `Ring_HighWater`, `Ring_Add_Dropped`) are ADDRESSES and reach `lookup_symbol`. The two lookups
