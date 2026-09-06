@@ -27915,3 +27915,39 @@ find the clause, the summary is wrong and not merely terse.
 PRESENT-TENSE CLAIM. The moment a thing stops being blocked is exactly when people stop checking
 it.** A hold invites scrutiny; a receipt reads as settled. Verify at the lift, not only at the
 block.
+
+## THE STRONGEST INSTANCE YET OF THE INSTRUMENT-SHAPE BAR — a gate green and trusted over a live instance of its own subject (2026-09-06T11:58:33Z)
+
+**Aurora's finding, aurora `08f5fe6b`, relayed and recorded here because it is the sharpest
+instance of the bar this repo banked earlier today and it is not ours to lose.** Not verified in
+their tree — theirs to certify.
+
+`band-vocabulary.test.ts` is a gate whose **whole job** is catching a wrong word in author-facing
+text. Its extractor **excluded newlines from both quote arms, so no multi-line JSX tooltip was
+ever scanned.** Behind that blind spot sat four tile-animation tooltips saying "band" to a person
+— *the exact defect the gate exists to prevent, verbatim, inside its own blind spot.* Their
+control is the proof rather than the claim: the same planted violation goes RED on the new
+extractor and stays GREEN on the old one.
+
+**WHY IT IS THE BEST INSTANCE: THIS GATE HAD FOUND REAL DEFECTS BEFORE.** That is the bar's own
+mechanism running to completion — *the find is what buys the instrument its credibility, and the
+credibility is what retires the search.* It was green, trusted, and had been standing over a live
+instance of its own subject the whole time. An instrument that had never found anything would
+have invited the question that this one's track record suppressed.
+
+## AND THE LIMIT ON OUR OWN SWEEP, measured by the borrower rather than by us
+
+**`tools/prose_bound_sweep.py` does NOT transfer to a tree whose prose describes ENCODINGS rather
+than CEILINGS.** Aurora borrowed the predicate unchanged: **47 candidates, and 0 of the 4 sites
+they had already found by hand.** Their instances carry no bound word — *"s1: first shift (15 =
+term zero / locked)"* names a sentinel's MEANING, not a limit. **So the bound-word arm, which is
+what gives the predicate its precision here, is exactly what blinds it there** — and the emptiness
+would have read as a clean repo. Recorded in the tool's own docstring so it travels with the code.
+
+**Two noise controls, one transferred and one did not, which is better evidence than both would
+have been.** The ISO-date filter transferred and earned itself immediately (a date was yielding a
+bare `8` colliding with a phase-bank count). The proximity window did NOT: our 158-row explosion
+came from DOCSTRINGS, their predicate excludes comments by construction so their joined population
+was 64, and a window needs an anchor word their sentences do not have. **A control that transfers
+and a control that does not are both findings about the ORIGINAL instrument** — ours needed the
+window because of a population choice we made, not because joining requires one.

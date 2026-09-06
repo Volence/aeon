@@ -26,6 +26,23 @@ string and almost always contains SOME bound word and SOME number. Recall rose a
 precision collapsed. The proximity window is what makes it reviewable again (82), and the
 date filter takes it to the reviewable set. Recall is not free; the noise arrives with it.
 
+⚠ IT DOES NOT TRANSFER TO A TREE WHOSE PROSE DESCRIBES ENCODINGS RATHER THAN CEILINGS
+(measured by the aurora lane 2026-09-06T11:58:08Z, borrowing this predicate unchanged). On their tree it
+returned 47 candidates and **0 of the 4 sites they had already found by hand**. The cause is
+the BOUND-WORD arm: their instances are ENCODING sentences -- "s1: first shift (15 = term
+zero / locked)" names a sentinel's MEANING and contains no limit/budget/max/cap. So the arm
+that gives this predicate its precision here is exactly what blinds it there, and the
+emptiness would have read as a clean repo.
+
+**If you borrow this, check first whether your bound-stating prose uses bound WORDS at all.**
+Where it does not, the anchor has to be something else -- a constant's identifier, an
+assignment, a unit -- and the proximity window goes with it, since a window needs an anchor.
+Aurora declined the window on that ground and was right to: their joined population was 64,
+not 158, because this predicate excludes comments by construction and it was DOCSTRINGS that
+caused the explosion measured here. **The ISO-date filter did transfer** and earned itself
+immediately (`2026-08-29` was yielding a bare `8` that collided with a phase-bank count).
+One of two noise controls transferring is better evidence than both would have been.
+
 Run:  python3 tools/prose_bound_sweep.py tools
       python3 tools/prose_bound_sweep.py --self-test    # the positive control
 """
