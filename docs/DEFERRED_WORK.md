@@ -27483,10 +27483,20 @@ mail does not survive a `/clear`** (shared-protocol bar 20, the sending-side hal
 was told this by aeon-f2 on 2026-09-06 and is relying on it; a rotated aeon that does not
 know about it would silently default on it, and aurora has no way to detect that.
 
-**THE OBLIGATION, in one sentence: when a vertical BgAnim band reaches the AUTHORED act —
-i.e. when the raised `BGANIM_SECTION_CEILING_RULED = 20480` (`tools/inject_editor_bg.py:197`,
-raised 2026-09-04) is actually SPENT — aeon tells the aurora lane, unprompted, in the same
-landing.** Not "aurora may ask"; aeon volunteers it. It is the event that closes their half
+**THE OBLIGATION, AMENDED 2026-09-06 AND THE AMENDMENT IS THE POINT: aeon tells the aurora lane
+BEFORE the raised `BGANIM_SECTION_CEILING_RULED = 20480` (`tools/inject_editor_bg.py:197`, raised
+2026-09-04) is spent, not at the landing that spends it.** Not "aurora may ask"; aeon volunteers
+it, early.
+**WHY THE TIMING CHANGED — aurora's finding, verified here by importing the module rather than
+reading it.** Aurora models this ceiling **not at all**. `BGANIM_SECTION_CEILINGS` is
+`{'s4.lst': 20480, 's4.debug.lst': 20480}`, the effective ceiling is their `min` = 20,480 B, and
+with `BGANIM_COUNT_BYTES` 2 + `BGANIM_RECORD_BYTES` 44 at 256 B/slot that admits **79 animated
+slots** with one band; `check_bganim_section_fits` raises `SystemExit` at
+`tools/inject_editor_bg.py:409`. On the live document their panel **offers 80 slots where the ROM
+section admits 47**. So an announcement AT the spend arrives too late to stop an author being
+offered slots that cannot fit — the author is told it fits and our build refuses, which is the
+same permissive-guard direction aurora is repairing on `BG_TILE_CAPACITY`. **A notice whose whole
+value is letting the other side prepare has to precede the event, not accompany it.** It is the event that closes their half
 of EFFECTS-W1 item 8 and they have explicitly asked to hear it from us rather than discover
 it.
 
