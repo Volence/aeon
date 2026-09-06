@@ -122,16 +122,29 @@ independent reason the sign is not the variable.
 **SECOND FINDING, unrelated to curves and the reason the curve's span is 224 lines:
 this scene renders as ONE band, not three.** `scene_plane_line()` is the identity on a
 vertically locked plane — it returns the authored `world_y` and does **not** add `v_offset`
-(`engine/level/scene_dsl.emp`:3313-3332). sec7 is the first locked scene in the tree with a
-non-zero `v_offset` (288), so its tops 0/40/162 are *plane* lines below the visible window,
-Step 4a's `.find_k` rotation picks **k = 2**, forces that band to screen line 0, and the
-clamp zeroes the other two. Measured: `flat` is one run of −1420 over 224 lines (the first
-layer's `FACTOR_1_8` appears nowhere) and `desc` is one ramp with **no discontinuity at line
-40 or 162**; `Parallax_Current_Vscroll_BG` reads 288. The engine is doing what the data
-says, so this is not an engine defect — but the three authored layers have no effect at this
-camera position, which is a content call for the scene's author and the owner. **No guard in
-`layer()` or `scene()` relates an authored top to the visible window `[v_offset,
-v_offset + 224)`**; that is the shape a guard would take if one is wanted.
+(`engine/level/scene_dsl.emp`:3313-3332), so an authored top is a PLANE line and
+`scene_vsplit_line`'s banner gives the consequence, `screen = plane_line − v_offset`. sec7's
+tops 0/40/162 against `v_offset: 288` are therefore all below the visible window; Step 4a's
+`.find_k` rotation picks **k = 2**, forces that band to screen line 0, and the clamp zeroes
+the other two. Measured: `flat` is one run of −1420 over 224 lines (the first layer's
+`FACTOR_1_8` appears nowhere) and `desc` is one ramp with **no discontinuity at line 40 or
+162**; `Parallax_Current_Vscroll_BG` reads 288.
+
+**The tree already contains the same construct done right**, which is what makes this a
+finding: `ojz_act1_floor.json` carries the same `v_factor: 15, v_offset: 288` and authors
+its tops **in plane space** — 0/288/440 — so `440 − 288 = 152` is a screen line and is
+exactly `tools/perspective_floor_predict.py`'s `HORIZON_LINE` (its `BAND_TOP = 96` comment
+spells the same arithmetic out). `ojz_act1_depth` and `ojz_act1_start` have `v_offset: 0`
+where the two spaces coincide. So **sec7 is the one editor scene of four that authors
+screen-space numbers into a plane-space field**, and the engine is doing exactly what the
+data says — not an engine defect, a content call for the scene's author and the owner.
+**No guard in `layer()`, `scene()` or the generator relates an authored top to the visible
+window `[v_offset, v_offset + 224)`**; on a LOCKED plane `Vscroll_BG` never moves, so a band
+outside that window can never be seen and the guard is decidable at comptime. It is NOT
+built here: it would go red on the shipped sec7 scene today, so it cannot land without the
+content fix beside it, and which of the two to change is not this parcel's call.
+(`scene_vsplit_line`'s banner still says "the eighteen shipped locked scenes, whose
+v_offset is 0" — no longer true of the editor-authored set.)
 
 **FOR AURORA:** `curveDescendingAdvisory` needs **re-pointing, not deleting** — their own
 review §9.2 asks for exactly that if the cause turned out bounded or direction-independent.

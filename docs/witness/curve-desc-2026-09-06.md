@@ -178,14 +178,29 @@ noise at onset).
 **At these coordinates this scene renders as ONE band covering the whole screen, not three.**
 
 `scene_plane_line()` is the **identity** on a vertically locked plane — it returns the
-authored `world_y` and does **not** add `v_offset` (`engine/level/scene_dsl.emp`:3313-3332;
-`scene_vsplit_line`'s banner states the consequence, `screen = plane_line - v_offset`, and
-notes that every other locked scene in the tree has `v_offset: 0`, which is why "the
-authored top IS the screen line" reads as a law). The sec7 scene is the first locked scene
-with a non-zero `v_offset`. Its authored tops 0 / 40 / 162 are therefore **plane** lines
-while `Vscroll_BG` is pinned at 288, so Step 4a's rotation (`.find_k`) picks
-**k = 2** — the last band whose plane top <= 288 — forces it to screen line 0, and the other
-two rotate to `top - 288 + 512` >= 224 where the clamp zeroes their length.
+authored `world_y` and does **not** add `v_offset` (`engine/level/scene_dsl.emp`:3313-3332).
+An authored top is therefore a **plane** line, and `scene_vsplit_line`'s banner states the
+consequence: `screen = plane_line - v_offset`. sec7's tops 0 / 40 / 162 sit against
+`v_offset: 288`, so every one of them maps to a negative screen line; Step 4a's rotation
+(`.find_k`) picks **k = 2** — the last band whose plane top <= 288 — forces it to screen line
+0, and the other two rotate to `top - 288 + 512` >= 224 where the clamp zeroes their length.
+
+**AND THE TREE ALREADY CONTAINS THE SAME CONSTRUCT DONE RIGHT**, which is what makes this a
+finding rather than a curiosity. `games/sonic4/data/editor/effects/ojz_act1_floor.json`
+carries the *same* `v_factor: 15, v_offset: 288` and authors its tops **in plane space** —
+0 / 288 / 440 — so `440 - 288 = 152` is a screen line, and that is exactly
+`tools/perspective_floor_predict.py`'s `HORIZON_LINE`; the same file's `BAND_TOP = 96`
+comment spells the arithmetic out ("plane y 384 (cell row 48) - 288 = screen line 96").
+The other two editor scenes (`ojz_act1_depth`, `ojz_act1_start`) have `v_offset: 0`, where
+the rotation is the identity and plane space and screen space coincide. So **sec7 is the one
+scene of the four that authors screen-space numbers into a plane-space field**, and nothing
+in `layer()`, `scene()` or the generator relates the two. (`scene_vsplit_line`'s banner says
+"the eighteen shipped locked scenes, whose v_offset is 0" — that is no longer true of the
+editor-authored set and should not be read as current.)
+
+Rider, not chased: the floor scene's own `world_y: 0` layer also rotates to 224 and draws
+nothing. It shares `fb: FACTOR_1_16` with the `world_y: 288` layer that covers screen
+0..151, so it is harmless there — but it is the same silent-dead-layer shape.
 
 Measured, not inferred:
 
