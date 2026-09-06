@@ -28469,3 +28469,34 @@ reasonable-looking.
 
 **So `NVIEWS-REQUIRED` waits for the cut to lift, not for a hub word requested on a peer's
 behalf.** The queue row is corrected to say so.
+
+### CORRECTION to the entry above — an escape DID exist, and my sentence was true while doing a bigger sentence's work (2026-09-06T13:38:16Z)
+
+**BGANIM-DECOUPLE landed at `364b7bce`** (four shapes exit 0, byte-identical to master —
+`fe512c95`/`3b542111`/`78f29102`/`64db70af` — pytest 2550-2553 passed, 0 failed per shape; the
+derived expectation that the shipped act could not change HELD).
+
+**But the entry that parked it said "exposing `default_off` in the editor does not fix it", and
+that overstated.** The aurora lane caught their own relay of it and told me; verified here against
+the pre-decouple blob (`ce847633`) by reading the guard rather than re-running it:
+`off = [bands carrying default_off]`, then `if not off: return 0` — the raise sits **after** that.
+**So an author who CLEARED `default_off` on the existing band and then promoted got no refusal.**
+A way through existed.
+
+**MY SENTENCE WAS LITERALLY TRUE AND THAT IS THE PROBLEM.** *"The refusal fires whether or not the
+NEW band carries the key"* is correct — it fires because the OLD band carries it. What it did was
+the work of *"there is no way through"*, which is false. **That is this repo's own
+true-sentence-doing-a-bigger-sentence's-work failure**, committed outbound to the lane that then
+relayed it back to me as their error when the overstatement was mine to begin with.
+
+**AND THE REFINEMENT THAT MATTERS MORE THAN EITHER VERSION:** the escape existed, and taking it
+**re-enabled the animation in the release ROM** — clearing `default_off` is precisely how the
+bands come back on. So *"the author is not stuck"* is true and incomplete in the other direction:
+the only pre-decouple path through **undid the owner's own request**. Neither "blocked" nor "fine"
+describes it; the accurate sentence is that the workaround cost the thing the flag exists for.
+That is the version the row should have carried and now does.
+
+**The second wall behind the first is the durable half of the parcel** and is unaffected: with
+`views_emitted` neutralised the promoted shape still died on *"default_off bands must be the TAIL
+of the band list"*, because `Promote` APPENDS and the shipped act's only band is marked.
+**Fixing the first wall alone would have moved the failure one line down and looked like a fix.**
