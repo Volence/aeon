@@ -26756,11 +26756,102 @@ additionally set `ground_vel` and `flip_angle`, which is a different physics pro
 engine's per-face launch model writes ONE velocity field, and a diagonal needs both plus a
 visual rotation the engine does not own.
 
-**SP-5c — the launch is not confirmed on a running ROM.** This lane has no emulator. Every
-static claim is measured (build, listing, ROM bytes, `ensure` inversion), and the exact
-controller-side drive that would confirm each new face is written out in the landing commit
-message. Until someone runs it, "the side face launches" is a code-and-bytes claim, not a
-physics one.
+**SP-5c — the launch on a running ROM — CLOSED 2026-09-06.** Both new launches have now
+happened on a running ROM, headless (`tools/aether_instance.py`, never the emulator MCP).
+`tools/spring_launch_witness.py` went from four legs to eight — six drives and two controls —
+and the leg count is asserted, so a leg that silently does not run cannot read as one that
+passed. On `s4.debug.bin`:
+
+| leg | what ran | measured |
+|---|---|---|
+| L5 SIDE LAUNCH | walks the ledge into the LEFT spring at (760,632) on the face it points out of | `x_vel` **-4096** at the hook (exact); `ground_speed` -4084 one frame later, the launch less one `PHYS_FRICTION` step; +28px AWAY over three frames against a ~2px/frame walk; the spring's `anim` goes to FIRE |
+| L6 UNDERSIDE LAUNCH | JUMPS from the floor 103px under the DOWN spring at (700,424), holding toward it | enters the contact band still RISING at -531; `y_vel` **+4096** at the hook (exact); seated at the derived y=445; falls 31px over the next two frames |
+| C1 BACK FACE | the same LEFT spring hit from its right | pushed to the 16px resting face, `x_vel` and `ground_speed` both zeroed, and `anim` never leaves IDLE — the hook's own witness that it did not fire |
+| C2 TOP LAND | dropped onto the RIGHT spring's top | ordinary landing at the derived seat y=606, `ST_ON_OBJECT` set, `ST_IN_AIR` clear, no sideways launch in either driver, `anim` never leaves IDLE |
+
+**Hop 2 now validates the whole table.** Both of `word_22EF0`'s magnitudes are parsed (red
+-4096, yellow -2560) and all eight implemented `Spring_Launch` entries are read from the ROM
+and required to be the axis and sign their direction NAME demands. The row index is not
+written down in the witness: the subtype bit layout is SOLVED out of the listing's own
+`ObjSub_Spring__*` equates (strength weight = `Up_Yellow - Up_Red` = $02; direction weight =
+gcd of the `*_Red` values = $10) and then CHECKED by those eight reads, because a gcd can
+overestimate. `$50` appears nowhere in the file — each leg finds its subject by the published
+equate.
+
+**Each leg is proven red-first,** with the mutation shown applied by `git diff`, each rebuild's
+ROM md5 shown changing, and the baseline restored from the commit: `clr.w x_vel` on the side
+impulse takes L5 to exit 1; `clr.w y_vel` on the underside impulse takes L6 to exit 1; `bmi ->
+bvs` on the side face's direction gate takes C1 to exit 1; `bpl -> bvs` on the top face's
+`y_vel < 0` test takes C2 to exit 1. **The last two only became exit-1 because of what their
+first red run showed** — see "A control that reports `could not look`" below.
+
+**What is still not driven:** the two diagonals (SP-5b, inert by design), the YELLOW strength
+(validated in the ROM table, but every placement in section 0 is red), and the RIGHT spring's
+own launching face (checked by symmetry with the LEFT spring's; its top face is C2's subject).
+
+---
+
+### SP-5d — the bounce corridor does not close: the three new springs are sealed off from the level
+
+**Measured on `s4.debug.bin`, 2026-09-06, and this is a placement bug, not a physics one.** The
+SP-5 placement commit (`013a36e0`) describes a playable corridor in OJZ act 1 section 0: run
+into a side spring and be thrown back, and be launched by the up spring at (700,632) into the
+down spring's underside 208px above. **None of it is reachable from the spawn, and the corridor
+does not close even from inside.**
+
+* The walkable surface a player reaches from the spawn runs at **y=525..573** across that whole
+  span (measured by dropping the player at x=460..860). The three new springs are at y=632 and
+  y=424, in chambers above and below it, sealed off by terrain.
+* The two side springs float at the ends of a **120px ledge at y=621** in a lower chamber
+  (solid from x≈630 to x≈750; at x=620 and x=780 the player falls to y=829). The RIGHT spring
+  at (560,632) is **off the west end of that ledge entirely** — a player walking left runs out
+  of floor at x≈630 and sails past it at y≈680, 48px too low to touch it.
+* The **up spring at (700,632) sits in the middle of the ledge and blocks it** with its own
+  solid side face, splitting the walkable run into [630,684] and [716,750]. Only the second
+  half reaches a side spring, which is why L5 drives the LEFT one.
+* A player launched off that up spring **hits the chamber ceiling at y=578** and falls back onto
+  it — a two-frame loop, measured. The down spring at (700,424) is 127px above that ceiling, in
+  a different chamber. The up-spring-into-down-spring bounce the commit describes cannot happen.
+
+**So the witness seats the player in the chamber its spring lives in** (the same `put_player`
+poke L4 already uses for its drop) and plays from there — walks, jumps, falls. Every seat is
+asserted, so a level edit makes a leg UNMEASURABLE rather than quietly measuring something
+else. **The fix is a level edit, not an engine one**, and it is the owner's call: move the three
+placements onto the surface run, or open the chambers. Until then no player will ever meet a
+side or underside spring by playing the level.
+
+---
+
+### A control that reports "could not look" for the exact defect it exists to catch - 2026-09-06
+
+**Both of SP-5c's control legs did this, and only their own red-first mutations found it.** On a
+good tree they were green; on a bad tree they were non-zero. Nothing looked wrong. They were
+exiting **2 UNMEASURABLE** with the finding sitting in data they had already collected.
+
+**C1 — the ORDER of evidence and guard.** The back-face control carries a `wrong_side` guard: if
+the player ends up on the spring's launching side, the measurement is compromised. But deleting
+the side face's direction gate makes the back face launch him at 16px/frame **straight through
+the spring** — so the guard fires, and evaluated first it converted the sharpest symptom the leg
+can produce into "nothing was measured". *He crossed BECAUSE he was launched.*
+
+**C2 — the VACUITY LINE was drawn at the wrong event.** Its vacuity case was "he did not land".
+But disarming the top face's `y_vel < 0` test makes a side spring's top LAUNCH instead of land:
+it hands the player its **zero** y_vel and drops him airborne — a spring you fall through the
+top of, which is the failure the SP-5 merge names. He therefore never stands on anything.
+
+**Transferable, and it is not "write better guards".** A vacuity guard and a failure detector
+can key on the SAME OBSERVATION, and when they do, whichever runs first decides whether you get
+a finding or a shrug. So:
+
+1. **Judge the evidence you already hold before the guard that would discard it.** Peaks sampled
+   across a whole window are valid however the subject travelled.
+2. **Draw the vacuity line at the CONTACT, not at the OUTCOME.** "He never reached it" is
+   genuinely unmeasurable. "He reached it and the outcome was wrong" is a FAILURE — and the
+   outcome is exactly what a defect changes, so a guard keyed on it is a guard that fires
+   precisely when the subject is broken.
+3. **A leg that only ever goes green or exit-2 is not obviously wrong.** Both bars are non-green,
+   both are loud, and nothing in a normal run distinguishes them. Only a red-first mutation aimed
+   at that specific leg shows which one you built.
 
 ---
 
