@@ -390,6 +390,19 @@ rotated frame**, and this is not a bug -- the art is correct for the geometry. A
 there is vacuous for F7 no matter how long it runs. That is the negative control this campaign
 needed and did not have.
 
+> **⚠ CORRECTED 2026-09-06 -- the arithmetic above is right and the conclusion is not.**
+> Everything measured in this subsection stands: block 0 really is `$F0..$10`, the wavy platform
+> at x 128..767 really is a +/-22.5 degree undulation, and a walk over it really does hold
+> `mapping_frame` in `$01..$08`. What does NOT follow is the sentence the campaign then acted on.
+> "The slope he means cannot tilt at all" required picking WHICH terrain he meant, and that was
+> the controller's choice, not his statement. He has since said it plainly: *"while playing, it
+> happens when on a slope and sonic/character is rotated, a specific sprite during the animation
+> of walking."* **The character IS rotated when it happens**, so the tilted walk frames are
+> reachable in normal play and the terrain in question is steeper than this stretch -- read this
+> subsection as "the wavy platform is not where to drive", never as "the tilted frames are
+> unreachable". The defect was then found in **tilt block 1**, one bucket up from the block this
+> section eliminated: see "SOLVED" at the end of this file.
+
 **The one real tilt source in the act is the LOOP, and it is at world x 1056..1263,
 y 384..576** -- split across the two collision planes with the crossover seam at x 1144..1151.
 (An earlier pass of this campaign put it at x ~2048..2500: that was a unit error. A collision
@@ -630,3 +643,86 @@ value:
 5. **Whether he sees it WHILE PLAYING or only after pausing.** A mid-rebuild RAM transient
    cannot reach the screen during play; a deferred DMA can. This one question separates the
    two whole families and costs him nothing.
+
+---
+
+## SOLVED (2026-09-06): it is mapping frame `$09`, it is in the ART, and it is static
+
+Everything above hunted a runtime mechanism. There was none to find. The owner's own
+description -- *"while playing, it happens when on a slope and sonic/character is rotated, a
+specific sprite during the animation of walking"* -- is a claim about ONE frame of the tilted
+walk cycle, and a frame is a purely static object: a mapping frame, the DPLC frame that loads
+its tiles, and the art those tiles name, all three of them committed `.bin` files. So the whole
+thing is checkable offline. `tools/tilt_frame_static_audit.py` audits and renders all 48 of them
+and **no emulator was touched.**
+
+### The defect
+
+**Mapping frame `$09` renders as scrambled body parts. The other 47 tilted walk/run frames
+render as a clean, correctly rotated Sonic.**
+
+`$09` is `Player_ApplyTilt`'s `script_frame + (block << TILT_WALK_SHIFT)` for walk script frame
+`$01` -- the THIRD byte of `Ani_Sonic.Walk` (`[DUR_DYNAMIC, 7, 8, 1, 2, 3, 4, 5, 6, AF_END]`) --
+with orientation block **1**, the bucket just above the one the section before this eliminated.
+Walk a slope in that bucket and one specific frame of the cycle draws garbage for its hold and
+then the cycle carries on. That is the report, word for word.
+
+Its tiles: the DPLC loads 25, optimized art indices **143..167** (unoptimized 168..192), and its
+four mapping pieces (3x4, 4x2, 1x1, 2x2 = 12+8+1+4) reference relative tiles 0..24. Sixteen of
+those 25 (unopt 171..186) are ALSO loaded by frame `$C9`, **which renders as a clean standing
+pose from the same bytes**. The pixels are coherent Sonic parts. It is `$09`'s claim on them
+that is wrong.
+
+### Evidence
+
+| file | what it shows |
+|---|---|
+| `docs/witness/f7-tilt-frames.png` | all 48 tilted frames, 4 blocks x 12 poses -- `$09` is the only broken cell |
+| `docs/witness/f7-frame-09-defect.png` | `$09` beside `$01`/`$11`/`$19` (the same walk pose in the other three blocks) and `$C9` (clean, sharing 16 of its tiles) |
+
+Both regenerate from `python3 tools/tilt_frame_static_audit.py`.
+
+### What is NOT the cause, measured rather than assumed
+
+- **Not a coverage or off-by-one error.** All 48 frames are exactly coherent: `max referenced
+  relative tile == DPLC tile total - 1`, every frame, no overrun and no dead load. No DPLC entry
+  reaches past the 3,158-tile sheet. **The static coherence arm is a clean refutation of the
+  off-by-one shape and is reported as one** -- it is the render arm that found the defect.
+- **Not the tile-order convention.** Rendering column-major (VDP order) gives a clean `$11` and a
+  jumbled `$09`; row-major garbles `$11` too. Column-major is right, and `$09` is wrong either way.
+- **Not the dedup / optimizer.** `art/optimized/characters/sonic.bin` tiles 143..167 are
+  BYTE-IDENTICAL to `art/uncompressed/characters/sonic.bin` 168..192, all 25, and
+  `games/sonic4/data/dplc/sonic.bin` is byte-identical to the donor's.
+- **Not aeon's mapping conversion.** Decoding `sonic_hack/mappings/sprite/Sonic.bin` (the S2
+  container: Y byte, size byte, tile word, dead 2P-tile word, X word) against
+  `games/sonic4/data/mappings/sonic.bin` field-by-field across all 224 frames gives **zero**
+  mismatches in Y/size/tile/X. The conversion widened Y, dropped the 2P word and prepended the
+  four bbox bytes; it changed no geometry.
+
+So the defect **arrived with the donor sheet and predates this engine.**
+
+### It is the shipped ROM's own data
+
+`Art_Sonic` (101,056 B), `Map_Sonic` (7,296 B) and `DPLC_Sonic` (2,244 B) each appear EXACTLY
+ONCE in `s4.bin`, at `$0730B4` / `$070B70` / `$0727F0`. Frame `$09`'s 25 tiles sit at
+`$074294..$0745B3`. The audit is of what ships.
+
+### Fix ownership
+
+This is **art content, not engine code**. Frame `$09` of the Sonic sheet needs re-cutting by
+whoever owns the character art. Nothing in `engine/` or `games/sonic4/player/` is implicated,
+and every runtime mechanism this file spent the previous day eliminating stays eliminated --
+correctly, as it turns out, because none of them was ever the cause.
+
+### The riders this leaves open
+
+1. **Tails and Knuckles are unaudited.** The tool is Sonic-pathed. The same sheet lineage feeds
+   `games/sonic4/data/mappings/{tails,knuckles}.bin`, so the same cut error can be there.
+   Pointing the tool at them is a small change.
+2. **The other 176 frames are unaudited.** Only the 48 tilted walk/run frames were rendered,
+   because that is what the owner's description scopes. The coherence arm is cheap to widen to
+   all 224.
+3. **Nothing gates this.** The coherence arm could run in `build.sh`, but it is green today and
+   a green-by-construction gate is worth little; the render arm needs eyes. A defensible gate
+   would pin the 48 rendered frames by hash so a future art re-export that breaks one fails
+   loudly. Not built -- flagged rather than half-done.
