@@ -988,6 +988,22 @@ _REFUSAL_REQUIREMENTS = (
 )
 
 
+def shape_aware_size(anims):
+    """What `ojz_bg_anim` really comes to for `anims`, view terms included.
+
+    ONE SPELLING for the tests, because `bganim_section_bytes`'s two view arguments
+    both default to 0 and a bare call therefore answers a question no emitted module
+    has ever asked: the twins are either three band tables (a qualifying act) or three
+    count-0 words (every other act, since 2026-09-06 — the exported names are
+    shape-invariant), and never absent. A test that models them as absent is 6 or
+    138 bytes adrift from the artifact it claims to measure.
+    """
+    return inject_editor_bg.bganim_section_bytes(
+        len(anims), sum(a["cols"] * a["rows"] for a in anims),
+        n_views=inject_editor_bg.views_emitted(anims),
+        n_declined_views=inject_editor_bg.declined_views(anims))
+
+
 def refusal_shortfalls(message, facts):
     """Return the labels of everything an actionable refusal must carry and does not.
 
@@ -1041,7 +1057,7 @@ class TestBgAnimSectionCeiling(unittest.TestCase):
         ceiling = inject_editor_bg.BGANIM_SECTION_CEILING
         return str(cm.exception), {
             "bands": len(anims), "slots": slots, "ceiling": ceiling,
-            "size": inject_editor_bg.bganim_section_bytes(len(anims), slots)}
+            "size": shape_aware_size(anims)}
 
     # ---- the size formula is not a second opinion -----------------------------
 
@@ -1061,10 +1077,21 @@ class TestBgAnimSectionCeiling(unittest.TestCase):
         d["anims"][0]["phases"] = [d["tiles"][0:1]] * 8
         emp, banks = emitter._emit.__func__(emitter, d)
         n_bands = len(d["anims"])
+        # The DECLINED view names are part of what the emitter writes — three count
+        # words in the DEBUG shape (this fixture sets no `default_off`, so the twins
+        # decline). Counting the emitted `pub data BgAnim_View_*` lines rather than
+        # assuming three keeps this comparing the artifact to the formula.
+        n_declined = sum(1 for line in emp.splitlines()
+                         if line.startswith("pub data BgAnim_View_")
+                         and "[0]" in line)
+        self.assertEqual(n_declined, inject_editor_bg.BGANIM_VIEW_COUNT)
         observed = (inject_editor_bg.BGANIM_COUNT_BYTES
-                    + inject_editor_bg.BGANIM_RECORD_BYTES * n_bands + len(banks))
+                    + inject_editor_bg.BGANIM_RECORD_BYTES * n_bands
+                    + n_declined * inject_editor_bg.BGANIM_COUNT_BYTES + len(banks))
         self.assertEqual(
-            inject_editor_bg.bganim_section_bytes(n_bands, 1), observed,
+            inject_editor_bg.bganim_section_bytes(n_bands, 1,
+                                                  n_declined_views=n_declined),
+            observed,
             "bganim_section_bytes disagrees with the bytes the emitter actually "
             "produced — the ceiling is then measuring a section that does not exist")
         self.assertIn("pub data BgAnim_Table: u16 = 1", emp,
@@ -1074,10 +1101,17 @@ class TestBgAnimSectionCeiling(unittest.TestCase):
     # ---- the refusal ----------------------------------------------------------
 
     def test_the_historical_two_band_act_is_refused(self):
-        """The real content this zone shipped: 32x4 + 16x4 = 192 slots = 49,242 B."""
+        """The real content this zone shipped: 32x4 + 16x4 = 192 slots.
+
+        49,242 B of bands and blob, plus the three DECLINED view names' count words
+        in the DEBUG shape (this act sets no `default_off`, so the twins decline —
+        but their names are exported by every act shape since 2026-09-06).
+        """
         msg, facts = self._refuse([self._band(32, 4, 0), self._band(16, 4, 128)])
         self.assertEqual(facts["slots"], 192)
-        self.assertEqual(facts["size"], 49242)
+        self.assertEqual(facts["size"],
+                         49242 + inject_editor_bg.BGANIM_VIEW_COUNT
+                         * inject_editor_bg.BGANIM_COUNT_BYTES)
         self.assertEqual(refusal_shortfalls(msg, facts), [],
                          f"the refusal is not actionable:\n{msg}")
 
@@ -1092,8 +1126,12 @@ class TestBgAnimSectionCeiling(unittest.TestCase):
         returned size when it does not.
         """
         band = [self._band(8, 4, 0)]
-        size = inject_editor_bg.bganim_section_bytes(1, 32)
-        self.assertEqual(size, 8238)
+        self.assertEqual(inject_editor_bg.bganim_section_bytes(1, 32), 8238,
+                         "the bands-and-blob half of the size, which is the number "
+                         "this act has always been known by")
+        # What the emitter actually writes for THIS document: the band, the blob and
+        # the three declined view names' count words.
+        size = shape_aware_size(band)
         ceiling = inject_editor_bg.BGANIM_SECTION_CEILING
         if size <= ceiling:
             self.assertEqual(inject_editor_bg.check_bganim_section_fits(band), size)
@@ -1162,7 +1200,7 @@ class TestBgAnimSectionCeiling(unittest.TestCase):
                 inject_editor_bg.OUT_DIR, inject_editor_bg.OVERRIDE = saved
             facts = {"bands": 2, "slots": 192,
                      "ceiling": inject_editor_bg.BGANIM_SECTION_CEILING,
-                     "size": 49242}
+                     "size": shape_aware_size(d["anims"])}
             self.assertEqual(refusal_shortfalls(str(cm.exception), facts), [],
                              f"main()'s refusal is not actionable:\n{cm.exception}")
             for name in ("bg_anim.emp", "bg_anim_banks.bin"):
@@ -1173,10 +1211,18 @@ class TestBgAnimSectionCeiling(unittest.TestCase):
 
     def test_the_disabled_stub_is_always_admitted(self):
         """Master's shipping content. If the ceiling ever refuses this, every build
-        of every act stops, animated or not."""
+        of every act stops, animated or not.
+
+        The stub is 2 B of `BgAnim_Table` plus the three declined view names' count
+        words in the DEBUG shape — it exports them like every other act shape, which
+        is what lets a consumer `use` them unconditionally.
+        """
         self.assertEqual(inject_editor_bg.check_bganim_section_fits([]),
-                         inject_editor_bg.bganim_section_bytes(0, 0))
+                         shape_aware_size([]))
         self.assertEqual(inject_editor_bg.bganim_section_bytes(0, 0), 2)
+        self.assertEqual(shape_aware_size([]),
+                         2 + inject_editor_bg.BGANIM_VIEW_COUNT
+                         * inject_editor_bg.BGANIM_COUNT_BYTES)
 
     # ---- the matcher is under test --------------------------------------------
 
@@ -1559,13 +1605,17 @@ class TestBgAnimRoomOverCommittedFixture(unittest.TestCase):
         and carries no trace of the retired placer arm."""
         import bganim_room
         tree, lst = self._tree()
-        live = inject_editor_bg.bganim_section_bytes(1, 32)
-        self.assertEqual(live, 8238)
-        self.assertEqual(inject_editor_bg.live_section_bytes(tree), live)
+        # The number the GATE uses, which is the shape-aware one: this fixture's
+        # document sets no `default_off`, so its three view twins decline and export
+        # their names as count-0 words (BGANIM_VIEW_COUNT x BGANIM_COUNT_BYTES in the
+        # DEBUG shape). Modelling them as absent is the 6 B this test used to be.
+        live = inject_editor_bg.live_section_bytes(tree)
+        self.assertEqual(live, 8238 + inject_editor_bg.BGANIM_VIEW_COUNT
+                         * inject_editor_bg.BGANIM_COUNT_BYTES)
         packed_end = self._hand_lma() + self.FIXTURE_ART_SONIC_BYTES
         room = self.FIXTURE_ANCHOR - packed_end
         headroom = room + live
-        self.assertEqual(headroom, 96526)
+        self.assertEqual(headroom, 88288 + live)
         ceiling = inject_editor_bg.BGANIM_SECTION_CEILINGS["s4.debug.lst"]
         self.assertGreater(headroom - ceiling, 0, "the re-layout must leave a POSITIVE margin")
         # the rule, by hand: the first 0x8000 boundary at or above end + reserve + grace
@@ -1691,7 +1741,7 @@ class TestBgAnimRoomOverCommittedFixture(unittest.TestCase):
         self.assertEqual(rc, 0, text)
         self.assertIn("BGANIM_SECTION_CEILINGS['s4.lst'] = 20480 B", text)
         headroom = (self.FIXTURE_ANCHOR - (self._hand_lma() + self.FIXTURE_ART_SONIC_BYTES)
-                    + inject_editor_bg.bganim_section_bytes(1, 32))
+                    + inject_editor_bg.live_section_bytes(tree))
         table = inject_editor_bg.BGANIM_SECTION_CEILINGS
         saved = table["s4.lst"]
         table["s4.lst"] = headroom + 1
@@ -1711,7 +1761,9 @@ class TestBgAnimRoomOverCommittedFixture(unittest.TestCase):
         tree, lst = self._tree()
         headroom = (bganim_room.rom_room(lst, tree)["room"]
                     + inject_editor_bg.live_section_bytes(tree))
-        self.assertEqual(headroom, 96526)
+        # 88,288 B of room + this fixture's own section (8,238 B of band and blob,
+        # plus the three declined view names' count words in the DEBUG shape).
+        self.assertEqual(headroom, 88288 + inject_editor_bg.live_section_bytes(tree))
         table = inject_editor_bg.BGANIM_SECTION_CEILINGS
         saved = table["s4.debug.lst"]
         table["s4.debug.lst"] = headroom + 1
@@ -2430,19 +2482,22 @@ class TestBgAnimPlacerArmRetired(unittest.TestCase):
         self.assertNotIn("placer", msg.lower())
         self.assertNotIn("BGANIM-PLACE", msg)
         self.assertIn("dac_banks", msg)
+        bands = [{"cols": 32, "rows": 4, "slot_base": 0},
+                 {"cols": 16, "rows": 4, "slot_base": 128}]
         facts = {"bands": 2, "slots": 192,
-                 "ceiling": inject_editor_bg.BGANIM_SECTION_CEILING, "size": 49242}
+                 "ceiling": inject_editor_bg.BGANIM_SECTION_CEILING,
+                 "size": shape_aware_size(bands)}
         self.assertEqual(refusal_shortfalls(msg, facts), [], msg)
 
     def test_an_8kb_class_band_is_accepted_under_the_section_ceiling(self):
         """aurora's 8x4 band: 2 + 44 + 32x256 = 8,238 B. It was REFUSED by the
         placer ceiling (1,026 B); under the only remaining ceiling it is accepted."""
-        size = inject_editor_bg.bganim_section_bytes(1, 32)
-        self.assertEqual(size, 8238)
+        self.assertEqual(inject_editor_bg.bganim_section_bytes(1, 32), 8238)
+        band = [{"cols": 8, "rows": 4, "slot_base": 0}]
+        size = shape_aware_size(band)      # + the declined view names' count words
         self.assertLessEqual(size, inject_editor_bg.BGANIM_SECTION_CEILING,
                              "the ruled ceiling no longer admits an 8 KB band — that is "
                              "an owner ruling change, not something this test hides")
-        band = [{"cols": 8, "rows": 4, "slot_base": 0}]
         self.assertEqual(inject_editor_bg.check_bganim_section_fits(band), size)
 
     def test_over_the_section_ceiling_is_refused_naming_that_ceiling(self):
@@ -2781,12 +2836,22 @@ class TestBgAnimDefaultOffDecouple(unittest.TestCase):
                 self.assertEqual(
                     self._table_count(emp), expect_live,
                     "BgAnim_Table must count exactly the bands NOT marked default_off")
-                # The DECLARATION, not the name: the declined note NAMES the twins on
+                # The BAND, not the name. The declined note NAMES the twins on
                 # purpose, so `"BgAnim_View_H" not in emp` would fail on a correct
-                # emission (measured — it did). What must be absent is the emission.
+                # emission (measured — it did); and since 2026-09-06 the three `pub
+                # data` names are exported by EVERY act shape, because a consumer's
+                # unconditional `use` cannot follow the document (see
+                # TestBgAnimViewNamesAreShapeInvariant). What a two-band act must not
+                # have is a twin RECORD — that is what the twins' condition decides.
                 self.assertNotIn(
-                    "pub data BgAnim_View_H", emp,
-                    "a two-band act must not emit twins: their condition is one band")
+                    "_BgAnim_ViewH0_hdr", emp,
+                    "a two-band act must not emit twin BANDS: their condition is one "
+                    "band")
+                self.assertIn(
+                    "pub data BgAnim_View_H: [u16; BGANIM_VIEW_EMIT] = "
+                    "if DEBUG == 1 { [0] }", emp,
+                    "a declining act must still EXPORT the name, as a count-0 table — "
+                    "ojz_scroll_test.emp imports it unconditionally in every shape")
 
     def test_the_marked_band_is_the_one_excluded_not_merely_the_count(self):
         """A correct count word reached by emitting the WRONG record is not correct.
@@ -2894,6 +2959,268 @@ class TestBgAnimDefaultOffDecouple(unittest.TestCase):
                 order, note = inject_editor_bg.band_emission_order(anims)
                 self.assertEqual(order, list(range(len(anims))))
                 self.assertIsNone(note)
+
+
+class TestBgAnimViewNamesAreShapeInvariant(unittest.TestCase):
+    """The generated module's EXPORTED NAME SET must not depend on the document.
+
+    THE DEFECT THIS CLASS EXISTS FOR, reported by the aurora lane 2026-09-06 with a
+    one-key control on the pristine document and reproduced here before anything was
+    changed. Delete the single key `default_off` from the shipped act's one band,
+    change nothing else, re-bake, and the PLAIN build dies with:
+
+        error: native build (sonic4 plain): build_program: 3 error(s);
+          [Error] module `games.sonic4.ojz_bg_anim_act1` has no `pub` name `BgAnim_View_H`
+          [Error] module `games.sonic4.ojz_bg_anim_act1` has no `pub` name `BgAnim_View_V`
+          [Error] module `games.sonic4.ojz_bg_anim_act1` has no `pub` name `BgAnim_View_T`
+
+    THE MECHANISM, and it is a two-sided one. `games/sonic4/test/ojz_scroll_test.emp`
+    carries an UNCONDITIONAL `use games.sonic4.ojz_bg_anim_act1.{...}` naming all three
+    twins; a `use` is resolved in EVERY shape, so the `if DEBUG == 1` guards on the
+    declarations do not protect the plain shape. The emitter, meanwhile, wrote those
+    three names for exactly ONE act shape (single band, `default_off`, 64 px). Measured
+    over the whole population below: one shape of eight linked, and the other seven
+    failed with three symbol names the author never wrote.
+
+    NOT A REGRESSION OF THE DECOUPLE (aeon 01a45ede / 364b7bce), and the aurora lane
+    checked that at 483b3e12: the pre-decouple code returned 0 twins for a
+    no-`default_off` act too. The decouple removed a refusal that fired on a correct
+    run; this is a DIFFERENT failure standing behind it, and it fails worse — a
+    refusal at least says what happened.
+
+    THE FIX THIS GATES: the three names are exported by every shape. A declining act
+    exports them as count-0 (OFF) tables, which is structurally the same thing row 0 of
+    the lab's own cycle already selects (this act's own `BgAnim_Table` when every band
+    is `default_off`) and which `BgAnim_Update` walks with `move.w (a3)+, d7 / beq
+    .exit`. The twins' own condition — exactly one band, `pattern_px` 64 — is UNCHANGED
+    and still decides whether a twin carries a real band record; it stops deciding
+    whether the module has a public interface.
+
+    THE EXPECTATION IS DERIVED FROM THE CONSUMER, not from a list typed here: the
+    subject test parses the `use` line out of `ojz_scroll_test.emp`. A fourth name
+    added to that import turns this red without anyone remembering to update it.
+    """
+
+    AEON = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+    #: The module whose exported names the consumer imports. Derived, not typed:
+    #: `act_names` is the one authority for the generated module's name.
+    ACT = inject_editor_bg.ACT
+
+    CONSUMER = os.path.join(AEON, "games", "sonic4", "test", "ojz_scroll_test.emp")
+
+    # ---- the expectation, read out of the consumer ------------------------------
+
+    def _imported_names(self):
+        """Every name `ojz_scroll_test.emp` imports from the generated act module.
+
+        Parsed from the source rather than listed here, so this gate cannot drift
+        below the import it exists to protect.
+        """
+        with open(self.CONSUMER, encoding="utf-8") as f:
+            src = f.read()
+        pattern = re.compile(
+            r"^\s*use\s+" + re.escape(self.ACT.module) + r"\.\{([^}]*)\}",
+            re.MULTILINE)
+        found = pattern.findall(src)
+        self.assertTrue(
+            found,
+            f"no `use {self.ACT.module}.{{...}}` in {self.CONSUMER} — this gate lost "
+            f"its subject and every assertion below would be vacuous")
+        names = []
+        for group in found:
+            names += [n.strip() for n in group.split(",") if n.strip()]
+        return names
+
+    def test_the_consumer_import_is_unconditional_and_this_gate_can_see_it(self):
+        """The matcher is under test: it must find a real import of real names."""
+        names = self._imported_names()
+        self.assertIn("BgAnim_Table", names)
+        for view in ("BgAnim_View_H", "BgAnim_View_V", "BgAnim_View_T"):
+            self.assertIn(view, names,
+                          "the consumer no longer imports the twins by name — if that "
+                          "is deliberate, this class is describing a defect that no "
+                          "longer exists and should be retired, not left passing")
+
+    # ---- fixtures: the whole population of act shapes ---------------------------
+
+    @staticmethod
+    def _band(cols, rows, slot_base, tiles, default_off):
+        n = cols * rows
+        ph0 = [tiles[slot_base + k] for k in range(n)]
+        phases = [ph0] + [[[(v + ph) % 16 for v in t] for t in ph0]
+                          for ph in range(1, 8)]
+        band = {"cols": cols, "rows": rows, "pattern_px": cols * 8,
+                "driver": "camera_x", "rate_shift": 4,
+                "slot_base": slot_base, "phases": phases}
+        if default_off:
+            band["default_off"] = True
+        return band
+
+    @classmethod
+    def _doc(cls, spec):
+        """`spec` is [(cols, rows, default_off), ...]; [] is the no-animation act."""
+        total = sum(c * r for c, r, _ in spec)
+        tiles = [[(i * 7 + p) % 16 for p in range(64)] for i in range(max(total, 1))]
+        anims, base = [], 0
+        for cols, rows, off in spec:
+            anims.append(cls._band(cols, rows, base, tiles, off))
+            base += cols * rows
+        return {"layout": [0] * 4096, "tiles": tiles, "anims": anims}
+
+    #: EVERY shape an author can reach from the shipped document by editing the band
+    #: list or one key of it. `(label, spec, twins_live)` — `twins_live` is what
+    #: `views_emitted` says, i.e. whether the twins carry a real band record.
+    #: Enumerated by what touches the emitted name set (band count, the key, the
+    #: period), not sampled.
+    SHAPES = [
+        ("1 band, default_off, 64 px  (THE SHIPPED ACT)", [(8, 4, True)], True),
+        ("1 band, NO default_off, 64 px", [(8, 4, False)], False),
+        ("1 band, default_off, 32 px", [(4, 4, True)], False),
+        ("1 band, NO default_off, 32 px", [(4, 4, False)], False),
+        ("2 bands, band 0 default_off", [(8, 4, True), (8, 4, False)], False),
+        ("2 bands, band 1 default_off", [(8, 4, False), (8, 4, True)], False),
+        ("2 bands, neither default_off", [(8, 4, False), (8, 4, False)], False),
+        ("no bands at all (the disabled stub)", [], False),
+    ]
+
+    @staticmethod
+    def _emit(doc):
+        """Emit `doc` and return the module text. Handles the no-animation stub too.
+
+        `emit_over_document` insists on a bank blob, which the stub arm does not
+        write; this is the same invocation without that requirement.
+        """
+        saved = (inject_editor_bg.OUT_DIR, inject_editor_bg.OVERRIDE)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            override = os.path.join(tmpdir, "editor_bg_override.json")
+            with open(override, "w") as f:
+                json.dump(doc, f)
+            try:
+                inject_editor_bg.OUT_DIR = tmpdir
+                inject_editor_bg.OVERRIDE = override
+                with ceiling_lifted():
+                    inject_editor_bg.main()
+            finally:
+                inject_editor_bg.OUT_DIR, inject_editor_bg.OVERRIDE = saved
+            with open(os.path.join(tmpdir, "bg_anim.emp"), encoding="utf-8") as f:
+                return f.read()
+
+    @staticmethod
+    def _declarations(emp):
+        """`{name: initializer text}` for every `pub data` in the emitted module."""
+        out = {}
+        for line in emp.splitlines():
+            m = re.match(r"pub data (\w+)\s*(?::[^=]*)?=\s*(.*)", line)
+            if m:
+                out[m.group(1)] = m.group(2).split("//")[0].strip()
+        return out
+
+    def test_the_fixture_reaches_both_emitter_arms(self):
+        """Non-vacuity: the shapes above must exercise the animated arm AND the stub."""
+        counts = {self._emit(self._doc(spec)).count("_hdr:") for _, spec, _ in self.SHAPES}
+        self.assertIn(0, counts, "no shape reached the disabled-stub arm")
+        self.assertTrue(any(c for c in counts), "no shape reached the animated arm")
+
+    # ---- the subject ------------------------------------------------------------
+
+    def test_every_act_shape_exports_every_imported_name(self):
+        """THE GATE. A link error naming a symbol the author never wrote is the bug.
+
+        Red before the fix on 7 of the 8 shapes below (measured), each missing all
+        three twins; the shipped shape was the only one that linked.
+        """
+        wanted = self._imported_names()
+        for label, spec, _live in self.SHAPES:
+            with self.subTest(shape=label):
+                declared = self._declarations(self._emit(self._doc(spec)))
+                missing = [n for n in wanted if n not in declared]
+                self.assertEqual(
+                    missing, [],
+                    f"the {label} act exports no `pub` name {missing} — "
+                    f"{os.path.relpath(self.CONSUMER, self.AEON)} imports it "
+                    f"unconditionally, so this act fails the link (in the PLAIN shape "
+                    f"too: a `use` is resolved in every shape) with symbol names its "
+                    f"author never wrote")
+
+    def test_a_declining_twin_is_a_count_zero_table_and_carries_no_record(self):
+        """Declining must cost an OFF row, not a wild pointer and not a band.
+
+        Two halves, and the second is the one that keeps the twins' condition intact:
+        the NAME is there, and the RECORD is not.
+        """
+        for label, spec, live in self.SHAPES:
+            if live:
+                continue
+            with self.subTest(shape=label):
+                emp = self._emit(self._doc(spec))
+                declared = self._declarations(emp)
+                for view in ("BgAnim_View_H", "BgAnim_View_V", "BgAnim_View_T"):
+                    self.assertIn("[0]", declared[view],
+                                  f"{view} on the {label} act is not a count-0 table: "
+                                  f"{declared[view]!r}. Selecting that row in the lab "
+                                  f"would hand BgAnim_Update whatever follows it.")
+                self.assertNotIn(
+                    "_BgAnim_ViewH0_hdr", emp,
+                    f"the {label} act emitted a real twin RECORD — the twins' condition "
+                    f"(exactly one band, 64 px) is what decides that and it is unmet")
+
+    def test_the_shipped_shape_still_gets_live_twins_with_their_records(self):
+        """The control: the fix must not turn the owner's A/B into three OFF rows."""
+        label, spec, live = self.SHAPES[0]
+        self.assertTrue(live, "the first shape is meant to be the live one")
+        emp = self._emit(self._doc(spec))
+        declared = self._declarations(emp)
+        for view in ("BgAnim_View_H", "BgAnim_View_V", "BgAnim_View_T"):
+            self.assertIn("[1]", declared[view],
+                          f"{view} lost its band on the shipped act")
+        for tag in ("ViewH", "ViewV", "ViewT"):
+            self.assertIn(f"_BgAnim_{tag}0_hdr", emp)
+            self.assertIn(f"_BgAnim_{tag}0_banks", emp)
+
+    def test_the_declining_module_says_why_its_names_are_there(self):
+        """A reader opening the artifact must not have to guess what `[0]` means."""
+        emp = self._emit(self._doc([(8, 4, False)]))
+        self.assertIn("count-0", emp)
+        self.assertIn("ojz_scroll_test.emp", emp,
+                      "the emitted explanation does not name the consumer whose "
+                      "unconditional import is the reason these names exist")
+
+    # ---- the size model must still describe the emitter -------------------------
+
+    def test_the_size_formula_counts_the_declined_count_words(self):
+        """A formula that has drifted from the emitter gates nothing.
+
+        The declined names cost `BGANIM_VIEW_COUNT` count words in the DEBUG shape and
+        zero bytes in the plain one (the `[u16; BGANIM_VIEW_EMIT]` idiom). The ceiling
+        is checked against the DEBUG shape, so the formula has to carry them.
+        """
+        spec = [(8, 4, False)]
+        anims = self._doc(spec)["anims"]
+        slots = sum(a["cols"] * a["rows"] for a in anims)
+        n_views = inject_editor_bg.views_emitted(anims)
+        self.assertEqual(n_views, 0, "this fixture is meant to be a declining act")
+        declined = inject_editor_bg.BGANIM_VIEW_COUNT - n_views
+        self.assertEqual(
+            inject_editor_bg.bganim_section_bytes(len(anims), slots, n_views=n_views,
+                                                  n_declined_views=declined)
+            - inject_editor_bg.bganim_section_bytes(len(anims), slots, n_views=n_views),
+            declined * inject_editor_bg.BGANIM_COUNT_BYTES,
+            "the size model does not account for the declined twins' count words")
+
+    def test_the_shipped_act_gains_no_bytes_from_this_fix(self):
+        """The two terms are exclusive: 3 live twins leave 0 declined ones.
+
+        The shipping override is the live shape, so `live_section_bytes()` must be
+        exactly what it was before this parcel (8,376 B — the number
+        tools/EFFECTS_CONSUMER_CONTRACT.md and tools/bganim_room.py both quote). A fix
+        that moved the SHIPPED section size would have re-opened the frozen placement
+        tables for a bug about acts that do not exist yet.
+        """
+        anims = self._doc([(8, 4, True)])["anims"]
+        self.assertEqual(inject_editor_bg.views_emitted(anims),
+                         inject_editor_bg.BGANIM_VIEW_COUNT)
+        self.assertEqual(inject_editor_bg.live_section_bytes(), 8376)
 
 
 if __name__ == "__main__":
