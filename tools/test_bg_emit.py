@@ -1370,8 +1370,14 @@ class TestBgAnimRoomOverCommittedFixture(unittest.TestCase):
     # content, not packed data, and `_tree` rebases them onto whatever anchor the
     # tree declares — see "THE CUT'S ANCHOR-SIDE ROWS ARE REBASED" in the docstring.
     FIXTURE_CUT_ANCHOR = 0x90000
+    #: `BgAnim_Banks - BgAnim_Table` for a one-band, non-DEBUG-view section: the
+    #: u16 band count (2) plus one 44 B band record (a 12 B header and 32 B of bank
+    #: pointers), per tools/inject_editor_bg.py's emitter. MEASURED in the live
+    #: s4.lst at introduction — BgAnim_Table 0x2823C, BgAnim_Banks 0x2826A, delta
+    #: 0x2E = 46. Used only to synthesize the head row the 08-26 cut predates.
+    BGANIM_HEAD_DELTA = 2 + 44
 
-    def _rebased_cut(self, anchor):
+    def _rebased_cut(self, anchor, head_lma=None, pads=()):
         """The committed cut with its ANCHOR-SIDE rows moved to `anchor`.
 
         The cut carries `__align$games.sonic4.dac_banks$0` at 0x98000 — one SetBank
@@ -1397,26 +1403,63 @@ class TestBgAnimRoomOverCommittedFixture(unittest.TestCase):
             if m and int(m.group(2), 16) >= self.FIXTURE_CUT_ANCHOR:
                 line = f"{m.group(1)}{int(m.group(2), 16) + delta:X}{m.group(3)}"
             out.append(line)
+            # SYNTHESIZED, and labelled as such: `check_growth_path` (F7) asks where
+            # the GROWING section starts, and the 08-26 cut carries only
+            # `BgAnim_Banks`, a row INSIDE that section. The cut is not regenerated
+            # for this — its addresses are the numeric basis of the whole class — so
+            # the tree writes the head row itself, at `BgAnim_Banks` minus the
+            # emitter's own one-band record (`inject_editor_bg`: a u16 count plus a
+            # 12 B header and 32 B of bank pointers = 46 B, the delta MEASURED in
+            # s4.lst at introduction: BgAnim_Table 0x2823C -> BgAnim_Banks 0x2826A).
+            # Every other input this tree feeds the tool is synthesized the same way;
+            # what must not be synthesized is the FIXTURE, and it is not.
+            if line.startswith("(0)") and line.rstrip().endswith(" BgAnim_Banks:"):
+                seq, rest = line[4:].split("/", 1)
+                lma = int(rest.split()[0], 16)
+                head = lma - self.BGANIM_HEAD_DELTA if head_lma is None else head_lma
+                out.insert(len(out) - 1, f"(0) {int(seq) - 1}/{head:X} :"
+                                         f"        BgAnim_Table:")
+                for name, addr in pads:
+                    out.insert(len(out) - 1,
+                               f"(0) {int(seq) - 1}/{addr:X} :        {name}:")
+            if re.match(r"^ BgAnim_Banks : [0-9A-F]+ C \|$", line):
+                lma = int(line.split(":")[1].split()[0], 16)
+                head = lma - self.BGANIM_HEAD_DELTA if head_lma is None else head_lma
+                out.insert(len(out) - 1, f" BgAnim_Table : {head:X} C |")
+                for name, addr in pads:
+                    out.insert(len(out) - 1, f" {name} : {addr:X} C |")
         return "\n".join(out) + "\n"
 
     def _tree(self, band=(8, 4), blob_len=FIXTURE_ART_SONIC_BYTES, lst="s4.debug.lst",
-              anchor=FIXTURE_ANCHOR, sound_gap=None, tail=""):
+              anchor=FIXTURE_ANCHOR, sound_gap=None, tail="", head_lma=None,
+              pads=(), extra_pin=None, pad_modules=()):
         """A hermetic aeon-shaped tree holding only what bganim_room reads.
 
         `sound_gap` overrides the declared `sound_bank - dac_banks` distance (the F6
         relation); `tail` is appended to the hermetic collision_data.emp, which is how
         an F2 test perturbs the ARRANGEMENT of the section rather than the tool.
+        `head_lma`, `pads`, `extra_pin` and `pad_modules` perturb the GROWTH PATH
+        (F7): where the growing section starts, what alignment pads the path crosses,
+        and whether the map pins an address inside it.
         """
         import shutil
         d = tempfile.mkdtemp(prefix="bganim_room_")
         self.addCleanup(shutil.rmtree, d)
         os.makedirs(os.path.join(d, "games", "sonic4", "data", "collision"))
         os.makedirs(os.path.join(d, "art"))
+        for module_id, align_src in pad_modules:
+            p = os.path.join(d, "games", "sonic4", "data", f"{module_id}.emp")
+            with open(p, "w") as f:
+                f.write(f"module {module_id} in {module_id.rsplit('.', 1)[-1]}\n"
+                        f"{align_src}\n")
         with open(os.path.join(d, "games", "sonic4", "map.toml"), "w") as f:
             f.write('[[anchor]]\nname = "dac_banks"\nat = 0x%X\nwhen = "sound_on"\n\n'
                     '[[anchor]]\nname = "sound_bank"\nat = 0x%X\nwhen = "sound_on"\n'
                     % (anchor, anchor + (sound_gap if sound_gap is not None
                                          else bganim_room.SOUND_BANK_OFFSET)))
+            if extra_pin is not None:
+                kind, name, at = extra_pin
+                f.write(f'\n[[{kind}]]\nname = "{name}"\nat = 0x{at:X}\n')
         with open(os.path.join(d, "games", "sonic4", "data", "collision",
                                "collision_data.emp"), "w") as f:
             f.write('module games.sonic4.collision_data in collision_data\n'
@@ -1430,7 +1473,7 @@ class TestBgAnimRoomOverCommittedFixture(unittest.TestCase):
                 json.dump({"anims": [{"cols": band[0], "rows": band[1],
                                       "slot_base": 0}]}, f)
         with open(os.path.join(d, lst), "w") as f:
-            f.write(self._rebased_cut(anchor))
+            f.write(self._rebased_cut(anchor, head_lma=head_lma, pads=pads))
         return d, os.path.join(d, lst)
 
     def _rom(self, tree, name="s4.debug.bin", size=None, plant=None,
@@ -1694,7 +1737,15 @@ class TestBgAnimRoomOverCommittedFixture(unittest.TestCase):
         for anchor in (self.FIXTURE_ANCHOR, self.FIXTURE_ANCHOR + 0x8000, 0x8C000):
             tree, lst = self._tree(anchor=anchor)
             labels = bganim_room.lst_labels(lst)
-            self.assertEqual(len(labels), 5, "the rebase dropped or duplicated a row")
+            # 5 cut rows + the one SYNTHESIZED head row (`BgAnim_Table`, see
+            # `_rebased_cut`), derived from the fixture's own count rather than
+            # typed, so a change to either side has to be deliberate.
+            self.assertEqual(
+                len(labels), len(bganim_room.lst_labels(self.FIXTURE)) + 1,
+                "the rebase dropped or duplicated a row")
+            self.assertEqual(len(labels), 6)
+            self.assertEqual(labels["BgAnim_Table"],
+                             labels["BgAnim_Banks"] - self.BGANIM_HEAD_DELTA)
             packed_end = self._hand_lma() + self.FIXTURE_ART_SONIC_BYTES
             self.assertEqual(
                 bganim_room.labels_in(labels, packed_end, anchor), [],
@@ -2048,6 +2099,145 @@ class TestBgAnimRoomOverCommittedFixture(unittest.TestCase):
                          f"games/sonic4/map.toml declares dac_banks 0x{dac:X} and "
                          f"sound_bank 0x{snd:X}, a gap of 0x{snd - dac:X}, but "
                          f"SOUND_BANK_OFFSET is 0x{bganim_room.SOUND_BANK_OFFSET:X}")
+
+    # ---- F7: the ORDERING PREMISE the room figure rests on -----------------------
+
+    def test_the_growth_path_is_reported_as_checked_on_a_sound_tree(self):
+        """A green must state what it proved. The premise — the growing section is
+        upstream, and nothing between it and the anchor is pinned — was asserted in
+        the module header as a plain fact and checked by nothing."""
+        tree, lst = self._tree()
+        rc, text = self._report(tree, lst)
+        self.assertEqual(rc, 0, text)
+        self.assertIn("growth path: CHECKED", text)
+        self.assertIn("is upstream of the terminus", text)
+        self.assertIn("the map pins no address between it and the anchor", text)
+        self.assertIn("crosses no alignment pad", text)
+
+    def test_a_growing_section_at_or_above_the_terminus_refuses_a_figure(self):
+        """RED-FIRST arm (1). `room = anchor - packed_end` is offered as room for
+        `ojz_bg_anim`; if that section is not UPSTREAM of the terminus its growth
+        does not consume this room at all, and the figure is about other ROM. The
+        subtraction is unchanged and still looks healthy — which is the point.
+
+        THE HEAD IS PUT ABOVE THE ANCHOR, and that is not an arbitrary choice: it is
+        the half of arm (1) `check_terminus` structurally CANNOT reach. Terminus
+        scans [packed_end, anchor), so a section landing anywhere inside that window
+        is refused there first (asserted below, so the division of labour is on the
+        record rather than assumed); a section placed PAST the anchor — beyond the
+        Z80 banks, where the ROM tail sections live — is invisible to it and only
+        this arm sees it."""
+        import bganim_room
+        end = self._hand_lma() + self.FIXTURE_ART_SONIC_BYTES
+        tree, lst = self._tree(head_lma=self.FIXTURE_ANCHOR + 0x1000)
+        with self.assertRaises(bganim_room.Unmeasurable) as cm:
+            bganim_room.rom_room(lst, tree)
+        msg = str(cm.exception)
+        self.assertIn("at or ABOVE the packed-data end", msg)
+        self.assertIn(f"0x{end:X}", msg)
+        # The other half of the window: terminus owns it, and says so by name.
+        tree, lst = self._tree(head_lma=end + 0x10)
+        with self.assertRaises(bganim_room.Unmeasurable) as cm:
+            bganim_room.rom_room(lst, tree)
+        self.assertIn("is NOT the last packed data", str(cm.exception))
+
+    def test_an_address_pinned_inside_the_growth_path_refuses_a_figure(self):
+        """RED-FIRST arm (2). Everything between the growing section and the anchor
+        has to FLOAT downstream for growth to turn into consumed room. A declared
+        anchor inside that span pins a section: growth collides at the pin, so the
+        room reported against the anchor is not the limit. The map is what changes;
+        the listing, the blob and the arithmetic are untouched."""
+        import bganim_room
+        pin = self.FIXTURE_ANCHOR - 0x4000
+        tree, lst = self._tree(extra_pin=("anchor", "some_new_island", pin))
+        with self.assertRaises(bganim_room.Unmeasurable) as cm:
+            bganim_room.rom_room(lst, tree)
+        msg = str(cm.exception)
+        self.assertIn("declared address(es) sit between", msg)
+        self.assertIn(f"0x{pin:X} [[anchor]] some_new_island", msg)
+        self.assertIn("would collide at the pin, not at the anchor", msg)
+
+    def test_a_hole_pinned_inside_the_growth_path_is_caught_the_same_way(self):
+        """`[[hole]]` fixes an address exactly as `[[anchor]]` does. A check that
+        knew only about anchors would pass this and be wrong in the same direction."""
+        import bganim_room
+        pin = self.FIXTURE_ANCHOR - 0x2000
+        tree, lst = self._tree(extra_pin=("hole", "ignored", pin))
+        with self.assertRaises(bganim_room.Unmeasurable) as cm:
+            bganim_room.rom_room(lst, tree)
+        self.assertIn(f"0x{pin:X} [[hole]]", str(cm.exception))
+
+    def test_a_pin_outside_the_path_does_not_fire(self):
+        """The control. `sound_bank` sits ABOVE `dac_banks` on every real map and
+        must not be read as an obstruction; a check that fired on it would be
+        disabled the first week. Below the growing section is equally outside."""
+        head = self._hand_lma()  # far above BgAnim_Table, but below the terminus
+        tree, lst = self._tree(extra_pin=("anchor", "below_the_path", 0x1000))
+        rc, text = self._report(tree, lst)
+        self.assertEqual(rc, 0, text)
+        self.assertIn("growth path: CHECKED", text)
+        self.assertLess(0x1000, head)
+
+    def test_alignment_slop_is_measured_from_the_module_and_shrinks_the_headroom(self):
+        """Arm (3): growth of K does not shift the terminus by exactly K when the
+        path crosses `align` directives — each can add up to N-1 on top. The quantum
+        is READ from the module that emitted the pad, so a tree with `align 16` gets
+        15 B of slop and one with `align 2` gets 1, off the same listing shape."""
+        import bganim_room
+        banks = bganim_room.lst_labels(self.FIXTURE)["BgAnim_Banks"]
+        for quantum, want_slop in ((2, 1), (16, 15)):
+            tree, lst = self._tree(
+                pads=[("__align$games.sonic4.padmod$0", banks + 0x10)],
+                pad_modules=[("games.sonic4.padmod", f"align {quantum}")])
+            r = bganim_room.rom_room(lst, tree)
+            self.assertEqual(r["growth"]["slop"], want_slop)
+            self.assertEqual(r["growth"]["pads"][0][2], quantum)
+            rc, text = self._report(tree, lst)
+            self.assertEqual(rc, 0, text)
+            self.assertIn(f"(align {quantum})", text)
+            self.assertIn(f"can cost up to K+{want_slop} B", text)
+            # and the headroom the ceiling is compared against is REDUCED by it
+            from inject_editor_bg import live_section_bytes
+            self.assertIn(f"- {want_slop} B alignment slop = "
+                          f"{r['room'] + live_section_bytes(tree) - want_slop} B", text)
+
+    def test_a_pad_whose_module_cannot_be_found_is_unmeasurable_not_zero(self):
+        """Loud on unmeasurable. An unresolvable pad has an UNKNOWN quantum, so the
+        headroom is unbounded above; reporting it as slop 0 would be the flattering
+        answer and would restore exactly the silence this arm removes."""
+        import bganim_room
+        banks = bganim_room.lst_labels(self.FIXTURE)["BgAnim_Banks"]
+        tree, lst = self._tree(pads=[("__align$games.sonic4.nosuch$0", banks + 0x10)])
+        with self.assertRaises(bganim_room.Unmeasurable) as cm:
+            bganim_room.rom_room(lst, tree)
+        self.assertIn("no `.emp` under engine/ or games/ declares", str(cm.exception))
+
+    def test_a_map_this_parser_cannot_read_yields_no_addresses_and_says_so(self):
+        """`declared_addresses` returning an empty set would report every growth
+        path clear — the vacuous-green shape. It refuses instead."""
+        import bganim_room
+        tree, _lst = self._tree()
+        empty = os.path.join(tree, "empty.toml")
+        with open(empty, "w") as f:
+            f.write("# no anchors, no holes\n")
+        with self.assertRaises(bganim_room.Unmeasurable) as cm:
+            bganim_room.declared_addresses(empty)
+        self.assertIn("ZERO declared addresses", str(cm.exception))
+
+    def test_the_live_tree_growth_path_is_sound_and_its_pads_are_real(self):
+        """The live listing, not a hermetic one. Skipped when no build is present —
+        this class is otherwise hermetic on purpose — but when s4.lst is here it is
+        the only place the REAL six `align 2` pads are measured."""
+        import bganim_room
+        lst = os.path.join(self.AEON, "s4.lst")
+        if not os.path.isfile(lst):
+            self.skipTest("no s4.lst in the tree (this class is otherwise hermetic)")
+        r = bganim_room.rom_room(lst, self.AEON)
+        g = r["growth"]
+        self.assertLess(g["head"], r["packed_end"])
+        self.assertTrue(g["pads"], "the live run crosses pads; zero would mean the "
+                                   "parser stopped seeing them")
+        self.assertEqual(g["slop"], sum(q - 1 for _n, _a, q in g["pads"]))
 
     def test_build_sh_post_sigil_gate_passes_the_rom_so_both_halves_run(self):
         """The runner wiring, derived from build.sh's own text rather than assumed:

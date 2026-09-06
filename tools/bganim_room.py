@@ -191,6 +191,18 @@ COLLISION_DATA_EMP = "games/sonic4/data/collision/collision_data.emp"
 LAST_PACKED_LABEL = "Art_Sonic"
 ANCHOR_NAME = "dac_banks"
 
+#: The head label of the section the room is FOR. `tools/inject_editor_bg.py`
+#: emits `pub data BgAnim_Table` first into section `<zone>_bg_anim`, and
+#: games/sonic4/map.toml places that section by this row. `check_growth_path`
+#: needs it because the room figure is a claim about THIS section's growth, and
+#: until 2026-09-06 nothing in this file mentioned the growing section at all —
+#: only the run it displaces.
+GROWTH_SECTION_HEAD = "BgAnim_Table"
+
+#: An `.emp` `align N` directive. Used to size the pads the growth path crosses;
+#: the quantum is read from the module that emitted the pad, never assumed.
+_EMP_ALIGN = re.compile(r"^[ \t]*align[ \t]+(\$?[0-9A-Fa-fx]+)", re.M)
+
 #: The second anchor the bank placement rule fixes relative to the first. Checked
 #: against `ANCHOR_NAME + SOUND_BANK_OFFSET` so the relation the constant encodes is
 #: compared with the map instead of only being printed in a remedy line.
@@ -265,6 +277,49 @@ def lst_labels(lst_path):
     return out
 
 
+def declared_addresses(map_toml):
+    """Every declared FIXED address in the placement map: `[[anchor]] at` and
+    `[[hole]] at`, as a sorted list of (address, what).
+
+    `anchor_addr` answers "where is THIS anchor"; this answers "what in the map is
+    pinned at all", which is the question `check_growth_path` needs — an address
+    the map fixes anywhere inside the growth path is a section that CANNOT float
+    downstream, and the room arithmetic assumes every byte between the growing
+    section and `dac_banks` does exactly that.
+
+    Parsed with the same two line regexes `anchor_addr` uses, so a map shape this
+    cannot read fails there first rather than silently yielding an empty set.
+    """
+    if not os.path.exists(map_toml):
+        raise Unmeasurable(f"no placement map at {map_toml}")
+    out, cur, kind = [], None, None
+    with open(map_toml, encoding="utf-8") as f:
+        for line in f:
+            s = line.strip()
+            if s == "[[anchor]]":
+                kind, cur = "anchor", None
+                continue
+            if s == "[[hole]]":
+                kind, cur = "hole", None
+                continue
+            if s.startswith("[["):
+                kind, cur = None, None
+                continue
+            m = _TOML_NAME.match(line)
+            if m:
+                cur = m.group(1)
+                continue
+            m = _TOML_AT.match(line)
+            if m and kind is not None:
+                out.append((int(m.group(1), 0), f"[[{kind}]] {cur or '(unnamed)'}"))
+    if not out:
+        raise Unmeasurable(
+            f"{map_toml} yielded ZERO declared addresses under "
+            f"{_TOML_AT.pattern!r} — the map format changed under this parser. Fix "
+            f"the parser; an empty answer here would report every growth path clear.")
+    return sorted(out)
+
+
 def anchor_addr(map_toml, name=ANCHOR_NAME):
     """The declared `[[anchor]]` address, from the game's placement map."""
     if not os.path.exists(map_toml):
@@ -322,6 +377,28 @@ def emp_modules(aeon):
                     m = _EMP_MODULE.search(f.read())
                 if m:
                     out.setdefault(m.group(2), []).append(p)
+    return out
+
+
+def emp_module_files(aeon):
+    """(module id -> .emp path), the other index of the same walk `emp_modules`
+    does. `check_growth_path` needs it to resolve a `__align$<module id>$<n>`
+    label back to the source whose `align` directive produced it."""
+    out = {}
+    for root_name in ("engine", "games"):
+        root = os.path.join(aeon, root_name)
+        if not os.path.isdir(root):
+            continue
+        for dirpath, dirnames, filenames in os.walk(root):
+            dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+            for fn in filenames:
+                if not fn.endswith(".emp"):
+                    continue
+                p = os.path.join(dirpath, fn)
+                with open(p, encoding="utf-8", errors="replace") as f:
+                    m = _EMP_MODULE.search(f.read())
+                if m:
+                    out.setdefault(m.group(1), p)
     return out
 
 
@@ -453,6 +530,117 @@ def check_extent(aeon, lma, blob, blob_len, const_name, rom_path=None):
                 f"the section emits something else at that address.")
         identical = blob_len
     return {"section": section, "emits": [n for n, _ in defs], "image_identical": identical}
+
+
+def check_growth_path(labels, aeon, map_toml, packed_end, anchor):
+    """ASSERT THE ORDERING PREMISE the room figure rests on (sigil's F7).
+
+    `room = anchor - packed_end` is offered as room for `ojz_bg_anim`, and that
+    sentence contains a step nothing checked: it is room for THAT section only if
+    growth in THAT section pushes `packed_end` toward the anchor. The module header
+    states the premise as a plain fact — "growth in `ojz_bg_anim` shifts the whole
+    run `Map_TestObj .. Art_Sonic` downstream into this room" — and it is the
+    premise, not the subtraction, that makes the number mean anything. Two ways for
+    it to be false, both of which leave the arithmetic looking perfectly healthy:
+
+      (1) THE SECTION IS NOT UPSTREAM. If `ojz_bg_anim` ever landed at or above
+          `packed_end`, its growth would not consume this room at all (or would
+          consume it twice over), and the gate would keep reporting a figure about
+          a different piece of ROM.
+      (2) SOMETHING IN THE PATH CANNOT MOVE. Every section between the growing one
+          and the anchor has to float downstream. A declared `[[anchor]]` or
+          `[[hole]]` inside that span pins a section at an address: growth then
+          does not flow into the room, it collides — and it collides at the pin,
+          not at `dac_banks`, so the number this gate reports is not the limit.
+
+    And a third thing, which is not a failure but an OVERSTATEMENT the figure
+    carried silently:
+
+      (3) ALIGNMENT IS NOT FREE. Growth of K bytes does not shift `packed_end` by
+          exactly K when the path crosses `align` directives: each re-aligns, and
+          each can add up to N-1 bytes on top of K. The run holds 6 such points in
+          `s4.lst` (sonic_anims, tails_anims ×2, knuckles_anims, dust_anims ×2),
+          every one `align 2`, so the overstatement is small — but it is real, it
+          was never named, and its size is a property of the tree rather than a
+          constant. The slop is MEASURED here and subtracted from the headroom the
+          gate compares the ruled ceiling against, so the figure is conservative
+          rather than plausible.
+
+    Returns a dict; raises `Unmeasurable` for (1) and (2), naming the pin or the
+    address. Like `check_terminus` and `check_extent`, a broken premise is NOT a
+    `--gate` breach verdict: it does not mean the ceiling was exceeded, it means
+    the room number describes something else, so no figure should be trusted.
+    """
+    if GROWTH_SECTION_HEAD not in labels:
+        raise Unmeasurable(
+            f"growth path: this listing defines no {GROWTH_SECTION_HEAD} — the room "
+            f"figure is offered as room for the `ojz_bg_anim` section, and the section "
+            f"is not in this shape. (demo/demo.debug place no such section; they are "
+            f"not gated here.) A sonic4 listing without it is a placement change, not a "
+            f"zero-room answer.")
+    head = labels[GROWTH_SECTION_HEAD]
+
+    # (1) upstream of the terminus
+    if head >= packed_end:
+        raise Unmeasurable(
+            f"growth path: {GROWTH_SECTION_HEAD} is at 0x{head:X}, at or ABOVE the "
+            f"packed-data end 0x{packed_end:X}. `room = anchor - packed_end` is offered "
+            f"as room for the section that label heads, which is only true while that "
+            f"section sits UPSTREAM of the terminus and its growth pushes the terminus "
+            f"toward the anchor. It does not, so the figure is about a different piece "
+            f"of ROM. Re-derive the room against wherever the section now sits.")
+
+    # (2) nothing pinned inside the path
+    pinned = [(a, what) for a, what in declared_addresses(map_toml)
+              if head < a < anchor]
+    if pinned:
+        listed = ", ".join(f"0x{a:X} {what}" for a, what in pinned)
+        raise Unmeasurable(
+            f"growth path: {len(pinned)} declared address(es) sit between "
+            f"{GROWTH_SECTION_HEAD} (0x{head:X}) and the `{ANCHOR_NAME}` anchor "
+            f"(0x{anchor:X}): {listed}. Everything in that span has to float downstream "
+            f"for growth to turn into consumed room; a section the map PINS cannot. "
+            f"Growth would collide at the pin, not at the anchor, so `room` "
+            f"({anchor - packed_end} B) is not the limit it is reported as. Either the "
+            f"new pin belongs outside the path, or the room must be re-derived against "
+            f"the pin instead of the anchor.")
+
+    # (3) alignment slop, MEASURED from the modules that produced the pads
+    pads = [(a, n) for a, n in labels_in(labels, head, packed_end)
+            if n.startswith("__align$")]
+    module_files = emp_module_files(aeon) if pads else {}
+    slop, detail = 0, []
+    for addr, name in pads:
+        body = name[len("__align$"):]
+        module_id = body.rsplit("$", 1)[0]
+        path = module_files.get(module_id)
+        if path is None:
+            raise Unmeasurable(
+                f"growth path: pad label {name!r} at 0x{addr:X} names module "
+                f"{module_id!r}, and no `.emp` under engine/ or games/ declares "
+                f"`module {module_id} in ...`. Its alignment quantum is what bounds how "
+                f"much MORE than K bytes a K-byte growth can cost, so an unresolvable "
+                f"pad makes the headroom figure unbounded above. Not a room figure.")
+        with open(path, encoding="utf-8") as f:
+            quanta = [int(q[1:], 16) if q.startswith("$") else int(q, 0)
+                      for q in _EMP_ALIGN.findall(f.read())]
+        if not quanta:
+            raise Unmeasurable(
+                f"growth path: {os.path.relpath(path, aeon)} emitted the pad {name!r} "
+                f"but declares no `align` directive this parser can read "
+                f"({_EMP_ALIGN.pattern!r}). Fix the parser rather than assuming the "
+                f"quantum — an assumed one is exactly the class of thing this file "
+                f"exists to stop.")
+        # The MAXIMUM quantum in the module, not the i-th directive: the pad index
+        # and the source order are not guaranteed to correspond, and a maximum is
+        # wrong only in the conservative direction (it can overstate the slop, which
+        # tightens the gate; understating it would loosen one).
+        q = max(quanta)
+        slop += q - 1
+        detail.append((name, addr, q))
+
+    return {"head": head, "pads": detail, "slop": slop,
+            "pinned_checked": (head, anchor)}
 
 
 def labels_in(labels, lo, hi):
@@ -616,6 +804,12 @@ def rom_room(lst_path, aeon=None, map_toml=None, rom_path=None):
     extent = check_extent(aeon, lma, blob, blob_len, const_name, rom_path)
     end = lma + blob_len
     terminus = check_terminus(lst_path, labels, end, anchor, rom_path)
+    # F7 — the ORDERING PREMISE. `room` is only room FOR `ojz_bg_anim` while that
+    # section is upstream of the terminus and everything between it and the anchor
+    # can float. Checked after the two halves of `end` because it is stated in terms
+    # of `end`, and independent of both: a correct terminus with a correct length
+    # still says nothing about whether growth reaches this room.
+    growth = check_growth_path(labels, aeon, map_toml, end, anchor)
     return {
         "art_sonic_lma": lma,
         "art_blob": blob,
@@ -623,6 +817,7 @@ def rom_room(lst_path, aeon=None, map_toml=None, rom_path=None):
         "packed_end": end,
         "anchor": anchor,
         "room": anchor - end,
+        "growth": growth,
         "labels_below_terminus": len(labels_in(labels, 0, end)),
         "image_scan": terminus["image_scan"],
         "extent": extent,
@@ -767,7 +962,11 @@ def report(lst_path, aeon=None, gate=False, out=sys.stdout, rom_path=None,
               f"rows re-found in the fresh listing with the same shape", file=out)
     r = rom_room(lst_path, aeon, rom_path=rom_path)
     live = live_section_bytes(aeon)
-    headroom = r["room"] + live
+    # The ALIGNMENT SLOP is subtracted (F7 arm 3): growth of K shifts the terminus
+    # by up to K + slop, so the largest the section can be and still fit under the
+    # anchor is `live + room - slop`, not `live + room`. Measured, not assumed —
+    # `check_growth_path` reads each pad's quantum from the module that emitted it.
+    headroom = r["room"] + live - r["growth"]["slop"]
     print(f"  Art_Sonic 0x{r['art_sonic_lma']:X} + {r['art_blob_len']} "
           f"= 0x{r['packed_end']:X}; anchor 0x{r['anchor']:X}", file=out)
     # The terminus is now a CHECKED FACT (see check_terminus): say which instruments
@@ -794,8 +993,20 @@ def report(lst_path, aeon=None, gate=False, out=sys.stdout, rom_path=None,
              "; the byte-identity half did NOT run (no --rom), so `+ "
              f"{r['art_blob_len']}` is a restatement of the file's size here, not a "
              f"measurement of the ROM"), file=out)
+    g = r["growth"]
+    print(f"  growth path: CHECKED — {GROWTH_SECTION_HEAD} 0x{g['head']:X} is upstream "
+          f"of the terminus, and the map pins no address between it and the anchor, so "
+          f"growth here consumes the room below", file=out)
+    if g["pads"]:
+        print(f"    crosses {len(g['pads'])} alignment pad(s) — "
+              + ", ".join(f"{n[len('__align$'):]} (align {q})" for n, _a, q in g["pads"])
+              + f" — so a K-byte growth can cost up to K+{g['slop']} B; the headroom "
+                f"below is reduced by that slop", file=out)
+    else:
+        print(f"    crosses no alignment pad, so growth costs exactly what it adds",
+              file=out)
     print(f"  ROM room {r['room']} B free + {live} B the section already holds "
-          f"= {headroom} B for ojz_bg_anim", file=out)
+          f"- {g['slop']} B alignment slop = {headroom} B for ojz_bg_anim", file=out)
     print(f"  ruled authoring ceiling BGANIM_SECTION_CEILINGS[{shape!r}] = {ceiling} B "
           f"(the generator accepts the minimum across shapes, "
           f"BGANIM_SECTION_CEILING = {BGANIM_SECTION_CEILING} B)", file=out)
