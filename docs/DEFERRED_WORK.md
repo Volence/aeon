@@ -27700,3 +27700,38 @@ comment. Fix by naming the constant, never by re-typing 20,480.
 `build.sh` prose; `docs/`; a number spelled in words. The AST form closes the adjacent-literal
 hole for Python ONLY — a TypeScript consumer needs its own joiner, which is the cost the aurora
 lane is paying now.
+
+## BAR — AN INSTRUMENT WHOSE SHAPE GUARANTEES A PARTIAL ANSWER REPORTS AS A SUCCESS AND CLOSES THE QUESTION (2026-09-06T11:35:00Z)
+
+**The aurora lane's formulation, from today's prose-bound exchange, and it is sharper than the
+site counts it came wrapped in.** Recorded as a bar rather than as a note on one sweep because it
+generalises past prose bounds entirely.
+
+**THE CLAIM: there is a difference between a sweep that MISSES something and an instrument whose
+SHAPE guarantees a partial answer.** The first is bad luck. The second is a property of the
+design, and the design is what produces the reassuring artifact.
+
+**THE INSTANCE, which is what earns it.** One ruling on 2026-09-04 left TWO stale bounds three
+lines apart in a single refusal message. The line-based sweep found the first and was
+**structurally incapable of seeing the second**, because its unit was the physical line and the
+second bound's number and its subject sat on different ones. It did not fail. It returned a real
+defect, a positive control, and a clean write-up.
+
+**AND THAT IS THE DANGEROUS PART: a sweep that finds ONE of TWO defects from a SINGLE CAUSE
+reports as a SUCCESS and CLOSES the question.** Nobody re-runs an instrument that just found
+something. The find is what buys the instrument its credibility, and the credibility is what
+retires the search. An empty result at least invites *"is my predicate right?"*; a result with one
+hit in it does not.
+
+**OPERATIONAL FORM — ask it of the instrument, not of the result: what class of instance is this
+design INCAPABLE of returning, and could an instance of that class share a CAUSE with what I
+found?** If one ruling, one refactor or one rename can produce several instances, and the
+instrument's unit is smaller than the region they spread over, then finding one is exactly what
+you expect to see whether or not you have found them all. Name the unit (a line, a file, a
+commit, a symbol) and ask whether the defect's natural extent is larger than it.
+
+**Related and not the same as the existing absence bars.** *A green log and an absent run are the
+same artifact* governs a check that never executed; *an instrument that reports an ABSENCE can
+manufacture it* governs an empty result. **This one governs a NON-empty result** — the case where
+the instrument ran, worked, and returned something true, and the truth of what came back is what
+stops anyone asking what did not.
