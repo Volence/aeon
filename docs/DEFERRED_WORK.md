@@ -48,6 +48,89 @@ against the AS-era tree and cite `.asm` paths and line numbers into files that *
 
 ## NOW UNBLOCKED — actionable (compiled 2026-08-05)
 
+### ⚠ OWNER LOOK CALL — the d-15 SHOWCASE's background is DESTROYED by its own curve where the foreground does not cover it — measured 2026-09-06 (`parcel/depth-showcase-onset`)
+
+**Witness:** `docs/witness/depth-onset-2026-09-06.md` (+ `.json`, + six PNGs).
+**Instrument:** `tools/depth_onset_probe.py` (new; phases `play` / `sweep` / `attrib` / `ab`).
+**Closes** the "NOT MEASURED" rider on `CURVE-DESC`'s entry below — that onset was
+arithmetic on the authored factors and is now a run.
+
+**THE CALL, and it is his, not ours.** Warping through the ordinary DEBUG mailbox to player
+(3000, 3000) — nothing poked, nothing pinned — lands Camera (2840, 2888) inside section 4
+with `Parallax_Current_Config` on `EditorSceneBinding_OJZ_Act1_Sec4`. Both curve bands are
+99–100% Plane B there, and the background renders as fine horizontal noise with no
+recognisable structure. **A control ROM built from the same scene with its two `curve:` keys
+deleted and nothing else touched renders the same rows as clear foliage**, at the same
+camera, with the Plane-B nametable hashed identical on both ROMs
+(`sha256[:16] c4d7e2cb3db35fbe`). So it is the curve, not the art
+(`docs/witness/depth-onset-ab-2840-band160-2026-09-06.png`). **No fix proposed: what to do
+about authored content is the owner's.**
+
+| band | span | `fb` → `To(..)` | excursion | vs the 192 px margin | rate |
+|---|---|---|---|---|---|
+| 112..159 | 48 | `FACTOR_1_4` → `FACTOR_3_8` | 348 px | 1.81× | 7.40 px/line |
+| 160..223 | 64 | `FACTOR_1_2` → `FACTOR_1` | 1398 px | 7.28× | 22.19 px/line |
+
+**WHY IT LOOKS FINE ELSEWHERE — occlusion, measured with `emulator/pixel_attribution` on the
+real frame.** At Camera_Y 2188 band 160 is **100% Plane A** and band 112 is 78% Plane A;
+at Camera_Y 2888 they are 100% / 99% Plane B. `Vscroll_BG` is 0 at all four play positions,
+so Plane B's contribution at a given Camera_X is *identical* between those two rows — the
+only difference is how much foreground covers it. **This invalidated my own first sweep**,
+whose band-160 crops were pictures of Plane A (which is `FACTOR_1` and shears by nothing);
+the probe now prints Plane-B exposure beside every band and no visual claim rests on a band
+below 99%.
+
+**Section 4 is col 1 row 1 of the 3×3 grid**, world x 2048..4095 — the same column as
+section 7. Measured Camera_X in play: 2040 / 2840 / 3840. Both derived onsets (1536 and 384)
+sit far below that, so both bands are past the margin at **every** play-reachable camera x
+(band 112 by 1.30..2.45×, band 160 by 5.23..9.84×).
+
+**The walker is exact on shipped content** — derived-vs-measured 0 of 224 lines, max |delta|
+0, at 21 camera positions. The ±1 that appeared in the swept samples is **band drift**
+(`Parallax_Update` `.cap_band_drift_accum`), read rather than reasoned: the accumulator is
+exactly zero at every play position across 120+ frames and every shipped band record carries
+drift rate 0, and it is `(-1,-1,-1,-1,0)` only under the sweep's camera poke. It is not a
+constant offset — a drifted base changes the hoist's spread, so the ramp *shape* moves too.
+
+**NOT ESTABLISHED:**
+1. **Whether ordinary play reaches Camera_Y 2888.** I got there by warping. Whether normal
+   traversal puts the camera where the foreground stops covering band 160 decides whether
+   this is a defect the player meets or one only a debug warp can reach. **This is the
+   question that should be answered before anything is changed.**
+2. **Why a camera poke seeds a non-zero drift accumulator when every shipped rate is 0.**
+3. **`ojz_act1_floor`'s curve** (`FACTOR_0` → `FACTOR_1_32`, derived onset camX 6144) was
+   not driven — the one shipped curve whose onset is plausibly outside its own section.
+
+### ⚠ CORRECTION to the CURVE-DESC entry below — the excursion reading LOST ground, and here is the measurement that took it
+
+`curve-desc`'s §5.1 booked "excursion past 192 px" vs "per-line rate" as two live readings
+and called the first better-argued. The first **matched-rate** comparison ever run says
+otherwise, on shipped content against a per-camera control:
+
+| pair | span | excursion | vs margin | rate | duplicates | look vs its own control |
+|---|---|---|---|---|---|---|
+| band 160 @ camX 512 | 64 | 252 px | 1.31× | **4.0** | **YES** | a diagonal shear |
+| band 112 @ camX 1536 | 48 | 188 px | 0.98× | **4.0** | **no** | a diagonal shear |
+
+**Indistinguishable.** Severity instead tracks rate monotonically with art and control held
+fixed (1.97 px/line a mild slant, 4.0 stronger, 16.0 and 22.2 destroyed). The 192 px
+threshold **remains true as geometry** — above it a plane column really is shown twice, and
+that is derived, not fitted — but it is no longer the better-supported account of the
+*visible* break. Caveat kept where it belongs: at 1.31× the margin only 60 px of travel is
+past it, so under a fifth of the screen carries a duplicated column against a busy texture.
+That is a weak test of duplication, not a clean refutation.
+
+**The discriminator still does not close, and NOT for the reason the dispatch expected.**
+It is not the spans being equal — it is that `excursion = rate × span` and this scene's
+bands are 48 and 64 lines, a ratio of 4/3, so the two quantities stay nearly proportional
+just as they did on sec7's single 224-line band; and band 160 dominates band 112 on *both*
+metrics at every camera x, so no single frame separates them.
+
+**THE FIXTURE THAT WOULD CLOSE IT, stated as something authorable:** one scene, two curve
+bands, spans **64 and 192**, authored to the same per-line rate. That gives `E = 192` (no
+duplication) against `E = 576` (3× past it) at identical rate — one build. This is
+`curve-desc` §5.1's "vary the span at fixed excursion", made concrete.
+
 ### CURVE-DESC — REPRODUCED, AND THE DIRECTION IT NAMES IS REFUTED. The engine's ramp is exact; what garbles is the per-band EXCURSION — booked 2026-09-06 (`parcel/curve-desc`)
 
 **Witness:** `docs/witness/curve-desc-2026-09-06.md` (+ `.json`, + four PNGs).

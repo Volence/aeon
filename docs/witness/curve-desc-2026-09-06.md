@@ -155,6 +155,14 @@ px/line) — is equally well described as "excursion crosses 192" and as "rate c
 something between 0.79 and 1.58 px/line". My arms cannot tell those apart, and neither can
 the perspective-floor lane's onset table, whose band span is likewise fixed.
 
+**⚠ CORRECTED 2026-09-06 by `docs/witness/depth-onset-2026-09-06.md` §5.** The first
+matched-rate comparison (band 160 at excursion 252 px / 1.31x the margin, duplicating,
+against band 112 at 188 px / 0.98x, not duplicating, both at 4.0 px/line, each against a
+curve-free control at the same camera) finds the two **indistinguishable**, and severity
+there tracks the rate monotonically. The 192 px threshold stays true as geometry; it is no
+longer the better-supported account of the VISIBLE break. Read the two paragraphs below as
+the argument they were, now outweighed on this point.
+
 Two things break the tie in favour of the excursion reading, and neither is a measurement:
 `192 = PLANE_W - SCREEN_W` is **geometry**, derived before the runs and not fitted, while a
 rate threshold near 1 px/line has no derivation at all; and the floor lane's onset lands on
