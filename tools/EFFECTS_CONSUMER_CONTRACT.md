@@ -101,6 +101,32 @@ stale value in a vendored copy, but a constraint that was never in the copy at a
 invisible to a per-line check of the consumer's file (which cannot find what is absent) and to a
 currency gate over values (because it is not a value).
 
+**⚠ THE ASK WAS SUPERSEDED A DAY LATER AND THE MECHANISM ALREADY IMPLEMENTS THE NEWER SHAPE —
+`default_off` IS NOT MOOT IN IT, IT IS THE OFF HALF OF IT** (recorded 2026-09-06T11:56:47Z; the owner's later words
+read firsthand out of empyrean `origin/main:docs/OVERSEER-LOG.md` at 2026-09-04T19:14:26Z, not
+from a relay).
+
+His correction of his own request, verbatim: *"I just ddidn't want the experimental animation
+bands right now for this, they showed we can do horizontal and vertical movement on a timer, but
+it was on for every test and distracting. It should be its own scene with start + button and
+should be tested for perspective vs timer, that's all"*.
+
+**That shape is BUILT** (`games/sonic4/test/ojz_scroll_test.emp:2379`, `Debug_BgAnimViewHotkey`):
+**START held + C pressed**, no direction held, steps OFF -> horizontal (Camera_X) -> vertical
+(Camera_Y) -> TIMER -> the vertical-axis probe -> its control -> OFF. The chord moved from C+A to
+START+C *because he asked for START+button*, and the timer arm was restored because *"tested for
+perspective vs timer"* is a COMPARISON that the previous parcel had left only one arm of.
+
+**AND THE PART A READER MUST NOT GET WRONG: the hub's relay of that ruling reads "the
+`default_off` flag question is moot in that shape" — marked as the hub's reading, not his words —
+and acting on it would break the shipped behaviour.** In the built shape `default_off` is what
+makes the bands OFF in every other scene, at zero cost: the act boots silent in every shape
+INCLUDING RELEASE because the emitter writes `BgAnim_Table: u16 = 0`, so `BgAnim_Update` walks a
+zero-count table and returns — no code, no flag, no chord. The chord supplies the *"its own scene
+with start + button"* and *"perspective vs timer"* halves; **`default_off` supplies the *"not on
+for every test"* half, and nothing else does.** Drop it and the distracting bands return to the
+release ROM, which is the request that started this.
+
 **READ THIS FIRST, ahead of either obligation, and put it in author-facing copy before either:
 `default_off` changes what SHIPS.** Its origin is an owner ask of 2026-09-03 — *"can we please
 just get rid of the animated tiles for now, they're so distracting? Maybe have one view for
