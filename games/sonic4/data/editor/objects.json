@@ -29,7 +29,7 @@
   },
   {
     "id": "spring",
-    "name": "Spring (red, vertical)",
+    "name": "Spring",
     "codeLabel": "ObjDef_Spring",
     "defaultSubtype": 0,
     "properties": {}

@@ -12,10 +12,28 @@
     "subtype": 0
   },
   {
+    "x": 560,
+    "y": 632,
+    "typeId": "spring",
+    "subtype": 16
+  },
+  {
+    "x": 700,
+    "y": 424,
+    "typeId": "spring",
+    "subtype": 32
+  },
+  {
     "x": 700,
     "y": 632,
     "typeId": "spring",
     "subtype": 0
+  },
+  {
+    "x": 760,
+    "y": 632,
+    "typeId": "spring",
+    "subtype": 80
   },
   {
     "x": 1080,
