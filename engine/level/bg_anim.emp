@@ -481,3 +481,44 @@ pub proc Waterline_Art_Update (a0: *u8) clobbers(d0-d4/a0-a5) {
     }
         rts
 }
+
+// -----------------------------------------------
+// BgAnim_Table_Empty — the act-INDEPENDENT bands-off target (LIVE-EFFECTS, owner 2026-09-06)
+//
+// A band table is `u16 count` followed by that many records, so a table whose count is 0
+// turns the whole system off. Until now the only zero-count table in the tree was whichever
+// act happened to be `default_off`, and an Oracle panel pointing `BgAnim_Table_Ptr` there
+// for "bands off" would have been RIGHT BY CONTENT COINCIDENCE: an act with live bands has
+// a non-zero count at that address, and the panel would have switched to that act's bands
+// instead of switching them off. This is the stable target, and it cannot drift with content.
+//
+// DEBUG-ONLY for its DATA, deliberately: `BgAnim_Table_Ptr` itself does not exist in a plain
+// build (engine/ram.emp gates it `if DEBUG == 1 @shape_divergent`), so a release shape has no
+// selector to point anywhere and this word would be a value nothing can reach.
+//
+// ⚠ WHAT IT COSTS A RELEASE ROM IS NOT ZERO, AND THE FIGURE IS NOT TWO BYTES — MEASURED.
+// The guard works: comparing the release ROM against master, ZERO bytes differ before the
+// deb2 symbol appendix (which starts at 0x0BD38C in both), so no data is emitted. Every one
+// of the 17,211 differing bytes is INSIDE that appendix — the symbol's NAME enters the debug
+// symbol table, and every shape carries that table. Net: s4 +2 B, and +16 B in the other
+// three, all of it symbol table.
+//
+// ⚠ CONSEQUENCE FOR A CONSUMER, and oracle asked for it in these terms: this symbol APPEARS
+// IN THE RELEASE LISTING (with an address) while `BgAnim_Table_Ptr` does NOT. The two
+// symbols' listing-presence are INDEPENDENT FACTS. A panel gating a bands-off control on the
+// target symbol alone would offer the button on a release build and write into whatever
+// occupies the pointer's address. Gate on BOTH.
+// -----------------------------------------------
+// The shape-divergent-data idiom this tree already uses (see the generated act module's
+// `BGANIM_VIEW_EMIT`): a length that is 1 under DEBUG and 0 otherwise. A bare
+// `if DEBUG == 1 { 0 } else { }` does NOT work for a scalar — the else arm evaluates to
+// unit and sigil refuses it (`expected an integer for u16, got unit`), measured here.
+const BGANIM_EMPTY_EMIT = if DEBUG == 1 { 1 } else { 0 }
+pub data BgAnim_Table_Empty: [u16; BGANIM_EMPTY_EMIT] = if DEBUG == 1 { [0] } else { [] }
+
+// PLACEMENT NOTE, measured rather than chosen: this sits at the END of the module because a
+// `pub data` at the TOP became the `bg_anim` section's HEAD LABEL, and sigil then refused the
+// build — `[layout.undeclared-alignment] section bg_anim (head label BgAnim_Table_Empty) has
+// NO declared alignment`. The head label is decided by whatever emits first, so adding data
+// above the existing head silently changes a section's identity. Same class as this lane's
+// booked D2-ORDER-ROW row, met live while landing two bytes.
