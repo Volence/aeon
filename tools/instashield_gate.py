@@ -188,6 +188,38 @@ def parse_lst(path):
     return syms, equs
 
 
+
+# ---------------------------------------------------------------------------
+# PHASED SYMBOLS ARE NOT EXTENT BOUNDARIES  (S3, routed from sigil `79767f26`)
+#
+# Every "where does this routine end" in this tree infers the extent as "the next
+# symbol above the head", and four of the five did not filter PHASED symbols. A symbol
+# declared inside a `section ... (vma: $HEX)` block carries its BANK-LOCAL VMA in the
+# listing, not its ROM address, so it can land — purely by numeric coincidence — inside
+# an unrelated routine's real address run and truncate it there. Measured on a real
+# build (2026-09-03, recorded in `scene_spans.vma_phased_symbol_names`):
+# `SoundTablesZ80_Head` at listing $8000 cut `Parallax_Step5_Vscroll` to 64 B, and
+# `SfxBlobWinTab` at $845F cut `Raster_HInt` to 21 B.
+#
+# The listing carries NO MARKER for this — sigil-link writes one shape for every
+# symbol — so it is a SOURCE derivation and cannot be recovered from the listing.
+# `scene_spans.lst_proc_sizes` already did it; this is that correction propagated,
+# importing the ONE derivation rather than restating it, so a change to what counts as
+# phased moves every consumer at once.
+#
+# LATENT, NOT FIRING, when this landed: measured 2026-09-06 against s4.debug.lst, all
+# six routines these gates bound compute the SAME extent with and without the filter.
+# That is the tree being ARRANGED so the assumption holds, which is a different thing
+# from it being checked — and the truncation is not uniformly loud. An executor arm
+# reports "execution left the extent" (a false red), but a SCANNING arm just finds
+# fewer instructions: `waterline_art_gate.proc_span`'s own docstring records arm 3
+# reporting "zero instances of instructions that are plainly there".
+import os.path as _osp                                        # noqa: E402
+sys.path.insert(0, _osp.dirname(_osp.abspath(__file__)))
+from scene_spans import vma_phased_symbol_names   # noqa: E402
+# ---------------------------------------------------------------------------
+
+
 def routine_extent(syms, name=ROUTINE, prefix=None):
     """[start, end) — end is the next symbol strictly above start. The routine's own
     hygienic local labels sit inside it and are skipped, which is what `prefix` is
@@ -203,8 +235,9 @@ def routine_extent(syms, name=ROUTINE, prefix=None):
         raise SystemExit("instashield_gate: %s is not in the listing. Either the "
                          "ability was renamed or removed, or the character's "
                          "cd_ability no longer reaches it." % name)
+    phased = vma_phased_symbol_names()
     above = [a for n, a in syms.items()
-             if a > start and not n.startswith(prefix)]
+             if a > start and not n.startswith(prefix) and n not in phased]
     if not above:
         raise SystemExit("instashield_gate: nothing follows %s in the listing" % name)
     return start, min(above)

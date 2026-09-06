@@ -177,6 +177,36 @@ def decode_immediates(code: bytes) -> dict:
     return out
 
 
+
+# ---------------------------------------------------------------------------
+# PHASED SYMBOLS ARE NOT EXTENT BOUNDARIES  (S3, routed from sigil `79767f26`)
+#
+# Every "where does this routine end" in this tree infers the extent as "the next
+# symbol above the head", and four of the five did not filter PHASED symbols. A symbol
+# declared inside a `section ... (vma: $HEX)` block carries its BANK-LOCAL VMA in the
+# listing, not its ROM address, so it can land — purely by numeric coincidence — inside
+# an unrelated routine's real address run and truncate it there. Measured on a real
+# build (2026-09-03, recorded in `scene_spans.vma_phased_symbol_names`):
+# `SoundTablesZ80_Head` at listing $8000 cut `Parallax_Step5_Vscroll` to 64 B, and
+# `SfxBlobWinTab` at $845F cut `Raster_HInt` to 21 B.
+#
+# The listing carries NO MARKER for this — sigil-link writes one shape for every
+# symbol — so it is a SOURCE derivation and cannot be recovered from the listing.
+# `scene_spans.lst_proc_sizes` already did it; this is that correction propagated,
+# importing the ONE derivation rather than restating it, so a change to what counts as
+# phased moves every consumer at once.
+#
+# LATENT, NOT FIRING, when this landed: measured 2026-09-06 against s4.debug.lst, all
+# six routines these gates bound compute the SAME extent with and without the filter.
+# That is the tree being ARRANGED so the assumption holds, which is a different thing
+# from it being checked — and the truncation is not uniformly loud. An executor arm
+# reports "execution left the extent" (a false red), but a SCANNING arm just finds
+# fewer instructions: `waterline_art_gate.proc_span`'s own docstring records arm 3
+# reporting "zero instances of instructions that are plainly there".
+from scene_spans import vma_phased_symbol_names   # noqa: E402
+# ---------------------------------------------------------------------------
+
+
 def proc_span(syms: dict, name: str) -> tuple[int, int]:
     """[start, end) of a proc, ended by the next symbol that is not one of ITS OWN locals.
 
@@ -189,8 +219,10 @@ def proc_span(syms: dict, name: str) -> tuple[int, int]:
         raise Unmeasurable(f"{name} is not in the listing")
     start = syms[name]
     own = f"${name}$"
+    phased = vma_phased_symbol_names()
     rom = sorted({v for k, v in syms.items()
-                  if v > start and v < 0x400000 and own not in k})
+                  if v > start and v < 0x400000 and own not in k
+                  and k not in phased})
     if not rom:
         raise Unmeasurable(f"{name} is the last ROM symbol — cannot bound it")
     return start, rom[0]
