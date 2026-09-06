@@ -66,7 +66,11 @@ import parallax_hscroll_probe as php                  # noqa: E402
 
 SERVER = str(suite_path("oracle-next", "target", "release", "oracle-aether"))
 SETTLE = 180
-WARP_X, WARP_Y = 3000, 4400      # df3b8810's own bisect coordinates, unchanged
+# DEFAULTS, NOT CONSTANTS. df3b8810's own bisect coordinates, kept as the default so the
+# five sec7 arms committed with this tool reproduce with no flags. `--warp-x/--warp-y`
+# override them: a probe whose destination is baked can only ever answer one question, and
+# the second question (the section-4 showcase) arrived four hours after the first.
+WARP_X, WARP_Y = 3000, 4400
 POST_WARP = 30
 LINES = php.HSCROLL_LINES        # 224
 
@@ -242,7 +246,9 @@ def runs(vals):
     return [tuple(r) for r in out]
 
 
-async def one(label, rom, lst, scene, png_dir):
+async def one(label, rom, lst, scene, png_dir, warp_x=None, warp_y=None):
+    wx = WARP_X if warp_x is None else warp_x
+    wy = WARP_Y if warp_y is None else warp_y
     layers, sc, authored, vs_model, k_model = layers_from_scene(scene)
     sym = parse_lst(lst)
     for n in ("Warp_Req_X", "Warp_Req_Y", "Warp_Req_Flag", "Camera_X", "Camera_Y",
@@ -254,7 +260,7 @@ async def one(label, rom, lst, scene, png_dir):
         await c(b, "emulator/load_symbols", {"path": lst})
         await c(b, "emulator/reset", {})
         await c(b, "emulator/run_frames", {"frames": SETTLE})
-        for a, v, w in ((sym["Warp_Req_X"], WARP_X, 2), (sym["Warp_Req_Y"], WARP_Y, 2),
+        for a, v, w in ((sym["Warp_Req_X"], wx, 2), (sym["Warp_Req_Y"], wy, 2),
                         (sym["Warp_Req_Flag"], 1, 1)):
             await c(b, "emulator/write_memory", {"addr": hex(a), "value": v, "width": w})
         ack = None
@@ -372,6 +378,10 @@ def main():
                     help="label=rom,lst,scene.json")
     ap.add_argument("--png-dir")
     ap.add_argument("--json")
+    ap.add_argument("--warp-x", type=int, default=WARP_X,
+                    help=f"destination PLAYER world x (default {WARP_X}, df3b8810's)")
+    ap.add_argument("--warp-y", type=int, default=WARP_Y,
+                    help=f"destination PLAYER world y (default {WARP_Y}, df3b8810's)")
     a = ap.parse_args()
     if a.png_dir:
         Path(a.png_dir).mkdir(parents=True, exist_ok=True)
@@ -390,11 +400,12 @@ def main():
             for p in (rom, lst, scene):
                 if not Path(p).is_file():
                     raise Setup(f"missing {p}")
-            out.append(asyncio.run(one(label, rom, lst, scene, a.png_dir)))
+            out.append(asyncio.run(one(label, rom, lst, scene, a.png_dir,
+                                       a.warp_x, a.warp_y)))
     except Setup as e:
         print(f"curve_desc_probe: UNMEASURABLE -- {e}", file=sys.stderr)
         return 2
-    print(f"curve_desc_probe  warp ({WARP_X},{WARP_Y})  settle {SETTLE}+{POST_WARP}")
+    print(f"curve_desc_probe  warp ({a.warp_x},{a.warp_y})  settle {SETTLE}+{POST_WARP}")
     for r in out:
         report(r)
     if a.json:
