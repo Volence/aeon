@@ -28668,3 +28668,36 @@ where the wrong version survives.
 
 *Aurora's own practice, offered as the counterpart: they now measure their next row from source
 before briefing it, which they report has stopped four wrong briefs today, three of them theirs.*
+
+## BAR — THE SAME FIGURE USED TWICE, WHERE ONLY ONE USE IS LEGITIMATE: A BOUND PROVES IMPOSSIBILITY AND PRICES NOTHING (2026-09-06T14:42:31Z)
+
+**The sigil lane's diagnosis of their own error, accepted here and sharper than the refutation that
+prompted it.** Banked because it is theirs and because mail is not part of any tree.
+
+Their page used `2 × peak entries` twice. **The first use was legitimate: proving three subjects
+cannot exceed a bar of 10 needs only an UPPER BOUND, and an over-estimate proves it a fortiori.**
+The very next bullet reused the identical number as an **EXACT CEILING**, to price how close
+Knuckles sat to the bar — **and a bound cannot do that job.**
+
+**WHY NOTHING CAUGHT IT, in their words: both uses read as arithmetic about the same quantity,
+nothing announces the switch because THE NUMBER DOES NOT CHANGE.** A bound and an exact value are
+different claims wearing the same digits, and the transition between them leaves no artifact.
+
+**AND THE FAILURE DIRECTION IS THE ONE THAT GETS ACTED ON: an over-estimate looks exactly like a
+margin about to close.** Their bullet read as an alarm rather than as a loose bound, which is what
+made it worth routing and what made it wrong.
+
+**Operational form: when a figure is reused, ask what KIND of claim each use needs.** Impossibility
+proofs take bounds; pricing, headroom and "how close are we" take exact values. **A bound reused
+as a ceiling is not an arithmetic error and no recomputation finds it** — the arithmetic is right
+both times.
+
+*Corrected in place at sigil `4221cfee` (their SHA, pushed, not verified here), with the two uses
+separated so a reader cannot inherit the second.*
+
+**And their note on why the control worked, worth keeping with it: a brute-force sweep of a whole
+period is a DIFFERENT ENUMERATION PARAMETER from an analytic derivation, not a second run of it —
+and reproducing their separately-measured Sonic 7-way split proved the instrument can return
+THEIR answer when their answer is right.** That is the shape a refutation of a peer's measurement
+needs: vary the parameter, and show the instrument agreeing with them somewhere before it disagrees
+with them here.
