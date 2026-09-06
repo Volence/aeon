@@ -1735,9 +1735,19 @@ class TestBgAnimRoomOverCommittedFixture(unittest.TestCase):
         # is not a budget verdict, it is "the number would be wrong".
         import io
         import contextlib
+        # `main()` has no tree argument and reads module-level AEON, so it must be
+        # pointed at the hermetic tree or it silently derives the LENGTH term from the
+        # LIVE repo while deriving the terminus from this fixture. (Measured
+        # 2026-09-06: without this the CLI half reported the live tree's
+        # collision_data.emp — a true statement about the wrong subject, which is the
+        # exact failure mode the module header warns about for listings.)
+        saved_aeon = bganim_room.AEON
+        bganim_room.AEON = tree
+        self.addCleanup(setattr, bganim_room, "AEON", saved_aeon)
         err = io.StringIO()
         with contextlib.redirect_stderr(err):
             rc = bganim_room.main(["--lst", lst])
+        bganim_room.AEON = saved_aeon
         self.assertEqual(rc, 1)
         self.assertIn("FAIL (unmeasurable)", err.getvalue())
         self.assertIn("Art_LatecomerBlob", err.getvalue())

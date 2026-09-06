@@ -285,8 +285,9 @@ def anchor_addr(map_toml, name=ANCHOR_NAME):
         f"it there is no room figure to report.")
 
 
-def art_sonic_bytes(aeon=AEON):
+def art_sonic_bytes(aeon=None):
     """Size of the blob `Art_Sonic` embeds, resolved through the .emp that embeds it."""
+    aeon = AEON if aeon is None else aeon
     src = os.path.join(aeon, COLLISION_DATA_EMP)
     if not os.path.exists(src):
         raise Unmeasurable(f"no {COLLISION_DATA_EMP} — cannot resolve Art_Sonic's blob path")
@@ -575,7 +576,7 @@ def check_terminus(lst_path, labels, packed_end, anchor, rom_path=None):
     return {"intruders": intruders, "image_scan": scan}
 
 
-def rom_room(lst_path, aeon=AEON, map_toml=None, rom_path=None):
+def rom_room(lst_path, aeon=None, map_toml=None, rom_path=None):
     """Physical bytes between the end of the packed data run and the hardware anchor.
 
     DERIVATION (every term from an instrument, none from the frozen table):
@@ -589,6 +590,14 @@ def rom_room(lst_path, aeon=AEON, map_toml=None, rom_path=None):
     (symbols always, the ROM image when `rom_path` is given) and raises Unmeasurable
     naming the intruder rather than letting a too-low `end` inflate `room`.
     """
+    # LATE-BOUND (2026-09-06). These used to default to `aeon=AEON` in the signature,
+    # which Python binds ONCE at definition — so `main()`, which has no tree argument,
+    # could not be pointed at another tree and would derive the LENGTH term from the
+    # live repo while deriving the terminus from whatever listing it was handed. That
+    # is the module header's own "a true statement about the wrong artifact" failure,
+    # one level down; measured when a hermetic test's CLI half reported the live
+    # tree's collision_data.emp.
+    aeon = AEON if aeon is None else aeon
     map_toml = map_toml or os.path.join(aeon, "games", "sonic4", "map.toml")
     labels = lst_labels(lst_path)
     if LAST_PACKED_LABEL not in labels:
@@ -733,10 +742,11 @@ def fixture_freshness(lst_path, fixture_path):
     return checked
 
 
-def report(lst_path, aeon=AEON, gate=False, out=sys.stdout, rom_path=None,
+def report(lst_path, aeon=None, gate=False, out=sys.stdout, rom_path=None,
            built_after=None, fixture_path=None):
     """Print the ROM-room derivation and this SHAPE's ruled ceiling; with `gate`, fail
     on a breach. Returns the exit code. The verdict line names which of the two binds."""
+    aeon = AEON if aeon is None else aeon    # late-bound; see rom_room
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     from inject_editor_bg import BGANIM_SECTION_CEILING, live_section_bytes
 
