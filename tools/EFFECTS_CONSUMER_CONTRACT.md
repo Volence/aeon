@@ -85,10 +85,63 @@ raising it is a three-file engine change, never a writer decision).
 | `rate_shift` | `:107` | no (default 2) | 1 px of pattern motion per `1 << rate_shift` driver units |
 | `slot_base` | `:92-93` | no (default = running cursor) | if present MUST equal the running cursor — bands pack contiguously from slot 0 in list order |
 | `phases` | `:96-97`, `:127-128` | yes | exactly **8** banks; each bank exactly `cols*rows` tiles; each tile 64 pixel values (low nibble kept, `:101-103`) |
+| `default_off` | `views_emitted`, `:339-358` | no (default absent = false) | **NOT a view toggle — it silences the band in the RELEASE ROM.** A band carrying it is not counted into `BgAnim_Table`, so a single-band act emits `count = 0` and the system is off at boot in EVERY shape. Two hard refusals plus a release-shape consequence: see the `default_off` subsection below |
 
 Derived, not read: `step_mask` (= `pattern_px - 1`), `col_shift`, `tile_count`,
 `bank_offsets`. Writers must not emit them; the consumer ignores unknown keys today, but
 the drift rule above governs — do not rely on ignored keys staying ignored.
+
+#### `default_off` — a SHIPPED-BEHAVIOUR switch that reads like a preview setting (added 2026-09-06T11:51:06Z)
+
+**Supplied because the aurora lane found this key in our shipped document, could find no rule
+describing it, and correctly declined to model it from its name and its round-trip behaviour.**
+The rule existed and was enforced — as an `AssertionError` in `tools/inject_editor_bg.py` — but
+it lived only there, which is to say **nowhere a consumer can read**. That is the class: not a
+stale value in a vendored copy, but a constraint that was never in the copy at all, and it is
+invisible to a per-line check of the consumer's file (which cannot find what is absent) and to a
+currency gate over values (because it is not a value).
+
+**READ THIS FIRST, ahead of either obligation, and put it in author-facing copy before either:
+`default_off` changes what SHIPS.** Its origin is an owner ask of 2026-09-03 — *"can we please
+just get rid of the animated tiles for now, they're so distracting? Maybe have one view for
+horizontal and one for vertical?"* — and that second sentence is exactly the phrasing an editor
+would render as a preview control. It is not one. A band marked `default_off` is not counted into
+the act's own `BgAnim_Table`, so a single-band act emits `count = 0` and the whole system is off
+at boot **in every shape, release included** (`games/sonic4/config/ram.emp:357` states it in those
+words), with no runtime flag, no engine gate and no cost. **An author flipping this in an editor
+is changing shipped behaviour while believing they are changing what they see.**
+
+What it buys in exchange, and why it is not simply a delete: the emitter writes three DEBUG-only
+view twins over the same bank blob — `BgAnim_View_H` (the authored band, driven off `Camera_X`),
+`BgAnim_View_V` (re-driven off `Camera_Y`), and `BgAnim_View_T` (off `Logic_Tick`) — so
+"perspective versus timer" is a comparison a reviewer can actually make.
+
+**THE TWO WRITER OBLIGATIONS. Both are `AssertionError`, not warnings, and both fire at BUILD
+time with no editor-side signal.**
+
+1. **The ACT must have exactly ONE band — not "all bands agree".** If any band carries
+   `default_off` and `len(anims) != 1`, the emitter refuses: the view twins exist for the effects
+   lab, which drives one band, and a multi-band act would need a view table per band plus a
+   selector naming both. **⚠ THE QUANTIFIER IS THE TRAP, and it was the aurora lane who named it:
+   the constraint is on the ACT'S BAND COUNT, not on how many bands carry the key.** A per-key
+   validator naturally checks *"is `default_off` consistent across the bands"* and **passes a
+   two-band act that this build refuses.** Model it against `len(anims)`, or not at all.
+2. **`pattern_px` must equal `BGANIM_VIEW_DERIVED_PERIOD_PX` (= 64).** `BGANIM_VIEW_V_RATE_SHIFT`
+   (= 2) was derived against a 64 px period — one full cycle being roughly one screen height of
+   vertical camera travel. Any other period **refuses rather than silently giving a different
+   cadence**, deliberately, so the derivation comment cannot go on claiming a number it no longer
+   earned. Re-deriving the rung for another period means moving `BGANIM_VIEW_DERIVED_PERIOD_PX`
+   with it, which is an engine-side decision and not a writer's.
+
+**Measured on the shipped document (2026-09-06):** 1 band, `default_off` true, `pattern_px` 64,
+`views_emitted()` returns 3. Both obligations satisfied — **which is exactly why neither refusal
+has ever fired, and why nothing surfaced this key until a consumer went looking.**
+
+**A NOTE ON WHAT A CLEAN ROUND-TRIP DOES NOT PROVE.** Aurora reported that they parse this key
+with zero notices, validate clean, and write it back unchanged. That is true and it is not
+safety: it holds only because an author cannot currently CREATE or CHANGE the key, so the
+consumer is PRESERVING rather than VALIDATING. The day a writer exposes it, that writer can emit
+a document this build refuses — **the permissive-guard direction, failing by blaming the build.**
 
 #### `axis` — three writer obligations the consumer CANNOT check (added 2026-09-02)
 
