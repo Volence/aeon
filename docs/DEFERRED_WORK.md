@@ -26895,30 +26895,42 @@ drop probe at x=32..1008 in 16px steps confirms it: y=573 everywhere from x=32 t
 the 544 platform (y=525) from x=464, a pit at x=592 (he falls to y=829), and the 576 run
 (y=557) from x=768. So the springs did not need a new surface; they needed to be ON this one.
 
-**Two of SP-5c's booked numbers were re-derived and one is wrong.** The walkable span y=525..573
-and the sealed chambers are confirmed exactly. But *"the up spring at (700,632) sits in the
-middle of the ledge"* undersells the general case: **on this engine a floor-mounted up spring is
-a wall to a walker in BOTH directions**, because its side face is a plain solid (that is L1's
-whole claim). That is not a property of that ledge — it is the reason the new layout looks the
-way it does. A single flat run affords exactly one walk-meetable spring per direction, and L1
-needs one of the two to be an up spring, so the up spring takes WEST and the LEFT spring takes
-EAST. The RIGHT and DOWN springs sit behind the LEFT one and are reachable only over the top of
-it; no leg makes that jump, and that is stated in the witness's own "what this does not
-establish" list rather than left to be discovered.
+**WHAT WAS RE-DERIVED, and what was taken on trust.** SP-5c's `y=525..573` walkable span is
+CONFIRMED on this ROM by the drop probe above, and the chambers are confirmed sealed by the
+authored collision (`section_0.collattr.bin`: the ledge's surface is at y=640, and the underside
+of the run above it is at y=560 for x=640..696 and y=592 for x=704..760 — the 64px chamber
+SP-5c describes). Two of SP-5c's figures were NOT re-measured and are not restated as this
+lane's: the RIGHT spring's 48px fly-past, and the 127px gap from the chamber ceiling to the down
+spring. Nothing here contradicts them; nothing here re-establishes them either.
+
+**One booked sentence UNDER-READS, and the correction is why the new layout looks the way it
+does.** *"The up spring at (700,632) sits in the middle of the ledge and blocks it"* reads as a
+fact about that ledge. It is a fact about every floor: **on this engine a floor-mounted up spring
+is a wall to a walker in BOTH directions**, because its side face is a plain solid — that is
+L1's whole claim, and L1 has been green since SP-1. So a single flat run affords exactly one
+walk-meetable spring per direction, and L1 needs one of the two to be an up spring. Hence: the
+up spring takes WEST, the LEFT spring takes EAST, and the RIGHT and DOWN springs sit behind the
+LEFT one, reachable only over the top of it. No leg makes that jump, and that is stated in the
+witness's own "what this does not establish" list rather than left to be discovered.
 
 **Two seats moved, both deliberately, both because the new floor is FLAT where the old one
 sloped:**
 
 * `JUMP_GROUND_DY` 100 → **95**. The old number was "somewhere above the sloping floor"; on the
   flat floor 95 is his resting y exactly, so the seat IS the rest position. It also gained an
-  upper bound the old comment did not have: a standing jump on this engine rises **82px**
-  (measured), and the contact band starts one curled contact face (22px) below the spring, so a
-  seat lower than ~104px could never reach the underside at all.
+  upper bound the old comment did not have: **a standing jump holding A rises 95px** — measured
+  directly, on flat ground with nothing overhead, apex at frame 30. The contact band starts one
+  curled contact face (22px) below the spring, so a seat deeper than **117px** could never reach
+  the underside at all; at 95 the rise needed is 73px against 95 available.
+  **That number is a correction of this lane's own first answer.** The obvious place to read a
+  jump height is L6's `apex reached` line — but that trace BREAKS at the contact band, so its
+  apex is a lower bound and nothing in the run says so. It reported 82; the jump is 95. A
+  quantity a run stops measuring is not a quantity the run measured.
 * `JUMP_DX` 30 → **20**. SP-5c's 30 worked because the old floor sloped and the fall added to
-  the air drift. On flat ground 30 left him **21px off the axis at band entry** against a 15px
-  curled contact face, and the launch missed the 4-frame hook window — measured, exit 2, on the
-  first build of this parcel. The drift is 9px by band entry, so the start offset has to be
-  inside 14 by then.
+  the air drift. Measured on the flat floor: the drift is **13px by frame 18**, which is the
+  frame he enters the contact band, so 30 left him ~17px off the axis against a 15px curled
+  contact face and the hook did not fire inside its 4-frame window — exit 2 on this parcel's
+  first build, ending 14px off axis at y=487. At 20 he is 7px off at band entry.
 
 **L7's red-first is a perturbation of the ARRANGEMENT, not of the checker** — the LEFT spring
 put back at its SP-5 home (760,632), re-baked and rebuilt, and L7 reports `THE CORRIDOR DOES NOT

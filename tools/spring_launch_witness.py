@@ -229,18 +229,24 @@ JUMP_GROUND_DY = 95      # px BELOW the down spring's centre to seat the L6 jump
                          # floor there is flat and puts his rest EXACTLY 95px below the
                          # spring, so the seat is the rest position; the settle asserts
                          # he is grounded, so the number only has to land him on it.
-                         # It is also bounded from ABOVE: a standing jump on this engine
-                         # rises 82px (measured), and the contact band starts one contact
-                         # face (22px, curled) below the spring — so a seat lower than
-                         # ~104px could never reach the underside at all.
+                         # BOUNDED FROM ABOVE, and this is the bound the leg lives on: a
+                         # standing jump holding A rises 95px, measured on flat ground
+                         # with nothing overhead (apex at frame 30; the witness's own
+                         # trace CANNOT measure this — it breaks at the contact band, so
+                         # its "apex" is only ever a lower bound). The contact band starts
+                         # one curled contact face (22px) below the spring, so a seat
+                         # deeper than 117px could never reach the underside at all. At 95
+                         # the rise needed is 73px against 95 available — 22px of margin.
 JUMP_DX = 20             # px to the LEFT of the down spring the L6 jump starts from. The
                          # leg holds TOWARD the spring for the whole ascent and the air
-                         # drift is what carries him under it: measured, the drift is 9px
-                         # by the frame he enters the contact band, so the start offset
-                         # must leave him inside the curled 15px face by then. SP-5c used
-                         # 30 against a SLOPING floor whose fall added to the drift; on
-                         # SP-5d's flat floor 30 left him 21px out at band entry and the
-                         # launch missed the 4-frame hook window (measured, exit 2).
+                         # drift is what carries him under it: measured on this floor the
+                         # drift is 13px by frame 18, which is the frame he enters the
+                         # contact band, so the start offset must leave him inside the
+                         # curled 15px face by then. SP-5c used 30 against a SLOPING floor
+                         # whose fall added to the drift; on SP-5d's flat floor 30 left
+                         # him ~17px off the axis at band entry and the hook did not fire
+                         # inside its 4-frame window — measured, exit 2, ending 14px off
+                         # axis at y=487. At 20 he is 7px off at band entry.
 JUMP_TRACE_FRAMES = 45   # frames of ascent sampled before the underside contact
 WALK_FRAMES = 300        # frames of walking L7 allows before it calls the corridor broken
 DRIVE_LEGS = 7           # L1 · L2 · L3 · L4 · L5 side launch · L6 underside · L7 walk
