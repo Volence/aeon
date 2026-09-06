@@ -87,6 +87,40 @@ raising it is a three-file engine change, never a writer decision).
 | `phases` | `:96-97`, `:127-128` | yes | exactly **8** banks; each bank exactly `cols*rows` tiles; each tile 64 pixel values (low nibble kept, `:101-103`) |
 | `default_off` | `views_emitted`, `:339-358` | no (default absent = false) | **NOT a view toggle — it silences the band in the RELEASE ROM.** A band carrying it is not counted into `BgAnim_Table`, so a single-band act emits `count = 0` and the system is off at boot in EVERY shape. Two hard refusals plus a release-shape consequence: see the `default_off` subsection below |
 
+#### THE SECTION BUDGET — six constants a consumer must model, and until now their ONLY authority was our tool's source (added 2026-09-06T12:55:09Z)
+
+**Raised by the aurora lane after they modelled it from `tools/inject_editor_bg.py` because
+there was nowhere else to read it.** Unlike `BG_TILE_CAPACITY` there is no `vram.toml` to point
+at, so they could not even choose an authority — they took the only one there is. **Same class as
+`default_off` below: real, enforced, and living where the consumer cannot read it.**
+
+| Constant | Value | Authority |
+|---|---|---|
+| `BGANIM_SECTION_CEILING` | 20480 | `inject_editor_bg.py`, the `min` over the per-shape table — **an expression, not a literal**: re-derive it, and it refuses if any shape's row stops naming the ruled figure |
+| `BGANIM_COUNT_BYTES` | 2 | the section's leading `u16` band count |
+| `BGANIM_RECORD_BYTES` | 44 | one band record (6 `u16` header fields + an 8-entry pointer array) |
+| `BGANIM_BYTES_PER_SLOT` | 256 | **a PRODUCT** (`BGANIM_PHASES * BGANIM_TILE_BYTES`), not the `256` in the comment beside it |
+| `BGANIM_VIEW_COUNT` | 3 | the DEBUG view twins (H / V / T) |
+| `BGANIM_VIEW_DERIVED_PERIOD_PX` | 64 | the period `BGANIM_VIEW_V_RATE_SHIFT` was derived against |
+
+**THE ALLOWANCE IS 79 SLOTS FOR THE WHOLE ACT, AT ANY BAND COUNT FROM 1 TO 4** — verified here at
+each count rather than derived once and generalised. `floor((20480 - 2 - 44n) / 256) = 79` for
+n = 1, 2, 3, 4, because the per-band record is small against a 256 B slot.
+
+**⚠ AND A SHAPE DISTINCTION A CONSUMER WILL OTHERWISE GET WRONG: "the section size" is two
+different numbers.** With the three DEBUG twins the shipped act's section is **8,376 B**; the
+release shape, which emits no twins, is **8,238 B** — and `bganim_section_bytes()`, the function
+a consumer would naturally call, returns the **8,238** figure. The 138 B difference is exactly
+`3 * (2 + 44)`. Both are correct for their own question; neither is "the" section size. Say which
+shape any figure is for.
+
+**Precedent this row exists to stop repeating:** Aurora's panel offered **80** slots where the ROM
+admits 79, and their own test suite had pinned the wrong answer — a row asserting *"accepts the
+band that spends EXACTLY the free room"*, built against the 80. **A test asserting the wrong
+answer is worse than no test: it makes the fix look like the regression**, which is why nobody
+noticed. (Their finding, their words, recorded because it is the reason this row is a table rather
+than a sentence.)
+
 Derived, not read: `step_mask` (= `pattern_px - 1`), `col_shift`, `tile_count`,
 `bank_offsets`. Writers must not emit them; the consumer ignores unknown keys today, but
 the drift rule above governs — do not rely on ignored keys staying ignored.
