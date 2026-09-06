@@ -251,6 +251,43 @@ ensure(RING_ENTRY_X_OFFSET % 2 == 0 && RING_ENTRY_Y_OFFSET == RING_ENTRY_X_OFFSE
 ensure(RING_ENTRY_SECTION_ID_OFFSET % 2 == 0 && RING_ENTRY_LIST_INDEX_OFFSET == RING_ENTRY_SECTION_ID_OFFSET + 1,
        "ring record section_id/list_index must be an aligned adjacent byte pair — the entity-window dedup scan compares them as one word")
 
+// THE PER-SECTION ROM RING LIST — the OTHER ring format, and not the one above.
+// `Ring_Buffer` holds the rings that are live right now; this is the immutable
+// ROM array a section spawns them FROM, reached through
+// `EntityScanState.ess_rom_ring_ptr` ($04) and walked by
+// EntityWindow_ScanRingsRight.
+//
+// PUBLISHED FOR THE DEBUGGER'S TEMPORARY-RING PATH (2026-09-06), and these two
+// are the only pieces of that walk that were missing: the pointer offset
+// (`EntityScanState_ess_rom_ring_ptr`), the struct stride (`EntityScanState_len`
+// = $1A), `MAX_TRACKED_SECTIONS`, `MAX_LIST_ENTRIES` ($80) and
+// `COLLECTED_BITMASK_OFFSET` are ALREADY equates via sigil's struct-offset
+// harvest, and `Entity_Scan_State` is already an address row. Nothing here
+// duplicates them.
+//
+// WHY A CONSUMER WALKS IT AT ALL: there is no stored per-section ring count, so
+// the only way to learn one is to walk to the terminator. That count is the
+// FLOOR of the safe `list_index` range for a temporary ring — below it, a
+// fabricated index collides with a real ring's bit in the section's collected
+// bitmask and stops that ring spawning for good. The ceiling is
+// MAX_LIST_ENTRIES. See docs/DEFERRED_WORK.md "RING-PLACE" — and note that
+// COMMENTS DO NOT REACH THE LISTING, so a consumer in another repo sees these
+// names and values and nothing else; the rule has to travel as prose, not here.
+pub const RING_LIST_ENTRY_SIZE = 4      // dc.w X, dc.w Y — section-relative px
+pub const RING_LIST_TERMINATOR = 0      // a LONG zero ends the list
+
+// The walk finds the end with `move.l (a0), d0` / `beq`, which reads exactly one
+// entry and only recognises a zero one. Both halves of that are load-bearing: a
+// stride other than 4 would make the terminator test straddle two entries, and a
+// non-zero terminator would not be found at all.
+ensure(RING_LIST_ENTRY_SIZE == 4 && RING_LIST_TERMINATOR == 0,
+       "the ROM ring list's end is found by `move.l (a0), d0 / beq` — that reads exactly one 4-byte entry and only detects a zero one")
+// ScanRingsRight seeks to the ratchet index with `lsl.w #2` rather than a
+// multiply. The shift amount is a literal at that instruction, so the stride
+// must stay its power of two or the walk lands mid-entry.
+ensure(RING_LIST_ENTRY_SIZE == 1 << 2,
+       "EntityWindow_ScanRingsRight seeks to the ratchet index with `lsl.w #2` — a different stride needs a different shift, and the walk would land mid-entry")
+
 // Driver-keyed BG tile-band animation (engine/level/bg_anim.emp). This sizes
 // engine/ram.emp's BgAnim_LastStep array, which is why it exists here at all —
 // ram.emp cannot import a CODE module's consts at comptime.
