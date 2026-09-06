@@ -11,7 +11,7 @@
 // Stats:
 //   grid: 3x3 (9 sections)
 //   rings: 60 total (sec0=7, sec1=9, sec2=12, sec4=12, sec5=8, sec7=8, sec8=4)
-//   objects: 12 total (sec0=7, sec1=3, sec2=2)
+//   objects: 10 total (sec0=7, sec1=1, sec2=2)
 //   ring pressure (736px Y band over 2x2 section blocks):
 //     block (0,0): 13
 //     block (1,0): 19
@@ -38,8 +38,8 @@ pub data OJZ_Sec0_Objects: [u16; 22] = [$12C, $248, $0000, $230, $278, $0010, $2
 pub data OJZ_Sec0_Rings: [u16; 16] = [$080, $060, $090, $060, $0A0, $060, $0B0, $060, $0C0, $060, $134, $09D, $144, $09D, $000, $000]
 
 // ---- Sec1 ----
-pub data OJZ_Sec1_TypeTable: ObjTypeTable2 = ObjTypeTable2{ count: 2, pad: 0, t0: ObjDef_Solid, t1: ObjDef_PathSwap }
-pub data OJZ_Sec1_Objects: [u16; 10] = [$100, $0B0, $0000, $300, $344, $0152, $370, $3E8, $0113, $FFFF]
+pub data OJZ_Sec1_TypeTable: ObjTypeTable1 = ObjTypeTable1{ count: 1, pad: 0, t0: ObjDef_Solid }
+pub data OJZ_Sec1_Objects: [u16; 4] = [$100, $0B0, $0000, $FFFF]
 pub data OJZ_Sec1_Rings: [u16; 20] = [$100, $040, $100, $050, $100, $060, $180, $050, $1C0, $050, $200, $050, $7A9, $79E, $7AE, $78A, $7BC, $79C, $000, $000]
 
 // ---- Sec2 ----

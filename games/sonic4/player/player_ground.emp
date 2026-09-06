@@ -540,9 +540,8 @@ proc Player_SlopeRepel (a0: *Sst) clobbers(d0-d2/a1-a2) {
 // a jump (mirrors Air_LandState's one-decision pattern, from the other
 // side of the seam): detaching from ROLL stays curled → PSTATE_AIRBALL
 // (spec §3.3 state table — rolled off a ledge keeps ST_ROLLING and the
-// ball box; the path swap reads ST_ROLLING for curled detection,
-// and uncurling here would skip the clearance check — the wall-clip
-// hazard class); detaching from GROUND → PSTATE_AIR. Keyed on
+// ball box; uncurling here would skip the clearance check — the
+// wall-clip hazard class); detaching from GROUND → PSTATE_AIR. Keyed on
 // _pl_state, the transition authority, rather than ST_ROLLING — same
 // cost (one byte compare), and it names the exact state this seam can
 // carry. SPINDASH never reaches either call site (its body skips
