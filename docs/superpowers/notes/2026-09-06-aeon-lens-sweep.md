@@ -978,3 +978,139 @@ one `comptime fn` — the build-time principle correctly applied.
 ~800 lines of the engine's single biggest per-frame consumer, read only at its entry points. *"If
 one more altitude pass is funded, that is where I would spend it."*
 
+
+---
+
+## Seat C3a — VDP-side timing and atomicity
+
+Census: **96 VDP-port instructions across 11 files**, enumerated **by what touches the port** —
+every `VDP_CTRL`/`VDP_DATA` hit plus the register-indirect forms reached through `a2`/`a4`/`a5`/`a6`
+at those sites — **not by name**. **21 distinct VDP-touching routines, all 21 assessed.**
+
+### C3a-V1 — two load-bearing derivations both claim a proc has no VDP access; it has a loop that writes the control port
+
+**The invariant.** `Vscroll_Write` and `Process_DMA_Critical` both inherit the ambient autoincrement
+(reg `$0F`) and neither sets it. Both are entered assuming `$0F = $02`.
+
+**The two derivations, both of which are the justification for having DELETED a re-assert:**
+`vblank.emp:385-390` (the 2026-08-14 deletion of the lag path's `move.w #$8F02, VDP_CTRL`) and
+`parallax.emp:1390-1393`. Both say: *"Between the flush and here sits only `Enqueue_Dirty_Buffers`,
+which appends DMA-queue entries in RAM and calls `Parallax_Active_Config` — **no VDP access on
+either path**."*
+
+**Controller verified the contradiction directly, all three halves:**
+
+- `Enqueue_Dirty_Buffers` begins at `buffers.emp:301`, declared `requires(vblank)`.
+- `.ship_reg` is **inside it**, at `:448-450`: `move.w (a1)+, VDP_CTRL` / `dbf d0, .ship_reg`.
+- Its own comment three lines above says so **in capitals**: *"THIS WRITES THE VDP DIRECTLY."*
+- And `vblank.emp:385-390` does contain the exact string `no VDP access on either path`.
+
+**It landed 2026-08-17, three days AFTER the deletion its absence justified**, and neither
+derivation was revisited. Not a dormant path: the shipped OJZ water band carries `reg_sh_on()`,
+which is precisely what the ship exists to serve.
+
+**Symptom on screen if reg `$0F` ever rides that loop:** a DMA drained at stride `$80` sprays the
+896-byte HScroll table every 128th byte from `$BC00` straight through Plane B at `$E000` — a
+screenful of garbage tiles plus dead horizontal scroll. At `$8F04`, the sprite-table DMA writes
+every other SAT slot and leaves the rest stale: sprites double, freeze, or vanish. On the lag path
+`Vscroll_Write`'s 20-longword emitter would additionally stride VSRAM at 4 and wrap it.
+
+**Why it does not fire today — and why that is the reportable part.** `raster_dsl.emp` refuses reg
+`$0F` in two layers (the `reg_set` constructor at `:206` and the undodgeable tree-wide scan at
+`:3190`), both with poison fixtures. **So the conclusion holds — by a guard in a different module
+that neither derivation mentions**, while the derivations that ARE written claim something untrue
+about `Enqueue_Dirty_Buffers`. That matters because `raster_dsl.emp:206` **advertises its own
+refusal as revocable** ("behind a stride-aware span model, spec §4.2b"). Revoke it, and the deleted
+`$8F02` is silently load-bearing again, in a file whose comment says nothing can reach it.
+
+**Every nearby guard checked and each named:** `Flush_VDP_Shadow` is *upstream* of `.ship_reg` and
+cannot restore it; `VInt_DrawLevel`'s `.done` is the only downstream re-assert and **is skipped on
+the lag path**; `test_palette_census_lint.py` pins file sets and reference counts and is blind to a
+VDP-CTRL write; and the `@budget`/contract machinery models registers and cycles, not VDP hardware
+state — `hblank.emp:38-43` and `vblank.emp:36-40` **both say so in as many words**
+("CPU-STATE ONLY … does NOT cover VDP latch/autoincrement state").
+
+**Fix is zero bytes:** re-word both derivations to cite the `raster_dsl` refusal as the actual
+guard, and back-reference from `raster_dsl.emp:206` the two downstream consumers a relaxation would
+have to re-ground.
+
+### C3a-S1 — the HBlank window calibration folds in a term that depends on what the MAIN LOOP is executing, and the instrument holds that term fixed
+
+`RASTER_HBLANK_END_CYC = 366` is measured from the handler's op-walk origin, and the module states
+that interrupt-entry latency is deliberately folded into it (`raster_dsl.emp:928-932`): *"the main
+loop has advanced further and the 68000 takes the exception at a different instruction boundary.
+That latency is part of where the burst actually LANDS."* The dependence on the **schedule** is
+named. The dependence on **what the mainline is executing** is named nowhere the seat could find.
+
+**Magnitude, derived:** a 68000 recognises an interrupt only at an instruction boundary, so entry =
+(remaining cycles of the interrupted instruction) + 44. The engine's own mainline carries `divs.w`
+(up to 158 cycles, `parallax.emp:1882/2134`), five `muls.w`, and `movem.l d0-d7` (76). Against the
+solver's own stated slack for the shipped 3-word cram — *"10.9 cycles clear of the early margin and
+30.0 clear of the late one"* — **a `divs.w` interrupted one cycle in exceeds the whole 122.9-cycle
+window.**
+
+**Why the instrument cannot see it, in the seat's own words, using this workspace's own taxonomy:**
+`tools/hblank_window_sweep.py` pokes one spin word and re-captures; the recorded evidence is
+*"spread 0 on every boundary across the repeats"* — **which is exactly what a single deterministic
+mainline phase produces, and exactly what a jitter-sensitive quantity would not.** *"The sweep is a
+control for the spin word and no control at all for the entry phase; it varies one thing and holds
+the suspected one fixed. Same shape as the 'bed is the runner' class."*
+
+**Sharper for the dense tier:** `.dense_body` (`raster.emp:1594-1600`) has **no spin at all**, so its
+whole placement is the fixed entry latency plus a short prologue — less absorbed slack than any
+sparse op, firing **96 times a frame** on both shipped OJZ runs. The comment at `:1578` reasons about
+the burst contracting from its own tail, which is about the **relative** position of the three
+writes, not about where write 1 lands.
+
+**Symptom:** intermittent single-pixel CRAM speckles at varying x on band-boundary rows, present on
+some frames and not others, **correlated with what the player is doing rather than with where the
+effect is.** Distinguishing feature from an authoring error: an authoring error is stable frame to
+frame.
+
+**TAG, with the seat's own instruction on how to read it — which I am adopting verbatim:**
+breakpoint `.dense_body`'s first `move.w (a1)+,-4(a2)` and record the landing pixel over ≥300 fires,
+twice: at rest, and during a run/roll exercising the `muls.w`/`divs.w` blocks. **Confirms** on a
+spread > ~4 px or a difference between states. **Refutes** if constant to within one pixel in both.
+*"A refutation is the more useful result here and should be recorded as such; do not let a
+confirming result ride on the mechanism story above, which is derived, not measured."*
+
+### C3a-V2 — `PlaneMapToVRAM` is an unmasked command-then-data sequence, latent
+
+`buffers.emp:210-221`: `move.l d0,(a5)` then a `dbf` data loop, with no mask, no `requires(vblank)`,
+no `z80_stopped`. **Zero callers, verified** — deliberate forward-scaffolding with a kill condition
+already on the gap ledger. If wired from the main loop as its header intends (title/menu), an IRQ4
+between command and data lets `Raster_HInt` repoint the address to CRAM and the rest of the
+nametable streams into CRAM. Also: the per-row `add.l d4, d0` is carry-blind across the command
+word's A15:A14 split, precondition stated and unchecked. **Latent, not live.**
+
+### C3a-S2 — `Section_RedrawPlanes` masks IRQs for 3-4 frames with a raster program possibly armed
+
+Inert on the level-init path; on the **cache-recovery** path the header advertises, it runs mid-game
+with display on and IE1 possibly set. The frame-rewind interlock (`raster.emp:1459-1463`) guards
+*priming record 0* **by construction** — its own comment says *"a stale fire ALWAYS lands on priming
+record 0 — that is where the rewind put the cursor."* **A cursor left mid-schedule by a mask has a
+different provenance and sits outside that argument**, which is stated as exhaustive. One frame of a
+band at the wrong height, self-healing. Low, and recorded only because the interlock's coverage
+claim is absolute.
+
+### C3a's eleven clean re-derivations — the negative results, each with its derivation
+
+**The two-word command latch is never split by an interrupt** anywhere in the corpus: every command
+pair is a single `move.l`, and the one hand-split pair (`dma_send_entry`) is the deliberate
+ultra-dma-queue idiom pinned by `ensure(sizeof(DMAEntry) == 14)`. **Every mainline VDP writer is
+masked or pre-display** — full census given, six routines, five covered and the sixth is V2 with no
+callers. **`Raster_HInt` never leaves the latch half-written**, and `a2` is proven to hold VDP_CTRL
+at every re-entry because the two ops that repurpose it both `lea` it back first. **The HV-counter
+read is side-effect-free** (`$C00008`, not the status register; reg $00 bit 1 = 0 confirms it is
+readable). **The reg `$0F` excursion census is complete** — four writers, each masked or safe by
+context, all restoring `$8F02`, and `VInt_DrawLevel` restores on *both* exits including the empty
+path. **Boot ordering is correct**, including the detail that `HBlank_Vector_Slot` is seeded before
+the unmask because a RAM-cleared `$0000` is not a legal instruction. **Boot's `a5` re-anchor after
+the Z80 blob** genuinely closes the failure it documents. **All five plane-buffer overflow guards**
+reserve exactly the terminator word, entry sizes matching the bodies. **Producer/drain tear is closed
+by `VBlank_Ready`, not by luck** — and the one thing that runs after Ready=1 appends nothing.
+**`Vscroll_Write`'s mid-sequence `jbsr` is safe** (the callee is two `move.l` and an `rts`) **but
+fragile-by-shape** — a future VDP touch in that selector would silently redirect a 20-longword
+burst. **`Drain_Budgeted_Queue`'s flip-flop precondition holds** because `reg_set` bounds authored
+words to `$8000..$97FF`, so `.ship_reg` cannot strand it.
+
