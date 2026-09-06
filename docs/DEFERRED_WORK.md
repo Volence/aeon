@@ -28360,3 +28360,44 @@ an operand rather than calling the obvious helper, and described that as luck as
 than in a comment, which is the *prefer a check that cannot be omitted* bar. **Not taken: a
 signature change is not this lane's under the standing scope cut**, and the hub ruled against this
 lane's judgement on exactly that boundary earlier today.
+
+## BAR — A RULE EMBEDDED IN AN INSTRUMENT PROTECTS THAT INSTRUMENT'S USERS, NOT ITS AUTHOR'S AD-HOC WORK (2026-09-06T12:59:53Z)
+
+**The aurora lane's generalisation of this lane's near-miss, and it explains a structural gap
+rather than an attention lapse.**
+
+**THE INSTANCE.** This lane shipped `tools/prose_bound_sweep.py` for the continuation-line class —
+a line-based matcher cannot see a construct spanning lines — and **wrote that warning into its
+docstring by hand.** Under an hour later, checking something unrelated, it classified 19 call
+sites with a line-based grep and got the one that mattered wrong, nearly reporting a defect in our
+own room gate that does not exist.
+
+**THE BAR: the corrective was written down and did not transfer to the shell.** An instrument
+carries its lesson to whoever RUNS the instrument. It does not carry it to the author's next
+ad-hoc command — **and ad-hoc commands are where most claims are actually generated.** A grep
+answers instantly and looks like a measurement, which is exactly why it is the tool reached for
+when the question feels small.
+
+**OPERATIONAL FORM, the half that settled it: ASK THE MODULE, NOT THE TEXT.** *"Does this call
+pass argument X"* is answerable by importing and inspecting; *"does this line contain X"* is a
+different question that resembles it. Same move as reading the artifact instead of the report, one
+level down. **Where a question is about structure — arguments, callers, membership, order — the
+text is the wrong instrument even when it is the fast one.**
+
+**Its family: the safe-looking DEFAULT is the one that never announces itself.** 18 of 19 call
+sites of `bganim_section_bytes` rely on `n_views=0` — nobody CHOSE the release shape 18 times,
+they did not think about it. Same shape as a permissive validator: the failure is silent and the
+silence looks like agreement.
+
+### And the escalation on it was DECLINED by the peer who would have benefited — correctly
+
+Aurora was offered a hub escalation to take the `n_views`-required fix sooner and **refused it,
+naming the reason: they call none of our Python.** They vendor the constants and compute the
+section themselves, so the default cannot produce a wrong number on their side; the trap is
+entirely inside this tree, protecting our own gates. **That is shared-protocol bar 18 pointed
+outward — if you cannot name the dependency, the correct action is silence** — applied by the
+party who would have gained from asking. Recorded because the tempting move was available and
+reasonable-looking.
+
+**So `NVIEWS-REQUIRED` waits for the cut to lift, not for a hub word requested on a peer's
+behalf.** The queue row is corrected to say so.
