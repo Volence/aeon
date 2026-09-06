@@ -111,6 +111,18 @@ at boot **in every shape, release included** (`games/sonic4/config/ram.emp:357` 
 words), with no runtime flag, no engine gate and no cost. **An author flipping this in an editor
 is changing shipped behaviour while believing they are changing what they see.**
 
+**AND THE TWINS CANNOT SUBSTITUTE FOR IT — a correction to a reading that nearly reached the owner
+(2026-09-06).** The ask had three parts and each mechanism serves a different one: `default_off`
+is the *"get rid of them"* half, the H and V twins are the *"one view for horizontal and one for
+vertical"* half, and the T twin is *"perspective related instead of just timer"*. **The twins
+cannot cover the first, as a matter of EMISSION rather than of policy:** every twin is
+`if DEBUG == 1 { … } else { [] }` (`games/sonic4/data/generated/ojz/act1/bg_anim.emp:19-23`) and
+`BgAnim_SetTable` is DEBUG-only, so the plain shape has no selector and permanently walks
+`BgAnim_Table`. In the shipped ROM there is no twin and exactly one table. **`default_off` is
+currently the only mechanism that stops these tiles animating in the game as played.** Read the
+other way — *"the twins already do that, so drop `default_off`"* — the conclusion puts the
+distracting tiles back in the release ROM, which is the reverse of the request that created it.
+
 What it buys in exchange, and why it is not simply a delete: the emitter writes three DEBUG-only
 view twins over the same bank blob — `BgAnim_View_H` (the authored band, driven off `Camera_X`),
 `BgAnim_View_V` (re-driven off `Camera_Y`), and `BgAnim_View_T` (off `Logic_Tick`) — so
