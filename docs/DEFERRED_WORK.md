@@ -26539,39 +26539,69 @@ reading would protect exactly the trees that need no protection.
 anywhere near its worktree, so a zero there is an absence with no control behind it - the same
 shape as every null instrument booked tonight.
 
-## Spring parcel (2026-09-05) — three items the spring surfaced and did not close
+## Spring parcel (2026-09-05) — three items the spring surfaced (SP-1 since CLOSED)
 
 The vertical red spring landed on branch `spring-object`
 (engine/objects/collision.emp `Touch_Spring` + the shared `solid_face_response`
 template, `Game.spring_launched`, and the object in
 games/sonic4/objects/test_solid.emp). Verified by `tools/spring_launch_witness.py`.
-Three things it could not close, each with the number that decides it.
+Three things it could not close, each with the number that decides it. SP-1 was
+closed on 2026-09-05 by the parcel below it; SP-2 and SP-3 are still open.
 
-### SP-1 — side solidity does not kill the player's ground speed (ENGINE/GAME SEAM)
+### SP-1 — side solidity does not kill the player's ground speed — CLOSED 2026-09-05
 
-**This is the finding, not the spring.** `Touch_Solid`'s side arm — and therefore the
-spring's, since they are the same spliced template — pushes the player out and does
-`clr.w x_vel(a2)`. But a GROUNDED player is not driven by `x_vel`; he is driven by
-`PlayerV.ground_speed`, which the ground state re-derives `x_vel` from every tick. So
-the push holds his POSITION and nothing touches his inertia.
+**CLOSED** on branch `sp1-side-solid-ground-speed`. The fix is a second contract
+member, `Game.solid_pushed` (engine/system/game_contract.emp), invoked from
+`solid_face_response`'s side arm after the push and the `clr.w x_vel`, with a2 =
+the player SST; sonic4 binds it to `Solid_Pushed`
+(games/sonic4/player/player_common.emp), which is one
+`clr.w PlayerV.ground_speed(a2)`. Fixed ONCE in the shared template, so every
+solid in the game gets it and not just the spring.
 
-**Measured** (`tools/spring_launch_witness.py`, s4.debug.bin): holding RIGHT into a
-spring, the player rests **10px** from its centre against a **17px** contact face —
-6px inside it — because he re-rams at top speed every frame and is pushed back out
-every frame, a stable fixed point. Release the button and friction takes **140
-frames** to reach zero, after which he settles at exactly **16px**, the face less the
-1px overlap `subq.w #1, d0` leaves on purpose. He is genuinely solid (he never
-crosses the centre; the red-first mutation that deletes the push has him walk clean
-through), but he overlaps the object by up to one top-speed step while pushing, and
-he would resume full speed the instant the object were removed.
+**The gate that came with it, and it is the part worth remembering.** The kill
+fires only when the player is travelling INTO the face (`tst.w x_vel` against the
+push direction — S3K's own structure at sonic3k.asm:1E042-1E056). Not an
+optimisation: the push leaves 1px of overlap ON PURPOSE so the next frame's AABB
+still fires, so a player standing beside a solid re-enters the arm every frame,
+and an ungated kill would have welded him to every solid in the game. The obvious
+test cannot see that — a permanently stopped player rests exactly where he should
+and settles in zero frames — so `tools/spring_launch_witness.py` gained an escape
+leg (L3) that holds the opposite direction and requires him to leave.
 
-S3K's `SolidObject` zeroes inertia at this point. **This engine cannot**, for the same
-reason the launch leaves through a hook: `ground_speed` is a game-side overlay field
-in `PlayerV` and `engine/objects/collision.emp` may not name it. The fix is a second
-contract member in the shape of `spring_launched` — a `Game.solid_pushed` hook, or a
-generalisation of the existing one — and it wants the owner's call on whether one
-hook covers both or the solid family gets its own. NOT a spring bug; every solid in
-the game has it, and nothing had ever driven a side contact before this witness.
+**Measured, before and after, on two solids** (the spring and a plain
+COLLISION_SOLID block, which is what proves the fix landed in the template rather
+than in one consumer — the ROM holds two spliced copies of the arm). Both solids
+returned identical numbers in both regimes:
+
+| | before | after |
+|---|---|---|
+| steady-state depth while holding into a 16px face | 10px (6px inside) | 15px (the 1px subpixel sawtooth) |
+| steady-state ground speed while pushing | 1536 = 100% of PHYS_TOP_SPEED | 12 = exactly PHYS_ACCEL |
+| frames of friction after release | 140 | 11 (the witness's own 10 confirmation samples + 1) |
+| spring launch at the hook | -4096 | -4096 (unchanged) |
+
+The residual 1px is not the defect and is not fixable at this layer: the push
+writes the INTEGER part of x_pos (`add.w d0, x_pos`) and leaves the 16.16
+subpixel, so a killed player still gains PHYS_ACCEL per tick and creeps a pixel
+between pushes. Likewise the entry frame is always one uncorrected step deep at
+full approach speed, because TouchResponse runs before the player's own tick —
+true of any once-per-frame collision test, S3K included.
+
+**TWO RIDERS LEFT OPEN, neither blocking:**
+
+* **The push POSE.** S3K sets Status_Push on this path (:1E06E) and this engine
+  does not. It cannot be done by adding a `bset` here: player_ground.emp's
+  `.wall_probe` CLEARS ST_PUSHING whenever the capped ground speed is zero
+  (`tst.w d4 / beq .clear_push`), which is precisely the state the kill creates,
+  so the bit would be dropped again within the same tick. Wants the probe's clear
+  condition rethought — the terrain path and the object path need to agree on who
+  owns the bit — and it is a visible-animation change, so it wants the owner's eye
+  rather than a mechanical edit.
+* **The subpixel.** The 1px sawtooth above could be removed by having the push
+  clear the x_pos low word, which is engine-owned and legal. Not done here: it
+  changes the resting position of every solid contact in the game for a 1px
+  cosmetic, and it belongs with a deliberate look pass rather than riding a
+  correctness fix.
 
 ### SP-2 — the spring has no sound, and adding sfx $B1 is a paired lane
 

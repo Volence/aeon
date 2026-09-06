@@ -111,4 +111,43 @@ pub interface Game {
     // dispatches. Cheap, and worth saying out loud rather than leaving a reader
     // to infer zero from the hook's zero.
     hook spring_launched (a2: *u8, a3: *u8) clobbers(d0-d2/a0-a2) = empty
+
+    // solid_pushed: solid_face_response's SIDE arm (engine/objects/collision.emp)
+    // invokes this after it has pushed the player out of a solid's left or right
+    // face and cleared his x_vel, with a2 = the player SST. It fires ONLY when
+    // the player was travelling into the face (the direction gate documented on
+    // the template); a player merely standing beside a solid does not reach it,
+    // and that distinction is the whole reason this can safely zero a speed.
+    //
+    // WHAT THE ENGINE CANNOT DO ITSELF, which is the whole reason this member
+    // exists, and it is the SAME wall spring_launched leaves through: x_vel is
+    // the AIRBORNE driver, but a grounded player is driven by the game's inertia
+    // field (sonic4: PlayerV.ground_speed), which his ground state re-derives
+    // x_vel from every tick. That field lives in the game's PlayerV overlay of
+    // the SST custom window; the engine may not name it, and reaching around the
+    // seam by poking a game-owned offset is exactly what the seam exists to
+    // prevent. So the engine does the half it owns and hands over the half it
+    // does not. A game that leaves this `= empty` gets S3K-correct position and
+    // airborne behaviour but keeps its running speed through a side contact
+    // (measured before this member existed: rest 10px inside a 17px face while
+    // pushing, and 140 frames of friction to settle after release —
+    // docs/DEFERRED_WORK.md SP-1).
+    //
+    // NOT FOLDED INTO spring_launched, and the two are not variants of one hook:
+    // that one means "a falling player hit a TOP face and is being thrown", is
+    // invoked from one consumer, and its binding runs a state transition; this
+    // one means "a moving player hit a SIDE face and is being stopped", is
+    // invoked from both consumers' spliced copies of the same template, and its
+    // binding is a single store. Sharing a member would force every binding to
+    // re-derive which face it was called for from the geometry — which is the
+    // per-orientation re-derivation the shared template exists not to reproduce.
+    //
+    // clobbers() — EMPTY, and that is the honest bound rather than a generous
+    // one: sonic4's Solid_Pushed is `clr.w PlayerV.ground_speed(a2)` + `rts` and
+    // touches no register at all. It is stated tight on purpose, because the
+    // call sits inside a comptime template spliced into Touch_Solid and
+    // Touch_Spring and a wider bound would widen BOTH consumers' declared sets.
+    // A future binding that needs registers moves this line and both headers
+    // with it.
+    hook solid_pushed (a2: *u8) clobbers() = empty
 }

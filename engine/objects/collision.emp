@@ -244,13 +244,27 @@ proc Touch_Hurt (d0: u16, d1: i16, d2: u16, d3: i16, a2: *Sst, a3: *Sst) clobber
 // sonic3k.asm:47668 vs Obj_Spring_Horizontal's status/x_pos compare at
 // :47786-47794), which is the duplication this exists not to reproduce.
 //
+// THE DIRECTION GATE on the side arm is LOAD-BEARING, not a refinement, and the
+// failure it prevents is total. The push deliberately leaves 1px of overlap so
+// the next frame's AABB still fires, which means a player standing beside a
+// solid re-enters this arm EVERY frame for as long as he stands there. An
+// UNCONDITIONAL speed kill would therefore zero his speed every frame while he
+// is merely adjacent — he could never walk away from any solid in the game, and
+// the obvious test (walk into it, let go, measure where he rests) would not see
+// it, because a player who is already stopped rests in exactly the right place.
+// So the kill fires only when he is travelling INTO the face, which is S3K's own
+// structure (sonic3k.asm:1E042-1E056 tests the sign of x_vel against the push
+// direction before zeroing anything) and what the witness's escape leg checks.
+//
 // In:  a2 = player SST, a3 = target SST
 //      d0.w = combined_w, d1.w = signed delta_x
 //      d2.w = combined_h, d3.w = signed delta_y
 // At {top}: d2.w = pen_y and d3.w = |delta_y|, a2/a3 untouched — `add.w d3, d2`
 //      recovers combined_half_h, which is what a top-edge snap needs. Both
 //      consumers do exactly that as their first instruction.
-// Clobbers: d0-d5
+// Clobbers: d0-d5, plus whatever Game.solid_pushed declares (sonic4's binding
+//      declares clobbers() — it is one `clr.w` — so the consumers' own
+//      clobber sets are unchanged by the hook)
 //
 // Template labels are hygienic, so each instantiation gets its own .sfr_*.
 // -----------------------------------------------
@@ -301,18 +315,46 @@ comptime fn solid_face_response(top: Label) -> Code {
         jbra    {top}
 
     .sfr_side:
-        // Push player horizontally — subtract 1 from pen to maintain contact
+        // Push player horizontally — subtract 1 from pen to maintain contact.
+        // The push is UNCONDITIONAL (S3K's is too, sonic3k.asm:1E06E): position
+        // is corrected whichever way the player is travelling.
         subq.w  #1, d0
         tst.w   d4
         bmi     .sfr_push_left
 
-        add.w   d0, x_pos(a2)           // push right
-        clr.w   x_vel(a2)
+        add.w   d0, x_pos(a2)           // push right (player is to the RIGHT)
+        // Moving INTO the face is x_vel < 0 here. Anything else — moving away,
+        // or a dead stop — returns without touching either velocity. See "THE
+        // DIRECTION GATE" in the header; this is not an optimisation.
+        tst.w   x_vel(a2)
+        bmi     .sfr_stop
         rts
 
     .sfr_push_left:
-        sub.w   d0, x_pos(a2)           // push left
+        sub.w   d0, x_pos(a2)           // push left (player is to the LEFT)
+        tst.w   x_vel(a2)               // into the face is x_vel > 0 here
+        ble     .sfr_done               // moving away, or a dead stop
+
+    .sfr_stop:
+        // KILL THE PLAYER'S SPEED, BOTH HALVES OF IT.
+        //
+        // x_vel is the airborne driver and the engine owns it. The GROUNDED
+        // driver is the game's inertia (sonic4: PlayerV.ground_speed), which the
+        // ground state re-derives x_vel from every tick — so clearing x_vel
+        // alone holds the player's POSITION and never touches his speed. That
+        // was measured (DEFERRED_WORK SP-1): holding a direction into a 16px
+        // solid he rested 10px from its centre against a 17px contact face, a
+        // full top-speed step INSIDE it, re-rammed and re-pushed every frame;
+        // release the button and friction took 140 frames to settle him at the
+        // real face. S3K zeroes both at the same instruction pair
+        // (sonic3k.asm:1E056 `move.w #0,ground_vel` + `move.w #0,x_vel`).
+        //
+        // The engine cannot name the game's inertia field — that is the same
+        // wall that sends the spring's launch out through Game.spring_launched —
+        // so the second half leaves through Game.solid_pushed, which costs zero
+        // bytes for a game that binds nothing (demo).
         clr.w   x_vel(a2)
+        invoke  Game.solid_pushed
 
     .sfr_done:
         rts

@@ -1779,6 +1779,41 @@ pub offsets Player_States {
 ensure(Player_States.count == PSTATE_COUNT, "Player_States table out of sync with PSTATE_*")
 
 // -----------------------------------------------
+// Solid_Pushed — bound to Game.solid_pushed (config/game.emp).
+//
+// solid_face_response's side arm has already pushed the player out of a solid's
+// left or right face and cleared his x_vel, and it only calls here when he was
+// travelling INTO that face. What is left is the half the engine cannot reach:
+// the grounded driver. x_vel is not it — Ground_Move_Cap re-derives x_vel from
+// PlayerV.ground_speed every tick, so clearing x_vel alone left the player
+// re-ramming the object at full running speed forever (DEFERRED_WORK SP-1, and
+// S3K zeroes ground_vel and x_vel together at sonic3k.asm:1E056).
+//
+// WHY THIS LIVES IN player_common AND NOT WITH AN OBJECT. The other two bindings
+// sit with their subject (ring_collected with the sparkle, spring_launched with
+// the spring) and this one obeys the same rule: its subject is the PLAYER's
+// inertia, not any object. Every solid in the game routes through it.
+//
+// THE PUSH POSE IS NOT SET HERE, and that is a decision rather than an omission.
+// S3K also sets Status_Push on this path (:1E06E), but this engine's ground wall
+// probe CLEARS ST_PUSHING whenever the capped ground speed is zero
+// (player_ground.emp `.wall_probe`'s `tst.w d4 / beq .clear_push`) — which is
+// precisely the state this routine has just created. Setting the bit here would
+// have it cleared again within the same tick, so an object push-pose needs the
+// probe's clear condition rethought first; booked as a rider on SP-1 in
+// docs/DEFERRED_WORK.md rather than half-wired here.
+//
+// In:  a2 = player SST
+// Out: none
+// Clobbers: nothing — one store. The hook's declared bound is clobbers(), which
+//   is what keeps Touch_Solid's and Touch_Spring's own declared sets unchanged.
+// -----------------------------------------------
+pub proc Solid_Pushed (a2: *Sst) clobbers() {
+        clr.w   PlayerV.ground_speed(a2)
+        rts
+}
+
+// -----------------------------------------------
 // Player_SetState — THE one transition writer for player_state.
 // Old state's exit hook → write state byte → new state's enter hook.
 // In:  a0 = player SST, d0.w = new PSTATE_* (byte offset, word-clean)
