@@ -26,6 +26,48 @@ WHAT LIMITS THE SECTION — AND WHAT NO LONGER DOES
   whatever Sonic's art left (~3.9 KB in the debug shape at d-28); since the re-layout
   the Z80 banks sit AFTER the data region and the anchor is DERIVED — see the rule.
 
+  THAT `Art_Sonic` IS LAST IS NOW CHECKED, AND USED NOT TO BE (2026-09-06, from the
+  sigil lane's e5b47915 item B7). This paragraph used to assert "the last packed data
+  blob" as a plain fact while the code's only guard was that the LABEL EXISTS. It was
+  true at the time and nothing held it true: anything landing between
+  `LMA(Art_Sonic) + blob` and the anchor makes the terminus too LOW, so `room` comes
+  out LARGER than the space that exists and BOTH consumers — the build-fatal reserve
+  gate and the ceiling gate — stay green through a real breach. `check_terminus()`
+  now asserts it from the two occupancy instruments this header already named as the
+  only ones that can answer occupancy: no label LMA in [packed_end, anchor), and (with
+  `--rom`, which build.sh's gate always passes) every byte of that region zero in the
+  ROM image — the half that can see UNLABELLED content the listing cannot. A broken
+  terminus is Unmeasurable, not a `--gate` verdict: it does not mean a budget was
+  breached, it means the room number is WRONG, so no figure is reported at all.
+  Measured at introduction on both canonical shapes: zero labels and zero non-zero
+  bytes in the region (s4 115,724 B, s4.debug 113,122 B) — the assumption held, and
+  now it is held.
+
+  AND SO IS THE LENGTH TERM (2026-09-06, sigil's F2 — the other half of the same
+  line). `end = LMA(Art_Sonic) + blob_len` can be wrong in TWO independent ways, and
+  they CANCEL: a label that moved down by K with a blob that grew by K leaves `end`,
+  `room` and both gates' verdicts bit-for-bit unchanged. So the terminus check above
+  does NOT imply this one and neither may be inferred from the other. `check_extent()`
+  asserts the length term from the source and the image: `Art_Sonic` is the LAST
+  emitting `data` in its module, it binds its embed WHOLE, its section has no second
+  module, and (with `--rom`) the `blob_len` bytes at its LMA in the ROM are
+  byte-identical to the embedded file. The last of those is what turns `+ blob_len`
+  from a restatement of `os.path.getsize` into a measurement of the ROM.
+  ⚠ The case that motivates the SOURCE half specifically: trailing content that is
+  unlabelled AND zero-filled is byte-identical to free space, so NEITHER occupancy
+  instrument can see it. map.toml concedes this in its own words — "a section with
+  several embeds has no such instrument" — and records that the character-data
+  sections were ordered before `collision_data` so the assumption would hold.
+  Arranged-so-it-holds is not checked; this is the check.
+
+  THE TWO BANK ANCHORS ARE COMPARED (2026-09-06, sigil's F6). `SOUND_BANK_OFFSET`
+  encodes `sound_bank == dac_banks + 0x10000` and used to appear only in its own
+  definition and inside the remedy f-string below — never compared against the map,
+  so the two `[[anchor]]` addresses could drift apart with nothing noticing and the
+  gate's own remedy line would then name a `sound_bank` the map disagrees with.
+  `report()` now reads both anchors with the same parser and fails the pair by name.
+  Measured at introduction: 0xA8000 + 0x10000 == 0xB8000, as declared.
+
   BANK PLACEMENT RULE (games/sonic4/map.toml, enforced here since 2026-08-26;
   the GRACE term added 2026-09-04) —
       dac_banks = align_up(packed_end + DATA_GROWTH_RESERVE + DATA_GROWTH_GRACE, 0x8000)
@@ -115,6 +157,7 @@ WHO RUNS THE GATE, AND ON WHICH LISTING (2026-08-26)
 USAGE
     python3 tools/bganim_room.py --lst s4.debug.lst            # report
     python3 tools/bganim_room.py --lst s4.debug.lst --gate     # report + fail on breach
+    ... --rom s4.debug.bin                                      # + terminus image scan
     ... --rom s4.debug.bin --built-after 1756236899             # + provenance
     ... --fixture tools/fixtures/bganim_room_excerpt.lst        # + fixture freshness
 
@@ -140,12 +183,26 @@ _TOML_AT = re.compile(r"^\s*at\s*=\s*(0x[0-9A-Fa-f]+|\d+)")
 #: Single authority: games/sonic4/data/collision/collision_data.emp's
 #: `const _art_sonic = embed(...)`, parsed rather than restated so a re-export
 #: to a different path cannot leave this reading a stale file.
-_ART_SONIC_EMBED = re.compile(r'const\s+_art_sonic\s*=\s*embed\(\s*"([^"]*)"')
+_ART_SONIC_EMBED = re.compile(
+    r'const\s+(?P<const>_art_sonic)\s*=\s*embed\(\s*"(?P<path>[^"]*)"')
 COLLISION_DATA_EMP = "games/sonic4/data/collision/collision_data.emp"
 
 #: The label that ends the packed run, and the bank anchor it runs into.
 LAST_PACKED_LABEL = "Art_Sonic"
 ANCHOR_NAME = "dac_banks"
+
+#: The second anchor the bank placement rule fixes relative to the first. Checked
+#: against `ANCHOR_NAME + SOUND_BANK_OFFSET` so the relation the constant encodes is
+#: compared with the map instead of only being printed in a remedy line.
+SOUND_ANCHOR_NAME = "sound_bank"
+
+#: The module head (`module <path> in <section>`) and the emitting `data` definitions
+#: of a `.emp`. Used by `check_extent` to establish that `Art_Sonic` is the LAST thing
+#: its section emits and that it binds its embed WHOLE.
+_EMP_MODULE = re.compile(r"^\s*module\s+([\w.]+)\s+in\s+([\w.]+)", re.M)
+_EMP_DATA_DEF = re.compile(
+    r"^[ \t]*(?:pub[ \t]+)?data[ \t]+([A-Za-z_$][\w$.]*)[ \t]*=[ \t]*(.+?)[ \t]*(?://.*)?$",
+    re.M)
 
 #: The BANK PLACEMENT RULE's terms (games/sonic4/map.toml, "BANK PLACEMENT RULE").
 #:
@@ -228,8 +285,9 @@ def anchor_addr(map_toml, name=ANCHOR_NAME):
         f"it there is no room figure to report.")
 
 
-def art_sonic_bytes(aeon=AEON):
+def art_sonic_bytes(aeon=None):
     """Size of the blob `Art_Sonic` embeds, resolved through the .emp that embeds it."""
+    aeon = AEON if aeon is None else aeon
     src = os.path.join(aeon, COLLISION_DATA_EMP)
     if not os.path.exists(src):
         raise Unmeasurable(f"no {COLLISION_DATA_EMP} — cannot resolve Art_Sonic's blob path")
@@ -240,13 +298,285 @@ def art_sonic_bytes(aeon=AEON):
             f"{COLLISION_DATA_EMP} no longer spells `const _art_sonic = embed(\"...\")`. "
             f"Art_Sonic's length is derived from that embed; re-point this parser at "
             f"whatever now defines it rather than hardcoding a size.")
-    blob = os.path.join(aeon, m.group(1))
+    blob = os.path.join(aeon, m.group("path"))
     if not os.path.exists(blob):
-        raise Unmeasurable(f"Art_Sonic embeds {m.group(1)}, which does not exist")
-    return blob, os.path.getsize(blob)
+        raise Unmeasurable(f"Art_Sonic embeds {m.group('path')}, which does not exist")
+    return blob, os.path.getsize(blob), m.group("const")
 
 
-def rom_room(lst_path, aeon=AEON, map_toml=None):
+def emp_modules(aeon):
+    """(section -> [.emp paths]) over the game and engine trees. Only `engine/` and
+    `games/` are walked: those are the two trees whose modules a game's map places."""
+    out = {}
+    for root_name in ("engine", "games"):
+        root = os.path.join(aeon, root_name)
+        if not os.path.isdir(root):
+            continue
+        for dirpath, dirnames, filenames in os.walk(root):
+            dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+            for fn in filenames:
+                if not fn.endswith(".emp"):
+                    continue
+                p = os.path.join(dirpath, fn)
+                with open(p, encoding="utf-8", errors="replace") as f:
+                    m = _EMP_MODULE.search(f.read())
+                if m:
+                    out.setdefault(m.group(2), []).append(p)
+    return out
+
+
+def check_extent(aeon, lma, blob, blob_len, const_name, rom_path=None):
+    """ASSERT the OTHER half of `packed_end = LMA(Art_Sonic) + blob_len` (sigil's F2).
+
+    F1 (`check_terminus`) asks whether anything lives ABOVE the terminus. F2 asks
+    whether the terminus is where the arithmetic says at all: `+ blob_len` assumes
+    `Art_Sonic`'s ROM extent is EXACTLY the embedded file — one embed, bound whole,
+    with nothing emitted after it inside its section. It fails in the same direction
+    as F1: it UNDERSTATES `packed_end`, which OVERSTATES room, which makes the
+    build-fatal reserve gate and the ceiling gate green over a breach.
+
+    ⚠ `check_terminus` DOES NOT ALREADY CLOSE THIS, and the reason is worth stating
+    because a check that cannot fail is what this parcel exists to delete. Trailing
+    content after the embed comes in three kinds:
+      · LABELLED  — a `pub data` after `Art_Sonic` gets a label, which lands in
+        [packed_end, anchor) and the SYMBOL half catches it. Already closed.
+      · UNLABELLED and NON-ZERO — no label, real bytes; the IMAGE half catches it.
+        Already closed.
+      · UNLABELLED and ZERO — alignment padding, a zero-filled reservation, an
+        embed of zeros. It is byte-identical to free space, so NEITHER instrument
+        can see it, and it is precisely what map.toml concedes when it says "a
+        section with several embeds has no such instrument". Only the SOURCE can
+        testify, which is what this function reads.
+
+    map.toml's own note records that the tree is ARRANGED so the assumption holds
+    (the character-data sections were ordered BEFORE `collision_data` for exactly
+    this reason). Arranged-so-it-holds is not checked, and this is the check.
+
+    Three assertions, each able to fail on its own:
+      (a) SOURCE SHAPE — in the module that defines it, `Art_Sonic` must be the LAST
+          emitting `data` definition, and its right-hand side must be exactly the
+          const bound by the single `embed(...)`: bound WHOLE, not concatenated,
+          padded or sliced.
+      (b) SECTION EXCLUSIVITY — that module must be the only one placed in its
+          section, or a sibling module could emit after it with no label.
+      (c) IMAGE IDENTITY (with `--rom`) — the `blob_len` bytes at `LMA(Art_Sonic)`
+          in the ROM must equal the embedded file byte-for-byte. This is what makes
+          `+ blob_len` a measurement instead of a restatement: it proves the label
+          points AT that blob, at that address, for that length.
+    """
+    src = os.path.join(aeon, COLLISION_DATA_EMP)
+    with open(src, encoding="utf-8") as f:
+        text = f.read()
+
+    # (a) source shape
+    defs = _EMP_DATA_DEF.findall(text)
+    if not defs:
+        raise Unmeasurable(
+            f"extent: {COLLISION_DATA_EMP} has no `data <Name> = ...` definitions under "
+            f"{_EMP_DATA_DEF.pattern!r} — the parser can no longer see what the section "
+            f"emits, so it cannot establish that {LAST_PACKED_LABEL} is last. Fix the "
+            f"parser; do not report a room figure.")
+    names = [n for n, _ in defs]
+    last_name, last_rhs = defs[-1]
+    if last_name != LAST_PACKED_LABEL:
+        trailing = (names[names.index(LAST_PACKED_LABEL) + 1:]
+                    if LAST_PACKED_LABEL in names else names)
+        raise Unmeasurable(
+            f"extent: {LAST_PACKED_LABEL} is NOT the last thing {COLLISION_DATA_EMP} "
+            f"emits — {last_name!r} is. The section emits {names!r} in that order, so "
+            f"{len(trailing)} definition(s) land AFTER the terminus: {trailing!r}. "
+            f"`packed_end = LMA({LAST_PACKED_LABEL}) + {blob_len}` therefore stops SHORT "
+            f"of the section's real end, the room figure is too LARGE by whatever those "
+            f"emit, and both gates pass over the difference. Either move "
+            f"{LAST_PACKED_LABEL} back to the tail (map.toml orders the sections so that "
+            f"it IS the packed-data end) or re-point LAST_PACKED_LABEL at whatever now "
+            f"ends the run. Do NOT widen this.")
+    if last_rhs != const_name:
+        raise Unmeasurable(
+            f"extent: `data {LAST_PACKED_LABEL} = {last_rhs}` no longer binds the embed "
+            f"WHOLE — it was expected to be exactly {const_name!r}, the const bound by "
+            f"the single `embed(...)` in {COLLISION_DATA_EMP}. Anything else (a "
+            f"concatenation, a pad, a slice) means the label's ROM extent is not "
+            f"{blob_len} B, so `packed_end` is wrong in an unknown direction and no room "
+            f"figure is reported.")
+
+    # (b) section exclusivity
+    mm = _EMP_MODULE.search(text)
+    if not mm:
+        raise Unmeasurable(
+            f"extent: {COLLISION_DATA_EMP} has no `module <path> in <section>` head, so "
+            f"the section {LAST_PACKED_LABEL} lands in cannot be named, and whether any "
+            f"OTHER module emits into it cannot be answered.")
+    section = mm.group(2)
+    siblings = sorted(p for p in emp_modules(aeon).get(section, [])
+                      if os.path.abspath(p) != os.path.abspath(src))
+    if siblings:
+        rel = [os.path.relpath(p, aeon) for p in siblings]
+        raise Unmeasurable(
+            f"extent: section {section!r} is no longer emitted by "
+            f"{COLLISION_DATA_EMP} alone — {len(rel)} other module(s) are placed in it: "
+            f"{rel}. Whatever they emit may land AFTER {LAST_PACKED_LABEL}, and if it "
+            f"carries no label and is zero-filled NEITHER occupancy instrument can see "
+            f"it, so `packed_end` would understate the section's end and the room figure "
+            f"would be too large. Re-derive the terminus across every module in the "
+            f"section, or move the newcomer to a section of its own.")
+
+    # (c) image identity
+    identical = None
+    if rom_path:
+        if not os.path.exists(rom_path):
+            raise Unmeasurable(
+                f"extent: no ROM image at {rom_path}, so `+ {blob_len}` cannot be "
+                f"checked against the bytes at {LAST_PACKED_LABEL}. Not a room figure.")
+        size = os.path.getsize(rom_path)
+        if size < lma + blob_len:
+            raise Unmeasurable(
+                f"extent: {rom_path} is {size} B and cannot hold {LAST_PACKED_LABEL}'s "
+                f"{blob_len} B at 0x{lma:X} — the image and the listing describe "
+                f"different artifacts, so `+ {blob_len}` cannot be verified.")
+        with open(rom_path, "rb") as f:
+            f.seek(lma)
+            in_rom = f.read(blob_len)
+        with open(blob, "rb") as f:
+            on_disk = f.read()
+        if in_rom != on_disk:
+            first = next(i for i, (a, b) in enumerate(zip(in_rom, on_disk)) if a != b) \
+                if any(a != b for a, b in zip(in_rom, on_disk)) else min(len(in_rom),
+                                                                        len(on_disk))
+            raise Unmeasurable(
+                f"extent: the {blob_len} B at {LAST_PACKED_LABEL} (0x{lma:X}) in "
+                f"{rom_path} are NOT {os.path.relpath(blob, aeon)} — they first differ "
+                f"{first} B in, at 0x{lma + first:X}. `packed_end = 0x{lma:X} + "
+                f"{blob_len}` assumes that label names exactly that file's bytes; it "
+                f"does not, so the length term is not measured and no room figure is "
+                f"reported. Either the label moved, the listing is not this ROM's, or "
+                f"the section emits something else at that address.")
+        identical = blob_len
+    return {"section": section, "emits": [n for n, _ in defs], "image_identical": identical}
+
+
+def labels_in(labels, lo, hi):
+    """Every label whose LMA lies in [lo, hi), lowest address first, as (LMA, name)."""
+    return sorted((a, n) for n, a in labels.items() if lo <= a < hi)
+
+
+def image_occupancy(rom_path, lo, hi):
+    """What the ROM IMAGE holds over [lo, hi): the second occupancy instrument.
+
+    Returns `(examined, nonzero, first_nonzero, beyond_eof)` — bytes actually read,
+    how many of them are non-zero, the LMA of the first such byte (or None), and how
+    many of the requested bytes lie past the end of the image (bytes that do not
+    exist cannot be occupied, but the count is reported rather than absorbed).
+
+    A ROM that stops BELOW `lo` cannot answer the question at all and is Unmeasurable
+    — the region the caller is asking about is not in the file it was handed.
+    """
+    if not os.path.exists(rom_path):
+        raise Unmeasurable(f"terminus: no ROM image at {rom_path} to scan for occupancy")
+    size = os.path.getsize(rom_path)
+    if size < lo:
+        raise Unmeasurable(
+            f"terminus: {rom_path} is {size} B (0x{size:X}) and ends BELOW the packed "
+            f"terminus 0x{lo:X}, so the image cannot say what occupies the region under "
+            f"the anchor. Either this is not the ROM the listing describes, or the "
+            f"terminus derivation is wrong. Not a free-room answer.")
+    beyond_eof = max(0, hi - size)
+    with open(rom_path, "rb") as f:
+        f.seek(lo)
+        seg = f.read(max(0, min(hi, size) - lo))
+    nonzero = [i for i, b in enumerate(seg) if b]
+    return (len(seg), len(nonzero), (lo + nonzero[0]) if nonzero else None, beyond_eof)
+
+
+def check_terminus(lst_path, labels, packed_end, anchor, rom_path=None):
+    """ASSERT the precondition every room figure below rests on: `packed_end` really
+    IS the end of the data, i.e. NOTHING lives between it and the anchor.
+
+    WHY THIS IS A CHECK AND NOT A COMMENT (2026-09-06, sigil's e5b47915 item B7).
+    `packed_end = LMA(Art_Sonic) + blob` was an ASSUMPTION dressed as a fact: the
+    header called Art_Sonic "the last packed data before the anchor" and the only
+    guard was that the label EXISTS. Anything landing above it and below `dac_banks`
+    makes `packed_end` too LOW, so `room` comes out LARGER than the space that
+    exists, and both consumers — the reserve gate (build.sh, build-fatal) and the
+    ceiling gate — stay GREEN through a real breach. A green that certifies a false
+    condition is the worst direction for a gate to fail, and nothing about it looks
+    wrong from the outside.
+
+    THE TWO INSTRUMENTS, exactly the two the module header names as able to answer
+    occupancy (a gap in the frozen boundary table is an allotment, never free space):
+
+      SYMBOLS (always, the `.lst` is already required) — no label LMA in
+      [packed_end, anchor). A label AT `packed_end` counts: a zero-size end marker
+      and a real intruder are indistinguishable from the symbol alone, so both fail
+      here and the image scan below is what tells them apart.
+
+      THE IMAGE (whenever `--rom` is given, and build.sh's gate always gives it) —
+      every byte of [packed_end, anchor) in the ROM file must be zero. This is the
+      half that sees UNLABELLED data: a blob placed there with no exported symbol is
+      invisible to the listing and would otherwise be counted as free room.
+
+    Raises Unmeasurable naming the intruder and its address. It is Unmeasurable and
+    not a `--gate` verdict on purpose: a broken terminus does not mean the budget was
+    breached, it means the room NUMBER is wrong, so the tool must refuse to report
+    one rather than report one that is too large.
+    """
+    intruders = labels_in(labels, packed_end, anchor)
+    scan = image_occupancy(rom_path, packed_end, anchor) if rom_path else None
+
+    if intruders:
+        listed = "\n".join(f"      0x{a:X}  {n}" + (f"   (+{a - packed_end} B above the "
+                                                    f"terminus)" if a > packed_end else
+                                                    "   (AT the terminus)")
+                           for a, n in intruders[:12])
+        more = (f"\n      ... and {len(intruders) - 12} more" if len(intruders) > 12 else "")
+        if scan is not None:
+            _, nonzero, first, _ = scan
+            witness = (f"The ROM image AGREES: {nonzero} non-zero bytes in that region, the "
+                       f"first at 0x{first:X}. This is real content, not a marker."
+                       if nonzero else
+                       "The ROM image is all zeros over that region, so this may be a "
+                       "zero-size end marker rather than content — but the terminus is "
+                       "still not established: re-derive it from whatever the listing now "
+                       "says ends the packed run.")
+        else:
+            witness = ("No --rom was given, so the image half could not run and a zero-size "
+                       "marker cannot be told apart from content here. Re-run with --rom.")
+        raise Unmeasurable(
+            f"terminus: {LAST_PACKED_LABEL} is NOT the last packed data before "
+            f"`{ANCHOR_NAME}` in {lst_path}. The packed run was derived to end at "
+            f"0x{packed_end:X}, but {len(intruders)} label(s) lie between there and the "
+            f"anchor 0x{anchor:X}:\n{listed}{more}\n"
+            f"  {witness}\n"
+            f"  NO ROOM FIGURE IS REPORTED. Every number this tool prints — the reserve "
+            f"gate's and the ceiling gate's alike — is `anchor - packed_end`, so a "
+            f"terminus that is too low makes BOTH gates green over a region that is not "
+            f"free. Fix the derivation (point {LAST_PACKED_LABEL} at whatever now ends "
+            f"the run, or extend it past the new island); do NOT widen the assertion.")
+
+    if scan is not None:
+        _, nonzero, first, beyond = scan
+        if nonzero:
+            raise Unmeasurable(
+                f"terminus: the ROM image {rom_path} holds {nonzero} non-zero bytes "
+                f"between the packed terminus 0x{packed_end:X} and the `{ANCHOR_NAME}` "
+                f"anchor 0x{anchor:X} — the first at 0x{first:X} — and the listing "
+                f"exports NO label there. That is UNLABELLED content in the region both "
+                f"gates count as free: the symbol half cannot see it, and the room figure "
+                f"would be {anchor - packed_end} B when the true free tail is smaller.\n"
+                f"  NO ROOM FIGURE IS REPORTED. Find what emits those bytes (a raw embed "
+                f"with no exported symbol, or padding that is no longer zero) and either "
+                f"give it a label or move it; do NOT widen the assertion.")
+        if beyond:
+            raise Unmeasurable(
+                f"terminus: {rom_path} ends {beyond} B before the `{ANCHOR_NAME}` anchor "
+                f"0x{anchor:X}, so the image cannot witness the last {beyond} B of the "
+                f"region. The anchored banks are supposed to be IN this ROM; a shape "
+                f"whose image stops short of its own anchor is not the shape the room "
+                f"figure describes.")
+    return {"intruders": intruders, "image_scan": scan}
+
+
+def rom_room(lst_path, aeon=None, map_toml=None, rom_path=None):
     """Physical bytes between the end of the packed data run and the hardware anchor.
 
     DERIVATION (every term from an instrument, none from the frozen table):
@@ -254,23 +584,49 @@ def rom_room(lst_path, aeon=AEON, map_toml=None):
               + len(art blob on disk)     <- the file the .emp embeds
         room  = anchor                    <- map.toml's [[anchor]] dac_banks
               - end
+
+    CHECKED, NOT ASSUMED: `end` is only the end of the data if nothing sits between it
+    and the anchor. `check_terminus` asserts that from the two occupancy instruments
+    (symbols always, the ROM image when `rom_path` is given) and raises Unmeasurable
+    naming the intruder rather than letting a too-low `end` inflate `room`.
     """
+    # LATE-BOUND (2026-09-06). These used to default to `aeon=AEON` in the signature,
+    # which Python binds ONCE at definition — so `main()`, which has no tree argument,
+    # could not be pointed at another tree and would derive the LENGTH term from the
+    # live repo while deriving the terminus from whatever listing it was handed. That
+    # is the module header's own "a true statement about the wrong artifact" failure,
+    # one level down; measured when a hermetic test's CLI half reported the live
+    # tree's collision_data.emp.
+    aeon = AEON if aeon is None else aeon
     map_toml = map_toml or os.path.join(aeon, "games", "sonic4", "map.toml")
     labels = lst_labels(lst_path)
     if LAST_PACKED_LABEL not in labels:
         raise Unmeasurable(
             f"{lst_path} defines no {LAST_PACKED_LABEL} — either this shape does not place "
             f"the character data island, or the label was renamed. Not a zero-room answer.")
-    blob, blob_len = art_sonic_bytes(aeon)
+    blob, blob_len, const_name = art_sonic_bytes(aeon)
     anchor = anchor_addr(map_toml)
-    end = labels[LAST_PACKED_LABEL] + blob_len
+    lma = labels[LAST_PACKED_LABEL]
+    # BOTH halves of `end`, checked independently and in this order: the LENGTH term
+    # (F2, check_extent) before the TERMINUS (F1, check_terminus). They are separate
+    # ways for the same expression to be wrong and they can CANCEL — an LMA that
+    # moved down by K with a blob that grew by K leaves `end` identical — so neither
+    # may be inferred from the other, and `end` agreeing with a previous run is not
+    # evidence that either arm is sound.
+    extent = check_extent(aeon, lma, blob, blob_len, const_name, rom_path)
+    end = lma + blob_len
+    terminus = check_terminus(lst_path, labels, end, anchor, rom_path)
     return {
-        "art_sonic_lma": labels[LAST_PACKED_LABEL],
+        "art_sonic_lma": lma,
         "art_blob": blob,
         "art_blob_len": blob_len,
         "packed_end": end,
         "anchor": anchor,
         "room": anchor - end,
+        "labels_below_terminus": len(labels_in(labels, 0, end)),
+        "image_scan": terminus["image_scan"],
+        "extent": extent,
+        "map_toml": map_toml,
     }
 
 
@@ -386,10 +742,11 @@ def fixture_freshness(lst_path, fixture_path):
     return checked
 
 
-def report(lst_path, aeon=AEON, gate=False, out=sys.stdout, rom_path=None,
+def report(lst_path, aeon=None, gate=False, out=sys.stdout, rom_path=None,
            built_after=None, fixture_path=None):
     """Print the ROM-room derivation and this SHAPE's ruled ceiling; with `gate`, fail
     on a breach. Returns the exit code. The verdict line names which of the two binds."""
+    aeon = AEON if aeon is None else aeon    # late-bound; see rom_room
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     from inject_editor_bg import BGANIM_SECTION_CEILING, live_section_bytes
 
@@ -408,11 +765,35 @@ def report(lst_path, aeon=AEON, gate=False, out=sys.stdout, rom_path=None,
         labels = fixture_freshness(lst_path, fixture_path)
         print(f"  fixture: {os.path.relpath(fixture_path, aeon)} — {len(labels)} label "
               f"rows re-found in the fresh listing with the same shape", file=out)
-    r = rom_room(lst_path, aeon)
+    r = rom_room(lst_path, aeon, rom_path=rom_path)
     live = live_section_bytes(aeon)
     headroom = r["room"] + live
     print(f"  Art_Sonic 0x{r['art_sonic_lma']:X} + {r['art_blob_len']} "
           f"= 0x{r['packed_end']:X}; anchor 0x{r['anchor']:X}", file=out)
+    # The terminus is now a CHECKED FACT (see check_terminus): say which instruments
+    # established it, so a green states what it proved rather than what it assumed.
+    if r["image_scan"] is None:
+        print(f"  terminus: CHECKED by symbols only — of the "
+              f"{r['labels_below_terminus']} labels at or below 0x{r['packed_end']:X}, "
+              f"none lies above it, and the region up to the anchor exports no label. "
+              f"The ROM image half did NOT run (no --rom), so unlabelled bytes there "
+              f"were not ruled out.", file=out)
+    else:
+        examined, _, _, _ = r["image_scan"]
+        print(f"  terminus: CHECKED by both instruments — no label lies between "
+              f"0x{r['packed_end']:X} and the anchor, and all {examined} B of that "
+              f"region are zero in {os.path.basename(rom_path)}", file=out)
+    ex = r["extent"]
+    print(f"  extent: CHECKED — {LAST_PACKED_LABEL} is the last of "
+          f"{len(ex['emits'])} definitions in section {ex['section']!r} (sole module), "
+          f"binds its embed whole"
+          + (f", and its {ex['image_identical']} B in "
+             f"{os.path.basename(rom_path)} are byte-identical to "
+             f"{os.path.relpath(r['art_blob'], aeon)}"
+             if ex["image_identical"] is not None else
+             "; the byte-identity half did NOT run (no --rom), so `+ "
+             f"{r['art_blob_len']}` is a restatement of the file's size here, not a "
+             f"measurement of the ROM"), file=out)
     print(f"  ROM room {r['room']} B free + {live} B the section already holds "
           f"= {headroom} B for ojz_bg_anim", file=out)
     print(f"  ruled authoring ceiling BGANIM_SECTION_CEILINGS[{shape!r}] = {ceiling} B "
@@ -428,6 +809,30 @@ def report(lst_path, aeon=AEON, gate=False, out=sys.stdout, rom_path=None,
               f"(a Z80 SetBank window); the map's anchor is not a bank.", file=out)
         rc = 1 if gate else rc
     else:
+        # F6: SOUND_BANK_OFFSET encodes `sound_bank == dac_banks + 0x10000`, and until
+        # 2026-09-06 it appeared only in its own definition and in the remedy f-string
+        # below — never compared with the map. The two anchors could drift apart with
+        # nothing noticing, and the remedy line would then hand the sigil lane a
+        # sound_bank address the map disagrees with. Derived from the same parser as
+        # dac_banks, never a literal.
+        declared_sound = anchor_addr(r["map_toml"], SOUND_ANCHOR_NAME)
+        if declared_sound != anchor + SOUND_BANK_OFFSET:
+            print(
+                f"bganim_room: FAIL — the two bank anchors have drifted apart.\n"
+                f"  {r['map_toml']} declares `{ANCHOR_NAME}` at 0x{anchor:X} and "
+                f"`{SOUND_ANCHOR_NAME}` at 0x{declared_sound:X}, a gap of "
+                f"0x{declared_sound - anchor:X}, but SOUND_BANK_OFFSET encodes "
+                f"0x{SOUND_BANK_OFFSET:X} ({SOUND_BANK_OFFSET // BANK_ALIGN} SetBank "
+                f"windows: the blip plus the shared DAC banks).\n"
+                f"  That relation is what this gate's remedy line tells the sigil lane "
+                f"to move BOTH anchors to, so a drift makes the remedy wrong as well as "
+                f"the constant. Fix whichever is stale — the map or SOUND_BANK_OFFSET — "
+                f"before trusting any anchor arithmetic here.", file=out)
+            rc = 1 if gate else rc
+        else:
+            print(f"  anchor pair: `{SOUND_ANCHOR_NAME}` 0x{declared_sound:X} = "
+                  f"`{ANCHOR_NAME}` 0x{anchor:X} + SOUND_BANK_OFFSET "
+                  f"0x{SOUND_BANK_OFFSET:X}, as the rule encodes", file=out)
         want = rule_anchor(packed_end)
         if anchor < want:
             print(
@@ -504,7 +909,10 @@ def main(argv=None):
     except (IndexError, ValueError):
         print(usage, file=sys.stderr)
         return 2
-    if not lst or (rom is None) != (built_after is None):
+    # `--rom` ALONE is valid since 2026-09-06: it is the terminus check's image half,
+    # useful on its own. `--built-after` without `--rom` remains a usage error — the
+    # provenance check ties the listing TO a ROM and has nothing to tie it to.
+    if not lst or (built_after is not None and rom is None):
         print(usage, file=sys.stderr)
         return 2
     try:
