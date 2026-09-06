@@ -414,6 +414,167 @@ class TestSubjectBindings(unittest.TestCase):
                           "two owners must read as undetermined, not as the first one")
 
 
+class TestFrameSplitCeiling(unittest.TestCase):
+    """`frame_split_ceiling` is the whole load-bearing claim of the margin monitor: it
+    says what a frame can cost at its WORST art base without sweeping every base. If it
+    is ever LOW, the monitor skips a subject that could fail and reports a margin that
+    is wrong in the flattering direction -- so every case here is checked against a
+    brute-force sweep of a whole period, which is the thing the analytic form replaces.
+    """
+
+    B = 0x2000                       # a short period keeps the brute force cheap
+    TS = 32
+
+    def brute(self, ents):
+        """The maximum simultaneous straddle count over EVERY base in one period."""
+        best = 0
+        for base in range(self.B):
+            best = max(best, sum(1 for s, c in ents
+                                 if D.straddles(base + s * self.TS, c * self.TS, self.B)))
+        return best
+
+    def check(self, ents):
+        want = self.brute(ents)
+        got = D.frame_split_ceiling(ents, self.TS, self.B)
+        self.assertEqual(got, want,
+                         f"analytic {got} != observed {want} for {ents} — "
+                         f"{'LOW, so the skip is unsound' if got < want else 'loose'}")
+        return got
+
+    def test_disjoint_runs_can_only_straddle_ONE_at_a_time(self):
+        """Every Knuckles frame is this shape, which is why its ceiling is far under
+        the `2 x entries` bound: one boundary, one entry containing it."""
+        self.assertEqual(self.check([(0, 4), (4, 4), (8, 4), (16, 2), (32, 2)]), 1)
+
+    def test_one_tile_named_N_times_straddles_N_at_once(self):
+        """Sonic's `$1E` lists tile 165 seven times; when the boundary falls inside
+        that tile every one of those entries splits together. This is the shape the
+        `2 x entries` bound was aimed at, and here the two coincide."""
+        self.assertEqual(self.check([(165, 1)] * 7), 7)
+
+    def test_a_single_entry(self):
+        self.assertEqual(self.check([(3, 2)]), 1)
+
+    def test_an_empty_frame(self):
+        self.assertEqual(D.frame_split_ceiling([], self.TS, self.B), 0)
+
+    def test_partially_overlapping_runs(self):
+        self.check([(0, 8), (4, 8), (6, 8), (40, 2)])
+
+    def test_a_frame_SPANNING_MORE_THAN_ONE_PERIOD(self):
+        """Two boundaries inside one frame's span at once. Dropping the `k*boundary`
+        term would read depth at a single point and understate the ceiling — the
+        flattering direction, and the reason the term is there."""
+        far = self.B // self.TS
+        self.check([(0, 4), (far, 4), (2 * far, 4), (0, 4), (far, 4)])
+
+
+class TestSubjectCeilingsAndTheStructuralSkip(unittest.TestCase):
+    """The skip must be SOUND (never skip a subject that could fail) before it is
+    fast. These build subjects by hand rather than reading a listing, per this file's
+    header rule."""
+
+    TS = 32
+    B = 0x2000
+
+    def subject(self, name, frames, base=0x1000):
+        return {"name": name, "art_label": f"Art_{name}", "art_base": base,
+                "art_len": 0x400, "frames": frames, "queue": "Important"}
+
+    def reach(self, name, n):
+        return {name: {"frames": set(range(n)), "undetermined": [], "out_of_range": []}}
+
+    def test_the_ceiling_is_entries_PLUS_the_overlap_not_TWICE_entries(self):
+        """sigil `ebd22729` §3 states the ceiling as `2 x peak entries`. That is a
+        BOUND on it, not the quantity: for disjoint runs the two differ by a factor of
+        nearly two, and the difference is what decides whether a subject is skippable."""
+        f = [[(0, 4), (4, 4), (8, 4), (16, 2), (32, 2)]]
+        s = self.subject("k", f)
+        slots, split = D.subject_ceilings(s, self.reach("k", 1), self.TS, self.B)
+        self.assertEqual(slots, 6)            # 5 entries + 1 simultaneous straddle
+        self.assertEqual(split, 1)
+        self.assertEqual(2 * max(len(x) for x in f), 10)   # the bound it is not
+
+    def test_an_UNREACHABLE_frame_raises_the_SLOT_ceiling_but_not_the_SPLIT_one(self):
+        """VERDICT A is over all frames, B and C over reachable ones only. A ceiling
+        that conflated them would skip on the wrong number."""
+        f = [[(0, 1)], [(9, 1)] * 6]
+        s = self.subject("x", f)
+        r = {"x": {"frames": {0}, "undetermined": [], "out_of_range": []}}
+        slots, split = D.subject_ceilings(s, r, self.TS, self.B)
+        self.assertEqual(slots, 12)           # frame 1: 6 entries, all 6 straddle
+        self.assertEqual(split, 1)            # frame 0 is the only reachable one
+
+
+class TestMarginAgreesWithTheReferenceVerdict(unittest.TestCase):
+    """`margin_for` hoists the unmoved subjects out of the loop; `verdict_at` does not.
+    They must agree, or the fast path is measuring something else."""
+
+    TS = 32
+    B = 0x2000
+
+    def build(self):
+        # One subject that CAN fail (7 entries on one tile -> ceiling 14 > bar 10) and
+        # one that cannot (disjoint runs).
+        hot = {"name": "hot", "art_label": "Art_Hot", "art_base": 0x100,
+               "art_len": 0x400, "frames": [[(5, 1)] * 7], "queue": "Important"}
+        cold = {"name": "cold", "art_label": "Art_Cold", "art_base": 0x900,
+                "art_len": 0x400, "frames": [[(0, 2), (4, 2)]], "queue": "Important"}
+        reach = {"hot": {"frames": {0}, "undetermined": [], "out_of_range": []},
+                 "cold": {"frames": {0}, "undetermined": [], "out_of_range": []}}
+        return [hot, cold], reach
+
+    def test_the_cold_subject_is_answered_STRUCTURALLY_and_never_swept(self):
+        subs, reach = self.build()
+        m = D.margin_for(subs[1], subs, reach, self.TS, self.B, 10, 2, 2, 1)
+        self.assertTrue(m["structural"])
+        self.assertIsNone(m["up"])
+
+    def test_the_hot_subjects_reported_edge_IS_a_failing_shift_and_one_before_is_not(self):
+        """The margin claims 'd is the nearest forbidden shift'. Both halves of that
+        are checked with the reference implementation: d fails, d-1 does not."""
+        subs, reach = self.build()
+        m = D.margin_for(subs[0], subs, reach, self.TS, self.B, 10, 2, 2, 1)
+        self.assertFalse(m["structural"])
+        for k, sign in (("up", 1), ("down", -1)):
+            d = m[k]
+            self.assertIsNotNone(d, f"{k}: a subject whose ceiling clears the bar must "
+                                    f"have a forbidden shift somewhere in a period")
+            self.assertIsNotNone(
+                D.verdict_at(subs, reach, "hot", sign * d, self.TS, self.B, 10, 2, 2, 1),
+                f"{k}: the reported edge {sign * d} does not actually fail")
+            for step in range(1, d):
+                self.assertIsNone(
+                    D.verdict_at(subs, reach, "hot", sign * step, self.TS, self.B,
+                                 10, 2, 2, 1),
+                    f"{k}: shift {sign * step} fails, so {sign * d} was not the NEAREST")
+
+    def test_an_ORIGIN_moves_the_measurement_without_moving_the_subject(self):
+        """`--margin-at` prices a planned move (BLOCK-STREAM-DEDUP's -20,986 B) before
+        it is made: the margin from origin o must equal the margin the subject would
+        report if its base really were base+o."""
+        subs, reach = self.build()
+        o = 97
+        got = D.margin_for(subs[0], subs, reach, self.TS, self.B, 10, 2, 2, 1, origin=o)
+        moved = [dict(subs[0], art_base=subs[0]["art_base"] + o), subs[1]]
+        want = D.margin_for(moved[0], moved, reach, self.TS, self.B, 10, 2, 2, 1)
+        self.assertEqual((got["up"], got["down"]), (want["up"], want["down"]))
+
+
+class TestGrowthReserveIsReadFromItsOwner(unittest.TestCase):
+    """The floor the margin warning compares against is the tree's own declared
+    allowance, not a number this tool picked."""
+
+    def test_it_matches_bganim_rooms_constant(self):
+        import bganim_room
+        self.assertEqual(D.growth_reserve(), bganim_room.DATA_GROWTH_RESERVE)
+
+    def test_it_is_None_and_never_zero_when_unreadable(self):
+        """A silent 0 would compare true against every margin and the warning would
+        never fire again."""
+        self.assertIsNotNone(D.growth_reserve())
+
+
 class TestConcurrentDemand(unittest.TestCase):
     """The bound the 2026-09-03 emulator reading named as the one that breaks:
     one straddling set per frame is survivable, two at once is not."""
