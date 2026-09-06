@@ -831,3 +831,150 @@ clean. `Section_FlatIDXY`'s repeated-add multiply amortises to **≈14 cycles/fr
 sweep of all **57** `comptime fn -> Code` definitions with exact expansion counts found one
 2-byte-per-site reorder and nothing else.
 
+
+---
+
+## Controller result — C2b's suspicion S1 is now VERIFIED, with a control
+
+C2b suspected that `[call.clobbers-incomplete]`, the fixpoint catching a Z80 proc that
+under-declares what its callees destroy, **is not part of aeon's build at all** — it lives in sigil
+and runs only if someone there points `AEON_DIR` at the right tree with `SIGIL_STRICT_GATE=1`. It
+labelled this a suspicion because it could not run either side. **Both sides were run.**
+
+The mutation is the historical instance C2b named: remove `iy` from `Sfx_Frame`'s `clobbers` set
+(`engine/sound/sound_sfx.emp:253`), on a detached `61f22403` worktree, quoted back from disk.
+
+| run | result |
+|---|---|
+| **aeon `FAST=1 DEBUG=1 ./build.sh` on the mutant** | **exit 0 — GREEN.** No error. No new warning: the summary line is **identical** to the clean tree's, `proc.clobber-undeclared 72` unchanged. Aeon's build cannot see it at all. |
+| **sigil `z80_clobbers_incomplete` against the mutant** | **exit 101 — 3 passed, 2 FAILED** (`honest_corpus_no_in_scope_firings`, `dispatch_submachine_is_excluded_but_present`) |
+| **CONTROL: the same sigil test against the unmutated pin** | **exit 0 — 5 passed, 0 failed** |
+
+The control was run **because** two tests failed rather than one, and without it I could not have
+attributed the second to the mutation. Both flips are mine.
+
+**So the asymmetry is now measured on both axes:**
+
+|  | 68000 | Z80 |
+|---|---|---|
+| **under-declare** (write more than declared) | **build-fatal** in aeon | **invisible** to aeon; caught only in sigil, under an opt-in env var |
+| **over-declare** (declare more than you write) | **green and silent** | **green and silent** |
+
+Three of those four cells are unguarded from inside this repo. And `CODING_CONVENTIONS.md:492`'s
+*"These are compiler-verified"* is the sentence every reader is relying on.
+
+**The distribution failure is the finding, not the gate.** Sigil's side is careful — it even ships a
+`red_fixture_sfx_frame_iy_underclaim_fires` test for exactly this mutation, and it passed. The gate
+exists, works, and lives where the person about to break it is not looking: aeon's docs mention it
+**once**, inside a path-enumeration table, never as a ritual, and `CLAUDE.md`,
+`CODING_CONVENTIONS.md` and `DEFERRED_WORK.md` do not mention it at all. Over a 7,900-line sound
+corpus whose history records **8 genuine under-claims found the day the fixpoint first ran**.
+
+---
+
+## Seat C4a — algorithmic altitude
+
+### C4a-1 — the expensive gate runs before the cheap one, on every entity spawn path
+
+`engine/objects/entity_window.emp`, both spawn sites (`TrySpawnRing:963`, `TrySpawnObject:1187`).
+Gate order in both: Y-band compare (cheap, correctly first) → **`Collected_CheckRing`, a 9-slot
+linear tag scan** → **`EntityLoaded_Test`, one `btst`**. Both later gates branch to the same
+`.gated` label and do nothing else, so the order is free to choose.
+
+**Controller verified the order directly:** in `TrySpawnRing`, `jbsr Collected_CheckRing` is at
+relative line 20 and `jbsr EntityLoaded_Test` at line 29 — **nine lines later** — both followed by
+`bne .gated`.
+
+**And the architecture doc already describes the other order.** `ENGINE_ARCHITECTURE.md:2964`, read
+in full by the controller: *"Loaded bits make this idempotent — already-loaded entities are one
+btst+skip."* **That is the intended algorithm, and it is not what the code does.** Fixing the order
+makes the shipped code match a sentence already in the architecture doc — which is the cheapest kind
+of change to justify.
+
+**Cost:** ≈200 cycles per already-loaded candidate (≈340 through the scan path vs ≈145 through the
+`btst`), hand-derived. It multiplies in `EntityWindow_RescanY`, which on every 128 px of camera-Y
+travel re-offers every ROM entry up to the X ratchet: ≈8-12 K cycles on shipped OJZ act 1 (**6-9% of
+a frame**), and ≈36-54 K (**28-42% of a frame**) at the 40-50 rings/section density **ARCH §4.9
+itself states the system is designed for**.
+
+**The cross-reference that makes this worth landing:** `DEFERRED_WORK:7460` has booked *"RescanY
+burst is unbudgeted"* since 2026-06-11 **without ever naming a cause**. The seat checked and the
+ordering is booked nowhere. This is a candidate cause for a four-month-old open worry.
+
+**Fix: swap two instruction orders.** Nothing new is needed — `EntityLoaded_Test`, the mask, and the
+`.gated` convergence are all already called from this exact position. A ring in the buffer is by
+construction not collected, so no reachable state distinguishes the orders.
+
+### C4a-2 — `Collected_FindSlot`'s answer is loop-invariant per window entry, recomputed per candidate
+
+The `section_id` handed to the slot scan is **constant for the entire walk of one window entry** —
+the three walkers each hold `a1` fixed across their whole loop — so a 9-slot scan is repeated per
+candidate for an answer that changes at most 4 times per frame.
+
+**The seat checked stability rather than assuming it:** slots are claimed/evicted only by
+`Collected_ClaimSlot`/`Collected_UpdateCenter`, both inside `BuildEntries`/`Slide`; the `Mark`
+routines only `bset` inside a slot they found. Nothing during a walk moves a slot.
+
+Hoisting turns `O(candidates × 9)` into `O(4 × 9) + O(candidates × btst)`, and **composes with
+C4a-1**: the reorder removes the scan for already-loaded candidates, the hoist removes it for the
+rest. Needs no new RAM — the walkers have a free address register. **Land C4a-1 first**; this one
+changes three call sites and a callee contract.
+
+### C4a-3 — the despawner recomputes an address its sibling walks with a pointer, and the cure is written down one file over
+
+`EntityWindow_DespawnRings:1428` rebuilds the buffer address from the index every iteration (×6
+chain + `lea`); `RingCollision` (`rings.emp:297`) walks the same buffer with the same swap-with-last
+semantics using **a rolling pointer**, and its header states the cure verbatim along with the safety
+argument — *"swap-with-last removal only rewrites the removed slot from an already-visited HIGHER
+index"* — which applies to `DespawnRings` unchanged. ≈30 cycles/ring; ≈600/frame shipped, ≈3.8 K
+(3.0%) at buffer capacity.
+
+**The seat did the bookkeeping that stops double-counting:** `DEFERRED_WORK:7470` already books *a
+different* invariant in this same loop (the Y band bounds, ~3.5 K cycles at capacity) and does not
+mention the address chain. Taking both roughly **doubles that entry's refund** — and the entry's
+"not worth a dedicated session" is right for either half alone and weaker for both.
+
+### C4a-4 — a product computed, destroyed, and immediately recomputed with a loop
+
+`Section_GetSecPtrXY` computes `sec_y * grid_w + sec_x`, then overwrites `d0` twice; `BuildEntries`
+calls `Section_FlatIDXY` **on the very next line, with the same registers**, to recompute it — via a
+repeated-add `dbf` loop costing `24 + 14·sec_y`.
+
+**The sibling inconsistency is the sharper half.** `GetSecPtrXY` carries the full §2.1 four-point
+argument for its `mul_bounded`. `FlatIDXY`, computing *the same product in the same file*, carries
+**no bound argument at all**, and its loop counter is a `GridY` byte — structurally up to 255
+(≈3.6 K cycles). **Nothing lints this, because §2.1 polices the multiply and not the loop that
+replaces it.**
+
+**Severity today is low and the seat said so plainly:** `GRID_W = GRID_H = 3`, so this costs ~250
+cycles *per slide*. **Reported because it degrades along the roadmap's own trajectory** — the
+mega-act tech demo is precisely the thing that raises `grid_h`, and this is the one construct in the
+section-id path whose cost is linear in it.
+
+### C4a's design notes, correctly labelled as such rather than smuggled in as findings
+
+**D1 — the ring buffer is walked four times per frame in one phase** (despawn, collision ×2 players,
+draw). At capacity the collision pass alone is ~18 K cycles = 14% of a frame. **Any real fix invents
+a subsystem** — swap-with-last removal is what makes `RingBuffer_Remove` O(1), and preserving order
+costs that — so it is a note. Academic at shipped density; real at the density ARCH designs for. The
+seat explicitly declined to offer the cheap constant-factor version because that belongs to the
+instruction-level seats.
+
+**D2 — `Decode_Factor_A/B` re-decide per-band-constant branches every frame**, where the cure
+pattern (hoist and specialize) is stated in the same file's `Fill_PerLine` banner. **Under 1.5%
+either way**, hence a note.
+
+### C4a's verified-clean, which is where an altitude seat earns trust
+
+`TileCache_FindStagedBlock` is **already** a hashed lookup where the bucket is the block index —
+the seat's target pattern, already cured. `PageCache_Prefetch` deletes its whole ahead-strip walk
+for acts that fit the pool, and the degenerate-regime patch **verifies** the page→frame identity
+rather than assuming it. `Render_Sprites` dispatches from insertion-built priority bands, not a
+per-frame sort. `Palette_Compose` gates every layer behind a staleness bit, **argued as the same
+answer rather than an approximation**. `player_sensors.emp` stamps four specialized probe cores from
+one `comptime fn` — the build-time principle correctly applied.
+
+**And it named its own biggest gap:** `tile_cache.emp`'s `Tile_Cache_Fill`/`FillColumn`/`FillRow`,
+~800 lines of the engine's single biggest per-frame consumer, read only at its entry points. *"If
+one more altitude pass is funded, that is where I would spend it."*
+
