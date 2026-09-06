@@ -26679,3 +26679,33 @@ what lives at the level below. In a symbol table that is where the boundary mark
    this.
 3. **An absence with nothing expecting the presence.** Nothing to notice. **Needs a mechanism, not
    attention** - which is why a long run writes its end marker before it starts.
+
+---
+
+### Numbers attributed to a lane with no artifact behind them - 2026-09-05
+
+**Three instances in one night, all cross-lane, none malicious, none caught by any check.**
+
+1. **"Five of aeon's tools re-derive phasing and one is right."** sigil opened a thread with it as
+   fact. Going looking after being asked, they found it existed in exactly one place - their own
+   queue row, inherited from a previous session, with no note, log entry or measurement anywhere.
+   Withdrawn by its author.
+2. **"Aeon's source-side list of 36 names."** Attributed to this lane. This lane produced no such
+   list; it produced a count of 45 it retracted within the hour. The list was real but belonged to
+   a committed TOOL (`scene_spans.py`), not to the session - a distinction worth making only
+   because the defect was owned either way.
+3. **"Aeon measured that two correct walks disagree by up to 26 whole-plane words."** Cited in
+   aurora's `warp-tearing-harness.mjs:575-582` as a floor, prefixed "stated before this run".
+   Searched: `off-view` and its spellings appear ZERO times across this tree's tools, docs and
+   engine, and the five literal 26s are all unrelated. **Neither aeon's tree, nor aeon's lane-log,
+   nor the hub's carries the measurement.** Its whole provenance is a message.
+
+**WHAT THEY SHARE.** A number crosses a lane boundary in prose, gets written into the receiving
+lane's CODE as an attributed fact, and thereafter reads as measured because it names a measurer.
+The citation is what makes it durable: "aeon measured" is harder to question than a bare constant,
+and the lane it names is the one least likely to re-read the other lane's comments.
+
+**THE CHECK, and it is cheap:** before writing another lane's number into your code, ask for the
+artifact - a commit, a file, a log line. If the answer is a message, write the number as YOUR
+estimate under YOUR name, or measure it yourself. A number owned by nobody is worse than a number
+owned by you and wrong, because yours can be re-measured and theirs cannot even be found.
