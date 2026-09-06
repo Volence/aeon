@@ -85,7 +85,7 @@ raising it is a three-file engine change, never a writer decision).
 | `rate_shift` | `:107` | no (default 2) | 1 px of pattern motion per `1 << rate_shift` driver units |
 | `slot_base` | `:92-93` | no (default = running cursor) | if present MUST equal the running cursor — bands pack contiguously from slot 0 in list order |
 | `phases` | `:96-97`, `:127-128` | yes | exactly **8** banks; each bank exactly `cols*rows` tiles; each tile 64 pixel values (low nibble kept, `:101-103`) |
-| `default_off` | `view_emission` / `views_emitted` | no (default absent = false) | **NOT a view toggle — it silences the band in the RELEASE ROM.** A band carrying it is not counted into `BgAnim_Table`, so a single-band act emits `count = 0` and the system is off at boot in EVERY shape. **No longer refuses anything** (decoupled 2026-09-06): it is a per-band ship decision at any band count. See the `default_off` subsection below for the release-shape consequence and for the twins' own (declining) condition |
+| `default_off` | `view_emission` / `views_emitted` | no (default absent = false) | **NOT a view toggle — it silences the band in the RELEASE ROM.** A band carrying it is not counted into `BgAnim_Table`, so a single-band act emits `count = 0` and the system is off at boot in EVERY shape. **No longer refuses anything, and since 2026-09-06 no longer breaks the LINK either** (decoupled, then BAND-LIVE-BUILD): it is a per-band ship decision at any band count, and removing it no longer costs the act its three exported `BgAnim_View_*` names. See the `default_off` subsection below for the release-shape consequence, the twins' own (declining) condition, and the 6 B a declining act's names cost your size model |
 
 #### THE SECTION BUDGET — six constants a consumer must model, and until now their ONLY authority was our tool's source (added 2026-09-06T12:55:09Z)
 
@@ -119,6 +119,15 @@ DEFAULTS TO 0**, which is the trap rather than the difference. `live_section_byt
 `n_views=views_emitted(anims)` and returns 8,376; verified here, not assumed. The 138 B difference is exactly
 `3 * (2 + 44)`. Both are correct for their own question; neither is "the" section size. Say which
 shape any figure is for.
+
+**A SECOND PARAMETER JOINED THE SAME TRAP ON 2026-09-06 (BAND-LIVE-BUILD), and it defaults to 0
+for the same reason.** `bganim_section_bytes()` now also takes `n_declined_views` — the twins whose
+NAME is exported without a band, which every non-qualifying act now has (see the `default_off`
+subsection). It is `BGANIM_VIEW_COUNT * BGANIM_COUNT_BYTES` = **6 B in the DEBUG shape**, so a bare
+call is 6 B light for a declining act exactly as it is 138 B light for a qualifying one.
+`live_section_bytes()` passes both; `declined_views(anims)` is the operand. **The rule that covers
+both: the two view terms are exclusive and always sum to `BGANIM_VIEW_COUNT`, because the names are
+now shape-invariant and only their contents follow the document.**
 
 **Precedent this row exists to stop repeating:** Aurora's panel offered **80** slots where the ROM
 admits 79, and their own test suite had pinned the wrong answer — a row asserting *"accepts the
@@ -213,6 +222,44 @@ the owner's place, 2026-09-06, overturnable.
 **WHAT THIS MEANS FOR A WRITER, in one line: nothing you can put in `anims` fails the build over
 `default_off` any more.** The disclosure at `Promote` that was covering authors until this landed
 is **retired** — there is no longer a wall to announce.
+
+##### ⚠ THAT ONE LINE WAS ONLY TRUE OF THE REFUSAL, AND A SECOND WALL STOOD BEHIND IT UNTIL 2026-09-06 (BAND-LIVE-BUILD)
+
+**Reported by your lane and reproduced here with the same one-key control.** Deleting
+`default_off` from the shipped act's one band failed the **plain** build with
+
+```
+error: native build (sonic4 plain): build_program: 3 error(s);
+  [Error] module `games.sonic4.ojz_bg_anim_act1` has no `pub` name `BgAnim_View_H`
+  [Error] module `games.sonic4.ojz_bg_anim_act1` has no `pub` name `BgAnim_View_V`
+  [Error] module `games.sonic4.ojz_bg_anim_act1` has no `pub` name `BgAnim_View_T`
+```
+
+**The mechanism:** `games/sonic4/test/ojz_scroll_test.emp` imports all three twins in one
+unconditional `use`, which is resolved in every shape, while the emitter wrote those names for
+exactly one act shape. Of the eight document shapes reachable by editing `anims`, **one linked.**
+Not a regression of the decouple — the pre-decouple code returned 0 twins for a no-`default_off`
+act too — but it did fail worse than the refusal it stood behind, because a link error naming
+three symbols does not say what happened.
+
+**FIXED, and the fix is a separation rather than a relaxation.** The generated module now exports
+`BgAnim_View_H` / `_V` / `_T` **in every act shape**; the twins' condition (unchanged, below)
+decides only whether each carries a band record or is a **count-0 (OFF) table**. So the one line
+above is now true as written, for the link as well as for the refusal.
+
+**WHAT THIS COSTS YOUR SIZE MODEL — read it with item 1 below.** A declining act's three names are
+`BGANIM_VIEW_COUNT * BGANIM_COUNT_BYTES` = **6 B in the DEBUG shape and 0 B in the plain one**, so
+the two view terms are exclusive and always sum to three:
+
+| act shape | `views_emitted()` | `declined_views()` | view bytes (DEBUG) |
+|---|---|---|---|
+| one band, `default_off`, `pattern_px` 64 | 3 | 0 | `3 * (2 + 44 * n_bands)` = 138 |
+| **every other shape**, the no-animation stub included | 0 | 3 | `3 * 2` = **6** |
+
+`bganim_section_bytes()` takes `n_declined_views` for this; `live_section_bytes()` passes both and
+is still the one call that answers *"what does this tree's document actually produce"*. **A model
+that treats a declining act's twins as absent is 6 B light**, which is the same class of error as
+the 138 B one item 1 warns about, in the other direction.
 
 **AND WHAT DOES NOT CHANGE: the ordering.** If you author live and `default_off` bands mixed, the
 emitter now REORDERS the emitted records so live bands come first (the count word covers exactly

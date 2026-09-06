@@ -3208,19 +3208,30 @@ class TestBgAnimViewNamesAreShapeInvariant(unittest.TestCase):
             declined * inject_editor_bg.BGANIM_COUNT_BYTES,
             "the size model does not account for the declined twins' count words")
 
-    def test_the_shipped_act_gains_no_bytes_from_this_fix(self):
+    def test_the_live_shape_gains_no_bytes_from_this_fix(self):
         """The two terms are exclusive: 3 live twins leave 0 declined ones.
 
-        The shipping override is the live shape, so `live_section_bytes()` must be
-        exactly what it was before this parcel (8,376 B — the number
-        tools/EFFECTS_CONSUMER_CONTRACT.md and tools/bganim_room.py both quote). A fix
-        that moved the SHIPPED section size would have re-opened the frozen placement
+        A single 8x4 64 px `default_off` band — the shape this tree ships — must come
+        to exactly what it came to before this parcel: 8,376 B, the number
+        tools/EFFECTS_CONSUMER_CONTRACT.md and tools/bganim_room.py both quote. A fix
+        that moved the LIVE section size would have re-opened the frozen placement
         tables for a bug about acts that do not exist yet.
+
+        DELIBERATELY SYNTHETIC, and this is the second half of the parcel's own bar.
+        A first draft asserted `live_section_bytes() == 8376`, which reads THIS TREE's
+        override — so the moment an author removed `default_off` (the exact correct
+        run this class exists to keep building) the build failed on a tool test
+        instead of a link error. Measured: it did, on the acceptance run. A gate that
+        pins the shipped document's CONTENT is the failure mode being fixed, wearing
+        a different hat.
         """
         anims = self._doc([(8, 4, True)])["anims"]
+        self.assertEqual(anims[0]["pattern_px"],
+                         inject_editor_bg.BGANIM_VIEW_DERIVED_PERIOD_PX)
         self.assertEqual(inject_editor_bg.views_emitted(anims),
                          inject_editor_bg.BGANIM_VIEW_COUNT)
-        self.assertEqual(inject_editor_bg.live_section_bytes(), 8376)
+        self.assertEqual(inject_editor_bg.declined_views(anims), 0)
+        self.assertEqual(shape_aware_size(anims), 8376)
 
 
 if __name__ == "__main__":

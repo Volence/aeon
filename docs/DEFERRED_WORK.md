@@ -28333,6 +28333,73 @@ because it is still the model for `views_emitted`, which they need for the secti
 quantifier trap they found survives with its cost changed:** mismodelling it no longer produces a
 surprise build failure, it produces a section figure 138 B too large.
 
+### ⚠ AND THERE WAS A **THIRD** WALL, WHICH THE ENTRY ABOVE ALSO DID NOT NAME — CLOSED, BAND-LIVE-BUILD (2026-09-06)
+
+**Found by the aurora lane, not by us, with the same one-key control on the pristine document, and
+reproduced here before anything was touched.** Delete `default_off` from the shipped act's one
+band, change nothing else, re-bake, and the **PLAIN** build dies:
+
+    error: native build (sonic4 plain): build_program: 3 error(s);
+      [Error] module `games.sonic4.ojz_bg_anim_act1` has no `pub` name `BgAnim_View_H`
+      [Error] module `games.sonic4.ojz_bg_anim_act1` has no `pub` name `BgAnim_View_V`
+      [Error] module `games.sonic4.ojz_bg_anim_act1` has no `pub` name `BgAnim_View_T`
+
+**THE POPULATION, enumerated from `view_emission` rather than sampled — of the EIGHT document
+shapes an author can reach by editing `anims`, exactly ONE linked:** the shipped one. No
+`default_off`; a 32 px period; either two-band arrangement; two live bands; no bands at all — all
+seven exported none of the three names, while `games/sonic4/test/ojz_scroll_test.emp` imports all
+three in one unconditional `use`. **A `use` is resolved in EVERY shape, so the `if DEBUG == 1`
+guards on the declarations never protected the plain link.** That is why this is a plain-shape
+failure at all, and why a `DEBUG=1`-only check would have missed the whole subject.
+
+**NOT A REGRESSION OF THE DECOUPLE, and aurora checked rather than assumed** (`483b3e12`): the
+pre-decouple code returned 0 twins for a no-`default_off` act too. **The failure stood behind the
+refusal the whole time and became visible when the refusal stopped firing first** — and it fails
+WORSE than the refusal did, because a link error naming three symbols does not say what happened
+or what to do. That is the closing note of the entry above ("a refusal removed under a ruling is
+not the same thing as the author's path being open") arriving a third time, on the same author
+action, from a lane that is not ours.
+
+**THE FIX IS A SEPARATION, NOT A RELAXATION, and the scope cut is the point.** "Does this act get
+the lab's A/B" is the twins' condition — exactly one band, `pattern_px` 64 — and it is
+**UNCHANGED**; it still decides whether a twin carries a band record. "Does this module have a
+public interface" was never a content question, and now is not one: **every act shape exports
+`BgAnim_View_H` / `_V` / `_T`**, a declining act as a **count-0 (OFF) table**. That is structurally
+what row 0 of the lab's own cycle already selects (the act's own `BgAnim_Table` when every band is
+`default_off`) and what `BgAnim_Update` disposes of in `move.w (a3)+, d7` / `beq .exit`, so
+selecting a declined row is an OFF row and not a wild band table.
+
+**WHY NOT A ZERO-LENGTH LABEL, which would have cost nothing:** it resolves to whatever emission
+follows it — in the animated arm the 8 KB `BgAnim_Banks` blob, whose first word would be walked as
+a band count. **And why three words rather than one shared one:** `Debug_TierTags_Update` scans
+`.view_table` to turn the live `BgAnim_Table_Ptr` back into a row index for its name tag, so three
+rows at one address would tag as each other.
+
+**PRICE, stated because "it costs nothing" is the claim that goes stale:**
+`BGANIM_VIEW_COUNT * BGANIM_COUNT_BYTES` = **6 B, DEBUG shape only, and only for acts that
+decline**. The size model carries it (`bganim_section_bytes(..., n_declined_views=)`,
+`declined_views(anims)`), and the two view terms are exclusive and sum to `BGANIM_VIEW_COUNT`.
+**Verified end to end rather than modelled:** on the mutated tree `bganim_room` read **8244 B** off
+the DEBUG listing the build had just emitted, which is the formula's number for that document.
+
+**BYTE EXPECTATION, derived before the build:** the shipped act is the LIVE shape, so its emission
+and all four ROMs must be unchanged. It held — the regenerated `bg_anim.emp` is byte-identical and
+the four crc32s match master (`s4 fe512c95` · `s4.debug 3b542111` · `demo 78f29102` ·
+`demo.debug 64db70af`).
+
+**THE BAR I BROKE ON MY OWN FIRST DRAFT, kept because it is the whole lesson in miniature.** The
+new gate's last row asserted `live_section_bytes() == 8376` — which reads THIS TREE's override. So
+the moment an author removed `default_off`, the build failed on a **tool test** instead of a link
+error: a gate pinning the shipped document's CONTENT, which is the failure being fixed wearing a
+different hat. It was caught by running the acceptance experiment rather than by reading the test,
+and it is now written against a synthetic live document.
+
+**THE GENERALISATION, and it is the one worth carrying out of three walls on one author action: a
+generated module's EXPORTED NAME SET is an interface, and an interface that follows the input
+document has no contract at all.** Nothing in this tree gated on that; the new
+`TestBgAnimViewNamesAreShapeInvariant` does, and it derives its expectation by parsing the `use`
+line out of the consumer, so a fourth imported name turns it red without anyone remembering.
+
 ## TWO BARS FROM THE FILE-TIME-CHECK BUILD, AND A SCOPE QUESTION AGAINST MYSELF (2026-09-06T12:09:35Z)
 
 **BAR 1 — ASK WHERE THE CASES YOU CARE ABOUT LIVE IN THE DISTRIBUTION YOU ARE FILTERING ON,
