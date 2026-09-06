@@ -58,11 +58,19 @@ WANT = {
 
 # The rows tools/bganim_room.py's ROM-room derivation reads (Art_Sonic, the last
 # packed blob) plus the neighbours that make the cut legible: the section that
-# grows into the hole (BgAnim_Banks), the first label it pushes (Map_TestObj), the
-# anchor's alignment label, and Vectors so the cut starts where the listing does.
+# grows into the hole (BgAnim_Table, its head, and BgAnim_Banks), the first label
+# it pushes (Map_TestObj), the anchor's alignment label, and Vectors so the cut
+# starts where the listing does.
+#
+# `BgAnim_Table` was added 2026-09-06 with `check_growth_path` (sigil's F7), which
+# asks where the GROWING section starts — a question no earlier row could answer.
+# The committed cut predates it and is not regenerated for that alone (its
+# addresses are the numeric basis of fifteen tests); tools/test_bg_emit.py's
+# hermetic tree synthesizes the row from BgAnim_Banks and the emitter's own record
+# size instead, and says so. A future regeneration picks it up here.
 SETS = {
     "budget": WANT,
-    "bganim": {"Vectors", "BgAnim_Banks", "Map_TestObj", "Art_Sonic",
+    "bganim": {"Vectors", "BgAnim_Table", "BgAnim_Banks", "Map_TestObj", "Art_Sonic",
                "__align$games.sonic4.dac_banks$0"},
 }
 

@@ -38,6 +38,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from s4budget import (  # noqa: E402
     ListingFormatError,
+    check_budget_cursor,
+    classify_rom_tail,
     compute_ram_layout,
     format_summary,
     load_map,
@@ -482,6 +484,190 @@ class TestSummaryFormatting(unittest.TestCase):
         self.assertIn("object_bank: UNMEASURED", line)
         self.assertNotIn("(0%)", line)
         self.assertNotIn("0KB", line)
+
+
+# ---------------------------------------------------------------------------
+# F4 — the ROM tail. `EndOfRom == the ROM file's size` was an ASSUMPTION whose
+# disagreement printed as an un-failable NOTE, and only in the long report the
+# build does not ask for.
+# ---------------------------------------------------------------------------
+
+FIXTURE_ENDOFROM = 0xA11C0          # `EndOfRom : A11C0 C |` in S4_LST itself
+
+
+@contextlib.contextmanager
+def rom_of(size, tail=b""):
+    """A ROM file `size` bytes long, then `tail`. Written sparsely: the fixture's
+    EndOfRom is 660 KB in and the tests care only about the last few bytes."""
+    fd, path = tempfile.mkstemp(suffix=".bin")
+    with os.fdopen(fd, "wb") as f:
+        if size:
+            f.truncate(size)
+            f.seek(size)
+        f.write(tail)
+    try:
+        yield path
+    finally:
+        os.unlink(path)
+
+
+@contextlib.contextmanager
+def map_with(replacements):
+    """The REAL games/sonic4/map.toml with literal substitutions applied. A
+    miniature map would let a test agree with a parser that reads nothing."""
+    with open(S4_MAP) as f:
+        text = f.read()
+    for old, new in replacements:
+        assert old in text, f"{old!r} is no longer in {S4_MAP}; the test is stale"
+        text = text.replace(old, new)
+    fd, path = tempfile.mkstemp(suffix=".toml")
+    with os.fdopen(fd, "w") as f:
+        f.write(text)
+    try:
+        yield path
+    finally:
+        os.unlink(path)
+
+
+class TestRomTail(unittest.TestCase):
+    """Every byte between EndOfRom and the end of the file must be ACCOUNTED for.
+
+    Red-first, all four branches, against the master tool that produced them all
+    as exit 0: a truncated image, a padded image, the deb2 appendix, and content
+    that is neither.
+    """
+
+    def _run(self, rom_path, extra=()):
+        return run_main([S4_LST, rom_path, "--map", S4_MAP, *extra])
+
+    def test_the_deb2_appendix_is_accounted_and_does_not_fail(self):
+        """The shipped case. `DE B2` is the byte pair the MD Debugger blob's
+        `cmpi.w #$DEB2,(a1)+` validates — NOT the ASCII string `deb2`, which is
+        in neither ROM (build.sh's own measured note)."""
+        with rom_of(FIXTURE_ENDOFROM, b"\xDE\xB2" + b"\x01\x02\x03") as rom:
+            code, out, _e = self._run(rom, ["--rom-only"])
+        self.assertEqual(code, 0)
+        self.assertIn("tail ACCOUNTED", out)
+        self.assertIn("appendix magic deb2", out)
+        self.assertIn("5 B", out)
+
+    def test_padding_of_the_declared_fill_byte_is_accounted(self):
+        with rom_of(FIXTURE_ENDOFROM + 32) as rom:
+            code, out, _e = self._run(rom, ["--rom-only"])
+        self.assertEqual(code, 0)
+        self.assertIn("tail ACCOUNTED", out)
+        self.assertIn("padding", out)
+        self.assertIn("every one 0x00", out)
+
+    def test_the_fill_byte_is_read_from_the_map_and_not_restated(self):
+        """Same 32 trailing bytes, two maps. Under `fill = 0xFF` a run of 0xFF is
+        padding and a run of 0x00 is not — which is only true if the verdict reads
+        the CONTRACT's byte. A constant in the tool would pass one and fail both."""
+        with map_with([("fill = 0x00", "fill = 0xFF")]) as m:
+            with rom_of(FIXTURE_ENDOFROM, b"\xFF" * 32) as rom:
+                code, out, _e = run_main([S4_LST, rom, "--map", m, "--rom-only"])
+            self.assertEqual(code, 0, out)
+            self.assertIn("every one 0xFF", out)
+            with rom_of(FIXTURE_ENDOFROM + 32) as rom:
+                code, _o, err = run_main([S4_LST, rom, "--map", m, "--summary"])
+            self.assertEqual(code, 1)
+            self.assertIn("not 0xFF", err)
+
+    def test_a_rom_shorter_than_EndOfRom_fails(self):
+        """The direction with no legitimate cause. On master this printed
+        `NOTE: ... differ by N bytes (padding, or a stale file)` — naming padding
+        for a file that is SHORT, which padding cannot produce — and exited 0."""
+        with rom_of(FIXTURE_ENDOFROM - 16) as rom:
+            code, _o, err = self._run(rom, ["--summary"])
+        self.assertEqual(code, 1)
+        self.assertIn("16 bytes SHORT", err)
+        self.assertIn("truncated write or a stale artifact", err)
+
+    def test_content_past_EndOfRom_that_is_neither_appendix_nor_fill_fails(self):
+        with rom_of(FIXTURE_ENDOFROM, b"\x12\x34\x56\x78") as rom:
+            code, _o, err = self._run(rom, ["--summary"])
+        self.assertEqual(code, 1)
+        self.assertIn("neither the deb2 symbol appendix", err)
+        self.assertIn(f"${FIXTURE_ENDOFROM:06X}", err)
+
+    def test_a_file_that_ends_exactly_at_EndOfRom_is_accounted(self):
+        with rom_of(FIXTURE_ENDOFROM) as rom:
+            code, out, _e = self._run(rom, ["--rom-only"])
+        self.assertEqual(code, 0)
+        self.assertIn("ends there exactly", out)
+
+    def test_the_tail_axis_reaches_the_summary_the_build_actually_runs(self):
+        """build.sh invokes this tool with `--summary`, and `format_summary` never
+        received `endofrom`. An axis the build cannot print is not a weaker check
+        than one it can."""
+        with rom_of(FIXTURE_ENDOFROM, b"\xDE\xB2") as rom:
+            code, _o, err = self._run(rom, ["--summary"])
+        self.assertEqual(code, 0)
+        self.assertIn("tail:", err)
+        self.assertIn("deb2 appendix", err)
+
+    def test_a_missing_rom_leaves_the_tail_unmeasured_not_green(self):
+        code, _o, err = run_main([S4_LST, "/nonexistent.bin", "--map", S4_MAP, "--summary"])
+        self.assertEqual(code, 0)
+        self.assertIn("tail: UNMEASURED", err)
+
+
+# ---------------------------------------------------------------------------
+# F3 — the budget cursor proxy. `used` is `LMA(cursor) - base`, and nothing
+# checked that the cursor still stands where the map says it does.
+# ---------------------------------------------------------------------------
+
+class TestBudgetCursorProxy(unittest.TestCase):
+    def _run_with_map(self, map_path):
+        with rom_of(FIXTURE_ENDOFROM, b"\xDE\xB2") as rom:
+            return run_main([S4_LST, rom, "--map", map_path, "--summary"])
+
+    def test_the_shipped_cursor_satisfies_every_arm(self):
+        code, _o, err = self._run_with_map(S4_MAP)
+        self.assertEqual(code, 0, err)
+        self.assertNotIn("BUDGET EXCEEDED", err)
+
+    def test_a_cursor_below_the_region_base_fails(self):
+        """`used = cursor - base` has no floor. `EntryPoint` is $200, so `used`
+        becomes -65,024 — which master printed as `-63.5 KB/64.0 KB (-99.2%)`
+        and exited 0, because `breached` only asks about the CEILING."""
+        with map_with([('cursor = "DeformTable_Zero"',
+                        'cursor = "EntryPoint"')]) as m:
+            code, _o, err = self._run_with_map(m)
+        self.assertEqual(code, 1)
+        self.assertIn("BELOW the region base", err)
+        self.assertIn(f"{0x200 - 0x10000:,} bytes", err)
+
+    def test_a_cursor_past_the_region_end_fails_as_a_proxy_and_not_only_as_a_breach(self):
+        """`EndOfRom` is $A11C0, far outside the $10000..$20000 window. The
+        ceiling arm fires too; the point is that the PROXY arm names the distinct
+        defect — `used` counting bytes that are not in the region at all."""
+        with map_with([('cursor = "DeformTable_Zero"', 'cursor = "EndOfRom"')]) as m:
+            code, _o, err = self._run_with_map(m)
+        self.assertEqual(code, 1)
+        self.assertIn("past the END of the region it budgets", err)
+
+    def test_a_cursor_that_is_not_a_declared_section_head_fails(self):
+        """Isolated arm: the cursor keeps its address (in-region, under the
+        ceiling, `used` unchanged at $1984) and only stops being a row of the
+        map's own `order`. Nothing about the NUMBER changes — which is exactly
+        why nothing caught it."""
+        with map_with([('  "DeformTable_Zero",\n', "")]) as m:
+            code, _o, err = self._run_with_map(m)
+        self.assertEqual(code, 1)
+        self.assertIn("is not a row of", err)
+        self.assertIn("`order` array", err)
+
+    def test_the_arms_are_independent_of_the_ceiling_verdict(self):
+        """A cursor can be inside the region, under the ceiling, and still not be
+        the boundary the map declares. The ceiling arm cannot see that case."""
+        model = load_map(S4_MAP)
+        listing = parse_listing(read(S4_LST))
+        rows, _ = resolve_budgets(model, listing)
+        row = next(r for r in rows if r.region == "object_bank")
+        self.assertFalse(row.breached)
+        broken = model._replace(order=[o for o in model.order if o != "DeformTable_Zero"])
+        self.assertTrue(check_budget_cursor(broken, row))
 
 
 if __name__ == "__main__":

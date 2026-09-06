@@ -48,7 +48,44 @@ The three defences against a repeat, all structural rather than conventional:
 What is measurable, and from where:
 
   ROM total      the ROM file on disk, against `[[region]] rom`'s size.
-                 `EndOfRom` cross-checks it.
+                 `EndOfRom` cross-checks it — see the next paragraph for what
+                 that cross-check is now, and what it used to be.
+
+THE `EndOfRom` CROSS-CHECK IS AN ACCOUNTING NOW, AND USED TO BE A NOTE
+(2026-09-06, the sigil lane's F-class row F4). `format_rom_report` compared
+`EndOfRom` with the ROM file's size and, on a disagreement, printed
+
+    NOTE: EndOfRom and the ROM file differ by N bytes (padding, or a stale file).
+
+That line was never appended to `breaches`, so it could not fail a build, and its
+own parenthesis names two causes with opposite severities — legitimate padding and
+a stale artifact — without separating them. A third cause it did not name, real
+content placed past the assembled image, read identically. WORSE THAN UN-FAILABLE:
+build.sh invokes this tool with `--summary`, and `format_summary` never received
+`endofrom` at all, so under the flag the build actually uses the line was not even
+PRINTED. The disagreement is not small or hypothetical — it is 42,845 B in `s4.bin`
+and 54,592 B in `s4.debug.bin` at the measurement below, i.e. the NOTE fired on
+every canonical build and said nothing.
+
+`classify_rom_tail` replaces it with an accounting that has a failing branch:
+
+  · `rom_size < EndOfRom` — the image on disk is SHORTER than what was assembled.
+    There is no legitimate cause; it is a truncated or stale file. BREACH.
+  · excess begins with the appendix magic `DE B2` — the convsym deb2 symbol table
+    sigil appends at `EndOfRom` (crates/sigil-harness/src/native.rs
+    `append_deb2_appendix`; both canonical shapes carry it since the 2026-08-04
+    crash-report ruling). ACCOUNTED, size reported.
+    ⚠ The magic is the BYTE PAIR `DE B2`, not the ASCII string `deb2`, which
+    appears in neither ROM — see build.sh's own corrected note above the sigil
+    invocation, and error_handler.emp's `cmpi.w #$DEB2,(a1)+` description.
+  · every excess byte equals the map's declared `fill` — padding. ACCOUNTED.
+  · anything else — unaccounted content past the assembled image. BREACH, naming
+    the offset of the first byte that is neither.
+
+Measured at introduction, all three shapes that build here: s4 777,362/820,207
+(42,845 B, `de b2`), s4.debug 791,796/846,388 (54,592 B, `de b2`), demo
+70,170/96,827 (26,657 B, `de b2`). Every one lands in the ACCOUNTED-appendix
+branch, so no correct run of any shipped shape trips the refusal.
   Budgets        `[[budget]]` in map.toml — region + ceiling + a cursor SYMBOL,
                  resolved against the listing. This is the map-owned successor
                  to the retired `__BUDGET_DATA` sentinel. Note sigil ALSO
@@ -117,6 +154,19 @@ _UNUSEDCOUNT_RE = re.compile(r'^\s*(\d+) unused symbols\s*$')
 _RAM_BASE = 0xFFFF0000          # Genesis work RAM, 64 KB
 _UPPER_RAM_START = 0xFFFF8000
 _MAX_ROM_ADDR = 0x400000
+
+#: The convsym symbol-appendix magic sigil writes at `EndOfRom`. NOT the ASCII
+#: string `deb2`: the vendored MD Debugger blob validates the table it addressed
+#: with `cmpi.w #$DEB2,(a1)+` (engine/debug/error_handler.emp's WARNING block),
+#: i.e. a 16-bit immediate, so the bytes on disk are DE B2. build.sh carries the
+#: measurement that separates the two — `s4.bin` holds 0 occurrences of ASCII
+#: `deb2` and 3 of the byte pair — and the note on how the wrong claim got there.
+_DEB2_MAGIC = b"\xDE\xB2"
+
+#: The default ROM fill when no map declares one. Both shipped maps say
+#: `fill = 0x00`; this is only the value used when `--map` was not given, and the
+#: padding verdict says so rather than presenting it as the contract's.
+_DEFAULT_FILL = 0x00
 
 
 def parse_listing(lines: List[str]) -> Listing:
@@ -238,6 +288,14 @@ class MapModel(NamedTuple):
     path: str
     regions: List[MapRegion]
     budgets: List[MapBudget]
+    #: The map's top-level `fill = 0x..`, or None when it declares none. Read
+    #: rather than assumed so the padding verdict in `classify_rom_tail` is
+    #: against the byte the CONTRACT names, not a constant restated here.
+    fill: Optional[int] = None
+    #: The declared byte-emitting section order, verbatim. `check_budget_cursor`
+    #: needs it to establish that a budget's cursor names a declared section head
+    #: rather than an arbitrary label that happens to resolve.
+    order: List[str] = []
 
     def region(self, name: str) -> Optional[MapRegion]:
         return next((r for r in self.regions if r.name == name), None)
@@ -267,7 +325,14 @@ def load_map(path: str) -> MapModel:
         raise ListingFormatError(
             f"{path} declares no [[region]] — it is not a placement contract this "
             f"tool can read a budget out of.")
-    return MapModel(path=path, regions=regions, budgets=budgets)
+    fill = doc.get("fill")
+    if fill is not None and not isinstance(fill, int):
+        raise ListingFormatError(
+            f"{path} declares `fill = {fill!r}`, which is not an integer byte — the "
+            f"ROM-tail padding verdict is measured against it, so an unreadable fill "
+            f"must stop the tool rather than fall back to a value nothing declared.")
+    return MapModel(path=path, regions=regions, budgets=budgets, fill=fill,
+                    order=list(doc.get("order", [])))
 
 
 class BudgetRow(NamedTuple):
@@ -308,6 +373,177 @@ def resolve_budgets(model: MapModel, listing: Listing) -> Tuple[List[BudgetRow],
             used=addr - region.lma_base, limit=b.ceiling - region.lma_base,
         ))
     return rows, unresolved
+
+
+class TailVerdict(NamedTuple):
+    """How the bytes past `EndOfRom` are accounted for. `breach` is the only
+    field the threshold reads; `line` is what the report prints either way."""
+    kind: str            # 'exact' | 'appendix' | 'padding' | 'short' | 'unaccounted' | 'unmeasured'
+    excess: Optional[int]
+    line: str
+    breach: Optional[str]
+
+
+def classify_rom_tail(rom_path: Optional[str], rom_size: Optional[int],
+                      endofrom: Optional[int], fill: Optional[int]) -> TailVerdict:
+    """ACCOUNT for every byte between `EndOfRom` and the end of the ROM file.
+
+    This replaces the un-failable `NOTE:` described in the module header (sigil's
+    F4). `EndOfRom` standing in for the ROM file's size is a TERMINUS PROXY: the
+    label is the end of the ASSEMBLED image, the file is that image plus whatever
+    the pipeline appended, and the two are equal only by accident. Until now the
+    difference printed as a note that named "padding, or a stale file" and could
+    not fail, so a stale artifact, legitimate padding and real content placed past
+    the image were one indistinguishable line — and under `--summary`, the flag
+    build.sh uses, not even that.
+
+    The direction that is never legitimate is `rom_size < endofrom`: the image on
+    disk cannot be shorter than what the linker assembled. That is the refusal.
+    The other direction is accounted rather than refused, because the excess IS
+    legitimate on every shape this tree builds (the deb2 appendix), and a refusal
+    that fires on a correct run is worse than the silence it replaces.
+
+    `fill` is the map's declared byte, not a constant restated here; with no map,
+    the padding branch says the fill it used was not declared.
+    """
+    if endofrom is None or rom_size is None:
+        return TailVerdict("unmeasured", None,
+                           "  EndOfRom  UNMEASURED — no EndOfRom symbol in the listing."
+                           if endofrom is None else
+                           "  EndOfRom  present, but the ROM file was not found — the "
+                           "tail past the assembled image cannot be accounted for.",
+                           None)
+
+    excess = rom_size - endofrom
+    if excess < 0:
+        return TailVerdict(
+            "short", excess,
+            f"  EndOfRom  ${endofrom:06X} ({endofrom:,} B assembled) — the ROM FILE IS "
+            f"SHORTER, by {-excess:,} B.",
+            f"the ROM file {rom_path} is {rom_size:,} bytes but the listing assembles "
+            f"{endofrom:,} bytes (EndOfRom ${endofrom:06X}) — the image on disk is "
+            f"{-excess:,} bytes SHORT of what was linked. There is no legitimate cause: "
+            f"it is a truncated write or a stale artifact from an earlier build. Do not "
+            f"read any figure above as a measurement of this build.")
+
+    head = f"  EndOfRom  ${endofrom:06X} ({endofrom:,} bytes assembled)"
+    if excess == 0:
+        return TailVerdict("exact", 0, head + " — the ROM file ends there exactly.", None)
+
+    # The excess exists. Read it and say WHAT it is; every branch below names an
+    # instrument rather than a guess.
+    if rom_path is None or not os.path.isfile(rom_path):
+        return TailVerdict(
+            "unmeasured", excess,
+            head + f"\n  TAIL UNMEASURED — {excess:,} B past the assembled image and no "
+                   f"readable ROM at {rom_path!r} to classify them.",
+            None)
+    with open(rom_path, "rb") as f:
+        f.seek(endofrom)
+        tail = f.read()
+    if len(tail) != excess:
+        return TailVerdict(
+            "unmeasured", excess,
+            head + f"\n  TAIL UNMEASURED — asked for {excess:,} B past ${endofrom:06X} "
+                   f"and read {len(tail):,}; the file changed under the tool.",
+            None)
+
+    if tail[:len(_DEB2_MAGIC)] == _DEB2_MAGIC:
+        return TailVerdict(
+            "appendix", excess,
+            head + f"\n  tail ACCOUNTED: {excess:,} B at ${endofrom:06X} begin with the "
+                   f"appendix magic {_DEB2_MAGIC.hex()} — the convsym deb2 symbol table "
+                   f"sigil appends after the assembled image.",
+            None)
+
+    fill_byte = _DEFAULT_FILL if fill is None else fill
+    provenance = "the map's declared `fill`" if fill is not None else \
+                 "the built-in default (no --map given, so nothing declared one)"
+    odd = next((i for i, b in enumerate(tail) if b != fill_byte), None)
+    if odd is None:
+        return TailVerdict(
+            "padding", excess,
+            head + f"\n  tail ACCOUNTED: {excess:,} B at ${endofrom:06X}, every one "
+                   f"0x{fill_byte:02X} — padding, against {provenance}.",
+            None)
+
+    return TailVerdict(
+        "unaccounted", excess,
+        head + f"\n  tail UNACCOUNTED: {excess:,} B at ${endofrom:06X}.",
+        f"{excess:,} bytes sit past EndOfRom (${endofrom:06X}) in {rom_path} and are "
+        f"neither the deb2 symbol appendix (the first bytes are "
+        f"{tail[:4].hex()}, not {_DEB2_MAGIC.hex()}) nor padding (first byte that is "
+        f"not 0x{fill_byte:02X}, {provenance}, at file offset "
+        f"${endofrom + odd:06X} = 0x{tail[odd]:02X}). Content placed after the "
+        f"assembled image is invisible to every listing-reading gate in this tree, "
+        f"and it BREAKS the MD Debugger: the vendored blob locates its symbol table "
+        f"at the island's end, so anything between them makes every backtrace line "
+        f"print <unknown> (games/sonic4/map.toml, THE FAULT-HANDLER ISLAND IS LAST).")
+
+
+def check_budget_cursor(model: MapModel, row: BudgetRow) -> List[str]:
+    """ASSERT what a budget's `cursor` label is standing in for (sigil's F3).
+
+    `used = LMA(cursor) - region.lma_base` is a TERMINUS PROXY. The map spells the
+    proxy out in its own words — the cursor is "the head-label of the first section
+    PAST the object bank", the map-owned successor to the AS-era `if * > $20000`
+    guard and the retired `__BUDGET_DATA` sentinel — so a REAL terminus was traded
+    for a label, and nothing on either side of the seam checked the trade.
+
+    ⚠ WHAT THIS FUNCTION CANNOT DO, stated here because a check whose limits are
+    unwritten gets read as the whole answer. It cannot verify that the cursor is
+    where the object bank ENDS. Nothing can, on the current contract: sigil's own
+    `object_bank_cursor` says why — "the object bank and the data region share the
+    [$10000,$20000) window and the data region extends BEYOND it, so an LMA window
+    scan cannot separate them — only the declared boundary label can"
+    (crates/sigil-harness/src/native.rs). Neither map.toml nor the listing declares
+    which SECTIONS are bank content, so a section that is object code but is ordered
+    AFTER the cursor makes `used` too small, the ceiling gate green over a real
+    breach, and no instrument in either tree can see it. That gap needs a membership
+    declaration in the map schema, which is a contract change; it is booked in
+    docs/DEFERRED_WORK.md and is NOT closed here.
+
+    What IS asserted, both of which were unchecked and neither of which is implied
+    by the other:
+      (a) the cursor resolves INSIDE the region it budgets. `used` is a subtraction
+          with no floor: a cursor below `lma_base` yields a NEGATIVE used, which
+          prints as a plausible small figure and passes `breached` (which only asks
+          whether the cursor is past the ceiling).
+      (b) the cursor NAMES A DECLARED SECTION HEAD — it must appear verbatim in the
+          map's own `order` array, whose header defines that array as the
+          byte-emitting section head-labels. `cursor = "..."` is a hand-edited
+          string; nothing stopped it naming a mid-section label, which would
+          measure a boundary the map never declared.
+    """
+    problems: List[str] = []
+    region = model.region(row.region)
+    region_end = row.base + region.size if region is not None else None
+
+    if row.cursor_addr < row.base:
+        problems.append(
+            f"{row.region} cursor {row.cursor_name} resolves to ${row.cursor_addr:06X}, "
+            f"BELOW the region base ${row.base:06X} — `used` would be "
+            f"{row.used:,} bytes. The cursor is the head of the first section past the "
+            f"region; a cursor below its base is not measuring that region at all.")
+    elif region_end is not None and row.cursor_addr > region_end:
+        # Distinct from `breached`: that compares against the declared CEILING,
+        # which may sit below the region end. This says the proxy left the region.
+        problems.append(
+            f"{row.region} cursor {row.cursor_name} resolves to ${row.cursor_addr:06X}, "
+            f"past the END of the region it budgets (${row.base:06X}+${region.size:X} = "
+            f"${region_end:06X}). `used` = {row.used:,} B then counts bytes that are not "
+            f"in the region.")
+
+    if model.order and row.cursor_name not in model.order:
+        problems.append(
+            f"{row.region} cursor {row.cursor_name!r} is not a row of {model.path}'s "
+            f"`order` array, which that file defines as the byte-emitting section "
+            f"head-labels. The cursor is declared to be the HEAD of the first section "
+            f"past the region; a label that is not a section head measures a boundary "
+            f"nothing declared, and `used` is then a number about the wrong place. "
+            f"Either point `cursor` at a section head listed in `order`, or add the "
+            f"section this label heads to `order`.")
+    return problems
 
 
 # ---------------------------------------------------------------------------
@@ -500,7 +736,8 @@ def _fmt_size_aligned(n: int, width: int = 10) -> str:
 
 
 def format_rom_report(rom_size: Optional[int], rom_limit: int, endofrom: Optional[int],
-                      budgets: List[BudgetRow], unresolved: List[str]) -> str:
+                      budgets: List[BudgetRow], unresolved: List[str],
+                      tail: Optional[TailVerdict] = None) -> str:
     lines = ["=== ROM Budget ==="]
     if rom_size is None:
         lines.append("ROM: UNMEASURED — the ROM binary was not found "
@@ -509,11 +746,10 @@ def format_rom_report(rom_size: Optional[int], rom_limit: int, endofrom: Optiona
         lines.append(f"ROM: {rom_size:,} / {rom_limit:,} bytes "
                      f"({rom_size / rom_limit * 100:.1f}%)  "
                      f"[{_fmt_size(rom_limit - rom_size)} free]")
-    if endofrom is not None:
+    if tail is not None:
+        lines.append(tail.line)
+    elif endofrom is not None:
         lines.append(f"  EndOfRom  ${endofrom:06X} ({endofrom:,} bytes assembled)")
-        if rom_size is not None and endofrom != rom_size:
-            lines.append(f"  NOTE: EndOfRom and the ROM file differ by "
-                         f"{abs(rom_size - endofrom):,} bytes (padding, or a stale file).")
     else:
         lines.append("  EndOfRom  UNMEASURED — no EndOfRom symbol in the listing.")
 
@@ -594,12 +830,19 @@ def format_vram_report(layout: Optional[VRAMLayout]) -> str:
 
 def format_summary(rom_size: Optional[int], rom_limit: int,
                    budgets: List[BudgetRow], unresolved: List[str],
-                   ram: Optional[RAMLayout]) -> str:
+                   ram: Optional[RAMLayout],
+                   tail: Optional[TailVerdict] = None) -> str:
     """The build one-liner.
 
     UNMEASURED IS NOT ZERO — every axis here either carries a real number or
     says the word. `RAM: 0KB/64KB (0%)` read as a healthy measurement of an
     empty budget for months (D7); it can no longer be produced.
+
+    THE TAIL AXIS IS HERE BECAUSE build.sh USES THIS FORM (2026-09-06, F4). The
+    `EndOfRom` cross-check lived only in `format_rom_report`, which `--summary`
+    never calls, so the one invocation that runs on every build could not print
+    it. An axis the build cannot see is not a weaker check than one it can — it
+    is a different artifact from the one the docs describe.
     """
     parts: List[str] = []
     if rom_size is None:
@@ -607,6 +850,17 @@ def format_summary(rom_size: Optional[int], rom_limit: int,
     else:
         parts.append(f"ROM: {_fmt_size(rom_size)}/{_fmt_size(rom_limit)} "
                      f"({rom_size / rom_limit * 100:.1f}%)")
+    if tail is not None:
+        if tail.kind == "appendix":
+            parts.append(f"tail: {_fmt_size(tail.excess)} deb2 appendix")
+        elif tail.kind == "padding":
+            parts.append(f"tail: {_fmt_size(tail.excess)} padding")
+        elif tail.kind == "exact":
+            parts.append("tail: none (file ends at EndOfRom)")
+        elif tail.kind == "unmeasured":
+            parts.append("tail: UNMEASURED")
+        else:
+            parts.append(f"tail: {tail.kind.upper()}")
 
     for b in budgets:
         pct = b.used / b.limit * 100 if b.limit else 0.0
@@ -704,11 +958,17 @@ def main(argv: Optional[List[str]] = None) -> int:
     rom_region = model.region("rom") if model else None
     rom_limit = rom_region.size if rom_region else 4 * 1024 * 1024
     endofrom = listing.by_name.get("EndOfRom")
+    tail = classify_rom_tail(args.rom if os.path.isfile(args.rom) else None,
+                             rom_size, endofrom, model.fill if model else None)
 
     if model:
         budgets, unresolved = resolve_budgets(model, listing)
     else:
         budgets, unresolved = [], ["budgets (no --map given; nothing declares a ceiling)"]
+    cursor_problems: List[str] = []
+    if model:
+        for b in budgets:
+            cursor_problems.extend(check_budget_cursor(model, b))
 
     stack_addr, stack_derived = read_system_stack()
     ram = compute_ram_layout(ram_labels(listing), stack_addr)
@@ -722,6 +982,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                 "percent": round(rom_size / rom_limit * 100, 1) if rom_size else None,
                 "budgets": [b._asdict() for b in budgets],
                 "unmeasured": unresolved,
+                "tail": tail._asdict(),
+                "cursor_problems": cursor_problems,
             },
             "ram": None if ram is None else {
                 "span_used": ram.span_used, "total": _RAM_TOTAL,
@@ -742,12 +1004,14 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 0
 
     if args.summary:
-        print(format_summary(rom_size, rom_limit, budgets, unresolved, ram), file=sys.stderr)
+        print(format_summary(rom_size, rom_limit, budgets, unresolved, ram, tail),
+              file=sys.stderr)
     else:
         show_all = not (args.rom_only or args.ram_only or args.vram_only)
         sections = []
         if show_all or args.rom_only:
-            sections.append(format_rom_report(rom_size, rom_limit, endofrom, budgets, unresolved))
+            sections.append(format_rom_report(rom_size, rom_limit, endofrom, budgets,
+                                              unresolved, tail))
         if show_all or args.ram_only:
             sections.append(format_ram_report(ram, stack_derived))
         if show_all or args.vram_only:
@@ -773,6 +1037,15 @@ def main(argv: Optional[List[str]] = None) -> int:
         breaches.append(
             f"RAM top ${ram.highest:08X} has reached the stack at "
             f"${ram.stack_addr:08X} — {ram.free_before_stack:,} bytes free")
+    # F4 — the ROM tail. `classify_rom_tail` decides; only the branches that cannot
+    # have a legitimate cause carry a `breach` string, so ACCOUNTED tails (the deb2
+    # appendix, declared padding) print above and change nothing here.
+    if tail.breach:
+        breaches.append(tail.breach)
+    # F3 — the budget cursor proxy. A cursor that has stopped standing for the
+    # region boundary makes `used` a number about the wrong place; that is not a
+    # budget breach, but it is not a green either.
+    breaches.extend(cursor_problems)
     if breaches:
         for b in breaches:
             print(f"s4budget: BUDGET EXCEEDED — {b}", file=sys.stderr)
