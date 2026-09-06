@@ -1638,6 +1638,21 @@ pub proc Parallax_Set_Roles_Swapped (d0: u8) clobbers(d0-d1/a0) {
 // contract-audit note; declared here so the closure check covers the tail.)
 // ----------------------------------------------------------------------
 pub proc Parallax_Update () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
+        // --- Step 0 (DEBUG only): service the live-effects scratch arm ---
+        // An Aether client drives a BUS, not a call stack: it can poke a byte and run a
+        // frame, and cannot force a `jsr`. So Parallax_InstallScratch is armed by a poke and
+        // serviced HERE, ahead of the config select below, which is what makes the install
+        // land on THIS frame rather than the next one — an editor that armed and stepped one
+        // frame would otherwise read a config that is still the ROM one and conclude the
+        // hook did nothing. The arm is cleared before the call, so a refusal cannot spin.
+        // Zero bytes in a release shape; ten in DEBUG, once per frame.
+    if DEBUG == 1 {
+        tst.b   Parallax_Scratch_Arm                // (Parallax_Scratch_Arm).w
+        beq     .no_scratch_arm
+        clr.b   Parallax_Scratch_Arm                // (Parallax_Scratch_Arm).w
+        jbsr    Parallax_InstallScratch             // carry = refused; nothing here acts on it
+    .no_scratch_arm:
+    }
         // --- Step 1: select active config for this frame ---
         // During a smooth transition (Parallax_Transition_Frames > 0) drive
         // band targets from Target_Config; the per-band scroll lerp eases
@@ -3798,5 +3813,118 @@ proc Parallax_Fill_PerLine () clobbers(d0-d6/a1-a6) preserves(a0/d7) {
 
         movem.l (sp)+, a0/d7
         rts
+}
+
+// ======================================================================
+// Parallax_InstallScratch — the LIVE-EFFECTS parameter hook (owner 2026-09-06)
+//
+// Copies the ACTIVE parallax config into `Parallax_Scratch_Config` (engine/ram.emp) and
+// installs the scratch, so an external editor can then edit the scene's fields IN PLACE and
+// see the change on the next frame. `Parallax_Current_Config` points at ROM, so without this
+// a panel can SELECT a scene and cannot NUDGE one — the gap
+// docs/2026-09-06-live-effects-ram-surface.md §4 names, and this is its closure.
+//
+// THE SHAPE IS THE RASTER CHANNEL'S, NOT A NEW ONE. Raster_Buf_A/_B are RAM working copies
+// that `Raster_Program` legitimately points at; the scratch is the parallax twin. ONE buffer
+// here rather than two, derived rather than inherited — see the ram.emp block for why the
+// raster pair's producer/consumer reason does not apply.
+//
+// -------- WHY IT CALLS Parallax_StartTransition INSTEAD OF WRITING THE FOUR CELLS --------
+// The RAM-surface note's §0 states the correct install as the `.instant` arm's four cells
+// (Current_Config, Target_Config = 0, Transition_Frames = 0, Snap_Pending = 1). That is
+// right and it is INCOMPLETE, which is the argument for reuse rather than a second copy:
+// `.instant` falls into `.update_mode`, which also re-derives VDP reg $0B (Mode Set 3) from
+// the config being installed. A hand-rolled four-write duplicate would install a config and
+// leave the register describing the PREVIOUS one — and on the very next frame
+// Parallax_Update's own re-assert (`.mode3_shadow`) would silently correct it, so the
+// duplicate's defect would be one frame wide and effectively unfindable. A second copy of a
+// four-cell invariant is a second place to get it wrong; here it would have been five cells,
+// and the fifth is the one nobody counted.
+//
+// FORCING pcfg_transition, a deliberate edit to the copy rather than a faithful one:
+// StartTransition picks smooth-vs-instant from the NEW config's `pcfg_transition`, and a
+// scene authoring 0 (the default, and what the shipped records carry) would be STAGED as a
+// lerp target instead of installed. A staged config is not the current one, so the editor
+// would be editing a config that is not yet driving anything — the class of silent no-op §0
+// was written about. The scratch is this proc's own buffer and `pcfg_transition` is read at
+// install time and nowhere else, so writing 1 into it costs a panel nothing and makes every
+// install of the scratch (a re-arm included) instant by construction.
+//
+// -------- WHY DEBUG-ONLY --------
+// Weighed rather than inherited; the two candidate answers and what decided it:
+//   * FOR release-resident: `Parallax_Current_Config` is in BOTH shapes, so the SELECTION
+//     half of the panel already works on hardware, and a shape-gated hook makes the panel
+//     carry a second gate (it already carries one for `BgAnim_Table_Ptr`).
+//   * AGAINST: nothing in a release build can reach it. The scratch is PARALLAX_SCRATCH_BYTES
+//     of work RAM and this proc is ROM, with no shipped caller — a game that wants a
+//     runtime-built parallax config builds it in its own RAM and calls
+//     `Parallax_StartTransition`, which is public and present in both shapes. The scratch
+//     buys a shipped game nothing; it exists so an EXTERNAL agent has a known address to
+//     write, which is the definition of a debug surface. `Parallax_Roles_Swapped` is
+//     deliberately NOT gated because a shipped set-piece can use it; this has no such use,
+//     and a resident-but-unreachable block is the dormant scaffold this tree deletes.
+// DEBUG-only wins. The reversal is one word in two places (the `if DEBUG == 1` on the vars
+// group and on this body) and moves nothing else, so it is cheap to revisit if a game ever
+// wants a runtime-authored scene.
+//
+// ⚠ WHAT demo.debug PAYS FOR A HOOK IT CAN NEVER RUN — measured, and named rather than
+// waved past. This proc (62 B) and the arm poll (14 B) and the scratch (544 B of RAM) are
+// all linked into `demo.debug`, and `Parallax_Update` HAS NO CALLER IN games/demo — its only
+// callers are in games/sonic4/test/ojz_scroll_test.emp — so the poll never runs and the hook
+// is unreachable there. It is left ungated on the game for the reason engine/ram.emp's
+// BAND_REMAP_BYTES note already states about demo's per-band tail: this is engine RAM with no
+// per-game arms, and inventing a capability bit for "this game calls Parallax_Update" would
+// be a second authority for a fact the call graph already carries. The consequence for a
+// probe is the part that bites: arming on demo leaves the arm cell SET for ever, which reads
+// like a dirty refusal and is nothing of the kind.
+//
+// ⚠ AND THE REFUSAL ARM BELOW IS DEFENSIVE AND UNEXERCISED. Neither shipped fixture can
+// produce its trigger — sonic4 always has an active config, demo never polls — so `carry SET`
+// is argued from this source and has never been measured. Do not describe it as tested.
+//
+// DEBUG-shape only: the body — the `rts` INCLUDED — sits inside `if DEBUG == 1 {}`, so this
+// proc emits ZERO bytes in a plain shape (the BgAnim_SetTable / Debug_AssertObjLoop idiom).
+// A `rts` left outside cost the release shape two bytes there and moved every symbol after
+// it; a proc whose only caller is DEBUG-gated must emit nothing, not almost nothing.
+//
+// In:  none (reads Parallax_Active_Config)
+// Out: carry CLEAR — the scratch holds a copy of the config that was active and IS the
+//                    current config; Target_Config and Transition_Frames are 0, Snap_Pending
+//                    is 1, and reg $0B's shadow matches the installed config.
+//      carry SET   — REFUSED, nothing written: either no config was active (parallax off) or
+//                    its `pcfg_band_count` exceeds MAX_PARALLAX_BANDS, which is what the
+//                    scratch is sized for. The scratch and all four selector cells are
+//                    untouched — a refusal never clamps, because a clamped copy is a scene
+//                    with bands silently missing.
+// Clobbers: d0-d2, a0-a1
+// ======================================================================
+pub proc Parallax_InstallScratch () clobbers(d0-d2/a0-a1) out(carry: refused) {
+    if DEBUG == 1 {
+        jbsr    Parallax_Active_Config              // d0 = active config*, Z set = inert
+        beq     .refuse
+        movea.l d0, a0                              // a0 = source (ROM, or the scratch on a re-arm)
+        moveq   #0, d1
+        move.b  parallax_config.pcfg_band_count(a0), d1
+        cmp.w   #MAX_PARALLAX_BANDS, d1
+        bhi     .refuse                             // wider than the scratch — refuse, never clamp
+        // Word count: the header plus this config's OWN bands, not the ceiling. Copying the
+        // full reservation would read past the end of a config sitting near the end of ROM,
+        // and the records past pcfg_band_count are never read anyway.
+        mul_const.w d1, #sizeof(band_record)/2, d2  // d1 = bands x record words; d2 trashed
+        addi.w  #sizeof(parallax_config)/2, d1      // + the header's words
+        subq.w  #1, d1                              // -> dbf count (band_count 0 is legal: header only)
+        lea     Parallax_Scratch_Config, a1         // (Parallax_Scratch_Config).w
+    .copy:
+        move.w  (a0)+, (a1)+
+        dbf     d1, .copy
+        lea     Parallax_Scratch_Config, a0         // a0 = the config to install
+        move.b  #1, parallax_config.pcfg_transition(a0)  // see the banner: install instantly
+        jbsr    Parallax_StartTransition            // the four cells + reg $0B, from one authority
+        andi.b  #$FE, ccr                           // installed -> carry CLEAR
+        rts
+    .refuse:
+        ori.b   #1, ccr                             // nothing installed -> carry SET
+        rts
+    }
 }
 

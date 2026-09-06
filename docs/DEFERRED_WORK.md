@@ -48,6 +48,33 @@ against the AS-era tree and cite `.asm` paths and line numbers into files that *
 
 ## NOW UNBLOCKED — actionable (compiled 2026-08-05)
 
+### `lst_proc_sizes` MEASURES PLACEMENT AS WELL AS CODE, AND A PIN WENT RED FOR A PROC THAT DID NOT MOVE — booked 2026-09-06 (`parcel/live-effects-hook`)
+
+`tools/demo_specialization_witness.py`'s image backstop sizes a proc as **the distance to the
+next symbol in the listing**. For the LAST proc in a module, that distance includes the
+placer padding between that module and the next — so the pin is a mixture of code size and
+placement, and nothing says which.
+
+**Measured, not reasoned.** The live-effects parcel added `Parallax_InstallScratch` after
+`Parallax_Fill_PerLine` (previously the last proc in `engine/level/parallax.emp`). The
+witness went red on `Parallax_Fill_PerLine` `100 -> 98` in demo and `966 -> 962` in sonic4 —
+**while not one byte of that proc changed.** Every internal label gap is byte-identical
+between master and the branch in both fixtures; only the final gap moved, from
+`remap_none -> next` 10 to 6 in sonic4 and `band_done -> next` 20 to 18 in demo. The 4 and
+the 2 were pad, now absorbed by the new proc.
+
+**Why this matters beyond one row.** The failure direction is the dangerous one: a red that
+is not a defect trains the next reader to adjust the number. It also runs the other way —
+deleting a proc HANDS THE PAD BACK, so a genuine code shrink and a placement change are
+indistinguishable at this pin. The re-derivation log at the top of `DEMO_SPECIALISED_PROCS`
+carries the full derivation for this instance.
+
+**The fix, not attempted here because it is a tools parcel and not a hook parcel:** emit a
+proc-END symbol (or have `scene_spans.py`/`lst_proc_sizes` derive the end from the emitted
+extent rather than from the next label) so a proc's size is its own bytes and nothing else.
+Until then, every red on this pin needs the "is it code or is it pad?" question asked
+explicitly, and the answer is one `git diff` of internal label gaps away.
+
 ### ⚠ OWNER LOOK CALL — the d-15 SHOWCASE's background is DESTROYED by its own curve where the foreground does not cover it — measured 2026-09-06 (`parcel/depth-showcase-onset`)
 
 **Witness:** `docs/witness/depth-onset-2026-09-06.md` (+ `.json`, + six PNGs).
