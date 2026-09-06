@@ -1231,14 +1231,21 @@ async def test_back_face(pr, spring, want, out, leg):
             f"{leg}: the player never got inside the spring's {half_w}px contact face over "
             f"{BACK_FRAMES} frames (closest {closest}px) — the back face never ran, so "
             f"'it did not launch him' is a statement about a collision that did not happen")
-    if wrong_side:
-        raise Unmeasurable(
-            f"{leg}: the player crossed to the spring's LAUNCHING side during the approach "
-            f"— whatever the rest of this leg measured, it was not the back face")
     if peak_gsp == 0 and peak_xv == 0:
         raise Unmeasurable(f"{leg}: the player carried no speed at all into the back face")
 
+    # THE LAUNCH EVIDENCE IS WEIGHED BEFORE THE CROSSING GUARD, and that ORDER is the
+    # difference between this leg reporting a defect and reporting that it could not look.
+    # Proved by the red-first mutation that deletes the side face's direction gate (`bmi
+    # .spring_side_push` -> a branch that never fires): the back face then launches him at
+    # 16px/frame straight THROUGH the spring, so `wrong_side` is set — and a guard
+    # evaluated first turned the sharpest possible symptom into "the player crossed, so
+    # nothing was measured", exit 2. He crossed BECAUSE he was launched. So the peaks and
+    # the animation, both sampled across the whole window and both valid however he
+    # travelled, are judged first; crossing is then a FAIL that the launch explains, and
+    # stays UNMEASURABLE only when no launch was seen and something else moved him.
     floor = abs(want) // 2
+    launched = peak_xv >= floor or peak_gsp >= floor or anim_seen != {SPRING_ANIM_IDLE}
     out.append(f"  {leg}: closest approach {closest}px inside a {half_w}px face, peak "
                f"|x_vel| {peak_xv}, peak |ground_speed| {peak_gsp}")
     if peak_xv >= floor or peak_gsp >= floor:
@@ -1249,6 +1256,16 @@ async def test_back_face(pr, spring, want, out, leg):
     else:
         out.append(f"  {leg}: neither driver came near the {floor} launch threshold (half "
                    f"the {want} launch) — the back face did not fire")
+    if wrong_side:
+        if launched:
+            fails.append(f"{leg}: he ended up on the spring's LAUNCHING side — thrown "
+                         f"straight through it by the face that was supposed to stop him")
+            return fails
+        raise Unmeasurable(
+            f"{leg}: the player crossed to the spring's LAUNCHING side during the approach "
+            f"without any sign of a launch (peak |x_vel| {peak_xv}, |ground_speed| "
+            f"{peak_gsp}, anim {sorted(anim_seen)}) — something other than this spring "
+            f"moved him and the back face was not what was measured")
     if anim_seen != {SPRING_ANIM_IDLE}:
         fails.append(f"{leg}: the spring's anim took the value(s) {sorted(anim_seen)} during "
                      f"the back-face contact — Game.spring_launched restarts the fire "
@@ -1341,6 +1358,7 @@ async def test_top_land(pr, spring, out, leg):
         raise Unmeasurable(f"{leg}: the poke did not take — asked for ({spring['x']},"
                            f"{start_y}), the slot reads ({got['x']},{got['y']})")
     half_h = (got["h"] + spring["h"]) // 2
+    half_w = (got["w"] + spring["w"]) // 2
     if SIDE_DROP_HEIGHT <= half_h:
         raise Unmeasurable(f"{leg}: the {SIDE_DROP_HEIGHT}px drop starts inside the spring's "
                            f"{half_h}px vertical contact face — he would be in contact "
@@ -1350,7 +1368,7 @@ async def test_top_land(pr, spring, out, leg):
                f"{SIDE_DROP_HEIGHT}px above its centre against a {half_h}px contact face")
 
     peak_yv, peak_xv, peak_gsp, anim_seen = 0, 0, 0, set()
-    landed = None
+    landed, touched = None, False
     for f in range(TOP_LAND_FRAMES):
         await pr.frames(1)
         st = await pr.player_state()
@@ -1358,25 +1376,45 @@ async def test_top_land(pr, spring, out, leg):
         peak_xv = max(peak_xv, abs(st["xv"]))
         peak_gsp = max(peak_gsp, abs(st["gsp"]))
         anim_seen.add(await pr.anim(spring["sst"]))
+        if abs(st["y"] - spring["y"]) < (st["h"] + spring["h"]) // 2 and \
+                abs(st["x"] - spring["x"]) < half_w:
+            touched = True
         if (st["status"] >> pr.equ["ST_ON_OBJECT"]) & 1:
             landed = (f + 1, st)
             break
-    if landed is None:
-        st = await pr.player_state()
-        raise Unmeasurable(
-            f"{leg}: {TOP_LAND_FRAMES} frames after the drop the player has still not stood "
-            f"on anything (at ({st['x']},{st['y']}) y_vel {st['yv']} status "
-            f"${st['status']:02X}) — he fell PAST the spring or through it, and a landing "
-            f"that did not happen cannot be checked for a launch")
-    frames_to_land, st = landed
     if peak_yv <= 0:
         raise Unmeasurable(f"{leg}: the player never carried a downward y_vel on the way — "
                            f"he did not descend onto anything")
 
     fails = []
+    # CONTACT IS THE VACUITY LINE, NOT LANDING, and the two are different questions.
+    # Proved by the red-first mutation that disarms the top face's `y_vel < 0` test: the
+    # side spring's top then LAUNCHES instead of landing, hands the player its ZERO y_vel
+    # and drops him airborne — a spring you fall through the top of. He therefore never
+    # stands on anything, and the first version of this leg, which treated "did not land"
+    # as its vacuity case, reported UNMEASURABLE for the exact defect it exists to catch.
+    # So the line moved to where it belongs: he must have OVERLAPPED the spring, and the
+    # absence of that overlap is genuinely unmeasurable (he fell past it). Having
+    # overlapped it, NOT landing is a failure and is reported as one.
+    if not touched:
+        st = await pr.player_state()
+        raise Unmeasurable(
+            f"{leg}: over {TOP_LAND_FRAMES} frames the player never overlapped the spring at "
+            f"all (he is at ({st['x']},{st['y']}), the spring is at ({spring['x']},"
+            f"{spring['y']})) — he fell PAST it, so no top contact happened and nothing "
+            f"about the top face was measured")
+    if landed is None:
+        st = await pr.player_state()
+        fails.append(
+            f"{leg}: HE FELL THROUGH THE TOP: he overlapped the spring and {TOP_LAND_FRAMES} "
+            f"frames later has still not stood on anything (at ({st['x']},{st['y']}) y_vel "
+            f"{st['yv']} status ${st['status']:02X}). A side spring's top face must be an "
+            f"ordinary landing; this one handed him its zero y_vel and dropped him airborne")
+        landed = (TOP_LAND_FRAMES, st)
+    frames_to_land, st = landed
     want_y = spring["y"] - half_h + 1
-    out.append(f"  {leg}: landed after {frames_to_land} frames at y={st['y']}, peak fall "
-               f"speed {peak_yv} (8.8)")
+    out.append(f"  {leg}: {'landed' if not fails else 'the window ended'} after "
+               f"{frames_to_land} frames at y={st['y']}, peak fall speed {peak_yv} (8.8)")
     if st["y"] != want_y:
         fails.append(f"{leg}: seated at y={st['y']}, expected {want_y} (the spring's centre "
                      f"{spring['y']} less the {half_h}px contact face plus the 1px contact "
