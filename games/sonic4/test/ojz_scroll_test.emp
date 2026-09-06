@@ -178,6 +178,17 @@ use games.sonic4.ojz_effects.{OJZ_BandDemo, OJZ_BaseSwap}
 // which scalar the step is read from (tools/inject_editor_bg.py's `default_off`
 // block). BgAnim_Table is the act's own, and for this act its band count is 0 — it
 // IS the OFF row, not a stand-in for one.
+//
+// THIS `use` IS UNCONDITIONAL IN EVERY SHAPE, INCLUDING PLAIN, and that is load-bearing
+// rather than incidental: a `use` is resolved before any `if DEBUG == 1` is considered,
+// so the plain link needs all four names to exist even though only the DEBUG shape can
+// reach three of them. Until 2026-09-06 the emitter wrote the three view names for
+// exactly ONE act document (single band, `default_off`, 64 px) and the other seven
+// reachable shapes failed the PLAIN build with `has no pub name BgAnim_View_H`. They are
+// now exported by every shape — a declining act exports them as count-0 (OFF) tables.
+// If you add a name here, it must be one the emitter writes UNCONDITIONALLY;
+// tools/test_bg_emit.py::TestBgAnimViewNamesAreShapeInvariant parses this very line and
+// checks each name against every act shape, so it will tell you.
 use games.sonic4.ojz_bg_anim_act1.{BgAnim_Table, BgAnim_View_H, BgAnim_View_V, BgAnim_View_T}
 // Rows 3 and 4 — the VERTICAL-AXIS band and its horizontal-axis control — are NOT
 // imported: they are declared at the FOOT OF THIS FILE (see the block there for why they

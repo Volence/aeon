@@ -366,6 +366,47 @@ BGANIM_VIEW_COUNT = 3
 # The ruling's sentence is directional: `default_off` independent of the twins, not the
 # twins independent of `default_off`. Emitting twins for every single-band 64 px act
 # would add 138 B to the DEBUG shape of acts that never asked, and is not this lane's.
+#
+# ── SHAPE INVARIANCE OF THE EXPORTED NAMES (bug found by the aurora lane 2026-09-06,
+#    reproduced and fixed here the same day) ───────────────────────────────────────
+#
+# THE NAMES `BgAnim_View_H` / `_V` / `_T` ARE EXPORTED BY EVERY ACT SHAPE. Only their
+# CONTENT depends on the condition above: a qualifying act gets a real band table, and
+# every other act gets a count-0 (OFF) table. This is not a softening of the condition
+# — it is a separation of "does this act get the lab's A/B" (the condition, unchanged)
+# from "does this module have a public interface" (never a content question).
+#
+# WHAT IT COST BEFORE, measured with a one-key control on the pristine shipped
+# document: delete `default_off` from the act's one band, change nothing else, re-bake,
+# and the PLAIN build dies with
+#     [Error] module `games.sonic4.ojz_bg_anim_act1` has no `pub` name `BgAnim_View_H`
+# and the same for `_V` and `_T`. `games/sonic4/test/ojz_scroll_test.emp` imports all
+# three in one unconditional `use`, and a `use` is resolved in EVERY shape — the
+# `if DEBUG == 1` guards on the declarations do not protect the plain link. Over the
+# whole population of documents an author can reach by editing the band list, ONE
+# shape of eight linked.
+#
+# NOT A REGRESSION OF THE DECOUPLE ABOVE. Aurora checked the pre-decouple code
+# (483b3e12): it returned 0 twins for a no-`default_off` act too, so this failure stood
+# behind the refusal the whole time and became visible when the refusal stopped firing
+# first. It fails WORSE than the refusal did: a refusal at least named what happened.
+#
+# WHY A COUNT-0 TABLE AND NOT A ZERO-LENGTH LABEL. A `[u16; 0]` name resolves to
+# whatever emission follows it — for the animated arm that is the 8 KB `BgAnim_Banks`
+# blob, whose first word would be read as a band count and walked. A count-0 table is
+# structurally the SAME THING row 0 of the lab's cycle already selects (the act's own
+# `BgAnim_Table` when every band is `default_off`) and `BgAnim_Update` disposes of it in
+# two instructions (`move.w (a3)+, d7` / `beq .exit`). Selecting a declined row is an
+# OFF row.
+#
+# THREE WORDS AND NOT ONE SHARED WORD: `Debug_TierTags_Update` scans `.view_table` to
+# turn the live `BgAnim_Table_Ptr` back into a row index for its on-screen name tag, so
+# three rows sharing an address would tag as each other.
+#
+# THE PRICE, stated because "it costs nothing" is the claim that goes stale:
+# BGANIM_VIEW_COUNT count words = 6 B, in the DEBUG shape only (the declarations keep
+# the `[u16; BGANIM_VIEW_EMIT]` idiom, so the plain shape emits zero bytes), and only
+# for acts that decline. The SHIPPED act is the live shape and is byte-identical.
 
 def view_emission(anims):
     """`(n_views, note)` — the twins' condition, and what to SAY when it is unmet.
@@ -379,6 +420,11 @@ def view_emission(anims):
     which drives ONE band, so they are emitted only for the shape the lab can actually
     show: exactly one band, marked `default_off`, whose pattern period is the one
     BGANIM_VIEW_V_RATE_SHIFT was derived against. See the block above for what moved.
+
+    `n_views == 0` MEANS "no band", NOT "no name". Every act exports all three names —
+    see the SHAPE INVARIANCE block above, and `declined_views` for the complement this
+    returns. Reading a 0 here as "the module has no `BgAnim_View_H`" is the misreading
+    that cost seven of eight act shapes their link.
     """
     off = [a for a in anims if a.get('default_off', False)]
     if not off:
@@ -401,6 +447,8 @@ def view_emission(anims):
         f'  counted into BgAnim_Table, so the act boots with them off in every shape\n'
         f'  including release. THIS IS THE TWINS DECLINING, NOT A REFUSAL -- the ship\n'
         f'  decision is not theirs to veto (ruling 2026-09-06).\n'
+        f'  THE THREE NAMES ARE STILL EXPORTED, as count-0 (OFF) tables, so the build\n'
+        f'  LINKS and the lab\'s rows 1-3 simply show nothing. Only the bands decline.\n'
         f'  To get the twins back: reduce the act to a single '
         f'{BGANIM_VIEW_DERIVED_PERIOD_PX} px band, or extend\n'
         f'  BGANIM_VIEWS to a per-band shape deliberately.')
@@ -460,7 +508,7 @@ def band_emission_order(anims):
         f'order.')
 
 
-def bganim_section_bytes(n_bands, total_slots, n_views=0):
+def bganim_section_bytes(n_bands, total_slots, n_views=0, n_declined_views=0):
     """Emitted `ojz_bg_anim` size for `n_bands` bands covering `total_slots` slots.
 
     ⚠ WHICH QUESTION A BARE CALL ANSWERS, and it is not the one a new consumer means.
@@ -480,7 +528,8 @@ def bganim_section_bytes(n_bands, total_slots, n_views=0):
     a signature change is not this lane's to take under the standing scope cut.
 
     The one authority for the section's size. `n_bands == 0` is the disabled stub
-    (`BgAnim_Table: u16 = 0` plus `BgAnim_Banks = Data.empty`) = 2 bytes.
+    (`BgAnim_Table: u16 = 0` plus `BgAnim_Banks = Data.empty`) = 2 bytes, plus the
+    declined twins' count words in the DEBUG shape (see `n_declined_views`).
 
     `n_views` is the number of DEBUG view twins emitted beside the act's own table
     (`default_off` acts; see BGANIM_VIEWS). Each is its own count word plus its own
@@ -489,11 +538,71 @@ def bganim_section_bytes(n_bands, total_slots, n_views=0):
     so it cannot be shared and is written out again. The BANK BLOB is shared: every
     view's pointer array names the same `extern("BgAnim_Banks")` offsets, which is
     why the expensive half of the section does not multiply.
+
+    `n_declined_views` is the number of twins whose NAME is exported but which carry
+    no band -- a bare count-0 word each, DEBUG shape only. THE TWO TERMS ARE
+    EXCLUSIVE AND SUM TO `BGANIM_VIEW_COUNT`: every act exports all three names
+    (the shape-invariance contract in the block above `view_emission`), and the
+    twins' own condition decides which of the two forms each one takes. So a live
+    act is `n_views=3, n_declined_views=0` and every other act is `n_views=0,
+    n_declined_views=3`, and the fix that made the second shape link cost the FIRST
+    one nothing -- the shipped act's 8,376 B is the number it was before.
     """
     return (BGANIM_COUNT_BYTES
             + BGANIM_RECORD_BYTES * n_bands
             + n_views * (BGANIM_COUNT_BYTES + BGANIM_RECORD_BYTES * n_bands)
+            + n_declined_views * BGANIM_COUNT_BYTES
             + total_slots * BGANIM_BYTES_PER_SLOT)
+
+
+def declined_views(anims):
+    """How many view twins export a NAME but no band, for `anims`.
+
+    The complement of `views_emitted` within `BGANIM_VIEW_COUNT`. Its own name
+    because it is a size operand and reads wrong as an arithmetic expression at
+    four call sites.
+    """
+    return BGANIM_VIEW_COUNT - views_emitted(anims)
+
+
+#: The three twin names, in the order the lab's `.view_table` lists them. ONE
+#: authority: the live arm spells them beside their records and the declining arm
+#: reads them from here, so the two arms cannot export different name sets.
+BGANIM_VIEW_NAMES = ('BgAnim_View_H', 'BgAnim_View_V', 'BgAnim_View_T')
+
+
+def _emit_declined_views(f):
+    """Write the three twin names as count-0 (OFF) tables.
+
+    BOTH EMITTER ARMS CALL THIS — the animated one when the twins' condition is unmet
+    and the disabled stub always — because the defect being closed is that the
+    module's exported name set depended on the document at all. See the SHAPE
+    INVARIANCE block above `view_emission` for the measurement and for why a count-0
+    table rather than a zero-length label.
+    """
+    f.write('\n// The effects lab\'s three BG-animation view twins DECLINE for this act:\n'
+            '// their condition (exactly ONE band, pattern_px '
+            f'{BGANIM_VIEW_DERIVED_PERIOD_PX}, and `default_off`\n'
+            '// on it as the opt-in) is unmet. Any note above says which half.\n'
+            '//\n'
+            '// THEIR NAMES ARE EXPORTED ANYWAY, AS count-0 (OFF) TABLES, and that is a\n'
+            '// CONTRACT rather than a courtesy: games/sonic4/test/ojz_scroll_test.emp\n'
+            '// imports all three in one UNCONDITIONAL `use`, which is resolved in every\n'
+            '// shape — so a module whose exported names follow the document fails the\n'
+            '// link, in the PLAIN shape too, naming three symbols the author never\n'
+            '// wrote. (Measured 2026-09-06 with a one-key control: delete `default_off`\n'
+            '// from the shipped act\'s one band and the plain build dies with\n'
+            '// `has no pub name BgAnim_View_H`.)\n'
+            '//\n'
+            '// A count-0 table is what row 0 of that same cycle already selects, and\n'
+            '// BgAnim_Update disposes of it in two instructions (`move.w (a3)+, d7` /\n'
+            '// `beq .exit`) — so selecting one of these rows is an OFF row, not a wild\n'
+            '// band table. Cost: one count word each in the DEBUG shape, ZERO bytes in\n'
+            '// the plain one.\n')
+    f.write('const BGANIM_VIEW_EMIT = if DEBUG == 1 { 1 } else { 0 }\n')
+    for name in BGANIM_VIEW_NAMES:
+        f.write(f'pub data {name}: [u16; BGANIM_VIEW_EMIT] = '
+                'if DEBUG == 1 { [0] } else { [] }   // declined: band count 0 (OFF)\n')
 
 
 def check_bganim_section_fits(anims, section=None):
@@ -512,7 +621,16 @@ def check_bganim_section_fits(anims, section=None):
     section = section or ACT.section
     n_bands = len(anims)
     total_slots = sum(a['cols'] * a['rows'] for a in anims)
-    size = bganim_section_bytes(n_bands, total_slots, n_views=views_emitted(anims))
+    n_views = views_emitted(anims)
+    n_declined = declined_views(anims)
+    size = bganim_section_bytes(n_bands, total_slots, n_views=n_views,
+                                n_declined_views=n_declined)
+    # The decomposition printed below must SUM TO `size`. It omitted the view terms
+    # while they were 0 or 138 and nothing noticed; a breakdown that does not add up
+    # to the total beside it is worse than no breakdown, so both terms are spelled.
+    views_term = (f'{n_views}x({BGANIM_COUNT_BYTES} + {BGANIM_RECORD_BYTES}x{n_bands}) '
+                  f'view twins' if n_views else
+                  f'{n_declined}x{BGANIM_COUNT_BYTES} declined view names')
     ceiling = BGANIM_SECTION_CEILING
     if size <= ceiling:
         return size
@@ -537,7 +655,7 @@ def check_bganim_section_fits(anims, section=None):
         f"[inject_editor_bg] REFUSED: this act's BG animation does not fit its section.\n"
         f"  {n_bands} band(s), {total_slots} slots total ({per_band})\n"
         f"  -> {section} would be {size} B "
-        f"({BGANIM_COUNT_BYTES} + {BGANIM_RECORD_BYTES}x{n_bands} + "
+        f"({BGANIM_COUNT_BYTES} + {BGANIM_RECORD_BYTES}x{n_bands} + {views_term} + "
         f"{total_slots}x{BGANIM_BYTES_PER_SLOT})\n"
         f"  -> the ceiling is {ceiling} B (BGANIM_SECTION_CEILING, the ruled authoring\n"
         f"     budget inside the ROM room), so this is {over} B over.\n"
@@ -568,18 +686,22 @@ def live_section_bytes(aeon=None, act=None):
         act = ACT
     path = act.override_path(aeon) if aeon is not None else (
         OVERRIDE if act is ACT else act.override_path())
+    # The stub arm exports the three view names too (shape invariance), so its size
+    # carries their count words in the DEBUG shape exactly as the animated arm's does.
+    stub = bganim_section_bytes(0, 0, n_declined_views=BGANIM_VIEW_COUNT)
     if not os.path.exists(path):
-        return bganim_section_bytes(0, 0)          # no override -> the disabled stub
+        return stub                                # no override -> the disabled stub
     with open(path) as f:
         data = json.load(f)
     anims = data.get('anims')
     if anims is None and data.get('anim'):
         anims = [data['anim']]
     if not anims:
-        return bganim_section_bytes(0, 0)
+        return stub
     return bganim_section_bytes(len(anims),
                                 sum(a['cols'] * a['rows'] for a in anims),
-                                n_views=views_emitted(anims))
+                                n_views=views_emitted(anims),
+                                n_declined_views=declined_views(anims))
 
 
 REPO = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
@@ -1147,15 +1269,20 @@ def main(act=None):
                         'if DEBUG == 1 { [1] } else { [] }   // the TIMER arm of the A/B\n')
                 _emit_record('ViewT', b, 0, BGANIM_VIEW_T_DRIVER,
                              BGANIM_VIEW_T_RATE_SHIFT, gated=True)
+            else:
+                _emit_declined_views(f)
             f.write(f'pub data BgAnim_Banks = embed("{act.banks_embed}")\n')
+        n_declined = BGANIM_VIEW_COUNT - n_views
         assert section_bytes == bganim_section_bytes(
-                len(bands), sum(b['tile_count'] for b in bands), n_views=n_views), (
+                len(bands), sum(b['tile_count'] for b in bands), n_views=n_views,
+                n_declined_views=n_declined), (
             f'bganim_section_bytes predicted {section_bytes} B but the emitted artifacts are '
-            f'{BGANIM_COUNT_BYTES + BGANIM_RECORD_BYTES * len(bands) + n_views * (BGANIM_COUNT_BYTES + BGANIM_RECORD_BYTES * len(bands)) + len(banks)} B — the '
+            f'{BGANIM_COUNT_BYTES + BGANIM_RECORD_BYTES * len(bands) + n_views * (BGANIM_COUNT_BYTES + BGANIM_RECORD_BYTES * len(bands)) + n_declined * BGANIM_COUNT_BYTES + len(banks)} B — the '
             f'size formula and the emitter have diverged, so the ceiling gates nothing')
         live = sum(0 if b['default_off'] else 1 for b in bands)
         print(f'[inject_editor_bg] anim: {len(bands)} band(s), {live} live at boot, '
-              f'{n_views} debug view twin(s), {len(banks)} bytes of banks; '
+              f'{n_views} debug view twin(s) + {n_declined} declined name(s), '
+              f'{len(banks)} bytes of banks; '
               f'ojz_bg_anim {section_bytes}/{BGANIM_SECTION_CEILING} B (ROM-room ceiling)')
         # The declines, on stdout, where the author who just pressed Promote is looking.
         # They are ALSO comments in the emitted module (scrollback is ephemeral); see
@@ -1175,8 +1302,14 @@ def main(act=None):
             f.write(f'// Natively placed at the {act.section} section.\n')
             f.write(f'module {act.module} in {act.section}\n\n')
             f.write('pub data BgAnim_Table: u16 = 0              // band_count = 0 (disabled)\n')
+            # The stub arm exports the twin names too — the whole point of the shape
+            # invariance is that a consumer's `use` does not depend on the document.
+            # An act with no animation at all was one of the seven shapes that could
+            # not link.
+            _emit_declined_views(f)
             f.write('pub data BgAnim_Banks = Data.empty         // bank-blob base (empty in the stub)\n')
-        print('[inject_editor_bg] anim: disabled stub (band_count = 0)')
+        print('[inject_editor_bg] anim: disabled stub (band_count = 0), '
+              f'{BGANIM_VIEW_COUNT} declined view name(s)')
     if len(layout) == 2048:
         layout = layout + [0]*2048          # legacy 32-row layout: pad to 64 rows
     assert len(layout) == 4096, f'layout must be 64x32 or 64x64 words, got {len(layout)}'
