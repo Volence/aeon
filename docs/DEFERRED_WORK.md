@@ -26648,3 +26648,34 @@ for a sidestep; the spring rides in the nearest already-declared section
 (`test_solid`), whose head label `TestSolid_Init` must therefore stay that file's
 first emitting item. Split it when something else is already taking the sigil
 pairing.
+
+---
+
+### A rate is not a characterisation, and the ordering of evidence failures - 2026-09-05
+
+**Two lanes measured the same defect and neither knew its shape.** sigil said
+`scene_spans.py::vma_phased_symbol_names()` was wrong "in both directions"; this lane measured 36
+returned names against a true 6, with 30 phantoms and no misses for sonic4. Both rates were
+correct. **Neither said WHICH ones, which is the only part that decides whether it matters.**
+
+**THE SHAPE: parents captured, locals dropped.** The tool parses `section ... (vma: ...)` blocks
+and takes the top-level names. It returns `Z80_IdleProgram` and misses
+`$engine.z80_init$Z80_IdleProgram$code_end`, a LOCAL inside a phased proc. So the misses are not
+scattered; they are exactly the local labels.
+
+**AND THAT IS THE ONE CLASS THAT MATTERS.** The tool exists so a boundary-inferring consumer never
+lets a phased symbol stand as an extent boundary. The symbol it misses is an END-OF-CODE MARKER
+with three imm16 references - a symbol whose whole purpose is to be a boundary. 30 over-reports are
+harmless; the single miss is the exact shape the tool was written to catch.
+
+**Transferable:** when a derivation walks a structure and takes the named things at ONE LEVEL, ask
+what lives at the level below. In a symbol table that is where the boundary markers are.
+
+**ORDERING OF EVIDENCE FAILURES**, sigil's, ranked by how much attention can save you:
+1. **A contradiction inside the evidence.** Tonight: four exit-1 legs sitting beside the *correct*
+   md5s. A careful reader can find it.
+2. **An absence in the evidence.** A killed suite showing 4,215 passed, zero failures, stopping at
+   88% - nothing wrong in it at all, only a missing end marker someone had put there for exactly
+   this.
+3. **An absence with nothing expecting the presence.** Nothing to notice. **Needs a mechanism, not
+   attention** - which is why a long run writes its end marker before it starts.
