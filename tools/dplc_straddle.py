@@ -1091,6 +1091,280 @@ def concurrent_demand(per_subject_split, n_players, n_appendage):
     return n_resident, ranked, sum(v for _, v in ranked)
 
 
+# ------------------------------------------------------------------ the MARGIN
+#
+# THE QUANTITY THE TREE DEPENDS ON THAT NOTHING COMPUTED. Routed from sigil
+# `ebd22729` (2026-09-05) §6 item 2: "the decaying dedup margin wants a monitor, not
+# a note. The quantity is `packed_data_end`'s distance to the next forbidden band; it
+# is computable by `dplc_straddle` today and nothing computes it."
+#
+# The three verdicts below all answer one question at ONE point: is the layout green
+# where it stands. None of them answers HOW FAR IT CAN MOVE before it stops being
+# green — and `Art_Sonic` is the terminus of the packed region, so every byte of data
+# added anywhere below it moves that base. Sigil's measurement of the decay:
+#
+#     BLOCK-STREAM-DEDUP's slack above its safe band: 5,686 B -> 2,584 B in 7 days
+#     the growth-direction margin:                   36,092 B -> 32,990 B in 7 days
+#
+# about 440 B/day of ordinary, unrelated data growth. A margin nobody measures is not
+# a margin: the first thing that says it is gone is the build turning red, and by then
+# the growth that consumed it belongs to somebody else's parcel.
+#
+# WHY A FULL PERIOD IS AN EXHAUSTIVE SEARCH. Whether an entry straddles depends only
+# on `(art_base + shift)` relative to the multiples of `boundary`, so the verdict
+# pattern is periodic in `shift` with period `boundary`. Scanning one whole period in
+# each direction therefore either finds the nearest forbidden shift or proves there is
+# none at any address — the second case is a real answer (three of the four subjects
+# are in it: their ceiling `2 x peak_entries` cannot reach the bar), not a timeout.
+#
+# WHY BYTE GRANULARITY. A band can be narrower than a tile: sigil measured a 31 B
+# VERDICT B band. A tile-granular scan would step over it and report a margin that is
+# wrong in the flattering direction.
+#
+# REACHABILITY DOES NOT MOVE WITH THE BASE. Which frames the game can display is a
+# property of the animation scripts and the `mapping_frame` writers, not of where the
+# art landed, so the `reach` computed once at the real base is correct at every shift.
+# (If that ever stops being true this is the comment that is wrong.)
+
+
+def frame_split_ceiling(ents, tile_size, boundary):
+    """The most entries of ONE frame that can straddle at once, over EVERY art base.
+
+    EXACT, not a bound. Entry `(start, count)` straddles when a boundary falls strictly
+    inside `(start*TS, (start+count)*TS)` measured from the art base; as the base moves,
+    that interior position sweeps every offset, so the answer is the deepest overlap of
+    those open intervals -- and a base can be chosen to realise it, which is what makes
+    it exact rather than conservative.
+
+    THE PLURAL-BOUNDARY TERM IS NOT AN OVERSIGHT. Boundaries recur every `boundary`
+    bytes, and a subject's art is long enough that two of them can sit inside one
+    frame's span at the same time, so depth is summed over `o + k*boundary` rather than
+    read at a single point. Dropping that term would understate a ceiling, which is the
+    flattering direction.
+    """
+    if not ents:
+        return 0
+    spans = [(s * tile_size, (s + c) * tile_size) for s, c in ents]
+    hi = max(b for _a, b in spans)
+    best = 0
+    # Candidate offsets: every interval's open interior just past its left edge, taken
+    # modulo the period. A deepest-overlap point always coincides with one of them.
+    for a, _b in spans:
+        o = (a + 1) % boundary
+        depth = 0
+        for k in range(0, hi // boundary + 2):
+            x = o + k * boundary
+            depth += sum(1 for lo, hiv in spans if lo < x < hiv)
+        best = max(best, depth)
+    return best
+
+
+def subject_ceilings(sub, reach, tile_size, boundary):
+    """The most this subject can EVER cost, at any art base. Derived, not swept.
+
+        ceiling_slots  = max over ALL frames of (entries + frame_split_ceiling)
+        ceiling_split  = max over REACHABLE frames of frame_split_ceiling
+
+    This is sigil `ebd22729` §3's argument -- "three of the four subjects cannot fail
+    VERDICT A at any base in the address space" -- turned from a sentence into a number
+    the tool computes, which is what lets the margin scan SKIP a subject instead of
+    spending a whole 0x20000-byte period proving it one shift at a time. §3 stated the
+    ceiling as `2 x peak entries`, which is the bound you get by assuming every entry of
+    the peak frame can straddle together; the overlap computation above is the exact
+    form of the same quantity and is never larger.
+    """
+    rf = reach[sub["name"]]["frames"]
+    slots, split = 0, 0
+    for i, ents in enumerate(sub["frames"]):
+        c = frame_split_ceiling(ents, tile_size, boundary)
+        slots = max(slots, len(ents) + c)
+        if i in rf:
+            split = max(split, c)
+    return slots, split
+
+
+def _static_context(subs, reach, moving, tile_size, boundary):
+    """Every subject EXCEPT `moving`, evaluated once at its real base.
+
+    The margin scan moves one base at a time, so everything else is constant across
+    the whole sweep; recomputing it per shift was the whole cost.
+    """
+    worst_all, splits = 0, {}
+    for s in subs:
+        if s["name"] == moving:
+            continue
+        costs = frame_costs(s["frames"], s["art_base"], tile_size, boundary)
+        worst_all = max(worst_all, max((c[1] for c in costs), default=0))
+        rf = reach[s["name"]]["frames"]
+        splits[s["name"]] = max((len(costs[i][2]) for i in rf
+                                 if i < len(s["frames"])), default=0)
+    return worst_all, splits
+
+
+def verdict_at(subs, reach, shifted, delta, tile_size, boundary,
+               ratchet, reserve, n_players, n_appendage):
+    """Which verdict (if any) fails when `shifted`'s art base moves by `delta`.
+
+    Returns the failing verdict's letter ("A", "B" or "C"), or None. `shifted=None`
+    evaluates the layout as linked. The reference implementation: `margin_for` hoists
+    the unmoved subjects out of the loop but must agree with this, and a test pins that.
+    """
+    static_worst, splits = _static_context(subs, reach, shifted, tile_size, boundary)
+    worst_all = static_worst
+    for s in subs:
+        if s["name"] != shifted:
+            continue
+        costs = frame_costs(s["frames"], s["art_base"] + delta, tile_size, boundary)
+        worst_all = max(worst_all, max((c[1] for c in costs), default=0))
+        rf = reach[s["name"]]["frames"]
+        splits[s["name"]] = max((len(costs[i][2]) for i in rf
+                                 if i < len(s["frames"])), default=0)
+    return _verdict(worst_all, splits, ratchet, reserve, n_players, n_appendage)
+
+
+def _verdict(worst_all, splits, ratchet, reserve, n_players, n_appendage):
+    if worst_all > ratchet:
+        return "A"
+    if max(splits.values(), default=0) > reserve:
+        return "B"
+    if concurrent_demand(splits, n_players, n_appendage)[2] > reserve:
+        return "C"
+    return None
+
+
+def margin_for(sub, subs, reach, tile_size, boundary, ratchet, reserve,
+               n_players, n_appendage, origin=0, limit=None):
+    """Distance from `origin` to the nearest forbidden art-base shift, both ways.
+
+    {"up", "down": int|None, "up_verdict", "down_verdict": str|None,
+     "structural": bool} -- `structural` is True when the subject's own ceilings prove
+    no address can forbid it, in which case nothing was swept at all. A `None` distance
+    with `structural` False means one whole period was searched and found nothing,
+    which by the periodicity argument is the same answer arrived at the expensive way.
+    """
+    limit = boundary if limit is None else limit
+    out = {"up": None, "down": None, "up_verdict": None, "down_verdict": None,
+           "structural": False}
+    ceil_slots, ceil_split = subject_ceilings(sub, reach, tile_size, boundary)
+    static_worst, static_splits = _static_context(subs, reach, sub["name"],
+                                                  tile_size, boundary)
+    # Could a shift of THIS subject flip any verdict? A can only fire through this
+    # subject's own cost (the others are constant and already green), B only through
+    # its own reachable split, C only through the sum with this subject at its ceiling.
+    probe = dict(static_splits)
+    probe[sub["name"]] = ceil_split
+    if (ceil_slots <= ratchet and ceil_split <= reserve
+            and concurrent_demand(probe, n_players, n_appendage)[2] <= reserve):
+        out["structural"] = True
+        return out
+    rf = reach[sub["name"]]["frames"]
+    frames = sub["frames"]
+    base = sub["art_base"]
+    for sign, key in ((1, "up"), (-1, "down")):
+        for d in range(1, limit + 1):
+            costs = frame_costs(frames, base + origin + sign * d, tile_size, boundary)
+            worst_all = max(static_worst, max((c[1] for c in costs), default=0))
+            splits = dict(static_splits)
+            splits[sub["name"]] = max((len(costs[i][2]) for i in rf
+                                       if i < len(frames)), default=0)
+            v = _verdict(worst_all, splits, ratchet, reserve, n_players, n_appendage)
+            if v:
+                out[key], out[key + "_verdict"] = d, v
+                break
+    return out
+
+
+def report_margins(subs, reach, tile_size, boundary, ratchet, reserve,
+                   n_players, n_appendage, origin=0, out=sys.stdout, floor=None):
+    """Print each subject's margin and return the tightest finite one, or None.
+
+    `floor` is compared against, never invented here: the caller passes the tree's
+    OWN declared allowance for ordinary data growth so that "the straddle wall
+    arrives before the growth the tree already budgets for" is a statement about two
+    numbers the tree wrote down, not about a threshold this tool made up.
+    """
+    here = verdict_at(subs, reach, None, 0, tile_size, boundary, ratchet, reserve,
+                      n_players, n_appendage)
+    print(f"\n  MARGIN to the nearest forbidden art-base shift"
+          f"{f' from {origin:+d} B' if origin else ''} "
+          f"(one whole 0x{boundary:X} period each way, byte-granular; a subject whose "
+          f"ceiling cannot reach the bar is answered from the ceiling and not swept)",
+          file=out)
+    if here:
+        print(f"    ! the layout ITSELF fails VERDICT {here} at shift 0 — the margins "
+              f"below are measured from a position that is already red", file=out)
+    tightest = None
+    for s in subs:
+        m = margin_for(s, subs, reach, tile_size, boundary, ratchet, reserve,
+                       n_players, n_appendage, origin=origin)
+        cs, cr = subject_ceilings(s, reach, tile_size, boundary)
+        # A BAR MET EXACTLY IS INDISTINGUISHABLE FROM A BAR MET WITH ROOM, right up
+        # until it is not. Routed from sigil `ebd22729` §3: Knuckles' ceiling is
+        # `2 x 5 = 10`, EQUAL to the bar, "and nothing in the tree states that as a
+        # constraint". This line states it, on every build, from the tree's own numbers
+        # rather than from a doc that would have to be remembered.
+        headroom = ratchet - cs
+        tag = ("  <-- CEILING EQUALS THE BAR: one more entry in this subject's worst "
+               "frame makes it able to fail VERDICT A at some base" if headroom == 0
+               else "")
+        if m["structural"]:
+            print(f"    {s['name']:<20} {s['art_label']} 0x{s['art_base']:X}   "
+                  f"UNREACHABLE AT ANY BASE — slot ceiling {cs} vs bar {ratchet} "
+                  f"(headroom {headroom}), reachable split ceiling {cr} vs reserve "
+                  f"{reserve}{tag}", file=out)
+            continue
+
+        def fmt(k):
+            d, v = m[k], m[k + "_verdict"]
+            return "none in a whole period" if d is None else f"{d:,} B (VERDICT {v})"
+        print(f"    {s['name']:<20} {s['art_label']} 0x{s['art_base']:X}   "
+              f"grow +{fmt('up')}   shrink -{fmt('down')}   "
+              f"[slot ceiling {cs} vs bar {ratchet}, headroom {headroom}; reachable "
+              f"split ceiling {cr} vs reserve {reserve}]{tag}", file=out)
+        for k in ("up", "down"):
+            if m[k] is not None and (tightest is None or m[k] < tightest[1]):
+                tightest = (s["name"], m[k], k, m[k + "_verdict"])
+    if tightest is None:
+        print("    tightest: NONE — no subject can be pushed into a forbidden band "
+              "from here at any address", file=out)
+        return None
+    who, d, way, v = tightest
+    print(f"    tightest: {who} can move {d:,} B "
+          f"{'up (data growth below it)' if way == 'up' else 'down (a shrink below it)'} "
+          f"before VERDICT {v} fires", file=out)
+    if floor is not None and d < floor:
+        # A WARNING AND NOT A FAILURE, deliberately: this state occurs on the shipped
+        # tree today, so a refusal here would refuse a correct build. It becomes a
+        # candidate for a hard gate only once the margin has demonstrably stopped
+        # being under the floor.
+        msg = (f"dplc_straddle: MARGIN WARNING — the nearest forbidden art-base shift is "
+               f"{d:,} B away ({who}, {way}, VERDICT {v}), which is LESS than the "
+               f"{floor:,} B this tree already budgets for ordinary data growth "
+               f"(bganim_room.DATA_GROWTH_RESERVE). The straddle wall arrives before "
+               f"the growth the bank-placement rule holds room for, so the first thing "
+               f"that will say the margin is gone is a build turning red.")
+        print(f"\n{msg}", file=out)
+        print(msg, file=sys.stderr)
+    return d
+
+
+def growth_reserve():
+    """The tree's declared allowance for ordinary data growth, read from its owner.
+
+    `tools/bganim_room.py` is the module that computes the bank-placement rule and
+    owns this constant; importing it is how the number stays single-sourced instead
+    of becoming a second copy that drifts. Absent or unreadable -> None, and the
+    floor comparison is simply not made (never a silent 0, which would compare true
+    against every margin).
+    """
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import bganim_room
+        return int(bganim_room.DATA_GROWTH_RESERVE)
+    except Exception:
+        return None
+
+
 def default_rom_for(lst_path):
     """The ROM a listing came from. Not a guess the tool then trusts: rom_bytes
     fails loud if it is not there, and the caller may name it with --rom."""
@@ -1108,7 +1382,7 @@ def rom_bytes(rom_path):
 
 
 def report(lst_path, out=sys.stdout, sweep=None, sweep_range=(-512, 512),
-           recut_label=None, gate=False, rom_path=None):
+           recut_label=None, gate=False, rom_path=None, margin_at=None):
     tile_size = const_from_emp("engine/system/constants.emp", "TILE_SIZE")
     slots = const_from_emp("engine/system/constants.emp", "DMA_IMPORTANT_SLOTS")
     reserve = const_from_emp("engine/objects/dplc.emp", "DPLC_ENTRY_RESERVE")
@@ -1263,6 +1537,15 @@ def report(lst_path, out=sys.stdout, sweep=None, sweep_range=(-512, 512),
                   f"(REACHABLE {nr})   "
                   f"at shift {span}{' ...' if len(runs) > 6 else ''}  "
                   f"({len(ds)} of {hi - lo + 1} shifts)", file=out)
+
+    # THE MARGIN — how far the layout can move before a verdict fires. Printed on
+    # EVERY run, gated or not, because the point of it is that the number exists in
+    # the build log on the day the growth happens rather than being re-derived by
+    # whoever is standing there when the build turns red. See the MARGIN banner.
+    ratchet_for_margin, _prov = ratchet_from_source(slots, reserve)
+    report_margins(subs, reach, tile_size, boundary, ratchet_for_margin, reserve,
+                   n_players, n_appendage, origin=margin_at or 0, out=out,
+                   floor=growth_reserve())
 
     if recut_label:
         s = next((x for x in subs if x["art_label"] == recut_label), None)
@@ -1654,6 +1937,10 @@ def main(argv=None):
     ap.add_argument("--recut", help="art label to model the d-47 `targeted` re-cut on")
     ap.add_argument("--range", default="-512:512", help="sweep range LO:HI in bytes")
     ap.add_argument("--gate", action="store_true")
+    ap.add_argument("--margin-at", type=int, default=0, metavar="SHIFT",
+                    help="measure the margin from this art-base shift instead of the "
+                         "linked base -- e.g. --margin-at -20986 prices "
+                         "BLOCK-STREAM-DEDUP's approved move before it is made")
     ap.add_argument("--selftest", action="store_true",
                     help="prove the gate red-first against this build, then restore")
     a = ap.parse_args(argv)
@@ -1663,7 +1950,8 @@ def main(argv=None):
             print(f"dplc_straddle selftest [{a.lst}]")
             return selftest(a.lst, rom_path=a.rom)
         return report(a.lst, sweep=a.sweep, sweep_range=(lo, hi),
-                      recut_label=a.recut, gate=a.gate, rom_path=a.rom)
+                      recut_label=a.recut, gate=a.gate, rom_path=a.rom,
+                      margin_at=a.margin_at)
     except Unmeasurable as e:
         print(f"dplc_straddle: UNMEASURABLE — {e}", file=sys.stderr)
         return 2

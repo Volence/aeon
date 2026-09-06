@@ -402,7 +402,34 @@ def _check_reels(path: str, scene: dict, bands: int) -> None:
 _PRESET_DECL = re.compile(
     r"^[ \t]*(?:pub[ \t]+)?data[ \t]+([A-Za-z_]\w*)[ \t]*:[ \t]*EffectsPreset[ \t]*=",
     re.M)
-_PARALLAX_ARG = re.compile(r"\bparallax[ \t]*:[ \t]*([A-Za-z_]\w*)")
+# THE ARGUMENT IS AN EXPRESSION, NOT AN IDENTIFIER — and reading it as an identifier is
+# what S9 (sigil 2026-09-05) named: this arm asks an ADDRESS question ("does any preset's
+# `parallax:` point at the same ROM object as this section's lowered record") and used to
+# answer it by string-comparing whatever bare word followed the colon. Any SECOND SPELLING
+# of one address reported no hit, the `reels` key was accepted, and two sections resolved
+# to one `Parallax_Current_Config` — nothing errors, nothing is missing, the wrong strips
+# simply scroll.
+#
+# The second spelling is not hypothetical and is not exotic: it is THIS GENERATOR'S OWN
+# PUBLISHED ACCESSOR. `<stem>_sec_scene(sec: N)` is emitted as a `pub comptime fn -> Label`
+# returning `EditorSceneBinding_<CAP>_SecN`, and the sibling chooser for the raster channel
+# is already written in exactly that form inside `games/sonic4/data/effects/ojz_effects.emp`
+# (`raster: ojz_act1_sec_raster(sec: 5, hand: Raster_Program_None)`). An author writing the
+# parallax channel the way the file next to it writes the raster channel defeated the
+# refusal silently.
+#
+# So the argument is captured WHOLE (balanced, to the top-level `,` or `)`) and classified.
+# The generator cannot resolve addresses — it runs before the link exists — so what it can
+# honestly do is decide the cases it CAN decide and REFUSE the rest by name rather than
+# guess "not an alias", which is the guess that fails silently.
+_PARALLAX_KEY = re.compile(r"\bparallax[ \t]*:[ \t]*")
+# A (possibly dotted) path, and a call whose callee is one. The dotted form matters on its
+# own: `parallax: games.sonic4.ojz_effects_editor_act1.EditorSceneBinding_OJZ_Act1_Sec4`
+# used to capture `games`.
+_IDENT_PATH = re.compile(r"^[A-Za-z_]\w*(?:[ \t\r\n]*\.[ \t\r\n]*[A-Za-z_]\w*)*$")
+_CALL_HEAD = re.compile(
+    r"^([A-Za-z_]\w*(?:[ \t\r\n]*\.[ \t\r\n]*[A-Za-z_]\w*)*)[ \t\r\n]*\(")
+_SEC_ARG = re.compile(r"\bsec[ \t\r\n]*:[ \t\r\n]*(\d+)[ \t\r\n]*(?:,|\)|$)")
 # `ojz_sec(sec: N, ..., effects: OJZ_Preset_SecN, ...)` in the act descriptor. Read as
 # two independent streams and paired by position — each `effects:` belongs to the
 # nearest NUMERIC `sec:` before it — rather than by a game-specific constructor name,
@@ -423,10 +450,63 @@ def _strip_line_comments(src: str) -> str:
     return "\n".join(line.split("//", 1)[0] for line in src.splitlines())
 
 
+def _arg_expr(src: str, start: int) -> str:
+    """The text of ONE named argument's value starting at `start`, brackets balanced.
+
+    Stops at the first top-level `,` or the `)` that closes the call. Comments are
+    already gone (`_strip_line_comments`), and an `.emp` argument value carries no
+    string literal, so a character scan is exact here rather than merely adequate.
+    """
+    depth, i, n = 0, start, len(src)
+    while i < n:
+        c = src[i]
+        if c in "([{":
+            depth += 1
+        elif c in ")]}":
+            if depth == 0:
+                break
+            depth -= 1
+        elif c == "," and depth == 0:
+            break
+        i += 1
+    return src[start:i].strip()
+
+
+def _flat(expr: str) -> str:
+    """One-line form of an expression, for a refusal message."""
+    return " ".join(expr.split())
+
+
+def classify_parallax_expr(expr: str) -> dict:
+    """What KIND of thing a `parallax:` argument is. Never decides identity.
+
+    {"kind": "symbol", "name": <last dotted segment>}  a plain (possibly dotted) path
+    {"kind": "call",   "name": <callee's last segment>, "sec": int|None}
+    {"kind": "other"}                                   anything else
+
+    `sec` is the call's literal `sec:` argument when it has one, which is what makes a
+    call to this generator's own scene chooser decidable.
+    """
+    expr = expr.strip()
+    if not expr:
+        return {"kind": "other"}
+    if _IDENT_PATH.match(expr):
+        return {"kind": "symbol", "name": expr.split(".")[-1].strip()}
+    m = _CALL_HEAD.match(expr)
+    if m:
+        q = _SEC_ARG.search(expr[m.end():])
+        return {"kind": "call", "name": m.group(1).split(".")[-1].strip(),
+                "sec": int(q.group(1)) if q else None}
+    return {"kind": "other"}
+
+
 def preset_parallax_bindings(game: str = "sonic4", repo: str = REPO) -> list:
     """Every `preset(.. parallax: X ..)` in a game's effects library, in file order.
 
-    Each entry is {"preset", "target", "file", "line"} — the rung-2 population. An
+    Each entry is {"preset", "target", "expr", "file", "line"} — the rung-2 population.
+    `expr` is the argument WHOLE (balanced to the top-level `,` or `)`) and `target` is
+    its one-line form; neither is an identifier, because the argument need not be one.
+    See the `_PARALLAX_KEY` banner. An
     ABSENT library is an empty list and not a refusal: a game with no effects library
     genuinely has no preset bindings, which is a different observation from a library
     this walk could not read (that raises, per contract §3's bare-open posture).
@@ -444,11 +524,12 @@ def preset_parallax_bindings(game: str = "sonic4", repo: str = REPO) -> list:
         for i, m in enumerate(decls):
             stop = decls[i + 1].start() if i + 1 < len(decls) else len(src)
             window = src[m.end():stop]
-            q = _PARALLAX_ARG.search(window)
+            q = _PARALLAX_KEY.search(window)
             if not q:
                 continue
-            out.append({"preset": m.group(1), "target": q.group(1), "file": name,
-                        "line": src.count("\n", 0, m.start()) + 1})
+            expr = _arg_expr(window, q.end())
+            out.append({"preset": m.group(1), "target": _flat(expr), "expr": expr,
+                        "file": name, "line": src.count("\n", 0, m.start()) + 1})
     return out
 
 
@@ -3792,7 +3873,56 @@ def render_module(scenes: dict, act_ref, sec_refs: dict, sections: int,
                         f"lowered record, not to a scene in the library — assign the "
                         f"scene to a section, or drop the key.")
             emitted = {names.binding_sec(i) for i in rung1}
-            hits = [a for a in aliases if a["target"] in emitted]
+            # POINTER IDENTITY, and the four rules below are ordered so the ones that
+            # DECIDE run before the one that gives up. See the `_PARALLAX_KEY` banner
+            # for why an identifier comparison was the wrong instrument.
+            #
+            #   1. the expression MENTIONS a rung-1 binding symbol as a whole token —
+            #      an alias however it is wrapped (a dotted path, a `hand:` argument
+            #      threaded through the act-default chooser, a nested call)
+            #   2. it is a call to THIS generator's own scene chooser with a literal
+            #      `sec:` — decidable exactly, because we emit what it returns
+            #   3. it is a plain (possibly dotted) path naming something else — a hand
+            #      record, rung-2 sharing with nothing authored on it, GREEN
+            #   4. anything else — the generator cannot decide, and guessing "not an
+            #      alias" is the guess that fails silently. REFUSED by name.
+            hits, undecidable = [], []
+            for a in aliases:
+                mentions = [s for s in sorted(emitted)
+                            if re.search(r"\b" + re.escape(s) + r"\b", a["expr"])]
+                if mentions:
+                    hits.append(a)
+                    continue
+                kind = classify_parallax_expr(a["expr"])
+                if kind["kind"] == "call" and kind["name"] == names.fn_sec_scene:
+                    if kind["sec"] is None:
+                        undecidable.append((a, "its `sec:` argument is not a literal "
+                                               "section index"))
+                    elif kind["sec"] in rung1:
+                        hits.append(a)
+                    continue
+                if kind["kind"] == "symbol":
+                    continue
+                undecidable.append((a, "it is neither a plain symbol nor a call to "
+                                       f"`{names.fn_sec_scene}` with a literal `sec:`"))
+            if undecidable:
+                where = "; ".join(f"`{a['preset']}` ({a['file']}:{a['line']}) -> "
+                                  f"`{a['target']}` ({why})"
+                                  for a, why in undecidable)
+                _refuse(spath,
+                        f"scene {sid!r} carries a `{REELS_KEY}` key, and this act's "
+                        f"effects library binds `parallax:` to an expression this "
+                        f"generator CANNOT decide the pointer identity of — {where}. "
+                        f"The reels binding table is keyed on `Parallax_Current_Config`, "
+                        f"which is a unique key only at Effects_ResolveParallax's RUNG "
+                        f"1; if that expression resolves to a lowered record a section "
+                        f"already binds at rung 1, two sections share one pointer and "
+                        f"the table hands one of them the other's motion, silently. "
+                        f"This generator runs BEFORE the link, so it cannot resolve the "
+                        f"address and refuses rather than guessing 'not an alias'. "
+                        f"Spell the argument as a plain symbol, or as "
+                        f"`{names.fn_sec_scene}(sec: <literal>)`, or drop the "
+                        f"`{REELS_KEY}` key.")
             if hits:
                 # EVERY alias, not the first: a refusal that stopped at one would send
                 # an author round the loop once per preset, and the set is what says

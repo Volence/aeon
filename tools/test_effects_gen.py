@@ -4307,6 +4307,175 @@ pub data OJZ_Act1_Sections: [Sec; 9] = [
         self.assertIn(f"pub data {names.reels('shimmer')}: [i8; ", text)
 
 
+class TestReelsAliasIsAnAddressNotASpelling(ReelsBase):
+    """S9 (sigil `79767f26`, re-derived here 2026-09-06). The rung-2 arm asks an
+    ADDRESS question and used to answer it by string-comparing whatever bare word
+    followed `parallax:`. A SECOND SPELLING of one address reported no hit, the `reels`
+    key was accepted, and two sections resolved to one `Parallax_Current_Config` —
+    nothing errors, nothing is missing, the wrong strips scroll.
+
+    THE DANGEROUS INPUT IS THIS GENERATOR'S OWN PUBLISHED ACCESSOR, which is why these
+    are refusals and not hygiene: `<stem>_sec_scene(sec: N)` is emitted as a
+    `pub comptime fn -> Label` returning `EditorSceneBinding_<CAP>_SecN`, and the
+    sibling raster chooser is ALREADY written in exactly that form in the shipped
+    `games/sonic4/data/effects/ojz_effects.emp`
+    (`raster: ojz_act1_sec_raster(sec: 5, hand: Raster_Program_None)`). An author
+    writing the parallax channel the way the file next to it writes the raster channel
+    defeated the old refusal.
+
+    The fixture can construct all of these because `write_effects_lib` takes arbitrary
+    `.emp` text — the population is "any module an author can type", not "what this
+    generator emits", which is what a scan of the generator's own output would have
+    been blind to.
+    """
+
+    LIB = """\
+module games.sonic4.ojz_effects in ojz_effects
+pub data OJZ_Preset_Sec0: EffectsPreset = preset(pal: OJZ_Palette)
+pub data OJZ_Preset_Sec5: EffectsPreset = preset(pal: OJZ_Palette,
+                                                 parallax: {target},
+                                                 cycle: Pal_Cycle_None)
+"""
+
+    DESCRIPTOR = TestReelsRungRefusals.DESCRIPTOR
+
+    def plant(self, target):
+        self.write_reels_scene("shimmer")
+        self.write_sidecar(4, {"sceneRef": "shimmer"})
+        names = effects_gen.act_names(self.repo)
+        self.write_effects_lib(self.LIB.format(target=target))
+        self.write_descriptor(self.DESCRIPTOR)
+        return names
+
+    def assert_rung2(self, target):
+        names = self.plant(target)
+        with self.assertRaises(effects_gen.SceneShapeError) as ctx:
+            self.render()
+        msg = str(ctx.exception)
+        self.assertIn("RUNG 2", msg)
+        self.assertIn("OJZ_Preset_Sec5", msg)
+        self.assertIn("section(s) 5", msg)
+        return names, msg
+
+    def test_the_GENERATORS_OWN_scene_chooser_is_an_alias(self):
+        """`parallax: <stem>_sec_scene(sec: 4)` returns section 4's lowered record by
+        construction — this generator emits the function AND the record. Under the old
+        name comparison the captured word was `ojz_act1_sec_scene`, which is in no
+        emitted-binding set, so the plant baked GREEN and section 5 silently scrolled
+        section 4's reels."""
+        names = effects_gen.act_names(self.repo)
+        self.assert_rung2(f"{names.fn_sec_scene}(sec: 4)")
+
+    def test_the_scene_chooser_with_a_HAND_fallback_is_still_an_alias(self):
+        """The house spelling — the raster channel one line up is written exactly this
+        way, `hand:` and all."""
+        names = effects_gen.act_names(self.repo)
+        self.assert_rung2(f"{names.fn_sec_scene}(sec: 4, hand: ParallaxConfig_OJZ_Default)")
+
+    def test_the_scene_chooser_for_an_UNBOUND_section_is_not_an_alias(self):
+        """The control that keeps rule 2 from being "any call to the chooser refuses".
+        Section 3 binds no scene, so `sec: 3` returns the caller's `hand:` and cannot be
+        section 4's record. It must stay green, or the refusal is measuring the CALL
+        rather than the address."""
+        names = self.plant(
+            f"{effects_gen.act_names(self.repo).fn_sec_scene}(sec: 3, hand: ParallaxConfig_OJZ_Default)")
+        _n, text = self.render()
+        self.assertIn(f"pub data {names.reels('shimmer')}: [i8; ", text)
+
+    def test_a_DOTTED_PATH_to_the_binding_is_an_alias(self):
+        """The old regex captured the FIRST identifier, so a qualified path reported
+        the target as `games` — a name no emitted set contains."""
+        names = effects_gen.act_names(self.repo)
+        self.assert_rung2(f"{names.module}.{names.binding_sec(4)}")
+
+    def test_the_binding_threaded_through_the_ACT_DEFAULT_chooser_is_an_alias(self):
+        """`<stem>_act_default(hand: X)` returns `hand` verbatim. Rule 1 catches it
+        because the binding symbol is MENTIONED, whatever wraps it."""
+        names = effects_gen.act_names(self.repo)
+        self.assert_rung2(
+            f"{names.fn_act_default}(hand: {names.binding_sec(4)})")
+
+    def test_an_UNDECIDABLE_expression_is_REFUSED_rather_than_assumed_safe(self):
+        """The honest half. This generator runs BEFORE the link, so it cannot resolve
+        an arbitrary expression to an address — and 'not an alias' is the guess that
+        fails silently. It refuses, names the preset, and names both escapes."""
+        self.plant("SomeHandWrittenChooser(pick: 4)")
+        with self.assertRaises(effects_gen.SceneShapeError) as ctx:
+            self.render()
+        msg = str(ctx.exception)
+        self.assertIn("CANNOT decide", msg)
+        self.assertIn("OJZ_Preset_Sec5", msg)
+        self.assertIn("SomeHandWrittenChooser(pick: 4)", msg)
+
+    def test_the_scene_chooser_with_a_NON_LITERAL_sec_is_REFUSED(self):
+        """Decidable only when `sec:` is a literal. `sec: n` inside a loop or a
+        constant is exactly the case where the old code's silence was cheapest."""
+        names = effects_gen.act_names(self.repo)
+        self.plant(f"{names.fn_sec_scene}(sec: SOME_CONST)")
+        with self.assertRaises(effects_gen.SceneShapeError) as ctx:
+            self.render()
+        self.assertIn("not a literal", str(ctx.exception))
+
+    def test_a_plain_HAND_symbol_still_bakes_GREEN(self):
+        """Today's shipped tree: both `parallax:` arguments in
+        `games/sonic4/data/effects/ojz_effects.emp` are the bare symbol
+        `ParallaxConfig_OJZ_Underwater`. If this went red the new rules would be
+        refusing the real repo."""
+        names = self.plant("ParallaxConfig_OJZ_Underwater")
+        _n, text = self.render()
+        self.assertIn(f"pub data {names.reels('shimmer')}: [i8; ", text)
+
+
+class TestParallaxExprClassifier(unittest.TestCase):
+    """`classify_parallax_expr` decides KIND only, never identity — the split that lets
+    the arm above decide what it can and refuse what it cannot."""
+
+    def test_a_bare_symbol(self):
+        self.assertEqual(effects_gen.classify_parallax_expr("Foo_Bar"),
+                         {"kind": "symbol", "name": "Foo_Bar"})
+
+    def test_a_dotted_path_yields_its_LAST_segment(self):
+        self.assertEqual(
+            effects_gen.classify_parallax_expr("games.sonic4.mod.Foo_Bar"),
+            {"kind": "symbol", "name": "Foo_Bar"})
+
+    def test_a_call_with_a_literal_sec(self):
+        self.assertEqual(
+            effects_gen.classify_parallax_expr("ojz_act1_sec_scene(sec: 4, hand: X)"),
+            {"kind": "call", "name": "ojz_act1_sec_scene", "sec": 4})
+
+    def test_a_call_without_a_literal_sec(self):
+        self.assertEqual(
+            effects_gen.classify_parallax_expr("ojz_act1_sec_scene(sec: N)"),
+            {"kind": "call", "name": "ojz_act1_sec_scene", "sec": None})
+
+    def test_something_that_is_neither(self):
+        self.assertEqual(effects_gen.classify_parallax_expr("0"), {"kind": "other"})
+
+
+class TestArgExprCapturesTheWholeArgument(unittest.TestCase):
+    """The capture is balanced, so a nested call's own comma does not truncate it."""
+
+    def test_it_stops_at_the_TOP_LEVEL_comma(self):
+        src = "preset(pal: P, parallax: f(a: 1, b: 2), cycle: C)"
+        self.assertEqual(
+            effects_gen._arg_expr(src, src.index("parallax: ") + len("parallax: ")),
+            "f(a: 1, b: 2)")
+
+    def test_it_stops_at_the_CLOSING_paren(self):
+        src = "preset(pal: P, parallax: Foo)"
+        self.assertEqual(
+            effects_gen._arg_expr(src, src.index("parallax: ") + len("parallax: ")),
+            "Foo")
+
+    def test_a_MULTI_LINE_argument_survives(self):
+        src = "preset(pal: P, parallax: f(\n    sec: 4,\n    hand: X),\n cycle: C)"
+        self.assertEqual(
+            effects_gen._flat(effects_gen._arg_expr(
+                src, src.index("parallax: ") + len("parallax: "))),
+            "f( sec: 4, hand: X)")
+
+
 class TestReelsEmission(ReelsBase):
     def test_with_no_reels_the_binding_table_is_STILL_emitted_and_empty(self):
         """`OJZ_Reels_Fill` names the table in a `lea`, so the symbol must exist in
