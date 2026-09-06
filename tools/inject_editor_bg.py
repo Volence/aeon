@@ -362,6 +362,22 @@ def views_emitted(anims):
 def bganim_section_bytes(n_bands, total_slots, n_views=0):
     """Emitted `ojz_bg_anim` size for `n_bands` bands covering `total_slots` slots.
 
+    ⚠ WHICH QUESTION A BARE CALL ANSWERS, and it is not the one a new consumer means.
+    `n_views` DEFAULTS TO 0, so `bganim_section_bytes(1, 32)` returns the RELEASE-shape
+    size (8,238 for the shipped act) -- not what that act actually emits, which is 8,376
+    because it is single-band with `default_off` and therefore gets the three DEBUG view
+    twins. The 138 B gap is exactly `BGANIM_VIEW_COUNT * (COUNT_BYTES + RECORD_BYTES)`.
+    **A consumer that reaches for the obvious helper computes a budget 138 B loose and
+    nothing says so.** Raised by the aurora lane 2026-09-06 after they got the right
+    answer by modelling `views_emitted` as an operand rather than calling this -- which
+    they described as luck as much as design.
+    For "what does this tree's override actually produce", call `live_section_bytes()`,
+    which passes `n_views=views_emitted(anims)` and returns 8,376 -- verified, not assumed.
+    BOOKED, NOT TAKEN: making `n_views` a required argument would remove the trap at the
+    call site rather than in a docstring (the "prefer a check that cannot be omitted"
+    bar), and 18 of 19 call sites currently rely on the default. Left as a booking because
+    a signature change is not this lane's to take under the standing scope cut.
+
     The one authority for the section's size. `n_bands == 0` is the disabled stub
     (`BgAnim_Table: u16 = 0` plus `BgAnim_Banks = Data.empty`) = 2 bytes.
 

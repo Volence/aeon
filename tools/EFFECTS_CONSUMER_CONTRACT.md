@@ -107,10 +107,16 @@ at, so they could not even choose an authority — they took the only one there 
 each count rather than derived once and generalised. `floor((20480 - 2 - 44n) / 256) = 79` for
 n = 1, 2, 3, 4, because the per-band record is small against a 256 B slot.
 
-**⚠ AND A SHAPE DISTINCTION A CONSUMER WILL OTHERWISE GET WRONG: "the section size" is two
-different numbers.** With the three DEBUG twins the shipped act's section is **8,376 B**; the
+**⚠ AND A SHAPE DISTINCTION A CONSUMER WILL OTHERWISE GET WRONG — with a correction to this
+row's own first version: a shape-AWARE consumer computing 8,376 for the shipped act is CORRECT,
+not merely answering a different question.** Aurora models `views_emitted` as an operand, so the
+twins enter their figure exactly when they are emitted; their record says a writer that cannot
+answer *"are the twins emitted"* cannot compute the size at all. The ambiguity is in the SENTENCE,
+not the arithmetic. **"the section size" is two different numbers.** With the three DEBUG twins the shipped act's section is **8,376 B**; the
 release shape, which emits no twins, is **8,238 B** — and `bganim_section_bytes()`, the function
-a consumer would naturally call, returns the **8,238** figure. The 138 B difference is exactly
+a consumer would naturally call, returns the **8,238** figure — **because its `n_views` parameter
+DEFAULTS TO 0**, which is the trap rather than the difference. `live_section_bytes()` passes
+`n_views=views_emitted(anims)` and returns 8,376; verified here, not assumed. The 138 B difference is exactly
 `3 * (2 + 44)`. Both are correct for their own question; neither is "the" section size. Say which
 shape any figure is for.
 

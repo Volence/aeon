@@ -28330,3 +28330,33 @@ better-supported account of the visible break, because severity tracks RATE mono
 held fixed and this scene's two bands stay nearly proportional on both metrics. **The fixture that
 would settle it is named and unbuilt: one scene, two curve bands of span 64 and 192 at the same
 per-line rate.**
+
+## MY OWN GREP MISCLASSIFIED A MULTI-LINE CALL, AN HOUR AFTER LANDING A TOOL ABOUT EXACTLY THAT (2026-09-06T12:58:25Z)
+
+**Recorded because the timing is the finding.** Checking whether `live_section_bytes()`
+understates the section by 138 B, I classified 19 call sites of `bganim_section_bytes` with a
+line-based grep into "passes `n_views`" and "uses the default". It reported `live_section_bytes`
+as using the default — **because its `n_views=` argument is on a CONTINUATION LINE.** I was one
+step from reporting a defect in our own room gate that does not exist.
+
+**`live_section_bytes()` returns 8,376 and is shape-aware. Measured, not re-read.**
+
+**The class is the one I landed `tools/prose_bound_sweep.py` for about an hour earlier** — a
+line-based matcher cannot see a construct that spans lines — and I committed it while holding the
+tool, having written its docstring warning about precisely this. **Holding a rule and applying it
+to your own output are separate acts, and the gap here was under an hour.** The corrective is the
+one already in that tool and it did not transfer to my shell: when the question is "does this call
+pass argument X", ask the module, not the text.
+
+## AND THE HELPER'S DEFAULT IS A REAL TRAP — booked, not taken
+
+`bganim_section_bytes(n_bands, total_slots, n_views=0)`: **the default is the RELEASE shape**, so
+a bare `bganim_section_bytes(1, 32)` returns 8,238 for an act that actually emits 8,376. **18 of
+19 call sites rely on that default.** Aurora got the right answer by modelling `views_emitted` as
+an operand rather than calling the obvious helper, and described that as luck as much as design.
+
+**Docstring now names which question a bare call answers, and points at `live_section_bytes()`.**
+**The real fix is to make `n_views` REQUIRED** — that removes the trap at the call site rather
+than in a comment, which is the *prefer a check that cannot be omitted* bar. **Not taken: a
+signature change is not this lane's under the standing scope cut**, and the hub ruled against this
+lane's judgement on exactly that boundary earlier today.
