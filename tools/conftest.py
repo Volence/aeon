@@ -218,7 +218,15 @@ def pytest_runtest_makereport(item, call):
             "  will fail in the lane that runs before the build that would refresh it.\n"
             "  That is the LS-1 deadlock. Add @pytest.mark.%s(%s) so the post-sigil\n"
             "  lane owns it.\n"
-            "  Its own reason was: %s"
+            "  Its own reason was: %s\n"
+            "\n"
+            "  WHAT THIS SUGGESTION DOES NOT COVER, and it is the failure it is most\n"
+            "  likely to cause: the artifact list above is what your SKIP TEXT happened\n"
+            "  to name, which is not the same as what the test reads. Declare every\n"
+            "  artifact it TOUCHES, including any built into a subprocess argv or a\n"
+            "  constructed path — one of the four tests in this lane guards on\n"
+            "  s4.debug.bin alone and hands s4.debug.lst to a child, and no reading of\n"
+            "  its skip text can see the second one. Trace the touches; do not grep."
             % (item.nodeid, MARKER, ", ".join(named), MARKER,
                ", ".join(repr(a) for a in named), reason)))
 
