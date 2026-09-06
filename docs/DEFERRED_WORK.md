@@ -26397,6 +26397,32 @@ distinguished by exactly those counters.
 reports non-zero tilted samples. A run whose census says `TILTED ... samples=0` is vacuous
 for F7 and must not be reported as a clean result.
 
+> **CLOSED 2026-09-05: the crossings were driven and they are CLEAN, and the slope he describes
+> cannot tilt at all.** The loop is at world **x 1056..1263, y 384..576** (an earlier pass of this
+> campaign said x ~2048..2500: unit error, a collision COLUMN is 8 px, not 16). Driven at speed
+> with `--start 1090,541 --gsp 0x800`, no injection: **90 TILTED samples over blocks 1/2/3 from
+> the level's own geometry**, `ART CLEAN=400`, `SAT OK=400`, all three drop counters 0, 0
+> deferrals, budget floor 4,096 B. The 9- and 10-entry rungs are WALK tilt frames and a walk
+> cannot hold the loop (`Player_SlopeRepel` slips at `|angle| >= $18` below `|gsp| $280`), so
+> they were reached with a new `--tilt-inject` (writes `angle` at `Player_ApplyTilt`'s entry, one
+> block-boundary value per frame, every frame a transition): `CLEAN 300` and `CLEAN 500` with
+> `DMA_Peak_Important` at **10 entries** and both 928-byte frames enqueued. `--poison 7` under
+> the same injection goes 150/150 red on BOTH instruments, so they can fail.
+>
+> **The negative control is the more useful half.** The undulating platform at x 128..767 is a
+> +/-22.5 degree undulation and block 0 is a +/-22.5 degree bucket (`$F0..$10`), so it grazes both
+> boundaries and crosses neither: a 3,000-frame slow walk there never moved `mapping_frame` out
+> of `$01..$08`. **The terrain that matches "just going up or down a slope" cannot display a
+> rotated frame at all.**
+>
+> Both sub-arms are structurally impossible in this act: the only rider that can open the defer
+> window is the 2,048-byte PageIn landing (`tools/dma_defer_headroom.py`: deficit +32 B, of which
+> 2,048 is that landing) and this act is fully resident (`Dbg_PageCache_Demands` 0 on every run),
+> and the player is the ONLY live `QueueDMA_Important` customer here, so `perform_dplc`'s
+> `bcs .done` has nothing to lose to. **The DMA family is exhausted for OJZ act 1; F7 moves to the
+> emit side.** Full evidence, including the three unresolved readings of "rotated", in
+> `docs/witness/f7-sprite-jumble-diagnosis-2026-09-05.md`.
+
 ---
 
 ### F7: the "animation that does not exist" is refuted, and a latent hazard is not - 2026-09-05

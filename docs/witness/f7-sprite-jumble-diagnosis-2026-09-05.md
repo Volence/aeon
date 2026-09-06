@@ -364,3 +364,126 @@ TILT POPULATION control that censuses the sampled `mapping_frame`s per orientati
 prints a loud VACUOUS banner when none were tilted, plus a `DEFERRAL` line reading
 `imp_left`, plus `--start X,Y` / `--cam X,Y` so the drive can be placed on a slope. Run it
 with `--start` on the loop and check the census line **before** reading any verdict.
+
+---
+
+## The slope drive, run: the crossings are CLEAN, and the slope he means cannot tilt at all (2026-09-05, later)
+
+### First, the correction that reframes the drive
+
+The previous section says "run it with `--start` on the loop". Two facts had to be established
+before that instruction meant anything, and the first one is the interesting result:
+
+**The undulating stretch is a +/-22.5 degree undulation, and block 0 is a +/-22.5 degree
+bucket.** `Player_ApplyTilt`'s derived boundary table puts block 0 at angle `$F0..$10`, which is
+exactly +/-22.5 degrees (S3K's span). Reading the collision planes out of the editor sources and
+mapping each interned attr through `angles.bin`, the wavy platform at world **x 128..767,
+y 210..224** is attrs 4-9, whose angles are `$10 $0C $04 $FC $F4 $F0` -- five identical 128 px
+bumps. It grazes both boundaries of block 0 and crosses neither. Confirmed at runtime three
+ways: a 4 px-step drop probe over 163 ground columns there saw only `$00 $04 $0C $F0 $F4 $FC`;
+a **3,000-frame slow walk** patrolling it (ground speed capped under `ANIM_RUN_THRESHOLD` so the
+WALK script is the one running) logged 35 distinct angle changes and **`mapping_frame` never
+once left `$01..$08`**; and a witness run there prints `TILTED ... samples=0`.
+
+So the terrain that most plainly matches "just going up or down a slope" **cannot display a
+rotated frame**, and this is not a bug -- the art is correct for the geometry. Any drive placed
+there is vacuous for F7 no matter how long it runs. That is the negative control this campaign
+needed and did not have.
+
+**The one real tilt source in the act is the LOOP, and it is at world x 1056..1263,
+y 384..576** -- split across the two collision planes with the crossover seam at x 1144..1151.
+(An earlier pass of this campaign put it at x ~2048..2500: that was a unit error. A collision
+COLUMN is 8 px wide, not 16 -- `COLL_CELL_W = 8`, `Collision_GetType` does `col = x>>3` while
+rows are 16 px, `row = y>>4`. Every world-x derived from strip column index times 16 was double
+the truth. Runtime coordinates were never affected.)
+
+### The crossing drive, and it is CLEAN
+
+`--start 1090,541 --cam 1090,433 --gsp 0x800`, no injection, no forcing -- the player enters the
+loop's bottom seam at speed and laps it:
+
+    TILT POPULATION CONTROL: RUN.0=310  RUN.1=18  RUN.2=33  RUN.3=39
+      upright samples=310   TILTED samples=90   (OK - the drive displayed rotated frames)
+    ART coherence: CLEAN=400          SAT well-formedness: OK=400
+    DMA_Overflow_Count=0  DMA_Split_Reject_Count=0  Dbg_DMA_Enq_Capped=0
+    DMA_Budget_Remaining min=4096     Important entries still queued: max=0
+    DEFERRAL: 0 of 400 samples left Important entries undrained
+
+**90 tilted samples over three of the four blocks, from the level's own geometry, and the window
+was coherent on every one of the 400 frames.** The block transitions the last section named as
+the arm are exercised and they do not jumble.
+
+### The 9- and 10-entry rungs needed an injection, and they are clean too
+
+A loop lap runs at `ANIM_RUN`, and the RUN tilt blocks cost 8 entries -- the same as block 0. The
+9- and 10-entry rungs and both 928-byte frames are **WALK** tilt frames (`$0F`, `$1E`), and a
+walk cannot hold the loop: `Player_SlopeRepel` slips at `|angle| >= $18` while `|gsp| < $280`.
+A 600-frame walk drive from the ramp foot confirms it -- `TILTED samples=0`.
+
+So `tools/dplc_coherence_witness.py` gained `--tilt-inject`: it writes `angle` at
+`Player_ApplyTilt`'s entry -- after the ground sensors set it, before the routine reads it --
+from a cycling list, one value per sampled frame, defaulting to one angle per block boundary of
+the routine's own derived table, so **every consecutive pair of frames is a block transition**.
+Everything downstream (the mapping_frame bank, the flip pair, `RefreshSpritePieceCount`,
+`Perform_DPLC`'s whole entry list) is the engine's. It is an injection exactly like
+`--force-gsp`, and the run says so in its own banner.
+
+| run | frames | TILT control | peak entries | ART | SAT | overflow / split / capped | budget floor | deferrals |
+|---|---|---|---|---|---|---|---|---|
+| loop at speed, `--gsp 0x800` (no injection) | 400 | **90 tilted**, blocks 1/2/3 | 8 | CLEAN 400 | OK 400 | 0 / 0 / 0 | 4096 | 0 of 400 |
+| `--tilt-inject` at 120,170 | 300 | 225 tilted, all 4 blocks | **10** (top rung) | CLEAN 300 | OK 300 | 0 / 0 / 0 | 3976 | 0 of 300 |
+| `--tilt-inject --gsp 0x1000 --force-gsp` | 500 | 372 tilted, all 4 blocks | 9 | CLEAN 500 | OK 500 | 0 / 0 / 0 | 4096 | 0 of 500 |
+| `--tilt-inject --poison 7` (the control) | 150 | 128 tilted | 10 | **OTHER_FRAME 150** | **NO_RUN 150** | 0 / 0 / 0 | 3976 | 0 of 150 |
+| wavy platform walk (the negative control) | 350 | **0 tilted -- VACUOUS** | 8 | CLEAN 350 | OK 350 | 0 / 0 / 0 | 4316 | 0 of 350 |
+
+The poison row is what makes the clean rows mean anything: in this exact mode, with the
+injection running, both instruments go 150/150 red. They can fail. They did not.
+
+### Both open sub-arms are STRUCTURALLY impossible in this act, and the arithmetic says why
+
+`tools/dma_defer_headroom.py` (report, this build):
+
+    NTSC: budget 6144 - plane 1536 - critical 1664 = residual 2944 B
+        solo: demand 2976 B  deficit +32 B -> DEFERS
+
+That `+32` is the entire deficit, and **2,048 of the 2,976 is the PageIn staging landing**. OJZ
+act 1's art pool is fully resident: `Dbg_PageCache_Demands`, `Dbg_PageCache_Prefetches` and
+`Dbg_PageIn_Deferred` were **0 on every run above**, including a 3,364 px drive. With no page
+landing the demand is the player's 928 B against a 2,944 B residual -- 2,016 B spare on the
+envelope, and the measured runtime floor was 3,976-4,096 B because the plane drain and HScroll
+rarely peak together. `Drain_Budgeted_Queue.out_of_budget` **cannot be reached by the player's
+DPLC here**, and that is arithmetic, not a sample.
+
+The same fact kills sub-arm (a). Every `QueueDMA_Important` caller in the tree: `PageIn_Process`
+(`page_in.emp:519`), `Perform_DPLC` via `characters.emp:106` (the player),
+`tails_appendage.emp:390`, and the two test objects. In this act with Sonic the player is the
+**only** live customer -- `DMA_Peak_Important` equalled the player's own frame cost exactly
+(8 upright and on the loop, 10 injected-tilt), so nothing else contributed a single entry.
+`dplc_straddle --gate` puts peak SLOTS over reachable frames at 10 against 12 with 0 straddling
+reachable frames. There is no second claimant for `perform_dplc`'s `bcs .done` to lose to.
+
+### Where that leaves F7
+
+**The DMA family is exhausted for OJZ act 1.** Not "clean in the runs we did": the drop path
+needs a claimant that does not exist here, and the defer path needs 2,048 bytes that are never
+requested here. An act that really streams pages is a different population and remains
+unmeasured; this one cannot be made to fail by DMA.
+
+What the tilt measurement leaves behind is worth more than the elimination. The owner reports
+the jumble "when a sprite is rotated slightly" while "just going up or down a slope" -- and the
+slope terrain in this act **cannot rotate the sprite**. The only place it rotates is a loop at
+run speed. Three readings, in the order they should be tested:
+
+1. **The jumble IS the "rotation"** -- a window holding pieces of two adjacent walk frames reads
+   as a skewed Sonic, and the wavy platform is exactly where a walk cycle runs fastest through
+   `mapping_frame` changes. This costs nothing to believe, explains why he saw it on that
+   terrain, and moves the hunt to the EMIT side (`Render_Sprites`, the mapping walk,
+   `RefreshSpritePieceCount`'s H1 cache).
+2. **`angle` reached a tilt block by a NON-FLOOR path.** `Air_Collide.reattach`
+   (`player_air.emp:414`) writes a ceiling angle straight into `angle(a0)`, and `ANIM_WALK`
+   survives walking off a ledge (measured: 800 airborne frames still on anim 0). The fill attr
+   under the lower floor is attr 3, angle `$E0` -- block 1. Not driven here.
+3. **He was on the loop.** Now reachable and measured clean at run speed, but a WALK tilt frame
+   on it (the 9/10-entry rungs) was never produced by physics and remains undriven.
+
+Reading 1 is the cheap one and it is where the next arm should go.

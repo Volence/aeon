@@ -101,6 +101,15 @@ Usage:
     tools/dplc_coherence_witness.py --rom s4.debug.bin --lst s4.debug.lst \
         --gsp 0x1000 --force-gsp --frames 300 --poison 7        # the control
 
+    # THE TILT DRIVES (2026-09-05). The act's ONLY tilting geometry is the loop at
+    # world x 1056..1263, y 384..576; everything else is inside block 0. Run this
+    # first — it is physics, and it reports ~90 tilted samples over blocks 1/2/3:
+    tools/dplc_coherence_witness.py --rom s4.debug.bin --lst s4.debug.lst \
+        --start 1090,541 --cam 1090,433 --gsp 0x800 --frames 400
+    # ...then this for the 9/10-entry WALK rungs, which no physics drive can reach:
+    tools/dplc_coherence_witness.py --rom s4.debug.bin --lst s4.debug.lst \
+        --start 120,170 --cam 60,120 --tilt-inject --frames 300
+
 Exit 0 always for a bare run — this is a WITNESS, it reports.
 """
 
@@ -129,7 +138,7 @@ from aether import BusClient                               # noqa: E402
 SAMPLE_PC_SYM = "$engine.vblank$VInt_Level$staging_idle"
 
 NEED_SYMS = (SAMPLE_PC_SYM, "Player_1", "Camera_X", "Camera_Y", "Art_Sonic", "DPLC_Sonic",
-             "Map_Sonic",
+             "Map_Sonic", "Player_ApplyTilt",
              "DMA_Peak_Important", "DMA_Overflow_Count", "DMA_Split_Reject_Count",
              "DMA_Budget_Remaining", "DMA_Important_Slot", "DMA_Important",
              "Plane_Buffer_Ptr", "Sprites_Rendered", "Sprite_Table_Buffer",
@@ -137,6 +146,14 @@ NEED_SYMS = (SAMPLE_PC_SYM, "Player_1", "Camera_X", "Camera_Y", "Art_Sonic", "DP
              "Dbg_DMA_Enq_Capped")
 NEED_EQUS = ("SST_x_pos", "SST_y_pos", "SST_mapping_frame", "SST_prev_frame",
              "SST_art_tile", "SST_anim", "SST_layer", "SST_angle")
+
+# The default --tilt-inject sweep. One angle per BLOCK BOUNDARY of
+# Player_ApplyTilt's derived table (the header comment's facing-RIGHT rows:
+# $F0-$10 block 0, $11-$30 block 3, $31-$50 block 2, $51-$70 block 1, $71-$8F
+# block 0 flipped, $90-$AF block 3, $B0-$CF block 2, $D0-$EF block 1), so
+# consecutive frames land in DIFFERENT blocks and every frame is a block
+# transition — the maximal form of the hypothesised arm, not a sample of it.
+TILT_SWEEP = (0x00, 0x20, 0x40, 0x60, 0x80, 0xA0, 0xC0, 0xE0)
 
 # PlayerV overlays Sst.sst_custom = $30; ground_speed is the overlay's first field and
 # debug_flag sits at +$C from it. Both are `.emp` struct fields, not EQU lines, so this
@@ -445,7 +462,7 @@ def classify(live, want, want_prev):
 
 
 async def drive(sock, syms, equs, model, gsp, frames, verbose, force=False,
-                jump=0, start=None, cam=None):
+                jump=0, start=None, cam=None, tilt_seq=None):
     client = BusClient(socket_path=sock, client_id="dplcw", client_name="dplc-coherence")
     await client.connect()
     b = Bus(client)
@@ -455,6 +472,7 @@ async def drive(sock, syms, equs, model, gsp, frames, verbose, force=False,
     A_MF = P + equs["SST_mapping_frame"]
     A_PF = P + equs["SST_prev_frame"]
     A_ART = P + equs["SST_art_tile"]
+    A_ANG = P + equs["SST_angle"]
     A_GSP = P + PLAYERV_GROUND_SPEED
     A_DBG = P + PLAYERV_DEBUG_FLAG
 
@@ -508,7 +526,50 @@ async def drive(sock, syms, equs, model, gsp, frames, verbose, force=False,
             # of a state the physics would not have produced on its own. Every
             # coherence verdict below is still the engine's.
             await b.write(A_GSP, gsp, 2)
-        await b.frames(1)
+        if tilt_seq:
+            # TILT INJECTION — the drive's answer to the rungs the LEVEL cannot
+            # reach. Measured 2026-09-05 on OJZ act 1 (the act the debug build boots
+            # into): the loop at world x 1056..1263, y 384..576 DOES tilt, and
+            # `--start 1090,541 --cam 1090,433 --gsp 0x800` laps it for 90 tilted
+            # samples over blocks 1/2/3 with no injection at all — use that drive
+            # first, it is physics. What it CANNOT produce is the 9- and 10-entry
+            # rungs: a lap runs at ANIM_RUN and the run tilt blocks cost 8 entries,
+            # the same as block 0, while the 9/10-entry 928-byte frames ($0F, $1E)
+            # are WALK tilt frames — and a walk cannot hold the loop, because
+            # Player_SlopeRepel slips at |angle| >= $18 while |gsp| < $280
+            # (measured: a 600-frame walk from the ramp foot reports TILTED=0).
+            # Everywhere else in the act is inside block 0 by construction: the
+            # undulating platform at x 128..767 is a +/-22.5 degree undulation and
+            # block 0 is the +/-22.5 degree bucket ($F0..$10), so it grazes both
+            # boundaries and crosses neither (3,000-frame walk soak: mapping_frame
+            # never left $01..$08). This flag is how the top two rungs get driven.
+            #
+            # It writes `angle` AT Player_ApplyTilt's entry, i.e. after the ground
+            # sensors have set it and before the routine reads it, so the routine
+            # under test runs on the injected value and everything downstream of it
+            # — the mapping_frame bank, the flip pair, RefreshSpritePieceCount, and
+            # Perform_DPLC's whole entry list — is the engine's own. It is an
+            # INJECTION exactly like --force-gsp above: the physics would not have
+            # produced this angle here, and the sensors overwrite it next frame.
+            # What it buys is the ONE thing the level cannot supply: mapping_frame
+            # actually entering the 9- and 10-entry tilt rungs, and crossing between
+            # blocks, which is the load the symptom is reported on.
+            #
+            # Note it REPLACES the frames(1) advance rather than following it:
+            # Player_ApplyTilt runs once per frame before the VBlank sample pc, so
+            # running to it from the previous sample already advances exactly one
+            # frame. Keeping frames(1) as well would land past this frame's call and
+            # halve the sample rate, and the candidate event lasts one frame.
+            r = await client.call("emulator/run_to",
+                                  {"addr": hex(syms["Player_ApplyTilt"]),
+                                   "maxFrames": 8})
+            if not r.get("reached"):
+                rows.append({"frame": f, "fault": "run_to never reached Player_ApplyTilt",
+                             "pc": r.get("pc")})
+                break
+            await b.write(A_ANG, tilt_seq[f % len(tilt_seq)], 1)
+        else:
+            await b.frames(1)
         r = await client.call("emulator/run_to",
                               {"addr": hex(sample_pc), "maxFrames": 8})
         if not r.get("reached"):
@@ -538,6 +599,7 @@ async def drive(sock, syms, equs, model, gsp, frames, verbose, force=False,
             "rendered": int.from_bytes(
                 await b.read(syms["Sprites_Rendered"], 2), "big"),
             "art_tile": art_tile,
+            "angle": (await b.read(A_ANG, 1))[0],
         }
         rows.append(row)
         prev_f = mf
@@ -826,6 +888,16 @@ def main():
     ap.add_argument("--cam", default=None, metavar="X,Y",
                     help="camera position to settle streaming at before placement "
                          "(default %d,%d)" % (CAM_X, CAM_Y))
+    ap.add_argument("--tilt-inject", nargs="?", const="default", default=None,
+                    metavar="A,B,C",
+                    help="STRESS DRIVER: write `angle` at Player_ApplyTilt's entry "
+                         "from this cycling list (hex ok), one value per sampled "
+                         "frame. Bare flag = the default block-boundary sweep %s. "
+                         "Use it for the 9/10-entry WALK tilt rungs, which no "
+                         "physics drive in this act can produce; for tilt from the "
+                         "level's own geometry use --start 1090,541 --cam 1090,433 "
+                         "--gsp 0x800 (the loop) with no injection."
+                         % (",".join("$%02X" % a for a in TILT_SWEEP),))
     ap.add_argument("--force-gsp", action="store_true",
                     help="rewrite ground_speed every tick (stress driver — see the "
                          "note at the injection site)")
@@ -861,10 +933,19 @@ def main():
         return int(a_, 0), int(b_, 0)
 
     gsp = int(a.gsp, 0) if a.gsp else None
+    tilt_seq = None
+    if a.tilt_inject:
+        tilt_seq = (list(TILT_SWEEP) if a.tilt_inject == "default"
+                    else [int(t, 0) for t in a.tilt_inject.replace(",", " ").split()])
+        print("  *** TILT INJECTION ACTIVE: angle written at Player_ApplyTilt entry, "
+              "cycling %s. This is an INJECTION (like --force-gsp), not physics — "
+              "every verdict below is still the engine's, but the ANGLE that "
+              "produced it is not the level's."
+              % ",".join("$%02X" % t for t in tilt_seq))
     with aether_emulator(a.rom, symbols=a.lst) as sock:
         rows, tail = asyncio.run(drive(sock, syms, equs, model, gsp, a.frames,
                                        a.verbose, a.force_gsp, a.jump,
-                                       _xy(a.start), _xy(a.cam)))
+                                       _xy(a.start), _xy(a.cam), tilt_seq))
     report(rows, tail, gsp, "run-right", a.verbose, model, mapmodel, a.poison, tilt)
     return 0
 
