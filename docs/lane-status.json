@@ -1,78 +1,90 @@
 {
-  "focus": "His four spring follow-ups booked; chasing the sprite jumble first",
+  "focus": "Paused for your PC restart. Everything is committed and pushed; nothing is half-applied.",
   "inFlight": [
     {
-      "what": "sprite jumble: the tilt-block crossings",
-      "where": "agent worktree",
-      "agent": true
+      "what": "LS-1, the nightly gate ordering fix. Four commits, worktree clean, PUSHED to origin as parcel/ls1-gate-ordering. The lane split and the three-arm proof are done; four-shape verification and the nightly re-run remain.",
+      "where": "branch parcel/ls1-gate-ordering, at origin",
+      "agent": false
     }
   ],
   "blockedOnOwner": [
     {
-      "what": "the section 7 seam: it is authored content, not a bug -- accept it, spend a second effect channel, or redraw those chunk columns as art",
-      "since": "2026-09-05"
+      "id": "LS-17",
+      "what": "Whether a shipped game should spend a little ROM so a corrupt compressed stream crashes legibly instead of running off into memory. Taste, not correctness.",
+      "since": "2026-09-06"
+    },
+    {
+      "id": "LS-13",
+      "what": "Whether you can actually hear a 60 Hz artefact on the drums. If you can, the controller read gets split so no pause exceeds one sample; if not, only the comments get fixed.",
+      "since": "2026-09-06"
     }
   ],
-  "nextBoundary": "here: nothing in flight, nothing half-applied",
+  "nextBoundary": "Here. Resume by re-dispatching LS-1 from origin/parcel/ls1-gate-ordering to finish verification.",
   "queue": [
+    {
+      "id": "LS-1",
+      "title": "The nightly gate lane jams itself: a listing-reading check runs before the build that makes the listing",
+      "state": "doing",
+      "size": "S",
+      "blockedBy": null
+    },
+    {
+      "id": "LS-3",
+      "title": "Sonic is the only character with no VRAM window guard; a re-exported sheet overruns silently",
+      "state": "next",
+      "size": "S",
+      "blockedBy": null
+    },
+    {
+      "id": "LS-5",
+      "title": "Parallax config triple published in the order that makes it briefly inert",
+      "state": "open",
+      "size": "S",
+      "blockedBy": null
+    },
+    {
+      "id": "LS-7",
+      "title": "5,154 B of byte-identical duplicate drum samples in a bank at 94.3%",
+      "state": "open",
+      "size": "S",
+      "blockedBy": null
+    },
+    {
+      "id": "BAND-LIVE-BUILD",
+      "title": "BUG TIER, aurora's measurement with a one-key control: delete default_off from the act and the PLAIN build fails with three 'has no pub name BgAnim_View_H/_V/_T' link errors, because ojz_scroll_test imports the twins unconditionally while the emitter makes them for exactly one act shape. Not a regression -- pre-decouple behaves the same -- but this lane's refusal removal left it as an unexplained link error where a named refusal would have explained it",
+      "state": "open",
+      "size": "M",
+      "blockedBy": null,
+      "project": "EFFECTS-W1"
+    },
+    {
+      "id": "BUILD-MANIFEST",
+      "title": "Oracle's ask: build.sh emits a manifest with a content hash per artifact including the listings. Their premise verified TRUE here -- our listings are gitignored and exist at no ref, so any pin of them asserts something nothing can check",
+      "state": "blocked",
+      "size": "S",
+      "blockedBy": "the hub PARKED it: it blocks nothing until the owner says go on oracle's FIXTURE-REPIN (his card item 13), and becomes a 20-line job the moment he does"
+    },
+    {
+      "id": "F09-SHIP",
+      "title": "The $09 art repair: 19 destroyed tiles rebuilt as S3K shapes under our palette; verify and cost, then HIS word before landing",
+      "state": "blocked",
+      "size": "M",
+      "blockedBy": "his decision on his own custom sheet: a coherent slightly off-style frame, or the frame absent"
+    },
     {
       "id": "FLOOR-FAN",
       "title": "Floor: mechanism reopened -- he watched planks change ANGLE, which painted art cannot do",
       "state": "blocked",
       "size": "L",
-      "blockedBy": "his Toy Story observation reopened the mechanism; oracle re-reading the scroll table",
+      "blockedBy": "PARKED by his word -- revisit another time; nothing further spent",
       "project": "EFFECTS-W1"
     },
     {
-      "id": "SPRING-SUBTYPE",
-      "title": "Side springs chosen by object subtype, and publish the subtype table where oracle's picker can read it",
-      "state": "open",
-      "size": "M",
-      "blockedBy": null
-    },
-    {
-      "id": "SPRING-ART",
-      "title": "The spring's real graphics -- S3K art needs 12 tiles and vram.toml has 1 free, so the cost is a decision",
-      "state": "open",
-      "size": "M",
-      "blockedBy": null
-    },
-    {
-      "id": "SPRING-SPIN",
-      "title": "Spin animation on a vertical spring bounce",
-      "state": "open",
+      "id": "ORACLE-RELAUNCH",
+      "title": "Relaunch his Sonic window ONCE on a debugger build carrying both the symbol cap and the picker dock; hold until oracle sends SHA+md5",
+      "state": "blocked",
       "size": "S",
-      "blockedBy": null
-    },
-    {
-      "id": "SPRING-SFX",
-      "title": "The spring sound -- blocked on the transcoder refusing smpsModOff; cost the unblock",
-      "state": "open",
-      "size": "M",
-      "blockedBy": null
-    },
-    {
-      "id": "EMDASH",
-      "title": "Remove em/en dashes from strings and agent docs -- scope ruled, sequenced third",
-      "state": "open",
-      "size": "S",
-      "blockedBy": null
-    },
-    {
-      "id": "CURVE-DESC",
-      "title": "ENGINE DEFECT: descending parallax curve garbles the BG; mechanism unestablished",
-      "state": "open",
-      "size": "M",
-      "blockedBy": null,
-      "project": "EFFECTS-W1"
-    },
-    {
-      "id": "F7-EMIT",
-      "title": "Sprite jumble: starvation ruled out, the block CROSSINGS are the remaining arm",
-      "state": "doing",
-      "size": "M",
-      "blockedBy": null,
-      "project": "EFFECTS-W1"
+      "blockedBy": "his word: the dock and symbol cap have landed at oracle (eddc13b, HEAD 270ae69), so the only thing left is whether to relaunch his live window, which resets his layout"
     },
     {
       "id": "ICON",
@@ -82,21 +94,6 @@
       "blockedBy": "his explicit say-so"
     },
     {
-      "id": "S1S3S9",
-      "title": "Sigil's routed findings",
-      "state": "open",
-      "size": "M",
-      "blockedBy": null,
-      "project": "EFFECTS-W1"
-    },
-    {
-      "id": "LOOP-ROLL",
-      "title": "PARKED: rolling loses crown contact after the crest",
-      "state": "open",
-      "size": "M",
-      "blockedBy": null
-    },
-    {
       "id": "CR-Q-REVIEW",
       "title": "Review oracle's machineReplaced event -- deferred by ruling, needs a keyed load only he can make",
       "state": "open",
@@ -104,35 +101,14 @@
       "blockedBy": "ruled: restore does NOT share the path (contract 11.40), so it must be a real keyed load; deferred to ten seconds of his time arranged through the hub"
     },
     {
-      "id": "LST-VMA-LMA",
-      "title": "Adopt sigil's VMA/LMA listing marker, one tool at a time; stop re-deriving phasing from source",
-      "state": "open",
-      "size": "S",
-      "blockedBy": null
-    },
-    {
-      "id": "PATHSWAP-REMOVE",
-      "title": "He asked whether to delete the path swapper -- ANSWER IS NO, two live placements found; his call now",
-      "state": "open",
-      "size": "S",
-      "blockedBy": null
-    },
-    {
-      "id": "RING-SPAWN-LAYOUT",
-      "title": "Publish the ring record layout and the add-a-ring-at-runtime rule as symbols; oracle's rings row is blocked on it",
+      "id": "ROWREMAP-HSHIFT-RUNGS",
+      "title": "A second row-remap ladder rung, if one is ever wanted: only height_shift 4 can build, the shared schema now admits only 4 (empyrean 2e5046e, enum so it widens by amendment), and the refusal now states the real ROM price -- (H+1)*H bytes, 272 B at H=16 rising to 16,512 B at H=128",
       "state": "open",
       "size": "M",
-      "blockedBy": null
-    },
-    {
-      "id": "AETHER-LIMITS",
-      "title": "Derive read/run caps from the handshake instead of retyping them; throw when a server omits limits",
-      "state": "open",
-      "size": "S",
-      "blockedBy": null
+      "blockedBy": "nothing wants it yet; it returns by schema amendment when a second ladder is actually worth its bytes"
     }
   ],
-  "awaiting": null,
-  "atBoundary": false,
-  "updatedAt": "2026-09-06T03:36:55Z"
+  "awaiting": "paused for his PC restart",
+  "atBoundary": true,
+  "updatedAt": "2026-09-06T23:41:40Z"
 }
