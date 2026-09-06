@@ -954,6 +954,15 @@ SUBJECTS = [
 ]
 
 
+#: `pub data <Label> = <const>` in an `.emp`, with the right-hand side captured.
+#: `check_subject_extents` needs the RHS: `+ art_len` is only the label's ROM
+#: extent while the label binds the embed WHOLE, and a concatenation, a pad or a
+#: slice all still spell `pub data <Label> = ...`.
+_EMP_BINDING = re.compile(
+    r'^[ \t]*pub[ \t]+data[ \t]+(?P<label>[A-Za-z_$][\w$.]*)[ \t]*'
+    r'(?::[^=]*)?=[ \t]*(?P<rhs>.+?)[ \t]*(?://.*)?$', re.M)
+
+
 def load_subjects(labels):
     subs = []
     for name, art_l, dplc_l, emp, art_c, dplc_c, queue in SUBJECTS:
@@ -965,10 +974,102 @@ def load_subjects(labels):
         dplc_bytes = embed_path(emp, dplc_c).read_bytes()
         subs.append({
             "name": name, "art_label": art_l, "dplc_label": dplc_l, "queue": queue,
+            "emp": emp, "art_const": art_c, "dplc_const": dplc_c,
             "art_base": labels[art_l], "art_len": len(art_bytes),
+            "dplc_base": labels[dplc_l],
             "frames": parse_dplc(dplc_bytes, name), "dplc_len": len(dplc_bytes),
         })
     return subs
+
+
+def check_subject_extents(subs, rom, rom_path):
+    """ASSERT that each subject's ROM extent IS the file it embeds (sigil's F5).
+
+    Every straddle verdict in this tool is a statement about ADDRESSES: an entry
+    transfers `count * TILE_SIZE` bytes from `art_base + offset * TILE_SIZE`, and
+    whether that crosses a 128 KB boundary is decided by where those bytes are.
+    The region is `[art_base, art_base + art_len)` with `art_base` read from the
+    listing and `art_len` taken as `len(<the file the .emp embeds>)` — a TERMINUS
+    PROXY, the same shape as B7's F2 one layer over. Nothing checked the trade.
+
+    WHAT GOING WRONG LOOKS LIKE, and why it is worse here than a wrong total: the
+    verdict does not become obviously absurd, it moves. A pad ahead of the art
+    inside its binding, a re-export that changed the blob without the label moving,
+    a second thing bound into the same `data` — each shifts which frames are judged
+    to cross, so frames that DO straddle are reported clean and frames that do not
+    are reported dirty, and the gate's peak, its `--sweep`, and the re-cut model all
+    read off the moved picture. There is no arithmetic error to notice.
+
+    Two arms per subject, and the second is what makes `art_len` a MEASUREMENT
+    rather than a restatement of `os.path.getsize`:
+
+      (a) SOURCE SHAPE — `pub data <Art_Label> = <const>` must bind exactly the
+          const the single `embed(...)` defines. Anything else (a concatenation, a
+          pad, a slice) means the extent is not the file's length, in an unknown
+          direction. The DPLC label is held to the same bar: `parse_dplc` walks the
+          FILE and the frame offsets it yields are used against the ROM, so a DPLC
+          label that is not exactly its blob desynchronises the frame table from
+          the addresses it is describing.
+      (b) IMAGE IDENTITY — the `art_len` bytes at `art_base` in the ROM must equal
+          the embedded file byte for byte, and likewise for the DPLC. This is the
+          arm that proves the LABEL POINTS AT THAT BLOB, at that address, for that
+          length; without it the two halves of every straddle address come from
+          two different artifacts that were never compared.
+
+    Raises `Unmeasurable` naming the subject and the arm. Never a `--gate` verdict:
+    a broken extent does not mean a frame is over budget, it means the straddle
+    picture is about the wrong bytes, so no verdict should be trusted.
+    """
+    out = []
+    for s in subs:
+        text = _read(s["emp"])
+        bindings = dict((m.group("label"), m.group("rhs"))
+                        for m in _EMP_BINDING.finditer(text))
+        if not bindings:
+            raise Unmeasurable(
+                f"{s['emp']} has no `pub data <Label> = ...` bindings under "
+                f"{_EMP_BINDING.pattern!r} — the parser can no longer see what the "
+                f"labels bind, so no extent can be established. Fix the parser.")
+        for kind, label, const, base, length, blob in (
+                ("art", s["art_label"], s["art_const"], s["art_base"], s["art_len"],
+                 embed_path(s["emp"], s["art_const"])),
+                ("DPLC", s["dplc_label"], s["dplc_const"], s["dplc_base"], s["dplc_len"],
+                 embed_path(s["emp"], s["dplc_const"]))):
+            # (a) source shape
+            rhs = bindings.get(label)
+            if rhs is None:
+                raise Unmeasurable(
+                    f"{s['name']}: {s['emp']} no longer carries `pub data {label} = ...`. "
+                    f"The {kind} extent is derived from the embed that label binds; "
+                    f"re-point this tool at whatever now defines it.")
+            if rhs != const:
+                raise Unmeasurable(
+                    f"{s['name']}: `pub data {label} = {rhs}` no longer binds its embed "
+                    f"WHOLE — expected exactly {const!r}, the const bound by the single "
+                    f"`embed(...)`. A concatenation, a pad or a slice means {label}'s ROM "
+                    f"extent is not {length} B, so every address this tool computes from "
+                    f"it is off by an unknown amount and the straddle picture shifts. No "
+                    f"verdict is reported.")
+            # (b) image identity
+            if base + length > len(rom):
+                raise Unmeasurable(
+                    f"{s['name']}: {rom_path} is {len(rom)} B and cannot hold {label}'s "
+                    f"{length} B at 0x{base:X} — the image and the listing describe "
+                    f"different builds.")
+            want = blob.read_bytes()
+            got = rom[base:base + length]
+            if got != want:
+                first = next(i for i in range(length) if got[i] != want[i])
+                raise Unmeasurable(
+                    f"{s['name']}: the {length} B at {label} 0x{base:X} in {rom_path} are "
+                    f"NOT byte-identical to {blob.relative_to(AEON)} — they first differ "
+                    f"{first} B in (0x{base + first:X}: ROM 0x{got[first]:02X} vs file "
+                    f"0x{want[first]:02X}). `+ {length}` is then a restatement of the "
+                    f"file's size and not a measurement of the ROM: the label, the length "
+                    f"and the bytes come from artifacts that disagree, and every straddle "
+                    f"address is computed from the pair. Rebuild, or find what moved.")
+            out.append((s["name"], kind, label, base, length))
+    return out
 
 
 # --------------------------------------------------------------------- reports
@@ -1015,9 +1116,19 @@ def report(lst_path, out=sys.stdout, sweep=None, sweep_range=(-512, 512),
     labels = lst_labels(lst_path)
     subs = load_subjects(labels)
     rom_path = rom_path or default_rom_for(lst_path)
-    reach = reachable_sets(subs, rom_bytes(rom_path), labels)
+    rom = rom_bytes(rom_path)
+    # F5 — every straddle verdict below is a statement about ADDRESSES, and both
+    # halves of every address (`art_base` from the listing, `art_len` from a file on
+    # disk) were assumed to describe the same bytes. Checked before anything is
+    # computed from them.
+    extents = check_subject_extents(subs, rom, rom_path)
+    reach = reachable_sets(subs, rom, labels)
 
     print(f"dplc_straddle [{lst_path}]", file=out)
+    print(f"  extents: CHECKED — {len(extents)} label(s) "
+          f"({', '.join(l for _n, _k, l, _b, _ln in extents)}) each bind their embed "
+          f"whole and are byte-identical to it in {Path(rom_path).name}, so the "
+          f"art/DPLC bases and lengths below are measured and not restated", file=out)
     print(f"  derived: TILE_SIZE={tile_size}  DMA_IMPORTANT_SLOTS={slots}  "
           f"DPLC_ENTRY_RESERVE={reserve}  DMA source boundary=0x{boundary:X}", file=out)
     print(f"  the wall the ratchet aims at: {slots} - {reserve} = {slots - reserve} slots", file=out)

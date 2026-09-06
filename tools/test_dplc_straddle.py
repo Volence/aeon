@@ -461,5 +461,115 @@ class TestLoudOnUnmeasurable(unittest.TestCase):
         self.assertEqual(D.boundary_from_source(), 1 << 17)
 
 
+# ---------------------------------------------------------------------------
+# F5 — every straddle address has two halves (`art_base` from the listing,
+# `art_len` from a file on disk) and nothing checked that they describe the same
+# bytes. Hand-built ROM, live `.emp` sources, no listing opened: the split this
+# file's header describes is preserved.
+# ---------------------------------------------------------------------------
+
+class TestSubjectExtents(unittest.TestCase):
+    """`check_subject_extents` — the source-shape and image-identity arms.
+
+    THE SYNTHETIC ROM IS THE POINT, not a shortcut. The tool's verdicts are about
+    ADDRESSES, so the test builds an image in which each label's bytes ARE the
+    embedded file at a chosen base, then breaks one thing at a time. A build
+    artifact is never opened (build.sh's pytest lane runs before sigil).
+    """
+
+    #: Bases chosen far apart and away from 0 so an off-by-one in either arm
+    #: cannot accidentally land on the right bytes.
+    BASES = {"Art_Sonic": 0x40000, "DPLC_Sonic": 0x30000,
+             "Art_Tails": 0x60000, "DPLC_Tails": 0x31000,
+             "Art_TailsAppendage": 0x80000, "DPLC_TailsAppendage": 0x32000,
+             "Art_Knuckles": 0x90000, "DPLC_Knuckles": 0x33000}
+
+    def _subs_and_rom(self):
+        subs = D.load_subjects(dict(self.BASES))
+        end = 0
+        for s in subs:
+            end = max(end, s["art_base"] + s["art_len"],
+                      s["dplc_base"] + s["dplc_len"])
+        rom = bytearray(end + 0x100)
+        for s in subs:
+            art = D.embed_path(s["emp"], s["art_const"]).read_bytes()
+            dplc = D.embed_path(s["emp"], s["dplc_const"]).read_bytes()
+            rom[s["art_base"]:s["art_base"] + len(art)] = art
+            rom[s["dplc_base"]:s["dplc_base"] + len(dplc)] = dplc
+        return subs, rom
+
+    def test_an_image_that_holds_the_embeds_passes_both_arms(self):
+        subs, rom = self._subs_and_rom()
+        checked = D.check_subject_extents(subs, bytes(rom), "synthetic.bin")
+        # Two labels per subject — the art AND the DPLC. The DPLC half matters
+        # because `parse_dplc` walks the FILE and its frame offsets are then used
+        # against ROM addresses; a DPLC label that is not its blob desynchronises
+        # the frame table from the addresses it describes.
+        self.assertEqual(len(checked), 2 * len(D.SUBJECTS))
+        self.assertEqual({k for _n, k, _l, _b, _ln in checked}, {"art", "DPLC"})
+
+    def test_one_flipped_byte_inside_the_art_span_is_refused(self):
+        """The image arm. Nothing about `art_base` or `art_len` changed, so the
+        straddle arithmetic is untouched and every printed number would have looked
+        exactly as it did — which is the failure mode this arm exists for."""
+        subs, rom = self._subs_and_rom()
+        s = next(x for x in subs if x["name"] == "sonic")
+        at = s["art_base"] + s["art_len"] // 2
+        rom[at] ^= 0xFF
+        with self.assertRaises(D.Unmeasurable) as cm:
+            D.check_subject_extents(subs, bytes(rom), "synthetic.bin")
+        msg = str(cm.exception)
+        self.assertIn("NOT byte-identical", msg)
+        self.assertIn(f"0x{at:X}", msg)
+        self.assertIn("Art_Sonic", msg)
+
+    def test_the_dplc_label_is_held_to_the_same_bar_as_the_art(self):
+        subs, rom = self._subs_and_rom()
+        s = next(x for x in subs if x["name"] == "knuckles")
+        rom[s["dplc_base"] + 3] ^= 0xFF
+        with self.assertRaises(D.Unmeasurable) as cm:
+            D.check_subject_extents(subs, bytes(rom), "synthetic.bin")
+        self.assertIn("DPLC_Knuckles", str(cm.exception))
+
+    def test_a_rom_that_cannot_hold_the_span_is_refused_not_silently_short(self):
+        subs, rom = self._subs_and_rom()
+        with self.assertRaises(D.Unmeasurable) as cm:
+            D.check_subject_extents(subs, bytes(rom[:0x40010]), "truncated.bin")
+        self.assertIn("cannot hold", str(cm.exception))
+
+    def test_a_binding_that_is_not_the_bare_const_is_refused(self):
+        """The source arm, and the case NEITHER image nor listing can see. If the
+        label bound a pad or a concatenation, the ROM would hold those bytes at that
+        address quite legitimately and the image arm would pass; only the SOURCE
+        says the extent is no longer the file's length."""
+        subs, rom = self._subs_and_rom()
+        real = D._read
+
+        def doctored(path):
+            text = real(path)
+            return text.replace("pub data Art_Sonic     = _art_sonic",
+                                "pub data Art_Sonic     = _art_sonic + _pad")
+        D._read = doctored
+        try:
+            with self.assertRaises(D.Unmeasurable) as cm:
+                D.check_subject_extents(subs, bytes(rom), "synthetic.bin")
+        finally:
+            D._read = real
+        msg = str(cm.exception)
+        self.assertIn("no longer binds its embed WHOLE", msg)
+        self.assertIn("_art_sonic + _pad", msg)
+
+    def test_the_live_bindings_are_the_bare_consts_the_tool_expects(self):
+        """The premise the source arm rests on, asserted against the live `.emp`s
+        rather than assumed — so a rename here fails as a named test and not as a
+        gate that quietly stops meaning anything."""
+        for _name, art_l, dplc_l, emp, art_c, dplc_c, _q in D.SUBJECTS:
+            text = D._read(emp)
+            found = {m.group("label"): m.group("rhs")
+                     for m in D._EMP_BINDING.finditer(text)}
+            self.assertEqual(found.get(art_l), art_c, f"{emp}: {art_l}")
+            self.assertEqual(found.get(dplc_l), dplc_c, f"{emp}: {dplc_l}")
+
+
 if __name__ == "__main__":
     unittest.main()
