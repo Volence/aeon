@@ -1,6 +1,12 @@
 {
-  "focus": "His spring is in and side collision has a measured gap; nothing running",
-  "inFlight": [],
+  "focus": "Fixing the side-collision gap his spring found; then his sprite jumble",
+  "inFlight": [
+    {
+      "what": "SP-1: kill ground speed on a side contact",
+      "where": "agent worktree",
+      "agent": true
+    }
+  ],
   "blockedOnOwner": [
     {
       "what": "the section 7 seam: it is authored content, not a bug -- accept it, spend a second effect channel, or redraw those chunk columns as art",
@@ -9,6 +15,13 @@
   ],
   "nextBoundary": "here: nothing in flight, nothing half-applied",
   "queue": [
+    {
+      "id": "SP-1",
+      "title": "Side solidity holds position but never kills running speed -- a defect in every solid, found by his spring",
+      "state": "doing",
+      "size": "M",
+      "blockedBy": null
+    },
     {
       "id": "FLOOR-FAN",
       "title": "Floor: mechanism reopened -- he watched planks change ANGLE, which painted art cannot do",
@@ -74,10 +87,10 @@
       "title": "Adopt sigil's VMA/LMA listing marker, one tool at a time; stop re-deriving phasing from source",
       "state": "open",
       "size": "S",
-      "blockedBy": "the shared sigil binary is stale (built 756c7efd); sigil to refresh and announce the SHA"
+      "blockedBy": null
     }
   ],
   "awaiting": null,
-  "atBoundary": true,
-  "updatedAt": "2026-09-06T01:35:51Z"
+  "atBoundary": false,
+  "updatedAt": "2026-09-06T01:43:54Z"
 }
