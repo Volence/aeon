@@ -62,15 +62,16 @@ which is exactly what aurora's `docs/reviews/2026-09-05-rowremap-author.md` §9.
 DEBUG mailbox to `df3b8810`'s own coordinates (player 3000/4400 → `Camera_X` 2840,
 `Camera_Y` 4288, ack 18 frames on all four):
 
-| arm | live band's `fb` → `curve: To(..)` | direction | measured BG excursion | picture |
-|---|---|---|---|---|
-| `flat` (master today) | `FACTOR_1_2`, no curve | — | 0 px | CLEAN |
-| `descsmall` | `FACTOR_1_2` → `FACTOR_7_16` | descending | 176 px | **CLEAN** |
-| `desc` (`df3b8810`'s own) | `FACTOR_1_2` → `FACTOR_1_8` | descending | 1060 px | GARBLED |
-| `asc` (the mirror) | `FACTOR_1_8` → `FACTOR_1_2` | ascending | 1061 px | **GARBLED** |
+| arm | live band's `fb` → `curve: To(..)` | direction | BG excursion | rate | picture |
+|---|---|---|---|---|---|
+| `flat` (master today) | `FACTOR_1_2`, no curve | — | 0 px | 0 | CLEAN |
+| `descsmall` | `FACTOR_1_2` → `FACTOR_7_16` | descending | 176 px | 0.79 px/line | **CLEAN** |
+| `mid` | `FACTOR_1_2` → `FACTOR_3_8` | descending | 353 px | 1.58 px/line | GARBLED |
+| `desc` (`df3b8810`'s own) | `FACTOR_1_2` → `FACTOR_1_8` | descending | 1060 px | 4.75 px/line | GARBLED |
+| `asc` (the mirror) | `FACTOR_1_8` → `FACTOR_1_2` | ascending | 1061 px | 4.76 px/line | **GARBLED** |
 
 **THE WALKER IS NOT WRONG.** Derived-vs-measured on `Hscroll_Buffer` is **0 of 224 lines
-differing, max |delta| 0, on all four arms**, both planes — the expectation derived from the
+differing, max |delta| 0, on all five arms**, both planes — the expectation derived from the
 scene's authored factors plus the live `Camera_X`, never read back off the band records the
 walker wrote. The curve hoist's `divs.w` + negative-remainder floor normalisation and
 `.lp_curve`'s Bresenham accumulate emit exactly the authored ramp, in **both** directions.
@@ -82,18 +83,31 @@ parameters were never recorded (aurora flagged that gap independently), and a sm
 upward curve would be clean for the reason below — so nothing now distinguishes that arm
 from the direction reading.
 
-**WHAT MOVES: `camX × |Δf|` against `PLANE_W − SCREEN_W = 512 − 320 = 192 px`.** Plane B is
-64×64 (VDP reg `$10` = `$11`, `engine/system/boot_data.emp`:186) so it wraps every 512 px;
-a band that shears its Plane-B HScroll further than 192 px brings the wrap seam onto the
-screen and rows of one band show plane columns 512 px apart. This is **not a new law** —
-the perspective-floor lane derived and measured it for its own **ascending** curve
+**WHAT MOVES IS A MAGNITUDE, and the best-argued reading is `camX × |Δf|` against
+`PLANE_W − SCREEN_W = 512 − 320 = 192 px`.** Plane B is 64×64 (VDP reg `$10` = `$11`,
+`engine/system/boot_data.emp`:186) so it wraps every 512 px; a feature at plane column `c`
+sits at screen `x = (c + h) mod 512`, leaves at 320, is off-screen for 192 px of `h`, and
+re-enters at 0 further down the band. Below 192 px of excursion nothing re-enters and the
+band is a pure slanted shear; above it, features duplicate down the screen. **The measured
+arms bracket 192: 176 px clean, 353 px garbled.** Not a new law either — the
+perspective-floor lane derived and measured it for its own **ascending** curve
 (`tools/perspective_floor_predict.py`:60-63, `tools/perspective_floor_gen.py`:70-95, onset
 table 195/389/778/1557 against a predicted `192/F` of 192/384/768/1536), which is a second
 independent reason the sign is not the variable.
 
 **NOT ESTABLISHED — do not read these as measured:**
-1. **The onset is not bisected.** Two points either side of a derived threshold (176 clean,
-   1060 garbled) is consistent with 192 and does not measure it.
+0. **⚠ A CONFOUND IN THIS RESULT, NOT CLOSED.** All five arms hold the live band's span at
+   **224 lines** (the §"second finding" rotation collapse gives the scene one full-screen
+   band), so `excursion = rate × 224` and the two are perfectly proportional. The measured
+   boundary between 176 px (0.79 px/line) and 353 px (1.58 px/line) is described equally
+   well by "excursion crosses 192" and by "rate crosses ~1 px/line". What favours the
+   excursion reading is an argument, not evidence: `192 = PLANE_W − SCREEN_W` is geometry
+   derived before the runs, and the floor lane's onset lands on `192/F` across four
+   different F. **The discriminating experiment varies the band SPAN at fixed excursion**
+   (same `|Δf|` over a half-height band = same rate, half the excursion) and needs a scene
+   whose bands do not collapse, so it is downstream of the second finding below.
+1. **The onset is not bisected.** Three points bracketing a derived threshold (176 clean,
+   353 and 1060 garbled) is consistent with 192 and does not measure it.
 2. **`ojz_act1_depth` is a SHIPPED scene carrying `fb: FACTOR_1_2, curve: To(FACTOR_1)` at
    `world_y: 160`** — `|Δf|` = 1/2, so the **derived** onset is `camX` 384. **This is
    arithmetic on the authored factors, NOT a run**; the band's live span and the camera

@@ -3,8 +3,8 @@
 **Date** 2026-09-06 · **Branch** `parcel/curve-desc` · **Instrument**
 `tools/curve_desc_probe.py` (added by this parcel), oracle-aether headless via
 `tools/aether_instance.assert_rust_server`.
-**Raw data** `docs/witness/curve-desc-2026-09-06.json` (all four arms, 224 BG words each).
-**Pictures** `docs/witness/curve-desc-{flat,descsmall,desc,asc}-2026-09-06.png`.
+**Raw data** `docs/witness/curve-desc-2026-09-06.json` (all five arms, 224 BG words each).
+**Pictures** `docs/witness/curve-desc-{flat,descsmall,mid,desc,asc}-2026-09-06.png`.
 
 ---
 
@@ -62,14 +62,15 @@ or bounded. It is both. See §6.
 
 ---
 
-## 3. The four arms
+## 3. The five arms
 
-| arm | live band's `fb` -> `curve: To(..)` | direction | measured BG excursion down the screen | picture |
-|---|---|---|---|---|
-| `flat` | `FACTOR_1_2`, no curve (master today) | — | **0 px** (one run of -1420 over 224 lines) | **CLEAN** |
-| `descsmall` | `FACTOR_1_2` -> `FACTOR_7_16` | descending | **176 px** (-1420 .. -1244) | **CLEAN** |
-| `desc` | `FACTOR_1_2` -> `FACTOR_1_8` (df3b8810's own) | descending | **1060 px** (-1420 .. -360) | **GARBLED** |
-| `asc` | `FACTOR_1_8` -> `FACTOR_1_2` (the mirror) | ascending | **1061 px** (-1416 .. -355) | **GARBLED** |
+| arm | live band's `fb` -> `curve: To(..)` | direction | BG excursion | rate | picture |
+|---|---|---|---|---|---|
+| `flat` | `FACTOR_1_2`, no curve (master today) | — | **0 px** (one run of -1420 over 224 lines) | 0 | **CLEAN** |
+| `descsmall` | `FACTOR_1_2` -> `FACTOR_7_16` | descending | **176 px** (-1420 .. -1244) | 0.79 px/line | **CLEAN** |
+| `mid` | `FACTOR_1_2` -> `FACTOR_3_8` | descending | **353 px** (-1420 .. -1067) | 1.58 px/line | **GARBLED** |
+| `desc` | `FACTOR_1_2` -> `FACTOR_1_8` (df3b8810's own) | descending | **1060 px** (-1420 .. -360) | 4.75 px/line | **GARBLED** |
+| `asc` | `FACTOR_1_8` -> `FACTOR_1_2` (the mirror) | ascending | **1061 px** (-1416 .. -355) | 4.76 px/line | **GARBLED** |
 
 `asc` is the deliberate mirror of `desc`: `fb` and the far end swapped, so the span (224
 lines) and `|spread|` are the same to within one pixel of Bresenham rounding and **only the
@@ -77,7 +78,7 @@ direction reverses**.
 
 ### 3.1 The walker's arithmetic is exact, in both directions
 
-**Derived-vs-measured: 0 of 224 lines differ, max |delta| 0 — on ALL FOUR ARMS**, plane B
+**Derived-vs-measured: 0 of 224 lines differ, max |delta| 0 — on ALL FIVE ARMS**, plane B
 and plane A alike. The curve hoist's `divs.w` + negative-remainder floor normalisation and
 the fill's per-line Bresenham accumulate emit exactly the authored ramp from the layer's
 base to its far end across the layer's span. Spot-checked by hand against
@@ -123,19 +124,52 @@ before the wrap seam enters the visible window and rows of the same band start s
 plane columns 512 px apart — the art repeats and smears down the screen, which is the
 "streaky green/black noise" the owner reported.
 
+What happens at that boundary is concrete rather than a metaphor: a vertical feature at
+plane column `c` appears at screen `x = (c + h) mod 512`. As `h` ramps down the band the
+feature slides right, leaves at `x = 320`, is off-screen for 192 px of `h`, and **re-enters
+at `x = 0`** further down the screen. Below 192 px of excursion nothing re-enters and the
+band is a pure (slanted) shear of a coherent picture; above it, features duplicate down the
+screen.
+
 The excursion is **camera-proportional**: `E = camX * |f_from - f_to|`, so the onset is at
-`camX = 192 / |Δf|`. The measured arms straddle it by a factor of six (176 clean, 1060/1061
-garbled), and this is **not a new law** — the perspective-floor lane derived and measured
-it independently for its own curve (`tools/perspective_floor_predict.py`:60-63,
+`camX = 192 / |Δf|`. **The measured arms bracket it: 176 px clean, 353 px garbled.** And
+this is **not a new law** — the perspective-floor lane derived and measured it independently
+for its own curve (`tools/perspective_floor_predict.py`:60-63,
 `tools/perspective_floor_gen.py`:70-95, with a measured onset table 195 / 389 / 778 / 1557
 for `To(FACTOR_1 / 1_2 / 1_4 / 1_8)` against a predicted `192/F` of 192 / 384 / 768 / 1536).
 **That lane's curve is ASCENDING** (`fb: FACTOR_0` -> `To(FACTOR_1_8)`) and garbles past its
 own onset, which is a second, independent reason the sign cannot be the variable.
 
-**NOT ESTABLISHED HERE: the exact onset in this scene.** Two points either side of a
-threshold derived from `PLANE_W - SCREEN_W` is not a bisect. The floor lane's table shows
-the transition is gradual (8-20% baseline noise at onset), so "176 clean, 1060 garbled" is
-consistent with 192 and does not measure it. A bisect over `|Δf|` at fixed `camX` would.
+### 5.1 A CONFOUND IN MY OWN RESULT, and it is not closed
+
+All five arms hold the live band's span at **224 lines**, because §6's rotation collapse
+gives the scene exactly one full-screen band. So
+
+```
+excursion = rate x 224
+```
+
+and **total excursion and per-scanline shear rate are perfectly proportional across every
+arm I ran.** The boundary I measured — between 176 px (0.79 px/line) and 353 px (1.58
+px/line) — is equally well described as "excursion crosses 192" and as "rate crosses
+something between 0.79 and 1.58 px/line". My arms cannot tell those apart, and neither can
+the perspective-floor lane's onset table, whose band span is likewise fixed.
+
+Two things break the tie in favour of the excursion reading, and neither is a measurement:
+`192 = PLANE_W - SCREEN_W` is **geometry**, derived before the runs and not fitted, while a
+rate threshold near 1 px/line has no derivation at all; and the floor lane's onset lands on
+`192/F` across **four different F values**, which a rate law would have to reproduce by
+coincidence. That is an argument, not evidence.
+
+**THE DISCRIMINATING EXPERIMENT, not run: vary the band SPAN at fixed excursion.** A curve
+with the same `|Δf|` over a band half as tall has the same rate and half the excursion; a
+curve with half the `|Δf|` over a half-height band has the same excursion and double the
+rate. Either pair separates the two readings in one build. It needs a scene whose bands do
+not collapse (§6), so it is downstream of that.
+
+**Also not established: the exact onset.** Three points bracketing a derived threshold is
+not a bisect, and the floor lane's table shows the transition is gradual (8-20% baseline
+noise at onset).
 
 ---
 
@@ -175,7 +209,12 @@ carries the rotation.
 
 ## 7. Left open
 
-1. **The onset is not bisected** (§5). Two points either side of a derived threshold.
+0. **THE MAGNITUDE READING IS NOT SEPARATED FROM THE RATE READING** (§5.1). Every arm holds
+   the band span at 224 lines, so excursion and per-line rate are proportional. The
+   discriminating experiment varies the SPAN at fixed excursion and is named there. Until it
+   runs, "excursion vs 192 px" is the better-argued of two live readings, not the measured
+   one.
+1. **The onset is not bisected** (§5). Three points bracketing a derived threshold.
 2. **`ojz_act1_depth` — a SHIPPED scene — carries `fb: FACTOR_1_2, curve: To(FACTOR_1)` at
    `world_y: 160`.** `|Δf|` = 1/2 gives a **derived** onset at `camX` 384. **NOT MEASURED**
    — this is arithmetic on the authored factors, not a run, and the band's span and the
