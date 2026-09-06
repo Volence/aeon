@@ -606,10 +606,27 @@ if [[ "${NO_LINT:-0}" == "0" ]]; then
     # that ran and passed. Collection here is a DIRECTORY SWEEP, so the cheap honest
     # check is the sweep's extent: the count below is computed by the same rule pytest
     # collects by, and a file dropping out of the lane moves it.
+    #
+    # THIS IS THE **PRE-BUILD** HALF OF A SPLIT LANE (LS-1, 2026-09-06). It deselects
+    # `-m "not needs_build"`; the tests that read a build artifact out of the working
+    # tree run in the POST-SIGIL lane below (search: "THE POST-SIGIL HALF"). Before the
+    # split this lane ran them here, ~173 lines above the sigil invocation that writes
+    # the artifact they read — so on a tree carrying a PREVIOUS build's listing they
+    # graded a stale artifact against today's source, failed, and exited the build
+    # BEFORE the sigil call that would have refreshed it. Self-perpetuating: the
+    # effects-gate nightly reported "COULD NOT RUN" nine consecutive nights
+    # (2026-08-29 .. 2026-09-06) at nine DIFFERENT master SHAs, and not one of those
+    # SHAs was ever built. Every merge puts a tree in that state.
+    #
+    # DO NOT "FIX" A RECURRENCE BY DROPPING THE `-m` FILTER, and do not add a staleness
+    # check here instead: refusing an old listing treats the symptom and still leaves
+    # this lane unable to reach the build that clears it. The ordering IS the fix.
     if python3 -c "import pytest" 2>/dev/null; then
-        echo "Running the tool-suite unit tests..."
+        echo "Running the tool-suite unit tests (pre-build lane)..."
         echo "  sweeping $(find "${TOOLS}" -maxdepth 1 -name 'test_*.py' | wc -l) test file(s) under ${TOOLS}"
-        if ! python3 -m pytest "${TOOLS}" -q --no-header -p no:cacheprovider; then
+        echo "  deselecting -m needs_build; those run in the POST-SIGIL lane below"
+        if ! python3 -m pytest "${TOOLS}" -q --no-header -p no:cacheprovider \
+                -m "not needs_build"; then
             echo "Tool-suite tests failed — the build tooling is broken, not just the ROM."
             exit 1
         fi
@@ -808,6 +825,79 @@ if [[ "$FAST" == "0" && ! -f "${ROM_NAME}.lst" ]]; then
     exit 1
 fi
 if [[ "$FAST" == "0" ]]; then
+    # ---- THE POST-SIGIL HALF OF THE TOOL-SUITE LANE (LS-1, 2026-09-06) ------------
+    #
+    # Exactly the tests the pre-build lane deselected: `-m needs_build`, the ones that
+    # read `s4*.lst` / `s4*.bin` / `demo*.lst` out of the working tree. They run HERE,
+    # below sigil, for the reason bganim_room, editor_palette_golden, band_drift_golden
+    # and sprite_tilt_gate all run here — the listing on disk is now THIS invocation's,
+    # so a test that reads it is grading today's build instead of a previous one. Above,
+    # it graded whatever a prior build left behind, failed, and exited before the sigil
+    # call that would have refreshed it. Nine nightlies died in that loop.
+    #
+    # WHY IT IS A pytest LANE AND NOT ANOTHER `tools/*_gate.py`: these four are already
+    # written as tests with their own hermetic siblings in the same file, and splitting
+    # them out would separate each from the synthetic fixture that proves its mechanism.
+    # The marker moves the lane, not the test.
+    #
+    # A LANE THAT RAN NOTHING MUST NOT LOOK LIKE A LANE THAT PASSED (build.sh reads the
+    # exit status alone). Three things make it visible:
+    #   * the collected count is printed BEFORE the run, from pytest's own collector,
+    #   * pytest's exit 5 (NO TESTS COLLECTED) is a build FAILURE here, not a pass —
+    #     it means every marker was deleted or renamed, which silently restores the
+    #     pre-split state,
+    #   * tools/conftest.py prints a DEFERRED block naming every marked test whose
+    #     artifacts this shape did not write. Deferral is legitimate — no single
+    #     `./build.sh` produces all eight artifacts, and the segments parent wants a
+    #     DEBUG sonic4 AND a DEBUG demo — but it is never silent.
+    #
+    # `--artifacts-built-after ${SIGIL_T0}` IS LOAD-BEARING, not decoration. Existence
+    # alone is the wrong question here and the first end-to-end run proved it: one
+    # `DEBUG=1 ./build.sh` refreshes s4.debug.* and nothing else, so a LEFT-OVER
+    # demo.debug.lst from an older tree is present, is graded, and fails — and
+    # tools/nightly_effects_gates.sh exits right here, before the `./build.sh demo`
+    # that would refresh it. That is the LS-1 deadlock rebuilt one artifact to the
+    # left. With the threshold, an artifact this invocation did not write is DEFERRED
+    # exactly as an absent one is. Same provenance rule, same ${SIGIL_T0}, as the
+    # --built-after gates below.
+    #
+    # NOT `--no-header`: the header names the rootdir and the marker expression, which
+    # is the one line that distinguishes this lane from the pre-build one in a log.
+    #
+    # Same NO_LINT hatch as its pre-build half, so `--no-lint` still skips BOTH halves
+    # of one lane rather than half of it.
+    if [[ "${NO_LINT:-0}" == "0" ]] && python3 -c "import pytest" 2>/dev/null; then
+        echo "Running the tool-suite unit tests (POST-SIGIL lane: -m needs_build)..."
+        marked=$(python3 -m pytest "${TOOLS}" -q -p no:cacheprovider \
+                     -m needs_build --collect-only 2>/dev/null \
+                 | grep -c '::' || true)
+        echo "  ${marked} marked test(s); --artifacts-built-after ${SIGIL_T0} defers any"
+        echo "  whose declared artifact this shape did not write (absent OR left over)"
+        # `set -e` is on, so the status has to be captured through an `if` — a bare
+        # invocation followed by `$?` would abort the script before this block could
+        # tell exit 5 (collected nothing) apart from a real failure.
+        if python3 -m pytest "${TOOLS}" -q -p no:cacheprovider -m needs_build \
+                --artifacts-built-after "${SIGIL_T0}"; then
+            pytest_rc=0
+        else
+            pytest_rc=$?
+        fi
+        if [[ "${pytest_rc}" == "5" ]]; then
+            echo
+            echo "ERROR: the post-sigil lane collected NO tests."
+            echo "  Nothing carries @pytest.mark.needs_build any more, so the artifact-reading"
+            echo "  tests are either deleted or back in the pre-build lane — which is the LS-1"
+            echo "  deadlock restored. This is a FAILURE and not a pass: an empty lane and a"
+            echo "  green lane are indistinguishable in an exit status, which is the whole"
+            echo "  reason the count above is printed."
+            exit 1
+        elif [[ "${pytest_rc}" != "0" ]]; then
+            echo "Post-sigil tool-suite tests failed (exit ${pytest_rc}) — see above. These read"
+            echo "  the listing THIS build just emitted, so a failure here is about today's ROM."
+            exit 1
+        fi
+    fi
+
     # NOT `|| true`. It was, and that mattered: s4budget returned 0 on every path
     # anyway (tools lens sweep D7), so the budgets were gated by nothing twice over
     # — no threshold in the tool, and its exit code discarded here. The tool now

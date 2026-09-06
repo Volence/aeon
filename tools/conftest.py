@@ -41,10 +41,32 @@ stayed invisible until it went stale. So:
     the skip reason, so it cannot see a test that skips for an artifact without
     naming one. It is a net, not a proof; the marker is the proof.
 
-WHAT THIS FILE CANNOT DO. It reasons about EXISTENCE, never about freshness. A
-marked test handed a stale-but-present listing still runs and still fails — as it
-should, because post-sigil the listing on disk IS this invocation's. The gates that
-need more than existence take `--built-after ${SIGIL_T0}` from build.sh instead.
+EXISTENCE IS NOT ENOUGH, AND THE FIRST END-TO-END RUN PROVED IT (2026-09-06). The
+paragraph that used to stand here said this file reasons about existence alone,
+because "post-sigil the listing on disk IS this invocation's". That is true of the
+artifact this invocation emitted and FALSE of every other one. One `DEBUG=1
+./build.sh` refreshes `s4.debug.*` and touches nothing else; the segments parent
+also reads `demo.debug.lst`, which only `DEBUG=1 ./build.sh demo` writes. Measured
+on the real jam: with the 2026-08-28 nightly artifacts planted, the split lane got
+sigil to run and the ROM rebuilt — the deadlock WAS broken — and then failed on the
+one `demo_witness` row that reads the stale demo listing. On a tree where that file
+merely EXISTS the failure repeats every night, and `tools/nightly_effects_gates.sh`
+exits at the sonic4 build BEFORE it reaches the demo build that would clear it. The
+deadlock would have been reproduced one artifact to the left.
+
+So the DEFERRED arm is about what THIS INVOCATION PRODUCED, not about what happens
+to be on disk: with `--artifacts-built-after <epoch>` a declared artifact older than
+that instant is deferred as `stale`, exactly as absent ones are. This is the same
+`--built-after ${SIGIL_T0}` provenance rule every neighbouring post-sigil gate takes
+from build.sh (row_remap_gate, editor_palette_golden, band_drift_golden,
+sprite_tilt_gate), applied to the same axis rather than bolted beside it. WITHOUT
+the option nothing changes: existence alone, as before.
+
+WHAT THIS FILE STILL CANNOT DO. It cannot tell a stale artifact from a fresh one
+without being told when the build began — freshness here is a BUILD-TIME
+comparison, and `pytest tools` run by hand passes no threshold and therefore grades
+whatever is on disk. That is the right default for a hand run and the wrong one for
+a lane, which is why build.sh's post-sigil lane passes `${SIGIL_T0}`.
 """
 
 import os
@@ -63,11 +85,28 @@ BUILD_ARTIFACTS = (
 
 MARKER = "needs_build"
 
-#: Deferred rows for the terminal summary: (nodeid, missing artifacts).
+#: Deferred rows for the terminal summary: (nodeid, ["<name> (absent)", ...]).
 _deferred = []
+
+#: Epoch second this invocation's build began, from `--artifacts-built-after`.
+#: None = existence only (a hand `pytest tools` run has no build to date against).
+_built_after = None
+
+
+def pytest_addoption(parser):
+    parser.addoption(
+        "--artifacts-built-after", type=int, default=None, metavar="EPOCH",
+        help="Treat a declared build artifact older than EPOCH as DEFERRED-stale "
+             "rather than running the test against it. build.sh's post-sigil lane "
+             "passes ${SIGIL_T0}; a hand run passes nothing and grades what is on "
+             "disk. Whole seconds truncate DOWN, so an artifact written in the same "
+             "second as EPOCH counts as fresh — the same rule the sibling "
+             "--built-after gates use.")
 
 
 def pytest_configure(config):
+    global _built_after
+    _built_after = config.getoption("--artifacts-built-after")
     config.addinivalue_line(
         "markers",
         "%s(*artifacts): this test reads a build artifact out of the working tree. "
@@ -85,8 +124,48 @@ def _declared(item):
     return names
 
 
-def _missing(names):
-    return [n for n in names if not os.path.isfile(os.path.join(AEON, n))]
+def _unusable(names):
+    """The declared artifacts this invocation did not produce, each with its reason.
+
+    ABSENT and STALE are one state on purpose. Both mean "the build shape that writes
+    this file did not run", and both must defer rather than grade: a test run against
+    either is answering about a build nobody made.
+    """
+    out = []
+    for n in names:
+        p = os.path.join(AEON, n)
+        if not os.path.isfile(p):
+            out.append("%s (absent)" % n)
+        elif _built_after is not None and int(os.path.getmtime(p)) < _built_after:
+            out.append("%s (stale — written %d, this build began %d)"
+                       % (n, int(os.path.getmtime(p)), _built_after))
+    return out
+
+
+def pytest_collection_modifyitems(config, items):
+    """Defer, BEFORE running, every marked test whose declared artifacts this
+    invocation did not produce.
+
+    THIS HOOK IS WHY DEFERRAL WORKS AT ALL. Deferral used to be inferred from a test
+    SKIPPING on its own guard, which covers only the artifacts a test happens to check
+    for itself — and the one that mattered, `demo.debug.lst` in the segments parent, is
+    guarded by that test but STALE rather than absent, so the guard passed, the test
+    ran, and it failed on a build nobody made. A test cannot be trusted to notice; the
+    lane decides, from the declaration.
+
+    An item skipped here is reported as skipped, lands in the DEFERRED block below with
+    its reason, and is never silent. An item whose artifacts are all usable is left
+    completely alone — if it then skips on its own, that is the FAILURE arm.
+    """
+    for item in items:
+        declared = _declared(item)
+        if not declared:
+            continue
+        unusable = _unusable(declared)
+        if unusable:
+            item.add_marker(pytest.mark.skip(
+                reason="DEFERRED: this build shape did not produce " +
+                       ", ".join(unusable)))
 
 
 def _skip_reason(report):
@@ -113,9 +192,9 @@ def pytest_runtest_makereport(item, call):
     reason = _skip_reason(report)
 
     if declared:
-        missing = _missing(declared)
-        if missing:
-            _deferred.append((item.nodeid, missing))
+        unusable = _unusable(declared)
+        if unusable:
+            _deferred.append((item.nodeid, unusable))
             return
         _fail(report, (
             "SKIPPED WITH ITS INPUTS ON DISK.\n"
@@ -149,9 +228,10 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
     ran nothing at all has to be visible in the log it leaves behind."""
     if not _deferred:
         return
-    terminalreporter.write_sep("=", "DEFERRED — marked tests whose artifacts are absent")
-    for nodeid, missing in _deferred:
-        terminalreporter.write_line("  %s  (missing: %s)" % (nodeid, ", ".join(missing)))
+    terminalreporter.write_sep(
+        "=", "DEFERRED — marked tests this build shape did not produce inputs for")
+    for nodeid, unusable in _deferred:
+        terminalreporter.write_line("  %s  (%s)" % (nodeid, ", ".join(unusable)))
     terminalreporter.write_line(
         "  %d deferred. These are NOT passes: each needs a build shape this run did "
         "not produce." % len(_deferred))
