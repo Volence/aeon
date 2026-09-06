@@ -323,40 +323,141 @@ BGANIM_VIEW_T_RATE_SHIFT = 2
 BGANIM_VIEW_COUNT = 3
 
 
-def views_emitted(anims):
-    """How many DEBUG view twins this act's `anims` produce (0 or BGANIM_VIEW_COUNT).
+# ── THE DECOUPLE (ruled 2026-09-06, hub in the owner's place, overturnable) ───
+#
+# WHAT THIS REPLACED, AND WHY IT HAD TO GO. Until this parcel `views_emitted` RAISED
+# whenever any band carried `default_off` and the act had more than one band. That
+# refusal was correct when it was written: the only writer was a hand-edited file, and
+# "add a second band" was a deliberate act by someone who would understand the message.
+# **Aurora's editor then shipped a `Promote` control, and the population of writers
+# changed while the refusal did not.** The shipped act is one band carrying
+# `default_off`, so an author did the one thing the editor invites them to do and got a
+# build failure about DEBUG view twins they had never heard of and did not touch —
+# a refusal firing on a CORRECT run, which is worse than the silence it replaces.
+#
+# THE RULING: the twins condition on exactly one band (period 64); `default_off` is a
+# per-band SHIP decision independent of them. So the twins' condition SURVIVES UNCHANGED
+# — it is why BGANIM_VIEW_V_RATE_SHIFT means anything — and stops being able to veto
+# what the act ships.
+#
+# THE REJECTED REPAIR WAS SILENCE, and naming it is what keeps this one honest: "return
+# 0 twins instead of raising" was cheap and would have removed the owner's own
+# perspective-versus-timer comparison from any act an author grows, unannounced. So
+# declining is ANNOUNCED, in two places, because they fail differently:
+#   * on stdout as the build step runs — where the author who just pressed Promote is
+#     looking;
+#   * as a comment block in the generated `bg_anim.emp` — because scrollback is
+#     ephemeral and the artifact is what a reviewer opens when asking where the views
+#     went. It costs zero ROM bytes (`test_the_note_costs_no_rom_bytes` holds that).
+#
+# THE PERIOD ARM CHANGED THE SAME WAY, and it is the same defect rather than a
+# generalisation: a 32 px single-band act carrying `default_off` is a correct run under
+# the ruling — the author is making a ship decision — and it would have failed the build
+# over a DEBUG preview's rate derivation. NOT EMITTING the twins protects
+# BGANIM_VIEW_V_RATE_SHIFT from a period it was not computed for exactly as completely as
+# raising did; the note supplies the loudness that raising was buying. The docstring's
+# old line ("THE PERIOD CHECK IS A REFUSAL AND NOT A SILENT ZERO ... Better to say so")
+# is honoured by the note, not by the exception.
+#
+# WHAT IS **NOT** DECOUPLED, deliberately, so a reader does not assume the other
+# direction: `default_off` is still the twins' OPT-IN. An act that never sets the key
+# emits no twins and is told nothing — that predates this parcel and stays true, and
+# announcing "no twins" to every such act would itself be a notice on every correct run.
+# The ruling's sentence is directional: `default_off` independent of the twins, not the
+# twins independent of `default_off`. Emitting twins for every single-band 64 px act
+# would add 138 B to the DEBUG shape of acts that never asked, and is not this lane's.
 
-    NARROW BY DESIGN. The twins exist for the effects lab, which drives ONE band, so
-    they are emitted only for the shape the lab can actually show: exactly one band,
-    marked `default_off`, whose pattern period is the one BGANIM_VIEW_V_RATE_SHIFT was
-    derived against. Anything else emits no twins and behaves exactly as before -- an
-    act that never sets `default_off` cannot notice this feature exists.
+def view_emission(anims):
+    """`(n_views, note)` — the twins' condition, and what to SAY when it is unmet.
 
-    THE PERIOD CHECK IS A REFUSAL AND NOT A SILENT ZERO for the reason the rate constant
-    states: a 32 px band would take the same shift and get a different cadence while the
-    comment above still claimed the number was derived. Better to say so.
+    `n_views` is 0 or BGANIM_VIEW_COUNT. `note` is None when there is nothing to
+    announce, and otherwise a multi-line sentence naming the capability that is absent,
+    the condition it wanted, what this act actually is, that `default_off` still ships,
+    and the remedy. `main()` prints it and writes it into the generated module.
+
+    NARROW BY DESIGN, unchanged by the decouple. The twins exist for the effects lab,
+    which drives ONE band, so they are emitted only for the shape the lab can actually
+    show: exactly one band, marked `default_off`, whose pattern period is the one
+    BGANIM_VIEW_V_RATE_SHIFT was derived against. See the block above for what moved.
     """
     off = [a for a in anims if a.get('default_off', False)]
     if not off:
-        return 0
-    if len(anims) != 1:
-        raise AssertionError(
-            f'`default_off` is set on {len(off)} of {len(anims)} bands. The debug view '
-            'twins are emitted only for a single-band act (the effects lab drives one '
-            'band), and a multi-band act would need a view table per band and a selector '
-            'that names both. Drop `default_off`, or extend BGANIM_VIEWS to a per-band '
-            'shape deliberately.')
-    period = anims[0]['pattern_px']
-    if period != BGANIM_VIEW_DERIVED_PERIOD_PX:
-        raise AssertionError(
-            f"band 0 is `default_off` with pattern_px {period}, but "
-            f"BGANIM_VIEW_V_RATE_SHIFT ({BGANIM_VIEW_V_RATE_SHIFT}) was DERIVED against a "
-            f"{BGANIM_VIEW_DERIVED_PERIOD_PX} px period (one full cycle ~= one screen "
-            f"height of vertical camera travel). At {period} px that shift gives a "
-            f"different cadence while the derivation comment still claims the number was "
-            f"computed for it. Re-derive the rung for this period and move "
-            f"BGANIM_VIEW_DERIVED_PERIOD_PX with it.")
-    return BGANIM_VIEW_COUNT
+        return 0, None                     # not this feature's business; say nothing
+    period = anims[0]['pattern_px'] if anims else None
+    if len(anims) == 1 and period == BGANIM_VIEW_DERIVED_PERIOD_PX:
+        return BGANIM_VIEW_COUNT, None
+    why = (f'this act has {len(anims)} band(s), band 0 pattern_px {period}'
+           if len(anims) != 1 else
+           f'this act is single-band but its pattern_px is {period}')
+    return 0, (
+        f'NO DEBUG BG-ANIMATION VIEW TWINS FOR THIS ACT.\n'
+        f'  BgAnim_View_H / _V / _T -- the effects lab\'s "perspective vs timer" A/B,\n'
+        f'  reached with START+C in the DEBUG shape -- are emitted only for an act of\n'
+        f'  exactly ONE band whose pattern_px is {BGANIM_VIEW_DERIVED_PERIOD_PX}, the '
+        f'period\n'
+        f'  BGANIM_VIEW_V_RATE_SHIFT was derived against. But {why}, so they decline.\n'
+        f'  `default_off` still SHIPS exactly as authored: the {len(off)} marked '
+        f'band(s) are not\n'
+        f'  counted into BgAnim_Table, so the act boots with them off in every shape\n'
+        f'  including release. THIS IS THE TWINS DECLINING, NOT A REFUSAL -- the ship\n'
+        f'  decision is not theirs to veto (ruling 2026-09-06).\n'
+        f'  To get the twins back: reduce the act to a single '
+        f'{BGANIM_VIEW_DERIVED_PERIOD_PX} px band, or extend\n'
+        f'  BGANIM_VIEWS to a per-band shape deliberately.')
+
+
+def views_emitted(anims):
+    """How many DEBUG view twins this act's `anims` produce (0 or BGANIM_VIEW_COUNT).
+
+    The count half of `view_emission`, kept as its own name because 19 call sites and
+    the consumer contract are written against it. A caller that can show the author
+    anything should call `view_emission` instead and print the note.
+    """
+    return view_emission(anims)[0]
+
+
+def band_emission_order(anims):
+    """`(order, note)` — which authored band each emitted record is, and what to say.
+
+    LIVE BANDS FIRST, `default_off` BANDS AFTER THEM. The count word says how many of
+    the records FOLLOWING it the engine walks (engine/level/bg_anim.emp, BgAnim_Update),
+    so a default-off band emitted ahead of a live one would silently disable the LIVE
+    one instead of itself.
+
+    THIS REPLACED AN ASSERTION ON THE AUTHOR ("default_off bands must be the TAIL of the
+    band list"), and it is the second half of the same defect the block above describes:
+    Aurora's `Promote` APPENDS a band, so on the shipped act — one band, `default_off` —
+    the natural output of that control is exactly the order that assertion refused.
+    Measured here before the change: with `views_emitted` stubbed to 0, the promoted
+    shape still died on the tail assertion. The ordering constraint is a property of the
+    EMISSION (what the count word means), not of the authoring, so it belongs here.
+
+    SAFE TO PERMUTE, and this is the part worth checking rather than assuming: a record
+    carries its own `slot_base`-derived VRAM destination and its own absolute
+    `bank_offsets`, the bank blob is built in AUTHORING order and untouched by this, and
+    the engine indexes BgAnim_LastStep by walk position with no cross-band dependency.
+
+    A REORDER IS ANNOUNCED for the reason everything else here is: the emitted table is
+    no longer in the order the author wrote, and nothing else would say so. Returns
+    `note = None` when the authored order is already correct, which is every act that
+    does not mix live and default-off bands — including the one this tree ships.
+    """
+    live = [i for i, a in enumerate(anims) if not a.get('default_off', False)]
+    off = [i for i, a in enumerate(anims) if a.get('default_off', False)]
+    order = live + off
+    if order == list(range(len(anims))):
+        return order, None
+    return order, (
+        f'BAND EMISSION ORDER CHANGED: the {len(off)} band(s) carrying `default_off` '
+        f'were\n'
+        f'  moved to the TAIL of the emitted table. BgAnim_Table\'s count word says how\n'
+        f'  many of the records FOLLOWING it the engine walks, so a default-off band\n'
+        f'  emitted ahead of a live one would disable the LIVE one instead of itself.\n'
+        f'  Authored order {",".join(str(i) for i in range(len(anims)))} '
+        f'-> emitted {",".join(str(i) for i in order)}. '
+        f'Slots, art and bank offsets are\n'
+        f'  unaffected: each record carries its own, and the bank blob keeps authoring '
+        f'order.')
 
 
 def bganim_section_bytes(n_bands, total_slots, n_views=0):
@@ -848,7 +949,7 @@ def main(act=None):
         # any emission: an over-ceiling act must fail with a sentence naming the limit,
         # not by writing artifacts that make sigil report a section collision.
         section_bytes = check_bganim_section_fits(anims, act.section)
-        n_views = views_emitted(anims)
+        n_views, view_note = view_emission(anims)
         banks = bytearray()
         bands = []
         slot_cursor = 0
@@ -931,15 +1032,35 @@ def main(act=None):
             # system is off at boot, in every shape. See the `default_off` block at the
             # head of this file. The records still follow the count word, so they are
             # reachable through the view labels below and through nothing else.
+            #
+            # THE ORDER IS THE EMITTER'S JOB, not the author's: live bands first, so the
+            # count word covers exactly them. `band_emission_order` says why, and says
+            # so out loud when it actually moves something.
+            emit_order, order_note = band_emission_order(anims)
             live_bands = [b for b in bands if not b['default_off']]
-            assert all(b['default_off'] for b in bands[len(live_bands):]), (
-                'default_off bands must be the TAIL of the band list: the count word '
-                'says how many of the records that FOLLOW IT the engine walks, so a '
-                'default-off band ahead of a live one would silently disable the live '
-                'one instead of itself.')
+            if order_note:
+                for line in order_note.splitlines():
+                    f.write(f'// {line}\n')
+            if view_note:
+                for line in view_note.splitlines():
+                    f.write(f'// {line}\n')
+            # THE SUFFIX IS THREE CASES, NOT TWO. It used to be "any default_off band ->
+            # the act boots with BG animation OFF", which was true while `default_off`
+            # implied a single-band act and became an OVER-CLAIM the moment a multi-band
+            # act could carry it: an act with one marked band and one live band boots
+            # with animation ON. Same class as the refusal this parcel removed — a
+            # sentence that was correct for the only act that could exist when it was
+            # written. Note that this affects no byte: it is a `//` comment.
+            n_off = len(bands) - len(live_bands)
+            if not n_off:
+                suffix = '\n'
+            elif not live_bands:
+                suffix = '  (default_off: the act boots with BG animation OFF)\n'
+            else:
+                suffix = (f'  ({n_off} of {len(bands)} band(s) marked default_off and '
+                          f'not counted here)\n')
             f.write(f'pub data BgAnim_Table: u16 = {len(live_bands)}   // band count'
-                    + ('  (default_off: the act boots with BG animation OFF)\n'
-                       if len(live_bands) != len(bands) else '\n'))
+                    + suffix)
 
             def _emit_record(tag, b, i, driver, rate_shift, gated=False):
                 vram_dest = BG_TILE_BASE_VRAM + b['slot_base'] * 32
@@ -969,7 +1090,11 @@ def main(act=None):
                 else:
                     f.write(f'data _BgAnim_{tag}{i}_banks: [*u8; 8] = [{banks_list}]\n')
 
-            for i, b in enumerate(bands):
+            for i, authored in enumerate(emit_order):
+                b = bands[authored]
+                if i != authored:
+                    f.write(f'// (emitted at position {i}; AUTHORED as band {authored} '
+                            f'— see BAND EMISSION ORDER CHANGED above)\n')
                 _emit_record('Band', b, i, b['driver_name'], b['rate_shift'])
 
             # ---- the DEBUG view twins (see the `default_off` block above) ----
@@ -1000,7 +1125,10 @@ def main(act=None):
             # separate parcel and is booked in docs/DEFERRED_WORK.md rather than done
             # here on the way past.
             if n_views:
-                b = bands[0]
+                # `view_emission` guarantees a single band here, so this is THAT band
+                # rather than "whichever record sorted first" — the two coincide today
+                # and would stop coinciding the moment the condition is widened.
+                b, = bands
                 f.write("\n// The effects lab's three BG-animation views. Same band, same\n"
                         '// bank blob, same slots — they differ ONLY in which scalar the\n'
                         '// step is read from and how fast. Reached through\n'
@@ -1029,6 +1157,12 @@ def main(act=None):
         print(f'[inject_editor_bg] anim: {len(bands)} band(s), {live} live at boot, '
               f'{n_views} debug view twin(s), {len(banks)} bytes of banks; '
               f'ojz_bg_anim {section_bytes}/{BGANIM_SECTION_CEILING} B (ROM-room ceiling)')
+        # The declines, on stdout, where the author who just pressed Promote is looking.
+        # They are ALSO comments in the emitted module (scrollback is ephemeral); see
+        # the DECOUPLE block for why the absence is announced twice and refused never.
+        for note in (order_note, view_note):
+            if note:
+                print(f'[inject_editor_bg] NOTE: {note}')
     else:
         # no animation: emit the disabled stub as a natively-placed `.emp` section
         # (Parcel K3 run B). band_count = 0 disables the whole system.

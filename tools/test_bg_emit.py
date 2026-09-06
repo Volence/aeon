@@ -2781,8 +2781,11 @@ class TestBgAnimDefaultOffDecouple(unittest.TestCase):
                 self.assertEqual(
                     self._table_count(emp), expect_live,
                     "BgAnim_Table must count exactly the bands NOT marked default_off")
+                # The DECLARATION, not the name: the declined note NAMES the twins on
+                # purpose, so `"BgAnim_View_H" not in emp` would fail on a correct
+                # emission (measured — it did). What must be absent is the emission.
                 self.assertNotIn(
-                    "BgAnim_View_H", emp,
+                    "pub data BgAnim_View_H", emp,
                     "a two-band act must not emit twins: their condition is one band")
 
     def test_the_marked_band_is_the_one_excluded_not_merely_the_count(self):
@@ -2810,7 +2813,9 @@ class TestBgAnimDefaultOffDecouple(unittest.TestCase):
                          inject_editor_bg.BGANIM_VIEW_COUNT)
         emp, _ = emit_over_document(self._doc([(0, True)]))
         for view in ("BgAnim_View_H", "BgAnim_View_V", "BgAnim_View_T"):
-            self.assertIn(view, emp)
+            self.assertIn(f"pub data {view}", emp)
+        self.assertNotIn("NO DEBUG BG-ANIMATION VIEW TWINS", emp,
+                         "an act that GETS its twins must not also be told it did not")
 
     def test_a_declined_multi_band_act_says_why(self):
         n_views, note = inject_editor_bg.view_emission(
