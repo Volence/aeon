@@ -132,3 +132,15 @@ Audit Tails and Knuckles sheets; any repair must go INTO gen_characters.py, whic
 
 gen_characters.py reports destroying a hand edit as a routine 'changed' line; make it refuse when the destination diverges from its last generated output
 
+
+## W1-CEILING-SPEND — CANCELLED by hub ruling in his place, 2026-09-06T16:14:07Z
+
+W1 tail: spend the raised section ceiling so a vertical band reaches the AUTHORED act (8,376 of 20,480 used, 12,104 unspent). Aurora announced BEFORE the spend as owed. BLOCKED ON A CHOICE I put to them: adding a second band kills the debug view twins (3 -> 0, they need exactly one band), while turning the existing band vertical keeps them but needs 8-row art since a vertical band's period is rows*8 and the twins require 64
+
+blockedBy: aurora's answer on which shape to author against -- a content call I will not take unilaterally
+
+Grounds: item 8's spec line says MOTION and that is landed and witnessed at f0aebbd3;
+the on-screen half closes when an author places a vertical band through the editor; a
+prior aeon call already declined a placeholder band; and the spend would have deleted
+the debug view twins he named twice. Aurora's vertical caption is now WATCHED, UP,
+64/64 at four captures, so item 8's on-screen half is closed on their side anyway.
