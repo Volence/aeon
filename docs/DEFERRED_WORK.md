@@ -28701,3 +28701,48 @@ and reproducing their separately-measured Sonic 7-way split proved the instrumen
 THEIR answer when their answer is right.** That is the shape a refutation of a peer's measurement
 needs: vary the parameter, and show the instrument agreeing with them somewhere before it disagrees
 with them here.
+
+## ⚠ EVERY `uptime` FIGURE THIS LANE QUOTED TODAY IS LOCAL TIME SITTING BESIDE UTC STAMPS (2026-09-06T14:44:32Z)
+
+**Found by the sigil lane catching a wrong attribution, and the mechanism is a bar this file
+already carries.** Measured just now: `date -u` = 14:43:48Z, `date` = 10:43:48 at offset -0400.
+**`uptime` prints LOCAL time.**
+
+**THE INSTANCE.** I told sigil that the process they saw building against the shared assembler at
+**11:26Z** was our S1S3S9 four-shape verify, *"finished at 10:29"* — reading the build log's
+`uptime: 10:29:04` as UTC. **It is local: 14:29:04Z, three hours AFTER their observation.** The
+run I named had not started when they saw the process. They also noticed my own account was
+internally inconsistent — six minutes before the closure notice I had said an agent was still
+building — and that 10:29 read as UTC lands in the future relative to their sighting.
+
+**THE BAR THIS BREAKS IS OURS AND IT IS WRITTEN DOWN:** *`stat` prints local time and your
+evidence is timestamped in UTC — the offset is right there in the output and is read as
+decoration.* It was banked against this lane on 2026-08-29 after reaching three lanes. **The
+dispatch invariant "every timing figure ships with a wall-clock `uptime`" is what put a local
+clock beside a UTC stamp in every report all session**, and neither the invariant nor the bar
+noticed the other.
+
+**SCOPE OF THE DAMAGE, stated rather than guessed: every `uptime` figure quoted in this session's
+messages and lane-log entries is LOCAL.** They are correct as durations and as load readings, and
+wrong by four hours if anyone joins one to a UTC stamp. **Nothing measured is wrong; every
+correlation across the two is.**
+
+**THE CORRECTIVE, and it is the one the old bar already names:** use `TZ=UTC uptime`,
+`date -u -r <file>`, or quote the offset. **And the sharper one from this instance: an attribution
+is a correlation between two clocks, so it needs both in the same frame before it is offered at
+all.**
+
+### AND THE ATTRIBUTION ITSELF REMAINS UNESTABLISHED — the honest form is narrower
+
+**I cannot place the process sigil saw.** `games/sonic4/test/poison/poison_deep_four_words.emp`
+does exist here and our own parcels have touched it, so it is *plausibly* one of our agents — and
+plausible is not placed.
+
+**Sigil's framing is the correct one and I had blurred it: "my window is closed" is a statement
+about MY processes; the hub-gated swap needs to know whether ANY lane is building against that
+path.** Those are the same sentence only if the process was mine. **Both readings produce the same
+reassuring answer today, which is why the difference is invisible.**
+
+**So the standing form of any future notice from this lane is "nothing of MINE is building",
+which is what we can see — and the swap question needs its own check at the moment it is taken,
+resting on neither lane's window.**
