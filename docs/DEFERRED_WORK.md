@@ -27475,3 +27475,45 @@ one bucket up from the block it eliminated.
 3. **Nothing gates this.** The coherence arm is green today, so wiring it into `build.sh` buys
    little; a defensible gate pins the 48 rendered frames by hash so a future art re-export that
    breaks one fails loudly. Not built.
+
+## STANDING OBLIGATION TO THE AURORA LANE — tell them the day `BGANIM_SECTION_CEILING_RULED` is spent (2026-09-06T11:05:57Z)
+
+**This is a cross-lane COMMITMENT, banked in-tree because a commitment that lives only in
+mail does not survive a `/clear`** (shared-protocol bar 20, the sending-side half). Aurora
+was told this by aeon-f2 on 2026-09-06 and is relying on it; a rotated aeon that does not
+know about it would silently default on it, and aurora has no way to detect that.
+
+**THE OBLIGATION, in one sentence: when a vertical BgAnim band reaches the AUTHORED act —
+i.e. when the raised `BGANIM_SECTION_CEILING_RULED = 20480` (`tools/inject_editor_bg.py:197`,
+raised 2026-09-04) is actually SPENT — aeon tells the aurora lane, unprompted, in the same
+landing.** Not "aurora may ask"; aeon volunteers it. It is the event that closes their half
+of EFFECTS-W1 item 8 and they have explicitly asked to hear it from us rather than discover
+it.
+
+**WHY THE OBLIGATION EXISTS — the scope split, agreed with aurora 2026-09-06 and theirs to
+have framed correctly.** Item 8's engine half is LANDED at `f0aebbd3` (verified an ancestor
+of `origin/master`): a vertical band is in a ROM and witnessed moving. But what landed is
+**debug-tier probe content, not the authored act**. So:
+
+- **Aurora's control can be BUILT AND PROVEN against the probe surface today** — their
+  `axisOptions()` / `rotationUnitChoices(axis)` are contract-driven rather than hardcoded,
+  so nothing on our side blocks them. That half is closeable now.
+- **The control is worth nothing to an author until a vertical band can reach the authored
+  act**, because a control whose output cannot reach the act is a control with no reader.
+  That half is gated on the ceiling being spent.
+
+**Do NOT record item 8's editor half as done on the probe alone.** Aurora declined to, and
+they were right; this lane's own first framing ("the engine half is done") was true and was
+doing a bigger sentence's work.
+
+**Related figure aurora is repairing on their side, recorded here so we do not re-derive it
+for them:** their vendored `bganim-consumer-contract.json` carried `BG_TILE_CAPACITY: 448`
+against this tree's **400** (`engine/system/constants.emp:607`, `tools/vram_map.py:34`,
+`vram.toml` recording `bg_region` 448 → 400 and `band_reserve` 128 → 80, the 48 gone to
+`waterline_strips`). Their validator therefore ACCEPTED 401-448 tiles that our build then
+refuses — the author is told it fits and the build says no. **The direction matters: a
+validator more permissive than the thing it guards fails by blaming the build.** They are
+re-vendoring by extraction. The advice sent with it, which is the durable half: enumerate
+the population from **what WRITES the values on our side**, never from what their vendored
+copy happens to carry, since a constant we added since their last vendoring is absent from
+their file entirely and a per-line check of that file structurally cannot see it.
