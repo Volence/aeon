@@ -6044,22 +6044,121 @@ objects), alongside the §3 SST field audit.
 > data is authored" — Aurora authors it directly now (`docs/LEVEL_EDITOR_SPEC.md` corrected
 > alongside this entry).
 >
-> **Path-swapper objects were never the actual gap.** `games/sonic4/objects/path_swap.emp`
-> (`PathSwap_Init`/`PathSwap_Main`, writes `Sst.layer` on line-crossing — the collision-layer
-> select `engine/level/collision_lookup.emp` reads into `d3.b`) shipped 2026-06-12 ("path-swap
-> line object — OJZ loop wired for two-path traversal") and was ported to `.emp` 2026-07-29; a
-> real two-path loop is placed in level data (`OJZ_Sec1_Objects`, `entity_data.emp:41`, type 1
-> = `ObjDef_PathSwap`, two instances). **No collision-content work remains deferred here** —
-> author → bake → consume → runtime swap is closed end-to-end.
+> **⚠ THE PATH-SWAPPER PLACEMENTS ARE GONE; THE MODULE IS STILL HERE, DELIBERATELY**
+> (2026-09-06, `parcel/pathswap-placements`). The owner ruled the object obsolete — the
+> painted crossover replaces it — but the deletion **splits in two**, and only the first
+> half has landed:
 >
-> **⚠ AMENDED 2026-08-28 (`docs/research/loops-and-sprite-rotation.md`, read at `42e70bea`):
+> - **LANDED:** the two placements in
+>   `games/sonic4/data/editor/ojz/act1/section_1.objects.json` are removed and the tree
+>   re-baked. `OJZ_Sec1_TypeTable` went `ObjTypeTable2` → `ObjTypeTable1` (count 2 → 1) and
+>   `OJZ_Sec1_Objects` `[u16; 10]` → `[u16; 4]`. `ObjDef_PathSwap` is now referenced by
+>   **nothing** in `games/sonic4/data/generated/`.
+> - **PARKED:** deleting `games/sonic4/objects/path_swap.emp`, its `ObjDef_PathSwap` row in
+>   `games/sonic4/map.toml` (line 106, a placement-order boundary), and its `path_swap` entry
+>   in `games/sonic4/data/editor/objects.json`. See the PARK booking below.
+>
+> The module therefore sits in the tree defined, exported, placed by `map.toml`, and used by
+> no level data. **That state was verified to build, because it is the whole premise of the
+> split:** all four shapes green at `3534a276` (s4 820,207 B CRC32 `77C7EA29`; s4.debug
+> 846,388 B CRC32 `7DAB0D1F`; demo and demo.debug byte-identical to master, as expected —
+> they carry no OJZ level data). Warning totals are **identical** to the pre-change baseline
+> on all four shapes (s4 161, demo 183, s4.debug 149, demo.debug 180), so an unreferenced
+> module raises nothing: it is still inside the `use` closure via its `map.toml` placement,
+> and `games.sonic4.path_swap` does **not** appear in the `module.unreachable` set.
+>
+> Both s4 shapes kept their exact byte length while their CRCs changed. That is not a stale
+> ROM — the 16 bytes freed in the entity block (type table 10 → 6, object list 20 → 8) fall
+> inside the packed-data region, whose downstream `dac_banks` / `sound_bank` anchors are
+> `align_up`'d to `0x8000` boundaries (`map.toml`, "their LMAs are DERIVED from the
+> packed-data end... what IS fixed is their alignment"). The slack is absorbed before the
+> next anchor, so length is pinned while content moves. **Byte-count-neutral is not
+> byte-identical**; check the CRC.
+>
+> **⚠ PARK — DELETING THE MODULE NEEDS A PAIRED SIGIL PARCEL, AND IS NOT WORTH DOING ALONE.**
+> sigil's chainer names modules by hand, so removing the `.emp` file without removing its row
+> fails all four shapes **before emission**:
+>
+> ```
+> error: native build (sonic4 plain): build_program: 1 error(s);
+>   [Error] no module `games.sonic4.path_swap` found under the scan root
+> ```
+>
+> Ruled not worth a repin + five-shape refreeze for one dead object: **it waits until a repin
+> advances for an unrelated reason, then rides along.** The prepared aeon-side work is branch
+> `parcel/pathswap-remove` tip `f2c73a4c` — it is correct and complete on this side; do not
+> redo it. The sigil sites to change in that same parcel, verified in sigil's tree at
+> `ffb05a6d` — written as a set rather than a count, because the count went stale twice while
+> this was being booked:
+>
+> - `crates/sigil-harness/src/native.rs:476` — the hand-written manifest row, and the direct
+>   cause of the error above.
+> - `crates/sigil-harness/src/section_align.rs:176` — `d("ObjDef_PathSwap", 2, WORD)`.
+> - `crates/sigil-harness/repin.toml` — **six sites over six regions, and the real cost
+>   driver.** Five *unrelated* regions are anchored on the symbol being deleted
+>   (`test_particle`, `test_emitter`, `test_stress_emitter`, `test_churn`, `test_parent`, at
+>   lines 553, 586, 596, 606, 621), plus the `path_swap` region's own `start` at 653. The five
+>   must be **re-pointed**, not deleted.
+> - `crates/sigil-harness/src/pins.rs` — the `PATH_SWAP` region constant.
+> - `crates/sigil-cli/tests/ojz_run_a_port.rs` and
+>   `crates/sigil-cli/tests/test_g4_final_objects_port.rs` — both genuinely read
+>   `pins::PATH_SWAP` bases and lengths.
+> - **Five golden `offcanonical_sizes` tables** — `s4`, `s4_debug`, `lean`, `config_a`,
+>   `config_b` — one `ObjDef_PathSwap` boundary row each. The frozen tables are the placement
+>   authority, so this is a repin → refreeze `--ab` byte-changing parcel plus a relink of the
+>   SHARED release binary.
+>
+> **NOT members, and the reason matters more than the list.** `diag_desugar.rs`,
+> `src/eval/diag.rs` and `tests/diag_assert_vector.rs` hold the string literal
+> `"Bad path swap!%<endl>Got: %<.b d0>"` as a diagnostic-encoding **test vector** — it tests
+> how a format string encodes, and `path_swap` is merely a realistic sample; `tests/
+> scene_registry_port.rs` and `src/ast.rs` mention it only in comments. All survive the
+> deletion untouched. `golden/PROVENANCE.md` and two sigil notes describe the original port:
+> a provenance record of a past state **stays true**, so it is not even a doc sweep. **The
+> general lesson: an enumeration by name-string cannot distinguish a CONSUMER from a FIXTURE,
+> and the tell is that the hit sits inside a quoted literal rather than in a symbol
+> position.** Two independent lanes over-counted this set the same way.
+>
+> **OPEN, not resolved:** whether `section_align.rs`'s declared row for a section that no
+> longer exists is inert or fatal. Since the alignment flip landed, an UNDECLARED section is
+> refused by name; a declaration for an ABSENT section is the opposite direction and nobody
+> has tested it. One command for whoever sizes the bundled parcel.
+>
+> Historical, kept for provenance: `path_swap.emp` (`PathSwap_Init`/`PathSwap_Main`, writes
+> `Sst.layer` on line-crossing — the collision-layer select
+> `engine/level/collision_lookup.emp` reads it into `d3.b`) shipped 2026-06-12 ("path-swap
+> line object — OJZ loop wired for two-path traversal") and was ported to `.emp` 2026-07-29.
+> ~~a real two-path loop is placed in level data (`OJZ_Sec1_Objects`, `entity_data.emp:41`,
+> type 1 = `ObjDef_PathSwap`, two instances). **No collision-content work remains deferred
+> here** — author → bake → consume → runtime swap is closed end-to-end.~~ **VOID 2026-09-06**
+> — the placements are gone, and the sentence was in any case describing a chain that never
+> carried content (see the re-measurement below). The closed chain is the PAINTED one,
+> `docs/LOOP_CROSSOVER_ENCODING.md` §§5 and 12.
+>
+> **⚠ THE 2026-08-28 AMENDMENT BELOW IS HALF STALE — RE-MEASURED 2026-09-06, independently,
+> off the editor planes using `bake_plane_cell`'s own predicate (solidity != `SOL_NONE` AND
+> shape != 0, sampled at the even tile rows a 16px collision row takes).** Its **section-1
+> finding SURVIVES**: 256 columns × 128 collision rows, **zero** solid cells on BOTH planes.
+> That is why removing the two placements costs nothing — there was never any geometry in
+> section 1 for them to serve, and the act's only loop is in section 0, whose type table
+> carries no `ObjDef_PathSwap` at all. Sections 2-8 are still zero on both planes.
+>
+> Its **section-0 finding is DEAD**: plane B is **no longer a strict subset** of plane A.
+> Re-measured — **1035 cells solid on A, 1038 on B, 67 A-only, 70 B-only, 968 on both**. The
+> "**zero** solid on B and air on A" that made a loop impossible **is now 70**, and the
+> divergent geometry the entry asked for exists. **The number never changed while the thing
+> it described did**, and it went stale in the flattering direction — the hazard of a booked
+> measurement with no referent recorded beside it.
+>
+> ~~**⚠ AMENDED 2026-08-28 (`docs/research/loops-and-sprite-rotation.md`, read at `42e70bea`):
 > closed is not the same as exercised.** The chain above is complete, but **no divergent
 > path-B geometry has been authored anywhere in OJZ act 1**, so it has never carried real
 > content. Measured over all nine sections' `section_N.collattr{,b}.bin`: section 1 — which
 > holds both `ObjDef_PathSwap` instances — has **zero** solid cells on either plane, and
 > section 0's plane B is a **strict subset** of plane A (644 cells solid on A and air on B,
 > **zero** solid on B and air on A). A loop needs at least one cell where plane B is solid
-> and plane A is not; there is none. Sections 2-8 are empty on both planes.
+> and plane A is not; there is none. Sections 2-8 are empty on both planes.~~ (Section 1 and
+> sections 2-8 still hold; the section-0 half is superseded above.)
 >
 > That subset shape is a predictable authoring failure, not carelessness: the two planes are
 > painted independently, so shared ground must be drawn twice. The research doc's §5.2
@@ -6079,10 +6178,13 @@ objects), alongside the §3 SST field audit.
 >    per-path flip handling. The VDP-priority-bit placeholder this entry complains about is gone —
 >    and note the pipeline moved: it is `tools/collision_pipeline.py` now, not
 >    `tools/ojz_strip_gen.py`.
-> 2. **The path-swapper objects exist.** `games/sonic4/objects/path_swap.emp` is implemented and
+> 2. ~~**The path-swapper objects exist.** `games/sonic4/objects/path_swap.emp` is implemented and
 >    actually placed in level data — `ObjDef_PathSwap` appears as type 1 in
 >    `games/sonic4/data/generated/ojz/act1/entity_data.emp:41`
->    (`OJZ_Sec1_TypeTable ... t1: ObjDef_PathSwap`).
+>    (`OJZ_Sec1_TypeTable ... t1: ObjDef_PathSwap`).~~ **HALF VOID 2026-09-06** — the module
+>    still exists (its deletion is PARKED on a sigil repin, see the head of this entry), but
+>    it is no longer placed anywhere: `OJZ_Sec1_TypeTable` is a one-type table now and
+>    nothing in `games/sonic4/data/generated/` references `ObjDef_PathSwap`.
 >
 > Layer B is no longer a byte-copy of layer A. **The RAM-slack note in the entry (910 bytes lower
 > RAM, one more `BLOCK_STAGE_SLOTS` fits) is from 2026-06-10 and has NOT been re-measured — do not
