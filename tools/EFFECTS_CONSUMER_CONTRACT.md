@@ -85,7 +85,7 @@ raising it is a three-file engine change, never a writer decision).
 | `rate_shift` | `:107` | no (default 2) | 1 px of pattern motion per `1 << rate_shift` driver units |
 | `slot_base` | `:92-93` | no (default = running cursor) | if present MUST equal the running cursor — bands pack contiguously from slot 0 in list order |
 | `phases` | `:96-97`, `:127-128` | yes | exactly **8** banks; each bank exactly `cols*rows` tiles; each tile 64 pixel values (low nibble kept, `:101-103`) |
-| `default_off` | `views_emitted`, `:339-358` | no (default absent = false) | **NOT a view toggle — it silences the band in the RELEASE ROM.** A band carrying it is not counted into `BgAnim_Table`, so a single-band act emits `count = 0` and the system is off at boot in EVERY shape. Two hard refusals plus a release-shape consequence: see the `default_off` subsection below |
+| `default_off` | `view_emission` / `views_emitted` | no (default absent = false) | **NOT a view toggle — it silences the band in the RELEASE ROM.** A band carrying it is not counted into `BgAnim_Table`, so a single-band act emits `count = 0` and the system is off at boot in EVERY shape. **No longer refuses anything** (decoupled 2026-09-06): it is a per-band ship decision at any band count. See the `default_off` subsection below for the release-shape consequence and for the twins' own (declining) condition |
 
 #### THE SECTION BUDGET — six constants a consumer must model, and until now their ONLY authority was our tool's source (added 2026-09-06T12:55:09Z)
 
@@ -194,32 +194,63 @@ view twins over the same bank blob — `BgAnim_View_H` (the authored band, drive
 `BgAnim_View_V` (re-driven off `Camera_Y`), and `BgAnim_View_T` (off `Logic_Tick`) — so
 "perspective versus timer" is a comparison a reviewer can actually make.
 
-**THE TWO WRITER OBLIGATIONS. Both are `AssertionError`, not warnings, and both fire at BUILD
-time with no editor-side signal.**
+##### ⚠ THE TWO OBLIGATIONS BELOW ARE NO LONGER OBLIGATIONS — DECOUPLED 2026-09-06T (BGANIM-DECOUPLE)
 
-1. **The ACT must have exactly ONE band — not "all bands agree".** If any band carries
-   `default_off` and `len(anims) != 1`, the emitter refuses: the view twins exist for the effects
-   lab, which drives one band, and a multi-band act would need a view table per band plus a
-   selector naming both. **⚠ THE QUANTIFIER IS THE TRAP, and it was the aurora lane who named it:
-   the constraint is on the ACT'S BAND COUNT, not on how many bands carry the key.** A per-key
-   validator naturally checks *"is `default_off` consistent across the bands"* and **passes a
-   two-band act that this build refuses.** Model it against `len(anims)`, or not at all.
+**READ THIS BEFORE THE NUMBERED LIST, WHICH IS KEPT ONLY BECAUSE IT IS NOW THE SIZE MODEL.**
+Both were `AssertionError` and **neither raises any more.** `default_off` is a per-band SHIP
+decision and the DEBUG twins are a separate, DECLINING gate: an act may carry the key at any band
+count and any period, and it builds. `views_emitted()` returns 0 instead of raising, and the
+emitter SAYS SO — on stdout as it runs, and as a comment block in the generated
+`bg_anim.emp` — so the twins never vanish unannounced.
+
+**WHY IT CHANGED, and it is your lane's finding rather than ours:** the shipped act is one band
+carrying `default_off`, your `Promote` control appends a band, so **an author did the one thing
+the editor invites and got a build failure about DEBUG view twins they had never heard of.** The
+refusal was correct when written — the only writer was a hand-edited file — and **your control
+changed the population of writers while the refusal did not change.** Ruled (b) DECOUPLE, hub in
+the owner's place, 2026-09-06, overturnable.
+
+**WHAT THIS MEANS FOR A WRITER, in one line: nothing you can put in `anims` fails the build over
+`default_off` any more.** The disclosure at `Promote` that was covering authors until this landed
+is **retired** — there is no longer a wall to announce.
+
+**AND WHAT DOES NOT CHANGE: the ordering.** If you author live and `default_off` bands mixed, the
+emitter now REORDERS the emitted records so live bands come first (the count word covers exactly
+them) and says so in both places. It used to be an assertion demanding the author do it. **So a
+round-trip through the build can hand back a table in a different band order than you wrote** —
+slots, art and bank offsets are unaffected, each record carries its own.
+
+**THE LIST BELOW IS STILL THE MODEL FOR *`views_emitted`*, which you need for the section size.**
+The twins' condition is unchanged; only its consequence is. Read each item as *"if this does not
+hold, `views_emitted()` returns 0"*, never as *"the build refuses"*:
+
+1. **The ACT must have exactly ONE band — not "all bands agree".** The view twins exist for the
+   effects lab, which drives one band, and a multi-band act would need a view table per band plus
+   a selector naming both. **⚠ THE QUANTIFIER IS STILL THE TRAP, and it was the aurora lane who
+   named it: the condition is on the ACT'S BAND COUNT, not on how many bands carry the key.** A
+   per-key validator naturally checks *"is `default_off` consistent across the bands"* and gets
+   the wrong answer on a two-band act. **What that mistake costs is now a SIZE error rather than a
+   surprise build failure:** predict twins where there are none and your section figure is
+   `3 * (2 + 44)` = **138 B too large**. Model it against `len(anims)`, or not at all.
 2. **`pattern_px` must equal `BGANIM_VIEW_DERIVED_PERIOD_PX` (= 64).** `BGANIM_VIEW_V_RATE_SHIFT`
    (= 2) was derived against a 64 px period — one full cycle being roughly one screen height of
-   vertical camera travel. Any other period **refuses rather than silently giving a different
-   cadence**, deliberately, so the derivation comment cannot go on claiming a number it no longer
-   earned. Re-deriving the rung for another period means moving `BGANIM_VIEW_DERIVED_PERIOD_PX`
-   with it, which is an engine-side decision and not a writer's.
+   vertical camera travel. Any other period gets **no twins**, so the shift is never applied to a
+   period it was not computed for. That protection is what the old refusal was buying and it is
+   fully intact; what the refusal was ALSO doing was failing the build on a correct ship decision.
+   Re-deriving the rung for another period means moving `BGANIM_VIEW_DERIVED_PERIOD_PX` with it,
+   which is an engine-side decision and not a writer's.
 
-**Measured on the shipped document (2026-09-06):** 1 band, `default_off` true, `pattern_px` 64,
-`views_emitted()` returns 3. Both obligations satisfied — **which is exactly why neither refusal
-has ever fired, and why nothing surfaced this key until a consumer went looking.**
+**Measured on the shipped document (2026-09-06, re-measured after the decouple):** 1 band,
+`default_off` true, `pattern_px` 64, `views_emitted()` returns 3 — unchanged, which is the whole
+point: the decouple was expected to leave the shipped act byte-identical, and it did.
 
-**A NOTE ON WHAT A CLEAN ROUND-TRIP DOES NOT PROVE.** Aurora reported that they parse this key
-with zero notices, validate clean, and write it back unchanged. That is true and it is not
-safety: it holds only because an author cannot currently CREATE or CHANGE the key, so the
-consumer is PRESERVING rather than VALIDATING. The day a writer exposes it, that writer can emit
-a document this build refuses — **the permissive-guard direction, failing by blaming the build.**
+**A NOTE ON WHAT A CLEAN ROUND-TRIP DOES NOT PROVE — still true, with its conclusion changed.**
+Aurora reported that they parse this key with zero notices, validate clean, and write it back
+unchanged. That holds only because an author cannot currently CREATE or CHANGE the key, so the
+consumer is PRESERVING rather than VALIDATING. **The day a writer exposes it, that writer can emit
+a document whose section size you will get wrong** — the build no longer refuses, so the
+permissive-guard direction now fails SILENTLY at the budget instead of loudly at the build. That
+is a better failure for the author and a worse one for you.
 
 #### `axis` — three writer obligations the consumer CANNOT check (added 2026-09-02)
 

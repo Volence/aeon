@@ -28226,6 +28226,66 @@ theirs because they never asked what their control implies for ours. **A consume
 surface changes the producer's assumptions without touching a byte of the producer's code**, and
 there is no gate on either side that watches for it.
 
+### CLOSED — BGANIM-DECOUPLE landed on `parcel/bganim-decouple` (2026-09-06)
+
+**The ruling above is implemented.** `tools/inject_editor_bg.py` gained
+`view_emission(anims) -> (n_views, note)`; `views_emitted()` is its count half and all 19 call
+sites are untouched. **The twins' condition is unchanged — exactly one band, `pattern_px` 64 — and
+no longer raises.** When it is unmet the twins DECLINE and say so twice: on stdout as the build
+step runs, and as a comment block in the generated `bg_anim.emp`. Two places because they fail
+differently — scrollback is ephemeral, the artifact is what a reviewer opens when asking where the
+views went — and it costs zero ROM bytes.
+
+**THE PERIOD ARM WENT THE SAME WAY, and it is the same defect rather than a generalisation past
+the ruling.** A 32 px single-band act carrying `default_off` is a CORRECT run under the ruling —
+the author is making a ship decision — and it would have failed the build over a DEBUG preview's
+rate derivation. **Not emitting the twins protects `BGANIM_VIEW_V_RATE_SHIFT` from a period it was
+not computed for exactly as completely as raising did**; the note supplies the loudness raising was
+buying. The old docstring line ("THE PERIOD CHECK IS A REFUSAL AND NOT A SILENT ZERO ... Better to
+say so") is honoured by the note, not by the exception.
+
+**⚠ AND THERE WAS A SECOND WALL ON THE SAME AUTHOR ACTION THAT THIS BOOKING DID NOT NAME —
+measured, not argued.** With `views_emitted` stubbed to 0, the promoted shape still died:
+
+    AssertionError: default_off bands must be the TAIL of the band list: the count word says
+    how many of the records that FOLLOW IT the engine walks ...
+
+**`promoteBandCommand` APPENDS**, and the shipped act's only band carries `default_off`, so the
+natural output of that control is exactly the order that assertion refused. **Fixing only
+`views_emitted` would have moved the author's build failure one line down and looked like a fix.**
+`band_emission_order(anims) -> (order, note)` now emits live bands first: the ordering constraint
+is a property of the EMISSION (what the count word means), not of the authoring. Safe to permute —
+each record carries its own slot-derived VRAM destination and absolute bank offsets, the bank blob
+keeps authoring order, and the engine indexes `BgAnim_LastStep` by walk position with no
+cross-band dependency. **A reorder is announced in both places too; it is a real change to the
+table the author wrote.**
+
+**The generalisation worth keeping: a refusal removed under a ruling is not the same thing as the
+author's path being open.** The ruling named one refusal because that is the one the reproduction
+reached first. Re-running the reproduction against the *patched* tool, rather than declaring
+victory at the named line, is what found the other.
+
+**NOT TAKEN, deliberately, and named so nobody reads it as an oversight:** `default_off` is still
+the twins' OPT-IN. The ruling's sentence is directional — `default_off` independent of the twins,
+not the twins independent of `default_off` — and emitting twins for every single-band 64 px act
+would add 138 B to the DEBUG shape of acts that never asked for them. Also NOT taken:
+`NVIEWS-REQUIRED` below, which this parcel makes more tempting and not more in scope.
+
+**BYTE EXPECTATION, derived before the build and stated so it could fail:** the shipped act is
+still one band, still `default_off`, still period 64, so it still qualifies for its three twins and
+its band is still excluded from `BgAnim_Table` — **its emission should be unchanged and all four
+ROMs byte-identical to master's.** It held: the regenerated
+`games/sonic4/data/generated/ojz/act1/bg_anim.emp` is byte-identical to the committed one, and the
+four-shape crc32s match master's (`s4 fe512c95` · `s4.debug 3b542111` · `demo 78f29102` ·
+`demo.debug 64db70af`).
+
+**AURORA'S DISCLOSURE AT `Promote` RETIRES.** The sequencing note above made it the cover until
+this landed; there is no longer a wall to announce. `tools/EFFECTS_CONSUMER_CONTRACT.md` §1.2 is
+updated — its two "writer obligations" are no longer obligations, and the numbered list is kept
+because it is still the model for `views_emitted`, which they need for the section size. **The
+quantifier trap they found survives with its cost changed:** mismodelling it no longer produces a
+surprise build failure, it produces a section figure 138 B too large.
+
 ## TWO BARS FROM THE FILE-TIME-CHECK BUILD, AND A SCOPE QUESTION AGAINST MYSELF (2026-09-06T12:09:35Z)
 
 **BAR 1 — ASK WHERE THE CASES YOU CARE ABOUT LIVE IN THE DISTRIBUTION YOU ARE FILTERING ON,
@@ -28360,6 +28420,14 @@ an operand rather than calling the obvious helper, and described that as luck as
 than in a comment, which is the *prefer a check that cannot be omitted* bar. **Not taken: a
 signature change is not this lane's under the standing scope cut**, and the hub ruled against this
 lane's judgement on exactly that boundary earlier today.
+
+**STILL NOT TAKEN after BGANIM-DECOUPLE (2026-09-06), and the parcel made it MORE tempting rather
+than more in scope.** That parcel introduced `view_emission()` — a second name returning the count
+beside its note — which is exactly the kind of moment where a signature change gets swept along on
+the grounds that the file is open anyway. It was left alone: the scope cut is on the SIGNATURE,
+not on how busy the file happens to be. **Naming the temptation is the point of this paragraph —
+`NVIEWS-REQUIRED` is now the oldest thing in this file that every lane touching it agrees with and
+nobody is licensed to do.**
 
 ## BAR — A RULE EMBEDDED IN AN INSTRUMENT PROTECTS THAT INSTRUMENT'S USERS, NOT ITS AUTHOR'S AD-HOC WORK (2026-09-06T12:59:53Z)
 
