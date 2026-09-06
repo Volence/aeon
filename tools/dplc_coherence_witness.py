@@ -143,9 +143,10 @@ NEED_SYMS = (SAMPLE_PC_SYM, "Player_1", "Camera_X", "Camera_Y", "Art_Sonic", "DP
              "DMA_Budget_Remaining", "DMA_Important_Slot", "DMA_Important",
              "Plane_Buffer_Ptr", "Sprites_Rendered", "Sprite_Table_Buffer",
              "Dbg_PageCache_Demands", "Dbg_PageCache_Prefetches", "Dbg_PageIn_Deferred",
-             "Dbg_DMA_Enq_Capped")
+             "Dbg_DMA_Enq_Capped", "DMA_Budget_Default")
 NEED_EQUS = ("SST_x_pos", "SST_y_pos", "SST_mapping_frame", "SST_prev_frame",
-             "SST_art_tile", "SST_anim", "SST_layer", "SST_angle")
+             "SST_art_tile", "SST_anim", "SST_layer", "SST_angle",
+             "SST_anim_timer", "SST_frame_off", "SST_sprite_piece_count")
 
 # The default --tilt-inject sweep. One angle per BLOCK BOUNDARY of
 # Player_ApplyTilt's derived table (the header comment's facing-RIGHT rows:
@@ -272,6 +273,141 @@ class DplcModel:
             if want and live[:len(want)] == want:
                 out.append(f)
         return out
+
+
+class TileAttribution:
+    """PER-TILE HASH ATTRIBUTION - the EMIT arm's instrument (F7, 2026-09-05).
+
+    WHAT QUESTION IT ANSWERS, and why the existing ART checker cannot. `identify()`
+    above asks "is this whole window some ONE frame's image?" and answers with a
+    candidate set. That is a whole-window question, so its answer to a MIXED window -
+    slots 0..k-1 holding frame A's art and slots k..n-1 still holding frame B's - is
+    the single word UNIDENTIFIED. It cannot say the window needed TWO frames to
+    explain, cannot name them, and cannot say where the seam is. Those three facts
+    are exactly the hypothesis this arm exists to test:
+
+        THE JUMBLE IS THE "ROTATION". A sprite window holding pieces of two adjacent
+        WALK frames reads as a skewed Sonic - which is what the owner reports, on
+        terrain (the x 128..767 undulation) whose geometry provably CANNOT rotate the
+        sprite (it is a +/-22.5 degree undulation and block 0 is the +/-22.5 degree
+        bucket, so it grazes both boundaries and crosses neither).
+
+    HOW IT MEASURES. Every one of the ROM's DPLC frames is walked once at startup and
+    its window image cut into 32-byte tiles; the index is
+    `by_slot[i][tile_bytes] -> frozenset(frames)` - i.e. "which frames put exactly
+    these 32 bytes at window slot i". At a sample, each live slot the emitted frame's
+    mappings can reference is looked up in that index, giving a per-slot candidate
+    set. Identity by BYTES, never by eye: a screenshot of a paused machine is a
+    post-hoc render and fails by showing a clean picture.
+
+    WHAT THE HYPOTHESIS FORBIDS, stated before the run. If the jumble is a two-frame
+    window, then on some sample the per-slot candidate sets must have EMPTY
+    intersection while a PAIR of frames covers every slot. Equivalently: the drive is
+    forbidden from being all-SINGLE. Every sample classifying SINGLE (one frame
+    explains every slot) is a refutation of this mechanism for that population - and
+    a prediction that comes out SINGLE everywhere is a refutation, not a null result.
+
+    THE CLASSES, and each is a distinct physical shape:
+      SINGLE        - one frame explains every slot, and it is the emitted frame.
+                      Coherent. (The existing ART checker's CLEAN.)
+      SINGLE_OTHER  - one frame explains every slot but it is NOT the emitted frame:
+                      a WHOLLY stale window (the booked stale-prev_frame hazard, or a
+                      dropped enqueue). One frame, wrong frame - not a mix.
+      MULTI         - NO single frame explains every slot, but a PAIR does. THE
+                      HYPOTHESIS'S SIGNATURE. `split` names the prefix seam when the
+                      pair partitions as prefix/suffix, which is the shape a drain
+                      that stops mid-entry-list must produce (entries drain from the
+                      base in order, so the low slots are the NEW frame and the high
+                      slots the OLD one).
+      UNKNOWN_TILE  - some slot holds 32 bytes no frame ever puts there. A window
+                      caught mid-TILE, or foreign art. Not a two-frame window either,
+                      and worth separating so it cannot be miscounted as one.
+
+    ALIASING IS REPORTED, NOT HIDDEN. Sonic's frames share art heavily, so a slot's
+    candidate set is usually large and a SINGLE verdict can be luck rather than
+    evidence. `discriminating()` counts the slots whose candidate set is small enough
+    to distinguish adjacent frames at all, so a green can be read against how much
+    the window could have said.
+    """
+
+    def __init__(self, model):
+        self.model = model
+        self.by_slot = []
+        for f in range(model.frames):
+            img = model.window(f)[0]
+            for i in range(len(img) // TILE_BYTES):
+                while len(self.by_slot) <= i:
+                    self.by_slot.append({})
+                self.by_slot[i].setdefault(img[i * TILE_BYTES:(i + 1) * TILE_BYTES],
+                                           set()).add(f)
+        self.by_slot = [{k: frozenset(v) for k, v in d.items()} for d in self.by_slot]
+
+    def slot_cands(self, live, mf):
+        """Per-slot candidate frame sets over the slots frame `mf` actually loads."""
+        n = len(self.model.window(mf)[0]) // TILE_BYTES
+        return [self.by_slot[i].get(live[i * TILE_BYTES:(i + 1) * TILE_BYTES],
+                                    frozenset())
+                for i in range(n)]
+
+    def classify(self, live, mf):
+        """-> (kind, detail dict). See the class docstring for the four kinds."""
+        cands = self.slot_cands(live, mf)
+        if not cands:
+            return "SINGLE", {"frames": [mf], "note": "frame loads no tiles"}
+        if any(not c for c in cands):
+            return "UNKNOWN_TILE", {
+                "slots": [i for i, c in enumerate(cands) if not c],
+                "nslots": len(cands)}
+        inter = frozenset.intersection(*cands)
+        if mf in inter:
+            return "SINGLE", {"frames": sorted(inter)[:8], "nslots": len(cands)}
+        if inter:
+            return "SINGLE_OTHER", {"frames": sorted(inter)[:8], "nslots": len(cands)}
+
+        # No single frame. Find the prefix/suffix seam (the mid-entry-list shape)
+        # and, independently, any covering PAIR at all.
+        splits = []
+        for k in range(1, len(cands)):
+            a = frozenset.intersection(*cands[:k])
+            b = frozenset.intersection(*cands[k:])
+            if a and b:
+                splits.append((k, sorted(a)[:4], sorted(b)[:4]))
+        pairs = []
+        seen = set()
+        for i, ci in enumerate(cands):
+            for a in ci:
+                rest = [c for c in cands if a not in c]
+                if not rest:
+                    continue
+                common = frozenset.intersection(*rest)
+                for bfr in sorted(common)[:2]:
+                    key = tuple(sorted((a, bfr)))
+                    if key not in seen:
+                        seen.add(key)
+                        pairs.append(key)
+        return ("MULTI" if pairs else "UNCOVERED"), {
+            "nslots": len(cands), "splits": splits[:4], "pairs": sorted(pairs)[:6],
+            "per_slot_sizes": [len(c) for c in cands]}
+
+    def discriminating(self, mf):
+        """How many of frame `mf`'s window slots could have told frames apart?
+
+        A slot whose byte image is shared by EVERY frame that reaches it can never
+        contradict anything, so a SINGLE verdict built only from such slots is
+        vacuous. This counts the slots whose candidate set excludes at least one
+        NEIGHBOURING frame (mf-1 or mf+1) - the discrimination the two-adjacent-walk-
+        frames hypothesis specifically needs.
+        """
+        img = self.model.window(mf)[0]
+        n = len(img) // TILE_BYTES
+        hot = 0
+        for i in range(n):
+            c = self.by_slot[i].get(img[i * TILE_BYTES:(i + 1) * TILE_BYTES],
+                                    frozenset())
+            if (mf - 1) % self.model.frames not in c \
+                    or (mf + 1) % self.model.frames not in c:
+                hot += 1
+        return hot, n
 
 
 class TiltPopulation:
@@ -462,7 +598,8 @@ def classify(live, want, want_prev):
 
 
 async def drive(sock, syms, equs, model, gsp, frames, verbose, force=False,
-                jump=0, start=None, cam=None, tilt_seq=None):
+                jump=0, start=None, cam=None, tilt_seq=None, advance=False,
+                starve=None):
     client = BusClient(socket_path=sock, client_id="dplcw", client_name="dplc-coherence")
     await client.connect()
     b = Bus(client)
@@ -474,6 +611,9 @@ async def drive(sock, syms, equs, model, gsp, frames, verbose, force=False,
     A_ART = P + equs["SST_art_tile"]
     A_ANG = P + equs["SST_angle"]
     A_GSP = P + PLAYERV_GROUND_SPEED
+    A_TIMER = P + equs["SST_anim_timer"]
+    A_FOFF = P + equs["SST_frame_off"]
+    A_SPC = P + equs["SST_sprite_piece_count"]
     A_DBG = P + PLAYERV_DEBUG_FLAG
 
     await client.call("emulator/reset", {})
@@ -504,6 +644,17 @@ async def drive(sock, syms, equs, model, gsp, frames, verbose, force=False,
     await client.call("emulator/hold", {"buttons": ["right"], "down": True})
     if gsp:
         await b.write(A_GSP, gsp, 2)
+    if starve is not None:
+        # THE LATE-DPLC POISON, and it is a CAUSE-SIDE knob, not a symptom edit.
+        # DMA_Budget_Default is re-read into DMA_Budget_Remaining at the top of
+        # every VInt_Level (engine/system/vblank.emp), and Drain_Budgeted_Queue
+        # stops at .out_of_budget mid-entry-list, compacting the survivors to the
+        # next frame. Turning it down therefore makes the Important drain land a
+        # PREFIX of the player's DPLC entry list and defer the tail - which is
+        # precisely the two-frame window this arm's instrument claims to detect.
+        # If the instrument stays green under this, it is not measuring what it
+        # says it measures and every clean row above it is worthless.
+        await b.write(syms["DMA_Budget_Default"], starve, 2)
 
     st = await b.status()
     stop_phase = st.get("symbolAtPc")
@@ -600,9 +751,40 @@ async def drive(sock, syms, equs, model, gsp, frames, verbose, force=False,
                 await b.read(syms["Sprites_Rendered"], 2), "big"),
             "art_tile": art_tile,
             "angle": (await b.read(A_ANG, 1))[0],
+            "frame_off": int.from_bytes(await b.read(A_FOFF, 2), "big"),
+            "piece_count": (await b.read(A_SPC, 1))[0],
         }
+        # THE PENDING DPLC ENTRIES, read at the same instant as the window. The
+        # sample pc is AFTER Process_DMA_Important returned, so anything still
+        # between DMA_Important and DMA_Important_Slot is an entry the byte budget
+        # REFUSED this frame - the silent defer path that bumps no counter. Dump
+        # the entries themselves, not just the count: their VDP Command longs say
+        # WHICH tiles of the window did not land, which is the other half of a
+        # two-frame window's evidence.
+        row["pending"] = []
+        if row["imp_left"] > 0:
+            raw = await b.read(syms["DMA_Important"], row["imp_left"] * ENTRY_LEN)
+            for k in range(row["imp_left"]):
+                e = raw[k * ENTRY_LEN:(k + 1) * ENTRY_LEN]
+                row["pending"].append({
+                    "len_words": (e[1] << 8) | e[3],
+                    "src_words": (e[5] << 16) | (e[7] << 8) | e[9],
+                    "cmd": int.from_bytes(e[10:14], "big")})
         rows.append(row)
         prev_f = mf
+        if advance:
+            # THE POSITIVE CONTROL'S DRIVER. AnimateSprite advances the frame when
+            # `subq.b #1,anim_timer` goes negative, so writing 0 here - in the
+            # VBlank, after this frame's sample and before the next tick's
+            # AnimateSprite - makes the NEXT tick advance. Every tick becomes a
+            # mapping_frame change, i.e. every tick becomes a frame the DPLC must
+            # actually load art for, which is the only kind of frame on which a
+            # two-frame window can exist at all. It is an INJECTION: the animation
+            # runs faster than the physics would drive it. Nothing downstream is
+            # touched - the frame chosen, the DPLC walk, the SAT build and the
+            # drain are all the engine's. The FRAME-CHANGE census in the report
+            # measures whether it actually worked rather than assuming it did.
+            await b.write(A_TIMER, 0, 1)
 
     await client.call("emulator/hold", {"buttons": ["right"], "down": False})
 
@@ -679,7 +861,100 @@ def population_control(live, model, tilt, peak_entries, out=print):
     return bool(tilted) and peak_entries > up_ceil
 
 
-def report(rows, tail, gsp, label, verbose, model, mapmodel, poison=0, tilt=None):
+def emit_arm(live, model, attrib, mapmodel=None, out=print):
+    """THE EMIT ARM's report: the frame-change population control, then the
+    per-tile attribution verdict. Returns the attribution class counts.
+
+    THE FRAME-CHANGE CONTROL COMES FIRST, and it is a population control exactly
+    like the tilt census. A window can only be incoherent on a tick where the art
+    had to CHANGE: with mapping_frame held, Perform_DPLC's `beq .done` fires and
+    nothing is enqueued at all, so the window cannot be a mixture of anything. A
+    drive whose animation was mostly held has therefore sampled the subject only on
+    the handful of ticks where it changed, however many hundreds of frames it ran -
+    and at a slow walk the hold is ($800-|gsp|)>>8, i.e. up to 8 ticks per frame, so
+    an unforced drive spends most of its samples where the defect is IMPOSSIBLE.
+    The count of changed ticks - not the count of samples - is this arm's real n.
+    """
+    changed = [i for i, r in enumerate(live)
+               if i and r["mf"] != live[i - 1]["mf"]]
+    out("    FRAME-CHANGE POPULATION CONTROL: %d of %d ticks changed mapping_frame "
+        "(the other %d ran Perform_DPLC's `beq .done` and enqueued nothing, so a "
+        "two-frame window is IMPOSSIBLE on them) %s"
+        % (len(changed), len(live), len(live) - 1 - len(changed),
+           "" if len(changed) >= 20 else
+           "*** only %d changed ticks - this arm's n is %d, not %d ***"
+           % (len(changed), len(changed), len(live))))
+    if mapmodel is not None:
+        # THE H1 CACHE, CHECKED DIRECTLY rather than trusted. Render_Sprites reads
+        # the frame's data through Sst.frame_off, NOT through mapping_frame, so a
+        # frame_off that disagrees with mapping_frame emits one frame's PIECES over
+        # another frame's art - the second way to get a two-frame window, and the
+        # one that lives entirely on the emit side. sprites.emp carries a DEBUG
+        # assert for exactly this, but "it did not fault" is a claim about the
+        # assert, not about the cache: this recomputes the frame table lookup from
+        # the ROM and compares it against the sampled frame_off itself.
+        bad = [r for r in live
+               if r["frame_off"] != mapmodel._be16(mapmodel.map + r["mf"] * 2)]
+        out("    H1 FRAME CACHE (Sst.frame_off vs the frame table entry for "
+            "mapping_frame, recomputed from the ROM): %d of %d samples disagree%s"
+            % (len(bad), len(live),
+               "" if not bad else
+               " *** the SAT's PIECES came from a different frame than "
+               "mapping_frame names ***"))
+        for r in bad[:8]:
+            out("      f%-3d mf=$%02X frame_off=$%04X but the table says $%04X "
+                "(piece_count=%d)"
+                % (r["frame"], r["mf"], r["frame_off"],
+                   mapmodel._be16(mapmodel.map + r["mf"] * 2), r["piece_count"]))
+    hot_tot = slot_tot = 0
+    for r in live:
+        h, n = attrib.discriminating(r["mf"])
+        r["hot"], r["nslots"] = h, n
+        hot_tot += h
+        slot_tot += n
+    out("    ATTRIBUTION POWER: %d of %d sampled window slots could distinguish the "
+        "emitted frame from an ADJACENT one by bytes (%.0f%%) - the rest are art the "
+        "neighbouring frames share, on which no verdict is possible"
+        % (hot_tot, slot_tot, 100.0 * hot_tot / slot_tot if slot_tot else 0.0))
+    kinds = {}
+    for r in live:
+        k, d = attrib.classify(r["live"], r["mf"])
+        r["attr_kind"], r["attr_detail"] = k, d
+        kinds[k] = kinds.get(k, 0) + 1
+    ch = {}
+    for i in changed:
+        k = live[i]["attr_kind"]
+        ch[k] = ch.get(k, 0) + 1
+    out("    PER-TILE ATTRIBUTION (does the window need TWO frames to explain?): "
+        + ("  ".join("%s=%d" % kv for kv in sorted(kinds.items())) or "(no frames)"))
+    out("      restricted to the %d frame-CHANGE ticks: %s"
+        % (len(changed),
+           "  ".join("%s=%d" % kv for kv in sorted(ch.items())) or "(none)"))
+    multi = [r for r in live if r["attr_kind"] in ("MULTI", "UNCOVERED",
+                                                   "UNKNOWN_TILE", "SINGLE_OTHER")]
+    for r in multi[:24]:
+        d = r["attr_detail"]
+        out("      f%-3d x=%-5d y=%-5d mf=$%02X(prev $%02X) angle=$%02X %-12s "
+            "slots=%d impleft=%d %s"
+            % (r["frame"], r["x"], r["y"], r["mf"], r["pf"], r["angle"],
+               r["attr_kind"], d.get("nslots", 0), r["imp_left"],
+               ("frames=%s" % d["frames"]) if "frames" in d else
+               ("splits=%s pairs=%s" % (d.get("splits"), d.get("pairs")))
+               if "splits" in d else ("empty slots=%s" % d.get("slots"))))
+        for e in r["pending"][:4]:
+            out("           pending DPLC entry: %d words -> VDP cmd $%08X "
+                "(src $%06X)" % (e["len_words"], e["cmd"], e["src_words"] * 2))
+    if len(multi) > 24:
+        out("      ... and %d more" % (len(multi) - 24))
+    if not multi:
+        out("      NO SAMPLE REQUIRED MORE THAN ONE FRAME. Every window was wholly "
+            "the frame the SAT was built from. The two-adjacent-walk-frames "
+            "hypothesis is REFUTED for this population - that is what it forbids.")
+    return kinds
+
+
+def report(rows, tail, gsp, label, verbose, model, mapmodel, poison=0, tilt=None,
+           attrib=None):
     """`poison` shifts the mapping frame the expectations are built from. It is the
     CONTROL: a checker that cannot fail proves nothing, so `--poison 1` re-runs the
     identical drive comparing every frame against the NEXT animation frame's art and
@@ -767,6 +1042,8 @@ def report(rows, tail, gsp, label, verbose, model, mapmodel, poison=0, tilt=None
     print("    SAT well-formedness (VDP's own table at $B800, after the Critical "
           "drain): " + ("  ".join("%s=%d" % kv for kv in sorted(sat_kinds.items()))
                         or "(no frames)"))
+    if attrib is not None and live:
+        emit_arm(live, model, attrib, mapmodel)
     budgets = [r["budget"] for r in live]
     lefts = [r["imp_left"] for r in live]
     planes = [r["plane"] for r in live]
@@ -898,6 +1175,19 @@ def main():
                          "level's own geometry use --start 1090,541 --cam 1090,433 "
                          "--gsp 0x800 (the loop) with no injection."
                          % (",".join("$%02X" % a for a in TILT_SWEEP),))
+    ap.add_argument("--force-frame-advance", action="store_true",
+                    help="POSITIVE CONTROL for the EMIT arm: write anim_timer=0 "
+                         "every tick so AnimateSprite advances mapping_frame on "
+                         "EVERY frame. A two-frame window can only exist on a tick "
+                         "where the art had to change, and an unforced walk holds "
+                         "each frame for up to 8 ticks - so this is what puts the "
+                         "drive's samples ON the subject instead of beside it.")
+    ap.add_argument("--starve", default=None,
+                    help="POISON for the EMIT arm: write DMA_Budget_Default = N "
+                         "(hex ok) after placement, so Drain_Budgeted_Queue stops "
+                         "mid-entry-list and lands only a PREFIX of the player's "
+                         "DPLC. That is a deliberately late DPLC, cause-side. The "
+                         "attribution instrument MUST go MULTI under it.")
     ap.add_argument("--force-gsp", action="store_true",
                     help="rewrite ground_speed every tick (stress driver — see the "
                          "note at the injection site)")
@@ -942,11 +1232,29 @@ def main():
               "every verdict below is still the engine's, but the ANGLE that "
               "produced it is not the level's."
               % ",".join("$%02X" % t for t in tilt_seq))
+    attrib = TileAttribution(model)
+    hot = [attrib.discriminating(f)[0] for f in range(model.frames)]
+    print("  tile attribution index: %d window slots deep, %d frames; slots that can "
+          "distinguish a frame from an ADJACENT one: min=%d median=%d max=%d"
+          % (len(attrib.by_slot), model.frames, min(hot),
+             sorted(hot)[len(hot) // 2], max(hot)))
+    if a.force_frame_advance:
+        print("  *** FORCED FRAME ADVANCE ACTIVE: anim_timer written 0 every tick, "
+              "so mapping_frame changes every frame. INJECTION (the animation runs "
+              "faster than the physics would drive it); the frame chosen, the DPLC "
+              "walk, the SAT build and the drain are all still the engine's.")
+    starve = int(a.starve, 0) if a.starve else None
+    if starve is not None:
+        print("  *** BUDGET STARVE ACTIVE: DMA_Budget_Default = %d. This is the "
+              "POISON - the Important drain is expected to land a prefix of the "
+              "player's DPLC and defer the tail." % starve)
     with aether_emulator(a.rom, symbols=a.lst) as sock:
         rows, tail = asyncio.run(drive(sock, syms, equs, model, gsp, a.frames,
                                        a.verbose, a.force_gsp, a.jump,
-                                       _xy(a.start), _xy(a.cam), tilt_seq))
-    report(rows, tail, gsp, "run-right", a.verbose, model, mapmodel, a.poison, tilt)
+                                       _xy(a.start), _xy(a.cam), tilt_seq,
+                                       a.force_frame_advance, starve))
+    report(rows, tail, gsp, "run-right", a.verbose, model, mapmodel, a.poison, tilt,
+           attrib)
     return 0
 
 

@@ -26797,3 +26797,51 @@ list as complete. And the cap is tight: `SST_` has **35** equates in the listing
 query returned **5** with `truncated: true`. An earlier `ObjDef_` query returned `truncated: false`
 with five objects, i.e. it landed on the one prefix where the cap exactly equals the truth - which
 is why "I cannot tell a cap from a coincidence" was the right thing to say rather than picking one.
+
+## F7 sprite jumble -- the EMIT arm is CLEAN too; it is now a LOOK CALL, not a mechanism hunt (2026-09-05)
+
+With the DMA family eliminated, the lead flipped to "the jumble IS the rotation": a sprite
+window holding pieces of TWO ADJACENT WALK FRAMES reads as a skewed Sonic, which is what the
+owner reports on terrain that provably cannot rotate the sprite. That arm has now been built,
+controlled and driven, and it is clean. Full campaign in
+`docs/witness/f7-sprite-jumble-diagnosis-2026-09-05.md`.
+
+**The instrument** is `TileAttribution` in `tools/dplc_coherence_witness.py`: every DPLC
+frame's window image is indexed as `by_slot[i][32 tile bytes] -> {frames}`, so each live slot
+gets a candidate frame set and the window is classified SINGLE / SINGLE_OTHER (wholly stale,
+explicitly NOT a mix) / MULTI (needs a PAIR, seam and pair named) / UNKNOWN_TILE. Identity is
+by BYTES against the ROM's own art, never by eye.
+
+**Offline detector controls, on this build's art:** true windows `SINGLE` 224/224 (no false
+positives); frame `f-1`'s whole window under `f` -> `SINGLE_OTHER` 143/143; **a synthetic half
+`f` + half `f-1` -> `MULTI` 136/143** with the seam named (the 7 are adjacent frames whose art
+genuinely aliases, reported as ATTRIBUTION POWER rather than hidden).
+
+**Two new flags.** `--force-frame-advance` writes `anim_timer = 0` each tick so
+`AnimateSprite` advances every frame -- necessary because a two-frame window is structurally
+IMPOSSIBLE on a tick where `mapping_frame` held (`perform_dplc`'s `beq .done`), and a natural
+600-frame walk changes it on only **110** ticks. The FRAME-CHANGE POPULATION CONTROL now
+prints that count: **it, not the sample count, is this arm's n.** `--starve N` writes
+`DMA_Budget_Default` (`$FFFF8210`) so `Drain_Budgeted_Queue.out_of_budget` lands a prefix of
+the player's DPLC and defers the tail -- a cause-side late DPLC, the poison.
+
+**Result: 2,950 samples, 2,307 of them frame-CHANGE ticks, across the undulating platform
+(forced and natural), the loop at speed (90 tilted samples) and `--tilt-inject` (300 tilted).
+ZERO required two frames. All SINGLE.** The H1 render cache was checked directly at every
+sample (`Sst.frame_off` recomputed against the frame table from the ROM, not trusting
+`sprites.emp`'s DEBUG assert to have fired): **0 of 2,950 disagreements.**
+
+**The poison is what makes that mean anything.** At `--starve 0x0700` the instrument goes red
+**149 of 150** ticks, `MULTI=99` with the pairs named as ADJACENT WALK FRAMES ((1,8) (2,3)
+(4,5) (2,4) (4,6) (4,7)) and the prefix seam located. So the mechanism produces exactly the
+predicted picture when it happens -- it just never happens on its own here. **The SAT
+instrument stayed OK 150/150 right through the poison** (its documented blind spot: the table
+is well-formed, the art under it is not), which is why this needed a new instrument rather
+than a longer drive. `--starve 0x0A00` is entirely clean, so the cliff is SHARP and the
+shipped budget of 6144 sits ~3.4x above it on this act.
+
+**So every mechanism proposed for F7 has now been driven and come back clean in OJZ act 1.**
+Do not open a fifth. **What is needed is a capture from the owner**, and the four things it
+must carry are listed at the end of the witness doc; the cheapest single one is the question
+**does he see it WHILE PLAYING or only after pausing** -- a mid-rebuild RAM transient cannot
+reach the screen during play, a deferred DMA can, and that one answer separates the families.

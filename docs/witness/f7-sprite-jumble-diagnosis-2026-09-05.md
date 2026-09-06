@@ -487,3 +487,146 @@ run speed. Three readings, in the order they should be tested:
    on it (the 9/10-entry rungs) was never produced by physics and remains undriven.
 
 Reading 1 is the cheap one and it is where the next arm should go.
+
+---
+
+## THE EMIT ARM: the window is never a mixture, and the poison proves the instrument can see one (2026-09-05, later still)
+
+The DMA family is eliminated for this act, so the lead flipped to the reading the previous
+section called cheapest:
+
+> **THE JUMBLE IS THE "ROTATION".** A sprite window holding pieces of TWO ADJACENT WALK
+> FRAMES reads as a skewed Sonic. That explains why the owner saw it on terrain whose
+> geometry provably cannot rotate the sprite, and it moves the hunt to the EMIT side.
+
+### What the hypothesis forbids, stated before the runs
+
+If the jumble is a two-frame window, then on some sampled tick the resident tile window must
+require **two** mapping frames to explain: no single frame's art can cover every slot the
+emitted mappings reference, while a pair can. Equivalently, **the drive is forbidden from
+classifying every sample as single-frame.** A run that comes out single-frame everywhere is
+a refutation of this mechanism for that population, not a null result -- and it stays a
+refutation however much one would prefer the other answer.
+
+### The instrument: identity by TILE HASH, never by eye
+
+`tools/dplc_coherence_witness.py` gained `TileAttribution`. The existing ART checker asks a
+WHOLE-WINDOW question ("is this some one frame's image?") and so its only answer to a
+mixture is the single word UNIDENTIFIED: it cannot say two frames were needed, cannot name
+them, and cannot locate the seam. The new one indexes every DPLC frame's window image cut
+into 32-byte tiles as `by_slot[i][tile_bytes] -> {frames}`, then looks each live slot up:
+
+| class | shape |
+|---|---|
+| `SINGLE` | one frame explains every slot, and it is the emitted frame -- coherent |
+| `SINGLE_OTHER` | one frame explains every slot but it is the WRONG one -- a wholly stale window, **not** a mix |
+| `MULTI` | **no** single frame covers every slot but a PAIR does -- the hypothesis's signature; the prefix seam is named |
+| `UNKNOWN_TILE` | a slot holds bytes no frame ever puts there -- caught mid-TILE, or foreign art |
+
+`SINGLE_OTHER` exists so a wholly stale window can never be miscounted as a mixture. The
+`splits` field names the prefix seam, which is the shape a drain stopping mid-entry-list
+MUST produce: entries drain from the base in order, so the low slots hold the new frame and
+the high slots the old one.
+
+**Three offline controls on the detector itself, run against this build's own art before any
+emulator started** (`s4.debug.bin` sha256 `d507a534d3650346`, 224 frames, window 29 slots deep):
+
+| control | result |
+|---|---|
+| each frame's TRUE window under its own mapping frame | `SINGLE` **224 of 224** -- no false positives |
+| frame `f-1`'s WHOLE window under frame `f` | `SINGLE_OTHER` **143 of 143** -- a stale window is never called a mix |
+| **half frame `f` + half frame `f-1`** (the hypothesised shape) | **`MULTI` 136 of 143**, seam named exactly (e.g. mf `$04` over `$03`, seam 11) |
+
+The seven exceptions are adjacent frames sharing enough art that the mixture is genuinely
+indistinguishable -- reported as aliasing rather than hidden. Every run also prints
+ATTRIBUTION POWER: the share of sampled slots whose bytes could tell the emitted frame from
+an ADJACENT one at all, so a green can be read against how much the window could have said.
+
+### The population the arm needed, and the control that gets it
+
+A window can only be incoherent on a tick where the art had to CHANGE: with `mapping_frame`
+held, `perform_dplc`'s `beq .done` fires and nothing is enqueued, so a two-frame window is
+structurally impossible. At a walk the animation hold is `($800-|gsp|)>>8`, up to 8 ticks per
+frame -- so an unforced drive spends most of its samples where the defect **cannot** occur.
+Measured: a 600-frame natural walk on the undulating platform changed `mapping_frame` on only
+**110** ticks. **The changed-tick count, not the sample count, is this arm's real n**, and the
+run now prints it as the FRAME-CHANGE POPULATION CONTROL.
+
+`--force-frame-advance` writes `anim_timer = 0` every tick in the VBlank, so the next tick's
+`AnimateSprite` always advances: every tick becomes a frame the DPLC must actually load art
+for. It is an INJECTION (the animation runs faster than the physics would drive it) and the
+banner says so; the frame chosen, the DPLC walk, the SAT build and the drain are all the
+engine's, and the census measures whether it worked rather than assuming it.
+
+### THE POISON, and it is cause-side
+
+`--starve N` writes `DMA_Budget_Default` (`$FFFF8210`), which `VInt_Level` re-reads into
+`DMA_Budget_Remaining` every frame. Turn it down and `Drain_Budgeted_Queue.out_of_budget`
+lands a PREFIX of the player's DPLC entry list and compacts the tail to next frame -- a
+deliberately late DPLC, produced by the proposed cause rather than by editing the symptom.
+
+### The results
+
+All on `s4.debug.bin` (846132 B, sha256 `d507a534d3650346`, md5 `d263e6be2103c4086a53af9de643396d`),
+built in an isolated worktree at `f64476d4` and byte-identical to master's. Six-run battery,
+wall clock `uptime` 23:57:51 -> 23:58:21.
+
+| run | where | frames | change-ticks | tilted | attribution power | ART | SAT | **PER-TILE ATTRIBUTION** | deferrals |
+|---|---|---|---|---|---|---|---|---|---|
+| A2 | undulating platform, forced advance | 1200 | **1199** | 0 | 91% | CLEAN 1200 | OK 1200 | **SINGLE 1200** | 0 |
+| B2 | undulating platform, natural walk | 600 | 110 | 0 | 93% | CLEAN 600 | OK 600 | **SINGLE 600** | 0 |
+| C2 | the loop at `--gsp 0x800`, forced advance | 600 | **599** | **90** | 100% | CLEAN 600 | OK 600 | **SINGLE 600** | 0 |
+| D2 | `--tilt-inject` + forced advance | 400 | **399** | **300** | 100% | CLEAN 400 | OK 400 | **SINGLE 400** | 0 |
+| P2 | poison at budget 2560 | 150 | 149 | 0 | 100% | CLEAN 150 | OK 150 | **SINGLE 150** | 0 |
+| **P1** | **poison at budget 1792** | 150 | 149 | 0 | 100% | CLEAN 1 · OTHER 117 · UNID 32 | **OK 150** | **MULTI 99 · SINGLE_OTHER 43 · UNCOVERED 7 · SINGLE 1** | **149 of 150** |
+
+**2,950 clean samples of which 2,307 were frame-CHANGE ticks. Zero required two frames.**
+The H1 render cache was checked directly at every one of them -- `Sst.frame_off` recomputed
+against the frame table from the ROM rather than trusting `sprites.emp`'s DEBUG assert to
+have fired -- and disagreed on **0 of 2,950**.
+
+**P1 is what makes those rows mean anything.** Under a starved budget the instrument goes
+red on 149 of 150 ticks, and 99 of them are `MULTI` with the pair named as ADJACENT WALK
+FRAMES -- `(1,8) (2,3) (4,5) (2,4) (4,6) (4,7)` -- and the prefix seam located, with the
+deferred entries dumped beside it (`256 words -> VDP cmd $78000081`, `96 words -> $7A000081`).
+**So the mechanism, when it does occur, produces exactly the picture the hypothesis
+predicts.** It just never occurs on its own here.
+
+**The SAT instrument stayed OK 150 of 150 through the poison.** That is not a failure of it,
+it is its stated blind spot doing exactly what the docstring says: the table is well-formed,
+it is the ART underneath that is wrong. A run that watched only the SAT would have called
+P1 clean. This is why the arm needed a new instrument rather than a longer drive.
+
+**P2 locates the cliff.** At budget 2560 the drain keeps up entirely -- 0 deferrals, SINGLE
+150 -- and at 1792 it fails on essentially every tick. The transition is sharp, not graded,
+which is what the arithmetic predicts (residual = budget - plane 1536 - Critical; the
+player's peak frame is 928 B). **The shipped default is 6144**, roughly 3.4x above the cliff
+on this act.
+
+### F7 is not reproducible from here, and that is the result
+
+The emit arm is clean, on the terrain the owner names, with the population control forcing
+the animation onto the only ticks where the defect is possible, with an instrument whose
+sensitivity to the exact hypothesised shape is measured at 136/143 offline and demonstrated
+in vivo by a poison that turns it red 149/150. Together with the DMA family's elimination,
+**every mechanism anyone has proposed for F7 has now been driven and come back clean in OJZ
+act 1.** Continuing to invent a fifth mechanism nobody can reach is worse than asking him.
+
+**What a capture from the owner would need to carry.** A screenshot alone cannot settle it
+(it is a post-hoc render; it fails by showing a clean picture, and by the time the machine is
+paused a mid-rebuild transient has already been overwritten). What is decisive, in order of
+value:
+
+1. **His world position at that instant** -- `Player_1` `x_pos`/`y_pos` (`$FFEE00`-relative
+   via the SST; the tool reads them at `SST_x_pos`/`SST_y_pos`). Every mechanism above is
+   terrain-specific, and the act's only tilting geometry is the loop at x 1056..1263.
+2. **`Sst.mapping_frame` and `Sst.prev_frame`.** `prev_frame != mapping_frame` at a paused
+   moment is the stale-`prev_frame` signature and nothing else produces it.
+3. **The 29-tile VRAM window at his `art_tile` base** (`$07800` on this build). That is the
+   whole measurement: `TileAttribution.classify()` runs on those bytes offline, with no
+   emulator, and answers SINGLE / SINGLE_OTHER / MULTI and names the frames.
+4. `DMA_Important_Slot` vs `DMA_Important` -- non-equal means the drain deferred, the P1
+   signature.
+5. **Whether he sees it WHILE PLAYING or only after pausing.** A mid-rebuild RAM transient
+   cannot reach the screen during play; a deferred DMA can. This one question separates the
+   two whole families and costs him nothing.
