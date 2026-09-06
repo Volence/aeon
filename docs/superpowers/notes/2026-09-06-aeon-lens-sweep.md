@@ -129,3 +129,126 @@ essentially untouched. 33 structs whose sizes its sizer could not resolve are **
 clean**. The Z80 comment surface was not swept at all — and `DEFERRED_WORK:8098` already records
 a live known-bad there, which suggests that is where the residual density sits.
 
+
+---
+
+## Seat B1 — construct / idiom discipline
+
+Machine-scanned exhaustively across all 193 `.emp` files: `mulu`/`muls`/`divu`/`divs` in code
+position (**two independent instruments**, an anchored grep and a comment-aware Python scan, which
+agree on 9); every sized branch mnemonic; every `struct`, `region` and `vars` declaration;
+`@as_compat` occurrences (**zero in the whole corpus**); adjacent foldable immediates; hardcoded
+VDP command longwords. `andi` numeric masks exhaustive over `engine/` only — **`games/` sampled,
+so a magic-mask twin of F1/F2 could still be there.**
+
+### B1-F1 — block-alignment masks spelled two ways, and the guard that fires sends you to the wrong fix
+
+`engine/level/tile_cache.emp` aligns blocks with a hand-rolled `andi.w #$FFF0` at **8 sites**
+(931, 1518, 1671, 1794, 1817, 1964, 2060, 2138) and the complementary `andi.w #$F` at **9**
+(65, 68, 816, 818, 1784, 1790, 1933, 1966, 2062) — while the **same file** spells the blessed
+derived form `andi.w #~(BLOCK_TILE_SIZE-1)` **13 times**. Identical today only because
+`BLOCK_TILE_SIZE = 16` (`constants.emp:957`).
+
+`constants.emp:957-981` is written as a tunable geometry authority — `BLOCK_NT_SIZE`,
+`BLOCK_COLL_ROWS/COLS`, `COLL_CELL_W/H` all fold from `BLOCK_TILE_SIZE` — and carries an
+`ensure(1 << BLOCK_TILE_SHIFT == BLOCK_TILE_SIZE, …)`. **That guard binds the shift. Nothing binds
+the masks.** The seat looked for a pin and found none, with a positive control proving its grep
+was not blind to the construct.
+
+**Controller ran the experiment the seat named, and the result is worse than the seat predicted.**
+Detached `61f22403` worktree, `BLOCK_TILE_SIZE 16 → 32`, `BLOCK_TILE_SHIFT 4 → 5`, quoted back
+from disk:
+
+| step | state | exit |
+|---|---|---|
+| 1 | geometry doubled, nothing else touched | **1** — two errors, **both** `coll_src_row_base assumes BLOCK_COLL_COLS=16 (lsl #4); update the shift` |
+| 2 | did exactly what that message says: `lsl #4` → `lsl #5`, its `ensure` moved to 32 | **0 — GREEN** |
+
+**The seat's falsifier — any build error naming one of the 17 mask sites — did not appear at
+either step.** So the geometry can be doubled, the single guard that fires can be satisfied by the
+two-character edit **its own message instructs**, and the build then goes green with all 17 sites
+still aligning on a 16-tile grid: a tile cache staging and copying the wrong blocks.
+
+**This is the "helpful artifact worse than absence" shape.** A refusal that names an INCOMPLETE fix
+reads as a complete one. A reader who follows `update the shift` has followed the tree's own
+instruction, seen it go green, and is done. Silence would have left them looking.
+
+`docs/superpowers/notes/2026-08-07-lane-b-packet.md:29` already ruled this constant tunable and
+records that an `ensure` was added. The ensure covers the shift; the mask population was never
+enumerated.
+
+**B1's second open item, also measured rather than expected:** neither `tools/s4lint.py` nor the
+sigil lint registry carries any magic-mask or magic-number lint. Nothing outside the corpus
+catches this class.
+
+### B1-F2 — plane-wrap masks, the same split, lower severity and argued as such
+
+Hand-rolled `#63` at `section.emp:272,319,698,755,806,851` and `plane_buffer.emp:140,434`, plus
+`plane_buffer.emp:432 andi.w #$FFC0`; the blessed `#PLANE_H_CELLS-1` / `#PLANE_V_CELLS-1` forms
+appear 7 times in the same two files. `PLANE_H_CELLS = PLANE_V_CELLS = 64`.
+
+The seat ranked this **below F1 and gave its reason**: the plane dimension is anchored in VDP
+register $10, so a change is a far larger and more visible edit than a constant bump. Recorded
+with that ranking intact.
+
+### B1-F3 — `engine/objects/animate.emp:81,85`: the comment's arithmetic is wrong, in the direction a reader would follow
+
+`andi.b #$06, d0  // $06 = RF_XFLIP|RF_YFLIP` — but `RF_XFLIP = 1` and `RF_YFLIP = 2` are **bit
+numbers**, so `RF_XFLIP|RF_YFLIP` is `3`, not `6`. `$06` is `(1<<1)|(1<<2)`. Line `:81` repeats the
+error: "`$F9 = ~(RF_XFLIP|RF_YFLIP)`" — `~3` is `$FC`, not `$F9`. The blessed form
+`#(1<<RF_XFLIP)|(1<<RF_YFLIP)` is spelled correctly three times elsewhere
+(`load_object.emp:64`, `sprites.emp:390,462`).
+
+**Why it is a trap and not a typo:** it is the exact instruction a reader follows when converting
+the magic to the named form, and following it produces `#$03`/`#$FC` — flip propagation then
+copies the wrong bits. Drift in the underlying constants *is* caught, but by
+`load_object.emp:25`'s ensure, whose message is about the `rol.w #4` placement-flip fold — so
+anyone renumbering the RF bits is pointed at a different module and has no reason to open
+`animate.emp`. Two-character fix.
+
+### B1-F4 — three unargued explicit `.s` in `Raster_VBlank` (975, 1006, 1051)
+
+`@as_compat` appears **zero** times in the corpus and the file contains no `align` item, so neither
+of §1.4's applicable exceptions covers them — while the same file argues its *other* `.s` pins
+explicitly (`:1249` prices the encoding at 16/18 cycles). **Severity low and the seat said so:** a
+stale `.s` fails loud at link, it cannot mis-execute. Flagged as an unargued departure, not a defect.
+
+### The `mulu`/`divu` census — 9 sites, scored against the conventions' own four points
+
+Two independent instruments agree on the population. §2.1 requires: divisor non-zero structurally ·
+quotient cannot overflow · alternative named and rejected · cost **and** executions per frame.
+
+| site | complete? | missing |
+|---|---|---|
+| `math.emp:117`, `:124` (`GetArcTan`) | **all four** — and it pre-empts the obvious reply by name (the table is indexed by the *ratio*, so a lookup is not division-free) | — |
+| `parallax.emp:1882`, `:2134` | points 1, 2 solid | **no cost figure and no execution count — and `:1882` sits inside the per-band loop**; alternative not named |
+| `player_ground.emp:853`, `:856` | point 3 weak | overflow bound absent; no cycle figure |
+| **`player_ground.emp:1041`, `:1044` (`Player_Jump`)** | — | **all three applicable points.** Its entire argument is *"one-shot event, classic Sonic_Jump does exactly this"*, and §2.1's own **"What does not count"** list disposes of that in two clauses |
+| `player_glide.emp:226` | count present | cycle figure absent; overflow bound absent |
+
+**The seat found the concrete gap inside the generic one.** `muls.w` into a long cannot overflow —
+which is presumably why nobody wrote a bound — but the overflow-capable step is the **narrowing two
+instructions later**, `asr.l #8` then `move.w` into a word field. At `:853` that is provable in one
+line locally (`d2` capped to `±PHYS_GSP_CAP` ~25 lines above, `|cos| ≤ $100`). At `:1041` the
+operand is `PBLK_JUMP_FORCE(a4)`, a ROM physics value read through the block **with no bound stated
+anywhere at the site** — the one place in the census where the missing point is missing about
+something a reader cannot reconstruct locally.
+
+`mul_const`/`mul_bounded` are healthy: 26 call sites across 9 files, no hand-rolled shift-add chain
+where they were available.
+
+### B1's verified-clean, recorded so the next seat does not re-walk it
+
+- **`PBLK_*` is closed, not open.** 21 duplicated offset consts across 8 files, every one bound by
+  an `ensure(PBLK_X == offsetof(PlayerBlock, x))` in its own file; the two apparent exceptions in
+  `player_common.emp` are `= <guarded base> + 2` and cannot drift independently. A prior sweep is
+  recorded at `player_fly.emp:51`.
+- **`game_debug.emp`'s 16 explicit `.s`/`bsr.w` are argued**, by a STRUCTURAL WIDTH PIN block at
+  `:68` naming the mechanism. The seat flagged this on its first pass and then withdrew it.
+- **Jump-table `bra.w` argued at all three sites**, `dma_queue` additionally pinned by
+  `ensure(sizeof(DMAEntry) == 14)`.
+- **RAM layout clean:** 4 `region`s, 15 `vars` blocks, **zero** hand-placed `$FFFFxxxx` addresses.
+- **VDP commands clean:** zero hardcoded command longwords; `vdp_comm` used 71 times across 10
+  modules.
+- **No runtime computation of a comptime-known value** across 22 candidate sites, all read.
+
