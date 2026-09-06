@@ -27517,3 +27517,45 @@ re-vendoring by extraction. The advice sent with it, which is the durable half: 
 the population from **what WRITES the values on our side**, never from what their vendored
 copy happens to carry, since a constant we added since their last vendoring is absent from
 their file entirely and a per-line check of that file structurally cannot see it.
+
+## `loop_crossover_gate.py`'s HEADER ASSERTS A PREMISE THAT CONTENT HAS SINCE FALSIFIED (2026-09-06T11:08:47Z)
+
+**The claim, at `tools/loop_crossover_gate.py:13-14`, read firsthand:** *"every cell of every
+shipped act holds XOVER_NONE (anchor §2.1: all 18 plane files, all 65,536 cells each)"*. It is
+load-bearing prose, not decoration — it is the stated reason a content-side gate there is
+**vacuous by construction**, and therefore the argument for the gate being written against the
+ROUTINE taken from the build instead.
+
+**It is no longer true.** Measured in this tree at `f14b21a8`, enumerating the file set from
+`git ls-tree` rather than from a path list: 18 collattr files, 1,179,648 sixteen-bit words, and
+**16 words carry bits 15:14** — 8 in `section_0.collattr.bin` and 8 in `section_0.collattrb.bin`,
+symmetric across both planes, and **nowhere else in the other 16 files**. Every marked cell in the
+shipped game is in OJZ act 1 section 0, which is the very section that gate is about.
+
+**Provenance and its limit, stated because the two halves have different owners.** The count came
+from the **aurora lane** (they measured it while ruling out drift in this tree for a parcel of
+their own) and was **re-derived here independently** before being written down; the file-level
+disaggregation is this lane's. The predicate measured is *"words whose high byte has bits 15:14
+set"*, which is aurora's predicate — **if bits 15:14 are not the crossover field, the arithmetic
+stands and the interpretation does not**, and that call is not this lane's to make from a byte
+count alone.
+
+**WHY THIS IS BOOKED RATHER THAN FIXED IN PASSING.** The premise being false does not make the
+gate wrong — the gate executes the routine out of the built ROM and is unaffected. It makes the
+**stated reason** false, and a reader who checks the reason against the data (shared-protocol bar
+10) now meets a contradiction with nothing telling them which side moved. Worse, the sentence
+argues *against* a content-side gate, so leaving it standing suppresses exactly the check the
+content has now made non-vacuous: **16 real marks exist to test against.**
+
+**THE WORK:** (1) re-derive the count at the moment of the fix rather than copying the 16 from
+this entry — it is a content figure and content moves; (2) correct the header to say what is
+true, dating the old claim rather than overwriting it, since it WAS true and lacked a bound;
+(3) decide, with the number in hand, whether a content-side arm over those 16 cells is now worth
+having beside the routine-side one. **Do not "fix" it by re-typing today's 16** — a fresh literal
+goes stale on the identical clock, which is how this one got here.
+
+**How it surfaced, because the route matters more than the finding:** a peer measuring something
+else in their own tree sent the byte figures unprompted, explicitly inviting contradiction. No
+gate here could have surfaced it: the premise lives in a comment, and **a stale ruling inside a
+comment outlives every doc that recorded its revision**, because nothing ever re-reads a comment
+to check whether the rule it cites still holds.
