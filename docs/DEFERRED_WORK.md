@@ -27602,3 +27602,54 @@ single literal carries both halves. **The last of those is the one this predicat
 plausibly miss**, and it is not hypothetical — the fixed message itself now spans four adjacent
 f-string lines, so a future defect of exactly its shape would be invisible to this sweep.
 Re-running with concatenated-literal joining is the obvious next parameter and is NOT done.
+
+## THE VERTICAL-BAND DIRECTION ANALYSIS, CORRECTED — the sign IS tested; the FRAME is what is underived (2026-09-06T11:29:37Z)
+
+**Banked because it existed only in mail and shaped a peer's shipped flag.** On 2026-09-06 the
+aurora lane asked whether `tools/bganim_vprobe_witness.py` establishes a vertical band's
+DIRECTION or merely that it steps. The answer went out in a message, aurora landed it twice, and
+then **aurora refuted half of it by reading our source instead of agreeing with us.** All three of
+their corrections re-derived here firsthand before being written down.
+
+**WHAT WAS RIGHT.** `is_yroll` is a hard verdict gate, not a printed nicety. It asserts a SIGNED
+prediction (phase 0 rolled UP by exactly `step`). With H = 32 px and steps 0..31, a down-rolling
+engine differs from an up-rolling one at every step except 0 and 16 — and the run's separate
+COARSE-COVERAGE gate requires all four coarse positions, whose ranges 8-15 and 24-31 contain
+neither, so **any passing run necessarily carries at least two direction-discriminating samples.**
+A gate written for coverage turns out to guarantee discrimination.
+
+**WHAT WAS WRONG, and it is this lane's error.** The caveat sent said the fine-phase direction is
+baked into the probe's generated data and therefore not under test. **False.** `is_yroll` compares
+live VRAM against `vert.banks[0]` — **phase 0 as it sits in the ROM** — at the FULL step including
+the fine bits, so a generator whose banks rolled the other way would make the fine and coarse
+halves FIGHT and go red at every nonzero fine phase. **`bganim_vprobe_gen.bank()`'s own docstring
+says precisely that** (*"Bank k must move the same way as the coarse step or the fine and coarse
+halves would fight at every 8 px boundary"*).
+**THE MECHANISM OF THE ERROR, which is the transferable half: the claim was drawn from that
+generator's ONE-LINE SUMMARY (`:26`, "bank k = phase 0 rolled UP by k px") without reading the
+FUNCTION underneath it, which says the opposite of what was concluded.** That is this repo's own
+*read the lines AROUND a cited line before accepting what it proves* — committed against our own
+file, in a citation we chose ourselves.
+
+**WHAT IS ACTUALLY UNDERIVED, narrower and sharper than either lane had it:** `decode_rowmajor()`
+**defines** which slot is which picture row. "Up" is a statement in the frame that function
+establishes, and the open question is the DEFINITION of that frame, not a property of the band.
+
+**AND THE PEER-DYNAMICS FINDING, which is aurora's and is the most reusable thing here: AN
+UNCHECKED CAUTION READS AS JUDGEMENT, SO NOBODY ARGUES WITH IT.** They gave the cautious half of
+our message MORE credit than the headline, precisely because it was the cautious half — and it was
+the wrong half. A hedge is a claim; it needs the same check as an assertion, and it will receive
+less.
+
+**Two further upgrades from the same exchange, both applied to the file's docstring:** (1) the
+pairwise-distinct premise the `2s ≡ 0 (mod 32)` reduction needs is not an assumption —
+`check_art()` REFUSES art with non-distinct rows, loudly, in the same generator; (2) *"no plane
+cell points at it"* is now a MEASUREMENT plus a build-time gate rather than an assertion — all
+4,096 layout words index tiles 0..317 against `BG_STATIC_TILE_BUDGET` = 400 - 80 = 320, which
+`png_to_bg_override.py` refuses to exceed.
+
+**STILL OPEN AND STILL OURS: the on-screen hop.** VRAM row order → what a viewer sees is
+unproven, and aurora's captions are viewer-facing (*"vertical scrolls UP"*, *"every cell that
+points at it moves the same way"*). Closing it needs plane cells in row-major order over the
+band's slots — an authoring change. Aurora has declined to spend one on a caption word while W1
+is open, which is the right call, and has made their flag precise instead.

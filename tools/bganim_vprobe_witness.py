@@ -50,6 +50,26 @@ sentence it does NOT support is "a vertical band was seen on screen". Getting th
 needs plane cells in row-major order over the band's slots, which is an authoring change
 to the act's document.
 
+"NO PLANE CELL POINTS AT IT" IS A GATE, NOT CURRENT-ART LUCK (promoted from assertion to
+measurement 2026-09-06, the aurora lane's finding, re-derived here). Arm 0 above measures
+"no other WRITER touches the destination"; the REFERENCE half used to be asserted in this
+paragraph and is now measured: all 4,096 layout words in `editor_bg_override.json` index
+tiles 0..317, and `BG_STATIC_TILE_BUDGET` is `BG_TILE_CAPACITY - BG_BAND_RESERVE` = 400 -
+80 = 320, which `tools/png_to_bg_override.py` REFUSES to exceed at import. So the band's
+target is unreferenced because a build-time gate forbids referencing it, not because
+today's art happens not to.
+
+THE ONE THING STILL UNDERIVED, and it is NOT the roll's sign. `decode_rowmajor()` DEFINES
+which slot is which picture row; that mapping is this file's convention, and "up" is a
+statement in the frame it establishes. The sign itself IS under test: `is_yroll` compares
+live VRAM against `banks[0]` AS IT SITS IN THE ROM at the FULL step including the fine
+bits, so a generator whose banks rolled the other way would make the fine and coarse
+halves fight and go red at every nonzero fine phase — see `bganim_vprobe_gen.bank()`,
+whose docstring states exactly that coupling. *(This corrects a caveat this lane sent the
+aurora lane on 2026-09-06 claiming the fine-phase sign was baked in and therefore
+untested. It was drawn from that generator's one-line summary without reading the function
+underneath it, which says the opposite.)*
+
 Usage:  python3 tools/bganim_vprobe_witness.py s4.debug.bin s4.debug.lst
 """
 import asyncio
