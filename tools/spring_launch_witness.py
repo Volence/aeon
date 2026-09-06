@@ -11,8 +11,8 @@ leg that silently did not run cannot be read as a leg that passed:
 
   L2 BLOCK SIDE    the identical measurement against a plain COLLISION_SOLID block.
                    TWO SOLIDS, NOT ONE, and that is the point of the leg rather than
-                   thoroughness: `solid_face_response` is a comptime template spliced
-                   into Touch_Solid AND Touch_Spring, so the ROM holds TWO copies of the
+                   thoroughness: `solid_side_push` is a comptime template spliced into
+                   Touch_Solid AND Touch_Spring, so the ROM holds TWO copies of the
                    side arm. A fix that showed up only on the spring would have been
                    made in the wrong place, and only a second solid can see that.
 
@@ -47,9 +47,12 @@ all agree, so no single edited number can make this pass:
   (1) skdisasm at the pinned revision -- `word_22EF0`'s first `dc.w` is parsed out of
       sonic3k.asm at 2fcd861c208f342b6d14df694c6422c74f20a4be. Nothing in THIS repo can
       change it.
-  (2) the built ROM's own ObjDef_Spring record -- its y_vel field, read out of the ROM
-      file at the address the listing gives, must equal (1). This is what catches a
-      spring whose objdef was retuned away from the reference.
+  (2) the built ROM's own Spring_Launch table -- its first entry (direction 0 = up,
+      strength 0 = red), read out of the ROM file at the address the listing gives, must
+      equal (1). This is what catches a spring whose velocity table was retuned away
+      from the reference. It read ObjDef_Spring+4 until 2026-09-06; see
+      objdef_y_vel_from_rom for why that stopped being the authority without stopping
+      being readable.
   (3) the running machine -- the y_vel the player actually receives must equal (1).
 
 A mismatch anywhere is reported as which hop disagreed. If skdisasm is not available the
@@ -75,7 +78,11 @@ player's approach, so L1 and L2 differ in exactly one thing: which of the two RO
 of the side arm runs. The retype is asserted to have taken before the leg proceeds.
 
 WHAT THIS DOES NOT ESTABLISH, stated because it is where the object would fail next:
-  * only the vertical red spring exists; there are no diagonal or horizontal springs.
+  * SP-5 (2026-09-06) added DOWN, LEFT and RIGHT springs and placed one of each in
+    section 0, and NONE OF THE FOUR LEGS TOUCHES THEM. Every leg below drives the up
+    spring, so a side or underside launch is unwitnessed here; the drive that would
+    witness one is written out in the SP-5 landing commit. The diagonals still do not
+    exist.
   * only ONE spring is driven (the one on the player's own ground run). The other two
     placements are checked for SPAWNING only.
   * the sound is not tested because the spring has no sound -- sfx $B1 is not in this
@@ -181,21 +188,43 @@ def s16(v: int) -> int:
 
 
 def objdef_y_vel_from_rom(rom: str, sym: dict, equ: dict) -> int:
-    """ObjDef_Spring's y_vel, read straight out of the ROM image.
+    """The UP/RED spring's launch y_vel, read straight out of the ROM image.
 
-    The ObjDef record is code_addr.w, x_vel.w, y_vel.w — so y_vel is at +4. Asserted
-    against the ObjDef struct's own harvested offsets rather than assumed, so a layout
-    change fails here instead of reading a neighbouring field as a velocity.
+    IT USED TO READ `ObjDef_Spring+4`, AND THAT WENT SILENTLY WRONG. The archetype
+    carried the launch velocity until 2026-09-06, when the subtype decode moved it into
+    `Spring_Launch` — a 64-byte table indexed by direction and strength — and stopped
+    seeding the ObjDef at all. `objdef()` defaults an absent field to 0, so this
+    function kept reading a real address in a real ROM and returning a real number, and
+    that number was 0. It never raised; hop 2 simply disagreed with hop 1 and the whole
+    witness exited 1 on a tree where nothing was broken. Nothing pointed at it, because
+    a ROM offset does not stop being readable when it stops being the authority.
+
+    The authority is now `Spring_Launch`'s FIRST ENTRY: direction 0 (up), strength 0
+    (red), held as the (x_vel, y_vel) pair the object carries for the rest of its life.
+    So x is at +0 and the y this returns is at +2.
+
+    x IS CHECKED TO BE ZERO, and that check is what keeps this honest rather than
+    tidy: it is the one fact that distinguishes "I read the up spring's y" from "I read
+    some word two bytes into a table whose axis order I assumed". A table that swapped
+    its axes would otherwise hand back a plausible number.
     """
-    for name in ("ObjDef_Spring",):
+    for name in ("Spring_Launch",):
         if name not in sym:
-            raise Unmeasurable(f"{name} is not in the listing — is this a build with the spring?")
-    off = 4
+            raise Unmeasurable(f"{name} is not in the listing — is this a build with the spring? "
+                               "(before 2026-09-06 the launch velocity lived in ObjDef_Spring+4)")
     data = Path(rom).read_bytes()
-    at = sym["ObjDef_Spring"]
-    if at + off + 2 > len(data):
-        raise Unmeasurable(f"ObjDef_Spring at ${at:06X} is past the end of {rom}")
-    return s16((data[at + off] << 8) | data[at + off + 1])
+    at = sym["Spring_Launch"]
+    if at + 4 > len(data):
+        raise Unmeasurable(f"Spring_Launch at ${at:06X} is past the end of {rom}")
+    x = s16((data[at + 0] << 8) | data[at + 1])
+    y = s16((data[at + 2] << 8) | data[at + 3])
+    if x != 0:
+        raise Unmeasurable(
+            f"Spring_Launch[up,red].x = {x}, expected 0 — the first entry is supposed to be "
+            f"the UP spring, whose launch is purely vertical. Either the table's direction "
+            f"order changed (up is no longer direction 0) or its two words are (y, x) rather "
+            f"than (x, y), and the y read here would be the wrong word either way")
+    return y
 
 
 # --------------------------------------------------------------------------- machine
@@ -259,7 +288,13 @@ class Probe:
                 y=await self.coord(sst + self.equ["SST_y_pos"]),
                 w=int(await self.rd(sst + self.equ["SST_width_pixels"], 1), 16),
                 h=int(await self.rd(sst + self.equ["SST_height_pixels"], 1), 16),
+                # THE LAUNCH VECTOR, BOTH HALVES, and the subtype it was decoded
+                # from. Since SP-5 (2026-09-06) a spring's direction lives in this
+                # pair and not in its archetype, so reading y_vel alone would call
+                # a leftward spring a broken upward one.
+                xv=s16(await self.word(sst + self.equ["SST_x_vel"])),
                 yv=s16(await self.word(sst + self.equ["SST_y_vel"])),
+                sub=int(await self.rd(sst + self.equ["SST_subtype"], 1), 16),
             ))
         return found
 
@@ -676,7 +711,7 @@ async def run(sock, rom, lst, want_launch, out):
             raise Unmeasurable(f"{need} is not in {lst} — wrong ROM/listing pair?")
     for need in ("SST_x_pos", "SST_y_pos", "SST_x_vel", "SST_y_vel", "SST_status",
                  "SST_code_addr", "SST_width_pixels", "SST_height_pixels", "SST_anim",
-                 "SST_collision_resp",
+                 "SST_collision_resp", "SST_subtype",
                  # SP-1's own three: the inertia offset the game exports for this witness,
                  # the acceleration constant the in-contact speed bound is derived from,
                  # and the two collision-type ids the L2 retype moves between.
@@ -705,11 +740,28 @@ async def run(sock, rom, lst, want_launch, out):
 
     out.append("BOOT 1 (L1 spring side + L3 escape):")
     springs = await boot_and_settle(pr, spring_code, out)
+    # ONLY THE UP/RED SPRINGS ARE HELD TO THE REFERENCE IMPULSE. Since SP-5 a placed
+    # spring's subtype chooses its direction AND strength, and Spring_Init writes the
+    # result into the SST's velocity PAIR at spawn — so a subtype-$50 spring carrying
+    # y_vel 0 and x_vel +4096 is correct, not broken. Subtype 0 is up/red by the
+    # encoder's own oldest ensure, which is why it is the one value this can hold to a
+    # number derived from S3K.
+    up_red = [s for s in springs if s["sub"] == 0]
+    if not up_red:
+        raise Unmeasurable(
+            "no spawned spring carries subtype 0 (up/red) — every leg below drives one, "
+            "and the reference velocity has no other subject in this level")
+    for s in up_red:
+        if s["yv"] != want_launch or s["xv"] != 0:
+            fails.append(f"the spawned up/red spring at (x={s['x']},y={s['y']}) carries "
+                         f"(x_vel {s['xv']}, y_vel {s['yv']}), not the reference "
+                         f"(0, {want_launch}) — Spring_Init's subtype decode did not "
+                         f"produce the reference launch vector")
     for s in springs:
-        if s["yv"] != want_launch:
-            fails.append(f"the spawned spring at (x={s['x']},y={s['y']}) carries y_vel "
-                         f"{s['yv']}, not the reference {want_launch} — the ObjDef's launch "
-                         f"strength did not survive the spawn burst-copy")
+        if s["sub"] != 0:
+            out.append(f"  NOT DRIVEN: the spring at (x={s['x']},y={s['y']}) is subtype "
+                       f"${s['sub']:02X}, launch vector (x_vel {s['xv']}, y_vel {s['yv']}) "
+                       f"— no leg below touches a non-up spring (SP-5c)")
 
     target = await pick_target(pr, springs, out)
     out.append("L1 SPRING SIDE (Touch_Spring's copy of solid_face_response):")
@@ -750,10 +802,20 @@ async def run(sock, rom, lst, want_launch, out):
 
 
 async def pick_target(pr, springs, out):
-    """The spring on the player's own ground run — the only one he can walk into."""
+    """The UP spring on the player's own ground run — the only one he can walk into.
+
+    SUBTYPE 0 ONLY, and that filter is load-bearing rather than tidy. Section 0 has had
+    placed SIDE springs at the player's own ground level since SP-5 (2026-09-06), and
+    walking into one of THOSE is supposed to launch him — the exact opposite of what L1
+    asserts. Without the filter this would sometimes pick a side spring and report the
+    feature working as a failure of the thing it tests.
+    """
     p0 = await pr.player_state()
     out.append(f"  player settled at x={p0['x']} y={p0['y']} y_vel={p0['yv']} "
                f"status=${p0['status']:02X}")
+    springs = [s for s in springs if s["sub"] == 0]
+    if not springs:
+        raise Unmeasurable("no subtype-0 (up/red) spring spawned — L1/L2/L4 all drive one")
     same_level = [s for s in springs if abs(s["y"] - p0["y"]) <= 32]
     if not same_level:
         raise Unmeasurable(
@@ -812,7 +874,8 @@ async def boot_and_settle(pr, spring_code, out):
             f"no live object carries Spring_Main's dispatch word after {SETTLE_FRAMES} frames — "
             "the entity window never spawned a spring, so neither face can be tested")
     out.append(f"  {len(springs)} spring(s) live: " +
-               ", ".join(f"(x={s['x']},y={s['y']},y_vel={s['yv']})" for s in springs))
+               ", ".join(f"(x={s['x']},y={s['y']},sub=${s['sub']:02X},"
+                         f"launch=({s['xv']},{s['yv']}))" for s in springs))
     return springs
 
 
@@ -830,11 +893,11 @@ def main():
         sym = parse_lst(a.lst)
         equ = parse_equs(a.lst)
         rom_v = objdef_y_vel_from_rom(a.rom, sym, equ)
-        out.append(f"  hop 2  {a.rom} ObjDef_Spring+4 (y_vel) = {rom_v}")
+        out.append(f"  hop 2  {a.rom} Spring_Launch[up,red].y = {rom_v}")
         if rom_v != want:
             print("\n".join(out))
-            print(f"\nRESULT: FAIL — hop 2 disagrees with hop 1: the built ObjDef_Spring "
-                  f"carries {rom_v}, S3K's red spring is {want}")
+            print(f"\nRESULT: FAIL — hop 2 disagrees with hop 1: the built Spring_Launch "
+                  f"carries {rom_v} for the up/red spring, S3K's red spring is {want}")
             return 1
     except Unmeasurable as e:
         print("\n".join(out))
