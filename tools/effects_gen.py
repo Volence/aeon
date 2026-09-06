@@ -146,7 +146,8 @@ LAYER_REFUSED_KEYS = {
 }
 
 # THE ONLY LADDER THAT EXISTS, keyed by the shift it is the ladder for. The other four legal
-# shifts (3, 5, 6, 7) are refused BY NAME below until EFFECTS-W1 item 9b's generator lands:
+# shifts (3, 5, 6, 7) are refused BY NAME below. NOT "until 9b lands" — 9b landed on
+# 2026-09-04 and its generator does not write into the tree, so waiting produces nothing:
 # `layer()` accepts them (scene_dsl.emp:1006 bounds 3..7), so without this the emission would
 # fail on an undefined Label and name a missing symbol instead of the authoring mistake.
 ROW_REMAP_LADDERS = {4: "RowRemapLadder_Waterline16"}
@@ -2713,12 +2714,21 @@ def render_row_remap(path: str, value, where: str) -> str:
                       f"{', '.join(str(s) for s in sorted(ROW_REMAP_LADDERS))} "
                       f"{'has' if len(ROW_REMAP_LADDERS) == 1 else 'have'} a ladder the "
                       f"engine can generate today: `row_remap_ladder16()` "
-                      f"(engine/level/parallax_dsl.emp:220) is the only one that exists, "
+                      f"(engine/level/parallax_dsl.emp, `row_remap_ladder16`) is the only "
+                      f"one that exists, "
                       f"and its H is the module const ROW_REMAP_H16 = 16 rather than a "
                       f"parameter. Refusing here, by name, because the alternative is an "
                       f"emission that fails on an undefined Label and names a missing "
-                      f"symbol instead of the thing you authored. The generated ladder for "
-                      f"the other shifts is EFFECTS-W1 item 9b.")
+                      f"symbol instead of the thing you authored. THE ESCAPE HATCH THIS "
+                      f"MESSAGE USED TO NAME IS SPENT: it said the generated ladder for the "
+                      f"other shifts was EFFECTS-W1 item 9b, and 9b LANDED 2026-09-04 "
+                      f"shipping tools/row_remap_ladder_gen.py — whose own docstring says "
+                      f"it does NOT write into the tree. So no ladder arrives by waiting. "
+                      f"The shared schema now admits only this shift "
+                      f"(empyrean 2e5046e, `enum: [4]`, widened by amendment when a second "
+                      f"ladder actually lands), and adding one is a real parcel with a ROM "
+                      f"price: the ladder is (H+1)*H bytes — 272 B at H=16, 4,160 B at "
+                      f"H=64, 16,512 B at H=128. See ROWREMAP-HSHIFT-RUNGS.")
     return (f"SceneRemap.Ladder({ROW_REMAP_LADDERS[height_shift]}, "
             f"{_render_int(path, plane_y, where + '.plane_y')}, "
             f"{_render_int(path, height_shift, where + '.height_shift')})")
