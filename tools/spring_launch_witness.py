@@ -1,18 +1,45 @@
 #!/usr/bin/env python3
-"""spring_launch_witness — does the spring actually launch, and is it actually side-solid?
+"""spring_launch_witness — is a solid's SIDE face really solid, and does the spring launch?
 
 THE CLAIM UNDER TEST is not "the spring object builds" and not "Touch_Spring is
-reachable in the listing". It is two runtime facts about a real player meeting a real
-spring placed in real level data:
+reachable in the listing". It is four runtime facts about a real player meeting real
+objects placed in real level data. FOUR LEGS, and the count is asserted at the end so a
+leg that silently did not run cannot be read as a leg that passed:
 
-  SIDE   walking into a spring from the side is SOLID -- the player is pushed out and
-         stopped, and is NOT launched. This is the half nothing in this tree has ever
-         tested on a real object: Touch_Solid's `.solid_side` arm exists and is
-         exercised by nothing, because every solid the OJZ act places is a floating
-         platform the player lands on from above.
+  L1 SPRING SIDE   walking into a spring from the side is SOLID -- the player is pushed
+                   out, HIS RUNNING SPEED IS KILLED, and he is NOT launched.
 
-  TOP    falling onto a spring launches the player at S3K's red-spring velocity, and
-         leaves him airborne.
+  L2 BLOCK SIDE    the identical measurement against a plain COLLISION_SOLID block.
+                   TWO SOLIDS, NOT ONE, and that is the point of the leg rather than
+                   thoroughness: `solid_face_response` is a comptime template spliced
+                   into Touch_Solid AND Touch_Spring, so the ROM holds TWO copies of the
+                   side arm. A fix that showed up only on the spring would have been
+                   made in the wrong place, and only a second solid can see that.
+
+  L3 ESCAPE        having been stopped by a solid, the player can still WALK AWAY from
+                   it. This is the control on L1/L2, not a courtesy check -- see "THE
+                   ESCAPE LEG IS THE CONTROL" below.
+
+  L4 TOP           falling onto a spring launches the player at S3K's red-spring
+                   velocity, and leaves him airborne.
+
+THE SPEED KILL (L1/L2) IS WHAT SP-1 WAS. Until 2026-09-05 the side arm cleared the
+player's x_vel and nothing else, which holds his POSITION and never touches his speed:
+a GROUNDED player is driven by the game's inertia field (sonic4: PlayerV.ground_speed),
+which his ground state re-derives x_vel from every tick. Measured then: he rested 10px
+from a spring's centre against a 17px contact face -- a full top-speed step INSIDE it,
+re-ramming and being re-pushed every frame -- and after releasing the button friction
+took 140 frames to settle him at the real face. The engine cannot name a game overlay
+field, so the fix left through a second contract member (Game.solid_pushed), and these
+legs are what says it works.
+
+THE ESCAPE LEG IS THE CONTROL, and without it this file would have a green that hides a
+total regression. The push deliberately leaves 1px of overlap so the next frame's AABB
+still fires, so a player standing beside a solid re-enters the side arm EVERY frame. An
+UNCONDITIONAL speed kill would therefore zero his speed forever and he could never walk
+away from any solid in the game -- and L1/L2 would not notice, because a player who is
+already stopped rests in exactly the right place and settles in zero frames. So L3 holds
+the OPPOSITE direction afterwards and requires him to actually leave.
 
 THE EXPECTED VELOCITY IS DERIVED, NOT PINNED, through three independent hops that must
 all agree, so no single edited number can make this pass:
@@ -28,12 +55,24 @@ all agree, so no single edited number can make this pass:
 A mismatch anywhere is reported as which hop disagreed. If skdisasm is not available the
 run exits 2 UNMEASURABLE; it never falls back to a literal.
 
-BOTH TESTS CARRY A VACUITY GUARD, because both have an obvious way to pass while
+EVERY TEST CARRIES A VACUITY GUARD, because each has an obvious way to pass while
 measuring nothing. "The player was never pushed into the spring" would satisfy "he did
 not penetrate it"; "the player never reached the spring" would satisfy "he was not
-launched wrongly". So each test first asserts CONTACT (he got within the combined
-half-width / he descended onto it) and only then asserts the response. Failing to make
-contact is exit 2, not a pass.
+launched wrongly"; "he never made contact" would satisfy "his speed was killed on
+contact". So each test first asserts CONTACT (he got within the combined half-width / he
+descended onto it) and only then asserts the response. Failing to make contact is
+exit 2, not a pass.
+
+THE BLOCK IN L2 IS A RETYPED SPRING, and that is a stated substitution rather than a
+quiet one. The OJZ act places three springs and three blocks, but every placed block is
+a floating platform far from the player's ground run -- measured: after the settle only
+the two springs are live at all, and neither block is within reach of a walking player.
+So L2 takes the SAME live object L1 used and rewrites two of its SST fields:
+collision_resp COLLISION_SPRING -> COLLISION_SOLID (which is what re-routes
+TouchResponse's dispatch to Touch_Solid's own inlined copy of the template) and
+code_addr -> TestSolid_Main. What it does NOT change is geometry, position or the
+player's approach, so L1 and L2 differ in exactly one thing: which of the two ROM copies
+of the side arm runs. The retype is asserted to have taken before the leg proceeds.
 
 WHAT THIS DOES NOT ESTABLISH, stated because it is where the object would fail next:
   * only the vertical red spring exists; there are no diagonal or horizontal springs.
@@ -41,6 +80,9 @@ WHAT THIS DOES NOT ESTABLISH, stated because it is where the object would fail n
     placements are checked for SPAWNING only.
   * the sound is not tested because the spring has no sound -- sfx $B1 is not in this
     game's bank (see games/sonic4/objects/test_solid.emp).
+  * the PUSH POSE is not tested, because there is not one: S3K sets Status_Push here and
+    this engine does not, since its ground wall probe clears ST_PUSHING whenever the
+    capped ground speed is zero -- which is the state the fix creates. Rider on SP-1.
 
 RUN:  python3 tools/spring_launch_witness.py [--rom s4.debug.bin] [--lst s4.debug.lst]
 Headless: spawns its own private oracle-aether over a private socket (AetherInstance);
@@ -73,6 +115,18 @@ SIDE_FRAMES = 240        # holding a direction into the spring
 SETTLE_AFTER_HOLD = 400  # CEILING on the wait for friction to take ground_speed to zero
 DROP_FRAMES = 120        # falling onto it
 DROP_HEIGHT = 72         # px above the spring's centre to start the drop from
+ESCAPE_FRAMES = 60       # holding AWAY from the solid, for the L3 control
+STILL_FRAMES = 10        # consecutive unchanged x that counts as "come to rest"
+LEGS = 4                 # L1 spring side · L2 block side · L3 escape · L4 top face
+
+# SETTLE_CEILING_OK — the most frames the post-release settle may take before the run
+# calls the speed kill absent. DERIVED, not tuned: with the kill working the player is
+# already at rest on the frame the button is released, so the settle loop can only spend
+# the STILL_FRAMES samples it needs to CONFIRM rest, plus a frame of slack for the
+# release landing mid-tick. Under the SP-1 defect this measured 140 (friction decaying a
+# top-speed run at PHYS_FRICTION per frame), so the two regimes are two orders apart and
+# nothing about this number is delicate.
+SETTLE_CEILING_OK = STILL_FRAMES + 2
 
 
 class Unmeasurable(Exception):
@@ -175,7 +229,13 @@ class Probe:
         st = int(await self.rd(self.player + self.equ["SST_status"], 1), 16)
         pw = int(await self.rd(self.player + self.equ["SST_width_pixels"], 1), 16)
         ph = int(await self.rd(self.player + self.equ["SST_height_pixels"], 1), 16)
-        return dict(x=px, y=py, xv=xv, yv=yv, status=st, w=pw, h=ph)
+        # gsp — the GROUNDED driver, and the field the whole SP-1 half of this witness
+        # is about. Located through `_pl_gsp`, the offset symbol the game exports for
+        # exactly this purpose (games/sonic4/player/player_common.emp); NOT hardcoded
+        # and NOT inferred from "it is PlayerV's first field", either of which would go
+        # silently wrong on an overlay reorder and read a neighbouring field as a speed.
+        gsp = await self.sword(self.player + self.equ["_pl_gsp"])
+        return dict(x=px, y=py, xv=xv, yv=yv, status=st, w=pw, h=ph, gsp=gsp)
 
     async def springs(self, spring_code_addr):
         """Every LIVE dynamic slot whose dispatch word is Spring_Main's.
@@ -225,113 +285,254 @@ ST_IN_AIR = 3   # engine/system/constants.emp — cross-checked below against th
 
 # --------------------------------------------------------------------------- the tests
 
-async def test_side(pr, spring, want_launch, out):
-    """Walk into the spring from the side. Solid, stopped, and NOT launched.
+async def retype_to_solid(pr, target, out):
+    """Turn a live spring into a plain COLLISION_SOLID block, in place (L2).
 
-    THE DISCRIMINATOR IS THE SIGN OF THE GAP, not its size. A spring that were not
-    side-solid at all would let the player walk straight through and out the far side,
-    which flips `player.x - spring.x`; that is the thing being tested and it is
-    unambiguous. The resting GAP is measured and reported rather than asserted against
-    an exact face, because the phase of the sample within the frame moves it (see the
-    standoff note below) — asserting a number there would be asserting a fact about
-    where the frame boundary falls.
+    Two SST fields, and only two: `collision_resp`, which is what TouchResponse indexes
+    its handler table with and therefore the whole of "which copy of the side arm runs",
+    and `code_addr`, so the object's own per-frame routine is the block's rather than the
+    spring's. Geometry, position and the player's approach are untouched, so L1 and L2
+    differ in exactly one variable.
+
+    ASSERTED, NOT ASSUMED: both writes are read back, and a retype that did not take is
+    UNMEASURABLE rather than a leg that quietly re-measured the spring.
+    """
+    want_resp = pr.equ["COLLISION_SOLID"]
+    want_code = (pr.sym["TestSolid_Main"] - pr.sym["ObjCodeBase"]) & 0xFFFF
+    was_resp = int(await pr.rd(target["sst"] + pr.equ["SST_collision_resp"], 1), 16)
+    await write_bytes(pr.b, target["sst"] + pr.equ["SST_collision_resp"], f"{want_resp:02X}")
+    await write_bytes(pr.b, target["sst"] + pr.equ["SST_code_addr"], f"{want_code:04X}")
+    got_resp = int(await pr.rd(target["sst"] + pr.equ["SST_collision_resp"], 1), 16)
+    got_code = await pr.word(target["sst"] + pr.equ["SST_code_addr"])
+    if got_resp != want_resp or got_code != want_code:
+        raise Unmeasurable(
+            f"the retype did not take: collision_resp {got_resp} (wanted {want_resp}), "
+            f"code_addr ${got_code:04X} (wanted ${want_code:04X}) — L2 would have "
+            f"re-measured the spring while claiming to measure a block")
+    if was_resp != pr.equ["COLLISION_SPRING"]:
+        raise Unmeasurable(
+            f"the object at (x={target['x']},y={target['y']}) was collision type "
+            f"{was_resp}, not COLLISION_SPRING {pr.equ['COLLISION_SPRING']} — L2's "
+            f"substitution is not the one this file describes")
+    out.append(f"  retyped the live object at (x={target['x']},y={target['y']}) from "
+               f"COLLISION_SPRING to COLLISION_SOLID (code_addr -> TestSolid_Main "
+               f"${pr.sym['TestSolid_Main']:06X}) — the SAME box, in the SAME place, "
+               f"dispatched through Touch_Solid's own inlined copy of the template")
+    # A block is not a spring: the launch must now be impossible, so the "was he
+    # launched" arm of the side test is measuring a genuinely different handler.
+    return dict(target, w=target["w"], h=target["h"])
+
+
+async def test_side(pr, obj, want_launch, out, leg, expect_launchable=True):
+    """Walk into a solid from the side. Solid, SPEED KILLED, and NOT launched.
+
+    THE DISCRIMINATOR FOR SOLIDITY IS THE SIGN OF THE GAP, not its size. A face that
+    were not solid at all would let the player walk straight through and out the far
+    side, which flips `player.x - obj.x`; that is unambiguous in both directions.
+
+    THE DISCRIMINATOR FOR THE SPEED KILL IS THE STEADY STATE WHILE HOLDING, and both of
+    its numbers are derived from the code rather than from a run:
+
+      DEPTH   the push moves the player out by `pen - 1` (`subq.w #1, d0` in
+              solid_face_response), deliberately leaving 1px of overlap so the next
+              frame's AABB still fires, and it writes the INTEGER part of x_pos only.
+              So a player whose speed is killed can sit at most 1px inside the resting
+              face -- the subpixel sawtooth PHYS_ACCEL builds between pushes. A player
+              whose speed is NOT killed re-accelerates to the running cap and parks a
+              full top-speed step further in, which is the flat 10-against-17 SP-1
+              measured.
+      SPEED   his ground speed may be at most ONE frame of running acceleration
+              (PHYS_ACCEL, read from the listing): the kill zeroes it and the next
+              tick's input adds one step back. Under the defect it is PHYS_TOP_SPEED.
+
+    NEITHER IS ASSERTED ON THE ENTRY FRAME, and that is not a softened bar. TouchResponse
+    runs before the player's own tick, so the frame on which he first overlaps is always
+    one uncorrected step deep at his full approach speed -- true of any once-per-frame
+    collision test, S3K's included, and true with the fix in place. The entry frame is
+    reported; what is asserted is every frame after it.
     """
     p0 = await pr.player_state()
-    half_w = (p0["w"] + spring["w"]) // 2
-    side = 1 if p0["x"] > spring["x"] else -1          # which side he starts on
+    half_w = (p0["w"] + obj["w"]) // 2
+    side = 1 if p0["x"] > obj["x"] else -1          # which side he starts on
     button = "right" if side < 0 else "left"
-    out.append(f"  side: player at x={p0['x']} y={p0['y']} (box {p0['w']}x{p0['h']}), "
-               f"spring at x={spring['x']} y={spring['y']} (box {spring['w']}x{spring['h']}); "
+    away = "left" if button == "right" else "right"
+    out.append(f"  {leg}: player at x={p0['x']} y={p0['y']} (box {p0['w']}x{p0['h']}), "
+               f"object at x={obj['x']} y={obj['y']} (box {obj['w']}x{obj['h']}); "
                f"holding {button.upper()}, contact face at {half_w}px between centres")
 
     closest = 1 << 30
     min_yv = 0
     crossed = False
     xs = []
+    approach_top_gsp = 0     # his running speed BEFORE he ever touched the object
+    contact_frames = 0
+    entry_gap = None         # how deep the FIRST overlapping frame put him
+    entry_gsp = None
+    samples = []             # (|gap|, |gsp|) per held frame, for the steady-state tail
     await pr.hold(button, True)
     try:
         for _ in range(SIDE_FRAMES):
             await pr.frames(1)
             st = await pr.player_state()
             xs.append(st["x"])
-            gap = st["x"] - spring["x"]
+            gap = st["x"] - obj["x"]
             if gap != 0 and (1 if gap > 0 else -1) != side:
                 crossed = True
             closest = min(closest, abs(gap))
             min_yv = min(min_yv, st["yv"])
+            samples.append((abs(gap), abs(st["gsp"])))
+            # IN CONTACT means the AABB overlaps, which is the condition under which the
+            # side arm runs at all -- the same `< half_w` the engine tests. Sampling
+            # OUTSIDE that window would fold his approach run into the "while pushing"
+            # number and make the defect invisible.
+            if abs(gap) < half_w:
+                if entry_gap is None:
+                    entry_gap, entry_gsp = abs(gap), abs(st["gsp"])
+                contact_frames += 1
+            else:
+                approach_top_gsp = max(approach_top_gsp, abs(st["gsp"]))
     finally:
         await pr.hold(button, False)
 
-    # RELEASE AND LET FRICTION SETTLE HIM, then measure the RESTING gap. While a
-    # direction is held the sampled gap is not the contact face and cannot be: the push
-    # and the player's own move sit on opposite sides of the sampled frame boundary, and
-    # Touch_Solid clears x_vel but NOT the grounded player's PlayerV.ground_speed, so he
-    # keeps accelerating into the object and rams back in by a full top-speed step every
-    # frame. The sample is then a fixed point at (face - his speed), it is CONSTANT, and
-    # the speed that sets it is invisible in the sample series. With the button released,
-    # friction takes ground_speed to zero and the push has the last word, so the resting
-    # gap is the contact face itself.
-    # ADAPTIVE, not a fixed count: friction is ~$C per frame against a top speed of ~6
-    # px/frame, so a decelerating player takes well over a hundred frames to reach zero
-    # and a 90-frame settle measured 14px -- two px of residual creep, which would have
-    # been reported as a push defect. Wait for x to actually stop instead, and say how
-    # long it took so a future slowdown is visible rather than absorbed.
+    # THE ASSERTED NUMBERS ARE THE STEADY STATE, NOT THE ENTRY FRAME, and the difference
+    # is a real property of the engine rather than a convenience. TouchResponse runs
+    # BEFORE the player's own tick in a frame (measured: on the frame he first overlaps,
+    # the frame-boundary sample still holds his full approach speed, because the pass
+    # that would kill it ran while he was still outside the box). So the entry frame
+    # ALWAYS shows one uncorrected step of penetration and one uncorrected speed, in any
+    # implementation that tests collision once per frame -- S3K included. What
+    # distinguishes a killed speed from an unkilled one is what happens on every frame
+    # AFTER that, which is the fixed point SP-1 described: under the defect he sat 6px
+    # inside the face at the full running cap, FOREVER; under the fix he is pushed back
+    # to the face and stays there.
+    tail = samples[-30:]
+    steady_gap = min(g for g, _ in tail)
+    steady_gsp = max(v for _, v in tail)
+
+    # RELEASE AND LET HIM SETTLE, then measure the RESTING gap. With the speed kill in
+    # place he is already at rest and this costs the confirmation samples only; the loop
+    # is kept ADAPTIVE (rather than a fixed count) because it is also the instrument that
+    # reports HOW LONG it took, and that number is one of the two regimes -- 140 frames
+    # of friction decay was SP-1's other signature.
     rest, held_still, settled_after = None, 0, None
     for f in range(SETTLE_AFTER_HOLD):
         await pr.frames(1)
         x = (await pr.player_state())["x"]
         held_still = held_still + 1 if x == rest else 0
         rest = x
-        if held_still >= 10:
+        if held_still >= STILL_FRAMES:
             settled_after = f + 1
             break
     if settled_after is None:
         raise Unmeasurable(
-            f"the player never came to rest beside the spring within {SETTLE_AFTER_HOLD} "
+            f"the player never came to rest beside the object within {SETTLE_AFTER_HOLD} "
             f"frames of releasing {button.upper()} (last x={rest}) — the resting contact "
             f"face cannot be measured")
-    rest = abs(rest - spring["x"])
-    out.append(f"  side: came to rest {settled_after} frames after release")
+    rest_x = rest
+    rest = abs(rest - obj["x"])
+    out.append(f"  {leg}: came to rest {settled_after} frames after release")
 
-    # --- vacuity FIRST: a player who never reached the spring proves nothing ---
+    # --- vacuity FIRST: a player who never reached the object proves nothing ---
     if closest > half_w + 8:
         raise Unmeasurable(
-            f"the player never reached the spring's side face: closest approach was "
+            f"the player never reached the object's side face: closest approach was "
             f"{closest}px between centres, and contact begins at {half_w}px. Nothing about "
             f"side solidity was measured — this is not a pass.")
+    if contact_frames == 0 or entry_gap is None:
+        raise Unmeasurable(
+            f"the player never overlapped the object at all over {SIDE_FRAMES} held "
+            f"frames (closest {closest}px, contact begins at {half_w}px) — the side arm "
+            f"never ran, so neither the push nor the speed kill was measured.")
+    if approach_top_gsp == 0:
+        raise Unmeasurable(
+            "the player carried no ground speed on his approach — he was not running "
+            "into anything, and a stopped player trivially satisfies every assertion "
+            "below. This is not a pass.")
 
     fails = []
     if crossed:
-        fails.append(f"WALKED THROUGH IT: the player crossed from one side of the spring to "
-                     f"the other while holding {button.upper()} — the side face is not solid")
+        fails.append(f"{leg}: WALKED THROUGH IT: the player crossed from one side of the "
+                     f"object to the other while holding {button.upper()} — the side face "
+                     f"is not solid")
     else:
-        out.append(f"  side: he never crossed the spring's centre — the side face held")
+        out.append(f"  {leg}: he never crossed the object's centre — the side face held")
 
-    # THE CONTACT FACE IS DERIVED FROM THE CODE, not from this measurement:
-    # solid_face_response pushes out by `pen - 1` (`subq.w #1, d0`), deliberately leaving
-    # 1px of overlap so the next frame's AABB still fires. So a player resting against a
-    # solid sits at exactly half_w - 1 between centres.
     want_rest = half_w - 1
     if rest != want_rest:
-        fails.append(f"RESTING GAP {rest}px, expected {want_rest}px (the contact face "
+        fails.append(f"{leg}: RESTING GAP {rest}px, expected {want_rest}px (the contact face "
                      f"{half_w} less the 1px bias solid_face_response's `subq.w #1, d0` "
                      f"leaves) — the side push does not settle where the code says")
     else:
-        out.append(f"  side: after releasing {button.upper()}, he settles at {rest}px from "
-                   f"the spring's centre — exactly the contact face {half_w} minus the 1px "
+        out.append(f"  {leg}: after releasing {button.upper()}, he settles at {rest}px from "
+                   f"the object's centre — exactly the contact face {half_w} minus the 1px "
                    f"overlap bias the push leaves on purpose")
-    out.append(f"  side: while HOLDING into it he sat {closest}px in, {want_rest - closest}px "
-               f"deeper than the resting face — Touch_Solid clears x_vel but a grounded "
-               f"player is driven by PlayerV.ground_speed, which the engine cannot name, so "
-               f"he re-rams at top speed every frame (booked in docs/DEFERRED_WORK.md)")
+
+    # ---- SP-1, measurement 1 of 3: how deep he sits while PUSHING ----
+    # The bound is want_rest - 1, and that 1px is derived rather than allowed for. The
+    # push writes the INTEGER part of x_pos (`add.w d0, x_pos`) and leaves the 16.16
+    # subpixel alone, while a killed player still gains PHYS_ACCEL every tick — 12/65536
+    # of a pixel — so the subpixel creeps until it carries into the integer, one pixel,
+    # and the next frame's push takes it straight back. A sawtooth of exactly 1px is
+    # therefore the FLOOR for this engine, and it is two orders below the 6px fixed point
+    # the defect held (the two regimes are 15-16 against a flat 10).
+    accel = pr.equ["PHYS_ACCEL"]
+    top = pr.equ["PHYS_TOP_SPEED"]
+    creep_floor = want_rest - 1
+    out.append(f"  {leg}: entry frame — the one uncorrected step, before any push: "
+               f"{entry_gap}px between centres carrying {entry_gsp} (8.8). TouchResponse "
+               f"runs before the player's tick, so this frame is uncorrectable by design "
+               f"and is NOT what is asserted")
+    if steady_gap < creep_floor:
+        fails.append(f"{leg}: SP-1 PENETRATION: over the last {len(tail)} held frames he sat "
+                     f"as deep as {steady_gap}px between centres, {want_rest - steady_gap}px "
+                     f"INSIDE the {want_rest}px resting face (floor {creep_floor}px, the "
+                     f"1px subpixel sawtooth). He is being pushed out and walking straight "
+                     f"back in every frame, which is what an unkilled ground speed looks "
+                     f"like")
+    else:
+        out.append(f"  {leg}: steady state over the last {len(tail)} held frames — deepest "
+                   f"{steady_gap}px against a {want_rest}px resting face, i.e. within the "
+                   f"1px subpixel sawtooth and never a running step inside")
+
+    # ---- SP-1, measurement 2 of 3: the speed he carries while pushing ----
+    contact_top_gsp = steady_gsp
+    # The approach number is NOT the comparison baseline and is reported only as the
+    # vacuity witness (he was actually running). It is smaller than the in-contact
+    # number even under the defect, because the object sits close enough to his spawn
+    # that he is still accelerating when he first overlaps it; what the defect does is
+    # let him go on accelerating INSIDE the box, all the way to the cap. The baseline
+    # that means something is PHYS_TOP_SPEED, the speed he is running at.
+    if contact_top_gsp > accel:
+        fails.append(f"{leg}: SP-1 GROUND SPEED: over the last {len(tail)} held frames, with "
+                     f"{button.upper()} pressed into the face, he carried up to "
+                     f"{contact_top_gsp} (8.8) — {100 * contact_top_gsp // top}% of the "
+                     f"PHYS_TOP_SPEED {top} running cap, and past the {accel} bound "
+                     f"(PHYS_ACCEL, the one frame of re-acceleration a killed speed can "
+                     f"regain). His inertia is not being killed on contact")
+    else:
+        out.append(f"  {leg}: ground speed in the steady state peaked at {contact_top_gsp} "
+                   f"(8.8) — at or under PHYS_ACCEL {accel}, i.e. one tick's worth of "
+                   f"re-acceleration and nothing carried over, against a PHYS_TOP_SPEED "
+                   f"of {top}. {contact_frames} contact frames sampled; he was running at "
+                   f"{approach_top_gsp} on the approach, so this was not a vacuous stop")
+
+    # ---- SP-1, measurement 3 of 3: how long friction had to work afterwards ----
+    if settled_after > SETTLE_CEILING_OK:
+        fails.append(f"{leg}: SP-1 SETTLE: {settled_after} frames of friction were needed "
+                     f"after the button was released (ceiling {SETTLE_CEILING_OK} = the "
+                     f"{STILL_FRAMES} confirmation samples plus slack). A player whose speed "
+                     f"was killed on contact is ALREADY at rest when the button comes up")
+    else:
+        out.append(f"  {leg}: he was already at rest when the button came up "
+                   f"({settled_after} frames, ceiling {SETTLE_CEILING_OK})")
 
     tail = xs[-30:]
     drift = max(tail) - min(tail)
     if drift > 2:
-        fails.append(f"NOT STOPPED: the player's x still moved {drift}px over the last 30 "
-                     f"frames while holding {button.upper()} into the spring")
+        fails.append(f"{leg}: NOT STOPPED: the player's x still moved {drift}px over the "
+                     f"last 30 frames while holding {button.upper()} into the object")
     else:
-        out.append(f"  side: x drift over the last 30 held frames = {drift}px — stopped dead")
+        out.append(f"  {leg}: x drift over the last 30 held frames = {drift}px — stopped dead")
 
     # A THRESHOLD, NOT AN EQUALITY, and the red run is why. This check first read
     # `min_yv <= want_launch`, which CANNOT FIRE: a frame-boundary sample of a launch is
@@ -344,13 +545,54 @@ async def test_side(pr, spring, want_launch, out):
     # directions: the green run reads 0.
     launch_floor = want_launch // 2
     if min_yv <= launch_floor:
-        fails.append(f"SIDE CONTACT LAUNCHED HIM: y_vel reached {min_yv}, past the "
+        fails.append(f"{leg}: SIDE CONTACT LAUNCHED HIM: y_vel reached {min_yv}, past the "
                      f"{launch_floor} threshold (half the {want_launch} launch), while he "
                      f"should only ever have touched the side face")
     else:
-        out.append(f"  side: most negative y_vel seen = {min_yv}, nowhere near the "
-                   f"{launch_floor} launch threshold — a side hit does not fire the spring")
-    return fails
+        what = "a side hit does not fire the spring" if expect_launchable else \
+               "and a plain block has no launch to fire"
+        out.append(f"  {leg}: most negative y_vel seen = {min_yv}, nowhere near the "
+                   f"{launch_floor} launch threshold — {what}")
+    return fails, dict(button=button, away=away, rest_x=rest_x, half_w=half_w)
+
+
+async def test_escape(pr, obj, ctx, out, leg):
+    """L3, THE CONTROL: he was stopped by the solid, can he still walk away from it?
+
+    THIS LEG EXISTS BECAUSE OF HOW THE FIX COULD GO WRONG, not for completeness. The
+    push leaves 1px of overlap on purpose, so a player resting against a solid re-enters
+    the side arm every single frame. A speed kill with no direction gate would therefore
+    zero his ground speed forever -- he could never leave any solid in the game -- and
+    every other assertion in this file would still be green, because a permanently
+    stopped player rests at exactly the right place and settles in zero frames. Only
+    holding the OPPOSITE direction can see it.
+
+    The expectation is derived from the geometry, not tuned: over ESCAPE_FRAMES of
+    unobstructed running he covers far more than a screen, so ANY sane threshold
+    separates "he left" from "he is welded to the object". The bound used is half the
+    contact face -- if he has not even cleared his own overlap he has not escaped.
+    """
+    start = (await pr.player_state())["x"]
+    await pr.hold(ctx["away"], True)
+    try:
+        for _ in range(ESCAPE_FRAMES):
+            await pr.frames(1)
+    finally:
+        await pr.hold(ctx["away"], False)
+    end_st = await pr.player_state()
+    moved = abs(end_st["x"] - obj["x"]) - abs(start - obj["x"])
+    want = ctx["half_w"] // 2
+    if moved < want:
+        return [f"{leg}: WELDED TO THE SOLID: holding {ctx['away'].upper()} for "
+                f"{ESCAPE_FRAMES} frames moved him only {moved}px further from the "
+                f"object (x {start} -> {end_st['x']}, object at {obj['x']}), against a "
+                f"{want}px floor. The side arm is killing his speed even when he is "
+                f"travelling AWAY from the face — the direction gate is missing or "
+                f"inverted, and he can never leave a solid again"]
+    out.append(f"  {leg}: holding {ctx['away'].upper()} for {ESCAPE_FRAMES} frames took him "
+               f"{moved}px further out (x {start} -> {end_st['x']}, ground speed "
+               f"{end_st['gsp']}) — the stop is directional, not a weld")
+    return []
 
 
 async def test_top(pr, spring, want_launch, out):
@@ -429,13 +671,20 @@ async def run(sock, rom, lst, want_launch, out):
     equ = parse_equs(lst)
 
     for need in ("Player_1", "Dynamic_Live", "Dynamic_Live_Count", "Spring_Main", "ObjCodeBase",
-                 "Spring_Launched"):
+                 "Spring_Launched", "TestSolid_Main"):
         if need not in sym:
             raise Unmeasurable(f"{need} is not in {lst} — wrong ROM/listing pair?")
     for need in ("SST_x_pos", "SST_y_pos", "SST_x_vel", "SST_y_vel", "SST_status",
-                 "SST_code_addr", "SST_width_pixels", "SST_height_pixels", "SST_anim"):
+                 "SST_code_addr", "SST_width_pixels", "SST_height_pixels", "SST_anim",
+                 "SST_collision_resp",
+                 # SP-1's own three: the inertia offset the game exports for this witness,
+                 # the acceleration constant the in-contact speed bound is derived from,
+                 # and the two collision-type ids the L2 retype moves between.
+                 "_pl_gsp", "PHYS_ACCEL", "PHYS_TOP_SPEED", "COLLISION_SOLID",
+                 "COLLISION_SPRING"):
         if need not in equ:
-            raise Unmeasurable(f"{need} has no EQU in {lst} — the SST offsets are unresolvable")
+            raise Unmeasurable(f"{need} has no EQU in {lst} — the SP-1 legs cannot be "
+                               f"measured without it (an older ROM/listing pair?)")
 
     spring_code = (sym["Spring_Main"] - sym["ObjCodeBase"]) & 0xFFFF
     out.append(f"  Spring_Main ${sym['Spring_Main']:06X} - ObjCodeBase ${sym['ObjCodeBase']:06X} "
@@ -443,18 +692,19 @@ async def run(sock, rom, lst, want_launch, out):
 
     pr = Probe(b, sym, equ)
 
-    # EACH TEST GETS ITS OWN BOOT, and that is not tidiness. The side test ends with the
-    # player pressed into the spring at full running speed, and Touch_Solid clears x_vel
-    # but NOT the grounded player's PlayerV.ground_speed (a game-side field the engine
-    # cannot name). Measured: running the drop after the side test, the poked player
-    # carried that inertia off the spring while falling and landed 340px away on the next
-    # flat run, and the drop reported UNMEASURABLE for a reason that had nothing to do
-    # with the top face. Re-booting is also the better experiment — both tests then start
-    # from the identical settled state rather than from each other's leftovers.
-    out.append("BOOT 1 (side face):")
-    springs = await boot_and_settle(pr, spring_code, out)
-
+    # EACH LEG GETS ITS OWN BOOT, and that is not tidiness. The side legs end with the
+    # player pressed against an object and then walked away from it; running the drop
+    # after one of them, the poked player carried leftover inertia off the spring while
+    # falling and landed 340px away on the next flat run, and the drop reported
+    # UNMEASURABLE for a reason that had nothing to do with the top face. Re-booting is
+    # also the better experiment — every leg starts from the identical settled state
+    # rather than from the previous leg's leftovers, which is what makes L1 and L2
+    # comparable at all.
     fails = []
+    legs = []          # names of the legs that ACTUALLY RAN, asserted against LEGS below
+
+    out.append("BOOT 1 (L1 spring side + L3 escape):")
+    springs = await boot_and_settle(pr, spring_code, out)
     for s in springs:
         if s["yv"] != want_launch:
             fails.append(f"the spawned spring at (x={s['x']},y={s['y']}) carries y_vel "
@@ -462,14 +712,38 @@ async def run(sock, rom, lst, want_launch, out):
                          f"strength did not survive the spawn burst-copy")
 
     target = await pick_target(pr, springs, out)
-    out.append("SIDE FACE:")
-    fails += await test_side(pr, target, want_launch, out)
+    out.append("L1 SPRING SIDE (Touch_Spring's copy of solid_face_response):")
+    f, ctx = await test_side(pr, target, want_launch, out, "L1")
+    fails += f
+    legs.append("L1 spring side")
 
-    out.append("BOOT 2 (top face):")
+    out.append("L3 ESCAPE (the direction-gate control):")
+    fails += await test_escape(pr, target, ctx, out, "L3")
+    legs.append("L3 escape")
+
+    out.append("BOOT 2 (L2 plain block):")
     springs = await boot_and_settle(pr, spring_code, out)
     target = await pick_target(pr, springs, out)
-    out.append("TOP FACE:")
+    out.append("L2 BLOCK SIDE (Touch_Solid's OWN copy of the same template):")
+    block = await retype_to_solid(pr, target, out)
+    f, _ = await test_side(pr, block, want_launch, out, "L2", expect_launchable=False)
+    fails += f
+    legs.append("L2 block side")
+
+    out.append("BOOT 3 (L4 top face):")
+    springs = await boot_and_settle(pr, spring_code, out)
+    target = await pick_target(pr, springs, out)
+    out.append("L4 TOP FACE (the launch — the obvious regression from a side-arm change):")
     fails += await test_top(pr, target, want_launch, out)
+    legs.append("L4 top face")
+
+    # THE LEG COUNT IS ITSELF AN ASSERTION. A leg that raised Unmeasurable never reaches
+    # here (the run exits 2), but a leg deleted or short-circuited during an edit would
+    # otherwise leave a smaller run reading exactly like a clean pass.
+    out.append(f"LEGS RUN: {len(legs)} — " + ", ".join(legs))
+    if len(legs) != LEGS:
+        fails.append(f"LEG COUNT {len(legs)}, expected {LEGS} — a leg did not run, and the "
+                     f"rest of this report is a smaller experiment than it claims to be")
 
     await b.close()
     return fails
@@ -582,8 +856,10 @@ def main():
         for f in fails:
             print(f"  * {f}")
         return 1
-    print(f"\nRESULT: PASS — the spring is side-solid, and a fall onto it launches the "
-          f"player at {want} (S3K's red spring, all three hops agreeing) with ST_IN_AIR set")
+    print(f"\nRESULT: PASS — {LEGS} legs: a spring AND a plain block are side-solid and kill "
+          f"the player's running speed on contact, he can still walk away from them, and a "
+          f"fall onto the spring launches him at {want} (S3K's red spring, all three hops "
+          f"agreeing) with ST_IN_AIR set")
     return 0
 
 

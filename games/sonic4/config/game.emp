@@ -156,6 +156,12 @@ pub implement Game {
     // (games/sonic4/objects/test_solid.emp).
     hook spring_launched = Spring_Launched
 
+    // The side-solid stop: solid_face_response has pushed the player out of a
+    // solid's side face and cleared x_vel; this kills the grounded driver the
+    // engine cannot name (games/sonic4/player/player_common.emp). Every solid in
+    // the game routes through it, not just the spring.
+    hook solid_pushed = Solid_Pushed
+
     // The sound test-harness hooks — bound only in the hotkeys build shape; in
     // every canonical shape both stay `= empty` (zero bytes, as today). The
     // bound procs live in games.sonic4.game_debug.
