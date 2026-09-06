@@ -475,6 +475,132 @@ removed from the listing — the unlabelled case the `.lst` cannot see — the i
 
 ---
 
+### ~~THE REST OF THE F CLASS — F4, F5, F7 CLOSED · F6 ALREADY CLOSED · F3 PARTLY~~ — 2026-09-06 (`parcel/f-class-terminus`)
+
+The sigil lane's class F is *a named label standing in for "the end of a region"*, seven rows, all
+ours, booked in `docs/2026-09-06-sigil-routed-findings.md`. F1/F2 were B7 (above). This entry is the
+other five. **The shape repeats and that is the finding: each computes a high-water mark from one
+hardcoded label, each feeds a gate that PASSES, and violating the proxy makes the number wrong but
+plausible while the gate stays green.** So a green run after any of these changes proves nothing —
+every claim below is paired with a CONTROL showing master's own tool answering the same violated
+artifact with a healthy number and exit 0.
+
+**F4 — `EndOfRom` stood for the ROM file's size (`tools/s4budget.py`). CLOSED.** It was
+structurally un-failable — the disagreement printed as `NOTE: ... differ by N bytes (padding, or a
+stale file)` and was never appended to `breaches` — and **worse than un-failable: build.sh invokes
+the tool with `--summary`, and `format_summary` was never passed `endofrom`, so under the flag the
+build actually uses the line was not even printed.** The disagreement is not hypothetical: 42,845 B
+in s4.bin, 54,592 B in s4.debug.bin, 26,657 B in demo.bin — it fired on every canonical build and
+said nothing. `classify_rom_tail` now ACCOUNTS for the excess: `rom_size < EndOfRom` BREACHES (no
+legitimate cause — a truncated write or a stale artifact); an excess beginning with the appendix
+magic **`DE B2`** (the byte pair, *not* the ASCII string, per build.sh's own corrected note) is the
+convsym deb2 symbol table and is accounted; an excess of the map's declared `fill` is padding and is
+accounted; **anything else BREACHES**, naming the offset of the first byte that is neither. Control:
+master returns 0 on a ROM truncated 16 B below `EndOfRom` while printing "padding, or a stale file"
+— *naming padding for a file that is SHORT, which padding cannot produce.*
+
+**F5 — the character art/DPLC extents equalled their embed lengths (`tools/dplc_straddle.py`).
+CLOSED.** Every verdict in that tool is a statement about ADDRESSES, and both halves of every
+address (`art_base` from the listing, `art_len` from a file on disk) were assumed to describe the
+same bytes. **The failure mode is not a wrong total, it is a MOVED PICTURE:** frames that do
+straddle report clean and frames that do not report dirty, with no arithmetic error to notice.
+`check_subject_extents` asserts, over all eight labels (four art + four DPLC — the DPLC half matters
+because `parse_dplc` walks the FILE and its frame offsets are used against ROM addresses), that each
+`pub data <Label> = <const>` binds its embed WHOLE and that the bytes at its LMA in the ROM are
+byte-identical to that file. Control: one byte flipped inside `Art_Sonic` in a copy of
+`s4.debug.bin` — master prints `OK — no frame's SLOT cost exceeds the bar 10`, exit 0, its whole
+output byte-identical to the clean run but for the filename it echoes.
+
+**F7 — the ORDERING PREMISE under the BG-anim room figure (`tools/bganim_room.py`). CLOSED.**
+`room = anchor - packed_end` is reported as room *for `ojz_bg_anim`*, and that sentence has a step
+the code never named: the file's header asserted "growth in `ojz_bg_anim` shifts the whole run
+`Map_TestObj .. Art_Sonic` downstream into this room" while the code mentioned neither the growing
+section nor the run. `check_growth_path` asserts three things. (1) the section head `BgAnim_Table` is
+UPSTREAM of the terminus — note the division of labour, asserted in the tests rather than assumed:
+`check_terminus` scans `[packed_end, anchor)` and owns that window, so this arm's own half is a
+section placed PAST the anchor, out among the ROM-tail sections, which terminus structurally cannot
+see. (2) NOTHING IN THE PATH IS PINNED — a declared `[[anchor]]` **or `[[hole]]`** between the
+growing section and `dac_banks` pins a section that then cannot float, so growth collides at the pin
+and the room reported against the anchor is not the limit. (3) **ALIGNMENT IS NOT FREE, and this is
+a measurement the figure never had:** growth of K does not move the terminus by exactly K across an
+`align`, and the live run crosses **six** such pads in s4.lst and **seven** in s4.debug.lst, every
+one `align 2` — so the headroom was overstated by 6 B / 7 B. Each quantum is read from the module
+that emitted the pad; the maximum in that module is used (pad index and source order are not
+guaranteed to correspond, and a maximum errs only toward a tighter gate); the slop is subtracted
+from the headroom the ruled ceiling is compared against. An unresolvable pad is `Unmeasurable`, not
+slop 0. Live red-first on the real map: an `[[anchor]] f7_live_red_probe at = 0x60000` appended to
+`games/sonic4/map.toml` fails the gate by name, exit 1, restored clean.
+
+**F6 — `SOUND_BANK_OFFSET` versus the declared `sound_bank` anchor. ALREADY CLOSED BY B7, verified
+rather than restated.** The routing offered it to the B7 agent as optional; they took it.
+`bganim_room.report()` reads both anchors with the same parser and fails the pair by name. Confirmed
+live on this branch: `sound_bank` moved `0xB8000 -> 0xC0000` in the real map fails the gate with
+"the two bank anchors have drifted apart", exit 1. `SOUND_BANK_OFFSET` appears nowhere else, and the
+only other mentions of `sound_bank` in `tools/` (`zyrinx_player.py`, `scene_spans.py`) are prose.
+**Not re-done.**
+
+**F3 — `DeformTable_Zero` stands for the object bank's high-water mark (`tools/s4budget.py`).
+PARTLY CLOSED, and the open half is the load-bearing one. READ THIS BEFORE ASSUMING F3 IS DONE.**
+Two arms were added and both were genuinely unchecked: the cursor must resolve INSIDE the region it
+budgets (`used = LMA(cursor) - base` had no floor, so a cursor below the base yields a NEGATIVE
+`used` that `breached` cannot see because it only compares against the CEILING — master prints
+`object_bank: -55,988 B/64.0 KB (-85.4%)` and exits 0), and the cursor must NAME A ROW of the map's
+own `order` array, which `map.toml` defines as the byte-emitting section head-labels (`cursor` is a
+hand-edited string; nothing stopped it naming a mid-section label).
+
+**Neither arm establishes that the cursor is where the bank ENDS, and nothing can on the current
+contract.** Sigil says so in its own source, and it is worth quoting because it settles the design
+question rather than leaving it open: *"the object bank and the data region share the
+`[$10000,$20000)` window and the data region extends BEYOND it, so an LMA window scan cannot
+separate them — only the declared boundary label can"* (`crates/sigil-harness/src/native.rs`,
+`object_bank_cursor`). `map.toml` declares no SECTION membership — no row says which sections are
+bank content — so **an object-code section ordered after the cursor makes `used` too small, the
+ceiling gate green over a real breach, and no instrument in either tree can see it.**
+
+Two designs were considered and REJECTED here rather than shipped, because each turns out not to
+close the direction that matters:
+- *Pin the boundary as a pair* (`bank_last = "ObjDef_PathSwap"` beside `cursor`, asserted adjacent
+  in `order`; sigil's `BudgetDoc` has no `deny_unknown_fields`, so an extra key is inert there). It
+  fires when someone edits the boundary — but the F3 defect is a bank section ordered AFTER the
+  cursor, which leaves the adjacency unchanged. **The pin does not catch the bug.**
+- *Classify membership by source directory* (a section whose module lives under an `objects/` dir
+  must resolve below the cursor). It would have fired on the real case, but it replaces one
+  name-for-truth with another, and the tree already carries the counter-example that makes it a
+  coin-flip: `ObjDef_PathSwap` (`games/sonic4/objects/path_swap.emp`) sits BEFORE the cursor and
+  `ObjDef_Static` (`games/sonic4/data/objdefs/test_objects.emp`) sits AFTER it, both named
+  `ObjDef_*`, both inside the `$10000..$20000` window.
+
+**WHAT WOULD ACTUALLY CLOSE IT is a membership declaration in the map schema** — per-section, e.g. a
+`region =` on the order rows — which is a contract change consumed by sigil's placement and is
+**owner/sigil-lane work, not aeon-side**. Booked here; not attempted.
+
+*Context worth keeping: the mechanism the `$20000` ceiling protects is the object dispatch's WORD
+`code_addr` (`ObjDef.code_addr` is `label - ObjCodeBase`, reconstructed as
+`moveq #BANK,d0 / swap d0 / move.w (a0),d0` — ARCH §"Dispatch"), so what the ceiling really demands
+is that every object ENTRY POINT sit within 64 KB of `ObjCodeBase`. That is a narrower and
+measurable quantity than the bank's extent, and it was considered as a replacement instrument and
+rejected: entry points are a strictly WEAKER bound than the cursor (most bank bytes are reached by
+direct `jbsr`, not through a `code_addr`), so it would have been a second number, not a better one.*
+
+**A SIXTH INSTANCE, FOUND FROM OUR SIDE — `tools/art_rom_report.py`. NOT CLOSED.** The five rows
+above arrived from a lane reading our tree; enumerating the class ourselves (grep over `tools/*.py`
+for the three shapes — a hardcoded label used as a region end, an extent assumed equal to an embed
+length, a constant encoding a relationship between two anchors) turns up one more. The art-pool ROM
+budget is computed as `sum(os.path.getsize(<each embedded page blob>)) + local maps + 8 B/page` and
+gated build-fatally against soft/hard ceilings (build.sh:720) — **a ROM footprint measured entirely
+from files on disk. Its own header says so in as many words: "no ROM parse needed".** It is the F5
+shape without the F5 label: every page's ROM extent is assumed equal to its embed's length, and a
+pad at placement, a page in the manifest that is not placed, or a blob that has drifted from the
+image all produce a wrong-but-plausible KB figure under a green gate. **The assumption HOLDS today,
+measured rather than assumed:** all 10 `OJZ_Act_Pool_Page*` labels in `s4.lst` have span == file
+size and ROM bytes byte-identical to their blobs (11,964 B of pages). **It is ARRANGED to hold, not
+checked** — the same sentence as every other row in this class. The reason it is not closed here is
+a runner problem, not a design one: `art_rom_report` runs BEFORE sigil, so it has no listing and no
+ROM to check against, and closing it means either moving it below the build or giving it a second
+post-sigil arm.
+
+---
+
 ### TWO THINGS WAITING ON THIS LANE FROM SIGIL, both ready on their side (2026-08-30)
 
 **1. R7's alignment flip is READY and needs this lane's sequencing.** The declaration half landed

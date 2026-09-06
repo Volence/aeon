@@ -164,6 +164,17 @@ which is the whole test, and it is cheap.
 
 ## The F class — terminus proxies, and what it says about our enforcement surface
 
+> **STATUS 2026-09-06, after `parcel/bganim-room-terminus` (B7) and `parcel/f-class-terminus`:**
+> F1 · F2 · F4 · F5 · F6 · F7 **CLOSED**. **F3 PARTLY** — two unchecked arms asserted, the
+> load-bearing half (object-bank section MEMBERSHIP is declared nowhere, so a bank section
+> ordered after the cursor understates `used` invisibly) needs a map-schema change and is
+> **owner/sigil-lane work**. A **SIXTH instance** was found from our side and is open:
+> `tools/art_rom_report.py` gates the art-pool ROM budget on `getsize` of the embedded page
+> blobs, with no listing and no ROM — its assumption holds today (all 10 pages measured) but
+> nothing checks it. Full evidence, the controls, and the two F3 fixes considered and rejected
+> are in `docs/DEFERRED_WORK.md` under "THE REST OF THE F CLASS".
+
+
 The same note carries a class F this booking did not originally reach: *a named label standing in
 for "the end of a region"*, seven rows, **all of them ours**. Read the class before working any
 single row, because the shape repeats: each computes a high-water mark from one hardcoded label,
