@@ -1,5 +1,5 @@
 {
-  "focus": "Side collision fixed; chasing his sprite jumble at the tilt-block crossings",
+  "focus": "His four spring follow-ups booked; chasing the sprite jumble first",
   "inFlight": [
     {
       "what": "sprite jumble: the tilt-block crossings",
@@ -22,6 +22,34 @@
       "size": "L",
       "blockedBy": "his Toy Story observation reopened the mechanism; oracle re-reading the scroll table",
       "project": "EFFECTS-W1"
+    },
+    {
+      "id": "SPRING-SUBTYPE",
+      "title": "Side springs chosen by object subtype, and publish the subtype table where oracle's picker can read it",
+      "state": "open",
+      "size": "M",
+      "blockedBy": null
+    },
+    {
+      "id": "SPRING-ART",
+      "title": "The spring's real graphics -- S3K art needs 12 tiles and vram.toml has 1 free, so the cost is a decision",
+      "state": "open",
+      "size": "M",
+      "blockedBy": null
+    },
+    {
+      "id": "SPRING-SPIN",
+      "title": "Spin animation on a vertical spring bounce",
+      "state": "open",
+      "size": "S",
+      "blockedBy": null
+    },
+    {
+      "id": "SPRING-SFX",
+      "title": "The spring sound -- blocked on the transcoder refusing smpsModOff; cost the unblock",
+      "state": "open",
+      "size": "M",
+      "blockedBy": null
     },
     {
       "id": "EMDASH",
@@ -85,5 +113,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-06T02:58:25Z"
+  "updatedAt": "2026-09-06T03:11:27Z"
 }
