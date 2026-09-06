@@ -397,6 +397,63 @@ Aurora and the remedy inverts** — Aurora is conformant and takes the *refuse* 
 failure is not silent loss on save, it is that every author on a tree carrying the key cannot
 **open** that preset at all. Cite §8.2 only with that correction.
 
+### ~~`bganim_room.py` ASSUMED ITS OWN TERMINUS AND NOTHING ASSERTED IT~~ — CLOSED 2026-09-06 (`parcel/bganim-room-terminus`)
+
+**PROVENANCE: this came from the SIGIL LANE, not from us.** Their `e5b47915`,
+`docs/superpowers/notes/2026-09-05-decouple-aeon-side-inventory.md`, rows **F1**, **F2** and **F6**
+(the controller's brief calls the first of these B7). We had shipped the tool, the gate, and the
+prose asserting the fact, and we were the party that could not see it. Worth keeping as an instance:
+the three defects were all *stated confidently in our own docstring* and the checking code for none
+of them existed.
+
+**WHAT WAS WRONG.** `rom_room()` derives `packed_end = LMA(Art_Sonic) + len(sonic.bin)` and every
+number the tool reports is `anchor - packed_end`. Two consumers read it: the **reserve gate**
+(build-fatal in `build.sh`) and the **ceiling gate**. The expression rested on two unchecked
+assumptions, both failing in the SAME direction — they understate `packed_end`, which *overstates*
+room, so both gates stay **green through a real breach**:
+
+- **F1 — `Art_Sonic` is the last packed data before the anchor.** The docstring said so in those
+  words; the only guard in the code was that the label *exists*.
+- **F2 — `Art_Sonic`'s ROM extent is exactly `len(sonic.bin)`** — one embed, bound whole, nothing
+  emitted after it in its section. `map.toml` concedes the fragility itself ("a section with several
+  embeds has no such instrument") and records that the character-data sections were ordered *before*
+  `collision_data` so it would hold. **Arranged-so-it-holds is not checked.**
+- **F6 — `SOUND_BANK_OFFSET` encodes `sound_bank == dac_banks + 0x10000`** and appeared only at its
+  definition and inside one remedy f-string, never compared with the declared `[[anchor]]`. The two
+  could drift with nothing noticing, and the gate's own remedy line would then name a `sound_bank`
+  the map disagrees with.
+
+**⚠ F1 DOES NOT IMPLY F2, AND THE TWO CAN CANCEL.** `end = LMA + blob_len` has two independent ways
+to be wrong: a label that moves down by K with a blob that grows by K leaves `end`, `room` and both
+gates' verdicts **bit-for-bit unchanged**. Agreement between runs was never evidence about either
+arm. Both are asserted separately and `tools/test_bg_emit.py` varies them one at a time and then
+together.
+
+**⚠ AND NEITHER OCCUPANCY INSTRUMENT CAN SEE THE F2 CASE.** Trailing content that is *unlabelled and
+zero-filled* is byte-identical to free space: the `.lst` exports no row for it and the ROM scan finds
+the region clean. Only the SOURCE can testify, which is why F2 needed its own assertion rather than
+being folded into F1's.
+
+**WHAT WAS BUILT** (`tools/bganim_room.py`): `check_terminus()` (no label LMA in
+`[packed_end, anchor)`; with `--rom`, every byte of that region zero) and `check_extent()`
+(`Art_Sonic` is the last emitting `data` in its module · binds its embed whole · its section has no
+second module · with `--rom`, the `blob_len` bytes at its LMA are byte-identical to the embedded
+file). All are **`Unmeasurable`, not `--gate` verdicts**: a broken terminus does not mean a budget
+was breached, it means the room NUMBER is wrong, so no figure is reported at all. The F6 comparison
+is a gate arm in `report()`. **No `build.sh` change was needed** — the post-sigil gate already passes
+`--rom`, and a test now asserts it keeps doing so, because the image halves silently stop running if
+it ever stops.
+
+**THE ANSWER TO THE QUESTION.** On the tree as it stands, **nothing is sitting between the packed
+terminus and the anchor** — zero labels and zero non-zero bytes in both canonical shapes (s4:
+115,724 B; s4.debug: 113,122 B), `Art_Sonic` is the last of 8 definitions in the sole module of
+`collision_data` and binds its embed whole, its 101,056 B are byte-identical to
+`art/optimized/characters/sonic.bin` in both ROMs, and `0xA8000 + 0x10000 == 0xB8000` as declared.
+Room figures are **identical before and after**. There is no live breach; what changed is that a
+green now states what it proved.
+
+---
+
 ### TWO THINGS WAITING ON THIS LANE FROM SIGIL, both ready on their side (2026-08-30)
 
 **1. R7's alignment flip is READY and needs this lane's sequencing.** The declaration half landed

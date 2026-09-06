@@ -1340,6 +1340,17 @@ class TestBgAnimRoomOverCommittedFixture(unittest.TestCase):
     and need not be the live map's anchor: the fixture's packed end is 8+ days behind
     master's, so the live anchor is legitimately higher.
 
+    ⚠ THE CUT'S ANCHOR-SIDE ROWS ARE REBASED (2026-09-06). The cut's last row is
+    `__align$games.sonic4.dac_banks$0` at 0x98000 — one SetBank window inside the
+    0x90000 `dac_banks` of the layout it was cut from. Since FIXTURE_ANCHOR became
+    derived (0xA0000, above), copying the cut verbatim produced a tree that declared
+    [0x8A720, 0xA0000) free while its own listing put a row at 0x98000 inside it. The
+    tree was internally inconsistent and nothing noticed, because nothing checked the
+    terminus — which is the same defect as B7 itself, one level down. `_rebased_cut`
+    moves rows at or above FIXTURE_CUT_ANCHOR (0x90000) with the tree's anchor, in
+    both halves of the cut. It is a fix, not an exemption: `check_terminus` has no
+    special case for `__align$` or any other name.
+
     FRESHNESS. A committed cut has nothing re-deriving it. build.sh's post-sigil gate
     passes `--fixture` so every row here is re-found in the fresh listing with the
     same lexical shape; `fixture_freshness` is unit-tested here on itself and on a
@@ -1354,22 +1365,63 @@ class TestBgAnimRoomOverCommittedFixture(unittest.TestCase):
     FIXTURE_PACKED_END = FIXTURE_ART_SONIC_LMA + FIXTURE_ART_SONIC_BYTES   # 0x8A720
     # the hermetic tree's dac_banks — DERIVED from the rule, see the docstring
     FIXTURE_ANCHOR = bganim_room.rule_anchor(FIXTURE_PACKED_END)
+    # The `dac_banks` of the LAYOUT THE CUT WAS TAKEN FROM (the 08-26 re-layout,
+    # 0x48000 -> 0x90000; see the class docstring). Rows at or above it are anchored
+    # content, not packed data, and `_tree` rebases them onto whatever anchor the
+    # tree declares — see "THE CUT'S ANCHOR-SIDE ROWS ARE REBASED" in the docstring.
+    FIXTURE_CUT_ANCHOR = 0x90000
+
+    def _rebased_cut(self, anchor):
+        """The committed cut with its ANCHOR-SIDE rows moved to `anchor`.
+
+        The cut carries `__align$games.sonic4.dac_banks$0` at 0x98000 — one SetBank
+        window inside the 0x90000 `dac_banks` of the layout it was cut from. The tree
+        declares a DIFFERENT anchor (derived from the rule, 0xA0000), so copying the
+        cut verbatim built a tree in which an anchored row sat 0x98000 — i.e. INSIDE
+        the [packed end, anchor) region the tree simultaneously claimed was free.
+        That inconsistency was invisible until `check_terminus` landed (2026-09-06)
+        and refused the tree by name; it is fixed here rather than exempted, because
+        an exemption would have deleted the check's whole point.
+
+        Rebase = add `anchor - FIXTURE_CUT_ANCHOR` to every LMA at or above the cut's
+        own anchor, in BOTH halves of the cut (label rows and symbol table), so the
+        two halves still agree. Rows below it — Vectors, BgAnim_Banks, Map_TestObj,
+        Art_Sonic — are packed data and never move.
+        """
+        delta = anchor - self.FIXTURE_CUT_ANCHOR
+        out = []
+        for line in open(self.FIXTURE, encoding="utf-8").read().splitlines():
+            m = re.match(r"^(\(0\) \d+/)([0-9A-F]+)( .*)$", line)
+            if not m:
+                m = re.match(r"^( \S+ : )([0-9A-F]+)( [C-] \|)$", line)
+            if m and int(m.group(2), 16) >= self.FIXTURE_CUT_ANCHOR:
+                line = f"{m.group(1)}{int(m.group(2), 16) + delta:X}{m.group(3)}"
+            out.append(line)
+        return "\n".join(out) + "\n"
 
     def _tree(self, band=(8, 4), blob_len=FIXTURE_ART_SONIC_BYTES, lst="s4.debug.lst",
-              anchor=FIXTURE_ANCHOR):
-        """A hermetic aeon-shaped tree holding only what bganim_room reads."""
+              anchor=FIXTURE_ANCHOR, sound_gap=None, tail=""):
+        """A hermetic aeon-shaped tree holding only what bganim_room reads.
+
+        `sound_gap` overrides the declared `sound_bank - dac_banks` distance (the F6
+        relation); `tail` is appended to the hermetic collision_data.emp, which is how
+        an F2 test perturbs the ARRANGEMENT of the section rather than the tool.
+        """
         import shutil
         d = tempfile.mkdtemp(prefix="bganim_room_")
         self.addCleanup(shutil.rmtree, d)
         os.makedirs(os.path.join(d, "games", "sonic4", "data", "collision"))
         os.makedirs(os.path.join(d, "art"))
         with open(os.path.join(d, "games", "sonic4", "map.toml"), "w") as f:
-            f.write('[[anchor]]\nname = "dac_banks"\nat = 0x%X\nwhen = "sound_on"\n'
-                    % anchor)
+            f.write('[[anchor]]\nname = "dac_banks"\nat = 0x%X\nwhen = "sound_on"\n\n'
+                    '[[anchor]]\nname = "sound_bank"\nat = 0x%X\nwhen = "sound_on"\n'
+                    % (anchor, anchor + (sound_gap if sound_gap is not None
+                                         else bganim_room.SOUND_BANK_OFFSET)))
         with open(os.path.join(d, "games", "sonic4", "data", "collision",
                                "collision_data.emp"), "w") as f:
-            f.write('const _art_sonic      = embed("art/sonic.bin")\n'
-                    'pub data Art_Sonic     = _art_sonic\n')
+            f.write('module games.sonic4.collision_data in collision_data\n'
+                    'const _art_sonic      = embed("art/sonic.bin")\n'
+                    'pub data Art_Sonic     = _art_sonic\n' + tail)
         with open(os.path.join(d, "art", "sonic.bin"), "wb") as f:
             f.write(b"\0" * blob_len)
         if band:
@@ -1377,8 +1429,27 @@ class TestBgAnimRoomOverCommittedFixture(unittest.TestCase):
                                    "editor_bg_override.json"), "w") as f:
                 json.dump({"anims": [{"cols": band[0], "rows": band[1],
                                       "slot_base": 0}]}, f)
-        shutil.copy(self.FIXTURE, os.path.join(d, lst))
+        with open(os.path.join(d, lst), "w") as f:
+            f.write(self._rebased_cut(anchor))
         return d, os.path.join(d, lst)
+
+    def _rom(self, tree, name="s4.debug.bin", size=None, plant=None,
+             anchor=FIXTURE_ANCHOR):
+        """A hermetic ROM IMAGE for the terminus scan's second instrument.
+
+        Zeros up to `size` (default one SetBank window past the anchor, so the banks
+        the anchor names are actually IN the image), with `plant = (lma, bytes)`
+        written in — the mutation a terminus test needs to make the image half fire.
+        """
+        path = os.path.join(tree, name)
+        size = anchor + 0x8000 if size is None else size
+        buf = bytearray(size)
+        if plant:
+            lma, payload = plant
+            buf[lma:lma + len(payload)] = payload
+        with open(path, "wb") as f:
+            f.write(bytes(buf))
+        return path
 
     def _report(self, tree, lst, **kw):
         import io
@@ -1612,6 +1683,376 @@ class TestBgAnimRoomOverCommittedFixture(unittest.TestCase):
         self.assertIn("dac_banks", text)
         self.assertRegex(text, rf"(?m)^\s*binding limit: the ROM room \({headroom} B\)", text)
 
+    # ---- the terminus is a CHECKED FACT (B7, 2026-09-06) ------------------------
+
+    def test_hermetic_tree_is_internally_consistent_about_its_own_free_region(self):
+        """The scaffolding's own precondition, made a test because it was FALSE until
+        `check_terminus` landed and refused it: no row of the tree's listing may sit
+        in the region the tree declares free, and the rebase must have moved the
+        anchor-side row rather than deleted it."""
+        import bganim_room
+        for anchor in (self.FIXTURE_ANCHOR, self.FIXTURE_ANCHOR + 0x8000, 0x8C000):
+            tree, lst = self._tree(anchor=anchor)
+            labels = bganim_room.lst_labels(lst)
+            self.assertEqual(len(labels), 5, "the rebase dropped or duplicated a row")
+            packed_end = self._hand_lma() + self.FIXTURE_ART_SONIC_BYTES
+            self.assertEqual(
+                bganim_room.labels_in(labels, packed_end, anchor), [],
+                f"the hermetic tree with anchor 0x{anchor:X} puts a row inside the "
+                f"region it calls free — the tree is lying to the tool it tests")
+            self.assertEqual(labels["__align$games.sonic4.dac_banks$0"],
+                             anchor + 0x8000, "the anchor-side row did not track")
+            for below in ("Vectors", "BgAnim_Banks", "Map_TestObj", "Art_Sonic"):
+                self.assertEqual(labels[below],
+                                 bganim_room.lst_labels(self.FIXTURE)[below],
+                                 f"{below} is packed data and must never be rebased")
+
+    def test_a_symbol_between_the_terminus_and_the_anchor_refuses_a_room_figure(self):
+        """RED-FIRST for the symbol half. Plant one label in [packed end, anchor) —
+        the exact thing B7 says nothing checked — and the tool must refuse, NAME it,
+        and print no room number. Before this check the same tree reported
+        88,288 B free and both gates went green over it."""
+        import bganim_room
+        tree, lst = self._tree()
+        packed_end = self._hand_lma() + self.FIXTURE_ART_SONIC_BYTES
+        intruder = packed_end + 0x1000
+        rows = open(lst, encoding="utf-8").read().splitlines()
+        i = next(i for i, r in enumerate(rows) if r.endswith(" Art_Sonic:"))
+        rows.insert(i + 1, f"(0) 2266/{intruder:X} :        Art_LatecomerBlob:")
+        with open(lst, "w") as f:
+            f.write("\n".join(rows) + "\n")
+        # the pre-check derivation is unchanged — the room WOULD still be 88,288
+        self.assertEqual(self.FIXTURE_ANCHOR - packed_end, 88288)
+        with self.assertRaises(bganim_room.Unmeasurable) as cm:
+            bganim_room.rom_room(lst, tree)
+        msg = str(cm.exception)
+        self.assertIn("Art_Sonic is NOT the last packed data", msg)
+        self.assertIn(f"0x{intruder:X}  Art_LatecomerBlob", msg)
+        self.assertIn("+4096 B above the terminus", msg)
+        self.assertIn("NO ROOM FIGURE IS REPORTED", msg)
+        self.assertIn("do NOT widen the assertion", msg)
+        # and the report/CLI refuse the same way, WITHOUT --gate: a broken terminus
+        # is not a budget verdict, it is "the number would be wrong".
+        import io
+        import contextlib
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            rc = bganim_room.main(["--lst", lst])
+        self.assertEqual(rc, 1)
+        self.assertIn("FAIL (unmeasurable)", err.getvalue())
+        self.assertIn("Art_LatecomerBlob", err.getvalue())
+        self.assertNotIn("ROM room", err.getvalue())
+        # a label AT the terminus is caught too, and named as such
+        rows[i + 1] = f"(0) 2266/{packed_end:X} :        Art_EndMarker:"
+        with open(lst, "w") as f:
+            f.write("\n".join(rows) + "\n")
+        with self.assertRaises(bganim_room.Unmeasurable) as cm:
+            bganim_room.rom_room(lst, tree)
+        self.assertIn("(AT the terminus)", str(cm.exception))
+
+    def test_unlabelled_bytes_in_the_free_region_refuse_a_room_figure(self):
+        """RED-FIRST for the IMAGE half — the one the symbol listing cannot do. A blob
+        with no exported symbol is invisible to the `.lst`, so only the ROM scan can
+        see it; without `--rom` the same tree passes, which is exactly why build.sh's
+        gate passes the ROM."""
+        import bganim_room
+        tree, lst = self._tree()
+        packed_end = self._hand_lma() + self.FIXTURE_ART_SONIC_BYTES
+        at = packed_end + 0x40
+        clean = self._rom(tree)
+        self.assertEqual(bganim_room.rom_room(lst, tree, rom_path=clean)["room"], 88288)
+        dirty = self._rom(tree, name="dirty.bin", plant=(at, b"\xDE\xAD\xBE\xEF"))
+        with self.assertRaises(bganim_room.Unmeasurable) as cm:
+            bganim_room.rom_room(lst, tree, rom_path=dirty)
+        msg = str(cm.exception)
+        self.assertIn("holds 4 non-zero bytes", msg)
+        self.assertIn(f"the first at 0x{at:X}", msg)
+        self.assertIn("exports NO label there", msg)
+        self.assertIn("NO ROOM FIGURE IS REPORTED", msg)
+        # THE POINT: the symbol half alone cannot see this. Same tree, no --rom, green.
+        self.assertEqual(bganim_room.rom_room(lst, tree)["room"], 88288)
+
+    def test_a_rom_that_stops_short_of_its_own_anchor_is_unmeasurable(self):
+        """A truncated image cannot witness the region, and 'bytes that are not there'
+        must never read as 'bytes that are free'."""
+        import bganim_room
+        tree, lst = self._tree()
+        packed_end = self._hand_lma() + self.FIXTURE_ART_SONIC_BYTES
+        short = self._rom(tree, name="short.bin", size=self.FIXTURE_ANCHOR - 0x100)
+        with self.assertRaises(bganim_room.Unmeasurable) as cm:
+            bganim_room.rom_room(lst, tree, rom_path=short)
+        self.assertIn("ends 256 B before the `dac_banks` anchor", str(cm.exception))
+        # An image that cannot even hold Art_Sonic is refused EARLIER, by the extent
+        # check, with the more specific message — `packed_end == lma + blob_len`, so
+        # through rom_room the extent arm always reaches a truncation first.
+        tiny = self._rom(tree, name="tiny.bin", size=packed_end - 1)
+        with self.assertRaises(bganim_room.Unmeasurable) as cm:
+            bganim_room.rom_room(lst, tree, rom_path=tiny)
+        self.assertIn("cannot hold Art_Sonic's 97472 B at 0x72A60", str(cm.exception))
+        # `image_occupancy`'s own `size < lo` guard is therefore not reachable through
+        # rom_room; it is a helper-level guard and is exercised as one, so it is not
+        # left as an arm that cannot fire.
+        with self.assertRaises(bganim_room.Unmeasurable) as cm:
+            bganim_room.image_occupancy(tiny, packed_end, self.FIXTURE_ANCHOR)
+        self.assertIn("ends BELOW the packed terminus", str(cm.exception))
+        with self.assertRaises(bganim_room.Unmeasurable) as cm:
+            bganim_room.rom_room(lst, tree, rom_path=os.path.join(tree, "absent.bin"))
+        self.assertIn("extent: no ROM image at", str(cm.exception))
+
+    def test_report_says_which_instruments_established_the_terminus(self):
+        """A green must state what it PROVED. With --rom both instruments are named
+        and the scanned byte count is the room; without it the report says out loud
+        that unlabelled bytes were not ruled out."""
+        tree, lst = self._tree()
+        rom = self._rom(tree)
+        rc, text = self._report(tree, lst, rom_path=rom)
+        self.assertEqual(rc, 0, text)
+        self.assertRegex(text, r"(?m)^\s*terminus: CHECKED by both instruments — no label "
+                               r"lies between 0x8A720 and the anchor, and all 88288 B of "
+                               r"that region are zero in s4\.debug\.bin$", text)
+        rc, text = self._report(tree, lst)
+        self.assertEqual(rc, 0, text)
+        self.assertIn("terminus: CHECKED by symbols only", text)
+        self.assertIn("The ROM image half did NOT run (no --rom), so unlabelled bytes "
+                      "there were not ruled out.", text)
+
+    # ---- the LENGTH term is checked too (F2, the other half of the expression) ---
+
+    def test_a_definition_after_art_sonic_refuses_a_room_figure(self):
+        """RED-FIRST for F2 (a), and the perturbation is of the ARRANGEMENT: the
+        section is given a SECOND emitting definition after Art_Sonic, exactly what
+        map.toml's ordering exists to prevent ("a section with several embeds has no
+        such instrument"). `packed_end` then stops short of the section's real end.
+
+        ⚠ THIS IS THE CASE NEITHER OCCUPANCY INSTRUMENT CAN SEE. The trailing
+        definition here is zero-filled, so the image scan finds the region clean, and
+        the hermetic listing exports no row for it, so the symbol scan finds nothing.
+        The asserted-below fact is that `check_terminus` alone STAYS GREEN on this
+        tree — which is why F2 needed its own assertion and not a claim that F1
+        already covered it."""
+        import bganim_room
+        tail = ('const _pad_blob       = embed("art/pad.bin")\n'
+                'pub data Art_Trailer   = _pad_blob\n')
+        tree, lst = self._tree(tail=tail)
+        with open(os.path.join(tree, "art", "pad.bin"), "wb") as f:
+            f.write(b"\0" * 0x400)
+        rom = self._rom(tree)
+        # F1 alone is BLIND here: unlabelled and zero, so both its instruments pass.
+        labels = bganim_room.lst_labels(lst)
+        packed_end = self._hand_lma() + self.FIXTURE_ART_SONIC_BYTES
+        self.assertEqual(
+            bganim_room.check_terminus(lst, labels, packed_end, self.FIXTURE_ANCHOR,
+                                       rom)["intruders"], [],
+            "the terminus check saw the trailing definition — if it can, this test is "
+            "no longer proving that F2 needs its own assertion")
+        # F2 refuses, and names what trails.
+        with self.assertRaises(bganim_room.Unmeasurable) as cm:
+            bganim_room.rom_room(lst, tree, rom_path=rom)
+        msg = str(cm.exception)
+        self.assertIn("Art_Sonic is NOT the last thing", msg)
+        self.assertIn("'Art_Trailer' is", msg)
+        self.assertIn("['Art_Trailer']", msg)
+        self.assertIn("too LARGE", msg)
+        self.assertIn("Do NOT widen this", msg)
+
+    def test_art_sonic_bound_other_than_whole_refuses_a_room_figure(self):
+        """RED-FIRST for F2 (a), second arm: the definition still ends the section but
+        no longer binds the embed WHOLE, so its ROM extent is not `blob_len`."""
+        import bganim_room
+        tree, lst = self._tree()
+        emp = os.path.join(tree, "games", "sonic4", "data", "collision",
+                           "collision_data.emp")
+        src = open(emp, encoding="utf-8").read()
+        with open(emp, "w") as f:
+            f.write(src.replace("= _art_sonic\n", "= _art_sonic ++ [0; 64]\n"))
+        with self.assertRaises(bganim_room.Unmeasurable) as cm:
+            bganim_room.rom_room(lst, tree, rom_path=self._rom(tree))
+        msg = str(cm.exception)
+        self.assertIn("no longer binds the embed WHOLE", msg)
+        self.assertIn("_art_sonic ++ [0; 64]", msg)
+
+    def test_a_second_module_in_the_section_refuses_a_room_figure(self):
+        """RED-FIRST for F2 (b): a sibling module placed in the same section can emit
+        after Art_Sonic with no label, which is the invisible case again."""
+        import bganim_room
+        tree, lst = self._tree()
+        extra = os.path.join(tree, "games", "sonic4", "data", "collision", "extra.emp")
+        with open(extra, "w") as f:
+            f.write("module games.sonic4.latecomer in collision_data\n"
+                    "pub data Latecomer = [0; 256]\n")
+        with self.assertRaises(bganim_room.Unmeasurable) as cm:
+            bganim_room.rom_room(lst, tree, rom_path=self._rom(tree))
+        msg = str(cm.exception)
+        self.assertIn("section 'collision_data' is no longer emitted by", msg)
+        self.assertIn("extra.emp", msg)
+        self.assertIn("NEITHER occupancy instrument can see it", msg)
+
+    def test_the_cancelling_pair_that_leaves_end_unchanged_is_still_caught(self):
+        """THE CANCELLATION TRAP, made a test. `end = LMA + blob_len` has two
+        independent ways to be wrong and they can cancel: move the label DOWN by K and
+        grow the blob by K and `end` — and therefore `room`, and therefore both gates'
+        verdicts — is bit-for-bit what it was. The old arithmetic could not have
+        distinguished this tree from a correct one, and agreement between runs was
+        never evidence about either arm.
+
+        Each arm is varied ALONE first, so the pass below is not the sum of two
+        errors: (1) LMA down by K with the blob unchanged, (2) blob up by K with the
+        LMA unchanged, (3) both together. All three must be refused, and (3) must be
+        refused for a reason that is about a byte, not about the total."""
+        import bganim_room
+        K = 0x400
+        base_lma = self._hand_lma()
+        base_len = self.FIXTURE_ART_SONIC_BYTES
+
+        FILL = b"\xA5"
+
+        def tree_with(lma, blob_len):
+            """A tree whose LISTING says `lma`, whose BLOB is `blob_len` long, and
+            whose ROM is the UNPERTURBED artifact: the original `base_len` bytes of
+            content at `base_lma`. The ROM is the fixed point the two source terms
+            are varied against, which is what keeps the arms independent — perturbing
+            the ROM alongside them is how the two errors would cancel again."""
+            tree, lst = self._tree(blob_len=blob_len)
+            with open(os.path.join(tree, "art", "sonic.bin"), "wb") as f:
+                f.write(FILL * blob_len)
+            rows = open(lst, encoding="utf-8").read().splitlines()
+            rows = [re.sub(r"/[0-9A-F]+ ", f"/{lma:X} ", r)
+                    if r.endswith(" Art_Sonic:") else r for r in rows]
+            with open(lst, "w") as f:
+                f.write("\n".join(rows) + "\n")
+            rom = self._rom(tree, plant=(base_lma, FILL * base_len))
+            return tree, lst, rom
+
+        # (0) THE CONTROL, established FIRST: nothing perturbed, and a room figure
+        # exists. Without this the refusals below could be the tree being malformed.
+        tree, lst, rom = tree_with(base_lma, base_len)
+        self.assertEqual(bganim_room.rom_room(lst, tree, rom_path=rom)["room"], 88288)
+
+        # (1) LMA ARM ALONE: the listing's label moved down K; the blob is untouched.
+        # `end` moves DOWN by K, so the old arithmetic would have reported K MORE room.
+        tree, lst, rom = tree_with(base_lma - K, base_len)
+        with self.assertRaises(bganim_room.Unmeasurable) as cm:
+            bganim_room.rom_room(lst, tree, rom_path=rom)
+        arm1 = str(cm.exception)
+        self.assertIn("are NOT art/sonic.bin", arm1)
+        self.assertIn(f"they first differ 0 B in, at 0x{base_lma - K:X}", arm1)
+
+        # (2) LENGTH ARM ALONE: the blob on disk grew by K; the label is untouched
+        # (the artifact was not rebuilt). `end` moves UP by K.
+        tree, lst, rom = tree_with(base_lma, base_len + K)
+        with self.assertRaises(bganim_room.Unmeasurable) as cm:
+            bganim_room.rom_room(lst, tree, rom_path=rom)
+        arm2 = str(cm.exception)
+        self.assertIn("are NOT art/sonic.bin", arm2)
+        self.assertIn(f"they first differ {base_len} B in, at 0x{base_lma + base_len:X}",
+                      arm2)
+
+        # (3) BOTH AT ONCE: `end` — and therefore `room`, and therefore both gates'
+        # verdicts — is bit-for-bit the control's. This is the tree the old derivation
+        # could not have told apart from a correct one.
+        tree, lst, rom = tree_with(base_lma - K, base_len + K)
+        self.assertEqual((base_lma - K) + (base_len + K), base_lma + base_len,
+                         "the perturbation does not actually cancel")
+        with self.assertRaises(bganim_room.Unmeasurable) as cm:
+            bganim_room.rom_room(lst, tree, rom_path=rom)
+        arm3 = str(cm.exception)
+        self.assertIn("are NOT art/sonic.bin", arm3)
+        self.assertIn(f"at 0x{base_lma - K:X}", arm3)
+        # Each arm is refused for its OWN reason, at its OWN byte — the three are not
+        # one statement repeated, which is what "varied independently" has to mean.
+        self.assertNotEqual(arm1, arm2)
+        self.assertNotEqual(arm2, arm3)
+        # And the thing the old derivation compared is IDENTICAL across (0) and (3):
+        # agreement on `end` was never evidence about either arm.
+        self.assertEqual(base_lma + base_len, (base_lma - K) + (base_len + K))
+
+    def test_image_identity_is_a_measurement_not_a_restatement(self):
+        """RED-FIRST for F2 (c): the blob on disk and the bytes at the label diverge
+        by ONE byte, with every length and address unchanged. Nothing in the old
+        derivation could see this, because it only ever read `os.path.getsize`."""
+        import bganim_room
+        tree, lst = self._tree()
+        lma = self._hand_lma()
+        with open(os.path.join(tree, "art", "sonic.bin"), "wb") as f:
+            f.write(b"\x11" * self.FIXTURE_ART_SONIC_BYTES)
+        good = self._rom(tree, plant=(lma, b"\x11" * self.FIXTURE_ART_SONIC_BYTES))
+        self.assertEqual(bganim_room.rom_room(lst, tree, rom_path=good)["room"], 88288)
+        payload = bytearray(b"\x11" * self.FIXTURE_ART_SONIC_BYTES)
+        payload[500] = 0x12
+        bad = self._rom(tree, name="bad.bin", plant=(lma, bytes(payload)))
+        with self.assertRaises(bganim_room.Unmeasurable) as cm:
+            bganim_room.rom_room(lst, tree, rom_path=bad)
+        self.assertIn(f"first differ 500 B in, at 0x{lma + 500:X}", str(cm.exception))
+        # and the SIZE-only derivation is unchanged by the mutation, which is the point
+        self.assertEqual(os.path.getsize(os.path.join(tree, "art", "sonic.bin")),
+                         self.FIXTURE_ART_SONIC_BYTES)
+
+    def test_report_states_what_the_extent_check_proved(self):
+        tree, lst = self._tree()
+        rc, text = self._report(tree, lst, rom_path=self._rom(tree))
+        self.assertEqual(rc, 0, text)
+        self.assertIn("extent: CHECKED — Art_Sonic is the last of 1 definitions in "
+                      "section 'collision_data' (sole module), binds its embed whole, "
+                      "and its 97472 B in s4.debug.bin are byte-identical to "
+                      "art/sonic.bin", text)
+        rc, text = self._report(tree, lst)
+        self.assertEqual(rc, 0, text)
+        self.assertIn("the byte-identity half did NOT run (no --rom), so `+ 97472` is a "
+                      "restatement of the file's size here, not a measurement", text)
+
+    # ---- F6: the two bank anchors are compared, not just printed ----------------
+
+    def test_the_two_bank_anchors_are_compared_against_the_encoded_offset(self):
+        """RED-FIRST for F6: SOUND_BANK_OFFSET encoded `sound_bank == dac_banks +
+        0x10000` and appeared only in its definition and in a remedy f-string, so the
+        map could drift from it silently. The perturbation is of the MAP."""
+        import bganim_room
+        tree, lst = self._tree()
+        rc, text = self._report(tree, lst)
+        self.assertEqual(rc, 0, text)
+        self.assertIn(f"anchor pair: `sound_bank` 0x{self.FIXTURE_ANCHOR + 0x10000:X} = "
+                      f"`dac_banks` 0x{self.FIXTURE_ANCHOR:X} + SOUND_BANK_OFFSET "
+                      f"0x10000, as the rule encodes", text)
+        tree, lst = self._tree(sound_gap=bganim_room.SOUND_BANK_OFFSET + 0x8000)
+        rc, text = self._report(tree, lst)
+        self.assertEqual(rc, 1, text)
+        self.assertIn("the two bank anchors have drifted apart", text)
+        self.assertIn("a gap of 0x18000, but SOUND_BANK_OFFSET encodes 0x10000 "
+                      "(2 SetBank windows", text)
+        self.assertIn("makes the remedy wrong as well as the constant", text)
+        # without --gate it is reported, not enforced — same shape as the other arms
+        import io
+        buf = io.StringIO()
+        self.assertEqual(bganim_room.report(lst, tree, gate=False, out=buf), 0)
+        self.assertIn("drifted apart", buf.getvalue())
+
+    def test_the_live_map_satisfies_the_encoded_anchor_relation(self):
+        """The live map, not a hermetic one: this is the fact F6 says was never
+        compared. It is derived from the map with the tool's own parser and from the
+        constant, never typed."""
+        import bganim_room
+        live = os.path.join(self.AEON, "games", "sonic4", "map.toml")
+        dac = bganim_room.anchor_addr(live, "dac_banks")
+        snd = bganim_room.anchor_addr(live, "sound_bank")
+        self.assertEqual(snd, dac + bganim_room.SOUND_BANK_OFFSET,
+                         f"games/sonic4/map.toml declares dac_banks 0x{dac:X} and "
+                         f"sound_bank 0x{snd:X}, a gap of 0x{snd - dac:X}, but "
+                         f"SOUND_BANK_OFFSET is 0x{bganim_room.SOUND_BANK_OFFSET:X}")
+
+    def test_build_sh_post_sigil_gate_passes_the_rom_so_both_halves_run(self):
+        """The runner wiring, derived from build.sh's own text rather than assumed:
+        the post-sigil gate invokes this tool with --lst AND --rom, so the image half
+        of the terminus check runs on every canonical build."""
+        build_sh = open(os.path.join(self.AEON, "build.sh"), encoding="utf-8").read()
+        m = re.search(r"python3 \"\$\{TOOLS\}/bganim_room\.py\"(.*?)--gate", build_sh,
+                      re.S)
+        self.assertIsNotNone(m, "build.sh no longer invokes bganim_room.py with --gate")
+        invocation = m.group(1)
+        self.assertIn("--lst", invocation)
+        self.assertIn("--rom", invocation, "build.sh's gate stopped passing --rom: the "
+                                           "terminus image half would silently stop "
+                                           "running and only the symbol half would gate")
+
     # ---- loud on every unmeasurable input ---------------------------------------
 
     def test_absent_listing_is_loud_and_names_the_runner(self):
@@ -1639,9 +2080,10 @@ class TestBgAnimRoomOverCommittedFixture(unittest.TestCase):
         the listing AND the ROM post-date the sigil invocation."""
         import bganim_room
         tree, lst = self._tree()
-        rom = os.path.join(tree, "s4.debug.bin")
-        with open(rom, "wb") as f:
-            f.write(b"\0")
+        # A REAL-SHAPED image, not a 1-byte stub: since 2026-09-06 `report` hands the
+        # ROM to the terminus check's image half, and a stub that stops below the
+        # packed terminus is (correctly) refused there before provenance is reached.
+        rom = self._rom(tree)
         t = os.path.getmtime(lst)
         self.assertEqual(sorted(bganim_room.check_provenance(lst, rom, t - 1)),
                          ["ROM", "listing"])
@@ -1657,8 +2099,7 @@ class TestBgAnimRoomOverCommittedFixture(unittest.TestCase):
             bganim_room.check_provenance(lst, rom, t - 1)
         self.assertIn("does not exist", str(cm.exception))
         # The report wires it: a prior listing fails BEFORE any room is printed.
-        with open(rom, "wb") as f:
-            f.write(b"\0")
+        rom = self._rom(tree)
         with self.assertRaises(bganim_room.Unmeasurable):
             self._report(tree, lst, rom_path=rom, built_after=t + 1)
         rc, text = self._report(tree, lst, rom_path=rom, built_after=t - 1)
