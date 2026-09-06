@@ -109,9 +109,23 @@
       "state": "open",
       "size": "S",
       "blockedBy": null
+    },
+    {
+      "id": "PATHSWAP-REMOVE",
+      "title": "He asked whether to delete the path swapper -- ANSWER IS NO, two live placements found; his call now",
+      "state": "open",
+      "size": "S",
+      "blockedBy": null
+    },
+    {
+      "id": "RING-SPAWN-LAYOUT",
+      "title": "Publish the ring record layout and the add-a-ring-at-runtime rule as symbols; oracle's rings row is blocked on it",
+      "state": "open",
+      "size": "M",
+      "blockedBy": null
     }
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-06T03:11:27Z"
+  "updatedAt": "2026-09-06T03:17:19Z"
 }
