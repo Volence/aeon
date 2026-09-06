@@ -1,0 +1,87 @@
+{
+  "_question": "A queue row reported the loop witness RED on unmodified master: zero layer flips at all three derived speeds and the player falling, including at $600 — the speed our own doc records as the negative control, where the crossover fix must be a no-op. Is that an engine defect, or a witness whose setup coordinates no longer match the content?",
+
+  "_verdict": "OUTCOME (b) WITH A REAL DEFECT ATTACHED, and the two halves must not be collapsed. The RED REPRODUCES EXACTLY on unmodified master — so the sighting was truthfully reported, not imagined. But it is NOT an engine defect: the witness places the player at a hardcoded world Y that the level content moved out from under, 12 px inside a floor cell that did not exist when the coordinate was chosen. Corrected for that one number and nothing else, all three speeds are GREEN. The defect that was real is in the INSTRUMENT — it reported a setup failure in the exact shape of the engine failure it exists to detect — and that is what this parcel fixes.",
+
+  "_build": {
+    "branch": "parcel/loop-witness-red",
+    "master": "f14b21a89fd755b011419a2a30822f06032a8dbe",
+    "tree": "clean at build time (git status --porcelain empty)",
+    "rom": "s4.debug.bin 846388 B, md5 b2a8728e7d3f87c894693a01d3343e05",
+    "lst": "s4.debug.lst 372564 B",
+    "build": "canonical DEBUG=1 ./build.sh, exit 0 (NOT FAST=1). loop_crossover_gate OK inside it.",
+    "sigil": "fa18ebfe849aa4bfb3203cde7c8a0770 / emit_sound_blob 0c1cf7ec5dd452bfb703856a42437d6d",
+    "note": "845638 B is the ROM size the 2026-09-05 loop witnesses recorded; 846388 is this build. Master moved; the size is reported, never pinned."
+  },
+
+  "_instrument": {
+    "found": "tools/loop_step_over_witness.py — it is the only thing in the tree that produces the reported shape (three DERIVED speeds PHYS_TOP_SPEED $600 / the boundary $900 / PHYS_GSP_CAP $1000, a layer-flip count, and a climb/drop). Its own docstring derives those three speeds and the one-frame sample spacing.",
+    "not_found": "The phrase 'zero layer flips at all three speeds' appears NOWHERE in docs/, tools/ or any commit message. The sighting exists only as an overseer status row. What DOES exist is the table it contradicts: docs/DEFERRED_WORK.md '✅ FIXED 2026-09-05' records $600 '1 flip, rides' / $900 '2 flips, +143 px' / $1000 '1 flip, +72 px', which is this tool's output shape.",
+    "no_emulator_mcp": "No mcp__oracle__* tool was used. Every emulator number here comes from a headless instance spawned through tools/aether_instance.py by the witness itself."
+  },
+
+  "step2_reproduction_red": {
+    "command": "python3 tools/loop_step_over_witness.py --rom s4.debug.bin --lst s4.debug.lst --gsp 0x600 --frames 90 -v",
+    "result": "layer flips = 0, layer sequence all 0, x 1097..1367, y 582..849",
+    "REPRODUCES": true,
+    "what_the_verbose_trace_showed_that_the_summary_did_not": "He is IN FREE FALL FROM FRAME 0, before the injection can matter. y runs 582, 588, 594, 600, 606, 613 ... 836 across frames 0-33 — an accelerating fall, already ~6 px/frame at frame 0. He lands at y829 at frame 34 (gsp resets to 732, the landing) and then runs RIGHT ALONG A FLOOR 272 px BELOW THE LOOP to x1367.",
+    "why_this_matters": "The drive never rode the loop at all. A run that never lands cannot say anything about a crossover mark, and it produces zero flips and a long drop whatever the crossover code does. The summary line alone is indistinguishable from the engine defect."
+  },
+
+  "step2_discriminator": {
+    "claim": "The collision content under the witness's spawn column moved AFTER the green table was produced, and the witness's hardcoded START_Y did not follow it.",
+    "method": "Decoded games/sonic4/data/editor/ojz/act1/section_0.collattr{,b}.bin at every revision between the green merge and HEAD, resolving each cell word through the build's own base bank (tools/ojz_strip_gen.load_base_bank + tools/repaint_ojz_collision.resolve_word). Editor grid is 256x256 8px tiles; col = x/8, collision row = y/16, top tile row sampled.",
+    "spawn_column": "x1097 -> editor col 137",
+    "cell_history_col137": [
+      {"rev": "4df9bebf", "what": "the merge that produced the green ✅ FIXED table", "row35_planeA": "$0000 (air)", "row36_planeA": "$10FF sol=1", "ground_top_y": 576},
+      {"rev": "13ef3cf4", "row35_planeA": "$0000 (air)", "ground_top_y": 576},
+      {"rev": "902be5c7", "row35_planeA": "$0000 (air)", "ground_top_y": 576},
+      {"rev": "26750443", "row35_planeA": "$0000 (air)", "ground_top_y": 576},
+      {"rev": "97d7851a", "row35_planeA": "$0000 (air)", "ground_top_y": 576},
+      {"rev": "78ac6882", "what": "collision(ojz): build the left arc's foot on plane A — the ramp that was missing. THIS IS THE COMMIT.", "row35_planeA": "$1447 sol=1 heights=[16 x13, 15, 15, 14]", "ground_top_y": 560},
+      {"rev": "c9a6fe8b", "row35_planeA": "$1447", "ground_top_y": 560},
+      {"rev": "962400e8", "row35_planeA": "$1447", "ground_top_y": 560},
+      {"rev": "HEAD f14b21a8", "row35_planeA": "$1447", "ground_top_y": 560}
+    ],
+    "arithmetic": "Standing radius is 19 px, MEASURED not assumed: with the corrected placement he settles at y541 and 541 + 19 = 560 = the new ground top. At the green merge, START_Y 553 + 19 = 572, which is 4 px ABOVE the then-ground-top y576 — he lands, exactly as the tool's own step-3 comment describes ('placing at START_Y leaves him ~10 px above the ground'). At HEAD the ground top is y560, so the same 553 puts his feet 12 px INSIDE solid, and he falls through to the y848 floor (editor rows 53/54, sol=3) below.",
+    "derived_correction": "START_Y must fall by exactly the 16 px the ground rose: 553 - 16 = 537. 537 + 19 = 556, which restores the identical 4-px-above-ground relationship the original coordinate had. This is DERIVED from the cell decode, not fitted to a green result.",
+    "control_that_was_NOT_the_cause": "The springs and path-swapper landings named as suspects (af896648 / 3534a276 / 290f4aa8 / 2db2a3da / 013a36e0) are ruled OUT: section_0.collattr.bin and section_0.collattrb.bin are BYTE-IDENTICAL from 962400e8 to HEAD. They changed objects.json only. The mover is 78ac6882, a collision repaint, and it landed 2026-09-05 AFTER the green table."
+  },
+
+  "step2_green_after_the_one_number": {
+    "command": "python3 tools/loop_step_over_witness.py --rom s4.debug.bin --lst s4.debug.lst --frames 90 --start-y 537",
+    "changed_from_the_red_run": "START_Y only. Same ROM, same listing, same build, same drive, same injections, same sample spacing.",
+    "rows": [
+      {"gsp": "$0600", "px_per_frame": 6, "role": "NEGATIVE CONTROL — 6 px cannot straddle an 8 px cell", "layer_flips": 2, "climb_px": 118, "y_range": "541..551", "max_drop_px": 15, "falls_through": false},
+      {"gsp": "$0900", "px_per_frame": 9, "role": "the boundary — first speed over one cell per frame", "layer_flips": 3, "climb_px": 125, "y_range": "541..416", "max_drop_px": 15, "falls_through": false},
+      {"gsp": "$1000", "px_per_frame": 16, "role": "PHYS_GSP_CAP — two whole cells a frame", "layer_flips": 2, "climb_px": 55, "y_range": "543..554", "max_drop_px": 13, "falls_through": false}
+    ],
+    "max_drop_reading": "13-15 px at every speed is the initial 4-px-above-ground settle plus the landing, NOT a fall. The red run's figure was 267 px. A fall through the level in this act reads in the hundreds to thousands (the 2026-09-04 record has 1923 px and 768 px).",
+    "⚠_the_numbers_do_not_match_the_2026-09-05_table_and_that_is_expected": "The FIXED table reads 1 / 2 / 1 flips and +143 / +72 px; this reads 2 / 3 / 2 flips and 118 / 125 / 55 px climbed. SEVEN collision commits landed between that table and HEAD (13ef3cf4, 902be5c7, 26750443, 97d7851a, 78ac6882, c9a6fe8b, 962400e8), including the arc foot that caused this whole investigation. The loop is not the same loop. This run is therefore evidence that the crossover FIRES AT ALL THREE SPEEDS AND NOBODY FALLS THROUGH — it is NOT a reproduction of that table's figures and must not be quoted as one."
+  },
+
+  "step3_diagnosis": "NOT ENTERED. Step 3 is gated on the red reproducing as an ENGINE defect, and it does not. No engine source was changed by this parcel.",
+
+  "the_fix": {
+    "file": "tools/loop_step_over_witness.py",
+    "what": [
+      "--start-y: the placement Y is now an argument, because it is a coordinate into content that moves.",
+      "A PLACEMENT PRECONDITION, asserted rather than assumed: after the landing frames, y_vel must be 0. If it is not, the tool REFUSES with the placed coordinate, the measured y, the measured y_vel and the editor column to check — instead of driving on and reporting a loop result.",
+      "--no-assert-grounded to run anyway, for the case where the ungrounded drive is itself the subject.",
+      "A note beside START_Y recording that this coordinate has already gone stale once, naming 78ac6882 and the y576 -> y560 move, so the next reader does not re-derive it."
+    ],
+    "why_the_assertion_and_not_just_the_number": "Fixing 553 to 537 fixes today and leaves the trap armed. The failure mode is that a SETUP failure and the ENGINE failure this witness detects have the same signature — zero flips, a long drop — so the instrument cannot be trusted to tell them apart by eye. The assertion is what makes them distinguishable, and it is loud rather than green-on-unmeasurable.",
+    "red_first_proof": {
+      "red": "python3 tools/loop_step_over_witness.py --rom s4.debug.bin --lst s4.debug.lst --gsp 0x600 --frames 12   ->   EXIT 1, 'THE PLAYER NEVER LANDED ... placed at (1097, 553); after 8 landing frames he is at y=577 with y_vel=1400 (want 0)'. The default START_Y is unchanged in the file, so the shipped default is the case that refuses.",
+      "green": "same command with --start-y 537   ->   EXIT 0, 1 layer flip in 12 frames, settles y541.",
+      "the_override_reproduces_the_old_behaviour": "same command with --no-assert-grounded   ->   EXIT 0, 'layer flips=0, layer sequence=000000, y 582..606'. This is the silent red the queue row reported, now reachable only behind an explicit flag."
+    },
+    "regression": "python3 -m pytest tools/test_loop_crossover_gate.py -q --no-header  ->  23 passed, EXIT 0 (unpiped; the exit status is the runner's own). __pycache__ under tools/ cleared before every red-first run."
+  },
+
+  "_still_open": {
+    "circuit_completion": "None of the three speeds completes the circuit in 90 frames. $600 climbs 118 px and comes back down; $1000 climbs only 55 px. That is the already-booked 'rolling crosses and climbs but the circuit does not complete' item (docs/witness/loop-rolling-circuit-2026-09-05.json) and the run-up / level-design question with the owner. NOT touched here, and NOT re-measured here.",
+    "the_other_loop_witnesses": "docs/witness/loop-leftward-speed-sweep-2026-09-05.json and loop-rolling-circuit-2026-09-05.json both record 'grounded-asserted at x1350 / x1000 (settles y557)'. Those drivers are NOT tools/loop_step_over_witness.py, they assert grounding by their own protocol, and they were not run here. Whether their spawn coordinates also went stale under the same seven collision commits is UNCHECKED — a live question, not a closed one.",
+    "y900_still_ends_high": "the $900 row ends at y416 climbing, on layer 1, at frame 90. Whether it lands or falls after that is beyond this window and was not measured."
+  }
+}

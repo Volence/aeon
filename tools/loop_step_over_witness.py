@@ -74,6 +74,15 @@ PLAYERV_GROUND_SPEED = 0x30
 PLAYERV_DEBUG_FLAG = 0x3C
 
 START_X, START_Y = 1097, 553          # the ramp foot of the section-0 loop
+# ⚠ START_Y IS A COORDINATE INTO CONTENT THAT MOVES, AND IT HAS ALREADY MOVED ONCE.
+# When this file was written the ground top under col 137 was y576 (editor cell row 36),
+# so a player placed at y553 with a 19 px standing radius had his feet 4 px ABOVE it and
+# landed. Commit 78ac6882 ("build the left arc's foot on plane A") painted editor row 35
+# at that column, raising the ground top to y560 — and the same y553 now places the feet
+# 12 px INSIDE the solid, from which he falls through to the y848 floor below. The drive
+# then reports "0 layer flips, the player falls", which is indistinguishable by eye from
+# the engine defect this witness exists to detect. `assert_grounded` below is what makes
+# the two distinguishable; --start-y is what lets the coordinate follow the content.
 CAM_X, CAM_Y = 1097, 445
 SETTLE_FRAMES = 40                    # camera set -> streaming covers the player
 LAND_FRAMES = 8                       # placed -> feet on the ground, before injection
@@ -130,7 +139,8 @@ class Bus:
         return st
 
 
-async def drive(sock, syms, equs, gsp, frames, verbose, start_dx=0):
+async def drive(sock, syms, equs, gsp, frames, verbose, start_dx=0, start_y=None,
+                assert_grounded=True):
     client = BusClient(socket_path=sock, client_id="lsow", client_name="loop-step-over")
     await client.connect()
     b = Bus(client)
@@ -140,6 +150,7 @@ async def drive(sock, syms, equs, gsp, frames, verbose, start_dx=0):
     A_Y = P + equs["SST_y_pos"]
     A_LAYER = P + equs["SST_layer"]
     A_ANGLE = P + equs["SST_angle"]
+    A_YVEL = P + equs["SST_y_vel"]
     A_GSP = P + PLAYERV_GROUND_SPEED
     A_DBG = P + PLAYERV_DEBUG_FLAG
 
@@ -167,10 +178,34 @@ async def drive(sock, syms, equs, gsp, frames, verbose, start_dx=0):
     #    landing is simply erased, and the run then reports the physics' own
     #    acceleration curve instead of the speed under test — which looks like a
     #    result rather than like a broken drive.
+    place_y = START_Y if start_y is None else start_y
     await b.write(A_X, (START_X + start_dx) << 16, 4)
-    await b.write(A_Y, START_Y << 16, 4)
+    await b.write(A_Y, place_y << 16, 4)
     await b.frames(LAND_FRAMES)
     await b.check_alive("placement")
+
+    # 3b. THE PRECONDITION, ASSERTED RATHER THAN ASSUMED. Everything this witness
+    #     reports is about a player riding a loop; a player who never landed is not
+    #     riding anything, and his run produces exactly the signature of the defect
+    #     (zero flips, large drop). `y_vel == 0` after the landing frames is the
+    #     cheapest statement of "his feet are on something", and it is derived from
+    #     the drive's own step 3 rather than from a remembered coordinate.
+    yv = int.from_bytes(await b.read(A_YVEL, 2), "big")
+    yv = yv - 0x10000 if yv >= 0x8000 else yv
+    landed_y = int.from_bytes(await b.read(A_Y, 4), "big") >> 16
+    if assert_grounded and yv != 0:
+        raise SystemExit(
+            "loop_step_over_witness: THE PLAYER NEVER LANDED, so this run cannot say "
+            "anything about the loop.\n"
+            "  placed at (%d, %d); after %d landing frames he is at y=%d with "
+            "y_vel=%d (want 0).\n"
+            "  This is a SETUP failure, not a loop result — a drive from here reports "
+            "zero layer flips and a long fall whatever the crossover code does.\n"
+            "  Check the ground top under editor column %d against START_Y + the "
+            "standing radius, and pass --start-y once you know it. "
+            "--no-assert-grounded runs anyway."
+            % (START_X + start_dx, place_y, LAND_FRAMES, landed_y, yv,
+               (START_X + start_dx) // equs["COLL_CELL_W"]))
 
     # 4. hold RIGHT and inject the ground speed ONCE
     await client.call("emulator/hold", {"buttons": ["right"], "down": True})
@@ -229,10 +264,12 @@ def summarise(rows, gsp, equs, label, verbose):
             "layers": "".join(str(r["layer"]) for r in live)}
 
 
-def run_one(rom, lst, gsp, frames, verbose, label, start_dx=0, quiet=False):
+def run_one(rom, lst, gsp, frames, verbose, label, start_dx=0, quiet=False,
+            start_y=None, assert_grounded=True):
     syms, equs = parse_lst(lst)
     with aether_emulator(rom, symbols=lst) as sock:
-        rows = asyncio.run(drive(sock, syms, equs, gsp, frames, verbose, start_dx))
+        rows = asyncio.run(drive(sock, syms, equs, gsp, frames, verbose, start_dx,
+                                 start_y, assert_grounded))
     if quiet:
         live = [r for r in rows if "layer" in r]
         flips = sum(1 for a, c in zip(live, live[1:]) if a["layer"] != c["layer"])
@@ -253,6 +290,15 @@ def main():
     ap.add_argument("--frames", type=int, default=90)
     ap.add_argument("--start-dx", type=int, default=0,
                     help="shift the start X by this many pixels")
+    ap.add_argument("--start-y", type=int, default=None,
+                    help="place the player at this world Y instead of %d. The default "
+                         "is a coordinate into CONTENT and the content has moved before "
+                         "— see the note beside START_Y." % START_Y)
+    ap.add_argument("--no-assert-grounded", action="store_true",
+                    help="run even when the player did not land after the placement. "
+                         "Off by default: an ungrounded drive reports zero flips and a "
+                         "long fall no matter what the crossover code does, which is "
+                         "the signature this witness exists to detect.")
     ap.add_argument("--phase-sweep", action="store_true",
                     help="sweep start-dx over one whole COLL_CELL_W stride. The PHASE is "
                          "the free variable that decides a step-over: a 16 px/frame "
@@ -305,12 +351,15 @@ def main():
     for gsp in speeds:
         print("=" * 78)
         r, _ = run_one(args.rom, args.lst, gsp, args.frames, args.verbose,
-                       pathlib.Path(args.rom).name, args.start_dx)
+                       pathlib.Path(args.rom).name, args.start_dx,
+                       start_y=args.start_y,
+                       assert_grounded=not args.no_assert_grounded)
         out.setdefault("%04X" % gsp, {})["subject"] = r
         if args.compare:
             c, _ = run_one(args.compare[0], args.compare[1], gsp, args.frames,
                            args.verbose, pathlib.Path(args.compare[0]).name,
-                           args.start_dx)
+                           args.start_dx, start_y=args.start_y,
+                           assert_grounded=not args.no_assert_grounded)
             out["%04X" % gsp]["control"] = c
             print("  DELTA: flips %d -> %d   final y %s -> %s"
                   % (c["flips"], r["flips"], c["y1"], r["y1"]))
