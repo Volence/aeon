@@ -28783,3 +28783,46 @@ luck rather than design**: one script stamps with `date +%s` (epoch, no frame to
 two use `date -u`. **They flagged it as "a negative from an instrument that returned non-empty on
 the same query"** — the positive control that separates *found nothing* from *could not have
 found anything*, offered unprompted about their own clean result.
+
+## PROPOSAL (his, 2026-09-06T15:44:24Z) — an oracle raster/parallax panel that writes RAM, and the chord stays
+
+**His words:** *"do you think it'd work to have oracle have a raster/parallax panel where we can
+select what's on and at what bands or whatever and change it in the ram live? And then get rid of
+holding start + button to switch through them for debug?"* **Answer: yes, and most of it needs
+nothing from this engine.** Measured from the tree and from his running window, not estimated.
+**NOT STARTED — a proposal.**
+
+**(a) SELECT a scene / raster program / band table — ALREADY WORKS, zero engine change.** All
+three selectors are RAM longwords and the engine **re-reads them every frame**:
+
+| symbol | address | evidence it is per-frame |
+|---|---|---|
+| `Parallax_Current_Config` | `$FFFF88EC` | listed under *Reads* in `Parallax_Update`'s header; `move.l` in the per-frame path |
+| `Raster_Program` | `$FFFF8BD6` | `move.l Raster_Program, d0` in the per-frame build |
+| `BgAnim_Table_Ptr` | `$FFFFE91A` | the band walk's table pointer |
+
+Observed live on his window: row 20 held `Raster_Buf_B`, row 23 held
+`EditorRaster_OJZ_Act1_aurora_ramp_witness`. **The panel writes the POINTERS, never
+`Debug_Lab_Index`** (`$FFFFEE0D`) — that byte is the chord's cursor only, and writing it moves
+the on-screen label without changing what runs.
+
+**(b) TOGGLE — bands free, layers need (c).** Bands off is already solved: point
+`BgAnim_Table_Ptr` at a zero-count table and the walk returns, which is how the shipped act boots
+silent. Individual layers live inside the parallax config, so they need the hook below.
+
+**(c) NUDGE parameters live — the one real hook, size S, and the pattern already exists.**
+`Parallax_Current_Config` points at **ROM**, so a factor cannot be edited in place. The fix is the
+live-palette shape: a RAM scratch config, plus a routine that copies the active ROM config into it
+and re-points the pointer; oracle then edits the RAM copy and the next frame picks it up.
+**The raster channel already works exactly this way** — `Raster_Buf_A`/`Raster_Buf_B`
+(`$FFFF8BE4`/`$FFFF8C64`, 128 B each, double-buffered) are RAM and `Raster_Program` legitimately
+points at them. So this is copying an existing pattern, not inventing one.
+
+**KEEP THE CHORD.** It is the **only route without oracle attached** — no scene switching on real
+hardware, in a plain build, or with the panel not running, and a debug build would depend on an
+external tool to reach its own test content. Panel and chord write the same RAM, so keeping both
+costs nothing, and the panel already achieves the thing he actually wants (not holding START).
+
+**CAVEAT worth stating before anyone automates it: writing these pointers mid-frame races the
+build.** The engine reads each once per frame, so a write landing between the read and the buffer
+fill yields one torn frame. Harmless for a human turning a knob; a hazard for a scripted sweep.
