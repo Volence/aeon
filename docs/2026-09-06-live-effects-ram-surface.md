@@ -6,6 +6,62 @@ window**, not derived from source alone; where something is not measured it says
 
 Written 2026-09-06T15:52:24Z against aeon master `852f1a85`; addresses read from `s4.debug.lst`.
 
+## ⚠ 0. CORRECTION (2026-09-06T17:04:41Z) — §1 BELOW WAS A *WHAT-IS-READ* SURVEY PRESENTED AS A *WHAT-TO-WRITE* CONTRACT
+
+**Oracle found this by building against the engine instead of against this note, and they were
+right to. Read §0 before §1; §1's addresses are correct and its ADVICE was incomplete in four
+ways, one of which writes over code.**
+
+Their sentence is the finding and it generalises past this file: **a what-to-write contract cannot
+be derived from a what-is-read survey.** I traced where the engine READS each selector, confirmed
+it re-reads every frame, and concluded a panel could just write it. Every one of those reads is
+real. What I never traced is what the engine WRITES, and each channel has a companion cell that
+makes a bare pointer poke either overwritten or inert.
+
+**All four re-verified here in aeon's own source before this correction was written** — a peer's
+claim about our tree is the class this lane verifies rather than accepts.
+
+### (1) `Raster_Program` is an OUTPUT. Write `Raster_Pending`.
+The install path writes `Raster_Pending` (`engine/effects/raster.emp:946`); the VBlank side reads
+and clears it (`:974`, `:976`) and the engine itself writes `Raster_Program` (`:1024`, `:1831`).
+**So a poke into `Raster_Program` is a write into the machinery's output**, and a stale
+`Raster_Patch_Tab` re-records the outgoing program every VBlank. The panel's write cell is
+`Raster_Pending`.
+
+### (2) Parallax: a transition PROMOTES `Parallax_Target_Config` over a poked current.
+While `Parallax_Transition_Frames != 0` the state machine is mid-lerp, and when the counter
+reaches zero the active config reverts — so a bare write to `Parallax_Current_Config` during a
+transition is discarded. **The panel writes the `.instant` arm's FOUR cells**
+(`engine/level/parallax.emp:1284-1287`): `Parallax_Current_Config`, `Parallax_Target_Config = 0`,
+`Parallax_Transition_Frames = 0`, `Parallax_Snap_Pending = 1`. **Without the last one the band
+scrolls lerp toward the new targets instead of snapping**, which is the engine's own stated reason
+for that arm writing four cells rather than one.
+
+### (3) Bands: the pointer alone is INERT — `BgAnim_SetTable` also poisons `BgAnim_LastStep`.
+`engine/level/bg_anim.emp:183-186` writes the pointer **and then** `moveq #-1` into two longwords
+of `BgAnim_LastStep`. Those are the per-band "last step drawn" sentinels; without poisoning them
+the walk believes it has already drawn this step and **the switch appears to happen and nothing
+repaints.** A panel must write the pointer and both `BgAnim_LastStep` longwords.
+
+### (4) ⚠ `Parallax_Active_Config` IS A PROC, NOT A CELL — writing it writes over CODE.
+`pub proc Parallax_Active_Config` at `engine/level/parallax.emp:1358`. It reads like a state
+variable and is executable memory. **§1's original text did not warn**, and a panel resolving it
+by name from the listing and poking it would corrupt the ROM image in RAM-backed shapes and fault
+in others.
+
+### And one the panel must NOT write
+**VDP register `$0B` (Mode Set 3) is `Parallax_Update`'s alone** — it asserts it every frame from
+the active config, so a panel writing it is overwritten within a frame and, worse, disagrees with
+the buffers the same pass builds.
+
+### What I should have done
+Traced each selector's WRITERS as well as its readers, and asked of each: *if I write this cell
+myself, what else does the engine's own installer do that I am not doing?* **That question is
+answerable from the same source I already had open.** I had even read `BgAnim_SetTable`'s header
+that morning — *"Out: `BgAnim_Table_Ptr` = a0, every band's LastStep poisoned to the Init
+sentinel"* — and did not carry it into the note. **Having the fact and not using it is worse than
+not having it.**
+
 ## 1. The three selectors — write these, never `Debug_Lab_Index`
 
 | what | symbol | address | width | shape |
