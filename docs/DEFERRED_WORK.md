@@ -27838,3 +27838,44 @@ same artifact* governs a check that never executed; *an instrument that reports 
 manufacture it* governs an empty result. **This one governs a NON-empty result** — the case where
 the instrument ran, worked, and returned something true, and the truth of what came back is what
 stops anyone asking what did not.
+
+## `default_off` IS ENFORCED HERE AND DESCRIBED NOWHERE AURORA CAN READ — two hard refusals owed to the consumer contract (2026-09-06T11:49:51Z)
+
+**Aurora's finding, adjudicated here 2026-09-06 and the adjudication went against my first
+instinct.** They reported that our shipped `editor_bg_override.json` carries a band key
+`default_off` that *"no rule describes"*, and that two of our writer obligations go unstated.
+**"No rule describes it" is right about the CONTRACT and wrong about the TREE** — `inject_editor_bg.py:227`
+documents it at length under a heading naming the owner ask. **The rule exists, it is enforced,
+and it lives where the consumer cannot read it.** Same shape as the `BG_TILE_CAPACITY` drift one
+level up: not a stale value in their vendored copy, but a constraint that was never in the copy at
+all — which is why neither a per-line check of their file nor a currency gate over VALUES can find
+it. It is not a value.
+
+**THE OBLIGATIONS, read out of `views_emitted()` and both `AssertionError`, not warnings:**
+1. **EXACTLY ONE BAND IN THE ACT** — not "all bands agree". If any band carries `default_off` and
+   `len(anims) != 1`, it refuses. The constraint is on the ACT's band count, so **a per-key
+   validator models it wrongly by construction.**
+2. **`pattern_px` MUST EQUAL 64** (`BGANIM_VIEW_DERIVED_PERIOD_PX`), because
+   `BGANIM_VIEW_V_RATE_SHIFT = 2` was derived against a 64 px period. Any other period refuses
+   rather than silently changing cadence under a comment still claiming the number was derived.
+
+**AND THE THIRD FACT, which matters more than either obligation and is the one to put in Aurora's
+panel copy first: `default_off` turns the band off in the RELEASE ROM, not in a preview shape.**
+`games/sonic4/config/ram.emp:357` says "in EVERY shape, release included"; a `default_off`
+single-band act emits `count = 0` and the system is off at boot with no runtime flag and no engine
+gate. **It is not a view toggle.** If Aurora ever surfaces it as one, an author flipping what looks
+like a preview setting changes shipped behaviour.
+
+**Measured on the shipped document:** 1 band, `default_off` true, `pattern_px` 64,
+`views_emitted()` returns 3. Both obligations satisfied, which is exactly why neither refusal has
+ever fired.
+
+**WHY AURORA'S CLEAN ROUND-TRIP IS NOT THE REASSURANCE IT LOOKS LIKE.** It is safe today only
+because Aurora does not let an author CREATE or CHANGE the key — it preserves what it finds. The
+moment they expose it they can emit a file our build refuses, with both refusals firing at build
+time and no editor-side warning. **The permissive-guard direction again, failing by blaming the
+build.**
+
+**THE WORK, ours and not theirs: put both obligations and the release-shape consequence into the
+consumer contract.** Aurora has the exact refusal text already and can model it ahead of the
+contract change. Not landed here because two agents were live in neighbouring files at the time.
