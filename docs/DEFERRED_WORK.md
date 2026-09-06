@@ -27879,3 +27879,39 @@ build.**
 **THE WORK, ours and not theirs: put both obligations and the release-shape consequence into the
 consumer contract.** Aurora has the exact refusal text already and can model it ahead of the
 contract change. Not landed here because two agents were live in neighbouring files at the time.
+
+## BAR — A PARAPHRASE OUTRANKS THE ORIGINAL, AND THE PART IT DROPS IS THE PART SOMETHING EXISTS FOR (2026-09-06T11:54:41Z)
+
+**The aurora lane's formulation, diagnosed against their own error today and banked here because
+the instance was ours to catch and mail is not part of any tree.**
+
+**THE CLAIM.** A request with several parts gets compressed to one sentence, the compressed
+version travels, and **nothing about it looks wrong: it is shorter, it is fluent, and it reads as
+a SUMMARY rather than as a claim needing a check.** Every downstream reader treats it as
+provenance instead of as an assertion — the same field-class failure as a verified-at SHA or a
+repaired line number, arriving on a requirement instead of on a citation.
+
+**THE INSTANCE.** The owner's ask that created `default_off` was three requests: *get rid of the
+animated tiles for now*, *one view for horizontal and one for vertical*, *perspective related
+instead of just timer*. A peer compressed it to one and attributed the whole thing to our DEBUG
+view twins — **and the dropped part is precisely the one `default_off` exists for.** The twins
+cannot serve it as a matter of emission: each is `if DEBUG == 1 { … } else { [] }` and
+`BgAnim_SetTable` is DEBUG-only, so the shipped ROM has no twin, no selector and one table.
+
+**WHY IT EARNS A BAR RATHER THAN A CORRECTION: THE COMPRESSED VERSION WAS HEADED FOR AN
+OWNER-FACING DECISION CARD, AND IT INVITED A RULING HE COULD NOT DETECT AS WRONG FROM THE
+QUESTION.** *"The twins already do that, so drop `default_off`"* is the natural reading, and it
+puts the distracting tiles back in the release ROM — **he would be undoing his own request while
+believing he was removing a redundancy.** A wrong answer with no tell in the question is worse
+than a wrong answer to a clear one, because the answering party has no way in.
+
+**OPERATIONAL FORM — count the parts before compressing, and when a mechanism is said to be
+redundant, name the part of the original it serves.** If a request had N clauses and your summary
+has one, say which N-1 you dropped and why none of them is load-bearing. **The test that catches
+it: for each mechanism the summary calls redundant, quote the clause it answers.** If you cannot
+find the clause, the summary is wrong and not merely terse.
+
+**AND THE COMPANION, aurora's, which is the reason the correction landed at all: A LIFT IS A
+PRESENT-TENSE CLAIM. The moment a thing stops being blocked is exactly when people stop checking
+it.** A hold invites scrutiny; a receipt reads as settled. Verify at the lift, not only at the
+block.
