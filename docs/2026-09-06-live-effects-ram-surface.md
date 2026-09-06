@@ -214,7 +214,22 @@ read  $FFFF88EC            (Parallax_Current_Config)
 If `Parallax_Current_Config` now reads `$FFFFEA26`, the scratch is installed and holds a copy
 of the config that was active. **That compare is the success test** — the arm cell is a
 request byte, not a status byte; the engine clears it as it services it whether the install
-took or was refused.
+took or was refused. (`Parallax_Current_Config` stores the full sign-extended long
+`$FFFFEA26` where the listing resolves the symbol to the 24-bit bus address `$FFEA26`. Mask
+before comparing; a raw compare is a false mismatch, and it was the first thing this lane's
+own probe got wrong.)
+
+**⚠ The source is NOT necessarily the config the pointer held when you armed.** The arm frame
+runs the section boundary check too, and `Parallax_Active_Config` returns the *target* during
+a transition — so the hook copies whatever was active when `Parallax_Update` reached the
+poll. **Measured, this exact case:** the pointer read `$01428E` before arming and the scratch
+came back byte-identical to the config at `$012F08`. That is the engine behaving normally.
+A panel that wants to *know* what it is editing reads the scratch after the install rather
+than assuming it holds the config it last displayed.
+
+**`Parallax_Snap_Pending` reads 0 after the arm frame, and that is the PASS.** The install
+sets it, and the same frame's `Parallax_Update` pass — the one that runs immediately after
+the poll — consumes it. A 1 read back would mean the snap did *not* happen.
 
 **Why a poke and not a call.** An Aether client drives a bus, not a call stack: it can write a
 byte and run a frame and cannot force a `jsr`. `Parallax_Update` polls the arm at its head,
@@ -339,7 +354,50 @@ game that wants a runtime-built config builds it in its own RAM and calls
 `Parallax_StartTransition`, which is public and in **both** shapes — so a resident scratch
 would be 542 bytes of work RAM nothing calls.
 
-**⚠ The `BgAnim_Table_Empty` warning applies here too, and a panel must not repeat it.** Guard
-symbols still enter the deb2 appendix, so a name can appear in the release listing while the
-RAM it describes does not exist. **Gate a nudge control on the SHAPE**, not on being able to
-resolve a symbol. The measured per-shape cost of this parcel is in the parcel's report.
+**⚠ The `BgAnim_Table_Empty` warning applies here too, and it is now MEASURED for this hook
+rather than inherited.** Comparing the release ROM against master: **zero bytes differ
+between the header and `EndOfRom` ($BDC92)** — the release image is byte-identical — and the
+whole `+20 B` delta is the deb2 symbol appendix, carrying exactly **one** new name:
+
+> **`Parallax_InstallScratch` APPEARS IN THE RELEASE LISTING, with an address, while
+> `Parallax_Scratch_Config` and `Parallax_Scratch_Arm` do NOT.** The proc emits no bytes
+> there, so its label collapses onto its neighbour's address — but the *name* still ships.
+
+So a panel that decides "the hook is available" by resolving `Parallax_InstallScratch` will
+offer nudge controls on a release build and then write into whatever occupies the scratch's
+address. **Gate on the SHAPE.** If you must gate on symbols, gate on
+`Parallax_Scratch_Config` — the RAM symbol, which is genuinely absent in release — and never
+on the proc.
+
+Per-shape cost, measured against a master control built from the same worktree
+(`c631c6db`/`a2f204da`/`ff638f53`/`de5fef4b` reproduced exactly):
+
+| shape | bytes | where |
+|---|---|---|
+| `s4.bin` | **+20** | deb2 appendix only; ROM image byte-identical; `EndOfRom` unmoved |
+| `s4.debug.bin` | **+125** | deb2 appendix (7 new names); `EndOfRom` unmoved — the code landed in placer fill |
+| `demo.bin` | **+20** | as `s4.bin` |
+| `demo.debug.bin` | **+125** | as `s4.debug.bin` |
+
+Debug-shape *code*: `Parallax_InstallScratch` 66 B (sonic4) / 64 B (demo), plus 14 B of arm
+poll in `Parallax_Update` in both. RAM: 544 B (542 scratch + arm + pad), DEBUG shapes only.
+
+### 6.7 It has been driven, not just built
+
+`tools/parallax_scratch_probe.py` boots its own headless emulator and runs the whole path.
+Its shape matters as much as its result: every run starts from `emulator/reset` and replays
+the identical approach, two untouched runs are **required** to be byte-identical before any
+poked run is allowed to mean anything, and only then is one byte changed. Measured on
+`s4.debug.bin` `f4d9c299`:
+
+* arm → install: `Current_Config` `$FFFFEA26`, `Target_Config` 0, `Transition_Frames` 0, arm
+  cleared; the scratch's 158 bytes (4 bands) byte-identical to the ROM config at `$012F08`
+  with `pcfg_transition` forced `0 -> 1`.
+* determinism rung: two re-approached runs byte-identical over 6 frames — **and the buffer
+  moves on its own on 1 of those 5 frame steps**, which is why the control had to be absent
+  rather than sampled.
+* the subject: band 0's `band_factor_b_s1` at `$FFEA48`, `1 -> 3`. On the very next frame
+  **64 BG lines of `Hscroll_Buffer` differ and 0 FG lines do** — the plane the field governs
+  and only that plane. Line 0's BG word `$FC1E -> $FF06`.
+* `pcfg_layer_mask` `$001F -> $0000` moves the buffer on all six frames too, so the result is
+  not one field's peculiarity.
