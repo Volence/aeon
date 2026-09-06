@@ -527,3 +527,307 @@ It also flagged that **every cycle count assumes sigil emits the mnemonic the so
 that a bare `bcc` relaxed to `.w` costs 12 not-taken rather than 8, which several hot loops are full
 of. The pin has no build artifacts, so it could not check. **Controller TAG: read `s4.lst`.**
 
+
+---
+
+## Seat C2a — gate-blind hazards, FORWARD walk
+
+Guard census, obtained by counting rather than by impression: **1,341 `ensure()` sites across 128 of
+187 `.emp` files**; **59 files with zero `ensure`** (including `games/sonic4/config/ram.emp` 515 L,
+`engine/objects/children.emp` 696 L, `engine/level/plane_buffer.emp` 660 L,
+`engine/objects/collision.emp` 581 L, `engine/system/vblank.emp` 477 L); **77 `assert.<sz>` across 28
+files, all zero-byte in release**; **25 Python gates invoked by `build.sh`**; **84 pytest files**;
+**52 expect-fail rows over 42 poison modules**; and — the number that matters —
+**0 sigil warnings inspected by the build.**
+
+The seat's framing is the right one and I am adopting it: *"this tree's guard density is genuinely
+high, so the blind spots are not 'nobody wrote a guard' — they are guards that check a hand-typed
+restatement of the thing instead of the thing."*
+
+### C2a-H1 — a per-object VRAM window is spelled three times, nothing binds any pair, and TWO live spellings are over-permissive
+
+Three independent spellings of "this object's art fits its VRAM window": the TOML→generated wall
+(a **literal**), the object's own hand-typed tile constant, and a **blob-derived**
+`dplc_peak_tiles(...)` guard whose ceiling is **hand-chosen**. None is pinned to another.
+
+**H1a — `games/sonic4/data/characters/tails_data.emp:100`.** The blob-derived guard's ceiling is
+`VRAM_HSCROLL_TABLE / TILE_SIZE` = tile **1504**. The real next allocation is
+`VRAM_DEBUG_BGANIM_TAG` = **1501**. Three tiles of permitted overlap. Symptom: the appendage's DPLC
+DMA writes over the BG-anim debug glyphs whenever Tails is on screen.
+
+**H1b — `games/sonic4/player/player_instashield.emp:469`.** Ceiling `VRAM_TEST_SONIC` = **960**;
+real next allocation `VRAM_DEBUG_PRESET_READOUT` = **957**. Same three-tile shape.
+
+**Every constant the seat derived checks out exactly** — controller re-read all five from
+`constants.emp:494-501`.
+
+**And the file asserts the opposite in prose.** `tails_data.emp:87-88`: *"Both bounds are read from
+their owners … so moving either neighbour re-checks these automatically."* **That sentence is
+false.** The ceiling was correct when written and became wrong silently when `gen_vram_map`
+allocated `debug_bganim_tag` into the gap. A reader auditing this allocation reads that sentence
+and stops looking.
+
+**CONTROLLER RAN TAG-1, AND THE ANSWER CAME WITH A THIRD OUTCOME THE SEAT DID NOT PREDICT.**
+
+Pointing each ceiling at its real neighbour, on a detached `61f22403` worktree:
+
+| step | result |
+|---|---|
+| 1. tighten both ceilings, nothing else | **exit 1** — `unknown name VRAM_DEBUG_BGANIM_TAG`, `unknown name VRAM_DEBUG_PRESET_READOUT` |
+| 2. add both names to the two modules' `use` lines, ceilings still tight | **exit 0 — GREEN** |
+
+So the seat's binary — green means latent, red means live — resolves **GREEN: H1a and H1b are
+latent, today's DPLC peaks fit the tight bound, and the fix is free.**
+
+**But step 1 is the more interesting result, and it explains the defect rather than just measuring
+it.** The correct ceiling names are **not in either module's import closure**. `tails_data.emp:27`
+imports `{VRAM_TEST_SONIC, VRAM_TEST_OBJ, VRAM_TAILS_APPENDAGE}` and `VRAM_HSCROLL_TABLE` — and the
+guard reached for `VRAM_HSCROLL_TABLE`, **a name that was in scope**, rather than the true
+neighbour, which was not. The `.emp` import closure made the wrong symbol the convenient one.
+
+**That changes the fix.** It is not "name the right symbol" — it is that the generator emits
+adjacency constants into a namespace the guards that need them cannot see without an explicit
+import, so the path of least resistance is a wrong ceiling. The seat's own suggested home for the
+real fix (have `gen_vram_map.py` emit the blob-derived cross-pins) is correct and is a `tools/`
+parcel.
+
+### C2a-H1c — the clean green-and-corrupt case
+
+`RING_SPARKLE_TILES` has a self-consistent triangle with its blob length and byte length, and
+**nothing ties it to the TOML's `4`.** Re-export a 6-tile sparkle, the blob-length ensure fires, the
+author makes the obvious repair, **build goes green**, and `ojz_scroll_test.emp:656` DMAs 192 bytes
+to tile 924 → tiles 924..929, clobbering insta-shield tiles 928-929. The sparkle looks right; the
+**insta-shield's first two tiles** render as sparkle pixels, visible only when the shield is used,
+arbitrarily far from the edit. Same shape at `dust_data.emp:34`, where a hand-typed `12` stands in
+for `VRAM_RING_SPARKLE - VRAM_DUST_SPINDASH`.
+
+### C2a-H2 — Map↔DPLC frame-count binding exists for exactly ONE asset in the tree
+
+`player_instashield.emp:456-463` is the complete pattern — map frame count, DPLC frame count, zero
+mismatches, last-frame pieces — on a 16-frame asset. **Sonic's own pair has none of it.** Six
+ensures on Sonic's data, every one about offset range, VRAM window, entry budget or tile ceiling;
+**not one binds `_map_sonic`'s frame count to `_dplc_sonic`'s**, and nothing binds `Ani_Sonic`'s
+frame bytes to either. Same for Tails, Knuckles, dust, particle, spring, appendage. The helpers
+exist but are private to `player_instashield.emp`.
+
+**Symptom traced through the code:** `animate.emp:105-108` accepts any frame byte 0..$F6 with no
+upper bound; `frames.emp:59-66` then reads an offset word from *past* the offset table — i.e. from
+mapping piece data — and takes an arbitrary byte as the piece count. Garbage sprites at garbage
+coordinates.
+
+**Severity amplifier the seat found inside its own finding:** `sprites.emp:312`'s SAT overflow
+pre-check reads the **cached byte** `Sst.sprite_piece_count`, while the emit loop at `:336` reads
+the **full word** freshly. Under valid data they agree; under a corrupt frame header the guard that
+exists to stop a SAT overrun is reading a truncated copy of the number the loop will use.
+
+### C2a-H3 — the mechanism that makes every `ensure` real is a manual ritual with no automation
+
+EMP_PITFALLS §3: an `ensure` outside its target's `use` closure **never evaluates**. The prescribed
+check is a `SIGIL_WARNINGS=full` grep. **`build.sh` contains zero occurrences of `SIGIL_WARNINGS`,
+`module.unreachable` or `clobber`; no gate tool reads the warning stream either.** The doc's own
+baseline history (25 → 45 → 50 modules, ending *"nobody re-baselined it"*) is the record of it
+having gone quiet once already.
+
+**And this compounds H1 and H2:** the natural repair for either — put the missing cross-pins in a
+new module — has a live failure mode that produces no signal, because a `map.toml` `order` row is
+**not** reachability.
+
+### C2a-H4 — DMA sub-queue contiguity is comment-only, and the guard note names a deleted file
+
+`Init_DMA_Queue` unrolls 32 slots × 14 bytes = 448 bytes from `DMA_Queue`, assuming one contiguous
+block in one order. **No `ensure` binds `DMA_Queue_End - DMA_Queue` to `DMA_TOTAL_SLOTS *
+sizeof(DMAEntry)`.** Insert any field between `DMA_Critical` and `DMA_Important` — a per-queue
+counter placed next to the queue it counts, which is where anyone would put it — and every
+Important/Deferrable slot's pre-laid VDP register markers shift out of alignment, so the drain
+writes transfer parameters **into the wrong VDP registers**.
+
+**The guard note is worse than absent:** `dma_queue.emp:26-27` says *"LOCKSTEP: dma_queue.asm spells
+this as a `rept` unroll — the byte gates are the guard."* **`engine/system/dma_queue.asm` does not
+exist**, and no tool references `Init_DMA_Queue`, `fill_slot_markers` or `DMA_TOTAL_SLOTS`. A
+developer changing a slot count reads "the byte gates are the guard," concludes it is covered, and
+stops. Two more instances of the same stale claim at `core.emp:41-43` and `:35`.
+
+### C2a-H5 — the sprite-cache staleness net is DEBUG-only AND behind a filter the failure trips
+
+All **12** direct writers of `mapping_frame`/`mappings` are compliant today — the seat enumerated
+them. The only enforcement is inside `if DEBUG == 1`, so **`s4.bin` has no net at all**; and the
+assert sits **downstream of the piece-count pre-check**, so if the stale count is large enough to
+trip `bhi .next_object` the object is skipped *before* reaching its own staleness assert. **The
+detector is unreachable in exactly the sub-case where the staleness is most damaging.**
+
+---
+
+## Seat C2b — gate-blind hazards, Z80-AND-SEAM-FIRST walk
+
+Seam census: **78 crossings enumerated, 62 individually assessed + 16 as a class; 3 verified
+findings, 3 characterised suspicions.** The seat's own headline: *"this is the most carefully-guarded
+seam code I have walked in this tree … Three things got through, and all three are of the same
+species: a rule that was written down correctly and then applied to some of its sites but not all."*
+
+### C2b-V1 — an IRQ6 landing in `Sound_PlayMusic`'s bus-hold spin deadlocks the 68k
+
+`sound_api.emp:210-215`. The file states its own invariant at `:5-8`: every transaction holds the
+bus **with interrupts masked**. Every other hold in the file honours it — `Sound_PostByte`,
+`Sound_PlayMusic`'s own param post, `Sound_ReadStat` via `with ints_off`; `Sound_Init` and
+`Sound_DrainSfxRing` via `move.w #$2700, sr`. **`.await_slot` at `:211` has neither.**
+
+**The interleaving, spelled out.** `z80_bus.emp:26-33` puts the request write *outside* the poll
+loop. Mainline writes `$0100` and spins. IRQ6 fires; `VInt_Level` runs `with z80_stopped { … }`,
+whose exit writes `$0000` — and **the hold is a latch, not a counter** (`z80_bus.emp:8-10` says so:
+*"an inner release frees the outer hold"*). The outer request is cancelled. `rte`. Mainline resumes
+at `.wait_z80`, reads bit 0 = 1, branches back — **and nothing below the label re-issues the
+request. Infinite spin.**
+
+**The watchdog cannot save it:** `SPIN_WATCHDOG_LIMIT` decrements on the **outer** `.await_slot`
+iteration while the hang is inside the context's spliced `.wait_z80`, one level below the counter's
+granularity. **The shape that exists to make this loud is exactly the shape that stays silent.**
+
+**Shape scoping, and the seat stated it honestly against its own finding:** both callers are gated
+behind `SOUND_DEBUG_HOTKEYS && SOUND_DRIVER_ENABLED`, so **this is NOT reachable in canonical
+`s4.bin` / `s4.debug.bin`.** It lives in the off-canonical `config_a` profile — which is the only
+shape that can play music, i.e. the listening-test shape, under a hotkey a person presses
+repeatedly. The seat's own reading, which I share: *"the worst place for it rather than a
+mitigating one."*
+
+**And it refutes a nearby claim:** `parallax.emp:1715-1721` asserts *"This is the tree's one atomic
+Z80 hold that must also stay masked."* `sound_api.emp:211` is a second one.
+
+### C2b-V2 — the 2026-08-09 banked-ROM/DMA ruling was applied to 1 of 3 tick paths
+
+The `$8000` bank window is the Z80's only 68k-bus access. Three paths read through it: the hot-loop
+FILL (**guarded**, checked every pass), the bulk refill (**guarded**, fail-closed), and
+`Run_SeqFrame_OnSongBank` → `Sequencer_Frame` plus `Snd_PollMailbox_Banked` (**no check anywhere**).
+`SND_CTRL_DMA_ACTIVE` has exactly **two** read sites in the whole Z80 corpus.
+
+**Structurally unable to see the flag:** the hot loop's timer poll at `:407` branches to the tick
+**before** `.dma_check` at `:414`, so the DMA test is downstream of the timer test.
+
+**Symptom:** the sequencer consumes a corrupt opcode — `SND_SEQ_BADOP`, a wrong note or patch, a
+dropped channel, or a stream pointer that walks off into garbage until the next loop point. Timer A
+is near but not locked to the display rate, so the tick precesses and parks in the DMA window for a
+run of consecutive frames every beat period: **the "it goes wrong for a second every N seconds"
+signature.**
+
+**Evidentiary footing, stated by the seat rather than glossed:** the hardware hazard itself is
+unverifiable here — the ruling says so, and there is no real hardware in this workspace. What is
+being reported is **not a new hardware claim**; it is that a ruling already accepted on this tree's
+own terms was applied to 1 of 3 sites, which is a purely static fact, checked exhaustively.
+
+**Adjacent stale comment:** `:1211-1212` still describes the bulk refill as *"runs THROUGH an active
+DMA"*. Since the guard landed it does the opposite — it skips. Both halves of the header are
+backwards.
+
+### C2b-V3 — "the ONLY 68k bus hold in the sound build" is contradicted eight lines later
+
+`vblank.emp:120-121` and `:283-284` state it twice. `vblank.emp:290` calls `Read_Controllers`, and
+`controllers.emp:39` opens `with z80_stopped {` — **unconditional by design**, wrapping both ports'
+full 6-button bursts.
+
+**Derived cost:** ≈1000 cycles ≈ **130 µs at 7.67 MHz**, against the DAC FILL pass pinned at 194
+T-states = 54.2 µs. So the hold is **~2.4 sample periods, every frame, at 60 Hz** — BUSREQ halts the
+Z80 outright, so `$2A` holds its last value and the DAC goes DC-flat for 130 µs once per frame. **A
+periodic 60 Hz artefact on every DAC drum, in every sound-ON shape including canonical `s4.bin`.**
+
+**Why it is a finding and not merely a cost:** the unconditional bracket is defensible on its own
+terms and `controllers.emp` argues it correctly — `$A100xx` I/O with the Z80 on the bus is genuine
+corruption. What is missing is that **nobody wrote the tradeoff down on the audio side.** The two
+headers are eight lines apart and disagree; one of them is lying to the next reader either way.
+
+### C2b's suspicion S1 — the Z80 transitive-clobbers gate does not exist in the repo it guards
+
+`[call.clobbers-incomplete]` lives **entirely in sigil** and is **not part of `sigil build`**. So an
+aeon-side edit that under-declares a Z80 proc's transitive clobbers **builds green in aeon**, and is
+caught only if someone in the sigil repo runs that test with `AEON_DIR` pointed at the right tree
+**and** `SIGIL_STRICT_GATE=1` — without which it prints `skip:` and passes green. aeon's docs mention
+it **once**, in a path-enumeration table, never as a ritual; `CLAUDE.md`, `CODING_CONVENTIONS.md`
+and `DEFERRED_WORK.md` do not mention it at all.
+
+**The population is not hypothetical:** the tree's own history records **8 genuine under-claims found
+the day the fixpoint first ran**, over a 7,900-line sound corpus.
+
+### C2b's clean results, which are half its value
+
+`HBlank_Install`/`Uninstall` vector atomicity **holds** (the 68000 samples interrupts only at
+instruction boundaries, and the header's claim is correct and load-bearing). `VSync_Wait`'s
+test-then-clear is **unreachable-by-timing** — the next IRQ6 is a full frame away — and the
+genuinely racy pair one block above is correctly bracketed with its failure mode written out. The
+DMA queue's masking, `requires(vblank)` drains and carry-after-SR-restore discipline are correct at
+all four exits. The flag brackets balance in all three procs. And **`DEFERRED_WORK:8098`'s PSG
+"never clobbers de" known-bad is FIXED** — the seat checked rather than inheriting the brief's
+premise, and told me my brief was out of date.
+
+---
+
+## Seat C1b — instruction-level performance, COLD-FIRST walk
+
+**577 procs extracted, 404 of them call-free leaves.** Frame denominator taken from the tree
+(`ENGINE_ARCHITECTURE.md:855-858`, 262 × ~488 = **127,856 cycles**), not from the seat.
+
+### C1b-F1 — the 24-slot System+Effect pools are swept THREE times a frame and are ~90% empty. ~2,780 cycles/frame, 2.2%
+
+**This is the finding a hot-path walk structurally cannot see, and it is exactly why the doubling
+exists** — the hot walk reads `jbsr RunObjects` as one line.
+
+| loop | per-EMPTY-slot cost | iterations/frame | total |
+|---|---|---|---|
+| `TouchResponse.fixed_loop` (`collision.emp:160`) — **nested inside the 2-player loop** | 36 | 24 × 2 = **48** | 1,728 |
+| `RunObjects.always_loop` (`core.emp:519`) — called for System then Effect | 44 | **24** | 1,056 |
+
+**2,784 cycles/frame ≈ 2.2%**, and real — 68k work nowhere near a DMA or VDP wait.
+
+**The occupancy claim could have failed, and the seat says how.** It enumerated all **7** corpus
+references to `System_Slots`; a single non-test writer would have killed the finding. There is none,
+and all five test writers sit inside `if DEBUG == 1`. **In release, all 8 System slots are
+permanently empty.**
+
+**The engine already ships the cure and applies it to one pool of three:** the Dynamic pool walks
+`Dynamic_Live` in both loops, with the comment *"empty slots cost ZERO (never appended)"*. System
+and Effect get the naive sweep.
+
+**The seat scoped its own contribution honestly:** extending the live list to Effects is a design
+change, not an instruction tweak — *"my seat's contribution is the number and the frequency
+derivation, not the design."* The 8 System slots are the cheap half, provably dead in release.
+
+**And it flagged its own lower bound:** `tst.w Sst.code_addr(a3)` at offset `$00` is 8 cycles if
+sigil folds the zero displacement and 12 if it emits `0(a3)`. **2,784 is the optimistic end; 3,072
+is the other.** Controller TAG: read the `.lst`.
+
+### C1b-F2 — one of three sibling loops builds its bank base before the emptiness test
+
+`core.emp:521-527` pays `moveq`+`swap` (8 cycles) on **every empty slot**; `.culled_loop` and
+`.frozen_fixed_loop` in the same file test first and build after. **Three siblings, one out of
+step.** ≈ −144 cycles/frame for +2 bytes.
+
+### C1b-F3 — two leaf-local costs in `Collision_GetType` a hot walk sees as one `jbsr`
+
+A per-query re-derivation of a value its producers write **at most twice a frame** (−8/call), and a
+`mul_const.w #80` where a 30-entry table bounded by `TILE_CACHE_COLL_ROWS` would be 18 cycles
+(−14 to −28/call). **The call chain is the seat's method and its whole advantage:** two call sites →
+probe cores → sensor pairs → floor/ceiling/wall per frame × 2 players = **≈8-14 calls/frame**, more
+airborne. ≈260-430 cycles/frame. **The seat's own verdict, which I keep:** *"measurable, and I would
+not spend 60 ROM bytes plus a new RAM mirror for it on its own."*
+
+### C1b's prohibition — the obvious optimisation here corrupts memory
+
+On `perform_dplc`'s in-loop `movem.l d2-d4/a2` (84 cycles/entry), which it verified **honest** —
+all four registers are genuinely live across the call and `QueueDMA_*` really does clobber them:
+
+> **Do NOT narrow this to `movem.w d2-d4`** (a tempting −40). `vdp_comm_reg` opens with
+> `lsl.l #2, {reg}` — a **long** shift on d2 — so a word restore that sign-extends a dest with bit
+> 15 set produces a wrong VDP command word. **Every value in that set looks like a word; one of
+> them is not used like one.**
+
+That prohibition is worth more than most findings, and it is recorded here so the next reader who
+spots the same 40 cycles meets it before acting.
+
+### C1b's other clean results
+
+`ObjectMove{,X,Y}` is at the canonical minimum (it costed the alternatives and the shipped form wins
+by 28 cycles/axis). `Canopy_Persist`'s over-wide `movem` saves 15 registers the body never writes —
+**and is still correct to keep**, being DEBUG-only and once-per-sweep; recorded because "the body
+writes no register" is precisely the trigger that should make someone look, and the look comes out
+clean. `Section_FlatIDXY`'s repeated-add multiply amortises to **≈14 cycles/frame** and its header's
+*"clarity over cycles"* is honest. A **62-site `movem` audit** found no second over-wide save. A
+sweep of all **57** `comptime fn -> Code` definitions with exact expansion counts found one
+2-byte-per-site reorder and nothing else.
+
