@@ -323,3 +323,207 @@ building (or for the lane to refuse a listing older than the checkout), but the 
 a listing-reading gate running 173 lines before the listing is produced — is the real defect and is
 not mine to settle inside a sweep that lands no fixes.
 
+
+---
+
+## Seat B2b — cross-file duplication, DATA-FIRST walk
+
+Machine-swept exhaustively over 185 non-generated `.emp` files: all **62** structs (offsets
+recomputed from field types and compared against every `// $HH` comment); all **2,102**
+`const`/`equ` declarations, with every multi-site name enumerated and both values compared (24
+found); all `[T; N]` literal-length arrays in `engine/ram.emp`; all 4 `region`/`vars` blocks and 11
+`Sst.sst_custom` overlays; all **1,296** `ensure()` sites grepped by subject for each fact booked
+as unguarded. **89 struct-offset comments across 9 fully-resolved structs: zero mismatches.**
+
+### B2b-1 — `sizeof(Sec)` is 34; the file that declares it says 66 — and the controller closed its follow-up
+
+`engine/structs.emp:2` opens *"Sec (the **66-byte** section descriptor)"*. Computed from the field
+types at `:133-158`: 7 × `*u8` + `*u8` + `u16` = **34**. Two `ensure(sizeof(Sec) == 34)` pin the
+value (`section.emp:42`, `tile_cache.emp:36`); nothing reaches the prose. The 2026-09-04 nine-dead-
+fields deletion took it 66 → 34 and updated ENGINE_ARCHITECTURE and DEFERRED_WORK but not the
+declaring module's own first sentence. Sharp-edged: the same sentence's four other sizes are all
+correct (Act 40, DMAEntry 14, parallax_config 30, VdpShadow 19 — all re-derived).
+
+**The seat named its own highest-value follow-up and could not run it** — `structs.emp` calls itself
+*"the SOLE AUTHOR of these layouts"* and names three out-of-assembler readers carrying their own
+copy of the stride, all in `tools/`, out of seat scope. **Controller ran it. The result is clean in
+the direction that matters and dirty in a new one:**
+
+| reader | executable stride | prose |
+|---|---|---|
+| `tools/boot_override_gate.py` | **`SEC_SIZE = 34`** ✓ | `:144` — *"66 → 34 on 2026-09-04, painted-regions audit row 3"* ✓ **correct, because it recorded the transition rather than the value** |
+| `tools/preset_lab_witness.py` | **`SEC_SIZE = 34`** ✓ | `:61` — *"`Act.sec_grid_ptr` + cursor \* **66**"* ✗ **stale, and contradicted by its own code 70 lines below** |
+| `tools/parallax_crossing_gate.py` | no stride constant — refers to `sizeof(Sec)` symbolically | ✓ |
+
+**So no wrong stride is executing anywhere.** The defect is entirely in prose, and it is in **two**
+files. The one file that got it right is the one that wrote down *the change* instead of *the
+number* — which is the same lesson as step 0's misplaced correction, arrived at from the opposite
+direction.
+
+### B2b-2 — `Sound_Dbg_Mirror` is described twice, with two different layouts, and it is an external-consumer surface
+
+`engine/ram.emp:1063-1065` says *"**5 SeqChannel slots** … 64 + 78 + 32 = **174** <= 176"*.
+`engine/debug/sound_debug.emp:19-51` says *"3 slots is the window"*, `SEQ_MIRROR_CHANNELS = 3`,
+and spells the layout out: header `[64..71]`, ch0 `[72..91]`, ch1 `[92..111]`, ch2 `[112..131]`,
+trace ring `[132..163]` — re-derived as 64 + 8 + 3×20 + 32 = **164**. The code side is internally
+consistent. `ram.emp`'s 174 implies five 14-byte slots, **a layout nothing in the tree emits**, and
+its stated 2-byte margin is really 12.
+
+**Why it matters more than a comment usually would:** the field exists to be read from *outside the
+assembler*. A consumer decoding by `ram.emp`'s description reads five 14-byte slots from +64; the
+bytes are three 20-byte slots from +72 with the ring at +132, not +142.
+
+**And the guard cannot catch it.** `sound_debug.emp:59`'s `ensure` bounds the code side against a
+**hand-copied literal 176**, not against the reservation — there is no `Sound_Dbg_Mirror_End` mark,
+so the `extern()` span idiom this tree uses everywhere else (`Raster_State`, `Palette_State`,
+`Parallax_State`) was unavailable and a literal was copied instead. Shrinking the `[u8; 176]`
+leaves that guard green.
+
+### B2b-3 — `PlayerV` "spends 26" of 30; it spends 27
+
+`player_common.emp:119` states the budget for the next ability author. Accumulated from the overlay
+at `:93-152`: `ground_speed`(0) … `instashield`(26) = **27**. `instashield: u8` was added after the
+sentence. **Headroom is 3 bytes, not 4.** Two stale riders in the same block: `even_pad` no longer
+makes the overlay even (27 is odd — harmless, it is a view not an array stride), and `xover_cell`
+cites a *"24-byte stride"* where the real slot stride is `sizeof(Sst)` = `$50`. An actual overflow
+is build-fatal; the stated **headroom** is guarded by nothing.
+
+### B2b-4 — the Z80 value mirrors: 10 pairs, comment-only, and the tree already has the mechanism it did not apply
+
+Seam-1 injects a fixed const list, so `z80_sound_driver.emp` and `sound_sequencer.emp` genuinely
+**cannot** `use` the authority — both files say so at length. The tree's answer for the *address*
+mirrors is a two-sided absolute pin (`ensure(SND_PAUSED == $1CD3 && …)` on both the mirror and the
+authority, `sound_constants.emp:79`). **That pattern was not extended to the value mirrors.** Ten
+pairs, all agreeing today, none pinned on either side.
+
+**The sharp one is `YM_ADDR_TO_DATA_MIN_T`** — the YM2612 address→data spacing floor in Z80
+T-states, consumed by **twelve build-fatal `ensure(cycles(a,b) >= YM_ADDR_TO_DATA_MIN_T)` guards**
+across three modules. A copy that drifted *low* would not fail; it would make that module's twelve
+guards **silently accept insufficient hardware spacing** — an always-green guard reached through
+duplication rather than through a bad comparison.
+
+`MEV_EXT` is doubly loose: the authority pins nearly every neighbour absolutely (`MEV_TEMPO`,
+`MEV_LFO`, `MEV_PORTA`, `MEV_DETUNE`, `MEV_MACRO`, `MEV_PAN`, `MEV_OPBIAS`) and skips the one
+constant that has a mirror.
+
+### B2b-5 — the collected/killed bitmask width is unpinned while its identical twin one block away is pinned
+
+`COLLECTED_MASK_BYTES` = 16, `MAX_LIST_ENTRIES` = 128; 16 × 8 = 128 ✓ today, stated nowhere,
+checked by nothing. Its twin over the same index space **is** pinned:
+`entity_window.emp:95 ensure(ENTITY_LOADED_OBJ_OFFSET*8 == MAX_LIST_ENTRIES)`.
+
+**Symptom, spelled out:** lower `KILLED_BITMASK_OFFSET` and `bset d1, COLLECTED_BITMASK_OFFSET(a0,d0.w)`
+overflows the collected mask into the killed mask — a collected ring silently marks an object dead,
+a killed object silently un-spawns a ring, for the whole act. The DEBUG
+`assert.w d1, lo, #MAX_LIST_ENTRIES` on the same lines cannot see it: it bounds the index against
+`MAX_LIST_ENTRIES`, which is precisely the number that got out of step. And `COLLECTED_SLOT_SIZE`
+being correctly *derived* is what makes the failure a short mask inside a correct-looking slot
+rather than an overrun the layout would catch.
+
+### B2b-8 — ~90 comments cite `.asm` authorities that do not exist
+
+`engine/system/constants.emp` opens by saying `engine/constants.asm` no longer defines these, then
+says *"(mirrors engine/constants.asm)"* over **10** of its own blocks (`:21,30,44,48,62,87,94,144,320,493`).
+That file is absent. Corpus-wide: `engine/constants.asm` ×14, `ram.asm` ×13, `main.asm` ×11,
+`player_common.asm` ×7, plus ~30 more. The only `.asm` that exist are the two `game_root.asm` and
+the vendored debugger. (`sonic3k.asm` ×92 is the legitimate S3K reference.)
+
+These read as *"there is a second copy, keep it in step."* There is not.
+
+### B2b's verified-clean, and the mechanism worth copying
+
+`PBLK_*` (19 declarations, every one `offsetof`-pinned) is the best mechanism found.
+`VRAM_PLANE_B` vs `VRAM_PLANE_B_BYTES` is held by a guard whose message names the exact failure.
+The anchor-sweep ladder pins are **property re-derivations, not copies** — each brackets against
+the real constant, so it stays correct whichever literal moved. `COLLECTED_PARK_*` at four sites,
+both engine mirrors `extern()`-pinned. All 16 `SceneCfgN` identity pins present.
+
+**The seat's own honesty about its limits, recorded:** it executed no harness and ran no red-first,
+so every *"this IS guarded"* rests on reading the guard rather than seeing it fail — and every
+credited `ensure` is contingent on **reachability** (EMP_PITFALLS §3: a guard in a module outside
+the target's `use` closure is dead, silently). It said so rather than letting the greens stand
+unqualified.
+
+---
+
+## Seat C1a — instruction-level performance, HOT-PATH-FIRST
+
+Every cycle figure priced against **sigil's own `crates/sigil-isa/src/m68k_cycles.rs`** at
+`ebc3d17e` — the table `CODING_CONVENTIONS.md` §2.1 names as the authority — with each cell read
+out of that file rather than from memory, and listed in the report. Frame denominator **128,010
+cycles**, the codebase's own figure.
+
+### C1a-1 — `Draw_Sprite` band-slot arithmetic, 14 cycles per registered object
+
+`engine/objects/sprites.emp:156-170`. Two independent costs: a `lea Sprite_Band_Counts, a1`
+**reloading the value `a1` already holds** on both entries to `.band_has_room` (the code clobbers it
+itself, then pays 8 to put it back), and `lsl.w #6` doing one bit too much — `band*64 + count*2` is
+`(band*32 + count)*2`, and with `band ≤ 7`, `count ≤ 31` the intermediate is ≤ 255 and the doubled
+result ≤ 510, **bit-identical to the current ceiling**. 82 → 68 cycles; the only reordering is
+between two writes to different arrays that nothing reads in between.
+
+**Frequency, established from `constants.emp:88-91`:** ceiling is the object population
+2+40+8+16 = **66**, and band capacity 8×32 = 256 so nothing caps earlier. Worst case ≈ **924
+cycles/frame (0.72%)**; ~350 at a typical 25 objects. **Real, not absorbed** — register arithmetic
+and two RAM writes, long before the SAT ships.
+
+### C1a-2 — `Parallax_Fill_PerLine .lp_both`: 44 cycles/line available, the stated blocker is refutable, and the frequency is ZERO today
+
+`parallax.emp:3323-3348`. The two single-channel loops were already converted to pointer walks; this
+one still pays 30 cycles of index recomputation per channel per line (60/line, against a ~132-cycle
+body). **The module's stated reason for not converting it — *"no second free address register"* —
+does not hold:** the walk pointers can be `a5`/`a6` themselves, since the bases they hold are only
+needed at the 256-byte wrap, and at that instant the walking pointer *is* `base + 256`, so the base
+is recovered by `suba.w #256` with no register at all.
+
+**And then the seat checked the frequency and refuted its own finding's value.** `.lp_both` needs a
+band with both deform pointers non-NULL and both `dsa`/`dsb` != 15. Every layer in the four
+generated act-1 scenes and in `Scene_OJZ_Default` is `dsa: 15, dsb: 15` with no `deform_fg`/`deform_bg`.
+**`.lp_both` executes on 0 lines in the shipped act; cycles×frequency = zero.**
+
+It then named what would have falsified that, and found the loaded gun: `Scene_WindyHaze`
+(`ojz_scenes.emp:926-944`) has five layers at `dsa: 3`, `dsb: 0..3` with both tables attached —
+**one section binding away** from putting 224 lines through this loop at **≈ 9,900 cycles/frame
+(7.7%)**.
+
+**Recommendation adopted as the seat gave it:** do not restructure on cycles-today. **Do correct the
+comment**, which currently asserts an impossibility that is not one — the kind of note that stops
+the next person from looking.
+
+### C1a-3 — `perform_dplc` entry decode, and the seat's own "not worth it"
+
+`lsr.w #8` + `lsr.w #4` (36 cycles) does what `rol.w #4` + `andi.w #$F` does in 22. 14 cycles per
+DPLC entry, +2 bytes. Peak ~11 entries/frame from the module header's own measured figures →
+**154 cycles/frame (0.12%)**, zero on most frames. **The seat classified this itself as the
+"measurable but not worth it" case** by the codebase's own bar, and recommended landing it only if
+`dplc.emp` is open for another reason. Recorded with that verdict.
+
+### C1a's rejected list — the part that saves the next walker time
+
+- **`Emit_ObjectPieces` per-piece SAT cap** looked like the largest single line item (640 cycles/frame)
+  and is **a wash**: the hoist costs ~28 cycles per call × ~20 calls ≈ 560 against 640 saved, net
+  **0.06%**, in exchange for moving a live correctness backstop out of the loop — and the per-piece
+  check is load-bearing because the pre-check uses a cache its own comment says is 0 for uncached
+  objects.
+- **`VInt_DrawLevel` drain loops** — **the confound case, correctly identified.** The destination is
+  the VDP data port during blanking, so the loop is FIFO-bound and any instruction removed is a
+  cycle spent waiting. **Absorbed. Do not optimize.**
+- **`Render_Sprites` step-from-stack** — 160 cycles/frame available, buys a DEBUG/release register-
+  allocation divergence in the engine's tightest register budget. Declined.
+- **`.band_loop`'s `lea`** is **not** loop-invariant work left in a loop: `a1` is genuinely clobbered
+  inside the band body. Correct as written.
+- **Instruction-selection smells: zero.** Corpus-wide greps for `move.w #small` where `moveq`
+  reaches, `addi/subi #1..8` where `addq/subq` reaches, and `cmpi #0` where `tst` reaches returned
+  **zero** for the latter two and six trivial hits for the first.
+
+### C1a's own stated blind spot, which I am recording rather than smoothing over
+
+**It did not open `engine/sound/` at all (~6,500 lines, and the 68k side runs every frame), nor
+`player_common/air/sensors/climb/fly/instashield` (~5,300 lines of per-frame code).** Its closing
+sentence — *"I would not read this report's silence about them as a clean bill"* — is the correct
+reading and is carried into the packet as such.
+
+It also flagged that **every cycle count assumes sigil emits the mnemonic the source spells**, and
+that a bare `bcc` relaxed to `.w` costs 12 not-taken rather than 8, which several hot loops are full
+of. The pin has no build artifacts, so it could not check. **Controller TAG: read `s4.lst`.**
+
