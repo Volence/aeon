@@ -154,6 +154,26 @@ met with room, right up until it is not.
 > the growth the bank-placement rule holds room for. Emitted as a warning, not a failure, since
 > that state is true of the shipped tree today.
 >
+> **AND THE MARGIN IS SHAPE-SPECIFIC, which the numbers above do not say on their own.** Every
+> figure in the paragraph above is the **debug** shape (`s4.debug.lst`), which is the listing
+> `dplc_straddle` defaults to and the one sigil swept. Measured on the same commit, the
+> **release** shape is tighter on every axis, and nobody had looked:
+>
+> | | release (`s4.bin`) | debug (`s4.debug.bin`) |
+> |---|---|---|
+> | `Art_Sonic` base | `0x73124` | `0x73B4E` |
+> | grow margin | **8,893 B (VERDICT C)** | 32,467 B (VERDICT A) |
+> | shrink margin | **6,213 B** | 8,815 B |
+> | concurrent demand at base | **2 of 2 — AT the reserve** | 0 of 2 |
+>
+> The release shape's concurrent reachable demand already **equals** `DPLC_ENTRY_RESERVE`, so its
+> nearest forbidden shift in the growth direction is a VERDICT C breach 8,893 B away rather than
+> a VERDICT A one 32 KB away. `Art_TailsAppendage` is not structurally safe in that shape either,
+> for the same reason — its own ceiling clears every bar, but its contribution to a demand
+> already at the reserve does not. **Quoting the debug number alone would have overstated the
+> room by ~3.6x**, which is the flattering direction, and the shape is not something a reader of
+> a bare "32,467 B" could have recovered.
+>
 > **Knuckles' ceiling — does not reproduce.** `2 × peak entries` is a valid upper *bound* on the
 > ceiling, not the ceiling. The ceiling is `entries + how many of that frame's entries can
 > straddle SIMULTANEOUSLY`, and every Knuckles frame names disjoint tile runs, so at most one
