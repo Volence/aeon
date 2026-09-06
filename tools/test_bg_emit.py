@@ -2666,5 +2666,230 @@ class TestActIsAParameter(unittest.TestCase):
             f"LEGACY_OVERRIDE_ACT.")
 
 
+class TestBgAnimDefaultOffDecouple(unittest.TestCase):
+    """`default_off` is a per-band SHIP decision; the DEBUG twins are a separate gate.
+
+    THE DEFECT THIS CLASS EXISTS FOR, measured 2026-09-06 and booked in
+    docs/DEFERRED_WORK.md ("AURORA'S `Promote` CAN ALREADY BREAK OUR BUILD, TODAY"):
+    `views_emitted` raised an `AssertionError` whenever ANY band carried `default_off`
+    and the act had more than one band. The shipped act is one band carrying
+    `default_off`, and Aurora's editor ships a `Promote` control that adds a band — so
+    an author did the one thing the editor invites and got a build failure about DEBUG
+    view twins they had never heard of and did not touch. The refusal was correct when
+    written (the only writer was a hand-edited file); Aurora's control changed the
+    POPULATION of writers and nothing here noticed.
+
+    THE RULING (hub in the owner's place, 2026-09-06, overturnable): **decouple.** The
+    twins keep their own condition — exactly one band, `pattern_px` 64 — and
+    `default_off` ships independently of whether that condition holds.
+
+    WHY A NOTE AND NOT A SILENT ZERO. The rejected repair was "return 0 twins instead of
+    raising", disqualified because it removes the owner's own perspective-versus-timer
+    comparison from any act an author grows, unannounced. So the twins' absence is
+    ANNOUNCED twice: on stdout as the build step runs, and as a comment block in the
+    generated `bg_anim.emp` itself — scrollback is ephemeral, the artifact is what a
+    reviewer opens when asking where the views went, and a comment costs zero ROM bytes.
+    `test_the_note_matcher_rejects_a_stripped_note` keeps the matcher honest, so a green
+    here cannot mean the gate stopped looking.
+    """
+
+    AEON = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+    # ---- fixtures --------------------------------------------------------------
+
+    @staticmethod
+    def _doc(spec, cols=8, rows=4):
+        """A COHERENT synthetic document: `spec` is [(slot_base, default_off), ...].
+
+        Coherent matters — `validate_band_coherence` runs ahead of emission and
+        demands `phases[0]` BE the static tiles the band covers, so a band built out
+        of zeros gets rejected before it ever reaches the code under test (measured:
+        that is exactly what a first draft of this fixture did).
+        """
+        n = cols * rows
+        tiles = [[(i * 7 + p) % 16 for p in range(64)] for i in range(n * len(spec))]
+        anims = []
+        for slot_base, off in spec:
+            ph0 = [tiles[slot_base + k] for k in range(n)]
+            phases = [ph0] + [[[(v + ph) % 16 for v in t] for t in ph0]
+                              for ph in range(1, 8)]
+            band = {"cols": cols, "rows": rows, "pattern_px": cols * 8,
+                    "driver": "camera_x", "rate_shift": 4,
+                    "slot_base": slot_base, "phases": phases}
+            if off:
+                band["default_off"] = True
+            anims.append(band)
+        return {"layout": [0] * 4096, "tiles": tiles, "anims": anims}
+
+    @staticmethod
+    def _table_count(emp):
+        """The band count word the emitter wrote, read out of the emitted text."""
+        for line in emp.splitlines():
+            if line.startswith("pub data BgAnim_Table:"):
+                return int(line.split("=", 1)[1].split("//")[0].strip())
+        raise AssertionError("emitted module has no BgAnim_Table declaration")
+
+    #: What the twins' declined note must carry to be actionable. Derived from the
+    #: ruling's own grounds: a reader must learn WHICH capability is absent, WHY
+    #: (the twins' condition), what this act actually is, that `default_off` still
+    #: ships, and what to do about it.
+    NOTE_REQUIREMENTS = {
+        "names the twins": lambda s: "BgAnim_View_H" in s,
+        "names the single-band condition": lambda s: "one band" in s.lower(),
+        "names the derived period": lambda s: "64" in s,
+        "says default_off still ships": lambda s: "default_off" in s and "ship" in s.lower(),
+        "names a remedy": lambda s: "BGANIM_VIEWS" in s or "single" in s.lower(),
+    }
+
+    def _note_shortfalls(self, note):
+        return sorted(k for k, ok in self.NOTE_REQUIREMENTS.items() if not ok(note or ""))
+
+    # ---- the matcher is itself under test --------------------------------------
+
+    def test_the_note_matcher_rejects_a_stripped_note(self):
+        """A green below must not be reachable by a note that says nothing."""
+        self.assertNotEqual(
+            self._note_shortfalls("no view twins for this act."), [],
+            "the note matcher accepts a bare sentence — it would pass a note that "
+            "tells an author nothing, which is the silence this parcel exists to avoid")
+
+    def test_the_note_matcher_rejects_absence(self):
+        self.assertNotEqual(self._note_shortfalls(None), [])
+
+    # ---- the ruling: `default_off` no longer vetoes a multi-band act ------------
+
+    def test_a_promoted_second_band_does_not_raise(self):
+        """THE DEFECT, in its measured shape: band 0 `default_off`, band 1 promoted."""
+        anims = self._doc([(0, True), (32, False)])["anims"]
+        self.assertEqual(
+            inject_editor_bg.views_emitted(anims), 0,
+            "a multi-band act must emit no twins — the twins' condition is unmet")
+
+    def test_every_default_off_arrangement_of_a_two_band_act_emits(self):
+        """All four arrangements, enumerated rather than sampled.
+
+        The historical refusal fired on `any(default_off) and len(anims) != 1`, so it
+        caught three of these four; the fourth (no key at all) was always fine and is
+        here as the control that says the fixture and the emitter agree at baseline.
+        """
+        for spec, expect_live in [([(0, False), (32, False)], 2),
+                                  ([(0, True), (32, False)], 1),
+                                  ([(0, False), (32, True)], 1),
+                                  ([(0, True), (32, True)], 0)]:
+            with self.subTest(spec=[o for _, o in spec]):
+                emp, _ = emit_over_document(self._doc(spec))
+                self.assertEqual(
+                    self._table_count(emp), expect_live,
+                    "BgAnim_Table must count exactly the bands NOT marked default_off")
+                self.assertNotIn(
+                    "BgAnim_View_H", emp,
+                    "a two-band act must not emit twins: their condition is one band")
+
+    def test_the_marked_band_is_the_one_excluded_not_merely_the_count(self):
+        """A correct count word reached by emitting the WRONG record is not correct.
+
+        The count word says how many of the records FOLLOWING it the engine walks, so
+        `count = 1` over a table whose first record is the default-off band silently
+        disables the LIVE band instead. Read the first record's rate_shift back to
+        prove which band the engine would actually walk.
+        """
+        doc = self._doc([(0, True), (32, False)])
+        doc["anims"][1]["rate_shift"] = 5          # the live band, distinguishable
+        emp, _ = emit_over_document(doc)
+        self.assertEqual(self._table_count(emp), 1)
+        first = next(l for l in emp.splitlines() if "_hdr:" in l)
+        self.assertIn(", 5, ", first,
+                      f"the first emitted record is not the live band: {first!r}")
+
+    # ---- the twins keep their own condition, and say so when it is unmet --------
+
+    def test_the_single_band_act_still_gets_its_three_twins(self):
+        """The ruling decouples; it does not relax the twins' own condition."""
+        anims = self._doc([(0, True)])["anims"]
+        self.assertEqual(inject_editor_bg.views_emitted(anims),
+                         inject_editor_bg.BGANIM_VIEW_COUNT)
+        emp, _ = emit_over_document(self._doc([(0, True)]))
+        for view in ("BgAnim_View_H", "BgAnim_View_V", "BgAnim_View_T"):
+            self.assertIn(view, emp)
+
+    def test_a_declined_multi_band_act_says_why(self):
+        n_views, note = inject_editor_bg.view_emission(
+            self._doc([(0, True), (32, False)])["anims"])
+        self.assertEqual(n_views, 0)
+        self.assertEqual(self._note_shortfalls(note), [],
+                         f"the declined note is not actionable: {note!r}")
+
+    def test_a_wrong_period_declines_rather_than_raising(self):
+        """The period rung is DERIVED for 64 px; an act at 32 gets no twins, loudly.
+
+        This used to be an `AssertionError` too, and it is the same defect: a 32 px
+        single-band act carrying `default_off` is a CORRECT run under the ruling — the
+        author is making a ship decision — and it would have failed the build over a
+        DEBUG preview's rate derivation. Not emitting the twins protects
+        BGANIM_VIEW_V_RATE_SHIFT from a period it was not computed for just as
+        completely as raising did; the note supplies the loudness that raising bought.
+        """
+        anims = self._doc([(0, True)], cols=4, rows=4)["anims"]
+        self.assertNotEqual(anims[0]["pattern_px"],
+                            inject_editor_bg.BGANIM_VIEW_DERIVED_PERIOD_PX)
+        n_views, note = inject_editor_bg.view_emission(anims)
+        self.assertEqual(n_views, 0)
+        self.assertIn("32", note or "",
+                      "the note must name the period this act actually has")
+        self.assertEqual(self._note_shortfalls(note), [])
+
+    def test_an_act_with_no_default_off_is_told_nothing(self):
+        """A refusal that can fire on a correct run is worse than the silence it replaces.
+
+        An act that never sets `default_off` cannot notice this feature exists — that
+        was true before the parcel and stays true. Announcing "no twins" to every such
+        act would be a notice on every correct run, which is the bar this parcel is
+        applying to itself.
+        """
+        for spec in ([(0, False)], [(0, False), (32, False)]):
+            with self.subTest(spec=spec):
+                self.assertEqual(
+                    inject_editor_bg.view_emission(self._doc(spec)["anims"]), (0, None))
+
+    def test_the_note_reaches_the_generated_artifact(self):
+        """Scrollback is ephemeral; the emitted module is what a reviewer opens."""
+        emp, _ = emit_over_document(self._doc([(0, True), (32, False)]))
+        _, note = inject_editor_bg.view_emission(
+            self._doc([(0, True), (32, False)])["anims"])
+        first = (note or "").splitlines()[0].strip()
+        self.assertIn(first, emp,
+                      "the generated bg_anim.emp does not carry the declined-twins "
+                      "note — its absence would be visible only in build scrollback")
+
+    def test_the_note_costs_no_rom_bytes(self):
+        """It is a comment: the section size must be the one the formula predicts."""
+        spec = [(0, True), (32, False)]
+        emp, banks = emit_over_document(self._doc(spec))
+        anims = self._doc(spec)["anims"]
+        slots = sum(a["cols"] * a["rows"] for a in anims)
+        self.assertEqual(
+            inject_editor_bg.bganim_section_bytes(len(anims), slots, n_views=0),
+            inject_editor_bg.BGANIM_COUNT_BYTES
+            + inject_editor_bg.BGANIM_RECORD_BYTES * len(anims) + len(banks))
+
+    # ---- reordering is announced, never silent ---------------------------------
+
+    def test_a_reordered_act_says_so(self):
+        """Emitting live bands first is a real change to the table an author authored."""
+        _, note = inject_editor_bg.band_emission_order(
+            self._doc([(0, True), (32, False)])["anims"])
+        self.assertIsNotNone(
+            note, "the emitter reordered the author's bands and said nothing")
+        self.assertIn("default_off", note)
+
+    def test_an_already_ordered_act_is_not_reordered(self):
+        for spec in ([(0, True)], [(0, False), (32, True)], [(0, False), (32, False)]):
+            with self.subTest(spec=spec):
+                anims = self._doc(spec)["anims"]
+                order, note = inject_editor_bg.band_emission_order(anims)
+                self.assertEqual(order, list(range(len(anims))))
+                self.assertIsNone(note)
+
+
 if __name__ == "__main__":
     unittest.main()
