@@ -406,6 +406,12 @@ gate, and the prose asserting the facts, and we were the party that could not se
 keeping as an instance: the three defects were all *stated confidently in our own docstring* and the
 checking code for none of them existed.
 
+**The receiving-side routing record for the whole F class is `docs/2026-09-06-sigil-routed-findings.md`
+(landed on master separately, `ab5dfc68`); its F1/F2/F6 rows say "booked, not started" and are
+CLOSED by this entry.** That file also makes the sharper argument for why this was bug tier rather
+than a tidy-up: of our three build-side listing gates, **two rest on F1 and F2** — so a single
+unchecked assumption was load-bearing for most of the enforcement surface.
+
 **WHAT WAS WRONG.** `rom_room()` derives `packed_end = LMA(Art_Sonic) + len(sonic.bin)` and every
 number the tool reports is `anchor - packed_end`. Two consumers read it: the **reserve gate**
 (build-fatal in `build.sh`) and the **ceiling gate**. The expression rested on two unchecked
