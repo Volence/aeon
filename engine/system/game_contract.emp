@@ -76,4 +76,39 @@ pub interface Game {
     // RingCollision holds live across the collect path (a2/a3 cursors, d4-d7 player
     // coords and loop counters) — a3 in particular is an INPUT the hook must preserve.
     hook ring_collected (a3: *u8) clobbers(d0-d2/a1) = empty
+
+    // spring_launched: Touch_Spring (engine/objects/collision.emp) invokes this
+    // on a TOP contact between a falling player and a COLLISION_SPRING object,
+    // AFTER it has seated the player on the spring's top edge and copied the
+    // spring's y_vel into him as the launch impulse, with a2 = the player SST and
+    // a3 = the spring SST. Both are still valid at the call and neither needs to
+    // survive it — TouchResponse's dispatch movem restores a2-a4 either way.
+    //
+    // WHAT THE ENGINE CANNOT DO ITSELF, which is the whole reason this member
+    // exists: the impulse is a velocity, but leaving a grounded player with an
+    // upward velocity does nothing — his own ground state re-attaches him next
+    // tick. Only the game owns a player state machine, so only the game can put
+    // him in the air. A game that places a COLLISION_SPRING object and leaves
+    // this `= empty` gets a spring that visibly does nothing; that is a binding
+    // error, not an engine one, and it is stated here because nothing can check
+    // it (the engine cannot see which collision types a game's level data uses).
+    //
+    // The bound is the sonic4 impl's exact need — a state value in d0, the
+    // player pointer moved into a0 for Player_SetState's a0 slot, and
+    // Player_SetState's own d1-d2/a1-a2 — plus the two input registers it is
+    // free to consume.
+    //
+    // `= empty` costs zero bytes AT THE CALL SITE. That is a claim about this
+    // MEMBER and it is easy to over-read into "a game without springs pays
+    // nothing", which is false and was measured: Touch_Spring's BODY is engine
+    // code, so demo carries it whether or not it binds the hook. Measured
+    // 2026-09-05 (demo.debug.bin, baseline vs the spring parcel): the collision
+    // section grew 116 bytes and every symbol after it shifted by exactly that,
+    // while EndOfRom stayed at $1121A — the growth fits the slack before the
+    // next fixed anchor, so the ASSEMBLED ROM is the same length and only the
+    // deb2 appendix moved (35062 -> 35036 B, tracking the changed symbol names).
+    // 116 bytes of a second inlined solid_face_response for a handler demo never
+    // dispatches. Cheap, and worth saying out loud rather than leaving a reader
+    // to infer zero from the hook's zero.
+    hook spring_launched (a2: *u8, a3: *u8) clobbers(d0-d2/a0-a2) = empty
 }

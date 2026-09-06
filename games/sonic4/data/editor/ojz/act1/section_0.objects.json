@@ -4,5 +4,23 @@
     "y": 210,
     "typeId": "solid",
     "subtype": 0
+  },
+  {
+    "x": 300,
+    "y": 584,
+    "typeId": "spring",
+    "subtype": 0
+  },
+  {
+    "x": 700,
+    "y": 632,
+    "typeId": "spring",
+    "subtype": 0
+  },
+  {
+    "x": 1080,
+    "y": 840,
+    "typeId": "spring",
+    "subtype": 0
   }
 ]

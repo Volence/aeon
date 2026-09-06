@@ -151,6 +151,11 @@ pub implement Game {
     // spawner (games/sonic4/objects/ring_sparkle.emp).
     hook ring_collected = RingSparkle_Spawn
 
+    // The spring launch: Touch_Spring has already seated the player and written
+    // the impulse; this puts him in the air and restarts the spring's animation
+    // (games/sonic4/objects/test_solid.emp).
+    hook spring_launched = Spring_Launched
+
     // The sound test-harness hooks — bound only in the hotkeys build shape; in
     // every canonical shape both stay `= empty` (zero bytes, as today). The
     // bound procs live in games.sonic4.game_debug.

@@ -26538,3 +26538,113 @@ reading would protect exactly the trees that need no protection.
 **PID AND "CWD INSIDE THE TREE" ARE EXCLUDED OUTRIGHT.** An agent between tool calls has no process
 anywhere near its worktree, so a zero there is an absence with no control behind it - the same
 shape as every null instrument booked tonight.
+
+## Spring parcel (2026-09-05) — three items the spring surfaced and did not close
+
+The vertical red spring landed on branch `spring-object`
+(engine/objects/collision.emp `Touch_Spring` + the shared `solid_face_response`
+template, `Game.spring_launched`, and the object in
+games/sonic4/objects/test_solid.emp). Verified by `tools/spring_launch_witness.py`.
+Three things it could not close, each with the number that decides it.
+
+### SP-1 — side solidity does not kill the player's ground speed (ENGINE/GAME SEAM)
+
+**This is the finding, not the spring.** `Touch_Solid`'s side arm — and therefore the
+spring's, since they are the same spliced template — pushes the player out and does
+`clr.w x_vel(a2)`. But a GROUNDED player is not driven by `x_vel`; he is driven by
+`PlayerV.ground_speed`, which the ground state re-derives `x_vel` from every tick. So
+the push holds his POSITION and nothing touches his inertia.
+
+**Measured** (`tools/spring_launch_witness.py`, s4.debug.bin): holding RIGHT into a
+spring, the player rests **10px** from its centre against a **17px** contact face —
+6px inside it — because he re-rams at top speed every frame and is pushed back out
+every frame, a stable fixed point. Release the button and friction takes **140
+frames** to reach zero, after which he settles at exactly **16px**, the face less the
+1px overlap `subq.w #1, d0` leaves on purpose. He is genuinely solid (he never
+crosses the centre; the red-first mutation that deletes the push has him walk clean
+through), but he overlaps the object by up to one top-speed step while pushing, and
+he would resume full speed the instant the object were removed.
+
+S3K's `SolidObject` zeroes inertia at this point. **This engine cannot**, for the same
+reason the launch leaves through a hook: `ground_speed` is a game-side overlay field
+in `PlayerV` and `engine/objects/collision.emp` may not name it. The fix is a second
+contract member in the shape of `spring_launched` — a `Game.solid_pushed` hook, or a
+generalisation of the existing one — and it wants the owner's call on whether one
+hook covers both or the solid family gets its own. NOT a spring bug; every solid in
+the game has it, and nothing had ever driven a side contact before this witness.
+
+### SP-2 — the spring has no sound, and adding sfx $B1 is a paired lane
+
+S3K plays `sfx_Spring` = `$B1` (sonic3k.constants.asm:1304, fired at
+sonic3k.asm:47768). It is not in this game's SFX bank and cannot be added cheaply:
+
+* `tools/sfx_transcode.py` HARD-REFUSES the `smpsModOff` macro, which
+  `skdisasm Sound/SFX/B1 - Spring.asm` uses and which none of the 15 shipped SFX use.
+  Its live dispatch (`_process_lines_v2`) has no arm for it and raises
+  `unknown SMPS macro`. The plausible fix is aliasing it to the `ModSet(0,0,0,0)`
+  "mod off" event the tool already models, but that is a judgment call of exactly the
+  kind the `$42/$4A/$4C/$7E` precedent made explicitly and documented — not a
+  mechanical edit.
+* Four hand-maintained places must agree (the precedent's own regression test names
+  them): `config/sound_ids.emp` (SFXID_* + SFXPRI_*), `tools/sfx_transcode.py`
+  (`_CORE_SFX_IDS` / `_CORE_SFX_FILENAMES` / `_SFX_PRIORITY`),
+  `data/sound/sfx/sfx_bank.emp` (one `table` row + a `SFX_WIN_B1` equ), and
+  `data/sound/sfx_blob_win_tab.emp` (one hand-placed cell splitting the `$AC..$B5`
+  unused run at index 5).
+* Any byte added to the SFX bank blob moves the ROM, so it drags in sigil's
+  repin/refreeze ritual — the paired precedent (`sigil 174f4300`) changed 284 lines
+  of `pins.rs` plus four golden ROMs.
+
+SFX **are** audible in both canonical shapes (`SOUND_DRIVER_ENABLED` defaults 1 for
+sonic4, build.sh:203); it is only `Sound_PlayMusic` that is confined to `config-a`.
+So this is worth doing — just not inside a spring parcel. When it lands the spring
+needs **no code change**: an `AF_SOUND, SFXID_SPRING` pair goes in front of the fire
+script's first frame byte, and the animator plays it once per launch because the
+launch is what restarts the script.
+
+### SP-3 — the spring has no art of its own, and there is nowhere to put any
+
+The spring draws from the resident test-object block at `VRAM_TEST_OBJ`, the same 8
+tiles `ObjDef_Solid` / `ObjDef_Static` / `ObjDef_PathSwap` already use, so it costs
+**zero** new VRAM. That is a stated substitution, not a silent one:
+
+* S3K's vertical spring needs **12 tiles** — the union of `Map - Spring.asm` frames
+  0/1/2 (tiles 0-3, 8-9 and $A-$F of its 16-tile block at art base `$4A4`). The full
+  donor block is 16 tiles, which is also the gap between the vertical spring's art
+  base `$4A4` and the horizontal one's `$4B4`.
+* `games/sonic4/vram.toml` has **one** free tile in the whole 2048-tile map: the
+  `[[free]]` run at base 959, 1 tile, described in the file as "the map's LAST free
+  run".
+
+So the donor art does not fit, by 11 tiles. The three ways it could:
+
+| option | cost | why it is not taken here |
+|---|---|---|
+| lower `fg_art_pool` 768 -> 704 | 64 tiles freed at 704..767, contiguous and below `spare_nametable` | VRAM-only (no RAM moves), and 704 is above the stated 640 floor — but it spends a whole 64-tile page on a 12-tile object and is an ENGINE decision with streaming consequences. Owner's call. |
+| carve `spare_nametable` (768, 128) | 16 tiles | Destroys the reservation's point: it is the only $2000-aligned run left and 128 tiles is exactly a 64x32 plane. Taking any of it makes it unusable as a plane base. |
+| widen `test_obj` (992, 8) | 0 | Boxed in by `character_window` below and `ring_placeholder` above. |
+
+Also open, and cheap: the spring's three mapping frames are two colour squares at
+three offsets. Real art changes **three lines** in `Map_Spring` plus a `vram.toml`
+region and a regenerate.
+
+**And raise `width` to 32 in the same commit.** Our spring's box is 16x16 to match its
+16x16 placeholder square. S3K's vertical spring is **32 px wide** and 16 tall — its
+`width_pixels` is a HALF-width (`$10` at sonic3k.asm:47507, confirmed by
+`Obj_Spring_Up`'s `move.w #$1B, d1` at :47660 = 16 + Sonic's own 11), and its top plate
+is 4 tiles across. This engine's `width_pixels` is the FULL width, so the same spring
+wants `width: 32`. The box should follow the art rather than the reference's field name,
+which is why it is not raised now — a 32px hitbox on a 16px square is a spring that stops
+the player 8px short of touching it.
+
+### SP-4 — the spring lives in test_solid.emp and wants its own module
+
+A new `.emp` module is a new SECTION, and an undeclared section head makes sigil's
+`crates/sigil-harness/src/section_align.rs` `required_for()` return `None`, which the
+caller turns into a build REFUSAL naming the section. So `games/sonic4/objects/spring.emp`
+needs a one-line paired sigil landing — and a rebuild of the shared `sigil` release
+binary that every other lane in the suite is currently linking against. Not worth it
+for a sidestep; the spring rides in the nearest already-declared section
+(`test_solid`), whose head label `TestSolid_Init` must therefore stay that file's
+first emitting item. Split it when something else is already taking the sigil
+pairing.
