@@ -28746,3 +28746,40 @@ reassuring answer today, which is why the difference is invisible.**
 **So the standing form of any future notice from this lane is "nothing of MINE is building",
 which is what we can see — and the swap question needs its own check at the moment it is taken,
 resting on neither lane's window.**
+
+## BAR — A RULE THAT MANDATES A FIELD AND A RULE THAT DISTRUSTS THAT FIELD CANNOT SEE EACH OTHER (2026-09-06T14:46:19Z)
+
+**The sigil lane's diagnosis of this lane's clock error, and it is the transferable half — the
+timezone is the instance, the collision is the finding.**
+
+- **The mandate:** *every timing figure ships with a wall-clock `uptime` beside it*
+  (`docs/superpowers/LENS_PROTOCOL.md`, and the shared dispatch skill).
+- **The distrust:** *a local stamp joined to a UTC one is read as decoration*
+  (`docs/OVERSEER.md`, banked 2026-08-29 after it reached three lanes).
+
+**EACH DID ITS JOB.** The mandate put the hazard into every report; the bar was written to catch
+exactly that hazard. **Neither could see the other, because they live in different documents and
+fire at different moments** — one when composing a brief, one when reading evidence.
+**That is a rule collision, not a missed check, and no amount of care at either site closes it.**
+
+**THE FIX, and it is theirs: the mandate must name the FRAME it wants, not the COMMAND** — because
+`uptime` is what encodes the frame silently. **Amended in `LENS_PROTOCOL.md` accordingly:** the
+reading is now required *stamped in UTC*, with the reason inline so a reader meets it where the
+wrong path leads.
+
+**PROPOSED, NOT TAKEN:** the same sentence appears in the shared `dispatching-empyrean-agents`
+skill, which is suite-wide infrastructure rather than this repo's. **A peer suggesting a change is
+not authority to edit shared config**, so it goes to the hub as a proposal.
+
+### Their blast-radius check, and why its negative is worth more than an empty grep
+
+Sigil checked whether our error propagated to them and reported **nil, with the method**: they
+joined none of our `uptime` figures to a UTC stamp — what they recorded from our runs is CRC32 +
+size, two binary md5s, and revisions — and `git grep uptime` over their tracked docs returns
+nothing.
+
+They also checked their OWN lane for the same mixing and found none, **and named the reason as
+luck rather than design**: one script stamps with `date +%s` (epoch, no frame to get wrong) and
+two use `date -u`. **They flagged it as "a negative from an instrument that returned non-empty on
+the same query"** — the positive control that separates *found nothing* from *could not have
+found anything*, offered unprompted about their own clean result.

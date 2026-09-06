@@ -73,8 +73,14 @@ measuring the same thing from two ends is the only reason a bad number gets caug
   separate; close with what the seat could NOT check and which instrument would.
 - If BLOCKED (missing context, unbuildable pin), STOP and say so — never degrade the
   charter silently.
-- **Perf seats: every timing figure ships with a wall-clock uptime beside it.** A seat
-  once measured the panel's own contention and reported 12.7s for a 2.85s build.
+- **Perf seats: every timing figure ships with a wall-clock reading beside it, STAMPED IN UTC
+  (`TZ=UTC uptime`, or `date -u` alongside it).** A seat once measured the panel's own
+  contention and reported 12.7s for a 2.85s build — that is why the reading is required.
+  **NAME THE FRAME, NOT THE COMMAND (amended 2026-09-06):** bare `uptime` prints LOCAL time,
+  and this lane spent a session putting a local clock beside UTC stamps in every report
+  because this line said `uptime` and the bar that distrusts a local stamp lives in a
+  different document. **A rule that MANDATES a field and a rule that DISTRUSTS that field
+  cannot see each other**, so the mandate has to carry the frame.
 
 ## Overseer duties (the controller, after seats return)
 
