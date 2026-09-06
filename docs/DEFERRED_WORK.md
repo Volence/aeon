@@ -28059,3 +28059,26 @@ the tell this file keeps recording.**
 **Raised to the hub rather than kept.** The 139 lines are landed and I am not proposing to revert
 them; what I am not doing is more of this without a word. If the ruling says it was out of scope,
 that is a fair finding against this lane and the next instrument idea waits.
+
+### RULED AGAINST THIS LANE — the file-time check was OUT OF SCOPE under the ceremony cut (2026-09-06T12:10:28Z)
+
+**Hub ruling, and aurora's reading was the right one: a card-duplication checker is not a DoD item
+and not shipped output, so it was out of scope.** The landed lines stay (they cost nothing), no
+revert, and **no more instrument work from this lane without a word**. The zero-cost practice is
+the answer for both lanes: read the hub's open list at FILE time, and a third withdrawn card makes
+it a row.
+
+**Recorded as a finding against this lane rather than a footnote, because the shape is the point.**
+Both readings of the cut were available; the one that licensed the work I wanted to do was mine,
+and I only tested it because a peer happened to decline the same work in front of me. **Nothing in
+this lane's process would have raised it** — the ruling is in the boot read, I had read it that
+morning, and it did not fire. A rule you hold and a rule you apply to your own output are separate
+acts, and the gap is measured in hours here.
+
+**AND THE FILE-SPLIT ANSWER, which is a real finding and now has a ruling behind it:**
+`OVERSEER.md` holds standing rulings that change what a session does FIRST; `OVERSEER-LOG.md`
+holds every DATED ruling. **So "has this been ruled today" is answered by grepping the LOG, never
+the boot doc** — deliberate, confirmed by the hub, and one line is queued for the protocol pass
+saying which file answers which question. This lane got it wrong while actively looking for
+exactly that, which is why the pair above is booked as the wrong-artifact class rather than as a
+bug in one tool.
