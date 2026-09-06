@@ -28985,3 +28985,74 @@ costs nothing, and the panel already achieves the thing he actually wants (not h
 **CAVEAT worth stating before anyone automates it: writing these pointers mid-frame races the
 build.** The engine reads each once per frame, so a write landing between the read and the buffer
 fill yields one torn frame. Harmless for a human turning a knob; a hazard for a scripted sweep.
+
+---
+
+# LENS SWEEP 2026-09-06 — booked rows (packet `9cfebb72`)
+
+**Packet: `docs/superpowers/notes/2026-09-06-aeon-lens-sweep.md`, review pin aeon `61f22403`.**
+14 seats, ~75 verified findings, 7 labelled suspicions, 2 design notes, 8 controller-run TAGs.
+**No fixes were landed during the sweep.** Rows below are the actionable residue, ranked.
+Booked 2026-09-06T18:38:56Z.
+
+**READ THIS FIRST — the sweep's dominant pattern, because four seats reached it independently and
+two controller runs proved it end to end:** several guards in this tree pin ONE member of a family
+while its siblings go unpinned, **and the guard's message names an INCOMPLETE fix.** A reader
+follows the tree's own instruction, the build goes green, and they stop. Silence would have left
+them looking. Any fix below that adds or edits a guard must state what it does NOT cover.
+
+## Tier 1 — live, unguarded, cheap
+
+| id | row | evidence |
+|---|---|---|
+| LS-1 | **The effects-gate nightly has not completed since 2026-08-28** — 9 consecutive "COULD NOT RUN". `build.sh` runs the pytest lane at :613 and the ROM build at :786, so a listing-reading gate blocks the build that produces the listing. Self-perpetuating. **Fix is the ORDERING plus three exit states (OK / gate-failed / could-not-run), crediting sigil's lane design — not a staleness check.** | packet §"the hub's CI question"; reproduced live in the main tree after a merge |
+| LS-2 | **`clobbers()` OVER-declaration is unchecked, and Z80 UNDER-declaration is invisible to our build.** Three of four cells unguarded. `CODING_CONVENTIONS.md:492`'s "compiler-verified" overstates it. Two live sites where the attribute is wider than the body: `collision.emp:110-114` (`TouchResponse`, whose in-body comment names a contract that does not exist) and `entity_window.emp:1185`. | 3 builds + sigil gate + control |
+| LS-3 | **Sonic has no VRAM window ensure**, while Tails and Knuckles both do. Peak 29 of 32; a re-exported sheet DMAs past 991 into `test_obj` silently. **Zero-byte fix, and it should precede any window shrink.** | C5-F6, peaks parsed from the blobs |
+| LS-4 | **Two blob-derived VRAM ceilings name the wrong neighbour** (`tails_data.emp:100`, `player_instashield.emp:469`), 3 tiles of permitted overlap each. **Measured LATENT.** The real fix is a generator change: the correct names are not in those modules' import closure, which is WHY the wrong ones were used. | C2a-H1a/b + controller TAG-1 |
+| LS-5 | **`Parallax_StartTransition` publishes its config triple in the order that makes it observably inert** — clear `Frames` before `Target` at both sites and the window closes. One frame of frozen parallax per cancelled transition. **Free ordering fix.** | C3b-V1, both orders verified |
+| LS-6 | **The entity spawn gates run a 9-slot linear scan before the single `btst`**, nine lines apart, both branching to `.gated`. `ENGINE_ARCHITECTURE.md:2964` already describes the other order. 6-9% of a frame shipped, 28-42% at the density ARCH designs for. **Candidate cause for `DEFERRED_WORK:7460`, open since 2026-06-11 with no cause named.** | C4a-1, order verified |
+| LS-7 | **5,154 B of byte-identical duplicate PCM** (`kick`/`s3k_kick`, `snare`/`s3k_snare`, `cmp`-verified) in a no-straddle bank at 94.3%. Dedupe takes the free tail from 1,860 B — which admits ONE of six S3K drum sizes — to 7,014 B, which admits all six. | C5-F1 |
+
+## Tier 2 — real, needs a decision or a design
+
+| id | row |
+|---|---|
+| LS-8 | **The block-geometry masks and the tile-cache stride literals**: 17 and 4 unpinned sites respectively. Both proven to build GREEN after doing exactly what the firing guard's message instructs. |
+| LS-9 | **Map↔DPLC frame-count binding exists for ONE asset** (insta-shield). Sonic, Tails, Knuckles, dust, particle, spring, appendage have none; `animate.emp` accepts any frame byte 0..$F6 with no upper bound. |
+| LS-10 | **System (8) and Effect (16) fixed pools are swept 3× per frame while ~90% empty** — 2,780 cycles/frame (2.2%). The Dynamic pool already walks a live list. The 8 System slots are provably dead in release and are the cheap half. |
+| LS-11 | **`Sound_PlayMusic`'s `.await_slot` bus-hold spin is unmasked**; an IRQ6 cancels the latch and nothing re-issues the request — infinite spin, and the DEBUG watchdog counts the outer loop. **Not reachable in either canonical shape**; lives in the only profile that can play music. |
+| LS-12 | **The banked-ROM/DMA ruling (2026-08-09) is applied to 1 of 3 Timer-A tick paths.** `Run_SeqFrame_OnSongBank` and `Snd_PollMailbox_Banked` have no `SND_CTRL_DMA_ACTIVE` check; the timer poll sits upstream of `.dma_check` so the tick structurally cannot see the flag. |
+| LS-13 | **`Read_Controllers` holds the Z80 bus ~130 µs every frame** (~2.4 DAC sample periods) in every sound-ON shape, and `vblank.emp` asserts eight lines away that its own byte write is "the ONLY 68k bus hold in the sound build". One of the two files is wrong for the next reader either way. |
+| LS-14 | **`s4lint` lints 8 non-comment lines with zero instructions** under 412 test functions (24% of the pytest corpus), and the one test asserting "the subject has not collapsed to one file" skips on the deleted `main.asm`. **Decide: retarget it at the `.emp` corpus, or retire it and its 412 tests.** |
+| LS-15 | **Eight test entry points no runner can reach** (~216 assertions), plus **seven red-first proof harnesses nothing invokes** — two of which `build.sh`'s own comments describe as proving their gate red. `collision_pipeline.py` (73 asserts) appears in no script at all. |
+| LS-16 | **The standing red-first net covers 49 of 1,346 `ensure` sites (3.6%)**, concentrated in the two files that are already the most guarded. Zero poison fixtures contain `extern(` — 144 guards with no negative fixture (**not demonstrated vacuous; both pin directions are on record as proven red**). |
+| LS-17 | **`engine/compression/` has 0 ensures and 3 DEBUG-only asserts**, `zx0_resume.emp` has neither, and `vblank.emp`/`boot.emp` carry no guard of either kind. In `s4.bin` a malformed S4LZ stream walks out of the dictionary with no net at any layer. **Owner call: is a release-shape net wanted here?** |
+| LS-18 | **Carve `games/sonic4/test/fixtures/sigil_objroutine_probe.emp`** — sigil-owned, resolvable from `types.emp` + `sst.emp` alone, one misspelled ObjRoutine target plus one resolving sibling, header saying sigil's nightly reads it and growing it breaks that gate. Sigil's probe currently compiles our live `test_solid.emp`, which grew 37→715 lines with the spring. **Ruled by the hub; sigil named the shape; the 37-line version at `4406ac92` is the obvious cut.** |
+
+## Tier 3 — prose that decayed, zero-byte fixes
+
+| id | row |
+|---|---|
+| LS-19 | **Two derivations justify deleting a `$8F02` re-assert by claiming `Enqueue_Dirty_Buffers` has "no VDP access on either path".** It contains `.ship_reg`, a `dbf` loop writing `VDP_CTRL`, whose own comment says so in capitals. The conclusion survives via a `raster_dsl` refusal **that advertises itself as revocable**. |
+| LS-20 | `structs.emp:2` says `Sec` is 66 bytes; it is 34. `preset_lab_witness.py:61` repeats the stale 66 while its own code says 34. **No wrong stride executes anywhere** — the executable readers are all correct. |
+| LS-21 | `Parallax_State` stated 556 B, emits **820 B** (+47.5%); per-band term is 44 not 28. DEBUG divergence stated 10,280 B, is **11,930 B** — the 1,650 B gap is 33% of the shape's remaining headroom. |
+| LS-22 | `Sound_Dbg_Mirror` described as 5 slots / 174 B; the code emits 3 slots / 164 B, and it is an **external-consumer surface**, so a reader decoding by the description reads the wrong offsets. |
+| LS-23 | `PlayerV` "spends 26" of 30; it spends 27. `animate.emp:81/85`'s flip-mask comment is arithmetically wrong **in the direction a reader would follow when converting the magic to the named form**. |
+| LS-24 | ~90 comments cite `.asm` authorities that do not exist; `dma_queue.emp:26` says "the byte gates are the guard" naming a deleted file and a gate no tool references. |
+| LS-25 | `scene_dsl.emp` ×5 cites a file deleted 2026-08-18, all exactly 31 lines stale; every substantive claim is TRUE, only the coordinates are wrong. `scene_equiv_proof.emp` cites the same dead file 20+ times and is exact, **because it says where to recover it**. |
+| LS-26 | `VSync_Wait` still asserts a lemma `VBlank_Handler`'s own header retracts 370 lines away — and the retracted one is what a reader hits first. |
+
+## Suspicions carried forward, NOT booked as defects
+
+**LS-S1 — the HBlank window calibration folds in interrupt-entry latency, which depends on what the
+MAIN LOOP is executing, and `hblank_window_sweep.py` varies the spin word while holding that term
+fixed.** Its "spread 0" evidence is what a pinned phase looks like. The dense tier has no spin at all
+and fires 96×/frame. **The falsifier is written so that a REFUTATION is the more useful result** —
+see packet C3a-S1. Do not let a confirming run ride on the mechanism story.
+
+**LS-S2 — `Effects_Screen_L`'s tear is blocked only by shipped content.** Both shipped programs'
+bands are disjoint with a ≥2-line margin, so `gap ≥ 1` however the read tears. **Nothing enforces
+that**; two overlapping bands are authorable today and would turn it into a whole-frame raster
+dropout reproducing once in thousands of frames. The right fix is a comptime `ensure` on band
+disjointness, not a runtime test.
+
