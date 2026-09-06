@@ -2381,6 +2381,30 @@ measures and what actually shrank.
 | DEBUG (binding) | 21,888 B | 18,428 B | 5,504 B | **2,044 B** |
 | release | 24,128 B | 20,668 B | 7,744 B | 4,284 B |
 
+**⚠ CORRECTED 2026-09-06 — EVERY "spendable" CELL IN THE TABLE ABOVE IS WRONG, AND THE ERROR IS
+IN THE FLATTERING DIRECTION.** The table subtracts a 16,384 B floor. `tools/bganim_room.py` reads
+**`DATA_GROWTH_RESERVE = 0xC000` (49,152 B)** with **`DATA_GROWTH_GRACE = 0x8000` (32,768 B)**
+alongside it, so the floor is three times what the table assumed, and the room figures moved too.
+The cited coordinate `bganim_room.py:398` no longer holds a literal, and the constants have since
+moved again (they were at :169-170 before the B7 parcel, :226-227 after) — **which is the argument
+for citing the SYMBOL and never the line.**
+
+**Re-measured 2026-09-06 on aeon `fc03db5a`, both canonical shapes, quoted with their referent:**
+
+| shape | packed end | room free | growth before the gate re-fires |
+|---|---|---|---|
+| `s4.lst` (plain) | `0x8BBE4` | 115,740 B (+ 8,376 B the section holds = 124,116 B) | 66,588 B |
+| `s4.debug.lst` | `0x8C60E` | — (binds exactly) | 63,986 B |
+
+`dac_banks` is declared at `0xA8000` and `sound_bank` at `0xB8000`; the debug shape is the one
+that binds. **The binding limit is not room at all — it is the ruled authoring ceiling
+(`BGANIM_SECTION_CEILING = 20480 B`), sitting 103,636 B inside the ROM room on the plain shape.**
+
+**The original text is kept below** because the *reasoning* was sound and only its inputs decayed —
+and because this is the SECOND entry found quoting a stale reserve, the first being the project
+row that read `0x4000`. A figure recorded without the thing it was measured against decays
+silently: the number never changes while the world does.
+
 `DATA_GROWTH_RESERVE` (16,384 B) is confirmed a **separate floor, not inside** the raw room
 figure (`bganim_room.py:398` compares room against it). So the fix consumed **62.9% of all
 remaining spendable data room** in the binding shape — the card said 62.5% off a room of 21,920 B;
@@ -24463,7 +24487,46 @@ instructed.
 not check base-register alignment. Its negative control (a base illegal for every plane and window
 register) reports `sonic4 OK`, exit 0 today.
 
+## THE BAKE NEVER READS A CROSSOVER MARK ON A CELL'S BOTTOM SUB-TILE ROW (aurora's finding, 2026-09-06)
+
+**Not ours to have found, and it is a fact about our tool.** `tools/ojz_strip_gen.py`'s
+`apply_editor_collision_overlay` samples one sub-tile per 16 px collision cell:
+
+```python
+o = (cr * 2) * W + col           # top tile row of the 16px cell
+```
+
+Verified firsthand here rather than taken from the relay: that expression is the **only** such
+sampling in the file, and there is no `(cr * 2 + 1)` anywhere. **A crossover mark authored alone
+on a cell's bottom sub-tile row is never read.**
+
+**Severity today is LOW and the reason is a property of the WRITER, not of our reader:** aurora's
+own writers fill all four sub-tiles, so no authored mark currently lands only on the bottom row.
+That is exactly the kind of protection that holds until the day a different writer appears —
+[[a habit that happens to cover a defect is indistinguishable from a design that prevents it]].
+
+**⚠ AND WE NOW OWE AURORA A MESSAGE IF WE CHANGE THIS.** Their loop audit (aurora master
+`4fbe40fb`, LOOPS-P) paints a sentence reading *"which aeon's bake never reads"*, cited to aeon
+`290f4aa8`, in a **test comment**. So a claim about our code lives in their tree with **nothing on
+either side able to falsify it**: if we start sampling both sub-tile rows, their sentence becomes
+false and no gate anywhere goes red. This is the suite's own *a claim about another lane's tree
+can never meet its contradiction* arriving on us as the DESCRIBED party rather than the author —
+and a stale ruling inside a test comment outlives every doc that recorded it, because nobody
+re-reads a comment to check whether it still holds.
+
+**So: if this sampling changes, tell the aurora lane in the same parcel.** Recorded here rather
+than only in correspondence, because a cross-lane obligation that lives in mail does not survive a
+session boundary.
+
 ## `bg_region` OCCUPANCY IS 320/448 — 9d WAS NEVER VRAM-BLOCKED (measured 2026-09-04, `parcel/bg-art-free-tiles`)
+
+**⚠ CORRECTED 2026-09-06 — "HEADROOM 128" IS SPENT, AND ANYTHING PRICED AGAINST IT IS PRICED
+AGAINST TILES THAT ARE GONE.** `BG_TILE_CAPACITY` is now **400**, not 448
+(`engine/system/constants.emp`, the `pub const`), and `games/sonic4/vram.toml` records the move in
+its own comment: `tiles = 400  # 448 -> 400: the top 48 tiles became the waterline_strips region`,
+with `band_reserve = 80`, not 128. So the 48 tiles this entry reports as free **were subsequently
+spent on the waterline strips**. The blob is still 320 tiles, so the occupancy half of this entry
+stands; it is the HEADROOM half that is dead. Real headroom today is **80**.
 
 **Dispatched to free 48 tiles by simplifying the test background. No art changed: they were already
 free.** From the baked artifact: `bg_tiles.bin` = 10,242 B = 2-byte header + **320 tiles** against
