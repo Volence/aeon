@@ -1,8 +1,8 @@
 {
-  "focus": "Fixing the side-collision gap his spring found; then his sprite jumble",
+  "focus": "Side collision fixed; chasing his sprite jumble at the tilt-block crossings",
   "inFlight": [
     {
-      "what": "SP-1: kill ground speed on a side contact",
+      "what": "sprite jumble: the tilt-block crossings",
       "where": "agent worktree",
       "agent": true
     }
@@ -15,13 +15,6 @@
   ],
   "nextBoundary": "here: nothing in flight, nothing half-applied",
   "queue": [
-    {
-      "id": "SP-1",
-      "title": "Side solidity holds position but never kills running speed -- a defect in every solid, found by his spring",
-      "state": "doing",
-      "size": "M",
-      "blockedBy": null
-    },
     {
       "id": "FLOOR-FAN",
       "title": "Floor: mechanism reopened -- he watched planks change ANGLE, which painted art cannot do",
@@ -48,7 +41,7 @@
     {
       "id": "F7-EMIT",
       "title": "Sprite jumble: starvation ruled out, the block CROSSINGS are the remaining arm",
-      "state": "next",
+      "state": "doing",
       "size": "M",
       "blockedBy": null,
       "project": "EFFECTS-W1"
@@ -92,5 +85,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-06T01:43:54Z"
+  "updatedAt": "2026-09-06T02:58:25Z"
 }
