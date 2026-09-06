@@ -22,6 +22,8 @@ import sys
 import tempfile
 import unittest
 
+import pytest
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import bganim_room
@@ -2276,10 +2278,17 @@ class TestBgAnimRoomOverCommittedFixture(unittest.TestCase):
             bganim_room.declared_addresses(empty)
         self.assertIn("ZERO declared addresses", str(cm.exception))
 
+    @pytest.mark.needs_build("s4.lst")
     def test_the_live_tree_growth_path_is_sound_and_its_pads_are_real(self):
         """The live listing, not a hermetic one. Skipped when no build is present —
         this class is otherwise hermetic on purpose — but when s4.lst is here it is
-        the only place the REAL six `align 2` pads are measured."""
+        the only place the REAL six `align 2` pads are measured.
+
+        MARKED needs_build (LS-1): it reads the tree's own `s4.lst`, so build.sh's
+        PRE-build lane deselects it and the POST-sigil lane runs it against the
+        listing that invocation emitted. Without the marker its skip-when-absent is
+        invisible, and its FAIL-when-stale lands in the lane that runs before the
+        build that would refresh it. Absent listing => DEFERRED, never silent."""
         import bganim_room
         lst = os.path.join(self.AEON, "s4.lst")
         if not os.path.isfile(lst):

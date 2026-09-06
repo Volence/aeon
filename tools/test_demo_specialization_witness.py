@@ -18,6 +18,8 @@ import re
 import tempfile
 import unittest
 
+import pytest
+
 import demo_specialization_witness as W
 from scene_spans import (AEON, capability_bits, expected_spans, game_caps,
                          lst_proc_sizes, lst_spans, span_capability,
@@ -222,6 +224,7 @@ class TestVmaPhasedSymbols(unittest.TestCase):
         self.assertNotIn("Parallax_Step5_Vscroll", names)
 
 
+@pytest.mark.needs_build("s4.debug.lst")
 @unittest.skipUnless(
     os.path.isfile(os.path.join(AEON, "s4.debug.lst")),
     "s4.debug.lst not built — this is the POST-BUILD half (build with "
@@ -233,6 +236,12 @@ class TestAgainstARealListing(unittest.TestCase):
     demo_specialization_witness.py carries the committed numbers — this test
     only proves the collision signature is gone, which stays true as the ROM
     grows).
+
+    MARKED needs_build (LS-1). The class name says "a real listing" and the
+    skipUnless above is evaluated AT IMPORT, so in build.sh's pre-build lane it
+    was decided by a PREVIOUS build's artifact — a green that graded the past, or
+    a skip nobody could see. The marker moves the whole class to the post-sigil
+    lane; the skipUnless stays, and now reads as DEFERRED rather than as a pass.
     """
 
     def test_raster_hint_no_longer_equals_the_gap_to_sfxblobwintab(self):
