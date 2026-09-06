@@ -123,11 +123,73 @@ met with room, right up until it is not.
 
 ## Status on this side
 
-Booked, not started. `B7` (`tools/bganim_room.py`'s unasserted terminus, sigil's separate item
-from the third file) is dispatched and is a sibling of the dedup-margin item above. The five here
-are bug tier under the 2026-08-30 ordering, so they sit ahead of feature items, and each one is
-**re-derived against the current tree before it is priced** — sigil's measurements are a week
-old by the standards of a tree this active, and they said so themselves.
+> **WORKED 2026-09-06 on `parcel/s1s3s9`.** Every row below was **re-derived against this tree
+> before it was priced**, as the caveat above demanded, and two of the five did not come back
+> the way they went out. Verdicts:
+>
+> | row | verdict | where |
+> |---|---|---|
+> | **S9** — pointer identity by name | **REPRODUCES, and worse than booked. FIXED.** | `tools/effects_gen.py` |
+> | **dedup margin** | **REPRODUCES. Now computed on every build.** | `tools/dplc_straddle.py` |
+> | **Knuckles' `2 × 5 = 10`** | **DOES NOT REPRODUCE — the ceiling is 6, headroom 4.** | same commit |
+> | **S3** — four `routine_extent` copies | **REPRODUCES as a class, LATENT as an instance. FIXED.** | the four gates |
+> | **S1** — `s4lint.py`'s object model | **REPRODUCES exactly. DECLINED as out of scope — needs an owner ruling.** | below |
+>
+> **S9 — reproduces, and the booking understated it.** The dangerous second spelling for one
+> address is not an exotic `equ`: it is **this generator's own published accessor**.
+> `<stem>_sec_scene(sec: N)` is emitted as a `pub comptime fn -> Label` returning
+> `EditorSceneBinding_<CAP>_SecN`, and the sibling raster chooser is already written in exactly
+> that form in the shipped effects library — `raster: ojz_act1_sec_raster(sec: 5, hand:
+> Raster_Program_None)`. An author writing the parallax channel the way the file next to it
+> writes the raster channel defeated the refusal silently. The argument is now captured whole
+> and classified; what cannot be decided is refused by name rather than guessed. The reels arm
+> is live today (one scene authors `reels`) and both shipped `parallax:` arguments classify as
+> plain symbols, so the new refusal trips no correct run; the bake is byte-identical.
+>
+> **The dedup margin — reproduces, and the clock is independently confirmed.** Sigil measured
+> the growth-direction margin at 32,990 B on 2026-09-05; this tree measures **32,467 B** a day
+> later, 523 B of decay against their stated ~440 B/day. Two things their note did not carry:
+> the **shrink** direction is the tighter one (**8,815 B**), and the tightest margin is already
+> **under the tree's own `DATA_GROWTH_RESERVE` (49,152 B)** — the straddle wall arrives before
+> the growth the bank-placement rule holds room for. Emitted as a warning, not a failure, since
+> that state is true of the shipped tree today.
+>
+> **Knuckles' ceiling — does not reproduce.** `2 × peak entries` is a valid upper *bound* on the
+> ceiling, not the ceiling. The ceiling is `entries + how many of that frame's entries can
+> straddle SIMULTANEOUSLY`, and every Knuckles frame names disjoint tile runs, so at most one
+> entry can contain a boundary. **Measured ceiling 6, headroom 4** — not 10, not equal to the
+> bar. Control, because a refutation of a peer's number needs one: the same function
+> independently reproduces sigil's separately measured "Sonic's `$1E` splits 7 ways", and a
+> brute-force sweep of a whole `0x20000` period at byte granularity matched the analytic ceiling
+> for **all four subjects exactly**. What survives of the row is the half that mattered — the
+> constraint was unstated, and it is now printed on every build with a `CEILING EQUALS THE BAR`
+> tag that fires only at zero headroom. The correct constraint is not "≤ 5 entries per frame";
+> it is `entries + simultaneous overlap ≤ 10`, so sigil's conclusion pointed at the wrong
+> variable.
+>
+> **S3 — reproduces as a class, latent as an instance, and both halves are measured.** All six
+> routines the four gates bound compute the same extent with and without the filter today, so
+> nothing is mis-measured. That is the tree being *arranged* so the assumption holds, which is a
+> different thing from it being checked — and the failure is not uniformly loud: an executing
+> arm reports a false red, but a scanning arm just finds fewer instructions
+> (`waterline_art_gate.proc_span`'s own docstring records arm 3 reporting "zero instances of
+> instructions that are plainly there"). The correction is **propagated by importing the one
+> derivation**, not restated four times. Planting a real phased name one byte inside each
+> routine truncated all six to 1 B before and none after.
+>
+> **S1 — DECLINED, and this is the row that wants a ruling rather than a fix.** It reproduces
+> exactly, with one number sharper than the booking's: the table says `SST_sst_custom = $32`;
+> `engine/objects/sst.emp` says **`sst_custom: [u8; 32] @ $30`**. The blast radius re-measures
+> as sigil found it — `build.sh` lints `games/${GAME}/game_root.asm`, the tree has three tracked
+> `.asm` files, and `SST_` appears **0 times** in all three, so E009 fires on nothing. Under the
+> 2026-09-06 hub ruling (tooling work only where it blocks a deliverable or ships wrong output)
+> this ships nothing wrong and blocks nothing. It is declined here, not dropped: see
+> `docs/DEFERRED_WORK.md`, "S1 — s4lint's object-record model", for the ruling it needs and the
+> green test that is locking in the false positive.
+
+`B7` (`tools/bganim_room.py`'s unasserted terminus, sigil's separate item from the third file)
+is dispatched and is a sibling of the dedup-margin item above. The five here were bug tier under
+the 2026-08-30 ordering, so they sat ahead of feature items.
 
 ---
 

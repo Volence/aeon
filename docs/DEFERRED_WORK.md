@@ -661,6 +661,53 @@ removed from the listing — the unlabelled case the `.lst` cannot see — the i
 
 ---
 
+### S1 — `s4lint.py`'s object-record model is stale, E009 fires on nothing, and the fix turns a green test red — 2026-09-06 (`parcel/s1s3s9`, DECLINED)
+
+**Declined on scope, not on merit, and it is declined with the measurement attached rather than
+by assertion.** Routed from sigil `79767f26` and booked in
+`docs/2026-09-06-sigil-routed-findings.md` under `` S1 — `s4lint.py` · `SST_FIELDS` / `SST_LEN`
+→ `_resolve_sst_offset` → `check_e009` ``.
+
+**RE-DERIVED against this tree 2026-09-06, and it reproduces exactly** — with one number sharper
+than the booking's. `tools/s4lint.py`'s `SST_FIELDS` is a 27-row `Dict[str, int]` plus
+`SST_LEN = 0x50`, and it is the tool's entire model of the live object record. Measured against
+`engine/objects/sst.emp`, whose header declares that file the sole author of the layout:
+
+* **5** table entries name fields the struct does not have (`anim_callback`, `priority`,
+  `respawn_index`, `sst_custom`, `wait_timer`);
+* **7** struct fields are absent from the table (`angle`, `entity_list_index`,
+  `entity_section_id`, `frame_off`, `layer`, `slot_tag`, `sprite_piece_count`);
+* only `SST_LEN` still agrees — `struct Sst (size: $50)`.
+
+The single sharpest instance: the table says `SST_sst_custom = $32`; `sst.emp` says
+**`sst_custom: [u8; 32] @ $30`**. Two bytes, and they are the two that decide whether an access at
+the top of the overlay window is reported as past the end.
+
+**WHY IT IS DECLINED. E009 fires on nothing today, measured rather than assumed.** `build.sh:565`
+lints `games/${GAME}/game_root.asm`; the tree has three tracked `.asm` files
+(`engine/debug/debugger.asm`, `games/demo/game_root.asm`, `games/sonic4/game_root.asm`) and
+`SST_` appears **0 times in all three**. Under the 2026-09-06 hub ruling — tooling work only
+where it blocks a deliverable or ships wrong output — this ships nothing wrong and blocks
+nothing. It is a loaded gun, not a firing one.
+
+**THE RULING THIS NEEDS, and it is why the row is recorded rather than quietly dropped.**
+`tools/test_s4lint.py::test_sst_custom_base_no_error` documents the stale constant as correct in
+its own docstring — *"SST_sst_custom ($32) with no addition -> offset $32 < $50 -> no E009"* — so
+correcting the table turns a green test red. **A green gate is currently locking in a false
+positive.** Anyone taking this must expect that red and rule on it, not tune around it; tuning it
+green is how the staleness survived. `test_sst_custom_plus_28_no_error` carries the same wrong
+arithmetic (`$32+$1C = $4E`; the real value is `$30+$1C = $4C`) and stays green either way, which
+is the more insidious half — a test that passes for the wrong reason and would keep passing
+through the fix.
+
+**The part that may be worth doing independently of the table:** the tool emits **no signal that
+its coverage has collapsed to zero**. A check that has stopped checking looks exactly like a
+check that is passing. That is the same defect class as B7 and the F rows — a quantity the tree
+depends on that no gate observes, failing by staying quiet — and it does not require ruling on
+the fixture above.
+
+---
+
 ### ~~THE REST OF THE F CLASS — F4, F5, F7 CLOSED · F6 ALREADY CLOSED · F3 PARTLY~~ — 2026-09-06 (`parcel/f-class-terminus`)
 
 The sigil lane's class F is *a named label standing in for "the end of a region"*, seven rows, all
