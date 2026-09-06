@@ -252,3 +252,74 @@ where they were available.
   modules.
 - **No runtime computation of a comptime-known value** across 22 candidate sites, all read.
 
+
+---
+
+## Step 0 addendum — the CI question the hub asked, and aeon's answer is worse than "we have none"
+
+**Asked by the hub after oracle's sweep found its GitHub CI red since 2026-07-22, unread for 46 days.**
+
+**aeon has no GitHub CI.** No `.github/workflows` on `origin/master` or in any tree;
+`gh api repos/Volence/aeon/actions/runs --jq .total_count` → **0**, with `gh auth status` confirming
+an authenticated account, so the zero is an answer and not an auth failure.
+
+**But aeon has the equivalent surface, and it has been down for nine consecutive nights.**
+`aeon-effects-gates.timer` is the systemd user timer CLAUDE.md names as the backstop half of the
+2026-08-18 effects-gate ruling — *"the half that fires when the ritual gets skipped."*
+
+| | |
+|---|---|
+| timer state | **alive**, fired 09:17 UTC today, next in 14h — nothing wrong with the scheduler |
+| service result | `Result=exit-code`, `ExecMainStatus=2` |
+| last SUCCESSFUL run | **2026-08-28** |
+| consecutive failures | **9** — 08-29, 08-30, 08-31, 09-01, 09-02, 09-03, 09-04, 09-05, 09-06 |
+| outcome tally in its own log | **10 × `COULD NOT RUN`**, 0 failures, 0 passes since |
+
+`exit 2` is `COULD NOT RUN` in **every** branch of `tools/nightly_effects_gates.sh` — the script's
+own header says *"a lane FAILURE and a lane that COULD NOT RUN are both loud — a backstop that
+silently can't run is the vacuous-gate pattern this exists to prevent."* It was loud. Nine
+`notify-send -u critical` desktop notifications fired and nothing was done, which is oracle's
+second half exactly: **the red stopped being read.**
+
+### The mechanism — a self-perpetuating deadlock, not a broken master
+
+Measured, not inferred:
+
+1. `build.sh` runs the **tool-suite pytest lane at line 613**; the sigil ROM build is at **line 786**.
+   **The gate runs before the thing it inspects is built.**
+2. `tools/test_effects_gates_segments.py::test_segmented_parent_checks_the_row_set_it_aggregated`
+   reads `s4.debug.lst` and `demo.debug.lst` **from the working tree**.
+3. `.aeon-nightly`'s listings are dated **2026-08-28 04:18** — the last successful run.
+4. So every night since, the lane has been asking a 2026-08-28 listing about the day's master.
+   It fails (`effects_gates: FAIL — 6 of 15 rows`, sonic4 resolving `[]` symbols against five
+   expected), `build.sh` exits 1 at line 614, **the ROM and listings never rebuild**, the artifacts
+   stay at 2026-08-28, and the next night is identical.
+
+**The loop cannot break on its own.** Nine different master SHAs produced the identical failure
+because none of them was ever actually built.
+
+**Master is not broken:** the full tool suite on `61f22403` is **2599 passed, 3 skipped, 0 failed,
+exit 0** (aggregate, unpiped).
+
+### And the same test is a three-state guard, which is the part worth booking
+
+Measured on three trees at the same content:
+
+| tree | listings | result |
+|---|---|---|
+| `.aeon-lens-pin` (`61f22403`, clean, no artifacts) | absent | **SKIPPED** — exit 0 |
+| main `aeon` (`61f22403`, artifacts present) | fresh | **PASSED** |
+| `.aeon-nightly` (`ab5dfc68`) | **9 days stale** | **FAILED** |
+
+So it is vacuous when the artifacts are missing, correct when they are fresh, and **false-red when
+they are stale** — and the false red is the state that jams the loop. A skip and a pass are not the
+same result, and only one of them was ever going to be noticed.
+
+**This is the hub's "guards that exist only to shout when a corpus is missing" in its third form:**
+here the guard shouts when the corpus is *stale*, and shouting is what keeps it stale.
+
+**Booked as an owner-facing row.** The one-line fix is for the nightly to clear its artifacts before
+building (or for the lane to refuse a listing older than the checkout), but the ordering question —
+a listing-reading gate running 173 lines before the listing is produced — is the real defect and is
+not mine to settle inside a sweep that lands no fixes.
+
