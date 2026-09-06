@@ -227,48 +227,49 @@ proc Touch_Hurt (d0: u16, d1: i16, d2: u16, d3: i16, a2: *Sst, a3: *Sst) clobber
 }
 
 // -----------------------------------------------
-// solid_face_response — the contact-face decision and push-out that every solid
-// share, whatever its top face then means.
+// THE SOLID FACE TEMPLATE, IN FOUR PIECES (split 2026-09-06, DEFERRED_WORK SP-5)
 //
-// Contains: the minimum-penetration-axis choice, both horizontal pushes, and the
-// stop-a-rising-player push-down-from-below. It does NOT contain what a TOP
-// contact means, because that is the only thing the solid family disagrees
-// about — a block is landed on, a spring launches — so the caller supplies that
-// as `{top}`, which this template branches to and never returns from. Every
-// other path `rts` inside the template.
+// It used to be ONE comptime fn, `solid_face_response(top)`, holding the
+// geometry and all three face responses, with only the TOP face parameterised.
+// That was exactly right while the only disagreement in the solid family was
+// what a top contact means (a block is landed on, a spring launches upward).
+// It stopped being right the moment a spring could point sideways or down: a
+// side spring's SIDE face and a down spring's UNDERSIDE face are the two arms
+// the old template kept to itself, so both directions were unreachable by
+// construction and not by omission.
 //
-// Splicing it beats giving Touch_Spring its own copy of the penetration
-// arithmetic, and beats the reference: S3K routes each spring orientation
-// through SolidObjectFull2_1P and then RE-DERIVES the contact face per
-// orientation afterwards (Obj_Spring_Up's standing-bit test at
-// sonic3k.asm:47668 vs Obj_Spring_Horizontal's status/x_pos compare at
-// :47786-47794), which is the duplication this exists not to reproduce.
+// So the geometry is now one fn and each of the three default face bodies is
+// its own, and a consumer splices the geometry with THREE `Label` arguments and
+// then splices back whichever default bodies it does not override. Every
+// default body is self-contained and `rts`-terminated, so no fragment ever
+// branches into another fragment's labels.
 //
-// THE DIRECTION GATE on the side arm is LOAD-BEARING, not a refinement, and the
-// failure it prevents is total. The push deliberately leaves 1px of overlap so
-// the next frame's AABB still fires, which means a player standing beside a
-// solid re-enters this arm EVERY frame for as long as he stands there. An
-// UNCONDITIONAL speed kill would therefore zero his speed every frame while he
-// is merely adjacent — he could never walk away from any solid in the game, and
-// the obvious test (walk into it, let go, measure where he rests) would not see
-// it, because a player who is already stopped rests in exactly the right place.
-// So the kill fires only when he is travelling INTO the face, which is S3K's own
-// structure (sonic3k.asm:1E042-1E056 tests the sign of x_vel against the push
-// direction before zeroing anything) and what the witness's escape leg checks.
+// WHY THREE LABELS AND NOT THREE `Code` PARAMETERS. `Code`-typed comptime
+// params exist and would read better — the consumer would hand the template its
+// own face body and the template would splice it in place. They cannot be used
+// here: a branch from a spliced `Code` fragment to a label in the ENCLOSING
+// routine is a hard cross-fragment error in sigil, and every face body needs to
+// reach either the shared `rts` or a sibling arm. A `Label` argument branched to
+// with `jbra {top}` is the proven mechanism (it is what the original template
+// used for its one parameter), so all three parameters use it.
+//
+// COST, measured rather than estimated — see the commit message. The geometry
+// is byte-neutral (the below arm's fallthrough `bmi .sfr_above` became a `bpl
+// {below}`, one branch either way); the whole cost is that the below arm can no
+// longer share the geometry's `rts`.
 //
 // In:  a2 = player SST, a3 = target SST
 //      d0.w = combined_w, d1.w = signed delta_x
 //      d2.w = combined_h, d3.w = signed delta_y
-// At {top}: d2.w = pen_y and d3.w = |delta_y|, a2/a3 untouched — `add.w d3, d2`
-//      recovers combined_half_h, which is what a top-edge snap needs. Both
-//      consumers do exactly that as their first instruction.
-// Clobbers: d0-d5, plus whatever Game.solid_pushed declares (sonic4's binding
-//      declares clobbers() — it is one `clr.w` — so the consumers' own
-//      clobber sets are unchanged by the hook)
+// Out, at all three labels: d0.w = pen_x, d2.w = pen_y, d3.w = |delta_y|,
+//      d4.w = signed delta_x, d5.w = signed delta_y, a2/a3 untouched.
+//      `add.w d3, d2` recovers combined_half_h, which is what a vertical snap
+//      needs; `d4`'s sign is which side of the target the player is on.
+// Clobbers: d0-d5, plus whatever the spliced bodies' hooks declare.
 //
-// Template labels are hygienic, so each instantiation gets its own .sfr_*.
+// Template labels are hygienic, so each instantiation gets its own.
 // -----------------------------------------------
-comptime fn solid_face_response(top: Label) -> Code {
+comptime fn solid_face_geometry(top: Label, side: Label, below: Label) -> Code {
     return asm {
         lsr.w   #1, d0                  // d0 = combined_half_w
         lsr.w   #1, d2                  // d2 = combined_half_h
@@ -277,65 +278,132 @@ comptime fn solid_face_response(top: Label) -> Code {
         move.w  d1, d4                  // d4 = signed delta_x (for direction)
         abs_w(d1)
         sub.w   d1, d0                  // d0 = pen_x
-        ble     .sfr_done
+        ble     .sfg_done
 
         // pen_y = combined_half_h - abs(delta_y)
         move.w  d3, d5                  // d5 = signed delta_y (for direction)
         abs_w(d3)
         sub.w   d3, d2                  // d2 = pen_y
-        ble     .sfr_done
+        ble     .sfg_done
 
         // Minimum penetration axis: pen_x vs pen_y
         cmp.w   d2, d0
-        blo     .sfr_side               // pen_x < pen_y → side contact
+        blo     {side}                  // pen_x < pen_y → side contact
 
         // --- Vertical contact (pen_y <= pen_x) ---
         tst.w   d5
-        bmi     .sfr_above              // player above target
+        bpl     {below}                 // player BELOW target (delta_y >= 0)
 
-        // Player below target — snap below, zero y_vel if rising
-        // +1/-1 offsets keep 1px overlap so next frame's AABB check still passes
+        // Only a FALLING player makes top contact. For a block that is "don't
+        // snap a player rising through it"; for an upward spring it is
+        // additionally the whole re-fire interlock, which is why the test lives
+        // in the shared geometry rather than in either consumer.
+        tst.w   y_vel(a2)
+        bmi     .sfg_done               // still rising — no top contact
+        jbra    {top}
+
+    .sfg_done:
+        rts
+    }
+}
+
+// -----------------------------------------------
+// solid_top_land — the DEFAULT top face: land on it.
+//
+// Snap the player to the target's top edge, zero his fall, mark him grounded and
+// record WHICH solid he stands on. Was Touch_Solid's own body until SP-5; it is
+// a shared fn now because a spring that points sideways or down must still be
+// landable on top, and "landable on top" must be the same code in both places
+// or the two will drift.
+//
+// In:  the geometry's outputs. Out: never returns to the caller (rts).
+// -----------------------------------------------
+comptime fn solid_top_land() -> Code {
+    return asm {
+        add.w   d3, d2                  // restore combined_half_h
+        move.w  y_pos(a3), d1
+        sub.w   d2, d1                  // target.y - combined_half_h
+        addq.w  #1, d1                  // maintain contact
+        move.w  d1, y_pos(a2)
+        clr.w   y_vel(a2)
+        bclr    #ST_IN_AIR, status(a2)
+        bset    #ST_ON_OBJECT, status(a2)
+        // Claim: record WHICH solid this player stands on — the ledge
+        // probe (player_sensors) reads it directly. Fresh every pass
+        // (cleared at the player-loop top), so it can never go stale and
+        // never needs per-player bit selection.
+        move.w  a3, interact_off()(a2)
+        rts
+    }
+}
+
+// -----------------------------------------------
+// solid_below_stop — the DEFAULT underside face: stop a rising player.
+//
+// Snap him below the target and zero his y_vel, but only if he was rising: a
+// falling player under a solid is leaving it, and zeroing his fall would hang
+// him in the air. The +1/-1 offsets keep 1px of overlap so the next frame's
+// AABB check still fires.
+//
+// In:  the geometry's outputs. Out: never returns to the caller (rts).
+// -----------------------------------------------
+comptime fn solid_below_stop() -> Code {
+    return asm {
         add.w   d3, d2                  // restore combined_half_h
         move.w  y_pos(a3), d1
         add.w   d2, d1                  // target.y + combined_half_h
         subq.w  #1, d1                  // maintain contact
         move.w  d1, y_pos(a2)
         tst.w   y_vel(a2)
-        bpl     .sfr_done
+        bpl     .sbs_done
         clr.w   y_vel(a2)
+    .sbs_done:
         rts
+    }
+}
 
-    .sfr_above:
-        // Only a FALLING player makes top contact. For a block that is "don't
-        // snap a player rising through it"; for a spring it is additionally the
-        // whole re-fire interlock, which is why the test lives in the shared
-        // half rather than in either consumer.
-        tst.w   y_vel(a2)
-        bmi     .sfr_done               // still rising — no top contact
-        jbra    {top}
-
-    .sfr_side:
-        // Push player horizontally — subtract 1 from pen to maintain contact.
-        // The push is UNCONDITIONAL (S3K's is too, sonic3k.asm:1E06E): position
-        // is corrected whichever way the player is travelling.
-        subq.w  #1, d0
+// -----------------------------------------------
+// solid_side_push — the DEFAULT side face: push out, and kill the speed.
+//
+// THE DIRECTION GATE here is LOAD-BEARING, not a refinement, and the failure it
+// prevents is total. The push deliberately leaves 1px of overlap so the next
+// frame's AABB still fires, which means a player standing beside a solid
+// re-enters this arm EVERY frame for as long as he stands there. An
+// UNCONDITIONAL speed kill would therefore zero his speed every frame while he
+// is merely adjacent — he could never walk away from any solid in the game, and
+// the obvious test (walk into it, let go, measure where he rests) would not see
+// it, because a player who is already stopped rests in exactly the right place.
+// So the kill fires only when he is travelling INTO the face, which is S3K's own
+// structure (sonic3k.asm:1E042-1E056 tests the sign of x_vel against the push
+// direction before zeroing anything) and what the witness's escape leg checks.
+//
+// The push itself is UNCONDITIONAL (S3K's is too, sonic3k.asm:1E06E): position
+// is corrected whichever way the player is travelling.
+//
+// In:  the geometry's outputs. Out: never returns to the caller (rts).
+// Clobbers: additionally whatever Game.solid_pushed declares (sonic4's binding
+//      declares clobbers() — it is one `clr.w`).
+// -----------------------------------------------
+comptime fn solid_side_push() -> Code {
+    return asm {
+        subq.w  #1, d0                  // maintain contact
         tst.w   d4
-        bmi     .sfr_push_left
+        bmi     .ssp_push_left
 
         add.w   d0, x_pos(a2)           // push right (player is to the RIGHT)
         // Moving INTO the face is x_vel < 0 here. Anything else — moving away,
         // or a dead stop — returns without touching either velocity. See "THE
         // DIRECTION GATE" in the header; this is not an optimisation.
         tst.w   x_vel(a2)
-        bmi     .sfr_stop
+        bmi     .ssp_stop
         rts
 
-    .sfr_push_left:
+    .ssp_push_left:
         sub.w   d0, x_pos(a2)           // push left (player is to the LEFT)
         tst.w   x_vel(a2)               // into the face is x_vel > 0 here
-        ble     .sfr_done               // moving away, or a dead stop
+        ble     .ssp_done               // moving away, or a dead stop
 
-    .sfr_stop:
+    .ssp_stop:
         // KILL THE PLAYER'S SPEED, BOTH HALVES OF IT.
         //
         // x_vel is the airborne driver and the engine owns it. The GROUNDED
@@ -356,7 +424,7 @@ comptime fn solid_face_response(top: Label) -> Code {
         clr.w   x_vel(a2)
         invoke  Game.solid_pushed
 
-    .sfr_done:
+    .ssp_done:
         rts
     }
 }
@@ -373,56 +441,72 @@ comptime fn solid_face_response(top: Label) -> Code {
 // Clobbers: d0-d5
 // -----------------------------------------------
 proc Touch_Solid (d0: u16, d1: i16, d2: u16, d3: i16, a2: *Sst, a3: *Sst) clobbers(d0-d5) {
-        solid_face_response(.solid_top)
+        solid_face_geometry(.solid_top, .solid_side, .solid_below)
 
     .solid_top:
-        // Player above target — snap above, zero y_vel, set grounded
-        add.w   d3, d2                  // restore combined_half_h
-        move.w  y_pos(a3), d1
-        sub.w   d2, d1                  // target.y - combined_half_h
-        addq.w  #1, d1                  // maintain contact
-        move.w  d1, y_pos(a2)
-        clr.w   y_vel(a2)
-        bclr    #ST_IN_AIR, status(a2)
-        bset    #ST_ON_OBJECT, status(a2)
-        // Claim: record WHICH solid this player stands on — the ledge
-        // probe (player_sensors) reads it directly. Fresh every pass
-        // (cleared at the player-loop top), so it can never go stale and
-        // never needs per-player bit selection.
-        move.w  a3, interact_off()(a2)
-        rts
+        solid_top_land()
+
+    .solid_side:
+        solid_side_push()
+
+    .solid_below:
+        solid_below_stop()
 }
 
 // -----------------------------------------------
-// Touch_Spring — a solid that LAUNCHES instead of being landed on.
+// Touch_Spring — a solid that LAUNCHES on the face it points out of.
 //
-// Side-solid and bottom-solid in exactly the sense COLLISION_SOLID is: the body
-// above this line is literally Touch_Solid's, spliced from the same template, so
-// walking into a spring from either side pushes out and kills x_vel, and jumping
-// into its underside stops a rising player. Only the TOP face differs.
+// THE SPRING'S OWN VELOCITY PAIR IS ITS LAUNCH VECTOR, and since SP-5 that is
+// the whole of what the engine knows about spring directions. A spring never
+// moves, so both fields are free; the game writes them at spawn from whatever
+// it wants to call a subtype, and this handler reads nothing else:
 //
-// THE SPRING'S OWN y_vel IS ITS LAUNCH STRENGTH. A spring never moves, so the
-// field is free, and spending it this way means the strength rides in the
-// 26-byte ObjDef template: a second spring at a different strength is a second
-// objdef and NO new code — no init routine, no subtype decode, no custom SST
-// byte. S3K instead keeps it in $30(a0) and decodes subtype bit 1 into it at
-// spawn (sonic3k.asm:47641-47643, table at :47654-47656), which is a spawn-time
-// branch, a data field and a per-orientation entry point to say one number.
+//     y_vel < 0  → the TOP face launches (upward spring)
+//     y_vel > 0  → the UNDERSIDE face launches (downward spring)
+//     x_vel != 0 → the face on the side x_vel POINTS AT launches, and only
+//                  that one (a rightward spring launches a player who is to
+//                  its right; its left face stays solid)
+//
+// Every face that does NOT launch splices the ordinary solid default, so a
+// sideways spring is landable on top and a downward one is a wall from the
+// side. That fallback is not a nicety: without the `y_vel < 0` test, a
+// sideways spring's top face would have handed the player its ZERO y_vel and
+// dropped him into the game's airborne state with no impulse at all — a
+// spring you fall through the top of.
+//
+// WHY THE VELOCITY PAIR AND NOT THE SUBTYPE. A subtype is the GAME's encoding
+// — S3K packs direction into bits 6-4 and strength into bit 1, and neither
+// number means anything to an engine that has no springs of its own. Reading
+// the vector instead keeps the engine seam exactly where the vertical spring
+// put it (nothing here knows red from yellow, or up from left) and makes the
+// unimplemented cases safe by construction: a spring whose game-side decode
+// produced (0, 0) is simply a solid block on all four faces.
 //
 // The player's STATE is not the engine's business — the engine has no player
-// state machine — so the transition leaves through Game.spring_launched with
-// a2 = player, a3 = spring, and the game decides what airborne means for it.
-// A game that places a COLLISION_SPRING object MUST bind that hook: unbound, the
-// launch would set a velocity on a player whose own grounded state re-attaches
-// him on the next tick, i.e. a spring that visibly does nothing.
+// state machine — so every launch leaves through Game.spring_launched with
+// a2 = player, a3 = spring, and the game decides what the impulse means. That
+// is also where a HORIZONTAL launch's other half lives: the grounded driver is
+// the game's inertia field (sonic4: PlayerV.ground_speed), which the engine may
+// not name, so setting x_vel here moves an airborne player and nothing else
+// until the binding writes the inertia. A game that places a COLLISION_SPRING
+// object MUST bind the hook.
 //
-// NO COOLDOWN FIELD, AND NONE IS MISSING. The re-fire interlock is the falling
-// test inside the shared template: a launched player's y_vel is large and
-// negative for far longer than it takes to clear the box, so `bmi` refuses every
-// contact until he is on his way down again. S3K's vertical spring likewise
-// carries no timer (Obj_Spring_Up, sonic3k.asm:47659-47684, and sub_22F98,
-// :47717-47770, hold no counter between them) — its interlock is the standing
-// bit rather than the sign of y_vel, but the shape of the answer is the same.
+// NO COOLDOWN FIELD, AND NONE IS MISSING. Each launching face carries its own
+// interlock and each is a sign test on the player's own velocity, so a launched
+// player cannot re-trigger the face he just left: the top face requires him to
+// be FALLING (the geometry's shared test), the underside requires him to be
+// RISING, and the side face throws him away from itself at 16px/frame so he is
+// out of the box on the next tick. S3K's vertical spring likewise carries no
+// timer (Obj_Spring_Up, sonic3k.asm:47659-47684, and sub_22F98, :47717-47770,
+// hold no counter between them) — its interlock is the standing bit rather than
+// the sign of y_vel, but the shape of the answer is the same.
+//
+// THE SIDE FACE DOES NOT PUSH THE PLAYER OUT before launching, and that is
+// deliberate rather than forgotten. A launch REPLACES solidity for that face:
+// the player leaves at the spring's own speed, which clears the box within one
+// frame, and a push would additionally fight the launch it precedes. He may be
+// re-launched on the frame he is still overlapping — at the identical speed, so
+// it is not observable.
 //
 // In:  a2 = player SST, a3 = target SST
 //      d0.w = combined_w, d1.w = signed delta_x
@@ -431,9 +515,11 @@ proc Touch_Solid (d0: u16, d1: i16, d2: u16, d3: i16, a2: *Sst, a3: *Sst) clobbe
 // Clobbers: d0-d5 (the template's) + the hook's declared d0-d2/a0-a2
 // -----------------------------------------------
 proc Touch_Spring (d0: u16, d1: i16, d2: u16, d3: i16, a2: *Sst, a3: *Sst) clobbers(d0-d5/a0-a2) {
-        solid_face_response(.spring_top)
+        solid_face_geometry(.spring_top, .spring_side, .spring_below)
 
     .spring_top:
+        tst.w   y_vel(a3)
+        bpl     .spring_top_land        // not an UPWARD spring — land on it
         // Seat the player on the spring's top edge exactly as a solid would —
         // same +1 contact bias — and only THEN write the impulse. The order
         // matters: the hook may hand the player to an enter hook that shifts
@@ -447,4 +533,49 @@ proc Touch_Spring (d0: u16, d1: i16, d2: u16, d3: i16, a2: *Sst, a3: *Sst) clobb
         move.w  y_vel(a3), y_vel(a2)    // THE LAUNCH — see the header
         invoke  Game.spring_launched
         rts
+
+    .spring_top_land:
+        solid_top_land()
+
+    .spring_side:
+        // Which side is the player on, and is it the side this spring points
+        // at? d4 is the signed delta_x (positive = the player is to the RIGHT),
+        // and x_vel is the launch vector, so the two agreeing in SIGN is exactly
+        // "he is standing where this spring throws things". The `eor` is that
+        // comparison in one instruction: bit 15 of the result is set iff the
+        // signs differ. A zero x_vel is not a horizontal spring at all and takes
+        // the same solid exit, so no separate arm is needed for the common case.
+        move.w  x_vel(a3), d1
+        beq     .spring_side_push       // not a horizontal spring
+        move.w  d1, d5                  // d5 (signed delta_y) is dead here
+        eor.w   d4, d5
+        bmi     .spring_side_push       // the BACK face — solid, as S3K's is
+        move.w  d1, x_vel(a2)           // THE LAUNCH — no push-out, see header
+        invoke  Game.spring_launched
+        rts
+
+    .spring_side_push:
+        solid_side_push()
+
+    .spring_below:
+        tst.w   y_vel(a3)
+        ble     .spring_below_stop      // not a DOWNWARD spring — stop him
+        tst.w   y_vel(a2)
+        bpl     .spring_below_stop      // he is falling AWAY from the underside;
+                                        // this is the re-fire interlock, and it
+                                        // is the mirror of the top face's
+        // Seat him under the spring's bottom edge, same -1 contact bias the
+        // default underside uses, then launch him downward.
+        add.w   d3, d2                  // restore combined_half_h
+        move.w  y_pos(a3), d1
+        add.w   d2, d1                  // target.y + combined_half_h
+        subq.w  #1, d1                  // maintain contact
+        move.w  d1, y_pos(a2)
+
+        move.w  y_vel(a3), y_vel(a2)    // THE LAUNCH — downward
+        invoke  Game.spring_launched
+        rts
+
+    .spring_below_stop:
+        solid_below_stop()
 }
