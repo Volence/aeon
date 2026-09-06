@@ -1284,3 +1284,167 @@ pure instruction streams legitimately has less to `ensure`. **The fair comparato
 - **`vblank.emp` and `boot.emp`, the two most order-sensitive files on the machine, carry no guard of
   either kind.**
 
+
+---
+
+## Seat C3b — atomicity and shared state, HANDLER-FIRST walk
+
+Census: **5 asynchronous writers enumerated — and proven to be all of them**, via
+`engine/system/vectors.emp:77-126` showing every other vector is `ErrorExcept`/`ReleaseFault`, so
+IRQ1/2/3/5/7 and all traps fault rather than run. **35 brackets** across 11 files. **31 state items
+traced to every toucher by whole-corpus grep**, 5 more partially.
+
+### ⚠ THIS SEAT CORRECTED ITS OWN BRIEF, AND THE ERROR WAS MINE
+
+My brief told it that *"a parallax config is now installable from a RAM scratch buffer … armed by a
+poked byte polled at the head of `Parallax_Update`"* and to give that class weight. **It checked
+instead of believing me:** the head of `Parallax_Update` polls `Parallax_Transition_Frames` and
+nothing else, neither RAM map holds a `parallax_config` (only two `u32` pointers), and a corpus grep
+for the arming vocabulary returns nothing.
+
+**It is right and I was wrong.** The LIVE-EFFECTS scratch landed on master as `d47e731a` — **after**
+the review pin `61f22403` the seat was reading. I described master's tree to a seat working the pin.
+
+This is the workspace's own worst-case dispatch failure (*"a wrong fact in a BRIEF is worst — agents
+cannot doubt their controller"*), and the only reason it cost nothing is the contradict-me clause.
+**Recorded here as an instance rather than quietly fixed**, and the seat then did the more useful
+thing: it identified what the real form of the anticipated hazard is on this tree — V1, a ROM-pointer
+*set* swapped under a live VBlank consumer.
+
+### C3b-V1 — the parallax config triple is published in the order that makes it observably INERT
+
+**One thing, three fields:** `Parallax_Transition_Frames` (u8), `Parallax_Target_Config` (u32),
+`Parallax_Current_Config` (u32). Writers are all main loop; **readers are both asynchronous** —
+`Parallax_Active_Config` via `Enqueue_Dirty_Buffers` (**both** VBlank paths) and via `Vscroll_Write`.
+
+**Controller verified both orders directly.** Writer, `.recross_current` (`parallax.emp:1331-1334`):
+
+```
+tst.b   Parallax_Transition_Frames      // proceeds ONLY when != 0
+beq     .no_change
+move.l  #0, Parallax_Target_Config      // Target := 0
+                                        // <-- IRQ6 sampled at this boundary
+move.b  #0, Parallax_Transition_Frames
+```
+
+Reader (`:1358-1370`): `tst.b Parallax_Transition_Frames` / `bne .use_target` /
+`move.l Parallax_Target_Config, d0`. **At that boundary the set reads `Frames != 0` AND
+`Target == 0`, so the reader takes `.use_target`, loads 0, and Z-set means "inert".**
+
+**What the player sees, that one frame:** the 896-byte per-line HScroll DMA is **not enqueued**, so
+the VDP keeps last frame's HScroll table while everything else advances — **the whole parallax field
+freezes for one frame at a section edge**. And `Vscroll_Write` takes `.whole_plane`, writing one
+longword to VSRAM instead of twenty, **while reg `$0B` bit 2 still says per-column** — columns 1..19
+hold last frame's V-scroll.
+
+**The precondition is structural, not coincidental:** `.recross_current` is reached *only* when
+`Frames != 0`, so **every cancelled transition opens this window.** The seat checked the two sibling
+arms and correctly separated them: `.instant` has the identical shape but is rarer, and
+`Parallax_Update`'s promotion arm clears `Target` when `Frames` is *already* 0, so a VBlank there
+reads the outgoing config — **benign, and it said so rather than padding the finding.**
+
+**Reachability stated honestly:** one instruction, 12 cycles against a 128,010-cycle frame ≈
+**9.4e-5 per re-cross event. Rare, not unreachable.** And not gated away — `SCANLINE_CAPS = $0FDE`
+against `CAP_TRANSITIONS = $0010` gives `$0010`, so every transition arm is live in the shipped ROM.
+
+**The fix is free and is an ordering, not a bracket:** clear `Frames` *before* `Target` at both
+sites, and the intermediate state becomes the benign one the promotion arm already produces.
+
+### C3b-V2 — the per-frame `Effects_Screen_L` latch is unbracketed, and its worst case is blocked only by an unenforced content invariant
+
+`ram.emp:576-582` states the intent verbatim: *"IT EXISTS TO BE THE ONLY DERIVATION OF L … One
+latch, three readers, one camera."* The writer loads `Camera_Y` once and stores four words **one at a
+time, with no `ints_off`**; both readers are VBlank, on both paths. A VBlank between stores gives
+`L[0]` from this frame's camera and `L[1]` from last frame's — **the set observed mid-update, one
+camera apart, which is precisely what the latch exists to prevent.**
+
+**The severe consequence, and why it does not fire today.** `Raster_BuildSchedule` stores
+`gap = L[k] - L[k-1] - 1` as a **byte**; a negative gap stores `$FF`, which **is**
+`RASTER_ARM_PARK` — killing every remaining fire in the frame. The seat then checked the shipped
+content rather than asserting the risk: `OJZ_TC_PROG`'s two records are bands `3..220` and
+`222..223`; `OJZ_WORLD_WATER_PROG`'s are `3..160` and `162..223`. **Both disjoint and ordered with a
+≥2-line margin, so post-clamp `gap ≥ 1` however the read tears.**
+
+**But nothing enforces that.** `patchable()` ensures the line is inside its own band and the
+`offscreen_ship` preconditions — **there is no ensure that consecutive records' bands are disjoint or
+ordered.** Two overlapping bands are authorable today, and with them the tear becomes **an
+intermittent whole-frame raster dropout reproducing once in thousands of frames — the worst possible
+debugging shape.**
+
+**The contrast that makes it a finding rather than an oversight:** the *other* call site of the same
+latch, inside `Effects_InstallPreset`, **is** protected — and deliberately, clearing
+`Raster_Patch_Tab` and `Effects_Offscreen_Entry` first because those are exactly the liveness tests
+both VBlank readers gate on, with a comment reasoning about VBlank landing in that window at length.
+**The per-frame latch has the same two readers, none of the protection, and no comment anywhere
+acknowledges the window.**
+
+### C3b-V3 — `PageIn_Staging_Busy` is raised AFTER the enqueue it guards
+
+The structural fact the seat surfaced is the valuable half: **`PageIn_Process` runs from inside
+`VSync_Wait` after the `VBlank_Ready = 1` bracket, so it is the ONLY main-loop region in the tree
+that a VBlank answers with the full `VInt_Level` pipeline** rather than `VInt_Lag`. Everything else
+races only the lag path.
+
+A VBlank between `PageIn_EnqueueLanding` and `st.b PageIn_Staging_Busy` fires the landing DMA, tests
+the flag, reads 0, skips its clear — then the main loop sets it. **The flag is now set with an empty
+queue and a landed page**, costing at least one lost art-decode frame until the next `VInt_Level`
+with an empty Important queue. **No corruption**, and the seat proved the inverse unreachable rather
+than assuming it. Fix is an ordering with a rollback on the full arm.
+
+### C3b-V4 — a values-only tear that is missing from `VInt_Lag`'s own safety enumeration
+
+`Parallax_Vscroll_Column_Buf` is filled incrementally by the main loop and shipped whole by
+`Vscroll_Write` on **both** VBlank paths. A lag-frame tear splits the background's vertical scroll at
+a random 16-pixel column boundary — **a hard horizontal seam during fast vertical motion.**
+
+**The seat reported it despite the outcome being benign, for the right reason.** `VInt_Lag`'s header
+is a careful explicit enumeration of *why every consumer on the lag path is safe*, including that the
+HScroll enqueue "is safe by a different, weaker mechanism … corrupts scroll VALUES only". **`Vscroll_Write`
+runs on that same path, from that same kind of buffer, with that same kind of tear — and is not in
+the list.** The conclusion survives; the argument that licenses the lag path does not currently cover
+the consumer. **An enumeration that omits a member is the shape that goes wrong later.**
+
+### C3b-V5 — `Raster_InstallPatched` publishes "make it live" before "make the old one inert", against its own banner
+
+The proc's banner argues the correct rule at length — *"Clearing first is what makes the window safe:
+0 is the consumer's inert value … so a VBlank mid-install ships nothing for one frame instead of
+shipping something wrong."* The emitted order is the opposite: `move.l a1, Raster_Patch_Tab` at
+`:1762`, `clr.l Effects_Offscreen_Entry` at `:1811`, ~40 cycles apart. A VBlank between them takes
+the **new** program live one frame early while replaying the **old** program's reg words and static
+palette ship — **old colours into CRAM under the new program's records, the exact defect the banner
+says was fixed.**
+
+**Latent, and the seat was exact about why:** the sole caller already cleared that cell thousands of
+cycles earlier, so today this is a re-clear of an already-zero cell. **The defence is the caller's,
+not this proc's** — a second caller, or a reorder inside the caller, re-opens it silently. Moving one
+instruction makes the proc self-defending.
+
+### C3b's six unreachable-by-timing proofs — each with what would have broken it
+
+This is the seat's best work and the reason its positives are credible.
+
+1. **`Vscroll_Factor`** is safe because both halves are packed in `d1` and published with a single
+   `move.l`. *Unsafe if* written as two `move.w`s. **The register packing is doing load-bearing
+   atomicity work that its own comments frame purely as role-swap logic.**
+2. **`Palette_Dirty`**, RMW'd from both sides at ten sites, is safe because **every one is a single
+   instruction**. *Unsafe if* any site had spelled it load / `ori` / store.
+3. **The sprite emit bracket** covers the genuinely non-atomic `movep.w` length patch; the seat
+   checked **every exit path** (`.empty_table`, `.still_empty`, `.band_limit_pop`) and the close is
+   reached on all of them, always after the dirty set.
+4. **`Plane_Buffer_Ptr`** is safe because both VBlank touchers dispatch only on `VBlank_Ready == 1` —
+   **and the seat closed the one hole that argument leaves**, grepping `Plane_Buffer` across the
+   decoder and page-cache files (the only code that runs with `Ready == 1`) and finding **zero hits**.
+5. **The PageIn bookmark/bank/resume** window is bounded by a full frame, and the seat additionally
+   checked the two sub-windows that do not depend on that.
+6. **`Raster_Cursor`** is safe by IPL exclusivity — and *unsafe if* the handler had used ordinary
+   `ints_off`, whose release pops IPL one instruction before the `rte`. **The module's own note
+   records that the `ints_off_until_rte` flavour was chosen partly to close that window**, so this is
+   a deliberate design confirmed rather than a coincidence.
+
+### C3b-S2 — two comments 370 lines apart in one file disagree about a retracted lemma
+
+`VSync_Wait` still asserts the "lag path can never bank" proof; `VBlank_Handler`'s own header
+**explicitly retracts it** (*"that lemma is over-stated"*) and gives the straddle path that reaches
+`VInt_Lag` with a live decode. **The retracted one is the one a reader hits first when reasoning
+about `VSync_Wait`.**
+
