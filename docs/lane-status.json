@@ -27,7 +27,7 @@
     {
       "id": "CURVE-DESC",
       "title": "ENGINE DEFECT: descending parallax curve garbles the BG; mechanism unestablished",
-      "state": "next",
+      "state": "open",
       "size": "M",
       "blockedBy": null,
       "project": "EFFECTS-W1"
@@ -79,5 +79,5 @@
   ],
   "awaiting": null,
   "atBoundary": true,
-  "updatedAt": "2026-09-06T01:35:35Z"
+  "updatedAt": "2026-09-06T01:35:51Z"
 }
