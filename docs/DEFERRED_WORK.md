@@ -28539,3 +28539,57 @@ time is a hedge the downstream reader can never restore.
 
 **Operational form: when relaying a peer's claim into a brief, carry the hedge or add one.**
 "They report X" and "X" are different briefs, and the second one cannot be corrected from inside.
+
+## BAND ORDER — the reorder is EMISSION-ONLY, the hub's default is already satisfied, and a hedge hardened into a ruled fact on the way (2026-09-06T14:19:46Z)
+
+**ANSWERED, not open.** Aurora asked whether the reorder `BGANIM-DECOUPLE` installed is intended;
+the hub ruled a default in the owner's place before the answer arrived. **Both are settled by one
+measurement, run here rather than reasoned:**
+
+1. **`inject_editor_bg.py` never writes `editor_bg_override.json`.** Every tool naming that file
+   was enumerated and classified by whether it writes; the emitter is **read-only** on it. The
+   build reads and emits — **there is no return path through it.**
+2. The one aeon writer is `bg_override_io.atomic_write_json`, whose `sort_keys=True` sorts object
+   KEYS. **A JSON array preserves order under `json.dumps` regardless**, so the `anims` list
+   survives verbatim.
+3. The reorder exists **only in the generated `bg_anim.emp`**, an emission artifact and not the
+   writer of record.
+
+**The hub's ruled default was: "the authored order is the contract; sort internally if the emitter
+needs a canonical order, never write a reordered order back to the writer of record." That is
+precisely what the code already does.** No CR, no schema question, no work.
+
+**THE ONE REAL RESIDUAL, and it is aurora's surface rather than ours: if anything ever learns band
+order from the GENERATED `.emp` rather than from the override, it sees the permuted order.** Told
+them: read the override, never the emission.
+
+**WHY THE REORDER RATHER THAN THE OLD ASSERTION.** The ordering constraint is a property of the
+EMISSION, not of the authoring — the count word says how many of the records FOLLOWING it the
+engine walks, so a silenced band emitted ahead of a live one would disable the live one instead of
+itself. The old assertion pushed that emission detail onto the author, and Aurora's `Promote`
+appends, so on the shipped act the natural output of their own control was exactly the order it
+refused.
+
+### ⚠ AND THE MECHANISM ON THE WAY HERE, worth more than the answer
+
+**Aurora hedged correctly and the hedge did not survive the relay.** Their words to this lane:
+*"I am not asserting that it breaks anything today — nobody has measured it, only that it is
+unmodelled and we would rather decide than discover."* **It reached the hub as something aurora
+had measured**, and was ruled on as fact.
+
+That is **aurora's own bar from an hour earlier — *a relay is not a neutral pipe; it launders a
+peer's confidence into a constraint*** — running in the opposite direction and in real time. They
+found it on themselves relaying one of THIS lane's overstatements into an agent brief; here an
+explicitly unmeasured concern became a ruled default.
+
+**No harm resulted, and that is the uncomfortable part: the default chosen happens to be what the
+code already does. Luck, not the process working.** Recorded because a hedge that survives one hop
+and dies at the second is invisible from every position — the hedger sees their caveat sent, the
+receiver sees a fact, and no artifact anywhere holds both.
+
+**AND THIS LANE'S OWN HALF: I described the decouple to every reader as REMOVING a refusal, and
+never said it INSTALLED a behaviour in its place.** The implementing agent's docstring says so
+plainly; my summaries did not. Aurora found it by reading our source rather than our message.
+**Their formulation is the durable one — *the check I ran could not have seen a behaviour that
+replaced it*** — because "gone" and "replaced" produce identical output for any retirement
+condition phrased as *"is X still there"*.
