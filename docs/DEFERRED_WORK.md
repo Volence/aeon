@@ -26895,30 +26895,37 @@ reach the screen during play, a deferred DMA can, and that one answer separates 
 
 ---
 
-### RING-PLACE — a runtime-placed ring cannot work by writing a buffer record - 2026-09-06
+### RING-PLACE — the debugger's ring is TEMPORARY by design; permanent placement is the editor's - 2026-09-06
 
-Publishing the ring record's layout (`RING_ENTRY_*_OFFSET`, this parcel) makes it look like a
-debugger or a script could add a ring by writing six bytes and bumping `Ring_Count`. **It
-cannot**, for two independent reasons, and both fail silently.
+**Ruled 2026-09-06 (in the owner's place, reversible): the debugger gets the TEMPORARY ring
+only.** Permanent placement is level editing and belongs to the editor lane, not a debug
+window. This entry is the shape of the temporary path and the hazard it has to respect.
 
-**It aliases a real ring's collected bit.** `Collected_MarkRing` (`entity_window.emp:205`)
-bsets into the owning section's collected bitmask at the bit numbered by the record's
-`list_index`, guarded by `assert.w d1, lo, #MAX_LIST_ENTRIES` (128). A fabricated index inside
-that range marks some OTHER ring collected, and that ring then never spawns again.
+**A temporary ring is one buffer record plus a bumped `Ring_Count`** — six bytes at the
+published `RING_ENTRY_*_OFFSET`s. Two things about it are not negotiable.
 
-**It dies on the next scroll.** `EntityWindow_DespawnRings` deletes any record that leaves the
-camera window; `EntityWindow_TrySpawnRing` only ever re-adds from the section's ROM ring list.
-A record with no ROM entry behind it is removed once and never returns. `SEC_VOID` is a
-section-id sentinel only — there is no `list_index` counterpart.
+**1. The `list_index` must not alias a real ring.** `Collected_MarkRing`
+(`entity_window.emp:205`) bsets the owning section's collected bitmask at the bit numbered by
+the record's `list_index`, guarded by `assert.w d1, lo, #MAX_LIST_ENTRIES` (128). An index
+below the section's real ring count marks some OTHER ring collected, and that ring never
+spawns again. **A safe index is at or above that section's ring count and below
+`MAX_LIST_ENTRIES`** — and there is **no stored count**, so it must be DERIVED by walking the
+section's ROM ring list to its terminator: null-terminated 4-byte `dc.w X, dc.w Y` entries
+(`RING_LIST_ENTRY_SIZE`, `RING_LIST_TERMINATOR`), pointer at
+`EntityScanState.ess_rom_ring_ptr` (`$04`), end found by `EntityWindow_ScanRingsRight`'s
+`move.l (a0), d0` / `beq .at_terminator`. A section already holding 128 rings has no free
+index at all, and that case must be refused rather than clamped.
 
-**The escape hatch is real but bounded, and it needs a walk.** An index at or above the
-section's real ring count aliases nothing — but **there is no stored per-section ring count**.
-The ROM ring list is a null-terminated array of 4-byte `dc.w X, dc.w Y` entries (pointer at
-`EntityScanState.ess_rom_ring_ptr`, offset `$04`), walked by a ratchet index in
-`EntityWindow_ScanRingsRight`, which finds the end with `move.l (a0), d0` / `beq
-.at_terminator`. So the count must be DERIVED by walking to the terminator, the free span is
-only `[count, MAX_LIST_ENTRIES-1]`, and a section already holding 128 rings has no free index
-at all. The record still dies on the next scroll either way.
+**2. It is swept once, off camera, and never comes back.** `EntityWindow_DespawnRings` deletes
+any record that leaves the camera window; `EntityWindow_TrySpawnRing` only ever re-adds from
+the ROM list. A record with no ROM entry behind it is removed on the first scroll past it and
+never returns. `SEC_VOID` is a section-id sentinel only — there is no `list_index` counterpart.
+**That pair is the whole reason the debugger's ring is temporary**, and it is a property of the
+design rather than a defect to fix.
 
-**Durable placement means editing the section's ring list and re-baking** — the editor's path
-(`tools/regenerate-level.sh`), not a runtime poke.
+**Durable placement is an edit to the section's ring list plus a re-bake** —
+`tools/regenerate-level.sh`, the editor's path, not a runtime poke.
+
+**Briefing note for whoever hands this to the consumer repo: comments do not reach the
+listing.** The Equate Table is `EQU <name> = $<value>` and nothing else, and the deb2 appendix
+carries addresses only. Both rules above have to travel as prose; they cannot ride in a symbol.

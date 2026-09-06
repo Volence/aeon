@@ -276,17 +276,20 @@ ensure(RING_ENTRY_SECTION_ID_OFFSET % 2 == 0 && RING_ENTRY_LIST_INDEX_OFFSET == 
 pub const RING_LIST_ENTRY_SIZE = 4      // dc.w X, dc.w Y — section-relative px
 pub const RING_LIST_TERMINATOR = 0      // a LONG zero ends the list
 
-// The walk finds the end with `move.l (a0), d0` / `beq`, which reads exactly one
-// entry and only recognises a zero one. Both halves of that are load-bearing: a
-// stride other than 4 would make the terminator test straddle two entries, and a
-// non-zero terminator would not be found at all.
+// ONE ensure, not two, and the second one is absent on purpose: a companion
+// `RING_LIST_ENTRY_SIZE == 1 << 2` reads like a separate guard on the seek's
+// shift, but `== 4` already implies it, so it could never fail while this one
+// passed. A guard that cannot fire is worse than no guard — it reads as
+// coverage. Both instructions that depend on the stride are named here instead.
+//
+// `move.l (a0), d0` / `beq` finds the end: it reads exactly one entry and only
+// recognises a zero one, so a stride other than 4 would make the test straddle
+// two entries and a non-zero terminator would never be found. And
+// EntityWindow_ScanRingsRight seeks to the ratchet index with `lsl.w #2`, a
+// literal shift that cannot be spelled with the constant — at any other stride
+// the seek lands mid-entry.
 ensure(RING_LIST_ENTRY_SIZE == 4 && RING_LIST_TERMINATOR == 0,
-       "the ROM ring list's end is found by `move.l (a0), d0 / beq` — that reads exactly one 4-byte entry and only detects a zero one")
-// ScanRingsRight seeks to the ratchet index with `lsl.w #2` rather than a
-// multiply. The shift amount is a literal at that instruction, so the stride
-// must stay its power of two or the walk lands mid-entry.
-ensure(RING_LIST_ENTRY_SIZE == 1 << 2,
-       "EntityWindow_ScanRingsRight seeks to the ratchet index with `lsl.w #2` — a different stride needs a different shift, and the walk would land mid-entry")
+       "the ROM ring list is walked by `move.l (a0), d0 / beq` and seeked by `lsl.w #2` — that pair reads exactly one 4-byte entry, only detects a zero terminator, and lands mid-entry at any other stride")
 
 // Driver-keyed BG tile-band animation (engine/level/bg_anim.emp). This sizes
 // engine/ram.emp's BgAnim_LastStep array, which is why it exists here at all —
