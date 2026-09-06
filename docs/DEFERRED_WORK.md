@@ -26971,7 +26971,88 @@ own launching face (checked by symmetry with the LEFT spring's; its top face is 
 
 ---
 
-### SP-5d — the bounce corridor does not close: the three new springs are sealed off from the level
+### SP-5d — the bounce corridor did not close — CLOSED 2026-09-06
+
+**The four SP-5 springs now stand on the spawn's own floor, and a player who does nothing but
+hold one direction from the spawn walks into one and is thrown back by it.** That last sentence
+is a leg, not a claim: `tools/spring_launch_witness.py` gained **L7 WALK FROM SPAWN**, the only
+leg in the file with no `put_player` anywhere in it, and the run is 9 legs (7 drives + 2
+controls) exit 0 on `s4.debug.bin`.
+
+**The edit is placement only** — `games/sonic4/data/editor/ojz/act1/section_0.objects.json`, four
+coordinate pairs. No terrain byte changed, no engine code changed.
+
+| spring | subtype | was | is | reached by |
+|---|---|---|---|---|
+| UP | `$00` | (300,584) | **(160,584)** | walking WEST from the spawn — L1/L2/L3/L4 |
+| LEFT | `$50` | (760,632) | **(360,584)** | walking EAST from the spawn — L5/C1/**L7** |
+| UP #2 | `$00` | (700,632) | **(440,584)** | the vertical pair's launcher |
+| DOWN | `$20` | (700,424) | **(430,478)** | jumped into from the floor — L6 |
+| RIGHT | `$10` | (560,632) | **(520,536)** | on the 544 platform — C2 |
+
+**The floor they moved onto, re-derived on this ROM rather than inherited.** The spawn settles
+the player at **(256,573)** — box 19×39, i.e. a 19px y-radius on a SOL_TOP surface at y=592 — and
+that surface is flat and continuous across **x=8..455**, with the spawn in the middle of it. A
+drop probe at x=32..1008 in 16px steps confirms it: y=573 everywhere from x=32 to x=448, then
+the 544 platform (y=525) from x=464, a pit at x=592 (he falls to y=829), and the 576 run
+(y=557) from x=768. So the springs did not need a new surface; they needed to be ON this one.
+
+**WHAT WAS RE-DERIVED, and what was taken on trust.** SP-5c's `y=525..573` walkable span is
+CONFIRMED on this ROM by the drop probe above, and the chambers are confirmed sealed by the
+authored collision (`section_0.collattr.bin`: the ledge's surface is at y=640, and the underside
+of the run above it is at y=560 for x=640..696 and y=592 for x=704..760 — the 64px chamber
+SP-5c describes). Two of SP-5c's figures were NOT re-measured and are not restated as this
+lane's: the RIGHT spring's 48px fly-past, and the 127px gap from the chamber ceiling to the down
+spring. Nothing here contradicts them; nothing here re-establishes them either.
+
+**One booked sentence UNDER-READS, and the correction is why the new layout looks the way it
+does.** *"The up spring at (700,632) sits in the middle of the ledge and blocks it"* reads as a
+fact about that ledge. It is a fact about every floor: **on this engine a floor-mounted up spring
+is a wall to a walker in BOTH directions**, because its side face is a plain solid — that is
+L1's whole claim, and L1 has been green since SP-1. So a single flat run affords exactly one
+walk-meetable spring per direction, and L1 needs one of the two to be an up spring. Hence: the
+up spring takes WEST, the LEFT spring takes EAST, and the RIGHT and DOWN springs sit behind the
+LEFT one, reachable only over the top of it. No leg makes that jump, and that is stated in the
+witness's own "what this does not establish" list rather than left to be discovered.
+
+**Two seats moved, both deliberately, both because the new floor is FLAT where the old one
+sloped:**
+
+* `JUMP_GROUND_DY` 100 → **95**. The old number was "somewhere above the sloping floor"; on the
+  flat floor 95 is his resting y exactly, so the seat IS the rest position. It also gained an
+  upper bound the old comment did not have: **a standing jump holding A rises 95px** — measured
+  directly, on flat ground with nothing overhead, apex at frame 30. The contact band starts one
+  curled contact face (22px) below the spring, so a seat deeper than **117px** could never reach
+  the underside at all; at 95 the rise needed is 73px against 95 available.
+  **That number is a correction of this lane's own first answer.** The obvious place to read a
+  jump height is L6's `apex reached` line — but that trace BREAKS at the contact band, so its
+  apex is a lower bound and nothing in the run says so. It reported 82; the jump is 95. A
+  quantity a run stops measuring is not a quantity the run measured.
+* `JUMP_DX` 30 → **20**. SP-5c's 30 worked because the old floor sloped and the fall added to
+  the air drift. Measured on the flat floor: the drift is **13px by frame 18**, which is the
+  frame he enters the contact band, so 30 left him ~17px off the axis against a 15px curled
+  contact face and the hook did not fire inside its 4-frame window — exit 2 on this parcel's
+  first build, ending 14px off axis at y=487. At 20 he is 7px off at band entry.
+
+**L7's red-first is a perturbation of the ARRANGEMENT, not of the checker** — the LEFT spring
+put back at its SP-5 home (760,632), re-baked and rebuilt, and L7 reports `THE CORRIDOR DOES NOT
+CONNECT` with the distance he was left short. A check written against the layout it was authored
+over would have been green by construction.
+
+**L7's vacuity line is the SPAWN, not the arrival**, and that is the lesson SP-5c's controls
+already paid for once (see "A control that reports `could not look`" below). Failing to *reach*
+the spring is the SP-5d defect itself and is reported as a **FAILURE**; only a spawn that is
+already inside the contact face, or already on the spring's back face, is exit 2.
+
+**What SP-5d does NOT do:** it does not open the chambers at y=632/424 — they are still sealed
+and now hold nothing. It does not make the RIGHT or DOWN spring walk-reachable (see above). And
+it does not give the level an up-spring-into-down-spring bounce that a *walker* can start, for
+the same reason: the up spring under the DOWN spring is at (440,584), behind the LEFT spring.
+The vertical pair bounces once you are on top of it.
+
+---
+
+### SP-5d — the original finding: the bounce corridor does not close (superseded by the closure above)
 
 **Measured on `s4.debug.bin`, 2026-09-06, and this is a placement bug, not a physics one.** The
 SP-5 placement commit (`013a36e0`) describes a playable corridor in OJZ act 1 section 0: run
@@ -26999,6 +27080,13 @@ asserted, so a level edit makes a leg UNMEASURABLE rather than quietly measuring
 else. **The fix is a level edit, not an engine one**, and it is the owner's call: move the three
 placements onto the surface run, or open the chambers. Until then no player will ever meet a
 side or underside spring by playing the level.
+
+**RESOLVED by the closure above (2026-09-06): the placements moved onto the surface run.** The
+seats stayed — they are how a leg starts from a stated position, not a workaround for an
+unreachable chamber — and L7 is the leg that owes the walk. The mechanism this entry describes
+is worth keeping: **eight green legs stood over a corridor no player could reach for a day**,
+because a seat cannot fail the way a corridor fails. Every seat asserted its own geometry and
+every one of those assertions was true.
 
 ---
 

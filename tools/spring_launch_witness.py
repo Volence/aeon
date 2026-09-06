@@ -122,20 +122,32 @@ code_addr -> TestSolid_Main. What it does NOT change is geometry, position or th
 player's approach, so L1 and L2 differ in exactly one thing: which of the two ROM copies
 of the side arm runs. The retype is asserted to have taken before the leg proceeds.
 
-THE THREE NEW LEGS DO NOT WALK IN FROM THE PLAYER'S SPAWN, and the reason is a measured
-property of the level rather than a shortcut. SP-5 placed the side and underside springs
-at y=632 and y=424 in OJZ act 1 section 0; the walkable surface a player reaches from the
-spawn runs at y=525..573 across that whole span, and the three new springs are in
-CHAMBERS above and below it, sealed off by terrain. Measured on this ROM: the two side
-springs float at the ends of a 120px ledge at y=621 in a lower chamber, the up spring at
-(700,632) sits between them and blocks the ledge with its own solid side face, and a
-player launched off that up spring hits the chamber ceiling at y=578 -- 127px BELOW the
-down spring at (700,424), which lives in a different chamber entirely. So the "bounce
-corridor" the placement commit describes does not close, and no path from the spawn
-reaches any of the three. Each new leg therefore SEATS the player in the chamber its
-spring lives in (the same `put_player` poke L4 already uses for its drop) and then PLAYS
-from there -- walks, jumps, falls -- so everything the leg asserts is physics. The
-placement gap is a real finding and is booked, not papered over.
+THE SEATS ARE STILL POKES, AND THE CORRIDOR THEY SIT IN IS NOW WALKABLE. SP-5 placed the
+side and underside springs at y=632 and y=424 in OJZ act 1 section 0, in chambers the
+walkable surface (y=525..573 across that span) never reaches: SP-5c measured it and SP-5d
+moved all four onto the spawn's own floor, the flat SOL_TOP run at surface y=592 that
+carries x=8..455 with the player's spawn at x=256 in the middle of it. Every one of them
+now stands on ground a player walks on -- and L7 proves that by walking there, from the
+spawn, with no poke at all.
+
+THE OTHER SIX LEGS KEEP THEIR SEATS ANYWAY, deliberately. A seat is not a shortcut around
+an unreachable chamber any more; it is how a leg starts from a stated, asserted position
+instead of from wherever an unrelated walk happened to end. `seat_and_settle` asserts the
+poke took AND that the engine's own ground probe left him standing, so a level edit that
+moves the floor makes the leg UNMEASURABLE rather than quietly measuring a player standing
+somewhere else. That property is the reason these seats exist and it is worth more than
+the six walks it replaces; L7 is the leg that owes the walk, and it is a drive leg with
+the same standing as the rest.
+
+WHY THE UP SPRING GETS ONE DIRECTION AND THE SIDE SPRING THE OTHER, since the layout looks
+arbitrary until you try to change it. On this engine an up spring's SIDE face is a plain
+solid (that is L1's whole claim), so a floor-mounted up spring is a WALL to a walker in
+both directions -- everything behind it can only be reached by jumping over it. A single
+flat run therefore affords exactly one walk-meetable spring per direction, and L1 needs one
+of them to be an up spring. So: the up spring sits WEST of the spawn (L1/L2/L3/L4 walk into
+its side), the LEFT spring sits EAST of it (L5/C1/L7 meet the face it points out of), and
+the remaining two -- the RIGHT spring C2 drops onto and the DOWN spring L6 jumps into --
+sit east of the LEFT spring, where a walker arrives over the top of it.
 
 WHAT THIS DOES NOT ESTABLISH, stated because it is where the object would fail next:
   * the two DIAGONAL directions still do not exist -- they decode to a (0, 0) vector and
@@ -144,8 +156,11 @@ WHAT THIS DOES NOT ESTABLISH, stated because it is where the object would fail n
     placement in section 0 is red.
   * the RIGHT spring is driven on its TOP face only (C2). Its launching face is checked
     by symmetry with the LEFT spring's, not by its own drive.
-  * no leg reaches any of the three new springs by WALKING FROM THE SPAWN, because no
-    such path exists in this level -- see the paragraph above.
+  * only the LEFT spring is reached by WALKING FROM THE SPAWN (L7). The up spring is
+    walked into by L1, but from a seat-free settle rather than as a launch; the RIGHT and
+    DOWN springs sit behind the LEFT one, so a walker meets that spring's launching face
+    first and is thrown back before he gets to them. Reaching those two on foot needs a
+    jump over the LEFT spring, and no leg below makes it.
   * the sound is not tested because the spring has no sound -- sfx $B1 is not in this
     game's bank (see games/sonic4/objects/test_solid.emp).
   * the PUSH POSE is not tested, because there is not one: S3K sets Status_Push here and
@@ -187,37 +202,54 @@ DROP_HEIGHT = 72         # px above the spring's centre to start the drop from
 ESCAPE_FRAMES = 60       # holding AWAY from the solid, for the L3 control
 STILL_FRAMES = 10        # consecutive unchanged x that counts as "come to rest"
 
-# --- SP-5c, the three new springs. Every offset below is a POSITION IN A CHAMBER the
-# player cannot walk to (see the docstring); each is chosen against a property of the
-# chamber that was measured on this ROM, and each is ASSERTED at the start of its leg so
-# a level edit that invalidates it goes UNMEASURABLE instead of quietly measuring
-# something else.
+# --- SP-5c/SP-5d, the four moved springs. Every offset below is a POSITION ON THE
+# SPAWN'S OWN FLOOR (surface y=592, player rest y=573, x=8..455 — see the docstring);
+# each is chosen against a property of that floor measured on this ROM, and each is
+# ASSERTED at the start of its leg so a level edit that invalidates it goes UNMEASURABLE
+# instead of quietly measuring something else.
 SIDE_APPROACH_DX = 40    # px from the side spring's centre the L5 walk starts. Outside
-                         # the contact face (17) by more than a body width, and inside
-                         # the measured 120px ledge the two side springs bracket.
-SIDE_SEAT_DY = 20        # px above the spring's centre to seat him for that walk — the
-                         # ledge is 11px above it and this is a short, safe drop onto it.
-SIDE_SETTLE = 90         # frames to land and come to rest on the ledge
+                         # the contact face (17) by more than a body width, and clear of
+                         # the up spring 200px west of it by an order of magnitude.
+SIDE_SEAT_DY = 20        # px above the spring's centre to seat him for that walk — his
+                         # rest is 11px above it and this is a short, safe drop onto it.
+SIDE_SETTLE = 90         # frames to land and come to rest on the floor
 SIDE_LAUNCH_FRAMES = 240 # frames of walking allowed before the launch is called absent
 BACK_DX = 34             # px from the centre C1's back-face approach starts, on the far
                          # side. Twice the contact face, so he starts clear of the box.
-BACK_FRAMES = 16         # frames sampled across the back-face contact. He is airborne
-                         # there (the ledge does not extend past the spring) and falls
-                         # out of the chamber after ~20.
+BACK_FRAMES = 16         # frames sampled across the back-face contact. He is GROUNDED
+                         # there since SP-5d (the floor runs past the spring on both
+                         # sides now) and runs into the face at PHYS_TOP_SPEED, so the
+                         # contact happens ~3 frames in and the window is a wide margin.
 SIDE_DROP_HEIGHT = 62    # px above the side spring's centre for C2's top-land drop.
-                         # NOT L4's 72: measured, this chamber's ceiling sits 88px above
-                         # the spring and a 72px drop starts the player inside it.
+                         # NOT L4's 72, kept from SP-5c: it is comfortably clear of the
+                         # 27px contact face and there is now no ceiling above the drop
+                         # at all (the spring stands on the open 544 platform).
 TOP_LAND_FRAMES = 90     # frames allowed for that drop to land
-JUMP_GROUND_DY = 100     # px BELOW the down spring's centre to seat the L6 jumper. The
-                         # floor there was measured at 93-110px below it across the span
-                         # the jump uses; the seat falls onto it and the settle asserts
-                         # he is grounded, so the exact number only has to be above it.
-JUMP_DX = 30             # px to the LEFT of the down spring the L6 jump starts from. The
-                         # floor under it slopes, so a standing jump drifts right; the
-                         # leg holds TOWARD the spring and this offset is what puts the
-                         # apex under it. Measured to work over a 15px window of starts.
+JUMP_GROUND_DY = 95      # px BELOW the down spring's centre to seat the L6 jumper. The
+                         # floor there is flat and puts his rest EXACTLY 95px below the
+                         # spring, so the seat is the rest position; the settle asserts
+                         # he is grounded, so the number only has to land him on it.
+                         # BOUNDED FROM ABOVE, and this is the bound the leg lives on: a
+                         # standing jump holding A rises 95px, measured on flat ground
+                         # with nothing overhead (apex at frame 30; the witness's own
+                         # trace CANNOT measure this — it breaks at the contact band, so
+                         # its "apex" is only ever a lower bound). The contact band starts
+                         # one curled contact face (22px) below the spring, so a seat
+                         # deeper than 117px could never reach the underside at all. At 95
+                         # the rise needed is 73px against 95 available — 22px of margin.
+JUMP_DX = 20             # px to the LEFT of the down spring the L6 jump starts from. The
+                         # leg holds TOWARD the spring for the whole ascent and the air
+                         # drift is what carries him under it: measured on this floor the
+                         # drift is 13px by frame 18, which is the frame he enters the
+                         # contact band, so the start offset must leave him inside the
+                         # curled 15px face by then. SP-5c used 30 against a SLOPING floor
+                         # whose fall added to the drift; on SP-5d's flat floor 30 left
+                         # him ~17px off the axis at band entry and the hook did not fire
+                         # inside its 4-frame window — measured, exit 2, ending 14px off
+                         # axis at y=487. At 20 he is 7px off at band entry.
 JUMP_TRACE_FRAMES = 45   # frames of ascent sampled before the underside contact
-DRIVE_LEGS = 6           # L1 · L2 · L3 · L4 · L5 side launch · L6 underside launch
+WALK_FRAMES = 300        # frames of walking L7 allows before it calls the corridor broken
+DRIVE_LEGS = 7           # L1 · L2 · L3 · L4 · L5 side launch · L6 underside · L7 walk
 CONTROL_LEGS = 2         # C1 back face · C2 top land
 LEGS = DRIVE_LEGS + CONTROL_LEGS
 
@@ -1180,11 +1212,16 @@ async def test_back_face(pr, spring, want, out, leg):
     `bmi` from Touch_Spring's side arm leaves behind. Only a hit on the OTHER face
     separates them.
 
-    HE IS AIRBORNE HERE AND THAT IS THE CHAMBER'S DOING, not a softening: the ledge the
-    L5 walk uses ends AT the spring, so there is no floor on its far side to walk in
-    along. Airborne is if anything the sharper test of "not launched" — his x_vel is the
-    only thing moving him, so a launch would be unmissable and the solid response has
-    nothing else to hide behind.
+    HE IS GROUNDED HERE SINCE SP-5d, and that is a strictly stronger version of the same
+    leg. Under SP-5c's chamber the ledge ended AT the spring, so the back-face approach
+    was a poked x_vel on an airborne player falling out of the chamber; on the spawn floor
+    the ground runs past the spring on both sides, so he arrives on his feet carrying
+    PHYS_TOP_SPEED in the GROUNDED driver as well. That matters because the speed kill
+    this leg asserts lives half in `clr.w x_vel` and half in Game.solid_pushed's write to
+    the inertia field — an airborne approach only ever exercised the first half.
+    The poke puts him at the SPRING's y, which is 11px below his resting y on this floor;
+    the engine's own ground probe lifts him on frame 1, which is why the x column printed
+    at the end no longer drifts outward.
 
     THE ANIMATION IS THE HOOK WITNESS. Game.spring_launched's first act is to restart the
     fire animation, so an `anim` that never leaves SPRING_ANIM_IDLE across the whole
@@ -1285,13 +1322,14 @@ async def test_back_face(pr, spring, want, out, leg):
     # both drivers zeroed on the very next frame.
     #
     # NOT THE LAST FRAME EITHER, and this leg is the one place in the file where that
-    # distinction bites. He is AIRBORNE on the back face (there is no floor on that side
-    # of the spring — see the header) and therefore FALLING out of the chamber while the
-    # window runs. Measured: he holds 16px from the centre for six frames and then moves
-    # to 17px on the frame his y passes 644, which is his own terrain wall probe against
-    # the chamber wall and not this spring's side face — the section holds exactly one
-    # other live object at the time, 800px away at (808,210). A resting gap read at
-    # frame 16 is a statement about the chamber, so it is reported and not asserted.
+    # distinction bites. Under SP-5c's chamber he was AIRBORNE on the back face and
+    # falling out of it while the window ran: measured then, he held 16px from the centre
+    # for six frames and then moved to 17px on the frame his y passed 644 — his own
+    # terrain wall probe against the chamber wall, not this spring's side face. On
+    # SP-5d's floor he is grounded and the column holds 16 to the end, but the frame the
+    # push COMPLETES is still the right thing to assert and a frame-16 reading is still a
+    # statement about the surroundings, so the structure stays as it is rather than being
+    # re-fitted to the friendlier geometry.
     if pushed is None:
         raise Unmeasurable(
             f"{leg}: the player entered the back face on the last sampled frame of "
@@ -1321,8 +1359,7 @@ async def test_back_face(pr, spring, want, out, leg):
     else:
         out.append(f"  {leg}: x_vel and ground_speed are both 0 on that frame — the speed "
                    f"kill ran, so the back face is the ordinary solid and not a no-op")
-    out.append(f"  {leg}: x across the whole {BACK_FRAMES}-frame window (he is airborne and "
-               f"falling out of the chamber): " +
+    out.append(f"  {leg}: x across the whole {BACK_FRAMES}-frame window: " +
                " ".join(str(r["x"] - spring["x"]) for r in rows))
     return fails
 
@@ -1341,10 +1378,11 @@ async def test_top_land(pr, spring, out, leg):
     y_vel zeroed) AND the absence of a sideways launch in both drivers AND that the fire
     animation never started.
 
-    IT DRIVES THE OTHER SIDE SPRING FROM L5/C1, deliberately: this chamber's ceiling sits
-    88px above it against 48px above L5's, so it is the placement with room for a drop
-    that is unambiguously a fall. The leg first asserts its subject really is
-    side-pointing, so it cannot quietly become a second run of L4.
+    IT DRIVES THE OTHER SIDE SPRING FROM L5/C1, deliberately, and since SP-5d that spring
+    stands on the open 544 platform with nothing above it at all — so the drop is
+    unambiguously a fall rather than a start already inside something. The leg first
+    asserts its subject really is side-pointing, so it cannot quietly become a second run
+    of L4.
     """
     if spring["xv"] == 0 or spring["yv"] != 0:
         raise Unmeasurable(
@@ -1449,6 +1487,124 @@ async def test_top_land(pr, spring, out, leg):
     else:
         out.append(f"  {leg}: the spring's anim stayed SPRING_ANIM_IDLE throughout — the "
                    f"launch hook was never invoked")
+    return fails
+
+
+async def test_walk_from_spawn(pr, spring, want, out, leg):
+    """L7 — from the SPAWN, with no poke at all, walk to a spring and be launched by it.
+
+    THIS IS THE ONLY LEG WITH NO `put_player` IN IT, and that is the whole claim. Every
+    other leg in this file starts from a seat: an asserted position the run puts the
+    player in, chosen so the leg measures one face rather than one route. Seats are the
+    right instrument for a face, and the wrong one for a QUESTION ABOUT THE LEVEL. SP-5c
+    measured that no path from the spawn reached any of the three springs SP-5 placed —
+    every one of them sat in a sealed chamber — and every leg was green throughout,
+    because a seat cannot tell you whether a walker could have got there. So the corridor
+    was broken for a day with an eight-leg PASS standing over it.
+
+    WHAT IT ASSERTS, and each of the three fails for a different reason:
+
+      HE ARRIVED       holding one direction from the settled spawn state, he must reach
+                       the spring's contact face inside WALK_FRAMES. Failing THAT is the
+                       SP-5d defect itself and is a FAILURE, not an exit 2: "the walk did
+                       not get there" is exactly the thing this leg exists to detect, and
+                       reporting it as unmeasurable would reproduce the day it was missed.
+      HE WAS LAUNCHED  Spring_Launched fires and `x_vel` at the hook is EXACTLY the ROM's
+                       Spring_Launch entry for this spring — the same value L5 asserts,
+                       reached by walking rather than from a seat 40px out.
+      HE WAS THROWN BACK  three frames on he must be further from the spring than he was
+                       at the hook, by at least half one launch step. A walker covers
+                       ~2px/frame against a 16px launch, so the two regimes cannot be
+                       confused.
+
+    THE VACUITY LINE IS THE SPAWN ITSELF, not the arrival. If the settle already leaves
+    him inside the contact face there was no walk to make, and if he is already on the
+    spring's BACK face then the level puts the spring the wrong way round for a walker —
+    both are exit 2, because neither measures the corridor. Everything after the first
+    step he takes is a verdict.
+    """
+    p0 = await pr.player_state()
+    side = launch_side_of(spring)
+    half_w = (p0["w"] + spring["w"]) // 2
+    dx0 = p0["x"] - spring["x"]
+    if abs(dx0) <= half_w:
+        raise Unmeasurable(
+            f"{leg}: the player's own spawn settles him {abs(dx0)}px from the spring's "
+            f"centre, inside its {half_w}px contact face — there is no walk to make and "
+            f"nothing about reaching it from the spawn would be measured")
+    if (1 if dx0 > 0 else -1) != side:
+        raise Unmeasurable(
+            f"{leg}: the spawn puts the player on the side x={dx0:+d}, but this spring's "
+            f"x_vel {spring['xv']} points the other way — a walker from the spawn meets "
+            f"its BACK face, which is a solid, so no walk from the spawn can be launched "
+            f"by it. Turn the spring round or move it to the other side of him")
+    if await pr.anim(spring["sst"]) != SPRING_ANIM_IDLE:
+        raise Unmeasurable(f"{leg}: the spring is already animating before the walk starts")
+    button = "right" if dx0 < 0 else "left"
+    out.append(f"  {leg}: the player is where the LEVEL put him — settled at "
+               f"(x={p0['x']},y={p0['y']}) with no poke of any kind. The spring at "
+               f"(x={spring['x']},y={spring['y']}) sub=${spring['sub']:02X} launch="
+               f"({spring['xv']},{spring['yv']}) is {abs(dx0)}px away on the "
+               f"{'RIGHT' if side > 0 else 'LEFT'} face it points out of; holding "
+               f"{button.upper()} and nothing else")
+
+    reached = None
+    await pr.hold(button, True)
+    try:
+        for f in range(WALK_FRAMES):
+            await pr.frames(1)
+            st = await pr.player_state()
+            if abs(st["x"] - spring["x"]) < half_w:
+                reached = (f + 1, st)
+                break
+        if reached is None:
+            st = await pr.player_state()
+            await pr.hold(button, False)
+            return [f"{leg}: THE CORRIDOR DOES NOT CONNECT — {WALK_FRAMES} frames of "
+                    f"holding {button.upper()} from the spawn left the player at "
+                    f"(x={st['x']},y={st['y']}), still {abs(st['x'] - spring['x'])}px from "
+                    f"the spring's {half_w}px contact face (he started {abs(dx0)}px out). "
+                    f"No path from the spawn reaches this spring, which is the SP-5d "
+                    f"defect and not a property of the spring"]
+        r = await pr.run_to_hook(4)
+    finally:
+        await pr.hold(button, False)
+
+    frames_to_reach, arrival = reached
+    fails = []
+    if not r.get("reached"):
+        st = await pr.player_state()
+        return fails + [
+            f"{leg}: he WALKED INTO IT AND NOTHING FIRED — he reached the contact face "
+            f"after {frames_to_reach} frames (at x={arrival['x']}, {arrival['x'] - spring['x']:+d} "
+            f"from the centre) and Spring_Launched was not invoked within 4 frames; he is "
+            f"now at (x={st['x']},y={st['y']}) x_vel={st['xv']}"]
+
+    st = await pr.player_state()
+    gap0 = abs(st["x"] - spring["x"])
+    out.append(f"  {leg}: reached the {half_w}px contact face after {frames_to_reach} frames "
+               f"of walking and stopped INSIDE Spring_Launched "
+               f"(${pr.sym['Spring_Launched']:06X}) at x={st['x']}, {gap0}px from the "
+               f"centre, carrying {arrival['gsp']} (8.8) of walk")
+    if st["xv"] != want:
+        fails.append(f"{leg}: LAUNCH VELOCITY {st['xv']} at the hook, reference {want} "
+                     f"(difference {st['xv'] - want})")
+    else:
+        out.append(f"  {leg}: x_vel at the hook = {st['xv']} == the ROM's "
+                   f"Spring_Launch[Left,Red].x {want} ({want / 256:.1f} px/frame) — the "
+                   f"walk from the spawn ends in the derived launch")
+
+    await pr.frames(3)
+    end = await pr.player_state()
+    gap = abs(end["x"] - spring["x"])
+    floor_px = (abs(want) // 256) // 2
+    if gap - gap0 < floor_px:
+        fails.append(f"{leg}: HE DID NOT LEAVE: three frames after the launch he is {gap}px "
+                     f"from the spring's centre against {gap0}px at the hook, a gain of "
+                     f"{gap - gap0}px under the {floor_px}px floor")
+    else:
+        out.append(f"  {leg}: three frames on he is {gap}px out (was {gap0}px), "
+                   f"+{gap - gap0}px AWAY — he walked in from the spawn and was thrown back")
     return fails
 
 
@@ -1733,6 +1889,16 @@ async def run(sock, rom, lst, want_launch, table, subtypes, out):
     fails += await test_underside_launch(pr, down, table[("Down", "Red")][1], out, "L6")
     legs.append("L6 underside launch")
 
+    # ---- SP-5d. The one leg with no poke in it: does the level CONNECT? Every leg above
+    # starts from a seat, and a seat cannot fail the way a corridor fails — SP-5c's eight
+    # legs were green for a day over three springs no player could reach.
+    out.append("BOOT 8 (L7 walk from the spawn — the corridor, not the face):")
+    springs = await boot_and_settle(pr, spring_code, out)
+    left = pick_by_subtype(springs, subtypes, ("Left", "Red"), "L7")
+    out.append("L7 WALK FROM SPAWN (no put_player anywhere in this leg):")
+    fails += await test_walk_from_spawn(pr, left, table[("Left", "Red")][0], out, "L7")
+    legs.append("L7 walk from spawn")
+
     # THE LEG COUNT IS ITSELF AN ASSERTION. A leg that raised Unmeasurable never reaches
     # here (the run exits 2), but a leg deleted or short-circuited during an edit would
     # otherwise leave a smaller run reading exactly like a clean pass.
@@ -1913,7 +2079,9 @@ def main():
           f"a walk into a LEFT spring's launching face throws him sideways at "
           f"{table[('Left', 'Red')][0]} in BOTH drivers, a jump into a DOWN spring's "
           f"underside throws him down at {table[('Down', 'Red')][1]}, and neither that side "
-          f"spring's BACK face nor a side spring's TOP face launches anything")
+          f"spring's BACK face nor a side spring's TOP face launches anything — and a "
+          f"player who does nothing but hold one direction FROM THE SPAWN walks into that "
+          f"LEFT spring and is thrown back by it, so the corridor connects")
     return 0
 
 

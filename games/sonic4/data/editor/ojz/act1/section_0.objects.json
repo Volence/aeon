@@ -6,32 +6,32 @@
     "subtype": 0
   },
   {
-    "x": 300,
+    "x": 160,
     "y": 584,
     "typeId": "spring",
     "subtype": 0
   },
   {
-    "x": 560,
-    "y": 632,
+    "x": 520,
+    "y": 536,
     "typeId": "spring",
     "subtype": 16
   },
   {
-    "x": 700,
-    "y": 424,
+    "x": 430,
+    "y": 478,
     "typeId": "spring",
     "subtype": 32
   },
   {
-    "x": 700,
-    "y": 632,
+    "x": 440,
+    "y": 584,
     "typeId": "spring",
     "subtype": 0
   },
   {
-    "x": 760,
-    "y": 632,
+    "x": 360,
+    "y": 584,
     "typeId": "spring",
     "subtype": 80
   },
