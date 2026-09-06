@@ -34,6 +34,11 @@ import argparse, json, struct, os, sys
 # $8000-$BFFF region. Do not restate the number here — read it from the import.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from vram_map import GAME as _VRAM_MAP_GAME, BG_TILE_BASE_SLOT, BG_TILE_CAPACITY
+#: The bank-placement floor, DERIVED from the tool that owns it rather than restated.
+#: A literal `16 KiB` sat in the refusal below for two days after the 2026-09-04 raise
+#: to 0xC000, invisible to a line-based prose sweep because the figure and its bound
+#: word sit on different physical lines of the same message.
+from bganim_room import DATA_GROWTH_RESERVE as _BANK_PLACEMENT_FLOOR
 assert _VRAM_MAP_GAME == 'sonic4', (
     f"tools/vram_map.py was generated for {_VRAM_MAP_GAME!r}, not sonic4 — "
     "regenerate: python3 tools/gen_vram_map.py --game sonic4 "
@@ -405,8 +410,10 @@ def check_bganim_section_fits(anims, section=None):
         f"  a literal here said '12 KiB' for two days after the 2026-09-04 raise,\n"
         f"  telling the author a bound this gate was not enforcing.\n"
         f"  `{section}` grows into the room before the `dac_banks` anchor, which the\n"
-        f"  BANK PLACEMENT RULE in games/sonic4/map.toml keeps at >= 16 KiB in every\n"
-        f"  shape; the ceiling is the budget INSIDE that room, and raising it is an\n"
+        f"  BANK PLACEMENT RULE in games/sonic4/map.toml keeps at >= "
+        f"{_BANK_PLACEMENT_FLOOR:,} B\n"
+        f"  (DATA_GROWTH_RESERVE) in every shape; the ceiling is the budget INSIDE that\n"
+        f"  room, and raising it is an\n"
         f"  owner ruling, not an edit. Run `python3 tools/bganim_room.py --lst\n"
         f"  s4.debug.lst` for the live room derivation.")
     raise SystemExit(

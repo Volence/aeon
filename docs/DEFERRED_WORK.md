@@ -27653,3 +27653,50 @@ unproven, and aurora's captions are viewer-facing (*"vertical scrolls UP"*, *"ev
 points at it moves the same way"*). Closing it needs plane cells in row-major order over the
 band's slots — an authoring change. Aurora has declined to spend one on a caption word while W1
 is open, which is the right call, and has made their flag precise instead.
+
+## THE PROSE-BOUND SWEEP, UPGRADED TO JOIN ADJACENT LITERALS — and the upgrade immediately found a second stale bound in the message I had just repaired (2026-09-06T11:33:23Z)
+
+**Supersedes the sweep booked earlier today.** That one matched PHYSICAL LINES and its own
+write-up named the blind spot: *"a bound split across two adjacent string literals carries
+neither half alone, which is precisely the shape the FIXED message now has."* The aurora lane
+then reported that on their side — multi-line JSX `title=` attributes and template literals —
+**the split shape is not the edge case, it is the common case**, and that our predicate borrowed
+unchanged *"would have come back near-empty here and I would have had no way to tell that from a
+clean repo."* So the upgrade got done rather than booked.
+
+**THE INSTRUMENT: `tools/prose_bound_sweep.py`, with `--self-test` as its positive control.**
+Python concatenates adjacent string literals at PARSE time, so an **AST walk sees a multi-line
+message as one logical string for free** — the joining is not code we write, it is the parser's.
+f-string `{...}` parts are MASKED, so a derived figure is correctly not a defect.
+
+**IT FOUND A SECOND STALE BOUND, THREE LINES BELOW THE ONE I HAD JUST FIXED.** The same refusal
+message said the bank-placement rule *"keeps at >= 16 KiB in every shape"*. The rule demands
+`DATA_GROWTH_RESERVE = 0xC000` = **49,152 B**, raised from `0x4000` on **2026-09-04 — the same
+ruling that made the 12 KiB stale.** Two wrong bounds, one message, one cause, and the line-based
+sweep was **structurally incapable** of seeing the second while finding the first. Fixed at the
+same time by importing `DATA_GROWTH_RESERVE` from `bganim_room` — derived, not re-typed.
+
+**THE COST OF JOINING, MEASURED — report this when borrowing the tool, because recall is not
+free.** Over `tools/`: line-based **21** sites → joining alone **158** → joining + an 80-char
+proximity window **82** → plus an ISO-date filter **67**. Joining alone collapses precision
+because a whole module docstring becomes one string and almost always contains SOME bound word and
+SOME number; 23 of the 82 were dates like `2026-09-04` sitting near the word "budget". **The
+proximity window is what makes the joined form reviewable**, and the known defect had its bound
+word and number 55 characters apart, so 80 is derived from the case rather than picked.
+
+**STILL OPEN — two stale ceiling docstrings the joined sweep surfaced, NOT fixed here** (scope: the
+queue front is elsewhere and these are docstrings on tests that PASS, because the test bodies
+derive while their prose does not):
+- `tools/test_bg_emit.py:1513` — *"the DEBUG shape's room holds the ruled 12,288"*
+- `tools/test_bg_emit.py:1554` — *"still holds the 12,288 ceiling"*
+- `tools/bganim_vprobe_gen.py:2` — module docstring carrying 12,288
+
+The ruled ceiling is **20,480** since 2026-09-04 (`inject_editor_bg.py:197`). This is the shared
+protocol's own worst case — **a stale ruling inside a test comment outlives every doc that
+recorded its revision**, because the doc gets superseded by the next pass while nobody re-reads a
+comment. Fix by naming the constant, never by re-typing 20,480.
+
+**AND THE SWEEP'S REMAINING BLIND SPOTS, named:** `.emp` comments and `ensure` messages;
+`build.sh` prose; `docs/`; a number spelled in words. The AST form closes the adjacent-literal
+hole for Python ONLY — a TypeScript consumer needs its own joiner, which is the cost the aurora
+lane is paying now.
