@@ -26463,6 +26463,82 @@ editor seam, so it is aurora's and the owner's rather than a lane-local tidy.
 
 ---
 
+### Worktree prune: BOTH proposed safety criteria FAIL on this tree - 2026-09-05
+
+**Measured:** 236 worktrees, 488 local branches, 30 NOT merged to master, 6.2 GB in
+`.claude/worktrees` alone.
+
+**⚠ THE ANCESTOR CRITERION IS UNSAFE AND THIS ENTRY ORIGINALLY GAVE IT AS THE RULE.** "Tip is an
+ancestor of master" calls a FRESH agent worktree removable: a tree started at master HEAD, or one
+whose work has just been merged, is trivially an ancestor while the agent is still running in it.
+**Demonstrated here, on a LIVE agent's tree:** `.aeon-f7-tilt` at tip `07e10b05` IS an ancestor of
+master (its parcel was merged at `47218de1`) while its agent was still working. The criterion would
+have deleted a running agent's tree. Aurora caught the general case against their own repo; this is
+the specific case sitting in mine.
+
+**⚠ AND THE LOCK DOES NOT PROTECT THIS TREE.** Aurora's live worktrees were saved by Claude Code's
+worktree lock, which makes `git worktree remove --force` refuse with exit 128. Checked here:
+**5 of 236 worktrees are locked, and NEITHER live agent tree is among them.** `.aeon-f7-tilt` and
+`aeon-spring` both report `locked: no`. So the protection that worked for aurora is absent here,
+and a prune trusting it would have destroyed uncommitted work.
+
+**THE LOCK'S PID IS THE SESSION'S, NOT THE AGENT'S** (oracle's finding, reproduced here). All 5
+locked trees carry the identical reason shape `claude agent agent-<id> (pid 2022819 start
+78417804)`, and **2022819 is one pid on every lock, alive, and is this session's `claude`
+process**. So "unlock if the pid is gone" would unlock every tree a session made the moment that
+session restarts, live ones included. **The lock is a reliable REFUSAL and a useless LIVENESS
+SIGNAL.** Liveness comes from knowing which agents you started, nothing else.
+
+**AND THE LOCKING IS NOT UNIFORM HERE, which is why aurora's protection was absent.** All 5 locked
+trees are harness-created under `.claude/worktrees/agent-*`, and they are from EARLIER runs whose
+agents are long dead, still locked by a live session pid. Tonight's two live agents created their
+own worktrees at SIBLING paths (`/home/volence/sonic_hacks/.aeon-f7-tilt`, `aeon-spring`) and those
+carry no lock at all. So the lock tracks HOW a tree was created, not whether anything is using it,
+and it is present on dead trees and absent on live ones simultaneously.
+
+**NEVER PASS A SECOND `-f`.** `git worktree remove -f -f` overrides the lock and destroys a live
+agent's uncommitted work. Treat a lock refusal as the answer, not an obstacle.
+
+**WHAT ACTUALLY PROTECTED THIS TREE TONIGHT WAS THE DEFERRAL**, nothing else. Not the lock, which
+is absent, and not the ancestor test, which pointed the wrong way. That is the argument for the
+ordering below rather than for any single check.
+
+**SAFE ORDER when it is finally run:**
+1. **Live agents first.** If any agent holds a tree, DEFER. This is the only step that worked.
+2. **Honour a lock refusal** where a lock exists; never `-f -f`.
+3. **Ancestor test only as a staleness HINT** among unlocked, agent-free trees, and it cuts both
+   ways: a squash or rebase merge makes a landed branch a NON-ancestor too.
+4. **`du -sh` per tree before count.** Oracle's three dead worktrees held 25 GB, nearly all
+   `target/`; count does not predict disk.
+
+**The 30 unmerged branches STAY and are named in `901f4d87`'s message.** Two are from today about
+subjects still open (`fix/floor-kink-stale-rom-2026-09-05`, `fix/sec7-scene-fg-tear-witness`).
+
+**ORACLE'S REORDERING, strongest evidence first, and it replaces the order above.** Ask "what is
+destroyed if I am wrong", not "is this agent alive":
+
+1. **What is IN THE TREE** - uncommitted work and non-`target/` size. Use
+   `git status --porcelain --ignored`: **plain porcelain HIDES ignored scratch**, which is exactly
+   the unrecoverable material.
+2. **Deferral while agents run.**
+3. **Lock refusal** where a lock exists.
+4. **Your own record of what you started.**
+5. **Ancestor status**, last and weakest.
+
+**THE LOCK'S `start` NUMBER IS A PID-REUSE GUARD** (aurora's finding, verified against MY lock
+format because they said to read it rather than trust theirs). My reason reads `pid 2022819 start
+78417804`, and `/proc/2022819/stat` field 22 is **78417804** exactly - the process start time in
+jiffies. So `pid + start` identifies a session unambiguously even after pid reuse.
+
+**Usable in ONE direction only.** Session GONE means no live agent, and a dirty check
+(`--ignored`) must still precede removal. Session ALIVE says nothing at all: on this tree it is
+alive right now while every locked worktree belongs to a long-dead agent, so the live-session
+reading would protect exactly the trees that need no protection.
+
+**PID AND "CWD INSIDE THE TREE" ARE EXCLUDED OUTRIGHT.** An agent between tool calls has no process
+anywhere near its worktree, so a zero there is an absence with no control behind it - the same
+shape as every null instrument booked tonight.
+
 ## Spring parcel (2026-09-05) — three items the spring surfaced and did not close
 
 The vertical red spring landed on branch `spring-object`
