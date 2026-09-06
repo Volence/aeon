@@ -122,8 +122,40 @@ const REMAP_STATE_LONGS     = BAND_REMAP_BYTES / 4
 // already pays 8 bytes per band for a capability it does not declare — the precedent, not an
 // accident). 256 bytes is what demo pays here.
 const WATERLINE_ART_BYTES   = 256   // 16 * H; pinned against parallax_dsl in bg_anim.emp
+// PARALLAX_CFG_HDR_LEN — sizeof(parallax_config), a SEVENTH mirror for the six above's
+// reason: it sizes an array here (the live-effects scratch at the RAM tail) and is declared
+// in engine/structs.emp, and the two must not drift silently. Pinned against the ambient
+// struct harvest one screen down, exactly as BAND_ENTRY_LEN is.
+//
+// THIS IS THE HEADER ONLY. A parallax config on ROM is `sizeof(parallax_config)` followed by
+// `pcfg_band_count` band records, so the scratch's size is this plus the SAME per-band sum
+// the five tail mirrors above feed into `Parallax_Shadow_Bands` — see PARALLAX_SCRATCH_BYTES.
+const PARALLAX_CFG_HDR_LEN  = 30    // sizeof(parallax_config); pinned below
+// PARALLAX_SCRATCH_BYTES — the live-effects scratch config (LIVE-EFFECTS, owner 2026-09-06).
+//
+// DERIVED, NOT CHOSEN, and the derivation is the whole argument for the number: the scratch
+// must be able to hold ANY config `Parallax_StartTransition` can be handed, and the widest
+// such config is a full-band one —
+//
+//     sizeof(parallax_config)                       = PARALLAX_CFG_HDR_LEN          =  30
+//   + sizeof(band_record) * MAX_PARALLAX_BANDS      = (10+0+10+4+8) * 16 = 32 * 16  = 512
+//                                                                                   -----
+//                                                                                     542
+//
+// Both halves are pinned rather than trusted. The header half by the `parallax_config_len`
+// harvest ensure below; the per-band half by the mirror sum being LITERALLY the expression
+// `Parallax_Shadow_Bands` is reserved with, which engine/level/parallax.emp already checks
+// against `sizeof(band_record) * MAX_PARALLAX_BANDS` by adjacent-symbol difference. So a
+// capability flip that widens a band cannot leave this array short without failing that
+// guard first — there is no second authority to forget.
+//
+// NOT sized to what the shipped registry happens to author. A scratch shorter than the
+// ceiling would need the copy to clamp or refuse on a wide config, and a clamp is the
+// silently-wrong-picture failure this tree spends its guards on.
+const PARALLAX_SCRATCH_BYTES = PARALLAX_CFG_HDR_LEN + (BAND_ENTRY_LEN + BAND_EXT_BYTES + BAND_CURVE_BYTES + BAND_DRIFT_BYTES + BAND_REMAP_BYTES) * MAX_PARALLAX_BANDS
 ensure(extern("EntityScanState_len") == ENTITY_SCAN_STATE_LEN, "EntityScanState size drifted from ram.emp's mirror — update ENTITY_SCAN_STATE_LEN")
 ensure(extern("band_entry_len") == BAND_ENTRY_LEN, "band_entry size drifted from ram.emp's mirror — update BAND_ENTRY_LEN")
+ensure(extern("parallax_config_len") == PARALLAX_CFG_HDR_LEN, "parallax_config size drifted from ram.emp's mirror — update PARALLAX_CFG_HDR_LEN (it sizes the live-effects scratch, whose copy would then over- or under-run)")
 
 // The VDP shadow table has TWO authorities for one number and nothing related
 // them. This module reserves the buffer as `[u8; sizeof(VdpShadow)]` (derived),
@@ -1528,6 +1560,50 @@ pub vars upper_ram {
     Waterline_Art_LastRow:  u32,        // the row the VRAM strips were built from
     Waterline_Art_Buffer:   [u8; WATERLINE_ART_BYTES],  // gather target; one DMA source
     mark Waterline_Art_State_End,
+
+    // --- Live-effects parallax scratch (LIVE-EFFECTS, owner 2026-09-06, DEBUG only) ---
+    // A RAM working copy of a parallax config, so a scene's fields can be EDITED IN PLACE.
+    // `Parallax_Current_Config` points at ROM, so without this an external editor (the
+    // Oracle live-effects panel) can SELECT a scene and cannot NUDGE one — the S hook
+    // docs/2026-09-06-live-effects-ram-surface.md §4 names.
+    //
+    // THIS IS THE RASTER CHANNEL'S SHAPE, NOT A NEW ONE: Raster_Buf_A/_B are RAM working
+    // copies that `Raster_Program` legitimately points at, and this is the parallax twin.
+    // ONE buffer, not two, and the asymmetry is derived rather than inherited — the raster
+    // pair exists because Raster_BuildSchedule REBUILDS the program every VBlank while
+    // Raster_HInt walks the live one, so the engine is its own second writer and needs a
+    // back buffer. Nothing rebuilds a parallax config: it is read-only input, read once per
+    // frame by Parallax_Update. The only writer is the editor, which writes under pause
+    // (that note's §5). A second buffer here would have no producer.
+    //
+    // SIZE: PARALLAX_SCRATCH_BYTES, derived at the mirror block at the top of this file.
+    //
+    // Placed at the RAM TAIL and @shape_divergent, for the five blocks above's reason: the
+    // DEBUG-shape addition ripples ZERO existing engine-RAM addresses; only Engine_RAM_End
+    // and the game RAM chained after it move, and only in the DEBUG shape.
+    //
+    // DEBUG-ONLY, and the argument is written out at Parallax_InstallScratch
+    // (engine/level/parallax.emp) rather than duplicated here. The short form: nothing in a
+    // release build can install it — a game wanting a runtime-built config already has
+    // `Parallax_StartTransition`, which is public and in both shapes — so a resident scratch
+    // would be 542 bytes of work RAM no shipped path reaches.
+    // Parallax_Scratch_Arm is the REQUEST cell, and it exists because the editor drives a
+    // BUS, not a call stack: an Aether client can write a byte and run a frame, and cannot
+    // force a `jsr`. So the hook is armed by a poke and serviced at the head of
+    // Parallax_Update. Nonzero = "install the scratch on the next frame"; the engine clears
+    // it as it services it. Not a status byte — whether the install took is answered by
+    // reading Parallax_Current_Config and comparing it against Parallax_Scratch_Config,
+    // which is the fact itself rather than a report of it.
+    //
+    // The array is declared FIRST so its base inherits Waterline_Art_State_End's parity
+    // (even) rather than depending on the byte below it; the copy runs `move.w`, and an odd
+    // base is a 68000 address error.
+    if DEBUG == 1 @shape_divergent {
+        Parallax_Scratch_Config: [u8; PARALLAX_SCRATCH_BYTES],
+        mark Parallax_Scratch_Config_End,
+        Parallax_Scratch_Arm:   u8,     // nonzero = install the scratch; engine clears
+        pad(1),                         // keep Engine_RAM_End (and all game RAM) even
+    }
 
     // Engine RAM ends here — game RAM continues from Engine_RAM_End
     // (games/<game>/config/ram.emp declares `game_ram @ after(upper_ram)`).
