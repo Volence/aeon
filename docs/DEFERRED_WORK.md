@@ -27990,3 +27990,29 @@ because the twins' single-band premise is load-bearing for the effects lab, not 
 **COUPLING TO AURORA: their exposure parcel does not deliver the workflow without this.** If it
 lands while the emitter still refuses on band 2, an author using both features in the obvious
 order still hits the wall. Told them directly rather than letting them meet it in a landing.
+
+### RULED — (b) DECOUPLE, hub in the owner's place, listed on his card, overturnable (2026-09-06T12:02:51Z)
+
+**The decision card for this was DRAFTED AND NOT FILED**, deliberately: the ruling arrived while it
+was in validation, and appending it would have put a question to the owner that had already been
+answered and listed for him. Two framings of one decision reaching him is the failure the one-card
+rule exists for, and it does not stop being that failure when the second one is mine.
+
+**THE RULING: the DEBUG view twins condition on exactly one band; `default_off` is a per-band SHIP
+decision independent of them.** Grounds, the hub's: (a)'s cost is **silence** — an author grows an
+act and the comparison feature vanishes unannounced, which is the failure class this whole day has
+been about; (b) keeps his 09-04 shape intact for the single-band act he plays and makes aurora's
+switch a workflow instead of a wall.
+
+**SEQUENCING, mine: after F-CLASS.** Aurora's disclosure at `Promote` — a warning saying a second
+band currently fails the build and why — **covers authors until this lands and retires when it
+does**, so the wall is announced rather than met. That is what makes it safe to sequence rather
+than interrupt.
+
+**The premise that expired, recorded because neither lane saw it and the mechanism is general:**
+the refusal was correct for a world where the only writer was a hand-edited file and adding a band
+was a deliberate act by someone who would understand the message. **Aurora's `promoteBandCommand`
+changed who the writer is.** Neither lane noticed — this one because nothing in its tree changed,
+theirs because they never asked what their control implies for ours. **A consumer that adds a
+surface changes the producer's assumptions without touching a byte of the producer's code**, and
+there is no gate on either side that watches for it.
