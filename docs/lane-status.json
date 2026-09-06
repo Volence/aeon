@@ -123,9 +123,16 @@
       "state": "open",
       "size": "M",
       "blockedBy": null
+    },
+    {
+      "id": "AETHER-LIMITS",
+      "title": "Derive read/run caps from the handshake instead of retyping them; throw when a server omits limits",
+      "state": "open",
+      "size": "S",
+      "blockedBy": null
     }
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-06T03:17:19Z"
+  "updatedAt": "2026-09-06T03:36:55Z"
 }
