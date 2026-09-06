@@ -1114,3 +1114,173 @@ fragile-by-shape** — a future VDP touch in that selector would silently redire
 burst. **`Drain_Budgeted_Queue`'s flip-flop precondition holds** because `reg_set` bounds authored
 words to `$8000..$97FF`, so `.ship_reg` cannot strand it.
 
+
+---
+
+## Seat V — vacuity and gate coverage
+
+**The only seat that ran a harness at the pin**, per sweep rule 1: `pytest tools -q -rs` →
+**exit 0, 2594 passed, 8 skipped, 33.36 s**, tree clean before and after. It also executed six of the
+eight non-collectable `test` subcommands.
+
+**Denominator: 1,346 `ensure` sites across 193 modules, ALL 1,346 individually assessed** (paren-matched
+extraction, statically-true-disjunct evaluation against 995 literal consts, 144 `extern()`-bearing
+classified, 49 mapped to poison rows); **63 `assert.<sz>`**; 42 poison fixtures; 52 expect-fail rows;
+**84 pytest files / 2,445 test defs**; ~22 build gates.
+
+### V-1 — 412 tests (24% of the pytest corpus) maintain a linter whose live subject is 8 lines and zero instructions, and the one test that would have caught the collapse skips on a deleted file
+
+**Controller verified every claim:**
+
+- `build.sh:565` lints `${MAIN_ASM}` = `games/sonic4/game_root.asm`. That file has **8 non-comment
+  non-blank lines**, all directives, **zero instructions** — its own header says it "EMITS NO BYTES".
+- Run exactly as the build runs it: **`s4lint: no issues found`, exit 0.**
+- **`tools/test_s4lint.py` carries 412 `def test_`** — the largest file in the pytest corpus.
+- **`main.asm` is absent** (deleted by `b76576ea`; CLAUDE.md says so).
+
+The engine's 193 `.emp` modules are not AS assembly, so **s4lint cannot parse them at all**: every
+diagnostic it owns — E001 unsized branch, E002 mul/div in hot path, E006 VDP write without Z80
+stopped, E007 unpaired `stopZ80` — applies to **zero lines of the engine**.
+
+**And the detector is conditioned on the artefact whose removal is the failure.**
+`test_lint_main_no_crash` asserts `assertGreater(len(files), 5)` — an include-extent check, i.e.
+literally *"s4lint's subject has not collapsed to one file"* — guarded by
+`if not os.path.isfile(main_path): skipTest("main.asm not found")`. The seat's run shows it skipping.
+**That is vacuity shape #8 landing on the one test that existed to catch shape #1.**
+
+The seat's red-first control is what makes this a finding rather than an impression: a 7-line scratch
+file with `bra Bar` / `mulu #3,d0` produced **E001 · W014 · W019 · W006 ×2, exit 1**. *The tool works.
+Its build-time population is empty.*
+
+**This supersedes the memory note "s4lint lints 1 no-op file" by giving it the denominator that makes
+it severe:** 412 tests and ~2 s of every build maintaining a check with an empty subject, two of them
+permanently skipped.
+
+### V-2 — the standing red-first net covers 49 of 1,346 `ensure` sites (3.6%), and covers them where coverage already is
+
+`tools/emp_expect_fail.py` is the tree's **only** mechanism proving an `ensure` can go red. The seat
+AST-parsed its `CASES`, extracted each row's expected fragment, and matched against every
+paren-matched `ensure` body: **49 distinct sites — `raster_dsl.emp` 23, `scene_dsl.emp` 20,
+`ojz_effects.emp` 1, 5 inside poison bodies.**
+
+Corpus hygiene is otherwise **excellent**: 42 poisons on disk, **42 gated, 0 orphans**, phantom names
+documented as deletions, an explicit anti-vacuity precheck, and a sentinel case 0.
+
+**But the negative coverage is concentrated exactly where the positive coverage already is** —
+`raster_dsl` and `scene_dsl` are already 246 of the engine's 675 ensures. Nothing standing exists for
+`engine/sound` (161), `engine/level` outside `scene_dsl` (82), `engine/system` (57),
+`engine/objects` (38), `games/sonic4/player` (93), **all 144 `extern()`-bearing guards**, or **any of
+the 63 `assert.<sz>`**.
+
+**Measured sub-fact: zero of the 42 poison fixtures contains the token `extern(`.** The seat then
+checked whether that makes them vacuous and **found it does not** — `DEFERRED_WORK:3609` records both
+pin directions proven red for the parallax pair — and said so explicitly rather than banking the
+stronger claim. **The finding is the absence of a standing net, not a demonstrated vacuity.**
+
+### V-3 — eight test entry points no runner can reach, ~216 assertions, plus seven red-first harnesses
+
+`build.sh:611` sweeps `test_*.py` **files**; these are `test` subcommands. `ojz_strip_gen` (81
+asserts), `collision_pipeline` (73 asserts — **its name appears in no `.sh` and no `build.sh` at
+all**), `ojz_block_gen` (32), `ojz_entity_gen` (booked, red), `state_ram`, `s4lz` (25 cases),
+`dplc_layout` (13 cases), `palette_variant_gate`. The seat **ran six of them**: five green, the booked
+one red.
+
+**And seven red-first proof harnesses that nothing invokes** — including two that `build.sh`'s own
+comments describe as *"--selftest (not run in the build) proves the gate red"* (lines 1045, 1078).
+**The instruments that prove a gate can fail are themselves in the run-by-nothing class.**
+
+**Compounding:** `engine/compression/s4lz.emp` has **0 ensures and 3 DEBUG-only asserts**. Its
+structural correctness net is `ojz_block_gen.py test`'s 32 round-trip assertions — one of the entries
+above.
+
+### V-4 — six of eight pytest skips cannot fail here, and two read the PREVIOUS build
+
+Two `test_s4lint` skips are permanent (V-1). `test_bg_emit:2279` and
+`test_demo_specialization_witness:238` are conditioned on listings — **pytest is at `build.sh:612`,
+the sigil build at `:791`** — so on a clean tree they *always* skip and on a dirty tree they read the
+*previous* build; **never this one.** Two more are self-declared vacuous, one of them on **the
+exclusion logic of the staleness gate both build paths hard-gate on**.
+
+`build.sh` moved seven post-sigil gates below the build for exactly this reason (its own comments at
+830, 892, 915, 1100) — **two listing-conditioned test classes were left above it**, and they skip
+silently into `2594 passed, 8 skipped`, of which build.sh reads only the exit status.
+
+### V-5 — an exhaustive statically-true-disjunct scan, reported as a NEGATIVE result
+
+1,346 conditions parsed, 78 with a top-level `||`, **7 disjuncts statically true — and all seven
+survive scrutiny as narrow, not vacuous.** The seat traced each to its real checker and found the
+`ram.emp` trio **closed** by `parallax.emp:480` pinning the reservation against
+`sizeof(band_record) * MAX_PARALLAX_BANDS`. **`EMP_PITFALLS` §12's one-keystroke constant-flip
+vacuity does not appear anywhere in this tree's `ensure` corpus.** That is a real clean bill over a
+population nobody had counted.
+
+One sentence worth carrying to the owner from it: **no game in this tree exercises the
+zero-capability lowering path**, so `demo` is the only possible witness — and nothing builds `demo`
+per-commit.
+
+### CONTROLLER RAN TAG-1, AND IT REFUTES THE SEAT'S CANDIDATE — which is the more useful outcome
+
+The seat nominated `games.sonic4.{sonic,tails,knuckles}_anims` — **100 ensures, 7.4% of the tree's
+guard corpus** — as possibly unreachable, and **explicitly declined to guess**, noting its own static
+`use` graph over-predicts ~3× (142/193 vs §3's measured 45-50) and "cannot discriminate."
+
+`SIGIL_WARNINGS=full DEBUG=1` listing, clean tree: **the three anim modules are NOT in the
+`module.unreachable` list. The 100 guards are live.** Candidate refuted.
+
+**But the listing answered a bigger question than the one asked.** 56 unreachable modules, **42 of
+them poison fixtures (dead by design, correct)** — leaving **14 real modules carrying 83 `ensure`s**:
+
+| group | modules | ensures |
+|---|---|---|
+| the Z80/sound stack | `z80_sound_driver` 18, `sound_fm` 7, `sound_tables_z80` 6, `sound_sequencer` 5, `sound_sfx` 4, `dac_sample_tab` 2, `sound_debug` 2, `z80_init` 1 | **45** |
+| sound data | `mt_bank` 12, `dac_samples` 10, `sfx_bank` 3, `sfx_blob_win_tab` 1 | **26** |
+| the other game | `games/demo/config/constants.emp` | 12 |
+
+**So: are 71 sound guards dead?** Decided by breaking one. `ensure(SND_PAUSED == $1CD3 && …)` →
+`$DEAD`, on a detached worktree, quoted back from disk:
+
+**`FAST=1 DEBUG=1 ./build.sh` → exit 1**, and the failure is **the mutated ensure's own message** —
+*"game-feel seam mirrors drifted off the pinned authority addresses"* — so the red is **on the row
+under test**. It fired from `crates/sigil-harness/src/seam1.rs:412`, through `emit_sound_blob`.
+
+**That is the mechanism, and it clears them.** These modules are lowered through **seam-1**, not the
+ordinary `use` closure, which is why sigil's reachability analysis names them while their guards
+still evaluate. `EMP_PITFALLS` §3's "seam-lowered Z80/sound" class is exactly this, now demonstrated
+rather than asserted.
+
+**Net result: of 83 non-poison unreachable-listed `ensure`s, 71 are PROVEN LIVE and 12 belong to the
+other game.** Zero genuinely dead. **And the instrument is now calibrated in both directions:** a
+static `use` graph over-predicts ~3×, and *sigil's own `module.unreachable` warning also
+over-predicts* for the seam-lowered class — so neither can be read as a dead-ensure count without a
+mutation.
+
+### V's other measured facts
+
+**`build.sh:589`'s own denominator is stale by 4.6×** — it says "18 files, ~984 assertions"; today it
+is 84 files / 2,445 defs / 2,594 collected. And its BAR-25 sweep-extent line, which claims to be
+*"computed by the same rule pytest collects by"*, is **false in two directions**: pytest also
+collects `*_test.py` and recurses into four subdirectories. Both are empty today; a file added under
+either spelling would run and not be counted.
+
+**`EMP_PITFALLS` §6 Trap C ("always build all four shapes") has no automation in `build.sh`.** The
+only automated `demo` build is the nightly systemd timer — **which this packet establishes has not
+completed since 2026-08-28.** A shape-gated region planted only in `demo` currently surfaces never.
+
+### Where the guards are vs where the risk is — the seat's main deliverable
+
+Guard-dense files are **all authoring-time DSL/constant tables**: `raster_dsl` 162, `sound_constants`
+119, `scene_dsl` 84. Guard-empty files are **all runtime execution paths**: `sound_sequencer` 5
+ensures / 0 asserts over 1,252 lines; `tile_cache` 3/2 over 1,348; `plane_buffer` 0/3;
+`sound_psg` 0/0; `collision` 0/0; **`vblank` 0/0; `boot` 0/0; `controllers` 0/0**.
+
+**The seat stated the caveat that stops this being over-read:** `ensure` is compile-time, so a file of
+pure instruction streams legitimately has less to `ensure`. **The fair comparator for runtime code is
+`assert.<sz>` — and there are 63 in the whole engine, all zero bytes in release.** Which means:
+
+- **`engine/compression/` is 0 ensures, 3 asserts over 228 lines**, and `zx0_resume.emp` — the
+  resumable idle-time decoder, the most timing-fragile code in the tree — is **0 and 0**. `s4lz.emp`'s
+  stream-version check and dictionary bound are DEBUG-only, so **in `s4.bin` a malformed stream walks
+  out of the dictionary with no net at any layer.**
+- **`vblank.emp` and `boot.emp`, the two most order-sensitive files on the machine, carry no guard of
+  either kind.**
+
