@@ -26707,50 +26707,60 @@ pairing.
 
 ---
 
-### SP-5 — every spring direction but UP, and the engine template split they need - 2026-09-06
+### SP-5 — every spring direction but UP — CLOSED for up/down/left/right 2026-09-06
 
-**Landed 2026-09-06:** the spring's direction and strength decode from its subtype on S3K's
-real bit assignments, and `ObjSub_Spring__Up_Red` / `ObjSub_Spring__Up_Yellow` are published
-for oracle's picker. **Only UP is implemented**, a placed spring carrying any other direction
-trips a DEBUG assert in `Spring_Init`, and no name is published for a direction that asserts.
+**CLOSED** on branch `sp5-side-springs` for the four cardinal directions. The template split
+landed, `Touch_Spring` launches on whichever face the spring points out of, and
+`ObjSub_Spring__{Down,Left,Right,Up}_{Red,Yellow}` are published for oracle's picker. What
+remains open is booked as SP-5a/b/c below.
 
-**The blocker is structural and it is NOT the decode.** `Touch_Spring`
-(`engine/objects/collision.emp`) launches on a TOP contact only: its side and underside faces
-are the shared `solid_face_response` template's, which pushes the player out and stops him.
-A DOWN spring launches on the underside and a HORIZONTAL one on a side, so both need that
-template to gain a per-face splice point.
+**What the split actually is.** `solid_face_response(top: Label)` became FOUR comptime fns in
+`engine/objects/collision.emp`: `solid_face_geometry(top, side, below)` plus the three default
+face bodies `solid_top_land()` / `solid_side_push()` / `solid_below_stop()`. A consumer splices
+the geometry with three labels and then splices back whichever defaults it does not override.
+Three `Label` parameters, not `Code` parameters — a branch from a spliced `Code` fragment to a
+label in the enclosing proc is a hard cross-fragment error in sigil, so `Label` (the mechanism
+the original `{top}` already used) is the only route. That inherited claim held.
 
-**The design, so it does not have to be re-derived.** `solid_face_response(top: Label)` takes
-one `Label` and jumps to it for the top face; a second `Label` for the side arm is the same
-proven mechanism (`Code`-typed comptime params also exist, but a branch from a spliced `Code`
-fragment to a label in the enclosing proc is a **hard cross-fragment error** in sigil, so
-`Label` is the only route). The template must then split in two — geometry, and the default
-side body — because both consumers splice both halves, and each half needs its own `rts`
-exit once `.sfr_done` stops being reachable across the seam. Cost: about +2 bytes per
-instantiation from the duplicated exit, times the two consumers, plus the spring's own face
-test and launch. `Touch_Solid` passes the default side label and is otherwise unchanged.
+**The design's other inherited claims, checked.** (a) "split into geometry + a default SIDE
+body" was too small by two: the top body had to come out as well, because a sideways spring
+must still be landable on top, and the below body had to come out because a downward spring
+launches there. (b) The `+2 bytes per instantiation` estimate was in the right place for the
+wrong reason — see the commit message for the measured figure. (c) "`Game.spring_launched`
+already carries both SSTs, so no contract member changes" HELD exactly.
 
-**The game side needs nothing new.** `Game.spring_launched` already receives `a2` = player and
-`a3` = spring, so the binding can read the spring's subtype itself and decide what the impulse
-means — including writing `PlayerV.ground_speed`, which is the field the engine may not name
-and the reason `Game.solid_pushed` exists. No contract member has to change shape.
+**The engine reads a VELOCITY PAIR, not a subtype**, and that is the part worth keeping.
+`Touch_Spring` asks only which way `(x_vel, y_vel)` points; the game decodes its subtype into
+that pair once, at spawn, through a 64-byte table. So the engine never learns S3K's bit layout,
+an unimplemented direction decodes to `(0, 0)` and is a plain solid block on all four faces in
+the release shape, and the DEBUG shape asserts on it in `Spring_Init`.
 
-**Facts already established, so nobody re-reads S3K for them.** Direction is subtype bits 6-4,
-decoded at `sonic3k.asm:47512-47514` (the `lsr.w #3` / `andi.w #$E` pair yields the index
-already doubled for the five-entry word table at :47520-47525). Strength is bit 1
-(:47641-47643), the masked bit doubling as the byte offset into :47654-47656.
-**Left vs right is NOT a subtype bit** — it is the object's x-flip status bit, negated into
-the velocity at `btst #0,status(a0)` (:47898), so there is exactly ONE horizontal direction
-value and `Load_Object` already carries a placement flip into both `render_flags` and
-`status`. A horizontal launch also sets `ground_vel` and a `$F`-frame control lock at
-`$32(a1)` (:47905-47906) and leaves the player GROUNDED, which is a different transition from
-the vertical launch's, and the horizontal-only subtype extras live in bits 7, 3-2 and 0
-(:47913-47946). The diagonals additionally set `flip_angle` and are a separate problem again.
+**Left vs right diverges from S3K deliberately.** S3K has ONE horizontal direction value and
+takes the sign from the object's x-flip status bit (`btst #0,status(a0)`, `:47898`). We give
+LEFT its own direction value (5, the first S3K does not use) and leave the flip purely visual.
+Reason, in full, at "LEFT vs RIGHT" in `games/sonic4/objects/test_solid.emp`; the short version
+is that our placeholder art is a symmetric square, so a flip has no on-screen feedback and the
+picker could not name the direction it selects.
 
-**Why it stopped here rather than shipping half.** A new launch path is a physics change that
-only a running ROM can confirm, and this lane has no emulator; the template is the collision
-system's hot spine and is spliced into every solid in the game. Landing an unverifiable
-rewrite of it to reach a fuller subtype list would have been the worse trade.
+**SP-5a — the horizontal-only subtype extras (bits 7, 3-2, 0).** Now three independent riders
+rather than one package, since the horizontal spring arrived without them. Bit 7 "kill y_vel on
+launch" (`:47913-47915`) is the one with gameplay weight — it is what stops a side spring
+turning a fall into a diagonal. Bits 3-2 "switch the player's solid layer" (`:47934-47946`) need
+a solid-layer system this engine does not have. Bit 0's "twirl" (`:47917-47926`) is an animation
+flourish that RE-READS bit 1 as its flip count, so building it puts two meanings on the
+strength bit and wants a decision first.
+
+**SP-5b — the diagonals (`SPRING_DIR_UPDIAG` = 3, `SPRING_DIR_DOWNDIAG` = 4).** They keep
+S3K's numbers, decode to the inert `(0, 0)` vector and publish no subtype name. They
+additionally set `ground_vel` and `flip_angle`, which is a different physics problem: the
+engine's per-face launch model writes ONE velocity field, and a diagonal needs both plus a
+visual rotation the engine does not own.
+
+**SP-5c — the launch is not confirmed on a running ROM.** This lane has no emulator. Every
+static claim is measured (build, listing, ROM bytes, `ensure` inversion), and the exact
+controller-side drive that would confirm each new face is written out in the landing commit
+message. Until someone runs it, "the side face launches" is a code-and-bytes claim, not a
+physics one.
 
 ---
 
