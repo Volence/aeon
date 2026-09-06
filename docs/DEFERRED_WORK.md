@@ -26525,6 +26525,16 @@ destroyed if I am wrong", not "is this agent alive":
 4. **Your own record of what you started.**
 5. **Ancestor status**, last and weakest.
 
+**THE LOCK'S `start` NUMBER IS A PID-REUSE GUARD** (aurora's finding, verified against MY lock
+format because they said to read it rather than trust theirs). My reason reads `pid 2022819 start
+78417804`, and `/proc/2022819/stat` field 22 is **78417804** exactly - the process start time in
+jiffies. So `pid + start` identifies a session unambiguously even after pid reuse.
+
+**Usable in ONE direction only.** Session GONE means no live agent, and a dirty check
+(`--ignored`) must still precede removal. Session ALIVE says nothing at all: on this tree it is
+alive right now while every locked worktree belongs to a long-dead agent, so the live-session
+reading would protect exactly the trees that need no protection.
+
 **PID AND "CWD INSIDE THE TREE" ARE EXCLUDED OUTRIGHT.** An agent between tool calls has no process
 anywhere near its worktree, so a zero there is an absence with no control behind it - the same
 shape as every null instrument booked tonight.
