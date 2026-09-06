@@ -1,0 +1,3925 @@
+{
+ "subject": "Scene_Editor_ojz_act1_depth, bound to section 4 (owner decision d-15)",
+ "rom": {
+  "shipped_s4_debug_sha256": "479a796959c0dbe7a2829b690e2b97e5f8e68ad5f7c007dafe45017c8bdece8f",
+  "control_s4_debug_sha256": "293113effccca0275adc4a521621de9825f3bc119145924c580598f296955804",
+  "control_is": "the same scene with its two `curve:` keys deleted, nothing else"
+ },
+ "play": [
+  {
+   "label": "play x2200 y2300",
+   "cam_x": 2040,
+   "cam_y": 2188,
+   "section": 3,
+   "vscroll_bg": 0,
+   "checks": {},
+   "drift_px": [
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "n_bg_mismatch_no_drift": 0,
+   "n_bg_mismatch": 0,
+   "max_abs_bg_delta": 0,
+   "max_abs_fg_delta": 0,
+   "bands": [
+    {
+     "top": 0,
+     "end": 32,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 0,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 32,
+     "end": 80,
+     "lines": 48,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 1,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 80,
+     "end": 112,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 2,
+     "is_curve": false,
+     "fb": "0F3",
+     "to": null
+    },
+    {
+     "top": 112,
+     "end": 160,
+     "lines": 48,
+     "excursion": 250,
+     "rate_max": -6,
+     "rate_mean": 5.319,
+     "duplicates": true,
+     "excursion_over_margin": 1.302,
+     "layer": 3,
+     "is_curve": true,
+     "fb": "0F2",
+     "to": "032"
+    },
+    {
+     "top": 160,
+     "end": 224,
+     "lines": 64,
+     "excursion": 1005,
+     "rate_max": -16,
+     "rate_mean": 15.952,
+     "duplicates": true,
+     "excursion_over_margin": 5.234,
+     "layer": 4,
+     "is_curve": true,
+     "fb": "0F1",
+     "to": "0F0"
+    }
+   ],
+   "png": "/tmp/depth2/depth-play-2200-2300.png",
+   "ack": 18,
+   "warp": [
+    2200,
+    2300
+   ],
+   "config_is_sec4": true,
+   "current_config": "0x1434c"
+  },
+  {
+   "label": "play x3000 y2300",
+   "cam_x": 2840,
+   "cam_y": 2188,
+   "section": 4,
+   "vscroll_bg": 0,
+   "checks": {},
+   "drift_px": [
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "n_bg_mismatch_no_drift": 0,
+   "n_bg_mismatch": 0,
+   "max_abs_bg_delta": 0,
+   "max_abs_fg_delta": 0,
+   "bands": [
+    {
+     "top": 0,
+     "end": 32,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 0,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 32,
+     "end": 80,
+     "lines": 48,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 1,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 80,
+     "end": 112,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 2,
+     "is_curve": false,
+     "fb": "0F3",
+     "to": null
+    },
+    {
+     "top": 112,
+     "end": 160,
+     "lines": 48,
+     "excursion": 348,
+     "rate_max": -8,
+     "rate_mean": 7.404,
+     "duplicates": true,
+     "excursion_over_margin": 1.812,
+     "layer": 3,
+     "is_curve": true,
+     "fb": "0F2",
+     "to": "032"
+    },
+    {
+     "top": 160,
+     "end": 224,
+     "lines": 64,
+     "excursion": 1398,
+     "rate_max": -23,
+     "rate_mean": 22.19,
+     "duplicates": true,
+     "excursion_over_margin": 7.281,
+     "layer": 4,
+     "is_curve": true,
+     "fb": "0F1",
+     "to": "0F0"
+    }
+   ],
+   "png": "/tmp/depth2/depth-play-3000-2300.png",
+   "ack": 18,
+   "warp": [
+    3000,
+    2300
+   ],
+   "config_is_sec4": true,
+   "current_config": "0x1434c"
+  },
+  {
+   "label": "play x4000 y2300",
+   "cam_x": 3840,
+   "cam_y": 2188,
+   "section": 4,
+   "vscroll_bg": 0,
+   "checks": {},
+   "drift_px": [
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "n_bg_mismatch_no_drift": 0,
+   "n_bg_mismatch": 0,
+   "max_abs_bg_delta": 0,
+   "max_abs_fg_delta": 0,
+   "bands": [
+    {
+     "top": 0,
+     "end": 32,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 0,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 32,
+     "end": 80,
+     "lines": 48,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 1,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 80,
+     "end": 112,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 2,
+     "is_curve": false,
+     "fb": "0F3",
+     "to": null
+    },
+    {
+     "top": 112,
+     "end": 160,
+     "lines": 48,
+     "excursion": 470,
+     "rate_max": -10,
+     "rate_mean": 10.0,
+     "duplicates": true,
+     "excursion_over_margin": 2.448,
+     "layer": 3,
+     "is_curve": true,
+     "fb": "0F2",
+     "to": "032"
+    },
+    {
+     "top": 160,
+     "end": 224,
+     "lines": 64,
+     "excursion": 1890,
+     "rate_max": -30,
+     "rate_mean": 30.0,
+     "duplicates": true,
+     "excursion_over_margin": 9.844,
+     "layer": 4,
+     "is_curve": true,
+     "fb": "0F1",
+     "to": "0F0"
+    }
+   ],
+   "png": "/tmp/depth2/depth-play-4000-2300.png",
+   "ack": 18,
+   "warp": [
+    4000,
+    2300
+   ],
+   "config_is_sec4": true,
+   "current_config": "0x1434c"
+  },
+  {
+   "label": "play x3000 y3000",
+   "cam_x": 2840,
+   "cam_y": 2888,
+   "section": 4,
+   "vscroll_bg": 0,
+   "checks": {},
+   "drift_px": [
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "n_bg_mismatch_no_drift": 0,
+   "n_bg_mismatch": 0,
+   "max_abs_bg_delta": 0,
+   "max_abs_fg_delta": 0,
+   "bands": [
+    {
+     "top": 0,
+     "end": 32,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 0,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 32,
+     "end": 80,
+     "lines": 48,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 1,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 80,
+     "end": 112,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 2,
+     "is_curve": false,
+     "fb": "0F3",
+     "to": null
+    },
+    {
+     "top": 112,
+     "end": 160,
+     "lines": 48,
+     "excursion": 348,
+     "rate_max": -8,
+     "rate_mean": 7.404,
+     "duplicates": true,
+     "excursion_over_margin": 1.812,
+     "layer": 3,
+     "is_curve": true,
+     "fb": "0F2",
+     "to": "032"
+    },
+    {
+     "top": 160,
+     "end": 224,
+     "lines": 64,
+     "excursion": 1398,
+     "rate_max": -23,
+     "rate_mean": 22.19,
+     "duplicates": true,
+     "excursion_over_margin": 7.281,
+     "layer": 4,
+     "is_curve": true,
+     "fb": "0F1",
+     "to": "0F0"
+    }
+   ],
+   "png": "/tmp/depth2/depth-play-3000-3000.png",
+   "ack": 16,
+   "warp": [
+    3000,
+    3000
+   ],
+   "config_is_sec4": true,
+   "current_config": "0x1434c"
+  }
+ ],
+ "attrib": [
+  {
+   "warp": [
+    2200,
+    2300
+   ],
+   "cam_x": 2040,
+   "cam_y": 2188,
+   "bands": {
+    "112": {
+     "planeB": 100,
+     "sprite": 4,
+     "planeA": 376
+    },
+    "160": {
+     "planeA": 640
+    }
+   }
+  },
+  {
+   "warp": [
+    3000,
+    2300
+   ],
+   "cam_x": 2840,
+   "cam_y": 2188,
+   "bands": {
+    "112": {
+     "planeB": 102,
+     "sprite": 4,
+     "planeA": 374
+    },
+    "160": {
+     "planeA": 640
+    }
+   }
+  },
+  {
+   "warp": [
+    4000,
+    2300
+   ],
+   "cam_x": 3840,
+   "cam_y": 2188,
+   "bands": {
+    "112": {
+     "planeB": 104,
+     "sprite": 4,
+     "planeA": 372
+    },
+    "160": {
+     "planeA": 640
+    }
+   }
+  },
+  {
+   "warp": [
+    3000,
+    3000
+   ],
+   "cam_x": 2840,
+   "cam_y": 2888,
+   "bands": {
+    "112": {
+     "planeB": 476,
+     "sprite": 4
+    },
+    "160": {
+     "planeB": 640
+    }
+   }
+  }
+ ],
+ "sweep_camY2888": [
+  {
+   "label": "sweep camX 64",
+   "cam_x": 64,
+   "cam_y": 2888,
+   "section": 3,
+   "vscroll_bg": 0,
+   "checks": {
+    "current_config": "0x1434c",
+    "target_config": "0x0",
+    "transition_frames": 0,
+    "config_ok": true,
+    "target_ok": true,
+    "transition_ok": true
+   },
+   "drift_px": [
+    -1,
+    -1,
+    -1,
+    -1,
+    0
+   ],
+   "n_bg_mismatch_no_drift": 140,
+   "exposure": {
+    "112": {
+     "tally": {
+      "planeB": 120
+     },
+     "planeB_pct": 100.0
+    },
+    "160": {
+     "tally": {
+      "planeB": 160
+     },
+     "planeB_pct": 100.0
+    }
+   },
+   "n_bg_mismatch": 0,
+   "max_abs_bg_delta": 0,
+   "max_abs_fg_delta": 0,
+   "bands": [
+    {
+     "top": 0,
+     "end": 32,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 0,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 32,
+     "end": 80,
+     "lines": 48,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 1,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 80,
+     "end": 112,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 2,
+     "is_curve": false,
+     "fb": "0F3",
+     "to": null
+    },
+    {
+     "top": 112,
+     "end": 160,
+     "lines": 48,
+     "excursion": 7,
+     "rate_max": -1,
+     "rate_mean": 0.149,
+     "duplicates": false,
+     "excursion_over_margin": 0.036,
+     "layer": 3,
+     "is_curve": true,
+     "fb": "0F2",
+     "to": "032"
+    },
+    {
+     "top": 160,
+     "end": 224,
+     "lines": 64,
+     "excursion": 32,
+     "rate_max": -1,
+     "rate_mean": 0.508,
+     "duplicates": false,
+     "excursion_over_margin": 0.167,
+     "layer": 4,
+     "is_curve": true,
+     "fb": "0F1",
+     "to": "0F0"
+    }
+   ],
+   "png": "/tmp/depth3/depth-sweep-00064.png"
+  },
+  {
+   "label": "sweep camX 128",
+   "cam_x": 128,
+   "cam_y": 2888,
+   "section": 3,
+   "vscroll_bg": 0,
+   "checks": {
+    "current_config": "0x1434c",
+    "target_config": "0x0",
+    "transition_frames": 0,
+    "config_ok": true,
+    "target_ok": true,
+    "transition_ok": true
+   },
+   "drift_px": [
+    -1,
+    -1,
+    -1,
+    -1,
+    0
+   ],
+   "n_bg_mismatch_no_drift": 143,
+   "exposure": {
+    "112": {
+     "tally": {
+      "planeB": 120
+     },
+     "planeB_pct": 100.0
+    },
+    "160": {
+     "tally": {
+      "planeB": 160
+     },
+     "planeB_pct": 100.0
+    }
+   },
+   "n_bg_mismatch": 0,
+   "max_abs_bg_delta": 0,
+   "max_abs_fg_delta": 0,
+   "bands": [
+    {
+     "top": 0,
+     "end": 32,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 0,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 32,
+     "end": 80,
+     "lines": 48,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 1,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 80,
+     "end": 112,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 2,
+     "is_curve": false,
+     "fb": "0F3",
+     "to": null
+    },
+    {
+     "top": 112,
+     "end": 160,
+     "lines": 48,
+     "excursion": 15,
+     "rate_max": -1,
+     "rate_mean": 0.319,
+     "duplicates": false,
+     "excursion_over_margin": 0.078,
+     "layer": 3,
+     "is_curve": true,
+     "fb": "0F2",
+     "to": "032"
+    },
+    {
+     "top": 160,
+     "end": 224,
+     "lines": 64,
+     "excursion": 63,
+     "rate_max": -1,
+     "rate_mean": 1.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.328,
+     "layer": 4,
+     "is_curve": true,
+     "fb": "0F1",
+     "to": "0F0"
+    }
+   ],
+   "png": "/tmp/depth3/depth-sweep-00128.png"
+  },
+  {
+   "label": "sweep camX 192",
+   "cam_x": 192,
+   "cam_y": 2888,
+   "section": 3,
+   "vscroll_bg": 0,
+   "checks": {
+    "current_config": "0x1434c",
+    "target_config": "0x0",
+    "transition_frames": 0,
+    "config_ok": true,
+    "target_ok": true,
+    "transition_ok": true
+   },
+   "drift_px": [
+    -1,
+    -1,
+    -1,
+    -1,
+    0
+   ],
+   "n_bg_mismatch_no_drift": 148,
+   "exposure": {
+    "112": {
+     "tally": {
+      "planeB": 120
+     },
+     "planeB_pct": 100.0
+    },
+    "160": {
+     "tally": {
+      "planeB": 160
+     },
+     "planeB_pct": 100.0
+    }
+   },
+   "n_bg_mismatch": 0,
+   "max_abs_bg_delta": 0,
+   "max_abs_fg_delta": 0,
+   "bands": [
+    {
+     "top": 0,
+     "end": 32,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 0,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 32,
+     "end": 80,
+     "lines": 48,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 1,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 80,
+     "end": 112,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 2,
+     "is_curve": false,
+     "fb": "0F3",
+     "to": null
+    },
+    {
+     "top": 112,
+     "end": 160,
+     "lines": 48,
+     "excursion": 23,
+     "rate_max": -1,
+     "rate_mean": 0.489,
+     "duplicates": false,
+     "excursion_over_margin": 0.12,
+     "layer": 3,
+     "is_curve": true,
+     "fb": "0F2",
+     "to": "032"
+    },
+    {
+     "top": 160,
+     "end": 224,
+     "lines": 64,
+     "excursion": 95,
+     "rate_max": -2,
+     "rate_mean": 1.508,
+     "duplicates": false,
+     "excursion_over_margin": 0.495,
+     "layer": 4,
+     "is_curve": true,
+     "fb": "0F1",
+     "to": "0F0"
+    }
+   ],
+   "png": "/tmp/depth3/depth-sweep-00192.png"
+  },
+  {
+   "label": "sweep camX 250",
+   "cam_x": 250,
+   "cam_y": 2888,
+   "section": 3,
+   "vscroll_bg": 0,
+   "checks": {
+    "current_config": "0x1434c",
+    "target_config": "0x0",
+    "transition_frames": 0,
+    "config_ok": true,
+    "target_ok": true,
+    "transition_ok": true
+   },
+   "drift_px": [
+    -1,
+    -1,
+    -1,
+    -1,
+    0
+   ],
+   "n_bg_mismatch_no_drift": 134,
+   "exposure": {
+    "112": {
+     "tally": {
+      "planeB": 120
+     },
+     "planeB_pct": 100.0
+    },
+    "160": {
+     "tally": {
+      "planeB": 160
+     },
+     "planeB_pct": 100.0
+    }
+   },
+   "n_bg_mismatch": 0,
+   "max_abs_bg_delta": 0,
+   "max_abs_fg_delta": 0,
+   "bands": [
+    {
+     "top": 0,
+     "end": 32,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 0,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 32,
+     "end": 80,
+     "lines": 48,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 1,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 80,
+     "end": 112,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 2,
+     "is_curve": false,
+     "fb": "0F3",
+     "to": null
+    },
+    {
+     "top": 112,
+     "end": 160,
+     "lines": 48,
+     "excursion": 30,
+     "rate_max": -1,
+     "rate_mean": 0.638,
+     "duplicates": false,
+     "excursion_over_margin": 0.156,
+     "layer": 3,
+     "is_curve": true,
+     "fb": "0F2",
+     "to": "032"
+    },
+    {
+     "top": 160,
+     "end": 224,
+     "lines": 64,
+     "excursion": 124,
+     "rate_max": -2,
+     "rate_mean": 1.968,
+     "duplicates": false,
+     "excursion_over_margin": 0.646,
+     "layer": 4,
+     "is_curve": true,
+     "fb": "0F1",
+     "to": "0F0"
+    }
+   ],
+   "png": "/tmp/depth3/depth-sweep-00250.png"
+  },
+  {
+   "label": "sweep camX 320",
+   "cam_x": 320,
+   "cam_y": 2888,
+   "section": 3,
+   "vscroll_bg": 0,
+   "checks": {
+    "current_config": "0x1434c",
+    "target_config": "0x0",
+    "transition_frames": 0,
+    "config_ok": true,
+    "target_ok": true,
+    "transition_ok": true
+   },
+   "drift_px": [
+    -1,
+    -1,
+    -1,
+    -1,
+    0
+   ],
+   "n_bg_mismatch_no_drift": 139,
+   "exposure": {
+    "112": {
+     "tally": {
+      "planeB": 120
+     },
+     "planeB_pct": 100.0
+    },
+    "160": {
+     "tally": {
+      "planeB": 160
+     },
+     "planeB_pct": 100.0
+    }
+   },
+   "n_bg_mismatch": 0,
+   "max_abs_bg_delta": 0,
+   "max_abs_fg_delta": 0,
+   "bands": [
+    {
+     "top": 0,
+     "end": 32,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 0,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 32,
+     "end": 80,
+     "lines": 48,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 1,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 80,
+     "end": 112,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 2,
+     "is_curve": false,
+     "fb": "0F3",
+     "to": null
+    },
+    {
+     "top": 112,
+     "end": 160,
+     "lines": 48,
+     "excursion": 39,
+     "rate_max": -1,
+     "rate_mean": 0.83,
+     "duplicates": false,
+     "excursion_over_margin": 0.203,
+     "layer": 3,
+     "is_curve": true,
+     "fb": "0F2",
+     "to": "032"
+    },
+    {
+     "top": 160,
+     "end": 224,
+     "lines": 64,
+     "excursion": 158,
+     "rate_max": -3,
+     "rate_mean": 2.508,
+     "duplicates": false,
+     "excursion_over_margin": 0.823,
+     "layer": 4,
+     "is_curve": true,
+     "fb": "0F1",
+     "to": "0F0"
+    }
+   ],
+   "png": "/tmp/depth3/depth-sweep-00320.png"
+  },
+  {
+   "label": "sweep camX 384",
+   "cam_x": 384,
+   "cam_y": 2888,
+   "section": 3,
+   "vscroll_bg": 0,
+   "checks": {
+    "current_config": "0x1434c",
+    "target_config": "0x0",
+    "transition_frames": 0,
+    "config_ok": true,
+    "target_ok": true,
+    "transition_ok": true
+   },
+   "drift_px": [
+    -1,
+    -1,
+    -1,
+    -1,
+    0
+   ],
+   "n_bg_mismatch_no_drift": 160,
+   "exposure": {
+    "112": {
+     "tally": {
+      "planeB": 120
+     },
+     "planeB_pct": 100.0
+    },
+    "160": {
+     "tally": {
+      "planeB": 160
+     },
+     "planeB_pct": 100.0
+    }
+   },
+   "n_bg_mismatch": 0,
+   "max_abs_bg_delta": 0,
+   "max_abs_fg_delta": 0,
+   "bands": [
+    {
+     "top": 0,
+     "end": 32,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 0,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 32,
+     "end": 80,
+     "lines": 48,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 1,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 80,
+     "end": 112,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 2,
+     "is_curve": false,
+     "fb": "0F3",
+     "to": null
+    },
+    {
+     "top": 112,
+     "end": 160,
+     "lines": 48,
+     "excursion": 47,
+     "rate_max": -1,
+     "rate_mean": 1.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.245,
+     "layer": 3,
+     "is_curve": true,
+     "fb": "0F2",
+     "to": "032"
+    },
+    {
+     "top": 160,
+     "end": 224,
+     "lines": 64,
+     "excursion": 189,
+     "rate_max": -3,
+     "rate_mean": 3.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.984,
+     "layer": 4,
+     "is_curve": true,
+     "fb": "0F1",
+     "to": "0F0"
+    }
+   ],
+   "png": "/tmp/depth3/depth-sweep-00384.png"
+  },
+  {
+   "label": "sweep camX 448",
+   "cam_x": 448,
+   "cam_y": 2888,
+   "section": 3,
+   "vscroll_bg": 0,
+   "checks": {
+    "current_config": "0x1434c",
+    "target_config": "0x0",
+    "transition_frames": 0,
+    "config_ok": true,
+    "target_ok": true,
+    "transition_ok": true
+   },
+   "drift_px": [
+    -1,
+    -1,
+    -1,
+    -1,
+    0
+   ],
+   "n_bg_mismatch_no_drift": 140,
+   "exposure": {
+    "112": {
+     "tally": {
+      "planeB": 120
+     },
+     "planeB_pct": 100.0
+    },
+    "160": {
+     "tally": {
+      "planeB": 160
+     },
+     "planeB_pct": 100.0
+    }
+   },
+   "n_bg_mismatch": 0,
+   "max_abs_bg_delta": 0,
+   "max_abs_fg_delta": 0,
+   "bands": [
+    {
+     "top": 0,
+     "end": 32,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 0,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 32,
+     "end": 80,
+     "lines": 48,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 1,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 80,
+     "end": 112,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 2,
+     "is_curve": false,
+     "fb": "0F3",
+     "to": null
+    },
+    {
+     "top": 112,
+     "end": 160,
+     "lines": 48,
+     "excursion": 54,
+     "rate_max": -2,
+     "rate_mean": 1.149,
+     "duplicates": false,
+     "excursion_over_margin": 0.281,
+     "layer": 3,
+     "is_curve": true,
+     "fb": "0F2",
+     "to": "032"
+    },
+    {
+     "top": 160,
+     "end": 224,
+     "lines": 64,
+     "excursion": 221,
+     "rate_max": -4,
+     "rate_mean": 3.508,
+     "duplicates": true,
+     "excursion_over_margin": 1.151,
+     "layer": 4,
+     "is_curve": true,
+     "fb": "0F1",
+     "to": "0F0"
+    }
+   ],
+   "png": "/tmp/depth3/depth-sweep-00448.png"
+  },
+  {
+   "label": "sweep camX 512",
+   "cam_x": 512,
+   "cam_y": 2888,
+   "section": 3,
+   "vscroll_bg": 0,
+   "checks": {
+    "current_config": "0x1434c",
+    "target_config": "0x0",
+    "transition_frames": 0,
+    "config_ok": true,
+    "target_ok": true,
+    "transition_ok": true
+   },
+   "drift_px": [
+    -1,
+    -1,
+    -1,
+    -1,
+    0
+   ],
+   "n_bg_mismatch_no_drift": 143,
+   "exposure": {
+    "112": {
+     "tally": {
+      "planeB": 120
+     },
+     "planeB_pct": 100.0
+    },
+    "160": {
+     "tally": {
+      "planeB": 160
+     },
+     "planeB_pct": 100.0
+    }
+   },
+   "n_bg_mismatch": 0,
+   "max_abs_bg_delta": 0,
+   "max_abs_fg_delta": 0,
+   "bands": [
+    {
+     "top": 0,
+     "end": 32,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 0,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 32,
+     "end": 80,
+     "lines": 48,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 1,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 80,
+     "end": 112,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 2,
+     "is_curve": false,
+     "fb": "0F3",
+     "to": null
+    },
+    {
+     "top": 112,
+     "end": 160,
+     "lines": 48,
+     "excursion": 62,
+     "rate_max": -2,
+     "rate_mean": 1.319,
+     "duplicates": false,
+     "excursion_over_margin": 0.323,
+     "layer": 3,
+     "is_curve": true,
+     "fb": "0F2",
+     "to": "032"
+    },
+    {
+     "top": 160,
+     "end": 224,
+     "lines": 64,
+     "excursion": 252,
+     "rate_max": -4,
+     "rate_mean": 4.0,
+     "duplicates": true,
+     "excursion_over_margin": 1.312,
+     "layer": 4,
+     "is_curve": true,
+     "fb": "0F1",
+     "to": "0F0"
+    }
+   ],
+   "png": "/tmp/depth3/depth-sweep-00512.png"
+  },
+  {
+   "label": "sweep camX 640",
+   "cam_x": 640,
+   "cam_y": 2888,
+   "section": 3,
+   "vscroll_bg": 0,
+   "checks": {
+    "current_config": "0x1434c",
+    "target_config": "0x0",
+    "transition_frames": 0,
+    "config_ok": true,
+    "target_ok": true,
+    "transition_ok": true
+   },
+   "drift_px": [
+    -1,
+    -1,
+    -1,
+    -1,
+    0
+   ],
+   "n_bg_mismatch_no_drift": 144,
+   "exposure": {
+    "112": {
+     "tally": {
+      "planeB": 120
+     },
+     "planeB_pct": 100.0
+    },
+    "160": {
+     "tally": {
+      "planeB": 160
+     },
+     "planeB_pct": 100.0
+    }
+   },
+   "n_bg_mismatch": 0,
+   "max_abs_bg_delta": 0,
+   "max_abs_fg_delta": 0,
+   "bands": [
+    {
+     "top": 0,
+     "end": 32,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 0,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 32,
+     "end": 80,
+     "lines": 48,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 1,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 80,
+     "end": 112,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 2,
+     "is_curve": false,
+     "fb": "0F3",
+     "to": null
+    },
+    {
+     "top": 112,
+     "end": 160,
+     "lines": 48,
+     "excursion": 78,
+     "rate_max": -2,
+     "rate_mean": 1.66,
+     "duplicates": false,
+     "excursion_over_margin": 0.406,
+     "layer": 3,
+     "is_curve": true,
+     "fb": "0F2",
+     "to": "032"
+    },
+    {
+     "top": 160,
+     "end": 224,
+     "lines": 64,
+     "excursion": 315,
+     "rate_max": -5,
+     "rate_mean": 5.0,
+     "duplicates": true,
+     "excursion_over_margin": 1.641,
+     "layer": 4,
+     "is_curve": true,
+     "fb": "0F1",
+     "to": "0F0"
+    }
+   ],
+   "png": "/tmp/depth3/depth-sweep-00640.png"
+  },
+  {
+   "label": "sweep camX 768",
+   "cam_x": 768,
+   "cam_y": 2888,
+   "section": 3,
+   "vscroll_bg": 0,
+   "checks": {
+    "current_config": "0x1434c",
+    "target_config": "0x0",
+    "transition_frames": 0,
+    "config_ok": true,
+    "target_ok": true,
+    "transition_ok": true
+   },
+   "drift_px": [
+    -1,
+    -1,
+    -1,
+    -1,
+    0
+   ],
+   "n_bg_mismatch_no_drift": 160,
+   "exposure": {
+    "112": {
+     "tally": {
+      "planeB": 120
+     },
+     "planeB_pct": 100.0
+    },
+    "160": {
+     "tally": {
+      "planeB": 160
+     },
+     "planeB_pct": 100.0
+    }
+   },
+   "n_bg_mismatch": 0,
+   "max_abs_bg_delta": 0,
+   "max_abs_fg_delta": 0,
+   "bands": [
+    {
+     "top": 0,
+     "end": 32,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 0,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 32,
+     "end": 80,
+     "lines": 48,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 1,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 80,
+     "end": 112,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 2,
+     "is_curve": false,
+     "fb": "0F3",
+     "to": null
+    },
+    {
+     "top": 112,
+     "end": 160,
+     "lines": 48,
+     "excursion": 94,
+     "rate_max": -2,
+     "rate_mean": 2.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.49,
+     "layer": 3,
+     "is_curve": true,
+     "fb": "0F2",
+     "to": "032"
+    },
+    {
+     "top": 160,
+     "end": 224,
+     "lines": 64,
+     "excursion": 378,
+     "rate_max": -6,
+     "rate_mean": 6.0,
+     "duplicates": true,
+     "excursion_over_margin": 1.969,
+     "layer": 4,
+     "is_curve": true,
+     "fb": "0F1",
+     "to": "0F0"
+    }
+   ],
+   "png": "/tmp/depth3/depth-sweep-00768.png"
+  },
+  {
+   "label": "sweep camX 1024",
+   "cam_x": 1024,
+   "cam_y": 2888,
+   "section": 3,
+   "vscroll_bg": 0,
+   "checks": {
+    "current_config": "0x1434c",
+    "target_config": "0x0",
+    "transition_frames": 0,
+    "config_ok": true,
+    "target_ok": true,
+    "transition_ok": true
+   },
+   "drift_px": [
+    -1,
+    -1,
+    -1,
+    -1,
+    0
+   ],
+   "n_bg_mismatch_no_drift": 144,
+   "exposure": {
+    "112": {
+     "tally": {
+      "planeB": 120
+     },
+     "planeB_pct": 100.0
+    },
+    "160": {
+     "tally": {
+      "planeB": 160
+     },
+     "planeB_pct": 100.0
+    }
+   },
+   "n_bg_mismatch": 0,
+   "max_abs_bg_delta": 0,
+   "max_abs_fg_delta": 0,
+   "bands": [
+    {
+     "top": 0,
+     "end": 32,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 0,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 32,
+     "end": 80,
+     "lines": 48,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 1,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 80,
+     "end": 112,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 2,
+     "is_curve": false,
+     "fb": "0F3",
+     "to": null
+    },
+    {
+     "top": 112,
+     "end": 160,
+     "lines": 48,
+     "excursion": 125,
+     "rate_max": -3,
+     "rate_mean": 2.66,
+     "duplicates": false,
+     "excursion_over_margin": 0.651,
+     "layer": 3,
+     "is_curve": true,
+     "fb": "0F2",
+     "to": "032"
+    },
+    {
+     "top": 160,
+     "end": 224,
+     "lines": 64,
+     "excursion": 504,
+     "rate_max": -8,
+     "rate_mean": 8.0,
+     "duplicates": true,
+     "excursion_over_margin": 2.625,
+     "layer": 4,
+     "is_curve": true,
+     "fb": "0F1",
+     "to": "0F0"
+    }
+   ],
+   "png": "/tmp/depth3/depth-sweep-01024.png"
+  },
+  {
+   "label": "sweep camX 1280",
+   "cam_x": 1280,
+   "cam_y": 2888,
+   "section": 3,
+   "vscroll_bg": 0,
+   "checks": {
+    "current_config": "0x1434c",
+    "target_config": "0x0",
+    "transition_frames": 0,
+    "config_ok": true,
+    "target_ok": true,
+    "transition_ok": true
+   },
+   "drift_px": [
+    -1,
+    -1,
+    -1,
+    -1,
+    0
+   ],
+   "n_bg_mismatch_no_drift": 143,
+   "exposure": {
+    "112": {
+     "tally": {
+      "planeB": 120
+     },
+     "planeB_pct": 100.0
+    },
+    "160": {
+     "tally": {
+      "planeB": 160
+     },
+     "planeB_pct": 100.0
+    }
+   },
+   "n_bg_mismatch": 0,
+   "max_abs_bg_delta": 0,
+   "max_abs_fg_delta": 0,
+   "bands": [
+    {
+     "top": 0,
+     "end": 32,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 0,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 32,
+     "end": 80,
+     "lines": 48,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 1,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 80,
+     "end": 112,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 2,
+     "is_curve": false,
+     "fb": "0F3",
+     "to": null
+    },
+    {
+     "top": 112,
+     "end": 160,
+     "lines": 48,
+     "excursion": 156,
+     "rate_max": -4,
+     "rate_mean": 3.319,
+     "duplicates": false,
+     "excursion_over_margin": 0.812,
+     "layer": 3,
+     "is_curve": true,
+     "fb": "0F2",
+     "to": "032"
+    },
+    {
+     "top": 160,
+     "end": 224,
+     "lines": 64,
+     "excursion": 630,
+     "rate_max": -10,
+     "rate_mean": 10.0,
+     "duplicates": true,
+     "excursion_over_margin": 3.281,
+     "layer": 4,
+     "is_curve": true,
+     "fb": "0F1",
+     "to": "0F0"
+    }
+   ],
+   "png": "/tmp/depth3/depth-sweep-01280.png"
+  },
+  {
+   "label": "sweep camX 1536",
+   "cam_x": 1536,
+   "cam_y": 2888,
+   "section": 3,
+   "vscroll_bg": 0,
+   "checks": {
+    "current_config": "0x1434c",
+    "target_config": "0x0",
+    "transition_frames": 0,
+    "config_ok": true,
+    "target_ok": true,
+    "transition_ok": true
+   },
+   "drift_px": [
+    -1,
+    -1,
+    -1,
+    -1,
+    0
+   ],
+   "n_bg_mismatch_no_drift": 160,
+   "exposure": {
+    "112": {
+     "tally": {
+      "planeB": 120
+     },
+     "planeB_pct": 100.0
+    },
+    "160": {
+     "tally": {
+      "planeB": 160
+     },
+     "planeB_pct": 100.0
+    }
+   },
+   "n_bg_mismatch": 0,
+   "max_abs_bg_delta": 0,
+   "max_abs_fg_delta": 0,
+   "bands": [
+    {
+     "top": 0,
+     "end": 32,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 0,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 32,
+     "end": 80,
+     "lines": 48,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 1,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 80,
+     "end": 112,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 2,
+     "is_curve": false,
+     "fb": "0F3",
+     "to": null
+    },
+    {
+     "top": 112,
+     "end": 160,
+     "lines": 48,
+     "excursion": 188,
+     "rate_max": -4,
+     "rate_mean": 4.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.979,
+     "layer": 3,
+     "is_curve": true,
+     "fb": "0F2",
+     "to": "032"
+    },
+    {
+     "top": 160,
+     "end": 224,
+     "lines": 64,
+     "excursion": 756,
+     "rate_max": -12,
+     "rate_mean": 12.0,
+     "duplicates": true,
+     "excursion_over_margin": 3.938,
+     "layer": 4,
+     "is_curve": true,
+     "fb": "0F1",
+     "to": "0F0"
+    }
+   ],
+   "png": "/tmp/depth3/depth-sweep-01536.png"
+  },
+  {
+   "label": "sweep camX 1792",
+   "cam_x": 1792,
+   "cam_y": 2888,
+   "section": 3,
+   "vscroll_bg": 0,
+   "checks": {
+    "current_config": "0x1434c",
+    "target_config": "0x0",
+    "transition_frames": 0,
+    "config_ok": true,
+    "target_ok": true,
+    "transition_ok": true
+   },
+   "drift_px": [
+    -1,
+    -1,
+    -1,
+    -1,
+    0
+   ],
+   "n_bg_mismatch_no_drift": 144,
+   "exposure": {
+    "112": {
+     "tally": {
+      "planeB": 120
+     },
+     "planeB_pct": 100.0
+    },
+    "160": {
+     "tally": {
+      "planeB": 160
+     },
+     "planeB_pct": 100.0
+    }
+   },
+   "n_bg_mismatch": 0,
+   "max_abs_bg_delta": 0,
+   "max_abs_fg_delta": 0,
+   "bands": [
+    {
+     "top": 0,
+     "end": 32,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 0,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 32,
+     "end": 80,
+     "lines": 48,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 1,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 80,
+     "end": 112,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 2,
+     "is_curve": false,
+     "fb": "0F3",
+     "to": null
+    },
+    {
+     "top": 112,
+     "end": 160,
+     "lines": 48,
+     "excursion": 219,
+     "rate_max": -5,
+     "rate_mean": 4.66,
+     "duplicates": true,
+     "excursion_over_margin": 1.141,
+     "layer": 3,
+     "is_curve": true,
+     "fb": "0F2",
+     "to": "032"
+    },
+    {
+     "top": 160,
+     "end": 224,
+     "lines": 64,
+     "excursion": 882,
+     "rate_max": -14,
+     "rate_mean": 14.0,
+     "duplicates": true,
+     "excursion_over_margin": 4.594,
+     "layer": 4,
+     "is_curve": true,
+     "fb": "0F1",
+     "to": "0F0"
+    }
+   ],
+   "png": "/tmp/depth3/depth-sweep-01792.png"
+  },
+  {
+   "label": "sweep camX 2048",
+   "cam_x": 2048,
+   "cam_y": 2888,
+   "section": 4,
+   "vscroll_bg": 0,
+   "checks": {
+    "current_config": "0x1434c",
+    "target_config": "0x0",
+    "transition_frames": 0,
+    "config_ok": true,
+    "target_ok": true,
+    "transition_ok": true
+   },
+   "drift_px": [
+    -1,
+    -1,
+    -1,
+    -1,
+    0
+   ],
+   "n_bg_mismatch_no_drift": 143,
+   "exposure": {
+    "112": {
+     "tally": {
+      "planeB": 120
+     },
+     "planeB_pct": 100.0
+    },
+    "160": {
+     "tally": {
+      "planeB": 160
+     },
+     "planeB_pct": 100.0
+    }
+   },
+   "n_bg_mismatch": 0,
+   "max_abs_bg_delta": 0,
+   "max_abs_fg_delta": 0,
+   "bands": [
+    {
+     "top": 0,
+     "end": 32,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 0,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 32,
+     "end": 80,
+     "lines": 48,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 1,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 80,
+     "end": 112,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 2,
+     "is_curve": false,
+     "fb": "0F3",
+     "to": null
+    },
+    {
+     "top": 112,
+     "end": 160,
+     "lines": 48,
+     "excursion": 250,
+     "rate_max": -6,
+     "rate_mean": 5.319,
+     "duplicates": true,
+     "excursion_over_margin": 1.302,
+     "layer": 3,
+     "is_curve": true,
+     "fb": "0F2",
+     "to": "032"
+    },
+    {
+     "top": 160,
+     "end": 224,
+     "lines": 64,
+     "excursion": 1008,
+     "rate_max": -16,
+     "rate_mean": 16.0,
+     "duplicates": true,
+     "excursion_over_margin": 5.25,
+     "layer": 4,
+     "is_curve": true,
+     "fb": "0F1",
+     "to": "0F0"
+    }
+   ],
+   "png": "/tmp/depth3/depth-sweep-02048.png"
+  },
+  {
+   "label": "sweep camX 2840",
+   "cam_x": 2840,
+   "cam_y": 2888,
+   "section": 4,
+   "vscroll_bg": 0,
+   "checks": {
+    "current_config": "0x1434c",
+    "target_config": "0x0",
+    "transition_frames": 0,
+    "config_ok": true,
+    "target_ok": true,
+    "transition_ok": true
+   },
+   "drift_px": [
+    -1,
+    -1,
+    -1,
+    -1,
+    0
+   ],
+   "n_bg_mismatch_no_drift": 134,
+   "exposure": {
+    "112": {
+     "tally": {
+      "planeB": 119,
+      "sprite": 1
+     },
+     "planeB_pct": 99.2
+    },
+    "160": {
+     "tally": {
+      "planeB": 160
+     },
+     "planeB_pct": 100.0
+    }
+   },
+   "n_bg_mismatch": 0,
+   "max_abs_bg_delta": 0,
+   "max_abs_fg_delta": 0,
+   "bands": [
+    {
+     "top": 0,
+     "end": 32,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 0,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 32,
+     "end": 80,
+     "lines": 48,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 1,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 80,
+     "end": 112,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 2,
+     "is_curve": false,
+     "fb": "0F3",
+     "to": null
+    },
+    {
+     "top": 112,
+     "end": 160,
+     "lines": 48,
+     "excursion": 347,
+     "rate_max": -8,
+     "rate_mean": 7.383,
+     "duplicates": true,
+     "excursion_over_margin": 1.807,
+     "layer": 3,
+     "is_curve": true,
+     "fb": "0F2",
+     "to": "032"
+    },
+    {
+     "top": 160,
+     "end": 224,
+     "lines": 64,
+     "excursion": 1398,
+     "rate_max": -23,
+     "rate_mean": 22.19,
+     "duplicates": true,
+     "excursion_over_margin": 7.281,
+     "layer": 4,
+     "is_curve": true,
+     "fb": "0F1",
+     "to": "0F0"
+    }
+   ],
+   "png": "/tmp/depth3/depth-sweep-02840.png"
+  },
+  {
+   "label": "sweep camX 3840",
+   "cam_x": 3840,
+   "cam_y": 2888,
+   "section": 4,
+   "vscroll_bg": 0,
+   "checks": {
+    "current_config": "0x1434c",
+    "target_config": "0x0",
+    "transition_frames": 0,
+    "config_ok": true,
+    "target_ok": true,
+    "transition_ok": true
+   },
+   "drift_px": [
+    -1,
+    -1,
+    -1,
+    -1,
+    0
+   ],
+   "n_bg_mismatch_no_drift": 160,
+   "exposure": {
+    "112": {
+     "tally": {
+      "planeB": 120
+     },
+     "planeB_pct": 100.0
+    },
+    "160": {
+     "tally": {
+      "planeB": 160
+     },
+     "planeB_pct": 100.0
+    }
+   },
+   "n_bg_mismatch": 0,
+   "max_abs_bg_delta": 0,
+   "max_abs_fg_delta": 0,
+   "bands": [
+    {
+     "top": 0,
+     "end": 32,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 0,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 32,
+     "end": 80,
+     "lines": 48,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 1,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 80,
+     "end": 112,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 2,
+     "is_curve": false,
+     "fb": "0F3",
+     "to": null
+    },
+    {
+     "top": 112,
+     "end": 160,
+     "lines": 48,
+     "excursion": 470,
+     "rate_max": -10,
+     "rate_mean": 10.0,
+     "duplicates": true,
+     "excursion_over_margin": 2.448,
+     "layer": 3,
+     "is_curve": true,
+     "fb": "0F2",
+     "to": "032"
+    },
+    {
+     "top": 160,
+     "end": 224,
+     "lines": 64,
+     "excursion": 1890,
+     "rate_max": -30,
+     "rate_mean": 30.0,
+     "duplicates": true,
+     "excursion_over_margin": 9.844,
+     "layer": 4,
+     "is_curve": true,
+     "fb": "0F1",
+     "to": "0F0"
+    }
+   ],
+   "png": "/tmp/depth3/depth-sweep-03840.png"
+  }
+ ],
+ "ab_vs_control": [
+  {
+   "label": "curved camX 250",
+   "cam_x": 250,
+   "cam_y": 2888,
+   "section": 3,
+   "vscroll_bg": 0,
+   "checks": {
+    "current_config": "0x1434c",
+    "target_config": "0x0",
+    "transition_frames": 0,
+    "config_ok": true,
+    "target_ok": true,
+    "transition_ok": true
+   },
+   "drift_px": [
+    -1,
+    -1,
+    -1,
+    -1,
+    0
+   ],
+   "n_bg_mismatch_no_drift": 134,
+   "exposure": {
+    "112": {
+     "tally": {
+      "planeB": 120
+     },
+     "planeB_pct": 100.0
+    },
+    "160": {
+     "tally": {
+      "planeB": 160
+     },
+     "planeB_pct": 100.0
+    }
+   },
+   "n_bg_mismatch": 0,
+   "max_abs_bg_delta": 0,
+   "max_abs_fg_delta": 0,
+   "bands": [
+    {
+     "top": 0,
+     "end": 32,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 0,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 32,
+     "end": 80,
+     "lines": 48,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 1,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 80,
+     "end": 112,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 2,
+     "is_curve": false,
+     "fb": "0F3",
+     "to": null
+    },
+    {
+     "top": 112,
+     "end": 160,
+     "lines": 48,
+     "excursion": 30,
+     "rate_max": -1,
+     "rate_mean": 0.638,
+     "duplicates": false,
+     "excursion_over_margin": 0.156,
+     "layer": 3,
+     "is_curve": true,
+     "fb": "0F2",
+     "to": "032"
+    },
+    {
+     "top": 160,
+     "end": 224,
+     "lines": 64,
+     "excursion": 124,
+     "rate_max": -2,
+     "rate_mean": 1.968,
+     "duplicates": false,
+     "excursion_over_margin": 0.646,
+     "layer": 4,
+     "is_curve": true,
+     "fb": "0F1",
+     "to": "0F0"
+    }
+   ],
+   "png": "/tmp/depthab/depth-ab-curved-00250.png",
+   "planeb_nt_sha256": "c4d7e2cb3db35fbe",
+   "arm": "curved"
+  },
+  {
+   "label": "curved camX 384",
+   "cam_x": 384,
+   "cam_y": 2888,
+   "section": 3,
+   "vscroll_bg": 0,
+   "checks": {
+    "current_config": "0x1434c",
+    "target_config": "0x0",
+    "transition_frames": 0,
+    "config_ok": true,
+    "target_ok": true,
+    "transition_ok": true
+   },
+   "drift_px": [
+    -1,
+    -1,
+    -1,
+    -1,
+    0
+   ],
+   "n_bg_mismatch_no_drift": 160,
+   "exposure": {
+    "112": {
+     "tally": {
+      "planeB": 120
+     },
+     "planeB_pct": 100.0
+    },
+    "160": {
+     "tally": {
+      "planeB": 160
+     },
+     "planeB_pct": 100.0
+    }
+   },
+   "n_bg_mismatch": 0,
+   "max_abs_bg_delta": 0,
+   "max_abs_fg_delta": 0,
+   "bands": [
+    {
+     "top": 0,
+     "end": 32,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 0,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 32,
+     "end": 80,
+     "lines": 48,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 1,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 80,
+     "end": 112,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 2,
+     "is_curve": false,
+     "fb": "0F3",
+     "to": null
+    },
+    {
+     "top": 112,
+     "end": 160,
+     "lines": 48,
+     "excursion": 47,
+     "rate_max": -1,
+     "rate_mean": 1.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.245,
+     "layer": 3,
+     "is_curve": true,
+     "fb": "0F2",
+     "to": "032"
+    },
+    {
+     "top": 160,
+     "end": 224,
+     "lines": 64,
+     "excursion": 189,
+     "rate_max": -3,
+     "rate_mean": 3.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.984,
+     "layer": 4,
+     "is_curve": true,
+     "fb": "0F1",
+     "to": "0F0"
+    }
+   ],
+   "png": "/tmp/depthab/depth-ab-curved-00384.png",
+   "planeb_nt_sha256": "c4d7e2cb3db35fbe",
+   "arm": "curved"
+  },
+  {
+   "label": "curved camX 448",
+   "cam_x": 448,
+   "cam_y": 2888,
+   "section": 3,
+   "vscroll_bg": 0,
+   "checks": {
+    "current_config": "0x1434c",
+    "target_config": "0x0",
+    "transition_frames": 0,
+    "config_ok": true,
+    "target_ok": true,
+    "transition_ok": true
+   },
+   "drift_px": [
+    -1,
+    -1,
+    -1,
+    -1,
+    0
+   ],
+   "n_bg_mismatch_no_drift": 140,
+   "exposure": {
+    "112": {
+     "tally": {
+      "planeB": 120
+     },
+     "planeB_pct": 100.0
+    },
+    "160": {
+     "tally": {
+      "planeB": 160
+     },
+     "planeB_pct": 100.0
+    }
+   },
+   "n_bg_mismatch": 0,
+   "max_abs_bg_delta": 0,
+   "max_abs_fg_delta": 0,
+   "bands": [
+    {
+     "top": 0,
+     "end": 32,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 0,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 32,
+     "end": 80,
+     "lines": 48,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 1,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 80,
+     "end": 112,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 2,
+     "is_curve": false,
+     "fb": "0F3",
+     "to": null
+    },
+    {
+     "top": 112,
+     "end": 160,
+     "lines": 48,
+     "excursion": 54,
+     "rate_max": -2,
+     "rate_mean": 1.149,
+     "duplicates": false,
+     "excursion_over_margin": 0.281,
+     "layer": 3,
+     "is_curve": true,
+     "fb": "0F2",
+     "to": "032"
+    },
+    {
+     "top": 160,
+     "end": 224,
+     "lines": 64,
+     "excursion": 221,
+     "rate_max": -4,
+     "rate_mean": 3.508,
+     "duplicates": true,
+     "excursion_over_margin": 1.151,
+     "layer": 4,
+     "is_curve": true,
+     "fb": "0F1",
+     "to": "0F0"
+    }
+   ],
+   "png": "/tmp/depthab/depth-ab-curved-00448.png",
+   "planeb_nt_sha256": "c4d7e2cb3db35fbe",
+   "arm": "curved"
+  },
+  {
+   "label": "curved camX 512",
+   "cam_x": 512,
+   "cam_y": 2888,
+   "section": 3,
+   "vscroll_bg": 0,
+   "checks": {
+    "current_config": "0x1434c",
+    "target_config": "0x0",
+    "transition_frames": 0,
+    "config_ok": true,
+    "target_ok": true,
+    "transition_ok": true
+   },
+   "drift_px": [
+    -1,
+    -1,
+    -1,
+    -1,
+    0
+   ],
+   "n_bg_mismatch_no_drift": 143,
+   "exposure": {
+    "112": {
+     "tally": {
+      "planeB": 120
+     },
+     "planeB_pct": 100.0
+    },
+    "160": {
+     "tally": {
+      "planeB": 160
+     },
+     "planeB_pct": 100.0
+    }
+   },
+   "n_bg_mismatch": 0,
+   "max_abs_bg_delta": 0,
+   "max_abs_fg_delta": 0,
+   "bands": [
+    {
+     "top": 0,
+     "end": 32,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 0,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 32,
+     "end": 80,
+     "lines": 48,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 1,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 80,
+     "end": 112,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 2,
+     "is_curve": false,
+     "fb": "0F3",
+     "to": null
+    },
+    {
+     "top": 112,
+     "end": 160,
+     "lines": 48,
+     "excursion": 62,
+     "rate_max": -2,
+     "rate_mean": 1.319,
+     "duplicates": false,
+     "excursion_over_margin": 0.323,
+     "layer": 3,
+     "is_curve": true,
+     "fb": "0F2",
+     "to": "032"
+    },
+    {
+     "top": 160,
+     "end": 224,
+     "lines": 64,
+     "excursion": 252,
+     "rate_max": -4,
+     "rate_mean": 4.0,
+     "duplicates": true,
+     "excursion_over_margin": 1.312,
+     "layer": 4,
+     "is_curve": true,
+     "fb": "0F1",
+     "to": "0F0"
+    }
+   ],
+   "png": "/tmp/depthab/depth-ab-curved-00512.png",
+   "planeb_nt_sha256": "c4d7e2cb3db35fbe",
+   "arm": "curved"
+  },
+  {
+   "label": "curved camX 1536",
+   "cam_x": 1536,
+   "cam_y": 2888,
+   "section": 3,
+   "vscroll_bg": 0,
+   "checks": {
+    "current_config": "0x1434c",
+    "target_config": "0x0",
+    "transition_frames": 0,
+    "config_ok": true,
+    "target_ok": true,
+    "transition_ok": true
+   },
+   "drift_px": [
+    -1,
+    -1,
+    -1,
+    -1,
+    0
+   ],
+   "n_bg_mismatch_no_drift": 160,
+   "exposure": {
+    "112": {
+     "tally": {
+      "planeB": 120
+     },
+     "planeB_pct": 100.0
+    },
+    "160": {
+     "tally": {
+      "planeB": 160
+     },
+     "planeB_pct": 100.0
+    }
+   },
+   "n_bg_mismatch": 0,
+   "max_abs_bg_delta": 0,
+   "max_abs_fg_delta": 0,
+   "bands": [
+    {
+     "top": 0,
+     "end": 32,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 0,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 32,
+     "end": 80,
+     "lines": 48,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 1,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 80,
+     "end": 112,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 2,
+     "is_curve": false,
+     "fb": "0F3",
+     "to": null
+    },
+    {
+     "top": 112,
+     "end": 160,
+     "lines": 48,
+     "excursion": 188,
+     "rate_max": -4,
+     "rate_mean": 4.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.979,
+     "layer": 3,
+     "is_curve": true,
+     "fb": "0F2",
+     "to": "032"
+    },
+    {
+     "top": 160,
+     "end": 224,
+     "lines": 64,
+     "excursion": 756,
+     "rate_max": -12,
+     "rate_mean": 12.0,
+     "duplicates": true,
+     "excursion_over_margin": 3.938,
+     "layer": 4,
+     "is_curve": true,
+     "fb": "0F1",
+     "to": "0F0"
+    }
+   ],
+   "png": "/tmp/depthab/depth-ab-curved-01536.png",
+   "planeb_nt_sha256": "c4d7e2cb3db35fbe",
+   "arm": "curved"
+  },
+  {
+   "label": "curved camX 2048",
+   "cam_x": 2048,
+   "cam_y": 2888,
+   "section": 4,
+   "vscroll_bg": 0,
+   "checks": {
+    "current_config": "0x1434c",
+    "target_config": "0x0",
+    "transition_frames": 0,
+    "config_ok": true,
+    "target_ok": true,
+    "transition_ok": true
+   },
+   "drift_px": [
+    -1,
+    -1,
+    -1,
+    -1,
+    0
+   ],
+   "n_bg_mismatch_no_drift": 143,
+   "exposure": {
+    "112": {
+     "tally": {
+      "planeB": 120
+     },
+     "planeB_pct": 100.0
+    },
+    "160": {
+     "tally": {
+      "planeB": 160
+     },
+     "planeB_pct": 100.0
+    }
+   },
+   "n_bg_mismatch": 0,
+   "max_abs_bg_delta": 0,
+   "max_abs_fg_delta": 0,
+   "bands": [
+    {
+     "top": 0,
+     "end": 32,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 0,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 32,
+     "end": 80,
+     "lines": 48,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 1,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 80,
+     "end": 112,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 2,
+     "is_curve": false,
+     "fb": "0F3",
+     "to": null
+    },
+    {
+     "top": 112,
+     "end": 160,
+     "lines": 48,
+     "excursion": 250,
+     "rate_max": -6,
+     "rate_mean": 5.319,
+     "duplicates": true,
+     "excursion_over_margin": 1.302,
+     "layer": 3,
+     "is_curve": true,
+     "fb": "0F2",
+     "to": "032"
+    },
+    {
+     "top": 160,
+     "end": 224,
+     "lines": 64,
+     "excursion": 1008,
+     "rate_max": -16,
+     "rate_mean": 16.0,
+     "duplicates": true,
+     "excursion_over_margin": 5.25,
+     "layer": 4,
+     "is_curve": true,
+     "fb": "0F1",
+     "to": "0F0"
+    }
+   ],
+   "png": "/tmp/depthab/depth-ab-curved-02048.png",
+   "planeb_nt_sha256": "c4d7e2cb3db35fbe",
+   "arm": "curved"
+  },
+  {
+   "label": "flat camX 250",
+   "cam_x": 250,
+   "cam_y": 2888,
+   "section": 3,
+   "vscroll_bg": 0,
+   "checks": {
+    "current_config": "0x1434c",
+    "target_config": "0x0",
+    "transition_frames": 0,
+    "config_ok": true,
+    "target_ok": true,
+    "transition_ok": true
+   },
+   "drift_px": [
+    -1,
+    -1,
+    -1,
+    -1,
+    0
+   ],
+   "n_bg_mismatch_no_drift": 160,
+   "exposure": {},
+   "n_bg_mismatch": 0,
+   "max_abs_bg_delta": 0,
+   "max_abs_fg_delta": 0,
+   "bands": [
+    {
+     "top": 0,
+     "end": 32,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 0,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 32,
+     "end": 80,
+     "lines": 48,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 1,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 80,
+     "end": 112,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 2,
+     "is_curve": false,
+     "fb": "0F3",
+     "to": null
+    },
+    {
+     "top": 112,
+     "end": 160,
+     "lines": 48,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 3,
+     "is_curve": false,
+     "fb": "0F2",
+     "to": null
+    },
+    {
+     "top": 160,
+     "end": 224,
+     "lines": 64,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 4,
+     "is_curve": false,
+     "fb": "0F1",
+     "to": null
+    }
+   ],
+   "png": "/tmp/depthab/depth-ab-flat-00250.png",
+   "planeb_nt_sha256": "c4d7e2cb3db35fbe",
+   "arm": "flat"
+  },
+  {
+   "label": "flat camX 384",
+   "cam_x": 384,
+   "cam_y": 2888,
+   "section": 3,
+   "vscroll_bg": 0,
+   "checks": {
+    "current_config": "0x1434c",
+    "target_config": "0x0",
+    "transition_frames": 0,
+    "config_ok": true,
+    "target_ok": true,
+    "transition_ok": true
+   },
+   "drift_px": [
+    -1,
+    -1,
+    -1,
+    -1,
+    0
+   ],
+   "n_bg_mismatch_no_drift": 160,
+   "exposure": {},
+   "n_bg_mismatch": 0,
+   "max_abs_bg_delta": 0,
+   "max_abs_fg_delta": 0,
+   "bands": [
+    {
+     "top": 0,
+     "end": 32,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 0,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 32,
+     "end": 80,
+     "lines": 48,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 1,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 80,
+     "end": 112,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 2,
+     "is_curve": false,
+     "fb": "0F3",
+     "to": null
+    },
+    {
+     "top": 112,
+     "end": 160,
+     "lines": 48,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 3,
+     "is_curve": false,
+     "fb": "0F2",
+     "to": null
+    },
+    {
+     "top": 160,
+     "end": 224,
+     "lines": 64,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 4,
+     "is_curve": false,
+     "fb": "0F1",
+     "to": null
+    }
+   ],
+   "png": "/tmp/depthab/depth-ab-flat-00384.png",
+   "planeb_nt_sha256": "c4d7e2cb3db35fbe",
+   "arm": "flat"
+  },
+  {
+   "label": "flat camX 448",
+   "cam_x": 448,
+   "cam_y": 2888,
+   "section": 3,
+   "vscroll_bg": 0,
+   "checks": {
+    "current_config": "0x1434c",
+    "target_config": "0x0",
+    "transition_frames": 0,
+    "config_ok": true,
+    "target_ok": true,
+    "transition_ok": true
+   },
+   "drift_px": [
+    -1,
+    -1,
+    -1,
+    -1,
+    0
+   ],
+   "n_bg_mismatch_no_drift": 160,
+   "exposure": {},
+   "n_bg_mismatch": 0,
+   "max_abs_bg_delta": 0,
+   "max_abs_fg_delta": 0,
+   "bands": [
+    {
+     "top": 0,
+     "end": 32,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 0,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 32,
+     "end": 80,
+     "lines": 48,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 1,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 80,
+     "end": 112,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 2,
+     "is_curve": false,
+     "fb": "0F3",
+     "to": null
+    },
+    {
+     "top": 112,
+     "end": 160,
+     "lines": 48,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 3,
+     "is_curve": false,
+     "fb": "0F2",
+     "to": null
+    },
+    {
+     "top": 160,
+     "end": 224,
+     "lines": 64,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 4,
+     "is_curve": false,
+     "fb": "0F1",
+     "to": null
+    }
+   ],
+   "png": "/tmp/depthab/depth-ab-flat-00448.png",
+   "planeb_nt_sha256": "c4d7e2cb3db35fbe",
+   "arm": "flat"
+  },
+  {
+   "label": "flat camX 512",
+   "cam_x": 512,
+   "cam_y": 2888,
+   "section": 3,
+   "vscroll_bg": 0,
+   "checks": {
+    "current_config": "0x1434c",
+    "target_config": "0x0",
+    "transition_frames": 0,
+    "config_ok": true,
+    "target_ok": true,
+    "transition_ok": true
+   },
+   "drift_px": [
+    -1,
+    -1,
+    -1,
+    -1,
+    0
+   ],
+   "n_bg_mismatch_no_drift": 160,
+   "exposure": {},
+   "n_bg_mismatch": 0,
+   "max_abs_bg_delta": 0,
+   "max_abs_fg_delta": 0,
+   "bands": [
+    {
+     "top": 0,
+     "end": 32,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 0,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 32,
+     "end": 80,
+     "lines": 48,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 1,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 80,
+     "end": 112,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 2,
+     "is_curve": false,
+     "fb": "0F3",
+     "to": null
+    },
+    {
+     "top": 112,
+     "end": 160,
+     "lines": 48,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 3,
+     "is_curve": false,
+     "fb": "0F2",
+     "to": null
+    },
+    {
+     "top": 160,
+     "end": 224,
+     "lines": 64,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 4,
+     "is_curve": false,
+     "fb": "0F1",
+     "to": null
+    }
+   ],
+   "png": "/tmp/depthab/depth-ab-flat-00512.png",
+   "planeb_nt_sha256": "c4d7e2cb3db35fbe",
+   "arm": "flat"
+  },
+  {
+   "label": "flat camX 1536",
+   "cam_x": 1536,
+   "cam_y": 2888,
+   "section": 3,
+   "vscroll_bg": 0,
+   "checks": {
+    "current_config": "0x1434c",
+    "target_config": "0x0",
+    "transition_frames": 0,
+    "config_ok": true,
+    "target_ok": true,
+    "transition_ok": true
+   },
+   "drift_px": [
+    -1,
+    -1,
+    -1,
+    -1,
+    0
+   ],
+   "n_bg_mismatch_no_drift": 160,
+   "exposure": {},
+   "n_bg_mismatch": 0,
+   "max_abs_bg_delta": 0,
+   "max_abs_fg_delta": 0,
+   "bands": [
+    {
+     "top": 0,
+     "end": 32,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 0,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 32,
+     "end": 80,
+     "lines": 48,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 1,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 80,
+     "end": 112,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 2,
+     "is_curve": false,
+     "fb": "0F3",
+     "to": null
+    },
+    {
+     "top": 112,
+     "end": 160,
+     "lines": 48,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 3,
+     "is_curve": false,
+     "fb": "0F2",
+     "to": null
+    },
+    {
+     "top": 160,
+     "end": 224,
+     "lines": 64,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 4,
+     "is_curve": false,
+     "fb": "0F1",
+     "to": null
+    }
+   ],
+   "png": "/tmp/depthab/depth-ab-flat-01536.png",
+   "planeb_nt_sha256": "c4d7e2cb3db35fbe",
+   "arm": "flat"
+  },
+  {
+   "label": "flat camX 2048",
+   "cam_x": 2048,
+   "cam_y": 2888,
+   "section": 4,
+   "vscroll_bg": 0,
+   "checks": {
+    "current_config": "0x1434c",
+    "target_config": "0x0",
+    "transition_frames": 0,
+    "config_ok": true,
+    "target_ok": true,
+    "transition_ok": true
+   },
+   "drift_px": [
+    -1,
+    -1,
+    -1,
+    -1,
+    0
+   ],
+   "n_bg_mismatch_no_drift": 160,
+   "exposure": {},
+   "n_bg_mismatch": 0,
+   "max_abs_bg_delta": 0,
+   "max_abs_fg_delta": 0,
+   "bands": [
+    {
+     "top": 0,
+     "end": 32,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 0,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 32,
+     "end": 80,
+     "lines": 48,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 1,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 80,
+     "end": 112,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 2,
+     "is_curve": false,
+     "fb": "0F3",
+     "to": null
+    },
+    {
+     "top": 112,
+     "end": 160,
+     "lines": 48,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 3,
+     "is_curve": false,
+     "fb": "0F2",
+     "to": null
+    },
+    {
+     "top": 160,
+     "end": 224,
+     "lines": 64,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 4,
+     "is_curve": false,
+     "fb": "0F1",
+     "to": null
+    }
+   ],
+   "png": "/tmp/depthab/depth-ab-flat-02048.png",
+   "planeb_nt_sha256": "c4d7e2cb3db35fbe",
+   "arm": "flat"
+  },
+  {
+   "label": "curved camX 2840",
+   "cam_x": 2840,
+   "cam_y": 2888,
+   "section": 4,
+   "vscroll_bg": 0,
+   "checks": {
+    "current_config": "0x1434c",
+    "target_config": "0x0",
+    "transition_frames": 0,
+    "config_ok": true,
+    "target_ok": true,
+    "transition_ok": true
+   },
+   "drift_px": [
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "n_bg_mismatch_no_drift": 0,
+   "exposure": {
+    "112": {
+     "tally": {
+      "planeB": 119,
+      "sprite": 1
+     },
+     "planeB_pct": 99.2
+    },
+    "160": {
+     "tally": {
+      "planeB": 160
+     },
+     "planeB_pct": 100.0
+    }
+   },
+   "n_bg_mismatch": 0,
+   "max_abs_bg_delta": 0,
+   "max_abs_fg_delta": 0,
+   "bands": [
+    {
+     "top": 0,
+     "end": 32,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 0,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 32,
+     "end": 80,
+     "lines": 48,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 1,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 80,
+     "end": 112,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 2,
+     "is_curve": false,
+     "fb": "0F3",
+     "to": null
+    },
+    {
+     "top": 112,
+     "end": 160,
+     "lines": 48,
+     "excursion": 348,
+     "rate_max": -8,
+     "rate_mean": 7.404,
+     "duplicates": true,
+     "excursion_over_margin": 1.812,
+     "layer": 3,
+     "is_curve": true,
+     "fb": "0F2",
+     "to": "032"
+    },
+    {
+     "top": 160,
+     "end": 224,
+     "lines": 64,
+     "excursion": 1398,
+     "rate_max": -23,
+     "rate_mean": 22.19,
+     "duplicates": true,
+     "excursion_over_margin": 7.281,
+     "layer": 4,
+     "is_curve": true,
+     "fb": "0F1",
+     "to": "0F0"
+    }
+   ],
+   "png": "/tmp/depthab/depth-ab-curved-02840.png",
+   "planeb_nt_sha256": "c4d7e2cb3db35fbe",
+   "arm": "curved"
+  },
+  {
+   "label": "flat camX 2840",
+   "cam_x": 2840,
+   "cam_y": 2888,
+   "section": 4,
+   "vscroll_bg": 0,
+   "checks": {
+    "current_config": "0x1434c",
+    "target_config": "0x0",
+    "transition_frames": 0,
+    "config_ok": true,
+    "target_ok": true,
+    "transition_ok": true
+   },
+   "drift_px": [
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "n_bg_mismatch_no_drift": 0,
+   "exposure": {},
+   "n_bg_mismatch": 0,
+   "max_abs_bg_delta": 0,
+   "max_abs_fg_delta": 0,
+   "bands": [
+    {
+     "top": 0,
+     "end": 32,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 0,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 32,
+     "end": 80,
+     "lines": 48,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 1,
+     "is_curve": false,
+     "fb": "0F4",
+     "to": null
+    },
+    {
+     "top": 80,
+     "end": 112,
+     "lines": 32,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 2,
+     "is_curve": false,
+     "fb": "0F3",
+     "to": null
+    },
+    {
+     "top": 112,
+     "end": 160,
+     "lines": 48,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 3,
+     "is_curve": false,
+     "fb": "0F2",
+     "to": null
+    },
+    {
+     "top": 160,
+     "end": 224,
+     "lines": 64,
+     "excursion": 0,
+     "rate_max": 0,
+     "rate_mean": 0.0,
+     "duplicates": false,
+     "excursion_over_margin": 0.0,
+     "layer": 4,
+     "is_curve": false,
+     "fb": "0F1",
+     "to": null
+    }
+   ],
+   "png": "/tmp/depthab/depth-ab-flat-02840.png",
+   "planeb_nt_sha256": "c4d7e2cb3db35fbe",
+   "arm": "flat"
+  }
+ ]
+}

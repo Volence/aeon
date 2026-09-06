@@ -80,12 +80,22 @@ to be consistent with.
 """
 import argparse
 import asyncio
+import hashlib
 import json
 import sys
 from pathlib import Path
 
 AEON = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(AEON / "tools"))
+# THE SEAM DECLARATION, and it is not decoration. `tools/test_legacy_seam_keys.py` resolves
+# which emulator a tool dials by following its imports, and a file that reaches BOTH servers
+# transitively is a build-fatal error rather than a guess -- which is exactly what this file
+# is without this line, because it borrows `Server` from curve_desc_probe (Rust) and helpers
+# from parallax_hscroll_probe and curve_probe (both of which import the legacy `harness_path`).
+# `aether_instance` in the imports is that test's own named remedy and is TRUE here: every
+# server this tool spawns goes through `curve_desc_probe.Server`, whose `__aenter__` calls the
+# `assert_rust_server` imported below, so a legacy `oracle_gui` cannot answer any of it.
+from aether_instance import assert_rust_server         # noqa: E402,F401
 import curve_desc_probe as base                       # noqa: E402
 from curve_desc_probe import Server, Setup, c, rd, rows, layers_from_scene  # noqa: E402
 from raster_cost_probe import parse_lst               # noqa: E402
@@ -201,7 +211,7 @@ def analyse_band(bg, top, end):
     }
 
 
-async def sample(b, sym, layers, png_dir, label, tag, pin_cfg=None):
+async def sample(b, sym, layers, png_dir, label, tag, pin_cfg=None, attrib=None):
     """One reading: assert the config, read the buffer, derive, capture, write a PNG."""
     checks = {}
     if pin_cfg is not None:
@@ -255,6 +265,29 @@ async def sample(b, sym, layers, png_dir, label, tag, pin_cfg=None):
         a["to"] = None if to is None else "%03X" % to
         bands.append(a)
 
+    # PLANE-B EXPOSURE, and it is not optional colour: the whole visual channel of this
+    # probe is worthless on a band Plane A covers. Measured 2026-09-06 at Camera_Y 2188,
+    # band 160 is 100% planeA -- so a picture of that band is a picture of the FOREGROUND,
+    # which is FACTOR_1 and shears by nothing. Every visual claim below has to name this
+    # number or it is a claim about the wrong layer.
+    expo = {}
+    if attrib is not None:
+        cstep, rstep = attrib
+        for (i, top, end, fa, fb, to) in band_spans(layers):
+            if to is None:
+                continue
+            tally = {}
+            for y in range(top, end, rstep):
+                for x in range(0, SCREEN_W, cstep):
+                    at = await c(b, "emulator/pixel_attribution", {"x": x, "y": y})
+                    w = at.get("winner")
+                    if isinstance(w, dict):
+                        w = w.get("layer")
+                    tally[str(w)] = tally.get(str(w), 0) + 1
+            tot = sum(tally.values()) or 1
+            expo[top] = {"tally": tally,
+                         "planeB_pct": round(100.0 * tally.get("planeB", 0) / tot, 1)}
+
     png = None
     if png_dir:
         png = str(Path(png_dir) / f"depth-{tag}.png")
@@ -270,6 +303,7 @@ async def sample(b, sym, layers, png_dir, label, tag, pin_cfg=None):
     return {"label": label, "cam_x": cam_x, "cam_y": cam_y, "section": sec,
             "vscroll_bg": vs_bg, "checks": checks,
             "drift_px": drift, "n_bg_mismatch_no_drift": n_nodrift,
+            "exposure": expo,
             "n_bg_mismatch": sum(1 for v in d_bg if v),
             "max_abs_bg_delta": max(abs(v) for v in d_bg),
             "max_abs_fg_delta": max(abs(v) for v in d_fg),
@@ -295,7 +329,7 @@ async def boot_into_section4(b, sym, lst, warp_x, warp_y):
     return ack
 
 
-async def run_play(rom, lst, scene, spots, png_dir):
+async def run_play(rom, lst, scene, spots, png_dir, attrib=(16, 8)):
     layers, sc, authored, vs, k = layers_from_scene(scene)
     sym = parse_lst(lst)
     want = require_symbols(sym, lst)
@@ -307,7 +341,7 @@ async def run_play(rom, lst, scene, spots, png_dir):
             cur = int.from_bytes(await rd(b, sym["Parallax_Current_Config"], 4),
                                  "big") & 0xFFFFFF
             r = await sample(b, sym, layers, png_dir, f"play x{px} y{py}",
-                             f"play-{px}-{py}")
+                             f"play-{px}-{py}", attrib=attrib)
             r["ack"] = ack
             r["warp"] = (px, py)
             r["config_is_sec4"] = (cur == want)
@@ -316,7 +350,7 @@ async def run_play(rom, lst, scene, spots, png_dir):
     return out, layers
 
 
-async def run_sweep(rom, lst, scene, cams, warp, png_dir):
+async def run_sweep(rom, lst, scene, cams, warp, png_dir, attrib=(16, 8)):
     layers, sc, authored, vs, k = layers_from_scene(scene)
     sym = parse_lst(lst)
     want = require_symbols(sym, lst)
@@ -348,7 +382,7 @@ async def run_sweep(rom, lst, scene, cams, warp, png_dir):
                     {"addr": hex(sym["Parallax_Current_Config"]), "value": want, "width": 4})
             await c(b, "emulator/run_frames", {"frames": POST_PIN})
             r = await sample(b, sym, layers, png_dir, f"sweep camX {cx}",
-                             f"sweep-{cx:05d}", pin_cfg=want)
+                             f"sweep-{cx:05d}", pin_cfg=want, attrib=attrib)
             if r["cam_x"] != cx:
                 raise Setup(f"poked Camera_X {cx} but it reads {r['cam_x']} at the sample")
             out.append(r)
@@ -373,8 +407,11 @@ def montage(samples, top, end, path, title):
         sub.putdata([p for row in r["pix"][top:end] for p in row])
         img.paste(sub, (pad, y))
         bd = next((x for x in r["bands"] if x["top"] == top), None)
-        note = "camX %-5d E=%-5d rate=%-6s dup=%s" % (
-            r["cam_x"], bd["excursion"], bd["rate_mean"], "YES" if bd["duplicates"] else "no")
+        ex = r.get("exposure", {}).get(top)
+        note = "camX %-5d E=%-5d rate=%-6s dup=%-4s planeB=%s" % (
+            r["cam_x"], bd["excursion"], bd["rate_mean"],
+            "YES" if bd["duplicates"] else "no",
+            "?" if ex is None else ("%.0f%%" % ex["planeB_pct"]))
         d.text((pad, y + h + 1), note, fill=(240, 240, 130))
         y += h + lab + pad
     img.save(path)
@@ -438,6 +475,139 @@ def report_attrib(rows_):
             print("     band top %s: %s" % (top, parts))
 
 
+PLANE_B_NT = 0xE000          # Plane B nametable base, 64x64 words = 8192 B
+PLANE_B_NT_LEN = 8192
+
+
+async def run_ab(rom_a, lst_a, rom_b, lst_b, scene_a, scene_b, cams, warp, png_dir):
+    """THE CONTROL THAT THE CAMERA SWEEP COULD NOT BE.
+
+    A camera sweep varies the shear AND the background art at the same time -- and on this
+    scene the art wins. Band 160 at Camera_Y 2888 reads as diagonal streaks at camX 64,
+    where the excursion is 32 px over 64 lines (0.5 px/line) and no shear that gentle can
+    produce a diagonal. Those crops are pictures of the ART, so they are not evidence about
+    the curve, and any onset read off them would be read off the wrong signal.
+
+    This pairs the SHIPPED scene against a control ROM built from the same scene with the
+    two `curve:` keys deleted and nothing else touched, sampled at the SAME camera
+    positions through the same warp and the same frame counts. The flat ROM shows the band's
+    art unsheared; the difference between the pair is the curve and only the curve.
+
+    THE ART BEING HELD FIXED IS ASSERTED, NOT ASSUMED: the Plane-B nametable is hashed on
+    both ROMs at every position and must match. A curve changes HScroll words, never tile
+    streaming, so a mismatch means the two ROMs are not showing the same background and the
+    pair is not a control -- reported, never quietly tolerated.
+    """
+    layers_a, _sa, _aa, _va, _ka = layers_from_scene(scene_a)
+    layers_b, _sb, _ab, _vb, _kb = layers_from_scene(scene_b)
+    out = []
+    for tag, rom, lst, layers in (("curved", rom_a, lst_a, layers_a),
+                                  ("flat", rom_b, lst_b, layers_b)):
+        sym = parse_lst(lst)
+        want = require_symbols(sym, lst)
+        async with Server(rom, "ab" + tag) as srv:
+            b = srv.client
+            await boot_into_section4(b, sym, lst, warp[0], warp[1])
+            cur = int.from_bytes(await rd(b, sym["Parallax_Current_Config"], 4),
+                                 "big") & 0xFFFFFF
+            if cur != want:
+                raise Setup(f"{tag}: warp {warp} did not install the section-4 scene "
+                            f"({hex(cur)} != {hex(want)})")
+            await c(b, "emulator/write_memory",
+                    {"addr": hex(sym["Debug_Scene_Freeze"]), "value": 1, "width": 1})
+            await c(b, "emulator/run_frames", {"frames": 2})
+            for cx in cams:
+                await c(b, "emulator/write_memory",
+                        {"addr": hex(sym["Camera_X"]), "value": (cx & 0xFFFF) << 16,
+                         "width": 4})
+                await c(b, "emulator/run_frames", {"frames": POST_POKE})
+                await c(b, "emulator/write_memory",
+                        {"addr": hex(sym["Parallax_Transition_Frames"]), "value": 0,
+                         "width": 1})
+                await c(b, "emulator/write_memory",
+                        {"addr": hex(sym["Parallax_Target_Config"]), "value": 0, "width": 4})
+                await c(b, "emulator/write_memory",
+                        {"addr": hex(sym["Parallax_Current_Config"]), "value": want,
+                         "width": 4})
+                await c(b, "emulator/run_frames", {"frames": POST_PIN})
+                r = await sample(b, sym, layers, png_dir, f"{tag} camX {cx}",
+                                 f"ab-{tag}-{cx:05d}", pin_cfg=want, attrib=(16, 8))
+                # read_vram caps `len` at 4096 (measured: -32602 at 8192), so the 8 KB
+                # nametable is two reads. Concatenated in address order before hashing --
+                # hashing the halves separately would still detect a change but would not
+                # detect the two ROMs disagreeing about WHERE the change is.
+                raw = ""
+                for off in range(0, PLANE_B_NT_LEN, 4096):
+                    nt = await c(b, "emulator/read_vram",
+                                 {"addr": hex(PLANE_B_NT + off), "len": 4096})
+                    raw += nt["bytes"].removeprefix("0x").removeprefix("0X")
+                r["planeb_nt_sha256"] = hashlib.sha256(
+                    bytes.fromhex(raw)).hexdigest()[:16]
+                r["arm"] = tag
+                out.append(r)
+    return out, layers_a
+
+
+def report_ab(rows_, layers, png_dir):
+    by = {}
+    for r in rows_:
+        by.setdefault(r["cam_x"], {})[r["arm"]] = r
+    print("\n=== phase ab -- SHIPPED (curved) vs a curve-free CONTROL, same camera ===")
+    for cx in sorted(by):
+        a, f = by[cx].get("curved"), by[cx].get("flat")
+        if not (a and f):
+            continue
+        same = a["planeb_nt_sha256"] == f["planeb_nt_sha256"]
+        print(f"\n  camX {cx}")
+        print(f"     Plane-B nametable sha256[:16]  curved {a['planeb_nt_sha256']}  "
+              f"flat {f['planeb_nt_sha256']}  -> art held fixed: "
+              f"{'YES' if same else 'NO -- THIS PAIR IS NOT A CONTROL'}")
+        for bd in a["bands"]:
+            if not bd["is_curve"]:
+                continue
+            fb_ = next(x for x in f["bands"] if x["top"] == bd["top"])
+            ex = a.get("exposure", {}).get(bd["top"])
+            print("     band %3d: curved E=%5d rate=%6s dup=%-4s | flat E=%4d rate=%s"
+                  "  | Plane B wins %s"
+                  % (bd["top"], bd["excursion"], bd["rate_mean"],
+                     "YES" if bd["duplicates"] else "no",
+                     fb_["excursion"], fb_["rate_mean"],
+                     "n/a" if ex is None else ("%.0f%%" % ex["planeB_pct"])))
+        if png_dir:
+            for bd in a["bands"]:
+                if not bd["is_curve"]:
+                    continue
+                p_ = str(Path(png_dir) / f"ab-pair-{cx:05d}-band{bd['top']}.png")
+                print("     pair png -> %s" % pair_png(a, f, bd["top"], bd["end"], p_, cx))
+
+
+def pair_png(a, f, top, end, path, cx):
+    """The curved band directly above its flat control, same camera, same art."""
+    try:
+        from PIL import Image, ImageDraw
+    except Exception as e:
+        return f"(not written: {e})"
+    h = end - top
+    pad, lab = 6, 12
+    img = Image.new("RGB", (SCREEN_W + 2 * pad, lab + 2 * (h + lab + pad) + pad),
+                    (20, 20, 24))
+    d = ImageDraw.Draw(img)
+    d.text((pad, 2), "camX %d  band %d..%d  TOP=shipped(curved)  BOTTOM=control(no curve)"
+           % (cx, top, end - 1), fill=(230, 230, 230))
+    y = lab + pad
+    for r, name in ((a, "curved"), (f, "flat control")):
+        sub = Image.new("RGB", (SCREEN_W, h))
+        sub.putdata([px for row in r["pix"][top:end] for px in row])
+        img.paste(sub, (pad, y))
+        bd = next(x for x in r["bands"] if x["top"] == top)
+        d.text((pad, y + h + 1), "%s  E=%d rate=%s dup=%s"
+               % (name, bd["excursion"], bd["rate_mean"],
+                  "YES" if bd["duplicates"] else "no"), fill=(240, 240, 130))
+        y += h + lab + pad
+    img.save(path)
+    return path
+
+
 def report(samples, layers, phase):
     print(f"\n=== phase {phase} ===")
     print("  band geometry from the AUTHORED scene (v_offset 0 -> rotation is the identity):")
@@ -467,11 +637,13 @@ def report(samples, layers, phase):
         for bd in r["bands"]:
             if not bd["is_curve"]:
                 continue
+            ex = r.get("exposure", {}).get(bd["top"])
             print("     CURVE band %3d..%3d (span %2d, fb %s -> %s): excursion %5d px "
-                  "(%.2f x margin), rate %6s px/line, duplicates %s"
+                  "(%.2f x margin), rate %6s px/line, duplicates %s, Plane B wins %s"
                   % (bd["top"], bd["end"] - 1, bd["lines"], bd["fb"], bd["to"],
                      bd["excursion"], bd["excursion_over_margin"], bd["rate_mean"],
-                     "YES" if bd["duplicates"] else "no"))
+                     "YES" if bd["duplicates"] else "no",
+                     "n/a" if ex is None else ("%.0f%% of pixels" % ex["planeB_pct"])))
         print(f"     png {r['png']}")
 
 
@@ -481,8 +653,11 @@ def main():
     ap.add_argument("--lst", default="s4.debug.lst")
     ap.add_argument("--scene",
                     default="games/sonic4/data/editor/effects/ojz_act1_depth.json")
-    ap.add_argument("--phase", choices=("play", "sweep", "attrib"),
+    ap.add_argument("--phase", choices=("play", "sweep", "attrib", "ab"),
                     required=True)
+    ap.add_argument("--rom-b", help="phase ab: the CONTROL rom")
+    ap.add_argument("--lst-b", help="phase ab: the CONTROL listing")
+    ap.add_argument("--scene-b", help="phase ab: the CONTROL scene json")
     ap.add_argument("--spots", default="2300,2300 3000,2300 3900,2300 3000,3000",
                     help="phase play: space-separated PLAYER x,y warp destinations")
     ap.add_argument("--camera-x", default="64,128,250,384,512,768,1024,1536,2048,2840,3840",
@@ -502,6 +677,23 @@ def main():
         if a.phase == "play":
             spots = [tuple(int(v) for v in s.split(",")) for s in a.spots.split()]
             samples, layers = asyncio.run(run_play(a.rom, a.lst, a.scene, spots, a.png_dir))
+        elif a.phase == "ab":
+            for q in (a.rom_b, a.lst_b, a.scene_b):
+                if not q or not Path(q).is_file():
+                    print("depth_onset_probe: phase ab needs --rom-b/--lst-b/--scene-b",
+                          file=sys.stderr)
+                    return 2
+            cams = [int(v) for v in a.camera_x.split(",")]
+            warp = tuple(int(v) for v in a.warp.split(","))
+            rows_, layers = asyncio.run(
+                run_ab(a.rom, a.lst, a.rom_b, a.lst_b, a.scene, a.scene_b,
+                       cams, warp, a.png_dir))
+            report_ab(rows_, layers, a.png_dir)
+            if a.json:
+                Path(a.json).write_text(json.dumps(
+                    [{k: v for k, v in r.items() if k != "pix"} for r in rows_], indent=1))
+                print("\njson -> %s" % a.json)
+            return 0
         elif a.phase == "attrib":
             spots = [tuple(int(v) for v in q.split(",")) for q in a.spots.split()]
             rows_, layers = asyncio.run(
