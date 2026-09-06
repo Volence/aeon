@@ -27569,3 +27569,36 @@ else in their own tree sent the byte figures unprompted, explicitly inviting con
 gate here could have surfaced it: the premise lives in a comment, and **a stale ruling inside a
 comment outlives every doc that recorded its revision**, because nothing ever re-reads a comment
 to check whether the rule it cites still holds.
+
+## THE PROSE-BOUND SWEEP, RUN OVER `tools/*.py` WITH A POSITIVE CONTROL — 21 candidates, 1 real, and it was already fixed (2026-09-06T11:27:20Z)
+
+**Why it was run.** The stale `12 KiB` in `inject_editor_bg`'s refusal (fixed at aeon `1ac4b1a9`)
+was found **by accident**, while checking an aurora figure. Finding one defect by accident says
+nothing about how many there are — so the population was enumerated deliberately. The aurora lane
+ran the same sweep on their side after this one was reported to them and found **four** sites, so
+the class is live in both trees.
+
+**THE PREDICATE, stated because an empty sweep is only as good as what it could have matched:**
+every string literal of 20+ characters in `tools/**/*.py` containing BOTH a bound word
+(`limit|ceiling|budget|max|at most|no more than|cap|must be under|fits|allows|reserve|floor`) AND
+a numeric literal (`\d{3,}`, a comma-grouped number, `0x..`, or `N KiB|KB|MiB|B`).
+
+**THE POSITIVE CONTROL, and it is what makes the result reportable at all.** The predicate was run
+against `6caa6354:tools/inject_editor_bg.py` — the file **before** the fix — and it returned
+exactly line 403, the known defect. **An empty sweep and a predicate that could never match are
+the same artifact**; this one demonstrably matches the thing it was built for.
+
+**THE RESULT: 21 candidates, 20 false positives, 1 real — the one already fixed.** The false
+positives are dates (`2026-...`), prose about the 68000, computed/interpolated values, screen
+coordinates, and one COMMENT quoting historical example output (`s4budget.py:759`). Two were
+checked by hand rather than dismissed by shape: `gen_compression_vectors.py:96` states `1KB` in
+the same expression as its `<= 1024` assert, so the number and its prose cannot diverge; and
+`s4budget.py:759` is a comment describing what the tool used to print, not a live message.
+
+**WHAT THIS DOES NOT COVER — named, because the bound of a sweep is part of its result.**
+`.emp` comments and `ensure` messages; `build.sh`'s prose; `docs/`; any message where the number
+is spelled in words (*"twelve kibibytes"*) or split across two adjacent string literals so no
+single literal carries both halves. **The last of those is the one this predicate would most
+plausibly miss**, and it is not hypothetical — the fixed message itself now spans four adjacent
+f-string lines, so a future defect of exactly its shape would be invisible to this sweep.
+Re-running with concatenated-literal joining is the obvious next parameter and is NOT done.
