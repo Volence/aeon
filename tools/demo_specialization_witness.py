@@ -422,17 +422,75 @@ from scene_spans import (AEON, capability_bits, expected_spans, game_caps,
 #                                             call, a0 saved/restored around it); the
 #                                             other 16 bytes of the delta predate this
 #                                             parcel and are unrelated to it.
+# RE-DERIVATION LOG — 2026-09-06, THE LIVE-EFFECTS SCRATCH HOOK (`parcel/live-effects-hook`).
+# Two rows move, and only ONE of them is a code change. Both were re-derived against a master
+# control built from the same worktree (`FAST=1 DEBUG=1 ./build.sh` on detached master,
+# reproducing s4.debug a2f204da/846404 and demo.debug de5fef4b/103060 exactly) before either
+# number here was touched, because this pin's own text says to.
+#
+#   Parallax_Update           246 -> 260  (+14, and the same +14 in sonic4: 276 -> 290).
+#                                          REAL CODE, and not capability-gated: the DEBUG-only
+#                                          arm poll at the head of the proc — `tst.b
+#                                          Parallax_Scratch_Arm` (4) + `beq.s` (2) + `clr.b`
+#                                          (4) + the call to Parallax_InstallScratch (4) = 14.
+#                                          It is inside `if DEBUG == 1`, so a release build
+#                                          pays none of it; this pin reads the DEBUG listings,
+#                                          which is why it sees the whole 14. The delta is
+#                                          IDENTICAL in both fixtures, which is itself the
+#                                          check that it is shape-gated and not
+#                                          capability-gated — a CAP_-gated addition shows up
+#                                          in sonic4 and not in demo, and this shows in both.
+#
+#   Parallax_Fill_PerLine     100 ->  98  (-2, and -4 in sonic4: 966 -> 962).
+#                                          NOT A CODE CHANGE — NOT ONE BYTE OF THIS PROC
+#                                          MOVED. This is a MEASUREMENT artifact of
+#                                          `lst_proc_sizes`, which sizes a proc as the
+#                                          distance to the NEXT SYMBOL. Fill_PerLine was the
+#                                          LAST proc in engine/level/parallax.emp, so its
+#                                          "next symbol" was `Raster_Install` in the next
+#                                          module and the inter-module placer padding was
+#                                          being counted INTO the proc. `Parallax_InstallScratch`
+#                                          now sits in that gap, so the pin measures the code
+#                                          and nothing else.
+#                                          THE DERIVATION, measured from the two listing pairs
+#                                          rather than reasoned. The proc's LAST label differs
+#                                          by fixture (demo elides CAP_ROW_REMAP, so its last
+#                                          is `.band_done`; sonic4's is `.remap_none`), and in
+#                                          each fixture only that final gap moved:
+#                                            sonic4  remap_none -> next symbol   10 -> 6  (-4)
+#                                            demo    band_done  -> next symbol   20 -> 18 (-2)
+#                                          sonic4's 6 is the tail's actual code
+#                                          (`movem.l (sp)+, a0/d7` 4 + `rts` 2). The 4 and the
+#                                          2 that vanished were placer pad between the parallax
+#                                          module and the raster one.
+#                                          Corroborated label by label: every OTHER internal
+#                                          gap of Fill_PerLine is identical between master and
+#                                          this branch in both fixtures (10/12/6/20/20/6/6 …
+#                                          in demo), so the only thing that changed is what
+#                                          the proc's END is measured against.
+#                                          98 and 962 are therefore MORE correct than the
+#                                          numbers they replace, not merely different.
+#
+# The other eleven rows are unchanged — measured, not assumed: this tool's own image
+# differential printed 26 / 2 / 6 / 42 / 0 / 78 / 192 / 120 / 8 / 316 / 26 against pins of the
+# same eleven numbers on the run that failed the two above.
+#
+# ⚠ A SIDE-EFFECT WORTH NAMING FOR THE NEXT PARCEL: adding any proc after Fill_PerLine absorbs
+# that padding, and DELETING Parallax_InstallScratch would hand it back and take this row to
+# 100 again. That is the pin measuring placement, not code, and it is a property of
+# `lst_proc_sizes` rather than of this parcel — the honest fix is a proc-END symbol, which is
+# a tools change and not this branch's business. Booked, not silently absorbed.
 DEMO_SPECIALISED_PROCS = {
     "Effects_LatchWorldLines":   26,   # CAP_ANCHOR_MOTION          (sonic4 126)
     "Effects_SetTargetY":         2,   # CAP_ANCHOR_MOTION          (sonic4  36) — a bare rts
     "Parallax_Active_Config":     6,   # CAP_TRANSITIONS            (sonic4  18)
-    "Parallax_Fill_PerLine":    100,   # CAP_DEFORM, CAP_MULTI_DEFORM_TABLE, CAP_FACTOR_CURVE, CAP_ROLE_SWAP (sonic4 792 with the curve raised) — the flat filler
+    "Parallax_Fill_PerLine":     98,   # CAP_DEFORM, CAP_MULTI_DEFORM_TABLE, CAP_FACTOR_CURVE, CAP_ROLE_SWAP (sonic4 962 with the curve raised) — the flat filler. 100 -> 98 on 2026-09-06 with NO code change: see the live-effects-hook log above; the pad it used to include now belongs to the proc placed after it
     "Parallax_Init":             42,   # CAP_ROLE_SWAP              (sonic4  46)
     "Parallax_Set_Roles_Swapped": 0,   # CAP_ROLE_SWAP              (sonic4  56) — no unconditional caller, so the whole proc elides
     "Parallax_StartTransition":  78,   # CAP_PER_COL_VSRAM, CAP_TRANSITIONS  (sonic4 106)
     "Parallax_Step4_Fill":      192,   # CAP_ANCHORS, CAP_FACTOR_CURVE  (sonic4 656; 32 B record stride since CAP_ROW_REMAP, 2026-09-03)
     "Parallax_Step5_Vscroll":   120,   # CAP_PER_COL_VSRAM, CAP_TRANSITIONS, CAP_ROLE_SWAP  (sonic4 280 — re-measurable now that tools/scene_spans.py's phased-VMA fix landed; it read as 64 before that fix, truncated at SoundTablesZ80_Head's $8000 VMA)
-    "Parallax_Update":          246,   # CAP_ROLE_SWAP              (sonic4 276)
+    "Parallax_Update":          260,   # CAP_ROLE_SWAP              (sonic4 290). 246 -> 260 on 2026-09-06: the DEBUG-only live-effects arm poll, +14 in BOTH fixtures (shape-gated, not capability-gated) — see the log above
     "Raster_GetChannelBand":      8,   # CAP_ANCHORS                (sonic4  50)
     "Raster_HInt":              316,   # CAP_DENSE_TIER             (sonic4 338) — see the
                                         # RE-DERIVATION LOG above; unmeasurable before the
