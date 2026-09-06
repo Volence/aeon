@@ -25417,6 +25417,69 @@ explicitly *"not at the crown, where a mis-fire strands the player mid-arc"* —
 recommendation was mine and it contradicts §3.3**, which puts them at bottom-centre and
 top-centre. What shipped follows §3.3. **The file should be corrected, not the paint.**
 
+## ⚠ THE "LOOP WITNESS IS RED ON MASTER" ROW IS A STALE SPAWN, NOT AN ENGINE DEFECT — 2026-09-06
+
+**The red REPRODUCES on unmodified master `f14b21a8`, exactly as reported: zero layer flips at
+every one of the three derived speeds, and a 267 px fall — including at `$600`, the negative
+control the row above says the fix must be a no-op at.** The sighting was truthfully reported.
+It is still not an engine defect, and the distinction was one verbose flag away.
+
+**THE VERBOSE TRACE ANSWERS IT AND THE SUMMARY LINE CANNOT.** The player is in free fall from
+frame 0 — `y` 582, 588, 594, 600, 606, 613 … 836 — already ~6 px/frame **before the ground-speed
+injection**. He lands at y829 at frame 34 on a floor **272 px below the loop** and runs right
+along it. The drive never reached the loop. **A run that never lands reports zero flips and a
+long drop whatever the crossover code does**, which is precisely the signature this witness
+exists to detect.
+
+**THE CONTENT MOVED UNDER A HARDCODED COORDINATE, and the mover is nameable.**
+`tools/loop_step_over_witness.py` places the player at `START_Y = 553`, chosen when the ground
+top under editor col 137 (x1097) was **y576**. **`78ac6882` — "collision(ojz): build the left
+arc's foot on plane A — the ramp that was missing" — painted editor row 35 at that column and
+raised the ground top to y560**, and it landed AFTER the ✅ FIXED table above was produced.
+Standing radius is 19 px (measured: he settles at y541, and 541 + 19 = 560). So `553 + 19 = 572`
+is now **12 px INSIDE solid**, and he falls through to the y848 floor (rows 53/54, `sol=3`).
+
+**The correction is derived, not fitted: `553 − 16 = 537`, the same 16 px the ground rose, which
+restores the identical 4-px-above-ground relationship the original coordinate had.**
+
+**Change that ONE number and nothing else — same ROM, same build, same drive — and all three
+speeds are green:**
+
+| gsp | px/f | layer flips | climb | max drop | falls through |
+|---|---|---|---|---|---|
+| `$600` (negative control) | 6 | **2** | 118 px | 15 px | no |
+| `$900` (the boundary) | 9 | **3** | 125 px | 15 px | no |
+| `$1000` `PHYS_GSP_CAP` | 16 | **2** | 55 px | 13 px | no |
+
+**⚠ THESE ARE NOT THE ✅ FIXED TABLE'S FIGURES AND MUST NOT BE QUOTED AS REPRODUCING IT.** That
+table reads 1/2/1 flips; this reads 2/3/2. **Seven collision commits landed between them**
+(`13ef3cf4`, `902be5c7`, `26750443`, `97d7851a`, `78ac6882`, `c9a6fe8b`, `962400e8`) — the loop
+is not the same loop. What this run establishes is narrower and is all it claims: **the crossover
+fires at all three speeds and nobody falls through.**
+
+**The springs and path-swapper landings are RULED OUT as the cause**, though they were the first
+suspects: `section_0.collattr.bin` and `section_0.collattrb.bin` are **byte-identical from
+`962400e8` to HEAD**. Those commits touched `objects.json` only.
+
+**THE DEFECT THAT WAS REAL IS IN THE INSTRUMENT, and it is fixed.**
+`tools/loop_step_over_witness.py` now **asserts its own precondition**: after the landing frames
+`y_vel` must be 0, or it refuses (exit 1) naming the placed coordinate, the measured `y`, the
+measured `y_vel` and the editor column to check. `--start-y` lets the coordinate follow the
+content; `--no-assert-grounded` reproduces the old silent behaviour behind an explicit flag.
+**Fixing 553 to 537 alone would have fixed today and left the trap armed** — the point is that a
+setup failure and the engine failure had the same signature, and the instrument could not tell
+them apart.
+
+**STILL OPEN, and deliberately not closed here:** the circuit still does not complete in 90
+frames at any speed (`$600` climbs 118 px and comes back down) — that is the already-booked
+rolling-circuit / run-up item, untouched. **And `docs/witness/loop-leftward-speed-sweep-2026-09-05.json`
+and `loop-rolling-circuit-2026-09-05.json` both assert grounding at y557 under DIFFERENT drivers
+that were NOT run here — whether their spawn coordinates went stale under the same seven commits
+is UNCHECKED.**
+
+**Witness:** `docs/witness/loop-witness-red-is-a-stale-spawn-2026-09-06.json` (build line, cell
+decode per revision, red/green/override triple, 23/23 `tools/test_loop_crossover_gate.py`).
+
 ## ~~The crossover mark is 8 px wide~~ — the original booking, kept for its arithmetic
 
 **ONE ROW FOR THIS FACT, and it is this one.** Aurora booked the same arithmetic in their own
