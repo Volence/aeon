@@ -28593,3 +28593,31 @@ plainly; my summaries did not. Aurora found it by reading our source rather than
 **Their formulation is the durable one — *the check I ran could not have seen a behaviour that
 replaced it*** — because "gone" and "replaced" produce identical output for any retirement
 condition phrased as *"is X still there"*.
+
+### AMENDMENT to the paraphrase bar — THE ARTIFACT WAS RIGHT; THE MESSAGE WAS THE LOSSY STEP (2026-09-06T14:20:18Z)
+
+**Aurora's formulation, from two instances hours apart in opposite directions, and it locates the
+failure precisely enough to fix cheaply.**
+
+- **This lane:** the implementing agent's docstring said the decouple **installed a reorder in
+  place of the refusal**. Every summary this lane sent said only that it *removed a refusal*.
+- **Aurora:** their own docblock said *"the codec's per-act refusal goes with it and that is the
+  real change"*. Their retirement instruction named three sites and under-read their own sentence.
+
+**BOTH OF US WROTE THE COMPLETE VERSION DOWN AND THEN SENT THE COMPRESSED ONE.** The artifact was
+correct in both cases. **The compression happened at the moment of transmission**, which is
+exactly where nothing checks it — a doc gets reviewed, a commit gets a diff, and a message gets
+neither.
+
+**THE CHEAP FIX, and it is mechanical rather than an exhortation: when the complete version is
+already written down, SEND THE POINTER, or quote the artifact.** Both instances had a correct
+sentence sitting in a file the sender had authored, and both senders retyped a shorter one from
+memory instead. **Quoting costs a copy; paraphrasing costs a re-derivation nobody audits.**
+
+**Sharper than the parent bar because it is not about compression being lossy** — everyone knows
+that — **it is about the loss landing on the one artifact class with no reader.** Where a claim
+exists in a doc AND in a message, the doc is checkable and the message is not, so the message is
+where the wrong version survives.
+
+*Aurora's own practice, offered as the counterpart: they now measure their next row from source
+before briefing it, which they report has stopped four wrong briefs today, three of them theirs.*
