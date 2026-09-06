@@ -1448,3 +1448,168 @@ This is the seat's best work and the reason its positives are credible.
 `VInt_Lag` with a live decode. **The retracted one is the one a reader hits first when reasoning
 about `VSync_Wait`.**
 
+
+---
+
+## Seat C5 — space and footprint
+
+**VRAM exhaustive** (all 22 sonic4 rows + all 15 demo rows, every window with an occupant sized
+against it). **RAM exhaustive on the declared shape** — it re-derived every field offset in both
+`ram.emp` files for both shapes with a constant/struct-graph parser. **ROM sampled**: 81 of 135
+`embed()` paths hashed (the other 54 are build-generated and absent from the pin).
+
+### C5-F1 — 5,154 B of byte-identical duplicate inside a bank that is 94.3% full
+
+`section dac_shared_bank (bank: $8000)` is a link-asserted no-straddle section, so its ceiling is a
+hard **32,768 B**. Occupant sums to **30,908 B — 94.3%, with a 1,860 B tail.**
+
+**Controller verified both pairs with `cmp`:**
+
+| blob | bytes | twin | result |
+|---|---|---|---|
+| `dac/kick.pcm` | 1,406 | `dac/s3k_kick.pcm` | **IDENTICAL** |
+| `dac/snare.pcm` | 3,748 | `dac/s3k_snare.pcm` | **IDENTICAL** |
+
+Both are emitted separately, and in `dac_sample_tab.emp` descriptor **id 2 vs id 5** and **id 3 vs
+id 6** are identical in *every* emitted field — `ds_rate`, `ds_codec`, `ds_vol`, `ds_loop_ofs`,
+`ds_length` — differing only in `ds_bank`/`ds_ptr`, which point at the two copies. **The two ids are
+indistinguishable at runtime.**
+
+**Why this is the sweep's best byte finding, and it is not the raw count.** This is the only sample
+store the Z80 can reach without re-banking mid-sample — that is the section's reason to exist.
+Today's 1,860 B tail admits exactly **one** of the six S3K drum sizes. After dedupe the tail is
+7,014 B and **all six fit.** That is the difference between the drum set being closed and open.
+
+**No written reserve rationale** — the header says "all nine drums packed contiguously" and does not
+say two of the nine are copies. **Fix costs no id churn and no Z80 change:** repoint the two `S3K_*`
+constant triples at the originals and delete two `data` lines. Ids 5 and 6 survive.
+
+### C5-F2 — a stated RAM span that decayed 47% low
+
+`ram.emp:389-401` states `Parallax_State` as **556 B at MAX 16**, on a capability set that is no
+longer the shipped one: `BAND_DRIFT_N = 1` since 2026-09-02 and `BAND_REMAP_N = 1` since 2026-09-03,
+and the banner **names neither** although it was edited 2026-09-04. Re-derived from the tree's own
+`ensure`d formula — so this needs no build — the span is **205 longs = 820 B. Delta +264 B, +47.5%**,
+and the per-band term is **44 B, not 28**. The escalation clause's "680" is wrong too (omits remap).
+**The `ensure` is correct; the prose is the defect.** Anyone costing `MAX_PARALLAX_BANDS 16 → 8` off
+this banner books 224 B against a real 352 B.
+
+### C5-F3 — DEBUG shape divergence understated by 1,650 B against a 4.5 KB headroom
+
+`ram.emp:1084` says DEBUG sits **10,280 B** higher. Hand-summed: **11,930 B.** The comment counts the
+profiler block as 36 (it is 142) and does not count `Sprite_Owner` (160) or the canopy-gap instrument
+(**1,372**) at all. `DEFERRED_WORK:23612` records the DEBUG shape with **4,560 B free before the
+stack** — so the two uncounted blocks are **33% of the remaining headroom.** Every one of those
+blocks carries a written rationale, one of them at length; **the deliberate cost is fine, the
+accounting is what went stale.**
+
+### C5-F4 — 64 B provably dead, proven from both ends
+
+`Pal_Variant_Stage` reserves 2 × 128 B "for a full 4-line image each". **Line 0 is a build-time
+impossibility** — `palette_dsl.emp:43` refuses a lines-mask selecting it — and the only consumer
+indexes in at a **comptime** offset. So 2 slots × 32 B are unwritable *and* unreachable. The stated
+rationale (the consumer "indexes straight in") **does not survive**, because the fold is comptime, so
+a 96-byte stride costs zero runtime instructions — and `Pal_Base`/`Pal_Target` immediately above are
+already 96. **The seat correctly declined to propose it alone**: 64 B is not worth a repin; bank it
+as a rider on the next parcel that moves upper RAM.
+
+### C5-F5 — 514 B write-only: the player history rings have zero readers
+
+Enumerated **by reference, not by name**, across `engine/`, `games/` and `tools/`: the only code
+touching `Player_Pos_Ring`, `Player_Stat_Ring` or `Player_Ring_Index` is the writer at
+`player_common.emp:1278-1288`. **No reader exists.** It is 87% of release *game* RAM (514 of 588 B).
+**The seat explicitly did not propose deletion** — the named consumer (Tails follow + trails) is live
+work — and recorded it so nobody re-derives the emptiness, plus the per-frame write cost for the time
+seats.
+
+### C5-F6 — the one VRAM window with slack, and the character with no wall guard
+
+Peaks parsed straight out of the shipped blobs: **sonic 29, tails 24, knuckles 29** against a 32-tile
+`character_window`. 3 tiles (96 B) unused — exactly a `debug_bganim_tag`-sized run, obtainable
+without moving the pinned base, at the price of zero growth margin.
+
+**The guard asymmetry is the bigger half.** `tails_data.emp:90` and `knuckles_data.emp:149` both
+carry the window ensure. **There is none for Sonic** — `collision_data.emp` has only the queue-slot
+guard, and `sonic.emp:16-17`'s *"Sonic's own art peaks at 29"* is a comment nothing checks. **So the
+default character is the one whose re-exported sheet can silently DMA past 991 into `test_obj`.**
+Adding it is zero bytes and should precede any shrink.
+
+### C5's correction of its own control — the discipline that makes the rest credible
+
+It first "validated" its RAM model against `tools/fixtures/s4_listing_excerpt.lst` and it **appeared
+to match exactly**. It then reported that this was **luck**: the `@align(256)` on `Player_Pos_Ring`
+absorbs any layout error within a 256-byte page, so the check only pinned upper_ram to a ±128 B
+window — and it had **two constants wrong** (`MAX_RING_BUFFER` 32 vs 128, `COLLECTED_WINDOW_SLOTS` 8
+vs 9). With the right values the model gives `$FFFFBC00`, matching the `DEFERRED_WORK` record off a
+real `.lst` and **disagreeing with that fixture by 512 B**.
+
+**A check that passes for a reason unrelated to what it was aimed at is not a control** — this is the
+workspace's own "lucky check" rule, applied by a seat, inward, against its own result. It then
+re-validated properly: the model puts release `Game_RAM_End` at `$FFFFBE02`, exactly the figure
+`DEFERRED_WORK:23619` records off a real listing.
+
+### C5's sized-and-correct list, recorded so nobody re-sizes them
+
+Exact to the byte: `dust_puff` 16, `dust_spindash` 12 (and `ensure`d), `ring_sparkle` 4,
+`ring_placeholder` 16, `insta_shield` 29, `tails_appendage` 9, `sprite_table` 20, `hscroll_table` 28,
+`plane_a`/`plane_b` 256 each. RAM: `Page_Frames`' 24 B of slack carries an explicit *"bought
+deliberately, do not 'reclaim' it"*; `Sprite_Bands` 512 B is a hard enforced cap; every DEBUG
+instrument is correctly `@shape_divergent` with zero release bytes; and `lower_ram`'s tail gap is a
+deliberate over-decode spill guard with the `pad(2)` honestly labelled *"RESERVED, not an alignment
+pad"*.
+
+---
+
+# PACKET SUMMARY
+
+**Review pin: aeon `61f22403`.** Roster A, every seat a fresh subagent on the pinned tree, read-only,
+no fixes. Adjudication by the aeon overseer.
+
+**Seats run: 14** — step 0 ×2, A2, B1, B2a+B2b (twinned), C1a+C1b (twinned), C2a+C2b (twinned),
+C3a+C3b (twinned), C4a, C5, V. **C4b was not dispatched** — recorded as a gap, not as coverage.
+
+| | count |
+|---|---|
+| verified findings | **~75** |
+| characterised suspicions (labelled as such by their seats) | **7** |
+| design notes (explicitly not findings) | **2** |
+| **controller measurements run on seat TAGs** | **8** |
+
+**The eight controller runs, and every one changed a conclusion:**
+
+1. `clobbers()` under-declare (68k) → **build-fatal**; over-declare → **green and silent**. Split
+   seat A2's five findings into three doc defects and two live-unguarded ones — **inverting its
+   ranking**.
+2. `BLOCK_TILE_SIZE` 16→32 → red at one guard saying `update the shift`; **doing exactly that builds
+   green** with 17 masks still on the old grid.
+3. `TILE_CACHE_COLS` 80→84 → red at exactly the two guarded sites B2a named; **fixing both as
+   instructed builds green** with four more still striding 80.
+4. C2a TAG-1 → **a third outcome the seat did not predict**: the correct ceiling names do not resolve
+   in those modules, so the guards reached for what was in scope. Latent, and the fix is a generator
+   change rather than two lines.
+5. Z80 `clobbers` under-declare → **green in aeon with an identical warning summary**; sigil's gate
+   exit 101; **control on the clean pin 5/5 green**. Upgraded C2b's suspicion to verified.
+6. Seat V's TAG-1 → **refuted its own candidate** (the 100 anim ensures are live), then surfaced 83
+   others, of which **71 proven live via seam-1** by a mutation red on its own row. Zero dead.
+7. `s4lint`'s live subject → **8 non-comment lines, zero instructions, exit 0**, under 412 tests.
+8. The nightly/CI investigation → **9 consecutive nights down** by a self-perpetuating deadlock,
+   reproduced live in the main tree an hour after diagnosis.
+
+**The dominant pattern, found independently by four seats from four directions:** a guard that pins
+one member of a family while its siblings go unpinned — **and whose message names an INCOMPLETE fix,
+so the reader follows the tree's own instruction, sees green, and stops.** Measured twice end to end
+(items 2 and 3 above). Silence would have left them looking.
+
+**The second pattern:** prose that was true when written and decayed silently — two derivations
+justifying a deletion by a claim about a proc that writes the control port; a "no VDP access" that
+gained one three days later; a struct's own header off by 2× on its size; a RAM span off by 47%; a
+DEBUG divergence off by 1,650 B; ~90 comments citing `.asm` files that do not exist.
+
+**The doubling earned its cost.** C1b's largest finding (2.2% of a frame on two ~90%-empty pools) is
+structurally invisible to C1a's hot-path walk, which reads `jbsr RunObjects` as one line. B2a and B2b
+converged on the same magic-mask family from code and data. C3a and C3b split the VDP and the
+handler side cleanly with almost no overlap.
+
+**One error was mine:** seat C3b's brief asserted a feature that landed *after* the pin. It checked,
+contradicted me, and was right. Recorded above under C3b rather than quietly corrected.
+
