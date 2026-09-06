@@ -401,3 +401,20 @@ poked run is allowed to mean anything, and only then is one byte changed. Measur
   and only that plane. Line 0's BG word `$FC1E -> $FF06`.
 * `pcfg_layer_mask` `$001F -> $0000` moves the buffer on all six frames too, so the result is
   not one field's peculiarity.
+
+**⚠ TWO THINGS THE PROBE COULD NOT ESTABLISH, stated because a green above would otherwise
+be read as covering them.**
+
+1. **The hook is LINKED INTO `demo.debug` AND UNREACHABLE THERE.** The symbols resolve
+   (`Parallax_Scratch_Config` `$FFE6DC`, same 542-byte span) and the proc is emitted, but
+   `Parallax_Update` **has no caller in `games/demo`** — grep-verified, its only callers are
+   in `games/sonic4/test/ojz_scroll_test.emp` — so the arm poll never runs. Measured:
+   `--expect-refusal` on `demo.debug.bin` found the arm still set after a frame, the
+   selector still 0 and all 542 scratch bytes untouched. **Nothing ran.** That is a fact
+   about reachability, not about the refusal, and the probe reports it as `UNREACHABLE, NOT
+   PASS` (exit 2) rather than as either verdict.
+2. **The refusal arm is therefore DEFENSIVE AND UNEXERCISED.** Neither shipped fixture can
+   produce its trigger: sonic4 always has an active config, and demo never polls. `carry
+   SET` on a null config is argued from the source, not measured. A panel should not build a
+   flow that depends on distinguishing "refused" from "installed" — read
+   `Parallax_Current_Config` back, which is measured and definitive.

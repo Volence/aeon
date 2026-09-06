@@ -3867,6 +3867,21 @@ proc Parallax_Fill_PerLine () clobbers(d0-d6/a1-a6) preserves(a0/d7) {
 // group and on this body) and moves nothing else, so it is cheap to revisit if a game ever
 // wants a runtime-authored scene.
 //
+// ⚠ WHAT demo.debug PAYS FOR A HOOK IT CAN NEVER RUN — measured, and named rather than
+// waved past. This proc (62 B) and the arm poll (14 B) and the scratch (544 B of RAM) are
+// all linked into `demo.debug`, and `Parallax_Update` HAS NO CALLER IN games/demo — its only
+// callers are in games/sonic4/test/ojz_scroll_test.emp — so the poll never runs and the hook
+// is unreachable there. It is left ungated on the game for the reason engine/ram.emp's
+// BAND_REMAP_BYTES note already states about demo's per-band tail: this is engine RAM with no
+// per-game arms, and inventing a capability bit for "this game calls Parallax_Update" would
+// be a second authority for a fact the call graph already carries. The consequence for a
+// probe is the part that bites: arming on demo leaves the arm cell SET for ever, which reads
+// like a dirty refusal and is nothing of the kind.
+//
+// ⚠ AND THE REFUSAL ARM BELOW IS DEFENSIVE AND UNEXERCISED. Neither shipped fixture can
+// produce its trigger — sonic4 always has an active config, demo never polls — so `carry SET`
+// is argued from this source and has never been measured. Do not describe it as tested.
+//
 // DEBUG-shape only: the body — the `rts` INCLUDED — sits inside `if DEBUG == 1 {}`, so this
 // proc emits ZERO bytes in a plain shape (the BgAnim_SetTable / Debug_AssertObjLoop idiom).
 // A `rts` left outside cost the release shape two bytes there and moved every symbol after

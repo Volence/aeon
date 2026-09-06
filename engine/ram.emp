@@ -1587,6 +1587,12 @@ pub vars upper_ram {
     // release build can install it — a game wanting a runtime-built config already has
     // `Parallax_StartTransition`, which is public and in both shapes — so a resident scratch
     // would be 542 bytes of work RAM no shipped path reaches.
+    //
+    // NOT gated on the game, and demo.debug therefore reserves 544 bytes for a hook it can
+    // never fire (games/demo has no caller for Parallax_Update, so the arm is never polled).
+    // Same disposition, and the same reason, as BAND_REMAP_BYTES above: this is engine RAM
+    // with no per-game arms, and a capability bit for "this game calls Parallax_Update" would
+    // be a second authority for what the call graph already says.
     // Parallax_Scratch_Arm is the REQUEST cell, and it exists because the editor drives a
     // BUS, not a call stack: an Aether client can write a byte and run a frame, and cannot
     // force a `jsr`. So the hook is armed by a poke and serviced at the head of

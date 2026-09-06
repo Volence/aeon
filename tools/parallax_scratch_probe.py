@@ -177,6 +177,58 @@ async def body(c, rom_bytes, a):
         raise SystemExit(f"UNMEASURABLE: the scratch reserves {span} bytes, not the derived "
                          f"{CFG_HDR + BAND_REC * 16} — the probe's field offsets would be wrong")
 
+    # ---- the NEGATIVE control: a fixture with no parallax config at all -----------------
+    # An install that always fires would pass every check below and be wrong, so the other
+    # half of the claim is that arming does NOT install when there is nothing to copy.
+    #
+    # ⚠ WHAT THIS MODE MEASURED ON demo.debug, and it is NOT what it was written to measure.
+    # The arm was still set after a frame. That is not a dirty refusal: `Parallax_Update` is
+    # never called in games/demo at all (grep-verified — its only callers are in
+    # games/sonic4/test/ojz_scroll_test.emp), so the poll that would service and clear the arm
+    # does not run. THE HOOK IS LINKED INTO demo.debug AND UNREACHABLE THERE. This mode
+    # therefore reports three distinguishable outcomes and only calls one of them a failure —
+    # a run that cannot reach the subject must say so instead of returning a verdict.
+    if a.expect_refusal:
+        await c.call("emulator/reset", {})
+        await frames(c, a.settle)
+        before = await rd(c, scratch, span)
+        cfg = bus24(int.from_bytes(await rd(c, s["Parallax_Current_Config"], 4), "big"))
+        print(f"\n  REFUSAL CONTROL — Parallax_Current_Config = ${cfg:08X} before arming")
+        if cfg != 0:
+            raise SystemExit(f"UNMEASURABLE: this fixture HAS an active config (${cfg:06X}), "
+                             f"so it cannot exercise the refusal path — run it without "
+                             f"--expect-refusal")
+        await wr(c, s["Parallax_Scratch_Arm"], 1, 1)
+        await frames(c, 1)
+        cur = bus24(int.from_bytes(await rd(c, s["Parallax_Current_Config"], 4), "big"))
+        arm = (await rd(c, s["Parallax_Scratch_Arm"], 1))[0]
+        after = await rd(c, scratch, span)
+        print(f"      after arming: Current_Config = ${cur:08X} (want $00000000), "
+              f"arm = {arm} (want 0, engine-cleared)")
+        print(f"      scratch bytes changed by the refused install: "
+              f"{sum(1 for i in range(span) if before[i] != after[i])} of {span} (want 0)")
+        bad = []
+        if cur != 0:
+            bad.append(f"the selector moved to ${cur:08X}; a refusal must write nothing")
+        if before != after:
+            bad.append("the scratch was written by a refused install")
+        if bad:
+            print("\n  FAIL — the refusal path is not clean:")
+            for x in bad:
+                print(f"      - {x}")
+            return 1
+        if arm != 0:
+            print("\n  UNREACHABLE, NOT PASS — the arm is still set, which means the poll at "
+                  "the head of Parallax_Update never ran. `Parallax_Update` has no caller in "
+                  "games/demo, so this fixture cannot exercise the refusal arm at all. What "
+                  "IS established here: arming wrote nothing — the selector is still 0 and "
+                  "all 542 scratch bytes are untouched — because no code ran. That is a fact "
+                  "about REACHABILITY, and it must not be read as the refusal being tested.")
+            return 2
+        print("\n  PASS — with no active config the hook refuses, writes nothing, and clears "
+              "the arm.")
+        return 0
+
     # ---- RUN 1: the scripted approach, then arm ---------------------------------------
     camx, cfg_rom = await reach_armed(c, s, a, first=True)
     rom_image = await rd(c, cfg_rom, span)
@@ -324,6 +376,8 @@ def main():
     p.add_argument("--settle", type=int, default=180, help="frames to boot into the act")
     p.add_argument("--walk", type=int, default=120, help="frames of RIGHT to move the camera")
     p.add_argument("--frames", type=int, default=6, help="frames per captured run")
+    p.add_argument("--expect-refusal", action="store_true",
+                   help="fixture with NO parallax config (demo): assert the hook refuses cleanly")
     a = p.parse_args()
 
     repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
