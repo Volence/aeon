@@ -63,15 +63,56 @@ pub proc TestSolid_Main (a0: *Sst) clobbers(d0-d3/a1) preserves(a0) {
 // holds only what is Sonic-4's: the launch's meaning for the player state
 // machine, the animation, the mapping frames and the archetype.
 //
+// SUBTYPE-DRIVEN SINCE 2026-09-06 — direction and strength now come out of the
+// object's subtype byte, on S3K's bit assignments. See "THE SUBTYPE BIT LAYOUT"
+// below for the decode read off the reference; Spring_Init is where it happens.
+//
 // WHAT IS DELIBERATELY NOT PORTED, and why:
-//   * the five-way Spring_Index subtype dispatch (sonic3k.asm:47512-47525) —
-//     only the vertical spring is in scope, and the diagonal ones are a
-//     different physics problem (they set ground_vel and flip_angle);
-//   * the `$30(a0)` launch-strength field and the subtype-bit-1 decode that
-//     fills it (:47641-47643) — the strength rides in the ObjDef's y_vel
-//     instead, so a second strength is data and not code (Touch_Spring's header
-//     carries the argument);
+//   * every direction but UP. The bit layout is honoured in full so the values
+//     mean what S3K's mean, but only SPRING_DIR_UP is implemented, and a placed
+//     spring carrying any other direction trips a DEBUG assert in Spring_Init
+//     rather than silently behaving as an up spring. The blocker is structural
+//     and is not the decode: this engine's Touch_Spring launches on a TOP
+//     contact only, because the SIDE and UNDERSIDE faces are the shared
+//     solid_face_response template's, which pushes out and stops. A down or
+//     horizontal spring needs that template to gain a per-face splice point, in
+//     BOTH its consumers. Designed and costed in docs/DEFERRED_WORK.md (SP-5);
+//     not attempted here because a new launch path cannot be verified from this
+//     lane (no emulator), and the template is the collision system's hot spine.
+//   * the diagonals additionally set ground_vel and flip_angle, which is a
+//     different physics problem again;
+//   * the horizontal-only subtype extras — bit 7 "kill y_vel on launch"
+//     (:47913-47915), bit 0 "twirl" with bit 1 doubling as its flip count
+//     (:47917-47926), and bits 3-2 "switch the player's solid layer"
+//     (:47934-47946). All three are reachable only from sub_23190, so they
+//     arrive with the horizontal spring or not at all;
 //   * the 2P/Competition_mode variants and the reverse-gravity arms.
+//
+// THE SUBTYPE BIT LAYOUT, read off sonic3k.asm rather than off a summary:
+//
+//   bits 6-4   DIRECTION, an index into Spring_Index (:47520-47525, five
+//              entries: Up, Horizontal, Down, UpDiag, DownDiag). Obj_Spring
+//              decodes it at :47512-47514 as `move.b subtype,d0 / lsr.w #3,d0 /
+//              andi.w #$E,d0`, which yields the index ALREADY DOUBLED for a
+//              word table — i.e. dir = (subtype >> 4) & 7. It is easy to misread
+//              that pair as a bit-3 field; it is not.
+//   bit 1      STRENGTH: clear = red, set = yellow. Spring_Common at
+//              :47641-47643 does `andi.w #2,d0` and uses the RESULT as the byte
+//              offset into the two-word table at :47654-47656, which is the
+//              whole reason the field sits on bit 1 rather than bit 0. Ours
+//              exploits the same identity — see Spring_Init.
+//   bits 3-2,
+//   bit 0,
+//   bit 7      horizontal-only extras, listed above.
+//
+// LEFT vs RIGHT IS NOT IN THE SUBTYPE, and this is the layout's one genuine
+// surprise. A horizontal spring's facing is the OBJECT's x-flip status bit:
+// sub_23190 launches rightward and then, at `btst #0,status(a0)` (:47898),
+// negates the velocity and clears the player's facing if the bit is clear. So
+// there is exactly ONE horizontal direction value, and the two visible springs
+// are one subtype placed with and without the flip. This engine already carries
+// a placement flip into both render_flags and status (Load_Object), so the
+// mechanism is present and needs nothing new.
 //
 // THE THREE REFERENCE NUMBERS, quoted:
 //   launch velocity  -$1000   sonic3k.asm:47655   (word_22EF0's first entry,
@@ -98,14 +139,82 @@ pub proc TestSolid_Main (a0: *Sst) clobbers(d0-d3/a1) preserves(a0) {
 // launch, because the launch is what restarts the script.
 // ===========================================================================
 
-// The launch impulse, 8.8 fixed point (-$1000 = -16.0 px/frame). Rides in the
-// ObjDef's y_vel — see Touch_Spring.
-pub const SPRING_RED_VELOCITY    = -$1000       // sonic3k.asm:47655
-// The yellow spring's, from the same two-entry table. NOTED, NOT PLACED: no
-// yellow spring exists yet, and this is here so that adding one is visibly a
-// second `objdef(...)` with a different y_vel rather than a new number to go
-// and look up.
-pub const SPRING_YELLOW_VELOCITY = -$A00        // sonic3k.asm:47656
+// The launch impulses, 8.8 fixed point (-$1000 = -16.0 px/frame). Both are LIVE
+// now: Spring_Init selects between them from the subtype and writes the winner
+// into the spring's own y_vel, which is still the field Touch_Spring reads. A
+// yellow spring is therefore a placed SUBTYPE, not a second objdef.
+pub const SPRING_RED_VELOCITY    = -$1000       // sonic3k.asm:47655 (word_22EF0[0])
+pub const SPRING_YELLOW_VELOCITY = -$A00        // sonic3k.asm:47656 (word_22EF0[1])
+
+// -----------------------------------------------
+// THE SUBTYPE ENCODING — one table, one encoder, one published block.
+//
+// Every name below is generated from `spring_subtype()`; no published value is a
+// hand-written literal. That is deliberate and it is what makes the encoding
+// safe to change: move a field and every name moves with it, or none does.
+// -----------------------------------------------
+const SPRING_SUBTYPE_DIR_SHIFT = 4      // bits 6-4 — sonic3k.asm:47512-47514
+const SPRING_SUBTYPE_DIR_MASK  = 7
+const SPRING_SUBTYPE_WEAK_BIT  = 1      // bit 1    — sonic3k.asm:47641-47643
+
+// Direction values, the order of Spring_Index's five entries (:47520-47525).
+// Only UP is implemented — see the header. They are listed in full because the
+// VALUES are S3K's whether or not we act on them, and a future direction must
+// take the number it already has rather than a convenient one.
+const SPRING_DIR_UP        = 0
+const SPRING_DIR_HORIZONTAL = 1
+const SPRING_DIR_DOWN      = 2
+const SPRING_DIR_UPDIAG    = 3
+const SPRING_DIR_DOWNDIAG  = 4
+
+// `weak` is 0 for red, 1 for yellow — the sense of S3K's bit, not inverted.
+// Flat expression, no block-tail `if` (docs/EMP_PITFALLS.md §1).
+comptime fn spring_subtype(dir: int, weak: int) -> int {
+    return (dir << SPRING_SUBTYPE_DIR_SHIFT) | (weak << SPRING_SUBTYPE_WEAK_BIT)
+}
+
+// THE PUBLISHED SUBTYPE NAMES — oracle's object picker channel.
+//
+// `ObjSub_<Object>__<Name>`: the picker takes the object name it already has
+// from `ObjDef_Spring`, builds the prefix `ObjSub_Spring__`, prefix-searches and
+// keeps whatever follows whole. It never splits on an underscore, so the
+// DOUBLE underscore is doing one job — being a sequence an object name cannot
+// contain. With a single one, a future `ObjDef_Spring_Board` would emit
+// `ObjSub_Spring_Board__Up` and file its subtypes under THIS object. Internal
+// single underscores are therefore free, and direction leads so a listing sorts
+// and scans by the axis the picker is for.
+//
+// `pub equ`, NOT `pub const`, and the difference is the whole deliverable: a
+// `const` in an ordinary module emits NOTHING — no equate row, no symbol row
+// (measured: this file's own `pub const SPRING_RED_VELOCITY` has no row in any
+// listing, while `RING_BUFFER_ENTRY_SIZE` does only because
+// engine/system/constants.emp is one of sigil's harvested files). A `pub equ`
+// lands in the listing's Equate Table, where `lookup_equate` can see it and
+// `lookup_symbol` cannot. Ask the wrong one and the refusal is
+// indistinguishable from the name not existing.
+//
+// ONLY THE IMPLEMENTED SUBTYPES ARE PUBLISHED. Naming a direction the engine
+// asserts on would put a broken choice in the owner's picker.
+pub equ ObjSub_Spring__Up_Red    = spring_subtype(SPRING_DIR_UP, 0)
+pub equ ObjSub_Spring__Up_Yellow = spring_subtype(SPRING_DIR_UP, 1)
+
+// THE ALREADY-PLACED SPRINGS MUST NOT MOVE. OJZ act 1 section 0 places three
+// springs with placement word $0000, i.e. subtype 0, and this is the guard that
+// subtype 0 still decodes to the exact behaviour they had before the decode
+// existed: up, red. An encoder that put direction or strength anywhere else
+// would silently re-aim live level data.
+ensure(spring_subtype(SPRING_DIR_UP, 0) == 0,
+       "subtype 0 must stay `up, red` — the springs already placed in OJZ act 1 carry placement word $0000 and would be silently re-aimed")
+// The weak bit's VALUE is also its byte offset into the two-word strength table,
+// which is why S3K put strength on bit 1 and why Spring_Init needs no shift
+// between the mask and the lookup. State it, because the code depends on it.
+ensure((1 << SPRING_SUBTYPE_WEAK_BIT) == 2,
+       "the strength bit must weigh 2 — Spring_Init uses the masked bit directly as the byte offset into Spring_Strength's word entries")
+// The direction field must not overlap the strength bit or the horizontal-only
+// extras in bits 3-0. A shift below 4 would make a yellow spring read as a
+// different direction.
+ensure(SPRING_SUBTYPE_DIR_SHIFT >= 4 && ((SPRING_SUBTYPE_DIR_MASK << SPRING_SUBTYPE_DIR_SHIFT) & $0F) == 0,
+       "the direction field must sit clear of bits 3-0 — bit 1 is the strength and bits 3-2/0 are S3K's horizontal-only extras")
 
 // Animation ids, indexing Ani_Spring's offset table.
 pub const SPRING_ANIM_IDLE = 0
@@ -164,6 +273,68 @@ pub proc Spring_Launched (a2: *Sst, a3: *Sst) clobbers(d0-d2/a0-a2) {
     .set_state:
         movea.l a2, a0                  // Player_SetState takes the player in a0
         jbra    Player_SetState
+}
+
+// -----------------------------------------------
+// Spring_Strength — S3K's word_22EF0 (sonic3k.asm:47654-47656), indexed by the
+// subtype's strength bit. TWO ENTRIES AND THE ORDER IS LOAD-BEARING: the index
+// is the masked bit itself, so entry 0 is the bit-CLEAR case (red) and entry 1
+// the bit-SET case (yellow). Swapping them silently swaps every spring in the
+// game.
+// -----------------------------------------------
+pub data Spring_Strength: [i16; 2] = [SPRING_RED_VELOCITY, SPRING_YELLOW_VELOCITY]
+
+// -----------------------------------------------
+// Spring_Init — decode the subtype, then become Spring_Main.
+//
+// Runs once, on the frame Load_Object spawns the object: `code:` in the ObjDef
+// names the INIT routine, which patches code_addr to the Main routine, exactly
+// as TestSolid_Init does. Load_Object has already written the placement subtype
+// into the SST ($19) and carried the placement's x-flip into render_flags AND
+// status, so both halves of a spring's identity are readable here.
+//
+// STRENGTH is written into the spring's OWN y_vel, which stays the field
+// Touch_Spring reads. That keeps the engine seam exactly where it was — the
+// engine still knows nothing about red or yellow — while moving the CHOICE from
+// the archetype to the placement. This is why a yellow spring is now a subtype
+// and not a second objdef: the ObjDef no longer carries y_vel at all.
+//
+// The `andi.w` result is used DIRECTLY as the table byte offset, with no shift
+// between them, because bit 1 weighs 2 and the entries are words. That identity
+// is S3K's reason for the field's position (:47641-47643) and is pinned by an
+// ensure above rather than left as a coincidence a reader has to spot.
+//
+// DIRECTION is decoded only in the DEBUG shape, and that is a scope statement
+// rather than an optimisation: UP is the only direction this engine can launch
+// (see the header), so in the release shape there is nothing to branch on and
+// the decode would be dead arithmetic. In DEBUG a placed spring carrying any
+// other direction stops the build's own assert handler instead of quietly
+// behaving as an up spring, which is the failure this exists to prevent —
+// silently-wrong level data is exactly what a subtype channel makes easy.
+//
+// In:  a0 = own SST (base fields set by Load_Object)
+// Clobbers: d0-d3, a1-a2 — the init work (d0/d1/a1) inside Spring_Main's set,
+//   which is what a caller sees because this falls into it.
+// -----------------------------------------------
+pub proc Spring_Init (a0: *Sst) clobbers(d0-d3/a1-a2) preserves(a0) falls_into Spring_Main {
+        moveq   #0, d0
+        move.b  Sst.subtype(a0), d0
+
+        // --- strength: masked bit IS the word-table byte offset ---
+        move.w  d0, d1
+        andi.w  #1<<SPRING_SUBTYPE_WEAK_BIT, d1
+        lea     Spring_Strength(pc), a1
+        move.w  (a1,d1.w), Sst.y_vel(a0)
+
+        // --- direction: DEBUG-only, because only UP is implemented ---
+        if DEBUG == 1 {
+        lsr.w   #SPRING_SUBTYPE_DIR_SHIFT, d0
+        andi.w  #SPRING_SUBTYPE_DIR_MASK, d0
+        assert.w d0, eq, #SPRING_DIR_UP         // register comparand — an assert's
+                                                // src must be a register
+        }
+
+        move.w  #Spring_Main - ObjCodeBase, Sst.code_addr(a0)
 }
 
 // -----------------------------------------------
@@ -298,11 +469,20 @@ pub offsets Ani_Spring {
 // art, not the reference's field name. (I had this backwards in the first draft
 // of this comment and caught it only by re-reading :47660 against the mapping.)
 //
-// y_vel IS THE LAUNCH STRENGTH — Touch_Spring reads it out of the spring and
-// writes it into the player. The spring itself never moves: nothing in
-// Spring_Main integrates velocity.
+// NO y_vel HERE ANY MORE, and its absence is the point. The spring's y_vel is
+// still the launch strength Touch_Spring reads — but it is now written by
+// Spring_Init from the placed subtype, so the archetype must NOT pre-seed it.
+// Leaving `y_vel: SPRING_RED_VELOCITY` behind would have been harmless (the init
+// overwrites it on the first frame) and would also have been a lie: it would
+// read as the authority while a yellow spring quietly disagreed with it, and the
+// one frame between spawn and init is the window where the two could differ.
+// The spring itself never moves — nothing in Spring_Main integrates velocity —
+// so the field is free for this.
+//
+// `code:` NAMES THE INIT, not Main. Spring_Init patches code_addr on its one and
+// only frame, exactly as ObjDef_Solid's TestSolid_Init does.
 // -----------------------------------------------
 pub data ObjDef_Spring: ObjDef = objdef(
-    code: "Spring_Main", map: "Map_Spring", art: vram_art(VRAM_TEST_OBJ),
+    code: "Spring_Init", map: "Map_Spring", art: vram_art(VRAM_TEST_OBJ),
     priority: 3, width: 16, height: 16, collision: COLLISION_SPRING,
-    y_vel: SPRING_RED_VELOCITY, anim_table: extern("Ani_Spring"))
+    anim_table: extern("Ani_Spring"))

@@ -11,7 +11,8 @@ module engine.objects.entity_window in entity_window
 
 use engine.constants.{SCREEN_WIDTH, SCREEN_HEIGHT}
 use engine.constants.{SECTION_SIZE, SECTION_SIZE_SHIFT, SEC_VOID}
-use engine.constants.{MAX_TRACKED_SECTIONS, MAX_LIST_ENTRIES, ENTITY_LOAD_BUFFER, ENTITY_DESPAWN_BUFFER}
+use engine.constants.{MAX_TRACKED_SECTIONS, MAX_LIST_ENTRIES, ENTITY_LOAD_BUFFER, ENTITY_DESPAWN_BUFFER,
+                      RING_ENTRY_SECTION_ID_OFFSET, RING_LIST_ENTRY_SIZE}
 use engine.constants.{ENTITY_LOAD_BUFFER_Y, ENTITY_DESPAWN_BUFFER_Y, ENTITY_LOADED_SLOT_SIZE, ENTITY_LOADED_OBJ_OFFSET}
 use engine.constants.{ENTITY_RESCAN_COARSE_MASK, ENTITY_RESCAN_ROW_SIZE, COLLECTED_BITMASK_OFFSET, KILLED_BITMASK_OFFSET}
 use engine.constants.{COLLECTED_EMPTY_TAG, COLLECTED_MASK_BYTES, OEF_TYPE_SHIFT, OEF_TYPE_MASK, OBJ_ENTRY_SIZE}
@@ -1020,7 +1021,7 @@ proc EntityWindow_TrySpawnRing () clobbers(d0-d2, a0) preserves(d3, d4, d5.w) {
             subq.w  #1, d5
             lea     Ring_Buffer, a0
         .nodup_scan:
-            cmp.w   4(a0), d4               // entry key word: sec.b, idx.b at +4
+            cmp.w   RING_ENTRY_SECTION_ID_OFFSET(a0), d4    // key word: sec.b, idx.b
             beq     .nodup_hit
             addq.w  #RING_BUFFER_ENTRY_SIZE, a0
             dbf     d5, .nodup_scan
@@ -1066,13 +1067,15 @@ proc EntityWindow_ScanRingsRight () clobbers(d0-d5, a0) {
         movea.l d0, a0
         move.w  EntityScanState.ess_origin_x(a1), d3
 
-        // Advance a0 to current index (4 bytes per ROM entry: dc.w X, dc.w Y)
+        // Advance a0 to the current index. The shift is log2(RING_LIST_ENTRY_SIZE)
+        // and cannot be spelled with the constant, so an ensure in
+        // engine.constants pins the stride to `1 << 2` instead.
         move.w  d4, d0
         lsl.w   #2, d0
         adda.w  d0, a0
 
     .loop:
-        move.l  (a0), d0                // terminator: dc.l 0
+        move.l  (a0), d0                // RING_LIST_TERMINATOR: a LONG zero
         beq     .at_terminator
         move.w  (a0), d0
         add.w   d3, d0                  // engine X
@@ -1083,7 +1086,7 @@ proc EntityWindow_ScanRingsRight () clobbers(d0-d5, a0) {
 
         jbsr    EntityWindow_TrySpawnRing
         addq.w  #1, d4
-        addq.w  #4, a0
+        addq.w  #RING_LIST_ENTRY_SIZE, a0
         jbra    .loop
 
     .at_edge:

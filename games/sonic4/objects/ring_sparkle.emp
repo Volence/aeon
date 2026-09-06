@@ -26,7 +26,8 @@ module games.sonic4.ring_sparkle in ring_sparkle
 use engine.objects.sst.{Sst}
 use engine.objects.objdef.{vram_art}
 use engine.objects.mapping_dsl.{MapPiece, MapFrame1, centered}
-use engine.constants.{RF_PRIORITY_SHIFT, TILE_SIZE, AF_DELETE, AF_SET_FIELD}
+use engine.constants.{RF_PRIORITY_SHIFT, TILE_SIZE, AF_DELETE, AF_SET_FIELD,
+                      RING_ENTRY_X_OFFSET, RING_ENTRY_Y_OFFSET}
 use engine.coords.{pixels_to_coord}
 use games.sonic4.constants.{VRAM_RING_SPARKLE, EFFECT_RING_SPARKLE_BAND}
 
@@ -141,9 +142,18 @@ const ATTR_VFLIP = $1000
 // Preserves: a3 (the entry — RingCollision's rolling cursor) and everything else it
 //            holds live across the collect path (a2, d4-d7).
 // -----------------------------------------------
+// `(a3)` above IS RING_ENTRY_X_OFFSET(a3); spelling it with the constant would
+// assemble a longer displacement form and move ROM bytes for nothing, so the
+// equivalence is pinned here instead of written into the instruction.
+ensure(RING_ENTRY_X_OFFSET == 0,
+       "RingSparkle_Spawn reads the record's X through the bare `(a3)` form — that is only the X field while RING_ENTRY_X_OFFSET is 0")
+
 pub proc RingSparkle_Spawn (a3: *u8) clobbers(d0-d2/a1) {
-        move.w  (a3), d0                // ring centre X (engine px)
-        move.w  2(a3), d1               // ring centre Y
+        // The ring RECORD's published field offsets (engine.constants), not
+        // literals — X is offset 0 so it keeps the shorter `(a3)` encoding, and
+        // the ensure below pins that equivalence rather than assuming it.
+        move.w  (a3), d0                        // ring centre X (engine px)
+        move.w  RING_ENTRY_Y_OFFSET(a3), d1     // ring centre Y
         pixels_to_coord(d0)
         pixels_to_coord(d1)
         move.l  d0, d2                  // bank x — AllocEffect owns d0

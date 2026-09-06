@@ -205,7 +205,7 @@ pub const RING_HEIGHT      = 16
 pub const RING_ANIM_FRAMES = 4
 pub const RING_ANIM_SPEED  = 8              // frames per animation tick
 
-// Engine-owned BUFFER FORMAT (review item 30/G). RING_BUFFER_ENTRY_SIZE
+// Engine-owned BUFFER FORMAT (review item 30/G). The ring buffer record
 // describes the layout of an ENGINE-owned RAM buffer (Ring_Buffer) walked only
 // by engine code (rings.emp / entity_window.emp / ram.emp). It is NOT a game
 // knob: no game may pick a different value, yet both game configs carried
@@ -214,7 +214,82 @@ pub const RING_ANIM_SPEED  = 8              // frames per animation tick
 // COUNT stays a game knob (MAX_RING_BUFFER, a per-profile `-D`).
 // COLLECTED_SLOT_SIZE, the other moved format, lives with its own field-offset
 // companions in the collected-bitmask block below.
-pub const RING_BUFFER_ENTRY_SIZE = 6        // dc.w x, y; dc.b section_id, list_index
+//
+// THE FIELD OFFSETS ARE THE AUTHORITY AND THE SIZE IS DERIVED FROM THEM — the
+// same inversion COLLECTED_SLOT_SIZE below already uses, and it is the reason
+// this block gained the offsets rather than a second hand-written `6`. Their own
+// authority is RingBuffer_Add (rings.emp), which writes the four fields in this
+// order through `(a0)+`: the offsets are a CONSEQUENCE of that write order, not
+// a free choice, so a reordered writer must move these lines with it.
+//
+// PUBLISHED INTERFACE (2026-09-06). Oracle's object/ring picker reads these by
+// name. They are EQUATES, so they land in the listing's Equate Table and are
+// visible to `lookup_equate` and NOT to `lookup_symbol` — asking the wrong one
+// returns a refusal indistinguishable from the name not existing. The ADDRESSES
+// on the other side of that split (Ring_Buffer, Ring_Count, Ring_HighWater,
+// Ring_Add_Dropped) come from engine/ram.emp and are `lookup_symbol`-visible;
+// the deb2 appendix carries addresses only, by construction.
+// A `pub const` earns an EQU row here only because engine/system/constants.emp
+// is one of the harvested files (sigil `harvest_engine_constants`); the same
+// declaration in an ordinary module emits NOTHING. Anywhere else, use `pub equ`.
+pub const RING_ENTRY_X_OFFSET          = 0      // dc.w engine-space X (ring centre)
+pub const RING_ENTRY_Y_OFFSET          = 2      // dc.w engine-space Y (ring centre)
+pub const RING_ENTRY_SECTION_ID_OFFSET = 4      // dc.b owning section id
+pub const RING_ENTRY_LIST_INDEX_OFFSET = 5      // dc.b index in the section's ROM ring list
+pub const RING_BUFFER_ENTRY_SIZE = RING_ENTRY_LIST_INDEX_OFFSET + 1   // 6 — derived, not restated
+
+// RingBuffer_Remove's swap-with-last moves X and Y as ONE `move.l (a1)+,(a0)+`.
+// That is the two coordinate words only while Y sits immediately after X and X
+// is word-aligned inside the record; break either and the long move copies a
+// coordinate and half the key, silently, on every removal.
+ensure(RING_ENTRY_X_OFFSET % 2 == 0 && RING_ENTRY_Y_OFFSET == RING_ENTRY_X_OFFSET + 2,
+       "ring record X/Y must be adjacent aligned words — RingBuffer_Remove copies both with one move.l")
+// EntityWindow_TrySpawnRing's duplicate scan compares section_id and list_index
+// as ONE word (`cmp.w RING_ENTRY_SECTION_ID_OFFSET(a0), d4`), so the pair must be
+// an aligned adjacent byte couple. A layout that split them would have that
+// compare read a coordinate byte and admit duplicate rings into the buffer.
+ensure(RING_ENTRY_SECTION_ID_OFFSET % 2 == 0 && RING_ENTRY_LIST_INDEX_OFFSET == RING_ENTRY_SECTION_ID_OFFSET + 1,
+       "ring record section_id/list_index must be an aligned adjacent byte pair — the entity-window dedup scan compares them as one word")
+
+// THE PER-SECTION ROM RING LIST — the OTHER ring format, and not the one above.
+// `Ring_Buffer` holds the rings that are live right now; this is the immutable
+// ROM array a section spawns them FROM, reached through
+// `EntityScanState.ess_rom_ring_ptr` ($04) and walked by
+// EntityWindow_ScanRingsRight.
+//
+// PUBLISHED FOR THE DEBUGGER'S TEMPORARY-RING PATH (2026-09-06), and these two
+// are the only pieces of that walk that were missing: the pointer offset
+// (`EntityScanState_ess_rom_ring_ptr`), the struct stride (`EntityScanState_len`
+// = $1A), `MAX_TRACKED_SECTIONS`, `MAX_LIST_ENTRIES` ($80) and
+// `COLLECTED_BITMASK_OFFSET` are ALREADY equates via sigil's struct-offset
+// harvest, and `Entity_Scan_State` is already an address row. Nothing here
+// duplicates them.
+//
+// WHY A CONSUMER WALKS IT AT ALL: there is no stored per-section ring count, so
+// the only way to learn one is to walk to the terminator. That count is the
+// FLOOR of the safe `list_index` range for a temporary ring — below it, a
+// fabricated index collides with a real ring's bit in the section's collected
+// bitmask and stops that ring spawning for good. The ceiling is
+// MAX_LIST_ENTRIES. See docs/DEFERRED_WORK.md "RING-PLACE" — and note that
+// COMMENTS DO NOT REACH THE LISTING, so a consumer in another repo sees these
+// names and values and nothing else; the rule has to travel as prose, not here.
+pub const RING_LIST_ENTRY_SIZE = 4      // dc.w X, dc.w Y — section-relative px
+pub const RING_LIST_TERMINATOR = 0      // a LONG zero ends the list
+
+// ONE ensure, not two, and the second one is absent on purpose: a companion
+// `RING_LIST_ENTRY_SIZE == 1 << 2` reads like a separate guard on the seek's
+// shift, but `== 4` already implies it, so it could never fail while this one
+// passed. A guard that cannot fire is worse than no guard — it reads as
+// coverage. Both instructions that depend on the stride are named here instead.
+//
+// `move.l (a0), d0` / `beq` finds the end: it reads exactly one entry and only
+// recognises a zero one, so a stride other than 4 would make the test straddle
+// two entries and a non-zero terminator would never be found. And
+// EntityWindow_ScanRingsRight seeks to the ratchet index with `lsl.w #2`, a
+// literal shift that cannot be spelled with the constant — at any other stride
+// the seek lands mid-entry.
+ensure(RING_LIST_ENTRY_SIZE == 4 && RING_LIST_TERMINATOR == 0,
+       "the ROM ring list is walked by `move.l (a0), d0 / beq` and seeked by `lsl.w #2` — that pair reads exactly one 4-byte entry, only detects a zero terminator, and lands mid-entry at any other stride")
 
 // Driver-keyed BG tile-band animation (engine/level/bg_anim.emp). This sizes
 // engine/ram.emp's BgAnim_LastStep array, which is why it exists here at all —

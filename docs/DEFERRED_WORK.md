@@ -26707,6 +26707,53 @@ pairing.
 
 ---
 
+### SP-5 — every spring direction but UP, and the engine template split they need - 2026-09-06
+
+**Landed 2026-09-06:** the spring's direction and strength decode from its subtype on S3K's
+real bit assignments, and `ObjSub_Spring__Up_Red` / `ObjSub_Spring__Up_Yellow` are published
+for oracle's picker. **Only UP is implemented**, a placed spring carrying any other direction
+trips a DEBUG assert in `Spring_Init`, and no name is published for a direction that asserts.
+
+**The blocker is structural and it is NOT the decode.** `Touch_Spring`
+(`engine/objects/collision.emp`) launches on a TOP contact only: its side and underside faces
+are the shared `solid_face_response` template's, which pushes the player out and stops him.
+A DOWN spring launches on the underside and a HORIZONTAL one on a side, so both need that
+template to gain a per-face splice point.
+
+**The design, so it does not have to be re-derived.** `solid_face_response(top: Label)` takes
+one `Label` and jumps to it for the top face; a second `Label` for the side arm is the same
+proven mechanism (`Code`-typed comptime params also exist, but a branch from a spliced `Code`
+fragment to a label in the enclosing proc is a **hard cross-fragment error** in sigil, so
+`Label` is the only route). The template must then split in two — geometry, and the default
+side body — because both consumers splice both halves, and each half needs its own `rts`
+exit once `.sfr_done` stops being reachable across the seam. Cost: about +2 bytes per
+instantiation from the duplicated exit, times the two consumers, plus the spring's own face
+test and launch. `Touch_Solid` passes the default side label and is otherwise unchanged.
+
+**The game side needs nothing new.** `Game.spring_launched` already receives `a2` = player and
+`a3` = spring, so the binding can read the spring's subtype itself and decide what the impulse
+means — including writing `PlayerV.ground_speed`, which is the field the engine may not name
+and the reason `Game.solid_pushed` exists. No contract member has to change shape.
+
+**Facts already established, so nobody re-reads S3K for them.** Direction is subtype bits 6-4,
+decoded at `sonic3k.asm:47512-47514` (the `lsr.w #3` / `andi.w #$E` pair yields the index
+already doubled for the five-entry word table at :47520-47525). Strength is bit 1
+(:47641-47643), the masked bit doubling as the byte offset into :47654-47656.
+**Left vs right is NOT a subtype bit** — it is the object's x-flip status bit, negated into
+the velocity at `btst #0,status(a0)` (:47898), so there is exactly ONE horizontal direction
+value and `Load_Object` already carries a placement flip into both `render_flags` and
+`status`. A horizontal launch also sets `ground_vel` and a `$F`-frame control lock at
+`$32(a1)` (:47905-47906) and leaves the player GROUNDED, which is a different transition from
+the vertical launch's, and the horizontal-only subtype extras live in bits 7, 3-2 and 0
+(:47913-47946). The diagonals additionally set `flip_angle` and are a separate problem again.
+
+**Why it stopped here rather than shipping half.** A new launch path is a physics change that
+only a running ROM can confirm, and this lane has no emulator; the template is the collision
+system's hot spine and is spliced into every solid in the game. Landing an unverifiable
+rewrite of it to reach a fuller subtype list would have been the worse trade.
+
+---
+
 ### A rate is not a characterisation, and the ordering of evidence failures - 2026-09-05
 
 **Two lanes measured the same defect and neither knew its shape.** sigil said
@@ -26845,3 +26892,40 @@ Do not open a fifth. **What is needed is a capture from the owner**, and the fou
 must carry are listed at the end of the witness doc; the cheapest single one is the question
 **does he see it WHILE PLAYING or only after pausing** -- a mid-rebuild RAM transient cannot
 reach the screen during play, a deferred DMA can, and that one answer separates the families.
+
+---
+
+### RING-PLACE — the debugger's ring is TEMPORARY by design; permanent placement is the editor's - 2026-09-06
+
+**Ruled 2026-09-06 (in the owner's place, reversible): the debugger gets the TEMPORARY ring
+only.** Permanent placement is level editing and belongs to the editor lane, not a debug
+window. This entry is the shape of the temporary path and the hazard it has to respect.
+
+**A temporary ring is one buffer record plus a bumped `Ring_Count`** — six bytes at the
+published `RING_ENTRY_*_OFFSET`s. Two things about it are not negotiable.
+
+**1. The `list_index` must not alias a real ring.** `Collected_MarkRing`
+(`entity_window.emp:205`) bsets the owning section's collected bitmask at the bit numbered by
+the record's `list_index`, guarded by `assert.w d1, lo, #MAX_LIST_ENTRIES` (128). An index
+below the section's real ring count marks some OTHER ring collected, and that ring never
+spawns again. **A safe index is at or above that section's ring count and below
+`MAX_LIST_ENTRIES`** — and there is **no stored count**, so it must be DERIVED by walking the
+section's ROM ring list to its terminator: null-terminated 4-byte `dc.w X, dc.w Y` entries
+(`RING_LIST_ENTRY_SIZE`, `RING_LIST_TERMINATOR`), pointer at
+`EntityScanState.ess_rom_ring_ptr` (`$04`), end found by `EntityWindow_ScanRingsRight`'s
+`move.l (a0), d0` / `beq .at_terminator`. A section already holding 128 rings has no free
+index at all, and that case must be refused rather than clamped.
+
+**2. It is swept once, off camera, and never comes back.** `EntityWindow_DespawnRings` deletes
+any record that leaves the camera window; `EntityWindow_TrySpawnRing` only ever re-adds from
+the ROM list. A record with no ROM entry behind it is removed on the first scroll past it and
+never returns. `SEC_VOID` is a section-id sentinel only — there is no `list_index` counterpart.
+**That pair is the whole reason the debugger's ring is temporary**, and it is a property of the
+design rather than a defect to fix.
+
+**Durable placement is an edit to the section's ring list plus a re-bake** —
+`tools/regenerate-level.sh`, the editor's path, not a runtime poke.
+
+**Briefing note for whoever hands this to the consumer repo: comments do not reach the
+listing.** The Equate Table is `EQU <name> = $<value>` and nothing else, and the deb2 appendix
+carries addresses only. Both rules above have to travel as prose; they cannot ride in a symbol.

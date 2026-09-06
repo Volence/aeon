@@ -126,7 +126,8 @@ value fails the build loudly on both sides; data tables are named with a typed
 | Symbol(s) | Engine consumer | Notes |
 |---|---|---|
 | `VRAM_RING_PLACEHOLDER` | `engine/objects/rings.emp` | Ring art VRAM slot |
-| `MAX_RING_BUFFER`, `RING_BUFFER_ENTRY_SIZE`, `RING_WIDTH` | `engine/objects/rings.emp` | Ring buffer capacity/sizing (`ensure`-checked) |
+| `MAX_RING_BUFFER`, `RING_WIDTH` | `engine/objects/rings.emp` | Ring buffer capacity + collision width. `MAX_RING_BUFFER` is a per-profile `-D` and genuinely VARIES (sonic4 128, demo 16); `RING_WIDTH` is engine-invariant and `ensure(extern(..))`-checked against the game config |
+| ~~`RING_BUFFER_ENTRY_SIZE`~~ | — | **No longer a game symbol** (review item 30/G): the 6-byte record is an engine-owned FORMAT, homed in `engine/system/constants.emp` with the four `RING_ENTRY_*_OFFSET` field offsets it is now derived from. See §4.9.4 |
 | `COLLECTED_WINDOW_SLOTS`, `COLLECTED_SLOT_SIZE`, `COLLECTED_PARK_SLOTS`, `COLLECTED_PARK_ENTRY_SIZE` | `engine/objects/entity_window.emp` | Collected-entity bookkeeping capacity |
 | `BgAnim_Table` | `engine/level/bg_anim.emp` | BG tile-band animation table (a `dc.w 0` band count disables the system) |
 | With `SOUND_DRIVER_ENABLED`, additionally: | | |
@@ -2991,15 +2992,38 @@ ENTITY_LOAD_BUFFER_Y >= coarse row size (128)
 
 #### 4.9.4 Unified Ring Buffer
 
-A single 128-entry ring buffer replaces the old dual per-slot buffers. Each entry is 6 bytes:
+A single unified ring buffer replaces the old dual per-slot buffers. Its CAPACITY is a game
+knob and varies (`MAX_RING_BUFFER`: sonic4 128, demo 16); its RECORD is an engine-owned format
+no game may vary. Each record is 6 bytes:
 
 ```
-Ring_Buffer entry (6 bytes):
-    dc.w    world_X         ; +0: world-space X (collision/draw read it directly)
-    dc.w    world_Y         ; +2: world-space Y
-    dc.b    section_id      ; +4: which section owns this ring (respawn key)
-    dc.b    list_index      ; +5: index into section's ROM ring list
+Ring_Buffer record (RING_BUFFER_ENTRY_SIZE = 6 bytes):
+    dc.w    world_X         ; RING_ENTRY_X_OFFSET          = 0
+    dc.w    world_Y         ; RING_ENTRY_Y_OFFSET          = 2
+    dc.b    section_id      ; RING_ENTRY_SECTION_ID_OFFSET = 4  (respawn key)
+    dc.b    list_index      ; RING_ENTRY_LIST_INDEX_OFFSET = 5  (index into the section's ROM ring list)
 ```
+
+The field offsets are the AUTHORITY and `RING_BUFFER_ENTRY_SIZE` is derived from the last of
+them (`engine/system/constants.emp`), the same inversion `COLLECTED_SLOT_SIZE` uses. Their own
+authority is `RingBuffer_Add`'s write order. Two `ensure`s pin what other code silently depends
+on: X/Y adjacent and aligned (`RingBuffer_Remove` copies both with one `move.l`), and
+section_id/list_index an aligned adjacent byte pair (`EntityWindow_TrySpawnRing`'s dedup scan
+compares them as one word).
+
+**The per-section ROM ring list is a different format** and is the array a section spawns rings
+FROM: null-terminated 4-byte `dc.w X, dc.w Y` entries (`RING_LIST_ENTRY_SIZE`,
+`RING_LIST_TERMINATOR`), reached through `EntityScanState.ess_rom_ring_ptr` (`$04`) and walked
+by `EntityWindow_ScanRingsRight`. There is **no stored per-section ring count** — the only way
+to learn one is to walk to the terminator, which is what the debugger's temporary-ring path has
+to do to pick a `list_index` that aliases no real ring.
+
+**Published for the debugger (2026-09-06).** The four offsets and the entry size are EQUATES
+and reach `lookup_equate`; the ring RAM locations (`Ring_Buffer`, `Ring_Count`,
+`Ring_HighWater`, `Ring_Add_Dropped`) are ADDRESSES and reach `lookup_symbol`. The two lookups
+read disjoint sections of the listing, and asking the wrong one returns a refusal that reads
+exactly like the name not existing. **Writing a record at runtime does not place a ring** — see
+`docs/DEFERRED_WORK.md` "RING-PLACE" for the two independent reasons and the bounded workaround.
 
 **Operations:**
 - `RingBuffer_Add`: append to end of buffer, increment Ring_Count. Carry set if full.
