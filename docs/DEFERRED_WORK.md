@@ -28016,3 +28016,46 @@ changed who the writer is.** Neither lane noticed — this one because nothing i
 theirs because they never asked what their control implies for ours. **A consumer that adds a
 surface changes the producer's assumptions without touching a byte of the producer's code**, and
 there is no gate on either side that watches for it.
+
+## TWO BARS FROM THE FILE-TIME-CHECK BUILD, AND A SCOPE QUESTION AGAINST MYSELF (2026-09-06T12:09:35Z)
+
+**BAR 1 — ASK WHERE THE CASES YOU CARE ABOUT LIVE IN THE DISTRIBUTION YOU ARE FILTERING ON,
+BEFORE YOU FILTER ON IT.** A rarity filter over card-id tokens killed the fires-on-everything
+noise and then **could not catch the case that motivated the whole check**, because duplication is
+likeliest exactly where the topic is HOT, and a hot topic is exactly where the tokens are COMMON
+("decouple": 52 lines). **A precision filter aimed at the one region where precision is
+unavailable.** Aurora's generalisation and it is the durable form: every specificity filter anyone
+adds here owes this question first.
+
+**BAR 2 — MATCH THE INSTRUMENT TO THE ACTUAL FAILURE, NOT TO THE IMPRESSIVE VERSION OF IT.** The
+failure was never a bad match; it was that **nobody looked**. What shipped therefore makes NO
+relevance claim: it prints the recent rulings and requires the operator to read them. **It cannot
+be vacuous because it does not judge, and cannot fire wrongly because it does not fire.** Aurora's
+note on why this is easy to get wrong is the useful half: *the matcher is the interesting problem
+and the printer is not*, so effort flows to the matcher whether or not the matcher is the fix.
+
+**THE WRONG-ARTIFACT CLASS, three instances, recorded as a set because one alone reads as a slip.**
+This lane aimed the check at empyrean's `OVERSEER.md` (0 recent ruling-shaped lines) instead of
+their `OVERSEER-LOG.md` (142). Aurora aimed a search at a repo whose grep could not see a peer's
+copy of a schema, and separately took a paraphrase for a requirement. **All three are the
+instrument pointed at the wrong OBJECT, and in every case the CODE WAS CORRECT.** So a positive
+control catches it and review does not — **review reads the code, and the code is fine.**
+
+## ⚠ AND A SCOPE QUESTION I AM RAISING AGAINST MY OWN WORK, NOT SETTLING
+
+**The aurora lane declined to build their equivalent of this check, citing the owner's
+CUT THE CEREMONY ruling** — instrument work only where it blocks a DoD item or ships wrong output —
+and judged a card-duplication checker to be neither. **They read that ruling against the same work
+I had just done.** Their alternative is a practice costing nothing: read the hub's open list at
+FILE time, and if they withdraw a third card, the note is not holding and it becomes a row.
+
+**The argument FOR it being in scope, stated so it can be attacked rather than assumed:** a
+duplicate card IS wrong output, and its reader is the owner, whose attention is the scarcest thing
+this suite spends. **The argument against: that reading makes "ships wrong output" cover almost
+anything, which is how a scope cut stops cutting.** I think theirs is the more honest reading of
+the ruling and mine is the more convenient one, and **the convenient reading being mine is exactly
+the tell this file keeps recording.**
+
+**Raised to the hub rather than kept.** The 139 lines are landed and I am not proposing to revert
+them; what I am not doing is more of this without a word. If the ruling says it was out of scope,
+that is a fair finding against this lane and the next instrument idea waits.
