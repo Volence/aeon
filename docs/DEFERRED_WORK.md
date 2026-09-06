@@ -26739,3 +26739,35 @@ and the lane it names is the one least likely to re-read the other lane's commen
 artifact - a commit, a file, a log line. If the answer is a message, write the number as YOUR
 estimate under YOUR name, or measure it yourself. A number owned by nobody is worse than a number
 owned by you and wrong, because yours can be re-measured and theirs cannot even be found.
+
+---
+
+### Asking the instrument whose job is to refuse you - 2026-09-05
+
+**Measured, then generalised wrongly, and the measurement was right the whole time.** Designing the
+spring's subtype table, this lane asked `emulator/lookup_symbol` for `SST_angle`, an EQU plainly
+present in `s4.debug.lst`, and got "no symbol named or prefixed". Conclusion published to another
+lane: **equates are unreadable**, therefore the subtype table must be real bytes in ROM with a
+`read_memory` round trip per value.
+
+**Wrong. `emulator/lookup_equate` exists and answers exactly the query shape wanted:** by name
+`SST_angle -> value 31`, by prefix names AND values together in one reply. The two populations are
+disjoint BY DESIGN - only `Section::EquateTable` rows reach the equate map, only
+`Section::SymbolTable` rows reach `syms` - precisely so an equate can never answer an address query,
+which is the confidently-wrong answer that separation exists to prevent.
+
+**So the failure was querying the one method whose entire job is to refuse equates, and reading its
+refusal as a property of equates.** The measurement was correct; the generalisation was not. Cost:
+a design carrying a ROM byte and a round trip per subtype to route around a limitation that does
+not exist.
+
+**THE CHECK: before concluding a capability is absent, ask what would answer it if it were present,
+and whether you asked THAT.** An instrument built to refuse a class of question answers "no" with
+the same words as an instrument that has looked.
+
+**Its sibling finding, from the same session.** Verifying the correction turned up that the reply
+carries `truncated`, not `total`; a guard written against `total` would read absent and treat a cut
+list as complete. And the cap is tight: `SST_` has **35** equates in the listing and the prefix
+query returned **5** with `truncated: true`. An earlier `ObjDef_` query returned `truncated: false`
+with five objects, i.e. it landed on the one prefix where the cap exactly equals the truth - which
+is why "I cannot tell a cap from a coincidence" was the right thing to say rather than picking one.
