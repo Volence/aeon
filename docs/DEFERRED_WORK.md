@@ -27951,3 +27951,42 @@ came from DOCSTRINGS, their predicate excludes comments by construction so their
 was 64, and a window needs an anchor word their sentences do not have. **A control that transfers
 and a control that does not are both findings about the ORIGINAL instrument** — ours needed the
 window because of a population choice we made, not because joining requires one.
+
+## ⚠ AURORA'S `Promote` CAN ALREADY BREAK OUR BUILD, TODAY, AND `default_off` EXPOSURE DOES NOT FIX IT — needs a ruling (2026-09-06T12:01:48Z)
+
+**MEASURED HERE, not argued.** The shipped act is ONE band carrying `default_off`. Simulating an
+author promoting a second band with no `default_off` on it — the natural output of Aurora's
+`promoteBandCommand`, which they report ships today — `inject_editor_bg.views_emitted` **raises**:
+
+    `default_off` is set on 1 of 2 bands. The debug view twins are emitted only for a
+    single-band act ... Drop `default_off`, or extend BGANIM_VIEWS to a per-band shape
+    deliberately.
+
+**An author does the one thing the editor invites them to do and gets a build failure about DEBUG
+view twins they have never heard of and did not touch.** The refusal is about the TWINS, not about
+shipping, so it fires whether or not the promoted band carries the key — **exposing `default_off`
+in the editor does not fix it.**
+
+**THIS IS OUR DEFECT AND IT IS THE "A REFUSAL THAT CAN FIRE ON A CORRECT RUN" BAR ARRIVING ON A
+REFUSAL THIS LANE DESCRIBED APPROVINGLY THE SAME AFTERNOON.** When it was written the only writer
+was a hand-edited file, and "add a second band" was a deliberate act by someone who would
+understand the message. **Aurora's control changed the POPULATION and nothing here noticed** —
+the refusal did not change, the set of people who can trip it did.
+
+**TWO REPAIRS, AND IT IS A DESIGN CALL RATHER THAN A BUG FIX, WHICH IS WHY IT IS PARKED:**
+- **(a) DEGRADE** — return 0 twins when the act has more than one band instead of raising. Cheap;
+  **silently removes the lab feature from any act an author grows**, which is exactly the silence
+  that refusal exists to avoid (its own docstring: "THE PERIOD CHECK IS A REFUSAL AND NOT A SILENT
+  ZERO ... Better to say so").
+- **(b) DECOUPLE** — make `default_off` a per-band SHIP decision independent of the twins gate, so
+  the twins condition on "exactly one band" while ship behaviour does not. **This is the one an
+  author-facing control actually wants**, and it is the larger change.
+
+**RECOMMENDATION: (b).** (a) trades a loud wrong-audience refusal for a silent capability loss,
+and the capability is the owner's own "perspective vs timer" comparison. **Parked rather than
+taken because it moves a mechanism the owner has ruled on twice** (2026-09-03 and 2026-09-04) and
+because the twins' single-band premise is load-bearing for the effects lab, not incidental.
+
+**COUPLING TO AURORA: their exposure parcel does not deliver the workflow without this.** If it
+lands while the emitter still refuses on band 2, an author using both features in the obvious
+order still hits the wall. Told them directly rather than letting them meet it in a landing.
