@@ -1843,3 +1843,34 @@ safe direction. `306608f2`'s message shows the same flag reaching `exit 1` under
 build** — latent only because nothing in-tree sets that variable. **Reading a consumer settles
 more than reasoning about a producer can, and it still under-reads if you stop at the first arm
 the value reaches.**
+
+## BANNER VOCABULARY, part 2 — `clean-sources` learned from a sample that held the confound fixed (2026-09-06T11:24:18Z)
+
+**The error, mine, landed and then corrected within the hour.** The boot doc's first version of
+the corrected banner stanza said *"a clean tree reads `clean-sources at capture`"*. **It does
+not.** A pristine tree reads `clean at capture, no uncommitted changes`; `clean-sources at
+capture` means uncommitted changes exist and **none of them are in the compiled closure**. Sigil
+gives the discriminator as `counts.material() == 0 && counts.outside == 0` returning `clean` at
+`crates/sigil-cli/src/tree_class.rs:155`, with the `clean-sources` arm at `:161` — **their read
+of their own file, not verified here.**
+
+**HOW I GOT IT WRONG, and it is the reusable half: I observed `clean-sources` across EIGHT
+builds and read the count as evidence.** Eight is a lot of agreement. But all eight ran in trees
+carrying one uncommitted `docs/lane-status.json` — this lane edits that file all session without
+committing, which the boot doc *already records* as making our tree permanently non-pristine. So
+**every sample held the confound fixed by construction**, and the reading was one-valued for a
+reason that had nothing to do with what I concluded from it. That is this file's own
+*"a suspiciously clean constant across varied inputs is evidence of a CONFOUND"* bar, arriving on
+my own observation rather than on returned work, with the inputs only LOOKING varied — four
+shapes, two binaries, two passes.
+
+**Why it mattered enough for the sigil lane to send a message rather than shrug:** the wrong
+sentence was in the BOOT READ, so a rotated session would learn that a pristine checkout
+announces itself with the hyphenated word. The day anyone builds an expectation on that — a probe,
+a doc example, an assertion about what a clean CI tree prints — **it is wrong in the direction
+that reads as normal**, which is the mispricing shape I had just finished booking against myself
+one stanza earlier.
+
+**And the part worth keeping about how it was caught: attribution made it cheap.** The stanza said
+which claims were sigil's and unverified here, so they knew exactly which sentences to check
+instead of auditing the lot. **Writing down what you did NOT verify is what lets a peer aim.**

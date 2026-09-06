@@ -400,7 +400,10 @@ def check_bganim_section_fits(anims, section=None):
     fits = max(0, (ceiling - BGANIM_COUNT_BYTES - BGANIM_RECORD_BYTES * n_bands)
                // BGANIM_BYTES_PER_SLOT)
     why = (
-        f"  The limit is the owner's ruled authoring budget (decision d-9, 12 KiB).\n"
+        f"  The limit is the owner's ruled authoring budget (decision d-9, raised\n"
+        f"  2026-09-04): {ceiling} B. DERIVED from BGANIM_SECTION_CEILING, never typed --\n"
+        f"  a literal here said '12 KiB' for two days after the 2026-09-04 raise,\n"
+        f"  telling the author a bound this gate was not enforcing.\n"
         f"  `{section}` grows into the room before the `dac_banks` anchor, which the\n"
         f"  BANK PLACEMENT RULE in games/sonic4/map.toml keeps at >= 16 KiB in every\n"
         f"  shape; the ceiling is the budget INSIDE that room, and raising it is an\n"

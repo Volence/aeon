@@ -516,7 +516,8 @@ rulings live in the session memory and the most recent `docs/superpowers/*handof
   by the sigil lane within the hour of this rule being written; verified firsthand here).
   `build.sh` prints `Assembler: sigil <rev> (<tree>)`. **The `dirty at capture` wording is GONE
   — dated, not deleted: true when written, unbounded. Vocabulary today is {`clean`,
-  `clean-sources`, `dirty`, `unknown`} and a clean tree reads `clean-sources at capture`.
+  `clean-sources`, `dirty`, `unknown`}. **A PRISTINE tree reads `clean`, NOT `clean-sources`**
+  (that one means uncommitted changes outside the compiled closure).
   `build.sh:353` SWITCHES on it, so a fifth word warns and under `SIGIL_VERSION_STRICT=1`
   REFUSES a fine tree — the arm must be edited, never removed. Sigil owes us a message before
   a fifth word lands.** Narrative, and this lane's own "nothing parses that banner" error
