@@ -28500,3 +28500,42 @@ That is the version the row should have carried and now does.
 `views_emitted` neutralised the promoted shape still died on *"default_off bands must be the TAIL
 of the band list"*, because `Promote` APPENDS and the shipped act's only band is marked.
 **Fixing the first wall alone would have moved the failure one line down and looked like a fix.**
+
+## BAR — "COULD THE PLANT HAVE GONE RED AT ALL, GIVEN WHAT THE FIXTURE CAN CONSTRUCT?" (2026-09-06T13:40:35Z)
+
+**Asked BEFORE the run, from the fixture alone. This upgrades red-first invariant 6 and belongs in
+every dispatch brief this lane writes.**
+
+The existing bar asks whether a poison went red, and treats a green as needing explanation. **That
+fires only after something has already passed.** The stronger question is answerable in advance:
+**given what this fixture is able to build, is there any state in which the plant could have gone
+red?** If the fixture's population cannot contain the dangerous input, a green plant asserts
+nothing and the run was never a test.
+
+**THE INSTANCE IS AURORA'S AND IT IS EXACT.** Two of their rows, *titled* discriminating, passed —
+because **every state the command under test can reach is already inconsistent**, so the wrong
+validator refuses those too. **Reachability is not discrimination.** The discriminating case had
+to be constructed DIRECTLY, from a shape the command cannot produce: a consistent two-band act,
+which a hand edit or a file from disk can hold and the command cannot. **The fixture's population
+was the command's own outputs, and the dangerous input comes from somewhere else entirely** — a
+hand edit, another tool, an older file.
+
+**So the enumeration bar arrives inside a test suite:** a fixture built from what the subject emits
+is blind to every input the subject does not emit, which is exactly the population an author or a
+sibling tool supplies. Ask what can WRITE the input, not what the code under test can produce.
+
+## BAR — A RELAY IS NOT A NEUTRAL PIPE; IT LAUNDERS A PEER'S CONFIDENCE INTO A CONSTRAINT
+
+**Aurora's, against themselves, and it is a DIFFERENT failure from the overstatement it carried —
+both halves are real.** This lane wrote a true sentence that did a bigger sentence's work; aurora
+relayed it **unhedged into an agent brief**, where the only reader able to refute it was the agent
+they had told to trust them.
+
+**The receiving-side rule this repo already carries** — *a ruling relayed on the owner's behalf can
+carry constraints he never stated, and they arrive wearing his authority* — has a **peer-to-peer
+twin nobody had written down**: a claim relayed into a brief stops being a peer's assertion and
+becomes the brief's premise. **An agent cannot doubt its controller**, so a hedge dropped at relay
+time is a hedge the downstream reader can never restore.
+
+**Operational form: when relaying a peer's claim into a brief, carry the hedge or add one.**
+"They report X" and "X" are different briefs, and the second one cannot be corrected from inside.
