@@ -248,6 +248,7 @@ def test_wedged_segment_retries_once_then_reports_a_named_failure(tmp_path, monk
     assert "`demo_witness`" in out and "`scanline_spans`" in out
 
 
+@pytest.mark.needs_build("s4.debug.bin", "s4.debug.lst", "demo.debug.lst")
 def test_segmented_parent_checks_the_row_set_it_aggregated(monkeypatch, capsys):
     """The PARENT half of the row-set check, end to end and with no emulator.
 
@@ -298,8 +299,16 @@ def test_parent_never_leaks_the_poison_selector_into_a_child(tmp_path, monkeypat
     assert "EFFECTS_GATES_POISON_HANG" not in calls[0]
 
 
+@pytest.mark.needs_build("s4.debug.bin", "s4.debug.lst")
 def test_segment_child_writes_its_rows_as_json(tmp_path):
-    """The aggregation transport: rows travel as data, not as scraped stdout."""
+    """The aggregation transport: rows travel as data, not as scraped stdout.
+
+    THE MARKER DECLARES TWO ARTIFACTS AND THE GUARD BELOW CHECKS ONE. That is not
+    a slip: `s4.debug.lst` never appears in the skip reason because it is built
+    inline into the child's argv, so it is invisible to any reader who enumerates
+    this lane by grepping skip text. It was found by tracing filesystem touches
+    (LS-1), which is the method the marker set has to be maintained by.
+    """
     jf = tmp_path / "rows.json"
     rom = Path(eg.AEON / "s4.debug.bin")
     if not rom.is_file():
