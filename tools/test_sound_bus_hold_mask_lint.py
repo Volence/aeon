@@ -42,9 +42,11 @@ WHAT THIS LINT CHECKS, all of it derived from the file it reads:
     that new brackets live somewhere else.
 
 WHAT IT DOES NOT COVER, and each of these is a real hole:
-  * ANY OTHER FILE. There are twelve more `with z80_stopped` brackets in the tree
-    (vblank.emp, section.emp, bg.emp, parallax.emp, boot.emp, controllers.emp,
-    sound_debug.emp, ojz_scroll_test.emp). Several are correct only because of a mask
+  * ANY OTHER FILE. Counted 2026-09-07: SIXTEEN more `with z80_stopped` brackets across
+    eight files — vblank.emp 6, section.emp 3, bg.emp 2, boot.emp 1, controllers.emp 1,
+    parallax.emp 1, sound_debug.emp 1, ojz_scroll_test.emp 1. (Derived by
+    `grep -rn "with z80_stopped" engine games`, 18 hits, less the two that are prose:
+    section.emp:300 and controllers.emp:12.) Several are correct only because of a mask
     established many lines above them, or because they run in interrupt context where the
     68000's own IPL is the mask — neither of which this file-scoped text rule models. Do
     not read a green run here as a statement about them.
@@ -202,7 +204,7 @@ def test_every_bus_hold_is_masked():
         + "\nMask it with `with ints_off { … }`, or with a hand-spelled "
         "`move.w #$2700, sr` earlier in the proc if the site is one of the loop shapes "
         "engine/irq.emp:58-63 names. NOTE: this check reads sound_api.emp ONLY — the "
-        "other twelve brackets in the tree are not covered."
+        "sixteen brackets in the tree's other eight files are not covered."
     )
 
 

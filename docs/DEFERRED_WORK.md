@@ -29069,7 +29069,7 @@ them looking. Any fix below that adds or edits a guard must state what it does N
 | LS-8 | **The block-geometry masks and the tile-cache stride literals**: 17 and 4 unpinned sites respectively. Both proven to build GREEN after doing exactly what the firing guard's message instructs. |
 | LS-9 | **Map↔DPLC frame-count binding exists for ONE asset** (insta-shield). Sonic, Tails, Knuckles, dust, particle, spring, appendage have none; `animate.emp` accepts any frame byte 0..$F6 with no upper bound. |
 | LS-10 | **System (8) and Effect (16) fixed pools are swept 3× per frame while ~90% empty** — 2,780 cycles/frame (2.2%). The Dynamic pool already walks a live list. The 8 System slots are provably dead in release and are the cheap half. |
-| LS-11 | **`Sound_PlayMusic`'s `.await_slot` bus-hold spin is unmasked**; an IRQ6 cancels the latch and nothing re-issues the request — infinite spin, and the DEBUG watchdog counts the outer loop. **Not reachable in either canonical shape**; lives in the only profile that can play music. |
+| ~~LS-11~~ | ~~**`Sound_PlayMusic`'s `.await_slot` bus-hold spin is unmasked**; an IRQ6 cancels the latch and nothing re-issues the request — infinite spin, and the DEBUG watchdog counts the outer loop. **Not reachable in either canonical shape**; lives in the only profile that can play music.~~ **CLOSED 2026-09-07, `parcel/ls11-playmusic-spin-mask`.** Premise HELD on all four counts; one number on the card did NOT — see the closure note below. |
 | LS-12 | **The banked-ROM/DMA ruling (2026-08-09) is applied to 1 of 3 Timer-A tick paths.** `Run_SeqFrame_OnSongBank` and `Snd_PollMailbox_Banked` have no `SND_CTRL_DMA_ACTIVE` check; the timer poll sits upstream of `.dma_check` so the tick structurally cannot see the flag. |
 | LS-13 | **`Read_Controllers` holds the Z80 bus ~130 µs every frame** (~2.4 DAC sample periods) in every sound-ON shape, and `vblank.emp` asserts eight lines away that its own byte write is "the ONLY 68k bus hold in the sound build". One of the two files is wrong for the next reader either way. |
 | LS-14 | **`s4lint` lints 8 non-comment lines with zero instructions** under 412 test functions (24% of the pytest corpus), and the one test asserting "the subject has not collapsed to one file" skips on the deleted `main.asm`. **Decide: retarget it at the `.emp` corpus, or retire it and its 412 tests.** |
@@ -29090,6 +29090,124 @@ them looking. Any fix below that adds or edits a guard must state what it does N
 | LS-24 | ~90 comments cite `.asm` authorities that do not exist; `dma_queue.emp:26` says "the byte gates are the guard" naming a deleted file and a gate no tool references. |
 | LS-25 | `scene_dsl.emp` ×5 cites a file deleted 2026-08-18, all exactly 31 lines stale; every substantive claim is TRUE, only the coordinates are wrong. `scene_equiv_proof.emp` cites the same dead file 20+ times and is exact, **because it says where to recover it**. |
 | LS-26 | `VSync_Wait` still asserts a lemma `VBlank_Handler`'s own header retracts 370 lines away — and the retracted one is what a reader hits first. |
+
+### ~~LS-11 — `Sound_PlayMusic`'s `.await_slot` BUS-HOLD SPIN IS UNMASKED~~ — CLOSED 2026-09-07 (`parcel/ls11-playmusic-spin-mask`)
+
+**What was done.** `engine/sound/sound_api.emp`'s `.await_slot` bracket is now
+`with ints_off { with z80_stopped { … } }` — the `Sound_PostByte` / `Sound_ReadStat` shape,
+per iteration. Plus `tools/test_sound_bus_hold_mask_lint.py`, a file-scoped text lint in
+build.sh's pytest lane (`build.sh:628`, build-fatal).
+
+**THE RULE AND THE POPULATION, re-derived rather than taken from the card.** The header
+states it at `:6-8`: *"So every transaction holds the bus, with interrupts masked so a
+VBlank stopZ80/startZ80 pair … can't release the bus mid-write."* The file has **six**
+`with z80_stopped` brackets — the card's "five other places" is exactly right, and the
+lint re-counts them on every run: `Sound_PostByte` (`with ints_off`), `Sound_Init`'s
+`.wait_alive` (`move.w #$2700, sr` at the top of the loop, held to the `(sp)+` after it),
+`Sound_PlayMusic`'s `.await_slot` (**was the unmasked one**), `Sound_PlayMusic`'s param
+post (`with ints_off`), `Sound_DrainSfxRing` (hand-spelled `$2700`), `Sound_ReadStat`
+(`with ints_off`). `engine/irq.emp:58-63` names `Sound_Init`'s alive-wait as a deliberate
+hand-spelled loop exception and does **not** name `.await_slot`, so the omission was a gap
+rather than a carve-out.
+
+**THE DEFECT, in the form that could have refuted it.** Four independent premises, each
+checkable, and the finding dies if any one fails:
+
+1. *The acquire writes the request once, outside the poll.* `z80_bus.emp:26-31` —
+   `move.w #$0100, Z80_BUS_REQUEST` then `.wait_z80: btst #0 / bne .wait_z80`. Nothing
+   below the label re-issues. **Holds.**
+2. *The hold is a latch, not a counter.* `z80_bus.emp:8-10` says so in the compiler's own
+   words ("an inner release frees the outer hold"), and `$A11100` bit 8 is a level input,
+   not a count. **Holds.**
+3. *IRQ6 releases the bus.* Under `SOUND_DRIVER_ENABLED == 1` both handlers bracket:
+   `vblank.emp:123`/`:285` (VInt_Level) and `:338`/`:403` (VInt_Lag), and
+   `Read_Controllers` (`controllers.emp:39`) is unconditional in **both** sound shapes.
+   Each release is `move.w #$0000, Z80_BUS_REQUEST`. **Holds.**
+4. *The window is open at the call site.* `boot.emp:325` does `move.w #$2300, sr` BEFORE
+   `invoke Game.boot_hook` (`:343`) and before `GameLoop`, and neither caller masks.
+   **Holds.**
+
+So an IRQ6 in the spin leaves the mainline at `.wait_z80` reading bit 0 = 1 with no
+outstanding request. **Refinement against the card, and it is against interest to state
+it:** the primary outcome is a permanent mainline spin with VBlank still firing (a frozen
+game with a live ISR), not a dead machine; and there is a second, rarer outcome — if the
+post-`rte` `btst` catches the bus before the Z80 reclaims it, the loop exits on a **stale
+grant** and the block below writes Z80 RAM with the Z80 live. Both are faults; "hard
+machine lockup" over-states the first and misses the second.
+
+**THE WATCHDOG CLAIM: CONFIRMED, and measured in the listing.** `config_a` at
+`85b229cd`: `Sound_PlayMusic` `B600`, `.await_slot` `B606`, the spliced
+`$engine.sound_api$asm12$wait_z80` `B60E`, `.await_go` `B67A`. The `subq.l #1, d4` sits
+after the bracket closes, at a higher address than `B60E`; a CPU parked on the `bne` at
+`B60E` never reaches it. `SPIN_WATCHDOG_LIMIT` therefore counted zero. **This is NOT
+repaired by the fix and the guard comment says so**: the inner spin is still outside the
+counter's reach in every shape. What the mask buys is that nothing can cancel the request
+any more, so the inner spin ends at hardware grant latency.
+
+**REACHABILITY: CONFIRMED.** `Sound_PlayMusic` has exactly **five** call sites, all in
+`games/sonic4/debug/game_debug.emp` (`:86` A, `:126` UP, `:140` C, `:150` START,
+`:175` the boot hook). Both bound hooks are gated
+`if SOUND_DEBUG_HOTKEYS == 1 && SOUND_DRIVER_ENABLED == 1` (`games/sonic4/config/game.emp:168-171`),
+and `build.sh:203-210` refuses `SOUND_DEBUG_HOTKEYS=1`. Not reachable in `s4.bin` or
+`s4.debug.bin`.
+
+**WHERE THE CARD IS WRONG, and it changes the merge cost.** It says *"It changes the sound
+profile, not the shipped ROMs, so the freeze ritual is lighter."* **The shipped ROMs
+change.** `Sound_PlayMusic` is not hotkey-gated — only its callers are — so the proc is
+emitted in **every sound-ON shape**, `s4.bin` included. Measured, same tool, same tree,
+baseline file restored from `85b229cd`:
+
+| shape | baseline crc | with fix | len |
+|---|---|---|---|
+| `s4` | `2184fbc0` | `55e794ae` | 820229 (unchanged) |
+| `s4_debug` | `ee9f3b33` | `e3a3d80c` | 846529 (unchanged) |
+| `config_a` | `845bd882` | `27287530` | 846881 (unchanged) |
+
+`demo` / `demo.debug` are structurally unaffected: `Sound_PlayMusic` and `Sound_PostByte`
+appear **zero** times in `demo.lst` and `demo.debug.lst` (sound-OFF game). **So this parcel
+owes the aeon+sigil byte-identity ritual (repin + `refreeze --ab`) at merge, not a light
+one.** It was deliberately NOT run from this parcel: sigil's goldens are shared serialized
+state and other lanes are live tonight — and they are *already* stale at master, which is
+the evidence that the refreeze is a merge-time step rather than a per-parcel one
+(`golden/offcanonical_sizes/s4.txt` says `Sound_PostByte 0x8082`; this tree's `s4.lst` says
+`823A`, and that label's address is **unchanged** by this parcel — both the baseline and
+the fixed `config_a` listing put `Sound_PlayMusic` at `B600`).
+
+**THE GATE, and the control that caught it lying.** `tools/test_sound_bus_hold_mask_lint.py`
+checks that every `with z80_stopped` in `sound_api.emp` is entered masked (enclosing
+`with ints_off`, or a hand-spelled `$2700` still in force), that the header still STATES
+the rule, and a population floor of six. Four red-first controls, each quoted from disk and
+each restored by `git checkout HEAD --` from a committed baseline: **A** the real
+historical file at `85b229cd` → RED naming `:212 in Sound_PlayMusic`; **B**
+`Sound_ReadStat`'s mask removed → RED naming `:565`; **C** the header sentence removed →
+RED; **D** a whole bracket deleted → RED on the floor. **C was GREEN on the first
+version** — the whole-file search was satisfied by the fix's own comment quoting the rule
+back, i.e. the premise check was measuring the restatement. Scoped to the header block and
+all four re-run retroactively.
+
+**WHAT THE GATE DOES NOT COVER**, stated in its docstring and in its failure message: the
+**sixteen** `with z80_stopped` brackets in the tree's other eight files (vblank 6, section
+3, bg 2, boot 1, controllers 1, parallax 1, sound_debug 1, ojz_scroll_test 1) — several of
+which are correct only via a mask set far above them (`section.emp`, `bg.emp`, both with
+DEBUG `IPL >= 6` asserts) or via interrupt context (`controllers.emp`, `sound_debug.emp`,
+both reached only from VInt); a mask established by a caller; runtime of any kind; and the
+inner-spin watchdog hole above.
+
+**RIDER, not fixed here (a live file another lane may hold):** `parallax.emp:1771-1776`
+asserts *"This is the tree's one atomic Z80 hold that must also stay masked."* It is not —
+`sound_api.emp` has five, now six. Same family as **LS-13**, where `vblank.emp` claims its
+byte write is "the ONLY 68k bus hold in the sound build" eight lines from
+`Read_Controllers`' hold. Both are one-line comment fixes; neither is a sound-tree file.
+
+**CONTROLLER TAG — the one thing that could not be settled here.** Nothing in this parcel
+ran a ROM. The four canonical shapes prove only that the change breaks nothing they can
+see, and **they structurally cannot exercise the subject**: neither can play music and
+neither links a caller of `Sound_PlayMusic`. `config_a` was built (`sigil build --aeon .
+--native --config-a`, exit 0, crc `27287530`) but not played. Wanted: `config_a` on the
+emulator, A/UP/C/START hotkeys, music starts and repeated presses still restart it.
+Reproducing the ORIGINAL hang on demand is not realistically gateable — it needs an IRQ6
+inside a ~5-instruction window — which is why the standing net is the text lint and not a
+runtime one.
 
 ### ~~LS-7 — 5,154 B OF BYTE-IDENTICAL DUPLICATE PCM IN THE NO-STRADDLE DAC BANK~~ — CLOSED 2026-09-06 (`parcel/ls7-dac-dedupe`)
 
