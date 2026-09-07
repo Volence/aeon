@@ -13,6 +13,22 @@
 # COULD NOT RUN are both loud — a backstop that silently can't run is the
 # vacuous-gate pattern this exists to prevent.
 #
+# IT ALSO OWNS THE `needs_build` PYTEST LANE (LS-1b, 2026-09-06), and that is why
+# it builds THREE shapes rather than two. LS-1 moved the tests that read a build
+# artifact into a post-sigil lane inside build.sh; one of them —
+# test_segmented_parent_checks_the_row_set_it_aggregated — declares s4.debug.bin,
+# s4.debug.lst AND demo.debug.lst, and one build.sh invocation writes exactly one
+# game's .bin/.lst pair, so it defers in every shape and stopped running anywhere.
+# It is the exact test whose failure killed this nightly nine times. This script is
+# the only place several shapes are built back to back in one checkout, so it is the
+# only place the whole marked lane is reachable — and the release shape is built here
+# purely so the fourth marked test (s4.lst) is reachable too. The rule that keeps the
+# lane honest is that ZERO deferrals are legitimate HERE: every artifact the marked
+# tests declare is built by this script, so a deferral means a build did not write
+# what it was supposed to, and tools/needs_build_lane.py calls that COULD NOT RUN.
+# Do NOT "fix" this by adding a second game's build to build.sh: one invocation
+# builds one game, and that is the contract every other gate in it depends on.
+#
 # --selftest-fail exercises the notification path without running anything.
 set -uo pipefail
 
@@ -58,6 +74,13 @@ git -C "$NIGHTLY" checkout --force --detach "$SHA" >> "$LOG" 2>&1 \
     || { note "COULD NOT RUN: checkout of master ($SHA) failed"; exit 2; }
 
 cd "$NIGHTLY"
+# The provenance instant for the needs_build lane below: every artifact it grades must
+# have been written AFTER this, i.e. by one of the three builds that follow. Taken from
+# `date +%s` for the reason build.sh's SIGIL_T0 is — whole seconds truncate DOWN, so a
+# file written in the same second still counts as fresh. It is a PROVENANCE claim ("this
+# run wrote the file") and not a content one ("the file matches the source"); nothing
+# here checks the second, and the tests themselves are what ask about content.
+BUILD_T0=$(date +%s)
 if ! DEBUG=1 ./build.sh > "$STATE/build.log" 2>&1; then
     note "COULD NOT RUN: DEBUG build failed at ${SHA:0:8} — see $STATE/build.log"
     exit 2
@@ -67,6 +90,18 @@ fi
 # not the gate. First bit the nightly 2026-08-19, the night Phase 1 landed.
 if ! DEBUG=1 ./build.sh demo >> "$STATE/build.log" 2>&1; then
     note "COULD NOT RUN: DEBUG demo build failed at ${SHA:0:8} — see $STATE/build.log"
+    exit 2
+fi
+# Third fixture, and it is NOT for the emulator gates — they run against s4.debug.*.
+# It exists so `s4.lst` is on disk and fresh, which is the one artifact the fourth
+# needs_build test (tools/test_bg_emit.py) declares. Without it that test defers, the
+# needs_build lane reports COULD NOT RUN, and this script would be red every night for
+# a shape it simply never built. Building it is cheaper and more honest than teaching
+# the lane which deferrals to forgive — an expected deferral is a silent skip wearing
+# a label, which is the thing LS-1 was about. It also means the RELEASE shape, the one
+# that ships, gets built nightly for the first time.
+if ! ./build.sh >> "$STATE/build.log" 2>&1; then
+    note "COULD NOT RUN: release build failed at ${SHA:0:8} — see $STATE/build.log"
     exit 2
 fi
 
@@ -102,9 +137,32 @@ case $rc_lab in
     *) note "COULD NOT RUN: preset lab witness (exit $rc_lab) at ${SHA:0:8} — see $STATE/preset_lab.log" ;;
 esac
 
+# ---- third lane: the needs_build pytest lane (LS-1b) --------------------------
+# The tests LS-1 moved below the sigil build. Three of the four are reachable from a
+# build.sh shape; the segments parent is reachable from NONE, because it declares a
+# DEBUG sonic4 and a DEBUG demo at once. Here all three shapes have just been built,
+# so all four run — and `--built-after $BUILD_T0` makes that a claim rather than a
+# hope: an artifact left over from a previous night is DEFERRED exactly as an absent
+# one is, and a deferral here is exit 2.
+#
+# SAME EXIT CONTRACT, same worst-wins combination as the two lanes above. It is a tool
+# and not an inline `python3 -m pytest` for one reason: pytest exits 0 when every test
+# it collected was SKIPPED, so an inline invocation would report this lane green in
+# precisely the state the lane exists to catch. tools/needs_build_lane.py reads the
+# verdict out of a JUnit report instead, and its own arms are gated by
+# tools/test_needs_build_lane.py in build.sh's pre-build lane.
+python3 tools/needs_build_lane.py --built-after "$BUILD_T0" \
+    > "$STATE/needs_build.log" 2>&1
+rc_nb=$?
+case $rc_nb in
+    0) echo "$(date -Is) OK at ${SHA:0:8} (needs_build lane)" >> "$LOG" ;;
+    1) note "NEEDS_BUILD TESTS FAILED at ${SHA:0:8} — see $STATE/needs_build.log" ;;
+    *) note "COULD NOT RUN: needs_build lane (exit $rc_nb) at ${SHA:0:8} — see $STATE/needs_build.log" ;;
+esac
+
 # worst-wins: 2 (could not run) beats 1 (failed) beats 0
 worst=0
-for r in "$rc" "$rc_lab"; do
+for r in "$rc" "$rc_lab" "$rc_nb"; do
     if [ "$r" = 2 ] || { [ "$r" != 0 ] && [ "$worst" != 2 ]; }; then
         [ "$r" = 2 ] && worst=2 || worst=1
     fi
