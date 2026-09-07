@@ -1129,10 +1129,21 @@ pub vars upper_ram {
     // The offsets are enumerated at sound_debug.emp's header; treat that file as the
     // authority and this reservation as the space it is allowed.
     Sound_Dbg_Mirror:       [u8; 176],  // DEBUG: Z80 mailbox/status, playback state, seq header, 3 SeqChannel prefixes, trace ring
-    mark Sound_Dbg_Mirror_End,          // sound_debug.emp's fit guard measures THIS span,
-                                        // not a hand-copied 176 — shrinking the array now
-                                        // fails that guard instead of silently truncating
-                                        // the window an out-of-process consumer decodes.
+    // ⚠ Dynamic_Live BELOW MUST STAY THE NEXT SYMBOL. sound_debug.emp's fit guard sizes
+    // this reservation as `extern("Dynamic_Live") - extern("Sound_Dbg_Mirror")` — the
+    // adjacent-symbol-difference idiom parallax.emp uses for its three short-reservation
+    // pins — so shrinking the array fails that guard instead of silently truncating a
+    // window an out-of-process consumer decodes. Inserting a field between these two
+    // symbols does not corrupt anything, but it does make the guard measure the wrong
+    // span, so move the guard with it.
+    //
+    // A `mark Sound_Dbg_Mirror_End` WOULD READ BETTER AND IT IS NOT FREE. Measured
+    // 2026-09-07: adding that one mark, with no other change, moved demo.debug.bin
+    // (b2df205f -> 1180c261, 955 bytes, isolated by removing the mark alone and getting
+    // the baseline hash back). A `mark` emits no ROM bytes but it does add a deb2 symbol,
+    // and build.sh appends the deb2 table INTO the ROM — so a "zero-byte" mark is a
+    // ROM change that has to go through the repin ritual. The adjacency form costs no
+    // symbol and is what the existing pins in engine/level/parallax.emp already do.
 
     // --- Object-pool occupancy — the dynamic-pool "run objects list" ---
     // Word SST-addresses of the live DYNAMIC slots, in SPAWN order, + count + a
