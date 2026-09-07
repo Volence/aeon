@@ -72,6 +72,32 @@ need. Byte-movers still serialize behind the aeon/sigil chain, and look/taste ca
 
 ## The queue
 
+### ⏳ TRANSIENT — STANDING COMMITMENTS TO THE SIGIL LANE (2026-09-07). DELETE THIS BLOCK when (a) we
+### have confirmed we are on the post-align shared assembler pair AND (b) the .emp align parcel has
+### landed. It is here, in the boot read, because it binds a FUTURE session of this lane and mail is
+### the one artifact class no tree surfaces. Sigil banked their reciprocal side at sigil `5ceeb743`.
+
+1. **The shared assembler swap waits on an EXPLICIT CLEAR FROM THIS LANE**, not only on the hub's
+   open window — the window is the hub's to open, the moment is ours. Sigil will not infer a clear
+   from anything it observes. Before clearing: confirm nothing of ours is building
+   (`pgrep -x sigil`, `pgrep -x emit_sound_blob`) and read `revision`/`source`/`tree` off the
+   INSTALLED binary, not off their message.
+2. **Their swap message states the installed revision's CONTENTS**, naming sigil `82838687` (link
+   asserts render with `[Error]`) and `d90a297c` (`build --check`) as present or absent. Rows
+   **LS-16c** and **LS-16a-check** are written to read their boundary off that message and must not
+   be taken before it.
+3. **On the `.emp` align parcel, PREDICTIONS ARE EXCHANGED SIMULTANEOUSLY.** Do not send ours on
+   receiving theirs, and do not form one from their framing and call it independent. State what
+   would make the prediction WRONG in the same message, before either side knows.
+4. **DO NOT SWEEP `/home/volence/sonic_hacks/.sigil-ls12-pin`.** The installed binary names it as
+   its `source:` path and `build.sh` currency-checks that path, so removing it turns every build's
+   provenance to `unknown` and REFUSES under `SIGIL_VERSION_STRICT=1`. Released only once we confirm
+   we are on the pair we end on.
+5. **Our `dac_shared_bank` occupancy (25,754 B of 32,768, tail 7,014) is a BUILD PRODUCT**, read from
+   `engine/sound/generated/dac_shared_bank.bin`, not a committed value. A disagreement with sigil's
+   measurement is not a finding until a stale artifact is excluded on BOTH sides.
+
+
 > ### RESUME BRIEF FOR THE NEXT AEON SESSION (first written 2026-08-30T00:38Z; **partly superseded, revised 2026-08-30T09:07Z** — read the strikes, they are the point)
 > **DO NOT BOOT INTO A STOP AND WAIT FOR A PICK.** The owner's go is recorded — empyrean
 > `origin/main` `7149b39`, verified reachable here, and his standing instruction in it reads
