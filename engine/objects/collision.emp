@@ -109,9 +109,14 @@ comptime fn touch_test_target(skip: Label) -> Code {
 // Out: none
 // Clobbers: d0-d7, a0-a3
 // -----------------------------------------------
-pub proc TouchResponse () clobbers(d0-d7/a0-a4) {
-        // a4 is the dynamic live-list cursor; saved/restored at the proc
-        // boundary so the clobbers(a0-a3) caller contract is unchanged.
+pub proc TouchResponse () clobbers(d0-d7/a0-a3) preserves(a4) {
+        // a4 is the dynamic live-list cursor. It is saved/restored at the proc
+        // boundary, and THAT is what `preserves(a4)` on the signature above
+        // declares — do not delete this pair, it IS the contract. (Until
+        // 2026-09-07 the attribute said `clobbers(d0-d7/a0-a4)` and this comment
+        // cited "the clobbers(a0-a3) caller contract", a contract that did not
+        // exist in either spelling. Over-declaration is the direction the
+        // contract-closure gate does not check, so nothing caught it.)
         move.l  a4, -(sp)
         lea     Player_1, a2
         let     a2: *Sst                // C2: a2 self-loaded → typed here down
