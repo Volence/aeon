@@ -32,7 +32,15 @@ pub type ObjRoutine = proc (a0: *Sst) preserves(a0, d7.w)
 // immediately following the System_Slots block in RAM, which nothing else
 // enforces. extern() resolves the RAM labels at link (collision.emp's SST_interact
 // precedent); a ram.asm reorder that broke the adjacency would fail the link.
-ensure(extern("Effect_Slots") == extern("System_Slots") + sizeof(Sst)*NUM_SYSTEM, "ram.asm: Effect_Slots must immediately follow the System_Slots block — RunObjects_Frozen sweeps System+Effect as one contiguous NUM_SYSTEM+NUM_EFFECTS run")
+//
+// SINCE LS-10 THAT MERGED SWEEP IS THE **DEBUG ARM ONLY**, and so is this guard's
+// subject. The release arms of RunObjects_Frozen and collision.emp's
+// TouchResponse start at Effect_Slots and sweep NUM_EFFECTS, so they do not care
+// where System_Slots sits — but the ensure stays UNCONDITIONAL on purpose: it
+// costs nothing, and a shape-gated guard is one a release-only build stops
+// checking, which is how an adjacency break would reach the debug shape as a
+// wild sweep instead of a link error.
+ensure(extern("Effect_Slots") == extern("System_Slots") + sizeof(Sst)*NUM_SYSTEM, "ram.asm: Effect_Slots must immediately follow the System_Slots block — the DEBUG arms of RunObjects_Frozen and TouchResponse sweep System+Effect as one contiguous NUM_SYSTEM+NUM_EFFECTS run (the release arms start at Effect_Slots and do not depend on this)")
 
 // Store d0 (the fill value) to (a0)+ n times — the unrolled long-word
 // clear/fill. Emits `move.l d0, (a0)+` × n, byte-identical to the hand
