@@ -1270,7 +1270,14 @@ pub proc Parallax_StartTransition () clobbers(d0-d1) {
         bne     .instant
 
         // -- smooth: stage target, leave current_config intact --
-        move.l  a0, Parallax_Target_Config          // (Parallax_Target_Config).w
+        // ⚠ TARGET BEFORE FRAMES, and this order is the one the other two arms depend on
+        // (LS-5, 2026-09-06). It is what makes `Frames != 0 => Target != 0` an invariant of
+        // this file, and that invariant is the whole reason `.instant`'s and
+        // `.recross_current`'s intermediate states are benign — see the publish-order
+        // banner in `.instant`. Flipping these two lines would publish
+        // `Frames != 0 && Target == 0` to IRQ6, which Parallax_Active_Config reads as
+        // INERT. Correct here already; recorded so it cannot be "tidied".
+        move.l  a0, Parallax_Target_Config          // (Parallax_Target_Config).w — BEFORE Frames
         move.b  #PARALLAX_TRANS_DEFAULT, Parallax_Transition_Frames  // (Parallax_Transition_Frames).w
         jbra    .update_mode
     .cap_transitions_stage_end:
@@ -1281,9 +1288,32 @@ pub proc Parallax_StartTransition () clobbers(d0-d1) {
         //    band scroll values to the new config's targets (otherwise they
         //    would still lerp toward the new targets over PARALLAX_LERP_SHIFT
         //    frames, defeating the "instant" semantic). --
+        //
+        // ⚠ PUBLISH ORDER IS LOAD-BEARING — Current, then FRAMES, then Target (LS-5,
+        // 2026-09-06). This is not three independent stores; it is one publication of a
+        // three-cell record read ASYNCHRONOUSLY by IRQ6. Parallax_Active_Config's whole
+        // contract is `Frames != 0 -> return Target`, and its two demanding callers are
+        // both in VBlank: Enqueue_Dirty_Buffers (buffers.emp — a NULL return SKIPS the
+        // 896-byte per-line HScroll DMA) and Vscroll_Write (below — a NULL return takes
+        // `.whole_plane`, one VSRAM longword instead of twenty, while reg $0B bit 2 still
+        // says per-column). An IRQ6 between two of these stores sees whatever pair is
+        // published at that instruction boundary.
+        //   Target-before-Frames (what stood here) publishes `Frames != 0 && Target == 0`,
+        //   which the selector reads as INERT: one frame of frozen HScroll table plus a
+        //   stale-column VSRAM write, at a boundary crossing.
+        // The order below never publishes that pair. Its two intermediates are:
+        //   after `Current := a0`  — Frames still != 0, so the selector returns Target,
+        //     the outgoing STAGED config; non-NULL by the staging arm's own order (it
+        //     writes Target BEFORE Frames, so `Frames != 0 => Target != 0` is an
+        //     invariant of this file), and it is what the previous frame read anyway.
+        //   after `Frames := 0`   — the selector returns Current, which is already the
+        //     new config. That is the settled end state; the trailing `Target := 0` is
+        //     dead to every reader while Frames is 0.
+        // A long store is one instruction, and the 68000 recognises interrupts only
+        // BETWEEN instructions, so no reader can observe a half-written pointer.
         move.l  a0, Parallax_Current_Config         // (Parallax_Current_Config).w
-        move.l  #0, Parallax_Target_Config          // (Parallax_Target_Config).w
-        move.b  #0, Parallax_Transition_Frames      // (Parallax_Transition_Frames).w
+        move.b  #0, Parallax_Transition_Frames      // (Parallax_Transition_Frames).w — BEFORE Target
+        move.l  #0, Parallax_Target_Config          // (Parallax_Target_Config).w — unread once Frames is 0
         move.b  #1, Parallax_Snap_Pending           // (Parallax_Snap_Pending).w
 
     .update_mode:
@@ -1330,8 +1360,19 @@ pub proc Parallax_StartTransition () clobbers(d0-d1) {
         // genuine no-op (already settled on this config).
         tst.b   Parallax_Transition_Frames          // (Parallax_Transition_Frames).w
         beq     .no_change
-        move.l  #0, Parallax_Target_Config          // (Parallax_Target_Config).w
-        move.b  #0, Parallax_Transition_Frames      // (Parallax_Transition_Frames).w
+        // ⚠ FRAMES BEFORE TARGET — see the publish-order banner in `.instant` above for the
+        // full derivation (LS-5, 2026-09-06). This arm is the COMMON one of the two: every
+        // cancelled transition runs it. Target-before-Frames (what stood here) published
+        // `Frames != 0 && Target == 0` for one instruction boundary, and an IRQ6 landing
+        // there read the selector as INERT — Enqueue_Dirty_Buffers skipped the 896-byte
+        // HScroll DMA and Vscroll_Write took `.whole_plane` against a per-column reg $0B.
+        // Clearing Frames first publishes `Frames == 0` while Target still holds the staged
+        // pointer, and the selector then returns Current — which a0 already equals (the
+        // `cmpa.l Parallax_Current_Config, a0 / beq` that reached this label proves it), so
+        // the intermediate IS the settled end state and the trailing `Target := 0` is dead
+        // to every reader.
+        move.b  #0, Parallax_Transition_Frames      // (Parallax_Transition_Frames).w — BEFORE Target
+        move.l  #0, Parallax_Target_Config          // (Parallax_Target_Config).w — unread once Frames is 0
         move.b  #1, Parallax_Snap_Pending           // (Parallax_Snap_Pending).w — snap bands back to current
         jbra    .update_mode                        // a0 == current → restore current's mode bits
 }
