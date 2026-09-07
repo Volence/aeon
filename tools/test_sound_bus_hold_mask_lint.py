@@ -32,9 +32,11 @@ WHAT THIS LINT CHECKS, all of it derived from the file it reads:
     a hand-spelled `move.w #$2700, sr` earlier in the same proc with no intervening
     `move.w (sp)+, sr` (the Sound_Init / Sound_DrainSfxRing shape, named in
     engine/irq.emp:58-63 as the deliberate hand-spelled class);
-  * the file still STATES the rule the check enforces — if the header sentence is deleted
-    or reworded past recognition, this lint has lost its premise and fails loudly rather
-    than guarding a rule the file no longer claims;
+  * the file's HEADER (everything above the `module` line, and only that — a control
+    proved the whole-file search was satisfiable by the fix's own restatement of the rule)
+    still STATES the rule the check enforces. If the header sentence is deleted or reworded
+    past recognition, this lint has lost its premise and fails loudly rather than guarding a
+    rule the file no longer claims;
   * a population FLOOR of six bracket sites. That is a floor and NOT a census: it catches a
     site being deleted out from under the check, it does NOT catch the file being split so
     that new brackets live somewhere else.
@@ -149,8 +151,24 @@ def scan(text: str) -> list[dict]:
     return sites
 
 
+def header_block(text: str) -> str:
+    """The file header — everything ABOVE the `module` declaration.
+
+    Scoped deliberately, and the scoping was forced by a control: with the whole file
+    searched, deleting the header sentence still passed, because the fix at `.await_slot`
+    QUOTES the rule in its own comment and the search found the restatement. A premise
+    check that a restatement can satisfy is not a premise check.
+    """
+    m = re.search(r"^\s*module\s+engine\.sound_api\b", text, re.MULTILINE)
+    assert m, (
+        f"{SUBJECT.relative_to(REPO)} has no `module engine.sound_api` declaration — the "
+        f"file this lint reads is not the file it was written for."
+    )
+    return text[: m.start()]
+
+
 def test_header_still_states_the_rule():
-    text = SUBJECT.read_text()
+    text = header_block(SUBJECT.read_text())
     assert RULE_SENTENCE.search(text), (
         f"{SUBJECT.relative_to(REPO)} no longer states the mask rule this lint enforces "
         f"(looked for 'every transaction holds the bus, with interrupts masked' in the "
