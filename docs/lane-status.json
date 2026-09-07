@@ -12,7 +12,7 @@
       "agent": true
     },
     {
-      "what": "COORDINATION, load-bearing for any session that picks this up: sigil is about to REPLACE the shared assembler binaries to unblock LS-12. Do NOT start a build against sigil/target/release between sigil's 'about to swap' and its 'swapped' message, and do NOT merge parcel/ls12-dma-guard-tick-paths until the 'swapped' message arrives with the new md5. Sigil holds for an explicit clear from this lane and will not infer one. Their control and pin work use a private target dir, so only the rename is exclusive.",
+      "what": "COORDINATION, load-bearing for any session that picks this up. Sigil is replacing the shared assembler binaries to unblock LS-12. (a) Do NOT start a build against sigil/target/release between sigil's 'about to swap' and its 'swapped' message; sigil holds for an explicit clear from this lane and will not infer one. (b) Do NOT merge parcel/ls12-dma-guard-tick-paths until 'swapped' arrives with the new md5. (c) CONSUMER DEPENDENCY, ours: the incoming binary bakes in the path it was built from, and build.sh runs a currency check against exactly that path -- an absent one reports provenance 'unknown' on EVERY build and is fatal under SIGIL_VERSION_STRICT=1. The first candidate named a sigil agent worktree that gets reaped at landing; caught before the swap. The replacement is being built from /home/volence/sonic_hacks/.sigil-ls12-pin, which sigil keeps until a later refresh from master lands and this lane confirms it is on that one. DO NOT SWEEP THAT PATH, and re-read revision/source/tree off any incoming binary before accepting it.",
       "where": "cross-lane with sigil",
       "agent": false
     }
@@ -153,5 +153,5 @@
   ],
   "awaiting": "nothing blocking, but three things are yours: LS-17 (whether a shipped game spends ROM so a corrupt stream crashes legibly), LS-13's listening half (whether you can hear a 60 Hz artefact on the drums), and the 3-tile graphics reclaim, which is now safe but leaves zero headroom",
   "atBoundary": false,
-  "updatedAt": "2026-09-07T12:03:59Z"
+  "updatedAt": "2026-09-07T12:36:53Z"
 }
