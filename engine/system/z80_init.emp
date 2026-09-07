@@ -47,6 +47,21 @@ const Z80_RAM_SIZE = extern("Z80_RAM_END") - extern("Z80_RAM")      // $2000 (8 
 // `ld sp, hl` (1 B) — review item 27 finding 11. If you change the body's length
 // again, this number and boot_data.emp's Z80_IDLE_SIZE move together or boot
 // copies the wrong count.
+// ⚠ THIS GUARD DOES NOT EVALUATE IN EITHER SHIPPED sonic4 SHAPE, and it is not
+// broken. This module is `when = "sound_off"` (games/sonic4/map.toml), both
+// shipped sonic4 shapes build with sound ON, so sigil reports
+// `[module.unreachable] engine.z80_init ... its 1 ensure guard(s) are never
+// evaluated for this target` under SIGIL_WARNINGS=full. Measured 2026-09-07:
+// negating this condition leaves BOTH sonic4 shapes green AND byte-identical.
+// It fires correctly under `--game demo`, which build.sh does not build on the
+// per-commit path -- only tools/nightly_effects_gates.sh does. So the drift this
+// guards against is caught NIGHTLY AT BEST, not at the commit that causes it.
+// Measured and left nightly deliberately: a demo build is ~150 s against a
+// sonic4 build's ~160 s (three runs, 2026-09-07), so adding it to the
+// per-commit path roughly DOUBLES every build -- far past the "under a tenth"
+// bar this was ruled on. NOT COVERED by that reasoning: whether some cheaper
+// check-only invocation could evaluate this module without a full demo build.
+// Nobody has looked.
 ensure(extern("Z80_IDLE_SIZE") == 40, "boot_data.emp Z80_IDLE_SIZE mirror drifted from z80_init.emp's 40-byte idle body")
 
 section z80_idle (cpu: z80, vma: $0) {
