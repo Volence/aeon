@@ -16,8 +16,9 @@ WHAT THE SWEEP ACTUALLY FOUND, because the item this closes over-counted and the
 correction is the useful part. Of the eight entry points named as unreachable:
 
   * FOUR were already reachable -- `s4lz`, `dplc_layout`, `ojz_strip_gen` and
-    `collision_pipeline` are run by `./test.sh` sections 1, 3, 6 and 6b. The claim that
-    `collision_pipeline`'s name "appears in no .sh at all" is false; it is `test.sh:229`.
+    `collision_pipeline` are run by `./test.sh` sections 1, 3, 6 and 6b (lines 31, 59,
+    181, 190). The claim that `collision_pipeline`'s name "appears in no .sh at all" is
+    false; it is `test.sh:190`.
     But `./test.sh` runs two full ROM builds and needs an out-of-repo `replay_runner`
     binary, and nothing schedules it, so it is a hand runner and these suites were
     reaching no automated gate. They are here as well as there.
