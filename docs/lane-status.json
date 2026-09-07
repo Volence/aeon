@@ -5,6 +5,11 @@
       "what": "docs/ART_PIPELINE_CONTRACT.md: backgrounds, tiles, palettes, sprites, terrain, build, the parallax/raster system, and the traps. Every number derived from source with its file named, because the reader cannot check anything -- and our own docs were measurably wrong on eight figures in tonight's sweep alone.",
       "where": "agent worktree, branch parcel/art-pipeline-contract",
       "agent": true
+    },
+    {
+      "what": "STANDING COMMITMENTS TO SIGIL, banked here because they bind a FUTURE session of this lane and mail is the one artifact class no tree can surface. Sigil banked their reciprocal side at sigil 5ceeb743. (a) The shared assembler swap waits on an EXPLICIT CLEAR FROM THIS LANE as well as the hub's open window -- the window is theirs to open, the moment is ours; sigil will not infer a clear from anything it observes. Owed first: a message from us the moment the art-pipeline parcel lands. (b) Their swap message will state the installed revision's CONTENTS, naming 82838687 (link-assert renderer emitting [Error]) and d90a297c (build --check) read off the binary; rows LS-16c and LS-16a-check are written to read their boundary off that message. (c) On the .emp align parcel, PREDICTIONS ARE EXCHANGED SIMULTANEOUSLY, neither side first -- do NOT send ours on receiving theirs, and do not form one from their framing and call it independent. (d) DO NOT SWEEP /home/volence/sonic_hacks/.sigil-ls12-pin: the installed binary names it as its source path and build.sh currency-checks that path, so its removal turns every build's provenance to 'unknown' and refuses under SIGIL_VERSION_STRICT=1. Released only when we confirm we are on the pair we end on. (e) Our dac_shared_bank occupancy (25,754 B of 32,768, tail 7,014) came from a generated build product, not a committed value -- a disagreement with sigil's measurement needs a stale artifact excluded on both sides before it is a finding.",
+      "where": "cross-lane with sigil, standing",
+      "agent": false
     }
   ],
   "blockedOnOwner": [
@@ -136,5 +141,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-07T22:03:57Z"
+  "updatedAt": "2026-09-07T22:27:19Z"
 }
