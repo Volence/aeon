@@ -1,6 +1,9 @@
 // OJZ / global collision + Sonic character data (§4.7 — shared across all zones),
 // natively placed at the `collision_data` section. Every blob is even-length, so
-// the labels stay word-aligned with no inter-blob padding. Boundary key HeightMaps.
+// the labels stay word-aligned with no inter-blob padding — CHECKED for the three
+// character blobs (the guard below), still only MEASURED for the five collision
+// blobs (4096/4096/256/256/256 B, 2026-09-06), which nothing binds. Boundary key
+// HeightMaps.
 module games.sonic4.collision_data in collision_data
 
 // The character DPLC window + its hard wall (games.sonic4.constants) and the
@@ -25,6 +28,34 @@ const _art_sonic      = embed("art/optimized/characters/sonic.bin")
 ensure(_map_sonic.len <= $7FFF, "Map_Sonic exceeds signed word-offset range")
 ensure(_dplc_sonic.len <= $7FFF, "DPLC_Sonic exceeds signed word-offset range")
 
+// Every blob even-length, so the labels after them stay word-aligned with no
+// inter-blob padding. This module's HEADER states that property as prose for all
+// eight blobs it places, and tails_data.emp's own even-length guard cites THIS
+// FILE as where it is stated — while nothing here checked it. Both siblings
+// (tails_data.emp, knuckles_data.emp) have carried the checked form since their
+// data landed; the default character was the one holding a comment.
+//
+// ⚠ WHAT THIS DOES NOT COVER: the three CHARACTER blobs only. The five collision
+// blobs above (_heightmaps, _heightmaps_rot, _angles, _solidity, _crossover) sit
+// in the same section and the same header sentence, and are NOT checked here —
+// _solidity and _crossover are pinned to each other by the equal-length guard
+// further down, which says nothing about parity, and the other three are pinned
+// by nothing. Nor does it cover ALIGNMENT of the labels themselves: it checks that
+// each blob preserves the parity it was handed, not that the first one starts even
+// (that is the section's placement, a link-time fact this cannot see).
+ensure((_map_sonic.len & 1) == 0 && (_dplc_sonic.len & 1) == 0 && (_art_sonic.len & 1) == 0,
+       "a Sonic blob is odd-length — the label after it would land on an odd address")
+
+// Art is whole 32-byte tiles by construction (uncompressed 4bpp); a truncated
+// embed would otherwise surface only as garbage in a frame's last DMA. The
+// sibling of the same guard on Art_Tails / Art_TailsAppendage / Art_Knuckles.
+//
+// ⚠ WHAT THIS DOES NOT COVER: that the tiles are the RIGHT ones, or that the
+// sheet is as long as the DPLC's furthest reach. A sheet truncated by a whole
+// multiple of TILE_SIZE passes this and every other guard in this file, and the
+// frames whose runs fell off the end DMA whatever the link put after Art_Sonic.
+ensure((_art_sonic.len % TILE_SIZE) == 0, "Art_Sonic is not a whole number of tiles")
+
 // THE 12-BIT tile_start CEILING. A DPLC entry names a tile by INDEX into the sheet
 // below, in a 12-bit field, so a sheet with more than DPLC_ADDRESSABLE_TILES tiles
 // has tiles no entry can reach — and the generator that tries wraps into the low
@@ -43,8 +74,19 @@ ensure(_art_sonic.len / TILE_SIZE <= DPLC_ADDRESSABLE_TILES,
 // wrong and unchecked; the number now comes from the blob and the wall from its
 // owner, so an art re-export that grew fails the build instead of DMA'ing over
 // the test-object art.
+//
+// ⚠ THE WALL IS TODAY'S NEIGHBOUR, NOT THE DECLARED WINDOW. `character_window` is
+// 32 tiles in games/sonic4/vram.toml, and this guard reads VRAM_TEST_OBJ instead —
+// the same number only because test_obj happens to be the region that follows.
+// There is no generated `*_TILES` constant for a region's declared extent, so no
+// ensure in this tree can currently say `peak <= declared window`, and this one
+// cannot tell a 32-tile window from a 29-tile window with three free tiles above
+// it. SHRINKING the window (the 3-tile reclaim proposed by the 2026-09-06 sweep's
+// C5-F6) and giving those tiles to a new region therefore leaves all three
+// character guards GREEN while a later re-export overruns the new neighbour. Do
+// the shrink only together with a declared-extent constant to bind this against.
 ensure(VRAM_TEST_SONIC + dplc_peak_tiles(_dplc_sonic) <= VRAM_TEST_OBJ,
-       "Sonic's peak DPLC frame overruns the character VRAM window into VRAM_TEST_OBJ — widen the window or re-page the art")
+       "Sonic's peak DPLC frame is {dplc_peak_tiles(_dplc_sonic)} tiles and overruns the character VRAM window into VRAM_TEST_OBJ — re-page the art, or grow the window in games/sonic4/vram.toml (raise `tiles`, hold `base`) and regenerate. THIS GUARD DOES NOT COVER: the queue-slot cost of that frame (entries, not tiles — the dplc_peak_entries guard below, and tools/dplc_straddle.py for the straddle split neither ensure can see); the window's DECLARED 32-tile extent, since the bound read here is the neighbouring region's base; nor the sibling characters, who share this one window and carry their own copies of this guard in tails_data.emp and knuckles_data.emp — a fix here fixes ONE of three")
 
 // -----------------------------------------------
 // THE ENTRY-COUNT BUDGET — the real assert, no longer a ratchet (d-47 `targeted`,
