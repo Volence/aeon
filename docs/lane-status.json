@@ -1,10 +1,15 @@
 {
-  "focus": "Everything from the lens sweep is landed, refuted, or on your card. The held sound fix went in with sigil's assembler re-pin.",
+  "focus": "Working the riders the sweep produced. Two running: a proof that only proves the arms agree with each other, and a hazard where documenting something changes the game.",
   "inFlight": [
     {
-      "what": "Sigil is refreezing its goldens against our merged master. Nothing is owed from this lane; the shared assembler path is ordinary again and the next swap will come with its own handshake.",
-      "where": "cross-lane with sigil",
-      "agent": false
+      "what": "LS-15b: a harness the build advertises as proving its check can fail cannot detect a wrong boundary, because every arm re-derives it from the same source. 'This proof is structurally relative' is an acceptable answer.",
+      "where": "agent worktree, branch parcel/ls15b-relative-proof",
+      "agent": true
+    },
+    {
+      "what": "LS-22a: adding a documentation marker changes the ROM, because the build appends the debug symbol table into it. 14 existing markers predate the goldens, so this was never under test -- and one debug shape moved while the other did not, which nobody has explained.",
+      "where": "agent worktree, branch parcel/ls22a-mark-is-not-free",
+      "agent": true
     }
   ],
   "blockedOnOwner": [
@@ -19,7 +24,7 @@
       "since": "2026-09-06"
     }
   ],
-  "nextBoundary": "Here, once sigil's refreeze reports. Nothing of mine is running.",
+  "nextBoundary": "After these two, then LS-19a alone (it is a tree-wide prose sweep and would collide with anything else).",
   "queue": [
     {
       "id": "LS-12",
@@ -38,7 +43,7 @@
     {
       "id": "LS-15b",
       "title": "A red-first harness the build advertises cannot detect a wrong DMA source boundary; every arm re-derives from the same constant, so its proof is relative",
-      "state": "next",
+      "state": "doing",
       "size": "S",
       "blockedBy": null
     },
@@ -52,14 +57,14 @@
     {
       "id": "LS-19a",
       "title": "79 prose citations left pointing past their subject by tonight's edits; all prose, no functional citation broke",
-      "state": "open",
+      "state": "next",
       "size": "S",
       "blockedBy": null
     },
     {
       "id": "LS-22a",
       "title": "A `mark` is NOT zero-byte -- it reorders the debug symbol table that the build appends into the ROM. 14 existing marks predate the goldens, so this was never under test",
-      "state": "open",
+      "state": "doing",
       "size": "S",
       "blockedBy": null
     },
@@ -143,5 +148,5 @@
   ],
   "awaiting": "nothing blocking, but three things are yours: LS-17 (whether a shipped game spends ROM so a corrupt stream crashes legibly), LS-13's listening half (whether you can hear a 60 Hz artefact on the drums), and the 3-tile graphics reclaim, which is now safe but leaves zero headroom",
   "atBoundary": false,
-  "updatedAt": "2026-09-07T13:52:16Z"
+  "updatedAt": "2026-09-07T14:20:14Z"
 }
