@@ -1,14 +1,14 @@
 {
-  "focus": "Tier two is over half landed. Two more parcels running; every one so far has corrected something it was told.",
+  "focus": "Tier two, nearly through. One fix is held back because landing it would break the build for everyone until sigil re-pins, and sigil cannot be woken while you sleep.",
   "inFlight": [
     {
-      "what": "LS-12: the DMA-safety rule is applied to one of three timer paths. Z80 work, so a green canonical build proves nothing -- it needs the sound profile.",
-      "where": "agent worktree, branch parcel/ls12-dma-guard-tick-paths",
-      "agent": true
+      "what": "LS-15 merged locally, four-shape verify running. Byte-neutral. It refuted its own item five ways and found a better problem underneath.",
+      "where": "main tree, master",
+      "agent": false
     },
     {
-      "what": "LS-15: eight test entry points no runner can reach, plus seven red-first harnesses nothing invokes. The job starts as a recount, since four of this sweep's counts have been wrong tonight.",
-      "where": "agent worktree, branch parcel/ls15-wire-unreachable-tests",
+      "what": "LS-18: carve a fixture so sigil's nightly stops compiling our live test file.",
+      "where": "agent worktree, branch parcel/ls18-carve-sigil-probe",
       "agent": true
     }
   ],
@@ -24,28 +24,35 @@
       "since": "2026-09-06"
     }
   ],
-  "nextBoundary": "After LS-12 and LS-15 land, then LS-16 and LS-18 close tier two.",
+  "nextBoundary": "After LS-15 and LS-18 land. Then LS-16, LS-13's doc half and tier 3 -- none of which need sigil.",
   "queue": [
     {
       "id": "LS-12",
-      "title": "DMA-safety rule applied to one of three timer tick paths",
-      "state": "doing",
+      "title": "DONE AND HELD at origin/parcel/ls12-dma-guard-tick-paths c1ac4a60. Merging it hard-fails ./build.sh for every lane until sigil re-pins three sites against the new resident Z80 blob lengths 6176 plain / 6306 debug: seam1.rs's two constants; the DUPLICATE 0x1813 literal inside blob_lengths_are_canonical at seam1_native_link.rs:132; and boot_port.rs's Z80_SOUND_SIZE, which moves THIS time where it did not last time, because both new lengths are even and the previous pair were odd and rounded to the same value",
+      "state": "blocked",
       "size": "M",
-      "blockedBy": null
+      "blockedBy": "sigil must re-pin first; Dominion refused the wake at 08:04:18Z because sleep mode is active, so this waits for his morning or his say-so"
     },
     {
-      "id": "LS-15",
-      "title": "Eight unreachable test entry points and seven uninvoked red-first harnesses",
-      "state": "doing",
-      "size": "M",
-      "blockedBy": null
-    },
-    {
-      "id": "LS-16/LS-18",
-      "title": "Poison-fixture coverage for extern guards, and carving sigil's probe fixture off our live test file",
+      "id": "LS-16",
+      "title": "144 extern guards have no negative fixture",
       "state": "next",
       "size": "M",
       "blockedBy": null
+    },
+    {
+      "id": "LS-18",
+      "title": "Carve sigil's probe fixture off our live test file",
+      "state": "doing",
+      "size": "S",
+      "blockedBy": null
+    },
+    {
+      "id": "LS-13-doc",
+      "title": "Two files disagree about which bus holds exist; the documentation half is ours, the listening half is his",
+      "state": "open",
+      "size": "S",
+      "blockedBy": "LS-12 holds the sound tree"
     },
     {
       "id": "LS-9a",
@@ -134,5 +141,5 @@
   ],
   "awaiting": "whether to take the 3-tile graphics reclaim, which is now safe but leaves zero headroom -- and LS-17 and LS-13 are still open on your card",
   "atBoundary": false,
-  "updatedAt": "2026-09-07T07:20:51Z"
+  "updatedAt": "2026-09-07T08:05:28Z"
 }
