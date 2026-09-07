@@ -1504,11 +1504,23 @@ def report(lst_path, out=sys.stdout, sweep=None, sweep_range=(-512, 512),
                   f"(fail-safe: never narrowed). Reasons:", file=out)
             for why in dict.fromkeys(r["undetermined"]):
                 print(f"      ! {why}", file=out)
+        # INFORMATIONAL BY DESIGN, NOT BY NEGLECT — and it was the latter until
+        # LS-9a. This line reports exactly the condition LS-9a is about (a writer
+        # naming a frame the art does not have) and no verdict below consumes it,
+        # so before tools/anim_frame_bound.py existed the tool computed the answer
+        # and threw it away. It is now ENFORCED, one step across: that gate holds
+        # `max reachable mapping_frame < offset_table_frames(MAPPINGS)` for all ten
+        # animation tables, and LS-9's comptime ensure holds
+        # `offset_table_frames(map) == offset_table_frames(dplc)` for all six pairs
+        # that have both — which includes all four subjects here. Delete either
+        # link and this print goes back to being the only witness, so it stays.
         if r["out_of_range"]:
             print(f"    ! reachable frame(s) OUTSIDE this DPLC table "
                   f"({len(s['frames'])} entries): "
                   f"{', '.join(f'${i:02X}' for i in r['out_of_range'][:12])} — a writer names a "
-                  f"frame this art does not have", file=out)
+                  f"frame this art does not have. NOT a verdict here: enforced by "
+                  f"tools/anim_frame_bound.py against the MAPPINGS table, which LS-9's "
+                  f"ensure binds to this DPLC table's count", file=out)
         in_range = sorted(f for f in rf if f < len(s["frames"]))
         r_str = [i for i in f_str if i in rf]
         u_str = [i for i in f_str if i not in rf]
