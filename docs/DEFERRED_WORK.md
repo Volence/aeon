@@ -29082,7 +29082,8 @@ them looking. Any fix below that adds or edits a guard must state what it does N
 | id | row |
 |---|---|
 | LS-8 | **The block-geometry masks and the tile-cache stride literals**: 17 and 4 unpinned sites respectively. Both proven to build GREEN after doing exactly what the firing guard's message instructs. |
-| LS-9 | **Map↔DPLC frame-count binding exists for ONE asset** (insta-shield). Sonic, Tails, Knuckles, dust, particle, spring, appendage have none; `animate.emp` accepts any frame byte 0..$F6 with no upper bound. |
+| ~~LS-9~~ | ~~**Map↔DPLC frame-count binding exists for ONE asset**~~ — **CLOSED 2026-09-07, `parcel/ls9-frame-count-binding`.** The insta-shield's four private parsers move to `engine/objects/dplc.emp` as `pub comptime fn`s, and all six mapping/DPLC pairs now carry both guards: `offset_table_frames(map) == offset_table_frames(dplc)` (the out-of-bounds one) and `empty_frame_mismatches(map, dplc, frames) == 0`. **NO EXISTING PAIR DISAGREED** — all six were measured before any guard was written (224/224, 251/251, 45/45, 251/251, 7/7, 8/8), so the card's "the build could go red" did not happen; these are latent guards, not a repair. **The population is SIX, not the row's seven names:** derived from the `embed()` sites and cross-checked against every writer of `Sst.mappings`, then corroborated against LS-4's independent `DPLC_GUARDS` registry, which holds the same six. *particle* and *spring* are not in it — neither has a DPLC (resident art from `Map_TestObj` / `Map_Spring`, both source-declared `offsets` tables with no blob), so there is no pair to bind; the same is true of the ring sparkle and the dust PUFF half, whose exemption is stated at its guard. `tools/test_map_dplc_binding.py` is the enforcement half: it enumerates the embedded blobs, refuses one that is neither in a registered pair nor exempted with a reason, refuses a guard whose arguments drifted to a sibling's blob, refuses a helper that is re-privatised or named without being imported, and refuses a message that does not say what it does not cover. 12 `.emp` red-first proofs (2 per asset) + 5 on the registry, every mutation read back from disk and restored from the committed baseline. **`animate.emp`'s unbounded frame byte is NOT closed by this** and is booked separately as LS-9a. | 12 + 5 red-first mutations; 4 shapes byte-identical |
+| LS-9a | **`AnimateSprite` bounds no frame byte, and binding the two tables does not close it.** `animate.emp`'s `cmpi.b #AF_SET_FIELD / bhs` treats every byte 0..$F6 as a frame index, so two tables that agree with EACH OTHER are still both overrun by a script byte >= their common frame count; `frames.emp` then reads an offset word from past the offset table (i.e. from piece data) and takes an arbitrary byte as the piece count. **Measured 2026-09-07, no live overrun anywhere** — max frame byte vs mappings frames: Sonic $C4/224 (27 spare), Tails $B4/251 (70), Knuckles $DE/251 (28), Tails appendage $28/45 (4), dust charge $06/7 (0), dust puff $03/4 (0), insta-shield $07/8 (0, and already pinned by `INSTASHIELD_LAST_FRAME`), ring sparkle 3/4 (0), particle 2/3 (0), spring 2/3 (0). Several sit at exactly 0 because the last frame is legitimately used, so the check must be `<`, not `<=`. **A second mouth on the appendage:** `TailsAppendage_Main` ADDS a roll bank of 0/4/8/$C to the script's byte after the step, so its reachable maximum exceeds any byte in the table — today 8+$C=20 against 45, and safe only because the add is gated on `ANIM_ROLL`, which nothing checks. **Why this parcel did not close it:** the animation scripts live in `offsets` bodies that a comptime fn cannot index (only the three `const: [u8; N]` scripts — insta-shield, ring sparkle, spring — are comptime-reachable), so an `.emp` guard would cover 3 of 11 tables and be exactly the pin-one-sibling defect LS-9 removed. A Python parser over the sources was prototyped and reduced 7 of 11 tables to a number, going silently blind on the four whose bodies name a `const` or whose mappings are a `centered()` table — a gate that reports 0 scripts for a third of its population is worse than none. **Two candidate fixes:** make `offsets` bodies comptime-readable in sigil (then one `script_max_frame(script) < offset_table_frames(map)` per table, uniform), or emit the reachable-frame maximum from the tool that generates the tables. Second is cheaper, first is the real one. |
 | LS-10 | **System (8) and Effect (16) fixed pools are swept 3× per frame while ~90% empty** — 2,780 cycles/frame (2.2%). The Dynamic pool already walks a live list. The 8 System slots are provably dead in release and are the cheap half. |
 | LS-11 | **`Sound_PlayMusic`'s `.await_slot` bus-hold spin is unmasked**; an IRQ6 cancels the latch and nothing re-issues the request — infinite spin, and the DEBUG watchdog counts the outer loop. **Not reachable in either canonical shape**; lives in the only profile that can play music. |
 | LS-12 | **The banked-ROM/DMA ruling (2026-08-09) is applied to 1 of 3 Timer-A tick paths.** `Run_SeqFrame_OnSongBank` and `Snd_PollMailbox_Banked` have no `SND_CTRL_DMA_ACTIVE` check; the timer poll sits upstream of `.dma_check` so the tick structurally cannot see the flag. |
@@ -29390,3 +29391,35 @@ a log line from the runner, and this witness's log had exactly one, the refusal 
 file's assumptions rotted within 48 hours inside a jammed lane, and both were caught only because a
 human went looking. A staleness check on the nightly log — "every declared lane produced a verdict
 line in the last N runs" — is not built. Booked here rather than assumed covered.
+
+---
+
+## TWO SIDE-FINDINGS FROM LS-9, NEITHER FIXED HERE (2026-09-07, `parcel/ls9-frame-count-binding`)
+
+### The sweep's "exactly ONE asset has this check" was right, and a NEARBY absence was not
+
+Re-establishing the packet's claim in a way that could fail turned up the map/DPLC binding in
+exactly one place, as stated. But the *script* walkers next to it are the opposite shape:
+**three private copies with two of them sharing a name.**
+
+| module | fn | signature |
+|---|---|---|
+| `games/sonic4/player/player_instashield.emp:376` | `script_display_frames` | `pub`, `(script: Data, len: int)` |
+| `games/sonic4/objects/ring_sparkle.emp:123` | `script_display_frames` | `pub`, `(script: [u8; 6])` |
+| `games/sonic4/objects/test_solid.emp:660` | `spring_display_frames` | private, `(script: [u8; 12])` |
+
+Two **`pub`** functions with the **same name**, different arity, in different modules. Nothing
+today imports the wrong one — but a module that imported both would get whichever the resolver
+picked, and given §2's call-site resolution the failure mode for the arity-2 vs arity-1 mismatch is
+not obviously loud. **NOT promoted in this parcel**, deliberately: unifying them means choosing one
+signature, and the `[u8; N]` forms exist because their scripts are fixed-length `const` arrays
+whose length is itself a checked fact. A `(Data, len)` unification would delete that. It is a real
+decision, not a mechanical move, and it is not what LS-9 was ruled.
+
+### `engine/objects/animate.emp` is the only place a frame byte could be bounded at runtime, and it is not
+
+Stated here rather than only in the LS-9a row because it is an ENGINE fact, not a data one: the
+`cmpi.b #AF_SET_FIELD / bhs` test is a *control-code* discriminator that doubles as the frame
+validator by accident. It has no access to the asset's frame count (nothing in the SST carries
+one), so a runtime bound would need a new cached field — which is why the tractable fix is
+build-time and why LS-9a names two build-time candidates rather than an engine change.

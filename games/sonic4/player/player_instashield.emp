@@ -107,7 +107,8 @@ module games.sonic4.player_instashield in player_instashield
 use engine.objects.sst.{Sst}
 use engine.objects.objdef.{vram_art, vram_bytes}
 use engine.objects.dplc.{dplc_peak_tiles, dplc_peak_entries, DPLC_ENTRY_RESERVE,
-                         DPLC_ADDRESSABLE_TILES}
+                         DPLC_ADDRESSABLE_TILES, offset_table_frames,
+                         map_frame_pieces, empty_frame_mismatches}
 use engine.constants.{RF_PRIORITY_SHIFT, TILE_SIZE, AF_DELETE, AF_SET_FIELD,
                       ST_XFLIP, DMA_DEFERRABLE_SLOTS}
 use games.sonic4.player_common.{PlayerV}
@@ -429,36 +430,19 @@ ensure(INSTA_SCRIPT[15] == AF_DELETE,
 // The reverse direction matters just as much: a DRAWN frame with no DPLC entries
 // would render whatever the window last held.
 // -----------------------------------------------
-comptime fn nz(v: int) -> int {
-    comptime var r = 0
-    if v != 0 { r = 1 }
-    return r
-}
-
-comptime fn map_frame_pieces(m: Data, f: int) -> int {
-    comptime var off = (m[f << 1] << 8) | m[(f << 1) + 1]
-    return (m[off + 4] << 8) | m[off + 5]        // FRAME_PIECE_COUNT is at +4
-}
-
-comptime fn dplc_frame_entries(d: Data, f: int) -> int {
-    comptime var off = (d[f << 1] << 8) | d[(f << 1) + 1]
-    return (d[off] << 8) | d[off + 1]
-}
-
-comptime fn zero_frame_mismatches(m: Data, d: Data, frames: int) -> int {
-    comptime var bad = 0
-    for f in 0..frames {
-        if nz(map_frame_pieces(m, f)) != nz(dplc_frame_entries(d, f)) { bad = bad + 1 }
-    }
-    return bad
-}
-
-ensure((((_map_insta[0] << 8) | _map_insta[1]) >> 1) == INSTA_FRAMES,
-       "Map_InstaShield has {(((_map_insta[0] << 8) | _map_insta[1]) >> 1)} frames, expected {INSTA_FRAMES}")
-ensure((((_dplc_insta[0] << 8) | _dplc_insta[1]) >> 1) == INSTA_FRAMES,
-       "DPLC_InstaShield has {(((_dplc_insta[0] << 8) | _dplc_insta[1]) >> 1)} frames, expected {INSTA_FRAMES} — the 3-frame blob this replaced was wrong")
-ensure(zero_frame_mismatches(_map_insta, _dplc_insta, INSTA_FRAMES) == 0,
-       "{zero_frame_mismatches(_map_insta, _dplc_insta, INSTA_FRAMES)} insta-shield frame(s) disagree about being empty — either art is loaded for a frame that draws nothing, or a drawn frame loads none and renders whatever the window last held")
+// The four parsers these guards run on used to be defined HERE, privately, which
+// is why this asset was the only one of the tree's six mapping/DPLC pairs that
+// had any of this (LS-9). They now live in engine.objects.dplc and every pair
+// carries the same two guards; nothing about the insta-shield's own checks
+// changed except that they are spelled with the shared names.
+ensure(offset_table_frames(_map_insta) == offset_table_frames(_dplc_insta),
+       "Map_InstaShield declares {offset_table_frames(_map_insta)} frames and DPLC_InstaShield {offset_table_frames(_dplc_insta)} — one mapping_frame byte indexes BOTH, so the shorter table is read past its end and a byte of frame data is taken as an offset. DOES NOT COVER: whether either count matches what INSTA_SCRIPT reaches (animate.emp bounds no frame byte — LS-9a), nor whether corresponding frames describe the same art")
+ensure(offset_table_frames(_map_insta) == INSTA_FRAMES,
+       "Map_InstaShield has {offset_table_frames(_map_insta)} frames, expected {INSTA_FRAMES} — S3K's own Map_InstaShield offset-table length. This is the pair's anchor to the REFERENCE; the ensure above only makes the two tables agree with EACH OTHER, which a pair regenerated wrong in step would satisfy")
+ensure(offset_table_frames(_dplc_insta) == INSTA_FRAMES,
+       "DPLC_InstaShield has {offset_table_frames(_dplc_insta)} frames, expected {INSTA_FRAMES} — the 3-frame blob this replaced was wrong")
+ensure(empty_frame_mismatches(_map_insta, _dplc_insta, INSTA_FRAMES) == 0,
+       "{empty_frame_mismatches(_map_insta, _dplc_insta, INSTA_FRAMES)} insta-shield frame(s) disagree about being empty — either art is loaded for a frame that draws nothing, or a drawn frame loads none and renders whatever the window last held. DOES NOT COVER: whether a NON-empty pair loads the right art (piece count and entry count are compared only against zero), nor the frame COUNT (the guard above)")
 ensure(map_frame_pieces(_map_insta, INSTASHIELD_LAST_FRAME) == 0,
        "the insta-shield's terminal frame draws {map_frame_pieces(_map_insta, INSTASHIELD_LAST_FRAME)} pieces; S3K's is empty — the flash would freeze on a visible frame for its last tick")
 
