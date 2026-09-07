@@ -965,3 +965,45 @@ the difference is only visible once somebody renames something.
 **And it survives a re-baseline** — these read field DECLARATIONS, not goldens, so regenerating
 the goldens cannot absorb them. Aurora's bar: *a diff surviving a self-generated baseline is very
 hard to argue away.*
+
+### …AND THE CONVERSE: A NAME-ONLY EDIT **MOVES BYTES** (LS-22a, measured 2026-09-07)
+
+The section above says the byte instruments are blind to names. The reverse also holds, and it
+is the half nobody expects: **an edit that emits no ROM bytes can still change the ROM.**
+
+`build.sh` appends the `convsym` **deb2 symbol table INTO the image**, past `EndOfRom`, in
+**every shape — both debug ROMs and BOTH SHIPPED RELEASE ROMs** (measured at `0d64f534`: s4
+`0xa773` bytes of appendix, s4.debug `0xd5cd`, demo `0x6845`, demo.debug `0x80f7`). So anything
+that changes the SET OF SYMBOL NAMES changes the ROM, whether or not it emits an instruction:
+
+- **`mark NAME` in a `region`/`vars` block.** It reserves nothing and emits nothing. It is *not*
+  free. It is the case that bit us, because it is the one that reads as pure documentation.
+- **Renaming a label** — including a `.local` one. Zero bytes emitted, names changed.
+- **Adding or deleting a label** anywhere the listing will carry it.
+
+(`pub equ` values are the exception: `sigil-harness` drops equates structurally at the deb2
+boundary, because deb2 is an ADDRESS table and an equate has nothing to say to it.)
+
+**HOW BIG THE MOVE IS — and why you cannot predict it.** The appendix opens with a Huffman code
+table over the *characters* of every symbol name. A `mark` lands on the address of the next var,
+so its record is dropped as a duplicate address, but **its name still feeds the character
+histogram that code table is built from.** Adding `mark Sound_Dbg_Mirror_End` took demo.debug's
+`'b'` from 336 to 337 and broke its exact tie with `'k'` at 336; the 7-bit codes `0x004D` and
+`0x005C` exchanged owners, every name containing a `b` or a `k` re-encoded, and **953 appendix
+bytes changed with the appendix's total length UNCHANGED** — plus the `$18E` checksum word, the
+955 bytes the real build moved. The same edit left the other three shapes BYTE-IDENTICAL, because
+`'b'` was untied in those corpora.
+
+**There is no shape-level rule.** Holding the name fixed and moving the mark to four different
+anchors changed nothing; holding the address fixed and varying the name moved every shape. Over
+35 names: s4 moved for 20 of them, s4.debug for 17, demo for 30, demo.debug for 32, and one
+20-character name moved all four *and* changed their lengths.
+
+**SO:** a name-only edit is a byte-changing parcel and owes the repin/refreeze ritual, and
+**measure all four shapes** — the subset that moves is not derivable from which shape is debug,
+from the mark's address, or from anything short of building them.
+
+`tools/test_deb2_appendix.py` guards the two facts this rule rests on (the appendix is in the
+shipped ROM; a `mark` really becomes a symbol). It deliberately does **not** pin a count of
+marks: a count-pin would fire on every legitimate addition while staying blind to renames, which
+are the same hazard with no construct to count.
