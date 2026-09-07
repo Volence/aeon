@@ -1128,3 +1128,402 @@ states its own limits in its message, and the limits are as load-bearing as the 
 | BG layout length annotation | `act_assets.emp` | a wrong-sized `zone_bg.bin` | which of the two generators wrote it |
 | `check_tile_budget` | `png_to_bg_override.py` | BG art over the static tile budget | anything about the art's quality |
 | collattr length | `ojz_strip_gen.py` | — | **it WARNS, it does not fail**: a wrong-sized collision file silently reverts the section to air |
+
+---
+
+## 8. The parallax and raster effects system
+
+Sources for this whole section: `engine/effects/` (5 modules — `palette_dsl.emp`,
+`palette.emp`, `preset.emp`, `raster_dsl.emp`, `raster.emp`), `engine/level/parallax.emp`,
+`engine/level/parallax_dsl.emp`, `engine/level/scene_dsl.emp`, and the scene/preset data
+under `games/sonic4/data/effects/` and `data/generated/ojz/act1/effects_scenes.emp`.
+
+### 8.1 What an effect *is*, as data
+
+There is no single "effect object". A section binds **one `EffectsPreset`**, and that
+record is the total binding — every channel arrives through it
+(`engine/effects/preset.emp:57`, `struct EffectsPreset (size: 46)`):
+
+```
+$00 ep_pal            *u8    REQUIRED — the preset CARRIES the base palette
+$04 ep_parallax       *u8    0 = defer to the act default (the one legal 0);
+                             a non-zero Sec.sec_parallax_config outranks it
+$08 ep_raster         *u8    static raster program; 0 is ILLEGAL — use
+                             Raster_Program_None
+$0C ep_patched        *u8    patched template (water / world-anchored gradient);
+                             0 = none
+$10 ep_cycle          *u8    palette-cycle script; 0 ILLEGAL — use Pal_Cycle_None
+$14 ep_variants       [*u8; 2]        PAL_MAX_VARIANTS; unused slots 0
+$1C ep_patch_world_ys [u16; 4]        one authored world Y per patch channel
+$24 ep_transition     u16             cross-fade arm
+$26 ep_patch_motion   [u16; 4]        one packed SWEEP word per patch channel
+```
+
+`RASTER_MAX_PATCH = 4` (`engine/effects/raster_dsl.emp:2131`) is what sizes the two
+4-entry arrays. The two inline arrays are inline, not pointers, deliberately: a `Label`
+carries no length, so an `ensure` comparing one against an integer is unevaluable and
+passes silently.
+
+The three data shapes an effect lowers into are:
+
+1. a **`parallax_config`** — a 30-byte header plus N × 10-byte `band_entry` records (§4.7)
+2. a **raster program** — a word-oriented schedule of per-scanline VDP work (§8.3)
+3. a **palette script / variant descriptor** (§3.5)
+
+### 8.2 The section and band model
+
+* **Section** is the binding unit: crossing a section boundary installs that section's
+  preset (`Effects_InstallPreset`), which swaps the palette, the parallax config, the
+  raster program and the cycle script together.
+* **Band** means two different things, and confusing them is easy:
+  * a **parallax band** is a horizontal slice of the *plane* (`band_top_plane`, 0..511)
+    with its own scroll factors — up to `MAX_PARALLAX_BANDS = 16`;
+  * a **raster band** is a pair of fires on *screen* lines — an ON edge and an OFF edge —
+    built by `band(top:, bot:, on:, sh:)` in `engine/effects/raster_dsl.emp:689`. Its two
+    records carry a comptime-only band id derived as `top * 128 + sa`, never authored, so
+    an ownerless OFF edge is refused by name.
+
+### 8.3 The raster program wire format
+
+`engine/effects/raster.emp:47-80`. A compiled raster program is **data**; both the
+`raster_dsl` constructors and the editor compile to exactly this:
+
+```
+header      dc.w pal_dirty_mask     bits 0-3: palette lines Raster_VBlank re-asserts
+                                    into Palette_Dirty EVERY frame, so mid-frame CRAM
+                                    writes are transient
+fire records, in FIRE ORDER (the first two are priming no-ops)
+            dc.w arm_word           $8A00 | delta — written at THIS fire, schedules the
+                                    gap after NEXT;  RASTER_ARM_PARK ($8AFF) on the last
+                                    two real records
+            dc.w op_count           0 = priming / no-op
+            op_count x { dc.w op; args... }
+terminator
+            dc.w RASTER_ARM_PARK
+            dc.w RASTER_OPS_END     ($FFFF)
+```
+
+Two facts about scheduling that an outside compiler must get right, both stated in that
+header:
+
+* The VDP reloads its line counter from reg `$0A` **at the instant of underflow**, before
+  the handler executes anything. So an arm word written in handler *i* schedules the gap
+  from *i+1* to *i+2*, not the gap it sits in. Naive `next_line - cur_line - 1` is off by a
+  whole event.
+* A program opens with **two priming records**, because `Raster_VBlank` leaves reg `$0A` =
+  0. Real events therefore start at line ≥ 2, and **fire lines are one line early by
+  construction** — an effect authored to begin at screen line M is scheduled at fire line
+  M−1. The comptime constructors own that −1 so authors think in screen lines.
+
+Bounds: `RASTER_MIN_FIRE_LINE = 3`, `RASTER_MAX_FIRE_LINE = 223`,
+`RASTER_BUF_SIZE = 128` bytes = 64 words (`engine/effects/raster.emp:363, 1718-1719`).
+
+Opcodes (`engine/effects/raster.emp`), with their argument layouts:
+
+| op | value | body |
+|---|---|---|
+| `OP_SET_REG` | 0 | `dc.w $8xxx` — one VDP register word. **Its value is load-bearing**: 0 lets the op fetch's own `move.w` set Z and dispatch with no compare at all |
+| `OP_CRAM` | 2 | `dc.l` VDP command longword, `dc.w count-1`, `dc.w colour[count]` |
+| `OP_PAL_REGION` | 4 | same 3-word shape, but colours come from a variant's RAM staging |
+| `OP_RUN_GRADIENT` | 6 | dense: `dc.l` command, `dc.w` line count L, `dc.l` ROM stream of L × 3 colour words |
+| `OP_RUN_RAMP` | 8 | dense: `dc.l` command, `dc.w` L, `dc.l` 16.16 start, `dc.l` 16.16 signed step |
+| `OP_PAL_RESTORE` | 10 | `dc.l` command, `dc.w count-1`, `dc.w addr` — a band's OFF edge |
+
+`RASTER_DENSE_WORDS_PER_LINE = 3`.
+
+**A program carries NO frame-top register words.** It used to; `Flush_VDP_Shadow`'s
+unconditional re-blit made them unnecessary, and deleting them is precisely what lets two
+independently-authored effects touch the same register and compose without agreeing on
+anything.
+
+**A section takes one tier or the other.** The sparse tier (event lines) is authorable as
+a word array; the dense tier (`OP_RUN_GRADIENT` / `OP_RUN_RAMP`) carries a link-time
+symbol, which a `[u16; N]` array cannot hold, so a program mixing sparse events with a
+dense run is deliberately not authorable even though the wire format permits it.
+
+### 8.4 The ladders
+
+**The row-remap ladder** (`tools/row_remap_ladder_gen.py`, and the H = 16 instantiation
+`row_remap_ladder16()` in `engine/level/parallax_dsl.emp:396`).
+
+A ladder is **(H+1) rows of H bytes**. Row `r` is selected each frame as `r = H − |p|`,
+where `p` is the perspective quantity — the separation, in screen lines, between the
+background's image of a surface and the foreground's truth about it. Screen line `i` of
+the band takes the plane-B scroll word that belonged to line `ladder[r][i]`.
+
+The model is **chosen, not fitted**:
+
+```
+entry(H, r, i) = i + (i*i*p) // (H * (H-1)),    p = H - r
+```
+
+Every property the runtime depends on falls out of the algebra: `entry[i] >= i`, strictly
+increasing, `entry[i] <= 2i`, row H is the identity, row 0 saturates at exactly `2(H-1)`,
+monotone in `r`. Because the table is `[u8]` and the largest entry is `2*(H-1)`, the
+ceiling is **H ≤ 128**, derived rather than typed.
+
+`row_remap_ladder16()` returns `[u8; 272]` = 17 × 16 — verified from the signature.
+
+⚠ **S3K's own tables cannot be used directly**, and this was measured rather than assumed
+(`--donor`, 2026-09-04): HCZ's `9312 B = 97 × 96` and LBZ's `4160 B = 65 × 64` are both
+`(H+1)×H`, and both satisfy `entry[i] >= i` and non-decreasing with zero violations — but
+`entry[i] <= 2i` is violated by **5 871 of 9 312** HCZ entries and **2 603 of 4 160** LBZ
+entries, because their table indexes a 192-row source image and the selected row is a
+96-row window into it.
+
+**HSHIFT** is the band height, and it is a *shift*: `SceneRemap.Ladder(table, plane_y,
+hshift)` and the runtime consumes `H = 1 << brm_hshift`. So **H must be a power of two**.
+That is why S3K's H = 96 is a height this engine cannot name. Today's shipped H is 16.
+
+The `waterline_strips` VRAM region is sized by the same H:
+
+```
+tiles = 2 strips x 2 tile-columns x (H / 8 rows-per-tile) = H / 2
+
+H       8    16    32    64   [96]   128
+tiles   4     8    16    32   [48]    64
+```
+
+The region is 48 tiles — the owner-sanctioned spend, not the derived need. At today's
+H = 16 only **8** of them carry art, and the region's own ceiling is H = 64. The ROM-side
+source image is separate and larger: `waterline_strip_art16()` returns `[u8; 512]`
+(= 32 × H bytes), because the gather permutes source rows into the smaller VRAM run.
+
+### 8.5 The live nudges and the warp mailbox
+
+**Both are DEBUG-shape instruments, not an authoring surface.**
+
+* The "live nudges" are controller chords in
+  `games/sonic4/test/ojz_scroll_test.emp` — `C + UP/DOWN` moves patch channel 0's world
+  anchor by one pixel per held frame, clamped to that channel's declared raster band. They
+  exist so the owner can find a value on screen, and they write RAM, not data.
+* The **warp mailbox** is the DEBUG camera-teleport path
+  (`tools/warp_mailbox_gate.py`). A bare camera poke *tears*: everything downstream latches
+  per-frame deltas off the camera, so a teleport-sized jump mis-latches the prefetch
+  direction and leaves the tile-cache window describing the old locality, where every plane
+  write outside it is silently dropped. Measured, engine-side, at +30 frames: **698**
+  visible-window plane-A nametable words wrong for a bare poke, **0** through the mailbox.
+  It self-heals (699 → 437 at +120 frames → 0 at +150), which is why the negative control
+  asserts *bounded* wrongness at a fixed early sample rather than permanence.
+
+Neither belongs in an asset file. If an outside tool wants to move the camera, it is asking
+for the mailbox, and the mailbox is not in the release shape.
+
+### 8.6 VBlank ordering
+
+From `engine/system/vblank.emp:157-209`, in order:
+
+```
+Raster_VBlank            <-- MUST precede the flush
+Flush_VDP_Shadow
+Enqueue_Dirty_Buffers    (palette + sprites + HScroll)
+VInt_DrawLevel           (drain the plane buffer to VDP)
+Process_DMA_Critical     (drains palette + sprites + HScroll)
+Vscroll_Write            (VSRAM — AFTER the HScroll DMA)
+Process_DMA_Important
+Process_DMA_Deferrable
+Read_Controllers
+```
+
+`Raster_VBlank` **must** precede `Flush_VDP_Shadow` for two independent reasons stated at
+the call site: `HBlank_Install` arms reg `$0A` *through the shadow*, so the arm only
+reaches hardware on this frame's flush (a post-flush position would delay every arm by a
+frame); and it ORs the program's `pal_dirty_mask` into `Palette_Dirty`, which
+`Enqueue_Dirty_Buffers` must then see.
+
+`Palette_Compose` runs in the **game loop**, not here — it is arithmetic, and it must land
+before the next VBlank's `Enqueue_Dirty_Buffers` reads the dirty mask.
+
+### 8.7 What is authorable from outside vs. engine-fixed
+
+**Authorable** (this is the surface an outside tool writes):
+
+* scene files → `scene()` / `layer()` calls: band tops, scroll factors, deform tables and
+  amplitude shifts, per-band phase, curves, drift, vertical splits, row-remap ladder
+  attachment, left-column-mask policy
+* preset documents (`presets/<id>.json`) → whose `bands` key lowers to a raster program
+* palettes, palette cycles, palette variants
+* the per-section `sceneRef` sidecar (`section_N.meta.json`), and the act-level
+  `sceneRef` in `project.json`
+
+The consumer's exact field list is `tools/EFFECTS_CONSUMER_CONTRACT.md` §2 — **normative,
+and `tools/effects_gen.py` reads exactly that and nothing more.** ⚠ That document
+enumerates field *names*; the schema in the `empyrean` repo owns their *values*. Inferring
+a value from the name list has already shipped two defects (the absent spelling is the
+string `"none"`, **not** JSON null; `precision` / `transition` / `left_column_mask` are
+lowercase enum strings, not `.emp` constants).
+
+**Engine-fixed** (an asset cannot change these):
+
+* the plane geometry, the VRAM map, the HScroll mode, the VBlank order
+* the raster opcode set and the two priming records
+* the per-fire burst ceilings and the arithmetic that sets them
+* `Flush_VDP_Shadow`'s unconditional re-blit — a raster register write is always transient
+* CRAM line 0
+
+**Validation posture, stated by `tools/effects_gen.py` itself and worth adopting in any
+peer tool:** the generator validates *shape* — schema version, id, unknown keys — and
+refuses rather than guessing; authored *values* are validated by `sigil` when the generated
+`.emp` calls the real `scene()` / `layer()` constructors, and those `ensure` messages are
+the error surface. A type is shape, a range is value. Never grow a value check that
+duplicates a constructor guard: two sources for one rule is how they drift.
+
+### 8.8 Budgets an effect must stay inside
+
+| bound | value | source |
+|---|---|---|
+| parallax bands | 16 | `MAX_PARALLAX_BANDS` |
+| a 16-band scene's cost | `4664 + 15 × 854 = 17 474` cyc = 13.7 % of a 128 000-cycle NTSC frame | the `MAX_PARALLAX_BANDS` block |
+| raster program buffer | 128 bytes = 64 words | `RASTER_BUF_SIZE` |
+| fire lines | 3 .. 223 | `RASTER_MIN_FIRE_LINE` / `RASTER_MAX_FIRE_LINE` |
+| CRAM words per fire | 3 | `RASTER_BURST_MAX_CRAM` |
+| region/restore words per fire | 3 | `RASTER_BURST_MAX_DEEP` |
+| measured HBlank window | **122.9 cycles** | 2026-08-19 sweep, quoted in the `stream_cram` guard |
+| palette variants live at once | 2 | `PAL_MAX_VARIANTS` |
+| palette-cycle channels per script | 4 | `PAL_CYCLE_MAX_CHANNELS` |
+| patch channels | 4 | `RASTER_MAX_PATCH` |
+| BgAnim bands per act | 4 | `BGANIM_MAX_BANDS` |
+
+The burst ceilings are a **cycle budget, not a FIFO limit** — a CRAM write outside
+horizontal blanking paints a visible dot, so the ceiling is what keeps the writes inside
+the window. Four CRAM words *was measured and refused*: the arithmetic admits it (78 + 30
+against 122.9), but the spin quantises to whole `dbf` iterations and the nearest one leaves
+the first write 0.9 cycles inside the early margin, against an estimator whose own standard
+error is 2.0.
+
+A full 16-colour line therefore **cannot swap in one fire**. A full-line palette region is
+authored as consecutive `OP_PAL_REGION` fires on successive lines, taking `ceil(N/3)` lines
+to complete.
+
+The machine-readable budget model is `tools/effects_budget_model.toml`, gated by
+`tools/effects_budget_check.py` against the `[symbols]` table at its foot. Read its status
+key before quoting a row: `fixed` rows are hardware/architecture constants, `code-derived`
+rows are gated against the shipped `.emp`, and **`NEEDS-MEASUREMENT` rows are placeholders
+and say so.** Every cycle row that came off the emulator is an *ideal-cycle* figure — bus,
+VDP and DMA stall reach the wall clock and never reach a cycle row.
+
+---
+
+## 9. Traps an asset producer will hit
+
+### Trap 1 — a `mark` is not zero-byte, and neither is renaming a label
+
+`build.sh` appends the `convsym` **deb2 symbol table into the ROM image**, past
+`EndOfRom`, in **every shape — including both shipped release ROMs.** Measured appendix
+sizes at `0d64f534`: s4 `0xa773`, s4.debug `0xd5cd`, demo `0x6845`, demo.debug `0x80f7`
+(`tools/test_deb2_appendix.py`, `tools/deb2_probe.py`).
+
+The appendix opens with a **Huffman code table built over the CHARACTERS of every symbol
+name**. So adding a symbol that emits no bytes still moves ROM bytes, and *which* ROMs it
+moves is not derivable by argument. The measured instance: adding
+`mark Sound_Dbg_Mirror_End` took demo.debug's `'b'` from 336 to 337, breaking its exact tie
+with `'k'` at 336; the two 7-bit codes `0x004D` and `0x005C` exchanged owners, every name
+containing a `b` or a `k` re-encoded, **953 appendix bytes changed with the total length
+unchanged**, plus the header checksum word at `$18E`. The same edit left the other three
+ROMs byte-identical, because `'b'` was untied in those corpora.
+
+Over 35 trial names: s4 moved for 20, s4.debug for 17, demo for 30, demo.debug for 32, and
+`AAAAAAAAAAAAAAAAAAAA` moved all four *and* changed their lengths. Holding the name fixed
+and moving the mark to four different anchors changed nothing; holding the address fixed
+and varying the name moved every shape.
+
+**The rule is not about `mark`.** Any edit that changes the set of symbol *names* without
+emitting a byte moves the appendix the same way — renaming a local label, adding one,
+dropping one. If you are generating `.emp` and your symbol names are not stable, your ROM
+checksums are not stable either. `tools/deb2_probe.py` answers "would this name move this
+shape?" in 0.1 s against an existing listing instead of a three-minute build.
+
+### Trap 2 — the two sonic4 shapes do not ship the same tables
+
+`s4.debug` ships **ten** animation tables; `s4` (release) ships **nine**. The whole
+`TestParticle` / `TestEmitter` / `TestStressEmitter` / `TestChurnObj` / `TestAnimated`
+family is absent from the release image, and `Ani_Particle` with it.
+
+Measured on this tree, with a positive control:
+
+```
+grep -c TestEmitter s4.lst   -> 0   (exit 1)
+grep -c Ani_Particle s4.lst  -> 0   (exit 1)
+grep -c Ani_Sonic s4.lst     -> 50  (exit 0)   <- the control
+```
+
+Consequences for a tool:
+
+* **Symbol presence is per shape.** Do not infer from one listing what the other contains.
+* A gate that measures the release image says nothing about a table that only ships in
+  debug, and vice versa. `tools/anim_frame_bound.py` reports such a table by name and skips
+  it rather than folding it in — *"`Ani_Particle` (DECLARED) is not in this image — nothing
+  to bound for this shape."*
+* An asset reachable only from a test object is not in the shipped game, however green the
+  debug build is.
+
+### Trap 3 — demo artifacts must never be written by a sonic4 build
+
+A sonic4 `./build.sh` assembles the *demo* game to evaluate its link-time guards (some
+`ensure`s are gated `when = "sound_off"` and are dead in every sonic4 shape). That assemble
+writes to **a scratch path, deliberately** (`build.sh:818-860`).
+
+The reason is a false-pass mechanism worth understanding: writing real demo artifacts there
+would give `demo.bin` / `demo.lst` a fresh mtime **from a sonic4 invocation**, and the
+post-build lanes' `--artifacts-built-after` rule would then read them as legitimately
+produced. `tools/needs_build_lane.py` declares `demo.debug.lst` as *deferred* today
+precisely *because* no sonic4 build makes it; a side-effect write turns an honest deferral
+into a false pass.
+
+If you write a tool that touches this tree: **never emit an artifact for a game you were
+not asked to build.** A green run of a cross-game check does not mean the other game's ROM
+was built, its lanes were run, or anything at all about its bytes.
+
+### Trap 4 — a build can be green and unverified
+
+`FAST=1 ./build.sh` skips every verification lane and prints a loud banner at both ends.
+The ROM it produces is byte-identical to the canonical one — but nothing checked that. Any
+number quoted from a `FAST=1` build is unverified; re-run the canonical build before
+quoting one. In particular, `tools/loop_crossover_gate.py` (the only evidence the crossover
+table is read at all) is skipped there, so **a fast build is not evidence about that
+table.**
+
+### Trap 5 — generated files are committed, and staleness is a build failure
+
+Everything under `games/<game>/data/generated/` is generated *and* checked in. `build.sh`
+gates on `tools/level_staleness.py`: a canonical build **fails** and names
+`tools/regenerate-level.sh`. Do not hand-edit a file carrying a `DO NOT EDIT` banner —
+edit the editor source and re-bake.
+
+---
+
+## 10. What this document could NOT establish
+
+Listed so you ask rather than infer:
+
+* **The VDP's hardware per-line sprite count and per-line pixel budget.** No constant in
+  this tree names them (§5.5). The engine's own `SCANLINE_SPRITE_LIMIT = 24` is a soft
+  internal budget that deliberately undercounts, and is not the hardware figure.
+* **Any bound on a mappings frame's piece count.** `Sst.sprite_piece_count` is a byte; I
+  found no build-time guard.
+* **The full `scene()` / preset JSON schema.** `tools/EFFECTS_CONSUMER_CONTRACT.md` §2
+  enumerates the field *names* the aeon consumer reads; the *values* live in the `empyrean`
+  repo (`docs/AURORA_EFFECTS_SCHEMA.md` and
+  `contract/schema/aurora-effects-scene.schema.json`), which is outside this repo and which
+  I did not read. Read them at a committed revision.
+* **What the off-canonical build profiles (`config_a`, `config_b`, `lean`) place.**
+  `games/sonic4/map.toml` says so itself: they are gated by their own goldens and nobody has
+  re-verified them since the 2026-08-04 crash-report ruling. Do not infer their contents
+  from the two canonical shapes.
+* **The sound/SFX blob formats** beyond `tools/sfx_transcode.py`'s docstring summary. Not
+  in scope here, and not derived.
+* **Whether `crossover.bin`'s read path has ever run in a real loop.** It has been proven by
+  *executing the ROM's bytes* under `tools/loop_crossover_gate.py`, not by driving a player
+  through a loop — no loop exists in OJZ act 1. Those are different claims and only the
+  first has evidence.
+
+### One discrepancy found between this repo's docs and its source
+
+`tools/EFFECTS_CONSUMER_CONTRACT.md` §1.1 describes `inject_editor_bg.py`'s `tiles` key as
+`len(tiles) <= BG_TILE_CAPACITY` **"(448, imported from the vram_map mirror `:24`)"**. Both
+halves are wrong on this tree: the mirror (`tools/vram_map.py`, generated from
+`games/sonic4/vram.toml`) gives `BG_TILE_CAPACITY = 400`, and the import is at
+`tools/inject_editor_bg.py:36`, not `:24`. The *mechanism* the sentence describes — one
+authority, imported from the generated mirror — is correct and is what the code does. This
+is exactly the failure mode this document's opening rule exists to avoid: read the mirror,
+not the sentence about the mirror.
