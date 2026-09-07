@@ -22,10 +22,13 @@
 // record; this lands the data half only, so the ROM still runs as Sonic.
 module games.sonic4.tails_data in tails_data
 
-// The character DPLC window + its hard wall — the VRAM budget the peak guards
-// below are stated against. Sole authority is games.sonic4.constants.
-use games.sonic4.constants.{VRAM_TEST_SONIC, VRAM_TEST_OBJ, VRAM_TAILS_APPENDAGE}
-use engine.constants.{VRAM_HSCROLL_TABLE, TILE_SIZE, DMA_IMPORTANT_SLOTS}
+// The two VRAM windows this file's art lands in, each with its DECLARED extent —
+// the budget the peak guards below are stated against. Sole authority is
+// games.sonic4.constants, whose vram-map block emits both halves of each pair
+// (base + _TILES) from games/sonic4/vram.toml.
+use games.sonic4.constants.{VRAM_TEST_SONIC, VRAM_TEST_SONIC_TILES,
+                            VRAM_TAILS_APPENDAGE, VRAM_TAILS_APPENDAGE_TILES}
+use engine.constants.{TILE_SIZE, DMA_IMPORTANT_SLOTS}
 use engine.objects.dplc.{dplc_peak_tiles, dplc_peak_entries, DPLC_ENTRY_RESERVE,
                          DPLC_ADDRESSABLE_TILES}
 
@@ -75,20 +78,43 @@ ensure(_art_tail.len / TILE_SIZE <= DPLC_ADDRESSABLE_TILES,
        "Art_TailsAppendage is {_art_tail.len / TILE_SIZE} tiles; a DPLC entry's tile_start can only name 0..{DPLC_ADDRESSABLE_TILES - 1}, so the tiles above that would be addressed by a WRAPPED index and load early-frame art — re-page or shrink the sheet, do not raise the field")
 
 // -----------------------------------------------
-// THE VRAM WALLS — the peak comes from the DATA, not from a comment.
+// THE VRAM WALLS — the peak comes from the DATA, the ceiling from the MAP.
 //
 // Body: Tails shares the character DPLC window with Sonic (only one character is
 // resident at a time), so his file-wide peak has to clear the same wall Sonic's
 // does. Measured 24 tiles into a 32-tile window — the slack is real, but the
 // point of the guard is that a re-exported sheet which grew past it fails the
-// build instead of DMA'ing over the test-object art at VRAM_TEST_OBJ.
+// build instead of DMA'ing over whatever follows the window.
 //
-// Appendage: its own window, walled by the HScroll table it sits below. Both
-// bounds are read from their owners (VRAM_TEST_OBJ, VRAM_HSCROLL_TABLE) rather
-// than restated, so moving either neighbour re-checks these automatically.
+// Appendage: its own window, VRAM_TAILS_APPENDAGE.
+//
+// ⚠ WHAT THESE GUARDS USED TO SAY, AND WHY IT WAS WRONG (LS-4, fixed 2026-09-07).
+// They read a NEIGHBOUR's base as the ceiling — VRAM_TEST_OBJ for the body,
+// VRAM_HSCROLL_TABLE / TILE_SIZE for the appendage — under a comment claiming
+// "both bounds are read from their owners … so moving either neighbour re-checks
+// these automatically". That was false in the direction that matters. The
+// appendage's ceiling was 1504 (the HScroll table) while its declared window ends
+// at 1501, because `debug_bganim_tag` had since been allocated into 1501..1503:
+// three tiles of PERMITTED overrun, latent only because the appendage is not yet
+// live. The neighbour was not even in this module's import closure, which is
+// precisely why the guard reached for a name that WAS.
+//
+// The ceiling is now the region's OWN declared extent. Adjacency between regions
+// is not this file's problem — gen_vram_map.py enforces overlap and full 0..2047
+// coverage, so a neighbour cannot take tiles from these windows without
+// vram.toml's `tiles` for THIS region dropping, which lands here as a red build
+// with nobody editing this file.
+//
+// THESE TWO GUARDS DO NOT COVER: the DMA queue-slot cost of a peak frame (the
+// entries guard between them measures that, and neither sees the straddle split
+// tools/dplc_straddle.py checks); the appendage being a SECOND resident consumer
+// alongside the body in the same frame (only the entries guard spans both); nor
+// whether the declared window is itself correctly placed (vram.toml's own
+// checks). The body guard covers ONE of the three characters sharing
+// VRAM_TEST_SONIC — collision_data.emp and knuckles_data.emp carry the others.
 // -----------------------------------------------
-ensure(VRAM_TEST_SONIC + dplc_peak_tiles(_dplc_tails) <= VRAM_TEST_OBJ,
-       "Tails' peak DPLC frame overruns the character VRAM window into VRAM_TEST_OBJ — widen the window or re-page the art")
+ensure(dplc_peak_tiles(_dplc_tails) <= VRAM_TEST_SONIC_TILES,
+       "Tails' peak DPLC frame is {dplc_peak_tiles(_dplc_tails)} tiles and overruns the {VRAM_TEST_SONIC_TILES}-tile character VRAM window — re-page the art, or grow `character_window` in games/sonic4/vram.toml (raise `tiles`, hold `base`) and regenerate. DOES NOT COVER: the queue-slot cost of that frame (the entries guard below), the straddle split neither ensure can see, nor Sonic and Knuckles, who share this window and carry their own copies in collision_data.emp and knuckles_data.emp — a fix here fixes ONE of three")
 // Entries are Important queue SLOTS (one enqueue each) — the budget
 // dplc_peak_tiles does NOT measure. Tails' body peaks at 2 and the appendage at
 // 1, both far inside the bound, so these are true guards. Note the appendage is
@@ -97,8 +123,8 @@ ensure(VRAM_TEST_SONIC + dplc_peak_tiles(_dplc_tails) <= VRAM_TEST_OBJ,
 ensure(dplc_peak_entries(_dplc_tails) + dplc_peak_entries(_dplc_tail) + DPLC_ENTRY_RESERVE <= DMA_IMPORTANT_SLOTS,
        "Tails' body + appendage peak DPLC frames together cost more Important queue slots than the budget leaves — re-page the art or raise DMA_IMPORTANT_SLOTS")
 
-ensure(VRAM_TAILS_APPENDAGE + dplc_peak_tiles(_dplc_tail) <= VRAM_HSCROLL_TABLE / TILE_SIZE,
-       "the Tails appendage's peak DPLC frame overruns its VRAM window into the HScroll table")
+ensure(dplc_peak_tiles(_dplc_tail) <= VRAM_TAILS_APPENDAGE_TILES,
+       "the Tails appendage's peak DPLC frame is {dplc_peak_tiles(_dplc_tail)} tiles and overruns its {VRAM_TAILS_APPENDAGE_TILES}-tile window — re-page the art, or grow `tails_appendage` in games/sonic4/vram.toml and regenerate (the tiles above it belong to `debug_bganim_tag`, so growing needs a placement decision, not just a bigger number). DOES NOT COVER: the queue-slot cost of that frame (the entries guard above, which is the only one spanning body + appendage together), nor whether the window is correctly placed")
 
 pub data Map_Tails             = _map_tails
 pub data DPLC_Tails            = _dplc_tails

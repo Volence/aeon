@@ -601,6 +601,38 @@ to tile 924 → tiles 924..929, clobbering insta-shield tiles 928-929. The spark
 arbitrarily far from the edit. Same shape at `dust_data.emp:34`, where a hand-typed `12` stands in
 for `VRAM_RING_SPARKLE - VRAM_DUST_SPINDASH`.
 
+> **CLOSED 2026-09-07 — `parcel/ls4-vram-adjacency-constants`, H1a / H1b / H1c together.**
+> `tools/gen_vram_map.py` emits `<CONST>_TILES` (a region's DECLARED extent) beside every
+> `<CONST>`, and all eight affected guards bind their OWN region's extent and name no other
+> region. The analysis above is right that "name the right symbol" was not the fix — but the
+> fix it points at (emit the neighbour) is not the one taken. **Adjacency is not a guard's
+> problem at all:** `gen_vram_map.py` already enforces overlap and full 0..2047 coverage, so a
+> neighbour cannot take tiles from a window without THAT region's own `tiles` dropping. Binding
+> to the extent therefore propagates neighbour changes *and* removes the second name a guard
+> could get wrong, which emitting the neighbour would not have done.
+>
+> **The proof this packet's false sentence demanded, control first.** The historical event
+> replayed as one TOML edit (`tails_appendage` 9→6, `debug_bganim_tag` base 1501→1498, tiles
+> 3→6) builds **GREEN on the pre-parcel tree** — exit 0, a 9-tile DMA into a 6-tile window —
+> and **RED on the parcel**: `the Tails appendage's peak DPLC frame is 9 tiles and overruns its
+> 6-tile window`. No guard was edited between the two runs. `tails_data.emp:87-88` is deleted.
+>
+> **H1c reproduced end to end.** A 6-tile `ring_sparkle_art.bin` plus the obvious repair
+> (`RING_SPARKLE_ART_LEN` 128→192, the census annotation widened, and on the control the local
+> `RING_SPARKLE_TILES` 4→6) builds **exit 0 on the pre-parcel tree** and **exit 1 on the
+> parcel**: `the resident sparkle DMA is 192 bytes but ring_sparkle is declared 4 tiles (128
+> bytes)`. Closed by DELETION — the local `RING_SPARKLE_TILES` twin is gone, so there is no
+> longer a knob to turn that does not go through `vram.toml`.
+>
+> **Both live ceilings were exactly 3 tiles over and both are now exactly TIGHT** (appendage
+> peak 9 into 9; insta peak 29 into 29, re-parsed from the shipped blobs).
+>
+> **The import-closure half needed its own answer, and emitting a name was not it.** A future
+> author can still reach for a wrong-but-in-scope `_TILES`. `tools/test_vram_window_guards.py`
+> (build.sh's pytest lane) REGISTERS every residency guard against the region it writes and
+> refuses any other ceiling — measured on a mutation sigil accepts: **build exit 0, pytest exit
+> 1.**
+
 ### C2a-H2 — Map↔DPLC frame-count binding exists for exactly ONE asset in the tree
 
 `player_instashield.emp:456-463` is the complete pattern — map frame count, DPLC frame count, zero

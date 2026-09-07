@@ -209,6 +209,22 @@ def emit_emp_block(regions, game):
              f"// Emitted from games/{game}/vram.toml — edit THAT, then run:",
              f"//   python3 tools/gen_vram_map.py --game {game}",
              "// The map doc: docs/generated/vram-map-" + game + ".md"]
+    # Every const-emitting region publishes BOTH halves of its declaration: the
+    # base (a VramTile address) and the DECLARED EXTENT (a plain tile count).
+    # LS-4: publishing only the base is what made a residency guard reach for a
+    # NEIGHBOUR's base as its ceiling, because that was the only bound in scope —
+    # and a neighbour's base is not this region's extent. See the block header
+    # emitted below for the contract and its limits.
+    lines += [
+        "// Each region below publishes TWO names: <CONST> (its base, a VramTile)",
+        "// and <CONST>_TILES (its DECLARED extent, a plain tile count). A guard that",
+        "// asks 'does my art fit my window?' binds against _TILES and names no other",
+        "// region — a neighbour's base is not this region's extent, and reaching for",
+        "// one is the LS-4 defect. NOT COVERED by these two names: whether the region",
+        "// is big enough for what it holds (its own module's ensure asks that), DMA",
+        "// queue-slot cost, run-time residency/lifetime overlap, or VDP base-register",
+        "// alignment (gen_vram_map.py checks none of those).",
+    ]
     for r in sorted(regions, key=lambda r: (r["base"], r["name"])):
         c = r.get("const")
         if c:
@@ -216,6 +232,9 @@ def emit_emp_block(regions, game):
                 f"pub const {c:<24}: VramTile = ${r['base']:04X}"
                 f"   // {r['name']}: tiles {r['base']}..{r['base']+r['tiles']-1}"
                 f" ({r['tiles']}), {r['lifetime']}, owner {r['owner']}")
+            lines.append(
+                f"pub const {c + '_TILES':<32}= {r['tiles']}"
+                f"   // {r['name']}: DECLARED extent — the ceiling a residency guard binds against")
     # authority cross-checks (R1): one ensure per engine-form authority, so a
     # vram.toml value drifting from its engine constant stops the build
     checks = []

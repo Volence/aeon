@@ -113,7 +113,7 @@ use engine.constants.{RF_PRIORITY_SHIFT, TILE_SIZE, AF_DELETE, AF_SET_FIELD,
 use games.sonic4.player_common.{PlayerV}
 use games.sonic4.sound_ids.{SFXID_INSTASHIELD}
 use games.sonic4.constants.{PSTATE_JUMP, PSTATE_ROLLJUMP,
-                            VRAM_INSTA_SHIELD, VRAM_TEST_SONIC,
+                            VRAM_INSTA_SHIELD, VRAM_INSTA_SHIELD_TILES,
                             EFFECT_INSTA_SHIELD_BAND,
                             INSTASHIELD_ATTACKING, INSTASHIELD_SPENT,
                             INSTASHIELD_SUPPRESS_MASK}
@@ -463,11 +463,17 @@ ensure(map_frame_pieces(_map_insta, INSTASHIELD_LAST_FRAME) == 0,
        "the insta-shield's terminal frame draws {map_frame_pieces(_map_insta, INSTASHIELD_LAST_FRAME)} pieces; S3K's is empty — the flash would freeze on a visible frame for its last tick")
 
 // -----------------------------------------------
-// THE VRAM WALL — the peak comes from the DATA, and the wall from its owner.
-// 928 + 29 = 957, three tiles below the character window.
+// THE VRAM WALL — the peak comes from the DATA, the ceiling from the MAP.
+// `insta_shield` is declared 29 tiles at 928, and the peak frame is exactly 29.
+//
+// ⚠ THE CEILING USED TO BE VRAM_TEST_SONIC, the NEIGHBOUR's base at 960 (LS-4,
+// fixed 2026-09-07). That permitted 32 tiles into a 29-tile region: tiles 957..959
+// are `debug_preset_readout` (957..958) and the map's last free tile, not this
+// object's. Latent only because the peak had not grown. The ceiling is now this
+// region's own declared extent, so the guard names no other region.
 // -----------------------------------------------
-ensure(VRAM_INSTA_SHIELD + dplc_peak_tiles(_dplc_insta) <= VRAM_TEST_SONIC,
-       "the insta-shield's peak DPLC frame overruns its VRAM window into the character window — widen games/sonic4/vram.toml's insta_shield region or re-page the art")
+ensure(dplc_peak_tiles(_dplc_insta) <= VRAM_INSTA_SHIELD_TILES,
+       "the insta-shield's peak DPLC frame is {dplc_peak_tiles(_dplc_insta)} tiles and overruns its {VRAM_INSTA_SHIELD_TILES}-tile window — re-page the art, or grow `insta_shield` in games/sonic4/vram.toml and regenerate (the tiles above it belong to `debug_preset_readout`, so growing needs a placement decision). DOES NOT COVER: the Deferrable queue-slot cost of that frame (the entries guard below), the straddle split neither ensure can see, nor whether the window is correctly placed")
 
 // Entries are DMA queue SLOTS, a quantity dplc_peak_tiles does not measure. This
 // object streams on the DEFERRABLE queue (see InstaShield_Main), not the Important
