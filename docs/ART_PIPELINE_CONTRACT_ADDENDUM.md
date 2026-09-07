@@ -772,3 +772,227 @@ budget carved out for a second tileset. If a section genuinely needs to look dif
 the mechanisms that exist today are **per-section effects presets** (palette variants,
 raster programs, palette cycles — §A4) and **per-section parallax scenes**, both of which
 are live and both of which reshape the *appearance* of the same tiles.
+
+---
+
+## A4. OJZ act 1 — what is allocated today, and what it *should* be
+
+**This section is deliberately split into two halves, and they answer different kinds of
+question. Read the labels.**
+
+### §A4-M — MEASURED: what OJZ act 1 allocates today
+
+Everything here was read out of the shipped palette binary, the generated act data and
+the section tables. **This is what you can reserve against.** If a figure below surprises
+you, it is still the figure — check it yourself with the file named beside it.
+
+#### A4-M.1 CRAM: 4 lines × 16 entries
+
+The Mega Drive has 64 colours in four 16-entry lines. Their ownership in this act:
+
+| CRAM line | Owner | Loaded from | Referenced by |
+|---|---|---|---|
+| **0** | **the CHARACTER** — off limits to level art | `CharacterDef.cd_palette` | sprites (`vram_art`'s `pal` argument **defaults to 0**) |
+| **1** | the act palette, first line | `ojz_palette.bin` file-line 0 | **neither plane's nametable in this act** — see below |
+| **2** | the act palette, second line | `ojz_palette.bin` file-line 1 | the main line for **both** background and foreground |
+| **3** | the act palette, third line | `ojz_palette.bin` file-line 2 | accents in both planes |
+
+`games/sonic4/data/generated/ojz/act1/ojz_palette.bin` is **96 bytes** — exactly three
+16-word lines — and loads starting at **CRAM line 1**. Its contents today, big-endian
+Mega Drive colour words:
+
+```
+CRAM line 1:  0000 0000 0E62 0A86 0E86 0044 0EEE 0AAA 0888 0444 0666 0E86 00EE 0088 0EA8 0ECA
+CRAM line 2:  0000 0002 0800 0224 0248 026A 048C 06AE 0000 0020 0240 0460 04A0 0482 02C6 06EA
+CRAM line 3:  0000 0000 0240 0460 0680 0202 0624 0828 0848 08A6 0020 0C8C 0C0E 0E4E 0E8E 0ECE
+```
+
+**Line 0 is enforced off-limits in three independent places**, not merely conventional:
+
+* `engine/effects/palette.emp::Palette_LoadPal` copies 96 bytes and sets
+  `Pal_Compose_Lines` to `%1110` — lines 1, 2, 3. Line 0 is never composed from act data.
+* `engine/effects/palette_dsl.emp::variant()` refuses a `lines` mask that selects it:
+  *"variant: lines mask {lines} selects line 0 (the character's) — use bits 1-3"*. Its
+  default mask is `%1110`.
+* the preset schema's `cram.addr` description (empyrean, §A2) says CRAM address 0 *"is a
+  real address (palette line 0, the character's), which `stream_cram` and the derived
+  `pal_restore` both refuse."*
+
+#### A4-M.2 Which palette line each plane actually uses
+
+Measured by decoding the nametable words of both planes and histogramming the palette
+bits (bits 13-14).
+
+**Plane B (background)** — all 4096 cells of `zone_bg.bin` are non-zero:
+
+| CRAM line | Cells | Share |
+|---|---|---|
+| 2 | 3,940 | 96.2% |
+| 3 | 156 | 3.8% |
+
+Priority bit is **0 on every one of the 4096 cells** — the background never draws in
+front.
+
+**Plane A (foreground)** — 9 sections × 256 columns × 256 rows of
+`secN_strips_a.bin`, non-zero cells only:
+
+| CRAM line | Cells |
+|---|---|
+| 0 | 17,331 |
+| 2 | 65,871 |
+| 3 | 2,452 |
+
+⚠ The line-0 row looks alarming and is not. **All 17,331 of those cells are tile index 0**
+— checked, exactly one distinct index — i.e. blank cells carrying only flip and priority
+bits. No foreground art is coloured from the character's line. Priority is set on 39,129
+of the 85,654 non-zero foreground cells.
+
+**CRAM line 1 is referenced by neither plane's nametable anywhere in this act.** It is
+loaded into CRAM every act load and, as far as the level art goes, unused. The only
+reference to palette line 1 found in the game code is a DEBUG test object
+(`games/sonic4/objects/test_player.emp:119`, `art_tile = $A0FA`, annotated *"priority |
+palette 1 | tile $0FA"*). Whether line 1 is intended as spare, or is reserved for object
+art not yet placed, is **not established here** — see §A4-O.
+
+#### A4-M.3 Which entries within each line are used
+
+Measured by decoding the actual tile pixel data, not by looking at the palette.
+
+| Source | Line | Entries used | Entries **free** |
+|---|---|---|---|
+| BG static tiles | 2 | 1, 3-14 | **0, 2, 15** |
+| BG static tiles | 3 | 1, 2, 3, 5-9, 11, 13, 14, 15 | **0, 4, 10, 12** |
+| BgAnim bank art (all 8 phases) | 2 | 3, 4, 5, 7, 8-12, 14 | (subset of the above) |
+| FG act pool (612 tiles, union over both lines) | 2 + 3 | 0-1, 3-15 | 2 only |
+
+Entry 0 of every line is the transparent index; the background importer excludes it
+outright (*"BG is opaque (index 0 excluded)"*, `tools/png_to_bg_override.py`). The
+foreground row is a **union across both lines it references** and cannot be split further
+without mapping every pooled tile back to the nametable cells that place it; treat it as
+an upper bound on foreground usage, not as a per-line figure.
+
+#### A4-M.4 Tile budget, actually consumed
+
+| | Allocated | Used today | Free |
+|---|---|---|---|
+| BG static tiles | 320 (`BG_STATIC_TILE_BUDGET`) | **320** — `bg_tiles.bin` is 10,242 bytes = 2-byte header + 320 × 32 | **0** |
+| BG band reserve | 80 (`band_reserve`) | 32 (the one band, 8 × 4) | 48 |
+| BG region total | 400 (`BG_TILE_CAPACITY`) | 320 | 80 |
+
+**The background art is exactly at its budget.** 318 of the 320 blob tiles are referenced
+by the nametable; tiles 318 and 319 are referenced by nothing. Adding a unique tile means
+removing one.
+
+The animated band's 32 tiles are **not** an addition: `bg_anim_banks.bin` is 8,192 bytes
+= 8 phases × 32 tiles × 32 bytes, and phase 0 is **byte-identical to blob tiles 0..31**
+(verified). The band occupies BG VRAM slots 1024-1055, which are the front of the same
+blob.
+
+#### A4-M.5 The one animated band
+
+From `editor_bg_override.json` and the emitter:
+
+| Field | Value |
+|---|---|
+| bands | 1 (ceiling is 4) |
+| `cols` × `rows` | 8 × 4 = 32 tiles |
+| `pattern_px` | 64 |
+| `axis` | horizontal (defaulted — the key is absent) |
+| `driver` | `camera_x` |
+| `rate_shift` | 4 → 1 px per 16 camera units |
+| `slot_base` | 0 (defaulted) → BG VRAM slots 1024-1055 |
+| `default_off` | **`true`** |
+| phases | 8 |
+
+**`default_off: true` means the act boots with BG animation OFF.** The band's record is
+emitted and reachable, but it is not counted in the live band-count word. The emitted
+`ojz_bg_anim` section is **8,376 bytes** against the 20,480-byte ceiling.
+
+#### A4-M.6 Effects, per section
+
+All 9 sections carry a required `EffectsPreset` (`struct EffectsPreset (size: 46)`).
+**Every one of them binds the same base palette, `OJZ_Palette`** — there is no
+per-section palette in this act.
+
+| Sec | Preset | Raster / patched | Cycle | Variants | Parallax scene |
+|---|---|---|---|---|---|
+| 0 | `OJZ_Preset_Sec0` | patched `OJZ_TwoChannel`; anchors at world Y 224 and 314; channel 0 swept (`amp_shift: 4, period_shift: 1`) | none | `Variant_Water_Deep` | `ParallaxConfig_OJZ_Underwater` + editor `ojz_act1_start` |
+| 1 | `OJZ_Preset_Sec1` | raster `OJZ_TestRaster` (S/H + backdrop split below line 120) | none | `Variant_Water_Deep` | act default |
+| 2 | `OJZ_Preset_Sec2` | raster `OJZ_TestGradient` | none | `Variant_Water_Deep` | act default |
+| 3 | `OJZ_Preset_Sec3` | none | `OJZ_ShimmerCycle` (editor-overridable) | editor-overridable, `Variant_Water_Deep` fallback | act default |
+| 4 | `OJZ_Preset_Depth` | raster `OJZ_DepthVSplit` | none | `Variant_Water_Deep` | editor `ojz_act1_depth` |
+| 5 | `OJZ_Preset_Sec5` | editor `rasterRef: ojz_sec5_showcase` | none | `Variant_Water_Deep` | `ParallaxConfig_OJZ_Underwater` (a deliberate loan, owner d-53) |
+| 6 | `OJZ_Preset_Sec6` | editor `rasterRef: ojz_sec6_baseswap` | none | `Variant_Water_Deep` | act default |
+| 7 | `OJZ_Preset_Sec7` | patched `OJZ_WorldWater`; anchors at `OJZ_SEC7_SURFACE_Y` / `OJZ_SEC7_SPLIT_Y`; channel 2 swept (`amp_shift: 5, period_shift: 0`) | none | `Variant_OJZ_Water` | editor `ojz_act1_sec7_worldwater` |
+| 8 | `OJZ_Preset_Plain` | none | none | `Variant_Water_Deep` | editor `ojz_act1_floor` |
+
+Section 0 is the one on screen at spawn.
+
+Both palette variants in use, from `games/sonic4/data/effects/ojz_effects.emp`:
+
+```
+Variant_Water_Deep:  variant(shift_r: 1, shift_g: 1)                  // halve R+G, keep B
+Variant_OJZ_Water:   variant(shift_r: 1, bias_g: -1, bias_b: 4)       // submerged blue for OJZ line 2
+```
+
+Neither passes a `lines` argument, so both take the default mask `%1110` and apply to
+**all three level lines**, 1 through 3. A variant is a derived second copy of the palette,
+so **anything you put on line 1 will be tinted by them too**, even though line 1 carries
+no level art today.
+
+Four sections carry an editor-authored parallax scene. The generated binding module states
+its own coverage: *"4 editor scene(s) reached by an assignment, 4 binding(s), 9 act
+sections. Authored but unassigned: none."*
+
+#### A4-M.7 Summary of what is genuinely free
+
+| Resource | Free today |
+|---|---|
+| BG static tiles | **0 of 320** — the art is exactly at budget |
+| BG band reserve tiles | 48 of 80 (32 used by the one band) |
+| BgAnim bands | 3 of 4 |
+| BgAnim ROM section | 12,104 bytes of 20,480 |
+| CRAM line 1 | **all 16 entries**, referenced by neither plane — but see §A4-O |
+| CRAM line 2 entries | 0, 2, 15 unused by BG art (2 and 15 are also unused by BG bands) |
+| CRAM line 3 entries | 0, 4, 10, 12 unused by BG art |
+| CRAM line 0 | none — it is the character's, enforced in three places |
+
+### §A4-O — THE OWNER'S CALL: what the intended allocation should be
+
+**Everything above describes what happens to be in the tree. None of it is a statement of
+intent, and this document will not invent one.** The following are design decisions and
+they belong to the repository owner. They are listed so they can be asked, not answered.
+
+1. **Is CRAM line 1 spare, or reserved?** Measured: loaded every act load, referenced by
+   neither plane's nametable, and the only reference found anywhere is a DEBUG test
+   object. That is 16 colours that *look* free. Whether an incoming scene may claim them —
+   or whether they are held for object/HUD art not yet placed — is the owner's to confirm.
+   Do not reserve against line 1 on the strength of this measurement alone.
+
+2. **Is the background meant to sit exactly at its 320-tile budget?** It does today, with
+   zero headroom, and `band_reserve` is at 80 against a ceiling of 400. The comment in
+   `games/sonic4/vram.toml` records that the reserve figure was set by the owner as *a look
+   test, not a figure* — *"as long as it still looks slightly reasonable we can do whatever's
+   best to reserve for animation"* — and that it is meant to be approached from the generous
+   side and tightened. So the 320/80 split is explicitly revisable, **by him**, and a new
+   scene wanting more static detail is a reason to ask rather than a reason to overrun.
+
+3. **Should the first scene ship with BG animation on?** Today's band is
+   `default_off: true`, so the act boots with animation off. Whether the incoming scene
+   should be authored around a live band, and how many of the 4 band slots it may use, is
+   a design call.
+
+4. **Should the first scene carry a per-section palette?** It cannot today — every section
+   binds the same `OJZ_Palette`, and §A3 shows the tileset is act-wide too. Whether that
+   is the intended end state for the showcase, or a limit to lift, is the owner's.
+
+5. **Which effects the first scene should use.** The act today is substantially a *test
+   bed*: two of the nine sections carry presets named `OJZ_TestRaster` and
+   `OJZ_TestGradient`, and section 5's parallax is annotated in source as a deliberate
+   temporary loan (*"This LOANS section 5 a look it does not otherwise have; deleting this
+   line puts the picture back exactly"*). **Do not read the current effect assignment as
+   the intended look of the first scene.** What each section is meant to look like is a
+   design decision that has not been made in this tree.
+
+The correct summary to work from: *here is what is allocated today; whether that is the
+intent is his to confirm.*
