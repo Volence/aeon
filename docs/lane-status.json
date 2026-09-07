@@ -1,6 +1,27 @@
 {
-  "focus": "Tier one of the lens sweep is closed -- all seven -- and the nightly is green over the finished work. Tier two is next.",
-  "inFlight": [],
+  "focus": "Tier one is closed. Now on tier two: four parcels running, starting with the sound-driver lockup and the checks that only exist for one asset.",
+  "inFlight": [
+    {
+      "what": "LS-11: a music-start wait spins forever if an interrupt lands in it, and the watchdog counts the wrong loop. Only reachable in the profile that can play music, so a green canonical build proves nothing here.",
+      "where": "agent worktree, branch parcel/ls11-playmusic-spin-mask",
+      "agent": true
+    },
+    {
+      "what": "LS-9: the check binding an asset's two frame tables exists for exactly one asset out of eight. Making it apply to all of them may turn an existing disagreement red, which would be the point.",
+      "where": "agent worktree, branch parcel/ls9-frame-count-binding",
+      "agent": true
+    },
+    {
+      "what": "LS-10: eight object slots that are never used in a release build are swept three times a frame. Skipping them rests entirely on that never-used claim, which is being re-derived by a different route.",
+      "where": "agent worktree, branch parcel/ls10-system-pool-skip",
+      "agent": true
+    },
+    {
+      "what": "LS-14: retire a style checker whose subject shrank to eight lines while 412 tests kept maintaining it. The job is mostly proving what retiring it loses.",
+      "where": "agent worktree, branch parcel/ls14-retire-s4lint",
+      "agent": true
+    }
+  ],
   "blockedOnOwner": [
     {
       "id": "LS-17",
@@ -13,20 +34,48 @@
       "since": "2026-09-06"
     }
   ],
-  "nextBoundary": "Here. Nothing running, nothing half-applied, everything pushed.",
+  "nextBoundary": "After this tier-2 wave lands. LS-12 goes out the moment LS-11 clears the sound driver.",
   "queue": [
+    {
+      "id": "LS-12",
+      "title": "Extend the DMA-active guard to the other two tick paths -- held behind LS-11, same driver file",
+      "state": "next",
+      "size": "M",
+      "blockedBy": "LS-11 holds the same file"
+    },
+    {
+      "id": "LS-14",
+      "title": "Retire the style checker whose subject shrank to eight lines",
+      "state": "doing",
+      "size": "M",
+      "blockedBy": null
+    },
+    {
+      "id": "LS-10",
+      "title": "Eight provably-dead slots swept three times a frame",
+      "state": "doing",
+      "size": "M",
+      "blockedBy": null
+    },
+    {
+      "id": "LS-9",
+      "title": "Frame-table binding exists for one asset of eight",
+      "state": "doing",
+      "size": "M",
+      "blockedBy": null
+    },
+    {
+      "id": "LS-11",
+      "title": "Music-start wait spins forever on an interrupt; watchdog counts the wrong loop",
+      "state": "doing",
+      "size": "M",
+      "blockedBy": null
+    },
     {
       "id": "LS-2a",
       "title": "The Z80 side has no register-contract gate in EITHER direction, and under-declaration there is a correctness class; 7 live sites, all currently unreachable",
       "state": "open",
       "size": "M",
-      "blockedBy": null
-    },
-    {
-      "id": "LS-8..LS-18",
-      "title": "The ten ruled tier-2 lens cards, all startable",
-      "state": "next",
-      "size": "L",
       "blockedBy": null
     },
     {
@@ -94,6 +143,6 @@
     }
   ],
   "awaiting": "whether to take the 3-tile graphics reclaim, which is now safe but leaves zero headroom -- and LS-17 and LS-13 are still open on your card",
-  "atBoundary": true,
-  "updatedAt": "2026-09-07T06:06:22Z"
+  "atBoundary": false,
+  "updatedAt": "2026-09-07T06:10:38Z"
 }
