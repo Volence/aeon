@@ -996,3 +996,68 @@ they belong to the repository owner. They are listed so they can be asked, not a
 
 The correct summary to work from: *here is what is allocated today; whether that is the
 intent is his to confirm.*
+
+---
+
+## A5. What this addendum could NOT establish
+
+Listed so you ask rather than infer. The main contract has a §10 for the same purpose;
+this is its companion and does not repeat it.
+
+* **What consumes CRAM line 1.** Established that neither plane's nametable references it
+  anywhere in OJZ act 1, and that the one palette-line-1 reference found in game code is a
+  DEBUG test object. **Not** established: whether any shipped sprite, HUD element or
+  object uses it. Sprites carry their own palette bits and `vram_art`'s `pal` argument
+  defaults to 0, so a full answer means enumerating every object's `art_tile`, which was
+  not done. Treat line 1 as *unclaimed by level art*, not as *free*.
+* **Per-line entry usage for the foreground.** §A4-M.3's foreground row is the union of
+  pixel indices across the whole 612-tile act pool. Splitting it per CRAM line means
+  mapping each pooled tile back through the paged VRAM manifest to the nametable cells
+  that place it; that was not done. The background rows *are* per-line, because the BG
+  nametable indexes its blob directly.
+* **Whether `sec_bg_layout` has ever been exercised.** Established that the field is read
+  by two consumers, that no section of the shipped act sets it, and that its consumer
+  fires only behind a flag set at level init and by the DEBUG warp. **Not** established:
+  whether a per-section layout has ever been baked and run, in this tree or a previous
+  one. If you need per-section nametables, ask before assuming the path is warm.
+* **What the off-canonical sigil profiles place.** Unchanged from the main contract's §10.
+  This addendum's figures were read from source and from the committed generated tree; the
+  four-shape build at the end of this parcel confirms only that documentation changed no
+  bytes in the two canonical shapes of each game.
+* **Aurora's writer-side behaviour.** §A1.2's trailing-newline finding is measured on
+  aeon's writer and on the files on disk here. What Aurora's `serializeBgOverride` emits
+  today is in another repository and was not read. The conflict is reported as a conflict,
+  not as a verdict about which writer is wrong.
+* **Whether the `anims` writer-side spec in `empyrean docs/AURORA_EFFECTS_SCHEMA.md` §5
+  agrees with §A1.4 here in full.** §A1.4 is derived from aeon's parser — the consumer.
+  That section of the empyrean document was located but not read line by line against it.
+  If you are authoring `anims` from the writer side, read both.
+* **Anything about the effects schema beyond its shape.** §A2 summarises structure,
+  required keys and the bounds the schema itself declares. The numeric rules live in the
+  engine's `.emp` constructors and were not enumerated here; the schema's own
+  `description` strings name the constructor that judges each value, and those are the
+  pointers to follow.
+
+### Discrepancies found between this repo's prose and its source
+
+Recorded in the main contract's spirit — the point is the method, not the scoreboard.
+
+1. **`tools/inject_editor_bg.py`'s module docstring** describes the override as
+   `{"layout": [2048 words, blob-local tile indices], "tiles": [[64 px]...]}`. The
+   assertion 90 lines further down accepts **2048 or 4096**, the 2048 case is the padded
+   legacy shape, and the live file carries **4096**. The docstring is not wrong about the
+   *mechanism*; it names the smaller of the two shapes as if it were the only one.
+2. **`tools/EFFECTS_CONSUMER_CONTRACT.md` §1.1** still states the tile ceiling as 448 and
+   cites `tools/inject_editor_bg.py:24`. The mirror says **400** and the import is at
+   `:36`. This is the discrepancy the main contract's §10 already recorded, re-confirmed
+   here and still unfixed — deliberately, since it is not this parcel's file to edit.
+3. **The `\n` rule for `editor_bg_override.json`** — §A1.2. A rule in one repo that the
+   other repo's writer does not implement, with the on-disk files split 15/23. Reported to
+   both sides rather than resolved here.
+
+One near-miss worth naming, because it is the shape of a *false* finding rather than a
+real one: `games/sonic4/data/effects/ojz_effects.emp` contains the sentence *"the step's
+whole ROM delta one EffectsPreset (`struct EffectsPreset (size: 38)`)"*, and the struct is
+**46** bytes. That comment corrects itself five lines later, in place, and names the change
+that moved the number. It is not a live disagreement; it is what a maintained comment
+looks like.
