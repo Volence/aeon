@@ -11,7 +11,7 @@
 //   +18: dc.l  anim_table           ; $1A-$1D image
 //   +22: dc.b  status, angle        ; $1E-$1F image
 //   +24: dc.w  0                    ; $20-$21 pad (re-inited at spawn)
-// Emitted by the objdef macro (macros.asm). The template is copied VERBATIM
+// Emitted by the objdef macro. The template is copied VERBATIM
 // as an opaque byte block here (six long moves) — this consumer never names an
 // ObjDef field, so the ObjDef struct-twin belongs to the objdef-emitting data
 // file, not this port.

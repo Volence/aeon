@@ -4,8 +4,8 @@
 // 26-byte record. Byte-identical to the macro (objdef_port byte gate).
 //
 // VRAM_TEST_OBJ / COLLISION_* below still carry ensure(extern) drift guards (D11):
-// their real home is a DIFFERENT .asm that outlives the test_objects.asm byte-gate
-// twin (config/constants.asm, engine/constants.asm).
+// their real home is elsewhere and outlived the retired test_objects.asm byte-gate twin:
+// games/sonic4/config/constants.emp and engine/system/constants.emp.
 module games.sonic4.data.objdefs.test_objects
 
 use engine.objects.sst.{ObjDef}

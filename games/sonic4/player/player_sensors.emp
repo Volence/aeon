@@ -20,7 +20,7 @@
 // (sub + h < 0) → treat as full (back-probe); outside → treat as air
 // (forward-probe).
 //
-// REGISTER CONVENTION (collision_lookup.asm header): d3.b = layer on
+// REGISTER CONVENTION (engine/level/collision_lookup.emp header): d3.b = layer on
 // every entry, X/Y saved in d4/d5, d3 NOT preserved.
 //
 // The PLAYER WRAPPERS additionally take a4 = the calling slot's player block
@@ -31,10 +31,11 @@
 // live; the player frame establishes it once in Player_Main, and the one
 // non-player caller (TestPlayer_Main, debug shape only) loads it explicitly.
 //
-// Lives in the ENGINE BLOCK (main.asm gameEngineBlockIncludes), the first
+// Lives in the ENGINE BLOCK (games/sonic4/map.toml; it was main.asm's
+// gameEngineBlockIncludes before that file was deleted in f7405d63), the first
 // include — a called collision primitive with NO code_addr entry points, a
 // DIFFERENT region than the object code bank. Gate SIGIL_EMP_PLAYER_SENSORS
-// (main.asm arms a per-shape ifdef __DEBUG__ org: the region's base shifts with
+// (the map arms a per-shape __DEBUG__ base: the region's base shifts with
 // upstream __DEBUG__ growth, its own layout is shape-invariant). No hardware/DMA
 // access (all collision reads go through Collision_GetType).
 
@@ -50,7 +51,7 @@ use games.sonic4.ram.{PlayerBlock}
 // pinned link symbol when windowed) — no extern decl needed, the corpus contract
 // closure derives its effects from the real def. The four ROM tables it reads
 // (SolidityTable/AngleTable/HeightMaps/HeightMapsRot) are AS-only data in
-// games/sonic4/main.asm, likewise bare link symbols.
+// games/sonic4/game_root.asm, likewise bare link symbols.
 
 // player-block field offset (a4-relative; the PlayerBlock displacement).
 // File-local, like the PBLK_* offsets in player_ground/player_air and for the

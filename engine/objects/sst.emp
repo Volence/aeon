@@ -6,7 +6,7 @@
 // the shape the objdef() emitter (engine/objects/objdef.emp) fills and
 // consumers place. Sst is the SOLE author of the object-record layout: the
 // build harvests its field offsets (`SST_*`) + size (`SST_len`) and injects
-// them as guarded AS defines so the residual AS (ram.asm's `ds SST_len` slots,
+// them as guarded AS defines so the residual AS (its `ds SST_len` slots,
 // the gated player/test header equates) reads the same offsets.
 //
 // Sst's field offsets are pinned in-file: every field carries an `@` literal
@@ -155,7 +155,7 @@ const TEMPLATE_COPY_SHIFT = 8
 // at shift 0, every template field at +TEMPLATE_COPY_SHIFT. Both structs are
 // in-file, so these are eager comptime `offsetof` compares — a layout drift
 // on either side fails the BUILD naming the field. (Distinct from the
-// extern() drift guards above, which cross the link seam to AS's structs.asm.)
+// extern() drift guards above, which cross the link seam into the AS/EQU namespace.)
 // -----------------------------------------------
 ensure(offsetof(ObjDef, code_addr) == offsetof(Sst, code_addr), "ObjDef/Sst burst-copy correspondence broken at code_addr")
 ensure(offsetof(ObjDef, x_vel) + TEMPLATE_COPY_SHIFT == offsetof(Sst, x_vel), "ObjDef/Sst burst-copy correspondence broken at x_vel")

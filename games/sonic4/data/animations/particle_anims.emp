@@ -7,7 +7,7 @@
 module games.sonic4.particle_anims in particle_anims
 
 // Animation command bytes come from the constants twin's animation block
-// (engine/system/constants.emp mirrors animate.asm and carries the drift
+// (engine/system/constants.emp is the sole author of them and carries the drift
 // guard — one mirror, one guard, all consumers import it).
 use engine.constants.{AF_DELETE}
 

@@ -144,8 +144,17 @@ const _MT_DEBUG_EXTRA = if DEBUG == 1 { DrumTestBlob.len + (DrumTestBlob.len % 2
 const _MT_PRETABLE_LEN = SongBlob.len + PitchBlob.len + PatchesBlob.len + _MT_DEBUG_EXTRA
 const MT_TAIL_PAD = (8 - (_MT_PRETABLE_LEN % 8)) % 8
 
-// ONE bank: $8000 section = the .asm's `align $8000` (main.asm:129) + all
-// four straddle/window-top fatals (song_table.asm:91/99/110/128). Items emit
+// READING THE `.asm` CITATIONS BELOW. They are PROVENANCE for a byte-identity port, not a
+// live second copy: every file they name is deleted. The seven Moving-Trucks AS sources
+// (song_table.asm, song_drumtest.asm, song_hcz2.asm and their siblings) went in `19fce50b`;
+// games/sonic4/main.asm went in `f7405d63` and its placement duties are now
+// games/sonic4/map.toml. Recover any of them at that commit's parent —
+//     git show 19fce50b^:games/sonic4/data/sound/song_table.asm
+// — and the line numbers below land. The claims are true about those revisions; naming the
+// revision is what stops the coordinates rotting the way scene_dsl.emp's did.
+//
+// ONE bank: $8000 section = the .asm's `align $8000` (main.asm:221) + all
+// four straddle/window-top fatals (song_table.asm:74/82/93/111). Items emit
 // contiguously (§4.3 no-auto-pad) = the .asm's hand-maintained contiguity
 // comments made structural — no pad exists between items unless written
 // explicitly (the two HCZ2/DrumTest pads below are the ONLY such pads; every

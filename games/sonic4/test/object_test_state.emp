@@ -6,7 +6,7 @@
 // is a game-STATE bank (no objdef header); the GameState_* procs are the state
 // machine's entry points, dispatched through Game_State.
 //
-// Canonical-emission: byte-identical to object_test_state.asm both shapes
+// Canonical-emission: was byte-identical to the now-deleted object_test_state.asm in both shapes
 // (object_test_state window; shape-DEPENDENT — the DEBUG profiling block grows
 // the region +$9C). Determinism comes from the fixed churn pattern, not a freeze
 // hook, so the ObjectTest/ObjectTestChurn soak loops run old/new ROMs in lockstep

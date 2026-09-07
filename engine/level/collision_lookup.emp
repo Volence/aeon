@@ -1,6 +1,6 @@
 // Collision lookup (§4.7) — collision attr byte from the 2D tile cache.
 // Surface probing (heights/angles/solidity) lives in
-// engine/player/player_sensors.asm, built on top of this lookup.
+// games/sonic4/player/player_sensors.emp, built on top of this lookup.
 //
 // REGISTER CONVENTION (all sensor entry points): d3.b = collision layer
 // (0 = path A, 1 = path B — read from the querying object's SST_layer).

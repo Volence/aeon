@@ -1,11 +1,11 @@
 // Spindash — SHARED player ability state (all characters). Relocated out of
-// sonic.asm: spindash is identical across the roster; the per-character part
+// sonic.emp: spindash is identical across the roster; the per-character part
 // is only the spindash ANIMATION, which resolves through each character's own
 // SST_anim_table via ANIM_SPINDASH. Entered from PState_Ground's trigger.
 //
 // Lives in the object code bank (reached via the shared Player_States table).
 //
-// Gate SIGIL_EMP_PLAYER_SPINDASH (main.asm arms a plain ifndef — pure code).
+// Gate SIGIL_EMP_PLAYER_SPINDASH (a plain ifndef in the residual root — pure code).
 // Consumes the player_common keystone: PlayerV overlay + the surviving-AS
 // _pl_* / config / engine-const mirrors (file-local + drift-guarded here per
 // the first/2nd-consumer rule; the engine.constants hoist is ledgered for step 4).

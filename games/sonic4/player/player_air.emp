@@ -1,6 +1,6 @@
 // Player airborne states — AIR/JUMP/ROLLJUMP/AIRBALL share one body
 // (§5); tiny preambles set the two behavior bits. Reached only
-// through the Player_States offset table in player_common.asm; shares
+// through the Player_States offset table in player_common.emp; shares
 // its overlay equates, macros, and the (a4) physics-table convention.
 //
 // Placed in the object code bank by the sigil registry/map, right after

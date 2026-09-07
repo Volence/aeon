@@ -14,7 +14,7 @@
 // SHAPE-INVARIANT (264 bytes both shapes); soundBankHead's size wall + the
 // whole-ROM byte gate cover body-length drift.
 //
-// LAYOUT (sound_constants.asm PITCHTAB_*): TWO PARALLEL PAGES.
+// LAYOUT (engine/sound/sound_constants.emp PITCHTAB_*): TWO PARALLEL PAGES.
 //   page 0  = A4 bytes (YM $A4 = (block<<3)|fnumHi), 132 entries
 //   page 1  = A0 bytes (YM $A0 = fnum low),          132 entries
 //   For note index i (0..$83):  $A4 = base[i], $A0 = base[132 + i].

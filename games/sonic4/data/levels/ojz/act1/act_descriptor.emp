@@ -115,8 +115,9 @@ const GRID_H = 3
 // HERE, not at link): grid capacity, and the <= $8000 axis-extent ceiling that
 // guards BOTH boundary-clamp hazards (grid dim <= 16 sections, tighter than
 // either): (a) the signed-word MIN clamp — an axis extent at or past $8000 reads
-// negative and min-clamps to 0; (b) the word-truncated MAX clamp in camera.asm
-// AND player_common.asm (subi.w/cmp.w) that wraps above $FFFF px = grid dim > 31.
+// negative and min-clamps to 0; (b) the word-truncated MAX clamp in engine/level/camera.emp
+// AND games/sonic4/player/player_common.emp (subi.w/cmp.w) that wraps above $FFFF px =
+// grid dim > 31.
 // Floating-origin Phase 4 lifts both.
 ensure(GRID_W * GRID_H <= MAX_ACT_SECTIONS,
        "act grid {GRID_W}x{GRID_H} exceeds MAX_ACT_SECTIONS")

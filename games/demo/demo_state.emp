@@ -1,5 +1,5 @@
 // Demo game state — the minimal state machine the engine boot hands off to
-// (Game_Entry = GameState_Demo_Init, config/game.asm). One-shot setup loads the
+// (Game_Entry = GameState_Demo_Init, games/demo/config/game.emp). One-shot setup loads the
 // palette + art + one object, then per-frame runs and renders the object system.
 // This is the "engine-boots-without-Sonic" proof. TODO: your game's states,
 // levels, and objects grow from here.

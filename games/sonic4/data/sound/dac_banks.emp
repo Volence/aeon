@@ -3,7 +3,8 @@
 // Stage 2, the P2 probe)
 // ===========================================================================
 // The ROM-streamed DAC sample banks were the flat BINCLUDE island in
-// games/sonic4/main.asm's gameSoundDataIncludes. This module places them
+// the deleted games/sonic4/main.asm's gameSoundDataIncludes (placement is now
+// games/sonic4/map.toml). This module places them
 // NATIVELY by EMBEDDING the seam-2-emitted artifacts (dac_blip_bank.bin /
 // dac_shared_bank.bin) at their bank-aligned LMAs — the P2 path (spec §6): the
 // emit-tool architecture is untouched (`ensure_generated` still lowers

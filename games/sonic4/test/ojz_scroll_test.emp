@@ -1,4 +1,4 @@
-// OJZ horizontal scroll test state — the game ENTRY state (config/game.asm sets
+// OJZ horizontal scroll test state — the game ENTRY state (games/sonic4/config/game.emp sets
 // Game_Entry = GameState_OJZScroll_Init). Boots the level: palettes, FG art, the
 // camera, Player_1, section streaming, parallax, then hands to a per-frame update
 // that drives the camera off Player_1 and streams the world.
@@ -204,7 +204,7 @@ use games.sonic4.ojz_effects_editor_act1.{EditorRaster_OJZ_Act1_authored_probe, 
 use games.sonic4.player_common.{PlayerV, player_block}
 
 // Screen half-extents — the camera-center offsets for the Player_1 spawn. Their
-// real home is engine/level/camera.asm (not exported by camera.emp), mirrored
+// real home is engine/level/camera.emp (not exported by it), mirrored
 // file-local with a drift guard.
 
 // TestArt blob length — THIS module owns TestArt now (objtest-gate, 2026-08-05:

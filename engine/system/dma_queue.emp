@@ -23,9 +23,18 @@ const ENTRY2_COMMAND = ENTRY_LEN + offsetof(DMAEntry, Command)
 // fill_slot_markers — Init's per-slot marker pre-fill, displacements DERIVED
 // from the DMAEntry layout (slot c's Reg94 byte, then the Reg93/97/96/95
 // marker family via one movep.l). Emits n slots' worth of stores.
-// LOCKSTEP: dma_queue.asm spells this as a `rept DMA_TOTAL_SLOTS`/`set`
-// unroll — the byte gates are the guard; a slot-count or layout change must
-// move both sides (the gate names the first diverging byte if only one moves).
+// HISTORICAL, NOT A LIVE LOCKSTEP, and the correction is the point of this note.
+// It used to read "LOCKSTEP: dma_queue.asm spells this as a `rept DMA_TOTAL_SLOTS`/`set`
+// unroll — the byte gates are the guard; a slot-count or layout change must move both
+// sides". BOTH halves are gone: the AS dma_queue.asm was deleted with the rest of the
+// `.asm` code twins, and no tool in tools/ names it or any byte gate against it
+// (enumerated 2026-09-07 by grepping tools/ for the filename and for byte-gate spellings;
+// the only surviving "byte gate" is the whole-ROM golden CRC, which detects drift and
+// cannot compare two spellings of one routine). So there is no second side to move and
+// nothing checking that you did. What DOES hold this side honest is the generator itself:
+// the offsets come from `offsetof(DMAEntry, …)` and the stride from `sizeof(DMAEntry)`,
+// so a layout change re-emits rather than drifts, and dma_queue.emp's own
+// `ensure(sizeof(DMAEntry) == 14)` fails loudly if the entry width moves.
 // -----------------------------------------------
 comptime fn fill_slot_markers(n: int) -> Code {
     return 0..n |> fold(asm {}, |acc, c| acc ++ asm {
@@ -115,7 +124,7 @@ pub proc QueueDMA_Deferrable (d1: u32, d2: u16, d3: u16) clobbers(d0-d4/a1-a2) o
     // -----------------------------------------------
     export .transfer:
         move.w  sr, -(sp)
-        move.w  #$2700, sr                      // disableInts (engine/macros.asm)
+        move.w  #$2700, sr                      // disableInts, inlined (the AS macro file is gone)
         movea.w (a2), a1
         cmpa.w  d4, a1
         beq     .full
@@ -279,10 +288,12 @@ pub proc QueueDMA_Deferrable (d1: u32, d2: u16, d3: u16) clobbers(d0-d4/a1-a2) o
 // sizeof(DMAEntry)), so every slot must be exactly sizeof(DMAEntry) = 14
 // bytes wide; the drain run unrolls one 8-byte send group per entry, and
 // slot c branches to the group that drains exactly c entries.
-// LOCKSTEP: dma_queue.asm spells the table as `rept`/`set` unrolls with
-// arithmetic slot targets (`bra.w .drain_end-.c*8`) — this side names the
-// drain entry points instead; the byte gates prove the two spellings
-// identical.
+// HISTORICAL, NOT A LIVE LOCKSTEP — see the fill_slot_markers note above for the
+// enumeration. The deleted AS dma_queue.asm spelled the table as `rept`/`set` unrolls
+// with arithmetic slot targets (`bra.w .drain_end-.c*8`); this side names the drain entry
+// points instead. Nothing compares the two spellings any more, because there is no longer
+// a second spelling; the `bra.w` below is held stride-locked by its own STRUCTURAL
+// annotation and by the `sizeof(DMAEntry)` arithmetic, not by a gate.
 // -----------------------------------------------
 
 // One jump-table slot: point a5/a1 at the port and queue, then branch to the

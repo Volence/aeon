@@ -31,7 +31,7 @@ pub type ObjRoutine = proc (a0: *Sst) preserves(a0, d7.w)
 // walks the two pools as ONE contiguous run — it depends on Effect_Slots
 // immediately following the System_Slots block in RAM, which nothing else
 // enforces. extern() resolves the RAM labels at link (collision.emp's SST_interact
-// precedent); a ram.asm reorder that broke the adjacency would fail the link.
+// precedent); an engine/ram.emp reorder that broke the adjacency would fail the link.
 //
 // SINCE LS-10 THAT MERGED SWEEP IS THE **DEBUG ARM ONLY**, and so is this guard's
 // subject. The release arms of RunObjects_Frozen and collision.emp's
@@ -40,16 +40,19 @@ pub type ObjRoutine = proc (a0: *Sst) preserves(a0, d7.w)
 // costs nothing, and a shape-gated guard is one a release-only build stops
 // checking, which is how an adjacency break would reach the debug shape as a
 // wild sweep instead of a link error.
-ensure(extern("Effect_Slots") == extern("System_Slots") + sizeof(Sst)*NUM_SYSTEM, "ram.asm: Effect_Slots must immediately follow the System_Slots block — the DEBUG arms of RunObjects_Frozen and TouchResponse sweep System+Effect as one contiguous NUM_SYSTEM+NUM_EFFECTS run (the release arms start at Effect_Slots and do not depend on this)")
+ensure(extern("Effect_Slots") == extern("System_Slots") + sizeof(Sst)*NUM_SYSTEM, "engine/ram.emp: Effect_Slots must immediately follow the System_Slots block — the DEBUG arms of RunObjects_Frozen and TouchResponse sweep System+Effect as one contiguous NUM_SYSTEM+NUM_EFFECTS run (the release arms start at Effect_Slots and do not depend on this)")
 
 // Store d0 (the fill value) to (a0)+ n times — the unrolled long-word
 // clear/fill. Emits `move.l d0, (a0)+` × n, byte-identical to the hand
 // unroll; the count derives from the type so an SST size change re-emits
 // the right number of stores instead of drifting a hand list.
-// LOCKSTEP: core.asm's DeleteObject spells this as n hand-written
-// `move.l d0, (a0)+` lines (no AS `rept`) — the debug/plain byte gates are
-// the guard; an SST size change must update both sides (the gate names the
-// first diverging byte if only one moves).
+// HISTORICAL, NOT A LIVE LOCKSTEP. It used to read "LOCKSTEP: core.asm's DeleteObject
+// spells this as n hand-written `move.l d0, (a0)+` lines (no AS `rept`) — the debug/plain
+// byte gates are the guard; an SST size change must update both sides". The AS core.asm
+// is deleted and no tool in tools/ names it or a byte gate against it (enumerated
+// 2026-09-07 with the dma_queue.emp sweep). There is no second side and no gate watching
+// it. The guard that actually survives is the one directly above: the count DERIVES from
+// `sizeof(Sst)`, so an SST size change re-emits the right number of stores.
 comptime fn clear_longs(n: int) -> Code {
     return 0..n |> fold(asm {}, |acc, _i| acc ++ asm { move.l d0, (a0)+ })
 }

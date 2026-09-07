@@ -48,7 +48,7 @@ ensure(sizeof(Sec) == 34, "Section_GetSecPtrXY's stride pin: sizeof(Sec) moved o
 // comptime and doesn't demand the extern when section is compiled standalone.
 // MAX_ACT_SECTIONS (48) is far under 496 today.
 
-// ---- VDP command macros (truth: engine/macros.asm). First .emp consumer. ----
+// ---- VDP command helpers (truth: engine/vdp.emp). First .emp consumer. ----
 
 // The typed VDP command interface (VdpTarget/VdpOp sum types + vdp_comm /
 // vdp_comm_reg derivations) lives in the shared engine.vdp module — hoisted
@@ -61,7 +61,7 @@ ensure(sizeof(Sec) == 34, "Section_GetSecPtrXY's stride pin: sizeof(Sec) moved o
 // Clobbers: d0–d7, a0–a4   (transitive via EntityWindow_Init)
 // -----------------------------------------------
 pub proc Section_Init (a0: *Act) clobbers(d0-d7/a0-a4) {
-        move.l  a0, Current_Act_Ptr             // (Current_Act_Ptr).w — ram.asm; abs.w by the width rule
+        move.l  a0, Current_Act_Ptr             // (Current_Act_Ptr).w — engine/ram.emp; abs.w by the width rule
 
         // -- set up column/row trackers; first frame streams the plane --
         jbsr    Section_FillInitial

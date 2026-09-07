@@ -1,7 +1,18 @@
-// Shared engine struct definitions — Act (the 40-byte act descriptor), Sec
-// (the 66-byte section descriptor), DMAEntry (the 14-byte DMA-queue entry),
-// parallax_config (the 30-byte parallax ROM config header), and VdpShadow (the
-// 19-byte RAM mirror of VDP registers $00-$12).
+// Shared engine struct definitions — Act (the act descriptor), Sec (the section
+// descriptor), DMAEntry (the DMA-queue entry), parallax_config (the parallax ROM
+// config header), and VdpShadow (the RAM mirror of VDP registers $00-$12).
+//
+// THE SIZES USED TO BE SPELLED OUT ON THIS LINE AND ONE OF THEM HAD DECAYED 94% HIGH:
+// Sec was described as "the 66-byte section descriptor" while `sizeof(Sec)` is 34, and
+// the same stale 66 had been copied into tools/preset_lab_witness.py. No wrong stride ever
+// executed — every reader spells `sizeof(Sec)` — but the number a person reads was wrong
+// for longer than the number a machine reads could have been. So the sizes are not
+// restated here at all: `sizeof()` is the answer, and the four that a consumer's code
+// depends on are already pinned where that dependence lives —
+//   sizeof(Sec) == 34      engine/level/section.emp, engine/level/tile_cache.emp
+//   sizeof(DMAEntry) == 14 engine/system/buffers.emp, engine/system/dma_queue.emp
+// each with a message naming what re-derives if it moves. Those pins are the mechanism;
+// a size in this banner was only ever a claim.
 // All are TYPE-ONLY: this module emits ZERO bytes. It gives every consumer
 // (act_descriptor.emp, section.emp, tile_cache.emp, entity_window.emp,
 // dma_queue.emp) ONE typed home for field access —
@@ -9,8 +20,9 @@
 // instead of per-file offset-const mirrors.
 //
 // This module is the SOLE AUTHOR of these layouts. The residual AS reads the
-// field offsets + total sizes it needs (`ram.asm`'s `ds` slot sizes,
-// `act_descriptor.asm`'s `Sec`/`Act` access) through the struct-offset harvest:
+// field offsets + total sizes it needs (the residual root's `ds` slot sizes, and the
+// `Sec`/`Act` access in games/sonic4/data/levels/ojz/act1/act_descriptor.emp) through
+// the struct-offset harvest:
 // the build harvests each struct's `<Struct>_<field>` / `<Struct>_len` and
 // injects them as guarded AS defines, the struct-offset sibling of the constants
 // flip. Field names are VERBATIM the AS spelling (the `sec_`/`act_` stutter
@@ -39,7 +51,7 @@ pub struct Act {
     act_art_pool_table:  *u8,           // $1A — manifest v2 table: [PageManifest; act_art_pool_pages] (generated)
     act_art_pool_pages:  u16,           // $1E — pool page count (generated)
     edge_mode:           u8,            // $20 — vertical edge behavior (EDGE_*)
-    pad_21:              u8 = 0,        // $21 — reserved byte pad (anonymous in structs.asm)
+    pad_21:              u8 = 0,        // $21 — reserved byte pad (was anonymous in the deleted engine/structs.asm, c745d75e)
     act_sec_local_maps:  *u8,           // $22 — [*u8; grid_w*grid_h] per-section local->global tables (P2b, generated)
     act_art_budget:      u16,           // $26 — per-act steady-state art-streaming byte budget (B&R
                                         //       pattern, P2c Task 9): PageIn_Process's once-per-physical-
@@ -390,7 +402,7 @@ pub comptime fn cd_roll_h_off() -> int {
 // with nothing gating it. (2) A mid-frame raster poke needs no paired frame-top
 // reset word, because the flush already is one; that is the whole reason the
 // dirty mask went. The build harvests these field offsets (`VDP_Shadow_vdp_*`) + `VDP_Shadow_len`
-// for the residual AS (ram.asm's `ds`, residual-AS `setVDPReg` expansions);
+// for the residual AS (its `ds` reservations and `setVDPReg` expansions);
 // engine.vdp mirrors the register offsets it needs as convenience constants
 // (VDP_MODE1_OFF/…, e.g. demo_state.emp's display-enable).
 // -----------------------------------------------

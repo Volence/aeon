@@ -280,7 +280,7 @@ pub proc Render_Sprites () clobbers(d0-d7/a0-a6) {
         // no band overflow — per-frame fairness (no sprite is permanently
         // occluded by a same-band neighbour) is preferred over a stable
         // z-order. The flicker is the cost of the fairness.
-        btst    #0, Sprite_Cycle_Counter+1    // odd byte = frame parity; (Sprite_Cycle_Counter+1).w ram.asm
+        btst    #0, Sprite_Cycle_Counter+1    // odd byte = frame parity; (Sprite_Cycle_Counter+1).w — engine/ram.emp
         bne   .reverse_band
         move.w  #2, -(sp)                  // even frame: forward step
         jbra   .object_loop
