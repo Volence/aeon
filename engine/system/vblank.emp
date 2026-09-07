@@ -117,8 +117,14 @@ pub proc VInt_Level () clobbers(d0-d4/a0-a3/a5-a6) requires(vblank) {
         // the DAC from the RAM ring with NO ROM read) for as long as the flag is
         // set — so a banked ROM read can never land inside a DMA burst and stall
         // the Z80 bus (the under-load pitch sag). The brief bus-held byte write is
-        // the ONLY 68k bus hold in the sound build; the DMA pipeline itself runs
-        // with the Z80 free. The OFF build keeps the original full-DMA Z80 fence.
+        // the only 68k bus hold THIS BRACKET PAIR TAKES — the DMA pipeline between
+        // them runs with the Z80 free, which is the whole point. It is NOT the only
+        // bus hold in the sound build, and this comment used to say that it was:
+        // `Read_Controllers` (engine/system/controllers.emp) takes an unconditional,
+        // far longer hold thirty lines below, on this very path, every frame. The
+        // tree-wide census is in engine/z80_bus.emp's header — 22 bracketed holds
+        // plus boot's hand-spelled one. The OFF build keeps the original full-DMA
+        // Z80 fence.
         if SOUND_DRIVER_ENABLED == 1 {
             with z80_stopped {
                 move.b  #1, SND_DMA_ACTIVE_SLOT // raise: DMA window open (Z80 -> DRAIN)
@@ -279,8 +285,9 @@ pub proc VInt_Level () clobbers(d0-d4/a0-a3/a5-a6) requires(vblank) {
         // Sound (flag bracket close): the VDP/DMA window is finished — ROM is safe
         // to read again. Clear SND_CTRL_DMA_ACTIVE=0 so the Z80 producer leaves its
         // DRAIN path and resumes FILL read-ahead. Net: the flag was 1 for the
-        // whole VDP/DMA window. Brief bus-held write (the only 68k bus hold in the
-        // sound build); the DMA pipeline above ran with the Z80 free.
+        // whole VDP/DMA window. Brief bus-held write — the pipeline ABOVE ran with
+        // the Z80 free, which is what this pair buys. Not the only bus hold in the
+        // sound build (see the raise above, and `Read_Controllers` just below).
         if SOUND_DRIVER_ENABLED == 1 {
             with z80_stopped {
                 move.b  #0, SND_DMA_ACTIVE_SLOT // lower: DMA window closed (Z80 -> FILL)
@@ -385,9 +392,39 @@ proc VInt_Lag () clobbers(d0-d4/a0-a2/a5) requires(vblank) {
             // (grep VDP_Shadow_Table — every write names MODE1/MODE2/MODE3/HINT;
             // Set_VDP_Reg is the only routine that could reach an arbitrary slot
             // and it currently has no callers). Between the flush and here sits
-            // only Enqueue_Dirty_Buffers, which appends DMA-queue entries in RAM
-            // and calls Parallax_Active_Config — no VDP access on either path.
-            // So the drain is entered with autoinc = $02 by construction.
+            // only Enqueue_Dirty_Buffers.
+            //
+            // CORRECTED 2026-09-07 (lens item LS-19). This derivation used to end
+            // "…which appends DMA-queue entries in RAM and calls
+            // Parallax_Active_Config — no VDP access on either path." THE SECOND
+            // HALF WAS TRUE and the first was not. Parallax_Active_Config really
+            // is two `move.l`s and an `rts` (parallax.emp:1399) — but
+            // Enqueue_Dirty_Buffers ALSO carries `.ship_reg`
+            // (buffers.emp:448-450), a `dbf` loop doing `move.w (a1)+, VDP_CTRL`,
+            // whose own comment says THIS WRITES THE VDP DIRECTLY in capitals. So
+            // there IS VDP access on this path, and the conclusion needs a
+            // different reason.
+            //
+            // THE REASON IT SURVIVES, and it is a comptime refusal in another
+            // module rather than anything local: the words `.ship_reg` re-issues
+            // are a fire's SetReg ops, carried into the ship trailer by
+            // `ship_trailer()` (raster_dsl.emp:3438), which is reachable ONLY from
+            // `patched_program()` (:3576) — and that runs `raster_program(fires)`
+            // over the same `fires` first, whose E-D scan (:3190) refuses any op
+            // with `(word >> 8) == $8F` tree-wide, unconditionally, on every
+            // program in the tree. Reg $0F is the autoincrement register. So no
+            // word reaching `.ship_reg` can perturb autoinc, and the drain below
+            // is entered at $02 — by that ban, not by an absence of VDP writes.
+            //
+            // THAT BAN IS LOAD-BEARING FOR THIS DELETION. Its sibling refusal at
+            // raster_dsl.emp:205 offers "Revocable behind a stride-aware span
+            // model (spec §4.2b)"; a stride-aware span model would satisfy the
+            // reason the ban was WRITTEN (op_cram_span / op_mask arithmetic) and
+            // would not touch the reason it is needed HERE. If §4.2b is ever
+            // revoked, restore a `move.w #$8F02, VDP_CTRL` on this line before
+            // Process_DMA_Critical. The poison fixture
+            // games/sonic4/test/poison/poison_direct_8f.emp is what keeps the ban
+            // honest.
             // NOT the same as VInt_DrawLevel's identical-looking `.done` restore
             // (plane_buffer.emp), which is still load-bearing: on the VInt_Level
             // path the drain runs AFTER it, and VInt_DrawLevel's own column
