@@ -816,6 +816,49 @@ ROM_KB=$(awk "BEGIN {printf \"%.1f\", ${ROM_SIZE}/1024}")
 ROM_PCT=$(awk "BEGIN {printf \"%.1f\", ${ROM_SIZE}/4194304*100}")
 echo "Build complete: ${ROM_NAME}.bin — ${ROM_SIZE} bytes (${ROM_KB} KB, ${ROM_PCT}% of 4MB)"
 
+# --- CROSS-GAME GUARD EVALUATION (LS-16a, 2026-09-07) ------------------------
+# WHY THIS EXISTS. engine/system/z80_init.emp carries
+# `ensure(extern("Z80_IDLE_SIZE") == 40, ..)`. That module is `when = "sound_off"`
+# and both shipped sonic4 shapes build with sound ON, so sigil reports
+# `[module.unreachable] ... its 1 ensure guard(s) are never evaluated for this
+# target` and the guard is dead here. It fires correctly under `--game demo`,
+# which nothing on the per-commit path built -- only the nightly did. So a drift
+# it guards against was caught NIGHTLY AT BEST, not at the commit that caused it.
+#
+# THE RULING THIS REPLACES WAS MADE ON THE WRONG MEASUREMENT, and saying so here
+# is the point: it was left nightly because "a demo build is ~150 s". That figure
+# is real and it is `./build.sh demo`, THE WHOLE VERIFICATION LANE. Evaluating the
+# guard needs only the assemble, which this file's own header has always said is
+# ~1.15 s of a ~38 s lane ("of which the assemble is 3%"). Re-measured directly:
+# 2.42 / 2.37 / 2.27 s under load 12-13, ~0.75 s on a quiet machine. One to two
+# percent, not a doubling. Caught by the sigil lane re-deriving the number.
+#
+# TO A SCRATCH PATH, DELIBERATELY, and this is the load-bearing choice. Writing
+# real demo artifacts here would give demo.bin/demo.lst a fresh mtime from a
+# SONIC4 invocation, and the post-sigil lane's `--artifacts-built-after` rule
+# would then read them as legitimately produced. The needs_build test that
+# declares demo.debug.lst DEFERS today precisely because no sonic4 build makes
+# it; a side-effect write would turn that honest deferral into a FALSE PASS --
+# re-creating, one layer down, the defect LS-1/LS-1b closed.
+#
+# WHAT A GREEN HERE DOES NOT MEAN: this assembles the other game to decide its
+# link-time guards. It is not a demo build, it runs none of demo's verification
+# lanes, and it says nothing about demo's ROM. It is superseded by
+# `sigil build --check` (sigil d90a297c) once a shared pair carrying it is
+# installed -- cheaper, and it emits no ROM at all.
+if [[ "${GAME}" == "sonic4" && "${FAST:-0}" != "1" ]]; then
+    _xg_out="$(mktemp -d)"
+    echo "Evaluating the other game's link-time guards (assemble only, scratch output)..."
+    if ! "${SIGIL_BUILD}" build --aeon . --native --game demo \
+            -o "${_xg_out}/demo.bin" --emit-lst "${_xg_out}/demo.lst" >"${_xg_out}/log" 2>&1; then
+        echo "ERROR: the demo assemble failed — a cross-game guard is red, or demo is broken." >&2
+        sed -n '1,40p' "${_xg_out}/log" >&2
+        rm -rf "${_xg_out}"
+        exit 1
+    fi
+    rm -rf "${_xg_out}"
+fi
+
 # The listing-reading gates. The `-f` guard that used to wrap this block made a
 # MISSING listing a silent skip of s4budget, the seam gate and the BG-anim ceiling
 # together; sigil was asked for `--emit-lst` two screens up, so its absence here is
