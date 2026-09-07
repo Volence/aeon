@@ -1,0 +1,50 @@
+// games/sonic4/test/poison/poison_extern_span.emp — POISON (see README).
+//
+// TARGETS: the LINK-ASSERT phase reached through a DIFFERENCE OF TWO LABEL VMAs — the
+// memory-reservation shape, which is what `engine/ram.emp`'s `mark`ed regions are checked
+// against.
+// EXPECTED FRAGMENT: "LS16_EXTERN_SPAN_POISON: this poison claims the Parallax_State
+//                     reservation spans 1 byte; the link says "
+//
+// WHY THIS IS A SEPARATE ROW FROM poison_extern_equate. That one resolves an EQU through
+// the `.asm` namespace; this one resolves two RAM LABELS and subtracts their addresses,
+// which is a different road through `resolve_layout` and the road every reservation guard
+// in the family takes:
+//
+//     engine/effects/palette.emp:93   Palette_State_End   - Palette_State
+//     engine/effects/raster.emp:382   Raster_State_End    - Raster_State
+//     engine/effects/raster.emp:417   Effects_Screen_L    - Effects_World_Y
+//     engine/effects/raster.emp:419   Effects_Target      - Effects_Motion  (x2)
+//     engine/level/bg_anim.emp:403    Waterline_Art_State_End - Waterline_Art_Buffer
+//     engine/level/parallax.emp:480   Parallax_Shadow_Scroll_A - Parallax_Shadow_Bands
+//     engine/level/parallax.emp:572   Parallax_Shadow_Bands    - Parallax_Curve_Carry
+//     engine/level/parallax.emp:581   Parallax_Curve_Carry     - Parallax_Drift_Acc
+//     engine/level/parallax.emp:590   Parallax_Drift_Acc       - Parallax_Remap_State
+//     engine/level/parallax.emp:592   Parallax_State_End       - Parallax_State
+//     engine/objects/core.emp:43/63   Effect_Slots / Object_RAM_End - Object_RAM
+//
+// Each of those refuses a reservation that is too short for the geometry that has to live
+// in it. This poison uses the same pair as parallax.emp:592.
+//
+// WHAT THE FRAGMENT PINS, AND WHAT IT DELIBERATELY DOES NOT. It pins the poison's own
+// claim (1 byte, read out of this file by `emp_const`, so the fixture and the fragment
+// move together) and the guard's wording, and it STOPS before the interpolated real span.
+// There is no literal `.emp` authority for that span to compute it from: the constant that
+// owns it, `PARALLAX_STATE_LONGS`, is a `comptime` expression over four `sizeof`s and
+// MAX_PARALLAX_BANDS, and re-deriving it here would be a second mirror to maintain for no
+// gain. The row's assertion is that the two-label-difference road is live and reported —
+// not that the reservation is any particular size, which parallax.emp:592 itself asserts
+// on every build.
+//
+// WHY 1 BYTE IS IMPOSSIBLE, STRUCTURALLY. Parallax_State/_End bracket a `mark`ed region
+// that Parallax_Init clears in LONGS, so the span is a nonzero multiple of 4 by
+// construction and its own guard (parallax.emp:592) says so. A 1-byte span cannot be
+// reached by any edit that leaves the tree buildable; if it somehow were, this poison
+// would build CLEAN and the row would fail on a count of 0 rather than pass quietly.
+//
+// Zero bytes, ensures-only — unreachable from any real entry.
+module games.sonic4.test.poison.poison_extern_span
+
+const LS16_IMPOSSIBLE_SPAN = 1
+
+ensure(extern("Parallax_State_End") - extern("Parallax_State") == LS16_IMPOSSIBLE_SPAN, "LS16_EXTERN_SPAN_POISON: this poison claims the Parallax_State reservation spans {LS16_IMPOSSIBLE_SPAN} byte; the link says {extern(\"Parallax_State_End\") - extern(\"Parallax_State\")}")
