@@ -259,6 +259,53 @@ def frame_costs(frames, art_base, tile_size, boundary):
 WRITER_SCAN_ROOTS = ("engine", "games/sonic4")
 WRITER_SCAN_SUFFIXES = (".emp", ".asm")
 
+#: Path prefixes the writer scan skips because their modules reach NO ROM.
+#:
+#: The scan's question is "what can the GAME put in `Sst.mapping_frame`", so a
+#: module the build never assembles cannot widen the reachable set — but it can
+#: and does trip the unclassified-writer assertion, because these fixtures are
+#: real code that a peer repo compiles standalone.
+#:
+#: `games/sonic4/test/fixtures/` holds sigil's negative-probe input (see that
+#: file's header and `tools/test_sigil_probe_fixture.py`). `test/` as a WHOLE is
+#: deliberately not excluded: `games/sonic4/test/ojz_scroll_test.emp` ships in
+#: release and its writers must stay in the population.
+#:
+#: THE EXCLUSION IS NOT A BLIND SKIP. `unshipped_scan_paths()` re-establishes
+#: the reason on every call by reading the map.tomls, so a module that starts
+#: reaching a ROM comes straight back into the scan instead of staying silently
+#: skipped — the failure mode a hand-kept skip list has.
+WRITER_SCAN_UNSHIPPED_PREFIXES = ("games/sonic4/test/fixtures/",)
+
+
+def unshipped_scan_paths():
+    """The `WRITER_SCAN_UNSHIPPED_PREFIXES` files, VERIFIED to reach no ROM.
+
+    Raises `Unmeasurable` if a prefix is named by any game's `map.toml`, rather
+    than skipping it on the strength of its directory name. A skip whose premise
+    stopped being true is worse than no skip: it removes a real writer from the
+    population and reports nothing.
+    """
+    named = []
+    for toml in sorted(AEON.glob("games/*/map.toml")):
+        text = toml.read_text()
+        for prefix in WRITER_SCAN_UNSHIPPED_PREFIXES:
+            for p in sorted((AEON / prefix).rglob("*")) if (AEON / prefix).is_dir() else []:
+                if p.suffix in WRITER_SCAN_SUFFIXES and p.stem in text:
+                    named.append(f"{toml.relative_to(AEON).as_posix()} names {p.stem}")
+    if named:
+        raise Unmeasurable(
+            "a module under WRITER_SCAN_UNSHIPPED_PREFIXES now reaches a ROM: "
+            + "; ".join(named)
+            + " — it must go back into the writer scan, not stay excluded"
+        )
+    out = set()
+    for prefix in WRITER_SCAN_UNSHIPPED_PREFIXES:
+        base = AEON / prefix
+        if base.is_dir():
+            out |= {p.relative_to(AEON).as_posix() for p in base.rglob("*") if p.is_file()}
+    return out
+
 #: 68000 mnemonics whose LAST operand is the destination. A line is a write site
 #: when one of these is the mnemonic and `mapping_frame(aN)` is its last operand.
 WRITE_MNEMONICS = {
@@ -575,6 +622,7 @@ def scan_write_sites():
     width = {"b": 1, "w": 2, "l": 4}
 
     sites = []
+    unshipped = unshipped_scan_paths()
     for root in WRITER_SCAN_ROOTS:
         base = AEON / root
         if not base.is_dir():
@@ -583,6 +631,8 @@ def scan_write_sites():
             if p.suffix not in WRITER_SCAN_SUFFIXES or not p.is_file():
                 continue
             rel = p.relative_to(AEON).as_posix()
+            if rel in unshipped:
+                continue
             sym = "<file>"
             for n, raw in enumerate(p.read_text(errors="replace").splitlines(), 1):
                 s = symbol.match(raw)
@@ -724,9 +774,12 @@ def check_anim_dplc_pairings():
     ani = re.compile(r'#Ani_(\w+)\b')
     dplc = re.compile(r'#DPLC_(\w+)\b')
     bad = []
+    unshipped = unshipped_scan_paths()
     for root in WRITER_SCAN_ROOTS:
         for p in sorted((AEON / root).rglob("*")):
             if p.suffix not in WRITER_SCAN_SUFFIXES or not p.is_file():
+                continue
+            if p.relative_to(AEON).as_posix() in unshipped:
                 continue
             rel, sym, seen = p.relative_to(AEON).as_posix(), "<file>", {}
             for n, raw in enumerate(p.read_text(errors="replace").splitlines(), 1):
