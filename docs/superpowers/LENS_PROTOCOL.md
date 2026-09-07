@@ -108,8 +108,11 @@ Seat rules for Roster C, on top of the brief below:
   for, in oracle's words: *a default that fills in silently when the specific thing is
   absent.* Any first-set-wins chain (an env var, then a runtime dir, then a fixed path;
   a binary, then the main checkout's build) terminates at a seat-private value the seat set
-  explicitly, and the seat proves once that the unforced case REFUSES rather than falls
-  back. Three instances were found before the first run: a raw launch attaching to the
+  explicitly, and the seat proves once WHICH VALUE WAS IN EFFECT, read back from what the
+  run prints or writes; on a green run that is usually WHERE its artifacts landed (present
+  under the seat's own location, absent from the shared default), and a demonstrated
+  refusal of the unforced case is one such proof, not the only one. Three instances were
+  found before the first run: a raw launch attaching to the
   owner's compositor, a binary name silently measuring the main checkout, and an app-side
   socket resolver arriving at the owner's live game window when the variable was unset,
   reachable because the audit seat is REQUIRED to press every control and the status badge
