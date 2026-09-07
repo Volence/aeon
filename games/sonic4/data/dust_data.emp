@@ -10,6 +10,10 @@
 module games.sonic4.dust_data in dust_data
 
 use engine.constants.{TILE_SIZE, DMA_IMPORTANT_SLOTS}
+// The two VRAM windows this blob's halves land in, by their DECLARED extents.
+// Sole authority is games.sonic4.constants, whose vram-map block emits each
+// region's `_TILES` from games/sonic4/vram.toml beside its base.
+use games.sonic4.constants.{VRAM_DUST_PUFF_TILES, VRAM_DUST_SPINDASH_TILES}
 use engine.objects.dplc.{dplc_peak_tiles, dplc_peak_entries, DPLC_ENTRY_RESERVE,
                          DPLC_ADDRESSABLE_TILES}
 
@@ -27,12 +31,27 @@ pub const DUST_PUFF_ART_LEN = 16 * TILE_SIZE    // 512
 ensure(_art_dust.len == 88 * TILE_SIZE, "Art_Dust must be 88 tiles — 72 charge + 16 puff")
 ensure(DUST_PUFF_ART_OFF + DUST_PUFF_ART_LEN == _art_dust.len,
        "the puff block must be the TAIL of Art_Dust")
+// …and the length of that DMA must be the length of the region it lands in.
+// Without this the triangle blob-length / OFF / LEN is self-consistent and tied
+// to NOTHING in the map: a re-export with a bigger puff block fires the two
+// ensures above, the obvious repair is to raise the 16 here, and the build goes
+// green while the DMA writes past `dust_puff` into `dust_spindash`'s charge
+// tiles. That is the C2a-H1c shape; this line is what refuses it. DOES NOT
+// COVER: the puff MAPPINGS, which could address tiles this DMA never wrote, nor
+// the DMA's destination (vram_bytes(VRAM_DUST_PUFF), at the load site in
+// games/sonic4/test/ojz_scroll_test.emp).
+ensure(DUST_PUFF_ART_LEN == VRAM_DUST_PUFF_TILES * TILE_SIZE,
+       "the resident puff DMA is {DUST_PUFF_ART_LEN} bytes but `dust_puff` is declared {VRAM_DUST_PUFF_TILES} tiles ({VRAM_DUST_PUFF_TILES * TILE_SIZE} bytes) in games/sonic4/vram.toml — the DMA would run past the region into its neighbour. Resize the REGION and regenerate, or re-page the art; do not just raise the length here")
 // Entries are Important queue slots; the dust's tables are single-entry.
 ensure(dplc_peak_entries(_dplc_dust) + DPLC_ENTRY_RESERVE <= DMA_IMPORTANT_SLOTS,
        "the dust DPLC's peak frame costs more Important queue slots than the budget leaves — re-page the dust art")
 
-ensure(dplc_peak_tiles(_dplc_dust) <= 12,
-       "the charge DPLC's peak frame exceeds its 12-tile window (VRAM_DUST_SPINDASH)")
+// The charge half streams into `dust_spindash`. The ceiling used to be the bare
+// literal 12 — a hand-typed restatement of that region's extent, with nothing
+// tying it to the map (LS-4 / C2a-H1, fixed 2026-09-07). It is now the map's own
+// declaration, so shrinking the region in vram.toml lands here red.
+ensure(dplc_peak_tiles(_dplc_dust) <= VRAM_DUST_SPINDASH_TILES,
+       "the charge DPLC's peak frame is {dplc_peak_tiles(_dplc_dust)} tiles and exceeds its {VRAM_DUST_SPINDASH_TILES}-tile window `dust_spindash` — re-page the art, or grow the region in games/sonic4/vram.toml and regenerate. DOES NOT COVER: the queue-slot cost of that frame (the entries guard above), nor the RESIDENT puff half, which is not DPLC-streamed and is guarded by the DUST_PUFF_ART_LEN ensure instead")
 
 // THE 12-BIT tile_start CEILING. Vacuously true for an 88-tile sheet (4,008 of
 // headroom) and stated anyway: the property is "every DPLC-fed art sheet carries

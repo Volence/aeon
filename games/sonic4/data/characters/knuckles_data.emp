@@ -43,9 +43,10 @@
 // itself does (it swaps Pal_Knuckles into CRAM line 0 for him).
 module games.sonic4.knuckles_data in knuckles_data
 
-// The character DPLC window + its hard wall — the VRAM budget the peak guard
-// below is stated against. Sole authority is games.sonic4.constants.
-use games.sonic4.constants.{VRAM_TEST_SONIC, VRAM_TEST_OBJ}
+// The character DPLC window's DECLARED EXTENT — the VRAM budget the peak guard
+// below is stated against. Sole authority is games.sonic4.constants, whose
+// vram-map block emits it from games/sonic4/vram.toml beside the window's base.
+use games.sonic4.constants.{VRAM_TEST_SONIC_TILES}
 use engine.constants.{TILE_SIZE, DMA_IMPORTANT_SLOTS}
 use engine.objects.dplc.{dplc_peak_tiles, dplc_peak_entries, DPLC_ENTRY_RESERVE,
                          DPLC_ADDRESSABLE_TILES}
@@ -133,21 +134,26 @@ ensure((_pal_knux[14] << 8 | _pal_knux[15]) == DUST_GRAY_IDX7,
        "Pal_Knuckles moved off the authored effect-dust gray at idx7 — the shared dust would recolour")
 
 // -----------------------------------------------
-// THE VRAM WALL — the peak comes from the DATA, not from a comment.
+// THE VRAM WALL — the peak comes from the DATA, the ceiling from the MAP.
 //
 // Knuckles shares the single character DPLC window with Sonic and Tails (only one
 // character is resident at a time), so his file-wide peak has to clear the same
 // wall theirs does. Measured 29 tiles into the 32-tile window: the same peak
-// Sonic has, and the tightest of the three. The bound is read from its owner
-// (VRAM_TEST_OBJ) rather than restated, so moving that neighbour re-checks this
-// automatically.
+// Sonic has, and the tightest of the three.
+//
+// ⚠ THE CEILING USED TO BE THE NEIGHBOUR'S BASE (VRAM_TEST_OBJ), under a comment
+// claiming that moving that neighbour re-checked this automatically (LS-4, fixed
+// 2026-09-07). It is now `character_window`'s own declared extent, so this guard
+// names no other region. A neighbour still cannot take tiles from this window
+// unnoticed: gen_vram_map.py enforces overlap and full 0..2047 coverage, so any
+// such take shows up as this region's `tiles` dropping — which lands here red.
 //
 // NOTE this is measured on the RAW DPLC, where a frame's tiles arrive as up to 5
 // entries. dplc_peak_tiles sums per frame, so it measures the VRAM footprint
 // (29 tiles) and not the entry count — which is the right quantity for this wall.
 // -----------------------------------------------
-ensure(VRAM_TEST_SONIC + dplc_peak_tiles(_dplc_knux) <= VRAM_TEST_OBJ,
-       "Knuckles' peak DPLC frame overruns the character VRAM window into VRAM_TEST_OBJ — widen the window or re-page the art")
+ensure(dplc_peak_tiles(_dplc_knux) <= VRAM_TEST_SONIC_TILES,
+       "Knuckles' peak DPLC frame is {dplc_peak_tiles(_dplc_knux)} tiles and overruns the {VRAM_TEST_SONIC_TILES}-tile character VRAM window — re-page the art, or grow `character_window` in games/sonic4/vram.toml (raise `tiles`, hold `base`) and regenerate. DOES NOT COVER: the queue-slot cost of that frame (the entries guard below), the straddle split neither ensure can see, nor Sonic and Tails, who share this window and carry their own copies in collision_data.emp and tails_data.emp — a fix here fixes ONE of three")
 
 // The OTHER budget the note above disclaims: entries are Important queue SLOTS,
 // one enqueue each. Knuckles' raw table peaks at 5, comfortably inside the real

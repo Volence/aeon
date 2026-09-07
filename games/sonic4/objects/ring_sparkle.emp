@@ -29,7 +29,11 @@ use engine.objects.mapping_dsl.{MapPiece, MapFrame1, centered}
 use engine.constants.{RF_PRIORITY_SHIFT, TILE_SIZE, AF_DELETE, AF_SET_FIELD,
                       RING_ENTRY_X_OFFSET, RING_ENTRY_Y_OFFSET}
 use engine.coords.{pixels_to_coord}
-use games.sonic4.constants.{VRAM_RING_SPARKLE, EFFECT_RING_SPARKLE_BAND}
+// VRAM_RING_SPARKLE_TILES — the `ring_sparkle` region's DECLARED extent, emitted
+// from games/sonic4/vram.toml beside the base. It is the ONLY tile count this
+// module states its art against; see the ensure below for what that closes.
+use games.sonic4.constants.{VRAM_RING_SPARKLE, VRAM_RING_SPARKLE_TILES,
+                            EFFECT_RING_SPARKLE_BAND}
 
 // -----------------------------------------------
 // Art — donor tiles 10-13 of sonic_hack's Ring.bin (the S2/S3K ring sheet), the same
@@ -40,16 +44,34 @@ use games.sonic4.constants.{VRAM_RING_SPARKLE, EFFECT_RING_SPARKLE_BAND}
 // -----------------------------------------------
 const _art_sparkle = embed("games/sonic4/test/ring_sparkle_art.bin")
 
-pub const RING_SPARKLE_TILES   = 4
 // A pure literal, deliberately: an imported `pub const` is re-elaborated in the
 // importer's scope (docs/EMP_PITFALLS.md §2/§8 — free names resolve at the use site),
-// so spelling this as RING_SPARKLE_TILES * TILE_SIZE fails by name in
-// ojz_scroll_test.emp. The ensure below keeps the literal honest.
+// so spelling this as VRAM_RING_SPARKLE_TILES * TILE_SIZE fails by name in
+// ojz_scroll_test.emp, which imports the length but not the map constant. The
+// ensure below keeps the literal honest.
 pub const RING_SPARKLE_ART_LEN = 128                                // the DMA length
-ensure(RING_SPARKLE_ART_LEN == RING_SPARKLE_TILES * TILE_SIZE,
-       "RING_SPARKLE_ART_LEN drifted from RING_SPARKLE_TILES * TILE_SIZE")
+// -----------------------------------------------
+// THE ONE TILE COUNT — the region's, not a local twin (LS-4 / C2a-H1c, 2026-09-07).
+//
+// This used to read `RING_SPARKLE_ART_LEN == RING_SPARKLE_TILES * TILE_SIZE`
+// against a local `pub const RING_SPARKLE_TILES = 4`, which made blob length,
+// DMA length and tile count a SELF-CONSISTENT TRIANGLE tied to nothing in the
+// map. Re-export a 6-tile sparkle and the blob ensure fires; the obvious repair
+// is to raise the local 4 and the 128 together; the build goes GREEN and the DMA
+// at games/sonic4/test/ojz_scroll_test.emp writes 192 bytes to tile 924, i.e.
+// 924..929, over the insta-shield's first two tiles at 928..929. The sparkle
+// looks correct and the shield renders sparkle pixels, arbitrarily far from the
+// edit. Deleting the local twin is the fix: there is no longer a knob to turn
+// that does not go through games/sonic4/vram.toml.
+//
+// DOES NOT COVER: the DMA's DESTINATION (that is `vram_bytes(VRAM_RING_SPARKLE)`
+// at the load site, not here), the sparkle MAPPINGS, which could address tiles
+// this blob does not contain, or the four flip orientations sharing one piece.
+// -----------------------------------------------
+ensure(RING_SPARKLE_ART_LEN == VRAM_RING_SPARKLE_TILES * TILE_SIZE,
+       "the resident sparkle DMA is {RING_SPARKLE_ART_LEN} bytes but `ring_sparkle` is declared {VRAM_RING_SPARKLE_TILES} tiles ({VRAM_RING_SPARKLE_TILES * TILE_SIZE} bytes) in games/sonic4/vram.toml — the DMA would run past the region into `insta_shield`. Resize the REGION and regenerate, or re-page the art; do not just raise the length here")
 ensure(_art_sparkle.len == RING_SPARKLE_ART_LEN,
-       "ring_sparkle_art.bin is {_art_sparkle.len} bytes; the sparkle is one 2x2 piece = 4 tiles = {RING_SPARKLE_ART_LEN}")
+       "ring_sparkle_art.bin is {_art_sparkle.len} bytes; the sparkle is one 2x2 piece = {VRAM_RING_SPARKLE_TILES} tiles = {RING_SPARKLE_ART_LEN}")
 
 // Palette census — the claim "draws on the ring's CRAM line 1 with no remap" pinned to
 // the bytes: every nibble must be 0 (transparent) or one of the ring's four line-1

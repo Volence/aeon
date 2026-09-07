@@ -44,7 +44,16 @@ pub const GS_DEMO                 = 2
 // Emitted from games/demo/vram.toml — edit THAT, then run:
 //   python3 tools/gen_vram_map.py --game demo
 // The map doc: docs/generated/vram-map-demo.md
+// Each region below publishes TWO names: <CONST> (its base, a VramTile)
+// and <CONST>_TILES (its DECLARED extent, a plain tile count). A guard that
+// asks 'does my art fit my window?' binds against _TILES and names no other
+// region — a neighbour's base is not this region's extent, and reaching for
+// one is the LS-4 defect. NOT COVERED by these two names: whether the region
+// is big enough for what it holds (its own module's ensure asks that), DMA
+// queue-slot cost, run-time residency/lifetime overlap, or VDP base-register
+// alignment (gen_vram_map.py checks none of those).
 pub const VRAM_DEMO_OBJ           : VramTile = $03E0   // demo_obj: tiles 992..995 (4), boot, owner games.demo.demo_state
+pub const VRAM_DEMO_OBJ_TILES             = 4   // demo_obj: DECLARED extent — the ceiling a residency guard binds against
 // Authority cross-checks — the engine constant vs the declared map:
 ensure(POOL_TILE_CEILING == 768, "vram.toml fg_art_pool drifted from engine POOL_TILE_CEILING — edit games/demo/vram.toml and regenerate")
 ensure(BG_TILE_CAPACITY == 400, "vram.toml bg_region drifted from engine BG_TILE_CAPACITY — edit games/demo/vram.toml and regenerate")

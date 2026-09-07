@@ -6,9 +6,10 @@
 // HeightMaps.
 module games.sonic4.collision_data in collision_data
 
-// The character DPLC window + its hard wall (games.sonic4.constants) and the
-// comptime DPLC parser that measures a table's worst frame (engine.objects.dplc).
-use games.sonic4.constants.{VRAM_TEST_SONIC, VRAM_TEST_OBJ}
+// The character DPLC window's DECLARED EXTENT (games.sonic4.constants, emitted
+// from games/sonic4/vram.toml beside the base it belongs to) and the comptime
+// DPLC parser that measures a table's worst frame (engine.objects.dplc).
+use games.sonic4.constants.{VRAM_TEST_SONIC_TILES}
 use engine.constants.{TILE_SIZE, DMA_IMPORTANT_SLOTS}
 use engine.objects.dplc.{dplc_peak_tiles, dplc_peak_entries, DPLC_ADDRESSABLE_TILES,
                          DPLC_ENTRY_RESERVE}
@@ -68,25 +69,23 @@ ensure((_art_sonic.len % TILE_SIZE) == 0, "Art_Sonic is not a whole number of ti
 ensure(_art_sonic.len / TILE_SIZE <= DPLC_ADDRESSABLE_TILES,
        "Art_Sonic is {_art_sonic.len / TILE_SIZE} tiles; a DPLC entry's tile_start can only name 0..{DPLC_ADDRESSABLE_TILES - 1}, so the tiles above that would be addressed by a WRAPPED index and load early-frame art — re-page or shrink the sheet, do not raise the field")
 
-// Sonic's worst frame must fit the character VRAM window (960 up to the
-// VRAM_TEST_OBJ wall at 992). Measured 29 tiles, ending 989 — three to spare.
+// Sonic's worst frame must fit the character VRAM window's DECLARED extent
+// (`character_window`, 32 tiles from 960). Measured 29 tiles — three to spare.
 // This used to be the comment "up to 25 tiles" in four files, which was both
-// wrong and unchecked; the number now comes from the blob and the wall from its
-// owner, so an art re-export that grew fails the build instead of DMA'ing over
-// the test-object art.
+// wrong and unchecked; the number now comes from the blob and the ceiling from
+// the declared map, so an art re-export that grew fails the build instead of
+// DMA'ing over whatever follows the window.
 //
-// ⚠ THE WALL IS TODAY'S NEIGHBOUR, NOT THE DECLARED WINDOW. `character_window` is
-// 32 tiles in games/sonic4/vram.toml, and this guard reads VRAM_TEST_OBJ instead —
-// the same number only because test_obj happens to be the region that follows.
-// There is no generated `*_TILES` constant for a region's declared extent, so no
-// ensure in this tree can currently say `peak <= declared window`, and this one
-// cannot tell a 32-tile window from a 29-tile window with three free tiles above
-// it. SHRINKING the window (the 3-tile reclaim proposed by the 2026-09-06 sweep's
-// C5-F6) and giving those tiles to a new region therefore leaves all three
-// character guards GREEN while a later re-export overruns the new neighbour. Do
-// the shrink only together with a declared-extent constant to bind this against.
-ensure(VRAM_TEST_SONIC + dplc_peak_tiles(_dplc_sonic) <= VRAM_TEST_OBJ,
-       "Sonic's peak DPLC frame is {dplc_peak_tiles(_dplc_sonic)} tiles and overruns the character VRAM window into VRAM_TEST_OBJ — re-page the art, or grow the window in games/sonic4/vram.toml (raise `tiles`, hold `base`) and regenerate. THIS GUARD DOES NOT COVER: the queue-slot cost of that frame (entries, not tiles — the dplc_peak_entries guard below, and tools/dplc_straddle.py for the straddle split neither ensure can see); the window's DECLARED 32-tile extent, since the bound read here is the neighbouring region's base; nor the sibling characters, who share this one window and carry their own copies of this guard in tails_data.emp and knuckles_data.emp — a fix here fixes ONE of three")
+// ⚠ THE CEILING USED TO BE TODAY'S NEIGHBOUR, NOT THE DECLARED WINDOW (LS-4,
+// fixed 2026-09-07). This guard read VRAM_TEST_OBJ — the same number only because
+// `test_obj` happens to be the region that follows. gen_vram_map.py now emits
+// VRAM_TEST_SONIC_TILES beside VRAM_TEST_SONIC, so the ceiling is the window's own
+// declaration and this guard names no other region at all. That also makes the
+// 2026-09-06 sweep's C5-F6 3-tile reclaim CHECKED rather than silent: shrinking
+// `character_window` to 29 lands here as a red build, in all three character
+// modules, with nobody editing a guard.
+ensure(dplc_peak_tiles(_dplc_sonic) <= VRAM_TEST_SONIC_TILES,
+       "Sonic's peak DPLC frame is {dplc_peak_tiles(_dplc_sonic)} tiles and overruns the {VRAM_TEST_SONIC_TILES}-tile character VRAM window — re-page the art, or grow `character_window` in games/sonic4/vram.toml (raise `tiles`, hold `base`) and regenerate. THIS GUARD DOES NOT COVER: the queue-slot cost of that frame (entries, not tiles — the dplc_peak_entries guard below, and tools/dplc_straddle.py for the straddle split neither ensure can see); whether the window is correctly PLACED, which is vram.toml's own coverage/overlap checks; nor the sibling characters, who share this one window and carry their own copies of this guard in tails_data.emp and knuckles_data.emp — a fix here fixes ONE of three")
 
 // -----------------------------------------------
 // THE ENTRY-COUNT BUDGET — the real assert, no longer a ratchet (d-47 `targeted`,
