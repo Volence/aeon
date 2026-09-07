@@ -25,7 +25,7 @@ unavailable**: only **4 of 1,275** substantive lines here appear verbatim in
 `origin/main:docs/OVERSEER-PROTOCOL.md`, so the bars are local content and not
 shared-protocol copies. What is left is live repo-specific rulings interleaved with
 narrative, which the protocol's step 3 assigns to the owner. **Do not trim a ruling to hit
-the number.** `tools/test_overseer_bound.py` gates the bound and is RED until he rules.
+the number.** `tools/test_overseer_bound.py` is a GREEN growth ratchet; a red is real.
 <!-- /SPLIT-NOTE -->
 
 ## ⚠ STANDING RULING THAT OUTRANKS EVERY BAR BELOW — read before the bars
