@@ -46,6 +46,8 @@
 module engine.debug.sound_debug in sound_debug
 
 use engine.z80_bus.{z80_stopped}
+// The `vblank` GRANTED context, named by this module's `requires(vblank)` clause below.
+use engine.irq.{vblank}
 
 // The sound contract's single authority (SeqChannel_len, SND_SEQ_TRACE_LEN, the
 // Z80 RAM bases). The glob brings the SND_SEQ_TRACE derivation chain into scope;
@@ -91,7 +93,20 @@ ensure(SEQ_MIRROR_CHBYTES <= SeqChannel_len,
 ensure(64 + SEQ_MIRROR_HDRCH + SND_SEQ_TRACE_LEN <= extern("Dynamic_Live") - extern("Sound_Dbg_Mirror"),
        "the sound debug mirror window is {64 + SEQ_MIRROR_HDRCH + SND_SEQ_TRACE_LEN} bytes and Sound_Dbg_Mirror reserves only {extern(\"Dynamic_Live\") - extern(\"Sound_Dbg_Mirror\")} — widen the reservation in engine/ram.emp or drop SEQ_MIRROR_CHANNELS / SEQ_MIRROR_CHBYTES, and re-derive the offset map in this file's header")
 
-pub proc Sound_DebugMirror () clobbers(d0-d1/a0-a1) {
+// `requires(vblank)` IS THIS PROC'S MASK PROOF, not a description of where it happens
+// to be called (LS-13a, 2026-09-07). The `with z80_stopped` below is a 68k hold of the
+// Z80 bus, and every such hold must be ENTERED with interrupts masked: the hold is a
+// latch, so an IRQ6 landing in the spliced `.wait_z80` spin runs the VBlank handler,
+// whose own brackets release the bus on the way out, and nothing below that label
+// re-issues the request (engine/z80_bus.emp). What masks this one is the 68000's own
+// IPL 6 on interrupt entry — which is only true if this proc is UNREACHABLE from the
+// main loop. Until this clause it was reachable in principle: the argument was an
+// enumeration of today's call sites (one, engine/system/vblank.emp:90), and an
+// enumeration of callers is a claim about every future caller. `requires(vblank)` turns
+// it into a claim sigil CHECKS at every call site (`[context.unsatisfied]`,
+// engine/irq.emp), against a capability whose sole grant root is VBlank_Handler.
+// The clause is contract-only — it emits no bytes and adds no symbol.
+pub proc Sound_DebugMirror () clobbers(d0-d1/a0-a1) requires(vblank) {
     with z80_stopped {
         lea     SND_MIRROR_DEST, a1                  // (SND_MIRROR_DEST).w — 68k RAM dest
         lea     SND_REQ_SRC, a0                      // (SND_REQ_SRC).l — Z80_RAM+$1F00, abs.l by the width rule; [0..47] = $1F00..$1F2F (req slots + status)

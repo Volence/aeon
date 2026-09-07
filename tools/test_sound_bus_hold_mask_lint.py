@@ -31,7 +31,8 @@ WHAT THIS LINT CHECKS, all of it derived from the file it reads:
     `with ints_off { … }` (the Sound_PostByte / Sound_ReadStat / Sound_PlayMusic shape) OR
     a hand-spelled `move.w #$2700, sr` earlier in the same proc with no intervening
     `move.w (sp)+, sr` (the Sound_Init / Sound_DrainSfxRing shape, named in
-    engine/irq.emp:58-63 as the deliberate hand-spelled class);
+    engine/irq.emp's "sites that stay HAND-SPELLED by design" paragraph as the
+    deliberate hand-spelled class);
   * the file's HEADER (everything above the `module` line, and only that — a control
     proved the whole-file search was satisfiable by the fix's own restatement of the rule)
     still STATES the rule the check enforces. If the header sentence is deleted or reworded
@@ -42,29 +43,40 @@ WHAT THIS LINT CHECKS, all of it derived from the file it reads:
     that new brackets live somewhere else.
 
 WHAT IT DOES NOT COVER, and each of these is a real hole:
-  * ANY OTHER FILE. Counted 2026-09-07: SIXTEEN more `with z80_stopped` brackets across
-    eight files — vblank.emp 6, section.emp 3, bg.emp 2, boot.emp 1, controllers.emp 1,
-    parallax.emp 1, sound_debug.emp 1, ojz_scroll_test.emp 1. (Derived by
-    `grep -rn "with z80_stopped" engine games`, 18 hits, less the two that are prose:
-    section.emp:300 and controllers.emp:12.) Several are correct only because of a mask
-    established many lines above them, or because they run in interrupt context where the
-    68000's own IPL is the mask — neither of which this file-scoped text rule models. Do
-    not read a green run here as a statement about them.
-    RE-DERIVED 2026-09-07 (LS-13 parcel) and the sixteen HOLD, by a differently-shaped
-    grep: 27 hits for "with z80_stopped" across engine+games, less 5 prose lines, = 22
-    code sites, of which sound_api's 6 are this lint's subject. The full census, with
-    each site's masking mechanism and shape gate, now lives in engine/z80_bus.emp's
-    header — that is the file to update, not this docstring.
+  * ANY OTHER FILE. This lint reads sound_api.emp only. Counted 2026-09-07: SIXTEEN more
+    `with z80_stopped` brackets across eight files — vblank.emp 6, section.emp 3, bg.emp 2,
+    boot.emp 1, controllers.emp 1, parallax.emp 1, sound_debug.emp 1, ojz_scroll_test.emp 1
+    — plus the one hold that is not a bracket at all (below). Several are correct only
+    because of a mask established many lines above them, or because they run in interrupt
+    context where the 68000's own IPL is the mask — neither of which this file-scoped text
+    rule models. Do not read a green run HERE as a statement about them.
+    ⚠ THEY ARE NO LONGER UNCHECKED, and this bullet used to imply they were. Since LS-13a
+    (2026-09-07) tools/test_z80_bus_hold_mask_census.py checks the mask at ALL 22 brackets
+    tree-wide, plus the ordering that masks boot's hand-spelled hold. It found one real
+    gap on the tree it landed against (Sound_DebugMirror, which declared no
+    `requires(vblank)`), and that is fixed. This file stays for what the tree-wide gate
+    does NOT do: the header-premise check below, which is sound_api-specific.
+    HOW THE NUMBERS IN THIS BULLET MOVED, since two counts here were wrong before: the
+    "18 hits less two prose" line was written when the grep found 18; the LS-13 parcel
+    recorded 27 less 5; LS-13a re-ran it and got 28 less 6. All three agree on the CODE
+    count, 22. The hit and prose totals are partly a function of the comment blocks doing
+    the counting, so only the code count is worth quoting. The census itself lives in
+    engine/z80_bus.emp's header — that is the file to update, not this docstring.
   * THE ONE HOLD THAT IS NOT A BRACKET AT ALL, and so is invisible to any grep for
-    `with z80_stopped`: engine/system/boot.emp:130-156 spells its own bus
-    request/spin/release by hand around the Z80 driver-blob copy. Found by grepping for
-    `Z80_BUS_REQUEST|Z80_RESET|A11100|A11200` instead — the search shape that enumerates
-    by what TOUCHES the register rather than by what names the context. It is masked (the
-    reset SR is still standing; boot's first `sr` write is at :266), but nothing checks
-    that, here or in sigil.
+    `with z80_stopped`: engine/system/boot.emp's `EntryPoint` spells its own bus
+    request/spin/release by hand around the Z80 driver-blob copy. ⚠ THE METHOD THIS
+    BULLET USED TO NAME DOES NOT FIND IT: grepping `Z80_BUS_REQUEST|Z80_RESET|A11100|
+    A11200` hits only a COMMENT in boot.emp — the request and release are
+    `move.w d7,(a1)` / `move.w d0,(a1)` and neither names the register (re-run 2026-09-07;
+    see engine/z80_bus.emp's header for the enumeration that does close it). It is masked
+    (the reset SR still stands; boot's first `sr` write comes after both of its holds),
+    and since LS-13a that ORDERING is checked — by
+    test_boot_hand_spelled_hold_precedes_the_first_sr_write in the tree-wide gate. Its
+    PAIRING is still checked by nothing, here or in sigil.
   * A MASK ESTABLISHED BY A CALLER. A proc in this file that is only ever reached with SR
     already at $2700 would be flagged, and correctly so — the rule is that the transaction
-    masks — but the converse hole is real for the other files above.
+    masks. The tree-wide gate takes the one honest exception to that: a proc declaring
+    `requires(vblank)`, which sigil checks at every call site.
   * RUNTIME. Nothing here executes a ROM. It cannot show that the deadlock is gone, only
     that the instruction that closes the window is emitted. Reproducing the original hang
     needs an IRQ6 to land inside a ~5-instruction window during a `config_a` hotkey press.
@@ -211,12 +223,13 @@ def test_every_bus_hold_is_masked():
         "unmasked `with z80_stopped` bracket(s) in "
         f"{SUBJECT.relative_to(REPO)} — an IRQ6 landing in the spliced `.wait_z80` spin "
         "releases the bus latch and nothing re-issues the request (see this file's "
-        "docstring and engine/z80_bus.emp:8-10):\n"
+        "docstring and engine/z80_bus.emp's `[context.reacquire]` paragraph):\n"
         + "\n".join(f"  :{s['line']} in {s['proc']}: {s['text']}" for s in unmasked)
         + "\nMask it with `with ints_off { … }`, or with a hand-spelled "
         "`move.w #$2700, sr` earlier in the proc if the site is one of the loop shapes "
-        "engine/irq.emp:58-63 names. NOTE: this check reads sound_api.emp ONLY — the "
-        "sixteen brackets in the tree's other eight files are not covered."
+        "engine/irq.emp's hand-spelled-by-design paragraph names. NOTE: this check reads "
+        "sound_api.emp ONLY — the sixteen brackets in the tree's other eight files are "
+        "covered by tools/test_z80_bus_hold_mask_census.py, not by this run."
     )
 
 
