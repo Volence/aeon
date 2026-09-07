@@ -29009,7 +29009,7 @@ them looking. Any fix below that adds or edits a guard must state what it does N
 | LS-2 | **`clobbers()` OVER-declaration is unchecked, and Z80 UNDER-declaration is invisible to our build.** Three of four cells unguarded. `CODING_CONVENTIONS.md:492`'s "compiler-verified" overstates it. Two live sites where the attribute is wider than the body: `collision.emp:110-114` (`TouchResponse`, whose in-body comment names a contract that does not exist) and `entity_window.emp:1185`. | 3 builds + sigil gate + control |
 | LS-3 | **Sonic has no VRAM window ensure**, while Tails and Knuckles both do. Peak 29 of 32; a re-exported sheet DMAs past 991 into `test_obj` silently. **Zero-byte fix, and it should precede any window shrink.** | C5-F6, peaks parsed from the blobs |
 | LS-4 | **Two blob-derived VRAM ceilings name the wrong neighbour** (`tails_data.emp:100`, `player_instashield.emp:469`), 3 tiles of permitted overlap each. **Measured LATENT.** The real fix is a generator change: the correct names are not in those modules' import closure, which is WHY the wrong ones were used. | C2a-H1a/b + controller TAG-1 |
-| LS-5 | **`Parallax_StartTransition` publishes its config triple in the order that makes it observably inert** — clear `Frames` before `Target` at both sites and the window closes. One frame of frozen parallax per cancelled transition. **Free ordering fix.** | C3b-V1, both orders verified |
+| LS-5 | ~~**`Parallax_StartTransition` publishes its config triple in the order that makes it observably inert**~~ — **CLOSED 2026-09-06**, `parcel/ls5-parallax-publish-order`. Re-derived from source: the sweep's account and its line numbers (`parallax.emp:1331-1334` writer, `:1358-1370` reader) were both exactly right on this tree. **"Both sites" was right too** — the full writer enumeration is FIVE sites and only those two published the inert pair (see the closure note below). Both now clear `Frames` before `Target`; the staging arm and `Parallax_Update`'s promotion arm were already correct and now carry the note saying why. **NOT covered:** `Parallax_Init`'s bulk `Parallax_State` clear (a wider window of a different shape) and the reg `$0B` shadow write, which is still outside the record's publication. Gate: `tools/test_parallax_publish_order_lint.py` (TEXT-level, four mutations proven red). | C3b-V1, both orders verified |
 | LS-6 | **The entity spawn gates run a 9-slot linear scan before the single `btst`**, nine lines apart, both branching to `.gated`. `ENGINE_ARCHITECTURE.md:2964` already describes the other order. 6-9% of a frame shipped, 28-42% at the density ARCH designs for. **Candidate cause for `DEFERRED_WORK:7460`, open since 2026-06-11 with no cause named.** | C4a-1, order verified |
 | LS-7 | **5,154 B of byte-identical duplicate PCM** (`kick`/`s3k_kick`, `snare`/`s3k_snare`, `cmp`-verified) in a no-straddle bank at 94.3%. Dedupe takes the free tail from 1,860 B — which admits ONE of six S3K drum sizes — to 7,014 B, which admits all six. | C5-F1 |
 
@@ -29056,3 +29056,49 @@ that**; two overlapping bands are authorable today and would turn it into a whol
 dropout reproducing once in thousands of frames. The right fix is a comptime `ensure` on band
 disjointness, not a runtime test.
 
+
+## LS-5 CLOSURE NOTE — the writer enumeration, and what the reordering does not reach (2026-09-06)
+
+`parcel/ls5-parallax-publish-order`, files `engine/level/parallax.emp` +
+`tools/test_parallax_publish_order_lint.py`.
+
+**The sweep's account survived re-derivation intact.** `parallax.emp:1331-1334` was the
+`.recross_current` writer verbatim, `:1358-1370` was `Parallax_Active_Config`'s selector verbatim,
+and both VBlank readers are real: `Enqueue_Dirty_Buffers` (`engine/system/buffers.emp:495`) and
+`Vscroll_Write` (`engine/level/parallax.emp`, `requires(vblank)`) are two of the selector's three
+callers. The third, `Parallax_InstallScratch`, is main-loop and DEBUG-only.
+
+**THE WRITER ENUMERATION IS FIVE SITES, NOT TWO.** "Both sites" was a claim about the sites that
+carry the DEFECT, and on that it was right; it was not the count of writers. Enumerated by grepping
+the three field names AND by `Parallax_State`, which is how the bulk writer surfaces — a name grep
+alone cannot see it:
+
+| # | site | what it publishes | verdict |
+|---|---|---|---|
+| 1 | `Parallax_Init` — `lea Parallax_State, a1` + longword clear | zeroes all three, ascending address order: Current, then Target, then Frames | **NOT FIXED — a wider window of a different shape.** Publishes `Current == 0` (inert) and then, if entered with `Frames != 0`, `Frames != 0 && Target == 0` (inert) as well. Reordering the three cells cannot help: the loop is a `dbf` over the whole span |
+| 2 | `Parallax_Init` — `move.l a0, Parallax_Current_Config` | Current only, with Frames already 0 from site 1 | benign |
+| 3 | `Parallax_StartTransition` staging arm | Target, **then** Frames | already correct — and it is the site that makes `Frames != 0 => Target != 0` an invariant, which is what the other arms' benign intermediates rest on. Now carries a note saying so |
+| 4 | `Parallax_StartTransition` `.instant` | was Current/Target/Frames | **FIXED** → Current/**Frames**/Target |
+| 5 | `Parallax_StartTransition` `.recross_current` | was Target/Frames | **FIXED** → **Frames**/Target |
+| 6 | `Parallax_Update` promotion arm | `subq.b` Frames→0, read Target, Target := 0, Current := new | already correct: the `Frames == 0` intermediate selects the outgoing Current for one instruction, which is what the previous frame rendered |
+
+(6 rows, 5 sites — `Parallax_Init` writes the record twice.) External writers exist as well — six
+`tools/*.py` witnesses poke these cells over Aether — but they write between `run_frames` calls, so
+they are outside the race model, and none of them publishes the inert pair.
+
+**WHAT THE REORDERING DOES NOT PROTECT AGAINST**, named because the sweep's dominant finding was a
+fix whose own message named an incomplete fix and stopped a reader from looking further:
+
+1. **Site 1 above.** Still tears, in both directions.
+2. **The reg `$0B` Mode Set 3 shadow is not part of the publication.** `.update_mode` writes it
+   AFTER the record in every arm. A VBlank landing between the record stores and that write reads
+   the NEW active config's VSRAM stride out of `Vscroll_Write` while `Flush_VDP_Shadow` blits the
+   PREVIOUS config's bit 2. Closing it means folding the mode byte into the same ordered
+   publication, which is a different parcel.
+3. **The record is not read atomically by anything.** The fix removes one specific pair from the
+   published set; it does not make the triple a transaction. Any FUTURE reader that samples two of
+   the three cells with a different rule than `Frames != 0 -> Target` must re-derive the store
+   orders — which is why the lint pins the selector's shape and fails loudly if it changes.
+4. **No runtime evidence.** This lane ran no emulator (subagent invariant). **TAGGED for the
+   controller's foreground follow-up:** a watchpoint on `Parallax_Transition_Frames` with an IRQ6
+   sample would show the old window directly; nothing here observed one.
