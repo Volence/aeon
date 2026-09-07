@@ -133,30 +133,179 @@ def const_from_emp(path, name):
     return int(raw[1:], 16) if raw.startswith('$') else int(raw)
 
 
-def boundary_from_source():
-    """DERIVE the DMA source-boundary period from dma_queue.emp's split test.
+#: 68000 operand-size suffix -> the width of the arithmetic it performs. This is
+#: the ISA, not a fact about this tree, which is why it is the one table here
+#: that is written down rather than read out of a file.
+_SIZE_BITS = {"b": 8, "w": 16, "l": 32}
 
-    The core converts the source to words (`lsr.l #1, d1`) and then tests
-    `0 - length_words - source_words` for borrow with 16-bit `sub.w`s. A borrow
-    means the 16-bit word sum wrapped, i.e. the transfer crossed a
-    (1 << 16) word == (1 << 17) byte boundary. Both instructions are re-read
-    here so a change to either fails loud instead of leaving a stale constant.
+#: `.emp` files that DECLARE the boundary in prose, as the second and genuinely
+#: different route into `boundary_from_source`. These are not derivations — they
+#: are what the engine's own authors say the period is, maintained beside the
+#: code that consumes it. Route 1 decodes the instructions; route 2 reads the
+#: declaration; the two must agree or the period is UNMEASURABLE. Every file
+#: listed must yield at least one declaration: a reword that takes one away is a
+#: loud failure naming the file, not a silently weaker cross-check.
+BOUNDARY_DECLARATION_SITES = (
+    "engine/objects/dplc.emp",
+    "games/sonic4/data/collision/collision_data.emp",
+)
+
+_DECLARED_BOUNDARY = re.compile(r'\$([0-9A-Fa-f]+)\s+boundary')
+
+
+def boundary_from_text(src, where="engine/system/dma_queue.emp"):
+    """DECODE the DMA source-boundary period out of dma_queue.emp's split test.
+
+    The core converts the source to words (`lsr.l #N, d1`) and then tests
+    `0 - length_words - source_words` for borrow with two same-size `sub`s. A
+    borrow means the word sum wrapped at that operand size, i.e. the transfer
+    crossed a (1 << size_bits) word == (1 << size_bits) * (1 << N) byte boundary.
+
+    LS-15b: BOTH NUMBERS ARE READ OUT OF `src`, not typed here. They used to be
+    `word_bits = 16` and `bytes_per_word = 2` sitting next to the regexes that
+    "derived" them, which made the whole proof relative: halving `word_bits`
+    left the tool consistent with itself, every `--selftest` arm green, and the
+    period wrong by 2x. There is now no local number for an edit to disagree
+    with — the operand size comes from the `sub`'s own suffix letter and the
+    word size from the `lsr`'s own shift count.
+
+    Takes the text rather than reading it so a caller can perturb the INDEPENDENT
+    source in memory and watch the period move (selftest arm [7]) without
+    writing to a tracked file.
+
+    Returns (boundary_bytes, provenance_string).
     """
-    src = _read("engine/system/dma_queue.emp")
-    if not re.search(r'^\s*lsr\.l\s+#1,\s*d1\b', src, re.M):
+    m_src = re.search(r'^\s*lsr\.l\s+#(\d+),\s*d1\b', src, re.M)
+    if not m_src:
         raise Unmeasurable(
-            "dma_queue.emp no longer spells `lsr.l #1, d1` — the source-to-words "
-            "conversion this boundary is derived from has changed; re-derive it")
-    if not re.search(r'^\s*sub\.w\s+d3,\s*d0\s*$|^\s*sub\.w\s+d3,\s*d0\s*//', src, re.M) or \
-       not re.search(r'^\s*sub\.w\s+d1,\s*d0\b', src, re.M):
+            f"{where} no longer spells `lsr.l #<n>, d1` — the source-to-words "
+            f"conversion this boundary is derived from has changed; re-derive it")
+    shift = int(m_src.group(1))
+    if not 1 <= shift <= 8:
         raise Unmeasurable(
-            "dma_queue.emp no longer spells the `sub.w d3,d0 / sub.w d1,d0` "
-            "boundary test — re-derive the boundary period")
-    if not re.search(r'^\s*blo\s+\.split\b', src, re.M):
-        raise Unmeasurable("dma_queue.emp's `blo .split` is gone — re-derive the boundary")
-    word_bits = 16                     # the width of the `sub.w` the borrow comes from
-    bytes_per_word = 2                 # the `lsr.l #1` above
-    return (1 << word_bits) * bytes_per_word
+            f"{where}'s source conversion shifts by {shift}, which is not a "
+            f"credible bytes-per-unit for a DMA source address; re-derive the boundary")
+    bytes_per_word = 1 << shift
+
+    m_len = re.search(r'^\s*lsr\.(\w)\s+#(\d+),\s*d3\b', src, re.M)
+    if not m_len:
+        raise Unmeasurable(
+            f"{where} no longer spells `lsr.<sz> #<n>, d3` — the length-to-words "
+            f"conversion is half of the sum the borrow tests; re-derive the boundary")
+    if int(m_len.group(2)) != shift:
+        raise Unmeasurable(
+            f"{where} converts the source with `lsr.l #{shift}` but the length with "
+            f"`lsr.{m_len.group(1)} #{m_len.group(2)}` — the two operands of the borrow "
+            f"test are in DIFFERENT units, so no single byte period describes it")
+
+    # The borrow test is matched as ONE CONTIGUOUS BLOCK, not as three separate
+    # searches. `sub.w d1, d0` also appears in the drain path (dma_queue.emp:468,
+    # a budget subtraction), so a per-instruction search would happily read the
+    # operand size off an unrelated instruction the day the real one is deleted —
+    # a silently wrong period, which is the whole class of fault LS-15b is about.
+    # Requiring `moveq #0,d0 / sub d3,d0 / sub d1,d0 / blo .split` in sequence
+    # means the thing decoded is the thing that branches.
+    block = re.compile(
+        r'^[ \t]*moveq[ \t]+#0,[ \t]*d0[ \t]*(?://.*)?\n'
+        r'[ \t]*sub\.(\w)[ \t]+d3,[ \t]*d0\b[^\n]*\n'
+        r'[ \t]*sub\.(\w)[ \t]+d1,[ \t]*d0\b[^\n]*\n'
+        r'[ \t]*blo[ \t]+\.split\b', re.M)
+    hits = block.findall(src)
+    if len(hits) != 1:
+        missing = [what for what, rx in (
+            ("`moveq #0, d0`", r'^[ \t]*moveq[ \t]+#0,[ \t]*d0'),
+            ("`sub.<sz> d3, d0`", r'^[ \t]*sub\.\w[ \t]+d3,[ \t]*d0\b'),
+            ("`sub.<sz> d1, d0`", r'^[ \t]*sub\.\w[ \t]+d1,[ \t]*d0\b'),
+            ("`blo .split`", r'^[ \t]*blo[ \t]+\.split\b'),
+        ) if not re.search(rx, src, re.M)]
+        raise Unmeasurable(
+            f"{where} does not hold exactly one "
+            f"`moveq #0,d0 / sub d3,d0 / sub d1,d0 / blo .split` block ({len(hits)} found"
+            + (f"; absent: {', '.join(missing)}" if missing else
+               "; the instructions are present but no longer contiguous")
+            + ") — the borrow this period is decoded from is not identifiable, and the "
+              "nearest lookalike in this file is an unrelated budget subtraction. "
+              "Re-derive the boundary.")
+    size_a, size_b = hits[0]
+    if size_a != size_b:
+        raise Unmeasurable(
+            f"{where} subtracts the length with `sub.{size_a}` and the source with "
+            f"`sub.{size_b}` — two different widths cannot share one wrap point")
+    size = size_a.lower()
+    if size not in _SIZE_BITS:
+        raise Unmeasurable(
+            f"{where}'s borrow test is spelled `sub.{size}`, which is not a 68000 "
+            f"operand size; re-derive the boundary")
+    word_bits = _SIZE_BITS[size]
+
+    return ((1 << word_bits) * bytes_per_word,
+            f"`sub.{size}` (borrow wraps at 1 << {word_bits}) over units of "
+            f"`lsr.l #{shift}` ({bytes_per_word} B), decoded from {where}")
+
+
+def boundary_declared():
+    """The SECOND route: the period as the engine's own files DECLARE it.
+
+    Route 1 (`boundary_from_text`) decodes the instructions. This reads what the
+    engine says the period is, in files that are neither the split code nor this
+    tool. It shares no premise with route 1 — it does not know what a `sub.w`
+    is — which is the whole reason it is worth cross-checking against.
+
+    WHAT IT CANNOT DO, said here because a cross-check that is trusted past its
+    reach is worse than none: both routes can be wrong TOGETHER. If the split
+    code and every declaration beside it were changed to the same wrong period,
+    the two agree and this tool reports it. Nothing in this repository can catch
+    that, because there is no third statement of the boundary anywhere in it —
+    the real authority is the VDP, and no source in this tree quotes it.
+
+    Returns (value, [(path, line_text), ...]).
+    """
+    seen, sites = {}, []
+    for path in BOUNDARY_DECLARATION_SITES:
+        text = _read(path)
+        hits = [(m.group(1), text.count("\n", 0, m.start()) + 1)
+                for m in _DECLARED_BOUNDARY.finditer(text)]
+        if not hits:
+            raise Unmeasurable(
+                f"{path} no longer declares a `$<hex> boundary` — it is one of the "
+                f"{len(BOUNDARY_DECLARATION_SITES)} independent statements of the DMA source "
+                f"period this tool cross-checks its decode against, and with it gone the "
+                f"decode has nothing to disagree with. Restore the declaration or re-cut "
+                f"BOUNDARY_DECLARATION_SITES.")
+        for raw, line in hits:
+            seen.setdefault(int(raw, 16), []).append(f"{path}:{line}")
+            sites.append(f"{path}:{line} (${raw})")
+    if len(seen) != 1:
+        detail = "; ".join(f"0x{v:X} at {', '.join(w)}" for v, w in sorted(seen.items()))
+        raise Unmeasurable(
+            f"the tree declares MORE THAN ONE DMA source boundary — {detail}. One of them "
+            f"is stale and this tool cannot tell which.")
+    return next(iter(seen)), sites
+
+
+def boundary_from_source(src_text=None):
+    """The DMA source-boundary period, decoded AND cross-checked.
+
+    Route 1 decodes `engine/system/dma_queue.emp`'s split test; route 2 reads the
+    period the engine's other files declare. A disagreement is UNMEASURABLE and
+    names both sides — it is exactly the case where the split code changed and
+    the prose beside it did not, or the reverse.
+
+    `src_text` substitutes for the split source so a caller can drive the
+    cross-check with a perturbed INDEPENDENT source without writing to a tracked
+    file. It is how selftest arm [7] and the unit tests prove the cross-check
+    fires; nothing in the gate path passes it.
+    """
+    decoded, prov = boundary_from_text(
+        _read("engine/system/dma_queue.emp") if src_text is None else src_text)
+    declared, sites = boundary_declared()
+    if decoded != declared:
+        raise Unmeasurable(
+            f"the DMA source boundary DECODED from the split test is 0x{decoded:X} "
+            f"({prov}) but the tree DECLARES 0x{declared:X} at {', '.join(sites)}. "
+            f"The split code and the files documenting it disagree; one of them moved "
+            f"without the other, and every straddle verdict rests on which.")
+    return decoded
 
 
 def embed_path(emp_path, const_name):
@@ -1814,9 +1963,13 @@ def selftest(lst_path, out=sys.stdout, rom_path=None):
     """RED-FIRST proof that the gate can fail, run against this build.
 
     A gate that has never been observed red is a gate nobody has tested. This
-    drives the same `--gate` predicates through six states:
+    drives the same `--gate` predicates through eight states:
 
-      1. the real placement                -> must be GREEN
+      1. the real placement                -> must be GREEN, over extents CHECKED
+         against the ROM so the addresses the other arms shift are measured and
+         not restated (LS-15b: the arms below are all invariant under a wrong
+         `art_base`, because a shift search re-finds its proof wherever the base
+         happens to be; the extent check is what makes the base absolute).
       2. an art base shifted onto a straddle that lands on a peak frame
          -> must be RED. The failing shift is SEARCHED FOR at run time, not
          written down here, so it stays correct as the art changes; if no
@@ -1830,8 +1983,31 @@ def selftest(lst_path, out=sys.stdout, rom_path=None):
          reachable straddle count must MOVE. Searched for, not written down; if
          no such shift exists the split cannot respond to a base move at all,
          which is the exact failure BLOCK-STREAM-DEDUP would walk into.
+      5b. VERDICT B must be reachable-red somewhere in a whole period.
       6. an unclaimed writer must WIDEN, not narrow: a synthetic undetermined
          reason has to produce the full frame set.
+      7. the DMA source PERIOD must be a function of the engine source. Arms
+         [1]-[6] are RELATIVE: every one of them re-derives the period from
+         `boundary_from_source` and then measures against itself, so they are
+         invariant under a wrong period (MEASURED: halving it left all seven
+         arms byte-identical and exit 0). Arm [7] perturbs the INDEPENDENT
+         source — dma_queue.emp's own text, in memory, never on disk — and
+         requires the period to move to the value that perturbation implies,
+         requires the decode/declaration cross-check to fire, and requires the
+         period to be LOAD-BEARING on this build's data.
+
+    WHAT NO ARM HERE COVERS, kept next to the list so the next reader does not
+    have to infer it from silence:
+
+      * whether the CROSSING PREDICATE is right at its edges. `straddles()` is
+        the model, and every arm measures through it, so an off-by-one in it
+        (`>` for `>=`) is invisible: MEASURED, all eight arms green, one
+        reported shift moved by one byte.
+      * whether the REACHABLE SET is the right set. Arm [4] checks its SHAPE
+        (proper, non-empty) and arm [6] checks the fail-safe PATH; neither has
+        an expectation for which frames are in it. MEASURED: dropping one frame
+        from every subject's set left every arm green.
+      * anything about the running machine. These are model arms.
 
     Nothing here is a hardcoded expectation copied from a previous run.
     """
@@ -1843,7 +2019,8 @@ def selftest(lst_path, out=sys.stdout, rom_path=None):
     labels = lst_labels(lst_path)
     subs = load_subjects(labels)
     rom_path = rom_path or default_rom_for(lst_path)
-    reach = reachable_sets(subs, rom_bytes(rom_path), labels)
+    rom = rom_bytes(rom_path)
+    reach = reachable_sets(subs, rom, labels)
     fails = []
     print(f"  [0] the bar is {ratchet} — from {provenance}", file=out)
 
@@ -1851,9 +2028,16 @@ def selftest(lst_path, out=sys.stdout, rom_path=None):
         c = frame_costs(frames or sub["frames"], sub["art_base"] + shift, tile_size, boundary)
         return max(x[1] for x in c)
 
-    # (1) green at the real placement
+    # (1) green at the real placement, over extents CHECKED against the ROM.
+    # `report()` has always done this before computing anything; `selftest()` did
+    # not, which left every arm below shifting a base nothing had verified
+    # (LS-15b measured: `art_base + 0x400` passed all seven arms while the gate
+    # refused the same build outright).
+    extents = check_subject_extents(subs, rom, rom_path)
     worst = max(peak_slots(s, 0) for s in subs)
-    print(f"  [1] real placement: worst peak SLOT cost {worst} vs ratchet {ratchet}", file=out)
+    print(f"  [1] real placement: worst peak SLOT cost {worst} vs ratchet {ratchet}; "
+          f"{len(extents)} label extent(s) byte-identical to their embeds in "
+          f"{Path(rom_path).name}, so these bases are measured", file=out)
     if worst > ratchet:
         fails.append(f"the real placement is already over the ratchet ({worst} > {ratchet})")
 
@@ -1983,14 +2167,140 @@ def selftest(lst_path, out=sys.stdout, rom_path=None):
         fails.append(f"an unclaimed writer did NOT widen {', '.join(bad)} — an unclassified "
                      f"write site would silently narrow the reachable set")
 
+    # ------------------------------------------------------------------ [7]
+    # THE ONE ABSOLUTE ARM. Everything above re-derives the period from the same
+    # `boundary_from_source` it then measures through, so all of it is invariant
+    # under a wrong period — LS-15b measured exactly that: `word_bits` 16 -> 15
+    # halved the boundary to 0x10000, moved knuckles' and tails' reachable
+    # straddles from 0 to 1 each and the concurrent demand on the 2-slot reserve
+    # from 0 to 2, and left every arm's printed line character-for-character
+    # identical at exit 0.
+    #
+    # So this arm does not measure through the period at all. It perturbs the
+    # source the period is read OUT of — dma_queue.emp's text, held in memory,
+    # never written — and requires the decode to follow. The expectations come
+    # from what each perturbation MEANS on a 68000 (`sub.b` wraps at 1 << 8;
+    # `lsr.l #2` makes each unit 4 bytes), never from a previous run.
+    dq_path = "engine/system/dma_queue.emp"
+    dq = _read(dq_path)
+    seven = []
+
+    def _decode(text):
+        try:
+            return boundary_from_text(text, dq_path)[0], None
+        except Unmeasurable as e:
+            return None, str(e)
+
+    live, live_prov = boundary_from_text(dq, dq_path)
+    if live != boundary:
+        fails.append(f"[7] the decoded period 0x{live:X} is not the one the rest of this "
+                     f"run used (0x{boundary:X}) — the two paths disagree")
+
+    # (7a) the borrow's operand size is READ, not assumed.
+    m_sub = re.search(r'^(\s*sub\.)w(\s+d3,\s*d0\b)', dq, re.M)
+    m_sub2 = re.search(r'^(\s*sub\.)w(\s+d1,\s*d0\b)', dq, re.M)
+    if not (m_sub and m_sub2):
+        fails.append("[7] dma_queue.emp does not spell the `sub.w` pair this arm perturbs — "
+                     "the perturbation cannot be built, so the period is unproven")
+    else:
+        narrowed = re.sub(r'^(\s*sub\.)w(\s+d[13],\s*d0\b)', r'\1b\2', dq, flags=re.M)
+        want = (1 << _SIZE_BITS["b"]) * (live // (1 << _SIZE_BITS["w"]))
+        got, err = _decode(narrowed)
+        if got != want:
+            fails.append(f"[7] rewriting the borrow test to `sub.b` should give a "
+                         f"0x{want:X} period (1 << 8 units of the same size) but the decode "
+                         f"gave {('0x%X' % got) if got is not None else 'UNMEASURABLE: ' + err} "
+                         f"— the operand size is not actually being read")
+        else:
+            seven.append(f"`sub.w`->`sub.b` moves the period 0x{live:X} -> 0x{got:X}")
+
+    # (7b) the unit size is READ, not assumed — both conversions moved together,
+    # because moving one alone is (7c)'s case.
+    widened_txt = re.sub(r'^(\s*lsr\.[lw]\s+#)1(,\s*d[13]\b)', r'\g<1>2\2', dq, flags=re.M)
+    want_b = live * 2
+    got_b, err_b = _decode(widened_txt)
+    if got_b != want_b:
+        fails.append(f"[7] rewriting both `lsr #1` conversions to `#2` should double the "
+                     f"period to 0x{want_b:X} but the decode gave "
+                     f"{('0x%X' % got_b) if got_b is not None else 'UNMEASURABLE: ' + err_b} "
+                     f"— the unit size is not actually being read")
+    else:
+        seven.append(f"`lsr #1`->`#2` moves it 0x{live:X} -> 0x{got_b:X}")
+
+    # (7c) source and length converted with DIFFERENT shifts is not a period at
+    # all, and must be refused rather than silently decoded from one of them.
+    mixed = re.sub(r'^(\s*lsr\.l\s+#)1(,\s*d1\b)', r'\g<1>2\2', dq, count=1, flags=re.M)
+    got_c, err_c = _decode(mixed)
+    if got_c is not None:
+        fails.append(f"[7] converting the source with `lsr.l #2` and the length with "
+                     f"`lsr.w #1` still decoded a period (0x{got_c:X}) — the two operands of "
+                     f"the borrow are in different units and no single period describes it")
+    else:
+        seven.append("mixed source/length units are refused, not decoded")
+
+    # (7d) the decode and the tree's DECLARATIONS must be cross-checked, and the
+    # cross-check must FIRE when they disagree. This is the arm that would have
+    # caught LS-15b's mutation: a period that no longer matches what the engine
+    # says it is.
+    declared, decl_sites = boundary_declared()
+    if declared != boundary:
+        fails.append(f"[7] the tree declares 0x{declared:X} but this run used 0x{boundary:X}")
+    crossed = None
+    if m_sub and m_sub2:
+        try:
+            crossed = boundary_from_source(src_text=narrowed)
+        except Unmeasurable as e:
+            crossed = None if "DECODED from the split test" in str(e) else str(e)
+    if crossed is not None:
+        fails.append(f"[7] a perturbed split test was not refused by the decode/declaration "
+                     f"cross-check ({crossed}) — a period that drifts from what the engine "
+                     f"documents would pass silently")
+    else:
+        seven.append(f"the perturbed decode is REFUSED against the {len(decl_sites)} "
+                     f"declaration(s), not silently accepted")
+
+    # (7e) LOAD-BEARING on THIS build's data. A period nothing measures through
+    # differently is one this build cannot notice being wrong, and saying so is
+    # the point of the arm.
+    half = boundary // 2
+    moved_pic = []
+    for x in subs:
+        a = frame_costs(x["frames"], x["art_base"], tile_size, boundary)
+        b = frame_costs(x["frames"], x["art_base"], tile_size, half)
+        if [c[2] for c in a] != [c[2] for c in b]:
+            moved_pic.append(x["name"])
+    if not moved_pic:
+        fails.append(f"[7] halving the period to 0x{half:X} changes NO subject's straddling "
+                     f"frames on this build — the period is not load-bearing here, so no "
+                     f"arm of this self-test could notice it being wrong")
+    else:
+        seven.append(f"halving it to 0x{half:X} moves the straddle picture for "
+                     f"{', '.join(moved_pic)}")
+    print(f"  [7] period is DERIVED, not typed — {live_prov}; cross-checked against "
+          f"{len(decl_sites)} in-tree declaration(s) ({', '.join(decl_sites)}). "
+          f"Perturbing that source: {'; '.join(seven) or 'NOTHING PROVED — see failures'}",
+          file=out)
+
     print(f"\n  derived this run: TILE_SIZE={tile_size} DMA_IMPORTANT_SLOTS={slots} "
           f"DPLC_ENTRY_RESERVE={reserve} boundary=0x{boundary:X} ratchet={ratchet}", file=out)
     if fails:
         for f in fails:
             print(f"dplc_straddle selftest: FAIL — {f}", file=out)
         return 1
-    print("dplc_straddle selftest: OK — the gate is green here and provably red elsewhere",
-          file=out)
+    # THE VERDICT SAYS WHAT IT DOES NOT COVER. The line this replaces read "the
+    # gate is green here and provably red elsewhere", which is true of arms
+    # [2]/[5]/[5b] and claims far more than the set establishes: those arms are
+    # EXISTENCE SEARCHES over an internally-derived model, so they prove the
+    # predicate is live and responsive, never that it is calibrated. LS-15b
+    # measured three calibration faults that all eight arms pass green.
+    print("dplc_straddle selftest: OK — the gate's predicate is LIVE (arms [2], [5], [5b] "
+          "each SEARCHED OUT a placement that fires it) and its period is DERIVED from "
+          "engine source and cross-checked (arm [7]).", file=out)
+    print("  NOT COVERED, and no exit status here should be read as covering it: arms "
+          "[1]-[6] measure through this tool's own model of the split, so they are blind "
+          "to a model that is wrong but responsive — a crossing predicate off by one at "
+          "the boundary, or a reachable set of the right SHAPE and the wrong CONTENT, "
+          "both pass every arm. Nothing here executes the engine.", file=out)
     return 0
 
 
