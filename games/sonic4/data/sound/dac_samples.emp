@@ -59,19 +59,35 @@
 module data.dac_samples
 
 
-// --- the ten sample blobs, bound to consts so each `.len` is a readable
-// comptime int. `temp_blip.bin` lives in THIS module's directory; the nine
+// --- the eight sample blobs, bound to consts so each `.len` is a readable
+// comptime int. `temp_blip.bin` lives in THIS module's directory; the seven
 // drums under `dac/`. ---
+//
+// ⚠ EIGHT BLOBS, TEN SAMPLE IDS — the shared bank stores SEVEN distinct drums,
+// not nine (LS-7, 2026-09-06). `dac/s3k_kick.pcm` was byte-identical to
+// `dac/kick.pcm` (1406 B) and `dac/s3k_snare.pcm` byte-identical to
+// `dac/snare.pcm` (3748 B) — the S3K DAC import (tools/import_s3k_dac.py) resamples
+// $86/$81 to the same fixed engine rate at pitch_ratio 1.0 that produced the
+// original two, so the two pairs come out the same bytes. Both duplicate .pcm
+// files are DELETED and ids 5/6 now alias ids 2/3 through the SND_S3K_KICK_* /
+// SND_S3K_SNARE_* triples below: no id churn, no Z80 change, no descriptor field
+// changes except ds_ptr. That reclaimed 5154 B of the no-straddle 32768 B bank
+// (30908 -> 25754 emitted; free tail 1860 -> 7014).
+//
+// If a FUTURE re-import ever makes an S3K kick or snare genuinely differ from
+// the original (a different pitch_ratio, a different source WAV, a different
+// engine rate), give it its own blob const + `data` line in the shared bank
+// again and repoint its SND_S3K_* triple back. The alias below is a statement
+// about TODAY'S BYTES, verified by `cmp`, not a claim that the two drums are
+// conceptually the same instrument.
 const BlipBlob      = embed("temp_blip.bin")     // 2880 B — 1B bring-up placeholder
-const KickBlob      = embed("dac/kick.pcm")      // 1406
-const SnareBlob     = embed("dac/snare.pcm")     // 3748
+const KickBlob      = embed("dac/kick.pcm")      // 1406 — also serves DAC id 5 (s3k_kick)
+const SnareBlob     = embed("dac/snare.pcm")     // 3748 — also serves DAC id 6 (s3k_snare)
 const HatBlob       = embed("dac/hat.pcm")       // 240
-const S3kSnareBlob  = embed("dac/s3k_snare.pcm") // 3748
 const S3kHiTomBlob  = embed("dac/s3k_hitom.pcm") // 3724
 const S3kMidTomBlob = embed("dac/s3k_midtom.pcm")// 4656
 const S3kLowTomBlob = embed("dac/s3k_lowtom.pcm")// 5558
 const S3kFloorTomBlob = embed("dac/s3k_floortom.pcm") // 6422
-const S3kKickBlob   = embed("dac/s3k_kick.pcm")  // 1406
 
 
 // --- length guards (the .asm's `0 < len < $8000` invariant, one per blob, as
@@ -83,12 +99,10 @@ ensure(0 < BlipBlob.len      && BlipBlob.len      < $8000, "DAC sample length mu
 ensure(0 < KickBlob.len      && KickBlob.len      < $8000, "raw DAC drum length must be > 0 and < $8000")
 ensure(0 < SnareBlob.len     && SnareBlob.len     < $8000, "raw DAC drum length must be > 0 and < $8000")
 ensure(0 < HatBlob.len       && HatBlob.len       < $8000, "raw DAC drum length must be > 0 and < $8000")
-ensure(0 < S3kSnareBlob.len  && S3kSnareBlob.len  < $8000, "S3K DAC drum length must be > 0 and < $8000")
 ensure(0 < S3kHiTomBlob.len  && S3kHiTomBlob.len  < $8000, "S3K DAC drum length must be > 0 and < $8000")
 ensure(0 < S3kMidTomBlob.len && S3kMidTomBlob.len < $8000, "S3K DAC drum length must be > 0 and < $8000")
 ensure(0 < S3kLowTomBlob.len && S3kLowTomBlob.len < $8000, "S3K DAC drum length must be > 0 and < $8000")
 ensure(0 < S3kFloorTomBlob.len && S3kFloorTomBlob.len < $8000, "S3K DAC drum length must be > 0 and < $8000")
-ensure(0 < S3kKickBlob.len   && S3kKickBlob.len   < $8000, "S3K DAC drum length must be > 0 and < $8000")
 
 
 // ===========================================================================
@@ -102,24 +116,45 @@ section dac_blip_bank (cpu: m68000, bank: $8000) {
 
 
 // ===========================================================================
-// The shared RAW 8-bit PCM drum bank — all nine drums (the 3 original
-// kick/snare/hat + the 6 S3K HCZ2 drums, ~30908 bytes) packed contiguously into
-// one $8000 window so a single bank id covers the whole region and FILL never
-// re-banks mid-sample. Placed one 0x8000 window above the blip bank, on its own bank
-// id (see the ⚠ note in the header for the derivation). Order matches the
-// .asm exactly. Drums are raw 8-bit PCM, not DPCM: the shared bank makes
-// compression moot, and raw is higher-rate and cleaner.
+// The shared RAW 8-bit PCM drum bank — SEVEN distinct drums (the 3 original
+// kick/snare/hat + the 4 S3K HCZ2 toms) packed contiguously into one $8000
+// window so a single bank id covers the whole region and FILL never re-banks
+// mid-sample. Placed one 0x8000 window above the blip bank, on its own bank
+// id (see the ⚠ note in the header for the derivation). Drums are raw 8-bit
+// PCM, not DPCM: the shared bank makes compression moot, and raw is
+// higher-rate and cleaner.
+//
+// It stored NINE data lines until LS-7 (2026-09-06): `Dac_S3K_Kick` and
+// `Dac_S3K_Snare` held bytes `cmp`-identical to `Dac_Kick` / `Dac_Snare`, so
+// DAC ids 5 and 6 now point at the originals (see the ⚠ note at the blob
+// consts). The order is otherwise unchanged; the two deleted lines were the
+// mid-list s3k_snare and the tail s3k_kick, so the four toms shifted down.
+// Nothing reads these labels at runtime — they are placement heads whose
+// addresses reach the Z80 only through the bankid()/winptr() equs below.
+//
+// ⚠ THE CEILING IS 32768 B AND IT IS LINK-ENFORCED, NOT ENFORCED HERE. `bank:
+// $8000` means sigil's placer refuses a section whose content exceeds the bank:
+// `bank_diag` in sigil-link/src/relax.rs reports "section `dac_shared_bank` ...
+// over by K bytes", by name and by amount, so the next person to add a drum is
+// TOLD rather than shipping a bank that re-banks mid-sample. Measured
+// 2026-09-06 by padding this section past the boundary; see the LS-7 commit.
+// No comptime `ensure` duplicates it here ON PURPOSE — a hand-summed byte total
+// beside a `data` list goes stale the moment someone adds a line and forgets the
+// sum, and a ceiling guard that silently under-counts is worse than none.
+// What the placer's check does NOT cover: it bounds the BYTES, nothing else. It
+// says nothing about whether a drum is duplicated (LS-7's actual finding — the
+// bank was legal at 30908 B while 5154 B of it was a copy), nothing about
+// DAC_SAMPLE_COUNT or the descriptor table, and nothing about whether any
+// sample still SOUNDS right. Those need eyes, `cmp`, and an emulator.
 // ===========================================================================
 section dac_shared_bank (cpu: m68000, bank: $8000) {
     data Dac_Kick        = KickBlob
     data Dac_Snare       = SnareBlob
     data Dac_Hat         = HatBlob
-    data Dac_S3K_Snare   = S3kSnareBlob
     data Dac_S3K_HiTom   = S3kHiTomBlob
     data Dac_S3K_MidTom  = S3kMidTomBlob
     data Dac_S3K_LowTom  = S3kLowTomBlob
     data Dac_S3K_FloorTom = S3kFloorTomBlob
-    data Dac_S3K_Kick    = S3kKickBlob
 }
 
 
@@ -148,9 +183,11 @@ equ SND_HAT_BANK = bankid(Dac_Hat)
 equ SND_HAT_PTR  = winptr(Dac_Hat)
 equ SND_HAT_LEN  = HatBlob.len
 
-equ SND_S3K_SNARE_BANK = bankid(Dac_S3K_Snare)
-equ SND_S3K_SNARE_PTR  = winptr(Dac_S3K_Snare)
-equ SND_S3K_SNARE_LEN  = S3kSnareBlob.len
+// DAC id 6 (s3k_snare) ALIASES id 3 (snare) — the two .pcm were byte-identical
+// (LS-7). Only ds_ptr ever distinguished the two descriptors; now not even that.
+equ SND_S3K_SNARE_BANK = bankid(Dac_Snare)
+equ SND_S3K_SNARE_PTR  = winptr(Dac_Snare)
+equ SND_S3K_SNARE_LEN  = SnareBlob.len
 
 equ SND_S3K_HITOM_BANK = bankid(Dac_S3K_HiTom)
 equ SND_S3K_HITOM_PTR  = winptr(Dac_S3K_HiTom)
@@ -168,6 +205,7 @@ equ SND_S3K_FLOORTOM_BANK = bankid(Dac_S3K_FloorTom)
 equ SND_S3K_FLOORTOM_PTR  = winptr(Dac_S3K_FloorTom)
 equ SND_S3K_FLOORTOM_LEN  = S3kFloorTomBlob.len
 
-equ SND_S3K_KICK_BANK = bankid(Dac_S3K_Kick)
-equ SND_S3K_KICK_PTR  = winptr(Dac_S3K_Kick)
-equ SND_S3K_KICK_LEN  = S3kKickBlob.len
+// DAC id 5 (s3k_kick) ALIASES id 2 (kick) — same LS-7 finding, same reasoning.
+equ SND_S3K_KICK_BANK = bankid(Dac_Kick)
+equ SND_S3K_KICK_PTR  = winptr(Dac_Kick)
+equ SND_S3K_KICK_LEN  = KickBlob.len

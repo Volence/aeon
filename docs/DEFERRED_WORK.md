@@ -29011,7 +29011,7 @@ them looking. Any fix below that adds or edits a guard must state what it does N
 | LS-4 | **Two blob-derived VRAM ceilings name the wrong neighbour** (`tails_data.emp:100`, `player_instashield.emp:469`), 3 tiles of permitted overlap each. **Measured LATENT.** The real fix is a generator change: the correct names are not in those modules' import closure, which is WHY the wrong ones were used. | C2a-H1a/b + controller TAG-1 |
 | LS-5 | **`Parallax_StartTransition` publishes its config triple in the order that makes it observably inert** — clear `Frames` before `Target` at both sites and the window closes. One frame of frozen parallax per cancelled transition. **Free ordering fix.** | C3b-V1, both orders verified |
 | LS-6 | **The entity spawn gates run a 9-slot linear scan before the single `btst`**, nine lines apart, both branching to `.gated`. `ENGINE_ARCHITECTURE.md:2964` already describes the other order. 6-9% of a frame shipped, 28-42% at the density ARCH designs for. **Candidate cause for `DEFERRED_WORK:7460`, open since 2026-06-11 with no cause named.** | C4a-1, order verified |
-| LS-7 | **5,154 B of byte-identical duplicate PCM** (`kick`/`s3k_kick`, `snare`/`s3k_snare`, `cmp`-verified) in a no-straddle bank at 94.3%. Dedupe takes the free tail from 1,860 B — which admits ONE of six S3K drum sizes — to 7,014 B, which admits all six. | C5-F1 |
+| ~~LS-7~~ | ~~**5,154 B of byte-identical duplicate PCM** (`kick`/`s3k_kick`, `snare`/`s3k_snare`, `cmp`-verified) in a no-straddle bank at 94.3%. Dedupe takes the free tail from 1,860 B — which admits ONE of six S3K drum sizes — to 7,014 B, which admits all six.~~ **CLOSED 2026-09-06 (`parcel/ls7-dac-dedupe`) — see the closure note below.** | C5-F1 |
 
 ## Tier 2 — real, needs a decision or a design
 
@@ -29041,6 +29041,82 @@ them looking. Any fix below that adds or edits a guard must state what it does N
 | LS-24 | ~90 comments cite `.asm` authorities that do not exist; `dma_queue.emp:26` says "the byte gates are the guard" naming a deleted file and a gate no tool references. |
 | LS-25 | `scene_dsl.emp` ×5 cites a file deleted 2026-08-18, all exactly 31 lines stale; every substantive claim is TRUE, only the coordinates are wrong. `scene_equiv_proof.emp` cites the same dead file 20+ times and is exact, **because it says where to recover it**. |
 | LS-26 | `VSync_Wait` still asserts a lemma `VBlank_Handler`'s own header retracts 370 lines away — and the retracted one is what a reader hits first. |
+
+### ~~LS-7 — 5,154 B OF BYTE-IDENTICAL DUPLICATE PCM IN THE NO-STRADDLE DAC BANK~~ — CLOSED 2026-09-06 (`parcel/ls7-dac-dedupe`)
+
+**What was done.** `dac/s3k_kick.pcm` and `dac/s3k_snare.pcm` are DELETED. DAC ids 5 and 6 survive
+unchanged and now alias ids 2 and 3: `SND_S3K_KICK_{BANK,PTR,LEN}` and `SND_S3K_SNARE_{BANK,PTR,LEN}`
+in `games/sonic4/data/sound/dac_samples.emp` point at `Dac_Kick` / `Dac_Snare`, and the two `data`
+lines plus their blob consts and length `ensure`s are gone from `dac_shared_bank`. No id churn, no
+`DAC_SAMPLE_COUNT` change (still 10), no Z80 change, no descriptor-table size change (still `$7F`
+with its head-tail pad, as `soundbankhead.emp:73` asserts).
+
+**Byte-identity, re-verified before deleting anything** (in the parcel worktree, exit statuses read
+explicitly because `cmp` is silent on success):
+
+```
+cmp kick.pcm  s3k_kick.pcm   -> exit 0     md5 1fd2c677b3f456c482e18646f89fd649 (both, 1406 B)
+cmp snare.pcm s3k_snare.pcm  -> exit 0     md5 19bb4c16eb09d66bc23ff791e068c02b (both, 3748 B)
+cmp kick.pcm  snare.pcm      -> exit 1     (negative control: the runs were real)
+```
+
+**Descriptor comparison, re-derived from the EMITTED artifact** rather than from source or from the
+sweep's table — `engine/sound/generated/dac_sample_tab.bin`, 12 B per descriptor, id N at (N-1)*12.
+Before the dedupe, ids 2/5 and 3/6 agreed in every emitted field *including* `ds_bank` (both `$16` —
+all nine drums lived in the one no-straddle window) and differed ONLY in `ds_ptr`:
+
+| id | ds_bank | ds_rate | ds_codec | ds_ptr | ds_length | ds_loop_ofs | ds_vol | ds_mix_rsvd |
+|---|---|---|---|---|---|---|---|---|
+| 2 kick | `$16` | 0 | 0 | `$8000` | `$057E` (1406) | 0 | 0 | 0 |
+| 5 s3k_kick (before) | `$16` | 0 | 0 | `$F33E` | `$057E` (1406) | 0 | 0 | 0 |
+| 3 snare | `$16` | 0 | 0 | `$857E` | `$0EA4` (3748) | 0 | 0 | 0 |
+| 6 s3k_snare (before) | `$16` | 0 | 0 | `$9512` | `$0EA4` (3748) | 0 | 0 | 0 |
+
+After: descriptor 5 is byte-identical to 2 and 6 to 3. The four toms' `ds_ptr` shifted down
+(`$A3B6`→`$9512`, `$B242`→`$A39E`, `$C472`→`$B5CE`, `$DA28`→`$CB84`) with every `ds_length`
+unchanged — which is the whole visible effect on the table.
+
+**Occupancy, with the instrument.** The section's ceiling is not a hand-written `ensure`: it is
+`section dac_shared_bank (cpu: m68000, bank: $8000)`, and sigil's placer refuses content larger than
+the bank — `bank_diag` in `sigil-link/src/relax.rs` emits the §7.3 "over by K bytes" budget error
+naming the section. Ceiling = 32,768 B. The occupancy is the emitted section image, which seam-2
+lowers to a file, so `stat` on that file is the measurement:
+
+```
+stat -c %s engine/sound/generated/dac_shared_bank.bin
+  before  30908   (94.32% of 32768; free tail 1860)
+  after   25754   (78.60% of 32768; free tail 7014)
+```
+
+Delta −5,154 B, exactly the duplicated bytes. `Dac_SharedBank_Start` sits at `$B0000` in `s4.lst`,
+0x8000-aligned, before and after.
+
+**No new gate was added, deliberately.** The ceiling already has a loud, always-on, by-name check in
+the placer (proven red in this parcel by padding the section past the boundary — see the parcel's
+commits). A comptime `ensure` summing the blob `.len`s beside the `data` list would have been a
+weaker duplicate that goes silently stale the first time someone adds a `data` line and forgets the
+sum. `span()` cannot measure a section (it takes a pure-data *proc* name), so there is no
+self-deriving comptime form available today. **What the placer's check does NOT cover, recorded in
+`dac_samples.emp` beside the section:** it bounds BYTES only. It says nothing about duplication —
+the bank was perfectly legal at 30,908 B while a sixth of it was a copy, which is the defect LS-7
+actually was — nothing about `DAC_SAMPLE_COUNT` or the descriptor table, and nothing about whether a
+sample still sounds right.
+
+**NOT done, on purpose, and it is the tempting part.** The free tail now admits all six S3K drum
+sizes rather than one. **Adding drums is a separate parcel and a content call.** Which of the six
+ship was not touched.
+
+**The regenerator was left able to recreate the deleted files, with the correction written where the
+wrong path leads.** `tools/import_s3k_dac.py`'s `HCZ2_DRUMS` still lists `s3k_kick` and `s3k_snare`:
+that tool is the faithful S3K importer and running it is how the identity gets RE-verified. Its
+header now says both outputs are orphans that nothing embeds, gives the two `cmp` commands, and says
+what to do if a future rate/pitch/source change ever makes either output differ from its twin.
+
+**Untested by anything in this parcel: that ids 5 and 6 still make a sound.** Neither canonical shape
+can play music, so no build here exercises a DAC hit. The descriptors are byte-identical to ids 2/3,
+which do play, so the mechanism is as sound as it can be made without an emulator — but that is an
+argument, not a measurement. **Controller TAG: play HCZ2 under `sigil build --native --config-a` and
+listen for the kick and snare.**
 
 ## Suspicions carried forward, NOT booked as defects
 
