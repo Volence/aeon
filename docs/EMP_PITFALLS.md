@@ -90,6 +90,31 @@ Quick diagnostic: interpolate the name in an `ensure` message — it prints `<?>
 against the imported constant. This is why DSL bodies spell `2`/`$8AFF`/`3..224` rather
 than named constants — it is deliberate, not sloppiness.
 
+**AMENDED 2026-09-07 — "glob-injected … resolve everywhere" MISLED, and the entry is
+WIDER than it reads.** The sentence above is about a name a *caller* can see. It is not
+a promise that a `pub comptime fn` can call its own module SIBLING: a fn body's free
+names resolve at the call site, **module siblings included**. Measured on sigil
+`e6e942e5` (LS-9): `empty_frame_mismatches`, defined in `engine/objects/dplc.emp`
+immediately below the two `pub comptime fn` parsers it called, resolved
+`map_frame_pieces` — which the calling module happened to import for a guard of its own
+— and failed on `dplc_frame_entries`, which it did not:
+
+```
+[Error] unknown function `dplc_frame_entries`
+```
+
+**The near miss is the hazard, not the error.** Had the caller imported *both* by
+coincidence it would have built green; had it imported *neither* the failure is loud.
+With exactly one in scope the fn does not error and does not work — it silently computed
+"every drawn frame disagrees" (6, on the insta-shield). A helper that calls a helper
+makes its own correctness a property of each caller's import list.
+
+**Rule:** a `pub comptime fn` meant for other modules must be SELF-CONTAINED — inline
+what it needs, pin the literals with module-level `ensure`s, and call nothing. This is
+also why `engine/objects/dplc.emp`'s header has always said a private comptime fn "is
+not visible at the CALLER's expansion site"; that note was right and this section read
+as contradicting it.
+
 ## 3. Guards in unreachable modules are dead — parse ≠ evaluate
 
 **Trap:** sigil parses every module in the manifest but only **elaborates** those inside
