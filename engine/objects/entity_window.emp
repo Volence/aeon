@@ -937,7 +937,7 @@ pub proc EntityWindow_Scan () clobbers(d0-d7, a0-a4) {
 // -----------------------------------------------
 // EntityWindow_TrySpawnRing — gate one ROM ring entry, add if it passes
 //
-// Gates (cheapest first): Y load band → collected bit → loaded bit.
+// Gates (cheapest first): Y load band → loaded bit → collected bit.
 // On RingBuffer_Add success, sets the loaded bit. Buffer-full leaves
 // the bit clear — the X ratchet has already passed this ring, so only
 // a later re-scan or slide populate retries it.
@@ -975,21 +975,33 @@ proc EntityWindow_TrySpawnRing () clobbers(d0-d2, a0) preserves(d3, d4, d5.w) {
         // one save window for both checks + the add (subcalls clobber a0)
         movem.l d3-d4/a0, -(sp)
 
-        // collected on a previous visit?
-        move.b  EntityScanState.ess_section_id(a1), d0
-        moveq   #0, d1
-        move.w  d4, d1                  // list_index
-        jbsr    Collected_CheckRing     // clobbers d2, a0
-        bne     .gated                  // Z clear = collected (unsized: .w in DEBUG, .s in plain)
-
         // already in the buffer? (loaded bit — set on add, cleared on remove)
+        // FIRST because it is the cheap gate AND the one that hits on the hot
+        // path: EntityWindow_RescanY re-offers every already-spawned entity up
+        // to the X ratchet, and each of those exits here. Both gates are PURE
+        // predicates (Collected_CheckRing/Collected_FindSlot/EntityLoaded_Test
+        // read only; the only writes are the balanced d1 save/restore inside
+        // Collected_CheckRing) and both branch to the same do-nothing .gated,
+        // so the order is a pure cost choice, not a semantic one. Measured off
+        // the shipped release bytes: this gate is 138c end to end vs 222-494c
+        // for the collected scan (9-slot linear tag scan, cost set by which
+        // window slot owns the section). The one case that pays for this is a
+        // candidate that IS collected and NOT loaded — it now runs this gate
+        // first, +138c. Loaded-hits vastly outnumber those on the rescan path.
         moveq   #0, d0
         move.b  EntityScanState.ess_entry_idx(a1), d0
         moveq   #0, d1
         move.w  d4, d1                  // list_index
         moveq   #0, d2                  // ring bits
         jbsr    EntityLoaded_Test       // clobbers d0, d2, a0
-        bne     .gated                  // loaded → skip (unsized, see above)
+        bne     .gated                  // loaded → skip (unsized: .w in DEBUG, .s in plain)
+
+        // collected on a previous visit?
+        move.b  EntityScanState.ess_section_id(a1), d0
+        moveq   #0, d1
+        move.w  d4, d1                  // list_index
+        jbsr    Collected_CheckRing     // clobbers d2, a0
+        bne     .gated                  // Z clear = collected (unsized, see above)
 
         // spawn ring into buffer
         movea.l 8(sp), a0               // ROM entry (a0 slot of movem frame)
@@ -1171,7 +1183,7 @@ proc EntityWindow_PopulateSectionRings () clobbers(d0-d5, a0, a2) {
 //   +0 dc.w  section-local X
 //   +2 dc.w  section-local Y   (ess_origin_y added here)
 //   +4 dc.w  flags|type|subtype  (OEF_* bits; flows to Load_Object in d2)
-// Gates: ANY_Y/Y load band → killed bit → loaded bit. On Load_Object
+// Gates (cheapest first): ANY_Y/Y load band → loaded bit → killed bit. On Load_Object
 // success: SST_slot_tag = entry index | ANY_Y<<7 (never collides with
 // TagRef.none=$FF, the carved niche), section id + list index stored,
 // loaded bit set.
@@ -1204,14 +1216,13 @@ proc EntityWindow_TrySpawnObject () clobbers(d0-d2, a0-a3) preserves(d3, d5) {
         // (frame: d3=0, d5=4, a0=8, a1=12, a3=16; Load_Object clobbers a1-a3)
         movem.l d3/d5/a0-a1/a3, -(sp)
 
-        // killed on a previous visit?
-        move.b  EntityScanState.ess_section_id(a1), d0
-        moveq   #0, d1
-        move.w  d4, d1                  // list_index
-        jbsr    Killed_CheckObject      // clobbers d2, a0
-        bne     .gated                  // Z clear = killed
-
         // already spawned? (loaded bit — set on spawn, cleared on despawn/kill)
+        // FIRST for the same reason as TrySpawnRing: cheap gate, and the one
+        // RescanY hits on every already-spawned entity up to the X ratchet.
+        // Killed_CheckObject and EntityLoaded_Test are both pure predicates
+        // branching to the same do-nothing .gated, so this is a cost choice
+        // only. d2 held the placement word on entry here; Killed_CheckObject
+        // clobbered it before too, and the spawn path re-reads it from 4(a0).
         moveq   #0, d0
         move.b  EntityScanState.ess_entry_idx(a1), d0
         moveq   #0, d1
@@ -1219,6 +1230,13 @@ proc EntityWindow_TrySpawnObject () clobbers(d0-d2, a0-a3) preserves(d3, d5) {
         moveq   #ENTITY_LOADED_OBJ_OFFSET, d2
         jbsr    EntityLoaded_Test       // clobbers d0, d2, a0
         bne     .gated                  // loaded → skip
+
+        // killed on a previous visit?
+        move.b  EntityScanState.ess_section_id(a1), d0
+        moveq   #0, d1
+        move.w  d4, d1                  // list_index
+        jbsr    Killed_CheckObject      // clobbers d2, a0
+        bne     .gated                  // Z clear = killed
 
         // spawn (d5 stashes section_id — Load_Object preserves d4-d7)
         movea.l 8(sp), a0               // ROM entry (a0 slot of movem frame)
