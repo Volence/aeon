@@ -156,6 +156,32 @@ def test_more_cases_than_decorators_is_fine(tmp_path):
     assert "OK — all 3 marked test(s) ran and passed." in p.stdout
 
 
+def test_a_decorator_inside_a_string_literal_is_not_counted(tmp_path):
+    """REGRESSION, and it is this file's own bug (2026-09-06, before first use).
+
+    The first version of `decorator_count` was a regex over the file text, so the
+    triple-quoted `TWO_PASSING` fixture above — whose lines begin with the decorator at
+    column 0 — counted as two more markers than the tree has. Over the real `tools/`
+    directory it read 6 against 4 real ones, and the lane's directional floor would have
+    exited 2 with "markers the run never reached" on a healthy tree, every night. The
+    count is parsed from the AST now. This fixture reproduces the shape exactly: ONE real
+    decorator, and a string literal that looks like two more.
+    """
+    lane = make_lane(tmp_path, (
+        "import pytest\n\n"
+        "FIXTURE = '''\n"
+        "@pytest.mark.needs_build(\"s4.debug.bin\")\n"
+        "def test_in_a_string(): pass\n"
+        "@pytest.mark.needs_build(\"s4.lst\")\n"
+        "def test_also_in_a_string(): pass\n"
+        "'''\n\n"
+        "@pytest.mark.needs_build(\"s4.debug.bin\")\n"
+        "def test_real():\n    assert FIXTURE\n"), artifacts=("s4.debug.bin",))
+    p = run_lane(lane)
+    assert "1 @pytest.mark.needs_build decorator(s)" in p.stdout, p.stdout
+    assert p.returncode == 0, p.stdout + p.stderr
+
+
 def test_pytest_failing_to_run_at_all_is_exit_2(tmp_path):
     """A usage error writes no report; a missing verdict is COULD NOT RUN, never a pass."""
     lane = make_lane(tmp_path, TWO_PASSING, artifacts=("s4.debug.bin",))

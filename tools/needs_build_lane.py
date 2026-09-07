@@ -61,8 +61,8 @@ count fall together — which is why the count is also PRINTED: the log is the r
 """
 
 import argparse
+import ast
 import os
-import re
 import subprocess
 import sys
 import tempfile
@@ -71,19 +71,37 @@ import xml.etree.ElementTree as ET
 TOOLS = os.path.dirname(os.path.abspath(__file__))
 MARKER = "needs_build"
 
-#: The decorator as it is actually written. Matched against the tests directory to get a
-#: source-derived FLOOR on the case count — see the module docstring on directionality.
-DECORATOR = re.compile(r"^\s*@pytest\.mark\.%s\(" % MARKER, re.M)
-
 
 def decorator_count(tests_dir):
-    """How many `@pytest.mark.needs_build(...)` decorators the tests directory carries."""
+    """How many `@pytest.mark.needs_build(...)` decorators the tests directory carries.
+
+    PARSED, NOT GREPPED, and that is not fastidiousness: the first regex version of this
+    counted 6 in a tree that has 4, because `tools/test_needs_build_lane.py` builds its
+    synthetic fixtures out of a triple-quoted string whose lines begin with the decorator
+    at column 0. A grep cannot tell a decorator from a decorator inside a string, and the
+    consequence was the lane refusing to run — exit 2 with "markers the run never reached"
+    — on a perfectly healthy tree. A gate that goes red on nothing is worse than absent.
+
+    A syntactically broken module counts ZERO here rather than raising: the case count
+    would drop with it, so the directional floor still fires, and pytest's own collection
+    error is the better message for that.
+    """
     n = 0
     for name in sorted(os.listdir(tests_dir)):
         if not name.endswith(".py"):
             continue
-        with open(os.path.join(tests_dir, name), encoding="utf-8") as fh:
-            n += len(DECORATOR.findall(fh.read()))
+        try:
+            with open(os.path.join(tests_dir, name), encoding="utf-8") as fh:
+                tree = ast.parse(fh.read())
+        except (OSError, SyntaxError):
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                continue
+            for dec in node.decorator_list:
+                target = dec.func if isinstance(dec, ast.Call) else dec
+                if isinstance(target, ast.Attribute) and target.attr == MARKER:
+                    n += 1
     return n
 
 
