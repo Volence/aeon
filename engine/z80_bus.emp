@@ -1,13 +1,69 @@
 // Z80 bus ownership — the declared context.
 //
 // The 68k can only read/write Z80 RAM, or drive a blocking VDP copy, while it
-// OWNS the Z80 bus. `with z80_stopped { … }` is the only door: the bracket
-// splices the request-and-spin before its body and the release after it, and
-// the compiler PROVES the pairing — every path through the body reaches the
-// release (`[context.escape]`), no branch enters the region past the request
-// (`[context.entry-skip]`), and the hold is never taken twice
+// OWNS the Z80 bus. `with z80_stopped { … }` is the door for all but one site:
+// the bracket splices the request-and-spin before its body and the release
+// after it, and the compiler PROVES the pairing — every path through the body
+// reaches the release (`[context.escape]`), no branch enters the region past
+// the request (`[context.entry-skip]`), and the hold is never taken twice
 // (`[context.reacquire]`, because a bus request is not a counting lock: an
 // inner release frees the outer hold).
+//
+// THE ONE EXCEPTION is cold boot. `EntryPoint` in engine/system/boot.emp spells
+// its own request/spin/release by hand (`move.w d7,(a1)` / `.wait_z80` /
+// `move.w d0,(a1)`, with a1 preloaded from BootData) because it interleaves the
+// hold with the /IC reset pulse on a2 and the driver-blob copy, which is not the
+// shape a bracket can take. It is therefore NOT proven by the context checks
+// above — it is proven by reading it. Anyone writing "the only door" again
+// should count it.
+//
+// ---- THE CENSUS OF 68k Z80-BUS HOLDS (derived 2026-09-07) -------------------
+// METHOD, so it can be re-run and so it can fail. Two greps, both QUOTED (an
+// unquoted `--include=*.emp` is eaten by this workspace's zsh and matches
+// NOTHING while exiting 1), both with this file as the positive control:
+//   1. `grep -rn "with z80_stopped" --include='*.emp' --include='*.asm' engine games`
+//      → 27 hits; 5 are prose (`grep -E ':[0-9]+: *//'`), leaving 22 CODE sites.
+//   2. `grep -rn "Z80_BUS_REQUEST\|Z80_RESET\|A11100\|A11200" --include='*.emp'
+//      --include='*.asm' .` → catches any hold that bypasses the bracket. Hits:
+//      this file's splice, constants.emp's two defs, boot_data.emp's two table
+//      longwords, sound_api.emp:131 prose — and boot.emp's hand-spelled hold,
+//      which is the ONLY door-bypass in the tree.
+// TOTAL: 22 bracketed + 1 hand-spelled = 23.
+//
+// By file (bracketed): sound_api 6 · vblank 6 · section 3 · bg 2 · boot 1 ·
+// controllers 1 · parallax 1 · sound_debug 1 · ojz_scroll_test 1.
+//
+// SITES ARE NAMED BY ROUTINE, NOT BY LINE, DELIBERATELY. A line-numbered census
+// is stale the first time anyone edits one of these files — this one went stale
+// inside its own parcel, from its own edits. Re-run grep 1 for today's numbers.
+//
+// EVERY ONE OF THE 23 IS ENTERED WITH INTERRUPTS MASKED, by one of four
+// mechanisms — which is why no comment anywhere may call itself "the one hold
+// that must also stay masked":
+//   * enclosing `with ints_off` — Sound_PostByte, Sound_ReadStat and
+//     Sound_PlayMusic's two (its `.await_slot` probe and its param-block post),
+//     Parallax_Update's reg $0B reassert, the OJZ scroll test;
+//   * a hand-spelled `move.w #$2700, sr` in force from earlier in the same proc
+//     — Sound_Init's `.wait_alive` probe, Sound_DrainSfxRing, BG_Init's two
+//     blits, Section_RedrawPlanes' three. BG_Init and Section_RedrawPlanes set
+//     their mask hundreds of lines above the brackets it covers, and BOTH carry
+//     a DEBUG `IPL >= 6` assert rather than resting on the reader's trust;
+//   * the 68000's own IPL 6 on IRQ entry, nothing in the handler lowering it —
+//     VInt_Level's three, VInt_Lag's three, Read_Controllers, Sound_DebugMirror;
+//   * the reset SR ($2700) still standing — EntryPoint's hand-spelled hold and
+//     its YM key-off bracket. Boot's FIRST `sr` write is after both of them.
+// The mask matters because the hold is a LATCH: an IRQ6 whose handler takes its
+// own bracket RELEASES the bus on the way out, and nothing below a `.wait_z80`
+// re-issues the request. `tools/test_sound_bus_hold_mask_lint.py` enforces this
+// for sound_api's six ONLY; the other seventeen rest on the reasoning above.
+//
+// SHAPE-GATED SITES, so "in the sound build" claims can be checked rather than
+// asserted: `SOUND_DRIVER_ENABLED == 0` gates VInt_Level's and VInt_Lag's OFF
+// fences and Section_RedrawPlanes' middle bracket; `== 1` gates the flag-bracket
+// raise/lower pairs in all three of those routines; Sound_DebugMirror is zero
+// bytes in BOTH canonical shapes (triple gate, see its header). Everything else
+// is unconditional — including `Read_Controllers`, which is why vblank.emp's
+// old "the ONLY 68k bus hold in the sound build" was false.
 //
 // Consumers `use engine.z80_bus.{z80_stopped}`.
 //

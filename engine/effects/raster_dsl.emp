@@ -187,7 +187,7 @@ pub comptime fn reg_set(word: int) -> RasterOp {
     // Parcel R1. What changed is that op_cram_span, op_mask and the ship destination all
     // compute spans as `addr + 2 * count`, so a mid-frame stride change makes every one of
     // them describe something other than what the VDP does, silently and only for the ops
-    // after it. Revocable behind a stride-aware span model (spec §4.2b, claim D-C).
+    // after it. Revocable behind a stride-aware span model (spec §4.2b, claim D-C) — but NOT as a local change: the ban has a second consumer in engine/system/, named in both ensure messages below.
     //
     // NOT ROUTED THROUGH VDP_Shadow_Table, and that is now correct BY CONSTRUCTION. The
     // word goes straight to VDP_CTRL from Raster_HInt's .op_set_reg and nothing here
@@ -203,7 +203,7 @@ pub comptime fn reg_set(word: int) -> RasterOp {
     ensure((word >> 8) != $8A,
            "reg_set: writes VDP reg $0A, the HInt line counter the raster SCHEDULE owns — Raster_HInt writes the record's arm word before running the ops, so this op would overwrite it and desynchronise every later fire in the frame. Change the SCHEDULE instead: the fires' screen lines are the input, and the encoder derives every arm word from them.")
     ensure((word >> 8) != $8F,
-           "reg_set: writes reg $0F (autoincrement) — every span/mask computation in this module assumes stride 2 (op_cram_span, op_mask, the ship destination), so a mid-frame stride change silently voids them all. Revocable behind a stride-aware span model (spec §4.2b).")
+           "reg_set: writes reg $0F (autoincrement) — every span/mask computation in this module assumes stride 2 (op_cram_span, op_mask, the ship destination), so a mid-frame stride change silently voids them all. Revocable behind a stride-aware span model (spec §4.2b) — BUT SEE THE SECOND CONSUMER BELOW: a stride-aware span model satisfies this module and still leaves engine/system/vblank.emp's deleted $8F02 re-assert unsafe. Revoking §4.2b means restoring that write in the same parcel.")
     return RasterOp.SetReg(word)
 }
 
@@ -3188,7 +3188,7 @@ pub comptime fn raster_program(fires: array) {
     for f in fires {
         for o in fire_ops(f) {
             ensure((op_reg_word(o) >> 8) != $8F,
-                   "raster_program: an op writes reg $0F (autoincrement) at line {fire_screen_line(f)} — refused tree-wide; direct RasterOp.SetReg construction bypasses reg_set's ensure, this scan is the layer that cannot be dodged (spec §4.2b, claim E-D)")
+                   "raster_program: an op writes reg $0F (autoincrement) at line {fire_screen_line(f)} — refused tree-wide; direct RasterOp.SetReg construction bypasses reg_set's ensure, this scan is the layer that cannot be dodged (spec §4.2b, claim E-D). This scan is also the ONLY thing keeping engine/system/vblank.emp's deleted VInt_Lag $8F02 re-assert safe, because a SetReg op can reach VDP_CTRL at frame top through .ship_reg — do not relax it without restoring that write.")
             ensure((op_reg_word(o) >> 8) != $8A,
                    "raster_program: an op writes reg $0A — the SCHEDULE's register (the arm word the encoder just wrote); a direct RasterOp.SetReg($8Axx) bypasses reg_set's ban and detonates the relative-arm chain from that fire down (spec §4.2b precedent: constructor-only refusals are not refusals)")
         }

@@ -586,9 +586,17 @@ pub proc VInt_DrawLevel () clobbers(d0-d1/a0/a5-a6) requires(vblank) {
         // the VBlank handler, upstream of this proc, and Process_DMA_Critical runs
         // downstream of it — so between them the only thing that can put reg $0F
         // back after a column entry's $8F80 excursion is the .done restore below.
-        // (VInt_Lag's matching re-assert was deleted 2026-08-14 as genuinely dead:
-        // that path skips this proc entirely, so nothing perturbs $0F between its
-        // flush and its drain. Different position, different verdict.)
+        // (VInt_Lag's matching re-assert was deleted 2026-08-14: that path skips
+        // this proc entirely, so no COLUMN EXCURSION perturbs $0F between its
+        // flush and its drain. Different position, different verdict.
+        // NARROWED 2026-09-07, lens item LS-19: this used to read "nothing
+        // perturbs $0F", which overstated it. Enqueue_Dirty_Buffers runs between
+        // that flush and that drain and DOES write VDP_CTRL directly — its
+        // `.ship_reg` loop, buffers.emp:458. What makes the deletion safe is that
+        // reg $0F is refused tree-wide in the raster DSL, so nothing `.ship_reg`
+        // can re-issue is a stride change. The full derivation, and the condition
+        // under which the re-assert must come back, is written at the deletion
+        // site in vblank.emp — read it before quoting this parenthesis.)
         //
         // The COL entries below take an autoincrement excursion ($8F80 direct
         // to VDP_CTRL, restored to $8F02 at .done) that bypasses the VDP shadow,

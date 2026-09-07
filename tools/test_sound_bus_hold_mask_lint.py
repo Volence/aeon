@@ -50,6 +50,18 @@ WHAT IT DOES NOT COVER, and each of these is a real hole:
     established many lines above them, or because they run in interrupt context where the
     68000's own IPL is the mask — neither of which this file-scoped text rule models. Do
     not read a green run here as a statement about them.
+    RE-DERIVED 2026-09-07 (LS-13 parcel) and the sixteen HOLD, by a differently-shaped
+    grep: 27 hits for "with z80_stopped" across engine+games, less 5 prose lines, = 22
+    code sites, of which sound_api's 6 are this lint's subject. The full census, with
+    each site's masking mechanism and shape gate, now lives in engine/z80_bus.emp's
+    header — that is the file to update, not this docstring.
+  * THE ONE HOLD THAT IS NOT A BRACKET AT ALL, and so is invisible to any grep for
+    `with z80_stopped`: engine/system/boot.emp:130-156 spells its own bus
+    request/spin/release by hand around the Z80 driver-blob copy. Found by grepping for
+    `Z80_BUS_REQUEST|Z80_RESET|A11100|A11200` instead — the search shape that enumerates
+    by what TOUCHES the register rather than by what names the context. It is masked (the
+    reset SR is still standing; boot's first `sr` write is at :266), but nothing checks
+    that, here or in sigil.
   * A MASK ESTABLISHED BY A CALLER. A proc in this file that is only ever reached with SR
     already at $2700 would be flagged, and correctly so — the rule is that the transaction
     masks — but the converse hole is real for the other files above.

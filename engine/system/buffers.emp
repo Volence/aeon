@@ -436,6 +436,16 @@ pub proc Enqueue_Dirty_Buffers () clobbers(d0/a1-a2) requires(vblank) {
         // frame's unconditional flush puts the shadow value back. Transient by construction,
         // exactly like the palette side — no restore path, no state to leave behind.
         //
+        // AND IT IS THE REASON reg $0F IS BANNED TREE-WIDE in the raster DSL
+        // (raster_dsl.emp:3191). This loop is the one VDP access in Enqueue_Dirty_Buffers,
+        // and it runs between Flush_VDP_Shadow and Process_DMA_Critical — so a $8F word
+        // here would change the stride the Critical DMA drains at, on a path
+        // (VInt_Lag) whose $8F02 re-assert was deleted 2026-08-14 on the strength of
+        // that ban. Two comments used to derive that deletion from
+        // "Enqueue_Dirty_Buffers has no VDP access on either path"; this loop is the
+        // counterexample, and both were corrected 2026-09-07 (lens item LS-19).
+        // If you widen what may ride in the ship trailer, read vblank.emp's derivation.
+        //
         // WHY IT IS NEEDED AT ALL: the ship exists because the fire's line clamps into its
         // band, so the rows above that line never see the fire. The palette half was covered
         // by the DMA; the register half was not, and OJZ's water fire carries sh_on() — the

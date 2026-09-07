@@ -1768,8 +1768,12 @@ pub proc Parallax_Update () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
         // register write regardless of any VBlank that lands mid-wrap.
         andi.w  #$00FF, d0
         ori.w   #$8B00, d0                          // d0 = $8B?? = "set reg $0B = ??"
-        // Mask IRQs across the whole bus hold. This is the tree's one atomic Z80
-        // hold that must also stay masked: an IRQ6 landing mid-bracket runs
+        // Mask IRQs across the whole bus hold, for the reason below. This is NOT
+        // "the tree's one atomic Z80 hold that must also stay masked" — it said
+        // that until 2026-09-07 and it was never true. EVERY one of the tree's 23
+        // holds is entered masked; sound_api's six are masked for exactly this
+        // reason and have a lint enforcing it. Census + method: engine/z80_bus.emp.
+        // The hazard here: an IRQ6 landing mid-bracket runs
         // VBlank's own bus bracket and returns with the bus RELEASED, so the
         // pending $8B?? write would then land with the Z80 live on its bank
         // window (bus-latch corruption). The SR mask keeps the state-machine-reset
