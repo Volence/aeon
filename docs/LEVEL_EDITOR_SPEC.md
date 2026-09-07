@@ -611,9 +611,10 @@ ROM build (`./build.sh`, requires SIGIL_BUILD/SIGIL_EMIT — see CLAUDE.md):
 
 ```
 1. python3 tools/gen_compression_vectors.py       → self-test vectors
-2. python3 tools/s4lint.py games/sonic4/game_root.asm  → lint (residual)
-3. python3 tools/verify_level_bin.py              → committed level-tree drift gate
-4. $SIGIL_BUILD build --aeon . --native --game sonic4 -o s4.bin --emit-lst s4.lst
+   (s4lint RETIRED 2026-09-07, LS-14 — there is no lint step; the residual .asm
+    root it linted is 8 no-op lines and the CODE corpus is .emp)
+2. python3 tools/verify_level_bin.py              → committed level-tree drift gate
+3. $SIGIL_BUILD build --aeon . --native --game sonic4 -o s4.bin --emit-lst s4.lst
        → assemble .emp natively + residual .asm, link in map.toml order,
          fold checksum, emit ROM + .lst (asl/p2bin/fixheader are gone)
 ```

@@ -42,7 +42,7 @@ set -euo pipefail
 #     emit_sound_blob           0.20 s   ARTIFACT
 #     verify_level_bin          0.13 s   verification
 #     effects_budget_check      0.09 s   verification
-#     s4lint / s4budget /
+#     s4budget /
 #       art_rom_report /
 #       gen_compression_vectors 0.04 s each
 #     ----------------------------------------------------------------
@@ -51,7 +51,7 @@ set -euo pipefail
 # So NO, the assemble is not the ceiling — the two build-invoking gate lanes are
 # 92% of the wall clock. FAST keeps emit_sound_blob + gen_compression_vectors (both
 # EMIT ROM-consumed bytes) + the sigil build + its checksum/deb2 appendix, and drops
-# s4lint, effects_budget_check, the pytest sweep, the expect-fail lane,
+# effects_budget_check, the pytest sweep, the expect-fail lane,
 # verify_level_bin, art_rom_report, s4budget, the post-sigil listing gates
 # (effects_seam_gate's REACHABILITY half — see below for the source half FAST now
 # does run — bganim_room, sprite_tilt_gate, instashield_gate) and the ctags
@@ -242,7 +242,7 @@ if [[ "$FAST" == "1" ]]; then
     fi
     echo "================================================================================"
     echo " FAST BUILD — VERIFICATION LANES SKIPPED. NOT a merge/ship artifact."
-    echo "   skipped: s4lint · effects_budget_check · pytest tools · emp_expect_fail"
+    echo "   skipped: effects_budget_check · pytest tools · emp_expect_fail"
     echo "            verify_level_bin · art_rom_report · s4budget · bganim_room (the"
     echo "            BG-anim ceiling is NOT checked) · sprite_tilt_gate (the tilt is NOT"
     echo "            executed) · instashield_gate (NEITHER the insta-shield NOR the"
@@ -561,11 +561,14 @@ echo "Generating compression self-test vectors..."
 python3 "${TOOLS}/gen_compression_vectors.py"
 
 if [[ "${NO_LINT:-0}" == "0" ]]; then
-    echo "Linting..."
-    if ! python3 "${TOOLS}/s4lint.py" "${MAIN_ASM}"; then
-        echo "Lint errors found — fix before assembling."
-        exit 1
-    fi
+    # s4lint RETIRED 2026-09-07 (LS-14, parcel/ls14-retire-s4lint). It was an AS-assembly
+    # style linter; the CODE corpus is `.emp`, which it cannot parse. Its only linted file
+    # was `${MAIN_ASM}` — 8 non-comment lines, zero instructions ("EMITS NO BYTES") — and
+    # the sole include it discovers, engine/debug/debugger.asm, was on its own _SKIP_FILES
+    # list. Exactly 2 of its 36 diagnostics (W016, W019) had any reachable subject and both
+    # passed. What retiring it LOSES is named in docs/DEFERRED_WORK.md (LS-14 closure):
+    # nothing mechanical states the E001/E002/E006/E007/W021/W024 invariants for `.emp`.
+    # NO_LINT still guards the source gates below.
 
     # Effects budget model vs the shipped code (closes EFX-9). This gate existed, was
     # CORRECT, and was invoked by NOTHING — not this script, not CI — so the only
@@ -1274,7 +1277,7 @@ if [[ "$FAST" == "1" ]]; then
     else
         echo "   level tree was fresh -> no re-bake"
     fi
-    echo "   VERIFICATION LANES WERE SKIPPED: s4lint · effects_budget_check · pytest tools"
+    echo "   VERIFICATION LANES WERE SKIPPED: effects_budget_check · pytest tools"
     echo "   · emp_expect_fail · verify_level_bin · art_rom_report · s4budget"
     echo "   · bganim_room (BG-anim ceiling NOT checked)"
     echo "   · sprite_tilt_gate (the tilt routine is NOT executed)"

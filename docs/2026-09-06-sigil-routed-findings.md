@@ -42,9 +42,16 @@ sites have moved since; the headings will hold, the internals may not.
 
 ## The three from the first file (the `S1S3S9` row)
 
-### S1 — `tools/s4lint.py`: a byte offset inside the live object record inferred from a symbol's spelling
+### S1 — `tools/s4lint.py`: a byte offset inside the live object record inferred from a symbol's spelling — **MOOT 2026-09-07**
 
 Heading: ``S1 — `s4lint.py` · `SST_FIELDS` / `SST_LEN` → `_resolve_sst_offset` → `check_e009` ``
+
+> **MOOT — the subject was DELETED, not fixed.** `tools/s4lint.py` and `tools/test_s4lint.py` were
+> retired 2026-09-07 by `parcel/ls14-retire-s4lint` (`docs/DEFERRED_WORK.md`, LS-14): the tool was an
+> AS-assembly linter and the CODE corpus is `.emp`, so its whole linted subject was one 8-line no-op
+> root. `SST_FIELDS`, `E009` and the two tests that documented the wrong arithmetic as correct went
+> with it. **Sigil's finding was right on the merits and is preserved here for that reason** — it is
+> the sharpest single instance of what LS-14 retired. Nothing routed back to sigil changes.
 
 A 26-row `Dict[str, int]` plus `SST_LEN = 0x50` is the tool's entire model of the object record,
 and nothing measures it. Sigil verified it **already wrong** against `engine/objects/sst.emp`,
