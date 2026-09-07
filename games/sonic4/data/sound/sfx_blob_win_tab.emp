@@ -2,7 +2,7 @@
 // data/sound/sfx_blob_win_tab.emp — id -> blob $8000-window pointer table
 // (dense, indexed by id - SFX_ID_BASE over [$33..$BB]).
 // ===========================================================================
-// The .emp port of sfx_blob_win_tab.asm (this directory). 137 little-endian
+// The .emp port of the deleted AS sfx_blob_win_tab.asm. 137 little-endian
 // words: one $8000-window pointer per SFX id in the dense [$33..$BB] range, 0
 // for an unused id. sound_sfx.emp's readers (SfxDispatch, Sfx_BeginSound) index
 // it as SfxBlobWinTab[id - SFX_ID_BASE] under SetBank(SFX_BLOB_BANK).

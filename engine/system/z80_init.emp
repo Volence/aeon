@@ -1,7 +1,7 @@
 // ===========================================================================
 // engine/system/z80_init.emp — the Z80 idle program (no-sound builds)
 // ===========================================================================
-// The .emp port of z80_init.asm (this directory) — the FIRST Z80 CODE module
+// The .emp port of the deleted AS z80_init.asm — the FIRST Z80 CODE module
 // and the first live `module (cpu: z80)`. It is the Z80 program the boot loader
 // copies into Z80 RAM when SOUND_DRIVER_ENABLED is undefined: it clears Z80 RAM
 // ABOVE ITS OWN PROGRAM (`.code_end` .. $1FFF — the bytes it is executing out of
@@ -9,7 +9,7 @@
 // area, seeds a real stack pointer, and patches a `jp (hl)` at address 0 so the
 // CPU idles forever.
 //
-// CANONICALLY EMPTY (the game_debug config-shape class): boot_data.asm includes
+// CANONICALLY EMPTY (the game_debug config-shape class): engine/system/boot_data.emp places
 // the sound driver blob when SOUND_DRIVER_ENABLED is defined and this idle
 // program only in the `else`. Both shipped shapes have sound ENABLED, so this
 // module emits ZERO bytes canonically — the port is proven by an OFF-CANONICAL

@@ -12,7 +12,8 @@
 // the link authority every consumer (`.emp` and residual AS) resolves against.
 // The overflow guards, the `.w`-addressability bit-15 rule, and the buffer-reuse
 // overlap are compiler checks now — the region `limit`s, `w_addressable`, and the
-// `alias`+`ensure` below replace ram.asm's `if/error` directives.
+// `alias`+`ensure` below replace the `if/error` directives of the deleted engine/ram.asm
+// (retired by 4fb99265; this file is the sole author of engine RAM).
 
 module engine.ram
 
@@ -1102,7 +1103,7 @@ pub vars upper_ram {
     // single-byte SND_REQ_SFX mailbox once the Z80 has cleared it, so two SFX
     // requested in one 68k frame are delivered over two frames instead of the
     // 2nd clobbering the 1st. Empty == (Rd == Wr); cleared to 0 by boot.
-    Sfx_Ring_Buf:           [u8; 8],    // SFX_RING_DEPTH (sound_constants.asm) = 8 pending SFX ids
+    Sfx_Ring_Buf:           [u8; 8],    // SFX_RING_DEPTH (engine/sound/sound_constants.emp) = 8 pending SFX ids
     Sfx_Ring_Wr:            u8,         // write cursor (0..SFX_RING_MASK)
     Sfx_Ring_Rd:            u8,         // read cursor  (0..SFX_RING_MASK); SFX_RING_DEPTH(8)+2 = 10 even
 

@@ -3,7 +3,7 @@
 // Stage 4, the P2 SFX probe)
 // ===========================================================================
 // The SFX block (the 9 FM/PSG SFX blobs, their patch banks, and the sparse
-// id->blob SfxTable) was the BINCLUDE at $5BAE8/$5D53A in main.asm's
+// id->blob SfxTable) was the BINCLUDE at $5BAE8/$5D53A in the since-deleted main.asm's
 // gameSoundDataIncludes (after the native MT body). This module places it
 // NATIVELY by EMBEDDING the seam-2-emitted sfx_bank{,_debug}.bin — the P2 path
 // (spec §6): the emit-tool architecture is untouched; this module just places

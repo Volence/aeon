@@ -27,7 +27,7 @@ ensure(VDP_Shadow_len <= 24, "engine.constants VDP_Shadow_len > 24 — the VDP h
 // Clobbers: d0, a0-a1
 // -----------------------------------------------
 pub proc VDP_Shadow_Init () clobbers(d0/a0-a1) {
-        lea     BootData_VDPRegs(pc), a0    // cross-seam pc-rel: engine/system/boot.asm
+        lea     BootData_VDPRegs(pc), a0    // cross-seam pc-rel: engine/system/boot_data.emp
         lea     VDP_Shadow_Table, a1
         moveq   #VDP_Shadow_len-1, d0
     .copy:

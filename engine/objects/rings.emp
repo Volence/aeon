@@ -18,7 +18,7 @@ use engine.constants.{NUM_PLAYERS, RING_HEIGHT, RING_ANIM_FRAMES, RING_ANIM_SPEE
                       RING_ENTRY_Y_OFFSET, RING_ENTRY_SECTION_ID_OFFSET,
                       RING_ENTRY_LIST_INDEX_OFFSET}
 
-// GAME-config inputs (truth: games/<game>/config/constants.asm). These VARY
+// GAME-config inputs (truth: games/<game>/config/constants.emp). These VARY
 // per game (sonic4: 128 / $3E8; demo: 16 / $3E4), so the engine takes them as
 // comptime defines (-D, the SOUND_DRIVER_ENABLED class) rather than hardcoding
 // sonic4's values — the engine/game split's contract. Each is cross-checked

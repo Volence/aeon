@@ -5,7 +5,7 @@
 // (shared ability). Player_Jump lives in this file because it is
 // invoked only from grounded states (its tail jumps into the air body in
 // player_air.emp — the press-frame movement fix). Reached only through the
-// Player_States offset table in player_common.asm; shares its overlay
+// Player_States offset table in player_common.emp; shares its overlay
 // equates, macros, and the (a4) physics-table convention.
 //
 // Placed in the object code bank by the sigil registry/map, right after
@@ -282,7 +282,7 @@ pub proc PState_Ground (a0: *Sst) clobbers(d0-d7/a1-a2) falls_into Ground_PostMo
                 // The initiating press IS a rev (rev 0) and must play the rev SFX — classic
                 // spindash makes the sound on the FIRST press. Since we consumed the jump
                 // buffer above, PState_Spindash's .rev sees it empty and won't fire for this
-                // press, so play it here. (Subsequent taps fire .rev in player_spindash.asm.)
+                // press, so play it here. (Subsequent taps fire .rev in player_spindash.emp.)
                 // Sound_PlaySFX preserves a0/a4; only d0 is clobbered (reloaded below).
                 move.b  #SFXID_SPINDASH, d0 as SfxId
                 jbsr    Sound_PlaySFX

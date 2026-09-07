@@ -51,7 +51,7 @@ ensure(MAX_TRACKED_SECTIONS <= 16, "MAX_TRACKED_SECTIONS > 16 puts `btst d6, d5`
 // in place of hand-carried displacement consts. This struct is the sole author
 // of its layout: every field carries an `@` literal offset and the struct a
 // `(size: $1A)`, both verified in-file; the build harvests `EntityScanState_len`
-// for ram.asm's `ds` reservation. This struct has a single consumer (this
+// for the RAM reservation in engine/ram.emp. This struct has a single consumer (this
 // module), so it lives here rather than in its own module — the complement to
 // sst.emp's precedent that a SHARED struct earns its own.
 struct EntityScanState (size: $1A) {
@@ -696,7 +696,7 @@ proc EntityWindow_DeriveWindow () clobbers(d0) out(d2: u8, d3: u8, d4: i16, d5: 
         move.w  Camera_Y, d5           // section 255 (NOT voided) and tripping the single-
         subi.w  #ENTITY_DESPAWN_BUFFER_Y, d5 // axis slide assert. Clamp to section 0, mirroring
         asr.w   d0, d5                  // the tile cache's Cache_Left_Col/Top_Row clamp
-        bpl     .y0_ok                  // (tile_cache.asm).
+        bpl     .y0_ok                  // (engine/level/tile_cache.emp).
         moveq   #0, d5
     .y0_ok:                             // clamp to section 0 to prevent -1 from being misinterpreted as section 255
         move.w  d4, d2                  // d2.b = sec_x0 (clamped to [0, grid))

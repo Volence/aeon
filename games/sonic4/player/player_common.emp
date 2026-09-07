@@ -2,7 +2,7 @@
 //
 // Owns the player frame: debug-fly escape → physics table (a4) →
 // quadrant → jump buffer → state dispatch → history rings → display tail.
-// The state bodies live in player_ground.asm / player_air.asm (reached
+// The state bodies live in player_ground.emp / player_air.emp (reached
 // only via the Player_States offset table below); characters contribute
 // asset/physics data + ability states through the roster (characters.emp,
 // sonic.emp) — never forks inside shared routines (spec §3.1 inversion of
@@ -1292,7 +1292,7 @@ pub proc Player_Main (a0: *Sst) clobbers(d0-d6/a1-a4) preserves(d7.w) falls_into
         // --- on-object bit: 1-frame-lagged (TouchResponse runs AFTER this
         // frame; everything in the player tick reads the LIVE bit set by LAST
         // tick's TouchResponse). The per-frame CLEAR lives at the top of
-        // TouchResponse's player loop (collision.asm), not here. ---
+        // TouchResponse's player loop (engine/objects/collision.emp), not here. ---
 
         jbsr    Player_LevelBound               // classic LevelBound, post-dispatch
 
@@ -1316,7 +1316,7 @@ pub proc Player_Main (a0: *Sst) clobbers(d0-d6/a1-a4) preserves(d7.w) falls_into
         move.w  d1, (a1,d0.w)                   // input word (Held<<8|Press)
         move.b  status(a0), 2(a1,d0.w)          // +pad byte left untouched
         addq.b  #4, Player_Ring_Index+1         // (Player_Ring_Index+1).w — low-byte
-                                                // wrap; rings are 256-aligned (ram.asm)
+                                                // wrap; rings are 256-aligned (engine/ram.emp)
 .rings_done:
         // fall through to the shared display tail
 }
@@ -2040,7 +2040,7 @@ pub proc PHook_SpindashEnter (a0: *Sst) clobbers(d1-d2/a1) preserves(d0) { // en
                                                 // the hook's back by DeleteChildren or
                                                 // the death cascade)
         move.l  (sp)+, d0
-        rts                                     // Rev SFX fired per-tap in player_spindash.asm
+        rts                                     // Rev SFX fired per-tap in player_spindash.emp
 }
 
 pub proc PHook_SpindashExit (a0: *Sst) clobbers() {
@@ -2142,7 +2142,7 @@ pub proc PHook_EnsureBall (a0: *Sst) clobbers(d1-d2/a1) {
 // -----------------------------------------------
 // Player_SnapToSurface — move the player a signed pixel distance along the floor
 // pair's PROBE axis. Mirrors Player_SensorFloor's case table EXACTLY
-// (player_sensors.asm) — probe direction per quadrant:
+// (player_sensors.emp) — probe direction per quadrant:
 //   quadrant 0: Collision_ProbeDown  → y_pos += dist
 //   quadrant 1: Collision_ProbeLeft  → x_pos −= dist
 //   quadrant 2: Collision_ProbeUp    → y_pos −= dist

@@ -107,7 +107,7 @@ section sfx_bank (cpu: m68000, bank: $8000) {
 // The id->blob window-pointer layer the banked head table (sfx_blob_win_tab.emp)
 // consumes cross-module — one SFX_WIN_NN per blob, each the $8000-window pointer
 // of its Sfx_NN part label (winptr(L) = (L & $7FFF) | $8000, the old
-// boot_data.asm sfx_winptr() function folded at LINK from the placed address).
+// engine/system/boot_data.emp's sfx_winptr() folded at LINK from the placed address).
 // The head references these equs by name (the DAC SND_*_PTR mechanism); the
 // values live ONCE here, at the producer that owns the blob placement, so a
 // re-base of the SFX block re-folds every window pointer automatically.

@@ -40,7 +40,7 @@ const PATHSWAP_BIT_PRIO     = 5         // subtype: reserved (priority swap)
 const PATHSWAP_BIT_GROUNDED = 6         // subtype: only swap while grounded
 const PATHSWAP_DEFAULT_HH   = 64        // half-height when subtype bits 0-3 = 0
 
-// VRAM_TEST_OBJ — tile 992, test object art. Mirrors config/constants.asm.
+// VRAM_TEST_OBJ — tile 992, test object art. Mirrors games/sonic4/config/constants.emp.
 use games.sonic4.constants.{VRAM_TEST_OBJ}
 
 // PathSwapV — the write-gate state, overlaying sst_custom. Single-consumer
