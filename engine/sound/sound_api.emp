@@ -211,11 +211,14 @@ pub proc Sound_PlayMusic (d0: SongId) clobbers(d0-d4/a0-a1) preserves(sr.mask) {
         // MASKED, per this file's header rule ("every transaction holds the bus,
         // with interrupts masked"), and it is the ACQUIRE that needs it more than
         // the body. `z80_stopped` writes the bus request ONCE, ABOVE its `.wait_z80`
-        // poll (engine/z80_bus.emp:26-31), and the hold is a LATCH, not a counter
-        // (z80_bus.emp:8-10 — "an inner release frees the outer hold"). An IRQ6
+        // poll (engine/z80_bus.emp, the `z80_stopped` context's `acquire` block),
+        // and the hold is a LATCH, not a counter (that file's `[context.reacquire]`
+        // paragraph — "an inner release frees the outer hold"). CITED BY SYMBOL:
+        // both citations were line numbers until 2026-09-07 and the first had
+        // already slid 20 lines off its target under an edit to that header. An IRQ6
         // landing in that spin runs VInt_Level/VInt_Lag, whose own `with z80_stopped`
         // brackets (vblank.emp, sound-ON) and Read_Controllers' unconditional one
-        // (controllers.emp:39) each RELEASE the bus on exit; `rte` returns into
+        // (controllers.emp) each RELEASE the bus on exit; `rte` returns into
         // `.wait_z80`, which re-reads bit 0 = 1 and branches back, and nothing below
         // that label re-issues the request. Either the spin never exits, or it exits
         // on a stale grant and the block below writes Z80 RAM with the Z80 live.

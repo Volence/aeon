@@ -17,45 +17,107 @@
 // above — it is proven by reading it. Anyone writing "the only door" again
 // should count it.
 //
-// ---- THE CENSUS OF 68k Z80-BUS HOLDS (derived 2026-09-07) -------------------
+// ---- THE CENSUS OF 68k Z80-BUS HOLDS ----------------------------------------
+// STOP READING THE PROSE AND RUN THE GATE. Since LS-13a (2026-09-07) this census
+// is DERIVED on every build, not maintained by hand:
+//
+//     python3 tools/test_z80_bus_hold_mask_census.py
+//
+// prints today's population, every site's masking mechanism, and the tally. It is
+// collected by build.sh's pre-build pytest lane and is build-fatal. The paragraphs
+// below explain what it checks and why; the NUMBERS in them are a snapshot
+// (2026-09-07) and the tool is the authority when they disagree.
+//
+// TOTAL: 22 bracketed + 1 hand-spelled = 23. By file (bracketed): sound_api 6 ·
+// vblank 6 · section 3 · bg 2 · boot 1 · controllers 1 · parallax 1 ·
+// sound_debug 1 · ojz_scroll_test 1.
+//
 // METHOD, so it can be re-run and so it can fail. Two greps, both QUOTED (an
 // unquoted `--include=*.emp` is eaten by this workspace's zsh and matches
 // NOTHING while exiting 1), both with this file as the positive control:
 //   1. `grep -rn "with z80_stopped" --include='*.emp' --include='*.asm' engine games`
-//      → 27 hits; 5 are prose (`grep -E ':[0-9]+: *//'`), leaving 22 CODE sites.
+//      → 28 hits; 6 are prose (`grep -E ':[0-9]+: *//'`), leaving 22 CODE sites.
+//      RE-DERIVED 2026-09-07 (LS-13a) and CORRECTED: this block said 27 and 5.
+//      Only the CODE count is a durable number — the hit and prose counts are
+//      partly a function of THIS HEADER, so they move whenever it is edited, and
+//      they did, inside the parcel that wrote them.
 //   2. `grep -rn "Z80_BUS_REQUEST\|Z80_RESET\|A11100\|A11200" --include='*.emp'
-//      --include='*.asm' .` → catches any hold that bypasses the bracket. Hits:
-//      this file's splice, constants.emp's two defs, boot_data.emp's two table
-//      longwords, sound_api.emp:131 prose — and boot.emp's hand-spelled hold,
-//      which is the ONLY door-bypass in the tree.
-// TOTAL: 22 bracketed + 1 hand-spelled = 23.
-//
-// By file (bracketed): sound_api 6 · vblank 6 · section 3 · bg 2 · boot 1 ·
-// controllers 1 · parallax 1 · sound_debug 1 · ojz_scroll_test 1.
+//      --include='*.asm' .` → the search that is supposed to catch a hold which
+//      bypasses the bracket. ⚠ RE-RUN 2026-09-07: IT DOES NOT ACTUALLY FIND
+//      BOOT'S HOLD. Its boot.emp hit is a COMMENT (`a1=Z80_BUS_REQUEST` in the
+//      movem-preload note); boot's request and release are `move.w d7,(a1)` and
+//      `move.w d0,(a1)`, and NEITHER INSTRUCTION NAMES THE REGISTER. Delete that
+//      one comment and the method silently drops the 23rd hold. The durable
+//      enumeration is instead: the constant reaches code by exactly two routes —
+//      the splice below, and `dc.l Z80_BUS_REQUEST` in boot_data.emp's `BootData`
+//      table (`grep -rn "BootData"` closes that route: `boot.emp`'s
+//      `lea BootData(pc), a5` + `movem.l (a5)+, a0-a4` is the only consumer of
+//      the preload head). Sigil's own `[bus.*]` net has the same blind spot for
+//      the same reason and says so (sigil-frontend-emp/src/z80_bus.rs: a
+//      register-indirect destination is unresolvable, its soundness bailout).
 //
 // SITES ARE NAMED BY ROUTINE, NOT BY LINE, DELIBERATELY. A line-numbered census
 // is stale the first time anyone edits one of these files — this one went stale
-// inside its own parcel, from its own edits. Re-run grep 1 for today's numbers.
+// inside its own parcel, from its own edits.
 //
 // EVERY ONE OF THE 23 IS ENTERED WITH INTERRUPTS MASKED, by one of four
 // mechanisms — which is why no comment anywhere may call itself "the one hold
-// that must also stay masked":
-//   * enclosing `with ints_off` — Sound_PostByte, Sound_ReadStat and
-//     Sound_PlayMusic's two (its `.await_slot` probe and its param-block post),
-//     Parallax_Update's reg $0B reassert, the OJZ scroll test;
-//   * a hand-spelled `move.w #$2700, sr` in force from earlier in the same proc
-//     — Sound_Init's `.wait_alive` probe, Sound_DrainSfxRing, BG_Init's two
-//     blits, Section_RedrawPlanes' three. BG_Init and Section_RedrawPlanes set
-//     their mask hundreds of lines above the brackets it covers, and BOTH carry
-//     a DEBUG `IPL >= 6` assert rather than resting on the reader's trust;
-//   * the 68000's own IPL 6 on IRQ entry, nothing in the handler lowering it —
-//     VInt_Level's three, VInt_Lag's three, Read_Controllers, Sound_DebugMirror;
-//   * the reset SR ($2700) still standing — EntryPoint's hand-spelled hold and
-//     its YM key-off bracket. Boot's FIRST `sr` write is after both of them.
+// that must also stay masked". The gate recognises all four FROM CODE (it strips
+// string literals and `//` comments before matching, so no comment — including
+// this one — can satisfy it), and the tally it printed on 2026-09-07 was
+// `{'HAND_2700': 7, 'INTS_OFF': 6, 'RESET_SR': 1, 'VBLANK': 8}`:
+//   * INTS_OFF (6) — enclosing `with ints_off`: Sound_PostByte, Sound_ReadStat
+//     and Sound_PlayMusic's two (its `.await_slot` probe and its param-block
+//     post), Parallax_Update's reg $0B reassert, the OJZ scroll test;
+//   * HAND_2700 (7) — a hand-spelled `move.w #$2700, sr` in force from earlier in
+//     the same proc: Sound_Init's `.wait_alive` probe, Sound_DrainSfxRing,
+//     BG_Init's two blits, Section_RedrawPlanes' three. BG_Init and
+//     Section_RedrawPlanes set their mask hundreds of lines above the brackets it
+//     covers, and BOTH carry a DEBUG `IPL >= 6` assert rather than resting on the
+//     reader's trust. (docs/DEFERRED_WORK.md's LS-13 row says ×5 for this class
+//     and totals 21 — that is an arithmetic slip, corrected there;
+//     Section_RedrawPlanes contributes three, not one.)
+//   * VBLANK (8) — the 68000's own IPL 6 on IRQ entry: VInt_Level's three,
+//     VInt_Lag's three, Read_Controllers, Sound_DebugMirror. ⚠ THIS CLASS IS NOT
+//     "an argument", and the LS-13 write-up filed it as one. All eight procs
+//     declare `requires(vblank)`, which sigil PROVES at every call site
+//     (`[context.unsatisfied]`, engine/irq.emp) against a capability whose sole
+//     `grants(vblank)` root is VBlank_Handler — so unreachability from the main
+//     loop is machine-checked, not reasoned. Sound_DebugMirror was the ONE site
+//     that lacked the clause; it declares it since LS-13a, and the gate asserts
+//     the single-grant-root premise the whole class rests on. What is NOT proven
+//     for this class is that the handler never LOWERS the mask before the
+//     bracket; the gate checks that too, per-proc, by refusing any `sr` write
+//     ahead of the site.
+//   * RESET_SR (1 bracketed + boot's hand-spelled hold) — the reset SR ($2700)
+//     still standing. EntryPoint's hand-spelled hold and its YM key-off bracket;
+//     boot's FIRST `sr` write is after both of them, and the gate checks that
+//     ORDERING (test_boot_hand_spelled_hold_precedes_the_first_sr_write) rather
+//     than trusting it. That test is the only automated statement about the 23rd
+//     hold anywhere in the toolchain.
 // The mask matters because the hold is a LATCH: an IRQ6 whose handler takes its
 // own bracket RELEASES the bus on the way out, and nothing below a `.wait_z80`
-// re-issues the request. `tools/test_sound_bus_hold_mask_lint.py` enforces this
-// for sound_api's six ONLY; the other seventeen rest on the reasoning above.
+// re-issues the request.
+//
+// WHAT IS STILL UNPROVEN, so the next reader does not over-read the gate:
+//   * PAIRING for boot's hand-spelled hold. `[context.escape]` /
+//     `[context.entry-skip]` / `[context.reacquire]` cover the 22 brackets and
+//     NOT that one; sigil's `[bus.*]` net cannot see it either (the
+//     register-indirect bailout above). An early exit added between its request
+//     and its release would leave the Z80 halted with nothing to catch it. Open
+//     as LS-13a's remaining half.
+//   * INTERPROCEDURAL MASK LOWERING. The gate is per-proc: a `jbsr` between a
+//     HAND_2700 mask and its bracket could lower the mask inside the callee
+//     unseen. It DERIVES and prints the count of sites in that shape on every run
+//     (1 on 2026-09-07: Section_RedrawPlanes' last bracket, past its
+//     `jbsr Section_GetSecPtrXY`).
+//   * A build-time check of the mask AT THE HOLD, in the compiler rather than in
+//     a text gate. Not expressible in `.emp` today: sigil models bus state
+//     (z80_bus.rs's `Tri` net over `must_in_states`) but has NO interrupt-mask
+//     lattice, so `z80_stopped` cannot declare "requires masked". The framework
+//     for one already exists — see docs/DEFERRED_WORK.md, LS-13a.
+// `tools/test_sound_bus_hold_mask_lint.py` remains as sound_api's file-scoped
+// twin; it additionally checks that file's header still STATES the rule.
 //
 // SHAPE-GATED SITES, so "in the sound build" claims can be checked rather than
 // asserted: `SOUND_DRIVER_ENABLED == 0` gates VInt_Level's and VInt_Lag's OFF
