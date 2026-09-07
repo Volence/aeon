@@ -1,0 +1,117 @@
+// ===========================================================================
+// A FIXTURE FOR SIGIL'S NEGATIVE PROBES. IT IS NOT OUR CODE AND IT MUST NOT GROW.
+// ===========================================================================
+//
+// WHO READS THIS FILE. The sibling `sigil` repo, in
+// `crates/sigil-cli/tests/tranche6_negative_probes.rs` — two tests:
+//
+//   * `misspelled_objroutine_target_dangles_while_control_resolves`
+//   * `reordered_falls_into_pair_fails_compile`
+//
+// Both are REFERENCE-DEPENDENT: they read this file out of the aeon tree by
+// path and compile it. They skip in sigil's own CI (which checks out only that
+// repo) and RUN in the local pre-merge gate and the aeon-reference drift job,
+// i.e. wherever a sibling aeon checkout is resolvable. Read at sigil revision
+// `43bf606a`.
+//
+// WHY IT EXISTS: BECAUSE GROWING THE FILE THEY USED TO READ BROKE THEM.
+// Those probes used to compile `games/sonic4/objects/test_solid.emp`, which is
+// a LIVE game object we edit freely. It went 37 lines -> 715 as the spring was
+// built out inside it, and it dragged a peer repo's gate along for the ride:
+// every new `use` in it becomes a symbol their standalone compile has no truth
+// for, and every proc appended after the last one becomes part of the block
+// their reorder-doctor moves. THIS FILE IS THE DECOUPLING. Its whole value is
+// that it does not change. Do not add a proc, a `use`, or an object here — put
+// those in a real game module. If sigil's probes need a NEW property, sigil
+// adds a NEW fixture beside this one rather than extending this one.
+//
+// WHAT THE PROBES ACTUALLY REQUIRE OF IT — derived from their source, not from
+// this file's intentions:
+//
+//   1. IT COMPILES STANDALONE FROM TWO MODULES AND NOTHING ELSE. The ambient
+//      is exactly `engine/system/types.emp` + `engine/objects/sst.emp`,
+//      prepended as items under this file's own module header. There is no
+//      import resolution and no include root: any name not defined by those
+//      two files must be one of the link truths in (2), or the CONTROL run
+//      goes red — and a red control reads as "the guard is broken" when in
+//      fact only this fixture drifted.
+//
+//   2. THE ONLY LINK TRUTHS THE PROBE SUPPLIES are the AS-side `SST_*` equs,
+//      `SST_len`, `ObjCodeBase` (= $10000), `Draw_Sprite` (@ $2970) and
+//      `RefreshSpritePieceCount` (@ $2A00). Those three externs are the entire
+//      cross-seam budget of this file. Referencing a fourth breaks the gate.
+//
+//   3. THE RESOLVING TARGET AND ITS MISSPELLED TWIN. The probe synthesises an
+//      AS-side consumer `dc.w <target>-ObjCodeBase` twice: once naming
+//      `TestSolid_Init` (the CONTROL — must resolve) and once naming
+//      `TestSolid_Innit` (the DOCTORED run — must dangle loud, naming the
+//      symbol). So this file must EXPORT `TestSolid_Init`, and must NEVER
+//      define anything spelled `TestSolid_Innit`. Renaming `TestSolid_Init`
+//      silently turns a passing probe into a vacuous one.
+//
+//   4. THE `falls_into` PAIR AND ITS SOURCE ORDER. The reorder probe searches
+//      this file's TEXT for the literal `pub` + `proc` + `TestSolid_Init` and
+//      `TestSolid_Main` declarations, asserts Init is found FIRST, then swaps
+//      the two blocks and requires the compile to fail naming `falls_into`.
+//      Consequences: `TestSolid_Init` must be declared before `TestSolid_Main`;
+//      `TestSolid_Main` must be the LAST item in the file (the doctor takes
+//      everything from its declaration to EOF as one block); and neither
+//      declaration spelling may appear anywhere earlier, including in a
+//      comment, or the text search finds the comment instead of the code.
+//      That is why this header names the two routines bare.
+//
+//   5. IT FITS THE `test_solid` REGION. The probe places these sections into a
+//      map region named `test_solid` sized from sigil's own `pins.rs`. The
+//      `in test_solid` section clause below is load-bearing for that, and so
+//      is the code staying small.
+//
+// WHAT THIS HEADER DOES NOT COVER. It does not promise the probes are green —
+// it only records what they require. It says nothing about
+// `games/sonic4/objects/test_solid.emp`, which sigil's byte-identity port gates
+// (`test_objects_port.rs`, `objdef_port.rs`) read deliberately and must keep
+// reading: those gates exist to compare the SHIPPED object's bytes, so their
+// coupling to the live file is the point, not the defect. And it does not cover
+// any sigil test other than the two named above.
+//
+// THIS FILE IS IN NO `map.toml`. It reaches no ROM and no runner in this repo
+// compiles it. `tools/test_sigil_probe_fixture.py` is the aeon-side check that
+// it still has the shape recorded above.
+//
+// The code below is `games/sonic4/objects/test_solid.emp` as it stood at aeon
+// `4406ac92`, unchanged.
+// ===========================================================================
+
+module games.sonic4.sigil_objroutine_probe in test_solid
+
+use engine.objects.sst.{Sst}
+
+// -----------------------------------------------
+// TestSolid_Init — set mapping frame from subtype
+// In:  a0 = SST pointer (base fields set by Load_Object)
+// Clobbers: d0-d3, a1 — the init frame falls
+//   into TestSolid_Main (Draw_Sprite's set), so a caller sees Main's clobbers —
+//   the old clobbers() under-declared (matches TestParticle's whole-object set).
+// -----------------------------------------------
+pub proc TestSolid_Init (a0: *Sst) clobbers(d0-d3/a1) falls_into TestSolid_Main {
+        move.b  subtype(a0), mapping_frame(a0)
+        jbsr    RefreshSpritePieceCount         // mapping_frame changed → re-cache
+                                                // piece count + frame_off (d2/a1
+                                                // dead here, both in our clobbers)
+        // The dispatch-store value: this object's Main routine as an offset from
+        // the object-code-bank base (engine.objects.objcodebase's ObjCodeBase),
+        // a `.w` link-time immediate. `TestSolid_Main` is this module's own
+        // `pub proc` (exports unmangled); `ObjCodeBase` is a cross-module symbol —
+        // both resolve through the shared link.
+        move.w  #TestSolid_Main - ObjCodeBase, code_addr(a0)
+}
+
+// -----------------------------------------------
+// TestSolid_Main — display-only (collision handled by TouchResponse)
+// In:  a0 = SST pointer
+// Clobbers: d0-d3, a1 (Draw_Sprite's set — tail call). Declared as the contract
+//   the signature under-declared (nothing) while
+//   tail-calling Draw_Sprite — the dangerous direction under exhaustive-license.
+// -----------------------------------------------
+pub proc TestSolid_Main (a0: *Sst) clobbers(d0-d3/a1) preserves(a0) {
+        jbra    Draw_Sprite
+}
