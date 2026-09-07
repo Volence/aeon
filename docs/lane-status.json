@@ -1,17 +1,6 @@
 {
-  "focus": "Working the riders the sweep produced. Two running: a proof that only proves the arms agree with each other, and a hazard where documenting something changes the game.",
-  "inFlight": [
-    {
-      "what": "LS-15b: a harness the build advertises as proving its check can fail cannot detect a wrong boundary, because every arm re-derives it from the same source. 'This proof is structurally relative' is an acceptable answer.",
-      "where": "agent worktree, branch parcel/ls15b-relative-proof",
-      "agent": true
-    },
-    {
-      "what": "LS-22a: adding a documentation marker changes the ROM, because the build appends the debug symbol table into it. 14 existing markers predate the goldens, so this was never under test -- and one debug shape moved while the other did not, which nobody has explained.",
-      "where": "agent worktree, branch parcel/ls22a-mark-is-not-free",
-      "agent": true
-    }
-  ],
+  "focus": "Paused on your word. Everything is landed and pushed; nothing is running and nothing is half-applied.",
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "LS-17",
@@ -24,62 +13,55 @@
       "since": "2026-09-06"
     }
   ],
-  "nextBoundary": "After these two, then LS-19a alone (it is a tree-wide prose sweep and would collide with anything else).",
+  "nextBoundary": "Here.",
   "queue": [
     {
-      "id": "LS-12",
-      "title": "LANDED at aeon 157e59bf with sigil's three-site re-pin; prediction 4/4 and the two sonic4 ROMs reproduce sigil's independent branch build exactly",
-      "state": "open",
-      "size": "M",
-      "blockedBy": null
-    },
-    {
-      "id": "LS-9a",
-      "title": "LANDED The animation frame byte still has no upper bound against an asset's real frame count; several margins are exactly zero, so the check must be strictly-less-than",
-      "state": "open",
-      "size": "M",
-      "blockedBy": null
-    },
-    {
-      "id": "LS-15b",
-      "title": "A red-first harness the build advertises cannot detect a wrong DMA source boundary; every arm re-derives from the same constant, so its proof is relative",
-      "state": "doing",
-      "size": "S",
-      "blockedBy": null
-    },
-    {
-      "id": "LS-16a-resid",
-      "title": "Whether a cheaper check-only invocation could evaluate the unreachable-module guard without a full demo build -- nobody has looked",
-      "state": "open",
-      "size": "S",
-      "blockedBy": null
-    },
-    {
       "id": "LS-19a",
-      "title": "79 prose citations left pointing past their subject by tonight's edits; all prose, no functional citation broke",
+      "title": "79 prose citations left pointing past their subject by tonight's edits -- all prose, no functional citation broke",
       "state": "next",
       "size": "S",
       "blockedBy": null
     },
     {
-      "id": "LS-22a",
-      "title": "A `mark` is NOT zero-byte -- it reorders the debug symbol table that the build appends into the ROM. 14 existing marks predate the goldens, so this was never under test",
-      "state": "doing",
+      "id": "LS-16a-check",
+      "title": "Supersede the per-commit demo assemble with sigil's cheaper --check, once a shared assembler carrying it is installed",
+      "state": "open",
       "size": "S",
-      "blockedBy": null
+      "blockedBy": "sigil's second refresh; d90a297c is not in the installed pair"
     },
     {
-      "id": "LS-13a",
-      "title": "LANDED 17 of 23 Z80 bus holds are masked only by an argument, and boot's gets none of the context checks",
+      "id": "LS-16c",
+      "title": "The 135 extern guards become poisonable once sigil's renderer fix is in the installed assembler; not before",
       "state": "open",
       "size": "M",
+      "blockedBy": "sigil's second refresh; 82838687 is not in the installed pair"
+    },
+    {
+      "id": "LS-22a-resid",
+      "title": "One appendix move that the letter-frequency mechanism does not explain -- a second channel exists and is uncharacterised",
+      "state": "open",
+      "size": "S",
       "blockedBy": null
     },
     {
-      "id": "LS-16b",
-      "title": "Three live guards report by crashing, so their exit code is indistinguishable from an assembler crash",
-      "state": "blocked",
+      "id": "LS-15b-resid",
+      "title": "The straddle harness's sibling writes its own baseline, so a re-cut launders an error already present",
+      "state": "open",
       "size": "S",
+      "blockedBy": null
+    },
+    {
+      "id": "LS-13b",
+      "title": "Boot's hand-spelled bus hold has no pairing proof; sigil's bus net cannot see a register-indirect destination",
+      "state": "blocked",
+      "size": "M",
+      "blockedBy": "a sigil language question"
+    },
+    {
+      "id": "LS-13c",
+      "title": "No interrupt-mask lattice exists, so 'entered masked' is not expressible as a build-time check",
+      "state": "blocked",
+      "size": "M",
       "blockedBy": "sigil-side"
     },
     {
@@ -146,7 +128,7 @@
       "blockedBy": "nothing wants it yet; it returns by schema amendment when a second ladder is worth its bytes"
     }
   ],
-  "awaiting": "nothing blocking, but three things are yours: LS-17 (whether a shipped game spends ROM so a corrupt stream crashes legibly), LS-13's listening half (whether you can hear a 60 Hz artefact on the drums), and the 3-tile graphics reclaim, which is now safe but leaves zero headroom",
-  "atBoundary": false,
-  "updatedAt": "2026-09-07T14:20:14Z"
+  "awaiting": "paused on your word -- nothing needed from you to resume. Still yours when you want them: LS-17 (ROM for a legible crash on a corrupt stream), LS-13's listening half (whether you can hear a 60 Hz artefact on the drums), and the 3-tile graphics reclaim, which is now safe to take but leaves zero headroom",
+  "atBoundary": true,
+  "updatedAt": "2026-09-07T16:41:04Z"
 }
