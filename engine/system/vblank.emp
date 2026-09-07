@@ -400,7 +400,7 @@ proc VInt_Lag () clobbers(d0-d4/a0-a2/a5) requires(vblank) {
             // HALF WAS TRUE and the first was not. Parallax_Active_Config really
             // is two `move.l`s and an `rts` (parallax.emp:1399) — but
             // Enqueue_Dirty_Buffers ALSO carries `.ship_reg`
-            // (buffers.emp:448-450), a `dbf` loop doing `move.w (a1)+, VDP_CTRL`,
+            // (buffers.emp:458-460), a `dbf` loop doing `move.w (a1)+, VDP_CTRL`,
             // whose own comment says THIS WRITES THE VDP DIRECTLY in capitals. So
             // there IS VDP access on this path, and the conclusion needs a
             // different reason.
@@ -410,14 +410,14 @@ proc VInt_Lag () clobbers(d0-d4/a0-a2/a5) requires(vblank) {
             // are a fire's SetReg ops, carried into the ship trailer by
             // `ship_trailer()` (raster_dsl.emp:3438), which is reachable ONLY from
             // `patched_program()` (:3576) — and that runs `raster_program(fires)`
-            // over the same `fires` first, whose E-D scan (:3190) refuses any op
+            // over the same `fires` first, whose E-D scan (:3191) refuses any op
             // with `(word >> 8) == $8F` tree-wide, unconditionally, on every
             // program in the tree. Reg $0F is the autoincrement register. So no
             // word reaching `.ship_reg` can perturb autoinc, and the drain below
             // is entered at $02 — by that ban, not by an absence of VDP writes.
             //
             // THAT BAN IS LOAD-BEARING FOR THIS DELETION. Its sibling refusal at
-            // raster_dsl.emp:205 offers "Revocable behind a stride-aware span
+            // raster_dsl.emp:206 offers "Revocable behind a stride-aware span
             // model (spec §4.2b)"; a stride-aware span model would satisfy the
             // reason the ban was WRITTEN (op_cram_span / op_mask arithmetic) and
             // would not touch the reason it is needed HERE. If §4.2b is ever

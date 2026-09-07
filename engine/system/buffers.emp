@@ -437,7 +437,7 @@ pub proc Enqueue_Dirty_Buffers () clobbers(d0/a1-a2) requires(vblank) {
         // exactly like the palette side — no restore path, no state to leave behind.
         //
         // AND IT IS THE REASON reg $0F IS BANNED TREE-WIDE in the raster DSL
-        // (raster_dsl.emp:3190). This loop is the one VDP access in Enqueue_Dirty_Buffers,
+        // (raster_dsl.emp:3191). This loop is the one VDP access in Enqueue_Dirty_Buffers,
         // and it runs between Flush_VDP_Shadow and Process_DMA_Critical — so a $8F word
         // here would change the stride the Critical DMA drains at, on a path
         // (VInt_Lag) whose $8F02 re-assert was deleted 2026-08-14 on the strength of

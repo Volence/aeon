@@ -187,20 +187,7 @@ pub comptime fn reg_set(word: int) -> RasterOp {
     // Parcel R1. What changed is that op_cram_span, op_mask and the ship destination all
     // compute spans as `addr + 2 * count`, so a mid-frame stride change makes every one of
     // them describe something other than what the VDP does, silently and only for the ops
-    // after it. Revocable behind a stride-aware span model (spec §4.2b, claim D-C).
-    //
-    // THE BAN HAS A SECOND CONSUMER OUTSIDE THIS MODULE, added to the record 2026-09-07
-    // (lens item LS-19), and it is not covered by the revocation route above. A fire's
-    // SetReg ops travel into the ship trailer (`ship_trailer`, this file) and are
-    // re-issued at frame top by `Enqueue_Dirty_Buffers`' `.ship_reg` loop
-    // (engine/system/buffers.emp:448) — straight to VDP_CTRL, inside the VBlank handler,
-    // BETWEEN Flush_VDP_Shadow and Process_DMA_Critical. On the VInt_Lag path that window
-    // used to carry a `move.w #$8F02, VDP_CTRL` re-assert; it was deleted 2026-08-14 and
-    // the surviving argument for the deletion is THIS BAN and nothing else. A
-    // stride-aware span model would fix the span arithmetic this comment is about and
-    // would leave that deletion broken: the DMA the drain performs strides by reg $0F.
-    // So §4.2b cannot be revoked as a local change. Whoever revokes it restores
-    // vblank.emp's re-assert in the same parcel, or re-derives why it is unnecessary.
+    // after it. Revocable behind a stride-aware span model (spec §4.2b, claim D-C) — but NOT as a local change: the ban has a second consumer in engine/system/, named in both ensure messages below.
     //
     // NOT ROUTED THROUGH VDP_Shadow_Table, and that is now correct BY CONSTRUCTION. The
     // word goes straight to VDP_CTRL from Raster_HInt's .op_set_reg and nothing here

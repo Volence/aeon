@@ -9,8 +9,8 @@
 // (`[context.reacquire]`, because a bus request is not a counting lock: an
 // inner release frees the outer hold).
 //
-// THE ONE EXCEPTION is cold boot. `engine/system/boot.emp:132-156` spells its
-// own request/spin/release by hand (`move.w d7,(a1)` / `.wait_z80` /
+// THE ONE EXCEPTION is cold boot. `EntryPoint` in engine/system/boot.emp spells
+// its own request/spin/release by hand (`move.w d7,(a1)` / `.wait_z80` /
 // `move.w d0,(a1)`, with a1 preloaded from BootData) because it interleaves the
 // hold with the /IC reset pulse on a2 and the driver-blob copy, which is not the
 // shape a bracket can take. It is therefore NOT proven by the context checks
@@ -33,27 +33,34 @@
 // By file (bracketed): sound_api 6 · vblank 6 · section 3 · bg 2 · boot 1 ·
 // controllers 1 · parallax 1 · sound_debug 1 · ojz_scroll_test 1.
 //
+// SITES ARE NAMED BY ROUTINE, NOT BY LINE, DELIBERATELY. A line-numbered census
+// is stale the first time anyone edits one of these files — this one went stale
+// inside its own parcel, from its own edits. Re-run grep 1 for today's numbers.
+//
 // EVERY ONE OF THE 23 IS ENTERED WITH INTERRUPTS MASKED, by one of four
 // mechanisms — which is why no comment anywhere may call itself "the one hold
 // that must also stay masked":
-//   * enclosing `with ints_off` — sound_api 111/246/288/566, parallax 1778,
-//     ojz_scroll_test 798;
-//   * a hand-spelled `move.w #$2700, sr` in force from earlier in the proc —
-//     sound_api 145/398, bg 137/162 (mask at bg.emp:87), section 248/266/485
-//     (mask at section.emp:233). bg and section both carry a DEBUG
-//     `IPL >= 6` assert rather than resting on the reader's trust;
+//   * enclosing `with ints_off` — Sound_PostByte, Sound_ReadStat and
+//     Sound_PlayMusic's two (its `.await_slot` probe and its param-block post),
+//     Parallax_Update's reg $0B reassert, the OJZ scroll test;
+//   * a hand-spelled `move.w #$2700, sr` in force from earlier in the same proc
+//     — Sound_Init's `.wait_alive` probe, Sound_DrainSfxRing, BG_Init's two
+//     blits, Section_RedrawPlanes' three. BG_Init and Section_RedrawPlanes set
+//     their mask hundreds of lines above the brackets it covers, and BOTH carry
+//     a DEBUG `IPL >= 6` assert rather than resting on the reader's trust;
 //   * the 68000's own IPL 6 on IRQ entry, nothing in the handler lowering it —
-//     vblank's 6, controllers 39, sound_debug 62;
-//   * the reset SR ($2700) still standing — boot's hand-spelled hold and
-//     boot 247. Boot's first `sr` write is boot.emp:266, AFTER both.
+//     VInt_Level's three, VInt_Lag's three, Read_Controllers, Sound_DebugMirror;
+//   * the reset SR ($2700) still standing — EntryPoint's hand-spelled hold and
+//     its YM key-off bracket. Boot's FIRST `sr` write is after both of them.
 // The mask matters because the hold is a LATCH: an IRQ6 whose handler takes its
 // own bracket RELEASES the bus on the way out, and nothing below a `.wait_z80`
 // re-issues the request. `tools/test_sound_bus_hold_mask_lint.py` enforces this
 // for sound_api's six ONLY; the other seventeen rest on the reasoning above.
 //
 // SHAPE-GATED SITES, so "in the sound build" claims can be checked rather than
-// asserted: vblank 131/346 and section 266 are `SOUND_DRIVER_ENABLED == 0`;
-// vblank 123/285/338/403 and section 248/485 are `== 1`; sound_debug 62 is zero
+// asserted: `SOUND_DRIVER_ENABLED == 0` gates VInt_Level's and VInt_Lag's OFF
+// fences and Section_RedrawPlanes' middle bracket; `== 1` gates the flag-bracket
+// raise/lower pairs in all three of those routines; Sound_DebugMirror is zero
 // bytes in BOTH canonical shapes (triple gate, see its header). Everything else
 // is unconditional — including `Read_Controllers`, which is why vblank.emp's
 // old "the ONLY 68k bus hold in the sound build" was false.
