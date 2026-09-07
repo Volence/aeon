@@ -1,6 +1,12 @@
 {
-  "focus": "Paused on your word. Everything is landed and pushed; nothing is running and nothing is half-applied.",
-  "inFlight": [],
+  "focus": "Writing the art-pipeline contract you asked for -- one document an outside tool can work from without seeing the repo.",
+  "inFlight": [
+    {
+      "what": "docs/ART_PIPELINE_CONTRACT.md: backgrounds, tiles, palettes, sprites, terrain, build, the parallax/raster system, and the traps. Every number derived from source with its file named, because the reader cannot check anything -- and our own docs were measurably wrong on eight figures in tonight's sweep alone.",
+      "where": "agent worktree, branch parcel/art-pipeline-contract",
+      "agent": true
+    }
+  ],
   "blockedOnOwner": [
     {
       "id": "LS-17",
@@ -13,7 +19,7 @@
       "since": "2026-09-06"
     }
   ],
-  "nextBoundary": "Here.",
+  "nextBoundary": "When the document is pushed. Back to the hold after that.",
   "queue": [
     {
       "id": "LS-19a",
@@ -128,7 +134,7 @@
       "blockedBy": "nothing wants it yet; it returns by schema amendment when a second ladder is worth its bytes"
     }
   ],
-  "awaiting": "paused on your word -- nothing needed from you to resume. Still yours when you want them: LS-17 (ROM for a legible crash on a corrupt stream), LS-13's listening half (whether you can hear a 60 Hz artefact on the drums), and the 3-tile graphics reclaim, which is now safe to take but leaves zero headroom",
-  "atBoundary": true,
-  "updatedAt": "2026-09-07T16:41:04Z"
+  "awaiting": null,
+  "atBoundary": false,
+  "updatedAt": "2026-09-07T22:03:57Z"
 }
