@@ -299,6 +299,37 @@ RESIDENT_DMAS = {
 }
 
 
+# `*_ART_LEN` constants that are NOT a whole-region DMA length, each with the reason.
+# The registry above only checks what is in it, so without this an art-length constant
+# could arrive unregistered and be measured by nothing -- the same "a new one can skip
+# the guard" hole DPLC_GUARDS closes for residency guards.
+NOT_A_DMA_LENGTH = {
+    # a COMPONENT of TEST_ART_LEN (the ring blob tailing the two colour squares), not
+    # a DMA of its own; the DMA that consumes it is registered as TEST_ART_LEN.
+    ("games/sonic4/test/ojz_scroll_test.emp", "RING_ART_LEN"),
+}
+
+ART_LEN_RE = re.compile(r"^\s*(?:pub\s+)?const\s+(\w+_ART_LEN)\s*=", re.M)
+
+
+def test_every_art_length_constant_is_registered_or_explicitly_exempt():
+    """A new resident-art DMA cannot arrive with its length measured by nothing."""
+    registered = {(rel, name) for _, rel, name in RESIDENT_DMAS}
+    orphans = []
+    for p in emp_sources():
+        rel = p.relative_to(ROOT).as_posix()
+        if not rel.startswith("games/"):
+            continue
+        for name in ART_LEN_RE.findall(p.read_text()):
+            if (rel, name) not in registered and (rel, name) not in NOT_A_DMA_LENGTH:
+                orphans.append(f"{rel}: {name}")
+    assert not orphans, (
+        "art-length constant(s) neither registered in RESIDENT_DMAS nor listed in "
+        "NOT_A_DMA_LENGTH:\n  " + "\n  ".join(orphans)
+        + "\n(register it with the vram.toml region(s) its DMA covers, or exempt it "
+          "with the reason it is not a DMA length)")
+
+
 def _const_expr(rel: str, name: str) -> str:
     m = re.search(rf"^\s*(?:pub\s+)?const\s+{re.escape(name)}\s*=\s*([^/\n]+)",
                   (ROOT / rel).read_text(), re.M)
