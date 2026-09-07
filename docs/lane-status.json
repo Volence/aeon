@@ -1,17 +1,6 @@
 {
-  "focus": "Tier two, nearly through. One fix is held back because landing it would break the build for everyone until sigil re-pins, and sigil cannot be woken while you sleep.",
-  "inFlight": [
-    {
-      "what": "LS-15 merged locally, four-shape verify running. Byte-neutral. It refuted its own item five ways and found a better problem underneath.",
-      "where": "main tree, master",
-      "agent": false
-    },
-    {
-      "what": "LS-18: carve a fixture so sigil's nightly stops compiling our live test file.",
-      "where": "agent worktree, branch parcel/ls18-carve-sigil-probe",
-      "agent": true
-    }
-  ],
+  "focus": "Tier two of the lens sweep is done except one fix held on sigil. Starting the last rows: the contradictory bus-hold comments, then the decayed prose.",
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "LS-17",
@@ -24,63 +13,70 @@
       "since": "2026-09-06"
     }
   ],
-  "nextBoundary": "After LS-15 and LS-18 land. Then LS-16, LS-13's doc half and tier 3 -- none of which need sigil.",
+  "nextBoundary": "After the last two lens parcels land. Then the lens list is exhausted apart from LS-12, which waits on sigil.",
   "queue": [
     {
       "id": "LS-12",
       "title": "DONE AND HELD at origin/parcel/ls12-dma-guard-tick-paths c1ac4a60. Merging it hard-fails ./build.sh for every lane until sigil re-pins three sites against the new resident Z80 blob lengths 6176 plain / 6306 debug: seam1.rs's two constants; the DUPLICATE 0x1813 literal inside blob_lengths_are_canonical at seam1_native_link.rs:132; and boot_port.rs's Z80_SOUND_SIZE, which moves THIS time where it did not last time, because both new lengths are even and the previous pair were odd and rounded to the same value",
       "state": "blocked",
       "size": "M",
-      "blockedBy": "sigil must re-pin first; Dominion refused the wake at 08:04:18Z because sleep mode is active, so this waits for his morning or his say-so"
-    },
-    {
-      "id": "LS-16",
-      "title": "144 extern guards have no negative fixture",
-      "state": "next",
-      "size": "M",
-      "blockedBy": null
-    },
-    {
-      "id": "LS-18",
-      "title": "Carve sigil's probe fixture off our live test file",
-      "state": "doing",
-      "size": "S",
-      "blockedBy": null
+      "blockedBy": "sigil must re-pin first; Dominion refused the wake at 08:04:18Z under sleep mode, so this waits for his morning or his say-so"
     },
     {
       "id": "LS-13-doc",
-      "title": "Two files disagree about which bus holds exist; the documentation half is ours, the listening half is his",
-      "state": "open",
+      "title": "Three files disagree about which Z80 bus holds exist and which are masked; the documentation half is ours, the listening half is his",
+      "state": "next",
       "size": "S",
-      "blockedBy": "LS-12 holds the sound tree"
+      "blockedBy": null
+    },
+    {
+      "id": "LS-19",
+      "title": "Two derivations justify a deletion by claiming a routine touches no video hardware; it writes the control port in a loop",
+      "state": "open",
+      "size": "M",
+      "blockedBy": null
+    },
+    {
+      "id": "LS-21..LS-26",
+      "title": "Tier 3: six decayed prose rows, every stated number wrong in a checkable way",
+      "state": "open",
+      "size": "M",
+      "blockedBy": null
     },
     {
       "id": "LS-9a",
-      "title": "The animation frame byte still has no upper bound against the asset's real frame count; several margins are exactly zero",
+      "title": "The animation frame byte still has no upper bound against an asset's real frame count; several margins are exactly zero",
       "state": "open",
       "size": "M",
       "blockedBy": null
     },
     {
-      "id": "LS-14a",
-      "title": "Six retired diagnostics encoded real invariants with no .emp equivalent -- a note, and a sigil question",
+      "id": "LS-16a",
+      "title": "A memory guard that cannot fire in either shipped shape -- exercised nightly at best; the fix is a build.sh ruling",
       "state": "open",
       "size": "S",
       "blockedBy": null
     },
     {
-      "id": "LS-2a",
-      "title": "The Z80 side has no register-contract gate in EITHER direction, and under-declaration there is a correctness class; 7 live sites, all currently unreachable",
+      "id": "LS-16b",
+      "title": "Three live guards report by crashing, so their exit code is indistinguishable from an assembler crash -- sigil-side",
+      "state": "blocked",
+      "size": "S",
+      "blockedBy": "sigil"
+    },
+    {
+      "id": "LS-15b",
+      "title": "A red-first harness build.sh advertises cannot detect a wrong DMA source boundary; its proof is relative",
       "state": "open",
-      "size": "M",
+      "size": "S",
       "blockedBy": null
     },
     {
-      "id": "LS-19..LS-26",
-      "title": "Tier 3: prose that decayed, zero-byte fixes",
-      "state": "open",
-      "size": "M",
-      "blockedBy": null
+      "id": "LS-10a",
+      "title": "Runtime confirmation that the eight skipped object slots stay empty -- the one route static analysis cannot close",
+      "state": "blocked",
+      "size": "S",
+      "blockedBy": "needs a foreground emulator pass on his desktop"
     },
     {
       "id": "BAND-LIVE-BUILD",
@@ -139,7 +135,7 @@
       "blockedBy": "nothing wants it yet; it returns by schema amendment when a second ladder is worth its bytes"
     }
   ],
-  "awaiting": "whether to take the 3-tile graphics reclaim, which is now safe but leaves zero headroom -- and LS-17 and LS-13 are still open on your card",
+  "awaiting": "LS-17 and LS-13's listening half are still open on your card, and the 3-tile reclaim is now safe but leaves zero headroom",
   "atBoundary": false,
-  "updatedAt": "2026-09-07T08:05:28Z"
+  "updatedAt": "2026-09-07T09:35:57Z"
 }
