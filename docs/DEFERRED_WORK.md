@@ -29557,7 +29557,35 @@ Stated here rather than only in the LS-9a row because it is an ENGINE fact, not 
 `cmpi.b #AF_SET_FIELD / bhs` test is a *control-code* discriminator that doubles as the frame
 validator by accident. It has no access to the asset's frame count (nothing in the SST carries
 one), so a runtime bound would need a new cached field — which is why the tractable fix is
-build-time and why LS-9a names two build-time candidates rather than an engine change.## ⏳ TRANSIENT — STANDING COMMITMENTS TO THE SIGIL LANE (2026-09-07)
+build-time and why LS-9a names two build-time candidates rather than an engine change.## ⚠ A LIMIT ON THIS LANE'S PRIMARY VERIFICATION INSTRUMENT (2026-09-07, sigil's finding)
+
+**The four-shape md5 comparison — the instrument every parcel tonight was verified with — is
+STRUCTURALLY BLIND to a section-image length change that the next section's base absorbs.**
+
+Measured by the sigil lane on their `.emp` align parcel (`Fill` -> `reserve`), against aeon
+`ec640bcf`. All four ROMs byte-identical, all four `.lst` listings byte-identical — and TWO SECTION
+IMAGES ARE A BYTE SHORTER. `particle_anims`' trailing `align 2` stopped emitting its pad byte; the
+ROM byte at that address is still `$00`, written by `flatten`'s gap fill instead, because the next
+section is based there **by its own declared alignment**. No ROM byte moved, so no digest could
+show it. Four derived gates saw it and nothing else did (`KNUCKLES_ANIMS` len `0x16C -> 0x16B`,
+`PARTICLE_ANIMS` debug_len `0x8 -> 0x7`, and one row of 86 in an off-canonical size table).
+
+**AND THE INVISIBILITY IS CONTINGENT, NOT STRUCTURAL.** It holds only because all 104 declared
+alignment rows ask for at least 2 (102 at 2, two at 8, none at 1). A section declaring alignment 1
+after an aligned one would leave the hole at the IMAGE END with nothing behind it to fill, and the
+shape WOULD move. So this is a property of today's declarations, not of the mechanism.
+
+**What follows for this lane, and it is not "stop using CRCs":** a four-shape md5 match is a sound
+answer to *did the emitted image change*, and it is NOT an answer to *did anything change*. When a
+parcel touches placement, alignment, section boundaries or anything that can alter an image's
+LENGTH without altering the bytes at a given address, the CRC set cannot see it and a length- or
+symbol-derived check must be named as well. This is the same family as the night's other
+instrument failures — a value that is real, adjacent, and answering a different question.
+
+*Found because a peer re-derived a claim of mine rather than accepting it: my prediction said "zero
+bytes moved", which was right about shapes and wrong as stated.*
+
+## ⏳ TRANSIENT — STANDING COMMITMENTS TO THE SIGIL LANE (2026-09-07)
 
 **Sigil banked their reciprocal side at sigil `5ceeb743`, and the DELETE of this block is a
 NOTIFIED event, not a self-observed one: sigil messages this lane when both halves are true
