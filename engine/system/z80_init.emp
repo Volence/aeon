@@ -56,12 +56,20 @@ const Z80_RAM_SIZE = extern("Z80_RAM_END") - extern("Z80_RAM")      // $2000 (8 
 // It fires correctly under `--game demo`, which build.sh does not build on the
 // per-commit path -- only tools/nightly_effects_gates.sh does. So the drift this
 // guards against is caught NIGHTLY AT BEST, not at the commit that causes it.
-// Measured and left nightly deliberately: a demo build is ~150 s against a
-// sonic4 build's ~160 s (three runs, 2026-09-07), so adding it to the
-// per-commit path roughly DOUBLES every build -- far past the "under a tenth"
-// bar this was ruled on. NOT COVERED by that reasoning: whether some cheaper
-// check-only invocation could evaluate this module without a full demo build.
-// Nobody has looked.
+// ⚠ THE MEASUREMENT THAT RULED THIS NIGHTLY WAS OF THE WRONG QUANTITY, and the
+// ruling is WITHDRAWN. On 2026-09-07 this said: a demo build is ~150 s against
+// a sonic4 build's ~160 s, so per-commit would DOUBLE every build. Those figures
+// are real and they are `./build.sh demo` -- THE WHOLE VERIFICATION LANE. The
+// question was what EVALUATING THIS GUARD costs, which needs only the assemble.
+// build.sh's own header says so and I had read it: `sigil build (the ROM) 1.15 s`
+// against a 38 s lane, "of which the assemble is 3%". Re-measured directly at
+// aeon 6fb8fdc3: three runs of `sigil build --game demo` at 2.42 / 2.27 / 2.37 s
+// under load 12-13 with two parcels building; the sigil lane measures ~0.75 s on
+// a quiet machine. Either way it is ~1-2% of a build, not a doubling.
+// Caught by the sigil lane, who re-derived rather than accepting the number.
+// SO THIS GUARD SHOULD MOVE TO THE PER-COMMIT PATH, as a demo assemble or the
+// `sigil build --check` mode landing on their side, NOT as a full ./build.sh demo.
+// Re-opened as LS-16a; do not cite the withdrawn arithmetic.
 ensure(extern("Z80_IDLE_SIZE") == 40, "boot_data.emp Z80_IDLE_SIZE mirror drifted from z80_init.emp's 40-byte idle body")
 
 section z80_idle (cpu: z80, vma: $0) {
