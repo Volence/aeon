@@ -22,9 +22,17 @@
   "nextBoundary": "When the document is pushed. Back to the hold after that.",
   "queue": [
     {
+      "id": "ENGINE-SEAM-AUDIT",
+      "project": "ENGINE-SEAM",
+      "title": "Audit engine/ for Sonic-specific mechanisms that should sit game-side -- his question was about rings, and his follow-up was 'what else is'. One booked row per leak: what is MECHANISM (stays) versus GAME MEANING (moves behind the Game interface, a define, or a hook), a price, whether it can be byte-neutral, and the consumers. Reading only: no byte-moving reseam without his word. The hub's five candidates are a GREP, not the finding list -- the split rule in ENGINE_ARCHITECTURE.md 'Engine/game contract' is ours to apply, and a population handed to an auditor is the shape that gets confirmed rather than tested.",
+      "state": "next",
+      "size": "L",
+      "blockedBy": null
+    },
+    {
       "id": "LS-19a",
       "title": "79 prose citations left pointing past their subject by tonight's edits -- all prose, no functional citation broke",
-      "state": "next",
+      "state": "open",
       "size": "S",
       "blockedBy": null
     },
@@ -136,5 +144,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-07T22:30:25Z"
+  "updatedAt": "2026-09-07T22:35:56Z"
 }
