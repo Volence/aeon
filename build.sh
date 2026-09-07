@@ -961,6 +961,39 @@ if [[ "$FAST" == "0" ]]; then
         exit 1
     fi
 
+    # THE ANIMATION FRAME BYTE'S UPPER BOUND (LS-9a). AnimateSprite classifies a
+    # script byte with one test — `cmpi.b #AF_SET_FIELD / bhs` — so every byte
+    # 0..$F6 is taken as a mapping frame index and written into Sst.mapping_frame,
+    # and nothing compares it against the frame count of the mappings table it
+    # indexes. refresh_piece_count then reads an offset word from past the end of
+    # the offset table (i.e. out of piece data) and follows it as a frame pointer.
+    #
+    # LS-9's comptime ensures bind each mappings table to its DPLC partner. That is
+    # a DIFFERENT claim and does not close this one: two tables that agree with
+    # each other are still both overrun by a byte at or above their common count.
+    #
+    # IT RUNS HERE, OVER THE ROM, BECAUSE THE SOURCE ROUTE CANNOT BE WHOLE. Three
+    # of the ten animation tables name a `const: [u8; N]` a comptime fn can index;
+    # the other seven live in `offsets` bodies it cannot, so an `.emp` ensure would
+    # pin three siblings and leave seven unpinned. Once LINKED the distinction is
+    # gone — an `offsets` table and an `embed()`ed blob have the same shape — so
+    # the walk is uniform over all ten, and the population comes from the LISTING
+    # rather than a source scan that could go blind.
+    #
+    # RUN FOR BOTH GAMES: for `demo` the undeclared path is not a skip, it asserts
+    # the image carries NO Ani_* label at all, so a game that grows one cannot slip
+    # past a gate whose pairing scan does not cover its tree.
+    # --selftest (run by tools/test_anim_frame_bound.py in the post-sigil pytest
+    # lane, not here) proves the STRICT compare per table in both directions: the
+    # last valid index stays green and the first invalid one goes red at the same
+    # byte. Six of the ten tables sit at margin ZERO, so the direction is the whole
+    # check — `<=` would be green on a real overrun.
+    if ! python3 "${TOOLS}/anim_frame_bound.py" --lst "${ROM_NAME}.lst" \
+            --rom "${ROM_NAME}.bin" --built-after "${SIGIL_T0}" --game "${GAME}" --gate; then
+        echo "Animation frame byte out of bounds — see above (tools/anim_frame_bound.py)."
+        exit 1
+    fi
+
     # The editor-scene binding seam's REACHABILITY gate (scanline P5 slice 5).
     # Reads the listing because that is the only place the answer exists: an
     # unreached `.emp` module still parses, still scans, and still builds green
