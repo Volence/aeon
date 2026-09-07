@@ -29047,7 +29047,7 @@ them looking. Any fix below that adds or edits a guard must state what it does N
 | LS-4 | **Two blob-derived VRAM ceilings name the wrong neighbour** (`tails_data.emp:100`, `player_instashield.emp:469`), 3 tiles of permitted overlap each. **Measured LATENT.** The real fix is a generator change: the correct names are not in those modules' import closure, which is WHY the wrong ones were used. | C2a-H1a/b + controller TAG-1 |
 | LS-5 | ~~**`Parallax_StartTransition` publishes its config triple in the order that makes it observably inert**~~ — **CLOSED 2026-09-06**, `parcel/ls5-parallax-publish-order`. Re-derived from source: the sweep's account and its line numbers (`parallax.emp:1331-1334` writer, `:1358-1370` reader) were both exactly right on this tree. **"Both sites" was right too** — the full writer enumeration is FIVE sites and only those two published the inert pair (see the closure note below). Both now clear `Frames` before `Target`; the staging arm and `Parallax_Update`'s promotion arm were already correct and now carry the note saying why. **NOT covered:** `Parallax_Init`'s bulk `Parallax_State` clear (a wider window of a different shape) and the reg `$0B` shadow write, which is still outside the record's publication. Gate: `tools/test_parallax_publish_order_lint.py` (TEXT-level, four mutations proven red). | C3b-V1, both orders verified |
 | ~~LS-6~~ | **CLOSED 2026-09-06, `parcel/ls6-spawn-gate-order`.** The order was re-derived from source and swapped in both `EntityWindow_TrySpawnRing` and `EntityWindow_TrySpawnObject` (the object site gates on `Killed_CheckObject`, not `Collected_CheckRing` — the row's "both" was right in shape, wrong in symbol). Safety argument is a purity argument, not a reachability one: `Collected_FindSlot`/`Collected_CheckRing`/`Killed_CheckObject`/`EntityLoaded_Test` contain **no store to game state** (the only writes are one balanced `movem.l d1` save/restore on the stack), and both gates branch to the same do-nothing `.gated`, so two pure predicates in a short-circuit AND commute. Costs **derived statically from the shipped release bytes**, not measured: loaded gate 138c, collected/killed gate 222-494c (slot-position dependent) — see the closure note on `RescanY burst is unbudgeted` for what this does and does not settle. **Two corrections to the row itself:** `ENGINE_ARCHITECTURE.md:2952` documented the OLD order in the per-frame-scan pseudocode while :2964 described the new one, so the doc contradicted itself rather than the code contradicting the doc; and the 6-9% / 28-42% figures are CEILINGS (every entry at max density, ratchet fully advanced, every candidate in-band and loaded), not shipped-typical. | C4a-1; re-derived, swapped, four shapes green |
-| LS-7 | **5,154 B of byte-identical duplicate PCM** (`kick`/`s3k_kick`, `snare`/`s3k_snare`, `cmp`-verified) in a no-straddle bank at 94.3%. Dedupe takes the free tail from 1,860 B — which admits ONE of six S3K drum sizes — to 7,014 B, which admits all six. | C5-F1 |
+| ~~LS-7~~ | ~~**5,154 B of byte-identical duplicate PCM** (`kick`/`s3k_kick`, `snare`/`s3k_snare`, `cmp`-verified) in a no-straddle bank at 94.3%. Dedupe takes the free tail from 1,860 B — which admits ONE of six S3K drum sizes — to 7,014 B, which admits all six.~~ **CLOSED 2026-09-06 (`parcel/ls7-dac-dedupe`) — see the closure note below.** | C5-F1 |
 
 ## Tier 2 — real, needs a decision or a design
 
@@ -29077,6 +29077,103 @@ them looking. Any fix below that adds or edits a guard must state what it does N
 | LS-24 | ~90 comments cite `.asm` authorities that do not exist; `dma_queue.emp:26` says "the byte gates are the guard" naming a deleted file and a gate no tool references. |
 | LS-25 | `scene_dsl.emp` ×5 cites a file deleted 2026-08-18, all exactly 31 lines stale; every substantive claim is TRUE, only the coordinates are wrong. `scene_equiv_proof.emp` cites the same dead file 20+ times and is exact, **because it says where to recover it**. |
 | LS-26 | `VSync_Wait` still asserts a lemma `VBlank_Handler`'s own header retracts 370 lines away — and the retracted one is what a reader hits first. |
+
+### ~~LS-7 — 5,154 B OF BYTE-IDENTICAL DUPLICATE PCM IN THE NO-STRADDLE DAC BANK~~ — CLOSED 2026-09-06 (`parcel/ls7-dac-dedupe`)
+
+**What was done.** `dac/s3k_kick.pcm` and `dac/s3k_snare.pcm` are DELETED. DAC ids 5 and 6 survive
+unchanged and now alias ids 2 and 3: `SND_S3K_KICK_{BANK,PTR,LEN}` and `SND_S3K_SNARE_{BANK,PTR,LEN}`
+in `games/sonic4/data/sound/dac_samples.emp` point at `Dac_Kick` / `Dac_Snare`, and the two `data`
+lines plus their blob consts and length `ensure`s are gone from `dac_shared_bank`. No id churn, no
+`DAC_SAMPLE_COUNT` change (still 10), no Z80 change, no descriptor-table size change (still `$7F`
+with its head-tail pad, as `soundbankhead.emp:73` asserts).
+
+**Byte-identity, re-verified before deleting anything** (in the parcel worktree, exit statuses read
+explicitly because `cmp` is silent on success):
+
+```
+cmp kick.pcm  s3k_kick.pcm   -> exit 0     md5 1fd2c677b3f456c482e18646f89fd649 (both, 1406 B)
+cmp snare.pcm s3k_snare.pcm  -> exit 0     md5 19bb4c16eb09d66bc23ff791e068c02b (both, 3748 B)
+cmp kick.pcm  snare.pcm      -> exit 1     (negative control: the runs were real)
+```
+
+**Descriptor comparison, re-derived from the EMITTED artifact** rather than from source or from the
+sweep's table — `engine/sound/generated/dac_sample_tab.bin`, 12 B per descriptor, id N at (N-1)*12.
+Before the dedupe, ids 2/5 and 3/6 agreed in every emitted field *including* `ds_bank` (both `$16` —
+all nine drums lived in the one no-straddle window) and differed ONLY in `ds_ptr`:
+
+| id | ds_bank | ds_rate | ds_codec | ds_ptr | ds_length | ds_loop_ofs | ds_vol | ds_mix_rsvd |
+|---|---|---|---|---|---|---|---|---|
+| 2 kick | `$16` | 0 | 0 | `$8000` | `$057E` (1406) | 0 | 0 | 0 |
+| 5 s3k_kick (before) | `$16` | 0 | 0 | `$F33E` | `$057E` (1406) | 0 | 0 | 0 |
+| 3 snare | `$16` | 0 | 0 | `$857E` | `$0EA4` (3748) | 0 | 0 | 0 |
+| 6 s3k_snare (before) | `$16` | 0 | 0 | `$9512` | `$0EA4` (3748) | 0 | 0 | 0 |
+
+After: descriptor 5 is byte-identical to 2 and 6 to 3. The four toms' `ds_ptr` shifted down
+(`$A3B6`→`$9512`, `$B242`→`$A39E`, `$C472`→`$B5CE`, `$DA28`→`$CB84`) with every `ds_length`
+unchanged — which is the whole visible effect on the table.
+
+**Occupancy, with the instrument.** The section's ceiling is not a hand-written `ensure`: it is
+`section dac_shared_bank (cpu: m68000, bank: $8000)`, and sigil's placer refuses content larger than
+the bank — `bank_diag` in `sigil-link/src/relax.rs` emits the §7.3 "over by K bytes" budget error
+naming the section. Ceiling = 32,768 B. The occupancy is the emitted section image, which seam-2
+lowers to a file, so `stat` on that file is the measurement:
+
+```
+stat -c %s engine/sound/generated/dac_shared_bank.bin
+  before  30908   (94.32% of 32768; free tail 1860)
+  after   25754   (78.60% of 32768; free tail 7014)
+```
+
+Delta −5,154 B, exactly the duplicated bytes. `Dac_SharedBank_Start` sits at `$B0000` in `s4.lst`,
+0x8000-aligned, before and after.
+
+**No new gate was added, deliberately — and the existing one was proven red rather than assumed.**
+Padding `dac_shared_bank` with two extra `data` lines (`+6422 +1406` → `0x832E` = 33,582 B) and
+running `./build.sh` gives **exit 1** at the seam-1 `emit_sound_blob` stage:
+
+```
+error: emit_sound_blob (seam-1 resident blob) failed: resolve_layout (bank straddle / ensure?):
+  "section `dac_shared_bank` (0x832E bytes) cannot fit a 0x8000 bank, over by 814 bytes"
+```
+
+By name, by amount, unconditional. The mutation was restored from the committed baseline
+(`git checkout HEAD --` on a tree that was clean at HEAD) and the build is green again.
+
+**A correction to the first version of this note, because the first probe measured something else.**
+A *larger* pad (`+6422 +6422` → 38,598 B) does NOT produce that message — it produces the overlap
+check first: ``sections `dac_shared_bank` [0xB0000, 0xB96C6) and `dac_sample_tab` [0xB85B1, 0xB8630)
+overlap in the image (colliding pins)``. Still red, still names the section, so the protection holds
+either way — but a reader who overflows by more than ~1.4 KB gets a message about *colliding pins*
+and could go looking for a map problem instead of a full bank. The bank-budget message is reachable
+only for overflows of 1..1457 B, because `dac_sample_tab` is pinned at `$B85B1`, i.e. 34,225 B above
+`Dac_SharedBank_Start` at `$B0000` — 1,457 B past the bank ceiling. **This is why the probe was run
+twice: the first run's message named the right section for the wrong reason, which is exactly the
+shape that gets mistaken for a passing check of the thing you meant to test.**
+
+A comptime `ensure` summing the blob `.len`s beside the `data` list would have been a
+weaker duplicate that goes silently stale the first time someone adds a `data` line and forgets the
+sum. `span()` cannot measure a section (it takes a pure-data *proc* name), so there is no
+self-deriving comptime form available today. **What the placer's check does NOT cover, recorded in
+`dac_samples.emp` beside the section:** it bounds BYTES only. It says nothing about duplication —
+the bank was perfectly legal at 30,908 B while a sixth of it was a copy, which is the defect LS-7
+actually was — nothing about `DAC_SAMPLE_COUNT` or the descriptor table, and nothing about whether a
+sample still sounds right.
+
+**NOT done, on purpose, and it is the tempting part.** The free tail now admits all six S3K drum
+sizes rather than one. **Adding drums is a separate parcel and a content call.** Which of the six
+ship was not touched.
+
+**The regenerator was left able to recreate the deleted files, with the correction written where the
+wrong path leads.** `tools/import_s3k_dac.py`'s `HCZ2_DRUMS` still lists `s3k_kick` and `s3k_snare`:
+that tool is the faithful S3K importer and running it is how the identity gets RE-verified. Its
+header now says both outputs are orphans that nothing embeds, gives the two `cmp` commands, and says
+what to do if a future rate/pitch/source change ever makes either output differ from its twin.
+
+**Untested by anything in this parcel: that ids 5 and 6 still make a sound.** Neither canonical shape
+can play music, so no build here exercises a DAC hit. The descriptors are byte-identical to ids 2/3,
+which do play, so the mechanism is as sound as it can be made without an emulator — but that is an
+argument, not a measurement. **Controller TAG: play HCZ2 under `sigil build --native --config-a` and
+listen for the kick and snare.**
 
 ## Suspicions carried forward, NOT booked as defects
 

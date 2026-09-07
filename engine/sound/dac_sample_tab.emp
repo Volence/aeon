@@ -4,7 +4,21 @@
 // ===========================================================================
 // The .emp port of dac_sample_tab.asm (this directory). 10 descriptors: ids
 // 1=temp_blip 2=kick 3=snare 4=hat, then the 6 S3K HCZ2 drums (5=s3k_kick ..
-// 10=s3k_floortom, matching tools/smps_import.py HCZ2_DAC_REMAP). Each 12-byte
+// 10=s3k_floortom, matching tools/smps_import.py HCZ2_DAC_REMAP).
+//
+// ⚠ TEN IDS, EIGHT DISTINCT PAYLOADS (LS-7, 2026-09-06). Ids 5 and 6 ALIAS ids 2
+// and 3: `dac/s3k_kick.pcm` was byte-identical to `dac/kick.pcm` and
+// `dac/s3k_snare.pcm` to `dac/snare.pcm` (`cmp`-verified), and the two duplicate
+// blobs are deleted from the shared bank. Before the dedupe, descriptors 2/5 and
+// 3/6 already agreed in EVERY emitted field — ds_rate, ds_codec, ds_length,
+// ds_loop_ofs, ds_vol, ds_mix_rsvd and even ds_bank — and differed only in
+// ds_ptr, so the pairs were already indistinguishable at runtime; now the ptrs
+// agree too. The IDS ARE NOT MERGED and MUST NOT BE: smps_import.py's
+// HCZ2_DAC_REMAP maps the S3K stream's $86/$81 to 5/6, and the imported songs
+// baked those ids. Ids 5/6 remain the place to repoint if an S3K kick or snare
+// is ever re-imported to genuinely different bytes.
+//
+// Each 12-byte
 // descriptor is db ds_bank / db ds_rate / db ds_codec / dw ds_ptr / dw ds_length
 // / dw ds_loop_ofs / db ds_vol / dw ds_mix_rsvd (the DacSample struct in
 // sound_constants.emp; grown 9->12 by the 2026-07-03 ratification insurance —

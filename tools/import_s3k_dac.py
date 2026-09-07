@@ -76,6 +76,28 @@ def wav_to_raw8(path, target_hz=ENGINE_DAC_HZ, pitch_ratio=1.0):
 #   $84 low tom  = 0.67
 #   $85 floor tom= 0.58
 # Snare ($81) and kick ($86) are their own samples at multiplier 1.0.
+#
+# ⚠ TWO OF THESE SIX OUTPUTS ARE NOT SHIPPED (LS-7, 2026-09-06). `s3k_snare.pcm`
+# came out byte-identical to the already-committed `dac/snare.pcm` (3748 B) and
+# `s3k_kick.pcm` byte-identical to `dac/kick.pcm` (1406 B) — those two were
+# imported from the same 81.wav/86.wav at this same fixed engine rate and
+# pitch_ratio 1.0, so the encoder reproduces them exactly. Both duplicates are
+# DELETED from `games/sonic4/data/sound/dac/`, and DAC ids 5 and 6 alias ids 2
+# and 3 through the SND_S3K_KICK_* / SND_S3K_SNARE_* equs in
+# `games/sonic4/data/sound/dac_samples.emp`. That freed 5154 B in the
+# no-straddle 32768 B shared drum bank (30908 -> 25754 B emitted).
+#
+# The two entries stay in this list on purpose: this tool is the faithful S3K
+# importer, and running it is how you RE-VERIFY the identity —
+#     python3 tools/import_s3k_dac.py --out-dir /tmp/s3kdac
+#     cmp /tmp/s3kdac/s3k_kick.pcm  games/sonic4/data/sound/dac/kick.pcm
+#     cmp /tmp/s3kdac/s3k_snare.pcm games/sonic4/data/sound/dac/snare.pcm
+# Running it with the default --out-dir writes those two files back into the game
+# tree; they are ORPHANS (nothing embeds them) — delete them, do not commit them.
+# If a future change to ENGINE_DAC_HZ, to a pitch_ratio, or to a source WAV makes
+# either output DIFFER from its twin, the alias is no longer true: re-add the
+# blob const + `data` line to `dac_shared_bank` and repoint that SND_S3K_* triple.
+#
 # (out_name, wav_basename, pitch_ratio)
 HCZ2_DRUMS = [
     ("s3k_snare",   "81.wav",    1.0),
