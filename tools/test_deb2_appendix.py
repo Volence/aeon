@@ -56,6 +56,11 @@ WHAT IT DOES **NOT** COVER.
     a corrupt table with a correct header passes.
   * It grades only the shape THIS `./build.sh` produced; the other three are
     DEFERRED by `tools/conftest.py`, never silently skipped.
+
+TO ASK "WOULD THIS NAME MOVE THIS ROM?" WITHOUT BUILDING: `tools/deb2_probe.py`
+replays the same convsym pipeline over a listing already on disk (0.1 s a trial)
+and `--verify`s itself by reproducing the built ROMs' own appendices byte for
+byte.  It is a hand instrument, not a lane; a real answer is still four builds.
 """
 
 import os

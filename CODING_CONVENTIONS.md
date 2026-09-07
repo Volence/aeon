@@ -1007,3 +1007,8 @@ from the mark's address, or from anything short of building them.
 shipped ROM; a `mark` really becomes a symbol). It deliberately does **not** pin a count of
 marks: a count-pin would fire on every legitimate addition while staying blind to renames, which
 are the same hazard with no construct to count.
+
+`tools/deb2_probe.py --shape <shape> --add-mark <NAME>` answers *would this name move this ROM?*
+in a tenth of a second, by replaying the same `convsym` pipeline over a listing already on disk;
+`--verify` proves it is the same pipeline by reproducing the built ROMs' own appendices byte for
+byte. It is a hand instrument for narrowing a question — the answer you land on is still four builds.
