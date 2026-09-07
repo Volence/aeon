@@ -3,7 +3,8 @@
 
 WHY THIS EXISTS. This tree has a documented, repeated failure: gates that were built carefully and
 then run by nothing. `effects_budget_check` sat unwired long enough for a row to drift 10 bytes;
-`s4lint` lints one no-op file; 147 pytest functions are invoked by no runner. The effects suite had
+`s4lint` linted one no-op file for months and was retired for it (LS-14, 2026-09-07); 147 pytest
+functions were invoked by no runner. The effects suite had
 three more of them — the committed `ab_runner` scenes, `effects_scene_assert`, and (as of this
 parcel) `raster_off_gate` and the cost-model fixtures — each with its own hand ritual and no single
 thing that ran them. A gate nobody runs is documentation with a shebang.

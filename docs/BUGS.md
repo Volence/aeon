@@ -380,7 +380,8 @@ It was ALSO crashing rather than reporting, from the moment P-b put a helper con
 a traceback instead of a verdict is worse than one that is merely unrun, because a caller
 wiring it in would have inherited a red build with no finding in it.
 
-**CLOSED by wiring it into `build.sh`**, beside `s4lint` and under the same `NO_LINT` guard, so
+**CLOSED by wiring it into `build.sh`**, beside `s4lint` (itself retired 2026-09-07, LS-14 — the
+`NO_LINT` block now opens with `effects_budget_check`) and under the same `NO_LINT` guard, so
 the source gates share one escape hatch. P-b corrected the value (288 → 306) and repaired the
 crash; the wiring followed immediately after as the remainder of Parcel B.
 
