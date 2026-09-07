@@ -56,6 +56,65 @@ LINK (placement/layout) · IR (pass contracts) · ARCH (crate structure) · ERR
 (diagnostics) · COMPTIME (evaluator semantics) · CACHE (dev-loop I/O) · P1a/P1b/P2
 (performance: forward, reverse, algorithmic) · plus A2 / B1 / B2 / V from Roster A.
 
+**Roster C — user-facing surfaces** (ruled by the owner 2026-09-07; the ritual's first
+seats that judge what a person meets rather than what the code is). Runs on every tool
+with a surface a person uses: oracle and aurora as windows, sigil as diagnostics, seraph
+when its hold lifts. Aeon has none and does NOT run it: a seat pointed at nothing returns
+"nothing found", which is indistinguishable from clean.
+
+| Seat | Hunts |
+|---|---|
+| UXa | Task walk. The controller's charter names three to five jobs a newcomer would want done, with no instructions on how. The seat may read the tool's README and nothing else, then tries each job. It logs every stall, guess, and moment it had to read code to proceed. Findings are "got lost here", ranked by time burned. For sigil: the seat writes wrong code on purpose, three to five classes, and judges whether each message gets a newcomer out. |
+| UXb | Heuristic audit. Every panel, control and message walked against a fixed checklist: can it be found, does it answer back, is it consistent with its neighbours, can a mistake be undone, does an error say what to do next. Findings are checklist misses with the panel or message named. For sigil: the message catalog walked against the same list. |
+
+UXa and UXb are a ×2 pair with opposed walks; convergence between them is the top
+finding class, as elsewhere. Roster C is a **late panel** on a corpus that already has a
+packet: it runs at a NEW pin, and the packet is amended naming the pair as late and the
+pin it ran at, never re-dated.
+
+Seat rules for Roster C, on top of the brief below:
+
+- The seat launches its OWN instance of the tool on a PRIVATE virtual display (Xvfb,
+  X11 forced, screen size verified from inside the display) with a PRIVATE socket or
+  port. It never attaches to the shared server, never touches the owner's display, and
+  never uses the emulator MCP; the "no emulator MCP ever" line stands unchanged.
+- Every finding ships a screenshot, or the diagnostic text verbatim. No evidence, no
+  finding.
+- A clean task still reports its step count with a screenshot per step, so a clean
+  verdict is examinable rather than "nothing found".
+- Look and taste findings (this colour, this placement, this wording preference) are
+  captures for the owner, parked under the standing look/taste rule, not packet findings.
+  Usability findings (lost, stalled, undone by the tool, misled by a message) go into the
+  packet's normal bins.
+- The seat closes with what it could not drive (gamepad, audio, a device it lacks) and
+  what would.
+- **The charter names the surface, and a tool with more than one surface names each.**
+  Oracle today is two windows (the game window in `oracle-frontend`, the debug tabs in
+  `oracle-player`); a task walked in one and judged against the other is a conflation this
+  lane has already paid for once. Say which window each job is walked in, or say both.
+- **Not being able to get a ROM, a file, or a project in is a FINDING, never BLOCKED.** UXa's
+  jobs are no-ops on an empty tool, and the seat may read only the README; if the README does
+  not get a newcomer from launch to a loaded ROM, that is the first and most valuable finding
+  the seat can return, not a reason to stop.
+- **Pacing, smoothness and responsiveness are OUT OF SCOPE for Roster C.** A virtual display
+  has no vsync, so a "feels sluggish" reading taken there answers a different question while
+  looking like an answer (oracle's F-VSYNC-NEVER-MEASURED). Those findings need the owner's
+  real display and are his captures.
+- **"Private socket" binds the CLIENT, not only the instance.** Launching the server on a
+  private socket is one flag; a seat that then reaches for the suite's reference client can
+  be resolved to the shared socket regardless. The seat's client is pointed at the private
+  socket explicitly, and the seat says which client it used.
+- **No resolver in the rig may fall through to a shared last resort.** The shape to hunt
+  for, in oracle's words: *a default that fills in silently when the specific thing is
+  absent.* Any first-set-wins chain (an env var, then a runtime dir, then a fixed path;
+  a binary, then the main checkout's build) terminates at a seat-private value the seat set
+  explicitly, and the seat proves once that the unforced case REFUSES rather than falls
+  back. Three instances were found before the first run: a raw launch attaching to the
+  owner's compositor, a binary name silently measuring the main checkout, and an app-side
+  socket resolver arriving at the owner's live game window when the variable was unset,
+  reachable because the audit seat is REQUIRED to press every control and the status badge
+  is one.
+
 **Scaling:** full ×2 seat doubling for corpus-scale sweeps; for merge-sized diffs,
 collapse each ×2 pair into one seat with encoded walk-order variation. Any tool that
 runs on every build deserves perf seats — and perf seats come **doubled deliberately**:
