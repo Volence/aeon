@@ -116,6 +116,7 @@ Exit: 0 green, 1 a bound breached or a population gap, 2 UNMEASURABLE.
 """
 
 import argparse
+import os
 import re
 import struct
 import sys
@@ -775,12 +776,25 @@ def main(argv=None):
     ap.add_argument("--lst", default="s4.debug.lst")
     ap.add_argument("--rom", help="the ROM the listing came from (default: --lst .lst -> .bin)")
     ap.add_argument("--game", default="sonic4")
+    ap.add_argument("--built-after", type=float, default=None,
+                    help="epoch seconds; the listing and ROM must both post-date it, so a "
+                         "PREVIOUS invocation's artifact is UNMEASURABLE rather than measured")
     ap.add_argument("--gate", action="store_true")
     ap.add_argument("--selftest", action="store_true",
                     help="prove the gate red per table, both directions of the strict compare")
     a = ap.parse_args(argv)
     rom = a.rom or re.sub(r'\.lst$', '.bin', a.lst)
     try:
+        if a.built_after is not None:
+            for p in (a.lst, rom):
+                if not os.path.isfile(p):
+                    raise Unmeasurable(f"{p} does not exist")
+                if os.path.getmtime(p) < a.built_after:
+                    raise Unmeasurable(
+                        f"{p} predates this build ({os.path.getmtime(p):.0f} < "
+                        f"{a.built_after:.0f}) — it is a PREVIOUS invocation's artifact and "
+                        f"bounding this build's scripts against it would be measuring the "
+                        f"wrong ROM")
         if a.selftest:
             return selftest(a.lst, rom)
         return report(a.lst, rom, a.game, a.gate)
