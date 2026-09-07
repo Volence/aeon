@@ -29585,6 +29585,15 @@ instrument failures — a value that is real, adjacent, and answering a differen
 *Found because a peer re-derived a claim of mine rather than accepting it: my prediction said "zero
 bytes moved", which was right about shapes and wrong as stated.*
 
+**⚠ AND THE COVERAGE THAT CAUGHT IT IS ACCIDENTAL, WHICH IS THE SHARPER HALF (sigil's addition).**
+The four gates that saw the length change exist for OTHER REASONS — two pin lengths, a port window
+read from one of them, and one row of an off-canonical size table. **None was designed to watch
+section-image length.** They caught it by accident of overlap. So the coverage is real today and is
+NOT guaranteed to survive a refactor of any one of them, and a check written for this class must be
+**named for the class**, never satisfied by pointing at the gates that happened to fire. Pointing at
+incidental coverage and calling the class covered is how a gap opens silently the day one of those
+four is rewritten for its own reasons.
+
 ## ⏳ TRANSIENT — STANDING COMMITMENTS TO THE SIGIL LANE (2026-09-07)
 
 **Sigil banked their reciprocal side at sigil `5ceeb743`, and the DELETE of this block is a
