@@ -337,6 +337,19 @@ section z80_sound_driver (cpu: z80) {
         ld      a, (SND_Z80_YM_A0)      // YM status ($4000): bit0 = Timer A overflow
         and     SND_TIMERA_OVF_MASK
         jr      z, .idle_settled        // no tick -> DAC latch holds $80, $2A parked
+        // DMA DEFER — the idle-context half of the guard at SndDrv_TimerATick:0.
+        // SndDrv_IdleTick calls the SAME Run_SeqFrame_OnSongBank, so the idle path
+        // reads the song stream through the $8000 window exactly as the streaming
+        // tick does. Same shape and same reason: return without rearming, so the
+        // YM's Timer-A overflow bit stays latched and this spin re-polls it until
+        // the 68k lowers the flag. Here the deferral is free — the idle loop emits
+        // nothing between ticks (the $80 DC-center write below is gated on a tick
+        // having actually RUN, which is also why the test sits HERE and not inside
+        // SndDrv_IdleTick: deferring inside the callee would re-write $80 on every
+        // idle spin and flood a VGM capture).
+        ld      a, (SND_CTRL_DMA_ACTIVE)
+        or      a
+        jr      nz, .idle_settled       // DMA up -> defer (overflow stays latched)
         call    SndDrv_IdleTick         // overflow -> rearm + Sequencer_Frame
         // A tick ran: Sequencer_Frame's writes moved the $4000 addr latch, so
         // re-park $2A and re-assert DC center ONCE here. Between ticks the DAC
@@ -1201,13 +1214,64 @@ section z80_sound_driver (cpu: z80) {
     // Reached ONLY from the hot loop's poll `jp nz` at the FIXED frame rate, inside
     // the loop's `di` window. The hot loop is REGISTER-RESIDENT (1:1) and
     // Sequencer_Frame + PollMailbox clobber EVERYTHING (incl. ix + the shadow set),
-    // so this tick: (1) SPILL the live ring/ROM state (b=WR, c=RD, ix=ROM ptr,
+    // so this tick: (0) DEFER the whole tick while a 68k DMA is in flight (see
+    // below); (1) SPILL the live ring/ROM state (b=WR, c=RD, ix=ROM ptr,
     // hl'=len) to RAM; (2) rearm + Run_SeqFrame_OnSongBank + mailbox poll; (3)
     // RELOAD the register-resident state (a retrigger may have reset it); (4)
     // BULK-REFILL the ring lead the consumer burned while 68k DMAs blocked the
-    // producer this frame (len-bounded; runs THROUGH an active DMA); (5) re-park
-    // $2A and rejoin .afterPoll. Non-returning (rejoins the hot loop).
+    // producer this frame (len-bounded; SKIPPED outright on an active DMA — the
+    // step-0 defer above normally means we never get here with the flag up, and
+    // the refill's own poll re-tests it after the frame's own duration); (5)
+    // re-park $2A and rejoin .afterPoll. Non-returning (rejoins the hot loop).
     pub proc SndDrv_TimerATick () clobbers(af, bc, de, hl, ix, iy) {
+        // 0. DMA DEFER (extends the user-ruled 2026-08-09 banked-ROM/DMA guard from
+        // the step-4 refill to the two OTHER banked-ROM stages of this same tick:
+        // Run_SeqFrame_OnSongBank -> Sequencer_Frame streams the song and its patch
+        // tables through the $8000 window, and Snd_PollMailbox_Banked -> Snd_LoadSong
+        // / SfxDispatch read the song table and the SFX blobs through it. Neither had
+        // any flag check, and the hot loop's Timer-A poll branches here from ABOVE
+        // `.dma_check`, so the tick could not see the flag by any path.)
+        //
+        // DEFER, NOT SKIP — and the difference is the whole design. The refill may be
+        // skipped because the ring lead absorbs a missed top-up; that absorber is the
+        // ruling's own stated licence for fail-closed skipping, and the sequencer
+        // frame HAS NO SUCH ABSORBER: a dropped frame is a dropped tempo step, so
+        // skipping would trade an unobservable hardware hazard for an audible
+        // gameplay-only slowdown. So we return to the loop WITHOUT calling
+        // Snd_TimerA_Rearm, and $27's RST:A bit (SND_TIMERA_CTRL_REARM) is the ONLY
+        // thing that clears the YM's Timer-A overflow status bit — so the overflow
+        // stays LATCHED, the next hot-loop pass polls it again, and the tick runs in
+        // full the moment the 68k lowers the flag. The frame is delayed by at most the
+        // DMA window, never dropped.
+        //
+        // COST, and it is NOT free: this deferred pass is +27 T (13+4+10) on a loop
+        // whose FILL and DRAIN spans are cycle-balanced at SND_LOOP_CYC by build-time
+        // `ensure`s. Those spans are untouched — this is a THIRD path they do not
+        // measure, and it runs only while the flag is up (the loop is on its DRAIN
+        // path then, i.e. RAM-only, so no ROM read rides the extra cycles). The DAC's
+        // emit cadence stretches ~14% for the length of the DMA window.
+        //
+        // RESIDUALS, stated so nobody reads more into this than it does:
+        //   * a flag window LONGER than one Timer-A period (16.65 ms) coalesces two
+        //     overflows into one latched bit, i.e. it degrades to a dropped frame.
+        //     Section_RedrawPlanes' ~3-frame poke storm (engine/level/section.emp)
+        //     holds the flag exactly that way, by design, and is the known case.
+        //   * a flag left UP forever would stall the sequencer. Both 68k raisers pair
+        //     raise/lower structurally (vblank.emp VInt_Level/VInt_Lag, section.emp
+        //     Section_RedrawPlanes), so that needs a 68k fault mid-bracket — which
+        //     already strands the DAC producer in DRAIN today. Not a new failure mode.
+        //   * a DMA that BEGINS after this test still overlaps the frame. Unchanged
+        //     from the refill guard's own residual; this is a window-narrowing guard,
+        //     not a mutual exclusion.
+        //   * NOT COVERED: SndDrv_ISR's Snd_PollMailbox_Banked (the idle-context
+        //     mailbox service). It is the ONE banked-ROM path that is PHASE-LOCKED to
+        //     the 68k's DMA window — both are driven by the same VBlank — so neither
+        //     skipping nor deferring it makes progress; it would starve every frame.
+        //     It needs its own design and is filed in docs/DEFERRED_WORK.md, not
+        //     fixed here.
+        ld      a, (SND_CTRL_DMA_ACTIVE)
+        or      a
+        jp      nz, SndDrv_Sample.afterPoll // DMA up -> defer (overflow stays latched)
         // 1. SPILL the register-resident state to RAM (RD already includes this
         // pass's consumer inc; the frame/poll/retrigger operate on RAM).
         ld      a, c
