@@ -1691,7 +1691,7 @@ pub proc Parallax_Update () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
         tst.b   Parallax_Scratch_Arm                // (Parallax_Scratch_Arm).w
         beq     .no_scratch_arm
         clr.b   Parallax_Scratch_Arm                // (Parallax_Scratch_Arm).w
-        jbsr    Parallax_InstallScratch             // carry = refused; nothing here acts on it
+        jbsr    Parallax_InstallScratch @discards(refused)  // nothing here acts on the carry
     .no_scratch_arm:
     }
         // --- Step 1: select active config for this frame ---
