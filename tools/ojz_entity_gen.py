@@ -507,23 +507,45 @@ def test_pressure_blocks():
 
 
 def test_emit_section_shapes():
+    """The emitted FORM, in the `.emp` spelling emit_section actually produces.
+
+    THIS TEST WAS STALE AND NOBODY COULD SEE IT (LS-15, 2026-09-07). Parcel K3 run A
+    converted emit_section from AS text (`dc.b`/`dc.w`/`dc.l`, the `objentry` and
+    `objend` macros) to native `.emp` `pub data` items, and the committed artifact
+    games/sonic4/data/generated/ojz/act1/entity_data.emp is in the new form and is what
+    the ROM is built from. These assertions were never updated, so `ojz_entity_gen.py
+    test` had been RED since that conversion -- and stayed invisible because NOTHING
+    invoked it: it is not in build.sh, not in test.sh, not in effects_gates.py, and has
+    no pytest wrapper. The producer was right; the test was six spellings behind it.
+
+    So the expectations below are re-derived from emit_section's documented contract
+    rather than from its output: the packed object word is computed here out of
+    OEF_FLAG_BITS / OEF_TYPE_SHIFT, and the array LENGTHS are computed from the input
+    counts. A transcription of the tool's stdout would have gone green against any
+    behaviour at all, which is the failure mode that produced the stale text.
+    """
     lib = {"solid": "ObjDef_Solid"}
     lines = []
     emit_section(lines, 5, [], [], lib, [])
     text = "\n".join(lines)
-    assert "OJZ_Sec5_TypeTable:" in text
-    assert "dc.b    0, 0" in text
-    assert "OJZ_Sec5_Objects:" in text
-    assert "objend" in text
-    assert "OJZ_Sec5_Rings:" in text
-    assert "dc.l    0" in text
+    # Empty section: a 2-byte zero type table, an Objects array holding only the
+    # $FFFF list terminator, and a Rings array holding only the longword-0 one.
+    assert "pub data OJZ_Sec5_TypeTable: [u8; 2] = [0, 0]" in text, text
+    assert "pub data OJZ_Sec5_Objects: [u16; 1] = [$FFFF]" in text, text
+    assert "pub data OJZ_Sec5_Rings: [u16; 2] = [$000, $000]" in text, text
 
     lines = []
     emit_section(lines, 0, [(1024, 1792, 0, 0, ["OEF_ANY_Y"])], ["solid"],
                  lib, [(128, 96)])
     text = "\n".join(lines)
-    assert "objentry $400, $700, 0, 0, (1<<OEF_ANY_Y)" in text
-    assert "dc.w    $080, $060" in text
+    # One type -> the k=1 packed struct, count/pad then the ObjDef pointer.
+    assert ("pub data OJZ_Sec0_TypeTable: ObjTypeTable1 = "
+            "ObjTypeTable1{ count: 1, pad: 0, t0: ObjDef_Solid }") in text, text
+    # packed = flags | (type_idx << OEF_TYPE_SHIFT) | subtype, DERIVED here.
+    packed = (1 << OEF_FLAG_BITS["OEF_ANY_Y"]) | (0 << OEF_TYPE_SHIFT) | 0
+    assert (f"pub data OJZ_Sec0_Objects: [u16; 4] = "
+            f"[$400, $700, ${packed:04X}, $FFFF]") in text, text
+    assert "pub data OJZ_Sec0_Rings: [u16; 4] = [$080, $060, $000, $000]" in text, text
     print("  test_emit_section_shapes OK")
 
 
