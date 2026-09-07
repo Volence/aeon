@@ -8,7 +8,7 @@
 // Control codes occupy $F7-$FF; FRAME bytes 0-$F6 are valid mapping
 // frame indices (Sonic's sheet uses up to $DF — an $80+ frame byte is
 // data, not a command; only $F7+ dispatches). Values live in
-// engine/constants.asm (AS truth) mirrored via engine.constants:
+// engine/system/constants.emp, imported through engine.constants:
 //   $FF (AF_END)     — loop: restart from first frame
 //   $FE (AF_BACK)    — jump back N: next byte = rewind count
 //   $FD (AF_CHANGE)  — switch animation: next byte = new anim ID
@@ -36,7 +36,7 @@
 module engine.objects.animate in animate
 
 use engine.objects.sst.{Sst}
-use engine.constants.{AF_SET_FIELD, DUR_DYNAMIC, OBJ_CODE_BANK}
+use engine.constants.{AF_SET_FIELD, DUR_DYNAMIC, OBJ_CODE_BANK, RF_XFLIP, RF_YFLIP}
 use engine.objects.frames.{refresh_piece_count}
 
 // Contract type (contract-grammar v2 §4) — the AF_CALLBACK dispatch bound. The
@@ -78,11 +78,21 @@ comptime fn reload_anim_timer(src: Reg) -> Code {
 pub proc AnimateSprite (a0: *Sst) clobbers(d0-d2/a1-a2) {
         // Propagate facing from status → render_flags each frame. The flip bits
         // are bit-aligned (ST_XFLIP/ST_YFLIP == RF_XFLIP/RF_YFLIP), so this is a
-        // straight copy of bits 1-2. $F9 = ~(RF_XFLIP|RF_YFLIP): clear the two
-        // flip bits, preserve the rest (on-screen, multisprite, priority, coord).
-        andi.b  #$F9, Sst.render_flags(a0)
+        // straight copy of bits 1-2: clear the two flip bits (preserving on-screen,
+        // multisprite, priority and coord), then or the status pair back in.
+        //
+        // SPELLED AS THE EXPRESSION, NOT THE MAGIC BYTE, and the two literals it
+        // replaces ($F9 and $06) were annotated WRONG in the direction a reader
+        // converting them would follow: RF_XFLIP and RF_YFLIP are BIT NUMBERS
+        // (1 and 2, engine/system/constants.emp), so `RF_XFLIP|RF_YFLIP` is 3 and
+        // `~(RF_XFLIP|RF_YFLIP)` is $FC — not the $06/$F9 the code needs and the old
+        // comments claimed. The shifted form below is the blessed spelling used at
+        // load_object.emp:64 and sprites.emp:390/462, and it cannot decay: sigil
+        // folds it, so renumbering the RF bits moves the emitted byte instead of
+        // leaving a stale one behind a correct-looking name.
+        andi.b  #~((1 << RF_XFLIP) | (1 << RF_YFLIP)), Sst.render_flags(a0)
         move.b  Sst.status(a0), d0
-        andi.b  #$06, d0                // $06 = RF_XFLIP|RF_YFLIP: isolate flip bits
+        andi.b  #(1 << RF_XFLIP) | (1 << RF_YFLIP), d0      // isolate the flip pair
         or.b    d0, Sst.render_flags(a0)
 
         moveq   #0, d0

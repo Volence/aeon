@@ -12,8 +12,9 @@
 // (~164 bytes copied off the held Z80 bus; the exact µs is oracle-measurable but
 // not verified here), which keeps the mirror OFF by default.
 //
-// SeqChannel is 60 bytes (SEQ_CHANNEL_LEN), too large to mirror in FULL within the
-// 176-byte Sound_Dbg_Mirror. The mirror is a DEBUG observability window, not a
+// A SeqChannel is `SeqChannel_len` bytes (60, pinned by an ensure in
+// engine/sound/sound_constants.emp), too large to mirror in FULL within the
+// Sound_Dbg_Mirror reservation. The mirror is a DEBUG observability window, not a
 // faithful struct copy, so we mirror a PREFIX of each channel (SEQ_MIRROR_CHBYTES
 // bytes) that captures the controller-observed liveness fields. The shipping songs
 // have 3 channels (FM1, FM2, PSG1), so 3 slots is the window.
@@ -27,7 +28,20 @@
 // so they are not mirrored.)
 // Mirror layout (offsets from Sound_Dbg_Mirror): header [64..71], ch0 [72..91],
 // ch1 [92..111], ch2 [112..131]; trace ring [132..163]. Upper window = 64 + 8 +
-// 3*20 + 32 = 164 <= 176.
+// 3*20 + 32 = 164, against a 176-byte reservation — 12 spare, and the fit ensure
+// below measures the reservation rather than restating it.
+//
+// ⚠ THIS FILE IS THE LAYOUT AUTHORITY, and engine/ram.emp's reservation is only the
+// space. That block used to describe a DIFFERENT layout — "5 SeqChannel slots …
+// 64 + 78 + 32 = 174" — which is five 14-byte slots and is not what any build has
+// ever written; it has been corrected to point here. That matters because this
+// window exists to be decoded from OUTSIDE the assembler. ENUMERATED 2026-09-07 by
+// what actually reads it: the only in-tree reader is this writer; oracle and seraph
+// contain no decoder at all; empyrean/docs/STUDIO_VISION.md and the seraph handoff
+// name a sound-state HUD that would read it AFTER Oracle Phase 2, and aeon's own
+// 2026-06 sound plans give hand-followed MCP recipes against the pre-Phase-3
+// 64-byte window. So no built consumer was decoding the wrong description — but the
+// planned one is the reason the offsets belong in one place with the code.
 
 module engine.debug.sound_debug in sound_debug
 
@@ -55,8 +69,20 @@ const SEQ_MIRROR_HDRCH    = 8 + SEQ_MIRROR_CHANNELS * SEQ_MIRROR_CHBYTES
 // Fit guards (comptime): the ensures below enforce the size bounds.
 ensure(SEQ_MIRROR_CHBYTES <= SeqChannel_len,
        "SEQ_MIRROR_CHBYTES exceeds SeqChannel_len")
-ensure(64 + SEQ_MIRROR_HDRCH + SND_SEQ_TRACE_LEN <= 176,
-       "sound debug mirror window exceeds Sound_Dbg_Mirror (176 bytes)")
+// MEASURES THE RESERVATION, NOT A COPY OF IT. This bound used to be the literal 176,
+// hand-copied from engine/ram.emp — so shrinking the `[u8; 176]` there left this guard
+// green while the window silently truncated. engine/ram.emp now closes the region with
+// `mark Sound_Dbg_Mirror_End`, which makes the same extern-span idiom available here that
+// Parallax_State / Palette_State / Raster_State already use.
+//
+// WHAT IT DOES NOT COVER, stated because the gap is the interesting part: it bounds only
+// the TOTAL. It cannot see the per-slot LAYOUT, which is what an out-of-process consumer
+// actually decodes, and it says nothing about SEQ_MIRROR_CHANNELS matching the shipping
+// song's channel count. It also only evaluates in a shape that PLACES this module — the
+// MIRROR shape (`sigil build --native --config-a`) — so a canonical `./build.sh` proves
+// nothing about it either way.
+ensure(64 + SEQ_MIRROR_HDRCH + SND_SEQ_TRACE_LEN <= extern("Sound_Dbg_Mirror_End") - extern("Sound_Dbg_Mirror"),
+       "the sound debug mirror window is {64 + SEQ_MIRROR_HDRCH + SND_SEQ_TRACE_LEN} bytes and Sound_Dbg_Mirror reserves only {extern(\"Sound_Dbg_Mirror_End\") - extern(\"Sound_Dbg_Mirror\")} — widen the reservation in engine/ram.emp or drop SEQ_MIRROR_CHANNELS / SEQ_MIRROR_CHBYTES, and re-derive the offset map in this file's header")
 
 pub proc Sound_DebugMirror () clobbers(d0-d1/a0-a1) {
     with z80_stopped {
@@ -76,8 +102,10 @@ pub proc Sound_DebugMirror () clobbers(d0-d1/a0-a1) {
             dbf     d0, .copy2
         // --- [64..] sequencer window (Phase 3) ---
         // a1 now points at Sound_Dbg_Mirror+64. Copy the 8-byte sequencer header,
-        // then a SEQ_MIRROR_CHBYTES-byte PREFIX of each channel (the full 36-byte
-        // SeqChannel no longer fits), then the 32-byte trace ring.
+        // then a SEQ_MIRROR_CHBYTES-byte PREFIX of each channel (a full SeqChannel is
+        // SeqChannel_len bytes — 60, pinned by sound_constants.emp; this line used to
+        // say 36, which was the struct's width several widenings ago and disagreed with
+        // this file's own header), then the SND_SEQ_TRACE_LEN-byte trace ring.
         //   [64] SND_SEQ_TEMPO      [65] SND_SEQ_CHCOUNT
         //   [66..67] SND_SEQ_PATCHTAB
         //   [68] SND_SEQ_ACTIVE     [69] SND_SEQ_BADOP

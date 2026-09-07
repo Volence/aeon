@@ -730,7 +730,15 @@ pub const SOLID_ALL  = 3
 //     O(MAX) loop in engine/level/parallax.emp is `Parallax_Init`'s one-time state wipe.
 //   * A SCENE THAT DOES use sixteen pays 4664 + 15 x 854 = 17,474 cyc = 13.7% of the
 //     128,000-cycle NTSC frame (SB_WALK_BAND_PERLINE_X100, scene_dsl.emp).
-//   * RAM: Parallax_State = 100 + 20 x MAX + 4 -> 328 B at 8, 552 B at 16 (+224).
+//   * RAM: Parallax_State costs `4 * PARALLAX_STATE_LONGS` (engine/level/parallax.emp),
+//     which is a ceiling-independent head plus a CAPABILITY-SIZED per-band term — so the
+//     price of the raise is 8 x that per-band term and it moves with the capability set,
+//     not with this constant. This bullet used to state "100 + 20 x MAX + 4 -> 328 B at 8,
+//     552 B at 16 (+224)"; that formula did not even produce its own two numbers (it gives
+//     264 and 424), and by 2026-09-07 the drift and remap capabilities had taken the real
+//     per-band term to 44 B. MEASURED 2026-09-07 off s4.lst (Parallax_State $FFFF88A0 ..
+//     Parallax_State_End $FFFF8BD4): 820 B at MAX 16 against 468 B at MAX 8 — the raise
+//     cost 352 B, not 224. Re-derive from PARALLAX_STATE_LONGS rather than from this line.
 //   * `pcfg_layer_mask` HAD TO BECOME A u16 (engine/structs.emp). At a u8 every band from
 //     index 8 up read a structurally-zero bit, took `.band_disabled`, and inherited the
 //     band above it: a build that is green and a picture that is silently wrong.

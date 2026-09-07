@@ -85,7 +85,14 @@ pub struct PlayerBlock {
                             // anywhere else fires on their first frame, reading
                             // XOVER_NONE like every other unmarked cell.
                             // Even offset (20), so the `move.l`/`cmp.l` pair below is
-                            // aligned in BOTH slots at the 24-byte stride.
+                            // aligned in BOTH slots at the `sizeof(PlayerBlock)` stride.
+                            // NAMED, NOT NUMBERED, on purpose: this line said "the
+                            // 24-byte stride" while the struct had already grown to 28
+                            // (xover_cursor was appended after it), and the number was
+                            // load-bearing for an alignment claim. The evenness of the
+                            // stride is pinned by player_common.emp's
+                            // `sizeof(PlayerBlock) % 2` guard, so the claim survives a
+                            // resize; a literal here would not.
     xover_cursor:   u32,    // THE SWEEP's walking cursor, same packing as xover_cell.
                             // A frame can move 16 px (PHYS_GSP_CAP) against an 8 px
                             // collision cell and nothing substeps horizontal movement,

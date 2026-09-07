@@ -419,18 +419,40 @@ pub vars upper_ram {
 
     Vscroll_Factor:         u32,        // FG word + BG word
 
-    // --- Parallax state (§4.6) — `108 + 28 * MAX_PARALLAX_BANDS` bytes at the shipped
-    // capability set (BAND_EXT_N 0, BAND_CURVE_N 1, BAND_DRIFT_N 0): 556 B at MAX 16, up
-    // from 328 B at MAX 8 (+224 on 2026-08-27, +4 on 2026-09-04 for F3's two VP words). ---
-    // (108 ceiling-independent = 3 phase words + 2 vanishing-point words + vscroll word +
-    //  2 config longs +
-    //  4 transition/section bytes + 80 B column buf + 4 B curve carry. 28 per band =
-    //  2 current-scroll words + a 20 B shadow band + 2 shadow-scroll words.
-    //  RAISING BAND_DRIFT_N TO 1 TAKES THE PER-BAND TERM TO 36 and the span to 680 B at
-    //  MAX 16 (+128): +4 for the widened shadow band and +4 for the accumulator long. Both
-    //  terms are capability-sized, so a game that declares no drift pays zero.
-    //  Marked by Parallax_State/_End; PARALLAX_STATE_LONGS in parallax.emp is the
-    //  clear-count mirror and its drift `ensure` checks it against this span.)
+    // --- Parallax state (§4.6). ---
+    // THE SPAN IS NOT RESTATED HERE AS A NUMBER, DELIBERATELY. It is
+    //     `4 * PARALLAX_STATE_LONGS`
+    // and PARALLAX_STATE_LONGS (engine/level/parallax.emp) is a comptime expression in
+    // MAX_PARALLAX_BANDS and the five capability mirrors declared at the top of this file,
+    // checked against the LINKED distance `Parallax_State_End - Parallax_State` by that
+    // file's own `ensure`. So the authority is derived at both ends and there is nothing
+    // here for a capability flip to leave behind.
+    //
+    // WHY THIS BANNER LOST ITS FIGURES. It used to open "108 + 28 * MAX_PARALLAX_BANDS …
+    // 556 B at MAX 16" against a capability set that had moved twice underneath it
+    // (BAND_DRIFT_N 0 -> 1 on 2026-09-02, BAND_REMAP_N 0 -> 1 on 2026-09-03) without the
+    // sentence being re-derived, even though the block WAS edited on 2026-09-04. Measured
+    // 2026-09-07 off s4.lst: Parallax_State $FFFF88A0, Parallax_State_End $FFFF8BD4 —
+    // 820 bytes, 47.5% above the stated 556, with a per-band term of 44 rather than 28 and
+    // a ceiling-independent term of 116 rather than 108 (the banner never counted
+    // Parallax_Remap_State). Anyone costing MAX_PARALLAX_BANDS 16 -> 8 off the old text
+    // booked 224 B against a real 352. The `ensure` was correct throughout; only the prose
+    // decayed, which is the argument for naming the expression instead of its value.
+    //
+    // THE SHAPE OF THE SUM, which does not decay because it names no total:
+    //   ceiling-INDEPENDENT — 3 deform phase words + 2 vanishing-point words + the vscroll
+    //     word + 2 config longs + 4 transition/section bytes + the 80 B VSRAM column buffer
+    //     + Parallax_Curve_Carry (CURVE_CARRY_WORDS) + Parallax_Remap_State
+    //     (REMAP_STATE_LONGS).
+    //   PER BAND — 2 current-scroll words + 2 shadow-scroll words + one drift accumulator
+    //     long (DRIFT_ACC_LONGS) + a shadow band record, which is BAND_ENTRY_LEN plus
+    //     whichever of BAND_EXT_BYTES / BAND_CURVE_BYTES / BAND_DRIFT_BYTES /
+    //     BAND_REMAP_BYTES this game's capabilities select.
+    // Every one of those tail terms is capability-sized, so a game that declares none of
+    // them pays for none of them.
+    //
+    // Marked by Parallax_State/_End; PARALLAX_STATE_LONGS in parallax.emp is the
+    // clear-count mirror and its drift `ensure` checks it against this span.
     mark Parallax_State,
     Parallax_Deform_Phase_FG:    u16,   // (frame_counter * speed_fg) & $FF
     Parallax_Deform_Phase_BG:    u16,
@@ -1084,17 +1106,32 @@ pub vars upper_ram {
     Sfx_Ring_Wr:            u8,         // write cursor (0..SFX_RING_MASK)
     Sfx_Ring_Rd:            u8,         // read cursor  (0..SFX_RING_MASK); SFX_RING_DEPTH(8)+2 = 10 even
 
-    // Sound driver debug mirror. Declared unconditionally (176 bytes, negligible)
-    // so that IT adds no DEBUG/release divergence of its own. (The shapes are NOT
-    // otherwise identical: the DEBUG profiler block above adds 36 bytes and the
-    // DEBUG replay block at the RAM tail adds 10,244, so every field from the
-    // profiler block down sits 36 bytes higher under DEBUG and Engine_RAM_End
-    // moves by 10,280.) Only WRITTEN under
-    // DEBUG + SOUND_DRIVER_ENABLED + SOUND_DBG_MIRROR. Lets the Exodus MCP — which
+    // Sound driver debug mirror. Declared unconditionally so that IT adds no
+    // DEBUG/release divergence of its own; the shapes are NOT otherwise identical
+    // (see the shape-divergence note under Dynamic_Live_Walking below, which is the
+    // ONE place that accounting is written down). Only WRITTEN under
+    // DEBUG + SOUND_DRIVER_ENABLED + SOUND_DBG_MIRROR. Lets the Oracle MCP — which
     // reads 68k RAM but not Z80 RAM at $A00000 — observe the driver's
-    // mailbox+status+sequencer state. Sized for the 5-channel sequencer window +
-    // trace ring: 64 + 78 + 32 = 174 <= 176 (kept EVEN with a 2-byte margin).
-    Sound_Dbg_Mirror:       [u8; 176],  // DEBUG: Z80 mailbox/status, playback state, seq header, 5 SeqChannel slots, trace ring
+    // mailbox+status+sequencer state.
+    //
+    // ⚠ THE LAYOUT IS engine/debug/sound_debug.emp's, AND IT IS NOT WHAT THIS BLOCK
+    // USED TO CLAIM. This text said "sized for the 5-channel sequencer window +
+    // trace ring: 64 + 78 + 32 = 174 <= 176", and the field comment said "5
+    // SeqChannel slots" — a layout of five 14-byte slots that NOTHING in the tree
+    // has ever emitted. The writer copies, in order: 48 B of Z80 mailbox+status,
+    // 16 B of playback state, an 8 B sequencer header, then SEQ_MIRROR_CHANNELS (3)
+    // prefixes of SEQ_MIRROR_CHBYTES (20) bytes, then the SND_SEQ_TRACE_LEN (32)
+    // byte trace ring — 164 bytes, so the real margin is 12 and not 2. THAT MATTERS
+    // MORE THAN A COMMENT USUALLY WOULD: this window exists to be decoded from
+    // OUTSIDE the assembler, so a consumer reading five 14-byte slots from +64 lands
+    // on nothing — the slots are three 20-byte ones from +72 and the ring is at +132.
+    // The offsets are enumerated at sound_debug.emp's header; treat that file as the
+    // authority and this reservation as the space it is allowed.
+    Sound_Dbg_Mirror:       [u8; 176],  // DEBUG: Z80 mailbox/status, playback state, seq header, 3 SeqChannel prefixes, trace ring
+    mark Sound_Dbg_Mirror_End,          // sound_debug.emp's fit guard measures THIS span,
+                                        // not a hand-copied 176 — shrinking the array now
+                                        // fails that guard instead of silently truncating
+                                        // the window an out-of-process consumer decodes.
 
     // --- Object-pool occupancy — the dynamic-pool "run objects list" ---
     // Word SST-addresses of the live DYNAMIC slots, in SPAWN order, + count + a
@@ -1112,9 +1149,39 @@ pub vars upper_ram {
     // means a mid-walk compaction is about to move entries under a live cursor
     // (the A2 hazard). Occupies the release pad slot, so THIS FIELD adds no
     // DEBUG/release divergence — nothing below it moves relative to it in either
-    // shape. It does not make Engine_RAM_End shape-invariant: the DEBUG profiler
-    // block (+36) and the DEBUG replay block (+10,244) already diverge the shapes,
-    // so Engine_RAM_End sits 10,280 bytes higher under DEBUG.
+    // shape. It does not make Engine_RAM_End shape-invariant.
+    //
+    // THE SHAPE-DIVERGENCE ACCOUNTING, and this is the only copy of it in the file.
+    // It is a MEASUREMENT, not a comptime fact: no module can compute it, because a
+    // build only ever elaborates one shape. So it is stated with its referent and its
+    // date, and re-derived the same way — subtract Engine_RAM_End in the two `.lst`s:
+    //
+    //   MEASURED 2026-09-07.  s4.lst  Engine_RAM_End = $FFFFBB8C
+    //                    s4.debug.lst Engine_RAM_End = $FFFFEC46   ->  $30BA = 12,474 B
+    //   (demo.lst $FFFFB842 / demo.debug.lst $FFFFE8FC gives the same $30BA, as it must:
+    //    every divergent block is engine-side.)
+    //
+    // The seven `if DEBUG == 1 @shape_divergent` groups, sized by adjacent-symbol
+    // difference in s4.debug.lst, sum to exactly that:
+    //     142  profiler block      (DMA_Bytes_ThisFrame .. Player_1)
+    //  10,244  replay recorder     (Replay_Record_Idx .. Sprite_Owner)
+    //     160  Sprite_Owner        (.. Canopy_ColW)
+    //   1,372  canopy-gap capture  (Canopy_ColW .. Dbg_DMA_Straddle_All)
+    //       8  DMA straddle counters
+    //       4  BgAnim_Table_Ptr
+    //     544  live-effects parallax scratch (Parallax_Scratch_Config .. Engine_RAM_End)
+    //  ------
+    //  12,474  = the measured delta. A closed sum is the control on the enumeration.
+    //
+    // THIS PARAGRAPH USED TO SAY 10,280, counting the profiler block as 36 and omitting
+    // Sprite_Owner, the canopy instrument, the straddle counters, BgAnim_Table_Ptr and
+    // the live-effects scratch entirely — every one of which carries a written rationale
+    // for existing. The deliberate cost was never the problem; the accounting was. If you
+    // add another @shape_divergent group, add its row here, or this becomes wrong again
+    // in exactly the way it already did.
+    //
+    // Headroom, same clock and same method: DEBUG Game_RAM_End $FFFFF030 against
+    // SYSTEM_STACK $FFFFFF00 leaves 3,792 B; release $FFFFBF02 leaves 16,382 B.
     if DEBUG == 1 {
         Dynamic_Live_Walking:   u8,     // DEBUG-only: a dynamic live-list walk is in progress
     } else {

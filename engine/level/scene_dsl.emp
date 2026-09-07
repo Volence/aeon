@@ -15,6 +15,23 @@
 // the strength of a green build; every guard below was red-first verified through a
 // temporary probe that forced elaboration from a placed module.
 //
+// ---- READING THE `configs.emp:N` CITATIONS IN THIS FILE ----
+// `games/sonic4/data/parallax/configs.emp` was the pre-scene-model authoring surface. It
+// no longer exists: Task 9 deleted it in `92fafc3e` (2026-08-18), and this model is what
+// replaced it byte-for-byte. Every `configs.emp:N` below is that file AS IT STOOD AT ITS
+// DELETION PARENT, so recover it with
+//     git show 92fafc3e^:games/sonic4/data/parallax/configs.emp
+// and the line numbers land. This is the same convention, and the same recovery point,
+// that games/sonic4/test/scene_equiv_proof.emp:16-20 states for its own twenty citations.
+//
+// THE COORDINATES WERE REBASED ON 2026-09-07 AND THEY WERE ALL WRONG BY THE SAME +31.
+// They had been written against the file as it stood at `560a47be` (2026-08-15) and never
+// moved when it grew; a reader recovering the file the obvious way — at the deletion —
+// and following `:181` for ParallaxConfig_Haze landed on ParallaxConfig_OJZ_Windy instead.
+// Every substantive claim at those sites was true; only the numbers had rotted, which is
+// why naming the revision matters more than naming the line: a coordinate with a commit
+// beside it cannot decay, and one without it decays the moment the file moves.
+//
 // Pure comptime — this module emits no ROM bytes.
 module engine.level.scene_dsl
 
@@ -1582,17 +1599,17 @@ pub comptime fn scene_vds_byte(shift: int, decline: int) -> int {
 // the ROM does not move a byte:
 //
 //   sc_mask_raw            ParallaxConfig_OJZ_Default AND ParallaxConfig_OJZ_Underwater
-//                          (configs.emp:107, :132) both declare band_count 4 with
+//                          (configs.emp:138, :163) both declare band_count 4 with
 //                          layer_mask $1F — FIVE bits for FOUR bands. A mask derived
 //                          from ly_enabled can only ever produce $0F, so Task 6 spells
 //                          this bridge TWICE, once per config. -1 = derive.
-//   sc_v_deform_shift_raw  ParallaxConfig_SkyHaze (configs.emp:269) passes
+//   sc_v_deform_shift_raw  ParallaxConfig_SkyHaze (configs.emp:300) passes
 //                          v_deform_shift_bg: 0 while attaching NO v-deform table;
 //                          SceneVDeform.None lowers to hdr()'s default 4, which is a
 //                          different byte. -1 = derive. ONE config, one bridge.
 //
 // THE NEAR MISS, because it will be mistaken for a third: ParallaxConfig_OJZ_LockedClouds
-// (configs.emp:299) declares band_count 5 with layer_mask $1E, and that is NOT a bridge —
+// (configs.emp:330) declares band_count 5 with layer_mask $1E, and that is NOT a bridge —
 // it DERIVES, from `enabled: 0` on layer 0, which is precisely the authored model working.
 // Spell it as a dormant layer; a mask_raw there would hide the one fact the config exists
 // to express. (The plan's Task-6 table over-prescribes `mask_raw $1E` here. Derive it.)
@@ -1745,7 +1762,7 @@ pub comptime fn scene(layers: [SceneLayer; 16], count: int,
     // a word-level compare. This closes it.
     //
     // BOTH CONJUNCTS ARE REQUIRED. `ly_enabled == 0` alone would reject a legal shipped
-    // shape: OJZ_LockedClouds (configs.emp:299) is five real layers with layer 0 dormant,
+    // shape: OJZ_LockedClouds (configs.emp:330) is five real layers with layer 0 dormant,
     // so a masked-off REAL layer inside the count must keep passing. `ly_fa == 0` is what
     // separates the two — no authored layer can have it (see no_layer()'s note).
     for i in count..16 {
@@ -2305,7 +2322,7 @@ pub comptime fn scene_caps(s: Scene) -> int {
     //
     // THE SCAN IS CROSS-PLANE ON PURPOSE — every layer shift and both anchor shifts,
     // regardless of which plane holds a table — and the asymmetry is not a bug to tidy.
-    // ParallaxConfig_Haze (configs.emp:181-199) attaches a table on the FG ONLY while
+    // ParallaxConfig_Haze (configs.emp:212-230) attaches a table on the FG ONLY while
     // every band carries a live `dsb: 4`; a scan that paired dsa with deform_fg and dsb
     // with deform_bg would fold Haze to no-deform. The runtime's shift sentinel is per
     // band and per plane, not per attachment.

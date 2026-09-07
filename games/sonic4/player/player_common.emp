@@ -107,7 +107,14 @@ pub vars PlayerV: Sst.sst_custom {
         jump_headroom:    u8,           // press-frame ceiling clearance carried into
                                         // the same tick's air body; MUST be zero at
                                         // tick end (replay-hash discipline)
-        even_pad:         u8,           // pad — keeps the overlay even
+        even_pad:         u8,           // reserved. It USED to be a pad that kept the
+                                        // overlay even; the ability-scratch block below
+                                        // has since made the overlay odd and nothing
+                                        // broke, because PlayerV is a VIEW onto one
+                                        // slot's custom window and never an array
+                                        // stride — there is no slot 1 to misalign. Kept
+                                        // as a reserved byte rather than deleted: the
+                                        // deletion would move every offset below it.
 
         // --- ABILITY SCRATCH: the per-character airborne-ability working set.
         // These two bytes are a UNION, not Tails' private property: exactly one
@@ -116,7 +123,12 @@ pub vars PlayerV: Sst.sst_custom {
         // bytes under their own names rather than each claiming fresh ones. The
         // language cannot express the union as byte-SHARING (every overlay starts at
         // $30), so the fields are declared in place and this reads as a budget
-        // principle; the window has 30 game-usable bytes and PlayerV now spends 26.
+        // principle. The window's game-usable size and PlayerV's spend are BOTH
+        // comptime facts, so this sentence deliberately names neither number: see
+        // the PLAYERV_SPEND / PLAYERV_WINDOW pins under the overlay, which fail the
+        // build with both figures the moment either moves. (The sentence used to say
+        // "spends 26"; instashield was appended after it was written and nothing
+        // made the drift loud — the pins are that mechanism.)
         //
         // REPLAY-HASH DISCIPLINE — read this before touching them. The custom
         // window $30..$4D is hashed by engine/system/replay.emp, and the recorded
@@ -186,9 +198,27 @@ pub vars PlayerV: Sst.sst_custom {
         // ability re-uses these bytes, but the language cannot express the sharing
         // and all five existing ones are declared in place, so this follows the
         // precedent instead of making one name wrong for two characters. Appended
-        // at the TAIL, so no existing overlay offset moves. 26 -> 27 of 30.
+        // at the TAIL, so no existing overlay offset moves.
         instashield:      u8,           // 0 ready / 1 attacking / 2 spent (per airborne stretch)
 }
+
+// PlayerV's BUDGET pins. The overlay's own overflow check is what makes an actual
+// overrun build-fatal; these two pins exist for the thing that check cannot see —
+// the stated HEADROOM. A field appended at the tail moves the spend silently, which
+// is exactly how the budget sentence above came to say 26 of a real 27.
+//
+// DERIVED, NOT COPIED. `sizeof(PlayerV)` is the overlay's own size; the window is
+// `sizeof(Sst.sst_custom)` less the engine-owned tail word `SST_interact`, which is
+// the sentence the overlay banner states in prose. Both sides re-derive on any
+// struct edit, so the only thing a literal is doing here is FIXING today's value so
+// a change has to be acknowledged. Update the number and the guard tells the next
+// author the new headroom.
+const PLAYERV_WINDOW = sizeof(Sst) - offsetof(Sst, sst_custom) - 2   // less SST_interact
+const PLAYERV_SPEND  = 27
+ensure(sizeof(PlayerV) == PLAYERV_SPEND,
+       "PlayerV now spends {sizeof(PlayerV)} of the custom window's {PLAYERV_WINDOW} game-usable bytes, not the {PLAYERV_SPEND} the ability-scratch budget note above is written against — headroom is {PLAYERV_WINDOW - sizeof(PlayerV)}, not {PLAYERV_WINDOW - PLAYERV_SPEND}. Move PLAYERV_SPEND to {sizeof(PlayerV)} in the same commit that adds or removes the field. WHAT THIS DOES NOT COVER: it says nothing about whether the new field is Sonic-REACHABLE, which is the replay-hash question the block above turns on, and nothing about the overlay overflowing the window — that is the region lowerer's own always-on check, and the pin below is only a restatement of its bound")
+ensure(sizeof(PlayerV) <= PLAYERV_WINDOW,
+       "PlayerV is {sizeof(PlayerV)} bytes and the SST custom window has only {PLAYERV_WINDOW} game-usable ones (the tail word is the engine-owned SST_interact) — the overlay has overflowed into engine territory")
 // _pl_state — the player-state byte's SST-custom offset, link-exported for
 // engine.camera's GAME_CAMERA_JUMP_LOCK probe (`extern("Player_1") +
 // extern("_pl_state")`, the sound_api extern-equ-sum idiom: an engine module
