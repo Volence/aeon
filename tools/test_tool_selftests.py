@@ -213,8 +213,17 @@ def test_collision_pipeline_selftests():
 @pytest.mark.needs_build(STRADDLE_LST, STRADDLE_ROM)
 def test_dplc_straddle_selftest_proves_its_gate_red():
     """build.sh:1138 asserts that `dplc_straddle.py --selftest` "proves the gate red by
-    searching for a shift that trips it". VERIFIED 2026-09-07 -- it does, seven arms
-    including two independent red proofs and an explicit unmeasurable proof.
+    searching for a shift that trips it". VERIFIED 2026-09-07 -- it does, now eight arms
+    including two independent red proofs, an explicit unmeasurable proof, and (LS-15b)
+    one arm whose expectation comes from a source the tool does not itself compute.
+
+    IT NO LONGER ASSERTS THE OLD VERDICT STRING, and the reason is the finding rather
+    than a rename. That string was "the gate is green here and provably red elsewhere",
+    which is true of the search arms and claims much more than the set establishes:
+    LS-15b measured a period wrong by 2x passing all seven arms with byte-identical
+    output at exit 0. The verdict now states what it covers AND what it does not, so
+    this row holds it to both halves -- a verdict that quietly dropped its
+    non-coverage clause would be the same overclaim coming back.
 
     It is here rather than beside the plain `test` subcommands because it reads the
     LISTING and the ROM, which is exactly what `@pytest.mark.needs_build` is for: the
@@ -224,12 +233,19 @@ def test_dplc_straddle_selftest_proves_its_gate_red():
     there with zero deferrals.
 
     It is safe in a lane in a way `dma_defer_headroom --selftest` is not: it has no
-    file writes and no subprocess at all -- every arm shifts an art base in an
-    in-memory model. Measured 2.53 s, the most expensive row in this file.
+    file writes and no subprocess at all -- every arm shifts an art base, or perturbs a
+    copy of dma_queue.emp's TEXT, in memory. Measured 2.53 s before arm [7], the most
+    expensive row in this file.
     """
     p = _run("tools/dplc_straddle.py", "--lst", STRADDLE_LST,
              "--rom", STRADDLE_ROM, "--selftest")
     _assert_green(p, "tools/dplc_straddle.py --selftest")
-    # Its own verdict line, not just the exit status: `report()` returns 0 on several
-    # paths and the verdict is what says the RED arms actually fired.
-    assert "the gate is green here and provably red elsewhere" in p.stdout, p.stdout
+    # Its own verdict, not just the exit status: `report()` returns 0 on several paths
+    # and the verdict is what says the RED arms actually fired.
+    assert "the gate's predicate is LIVE" in p.stdout, p.stdout
+    assert "its period is DERIVED from engine source and cross-checked" in p.stdout, p.stdout
+    # And the half that keeps the verdict honest. The old line's failure was not that
+    # it was false but that it was read as covering more than it did, so the
+    # non-coverage clause is held here as tightly as the green one.
+    assert "NOT COVERED" in p.stdout, p.stdout
+    assert "[7]" in p.stdout, p.stdout
