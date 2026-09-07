@@ -22220,6 +22220,15 @@ evidence: mutating the verdict's initial state from `PRESET_VERDICT_NONE` to
 **exactly** sections 7 and 8, the only two whose verdict that mutation changes; restored from
 the committed baseline it is green again.
 
+> ⚠ **CORRECTED 2026-09-06 — the wiring above is true and the consequence a reader draws from it
+> is not.** `tools/preset_lab_witness.py` was wired into that lane on 2026-09-03 and, as of
+> 2026-09-06, **had never once executed in it**: the lane had been jammed since 2026-08-28, and
+> two unrelated commits on 2026-09-05 broke the witness while nothing could notice. Its first
+> run in its intended runner was a refusal naming a symbol that was present. The red-first
+> evidence quoted above is real, but it was produced by hand in the parcel that wrote the
+> witness — **a gate's own red-first proof says nothing about whether its runner ever fires it.**
+> See "THE PRESET WITNESS MANUFACTURED ITS OWN ABSENCE" at the end of this file.
+
 ---
 
 ## THE PERSPECTIVE FLOOR IS IN THE ROM AND IS A PLACEHOLDER — four open riders (2026-09-03, `parcel/perspective-floor`)
@@ -29235,3 +29244,129 @@ fix whose own message named an incomplete fix and stopped a reader from looking 
 4. **No runtime evidence.** This lane ran no emulator (subagent invariant). **TAGGED for the
    controller's foreground follow-up:** a watchpoint on `Parallax_Transition_Frames` with an IRQ6
    sample would show the old window directly; nothing here observed one.
+
+---
+
+## THE PRESET WITNESS MANUFACTURED ITS OWN ABSENCE — and had never once run (2026-09-06, `parcel/preset-witness-spelling`)
+
+> **Read this before trusting any "the gate is wired" line in this file.** The witness below was
+> wired into a runner, documented as wired, cited from three other documents, and had **never
+> executed in that runner a single time.** Nothing in the repo said otherwise.
+
+### What happened
+
+`tools/nightly_effects_gates.sh` had reported COULD-NOT-RUN for nine consecutive nights from
+2026-08-28 (build.sh graded artifacts before the build produced them; fixed and landed separately).
+The first run against the repaired master got lane one green — `effects_gates.py`, 17/17 scheduled
+gates — and lane two REFUSED:
+
+```
+`$games.sonic4.ojz_scroll_test$Debug_PresetReadout_Show$verdict_font` is not in s4.debug.lst
+```
+
+**The refusal was correct behaviour and the claim inside it was false.** The symbol was in
+`s4.debug.lst`, twice, spelled `Debug_PresetReadout_Show.verdict_font`. A lookup that returned
+`None` had been rendered as a fact about the ROM.
+
+### Why the spelling moved, and which one is canonical
+
+A proc-local label reaches the listing as `$module$proc$label` **unless it is exported**, in which
+case it reaches it as `proc.label`. Which side of that fork a label sits on is a property of
+**whether some other proc references it** — of the code's shape, not of the label.
+
+`625fdc74` (2026-09-05) added `export .verdict_font:`. Not for a parser's convenience: that refactor
+gave `Debug_PresetReadout_Blank` two cross-proc `lea Debug_PresetReadout_Show.verdict_font(pc)`, and
+a cross-proc reference to a local **requires** the export. **Measured, not assumed** — removing the
+`export` and building fails at link:
+
+```
+unresolved symbol `Debug_PresetReadout_Show.verdict_font` ... `Debug_PresetReadout_Show` defines
+a label `.verdict_font` but it is not exported; add `export .verdict_font:` at its definition
+```
+
+So the dotted form is the current truth **and** it is anchored by a code dependency. Same reason
+`.lab_index` is dotted (three procs walk it) while `.scene_table`, used only inside its own proc, is
+still mangled — the witness already carried a dotted-first fallback for `.lab_index` alone, which is
+the tell that someone hit this once before and patched only the site that bit them.
+
+**Neither spelling is hard-coded now.** `resolve_local` accepts both, so an export added or removed
+later costs no edit. Verified in the removing direction by rewriting the listing line back to the
+mangled form: the witness resolves it and stays green, all 9 rows measured.
+
+### The recurrence guard (the more important half)
+
+- `lookup_control` proves the **reader** works before any name is called missing: the proc under
+  test resolved by two readers over two different sections of the listing (`lst_symbols` over the
+  address table, `raster_cost_probe.parse_lst` over the body) and required to agree, plus a
+  non-empty mangled population. A broken parser now refuses **as a broken parser**.
+- A name that resolves under no known spelling is **diagnosed**, not declared absent: the listing is
+  searched for the leaf, then for the proc's other locals. The refusal reads "`verdict_font` IS in
+  the listing — as `X` — but under neither spelling this instrument knows".
+
+### A SECOND stale assumption, found only because fixing the first let the run get further
+
+`e3e40a4a` (2026-09-05, the same day) appended row 37 — a WLINE entry — **one row past the preset
+block**, so the header's "the presets are the last rows, so walking backward wraps straight onto them
+and crosses nothing" stopped being true. The crossed rows are now derived and stepped as a named
+preamble, held to the property that actually mattered: SCENE and WLINE share one dispatch arm that
+only blanks the readout and installs a parallax config, and the `.preset` arm unconditionally re-does
+both on every press, so a crossed row of either kind cannot survive into a measurement. **A crossed
+RASTER row is REFUSED rather than tolerated.**
+
+Letting `step_cursor`'s retry loop absorb the extra press would have worked *by accident* and then
+printed the lag-frame note as its explanation — an instrument telling a false causal story about
+itself, which is the same defect class as the one being repaired.
+
+### What it checks now vs. before
+
+| | before | after |
+|---|---|---|
+| exit | 2 (REFUSED) | 0 |
+| presses | 0 | 10 (1 preamble + 9 preset rows) |
+| preset rows measured | 0 | 9 of 9 |
+| verdict glyphs exercised | 0 | all 4 |
+| listing lookups | 2 hard-coded spellings, 1 of them stale | 4, either-spelling, control-gated |
+
+Nothing was removed to reach green. The install, readout-tile, glyph-object and `Raster_Pending`
+checks are unchanged; the walk now *reaches* them.
+
+### Two more claims the first successful run refuted
+
+1. **"It does not reach the BLIND verdict."** It does — at **cursor 7**, whose preset is patched and
+   whose every channel latches off screen. Still true of section 0 (LIVE, channel 0 anchored at world
+   Y 224 on screen line 88). Nothing was added to reach BLIND; the act's content moved under a claim
+   nothing was running to contradict.
+2. **"section 7 -> `Raster_Program_None`."** Stale. Section 7 is PATCHED. The other three hand-copied
+   bindings in that same parenthesis were re-checked against this build's listing and are **still
+   right** (section 1 -> `OJZ_TestRaster` `$14684`, section 2 -> `OJZ_TestGradient` `$14A0C`, section
+   3's cycle -> `OJZ_ShimmerCycle` `$147A2`) — one of four was wrong, not two, and the first count
+   written here was itself wrong until it was checked.
+
+### ⚠ A release-leak check in this tree that cannot fail
+
+The deleted `lst_symbol` justified reading the mangled line by saying an export "would put a name in
+the release deb2 appendix". **The worry is real** — build.sh's own corrected note (2026-09-04)
+records that the release ROM carries the appendix and that symbol NAMES land in it. It did not
+materialise here: `verdict_font` occurs **0** times in `s4.lst` and **2** in `s4.debug.lst`, because
+the sheet is inside `if DEBUG == 1` and emits no label at all in the release shape. (Both proc labels
+*do* survive into `s4.lst`, at one shared address, as zero-byte procs.)
+
+**But `strings s4.bin | grep verdict_font` is not evidence of that, and neither is the raw-byte
+form.** The same search returns 0 for `Debug_PresetReadout_Show`, `Raster_Program` and `Sonic`, in
+**both** ROMs — deb2 does not store names as raw ASCII. A ROM-side grep for a symbol name **cannot
+fail**, so it tests nothing. The listing is the sound check: it is what convsym consumes, so a name
+absent from `s4.lst` cannot be in `s4.bin`'s appendix. Anyone re-running the leak audit should
+measure the listing, not the ROM.
+
+### The correction that belongs on the entry above
+
+The "The witness is wired, and where" block earlier in this file is **accurate about the wiring and
+silently wrong about the consequence**: being wired into `tools/nightly_effects_gates.sh` did not
+mean it ran there. Its red-first evidence was real but was produced by hand, in the parcel that wrote
+it. **A gate's own red-first proof says nothing about whether its runner ever fires it** — that needs
+a log line from the runner, and this witness's log had exactly one, the refusal above.
+
+**OPEN RIDER.** Nothing yet checks that a wired gate has actually executed recently. Two of this
+file's assumptions rotted within 48 hours inside a jammed lane, and both were caught only because a
+human went looking. A staleness check on the nightly log — "every declared lane produced a verdict
+line in the last N runs" — is not built. Booked here rather than assumed covered.

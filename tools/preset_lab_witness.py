@@ -12,7 +12,7 @@ its own (START+A) and a cursor of its own (`Debug_Preset_Index`) counting sectio
 0..N-1. The owner asked why there were three ways to do one thing, and the three chords
 collapsed into ONE list walked by START+LEFT/RIGHT with a single cursor
 (`Debug_Lab_Index`) over `.lab_index`, whose rows are {kind, sub-index, four-letter
-name}. The preset entries are the LAST rows of that list, so this instrument now:
+name}. The preset entries are the last BLOCK of that list, so this instrument now:
 
   * presses START+LEFT, not START+A;
   * walks BACKWARD from the boot cursor 0, which WRAPS onto the LAST row of the list, and
@@ -45,10 +45,16 @@ match. That question needs a machine.
 WHAT IT MEASURES.
   1. The CURSOR advances, one section per press, and wraps at the act's section count.
   2. The INSTALL is real, read off the engine's own state rather than off the hotkey:
-     `Raster_Program` becomes the section's bound program (section 1 -> OJZ_TestRaster,
-     section 2 -> OJZ_TestGradient, section 7 -> Raster_Program_None) and
-     `Pal_Cycle_Script` becomes section 3's OJZ_ShimmerCycle. These are the cells
-     `Raster_VBlank` and `Palette_LoadCycle` write, not cells the hotkey touches.
+     `Raster_Program` becomes the section's bound program and `Pal_Cycle_Script` becomes
+     the section's `ep_cycle`. These are the cells `Raster_VBlank` and `Palette_LoadCycle`
+     write, not cells the hotkey touches. (The parenthesis here used to name four
+     bindings by hand. THREE OF THE FOUR ARE STILL RIGHT, checked against this build's
+     listing rather than assumed: section 1 -> OJZ_TestRaster $14684, section 2 ->
+     OJZ_TestGradient $14A0C, section 3's cycle -> OJZ_ShimmerCycle $147A2, all three
+     matching what the first successful run measured. The FOURTH, "section 7 ->
+     Raster_Program_None", is stale: section 7's preset is PATCHED now, and that is what
+     puts a BLIND on the readout below. The list is gone anyway — every binding is derived
+     at runtime, so hand-copying them could only ever go wrong, and one of four did.)
   3. The READOUT is on screen and correct, byte for byte: VRAM tile
      VRAM_DEBUG_PRESET_READOUT+0 equals the digit sheet's row for the section, and tile +1
      equals the verdict sheet's row for the state the preset is actually in. (Both cells
@@ -65,7 +71,9 @@ binds a real program and the ROM says so. The readout under test was RIGHT both 
 and the expectation was wrong. So nothing is typed now:
 
   * the section list, its length and each `Sec*` come from the LIVE act, walked exactly
-    as the hotkey walks it (`Current_Act_Ptr` -> `Act.sec_grid_ptr` + cursor * 66);
+    as the hotkey walks it (`Current_Act_Ptr` -> `Act.sec_grid_ptr` + cursor * 34, the
+    `SEC_SIZE` this file pins below — the "* 66" this line used to say was a stale stride
+    contradicted by this file's own code, booked as LS-20 by the 2026-09-06 lens sweep);
   * each preset's `ep_raster` / `ep_patched` / `ep_cycle` are read out of ROM at that
     `Sec`'s own `sec_effects`, and the PARALLAX rung is resolved off the ROM's own
     records the way `Effects_ResolveParallax` resolves it (`Sec.sec_parallax_config` >
@@ -97,10 +105,16 @@ WHAT IT DOES NOT MEASURE.
     or not" — so an authored scene whose numbers happen to equal the default's is
     reported (and painted) as an arrow by both. That is the glyph's stated promise, not a
     gap between the two implementations.
-  * It does not reach the BLIND verdict. Section 0's water anchors are at world Y 224/314
-    and a boot lands the camera above them, so the honest reading at cursor 0 is LIVE.
-    Producing a BLIND requires a warp deeper into the act, which is a bigger instrument;
-    the arithmetic behind the verdict IS checked, on the LIVE side of the same branch.
+  * ⚠ THIS BULLET USED TO SAY "it does not reach the BLIND verdict", on the reasoning
+    that section 0's water anchors are at world Y 224/314 and a boot lands the camera
+    above them. That is still true OF SECTION 0 — cursor 0 reads LIVE, patched channel 0
+    anchored at world Y 224 on screen line 88 — but the claim was written before this
+    file had ever completed a run, and the first one that did (2026-09-06) reaches BLIND
+    at CURSOR 7, whose preset is patched and whose every channel latches off screen. All
+    four verdict glyphs are therefore exercised in one walk: arrow/parallax at 8, X/blind
+    at 7, diamond/live via a static program at 6/5/4/2/1, via a palette cycle at 3, and
+    via a patched world anchor at 0. Nothing was added to reach BLIND; the act's content
+    moved under a claim nothing was running to contradict.
   * It runs the DEBUG shape only, which is the only shape any of this exists in.
 
 IT REFUSES rather than guesses on: a served ROM that does not match the file on disk, a
@@ -284,6 +298,25 @@ def resolve_local(lst: str, proc: str, label: str) -> tuple[int, str]:
     `lea` displacement instead would survive a RENAME too, and was rejected: it trades a
     legible name for an instruction-encoding dependency that fails by silently pointing at
     the wrong bytes rather than by refusing.)
+
+    ---- THE RELEASE-LEAK WORRY THIS REPLACES, RE-MEASURED 2026-09-06 ----
+    The deleted `lst_symbol` justified reading the mangled line by saying that exporting a
+    label "purely so a parser could see it would put a name in the release deb2 appendix
+    for a test's convenience". THE WORRY IS REAL — build.sh's own corrected note (2026-09-04)
+    records that the RELEASE ROM carries the appendix too, and that adding a symbol to a
+    DEBUG-gated block moves `s4.bin`'s bytes because the NAMES land there. It simply did
+    not materialise for this label: `verdict_font` occurs 0 times in `s4.lst` and 2 times
+    in `s4.debug.lst`, because the sheet lives inside `if DEBUG == 1` and so emits no
+    label at all in the release shape. (The proc labels themselves DO survive — both
+    `Debug_PresetReadout_Show` and `Debug_PresetReadout_Blank` are in `s4.lst`, at one
+    shared address, as zero-byte procs.)
+
+    ⚠ AND DO NOT RE-CHECK THIS BY GREPPING THE ROM. `strings s4.bin | grep verdict_font`
+    returns 0 — and so does the same grep for `Debug_PresetReadout_Show`, `Raster_Program`
+    and `Sonic`, in BOTH ROMs, because deb2 does not store names as raw ASCII. A ROM-side
+    grep for a symbol name cannot fail, so it is not evidence. The LISTING is the sound
+    check: it is what convsym consumes, so a name absent from `s4.lst` cannot be in
+    `s4.bin`'s appendix.
 
     Returns (address, the spelling that resolved). Raises SymbolSpelling naming the REAL
     cause — never "the symbol is missing" when it is merely spelled differently.
