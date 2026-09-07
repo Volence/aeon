@@ -613,3 +613,162 @@ Note also that §5 of that same document specifies the `anims` key of
 `editor_bg_override.json` — the writer-side twin of §A1.4 here. If the two ever disagree,
 §A1.4 is derived from aeon's parser (the consumer) and §5 there is the writer's contract;
 raise it rather than picking one.
+
+---
+
+## A3. Can the background tileset be replaced between sections?
+
+### A3.1 The short answer
+
+**No for the tileset. Yes-but-dormant for the nametable.**
+
+* The **tileset** — the pixel data — is loaded **once per act**, and there is no
+  per-section field for it anywhere in the engine's structures. **Author one tileset and
+  one palette set per ACT, not per section.**
+* The **nametable** — which tile is placed where — *does* have a per-section field the
+  loader honours. It is unused by every section of the only shipped act, and the one path
+  that would consume it fires at level init and cache recovery only, never at a section
+  seam.
+* There is exactly one mechanism that replaces background tile *pixels* at runtime, and
+  it is narrow: BgAnim bands, within an 80-tile reserve, cycling among 8 pre-baked phases.
+  It is not a tileset swap.
+
+The rest of this section is the evidence and the budgets, because the reason matters for
+how you allocate.
+
+### A3.2 The tileset is act-wide, from the structures
+
+`engine/structs.emp` — the `Act` descriptor carries both background resources:
+
+```
+act_bg_layout:       *u8,           // $0E — zone-wide Plane B layout (T1 default)
+act_bg_tiles:        *u8,           // $12 — zone-wide Plane B tile blob
+```
+
+The `Sec` (section) descriptor carries **one** of them:
+
+```
+sec_bg_layout:       *u8 = 0,       // $10 — NULL = use Act_act_bg_layout
+```
+
+There is **no `sec_bg_tiles`**. That is not an omission in this document — the field does
+not exist. `Sec` has a layout override and no tile override.
+
+`engine/level/bg.emp`'s own header states the split:
+
+> T1 (zone-wide): `BG_Init` loads `act_bg_tiles` into the shared BG VRAM region (slots
+> 1024-1471, `$8000-$B7FF`…), then blits `act_bg_layout` into Plane B nametable. **Both
+> happen once at level load.**
+
+`BG_Init` has exactly **one** call site in the tree: `engine/level/load_art.emp:199`, a
+tail call at the end of the act load path (`jbra BG_Init`). Nothing calls it per section,
+per seam, or per frame.
+
+### A3.3 The nametable override exists, and is dormant
+
+`sec_bg_layout` is genuinely read. Two consumers:
+
+* `engine/level/plane_buffer.emp:529` — `movea.l Sec.sec_bg_layout(a0), a1`, with the
+  documented behaviour *"Fall back to act default if NULL"*
+* `engine/level/section.emp:441` — the same read inside `Section_RedrawPlanes`
+
+But three things make it dormant on the shipped act:
+
+**1. No section sets it, and no section *can*.** The act's section constructor in
+`games/sonic4/data/levels/ojz/act1/act_descriptor.emp` hard-codes it:
+
+```
+sec_bg_layout:        default,      // NULL = zone-wide T1 BG
+```
+
+`sec_bg_layout` is not a parameter of `ojz_sec(...)`. All 9 sections of OJZ act 1 are
+therefore NULL, and adding a per-section layout means editing the constructor, not the
+data.
+
+**2. The consumer fires at level init and cache recovery only.** `Section_RedrawPlanes`
+has one call site, in `Section_UpdateColumns`, behind a flag:
+
+```
+// -- §4.2: full-plane redraw if dirty (level init + cache recovery only) --
+tst.b   Section_Plane_Dirty
+beq     .not_dirty
+```
+
+and the surrounding DEBUG assertion states the population of setters directly: *"the only
+two `Section_Plane_Dirty` setters (level init and the DEBUG warp)"*. Crossing a section
+boundary in normal play does not set it. `engine/level/bg.emp`'s header says the same
+thing from the other side: *"Teleports no longer redraw."*
+
+**3. It is booked as unbuilt work, not as a feature.** `docs/DEFERRED_WORK.md`:
+
+> The original observation stands: teleports no longer run `Section_RedrawPlanes`, **all
+> production data is T1**, and any per-section BG needs a non-blocking streaming
+> mechanism, not a synchronous blit.
+
+### A3.4 The key that looks like a per-section background and is not
+
+`games/sonic4/data/editor/ojz/act1/section_0.meta.json` contains:
+
+```json
+"bgLayoutRef": "ingame-forest-v15-1786630615596"
+```
+
+This reads exactly like a per-section background binding. **No aeon build tool consumes
+it.** Established by grepping `tools/`, `games/`, `engine/` and `docs/`: every hit is a
+sidecar file, a test fixture, a design document, or `tools/EFFECTS_CONSUMER_CONTRACT.md`
+§2.2 saying it is *not* read — quoted:
+
+> the generator reads **two keys**: `sceneRef` … and `rasterRef` (below). **It does not
+> read `bgLayoutRef`/`paletteRef`** (those belong to the BG/palette pipeline).
+
+The id it names resolves into `games/sonic4/data/editor/ojz_bglib.json`, which is a list
+of 17 entries carrying **only `id` and `name`** — no art. It is an editor-side label
+recording which document produced the act-wide override, not a binding. The art itself
+lives in the single act-wide `editor_bg_override.json`.
+
+### A3.5 The one runtime tile replacement that does exist
+
+`engine/level/bg_anim.emp`'s `BgAnim_Update` re-points a band's slots at a different
+pre-baked bank as its driver moves, transporting the pixels with up to two
+`QueueDMA_Deferrable` calls per band per step (the second is the ring wrap). So background
+tile pixels *do* change during play — but this is not a tileset swap, and it will not
+serve as one:
+
+* the destination is baked at build time (`vram_dest = BG_TILE_BASE_VRAM + slot_base * 32`)
+  and the slots are the **front of the static blob**, never additional VRAM;
+* there are exactly **8** phases, all in ROM, and phase 0 must *be* the static art
+  (§A1.4);
+* the whole mechanism is capped at **4 bands** and, by the importer's reserve, at **80
+  tiles**;
+* a full DMA queue drops the step and retries next frame — it is a best-effort
+  deferrable, not a guaranteed transfer.
+
+### A3.6 The budgets, so you can allocate against them
+
+| Resource | Scope | Size | Authority |
+|---|---|---|---|
+| BG tileset (VRAM) | **per act** | **400 tiles** hard ceiling at VRAM slot 1024 (`$8000`) | `games/sonic4/vram.toml` `bg_region` → `tools/vram_map.py` |
+| — of which static art | per act | **320 tiles** | capacity − `band_reserve` |
+| — of which BgAnim reserve | per act | **80 tiles** | `band_reserve = 80` |
+| BG nametable | per act, **plus a dormant per-section override** | **8192 bytes** each (64 × 64 words) | `engine/level/bg.emp`, `pub const BG_LAYOUT_SIZE = 64*64*2` |
+| BgAnim ROM section | per act | **20480 bytes** ceiling; **8376** used today | `BGANIM_SECTION_CEILING`, `tools/inject_editor_bg.py` |
+
+The tileset ceiling is a hard VRAM boundary: `bg_region` runs from slot 1024 up to the
+relocated sprite attribute table, and since a 2026 change the top 48 slots of that
+physical run belong to a separate `waterline_strips` region. `engine/level/bg.emp` carries
+an `ensure` whose message says what overrunning it costs — *"a capacity past it is not a
+bigger arena, it is a blob clamp that lets act art overwrite the SAT"*.
+
+The nametable, by contrast, is a **ROM** cost, not a VRAM one — a per-section layout is
+8192 bytes of ROM per section, and nine sections of OJZ act 1 would be 73,728 bytes. That
+is the trade if per-section nametables are ever turned on: cheap in VRAM, expensive in ROM,
+and blocked today on a streaming mechanism rather than on space.
+
+### A3.7 What this means for how you author
+
+Author **one tileset and one palette allocation per act**, sized to 320 unique tiles. Do
+not plan a per-section art change; there is no field for it, no loader path, and no
+budget carved out for a second tileset. If a section genuinely needs to look different,
+the mechanisms that exist today are **per-section effects presets** (palette variants,
+raster programs, palette cycles — §A4) and **per-section parallax scenes**, both of which
+are live and both of which reshape the *appearance* of the same tiles.
