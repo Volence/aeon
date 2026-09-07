@@ -49,7 +49,8 @@ module games.sonic4.knuckles_data in knuckles_data
 use games.sonic4.constants.{VRAM_TEST_SONIC_TILES}
 use engine.constants.{TILE_SIZE, DMA_IMPORTANT_SLOTS}
 use engine.objects.dplc.{dplc_peak_tiles, dplc_peak_entries, DPLC_ENTRY_RESERVE,
-                         DPLC_ADDRESSABLE_TILES}
+                         DPLC_ADDRESSABLE_TILES, offset_table_frames,
+                         empty_frame_mismatches}
 
 const _map_knux  = embed("games/sonic4/data/mappings/knuckles.bin")
 const _dplc_knux = embed("games/sonic4/data/dplc/knuckles.bin")
@@ -75,6 +76,22 @@ ensure(_dplc_knux.len <= $7FFF, "DPLC_Knuckles exceeds signed word-offset range"
 // inter-blob padding.
 ensure((_map_knux.len & 1) == 0 && (_dplc_knux.len & 1) == 0 && (_art_knux.len & 1) == 0,
        "a Knuckles blob is odd-length — the label after it would land on an odd address")
+
+// -----------------------------------------------
+// MAP <-> DPLC FRAME-COUNT BINDING (LS-9, 2026-09-07). One `mapping_frame` byte
+// indexes both tables, so a table with fewer frames than its partner is read PAST
+// ITS END and a byte of the blob after it is followed as a frame offset.
+//
+// This pair carries the tree's one recorded instance of a DPLC shipped WRONG
+// against its art (the `_opt` wrap recorded further down this file), which is the
+// argument for stating the cheap structural facts about it rather than trusting
+// the producer.
+// -----------------------------------------------
+ensure(offset_table_frames(_map_knux) == offset_table_frames(_dplc_knux),
+       "Map_Knuckles declares {offset_table_frames(_map_knux)} frames and DPLC_Knuckles {offset_table_frames(_dplc_knux)} — one mapping_frame byte indexes BOTH, so the shorter table is read past its end. Re-export the PAIR, never one half. DOES NOT COVER: whether either count matches what Ani_Knuckles' frame bytes reach (AnimateSprite bounds no frame byte — LS-9a), nor whether corresponding frames describe the same art — which is the class the `_opt` tile_start wrap belonged to and this guard would NOT have caught")
+ensure(empty_frame_mismatches(_map_knux, _dplc_knux,
+                              offset_table_frames(_map_knux)) == 0,
+       "{empty_frame_mismatches(_map_knux, _dplc_knux, offset_table_frames(_map_knux))} Knuckles frame(s) disagree about being empty — a drawn frame whose DPLC loads nothing renders whatever the character window last held, and a loaded frame that draws nothing spends Important queue slots on unreferenced tiles. DOES NOT COVER: whether a NON-empty pair agrees on how MUCH (both counts are compared only against zero), nor the frame count (the guard above)")
 
 // Art is whole 32-byte tiles by construction (uncompressed 4bpp); a truncated
 // embed would otherwise surface only as garbage in a frame's last DMA.

@@ -54,6 +54,11 @@
 module engine.objects.dplc in dplc
 
 use engine.objects.sst.{Sst}
+// FRAME_PIECE_COUNT pins the `+ 4` inlined in map_frame_pieces below. It is an
+// IMPORTED name, so it may not appear in a comptime fn BODY (EMP_PITFALLS §2 —
+// imported names do not travel to the call site); the body spells the literal and
+// the module-level ensure beside the parser is what holds the two together.
+use engine.constants.{FRAME_PIECE_COUNT}
 
 // QueueDMA_Important / QueueDMA_Deferrable are .emp-owned procs
 // (engine.dma_queue) — their real signatures carry the contract
@@ -204,6 +209,96 @@ pub comptime fn dplc_peak_tiles(d: Data) -> int {
         if total > peak { peak = total }
     }
     return peak
+}
+
+// -----------------------------------------------
+// THE MAP<->DPLC BINDING HELPERS (LS-9, 2026-09-07). Promoted here from
+// games/sonic4/player/player_instashield.emp, where they were PRIVATE and
+// therefore usable by exactly one asset out of the six this tree ships.
+//
+// WHY THEY LIVE IN THE DPLC MODULE AND NOT IN engine.objects.frames, which owns
+// the mappings header layout: the checks below are JOINT — they read a mappings
+// frame and a DPLC frame and compare them — and a comptime fn's free names
+// resolve at its CALL site (EMP_PITFALLS §2). A joint helper split across two
+// modules would silently depend on every caller having imported the other half.
+// Names DEFINED in a module are glob-injected, so keeping all four here lets
+// empty_frame_mismatches call the two parsers safely, and a caller needs exactly
+// one `use` line. The price is that this module now holds the mappings header's
+// `+ 4`, pinned by the ensure below.
+//
+// WHAT A CALLER GETS, and the order to state it in:
+//
+//     ensure(offset_table_frames(_map_x) == offset_table_frames(_dplc_x), "...")
+//     ensure(empty_frame_mismatches(_map_x, _dplc_x,
+//                                   offset_table_frames(_map_x)) == 0, "...")
+//
+// The FIRST is the one that stops the out-of-bounds read: Perform_DPLC and the
+// mapping reader index their own tables with the SAME mapping_frame byte, so a
+// table with fewer frames than its partner is read past its end — the offset word
+// comes out of frame DATA and is interpreted as a frame pointer. The second is the
+// weaker, per-frame agreement (a drawn frame that loads no art renders whatever
+// the window last held; a loaded frame that draws nothing DMAs dead bytes).
+//
+// ⚠ NEITHER BOUNDS THE FRAME BYTE. AnimateSprite writes any script byte 0..$F6
+// into mapping_frame with no upper bound (engine/objects/animate.emp, the
+// `cmpi.b #AF_SET_FIELD / bhs` test — $F7+ is a command, everything below it is
+// taken as a frame index). Two tables that agree with each other are still both
+// overrun by a script byte >= their common frame count. That hole is SEPARATE and
+// still open; it is booked in docs/DEFERRED_WORK.md as LS-9a, and this comment is
+// here so that a green build of the two guards above is not read as closing it.
+// -----------------------------------------------
+ensure(FRAME_PIECE_COUNT == 4,
+       "the mappings frame header's piece-count word moved to +{FRAME_PIECE_COUNT}; map_frame_pieces below inlines the 4 (an imported name in a comptime fn body does not travel to the call site, EMP_PITFALLS §2) and must move with it")
+
+// Frames in a word-offset table — mappings and DPLC share this head shape, so ONE
+// parser serves both, which is precisely what makes `==` between two calls a real
+// binding rather than two restatements of a hand-typed count. The pointer table
+// occupies exactly `frames * 2` bytes, so the first offset word IS `frames * 2`.
+pub comptime fn offset_table_frames(t: Data) -> int {
+    return ((t[0] << 8) | t[1]) >> 1
+}
+
+// Pieces drawn by mappings frame `f` — 4 signed bbox bytes, then the count word.
+pub comptime fn map_frame_pieces(m: Data, f: int) -> int {
+    comptime var off = (m[f << 1] << 8) | m[(f << 1) + 1]
+    return (m[off + 4] << 8) | m[off + 5]        // FRAME_PIECE_COUNT, pinned above
+}
+
+// DMA entries loaded by DPLC frame `f` — the frame block opens with its count.
+pub comptime fn dplc_frame_entries(d: Data, f: int) -> int {
+    comptime var off = (d[f << 1] << 8) | d[(f << 1) + 1]
+    return (d[off] << 8) | d[off + 1]
+}
+
+// Frames where exactly one of the pair is empty, counted in BOTH directions so
+// neither becomes a claim. Flat accumulators over statement ifs, never a nested
+// if-expression (EMP_PITFALLS §1).
+//
+// ⚠ BOTH PARSES ARE INLINED RATHER THAN CALLED, and that is not tidiness — it is
+// forced, and the measurement is worth recording because the pitfalls doc reads
+// the other way. EMP_PITFALLS §2 says names DEFINED in a module are "glob-injected
+// and resolve everywhere"; that is true of a name a CALLER can see, and false of
+// one a sibling comptime fn body reaches for. Written as calls to the two parsers
+// above, this fn resolved `map_frame_pieces` (which the insta-shield happened to
+// import for its own terminal-frame guard) and failed on `dplc_frame_entries`
+// (which it did not) — `[Error] unknown function dplc_frame_entries`, measured
+// 2026-09-07 on sigil e6e942e5. A fn body's free names resolve at the CALL SITE,
+// module siblings included. Calling out would therefore make this helper's
+// correctness a property of each caller's import list — and the near miss is the
+// real hazard: with only ONE of the two names imported the fn does not fail, it
+// silently counts every drawn frame as a mismatch (6, on the insta-shield).
+pub comptime fn empty_frame_mismatches(m: Data, d: Data, frames: int) -> int {
+    comptime var bad = 0
+    for f in 0..frames {
+        comptime var mo = (m[f << 1] << 8) | m[(f << 1) + 1]
+        comptime var do_ = (d[f << 1] << 8) | d[(f << 1) + 1]
+        comptime var mnz = 0
+        comptime var dnz = 0
+        if ((m[mo + 4] << 8) | m[mo + 5]) != 0 { mnz = 1 }   // pieces, FRAME_PIECE_COUNT
+        if ((d[do_] << 8) | d[do_ + 1]) != 0   { dnz = 1 }   // DPLC entries
+        if mnz != dnz { bad = bad + 1 }
+    }
+    return bad
 }
 
 // -----------------------------------------------

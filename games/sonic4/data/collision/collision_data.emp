@@ -12,7 +12,8 @@ module games.sonic4.collision_data in collision_data
 use games.sonic4.constants.{VRAM_TEST_SONIC_TILES}
 use engine.constants.{TILE_SIZE, DMA_IMPORTANT_SLOTS}
 use engine.objects.dplc.{dplc_peak_tiles, dplc_peak_entries, DPLC_ADDRESSABLE_TILES,
-                         DPLC_ENTRY_RESERVE}
+                         DPLC_ENTRY_RESERVE, offset_table_frames,
+                         empty_frame_mismatches}
 
 const _heightmaps     = embed("games/sonic4/data/collision/heightmaps.bin")
 const _heightmaps_rot = embed("games/sonic4/data/collision/heightmaps_rot.bin")
@@ -28,6 +29,23 @@ const _art_sonic      = embed("art/optimized/characters/sonic.bin")
 // walls; now comptime facts).
 ensure(_map_sonic.len <= $7FFF, "Map_Sonic exceeds signed word-offset range")
 ensure(_dplc_sonic.len <= $7FFF, "DPLC_Sonic exceeds signed word-offset range")
+
+// -----------------------------------------------
+// MAP <-> DPLC FRAME-COUNT BINDING (LS-9, 2026-09-07).
+//
+// ONE `mapping_frame` byte indexes both tables — Render_Sprites walks Map_Sonic
+// with it and Perform_DPLC walks DPLC_Sonic with it — so the two must declare the
+// same number of frames or the shorter one is read PAST ITS END: the "offset
+// word" comes out of the next blob's bytes and is followed as a frame pointer.
+// Until this parcel the insta-shield was the only asset in the tree with any of
+// this, and Sonic — the default character, 224 frames, the largest pair — had
+// none. The parsers are engine.objects.dplc's; nothing here is hand-typed.
+// -----------------------------------------------
+ensure(offset_table_frames(_map_sonic) == offset_table_frames(_dplc_sonic),
+       "Map_Sonic declares {offset_table_frames(_map_sonic)} frames and DPLC_Sonic {offset_table_frames(_dplc_sonic)} — one mapping_frame byte indexes BOTH, so the shorter table is read past its end and a byte of the blob placed after it is taken as a frame offset. Re-export the PAIR (tools/dedup_art.py), never one half. DOES NOT COVER: whether either count matches what Ani_Sonic's frame bytes reach — AnimateSprite bounds no frame byte at all (engine/objects/animate.emp, LS-9a) — nor whether corresponding frames describe the same art")
+ensure(empty_frame_mismatches(_map_sonic, _dplc_sonic,
+                              offset_table_frames(_map_sonic)) == 0,
+       "{empty_frame_mismatches(_map_sonic, _dplc_sonic, offset_table_frames(_map_sonic))} Sonic frame(s) disagree about being empty — a drawn frame whose DPLC loads nothing renders whatever the character window last held (the previous frame's art, so it reads as a stutter rather than as corruption), and a loaded frame that draws nothing spends Important queue slots on tiles no piece references. DOES NOT COVER: whether a NON-empty pair agrees on how MUCH (piece and entry counts are compared only against zero), nor the frame count (the guard above)")
 
 // Every blob even-length, so the labels after them stay word-aligned with no
 // inter-blob padding. This module's HEADER states that property as prose for all

@@ -15,7 +15,8 @@ use engine.constants.{TILE_SIZE, DMA_IMPORTANT_SLOTS}
 // region's `_TILES` from games/sonic4/vram.toml beside its base.
 use games.sonic4.constants.{VRAM_DUST_PUFF_TILES, VRAM_DUST_SPINDASH_TILES}
 use engine.objects.dplc.{dplc_peak_tiles, dplc_peak_entries, DPLC_ENTRY_RESERVE,
-                         DPLC_ADDRESSABLE_TILES}
+                         DPLC_ADDRESSABLE_TILES, offset_table_frames,
+                         empty_frame_mismatches}
 
 const _map_spindash = embed("games/sonic4/data/generated/dust/map_dust_spindash.bin")
 const _map_puff     = embed("games/sonic4/data/generated/dust/map_dust_puff.bin")
@@ -42,6 +43,25 @@ ensure(DUST_PUFF_ART_OFF + DUST_PUFF_ART_LEN == _art_dust.len,
 // games/sonic4/test/ojz_scroll_test.emp).
 ensure(DUST_PUFF_ART_LEN == VRAM_DUST_PUFF_TILES * TILE_SIZE,
        "the resident puff DMA is {DUST_PUFF_ART_LEN} bytes but `dust_puff` is declared {VRAM_DUST_PUFF_TILES} tiles ({VRAM_DUST_PUFF_TILES * TILE_SIZE} bytes) in games/sonic4/vram.toml — the DMA would run past the region into its neighbour. Resize the REGION and regenerate, or re-page the art; do not just raise the length here")
+// -----------------------------------------------
+// MAP <-> DPLC FRAME-COUNT BINDING (LS-9, 2026-09-07), and the one place in the
+// tree where the pairing is NOT one-to-one.
+//
+// THE DPLC BELONGS TO THE CHARGE HALF ONLY. `Map_DustSpindash` is streamed by
+// `DPLC_Dust` (DustSpindash_Main calls Perform_DPLC_Deferrable); `Map_DustPuff`
+// is drawn from art DMA'd RESIDENT once and its object calls no DPLC at all
+// (games/sonic4/objects/dust_puff.emp says so at its head). So the binding below
+// names the charge map, and the puff map deliberately has no partner — pairing it
+// with DPLC_Dust would be a guard that compares two unrelated tables and passes
+// or fails for no reason connected to either. The puff's own protection is the
+// DUST_PUFF_ART_LEN ensure above.
+// -----------------------------------------------
+ensure(offset_table_frames(_map_spindash) == offset_table_frames(_dplc_dust),
+       "Map_DustSpindash declares {offset_table_frames(_map_spindash)} frames and DPLC_Dust {offset_table_frames(_dplc_dust)} — one mapping_frame byte indexes BOTH, so the shorter table is read past its end and a byte of the blob after it is followed as a frame offset. Both are emitted by games/sonic4/data/dust_staging/gen_dust.py; re-run it rather than editing one blob. DOES NOT COVER: Map_DustPuff, which has no DPLC by design and is guarded by DUST_PUFF_ART_LEN instead; nor whether either count matches what Ani_DustSpindash's frame bytes reach (AnimateSprite bounds no frame byte — LS-9a)")
+ensure(empty_frame_mismatches(_map_spindash, _dplc_dust,
+                              offset_table_frames(_map_spindash)) == 0,
+       "{empty_frame_mismatches(_map_spindash, _dplc_dust, offset_table_frames(_map_spindash))} dust charge frame(s) disagree about being empty — a drawn frame whose DPLC loads nothing renders whatever `dust_spindash` last held. DOES NOT COVER: whether a NON-empty pair agrees on how MUCH (both counts are compared only against zero), the puff half (no DPLC), nor the frame count (the guard above)")
+
 // Entries are Important queue slots; the dust's tables are single-entry.
 ensure(dplc_peak_entries(_dplc_dust) + DPLC_ENTRY_RESERVE <= DMA_IMPORTANT_SLOTS,
        "the dust DPLC's peak frame costs more Important queue slots than the budget leaves — re-page the dust art")

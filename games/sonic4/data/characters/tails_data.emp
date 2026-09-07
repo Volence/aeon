@@ -30,7 +30,8 @@ use games.sonic4.constants.{VRAM_TEST_SONIC, VRAM_TEST_SONIC_TILES,
                             VRAM_TAILS_APPENDAGE, VRAM_TAILS_APPENDAGE_TILES}
 use engine.constants.{TILE_SIZE, DMA_IMPORTANT_SLOTS}
 use engine.objects.dplc.{dplc_peak_tiles, dplc_peak_entries, DPLC_ENTRY_RESERVE,
-                         DPLC_ADDRESSABLE_TILES}
+                         DPLC_ADDRESSABLE_TILES, offset_table_frames,
+                         empty_frame_mismatches}
 
 // ---- body ----
 const _map_tails  = embed("games/sonic4/data/mappings/tails.bin")
@@ -58,6 +59,30 @@ ensure((_map_tails.len & 1) == 0 && (_dplc_tails.len & 1) == 0 && (_art_tails.le
        "a Tails body blob is odd-length — the label after it would land on an odd address")
 ensure((_map_tail.len & 1) == 0 && (_dplc_tail.len & 1) == 0 && (_art_tail.len & 1) == 0,
        "a Tails appendage blob is odd-length — the label after it would land on an odd address")
+
+// -----------------------------------------------
+// MAP <-> DPLC FRAME-COUNT BINDING (LS-9, 2026-09-07). TWO pairs, stated twice:
+// the body and the appendage are independent assets that happen to share a file,
+// and a single guard over one of them is exactly the "pins one member of a family
+// while its sibling goes unpinned" shape this parcel exists to remove.
+//
+// One `mapping_frame` byte indexes both halves of a pair, so a table with fewer
+// frames than its partner is read PAST ITS END and a byte of the next blob is
+// followed as a frame offset. Both pairs are produced together by
+// tools/dedup_art.py; the guard is what makes "together" a checked fact rather
+// than a property of how the tool happens to be invoked.
+// -----------------------------------------------
+ensure(offset_table_frames(_map_tails) == offset_table_frames(_dplc_tails),
+       "Map_Tails declares {offset_table_frames(_map_tails)} frames and DPLC_Tails {offset_table_frames(_dplc_tails)} — one mapping_frame byte indexes BOTH, so the shorter table is read past its end. Re-export the PAIR, never one half. DOES NOT COVER: whether either count matches what Ani_Tails' frame bytes reach (AnimateSprite bounds no frame byte — LS-9a), nor the appendage pair below, nor whether corresponding frames describe the same art")
+ensure(empty_frame_mismatches(_map_tails, _dplc_tails,
+                              offset_table_frames(_map_tails)) == 0,
+       "{empty_frame_mismatches(_map_tails, _dplc_tails, offset_table_frames(_map_tails))} Tails body frame(s) disagree about being empty — a drawn frame whose DPLC loads nothing renders whatever the character window last held, and a loaded frame that draws nothing spends Important queue slots on unreferenced tiles. DOES NOT COVER: whether a NON-empty pair agrees on how MUCH (both counts are compared only against zero), nor the frame count (the guard above)")
+
+ensure(offset_table_frames(_map_tail) == offset_table_frames(_dplc_tail),
+       "Map_TailsAppendage declares {offset_table_frames(_map_tail)} frames and DPLC_TailsAppendage {offset_table_frames(_dplc_tail)} — one mapping_frame byte indexes BOTH, so the shorter table is read past its end. DOES NOT COVER: whether either count matches what Ani_TailsAppendage reaches, and for THIS asset that gap has a second mouth — TailsAppendage_Main adds a roll-direction bank of 0/4/8/$C to the script's frame byte (games/sonic4/objects/tails_appendage.emp), so its reachable maximum is above any byte in the table. Both are LS-9a")
+ensure(empty_frame_mismatches(_map_tail, _dplc_tail,
+                              offset_table_frames(_map_tail)) == 0,
+       "{empty_frame_mismatches(_map_tail, _dplc_tail, offset_table_frames(_map_tail))} Tails appendage frame(s) disagree about being empty — a drawn frame whose DPLC loads nothing renders whatever VRAM_TAILS_APPENDAGE last held. DOES NOT COVER: whether a NON-empty pair agrees on how MUCH, nor the frame count (the guard above)")
 
 // Art is whole 32-byte tiles by construction (uncompressed 4bpp); a truncated
 // embed would otherwise surface only as garbage in a frame's last DMA.
