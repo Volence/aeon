@@ -1,12 +1,6 @@
 {
-  "focus": "Paused for your PC restart. Everything is committed and pushed; nothing is half-applied.",
-  "inFlight": [
-    {
-      "what": "LS-1, the nightly gate ordering fix. Four commits, worktree clean, PUSHED to origin as parcel/ls1-gate-ordering. The lane split and the three-arm proof are done; four-shape verification and the nightly re-run remain.",
-      "where": "branch parcel/ls1-gate-ordering, at origin",
-      "agent": false
-    }
-  ],
+  "focus": "Seven lens fixes landed, and the nightly safety net is green end to end after nine dead nights.",
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "LS-17",
@@ -19,54 +13,46 @@
       "since": "2026-09-06"
     }
   ],
-  "nextBoundary": "Here. Resume by re-dispatching LS-1 from origin/parcel/ls1-gate-ordering to finish verification.",
+  "nextBoundary": "Here. Everything is pushed, nothing is running, and a fresh session could take LS-2/LS-4 from the queue alone.",
   "queue": [
     {
-      "id": "LS-1",
-      "title": "The nightly gate lane jams itself: a listing-reading check runs before the build that makes the listing",
-      "state": "doing",
-      "size": "S",
-      "blockedBy": null
-    },
-    {
-      "id": "LS-3",
-      "title": "Sonic is the only character with no VRAM window guard; a re-exported sheet overruns silently",
+      "id": "LS-2/LS-4",
+      "title": "clobbers() over-declaration unchecked; and every character VRAM guard binds the neighbour's base rather than the declared extent -- LS-4 and the held tile reclaim are one generator fix",
       "state": "next",
-      "size": "S",
+      "size": "M",
       "blockedBy": null
     },
     {
-      "id": "LS-5",
-      "title": "Parallax config triple published in the order that makes it briefly inert",
+      "id": "LS-8..LS-18",
+      "title": "The ten tier-2 lens cards, all ruled by the hub 2026-09-06 and startable",
       "state": "open",
-      "size": "S",
+      "size": "L",
       "blockedBy": null
     },
     {
-      "id": "LS-7",
-      "title": "5,154 B of byte-identical duplicate drum samples in a bank at 94.3%",
+      "id": "LS-19..LS-26",
+      "title": "Tier 3: prose that decayed, zero-byte fixes",
       "state": "open",
-      "size": "S",
+      "size": "M",
       "blockedBy": null
     },
     {
       "id": "BAND-LIVE-BUILD",
-      "title": "BUG TIER, aurora's measurement with a one-key control: delete default_off from the act and the PLAIN build fails with three 'has no pub name BgAnim_View_H/_V/_T' link errors, because ojz_scroll_test imports the twins unconditionally while the emitter makes them for exactly one act shape. Not a regression -- pre-decouple behaves the same -- but this lane's refusal removal left it as an unexplained link error where a named refusal would have explained it",
+      "title": "BUG TIER, aurora's measurement with a one-key control: delete default_off from the act and the PLAIN build fails",
       "state": "open",
       "size": "M",
-      "blockedBy": null,
-      "project": "EFFECTS-W1"
+      "blockedBy": null
     },
     {
       "id": "BUILD-MANIFEST",
-      "title": "Oracle's ask: build.sh emits a manifest with a content hash per artifact including the listings. Their premise verified TRUE here -- our listings are gitignored and exist at no ref, so any pin of them asserts something nothing can check",
+      "title": "Oracle's ask: build.sh emits a manifest with a content hash per artifact including the listings",
       "state": "blocked",
       "size": "S",
-      "blockedBy": "the hub PARKED it: it blocks nothing until the owner says go on oracle's FIXTURE-REPIN (his card item 13), and becomes a 20-line job the moment he does"
+      "blockedBy": "the hub PARKED it: it blocks nothing until the owner says go on oracle's FIXTURE-REPIN (his card item 13)"
     },
     {
       "id": "F09-SHIP",
-      "title": "The $09 art repair: 19 destroyed tiles rebuilt as S3K shapes under our palette; verify and cost, then HIS word before landing",
+      "title": "The $09 art repair: 19 destroyed tiles rebuilt as S3K shapes under our palette",
       "state": "blocked",
       "size": "M",
       "blockedBy": "his decision on his own custom sheet: a coherent slightly off-style frame, or the frame absent"
@@ -76,39 +62,38 @@
       "title": "Floor: mechanism reopened -- he watched planks change ANGLE, which painted art cannot do",
       "state": "blocked",
       "size": "L",
-      "blockedBy": "PARKED by his word -- revisit another time; nothing further spent",
-      "project": "EFFECTS-W1"
+      "blockedBy": "PARKED by his word -- revisit another time; nothing further spent"
     },
     {
       "id": "ORACLE-RELAUNCH",
-      "title": "Relaunch his Sonic window ONCE on a debugger build carrying both the symbol cap and the picker dock; hold until oracle sends SHA+md5",
+      "title": "Relaunch his Sonic window ONCE on a debugger build carrying both the symbol cap and the picker dock",
       "state": "blocked",
       "size": "S",
-      "blockedBy": "his word: the dock and symbol cap have landed at oracle (eddc13b, HEAD 270ae69), so the only thing left is whether to relaunch his live window, which resets his layout"
+      "blockedBy": "his word: only whether to relaunch his live window, which resets his layout"
     },
     {
       "id": "ICON",
       "title": "Wayland icon: install-desktop.sh writes into his home and OVERWRITES one file -- needs his word",
-      "state": "open",
+      "state": "blocked",
       "size": "S",
       "blockedBy": "his explicit say-so"
     },
     {
       "id": "CR-Q-REVIEW",
       "title": "Review oracle's machineReplaced event -- deferred by ruling, needs a keyed load only he can make",
-      "state": "open",
+      "state": "blocked",
       "size": "S",
-      "blockedBy": "ruled: restore does NOT share the path (contract 11.40), so it must be a real keyed load; deferred to ten seconds of his time arranged through the hub"
+      "blockedBy": "deferred to ten seconds of his time arranged through the hub"
     },
     {
       "id": "ROWREMAP-HSHIFT-RUNGS",
-      "title": "A second row-remap ladder rung, if one is ever wanted: only height_shift 4 can build, the shared schema now admits only 4 (empyrean 2e5046e, enum so it widens by amendment), and the refusal now states the real ROM price -- (H+1)*H bytes, 272 B at H=16 rising to 16,512 B at H=128",
-      "state": "open",
+      "title": "A second row-remap ladder rung, if one is ever wanted",
+      "state": "blocked",
       "size": "M",
-      "blockedBy": "nothing wants it yet; it returns by schema amendment when a second ladder is actually worth its bytes"
+      "blockedBy": "nothing wants it yet; it returns by schema amendment when a second ladder is worth its bytes"
     }
   ],
-  "awaiting": "paused for his PC restart",
+  "awaiting": null,
   "atBoundary": true,
-  "updatedAt": "2026-09-06T23:41:40Z"
+  "updatedAt": "2026-09-07T04:55:13Z"
 }
