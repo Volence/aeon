@@ -339,3 +339,409 @@ Two mechanisms, both driven from the section's `EffectsPreset`
 * `ep_variants` — a `[*u8; 2]` array of variant descriptors, unused slots must be 0
 
 Both fields are **required, not defaulted**: `ep_cycle` "0 illegal, use `Pal_Cycle_None`".
+
+---
+
+## 4. Backgrounds and planes
+
+### 4.1 Plane geometry — one setting, both games, every act
+
+Reg `$10` = `$11` in `engine/system/boot_data.emp`'s register table → **both scroll
+planes are 64 × 64 cells = 512 × 512 pixels**, for every act and both games. This is a
+boot-time setting; there is no per-act or per-game plane size in this engine, and both
+`vram.toml` files declare `plane_a`/`plane_b` at the same 256-tile (`$2000`-byte) bases.
+`PLANE_H_CELLS = 64` and `PLANE_V_CELLS = 64` (`engine/system/constants.emp:483` and
+`:595`) are the engine-side names.
+
+The window plane is declared in the map at `$F000` but is **disabled** (regs `$11`/`$12`
+= 0). `games/sonic4/vram.toml` says why it cannot simply be turned on: with 64 × 64
+planes, Plane B at `$E000` spans `$E000`–`$FFFF`, so `$F000` lies *inside Plane B*. There
+is no free window space anywhere in the map. Enabling the window means re-planning VRAM
+first.
+
+### 4.2 Nametable cell format
+
+One 16-bit big-endian word per cell, bit layout as in §2.5 (priority / palette /
+V-flip / H-flip / tile index).
+
+### 4.3 The two planes' roles and how each is filled
+
+| | Plane A | Plane B |
+|---|---|---|
+| role | **foreground** — the playable terrain | **background** |
+| art comes from | `fg_art_pool` (tiles 0–767), streamed | `bg_region` (tiles 1024–1423), loaded once at level init |
+| nametable content | built per column/row from the tile cache as the camera moves | one act-wide blob blitted once, plus per-section overrides |
+
+Roles can be **swapped at runtime** — `Parallax_Set_Roles_Swapped(d0)` in
+`engine/level/parallax.emp`, gated on the scene capability `CAP_ROLE_SWAP` (`$0400`,
+`engine/level/scene_dsl.emp:342`). It writes the two base registers through the settled
+shadow door (`Set_VDP_Reg`), so it is a whole-frame swap.
+
+### 4.4 The background layout blob
+
+`BG_LAYOUT_SIZE = 64*64*2 = 8192` bytes (`engine/level/bg.emp:52`) — a **full Plane B
+nametable**, all 64 rows live. Measured: `games/sonic4/data/generated/ojz/act1/zone_bg.bin`
+is exactly 8192 bytes.
+
+**Byte order is COLUMN-MAJOR**: `blob[col*128 + row*2]`; each column's 64 rows are
+contiguous, column stride = 64 rows × 2 B = 128 (`engine/level/bg.emp:17-19`). Every
+consumer reads it column-wise, using VDP autoincrement `$80` so one `move.l` writes two
+vertically-adjacent cells. `tools/inject_editor_bg.py` transposes the row-major editor
+layout into this order at the editor→engine boundary.
+
+The blob is **length-typed at the embed site**, which is the guard:
+
+```
+pub data OJZ_Act1_BG_Layout: [u8; BG_LAYOUT_SIZE] = embed("…/zone_bg.bin")
+```
+
+(`games/sonic4/data/levels/ojz/act1/act_assets.emp`). A wrong-sized blob is an `array
+length mismatch` at build time. That annotation exists because two generators write this
+file with **incompatible geometry** — `ojz_strip_gen.py` emits 4096 bytes row-major for a
+32-row plane, `inject_editor_bg.py` emits 8192 bytes column-major — and the committed
+blob is correct only because the injector happens to run second.
+
+### 4.5 The background tile blob
+
+`games/sonic4/data/generated/ojz/act1/bg_tiles.bin`, measured on this tree: **10 242
+bytes**. Format (`engine/level/bg.emp:37-38`, verified against the file):
+
+```
+2-byte big-endian byte-length header, then raw 4bpp tiles
+```
+
+Header word reads `$2800` = 10 240; payload is 10 240 bytes = **320 tiles**. That is
+inside `BG_TILE_CAPACITY = 400` with the 80-tile `band_reserve` unspent, which is why a
+BgAnim band can be inserted today.
+
+Nametable indices in the layout are **VRAM-absolute**, rebased at generation time by
+`BG_TILE_BASE_SLOT = 1024` (`engine/system/constants.emp:609`) — the editor's blob-local
+indices are converted by `tools/inject_editor_bg.py`.
+
+`BG_Init` blits the blob clamped to `BG_TILE_CAPACITY * 32 = 12 800` bytes; the clamp is
+the *declared capacity*, not the physical `$8000..$B7FF` run, because the top 48 slots are
+the `waterline_strips` region. A maximal blob clamped to the physical run would spray over
+the waterline art.
+
+### 4.6 Scrolling arrangement actually used
+
+* **Horizontal: per-line HScroll, always.** Reg `$0B` bits 1:0 = `%11`, written
+  unconditionally by `engine/level/parallax.emp:1326` and `:1743`. The HScroll table is
+  the full 224-line form: 896 bytes DMA'd from `Hscroll_Buffer` to `VRAM_HSCROLL_TABLE`
+  every frame (`engine/system/buffers.emp`, the sixth static DMA entry). The per-cell
+  (`%10`) 112-byte variant was **deleted** on 2026-08-26 — it was writing stride 4 where
+  the VDP indexes at stride 32, so it only ever fed cell rows 0–3.
+* **Vertical: whole-plane by default, per-column when a scene asks.** Reg `$0B` bit 2 goes
+  up for exactly the configs that attach a per-column V-deform table. VSRAM is 80 bytes =
+  40 word entries; in per-column mode entry `2n` is plane A and `2n+1` is plane B for the
+  n-th 16-pixel column, in full-screen mode only entries 0 and 1 are read
+  (`engine/effects/raster_dsl.emp`, the `stream_vsram` banner).
+* **VSRAM is written at frame top by `Vscroll_Write`, after the HScroll DMA** — the order
+  is asserted in `engine/system/vblank.emp:206-209`.
+
+### 4.7 Splitting a background across planes and bands
+
+The background is not split across planes — Plane B carries it all. It is split **into
+horizontal parallax bands** within Plane B, up to `MAX_PARALLAX_BANDS = 16`
+(`engine/system/constants.emp`, the `MAX_PARALLAX_BANDS` block; raised from 8 on
+2026-08-27). A scene declares bands as `layer(world_y:, fa:, fb:, …)` records; each lowers
+to a 10-byte `band_entry` (`engine/level/parallax.emp`):
+
+```
+band_top_plane      u16   first PLANE LINE of the band (0..511)
+band_factor_a_s1    u8    Plane A shift1  (15 = whole-factor zero, "locked")
+band_factor_a_s2    u8    Plane A shift2  (15 = single-term factor)
+band_factor_b_s1    u8    Plane B shift1
+band_factor_b_s2    u8    Plane B shift2
+band_factor_ops     u8    bit 0: plane A 0=ADD/1=SUB;  bit 1: plane B
+band_deform_shift_a u8    Plane A deform amplitude shift (15 = none)
+band_deform_shift_b u8    Plane B deform amplitude shift
+band_phase_offset   u8    0..255, added to the deform sample index
+```
+
+A scroll **factor** is therefore not a multiplier — it is a pair of shift amounts and an
+add/subtract op, evaluated with shifts only. Sentinel 15 means "this term is absent".
+
+**Cost, measured, so you can size a scene:** a scene using all sixteen bands pays
+`4664 + 15 × 854 = 17 474` cycles = **13.7 % of the 128 000-cycle NTSC frame**; a scene
+that does not use the extra bands pays **zero** for the raised ceiling, because every
+per-frame walk is bounded by the live band count, not by the constant.
+
+### 4.8 Animated background bands (BgAnim)
+
+Up to `BGANIM_MAX_BANDS = 4` independent animated strips per act
+(`engine/level/bg_anim.emp:93`). A band is a periodic pattern held in a contiguous range
+of BG tile slots, rotated in place by re-pointing at one of 8 pre-shifted art banks
+(1 pixel per bank). The table is emitted by `tools/inject_editor_bg.py` into
+`data/generated/<zone>/<act>/bg_anim.emp` as a word band count followed by 44-byte
+records:
+
+```
+$00 driver      u16   0 = Camera_X, 1 = Camera_Y, 2 = Logic_Tick (lag-immune)
+$02 rate_shift  u16   step = driver_value >> rate_shift
+$04 step_mask   u16   pattern period along the axis in px, minus 1
+$06 col_shift   u16   log2 of the ROTATION UNIT in bytes
+$08 tile_count  u16
+$0A vram_dest   u32   VRAM byte address of the band's first slot
+$0E banks       [*u8; 8]   bank0..bank7, pre-shifted art, 1 px per bank
+```
+
+Verified against the shipped generated file: `_BgAnim_Band0_hdr` is
+`[0, 4, 63, 7, 32, $8000]` — driver `Camera_X`, rate shift 4, period 64 px, rotation unit
+128 bytes, 32 tiles, VRAM `$8000` (BG slot 0). The struct is pinned by
+`ensure(sizeof(bganim_band) == 44, …)` at `engine/level/bg_anim.emp:115`.
+
+**The act boots with BG animation OFF**: the generated `BgAnim_Table` band count is `0`
+in the shipped file. The three alternate view tables in that file are `DEBUG`-only and
+emit zero bytes in the release shape.
+
+---
+
+## 5. Sprites
+
+### 5.1 The mapping blob
+
+Format, from `engine/objects/mapping_dsl.emp`, `engine/objects/frames.emp` and the
+comptime parsers in `engine/objects/dplc.emp`:
+
+```
+offset table    one big-endian WORD per frame — byte offset from FILE START to that
+                frame's data.  The first word is therefore 2 x frame_count, and
+                offset_table_frames(t) = ((t[0]<<8) | t[1]) >> 1
+                                              (engine/objects/dplc.emp:257)
+
+frame record    x_min  i8    signed bounding box, FAR EDGES
+                x_max  i8
+                y_min  i8
+                y_max  i8
+                piece_count  u16
+                piece_count x 8-byte pieces
+
+piece (8 B)     y_off  i16   offset from the object's ORIGIN
+                size   u8    (w-1) << 2 | (h-1),  w,h in 8px cells, each 1..4
+                link   u8    PAD — the SAT writer overwrites it with its own
+                             chain counter; author it as 0
+                tile   u16   ADDED to the object's art_tile (so flip bits and a
+                             palette override belong in here)
+                x_off  i16
+```
+
+Byte offsets `FRAME_BBOX_X_MIN..Y_MAX = 0..3`, `FRAME_PIECE_COUNT = 4`,
+`FRAME_PIECES = 6` (`engine/system/constants.emp`, the sprite-frame block).
+
+**Frame origin / hotspot**: the origin is the object's `x_pos`/`y_pos`; every piece
+carries a signed offset from it. There is no separate hotspot field. The convenience
+constructor `centered(half:, w:, h:, tile:)` builds the symmetric case
+(bbox `-half..+half`, piece offset `-half`); `piece(x:, y:, w:, h:, tile:)` is the
+general form, wanted whenever art does not sit centred (a spring's squash frame sinks 4 px
+and its extend frame lifts 12 px off the same origin).
+
+The size-byte packing is pinned by two independently-spelled `ensure`s in
+`engine/objects/mapping_dsl.emp` — `(w-1)` in bits 3:2, `(h-1)` in bits 1:0. **Four cells
+is the VDP's maximum piece width**, which is what fixes the debug lab's name tags at four
+characters (`games/sonic4/vram.toml`, `debug_lab_name`).
+
+**Measured frame counts** (first word of each shipped blob, this tree):
+
+| asset | mappings | DPLC | frames |
+|---|---|---|---|
+| Sonic | `data/mappings/sonic.bin` 7 296 B | `data/dplc/optimized/sonic.bin` 2 244 B | **224** |
+| Knuckles | `data/mappings/knuckles.bin` 7 592 B | `data/dplc/knuckles.bin` 2 400 B | **251** |
+| Tails | `data/mappings/tails.bin` 7 152 B | `data/dplc/optimized/tails.bin` 1 658 B | **251** |
+| Tails' tails | `data/mappings/tails_tail.bin` 712 B | `data/dplc/optimized/tails_tail.bin` 268 B | 45 |
+| insta-shield | `data/mappings/insta_shield.bin` 200 B | `data/dplc/insta_shield.bin` 30 B | **8** |
+
+**One `mapping_frame` byte indexes BOTH tables.** Emit the pair or neither. The guard, in
+`games/sonic4/data/collision/collision_data.emp`, verbatim:
+
+> `Map_Sonic declares {…} frames and DPLC_Sonic {…} — one mapping_frame byte indexes BOTH, so the shorter table is read past its end and a byte of the blob placed after it is taken as a frame offset. Re-export the PAIR (tools/dedup_art.py), never one half. DOES NOT COVER: whether either count matches what Ani_Sonic's frame bytes reach — AnimateSprite bounds no frame byte at all (engine/objects/animate.emp, LS-9a) — nor whether corresponding frames describe the same art`
+
+A second guard catches the half-empty case: a drawn frame whose DPLC loads nothing renders
+whatever the character window last held (so it reads as a stutter, not as corruption), and
+a loaded frame that draws nothing spends DMA slots on tiles no piece references
+(`empty_frame_mismatches(...) == 0`).
+
+Two size ceilings, both `ensure`d in the same file: `_map_sonic.len <= $7FFF` and
+`_dplc_sonic.len <= $7FFF`, because the offset tables are **signed** word offsets.
+
+### 5.2 The animation script
+
+Source: `engine/objects/animate.emp:1-31` (the format header) and its dispatch at `:116`.
+
+```
+AnimTable:  dc.w Anim0-AnimTable, Anim1-AnimTable, ...
+Anim0:      dc.b duration, frame0, frame1, ..., control_code [, arg]
+            even
+```
+
+Byte 0 of a script is the **duration** (the timer reload). Bytes from index 1 are either
+mapping-frame indices or control codes. The classifier is a single test —
+`cmpi.b #AF_SET_FIELD, d0 / bhs` — so:
+
+**Frame bytes are `$00`–`$F6`. Control codes are `$F7`–`$FF`.** An `$80`+ frame byte is
+data, not a command.
+
+| code | name | arguments |
+|---|---|---|
+| `$FF` | `AF_END` | — restart from the first frame |
+| `$FE` | `AF_BACK` | 1 byte: rewind count. **N = 0 loops forever inside one frame** (a DEBUG rail catches it) |
+| `$FD` | `AF_CHANGE` | 1 byte: new anim ID. **Must not name the current animation** — it silently fails to restart and the object freezes on that frame |
+| `$FC` | `AF_ROUTINE` | — increment the routine counter by 2 |
+| `$FB` | `AF_DELETE` | — delete the object |
+| `$FA` | `AF_CALLBACK` | 3 bytes: target_hi, target_lo, 0 |
+| `$F9` | `AF_SOUND` | 1 byte: sound id |
+| `$F8` | `AF_COLLISION` | 1 byte: collision type |
+| `$F7` | `AF_SET_FIELD` | 3 bytes: sst_offset, value, 0 |
+
+Events (`$FA`–`$F7`) execute inline and reading continues; several can chain before a
+frame byte. **Every event consumes an even number of bytes** — a format invariant scripts
+may rely on, and what keeps an `even`-terminated script stable.
+
+A duration byte equal to `DUR_DYNAMIC` substitutes the caller's speed-scaled hold instead
+of a static count.
+
+### 5.3 The frame-byte upper bound — **strictly less than**, and several assets sit at zero margin
+
+`AnimateSprite` writes any byte `$00`–`$F6` straight into `Sst.mapping_frame` and
+**nothing at runtime compares it against the mappings table's frame count**. A table of N
+frames has valid indices `0..N-1`, so the bound is
+
+```
+max reachable mapping_frame  <  offset_table_frames(mappings)
+```
+
+**Strictly less than.** `tools/anim_frame_bound.py` (landed 2026-09-07) enforces it
+post-link against the built ROM and listing. Its docstring explains why the direction
+matters: several assets legitimately use their last frame, so written `<=` the gate would
+be green on a real overrun, and written `<` on a wrongly-derived maximum it would be red
+on correct art. Its `--selftest` proves both directions per table.
+
+Run on `s4.bin` / `s4.lst` from this tree, exit 0:
+
+| anim table | mappings | anims | max script byte | max reachable | frames | **margin** |
+|---|---|---|---|---|---|---|
+| `Ani_DustPuff` | `Map_DustPuff` | 1 | `$03` | `$03` | 4 | **0** |
+| `Ani_DustSpindash` | `Map_DustSpindash` | 1 | `$06` | `$06` | 7 | **0** |
+| `Ani_InstaShield` | `Map_InstaShield` | 1 | `$07` | `$07` | 8 | **0** |
+| `Ani_Knuckles` | `Map_Knuckles` | 24 | `$DE` | `$DE` | 251 | 28 |
+| `Ani_RingSparkle` | `Map_RingSparkle` | 1 | `$03` | `$03` | 4 | **0** |
+| `Ani_Sonic` | `Map_Sonic` | 24 | `$C4` | `$C4` | 224 | 27 |
+| `Ani_Spring` | `Map_Spring` | 2 | `$02` | `$02` | 3 | **0** |
+| `Ani_Tails` | `Map_Tails` | 24 | `$B4` | `$B4` | 251 | 70 |
+| `Ani_TailsAppendage` | `Map_TailsAppendage` | 24 | `$28` | `$28` | 45 | 4 |
+
+`Ani_Particle` is a tenth table that ships only in `s4.debug` (see §9, trap 2) and also
+sits at margin 0.
+
+**"Max reachable" is not the same as "max script byte."** Three other things write
+`Sst.mapping_frame`, and the gate models all three:
+
+* `Player_ApplyTilt` **adds** a ground-angle block (`block << TILT_*_SHIFT`, four blocks)
+  to the WALK and RUN rows for all three characters
+* `TailsAppendage_Main` **adds** a roll-direction bank of 0/4/8/`$C`
+* `Climb_Animate` and the ledge bodies write frames **directly**, bypassing the script
+  entirely (Knuckles only)
+
+So a script byte is not the whole story for a player character: adding an animation row
+near the top of a sheet can push the *reachable* maximum past the table end even though no
+authored byte does.
+
+### 5.4 DPLC — streaming player art
+
+Format (`engine/objects/dplc.emp:1-8`):
+
+```
+offset table  one word per frame, offset from file start (same shape as mappings)
+frame data    u16 entry_count, then entry_count entry words
+entry word    bits 15-12 = tile_count - 1  (so 1..16 tiles)
+              bits 11-0  = tile_start      (tile INDEX into the art sheet)
+```
+
+`DPLC_TILE_COUNT_BITS = 4`, `DPLC_TILE_START_BITS = 12`,
+`DPLC_MAX_TILES_PER_ENTRY = 16`, `DPLC_ADDRESSABLE_TILES = 4096`
+(`engine/objects/dplc.emp:103-107`). The 12-bit field is a **hard ceiling on sheet
+length**: a sheet with more than 4096 tiles has tiles no entry can point at, and a
+generator that tries wraps into the low tiles.
+
+Measured sheet sizes on this tree (uncompressed 4bpp, 32 B/tile):
+
+| sheet | bytes | tiles | headroom to 4096 |
+|---|---|---|---|
+| `art/optimized/characters/sonic.bin` | 101 056 | 3 158 | 938 |
+| `art/optimized/characters/knuckles.bin` | 130 944 | **4 092** | **4** |
+| `art/optimized/characters/tails.bin` | 116 320 | 3 635 | 461 |
+| `art/optimized/characters/tails_tail.bin` | 8 896 | 278 | |
+
+Knuckles is four tiles under the addressable ceiling. Treat 4096 as a real wall.
+
+**Entry count is a DMA queue-slot cost, and it is the binding constraint.** Each entry is
+one enqueue into the Important queue, which has `DMA_IMPORTANT_SLOTS = 12`
+(`engine/system/constants.emp`), and `DPLC_ENTRY_RESERVE = 2` slots must be left free for
+the art-streaming landing (`engine/objects/dplc.emp:84`). So the wall is
+**peak entries + 2 ≤ 12**, i.e. **10 entries**. Measured peaks, from
+`engine/objects/dplc.emp:23-27`:
+
+```
+optimized/sonic.bin   10 entries    knuckles.bin              5
+optimized/tails.bin    2            optimized/tails_tail.bin  1
+generated/dust/dplc_dust.bin  1
+```
+
+Sonic sits at exactly 10 — the wall, and it was re-cut to get there. What happens above it
+is not graceful: at 13 entries the 13th enqueue returns carry-set, the handler bails
+**before** committing `prev_frame`, and every subsequent frame re-enqueues all 12 and drops
+the 13th **forever**. That entry's tiles never load.
+
+⚠ **The comptime wall cannot see the whole cost.** A transfer whose ROM source straddles a
+`$20000` boundary is split by the queue into two entries, so a frame really costs
+`entries + straddles`, and whether an entry straddles depends on where the art *landed* —
+a link-time fact no parser of the blob can reach. `tools/dplc_straddle.py --gate` measures
+actual slots and runs in `build.sh`; the comptime walls are necessary and not sufficient.
+
+**The character DMA window** is `character_window`, tiles 960–991 = **32 tiles**
+(`games/sonic4/vram.toml`; the constant is `VRAM_TEST_SONIC`, with its declared extent
+published beside it as `VRAM_TEST_SONIC_TILES`). Every DPLC frame's tiles land there, so
+**no single frame may need more than 32 tiles**.
+
+### 5.5 Sprite budgets
+
+Engine-side, from `engine/system/constants.emp`:
+
+| constant | value | what it bounds |
+|---|---|---|
+| `MAX_VDP_SPRITES` | 80 | SAT entries; the shipped table is 20 tiles = 640 bytes at `$B800` |
+| `VDP_SPRITE_X_OFFSET` / `_Y_OFFSET` | 128 / 128 | the VDP's coordinate bias |
+| `PRIORITY_BANDS` | 8 | render bands; `render_flags` bits 5–7 carry the band, so 0..7 is structural |
+| `SPRITES_PER_BAND` | 32 | objects queued per priority band |
+| `SCANLINE_BANDS` | 7 | 224 / 32 = seven 32-scanline bands |
+| `SCANLINE_SPRITE_LIMIT` | 24 | max sprite **pieces** charged per 32-line band |
+
+`SCANLINE_SPRITE_LIMIT` is **a soft heuristic that undercounts by design**
+(`engine/objects/sprites.emp:363-386`, stated there): the early-out skips the commit too,
+so the first 24 sprites in a frame are never charged, and multi-sprite children bypass the
+budget entirely. That comment is explicit that the VDP drops excess per-line sprites in
+hardware regardless — the budget only shapes *which* sprites drop.
+
+**The hardware per-line sprite count and per-line pixel limits are NOT ESTABLISHED HERE.**
+No constant in this tree names them, and `engine/objects/sprites.emp` refers to the
+hardware drop without quoting a figure. Take them from a VDP hardware reference, not from
+this document.
+
+Per-frame piece count per object is stored in `Sst.sprite_piece_count`, a **byte**
+(`engine/objects/sst.emp`), refreshed from the frame's own count word. I found **no
+build-time guard bounding a frame's piece count**.
+
+### 5.6 Art size and alignment guards
+
+Every character data module carries these, and their messages are worth knowing because
+they are what you will see:
+
+* `ensure((_art_sonic.len % TILE_SIZE) == 0, "Art_Sonic is not a whole number of tiles")` —
+  with its own stated limit: *"A sheet truncated by a whole multiple of TILE_SIZE passes
+  this and every other guard in this file, and the frames whose runs fell off the end DMA
+  whatever the link put after Art_Sonic."*
+* an even-length guard on each of the three character blobs — an odd-length blob leaves
+  the label after it on an odd address, and the 68000 takes an address error.
+
+Character art is **uncompressed**. There is no sprite-art compression format in this
+engine: Nemesis, Kosinski, Enigma and UFTC have all been removed.
