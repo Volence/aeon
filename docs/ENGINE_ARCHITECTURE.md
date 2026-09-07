@@ -2949,8 +2949,12 @@ For each ACTIVE entry (Entity_Window_Active bit set):
      - Convert section-local X/Y to world space (add ess_origin_x/y)
      - If world X > camera right load edge: stop (X-sorted early exit)
      - Skip if outside the camera Y band (below)
+     - Check the entry's loaded-ring bit: skip if already loaded. This gate
+       runs FIRST: it is one btst behind a call (138c on the shipped release
+       bytes) against Collected_CheckRing's 9-slot linear tag scan (222-494c),
+       and it is the gate that hits on the RescanY path. Both are pure
+       predicates that skip and do nothing else, so the order is cost only.
      - Check Collected_CheckRing bitmask: skip if already collected
-     - Check + set the entry's loaded-ring bit: skip if already loaded
      - Add to unified Ring_Buffer via RingBuffer_Add
   2. ScanObjectsRight: same shape for 6-byte object entries
      - OEF_ANY_Y entries bypass the Y band test
@@ -2961,7 +2965,8 @@ Vertical re-scan (EntityWindow_RescanY): when camY & ENTITY_RESCAN_COARSE_MASK
   changes (one 128px coarse row crossed), re-walk each active entry's ROM lists
   from index 0 up to the X ratchet (right_idx), spawning entries that the new
   Y band now covers. Loaded bits make this idempotent — already-loaded
-  entities are one btst+skip.
+  entities are one btst+skip (the loaded gate is ordered ahead of the
+  collected/killed scan precisely so this path stays a btst+skip).
 
 After all entries:
   3. DespawnRings: backward iterate Ring_Buffer, remove entries outside the

@@ -7495,6 +7495,39 @@ bursts that needed N-way staging + a frame budget (2026-06-10).
 vertical traversal (the profiler misses single-frame bursts). Tile-cache N-way staging
 is the precedent if budgeting is needed.
 
+> **STILL OPEN after LS-6 (2026-09-06, `parcel/ls6-spawn-gate-order`) — read this before
+> anyone books it closed.** LS-6 swapped the spawn-gate order so an already-loaded candidate
+> exits on the cheap `btst` gate instead of behind `Collected_CheckRing`'s 9-slot linear tag
+> scan. That **reduces the burst; it does not budget it.** What was established, and by what
+> method:
+> - **Established, by static derivation from the shipped release bytes** (`s4.bin`
+>   `EntityLoaded_Test` @ `$3C8C`, `Collected_FindSlot` @ `$3A78`, `Collected_CheckRing` @
+>   `$3A92`, call sites @ `$3EF2`/`$3FE8`, decoded by hand against the M68000 timing table):
+>   the loaded gate costs **138 cycles** end to end from the caller's setup through the
+>   `bne`; the collected/killed gate costs **222c** (section owns window slot 1) to **494c**
+>   (slot 9), **~358c** at the mid-slot. So the swap saves **~220c per already-loaded in-band
+>   candidate**, and *costs* **+138c** per candidate that is collected/killed but not loaded.
+>   It is a strong improvement, not a strict dominance.
+> - **Established, from the shipped level data:** OJZ act 1 carries **60 rings across 9
+>   sections, max 12 per section** (`games/sonic4/data/editor/ojz/act1/section_*.rings.json`).
+>   With 4 tracked entries the absolute per-rescan ceiling is 4 × 12 = 48 candidates, so the
+>   ceiling saving on shipped data is ~10.6 K cycles ≈ 8% of an NTSC frame — a **ceiling**,
+>   requiring every entry at max density with the ratchet fully advanced and every candidate
+>   in band and loaded. Typical is well under that.
+> - **NOT established: that gate order was the cause of this entry.** The LS-6 row called it
+>   a *candidate cause* and it stays one. This entry is about the **burst shape** — one frame
+>   re-walking four lists from index 0 — and that shape is unchanged: the same number of
+>   candidates is still offered in the same single frame, each just ~220c cheaper when loaded.
+>   At the 40-50 rings/section density §4.9 designs for, the post-swap ceiling is still ~4 ×
+>   50 × 138c ≈ 27 K cycles ≈ 21% of a frame **in the all-loaded case alone**, before any
+>   candidate that actually spawns. A budget/staging answer is still the open work.
+> - **NOT established, and NOT attemptable from this lane: any runtime number.** No emulator
+>   was run (banned for background agents). Every cycle figure above is a static derivation
+>   from decoded instruction bytes, and none of it is a `Lag_Frame_Count` observation.
+>   **TAG for a foreground controller run:** profile `EntityWindow_RescanY` across a coarse-row
+>   crossing on OJZ act 1, before and after `parcel/ls6-spawn-gate-order`, and replace the
+>   derivations above with measurements.
+
 ### Entity despawner micro-opts — **dead-field half DONE, but the refund is SPENT (corrected 2026-08-05)**
 > **⚠ THE PROMISE IN THIS ENTRY IS NO LONGER DELIVERABLE — the struct will NOT shrink.**
 > The dead fields `ess_ring_left_idx`/`ess_obj_left_idx` are **gone** (zero hits), so that half is
@@ -29010,7 +29043,7 @@ them looking. Any fix below that adds or edits a guard must state what it does N
 | LS-3 | **Sonic has no VRAM window ensure**, while Tails and Knuckles both do. Peak 29 of 32; a re-exported sheet DMAs past 991 into `test_obj` silently. **Zero-byte fix, and it should precede any window shrink.** | C5-F6, peaks parsed from the blobs |
 | LS-4 | **Two blob-derived VRAM ceilings name the wrong neighbour** (`tails_data.emp:100`, `player_instashield.emp:469`), 3 tiles of permitted overlap each. **Measured LATENT.** The real fix is a generator change: the correct names are not in those modules' import closure, which is WHY the wrong ones were used. | C2a-H1a/b + controller TAG-1 |
 | LS-5 | **`Parallax_StartTransition` publishes its config triple in the order that makes it observably inert** — clear `Frames` before `Target` at both sites and the window closes. One frame of frozen parallax per cancelled transition. **Free ordering fix.** | C3b-V1, both orders verified |
-| LS-6 | **The entity spawn gates run a 9-slot linear scan before the single `btst`**, nine lines apart, both branching to `.gated`. `ENGINE_ARCHITECTURE.md:2964` already describes the other order. 6-9% of a frame shipped, 28-42% at the density ARCH designs for. **Candidate cause for `DEFERRED_WORK:7460`, open since 2026-06-11 with no cause named.** | C4a-1, order verified |
+| ~~LS-6~~ | **CLOSED 2026-09-06, `parcel/ls6-spawn-gate-order`.** The order was re-derived from source and swapped in both `EntityWindow_TrySpawnRing` and `EntityWindow_TrySpawnObject` (the object site gates on `Killed_CheckObject`, not `Collected_CheckRing` — the row's "both" was right in shape, wrong in symbol). Safety argument is a purity argument, not a reachability one: `Collected_FindSlot`/`Collected_CheckRing`/`Killed_CheckObject`/`EntityLoaded_Test` contain **no store to game state** (the only writes are one balanced `movem.l d1` save/restore on the stack), and both gates branch to the same do-nothing `.gated`, so two pure predicates in a short-circuit AND commute. Costs **derived statically from the shipped release bytes**, not measured: loaded gate 138c, collected/killed gate 222-494c (slot-position dependent) — see the closure note on `RescanY burst is unbudgeted` for what this does and does not settle. **Two corrections to the row itself:** `ENGINE_ARCHITECTURE.md:2952` documented the OLD order in the per-frame-scan pseudocode while :2964 described the new one, so the doc contradicted itself rather than the code contradicting the doc; and the 6-9% / 28-42% figures are CEILINGS (every entry at max density, ratchet fully advanced, every candidate in-band and loaded), not shipped-typical. | C4a-1; re-derived, swapped, four shapes green |
 | LS-7 | **5,154 B of byte-identical duplicate PCM** (`kick`/`s3k_kick`, `snare`/`s3k_snare`, `cmp`-verified) in a no-straddle bank at 94.3%. Dedupe takes the free tail from 1,860 B — which admits ONE of six S3K drum sizes — to 7,014 B, which admits all six. | C5-F1 |
 
 ## Tier 2 — real, needs a decision or a design
