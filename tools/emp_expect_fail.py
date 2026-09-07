@@ -26,6 +26,40 @@ Case 0 is the SENTINEL (permanent, first): games/sonic4/test/poison/poison_senti
 whose single self-contained guard always fires. If it builds clean, --extra-entry is not
 evaluating the module it names and every case after it would pass vacuously, so the lane
 fails right there instead of reporting green.
+
+TWO PHASES, TWO REPORT FORMATS — the LINK rows (LS-16, 2026-09-06)
+------------------------------------------------------------------
+Everything above concerns COMPTIME `ensure`s, which reach `build_program` and are reported
+as `[Error]` lines. An `ensure` whose condition contains `extern(...)` takes a different
+road: sigil lowers it to a `LinkAssert`, evaluates it AFTER `resolve_layout` in
+`check_link_asserts`, and reports a failure as
+
+    declared-chain drift guard FIRED: N error(s); first Some(Diagnostic { .. })
+
+with NO `[Error]` token anywhere (sigil crates/sigil-harness/src/native.rs). That is not
+cosmetic — it is WHY this lane had zero coverage of that family (135 sites: every
+cross-namespace constant mirror and every RAM-reservation span in engine/ and games/, and
+zero poison fixtures containing `extern(`). A row registered in CASES for one of them
+fails on "got 0 [Error] diagnostic(s), expected 1" however correct the guard is, and case
+0 says nothing about the phase — so the whole family could be dropped silently with every
+build still green.
+
+LINK_CASES below is the same idea in that phase's own report format, with its own sentinel
+(LINK_SENTINEL, run right after case 0 for the reason case 0 runs first). Three rows, one
+per expression shape the family actually uses — an EQU mirror, a difference of two label
+VMAs, one absolute address under a bit op — because those are three different roads
+through the resolver and one row would leave two of them unproven. The rows read the
+`declared-chain drift guard FIRED: N error(s)` count, and each build sets NATIVE_DEBUG=1
+so sigil prints EVERY failing assert (`REAL DRIFT: <message>`) instead of only the first,
+which is what makes a fragment match meaningful when more than one fires.
+
+WHAT THESE ROWS DO NOT DO, said plainly because the gap is easy to misread as covered:
+they prove the PHASE is live, not that any individual engine guard is. A poison module
+contributes zero bytes by construction, so it cannot move a reservation or an equate;
+there is no argument a poison can pass that makes `engine/level/parallax.emp:480` false.
+Per-guard proof for the 135 is `tools/extern_guard_census.py`, which negates each guard's
+own condition and reads the diagnostics back — a tree-MUTATING lane, deliberately not
+wired into build.sh for the reason this lane's `--extra-entry` design exists.
 """
 import os, re, subprocess, sys, pathlib, tempfile, time
 
@@ -577,16 +611,150 @@ CASES: list[tuple[str, str, str, int]] = [
 ]
 
 
-def run_build(poison: str) -> tuple[int, str]:
-    """The real build invocation, with `poison` (an AEON-relative path) as an extra entry."""
+# ══════════════════════════════════════════════════════════════════════════════
+# THE LINK-ASSERT ROWS (LS-16) — the `extern()`-bearing family's own phase.
+# See the module docstring for why these cannot live in CASES.
+# ══════════════════════════════════════════════════════════════════════════════
+
+def emp_ensure_rhs(rel: str, lhs: str) -> int:
+    """The integer an `ensure(<lhs> == <n>, ..)` in `rel` compares against.
+
+    `emp_const` reads a `const NAME = <int>`; this reads a GUARD's own right-hand side,
+    for a fragment whose number is an invariant the tree already enforces rather than a
+    constant anyone declared. The one caller is the ROM-parity row: its poison claims
+    EndOfRom is ODD, and the number in its fragment is the 0 that
+    engine/system/epilogue.emp's own `(extern("EndOfRom") & 1) == 0` asserts. Reading it
+    here rather than typing 0 keeps the two on one authority — and if the shipped ROM ever
+    did become odd, THAT guard fires first and this row's failure is a consequence rather
+    than a mystery.
+
+    A missing guard is a LOUD exit, never a default, for `emp_const`'s reason: a fragment
+    computed from a fallback would pass or fail for a reason unrelated to the guard.
+    """
+    txt = (AEON / rel).read_text()
+    m = re.search(rf"ensure\(\s*{re.escape(lhs)}\s*==\s*(\$[0-9A-Fa-f]+|\d+)\s*,", txt)
+    if not m:
+        sys.exit(f"emp_expect_fail: cannot find `ensure({lhs} == <int>, ..)` in {rel} — a "
+                 "link-row fragment is computed from its right-hand side and a guessed "
+                 "value would make that row vacuous")
+    v = m.group(1)
+    return int(v[1:], 16) if v.startswith("$") else int(v)
+
+
+# Both numbers in the EQU-mirror row's fragment, each read from the file that owns it: the
+# game's real constant, and the poison's own impossible claim. Neither is typed, so the
+# fixture and the fragment move together in BOTH directions (emp_const's note above).
+LS16_PARK_SLOTS = emp_const("games/sonic4/config/constants.emp", "COLLECTED_PARK_SLOTS")
+LS16_POISON_SLOTS = emp_const(f"{POISON}/poison_extern_equate.emp", "LS16_IMPOSSIBLE_SLOTS")
+if LS16_PARK_SLOTS == LS16_POISON_SLOTS:
+    sys.exit("emp_expect_fail: poison_extern_equate's impossible slot count now EQUALS the "
+             "real COLLECTED_PARK_SLOTS — the fixture cannot trip the phase it targets and "
+             "its row would be vacuous")
+# The span row pins its own claim and the guard's wording, and STOPS before the
+# interpolated real span: no literal `.emp` authority for that span exists to compute it
+# from (PARALLAX_STATE_LONGS is a comptime expression over four `sizeof`s), and a second
+# mirror maintained here would be the vacuity emp_const's note warns about, not a check.
+LS16_POISON_SPAN = emp_const(f"{POISON}/poison_extern_span.emp", "LS16_IMPOSSIBLE_SPAN")
+# The parity row's 0, read out of epilogue.emp's own guard rather than typed.
+LS16_ROM_PARITY = emp_ensure_rhs("engine/system/epilogue.emp", '(extern("EndOfRom") & 1)')
+
+# The LINK phase's anti-vacuity sentinel — case L0, permanent, first among the link rows,
+# and run right after case 0. Its subject is the EQU-mirror road, the one ~120 of the
+# family's 135 sites take. If it builds clean, `check_link_asserts` is not evaluating this
+# tree's link asserts and every link row after it would pass for the wrong reason.
+LINK_SENTINEL: tuple[str, str, int] = (
+    f"{POISON}/poison_extern_equate.emp",
+    f"LS16_EXTERN_EQUATE_POISON: this poison claims the .asm namespace resolves "
+    f"COLLECTED_PARK_SLOTS to {LS16_POISON_SLOTS}; it resolves to {LS16_PARK_SLOTS}",
+    1,
+)
+
+# (poison module path, entry id, expected fragment, expected drift-diagnostic count).
+# THE FRAGMENTS ARE NOT INTERCHANGEABLE: all three messages would match on the words
+# "this poison claims", so each quotes the clause only its own row says, and each tag
+# (LS16_EXTERN_{EQUATE,SPAN,ADDR}_POISON) occurs exactly once in the tree. A matcher that
+# collides with a different rule's wording passes for the wrong reason, and no grep over
+# the code under test can surface that.
+LINK_CASES: list[tuple[str, str, str, int]] = [
+    # The MEMORY-RESERVATION shape: a difference of two RAM label VMAs, which is what
+    # eleven of the family's guards compute (the poison's header lists them). Count 1 —
+    # the poison holds one guard and the phase reports one diagnostic per failing assert.
+    (f"{POISON}/poison_extern_span.emp", "LS16 span (two label VMAs)",
+     f"LS16_EXTERN_SPAN_POISON: this poison claims the Parallax_State reservation spans "
+     f"{LS16_POISON_SPAN} byte; the link says ", 1),
+    # The ALIGNMENT/WINDOW shape: ONE absolute address under a bit op. Its fragment's
+    # trailing number is epilogue.emp's own asserted parity, read not typed.
+    (f"{POISON}/poison_extern_addr.emp", "LS16 addr (one VMA, bit op)",
+     f"LS16_EXTERN_ADDR_POISON: this poison claims EndOfRom is ODD; the link folds "
+     f"EndOfRom & 1 to {LS16_ROM_PARITY}", 1),
+]
+
+
+def run_build(poison: str, native_debug: bool = False) -> tuple[int, str]:
+    """The real build invocation, with `poison` (an AEON-relative path) as an extra entry.
+
+    `native_debug` sets NATIVE_DEBUG=1, which the LINK rows need: without it the
+    declared-chain phase prints only its FIRST failing assert (`first Some(Diagnostic{..})`)
+    and a fragment match would be luck whenever more than one fires. With it, sigil prints
+    every one as a `REAL DRIFT: <message>` line. It changes nothing else about the build.
+    """
+    env = dict(os.environ, NATIVE_DEBUG="1") if native_debug else None
     with tempfile.TemporaryDirectory() as td:
         out_bin = os.path.join(td, "probe.bin")
         p = subprocess.run(
             [SIGIL, "build", "--aeon", ".", "--native", "--game", "sonic4", "-o", out_bin,
              "--extra-entry", poison],
-            capture_output=True, text=True, cwd=AEON,
+            capture_output=True, text=True, cwd=AEON, env=env,
         )
     return p.returncode, p.stdout + p.stderr
+
+
+DRIFT_COUNT_RE = re.compile(r"declared-chain drift guard FIRED: (\d+) error")
+
+
+def run_one_link(label: str, poison: str, expect: str,
+                 expect_count: int = 1) -> tuple[bool, str, float]:
+    """A LINK row: build with `poison` as an extra entry and evaluate the DRIFT report.
+
+    The comptime path's `run_one` counts `[Error]` tokens; the declared-chain phase emits
+    none, so this reads the phase's own `FIRED: N error(s)` count instead. Three failure
+    worlds, kept apart because they send a reader to three different places:
+      (a) rc 0                       -> the link asserts are not being evaluated at all
+      (b) rc != 0, no FIRED line     -> the build died BEFORE the link phase (a comptime
+                                        error, in this poison or already in the tree), so
+                                        this row tested nothing
+      (c) FIRED, wrong fragment/count-> wording drift, a different guard, or the tree is
+                                        already red for an unrelated reason
+    """
+    t0 = time.monotonic()
+    rc, out = run_build(poison, native_debug=True)
+    elapsed = time.monotonic() - t0
+
+    if rc == 0:
+        return False, f"BUILT CLEAN — the link assert did not fire ({label})", elapsed
+    m = DRIFT_COUNT_RE.search(out)
+    if not m:
+        tail = " | ".join(out.strip().splitlines()[-3:])
+        return False, (
+            "failed WITHOUT reaching the declared-chain phase — no `drift guard FIRED` "
+            "line, so this row tested nothing about link asserts. Suspect a COMPTIME "
+            f"error (in the poison or already in the tree); got: {tail}"
+        ), elapsed
+    if expect not in out:
+        tail = " | ".join(out.strip().splitlines()[-3:])
+        return False, (
+            f"drift guard fired WITHOUT the expected fragment {expect!r} — wording drift "
+            f"or wrong guard; got: {tail}"
+        ), elapsed
+    got_count = int(m.group(1))
+    if got_count != expect_count:
+        tail = " | ".join(out.strip().splitlines()[-3:])
+        return False, (
+            f"fragment {expect!r} present but the phase reported {got_count} drift "
+            f"diagnostic(s), expected {expect_count} — a count drift can mean a guard "
+            f"stopped firing (or a NEW one started); got: {tail}"
+        ), elapsed
+    return True, "ok", elapsed
 
 
 def run_one(label: str, poison: str, expect: str,
@@ -621,7 +789,11 @@ def run_one(label: str, poison: str, expect: str,
 def main() -> int:
     sentinel_path, sentinel_expect, sentinel_count = SENTINEL
 
-    named = [(sentinel_path, "sentinel")] + [(path, entry) for path, entry, _, _ in CASES]
+    link_sentinel_path, link_sentinel_expect, link_sentinel_count = LINK_SENTINEL
+
+    named = ([(sentinel_path, "sentinel"), (link_sentinel_path, "link sentinel")]
+             + [(path, entry) for path, entry, _, _ in CASES]
+             + [(path, entry) for path, entry, _, _ in LINK_CASES])
     missing = [(path, entry) for path, entry in named if not (AEON / path).is_file()]
     if missing:
         print("emp_expect_fail: FAIL — named poison modules that do not exist:")
@@ -663,12 +835,43 @@ def main() -> int:
                   "would inherit the same noise.")
         return 1
 
+    # CASE L0, permanent, second: the LINK phase's sentinel. Case 0 above proves
+    # --extra-entry evaluates a module's COMPTIME ensures; it says NOTHING about the
+    # declared-chain phase, which reports in a different format and is where every
+    # `extern()`-bearing guard in the tree lives. If this builds clean, that phase is not
+    # evaluating this tree's link asserts and every LINK_CASES row would be vacuous.
+    ok, why, elapsed = run_one_link("link sentinel", link_sentinel_path,
+                                    link_sentinel_expect, link_sentinel_count)
+    print(f"  {'PASS' if ok else 'FAIL'}  link sentinel ({elapsed:.2f}s): {why}")
+    if not ok:
+        # Same three-worlds discipline as case 0: a sound verdict with a fabricated
+        # justification sends the reader to debug the wrong thing.
+        if why.startswith("BUILT CLEAN"):
+            print("emp_expect_fail: FAIL — the LINK sentinel BUILT CLEAN. sigil's "
+                  "`check_link_asserts` is not evaluating this tree's link asserts, so "
+                  "every `extern()`-bearing guard in engine/ and games/ is currently "
+                  "unenforced and the link rows below would be vacuous; this run stops here.")
+        else:
+            print("emp_expect_fail: FAIL — the LINK sentinel did not report as expected, "
+                  "but it DID fail the build. Suspect the TREE before the harness: an "
+                  "unrelated error already present in the sources reaches every "
+                  "--extra-entry build and changes what the sentinel sees. Reason given "
+                  "above; this run stops here.")
+        return 1
+
     for path, entry, expect, expect_count in CASES:
         ok, why, elapsed = run_one(entry, path, expect, expect_count)
         print(f"  {'PASS' if ok else 'FAIL'}  {entry} ({elapsed:.2f}s): {why}")
         bad += 0 if ok else 1
 
-    print(f"emp_expect_fail: {'OK' if not bad else 'FAIL'} — {len(CASES) - bad}/{len(CASES)} cases")
+    for path, entry, expect, expect_count in LINK_CASES:
+        ok, why, elapsed = run_one_link(entry, path, expect, expect_count)
+        print(f"  {'PASS' if ok else 'FAIL'}  {entry} ({elapsed:.2f}s): {why}")
+        bad += 0 if ok else 1
+
+    total = len(CASES) + len(LINK_CASES)
+    print(f"emp_expect_fail: {'OK' if not bad else 'FAIL'} — {total - bad}/{total} cases "
+          f"({len(CASES)} comptime + {len(LINK_CASES)} link)")
     return 1 if bad else 0
 
 

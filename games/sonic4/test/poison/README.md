@@ -62,6 +62,46 @@ Consequences for anyone writing a module here:
   message fragment, expected `[Error]` count — and give the module the exact
   `EXPECTED FRAGMENT` header comment the row quotes.
 
+## A poison whose guard contains `extern(` goes in `LINK_CASES`, not `CASES`
+
+An `ensure` whose condition mentions `extern(...)` is **not a comptime guard**. sigil
+lowers it to a `LinkAssert` and evaluates it after `resolve_layout`, in
+`check_link_asserts` — a later phase with its own report format:
+
+```
+error: native build (sonic4 plain): declared-chain drift guard FIRED: N error(s); first Some(Diagnostic { .. })
+```
+
+There is **no `[Error]` token anywhere in it**. A row registered in `CASES` for such a
+poison therefore fails on `got 0 [Error] diagnostic(s), expected 1` however correct the
+guard is, which is why this directory held zero fixtures containing `extern(` until
+2026-09-06 (LS-16). Those rows live in **`LINK_CASES`**, run by `run_one_link`, which
+reads the phase's own `FIRED: N error(s)` count instead — and sets `NATIVE_DEBUG=1` so
+sigil prints EVERY failing assert as a `REAL DRIFT: <message>` line rather than only the
+first, without which a fragment match is luck whenever more than one fires.
+
+`LINK_SENTINEL` (`poison_extern_equate.emp`) is that phase's case 0 and runs right after
+this file's case 0, for the same reason: **case 0 says nothing about the link phase**, so
+without it `check_link_asserts` could stop evaluating anything and all 135 of the tree's
+`extern()`-bearing guards would go unenforced with every build still green.
+
+Three modules, one per expression shape the family actually uses, because they are three
+different roads through the resolver:
+
+| module | shape | models |
+|---|---|---|
+| `poison_extern_equate.emp` | `extern("EQU") == n` | the ~120 cross-namespace constant mirrors (anims, `vdp.emp`, sound banks, `ram.emp`) |
+| `poison_extern_span.emp` | `extern("X_End") - extern("X") == n` | the eleven RAM-reservation spans (`palette`, `raster`, `bg_anim`, `parallax`, `core`) |
+| `poison_extern_addr.emp` | `(extern("Label") & m) == n` | the alignment/window guards (`epilogue`, `player_common`, `core`) |
+
+**What these three do NOT prove**, said plainly because it is easy to misread as coverage:
+they prove the *phase* is live, not that any individual engine guard is. A poison
+contributes zero bytes by construction, so it cannot move a reservation or an equate —
+there is no argument a poison can pass that makes `engine/level/parallax.emp:480` false.
+Per-guard proof for all 135 is `tools/extern_guard_census.py`, which negates each guard's
+own condition and reads the diagnostics back. That lane REWRITES engine sources, so it is
+deliberately not in `build.sh`; run it by hand after touching the family.
+
 ## Why every scene poison globs
 
 Every `poison_scene_*` module spells `use engine.level.scene_dsl.*` and

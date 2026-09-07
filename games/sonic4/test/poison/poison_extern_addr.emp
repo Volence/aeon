@@ -1,0 +1,35 @@
+// games/sonic4/test/poison/poison_extern_addr.emp — POISON (see README).
+//
+// TARGETS: the LINK-ASSERT phase reached through ONE ABSOLUTE ADDRESS under a bit
+// operation — the third and last expression shape the `extern()` guard family uses.
+// EXPECTED FRAGMENT: "LS16_EXTERN_ADDR_POISON: this poison claims EndOfRom is ODD; the
+//                     link folds EndOfRom & 1 to 0"
+//
+// WHY A THIRD ROW. poison_extern_equate resolves an EQU, poison_extern_span subtracts two
+// label VMAs; neither exercises a guard that reads ONE address and tests bits of it, which
+// is the shape of:
+//
+//     engine/system/epilogue.emp:29        (extern("EndOfRom") & 1) == 0
+//     engine/system/epilogue.emp:32        extern("EndOfRom") <= $3FFFFF
+//     engine/objects/core.emp:63           (extern("Object_RAM_End") - extern("Object_RAM")) % 4 == 0
+//     games/sonic4/player/player_common.emp:358
+//                                          (extern("Player_1") & $FFFF8000) == $FFFF8000
+//
+// — the alignment and addressing-window class, where a silent drop would not shorten a
+// buffer but would let a base land somewhere the code cannot address.
+//
+// WHY THE FRAGMENT'S 0 IS DERIVED AND NOT TYPED. It is epilogue.emp:29's OWN assertion:
+// that guard says `(extern("EndOfRom") & 1) == 0` and fails the build with "ROM size is
+// odd" if it ever stops holding. `emp_expect_fail` reads the `== <n>` out of that guard
+// rather than typing 0, so the two move together — and if the ROM ever did become odd,
+// epilogue.emp:29 fires first and this row's failure is a consequence, not a surprise.
+//
+// The poison's claim is therefore the exact negation of a guard the tree already enforces
+// on every build, which is what makes it impossible to satisfy by accident: an edit that
+// turned this poison green would have had to make the shipped ROM odd, and the shipped
+// guard would have refused that edit first.
+//
+// Zero bytes, ensures-only — unreachable from any real entry.
+module games.sonic4.test.poison.poison_extern_addr
+
+ensure((extern("EndOfRom") & 1) == 1, "LS16_EXTERN_ADDR_POISON: this poison claims EndOfRom is ODD; the link folds EndOfRom & 1 to {extern(\"EndOfRom\") & 1}")

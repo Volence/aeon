@@ -1,0 +1,52 @@
+// games/sonic4/test/poison/poison_extern_equate.emp — POISON (see README).
+//
+// TARGETS: the LINK-ASSERT PHASE itself, for the `extern()`-bearing guard family — and it
+// is that family's SENTINEL, the analogue of poison_sentinel.emp for the other phase.
+// EXPECTED FRAGMENT: "LS16_EXTERN_EQUATE_POISON: this poison claims the .asm namespace
+//                     resolves COLLECTED_PARK_SLOTS to ..."
+//
+// WHY A SECOND SENTINEL EXISTS AT ALL (LS-16, 2026-09-06)
+// ------------------------------------------------------
+// `poison_sentinel.emp` proves that `--extra-entry` evaluates a module's COMPTIME
+// `ensure`s: its guard reaches `build_program`, which reports `[Error]` lines and is what
+// `emp_expect_fail`'s diagnostic count reads. An `extern()` in the condition puts the site
+// on a DIFFERENT road: sigil lowers it to a `LinkAssert`, evaluates it after
+// `resolve_layout` in `check_link_asserts`, and reports a failure as
+//
+//     declared-chain drift guard FIRED: N error(s); first Some(Diagnostic { .. })
+//
+// with NO `[Error]` token anywhere (sigil crates/sigil-harness/src/native.rs). Case 0
+// therefore says nothing about this phase: the comptime sentinel can keep passing while
+// every link assert in the tree is silently dropped, and 135 guards — every cross-namespace
+// constant mirror and every RAM-reservation span in engine/ and games/ — would go dark
+// with every build still green. This module is the guard against that world, and
+// `emp_expect_fail` runs it FIRST among the link rows for the same reason case 0 runs
+// first among the comptime ones.
+//
+// WHY THE SUBJECT IS AN EQUATE. `extern("COLLECTED_PARK_SLOTS")` resolves through the
+// `.asm`/EQU namespace, not the label/VMA one — the road ~120 of the family's 135 sites
+// take (every `X == extern("NAME")` mirror in the anim modules, vdp.emp, the sound banks,
+// ram.emp and entity_window.emp). poison_extern_span.emp takes the label-difference road
+// and poison_extern_addr.emp the single-absolute-address one; the three together cover
+// every expression shape the family actually uses.
+//
+// WHY THIS PARTICULAR NAME. `COLLECTED_PARK_SLOTS` is one of the few externs in the family
+// whose value has a LITERAL `.emp` authority — `pub const COLLECTED_PARK_SLOTS` in
+// games/sonic4/config/constants.emp — so `emp_expect_fail` computes BOTH numbers in the
+// fragment rather than typing either, and the row tracks the constant in both directions
+// (see `emp_const`'s note in that file for why a typed number goes vacuous).
+//
+// WHY 65521 IS IMPOSSIBLE, STRUCTURALLY. The park is a rolling overwrite buffer of a
+// handful of entries in the 64 KB of work RAM a Mega Drive has; at
+// COLLECTED_PARK_ENTRY_SIZE bytes each, 65521 slots is more RAM than the machine has, so
+// no edit to the real constant can make this poison's claim true and quietly turn the row
+// green. If someone does move it here, the row fails on the fragment (which is computed
+// from the constant), never passes.
+//
+// Zero bytes, ensures-only — like every module in this directory it is unreachable from
+// any real entry, so an ordinary build parses it and never runs this guard.
+module games.sonic4.test.poison.poison_extern_equate
+
+const LS16_IMPOSSIBLE_SLOTS = 65521
+
+ensure(extern("COLLECTED_PARK_SLOTS") == LS16_IMPOSSIBLE_SLOTS, "LS16_EXTERN_EQUATE_POISON: this poison claims the .asm namespace resolves COLLECTED_PARK_SLOTS to {LS16_IMPOSSIBLE_SLOTS}; it resolves to {extern(\"COLLECTED_PARK_SLOTS\")}")
