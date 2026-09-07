@@ -24,7 +24,7 @@
     {
       "id": "ENGINE-SEAM-AUDIT",
       "project": "ENGINE-SEAM",
-      "title": "Audit engine/ for Sonic-specific mechanisms that should sit game-side -- his question was about rings, and his follow-up was 'what else is'. One booked row per leak: what is MECHANISM (stays) versus GAME MEANING (moves behind the Game interface, a define, or a hook), a price, whether it can be byte-neutral, and the consumers. Reading only: no byte-moving reseam without his word. The hub's five candidates are a GREP, not the finding list -- the split rule in ENGINE_ARCHITECTURE.md 'Engine/game contract' is ours to apply, and a population handed to an auditor is the shape that gets confirmed rather than tested.",
+      "title": "Audit engine/ for Sonic-specific mechanisms that should sit game-side -- his question was about rings, and his follow-up was 'what else is'. One booked row per leak: what is MECHANISM (stays) versus GAME MEANING (moves behind the Game interface, a define, or a hook), a price, whether it can be byte-neutral, and the consumers. Reading only: no byte-moving reseam without his word. The hub's five candidates are a GREP, not the finding list -- the split rule in ENGINE_ARCHITECTURE.md 'Engine/game contract' is ours to apply, and a population handed to an auditor is the shape that gets confirmed rather than tested. CONSUMER PRICING, oracle's own reading (banked empyrean origin/main 7e22001, sourced oracle-e7; oracle main bd61812): the ring surface is ONE file, crates/oracle-frontend/src/rings.rs -- four RAM labels plus 18 equates by listing spelling; the object half is separate. THE ASYMMETRY IS THE POINT, not the cost: a RENAME costs them one line per name and their reader names every missing symbol in one sentence, so it fails loudly and cheaply -- but a symbol RE-HOMED WITH ITS NAME KEPT is UNDETECTABLE there, so for that shape the PING AT LANDING is the load-bearing act and the edit is not. Aurora's surface (the per-section rings.json it writes) is UNMEASURED and aurora is stopped: carry it as UNKNOWN in the row, never as assumed-small.",
       "state": "next",
       "size": "L",
       "blockedBy": null
@@ -144,5 +144,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-07T22:35:56Z"
+  "updatedAt": "2026-09-07T22:37:06Z"
 }
