@@ -134,10 +134,20 @@ section dac_blip_bank (cpu: m68000, bank: $8000) {
 //
 // ⚠ THE CEILING IS 32768 B AND IT IS LINK-ENFORCED, NOT ENFORCED HERE. `bank:
 // $8000` means sigil's placer refuses a section whose content exceeds the bank:
-// `bank_diag` in sigil-link/src/relax.rs reports "section `dac_shared_bank` ...
-// over by K bytes", by name and by amount, so the next person to add a drum is
-// TOLD rather than shipping a bank that re-banks mid-sample. Measured
-// 2026-09-06 by padding this section past the boundary; see the LS-7 commit.
+// `bank_diag` in sigil-link/src/relax.rs reports "section `dac_shared_bank`
+// (0xNNNN bytes) cannot fit a 0x8000 bank, over by K bytes", by name and by
+// amount, so the next person to add a drum is TOLD rather than shipping a bank
+// that re-banks mid-sample. MEASURED 2026-09-06 by padding this section to
+// 0x832E and building: exit 1 at the seam-1 emit_sound_blob stage, "over by 814
+// bytes". See the LS-7 closure note in docs/DEFERRED_WORK.md.
+//
+// ⚠ AND READ THIS IF YOU ARE STARING AT A DIFFERENT ERROR. Overflow this bank by
+// more than ~1.4 KB and you do NOT get that message — you get the OVERLAP check
+// first: "sections `dac_shared_bank` [...] and `dac_sample_tab` [...] overlap in
+// the image (colliding pins)". That is still this bank being too big. It is not
+// a map bug and there is nothing wrong with `dac_sample_tab`; it is pinned
+// 1457 B past this bank's ceiling, so a large overflow reaches it before the
+// budget check reports. Shrink this section — the two errors have one cause.
 // No comptime `ensure` duplicates it here ON PURPOSE — a hand-summed byte total
 // beside a `data` list goes stale the moment someone adds a line and forgets the
 // sum, and a ceiling guard that silently under-counts is worse than none.

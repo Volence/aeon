@@ -29091,9 +29091,30 @@ stat -c %s engine/sound/generated/dac_shared_bank.bin
 Delta −5,154 B, exactly the duplicated bytes. `Dac_SharedBank_Start` sits at `$B0000` in `s4.lst`,
 0x8000-aligned, before and after.
 
-**No new gate was added, deliberately.** The ceiling already has a loud, always-on, by-name check in
-the placer (proven red in this parcel by padding the section past the boundary — see the parcel's
-commits). A comptime `ensure` summing the blob `.len`s beside the `data` list would have been a
+**No new gate was added, deliberately — and the existing one was proven red rather than assumed.**
+Padding `dac_shared_bank` with two extra `data` lines (`+6422 +1406` → `0x832E` = 33,582 B) and
+running `./build.sh` gives **exit 1** at the seam-1 `emit_sound_blob` stage:
+
+```
+error: emit_sound_blob (seam-1 resident blob) failed: resolve_layout (bank straddle / ensure?):
+  "section `dac_shared_bank` (0x832E bytes) cannot fit a 0x8000 bank, over by 814 bytes"
+```
+
+By name, by amount, unconditional. The mutation was restored from the committed baseline
+(`git checkout HEAD --` on a tree that was clean at HEAD) and the build is green again.
+
+**A correction to the first version of this note, because the first probe measured something else.**
+A *larger* pad (`+6422 +6422` → 38,598 B) does NOT produce that message — it produces the overlap
+check first: ``sections `dac_shared_bank` [0xB0000, 0xB96C6) and `dac_sample_tab` [0xB85B1, 0xB8630)
+overlap in the image (colliding pins)``. Still red, still names the section, so the protection holds
+either way — but a reader who overflows by more than ~1.4 KB gets a message about *colliding pins*
+and could go looking for a map problem instead of a full bank. The bank-budget message is reachable
+only for overflows of 1..1457 B, because `dac_sample_tab` is pinned at `$B85B1`, i.e. 34,225 B above
+`Dac_SharedBank_Start` at `$B0000` — 1,457 B past the bank ceiling. **This is why the probe was run
+twice: the first run's message named the right section for the wrong reason, which is exactly the
+shape that gets mistaken for a passing check of the thing you meant to test.**
+
+A comptime `ensure` summing the blob `.len`s beside the `data` list would have been a
 weaker duplicate that goes silently stale the first time someone adds a `data` line and forgets the
 sum. `span()` cannot measure a section (it takes a pure-data *proc* name), so there is no
 self-deriving comptime form available today. **What the placer's check does NOT cover, recorded in
