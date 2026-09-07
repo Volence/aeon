@@ -575,9 +575,10 @@ def read_system_stack(repo_root: str = REPO_ROOT) -> Tuple[int, bool]:
 
     Read from the source of truth rather than restated, because a `pub const` is
     exactly the kind of value that moves once and leaves a stale copy behind in a
-    tool. A sigil listing emits no constants at all, so the listing cannot supply
-    it. Falls back to the documented $FFFFFF00 with `derived=False` so the caller
-    can say which one it used.
+    tool. (The listing DOES carry constants -- 780 `EQU` rows in s4.lst, measured
+    2026-09-07 -- but SYSTEM_STACK is not among them, so the source is still the
+    authority here.) Falls back to the documented $FFFFFF00 with `derived=False`
+    so the caller can say which one it used.
     """
     src = os.path.join(repo_root, "engine", "system", "constants.emp")
     try:
@@ -659,9 +660,13 @@ _VRAM_TOTAL_TILES = 2048       # 64 KB / 32 B per 4bpp 8x8 tile
 def load_vram_layout(game: Optional[str]) -> Optional[VRAMLayout]:
     """VRAM allocation from `games/<game>/vram.toml`, the declared authority.
 
-    A sigil listing emits no constants, so the old approach — scraping
-    VRAM_PLANE_A / PLANE_H_CELLS out of the symbol table — has no input at all
-    and reported nothing forever. vram.toml is already this tree's ONE VRAM
+    NOT because the listing lacks the symbols -- that premise was FALSE and is
+    corrected here 2026-09-07 (sigil's finding, re-derived in this tree): s4.lst
+    carries 780 `EQU` rows, 32 of them `VRAM_*`, including the `VRAM_PLANE_A` this
+    docstring used to say had no input. The real reason is ARITHMETIC: occupancy
+    is the UNION of tile ranges, `window_plane` aliases the tail of `plane_b`, and
+    `overlay_with` exists only in the toml -- so summing symbols reports 104% for a
+    correct map. vram.toml is already this tree's ONE VRAM
     authority (tools/vram_map.py is its generated mirror); read the source,
     because the mirror drops the `overlay_with` field this needs.
 
@@ -710,7 +715,7 @@ def load_vram_layout(game: Optional[str]) -> Optional[VRAMLayout]:
 
     declared_free = sum(f["tiles"] for f in doc.get("free", []))
     return VRAMLayout(
-        source=f"games/{game}/vram.toml — NOT the listing (sigil emits no constants)",
+        source=f"games/{game}/vram.toml — NOT the listing (the listing has the symbols; summing them double-counts overlays)",
         regions=regions, total_tiles=_VRAM_TOTAL_TILES,
         occupied_tiles=len(occupied),
         free_tiles=_VRAM_TOTAL_TILES - len(occupied),
@@ -805,9 +810,10 @@ def format_ram_report(layout: Optional[RAMLayout], stack_derived: bool) -> str:
 def format_vram_report(layout: Optional[VRAMLayout]) -> str:
     lines = ["=== VRAM Budget ==="]
     if layout is None:
-        lines.append("VRAM: UNMEASURED — a sigil listing emits no constants, and no "
-                     "games/<game>/vram.toml was found for this build. Pass --map (or "
-                     "--game) so this axis has an authority to read.")
+        lines.append("VRAM: UNMEASURED — no games/<game>/vram.toml was found for this "
+                     "build. (The listing DOES carry VRAM_* constants, but summing them "
+                     "double-counts declared overlays, so the toml is the authority.) "
+                     "Pass --map (or --game) so this axis has an authority to read.")
         return "\n".join(lines)
     lines.append(f"VRAM: {layout.occupied_tiles:,} / {layout.total_tiles:,} tiles "
                  f"({layout.occupied_tiles / layout.total_tiles * 100:.1f}%)  "
