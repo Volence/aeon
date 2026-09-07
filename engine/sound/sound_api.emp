@@ -207,10 +207,45 @@ pub proc Sound_PlayMusic (d0: SongId) clobbers(d0-d4/a0-a1) preserves(sr.mask) {
         // bracket closes: its bus-release write sets the CCR, so the loop condition
         // must come from the captured register, not a test straddling the release.
         // See docs/superpowers/2026-07-16-sound-repost-gate-design.md.
+        //
+        // MASKED, per this file's header rule ("every transaction holds the bus,
+        // with interrupts masked"), and it is the ACQUIRE that needs it more than
+        // the body. `z80_stopped` writes the bus request ONCE, ABOVE its `.wait_z80`
+        // poll (engine/z80_bus.emp:26-31), and the hold is a LATCH, not a counter
+        // (z80_bus.emp:8-10 — "an inner release frees the outer hold"). An IRQ6
+        // landing in that spin runs VInt_Level/VInt_Lag, whose own `with z80_stopped`
+        // brackets (vblank.emp, sound-ON) and Read_Controllers' unconditional one
+        // (controllers.emp:39) each RELEASE the bus on exit; `rte` returns into
+        // `.wait_z80`, which re-reads bit 0 = 1 and branches back, and nothing below
+        // that label re-issues the request. Either the spin never exits, or it exits
+        // on a stale grant and the block below writes Z80 RAM with the Z80 live.
+        // Both callers (games/sonic4/debug/game_debug.emp, the config_a hotkeys and
+        // the boot hook) run at IPL 3 — boot.emp enables interrupts before both
+        // `invoke Game.boot_hook` and GameLoop — so the window is open, not
+        // theoretical.
+        //
+        // PER-ITERATION, not one mask across the whole loop: the mask exists to make
+        // ONE transaction atomic, which is the shape Sound_PostByte and
+        // Sound_ReadStat use. Sound_Init's alive-wait masks across its loop instead
+        // and is named in engine/irq.emp:58-63 as a hand-spelled exception; it is
+        // boot-time, where dropping VBlanks is free. Here the wait can span a Z80
+        // VBlank (the driver consumes SND_REQ_MUSIC in its own ISR), so unmasking
+        // between probes keeps the 68k's frame serviced — and the Z80 clears the
+        // slot regardless of the 68k's SR, so nothing about the mask can stall the
+        // handshake.
+        //
+        // WHAT THIS DOES NOT COVER: SPIN_WATCHDOG_LIMIT still counts only the OUTER
+        // iterations below — the spliced `.wait_z80` inside the bracket is one level
+        // beneath the counter and a hang there is still silent. The mask is what
+        // bounds it: with IPL 7 held across the acquire nothing can cancel the
+        // request, so the inner spin ends at hardware grant latency. The watchdog is
+        // NOT a net for the inner loop and must not be read as one.
     if DEBUG == 1 { move.l #SPIN_WATCHDOG_LIMIT, d4 }   // DEBUG watchdog budget
     .await_slot:
-        with z80_stopped {
-            move.b  MUSIC_SLOT, d1             // capture the slot under the hold
+        with ints_off {
+            with z80_stopped {
+                move.b  MUSIC_SLOT, d1         // capture the slot under the hold
+            }
         }
         tst.b   d1                             // test AFTER release (flags clean)
         if DEBUG == 1 {

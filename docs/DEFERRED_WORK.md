@@ -29085,7 +29085,7 @@ them looking. Any fix below that adds or edits a guard must state what it does N
 | ~~LS-9~~ | ~~**Map↔DPLC frame-count binding exists for ONE asset**~~ — **CLOSED 2026-09-07, `parcel/ls9-frame-count-binding`.** The insta-shield's four private parsers move to `engine/objects/dplc.emp` as `pub comptime fn`s, and all six mapping/DPLC pairs now carry both guards: `offset_table_frames(map) == offset_table_frames(dplc)` (the out-of-bounds one) and `empty_frame_mismatches(map, dplc, frames) == 0`. **NO EXISTING PAIR DISAGREED** — all six were measured before any guard was written (224/224, 251/251, 45/45, 251/251, 7/7, 8/8), so the card's "the build could go red" did not happen; these are latent guards, not a repair. **The population is SIX, not the row's seven names:** derived from the `embed()` sites and cross-checked against every writer of `Sst.mappings`, then corroborated against LS-4's independent `DPLC_GUARDS` registry, which holds the same six. *particle* and *spring* are not in it — neither has a DPLC (resident art from `Map_TestObj` / `Map_Spring`, both source-declared `offsets` tables with no blob), so there is no pair to bind; the same is true of the ring sparkle and the dust PUFF half, whose exemption is stated at its guard. `tools/test_map_dplc_binding.py` is the enforcement half: it enumerates the embedded blobs, refuses one that is neither in a registered pair nor exempted with a reason, refuses a guard whose arguments drifted to a sibling's blob, refuses a helper that is re-privatised or named without being imported, and refuses a message that does not say what it does not cover. 12 `.emp` red-first proofs (2 per asset) + 5 on the registry, every mutation read back from disk and restored from the committed baseline. **`animate.emp`'s unbounded frame byte is NOT closed by this** and is booked separately as LS-9a. | 12 + 5 red-first mutations; 4 shapes byte-identical |
 | LS-9a | **`AnimateSprite` bounds no frame byte, and binding the two tables does not close it.** `animate.emp`'s `cmpi.b #AF_SET_FIELD / bhs` treats every byte 0..$F6 as a frame index, so two tables that agree with EACH OTHER are still both overrun by a script byte >= their common frame count; `frames.emp` then reads an offset word from past the offset table (i.e. from piece data) and takes an arbitrary byte as the piece count. **Measured 2026-09-07, no live overrun anywhere** — max frame byte vs mappings frames: Sonic $C4/224 (27 spare), Tails $B4/251 (70), Knuckles $DE/251 (28), Tails appendage $28/45 (4), dust charge $06/7 (0), dust puff $03/4 (0), insta-shield $07/8 (0, and already pinned by `INSTASHIELD_LAST_FRAME`), ring sparkle 3/4 (0), particle 2/3 (0), spring 2/3 (0). Several sit at exactly 0 because the last frame is legitimately used, so the check must be `<`, not `<=`. **A second mouth on the appendage:** `TailsAppendage_Main` ADDS a roll bank of 0/4/8/$C to the script's byte after the step, so its reachable maximum exceeds any byte in the table — today 8+$C=20 against 45, and safe only because the add is gated on `ANIM_ROLL`, which nothing checks. **Why this parcel did not close it:** the animation scripts live in `offsets` bodies that a comptime fn cannot index (only the three `const: [u8; N]` scripts — insta-shield, ring sparkle, spring — are comptime-reachable), so an `.emp` guard would cover 3 of 11 tables and be exactly the pin-one-sibling defect LS-9 removed. A Python parser over the sources was prototyped and reduced 7 of 11 tables to a number, going silently blind on the four whose bodies name a `const` or whose mappings are a `centered()` table — a gate that reports 0 scripts for a third of its population is worse than none. **Two candidate fixes:** make `offsets` bodies comptime-readable in sigil (then one `script_max_frame(script) < offset_table_frames(map)` per table, uniform), or emit the reachable-frame maximum from the tool that generates the tables. Second is cheaper, first is the real one. |
 | LS-10 | **System (8) and Effect (16) fixed pools are swept 3× per frame while ~90% empty** — 2,780 cycles/frame (2.2%). The Dynamic pool already walks a live list. The 8 System slots are provably dead in release and are the cheap half. |
-| LS-11 | **`Sound_PlayMusic`'s `.await_slot` bus-hold spin is unmasked**; an IRQ6 cancels the latch and nothing re-issues the request — infinite spin, and the DEBUG watchdog counts the outer loop. **Not reachable in either canonical shape**; lives in the only profile that can play music. |
+| ~~LS-11~~ | ~~**`Sound_PlayMusic`'s `.await_slot` bus-hold spin is unmasked**; an IRQ6 cancels the latch and nothing re-issues the request — infinite spin, and the DEBUG watchdog counts the outer loop. **Not reachable in either canonical shape**; lives in the only profile that can play music.~~ **CLOSED 2026-09-07, `parcel/ls11-playmusic-spin-mask`.** Premise HELD on all four counts; one number on the card did NOT — see the closure note below. |
 | LS-12 | **The banked-ROM/DMA ruling (2026-08-09) is applied to 1 of 3 Timer-A tick paths.** `Run_SeqFrame_OnSongBank` and `Snd_PollMailbox_Banked` have no `SND_CTRL_DMA_ACTIVE` check; the timer poll sits upstream of `.dma_check` so the tick structurally cannot see the flag. |
 | LS-13 | **`Read_Controllers` holds the Z80 bus ~130 µs every frame** (~2.4 DAC sample periods) in every sound-ON shape, and `vblank.emp` asserts eight lines away that its own byte write is "the ONLY 68k bus hold in the sound build". One of the two files is wrong for the next reader either way. |
 | ~~LS-14~~ | ~~**`s4lint` lints 8 non-comment lines with zero instructions** under 412 test functions (24% of the pytest corpus), and the one test asserting "the subject has not collapsed to one file" skips on the deleted `main.asm`.~~ **CLOSED 2026-09-07, `parcel/ls14-retire-s4lint` — retired per the hub ruling.** `tools/s4lint.py` (2412 lines) and `tools/test_s4lint.py` (3072 lines, 412 tests) are deleted; `build.sh`'s lint invocation is gone. **Three of the four inherited numbers re-derived and HELD; one did not.** (1) **8 non-comment non-blank lines, zero instructions** — confirmed, and the loophole checked rather than assumed: `discover_files` reaches a SECOND file, `engine/debug/debugger.asm` (806 lines, 134 instruction lines by s4lint's own tokenizer), but it is on `_SKIP_FILES`, so `main()` linted **exactly one file**. Same for `games/demo`. (2) **412 `def test_`** — confirmed by grep AND by `pytest --collect-only` (412 nodeids), the largest file in the corpus (next: `test_effects_gen.py`, 369). (3) **The skipping test** — confirmed live: `pytest tools/test_s4lint.py -q -rs` → `410 passed, 2 skipped`, both `main.asm not found`; `main.asm` absence re-established with `[ -f ]` and `git log --diff-filter=D` (deleted by `b76576ea`). (4) **"24% of the pytest corpus" does NOT reproduce.** 412 of **2626** collected = **15.7%**; 412 of 2469 `def test_` lines = 16.7%; by test-file line count 7.2%. No counting method reaches 24%. The overstatement is ~1.5x and does not change the ruling, whose premise is the empty subject, not the share. **WHAT RETIRING ACTUALLY LOSES, per rule rather than in aggregate.** The tool owned 36 diagnostics. The linted subject was 8 directive lines (`cpu`/`padding`/`supmode`/`ifdef`/`include`/`endif`/one `equ`/`END`) plus a file header comment. **Exactly 2 of the 36 had any reachable subject — W016 (constant not ALL_CAPS, the one `equ`) and W019 (file missing header comment) — and both PASSED.** Proven by mutation, not by reading: renaming `__Aeon_AS_Carrier` to `badlyNamedThing` fires W016; deleting the header fires W019. The other 34 require instructions, macros, routines, `struct` fields or data, none of which exist in the linted corpus — the whole tracked `.asm` corpus is **3 files** (`engine/debug/debugger.asm` skipped, two 8-line game roots) against **197 `.emp`** modules the tool cannot parse. A red-first control confirms the tool itself worked: a 7-line scratch file fires E001 · W001 · W006x2 · W014 · W019, exit 1. **So the coverage lost is zero lines TODAY — but the six diagnostics that encoded real engine invariants (E001 unsized branch, E002 mul/div, E006 VDP write without the Z80 stopped, E007 unpaired `stopZ80`, W021 writes outside declared `Clobbers`, W024 debug-only macro outside `__DEBUG__`) had no `.emp`-side equivalent then and have none now.** That is carried forward as **LS-14a** below, and `CODING_CONVENTIONS.md`'s E002 note is rewritten to say so instead of pointing at a deleted file. **Corpus arithmetic closes exactly: 2626 collected before -> 2214 after; 2618 passed + 8 skipped -> 2208 passed + 6 skipped; -412 and -2 respectively, which is `test_s4lint.py` entire and nothing else.** Consumers enumerated by what INVOKES it, not by name: `build.sh:565` (the only executable caller), no `tools/*.sh`, no systemd unit (`grep` over `~/.config/systemd/user` exits 1), no CI (the repo tracks no workflow file), and three prose sites — `CODING_CONVENTIONS.md:318`, `tools/effects_gates.py:6`, and this file — all updated. **NOT ours to edit, reported to the hub:** `empyrean/docs/SIGIL_CORE_SPEC.md` (A4 lists `s4lint.py` among the generators sigil leaves untouched; **R6 rests the relaxation-equivalence argument on "enforced by `s4lint.py` (already in the pipeline)"**) and `empyrean/wiki/STRUCTURE.md:159,164`. Historical plans/specs/notes under `docs/superpowers/` are records and were left alone. **Byte-neutral, proven with an ABSENT control and with freshness separated from identity — because on a byte-neutral parcel a matching CRC cannot by itself witness that the build ran.** The four shapes were built at `origin/master` FIRST (the control, `85b229cd`, where `s4lint: no issues found` appears in every log), then all four ROMs were **deleted** and the four shapes rebuilt on this branch, so each artifact's existence and mtime prove THIS run produced it. `md5sum` identical across all four: `s4.bin b1dc870ebdf80459fe1467a4d54d7ba2` (820229 B) · `s4.debug.bin 5a5e9b9f4738f698324a42fbe8356dc5` (846529 B) · `demo.bin 8bfc0f9fa076904fc6c625af48c161ca` (96863 B) · `demo.debug.bin 177037ab054b3bcc57a00d65eb7fc6cf` (103185 B). All eight builds exit 0, and no parcel log contains the string `s4lint` at all. `build.sh`'s own pre-build pytest lane corroborates the corpus arithmetic in place: **2618 passed / 4 skipped → 2208 passed / 2 skipped in all four shapes** (that lane deselects the 4 `needs_build` tests, which is why its skip count sits 2 below the standalone run's). | four shapes green (156/160/152/150 s, `uptime` 02:33–02:41, load avg 5.7–6.8); control four shapes green (158/157/148/150 s, 02:22–02:30, load avg 4.5–6.6); all four inherited numbers re-derived with method; per-rule reachability proven by two mutations plus a red-first control |
@@ -29107,6 +29107,124 @@ them looking. Any fix below that adds or edits a guard must state what it does N
 | LS-24 | ~90 comments cite `.asm` authorities that do not exist; `dma_queue.emp:26` says "the byte gates are the guard" naming a deleted file and a gate no tool references. |
 | LS-25 | `scene_dsl.emp` ×5 cites a file deleted 2026-08-18, all exactly 31 lines stale; every substantive claim is TRUE, only the coordinates are wrong. `scene_equiv_proof.emp` cites the same dead file 20+ times and is exact, **because it says where to recover it**. |
 | LS-26 | `VSync_Wait` still asserts a lemma `VBlank_Handler`'s own header retracts 370 lines away — and the retracted one is what a reader hits first. |
+
+### ~~LS-11 — `Sound_PlayMusic`'s `.await_slot` BUS-HOLD SPIN IS UNMASKED~~ — CLOSED 2026-09-07 (`parcel/ls11-playmusic-spin-mask`)
+
+**What was done.** `engine/sound/sound_api.emp`'s `.await_slot` bracket is now
+`with ints_off { with z80_stopped { … } }` — the `Sound_PostByte` / `Sound_ReadStat` shape,
+per iteration. Plus `tools/test_sound_bus_hold_mask_lint.py`, a file-scoped text lint in
+build.sh's pytest lane (`build.sh:628`, build-fatal).
+
+**THE RULE AND THE POPULATION, re-derived rather than taken from the card.** The header
+states it at `:6-8`: *"So every transaction holds the bus, with interrupts masked so a
+VBlank stopZ80/startZ80 pair … can't release the bus mid-write."* The file has **six**
+`with z80_stopped` brackets — the card's "five other places" is exactly right, and the
+lint re-counts them on every run: `Sound_PostByte` (`with ints_off`), `Sound_Init`'s
+`.wait_alive` (`move.w #$2700, sr` at the top of the loop, held to the `(sp)+` after it),
+`Sound_PlayMusic`'s `.await_slot` (**was the unmasked one**), `Sound_PlayMusic`'s param
+post (`with ints_off`), `Sound_DrainSfxRing` (hand-spelled `$2700`), `Sound_ReadStat`
+(`with ints_off`). `engine/irq.emp:58-63` names `Sound_Init`'s alive-wait as a deliberate
+hand-spelled loop exception and does **not** name `.await_slot`, so the omission was a gap
+rather than a carve-out.
+
+**THE DEFECT, in the form that could have refuted it.** Four independent premises, each
+checkable, and the finding dies if any one fails:
+
+1. *The acquire writes the request once, outside the poll.* `z80_bus.emp:26-31` —
+   `move.w #$0100, Z80_BUS_REQUEST` then `.wait_z80: btst #0 / bne .wait_z80`. Nothing
+   below the label re-issues. **Holds.**
+2. *The hold is a latch, not a counter.* `z80_bus.emp:8-10` says so in the compiler's own
+   words ("an inner release frees the outer hold"), and `$A11100` bit 8 is a level input,
+   not a count. **Holds.**
+3. *IRQ6 releases the bus.* Under `SOUND_DRIVER_ENABLED == 1` both handlers bracket:
+   `vblank.emp:123`/`:285` (VInt_Level) and `:338`/`:403` (VInt_Lag), and
+   `Read_Controllers` (`controllers.emp:39`) is unconditional in **both** sound shapes.
+   Each release is `move.w #$0000, Z80_BUS_REQUEST`. **Holds.**
+4. *The window is open at the call site.* `boot.emp:325` does `move.w #$2300, sr` BEFORE
+   `invoke Game.boot_hook` (`:343`) and before `GameLoop`, and neither caller masks.
+   **Holds.**
+
+So an IRQ6 in the spin leaves the mainline at `.wait_z80` reading bit 0 = 1 with no
+outstanding request. **Refinement against the card, and it is against interest to state
+it:** the primary outcome is a permanent mainline spin with VBlank still firing (a frozen
+game with a live ISR), not a dead machine; and there is a second, rarer outcome — if the
+post-`rte` `btst` catches the bus before the Z80 reclaims it, the loop exits on a **stale
+grant** and the block below writes Z80 RAM with the Z80 live. Both are faults; "hard
+machine lockup" over-states the first and misses the second.
+
+**THE WATCHDOG CLAIM: CONFIRMED, and measured in the listing.** `config_a` at
+`85b229cd`: `Sound_PlayMusic` `B600`, `.await_slot` `B606`, the spliced
+`$engine.sound_api$asm12$wait_z80` `B60E`, `.await_go` `B67A`. The `subq.l #1, d4` sits
+after the bracket closes, at a higher address than `B60E`; a CPU parked on the `bne` at
+`B60E` never reaches it. `SPIN_WATCHDOG_LIMIT` therefore counted zero. **This is NOT
+repaired by the fix and the guard comment says so**: the inner spin is still outside the
+counter's reach in every shape. What the mask buys is that nothing can cancel the request
+any more, so the inner spin ends at hardware grant latency.
+
+**REACHABILITY: CONFIRMED.** `Sound_PlayMusic` has exactly **five** call sites, all in
+`games/sonic4/debug/game_debug.emp` (`:86` A, `:126` UP, `:140` C, `:150` START,
+`:175` the boot hook). Both bound hooks are gated
+`if SOUND_DEBUG_HOTKEYS == 1 && SOUND_DRIVER_ENABLED == 1` (`games/sonic4/config/game.emp:168-171`),
+and `build.sh:203-210` refuses `SOUND_DEBUG_HOTKEYS=1`. Not reachable in `s4.bin` or
+`s4.debug.bin`.
+
+**WHERE THE CARD IS WRONG, and it changes the merge cost.** It says *"It changes the sound
+profile, not the shipped ROMs, so the freeze ritual is lighter."* **The shipped ROMs
+change.** `Sound_PlayMusic` is not hotkey-gated — only its callers are — so the proc is
+emitted in **every sound-ON shape**, `s4.bin` included. Measured, same tool, same tree,
+baseline file restored from `85b229cd`:
+
+| shape | baseline crc | with fix | len |
+|---|---|---|---|
+| `s4` | `2184fbc0` | `55e794ae` | 820229 (unchanged) |
+| `s4_debug` | `ee9f3b33` | `e3a3d80c` | 846529 (unchanged) |
+| `config_a` | `845bd882` | `27287530` | 846881 (unchanged) |
+
+`demo` / `demo.debug` are structurally unaffected: `Sound_PlayMusic` and `Sound_PostByte`
+appear **zero** times in `demo.lst` and `demo.debug.lst` (sound-OFF game). **So this parcel
+owes the aeon+sigil byte-identity ritual (repin + `refreeze --ab`) at merge, not a light
+one.** It was deliberately NOT run from this parcel: sigil's goldens are shared serialized
+state and other lanes are live tonight — and they are *already* stale at master, which is
+the evidence that the refreeze is a merge-time step rather than a per-parcel one
+(`golden/offcanonical_sizes/s4.txt` says `Sound_PostByte 0x8082`; this tree's `s4.lst` says
+`823A`, and that label's address is **unchanged** by this parcel — both the baseline and
+the fixed `config_a` listing put `Sound_PlayMusic` at `B600`).
+
+**THE GATE, and the control that caught it lying.** `tools/test_sound_bus_hold_mask_lint.py`
+checks that every `with z80_stopped` in `sound_api.emp` is entered masked (enclosing
+`with ints_off`, or a hand-spelled `$2700` still in force), that the header still STATES
+the rule, and a population floor of six. Four red-first controls, each quoted from disk and
+each restored by `git checkout HEAD --` from a committed baseline: **A** the real
+historical file at `85b229cd` → RED naming `:212 in Sound_PlayMusic`; **B**
+`Sound_ReadStat`'s mask removed → RED naming `:565`; **C** the header sentence removed →
+RED; **D** a whole bracket deleted → RED on the floor. **C was GREEN on the first
+version** — the whole-file search was satisfied by the fix's own comment quoting the rule
+back, i.e. the premise check was measuring the restatement. Scoped to the header block and
+all four re-run retroactively.
+
+**WHAT THE GATE DOES NOT COVER**, stated in its docstring and in its failure message: the
+**sixteen** `with z80_stopped` brackets in the tree's other eight files (vblank 6, section
+3, bg 2, boot 1, controllers 1, parallax 1, sound_debug 1, ojz_scroll_test 1) — several of
+which are correct only via a mask set far above them (`section.emp`, `bg.emp`, both with
+DEBUG `IPL >= 6` asserts) or via interrupt context (`controllers.emp`, `sound_debug.emp`,
+both reached only from VInt); a mask established by a caller; runtime of any kind; and the
+inner-spin watchdog hole above.
+
+**RIDER, not fixed here (a live file another lane may hold):** `parallax.emp:1771-1776`
+asserts *"This is the tree's one atomic Z80 hold that must also stay masked."* It is not —
+`sound_api.emp` has five, now six. Same family as **LS-13**, where `vblank.emp` claims its
+byte write is "the ONLY 68k bus hold in the sound build" eight lines from
+`Read_Controllers`' hold. Both are one-line comment fixes; neither is a sound-tree file.
+
+**CONTROLLER TAG — the one thing that could not be settled here.** Nothing in this parcel
+ran a ROM. The four canonical shapes prove only that the change breaks nothing they can
+see, and **they structurally cannot exercise the subject**: neither can play music and
+neither links a caller of `Sound_PlayMusic`. `config_a` was built (`sigil build --aeon .
+--native --config-a`, exit 0, crc `27287530`) but not played. Wanted: `config_a` on the
+emulator, A/UP/C/START hotkeys, music starts and repeated presses still restart it.
+Reproducing the ORIGINAL hang on demand is not realistically gateable — it needs an IRQ6
+inside a ~5-instruction window — which is why the standing net is the text lint and not a
+runtime one.
 
 ### ~~LS-7 — 5,154 B OF BYTE-IDENTICAL DUPLICATE PCM IN THE NO-STRADDLE DAC BANK~~ — CLOSED 2026-09-06 (`parcel/ls7-dac-dedupe`)
 
