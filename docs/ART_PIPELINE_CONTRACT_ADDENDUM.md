@@ -462,3 +462,154 @@ One thing an outsider *will* copy that is worth naming: the `bgLayoutRef` key in
 `games/sonic4/data/editor/ojz/act1/section_0.meta.json`, which today reads
 `"ingame-forest-v15-1786630615596"` and looks like a per-section background binding. **No
 aeon build tool reads it.** See §A3.
+
+---
+
+## A2. The effects schema — pinned, and in another repository
+
+The main contract's §10 lists this as **NOT ESTABLISHED HERE**, and it was right to: the
+schema is not in aeon. This section discharges that gap by reading it where it lives.
+
+### A2.1 The pin, and why it expires
+
+**Tree: `empyrean`. Commit: `08d9affe0bc4d537c6d336f9b3ebd06cff06e879`.**
+
+Cite it as `empyrean 08d9affe`, never as a bare SHA — a cross-repo citation without its
+tree sends the reader into the wrong history. That commit is on `origin/main` (checked
+with `git branch -r --contains`), so it is fetchable; the four files below were clean in
+the working tree at it (`git status --porcelain` on those paths returned nothing).
+
+| File | Lines | What it is |
+|---|---|---|
+| `contract/schema/aurora-effects-preset.schema.json` | 592 | the **preset** document wire shape |
+| `contract/schema/aurora-effects-scene.schema.json` | 622 | the **scene** definition file wire shape |
+| `docs/AURORA_EFFECTS_SCHEMA.md` | 1,609 | the prose contract, the amendment log, and the golden protocol |
+| `contract/schema/tests/effects-preset-vectors.json` | 1,042 | 41 document vectors — 8 `pass`, 33 `fail` |
+
+**This is a snapshot of another repo's contract, and it has its own amendment ritual.**
+`AURORA_EFFECTS_SCHEMA.md` §8 sets the change protocol: a consumer wanting a new field, or
+a writer wanting a new key, amends **the document, the JSON schema, and aeon's consumer
+list together**, and Aurora re-pins against both repo SHAs. The amendment log in that file
+records changes as recently as 2026-09-06. **Re-read the schema at that path rather than
+trusting this summary indefinitely.** If the version you fetch disagrees with anything
+below, the version you fetch is right.
+
+The aeon half of the contract — the field *names* this engine's generator actually
+consumes — is `tools/EFFECTS_CONSUMER_CONTRACT.md` in this repo (1,148 lines). The two
+are meant to be read together.
+
+### A2.2 The single most important property: the schema validates SHAPE only
+
+If you take one thing from this section, take this. From the test vectors' own
+`$comment`, quoted:
+
+> **WHAT IS DELIBERATELY NOT HERE: value vectors.** The schema is normative for SHAPE
+> only (section 7.1), so a legal-shaped document carrying an out-of-range period or a
+> shift of 9 PASSES here and is refused by the engine's own ensure with the measurement
+> behind it.
+
+So a document that validates green against the JSON schema **can still be refused at bake
+time**, and the numeric bounds live in the engine's `.emp` constructors
+(`engine/effects/raster_dsl.emp`, `engine/level/parallax_dsl.emp`), not in the schema.
+Most `description` strings in the schema name the constructor and rule that will judge the
+value — e.g. `band.top`: *"Value rules: raster_dsl.emp fire (screen-line range), band
+(top < bot, height vs fire_cost_cycles)."* Follow those pointers for anything numeric.
+
+Both schemas are **closed** — the scene schema sets `unevaluatedProperties: false` at the
+root, and every `$def` in both closes the same way. An unrecognised key is a validation
+failure, not a warning. `AURORA_EFFECTS_SCHEMA.md` §8: *"the scene schema is closed
+(`unevaluatedProperties: false`): on the writer path, the party validating is the party
+publishing what it writes. Wave-2 keys enter by amending the schema, never by unilateral
+emission."*
+
+Two refusals the vector gate explicitly **cannot** express, both from the generator and
+both stated in §7.2: `cycles: []` (legal JSON, refused by aeon's `load_preset`), and a
+`variants` array longer than `PAL_MAX_VARIANTS`.
+
+### A2.3 Scene definition file — shape
+
+Root: required `schema` (`const: 1`), `id`, `layers`, `v_factor`. `id` matches
+`^[a-z][a-z0-9_]{0,31}$`.
+
+| Key | Type | Required | Default | Bounds in schema |
+|---|---|---|---|---|
+| `schema` | const `1` | **yes** | — | — |
+| `id` | string | **yes** | — | `^[a-z][a-z0-9_]{0,31}$` |
+| `name` | string | no | — | — |
+| `layers` | array of layer | **yes** | — | 1..16 items |
+| `v_factor` | int | **yes** | — | 0..15 |
+| `v_center` | int | no | `0` | 0..32767 |
+| `v_offset` | int | no | `0` | −32768..32767 |
+| `v_factor_fg` | int | no | `0` | 0..15 |
+| `bob_shift` | int | no | `15` | — |
+| `bob_period` | int | no | `0` | 0..8 |
+| `deform_fg` / `deform_bg` | sceneDeform | no | `"none"` | — |
+| `v_deform` | — | no | `"none"` | — |
+| `reels` | object | no | — | — |
+| `anchor` | — | no | `"none"` | — |
+| `left_column_mask` | enum | no | `"undeclared"` | `undeclared` \| `sprite_mask` \| `factor0_lock` \| `accept` |
+| `transition` | enum | no | `"smooth"` | `smooth` \| `instant` |
+| `budget_class` | string | no | — | — |
+
+A **layer** requires `world_y` (0..32767), `fa` and `fb`. `fa`/`fb` are *factors*: either
+one of the published names — `FACTOR_LOCKED`, `FACTOR_0`, `FACTOR_1`, `FACTOR_1_2`,
+`FACTOR_1_4`, `FACTOR_1_8`, `FACTOR_1_16`, `FACTOR_1_32`, `FACTOR_3_4`, `FACTOR_3_8`,
+`FACTOR_3_16`, `FACTOR_5_8`, … — or a custom `packed()` triple, where `s1 = 15` means the
+term is locked and `s2 = 15` means single-term, with op `0` = add and `1` = subtract.
+Optional per layer: `dsa`/`dsb` (0..15, default 15), `phase` (0..255, default 0),
+`enabled` (default true), `deform`, `curve`, `vsplit`, `drift`, `rowRemap`.
+
+A `deform` table (`tableRef`) is either a DSL generator call — `{"generator": "sine",
+"amplitude": 1..127, "period": 1..256}` — or a raw `.bin` path relative to
+`games/sonic4/data/editor/effects/`, with no `..` segments, baked via `embed()`. There is
+no registry-symbol form; the schema says that omission is deliberate.
+
+⚠ A two-sources guard worth knowing before you author: when a layer sets `deform.own`, its
+`dsa`/`dsb`/`phase` must be absent or at defaults, because they lower into the same record
+fields. The schema names sigil as the enforcer, not itself.
+
+### A2.4 Preset document — shape
+
+Root: required `schema` (`const: 1`) and `id` (same pattern). Optional: `name`, `bands`
+(min 1 item), `cycles` (array or null), `variants`, `patch_world_ys` (max 4),
+`patch_motion` (max 4), `ramp`, `base_swap`, `boundary`.
+
+`$defs`, with their required key sets — every one closed:
+
+| `$def` | Required | Notes |
+|---|---|---|
+| `band` | `top`, `bot`, `sh`, `on` | one ON fire plus a *derived* restore. Covers `top..bot-1`; `bot - top` is the height charged. `sh` is required with no default, deliberately: whether an effect touches a mode register is stated at the call site |
+| `boundary` | `line`, `channel`, `lo`, `hi`, `on`, `sh` | a patchable palette boundary — **one** fire that switches at a line and never switches back, whose line is then moved every frame by a patch channel's world anchor. `line`/`lo`/`hi` are 3..223; `channel` 0..3; optional `offscreen_ship`. This is the shipped moving water |
+| `cram` | `addr`, `colours` | `addr` is a CRAM **byte** address; `0` is a real address (palette line 0, the character's) and is refused by the engine, not by the schema. `colours` length also sizes the derived restore |
+| `pal_region` | `addr`, `slot`, `pal_line`, `entry`, `count` | `slot` is the `Pal_Variant_Stage` source, **not** the CRAM destination; `pal_line` must agree with `addr >> 5` and `entry` with `(addr >> 1) & 15` |
+| `tint_region` | `slot`, `pal_line`, `entry`, `count` | `pal_region` **without** `addr` — the destination is derived by the constructor, so `addr` is refused here by closure. *"a document is one source for one byte"* |
+| `cycle_channel` | `line`, `first`, `count`, `period` | optional `dir` |
+| `pal_variant` | *(none required)* | any of `shift_r`, `bias_r`, `shift_g`, `bias_g`, `shift_b`, `bias_b`, `lines` |
+| `ramp` | `top`, `lines`, `target`, `start`, `step` | `top` 3..222, `lines` 1..220 |
+| `ramp_target` | `vsram` | exactly one arm, and only `vsram` exists in this contract. `vsram.addr` is 0..78 (VSRAM is 80 bytes). No CRAM arm is reserved — *"no arm with nothing behind it"* |
+| `fp16` | `whole`, `frac256` | `whole` −512..511, `frac256` 0..255 |
+| `anchor_sweep` | `amp_shift`, `period_shift` | `amp_shift` **2..8**, `period_shift` 0..8, optional `phase` 0..255 |
+| `patch_motion_entry` | `sweep` | wraps an `anchor_sweep` |
+| `base_swap` | array, min 1 | a **list** of mid-frame nametable-base bands in document order, flattened into one raster program |
+
+Two hazards the schema calls out that no validator will catch for you:
+
+* **`base_swap` ordering is enforced by nobody.** Quoted: *"ORDERING IS NOT ENFORCED BY
+  THIS SCHEMA AND NOT BY AEON'S GENERATOR: the flattened fire sequence must be strictly
+  ASCENDING across the whole list, bands included, and no band may overlap another."*
+* **`base_swap`'s old single-object shape is a hard break.** The earlier form (one closed
+  object with `line` and `target`) is refused now, with no legacy arm.
+
+### A2.5 Where bands and scenes each belong
+
+From `AURORA_EFFECTS_SCHEMA.md` §7.1, and this catches people:
+
+> **A band is not a scene field.** A scene IS a `parallax_config`; the raster program is a
+> channel of an `EffectsPreset` bound per SECTION. A `bands` key on a scene file is refused
+> by the scene loader. So the editor's band panel edits a `presets/<id>.json` document,
+> never a scene.
+
+Note also that §5 of that same document specifies the `anims` key of
+`editor_bg_override.json` — the writer-side twin of §A1.4 here. If the two ever disagree,
+§A1.4 is derived from aeon's parser (the consumer) and §5 there is the writer's contract;
+raise it rather than picking one.
