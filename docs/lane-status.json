@@ -2,14 +2,19 @@
   "focus": "Sigil is waking to unblock the held sound fix. Meanwhile taking the riders tonight's work produced, worst first.",
   "inFlight": [
     {
-      "what": "LS-13a: 17 of 23 places the engine pauses the sound chip are protected only by an argument that nothing checks, and boot's is not even shaped like the others. The deliverable may be 'no build-time check is expressible', which is a real answer.",
+      "what": "LS-13a: 17 of 23 places the engine pauses the sound chip are protected only by an argument nothing checks. 'No build-time check is expressible' is an acceptable answer.",
       "where": "agent worktree, branch parcel/ls13a-hold-masking-argument",
       "agent": true
     },
     {
-      "what": "LS-9a: an animation can name a frame that does not exist and the engine reads past the table. Several assets sit at exactly zero margin, so the comparison direction is the whole risk.",
+      "what": "LS-9a: an animation can name a frame that does not exist. Several assets sit at exactly zero margin, so the comparison direction is the whole risk.",
       "where": "agent worktree, branch parcel/ls9a-frame-byte-bound",
       "agent": true
+    },
+    {
+      "what": "COORDINATION, load-bearing for any session that picks this up: sigil is about to REPLACE the shared assembler binaries to unblock LS-12. Do NOT start a build against sigil/target/release between sigil's 'about to swap' and its 'swapped' message, and do NOT merge parcel/ls12-dma-guard-tick-paths until the 'swapped' message arrives with the new md5. Sigil holds for an explicit clear from this lane and will not infer one. Their control and pin work use a private target dir, so only the rename is exclusive.",
+      "where": "cross-lane with sigil",
+      "agent": false
     }
   ],
   "blockedOnOwner": [
@@ -24,7 +29,7 @@
       "since": "2026-09-06"
     }
   ],
-  "nextBoundary": "After these two. Anything that would move the Z80 sound blob or the debug symbol table serializes behind the held fix, which sigil is waking to unblock.",
+  "nextBoundary": "After the two riders, and separately after sigil's binary swap unblocks the held LS-12 merge.",
   "queue": [
     {
       "id": "LS-12",
@@ -148,5 +153,5 @@
   ],
   "awaiting": "nothing blocking, but three things are yours: LS-17 (whether a shipped game spends ROM so a corrupt stream crashes legibly), LS-13's listening half (whether you can hear a 60 Hz artefact on the drums), and the 3-tile graphics reclaim, which is now safe but leaves zero headroom",
   "atBoundary": false,
-  "updatedAt": "2026-09-07T11:54:50Z"
+  "updatedAt": "2026-09-07T12:03:59Z"
 }
