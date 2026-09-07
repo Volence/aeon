@@ -1,6 +1,17 @@
 {
-  "focus": "Tier two of the lens sweep is done except one fix held on sigil. Starting the last rows: the contradictory bus-hold comments, then the decayed prose.",
-  "inFlight": [],
+  "focus": "The last two lens parcels are running. After them the sweep is done except one fix that cannot land until sigil re-pins.",
+  "inFlight": [
+    {
+      "what": "LS-13's documentation half plus LS-19: three files that contradict each other about which hardware holds exist, and a shipped deletion whose stated justification is false. It is told to stop rather than repair if the false premise turns out load-bearing.",
+      "where": "agent worktree, branch parcel/ls13doc-ls19-false-claims",
+      "agent": true
+    },
+    {
+      "what": "LS-21 through LS-26: six rows of prose whose stated numbers the code contradicts. Every number to be re-derived rather than recopied, since a fresh literal goes stale on the same clock.",
+      "where": "agent worktree, branch parcel/ls21-26-decayed-prose",
+      "agent": true
+    }
+  ],
   "blockedOnOwner": [
     {
       "id": "LS-17",
@@ -13,48 +24,41 @@
       "since": "2026-09-06"
     }
   ],
-  "nextBoundary": "After the last two lens parcels land. Then the lens list is exhausted apart from LS-12, which waits on sigil.",
+  "nextBoundary": "When both parcels land. That is the end of the lens list apart from LS-12, which cannot land until sigil re-pins three sites.",
   "queue": [
     {
-      "id": "LS-12",
-      "title": "DONE AND HELD at origin/parcel/ls12-dma-guard-tick-paths c1ac4a60. Merging it hard-fails ./build.sh for every lane until sigil re-pins three sites against the new resident Z80 blob lengths 6176 plain / 6306 debug: seam1.rs's two constants; the DUPLICATE 0x1813 literal inside blob_lengths_are_canonical at seam1_native_link.rs:132; and boot_port.rs's Z80_SOUND_SIZE, which moves THIS time where it did not last time, because both new lengths are even and the previous pair were odd and rounded to the same value",
-      "state": "blocked",
-      "size": "M",
-      "blockedBy": "sigil must re-pin first; Dominion refused the wake at 08:04:18Z under sleep mode, so this waits for his morning or his say-so"
-    },
-    {
       "id": "LS-13-doc",
-      "title": "Three files disagree about which Z80 bus holds exist and which are masked; the documentation half is ours, the listening half is his",
-      "state": "next",
+      "title": "Contradictory bus-hold claims across three files; the documentation half is ours",
+      "state": "doing",
       "size": "S",
       "blockedBy": null
     },
     {
       "id": "LS-19",
-      "title": "Two derivations justify a deletion by claiming a routine touches no video hardware; it writes the control port in a loop",
-      "state": "open",
+      "title": "A shipped deletion justified by a false claim that a routine touches no video hardware",
+      "state": "doing",
       "size": "M",
       "blockedBy": null
     },
     {
       "id": "LS-21..LS-26",
-      "title": "Tier 3: six decayed prose rows, every stated number wrong in a checkable way",
-      "state": "open",
+      "title": "Six decayed prose rows, every stated number wrong in a checkable way",
+      "state": "doing",
       "size": "M",
       "blockedBy": null
+    },
+    {
+      "id": "LS-12",
+      "title": "DONE AND HELD at origin/parcel/ls12-dma-guard-tick-paths c1ac4a60. Merging it hard-fails ./build.sh for every lane until sigil re-pins three sites against the new resident Z80 blob lengths 6176 plain / 6306 debug: seam1.rs's two constants; the DUPLICATE 0x1813 literal inside blob_lengths_are_canonical at seam1_native_link.rs:132; and boot_port.rs's Z80_SOUND_SIZE, which moves THIS time where it did not last time, because both new lengths are even and the previous pair were odd and rounded to the same value",
+      "state": "next",
+      "size": "M",
+      "blockedBy": "sigil must re-pin first; Dominion refused the wake at 08:04:18Z under sleep mode, so this waits for his morning or his say-so"
     },
     {
       "id": "LS-9a",
       "title": "The animation frame byte still has no upper bound against an asset's real frame count; several margins are exactly zero",
       "state": "open",
       "size": "M",
-      "blockedBy": null
-    },
-    {
-      "id": "LS-16a",
-      "title": "A memory guard that cannot fire in either shipped shape -- exercised nightly at best; the fix is a build.sh ruling",
-      "state": "open",
-      "size": "S",
       "blockedBy": null
     },
     {
@@ -137,5 +141,5 @@
   ],
   "awaiting": "LS-17 and LS-13's listening half are still open on your card, and the 3-tile reclaim is now safe but leaves zero headroom",
   "atBoundary": false,
-  "updatedAt": "2026-09-07T09:35:57Z"
+  "updatedAt": "2026-09-07T09:49:34Z"
 }
