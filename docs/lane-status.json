@@ -1,6 +1,17 @@
 {
-  "focus": "The lens sweep is worked through. One fix cannot land until sigil re-pins; the rest of what is left needs you.",
-  "inFlight": [],
+  "focus": "Sigil is waking to unblock the held sound fix. Meanwhile taking the riders tonight's work produced, worst first.",
+  "inFlight": [
+    {
+      "what": "LS-13a: 17 of 23 places the engine pauses the sound chip are protected only by an argument that nothing checks, and boot's is not even shaped like the others. The deliverable may be 'no build-time check is expressible', which is a real answer.",
+      "where": "agent worktree, branch parcel/ls13a-hold-masking-argument",
+      "agent": true
+    },
+    {
+      "what": "LS-9a: an animation can name a frame that does not exist and the engine reads past the table. Several assets sit at exactly zero margin, so the comparison direction is the whole risk.",
+      "where": "agent worktree, branch parcel/ls9a-frame-byte-bound",
+      "agent": true
+    }
+  ],
   "blockedOnOwner": [
     {
       "id": "LS-17",
@@ -13,7 +24,7 @@
       "since": "2026-09-06"
     }
   ],
-  "nextBoundary": "Here. Every lens row is landed, refuted or blocked; nothing is running and nothing is half-applied.",
+  "nextBoundary": "After these two. Anything that would move the Z80 sound blob or the debug symbol table serializes behind the held fix, which sigil is waking to unblock.",
   "queue": [
     {
       "id": "LS-12",
@@ -25,7 +36,7 @@
     {
       "id": "LS-9a",
       "title": "The animation frame byte still has no upper bound against an asset's real frame count; several margins are exactly zero, so the check must be strictly-less-than",
-      "state": "next",
+      "state": "doing",
       "size": "M",
       "blockedBy": null
     },
@@ -53,14 +64,14 @@
     {
       "id": "LS-22a",
       "title": "A `mark` is NOT zero-byte -- it reorders the debug symbol table that the build appends into the ROM. 14 existing marks predate the goldens, so this was never under test",
-      "state": "open",
+      "state": "next",
       "size": "S",
       "blockedBy": null
     },
     {
       "id": "LS-13a",
       "title": "17 of 23 Z80 bus holds are masked only by an argument, and boot's gets none of the context checks",
-      "state": "open",
+      "state": "doing",
       "size": "M",
       "blockedBy": null
     },
@@ -136,6 +147,6 @@
     }
   ],
   "awaiting": "nothing blocking, but three things are yours: LS-17 (whether a shipped game spends ROM so a corrupt stream crashes legibly), LS-13's listening half (whether you can hear a 60 Hz artefact on the drums), and the 3-tile graphics reclaim, which is now safe but leaves zero headroom",
-  "atBoundary": true,
-  "updatedAt": "2026-09-07T11:52:04Z"
+  "atBoundary": false,
+  "updatedAt": "2026-09-07T11:54:50Z"
 }
