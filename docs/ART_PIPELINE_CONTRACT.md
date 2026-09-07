@@ -43,6 +43,14 @@ and it is documented in the `empyrean` repo if you ever need it.
 `demo.debug.bin` for a second, minimal game. **The two sonic4 shapes do not ship the
 same tables** — see §9, trap 2. Sizes and checksums change constantly; never pin them.
 
+### Companion document
+
+`docs/ART_PIPELINE_CONTRACT_ADDENDUM.md` answers four questions this document does not: the
+`editor_bg_override.json` schema and the importers' options (§A1), the effects schema pinned
+at a named `empyrean` revision (§A2, which discharges one of the gaps in §10 below), whether
+a background **tileset** can be replaced between sections as against its **nametable** (§A3),
+and what OJZ act 1 allocates today (§A4).
+
 ---
 
 ## 1. The hardware surface this engine actually configures
