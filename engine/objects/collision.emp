@@ -161,9 +161,25 @@ pub proc TouchResponse () clobbers(d0-d7/a0-a3) preserves(a4) {
     .dyn_done:
         if DEBUG == 1 { sf Dynamic_Live_Walking }
 
-        // --- System + Effect pools: fixed sweep (24 contiguous slots) ---
+        // --- System + Effect pools: fixed sweep ---
+        // DEBUG sweeps the contiguous 24 (System then Effect); RELEASE starts at
+        // Effect_Slots and sweeps 16. The 8 System slots have no allocator and no
+        // release-reachable writer, so in a release shape their code_addr is still
+        // the zero boot left and `touch_test_target`'s first `tst.w` skips every
+        // one of them — 16 iterations a frame (this loop is NESTED inside the
+        // 2-player loop) that could only ever fall through. See the System block
+        // in RunObjects (engine/objects/core.emp) for the full enumeration and
+        // tools/test_system_pool_release_empty.py for the standing guard.
+        //
+        // The 16 Effect slots are swept naively ON PURPOSE — the live-list
+        // treatment for them was costed and declined (LS-10).
+        if DEBUG == 1 {
         lea     System_Slots, a3
         move.w  #NUM_SYSTEM+NUM_EFFECTS-1, d6
+        } else {
+        lea     Effect_Slots, a3
+        move.w  #NUM_EFFECTS-1, d6
+        }
     .fixed_loop:
         touch_test_target(.fixed_next)
     .fixed_next:

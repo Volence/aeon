@@ -481,10 +481,33 @@ pub proc RunObjects () clobbers(d0-d7/a0-a6) {
         //     own cursor + count) ---
         jbsr    .run_culled
 
-        // --- System slots (always execute) ---
+        // --- System slots (always execute) — DEBUG SHAPE ONLY (LS-10) ---
+        // The 8 System slots have NO allocator: engine/objects/core.emp's
+        // InitObjectRAM builds a free stack for Dynamic and for Effect and none
+        // for System, and there is no AllocSystem, so nothing can obtain a
+        // System slot except code that names `System_Slots` (or a constant
+        // derived from it) by hand. Every such writer in the tree is one of the
+        // seven `movea.l #DEBUG_*_SST, a0` sites in
+        // games/sonic4/test/ojz_scroll_test.emp, and all seven sit inside the
+        // `if DEBUG == 1` body of Debug_PresetReadout_Show /
+        // Debug_WaterlineStamp_Show / Debug_TierTags_Update — three procs the
+        // RELEASE listing places at one shared address with zero bytes between
+        // them. So in a release shape every System slot's code_addr stays at the
+        // zero boot's `.clear_ram` left, and this whole block dispatches nothing.
+        //
+        // Guarded for the future by tools/test_system_pool_release_empty.py,
+        // which re-derives the writer enumeration and the zero-byte spans from
+        // source + the emitted listing on every build. Read its module header
+        // for what it does NOT cover before adding a System-slot writer.
+        //
+        // The 16 Effect slots below keep the naive sweep DELIBERATELY: extending
+        // the Dynamic pool's live list to them was costed and NOT chosen (LS-10,
+        // docs/decisions.jsonl) — it is object-lifetime surgery, not a count.
+        if DEBUG == 1 {
         lea     System_Slots, a0
         move.w  #NUM_SYSTEM-1, d7
         jbsr    .run_always
+        }
 
         // --- Effect slots (always execute) ---
         lea     Effect_Slots, a0
@@ -643,9 +666,19 @@ pub proc RunObjects_Frozen () clobbers(d0-d7/a0-a6) {
     .frozen_dyn_done:
         if DEBUG == 1 { sf Dynamic_Live_Walking }
 
-        // System + Effect (fixed sweep, contiguous 24 slots)
+        // System + Effect (fixed sweep). DEBUG sweeps the contiguous 24; release
+        // starts at Effect_Slots and sweeps 16 — the 8 System slots are provably
+        // empty in a release shape (LS-10; the enumeration is written out at the
+        // System block in RunObjects above). The contiguity `ensure` at the top
+        // of this module is what lets the DEBUG arm merge the two pools into one
+        // run; the release arm does not depend on it.
+        if DEBUG == 1 {
         lea     System_Slots, a0
         move.w  #NUM_SYSTEM+NUM_EFFECTS-1, d7
+        } else {
+        lea     Effect_Slots, a0
+        move.w  #NUM_EFFECTS-1, d7
+        }
         jbsr    .frozen_fixed
         rts
 
