@@ -131,7 +131,7 @@ def test_every_pair_proved_red_first_in_both_directions():
     # Every pair must carry an A line, and every pair must carry either the B/C
     # boundary pair or the D expansion case. A pair with only an A line would be
     # a table the proof silently skipped.
-    rows, _faults, _pop = afb.build_rows("s4.debug.lst", "s4.debug.bin")
+    rows, _faults, _pop, _nis = afb.build_rows("s4.debug.lst", "s4.debug.bin")
     for row in rows:
         lines = [ln for ln in r.stdout.splitlines() if row["anim"] in ln]
         assert any(" A control:" in ln for ln in lines), f"{row['anim']}: no control case"

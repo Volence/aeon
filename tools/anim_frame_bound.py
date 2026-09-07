@@ -67,6 +67,16 @@ WHAT "EVERY TABLE" MEANS, AND HOW THE POPULATION IS BUILT
    are INHERITED at spawn by CreateEffect_Normal, so no co-located pair exists);
    the tool prints the limitation rather than implying coverage it lacks.
 4. A listing label that is neither derived nor declared FAILS the gate.
+5. THE POPULATION IS PER SHAPE, and the two canonical shapes differ. s4.debug
+   ships all ten tables; s4 (release) ships NINE — `Ani_Particle` is absent
+   because the whole TestParticle / TestEmitter / TestStressEmitter /
+   TestChurnObj / TestAnimated family is absent from the release image (measured
+   2026-09-07: `grep -c TestEmitter` is 0 in s4.lst against 6 in s4.debug.lst,
+   with 50 `Ani_Sonic` hits in s4.lst as the positive control). A pairing whose
+   table is not in THIS image is reported and skipped — there is no frame byte
+   here to bound. The staleness question that gives up ("does this declaration
+   still speak for a real table?") is answered in the SOURCE by
+   tools/test_anim_frame_bound.py, which runs where no shape is involved.
 
 THE FRAME SET IS NOT JUST THE SCRIPT — THE SECOND AND THIRD MOUTHS
 ------------------------------------------------------------------
@@ -452,11 +462,33 @@ def build_rows(lst_path, rom_path):
 
     faults = list(writer_census_faults())
 
+    if not population:
+        faults.append(f"{lst_path} carries NO Ani_* label at all for game `sonic4` — this gate "
+                      f"would then be green over an empty population, which is the one result "
+                      f"it must never report as OK")
+
+    # A PAIRING WHOSE TABLE IS NOT IN *THIS* IMAGE IS NOT APPLICABLE, NOT STALE,
+    # and getting that wrong turned the release shape red on the first run. The
+    # two canonical shapes do not ship the same set: s4.debug carries all ten
+    # animation tables, s4 (release) carries NINE — `Ani_Particle` is absent
+    # because the whole TestParticle / TestEmitter / TestStressEmitter /
+    # TestChurnObj / TestAnimated family is absent from the release image
+    # (measured 2026-09-07: `grep -c TestEmitter` is 0 in s4.lst and 6 in
+    # s4.debug.lst, against a positive control of 50 Ani_Sonic hits in s4.lst).
+    #
+    # Absence is therefore reported and skipped, never faulted: there is no frame
+    # byte in this image to bound. What that costs is the ability to notice a
+    # declaration that outlived its table — so THAT check lives in the source,
+    # not here: tools/test_anim_frame_bound.py holds every DECLARED_PAIRS
+    # evidence line against the file that defines the binding, and runs in the
+    # pre-build lane where no shape is involved.
+    not_in_shape = []
+
     declared = {}
     for anim, spec in DECLARED_PAIRS.items():
         if anim not in population:
-            faults.append(f"DECLARED_PAIRS names {anim}, which is not a label in {lst_path} — "
-                          f"the declaration outlived the table it speaks for")
+            not_in_shape.append(f"{anim} (DECLARED) is not in this image — nothing to bound "
+                                f"for this shape")
             continue
         if any(a == anim for a, _m in pairs):
             faults.append(f"{anim} is DECLARED in this tool but the tree now binds it too — "
@@ -482,10 +514,17 @@ def build_rows(lst_path, rom_path):
     rows = []
     for (anim, mapl), sources in sorted({**pairs, **declared}.items()):
         kind = "declared" if (anim, mapl) in declared else "derived"
-        for name in (anim, mapl):
-            if name not in labels:
-                faults.append(f"{name} (bound by {sources[0]}) is not a label in {lst_path}")
-        if anim not in labels or mapl not in labels:
+        if anim not in labels:
+            not_in_shape.append(f"{anim} (bound by {sources[0]}) is not in this image")
+            continue
+        if mapl not in labels:
+            # The other direction IS a fault: the animation table shipped and the
+            # mappings table it indexes did not, so there is a live frame byte
+            # with nothing to bound it against.
+            faults.append(f"{mapl} is not a label in {lst_path}, but {anim} — which "
+                          f"{sources[0]} pairs it with — IS in this image, so that table's "
+                          f"frame bytes are bounded by a mappings table this shape does not "
+                          f"ship")
             continue
         by_id = walk_anim_table(rom, labels[anim], anim, af, events, mapframe_off)
         script = set().union(*by_id.values()) if by_id else set()
@@ -497,7 +536,7 @@ def build_rows(lst_path, rom_path):
                          reach_max=max(reach) if reach else -1,
                          bound=bound, notes=notes,
                          over=sorted(f for f in reach if f >= bound)))
-    return rows, faults, population
+    return rows, faults, population, not_in_shape
 
 
 def report(lst_path, rom_path, game, gate, out=sys.stdout):
@@ -518,7 +557,7 @@ def report(lst_path, rom_path, game, gate, out=sys.stdout):
               "byte to bound (asserted, not skipped).", file=out)
         return 0
 
-    rows, faults, population = build_rows(lst_path, rom_path)
+    rows, faults, population, not_in_shape = build_rows(lst_path, rom_path)
 
     print(f"anim_frame_bound [{lst_path}]: {len(population)} animation table(s) in the "
           f"listing, {len(rows)} (table, mappings) pair(s) checked", file=out)
@@ -533,6 +572,9 @@ def report(lst_path, rom_path, game, gate, out=sys.stdout):
             print(f"      <- {s}", file=out)
         for n in r["notes"]:
             print(f"      + {n}", file=out)
+
+    for n in dict.fromkeys(not_in_shape):
+        print(f"  - {n}", file=out)
 
     failed = False
     for f in dict.fromkeys(faults):
@@ -556,7 +598,9 @@ def report(lst_path, rom_path, game, gate, out=sys.stdout):
           f"{worst[0]} ({worst[1]}). DOES NOT COVER: the DPLC table (that is LS-9's "
           f"offset_table_frames(map) == offset_table_frames(dplc) ensure), and "
           f"{sum(1 for r in rows if r['kind'] == 'declared')} pairing(s) are DECLARED rather "
-          f"than derived — listed above.", file=out)
+          f"than derived, and {len(not_in_shape)} table(s) this tree binds are not in "
+          f"THIS shape's image (listed above) — those are bounded where they ship, not "
+          f"here.", file=out)
     return 0 if not gate else 0
 
 
@@ -642,7 +686,7 @@ def selftest(lst_path, rom_path, out=sys.stdout):
     base = rom_p.read_bytes()
     af, events, _t = anim_opcodes()
 
-    rows, faults, _pop = build_rows(lst_path, rom_path)
+    rows, faults, _pop, _nis = build_rows(lst_path, rom_path)
     if faults:
         print("anim_frame_bound selftest: the shipped build is not green — cannot prove "
               "anything red-first against it:", file=out)
