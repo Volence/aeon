@@ -147,7 +147,6 @@ from dplc_straddle import (                                          # noqa: E40
     appendage_bank,
     check_anim_dplc_pairings,
     climb_frames,
-    const_from_emp,
     lst_labels,
     scan_write_sites,
     sole_ability_owner,
