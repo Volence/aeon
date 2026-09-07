@@ -1,6 +1,17 @@
 {
-  "focus": "Seven lens fixes landed, and the nightly safety net is green end to end after nine dead nights.",
-  "inFlight": [],
+  "focus": "The nightly is green again. Now on the two items behind it: the VRAM guards that measure the wrong thing, and the register contracts nothing checks.",
+  "inFlight": [
+    {
+      "what": "LS-4: make the generator emit each VRAM region's extent and true neighbour, so a correct ceiling is the convenient one. This is the keystone -- it also unblocks the tile reclaim I am holding and closes the green-and-corrupt sparkle case.",
+      "where": "agent worktree, branch parcel/ls4-vram-adjacency-constants",
+      "agent": true
+    },
+    {
+      "what": "LS-2: two procs declare they damage more registers than they touch, and that direction is unchecked. Half of it is a judgement call on whether it deserves a guard at all -- 'no' is an acceptable answer.",
+      "where": "agent worktree, branch parcel/ls2-clobbers-overdeclaration",
+      "agent": true
+    }
+  ],
   "blockedOnOwner": [
     {
       "id": "LS-17",
@@ -13,19 +24,26 @@
       "since": "2026-09-06"
     }
   ],
-  "nextBoundary": "Here. Everything is pushed, nothing is running, and a fresh session could take LS-2/LS-4 from the queue alone.",
+  "nextBoundary": "After these two land. Both are on their own branches; everything before them is pushed.",
   "queue": [
     {
-      "id": "LS-2/LS-4",
-      "title": "clobbers() over-declaration unchecked; and every character VRAM guard binds the neighbour's base rather than the declared extent -- LS-4 and the held tile reclaim are one generator fix",
-      "state": "next",
+      "id": "LS-4",
+      "title": "VRAM guards bind the neighbour's base rather than the declared extent; the generator emits no extent constant",
+      "state": "doing",
       "size": "M",
       "blockedBy": null
     },
     {
+      "id": "LS-2",
+      "title": "Register clobber over-declaration is unchecked in three of four cells; two live sites",
+      "state": "doing",
+      "size": "S",
+      "blockedBy": null
+    },
+    {
       "id": "LS-8..LS-18",
-      "title": "The ten tier-2 lens cards, all ruled by the hub 2026-09-06 and startable",
-      "state": "open",
+      "title": "The ten ruled tier-2 lens cards, all startable",
+      "state": "next",
       "size": "L",
       "blockedBy": null
     },
@@ -94,6 +112,6 @@
     }
   ],
   "awaiting": null,
-  "atBoundary": true,
-  "updatedAt": "2026-09-07T04:55:13Z"
+  "atBoundary": false,
+  "updatedAt": "2026-09-07T04:58:39Z"
 }
