@@ -745,3 +745,386 @@ they are what you will see:
 
 Character art is **uncompressed**. There is no sprite-art compression format in this
 engine: Nemesis, Kosinski, Enigma and UFTC have all been removed.
+
+---
+
+## 6. Level terrain
+
+### 6.1 The vocabulary is NOT the classic Sonic one — read this first
+
+If you are coming from a Sonic 1/2/3 disassembly, the words do not map across. **There is
+no 16×16-pixel block table and no 128×128-pixel chunk table in this engine.**
+
+Positive control, run on this tree: a case-insensitive search for `chunk` across
+`engine/**/*.emp` exits 1 (no matches), and the same search across `games/**/*.emp` also
+exits 1; a search for `128x128` / `128 x 128` across both exits 1. As a control that the
+search machinery works, `BLOCK_TILE_SIZE` returns 12 matches in
+`engine/system/constants.emp` alone. The word `chunk` **does** survive in `tools/` — about
+twenty files — but always as the *donor* vocabulary: `ojz_common.load_chunk_map` and
+`collision_pipeline.bake_cell` parse sonic_hack's Sonic 2 data at import time, and that
+shape never reaches the ROM.
+
+What this engine has instead, from `engine/system/constants.emp` and
+`tools/ojz_block_gen.py`:
+
+| unit | size | source |
+|---|---|---|
+| **tile** | 8 × 8 px, 32 B | `TILE_SIZE = 32` |
+| **block** | **16 × 16 tiles = 128 × 128 px** | `BLOCK_TILE_SIZE = 16`, `BLOCK_TILE_SHIFT = 4` |
+| **section** | **16 × 16 blocks = 256 × 256 tiles = 2048 × 2048 px** | `BLOCKS_PER_SECTION_AXIS = 16`, `SECTION_SIZE = $0800`, `SECTION_SIZE_SHIFT = 11` |
+| **act** | a `grid_w × grid_h` grid of sections | `MAX_ACT_SECTIONS = 48` |
+
+So "16 × 16 block" here means **sixteen tiles square**, not sixteen pixels square. The
+shipped OJZ act 1 is a 3 × 3 grid = 9 sections (`GRID_W`/`GRID_H` in
+`games/sonic4/data/levels/ojz/act1/act_descriptor.emp:111-112`, pinned by
+`ensure(GRID_W * GRID_H == 9, …)` at `:363`).
+
+Both act axes are bounded by `ensure((GRID_W << SECTION_SIZE_SHIFT) <= $8000, …)` — the
+camera's world coordinates are signed words, so an act may not exceed **32 768 px** on
+either axis.
+
+### 6.2 The block record
+
+A raw block is **768 bytes** (`BLOCK_RAW_SIZE`), laid out as
+(`tools/ojz_block_gen.py` header, mirrored by `engine/system/constants.emp`):
+
+```
+bytes   0-511   512 B nametable   16x16 cells x 2 bytes, ROW-MAJOR
+bytes 512-639   128 B collision plane A   16 cols x 8 rows x 1 byte, row-major
+bytes 640-767   128 B collision plane B
+```
+
+The two collision planes are the two "paths" a Sonic loop needs. A collision **cell** is
+therefore **8 px wide × 16 px tall** — `COLL_CELL_W = 8`, `COLL_CELL_H = 16`, both derived
+in `engine/system/constants.emp` from the block geometry rather than typed. That derivation
+holds only because `Cache_Top_Row` is kept even.
+
+### 6.3 The section file
+
+One file per section, `data/generated/<zone>/<act>/sec{N}_blocks.bin`
+(`tools/ojz_block_gen.py`):
+
+```
+1024 B   block index table — 256 entries x 4 bytes
+         each entry is a BYTE OFFSET from file start
+         0            = empty / air block
+         bit 31 set   = RAW DIRECT: the offset points at an uncompressed
+                        768-byte block inside the dictionary region
+
+dict     K raw 768-byte blocks (K swept 0..3 per section for minimum total).
+         Double duty: their own storage AND the LZ window pre-seed for every
+         compressed block in the section.
+
+blocks   concatenated S4LZ-compressed blocks, compressed against that dict window
+```
+
+Per-section dictionary lengths are emitted as comptime constants into
+`sec_block_dicts.emp` (all nine sections are 768 = K = 1 on this tree) and consumed by the
+act descriptor. `BLOCK_INDEX_SIZE = 1024`, `RAW_DIRECT_BIT = 0x80000000`,
+`MAX_DICT_BLOCKS = 3`.
+
+Measured on this tree: `sec0_blocks.bin` is 8 852 B = 1024 index + 768 dict + 7 060 B of
+compressed blocks.
+
+### 6.4 The local tile-index map
+
+`sec{N}_local_map.bin` — a table of big-endian `u16` entries mapping a block nametable
+word's **11-bit LOCAL tile index → the GLOBAL VRAM slot**
+(`games/sonic4/data/generated/ojz/act1/sec_local_maps.emp` header). The engine translates
+local→global at block decode. Identical maps are stored **once** and duplicate sections
+alias via a zero-byte `equ` — on this tree section 4 aliases section 2.
+
+This indirection is what lets the act art pool be paged: a block's nametable words are
+stable, and the map is what points them at wherever the page currently lives.
+
+### 6.5 Collision — the five ROM tables and the attr byte
+
+Collision is looked up as a **single byte per cell**, read out of the tile cache by
+`Collision_GetType` (`engine/level/collision_lookup.emp`): X is `>> 3`, Y is `>> 3` then
+`>> 1`, and `d3` selects plane A or B. **0 = air** (`CTYPE_AIR = 0`).
+
+That byte is an index into a **256-slot shared collision vocabulary** — five ROM tables,
+all addressed by the same byte, embedded by
+`games/sonic4/data/collision/collision_data.emp`. Measured file sizes:
+
+| table | bytes | shape |
+|---|---|---|
+| `heightmaps.bin` | 4 096 | 256 slots × 16 height bytes (one per block column) |
+| `heightmaps_rot.bin` | 4 096 | the rotated (horizontal-probe) twin |
+| `angles.bin` | 256 | one angle byte per slot |
+| `solidity.bin` | 256 | `SOLID_NONE 0 / SOLID_TOP 1 / SOLID_LRB 2 / SOLID_ALL 3` |
+| `crossover.bin` | 256 | the loop-crossover mark: `XOVER_NONE 0 / TO_A 1 / TO_B 2` |
+
+`PROFILE_LEN = 16`, `MAX_PROFILES = 256` (`tools/collision_pipeline.py`). Slot 0 is
+reserved as air.
+
+**How visual tiles bind to solidity and angle: they do not.** The block record carries the
+nametable and a *parallel* per-cell attr plane; nothing derives collision from the tile a
+cell displays. An author paints art and collision independently, and the bake interns the
+result.
+
+### 6.6 The S3K-derived import
+
+`tools/import_sk_collision.py` reads Sonic & Knuckles' `Height Maps.bin`,
+`Height Maps Rotated.bin` and angle table from an out-of-repo `skdisasm` checkout and
+writes the **base bank** at `games/sonic4/data/collision/base/`. That bank is the stable
+shape vocabulary the editor's palette shows. Every non-air base shape gets solidity
+`SOL_ALL` (3); the editor picks per-cell solidity and the bake resolves it.
+
+This is a **manual re-bake tool — `build.sh` does not run it**. Its refusal when the donor
+is absent, verbatim from the source:
+
+```
+import_sk_collision: skdisasm donor not found at {SK}. This is a MANUAL re-bake
+tool (tools/regenerate-level.sh); set AEON_SKDISASM_DIR to your skdisasm
+checkout. The build does NOT run this — it uses the committed collision tables
+under games/sonic4/data/collision/.
+```
+
+The runtime tables under `games/sonic4/data/collision/` are then **overwritten** by the
+per-section bake (`ojz_strip_gen` / `tools/gen_collision_data.py`) with the *sparse
+interned* set — only the shape/flip/solidity/crossover combinations actually painted reach
+the ROM. The committed bytes are the baked ones.
+
+### 6.7 The authoring cell word
+
+The editor writes one 16-bit **big-endian** word per 8 px cell, per plane, into
+`data/editor/<zone>/<act>/section_N.collattr.bin` (plane A) and `…collattrb.bin` (plane B).
+Measured: each is 131 072 B = 256 × 256 × 2, and `section_N.tiles.bin` is 131 072 B on the
+same grid. Bit layout (`tools/collision_pipeline.py::bake_plane_cell`):
+
+| bits | meaning |
+|---|---|
+| 9:0 | base-bank shape index |
+| 10 | X flip |
+| 11 | Y flip |
+| 13:12 | **this plane's** solidity (bit 12 = top, bit 13 = lrb) |
+| 15:14 | crossover mark |
+
+⚠ **The same two top bits mean something different in the donor word.** In the Sonic 2
+donor chunk-entry word that `bake_cell` consumes, bits 15:14 are path-B solidity. The two
+constants share a value and deliberately do not share a name. Do not carry a donor word
+into the per-plane space.
+
+A 16 px collision row samples the **top tile row** of the pair (even rows only).
+
+Two hard refusals in that bake, both raising rather than warning:
+
+* **`XOVER == 3` is reserved and raises.** 3 is the value a producer that *clamps* into a
+  2-bit field lands on, so it is made the loudest value rather than the quietest.
+* **A self-mark raises** — a plane-A word carrying `XOVER_TO_A`, or plane-B carrying
+  `XOVER_TO_B`, provably does nothing (you must already be on a plane to read its mark),
+  so it is treated as authoring intent that silently fails.
+
+If `section_N.collattr.bin` is the wrong length the bake **warns and ignores the editor
+collision for that section** rather than failing:
+
+```
+  WARNING: {path_a} is {len}B, expected {expect}; ignoring editor collision for sec {N}
+```
+
+That is a soft failure and worth knowing about: wrong-sized collision does not stop a
+build, it silently reverts a section to air.
+
+### 6.8 Objects and rings
+
+Per section, generated by `tools/ojz_entity_gen.py` into `entity_data.emp`:
+
+* **object list** — packed 3-word records `{ x, y, flags | (type << 8) | subtype }`,
+  terminated by `$FFFF`. `type` indexes the section's own minimized type table.
+* **type table** — a count byte, a pad byte, then `count` `ObjDef` pointers (`dc.l`), so
+  the first pointer sits at even offset 2.
+* **ring list** — `dc.w X, Y` pairs, **X-sorted**, terminated by a longword 0.
+
+Capacity, from the generator's own emitted stats block: **128 rings per section ring
+buffer**; the shipped act's worst 2×2-block pressure is 20.
+
+### 6.9 The act descriptor
+
+`games/sonic4/data/levels/ojz/act1/act_descriptor.emp` builds one `Act` record naming the
+grid, the start position, the act-wide BG blob and tile blob, the parallax config, the
+paged art pool table, the per-section local maps, an edge mode and a per-act art byte
+budget. Each of the nine sections is a `Sec` record (`engine/structs.emp:145`):
+
+```
+$00 sec_block_index      *u8   the 256-entry block index table
+$04 sec_objects          *u8   object list ($FFFF-terminated)
+$08 sec_rings            *u8   X-sorted ring entries
+$0C sec_parallax_config  *u8   0 = defer to the preset / act default
+$10 sec_bg_layout        *u8   0 = use the act-wide BG
+$14 sec_type_table       *u8   count, pad, then ObjDef pointers
+$18 sec_block_dict       *u8   raw dict region (LZ pre-seed)
+$1C sec_effects          *u8   EffectsPreset* — REQUIRED, no default
+$20 sec_block_dict_len   u16   dict bytes (768 x K, K <= 3)
+```
+
+`sec_effects` is required deliberately: `Effects_InstallPreset` dereferences it without
+testing, and the only null test is inside `if DEBUG == 1` — so an omitted binding would
+compile clean, ship, and send the release build into the 68000 vector table. Dropping the
+default makes the omission a build error in every shape at zero ROM cost.
+
+---
+
+## 7. The build: compression, generators, registration, and what a wrong asset does
+
+### 7.1 Compression formats and where each is required
+
+| format | where it is required | decoder |
+|---|---|---|
+| **ZX0** (modern / V2, `salvador` default) | the act art pool's 64-tile pages, `pm_form = ART_PAGE_FORM_ZX0 (0)` | `engine/compression/zx0_resume.emp` (resumable, sliced across idle time) |
+| **raw direct** | a page the per-page election found not worth compressing, `pm_form = ART_PAGE_FORM_RAW (1)` — DMA'd straight from ROM | none |
+| **S4LZ v3** | the per-section block stream, with per-section dictionaries | `engine/compression/s4lz.emp` |
+| **none** | all sprite art, all palettes, both nametable blobs, all collision tables | — |
+
+Every compressed art blob starts with a **4-byte wrapper**
+(`engine/system/constants.emp:341-346`):
+
+```
+u16 BE  uncompressed size
+u8      flags
+u8      version   ART_VER_S4LZ = 1, ART_VER_ZX0 = 2
+```
+
+`ART_HDR_SIZE = 4`. Note the runtime dispatches art pages on the manifest's `pm_form`
+byte, **not** on the wrapper version.
+
+**S4LZ v3 stream format** (`engine/compression/s4lz.emp:14-33`) — word-aligned throughout,
+read with word fetches only:
+
+```
+header (4 B)  $00.w uncompressed size (BE, bytes)
+              $02.b flags (bit 0 = tile-delta)
+              $03.b version (1 = v3; this decoder is v3-ONLY)
+
+per sequence  token WORD = [token.b][offmark.b]
+              token high nibble = literal word count (0-14, 15 = extension word)
+              token low  nibble = match   word count (0-14, 15 = extension word)
+              token == $00 = end of stream (so the EOS word is $0000)
+              offmark.b = match_offset/2 for byte offsets 2..510 (short form),
+                          $00 = long form (a u16 BE offset word follows the literals)
+
+order         token word, [literal count word], literals,
+              [offset word — long form only], [match count word]
+```
+
+Match offsets must stay below `$8000` because the decoder's `suba.w` sign-extends:
+destination buffers ≤ 32 766 bytes plain, and `dest_written + dict_len ≤ 32 766` on the
+dictionary entry. The deepest shipped use is a 768-byte block slot plus a 2 304-byte dict
+= 3 072.
+
+**Art pool paging.** `ART_POOL_PAGE_TILES = 64`, so a page is
+`ART_POOL_PAGE_BYTES = 2048` bytes. The manifest is a stride-`sizeof(PageManifest)` array
+(`engine/structs.emp:71`):
+
+```
+$00 pm_source  *u8   page blob pointer (ZX0 wrapper, or raw payload)
+$04 pm_tiles   u16   decompressed tile count (landing DMA length = tiles * 32)
+$06 pm_form    u8    ZX0 = 0, RAW = 1
+$07 pm_flags   u8    bit 0 = PINNED (never evicted)
+```
+
+Measured on this tree, from
+`games/sonic4/data/generated/ojz/act1/ojz_act_pool_manifest.json` and the emitted
+`ojz_act_pool.emp`: **10 pages, 612 pool tiles**, pages 0/1/7/8/9 pinned, page 9 short at
+36 tiles, every page `pm_form = 0` (ZX0). Compressed sizes range 682–1 466 B against the
+2 048 B raw page.
+
+⚠ **Page blobs are padded to even length at generation** (one dead byte past the ZX0 end
+marker). An odd blob once landed the manifest table at an odd address and boot took an
+address error. `sigil` does not auto-align data declarations.
+
+### 7.2 The generators and where their outputs land
+
+`tools/regenerate-level.sh` orchestrates the level bake. The pieces:
+
+| tool | reads | writes |
+|---|---|---|
+| `tools/import_sk_collision.py` | out-of-repo `skdisasm` (`AEON_SKDISASM_DIR`) | `data/collision/base/*.bin` + defaults in `data/collision/` |
+| `tools/gen_collision_data.py` | the attr-set pipeline | the five `data/collision/*.bin` tables |
+| `tools/ojz_strip_gen.py` | editor `section_N.{tiles,collattr,collattrb}.bin`, sonic_hack donor | `sec{N}_strips_a.bin`, `act_pool_page{N}.bin`, the pool manifest, `zone_bg.bin`, `ojz_palette.bin`, `sec{N}_local_map.bin` |
+| `tools/ojz_block_gen.py` | the strip files | `sec{N}_blocks.bin`, `sec_block_dicts.emp` |
+| `tools/ojz_entity_gen.py` | editor `section_N.{rings,objects}.json`, `data/editor/objects.json` | `entity_data.emp` |
+| `tools/png_to_bg_override.py` | a PNG | `editor_bg_override.json` |
+| `tools/inject_editor_bg.py` | `editor_bg_override.json` | overwrites `zone_bg.bin` + `bg_tiles.bin`, and emits `bg_anim.emp` + `bg_anim_banks.bin` |
+| `tools/effects_gen.py` | editor scene/preset documents | `effects_scenes.emp` |
+| `tools/sfx_transcode.py` | `skdisasm` SMPS SFX sources | `data/sound/sfx/sfx_NN.asm`, `sfx_NN_patches.asm`, `sfx_table.asm` |
+| `tools/salvador` (vendored, built by `build.sh`) | a raw page | the `.zx0` bitstream |
+
+Everything under `games/<game>/data/generated/` is **auto-generated and committed**; every
+such file carries a `DO NOT EDIT` banner naming the tool that owns it.
+
+`build.sh` gates on level-data staleness (`tools/level_staleness.py`): a canonical build
+**fails** and names `tools/regenerate-level.sh`; `FAST=1` auto-re-bakes.
+
+`tools/sfx_transcode.py` is the one worth calling out for an asset producer even though it
+is audio: **reserved channels (FM1, FM2, FM6, DAC) may NOT appear**; any SFX targeting them
+raises a build error, as do unknown coord-flag bytes and unknown voice sub-macros.
+
+### 7.3 How a resource is registered and loaded
+
+Three steps, all of them source edits:
+
+1. **Embed it.** A `.emp` data module declares
+   `pub data Name = embed("games/<game>/data/…/file.bin")`. Where the length is a
+   contract, annotate the type — `pub data X: [u8; N] = embed(…)` — and a wrong-sized file
+   becomes an `array length mismatch` at build time. That is the single cheapest guard
+   available to you and it is used sparingly today.
+2. **Point something at it.** A `Sec` field, an `Act` field, an `EffectsPreset` field, a
+   `CharacterDef` field, or an `ObjDef` literal.
+3. **Place it.** `games/<game>/map.toml` is the declared ROM placement contract, consumed
+   by the sigil chainer: section order, island anchors, the `boot_data` hole, the
+   object-bank budget. Placement is *declared*, not discovered.
+
+One placement invariant that will bite anyone appending to the ROM: **the fault-handler
+island must remain the final byte-emitting section in every shape that carries it**
+(`games/sonic4/map.toml`). The vendored MD Debugger blob locates its symbol appendix
+through PC-relative displacements baked into opaque blob bytes that assert
+"symbol table == blob end"; anything placed between the blob and `EndOfRom` silently breaks
+every backtrace. There is a hard build guard for this in sigil's chainer.
+
+### 7.4 What a wrong asset does — the refusal, verbatim
+
+Most asset contracts in this engine are enforced by `ensure(...)` — a comptime assertion in
+a `.emp` module that costs zero ROM bytes and fails the build with its own message. This is
+what one looks like when it fires. Produced on this tree by building with the poison module
+`games/sonic4/test/poison/poison_cram_four_words.emp` named as an extra entry, exit **1**:
+
+```
+warning: 14 warnings, module.path-mismatch 14; SIGIL_WARNINGS=full to list
+error: native build (sonic4 plain): build_program: 1 error(s);
+  [Error] stream_cram: 4 colours exceeds RASTER_BURST_MAX_CRAM (3) — the per-fire CYCLE
+  budget for the CHEAP burst class, not a FIFO limit. […] @ Span { source: SourceId(11),
+  start: 19879, end: 20899 }
+```
+
+Recognise: `error: native build (<game> <shape>): build_program: N error(s);` followed by
+one `[Error] <the guard's own message> @ Span { … }` per failure.
+
+**A second failure road exists and looks nothing like that one.** An `ensure` whose
+condition contains `extern(...)` — every cross-namespace constant mirror and every
+RAM-reservation span, 135 sites — is lowered to a link assert, evaluated after layout, and
+reported as:
+
+```
+declared-chain drift guard FIRED: N error(s); first Some(Diagnostic { .. })
+```
+
+with **no `[Error]` token anywhere** (`tools/emp_expect_fail.py`, which documents both
+formats because the difference silently voided a whole test family). If you are grepping a
+build log for failures, grep for both.
+
+Guards you will meet as an asset producer, and what each does *not* cover — each of these
+states its own limits in its message, and the limits are as load-bearing as the check:
+
+| guard | where | catches | explicitly does NOT catch |
+|---|---|---|---|
+| mappings/DPLC frame-count equality | `collision_data.emp`, `tails_data.emp`, `knuckles_data.emp` | one table shorter than the other | whether the animation script's frame bytes reach either count; whether corresponding frames describe the same art |
+| `empty_frame_mismatches == 0` | same | a drawn frame whose DPLC loads nothing, and the reverse | whether a non-empty pair agrees on *how much* |
+| `art.len % TILE_SIZE == 0` | same | a sheet truncated mid-tile | a sheet truncated by a whole number of tiles — those frames DMA whatever the link put after the art |
+| even-length blob guards | same | an odd blob putting the next label on an odd address | alignment of the first label (a link-time fact) |
+| `dplc_peak_entries + 2 <= 12` | same | a frame needing too many DMA slots | a `$20000` ROM straddle, which splits an entry in two at link time — `tools/dplc_straddle.py --gate` measures that |
+| `anim_frame_bound` | build lane, post-link | a script byte at or above the mappings table's frame count | the DPLC table; the *other* shape's tables |
+| `gen_vram_map` bounds/coverage/overlap/quantum | build | a malformed VRAM map | base-register alignment; whether a region fits its art |
+| BG layout length annotation | `act_assets.emp` | a wrong-sized `zone_bg.bin` | which of the two generators wrote it |
+| `check_tile_budget` | `png_to_bg_override.py` | BG art over the static tile budget | anything about the art's quality |
+| collattr length | `ojz_strip_gen.py` | — | **it WARNS, it does not fail**: a wrong-sized collision file silently reverts the section to air |
