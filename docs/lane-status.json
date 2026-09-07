@@ -1,18 +1,8 @@
 {
-  "focus": "Sigil is waking to unblock the held sound fix. Meanwhile taking the riders tonight's work produced, worst first.",
+  "focus": "Both riders landed. Clear given for sigil's assembler swap, which unblocks the held sound fix.",
   "inFlight": [
     {
-      "what": "LS-13a: 17 of 23 places the engine pauses the sound chip are protected only by an argument nothing checks. 'No build-time check is expressible' is an acceptable answer.",
-      "where": "agent worktree, branch parcel/ls13a-hold-masking-argument",
-      "agent": true
-    },
-    {
-      "what": "LS-9a: an animation can name a frame that does not exist. Several assets sit at exactly zero margin, so the comparison direction is the whole risk.",
-      "where": "agent worktree, branch parcel/ls9a-frame-byte-bound",
-      "agent": true
-    },
-    {
-      "what": "COORDINATION, load-bearing for any session that picks this up. Sigil is replacing the shared assembler binaries to unblock LS-12. (a) Do NOT start a build against sigil/target/release between sigil's 'about to swap' and its 'swapped' message; sigil holds for an explicit clear from this lane and will not infer one. (b) Do NOT merge parcel/ls12-dma-guard-tick-paths until 'swapped' arrives with the new md5. (c) CONSUMER DEPENDENCY, ours: the incoming binary bakes in the path it was built from, and build.sh runs a currency check against exactly that path -- an absent one reports provenance 'unknown' on EVERY build and is fatal under SIGIL_VERSION_STRICT=1. The first candidate named a sigil agent worktree that gets reaped at landing; caught before the swap. The replacement is being built from /home/volence/sonic_hacks/.sigil-ls12-pin, which sigil keeps until a later refresh from master lands and this lane confirms it is on that one. DO NOT SWEEP THAT PATH, and re-read revision/source/tree off any incoming binary before accepting it.",
+      "what": "CLEAR GIVEN at this timestamp for sigil's shared-assembler rename. Nothing of this lane builds until sigil's 'swapped' message arrives with the new md5, and parcel/ls12-dma-guard-tick-paths (c1ac4a60) does not merge before it. Incoming pair verified by reading its own fields: revision 135ba589, tree clean, source /home/volence/sonic_hacks/.sigil-ls12-pin whose HEAD matches the revision, so provenance reports CURRENT rather than unknown. DO NOT SWEEP that path -- the cost of its disappearing lands on our builds.",
       "where": "cross-lane with sigil",
       "agent": false
     }
@@ -29,19 +19,19 @@
       "since": "2026-09-06"
     }
   ],
-  "nextBoundary": "After the two riders, and separately after sigil's binary swap unblocks the held LS-12 merge.",
+  "nextBoundary": "After sigil swaps and LS-12 merges. Everything else of mine is landed, refuted or on his card.",
   "queue": [
     {
       "id": "LS-12",
       "title": "DONE AND HELD at origin/parcel/ls12-dma-guard-tick-paths c1ac4a60. Merging it hard-fails ./build.sh for every lane until sigil re-pins three sites against the new resident Z80 blob lengths 6176 plain / 6306 debug: seam1.rs's two constants; the DUPLICATE 0x1813 literal inside blob_lengths_are_canonical at seam1_native_link.rs:132; and boot_port.rs's Z80_SOUND_SIZE, which moves THIS time where it did not last time, because both new lengths are even and the previous pair were odd and rounded to the same value",
-      "state": "blocked",
+      "state": "next",
       "size": "M",
       "blockedBy": "sigil must re-pin first; Dominion refused the wake under sleep mode, so this waits for his morning or his say-so"
     },
     {
       "id": "LS-9a",
-      "title": "The animation frame byte still has no upper bound against an asset's real frame count; several margins are exactly zero, so the check must be strictly-less-than",
-      "state": "doing",
+      "title": "LANDED The animation frame byte still has no upper bound against an asset's real frame count; several margins are exactly zero, so the check must be strictly-less-than",
+      "state": "open",
       "size": "M",
       "blockedBy": null
     },
@@ -69,14 +59,14 @@
     {
       "id": "LS-22a",
       "title": "A `mark` is NOT zero-byte -- it reorders the debug symbol table that the build appends into the ROM. 14 existing marks predate the goldens, so this was never under test",
-      "state": "next",
+      "state": "open",
       "size": "S",
       "blockedBy": null
     },
     {
       "id": "LS-13a",
-      "title": "17 of 23 Z80 bus holds are masked only by an argument, and boot's gets none of the context checks",
-      "state": "doing",
+      "title": "LANDED 17 of 23 Z80 bus holds are masked only by an argument, and boot's gets none of the context checks",
+      "state": "open",
       "size": "M",
       "blockedBy": null
     },
@@ -153,5 +143,5 @@
   ],
   "awaiting": "nothing blocking, but three things are yours: LS-17 (whether a shipped game spends ROM so a corrupt stream crashes legibly), LS-13's listening half (whether you can hear a 60 Hz artefact on the drums), and the 3-tile graphics reclaim, which is now safe but leaves zero headroom",
   "atBoundary": false,
-  "updatedAt": "2026-09-07T12:36:53Z"
+  "updatedAt": "2026-09-07T13:35:02Z"
 }
