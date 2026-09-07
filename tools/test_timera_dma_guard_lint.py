@@ -42,7 +42,11 @@ that no comment — this file's, or the subject's — can satisfy any check:
      the order is checked and not assumed.
   3. THE REFILL GUARD IS STILL THERE. The 2026-08-09 site itself: a flag test
      before SndDrv_TimerATick's first `ld a, (ix+0)` (the banked-window byte
-     read).
+     read), and specifically one BELOW the mailbox call, so that the LS-12 head
+     guard cannot stand in for it. That bound is not tidiness: the first version
+     of this check omitted it and came back GREEN with the refill guard deleted,
+     because the head guard satisfied the search. Same family as the LS-11
+     control, found the same way — by running the control.
   4. THE CALL-SITE CENSUS HAS NOT MOVED. Run_SeqFrame_OnSongBank has exactly two
      call sites and Snd_PollMailbox_Banked exactly two, derived by scanning code
      lines. A new call site anywhere fails this test, because the coverage claim
@@ -139,24 +143,30 @@ def proc_body(name: str) -> list[tuple[int, str]]:
     return body
 
 
-def guard_line(body: list[tuple[int, str]], before: int) -> int | None:
-    """Line of the last complete flag-test triple strictly above `before`, or None.
+def guard_line(body: list[tuple[int, str]], before: int, after: int = 0) -> int | None:
+    """Line of the last complete flag-test triple in (`after`, `before`), or None.
 
     A triple is `ld a,(SND_CTRL_DMA_ACTIVE)` then `or a` then a conditional
     transfer, in that order, within the next few code lines. Anything looser
     would accept a flag load whose result is discarded.
+
+    `after` is a LOWER bound and it is load-bearing, not decoration. Without it
+    this function reports "a guard exists somewhere above", which is not the
+    question any caller is asking once a proc holds more than one guard. It was
+    added because a red-first control proved the point: with `after` defaulted,
+    DELETING the 2026-08-09 refill guard still passed, because the tick-head
+    guard added for LS-12 sits above the refill and satisfied the search. A check
+    that a DIFFERENT guard can satisfy is not a check on the guard it names.
     """
-    idx = {n: i for i, (n, _) in enumerate(body)}
     found = None
     for i, (n, text) in enumerate(body):
-        if n >= before or not RE_FLAG_LOAD.search(text):
+        if not (after < n < before) or not RE_FLAG_LOAD.search(text):
             continue
         window = body[i + 1 : i + 4]
         if any(RE_OR_A.search(t) for _, t in window) and any(
             RE_COND_XFER.search(t) for _, t in window
         ):
             found = n
-    assert idx is not None
     return found
 
 
@@ -260,17 +270,26 @@ def test_idle_tick_defers_before_the_banked_work():
 
 
 def test_the_2026_08_09_refill_guard_is_still_in_place():
+    """The ORIGINAL ruled site, scoped so the LS-12 head guard cannot stand in for it."""
     body = proc_body("SndDrv_TimerATick")
     read = first_line_matching(body, RE_WINDOW_READ)
     assert read, (
         "SndDrv_TimerATick has no `ld a, (ix+0)` — the bulk refill's banked-window "
         "byte read. This lint's subject moved."
     )
-    g = guard_line(body, read)
-    print(f"SndDrv_TimerATick: guard :{g} -> refill `ld a,(ix+0)` :{read}")
+    # Lower bound: the mailbox call. Everything between it and the refill read is the
+    # reload block, so a triple found in that span is the refill's OWN guard and not
+    # the head guard. Without this bound, deleting the refill guard passed — see
+    # guard_line's docstring, and the control that proved it.
+    poll = first_line_matching(body, re.compile(r"\bcall\s+Snd_PollMailbox_Banked\b"))
+    assert poll, "SndDrv_TimerATick no longer calls Snd_PollMailbox_Banked."
+    g = guard_line(body, read, after=poll)
+    print(f"SndDrv_TimerATick: refill guard :{g} in (:{poll}, :{read})")
     assert g is not None, (
         "the 2026-08-09 refill guard is gone: SndDrv_TimerATick reaches its banked "
-        f"`ld a, (ix+0)` with no `ld a,({FLAG})` triple above it."
+        f"`ld a, (ix+0)` with no `ld a,({FLAG})` triple between the mailbox call and "
+        "the read. The LS-12 head guard does NOT cover it — a DMA that begins during "
+        "Sequencer_Frame is exactly what the refill's own re-test is for."
     )
 
 
