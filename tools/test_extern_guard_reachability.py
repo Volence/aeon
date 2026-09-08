@@ -108,6 +108,14 @@ import extern_guard_census as census  # noqa: E402  (path set above)
 # about it either way"). Sweeping it turns that guard from excused into covered, which is
 # strictly better than an allowlist entry, and costs one more `--check`.
 #
+# THE TRADEOFF `--config-a` BUYS, named so it can be overruled rather than discovered.
+# Sweeping it COUPLES a canonical build to an off-canonical profile's health: if
+# `--config-a` stops checking for a reason of its own, this lane reds a `./build.sh` that
+# would otherwise be fine. The alternative was a sixth allowlist entry for
+# `engine/debug/sound_debug.emp`, and covering beats excusing — an excusal is permanent and
+# silent, a coupling is loud and removable (delete the row and add the excusal). If the
+# owner would rather not couple them, that is the swap; it is one line either way.
+#
 # COST: five `sigil build --check` runs, measured ~1.2 s each on this machine (see the
 # module docstring). It sits in the same lane as `emp_expect_fail`'s 22.69 s of real
 # builds and is skipped wholesale by `FAST=1` (build.sh:245), so the comparison a reader
