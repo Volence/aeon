@@ -333,7 +333,112 @@ def test_records_are_excluded_and_live_files_are_not():
         assert not is_record(p), f"{p} should be LIVE"
 
 
+def census() -> dict:
+    """Measure the whole population, RECORDS and LIVE, and classify each citation.
+
+    A MEASUREMENT, not a gate. It lives here so the numbers quoted in the LS-19a
+    row are re-derivable by one command instead of being a figure to trust:
+
+        python3 tools/test_citation_form.py --census
+
+    METHOD, stated beside the result because a count without the parameter it was
+    measured under is an answer to an unstated question. For each citation,
+    `git blame` the CITING line for the revision at which it was last written; read
+    the CITED file's line N at that same revision; compare with line N today.
+
+      STABLE  identical -- the pointer still points at the text it was written for
+      MOVED   that text exists today at a DIFFERENT line (pointer wrong, referent
+              recoverable, so the repair is mechanical)
+      GONE    that text is nowhere in the file today
+      dead-*  the classes the gate fails on: no file, past EOF, blank, bare
+              delimiter, ambiguous basename
+
+    MOVED/GONE are deliberately NOT gated: whether a moved pointer is materially
+    wrong depends on intent, so a threshold over them would pin a snapshot instead
+    of asserting something content-invariant.
+    """
+    by_path, by_base = _emp_index()
+    blame_cache: dict[str, dict[int, str]] = {}
+
+    def blame(f: str) -> dict[int, str]:
+        if f not in blame_cache:
+            out = subprocess.run(
+                ["git", "-C", ROOT, "blame", "--porcelain", "--", f],
+                capture_output=True, text=True,
+            )
+            m: dict[int, str] = {}
+            if out.returncode == 0:
+                for ln in out.stdout.split("\n"):
+                    parts = ln.split(" ")
+                    if len(parts) >= 3 and len(parts[0]) == 40:
+                        try:
+                            m[int(parts[2])] = parts[0]
+                        except ValueError:
+                            pass
+            blame_cache[f] = m
+        return blame_cache[f]
+
+    tally: dict[str, dict] = {"LIVE": defaultdict(int), "RECORDS": defaultdict(int)}
+    for f in _tracked_files():
+        text = _read(f)
+        if text is None:
+            continue
+        scope = "RECORDS" if is_record(f) else "LIVE"
+        anchored = [p for _, p in ANCHOR.findall(text)]
+        for i, line in enumerate(text.split("\n"), 1):
+            if ANCHOR.search(line):
+                continue
+            for m in CITE.finditer(line):
+                cited, n = m.group(1), int(m.group(2))
+                if _is_prose_elision(cited):
+                    continue
+                if any(ap == cited or ap.endswith("/" + cited) for ap in anchored):
+                    tally[scope]["anchored"] += 1
+                    continue
+                path = _resolve(cited, by_path, by_base)
+                if path is None:
+                    tally[scope]["dead-no-file"] += 1
+                    continue
+                if path == "":
+                    tally[scope]["dead-ambiguous"] += 1
+                    continue
+                now = (_read(path) or "").split("\n")
+                why = _dead(now[n - 1] if 1 <= n <= len(now) else None)
+                if why:
+                    tally[scope]["dead-" + why.replace(" ", "-")] += 1
+                    continue
+                sha = blame(f).get(i)
+                if not sha:
+                    tally[scope]["no-blame"] += 1
+                    continue
+                then = _show(sha, path)
+                if then is None:
+                    tally[scope]["file-absent-at-write"] += 1
+                    continue
+                old = then[n - 1].strip() if 1 <= n <= len(then) else None
+                if old is None:
+                    tally[scope]["past-eof-at-write"] += 1
+                elif old == now[n - 1].strip():
+                    tally[scope]["STABLE"] += 1
+                elif len(old) >= 8 and any(x.strip() == old for x in now):
+                    tally[scope]["MOVED"] += 1
+                else:
+                    tally[scope]["GONE"] += 1
+    return tally
+
+
 if __name__ == "__main__":
+    import sys
+
+    if "--census" in sys.argv:
+        t = census()
+        for scope in ("LIVE", "RECORDS"):
+            rows = t[scope]
+            print(f"{scope}: {sum(rows.values())} citations")
+            for k in sorted(rows, key=lambda k: -rows[k]):
+                print(f"    {rows[k]:6d}  {k}")
+        raise SystemExit(0)
+
     test_records_are_excluded_and_live_files_are_not()
     test_declared_anchors_name_a_reachable_revision()
     test_live_citations_resolve_to_something()
