@@ -843,9 +843,29 @@ echo "Build complete: ${ROM_NAME}.bin — ${ROM_SIZE} bytes (${ROM_KB} KB, ${ROM
 #
 # WHAT A GREEN HERE DOES NOT MEAN: this assembles the other game to decide its
 # link-time guards. It is not a demo build, it runs none of demo's verification
-# lanes, and it says nothing about demo's ROM. It is superseded by
-# `sigil build --check` (sigil d90a297c) once a shared pair carrying it is
-# installed -- cheaper, and it emits no ROM at all.
+# lanes, and it says nothing about demo's ROM.
+#
+# THE `--check` SUPERSESSION THIS BLOCK USED TO PROMISE IS WITHDRAWN (LS-16a,
+# 2026-09-08). sigil d90a297c IS installed now (af35fa56), so the swap was
+# available and was measured rather than assumed. It is cheaper and WEAKER, and
+# the trade is bad:
+#   cost   demo assemble 0.745/0.757/0.756/0.763/0.767 s
+#          demo --check  0.404/0.411/0.421/0.406/0.406 s
+#          (five interleaved pairs, this machine, load 2.3-2.7, uptime 19:17)
+#          -- the swap saves ~0.35 s, under 1% of a ~38 s lane.
+#   loss   `--check` decides ensures and LinkAsserts and stops BEFORE the link.
+#          Its own banner disclaims region budget/overlap, image bounds, the
+#          checksum and the closure gate; that disclaimer was DEMONSTRATED, not
+#          quoted: with demo's `rom` region shrunk to 0x1000, `--check` exits 0
+#          while this assemble exits 1 with `section `math` [0xFDE,0x13D4)
+#          overflows region `rom` (ends 0x1000), over by 980 bytes`.
+# Nothing else on the per-commit path builds demo, so that coverage has no
+# second home. KEEP THE ASSEMBLE. Do not re-propose the swap on cost alone.
+#
+# The GUARD half of this block is now also covered, independently and across
+# five shapes, by tools/test_extern_guard_reachability.py in the pre-build
+# pytest lane above (LS-16c). This block's unique remaining value is the half
+# that check cannot do: demo's placement, region budget and image bounds.
 if [[ "${GAME}" == "sonic4" && "${FAST:-0}" != "1" ]]; then
     _xg_out="$(mktemp -d)"
     echo "Evaluating the other game's link-time guards (assemble only, scratch output)..."

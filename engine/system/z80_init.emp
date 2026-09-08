@@ -70,6 +70,27 @@ const Z80_RAM_SIZE = extern("Z80_RAM_END") - extern("Z80_RAM")      // $2000 (8 
 // SO THIS GUARD SHOULD MOVE TO THE PER-COMMIT PATH, as a demo assemble or the
 // `sigil build --check` mode landing on their side, NOT as a full ./build.sh demo.
 // Re-opened as LS-16a; do not cite the withdrawn arithmetic.
+// CLOSED 2026-09-08. It moved twice, and the second half is a REFUSAL:
+//  (1) The demo ASSEMBLE landed at 7c64c6c1 (build.sh, "CROSS-GAME GUARD
+//      EVALUATION"). This guard has been decided on the per-commit path since.
+//  (2) THE `--check` SWAP THAT SENTENCE OFFERS IS MEASURED AND REJECTED. sigil
+//      d90a297c is installed (af35fa56) and `--check` does decide this guard --
+//      negated, `--check --game demo` exits 1 naming this line, while
+//      `--check --game sonic4` stays green because the module is unreachable
+//      there, which is the whole point of the row. But it is not a cheaper
+//      SUBSTITUTE for the assemble, it is a WEAKER one. Measured on this
+//      machine, load 2.3-2.7: demo assemble 0.745/0.757/0.756/0.763/0.767 s
+//      against demo --check 0.404/0.411/0.421/0.406/0.406 s. The swap buys
+//      ~0.35 s -- under 1% of a ~38 s lane -- and gives up everything --check
+//      says it does not do. Demonstrated, not quoted from its banner: with
+//      demo's `rom` region shrunk to 0x1000, `--check` exits 0 while the
+//      assemble exits 1 with `section `math` [0xFDE,0x13D4) overflows region
+//      `rom``. Nothing else on the per-commit path builds demo at all, so that
+//      coverage has no second home. KEEP THE ASSEMBLE.
+// The family this guard belongs to now has its own per-commit runner as well:
+// tools/test_extern_guard_reachability.py (LS-16c) would have caught the
+// silence that started this row -- it fails naming any file whose
+// extern()-bearing guards no shipped shape evaluates.
 ensure(extern("Z80_IDLE_SIZE") == 40, "boot_data.emp Z80_IDLE_SIZE mirror drifted from z80_init.emp's 40-byte idle body")
 
 section z80_idle (cpu: z80, vma: $0) {
