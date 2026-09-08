@@ -271,13 +271,34 @@ SPRING_AXIS = {
     "Right": lambda m: (-m, 0),
     "Left":  lambda m: (m, 0),
 }
-# The two animation ids, from games/sonic4/objects/test_solid.emp. They are `pub const`
-# and a `const` emits NOTHING into a listing, so unlike every other number in this file
-# they cannot be read back from the build. What anchors them instead is the machine: each
-# leg asserts the spring reads SPRING_ANIM_IDLE BEFORE its contact, so a build where 0 is
-# not idle goes UNMEASURABLE at the top of the leg rather than passing on a stale value.
-SPRING_ANIM_IDLE = 0
-SPRING_ANIM_FIRE = 1
+# The animation ids, READ FROM THE LISTING (ObjAnim_Spring__*), not written here.
+#
+# They used to be two literals, 0 and 1, with a comment arguing that a stale value
+# would go UNMEASURABLE rather than pass — which is exactly what happened on
+# 2026-09-07 when side springs got their own sheet and their own idle/fire pair.
+# The comment was right and the design failed safe; the literals were still wrong.
+# Now the object publishes four `pub equ`s (a `pub const` emits no listing row —
+# this file's own SPRING_RED_VELOCITY note records that) and every leg resolves the
+# pair for ITS OWN SUBJECT.
+#
+# WHICH PAIR a spring uses is decided by the same thing the engine decides it by:
+# a non-zero x_vel is a horizontal spring, which draws the horizontal sheet and
+# therefore animates through the horizontal scripts. Reading the direction out of
+# the launch vector rather than the subtype keeps this file's "the engine reads a
+# vector, never a subtype" property intact.
+SPRING_ANIM_EQUS = ("ObjAnim_Spring__Idle", "ObjAnim_Spring__Fire",
+                    "ObjAnim_Spring__IdleH", "ObjAnim_Spring__FireH")
+_ANIM = {}          # filled by run() from the listing
+
+
+def idle_anim(spring):
+    """The IDLE animation id THIS spring should be sitting in."""
+    return _ANIM["IdleH"] if spring["xv"] else _ANIM["Idle"]
+
+
+def fire_anim(spring):
+    """The FIRE animation id THIS spring should play when it launches."""
+    return _ANIM["FireH"] if spring["xv"] else _ANIM["Fire"]
 
 # SETTLE_CEILING_OK — the most frames the post-release settle may take before the run
 # calls the speed kill absent. DERIVED, not tuned: with the kill working the player is
@@ -609,7 +630,7 @@ class Probe:
         The only instant at which "the launch velocity" is a well-defined quantity — see
         test_top's header for the frame-boundary reading this avoids. Note the hook has
         not yet executed its FIRST instruction here, so the spring's `anim` still reads
-        SPRING_ANIM_IDLE at this stop; every leg that wants the fire animation as a
+        its own idle id at this stop; every leg that wants the fire animation as a
         witness must step a frame first.
         """
         return await self.b.call("emulator/run_to",
@@ -1095,7 +1116,7 @@ async def test_side_launch(pr, spring, want, out, leg):
             f"{leg}: the player settled on the side x={dx0:+d}, but this spring's x_vel "
             f"{spring['xv']} points the other way — he is on its BACK face, which is C1's "
             f"experiment and the opposite of this one")
-    if await pr.anim(spring["sst"]) != SPRING_ANIM_IDLE:
+    if await pr.anim(spring["sst"]) != idle_anim(spring):
         raise Unmeasurable(f"{leg}: the spring is already animating before the walk starts")
     out.append(f"  {leg}: spring at (x={spring['x']},y={spring['y']}) sub=${spring['sub']:02X} "
                f"launch=({spring['xv']},{spring['yv']}); its launching face is the "
@@ -1177,9 +1198,9 @@ async def test_side_launch(pr, spring, want, out, leg):
                    f"less at most one PHYS_FRICTION step ({friction}). The GROUNDED driver "
                    f"carries it, not just the engine's x_vel")
     fire = await pr.anim(spring["sst"])
-    if fire != SPRING_ANIM_FIRE:
-        fails.append(f"{leg}: the spring's anim is {fire}, not SPRING_ANIM_FIRE "
-                     f"{SPRING_ANIM_FIRE}, one frame after the launch — the fire script "
+    if fire != fire_anim(spring):
+        fails.append(f"{leg}: the spring's anim is {fire}, not its own fire script "
+                     f"{fire_anim(spring)}, one frame after the launch — the fire script "
                      f"never started and a second hit would show no spring motion")
     else:
         out.append(f"  {leg}: the spring's anim is now {fire} — the fire script is running")
@@ -1224,7 +1245,7 @@ async def test_back_face(pr, spring, want, out, leg):
     at the end no longer drifts outward.
 
     THE ANIMATION IS THE HOOK WITNESS. Game.spring_launched's first act is to restart the
-    fire animation, so an `anim` that never leaves SPRING_ANIM_IDLE across the whole
+    fire animation, so an `anim` that never leaves its idle id across the whole
     contact window is the hook never having run — a direct observation, not an inference
     from the absence of a velocity.
     """
@@ -1282,7 +1303,7 @@ async def test_back_face(pr, spring, want, out, leg):
     # travelled, are judged first; crossing is then a FAIL that the launch explains, and
     # stays UNMEASURABLE only when no launch was seen and something else moved him.
     floor = abs(want) // 2
-    launched = peak_xv >= floor or peak_gsp >= floor or anim_seen != {SPRING_ANIM_IDLE}
+    launched = peak_xv >= floor or peak_gsp >= floor or anim_seen != {idle_anim(spring)}
     out.append(f"  {leg}: closest approach {closest}px inside a {half_w}px face, peak "
                f"|x_vel| {peak_xv}, peak |ground_speed| {peak_gsp}")
     if peak_xv >= floor or peak_gsp >= floor:
@@ -1303,13 +1324,13 @@ async def test_back_face(pr, spring, want, out, leg):
             f"without any sign of a launch (peak |x_vel| {peak_xv}, |ground_speed| "
             f"{peak_gsp}, anim {sorted(anim_seen)}) — something other than this spring "
             f"moved him and the back face was not what was measured")
-    if anim_seen != {SPRING_ANIM_IDLE}:
+    if anim_seen != {idle_anim(spring)}:
         fails.append(f"{leg}: the spring's anim took the value(s) {sorted(anim_seen)} during "
                      f"the back-face contact — Game.spring_launched restarts the fire "
                      f"animation as its first act, so the launch hook RAN on a face that "
                      f"must not launch")
     else:
-        out.append(f"  {leg}: the spring's anim stayed SPRING_ANIM_IDLE for all "
+        out.append(f"  {leg}: the spring's anim stayed at its idle id for all "
                    f"{BACK_FRAMES} frames — the launch hook was never invoked, which is the "
                    f"hook's own witness and not an inference from a velocity")
 
@@ -1480,12 +1501,12 @@ async def test_top_land(pr, spring, out, leg):
         out.append(f"  {leg}: |x_vel| peaked at {peak_xv} and |ground_speed| at {peak_gsp}, "
                    f"both under the {floor} threshold (half this spring's {spring['xv']} "
                    f"launch) — no sideways launch")
-    if anim_seen != {SPRING_ANIM_IDLE}:
+    if anim_seen != {idle_anim(spring)}:
         fails.append(f"{leg}: the spring's anim took the value(s) {sorted(anim_seen)} during "
                      f"the drop and landing — Game.spring_launched ran on a top contact "
                      f"with a spring that does not point up")
     else:
-        out.append(f"  {leg}: the spring's anim stayed SPRING_ANIM_IDLE throughout — the "
+        out.append(f"  {leg}: the spring's anim stayed at its idle id throughout — the "
                    f"launch hook was never invoked")
     return fails
 
@@ -1538,7 +1559,7 @@ async def test_walk_from_spawn(pr, spring, want, out, leg):
             f"x_vel {spring['xv']} points the other way — a walker from the spawn meets "
             f"its BACK face, which is a solid, so no walk from the spawn can be launched "
             f"by it. Turn the spring round or move it to the other side of him")
-    if await pr.anim(spring["sst"]) != SPRING_ANIM_IDLE:
+    if await pr.anim(spring["sst"]) != idle_anim(spring):
         raise Unmeasurable(f"{leg}: the spring is already animating before the walk starts")
     button = "right" if dx0 < 0 else "left"
     out.append(f"  {leg}: the player is where the LEVEL put him — settled at "
@@ -1642,7 +1663,7 @@ async def test_underside_launch(pr, spring, want, out, leg):
                f"stands {st0['y'] - spring['y']}px below it at x={st0['x']}, "
                f"{spring['x'] - st0['x']:+d} off its axis, and jumps holding "
                f"{toward.upper()}")
-    if await pr.anim(spring["sst"]) != SPRING_ANIM_IDLE:
+    if await pr.anim(spring["sst"]) != idle_anim(spring):
         raise Unmeasurable(f"{leg}: the spring is already animating before the jump")
 
     top_y, in_band, rising_at_band = st0["y"], None, None
@@ -1736,9 +1757,9 @@ async def test_underside_launch(pr, spring, want, out, leg):
         fails.append(f"{leg}: the player is not AIRBORNE two frames after the underside "
                      f"launch (status ${after['status']:02X})")
     fire = await pr.anim(spring["sst"])
-    if fire != SPRING_ANIM_FIRE:
-        fails.append(f"{leg}: the spring's anim is {fire}, not SPRING_ANIM_FIRE "
-                     f"{SPRING_ANIM_FIRE}, after the launch")
+    if fire != fire_anim(spring):
+        fails.append(f"{leg}: the spring's anim is {fire}, not its own fire script "
+                     f"{fire_anim(spring)}, after the launch")
     else:
         out.append(f"  {leg}: the spring's anim is now {fire} — the fire script is running")
     return fails
@@ -1780,6 +1801,18 @@ async def run(sock, rom, lst, want_launch, table, subtypes, out):
         raise Unmeasurable(f"the listing puts ST_IN_AIR at bit {equ['ST_IN_AIR']}, this file "
                            f"reads bit {ST_IN_AIR} — every airborne assertion below would be "
                            f"testing the wrong bit")
+
+    # The four animation ids, required rather than defaulted: a build that does not
+    # publish them is a build this file cannot ask its question about.
+    for need in SPRING_ANIM_EQUS:
+        if need not in equ:
+            raise Unmeasurable(
+                f"{need} has no EQU in {lst} — the object no longer publishes its "
+                f"animation ids, so no leg can say which anim its subject should be in")
+    for name in SPRING_ANIM_EQUS:
+        _ANIM[name.split("__")[1]] = equ[name]
+    out.append(f"  animation ids from the listing: " +
+               ", ".join(f"{k}={v}" for k, v in _ANIM.items()))
 
     spring_code = (sym["Spring_Main"] - sym["ObjCodeBase"]) & 0xFFFF
     out.append(f"  Spring_Main ${sym['Spring_Main']:06X} - ObjCodeBase ${sym['ObjCodeBase']:06X} "

@@ -1,44 +1,50 @@
 [
-  {
-    "x": 808,
-    "y": 210,
-    "typeId": "solid",
-    "subtype": 0
-  },
-  {
-    "x": 160,
-    "y": 584,
-    "typeId": "spring",
-    "subtype": 0
-  },
-  {
-    "x": 520,
-    "y": 536,
-    "typeId": "spring",
-    "subtype": 16
-  },
-  {
-    "x": 430,
-    "y": 478,
-    "typeId": "spring",
-    "subtype": 32
-  },
-  {
-    "x": 440,
-    "y": 584,
-    "typeId": "spring",
-    "subtype": 0
-  },
-  {
-    "x": 360,
-    "y": 584,
-    "typeId": "spring",
-    "subtype": 80
-  },
-  {
-    "x": 1080,
-    "y": 840,
-    "typeId": "spring",
-    "subtype": 0
-  }
+ {
+  "x": 808,
+  "y": 210,
+  "typeId": "solid",
+  "subtype": 0
+ },
+ {
+  "x": 160,
+  "y": 584,
+  "typeId": "spring",
+  "subtype": 0
+ },
+ {
+  "x": 520,
+  "y": 536,
+  "typeId": "spring",
+  "subtype": 16
+ },
+ {
+  "x": 430,
+  "y": 478,
+  "typeId": "spring",
+  "subtype": 32
+ },
+ {
+  "x": 440,
+  "y": 584,
+  "typeId": "spring",
+  "subtype": 0
+ },
+ {
+  "x": 360,
+  "y": 584,
+  "typeId": "spring",
+  "subtype": 80
+ },
+ {
+  "x": 1080,
+  "y": 840,
+  "typeId": "spring",
+  "subtype": 0
+ },
+ {
+  "x": 112,
+  "y": 584,
+  "typeId": "spring",
+  "subtype": 2
+ }
 ]

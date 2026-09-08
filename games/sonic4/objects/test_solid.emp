@@ -18,7 +18,7 @@ module games.sonic4.test_solid in test_solid
 use engine.objects.sst.{Sst, ObjDef}
 use engine.objects.objdef.{objdef, vram_art}
 use engine.objects.mapping_dsl.{MapPiece, MapFrame1, MapFrame2, centered, piece}
-use engine.constants.{AF_END, AF_CHANGE, AF_SET_FIELD, AF_SOUND, COLLISION_SPRING, ST_ROLLING, ST_XFLIP, TILE_SIZE}
+use engine.constants.{AF_END, AF_CHANGE, AF_SET_FIELD, AF_SOUND, COLLISION_SPRING, ST_ROLLING, ST_XFLIP, ST_YFLIP, TILE_SIZE}
 use games.sonic4.sound_ids.{SFXID_SPRING}
 use games.sonic4.constants.{VRAM_TEST_OBJ, VRAM_SPRING, VRAM_SPRING_TILES, PSTATE_AIR, PSTATE_AIRBALL}
 use games.sonic4.player_common.{PlayerV}
@@ -302,14 +302,37 @@ ensure((SPRING_SUBTYPE_DIR_SHIFT == 4) && (SPRING_SUBTYPE_DIR_MASK == 7) && ((SP
 ensure(SPRING_SUBTYPE_DIR_SHIFT >= 4 && ((SPRING_SUBTYPE_DIR_MASK << SPRING_SUBTYPE_DIR_SHIFT) & $0F) == 0,
        "the direction field must sit clear of bits 3-0 — bit 1 is the strength and bits 3-2/0 are S3K's horizontal-only extras")
 
-// Animation ids, indexing Ani_Spring's offset table.
-pub const SPRING_ANIM_IDLE = 0
-pub const SPRING_ANIM_FIRE = 1
+// Animation ids, indexing Ani_Spring's offset table. FOUR, not two: the
+// horizontal sheet needs its own idle/fire pair because its frames are different
+// frames, not flipped ones (the flip is a render_flags bit, applied to whichever
+// pair the direction selects). Donor's Ani_Spring has the same 0/1 + 2/3 split.
+pub const SPRING_ANIM_IDLE   = 0
+pub const SPRING_ANIM_FIRE   = 1
+pub const SPRING_ANIM_IDLE_H = 2
+pub const SPRING_ANIM_FIRE_H = 3
 
-// Mapping frame ids, indexing Map_Spring.
-const SPRING_FRAME_IDLE   = 0
-const SPRING_FRAME_SQUASH = 1
-const SPRING_FRAME_EXTEND = 2
+// PUBLISHED to the listing as well, because a `pub const` emits no EQU row (this
+// file already measured that for SPRING_RED_VELOCITY) and
+// tools/spring_launch_witness.py has to know which idle a given spring should be
+// sitting in. It hardcoded 0 until 2026-09-07 and went UNMEASURABLE the moment
+// side springs got their own sheet — the honest failure, but a witness that reads
+// the value cannot go stale that way twice. Same channel as ObjSub_Spring__*.
+pub equ ObjAnim_Spring__Idle   = SPRING_ANIM_IDLE
+pub equ ObjAnim_Spring__Fire   = SPRING_ANIM_FIRE
+pub equ ObjAnim_Spring__IdleH  = SPRING_ANIM_IDLE_H
+pub equ ObjAnim_Spring__FireH  = SPRING_ANIM_FIRE_H
+
+// Mapping frame ids, indexing Map_Spring. Two sheets, three frames each: the
+// VERTICAL set (0-2) and the HORIZONTAL set (3-5), which is the donor's own
+// numbering (Spring 1.asm frames 0/1/2 and 3/4/5). DOWN reuses the vertical set
+// under a renderer Y-flip and LEFT reuses the horizontal set under an X-flip, so
+// four directions need two sheets and no extra frames — see Spring_Dirs.
+const SPRING_FRAME_IDLE     = 0
+const SPRING_FRAME_SQUASH   = 1
+const SPRING_FRAME_EXTEND   = 2
+const SPRING_FRAME_IDLE_H   = 3
+const SPRING_FRAME_SQUASH_H = 4
+const SPRING_FRAME_EXTEND_H = 5
 
 // -----------------------------------------------
 // Spring_Launched — bound to Game.spring_launched (config/game.emp).
@@ -349,10 +372,28 @@ pub proc Spring_Launched (a2: *Sst, a3: *Sst) clobbers(d0-d2/a0-a2) {
         // write because its anim/prev_anim are adjacent (sonic3k.asm:47718,
         // `move.w #1<<8, anim(a0)`); ours sit at $18 and $20, so it is two byte
         // writes that say what they mean.
-        move.b  #SPRING_ANIM_FIRE, Sst.anim(a3)
+        // WHICH fire script — the sheet has to survive the launch. There are two
+        // fire animations, one per sheet (SPRING_ANIM_FIRE over the vertical
+        // frames, SPRING_ANIM_FIRE_H over the horizontal ones), and installing the
+        // wrong one makes a side spring snap to the VERTICAL sheet for the nine
+        // frames of its reaction and then return to the horizontal idle. That is
+        // exactly what shipped for one build on 2026-09-07 and it is invisible to
+        // every static guard: both scripts are well-formed, the object animates,
+        // and only the drawn sheet is wrong.
+        //
+        // The discriminator is the one already being read three lines down: the
+        // spring's own x_vel is non-zero for exactly the horizontal directions,
+        // which is the same question `.horizontal` asks. Read once, used twice.
+        move.w  Sst.x_vel(a3), d0
+        moveq   #SPRING_ANIM_FIRE, d1
+        tst.w   d0
+        beq     .fire_chosen
+        moveq   #SPRING_ANIM_FIRE_H, d1
+    .fire_chosen:
+        move.b  d1, Sst.anim(a3)
         move.b  #$FF, Sst.prev_anim(a3)
 
-        move.w  Sst.x_vel(a3), d0
+        tst.w   d0
         bne     .horizontal
 
         // PSTATE_AIR or PSTATE_AIRBALL, NEVER PSTATE_JUMP. The pair
@@ -501,6 +542,115 @@ ensure((spring_axis_x(SPRING_DIR_UPDIAG, SPRING_YELLOW_VELOCITY) == 0) && (sprin
        "an unimplemented direction must decode to a ZERO vector — that is what makes it a plain solid block in the release shape instead of a random impulse")
 
 // -----------------------------------------------
+// THE PER-DIRECTION RECORD — which sheet a spring draws, which way it is
+// flipped, and how big its box is. One table, read once at spawn.
+//
+// FOUR DIRECTIONS, TWO SHEETS. The side spring is NOT the vertical one rotated:
+// its plate is a vertical BAR with the coil running sideways, and the donor keeps
+// a separate 12-tile block for it (VRAM_HrzntlSprng = $474 against
+// VRAM_VrtclSprng = $460, sonic_hack/VRAM_Layout.asm:77-78). What IS free is the
+// mirror: DOWN is the vertical sheet Y-flipped and LEFT is the horizontal sheet
+// X-flipped, both of which the renderer does properly — engine/objects/sprites.emp's
+// y_term/x_term negate a piece's offset and subtract its own extent, so a
+// multi-piece frame lands where it should rather than merely having its tiles
+// mirrored in place. The donor takes the identical two shortcuts (`bset #1,status`
+// on its down spring, and the x-flip on its side one).
+//
+// THE FLIP GOES IN `status`, NOT `render_flags`, and this cost a build to learn.
+// AnimateSprite REWRITES render_flags' two flip bits from status on EVERY frame
+// (engine/objects/animate.emp:93-96: clear the pair, then or status's pair back
+// in), so a flip written straight into render_flags survives exactly until the
+// object's first animated frame and then vanishes — silently, with the sprite
+// simply drawing unflipped. `status` is the authority and render_flags is its
+// derived copy. ST_XFLIP/ST_YFLIP are bit-aligned with RF_XFLIP/RF_YFLIP on
+// purpose (engine/system/constants.emp:126-127) precisely so that copy is a mask
+// and a move. The donor writes status too (`bset #1,status(a0)` on its down
+// spring, code/objects/Spring.asm:73).
+//
+// THE BOX FOLLOWS THE ART, per direction, which is why it lives here and not in
+// the archetype: a vertical spring is 32x16 and a side spring is 16x28 (the
+// donor's Spring__SideData declares width 8 / height $E as RADII,
+// code/objects/Spring.asm:139-146). The archetype's width/height are only the
+// pre-init default now.
+//
+// THE UNIMPLEMENTED DIRECTIONS ARE STILL SAFE. UPDIAG and DOWNDIAG decode to the
+// inert (0,0) launch vector, and their rows here give them the vertical sheet
+// with no flip and the vertical box — so they draw as an ordinary up spring and
+// behave as a plain solid block, which is what the release shape already did.
+// Rows 6 and 7 are unreachable values of a 3-bit field and take the same.
+struct SpringDir (size: 4) {
+    sd_anim:   u8,      // the IDLE animation this direction plays
+    sd_status: u8,      // STATUS bits to OR in (ST_XFLIP / ST_YFLIP)
+    sd_box:    u16,     // the collision box, W<<8|H, for size_wh_off()'s word store
+}
+
+// The index scale, as a SHIFT. `mulu` is not allowed casually here
+// (CODING_CONVENTIONS §2.1) and is not needed: the record is a power of two by
+// construction, and this ensure is what keeps it one.
+const SPRING_DIR_SHIFT = 2
+ensure((1 << SPRING_DIR_SHIFT) == sizeof(SpringDir),
+       "Spring_Init scales the direction by a SHIFT — sizeof(SpringDir) must stay a power of two, or the index silently lands mid-record")
+
+comptime fn spring_box(w: int, h: int) -> int { return (w << 8) | h }
+
+const SPRING_BOX_VERT = spring_box(32, 16)      // the 4-tile plate, 2 tiles tall
+const SPRING_BOX_SIDE = spring_box(16, 28)      // donor radii 8 / $E, doubled
+
+// The rows, NAMED, because a `data` array is not comptime-indexable and the
+// guards below have to be able to read what they are guarding.
+const SDIR_UP    = SpringDir{ sd_anim: SPRING_ANIM_IDLE,   sd_status: 0,           sd_box: SPRING_BOX_VERT }
+const SDIR_RIGHT = SpringDir{ sd_anim: SPRING_ANIM_IDLE_H, sd_status: 0,           sd_box: SPRING_BOX_SIDE }
+const SDIR_DOWN  = SpringDir{ sd_anim: SPRING_ANIM_IDLE,   sd_status: 1<<ST_YFLIP, sd_box: SPRING_BOX_VERT }
+const SDIR_LEFT  = SpringDir{ sd_anim: SPRING_ANIM_IDLE_H, sd_status: 1<<ST_XFLIP, sd_box: SPRING_BOX_SIDE }
+// The two decoded-but-unimplemented diagonals and the two unreachable field
+// values all take UP's row: they draw as an ordinary up spring and, carrying the
+// inert (0,0) launch vector, behave as a plain solid block — which is what the
+// release shape already did with them.
+const SDIR_INERT = SDIR_UP
+
+data Spring_Dirs: [SpringDir; 8] = [
+    SDIR_UP,        // 0 UP
+    SDIR_RIGHT,     // 1 RIGHT
+    SDIR_DOWN,      // 2 DOWN
+    SDIR_INERT,     // 3 UPDIAG   (decoded, inert)
+    SDIR_INERT,     // 4 DOWNDIAG (decoded, inert)
+    SDIR_LEFT,      // 5 LEFT
+    SDIR_INERT,     // 6 (unreachable value of the 3-bit field)
+    SDIR_INERT,     // 7 (unreachable)
+]
+
+// THE ARRAY ORDER IS THE DIRECTION VALUES, and Spring_Init indexes it by the raw
+// field, so the row order above is only correct while these four values are what
+// they are. Pinned here rather than trusted: moving SPRING_DIR_LEFT without
+// moving its row would give every left spring the vertical sheet.
+ensure(SPRING_DIR_UP == 0 && SPRING_DIR_RIGHT == 1 && SPRING_DIR_DOWN == 2 && SPRING_DIR_LEFT == 5,
+       "Spring_Dirs is indexed by the raw direction field, so its row order IS the SPRING_DIR_* values")
+
+// The four implemented rows must say what their direction NAME means, or a side
+// spring silently draws the vertical sheet — which is the exact defect this table
+// was added to fix, and it shipped once already (2026-09-07).
+ensure(SDIR_UP.sd_anim == SPRING_ANIM_IDLE && SDIR_UP.sd_status == 0,
+       "UP must draw the vertical sheet unflipped")
+ensure(SDIR_DOWN.sd_anim == SPRING_ANIM_IDLE && SDIR_DOWN.sd_status == (1<<ST_YFLIP),
+       "DOWN must draw the vertical sheet Y-FLIPPED — unflipped, a ceiling spring's plate points into the ceiling")
+ensure(SDIR_RIGHT.sd_anim == SPRING_ANIM_IDLE_H && SDIR_RIGHT.sd_status == 0,
+       "RIGHT must draw the HORIZONTAL sheet unflipped — its plate is the bar at the right edge")
+ensure(SDIR_LEFT.sd_anim == SPRING_ANIM_IDLE_H && SDIR_LEFT.sd_status == (1<<ST_XFLIP),
+       "LEFT must draw the HORIZONTAL sheet X-FLIPPED")
+ensure(SDIR_RIGHT.sd_box == SPRING_BOX_SIDE && SDIR_UP.sd_box == SPRING_BOX_VERT,
+       "a side spring's box is 16x28 and a vertical one's is 32x16 — swapping them stops the player 8px short of one and lets him into the other")
+
+// THE PALETTE BIT, derived from vram_art rather than written as 5. It is bit 13
+// of the art_tile word (palette bit 0), reached as bit 5 of its HIGH byte because
+// `bset` on a memory operand is a BYTE op — the donor's own idiom
+// (sonic_hack/code/objects/Spring.asm:30). Deriving it means a change to
+// vram_art's packing fails the build here instead of recolouring every yellow
+// spring into something arbitrary.
+const SPRING_PAL_BIT = 5
+ensure(vram_art(0, 1, 0) - vram_art(0, 0, 0) == (1 << (SPRING_PAL_BIT + 8)),
+       "SPRING_PAL_BIT must be palette bit 0 as seen in art_tile's HIGH byte — `bset #{SPRING_PAL_BIT}` is a byte op on that half")
+
+// -----------------------------------------------
 // Spring_Init — decode the subtype, then become Spring_Main.
 //
 // Runs once, on the frame Load_Object spawns the object: `code:` in the ObjDef
@@ -568,6 +718,38 @@ pub proc Spring_Init (a0: *Sst) clobbers(d0-d3/a1-a2) preserves(a0) falls_into S
         move.w  (a1,d0.w), Sst.x_vel(a0)
         move.w  2(a1,d0.w), Sst.y_vel(a0)
 
+        // --- YELLOW IS A PALETTE LINE, not a second sheet ---
+        // The donor does exactly this: ObjSpring_CheckColor's `bset #5,art_tile(a0)`
+        // (sonic_hack/code/objects/Spring.asm:30) is a BYTE op on the art_tile
+        // word's HIGH byte, i.e. bit 13 of the word — palette bit 0. It works
+        // because the spring's art is drawn in indices that read as reds on one
+        // CRAM line and yellows on the next: our OJZ line 1 carries $C = 252,252,0
+        // and $D = 144,144,0 exactly where line 0 carries $C = 252,0,0 and
+        // $D = 144,0,0, and the whites and greys at 6/7/8/9 are common to both.
+        // So a yellow spring costs ZERO extra tiles and zero extra palette.
+        // d1 still holds the masked-and-doubled strength bit from the launch
+        // index above ($04 for yellow, 0 for red) — testing it here spends no
+        // second decode.
+        tst.w   d1
+        beq     .red
+        bset    #SPRING_PAL_BIT, Sst.art_tile(a0)   // byte op: the word's high half
+    .red:
+
+        // --- direction: the sheet, the flip and the box ---
+        // d2 = the raw direction, re-derived from the subtype rather than unfolded
+        // back out of d0 (which has the strength added into it by now).
+        moveq   #0, d2
+        move.b  Sst.subtype(a0), d2
+        lsr.w   #SPRING_SUBTYPE_DIR_SHIFT, d2
+        andi.w  #SPRING_SUBTYPE_DIR_MASK, d2
+        lsl.w   #SPRING_DIR_SHIFT, d2   // * sizeof(SpringDir), a shift by construction
+        lea     Spring_Dirs(pc), a2
+        adda.w  d2, a2                  // a2 = &Spring_Dirs[dir] — the row, once
+        move.b  SpringDir.sd_anim(a2), Sst.anim(a0)
+        move.b  SpringDir.sd_status(a2), d3
+        or.b    d3, Sst.status(a0)      // STATUS, not render_flags — see SpringDir
+        move.w  SpringDir.sd_box(a2), size_wh_off()(a0)
+
         // A zero vector is the table's "no such direction" sentinel — inert by
         // construction in the release shape (Touch_Spring launches on no face,
         // so the object is a plain solid block), and a hard stop here.
@@ -627,11 +809,20 @@ pub proc Spring_Main (a0: *Sst) clobbers(d0-d3/a1-a2) preserves(a0) {
 // the plate to y = 0 (8px down, the compression); extend throws it to y = -24
 // and stretches the coil between. All three are 32px wide about the origin,
 // which is what raises `width` to 32 below.
-const SPRING_TILE_PLATE = 0             // 4x1 — the red top plate
-const SPRING_TILE_BASE  = 4             // 2x1 — the resting coil
-const SPRING_TILE_COIL  = 6             // 2x3 — the stretched coil
+const SPRING_TILE_PLATE  = 0            // 4x1 — the red top plate
+const SPRING_TILE_BASE   = 4            // 2x1 — the resting coil
+const SPRING_TILE_COIL   = 6            // 2x3 — the stretched coil
+// The horizontal sheet follows the vertical one in the same blob, so its tile
+// numbers are the donor's own plus the 12 the vertical sheet occupies. Derived
+// from SPRING_VERT_TILES rather than written as 12/16/18, so re-cutting the
+// vertical sheet moves these with it instead of silently aiming them at its tail.
+const SPRING_VERT_TILES  = 12
+const SPRING_TILE_HPLATE = SPRING_VERT_TILES + 0    // 1x4 — the side plate, a BAR
+const SPRING_TILE_HBASE  = SPRING_VERT_TILES + 4    // 1x2 — its resting coil
+const SPRING_TILE_HCOIL  = SPRING_VERT_TILES + 6    // 3x2 — its stretched coil
 
 pub offsets Map_Spring {
+    // --- the VERTICAL sheet (UP, and DOWN under a Y-flip) ---
     Idle: MapFrame2 = MapFrame2{
         x_min: -16, x_max: 16, y_min: -8, y_max: 8, piece_count: 2,
         piece0: piece(x: -16, y:  -8, w: 4, h: 1, tile: SPRING_TILE_PLATE),
@@ -643,6 +834,22 @@ pub offsets Map_Spring {
         x_min: -16, x_max: 16, y_min: -24, y_max: 8, piece_count: 2,
         piece0: piece(x: -16, y: -24, w: 4, h: 1, tile: SPRING_TILE_PLATE),
         piece1: piece(x:  -8, y: -16, w: 2, h: 3, tile: SPRING_TILE_COIL) },
+    // --- the HORIZONTAL sheet (RIGHT, and LEFT under an X-flip) ---
+    // Transcribed from Spring 1.asm frames 3/4/5. The plate is the BAR at the
+    // right-hand edge and the coil runs left from it, so a RIGHT-pointing spring
+    // is the un-flipped sense — the same convention SPRING_DIR_RIGHT takes in the
+    // launch table, and why LEFT is the flipped one rather than the other way.
+    IdleH: MapFrame2 = MapFrame2{
+        x_min: -8, x_max: 8, y_min: -16, y_max: 16, piece_count: 2,
+        piece0: piece(x:   0, y: -16, w: 1, h: 4, tile: SPRING_TILE_HPLATE),
+        piece1: piece(x:  -8, y:  -8, w: 1, h: 2, tile: SPRING_TILE_HBASE) },
+    SquashH: MapFrame1 = MapFrame1{
+        x_min: -8, x_max: 8, y_min: -16, y_max: 16, piece_count: 1,
+        piece: piece(x: -8, y: -16, w: 1, h: 4, tile: SPRING_TILE_HPLATE) },
+    ExtendH: MapFrame2 = MapFrame2{
+        x_min: -8, x_max: 24, y_min: -16, y_max: 16, piece_count: 2,
+        piece0: piece(x:  16, y: -16, w: 1, h: 4, tile: SPRING_TILE_HPLATE),
+        piece1: piece(x:  -8, y:  -8, w: 3, h: 2, tile: SPRING_TILE_HCOIL) },
 }
 
 // The art blob. It rides in THIS file's section deliberately: a new `.emp`
@@ -653,7 +860,9 @@ pub offsets Map_Spring {
 const _art_spring = embed("games/sonic4/data/generated/spring/art_spring.bin")
 pub data Art_Spring = _art_spring
 
-pub const SPRING_ART_LEN = 12 * TILE_SIZE       // 384 B — the resident DMA's size
+pub const SPRING_ART_LEN = 24 * TILE_SIZE       // 768 B — the resident DMA's size
+ensure(SPRING_ART_LEN == (SPRING_VERT_TILES + 12) * TILE_SIZE,
+       "the blob is the vertical sheet plus the 12-tile horizontal one — SPRING_TILE_H* index past SPRING_VERT_TILES and would run off the end if the halves disagreed")
 
 // The blob, the DMA length and the VRAM region must be ONE number. Without this
 // the triangle is self-consistent and tied to nothing in the map: a regenerated
@@ -749,9 +958,40 @@ ensure(SPRING_FIRE_SCRIPT[12] == AF_CHANGE && SPRING_FIRE_SCRIPT[13] == SPRING_A
 ensure(SPRING_IDLE_SCRIPT[2] == AF_END,
        "the idle script must LOOP — without the terminator the animator walks off the end of the script into the fire script's bytes")
 
+// The HORIZONTAL pair — the same two scripts over the horizontal frames, which
+// is exactly what the donor's Ani_Spring anims 2 and 3 are (byte_18FFD and
+// byte_19000): identical durations and identical shape, different frame ids.
+// Spelled out rather than generated from the vertical pair because a script is
+// data a person reads, and the frame ids are the whole content.
+const SPRING_IDLE_H_SCRIPT: [u8; 4] = [$F, SPRING_FRAME_IDLE_H, AF_END, 0]
+
+const SPRING_FIRE_H_SCRIPT: [u8; 14] = [
+    0,
+    AF_SOUND, SFXID_SPRING,
+    SPRING_FRAME_SQUASH_H,
+    SPRING_FRAME_IDLE_H, SPRING_FRAME_IDLE_H,
+    SPRING_FRAME_EXTEND_H, SPRING_FRAME_EXTEND_H, SPRING_FRAME_EXTEND_H,
+    SPRING_FRAME_EXTEND_H, SPRING_FRAME_EXTEND_H, SPRING_FRAME_EXTEND_H,
+    AF_CHANGE, SPRING_ANIM_IDLE_H,
+]
+
+// The horizontal pair takes the SAME guards as the vertical one — the reference
+// count, the sound placement and the terminator — because a script that differs
+// only in its frame ids can still be mistranscribed in all three ways.
+ensure(spring_display_frames(SPRING_FIRE_H_SCRIPT, SPRING_FIRE_FRAMES_START) == S3K_SPRING_FIRE_FRAMES * (S3K_SPRING_FIRE_HOLD + 1),
+       "the horizontal fire script shows {spring_display_frames(SPRING_FIRE_H_SCRIPT, SPRING_FIRE_FRAMES_START)} display frames; the reference shows {S3K_SPRING_FIRE_FRAMES * (S3K_SPRING_FIRE_HOLD + 1)}")
+ensure(SPRING_FIRE_H_SCRIPT[1] == AF_SOUND && SPRING_FIRE_H_SCRIPT[2] == SFXID_SPRING,
+       "the horizontal fire script needs the same AF_SOUND pair at the same place — a side spring that launches silently is the failure")
+ensure(SPRING_FIRE_H_SCRIPT[12] == AF_CHANGE && SPRING_FIRE_H_SCRIPT[13] == SPRING_ANIM_IDLE_H,
+       "the horizontal fire script must return to the HORIZONTAL idle — AF_CHANGE to SPRING_ANIM_IDLE would leave a side spring drawing the vertical sheet")
+ensure(SPRING_IDLE_H_SCRIPT[2] == AF_END,
+       "the horizontal idle script must LOOP")
+
 pub offsets Ani_Spring {
-    Idle: [u8; 4]  = SPRING_IDLE_SCRIPT,        // SPRING_ANIM_IDLE
-    Fire: [u8; 14] = SPRING_FIRE_SCRIPT,        // SPRING_ANIM_FIRE
+    Idle:  [u8; 4]  = SPRING_IDLE_SCRIPT,        // SPRING_ANIM_IDLE
+    Fire:  [u8; 14] = SPRING_FIRE_SCRIPT,        // SPRING_ANIM_FIRE
+    IdleH: [u8; 4]  = SPRING_IDLE_H_SCRIPT,      // SPRING_ANIM_IDLE_H
+    FireH: [u8; 14] = SPRING_FIRE_H_SCRIPT,      // SPRING_ANIM_FIRE_H
 }
 
 // -----------------------------------------------

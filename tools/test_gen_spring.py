@@ -36,7 +36,12 @@ DONOR = os.path.join(SONIC_HACK, "art", "nemesis", "Vertical spring.bin")
 NEMDEC = os.path.join(SONIC_HACK, "tools", "nemdec")
 
 TILE = 32
-SPRING_TILES = 12
+# 24 = the vertical sheet's 12 repacked tiles + the horizontal sheet's 12 verbatim.
+# The side spring is a SEPARATE donor sheet, not a rotation (its plate is a
+# vertical bar); DOWN and LEFT are renderer flips of these two.
+SPRING_VERT_TILES = 12
+SPRING_HORIZ_TILES = 12
+SPRING_TILES = SPRING_VERT_TILES + SPRING_HORIZ_TILES
 # The donor's line-0 vocabulary: 0 transparent, 1 near-black outline, 6 white,
 # 7 light grey, 8 grey-blue, 9 grey, $C bright red, $D dark red.
 SPRING_INDICES = {0, 1, 6, 7, 8, 9, 0xC, 0xD}
@@ -50,8 +55,10 @@ def _indices(blob: bytes) -> set:
     return out
 
 
-def test_blob_is_twelve_tiles():
-    assert os.path.getsize(BLOB) == SPRING_TILES * TILE
+def test_blob_is_both_sheets():
+    assert os.path.getsize(BLOB) == SPRING_TILES * TILE, (
+        f"the blob must be {SPRING_VERT_TILES} vertical + {SPRING_HORIZ_TILES} "
+        f"horizontal tiles")
 
 
 def test_blob_uses_only_the_line_0_vocabulary():
@@ -63,9 +70,10 @@ def test_blob_uses_only_the_line_0_vocabulary():
 
 
 def test_no_tile_is_blank():
-    """The repack's whole point: 20 donor tiles down to 12 by dropping the empty ones.
-    A blank tile here means the re-cut silently stopped working and the map is paying
-    for padding again."""
+    """The repack's whole point: 20 vertical donor tiles down to 12 by dropping the
+    empty ones (the horizontal sheet has none to drop and is copied verbatim). A
+    blank tile anywhere here means the re-cut silently stopped working and the map is
+    paying for padding again."""
     blob = open(BLOB, "rb").read()
     blank = [t for t in range(SPRING_TILES) if blob[t * TILE:(t + 1) * TILE] == b"\0" * TILE]
     assert not blank, f"tiles {blank} are blank — the piece re-cut regressed"

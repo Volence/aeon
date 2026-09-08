@@ -224,8 +224,8 @@ name = "bg_region"
 owner = "engine.bg"
 kind = "arena"
 base = 1024
-tiles = 388                      # 448 -> 400: the top 48 tiles became the
-band_reserve = 68                # `waterline_strips` region below (EFFECTS-W1
+tiles = 376                      # 448 -> 400: the top 48 tiles became the
+band_reserve = 56                # `waterline_strips` region below (EFFECTS-W1
                                  # item 9d). Reserve 128 -> 80 in the SAME edit
                                  # so the STATIC budget (tiles - reserve) stays
                                  # 320 — the 48 came out of the RESERVE, not out
@@ -337,7 +337,7 @@ authority = ["engine-tiles:BG_TILE_CAPACITY", "engine-bytebase:BG_TILE_BASE_VRAM
 name = "waterline_strips"
 owner = "engine.bg_anim"
 kind = "window"
-base = 1412
+base = 1400
 tiles = 48
 lifetime = "act"
 authority = "engine-bytebase:VRAM_WATERLINE_STRIPS"
@@ -386,8 +386,8 @@ authority = "engine-bytebase:VRAM_WATERLINE_STRIPS"
 name = "spring"
 owner = "games.sonic4.spring"
 kind = "window"
-base = 1460
-tiles = 12
+base = 1448
+tiles = 24
 lifetime = "act"
 const = "VRAM_SPRING"
 # The vertical spring's art: 20 tiles RESIDENT for the act, never streamed. All
@@ -397,10 +397,15 @@ const = "VRAM_SPRING"
 #
 # WHERE THESE 20 CAME FROM, and it is the owner's dial, not spare space (the same
 # shape as `waterline_strips` above, which took 48 the same way). `bg_region` went
-# 400 -> 380 and its `band_reserve` went 80 -> 60 in the SAME edit, so the STATIC
+# 400 -> 376 and its `band_reserve` went 80 -> 56 across two edits, so the STATIC
 # importer budget (tiles - reserve) is unchanged at 320 and the shipped background
 # blob (320 tiles, tools/test_bg_tile_budget.py::TestBakedBlobOccupancy) is
-# untouched. The 20 came out of the 80 unresident reserve tiles; 60 remain.
+# untouched. The 24 came out of the 80 unresident reserve tiles; 56 remain.
+#
+# 12 -> 24 on 2026-09-07: the second sheet. The side spring is NOT a rotation of
+# the vertical one — its plate is a vertical bar and the donor keeps a separate
+# 12-tile block for it (VRAM_HrzntlSprng). DOWN and LEFT are renderer flips of
+# these two sheets, so four directions cost two sheets.
 #
 # WHY NOT `fg_art_pool`, which docs/DEFERRED_WORK.md's SP-3 table named as the only
 # route: its quantum is 64, so the smallest cut is a whole 64-tile PAGE and the act
@@ -408,16 +413,17 @@ const = "VRAM_SPRING"
 # 20-tile object; these 20 tiles are unwritten today. SP-3's table predates the
 # waterline precedent and did not consider this run.
 #
-# WHY 1452 AND NOT 1404. `VRAM_WATERLINE_STRIPS` is DERIVED
+# WHY THE TAIL AND NOT THE HEAD. `VRAM_WATERLINE_STRIPS` is DERIVED
 # (engine/system/constants.emp: `BG_TILE_BASE_VRAM + BG_TILE_CAPACITY * 32`), so
-# shrinking the BG arena slides the strips down with it — they are 1404..1451 now.
+# shrinking the BG arena slides the strips down with it — they are 1400..1447 now.
 # The freed run is therefore the tail, not the head, and it ends exactly on
-# `sprite_table`: $B580 + 20*32 = $B800. There is no slack left below the SAT.
+# `sprite_table`: $B500 + 24*32 = $B800. There is no slack left below the SAT.
 #
 # ⚠ TOPOLOGICALLY THIS IS IN THE WRONG NEIGHBOURHOOD and that is known. Objects
 # live at 896..1023, which is 128 tiles and FULLY SPENT — this map has room for
 # zero further objects without a carve. Owner's ruling 2026-09-07: take these 20
-# now, revisit the allocation properly. Booked in docs/DEFERRED_WORK.md.
+# now (24 since the side sheet), revisit the allocation properly. Booked in
+# docs/DEFERRED_WORK.md.
 
 [[region]]
 name = "sprite_table"

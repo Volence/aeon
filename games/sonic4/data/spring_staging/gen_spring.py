@@ -29,9 +29,12 @@ OUTPUT ORDER is VDP column-major within each piece, which is what the engine's
 mapping DSL and the SAT both expect (a piece reads consecutive tiles from its
 base, down each column then across):
 
-    new  0.. 3   PLATE  4 wide x 1 tall   from donor 1, 3, 5, 7
-    new  4.. 5   BASE   2 wide x 1 tall   from donor 8, 10
-    new  6..11   COIL   2 wide x 3 tall   from donor 12,13,14, 16,17,18
+    new  0.. 3   PLATE  4 wide x 1 tall   from Vertical donor 1, 3, 5, 7
+    new  4.. 5   BASE   2 wide x 1 tall   from Vertical donor 8, 10
+    new  6..11   COIL   2 wide x 3 tall   from Vertical donor 12,13,14, 16,17,18
+    new 12..15   HPLATE 1 wide x 4 tall   Horizontal donor 0..3   (verbatim)
+    new 16..17   HBASE  1 wide x 2 tall   Horizontal donor 4..5
+    new 18..23   HCOIL  3 wide x 2 tall   Horizontal donor 6..11
 
 Deterministic: same donor in, same 384 bytes out. Do not hand-edit the output.
 
@@ -50,6 +53,7 @@ from suite_paths import suite_path  # noqa: E402
 
 SONIC_HACK = os.environ.get("AEON_SONIC_HACK_DIR", str(suite_path("sonic_hack")))
 DONOR = os.path.join(SONIC_HACK, "art", "nemesis", "Vertical spring.bin")
+DONOR_H = os.path.join(SONIC_HACK, "art", "nemesis", "Horizontal spring.bin")
 NEMDEC = os.path.join(SONIC_HACK, "tools", "nemdec")
 DEFAULT_OUT = os.path.join(AEON, "games", "sonic4", "data", "generated",
                            "spring", "art_spring.bin")
@@ -63,6 +67,23 @@ COIL  = [12, 13, 14, 16, 17, 18]  # 2 wide x 3 tall (column-major)
 REPACK = PLATE + BASE + COIL
 # The donor tiles the repack drops, asserted blank below rather than assumed.
 DROPPED = [0, 2, 4, 6, 9, 11, 15, 19]
+
+# --- the HORIZONTAL sheet, appended after the vertical one ------------------
+# A SEPARATE DONOR FILE AND A SEPARATE SHEET, not a rotation of the vertical one.
+# The side spring's plate is a VERTICAL BAR (1 cell wide, 4 tall) with its coil
+# running sideways; nothing about the flat 4x1 plate can be turned into it. The
+# donor keeps them apart too — VRAM_VrtclSprng = $460 and VRAM_HrzntlSprng = $474
+# are different blocks, and Spring__UpData / Spring__SideData name different art
+# (sonic_hack/VRAM_Layout.asm:77-78, code/objects/Spring.asm:127/139).
+#
+# NO REPACK HERE: all 12 donor tiles are non-blank and all 12 are referenced by
+# mapping frames 3/4/5, so the sheet is copied verbatim and the frames address it
+# by the donor's own tile numbers (offset by the vertical sheet's 12).
+HORIZ_TILES = 12
+# LEFT vs RIGHT is the renderer's X-flip of these same 12 tiles, and DOWN is the
+# renderer's Y-flip of the vertical ones — engine/objects/sprites.emp mirrors a
+# piece's OFFSETS as well as its tiles (y_term/x_term `neg` then subtract the
+# piece's own extent), so a flipped multi-piece frame lands where it should.
 
 
 def decompress(donor: str, nemdec: str) -> bytes:
@@ -79,7 +100,7 @@ def decompress(donor: str, nemdec: str) -> bytes:
         return open(out, "rb").read()
 
 
-def build(art: bytes) -> bytes:
+def build(art: bytes, art_h: bytes) -> bytes:
     if len(art) != DONOR_TILES * TILE:
         sys.exit(f"gen_spring: donor decompressed to {len(art)} bytes, "
                  f"expected {DONOR_TILES * TILE} ({DONOR_TILES} tiles)")
@@ -92,18 +113,26 @@ def build(art: bytes) -> bytes:
                      f"from mappings/sprite/Spring 1.asm frames 0/1/2 before regenerating.")
     if sorted(REPACK + DROPPED) != list(range(DONOR_TILES)):
         sys.exit("gen_spring: REPACK + DROPPED must partition the donor's tiles exactly")
-    return b"".join(art[t * TILE:(t + 1) * TILE] for t in REPACK)
+    if len(art_h) != HORIZ_TILES * TILE:
+        sys.exit(f"gen_spring: the horizontal donor decompressed to {len(art_h)} bytes, "
+                 f"expected {HORIZ_TILES * TILE} ({HORIZ_TILES} tiles)")
+    for t in range(HORIZ_TILES):
+        if art_h[t * TILE:(t + 1) * TILE] == b"\0" * TILE:
+            sys.exit(f"gen_spring: horizontal donor tile {t} is blank; frames 3/4/5 "
+                     f"reference all {HORIZ_TILES}, so a blank one means the donor changed")
+    return b"".join(art[t * TILE:(t + 1) * TILE] for t in REPACK) + art_h
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=DEFAULT_OUT)
     a = ap.parse_args()
-    blob = build(decompress(DONOR, NEMDEC))
+    blob = build(decompress(DONOR, NEMDEC), decompress(DONOR_H, NEMDEC))
     os.makedirs(os.path.dirname(a.out), exist_ok=True)
     open(a.out, "wb").write(blob)
     print(f"gen_spring: {a.out} — {len(blob)} bytes = {len(blob)//TILE} tiles "
-          f"(from {DONOR_TILES} donor tiles, {len(DROPPED)} blank dropped)")
+          f"= {len(REPACK)} vertical (from {DONOR_TILES}, {len(DROPPED)} blank dropped) "
+          f"+ {HORIZ_TILES} horizontal (verbatim)")
 
 
 if __name__ == "__main__":

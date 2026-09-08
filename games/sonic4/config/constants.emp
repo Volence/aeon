@@ -514,8 +514,8 @@ pub const VRAM_TEST_MARKER        : VramTile = $03F8   // test_marker: tiles 101
 pub const VRAM_TEST_MARKER_TILES          = 4   // test_marker: DECLARED extent — the ceiling a residency guard binds against
 pub const VRAM_DEBUG_LAB_NAME     : VramTile = $03FC   // debug_lab_name: tiles 1020..1023 (4), mode, owner games.sonic4.ojz_scroll_test
 pub const VRAM_DEBUG_LAB_NAME_TILES       = 4   // debug_lab_name: DECLARED extent — the ceiling a residency guard binds against
-pub const VRAM_SPRING             : VramTile = $05B4   // spring: tiles 1460..1471 (12), act, owner games.sonic4.spring
-pub const VRAM_SPRING_TILES               = 12   // spring: DECLARED extent — the ceiling a residency guard binds against
+pub const VRAM_SPRING             : VramTile = $05A8   // spring: tiles 1448..1471 (24), act, owner games.sonic4.spring
+pub const VRAM_SPRING_TILES               = 24   // spring: DECLARED extent — the ceiling a residency guard binds against
 pub const VRAM_TAILS_APPENDAGE    : VramTile = $05D4   // tails_appendage: tiles 1492..1500 (9), act, owner games.sonic4.tails_appendage
 pub const VRAM_TAILS_APPENDAGE_TILES      = 9   // tails_appendage: DECLARED extent — the ceiling a residency guard binds against
 pub const VRAM_DEBUG_BGANIM_TAG   : VramTile = $05DD   // debug_bganim_tag: tiles 1501..1503 (3), mode, owner games.sonic4.ojz_scroll_test
@@ -524,9 +524,9 @@ pub const VRAM_DEBUG_RASTER_TAG   : VramTile = $05FC   // debug_raster_tag: tile
 pub const VRAM_DEBUG_RASTER_TAG_TILES     = 4   // debug_raster_tag: DECLARED extent — the ceiling a residency guard binds against
 // Authority cross-checks — the engine constant vs the declared map:
 ensure(POOL_TILE_CEILING == 768, "vram.toml fg_art_pool drifted from engine POOL_TILE_CEILING — edit games/sonic4/vram.toml and regenerate")
-ensure(BG_TILE_CAPACITY == 388, "vram.toml bg_region drifted from engine BG_TILE_CAPACITY — edit games/sonic4/vram.toml and regenerate")
+ensure(BG_TILE_CAPACITY == 376, "vram.toml bg_region drifted from engine BG_TILE_CAPACITY — edit games/sonic4/vram.toml and regenerate")
 ensure(BG_TILE_BASE_VRAM == $8000, "vram.toml bg_region drifted from engine BG_TILE_BASE_VRAM — edit games/sonic4/vram.toml and regenerate")
-ensure(VRAM_WATERLINE_STRIPS == $B080, "vram.toml waterline_strips drifted from engine VRAM_WATERLINE_STRIPS — edit games/sonic4/vram.toml and regenerate")
+ensure(VRAM_WATERLINE_STRIPS == $AF00, "vram.toml waterline_strips drifted from engine VRAM_WATERLINE_STRIPS — edit games/sonic4/vram.toml and regenerate")
 ensure(VRAM_SPRITE_TABLE == $B800, "vram.toml sprite_table drifted from engine VRAM_SPRITE_TABLE — edit games/sonic4/vram.toml and regenerate")
 ensure(VRAM_HSCROLL_TABLE == $BC00, "vram.toml hscroll_table drifted from engine VRAM_HSCROLL_TABLE — edit games/sonic4/vram.toml and regenerate")
 ensure(VRAM_PLANE_A == $C000, "vram.toml plane_a drifted from engine VRAM_PLANE_A — edit games/sonic4/vram.toml and regenerate")
@@ -542,7 +542,7 @@ ensure(VRAM_TEST_SONIC + 32 <= $03E0, "character_window runs into test_obj")
 ensure(VRAM_TEST_OBJ + 8 <= $03E8, "test_obj runs into ring_placeholder")
 ensure(VRAM_TEST_MARKER + 4 <= $03FC, "test_marker runs into debug_lab_name")
 ensure(VRAM_DEBUG_LAB_NAME + 4 <= $0400, "debug_lab_name runs into bg_region")
-ensure(VRAM_SPRING + 12 <= $05C0, "spring runs into sprite_table")
+ensure(VRAM_SPRING + 24 <= $05C0, "spring runs into sprite_table")
 ensure(VRAM_TAILS_APPENDAGE + 9 <= $05DD, "tails_appendage runs into debug_bganim_tag")
 ensure(VRAM_DEBUG_BGANIM_TAG + 3 <= $05E0, "debug_bganim_tag runs into hscroll_table")
 ensure(VRAM_DEBUG_RASTER_TAG + 4 <= $0600, "debug_raster_tag runs into plane_a")

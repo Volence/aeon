@@ -27588,6 +27588,75 @@ own queue: `Sound_PlaySFX` entered with `$B1` on the launch, `$B1` reaching
 `Sfx_Ring_Buf`, and `Rd` catching `Wr` (the driver consumed it rather than dropping
 it on a full ring).
 
+### SP-5e — the OTHER directions' ART, and yellow — CLOSED 2026-09-07
+
+**The first art landing shipped ONE sheet and wired it to every direction and
+strength.** Reported by the owner from a running ROM: a side spring drew the flat
+vertical plate, and a yellow spring drew red. The subtype decode, the launch
+vectors and the collision were already four-directional since SP-5; only the
+drawing was not. Four fixes, all measured off the SAT on a running `s4.debug.bin`:
+
+* **A SECOND SHEET, +12 tiles (24 total).** The side spring is NOT a rotation: its
+  plate is a vertical BAR with the coil running sideways, and the donor keeps a
+  separate block for it (`VRAM_HrzntlSprng = $474` against `VRAM_VrtclSprng = $460`).
+  All 12 of its tiles are non-blank and all 12 are referenced, so it is copied
+  verbatim after the vertical sheet's repacked 12. Frames 3/4/5 transcribed.
+  The 12 came from `bg_region` again (388 -> 376, reserve 68 -> 56).
+* **DOWN and LEFT are renderer FLIPS**, so four directions cost two sheets.
+* **YELLOW IS A PALETTE LINE, and it cost nothing.** The donor's
+  `bset #5,art_tile(a0)` is a BYTE op on the word's high half, i.e. bit 13 =
+  palette bit 0. Our OJZ CRAM line 1 carries $C = 252,252,0 / $D = 144,144,0
+  exactly where line 0 carries $C = 252,0,0 / $D = 144,0,0, with the whites and
+  greys common to both — so the same 24 tiles are a red spring on line 0 and a
+  yellow one on line 1. `SPRING_PAL_BIT` is derived from `vram_art` rather than
+  written as 5.
+* **The box follows the art per direction** (32x16 vertical, 16x28 side), from a
+  `SpringDir` table indexed by the raw direction field.
+
+**TWO BUGS THIS FOUND, both invisible to every static guard:**
+
+1. **A FLIP MUST GO IN `status`, NOT `render_flags`.** `AnimateSprite` REWRITES
+   render_flags' two flip bits from status on EVERY frame
+   (`engine/objects/animate.emp:93-96`), so a flip written into render_flags
+   survives until the object's first animated frame and then vanishes silently.
+   Caught by the SAT reporting `hflip=False` on a left spring. The donor writes
+   status too. `ST_XFLIP`/`ST_YFLIP` are bit-aligned with `RF_*` for exactly this.
+2. **`Spring_Launched` HARDCODED the vertical fire script**, so a side spring
+   snapped to the vertical sheet for the nine frames of its launch reaction and
+   then returned to the horizontal idle. It now picks by the spring's own x_vel —
+   the discriminator it was already reading three lines later.
+
+**And it broke `tools/spring_launch_witness.py` twice, both legitimately.** The
+witness hardcoded `SPRING_ANIM_IDLE = 0` behind a comment arguing a stale value
+would go UNMEASURABLE rather than pass — which is precisely what happened. The
+comment was right and the design failed safe; the literal was still wrong. The
+object now publishes `ObjAnim_Spring__{Idle,Fire,IdleH,FireH}` as `pub equ`
+(a `pub const` emits no listing row) and each leg resolves the pair for its own
+subject, keyed on the launch vector's x half — the same "read the vector, never
+the subtype" property the engine has. It also went UNMEASURABLE when a yellow
+spring was first placed at x=208, inside L1's walking corridor; the placement moved
+to x=112. A witness that reports "no leg drives this subtype" and refuses rather
+than passing is the behaviour that made both of these cheap.
+
+**Still open:** the DIAGONALS (SP-5b) have art in the donor (`Diagonal spring.bin`,
+32 tiles) but no launch model, so they stay inert and draw the vertical sheet.
+
+### SPRING-PALETTE — the spring rides the CHARACTER palette line (opened 2026-09-07)
+
+**Owner's report: "knuckles changes the spring's palette."** Measured — CRAM line 0
+index $C is `252,0,0` under `SonicAndTails.bin` and `108,0,36` under
+`knuckles_main.bin`, and $8/$9 go grey -> orange. Line 0 is the CHARACTER line, so a
+red spring's colours follow whoever is being played.
+
+This is the flaw in the "zero palette cost" choice the first landing made: it was
+true for Sonic only. YELLOW springs are unaffected (they draw on line 1, the act
+palette). Three routes, none taken — it is a content call:
+* **shared object slots** — every character palette agrees on $C/$D + $6..$9. What
+  S2 actually does; constrains character art.
+* **move the spring off line 0** — needs a red ramp; lines 1/2/3 are yellow,
+  browns/golds, greens/magentas.
+* **spend OJZ palette entries** on a red ramp.
+
 ### SP-6 — mid-stream FM voice change in an SFX (opened 2026-09-07)
 
 The upgrade path if S&K's exact spring timbre — or any multi-voice SFX — is ever

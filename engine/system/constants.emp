@@ -607,7 +607,7 @@ pub const PLANE_V_CELLS    = 64
 // bg_region comment for why demo's map moved for a sonic4 feature.
 pub const BG_TILE_BASE_VRAM = $8000              // byte address (slot 1024)
 pub const BG_TILE_BASE_SLOT = BG_TILE_BASE_VRAM / 32   // 1024 — nametable index remap
-pub const BG_TILE_CAPACITY  = 388
+pub const BG_TILE_CAPACITY  = 376
 // The Hydrocity waterline's fixed VRAM run (EFFECTS-W1 item 9d) — the 48 slots directly
 // above the BG arena and directly below the SAT, filled by Waterline_Art_Update's single
 // DMA (engine/level/bg_anim.emp). Byte address, like VRAM_SPRITE_TABLE: slot 1424 * 32.
