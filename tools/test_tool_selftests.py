@@ -47,14 +47,28 @@ than earning a new one.
 WHAT IS DELIBERATELY *NOT* WIRED, and the reason belongs here where the next person
 looks for it:
 
-  * `tools/dma_defer_headroom.py --selftest` MUTATES COMMITTED SOURCE -- it rewrites
-    `constants.emp`, `buffers.emp` and `dma_queue.emp` in place, one arm at a time, and
-    restores them in a `finally`. It was VERIFIED still honest on 2026-09-07 (all three
-    arms red, restore check green, tree clean afterwards), so `build.sh:1171`'s comment
-    is accurate and not stale. It stays hand-run: a lane that edits tracked files would
-    poison a concurrent build or an interrupted run, which is the incident class this
-    tree already paid for once (tools lens sweep D8, a test that rewrote committed ROM
-    data). Run it by hand: `python3 tools/dma_defer_headroom.py --lst s4.lst --selftest`.
+  * `tools/dma_defer_headroom.py --selftest` MUTATES COMMITTED SOURCE -- arms [A],
+    [B] and [C] rewrite `constants.emp`, `buffers.emp` and `dma_queue.emp` in place,
+    one at a time, and restore them in a `finally`. It was VERIFIED still honest on
+    2026-09-07 and again on 2026-09-08 after the LS-15b-resid rework, so
+    `build.sh`'s comment beside the gate is accurate and not stale. It stays
+    hand-run: a lane that edits tracked files would poison a concurrent build or an
+    interrupted run, which is the incident class this tree already paid for once
+    (tools lens sweep D8, a test that rewrote committed ROM data). Run it by hand:
+    `python3 tools/dma_defer_headroom.py --lst s4.debug.lst --selftest`.
+
+    AN OPENING THIS ROW SHOULD NOT LET CLOSE SILENTLY (LS-15b-resid, 2026-09-08).
+    Arms [D] and [E], added in that parcel, perturb an EXPECTATION in memory -- the
+    committed pin and the assembled-side equate table -- and write nothing. They are
+    lane-safe as they stand. Arms [A] and [B] could become lane-safe the same way, by
+    reading their `.emp` text through an override parameter the way
+    `dplc_straddle.boundary_from_text` already takes `src_text`; [C] is the same
+    shape. That would make the whole selftest wirable and retire this exemption. It
+    is NOT done here because the exemption is an owner RULING (LS-15a), not an
+    oversight, and because the disk arms are the only ones that prove the real
+    file-reading path -- a memory-only selftest would stop testing that the tool
+    reads the tree at all. Whoever picks this up should decide which of the two they
+    want, not assume the trade is free.
   * The six emulator-backed poison arms -- `aether_instance --poison-legacy`,
     `dplc_coherence_witness --poison`, `staging_lifetime_timeline --poison`,
     `parallax_cost_probe --poison-vscroll`, `tick_variance_probe --poison`,
