@@ -119,7 +119,7 @@ BGANIM_MAX_BANDS = 4
 # whole act, so a per-band cap is unsound: this zone's own shipped content (32x4 +
 # 16x4, recoverable at b0e5a661) passes any generous per-band limit while its SUM is
 # 49,242 B. Decision d-6 made that error and this repo's deleted content refuted it.
-# Total slots are bounded above by BG_TILE_CAPACITY (400) because bands pack
+# Total slots are bounded above by BG_TILE_CAPACITY because bands pack
 # contiguously from slot 0 as a prefix of `tiles` -- `validate_band_coherence` is the
 # authority -- so the provable worst case is BGANIM_WORST_CASE_BYTES below.
 #
