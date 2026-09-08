@@ -29874,3 +29874,65 @@ red gate green by regenerating its expectation. Correcting a container twice in 
 time into a gate I had been told about that same hour, is the shape to watch for.
 
 
+
+## AN AEON-ONLY EDIT CAN RED SIGIL'S SUITE, AND NOTHING ABOUT IT LOOKS CROSS-REPO (2026-09-08)
+
+**Routed by the sigil lane unprompted, with the path rather than a summary; read firsthand out of
+the blob at sigil `c966302d`, verified an ancestor of their `origin/master` before reading.**
+
+```sh
+git -C ../sigil show c966302d:docs/superpowers/notes/campaign-gap-ledger.md   # row: PROBE-CONTENT-SNAPSHOT
+git -C ../sigil show c966302d:docs/superpowers/notes/2026-09-07-probe-game-file-sweep.md
+```
+
+**The exposure.** 143 of sigil's 399 test binaries read this tree. Sixteen open sites assert facts
+about the **CONTENT of our tree as it stands today**, not about assembler behaviour, so an edit of
+ours that changes no compiler behaviour reds their suite — and they cannot fix it in the same commit
+we make. Some of those reds are WANTED (one site's own comment declares itself a drift tripwire);
+the value of the list is telling which is which before spending time on a red.
+
+**The sites most able to bite us**, by what an aeon parcel plausibly does:
+* `test_p1_player_port.rs:810` — `guards == 1` over live `games/sonic4/player/player_common.emp`,
+  **with no byte oracle at all**; their docstring says counting it is the point.
+* The guard-count asserts wired into byte gates (`mt_port` 7, `sfx_port` 1, `sonic_anims_port` 25,
+  `test_g1`-`g4`, `test_objects`, `act_descriptor_port`). **Narrow residual, and it is the one that
+  matches a poisonability parcel exactly: only a ZERO-BYTE game-side `ensure` reds these without
+  also reding the byte gate it rides.**
+* Literal source-text needles in live game data: `sonic_anims_port.rs:316` (`comptime fn rep(`),
+  `tranche4_negative_probes.rs:359`, `listing_defines.rs:377` (`__Aeon_AS_Carrier: equ 0` exactly
+  once). **A comment rewrite can trip these** — which puts every prose/citation parcel in scope.
+* `cfg_blind_spots.rs:355-356` (`Player_SensorSurface` / `Player_SensorWallDir` by name and count),
+  `out_verify_corpus.rs:172`, `contract_closure_corpus.rs:1140`, `parcel_8b_stage_gen_touchers.rs:129`,
+  `preserves_corpus.rs:133-142`, `dac_port.rs:306`, `seam2_colink_probe.rs:164,168`,
+  `corpus_builds.rs:117` + `section_row_fixture.rs:27` (the live map declares
+  `ojz_effects_editor_act1` exactly once).
+
+**THE RULE, and it is a correction to this lane's own standing dispatch language.** Every brief here
+says *stop and report if you need a sigil-side change*. **That is too narrow, and the narrowness is
+invisible from inside the parcel**: this is the class where an aeon-only edit **CAUSES** a sigil-side
+change without presenting as a cross-repo act. Nothing about adding an `ensure` looks like touching
+another repo. **Adopted wording, in force for every dispatch from here: "my change makes a number in
+their tree wrong" is the same class as "I need to edit their tree."** Applied live 2026-09-08 to the
+LS-16c and LS-19a parcels while both were mid-flight.
+
+**And do NOT relocate a guard to dodge a brittle peer assertion.** Their note says several of these
+reds are wanted. The correct move is to put the guard where the design wants it and tell them; the
+incorrect one is a worse design that keeps a peer's suite green.
+
+**THEIR FINDING ABOUT OUR TREE, RELAYED AS A CLAIM TO RE-DERIVE AND NOT AS ESTABLISHED** (not
+verified here): sigil briefed their own sweep on the axis *engine vocabulary moves less than game
+vocabulary* and **measured the opposite in our history** since 2026-03-01 —
+`engine/system/constants.emp` 79 commits against `games/sonic4/config/constants.emp` 37, and
+`engine/objects/collision.emp` 24 against `engine/objects/sst.emp` 16. **Engine files move MORE.**
+Their conclusion, which is the durable half and generalises well past their sweep: **the property
+separating a sound gate from a brittle one is not the directory, it is whether the assertion holds
+for ANY VALID CONTENT or pins a SNAPSHOT of today's.** A byte-identity port gate is the extreme
+content-invariant case, not a separate principle. **Re-derive the counts before citing them.**
+
+**They deliberately built no lint**, and the reason is worth more than the tool: the obvious one
+("name your reference paths") fires on **87 of 95** callers, and *a check that is red on correct code
+trains people to weaken it.*
+
+**Standing two-way undertaking, agreed in the same exchange:** sigil tells us BEFORE a parcel of
+theirs reaches `pins.rs` or `repin.toml`, not after; we tell them BEFORE any of ours turns out to
+move bytes, not at the freeze.
