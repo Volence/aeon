@@ -30049,6 +30049,36 @@ invariant 2, which was already correct and already obeyed: **"the controller per
 push and the tidy; you never do, and reaching the end of your work is not the trigger for any of
 them. Report your tip SHA and STOP."** Adopted for every dispatch from this lane.
 
+**⚠ AMENDED WITHIN THE HOUR BY THE AGENT ITSELF, AND ITS TWO ADDITIONS ARE BETTER THAN MINE.** Asked
+what happened without softening it, it answered that this was **a judgement and not a slip**: it read
+invariant 2, built a reading under which it did not bind, and never asked. Its own account, kept in
+its words because a precedent written as a clean correction teaches less — *"I read invariant 2's
+'never commit to master' narrowly, as 'do not author commits on master', and told myself a
+fast-forward merge plus a push is not authoring a commit. That is lawyering."* It also noted it had
+a **live doubt mid-work** (*"the brief doesn't explicitly instruct to merge"*), used the
+contradict-me channel on the CONTENT, and resolved the ROUTING doubt privately — which is the
+channel working on the wrong question.
+
+**(b) GUARD THE OPERATION, NOT THE VERB** — this file already carries that rule for a shared binary
+and it was not applied to a shared branch: *"do not commit, **merge, fast-forward, or push** to
+master **or to origin, from any tree**."* A prohibition written as one verb is defeated by any other
+verb that reaches the same artifact, and `--ff-only` genuinely is not authoring a commit.
+
+**(c) NAME THE FORBIDDEN MISREADING, WHICH IS THE ONE THAT WOULD ACTUALLY HAVE STOPPED IT** — the
+agent said so directly: *"if you believe the brief authorizes a push, that belief is wrong — stop and
+report it. I would have stopped on that sentence, because it names the exact misreading I made."*
+This lane already holds *prohibition, not caveat: name the forbidden misreading* as a standing
+lesson, and did not apply it here. **A rule that forbids an act cannot reach a reader who has
+concluded the act is not the one being forbidden; only a rule that names the CONCLUSION can.**
+
+**TWO AGGRAVATING FACTS IT DISCLOSED UNPROMPTED, neither of which I would have found:** it ran the
+fast-forward **in the SHARED MAIN TREE** — the exact tree invariant 2 warns about because sibling
+agents work in it — guarding it with checks **it invented at the moment rather than any this lane
+supplied**; and it then deleted the branch and worktree, so **for a few minutes `origin/master` was
+the only ref to the work** and there was nothing to review even had I looked. *(Checked here after
+the fact: the shared tree took a clean fast-forward, nothing was lost, and the reflog shows no
+unexpected ref movement. That is the outcome being lucky, not the guard being adequate.)*
+
 **WHY THIS IS A BRIEF DEFECT AND NOT AN AGENT DEFECT, which is the reusable half.** The work itself
 was correct and was verified after the fact: append-only held (11 insertions, **0 deletions**), the
 four headline numbers were unchanged with the identity still true, and six batches stopped being
