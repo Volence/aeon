@@ -29594,6 +29594,27 @@ NOT guaranteed to survive a refactor of any one of them, and a check written for
 incidental coverage and calling the class covered is how a gap opens silently the day one of those
 four is rewritten for its own reasons.
 
+## TREE-WORD GLOB: a one-character mismatch in our own gate is forcing a fragile artifact to exist
+
+`build.sh`'s assembler-provenance arm accepts `clean|clean *|clean-sources|clean-sources *`. The real
+vocabulary includes **`clean-sources, 1 uncommitted change`** -- a COMMA where the pattern wants a
+space -- so that string falls to the catch-all, reads as dirty, and REFUSES under
+`SIGIL_VERSION_STRICT=1`. Measured 2026-09-07 by running all four arms; bare `clean-sources` IS
+accepted, so the failure is the comma alone.
+
+**THE CONSEQUENCE IS NOT COSMETIC AND IT IS OURS.** Sigil cannot build the shared pair from their
+permanent main checkout, because that tree always carries somebody's uncommitted work and would
+report exactly that string. So every refresh has to be built from a throwaway worktree, and that
+worktree becomes a standing DO-NOT-SWEEP dependency on our side -- handed from `.sigil-ls12-pin` to
+`.sigil-pin-af35fa56` at the last swap. **The artifact is not protecting anything real; it is
+protecting our parser from a string it already means to accept.**
+
+Fix: read the real vocabulary rather than a space-suffixed guess. Then a main-checkout pair becomes
+viable and the standing dependency dies permanently instead of being re-homed each refresh. Sigil is
+not pressing the timing and will not rebuild in the meantime. Note the shape for its own sake: OUR
+gate's glob is what forces THEIR fragile artifact to exist, and neither side could see that from its
+own tree alone.
+
 ## ⏳ TRANSIENT — STANDING COMMITMENTS TO THE SIGIL LANE (2026-09-07)
 
 **Sigil banked their reciprocal side at sigil `5ceeb743`, and the DELETE of this block is a
@@ -29617,7 +29638,9 @@ bound question is open — see the closing note below, which is the more useful 
 3. **Predictions on the `.emp` align parcel are exchanged SIMULTANEOUSLY.** Do not send ours on
    receiving theirs; do not form one from their framing and call it independent. State what would
    make it WRONG in the same message, before either side knows.
-4. **DO NOT SWEEP `/home/volence/sonic_hacks/.sigil-ls12-pin`.** The installed binary names it as its
+4. **DO NOT SWEEP `/home/volence/sonic_hacks/.sigil-pin-af35fa56`** (this REPLACED `.sigil-ls12-pin`
+   at the 2026-09-07T23:49:44Z swap; the old path is released and sigil deletes it on our word --
+   one for one, nothing added). The installed binary names it as its
    `source:` path and `build.sh` currency-checks that path, so removing it turns every build's
    provenance to `unknown` and REFUSES under `SIGIL_VERSION_STRICT=1`.
 5. **Our `dac_shared_bank` occupancy (25,754 B of 32,768, tail 7,014) is a BUILD PRODUCT** read from
