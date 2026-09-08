@@ -27578,6 +27578,10 @@ s2disasm and the ID stays S&K's $B1. `smpsAlterVol` (S2's spelling of
 left the other 15 blobs (30 `.bin` files) BYTE-IDENTICAL. Only `sfx_B1.bin` and
 `sfx_B1_patches.bin` are new.
 
+⚠ **AND IT DOES NOT SOUND RIGHT** — owner's listening test 2026-09-07, against the
+other games. See SP-6, which his report promotes from optional to the fix. Nothing
+below claimed otherwise: the witness stops at the driver's queue on purpose.
+
 **Evidence:** `tools/spring_sfx_witness.py`, 3 legs (2 drives + 1 control), each
 proven red-first by deleting the `AF_SOUND` pair and rebuilding — that run reports
 L1 seeing `$33` instead of `$B1` and L2 seeing `$B1` never reach the ring, exit 1.
@@ -27658,6 +27662,19 @@ palette). Three routes, none taken — it is a content call:
 * **spend OJZ palette entries** on a red ramp.
 
 ### SP-6 — mid-stream FM voice change in an SFX (opened 2026-09-07)
+
+**PROMOTED FROM "if ever wanted" TO THE FIX, on the owner's listening test
+(2026-09-07): he compared the shipped spring against the sound in the other games
+and reports it "definitely off".** That is the A/B this parcel could not do —
+oracle's Rust core exposes no audio method, so nothing here was ever rendered and
+the transcode arithmetic was the only evidence. An ear against the real reference
+outranks it. Ruled: leave the S2 sound in place and close the gap by building the
+mechanism, not by tuning the fade.
+
+Note what this does NOT say: it does not say the S2 transcode is wrong. S2's
+spring IS a different sound from S&K's — one voice instead of two — and this
+engine chose it precisely because the second voice is unsupported. The defect is
+the missing capability, not the transcode of the source it forced.
 
 The upgrade path if S&K's exact spring timbre — or any multi-voice SFX — is ever
 wanted. The SFX blob already carries every voice its header declares, and
