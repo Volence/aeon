@@ -98,17 +98,18 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 # `Hscroll_Buffer: [u8; 896],  // 224 lines x 4 bytes (FG + BG)` — engine/ram.emp:270.
 # The per-LINE fill writes one longword per screen line, FG word first then BG word:
-#   .lb_line (both sampled)  engine/level/parallax.emp:1305-1322  `move.w d1,(a4)+` FG,
-#                                                                 then `move.w d1,(a4)+` BG
-#   .lf_line (FG sampled)    engine/level/parallax.emp:1327-1341  FG sampled, BG constant
-#   .lg_line (BG sampled)    engine/level/parallax.emp:1350-1371  FG constant, BG sampled
-#   .fl_line (flat)          engine/level/parallax.emp:1444-1470  `move.l d0,(a4)+` with
-#                            d0 = FG<<16 | BG packed at :1284-1287
-# The per-CELL fill writes 28 longwords of the same shape — engine/level/parallax.emp:1495-1541
+# All four live in engine/level/parallax.emp `Parallax_Fill_PerLine`; cite them by LABEL,
+# not by line (LS-19a) -- .lf_line and .lg_line were unrolled into run/group/tail forms
+# and the old line numbers now land elsewhere in the same proc:
+#   .lb_line (both sampled)  `move.w d1,(a4)+` FG, then `move.w d1,(a4)+` BG
+#   .lf_run/.lf_grp/.lf_tail (FG sampled)   FG sampled, BG constant
+#   .lg_run/.lg_grp/.lg_tail (BG sampled)   FG constant, BG sampled
+#   .fl_line (flat)          `move.l d0,(a4)+` with d0 = FG<<16 | BG packed just above
+# The per-CELL fill writes 28 longwords of the same shape — engine/level/parallax.emp
 # (`Out: Hscroll_Buffer filled (28 longwords)`), leaving lines 28..223 stale.
 HSCROLL_LINES = 224
 HSCROLL_ENTRY = 4                    # bytes: FG word, then BG word
-HSCROLL_BYTES = HSCROLL_LINES * HSCROLL_ENTRY      # 896 — matches ram.emp:270
+HSCROLL_BYTES = HSCROLL_LINES * HSCROLL_ENTRY      # 896 — matches engine/ram.emp Hscroll_Buffer
 # (PERCELL_CELLS = 28 lived here until 2026-08-26; the per-cell filler is deleted.)
 
 # `pub struct band_entry` — engine/level/parallax.emp. 10 bytes, RESHAPED (not resized) by

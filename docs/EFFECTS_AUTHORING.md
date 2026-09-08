@@ -29,7 +29,7 @@ this parcel's lifetime; if you edit a cited file, re-measure the citations *afte
   author wants the effect to appear. For the sparse tier they differ by one: `fire line = screen line - 1`.
   Every constructor takes screen lines. Nothing here is ever called an "event line".
 - **Fixture.** One of the two shipped sparse programs, `OJZ_TestRaster`
-  (`games/sonic4/data/parallax/configs.emp:375`) and `OJZ_WaterRaster` (`:491`). They are shipped
+  (`configs.emp` `OJZ_TestRaster`) and `OJZ_WaterRaster`. They are shipped
   content *and* the parcel's test artifact at once — that double role is why the word turns up in both
   senses, and both are meant.
 - **Template.** A program that is copied into `Raster_Buf_B` and then has one of its words rewritten at
@@ -43,10 +43,10 @@ this parcel's lifetime; if you edit a cited file, re-measure the citations *afte
 Before Parcel A a raster program was a hand-laid `[u16; N]` with a hand-counted length, a hand-computed
 VDP timer arm word, a CRAM command hand-split into two literal hex words, a hand-written `count-1`, and
 a `pal_dirty_mask` the author had to know to type. The retained hand-word twins still show exactly that
-shape — `OJZ_TEST_HAND` (`configs.emp:359-369`) and `OJZ_WATER_HAND` (`:474-485`). Every one of those is
+shape — `OJZ_TEST_HAND` and `OJZ_WATER_HAND`, both in `configs.emp`. Every one of those is
 a place where a correct program and a silently wrong program look the same on the page; the
 `%0001`-instead-of-`%0100` mask bug that made P1's red cover the whole ground instead of just the region
-below the split (recorded at `configs.emp:343-345`) is the observed instance.
+below the split (recorded in `configs.emp`'s note above `OJZ_TEST_PROG`) is the observed instance.
 
 The vocabulary's goal is that an author adds a water section by naming a screen line, a palette region
 and a variant slot — **without typing a VDP register word, an arm word, a CRAM command, a `count-1`, a
@@ -141,7 +141,7 @@ VSRAM is 80 bytes = 40 word entries. In per-column vertical scroll mode entry `2
 writes no palette, so there is no CRAM line to re-assert at frame top. Deriving `1 << (addr >> 5)` from
 a scroll offset is nonsense in general, and at VSRAM offset 0 it would yield bit 0 — the *character's*
 CRAM line — forcing a spurious full re-assert of the character palette every single frame, silently
-(`raster_dsl.emp:349-354`).
+(`raster_dsl.emp`, `op_mask`).
 
 ### Why `sh` has no default
 
@@ -470,7 +470,7 @@ mis-place a boundary; it parks the HInt counter and kills every remaining fire i
 other symptom.
 
 **2. Density is measured band edge to band edge, worst case — not authored line to authored line.**
-`check_density` (`raster_dsl.emp:754-776`) measures the gap from a record's *highest* reachable fire
+`check_density` (`raster_dsl.emp`, `check_density`) measures the gap from a record's *highest* reachable fire
 line to the next record's *lowest*. Two channels banded `40..120` and `121..200` are only **1
 scanline** apart in the worst case — 488 cycles of budget against a 3-colour CRAM fire's measured 526
 — and are **refused**, even though their *authored* lines sit 130 apart. Without this, the guard goes
@@ -532,7 +532,7 @@ a schedule of per-scanline VDP work in which HInt fires only on the scheduled fi
 general constructor. The reason is structural, not stylistic: a dense run carries a **link-time ROM
 stream pointer** (`rgp_stream: *u8`, `raster.emp:255`) and a `[u16; N]` literal array cannot hold a
 symbol address at any spelling. So the dense tier stays a `struct` built by its own constructor, and
-`OJZ_TestGradient` (`configs.emp:536-541`) keeps using it.
+`OJZ_TestGradient` (in `configs.emp`) keeps using it.
 
 **A program mixing sparse events with a dense run is NOT authorable in Phase 3** (spec §4.1). The wire
 format *permits* it — `Raster_HInt`'s `.op_run_gradient` falls through to `.advance`
@@ -561,13 +561,13 @@ deterministic order per frame — base → cycling → cross-fade → global ope
 is no snapshot to invalidate.
 
 **A slot is one of `PAL_MAX_VARIANTS` = 2 staging images.** `Palette_SetVariant`
-(`palette.emp:272-288`) binds a `pal_variant*` to slot 0 or 1 (or clears it with `a0 = 0`). While a slot
+(`palette.emp`, `Palette_SetVariant`) binds a `pal_variant*` to slot 0 or 1 (or clears it with `a0 = 0`). While a slot
 is bound, `Palette_DoVariants` (`palette.emp:681-697`) calls `Palette_DeriveVariant` (`:709-771`) once
 per frame, writing the transformed colours into `Pal_Variant_Stage` — **128 bytes per slot, a 4-line
 image, each line at its natural `line * 32` offset.** Only lines named in `v_lines` are written.
 
 `PAL_MAX_VARIANTS` cannot be raised past 2 without a fix first: `Palette_SetVariant`'s
-`andi.w #(PAL_MAX_VARIANTS - 1), d0` (`palette.emp:273`) is a power-of-two mask, so 3 would silently fold
+`andi.w #(PAL_MAX_VARIANTS - 1), d0` (`palette.emp`, first instruction of `Palette_SetVariant`) is a power-of-two mask, so 3 would silently fold
 slot 2 onto slot 0. `palette_dsl.emp:125-126` pins that.
 
 **The derive is gated, and the gate is a measured win.** It runs only when `PAL_ACT_VARIANT_STALE`
@@ -594,7 +594,7 @@ because `variant()`'s `lines` defaults to `%1110`. (2026-08-14 review §5, ARGUE
 code, not reproduced.)
 
 **Cycling is a different mechanism on the same palette.** `cycle_channel` / `cycle_script1` /
-`cycle_script2` (`palette_dsl.emp:87-118`) rotate spans of CRAM entries *in place* each period, installed
+`cycle_script2` (`palette_dsl.emp`, `cycle_script2`) rotate spans of CRAM entries *in place* each period, installed
 per section through the preset's `ep_cycle` by `Palette_LoadCycle` (`palette.emp`). *(Corrected
 2026-09-04: this said `Sec.sec_pal_cycle` / `Palette_InstallCycleSection`. The routine was deleted
 at effects-P3-C2 Task 13 in 2026-08 and the field on 2026-09-04.)* Cycling needs no raster program at all — it is a whole-screen effect. It composes
@@ -612,7 +612,7 @@ permutes; the raster tier is how either one becomes scoped to a band.
 to call them, and `normalize_helper_imports` strips an explicit helper `use` at build time anyway.
 Writing one regardless is the house convention where it documents a seam worth naming
 (`raster.emp:14`'s `use engine.structs.{Sec}` is exactly such a line: `engine.structs` is itself a
-helper; `configs.emp:64`'s glob with its do-not-prune comment at `:52-63` is another).
+helper; `configs.emp`'s `use engine.effects.raster_dsl.*` glob, with the do-not-prune comment above it, is another).
 
 What you **must** still import by hand are the wire-format **struct type names** from byte-emitting
 modules — `RasterGradientProgram`, `pal_variant`, `PalCycleScriptN` — because those modules emit bytes
@@ -696,7 +696,7 @@ covered.
 | `ensure(out.len == raster_words(fires))` **inside** `raster_program` (`raster_dsl.emp:516-517`) | header/record **framing** drift between the two independent computations (`op_size` path vs `op_words` concatenation path) — this is the instance that fires first on genuine framing drift | a wrong word *value* inside a correctly-sized body |
 | `data X: [u16; raster_words(P)] = raster_program(P)` | that the declared length was computed by the size path over **the same** descriptor list the body was built from — i.e. an annotation naming a different program, or a hand-typed literal length going stale. `data` hard-checks element count (probe-measured) | a wrong word value; and note it re-checks a fact `raster_program` already asserted internally, so it is a second lock on the same door rather than a wholly independent one |
 | The same annotation on a `const` | **nothing** — measured vacuous on this tree (probe note, Step 6). Put length guards on `data`, or assert with an explicit `ensure` on `.len` | everything |
-| The retained hand-word twin + its `first_mismatch` ensure (`configs.emp:370-373`, `:486-489`) | any word-value drift in the two shipped fixtures, reported as "DSL output diverges at index *n*" rather than "golden ROM differs" | a fixture the twin does not cover; a **length** difference unless the paired `.len` ensure is also present (see below); and it pins the DSL to the *hand words*, so a shared misunderstanding of the hardware would satisfy it |
+| The retained hand-word twin + its `first_mismatch` ensure (`configs.emp`, beside `OJZ_TEST_HAND` and `OJZ_WATER_HAND`) | any word-value drift in the two shipped fixtures, reported as "DSL output diverges at index *n*" rather than "golden ROM differs" | a fixture the twin does not cover; a **length** difference unless the paired `.len` ensure is also present (see below); and it pins the DSL to the *hand words*, so a shared misunderstanding of the hardware would satisfy it |
 | Seven golden ROMs | every emitted byte, everywhere | nothing — **this is the parcel's real bar** |
 
 Writing `data X: [u16; P.len] = P` instead would be **tautological** and is forbidden: the annotation
@@ -711,7 +711,7 @@ Stated plainly rather than left for someone to discover on hardware:
   Its precondition is documented at `raster_dsl.emp:527-534` and was previously absent from this page.
   It walks only `a`'s indices and skips any index past the end of `b` — so a DSL program that is **short
   by a trailing record compares EQUAL to its hand-word twin**. Nothing inside the function can see that;
-  only a length check can. Both shipped fixtures pair it correctly (`configs.emp:370-373`, `:486-489`);
+  only a length check can. Both shipped fixtures pair it correctly (`configs.emp`, `OJZ_TEST_HAND` / `OJZ_WATER_HAND`);
   copy that pairing, do not copy only the `first_mismatch` line. (The chain happens to hold one rung
   deeper here, because `raster_program` asserts `out.len == raster_words(fires)` on every call — but that
   is a fact about `raster_program`, not about `first_mismatch`, and a caller must not rely on it.)
@@ -731,7 +731,7 @@ Stated plainly rather than left for someone to discover on hardware:
 - **Reachability of a non-helper comptime module.** A pure-comptime module's `ensure`s do not *pass*
   when nothing imports it — they are **never evaluated at all**, with no diagnostic and a green build.
   That hazard applied to `raster_dsl` before it joined `COMPTIME_HELPERS`, which is why
-  `configs.emp:64` carries a `use engine.effects.raster_dsl.*` glob with a do-not-prune comment
+  `configs.emp`'s import block carries a `use engine.effects.raster_dsl.*` glob with a do-not-prune comment
   (`:52-63`). Membership in the helper list removes the hazard for these two modules; it remains live
   for any *new* pure-comptime module that is not a helper.
 
@@ -756,7 +756,7 @@ Stated plainly rather than left for someone to discover on hardware:
   source (`(addr >> 5) == pal_line` and `((addr >> 1) & 15) == entry`). Hand authoring had no such check
   — the two were independent literals.
 - **`pal_dirty_mask` is derived** from the CRAM addresses rather than typed. A mask naming the wrong
-  line is the observed P1 bug (`configs.emp:343-345`); it is now unrepresentable.
+  line is the observed P1 bug (`configs.emp`, the note above `OJZ_TEST_PROG`); it is now unrepresentable.
 - **Palette line 0 is refused.** `stream_cram` rejects an address on CRAM line 0 and `stream_pal_region` bounds
   `pal_line` to 1..3. Line 0 is the character's (`CharacterDef.cd_palette`); a raster write there
   repaints the active character.
@@ -909,7 +909,7 @@ and `M_j` is the authored **screen line** the effect lands on. The fire line is 
 arm = $8A00 | (L[i+2] - L[i+1] - 1)      (the -1 is Ruling 1a's bias; the i+2 is Ruling 1b's lag)
 ```
 
-Past the end of `L` the arm parks at `$8AFF` (`RASTER_ARM_PARK`, `raster.emp:149`) — the next fire would
+Past the end of `L` the arm parks at `$8AFF` (`RASTER_ARM_PARK`, `raster.emp`) — the next fire would
 be 256 lines away, i.e. never within active display.
 
 The `i+2` is not an off-by-one; it is the hardware. The VDP reloads its line counter from reg `$0A` *at
@@ -931,7 +931,7 @@ tier's schedule only — see the T-1 subsection below before borrowing anything 
 
 Both fixtures are one event at screen line 120, so `L = [0, 1, 119]` for both.
 
-| | `OJZ_TestRaster` (`configs.emp:346-375`) | `OJZ_WaterRaster` (`configs.emp:438-491`) |
+| | `OJZ_TestRaster` (`configs.emp` `OJZ_TEST_PROG`) | `OJZ_WaterRaster` (`configs.emp` `OJZ_WATER_PROG`) |
 |---|---|---|
 | record 0 arm | `$8A00 \| (119 - 1 - 1)` = `$8A00 \| 117` = **`$8A75`** ✓ shipped `$8A75` | same = **`$8A75`** ✓ derived by `region_boundary(line: 120, …)` |
 | single-event form | `$8A00 \| (120 - 3)` = `$8A00 \| 117` = `$8A75` ✓ | `120 - 3 = 117` ✓ |
@@ -946,7 +946,7 @@ records + 9 for the event record (2 for `arm`/`op_count`, 2 for the `reg_set`, 5
 + 2 for the terminator = 16.
 
 **A coincidence to not read as a rule.** In `OJZ_WaterRaster` two different numbers are both 72
-(`$48` — see the note at `configs.emp:473`). They are *not* the same quantity and they are not even in
+(`$48` — see the note beside `OJZ_WATER_HAND` in `configs.emp`). They are *not* the same quantity and they are not even in
 the same address space:
 
 - **72 decimal** is the `Pal_Variant_Stage` **RAM byte offset**, `pal_stage_off(0, 2, 4)` =
@@ -959,7 +959,7 @@ same region would stage from offset `1*128 + 2*32 + 4*2` = **200** while the CRA
 
 **The verification method behind this table**, named rather than asserted: both fixtures carry a
 `raster_words(PROG) == HAND.len` ensure and a `first_mismatch(raster_program(PROG), HAND) == -1` ensure
-against literal hand-word twins (`configs.emp:370-373`, `:486-489`), so **every build re-proves the
+against literal hand-word twins (`configs.emp`, `OJZ_TEST_HAND` / `OJZ_WATER_HAND`), so **every build re-proves the
 words**; and Parcel A's seven golden ROMs came out byte-identical with no rebaseline. The table above is
 that comparison written out, not a re-derivation from the plan.
 
@@ -1029,7 +1029,7 @@ catches it depends on the destination field's type, and the difference is worth 
 
 - **Integer-typed field** — caught at emit, by name: `[emit.type] expected an integer for u16, got
   label` (measured 2026-08-13 by pruning `RASTER_ARM_PARK` + `RASTER_OPS_END` from `configs.emp`; the
-  measurement is recorded in that file's import block, `configs.emp:39-48`).
+  measurement is recorded in that file's import block).
 - **Pointer-typed field** — a label reference is well-typed, so emit accepts it and the reference
   becomes a data fixup. The catch is **deferred to link**, where it surfaces positionally rather than
   by name: `unresolved symbol … for fixup in section … at offset …`. Comptime constants lower to zero
@@ -1083,7 +1083,7 @@ against a module-local name — that risk is described under "Reaching the ROM".
   (`:681-697`), `Palette_DeriveVariant` (`:709-771`), the five starter variants (`:776-780`).
 - `engine/effects/palette_dsl.emp` — `variant` (`:32-49`) and its build-time packing proofs (`:51-81`),
   `cycle_channel` (`:87-95`), the script wrappers (`:107-120`).
-- `games/sonic4/data/parallax/configs.emp:308-541` — the shipped fixtures this vocabulary must reproduce,
+- `games/sonic4/data/parallax/configs.emp` (deleted at `92fafc3e`) — the shipped fixtures this vocabulary must reproduce,
   and their hand-word twins.
 - `docs/BUGS.md` — **EFX-4** (`:79`), the `Raster_InstallWater` over-read, partially closed by Parcel A.
 - `docs/DEFERRED_WORK.md:1899-1902` — the unmeasured VSRAM landing line.

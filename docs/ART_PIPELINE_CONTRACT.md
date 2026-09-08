@@ -302,7 +302,7 @@ where transparency applies.
 
 I verified all four shipped palette files against that mask: **0 of 96 words violate it**
 (`w & 0xF111 == 0` for every word). Black is `$0000`; full white is `$0EEE`, which is the
-literal `PAL_OP_WHITE_FLASH` holds (`engine/effects/palette.emp:87`).
+literal `PAL_OP_WHITE_FLASH` holds (`engine/effects/palette.emp`, `PAL_OP_WHITE_FLASH`).
 
 ### 3.3 What an illegal colour word does — **nothing checks it**
 
@@ -697,7 +697,7 @@ one enqueue into the Important queue, which has `DMA_IMPORTANT_SLOTS = 12`
 (`engine/system/constants.emp`), and `DPLC_ENTRY_RESERVE = 2` slots must be left free for
 the art-streaming landing (`engine/objects/dplc.emp:84`). So the wall is
 **peak entries + 2 ≤ 12**, i.e. **10 entries**. Measured peaks, from
-`engine/objects/dplc.emp:23-27`:
+`engine/objects/dplc.emp`'s module header (the measured-peaks table):
 
 ```
 optimized/sonic.bin   10 entries    knuckles.bin              5
@@ -1203,7 +1203,8 @@ The three data shapes an effect lowers into are:
 
 ### 8.3 The raster program wire format
 
-`engine/effects/raster.emp:47-80`. A compiled raster program is **data**; both the
+`engine/effects/raster.emp`'s module header (the wire-format block, keyed on
+`dc.w pal_dirty_mask`). A compiled raster program is **data**; both the
 `raster_dsl` constructors and the editor compile to exactly this:
 
 ```

@@ -202,7 +202,7 @@ comptime fn clamp_d1_07() -> Code {
 // So the announcement lives HERE, at the paths that actually wrote, and the
 // caller announces nothing. Suppressing the redundant Palette_Dirty bits is safe
 // against mid-frame CRAM writes: Raster_VBlank re-asserts the program's own
-// pal_dirty_mask every frame (engine/effects/raster.emp:636), so a band's tint is
+// pal_dirty_mask every frame (engine/effects/raster.emp, RasterRampProgram), so a
 // restored by the raster layer, never by a compose layer's incidental re-ship.
 comptime fn publish_compose_lines() -> Code {
     return asm {

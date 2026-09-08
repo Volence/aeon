@@ -1012,3 +1012,92 @@ are the same hazard with no construct to count.
 in a tenth of a second, by replaying the same `convsym` pipeline over a listing already on disk;
 `--verify` proves it is the same pipeline by reproducing the built ROMs' own appendices byte for
 byte. It is a hand instrument for narrowing a question — the answer you land on is still four builds.
+
+## ⚠ CITE BY NAME, NOT BY LINE — and RECORDS vs LIVE prose (LS-19a, measured 2026-09-08)
+
+**`file.emp:LINE` is the wrong citation form for this tree, and the measurement is not close.**
+Of 433 live-scope `X.emp:N` citations standing at `54e2be22`, only **125** still pointed at the
+text they were written for. **188** pointed at text that had MOVED (median distance **125 lines**;
+only 8 of them were within ±2, so these are not off-by-one, they are wrong), **28** at text that
+was GONE, and **92** at nothing at all — a deleted file, a blank line, a bare `}`, or a bare
+basename matching two files. Nothing in the tree noticed any of it.
+
+**A symbol name survives every edit; a line number survives nothing.** So:
+
+> **Cite `file.emp` plus the enclosing symbol.** `engine/effects/raster.emp` `RASTER_ARM_PARK`,
+> not `raster.emp:<line>`. (Spelled with a placeholder on purpose: `tools/test_citation_form.py`
+> scans this file too, and an example written in real citation form IS a citation.) For a local label, name the proc and the label. For a header prose block
+> with no symbol, name the file and quote a distinctive phrase.
+
+Two corollaries that are easy to get wrong:
+
+- **A repaired line number goes stale on the same clock as the one it replaced.** Re-pointing is
+  not a fix, it is a renewal. `docs/OVERSEER-LOG.md`'s rule — *a correction that carries a line
+  number inherits the defect it was correcting* — is the same statement from the other side.
+- **In a heavily-cited file, say it in a line you REPLACE, not in lines you INSERT.** An insertion
+  shifts every citation below it. `raster_dsl.emp` carries 247; the parcel that booked LS-19a
+  rewrote its own 13-line prose block as a one-line replacement for exactly this reason.
+
+### The failure mode is not a blank line, it is a plausible wrong answer
+
+`games/sonic4/data/effects/ojz_scenes.emp` cited a file deleted at `92fafc3e` and declared its
+numbers to be "that file at its final revision". They were anchored **two revisions earlier**, at
+`560a47be`. At the anchor the file named, the number cited for Shimmer is
+`ParallaxConfig_OJZ_Underwater`; the number cited for Haze is `ParallaxConfig_OJZ_Windy`; for
+Perspective, `ParallaxConfig_Haze`. **A reader following the file's own recovery command gets a
+confident wrong symbol.** A citation to nothing announces itself. This one did not, and it stood
+because the same sentence asserted the anchor for a SECOND file whose numbers really did land —
+the true half made the false half read as checked.
+
+**Three files cited that one deleted file at three different unstated revisions.** If a citation
+must point into a file that no longer exists at HEAD, DECLARE the revision so it can be checked:
+
+```
+// CITATIONS-ANCHORED-AT: 92fafc3e^ games/sonic4/data/parallax/configs.emp
+```
+
+`tools/test_citation_form.py` re-resolves every citation against that revision and fails the build
+if the anchor is unreachable. An undeclared anchor is a claim nobody can check; a declared one is
+a gate.
+
+### RECORDS vs LIVE — which prose owes correct coordinates
+
+|  | **RECORDS** — frozen | **LIVE** — must be re-pointable |
+|---|---|---|
+| what it is | a document reporting what was true **at a moment** | prose describing the tree **as it stands** |
+| examples | `docs/superpowers/**`, `docs/research/**`, `docs/reviews/**`, `docs/benchmarks/**`, `docs/witness/**`, `docs/measurements/**`, `docs/captures/**`, `docs/specs/**`, dated `docs/YYYY-MM-DD-*.md`, `docs/DEFERRED_WORK.md`, `docs/BUGS.md`, `docs/OVERSEER-LOG.md`, `*.jsonl` | `CODING_CONVENTIONS.md`, `docs/ENGINE_ARCHITECTURE.md`, `docs/OVERSEER.md`, the contract docs, **every code comment**, `tools/*.py` |
+| stale coordinates | **expected, and left alone** | **a build failure** |
+
+**Why the boundary is where it is, in one paragraph.** A record's coordinates are part of what it
+records: they were right when written, and rewriting them to point at today's tree corrupts the
+record to fix its pointer, which is the wrong trade. `docs/DEFERRED_WORK.md` is a record by its own
+MAINTENANCE PROTOCOL — *"Keep the original text beneath. Never silently delete a wrong claim"* — and
+its header already tells readers not to chase its `file:line` citations blind. Live prose makes the
+opposite promise: it claims to describe the tree now, so a pointer that misses is simply false.
+**486 of the 3,457 record-scope citations point at nothing today and that is correct behaviour**,
+not debt.
+
+**This boundary is directory-shaped, and that needs defending**, because sigil measured (their
+`PROBE-CONTENT-SNAPSHOT` sweep, sigil `c966302d`) that a directory is the wrong axis for deciding
+whether a *gate* is sound — engine files churn MORE than game files, not less. Re-derived here
+firsthand at their anchor aeon `ec640bcf`, and it reproduces exactly: `engine/system/constants.emp`
+**79** commits since 2026-03-01 against `games/sonic4/config/constants.emp`'s **37**, and
+`engine/objects/collision.emp` **24** against `engine/objects/sst.emp`'s **16**. *(With `--follow`
+the first pair reads **81** and **36** — a rename crosses the window. State the parameter beside
+the count; the two figures answer different questions and neither is wrong. Measured at
+`54e2be22` instead, the same pair reads 83/38, which is why the anchor is quoted and not just the
+flag.)*
+
+**Their measurement stands and it does not touch this rule, because the two are about different
+things.** Churn asks *how often does this file change*; records-vs-live asks *what kind of claim
+does this document make*. A record in a fast-moving directory is still frozen. What sigil's finding
+DOES govern is the gate, and it changed its design: `tools/test_citation_form.py` asserts only that
+a live citation points at **something** — true of any valid tree, pinning no count — and carries
+**no baseline register** of the 185 currently-MOVED citations, because such a register would be
+exactly the snapshot-shaped assertion they measured as the defective kind. The MOVED class is
+reported by `--census` as a measurement and repaired by changing the FORM, never gated.
+
+**What the gate does not catch, so a green is not over-read:** a citation whose line exists and is
+non-blank but now points at the wrong thing. `ojz_scenes.emp` was the worst case in the tree and
+the gate would have passed it — its numbers resolved to real, non-blank, plausible, wrong symbols.
+Green means *no citation points at nothing*. It never means *every citation is accurate*.

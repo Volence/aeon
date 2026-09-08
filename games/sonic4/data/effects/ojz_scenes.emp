@@ -18,8 +18,10 @@
 // function axis and SILENT on the constant axis. See the pin block at the top of
 // engine/level/scene_dsl.emp for the whole rule.
 //
-// EVERY VALUE BELOW IS TRANSCRIBED FROM games/sonic4/data/parallax/configs.emp, with the
-// cited line number beside each scene. configs.emp's `cell: N` was a Plane-B cell row.
+// EVERY VALUE BELOW IS TRANSCRIBED FROM games/sonic4/data/parallax/configs.emp, with that
+// file's own SYMBOL NAME beside each scene (see the recovery command below; line numbers
+// were removed by LS-19a because they had gone stale against an unstated revision).
+// configs.emp's `cell: N` was a Plane-B cell row.
 //
 // ---- THE UNIT CHANGED TWICE, AND THE SECOND TIME IS P3 TASK 7 (world-Y re-glue) ----
 //
@@ -87,8 +89,20 @@ use games.sonic4.scene_registry.{DeformTable_Zero, DeformTable_OJZ_Calm, DeformT
 //   DeformTable_Perspective  v_column_floor_screen(edge_offset: 24)   (F3, 2026-09-04)
 //
 // Declared in configs.emp's own order so a diff against the deleted file reads straight
-// across (`git show <pre-P1>:games/sonic4/data/parallax/configs.emp`; the `configs.emp:NNN`
-// citations throughout this file and the witness are that file at its final revision).
+// across:
+//     git show 92fafc3e^:games/sonic4/data/parallax/configs.emp
+// This file cites that file BY SYMBOL NAME, never by line number, and the reason is
+// measured (LS-19a, 2026-09-08): the line numbers it used to carry were anchored at
+// `560a47be`, TWO revisions before the deletion parent, while this very block claimed
+// they were "that file at its final revision". At the claimed anchor they land on the
+// WRONG symbol, not on nothing — the number cited for Shimmer resolves there to
+// `ParallaxConfig_OJZ_Underwater`, the one cited for Haze to `ParallaxConfig_OJZ_Windy`,
+// the one cited for Perspective to `ParallaxConfig_Haze`, and the one cited for
+// WindyHaze to `ParallaxConfig_Rocking`.
+// A symbol name resolves at BOTH revisions and cannot drift, which is why the form
+// changed rather than the numbers. games/sonic4/test/scene_equiv_proof.emp's own twenty
+// citations DO land at the deletion parent — the sentence was wrong about this file only,
+// and asserting it for both is how one file's staleness got laundered by the other's.
 // The equivalence witness proves each one byte-equal to its generator call independently
 // of the records.
 // =====================================================================
@@ -141,7 +155,7 @@ pub const SceneSrc_RowRemapLadder_Waterline16 = row_remap_ladder16()
 pub const SceneSrc_WaterlineStripArt = waterline_strip_art16()
 
 // =====================================================================
-// OJZ_Default — configs.emp:107-114.
+// OJZ_Default — configs.emp `ParallaxConfig_OJZ_Default`.
 //
 // Four bands, uniform BG 1/2 depth, whole-plane V-scroll (v_factor_bg 3, v_center 512),
 // every band shift 15. The all-zero BG table is kept for byte-identity with the shipped
@@ -221,7 +235,7 @@ pub const Scene_OJZ_Default: Scene = scene(
     layer_mask_raw: $1F)
 
 // =====================================================================
-// OJZ_Underwater — configs.emp:132-140. THE Parcel W fixture.
+// OJZ_Underwater — configs.emp `ParallaxConfig_OJZ_Underwater`. THE Parcel W fixture.
 //
 // The same four layers and factors as OJZ_Default, so anything that differs between the
 // two records is the overlay and nothing else. Every authored layer stays at shift 15;
@@ -405,7 +419,7 @@ pub const Scene_VSplitWitness: Scene = scene(
     count: 2, v_factor: 15, v_center: 0, v_offset: 0)
 
 // =====================================================================
-// OJZ_Windy — configs.emp:150-154. One layer, whole plane B at full sine amplitude.
+// OJZ_Windy — configs.emp `ParallaxConfig_OJZ_Windy`. One layer, whole plane B at full sine amplitude.
 // BG factor 1/4 matches SkyHaze so a Sec0<->Sec1 transition lerps only the deform
 // amplitude. layer_mask $01 DERIVES from the single enabled layer — no bridge.
 // =====================================================================
@@ -425,7 +439,7 @@ pub const Scene_OJZ_Windy: Scene = scene(
     deform_bg: SceneDeform.Shared(DeformTable_OJZ_Calm, 1))
 
 // =====================================================================
-// Shimmer — configs.emp:163-172. Mirrors `shimmer_bg(speed, shift = 2, fg = FACTOR_1,
+// Shimmer — configs.emp `shimmer_bg()` and its three instances. Mirrors `shimmer_bg(speed, shift = 2, fg = FACTOR_1,
 // bg = FACTOR_1_4)`; all three shipped call sites take the three defaults and vary only
 // the speed, so the helper here carries the defaults as literals rather than re-exposing
 // parameters no config uses.
@@ -446,12 +460,12 @@ pub comptime fn shimmer_scene(speed: int) -> Scene {
         count: 1, v_factor: 15, v_center: 0, v_offset: 0,
         deform_bg: SceneDeform.Shared(DeformTable_Shimmer, speed))
 }
-pub const Scene_Shimmer_Slow: Scene = shimmer_scene(speed: 1)   // configs.emp:170
-pub const Scene_Shimmer:      Scene = shimmer_scene(speed: 3)   // configs.emp:171 (default)
-pub const Scene_Shimmer_Fast: Scene = shimmer_scene(speed: 6)   // configs.emp:172
+pub const Scene_Shimmer_Slow: Scene = shimmer_scene(speed: 1)   // configs.emp `ParallaxConfig_Shimmer_Slow`
+pub const Scene_Shimmer:      Scene = shimmer_scene(speed: 3)   // configs.emp `ParallaxConfig_Shimmer` (default)
+pub const Scene_Shimmer_Fast: Scene = shimmer_scene(speed: 6)   // configs.emp `ParallaxConfig_Shimmer_Fast`
 
 // =====================================================================
-// Haze — configs.emp:181-203. FG heat wobble over the five-band BG gradient.
+// Haze — configs.emp `haze_fg()` and its four instances. FG heat wobble over the five-band BG gradient.
 //
 // `gradient: 1` skips the sky/mountain layers (dsa 15) and ramps the near ones (4 then
 // 3); `gradient: 0` puts every layer at dsa 3. dsb is 4 on every layer in BOTH arms —
@@ -492,13 +506,13 @@ pub comptime fn haze_scene(speed: int, gradient: int) -> Scene {
         count: 5, v_factor: 15, v_center: 0, v_offset: 0,
         deform_fg: SceneDeform.Shared(DeformTable_Haze, speed))
 }
-pub const Scene_Haze_Slow:    Scene = haze_scene(speed: 1, gradient: 1)   // configs.emp:200
-pub const Scene_Haze:         Scene = haze_scene(speed: 2, gradient: 1)   // configs.emp:201
-pub const Scene_Haze_Fast:    Scene = haze_scene(speed: 4, gradient: 1)   // configs.emp:202
-pub const Scene_Haze_Uniform: Scene = haze_scene(speed: 2, gradient: 0)   // configs.emp:203
+pub const Scene_Haze_Slow:    Scene = haze_scene(speed: 1, gradient: 1)   // configs.emp `ParallaxConfig_Haze_Slow`
+pub const Scene_Haze:         Scene = haze_scene(speed: 2, gradient: 1)   // configs.emp `ParallaxConfig_Haze`
+pub const Scene_Haze_Fast:    Scene = haze_scene(speed: 4, gradient: 1)   // configs.emp `ParallaxConfig_Haze_Fast`
+pub const Scene_Haze_Uniform: Scene = haze_scene(speed: 2, gradient: 0)   // configs.emp `ParallaxConfig_Haze_Uniform`
 
 // =====================================================================
-// Rocking — configs.emp:213-223. Plane B rocks via per-column V-scroll off a sine table;
+// Rocking — configs.emp `rocking()` and its three instances. Plane B rocks via per-column V-scroll off a sine table;
 // BG H-scroll locked (FACTOR_0) to dodge the leftmost-partial-column VDP artifact ON
 // PLANE B ONLY — the foreground still scrolls (fa: FACTOR_1) and still shows the sliver;
 // see the left-column policy note below — and the all-zero BG H-table forces the per-line
@@ -552,12 +566,12 @@ pub comptime fn rocking_scene(speed: int, shift: int) -> Scene {
         v_deform: SceneVDeform.Columns(DeformTable_Rocking, speed, shift),
         left_column_mask: SceneLeftColMask.Accept)
 }
-pub const Scene_Rocking_Slow: Scene = rocking_scene(speed: 0, shift: 0)   // configs.emp:221 static tilt
-pub const Scene_Rocking:      Scene = rocking_scene(speed: 1, shift: 0)   // configs.emp:222
-pub const Scene_Rocking_Fast: Scene = rocking_scene(speed: 3, shift: 0)   // configs.emp:223 stormy
+pub const Scene_Rocking_Slow: Scene = rocking_scene(speed: 0, shift: 0)   // configs.emp `ParallaxConfig_Rocking_Slow` static tilt
+pub const Scene_Rocking:      Scene = rocking_scene(speed: 1, shift: 0)   // configs.emp `ParallaxConfig_Rocking`
+pub const Scene_Rocking_Fast: Scene = rocking_scene(speed: 3, shift: 0)   // configs.emp `ParallaxConfig_Rocking_Fast` stormy
 
 // =====================================================================
-// Perspective — configs.emp:232-246. V-column floor curve plus a per-layer BG H-shimmer
+// Perspective — configs.emp `perspective()` and its instances. V-column floor curve plus a per-layer BG H-shimmer
 // that skips sky/mountains (dsb 15), goes faint on the hills (4) and strong on the
 // ground (2). Every layer's PLANE-B factor is H-locked (FACTOR_0) for the same VDP quirk
 // as Rocking; every layer's plane A is `fa: FACTOR_1` with dsa 4, i.e. not locked at all.
@@ -918,7 +932,7 @@ pub const Scene_Perspective_Floor: Scene = scene(
     left_column_mask: SceneLeftColMask.DeclineBorrow)   // registry 20
 
 // =====================================================================
-// WindyHaze — configs.emp:253-262. Composite: a windy multi-band BG gradient (clouds get
+// WindyHaze — configs.emp `ParallaxConfig_WindyHaze`. Composite: a windy multi-band BG gradient (clouds get
 // the full wave at dsb 0, the ground none at 15) with a per-layer phase desync, under a
 // uniform FG haze at dsa 3. TWO tables, one per plane — the only pair in the set besides
 // SkyHaze. The phase column (0/64/128/192/0) is authored per layer.
@@ -943,7 +957,7 @@ pub const Scene_WindyHaze: Scene = scene(
     deform_bg: SceneDeform.Shared(DeformTable_OJZ_Calm, 1))
 
 // =====================================================================
-// SkyHaze — configs.emp:269-275. A REGIONAL split at world-Y 112, not a gradient: the top
+// SkyHaze — configs.emp `ParallaxConfig_SkyHaze`. A REGIONAL split at world-Y 112, not a gradient: the top
 // layer takes the windy BG with a steady FG, the bottom layer the reverse.
 //
 // THE V-DEFORM SHIFT BRIDGE, ITS ONE AND ONLY USE. The shipped header passes
@@ -971,7 +985,7 @@ pub const Scene_SkyHaze: Scene = scene(
     v_deform_shift_raw: 0)
 
 // =====================================================================
-// OJZ_Caves — configs.emp:283-291. Slow BG parallax (the far layers barely move at
+// OJZ_Caves — configs.emp `ParallaxConfig_OJZ_Caves`. Slow BG parallax (the far layers barely move at
 // FACTOR_1_16) with the section-transition flag set. Same five-layer shape as the
 // LockedClouds scene; only the B-plane factors differ. All-zero flat-pathed H-deform, and
 // layer_mask $1F DERIVES from five enabled layers.
@@ -996,7 +1010,7 @@ pub const Scene_OJZ_Caves: Scene = scene(
     deform_bg: SceneDeform.Shared(DeformTable_Zero, 1))
 
 // =====================================================================
-// OJZ_LockedClouds — configs.emp:299-307. The shipped header's layer_mask $1E clears
+// OJZ_LockedClouds — configs.emp `ParallaxConfig_OJZ_LockedClouds`. The shipped header's layer_mask $1E clears
 // bit 0, so the cloud band falls through the band-inheritance path and scrolls locked
 // while the rest of plane B parallaxes.
 //

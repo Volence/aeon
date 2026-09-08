@@ -30,7 +30,8 @@ pub implement Game {
     //   $0001                    RETIRED 2026-08-26 (d-29-corrected): was CAP_PER_LINE,
     //                            raised by every scene. The per-line HScroll fill is the
     //                            only fill now, so there is nothing for a bit to elide.
-    //   $0002 CAP_PER_COL_VSRAM  v_deform_bg on Rocking (configs.emp:216, three variants)
+    //   $0002 CAP_PER_COL_VSRAM  v_deform_bg on Rocking (configs.emp ParallaxConfig_Rocking,
+    //                             three variants)
     //                            and Perspective (:236, three variants). SkyHaze's
     //                            `v_deform_shift_bg: 0` (:272) attaches NO table — it is
     //                            the shift bridge, and it does NOT raise this bit.

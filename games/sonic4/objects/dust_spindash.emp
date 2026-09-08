@@ -59,7 +59,7 @@ ensure(DUST_ART_REF_RADIUS == extern("PLAYER_Y_RADIUS"),
 // Dust_Tick — emit skid/slide dust on the cadence, or disarm.
 //
 // Reads PlayerV.skid_latch, the authoritative latch the animation classifier
-// already maintains (player_common.emp:699-733) — the alternative, re-deriving
+// already maintains (player_common.emp, Player_Animate) — the alternative, re-deriving
 // "is skidding" from grounded + opposing input + |gsp| >= PHYS_SKID_MIN, would
 // duplicate a four-term condition that has exactly one home and would drift.
 //

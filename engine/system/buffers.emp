@@ -268,7 +268,7 @@ pub proc PlaneMapToVRAM (a1: *u8, d0: u32, d1: u16, d2: u16) clobbers(d0-d4/a1/a
 //    8  GameState_ObjectTestChurn_Init sonic4/test/object_test_state.emp:245 init copy
 //    9  GameState_Demo_Init           demo/demo_state.emp:26    init copy (the demo game)
 // VBLANK-SIDE consumers — the ship boundary itself:
-//   10  BuildStaticDMA / SRC_PAL_LINE0..3   buffers.emp:13-16,102-131 — the ONLY builder of
+//   10  BuildStaticDMA / SRC_PAL_LINE0..3   buffers.emp (both names) — the ONLY builder of
 //                                            Static_Pal_Line0..3; Palette_Buffer is the DMA source
 //   11  Enqueue_Dirty_Buffers splices       buffers.emp:251-310 — the four snapshot copies
 //   12  Raster_HInt .op_pal_restore         effects/raster.emp:812 — the only runtime READER
