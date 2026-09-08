@@ -41,8 +41,10 @@ THE THREE SILENT-DEATH ROADS, AND WHICH TEST CLOSES EACH
        Closed by `test_every_extern_guard_file_is_reachable_in_some_shape`. This is the
        z80_init class, and it is the one that actually happened.
   (H3) a guard is reached but its extern is not defined in this link, so sigil files it
-       `inapplicable ... allowlisted` and decides nothing. Closed by
-       `test_no_linkassert_is_inapplicable`.
+       `inapplicable ... allowlisted` and decides nothing. WATCHED by
+       `test_no_linkassert_is_inapplicable` — watched, not closed: that row has never been
+       seen red and no mutation of THIS repo can drive it red (its docstring carries the
+       measurement). Do not count it among this lane's proven rows.
   (H4) a shape stops being checkable at all (a bootstrap gap, a crash, a renamed flag) and
        a reader takes silence for green. Closed by `test_every_shape_reported`, which
        fails LOUD rather than skipping — "couldn't measure" is never green here.
@@ -64,12 +66,12 @@ re-implemented, so the census and this gate can never disagree about what the fa
 The reachability verdict comes from sigil. Neither side can go green alone: our scanner
 cannot see a closure, and sigil's counts do not know which sites are ours.
 
-The `decided >= reachable extern-guard count` assertion is a LOWER-BOUND check and is
-labelled as one. sigil lowers more than `ensure` sites to LinkAsserts (657 decided against
-~134 reachable extern guards in sonic4 plain), so equality is not available and pinning
-today's 657 would be the snapshot-of-foreign-behaviour defect. The bound is still the
-direction that matters: it cannot rise past a real regression, and it goes red the moment
-sigil decides fewer LinkAsserts than we have guards demanding decisions.
+No count is pinned anywhere in this file. sigil lowers more than `ensure` sites to
+LinkAsserts (657 decided against 133 reachable extern guards in sonic4 plain), so no
+equality between the two authorities is available, and a lower-bound row over them was
+written, run, and then DELETED for being unfalsifiable — see the note where it used to
+live. What survives are rows whose expectation is a SET relation the two authorities
+compute jointly, and which have each been driven red.
 
 COST, MEASURED
 --------------
@@ -303,10 +305,20 @@ def test_every_shape_reported(checks):
 
 def test_no_linkassert_is_inapplicable(checks):
     """`inapplicable` counts LinkAsserts sigil reached but could not decide, because the
-    extern they name is not defined in this link. Such a guard is present, compiled,
-    reported nowhere, and enforcing nothing — the family's failure mode with the fewest
-    outward symptoms. The expectation is not a pin: ZERO is the only value at which every
-    guard the shape lowered got an answer."""
+    extern they name is not defined in this link and appears in SIGIL'S allowlist. Such a
+    guard is present, compiled, reported nowhere, and enforcing nothing — the family's
+    failure mode with the fewest outward symptoms. The expectation is not a pin: ZERO is
+    the only value at which every guard the shape lowered got an answer.
+
+    ⚠ THIS ROW HAS NEVER BEEN SEEN RED, and that is stated rather than left for a reader
+    to assume. Measured 2026-09-08: adding `ensure(extern("<undefined>") == 1, ..)` to a
+    reached module does NOT produce an `inapplicable` — sigil refuses outright with
+    `unresolvable-extern drift guard NOT in the allowlist`, rc 1. So the non-zero state
+    is reachable only by an entry in an allowlist that lives in the SIGIL tree, and no
+    mutation of this repo can drive this row red. Treat it as a WATCH on a sigil-side
+    event, not as a proven gate; the four rows around it are proven red and are what this
+    lane's green is worth. It is kept because it reads a real counter this lane already
+    parses and costs nothing — not because it has been demonstrated to work."""
     offenders = []
     for shape, _args in SHAPES:
         got = _parse(checks["shapes"][shape], shape)
@@ -372,34 +384,15 @@ def test_every_extern_guard_file_is_reachable_in_some_shape(checks):
     )
 
 
-def test_decided_count_covers_the_reachable_extern_guards(checks):
-    """A LOWER BOUND, and labelled as one. sigil lowers more than `ensure` sites to
-    LinkAsserts, so `decided` exceeds our count and equality is unavailable; pinning
-    today's number would pin a snapshot of sigil's behaviour rather than a property.
-
-    What the bound still catches: sigil deciding FEWER LinkAsserts than this tree has
-    reachable guards demanding a decision — which cannot happen while every one of them
-    is being decided.
-    """
-    guard_files = _guard_files(census.collect())
-
-    short = []
-    for shape, _args in SHAPES:
-        entry = checks["shapes"][shape]
-        got = _parse(entry, shape)
-        unreachable = _unreachable(entry["out"])
-        reachable_guards = sum(len(v) for f, v in guard_files.items()
-                               if f not in unreachable)
-        if got["decided"] < reachable_guards:
-            short.append(
-                f"{shape}: sigil decided {got['decided']} LinkAssert(s) but this tree has "
-                f"{reachable_guards} extern()-bearing guard(s) in modules the shape "
-                f"reaches — at least {reachable_guards - got['decided']} were not decided"
-            )
-    assert not short, (
-        "fewer LinkAsserts decided than reachable extern()-bearing guards:\n  "
-        + "\n  ".join(short)
-    )
+# THE ROW THAT IS NOT HERE, AND WHY — `decided >= reachable extern-guard count`.
+# It was written, run green, and then DELETED rather than shipped. sigil lowers a
+# SUPERSET of our sites to LinkAsserts (657 decided against 133 reachable extern guards
+# in sonic4 plain), so the left side cannot fall below the right while sigil behaves as
+# documented, and no mutation of this tree can make it. A row that cannot go red is a
+# fifth green dot that certifies nothing — the exact vacuity LS-15/LS-16 book and this
+# file exists to end. Recorded here so the next reader does not re-derive it as a good
+# idea. If sigil ever exposes WHICH LinkAsserts it decided, the tight version becomes
+# available and is worth writing then.
 
 
 # ---------------------------------------------------------------- excusal hygiene
