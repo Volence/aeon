@@ -93,7 +93,9 @@ def is_record(path: str) -> bool:
     return False
 
 
-# A citation is `something.emp:123`.
+# A citation is a `.emp` path followed by a colon and a line number.
+# (Not spelled out as an example here: this gate scans itself, and an example
+# written in citation form IS a citation -- measured, it failed exactly that way.)
 CITE = re.compile(r"(?<![A-Za-z0-9_./-])([A-Za-z0-9_][A-Za-z0-9_/.-]*\.emp):(\d+)")
 
 
@@ -108,7 +110,16 @@ def _is_prose_elision(cited: str) -> bool:
 
 # A file may freeze its citations against a named revision of a file that no longer
 # exists at HEAD. Declared, so it can be checked rather than believed.
-ANCHOR = re.compile(r"CITATIONS-ANCHORED-AT:\s*(\S+)\s+(\S+)")
+#
+# The marker must OPEN a comment line and the path must look like a path. Prose that
+# merely mentions the marker is not a declaration -- this gate's own docstring does, and
+# a looser pattern read that sentence as a declaration of revision "`" at path "marker".
+# It went unnoticed while the file was still untracked, because `git ls-files` did not
+# yet list it: the gate was green only because it was not yet part of its own subject.
+ANCHOR = re.compile(
+    r"^\s*(?://|#)\s*CITATIONS-ANCHORED-AT:\s*(\S+)\s+(\S+\.(?:emp|asm|py|toml|md))\s*$",
+    re.MULTILINE,
+)
 
 SKIP_DIRS = {".git", "__pycache__", ".cache", "node_modules", "target"}
 
