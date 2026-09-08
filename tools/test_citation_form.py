@@ -1,0 +1,329 @@
+#!/usr/bin/env python3
+"""LS-19a — `file.emp:LINE` citations in LIVE prose must resolve to something.
+
+WHAT THIS GATE ASSERTS, and why that shape was chosen
+-----------------------------------------------------
+Every `X.emp:N` citation in a LIVE-scope file must resolve: the cited `.emp` file
+must exist and be named unambiguously, and line N must exist and not be blank or a
+bare delimiter.
+
+That assertion holds for ANY valid content. It is not a snapshot of what the tree
+says today, and it pins no count. That distinction is the one sigil measured
+(sigil `c966302d`, `PROBE-CONTENT-SNAPSHOT`): the axis separating a durable gate
+from a defective one is not which directory a file lives in, it is whether the
+assertion is content-invariant or pins today's snapshot. A register of "the 187
+citations we currently know are stale" would have been the snapshot kind, so this
+gate deliberately does not carry one — the drift census is a MEASUREMENT reported
+in the LS-19a row, not a gate.
+
+WHAT IT DOES NOT CATCH, stated so nobody reads a green as more than it is
+------------------------------------------------------------------------
+A citation whose line still exists and is non-blank but now points at the WRONG
+thing. That is undecidable from text alone, and it is the majority of the real
+staleness: of 438 live citations measured 2026-09-08, 126 were unchanged since
+they were written, 172 pointed at text that had MOVED, and 31 at text that was
+GONE. The repair for that class is the citation FORM (`file.emp` + symbol name),
+not a number this gate could check. `ojz_scenes.emp` was the worst instance and
+this gate would NOT have caught it: its numbers resolved to real, non-blank,
+plausible, wrong symbols at the anchor it named.
+
+So: green here means "no citation points at nothing". It does not mean "every
+citation is accurate."
+
+RECORDS vs LIVE
+---------------
+See CODING_CONVENTIONS.md, "RECORDS vs LIVE prose". A RECORD is a document that
+reports what was true at a moment; its coordinates are frozen with it and are
+never re-pointed. LIVE prose describes the tree as it stands and must be
+re-pointable. The boundary below is the single source of truth; the convention
+doc mirrors it in words.
+"""
+from __future__ import annotations
+
+import os
+import re
+import subprocess
+from collections import defaultdict
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# ---------------------------------------------------------------- the boundary
+# RECORDS: dated or evidence-shaped documents. Each entry below is a directory or
+# file the tree ALREADY treats as frozen; none of these classes was invented here.
+RECORD_DIRS = (
+    "docs/superpowers/",     # notes/plans/designs/probes/specs, all dated (LS-14 closure)
+    "docs/research/",        # dated research captures
+    "docs/reviews/",         # dated review records
+    "docs/benchmarks/",      # *-EVIDENCE.md measurement captures
+    "docs/witness/",         # dated witness reads
+    "docs/measurements/",    # dated measurement notes
+    "docs/captures/",        # raw capture artefacts
+    "docs/generated/",       # generated, not authored
+    "docs/specs/",           # dated `status:`-stamped frozen specs
+)
+RECORD_FILES = (
+    # DEFERRED_WORK's own MAINTENANCE PROTOCOL forbids rewriting an entry's text
+    # ("Keep the original text beneath"), and its header already warns readers not
+    # to chase its file:line citations blind. It is a record by its own rules.
+    "docs/DEFERRED_WORK.md",
+    # "docs/BUGS.md's hits are historical bug records and were left alone" —
+    # docs/DEFERRED_WORK.md, the parcel that swept the rest of the docs.
+    "docs/BUGS.md",
+    "docs/OVERSEER-LOG.md",
+    "docs/QUEUE-ARCHIVE.md",
+    "docs/CHARACTER_BOX_AUDIT.md",              # "**Date:** 2026-08-28 ... Verdict:"
+    "docs/SPRITE_OWNER_PIN_SLIDE_MEASUREMENT.md",
+)
+
+
+def is_record(path: str) -> bool:
+    """True if `path` is a frozen record whose coordinates are never re-pointed."""
+    p = path.replace(os.sep, "/")
+    if p.startswith(RECORD_DIRS):
+        return True
+    if p in RECORD_FILES:
+        return True
+    # append-only logs and machine-written data are records by construction
+    if p.endswith((".jsonl", ".json")):
+        return True
+    # a dated note at the docs root: docs/2026-09-06-whatever.md
+    base = p.rsplit("/", 1)[-1]
+    if p.startswith("docs/") and re.match(r"^\d{4}-\d{2}-\d{2}-", base):
+        return True
+    return False
+
+
+# A citation is `something.emp:123`.
+CITE = re.compile(r"(?<![A-Za-z0-9_./-])([A-Za-z0-9_][A-Za-z0-9_/.-]*\.emp):(\d+)")
+
+
+def _is_prose_elision(cited: str) -> bool:
+    """`games/.../act_descriptor.emp` is prose shorthand, not a path.
+
+    Excluded deliberately: reading an elided path as a citation manufactures a
+    defect that is not there, and a gate that invents its own subject is worse
+    than no gate.
+    """
+    return "..." in cited
+
+# A file may freeze its citations against a named revision of a file that no longer
+# exists at HEAD. Declared, so it can be checked rather than believed.
+ANCHOR = re.compile(r"CITATIONS-ANCHORED-AT:\s*(\S+)\s+(\S+)")
+
+SKIP_DIRS = {".git", "__pycache__", ".cache", "node_modules", "target"}
+
+
+def _tracked_files() -> list[str]:
+    out = subprocess.run(
+        ["git", "-C", ROOT, "ls-files"], capture_output=True, text=True, check=True
+    )
+    return [f for f in out.stdout.split("\n") if f]
+
+
+def _emp_index() -> tuple[set[str], dict[str, list[str]]]:
+    by_path: set[str] = set()
+    by_base: dict[str, list[str]] = defaultdict(list)
+    for dirpath, dirnames, filenames in os.walk(ROOT):
+        dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
+        for fn in filenames:
+            if fn.endswith(".emp"):
+                rel = os.path.relpath(os.path.join(dirpath, fn), ROOT).replace(os.sep, "/")
+                by_path.add(rel)
+                by_base[fn].append(rel)
+    return by_path, by_base
+
+
+def _read(path: str) -> str | None:
+    try:
+        with open(os.path.join(ROOT, path), encoding="utf-8") as fh:
+            return fh.read()
+    except (UnicodeDecodeError, IsADirectoryError, FileNotFoundError):
+        return None
+
+
+def _show(rev: str, path: str) -> list[str] | None:
+    out = subprocess.run(
+        ["git", "-C", ROOT, "show", f"{rev}:{path}"], capture_output=True, text=True
+    )
+    return out.stdout.split("\n") if out.returncode == 0 else None
+
+
+def _dead(line: str | None) -> str | None:
+    """Why this target is a citation to nothing, or None if it is real."""
+    if line is None:
+        return "past end of file"
+    s = line.strip()
+    if s == "":
+        return "blank line"
+    if s in ("}", "{", ")", "(", "//", "*/"):
+        return "bare delimiter"
+    return None
+
+
+def collect_live_citations():
+    """Yield (citer, citer_line, cited_text, n, (anchor_path, rev) | None), LIVE scope."""
+    for f in _tracked_files():
+        if is_record(f):
+            continue
+        text = _read(f)
+        if text is None:
+            continue
+        anchors = [(p, rev) for rev, p in ANCHOR.findall(text)]
+        for i, line in enumerate(text.split("\n"), 1):
+            if ANCHOR.search(line):
+                continue  # the declaration itself is not a citation
+            for m in CITE.finditer(line):
+                cited, n = m.group(1), int(m.group(2))
+                if _is_prose_elision(cited):
+                    continue
+                # An anchor is keyed by the path it DECLARES; a citation written as a
+                # bare basename resolves through it to that full path, because the
+                # anchored file does not exist at HEAD to be looked up.
+                hit = next(
+                    (ap_rev for ap_rev in anchors
+                     if ap_rev[0] == cited or ap_rev[0].endswith("/" + cited)),
+                    None,
+                )
+                yield f, i, cited, n, hit
+
+
+def test_live_citations_resolve_to_something():
+    """No LIVE-scope `X.emp:N` may point at a missing file or an empty line.
+
+    Content-invariant: it constrains no particular content, only that a pointer
+    has a referent. A record is exempt by design, never by accident -- see
+    is_record() and CODING_CONVENTIONS.md.
+    """
+    by_path, by_base = _emp_index()
+    assert by_path, "no .emp files found -- the gate cannot measure its subject"
+
+    failures: list[str] = []
+    checked = 0
+    for citer, cline, cited, n, anchor in collect_live_citations():
+        checked += 1
+        if anchor is not None:
+            apath, rev = anchor
+            lines = _show(rev, apath)
+            if lines is None:
+                failures.append(
+                    f"{citer}:{cline} cites {cited}:{n} anchored at {rev}, "
+                    f"but {apath} does not exist at that revision"
+                )
+                continue
+            why = _dead(lines[n - 1] if 1 <= n <= len(lines) else None)
+            if why:
+                failures.append(
+                    f"{citer}:{cline} cites {cited}:{n} at declared anchor "
+                    f"{rev}:{apath} -- {why}"
+                )
+            continue
+
+        path = _resolve(cited, by_path, by_base)
+        if path is None:
+            failures.append(
+                f"{citer}:{cline} cites {cited}:{n} -- no such .emp file at HEAD "
+                f"(and no CITATIONS-ANCHORED-AT declares a revision for it)"
+            )
+            continue
+        if path == "":
+            cands = sorted(by_base.get(cited.rsplit("/", 1)[-1], []))
+            failures.append(
+                f"{citer}:{cline} cites bare `{cited}:{n}` which matches {len(cands)} "
+                f"files ({', '.join(cands)}) -- name the path or the symbol"
+            )
+            continue
+        body = _read(path)
+        lines = body.split("\n") if body is not None else []
+        why = _dead(lines[n - 1] if 1 <= n <= len(lines) else None)
+        if why:
+            failures.append(f"{citer}:{cline} cites {path}:{n} -- {why}")
+
+    assert checked > 0, (
+        "the gate resolved ZERO live citations. That is not a pass: either the "
+        "boundary in is_record() swallowed the whole tree or CITE stopped matching. "
+        "Loud on unmeasurable, per invariant 8(d)."
+    )
+    assert not failures, (
+        f"{len(failures)} of {checked} live `.emp:LINE` citations point at nothing.\n"
+        "Fix the FORM, not the number: cite `file.emp` plus the enclosing symbol "
+        "name, which survives every edit (CODING_CONVENTIONS.md, 'CITE BY NAME').\n"
+        + "\n".join("  " + f for f in sorted(failures))
+    )
+
+
+def _resolve(cited: str, by_path, by_base) -> str | None:
+    """Return the path, "" if ambiguous, or None if absent."""
+    if cited in by_path:
+        return cited
+    suffix = [p for p in by_path if p.endswith("/" + cited)]
+    if len(suffix) == 1:
+        return suffix[0]
+    if len(suffix) > 1:
+        return ""
+    if "/" in cited:
+        return None
+    cands = by_base.get(cited, [])
+    if len(cands) == 1:
+        return cands[0]
+    if len(cands) > 1:
+        return ""
+    return None
+
+
+def test_declared_anchors_name_a_reachable_revision():
+    """A `CITATIONS-ANCHORED-AT:` marker must name a revision that really has the file.
+
+    Without this the marker is an exemption anyone can write to silence the gate
+    above; with it, the exemption is itself checked.
+    """
+    markers: list[tuple[str, str, str]] = []
+    for f in _tracked_files():
+        text = _read(f)
+        if text is None or "CITATIONS-ANCHORED-AT" not in text:
+            continue
+        for rev, path in ANCHOR.findall(text):
+            markers.append((f, rev, path))
+
+    failures = []
+    for f, rev, path in markers:
+        if _show(rev, path) is None:
+            failures.append(f"{f}: CITATIONS-ANCHORED-AT {rev} {path} -- unreachable")
+    assert not failures, "\n".join(failures)
+
+
+def test_records_are_excluded_and_live_files_are_not():
+    """The boundary itself, pinned by example on both sides.
+
+    Named files, not counts: a count would fire on every legitimate addition while
+    staying blind to a file changing sides, which is the same hazard with nothing
+    to count (the reasoning tools/test_deb2_appendix.py states for `mark`).
+    """
+    for p in (
+        "docs/superpowers/notes/anything.md",
+        "docs/DEFERRED_WORK.md",
+        "docs/BUGS.md",
+        "docs/research/2026-08-07-mdsdrv/core.md",
+        "docs/2026-09-06-live-effects-ram-surface.md",
+        "docs/decisions.jsonl",
+        "docs/specs/boot-ym-keyoff-race.md",
+    ):
+        assert is_record(p), f"{p} should be a RECORD"
+    for p in (
+        "CODING_CONVENTIONS.md",
+        "docs/ENGINE_ARCHITECTURE.md",
+        "docs/OVERSEER.md",
+        "docs/ART_PIPELINE_CONTRACT.md",
+        "docs/EFFECTS_AUTHORING.md",
+        "tools/EFFECTS_CONSUMER_CONTRACT.md",
+        "engine/level/parallax.emp",
+        "games/sonic4/data/effects/ojz_scenes.emp",
+        "tools/effects_gen.py",
+    ):
+        assert not is_record(p), f"{p} should be LIVE"
+
+
+if __name__ == "__main__":
+    test_records_are_excluded_and_live_files_are_not()
+    test_declared_anchors_name_a_reachable_revision()
+    test_live_citations_resolve_to_something()
+    print("citation form: OK")

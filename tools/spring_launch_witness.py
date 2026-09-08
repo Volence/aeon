@@ -1998,7 +1998,7 @@ async def boot_and_settle(pr, spring_code, out):
 
     # --- leave DEBUG-FLY, or the whole run measures a floating statue ---
     # s4.debug.bin boots into free-flight: the debug shape arms CHEAT_DEBUG_FLY and
-    # Player_Init tail-calls Player_DebugEnter (player_common.emp:592, :650-652), which
+    # Player_Init tail-calls Player_DebugEnter (player_common.emp, both names), which
     # suspends the state dispatch entirely. Measured before this step existed: the player
     # sat at (256,256) with y_vel 0 for 600 frames and no object ever spawned. B is the
     # toggle, and it is the REAL exit path (Player_DebugExit restores the standing box and

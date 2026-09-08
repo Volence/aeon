@@ -148,7 +148,7 @@ LAYER_REFUSED_KEYS = {
 # THE ONLY LADDER THAT EXISTS, keyed by the shift it is the ladder for. The other four legal
 # shifts (3, 5, 6, 7) are refused BY NAME below. NOT "until 9b lands" — 9b landed on
 # 2026-09-04 and its generator does not write into the tree, so waiting produces nothing:
-# `layer()` accepts them (scene_dsl.emp:1006 bounds 3..7), so without this the emission would
+# `layer()` accepts them (scene_dsl.emp `layer()` bounds 3..7), so without this the emission would
 # fail on an undefined Label and name a missing symbol instead of the authoring mistake.
 ROW_REMAP_LADDERS = {4: "RowRemapLadder_Waterline16"}
 
@@ -2684,7 +2684,7 @@ def render_row_remap(path: str, value, where: str) -> str:
     this seam (`patch_world_ys`' own banner: "there is no `* 256` anywhere on this path and
     there must never be one"). `height_shift` is where a helpful editor does the most damage:
     it is a SHIFT and `H = 1 << height_shift`, so an editor presenting "band height = 16
-    lines" and exporting `16` asks for H = 65536. `scene_dsl.emp:1006` catches 16 because it
+    lines" and exporting `16` asks for H = 65536. `scene_dsl.emp`'s `layer()` catches 16 because it
     is outside 3..7 — but every value 3..7 is legal, so a conversion bug inside that window
     lands as a band four times too tall rather than as a refusal. The editor may DISPLAY
     `1 << height_shift`; it must EXPORT the shift.
@@ -2710,7 +2710,7 @@ def render_row_remap(path: str, value, where: str) -> str:
                       f"If you meant 64 LINES, you want 6.")
     if height_shift not in ROW_REMAP_LADDERS:
         _refuse(path, f"{where}.height_shift: {height_shift} has no ladder. `layer()` "
-                      f"accepts shifts 3..7 (engine/level/scene_dsl.emp:1006), but only "
+                      f"accepts shifts 3..7 (engine/level/scene_dsl.emp, layer()), but only "
                       f"{', '.join(str(s) for s in sorted(ROW_REMAP_LADDERS))} "
                       f"{'has' if len(ROW_REMAP_LADDERS) == 1 else 'have'} a ladder the "
                       f"engine can generate today: `row_remap_ladder16()` "

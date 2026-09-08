@@ -95,10 +95,10 @@ use games.sonic4.scene_registry.{DeformTable_Zero, DeformTable_OJZ_Calm, DeformT
 // measured (LS-19a, 2026-09-08): the line numbers it used to carry were anchored at
 // `560a47be`, TWO revisions before the deletion parent, while this very block claimed
 // they were "that file at its final revision". At the claimed anchor they land on the
-// WRONG symbol, not on nothing — `configs.emp:163` was cited for Shimmer and is
-// `ParallaxConfig_OJZ_Underwater` there; `:181` was cited for Haze and is
-// `ParallaxConfig_OJZ_Windy`; `:232` was cited for Perspective and is
-// `ParallaxConfig_Haze`; `:253` was cited for WindyHaze and is `ParallaxConfig_Rocking`.
+// WRONG symbol, not on nothing — the number cited for Shimmer resolves there to
+// `ParallaxConfig_OJZ_Underwater`, the one cited for Haze to `ParallaxConfig_OJZ_Windy`,
+// the one cited for Perspective to `ParallaxConfig_Haze`, and the one cited for
+// WindyHaze to `ParallaxConfig_Rocking`.
 // A symbol name resolves at BOTH revisions and cannot drift, which is why the form
 // changed rather than the numbers. games/sonic4/test/scene_equiv_proof.emp's own twenty
 // citations DO land at the deletion parent — the sentence was wrong about this file only,

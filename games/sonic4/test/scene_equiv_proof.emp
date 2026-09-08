@@ -17,7 +17,11 @@
 // surface — is deleted; the migration moved them here rather than deleting them so the
 // oracle stays an INDEPENDENT spelling of the packing rules rather than a second call into
 // the lowering it is checking. Their `configs.emp` heritage is why the citations below name
-// that path: read them against `git show <pre-P1>:games/sonic4/data/parallax/configs.emp`.
+// that path. The anchor is DECLARED and machine-checked (LS-19a) rather than described:
+// CITATIONS-ANCHORED-AT: 92fafc3e^ games/sonic4/data/parallax/configs.emp
+// tools/test_citation_form.py re-resolves every `configs.emp:N` below against that
+// revision, so a wrong anchor is a build failure and not a reader's problem. Recover it
+// with `git show 92fafc3e^:games/sonic4/data/parallax/configs.emp`.
 //
 // IT IS A COMPTIME VALUE PROOF, NOT A BYTE COMPARISON. It compares struct values during
 // elaboration; nothing here reads a ROM offset, and it cannot: this module emits zero

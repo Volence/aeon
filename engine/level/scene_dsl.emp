@@ -21,7 +21,13 @@
 // replaced it byte-for-byte. Every `configs.emp:N` below is that file AS IT STOOD AT ITS
 // DELETION PARENT, so recover it with
 //     git show 92fafc3e^:games/sonic4/data/parallax/configs.emp
-// and the line numbers land. This is the same convention, and the same recovery point,
+// and the line numbers land. That anchor is DECLARED, not merely described (LS-19a):
+// CITATIONS-ANCHORED-AT: 92fafc3e^ games/sonic4/data/parallax/configs.emp
+// tools/test_citation_form.py re-resolves every one of them against that revision.
+// This matters because the same claim was made, wrongly, by a THIRD file: ojz_scenes.emp
+// declared the same anchor while its numbers were anchored at 560a47be, two revisions
+// earlier, where they resolve to DIFFERENT and plausible symbols. Its citations are now
+// by symbol name and carry no anchor at all. This is the same convention, and the same recovery point,
 // that games/sonic4/test/scene_equiv_proof.emp:16-20 states for its own twenty citations.
 //
 // THE COORDINATES WERE REBASED ON 2026-09-07 AND THEY WERE ALL WRONG BY THE SAME +31.

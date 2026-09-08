@@ -80,7 +80,7 @@ REGION_LOOP = "$engine.effects.raster$Raster_HInt$region_loop"
 RESTORE_LOOP = "$engine.effects.raster$Raster_HInt$restore_loop"
 
 # Two region ops differing ONLY in the encoded offset (slot*128 + line*32 + entry*2).
-# Pal_Variant_Stage is [u8; 128*2] (engine/ram.emp:398), so slot 1 is real storage and
+# Pal_Variant_Stage is [u8; 128*2] (engine/ram.emp, Pal_Variant_Stage), so slot 1 is real
 # fixture B's highest touched byte, 202 + 2*3 - 1 = 207, is inside it.
 FIXTURES = [
     {"name": "A", "slot": 0, "pal_line": 1, "entry": 1, "count": 3},

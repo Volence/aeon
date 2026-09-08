@@ -377,8 +377,8 @@ an engine change (reverse the step on its ring) and is booked in `docs/DEFERRED_
 not built.
 
 Output contract (aeon-internal, cited for orientation only): 44-byte records LOCKSTEP
-with `engine/level/bg_anim.emp` `struct bganim_band` (**`bg_anim.emp:66`**, its width held
-by `ensure(sizeof(bganim_band) == 44, …)` at `bg_anim.emp:75` — that ensure, not this
+with `engine/level/bg_anim.emp` `struct bganim_band` (**`engine/level/bg_anim.emp`, `struct bganim_band`**, its width held
+by `ensure(sizeof(bganim_band) == 44, …)` in `engine/level/bg_anim.emp` — that ensure, not this
 sentence, is the authority); the animated arm is
 FORMAT-FAITHFUL BUT NOT BYTE-PROVEN until the first authored act (`:121-124`) — that
 discharge is a wave-1 aeon lane item.
@@ -474,7 +474,7 @@ DSL constructor arguments 1:1 (`engine/level/scene_dsl.emp` `scene()`/`layer()`)
     is wanted (heat haze, a mirror); a `oneOf` can widen where a required field cannot be
     taken back.
   - **⚠ TODAY ONLY `height_shift: 4` BUILDS.** `layer()` accepts 3..7
-    (`engine/level/scene_dsl.emp:1006`), but 3/5/6/7 have no generated ladder, so the
+    (`engine/level/scene_dsl.emp`, `layer()`'s rowRemap height-shift `ensure`), but 3/5/6/7 have no generated ladder, so the
     generator refuses them **by name** — the alternative is an emission that fails on an
     undefined Label and names a missing symbol instead of the thing the author wrote. The
     generated ladder for the other four shifts is EFFECTS-W1 item **9b**.

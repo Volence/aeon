@@ -68,7 +68,7 @@ WHAT IS POLLED (six cells, four subject + two adjacent):
                                      question than the one asked. Split out of each other
                                      when the straddle instrument landed (dma_queue.emp:170).
     Dbg_DMA_Enq_Capped      $FFF8F7A ADJACENT: enqueues rejected by DMA_ENQ_BYTE_CAP, the
-                                     third drop path, "0 in normal play" per ram.emp:720.
+                                     third drop path, "0 in normal play" per engine/ram.emp, Dbg_DMA_Enq_Capped.
 
 Plus, per poll: player x/y, the in-air bit (ST_IN_AIR, engine/system/constants.emp:125),
 and mapping_frame -- so the report can say which animation frames the campaign actually
@@ -889,7 +889,7 @@ def summarise(d: Driver, args, elapsed: float) -> int:
                      ("Dbg_DMA_Enq_Capped", peak_cap)):
         print(f"  {name:24s} {boot[name]:7d} {final[name]:7d} {mx:20d}")
 
-    # ---- THE READING RULE (ram.emp:1444-1448), and the two ways to satisfy it ----
+    # ---- THE READING RULE (engine/ram.emp, Dbg_DMA_Straddle_All), and the two ways ----
     # ram.emp: an Important zero means "Important never straddled" only while
     # Dbg_DMA_Straddle_All is non-zero; otherwise it means "nothing straddled at all,
     # which is also what a broken instrument reads like". The rule's job is to rule OUT
