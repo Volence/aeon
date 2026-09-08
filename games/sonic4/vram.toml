@@ -224,8 +224,8 @@ name = "bg_region"
 owner = "engine.bg"
 kind = "arena"
 base = 1024
-tiles = 400                      # 448 -> 400: the top 48 tiles became the
-band_reserve = 80                # `waterline_strips` region below (EFFECTS-W1
+tiles = 388                      # 448 -> 400: the top 48 tiles became the
+band_reserve = 68                # `waterline_strips` region below (EFFECTS-W1
                                  # item 9d). Reserve 128 -> 80 in the SAME edit
                                  # so the STATIC budget (tiles - reserve) stays
                                  # 320 — the 48 came out of the RESERVE, not out
@@ -337,7 +337,7 @@ authority = ["engine-tiles:BG_TILE_CAPACITY", "engine-bytebase:BG_TILE_BASE_VRAM
 name = "waterline_strips"
 owner = "engine.bg_anim"
 kind = "window"
-base = 1424
+base = 1412
 tiles = 48
 lifetime = "act"
 authority = "engine-bytebase:VRAM_WATERLINE_STRIPS"
@@ -381,6 +381,43 @@ authority = "engine-bytebase:VRAM_WATERLINE_STRIPS"
 # own comment gives at length (docs/BUGS.md TOOL-01) — unowned free space is spent
 # by the next person who needs tiles and does not know what it was for. The address
 # is the thing being reserved.
+
+[[region]]
+name = "spring"
+owner = "games.sonic4.spring"
+kind = "window"
+base = 1460
+tiles = 12
+lifetime = "act"
+const = "VRAM_SPRING"
+# The vertical spring's art: 20 tiles RESIDENT for the act, never streamed. All
+# three mapping frames must be live simultaneously for the same reason `dust_puff`
+# above gives — two springs on screen sit on DIFFERENT animation frames, and the
+# fire script runs per-object.
+#
+# WHERE THESE 20 CAME FROM, and it is the owner's dial, not spare space (the same
+# shape as `waterline_strips` above, which took 48 the same way). `bg_region` went
+# 400 -> 380 and its `band_reserve` went 80 -> 60 in the SAME edit, so the STATIC
+# importer budget (tiles - reserve) is unchanged at 320 and the shipped background
+# blob (320 tiles, tools/test_bg_tile_budget.py::TestBakedBlobOccupancy) is
+# untouched. The 20 came out of the 80 unresident reserve tiles; 60 remain.
+#
+# WHY NOT `fg_art_pool`, which docs/DEFERRED_WORK.md's SP-3 table named as the only
+# route: its quantum is 64, so the smallest cut is a whole 64-tile PAGE and the act
+# art streaming cache drops 12 frames -> 11. That spends a LIVE resource on a
+# 20-tile object; these 20 tiles are unwritten today. SP-3's table predates the
+# waterline precedent and did not consider this run.
+#
+# WHY 1452 AND NOT 1404. `VRAM_WATERLINE_STRIPS` is DERIVED
+# (engine/system/constants.emp: `BG_TILE_BASE_VRAM + BG_TILE_CAPACITY * 32`), so
+# shrinking the BG arena slides the strips down with it — they are 1404..1451 now.
+# The freed run is therefore the tail, not the head, and it ends exactly on
+# `sprite_table`: $B580 + 20*32 = $B800. There is no slack left below the SAT.
+#
+# ⚠ TOPOLOGICALLY THIS IS IN THE WRONG NEIGHBOURHOOD and that is known. Objects
+# live at 896..1023, which is 128 tiles and FULLY SPENT — this map has room for
+# zero further objects without a carve. Owner's ruling 2026-09-07: take these 20
+# now, revisit the allocation properly. Booked in docs/DEFERRED_WORK.md.
 
 [[region]]
 name = "sprite_table"

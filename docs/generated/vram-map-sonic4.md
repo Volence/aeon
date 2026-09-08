@@ -18,8 +18,9 @@ Do not edit; edit the TOML and regenerate.
 | 1000-1015 | ring_placeholder | window | act | engine.objects.rings | sigil-D:VRAM_RING_PLACEHOLDER |  |
 | 1016-1019 | test_marker | window | mode | games.sonic4.player_common | VRAM_TEST_MARKER |  |
 | 1020-1023 | debug_lab_name | window | mode | games.sonic4.ojz_scroll_test | VRAM_DEBUG_LAB_NAME |  |
-| 1024-1423 | bg_region | arena | act | engine.bg | engine-tiles:BG_TILE_CAPACITY, engine-bytebase:BG_TILE_BASE_VRAM | band_reserve: 80 (static budget 320) |
-| 1424-1471 | waterline_strips | window | act | engine.bg_anim | engine-bytebase:VRAM_WATERLINE_STRIPS |  |
+| 1024-1411 | bg_region | arena | act | engine.bg | engine-tiles:BG_TILE_CAPACITY, engine-bytebase:BG_TILE_BASE_VRAM | band_reserve: 68 (static budget 320) |
+| 1412-1459 | waterline_strips | window | act | engine.bg_anim | engine-bytebase:VRAM_WATERLINE_STRIPS |  |
+| 1460-1471 | spring | window | act | games.sonic4.spring | VRAM_SPRING |  |
 | 1472-1491 | sprite_table | table | boot | engine.system.buffers | engine-bytebase:VRAM_SPRITE_TABLE |  |
 | 1492-1500 | tails_appendage | window | act | games.sonic4.tails_appendage | VRAM_TAILS_APPENDAGE |  |
 | 1501-1503 | debug_bganim_tag | window | mode | games.sonic4.ojz_scroll_test | VRAM_DEBUG_BGANIM_TAG |  |

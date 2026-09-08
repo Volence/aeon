@@ -70,6 +70,7 @@ pub const SFXID_GLIDE_LAND : SfxId = $4C
 pub const SFXID_JUMP       : SfxId = $62
 pub const SFXID_GROUND_SLIDE : SfxId = $7E
 pub const SFXID_SPINDASH   : SfxId = $AB
+pub const SFXID_SPRING     : SfxId = $B1
 pub const SFXID_DASH       : SfxId = $B6
 pub const SFXID_RINGLOSS   : SfxId = $B9
 pub const SFXID_FLYING     : SfxId = $BA
@@ -116,6 +117,10 @@ pub const SFXPRI_SKID     = $30
 // rare enough that ranking them there costs the tiers below nothing.
 pub const SFXPRI_GRAB       = $30
 pub const SFXPRI_GLIDE_LAND = $30
+// The spring's launch — one-shot, player-caused, not cadence-driven, so it takes
+// the SKID/ROLL/GRAB tier: above the ring and jump chatter it will usually
+// interrupt, below death and ring-loss which must never be masked by scenery.
+pub const SFXPRI_SPRING     = $30
 pub const SFXPRI_SPINDASH = $40
 pub const SFXPRI_DASH     = $40
 pub const SFXPRI_DEATH    = $60    // death/ring-loss — highest
@@ -124,5 +129,5 @@ pub const SFXPRI_RINGLOSS = $60
 // Guard: every priority tier MUST fit in 7 bits so bit 7 stays free as the
 // non-latching flag (and stays non-negative under signed compares). Mirrored by a
 // test in tools/sfx_transcode.py.
-ensure(((SFXPRI_FLY | SFXPRI_SLIDE | SFXPRI_RING | SFXPRI_JUMP | SFXPRI_INSTASHIELD | SFXPRI_ROLL | SFXPRI_SKID | SFXPRI_GRAB | SFXPRI_GLIDE_LAND | SFXPRI_SPINDASH | SFXPRI_DASH | SFXPRI_DEATH | SFXPRI_RINGLOSS) & $80) == 0,
+ensure(((SFXPRI_FLY | SFXPRI_SLIDE | SFXPRI_RING | SFXPRI_JUMP | SFXPRI_INSTASHIELD | SFXPRI_ROLL | SFXPRI_SKID | SFXPRI_GRAB | SFXPRI_GLIDE_LAND | SFXPRI_SPRING | SFXPRI_SPINDASH | SFXPRI_DASH | SFXPRI_DEATH | SFXPRI_RINGLOSS) & $80) == 0,
        "an SFXPRI_* tier has bit 7 set — priorities must be 7-bit ($00-$7F); bit 7 is the non-latching flag")

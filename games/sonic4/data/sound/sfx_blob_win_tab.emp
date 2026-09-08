@@ -71,7 +71,9 @@ section sfx_blob_win_tab (cpu: z80, vma: $8000) {
         dc.w    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
         dc.w    0, 0, 0, 0, 0, 0, 0, 0
         dc.w    SFX_WIN_AB          // $AB SPINDASH
-        dc.w    0, 0, 0, 0, 0, 0, 0, 0, 0, 0   // $AC..$B5 unused (10)
+        dc.w    0, 0, 0, 0, 0   // $AC..$B0 unused (5)
+        dc.w    SFX_WIN_B1          // $B1 SPRING
+        dc.w    0, 0, 0, 0   // $B2..$B5 unused (4)
         dc.w    SFX_WIN_B6          // $B6 DASH
         dc.w    0, 0   // $B7..$B8 unused (2)
         dc.w    SFX_WIN_B9          // $B9 RINGLOSS

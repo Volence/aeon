@@ -71,6 +71,40 @@ pub comptime fn piece(x: int, y: int, w: int where 1..4, h: int where 1..4, tile
     }
 }
 
+// A two-piece frame. Byte-for-byte a MapFrame1 with a second MapPiece appended,
+// which is exactly what the render loop expects: it reads the count at
+// FRAME_PIECE_COUNT (+4) and walks `count` consecutive MapPiece records from
+// FRAME_PIECES (+6) (sprites.emp:335-337). Nothing in the loop is arity-aware —
+// this struct exists so the COUNT and the number of pieces cannot disagree,
+// because a MapFrame1 with `piece_count: 2` would have the SAT writer read six
+// bytes of whatever the placer put after the frame and draw it as a sprite.
+//
+// Wanted by any sprite whose silhouette is not one VDP piece. The spring is the
+// first: its plate is 4x1 and its coil 2x1 or 2x3, and a single piece large
+// enough to cover both would be 4x3 of mostly-empty tiles — 12 tiles where 6 do.
+pub struct MapFrame2 {
+    x_min: i8,
+    x_max: i8,
+    y_min: i8,
+    y_max: i8,
+    piece_count: u16,
+    piece0: MapPiece,
+    piece1: MapPiece,
+}
+
+// The layout claim above, made checkable: the second piece must begin exactly
+// one MapPiece past the first, or the render loop's `lea`-and-stride walk reads
+// a misaligned record. sizeof/offsetof are comptime, so this costs no bytes.
+ensure(offsetof(MapFrame2, piece1) - offsetof(MapFrame2, piece0) == sizeof(MapPiece),
+       "MapFrame2's pieces must be CONTIGUOUS — the render loop strides by sizeof(MapPiece) from FRAME_PIECES and does not re-read a per-piece offset")
+// …and it must share MapFrame1's HEADER layout, spelled as two guards because
+// the render loop reaches the count and the first piece at FIXED offsets and has
+// no idea which of the two structs it is walking.
+ensure(offsetof(MapFrame2, piece_count) == offsetof(MapFrame1, piece_count),
+       "MapFrame2's piece count must sit at MapFrame1's offset — the render loop reads FRAME_PIECE_COUNT blind")
+ensure(offsetof(MapFrame2, piece0) == offsetof(MapFrame1, piece),
+       "MapFrame2's first piece must sit at MapFrame1's offset — the render loop lea's FRAME_PIECES blind")
+
 // A non-square witness locks the packing orientation: every live caller is
 // square (where the swap is invisible), so this is the one guard that makes a
 // width/height transposition a build error instead of a CRC-silent latent bug.

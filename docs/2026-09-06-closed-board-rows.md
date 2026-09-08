@@ -90,17 +90,17 @@ His 09-04 ruling: cut this lane's boot doc once, by when a rule is READ, proving
 
 The map's order row is keyed by a head label that content decides; probably a one-line move to key it by section name, unproven until a build refuses or does not
 
-### SPRING-ART  (open, size M)
+### SPRING-ART  (CLOSED 2026-09-07, size M)
 
-The spring's real graphics -- S3K art needs 12 tiles and vram.toml has 1 free, so the cost is a decision
+Real graphics landed: 12 tiles at VRAM_SPRING 1460, carved from bg_region's unresident band_reserve (400->388, reserve 80->68) rather than from fg_art_pool -- the option the SP-3 table missed. sonic_hack donor, palette line 0, zero palette cost. width 16->32
 
 ### SPRING-SPIN  (open, size S)
 
 Spin animation on a vertical spring bounce
 
-### SPRING-SFX  (open, size M)
+### SPRING-SFX  (CLOSED 2026-09-07, size M)
 
-The spring sound -- blocked on the transcoder refusing smpsModOff; cost the unblock
+Sound wired as AF_SOUND, SFXID_SPRING ($B1). smpsModOff unblocked (aliased to an all-zero ModSet); the SECOND blocker was S&K's mid-stream smpsSetvoice, so the DATA comes from Sonic 2's single-voice spring instead. Other 15 SFX byte-identical
 
 ### EMDASH  (open, size S)
 

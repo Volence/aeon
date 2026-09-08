@@ -27443,7 +27443,7 @@ true of any once-per-frame collision test, S3K included.
   cosmetic, and it belongs with a deliberate look pass rather than riding a
   correctness fix.
 
-### SP-2 — the spring has no sound, and adding sfx $B1 is a paired lane
+### SP-2 — the spring has no sound — CLOSED 2026-09-07
 
 S3K plays `sfx_Spring` = `$B1` (sonic3k.constants.asm:1304, fired at
 sonic3k.asm:47768). It is not in this game's SFX bank and cannot be added cheaply:
@@ -27472,7 +27472,7 @@ needs **no code change**: an `AF_SOUND, SFXID_SPRING` pair goes in front of the 
 script's first frame byte, and the animator plays it once per launch because the
 launch is what restarts the script.
 
-### SP-3 — the spring has no art of its own, and there is nowhere to put any
+### SP-3 — the spring has no art of its own — CLOSED 2026-09-07
 
 The spring draws from the resident test-object block at `VRAM_TEST_OBJ`, the same 8
 tiles `ObjDef_Solid` / `ObjDef_Static` / `ObjDef_PathSwap` already use, so it costs
@@ -27506,6 +27506,135 @@ is 4 tiles across. This engine's `width_pixels` is the FULL width, so the same s
 wants `width: 32`. The box should follow the art rather than the reference's field name,
 which is why it is not raised now — a 32px hitbox on a 16px square is a spring that stops
 the player 8px short of touching it.
+
+### SP-2 / SP-3 CLOSURE RECORD (2026-09-07) — what actually landed, and the two
+### things the bookings above got wrong
+
+**THE ART.** 12 tiles at `VRAM_SPRING` = 1460, RESIDENT for the act, one 384-byte
+DMA beside the dust puff's. Donor: `sonic_hack/art/nemesis/Vertical spring.bin`,
+repacked by `games/sonic4/data/spring_staging/gen_spring.py`.
+
+**SP-3's THREE-OPTION TABLE WAS NOT EXHAUSTIVE, and the option it missed is the one
+that was taken.** It named `fg_art_pool` (a whole 64-tile page for a small object),
+`spare_nametable` (destroys the only $2000-aligned run) and `test_obj` (boxed in) —
+and concluded "the donor art does not fit, by 11 tiles". The route it did not
+consider is the one `waterline_strips` had already used six weeks earlier:
+`bg_region` is 400 tiles but the baked blob is 320, so its `band_reserve` tiles are
+UNRESIDENT. `bg_region` 400 -> 388 with `band_reserve` 80 -> 68 frees 12 tiles that
+carry nothing today, leaves the static-import budget at 320 and the shipped
+background untouched, and costs no streaming page frame. The lesson generalises:
+**a carve table written against `fg_art_pool` should always check the BG reserve
+first**, because that reserve is a dial and the pool is a live cache.
+
+Two follow-ons, both mechanical: `VRAM_WATERLINE_STRIPS` is DERIVED from
+`BG_TILE_CAPACITY`, so the strips slid 1424 -> 1412 and the spring took the tail at
+1452..1471 -> re-measured to 1460..1471; and `BG_TILE_CAPACITY` is ENGINE-WIDE, so
+`games/demo/vram.toml` had to move with it (demo declares the freed run `[[free]]`,
+exactly as its own bg_region comment predicted it would have to).
+
+**IT IS 12 TILES, NOT THE 20 THE DONOR SHIPS.** S2's mappings pad every piece with a
+blank tile row (a 4x2 plate, a 2x2 base, a 2x4 coil = 20 tiles, 8 of them entirely
+empty). `gen_spring.py` re-cuts each piece to its occupied rows and asserts the 8
+dropped tiles really are blank. What survives is the same 12 tiles S3K's own
+mappings reference — identical sprite, different padding.
+
+**THE PALETTE COST NOTHING, and that is why the donor is sonic_hack and not
+skdisasm.** The blob's pixel indices are {0,1,6,7,8,9,C,D}; against CRAM line 0
+(`art/palettes/SonicAndTails.bin`, already loaded for the player and the backdrop)
+those are transparent / near-black / white / light grey / grey-blue / grey / BRIGHT
+RED / dark red. The donor object agrees from the other side —
+`sonic_hack/code/objects/Spring.asm`'s `Spring__UpData` declares
+`vram_art(VRAM_VrtclSprng,0,0)`, palette line 0. skdisasm's sheet adds $5 (blue) and
+$E/$F (orange), which our line 0 renders wrong, so the 12-tile S3K sheet would have
+needed a lossy re-index. Same reasoning as `compose_ring.py`'s donor choice.
+
+**`width` IS NOW 32** as SP-3 instructed, and `height` stays 16 — confirmed by
+rendering the blob through `Map_Spring` rather than by reading the reference: the
+idle plate's top row lands at exactly y = -8, which is the top of the 16px box.
+A new `MapFrame2` in `engine/objects/mapping_dsl.emp` carries the two-piece frames.
+
+**Evidence:** VRAM at tile 1460 byte-identical to the blob on a running
+`s4.debug.bin` with a `$A5` sentinel written first (so "non-zero" cannot pass); the
+SAT emitting `baseTile 1460 4x1` + `baseTile 1464 2x1` at palette 0 for four
+springs; and `tools/spring_launch_witness.py` still 9/9 with the wider box (its
+contact face tracked 17px -> 25px on its own, because it derives the face from the
+ROM).
+
+**THE SOUND.** `AF_SOUND, SFXID_SPRING` at the front of the fire script — the one
+edit SP-2 predicted, and it needed no other object change.
+
+**SP-2 NAMED ONE BLOCKER AND THERE WERE TWO.** `smpsModOff` was real and is now
+aliased to `ModSet(0,0,0,0)` — the mapping the `smpsModSet` arm's own comment had
+described since it was written. But S&K's `B1 - Spring.asm` ALSO does a mid-stream
+`smpsSetvoice $01`, which `_check_sfx_voice0` hard-refuses because `Sfx_Steal`
+preloads exactly one voice from the SFX blob's bank and a stream patch event would
+re-resolve against the MUSIC patch table. **Sonic 2's spring ($CC) is the same sound
+with one voice** — identical `smpsModSet $03,$01,$5D,$0F` wind-up on nB3, identical
+looping nC5 x $19, Voice $00 byte-identical to S&K's — so the DATA comes from
+s2disasm and the ID stays S&K's $B1. `smpsAlterVol` (S2's spelling of
+`smpsFMAlterVol`) is the second new macro arm that needed.
+
+**The control that matters:** regenerating all 16 SFX after the transcoder edits
+left the other 15 blobs (30 `.bin` files) BYTE-IDENTICAL. Only `sfx_B1.bin` and
+`sfx_B1_patches.bin` are new.
+
+**Evidence:** `tools/spring_sfx_witness.py`, 3 legs (2 drives + 1 control), each
+proven red-first by deleting the `AF_SOUND` pair and rebuilding — that run reports
+L1 seeing `$33` instead of `$B1` and L2 seeing `$B1` never reach the ring, exit 1.
+There is no audio instrument to point at this: **oracle's Rust core exposes no
+audio method** (its bus method list has none), so nothing was rendered and no claim
+is made about what it sounds like. What is established is the path to the driver's
+own queue: `Sound_PlaySFX` entered with `$B1` on the launch, `$B1` reaching
+`Sfx_Ring_Buf`, and `Rd` catching `Wr` (the driver consumed it rather than dropping
+it on a full ring).
+
+### SP-6 — mid-stream FM voice change in an SFX (opened 2026-09-07)
+
+The upgrade path if S&K's exact spring timbre — or any multi-voice SFX — is ever
+wanted. The SFX blob already carries every voice its header declares, and
+`sx_patch_base` is a pointer into that blob, so the shape is: a new sequencer
+opcode that re-points `sx_patch_base` at `blob_base + voice*32` and re-runs
+`Fm_PatchLoad`. Roughly 15 Z80 bytes, a transcoder event, an opcode-table row, and
+its own witness. `_check_sfx_voice0`'s refusal becomes the fallback for a voice the
+blob does not carry rather than for all of them. NOT urgent: no shipped SFX needs
+it, and the spring does not.
+
+### SP-7 — `tools/sfx_transcode.py::_process_lines` is DEAD (opened 2026-09-07)
+
+~380 lines. Its only call site is its own `smpsJump` arm; `_parse_sfx_source` enters
+`_process_lines_v2`. It is a complete parallel copy of the macro dispatch, so a
+reader adding coverage there watches their change do nothing — which nearly happened
+while adding the two arms above. Marked in place with a `⚠ DEAD CODE` docstring;
+delete it in a parcel that is not about a spring.
+
+### VRAM-NEIGHBOURHOOD — objects have no room, and the map should be re-cut (owner, 2026-09-07)
+
+**Owner's words: "we can't have space for 0 objects."** The spring's 12 tiles came
+out of a BG reserve because the object neighbourhood (896..1023, 128 tiles: two dust
+blocks, the ring sparkle, the insta-shield, Sonic's 32, the ring art, the test
+squares and two debug tags) is FULLY SPENT, and the whole map has ONE free tile
+(959). The spring is the first non-character object to land and it had to scavenge.
+
+The map is 2048 tiles: 1168 in two arenas (`fg_art_pool` 768 + `bg_region` 388), 512
+in the two 64x64 nametables, 128 in `spare_nametable` (reserved, no VDP register
+points at it), 48 in the sprite/hscroll tables, ~128 for objects and characters, 13
+in debug tags. Full coverage is ENFORCED by `gen_vram_map.py`, so "full" means fully
+ACCOUNTED FOR, not physically exhausted.
+
+Levers, largest first, none of them taken here:
+* **`fg_art_pool` = 768 tiles = 37% of VRAM.** Never re-measured against what OJZ
+  act 1 actually pages in. If 12 frames is more than the act needs, this is where an
+  object neighbourhood comes from. Wants a page-in-pressure measurement first.
+* **Plane size.** `PLANE_H_CELLS` / `PLANE_V_CELLS` are 64x64 = 8 KB each = 512
+  tiles for the pair. `engine/system/epilogue.emp` already pins `H*V <= 4096`. Going
+  64x32 returns 256 tiles at the cost of vertical scroll headroom (32 rows against 28
+  visible) — which is exactly what the mega-act's seamless vertical transitions need,
+  so this is probably NOT the lever, but it is the biggest one and should be named.
+* **`spare_nametable` = 128 tiles** reserved for a plane nothing points at yet.
+* **13 tiles of debug tags** reserved in every shape, release included.
+
+Do this as a deliberate re-cut with a measurement behind it, not one scavenge per
+object.
 
 ### SP-4 — the spring lives in test_solid.emp and wants its own module
 

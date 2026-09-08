@@ -17,9 +17,10 @@ module games.sonic4.test_solid in test_solid
 
 use engine.objects.sst.{Sst, ObjDef}
 use engine.objects.objdef.{objdef, vram_art}
-use engine.objects.mapping_dsl.{MapPiece, MapFrame1, centered, piece}
-use engine.constants.{AF_END, AF_CHANGE, AF_SET_FIELD, COLLISION_SPRING, ST_ROLLING, ST_XFLIP}
-use games.sonic4.constants.{VRAM_TEST_OBJ, PSTATE_AIR, PSTATE_AIRBALL}
+use engine.objects.mapping_dsl.{MapPiece, MapFrame1, MapFrame2, centered, piece}
+use engine.constants.{AF_END, AF_CHANGE, AF_SET_FIELD, AF_SOUND, COLLISION_SPRING, ST_ROLLING, ST_XFLIP, TILE_SIZE}
+use games.sonic4.sound_ids.{SFXID_SPRING}
+use games.sonic4.constants.{VRAM_TEST_OBJ, VRAM_SPRING, VRAM_SPRING_TILES, PSTATE_AIR, PSTATE_AIRBALL}
 use games.sonic4.player_common.{PlayerV}
 
 // -----------------------------------------------
@@ -128,12 +129,16 @@ pub proc TestSolid_Main (a0: *Sst) clobbers(d0-d3/a1) preserves(a0) {
 // x-flip stays purely visual — nothing in Spring_Init or Touch_Spring reads it.
 // Three reasons, in the order they decided it:
 //
-//   1. THE FLIP IS INVISIBLE ON THIS SPRING. Our placeholder art is a symmetric
-//      16x16 square (see "ART: NONE OF ITS OWN" below), so a flip changes
-//      nothing on screen. S3K's designer flipping a spring sees it turn round;
-//      ours would tick a checkbox with no feedback and find out which way it
-//      points by walking into it. Silently-wrong level data is the exact failure
-//      this file's ensures exist to prevent, and the flip model manufactures it.
+//   1. ⚠ THIS REASON HAS EXPIRED — it read "the flip is invisible on this spring,
+//      because our placeholder art is a symmetric 16x16 square, so a flip changes
+//      nothing on screen". The real art landed 2026-09-07 and it is NOT symmetric:
+//      the plate's white highlight sits at pixel columns 20-23 of 32, right of
+//      centre, so an x-flip IS visible now (measured off the blob, not eyeballed).
+//      RECORDED RATHER THAN DELETED because it is why the decision was made, and
+//      because the decision does NOT change: reasons 2 and 3 stand on their own,
+//      and re-encoding directions today would silently re-aim every spring already
+//      placed in OJZ act 1. If the flip model is ever revisited, this is the
+//      argument that no longer supports it.
 //   2. IT IS THE ONLY DIRECTION THE PICKER COULD NOT NAME. The published channel
 //      is `ObjSub_Spring__<Name>` and it carries subtype VALUES; under S3K's
 //      model the honest name is `ObjSub_Spring__Horizontal_Red`, and which way
@@ -161,14 +166,24 @@ pub proc TestSolid_Main (a0: *Sst) clobbers(d0-d3/a1) preserves(a0) {
 // sub_22F98 (:47717-47770); re-firing is interlocked by the contact test alone.
 // Ours is interlocked the same way — see Touch_Spring's header.
 //
-// THE SOUND IS NOT WIRED, and the omission is loud rather than quiet: sfx $B1 is
-// not in this game's SFX bank, and adding it is a multi-commit lane, not a
-// constant (the transcoder refuses `smpsModOff`, which no shipped SFX uses; and
-// any byte added to the SFX bank blob moves the ROM and takes sigil's
-// repin/refreeze ritual). Booked in docs/DEFERRED_WORK.md. When it lands, the
-// spring needs no code change: an `AF_SOUND, SFXID_SPRING` pair goes in front of
-// the fire script's first frame byte and the animator plays it exactly once per
-// launch, because the launch is what restarts the script.
+// THE SOUND IS WIRED since 2026-09-07 — `AF_SOUND, SFXID_SPRING` at the front of
+// the fire script, exactly where the previous version of this comment predicted it
+// would go, and it needed no other code change. Driven end to end by
+// tools/spring_sfx_witness.py (3 legs, proven red-first).
+//
+// THE BYTES ARE SONIC 2'S, NOT S&K'S, and that is the one thing the prediction got
+// wrong. The booked blocker was the transcoder refusing `smpsModOff` — real, and
+// now aliased to an all-zero ModSet. But S&K's `B1 - Spring.asm` ALSO does a
+// mid-stream `smpsSetvoice $01`, which tools/sfx_transcode.py hard-refuses for a
+// documented correctness reason: this engine's Sfx_Steal preloads exactly one
+// voice from the SFX blob's own bank, and a stream patch event would re-resolve
+// against the MUSIC patch table and corrupt the timbre. S2's spring is the SAME
+// SOUND with one voice — identical `smpsModSet $03,$01,$5D,$0F` wind-up on nB3,
+// identical looping nC5 x $19, and its Voice $00 is byte-identical to S&K's — so
+// the spring is sourced from s2disasm and the one-voice restriction stays intact
+// rather than being loosened for one sound. The ID is still S&K's $B1.
+// Mid-stream SFX voice support is booked in docs/DEFERRED_WORK.md as the upgrade
+// path if the exact S&K timbre is ever wanted.
 // ===========================================================================
 
 // The launch impulses, 8.8 fixed point (-$1000 = -16.0 px/frame), written in
@@ -579,37 +594,76 @@ pub proc Spring_Main (a0: *Sst) clobbers(d0-d3/a1-a2) preserves(a0) {
 }
 
 // -----------------------------------------------
-// Mapping frames.
+// Mapping frames — the real S2 sheet, on this game's own palette line 0.
 //
-// ART: NONE OF ITS OWN — these three frames draw out of the resident test-object
-// block at VRAM_TEST_OBJ, the same 8 tiles ObjDef_Solid / ObjDef_Static /
-// ObjDef_PathSwap already draw from, so the spring costs ZERO new VRAM. That is
-// not the art anyone wants and it is not a silent substitution: S3K's vertical
-// spring needs 12 tiles (the union of frames 0/1/2 in Map - Spring.asm — tiles
-// 0-3, 8-9 and $A-$F of its 16-tile block at art base $4A4), and
-// games/sonic4/vram.toml has exactly ONE free tile in the whole 2048-tile map
-// (the [[free]] run at base 959). The numbers, the carve options and the
-// recommendation are in docs/DEFERRED_WORK.md; a real spring sheet is a
-// vram.toml edit plus a regenerate, and only these three lines change here.
+// ART: `Art_Spring` below, 12 tiles RESIDENT at VRAM_SPRING for the whole act.
+// Never streamed, for the reason `dust_puff` gives in vram.toml: two springs on
+// screen sit on DIFFERENT animation frames, so every frame must be live at once.
 //
-// The three frames are the two colour squares of that block read as spring
-// states: idle sits centred, squash swaps colour and sinks 4px, extend swaps
-// back and lifts 12px. Distinct enough to see the object fire from across the
-// screen, which is what the frames are for until the art exists.
-const SPRING_TILE_A = 0                 // test block's first 16x16 square (tiles 0-3)
-const SPRING_TILE_B = 4                 // its second colour (tiles 4-7)
+// THE PALETTE COSTS NOTHING, and that is why this donor was chosen over
+// skdisasm's. The blob's pixel indices are {0,1,6,7,8,9,C,D}; against CRAM line 0
+// (art/palettes/SonicAndTails.bin, already loaded for the player and the
+// backdrop) those are transparent / near-black outline / white / light grey /
+// grey-blue / grey / BRIGHT RED / dark red. The donor object agrees from the
+// other side: sonic_hack's Spring__UpData declares `vram_art(VRAM_VrtclSprng,0,0)`
+// — S2 draws its spring on the player line too. skdisasm's sheet adds $5 (blue)
+// and $E/$F (orange), which our line 0 would render wrong. Full provenance in
+// games/sonic4/data/spring_staging/gen_spring.py.
+//
+// THREE PIECES, TWELVE TILES, none of them blank. The donor's own mappings pad
+// each piece with an empty tile row (a 4x2 plate, a 2x2 base, a 2x4 coil = 20
+// tiles, 8 of them empty); gen_spring.py re-cuts each to its occupied rows and
+// the frames below address the result. The 12 that survive are the same 12 S3K's
+// mappings reference — identical sprite, different padding.
+//
+//   tiles  0.. 3   PLATE  4x1 at the top, 32px wide
+//   tiles  4.. 5   BASE   2x1, the resting coil
+//   tiles  6..11   COIL   2x3, the stretched coil (extend frame only)
+//
+// THE GEOMETRY IS THE COLLISION BOX, verified by rendering the blob through
+// these offsets rather than by reading the donor's numbers: the idle plate's top
+// row lands at y = -8, which IS the top of the archetype's 16px-tall box, so a
+// player seated by Touch_Spring stands exactly on the drawn plate. Squash sinks
+// the plate to y = 0 (8px down, the compression); extend throws it to y = -24
+// and stretches the coil between. All three are 32px wide about the origin,
+// which is what raises `width` to 32 below.
+const SPRING_TILE_PLATE = 0             // 4x1 — the red top plate
+const SPRING_TILE_BASE  = 4             // 2x1 — the resting coil
+const SPRING_TILE_COIL  = 6             // 2x3 — the stretched coil
 
 pub offsets Map_Spring {
-    Idle: MapFrame1 = MapFrame1{
-        x_min: -8, x_max: 8, y_min: -8, y_max: 8, piece_count: 1,
-        piece: piece(x: -8, y: -8, w: 2, h: 2, tile: SPRING_TILE_A) },
+    Idle: MapFrame2 = MapFrame2{
+        x_min: -16, x_max: 16, y_min: -8, y_max: 8, piece_count: 2,
+        piece0: piece(x: -16, y:  -8, w: 4, h: 1, tile: SPRING_TILE_PLATE),
+        piece1: piece(x:  -8, y:   0, w: 2, h: 1, tile: SPRING_TILE_BASE) },
     Squash: MapFrame1 = MapFrame1{
-        x_min: -8, x_max: 8, y_min: -4, y_max: 12, piece_count: 1,
-        piece: piece(x: -8, y: -4, w: 2, h: 2, tile: SPRING_TILE_B) },
-    Extend: MapFrame1 = MapFrame1{
-        x_min: -8, x_max: 8, y_min: -20, y_max: -4, piece_count: 1,
-        piece: piece(x: -8, y: -20, w: 2, h: 2, tile: SPRING_TILE_A) },
+        x_min: -16, x_max: 16, y_min: 0, y_max: 8, piece_count: 1,
+        piece: piece(x: -16, y: 0, w: 4, h: 1, tile: SPRING_TILE_PLATE) },
+    Extend: MapFrame2 = MapFrame2{
+        x_min: -16, x_max: 16, y_min: -24, y_max: 8, piece_count: 2,
+        piece0: piece(x: -16, y: -24, w: 4, h: 1, tile: SPRING_TILE_PLATE),
+        piece1: piece(x:  -8, y: -16, w: 2, h: 3, tile: SPRING_TILE_COIL) },
 }
+
+// The art blob. It rides in THIS file's section deliberately: a new `.emp`
+// module is a new SECTION, and an undeclared section head makes sigil's
+// section_align.rs `required_for()` return None, which the caller turns into a
+// build refusal (docs/DEFERRED_WORK.md SP-4). `TestSolid_Init` must therefore
+// stay this file's first emitting item — this data goes after it, not before.
+const _art_spring = embed("games/sonic4/data/generated/spring/art_spring.bin")
+pub data Art_Spring = _art_spring
+
+pub const SPRING_ART_LEN = 12 * TILE_SIZE       // 384 B — the resident DMA's size
+
+// The blob, the DMA length and the VRAM region must be ONE number. Without this
+// the triangle is self-consistent and tied to nothing in the map: a regenerated
+// blob with more tiles fires no guard, the DMA still writes SPRING_ART_LEN, and
+// the frames above address tiles that belong to `sprite_table` at 1472. Same
+// shape as dust_data.emp's puff-block guard, and the same reason.
+ensure(_art_spring.len == SPRING_ART_LEN,
+       "Art_Spring is {_art_spring.len} bytes; SPRING_ART_LEN says {SPRING_ART_LEN} — regenerate with games/sonic4/data/spring_staging/gen_spring.py, or fix the constant")
+ensure(SPRING_ART_LEN == VRAM_SPRING_TILES * TILE_SIZE,
+       "the spring's art ({SPRING_ART_LEN} B) must be exactly the `spring` region games/sonic4/vram.toml declares ({VRAM_SPRING_TILES} tiles) — a longer blob DMAs past it into sprite_table, which is the VDP's own sprite list")
 
 // -----------------------------------------------
 // Animation scripts.
@@ -629,14 +683,35 @@ const SPRING_IDLE_SCRIPT: [u8; 4] = [$F, SPRING_FRAME_IDLE, AF_END, 0]
 // of visible reaction, which is also how long the spring looks busy — but NOT
 // how long it is busy: nothing in the fire path blocks a re-launch, in S3K or
 // here. The interlock is the falling test in Touch_Spring.
-const SPRING_FIRE_SCRIPT: [u8; 12] = [
+const SPRING_FIRE_SCRIPT: [u8; 14] = [
     0,
+    // THE SOUND, and it is here rather than in Spring_Launched deliberately: the
+    // launch is what RESTARTS this script (Spring_Launched writes anim and forces
+    // prev_anim = $FF), so an event at the front of it fires exactly once per
+    // launch and cannot drift out of step with the visible reaction. Events run
+    // inline and execution continues into the next byte (engine/objects/animate.emp
+    // :28, :238-249), so this pair costs the animation nothing.
+    AF_SOUND, SFXID_SPRING,
     SPRING_FRAME_SQUASH,
     SPRING_FRAME_IDLE, SPRING_FRAME_IDLE,
     SPRING_FRAME_EXTEND, SPRING_FRAME_EXTEND, SPRING_FRAME_EXTEND,
     SPRING_FRAME_EXTEND, SPRING_FRAME_EXTEND, SPRING_FRAME_EXTEND,
     AF_CHANGE, SPRING_ANIM_IDLE,
 ]
+
+// Where the FRAME bytes start: past the duration byte and past the AF_SOUND pair.
+// Named because the display-frame guard below counts from here, and because an
+// event added in front of the frames must move this or the guard silently starts
+// counting an event's argument byte as a frame.
+const SPRING_FIRE_FRAMES_START = 3
+
+// The event pair really is at [1],[2] — the guard above rests on it, and so does
+// "exactly once per launch": an AF_SOUND anywhere ELSE in this script would fire
+// on a mid-script frame instead, or (past the AF_CHANGE) never at all.
+ensure(SPRING_FIRE_SCRIPT[1] == AF_SOUND && SPRING_FIRE_SCRIPT[2] == SFXID_SPRING,
+       "the fire script's AF_SOUND pair must be its first two bytes after the duration — SPRING_FIRE_FRAMES_START and the once-per-launch claim both depend on it")
+ensure(SPRING_FIRE_SCRIPT.len % 2 == 0,
+       "animation scripts stay EVEN-sized so the MapFrame records that follow keep their word alignment whatever order the placer packs them in")
 
 // The reference's display-frame count, re-derived from OUR bytes rather than
 // asserted: count the frame bytes after the duration byte and multiply by the
@@ -657,26 +732,26 @@ pub const S3K_SPRING_FIRE_HOLD   = 0    // its duration byte
 //
 // Flat accumulators over STATEMENT ifs, never a nested if-expression
 // (docs/EMP_PITFALLS.md §1 — the silent unit fold).
-comptime fn spring_display_frames(script: [u8; 12]) -> int {
+comptime fn spring_display_frames(script: [u8; 14], start: int) -> int {
     comptime var frames = 0
     comptime var live = 1
-    for i in 1..12 {
+    for i in start..14 {
         if script[i] >= AF_SET_FIELD { live = 0 }      // $F7+ = control/event
         if live == 1 { frames = frames + 1 }
     }
     return frames * (script[0] + 1)
 }
 
-ensure(spring_display_frames(SPRING_FIRE_SCRIPT) == S3K_SPRING_FIRE_FRAMES * (S3K_SPRING_FIRE_HOLD + 1),
-       "the spring's fire script shows {spring_display_frames(SPRING_FIRE_SCRIPT)} display frames; S3K's Ani_Spring anim 1 shows {S3K_SPRING_FIRE_FRAMES * (S3K_SPRING_FIRE_HOLD + 1)} (9 frame bytes at duration 0) — re-derive the script from Anim - Spring.asm:9, do not retune the reference")
-ensure(SPRING_FIRE_SCRIPT[10] == AF_CHANGE && SPRING_FIRE_SCRIPT[11] == SPRING_ANIM_IDLE,
+ensure(spring_display_frames(SPRING_FIRE_SCRIPT, SPRING_FIRE_FRAMES_START) == S3K_SPRING_FIRE_FRAMES * (S3K_SPRING_FIRE_HOLD + 1),
+       "the spring's fire script shows {spring_display_frames(SPRING_FIRE_SCRIPT, SPRING_FIRE_FRAMES_START)} display frames; S3K's Ani_Spring anim 1 shows {S3K_SPRING_FIRE_FRAMES * (S3K_SPRING_FIRE_HOLD + 1)} (9 frame bytes at duration 0) — re-derive the script from Anim - Spring.asm:9, do not retune the reference")
+ensure(SPRING_FIRE_SCRIPT[12] == AF_CHANGE && SPRING_FIRE_SCRIPT[13] == SPRING_ANIM_IDLE,
        "the fire script must end by switching back to the idle animation — AF_CHANGE to any other id, or a missing terminator, leaves the spring stuck extended")
 ensure(SPRING_IDLE_SCRIPT[2] == AF_END,
        "the idle script must LOOP — without the terminator the animator walks off the end of the script into the fire script's bytes")
 
 pub offsets Ani_Spring {
     Idle: [u8; 4]  = SPRING_IDLE_SCRIPT,        // SPRING_ANIM_IDLE
-    Fire: [u8; 12] = SPRING_FIRE_SCRIPT,        // SPRING_ANIM_FIRE
+    Fire: [u8; 14] = SPRING_FIRE_SCRIPT,        // SPRING_ANIM_FIRE
 }
 
 // -----------------------------------------------
@@ -685,16 +760,15 @@ pub offsets Ani_Spring {
 // 16x16 footprint — the box that matches its placeholder art, and the same box
 // ObjDef_Solid declares.
 //
-// IT IS NOT S3K'S BOX, and the two are easy to conflate because the engines mean
-// different things by the same field name. S3K's `width_pixels` is a HALF-width:
-// Obj_Spring writes $10 (sonic3k.asm:47507) and Obj_Spring_Up then passes
-// `move.w #$1B, d1` (:47660) = that 16 PLUS Sonic's own 11px half-width, so S3K's
-// vertical spring is 32 PX WIDE and 16 tall (its `move.w #8, d2` half-height,
-// :47661) — which matches its 4-tile-wide top plate in Map - Spring.asm. Ours is
-// 16 wide because its placeholder art is one 16x16 square. Raise `width` to 32 in
-// the same commit that gives the spring real 32px art: the box should follow the
-// art, not the reference's field name. (I had this backwards in the first draft
-// of this comment and caught it only by re-reading :47660 against the mapping.)
+// WIDTH IS 32 SINCE THE REAL ART LANDED (2026-09-07), which is what the earlier
+// draft of this comment said to do: the box follows the ART, not the reference's
+// field name. Both references agree on 32, from opposite directions. S3K's
+// `width_pixels` is a HALF-width — Obj_Spring writes $10 (sonic3k.asm:47507) and
+// Obj_Spring_Up passes `move.w #$1B, d1` (:47660) = that 16 PLUS Sonic's own 11px
+// half-width — and sonic_hack's Spring__UpData likewise declares `dc.b $10` as a
+// radius. Our field is the FULL box, so both mean 32. It is 16 TALL for the same
+// reason: S3K's `move.w #8, d2` half-height (:47661), and our own blob rendered
+// through Map_Spring puts the idle plate's top row at exactly y = -8.
 //
 // NO x_vel AND NO y_vel HERE, and their absence is the point. The pair is the
 // spring's LAUNCH VECTOR — still the only thing Touch_Spring reads — but it is
@@ -710,6 +784,6 @@ pub offsets Ani_Spring {
 // only frame, exactly as ObjDef_Solid's TestSolid_Init does.
 // -----------------------------------------------
 pub data ObjDef_Spring: ObjDef = objdef(
-    code: "Spring_Init", map: "Map_Spring", art: vram_art(VRAM_TEST_OBJ),
-    priority: 3, width: 16, height: 16, collision: COLLISION_SPRING,
+    code: "Spring_Init", map: "Map_Spring", art: vram_art(VRAM_SPRING),
+    priority: 3, width: 32, height: 16, collision: COLLISION_SPRING,
     anim_table: extern("Ani_Spring"))

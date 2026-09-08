@@ -89,7 +89,7 @@ use engine.coords.{pixels_to_coord}
 // omitting the two names below built the generated block correctly and failed
 // FOUR call sites with `a label is not a valid VramTile argument`, all inside
 // Debug_TierTags_Update and none of them naming the missing `use`.
-use games.sonic4.constants.{VRAM_TEST_OBJ, VRAM_TEST_MARKER, VRAM_DUST_PUFF, VRAM_RING_SPARKLE, CHEAT_DEBUG_FLY, CHAR_COUNT, PSTATE_AIR, VRAM_DEBUG_LAB_NAME, VRAM_DEBUG_PRESET_READOUT, VRAM_DEBUG_RASTER_TAG, VRAM_DEBUG_BGANIM_TAG}
+use games.sonic4.constants.{VRAM_TEST_OBJ, VRAM_TEST_MARKER, VRAM_DUST_PUFF, VRAM_RING_SPARKLE, VRAM_SPRING, CHEAT_DEBUG_FLY, CHAR_COUNT, PSTATE_AIR, VRAM_DEBUG_LAB_NAME, VRAM_DEBUG_PRESET_READOUT, VRAM_DEBUG_RASTER_TAG, VRAM_DEBUG_BGANIM_TAG}
 
 // Sst — the object SST layout. The DEBUG warp consumer places the LEADER through
 // Camera_Target (an SST pointer), not through the Player_1 absolutes above: the
@@ -102,6 +102,7 @@ use engine.objects.sst.{Sst}
 // there, not here.
 use games.sonic4.dust_data.{DUST_PUFF_ART_OFF, DUST_PUFF_ART_LEN}
 use games.sonic4.ring_sparkle.{Art_RingSparkle, RING_SPARKLE_ART_LEN}
+use games.sonic4.test_solid.{Art_Spring, SPRING_ART_LEN}
 
 // PlayerBlock — the player_block splice's stride is sizeof(PlayerBlock) and the
 // splice expands in THIS module's scope, so the type has to resolve here.
@@ -655,6 +656,16 @@ pub proc GameState_OJZScroll_Init () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
         move.w  #vram_bytes(VRAM_RING_SPARKLE), d2
         move.w  #RING_SPARKLE_ART_LEN, d3
         jbsr    QueueDMA_Critical @discards(dropped)   // same policy as the two above
+
+        // -- spring: 12 tiles RESIDENT at VRAM_SPRING for the whole act, the
+        //    dust puff's strategy and for the same reason (two springs on screen
+        //    sit on different animation frames, so every frame must be live at
+        //    once). One 384-byte DMA is its entire art cost. It draws on CRAM
+        //    line 0, already loaded above — see Map_Spring's header. --
+        move.l  #Art_Spring, d1
+        move.w  #vram_bytes(VRAM_SPRING), d2
+        move.w  #SPRING_ART_LEN, d3
+        jbsr    QueueDMA_Critical @discards(dropped)   // same policy as the three above
 
         // -- initialise camera first (Section_FillInitial reads Camera_X) --
         lea     OJZ_Act1_Descriptor, a0            // (OJZ_Act1_Descriptor).l
