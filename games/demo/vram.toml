@@ -61,7 +61,7 @@ name = "bg_region"
 owner = "engine.bg"
 kind = "arena"
 base = 1024
-tiles = 400
+tiles = 388
 lifetime = "act"
 authority = ["engine-tiles:BG_TILE_CAPACITY", "engine-bytebase:BG_TILE_BASE_VRAM"]
 # 448 -> 400 (EFFECTS-W1 item 9d, 2026-09-04). THIS IS NOT A DEMO DECISION — it
@@ -78,7 +78,7 @@ authority = ["engine-tiles:BG_TILE_CAPACITY", "engine-bytebase:BG_TILE_BASE_VRAM
 name = "waterline_strips"
 owner = "engine.bg_anim"
 kind = "window"
-base = 1424
+base = 1412
 tiles = 48
 lifetime = "act"
 authority = "engine-bytebase:VRAM_WATERLINE_STRIPS"
@@ -88,6 +88,16 @@ authority = "engine-bytebase:VRAM_WATERLINE_STRIPS"
 # run here would let one address mean two things in two maps — the exact drift the
 # `authority` cross-check exists to catch. Demo declares no CAP_ROW_REMAP, so its build
 # emits no gather and no DMA and these tiles are never written; they are reserved, not used.
+
+[[free]]
+base = 1460
+tiles = 12
+# 400 -> 380 (the sonic4 spring's art block, 2026-09-07). THIS IS NOT A DEMO
+# DECISION — it is forced, for the reason bg_region above records: BG_TILE_CAPACITY
+# is ONE engine-wide constant and both maps cross-check it, so sonic4 carving its
+# own BG reserve moves the shared number and slides `waterline_strips` down 20 with
+# it. Demo ships no background art and no spring, so the tiles cost it nothing;
+# declared [[free]] rather than named because nothing in demo owns them.
 
 [[region]]
 name = "sprite_table"

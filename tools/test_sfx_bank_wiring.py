@@ -244,9 +244,14 @@ def test_psgform_sfx_ship_the_tracked_noise_shape():
         fname = T._CORE_SFX_FILENAMES.get(sfx_id)
         if fname is None:
             continue
-        path = os.path.join(sfx_src_dir, fname)
+        # NOT `sfx_src_dir` unconditionally: an SFX may be sourced from a donor
+        # other than skdisasm (the spring comes from s2disasm, because S&K's
+        # changes FM voice mid-stream and this engine plays one voice per SFX).
+        # sfx_transcode owns that map; reading it here rather than keeping a
+        # second copy is what stops the two drifting.
+        path = os.path.join(T.sfx_source_dir(sfx_id, sfx_src_dir), fname)
         if not os.path.exists(path):
-            raise AssertionError(f"missing S3K source {path} for ${sfx_id:02X}")
+            raise AssertionError(f"missing donor source {path} for ${sfx_id:02X}")
         src = _read(path)
         forms = re.findall(r'smpsPSGform\s+\$([0-9A-Fa-f]{2})', src)
         if forms:

@@ -88,6 +88,7 @@ section sfx_bank (cpu: m68000, bank: $8000) {
         $62: Sfx_62 = embed("sfx_62.bin"), Sfx_62_Patches = embed("sfx_62_patches.bin"),
         $7E: Sfx_7E = embed("sfx_7E.bin"), Sfx_7E_Patches = embed("sfx_7E_patches.bin"),
         $AB: Sfx_AB = embed("sfx_AB.bin"), Sfx_AB_Patches = embed("sfx_AB_patches.bin"),
+        $B1: Sfx_B1 = embed("sfx_B1.bin"), Sfx_B1_Patches = embed("sfx_B1_patches.bin"),
         $B6: Sfx_B6 = embed("sfx_B6.bin"), Sfx_B6_Patches = embed("sfx_B6_patches.bin"),
         $B9: Sfx_B9 = embed("sfx_B9.bin"), Sfx_B9_Patches = embed("sfx_B9_patches.bin"),
         // $BA/$BB extend the key range past its previous $B9 ceiling — the first
@@ -122,6 +123,7 @@ equ SFX_WIN_4C = winptr(Sfx_4C)
 equ SFX_WIN_62 = winptr(Sfx_62)
 equ SFX_WIN_7E = winptr(Sfx_7E)
 equ SFX_WIN_AB = winptr(Sfx_AB)
+equ SFX_WIN_B1 = winptr(Sfx_B1)
 equ SFX_WIN_B6 = winptr(Sfx_B6)
 equ SFX_WIN_B9 = winptr(Sfx_B9)
 equ SFX_WIN_BA = winptr(Sfx_BA)

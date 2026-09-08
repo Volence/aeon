@@ -97,6 +97,11 @@ SFXPRI_INSTASHIELD = 0x20
 SFXPRI_GRAB        = 0x30
 SFXPRI_GLIDE_LAND  = 0x30
 SFXPRI_SLIDE       = 0x08
+# The spring (2026-09-07). $30 = the SKID/ROLL tier: it is a one-shot world event
+# the player caused, so it should beat the ring/jump chatter but lose to death and
+# ring-loss. Same tier as GRAB and GLIDE_LAND, which are the closest analogues —
+# one-shot, player-triggered, not cadence-driven. See sound_ids.emp.
+SFXPRI_SPRING      = 0x30
 
 # SHF_* flag bits (mirror sound_constants.asm)
 SHF_CONTINUOUS = 1 << 0
@@ -112,6 +117,7 @@ _SFX_PRIORITY = {
     0x3C: SFXPRI_ROLL,
     0x62: SFXPRI_JUMP,
     0xAB: SFXPRI_SPINDASH,
+    0xB1: SFXPRI_SPRING,
     0xB6: SFXPRI_DASH,
     0xB9: SFXPRI_RINGLOSS,
     0xBA: SFXPRI_FLY,
@@ -139,7 +145,7 @@ _RESERVED_ROUTES = {CHROUTE_FM1, CHROUTE_FM2, CHROUTE_FM6, CHROUTE_DAC}
 
 # SFX id -> filename prefix (for the core set)
 _CORE_SFX_IDS = [0x33, 0x34, 0x35, 0x36, 0x3C, 0x42, 0x4A, 0x4C, 0x62, 0x7E,
-                 0xAB, 0xB6, 0xB9, 0xBA, 0xBB]
+                 0xAB, 0xB1, 0xB6, 0xB9, 0xBA, 0xBB]
 
 # S3K note enum: nRst=$80, nC0=$81, nCs0=$82, ..., sequential chromatically
 # The enum starts at $80 for nRst, then $81 for nC0, $82 for nCs0, etc.
@@ -818,7 +824,20 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
         follow_label = None
 
         def _process_lines(start_i: int) -> bool:
-            """Process lines starting at start_i. Returns True if we hit smpsStop."""
+            """⚠ DEAD CODE — the live pass is `_process_lines_v2` below.
+
+            This function is reached from NOWHERE: its only call site is its own
+            smpsJump arm, and the entry point at the bottom of _parse_sfx_source
+            calls _process_lines_v2. Verified 2026-09-07 while adding the
+            smpsModOff / smpsAlterVol arms — which went into v2 ONLY, and a reader
+            who patches this copy instead will watch their change do nothing.
+
+            NOT DELETED HERE because that is ~380 lines of unrelated diff inside a
+            spring parcel; booked for removal in docs/DEFERRED_WORK.md. Do not add
+            macro coverage to this copy.
+
+            Process lines starting at start_i. Returns True if we hit smpsStop.
+            """
             nonlocal noattack_pending
             nonlocal cur_dur, voice_idx, loop_label, loop_count, has_loop
             nonlocal jump_target_label, sfx_flags
@@ -1320,6 +1339,27 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
                         change = int(round(change * _SPINDASH_MOD_SCALE)) or (
                             1 if change > 0 else -1)
                     events.append(ModSet(wait, speed, change, step))
+                elif macro == 'smpsModOff':
+                    # $E2 cfStopSpecialFM / "modulation off". ALIASED to an all-zero
+                    # ModSet, which is the same thing said in the vocabulary the engine
+                    # already has: Mod_ReArm with wait 0, speed 0, change 0, step 0
+                    # leaves the running pitch delta at zero forever, so the note stops
+                    # being swept. The smpsModSet arm above has documented "All-zero =
+                    # mod off (smpsModSet 0,0,0,0)" since it was written; this arm is
+                    # that sentence made reachable from the macro that means it.
+                    #
+                    # THE JUDGMENT, stated because the $42/$4A/$4C/$7E precedent asks
+                    # for it explicitly rather than a silent mapping. What this does NOT
+                    # reproduce is S3K's own cfStopSpecialFM, which additionally clears
+                    # the track's "special FM" bit; no core SFX we ship uses that bit,
+                    # and the spring does not — it turns modulation off after its
+                    # wind-up note and never turns it back on. So the alias is exact
+                    # for every source in _CORE_SFX_IDS, and would need revisiting only
+                    # for a source that re-enables modulation on the SAME channel after
+                    # a ModOff, which would then depend on the cleared state.
+                    #
+                    # Takes no operands: `smpsModOff` is a bare macro.
+                    events.append(ModSet(0, 0, 0, 0))
                 elif macro == 'smpsSpindashRev':
                     events.append(SpinRev())
                 elif macro == 'smpsResetSpindashRev':
@@ -1392,7 +1432,14 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
                         raise TranscodeError(
                             f"sfx ${sfx_id:02X}: smpsJump target {lbl!r} not found")
                     return True
-                elif macro == 'smpsFMAlterVol':
+                elif macro in ('smpsFMAlterVol', 'smpsAlterVol'):
+                    # `smpsAlterVol` is Sonic 2's spelling of the SAME opcode. S&K split
+                    # the volume-change macro per chip (smpsFMAlterVol / smpsPSGAlterVol);
+                    # S2's driver has one generic `smpsAlterVol` that its FM tracks use,
+                    # and it carries the identical single signed delta. Handled here
+                    # rather than aliased at the top so a PSG channel reaching it still
+                    # takes the FM per-pass-fade path only when it is genuinely an FM
+                    # track, exactly as smpsFMAlterVol already did.
                     args = _split_args(arg_str)
                     if len(args) >= 2:
                         delta = _parse_int(args[1])
@@ -1970,6 +2017,17 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # tools/, for su
 from suite_paths import suite_path  # noqa: E402
 # Path to the skdisasm SFX directory
 SKDISASM_SFX_DIR = str(suite_path('skdisasm', 'Sound', 'SFX'))
+# The SECOND donor. Every core SFX comes from skdisasm except the spring, whose
+# S&K source (B1 - Spring.asm) changes FM voice MID-STREAM (`smpsSetvoice $01`
+# after its wind-up note) — which _check_sfx_voice0 refuses, because this engine's
+# Sfx_Steal preloads exactly one voice from the SFX blob's own bank and a stream
+# MEV_PATCH would re-resolve against the MUSIC patch table and corrupt the timbre.
+# Sonic 2's spring is the SAME SOUND with one voice: identical
+# `smpsModSet $03,$01,$5D,$0F` wind-up on nB3, identical looping nC5 x $19, and
+# its Voice $00 is byte-identical to S&K's. So the spring is sourced from S2 and
+# the mid-stream-voice restriction stays intact rather than being loosened for
+# one sound. See _CORE_SFX_DONOR below.
+S2DISASM_SFX_DIR = str(suite_path('s2disasm', 'sound', 'sfx'))
 
 # Core SFX id -> filename prefix map
 _CORE_SFX_FILENAMES = {
@@ -1984,11 +2042,31 @@ _CORE_SFX_FILENAMES = {
     0x62: '62 - Jump.asm',
     0x7E: '7E - Ground Slide.asm',
     0xAB: 'AB - Spin Dash.asm',
+    # THE ID IS S&K'S, THE BYTES ARE S2'S, and the FILENAME is S2's own id.
+    # $B1 is sfx_Spring in sonic3k.constants.asm:1304 and that is the id space
+    # this engine numbers in; the data comes from S2's $CC for the mid-stream-voice
+    # reason at S2DISASM_SFX_DIR. (The file's internal labels say `Sound4C_` — S2's
+    # sound index is offset from its SndID_ constants, so neither $4C nor $CC is
+    # this engine's id and only the FILENAME matters here.)
+    0xB1: 'CC - Spring.asm',
     0xB6: 'B6 - Dash.asm',
     0xB9: 'B9 - Ring Loss.asm',
     0xBA: 'BA - Flying.asm',
     0xBB: 'BB - Flying (Tired).asm',
 }
+
+# Per-id donor override. Everything not listed here comes from skdisasm.
+# MODULE SCOPE, not a local inside generate_all: tools/test_sfx_bank_wiring.py
+# resolves shipped sources too, and a second copy of this map is exactly how the
+# two would drift. One authority, both readers.
+_CORE_SFX_DONOR = {
+    0xB1: S2DISASM_SFX_DIR,     # the spring — see S2DISASM_SFX_DIR's note
+}
+
+
+def sfx_source_dir(sfx_id: int, default_dir: str = None) -> str:
+    """The donor directory an SFX id is sourced from (skdisasm unless overridden)."""
+    return _CORE_SFX_DONOR.get(sfx_id, default_dir or SKDISASM_SFX_DIR)
 
 
 def generate_all(out_dir: str = None, skdisasm_dir: str = None,
@@ -2029,7 +2107,7 @@ def generate_all(out_dir: str = None, skdisasm_dir: str = None,
         """Return the data section of an SFX source (after the last header line)."""
         if sfx_id not in _aux_src_cache:
             fname = _CORE_SFX_FILENAMES[sfx_id]
-            path = os.path.join(skdisasm_dir, fname)
+            path = os.path.join(_dir_for(sfx_id), fname)
             with open(path, encoding='utf-8', errors='replace') as f:
                 _aux_src_cache[sfx_id] = f.read()
         raw = _aux_src_cache[sfx_id]
@@ -2052,6 +2130,9 @@ def generate_all(out_dir: str = None, skdisasm_dir: str = None,
     # We APPEND the data section of aux files so their labels are in scope when
     # the target's data stream is parsed.  We do NOT prepend (which would bring
     # aux header channel declarations into scope).
+    def _dir_for(sfx_id: int) -> str:
+        return sfx_source_dir(sfx_id, skdisasm_dir)
+
     _CROSS_FILE_APPEND = {
         0x34: [0x33],   # Sound_34_Jump00 + Sound_33_34_B9_Voices in SFX 33
         0xB9: [0x33],   # Sound_33_34_B9_Voices in SFX 33
@@ -2061,7 +2142,7 @@ def generate_all(out_dir: str = None, skdisasm_dir: str = None,
     id_to_label = {}
     for sfx_id in _CORE_SFX_IDS:
         fname = _CORE_SFX_FILENAMES[sfx_id]
-        src_path = os.path.join(skdisasm_dir, fname)
+        src_path = os.path.join(_dir_for(sfx_id), fname)
         if not os.path.exists(src_path):
             print(f"  [warn] SFX ${sfx_id:02X}: source not found at {src_path}",
                   file=sys.stderr)

@@ -292,6 +292,8 @@ RESIDENT_DMAS = {
         ["ring_sparkle"],
     ("sonic4", "games/sonic4/data/dust_data.emp", "DUST_PUFF_ART_LEN"):
         ["dust_puff"],
+    ("sonic4", "games/sonic4/objects/test_solid.emp", "SPRING_ART_LEN"):
+        ["spring"],
     ("sonic4", "games/sonic4/test/ojz_scroll_test.emp", "TEST_ART_LEN"):
         ["test_obj", "ring_placeholder"],
     ("demo", "games/demo/demo_state.emp", "DEMO_ART_LEN"):
@@ -407,9 +409,9 @@ def test_the_sweep_actually_found_something():
         f"found {len(found_guards())} residency guards against {len(DPLC_GUARDS)} "
         "registered; both must be the 6 this tree carries")
     total = sum(len(emitted_consts(g)) for g in GAMES)
-    assert total == 26, (
+    assert total == 28, (
         f"the generated vram-map blocks emit {total} constants across {GAMES}; "
-        "12 base + 12 extent for sonic4 and 1 + 1 for demo is 26")
+        "13 base + 13 extent for sonic4 and 1 + 1 for demo is 28")
 
 
 if __name__ == "__main__":

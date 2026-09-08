@@ -153,6 +153,14 @@ Sound_33_34_B9_Voices:
 """
 
 # A fixture with an unknown coord flag — must raise TranscodeError.
+# THE MACRO HERE MUST BE ONE THE TRANSCODER GENUINELY DOES NOT KNOW. It was
+# `smpsAlterVol` until 2026-09-07, when the spring's S2 source made that macro
+# supported and this test started failing for the right reason — the fixture had
+# become a coverage claim rather than a refusal claim. `smpsFade` is the
+# replacement: a real SMPS macro (cfFadeOut), used by no SFX we ship, with no arm
+# in _process_lines_v2. If a future parcel implements it, MOVE THIS FIXTURE to
+# another unimplemented macro rather than deleting the test — its subject is the
+# refusal path, not any particular opcode.
 UNKNOWN_FLAG_SRC = """\
 Sound_XX_Header:
 \tsmpsHeaderStartSong 3
@@ -164,7 +172,7 @@ Sound_XX_Header:
 
 ; PSG1 Data
 Sound_XX_PSG1:
-\tsmpsAlterVol        $10
+\tsmpsFade            $10
 \tdc.b\tnC4, $10
 \tsmpsStop
 
@@ -581,7 +589,7 @@ class TestUnknownFlagErrors(unittest.TestCase):
     """Unknown $E0-$FF coord flag must raise TranscodeError, never silently drop."""
 
     def test_unknown_smps_macro_raises(self):
-        """smpsAlterVol ($E6 in S2/generic) is NOT in v1 coverage -> must raise."""
+        """smpsFade (cfFadeOut) is NOT in v1 coverage -> must raise."""
         with self.assertRaises(TranscodeError) as ctx:
             transcode_sfx_source(UNKNOWN_FLAG_SRC, 0xFF)
         self.assertIn('unknown', str(ctx.exception).lower())
