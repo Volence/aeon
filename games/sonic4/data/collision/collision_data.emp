@@ -106,6 +106,43 @@ ensure(dplc_peak_tiles(_dplc_sonic) <= VRAM_TEST_SONIC_TILES,
        "Sonic's peak DPLC frame is {dplc_peak_tiles(_dplc_sonic)} tiles and overruns the {VRAM_TEST_SONIC_TILES}-tile character VRAM window — re-page the art, or grow `character_window` in games/sonic4/vram.toml (raise `tiles`, hold `base`) and regenerate. THIS GUARD DOES NOT COVER: the queue-slot cost of that frame (entries, not tiles — the dplc_peak_entries guard below, and tools/dplc_straddle.py for the straddle split neither ensure can see); whether the window is correctly PLACED, which is vram.toml's own coverage/overlap checks; nor the sibling characters, who share this one window and carry their own copies of this guard in tails_data.emp and knuckles_data.emp — a fix here fixes ONE of three")
 
 // -----------------------------------------------
+// DPLC_PEAK_TILES_SONIC — sigil's OWN answer to the question
+// tools/dma_defer_headroom.py asks in Python, exported so the tool can be
+// contradicted by it (LS-15b-resid, 2026-09-08).
+//
+// The tool pins a per-frame DPLC BYTE peak in tools/dma_defer_headroom_baseline.json.
+// That pin was written by the harness itself (`--write-baseline` serialises
+// `measure()`'s own output), so it caught DRIFT and could never say the number was
+// RIGHT: a re-cut launders an error already present. The fix is a SECOND and
+// DIFFERENT route to the same quantity, and this is it.
+//
+// The two routes are independently authored and independently executed:
+//   route 1  tools/dplc_straddle.py `parse_dplc` — Python, struct.unpack over the
+//            embed FILE on disk, its docstring says it was "written fresh from the
+//            format spec ... not shared with dplc_layout.py, so a bug in one does
+//            not silently agree with the other"
+//   route 2  engine.objects.dplc `dplc_peak_tiles` — `.emp`, evaluated by SIGIL at
+//            build time over the blob AS BOUND, emitted into the listing as an EQU
+// The tool multiplies route 1 by TILE_SIZE and refuses to report at all when the
+// product disagrees with `DPLC_PEAK_TILES_* * TILE_SIZE`, naming BOTH sides.
+//
+// A `pub equ` emits no bytes; this costs one EQU row in the listing and nothing
+// in the ROM. It must be `pub equ` and not `pub const`: only a link-level equate
+// becomes an `EquSym`, and only an `EquSym` reaches the listing's Equate Table
+// (sigil-link `resolved_equates`). A `pub const` here is comptime-only and MEASURED
+// INVISIBLE to the tool — probed 2026-09-08: 0 of the 6 `pub const` in
+// engine/objects/dplc.emp appear in s4.debug.lst. It is exported because the listing only
+// carries what the build declares, and the tool reads the listing.
+//
+// WHAT THIS STILL CANNOT SAY, stated here rather than left to be inferred: both
+// routes read the SAME blob and implement the SAME format spec (this file's own
+// header). They can be wrong TOGETHER if that spec is wrong. What is now
+// impossible is the narrower and likelier failure — one reader drifting from the
+// other while each stays consistent with itself.
+// -----------------------------------------------
+pub equ DPLC_PEAK_TILES_SONIC = dplc_peak_tiles(_dplc_sonic)
+
+// -----------------------------------------------
 // THE ENTRY-COUNT BUDGET — the real assert, no longer a ratchet (d-47 `targeted`,
 // closed by parcel/dplc-entry-recut).
 //

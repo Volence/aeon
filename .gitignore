@@ -182,3 +182,4 @@ docs/research/external/
 # and the save-states above. ROOT-ANCHORED on purpose: the witness transcripts that are
 # deliberately KEPT live under docs/witness/ and stay tracked.
 /*_witness.json
+.runlogs/

@@ -172,6 +172,13 @@ ensure((_pal_knux[14] << 8 | _pal_knux[15]) == DUST_GRAY_IDX7,
 ensure(dplc_peak_tiles(_dplc_knux) <= VRAM_TEST_SONIC_TILES,
        "Knuckles' peak DPLC frame is {dplc_peak_tiles(_dplc_knux)} tiles and overruns the {VRAM_TEST_SONIC_TILES}-tile character VRAM window — re-page the art, or grow `character_window` in games/sonic4/vram.toml (raise `tiles`, hold `base`) and regenerate. DOES NOT COVER: the queue-slot cost of that frame (the entries guard below), the straddle split neither ensure can see, nor Sonic and Tails, who share this window and carry their own copies in collision_data.emp and tails_data.emp — a fix here fixes ONE of three")
 
+// DPLC_PEAK_TILES_KNUCKLES — the second route for tools/dma_defer_headroom.py's pinned
+// per-frame DPLC byte peak. Zero ROM bytes; one EQU row the tool reads back so
+// its Python parse of this blob can be CONTRADICTED by sigil's own. The full
+// contract, and what it still cannot say, is in collision_data.emp beside
+// DPLC_PEAK_TILES_SONIC.
+pub equ DPLC_PEAK_TILES_KNUCKLES = dplc_peak_tiles(_dplc_knux)
+
 // The OTHER budget the note above disclaims: entries are Important queue SLOTS,
 // one enqueue each. Knuckles' raw table peaks at 5, comfortably inside the real
 // bound, so this is a true guard rather than a ratchet.
