@@ -29880,6 +29880,33 @@ bound question is open — see the closing note below, which is the more useful 
    window. The window is the hub's to open; the moment is ours, and sigil will not infer a clear
    from anything it observes. Before clearing: confirm nothing of ours is building (`pgrep -x sigil`,
    `pgrep -x emit_sound_blob`) and read `revision`/`source`/`tree` off the INSTALLED binary.
+1b. **INCOMING (sigil, notified 2026-09-08 BEFORE landing, under the standing two-way undertaking):
+   `parcel/pins-dead-field` off sigil master `9d37621a` touches `repin.toml` AND `pins.rs`.** It deletes
+   the per-row `tests = [...]` field (dead since 2026-09-02, the hint derived at print time) and
+   regenerates `pins.rs`, so **`pins.rs` gets a large diff confined to COMMENT lines**. No pin VALUE
+   moves and they are proving that rather than asserting it (every constant extracted before and
+   after, sets shown identical, `pins_rs_is_current` green); if a hex value moves it does not land.
+   **No pin is deleted.** Their orphan-pin finding inverts the obvious fix: `pins_rs_is_current`
+   regenerates the WHOLE file and compares the entire text, so a pin no test reads still participates
+   in drift detection, and deleting orphans would remove coverage of every symbol deleted **while
+   looking like tidying**. Ruled there: the zero-consumer set is REPORTED by name on every run, gated
+   by nothing, nothing deleted.
+   **OUR CONSUMER EXPOSURE, MEASURED HERE RATHER THAN ASSUMED:** after it lands, a `repin` run prints
+   an ADDITIVE report block. `tools/freeze_preflight.sh` step 1 does parse output — it greps the
+   `repin_pins` test for `"is STALE against the live listings"` (the load-bearing classification) and
+   for `^test .* FAILED` (naming) — **but both sit inside the NON-ZERO-exit branch, and the block
+   changes no exit code**, so a green run never reaches them. The only live case is a block printed
+   beside a genuine failure whose text collides with one of those two patterns. Asked of sigil; if it
+   collides, WE tighten our greps rather than asking them to change their output.
+   **⚠ AND A NEAR-MISS WORTH MORE THAN THE NOTICE, recorded because it was nearly sent as a finding:**
+   reading that line — `if cargo test ... | tee ... | tail -3; then` — the obvious conclusion is that
+   the `if` takes `tail`'s always-zero status, making the whole classification branch unreachable and
+   the pre-flight permanently claim "pins are CURRENT". That is a real failure family in this tree and
+   it was written up before it was checked. **It is WRONG: the script sets `-uo pipefail` at top level,
+   twice, before that line** (confirmed both ways in a scratch shell rather than reasoned about, and
+   the `set` lines confirmed not inside a function or subshell). **The finding that matches your
+   expectations exactly is the one that most needs the control run.**
+
 2. **Their swap message states the installed revision's CONTENTS**, naming sigil `82838687` (link
    asserts render with `[Error]`) and `d90a297c` (`build --check`) present or absent. **LS-16c** and
    **LS-16a-check** read their boundary off that message and must not be taken before it.
