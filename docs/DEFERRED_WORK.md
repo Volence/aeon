@@ -27722,6 +27722,39 @@ Levers, largest first, none of them taken here:
 Do this as a deliberate re-cut with a measurement behind it, not one scavenge per
 object.
 
+**⚠ AURORA IS A NAMED CONSUMER AND WE OWE THEM NOTICE BEFORE THE RE-CUT LANDS — a
+COMMITMENT this lane made 2026-09-08, banked here because it was made in MAIL and would
+not survive a `/clear`.** Aurora vendors `BG_TILE_CAPACITY` into
+`src/core/formats/bg-override/bganim-consumer-contract.json`, and a currency gate in their
+suite reads our three authorities at our committed tip on every run. **Every time that
+number moves, their master goes red until they re-vendor.** They have booked this notice
+as something they are relying on; if it stops being true, we owe them that too.
+
+**THE PRICE OF NOT SENDING IT, measured by them and worth more than the rule:** the two
+spring carves (400 -> 388 -> 376) left **aurora's master RED for about 18 hours** —
+last green 2026-09-07T22:55:43Z, our first carve landed 05:20Z, discovered ~23:20Z when a
+landing of theirs tried to push. **Nothing on either side could have surfaced it.** Our
+tree was correct and self-consistent throughout; theirs was self-consistent and stale; and
+the gate that joins the two only speaks when someone runs it. That is the cost of a
+cross-repo constant with no notification edge, and it is the argument for the message
+rather than for a better gate.
+
+**And the shape of their consumer bug, which is the reason the notice is not just
+courtesy:** at the stale vendored 400 against our real 376, aurora was ACCEPTING
+377-to-400-tile background blobs that `tools/inject_editor_bg.py`'s own
+`assert len(tiles) <= BG_TILE_CAPACITY` refuses — so an author working past the static 320
+with band slots could fill past the real ceiling in the editor and learn about it from a
+failed build. A stale ceiling in a consumer fails PERMISSIVELY, which is the direction
+nothing notices.
+
+**Current values, measured here 2026-09-08 and stated with their authorities rather than
+alone:** `games/sonic4/vram.toml` `bg_region` `tiles = 376` / `band_reserve = 56`,
+`tools/vram_map.py` `BG_TILE_CAPACITY = 376`, `engine/system/constants.emp:610`. Static
+importer budget is `tiles - reserve` = **320** and has not moved through any carve. **56
+reserve tiles remain, and they are the cheapest source for the next object that needs
+tiles** — which is exactly how the spring took its twelve, twice. **Do not quote these
+figures onward without re-deriving them; the whole row exists because the number moves.**
+
 ### SP-4 — the spring lives in test_solid.emp and wants its own module
 
 A new `.emp` module is a new SECTION, and an undeclared section head makes sigil's
