@@ -6,7 +6,8 @@ use engine.objects.sst.{Sst, interact_off}
 use engine.objects.aabb.{aabb_axis_test}
 use engine.coords.{abs_w}
 use engine.constants.{NUM_PLAYERS, NUM_DYNAMIC, NUM_SYSTEM, NUM_EFFECTS,
-                      COLLISION_TOUCH, ST_ON_OBJECT, ST_IN_AIR}
+                      COLLISION_TOUCH, COLLISION_SOLID, COLLISION_SOLID_HURT,
+                      SOLID_TOUCH_W, ST_ON_OBJECT, ST_IN_AIR}
 
 // Contract type (contract-grammar v2 §4) — the Touch_HandlerTable dispatch
 // bound. The caller saves d6-d7/a2-a4 around the `jsr (a0, d4.w)`, so a handler
@@ -32,12 +33,26 @@ comptime fn touch_test_target(skip: Label) -> Code {
     return asm {
         tst.w   Sst.code_addr(a3)
         beq     {skip}
-        tst.b   Sst.collision_resp(a3)
+        moveq   #0, d2
+        move.b  Sst.collision_resp(a3), d2
         beq     {skip}
 
         // --- AABB overlap via the shared template (§4.9) ---
+        // THE PLAYER'S X CONTRIBUTION IS TYPE-DEPENDENT. For the SOLID family it
+        // is the fixed SOLID_TOUCH_W, not his live box — see that constant for
+        // the whole argument; the short version is that terrain already reaches a
+        // constant PUSH_RADIUS in every state, and object contact was the only
+        // path that shrank when the player curled. d2 holds the type (loaded above
+        // for the zero test) and is free until aabb_axis_test takes it as scratch.
+        moveq   #SOLID_TOUCH_W, d0
+        cmpi.b  #COLLISION_SOLID, d2
+        blo     .live_w                 // damage/pickup family — unchanged
+        cmpi.b  #COLLISION_SOLID_HURT, d2
+        bls     .have_w                 // 8..11 = the solid family
+    .live_w:
         moveq   #0, d0
         move.b  Sst.width_pixels(a2), d0
+    .have_w:
         moveq   #0, d1
         move.b  Sst.width_pixels(a3), d1
 

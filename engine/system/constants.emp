@@ -121,6 +121,44 @@ pub const COLLISION_SPRING      = 10
 pub const COLLISION_SOLID_HURT  = 11
 pub const COLLISION_TOUCH       = 12
 
+// SOLID_TOUCH_W — the player's WIDTH contribution to SOLID-family object contact
+// (COLLISION_SOLID..COLLISION_SOLID_HURT), in place of his live `width_pixels`.
+//
+// WHY OBJECTS NEED THIS AND TERRAIN DOES NOT: terrain already works this way.
+// The wall probe is placed at `x +/- PUSH_RADIUS` as a BARE CONSTANT
+// (player_ground.emp:926, player_air.emp:731/749) — never derived from
+// width_pixels, never scaled by state — so a wall stops Sonic at the same reach
+// standing or curled. Object contact was the ONE path computing its reach from
+// the live physics box, and since curling takes that box from 19 to 15, it
+// silently gave a curled player 2px LESS reach per side than a standing one.
+// Measured on a running ROM 2026-09-07: a curled player 24px from a vertical
+// spring's centre passed straight through it (reach 23), where standing reached
+// 25 and the terrain's own rule reaches 26.
+//
+// DERIVED FROM PUSH_RADIUS, not written as a number, because the point is that
+// objects and walls agree: `2r+1` is this engine's full-dimension convention
+// (the sensors halve it back), so the full box matching a radius of PUSH_RADIUS
+// is 2*PUSH_RADIUS+1. Raising PUSH_RADIUS moves both together.
+//
+// It lands on the reference by construction rather than by copying: against a
+// 32-wide spring the AABB gives `2|dx| < 21+32 = 53`, i.e. |dx| <= 26, and S3K's
+// SolidObjectFull2_1P (sonic3k.asm:41068) admits -27..26 — the same face. S3K
+// reaches it from the object side (`Obj_Spring_Up` passes `d1 = $1B` = its own
+// half-width 16 PLUS a fixed 11, and the routine never reads the player's
+// radius); we reach it from the player side. Same rule, stated once here.
+//
+// THE HEIGHT IS DELIBERATELY NOT DONE. The measured defect is horizontal, the
+// vertical band is 45px against a 16px/frame speed cap, and four drop tests
+// (60/120/200/300px, terminal velocity, curled) all launch correctly. A Y
+// constant would be a change with no evidence behind it; booked instead.
+//
+// NOT the damage family (types 0..7), also deliberately: S3K uses a DIFFERENT
+// fixed extent there (half-width 8, NARROWER than standing), so folding the two
+// into one number would be wrong in a way that only shows up once badniks exist.
+pub const SOLID_TOUCH_W = 2 * PUSH_RADIUS + 1
+ensure(SOLID_TOUCH_W >= PLAYER_X_RADIUS * 2 + 1,
+       "the solid touch box must not be NARROWER than the player's standing physics box — that would make a standing player harder to contact than he is to collide with")
+
 // status byte bits — SST_status. Player interpretation. Bits 1-2 align with
 // RF_XFLIP/RF_YFLIP for direct propagation.
 pub const ST_XFLIP       = 1          // 1 = facing left (horizontal flip); = RF_XFLIP

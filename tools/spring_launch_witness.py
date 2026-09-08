@@ -291,6 +291,32 @@ SPRING_ANIM_EQUS = ("ObjAnim_Spring__Idle", "ObjAnim_Spring__Fire",
 _ANIM = {}          # filled by run() from the listing
 
 
+# THE CONTACT FACE, modelled the way the engine computes it.
+#
+# The AABB admits contact while `2*|delta| < player_dim + target_dim`, so the
+# face is that sum halved. What changed on 2026-09-07 is the PLAYER's half of the
+# X sum for the SOLID family: it is the fixed SOLID_TOUCH_W, not his live
+# width_pixels. Terrain already worked that way (the wall probe is a bare
+# PUSH_RADIUS in every state); object contact was the only path that shrank when
+# the player curled, which let a curled player pass through a spring he visibly
+# touched. Read from the listing, never written here, so this model cannot drift
+# from the constant it mirrors.
+SOLID_TOUCH_EQU = "SOLID_TOUCH_W"
+_TOUCH = {}         # filled by run() from the listing
+
+
+def face_x(player, obj):
+    """The X contact face in px between centres, for a SOLID-family target."""
+    return (_TOUCH["w"] + obj["w"]) // 2
+
+
+def face_y(player, obj):
+    """The Y contact face. Still the player's LIVE height — deliberately: the
+    2026-09-07 change is X-only, because the measured defect was horizontal and
+    the vertical band is 45px against a 16px/frame cap."""
+    return (player["h"] + obj["h"]) // 2
+
+
 def idle_anim(spring):
     """The IDLE animation id THIS spring should be sitting in."""
     return _ANIM["IdleH"] if spring["xv"] else _ANIM["Idle"]
@@ -722,7 +748,7 @@ async def test_side(pr, obj, want_launch, out, leg, expect_launchable=True):
     reported; what is asserted is every frame after it.
     """
     p0 = await pr.player_state()
-    half_w = (p0["w"] + obj["w"]) // 2
+    half_w = face_x(p0, obj)
     side = 1 if p0["x"] > obj["x"] else -1          # which side he starts on
     button = "right" if side < 0 else "left"
     away = "left" if button == "right" else "right"
@@ -1104,7 +1130,7 @@ async def test_side_launch(pr, spring, want, out, leg):
     side = launch_side_of(spring)
     button = "right" if side < 0 else "left"       # he starts ON the launching side
     p0 = await pr.player_state()
-    half_w = (p0["w"] + spring["w"]) // 2
+    half_w = face_x(p0, spring)
     dx0 = p0["x"] - spring["x"]
     if abs(dx0) <= half_w:
         raise Unmeasurable(
@@ -1258,7 +1284,7 @@ async def test_back_face(pr, spring, want, out, leg):
     if got["x"] != start_x or got["y"] != spring["y"]:
         raise Unmeasurable(f"{leg}: the poke did not take — asked for ({start_x},"
                            f"{spring['y']}), the slot reads ({got['x']},{got['y']})")
-    half_w = (got["w"] + spring["w"]) // 2
+    half_w = face_x(got, spring)
     out.append(f"  {leg}: spring at (x={spring['x']},y={spring['y']}) launches "
                f"{'RIGHT' if side > 0 else 'LEFT'} ({spring['xv']}); the player is placed "
                f"{BACK_DX}px out on its BACK face at x={start_x} carrying {approach} (8.8) "
@@ -1416,8 +1442,8 @@ async def test_top_land(pr, spring, out, leg):
     if got["y"] != start_y or got["x"] != spring["x"]:
         raise Unmeasurable(f"{leg}: the poke did not take — asked for ({spring['x']},"
                            f"{start_y}), the slot reads ({got['x']},{got['y']})")
-    half_h = (got["h"] + spring["h"]) // 2
-    half_w = (got["w"] + spring["w"]) // 2
+    half_h = face_y(got, spring)
+    half_w = face_x(got, spring)
     if SIDE_DROP_HEIGHT <= half_h:
         raise Unmeasurable(f"{leg}: the {SIDE_DROP_HEIGHT}px drop starts inside the spring's "
                            f"{half_h}px vertical contact face — he would be in contact "
@@ -1546,7 +1572,7 @@ async def test_walk_from_spawn(pr, spring, want, out, leg):
     """
     p0 = await pr.player_state()
     side = launch_side_of(spring)
-    half_w = (p0["w"] + spring["w"]) // 2
+    half_w = face_x(p0, spring)
     dx0 = p0["x"] - spring["x"]
     if abs(dx0) <= half_w:
         raise Unmeasurable(
@@ -1652,7 +1678,7 @@ async def test_underside_launch(pr, spring, want, out, leg):
     # written down, so a seat that moved cannot leave him holding away from the spring.
     st0 = await pr.player_state()
     toward = "right" if st0["x"] < spring["x"] else "left"
-    half_h = (st0["h"] + spring["h"]) // 2
+    half_h = face_y(st0, spring)
     if st0["y"] <= spring["y"] + half_h:
         raise Unmeasurable(
             f"{leg}: the player settled at y={st0['y']}, already within the spring's "
@@ -1675,7 +1701,7 @@ async def test_underside_launch(pr, spring, want, out, leg):
             await pr.frames(1)
             st = await pr.player_state()
             top_y = min(top_y, st["y"])
-            half_h = (st["h"] + spring["h"]) // 2
+            half_h = face_y(st, spring)
             dy = st["y"] - spring["y"]
             if st["yv"] >= abs(want) // 2:
                 early_launch = st
@@ -1719,7 +1745,7 @@ async def test_underside_launch(pr, spring, want, out, leg):
 
     st = await pr.player_state()
     fails = []
-    half_h = (st["h"] + spring["h"]) // 2
+    half_h = face_y(st, spring)
     dy = st["y"] - spring["y"]
     out.append(f"  {leg}: rose from y={st0['y']} to y={in_band['y']} (apex reached {top_y}), "
                f"entered the band rising at {rising_at_band}, and stopped INSIDE "
@@ -1811,6 +1837,13 @@ async def run(sock, rom, lst, want_launch, table, subtypes, out):
                 f"animation ids, so no leg can say which anim its subject should be in")
     for name in SPRING_ANIM_EQUS:
         _ANIM[name.split("__")[1]] = equ[name]
+    if SOLID_TOUCH_EQU not in equ:
+        raise Unmeasurable(
+            f"{SOLID_TOUCH_EQU} has no EQU in {lst} — this file models the contact face "
+            f"off it and would silently test the wrong geometry without it")
+    _TOUCH["w"] = equ[SOLID_TOUCH_EQU]
+    out.append(f"  solid-family contact uses {SOLID_TOUCH_EQU} = {_TOUCH['w']} "
+               f"for the player's WIDTH (his live box is used on Y)")
     out.append(f"  animation ids from the listing: " +
                ", ".join(f"{k}={v}" for k, v in _ANIM.items()))
 
