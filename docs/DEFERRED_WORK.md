@@ -29892,15 +29892,26 @@ we make. Some of those reds are WANTED (one site's own comment declares itself a
 the value of the list is telling which is which before spending time on a red.
 
 **The sites most able to bite us**, by what an aeon parcel plausibly does:
-* `test_p1_player_port.rs:810` — `guards == 1` over live `games/sonic4/player/player_common.emp`,
-  **with no byte oracle at all**; their docstring says counting it is the point.
+* `crates/sigil-cli/tests/test_p1_player_port.rs::p1_drift_guards_all_pass` — `guards == 1` over the
+  compiled `games/sonic4/player/player_common.emp`, **with no byte oracle at all**.
+  **THE EXACT TRIGGER, read out of their source by the sigil lane 2026-09-08:** the single survivor
+  it counts is the `Player_1` w-addressable check, a `cmpa.w` against a sign-extended word, which
+  **rides the link and cannot fold at comptime**. So **any LINK-TIME guard added to that file makes
+  it 2, any retired makes it 0, and ZERO-BYTE DOES NOT SAVE YOU — it counts guards, not bytes.**
+  That file has **59 commits** since 2026-03-01, among the churniest in this tree.
 * The guard-count asserts wired into byte gates (`mt_port` 7, `sfx_port` 1, `sonic_anims_port` 25,
   `test_g1`-`g4`, `test_objects`, `act_descriptor_port`). **Narrow residual, and it is the one that
   matches a poisonability parcel exactly: only a ZERO-BYTE game-side `ensure` reds these without
   also reding the byte gate it rides.**
-* Literal source-text needles in live game data: `sonic_anims_port.rs:316` (`comptime fn rep(`),
-  `tranche4_negative_probes.rs:359`, `listing_defines.rs:377` (`__Aeon_AS_Carrier: equ 0` exactly
-  once). **A comment rewrite can trip these** — which puts every prose/citation parcel in scope.
+* Literal source-text needles in live game data. **Exact spellings, read out of their source
+  2026-09-08, so a parcel can PREDICT a red instead of discovering one:**
+  `crates/sigil-cli/tests/sonic_anims_port.rs` requires `comptime fn rep(` PRESENT in our
+  `sonic_anims.emp` — a comment rewrite is safe, deleting or renaming that helper is not, and its
+  own comment says today's scripts do not use it, which is exactly the shape someone tidies away.
+  `crates/sigil-harness/tests/listing_defines.rs` requires `__Aeon_AS_Carrier:  equ 0` **EXACTLY
+  ONCE** in `games/demo/game_root.asm` — **note the TWO spaces after the colon**; it is a witness
+  anchor, so a second occurrence and zero occurrences both red it, and **reformatting that line
+  breaks it as surely as deleting it**. Also `tranche4_negative_probes.rs:359`.
 * `cfg_blind_spots.rs:355-356` (`Player_SensorSurface` / `Player_SensorWallDir` by name and count),
   `out_verify_corpus.rs:172`, `contract_closure_corpus.rs:1140`, `parcel_8b_stage_gen_touchers.rs:129`,
   `preserves_corpus.rs:133-142`, `dac_port.rs:306`, `seam2_colink_probe.rs:164,168`,
@@ -29919,15 +29930,32 @@ LS-16c and LS-19a parcels while both were mid-flight.
 reds are wanted. The correct move is to put the guard where the design wants it and tell them; the
 incorrect one is a worse design that keeps a peer's suite green.
 
-**THEIR FINDING ABOUT OUR TREE, RELAYED AS A CLAIM TO RE-DERIVE AND NOT AS ESTABLISHED** (not
-verified here): sigil briefed their own sweep on the axis *engine vocabulary moves less than game
+**⚠ PATH CORRECTION TO THE ROW ABOVE AND TO SIGIL'S OWN LEDGER (2026-09-08).** Their ledger row and
+this booking's first revision both gave **bare basenames**, and the crate is wrong if you guess:
+`test_p1_player_port.rs` and `sonic_anims_port.rs` are in **`crates/sigil-cli/tests/`**, NOT
+`crates/sigil-harness/tests/`. Only `listing_defines.rs` is in the harness crate. A grep in the wrong
+crate returns nothing, and reading that emptiness as *no exposure* is this tree's own
+absence-dressed-as-an-outcome failure with a peer's document as the source.
+
+**THEIR FINDING ABOUT OUR TREE — RE-DERIVED FIRSTHAND BY THEM 2026-09-08, WITH THE PARAMETER THAT
+NOBODY HAD RECORDED** (measured in their own detached reference tree at aeon `ec640bcf`; still not
+re-measured independently here): sigil briefed their own sweep on the axis *engine vocabulary moves less than game
 vocabulary* and **measured the opposite in our history** since 2026-03-01 —
 `engine/system/constants.emp` 79 commits against `games/sonic4/config/constants.emp` 37, and
 `engine/objects/collision.emp` 24 against `engine/objects/sst.emp` 16. **Engine files move MORE.**
 Their conclusion, which is the durable half and generalises well past their sweep: **the property
 separating a sound gate from a brittle one is not the directory, it is whether the assertion holds
 for ANY VALID CONTENT or pins a SNAPSHOT of today's.** A byte-identity port gate is the extreme
-content-invariant case, not a separate principle. **Re-derive the counts before citing them.**
+content-invariant case, not a separate principle.
+
+**AND THE PARAMETER IS THE DURABLE HALF, not the counts.** All four figures reproduce **without**
+`--follow`. **With** renames followed over the same window the first pair becomes **81 and 36**
+rather than 79 and 37, while the collision pair is unchanged at 24 and 16 — so a rename crosses the
+window on the constants pair. **Neither figure is wrong; they answer different questions, and the
+note did not say which it was asking.** That is this repo's own *a measurement needs its referent*
+bar arriving on a peer's number: a count stated without the parameter it was taken under reads as a
+fact and is an answer to an unstated question. Sigil volunteered the discrepancy rather than shipping
+the clean number, which is what made it usable.
 
 **They deliberately built no lint**, and the reason is worth more than the tool: the obvious one
 ("name your reference paths") fires on **87 of 95** callers, and *a check that is red on correct code
