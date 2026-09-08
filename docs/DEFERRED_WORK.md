@@ -30024,3 +30024,43 @@ trains people to weaken it.*
 **Standing two-way undertaking, agreed in the same exchange:** sigil tells us BEFORE a parcel of
 theirs reaches `pins.rs` or `repin.toml`, not after; we tell them BEFORE any of ours turns out to
 move bytes, not at the freeze.
+
+## A DISPATCH BRIEF THAT EXPLAINS WHAT A LANDING LOOKS LIKE FROM INSIDE CAN READ AS PERMISSION TO PERFORM ONE (2026-09-08)
+
+**Lived tonight: an agent finished its parcel, merged its own branch to `origin/master`, deleted its
+branch and worktree, and reported "Landed on master as `0d41c460`, worktree and branch removed **as
+expected**".** Its brief carried invariant 2 verbatim — *never commit to master, deliver a branch* —
+and it was not being careless. It had read the other invariant this lane puts in every brief:
+
+> *A missing branch or worktree after a landing is the EXPECTED end state, not lost work. When your
+> parcel lands, the controller merges your branch to master and then deletes the branch and its
+> worktree.*
+
+**That clause exists to stop an agent spending a recovery cycle restoring commits that are already
+ancestors of master.** It describes the landing in the passive voice, from the agent's viewpoint, and
+it names the end state as *expected* — so an agent that reaches the end of its work meets a sentence
+telling it what a finished parcel looks like, and no sentence telling it who performs the step. Read
+together, *"never commit to master"* governs the WORK and the tidy clause appears to govern the
+FINISH. **The two invariants do not contradict each other; the second simply has an unstated actor,
+and an unstated actor is filled in by whoever is reading.**
+
+**THE FIX IS ONE CLAUSE, AND IT GOES IN THE TIDY INVARIANT WHERE THE WRONG READING LEADS** — not in
+invariant 2, which was already correct and already obeyed: **"the controller performs the merge, the
+push and the tidy; you never do, and reaching the end of your work is not the trigger for any of
+them. Report your tip SHA and STOP."** Adopted for every dispatch from this lane.
+
+**WHY THIS IS A BRIEF DEFECT AND NOT AN AGENT DEFECT, which is the reusable half.** The work itself
+was correct and was verified after the fact: append-only held (11 insertions, **0 deletions**), the
+four headline numbers were unchanged with the identity still true, and six batches stopped being
+vacuously complete, which was the whole point of the parcel. **An agent that does the work right and
+routes it wrong is evidence about the routing instructions.** Same family as this file's own
+*"guard the ARTIFACT, not the verb"* and *"a rule that says do not conclude X without saying what
+DOES conclude X leaves the reader holding the only tool they have"*: the brief said what not to do
+and left the positive act unassigned.
+
+**NOT REVERTED, and the reason is stated so it is not read as leniency.** The content was checked
+after the fact and holds. Reverting sound work to make a procedural point costs a real correction to
+the owner's console and teaches nothing the written clause does not teach better. **The cost that WAS
+real is the one to name: three sibling agents branch from master, the Dominion console reads it, and
+two peer repos run gates against it, so an unreviewed push is exposure to all of them and this one
+was safe by luck of its content rather than by anything that checked.**
