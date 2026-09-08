@@ -1244,10 +1244,27 @@ if [[ "$FAST" == "0" ]]; then
         # to bite are rare. It fails when a DERIVED INPUT MOVES without the pin
         # being re-cut, so whoever next changes a budget, a buffer size or the
         # cast's art volume is told what they did to a +32 B margin.
-        # tools/dma_defer_headroom.py --selftest (not run in the build) proves it
-        # red three ways: a constant, a static DMA length, and the premise pin
-        # that Process_DMA_Critical is unbudgeted.
-        if ! python3 "${TOOLS}/dma_defer_headroom.py" --lst "${ROM_NAME}.lst" --gate; then
+        # tools/dma_defer_headroom.py --selftest (not run in the build -- it
+        # rewrites tracked engine files, the LS-15a class) proves it red five
+        # ways: a constant, a static DMA length, the premise pin that
+        # Process_DMA_Critical is unbudgeted, the committed pin itself, and the
+        # ASSEMBLED side of the cross-check.
+        #
+        # --rom, added LS-15b-resid 2026-09-08, is not optional decoration. The
+        # pin this gate compares against is written by the harness ITSELF
+        # (--write-baseline serialises measure()'s own output), so on its own it
+        # caught DRIFT and could never say the pinned numbers were RIGHT -- a
+        # re-cut launders any error already present. Every pinned quantity now
+        # has a SECOND statement read out of THIS build: the constants from the
+        # listing's own `EQU` rows (sigil's evaluation, not the tool's regex),
+        # the static Critical lengths from the `move.w #imm, d3` sigil ENCODED
+        # in BuildStaticDMA, and the DPLC peaks from `DPLC_PEAK_TILES_*`, which
+        # games/sonic4/data/*.emp publish from engine.objects.dplc's own
+        # comptime `dplc_peak_tiles`. Disagreement is exit 3 naming both sides.
+        # That is why the listing AND the ROM go in, and why a missing one is
+        # loud rather than a quiet fall-back to the tool's own reading.
+        if ! python3 "${TOOLS}/dma_defer_headroom.py" --lst "${ROM_NAME}.lst" \
+                     --rom "${ROM_NAME}.bin" --gate; then
             echo "DMA defer-headroom gate failed -- see above (tools/dma_defer_headroom.py)."
             exit 1
         fi
