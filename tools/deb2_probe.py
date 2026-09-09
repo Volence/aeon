@@ -135,28 +135,40 @@ def deb2(syms):
 # addresses in order, and the entry count the header implies equals the number of
 # DISTINCT addresses in the bank.  Layout of the bytes convsym writes:
 #
-#   0x000  dc.w $DEB2, $0402          magic + version
-#   0x004  256 x dc.l                 block pointer per address bits 23..16,
-#                                     0 where the bank holds no symbol.  A block
-#                                     pointer is (block start - 2).
-#   0x404  N x <code:2><len:1><char:1> the Huffman code table over the CHARACTERS
+#   0x000  dc.w $DEB2                 magic
+#   0x002  dc.w index size            BYTES of the block-pointer index, + 2.  $0402
+#                                     in all four shapes (256 banks); convsym sizes
+#                                     it to the highest bank in use, so a synthetic
+#                                     ROM-only corpus gets a shorter one.
+#   0x004  (size-2)/4 x dc.l          block pointer per address bits 23..16, 0 where
+#                                     the bank holds no symbol.  A block pointer is
+#                                     (block start - 2).
+#   +size+2  N x <code:2><len:1><char:1>  the Huffman code table over the CHARACTERS
 #                                     of every name, ending at the lowest block
 #                                     pointer + 2.  `char` 0 terminates a string.
-#   block  dc.w ?, dc.l size          then (size-2)/4 entries of
-#          <addr_low:2><str_off:2>    ascending address, then that block's packed
-#                                     strings, `str_off` counted from their start.
+#   block  dc.w ?, ?, size            `size` (at block+4) covers the entry array + 2,
+#          <addr_low:2><str_off:2>    so (size-2)/4 entries follow at block+6 in
+#                                     ascending address order, then that block's
+#                                     packed strings, `str_off` from their start.
 #
 # The one thing the appendix does NOT hold is a second name for an address: one
 # record per address, so two symbols sharing an address cost one of them its name.
-BLOCK_PTRS = slice(4, 0x404)
-CODE_TABLE_START = 0x404
+MAGIC = b"\xde\xb2"
+
+
+def code_table_start(b):
+    """Where the code table begins: past the block-pointer index (0x404 in a shape)."""
+    if b[:2] != MAGIC:
+        raise ValueError("not a deb2 appendix")
+    return 2 + struct.unpack(">H", b[2:4])[0]
 
 
 def anatomy(b):
     """(bank -> (block start, end), code table bytes) for one appendix."""
-    idx = struct.unpack(">256I", b[BLOCK_PTRS])
+    start = code_table_start(b)
+    idx = struct.unpack(">%dI" % ((start - 4) // 4), b[4:start])
     live = sorted((bank, ptr) for bank, ptr in enumerate(idx) if ptr)
-    table = b[CODE_TABLE_START:live[0][1] + 2]
+    table = b[start:live[0][1] + 2]
     blocks = {}
     for i, (bank, ptr) in enumerate(live):
         blocks[bank] = (ptr, live[i + 1][1] if i + 1 < len(live) else len(b))
@@ -206,10 +218,11 @@ def decode_names(b):
 
 def locate(b, off):
     """Which structure a byte offset falls in."""
-    if off < CODE_TABLE_START:
+    start = code_table_start(b)
+    if off < start:
         return "block-pointer index"
     blocks, table = anatomy(b)
-    if off < CODE_TABLE_START + len(table):
+    if off < start + len(table):
         return "CODE TABLE"
     for bank, (start, end) in blocks.items():
         if start <= off < end:
@@ -301,7 +314,8 @@ def cmd_dissect(shape):
     b = deb2(syms)
     blocks, table = anatomy(b)
     print("%s appendix %#x bytes, code table %d characters (%#x..%#x)"
-          % (shape, len(b), len(table) // 4, CODE_TABLE_START, CODE_TABLE_START + len(table)))
+          % (shape, len(b), len(table) // 4, code_table_start(b),
+             code_table_start(b) + len(table)))
     for bank, (start, end) in sorted(blocks.items()):
         ents, strbase = block_entries(b, start)
         print("  bank %02X  %#08x..%#08x  %4d addresses, strings %#x..%#x (%d bytes)"
