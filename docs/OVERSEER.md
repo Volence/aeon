@@ -1397,19 +1397,18 @@ path, for the same reason the protocol is read that way.
   `/home/volence/sonic_hacks/.aeon-sigil-ref` (`ec640bcf`), `.aeon-sigil-gates` (`f4d17d9b`) and
   `.sigil-ref-197-mine` (`8dd28114`). All three appear in **aeon's** `git worktree list`, so the
   2026-09-04 stanza's hazard applies to them identically and its declared set does not cover them.
-  **THE MEASUREMENT THAT MATTERS IS THE INSTRUMENT ONE, and it corrects a rule two stanzas up.**
-  The existing rule (aurora's, after they removed a directory the owner's live tool had open) says
-  check `/proc/<pid>/cwd` or `lsof` before removing a directory. **Run today, that check reported
-  `.aeon-sigil-ref` as having no process in it — while sigil's assembler was actively building
-  from it**, pid 3162306, `sigil build --aeon /home/volence/sonic_hacks/.aeon-sigil-ref …`, its own
-  cwd in `sigil/crates/sigil-cli` and its output in `/tmp`. **A tree passed as an ARGUMENT is
-  invisible to a cwd sweep**, and a consumer that reads a path without chdir'ing into it is the
-  normal shape for every `--aeon`-style flag in this suite, not an exotic case.
-  **So the check is: grep every live process's CMDLINE for the path, not just its cwd** —
-  `for p in /proc/[0-9]*; do tr '\0' ' ' < $p/cmdline; done | grep <path>` — and read the cwd
-  result as *necessary and not sufficient*. Same family as this file's other absence findings:
-  the instrument returned a clean empty answer to a question it structurally could not answer,
-  and an empty result from a liveness probe reads as permission to delete.
+  **THE RULE IS NOW SHARED PROTOCOL — read it there, do not restate it here** (empyrean `d980ba7`,
+  `docs/OVERSEER-PROTOCOL.md` "Shared-machine cautions", verified reachable at `origin/main` and read
+  firsthand out of that blob). Both bullets went up: grep live process **cmdlines** before pruning a
+  directory, and *a worktree in your own `git worktree list` is not necessarily yours*.
+  **Deliberately NOT copied back down**, because a private copy of a shared safety rule is the fork
+  the protocol's preamble forbids, and this is the one rule where a drifted copy gets a peer's work
+  deleted.
+  **Aeon's precedent, which is what stays local:** run here 2026-09-09, the standing `cwd`/`lsof`
+  check reported `.aeon-sigil-ref` as having no process in it **while sigil's assembler was building
+  from it** — pid 3162306, `sigil build --aeon /home/volence/sonic_hacks/.aeon-sigil-ref …`, its own
+  cwd in `sigil/crates/sigil-cli`, output in `/tmp`. The command that discriminates:
+  `for p in /proc/[0-9]*; do tr '\0' ' ' < $p/cmdline; done | grep <path>`.
 
 - **DECLARED TREE — `/home/volence/sonic_hacks/.aeon-land-182`, do not sweep it.** A clean
   detached checkout of aeon `e99a2ca7`, the `aeon_rev` chain 182/183 is frozen at, carrying all
