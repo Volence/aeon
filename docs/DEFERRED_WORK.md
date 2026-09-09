@@ -31350,6 +31350,56 @@ which is the argument for re-deriving a returned mechanism even when the verdict
 
 ## PLANT-AND-COUNT ON THE DMA QUEUE AND THE PLANE BUFFER — QUEUED, WITH THE AIM CORRECTED (2026-09-09)
 
+**⚠ READ THIS FIRST — TWO AMENDMENTS LANDED HOURS AFTER THE TEXT BELOW, AND ONE OF THEM CORRECTS ITS
+AIM. The uncorrected version is underneath on purpose (nothing is rewritten), but a reader who stops
+early would take the wrong half.**
+
+**(1) THE SCORER DEFECT — `rc != 0 => KILLED` IS INVALID IN THIS REPO, AND WE ARE MORE EXPOSED THAN
+THE LANE THAT FOUND IT.** Aurora scored plants by exit code over `npm test`; that command runs 14
+check scripts before the test runner, an em dash in an assertion message tripped a lint script at the
+twelfth, and **nine plants were scored KILLED against a suite that never executed one assertion**.
+On re-run: six survivors, three kills. Six proofs had proven nothing.
+
+**Verified here, and our version is the COMMON case rather than an accident:** `build.sh:2` is
+`set -euo pipefail`, and the pytest lane is at `:631`, behind the sound-blob emit, the compression
+vectors, the sigil build and the level re-bake. **Every one of those aborts the run.** In a JavaScript
+codebase most mutations still execute. In 68000/Z80 assembly **a large fraction of plants simply will
+not assemble** — and an unassemblable plant exits non-zero having tested nothing. Scored by `rc`,
+"the assembler refused this edit" and "a guard caught this defect" are the same number.
+**A run that died before any judgement and a run in which every judgement was made are
+indistinguishable by exit code.**
+
+**SCORE ON A POSITIVE ARTIFACT FROM THE MEASURING STAGE.** `pytest` prints its own count
+(`N passed, M failed`; `--collect-only` prints `N tests collected` — 2373 as of 2026-09-09, against
+the 1451 this repo measured on 2026-08-27, so do not carry either figure). **Absent that line:
+UNMEASURABLE, printing what stopped the run — never 0, never green.** Re-run the whole batch when it
+fires; do not repair one plant. **And a green baseline is NOT a control**, because the poison can
+arrive in a commit made mid-parcel: the baseline stays honest and everything after it does not. The
+check is PER-RUN.
+
+**(2) THE CHEAPEST BAR OF THE NIGHT, AND IT GOES IN THE BRIEF BEFORE DISPATCH:**
+> **A batch containing no predicted-survivor cannot detect that its own scorer has stopped working.
+> Plant some you expect to LIVE — they are the control.**
+
+Aurora caught its defect ONLY because two of the nine were mutations it had predicted in advance
+would be non-discriminating, so being told they died was **not plausible** and the logs got read.
+Without those two, **nine false kills would have shipped as a 100% kill rate and read as an excellent
+result.**
+
+**(3) THE AIM CORRECTION SUPERSEDES THE SPLIT WRITTEN BELOW.** The second population is **NOT**
+"guards a document does not exercise". It is **guards whose failure produces no ARTIFACT**, and there
+are two mechanisms with the same consequence:
+- a **future-amendment** guard produces none because the amendment has not arrived yet;
+- a **correcting** guard produces none because *correction is invisible after the fact by
+  construction* — a wrong clamp returns a number the next stage accepts, indistinguishable from one
+  the author intended.
+
+**The correcting kind NEVER becomes testable by waiting**, which the "future" framing implies it
+would. **The DMA queue and the plane buffer are full of correcting code — clamps, wraps, budget
+trims, priority arbitration — so that is the half to aim at.** Provenance: aurora's sharpening,
+relayed by the hub; **the mechanism is theirs and is not re-derived here**, though our own exposure
+in (1) is measured above.
+
 **The item, booked earlier and unchanged: the DMA queue's and the plane buffer's tests are
 internally consistent and have never been asked whether they would NOTICE A DEFECT.** Plant a
 mutation, count what dies. A suite that goes green over a planted bug is not a suite.
