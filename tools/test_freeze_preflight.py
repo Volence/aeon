@@ -308,6 +308,37 @@ def test_step_2_counts_one_failure_when_one_test_failed(tmp_path):
         proc.stdout
 
 
+PORTS_DOCTEST_FAILURE = textwrap.dedent(
+    """\
+    running 3 tests
+    test src/lib.rs - resolve::pins (line 12) ... FAILED
+
+    failures:
+        src/lib.rs - resolve::pins (line 12)
+
+    test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out
+    """
+)
+
+
+def test_step_2_does_not_DROP_a_failing_test_whose_name_contains_spaces(tmp_path):
+    """The correction sigil caught within an hour of the overcount fix landing.
+
+    Excluding cargo's summary line by NARROWING the name to `[^ ]+` also excludes every
+    doctest, which cargo spells `test src/lib.rs - m::f (line 12) ... FAILED` -- spaces and
+    all. That trades a defect that INFLATES the count for one that HIDES failures, which is
+    the worse direction. The end anchor is what excludes the summary (it continues past
+    FAILED with its counts) while leaving the name free to contain spaces.
+
+    Red-first against the narrowed pattern: it reports 0 failures on this log and names
+    none, while the log carries one real failure.
+    """
+    proc, _ = _run(tmp_path, step1_log=STALE_LOG, step1_rc=101,
+                   step2_log=PORTS_DOCTEST_FAILURE, step2_rc=101)
+    assert "freeze_preflight: 1 port test failure(s)" in proc.stdout, proc.stdout
+    assert "src/lib.rs - resolve::pins (line 12)" in proc.stdout, proc.stdout
+
+
 @pytest.mark.parametrize("literal", [
     "is STALE against the live listings",
 ])

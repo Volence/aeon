@@ -131,8 +131,13 @@ else
         # "4 failures on a run where 3 tests failed" defect still alive: deriving the count
         # and the names from one list made them AGREE, which is worse than disagreeing —
         # they now agree on a number inflated by one per failing test binary. The name form
-        # is `test <path> ... FAILED`; match that and the summary cannot impersonate it.
-        grep -E "^test [^ ]+ \.\.\. FAILED" /tmp/fp_repin.$$ | sed 's/^/    /' || echo "    (none named — read the log above)"
+        # is `test <path> ... FAILED`; ANCHOR THE END and the summary cannot impersonate it,
+# because it continues past FAILED with its counts. Do NOT narrow the name to [^ ]+
+# to exclude the summary: a doctest is spelled `test src/lib.rs - m::f (line 12) ...
+# FAILED` and HAS SPACES, so that form drops real failures while fixing the overcount
+# - trading a defect that inflates for one that hides. Measured 2026-09-09; sigil's
+# scripts/landing-run.sh:667 had the end-anchored form already.
+        grep -E "^test .* \.\.\. FAILED$" /tmp/fp_repin.$$ | sed 's/^/    /' || echo "    (none named — read the log above)"
         # ⚠ PRINT THE TEXT THE CLASSIFICATION WAS MADE ON, NOT THE CATEGORY (2026-09-09).
         # This arm names a CLASS — "not staleness" — and a reader carries that forward as
         # "investigate a cross-seam symbol break". On LS-17 the truth was "your parcel moved
@@ -167,7 +172,7 @@ cargo test --release -p sigil-cli --no-fail-fast 2>&1 | tee "$OUT" | grep -E "^t
 # so with --no-fail-fast this counted one PHANTOM failure per failing test binary and printed
 # the summary line among the names. Anchoring on the ` ... FAILED` name form fixes both,
 # because both are derived from this one list.
-FAILING=$(grep -E "^test [^ ]+ \.\.\. FAILED" "$OUT" 2>/dev/null | sed -E 's/^test (.*) \.\.\. FAILED.*/\1/' | sort -u)
+FAILING=$(grep -E "^test .* \.\.\. FAILED$" "$OUT" 2>/dev/null | sed -E 's/^test (.*) \.\.\. FAILED$/\1/' | sort -u)
 FAILED=$(printf '%s' "$FAILING" | grep -c . || true)
 echo
 echo "freeze_preflight: $FAILED port test failure(s)"
