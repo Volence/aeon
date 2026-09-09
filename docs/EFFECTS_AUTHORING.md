@@ -763,9 +763,11 @@ Stated plainly rather than left for someone to discover on hardware:
 - **`raster_program`**: `words * 2 <= RASTER_BUF_SIZE` (spec §10 rider 4, `raster_dsl.emp:514-515`).
   `Raster_VBlank` (`raster.emp:336`) and `Raster_InstallWater` (`:602`) both copy a **fixed 128 bytes**,
   so a longer program would be truncated live. The converse over-read of a *short* template is
-  pre-existing and harmless — the walker never reaches past the terminator — and is booked as **EFX-4**
-  in `docs/BUGS.md:79`, where Parcel A is recorded as closing the overflow half and the over-read half
-  stays open.
+  pre-existing and harmless — the walker never reaches past the terminator — and is now booked as
+  **`EFX-4b`** in `docs/lens-findings.jsonl` (`EFX-4` itself closed when `Raster_InstallWater` was
+  deleted). The archived reasoning is in `docs/2026-09-09-BUGS-archived.md` under its `EFX-4` /
+  `EFX-4b` headings; the `docs/BUGS.md:79` cite this line used to carry pointed at `TOOL-01`, not
+  `EFX-4`, which is why it is now a heading and not a coordinate.
 - **Three per-fire ceilings, and they are counts rather than cycles.** `fire` (`raster_dsl.emp:207-247`)
   enforces exactly three things:
 
@@ -1085,7 +1087,8 @@ against a module-local name — that risk is described under "Reaching the ROM".
   `cycle_channel` (`:87-95`), the script wrappers (`:107-120`).
 - `games/sonic4/data/parallax/configs.emp` (deleted at `92fafc3e`) — the shipped fixtures this vocabulary must reproduce,
   and their hand-word twins.
-- `docs/BUGS.md` — **EFX-4** (`:79`), the `Raster_InstallWater` over-read, partially closed by Parcel A.
+- `docs/2026-09-09-BUGS-archived.md` (formerly `docs/BUGS.md`) — **EFX-4**, the `Raster_InstallWater`
+  over-read, since CLOSED; its surviving half is **`EFX-4b`** in `docs/lens-findings.jsonl`.
 - `docs/DEFERRED_WORK.md:1899-1902` — the unmeasured VSRAM landing line.
 - `docs/superpowers/specs/2026-08-13-effects-p3-design.md` §4.1, §4.4, §5.4, §6.1, §8.1 — and §1,
   where rulings 5 (constructor-guaranteed correctness) and 14 (`SET_REG` first) are stated. Those two
