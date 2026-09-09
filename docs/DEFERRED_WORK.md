@@ -31149,3 +31149,34 @@ spelling.
 currency** — it is a claim about what our source *contains*, and a few commits of drift cannot remove
 a spelling they found. We verified ancestry rather than recognition, which was the right check.
 **A stale read only hurts in the ADD direction, which is exactly what their derived gate covers.**
+
+## LENS-LEDGER-RULE — ADOPTED, AND THE POPULATION MEASURED (2026-09-09)
+
+**THE RULE, in force from now: a landing that fixes a lens finding writes that finding's ledger line
+in the SAME push.** Not afterwards, not in a reconciliation pass. **A line written in the landing push
+cannot drift from the landing**, which is the only form of ledger currency that has held; every other
+form depends on someone remembering to reconcile, and the suite hit the failure repeatedly on
+2026-09-09 alone — an unstamped closure read as open, a superseded row read as a live critical, and
+this lane's own count that grew under the instrument counting it.
+
+**THE POPULATION, measured here rather than taken from the booking** (`docs/lens-findings.jsonl`,
+line-addressed with latest-line-wins per id, because **repeated ids are NORMAL under append-only
+supersession and a dict keyed by id silently collapses them** — the same defect that once turned 31
+ledger lines into a reported 28):
+
+- **129 lines, 92 distinct ids.** The 92 matches the figure booked at the tools-lens row, derived
+  independently here rather than copied.
+- **Latest state per id: `open` 46, `fixed` 24, `holds` 12, `parked` 5, `refuted` 3, `decided` 1,
+  `unmeasurable` 1.**
+
+**WHAT IS NOT YET KNOWN, AND IT IS THE WHOLE ITEM: how many of the 46 `open` rows are open only in
+the ledger.** That is the drift the rule prevents going forward and does nothing about retroactively.
+Answering it is per-finding work — for each, does a landing already exist that fixes it — and it is a
+sift, not a sweep, in exactly the sense the blind-spot audit was: most of the 46 will be genuinely
+open, and the value is entirely in the few that are not.
+
+**TWO TRAPS FOR WHOEVER RUNS IT, both already paid for elsewhere in this file:** (a) a `"closed by"`
+marker is a CLAIM — a SHA can resolve in your own object store while being reachable from nothing, so
+`git merge-base --is-ancestor <sha> master` is the check and `git branch -a --contains <sha>` printing
+nothing is the tell; (b) the `sweep` field is **not uniformly a string** (some rows carry a dict), so
+any grouping over it must handle both or it dies mid-scan — found by this measurement dying on it.
