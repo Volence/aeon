@@ -30499,6 +30499,49 @@ break* when the truth is *your parcel moved bytes, as intended*.
 rule already says all three legs need it explicitly, and step 1 is the leg nobody threaded), **and
 its else-branch must print the failure text it actually matched on** rather than a category.
 
+> **BOTH FIXES LANDED 2026-09-09 on `parcel/sp7-and-preflight`, plus a THIRD defect the work
+> uncovered. `tools/test_freeze_preflight.py` (12 tests) is the regression net.**
+>
+> * **Threading.** The script now resolves an aeon tree and **exports `AEON_DIR`**, so BOTH
+>   cargo runs inherit it — half a thread is the same defect one step later. Default is **this
+>   script's own checkout** (`dirname $HERE`), not a sibling, because you run
+>   `<tree>/tools/freeze_preflight.sh` from the tree you are freezing; an unset `AEON_DIR` says
+>   so as loudly as an unset `SIGIL_DIR`, and for the same reason it is a banner and not a
+>   refusal. The banner now names **both** subject trees plus which of the four ROM shapes are
+>   present, because a port gate whose ROM is absent SKIPS GREEN. **Asserted at the child
+>   process, not at the banner:** the tests read `AEON_DIR` back out of the environment the
+>   stub `cargo` actually received, twice per run — a banner is a claim, not a measurement.
+> * **Evidence, both arms.** The non-staleness arm prints the panic body under a `| ` prefix,
+>   headed *"the text this classification was made on — the grep for … did NOT match ANY of
+>   it"*, and closes with *"If that text does NOT read like a failure of THIS parcel, re-read
+>   the SUBJECTS block before you re-read your diff."* The **matching** arm ships its evidence
+>   too (`matched on: | src/pins.rs is STALE against the live listings.`) — a correct verdict
+>   reached from the wrong tree looks exactly like a correct verdict.
+> * **⚠ THE THIRD DEFECT, found while reading the transcript and MEASURED not reasoned:
+>   `^test .* FAILED` also matches cargo's own summary line** — `test result: FAILED. 11
+>   passed; 1 failed; …` begins with `test ` and ends in FAILED. So the failing-test list
+>   printed that summary line **as a test name**, and step 2 **counted** it. On a log with
+>   exactly ONE real port failure the old script says **"2 port test failure(s)"** and names
+>   the summary line; the new one says **1**. This is chain 199's *"4 failures on a run where 3
+>   tests failed"* still alive: deriving the count and the names from one list made them
+>   **agree**, and the comment above that line books it as fixed. **Agreeing on a wrong number
+>   is worse than disagreeing** — the disagreement is what made it visible the first time.
+>   Both greps are now anchored on the name form `^test [^ ]+ \.\.\. FAILED`. With
+>   `--no-fail-fast` the old inflation was one phantom **per failing test binary**.
+> * **RED-FIRST, so the net is not decorative:** the same 12 tests against master's script —
+>   **9 failed, 3 passed**; against the fixed script **12 passed, 0 failed**. The three that
+>   pass either way are the ones asserting properties master already had.
+> * **WHAT THE NET DOES NOT COVER, stated so a green is not over-read:** it never runs cargo
+>   (the script's own header records that `cargo test` in the shared sigil checkout relinks
+>   `target/release/sigil`, the binary other lanes pin freezes against — a test that ran the
+>   real gate would be the machine's biggest relinker on every build of this repo). A stub
+>   `cargo` replays canned `(log, exit status)` pairs, which is the whole of step 1's input
+>   contract. The fixture text is **transcribed** from sigil
+>   `crates/sigil-harness/src/repin.rs::stale_pins_message` (read at their tip 2026-09-09), so
+>   if sigil rewords the sentence this file stays green while the real pre-flight
+>   misclassifies. The one thing holding that honest is that the same literal is also the
+>   script's grep, so a drift breaks both, loudly, on the next real run.
+
 **WHY THE FREEZE WAS NOT FORCED TONIGHT, recorded so it reads as a decision and not an omission:**
 the sigil tree was **dirty** (one untracked path) and that lane was mid-parcel, `refreeze` refuses on
 a dirty tree, and the owner's 2026-09-02 *CUT THE CEREMONY* ruling makes drift **a sigil finding

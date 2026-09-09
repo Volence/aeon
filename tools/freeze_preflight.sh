@@ -51,16 +51,57 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SIGIL="${SIGIL_DIR:-$(dirname "$(dirname "$HERE")")/sigil}"
 [ -d "$SIGIL" ] || { echo "freeze_preflight: no sigil tree at $SIGIL (set SIGIL_DIR)"; exit 2; }
+
+# ⚠ THE OTHER TREE. THIS SCRIPT HAS TWO SUBJECTS AND ONLY ONE OF THEM WAS EVER NAMED
+# (found 2026-09-09, LS-17, and it is the SIGIL_DIR defect above one level over).
+# Both cargo runs below are REFERENCE-DEPENDENT on an aeon tree: sigil resolves it from
+# `AEON_DIR` and falls back to its own sibling default, so a pre-flight launched without
+# `AEON_DIR` in the environment measures the SIBLING MAIN CHECKOUT while the operator
+# believes it measured the tree they are freezing. It then CLASSIFIES that result.
+# Lived: step 1 stopped with "failed for a reason that is NOT staleness"; re-run with
+# `AEON_DIR` pointed at the landing tree, the panic was `src/pins.rs is STALE against the
+# live listings` — the exact string the grep below looks for, and the EXPECTED state for a
+# byte-mover. A true measurement of the wrong tree, carried forward as a false reason.
+# OVERSEER.md's clean-checkout rule already says the checkout must be threaded through ALL
+# THREE legs explicitly; the pre-flight is the suite leg, and it is the one nobody threaded.
+# So resolve it HERE, EXPORT it (both cargo runs inherit it — the thread cannot be half
+# done), and print it beside the sigil tree.
+# The default is THIS SCRIPT'S OWN CHECKOUT, not a sibling: you run <tree>/tools/freeze_preflight.sh
+# from the tree you are freezing, so the script's location is the better guess. It is still
+# only a guess — an unset AEON_DIR says so as loudly as an unset SIGIL_DIR, and for the same
+# reason it is a banner and not a refusal: freezing from the main tree is a legitimate run.
+AEON_DIR_WAS_SET="${AEON_DIR:-}"   # captured BEFORE the export below overwrites the answer
+AEON="${AEON_DIR:-$(dirname "$HERE")}"
+[ -d "$AEON" ] || { echo "freeze_preflight: no aeon tree at $AEON (set AEON_DIR)"; exit 2; }
+AEON="$(cd "$AEON" && pwd)"
+export AEON_DIR="$AEON"
 cd "$SIGIL" || exit 2
 
-echo "freeze_preflight: SUBJECT — every result below is about THIS tree and no other:"
-echo "    tree   $SIGIL"
-echo "    HEAD   $(git rev-parse HEAD 2>/dev/null || echo '(not a git tree)')"
-echo "    branch $(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?')   dirty: $(git status --porcelain 2>/dev/null | wc -l) path(s)"
+echo "freeze_preflight: SUBJECTS — every result below is about THESE TWO trees and no others:"
+echo "    sigil tree $SIGIL"
+echo "    HEAD       $(git rev-parse HEAD 2>/dev/null || echo '(not a git tree)')"
+echo "    branch     $(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?')   dirty: $(git status --porcelain 2>/dev/null | wc -l) path(s)"
 if [ -z "${SIGIL_DIR:-}" ]; then
     echo "    ⚠ SIGIL_DIR is UNSET, so this is the DEFAULT path, not a tree you chose."
     echo "      If you are freezing from a worktree, set SIGIL_DIR to it and re-run —"
     echo "      otherwise this gate cannot see your parcel and will report on the wrong tree."
+fi
+echo "    aeon tree  $AEON   (exported as AEON_DIR to BOTH runs below)"
+echo "    HEAD       $(git -C "$AEON" rev-parse HEAD 2>/dev/null || echo '(not a git tree)')"
+echo "    branch     $(git -C "$AEON" rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?')   dirty: $(git -C "$AEON" status --porcelain 2>/dev/null | wc -l) path(s)"
+# BUILT SHAPES, informational. Read from sigil's own test sources: a reference-dependent
+# port test whose ROM is absent prints `skip: reference ROM not at ...` and passes. Four
+# present is what a step-2 green is worth reading; fewer means some of it was vacuous.
+AEON_ROMS=""
+for r in s4.bin s4.debug.bin demo.bin demo.debug.bin; do
+    [ -f "$AEON/$r" ] && AEON_ROMS="$AEON_ROMS $r" || AEON_ROMS="$AEON_ROMS -$r"
+done
+echo "    shapes    $AEON_ROMS   (a leading '-' is ABSENT; the gates that read it SKIP GREEN)"
+if [ -z "${AEON_DIR_WAS_SET:-}" ]; then
+    echo "    ⚠ AEON_DIR was UNSET, so the aeon tree above is DERIVED FROM THIS SCRIPT'S"
+    echo "      LOCATION, not a tree you chose. If you are freezing a different checkout,"
+    echo "      set AEON_DIR to it and re-run — otherwise step 1 will classify a result it"
+    echo "      measured somewhere else, which is exactly what it did on 2026-09-09."
 fi
 echo
 
@@ -73,13 +114,42 @@ else
     if grep -q "is STALE against the live listings" /tmp/fp_repin.$$; then
         echo "  pins are STALE (expected for a byte-mover) — port failures below are"
         echo "  STALE-INSTRUMENT and the freeze's repin step clears them"
+        # The matching arm ships its evidence for the same reason the else-branch does: a
+        # correct verdict reached from the wrong tree looks exactly like this one.
+        echo "  matched on:"
+        grep -m2 "is STALE against the live listings" /tmp/fp_repin.$$ | sed 's/^/    | /'
     else
         echo "freeze_preflight: repin_pins failed for a reason that is NOT staleness — stopping"
         # NAME THE FAILING TESTS. Printing only the aggregate is what made a red undiagnosable
         # for two hours on chain 199: the run said "1 passed; 1 failed" and nothing said WHICH,
         # so the failure could not be told apart from a transient. A count is not a diagnosis.
         echo "  failing test(s):"
-        grep -E "^test .* FAILED" /tmp/fp_repin.$$ | sed 's/^/    /' || echo "    (none named — read the log above)"
+        # ⚠ `^test .* FAILED` ALSO MATCHES CARGO'S AGGREGATE LINE — `test result: FAILED. 1
+        # passed; 1 failed; …` starts with `test ` and ends in FAILED (measured 2026-09-09,
+        # not reasoned about). So this list printed the summary line as if it were a failing
+        # test NAME, and at line 158 below it was also COUNTED as one. That is the chain-199
+        # "4 failures on a run where 3 tests failed" defect still alive: deriving the count
+        # and the names from one list made them AGREE, which is worse than disagreeing —
+        # they now agree on a number inflated by one per failing test binary. The name form
+        # is `test <path> ... FAILED`; match that and the summary cannot impersonate it.
+        grep -E "^test [^ ]+ \.\.\. FAILED" /tmp/fp_repin.$$ | sed 's/^/    /' || echo "    (none named — read the log above)"
+        # ⚠ PRINT THE TEXT THE CLASSIFICATION WAS MADE ON, NOT THE CATEGORY (2026-09-09).
+        # This arm names a CLASS — "not staleness" — and a reader carries that forward as
+        # "investigate a cross-seam symbol break". On LS-17 the truth was "your parcel moved
+        # bytes, as intended": the run had been measured against a different aeon tree (the
+        # defect fixed above), and the category survived the trip while the evidence did not.
+        # A verdict and its stated reason are separately checkable ONLY if the reason ships
+        # with the text it was derived from — so the grep's negative answer is shown, not
+        # summarised. `tail -3` above is the shape of the log a reader would otherwise have,
+        # and it is not enough: the panic body is usually further up than three lines.
+        echo "  the text this classification was made on — the grep for"
+        echo "  \"is STALE against the live listings\" did NOT match ANY of it:"
+        FAILTEXT=$(awk '/panicked at|^error(\[|:)|^thread /{p=1} p' /tmp/fp_repin.$$ | head -40)
+        [ -z "$FAILTEXT" ] && FAILTEXT=$(tail -20 /tmp/fp_repin.$$)
+        [ -z "$FAILTEXT" ] && FAILTEXT="(the run produced NO output at all — suspect cargo itself, not the test)"
+        printf '%s\n' "$FAILTEXT" | sed 's/^/    | /'
+        echo "  If that text does NOT read like a failure of THIS parcel, re-read the SUBJECTS"
+        echo "  block at the top before you re-read your diff."
         rm -f /tmp/fp_repin.$$; exit 2
     fi
 fi
@@ -93,7 +163,11 @@ cargo test --release -p sigil-cli --no-fail-fast 2>&1 | tee "$OUT" | grep -E "^t
 # alongside a `; true`, and reported 4 failures on a run where 3 tests failed — a count nobody
 # could reconcile with the names, because the names were never printed. Derive both from one
 # list so they cannot disagree.
-FAILING=$(grep -E "^test .* FAILED" "$OUT" 2>/dev/null | sed -E 's/^test (.*) \.\.\. FAILED.*/\1/' | sort -u)
+# See the note at step 1: `^test .* FAILED` swallows cargo's `test result: FAILED.` summary,
+# so with --no-fail-fast this counted one PHANTOM failure per failing test binary and printed
+# the summary line among the names. Anchoring on the ` ... FAILED` name form fixes both,
+# because both are derived from this one list.
+FAILING=$(grep -E "^test [^ ]+ \.\.\. FAILED" "$OUT" 2>/dev/null | sed -E 's/^test (.*) \.\.\. FAILED.*/\1/' | sort -u)
 FAILED=$(printf '%s' "$FAILING" | grep -c . || true)
 echo
 echo "freeze_preflight: $FAILED port test failure(s)"
