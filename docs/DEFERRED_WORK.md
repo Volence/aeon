@@ -28492,7 +28492,51 @@ manufacture it* governs an empty result. **This one governs a NON-empty result**
 the instrument ran, worked, and returned something true, and the truth of what came back is what
 stops anyone asking what did not.
 
-## `default_off` IS ENFORCED HERE AND DESCRIBED NOWHERE AURORA CAN READ — two hard refusals owed to the consumer contract (2026-09-06T11:49:51Z)
+## ✅ CLOSED 2026-09-08 — `default_off` IS ENFORCED HERE AND DESCRIBED NOWHERE AURORA CAN READ — two hard refusals owed to the consumer contract (2026-09-06T11:49:51Z)
+
+> **CLOSED BY RE-DERIVATION, NOT BY A MARKER (BAND-LIVE-BUILD, 2026-09-08, against master
+> `0e00382e`). READ THIS BEFORE THE ROW: TWO OF THE THREE FACTS BELOW WERE FALSE WITHIN SIX
+> HOURS OF BEING WRITTEN, AND THE ROW WAS NEVER AMENDED.** Everything under this box is a
+> HISTORICAL RECORD of a 2026-09-06T11:49:51Z tree. Do not brief a lane from it.
+>
+> * **THE WORK LANDED — 95 seconds after this row was written**, not "Not landed here" as
+>   its closing sentence still says. `tools/EFFECTS_CONSUMER_CONTRACT.md`'s `default_off`
+>   subsection is stamped **2026-09-06T11:51:06Z** and carries both obligations, the
+>   release-shape consequence, the quantifier trap, and the size model. **A booking that
+>   outlives its own work re-dispatches it**: this closure exists because a lane was sent to
+>   write that deliverable a second time on 2026-09-08 and found it already in the tree.
+>   The cost of the stale row was a whole parcel's dispatch, and the row was *correct when
+>   written* — the defect is purely that nothing closed it.
+> * **OBLIGATIONS 1 AND 2 ARE NOT REFUSALS AND HAVE NOT BEEN SINCE 2026-09-06** (BGANIM-DECOUPLE,
+>   `01a45ede`). The row calls both `AssertionError`; **neither raises.** `views_emitted()`
+>   is now the count half of `view_emission()`, which returns `(0, note)` and ANNOUNCES the
+>   decline on stdout and as a comment block in the generated `bg_anim.emp`. **Nothing an
+>   author can put in `anims` fails the build over `default_off`.** Re-derived from source
+>   2026-09-08, not taken from the commit message.
+> * **FACT 3 STANDS, re-derived.** `games/sonic4/config/ram.emp:357` still says "in EVERY
+>   shape, release included", and the shipped act still emits
+>   `pub data BgAnim_Table: u16 = 0`. ⚠ **But the row over-claims it in the same way the
+>   emitter's own comment used to**: `default_off` is a PER-BAND ship decision, and it is
+>   only when EVERY band carries it that the act boots silent. An act with one marked band
+>   and one live band boots with animation ON. Aurora's panel copy must say "this band does
+>   not ship", never "this act's animation is off".
+> * **THE ONE-KEY CONTROL NO LONGER REPRODUCES — measured here, not inherited.** Deleting
+>   `default_off` from the shipped act's one band and re-baking now **builds green in both
+>   sonic4 shapes** (`plain_exit=0`, s4.bin 820677 — byte-count identical to baseline;
+>   `debug_exit=0`, s4.debug.bin 846817). Fixed by `c3da78c0`, which made the three
+>   `BgAnim_View_*` names shape-invariant; held by
+>   `tools/test_bg_emit.py::TestBgAnimViewNamesAreShapeInvariant`. The generated module
+>   confirms both halves: band count word goes `0` -> `1` (**the band returns to the release
+>   ROM — fact 3 demonstrated by its own control**) and all three `pub` view names are still
+>   exported. **The DEBUG shape shrinks 114 B**; the section model accounts for 132 of that
+>   (`3 * (2 + 44)` live twins -> `3 * 2` declined = 8,376 -> 8,244 B, from the tool's own
+>   `bganim_section_bytes`), and the residual +18 B is the DEBUG-only appended deb2 symbol
+>   table, which loses the six per-view record symbols a declining act does not emit
+>   (mechanism confirmed structurally in the emitter's `else: _emit_declined_views(f)`
+>   branch; **the 18 B is NOT byte-attributed and should not be quoted as if it were**).
+> * **WHAT IS STILL OPEN, and it is not what the row says.** Nothing is owed to the contract
+>   on `default_off`. What was owed and is done here: the same document's `tiles` row stated
+>   `BG_TILE_CAPACITY` as **448** — see the row below.
 
 **Aurora's finding, adjudicated here 2026-09-06 and the adjudication went against my first
 instinct.** They reported that our shipped `editor_bg_override.json` carries a band key
@@ -28532,6 +28576,54 @@ build.**
 **THE WORK, ours and not theirs: put both obligations and the release-shape consequence into the
 consumer contract.** Aurora has the exact refusal text already and can model it ahead of the
 contract change. Not landed here because two agents were live in neighbouring files at the time.
+*(⚠ FALSE WITHIN 95 SECONDS — see the CLOSED box at the head of this row. It landed at
+2026-09-06T11:51:06Z.)*
+
+## ✅ THE VENDORED CONTRACT STATED A CEILING THAT HAD MOVED FOUR TIMES, AND NOTHING IN THIS REPO PARSED IT — fixed and gated (2026-09-08, BAND-LIVE-BUILD)
+
+**Found while closing the row above, in the very document that row exists to keep honest.**
+`tools/EFFECTS_CONSUMER_CONTRACT.md` §1.1's `tiles` row said `len(tiles) <= BG_TILE_CAPACITY`
+**(448)** from the file's creation (`7ae610e4`) until 2026-09-08. The live value went
+**448 -> 400 -> 388 -> 376**. The document aurora vendors as
+`src/core/formats/bg-override/bganim-consumer-contract.json` was wrong by **72 tiles for its
+entire life**, and wrong **PERMISSIVELY** — a consumer sizing an author's canvas from it accepts
+blobs that `inject_editor_bg.py`'s own `assert len(tiles) <= BG_TILE_CAPACITY` refuses, so the
+author meets the ceiling as a failed BUILD. **Identical shape and identical direction to the
+stale vendored `400` priced elsewhere in this file at ~18 hours of aurora's master being red** —
+this time inside the document the vendoring reads from, which is why it outlived that fix.
+
+**THE MEASUREMENT THAT MATTERS MORE THAN THE LITERAL: nothing in this repo parsed the consumer
+contract at all.** Every number in it was unguarded prose. Three independent reasons the standing
+instrument could not have caught it, **each one already written in that instrument's own
+docstring** (measured 2026-09-08):
+1. `tools/prose_bound_sweep.py` is an **AST walk over Python**. Handed the `.md` it raises on the
+   parse and prints **`sites: 0`** — a result indistinguishable from a clean file. The docstring's
+   own warning ("the emptiness would have read as a clean repo") happening to itself, here.
+2. It **"excludes comments by construction"**, which is exactly where `inject_editor_bg.py`'s
+   companion restatement of the same stale number ("The capacity is 400 since ...") sat.
+3. Its BOUNDWORD arm carries `cap(?:ped)?` but **not `capacity`** — the word the constant is
+   named for is not a bound word to it.
+
+**FIXED AND GATED HERE.** `tools/test_bg_emit.py::TestTheContractStatesLiveValues` checks every
+constant the contract restates beside its own name against the live `inject_editor_bg` module,
+runs in `build.sh`'s pre-build tool-suite lane, and is **build-fatal**. Red-first on the
+pre-existing defect (`REAL_EXIT=1`, naming `...md:63: the contract states BG_TILE_CAPACITY = 448,
+the live value is 376`), green after the prose fix. Measured population **10 sites over 8
+constants**; the other 9 were all correct, so the gate buys future currency rather than a second
+fix today. **`MIN_SITES = 8` is a floor asserted for the reason above** — a predicate that matches
+nothing must fail loudly, not read as a clean document.
+
+**THE PREDICATE DETAIL WORTH STEALING: key on the BARE IDENTIFIER, not on the backticked name.**
+The stale site is written ``len(tiles) <= BG_TILE_CAPACITY` (448, ...`, with the backticks
+spanning the whole EXPRESSION. A first draft keyed on `` `NAME` `` matched the six budget-table
+rows — **all of which were correct** — and missed the single site the gate exists for. It would
+have been **green on the defect**, which is the failure mode the gate was written against.
+
+**STILL OPEN, deliberately not done here:** `games/sonic4/vram.toml:227` carries the same class in
+the AUTHORITY itself — the comment beside `tiles = 376` reads `# 448 -> 400: ...` and goes on to
+say the reserve went `128 -> 80` when it is now **56**. It is a historical note that reads as
+current, in a comment, i.e. the one place the prose sweep cannot go. Correct it with the next
+carve, when someone is already re-deriving those numbers.
 
 ## BAR — A PARAPHRASE OUTRANKS THE ORIGINAL, AND THE PART IT DROPS IS THE PART SOMETHING EXISTS FOR (2026-09-06T11:54:41Z)
 
