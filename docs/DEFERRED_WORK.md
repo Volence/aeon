@@ -30295,7 +30295,16 @@ OVERFLOW DROP NOW REFUSES IN THE DEBUG SHAPE, AND THE PARCEL FOUND THAT THE DROP
 FROM EVERY CALLER IN THE TREE — which changes what the refusal MEANS.** `Draw_TileColumn` carries
 `assert.w d2, ls, #PLANE_BUFFER_SIZE - 2`, the exact complement of its own release `bhi`, inside
 `if DEBUG == 1`. Release is byte-identical (`s4.bin` and `demo.bin` md5s unchanged against a
-control built from this branch's own base); the debug shapes pay 124 bytes at the head of the proc.
+control built from this branch's own base); the debug shapes pay **116 bytes** of code at the head of
+the proc — 12 for the repeated window gate (the design call), 24 for the assert's compare/branch/raise
+tail, 78 for its auto-message, 2 for the pass-path SR restore. **The debug ROMs grew by 60, not 116,
+and not where the code is:** `EndOfRom` is the SAME address in base and subject for both debug shapes
+(s4.debug `$C15E2`, demo.debug `$1121A`, confirmed by the deb2 magic's offset in the images), because
+the 116 bytes fit inside the slack the frozen placement tables already leave — the assembled image
+changed 25005 bytes across 704 ranges without changing LENGTH. The +60 is entirely the deb2 symbol
+appendix (54897 → 54957, and 33037 → 33097 — the same +60 twice), from the new `overflow_ok`/`diag*`
+names and the Huffman recompression they cause. That is LS-22a's channel, and it moved only the two
+debug shapes because those names exist only in the debug listings.
 
 **THE DESIGN CALL, because the naive placement fires on a NON-defect.** The overflow guard runs
 FIRST in release, before the two cache-range guards, so a column the window gate was going to drop
