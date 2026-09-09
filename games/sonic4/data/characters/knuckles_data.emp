@@ -35,12 +35,20 @@
 // ratchet in games/sonic4/data/collision/collision_data.emp.
 //
 // TWO PALETTES, and this is the structural reason Knuckles needed a per-character
-// palette at all. Tails' art was fixable by a lossless index PERMUTATION into our
+// palette at all. Tails' art was fixable by a lossless index PERMUTATION onto our
 // existing CRAM line 0, because he uses only colours we already carry. Knuckles
-// uses S3K index 5 ($0080) for 3,272 pixels and our line 0 does not carry that
-// colour at any index, so no permutation is lossless for him. His art therefore
-// stays in S3K's index order and the PALETTE moves instead — exactly what S3K
-// itself does (it swaps Pal_Knuckles into CRAM line 0 for him).
+// uses S3K index 5 ($0080) for 3,272 pixels and our line 0 carries that colour at
+// no index, so no permutation puts him ON Sonic's line: he needs a line of his own,
+// and S3K agrees (it swaps Pal_Knuckles into CRAM line 0 for him).
+//
+// ⚠ HIS ART IS STILL RE-INDEXED, and this paragraph used to end by saying the
+// opposite ("his art therefore stays in S3K's index order"). Needing his own LINE is
+// not the same as keeping S3K's index ORDER, and conflating the two is what cost the
+// spring: our Sonic line came from sonic_hack's order and his from S3K's, so the two
+// agreed at only 7 of 16 slots and shared line-0 art recoloured under him. Since
+// 2026-09-09 gen_characters.py's KNUCKLES_TO_AEON permutes his art AND his palette
+// into OUR order together — still lossless, since both move — and the two lines now
+// differ only where they must. The block further down states and counts that.
 module games.sonic4.knuckles_data in knuckles_data
 
 // The character DPLC window's DECLARED EXTENT — the VRAM budget the peak guard

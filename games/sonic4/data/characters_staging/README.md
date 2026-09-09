@@ -20,8 +20,10 @@ dirs the manifest embeds (`art/optimized/characters/tails*.bin`,
 `games/sonic4/data/mappings/tails*.bin`,
 `games/sonic4/data/dplc/optimized/tails*.bin`) and prints which of them changed.
 That is deliberate: it makes this script the single source of truth end to end,
-so a regenerate can never leave the ROM's copy stale. Knuckles is not shipped —
-nothing embeds him yet.
+so a regenerate can never leave the ROM's copy stale. **Knuckles ships too** (his
+mappings, his RAW DPLC, his art and `art/palettes/knuckles.bin`) — the sentence
+here used to say he was not shipped and nothing embedded him, which stopped being
+true when `knuckles_data.emp` was written. His `ship` rows are in the same list.
 
 > **Reproducibility gate — the expected bytes CHANGED on 2026-08-10.** Tails' art
 > is no longer a byte-for-byte S3K copy; it is re-indexed (see below). A
@@ -79,7 +81,7 @@ characters_staging/
     anim/tails_anims.json      42 raw S3K scripts, decoded (see "Deferred")
     anim/tails_tail_anims.json 13 raw scripts
   knuckles/
-    art/knuckles.bin           raw S3K art, byte-for-byte (4092 tiles) — NOT re-indexed
+    art/knuckles.bin           S3K art, RE-INDEXED to our palette order (4092 tiles)
     art/knuckles_opt.bin       contiguous — BUILD-CONSUMED (4383 tiles)
     mappings/knuckles.bin      Aeon VDP-order mappings
     dplc/knuckles.bin          raw S3K-format DPLC
