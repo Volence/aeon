@@ -256,6 +256,10 @@ class InjectStampsTheAuthoredFile(unittest.TestCase):
         self._skip_without_donor()
         with tempfile.TemporaryDirectory() as root:
             gen, authored = _shaped_tree(root)
+            # PIPELINE ORDER: strip_gen bakes first, so the generated palette
+            # already exists by the time inject runs. Establish that here, or the
+            # stamp is being tested against a state the build never presents.
+            ojz_common.refresh_act_palette(gen)
             words = [(0x0200 + i) for i in range(16)]
             inject_editor_bg.stamp_palette_line(gen, 2, words)
 
@@ -274,8 +278,9 @@ class InjectStampsTheAuthoredFile(unittest.TestCase):
         self._skip_without_donor()
         with tempfile.TemporaryDirectory() as root:
             gen, authored = _shaped_tree(root)
+            ojz_common.refresh_act_palette(gen)      # strip_gen's bake, first
             words = [(0x0400 + i) for i in range(16)]
-            inject_editor_bg.stamp_palette_line(gen, 2, words)
+            inject_editor_bg.stamp_palette_line(gen, 2, words)   # then inject
 
             ojz_common.refresh_act_palette(gen)      # the next build's re-bake
 

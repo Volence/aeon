@@ -1207,7 +1207,15 @@ def test_full_pipeline_runs():
     global OUTPUT_DIR, COLLISION_DIR
     saved = OUTPUT_DIR
     saved_coll = COLLISION_DIR
-    with tempfile.TemporaryDirectory() as td:
+    with tempfile.TemporaryDirectory() as root:
+        # SHAPED like the real tree, not a bare tmpdir. ojz_common's palette step
+        # derives the AUTHORED palette from the generated dir's own path (so a
+        # redirect like this one redirects the authored file with it) and REFUSES
+        # a dir that is not .../data/generated/<zone>/<act> rather than resolving
+        # to something outside the tree. A bare tmpdir here left the palette step
+        # the one part of generate() this smoke test could not run.
+        td = os.path.join(root, "games", "sonic4", "data", "generated", "ojz", "act1")
+        os.makedirs(td)
         OUTPUT_DIR = td
         COLLISION_DIR = os.path.join(td, "collision")
         try:
@@ -1221,6 +1229,18 @@ def test_full_pipeline_runs():
                 assert size % 32 == 0, f"{f} size {size} not a multiple of 32"
                 assert size <= ART_POOL_PAGE_TILES * 32, \
                     f"{f} exceeds one page ({ART_POOL_PAGE_TILES} tiles)"
+            # The palette: seeded into the AUTHORED slot of this tmp tree, then
+            # mirrored. Asserting the mirror EQUALS the authored file is what
+            # makes "the generated palette has one writer" a property this smoke
+            # test can lose, rather than prose.
+            authored = ojz_common.authored_palette_for(td)
+            assert os.path.exists(authored), \
+                f"palette step did not seed the authored palette at {authored}"
+            gen_pal = os.path.join(td, "ojz_palette.bin")
+            assert os.path.exists(gen_pal), "ojz_palette.bin not written"
+            assert open(authored, "rb").read() == open(gen_pal, "rb").read(), \
+                "the generated palette is not a mirror of the authored one"
+
             manifest_path = os.path.join(td, "ojz_act_pool_manifest.emp")
             assert os.path.exists(manifest_path), "ojz_act_pool_manifest.emp not written"
             assert os.path.exists(os.path.join(td, "ojz_act_pool_manifest.json")), \
