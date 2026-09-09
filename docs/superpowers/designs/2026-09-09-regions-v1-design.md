@@ -2,6 +2,11 @@
 
 **Parcel 1 of the painted-regions project. Design spec and implementation plan.**
 **Date:** 2026-09-09. **Status:** design only — this document changes no engine code.
+**Closure pass, 2026-09-09 evening — §10.** Q1, Q4, Q5, Q6 and Q7 are RESOLVED from source and
+from builds in a clean worktree; the T1 baseline gate is GREEN on master; two findings §4 did not
+have are booked there (the T1 gate itself reads the symbols step 3 deletes; the T2 gate's
+expectation is derived from the wrong reference point). Net cost revises to **+152 emitted,
++12 RAM**. Open to the owner: Q2 only.
 
 **Scope, stated before anything else.** This is parcel 1 and only parcel 1: *identity by
 rectangle, no new rendering.* Parcel 2 ("the background belongs to the region") is **out of
@@ -1006,3 +1011,236 @@ rectangles, which makes the existing `parallax_crossing_gate` a byte-identical-b
 before any content moves. The whole thing costs about 154 emitted bytes and 12 bytes of RAM,
 which is a ROM loss — regions must be argued for on the sub-section edge they buy, and on
 nothing else.
+
+---
+
+## 10. Closure pass — 2026-09-09 evening
+
+**What this section is.** The controller's follow-up on §5 (open questions), §6 (not verified)
+and §8 (TAGGED). Everything here was done against aeon `11647b64` in a clean detached worktree
+(`git status` empty), with the sigil release binary of 2026-09-07 19:47, using
+`FAST=1 DEBUG=1 ./build.sh` (the artifact-only lane; each probe build finished in about 3.6 s).
+Line numbers below are at `11647b64`. Where a figure in §2–§4 is superseded, this section says
+so and §2–§4 are left as written, so the record of what was derived blind stays legible.
+
+### 10.1 Q4 — RESOLVED: sigil folds a zero displacement
+
+`s4.bin` on master (built 05:07 today), `Effects_InstallPreset` at `$777E`: the instruction
+for `movea.l EffectsPreset.ep_pal(a3), a1` (`preset.emp:396`, field at `$00`) sits at `$77C8`
+and reads `2253` — `movea.l (a3),a1`, 2 bytes, 8 cycles. Not `226B 0000`.
+
+Consequences for §4, which priced it pessimistically at 4: `Region_Resolve`'s first compare
+`cmp.w Region.rg_x0(a0), d2` is 2 bytes and 8 cycles, so
+
+| figure | §4 said | now |
+|---|---:|---:|
+| `Region_Resolve` emitted | 50 | **48** |
+| step 3 emitted | +76 | **+74** |
+| parcel 1 total (steps 1–4) | +154 | **+152** |
+| scan: candidate rejected on the first compare | 40 cyc | **36 cyc** |
+
+Nothing else moves: every other struct offset the parcel touches is non-zero, and the fast path
+reads RAM through `(xxx).W`, not `(An)`.
+
+### 10.2 Q5 — RESOLVED: the PRESET chord is DEBUG-only
+
+`Debug_LabCycleHotkey` (`ojz_scroll_test.emp:2082`) opens `if DEBUG == 1 {` at `:2083` and
+that block closes at `:2402`, the proc at `:2403`. The PRESET chord (`:2211–2262`) is inside
+it. Step 3's rework of the chord costs **zero release bytes**; it is a DEBUG-shape delta only.
+
+### 10.3 Q6 — RESOLVED: `Camera_Init` precedes the boot select — and T2 is a rewrite, not a re-run
+
+All in `GameState_OJZScroll_Init` (`:585`): `Camera_Init` at `:677`; the DEBUG boot override's
+`center_camera_on(Boot_At_X, Boot_At_Y)` at `:802` writes the clamped `Camera_X/Y`
+(`center_camera_on`, `:315–335`, clamps against `Camera_X_Max` and writes `Camera_X` as 16.16);
+the boot select at `:904`. So at `:904` `Camera_X/Y` hold the clamped boot position on every
+branch, and §2.5's deletion of the `Boot_At → grid` block (`:893–901`) is safe.
+
+**New finding, not in §2.5.** Selecting by the camera centre instead of by `Boot_At_X/Y`'s
+section changes WHICH scope is selected whenever the boot position lies within 160 px (X) or
+112 px (Y) of an act edge, because the camera clamps and `Boot_At` does not. That is the
+*correct* answer — it is what the first `Parallax_CheckBoundary` will select one frame later,
+and agreeing with it is the resolver's whole purpose — but `tools/boot_override_gate.py`
+derives its expectation from the **`Boot_At` section**: `RomAct.sec_ptr(gx, gy)` /
+`resolve_parallax(gx, gy)` (`:443–475`) restate `Section_GetSecPtrXY` over grid coordinates.
+It already has `camera_expect()` (`:432`) for the clamp. Under regions the expectation is "the
+region containing `camera_expect(px, py) + (CAM_SCREEN_HALF_W, CAM_SCREEN_HALF_H)`". **T2 is a
+rewrite of the gate's expectation derivation, not a re-run**, and the rewrite must be inverted
+(boot within 160 px of the right edge into a region that differs from the `Boot_At` section's
+old answer, and confirm the gate would have been RED under the old derivation).
+
+### 10.4 Q7 — RESOLVED: REGIONS is active
+
+empyrean `origin/main` at `2dbbbc4`, `contract/projects.json`, record `REGIONS`:
+`"state": "active"`, with the goal text recording *"PAUSE LIFTED 2026-09-09T07:08Z by the
+owner"* and naming the 2026-08-29 pause as history. §5's reading of `paused` was of `f6ad6f5`
+and was superseded the same day this document was written.
+
+### 10.5 Q1 — RESOLVED by inversion: whole-table invariants live in `.emp`
+
+Four builds in the clean worktree, a probe block appended to
+`games/sonic4/data/levels/ojz/act1/act_descriptor.emp` (discarded afterwards; the worktree was
+restored to `11647b64` and rebuilt to the same CRC):
+
+| build | change | result |
+|---|---|---|
+| 1 | local `struct RegionProbeRect {x0,x1,y0,y1: u16}`; `probe_rect()` ctor with the §3.4 per-row `ensure`s; `const PROBE_ROWS: [RegionProbeRect; 9]` = the nine §3.1 rectangles; `comptime fn probe_first_overlap(r: array) -> int` (nested `for i in 0..r.len { for j in (i + 1)..r.len { … r[i].x0 … return i*16+j } }`, `-1` if none); `comptime fn probe_area_sum(r: array) -> int` with a `comptime var s: int = 0` accumulator; two `ensure`s over them | **GREEN**, `crc=db5aeb9f len=847277` — byte-identical to the baseline: consts and guards emit nothing |
+| 2 | row 4 widened `x1: 4095 → 4200` (overlaps row 5) | **RED**: `[Error] Q1 PROBE: rectangles overlap (pair code 69)` (4·16+5) and `… do not tile the act (area 37963776)` — both from disk, both carrying the value |
+| 3 | row 4 restored; row 8 shrunk `x1: 6143 → 6000` | **RED** on the tiling ensure alone: `area 37455872` |
+| 4 | rows restored; `pub data OJZ_Probe_Regions: [RegionProbeRect; 9] = PROBE_ROWS` added | **GREEN**, 72 bytes emitted at `$185A2` (read back: `0000 07ff 0000 07ff 0800 0fff …`, nine correct rows), placed in the module's own section beside `OJZ_Act1_Sections` (`$18470`) with **no `map.toml` edit** |
+
+So: the §3.4 table that said "whole-table, in the generator plus a pytest, not in `.emp`" is
+**wrong**, and the two rows move to the comptime column. The shape for step 1 is a
+**single-source table**: `const OJZ_ACT1_REGION_ROWS: [Region; 9] = [region(...), …]`, the
+non-overlap and tiling `ensure`s over that const, and
+`pub data OJZ_Act1_Regions: [Region; 9] = OJZ_ACT1_REGION_ROWS` — so the guards check the very
+rows that are emitted, and a hand-written table has the same protection a generated one would.
+Three `.emp` facts this settled are recorded for reuse in the controller's memory
+(`emp-comptime-fold-and-zero-disp`). The real `Region` struct still goes in
+`engine/structs.emp`, because `parallax_crossing_gate.py`'s `struct_offsets()` parses that file.
+
+Step 1's "`games/sonic4/map.toml`: place the new data beside `OJZ_Act1_Sections`" is, on this
+measurement, a no-op for a table declared in `act_descriptor.emp` — sigil placed the probe there
+unaided. Keep the line as "confirm placement in the `.lst`", not as an edit.
+
+### 10.6 T1 — baseline GREEN on master, and the gate cannot run "unchanged"
+
+```
+parallax_crossing_gate: OJZ act 1, 2048px sections, boot (1792,1024) in (0, 0)
+  crossing A -> (1, 0) after 18 walked frames: staged 0x1347a (ParallaxConfig_OJZ_Default) (pcfg_transition=0, 15 frames left)
+  crossing B -> (0, 0) after 5 walked frames: snapped 0x14800 (EditorSceneBinding_OJZ_Act1_Sec0) (pcfg_transition=1)
+parallax_crossing_gate: PASS          exit 0 · 0.41 s · 17:29:30 local, uptime 2d 21:42
+```
+
+Run against a copy of the worktree's `s4.debug.bin` whose CRC32 was checked against the build
+line before the run (`db5aeb9f`, 847,277 B). A future red is therefore attributable.
+
+**New finding, not in §4.** The gate **reads `Parallax_Prev_Sec_X/Y` itself**: they are in its
+required-symbol list (`:640–648`, `SetupError` if absent), `walk_to_section()` polls them every
+frame to know a crossing has happened (`:464–488`), and the baseline sample reads them (`:413`).
+Step 3 deletes both symbols, so the gate as written exits 2 on a step-3 ROM — "run it unchanged"
+(§4 step 3, §8 T1) is not possible. What preserves the proof: the gate's crossing **detector**
+is repointed at `Region_Current` (a pointer change is a crossing) and its **verdict** logic
+(`Parallax_Current/Target_Config`, `Transition_Frames`, reg `$0B`, band count) is left untouched.
+The repoint lands in step 3's commit and is inverted there (poll a symbol that never changes and
+require the walk to FAIL at `WALK_MAX_FRAMES`, proving the detector is live). The proof
+statement becomes "same walk, same verdict, detector repointed" — weaker than "unchanged", and
+said so. T3's list gains this file.
+
+The gate's coincidence refusal still holds under regions: region (0,0)'s three rungs are
+`rg_parallax` = the editor binding, `ep_parallax` = Underwater, act default — distinct.
+
+### 10.7 §6.9 — the `*_port` scopes that lower `engine/structs.emp`, enumerated
+
+In sigil at `b64a8af8`, `crates/sigil-cli/tests/`: `structs_module.rs` (the shared harvest of
+`engine/structs.emp`) and nineteen tests that parse it directly or ride the harvest —
+`bg_anim_port`, `bg_port`, `buffers_port`, `camera_port`, `dma_queue_port`, `dplc_port`,
+`entity_window_port`, `game_loop_port`, `load_art_port`, `ojz_run_a_port`, `parallax_port`,
+`plane_buffer_port`, `section_port`, `sprites_port`, `test_p1_player_port`,
+`test_p2_player_states_port`, `tile_cache_port`, `vblank_port`, `tranche4_negative_probes`.
+Two carry an explicit **drift wall over `Act_*`/`Sec_*` names** (`parallax_port.rs:179`,
+`plane_buffer_port.rs:132`), so step 1 (two `Act` fields) and step 4 (two `Sec` fields deleted)
+each trip a sigil test by construction. The pairing §4 inferred from the name-move checklist is
+therefore measured, not inferred: both steps run sigil's suite with `--no-fail-fast` and land as
+a pair.
+
+### 10.8 §7.4 — superseded on master
+
+`docs/ENGINE_ARCHITECTURE.md` §7.12 was corrected on master on 2026-09-09 (the paragraph now
+opens with `$1C`, carries a dated correction note, and its table includes `$26 ep_patch_motion`).
+The stale-numbers finding is closed. What the implementing parcel still owes is the *regions*
+rewrite of §4.2 and §7.12 ("one preset per section" becomes "one preset per region").
+
+### 10.9 §1.4 — the reference sweep the study skipped, done
+
+**S.C.E.** (`Sonic-Clean-Engine-S.C.E.-`, read against stock `skdisasm/sonic3k.asm`):
+
+- Per-act dispatch is data (`Level_data_addr_RAM`, `Engine/Variables.asm:263–314`, populated by
+  `levartptrs`), per-AREA logic is hand-written code reached through one RAM function pointer
+  (`Engine/Core/Level Events.asm:10–13`). The shipped act's resize pointer is `dc.l 0`.
+- **It has a 16-byte camera rectangle record.** `Check_CameraInRange`
+  (`Engine/Objects/Check Range.asm:29–56`): `+0 min Y, +2 max Y, +4 min X, +6 max X`, then two
+  side-bit thresholds, tested against `Camera_Y_pos`/`Camera_X_pos` with four compares. Same
+  size, same reference point, same test as §1.3/§2.4. It is object-side, not a level table.
+- **It scans a threshold table on the camera path every frame.** `Resize_MaxYFromX`
+  (`:529–542`): linear over `{max-Y, camera-X}` longwords, `-1` terminated, sign bit = snap vs
+  glide; `WaterResize_MaxYFromX` (`:562`) is the same for water. Inherited from Sonic 3
+  (`s3.asm:32687–32701`). 1-D on X only.
+- Palette, deformation routine, HInt and music are NOT area-tabled anywhere in S.C.E.: palette
+  changes are `LoadPalette` (target, faded) or `LoadPalette_Immediate` (snap), none
+  camera-triggered; deformation is the per-act `BackgroundEvent` pointer plus one boss flag;
+  HInt is the single water-palette swap. Stock S3K does snap palette entries on camera
+  thresholds inside its resize state machine (`sonic3k.asm:38978–38981`).
+- Against: this lineage's area transitions carry side effects (PLC queueing, star-post save,
+  Tails' CPU routine, tile-anim counters — `sonic3k.asm:38893–38921`) that a pure
+  rectangle-to-preset table cannot express. Aeon's answer is the synthesis spec's own: *a region
+  says what a place is; a trigger says when it changes* — side effects stay a trigger mechanism.
+
+**Vectorman, Gunstar Heroes, Alien Soldier, Thunder Force IV, Ristar** (§10.9b; read from the
+full listings `<game>_disasm/code/disasm.asm` — the `labels.txt` dumps carry no names):
+
+- **None of the five stores area geometry as data.** Every spatial test found is a hardcoded
+  `cmpi.w` in per-stage code, or a threshold ladder on a 1-D progress scalar.
+- **Ristar** (VERIFIED): camera-X band gates as compare pairs (`disasm.asm:21143–21148`,
+  `$011FB4`); one hand-written player AABB latched into a flag bit (`:21134–21141`, `$011F8E`);
+  camera X and player X tested in adjacent instructions (`$010C7A`). Its per-stage identity
+  record IS data — 2 bytes `{hint_idx, vblank_idx}` at `$05612C`, each pre-scaled ×4 into a
+  pointer table — keyed by stage, not position. **And it latches on identity, not geometry:**
+  `$010958` caches the requested ID in `$E673`, compares against the loaded ID in `$E671`
+  (bit 7 = loaded), and skips the 32-byte palette record reload when equal. No dead-band
+  anywhere. Presentation switching is a scripted sub-mode sequencer (`$01163A`), not spatial.
+- **Gunstar Heroes** (VERIFIED): a descending compare ladder on an *accumulated scroll
+  distance* `$CA04` (`:56923–56929`, `$5FC28`), plus a 15-rung routine-counter event list.
+- **Thunder Force IV** (VERIFIED): a per-stage frame tick `$8C80` gates tile/palette loads;
+  position equals time only because the game auto-scrolls. One HInt install per stage.
+- **Alien Soldier, Vectorman**: NOT RECOVERABLE — the compare ladders present are boss HP,
+  velocity clamps and object hitboxes (Vectorman's 4-word `{x_max,y_max,x_min,y_min}` walked
+  with `cmp.w (a1)+,d0` at `$0085EE`/`$065418` is collision, not area).
+- **A correction to our own research file:** `ristar_disasm/ANALYSIS.md:152` calls `$C01E` a
+  "stage script interpreter"; the listing (`:14690–14742`) shows a demo-input recorder/player
+  (button, duration pairs replayed from `$C0C4`/`$C0D4`). `docs/research/ristar-techniques.md`
+  should be checked for the same claim — booked, not fixed here.
+
+Two of the sweep's recommendations were weighed against §1: **(i)** carry an identity *index*
+rather than a pointer (Ristar's shape) — not adopted, for §1.5's reason (nothing downstream
+reads a region id, and the pointer removes an indirection from the hot path; the split can be
+reintroduced if per-identity fields ever appear); **(ii)** make the reference point selectable
+(Ristar tests camera and player) — not adopted; the camera centre is deliberate (§2.1) and a
+player-referenced region is a *trigger* in the synthesis spec's vocabulary. **(iii)** Ristar's
+latch-on-identity is the strongest precedent in the corpus for **step 6** (skip the install when
+`rg_effects` is unchanged); it does not change step 6's gating, which rests on the DEBUG lab
+chords mutating channels behind the guard's back, but it says the guard is the norm, not an
+optimisation.
+
+**What the sweep changes in §1.4.** Nothing in the shape; one thing in the argument. The
+rectangle-with-four-compares is no longer "a generalisation of ICZ2's hand-written box" alone —
+it is a record S.C.E. ships and scans against the camera, so the *form* has a second shipped
+precedent. What remains without precedent in the corpus is the *table*: no reference engine
+holds per-area identity as an array of rectangles. That is still the novel bet, and it is still
+the owner's Q2.
+
+### 10.10 What remains open, and who closes it
+
+| item | status | who |
+|---|---|---|
+| Q2 — sub-section edges wanted? | card `REGIONS-V1-WORTH-IT` on the owner's console since 09:30Z | owner |
+| Q3 — boot installs whole preset? | needs the step 5 fixture on a screen (T6) | implementing parcel |
+| Q8 — where `effectsRef` lives | tools sequencing across aurora/empyrean | whoever sequences the tools parcels |
+| T1 | baseline green; gate needs the §10.6 detector repoint at step 3 | step 3 |
+| T2 | expectation rewrite per §10.3, inverted | step 3 |
+| T3 | `sec5_band_witness`, `row_remap_witness` **and `parallax_crossing_gate`** repointed | step 3 |
+| T4–T7 | unchanged from §8 | steps 4–5 |
+
+### 10.11 Revised net
+
+| step | emitted bytes | RAM |
+|---|---:|---:|
+| 1 — record + table | +150 | 0 |
+| 2 — resolvers retyped | 0 | 0 |
+| 3 — rectangle crossing | **+74** | +12 |
+| 4 — delete `Sec` identity | −72 | 0 |
+| **parcel 1 (steps 1–4)** | **+152** | **+12** |
+
+Still a ROM loss; still to be argued for on the sub-section edge and nothing else. Every figure
+above remains an emitted-byte derivation (§4.0 caveat 1 stands: the deb2 appendix makes the ROM
+length delta unpredictable); the first implementing step replaces them with an `EndOfRom` delta.
