@@ -51,14 +51,21 @@ use engine.z80_bus.{z80_stopped}
 pub const BG_LAYOUT_SIZE  = 64*64*2     // 8192 bytes (full Plane B nametable)
 // The shared BG tile region runs from BG_TILE_BASE_VRAM up to the relocated
 // sprite attr table at $B800 — so $8000..$B7FF = 448 tiles is the PHYSICAL run.
-// It is no longer the clamp: since EFFECTS-W1 item 9d the top 48 of those slots
-// are the `waterline_strips` region (games/sonic4/vram.toml, 1424..1471), so the
-// BG arena OWNS only BG_TILE_CAPACITY = 400 of them and a 448-tile blob would
-// spray over the waterline art rather than over the SAT. The clamp below uses the
-// declared capacity; this constant stays because the `ensure` under it is what
-// keeps the two facts from crossing.
+// It is no longer the clamp: the top of that run has been carved away by other
+// regions, so the BG arena owns only BG_TILE_CAPACITY of it and a full 448-tile
+// blob would spray over its neighbours' art rather than over the SAT. The clamp
+// below uses the declared capacity; this constant stays because the `ensure`
+// under it is what keeps the two facts from crossing.
+//
+// NO FIGURE IS STATED HERE ON PURPOSE. This comment twice said "400" and twice
+// named a slot range, and both went stale under carves it never saw: the arena
+// went 448 -> 400 (waterline strips) -> 388 -> 376 (the spring, in two edits),
+// while the prose sat still. A fresh literal would stale on the identical clock.
+// The live values are `BG_TILE_CAPACITY` itself (asserted against vram.toml by
+// the game's own `ensure`) and the generated map, `docs/generated/vram-map-<game>.md`
+// — read one of those, never a sentence.
 const BG_TILE_REGION_BYTES = VRAM_SPRITE_TABLE - BG_TILE_BASE_VRAM   // $3800 = 14336 B = 448 tiles
-const BG_TILE_CAPACITY_BYTES = BG_TILE_CAPACITY * 32                 // $3200 = 12800 B = 400 tiles
+const BG_TILE_CAPACITY_BYTES = BG_TILE_CAPACITY * 32                 // the arena's declared size in bytes; see above for why no total is written here
 ensure(BG_TILE_CAPACITY_BYTES <= BG_TILE_REGION_BYTES,
        "games/<game>/vram.toml declares bg_region larger than the physical $8000..$B7FF run: BG_TILE_CAPACITY = {BG_TILE_CAPACITY} tiles = {BG_TILE_CAPACITY_BYTES} bytes against {BG_TILE_REGION_BYTES}. The BG arena is bounded above by the relocated sprite attribute table at VRAM_SPRITE_TABLE, so a capacity past it is not a bigger arena, it is a blob clamp that lets act art overwrite the SAT")
 
