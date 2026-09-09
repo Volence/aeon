@@ -206,16 +206,25 @@ class TestRoundtripRoll(unittest.TestCase):
         self.assertEqual(len(self.desc['voices'][0]), 32,
                          "FmPatch must be exactly 32 bytes (incl. SSG-EG group + pad)")
 
-    def test_no_patch_event_emitted(self):
-        # SFX must NOT emit MEV_PATCH: the engine's Sfx_Steal pre-loads the SFX's own
-        # voice (sx_patch_base); a stream MEV_PATCH re-resolves via the MUSIC patch
-        # table and OVERWRITES it with garbage, corrupting the SFX timbre. smpsSetvoice
-        # $00 is dropped (the steal already loaded voice 0). Regression guard for the
-        # ring/FM-SFX "wrong timbre" bug found via VGM register capture.
+    def test_no_redundant_patch_event_emitted(self):
+        # A SINGLE-VOICE SFX still emits no MEV_PATCH. Roll's source opens with
+        # `smpsSetvoice $00`, which names the voice the channel is ALREADY on
+        # (Sfx_Steal preloads voice 0 and Sfx_BeginSound's slot wipe zeroes sc_patch),
+        # so it is redundant and dropped. This is the regression guard for the
+        # ring/FM-SFX "wrong timbre" bug found via VGM register capture — and it is
+        # what keeps every single-voice SFX byte-identical across SP-6.
+        #
+        # NOTE THE NARROWED CLAIM. This used to assert that an FM SFX must NEVER emit
+        # MEV_PATCH, on the rationale that the engine would re-resolve it through the
+        # MUSIC patch table. That rationale was already stale when it was written down:
+        # d07fb811 gave Fm_PatchPtr a channel-class test hours after a6f1fa25 added
+        # this test, and SP-6 then made the index take effect. A genuine MID-STREAM
+        # change is now legal; a REDUNDANT one is still dropped. See
+        # test_midstream_voice_change_emits_patch for the other half.
         events = self.desc['channels'][0]['events']
         patch_events = [e for e in events if isinstance(e, Patch)]
         self.assertEqual(len(patch_events), 0,
-                         "FM SFX must NOT emit MEV_PATCH (the steal pre-loads the voice)")
+                         "a single-voice FM SFX must not emit a redundant MEV_PATCH")
 
     def test_events_contain_notes(self):
         events = self.desc['channels'][0]['events']
@@ -361,6 +370,96 @@ class TestRoundtripSkid(unittest.TestCase):
         # implicit channel-boundary end).
         self.assertIsInstance(psg1_ch['events'][-1], End)
         self.assertIsInstance(psg2_ch['events'][-1], End)
+
+
+def _two_voice_src(setvoice_seq):
+    """A minimal 2-voice FM SFX whose FM5 stream issues `setvoice_seq` in order.
+
+    The two voice blocks differ in ALGORITHM (0 vs 4), which is the field
+    Fm_PatchPtr's consumer (Fm_SetVolume -> CarrierMaskTableZ) actually branches on,
+    so a test that only checked "some Patch was emitted" cannot pass by accident on
+    two identical voices."""
+    body = "".join(f"\tsmpsSetvoice        ${v:02X}\n\tdc.b\tnC5, $04\n"
+                   for v in setvoice_seq)
+    voice = ("\tsmpsVcAlgorithm     ${alg:02X}\n"
+             "\tsmpsVcFeedback      $04\n"
+             "\tsmpsVcUnusedBits    $00\n"
+             "\tsmpsVcDetune        $03, $03, $03, $03\n"
+             "\tsmpsVcCoarseFreq    $01, $00, $05, $06\n"
+             "\tsmpsVcRateScale     $02, $02, $03, $03\n"
+             "\tsmpsVcAttackRate    $1F, $1F, $1F, $1F\n"
+             "\tsmpsVcAmpMod        $00, $00, $00, $00\n"
+             "\tsmpsVcDecayRate1    $06, $09, $06, $07\n"
+             "\tsmpsVcDecayRate2    $08, $06, $06, $07\n"
+             "\tsmpsVcDecayLevel    $0F, $01, $01, $02\n"
+             "\tsmpsVcReleaseRate   $0F, $0F, $0F, $0F\n"
+             "\tsmpsVcTotalLevel    $00, $13, $30, $16\n")
+    return ("Sound_XX_Header:\n"
+            "\tsmpsHeaderStartSong 3\n"
+            "\tsmpsHeaderVoice     Sound_XX_Voices\n"
+            "\tsmpsHeaderTempoSFX  $01\n"
+            "\tsmpsHeaderChanSFX   $01\n"
+            "\tsmpsHeaderSFXChannel cFM5, Sound_XX_FM5,\t$00, $02\n"
+            "Sound_XX_FM5:\n"
+            + body +
+            "\tsmpsStop\n"
+            "Sound_XX_Voices:\n"
+            + voice.format(alg=0) + voice.format(alg=4))
+
+
+class TestMidStreamVoiceChange(unittest.TestCase):
+    """SP-6 — a mid-stream `smpsSetvoice` in an SFX is expressible, and bounded.
+
+    The engine half is Fm_PatchPtr resolving an SFX voice as
+    `sx_patch_base + sc_patch*FmPatch_len` instead of returning sx_patch_base raw.
+    This class covers the transcoder half: which smpsSetvoice lines become a
+    MEV_PATCH, which are dropped as redundant, and which are refused."""
+
+    def test_midstream_voice_change_emits_patch(self):
+        """0 then 1: the leading $00 is dropped, the $01 becomes MEV_PATCH 1."""
+        desc = transcode_sfx_source(_two_voice_src([0x00, 0x01]), 0xB1)
+        self.assertEqual(len(desc['voices']), 2, "fixture must carry both voices")
+        patches = [e for e in desc['channels'][0]['events'] if isinstance(e, Patch)]
+        self.assertEqual([p.patch for p in patches], [1],
+                         "exactly one MEV_PATCH, naming voice 1")
+
+    def test_return_to_voice_zero_is_reachable(self):
+        """0,1,0 must emit TWO patches (to 1, back to 0).
+
+        This is the leg that would fail under a RELATIVE design: with the pointer
+        re-based on each change there is no way back to voice 0, and the second
+        drop-to-zero would either be dropped as 'already 0' or drift."""
+        desc = transcode_sfx_source(_two_voice_src([0x00, 0x01, 0x00]), 0xB1)
+        patches = [e for e in desc['channels'][0]['events'] if isinstance(e, Patch)]
+        self.assertEqual([p.patch for p in patches], [1, 0])
+
+    def test_repeated_same_voice_is_dropped(self):
+        """1,1 emits ONE patch: the second names the voice already selected."""
+        desc = transcode_sfx_source(_two_voice_src([0x01, 0x01]), 0xB1)
+        patches = [e for e in desc['channels'][0]['events'] if isinstance(e, Patch)]
+        self.assertEqual([p.patch for p in patches], [1])
+
+    def test_voice_index_past_the_bank_raises(self):
+        """The refusal that SURVIVES SP-6: an index the blob does not carry.
+
+        The fixture declares 2 voices, so $02 would index off the end of the SFX's
+        own FmPatch bank. This must be loud, not silently clamped."""
+        with self.assertRaises(TranscodeError) as ctx:
+            transcode_sfx_source(_two_voice_src([0x00, 0x02]), 0xB1)
+        msg = str(ctx.exception)
+        self.assertIn('2 voice', msg, f"refusal must name the bank size; got: {msg}")
+
+    def test_refusal_no_longer_blames_the_music_patch_table(self):
+        """The stale rationale must not come back.
+
+        `_check_sfx_voice`'s predecessor refused every non-zero index because a
+        stream MEV_PATCH would 're-resolve via the MUSIC patch table'. d07fb811
+        closed that hole hours after the refusal was written, and SP-6 made the
+        index take effect; a refusal message still saying so would send the next
+        reader after a bug that cannot happen."""
+        with self.assertRaises(TranscodeError) as ctx:
+            transcode_sfx_source(_two_voice_src([0x00, 0x02]), 0xB1)
+        self.assertNotIn('MUSIC patch table', str(ctx.exception))
 
 
 class TestPrioritiesAre7Bit(unittest.TestCase):

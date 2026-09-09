@@ -1001,6 +1001,19 @@ section sound_sfx (cpu: z80) {
 
         // --- wipe the chosen slot, then populate it from the record ---------------
         // (the slot may be a just-restored steal victim — wipe clears stale state.)
+        //
+        // SP-6 DEPENDS ON THIS WIPE, and names it here because the dependency is
+        // invisible from the consumer. Fm_PatchPtr resolves an SFX voice as
+        // sx_patch_base + sc_patch*FmPatch_len, and NOTHING on the SFX path ever
+        // writes sc_patch except the stream's own MEV_PATCH — so "the SFX starts on
+        // voice 0" is true only because this wipe zeroes sc_patch (+6) along with
+        // the rest of the slot. Delete or narrow the wipe and a slot recycled from a
+        // previous SFX carries that sound's last voice index into this one's very
+        // first Fm_SetVolume, which reads a garbage algorithm and masks the wrong
+        // carrier: precisely the defect d07fb811 fixed. The Stage C re-ping path
+        // (.reping_scan above) deliberately does NOT come through here — it refreshes
+        // a countdown on a STILL-RUNNING stream and must keep that stream's current
+        // voice, so it is not an exception to this rule.
         push    ix                       // save the slot ptr across the wipe
         pop     hl                       // hl = &SfxChannel[slot] (wipe cursor)
         // S5: 8-bit djnz counter. The 16-bit form (dec bc / ld a,b / or c / jr nz)

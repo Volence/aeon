@@ -274,25 +274,59 @@ section sound_fm (cpu: z80) {
 
     // ------------------------------------------------------------------
     // Fm_PatchPtr — compute the FmPatch pointer for the channel's voice into hl.
-    // In:  ix = SeqChannel.  Out: hl = FmPatch ptr.
-    // SFX channels load their voice from sx_patch_base (a window ptr), NOT the
-    // music sc_patch index into SND_SEQ_PATCHTAB. Return it directly so callers
-    // (Fm_SetVolume) read the SFX's OWN algorithm + base TLs — else the carrier
-    // mask comes from a stale/empty music patch and the volume fade hits the wrong
-    // carrier. Sfx_Restore calls this with ix = the MUSIC channel, so that path
-    // keeps the music branch.
-    // Music: hl = (SND_SEQ_PATCHTAB) + patch*32. FmPatch_len = 32 (a power of two);
-    // multiply by five `add hl,hl` shifts.
+    // In:  ix = SeqChannel or SfxChannel.  Out: hl = FmPatch ptr.
+    //
+    // ONE expression, TWO banks: hl = bank_base + sc_patch*FmPatch_len, where the
+    // bank differs by channel class and NOTHING else:
+    //   MUSIC -> (SND_SEQ_PATCHTAB), the loaded song's patch table.
+    //   SFX   -> (ix+sx_patch_base), the SFX blob's OWN inline FmPatch bank, stamped
+    //            once by Sfx_BeginSound from the blob's per-channel record and NEVER
+    //            mutated afterwards.
+    // Sfx_Restore calls this with ix = the MUSIC channel, so that path keeps the
+    // music bank (see Sfx_Restore's own note).
+    //
+    // SP-6 — THE INDEX IS THE MECHANISM, AND WHY IT IS SAFE.
+    // This branch used to return sx_patch_base RAW, discarding sc_patch entirely,
+    // which pinned every SFX to voice 0 of its own bank. That is what made a
+    // mid-stream `smpsSetvoice $01` inexpressible and is what tools/sfx_transcode.py
+    // refused. Folding the index in is the whole of the engine-side fix, and it is
+    // the same shape all four SMPS references use (per-track voice base + N*size;
+    // S1 :2329, S2 :3303-3319, S3K zGetFMInstrumentPointer :1461-1478, S.C.E.
+    // Flamedriver :1662-1670 — all `base + N*25` off a PER-TRACK pointer, exactly
+    // this, only their record is 25 bytes and ours is 32).
+    //
+    // ABSOLUTE, NOT RELATIVE — the trap this design had to dodge. sx_patch_base is
+    // the bank BASE and stays the bank base for the SFX's whole life; the selected
+    // voice lives in sc_patch. Re-pointing sx_patch_base at the new voice instead
+    // would have made every subsequent change RELATIVE to the last one: a second
+    // voice change would drift by the first one's offset, and voice 0 would be
+    // unreachable forever after (there is no per-slot copy of the base to get back
+    // to — the blob window base the dispatcher used lives in SND_SFX_DISP_BASE,
+    // which belongs to the SFX being STARTED, not the one being ticked). With the
+    // base immutable, `MEV_PATCH 0` returns to voice 0 like any other index.
+    //
+    // sc_patch is 0 at dispatch by CONSTRUCTION, not by luck: Sfx_BeginSound wipes
+    // all SfxChannel_len bytes of the chosen slot before populating it, so a slot
+    // recycled from a previous SFX cannot carry a stale index into this multiply.
+    // (Without that wipe this change would reintroduce the exact bug d07fb811 fixed
+    // — Fm_SetVolume reading a garbage algorithm and masking the wrong carrier.)
+    // SfxChannel.sc_patch is layout-pinned equal to SeqChannel.sc_patch by an
+    // `ensure` in sound_constants.emp, which is what lets one expression serve both.
+    //
+    // FmPatch_len = 32 (a power of two): five `add hl,hl` shifts, no multiply.
+    // The music bank load is hoisted ABOVE the class branch on purpose — `ld de,(nn)`
+    // does not touch flags, so it is safe between the `cp` and the `jr c`, and paying
+    // its 20 T on the SFX path buys back the branch's duplicate tail.
     // ------------------------------------------------------------------
     // Contract: out(hl) = FmPatch ptr; clobbers af, de (patch-table base load).
     // preserves bc (Snd_ChanClass credits it) (+ ix inherited).
     pub proc Fm_PatchPtr () out(hl) clobbers(af, de) preserves(bc) {
-        call    Snd_ChanClass            // CARRY clear => ix on the SFX page => SFX
-        jr      c, .music
-        ld      l, (ix+sx_patch_base)
-        ld      h, (ix+(sx_patch_base+1)) // hl = SFX FmPatch window ptr
-        ret
-    .music:
+        call    Snd_ChanClass            // CARRY set => MUSIC; clear => ix on the SFX page
+        ld      de, (SND_SEQ_PATCHTAB)   // music bank (flags-neutral: LD dd,(nn) keeps carry)
+        jr      c, .have_bank
+        ld      e, (ix+sx_patch_base)
+        ld      d, (ix+(sx_patch_base+1)) // SFX bank = this SFX's own inline FmPatch bank
+    .have_bank:
         ld      a, (ix+sc_patch)
         ld      l, a
         ld      h, 0                     // hl = patch
@@ -301,8 +335,7 @@ section sound_fm (cpu: z80) {
         add     hl, hl                   // hl = patch*8
         add     hl, hl                   // hl = patch*16
         add     hl, hl                   // hl = patch*32  (= patch*FmPatch_len)
-        ld      de, (SND_SEQ_PATCHTAB)   // base = loaded patch-table ptr ($8000-window)
-        add     hl, de                   // hl = table base + patch*32
+        add     hl, de                   // hl = bank base + patch*FmPatch_len
         ret
     }
 

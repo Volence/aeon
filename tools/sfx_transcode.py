@@ -371,22 +371,46 @@ def _s3k_op_reorder(vals):
     return [vals[3], vals[1], vals[2], vals[0]]
 
 
-def _check_sfx_voice0(vi):
-    """Validate an SFX smpsSetvoice and signal that NO MEV_PATCH should be emitted.
+def _check_sfx_voice(vi, cur_vi, voice_count):
+    """Resolve an SFX `smpsSetvoice N` to "emit a MEV_PATCH?" — SP-6.
 
-    An SFX's FM voice is pre-loaded by the engine's Sfx_Steal directly from the SFX
-    blob's own bank (sx_patch_base). A stream MEV_PATCH would re-resolve the patch via
-    the MUSIC patch table (SND_SEQ_PATCHTAB) — the WRONG table — and OVERWRITE the
-    correct voice with garbage (zeros with no song loaded, or a music voice in a DEBUG
-    build), corrupting the SFX timbre. Verified via VGM register capture: the ring
-    uploaded the correct patch, then a zeroed one ~16ms later. All current SFX use a
-    single voice 0 (== the steal's voice), so the opcode is purely redundant — drop it.
-    A non-zero index is a real mid-stream voice change the engine can't resolve from the
-    SFX bank yet — fail loudly rather than silently corrupt."""
-    if vi != 0:
+    Returns True if the event must be emitted, False if it is redundant.
+    Raises TranscodeError if the index names a voice the blob does not carry.
+
+    THE OLD REFUSAL AND WHY ITS STATED REASON WAS WRONG. This function used to
+    refuse every non-zero index, and the reason it gave was that a stream MEV_PATCH
+    "re-resolves the patch via the MUSIC patch table (SND_SEQ_PATCHTAB) — the WRONG
+    table". That WAS true, and was measured by VGM register capture (the ring
+    uploaded its correct patch and then a zeroed one ~16 ms later, commit a6f1fa25,
+    2026-06-21 11:23). It stopped being true FIVE HOURS LATER: d07fb811 (16:31) gave
+    Fm_PatchPtr a channel-class test, and an SFX channel has resolved through its own
+    `sx_patch_base` and never reached SND_SEQ_PATCHTAB ever since. (9ccd89d8 is the
+    later .emp port of that same behaviour, which is why a history filter on
+    engine/sound/sound_fm.emp appears to date it to July.) The comment outlived the
+    hole it described for two and a half months and was still steering design.
+
+    The limitation the refusal was ACTUALLY protecting against, from d07fb811 until
+    SP-6, was an INDEX DISCARD, not a wrong-table read: Fm_PatchPtr returned
+    sx_patch_base raw with no `+ N*FmPatch_len` term, so a non-zero N had nowhere to
+    take effect and would have played voice 0 while claiming to play voice N.
+
+    SP-6 closed that: Fm_PatchPtr now resolves sx_patch_base + sc_patch*FmPatch_len,
+    the same per-track `base + N*size` shape S1/S2/S3K/S.C.E. all use. So a non-zero
+    index is expressible, and the only remaining refusal is the honest one — a voice
+    the blob does not carry, which would index off the end of the bank.
+
+    REDUNDANCY IS TRACKED, NOT ASSUMED. `cur_vi` is the voice the channel is already
+    on (0 at stream start: Sfx_Steal preloads voice 0 and Sfx_BeginSound's slot wipe
+    zeroes sc_patch). An index equal to it emits nothing. This is what keeps every
+    single-voice SFX byte-identical across this change: their sources open with
+    `smpsSetvoice $00`, which was dropped before and is still dropped now — for the
+    same reason, spelled correctly."""
+    if vi < 0 or vi >= voice_count:
         raise TranscodeError(
-            f"SFX smpsSetvoice ${vi:02X}: mid-stream voice change is unsupported (the "
-            f"engine plays only the steal-preloaded voice 0; see the SFX patch-corruption fix)")
+            f"SFX smpsSetvoice ${vi:02X}: the blob carries {voice_count} voice(s) "
+            f"(0..{voice_count - 1}), so this index would resolve past the end of the "
+            f"SFX's own FmPatch bank. Check the source's voice block.")
+    return vi != cur_vi
 
 
 # --- SFX channel-volume bake -------------------------------------------------
@@ -1086,7 +1110,13 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
                     args = _split_args(arg_str)
                     vi = _parse_int(args[0]) if args else 0
                     if is_fm:
-                        _check_sfx_voice0(vi)   # drop the redundant+corrupting MEV_PATCH
+                        # SP-6: a real mid-stream voice change is now expressible.
+                        # `voices` is the bank this blob will carry (phase 3 collected
+                        # every smpsVc* block); voice_idx is the channel's current
+                        # voice, so a repeat of the same index still emits nothing.
+                        if _check_sfx_voice(vi, voice_idx, len(voices)):
+                            events.append(Patch(vi))
+                            voice_idx = vi
                 elif macro == 'smpsPan':
                     args = _split_args(arg_str)
                     dir_tok = args[0].strip() if args else '0'
