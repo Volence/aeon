@@ -927,6 +927,19 @@ pub const SND_SEQ_TRACE_LEN  = 32                 // 32-byte trace ring of dispa
 // auto-tracks per-channel-struct growth.
 pub const SND_FM_SCRATCH     = SND_SEQ_END
 pub const SND_FM_SCRATCH_LEN = 5                  // Part,Ch,Log,Mask + Task-6 Op index
+// The carrier-mask cell's offset inside that block, as ONE authority two modules
+// read: sound_fm.emp's Fm_ScratchMask (the Z80-side definition, with an `ensure`
+// tying it to this) and sound_api.emp's SND_FM_SCRATCH_MASK (the 68k-side bus
+// address, which is how the byte gets a row in the .lst for
+// tools/sfx_voice_change_witness.py to resolve). It lives HERE because the
+// alternative — importing the Z80 module's const into the 68k one — poisons
+// comptime address folding across the Z80 modules; see sound_api.emp's note.
+pub const SND_FM_SCRATCH_MASK_OFS = 3
+// The OTHER half of the joint (sound_fm.emp carries the first). Both pin $1C9F, so
+// a sequencer-block layout move fails HERE or THERE, loudly, instead of quietly
+// aiming the witness at a neighbouring byte.
+ensure(SND_FM_SCRATCH + SND_FM_SCRATCH_MASK_OFS == $1C9F,
+       "the FM carrier-mask scratch cell moved to {SND_FM_SCRATCH + SND_FM_SCRATCH_MASK_OFS} — re-pin this and sound_fm.emp's matching ensure, or tools/sfx_voice_change_witness.py reads the wrong Z80 byte")
 
 ensure(SND_FM_SCRATCH >= SND_SEQ_END,
        "FM scratch ({SND_FM_SCRATCH}) overlaps sequencer channels ({SND_SEQ_END})")

@@ -147,6 +147,28 @@ ensure(Fm_ScratchOp - SND_FM_SCRATCH < SND_FM_SCRATCH_LEN,
 ensure(Fm_ScratchCh == Fm_ScratchPart + 1,
        "the per-operator loops walk Fm_ScratchPart -> Fm_ScratchCh with one inc hl")
 
+// SP-6 — THE INSTRUMENT'S ADDRESS HAS TWO SPELLINGS AND THIS IS HALF THE JOINT.
+// tools/sfx_voice_change_witness.py reads this byte over the bus to ask which FM
+// voice the driver resolved, so it needs the address in the .lst. Nothing in the
+// Z80 modules reaches the listing (checked: zero engine/sound constants appear as
+// EQU rows), so sound_api.emp publishes the 68k-side bus address as
+// SND_FM_SCRATCH_MASK — the same way SND_DMA_ACTIVE_SLOT and STAT_SEQ_ACTIVE are
+// published, and the only pattern available. It cannot simply IMPORT this const:
+// a 68k module reaching into a Z80 one poisons comptime address folding and broke
+// sound_psg.emp's `ld (nn),a` forms in all four shapes (measured, then reverted).
+//
+// So the address is spelled twice, which is a drift hazard, and these two ensures
+// are what close it — the SND_PAUSED / SND_STAT_SEQ_ACTIVE pattern the driver
+// header describes, because seam-1 injects only a FIXED constant list into the
+// resident modules and a NEW sound_constants.emp name is invisible here. Both
+// sides pin the same ABSOLUTE, so a layout move is build-fatal on one side or the
+// other rather than silently pointing the witness at a neighbouring byte. That
+// matters more than it looks: a witness reading the wrong Z80 byte sees a value
+// that never moves, and its poison legs would then report a real defect that is
+// not there.
+ensure(Fm_ScratchMask == $1C9F,
+       "Fm_ScratchMask ({Fm_ScratchMask}) moved off $1C9F, the absolute sound_constants.emp pins sound_api.emp's SND_FM_SCRATCH_MASK mirror to — re-pin BOTH or tools/sfx_voice_change_witness.py reads the wrong Z80 byte")
+
 section sound_fm (cpu: z80) {
 
     // ------------------------------------------------------------------

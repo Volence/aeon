@@ -73,6 +73,26 @@ equ PARAM_FLAGS       = SND_Z80_BASE + SND_MUSIC_PARAM_FLAGS
 equ PARAM_PATCHPTR_LO = SND_Z80_BASE + SND_MUSIC_PARAM_PATCHPTR
 equ PARAM_PATCHPTR_HI = PARAM_PATCHPTR_LO + 1
 
+// SP-6 INSTRUMENT SLOT — no 68k code reads this one; it exists so the byte has a
+// name in the LISTING. tools/sfx_voice_change_witness.py reads Fm_ScratchMask over
+// the bus to ask which FM voice the driver resolved, and nothing in the Z80 modules
+// reaches the .lst (checked: zero engine/sound constants appear as EQU rows — the
+// only two Z80 addresses that do, SND_DMA_ACTIVE_SLOT and STAT_SEQ_ACTIVE, are both
+// published 68k-side exactly like this). Without a row here the witness would have
+// to hardcode a Z80 address that moves whenever the sequencer RAM block above it
+// changes size, which is the failure mode spring_launch_witness already paid for
+// once. It costs zero bytes: an equ emits no code.
+//
+// IT DOES NOT IMPORT Fm_ScratchMask, and that is deliberate rather than lazy.
+// Adding `use engine.sound_fm.{Fm_ScratchMask}` here — a 68k module reaching into
+// a Z80 one — poisoned comptime address folding across the Z80 modules and broke
+// sound_psg.emp's `ld (nn),a` forms with `lower.z80-unsupported` in all four
+// shapes. Measured, then reverted. Both sides instead read the ONE authority in
+// sound_constants.emp, and sound_fm.emp carries an `ensure` that its own
+// Fm_ScratchMask still equals this sum, so the mirror cannot drift without the
+// build saying so.
+equ SND_FM_SCRATCH_MASK = SND_Z80_BASE + SND_FM_SCRATCH + SND_FM_SCRATCH_MASK_OFS
+
 // The two song tables (games/sonic4 sound data — native labels in
 // games.sonic4.mt_bank_blob) — read as link-time imm32 sources below.
 equ SONG_TABLE       = extern("SongTable")
