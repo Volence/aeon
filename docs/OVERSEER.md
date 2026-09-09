@@ -136,17 +136,16 @@ planning phase; it books everything with provenance. The current arc and any own
 rulings live in the session memory and the most recent `docs/superpowers/*handoff*` /
 `*summary*` docs. Do not duplicate queue content here; this file only says where it is.
 
-## Landing lane (aeon owns the aeon↔sigil pair)
+## Landing lane (aeon certifies ALONE — the paired freeze is RETIRED)
 
-- Byte-moving parcels land as aeon+sigil PAIRS through THIS repo's overseer: merge →
-  rebuild all four shapes → re-verify on the merged tree → effects-gate ritual (if
-  `engine/effects/*`, `engine/level/bg_anim.emp`, or `engine/system/buffers.emp`
-  moved) → sigil `refreeze --freeze NAME --ab <prose evidence>` → **commit the freeze** →
-  `refreeze --attest` on the committed tree (see the block below — this REPLACES the
-  hand-run strict suite, and the tool sets the flag so the rule no longer has to carry a
-  token nobody audits) → commit `provenance.toml` → push both. Aggregate totals only, never
-  a tail; the fully-green bar moves, so derive it and do not quote this file.
-  `refreeze --check` is NOT the goldens.
+- **A byte-mover lands with our own gates and asks sigil for nothing:** merge → **assert the
+  parcel's content is present** (a failed merge is silent and rebuilds master's numbers) →
+  four shapes, ROMs deleted first → re-verify on the merged tree → effects-gate ritual (only
+  if `engine/effects/*`, `bg_anim.emp` or `buffers.emp` moved) → push. Totals, never a tail.
+- **⚠ The paired-freeze recipe is DELETED, not annotated — do NOT reconstruct it.** `refreeze`
+  and `provenance.toml` are sigil's, on sigil's clock. Owner *CUT THE CEREMONY* (1),
+  2026-09-02T18:20:19Z. **The `--attest`/strict/pin blocks below are the SAME retired ritual:
+  read them as sigil's, never as ours.** Why: DEFERRED_WORK, *THERE WAS NO FREEZE DEBT*.
 
   **⚠ THE MANUAL STRICT SUITE IS SUPERSEDED — RUN THE TOOL (2026-08-27).** Where this file
   previously told you to run `SIGIL_STRICT_GATE=1 AEON_DIR=<clean> cargo test --release
