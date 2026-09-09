@@ -117,6 +117,17 @@ def walk(stream, dict_len):
     The extent is cross-checked against `s4lz._decompress_v3` in its own test
     below, so this walker cannot drift away from the shipped reference decoder
     without saying so.
+
+    RELATED, and the reason this file only covers HALF the release ROM's exposure:
+    `tools/gen_compression_vectors.py` has its own `walk_v3_stream`, and it already
+    hard-fails generation on `out_len != header size` and on a match reaching below
+    the dictionary. That generator runs on EVERY build (build.sh line ~561), so the
+    DEBUG compression-self-test vectors are gated there and are not swept here. The
+    two together cover both corpora a build can decode: those vectors (DEBUG boot
+    self-test) and the generated block streams below (the release streaming path).
+    Neither walker should be merged into the other casually -- that one asserts
+    exact equality on payloads it also authored, this one asserts the decoder's
+    looser +0/+1 word-pad contract over data it did not.
     """
     version = stream[3]
     declared = struct.unpack_from(">H", stream, 0)[0]
