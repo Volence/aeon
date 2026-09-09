@@ -30541,6 +30541,23 @@ its else-branch must print the failure text it actually matched on** rather than
 >   if sigil rewords the sentence this file stays green while the real pre-flight
 >   misclassifies. The one thing holding that honest is that the same literal is also the
 >   script's grep, so a drift breaks both, loudly, on the next real run.
+> * **AND THE CONTROL THAT DECLARED NON-COVERAGE DEMANDS, run rather than skipped.** The
+>   section below on self-declared blind spots says a declaration is not coverage and the
+>   discriminator is *construct the case it says it would miss and check whether it is
+>   currently present*. The gap declared above is "sigil rewords the sentence". **Checked at
+>   sigil `ea8c64fa`: `crates/sigil-harness/src/repin.rs` still emits
+>   `src/pins.rs is STALE against the live listings.` — three occurrences, byte-identical to
+>   both the fixture and the script's grep. The declared gap is NOT occupied today.** That
+>   makes this file the 39th `tools/test_*.py` carrying a non-coverage note and the first with
+>   the control beside it; do the same when the queued audit reaches the other 38.
+> * **STATUS OF THE TOOL ITSELF, because master moved under this parcel and a reader should
+>   not think a retired ritual was revived.** `f63a705c` (landed while this work was in
+>   flight) rules that there was no aeon freeze debt and that the paired freeze is retired for
+>   our landings. The pre-flight is NOT thereby dead: that same correction keeps a **pin
+>   advance** as a real, deliberate operation, and that is exactly when someone runs a freeze
+>   with `AEON_DIR` at our tip. Master's own tip still names this script's defect as live
+>   ("`tools/freeze_preflight.sh` was in this family tonight"), which is the state this parcel
+>   found and closed.
 
 **WHY THE FREEZE WAS NOT FORCED TONIGHT, recorded so it reads as a decision and not an omission:**
 the sigil tree was **dirty** (one untracked path) and that lane was mid-parcel, `refreeze` refuses on
