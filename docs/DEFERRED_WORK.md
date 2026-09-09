@@ -30346,3 +30346,37 @@ is the one just described, run after the fact, and not the one the landings actu
 there, an unmerged tree produces master's hashes and the verification **fails loudly**, so that case
 is self-checking. **The trap is specific to the neutral parcels, which is most of what this lane
 lands.**
+
+## LS-17 IS LANDED AND UNFROZEN — THE FREEZE IS OWED, AND `freeze_preflight.sh` MISCLASSIFIED ITS OWN STOP (2026-09-09)
+
+**LS-17 landed at `e793893a`.** It MOVES BYTES (s4 +70, s4.debug +24, demo +88, demo.debug +22;
+code +78 identical in both games). **No freeze/repin has been run. It is owed.**
+
+**⚠ A DEFECT IN OUR OWN PRE-FLIGHT, and it is bar 10 turned on our own tool: a gate's VERDICT and its
+STATED REASON are separately checkable, and here the reason was wrong.** `tools/freeze_preflight.sh`
+stopped with *"repin_pins failed for a reason that is NOT staleness — stopping"*. Run directly with
+`AEON_DIR` pointed at the landing tree, the actual panic is:
+
+```
+crates/sigil-harness/tests/repin_pins.rs:77:9:
+src/pins.rs is STALE against the live listings.
+```
+
+**That IS the staleness class** — the exact string the script greps for — and staleness is the
+**expected, correct** state for a byte-mover, which the freeze's repin step clears. The script's
+step-1 classification runs its grep over a log produced with **`AEON_DIR` unset**, i.e. against the
+sibling default rather than the tree being frozen, so it can classify a failure it measured
+somewhere else. **The stop was over-cautious and the reason it printed was false**, which is the
+worse half: a reader carries the reason forward, and this one says *investigate a cross-seam symbol
+break* when the truth is *your parcel moved bytes, as intended*.
+
+**Fix, not taken here: `freeze_preflight.sh` must thread `AEON_DIR` into step 1** (the clean-checkout
+rule already says all three legs need it explicitly, and step 1 is the leg nobody threaded), **and
+its else-branch must print the failure text it actually matched on** rather than a category.
+
+**WHY THE FREEZE WAS NOT FORCED TONIGHT, recorded so it reads as a decision and not an omission:**
+the sigil tree was **dirty** (one untracked path) and that lane was mid-parcel, `refreeze` refuses on
+a dirty tree, and the owner's 2026-09-02 *CUT THE CEREMONY* ruling makes drift **a sigil finding
+after the fact, never a gate on an aeon landing** — so the landing is legitimate unfrozen and the
+freeze is a follow-up rather than a blocker. **Run it from a clean checkout of `e793893a` with
+`AEON_DIR` threaded through all three legs.**
