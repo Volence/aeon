@@ -254,6 +254,14 @@ def gate_registry() -> list[tuple[str, bool, int]]:
         # spring_sfx_witness and spring_launch_witness are hand-run only, and a witness no
         # runner runs cannot fail.
         ("sfx_voice_change", True, GATE_EMU_BUDGET),
+        # sfx_modulation_span is the FIFTH non-effects member and rides here for the same
+        # reason: it boots a headless instance. Its subject is the OTHER half of the
+        # spring — not the voice change but the ten frames BEFORE it, where a deep
+        # authored pitch sweep runs. It compares our Mod_Advance against S3K's
+        # zDoModulation frame by frame from the two drivers' own arithmetic, and its
+        # live half reads the SFX channel's modulation block out of Z80 RAM so the
+        # comparison is against the engine rather than against a model of it.
+        ("sfx_modulation_span", True, GATE_EMU_BUDGET),
         ("cost_model", True, 900),
         ("scanline_spans", False, 120),
         ("demo_witness", False, 120),
@@ -1019,6 +1027,19 @@ def main() -> int:
                            "own FmPatch bank — poisoning that voice's algorithm byte in the "
                            "ROM moves what Fm_SetVolume computed, poisoning voice 0's does "
                            "not, and the two poisons disagree)", ok, msg, final=True))
+
+    if wanted("sfx_modulation_span"):
+        ok, msg = run(["python3", str(AEON / "tools/sfx_modulation_span_gate.py"),
+                       "--rom", rom, "--lst", lst],
+                      "sfx_modulation_span")
+        results.append(row("sfx_modulation_span",
+                           "sfx_modulation_span (SP-6e: across the spring's first note — "
+                           "onset to voice change — the transcode preserved S&K's authored "
+                           "modulation program, no sequenced event moves amplitude there, "
+                           "the engine's own sc_last_freq series is this file's Mod_Advance "
+                           "port, and the sweep's load point sits exactly one frame later "
+                           "than S3K's because ModUpdate precedes Sequencer_Channel)",
+                           ok, msg, final=True))
 
     if wanted("cost_model"):
         base = emp_int("engine/effects/raster_dsl.emp", "RASTER_FIRE_BASE_CYC")
