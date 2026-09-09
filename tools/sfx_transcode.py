@@ -816,218 +816,6 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
             raise TranscodeError(
                 f"sfx ${sfx_id:02X}: data label {data_lbl!r} not found in source")
 
-        # Process lines from the data label
-        i = start_line + 1
-
-        # We may need to follow a smpsJump to another label in the same file.
-        # We track a "continuation label" to pick up after a jump.
-        follow_label = None
-
-        def _process_lines(start_i: int) -> bool:
-            """⚠ DEAD CODE — the live pass is `_process_lines_v2` below.
-
-            This function is reached from NOWHERE: its only call site is its own
-            smpsJump arm, and the entry point at the bottom of _parse_sfx_source
-            calls _process_lines_v2. Verified 2026-09-07 while adding the
-            smpsModOff / smpsAlterVol arms — which went into v2 ONLY, and a reader
-            who patches this copy instead will watch their change do nothing.
-
-            NOT DELETED HERE because that is ~380 lines of unrelated diff inside a
-            spring parcel; booked for removal in docs/DEFERRED_WORK.md. Do not add
-            macro coverage to this copy.
-
-            Process lines starting at start_i. Returns True if we hit smpsStop.
-            """
-            nonlocal noattack_pending
-            nonlocal cur_dur, voice_idx, loop_label, loop_count, has_loop
-            nonlocal jump_target_label, sfx_flags
-
-            i = start_i
-            while i < len(lines):
-                line = lines[i]
-                i += 1
-                stripped = line.strip()
-                if not stripped or stripped.startswith(';'):
-                    continue
-
-                # Skip label lines (definitions)
-                if re.match(r'^[A-Za-z_][A-Za-z0-9_]*:', stripped):
-                    continue
-
-                # Check for inline dc.b content (multiple tokens on one line)
-                # A dc.b line may contain: note bytes, duration bytes, or special tokens
-                if stripped.startswith('dc.b'):
-                    rest = stripped[4:].strip()
-                    _process_dcb(rest)
-                    continue
-
-                # Check for coord flag macros
-                m = re.match(r'(smps[A-Za-z]+|smpsFM[A-Za-z]+)\s*(.*)', stripped)
-                if m:
-                    macro = m.group(1)
-                    arg_str = m.group(2).strip()
-                    if macro == 'smpsStop':
-                        events.append(End())
-                        return True  # channel stream ended
-                    elif macro == 'smpsSetvoice' or macro == 'smpsFMvoice':
-                        args = _split_args(arg_str)
-                        vi = _parse_int(args[0]) if args else 0
-                        _check_sfx_voice0(vi)   # drop the redundant+corrupting MEV_PATCH
-                    elif macro == 'smpsPan':
-                        args = _split_args(arg_str)
-                        # args: direction + amsfms
-                        # direction is panNone=$00, panRight=$40, panLeft=$80, panCentre=$C0
-                        # smpsHeaderSFXChannel uses $E0+direction in the raw byte;
-                        # the macro emits: dc.b $E0, direction+amsfms
-                        dir_tok = args[0].strip()
-                        amsfms_tok = args[1].strip() if len(args) > 1 else '0'
-                        _pan_names = {
-                            'panNone': 0x00, 'panRight': 0x40,
-                            'panLeft': 0x80, 'panCentre': 0xC0, 'panCenter': 0xC0,
-                        }
-                        if dir_tok in _pan_names:
-                            dir_val = _pan_names[dir_tok]
-                        else:
-                            dir_val = _parse_int(dir_tok)
-                        amsfms_val = _parse_int(amsfms_tok)
-                        b4 = dir_val | amsfms_val
-                        events.append(Pan(b4))
-                    elif macro == 'smpsPSGvoice':
-                        # PSG volume envelope (sTone_XX). Emit MEV_PSGENV with the
-                        # 1-based engine env id (== the sTone number; the engine table
-                        # holds the S3K-exact VolEnv body for each id we ship).
-                        args = _split_args(arg_str)
-                        tone_tok = args[0].strip() if args else '0'
-                        env_id = _stone_to_env_id(tone_tok)
-                        events.append(PsgEnv(env_id))
-                    elif macro == 'smpsModSet':
-                        # Pitch modulation: emit MEV_MODSET with the raw .asm operands
-                        # (wait, speed, change, step). The engine applies S3K's own
-                        # srl-on-init (Mod_ReArm seeds steps = raw>>1) — do NOT re-encode
-                        # the macro's version-specific *speed step transform here (that is
-                        # the data layer, already implied by the source operands). `change`
-                        # is signed ($F8 -> -8). All-zero = mod off (smpsModSet 0,0,0,0).
-                        args = _split_args(arg_str)
-                        if len(args) < 4:
-                            raise TranscodeError(
-                                f"smpsModSet expects 4 operands, got {args!r}")
-                        wait  = _parse_int(args[0])
-                        speed = _parse_int(args[1])
-                        change = _parse_signed_byte(args[2])
-                        step  = _parse_int(args[3])
-                        # Spindash sweep taste-tame (see _SPINDASH_MOD_SCALE): gentler climb.
-                        if sfx_id == 0xAB and change:
-                            change = int(round(change * _SPINDASH_MOD_SCALE)) or (
-                                1 if change > 0 else -1)
-                        events.append(ModSet(wait, speed, change, step))
-                    elif macro == 'smpsSpindashRev':
-                        # Runtime-escalating spindash rev: emit the opcode; the engine
-                        # adds the global rev (re-trigger count) into sc_transpose.
-                        events.append(SpinRev())
-                    elif macro == 'smpsResetSpindashRev':
-                        # The rev RESET is dispatch-folded in the engine (any non-spindash
-                        # SFX zeroes the global), so no stream opcode is emitted here.
-                        pass
-                    elif macro == 'smpsPSGform':
-                        # Noise mode / PSG form control: $F3,form.  For noise SFX, $E7 form
-                        # enables periodic noise (borrowing PSG3 frequency).
-                        # v1: record informatively; no engine event (engine handles via sx_kind).
-                        args = _split_args(arg_str)
-                        form_val = _parse_int(args[0]) if args else 0
-                        print(f"  [info] sfx ${sfx_id:02X} ch ${chanid:02X}: smpsPSGform "
-                              f"${form_val:02X} (noise mode; handled by engine restore via sx_kind)",
-                              file=sys.stderr)
-                    elif macro == 'smpsLoop':
-                        # smpsLoop index, loops, loc
-                        args = _split_args(arg_str)
-                        loop_idx = _parse_int(args[0]) if len(args) > 0 else 0
-                        loops = _parse_int(args[1]) if len(args) > 1 else 1
-                        lbl = args[2].strip() if len(args) > 2 else ''
-                        # Translate to RepeatStart/RepeatEnd (back-patch style).
-                        # The loop body starts at the label; we emit RepeatEnd here.
-                        # Since we process top-to-bottom, we need to have emitted
-                        # RepeatStart when we passed the loop label.
-                        # We do this by inserting a LoopPoint at the label position.
-                        # For our pack_sfx, we use a simple bounded-unroll approach:
-                        # The loop body is already in our events list from the first pass.
-                        # We emit RepeatEnd(loops) now and scan back to find where to
-                        # insert RepeatStart.
-                        # Find the insertion point: the loop-target label
-                        tgt_line = _get_line_range_for_label(lbl)
-                        if tgt_line < 0:
-                            # fallback: wrap everything after the last Vol/Patch setup
-                            # in a repeat
-                            _insert_repeat_start(events, lbl)
-                        else:
-                            _insert_repeat_start(events, lbl)
-                        events.append(RepeatEnd(max(1, min(255, loops))))
-                        has_loop = True
-                        sfx_flags |= SHF_LOOP
-                    elif macro == 'smpsJump' or macro == 'smpsJumpS3':
-                        # smpsJump loc — jump to loc (absolute, in same file).
-                        # For our transcoder: follow the jump (the target content is
-                        # included inline), then treat it as if the stream continues there.
-                        args = _split_args(arg_str)
-                        lbl = args[0].strip() if args else ''
-                        jump_target_label = lbl
-                        tgt_line = _get_line_range_for_label(lbl)
-                        if tgt_line >= 0:
-                            # Recurse into the jump target
-                            _process_lines(tgt_line + 1)
-                        else:
-                            raise TranscodeError(
-                                f"sfx ${sfx_id:02X}: smpsJump target {lbl!r} not found")
-                        return True  # stop after jump (target handles End/Stop)
-                    elif macro == 'smpsFMAlterVol':
-                        # Relative FM volume change: compute absolute Vol from current vol.
-                        # S3K: $E5,val1,val2 (two-arg form for S3K; val1 unused, val2 is FM delta).
-                        # One-arg form: $E6,val1 (FM only in S3K context).
-                        # The macro expands to $E5,val1,val2 for S3K driver.
-                        # For us: translate to a relative volume adjustment on the current
-                        # channel by scanning back to find the last Vol() in events and
-                        # computing an updated absolute volume.
-                        args = _split_args(arg_str)
-                        if len(args) >= 2:
-                            # S3K two-arg form: first is unused, second is FM delta
-                            delta = _parse_int(args[1])
-                        elif args:
-                            delta = _parse_int(args[0])
-                        else:
-                            delta = 0
-                        # Find the current volume from the last Vol event
-                        cur_vol = _find_last_vol(events, default=100 if is_fm else 80)
-                        # Apply delta: in S3K, higher delta = quieter (more attenuation)
-                        # Our Vol is 0=silent, 127=loud; SMPS delta adds to attenuation.
-                        new_vol = max(0, min(127, cur_vol - delta))
-                        events.append(Vol(new_vol))
-                    elif macro == 'smpsNoAttack':
-                        # The smpsNoAttack byte ($E7) is used as a prefix before the next note.
-                        # It prevents re-keying the FM envelope.  In our engine this means
-                        # we emit the note WITHOUT re-key.  For v1 we track a flag and
-                        # emit the note normally (the no-attack semantics are honored by
-                        # the fact that we don't re-key in the SFX interpreter for held notes).
-                        noattack_pending = True
-                        # Also: smpsNoAttack appears INLINE in dc.b lines as a token
-                        # (handled in _process_dcb).
-                    elif macro in ('smpsHeaderStartSong', 'smpsHeaderVoice',
-                                   'smpsHeaderTempoSFX', 'smpsHeaderChanSFX',
-                                   'smpsHeaderSFXChannel'):
-                        # Header macros — already consumed in phase 2; skip in data pass.
-                        pass
-                    else:
-                        # Unknown coord flag — build error per spec §8.
-                        raise TranscodeError(
-                            f"sfx ${sfx_id:02X} ch ${chanid:02X}: unknown SMPS coord flag "
-                            f"{macro!r} — not in v1 coverage list. "
-                            f"Add support or document as intentional lossy mapping.")
-                    continue
-
-                # smpsVc* macros in the data stream would be part of voices block — skip
-                if re.match(r'smpsVc[A-Za-z]+', stripped):
-                    continue
-
-            return False  # fell off the end without smpsStop
-
         def _insert_repeat_start(ev: list, lbl: str):
             """Insert a RepeatStart before the events that logically start at lbl.
 
@@ -1200,8 +988,16 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
                 pass
         _AlterVol = _AlterVolObj
 
-        # Re-define _process_lines to emit loop markers when passing labels
-        # that appear as smpsLoop targets.  We do a pre-scan to find loop targets.
+        # THE macro-dispatch pass emits loop markers when it passes a label that
+        # appears as a smpsLoop target, so a pre-scan collects those targets first.
+        #
+        # WHY THE ONLY PASS IS STILL CALLED `_v2` (SP-7, 2026-09-09). A complete
+        # parallel copy named `_process_lines` stood between the label scan above
+        # and here, reachable from nothing but its own smpsJump arm, and it is now
+        # deleted. The `_v2` name is KEPT deliberately: the record — this repo's
+        # DEFERRED_WORK, the 2026-08-10 inventory, this file's history — says
+        # "`_process_lines` is dead", and reusing that exact name for the live pass
+        # would make every one of those sentences read as a claim about THIS code.
         _loop_targets = set()
 
         def _prescan_loop_targets(start_i: int):
@@ -1215,7 +1011,7 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
 
         _prescan_loop_targets(start_line + 1)
 
-        # Re-process lines with loop-marker injection
+        # Process the channel's lines, injecting loop markers.
         def _process_lines_v2(start_i: int) -> bool:
             nonlocal noattack_pending
             nonlocal cur_dur, voice_idx, loop_label, loop_count, has_loop

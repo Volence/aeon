@@ -9632,7 +9632,8 @@ Open items this execution creates or leaves:
   (c) **Rendered A/B on BOTH the plain and debug shapes** — plain-shape SFX
   regressions have bitten this lane before, and D4 changes every PSG note-on.
   (d) Optional: the E5 group-6 SSG-EG showcase sweep.
-- **`sfx_transcode._process_lines` is DEAD CODE.** Only `_process_lines_v2` is
+- ~~**`sfx_transcode._process_lines` is DEAD CODE.**~~ **DELETED 2026-09-09 — see the
+  closed SP-7 row for the reachability enumeration and the byte evidence.** Only `_process_lines_v2` is
   ever called (`_process_lines`'s single call site at its own `smpsJump` handling
   is a self-recursion). The two scans have already DIVERGED — v2 carries the
   `noise_form is not None` ModSet drop and v1 does not — which is exactly the
@@ -27685,13 +27686,45 @@ its own witness. `_check_sfx_voice0`'s refusal becomes the fallback for a voice 
 blob does not carry rather than for all of them. NOT urgent: no shipped SFX needs
 it, and the spring does not.
 
-### SP-7 — `tools/sfx_transcode.py::_process_lines` is DEAD (opened 2026-09-07)
+### ~~SP-7~~ — `tools/sfx_transcode.py::_process_lines` is DEAD — **CLOSED 2026-09-09, DELETED**
 
-~380 lines. Its only call site is its own `smpsJump` arm; `_parse_sfx_source` enters
-`_process_lines_v2`. It is a complete parallel copy of the macro dispatch, so a
-reader adding coverage there watches their change do nothing — which nearly happened
-while adding the two arms above. Marked in place with a `⚠ DEAD CODE` docstring;
-delete it in a parcel that is not about a spring.
+Its only call site was its own `smpsJump` arm; `_parse_sfx_source` enters
+`_process_lines_v2`. It was a complete parallel copy of the macro dispatch, so a
+reader adding coverage there watched their change do nothing — which nearly happened
+while adding the smpsModOff / smpsAlterVol arms.
+
+**Deleted on `parcel/sp7-and-preflight`. 212 lines, and the row's own "~380 lines"
+was WRONG — re-derive a size from the file, not from the card that opened the row.**
+The function body was `sfx_transcode.py` 826..1029 = **204** lines; the deletion is
+212 because it also took the three lines of outer scaffolding that existed only to
+serve it (`i = start_line + 1` and `follow_label = None`, both **Store with no Load
+anywhere**, proven by AST rather than by grep — a bare `i` is not greppable) plus
+their comment and blanks. `_process_lines_v2` KEEPS its name: the record in three
+places says "`_process_lines` is dead", and reusing that exact name for the live pass
+would turn every one of those sentences into a claim about live code.
+
+**REACHABILITY WAS ENUMERATED, NOT ASSERTED — five paths, verdict each:**
+(1) **Static, in-module** — `_process_lines` appeared 4×: the `def`, two docstring
+mentions, and the self-recursive `smpsJump` call at 976. No other. (2) **Static,
+repo-wide** — the only files naming it outside `sfx_transcode.py` are `docs/` prose
+and one comment in `docs/superpowers/`; no `.py`, `.sh`, `.emp` or `.asm` call site.
+(3) **Dynamic dispatch** — the module contains ZERO `getattr`-by-computed-name,
+`globals()`, `locals()`, `vars()`, `eval`, `exec`, `setattr`, `importlib` or
+`__dict__` lookups; its one `getattr` is `getattr(e, 'count', 1)` on an event object.
+(4) **Closure escape** — it is a function nested inside `_parse_sfx_source`, so an
+external caller needs a reference to escape; `_parse_sfx_source` returns a dict of
+five plain-data keys (`id`/`label`/`channels`/`voices`/`flags`) and stores no
+callable anywhere. (5) **Cascade** — every helper the dead body called
+(`_get_line_range_for_label`, `_insert_repeat_start`, `_find_last_vol`,
+`_process_dcb`) has live callers outside it, so nothing was orphaned by the removal
+and the deletion is exactly the one function.
+
+**Behaviour proven unchanged, not asserted:** `generate_all` run into a scratch dir
+before and after — **64 files, aggregate sha256 `df501ccf…` identical**, `diff -rq`
+clean. `test_sfx_transcode` + `test_sfx_bank_wiring` + `test_smps_import`: **245
+passed, 0 failed** before and after. **Note what that suite does NOT prove:** a
+green run over code that was never reached would be green either way, so the *test*
+result is a no-regression check and the *enumeration* above is the deadness proof.
 
 ### VRAM-NEIGHBOURHOOD — objects have no room, and the map should be re-cut (owner, 2026-09-07)
 
