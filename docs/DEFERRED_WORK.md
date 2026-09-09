@@ -31896,3 +31896,36 @@ invert it by overlapping two rectangles on purpose, and watch the build go red. 
 produce a scalar an `ensure` can read, the checks fall to the generator and a pytest — which is
 strictly weaker, and act 1's table is HAND-WRITTEN until the generator lands.** That is the window
 where a hand-authored arch would have no comptime check at all.
+
+## SECTION 0 IS A SPECIAL CASE THAT ORDINARY EDITS CANNOT SURVIVE — THREE MECHANISMS, ONE SHAPE (2026-09-09)
+
+**Named as a PATTERN on aurora's observation, deliberately as one row rather than three**, because three rows
+would each get fixed locally and the shape would survive all three fixes.
+
+**The shape: section 0 is load-bearing for machinery that has nothing to do with section 0**, and an author
+doing something perfectly ordinary to it breaks something elsewhere. All three surfaced in a single evening,
+by three different mechanisms, none of which knows about the others:
+
+1. **An alignment row is pinned to section 0 being the FIRST binding.** Unbinding its scene — an ordinary
+   editor action, and one aurora correctly advised — makes the head label `..._Sec4`, and
+   `sigil_harness::section_align::DECLARED` names `..._Sec0`, so the link refuses with
+   `[layout.undeclared-alignment]`. **Our own comment at `tools/effects_gen.py:4101` already documents this
+   trap**, which means we knew and did not guard it.
+2. **Section 0 cannot take a raster binding at all.** `ojz_act1_sec_raster` is threaded for sections 5 and 6
+   only, so the editor's empty option means *keep aeon's*, not *none* — **there is no way to turn section 0's
+   raster off from the editor.**
+3. **A guard requires section 0 to keep an authored moving band** (`test_anchor_sweep_band.py`), which is what
+   blocked the owner turning the waterline off tonight. Covered in full by the content-pinning audit.
+
+**WHY ONE ROW: the fix for each instance is local and none of them removes the pattern.** Re-pin the alignment
+row and the next thing pinned to section 0 still breaks; thread the raster for section 0 and the next
+unthreaded per-section resource still cannot be turned off. **The question worth answering is why section 0
+keeps being the anchor** — it is the spawn section, so it is the one every instrument reaches for when it needs
+"a section that definitely exists". That is a reasonable local choice made independently three times, and it is
+the mechanism.
+
+**AND THE SEARCH THAT FOUND THE PALETTE'S SECOND WRITER GENERALISES HERE — aurora's, and it is owed to every
+finding of this shape: A WORKAROUND ALWAYS CITES THE DEFECT IT WORKS AROUND.** `inject_editor_bg.py`'s comment
+names the donor copy as its reason in its own words. So on finding a defect, **grep for prose naming it** —
+whoever met it first probably left a workaround and said why. That is a cheap search nobody was running, and it
+is how you find the sites that a diff-based or symbol-based sweep structurally cannot.
