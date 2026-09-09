@@ -236,3 +236,266 @@ missing a real cost that a shipped game will add.
 `games/sonic4/objects/test_solid.emp:781` and `ojz_scroll_test.emp:660` both say the spring
 is "12 tiles"; `SPRING_ART_LEN = 24 * TILE_SIZE` and `vram.toml` says 24. The DMA uses the
 constant, so behaviour is right and the comments are stale by one sheet.
+
+---
+
+## 2. The reuse verdict on the foreground page cache
+
+**Verdict: reuse the SHAPE, reuse none of the CODE. The object tier is a second, much
+smaller mechanism — not a second instance of the page cache, and not a client of the same
+pool.**
+
+The brief is right that the FG cache solves a strictly harder problem. That is exactly why
+it is the wrong body of code: nearly everything that makes it hard is a cost the object
+tier does not have to pay, and three of its load-bearing assumptions are false for objects.
+
+### 2.1 What the FG cache actually is (read, not assumed)
+
+`engine/level/page_cache.emp` + `engine/level/page_in.emp`, 1,815 lines together:
+
+- `PageCache_Request` / `AllocFrame` / `FreeFrame` / `Publish` / `Prefetch` /
+  `ResetRefcounts` / `Audit`, over `Page_Table` (page id → frame) and
+  `Page_Frames[]` (`PageFrame` = 8 B: `pf_page`, `pf_refcount`, `pf_stamp`, `pf_next`,
+  `pf_flags`).
+- `AllocFrame` (`:231`): free list first; else **the oldest `PF_EVICTABLE` frame by an
+  O(PAGE_FRAMES) `pf_stamp` age scan**; else THRASH (DEBUG `raise_error`, release returns
+  `PAGE_NOT_RESIDENT` and the caller re-queues).
+- `Prefetch` (`:743`): reads the *tile-cache* leading-edge signals
+  `Cache_Pfx_Row_Target` / `Cache_Pfx_Col_Target`, probes staged **blocks**, translates
+  their **local nametable words** through the section map, and requests the pages those
+  words reference.
+- `page_in.emp`: a resumable ZX0 decode sliced across VBlank idle time into a **singleton
+  2,048-byte `Art_Staging_Buffer`** (`engine/ram.emp:307`), then a landing DMA at
+  Important priority (`:519`).
+
+### 2.2 The three assumptions that are false for objects
+
+1. **The refcount is defined over nametable words.** The module header states the safety
+   invariant in as many words: *"`pf_refcount` counts nametable words currently in the tile
+   cache that reference the frame"*, and `PageCache_Audit` proves it by recomputing every
+   refcount from the whole nametable. **Objects have no nametable words.** Their tile
+   references live in `Sst.art_tile` and are re-emitted into the SAT every frame by the
+   sprite builder. An object refcount is a count of *live SST slots* — a different quantity,
+   computed from a different structure, at a different time. Nothing in `page_cache.emp` can
+   compute it, and `PageCache_Audit` — the machine check that makes the FG invariant
+   trustworthy — would have to be replaced wholesale.
+
+2. **The VRAM address is hard-wired to base 0 with a 64-tile quantum.** `page_in.emp:253`
+   computes the landing destination as `frame << ART_POOL_PAGE_BYTES_SHIFT` (frame × 2048),
+   and `page_cache.emp:526` patches physical tiles as `frame << PAGE_FRAME_TILE_SHIFT`
+   (frame × 64). Both are *shifts*, chosen deliberately over a multiply. There is no base
+   term. Pointing this machinery at a pool that does not start at tile 0 means adding a base
+   to two hot paths and giving up the shift on at least one. And the quantum is wrong by an
+   order of magnitude: `ring_sparkle` is **4** tiles, `tails_appendage` 9, `dust_spindash`
+   12, `dust_puff` 16, `spring` 24, `insta_shield` 29. A 64-tile frame holding a 4-tile
+   sparkle wastes 94% of itself. **This is the argument that kills "a client of the same
+   pool" outright**, not just "a second instance": sharing the pool means sharing the
+   quantum.
+
+3. **The expensive half of `page_in` is decompression, and object art is not compressed.**
+   The resumable ZX0 decoder, the supervisor bookmark, the staging buffer, the two-stage
+   staging→VRAM landing — all of it exists because a page arrives as ZX0 and cannot be
+   decoded in one VBlank. An object load is `move.l #Art_Spring, d1` + `QueueDMA`. The
+   staging buffer is a *singleton*, so routing object art through `page_in` would also make
+   objects and level art contend for it. **The tier that would be reused is ~80% machinery
+   for a problem the object tier does not have.**
+
+### 2.3 What the object tier *does* get for free, and it is a lot
+
+- **Relocation is a single word write.** Every sprite piece's tile attribute is added to
+  `Sst.art_tile` at emit time — `move.w (a3)+, d0` / `add.w d6, d0`
+  (`engine/objects/sprites.emp:654,661,669,675`; d6 is loaded from `Sst.art_tile` at
+  `:361`/`:460`). Mappings are fully position-independent. Moving an object's art base costs
+  **one `move.w`**.
+- **The spawn hook already exists and is one instruction wide.** `Load_Object` already
+  burst-copies then patches per-placement fields; the residency patch is another line in the
+  same block.
+- **The manifest already exists** (§1.3).
+- **The trigger already exists** — the entity window's 384/256 px envelope, with 16-24
+  frames of lead.
+
+### 2.4 So what should be copied
+
+The *design*, at a fraction of the size: a small slot table with a refcount, an age stamp
+and a free list; demand-first with bounded speculative prefetch; a DEBUG audit that
+recomputes the refcount from the authoritative structure (here: a walk of the live object
+slots, which `Dynamic_Live` already maintains). Approximately `PageCache_Request` +
+`AllocFrame` + `FreeFrame` + a refcount pair — with `Publish`, `Prefetch`, the ZX0 path,
+the staging buffer and the nametable patch runs all absent. **Call it 150-250 lines against
+the FG tier's 1,815.**
+
+A design that reinvented the cache next door would be worse. A design that forced 4-tile
+sparkles through a 64-tile-quantised, base-0, nametable-refcounted, ZX0-staged pipeline
+would be worse than both.
+
+---
+
+## 3. The hard problems
+
+### 3.1 An object spawns and its art is not resident
+
+**The only genuinely new failure mode, and the answer has to be a policy, not a mechanism.**
+Four options, and the classics do not agree (§5):
+
+| policy | what happens | cost |
+|---|---|---|
+| **(a) Refuse the spawn** | `Load_Object` returns failure; the `EntityLoaded` bit is not set, so the **re-scan retries next frame** — this path already exists at `entity_window.emp:1270` (`bne .gated` on alloc failure, "no bit, re-scan retries") | an object can be late by the load latency; at 16-24 frames of lead it should never be visibly late |
+| **(b) Spawn invisible** | object exists and runs logic, rendering suppressed until art lands | correct physics, popping art; needs a per-object "art pending" state |
+| **(c) Spawn with garbage art** | what happens today if a stanza is forgotten | unacceptable |
+| **(d) Prevent it structurally** | the loader guarantees a section's whole set is resident before the entity window ever scans that section | needs the set to *fit*, which §3.3 says it may not |
+
+**Recommendation: (a), because the mechanism is already built.** The retry path is the same
+one that handles a full object pool, it is proven, and it converts "art missing" into
+"object appears a few frames later" — at 16 frames of lead, invisible. Keep (d) as the
+*goal* (prefetch should make (a) never fire) and add a DEBUG counter so a fired retry is a
+measurable defect rather than a silent stutter.
+
+### 3.2 Objects near an edge — up to four sections live at once
+
+`MAX_TRACKED_SECTIONS = 4` is a 2×2 camera envelope, so **a pool holding "one section's
+set" is wrong at every edge by construction**, exactly as the brief says. Not a corner case:
+the camera is inside a 2×2 envelope most of the time.
+
+**The resolution is that the pool is not keyed by section at all.** It is keyed by **art
+blob**, and section membership is only an input to *pinning*:
+
+- The pool holds N art blobs, each with **two independent counters**: a **refcount** =
+  live SST slots whose `art_tile` points into it, and a **pin count** = tracked sections
+  whose type table names it.
+- Entering a section increments pins for its blobs; leaving decrements. Up to four sections
+  pin simultaneously, and that is *correct*, not a bug — those are exactly the objects that
+  can spawn.
+- A blob is evictable only when refcount 0 **and** pin count 0 — the same two-condition rule
+  the FG cache uses (`refcount == 0 && !PF_PINNED`), which is why the shape is worth copying.
+
+**The number this makes concrete:** the working set is the **union of up to four adjacent
+sections' blob sets**, not one section's. §4 prices it.
+
+### 3.3 Fragmentation
+
+Fixed windows do not fragment; a variable-size pool does. Blob sizes measured above run
+4, 9, 12, 16, 24, 29 — no common factor, and a free-run allocator over them will fragment.
+
+**Recommendation: fixed-size slots, sized by a build-time histogram, with a comptime
+`ensure` on every blob.** Two or three slot classes at most (e.g. small = 16 tiles, large =
+32), with class sizes derived from the actual art by the same generator that writes the type
+tables. This trades bounded internal waste for zero external fragmentation and an O(1)
+allocator, and it matches how the FG tier already solves the same problem (fixed 64-tile
+frames). The waste is *known at build time*, which is the property a free-run allocator
+cannot offer.
+
+**When a section's set does not fit the pool: that is a BUILD ERROR, not a runtime policy.**
+The generator knows every section's type table and every blob's size; the union over each
+2×2 envelope is computable at build time.
+`ensure(worst_envelope_slots <= OBJ_POOL_SLOTS, "envelope (sx,sy) needs N slots ...")` names
+the offending envelope and the author moves an object or the owner raises the pool. This is
+the tree's standing preference (`CODING_CONVENTIONS.md` §1.6, §7.1) and it removes the
+hardest runtime case entirely.
+
+**One thing a fixed-slot pool must NOT do: relocate a resident blob to compact.** A live
+object's `art_tile` was patched at spawn; moving its art means finding and re-patching every
+live SST that points at it. `Dynamic_Live` makes that walk possible, but it is a whole
+second mechanism for a case fixed slots make unreachable. Rule it out in the design.
+
+### 3.4 The always-resident floor
+
+Measured in §1.6: **109 tiles** (`character_window` 32, `ring_placeholder` 16,
+`ring_sparkle` 4, `dust_puff` 16, `dust_spindash` 12, `insta_shield` 29), **118 with
+Tails**. Four notes, because this number bounds everything else:
+
+- **`insta_shield`'s 29 tiles are character-conditional, not global.** It is Sonic's
+  ability. Under the merged character dispatch, a Tails-only or Knuckles-only act does not
+  need it resident — which makes it a *per-character* window, not a floor item. Nobody has
+  claimed those 29 tiles back.
+- **`ring_placeholder` is a placeholder.** Real ring art may not be 16 tiles.
+- **There is no HUD.** A rings/score/time HUD with digits and labels is a real cost this
+  floor does not contain.
+- **`character_window` at 32 is already the peak DPLC frame's requirement** for all three
+  characters (guarded three times: `collision_data.emp:105`, `tails_data.emp:141`,
+  `knuckles_data.emp:172`). It cannot shrink.
+
+**So the honest floor for a shipped game is ~110 tiles plus a HUD, and the pool is whatever
+is left after it.**
+
+### 3.5 Authoring: derived, and it is already built
+
+The brief frames this as derived-vs-authored. **In this tree it is already derived**, by
+`tools/ojz_entity_gen.py`, into `Sec.sec_type_table` (§1.3), from exactly what is painted.
+Extend that generator rather than introduce a parallel authored list:
+
+- Each `ObjDef` names an **art blob id** plus that blob's tile count (a new field, or
+  derived from its existing `art:` word).
+- The generator already knows each section's distinct `ObjDef` set. It emits, per section,
+  the *blob* set — the union over that section's types, **deduped** (two spring directions
+  share `Art_Spring`; the two dust objects share `Art_Dust`).
+- It computes every 2×2 envelope union and emits the worst case as a constant for the
+  `ensure` in §3.3.
+
+**The brief's objection to derived — "can be wrong at an edge" — is answered by computing
+the envelope union at build time instead of the section set.** The generator has the
+adjacency; nothing about "derived" forces a per-section answer.
+
+**Where authoring is still needed, and it is one bit: pinning.** Some art must be resident
+regardless of placement (§3.4), and some art belongs to an object *spawned by another
+object* rather than placed — a projectile, a monitor's contents, an explosion, a boss's
+second phase. Placement-derivation cannot see those. **Recommendation: an authored `pins:`
+list per act, plus a `spawns:` declaration on each `ObjDef` naming the types it can create
+at runtime, so the generator can take the transitive closure.** That closure is the piece
+that makes derivation *correct* rather than merely cheap, and its absence is the most likely
+way this design fails silently.
+
+### 3.6 The problems the brief did not list
+
+**(i) The DMA window is already over-subscribed (§1.5), and this is the real blocker.**
+NTSC residual 2,944 B; today's worst frame wants 2,976 solo and 4,032 duo. An object loader
+adds demand to a window already in deficit. Consequences: object-art DMA is **Deferrable**,
+never Important, and must tolerate being dropped for many consecutive frames — which is
+exactly what policy (a) in §3.1 provides. **Any measurement of this tier taken on OJZ act 1
+is worthless**, because that act is fully resident and contributes zero page-landing bytes
+in steady state; the honest test needs a streaming act. `[RUNTIME]`
+
+**(ii) Palette, not just tiles.** CRAM is four lines of sixteen and all four are spoken for:
+`ojz_scroll_test.emp:598-627` loads `BGND_Palette` into line 0 (character + backdrop +
+debug) and `OJZ_Palette` into lines 1-3 (level). The spring only fits because its donor's
+pixel indices `{0,1,6,7,8,9,C,D}` happen to read correctly against line 0 —
+`test_solid.emp:783-793` says so at length, and says skdisasm's sheet would have rendered
+wrong. **A per-section object set needs a palette line as well as tiles, and there is no
+free line.** Either every object draws on line 0 (constraining object art to the character
+palette forever), or the design needs a per-region palette story — which is the *other* half
+of the painted-regions project. A genuine unresolved coupling, not solvable inside the
+object-art tier.
+
+**(iii) A dropped Deferrable DMA makes residency a lie.** `QueueDMA_*` returns carry-set
+when the queue is full, and every current call site spells `@discards(dropped)`. If a slot
+is marked "resident" at *enqueue* time and the enqueue is dropped, every object spawned that
+frame gets a correct-looking `art_tile` pointing at uninitialised VRAM. **The table must be
+marked resident on the DMA's completion, not its enqueue** — a two-state (`pending` /
+`resident`) per slot, with the §3.1 spawn gate testing `resident`, not `allocated`. This is
+the same class of bug the FG tier's "published but not yet ref'd" demand-protection
+invariant exists to prevent (`page_cache.emp:243-249`); the lesson transfers even though
+none of the code does.
+
+**(iv) An object can leave the area that pinned its art.** A badnik launched by a spring, a
+projectile, a follower. The refcount handles it correctly (a live SST holds a reference
+wherever it is) and `ENTITY_DESPAWN_BUFFER` removes it by distance, releasing the reference.
+What must not happen is releasing a *pin* while a live object still holds a *refcount* —
+which is why §3.2 keeps them as two separate counters rather than one.
+
+**(v) Determinism and the replay fixture.** Residency affects `art_tile`, which affects the
+SAT, which the replay net covers. A residency table driven by a *droppable* Deferrable DMA
+is frame-timing-dependent. Either residency is made deterministic (fixed enqueue order,
+budget that cannot vary), or the replay hash must be shown not to cover it. **Unresolved —
+flag for the owner.** `[RUNTIME]`
+
+**(vi) Shape independence.** `vram.toml` is one map for every build shape by deliberate
+policy ("a VRAM reservation is not a ROM byte"). The object pool's size and base must
+therefore be shape-independent, so the 13 tiles of debug tags and 12 tiles of test windows
+stay reserved in release. Recovering them is a separate decision about whether `vram.toml`
+may become shape-conditional, and its own comments argue firmly against it.
+
+**(vii) Blob sharing and dedup.** `Art_Spring` already holds two sheets (vertical plus a
+separate 12-tile horizontal one) in one blob; `Art_Dust` holds the spindash DPLC source and
+the puff block. **The unit of residency is the blob, not the object type**, and the
+generator must dedup by blob so a section with four spring directions loads one blob.
+Straightforward, but it must be stated: getting it wrong makes §4's arithmetic wrong by a
+large factor.
