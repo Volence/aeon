@@ -657,10 +657,12 @@ pub proc GameState_OJZScroll_Init () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
         move.w  #RING_SPARKLE_ART_LEN, d3
         jbsr    QueueDMA_Critical @discards(dropped)   // same policy as the two above
 
-        // -- spring: 12 tiles RESIDENT at VRAM_SPRING for the whole act, the
+        // -- spring: VRAM_SPRING_TILES tiles RESIDENT at VRAM_SPRING for the whole act, the
         //    dust puff's strategy and for the same reason (two springs on screen
         //    sit on different animation frames, so every frame must be live at
-        //    once). One 384-byte DMA is its entire art cost. It draws on CRAM
+        //    once). One SPRING_ART_LEN DMA is its entire art cost — the figure that
+        //    stood here said 384 B, which is the SAME stale 12 tiles in other units
+        //    and survived the sweep that fixed the tile counts. It draws on CRAM
         //    line 0, already loaded above — see Map_Spring's header. --
         move.l  #Art_Spring, d1
         move.w  #vram_bytes(VRAM_SPRING), d2

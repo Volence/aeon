@@ -778,7 +778,9 @@ pub proc Spring_Main (a0: *Sst) clobbers(d0-d3/a1-a2) preserves(a0) {
 // -----------------------------------------------
 // Mapping frames — the real S2 sheet, on this game's own palette line 0.
 //
-// ART: `Art_Spring` below, 12 tiles RESIDENT at VRAM_SPRING for the whole act.
+// ART: `Art_Spring` below, VRAM_SPRING_TILES tiles RESIDENT at VRAM_SPRING for the
+// whole act (the count is not written out here: it said 12 while the constant said
+// 24, and a fresh literal stales on the identical clock).
 // Never streamed, for the reason `dust_puff` gives in vram.toml: two springs on
 // screen sit on DIFFERENT animation frames, so every frame must be live at once.
 //

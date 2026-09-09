@@ -814,10 +814,23 @@ an analysis file we cite, so relaying them second-hand was not good enough.
   pattern in unrelated data and addresses. The instrument has to select **instructions**
   (`#\$8b0` with the immediate marker), not bytes.
 - **`aliensoldier_disasm/ANALYSIS.md` is a SYMLINK to `../gunstar_disasm/ANALYSIS.md` —
-  VERIFIED HERE** (`/usr/bin/ls -l`, `lrwxrwxrwx … -> ../gunstar_disasm/ANALYSIS.md`). There is
-  no Alien-Soldier-specific analysis in the tree, and anyone reading "Alien Soldier's analysis"
-  is reading Gunstar's. Its "Direct DMA (No Queue) / art is pre-rendered, not streamed" line is
-  false for Alien Soldier, which has both a queue and streaming.
+  VERIFIED HERE** (`/usr/bin/ls -l`, `lrwxrwxrwx … -> ../gunstar_disasm/ANALYSIS.md`).
+  **⚠ CONTROLLER'S CORRECTION, 2026-09-09 — THE SYMLINK IS REAL AND THE CONCLUSION DRAWN FROM
+  IT IS NOT.** This entry originally read "there is no Alien-Soldier-specific analysis in the
+  tree, and anyone reading Alien Soldier's analysis is reading Gunstar's". I checked the
+  target's CONTENT rather than only its existence, and it is a deliberate JOINT document: its
+  own title is *"Gunstar Heroes & Alien Soldier — Engine Analysis"*, it names Alien Soldier
+  **11 times against Gunstar's 9**, and it carries a dedicated section, *"Alien Soldier's 60fps
+  Tricks"*. So the symlink is intentional, the document does cover Alien Soldier, and a future
+  session must NOT "repair" the link or rewrite the doc as Gunstar-only.
+  **What survives, and it is the finding worth keeping:** its *"VBlank: Direct DMA (No Queue) /
+  art is pre-rendered, not streamed"* section is **false for Alien Soldier**, which has both a
+  queue and streaming — read out of the disassembly rather than out of the doc. A joint
+  document that states one game's mechanism under a shared heading is a real defect, and a
+  narrower one than "the file is a fiction".
+  *Method note, because this is the shape the study itself warns about elsewhere: the symlink
+  was a hit that CONFIRMED what the search was looking for, and the enclosing context — the
+  target's own title and headings — was not read before the conclusion was drawn.*
 - **Claim #3 (per-stage HInt dispatch) is CONFIRMED and larger than stated** — `$05612C` is
   table-driven and installs per-stage **VBlank** handlers too.
 - **Claim #1 (event-tagged animation frames) is PARTIAL** — the `{frame_no, action_byte}`

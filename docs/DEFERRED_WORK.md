@@ -27970,11 +27970,21 @@ both mislead anyone researching from them.
    pattern in unrelated data, and would have "confirmed" the claim. **The instrument has to
    select instructions (`#\$8b0`), not bytes.**
 2. **`aliensoldier_disasm/ANALYSIS.md` is a SYMLINK to `../gunstar_disasm/ANALYSIS.md`**
-   (verified with `/usr/bin/ls -l`). There is no Alien-Soldier-specific analysis in the tree,
-   so anyone reading "Alien Soldier's analysis" is reading Gunstar's — and that file's "Direct
-   DMA (No Queue) / art is pre-rendered, not streamed" line is **false for Alien Soldier**,
-   which has both a queue and streaming. Its 96-byte object stride is confirmed for Gunstar
-   only. Reported by the research lane; the symlink itself I verified.
+   (verified with `/usr/bin/ls -l`). **⚠ THE SYMLINK IS DELIBERATE AND THE FIRST VERSION OF
+   THIS ROW OVER-READ IT — corrected 2026-09-09 by the controller, who checked the target's
+   CONTENT and not only its existence.** The linked file is a JOINT document: its own title is
+   *"Gunstar Heroes & Alien Soldier — Engine Analysis"*, it names Alien Soldier **11 times
+   against Gunstar's 9**, and it carries a section headed *"Alien Soldier's 60fps Tricks"*. So
+   "there is no Alien-Soldier-specific analysis in the tree" is FALSE, and nobody should
+   "repair" the link or rewrite the doc as Gunstar-only.
+   **What stands:** that file's *"VBlank: Direct DMA (No Queue) / art is pre-rendered, not
+   streamed"* section is **false for Alien Soldier**, which has both a queue and streaming
+   (read from the disassembly, not from the doc), and its 96-byte object stride is confirmed
+   for Gunstar only. A joint document asserting one game's mechanism under a shared heading is
+   a real defect — and a much narrower one than "the file is a fiction".
+   *Method, and it is the same trap row 1 above names in a different costume: the symlink was
+   a hit CONFIRMING what the search was after, so the enclosing context — the target's title
+   and headings — went unread before the conclusion was drawn.*
    Also reported, **not** verified here: `thunderforce4_disasm/ANALYSIS.md`'s pool addresses
    and 32-byte stride did not reproduce (the lane places the table at `$FF8198` with a 40-slot
    subtable at `$FF8818`, stride `$60`), and `ristar_disasm/ANALYSIS.md` mislabels `$6580`/
