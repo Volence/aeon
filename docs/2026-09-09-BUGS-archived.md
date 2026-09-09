@@ -1,3 +1,150 @@
+> **RETIRED 2026-09-09. Superseded by `docs/lens-findings.jsonl`, which is now the only place an OPEN aeon defect is recorded.** This file is a frozen RECORD: read it for the reasoning, never for what is open today.
+
+# ARCHIVE NOTE — read this before any heading below
+
+**Why it was retired.** It could not answer "what is open" on its own. Thirteen headings matched
+`/OPEN/` on the day it was archived and several of them contradicted their own bodies or a newer
+entry sitting a few hundred lines above. It had no latest-line-wins rule, so `EFX-2` appears
+**twice** under one id — live at the 2026-08-14 ledger and again inside the superseded 2026-08-13
+section. `docs/lens-findings.jsonl` has that rule, which is the mechanical reason the migration
+went there rather than into a third markdown file.
+
+**What was NOT retired.** The reasoning. The corrections, the measured evidence, and the entries
+recording that something was booked FIXED for a WRONG reason (EFX-5, and the tick-735 lesson) are
+the valuable half of this file and are why it was moved rather than deleted. Coordinates in it are
+frozen with it; they are not re-pointed. It is a RECORD by `tools/test_citation_form.py`'s
+dated-`docs/YYYY-MM-DD-*` rule, as `docs/BUGS.md` was by name.
+
+---
+
+## The confirmation vocabulary this migration used, and why it has five values and not two
+
+Every migrated row carries **how well it was confirmed**, because "open" and "closed" cannot
+express two of the things actually found here:
+
+| value | meaning |
+|---|---|
+| **behaviour-verified** | went to the code and established the described condition still holds |
+| **line-verified-only** | the heading resolves and the entry is coherent; the behaviour was not re-derived |
+| **could-not-confirm** | nothing in the tree can decide it — a legitimate outcome, never promoted to make the list tidy |
+| **already-fixed** | closed, with the commit named and reachability proven by `git merge-base --is-ancestor <sha> master` |
+| **mechanism-deleted** | **the symptom may be perfectly real, but the cause the entry names cannot exist any more** |
+
+That last one is the value this file most needed and never had. An entry can be **refuted while
+the hazard it names is real**, and an entry can **name a real symptom with an impossible cause**.
+Neither collapses to open-or-closed, and flattening either throws away the only fact anyone can
+act on. Two rows below are `mechanism-deleted` (EFX-2, and the sigil `boot_head` skew), and the
+already-closed **EFX-4** is the precedent: it was closed because `Raster_InstallWater` was
+deleted, and its own closing rationale then had to be amended when `Raster_CopyPatchedTemplate` —
+the proc that rationale rested on — was deleted too.
+
+---
+
+## Where the open items went — the join table
+
+Eight survivors were confirmed against the code on 2026-09-09 and migrated to
+`docs/lens-findings.jsonl`, **keeping their original ids** so this file and the ledger can be
+joined by hand.
+
+| id here | ledger id | state migrated as | confirmation on 2026-09-09 |
+|---|---|---|---|
+| CHAR-4 | `CHAR-4` | open | **behaviour-verified** — zero ceiling/roof/`ProbeUp` references in `player_glide.emp`, the file that holds `Glide_Collide`, `Slide_Terrain` and all three glide-family states, while seven other player files carry them |
+| CHAR-5 | `CHAR-5` | decided | **line-verified-only** — accepted, not open: record corrected, behaviour deliberately unchanged, cost known. The disposition was read; the S3K comparison and the ~10px figure were not re-derived |
+| CHAR-6 | `CHAR-6` | open | **behaviour-verified** — `PHook_EnsureStanding` computes `(stand_h - cur_h) >> 1` and subtracts it from `y_pos` with no head-clearance test; `PHook_AirEnter` calls it and is the entry hook bound to Air, Fly and GlideFall |
+| *the coverage hole* (**had no id — that is why it fell out of an id-keyed list**) | `CHAR-10` (**newly assigned by this migration**) | open, task | **behaviour-verified** — `Character_ID` has exactly ONE write site in the whole tree, `Debug_CharacterHotkey` in `games/sonic4/test/ojz_scroll_test.emp`, which stands down under `Input_Source != 0` |
+| EFX-2 | `EFX-2` | open | **mechanism-deleted** — the symptom holds, the stated cause does not; see below |
+| EFX-4b | `EFX-4b` | open | **behaviour-verified**, with a citation correction; see below |
+| BUG-005 | `BUG-005` | open | **could-not-confirm** — the standing DEBUG net and the named suspect site still exist, but the artefact itself has never been reproduced and nothing in the code can decide it |
+| *the OJZ replay fixture re-stamp* (no id) | `REPLAY-1` (**newly assigned**) | **fixed** | **already-fixed**, with proof; see below |
+
+### The three that changed shape in the migration, stated so the ledger row is not read as a copy
+
+* **EFX-2 — `mechanism-deleted`.** This file says `Palette_ArmFade` and `Palette_DoFade` "have no
+  callers". That sentence is **false as of 2026-09-09**: `Effects_InstallPreset` calls
+  `Palette_ArmFade`, gated on `EffectsPreset.ep_transition`. The finding still holds for a
+  **different** reason — all ten `preset(...)` call sites in the tree take `transition`'s default
+  of 0, so nothing arms it and the cross-fade is still unreachable at runtime. Open deliberately,
+  as booked; but do not fix the cause this entry names, because it is not the cause any more.
+* **EFX-4b — behaviour-verified, citation corrected.** The fixed 128-byte copy is confirmed
+  present (`Raster_VBlank`'s `.copy_program` arm copies `(RASTER_BUF_SIZE / 2) - 1` words from an
+  unpadded static ROM program). But this file's cited example, `Raster_Program_None`, **no longer
+  reaches that arm**: the semantic empty-program test immediately above it diverts a program whose
+  first record is the terminator into `HBlank_Uninstall`. The subject is short *non-empty* static
+  programs, e.g. `OJZ_TestRaster`, which is declared `[u16; raster_words(...)]` and so is sized to
+  its content. The mechanism survives; only the example died.
+* **the OJZ replay fixture re-stamp — already-fixed, and this file already refuted itself.** The
+  entry below claims a tick-735 desync; the 2026-08-14 entry above it records that the tick-735
+  desync never existed and was an artifact of hand-arming. Two later re-stamps then landed and
+  both are ancestors of master: `f52c5c6a` (2026-08-26) and `48bd25dd` (2026-08-30, "Both
+  fixtures now PASS at exit 0", with a negative control that still trips). **RESIDUAL, tagged
+  rather than claimed:** ~30 commits have touched `games/sonic4/player/` and `engine/objects/`
+  since `48bd25dd`, including behaviour changes, and the replay net is not wired into any
+  scheduled runner — so whether the fixtures are green *today* is unmeasured here and needs a
+  `replay_runner` pass.
+
+---
+
+## TWO ENTRIES BELOW ARE SIGIL'S, NOT AEON'S — deliberately absent from the new aeon list
+
+They are not open aeon defects, and they must not silently vanish in this move. Both have moved
+since they were written here, and **neither moved to "closed"**.
+
+### 1. `.lst` symbol addresses 4 bytes stale for `boot_head` in the DEMO shapes (the 2026-08-14 entry) — **FORWARDED TO SIGIL, NOT DECLINED. `mechanism-deleted`.**
+
+**Awaiting sigil's measurement.** They have not booked a row because the entry below names
+**`packed_align_of`** as the suspected mechanism, and that symbol **no longer exists anywhere in
+their workspace** — removed by their `e2517405`, *"alignment flip: the packing walk reads
+section_align, not the pin's residue"* (2026-08-30), reachable from their `origin/master`. They
+will not book a row whose stated cause cannot exist; they will measure the skew and take it if it
+is theirs.
+
+**So: the stated mechanism is refuted, the symptom is not.** The ROM bytes were correct and only
+the listing lied, and nothing here says that stopped being true.
+
+*Provenance, because this is a cross-repo claim this lane cannot test from inside aeon:* the
+absence was measured by the hub in sigil's tree with a positive control — `packed_align_of` in
+**0** files against **538** files containing `fn ` — precisely because the hub's own first check
+returned a zero from a shell error, and a control of zero would have meant a broken search rather
+than an absent symbol. Attributed, not restated as this lane's own measurement.
+
+### 2. `sigil-frontend-emp --test deep_nesting_aborts` SIGABRTs and its tests vanish from the suite totals (the 2026-08-14 entry) — **REFUTED 2026-09-09 by sigil's own measurement.**
+
+Sigil measured it three ways on purpose — standalone release, standalone debug, and inside the
+full workspace landing run, because a stack overflow is exactly the thing that varies by profile
+and by concurrency. **All three show the binary running, 4 tests, all ok**, with zero abort
+signatures across an 8,085-line log. They confirmed this entry's commit is an ancestor of aeon
+master first, so they are refuting the entry rather than a stale quote of it.
+
+**Their caution, carried intact and not upgraded: they do NOT claim it never happened.** Something
+between our measurement and today closed it.
+
+**What comes off is the consequence line.** *"Treat any suite total as a lower bound"* no longer
+follows from this entry.
+
+**What survives is the class, and it is now sigil's gate row `SUITE-TOTAL-COMPLETENESS`, not
+ours:** a test binary that dies rather than finishing sums as **0 passed / 0 failed** and is
+invisible in both directions, so every total still reads complete. **This entry was right about
+the CLASS and wrong about the live INSTANCE** — which is a more useful sentence than either
+"refuted" or "still open" on its own.
+
+---
+
+## Stale headings inside this file — do not read them as status
+
+Left in place because the reasoning underneath them is the point, and rewriting a record is the
+thing this lane forbids. Flagged here instead:
+
+* **`effects suite — 2026-08-13 Phase 3 design audit … EFX-1/2/3/6 OPEN (Parcel C)`** — SUPERSEDED
+  in whole by the newer *Effects suite defect ledger (EFX-1 … EFX-6), booked 2026-08-14* above it,
+  which records EFX-1, EFX-3 and EFX-6 **FIXED**. Its `EFX-2` sub-entry is the duplicate.
+* **`⚠ OPEN — the replay net was NOT verified for the blanket-register-restore parcel`** — its own
+  child heading, `✅ CLOSED 2026-08-14 — the net was GREEN all along`, is the live half. The parent
+  heading is the stale one.
+* **`⚠ OPEN — the OJZ replay fixture needs a RE-STAMP`** — closed; see the join table above.
+* **The two sigil headings** — see the section above; neither is an open aeon defect.
+
+---
+
 # Known Bugs
 
 Open defects with reproduction notes and any captured live-emulator evidence. Newest first.
