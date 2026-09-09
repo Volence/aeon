@@ -563,7 +563,7 @@ ensure((spring_axis_x(SPRING_DIR_UPDIAG, SPRING_YELLOW_VELOCITY) == 0) && (sprin
 // object's first animated frame and then vanishes — silently, with the sprite
 // simply drawing unflipped. `status` is the authority and render_flags is its
 // derived copy. ST_XFLIP/ST_YFLIP are bit-aligned with RF_XFLIP/RF_YFLIP on
-// purpose (engine/system/constants.emp:126-127) precisely so that copy is a mask
+// purpose (engine/system/constants.emp, `ST_XFLIP`/`ST_YFLIP`) precisely so that copy
 // and a move. The donor writes status too (`bset #1,status(a0)` on its down
 // spring, code/objects/Spring.asm:73).
 //
