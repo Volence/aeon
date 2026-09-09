@@ -1550,12 +1550,22 @@ pub proc Player_Display (a0: *Sst) clobbers(d0-d6/a1-a3) {
 //    tails_appendage.emp's ball-spin bank already documents — that block is the
 //    house precedent and this follows it.
 //
-// 2. NO TUMBLE GATE. S3K checks flip_type/flip_angle first and diverts to
-//    Anim_Tumble (:24932), the somersault off springs and ramps. We have no
-//    tumble mechanism, so the gate would guard nothing. The full-360 tumble art
-//    IS in our sheets at frames $31/$3D/$49 (519 tiles, referenced by nothing);
-//    it falls out of a DIFFERENT selection (divu #$16 on a counter, not an
-//    octant of the ground angle) and is a follow-up, not part of this.
+// 2. NO TUMBLE GATE — CLOSED 2026-09-09, and this entry is kept because its
+//    parenthetical is what made the follow-up a normal parcel instead of an art
+//    project. It read: "The full-360 tumble art IS in our sheets at frames
+//    $31/$3D/$49 (519 tiles, referenced by nothing); it falls out of a DIFFERENT
+//    selection (divu #$16 on a counter, not an octant of the ground angle) and is
+//    a follow-up, not part of this." Both halves held. The counter is the spring
+//    tumble's flip_angle and the selection is Player_TumbleFrames; the first of
+//    those three sets ($31-$3C) is now live and the other two remain unreferenced
+//    (they are S3K's per-zone `flip_type` variants, which we have no mechanism to
+//    reach — see Player_ApplyTumble).
+//
+//    THE GATE DID NOT LAND HERE, though. S3K puts it inside this routine's
+//    walk/run branch; ours sits one level up in Player_Display, which leaves this
+//    routine byte-for-byte unchanged. Two of this tree's own gates forced that —
+//    the mapping_frame writer registry and the sprite-tilt cut — and the reasoning
+//    is at the Player_Display call site rather than repeated here.
 //
 // 3. PUSH SUPPRESSION IS STRUCTURAL, NOT A TEST. S3K needs `btst #5,status ->
 //    loc_12A72` (:24838) because its Animate_Sonic is reached with the walk/run
