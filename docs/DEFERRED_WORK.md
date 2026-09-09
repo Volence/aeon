@@ -31915,10 +31915,11 @@ declare the capability, so some scene must author it") and it **fires on a legit
 banner says so — and three arms were later added that reinstate the other side.
 
 **COUNT, with unit: 19 PINS-CONTENT check sites** (4 comptime `ensure`, 9 pytest assertions,
-6 gate sites), **14 AMBIGUOUS**, across **9 pytest files, 3 gate scripts and 1 `.emp` file** —
-against populations of 1,398 `ensure` sites, 2,217 test functions and 157 tool scripts. **17 of
-the 19 are build-fatal.** The concentration is the good news: this is a small, tractable defect,
-not a verdict on the test culture.
+5 gate sites), **14 AMBIGUOUS**, across **9 pytest files, 3 gate scripts and 1 `.emp` file** —
+against populations of 1,398 `ensure` sites, 2,217 test functions and 157 tool scripts. **18 of
+the 19 are build-fatal** (the exception is a standalone witness `build.sh` never calls). The
+concentration is the good news: this is a small, tractable defect, not a verdict on the test
+culture.
 
 **TONIGHT'S BLAST RADIUS, derived from source and NOT measured (no build was run):** deleting one
 argument in `ojz_scenes.emp:327` trips **five** build-fatal refusals across three enforcement

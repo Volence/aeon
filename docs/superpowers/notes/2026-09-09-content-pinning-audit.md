@@ -81,8 +81,8 @@ The change is deleting one argument in one file:
 `rowRemap: SceneRemap.Ladder(RowRemapLadder_Waterline16, 101, 4)` on `Scene_OJZ_Underwater`'s
 layer 1.
 
-**Derived, not measured** — four independent build-fatal refusals, in three different
-enforcement mechanisms, before the ROM is even linked:
+**Derived, not measured** — **five** independent build-fatal refusals, in three different
+enforcement mechanisms. Four of the five fire **before the ROM is even linked**:
 
 | # | where | mechanism | what it says |
 |---|---|---|---|
@@ -232,14 +232,16 @@ only).
 
 | classification | count | unit |
 |---|---|---|
-| **PINS-CONTENT** | **19** | **check sites** — 4 comptime `ensure` (A1-A4), 9 pytest assertion sites (C1-C9), 6 gate sites (D1-D3, D5, D7, and D4 once settled) |
+| **PINS-CONTENT** | **19** | **check sites** — 4 comptime `ensure` (A1-A4) + 10 pytest assertion sites (C1-C9; C9 is two sites in one file) + 5 gate sites (D1, D2, D3, D5, D7) |
 | **AMBIGUOUS** | **14** | check sites — 12 in the pytest suite, 2 in the gates (D4, D6) |
-| **REAL-INVARIANT** (in the swept candidate set, i.e. checks that *look* like content pins and are not) | **~20** | check sites, incl. the 4 `BAND_*_N` pairs, the two subset arms, the `CAP_DENSE_TIER` family, C10, and `REEL_COLS_PER_BAND` |
+| **REAL-INVARIANT** (in the swept candidate set — checks that *look* like content pins and are not) | **~20** | check sites, incl. the 4 `BAND_*_N` pairs, the two subset arms, the `CAP_DENSE_TIER` family, C10, and `REEL_COLS_PER_BAND` |
 | **PINS-CONTENT BY DESIGN** (owner-set park, out of scope) | **1** | check site (A5) |
 
-**Files affected: 9 pytest files, 3 gate scripts, 1 `.emp` file.** Of **19** PINS-CONTENT sites,
-**17 are build-fatal today**; the two that are not are D7 (a standalone witness) and one half of
-C-series duplication. **Against populations of 1,398 `ensure` sites, 2,217 test functions and
+**No site is counted twice: D4 is AMBIGUOUS only, and is not in the 19.**
+
+**Files affected: 9 pytest files, 3 gate scripts, 1 `.emp` file.** Of the **19** PINS-CONTENT
+sites, **18 are build-fatal today**; the single exception is **D7**, a standalone witness that
+`build.sh` does not call. **Against populations of 1,398 `ensure` sites, 2,217 test functions and
 157 tool scripts, this is a small and highly concentrated defect** — which is the good news, and
 the reason a fix is tractable rather than a rewrite.
 
