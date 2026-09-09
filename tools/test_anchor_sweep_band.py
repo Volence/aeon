@@ -16,11 +16,17 @@ and the design says why in the same words: `lo`/`hi` live in the raster program'
 call, `amp_shift` lives in the preset, and the two are associated by a POINTER at runtime.
 There is no comptime scope in which both numbers exist. This file is that scope.
 
-RED-FIRST, and the mutation is on disk rather than described: raising
-`games/sonic4/data/effects/ojz_effects.emp`'s `anchor_sweep(amp_shift: 4, ...)` to
-`amp_shift: 1` makes `test_every_authored_sweep_fits_its_channels_patchable_band` fail with
-`channel 0: peak-to-peak 512 px does not fit band 3..220 (218 lines)`, and lowering it back
-makes it pass. Measured 2026-09-03.
+RED-FIRST, and the mutation is on disk rather than described: lowering
+`games/sonic4/data/effects/ojz_effects.emp` `OJZ_Preset_Sec7`'s `anchor_sweep(amp_shift: 5,
+...)` to `amp_shift: 1` makes `test_every_authored_sweep_fits_its_channels_patchable_band`
+fail with `channel 2: peak-to-peak 256 px does not fit band 3..160 (158 lines)`, and raising
+it back makes it pass. Measured 2026-09-09.
+
+(That paragraph named `OJZ_Preset_Sec0` channel 0 until 2026-09-09, when the owner turned the
+section-0 waterline off for a video and its `patch_motion` became `ANCHOR_MOTION_NONE`. The
+mutation moved to the sweep that is still authored; the bound did not change. THE FACT THAT
+THIS PARAGRAPH HAD TO MOVE IS THE POINT OF THE 2026-09-09 PARCEL — see "INSTRUMENT HEALTH vs
+CONTENT STATE" below.)
 
 Runner: the `pytest tools` lane in build.sh (`python3 -m pytest tools -q`), which is
 build-fatal on the canonical path and skipped under FAST=1.
@@ -704,6 +710,143 @@ def scan_all():
     return sweeps, unresolved
 
 
+# =========================================================================================
+# INSTRUMENT HEALTH vs CONTENT STATE — the partition this file was missing (2026-09-09)
+# =========================================================================================
+#
+# OWNER RULING, 2026-09-09: **a check may require that authored content is CORRECT; it may
+# not require that particular content EXISTS, unless something real breaks without it.**
+#
+# The bound this partition was built for said two different things in ONE assertion and could
+# not tell them apart. Its own message:
+#
+#     "the seeded-headroom bound judged NO hand-authored sweep at all, so this test passed
+#      without measuring anything. Every sweep was skipped as belonging to a section other
+#      than the spawn section 0, which means EITHER the spawn-section sweep was removed, OR
+#      section_presets() stopped resolving the preset names."
+#
+#   * "the spawn-section sweep was removed" is a CONTENT decision the owner is entitled to
+#     make — and made, on 2026-09-09, when the section-0 waterline went off for a video.
+#   * "section_presets() stopped resolving" is the INSTRUMENT going blind. That is a real
+#     defect and it is what the population guard was actually protecting.
+#
+# Failing on both punishes the first for the second's sake, and it makes the owner's LEVEL
+# DESIGN load-bearing for the build. Deleting the guard instead would swap this defect for the
+# worse one it existed to prevent: a bound that reports success while measuring nothing.
+#
+# ---- HOW THE TWO ARE TOLD APART, concretely ----------------------------------------------
+#
+# Two probes. Each compares a READER against the PLAIN TEXT of the source it reads, so
+# neither can be answered by how much content happens to be authored — and, the property that
+# makes this a partition rather than a loosening, NEITHER GETS WEAKER AS CONTENT IS REMOVED.
+#
+#   RESOLUTION.  `section_presets()` must yield one entry for every `ojz_sec(` row the
+#                descriptor textually contains, the entries must be the contiguous range
+#                0..N-1, and SPAWN_SECTION must be among them — it is the only section the
+#                seeded bound can EVER be evaluated for, so a reader that lost it has lost
+#                the bound whatever the content says. Stated as ACCOUNTING (rows vs entries)
+#                and not as a pinned count: an act may legitimately gain or lose a section,
+#                and `sorted(sections) == list(range(9))` made that a build failure too.
+#
+#   PARSE.       `authored_sweeps()` — the reader the seeded bound actually uses — must agree
+#                with `scan_module()` on the ARRAY-shaped sweeps of the same file, and
+#                `scan_module()` must account for every `anchor_sweep(` occurrence the blanked
+#                source contains (it raises otherwise, by construction). Together those two
+#                mean: if the file carries N sweep calls and the bound's reader sees zero of
+#                them, one of these fires. If the file carries ZERO, both agree at zero and
+#                pass — which is the whole point.
+#
+# WHAT THIS DELIBERATELY DOES NOT DO: it does not assert that any sweep is authored, on any
+# section, in any file. The population is COUNTED and REPORTED (a warning naming the census on
+# every run, and the coverage report), never asserted. Zero is a legitimate answer.
+
+
+def instrument_blindness():
+    """[str] — the ways this file's readers could be reading NOTHING. Empty == healthy.
+
+    CONTENT-FREE BY CONSTRUCTION: every entry is a disagreement between a reader and the plain
+    text of its own source. Removing authored content cannot add an entry, and adding authored
+    content cannot remove one."""
+    out = []
+
+    # ---- PROBE 1: RESOLUTION ----
+    # CALL SITES ONLY, and the exclusion is spelled rather than pattern-matched away: the
+    # descriptor also carries the `comptime fn ojz_sec(sec: int, ..)` DECLARATION, whose
+    # argument list has no literal `sec:` for section_presets() to read — so counting it made
+    # a healthy reader look blind by exactly one row. (Measured on the unmutated tree,
+    # 2026-09-09: 10 occurrences, 9 resolved, and the reader was right.) The count stays over
+    # the bare SPELLING and not over `ojz_sec(sec: <digits>`, because a probe that matched the
+    # reader's own pattern could never disagree with it.
+    desc = _blank(_read(DESCRIPTOR))
+    rows = len([m for m in re.finditer(r"\bojz_sec\s*\(", desc)
+                if not re.search(r"\bfn\s+$", desc[:m.start()])])
+    sections = section_presets()
+    if rows == 0:
+        out.append(
+            "%s contains no `ojz_sec(` row at all. section_presets() reads that spelling, so "
+            "either the descriptor moved or the call was renamed — every band this file "
+            "resolves for a generated sweep goes through this map."
+            % os.path.relpath(DESCRIPTOR, AEON))
+    elif len(sections) != rows:
+        out.append(
+            "section_presets() resolved %d of the %d `ojz_sec(` rows in %s (%r). A row whose "
+            "`sec:`/`effects:` arguments this reader cannot see is a section whose band it "
+            "silently cannot resolve — teach the reader the spelling, do not widen the "
+            "pattern."
+            % (len(sections), rows, os.path.relpath(DESCRIPTOR, AEON), sorted(sections)))
+    elif sorted(sections) != list(range(len(sections))):
+        out.append(
+            "section_presets() resolved %d rows of %s but they are not the contiguous range "
+            "0..%d — got %r. A gap means a `sec:` was misread, not that an act skipped a "
+            "section number."
+            % (len(sections), os.path.relpath(DESCRIPTOR, AEON), len(sections) - 1,
+               sorted(sections)))
+    elif SPAWN_SECTION not in sections:
+        out.append(
+            "section_presets() no longer resolves the SPAWN SECTION %d out of %s. That is the "
+            "ONLY section SPAWN_CAMERA_Y (%d) is the camera for, so the seeded-headroom bound "
+            "cannot be evaluated for any sweep at all once this is true — and it would look "
+            "exactly like a tree that authors no sweeps there."
+            % (SPAWN_SECTION, os.path.relpath(DESCRIPTOR, AEON), SPAWN_CAMERA_Y))
+
+    # ---- PROBE 2: PARSE ----
+    # scan_module() raises if it cannot account for every `anchor_sweep(` occurrence, so
+    # calling it IS the occurrence-accounting probe; the comparison below is the second half,
+    # aimed at authored_sweeps() specifically because that is the reader the seeded bound uses.
+    try:
+        scanned, _unresolved = scan_module(OJZ_EFFECTS)
+    except AssertionError as exc:
+        out.append("scan_module() cannot read %s: %s"
+                   % (os.path.relpath(OJZ_EFFECTS, AEON), exc))
+    else:
+        array_shaped = [s for s in scanned if s.shape == "array"]
+        read = authored_sweeps()
+        if len(read) != len(array_shaped):
+            out.append(
+                "authored_sweeps() reads %d array-shaped sweep(s) out of %s where "
+                "scan_module() accounts for %d. The seeded-headroom and band-fit bounds above "
+                "run off authored_sweeps(), so the difference is exactly the set of sweeps "
+                "those bounds are no longer looking at."
+                % (len(read), os.path.relpath(OJZ_EFFECTS, AEON), len(array_shaped)))
+    return out
+
+
+def authored_sweep_census():
+    """(total, {section or None: [(preset, channel)]}) — WHAT IS AUTHORED, for reporting only.
+
+    Deliberately a separate function from `instrument_blindness()` so the two cannot be
+    confused at a call site: this one answers "how much content is there", which no assertion
+    in this file is allowed to constrain."""
+    sections = section_presets()
+    by_section = collections.defaultdict(list)
+    sweeps = authored_sweeps()
+    for name, ch, _a, _p, _ph in sweeps:
+        installed = sorted(k for k, v in sections.items() if v == name)
+        for sec in (installed or [None]):
+            by_section[sec].append((name, ch))
+    return len(sweeps), dict(by_section)
+
+
 # ---- THE BOUNDS, one function per obligation, applied to hand and generated alike ----------
 #
 # Every expectation here is DERIVED at call time: the bands come from the `patchable(..)`
@@ -871,11 +1014,15 @@ def coverage_report():
     gen = [s for s in sweeps if s.path in set(generated_modules())]
     lines.append("  LIVE GENERATED POPULATION: %d sweep(s). %s"
                  % (len(gen),
-                    "EMPTY — the authoring key has a shape but no reader "
-                    "(docs/superpowers/specs/2026-09-03-anchor-authoring-key-shape.md, steps "
-                    "2-4 open), so the generated arm is green against NOTHING and is proven "
-                    "instead by tools/fixtures/anchor_sweep/." if not gen
+                    "EMPTY — no document authors the key, so the generated arm is green "
+                    "against NOTHING and is proven instead by tools/fixtures/anchor_sweep/. "
+                    "This is REPORTED and not asserted (owner ruling 2026-09-09): zero "
+                    "authored sweeps is a legitimate content state." if not gen
                     else "the arm has a real subject; the fixtures remain as its floor."))
+    hand_total, _hand_by_sec = authored_sweep_census()
+    lines.append("  HAND-AUTHORED POPULATION: %d sweep(s) — also reported, never asserted. "
+                 "The readers behind both numbers ARE asserted, by instrument_blindness(): %s"
+                 % (hand_total, instrument_blindness() or "no findings"))
     seeds = {p: chooser_seeds(p) for p in generated_modules()}
     _, unevaluated = headroom_violations(gen, seeds)
     lines.append("  NOT CHECKED: seeded headroom for %d of the %d generated sweep(s) — either "
@@ -956,9 +1103,19 @@ class TestAuthoredSweepsFitTheirBands(unittest.TestCase):
         in_source = len(_BAND_TRIPLE.findall(src))
         progs = patched_programs()
         reached = sum(len(b) for b in progs.values())
-        self.assertTrue(progs, "no patched program at all was found in %s — every band bound "
-                               "in this file would be vacuous"
-                               % os.path.relpath(OJZ_EFFECTS, AEON))
+        # CONDITIONAL SINCE 2026-09-09. `assertTrue(progs)` unconditionally required a patched
+        # program to EXIST, which the equality below already implies whenever any band is
+        # declared (bands with no program reaching them gives reached == 0 != in_source). Its
+        # only independent effect was to refuse a file that declares NO bands at all — a
+        # content state, not a defect. Kept for the case where it says something the equality
+        # cannot: bands present, resolver reaching nothing, which is a blind resolver.
+        if in_source:
+            self.assertTrue(
+                progs,
+                "%s declares %d `patchable(ch:, lo:, hi:)` band(s) and this reader found NO "
+                "patched program to reach any of them through — every band bound in this file "
+                "would be vacuous."
+                % (os.path.relpath(OJZ_EFFECTS, AEON), in_source))
         self.assertEqual(
             in_source, reached,
             "%s declares %d `patchable(ch:, lo:, hi:)` band(s) but the resolver reaches only "
@@ -975,12 +1132,17 @@ class TestAuthoredSweepsFitTheirBands(unittest.TestCase):
         make every generated sweep resolve to "no preset", i.e. to a dead channel — which is a
         LOUD failure, but one whose message would blame the document instead of this reader.
         With a preset that binds `patched:` through a chooser it is the opposite: silence."""
-        sections = section_presets()
-        self.assertEqual(
-            sorted(sections), list(range(9)),
-            "%s no longer yields one `ojz_sec(sec: N, .., effects: ..)` row per section 0..8; "
-            "got %r. Every generated sweep resolves its band through this map."
-            % (os.path.relpath(DESCRIPTOR, AEON), sorted(sections)))
+        # WAS `assertEqual(sorted(sections), list(range(9)))`, and the 9 was the same defect
+        # one field over (2026-09-09): it made the ACT'S SECTION COUNT a build requirement, so
+        # adding a tenth section or cutting to eight would turn this red for a content
+        # decision that breaks nothing here. The accounting form below is strictly stronger as
+        # an instrument check — it compares the reader against the descriptor's OWN row count
+        # rather than against a number transcribed from the tree of the day — and it is what
+        # `instrument_blindness()` PROBE 1 runs, so the two cannot drift apart.
+        blind = instrument_blindness()
+        self.assertEqual([], blind,
+                         "%s / the sweep readers: %s"
+                         % (os.path.relpath(DESCRIPTOR, AEON), "; ".join(blind)))
         progs = patched_programs()
         for name, prog in sorted(preset_patched_programs().items()):
             self.assertIn(
@@ -990,17 +1152,42 @@ class TestAuthoredSweepsFitTheirBands(unittest.TestCase):
                 "so it is a hard stop either way — this test is the one that names it before "
                 "a sweep does." % (name, prog))
 
-    def test_there_is_at_least_one_authored_sweep(self):
-        """The anchor mover's engine half landed with exactly one authored edge. A tree with
-        none would make every assertion below vacuously true, and this suite has booked that
-        failure mode more than once."""
-        self.assertTrue(
-            authored_sweeps(),
-            "no `anchor_sweep(...)` is authored anywhere in "
-            "games/sonic4/data/effects/ojz_effects.emp. EFFECTS-W1 item 4 landed one, on "
-            "OJZ_Preset_Sec0 channel 0; if it was deliberately removed, the capability bit "
-            "CAP_ANCHOR_MOTION in games/sonic4/config/game.emp is now declared for a feature "
-            "nothing raises and should come out in the same commit")
+    def test_the_sweep_readers_are_not_blind(self):
+        """Was `test_there_is_at_least_one_authored_sweep`, and the rename is the fix.
+
+        THE OLD TEST ASSERTED CONTENT. Its message — *"no anchor_sweep(...) is authored
+        anywhere in ojz_effects.emp ... if it was deliberately removed, CAP_ANCHOR_MOTION
+        should come out in the same commit"* — made the presence of a hand-authored sweep a
+        build requirement, which is the owner's 2026-09-09 ruling in its exact prohibited
+        form: a check may require that authored content is CORRECT, not that it EXISTS.
+
+        WHAT IT WAS REALLY PROTECTING SURVIVES, and is now stated as the thing it is: a tree
+        that authors sweeps while this file's readers see none makes every bound below
+        vacuously true, and THAT is a defect. `instrument_blindness()` says so by comparing
+        each reader against the plain text of its own source, which zero authored sweeps
+        cannot trigger and cannot silence."""
+        blind = instrument_blindness()
+        self.assertEqual(
+            [], blind,
+            "THE INSTRUMENT IS BLIND — this is not a report about how much content is "
+            "authored, it is a report that a reader in this file cannot see the source it "
+            "reads:\n  " + "\n  ".join(blind))
+        total, by_section = authored_sweep_census()
+        warnings.warn(
+            "\nauthored-sweep census (CONTENT STATE — no assertion constrains this number): "
+            "%d hand-authored sweep(s)%s%s"
+            % (total,
+               "" if not total else " — " + "; ".join(
+                   "section %s: %s" % (sec, ", ".join("%s ch %d" % (n, c) for n, c in v))
+                   for sec, v in sorted(by_section.items(),
+                                        key=lambda kv: (kv[0] is None, kv[0]))),
+               "" if total else
+               ". ZERO IS A LEGITIMATE STATE and the readers above are proven healthy, so "
+               "every bound in this file is correct-but-empty rather than broken. One "
+               "coherence note, deliberately NOT a failure: CAP_ANCHOR_MOTION in "
+               "games/sonic4/config/game.emp then raises a mover with nothing to move — ROM "
+               "and cycles, not incorrectness, so it is a cleanup and not a gate."),
+            UserWarning, stacklevel=1)
 
     def test_every_authored_sweep_fits_its_channels_patchable_band(self):
         amp = _const(_read(RASTER_DSL), "ANCHOR_SINE_AMP", RASTER_DSL)
@@ -1029,12 +1216,23 @@ class TestAuthoredSweepsFitTheirBands(unittest.TestCase):
         """Fitting the band is necessary; sitting somewhere the excursion actually fits is the
         rest of it. The seeded anchor and the band are both in the source, and the camera at
         which they are compared is the one the gate scenes and the act's own notes use."""
+        # INSTRUMENT FIRST, CONTENT SECOND (2026-09-09). This bound used to end with
+        # `assertGreater(judged, 0)`, which failed on a blind reader and on an empty tree
+        # alike and could not say which it had seen. The probes below answer the first
+        # question and only the first; the census at the end reports the second and asserts
+        # nothing about it. See "INSTRUMENT HEALTH vs CONTENT STATE" above.
+        blind = instrument_blindness()
+        self.assertEqual(
+            [], blind,
+            "THE INSTRUMENT IS BLIND, so a green from this bound would mean nothing. This is "
+            "a reader that cannot see its own source, NOT a statement about how many sweeps "
+            "are authored:\n  " + "\n  ".join(blind))
         amp = _const(_read(RASTER_DSL), "ANCHOR_SINE_AMP", RASTER_DSL)
         src = _read(OJZ_EFFECTS)
         secs = section_presets()
-        skipped, judged = [], 0
+        skipped, judged, no_band = [], 0, []
         for name, ch, a, p, ph in authored_sweeps():
-            bands, _why, _has = bands_for_preset(name)
+            bands, why_band, has_prog = bands_for_preset(name)
             m = re.search(r"pub data %s:\s*EffectsPreset\s*=\s*preset\(" % re.escape(name), src)
             body = src[m.end():m.end() + 4000]
             wy = re.search(r"patch_world_ys:\s*\[([^\]]*)\]", body)
@@ -1058,6 +1256,17 @@ class TestAuthoredSweepsFitTheirBands(unittest.TestCase):
             installed = sorted(k for k, v in secs.items() if v == name)
             if SPAWN_SECTION not in installed:
                 skipped.append((name, ch, installed))
+                continue
+            # NO BAND TO FIT is a third state, and it belongs here for the reason
+            # `band_unevaluated()` gives at length: a preset that binds no `patched:` program
+            # has no band on any channel, so there is nothing for the excursion to leave. The
+            # old code went straight to `bands[ch]` and would have raised KeyError — an
+            # unevaluatable bound surfacing as a crash. Reported, not passed, not failed.
+            if not has_prog or ch not in bands:
+                no_band.append((name, ch, why_band if not has_prog else
+                                "channel %d has no patchable() record in the program %s "
+                                "installs (reported by the band-fit bound, not here)"
+                                % (ch, name)))
                 continue
             self.assertTrue(elems[ch].lstrip("-").isdigit(),
                             "%s channel %d: the seeded anchor %r is not a literal, so this "
@@ -1092,13 +1301,37 @@ class TestAuthoredSweepsFitTheirBands(unittest.TestCase):
                    "\n".join("    %s channel %d (installed by section(s) %s)"
                               % (n, c, i or "none") for n, c, i in skipped)),
                 UserWarning, stacklevel=1)
-        self.assertGreater(
-            judged, 0,
-            "the seeded-headroom bound judged NO hand-authored sweep at all, so this test "
-            "passed without measuring anything. Every sweep was skipped as belonging to a "
-            "section other than the spawn section %d, which means either the spawn-section "
-            "sweep was removed, or section_presets() stopped resolving the preset names."
-            % SPAWN_SECTION)
+        if no_band:
+            warnings.warn(
+                "\nseeded-headroom bound NOT EVALUABLE for %d hand-authored sweep(s) — there "
+                "is no band for the excursion to leave:\n%s"
+                % (len(no_band), "\n".join("    %s channel %d — %s" % t for t in no_band)),
+                UserWarning, stacklevel=1)
+        # THE POPULATION IS REPORTED, NOT ASSERTED (2026-09-09 owner ruling; see "INSTRUMENT
+        # HEALTH vs CONTENT STATE" above). What stood here was
+        #
+        #     self.assertGreater(judged, 0, "... which means EITHER the spawn-section sweep
+        #                                    was removed, OR section_presets() stopped
+        #                                    resolving the preset names.")
+        #
+        # and the message is its own indictment: it named two causes and failed on both, so a
+        # legitimate content decision (the section-0 waterline off) was punished for a defect
+        # (a blind reader) that had already been ruled out by the probes at the top of this
+        # method. The vacuity it guarded against is now IMPOSSIBLE rather than asserted: a
+        # green here with judged == 0 can only mean the readers are healthy AND no sweep sits
+        # on the spawn section, both of which are stated out loud below.
+        total, _by_section = authored_sweep_census()
+        warnings.warn(
+            "\nseeded-headroom bound JUDGED %d of %d hand-authored sweep(s). %s"
+            % (judged, total,
+               "" if judged else
+               ("NONE — and that is a report, not a failure. The readers were proven healthy "
+                "before the loop ran (instrument_blindness() returned no findings), so this "
+                "is the CONTENT state: no sweep is authored on the spawn section %d, the only "
+                "section SPAWN_CAMERA_Y (%d) is the camera for. Band fit and channel liveness "
+                "still cover every scanned sweep and need no camera."
+                % (SPAWN_SECTION, SPAWN_CAMERA_Y))),
+            UserWarning, stacklevel=1)
 
 
 class TestTheGateScenesHoldTheMoverStill(unittest.TestCase):
@@ -1120,11 +1353,17 @@ class TestTheGateScenesHoldTheMoverStill(unittest.TestCase):
             self.assertIn(
                 "Effects_Motion_Any", pokes,
                 "tools/scenes/%s pins the camera and/or channel 0's anchor but does not poke "
-                "Effects_Motion_Any. Since EFFECTS-W1 item 4, OJZ_Preset_Sec0 authors a sweep "
-                "on channel 0 and Effects_LatchWorldLines adds it to the latched line every "
-                "frame, outside the scene freeze — so the derived arm words in "
-                "tools/effects_gates.py would be measuring the sine, not the schedule builder."
-                % fn)
+                "Effects_Motion_Any. Whenever ANY preset authors a sweep on a channel a scene "
+                "pins, Effects_LatchWorldLines adds the sine to the latched line every frame, "
+                "outside the scene freeze — so the derived arm words in "
+                "tools/effects_gates.py would be measuring the sine, not the schedule "
+                "builder. The poke is required unconditionally rather than only while such a "
+                "sweep happens to exist: this test may not require that content exists, and "
+                "a scene that is correct only because today's presets are quiet is a scene "
+                "that breaks the day one is authored. (It said 'Since EFFECTS-W1 item 4, "
+                "OJZ_Preset_Sec0 authors a sweep on channel 0' until 2026-09-09, when the "
+                "owner turned that waterline off — a diagnostic asserting a content fact that "
+                "had stopped being true.)" % fn)
             self.assertEqual(
                 pokes["Effects_Motion_Any"].get("value"), 0,
                 "tools/scenes/%s pokes Effects_Motion_Any to %r, not 0. Any nonzero value ARMS "
@@ -1275,30 +1514,41 @@ class TestTheGeneratedArmIsProvenByItsFixtures(unittest.TestCase):
     DEAD_CHANNEL = os.path.join(FIXTURE_DIR, "generated_chooser_dead_channel.emp")
     UNGUARDED = os.path.join(FIXTURE_DIR, "generated_chooser_unguarded.emp")
 
-    def test_the_live_generated_population_is_not_empty(self):
-        """Was `..._really_is_empty`, a statement of record, written so that the day it
-        stopped being true this test would say so. That day is 2026-09-03: step 4 landed, a
-        document authors the key, and the assertion INVERTS rather than being deleted — an
-        arm that silently loses its live subject again is exactly the state the old name was
-        watching for, and it is now a red instead of a warning."""
+    def test_the_generated_arm_can_still_read_its_module(self):
+        """Was `test_the_live_generated_population_is_not_empty`, and the rename is the fix
+        (2026-09-09, the same owner ruling as `test_the_sweep_readers_are_not_blind`).
+
+        THE OLD TEST ASSERTED CONTENT — specifically that
+        `games/sonic4/data/editor/effects/presets/ojz_sec5_showcase.json` keeps authoring a
+        `patch_motion` sweep. An author deleting that sweep from the showcase document would
+        have turned the BUILD red, which is exactly what the ruling forbids: an author's
+        document may not be load-bearing for the build merely by existing.
+
+        WHAT SURVIVES IS THE HALF THAT WAS NEVER ABOUT CONTENT. "The generated module set is
+        empty" and "the scan cannot read the generated module" are instrument failures, and
+        they stay hard — a scanner pointed at nothing passes every downstream check trivially,
+        which is this class's whole reason to exist. The COUNT is warned, not asserted."""
         gen_paths = set(generated_modules())
-        gen = [s for s in scan_all()[0] if s.path in gen_paths]
-        self.assertTrue(generated_modules(),
+        self.assertTrue(gen_paths,
                         "there is no generated module at all, so 'the population' is not even "
                         "a measurement of the right thing — run tools/effects_gen.py emit")
-        self.assertTrue(
-            gen,
-            "the generated arm's live population is EMPTY again. It was 1 when step 4 of the "
-            "authoring-key chain landed (a `patch_motion` sweep in "
-            "games/sonic4/data/editor/effects/presets/ojz_sec5_showcase.json, bound through "
-            "section_5.meta.json's rasterRef). With it gone, every green from "
-            "test_every_scanned_sweep_fits_its_channels_patchable_band is vacuous for the "
-            "generated half and only the fixtures in %s prove that arm works. Either a "
-            "document lost its key, a sidecar lost its binding, or tools/effects_gen.py "
-            "stopped emitting the chooser row."
-            % os.path.relpath(FIXTURE_DIR, AEON))
-        warnings.warn("the generated arm has %d REAL sweep(s); the fixtures below are its "
-                      "floor, not its only subject" % len(gen), UserWarning, stacklevel=1)
+        # scan_module() raises on an occurrence it can neither classify nor refuse, so this
+        # loop IS the "can the arm read what the generator wrote" probe. It is content-free:
+        # a module carrying no sweep at all scans clean and says so.
+        for p in sorted(gen_paths):
+            scan_module(p)
+        gen = [s for s in scan_all()[0] if s.path in gen_paths]
+        warnings.warn(
+            "\ngenerated-arm census (CONTENT STATE — no assertion constrains this number): "
+            "%d REAL sweep(s) across %d module(s). %s"
+            % (len(gen), len(gen_paths),
+               "The fixtures in %s are this arm's floor, not its only subject."
+               % os.path.relpath(FIXTURE_DIR, AEON) if gen else
+               "ZERO IS A LEGITIMATE STATE — a document may author no key. The arm is then "
+               "proven ONLY by the fixtures in %s, which is why they exist and why they are "
+               "never deleted when a live subject appears."
+               % os.path.relpath(FIXTURE_DIR, AEON)),
+            UserWarning, stacklevel=1)
 
     def test_the_fixtures_exist_and_are_not_build_inputs(self):
         for p in (self.OUT_OF_BAND, self.IN_BAND, self.DEAD_CHANNEL, self.UNGUARDED):
