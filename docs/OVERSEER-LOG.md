@@ -1998,3 +1998,31 @@ target dir, argv — and the rule written from it kept only the grep. **The gene
 exact step that made the observation trustworthy**, while being a rule *about* an instrument
 returning a clean answer to a question it cannot answer. Filed to the hub to amend empyrean `d980ba7`
 and to sigil, who had already adopted it.
+
+<!-- moved from OVERSEER.md 2026-09-09 under the boot-read bound -->
+## STALE DAC ANCHOR PROSE — the closure narrative (moved 2026-09-09)
+
+**✅ CLOSED 2026-08-29** by `fix/stale-dac-anchor-prose` — write-up in `docs/DEFERRED_WORK.md`
+("THE STALE DAC/SOUND-BANK ANCHOR PROSE, SWEPT BY THE *OLD* VALUES"); the 20-live-sites count is
+recorded there and earlier in this log. Moved out of the boot file because a closure is history the
+moment it is written, and the live half — the two classes the sweep rule still misses — stays in
+`OVERSEER.md` under the prose-sweep bar.
+
+## RETIRED TREE — the self-contradicting declaration (moved 2026-09-09)
+
+The `.aeon-land-180` DECLARATION that stood in `OVERSEER.md`'s freeze-tree rules was RETIRED by the
+`.aeon-land-182` stanza above it, while the block itself still said "do not sweep it" — so the boot
+file declared and retired the same tree in one read. Corrected 2026-09-09; `.aeon-freeze-179` (chain
+179, aeon `4ba7cb92`) is retired with it. Both trees still exist on disk and neither is declared by
+any peer. Moved here because a retirement is history the moment it is written.
+
+## BOOT-READ BOUND — the split narrative (moved 2026-09-09)
+
+At the 2026-09-04 pass this file stood at **114,320 bytes against the ruled 100,000** — 14,320 over.
+Everything the protocol's split procedure authorises moving had been moved: the dated tail, and the
+blocks marked CLOSED / STRUCK / RETIRED / HOLD LIFTED. **Pointer-ising the bars was measured
+unavailable**: only **4 of 1,275** substantive lines here appear verbatim in
+`origin/main:docs/OVERSEER-PROTOCOL.md`, so the bars are local content and not shared-protocol
+copies. What was left is live repo-specific rulings interleaved with narrative, which the procedure's
+step 3 assigns to the owner. Anchors in entries above name line spans at the 2026-09-02 revision;
+the second pass's anchors name spans at aeon `7accc2ef`.

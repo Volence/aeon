@@ -9,23 +9,15 @@
 The role, delegation discipline, review bars, and peer protocol live in the shared
 protocol doc. This file is what's aeon-specific.
 <!-- SPLIT-NOTE -->
-**Dated precedent narratives have moved to `docs/OVERSEER-LOG.md`** (append-only, newest
-last, read by `tail`/`grep`, not at boot). Rules, rulings, bars, the landing lane and the
-quirks stay here. Each log entry carries an anchor `<!-- @L<first>-<last> -->` naming the
-line span it occupied in this file before the 2026-09-02 split, and entries are in this
-file's own order. **A second pass ran 2026-09-04** — its bodies are under the log's
-*"Second pass — 2026-09-04, boot-read bound"* heading and its anchors name line spans at
-aeon `7accc2ef`, NOT at the 2026-09-02 revision the anchors above use.
+**Dated precedent narratives live in `docs/OVERSEER-LOG.md`** (append-only, newest last, read by
+`tail`/`grep`, never at boot). Rules, rulings, bars, the landing lane and the quirks stay here.
 
-**⚠ THIS FILE IS STILL OVER THE SUITE'S BOOT-READ BOUND AND THE RESIDUAL IS THE OWNER'S
-PARCEL.** After the 2026-09-04 pass it is **114,320 bytes against 100,000** — 14,320 over.
-Everything the protocol's split procedure authorises moving has been moved: the dated tail,
-and the blocks marked CLOSED / STRUCK / RETIRED / HOLD LIFTED. Pointer-ising is **measured
-unavailable**: only **4 of 1,275** substantive lines here appear verbatim in
-`origin/main:docs/OVERSEER-PROTOCOL.md`, so the bars are local content and not
-shared-protocol copies. What is left is live repo-specific rulings interleaved with
-narrative, which the protocol's step 3 assigns to the owner. **Do not trim a ruling to hit
-the number.** `tools/test_overseer_bound.py` is a GREEN growth ratchet; a red is real.
+**⚠ THIS FILE IS OVER THE SUITE'S BOOT-READ BOUND AND THE RESIDUAL IS THE OWNER'S PARCEL** (card 7).
+Everything the split procedure authorises moving has been moved, and pointer-ising the bars is
+**measured unavailable**. What remains is live rulings interleaved with narrative, which step 3
+assigns to him. **Do not trim a ruling to hit the number.**
+`tools/test_overseer_bound.py` is a GREEN growth ratchet; a red is real. Narrative:
+`docs/OVERSEER-LOG.md`, search `BOOT-READ BOUND`.
 <!-- /SPLIT-NOTE -->
 
 ## ⚠ STANDING RULING THAT OUTRANKS EVERY BAR BELOW — read before the bars
@@ -69,6 +61,23 @@ lane taking fallback project work (aeon's fallbacks: EFFECTS-W2, LOOPS-P, LIVE-O
 **every** finish or stop — a landing, a boundary, a block, an owner question, an agent returning
 with nothing next — sends the hub one message saying what landed or why you stopped and what you
 need. Byte-movers still serialize behind the aeon/sigil chain, and look/taste calls still park.
+
+## ⚠ STANDING RULE — SAY WHEN YOU NEED A CONTEXT CLEAR (owner, 2026-09-09)
+
+*"Remind the agents to let us know when they need a clear."* **Sibling of the 2026-09-03T05:21:01Z
+report-when-you-finish-or-stop rule.** Say it in **both** places: your hub message, and
+`lane-status.json`'s `awaiting`.
+
+**REPORT THE MEASUREMENT, NOT A FEELING — oracle's amendment, and it is the load-bearing half.** The
+risk is not a lane refusing to ask; it is that **a session near its limit is the least able to judge
+that it is.** So give the fraction of context used and what is unbanked, and let him decide. *"I feel
+fine"* is the artifact nobody can check — same reason `updatedAt` comes from the clock and never from
+your own sense of the time.
+
+**The resume anchor is A FILE AT A COMMITTED SHA, never a summary.** A summary is written by the
+session about to stop, it is the one artifact its successor cannot verify, and it lives only in a
+message where no reader can meet the contradiction. If that file does not exist yet, writing it IS
+the work to do before asking.
 
 ## The queue
 
@@ -1294,13 +1303,11 @@ path, for the same reason the protocol is read that way.
   The stale prose says the old number by definition, so the new number cannot find it.
   *And fix it by DELETING the number, not by re-typing today's: a fresh literal goes stale on the
   identical clock, which is exactly how these got there.*
-  **✅ CLOSED 2026-08-29** by `fix/stale-dac-anchor-prose` — write-up in `docs/DEFERRED_WORK.md`
-  ("THE STALE DAC/SOUND-BANK ANCHOR PROSE, SWEPT BY THE *OLD* VALUES"); the closure narrative and the
-  20-live-sites count are in `docs/OVERSEER-LOG.md`. **Two classes the rule as written still misses, and
-  both are now part of the sweep: prose whose MECHANISM was deleted rather than moved, and a generator
-  diverged from its own `DO NOT EDIT BY HAND` output.** So after relocating anything, also grep for
-  mechanisms recently *deleted*, and re-run every generator to confirm it round-trips against its
-  checked-in output.
+  **CLOSED 2026-08-29; narrative in `docs/OVERSEER-LOG.md` (search `STALE DAC ANCHOR PROSE`).
+  Two classes the rule still misses, both now part of the sweep: prose whose MECHANISM was deleted
+  rather than moved, and a generator diverged from its own `DO NOT EDIT BY HAND` output.** After
+  relocating anything, grep for mechanisms recently *deleted* too, and re-run every generator to
+  confirm it round-trips against its checked-in output.
 - **PROSE BOUNDS ARE A POPULATION THE "IS IT DERIVED?" SWEEP DOES NOT REACH** (added
   2026-08-27; same source). After a sweep across every code consumer, one literal `8` survived
   in an agent-facing tool **description string**. Help text, `argparse` descriptions, docstrings,
@@ -1414,10 +1421,8 @@ path, for the same reason the protocol is read that way.
   standalone scope, and `repin_pins` wanting its per-parcel term), none moving a ROM byte —
   proven independently by `FIXPOINT PASSED` on the supersede.*
 
-- **FREEZE-TREE RULES** (the `.aeon-land-180` DECLARATION that stood here is RETIRED — the
-  `.aeon-land-182` stanza above retired it and this block still said "do not sweep it", so the
-  file declared and retired the same tree in one read. Corrected 2026-09-09; `.aeon-freeze-179`
-  is retired with it. Both trees still exist on disk and neither is declared by any peer.)
+- **FREEZE-TREE RULES** (`.aeon-land-180` and `.aeon-freeze-179` are RETIRED — narrative in
+  `docs/OVERSEER-LOG.md`, search `RETIRED TREE`. Both still exist on disk; neither is declared.)
   **Sigil-side freeze worktrees are transient and NOT declared.** Declare a tree for what it
   would COST to recreate, not for having existed.
   **Stand in the tree you mean to freeze** (`SIGIL_HARNESS_ROOT` is harmless but not needed).
