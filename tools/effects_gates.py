@@ -241,6 +241,19 @@ def gate_registry() -> list[tuple[str, bool, int]]:
         # row names the right scene passing. None of them can see whether an object SURVIVES
         # the frame it is built in. One oracle-aether process, three arms.
         ("waterline_stamp", True, GATE_EMU_BUDGET),
+        # sfx_voice_change is the FOURTH non-effects member and rides here for the reason
+        # every one above does: this is the tree's only emulator-gate runner, and the
+        # machinery it needs — per-gate segmentation, a wedge timeout, one retry,
+        # ROM-scoped process reaping — is what an emulator gate needs whatever its
+        # subject. Its subject is SOUND, which is new to this lane: SP-6's mid-stream FM
+        # voice change, i.e. that after a stream's voice-change opcode the driver resolves
+        # the SECOND voice out of the SFX's own FmPatch bank. It is here rather than in
+        # build.sh because it boots THREE headless instances (a baseline plus two
+        # one-byte-poisoned ROM images), which is exactly the shape build.sh's inline lane
+        # cannot carry. Before this, NOTHING executed the tree's sound witnesses — both
+        # spring_sfx_witness and spring_launch_witness are hand-run only, and a witness no
+        # runner runs cannot fail.
+        ("sfx_voice_change", True, GATE_EMU_BUDGET),
         ("cost_model", True, 900),
         ("scanline_spans", False, 120),
         ("demo_witness", False, 120),
@@ -995,6 +1008,17 @@ def main() -> int:
                            "is on the WLINE row; it retires when the cursor leaves, and "
                            "when the engine stops publishing a ladder row)", ok, msg,
                            final=True))
+
+    if wanted("sfx_voice_change"):
+        ok, msg = run(["python3", str(AEON / "tools/sfx_voice_change_witness.py"),
+                       "--rom", rom, "--lst", lst],
+                      "sfx_voice_change")
+        results.append(row("sfx_voice_change",
+                           "sfx_voice_change (SP-6: after an SFX stream's mid-stream voice "
+                           "change the driver resolves the SECOND voice out of that SFX's "
+                           "own FmPatch bank — poisoning that voice's algorithm byte in the "
+                           "ROM moves what Fm_SetVolume computed, poisoning voice 0's does "
+                           "not, and the two poisons disagree)", ok, msg, final=True))
 
     if wanted("cost_model"):
         base = emp_int("engine/effects/raster_dsl.emp", "RASTER_FIRE_BASE_CYC")

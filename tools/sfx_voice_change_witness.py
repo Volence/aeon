@@ -460,6 +460,16 @@ def main_async(rom, lst, out):
                 "L1 and L2 produced IDENTICAL series over the observed window — "
                 "poisoning voice 0 and voice {} had the same effect, so this "
                 "instrument is not reading the resolved voice at all".format(vN))
+        elif fails:
+            # The legs DISAGREE but at least one of them failed, so the disagreement
+            # is not the one this witness is looking for. Report it flatly. Saying
+            # "voice N's bytes decide and voice 0's do not" here would be FALSE — it
+            # is exactly inverted under the pre-SP-6 engine, where L1 moves and L2
+            # does not — and a success sentence sitting inside a FAIL report is the
+            # kind of line that gets quoted on its own later.
+            out.append(f"  DISCRIMINATION: L1 and L2 differ over frames "
+                       f"{first}..{len(base) - 1}, but a leg above FAILED, so this "
+                       f"difference is not evidence for the SP-6 claim. See RESULT.")
         else:
             out.append(f"  DISCRIMINATION: L1 and L2 differ over frames "
                        f"{first}..{len(base) - 1}. Voice {vN}'s bytes decide what the "
