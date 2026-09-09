@@ -4422,8 +4422,17 @@ Oscillator System (7.5)
 > **SHIPPED — effects P3 Parcel C2, 2026-08-14.**
 
 A section binds every visual effect through ONE pointer: `Sec.sec_effects`
-(offset `$34`) names an `EffectsPreset` (`engine/effects/preset.emp`, **38 bytes**),
-and `Effects_InstallPreset` writes **every channel** on the crossing.
+(offset `$1C`) names an `EffectsPreset` (`engine/effects/preset.emp`), and
+`Effects_InstallPreset` writes **every channel** on the crossing.
+
+*(This paragraph stated `$34` and **38 bytes** until 2026-09-09. Both were true when
+written and both were superseded by changes recorded in this very section: the field
+moved to `$1C` when the nine superseded fields were deleted on 2026-09-04 — the
+paragraph four below has said so since that day — and the struct grew to 46 bytes when
+EFFECTS-W1 item 4 added `ep_patch_motion`. The section contradicted itself for five
+days. **The size and the offsets are declared in `engine/effects/preset.emp` and
+`engine/structs.emp` and pinned by `ensure`; those declarations are the authority and
+this table is a reader's copy.** No number here is a value anything derives from.)*
 
 ```
 EffectsPreset      $00 ep_pal            required — the preset CARRIES the palette
@@ -4436,6 +4445,10 @@ EffectsPreset      $00 ep_pal            required — the preset CARRIES the pal
                    $1C ep_patch_world_ys[RASTER_MAX_PATCH]
                                           one authored world Y per patch channel
                    $24 ep_transition      cross-fade arm (reserved; see §7.1)
+                   $26 ep_patch_motion[RASTER_MAX_PATCH]
+                                          EFFECTS-W1 item 4 — one packed sweep word per
+                                          patch channel, seeded into Effects_Motion[] on
+                                          every install
 ```
 
 **Why total binding, and what it fixed.** The three predecessors
