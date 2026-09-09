@@ -27680,6 +27680,46 @@ palette). Three routes, none taken — it is a content call:
 
 ### SP-6 — mid-stream FM voice change in an SFX (opened 2026-09-07)
 
+**⚠ AMENDED 2026-09-09 — THIS ROW'S STATED HAZARD IS STALE, AND THE CONTROLLER PASSED IT INTO AN
+AGENT BRIEF AS "measured, not theorised" BEFORE CHECKING IT.** The refusal at
+`tools/sfx_transcode.py:374` says a stream `MEV_PATCH` re-resolves through the MUSIC patch table
+(`SND_SEQ_PATCHTAB`) and corrupts the timbre, and cites a VGM register capture. **The capture was
+real. The behaviour it describes is now unreachable.** Read firsthand at
+`engine/sound/sound_fm.emp:288-307`: `Fm_PatchPtr` opens with `call Snd_ChanClass` / `jr c, .music`,
+and an SFX channel returns `sx_patch_base` **directly**, never touching `SND_SEQ_PATCHTAB`.
+
+**THE REAL PRESENT LIMITATION IS AN INDEX DISCARD, NOT A WRONG-TABLE READ:** that return has no
+`+ sc_patch*32` term, so a voice index has nowhere to take effect. **Fixing the comment is part of
+SP-6** — the refusal may still be right while its stated reason is wrong, and *the reason is what the
+next reader carries forward*.
+
+**AND SP-6 HAS A PREREQUISITE NOBODY HAD BOOKED, verified here:** `sc_patch` is `SfxChannel` +6
+(`sound_constants.emp:629`), pinned equal to `SeqChannel.sc_patch` by an `ensure` at `:763`, and its
+**only** write in any `.emp` is `sound_sequencer.emp:1348` — the MUSIC path. Nothing in
+`sound_sfx.emp` writes it and there is no bulk struct clear on the SFX init path (the
+`SfxChannel_len` uses there are slot-walking pointer arithmetic). It is uninitialised on the SFX
+path today, harmless **only** because nothing reads it there. Honour the index without initialising
+it and `Fm_SetVolume` -> `Fm_PatchPtr` reads `base + garbage*32`, takes a wrong algorithm and picks
+the wrong carrier mask — reintroducing exactly what `d07fb811` fixed. Initialising `sc_patch` on the
+SFX dispatch path is therefore **part of SP-6**, not a follow-on.
+*(`d07fb811` touched `engine/sound_fm.asm`, the pre-restructure path — which is why a filter on
+`engine/sound/sound_fm.emp` finds nothing and looks like a bad citation; `9ccd89d8` is the later
+`.emp` port. Both ancestors of master.)*
+
+**THE LESSON, and it is the controller's:** the stale sentence lived in a **code comment**, which is
+the worst home for a perishable claim — a doc gets superseded by the next pass, and nobody re-reads a
+comment to check whether the rule it cites still holds. It was carried into a brief because it
+*named its own evidence* (a VGM capture), and citing evidence reads as having checked it. **A
+measurement's referent decays while the number stays put.** Convert a comment's claim into behaviour
+before repeating it: find the branch, not the docstring.
+
+**A SEPARATE AND FREE ITEM FOUND ALONGSIDE — booked, not folded in.** Per-channel non-zero
+**initial** voice (as opposed to mid-stream change) is reportedly transcoder-only and needs no engine
+change, unblocking four more S&K sounds. Kept OUT of the SP-6 branch on purpose: two changes in one
+branch destroys A/B attribution. **Unverified here** — it is the research agent's claim, and that
+agent separately disclosed fabricating an attributed section in its own report, so re-derive before
+scheduling.
+
 **PROMOTED FROM "if ever wanted" TO THE FIX, on the owner's listening test
 (2026-09-07): he compared the shipped spring against the sound in the other games
 and reports it "definitely off".** That is the A/B this parcel could not do —
