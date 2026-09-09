@@ -657,7 +657,10 @@ pub proc GameState_OJZScroll_Init () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
         move.w  #RING_SPARKLE_ART_LEN, d3
         jbsr    QueueDMA_Critical @discards(dropped)   // same policy as the two above
 
-        // -- spring: VRAM_SPRING_TILES tiles RESIDENT at VRAM_SPRING for the whole act, the
+        // -- spring: its whole declared extent RESIDENT at VRAM_SPRING for the whole act
+        //    (the tile count is not restated here, and the constant is not NAMED here either:
+        //    this module does not import it, and naming an extent you have not imported is
+        //    the drift `test_vram_window_guards` exists to stop. It lives beside Art_Spring), the
         //    dust puff's strategy and for the same reason (two springs on screen
         //    sit on different animation frames, so every frame must be live at
         //    once). One SPRING_ART_LEN DMA is its entire art cost — the figure that

@@ -201,10 +201,14 @@ pub proc BgAnim_SetTable (a0: u32) clobbers(d0) {
 //   engine/system/boot.emp:349   move.l #Game.entry, (Game_State).w
 //   games/sonic4/config/game.emp:59-60   ENTRY_ID = GS_OJZ_SCROLL_TEST,
 //                                        entry = GameState_OJZScroll_Init
-//   ojz_scroll_test.emp:549      installs GameState_OJZScroll_Update
-//   engine/system/game_loop.emp:41  movea.l Game_State, a0  → dispatch
-//   ojz_scroll_test.emp:821      jbsr BgAnim_Update — UNCONDITIONAL, right
-//                                after Parallax_Update, then rts
+//   ojz_scroll_test.emp `GameState_OJZScroll_Init`  installs GameState_OJZScroll_Update
+//   engine/system/game_loop.emp  movea.l Game_State, a0  → dispatch
+//   ojz_scroll_test.emp `GameState_OJZScroll_Update`  jbsr BgAnim_Update —
+//                                UNCONDITIONAL, right after Parallax_Update, then rts
+// (CITED BY SYMBOL, not by line: this trace carried three line numbers and ALL of
+// them had drifted — `:549` named a proc that starts at 585, and `:821` landed in an
+// unrelated marker-copy loop. The gate only ever caught the one that happened to land
+// on a blank line, so two of the three were wrong in a way nothing could see.)
 // So the sole caller lives in a module named `test`, and that module is
 // sonic4's BOOT ENTRY STATE. No special shape, no harness, no arranging:
 // boot the ROM and this ticks.

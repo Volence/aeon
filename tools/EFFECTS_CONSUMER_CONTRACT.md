@@ -194,7 +194,7 @@ bands right now for this, they showed we can do horizontal and vertical movement
 it was on for every test and distracting. It should be its own scene with start + button and
 should be tested for perspective vs timer, that's all"*.
 
-**That shape is BUILT** (`games/sonic4/test/ojz_scroll_test.emp:2379`, `Debug_BgAnimViewHotkey`):
+**That shape is BUILT** (`games/sonic4/test/ojz_scroll_test.emp`, `Debug_BgAnimViewHotkey`):
 **START held + C pressed**, no direction held, steps OFF -> horizontal (Camera_X) -> vertical
 (Camera_Y) -> TIMER -> the vertical-axis probe -> its control -> OFF. The chord moved from C+A to
 START+C *because he asked for START+button*, and the timer arm was restored because *"tested for
