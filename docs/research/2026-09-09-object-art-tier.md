@@ -32,6 +32,13 @@ manifest. The binding constraint is not VRAM, it is the **DMA window**: NTSC res
 after the mandatory riders is 2,944 bytes/frame and the current worst frame is already
 32 bytes over it.
 
+**The precedent to build against is Batman & Robin, not any Sonic game.** Of the nine trees
+surveyed (§4), B&R is the only one that ships the exact mechanism this needs — a refcounted,
+evicting cache over 64 fixed 16-tile slots with lazy reclaim and a four-way rollback guard —
+and **none of the nine solved aeon's actual problem**, because every one of them kept its
+loading unit and its spawning unit identical. That is the thing this design changes, and it
+is why the classics constrain it less than they appear to.
+
 ---
 
 ## 1. What is actually true in this tree today
@@ -356,6 +363,30 @@ one that handles a full object pool, it is proven, and it converts "art missing"
 *goal* (prefetch should make (a) never fire) and add a DEBUG counter so a fired retry is a
 measurable defect rather than a silent stutter.
 
+**⚠ REVISED after §4.4 — there are TWO paths here, not one, and I originally saw only one.**
+Batman & Robin and Vectorman both handle this case, and both handle a case (a) does not
+cover: an object **already alive** whose *animation* advances to a frame whose art is not
+resident. There is no "refuse the spawn" available there — the object exists and is on
+screen. Their answer:
+
+- **B&R reverts to the previously-resident art ID** (`move.w d7, $20(a6)`) and re-renders the
+  old frame, retrying next frame (`objects.asm:4167-4180`).
+- **Vectorman rolls the whole queue-entry list back and returns 0**; the caller commits
+  nothing and renders from still-resident art (`:6326-6332`, `:7438-7445`).
+
+Both are the same idea: **never partially commit, and always have something valid to draw.**
+So the policy is a pair —
+
+| case | policy |
+|---|---|
+| **spawn**, no art resident, nothing previously drawn | **(a) refuse + retry**, via `entity_window`'s existing path |
+| **live object**, animation advances past resident art | **revert to the last resident art and retry** — B&R's answer |
+
+**And the guard should be four-way with rollback, not the two-state I proposed in
+§3.6(iii).** B&R checks *all* of: per-frame DMA budget, free queue slots, free VRAM slots,
+free cache records — and **restores every counter** on any failure. Adopt that shape; it is
+the difference between "usually correct" and "cannot be wrong".
+
 ### 3.2 Objects near an edge — up to four sections live at once
 
 `MAX_TRACKED_SECTIONS = 4` is a 2×2 camera envelope, so **a pool holding "one section's
@@ -389,6 +420,20 @@ tables. This trades bounded internal waste for zero external fragmentation and a
 allocator, and it matches how the FG tier already solves the same problem (fixed 64-tile
 frames). The waste is *known at build time*, which is the property a free-run allocator
 cannot offer.
+
+**⚠ REVISED after §4.4 — treat "two classes" as one arm of a fork, not as settled.** Batman &
+Robin uses **a single 16-tile class** across 64 slots and allocates **multi-slot runs** for
+larger art, absorbing the resulting fragmentation with a forced-eviction walk down its reclaim
+list (`main_loop.asm:1407-1500`). On aeon's measured histogram a 16-tile class is a good fit —
+4, 9, 12 and 16 all take one slot; 24 and 29 take two — and one class means one free list, one
+size, and no "which class does this blob belong to" question at either build or run time.
+**Against it:** a multi-slot run needs *contiguous* free slots, which is external fragmentation
+by another name, and B&R pays for that with the forced-eviction walk (an eviction that can
+displace still-referenced entries — a complication a two-class scheme does not have).
+
+**Decide it with the histogram, in the build step of §6.1 step 1**, which computes exactly the
+inputs both arms need. Do not settle it here: it is a measurement, and the measurement is
+already being taken for another reason.
 
 **When a section's set does not fit the pool: that is a BUILD ERROR, not a runtime policy.**
 The generator knows every section's type table and every blob's size; the union over each
@@ -753,12 +798,26 @@ the machinery that would.**
 Booked separately in `DEFERRED_WORK.md`; recorded here because they were found in service of
 this design and a reader of §4.4.3 needs to know the Ristar doc is not reliable.
 
-- **`docs/research/ristar-techniques.md` claim #4 is REFUTED**, and it is marked **DONE /
-  already adopted**. It says Ristar uses cell-scroll (~28 entries) as the workhorse with
-  per-line reserved for hero shots. VDP reg `$8B` is only ever written `$03` or `$07` in that
-  ROM (seven sites) and **never `$02`** — both values are **per-line** HScroll, the VBlank
-  unconditionally DMAs the full 1,024-byte per-line table every frame, and init clears all 256
-  longs of it. **Ristar is per-line always.**
+**The first two below I re-derived MYSELF** — they contradict a claim of ours marked DONE and
+an analysis file we cite, so relaying them second-hand was not good enough.
+
+- **`docs/research/ristar-techniques.md` claim #4 is REFUTED — VERIFIED HERE.** It is marked
+  **DONE / already adopted** and says Ristar uses cell-scroll (~28 entries) as the workhorse
+  with per-line reserved for hero shots. `grep -in '#\$8b0' ristar_disasm/code/disasm.asm`
+  returns **exactly seven VDP register writes** — `$8b03` ×4 (`$00BBE6`, `$00BDD4`, `$00D806`)
+  and `$8b07` ×4 (`$00BE4A`, `$00D836`, `$00DF18`, `$00E0DC`) — plus one `ori.l #$8b0000b2, d2`
+  that is not a VDP write at all. **`$02` never appears.** Reg `$0B` bits 1:0 select HScroll
+  mode; `$03` is `%11` = per-line, and `$07` is `%11` plus the 2-cell vscroll bit — also
+  per-line. **Ristar is per-line HScroll always.**
+  ⚠ **Method note, because it nearly went the other way:** a raw hex grep for `8b0[0-9a-f]`
+  over the same file returns ~290 hits and would have "confirmed" `$8b02` — it matches the byte
+  pattern in unrelated data and addresses. The instrument has to select **instructions**
+  (`#\$8b0` with the immediate marker), not bytes.
+- **`aliensoldier_disasm/ANALYSIS.md` is a SYMLINK to `../gunstar_disasm/ANALYSIS.md` —
+  VERIFIED HERE** (`/usr/bin/ls -l`, `lrwxrwxrwx … -> ../gunstar_disasm/ANALYSIS.md`). There is
+  no Alien-Soldier-specific analysis in the tree, and anyone reading "Alien Soldier's analysis"
+  is reading Gunstar's. Its "Direct DMA (No Queue) / art is pre-rendered, not streamed" line is
+  false for Alien Soldier, which has both a queue and streaming.
 - **Claim #3 (per-stage HInt dispatch) is CONFIRMED and larger than stated** — `$05612C` is
   table-driven and installs per-stage **VBlank** handlers too.
 - **Claim #1 (event-tagged animation frames) is PARTIAL** — the `{frame_no, action_byte}`
@@ -985,7 +1044,16 @@ regions later, and build it in this order:**
    slots in `vram.toml`, `fg_art_pool` drops to 640 if step 1 says the tiles are needed, and
    `gen_vram_map.py` gains a `kind = "pool"` that the slot table is generated from. Aurora
    gets the notice the booking commits us to, *before* it lands.
-3. **Then the loader**: slot table, refcount + pin as two counters, age-stamp eviction, one
+2b. **Also from step 1: settle the slot-class fork** (§3.3) — one 16-tile class with multi-slot
+   runs, B&R's shape, versus two classes. The histogram step 1 computes is the whole input.
+
+3. **Then the loader**, and **model it on Batman & Robin rather than on anything in the Sonic
+   trees** (§4.4.1), because B&R is the only reference that actually built this: slot table,
+   refcount + pin as two counters, age-stamp eviction, **release that does NOT free the VRAM**
+   (lazy reclaim — art stays re-hittable until evicted, which is free cache-hit performance and
+   is the `DEFERRED_WORK.md` "Refcount-based Art Caching / Lazy Reclaim" entry), a **four-way
+   pre-check with full rollback** (DMA budget, queue slots, VRAM slots, records), the
+   **revert-to-last-resident-art** path for live objects (§3.1), one
    ROM→VRAM Deferrable DMA per load, resident-on-completion, spawn-retry on miss, and a
    DEBUG audit that recomputes refcounts from `Dynamic_Live`.
 4. **Regions arrive as a re-key, not a redesign.** When the painted-region layer exists,
