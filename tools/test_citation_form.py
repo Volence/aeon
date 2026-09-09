@@ -132,15 +132,46 @@ def _tracked_files() -> list[str]:
 
 
 def _emp_index() -> tuple[set[str], dict[str, list[str]]]:
+    """Every .emp file this repo actually owns, tracked or intentionally new.
+
+    ENUMERATED FROM GIT, NOT FROM A DIRECTORY WALK, and that is the whole point.
+    The walk this replaced descended into `.claude/worktrees/`, where agent
+    parcels leave scores of full checkouts, so every bare `foo.emp:N` citation
+    matched ~160 files and resolved as ambiguous. The gate then reported "183 of
+    363 citations point at nothing" and FAILED THE BUILD -- in the main tree only.
+    A clean checkout and every agent worktree stayed green, because neither
+    contains nested worktrees, so the red was invisible to exactly the people who
+    could have fixed it and unavoidable for everyone standing in the main tree.
+
+    Adding ".claude" to SKIP_DIRS would have fixed the instance and left the
+    class: the next ignored tree with a different name repeats it. Git already
+    knows what this repo owns. Asking it cannot see an ignored tree BY
+    CONSTRUCTION rather than by remembering to list one.
+
+    Note the asymmetry this closes: the CITING side was already enumerated from
+    `git ls-files` (see _tracked_files), while the CITED side walked the disk.
+    Two populations, one question.
+
+    Untracked-but-not-ignored files are included so a citation to an .emp added
+    in the working tree resolves; ignored files never are.
+    """
     by_path: set[str] = set()
     by_base: dict[str, list[str]] = defaultdict(list)
-    for dirpath, dirnames, filenames in os.walk(ROOT):
-        dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
-        for fn in filenames:
-            if fn.endswith(".emp"):
-                rel = os.path.relpath(os.path.join(dirpath, fn), ROOT).replace(os.sep, "/")
+    for args in (["ls-files"], ["ls-files", "--others", "--exclude-standard"]):
+        out = subprocess.run(["git", "-C", ROOT, *args],
+                             capture_output=True, text=True)
+        if out.returncode != 0:
+            # Loud on unmeasurable (invariant 8d). A silent fall back to the walk
+            # would restore the very defect this replaced, and print green.
+            raise AssertionError(
+                f"`git {' '.join(args)}` failed in {ROOT} -- this gate enumerates its "
+                f"subject from git and will NOT fall back to a directory walk, which "
+                f"is what made it fail in the main tree only. stderr: {out.stderr.strip()}"
+            )
+        for rel in out.stdout.split("\n"):
+            if rel.endswith(".emp"):
                 by_path.add(rel)
-                by_base[fn].append(rel)
+                by_base[rel.rsplit("/", 1)[-1]].append(rel)
     return by_path, by_base
 
 
