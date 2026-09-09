@@ -740,9 +740,12 @@ PAL is not the binding case: residual 8,448 B, 5.4 KB spare even in the worst fr
 **Two things this pricing does not cover, and both are `[RUNTIME]`:**
 - The *slot count* cost of the DMA queue, not the byte cost. `DMA_DEFERRABLE_SLOTS = 12`
   and DPLC already spends Important slots per frame. Five blobs is five Deferrable entries,
-  plus a straddle split for any blob crossing a $20000 ROM boundary
-  (`engine/objects/dplc.emp:45`), so worst case ten. That fits 12 with little room, and it
-  is the number to watch before the byte budget.
+  and **a blob crossing a $20000 ROM boundary costs TWO slots — and is rejected outright if
+  only one is free**, not split partially (`engine/system/dma_queue.emp:80-81,199-204`:
+  "A 128KB split needs TWO free slots: with only one, the whole transfer is rejected"). So
+  worst case is ten of twelve. **The cheap fix is build-time: keep every object blob inside
+  one 128 KB span, which the placer can do for free and which removes the straddle case from
+  this tier entirely.** Watch this number before the byte budget.
 - The measurement must be taken on a **streaming** act. OJZ act 1 is fully resident, so its
   page-landing term is zero in steady state and it will make this tier look free.
 
