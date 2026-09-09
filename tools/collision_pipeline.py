@@ -94,7 +94,13 @@ PLANE_SOL_SHIFT = 12        # bits 13:12 — PER-PLANE cell word ONLY (bake_plan
 # ---------------------------------------------------------------------------
 XOVER_SHIFT = 14            # per-plane cell word ONLY (bake_plane_cell)
 XOVER_MASK = 3
-XOVER_NONE = 0              # no crossover; the value every shipped cell holds
+XOVER_NONE = 0              # no crossover. NOT 'the value every shipped cell holds' --
+                            # that claim was false when written and is the reason this
+                            # comment states no count: shipped acts carry crossover marks
+                            # (act 1 does, in section 0, both planes), so the crossover
+                            # path is LIVE and a change here is not covered by 'nothing
+                            # exercises it'. Enumerate before believing any figure:
+                            #   python3 tools/collision_xover_census.py
 XOVER_TO_A = 1              # set the resolving object's Sst.layer to 0
 XOVER_TO_B = 2              # set the resolving object's Sst.layer to 1
 XOVER_RESERVED = 3          # illegal — reserved against the clamp-to-top trap
@@ -287,6 +293,18 @@ def bake_plane_cell(cell_word: int, profiles: bytes, angles: bytes,
     and SOL_NONE fails that gate, taking `.cl_air`. Without this, a crossover
     could only ever fire for a player standing on solid ground, and you can enter
     a loop's far side airborne.
+
+    RULE R2 (refuse a self-mark: a plane-A cell marked TO_A) IS NOT IMPLEMENTED,
+    and the reason is STRUCTURAL rather than unfinished: this function is handed
+    one plane's word at a time and takes no plane parameter, so it cannot ask
+    whether a mark points at the plane being baked. Implementing R2 means moving
+    this signature. Nothing leaks today -- `tools/collision_xover_census.py`
+    reports the shipped corpus and every mark is a two-way pair -- so it is an
+    unguarded door, not a hole. Found by the aurora lane 2026-09-09 and verified
+    here against the shipped bins before being written down.
+
+    Pairing is likewise unenforceable here for the same reason (a lone mark on
+    one plane bakes cleanly); the census checks it across both planes instead.
     ⚠ [TAG-RUNTIME] that sensor claim is anchor §11's, derived from reading
     probe_core and never executed. It is unchanged by this parcel and still owed
     a real build.
