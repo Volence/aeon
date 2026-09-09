@@ -31307,3 +31307,30 @@ as its coordinate**, which is the coordinate-rot bar arriving inside our own ins
 Every ALREADY-FIXED verdict was re-derived by the controller before being banked, and one agent
 mechanism story (the "byte-identical re-open") did not survive that check while its finding did —
 which is the argument for re-deriving a returned mechanism even when the verdict is right.
+
+## PLANT-AND-COUNT ON THE DMA QUEUE AND THE PLANE BUFFER — QUEUED, WITH THE AIM CORRECTED (2026-09-09)
+
+**The item, booked earlier and unchanged: the DMA queue's and the plane buffer's tests are
+internally consistent and have never been asked whether they would NOTICE A DEFECT.** Plant a
+mutation, count what dies. A suite that goes green over a planted bug is not a suite.
+
+**THE AIM CORRECTION, from the hub relaying aurora's validator sweep the same day, and it is why
+this row is being rewritten rather than just scheduled.** Aurora ran the method and split the result
+by **what each guard is FOR**:
+
+- **18 of 19 killed** for guards that a committed document already exercises.
+- **8 of 20 killed** for guards that exist so a *future* change cannot pass silently.
+
+**The aggregate would have read as a healthy ratio and hidden the half that matters.** Our risk on
+the DMA queue lives almost entirely in the second category — the queue's contiguity assumption, the
+priority/budget extensions, the ordering invariants — because nothing exercises those from a
+document; they exist to catch a change nobody has made yet. **So: run it split the same way, and
+report the two ratios separately. A single number over both populations answers neither question.**
+
+**Provenance, stated because it matters for how much this claim is worth:** the 19/20 split is
+**aurora's measurement, relayed to this lane by the hub, and NOT verified firsthand here.** It is a
+method refinement rather than a fact about our tree — the ratios do not transfer, only the split
+does. Re-derive our own numbers; do not quote theirs as though they were ours.
+
+**Why this is written down at all:** it arrived in a message, and a claim that lives only in mail has
+no reader in any tree and cannot meet its own contradiction. This row is that artifact.
