@@ -30095,3 +30095,73 @@ the owner's console and teaches nothing the written clause does not teach better
 real is the one to name: three sibling agents branch from master, the Dominion console reads it, and
 two peer repos run gates against it, so an unreviewed push is exposure to all of them and this one
 was safe by luck of its content rather than by anything that checked.**
+
+
+## PLANE-BUFFER OVERFLOW IS SILENT IN EVERY SHAPE, AND THE SIZING NOW HAS A MEASUREMENT (2026-09-09)
+
+**Opened by the LS-15b-resid TAG** — *"the authority for whether 1536 is the right plane-buffer
+size is the VDP's real blanking window in cycles, and no file in this tree quotes it."* True, and
+the question turned out to be answerable **without** quoting it: the sizing question is *does the
+buffer ever come near full*, and that is measurable directly.
+
+**THE FINDING THAT MATTERS IS NOT THE MARGIN, IT IS THE SILENCE.** `Draw_TileColumn`'s bounds check
+is `cmpi.w #PLANE_BUFFER_SIZE - 2, d2` / `bhi .done` — it **drops the column and returns**, in
+**every shape, release and DEBUG alike**. `grep -c raise_error engine/level/plane_buffer.emp` is
+**0**. The header says so plainly (*"silently drops if buffer full"*), so this is documented rather
+than hidden — but a dropped column is a **column of the level that is never drawn and never
+redrawn**, because the caller then records it as written. **An overflow costs a visible gap and
+reports nothing, in the shipped game and in the shape we debug with.**
+
+**MEASURED, on a private headless instance at master `df5be38a`, `s4.debug.bin` `b96de158…`
+(rebuilt: the on-disk ROM was STALE at the SAME BYTE LENGTH, 846907, hash `0450acd2` — length
+alone would have passed it).** Sampled at `VInt_DrawLevel`'s entry, i.e. **before** the drain:
+
+| drive | stops reached | peak before drain | margin to the drop threshold |
+|---|---|---|---|
+| at rest (control) | 250/250 | 0 B | 1398 B |
+| holding right | 250/250 | **272 B** of 1536 | 1126 B |
+| holding left | 250/250 | **272 B** of 1536 | 1126 B |
+
+A column is dropped once `ptr > 1398`. Sustained occupancy sits in the 256-383 B band while
+scrolling (238 of 250 frames), so the control is meaningful rather than a flat line either side.
+
+**272 IS STRUCTURAL, NOT A COINCIDENCE, and saying so is what stops it being read as a clean
+constant.** `Draw_TileColumn`'s own header prices a worst-case column at *2 headers (8 B) + 64 data
+words (128 B) = 136*; 272 is exactly **two** of those. At top horizontal speed the camera crosses
+two tile columns per frame, so both directions measuring 272 is the same structure twice, not one
+number twice. *(This lane's bar says a suspiciously clean constant across varied inputs is evidence
+of a confound — here the varied input genuinely produces the same structural maximum, which is why
+the arithmetic is written out rather than asserted.)*
+
+**WHAT THIS DOES NOT ESTABLISH, stated so the margin is not over-read.** Only horizontal motion was
+driven. **Vertical and diagonal motion (row entries), BG column entries at 132 B each, section
+transitions and teleports are UNMEASURED**, and the constant's own comment prices a *"worst
+realistic frame ~800 B"* — three times what I measured, from cases I did not drive. **The 5.1x
+margin is a margin against the case I could reach, not against the worst case.**
+
+**⚠ AND MY FIRST INSTRUMENT WAS VACUOUS — recorded because the correction is the reusable half.**
+The first probe sampled `Plane_Buffer_Ptr` at frame boundaries and reported a peak of 0 with
+"5 frames of 500 with any entries". `VInt_DrawLevel` **resets the cursor to 0 after draining**, so a
+frame-boundary read returns 0 **by construction**: a green from that instrument would have ruled out
+nothing, which is this repo's own *a gate whose pass and fail emit the same artifact has not passed,
+it has not run*. It also produced a spurious 48883 B peak in a 1536 B buffer from **uninitialised
+boot RAM**, and a third run reading 0 because the runs were sequential and the player had already
+stopped against the level's end — a confound of the harness's own making. Ask what a GREEN would
+have ruled out, before trusting the number.
+
+**PROPOSED, NOT TAKEN (needs its own parcel and four-shape verification):** a `DEBUG == 1` refusal
+on the drop branch. It converts an invisible failure into a loud one for exactly the cost of a
+debug-shape branch, and this tree already knows a DEBUG-only addition can move bytes in shapes you
+did not expect (LS-22a), so it is a measured parcel and not a one-liner.
+
+**ADJACENCY, OFFERED AS A HYPOTHESIS WITH ITS TEST, NEVER AS A CAUSE.** A silent dropped column
+produces a visible gap, and the canopy gap is an unexplained visible gap whose ruled plan is
+*"INSTRUMENT for the next sighting, not derive a third explanation"* — two code-read explanations
+are already refuted, and **finding machinery that WOULD explain a behaviour is not evidence that it
+DID**. The test is cheap and is the assert above: if the drop never fires under the canopy
+exercise, this is ruled out rather than argued about. **Do not write this down as the cause.**
+
+**INSTRUMENT LANDED:** `tools/plane_buffer_headroom_probe.py`, a hand probe (deliberately not in a
+lane — it spawns an emulator). `PB_ROM` / `PB_LST` override the shape. It resolves both symbols from
+the listing and derives the buffer size as their difference rather than reading the constant, so it
+cannot agree with the constant by construction.
