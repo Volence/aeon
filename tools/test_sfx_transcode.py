@@ -1815,5 +1815,221 @@ class TestNewAbilitySfxPriorities(unittest.TestCase):
                                  (CHROUTE_FM1, CHROUTE_FM2, CHROUTE_FM6, CHROUTE_DAC))
 
 
+# --- SFX channel-volume bake: ONCE per channel, not once per channel PASS ------
+# The double-bake defect (parcel/sfx-double-bake). It lives at the
+# `_bake_channel_volume` CALL SITE, and it is invisible to the ring tests above
+# because the ring is ONE FM channel -- the only shape in which "bake voices[0],
+# in place, inside the per-channel loop" is correct.
+#
+# S&K's model (zSendTL, Z80 Sound Driver.asm): a TL byte with bit 7 set means "add
+# THIS CHANNEL's volume at upload time". It is applied per UPLOAD, carrying the
+# volume of the channel doing the uploading -- so two channels sharing one voice
+# bank each hear their OWN volume, and neither hears the sum. Our build-time bake
+# mutated the SFX's single shared voice list IN PLACE inside the per-channel loop,
+# so a two-FM-channel SFX added vol(ch0)+vol(ch1) to the one bank both point at.
+#
+# HOW THE EXPECTATION IS DERIVED, and why not by re-implementing the bake. Calling
+# _bake_channel_volume to predict _bake_channel_volume would be a tautology, and
+# hard-coding TL bytes would pin the fixture instead of the law. So each test
+# transcodes THE SAME SOURCE TWICE -- once at the authored channel volumes and once
+# with those volumes rewritten to $00 -- and asserts the difference. The vol-$00
+# transcode supplies the AUTHORED carrier TLs (whatever the fixture's algorithm
+# happens to make a carrier), and the arithmetic under test is only "+vol, on
+# carriers, once". TestBakeChannelVolumeSaturates above already covers the clamp.
+#
+# WHICH TL bytes are carriers comes from sfx_transcode._CARRIER_MASK (the engine's
+# CarrierMaskTableZ mirror), never from a literal.
+
+def _with_channel_vols(src, vols):
+    """Rewrite every smpsHeaderSFXChannel's vol field, in order, to `vols`."""
+    it = iter(vols)
+
+    def sub(m):
+        return f"{m.group(1)}${next(it):02X}"
+    return re.sub(r'(smpsHeaderSFXChannel[^\n]*,\s*)\$[0-9A-Fa-f]{2}', sub, src)
+
+
+def _blob_channel_banks(desc, priority=0x10):
+    """Pack `desc` and read back, per FM channel, the FmPatch bank it POINTS AT.
+
+    Reads the real packed artifact rather than desc['voices'], so the assertion is
+    about the bytes the Z80 will actually fetch (Sfx_Steal sets sx_patch_base from
+    this very voice_ptr), and stays valid whether the bank ends up shared between
+    channels or copied per channel.
+    Returns [(route, [patch_bytes, ...]), ...] for FM channels only.
+    """
+    blob = pack_sfx(desc, priority)
+    chcount = blob[2]
+    nvoices = len(desc['voices'])
+    out = []
+    for i in range(chcount):
+        rec = 8 + i * 6
+        route, kind = blob[rec], blob[rec + 1]
+        if kind != SFXEL_FM:
+            continue
+        vptr = (blob[rec + 4] << 8) | blob[rec + 5]
+        assert vptr, f"FM channel {i} (route {route}) has a NULL voice_ptr"
+        end = vptr + nvoices * 32
+        assert end <= len(blob), (
+            f"FM channel {i}: voice_ptr ${vptr:04X} + {nvoices} voices runs past the "
+            f"{len(blob)}-byte blob -- the bank the channel points at is not there")
+        bank = [bytes(blob[vptr + v * 32: vptr + (v + 1) * 32]) for v in range(nvoices)]
+        out.append((route, bank))
+    return out
+
+
+def _carrier_idx(patch):
+    """Indices (0..3) of the TL bytes that are CARRIERS under this patch's algorithm."""
+    mask = sfx_transcode._CARRIER_MASK[patch[0] & 7]
+    return [i for i in range(4) if mask & (1 << i)]
+
+
+def _tl(patch):
+    return list(patch[6:10])
+
+
+# Two FM channels at DIFFERENT volumes over ONE shared voice bank -- the shape of
+# S&K's ring-loss ($B9), reduced. Both channels name voice $00, which this engine
+# has always allowed, so the fixture needs nothing beyond the bake fix to parse.
+_TWO_CHAN_SHARED_BANK_SRC = """\
+Sound_XX_Header:
+\tsmpsHeaderStartSong 3
+\tsmpsHeaderVoice     Sound_XX_Voices
+\tsmpsHeaderTempoSFX  $01
+\tsmpsHeaderChanSFX   $02
+
+\tsmpsHeaderSFXChannel cFM4, Sound_XX_FM4,\t$00, $05
+\tsmpsHeaderSFXChannel cFM5, Sound_XX_FM5,\t$00, $08
+Sound_XX_FM4:
+\tsmpsSetvoice        $00
+\tdc.b\tnC5, $04
+\tsmpsStop
+Sound_XX_FM5:
+\tsmpsSetvoice        $00
+\tdc.b\tnC5, $04
+\tsmpsStop
+Sound_XX_Voices:
+\tsmpsVcAlgorithm     $04
+\tsmpsVcFeedback      $00
+\tsmpsVcUnusedBits    $00
+\tsmpsVcDetune        $04, $07, $07, $03
+\tsmpsVcCoarseFreq    $09, $07, $02, $07
+\tsmpsVcRateScale     $00, $00, $00, $00
+\tsmpsVcAttackRate    $1F, $1F, $1F, $1F
+\tsmpsVcAmpMod        $00, $00, $00, $00
+\tsmpsVcDecayRate1    $0D, $07, $0A, $07
+\tsmpsVcDecayRate2    $0B, $00, $0B, $00
+\tsmpsVcDecayLevel    $00, $01, $00, $01
+\tsmpsVcReleaseRate   $0F, $0F, $0F, $0F
+\tsmpsVcTotalLevel    $00, $23, $00, $23
+"""
+
+# The channel volumes the fixture authors, read back OUT of the fixture source so
+# the tests cannot drift from the thing they are about.
+_VOL_RE = r'smpsHeaderSFXChannel[^\n]*,\s*\$([0-9A-Fa-f]{2})'
+
+
+class TestChannelVolumeBakeIsNotCumulative(unittest.TestCase):
+    """Two FM channels sharing one voice bank must not compound the bake.
+
+    S&K's ring-loss ($B9) is exactly this shape: cFM4 (vol $05) and cFM5 (vol $08)
+    both upload voice $00 of the bank they share with the ring ($33/$34). zSendTL
+    adds each channel's OWN volume at ITS OWN upload, so FM4 hears +$05 and FM5
+    +$08. Baking into one shared, in-place-mutated bank inside the per-channel loop
+    gives BOTH channels +$0D: 8 TL steps (6.00 dB) too quiet on FM4 and 5 steps
+    (3.75 dB) too quiet on FM5. That was shipped -- sfx_B9_patches.bin's TL group
+    read `23 23 0d 0d` where sfx_33_patches.bin, from the byte-identical authored
+    voice, read `23 23 05 05`.
+
+    Note this cannot be fixed by baking a single shared bank harder or softer -- no
+    one static bank can carry two different channel volumes. Each FM channel needs
+    the bank IT points at to be baked with its own volume.
+    """
+
+    def _banks(self, vols):
+        src = _with_channel_vols(_TWO_CHAN_SHARED_BANK_SRC, vols)
+        return _blob_channel_banks(transcode_sfx_source(src, 0xB9))
+
+    def _authored_vols(self):
+        vols = [int(v, 16) for v in re.findall(_VOL_RE, _TWO_CHAN_SHARED_BANK_SRC)]
+        self.assertEqual(len(vols), 2, "fixture must author two channel volumes")
+        self.assertNotEqual(vols[0], vols[1],
+                            "fixture volumes must DIFFER or the test cannot fail")
+        return vols
+
+    def test_each_channel_gets_its_own_volume_only(self):
+        vols = self._authored_vols()
+        baked = self._banks(vols)
+        authored = self._banks([0x00, 0x00])
+        self.assertEqual(len(baked), 2, "fixture must produce two FM channels")
+        for (route, b), (_, a), vol in zip(baked, authored, vols):
+            carriers = _carrier_idx(a[0])
+            self.assertTrue(carriers, "fixture algorithm has no carrier?")
+            want = [min(0x7F, t + vol) if i in carriers else t
+                    for i, t in enumerate(_tl(a[0]))]
+            self.assertEqual(
+                _tl(b[0]), want,
+                f"route {route}: the bank this channel points at must carry ONLY its "
+                f"own volume ${vol:02X}; a bake accumulated across the channels sharing "
+                f"the bank gives +${sum(vols):02X}.")
+
+    def test_no_channel_carries_the_summed_volume(self):
+        """Names the failure directly, so a regression cannot read as some other value."""
+        vols = self._authored_vols()
+        authored = self._banks([0x00, 0x00])
+        for (route, b), (_, a) in zip(self._banks(vols), authored):
+            carriers = _carrier_idx(a[0])
+            summed = [min(0x7F, a[0][6 + i] + sum(vols)) for i in carriers]
+            got = [b[0][6 + i] for i in carriers]
+            self.assertNotEqual(
+                got, summed,
+                f"route {route}: carrier TLs {got} equal authored + vol(FM4) + vol(FM5) "
+                f"-- the bake accumulated across channels sharing a bank")
+
+    def test_bake_touches_carriers_only(self):
+        """The bake is loudness, not timbre: modulator TLs must be untouched."""
+        vols = self._authored_vols()
+        baked = self._banks(vols)
+        authored = self._banks([0x00, 0x00])
+        for (route, b), (_, a) in zip(baked, authored):
+            carriers = _carrier_idx(a[0])
+            for i in range(4):
+                if i not in carriers:
+                    self.assertEqual(
+                        b[0][6 + i], a[0][6 + i],
+                        f"route {route}: TL byte {i} is a MODULATOR under alg "
+                        f"${a[0][0] & 7:X} and must keep its authored value")
+
+    def test_non_tl_bytes_are_untouched(self):
+        """Only the TL group may differ between the baked and authored banks."""
+        vols = self._authored_vols()
+        baked = self._banks(vols)
+        authored = self._banks([0x00, 0x00])
+        for (route, b), (_, a) in zip(baked, authored):
+            self.assertEqual(b[0][:6], a[0][:6],
+                             f"route {route}: bytes before the TL group moved")
+            self.assertEqual(b[0][10:], a[0][10:],
+                             f"route {route}: bytes after the TL group moved")
+
+    def test_channels_agreeing_on_volume_still_share_one_bank(self):
+        """The de-dup that keeps 15 of the 16 core SFX byte-identical.
+
+        Per-channel banks are only paid for where the channels actually diverge:
+        when both channels author the SAME volume the packed blob must carry ONE
+        bank and both records must point at it. Without this the fix would grow
+        every multi-FM-channel SFX, and the +32 bytes on $B9 would not be evidence
+        of anything.
+        """
+        vol = self._authored_vols()[0]
+        src = _with_channel_vols(_TWO_CHAN_SHARED_BANK_SRC, [vol, vol])
+        desc = transcode_sfx_source(src, 0xB9)
+        blob = pack_sfx(desc, 0x10)
+        ptrs = {(blob[8 + i * 6 + 4] << 8) | blob[8 + i * 6 + 5]
+                for i in range(blob[2]) if blob[8 + i * 6 + 1] == SFXEL_FM}
+        self.assertEqual(len(ptrs), 1,
+                         f"two FM channels at the same volume ${vol:02X} must share one "
+                         f"bank; got voice_ptrs {sorted(hex(p) for p in ptrs)}")
+
+
 if __name__ == '__main__':
     unittest.main()
