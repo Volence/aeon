@@ -27678,29 +27678,166 @@ palette). Three routes, none taken — it is a content call:
   browns/golds, greens/magentas.
 * **spend OJZ palette entries** on a red ramp.
 
-### SP-6 — mid-stream FM voice change in an SFX (opened 2026-09-07)
+### SP-6 — mid-stream FM voice change in an SFX — **SHIPPED 2026-09-09** (opened 2026-09-07)
 
 **PROMOTED FROM "if ever wanted" TO THE FIX, on the owner's listening test
 (2026-09-07): he compared the shipped spring against the sound in the other games
 and reports it "definitely off".** That is the A/B this parcel could not do —
 oracle's Rust core exposes no audio method, so nothing here was ever rendered and
 the transcode arithmetic was the only evidence. An ear against the real reference
-outranks it. Ruled: leave the S2 sound in place and close the gap by building the
-mechanism, not by tuning the fade.
+outranks it. Ruled: close the gap by building the mechanism, not by tuning the fade.
 
 Note what this does NOT say: it does not say the S2 transcode is wrong. S2's
 spring IS a different sound from S&K's — one voice instead of two — and this
 engine chose it precisely because the second voice is unsupported. The defect is
 the missing capability, not the transcode of the source it forced.
 
-The upgrade path if S&K's exact spring timbre — or any multi-voice SFX — is ever
-wanted. The SFX blob already carries every voice its header declares, and
-`sx_patch_base` is a pointer into that blob, so the shape is: a new sequencer
+**THE BOOKED SKETCH WAS WRONG IN ITS MECHANISM AND WRONG ABOUT ITS COST, and both
+corrections are the interesting part of this row.** It proposed "a new sequencer
 opcode that re-points `sx_patch_base` at `blob_base + voice*32` and re-runs
-`Fm_PatchLoad`. Roughly 15 Z80 bytes, a transcoder event, an opcode-table row, and
-its own witness. `_check_sfx_voice0`'s refusal becomes the fallback for a voice the
-blob does not carry rather than for all of them. NOT urgent: no shipped SFX needs
-it, and the spring does not.
+`Fm_PatchLoad`. Roughly 15 Z80 bytes, a transcoder event, an opcode-table row".
+None of that was needed.
+
+**What shipped is ONE expression in `Fm_PatchPtr`, MEASURED at -1 Z80 byte:**
+
+    hl = bank_base + sc_patch*FmPatch_len
+
+for both channel classes, the bank differing only by class — `(SND_SEQ_PATCHTAB)`
+for music, `(ix+sx_patch_base)` for SFX. The SFX branch used to return
+`sx_patch_base` RAW, discarding `sc_patch`; folding the index in is the whole
+engine-side fix. Hoisting the music bank load above the class branch (`LD dd,(nn)`
+does not touch flags, so it is safe between the `cp` and the `jr c`) lets both
+classes share one shift chain and one tail, so the plain blob went 6176 -> 6175 and
+the debug blob 6306 -> 6305 against 78 bytes of DEBUG headroom to the `$18F0`
+ceiling. No new opcode, no opcode-table row, no transcoder event type, no struct
+growth, no new RAM.
+
+**ABSOLUTE, NOT RELATIVE — the trap in the sketch.** Re-pointing `sx_patch_base`
+makes every change relative to the last: a second change drifts by the first one's
+offset and voice 0 becomes unreachable, because no per-slot copy of the bank base
+survives (`SND_SFX_DISP_BASE` belongs to the SFX being STARTED, not the one being
+ticked). Keeping the base immutable and putting the index in `sc_patch` costs
+nothing extra — `sc_patch` is already layout-pinned equal between `SfxChannel` and
+`SeqChannel` by an `ensure`, and `sound_constants.emp:629` had documented it as
+"SFX's own FM patch index (into its own bank)" all along. The field was reserved
+for exactly this. `MEV_PATCH 0` returns to voice 0 like any other index.
+
+**All four SMPS references do it this way** — a PER-TRACK voice pointer plus
+N*size, never a re-based pointer: S1 `s1.sounddriver.asm:2329`, S2 `:3303-3319`,
+S3K `zGetFMInstrumentPointer :1461-1478`, S.C.E. `Flamedriver.asm:1662-1670`, all
+`base + N*25` where ours is N*32.
+
+**THE REFUSAL'S STATED REASON HAD BEEN STALE FOR TWO AND A HALF MONTHS, and it was
+still steering design — including the brief that opened this row.** `a6f1fa25`
+(2026-06-21 11:23) added `_check_sfx_voice0`, refusing every non-zero index because
+a stream `MEV_PATCH` "re-resolves via the MUSIC patch table". That was real and was
+measured then by VGM register capture. `d07fb811` landed at **16:31 the same day**
+and gave `Fm_PatchPtr` its channel-class test, after which an SFX channel never
+reaches `SND_SEQ_PATCHTAB` at all. (`9ccd89d8` is the later `.emp` port of that
+behaviour, which is why a history filter on the `.emp` file appears to date it to
+July, and is how the two SHAs came to look like a contradiction.) The real
+limitation from then until now was an **INDEX DISCARD**, not a wrong-table read.
+The docstring and the regression test now say so.
+
+**A prerequisite that two independent readers got wrong, recorded here because the
+next one will reach for it too:** both reported that `sc_patch` is uninitialised on
+the SFX path and that honouring the index therefore reintroduces `d07fb811`'s bug.
+It is not. `Sfx_BeginSound` bulk-wipes all `SfxChannel_len` bytes of the chosen
+slot before populating it (`sound_sfx.emp:1004-1015`, with its own `ensure` at
+`:1136` naming the wipe), so `sc_patch` is 0 at dispatch by construction. The
+dependency is now commented at the wipe itself. The Stage C re-ping path
+deliberately does not come through the wipe and is not an exception: it refreshes a
+countdown on a still-running stream that must keep its current voice.
+
+**Every shipped SFX is byte-identical** across the engine+transcoder change: all 32
+tracked `.bin` regenerate unchanged. Their sources open with `smpsSetvoice $00`,
+which names the voice the channel is already on and was dropped before — and still
+is, now for a reason that is true.
+
+**THE CONTENT HALF IS A SEPARATE COMMIT AND NEEDS THE OWNER'S EAR.** sfx `$B1` now
+comes from S&K's own `B1 - Spring.asm` instead of S2's `CC - Spring.asm`, so the
+spring gets its real second voice; `sfx_B1.bin` 187 -> 221 B, `sfx_B1_patches.bin`
+32 -> 64 B, no other SFX moved. Reversing it is two lines in
+`tools/sfx_transcode.py` (`_CORE_SFX_FILENAMES[0xB1]` and re-adding the
+`_CORE_SFX_DONOR` entry) plus a regenerate, spelled out at `S2DISASM_SFX_DIR`.
+**Nothing here claims it sounds right.** There is still no audio instrument, and
+that was re-checked live rather than assumed: `vgm_start`/`vgm_stop`/`vgm_status`,
+`audio_spectrum` and `get_channel_states` all appear in the bus SCHEMA and the
+contract vectors but are NOT in the running server's method table — probing them
+returns `[-32601] no such method`.
+
+**Evidence:** `tools/sfx_voice_change_witness.py`, 3 legs, PASS exit 0, wired into
+`tools/effects_gates.py` (`--only sfx_voice_change`) and therefore into the
+nightly. It reads `Fm_ScratchMask` — which `Fm_SetVolume` writes as
+`CarrierMaskTableZ[resolved_patch.fp_alg_fb & 7]`, a Z80 byte computed FROM the
+resolved pointer — and discriminates by changing ONE BYTE of the ROM image rather
+than by recomputing the address itself. Both voices of the real spring have
+algorithm `$00`, so the baseline is flat by construction and any difference the
+poisons show is one they caused: poisoning voice 1's algorithm moved 107 of 107
+observed samples, poisoning voice 0's moved 0 of 107. Proven red-first by
+mutating `ld a,(ix+sc_patch)` to `xor a` — the index discard itself — which flipped
+both legs exactly (`107/107` and `0/107` swapping places) with the ROM md5 moving
+`7c8279f1…` -> `32f5d2ae…` and back bit-for-bit on restore.
+
+**What the witness does NOT establish, and an earlier draft of it wrongly claimed:**
+the ORDERING. Its first L1 asserted that poisoning voice 0 would move an EARLY
+stretch, proving voice 0 feeds the driver before the change. That leg was run and
+failed, for a property of the subject rather than the engine — the spring emits no
+`MEV_VOL` before its voice change (the transcoder bakes channel volume into the
+patch TLs; the only Vol events come from the `smpsFMAlterVol` unroll, which is
+after), so `Fm_SetVolume` never runs while voice 0 is selected and voice 0 is not
+observable through that cell at all. The measured baseline shows it: `$00` until
+frame 13. L1 was narrowed to "voice 0 is NOT what is resolved after the change",
+which is decisive and is red pre-SP-6 for the mirror-image reason.
+
+**Also found: nothing in this tree executed a sound witness.** Both
+`spring_sfx_witness.py` and `spring_launch_witness.py` are hand-run only — no
+build.sh lane, no nightly, no pytest. Wiring those two into a runner is NOT done.
+
+**BLOCKED ON A SIGIL RE-PIN — this parcel cannot land alone.** The -1 byte trips
+`emit_sound_blob`'s size tripwire: `BLOB_LEN_PLAIN`/`BLOB_LEN_DEBUG` in
+`sigil/crates/sigil-harness/src/seam1.rs:39,44` must go `$1820` -> `$181F` and
+`$1820+$82` -> `$181F+$82`. **The `Z80_SOUND_SIZE` mirrors do NOT move**: aeon pads
+the blob to even inside the `Z80_Sound_Start`/`_End` brackets, so `Z80_SOUND_SIZE`
+stays `$18A2` and the ROM region does not shift — verified in the listing. All four
+shapes above were verified with `SIGIL_BLOB_LEN_DRIFT=warn`, which the tripwire's
+own comment calls "a development affordance ONLY — the strict suite and
+`refreeze --check` do not read the variable". So this is a paired aeon+sigil
+landing.
+
+**Left open, deliberately kept separate (see SP-6b).**
+
+### SP-6b — per-channel NON-ZERO INITIAL voice in an SFX (opened 2026-09-09)
+
+Distinct from SP-6 and deliberately not folded into it. SP-6 made a **mid-stream**
+change expressible. This is the other half: a channel whose voice is not voice 0
+from the FIRST note.
+
+**The engine already supports it; the transcoder does not.** `sx_patch_base` is
+stamped per channel from that channel's own record (`sound_sfx.emp:1040-1047`), so
+the blob format can already say "this channel starts on voice N". What blocks it is
+`pack_sfx`, which hardcodes every FM channel's `voice_ptr` to `patch_bank_offset` —
+i.e. voice 0 — for all channels (`tools/sfx_transcode.py`, the `if ch['kind'] ==
+SFXEL_FM and patch_bank:` arm). Zero Z80 bytes to fix.
+
+**THE OBVIOUS FIX WOULD BREAK SP-6, AND THIS IS THE REASON THIS ROW EXISTS.**
+Setting `voice_ptr = patch_bank_offset + N*FmPatch_len` makes `sx_patch_base` point
+at voice N instead of at the BANK BASE — and SP-6's `Fm_PatchPtr` resolves
+`sx_patch_base + sc_patch*FmPatch_len`, which then indexes off the wrong base. A
+later `smpsSetvoice` in that channel would land on voice N+index, and `MEV_PATCH 0`
+would select voice N rather than voice 0. The two features are NOT independent.
+
+The joint design that works: keep `sx_patch_base` the bank base ALWAYS, and carry
+the initial voice as an index — a new byte in the per-channel record, stamped into
+`sc_patch` by `Sfx_BeginSound` (a handful of Z80 bytes, and it would also want
+`Sfx_Steal` to load through `Fm_PatchPtr` rather than reading `sx_patch_base`
+directly at `sound_sfx.emp:563-565`, so the steal preloads the right voice instead
+of always voice 0 followed by a redundant re-upload).
+
+**UNVERIFIED, do not quote as measured:** a research pass reported this would
+unblock four stock S&K SFX (Bumper, Thump Boss, Register, and Big Ring's FM5, the
+last using `smpsSetvoice $02`), and that only two stock S&K SFX need SP-6's
+mid-stream form at all (B1 Spring, B3 Big Ring). I did not re-derive either count.
 
 ### ~~SP-7~~ — `tools/sfx_transcode.py::_process_lines` is DEAD — **CLOSED 2026-09-09, DELETED**
 
