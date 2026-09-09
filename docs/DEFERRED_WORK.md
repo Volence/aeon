@@ -31510,3 +31510,101 @@ even-rounding mirror argument from the rounding rule, where I derived it from th
 Different enumeration parameters, same answer — which is corroboration rather than echo. My separate
 doc finding (their mirror instruction reads as unconditional and over-fires) landed at sigil
 `2483c6a5`, verified reachable from their `origin/master`.
+
+## THE RED SPRING'S BASE WAS KNUCKLES' PALETTE, NOT THE SPRING'S ART — AND ONE INDEX IS STILL OPEN (2026-09-09)
+
+Owner report: "the palette for red springs base is messed up when knuckles is in (but yellow
+spring is fine)". Branch `parcel/spring-palette-knuckles`.
+
+### The load-bearing step, read rather than inferred
+
+`Player_RefreshPhysics` (`games/sonic4/player/player_common.emp`, the `cd_palette` block) does
+`lea Palette_Buffer, a2` — the buffer's BASE — copies 32 bytes, and sets `ori.b #1, Palette_Dirty`,
+whose bit 0 is line 0. So **CRAM line 0 is the per-character line**, the red spring (drawn
+`vram_art(VRAM_SPRING)`, palette 0) renders through it, and the yellow spring escapes because
+`bset #SPRING_PAL_BIT` puts it on line 1 — the ACT's line, which no character load touches. That is
+the whole asymmetry in the owner's sentence.
+
+### The root cause is not the spring, and stock S3K already had the answer
+
+S3K's `Pal_SonicTails` and `Pal_Knuckles` are **identical at 13 of 16 slots** and differ only at
+2/3/4 — the blues against the reds. That is why S3K can draw its own spring with
+`make_art_tile($4A4,0,0)`, palette 0, the character's own line (`sonic3k.asm`, `Obj_Spring`). Every
+shared line-0 sprite is character-independent for free.
+
+We had lost that invariant, and not by any single decision: our Sonic line 0 came from
+`sonic_hack`'s index order and our Knuckles line 0 from skdisasm's, two permutations of nearly the
+same colour set that were never brought into one order. **They agreed at only 7 of 16 slots.** Four
+of the spring's eight indices fell in the gap — 1 (the coil outline, 348 px, drew BRIGHT RED
+`$000E`), 8 (110 px, orange), 9 (184 px, red) and 12 (the plate's principal red, 174 px, drew maroon
+`$0206`). "Base is messed up" is precise: the coil uses 1/6/7/8/9 and three of those five were wrong.
+
+### The fix, and what it cost (nothing)
+
+`gen_characters.py`'s `KNUCKLES_TO_AEON` re-indexes his art AND his palette together with the same
+derived S3K→Aeon table Tails already used, extended by the one S3K index that table cannot reach
+(`$0080`, whose destination is **forced** — exactly one Aeon slot is left free). Verified lossless:
+colour→pixel-count histogram identical across the change, byte length unchanged, no ROM-size delta.
+**Nothing about how Sonic, Tails or Knuckles looks changes.** The two lines now agree at 12 of 16 and
+differ only at the four character-specific slots 2/3/5/9.
+
+It subsumes the 2026-08-12 dust-only 4/6/7 swap (now one consequence of a general rule rather than a
+special case) and closes a LATENT instance nobody had reported: **the insta-shield** draws on line 0
+at 0/6/7/8, and index 8 was in the gap too.
+
+### ⚠ OPEN — "Spring index 9". A LOOK DECISION, FOR THE OWNER
+
+Our line 0 carries `$0444` (mid grey) at index 9; Knuckles has no `$0444`, so his leftover colour
+`$0080` (green) lands there by elimination. **184 of the spring's coil-midtone pixels still recolour
+under him.** This is not closable by relabelling — all 16 slots are spoken for on both sides, so
+closing it costs a colour from one side or the other:
+
+* **(a) The spring gives up its 5th grey.** Re-index the art's 184 index-9 pixels onto 8 (`$0866`,
+  the step above — coil reads slightly lighter and flatter) or onto 1 (`$0222`, the step below —
+  slightly darker, higher contrast). One line in `gen_spring.py`. Cost: a small, describable change
+  to how the spring looks **under every character**. This is the recommendation — index 9 is the one
+  slot Knuckles genuinely needs and Sonic does not (Sonic's art uses it for **3 pixels** in 101,056
+  bytes; Tails' for **zero**), so the spring is squatting on it.
+* **(b) Knuckles gives up `$0080`.** Put `$0444` at his index 9 and merge his 3,272 green pixels into
+  a neighbour. Measured: they are spread over **646 of his 4,092 tiles at ~5 px each**, i.e. a fine
+  detail colour present in nearly every frame — a real change to the character, not a corner case.
+* **(c) Leave it.** What ships today. The defect is down from 642 wrong pixels to 184, and the
+  plate's principal red is restored, but the coil still speckles green as Knuckles.
+
+Recommendation: **(a)**, with the shade the owner's to pick between 8 and 1. Not taken unilaterally
+because it changes what the sprite looks like for everyone.
+
+### What now guards it
+
+* `knuckles_data.emp` — counts the line-0 mismatches (ruled 4) and separately asserts slot 9 still
+  DIFFERS, so closing the hole makes the stale caveat fail loudly instead of rotting.
+* `test_solid.emp` — holds `Art_Spring` to the indices the fix secured, with slot 9 a named literal
+  exemption and its 184-pixel cost pinned so re-cutting the sprite cannot silently resize the open
+  decision.
+* `gen_characters.py` — refuses to ship a Knuckles palette that differs anywhere but 2/3/5/9.
+* `tools/spring_line0_gate.py` — reads CRAM out of a running headless build under each character and
+  compares at the spring's own indices; index set derived from the art histogram, expectations from
+  the two palette files.
+
+All three `ensure`s were proven red-first with the mutation on disk (palette slot 2 made to agree →
+"differ at 3, not the ruled 4"; one spring pixel 6→3 → "draws 1 pixel(s) through a … index the two
+character palettes DISAGREE about"; one spring pixel 9→8 → "draws 183 pixels through exempt index 9,
+not the 184"), each restored from the committed baseline, with the restored tree re-run green as a
+control.
+
+### The enumeration the report asked for: everything else drawing on the character line
+
+Enumerated by what DRAWS with palette 0 (`vram_art(tile)` defaults to palette 0), then by histogram
+of each blob's own indices — not by name:
+
+| line-0 drawer | indices used | status |
+|---|---|---|
+| the player itself (`VRAM_TEST_SONIC`, `cd_vrambase`) | all 16 | by definition fine — it IS the line |
+| effect dust — `DustPuff` / `DustSpindash` (`art_dust.bin`) | 0, 4, 6, 7 | fixed 2026-08-12; still agrees |
+| insta-shield (`Art_InstaShield`) | 0, 6, 7, 8 | **was latently broken at index 8**; fixed here |
+| spring (`Art_Spring`) | 0, 1, 6, 7, 8, 9, 12, 13 | fixed except index 9 (above) |
+| `VRAM_TEST_OBJ` / `VRAM_DEMO_OBJ` test placeholders | synthesised, not character art | not shipped content |
+
+Not on line 0 and therefore not exposed: rings and the ring sparkle (`vram_art(…, 1, 1)`), the player
+marker, the debug water-line stamp and BG-anim tag. The Tails appendage rides line 0 only while Tails
+is active, and Tails shares Sonic's palette file, so it cannot differ.
