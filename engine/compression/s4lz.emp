@@ -73,6 +73,31 @@ struct DictBase { }
 //       shared with the plain entry — whose branch never fires on valid
 //       no-dict streams (offsets never reach below the dest start), so the
 //       plain entry neither reads nor writes a4/d4.
+//
+// RELEASE-SHAPE FAULT CHECKS (LS-17, owner ruling 2026-09-09 — `crash`)
+// ---------------------------------------------------------------------
+// Three checks in this decoder are present in the SHIPPED ROM, not just the
+// DEBUG shape, and fault deliberately into the crash-report screen the release
+// build already carries rather than letting a corrupt stream run off into
+// memory. They are gated `DEBUG == 1 || CRASH_REPORT == 1` — the crash-report
+// axis (CODING_CONVENTIONS §1.7), NOT bare `DEBUG`, because the thing they
+// depend on is the `error_handler` island, which rides that axis. The lean
+// profile (CRASH_REPORT=0) has no island to fault into and pays nothing.
+//
+//   code 1  .fault_version  stream version byte != 1     once/call, 6 bytes
+//   code 2  .fault_dict     match reaches below the dict per dict-hit match,
+//                           base (the case the ruling names)  8 B, ~24 cyc
+//   code 3  .fault_extent   written extent disagrees with once/call, 10 bytes
+//                           the header size word
+//
+// All three branch to ONE `raise_error` tail; d0 carries the code, and at code 2
+// d1 carries how many bytes below the dict base the match reached. Codes 1 and 2
+// were `assert`s here before this ruling (zero bytes outside DEBUG); code 3 is
+// new. What is deliberately NOT promoted: the dict-length-even assert in
+// S4LZ_DecompressDict stays DEBUG-only, because an odd dict length lands a2 on
+// an odd address and the 68000 raises an ADDRESS ERROR, which already routes to
+// the same crash screen through the vector table — a release-shape check there
+// would buy a nicer message for real bytes and no new coverage.
 // -----------------------------------------------
 pub proc S4LZ_DecompressDict (a0: *u8, a1: *u8, a4: *DictBase, d4: u16) clobbers(d0-d3/a0-a4) falls_into S4LZ_Decompress {
         if DEBUG == 1 {
@@ -89,10 +114,17 @@ pub proc S4LZ_Decompress (a0: *u8, a1: *u8) clobbers(d0-d3/a1-a3) out(a0) {
         movea.l a1, a3                          // a3 = dest start (for tile-delta)
         move.w  (a0)+, d3                       // d3.w = uncompressed size
         move.b  (a0)+, d2                       // d2.b = flags
-        if DEBUG == 1 {
-            move.b  (a0), d0
-            assert.b d0, eq, #1                 // v3 stream required (version byte = 1)
-        }
+    if DEBUG == 1 || CRASH_REPORT == 1 {
+        // LS-17 check 1 — v3 stream required (version byte = 1). RELEASE-SHAPE:
+        // this was `assert.b d0, eq, #1` (zero bytes outside DEBUG); a wrong
+        // version byte means the following bytes are not an S4LZ v3 token
+        // stream at all, so the loop below would write arbitrary lengths from
+        // arbitrary offsets. Once per call, 6 bytes; ~20 cycles when it passes
+        // (cmpi.b #imm,(An) 12 + untaken bne 8, 68000 timing table — derived, not
+        // measured: no emulator ran in this parcel).
+        cmpi.b  #1, (a0)
+        bne     .fault_version
+    }
         addq.l  #1, a0                          // skip version byte
 
     .token_loop:
@@ -105,7 +137,7 @@ pub proc S4LZ_Decompress (a0: *u8, a1: *u8) clobbers(d0-d3/a1-a3) out(a0) {
         andi.w  #$0F, d1                        // d1 = LIT_CNT (0-15)
         beq     .no_literals                    // 0 literals -> skip
         cmpi.w  #15, d1
-        beq     .lit_extended                   // 15 = read count word (relaxes .s in plain; the debug dict-hit assert block pushes it past .s range)
+        beq     .lit_extended                   // 15 = read count word (unsized: the span crosses the LS-17 dict-hit check block, whose size is now the same in both shapes — measured 2026-09-09, `beq.s` disp $7E, 126 of 127, in plain AND debug. One more byte in the span and sigil relaxes it to .w on its own; that is correct, not a hazard)
 
         // --- Unrolled literal copy (1-14 words) ---
         add.w   d1, d1                          // count * 2 bytes per move.w instruction
@@ -150,11 +182,22 @@ pub proc S4LZ_Decompress (a0: *u8, a1: *u8) clobbers(d0-d3/a1-a3) out(a0) {
         cmpa.l  a3, a2
         bhs     .src_in_dest                    // common case: source within output
         // dictionary hit — redirect into the dict tail (see header trace)
-        if DEBUG == 1 {
-            move.l  a3, d1                      // d1 (offset) is dead past suba
-            sub.l   a2, d1                      // bytes below dest start
-            assert.w d4, hs, d1                 // must stay within the dict
-        }
+    if DEBUG == 1 || CRASH_REPORT == 1 {
+        // LS-17 check 2 — the match source must stay INSIDE the dictionary.
+        // RELEASE-SHAPE: this was `assert.w d4, hs, d1` (zero bytes outside
+        // DEBUG), and it is the exact case the ruling names — a corrupt offset
+        // reaching deeper than dict_len rebases to `dict_base - n` and the copy
+        // then reads ROM from below the dictionary, silently. The cost is paid
+        // ONLY on the dict-hit path (a match that reaches below the dest start),
+        // never on the in-buffer path: 8 bytes, and ~24 cycles per dict-hit match
+        // when it passes (4 + 8 + 4 + untaken 8, 68000 timing table — derived, not
+        // measured). For scale: the pre-existing cmpa.l/branch on this same path
+        // is documented above at +16.
+        move.l  a3, d1                          // d1 (offset) is dead past suba
+        sub.l   a2, d1                          // bytes below dest start
+        cmp.w   d1, d4                          // dict_len - depth
+        blo     .fault_dict                     // depth > dict_len -> outside the dict
+    }
         adda.l  a4, a2                          // a2 = dict_end - (dest_start - a2)
     .src_in_dest:
         cmpi.w  #15, d0
@@ -189,7 +232,7 @@ pub proc S4LZ_Decompress (a0: *u8, a1: *u8) clobbers(d0-d3/a1-a3) out(a0) {
     .lit_dbf_loop:
         move.w  (a0)+, (a1)+
         dbf     d1, .lit_dbf_loop
-        jbra    .no_literals                    // continue to match portion (relaxes .s in plain; the span crosses the debug dict-hit assert block)
+        jbra    .no_literals                    // continue to match portion (unsized: the span crosses the LS-17 dict-hit check block; measured 2026-09-09 it emits `bra.s` -$66 in both shapes)
 
         // --- Extended match count (a2 = match source, set in .have_offset) ---
         // Short form: this word directly follows the literals.
@@ -204,6 +247,31 @@ pub proc S4LZ_Decompress (a0: *u8, a1: *u8) clobbers(d0-d3/a1-a3) out(a0) {
 
         // --- Stream complete ---
     .stream_done:
+    if DEBUG == 1 || CRASH_REPORT == 1 {
+        // LS-17 check 3 — the written extent must agree with the header size.
+        // RELEASE-SHAPE, and the only one of the three with no DEBUG twin (see
+        // the parcel note in DEFERRED_WORK: it is the one an owner who wants the
+        // narrowest possible reading of the ruling can drop as a single hunk).
+        // The file's own contract (header, "Out:") is that the decoder writes
+        // exactly `declared_size` bytes, or `declared_size + 1` when the size is
+        // odd and the encoder padded to a word. So written - declared is 0 or 1
+        // and nothing else; a corrupt token stream that over-runs the caller's
+        // buffer, under-runs it, or carries a garbage size word all land here.
+        // It matters most for the tile-delta tail immediately below: TileDelta_Undo
+        // walks `d3 >> 5` tiles from the buffer start XORing as it goes, so a
+        // garbage size word is a write walk of up to 64 KB through RAM. Faulting
+        // here happens BEFORE that walk starts.
+        // NOTE it is a detector, not a bound: an over-run has already happened by
+        // the time this fires. The real bound needs a dest-extent parameter, which
+        // is an ABI change across every caller — filed as the LS-17 follow-up.
+        // Once per call, 10 bytes; ~28 cycles when it passes (4 + 8 + 4 + 4 +
+        // untaken 8, 68000 timing table — derived, not measured).
+        move.l  a1, d0                          // d0 = dest cursor
+        sub.l   a3, d0                          // d0.w = bytes actually written
+        sub.w   d3, d0                          // - declared size
+        subq.w  #2, d0                          // 0 or 1 -> borrow (in contract)
+        bcc     .fault_extent                   // no borrow -> >= 2, or negative
+    }
         btst    #0, d2                          // tile-delta flag?
         beq     .return
         move.l  a0, -(sp)                       // save compressed-end pointer
@@ -218,6 +286,32 @@ pub proc S4LZ_Decompress (a0: *u8, a1: *u8) clobbers(d0-d3/a1-a3) out(a0) {
 
     .return:
         rts
+
+    if DEBUG == 1 || CRASH_REPORT == 1 {
+        // LS-17 — the shared deliberate-fault tail (see the FAULT CODES block in
+        // this file's header). ONE raise site, reached by a 4-byte dispatch from
+        // each check, because three separate `raise_error`s would each carry
+        // their own ~20-byte frame plus their own message text and the ruling's
+        // accepted cost was tens of bytes, not hundreds. d0 is the code; the
+        // crash screen dumps every other register, and at code 2 d1 carries the
+        // overrun depth in bytes.
+        // This is the EXISTING crash path — `raise_error` lowers to the same
+        // MDDBG__ErrorHandler frame every other raise site in the tree uses, and
+        // the error_handler island rides `DEBUG || CRASH_REPORT`, which is why
+        // the whole block (checks included) carries that predicate: at
+        // CRASH_REPORT=0 (the lean profile) the island is absent, so there is
+        // nothing to fault into and the checks correctly cost nothing.
+    .fault_version:
+        moveq   #1, d0
+        jbra    .fault
+    .fault_dict:
+        moveq   #2, d0
+        jbra    .fault
+    .fault_extent:
+        moveq   #3, d0
+    .fault:
+        raise_error "S4LZ stream fault %<.w d0>"
+    }
 }
 
 // -----------------------------------------------
