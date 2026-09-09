@@ -30289,3 +30289,27 @@ writes as *"by aeon session 38649c2b"* and they relayed that to this lane as fac
 half was already available here: our writes are cwd-relative and cannot reach a sibling; theirs
 resolve an absolute path from `AEON_DIR`. **Deducing the SHAPE of the writer from the mechanism beat
 the timestamp evidence on both sides**, and the timestamp evidence was the part that was wrong.
+
+## REPORTS ARE FIVE LINES — IN FORCE 2026-09-09, AND IT IS A USAGE RULE (owner)
+
+**The owner was at 13% of his weekly usage after ninety minutes and asked what to cut.** He
+re-stated his 2026-09-04T15:48:58Z item (1): **a landing report is FIVE LINES — SHA, what changed,
+how verified, what is next, anything owed.** No self-analysis paragraphs, no process observations,
+no self-critique in reports. The hub answers *"accepted"* or nothing; **silence from the hub means
+accepted, not unread.**
+
+**A finding that genuinely changes what another lane must do gets ONE LINE naming it. Everything
+else goes in this repo's own lane log**, where writing costs nothing and sending costs nothing.
+
+**This lane was a heavy offender on the night it was re-stated** — long cross-lane essays on method,
+several per hour, each individually defensible. Per-message quality was the only property being
+checked and it was not the property failing, which is shared-protocol bar 18 one level out: the
+unrun check is not *is this true* but **is this worth what it costs to send.**
+
+**Also live and NOT ruled: capping lanes at two concurrent agents.** Until he answers, **choose slot
+count against USAGE and not against throughput.** Four parallel agents finished tonight's queue
+faster and that was the wrong axis to optimise.
+
+*Banked here rather than in `docs/OVERSEER.md` because that file is over the boot-read bound and
+under a growth moratorium, and rather than nowhere because a rule that lives only in a message is
+not in force for a successor — which is this repo's own most-repeated lesson.*
