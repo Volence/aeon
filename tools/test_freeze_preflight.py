@@ -322,13 +322,25 @@ PORTS_DOCTEST_FAILURE = textwrap.dedent(
 
 
 def test_step_2_does_not_DROP_a_failing_test_whose_name_contains_spaces(tmp_path):
-    """The correction sigil caught within an hour of the overcount fix landing.
+    """Sigil flagged the CLASS from the shape of the pattern -- that a test name might
+    contain a space. This lane found the INSTANCE, and the instance is what makes it real:
+    DOCTESTS carry spaces by construction (`test src/lib.rs - m::f (line 12) ... FAILED`),
+    so this was not a property some name might have, it was a whole category one
+    `cargo test` away -- in a crate confirmed to have doc comments in two files.
+    Attribution split this way at sigil's own insistence, 2026-09-09.
 
-    Excluding cargo's summary line by NARROWING the name to `[^ ]+` also excludes every
-    doctest, which cargo spells `test src/lib.rs - m::f (line 12) ... FAILED` -- spaces and
-    all. That trades a defect that INFLATES the count for one that HIDES failures, which is
-    the worse direction. The end anchor is what excludes the summary (it continues past
-    FAILED with its counts) while leaving the name free to contain spaces.
+    Excluding cargo's summary line by NARROWING the name to `[^ ]+` therefore drops every
+    doctest failure. That trades a defect that INFLATES the count for one that HIDES
+    failures.
+
+    THE END ANCHOR IS WHAT EXCLUDES THE SUMMARY -- it continues past FAILED with its
+    counts -- and the separator does none of that work; the name stays free to contain
+    spaces. Do not "simplify" this by narrowing the name again.
+
+    THE DURABLE BAR, above the pattern: ask which DIRECTION a fix moves the failure, because
+    a fix chosen by the first mechanism that comes to mind can move it from loud to silent.
+    This one did, inside a commit whose subject was a loud defect that had been quiet for a
+    week.
 
     Red-first against the narrowed pattern: it reports 0 failures on this log and names
     none, while the log carries one real failure.
