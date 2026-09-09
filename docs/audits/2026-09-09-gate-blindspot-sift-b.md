@@ -18,6 +18,23 @@ build was run; the four ROM shapes and two listings were read only, and every fi
 from one quotes its md5 prefix and mtime, checked against the briefed identity before use
 (all six matched exactly — see the table in "Artifact identity" below).
 
+## REVISION NOTE (2026-09-09, post-coordinator review)
+
+Finding #10 (`test_palette_census_lint.py`) as originally filed did not survive
+verification: it cited a nonexistent path (`engine/debug/release_fault.emp` — the real
+file is `engine/system/release_fault.emp`) and claimed `engine/effects/raster.emp` writes
+CRAM "without naming either symbol," which is false of the file as a whole (it names
+`Palette_Ship_Snap` four times, in the code that already is the census's row 12). Both
+defects trace to the same root cause: **my original population was built by grepping the
+literal string `CRAM` and excluding lines containing the two symbol names — enumeration by
+NAME, not by the write MECHANISM**, which the census's own declared gap is about. That is
+the exact vacuity this audit exists to catch, one level up in my own instrument. Re-derived
+below by mechanism (`vdp_comm`/`vdp_comm_reg` targeting `VdpTarget.Cram` — verified as the
+tree's only two producers of a CRAM command word). The corrected section replaces the
+original #10 entirely; four distinct write mechanisms survive as genuinely OCCUPIED, none
+of them raster.emp-as-a-whole or the wrong release_fault.emp path. Finding #9
+(`test_overseer_bound.py`) stands unedited, per instruction.
+
 ## Totals
 
 - **Files examined: 13/13** (every file in the brief exists and was read; none was empty or missing).
@@ -35,8 +52,11 @@ from one quotes its md5 prefix and mtime, checked against the briefed identity b
     - **CLEAR: 5**
     - **CLEAR but the docstring itself is stale** (the gap was true when written, a
       separate fix closed it hours-to-days later, and the note was never updated): **2**
-    - **OCCUPIED: 2** — both are LOUD, self-reporting or independently-gated deviations, not
-      hidden holes in the sigil sense. Detailed below; neither was fixed.
+    - **OCCUPIED: 2 statements** — #9 (`test_overseer_bound.py`, one loud, self-reporting
+      deviation) and #10 (`test_palette_census_lint.py`, corrected 2026-09-09 after
+      coordinator review: 4 distinct write MECHANISMS survive a mechanism-based
+      re-derivation, none of them the file-level `raster.emp` claim or the wrong
+      `release_fault.emp` path my first pass filed). Detailed below; neither was fixed.
   - **UNRUN: 0.**
 
 ## Artifact identity (verified before use)
@@ -65,7 +85,7 @@ All six matched exactly. `s4.lst` and `s4.debug.lst` were read for two controls 
 | 7 | test_ojz_block_gen_cache.py:176 | "The poison the file digest cannot see... Output verification is what catches it" | FALSE POSITIVE | n/a | Describes the file-digest mechanism's limit, which the SAME test (`test_verify_stream_rejects_a_forged_stream`) proves `_verify_stream` catches. Test passes. |
 | 8 | test_overseer_bound.py:90 | "A gate that cannot see its subject has not passed, it has not run" | FALSE POSITIVE | n/a | General design remark about a missing-instrument failure mode; not a residual gap — `test_the_boot_read_exists_and_is_measurable` is exactly the guard against it. |
 | 9 | test_overseer_bound.py:108-109 | "this gate cannot assert the ruled bound today without failing the build for every lane" | SPECIFIC-CONSTRUCTIBLE | **OCCUPIED (overt, ratified, not hidden)** | See dedicated section below. |
-| 10 | test_palette_census_lint.py:24-25 | "WHAT IT CANNOT CATCH: a write that reaches CRAM without naming either symbol (a raw address literal, a pointer handed in from elsewhere, a direct VDP-port write)" | SPECIFIC-CONSTRUCTIBLE | **OCCUPIED (literal match, separately gated)** | See dedicated section below. |
+| 10 | test_palette_census_lint.py:24-25 | "WHAT IT CANNOT CATCH: a write that reaches CRAM without naming either symbol (a raw address literal, a pointer handed in from elsewhere, a direct VDP-port write)" | SPECIFIC-CONSTRUCTIBLE | **OCCUPIED (mechanism-verified, corrected 2026-09-09)** | See dedicated, corrected section below — original file-level raster.emp claim WITHDRAWN, release_fault.emp path corrected, population re-derived by write mechanism (`vdp_comm`/`vdp_comm_reg` targeting `Cram`), 4 distinct occupied mechanisms found. |
 | 11 | test_raster_cycle_table_lint.py:13-18 | "sigil cannot see (3) at all... Both build GREEN" | FALSE POSITIVE | n/a | Describes sigil's limit; THIS python gate exists to close exactly that gap and is proven red in both pre- and post-relaxation forms (docstring's own red-first log). All 11 tests pass. |
 | 12 | test_raster_wire_pin.py:16-18 | "The probe's existing empirical check... does NOT cover it" | FALSE POSITIVE | n/a | Describes `raster_cost_probe.py`'s own weaker `calls`-count check; THIS file's spin-solver pin (pin 1) closes it and passes. |
 | 13 | test_raster_wire_pin.py:28 | "arity alone cannot see a transposition" | FALSE POSITIVE | n/a | Rationale for pin 4 (`test_spin_sits_between_command_and_count`), which exists in this file and passes. |
@@ -116,42 +136,108 @@ exists cannot say so as a failure. Left exactly as found, per the no-fix instruc
 bytes of ratchet margin remain before the NEXT commit to `docs/OVERSEER.md` goes red for
 growth**, which is worth knowing before anyone adds to that file.
 
-### #10 — test_palette_census_lint.py: CRAM writers that bypass the two named symbols do exist
+### #10 — CORRECTED 2026-09-09 (post-coordinator review). test_palette_census_lint.py
 
-The declared gap: "WHAT IT CANNOT CATCH: a write that reaches CRAM without naming either
-symbol (a raw address literal, a pointer handed in from elsewhere, a direct VDP-port
-write)" (line 24-25).
+**The coordinator established two defects in my original write-up, verified here firsthand:**
 
-**Control.** Search the tree for CRAM writes that do not name `Palette_Buffer` /
-`Palette_Ship_Snap`:
+1. **`engine/debug/release_fault.emp` does not exist.**
+   ```
+   $ git ls-files | grep -i release_fault
+   engine/system/release_fault.emp
+   ```
+   The file lives at `engine/system/release_fault.emp`. My original citation was wrong;
+   whatever I was looking at when I wrote it was not that path. Corrected below.
+
+2. **`engine/effects/raster.emp` DOES name both symbols.**
+   ```
+   $ grep -n "Palette_Buffer\|Palette_Ship_Snap" engine/effects/raster.emp
+   205: // Palette_Ship_Snap (this frame's base-DMA payload) back to CRAM.
+   243: // cursor (Pal_Variant_Stage / Palette_Ship_Snap), so their write is the absolute-long form
+   1466: // with TWO deliberate differences: the source is Palette_Ship_Snap (whose offset
+   1467: // IS the CRAM byte address — BuildStaticDMA maps Palette_Buffer+$00/20/40/60 to
+   1496: lea Palette_Ship_Snap, a2   // snapshot base (was VDP_CTRL)
+   ```
+   "raster.emp writes CRAM without naming either symbol" is false of the file as a whole:
+   its restore path (`Raster_HInt`'s `.op_pal_restore`, census row 12) is built entirely
+   around `Palette_Ship_Snap` and is exactly what the census already registers that file
+   for. **The file-level claim is WITHDRAWN.** What survives is narrower: specific write
+   sites *inside* raster.emp whose own data does not touch either symbol, found below by
+   mechanism rather than by name.
+
+**My own first check was the same defect the audit exists to find, one level up.** I had
+grepped the string `CRAM` and filtered out lines containing the two symbol names — that
+enumerates by NAME (does this line contain the word "CRAM" / "Palette_Buffer"), not by
+MECHANISM (does this line cause a write to reach CRAM's address space). A comment, an
+`ensure()`, or a docstring mentioning both words in the same paragraph defeats a
+name-based filter in either direction. Redone below.
+
+**THE MECHANISM, named explicitly.** A CRAM-targeted VDP command word can be produced in
+exactly two places in this source tree: `vdp_comm(addr, VdpTarget.Cram, op)` (comptime,
+folds to a literal longword) and `vdp_comm_reg(reg, VdpTarget.Cram, op)` (runtime, encodes
+into a register). This is not an assumption — `target_bits(VdpTarget.Cram)` (the function
+that turns the `Cram` enum case into its bit pattern) has exactly two non-ensure call sites
+in the whole tree, both inside `engine/vdp.emp` itself:
 
 ```
-$ grep -rn "CRAM" --include="*.emp" --include="*.asm" engine games | grep -iv "palette_buffer\|palette_ship_snap"
+$ grep -rn "target_bits(" --include="*.emp" engine games
+engine/vdp.emp:134:comptime fn target_bits(t: VdpTarget) -> int {
+engine/vdp.emp:151-153:  (three ensure()s pinning target_bits against engine.constants — not writes)
+engine/vdp.emp:162:    let type = target_bits(target)      // inside vdp_comm
+engine/vdp.emp:194:    let tr = target_bits(target) & op_bits(op)   // inside vdp_comm_reg
 ```
 
-Found, among others: `engine/effects/raster.emp` (`OP_CRAM` raster-burst writes — live in
-the OJZ showcase act, hitting CRAM lines 1-3, the SAME lines the census tracks),
-`games/sonic4/data/effects/ojz_effects.emp` (`stream_cram(OJZ_TEST_CRAM_ADDR, ...)`, a
-direct CRAM write by literal address), `engine/system/boot.emp` (CRAM clear at boot), and
-`engine/system/release_fault.emp` (the crash-report red screen). **All of these are writes
-that reach CRAM without naming either symbol — the literal case is present, today.**
+So the population is: every call to `vdp_comm(..., VdpTarget.Cram, ...)` or
+`vdp_comm_reg(..., VdpTarget.Cram, ...)` anywhere in `engine/` or `games/`, MINUS the ones
+inside an `ensure(...)` (a comptime proof about a value, not a write), PLUS every caller of
+the raster DSL's shared encoder (`op_words` in `raster_dsl.emp`, which every `stream_cram`/
+`stream_pal_region`/`pal_restore`/`raster_gradient_program`/`raster_ramp_program` call
+funnels through) traced back to where its colour/address DATA actually comes from, because
+`op_words` itself is the mechanism, not a site.
 
-**Why I am not calling this a hidden defect.** Every one of these is governed by its own,
-separately-and-heavily-gated apparatus that this census's docstring simply does not
-cross-reference: raster bursts have `tools/effects_gates.py` + `raster_source_gate` +
-the CLAUDE.md-mandated "effects gate ritual" for anything touching `engine/effects/*`;
-`palette.emp` itself documents the reconciliation ("Raster_VBlank re-asserts the program's
-own pal_dirty_mask every frame... restored by the raster layer, never by a compose layer's
-incidental re-ship"); boot-time and crash-time CRAM writes occur outside the frame loop the
-invariant is about. **What I did NOT do**: prove, by tracing or by emulator, that raster's
-mid-frame CRAM writes can never coincide with a `Palette_Ship_Snap` read in a way that
-violates "the snapshot equals THIS FRAME's base-DMA payload for that line." That would need
-either a full control-flow trace of `Raster_HInt` against `Palette_Ship_Snap`'s consumer, or
-an emulator run — the latter is barred to me here (no-emulator-in-subagents). **Tagged for
-your foreground follow-up if you want the interaction formally closed**; I found no evidence
-of it being wrong, only that the census's own docstring doesn't name the other gates that
-cover its declared gap, which could read as "nothing covers this" to a future reader when in
-fact three other things do.
+```
+$ grep -rn "vdp_comm(.*Cram\|vdp_comm_reg(.*Cram\|VdpTarget\.Cram" --include="*.emp" engine games
+```
+(full output: 22 hits — 3 ensures in vdp.emp already excluded above, 2 more ensures in
+raster.emp:554/805 that prove an already-built `cmd` IS a CRAM-write command rather than
+performing a write, 6 inside raster_dsl.emp's `op_words` — the shared encoder, not a site
+— and the following ACTUAL WRITE SITES:)
+
+| site | reaches CRAM | names either symbol | verdict |
+|---|---|---|---|
+| `buffers.emp:115,122,129,136` (`BuildStaticDMA`, `SRC_PAL_LINE0..3`) | yes — DMA setup | **yes** — source is `extern("Palette_Buffer")` (line 18-21 of the file) | not occupied — census row 10 |
+| `raster.emp` `.op_pal_restore` handler (~1466-1496) | yes — HInt-time CRAM stream | **yes** — `lea Palette_Ship_Snap, a2` at line 1496 | not occupied — census row 12 |
+| `games/sonic4/data/effects/ojz_effects.emp`: `stream_cram(OJZ_TEST_CRAM_ADDR, [OJZ_BAND_SHADE])` and siblings (`OJZ_BAND_LIT`, `OJZ_BAND_SUN`, the water-gradient bands) | yes — dispatched every active frame by `Raster_HInt`'s OP_CRAM in the shipped OJZ act | **no** — `OJZ_BAND_SHADE`/`_LIT`/`_SUN` (ojz_effects.emp:357-359) are plain literal colour constants (`$0224` etc.), never derived from either symbol | **OCCUPIED** |
+| `games/sonic4/data/effects/ojz_effects.emp:1012` `OJZ_TestGradient = raster_gradient_program(..., cmd: vdp_comm(OJZ_GRAD_CRAM_ADDR, Cram, Write), stream: OJZ_GradientStream, ...)` | yes — dense CRAM stream | **no** — `OJZ_GradientStream` (line 1002) is `comptime for i in 0..288 { grad_word(i) }`, a computed literal ramp, not either symbol | **OCCUPIED** |
+| `engine/effects/raster_dsl.emp` `stream_pal_region(addr, slot, pal_line, entry, count)`, called live from `games/sonic4/data/generated/ojz/act1/effects_scenes.emp:248,253-255` (real authored bands, not a poison fixture) | yes — HInt-time CRAM stream | **no** — sources `Pal_Variant_Stage` (a distinct 256-byte RAM buffer, `engine/ram.emp:737`), which `SYMBOL_RE` in the lint does not match | **OCCUPIED** |
+| `engine/effects/raster.emp:1882-1900` `Raster_BuildShipEntry` (`a1: u32`), called from `Raster_InstallPatched` — core engine, not gated behind DEBUG or under `test/poison/` | yes — builds a real DMA-queue entry, dest via `vdp_comm_reg(d2, VdpTarget.Cram, VdpOp.Dma)` | **no** — source is `Pal_Variant_Stage`, dest label `Static_Pal_Ship`; neither census symbol appears in the proc | **OCCUPIED** |
+| `engine/system/boot_data.emp:111` `CRAM_WRITE_CMD = vdp_comm(0, Cram, Write)`, consumed in `engine/system/boot.emp:216-219` (`move.l d0,(a3)` x64, zero-fill) | yes — 128-byte CRAM clear, every boot | **no** | **OCCUPIED** (survives — matches the coordinator's own note) |
+| `engine/system/release_fault.emp:73-74` — corrected path — `move.l #vdp_comm(0, Cram, Write), VDP_CTRL` then `move.w #$000E, VDP_DATA` inside `pub proc ReleaseFault () @noreturn` | yes — writes literal red ($000E) to CRAM[0] | **no** | **OCCUPIED** — fires only after a fault, `@noreturn`, the frame loop has already halted permanently |
+
+**Four genuinely OCCUPIED write mechanisms survive the mechanism-based re-derivation**
+(the OJZ literal-colour bands and gradient count as one class since both are
+`stream_cram`-family literal data; `stream_pal_region`; `Raster_BuildShipEntry`; boot's
+CRAM clear; the fault screen). All are real production code, not poison or test-only
+fixtures — `effects_scenes.emp`'s `stream_pal_region` calls are live generated content in
+the shipped OJZ act, confirmed by grep (defined AND called, not merely defined).
+
+**What "OCCUPIED" means here, precisely, and what it does not.** Per the coordinator's
+question: yes to "does the write reach CRAM" and no to "does it name either symbol" for
+all listed survivors — so by the stated two-question test, the census's declared gap IS
+occupied at these sites. What I have NOT done, and am not claiming: proven any of these
+constitutes a live INVARIANT VIOLATION. The two OJZ raster-band mechanisms write colours
+the base-DMA invariant was never about — `palette.emp` documents that `Raster_VBlank`
+re-asserts the program's own dirty mask every frame specifically so a raster tint does not
+need to route through `Palette_Buffer` to be safe — and boot/fault-time writes happen
+outside the running frame loop the invariant describes. `Raster_BuildShipEntry` and
+`stream_pal_region`'s `Pal_Variant_Stage` path is the one I would flag as most worth a
+second look: it is a second, parallel DMA-to-CRAM path for the SAME palette lines (1-3)
+the census tracks, active during normal gameplay, and neither
+`test_palette_census_lint.py` nor its `.emp ensure` cross-references it. I have not traced
+whether it can race the base-DMA snapshot; that would need either a control-flow proof
+against `Palette_Ship_Snap`'s consumer or an emulator run, and the latter is barred here.
+**Tagged for foreground follow-up on that one path specifically** — not the broad,
+name-based "several things touch CRAM" claim I filed originally, which the coordinator was
+right to send back.
 
 ## What this audit does not cover (my own blind spots, named)
 
@@ -194,7 +280,15 @@ fact three other things do.
 - 26 statements extracted.
 - Classification: 14 FALSE POSITIVE, 3 GENERAL-LIMIT, 9 SPECIFIC-CONSTRUCTIBLE.
 - Verdicts on the 9 SPECIFIC-CONSTRUCTIBLE: 5 CLEAR, 2 CLEAR-BUT-STALE-DOCSTRING, 2 OCCUPIED
-  (both loud/ratified or separately-gated, neither a hidden sigil-class hole), 0 UNRUN.
+  statements, 0 UNRUN. #10's OCCUPIED verdict was corrected 2026-09-09 after coordinator
+  review (see the REVISION NOTE and the corrected #10 section): the original file-level
+  `raster.emp` claim and the `engine/debug/release_fault.emp` path were both wrong — my
+  first-pass population was name-based (grep `CRAM`, exclude the two symbol names), the
+  same defect class this audit exists to find. Re-derived by write MECHANISM
+  (`vdp_comm`/`vdp_comm_reg` targeting `VdpTarget.Cram`, the tree's only two producers of a
+  CRAM command word, confirmed exhaustive by `target_bits`'s call-site closure): 4 distinct
+  occupied write mechanisms survive, each cited by exact site and traced one hop back to its
+  source data. Neither statement was fixed, per the audit's own rule.
 - Every one of the 13 files' own pytest suites was run and is green today (pyc cache cleared,
   `PYTHONDONTWRITEBYTECODE=1`): test_legacy_seam_keys.py 8 passed, test_map_dplc_binding.py
   10 passed, test_ojz_block_gen_cache.py 25 passed, test_overseer_bound.py 6 passed,
