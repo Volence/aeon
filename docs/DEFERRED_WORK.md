@@ -30488,3 +30488,38 @@ a dirty tree, and the owner's 2026-09-02 *CUT THE CEREMONY* ruling makes drift *
 after the fact, never a gate on an aeon landing** — so the landing is legitimate unfrozen and the
 freeze is a follow-up rather than a blocker. **Run it from a clean checkout of `e793893a` with
 `AEON_DIR` threaded through all three legs.**
+
+## A GATE THAT DOCUMENTS ITS OWN BLIND SPOT IS NOT THEREBY COVERING IT (2026-09-09)
+
+**Sigil's finding, and it lands here with an uncomfortable twist.** Closing their resolver parcel
+they found a gate whose whole title is *"no test reads the reference-tree variables for itself"* had
+**declared this exact hole in its own module doc** — saying a third such variable would pass unseen
+until listed. **The hole was occupied, not hypothetical**, and they proved it with a control: with
+the defect restored, the pre-parcel checker still passed. **The note read as diligence to everyone
+who met it afterwards.**
+
+**MEASURED HERE, and the number is not a defect count: 38 of our 100 `tools/test_*.py` files carry
+a self-declared non-coverage statement** (`git grep -l -iE "would (pass|go) (unseen|unnoticed|
+undetected)|does not (cover|catch|see)|cannot (see|catch|detect)|blind spot|WHAT THIS DOES NOT" --
+'tools/test_*.py'`). **Do NOT read that as 38 holes.** Most are honest scope notes, which this lane
+actively requires — *loud on unmeasurable*, *name the property and ask what a GREEN would have
+ruled out*, *state coverage AND non-coverage*. The LS-15b closure and the plane-buffer probe both
+ship one deliberately.
+
+**THE UNCOMFORTABLE TWIST, and it is the reason this is worth writing down: our own discipline
+MANUFACTURES the camouflage.** A repo that demands every gate state what it does not cover creates a
+population of honest non-coverage notes, and an OCCUPIED hole hides among them wearing the same
+words. **The better the practice is followed, the better the cover.** Sigil's instance is the proof:
+their note was correct, well-written, and describing a live defect.
+
+**THE DISCRIMINATOR IS A CONTROL, NOT A RE-READ**, which is the operational half: **for a declared
+non-coverage, construct the case it says it would miss and check whether it is currently present.**
+A declaration says *this gate would not catch X*; only a control says *and there is no X here today*.
+Sigil ran exactly that and the answer was no.
+
+**QUEUED, NOT DONE: audit the 38 by asking, per site, whether the declared gap is OCCUPIED.** Ours
+is a bigger population than sigil's and most of it is legitimate, so this is a sift rather than a
+sweep, and the cheapest first cut is the gates whose declared gap names a SPECIFIC constructible
+case rather than a general limit. **`tools/freeze_preflight.sh` was in this family tonight** and its
+defect was of a neighbouring kind: not an unclosed declared gap but a classifier measuring a
+different tree than the one it judged, printing a category instead of the text it matched.
