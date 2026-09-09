@@ -32,6 +32,10 @@ WHAT IT COMPUTES
 2. LOOKAHEAD SWEEP — the same peak with the window extended by L columns in
    the direction of travel, L swept over a range. Reported as a CURVE; the
    tool does not pick one L for you, it prints the derivation inputs beside it.
+2b. TILE-CACHE MARGIN LEVER — the residency window is the tile cache, and the
+   cache is margin + reach. `constants.emp` fixes the smallest legal cache at
+   each margin, so sweeping the margin down traces the residency requirement
+   to its floor (the plane-fill window) and prices the margin in PAGES.
 3. RE-ENTRY FREQUENCY — an LRU simulation over horizontal traverses: for a
    cache of F frames, how often does an evicted page get referenced again, per
    1000 px of camera travel. This prices "keep decompressed pages in work RAM".
@@ -444,6 +448,7 @@ def sweep_stats(field, w, h, pinned_mask=0):
     peak_at = []
     peak_count = 0
     peak_pinned = 0
+    peak_masks = set()
     for r0, row in enumerate(masks):
         for c0, m in enumerate(row):
             n = popcount(m)
@@ -453,10 +458,26 @@ def sweep_stats(field, w, h, pinned_mask=0):
                 peak_pinned = wp
             if n > peak:
                 peak, peak_at, peak_count = n, [(r0, c0)], 1
+                peak_masks = {m}
             elif n == peak:
                 peak_count += 1
+                peak_masks.add(m)
                 if len(peak_at) < 32:
                     peak_at.append((r0, c0))
+    # WHERE the peak lives decides how it should be read: a peak confined to
+    # one small blob is a single pathological screen (fixable by an art edit);
+    # a peak spread over several regions is a broadly high floor.
+    all_peak = [(r0, c0) for r0, row in enumerate(masks)
+                for c0, m in enumerate(row) if popcount(m) == peak]
+    if all_peak:
+        rs = [r for r, _ in all_peak]
+        cs = [c for _, c in all_peak]
+        bbox = {"col_min": min(cs), "col_max": max(cs),
+                "row_min": min(rs), "row_max": max(rs),
+                "x_min": min(cs) * 8, "x_max": max(cs) * 8,
+                "y_min": min(rs) * 8, "y_max": max(rs) * 8}
+    else:
+        bbox = None
     return {
         "window_cols": w,
         "window_rows": h,
@@ -467,6 +488,8 @@ def sweep_stats(field, w, h, pinned_mask=0):
         "peak_positions_tile": [{"col": c, "row": r} for r, c in peak_at],
         "peak_positions_px": [{"x": c * 8, "y": r * 8} for r, c in peak_at],
         "peak_position_count": peak_count,
+        "peak_position_bbox": bbox,
+        "peak_page_sets": [sorted(mask_to_set(m)) for m in sorted(peak_masks)],
     }
 
 
@@ -719,6 +742,44 @@ def build_report(model=None, verbose=False):
             "peak_with_pinned": st["peak_including_pinned"],
         })
 
+    # --- the tile-cache margin lever.
+    #
+    # The residency requirement is the TILE CACHE window, and the tile cache is
+    # margin + reach, not screen. constants.emp asserts
+    #   TILE_CACHE_COLS >= TILE_CACHE_MARGIN_H + SECTION_H_REACH_COLS_MAX + 1
+    #   TILE_CACHE_ROWS >= TILE_CACHE_MARGIN_V + SECTION_V_REACH_ROWS_MAX + 1
+    # so the SMALLEST legal cache at margin m is (m + reach + 1). Sweeping the
+    # margin down to 0 traces the residency requirement to its floor — the
+    # plane-fill window — and prices the margin in pages.
+    pf_w, pf_h = model.win_plane_fill
+    margin_sweep = []
+    mh, mv = model.c["TILE_CACHE_MARGIN_H"], model.c["TILE_CACHE_MARGIN_V"]
+    for frac_num in range(0, 5):
+        m_h = mh * frac_num // 4
+        m_v = mv * frac_num // 4
+        w = pf_w + m_h
+        h = pf_h + m_v
+        if w > field.cols or h > field.rows:
+            continue
+        if verbose:
+            print(f"  cache margin {m_h}/{m_v} -> {w}x{h} ...", file=sys.stderr)
+        st = sweep_stats(field, w, h, pinned_mask)
+        margin_sweep.append({
+            "margin_h": m_h, "margin_v": m_v,
+            "cache_cols": w, "cache_rows": h,
+            "peak": st["peak"], "peak_with_pinned": st["peak_including_pinned"],
+            "note": "smallest cache legal at this margin, per constants.emp's "
+                    "TILE_CACHE_COLS/ROWS ensures",
+        })
+    margin_sweep.append({
+        "margin_h": mh, "margin_v": mv,
+        "cache_cols": model.win_tile_cache[0],
+        "cache_rows": model.win_tile_cache[1],
+        "peak": windows_out["tile_cache"]["peak"],
+        "peak_with_pinned": windows_out["tile_cache"]["peak_including_pinned"],
+        "note": "AS SHIPPED (TILE_CACHE_COLS x TILE_CACHE_ROWS)",
+    })
+
     # --- re-entry, over candidate cache sizes.
     #
     # BOTH pinning regimes. Pinning is a GENERATOR POLICY
@@ -804,6 +865,7 @@ def build_report(model=None, verbose=False):
         "vram": vram_summary(model),
         "peak_working_set": windows_out,
         "lookahead_sweep": lookahead,
+        "tile_cache_margin_sweep": margin_sweep,
         "lookahead_derivation": {
             "inputs": LATENCY_INPUTS,
             "decode_frames": -(-LATENCY_INPUTS["zx0_page_decode_cycles"]["value"]
@@ -871,6 +933,14 @@ def human(report):
         a(f"{row['lookahead_cols']:>7}{row['lookahead_px']:>7}"
           f"{row['lookahead_frames_at_cam_cap']:>9}{row['peak']:>7}"
           f"{row['peak_with_pinned']:>9}")
+    a("")
+    a("2b. TILE-CACHE MARGIN LEVER — the residency window is the CACHE, not")
+    a("    the screen. Smallest legal cache at each margin, per constants.emp.")
+    a(f"{'margin h/v':>12}{'cache':>10}{'peak':>7}{'+pinned':>9}  note")
+    for row in report["tile_cache_margin_sweep"]:
+        a(f"{str(row['margin_h']) + '/' + str(row['margin_v']):>12}"
+          f"{str(row['cache_cols']) + 'x' + str(row['cache_rows']):>10}"
+          f"{row['peak']:>7}{row['peak_with_pinned']:>9}  {row['note']}")
     a("")
     for label, key in (("pinning HONOURED (as shipped)", "re_entry"),
                        ("pinning OFF (policy lifted)", "re_entry_unpinned")):
