@@ -643,3 +643,201 @@ renders.
   works.**
 - **Whether exhaustion is silent.** S.C.E. raises in DEBUG; the others do not. **Follow
   S.C.E.**
+
+---
+
+## 5. The cost, in the three currencies
+
+The shape being priced is the one §6 recommends: **a slot-table object pool, fixed slot
+classes, blob-keyed, section-pinned, ROM→VRAM DMA at Deferrable priority.**
+
+### 5.1 VRAM tiles
+
+**The pool does not have to be contiguous.** A slot table stores a VRAM base per slot, so
+the pool can be assembled from the disjoint runs the map can actually spare. That matters,
+because the two biggest sources are on opposite sides of `spare_nametable`.
+
+A worked 256-tile pool, sourced only from levers already named in the
+`VRAM-NEIGHBOURHOOD` booking:
+
+| source | tiles | price |
+|---|---|---|
+| the existing object neighbourhood 896-1023, re-cut as pool slots | 128 | none — it is already object art |
+| `fg_art_pool` 768 → 640 (12 → 10 page frames) | 128 | OJZ act 1 stays fully resident (needs 10) but has **zero** eviction headroom; `vram.toml` names 640/10 as the floor until C4-3 lands |
+| **pool total** | **256** | |
+| *not taken:* `bg_region` reserve | 56 | the scavenge route the booking says to stop using |
+| *not taken:* `spare_nametable` | 128 | spends an *address* (the map's only $2000-aligned run), not tiles |
+
+Slot classes, sized from the measured blob histogram (4, 9, 12, 16, 24, 29):
+**8 × 16-tile slots + 4 × 32-tile slots = 256 tiles, 12 slots.**
+
+What the floor consumes of it (§3.4): character 32 → 1 large; `insta_shield` 29 → 1 large;
+`ring_placeholder` 16, `dust_puff` 16, `dust_spindash` 12, `tails_appendage` 9,
+`ring_sparkle` 4 → 5 small. **Floor = 2 large + 5 small = 144 tiles.**
+
+**What is left for the streamed set: 2 large + 3 small = 112 tiles, 5 concurrent blobs.**
+
+**This is the number that answers the owner's question, and it should be read carefully.**
+It does **not** say "five badniks per act". It says: *object variety costs ROM, and only
+CONCURRENCY costs VRAM.* An act may contain twenty distinct badniks so long as no 2×2
+section envelope needs more than five of them resident at once — and that is a condition the
+generator can compute and `ensure` at build time (§3.3). Under today's design, twenty
+badniks would cost twenty windows and is flatly impossible. That is the whole change.
+
+Two honest caveats on the 5:
+- **A HUD is not in the floor and this engine does not have one.** S3K's uncompressed HUD
+  digit sheet is 768 B = 24 tiles (`skdisasm General/Sprites/HUD Icon/HUD Digits.bin`,
+  `binclude`d at `sonic3k.asm:18210`) plus a compressed label sheet. Budget ≥ 24 tiles,
+  realistically 32-40 — **one to two more large slots off the streamed set**, taking 5 down
+  to 3 or 4.
+- **The floor is soft in the other direction.** `insta_shield`'s 29 tiles are Sonic's
+  ability, not a global cost, and `ring_placeholder` is a placeholder. Reclaiming
+  `insta_shield` as a per-character slot returns a large slot immediately.
+
+### 5.2 ROM
+
+Object art is raw, so ROM cost is exactly `tiles × 32` with no compression win and no
+decoder cost. Measured blobs: `Art_Spring` 768 B (24 tiles), `Art_RingSparkle` 128 B,
+`dust_puff` block 512 B.
+
+A twenty-badnik act at ~24 tiles each ≈ **15.4 KB**. Against the ROM margin measured at the
+2026-09-04 re-layout — room 114,658 B on the binding DEBUG shape, of which **65,506 B sits
+above `DATA_GROWTH_RESERVE`** (`docs/superpowers/2026-09-04-rom-relayout-more-room-report.md`,
+quoted in `vram.toml`) — that is ~23% of the available margin. **Comfortable, and it is the
+currency the design deliberately spends.** ⚠ Re-derive that margin before quoting it; it
+moves, and `tools/bganim_room.py` is the instrument.
+
+Tables: a per-section blob set is a count byte plus one slot-id byte per blob — on the order
+of **10-40 bytes per section**, negligible beside the art. If object art is later compressed
+(ZX0 would roughly halve it), the tier gains a decoder and loses the "one DMA" property that
+makes it cheap; **do not do this until ROM is actually tight.**
+
+### 5.3 Bandwidth and latency, against the *remaining* window
+
+The unit is the DMA-byte-equivalent the engine actually charges (§1.5). NTSC residual after
+the plane drain and the Critical queue: **2,944 B/frame.**
+
+| frame kind | already spoken for | left for object art |
+|---|---|---|
+| steady state, fully-resident act, solo character | Sonic DPLC peak 928 | **2,016 B** |
+| steady state, duo | 928 + 768 + 288 = 1,984 | **960 B** |
+| a frame where a page landing completes, solo | 2,048 + 928 = 2,976 | **0** (already 32 B over) |
+| a frame where a page landing completes, duo | 4,032 | **0** (1,088 B over) |
+
+One 24-tile blob is **768 B = 26% of the solo steady-state headroom, one frame.** A full
+five-blob envelope changeover is ~3.8 KB — **two frames solo, four duo**, against
+**16 frames** of vertical lead and **24** of horizontal (§1.4). Even if half the frames in
+that window are page-landing frames and yield zero, the margin is roughly 4× .
+
+**So bandwidth is not the constraint on a normal crossing. It is the constraint on the
+worst frame, and the design's answer is to never need a specific frame:** Deferrable
+priority, drop-tolerant, resident-on-completion (§3.6 iii), spawn-retry on miss (§3.1).
+
+PAL is not the binding case: residual 8,448 B, 5.4 KB spare even in the worst frame.
+
+**Two things this pricing does not cover, and both are `[RUNTIME]`:**
+- The *slot count* cost of the DMA queue, not the byte cost. `DMA_DEFERRABLE_SLOTS = 12`
+  and DPLC already spends Important slots per frame. Five blobs is five Deferrable entries,
+  plus a straddle split for any blob crossing a $20000 ROM boundary
+  (`engine/objects/dplc.emp:45`), so worst case ten. That fits 12 with little room, and it
+  is the number to watch before the byte budget.
+- The measurement must be taken on a **streaming** act. OJZ act 1 is fully resident, so its
+  page-landing term is zero in steady state and it will make this tier look free.
+
+---
+
+## 6. Recommendation, and the measurement that would refute it
+
+### 6.1 What I would build
+
+**Build the object-art tier as a small blob-keyed slot pool, keyed on SECTIONS today and
+regions later, and build it in this order:**
+
+1. **First, a build-time step and nothing else.** Extend `tools/ojz_entity_gen.py` to emit,
+   per section, the deduped set of art blobs its type table implies, plus the 2×2 envelope
+   unions and an `ensure`-able worst case. **This produces a number — "the worst envelope in
+   this act needs N tiles of object art" — with zero engine risk**, and that number is what
+   the owner should see before anyone writes a loader. If it comes back small, the whole
+   tier can be deferred and the map merely re-cut.
+2. **Then the re-cut**, as the `VRAM-NEIGHBOURHOOD` booking asks: object windows become pool
+   slots in `vram.toml`, `fg_art_pool` drops to 640 if step 1 says the tiles are needed, and
+   `gen_vram_map.py` gains a `kind = "pool"` that the slot table is generated from. Aurora
+   gets the notice the booking commits us to, *before* it lands.
+3. **Then the loader**: slot table, refcount + pin as two counters, age-stamp eviction, one
+   ROM→VRAM Deferrable DMA per load, resident-on-completion, spawn-retry on miss, and a
+   DEBUG audit that recomputes refcounts from `Dynamic_Live`.
+4. **Regions arrive as a re-key, not a redesign.** When the painted-region layer exists,
+   the pin source changes from "the four tracked sections' type tables" to "the live
+   regions' blob sets". Nothing else in the tier moves. **Designing for sections now costs
+   nothing later** — and designing for regions now is unbuildable (§1.3).
+
+### 6.2 What I would NOT build
+
+- **Not a second page cache, and not a client of the first** (§2). The quantum and the
+  refcount source both disagree.
+- **Not a free-run allocator** (§3.3). Fixed slot classes turn the hard case into a build
+  error.
+- **Not compression** on object art, yet (§5.2). It buys ROM this engine has and costs the
+  one property that makes the tier cheap.
+- **Not relocation/compaction** of a resident blob (§3.3).
+
+### 6.3 The falsifier
+
+**The claim: object-art residency is CONCURRENCY-bounded, not variety-bounded, and the
+concurrency in real content is small enough that a ~256-tile pool with ~5 free slots is
+enough.**
+
+**The measurement that would refute it, and it is step 1 above, so it is cheap:** run the
+generator over an act authored with real content variety — not OJZ act 1, whose type tables
+are `{Spring, Solid}`, `{Solid}`, `{Solid, Static}` and six empties
+(`entity_data.emp:36-76`) — and print, for every 2×2 section envelope, the number of
+distinct art blobs and their total tiles.
+
+- **If the worst envelope needs more than the pool's free slots, the recommendation is
+  wrong** and the answer is a different axis entirely: fewer object types per area (an
+  authoring constraint the owner may not accept), or shared/atlased object art, or DPLC for
+  ordinary objects rather than only characters.
+- **If the worst envelope is comfortably under, the loader may not even be needed** — a
+  per-act resident set in a re-cut pool would do, and the honest recommendation shrinks to
+  step 2.
+
+Either way the experiment is a Python script over data that already exists, it runs before
+any engine code is written, and it decides the question. **That is the reason step 1 is
+step 1.**
+
+Three secondary refutations, all `[RUNTIME]` and all for the controller:
+
+- **Bandwidth.** Instrument object-art DMA bytes per frame on a *streaming* act and compare
+  against `DMA_Budget_Remaining` at the Deferrable drain. If object loads are being dropped
+  for more than ~8 consecutive frames at a crossing, the 16-frame lead is not enough and the
+  entity window's buffers must grow (they are constants; growing them is cheap).
+- **Queue slots, not bytes** (§5.3). If a five-blob changeover plus DPLC exceeds
+  `DMA_DEFERRABLE_SLOTS = 12`, the byte budget was never the binding constraint.
+- **Determinism.** If the replay hash diverges across runs after the tier lands, residency
+  is frame-timing-dependent and §3.6(v) is a real defect, not a caution.
+
+---
+
+## 7. Open holes, stated as holes
+
+These are named rather than answered. An invented answer here would be worse than the gap.
+
+1. **Palette (§3.6 ii).** All four CRAM lines are spent. A per-region object art set needs a
+   palette line and there is none. This is a coupling to the painted-regions palette work
+   and it is **not solvable inside the object-art tier.** It is also the most likely thing
+   to make the whole idea moot: if every object must draw on the character palette line
+   forever, "the cave's badniks" cannot look like the cave's badniks.
+2. **Determinism / the replay fixture (§3.6 v).** Unresolved. Needs the owner's call on
+   whether residency joins the hash ledger or is made structurally deterministic. `[RUNTIME]`
+3. **The `spawns:` closure (§3.5).** Placement-derived manifests cannot see objects created
+   by other objects. The mechanism proposed (a per-`ObjDef` declaration + transitive closure)
+   is sound but unbuilt anywhere, and it is where a derived manifest silently goes wrong.
+4. **Whether `fg_art_pool` can actually give up 128 tiles.** It keeps OJZ act 1 fully
+   resident at 640/10, but that leaves zero eviction headroom and `vram.toml` records an
+   open defect (the `STRESS_EVICT` famine, C4-3) below that line. **This is a real
+   dependency, not a formality.**
+5. **The DMA-queue *slot* budget** (§5.3) has not been costed against a realistic
+   changeover. Bytes were; slots were not.
+6. **Not examined: the demo game.** Everything here is measured against `games/sonic4`.
+   `games/demo` has no `Sec` array and no type tables, so an engine-side pool must degrade
+   to "no pool" cleanly for it, and that has not been designed.
