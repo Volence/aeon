@@ -1091,7 +1091,7 @@ a gate.
 |  | **RECORDS** — frozen | **LIVE** — must be re-pointable |
 |---|---|---|
 | what it is | a document reporting what was true **at a moment** | prose describing the tree **as it stands** |
-| examples | `docs/superpowers/**`, `docs/research/**`, `docs/reviews/**`, `docs/benchmarks/**`, `docs/witness/**`, `docs/measurements/**`, `docs/captures/**`, `docs/specs/**`, dated `docs/YYYY-MM-DD-*.md`, `docs/DEFERRED_WORK.md`, `docs/BUGS.md`, `docs/OVERSEER-LOG.md`, `*.jsonl` | `CODING_CONVENTIONS.md`, `docs/ENGINE_ARCHITECTURE.md`, `docs/OVERSEER.md`, the contract docs, **every code comment**, `tools/*.py` |
+| examples | `docs/superpowers/**`, `docs/research/**`, `docs/reviews/**`, `docs/benchmarks/**`, `docs/witness/**`, `docs/measurements/**`, `docs/captures/**`, `docs/specs/**`, dated `docs/YYYY-MM-DD-*.md`, `docs/DEFERRED_WORK.md`, `docs/OVERSEER-LOG.md`, `*.jsonl` | `CODING_CONVENTIONS.md`, `docs/ENGINE_ARCHITECTURE.md`, `docs/OVERSEER.md`, the contract docs, **every code comment**, `tools/*.py` |
 | stale coordinates | **expected, and left alone** | **a build failure** |
 
 **Why the boundary is where it is, in one paragraph.** A record's coordinates are part of what it
