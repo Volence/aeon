@@ -1379,18 +1379,17 @@ path, for the same reason the protocol is read that way.
   **AEON OWNS THE END CONDITION.** Sigil will ask before moving it and will not move it until we
   answer. If a sweep or a disk-space pass meets it, the answer is to ask this lane, not to reclaim.
 
-- **DECLARED SIGIL-SIDE TREES — DO NOT SWEEP ANY OF THESE FIVE.** `.aeon-relayout-freeze`
-  (aeon `5875e60e`, all four shapes built) and `.aeon-attest-201` (`4f5ad5a1`), sigil's reference
-  worktrees for the parked ROM re-layout freeze (sigil `parcel/relayout-refreeze-held`), relayed by
-  the hub 2026-09-04; plus `.aeon-sigil-ref` (`ec640bcf`), `.aeon-sigil-gates` (`f4d17d9b`) and
-  `.sigil-ref-197-mine` (`8dd28114`), declared 2026-09-09 pending sigil's answer
-  on which are live. **All five appear in AEON'S OWN `git worktree list`** (verified
-  firsthand) — the whole hazard: a prune driven by this repo's list takes all five alike, and
-  sigil lost one to exactly that on 2026-08-27.
-  **Liveness rule is SHARED PROTOCOL, read it there** (`OVERSEER-PROTOCOL.md` "Shared-machine
-  cautions", empyrean `d980ba7`): grep live process **cmdlines**; `cwd`/`lsof` is not sufficient.
-  Not restated here on purpose: a private copy of a shared safety rule is a fork. Measurement in
-  `docs/OVERSEER-LOG.md`, `CWD SAYS IDLE`.
+- **SIGIL'S TREES IN AEON'S WORKTREE LIST — DO NOT SWEEP.** `.aeon-relayout-freeze` (`5875e60e`)
+  and `.aeon-attest-201` (`4f5ad5a1`), the parked re-layout freeze (hub 2026-09-04).
+  `.aeon-sigil-ref` (`ec640bcf`) and `.aeon-sigil-gates` (`f4d17d9b`), **confirmed LIVE by sigil
+  2026-09-09** — the first is their reference tree and every `AEON_DIR` they run; the second is
+  their nightly source-gate tree, source-only, so **never point a reference at it**.
+  `.sigil-ref-197-mine` (`8dd28114`) is superseded; sigil is retiring it.
+  **These are AEON worktrees, so a prune from this repo's list takes them all** — sigil lost one to
+  exactly that on 2026-08-27, and a sweep is not undoable. **Liveness rule is SHARED PROTOCOL**
+  (`OVERSEER-PROTOCOL.md` "Shared-machine cautions", empyrean `d980ba7`): grep process
+  **cmdlines**; `cwd`/`lsof` is not sufficient. Not restated here — a private copy of a shared
+  safety rule is a fork. Detail: `OVERSEER-LOG.md`, `CWD SAYS IDLE`.
 
 - **DECLARED TREE — `/home/volence/sonic_hacks/.aeon-land-182`, do not sweep it.** A clean
   detached checkout of aeon `e99a2ca7`, the `aeon_rev` chain 182/183 is frozen at, carrying all

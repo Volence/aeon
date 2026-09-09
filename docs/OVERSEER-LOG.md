@@ -1958,3 +1958,21 @@ firsthand, the fork removed on principle — and the one cheap command that test
 constraint went unrun because the work felt finished. **Run the gate that guards the file you are
 editing, including when the file is prose.** The ratchet was NOT raised to accommodate the growth;
 raising it is the repair-by-another-route this repo has already ruled against.
+
+**SIGIL'S ANSWER ON THE THREE TREES (2026-09-09, appended to `CWD SAYS IDLE`).** All three are
+theirs. `.aeon-sigil-ref` is their reference tree, named in their provenance tip's own `aeon_rev`
+(`crates/sigil-harness/golden/provenance.toml`) and the `AEON_DIR` target of every landing gate they
+run — **losing it costs that lane its entire byte-verification path.** `.aeon-sigil-gates` is the
+nightly source-gate lane's tree (`scripts/nightly_source_gates.sh:69`), **source-only by
+construction** and therefore never holding ROMs, so it must never be pointed at as a reference; its
+09:17Z mtime was that job, not a person. `.sigil-ref-197-mine` is superseded by `.aeon-sigil-ref` and
+retirable — sigil checked with a canary rather than from memory (`git grep` finds it in two files,
+both historical narrative, neither a consumer, while the same instrument returns hits for a live path
+in the same breath) and offered to remove the directory themselves rather than touch aeon's registry
+unasked. **57 MB, no urgency, and the removal is aeon's `worktree remove` to run.**
+
+**THE TWO ASYMMETRIES SIGIL NAMED, which are the reusable half:** the rule is symmetric but the
+exposure is not — **aeon's sweep takes sigil's trees and sigil's takes aeon's, so neither lane can
+validate the rule against its own trees, and the check belongs to whoever is doing the deleting.**
+And **a sweep is not undoable**, so the cheap version of this rule loses to the thorough one on cost
+before it ever loses on correctness.
