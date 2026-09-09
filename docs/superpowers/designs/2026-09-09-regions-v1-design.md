@@ -688,7 +688,7 @@ separately *reviewable*: this one is a pure retype, step 3 is where the mechanis
 | site | today | regions | delta |
 |---|---:|---:|---:|
 | `Region_Resolve` (new) | 0 | `4+4+4+2` setup + `(4+2)×4` scan + `4+4` next/dbf + `2+2` tail = **50** | +50 |
-| `Parallax_CheckBoundary` | `4+4+2+2+4+4+2` + `4+2+4+2` + `4+4+2` + `4+4+4+2` = **62** | 4 moves **16** + 4 cmp/branch **24** + `jbsr` 4 + `cmpa.w` 4 + `beq` 2 + 2×`move.l` **12** + `move.l a0` 4 + `jbsr` 4 + `jbra` 4 + `rts` 2 = **76** | +14 |
+| `Parallax_CheckBoundary` | centre `4+4+2+2+4+4+2` = 22 · compare `4+2+4+2` = 12 · lookup `4+4+2` = 10 · commit `4+4` = 8 · tail `4+4+2` = 10 → **62** | 4 moves **16** + 4 cmp/branch **24** + `jbsr` 4 + `cmpa.w` 4 + `beq` 2 + 2×`move.l` **12** + `move.l a0` 4 + `jbsr` 4 + `jbra` 4 + `rts` 2 = **76** | +14 |
 | `Parallax_Init` | 2 × `move.b #imm,(xxx).W` = **12** | `move.l #imm,(xxx).W` 8 + `clr.l (xxx).W` 4 = **12** | 0 |
 | boot select | 2 × `move.b d16(An),Dn` 8 + `jbsr` 4 + `beq` 2 = **14** | 2 × (`move.w`+`addi.w`) 16 + `jbsr` 4 + `cmpa.w` 4 + `beq` 2 = **26** | +12 |
 | | | | **+76** |
