@@ -31759,3 +31759,53 @@ framing for the owner is "we cannot currently detect this class", never "we have
 **Standing consequence for this lane: when relaying an agent's finding onward, carry the CONDITIONAL
 if the finding is conditional.** "Would, if" and "does" are one word apart in a summary and a world
 apart on the owner's console, and the reader at the far end cannot recover the difference.
+
+## REGIONS — THE OWNER DREW AN ARCH, AND IT EXPOSES A RUNTIME GAP THE V1 DESIGN DOES NOT ANSWER (2026-09-09)
+
+**He drew a region as an ARCH over the section grid** — a horizontal span with two legs hanging
+down, and a NOTCH between the legs that is not part of that identity — and asked whether a region
+can be that shape. **The answer is yes, and the mechanism confirms it rather than merely permitting
+it.** Checked here against `docs/superpowers/designs/2026-09-09-regions-v1-design.md` §2.4 rather
+than inherited from the hub's relay: `Region_Resolve` is a **linear scan of independent rectangles**
+with a point-in-rectangle test and **no adjacency, contiguity or convexity assumption anywhere**. So
+an arch is **3 records**, a ring with a hole is **4**, and one identity in two places that never
+touch is **2** — already licensed by the design's own sentence about naming the same preset twice.
+
+**THE LINE THAT FELL OUT OF DRAWING RATHER THAN OUT OF THE PROSE, and it belongs in the design:
+THE COST OF A SHAPE IS ITS RECTANGLE COUNT, NEVER ITS AREA OR ITS COMPLEXITY.** Confirmed from the
+scan's own cost model — 40 to 100 cycles per candidate rectangle, nothing per pixel. **That is a
+number an editor could show an author while they draw**, which makes it an aurora-side fact the day
+regions reach them.
+
+### THE GAP: WHAT HAPPENS WHEN THE CAMERA CENTRE IS IN NO RECTANGLE AT ALL
+
+**The RESOLVER defines this and the CALLER does not, and only the second one matters.** §2.4's
+contract says *"Out: a0 = Region\*, or 0 when no rectangle contains the point"* — so the resolver is
+specified. **What the crossing does with a 0 is nowhere in the document.** The design's "a region
+naming no preset is a build error" is about a null `rg_preset`; it says nothing about MAP COVERAGE,
+and `act_region_count >= 1` does not imply the map is covered.
+
+**An arch is precisely the shape that makes an uncovered hole easy to create by accident:** the
+notch between the legs has to belong to somebody, and **nothing in the record format makes
+forgetting it detectable.** Three candidate answers, and they are NOT equivalent:
+- **keep the last region** — cheap, and silently ships a hole as "it looked fine";
+- **a runtime fallback** — needs a sentinel region and an authoring rule about it;
+- **a BUILD-TIME COVERAGE PROOF** — the only one of the three that cannot ship a hole at all.
+
+**This is unresolved and is booked, not ruled.** It wants deciding before anyone authors a region,
+which is now closer than the design's open-questions section assumes.
+
+### AND IT PROMOTES Q1 RATHER THAN ADDING A QUESTION — worth stating precisely
+
+**Q1 in the v1 design ALREADY names coverage**, not just overlap: *"Non-overlap and coverage need a
+pairwise fold over the authored table."* So this is not a new open question; it is **Q1 moving from
+nice-to-have to load-bearing**, and the reason is the arch. With arbitrary shapes built from unions,
+**overlap between two DIFFERENT identities stops being a thing an author would notice**, because the
+shapes are no longer simple enough to eyeball. Coverage and non-overlap are the same class of
+whole-table invariant and want the same mechanism.
+
+**What would settle Q1 is already written in the design and has not been run:** write the fold,
+invert it by overlapping two rectangles on purpose, and watch the build go red. **If comptime cannot
+produce a scalar an `ensure` can read, the checks fall to the generator and a pytest — which is
+strictly weaker, and act 1's table is HAND-WRITTEN until the generator lands.** That is the window
+where a hand-authored arch would have no comptime check at all.
