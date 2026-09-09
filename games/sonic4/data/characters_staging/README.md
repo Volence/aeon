@@ -96,7 +96,7 @@ The trio the build consumes mirrors Sonic exactly (see
 `dplc/<name>_opt.bin` + `art/<name>_opt.bin`**. The raw `art/<name>.bin` and
 `dplc/<name>.bin` are kept for provenance and re-optimization.
 
-## Palette re-indexing — Tails' art is NOT a pass-through
+## Palette re-indexing — neither Tails' nor Knuckles' art is a pass-through
 
 S3K art indexes **S3K's** character palette. Aeon loads a *different ordering of
 the same colours* into CRAM line 0 (`art/palettes/SonicAndTails.bin`, the
@@ -117,9 +117,16 @@ time, which a follower / 2P mode needs.
 | 2 | `$0E66` | 5 | | 10 | `$08AE` | 10 |
 | 3 | `$0C42` | 3 | | 11 | `$046A` | 11 |
 | 4 | `$0822` | 2 | | 12 | `$0ECC` | 4 |
-| 5 | `$0080` | **none** | | 13 | `$0CAA` | 7 |
+| 5 | `$0080` | **none**¹ | | 13 | `$0CAA` | 7 |
 | 6 | `$000E` | 12 | | 14 | `$0866` | 8 |
 | 7 | `$0008` | 13 | | 15 | `$0222` | 1 |
+
+¹ **none** for Tails, who never uses it. `KNUCKLES_TO_AEON` (2026-09-09) extends this
+same table with `5 -> 9` for Knuckles, who does — 9 being the single Aeon slot the
+derived table leaves free, so the destination is forced rather than picked. His palette
+moves with his art, so the relabel stays lossless; the cost is that our `$0444` and his
+`$0080` now share slot 9 and shared line-0 art drawn through index 9 still recolours on
+a swap. See the Knuckles paragraph below and `docs/DEFERRED_WORK.md` "Spring index 9".
 
 Genesis art is 4bpp, 2 pixels/byte, high nibble first; both nibbles of every byte
 are permuted. Output length equals input length, so there is **no ROM-size or
@@ -138,11 +145,27 @@ pinned `PALETTE_REMAP_EXPECTED`; editing either palette fails the run loudly.
 staged raw `art/tails*.bin` and the contiguous `art/tails*_opt.bin` are emitted
 already re-indexed, so either can be re-optimised later without redoing this.
 
-**Knuckles is deliberately NOT re-indexed** and remains a raw copy: his art uses
-S3K index 5 for ~3,450 pixels, so no permutation is lossless for him. He needs a
-genuine palette swap (S3K itself swaps `Pal_Knuckles` into line 0). Logged in
-`docs/DEFERRED_WORK.md`. **Sonic is not produced here at all** — his art is
-already in our order and is untouched by any of this.
+**Knuckles IS re-indexed too, since 2026-09-09** — `KNUCKLES_TO_AEON`, the same
+derived table extended by one entry. His *colours* still cannot be bridged onto
+SonicTails' line (his art uses S3K index 5, `$0080`, for **3,272** pixels and our
+line 0 carries no `$0080` at any index), so he keeps his own CRAM line 0 and S3K's
+own palette swap; but his *index order* is now ours. The extension is forced, not
+chosen: exactly one Aeon slot is left free by the derived table, so `$0080` lands
+at index 9 by elimination.
+
+Why it matters, and it is not cosmetic tidiness: CRAM line 0 is the **per-character**
+line, so every shared line-0 sprite — the effect dust, the insta-shield, the spring —
+renders through whichever character is active, and a slot the two palettes disagree
+about recolours that sprite on a swap. Stock S3K's two line-0 palettes are identical
+at **13 of 16** slots for exactly this reason. Ours agreed at only 7 and produced two
+user-reported bugs (red effect dust 2026-08-12, the red spring's base red/orange as
+Knuckles 2026-09-09) plus a latent one (the insta-shield at index 8). After the
+re-index the two lines agree at **12 of 16**, differing only at the character-specific
+slots **2/3/5/9**. ⚠ Slot **9** is a known hole — see `docs/DEFERRED_WORK.md`
+"Spring index 9", an open look decision.
+
+**Sonic is not produced here at all** — his art is already in our order and is
+untouched by any of this.
 
 ## Format decisions MADE (pipeline mirrored our Sonic path exactly)
 
