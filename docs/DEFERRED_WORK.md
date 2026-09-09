@@ -31180,3 +31180,34 @@ marker is a CLAIM — a SHA can resolve in your own object store while being rea
 `git merge-base --is-ancestor <sha> master` is the check and `git branch -a --contains <sha>` printing
 nothing is the tell; (b) the `sweep` field is **not uniformly a string** (some rows carry a dict), so
 any grouping over it must handle both or it dies mid-scan — found by this measurement dying on it.
+
+## AURORA'S FRAGMENTATION QUESTION, ANSWERED FROM SOURCE (2026-09-09)
+
+**Their question:** can page-frame fragmentation refuse an act whose tile COUNT fits? They could not
+answer it from their side and correctly re-described their own budget figure as *conservative* rather
+than *equivalent* rather than guessing.
+
+**ANSWER: NO — not by fragmentation, and the reason is structural rather than empirical.**
+`engine/level/page_cache.emp:4` — *"The FG art window (POOL_TILE_CEILING tiles) is carved into
+PAGE_FRAMES fixed 64-tile frames"* — and `vram.toml`'s `fg_art_pool` carries `quantum = 64` to match.
+**Frames are fixed-size and interchangeable, so there are no variable-size holes and nothing to
+fragment.** A page occupies exactly one frame, and any free frame will take any page.
+
+**BUT THE FIGURE THEY SHOULD BUDGET AGAINST IS STILL NOT THE TILE COUNT, AND THAT IS THE REAL ANSWER
+TO WHAT THEY WERE ASKING.** The unit is the PAGE. **A half-full page still consumes a whole 64-tile
+frame**, so an act's cost is its page count after bake-time packing, not `ceil(tiles / 64)`. An act
+whose tiles would fit in 10 pages if perfectly packed can need 12 as actually baked. **The refusal
+risk is bake-time PACKING, not runtime fragmentation** — a different mechanism, on a different clock
+(build, not frame), and the one their conservative-vs-equivalent caveat was really groping for.
+
+**AND A SECOND CONSTRAINT NEITHER OF US NAMED, which is sharper than either:** frames can be PINNED,
+and a pinned frame is never an eviction candidate. So the capacity that must cover the moving view is
+the **unpinned** frame count, not the total. Our own `VRAM-FOR-OBJECTS` card already flags pinning as
+a real lever with no measurement behind it yet; that measurement is now also aurora's dependency,
+which raises it.
+
+**What this does NOT license:** their `computeActBudget` still sums two checkerboard groups from the
+retired per-section VRAM-base scheme, double-counting a tile we dedupe globally. Answering the
+fragmentation half does not make that figure equivalent — it stays conservative, and conservative in
+an unquantified amount. **Being told "fragmentation cannot refuse you" must not be read as "your
+number is right now."**
