@@ -1914,5 +1914,229 @@ class TestNewAbilitySfxPriorities(unittest.TestCase):
                                  (CHROUTE_FM1, CHROUTE_FM2, CHROUTE_FM6, CHROUTE_DAC))
 
 
-if __name__ == '__main__':
+
+# --- SFX channel-volume bake: EVERY voice, and ONCE per channel ---------------
+# Two defects found while re-opening the SP-6 spring artefact (parcel/sp6-clipping).
+# Both live at the `_bake_channel_volume` CALL SITE, and both are invisible to the
+# ring test above because the ring is ONE channel with ONE voice -- the only shape
+# in which "bake voices[0], in place, inside the per-channel loop" is correct.
+#
+# S&K's model (zSendTL, Z80 Sound Driver.asm:3186-3194): a TL byte with bit 7 set
+# means "add THIS CHANNEL's volume at upload time". It is applied per UPLOAD, so it
+# lands on WHICHEVER voice the channel uploads, carrying the volume of the channel
+# doing the uploading. Two consequences our build-time bake has to reproduce:
+#   D1  every voice in the bank gets the bake, not just voice 0 -- otherwise a
+#       mid-stream smpsSetvoice lands on an unbaked voice and steps the carrier.
+#   D2  the bake is not cumulative across channels sharing a bank -- otherwise a
+#       two-FM-channel SFX adds vol(ch0)+vol(ch1) to the one shared voice.
+#
+# HOW THE EXPECTATION IS DERIVED, and why not by re-implementing the bake. Calling
+# _bake_channel_volume to predict _bake_channel_volume would be a tautology, and
+# hard-coding TL bytes would pin the fixture instead of the law. So each test
+# transcodes THE SAME SOURCE TWICE -- once at the authored channel volume and once
+# with that volume rewritten to $00 -- and asserts the difference. The vol-$00
+# transcode supplies the AUTHORED carrier TLs (whatever the fixture's algorithm
+# happens to make a carrier), and the arithmetic under test is only "+vol, on
+# carriers, once". TestBakeChannelVolumeSaturates above already covers the clamp.
+#
+# WHICH TL bytes are carriers comes from sfx_transcode._CARRIER_MASK (the engine's
+# CarrierMaskTableZ mirror), never from a literal -- the two fixture voices below
+# deliberately use DIFFERENT algorithms ($00 and $04), so a test that assumed one
+# carrier layout for both would be wrong rather than merely weak.
+
+def _with_channel_vols(src, vols):
+    """Rewrite every smpsHeaderSFXChannel's vol field, in order, to `vols`."""
+    it = iter(vols)
+
+    def sub(m):
+        return f"{m.group(1)}${next(it):02X}"
+    out = re.sub(r'(smpsHeaderSFXChannel[^\n]*,\s*)\$[0-9A-Fa-f]{2}', sub, src)
+    return out
+
+
+def _blob_channel_banks(desc, priority=0x10):
+    """Pack `desc` and read back, per FM channel, the FmPatch bank it POINTS AT.
+
+    Reads the real packed artifact rather than desc['voices'], so the assertion is
+    about the bytes the Z80 will actually fetch, and stays valid whether the bank
+    ends up shared between channels or copied per channel.
+    Returns [(route, [patch_bytes, ...]), ...] for FM channels only.
+    """
+    blob = pack_sfx(desc, priority)
+    chcount = blob[2]
+    nvoices = len(desc['voices'])
+    out = []
+    for i in range(chcount):
+        rec = 8 + i * 6
+        route, kind = blob[rec], blob[rec + 1]
+        if kind != SFXEL_FM:
+            continue
+        vptr = (blob[rec + 4] << 8) | blob[rec + 5]
+        assert vptr, f"FM channel {i} (route {route}) has a NULL voice_ptr"
+        end = vptr + nvoices * 32
+        assert end <= len(blob), (
+            f"FM channel {i}: voice_ptr ${vptr:04X} + {nvoices} voices runs past the "
+            f"{len(blob)}-byte blob -- the bank the channel points at is not there")
+        bank = [bytes(blob[vptr + v * 32: vptr + (v + 1) * 32]) for v in range(nvoices)]
+        out.append((route, bank))
+    return out
+
+
+def _carrier_idx(patch):
+    """Indices (0..3) of the TL bytes that are CARRIERS under this patch's algorithm."""
+    mask = sfx_transcode._CARRIER_MASK[patch[0] & 7]
+    return [i for i in range(4) if mask & (1 << i)]
+
+
+def _tl(patch):
+    return list(patch[6:10])
+
+
+_TWO_CHAN_SHARED_BANK_SRC = """\
+Sound_XX_Header:
+\tsmpsHeaderStartSong 3
+\tsmpsHeaderVoice     Sound_XX_Voices
+\tsmpsHeaderTempoSFX  $01
+\tsmpsHeaderChanSFX   $02
+
+\tsmpsHeaderSFXChannel cFM4, Sound_XX_FM4,\t$00, $05
+\tsmpsHeaderSFXChannel cFM5, Sound_XX_FM5,\t$00, $08
+Sound_XX_FM4:
+\tsmpsSetvoice        $00
+\tdc.b\tnC5, $04
+\tsmpsStop
+Sound_XX_FM5:
+\tsmpsSetvoice        $00
+\tdc.b\tnC5, $04
+\tsmpsStop
+Sound_XX_Voices:
+\tsmpsVcAlgorithm     $04
+\tsmpsVcFeedback      $00
+\tsmpsVcUnusedBits    $00
+\tsmpsVcDetune        $04, $07, $07, $03
+\tsmpsVcCoarseFreq    $09, $07, $02, $07
+\tsmpsVcRateScale     $00, $00, $00, $00
+\tsmpsVcAttackRate    $1F, $1F, $1F, $1F
+\tsmpsVcAmpMod        $00, $00, $00, $00
+\tsmpsVcDecayRate1    $0D, $07, $0A, $07
+\tsmpsVcDecayRate2    $0B, $00, $0B, $00
+\tsmpsVcDecayLevel    $00, $01, $00, $01
+\tsmpsVcReleaseRate   $0F, $0F, $0F, $0F
+\tsmpsVcTotalLevel    $00, $23, $00, $23
+"""
+
+# The channel volumes each fixture authors, read back out of the fixture source so
+# the tests cannot drift from the thing they are about.
+_VOL_RE = r'smpsHeaderSFXChannel[^\n]*,\s*\$([0-9A-Fa-f]{2})'
+
+
+class TestChannelVolumeBakeCoversEveryVoice(unittest.TestCase):
+    """D1 - a mid-stream voice change must not land on an unbaked voice.
+
+    The SP-6 spring ($B1) is the shipped instance: one FM channel, TWO voices, a
+    mid-stream `smpsSetvoice $01`, and a header channel volume of $02. S&K uploads
+    whichever voice is current with that volume added to its carriers, so voice 1
+    is as baked as voice 0. Baking voices[0] alone leaves voice 1's carrier $02
+    lower -- and a TL step is 0.75 dB, so the switch acquires a 1.50 dB carrier
+    jump that S&K's own driver on S&K's own data does not produce.
+    """
+
+    def _banks(self, vols):
+        src = _with_channel_vols(_two_voice_src([0x00, 0x01]), vols)
+        return _blob_channel_banks(transcode_sfx_source(src, 0xB1))
+
+    def test_every_voice_in_the_bank_carries_the_channel_volume(self):
+        vol = int(re.search(_VOL_RE, _two_voice_src([0x00, 0x01])).group(1), 16)
+        self.assertTrue(vol, "fixture must author a non-zero channel volume")
+        (_, baked), = self._banks([vol])
+        (_, authored), = self._banks([0x00])
+        self.assertEqual(len(baked), 2, "fixture must carry both voices")
+        for vi, (b, a) in enumerate(zip(baked, authored)):
+            carriers = _carrier_idx(a)
+            self.assertTrue(carriers, f"voice {vi}: algorithm has no carrier?")
+            want = [min(0x7F, t + vol) if i in carriers else t
+                    for i, t in enumerate(_tl(a))]
+            self.assertEqual(
+                _tl(b), want,
+                f"voice {vi} (alg ${a[0] & 7:X}, carrier TL bytes {carriers}): every "
+                f"voice in the bank must carry the +${vol:02X} channel-volume bake. "
+                f"An unbaked voice steps the carrier by {vol} TL = {vol * 0.75:.2f} dB "
+                f"at the mid-stream smpsSetvoice.")
+
+    def test_bake_touches_carriers_only(self):
+        """The bake is loudness, not timbre: modulator TLs must be untouched."""
+        vol = int(re.search(_VOL_RE, _two_voice_src([0x00, 0x01])).group(1), 16)
+        (_, baked), = self._banks([vol])
+        (_, authored), = self._banks([0x00])
+        for vi, (b, a) in enumerate(zip(baked, authored)):
+            carriers = _carrier_idx(a)
+            for i in range(4):
+                if i not in carriers:
+                    self.assertEqual(
+                        b[6 + i], a[6 + i],
+                        f"voice {vi}: TL byte {i} is a MODULATOR under alg "
+                        f"${a[0] & 7:X} and must keep its authored value")
+
+    def test_non_tl_bytes_are_untouched(self):
+        """Only the TL group may differ between the baked and authored banks."""
+        vol = int(re.search(_VOL_RE, _two_voice_src([0x00, 0x01])).group(1), 16)
+        (_, baked), = self._banks([vol])
+        (_, authored), = self._banks([0x00])
+        for vi, (b, a) in enumerate(zip(baked, authored)):
+            self.assertEqual(b[:6], a[:6], f"voice {vi}: bytes before the TL group moved")
+            self.assertEqual(b[10:], a[10:], f"voice {vi}: bytes after the TL group moved")
+
+
+class TestChannelVolumeBakeIsNotCumulative(unittest.TestCase):
+    """D2 - two FM channels sharing one voice bank must not compound the bake.
+
+    S&K's ring-loss ($B9) is exactly this shape: cFM4 (vol $05) and cFM5 (vol $08)
+    both upload voice $00 of the bank they share with the ring ($33/$34). zSendTL
+    adds each channel's OWN volume at ITS OWN upload, so FM4 hears +$05 and FM5
+    +$08. Baking into one shared, in-place-mutated bank inside the per-channel loop
+    gives BOTH channels +$0D: 8 TL steps (6.00 dB) too quiet on FM4 and 5 steps
+    (3.75 dB) too quiet on FM5.
+
+    Note this cannot be fixed by baking a single shared bank harder or softer -- no
+    one static bank can carry two different channel volumes. Each FM channel needs
+    the bank IT points at to be baked with its own volume.
+    """
+
+    def _banks(self, vols):
+        src = _with_channel_vols(_TWO_CHAN_SHARED_BANK_SRC, vols)
+        return _blob_channel_banks(transcode_sfx_source(src, 0xB9))
+
+    def test_each_channel_gets_its_own_volume_only(self):
+        vols = [int(v, 16) for v in re.findall(_VOL_RE, _TWO_CHAN_SHARED_BANK_SRC)]
+        self.assertEqual(len(vols), 2, "fixture must author two channel volumes")
+        self.assertNotEqual(vols[0], vols[1],
+                            "fixture volumes must DIFFER or the test cannot fail")
+        baked = self._banks(vols)
+        authored = self._banks([0x00, 0x00])
+        self.assertEqual(len(baked), 2, "fixture must produce two FM channels")
+        for (route, b), (_, a), vol in zip(baked, authored, vols):
+            carriers = _carrier_idx(a[0])
+            want = [min(0x7F, t + vol) if i in carriers else t
+                    for i, t in enumerate(_tl(a[0]))]
+            self.assertEqual(
+                _tl(b[0]), want,
+                f"route {route}: the bank this channel points at must carry ONLY its "
+                f"own volume ${vol:02X}; a bake accumulated across the channels sharing "
+                f"the bank gives +${sum(vols):02X}.")
+
+    def test_no_channel_carries_the_summed_volume(self):
+        """Names the failure directly, so a regression cannot read as some other value."""
+        vols = [int(v, 16) for v in re.findall(_VOL_RE, _TWO_CHAN_SHARED_BANK_SRC)]
+        authored = self._banks([0x00, 0x00])
+        for (route, b), (_, a) in zip(self._banks(vols), authored):
+            carriers = _carrier_idx(a[0])
+            summed = [min(0x7F, a[0][6 + i] + sum(vols)) for i in carriers]
+            got = [b[0][6 + i] for i in carriers]
+            self.assertNotEqual(
+                got, summed,
+                f"route {route}: carrier TLs {got} equal authored + vol(FM4) + vol(FM5) "
+                f"-- the bake accumulated across channels sharing a bank")
+
+
+if __name__ == "__main__":
     unittest.main()

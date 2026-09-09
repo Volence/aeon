@@ -795,17 +795,39 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
         # and emit NO Vol event — the engine's Fm_SetVolume runs volume through a LOG
         # curve that flattens near-max values to ~0 attenuation, so a Vol event would
         # LOSE the channel-volume and the carriers would play ~4 dB too bright vs S&K.
-        # The steal loads voice 0; each SFX has a single FM channel/voice. PSG keeps
-        # its own Vol path (separate volume model).
+        # PSG keeps its own Vol path (separate volume model).
+        #
+        # EVERY VOICE, AND PER CHANNEL (parcel/sp6-clipping). S&K's zSendTL applies
+        # the volume at UPLOAD time, to whichever voice the channel is uploading, using
+        # the volume of the channel doing the uploading. This used to read
+        # `voices[0] = _bake_channel_volume(voices[0], vol_raw)` — mutating the SFX's
+        # ONE shared voice list, in place, inside this per-channel loop — which is
+        # correct only for the shape every core SFX had when it was written: a single
+        # FM channel with a single voice. Two shapes break it, and the tree contains
+        # both:
+        #   * ONE channel, TWO voices ($B1 spring, since SP-6 made a mid-stream
+        #     smpsSetvoice expressible). Voice 1 never got the bake, so the voice
+        #     change stepped the carrier by vol_raw=$02 TL = 1.50 dB — a level jump
+        #     S&K's own driver on S&K's own data does not produce.
+        #   * TWO channels, ONE shared voice ($B9 ring-loss, cFM4 vol $05 + cFM5 vol
+        #     $08 over the bank shared with the ring). The in-place mutation ran twice,
+        #     so BOTH channels played voice 0 at +$0D instead of +$05 / +$08 — 6.00 dB
+        #     and 3.75 dB too quiet respectively.
+        # No single static bank can carry two different channel volumes, so the bank is
+        # now baked PER CHANNEL and each channel's record points at its own copy.
+        # pack_sfx de-duplicates identical banks, so the 15 single-FM-channel core SFX
+        # keep byte-identical blobs and only a genuinely divergent SFX pays the bytes.
         if is_fm:
-            if vol_raw and voices:
-                voices[0] = _bake_channel_volume(voices[0], vol_raw)
-        elif vol_raw != 0:
-            # S3K PSG vol is SN76489 attenuation (0=loud, $F=silent); approximate map.
-            psg_vol = max(0, min(127, 127 - vol_raw * 7))
-            events.append(Vol(psg_vol))
+            chan_voices = ([_bake_channel_volume(v, vol_raw) for v in voices]
+                           if vol_raw else list(voices))
         else:
-            events.append(Vol(80))   # PSG default
+            chan_voices = []
+            if vol_raw != 0:
+                # S3K PSG vol is SN76489 attenuation (0=loud, $F=silent); approx map.
+                psg_vol = max(0, min(127, 127 - vol_raw * 7))
+                events.append(Vol(psg_vol))
+            else:
+                events.append(Vol(80))   # PSG default
 
         # noattack flag: set if smpsNoAttack precedes the next note
         noattack_pending = False
@@ -1352,13 +1374,23 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
             'init_vol': vol_raw,
             'events': events,
             'has_loop': has_loop,
+            # This channel's OWN copy of the FmPatch bank, baked with THIS channel's
+            # volume (empty for PSG/noise). pack_sfx points the channel's record at
+            # it and de-duplicates identical banks across channels.
+            'voices': chan_voices,
         })
 
+    # desc['voices'] is the FIRST FM channel's baked bank, which is what it has always
+    # been: every core SFX but $B9 has exactly one FM channel, so this is unchanged for
+    # 15 of the 16 and remains the right thing for callers that just want "the SFX's
+    # voices" (emit_sfx_asm's bank listing, the bank-size checks, the voice-index
+    # refusal). Per-channel consumers must read ch['voices'] — for $B9 the two differ.
+    _fm_banks = [c['voices'] for c in channels_out if c['kind'] == SFXEL_FM and c['voices']]
     return {
         'id': sfx_id,
         'label': sfx_label,
         'channels': channels_out,
-        'voices': voices,
+        'voices': _fm_banks[0] if _fm_banks else voices,
         'flags': sfx_flags,
     }
 
@@ -1597,8 +1629,29 @@ def pack_sfx(sfx_desc: dict, priority: int) -> bytes:
     if (flags & SHF_CONTINUOUS) and not (flags & SHF_LOOP):
         raise TranscodeError("SHF_CONTINUOUS requires SHF_LOOP (a continuous SFX must self-loop)")
 
-    # Build the patch bank bytes
-    patch_bank = b''.join(voices)
+    # Build the patch bank bytes, PER FM CHANNEL, de-duplicated.
+    #
+    # The channel-volume bake is per-channel (see the bake call site), so two FM
+    # channels of one SFX can need DIFFERENT bytes for the same authored voice —
+    # $B9's cFM4 (vol $05) and cFM5 (vol $08) share a bank in the source and cannot
+    # share one here. Each channel therefore gets the bank IT needs, and identical
+    # banks are emitted once and pointed at twice. That keeps every SFX whose
+    # channels agree (all 15 core SFX other than $B9, and every single-FM-channel
+    # SFX by construction) byte-identical to the pre-parcel blob.
+    #
+    # ch['voices'] is absent on descriptors built by hand in tests/callers that
+    # predate it; those fall back to the SFX-level bank, which is what they meant.
+    bank_offsets = {}          # bank bytes -> offset within the blob (filled below)
+    bank_order = []            # distinct banks, in first-use order
+    for ch in channels:
+        if ch['kind'] != SFXEL_FM:
+            continue
+        vb = ch.get('voices') or voices
+        key = b''.join(vb)
+        if key and key not in bank_offsets:
+            bank_offsets[key] = None
+            bank_order.append(key)
+    patch_bank = b''.join(bank_order)
 
     # Pack each channel's event stream
     streams = []
@@ -1619,8 +1672,12 @@ def pack_sfx(sfx_desc: dict, priority: int) -> bytes:
         stream_offsets.append(cur)
         cur += len(s)
 
-    # Patch bank follows all streams
+    # Patch banks follow all streams, in first-use order
     patch_bank_offset = cur if patch_bank else 0
+    _off = patch_bank_offset
+    for key in bank_order:
+        bank_offsets[key] = _off
+        _off += len(key)
 
     out = bytearray()
     out.append(priority & 0xFF)        # sfh_priority
@@ -1637,10 +1694,12 @@ def pack_sfx(sfx_desc: dict, priority: int) -> bytes:
         out.append(ch['kind'] & 0xFF)
         out.append((stream_off >> 8) & 0xFF)   # cmd_ptr hi
         out.append(stream_off & 0xFF)           # cmd_ptr lo
-        # voice_ptr: for FM channels with voices, point to patch bank
-        if ch['kind'] == SFXEL_FM and patch_bank:
-            out.append((patch_bank_offset >> 8) & 0xFF)
-            out.append(patch_bank_offset & 0xFF)
+        # voice_ptr: for FM channels with voices, point at THIS channel's bank
+        key = b''.join(ch.get('voices') or voices) if ch['kind'] == SFXEL_FM else b''
+        if key:
+            off = bank_offsets[key]
+            out.append((off >> 8) & 0xFF)
+            out.append(off & 0xFF)
         else:
             out.append(0x00)  # no FM patch (PSG/noise)
             out.append(0x00)
