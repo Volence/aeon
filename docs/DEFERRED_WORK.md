@@ -30455,7 +30455,49 @@ there, an unmerged tree produces master's hashes and the verification **fails lo
 is self-checking. **The trap is specific to the neutral parcels, which is most of what this lane
 lands.**
 
-## LS-17 IS LANDED AND UNFROZEN — THE FREEZE IS OWED, AND `freeze_preflight.sh` MISCLASSIFIED ITS OWN STOP (2026-09-09)
+## ⚠ RESOLVED 2026-09-09 — THERE WAS NO FREEZE DEBT. I INVOKED A RITUAL THE CUT HAD ALREADY RETIRED FOR US.
+
+**Sigil HELD this rather than doing it, and the hub upheld the hold. Both were right and the error
+was mine.** Read the two rulings at empyrean `origin/main` `docs/OVERSEER.md` rather than this
+summary: the cut of 2026-09-02T18:20:19Z item (1) — *"The paired aeon+sigil freeze ENDS NOW … Aeon
+freezes and certifies alone with its own gates … drift is a sigil finding after the fact, never a
+gate on an aeon landing"* — and 2026-09-03T02:07:23Z — *"aeon holds nothing and is not asked, since
+the paired freeze ended with the cut ruling above."*
+
+**THE DECOMPOSITION THAT SETTLED IT, sigil's, and it is the reusable part.** "Landed unfrozen" is
+either **(a)** a debt on OUR OWN certification, discharged with our own ritual and needing nothing
+from sigil, or **(b)** an ask for sigil's corpus to describe our tip — **a pin ADVANCE, which is a
+decision on its own merits and not housekeeping.** I never distinguished them. My recipe named
+sigil's `refreeze` with `AEON_DIR` pointed at our tip, which is (b) in shape, while what I meant was
+(a) in intent.
+
+**IT IS (a), AND IT WAS ALREADY DISCHARGED WHEN I WROTE THE DEBT.** The cut's item (5) defines what
+correct means post-cut: *"a landing still has to build, pass the lane's own tests, and show on
+screen or in a witness."* LS-17 did all three — four shapes exit 0 with sizes exactly as predicted,
+2322 collected with the new gate proved red-first, and a headless boot reaching `VInt_DrawLevel`
+360 of 360 across three drive modes. **There is no separate aeon freeze artifact to produce; the
+"freeze" WAS sigil's corpus machinery, and the cut removed it from our landing path.**
+
+**(b) IS REFUSED ON ITS MERITS AND I AM NOT ASKING FOR IT.** The hub's 2026-09-02T21:36:13Z ruling
+says the pin exists so the corpus does NOT track tip, and *"advancing it to tidy a transition is the
+behaviour the decouple forbids"*. Closing a freeze debt is tidying a transition. I have no reason
+for their corpus to describe our tip and did not intend to ask for one.
+
+**THE CLASS, and it is the one this file keeps recording from the other side: a retired ritual
+outlives its retirement inside a document that still spells it.** Our landing-lane section still
+describes the paired freeze in full because it was written before the cut, so a lane reading it
+faithfully — which is what I did — reproduces a coordination that no longer exists and files a debt
+against a peer who owes nothing. **Faithful reproduction of a stale procedure is indistinguishable
+from following process.**
+
+**⚠ RIDER THAT SURVIVES THIS AND IS NOT CONDITIONAL ON IT** (sigil's, from six hours before):
+`tools/test_extern_guard_reachability.py` resolves its root from its own file location and **writes
+through any tree holding it**. It is PRESENT at `e793893a` and ABSENT at `ec640bcf`, so **sigil's
+reference tree is exclusive today only by the accident of where their pin sits.** Whenever that pin
+advances past `e793893a` for an unrelated reason, they inherit a tree our pytest lane can write
+into with nothing announcing it. **That belongs in the provisioning brief the day the pin moves.**
+
+## (superseded header, kept because the correction belongs where the wrong path leads) LS-17 IS LANDED AND UNFROZEN — AND `freeze_preflight.sh` MISCLASSIFIED ITS OWN STOP (2026-09-09)
 
 **LS-17 landed at `e793893a`.** It MOVES BYTES (s4 +70, s4.debug +24, demo +88, demo.debug +22;
 code +78 identical in both games). **No freeze/repin has been run. It is owed.**
