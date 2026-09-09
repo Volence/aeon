@@ -31510,3 +31510,46 @@ even-rounding mirror argument from the rounding rule, where I derived it from th
 Different enumeration parameters, same answer — which is corroboration rather than echo. My separate
 doc finding (their mirror instruction reads as unconditional and over-fires) landed at sigil
 `2483c6a5`, verified reachable from their `origin/master`.
+
+## SP-6 IS CONFIRMED BY THE OWNER'S EAR, AND IT ARRIVED WITH TWO NEW OBSERVATIONS (2026-09-09)
+
+**HIS VERDICT, verbatim:** *"Ok this actually sounds better and correct! Only issue is there's an
+audible click/pop in it, and there was slight frame lag at one point I'm not sure what caused that."*
+
+**THE CENTRAL CLAIM IS CONFIRMED BY THE ONLY INSTRUMENT THAT COULD CONFIRM IT.** The mid-stream
+voice change is the right fix for what he had been hearing as "definitely off". Recorded plainly
+because this lane spent the day saying no instrument here can judge a sound: **that was true, the
+recommendation was made anyway with its confidence explicitly graded down, and the ear came back
+yes.** The A/B pair he judged is at `/home/volence/sonic_hacks/spring-sound-ab/`, built on master
+`d0f1dce5` (before the spring-reach landing; both legs equally, so the sound comparison is clean).
+
+### FINDING 1 — an audible click/pop. UNDER INVESTIGATION, `parcel/sp6-click`.
+
+**The question is binary and the two answers have different consequences:** (a) the click is
+**inherent** to changing FM voice part-way through a sounding note, making it a design constraint
+and returning the decision to his taste; or (b) it is a **bug in HOW we do the switch**, in which
+case the parcel is not finished. **Do not report a fix without saying which was established, and do
+not report "inherent" without the evidence.**
+
+**THE DECISIVE COMPARISON IS LOCAL: S&K ships this exact sound from this exact data.** If their
+driver's register-write sequence on a mid-stream `smpsSetvoice` differs from ours, ours is a bug. If
+it is identical, that is real evidence for (a). Candidates to check rather than assert: key-off/on
+around the patch write; whether the full voice is written or some registers deliberately skipped
+mid-note (Total Level and the algorithm/feedback register being the usual suspects, since a TL jump
+is a volume step and an algorithm change re-routes which operators are carriers); ordering.
+
+### FINDING 2 — one frame-lag observation. **DELIBERATELY NOT ATTRIBUTED.**
+
+**One occurrence, not reproduced, cause unknown, and it stays that way until something reproduces
+it.** Candidates span three lanes and this lane owns only one of them: the ROM (our sound driver now
+does more work mid-effect), the emulator, or the host (he runs a software rasteriser, which has
+produced timing artefacts here before). **An unreproduced observation is a LEAD, not a finding**, and
+attributing it to our parcel because our parcel is the thing that changed is exactly the reasoning
+this file keeps recording as a defect.
+
+**NOT ESCALATED TO ORACLE, and the reason is the standing bar rather than disinterest:** you only ask
+for another lane when you genuinely need it, and one unreproduced observation does not clear that. It
+also has no reproduction to hand them, so the ask would be "watch for something that happened once".
+**What would change that: a second sighting, or a repeatable trigger.** Oracle owns the pacing and
+profiler surfaces and can measure a frame-time spike against a known trigger — so the moment there is
+a trigger, the ask is cheap and specific. Until then this row is the whole action.
