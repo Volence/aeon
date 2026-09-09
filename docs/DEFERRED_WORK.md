@@ -9635,7 +9635,8 @@ Open items this execution creates or leaves:
   (c) **Rendered A/B on BOTH the plain and debug shapes** — plain-shape SFX
   regressions have bitten this lane before, and D4 changes every PSG note-on.
   (d) Optional: the E5 group-6 SSG-EG showcase sweep.
-- **`sfx_transcode._process_lines` is DEAD CODE.** Only `_process_lines_v2` is
+- ~~**`sfx_transcode._process_lines` is DEAD CODE.**~~ **DELETED 2026-09-09 — see the
+  closed SP-7 row for the reachability enumeration and the byte evidence.** Only `_process_lines_v2` is
   ever called (`_process_lines`'s single call site at its own `smpsJump` handling
   is a self-recursion). The two scans have already DIVERGED — v2 carries the
   `noise_form is not None` ModSet drop and v1 does not — which is exactly the
@@ -27701,13 +27702,45 @@ its own witness. `_check_sfx_voice0`'s refusal becomes the fallback for a voice 
 blob does not carry rather than for all of them. NOT urgent: no shipped SFX needs
 it, and the spring does not.
 
-### SP-7 — `tools/sfx_transcode.py::_process_lines` is DEAD (opened 2026-09-07)
+### ~~SP-7~~ — `tools/sfx_transcode.py::_process_lines` is DEAD — **CLOSED 2026-09-09, DELETED**
 
-~380 lines. Its only call site is its own `smpsJump` arm; `_parse_sfx_source` enters
-`_process_lines_v2`. It is a complete parallel copy of the macro dispatch, so a
-reader adding coverage there watches their change do nothing — which nearly happened
-while adding the two arms above. Marked in place with a `⚠ DEAD CODE` docstring;
-delete it in a parcel that is not about a spring.
+Its only call site was its own `smpsJump` arm; `_parse_sfx_source` enters
+`_process_lines_v2`. It was a complete parallel copy of the macro dispatch, so a
+reader adding coverage there watched their change do nothing — which nearly happened
+while adding the smpsModOff / smpsAlterVol arms.
+
+**Deleted on `parcel/sp7-and-preflight`. 212 lines, and the row's own "~380 lines"
+was WRONG — re-derive a size from the file, not from the card that opened the row.**
+The function body was `sfx_transcode.py` 826..1029 = **204** lines; the deletion is
+212 because it also took the three lines of outer scaffolding that existed only to
+serve it (`i = start_line + 1` and `follow_label = None`, both **Store with no Load
+anywhere**, proven by AST rather than by grep — a bare `i` is not greppable) plus
+their comment and blanks. `_process_lines_v2` KEEPS its name: the record in three
+places says "`_process_lines` is dead", and reusing that exact name for the live pass
+would turn every one of those sentences into a claim about live code.
+
+**REACHABILITY WAS ENUMERATED, NOT ASSERTED — five paths, verdict each:**
+(1) **Static, in-module** — `_process_lines` appeared 4×: the `def`, two docstring
+mentions, and the self-recursive `smpsJump` call at 976. No other. (2) **Static,
+repo-wide** — the only files naming it outside `sfx_transcode.py` are `docs/` prose
+and one comment in `docs/superpowers/`; no `.py`, `.sh`, `.emp` or `.asm` call site.
+(3) **Dynamic dispatch** — the module contains ZERO `getattr`-by-computed-name,
+`globals()`, `locals()`, `vars()`, `eval`, `exec`, `setattr`, `importlib` or
+`__dict__` lookups; its one `getattr` is `getattr(e, 'count', 1)` on an event object.
+(4) **Closure escape** — it is a function nested inside `_parse_sfx_source`, so an
+external caller needs a reference to escape; `_parse_sfx_source` returns a dict of
+five plain-data keys (`id`/`label`/`channels`/`voices`/`flags`) and stores no
+callable anywhere. (5) **Cascade** — every helper the dead body called
+(`_get_line_range_for_label`, `_insert_repeat_start`, `_find_last_vol`,
+`_process_dcb`) has live callers outside it, so nothing was orphaned by the removal
+and the deletion is exactly the one function.
+
+**Behaviour proven unchanged, not asserted:** `generate_all` run into a scratch dir
+before and after — **64 files, aggregate sha256 `df501ccf…` identical**, `diff -rq`
+clean. `test_sfx_transcode` + `test_sfx_bank_wiring` + `test_smps_import`: **245
+passed, 0 failed** before and after. **Note what that suite does NOT prove:** a
+green run over code that was never reached would be green either way, so the *test*
+result is a no-regression check and the *enumeration* above is the deadness proof.
 
 ### VRAM-NEIGHBOURHOOD — objects have no room, and the map should be re-cut (owner, 2026-09-07)
 
@@ -30523,6 +30556,66 @@ break* when the truth is *your parcel moved bytes, as intended*.
 **Fix, not taken here: `freeze_preflight.sh` must thread `AEON_DIR` into step 1** (the clean-checkout
 rule already says all three legs need it explicitly, and step 1 is the leg nobody threaded), **and
 its else-branch must print the failure text it actually matched on** rather than a category.
+
+> **BOTH FIXES LANDED 2026-09-09 on `parcel/sp7-and-preflight`, plus a THIRD defect the work
+> uncovered. `tools/test_freeze_preflight.py` (12 tests) is the regression net.**
+>
+> * **Threading.** The script now resolves an aeon tree and **exports `AEON_DIR`**, so BOTH
+>   cargo runs inherit it — half a thread is the same defect one step later. Default is **this
+>   script's own checkout** (`dirname $HERE`), not a sibling, because you run
+>   `<tree>/tools/freeze_preflight.sh` from the tree you are freezing; an unset `AEON_DIR` says
+>   so as loudly as an unset `SIGIL_DIR`, and for the same reason it is a banner and not a
+>   refusal. The banner now names **both** subject trees plus which of the four ROM shapes are
+>   present, because a port gate whose ROM is absent SKIPS GREEN. **Asserted at the child
+>   process, not at the banner:** the tests read `AEON_DIR` back out of the environment the
+>   stub `cargo` actually received, twice per run — a banner is a claim, not a measurement.
+> * **Evidence, both arms.** The non-staleness arm prints the panic body under a `| ` prefix,
+>   headed *"the text this classification was made on — the grep for … did NOT match ANY of
+>   it"*, and closes with *"If that text does NOT read like a failure of THIS parcel, re-read
+>   the SUBJECTS block before you re-read your diff."* The **matching** arm ships its evidence
+>   too (`matched on: | src/pins.rs is STALE against the live listings.`) — a correct verdict
+>   reached from the wrong tree looks exactly like a correct verdict.
+> * **⚠ THE THIRD DEFECT, found while reading the transcript and MEASURED not reasoned:
+>   `^test .* FAILED` also matches cargo's own summary line** — `test result: FAILED. 11
+>   passed; 1 failed; …` begins with `test ` and ends in FAILED. So the failing-test list
+>   printed that summary line **as a test name**, and step 2 **counted** it. On a log with
+>   exactly ONE real port failure the old script says **"2 port test failure(s)"** and names
+>   the summary line; the new one says **1**. This is chain 199's *"4 failures on a run where 3
+>   tests failed"* still alive: deriving the count and the names from one list made them
+>   **agree**, and the comment above that line books it as fixed. **Agreeing on a wrong number
+>   is worse than disagreeing** — the disagreement is what made it visible the first time.
+>   Both greps are now anchored on the name form `^test [^ ]+ \.\.\. FAILED`. With
+>   `--no-fail-fast` the old inflation was one phantom **per failing test binary**.
+> * **RED-FIRST, so the net is not decorative:** the same 12 tests against master's script —
+>   **9 failed, 3 passed**; against the fixed script **12 passed, 0 failed**. The three that
+>   pass either way are the ones asserting properties master already had.
+> * **WHAT THE NET DOES NOT COVER, stated so a green is not over-read:** it never runs cargo
+>   (the script's own header records that `cargo test` in the shared sigil checkout relinks
+>   `target/release/sigil`, the binary other lanes pin freezes against — a test that ran the
+>   real gate would be the machine's biggest relinker on every build of this repo). A stub
+>   `cargo` replays canned `(log, exit status)` pairs, which is the whole of step 1's input
+>   contract. The fixture text is **transcribed** from sigil
+>   `crates/sigil-harness/src/repin.rs::stale_pins_message` (read at their tip 2026-09-09), so
+>   if sigil rewords the sentence this file stays green while the real pre-flight
+>   misclassifies. The one thing holding that honest is that the same literal is also the
+>   script's grep, so a drift breaks both, loudly, on the next real run.
+> * **AND THE CONTROL THAT DECLARED NON-COVERAGE DEMANDS, run rather than skipped.** The
+>   section below on self-declared blind spots says a declaration is not coverage and the
+>   discriminator is *construct the case it says it would miss and check whether it is
+>   currently present*. The gap declared above is "sigil rewords the sentence". **Checked at
+>   sigil `ea8c64fa`: `crates/sigil-harness/src/repin.rs` still emits
+>   `src/pins.rs is STALE against the live listings.` — three occurrences, byte-identical to
+>   both the fixture and the script's grep. The declared gap is NOT occupied today.** That
+>   makes this file the 39th `tools/test_*.py` carrying a non-coverage note and the first with
+>   the control beside it; do the same when the queued audit reaches the other 38.
+> * **STATUS OF THE TOOL ITSELF, because master moved under this parcel and a reader should
+>   not think a retired ritual was revived.** `f63a705c` (landed while this work was in
+>   flight) rules that there was no aeon freeze debt and that the paired freeze is retired for
+>   our landings. The pre-flight is NOT thereby dead: that same correction keeps a **pin
+>   advance** as a real, deliberate operation, and that is exactly when someone runs a freeze
+>   with `AEON_DIR` at our tip. Master's own tip still names this script's defect as live
+>   ("`tools/freeze_preflight.sh` was in this family tonight"), which is the state this parcel
+>   found and closed.
 
 **WHY THE FREEZE WAS NOT FORCED TONIGHT, recorded so it reads as a decision and not an omission:**
 the sigil tree was **dirty** (one untracked path) and that lane was mid-parcel, `refreeze` refuses on
