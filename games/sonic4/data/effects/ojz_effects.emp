@@ -1437,7 +1437,37 @@ pub data OJZ_DepthVSplit: [u16; raster_words(OJZ_DEPTH_VSPLIT_PROG)] = raster_pr
 // i.e. "fully submerged", the most invasive possible default for a channel nobody asked for
 // (see PATCH_ANCHOR_NONE in raster_dsl.emp).
 //
-// CHANNEL 0 SWEEPS (EFFECTS-W1 DoD item 4, 2026-09-03) — the act's first moving edge, and the
+// ⚠ CHANNEL 0'S WATERLINE IS OFF (owner, 2026-09-09: "I just want it off because it's dark and
+// distracting right now"). REVERSIBLE IN TWO TOKENS — the exact original values are:
+//
+//     patch_world_ys: [224, 314, PATCH_ANCHOR_NONE, PATCH_ANCHOR_NONE],
+//     patch_motion:   [anchor_sweep(amp_shift: 4, period_shift: 1), ANCHOR_MOTION_NONE, ...]
+//
+// Put `224` back where `PATCH_ANCHOR_NONE` now sits in slot 0, and `anchor_sweep(amp_shift: 4,
+// period_shift: 1)` back where `ANCHOR_MOTION_NONE` now sits in slot 0, and the picture is
+// exactly what it was. Nothing else moved: the derivation below is untouched and stays the
+// record of WHY those two values are the right ones to come back to.
+//
+// WHY THE ANCHOR AND NOT THE `patched:` BINDING. Both halves the owner named die here — the
+// SWEEP because the motion word is NONE, and the DARK because `Raster_BuildSchedule` DROPS a
+// record whose latched line is past `band_hi` (`bgt .suppress`), and PATCH_ANCHOR_NONE
+// ($7FFF) is the sentinel engineered to land there for every real camera Y (raster_dsl.emp,
+// `PATCH_ANCHOR_NONE`: "lands in the off-screen-below branch, which is the inert answer").
+// So the tint band is not emitted on any frame, and the `parallax:` band split, which reads
+// the SAME latched line, goes off-screen with it.
+//
+// UNBINDING `patched: OJZ_TwoChannel` would have done the same thing to the picture and much
+// more besides, which is why it is not what happened: this preset is what makes the program
+// RENDER (see the "SECTION 0 IS THE PATCHED SECTION" block above — every P-a guard was
+// proving properties of a program nothing could display until it was bound here), all four
+// refuse-fixtures in tools/fixtures/anchor_sweep/ resolve their bands through `sec == 0` ->
+// this preset -> OJZ_TwoChannel, and channel 1's vscroll split is a gate fixture parked in
+// the bottom two screen lines that is neither dark nor moving. Retiring the anchor costs the
+// demo exactly the boundary the owner asked about and costs the instruments nothing.
+//
+// ---- what follows is the ORIGINAL derivation of the two retired values, kept verbatim ----
+//
+// CHANNEL 0 SWEPT (EFFECTS-W1 DoD item 4, 2026-09-03) — the act's first moving edge, and the
 // reason it is THIS channel is that channel 0 is the only one in the tree with two consumers.
 // ParallaxConfig_OJZ_Underwater anchors its band split on channel 0 and OJZ_TwoChannel's
 // patchable fire 0 is the palette boundary, so one swept anchor moves the parallax split and
@@ -1485,8 +1515,8 @@ pub data OJZ_DepthVSplit: [u16; raster_words(OJZ_DEPTH_VSPLIT_PROG)] = raster_pr
 //   two of them.
 pub data OJZ_Preset_Sec0:  EffectsPreset = preset(pal: OJZ_Palette, patched: OJZ_TwoChannel,   cycle: Pal_Cycle_None,     variants: [Variant_Water_Deep, 0],
                                                   parallax: ParallaxConfig_OJZ_Underwater,
-                                                  patch_world_ys: [224, 314, PATCH_ANCHOR_NONE, PATCH_ANCHOR_NONE],
-                                                  patch_motion:   [anchor_sweep(amp_shift: 4, period_shift: 1),
+                                                  patch_world_ys: [PATCH_ANCHOR_NONE, 314, PATCH_ANCHOR_NONE, PATCH_ANCHOR_NONE],
+                                                  patch_motion:   [ANCHOR_MOTION_NONE,
                                                                    ANCHOR_MOTION_NONE,
                                                                    ANCHOR_MOTION_NONE,
                                                                    ANCHOR_MOTION_NONE])
