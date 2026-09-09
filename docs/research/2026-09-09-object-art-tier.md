@@ -499,3 +499,147 @@ the puff block. **The unit of residency is the blob, not the object type**, and 
 generator must dedup by blob so a section with four spring directions loads one blob.
 Straightforward, but it must be stated: getting it wrong makes §4's arithmetic wrong by a
 large factor.
+
+---
+
+## 4. How the originals actually did it
+
+Read out of the disassemblies by a research lane, with file:line for every claim. **I
+spot-checked the two most decision-relevant findings myself** — S2's PLC drain rate
+(`s2disasm/s2.asm:2202-2221`, confirmed verbatim: 6 patterns/frame in `ProcessDPLC`, 3 in
+`ProcessDPLC2`) and S3K's mid-level act transition (`skdisasm/sonic3k.asm:105716-105736`,
+confirmed verbatim including the comment "Load secondary HCZ2 art, blocks, and chunks so as
+to not compromise current position"). The rest is relayed with its citations. Two questions
+were flagged as needing an emulator and were **not** attempted: whether S2's second PLC is
+genuinely still decompressing after gameplay begins, and what a missing-art object actually
+renders.
+
+### 4.1 Sonic 2 — per-ZONE list, title-card cover, 3 tiles/frame, no guard at all
+
+- **Unit:** a named `PlrList_*` — 83 of them — of 6-byte `plreq` entries
+  (`dc.l romsrc / dc.w vramdest`), indexed out of one 67-entry `ArtLoadCues` offset table
+  (`s2.asm:88614-88697`). The per-zone binding is the 12-byte level-art pointer block
+  indexed by **`Current_Zone` × 12** (`s2.asm:4770-4780`) — so **EHZ1 and EHZ2 share a
+  list**. The unit is the zone, not the act, not the object.
+- **When:** `ClearPLC` then PLC1 at level init with the display cleared
+  (`s2.asm:4760-4787`); PLC2 later, from `loadZoneBlockMaps` (`s2.asm:20076-20078`).
+- **Cover:** the title card. `Level_TtlCard` (`s2.asm:4910-4920`) spins on VBlank and
+  refuses to proceed while the queue is non-empty —
+  `tst.l (Plc_Buffer).w / bne.s Level_TtlCard`. The *second* title-card loop
+  (`:5056-5062`) has **no such gate**.
+- **Incremental:** yes, in VBlank, at two rates — **6 tiles/frame during the title card**
+  (`ProcessDPLC`), **3 tiles/frame during gameplay** (`ProcessDPLC2`, reached via
+  `Vint_Level` → `Do_Updates`). Both verified.
+- **Mid-gameplay loads, covered by nothing but distance:** the signpost
+  (`CheckLoadSignpostArt`, `s2.asm:6150-6168` — fires at `Camera_Max_X_pos - $100` and
+  simultaneously pins `Camera_Min_X_pos` so the player cannot walk back into the load), the
+  boss capsule (`Boss_Defeat`, `:60768`, with a 179-frame `Boss_Countdown` before the
+  capsule appears), and the animals+explosion set every boss requests (`:21861-21868`).
+- **VRAM allocation:** 299 hand-written `ArtTile_*` constants, 147 of them zone-banded with
+  literal `; EHZ` / `; MTZ` section comments (`s2.constants.asm:2310-2495`). **Reuse across
+  zones is by hand-picked address overlap with nothing enforcing it** — tile `$0500` alone
+  carries six different meanings across six zones.
+- **Missing art:** **no guard.** `ChkLoadObj` (`s2.asm:33376-33406`) moves the layout byte
+  straight into `id(a1)`; `Obj_Index` (`:29686`) is a single global table with no
+  zone-dependent indirection. The only failure reported is a full object slot. **Prevention
+  is level-design convention: the object is simply not placed in a zone whose PLC lacks its
+  art.**
+
+### 4.2 Sonic 3 & Knuckles — per-ACT, primary/secondary art split, and one genuinely streamed act change
+
+- **Unit:** per-**act**, two PLCs each, out of a 24-byte load block
+  (`sonic3k.asm:199302-199354`); `Offs_PLC` has 124 entries, two per act (`:199357-199481`).
+- **The structural difference that matters:** the 8×8 tileset is split
+  **primary (shared between the zone's acts) / secondary (per-act)** —
+  `HCZ_8x8_Primary_KosM` for both, `HCZ1_8x8_Secondary_KosM` vs `HCZ2_8x8_Secondary_KosM`
+  (`:199305-199306`). This split is what makes 4.2's streamed transition affordable.
+- **Cover:** fade to black → `Clear_DisplayData` → a title-card spin gated on **both** the
+  title-card object and the queue (`:7736-7747`). `Act3_flag` (`:7732`) skips the title card
+  entirely for the LRZ→HPZ and HPZ→DEZ handoffs.
+- **Two independent incremental decompressors:**
+  - Nemesis PLC at the same 6/3 tiles-per-frame rates as S2 (`:2159-2180`).
+  - **Kosinski-moduled level art, resumable across VBlank via a stack bookmark**
+    (`Set_Kos_Bookmark`, `:2818-2830`): the VBlank handler's return address is examined,
+    saved into `Kos_decomp_bookmark`, and replaced so the interrupt resumes the decoder.
+    **This is the direct ancestor of aeon ARCH §9.7's "VBlank supervisor-bookmark idle-time
+    decoder"** — the technique aeon already uses for the FG tier came from here.
+- **The one real mid-level art stream, and it is worth studying** — HCZ1→HCZ2, MGZ1→MGZ2,
+  CNZ1→CNZ2 change acts **without leaving `LevelLoop`**, two-stage:
+  1. A placed screen-event trigger sets `Events_fg_5`; `HCZ1BGE_Normal`
+     (`:105716-105736`) queues the **secondary** chunks/blocks/tiles and the two new PLCs
+     **while the player is still running**. Only the act-specific half is restreamed.
+  2. `HCZ1BGE_DoTransition` (`:105750-105783`) waits on `Kos_modules_left`, flips
+     `Current_zone_and_act`, reloads the layout, and **rebases every coordinate**
+     (`move.w #$3600,d0`, subtracted from both players, the camera and its bounds, plus
+     `Offset_ObjectsDuringTransition`). MGZ is the same on two axes.
+  **The shape — stream a delta while playing, then rebase — is exactly aeon's
+  teleports-are-pure-rebases finding, arrived at independently.**
+- **VRAM allocation:** worse than S2 — only ~12 object `ArtTile*` constants
+  (`sonic3k.constants.asm:1067-1097`); every PLC entry writes a bare hex number
+  (`plreq $41B, ArtNem_AIZSwingVine`).
+- **Missing art: no guard, and the thing that looks like one is not one.** S3K picks one of
+  **two** 256-entry object-pointer sets by zone (`:37414-37428`,
+  `Sprite_Listing3` / `Sprite_ListingK`), so ID `$03` is `Obj_AIZHollowTree` in one and
+  `Obj_MHZTwistedVine` in the other. **Classified by call site, this is an ID-space doubler,
+  not an art-residency check**: it is consulted at level init and per frame, and never
+  consults residency. The spawn itself (`:37885-37889`) takes the routine pointer straight
+  from the layout byte.
+
+### 4.3 S.C.E. — the one tree with a real runtime VRAM allocator, and it has one caller
+
+**S.C.E. does not merely inherit S3K's PLC design; it replaces most of it.**
+
+- **Nemesis is gone entirely.** `grep -rli "nemesis|Nem_Decomp|NemDec"` over the repo root
+  printed nothing; `Engine/Decompression/` holds only Enigma and the three Kosinski+ forms.
+  All PLC art is Kosinski+Moduled.
+- **Per-ACT lists addressed by direct label pointer**, no offset-table index
+  (`Levels/DEZ/Pointers/DEZ1 - Pointers.asm:58-61` — `PLC1`, `PLC2`, `PLCAnimals`).
+- **The decompression moved OUT of VBlank** into the main loop
+  (`Screens/Level/Level.asm:187-188, 204`), with the S3K stack bookmark retained and called
+  from the interrupt handler (`Engine/Core/Interrupt Handler.asm:148,159,316,320`).
+- **Queue overflow raises in DEBUG** (`Kosinski Plus Moduled Decompression.asm:160-163`) —
+  the only tree that treats it as a defect rather than silence.
+- **A runtime VRAM slot allocator exists.** `SetUp_ObjAttributesSlotted`
+  (`Engine/Objects/Misc.asm:31-77`) scans an 8-byte bitmap `Slotted_object_bits`
+  (`Engine/Variables.asm:226`), finds a clear bit, sets it, and **writes the computed VRAM
+  offset into `art_tile(a0)`** — so `art_tile` is a *variable* for slotted objects, and
+  `Perform_DPLC` (`Misc.asm:85-119`) reads its destination from that field at runtime.
+  Release is `Remove_From_TrackingSlot` (`Remember State.asm:237-241`).
+- **⚠ Name vs behaviour: the allocator has exactly ONE call site in the shipped tree** —
+  the signpost (`Signpost.asm:81`, with `subObjSlotData 1-1, $494, …`, i.e. one slot). It is
+  infrastructure that is barely exercised, which is worth knowing before treating it as a
+  proven design.
+- **Missing art: the only refusal anywhere in the three trees, and it is a VRAM-availability
+  refusal, not an art-residency one.** If no slot is free, the object clears its own
+  `code_addr`, zeroes `status`, **unwinds its caller's stack frame (`addq.w #4*2,sp`) and
+  returns** (`Misc.asm:48-57`). Only slotted objects get it. Everything else spawns straight
+  from the layout (`Load Objects.asm:305-308`), with unused IDs pointed at
+  `Delete_Current_Object` — which catches an *unimplemented* ID, not a *missing-art* one.
+- **No mid-level act transition**, and only DEZ ships, so there is no S.C.E. counterpart to
+  S3K's HCZ stream to compare.
+
+### 4.4 What the Sonic trees agree and disagree on
+
+**Agree:**
+1. **The unit of loading is a batch — a zone's or an act's list. An object is never the
+   thing that triggers a load**, with a handful of named exceptions (S2's signpost, capsule
+   and boss animals; S3K's bosses; S.C.E.'s egg capsule).
+2. **Everything is incremental across frames**, at a *very* low rate: 3 tiles/frame during
+   gameplay in both S2 and S3K.
+3. **Cover is a title card or a fade.** Where there is no cover, the load is hidden by
+   *distance* plus a one-way camera lock (S2's signpost) or a long timer (S2's boss).
+4. **VRAM allocation is hand-assigned.** 147 zone-banded constants → 12 constants plus raw
+   hex → 13 constants plus raw hex plus a barely-used bitmap. **Nobody has a build-time VRAM
+   linker; aeon's `vram.toml` is already ahead of all three.**
+5. **Nobody gates spawning on art residency.** The design space's answer to "what happens
+   when art is missing" is, in every case, *make it structurally impossible by authoring*.
+
+**Disagree, and these are the choices aeon has to make:**
+- **Where the incremental work runs.** S2/S3K: VBlank. S.C.E.: the main loop. aeon's FG tier
+  already chose the VBlank-idle bookmark; the object tier needs neither, because its art is
+  uncompressed.
+- **Whether `art_tile` is a constant or a variable.** S2/S3K: constant. S.C.E.: variable for
+  slotted objects. **aeon must make it a variable, and S.C.E. is the precedent that it
+  works.**
+- **Whether exhaustion is silent.** S.C.E. raises in DEBUG; the others do not. **Follow
+  S.C.E.**
