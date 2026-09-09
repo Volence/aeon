@@ -144,8 +144,8 @@ rulings live in the session memory and the most recent `docs/superpowers/*handof
   if `engine/effects/*`, `bg_anim.emp` or `buffers.emp` moved) → push. Totals, never a tail.
 - **⚠ The paired-freeze recipe is DELETED, not annotated — do NOT reconstruct it.** `refreeze`
   and `provenance.toml` are sigil's, on sigil's clock. Owner *CUT THE CEREMONY* (1),
-  2026-09-02T18:20:19Z. **The `--attest`/strict/pin blocks below are the SAME retired ritual:
-  read them as sigil's, never as ours.** Why: DEFERRED_WORK, *THERE WAS NO FREEZE DEBT*.
+  2026-09-02T18:20:19Z. **The `--attest`/strict/pin blocks below are the same retired ritual,
+  sigil's not ours.** Why: DEFERRED_WORK, *THERE WAS NO FREEZE DEBT*.
 
   **⚠ THE MANUAL STRICT SUITE IS SUPERSEDED — RUN THE TOOL (2026-08-27).** Where this file
   previously told you to run `SIGIL_STRICT_GATE=1 AEON_DIR=<clean> cargo test --release
