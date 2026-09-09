@@ -157,6 +157,29 @@ class PlaneBufferOverflowAssert(unittest.TestCase):
                 out.append((i, m.group(1), m.group(2), m.group(3).lower(), m.group(4)))
         return out
 
+    def overflow_assert(self):
+        """The one assert whose threshold is the release guard's, or a loud refusal.
+
+        WHY THIS IS A HELPER AND NOT THREE INLINE INDEXES. It was three inline
+        `[...][0]` lookups, and the red-first run that deleted the assert proved that
+        wrong: three of the four arms went red with a bare `IndexError` and a line
+        number. Red is not the bar — a gate that cannot say WHAT it failed to find
+        reports "something broke" and sends the reader to the traceback instead of to
+        the defect. Same family as this tree's "loud on unmeasurable" rule, one level
+        in: the arm was loud, its MESSAGE was not.
+        """
+        _, rel_expr, _ = self.release_guard()[0]
+        cands = [a for a in self.debug_assert() if norm(a[4]) == norm(rel_expr)]
+        if len(cands) != 1:
+            raise AssertionError(
+                "found %d asserts in Draw_TileColumn testing the release guard's own "
+                "threshold `#%s`, expected exactly 1. Without it there is nothing for "
+                "this arm to measure, and the plane-buffer overflow drop is silent "
+                "again in every shape — which is the defect, not a missing test."
+                % (len(cands), rel_expr)
+            )
+        return cands[0]
+
     def test_the_overflow_assert_exists_and_matches_the_release_threshold(self):
         rel_i, rel_expr, rel_cc = self.release_guard()[0]
         cands = [a for a in self.debug_assert() if norm(a[4]) == norm(rel_expr)]
@@ -182,18 +205,16 @@ class PlaneBufferOverflowAssert(unittest.TestCase):
         )
 
     def test_the_overflow_assert_runs_before_the_release_guard(self):
-        rel_i, rel_expr, _ = self.release_guard()[0]
-        cands = [a for a in self.debug_assert() if norm(a[4]) == norm(rel_expr)]
+        rel_i, _, _ = self.release_guard()[0]
         self.assertLess(
-            cands[0][0], rel_i,
+            self.overflow_assert()[0], rel_i,
             "the overflow assert sits AFTER the release guard that bails to .done on "
             "the same condition, so it can never be reached. Its whole point is to "
             "run before the bail it is about.",
         )
 
     def test_the_overflow_assert_is_debug_gated(self):
-        rel_i, rel_expr, _ = self.release_guard()[0]
-        ai = [a for a in self.debug_assert() if norm(a[4]) == norm(rel_expr)][0][0]
+        ai = self.overflow_assert()[0]
         depth = 0
         opened = None
         for i, c in self.body:
@@ -220,8 +241,8 @@ class PlaneBufferOverflowAssert(unittest.TestCase):
         so this cannot pass by matching a hardcoded pair of variable names that the
         release path no longer uses.
         """
-        rel_i, rel_expr, _ = self.release_guard()[0]
-        ai = [a for a in self.debug_assert() if norm(a[4]) == norm(rel_expr)][0][0]
+        rel_i, _, _ = self.release_guard()[0]
+        ai = self.overflow_assert()[0]
 
         # The release window gates: every `cmp.w <var>, d1` + branch-to-.done pair
         # AFTER the release overflow guard.
