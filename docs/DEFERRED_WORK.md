@@ -27836,7 +27836,9 @@ D1L change does not rewind or jump the envelope.
 **THE TIMING IS THE SAME ON BOTH SIDES TOO**, which is what closes off "we hold the
 new voice under the old note longer than they do": `MEV_PATCH` is a **zero-tick**
 opcode (`Seq_Op_Patch` falls straight through to `Sequencer_NextOpcode.fetch`,
-sound_sequencer.emp:1345-1358), exactly as S&K's coordination flags do, so the
+sound_sequencer.emp:1345-1358), and S&K's is too — `zHandleFMorPSGCoordFlag`
+pushes `loc_BF9` as the handler's return, and `loc_BF9` is `inc de` / `jp
+zGetNextNote_cont` (`Z80 Sound Driver.asm`:2930-2945). Read, not assumed. So the
 following `nC5` note-on lands in the *same tick* in both drivers. The stream is a
 1:1 transcode of `B1 - Spring.asm` including that ordering.
 
@@ -27846,10 +27848,14 @@ following `nC5` note-on lands in the *same tick* in both drivers. The stream is 
    operator in both voices, so the write changes nothing that is not immediately
    overwritten. It is a de-click only for a channel still *releasing*, not for a
    keyed-on one.
-2. We write TL **third**; S&K writes it **last**, via `zSendTL`. This changes which
-   intermediate state is briefly audible (~0.5 ms vs ~0.1 ms before the key-off),
-   not the final step. **The step itself is the click, and it is present either
-   way.** Not substantiated as a documented ordering rule anywhere searched.
+2. We write TL **third**; S&K writes it **last**, via `zSendTL`. This changes how
+   long the stepped state is exposed before the key-off, not the final step. The
+   window is ~22 further register writes for us against ~2 for S&K; at the ~63-66 T
+   inter-write figure `sound_fm.emp` records for `Fm_YmWrite`, that is **a few
+   hundred microseconds against a few tens** — an ORDER-OF-MAGNITUDE ESTIMATE from
+   the write counts, not a measurement, and stated as one. **The step itself is the
+   click and it is present either way.** Not substantiated as a documented ordering
+   rule anywhere searched.
 3. We write four `$90` SSG-EG registers; S&K's 25-byte record has no SSG-EG bytes
    and `zSendFMInstrument` never writes `$90`. Ours are **`$00` in both voices**, so
    the write is a state no-op here. (It would *not* be inert in general — enabling
