@@ -77,6 +77,10 @@ One spring (the LEFT one at 360,584), one character (Sonic), one approach
 direction (its launching face), on flat ground. NOT measured: the RIGHT-pointing
 spring at (520,536), the back/solid face, an airborne approach, Tails or
 Knuckles, and whether 4-5px of overlap is what the owner is actually reacting
-to. The inked bound is the outermost non-transparent pixel of the frame, which
-in a running pose may be a single-pixel limb, so the dead band figures are an
-UPPER bound on what reads as "touching".
+to. The inked bound is the outermost non-transparent pixel **on a scanline the
+spring also draws on** -- rows where only one of them draws are excluded, since
+they cannot produce a visible contact. It is still the outermost pixel, which in
+a running pose may be a single-pixel limb, so the dead band figures remain an
+UPPER bound on what reads as "touching". Restricting to shared rows moved the
+idle player's TRAILING edge (-17 -> -13) and left every leading edge and every
+dead-band figure above unchanged.

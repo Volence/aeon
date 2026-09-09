@@ -49,10 +49,14 @@
    1460,
    1464
   ],
+  "shared_rows": [
+   139,
+   163
+  ],
   "ink_player": {
-   "left_rel": -17,
+   "left_rel": -13,
    "right_rel": 13,
-   "width": 31
+   "width": 27
   },
   "ink_spring": {
    "left_rel": -8,
@@ -1555,8 +1559,12 @@
     "allowed": 3,
     "jump": 0,
     "spring_anim": 2,
+    "shared_rows": [
+     139,
+     163
+    ],
     "ink_p": [
-     -21,
+     -17,
      6
     ],
     "ink_s": [
@@ -1586,8 +1594,12 @@
     "allowed": 3,
     "jump": 0,
     "spring_anim": 2,
+    "shared_rows": [
+     139,
+     163
+    ],
     "ink_p": [
-     -21,
+     -17,
      6
     ],
     "ink_s": [
@@ -1617,8 +1629,12 @@
     "allowed": 3,
     "jump": 0,
     "spring_anim": 2,
+    "shared_rows": [
+     139,
+     163
+    ],
     "ink_p": [
-     -22,
+     -18,
      5
     ],
     "ink_s": [
@@ -1648,8 +1664,12 @@
     "allowed": 3,
     "jump": 0,
     "spring_anim": 2,
+    "shared_rows": [
+     139,
+     163
+    ],
     "ink_p": [
-     -21,
+     -17,
      6
     ],
     "ink_s": [
@@ -1679,8 +1699,12 @@
     "allowed": 3,
     "jump": 0,
     "spring_anim": 2,
+    "shared_rows": [
+     139,
+     163
+    ],
     "ink_p": [
-     -21,
+     -17,
      6
     ],
     "ink_s": [
@@ -1710,8 +1734,12 @@
     "allowed": 3,
     "jump": 0,
     "spring_anim": 2,
+    "shared_rows": [
+     139,
+     163
+    ],
     "ink_p": [
-     -22,
+     -18,
      5
     ],
     "ink_s": [
@@ -1741,8 +1769,12 @@
     "allowed": 3,
     "jump": 0,
     "spring_anim": 2,
+    "shared_rows": [
+     139,
+     163
+    ],
     "ink_p": [
-     -21,
+     -17,
      6
     ],
     "ink_s": [
@@ -1772,6 +1804,10 @@
     "allowed": 3,
     "jump": 0,
     "spring_anim": 2,
+    "shared_rows": [
+     139,
+     163
+    ],
     "ink_p": [
      -24,
      12
@@ -1803,6 +1839,10 @@
     "allowed": 3,
     "jump": 0,
     "spring_anim": 2,
+    "shared_rows": [
+     139,
+     163
+    ],
     "ink_p": [
      -23,
      13
@@ -1834,6 +1874,10 @@
     "allowed": 3,
     "jump": 0,
     "spring_anim": 2,
+    "shared_rows": [
+     139,
+     163
+    ],
     "ink_p": [
      -24,
      12
@@ -1865,6 +1909,10 @@
     "allowed": 3,
     "jump": 0,
     "spring_anim": 2,
+    "shared_rows": [
+     139,
+     163
+    ],
     "ink_p": [
      -24,
      12
@@ -1896,6 +1944,10 @@
     "allowed": 3,
     "jump": 0,
     "spring_anim": 2,
+    "shared_rows": [
+     139,
+     163
+    ],
     "ink_p": [
      -23,
      13
@@ -1927,6 +1979,10 @@
     "allowed": 3,
     "jump": 0,
     "spring_anim": 2,
+    "shared_rows": [
+     139,
+     163
+    ],
     "ink_p": [
      -24,
      12
@@ -1958,6 +2014,10 @@
     "allowed": 3,
     "jump": 0,
     "spring_anim": 2,
+    "shared_rows": [
+     139,
+     163
+    ],
     "ink_p": [
      -24,
      12
@@ -1989,6 +2049,10 @@
     "allowed": 3,
     "jump": 0,
     "spring_anim": 2,
+    "shared_rows": [
+     139,
+     163
+    ],
     "ink_p": [
      -24,
      11
@@ -2020,6 +2084,10 @@
     "allowed": 3,
     "jump": 0,
     "spring_anim": 2,
+    "shared_rows": [
+     139,
+     163
+    ],
     "ink_p": [
      -24,
      11
@@ -2051,6 +2119,10 @@
     "allowed": 3,
     "jump": 0,
     "spring_anim": 2,
+    "shared_rows": [
+     139,
+     163
+    ],
     "ink_p": [
      -24,
      11
@@ -2082,6 +2154,10 @@
     "allowed": 4,
     "jump": 0,
     "spring_anim": 2,
+    "shared_rows": [
+     139,
+     163
+    ],
     "ink_p": [
      -24,
      11
@@ -2113,6 +2189,10 @@
     "allowed": 17,
     "jump": 0,
     "spring_anim": 3,
+    "shared_rows": [
+     139,
+     163
+    ],
     "ink_p": [
      -6,
      29
@@ -2841,8 +2921,12 @@
     "allowed": 3,
     "jump": 0,
     "spring_anim": 2,
+    "shared_rows": [
+     139,
+     163
+    ],
     "ink_p": [
-     -21,
+     -17,
      6
     ],
     "ink_s": [
@@ -2872,8 +2956,12 @@
     "allowed": 3,
     "jump": 0,
     "spring_anim": 2,
+    "shared_rows": [
+     139,
+     163
+    ],
     "ink_p": [
-     -22,
+     -18,
      5
     ],
     "ink_s": [
@@ -2903,8 +2991,12 @@
     "allowed": 3,
     "jump": 0,
     "spring_anim": 2,
+    "shared_rows": [
+     139,
+     163
+    ],
     "ink_p": [
-     -21,
+     -17,
      6
     ],
     "ink_s": [
@@ -2934,8 +3026,12 @@
     "allowed": 3,
     "jump": 0,
     "spring_anim": 2,
+    "shared_rows": [
+     139,
+     163
+    ],
     "ink_p": [
-     -21,
+     -17,
      6
     ],
     "ink_s": [
@@ -2965,8 +3061,12 @@
     "allowed": 3,
     "jump": 0,
     "spring_anim": 2,
+    "shared_rows": [
+     139,
+     163
+    ],
     "ink_p": [
-     -22,
+     -18,
      5
     ],
     "ink_s": [
@@ -2996,8 +3096,12 @@
     "allowed": 3,
     "jump": 0,
     "spring_anim": 2,
+    "shared_rows": [
+     139,
+     163
+    ],
     "ink_p": [
-     -21,
+     -17,
      6
     ],
     "ink_s": [
@@ -3027,6 +3131,10 @@
     "allowed": 3,
     "jump": 0,
     "spring_anim": 2,
+    "shared_rows": [
+     139,
+     163
+    ],
     "ink_p": [
      -24,
      12
@@ -3058,6 +3166,10 @@
     "allowed": 3,
     "jump": 0,
     "spring_anim": 2,
+    "shared_rows": [
+     139,
+     163
+    ],
     "ink_p": [
      -23,
      13
@@ -3089,6 +3201,10 @@
     "allowed": 3,
     "jump": 0,
     "spring_anim": 2,
+    "shared_rows": [
+     139,
+     163
+    ],
     "ink_p": [
      -24,
      12
@@ -3120,6 +3236,10 @@
     "allowed": 3,
     "jump": 0,
     "spring_anim": 2,
+    "shared_rows": [
+     139,
+     163
+    ],
     "ink_p": [
      -24,
      12
@@ -3151,6 +3271,10 @@
     "allowed": 3,
     "jump": 0,
     "spring_anim": 2,
+    "shared_rows": [
+     139,
+     163
+    ],
     "ink_p": [
      -23,
      13
@@ -3182,6 +3306,10 @@
     "allowed": 3,
     "jump": 0,
     "spring_anim": 2,
+    "shared_rows": [
+     139,
+     163
+    ],
     "ink_p": [
      -24,
      12
@@ -3213,6 +3341,10 @@
     "allowed": 3,
     "jump": 0,
     "spring_anim": 2,
+    "shared_rows": [
+     139,
+     163
+    ],
     "ink_p": [
      -24,
      12
@@ -3244,6 +3376,10 @@
     "allowed": 3,
     "jump": 0,
     "spring_anim": 2,
+    "shared_rows": [
+     139,
+     163
+    ],
     "ink_p": [
      -24,
      11
@@ -3275,6 +3411,10 @@
     "allowed": 3,
     "jump": 0,
     "spring_anim": 2,
+    "shared_rows": [
+     139,
+     163
+    ],
     "ink_p": [
      -24,
      11
@@ -3306,6 +3446,10 @@
     "allowed": 3,
     "jump": 0,
     "spring_anim": 2,
+    "shared_rows": [
+     139,
+     163
+    ],
     "ink_p": [
      -24,
      11
@@ -3337,6 +3481,10 @@
     "allowed": 4,
     "jump": 0,
     "spring_anim": 2,
+    "shared_rows": [
+     139,
+     163
+    ],
     "ink_p": [
      -24,
      11
@@ -3368,6 +3516,10 @@
     "allowed": 17,
     "jump": 0,
     "spring_anim": 3,
+    "shared_rows": [
+     139,
+     163
+    ],
     "ink_p": [
      -6,
      29
@@ -3590,6 +3742,10 @@
     "allowed": 6,
     "jump": 0,
     "spring_anim": 2,
+    "shared_rows": [
+     139,
+     164
+    ],
     "ink_p": [
      -20,
      9
@@ -3621,6 +3777,10 @@
     "allowed": 6,
     "jump": 0,
     "spring_anim": 2,
+    "shared_rows": [
+     139,
+     164
+    ],
     "ink_p": [
      -22,
      7
@@ -3652,6 +3812,10 @@
     "allowed": 6,
     "jump": 0,
     "spring_anim": 2,
+    "shared_rows": [
+     139,
+     164
+    ],
     "ink_p": [
      -20,
      9
@@ -3683,6 +3847,10 @@
     "allowed": 6,
     "jump": 0,
     "spring_anim": 2,
+    "shared_rows": [
+     139,
+     164
+    ],
     "ink_p": [
      -20,
      8
@@ -3714,6 +3882,10 @@
     "allowed": 6,
     "jump": 0,
     "spring_anim": 2,
+    "shared_rows": [
+     139,
+     164
+    ],
     "ink_p": [
      -19,
      10
@@ -3745,6 +3917,10 @@
     "allowed": 6,
     "jump": 0,
     "spring_anim": 2,
+    "shared_rows": [
+     139,
+     164
+    ],
     "ink_p": [
      -20,
      9
@@ -3776,6 +3952,10 @@
     "allowed": 17,
     "jump": 0,
     "spring_anim": 3,
+    "shared_rows": [
+     139,
+     164
+    ],
     "ink_p": [
      1,
      30
@@ -3998,6 +4178,10 @@
     "allowed": 6,
     "jump": 0,
     "spring_anim": 2,
+    "shared_rows": [
+     139,
+     164
+    ],
     "ink_p": [
      -20,
      9
@@ -4029,6 +4213,10 @@
     "allowed": 6,
     "jump": 0,
     "spring_anim": 2,
+    "shared_rows": [
+     139,
+     164
+    ],
     "ink_p": [
      -22,
      7
@@ -4060,6 +4248,10 @@
     "allowed": 6,
     "jump": 0,
     "spring_anim": 2,
+    "shared_rows": [
+     139,
+     164
+    ],
     "ink_p": [
      -20,
      9
@@ -4091,6 +4283,10 @@
     "allowed": 6,
     "jump": 0,
     "spring_anim": 2,
+    "shared_rows": [
+     139,
+     164
+    ],
     "ink_p": [
      -20,
      8
@@ -4122,6 +4318,10 @@
     "allowed": 6,
     "jump": 0,
     "spring_anim": 2,
+    "shared_rows": [
+     139,
+     164
+    ],
     "ink_p": [
      -19,
      10
@@ -4153,6 +4353,10 @@
     "allowed": 6,
     "jump": 0,
     "spring_anim": 2,
+    "shared_rows": [
+     139,
+     164
+    ],
     "ink_p": [
      -20,
      9
@@ -4184,6 +4388,10 @@
     "allowed": 6,
     "jump": 0,
     "spring_anim": 2,
+    "shared_rows": [
+     139,
+     164
+    ],
     "ink_p": [
      -20,
      9
@@ -4215,6 +4423,10 @@
     "allowed": 17,
     "jump": 0,
     "spring_anim": 3,
+    "shared_rows": [
+     139,
+     164
+    ],
     "ink_p": [
      2,
      30

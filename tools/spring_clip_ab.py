@@ -369,7 +369,8 @@ def attribute(rows, psx, ssx, vram, sreach=24):
     return per
 
 
-def decode_tile_columns(raw: bytes, wcells: int, hcells: int, hflip: bool):
+def decode_tile_columns(raw: bytes, wcells: int, hcells: int, hflip: bool,
+                        top: int = None, band: tuple = None):
     """Which of a sprite piece's 8*wcells pixel columns contain ANY non-transparent pixel.
 
     THIS IS THE DIFFERENCE BETWEEN A SPRITE AND WHAT YOU SEE. A sprite piece's frame is
@@ -388,6 +389,14 @@ def decode_tile_columns(raw: bytes, wcells: int, hcells: int, hflip: bool):
             if len(tile) < 32:
                 continue
             for row in range(8):
+                # ROWS OUTSIDE THE SHARED BAND DO NOT COUNT. Taking each object's
+                # horizontal union over ALL its rows would let a foot that reaches +13 on
+                # a scanline the spring does not occupy stand in for "touching the
+                # spring". Only rows both objects draw on can produce a visible contact.
+                if band is not None and top is not None:
+                    sy = top + r * 8 + row
+                    if not (band[0] <= sy <= band[1]):
+                        continue
                 for byte_i in range(4):
                     v = tile[row * 4 + byte_i]
                     if v >> 4:
@@ -400,7 +409,16 @@ def decode_tile_columns(raw: bytes, wcells: int, hcells: int, hflip: bool):
     return cols
 
 
-async def ink_span(pr, pieces, centre):
+def shared_band(pa, pb):
+    """The screen rows on which BOTH objects draw, or None if they never share one."""
+    if not pa or not pb:
+        return None
+    lo = max(min(q["top"] for q in pa), min(q["top"] for q in pb))
+    hi = min(max(q["bot"] for q in pa), max(q["bot"] for q in pb))
+    return (lo, hi) if lo <= hi else None
+
+
+async def ink_span(pr, pieces, centre, band=None):
     """The leftmost/rightmost INKED screen column of a set of sprite pieces, centre-relative.
 
     Reads each piece's tiles out of VRAM and keeps only the columns that actually draw.
@@ -414,7 +432,7 @@ async def ink_span(pr, pieces, centre):
             continue
         r = await pr.b.call("emulator/read_vram", {"addr": hex(q["tile"] * 32), "len": n})
         raw = bytes.fromhex(str(r["bytes"]).removeprefix("0x"))
-        cols = decode_tile_columns(raw, w, h, bool(q.get("hflip")))
+        cols = decode_tile_columns(raw, w, h, bool(q.get("hflip")), q["top"], band)
         for c in cols:
             sx = q["left"] + c
             lo = sx if lo is None else min(lo, sx)
@@ -466,8 +484,10 @@ async def drawn_extents(pr, spring, note, tag):
                player_box_w=p["w"], spring_box_w=spring["w"], anim=p["anim"],
                tiles_player=sorted({q["tile"] for q in per["player"]}),
                tiles_spring=sorted({q["tile"] for q in per["spring"]}))
-    out["ink_player"] = await ink_span(pr, per["player"], psx)
-    out["ink_spring"] = await ink_span(pr, per["spring"], ssx)
+    band = shared_band(per["player"], per["spring"])
+    out["shared_rows"] = band
+    out["ink_player"] = await ink_span(pr, per["player"], psx, band)
+    out["ink_spring"] = await ink_span(pr, per["spring"], ssx, band)
     if not (out["frame_player"] and out["frame_spring"]):
         note.append(f"  {tag}: BLOCKED — attribution found "
                     f"player={len(per['player'])} spring={len(per['spring'])} pieces")
@@ -560,8 +580,10 @@ async def trace_approach(pr, spring, ground_y, roll, tag, note,
                 psx, ssx = st["x"] - camx, spring["x"] - camx
                 if 0 <= psx <= 320 and 0 <= ssx <= 320:
                     per = attribute(await sprite_rows(pr), psx, ssx, pr.vram)
-                    ps = await ink_span(pr, per["player"], psx)
-                    ss = await ink_span(pr, per["spring"], ssx)
+                    band = shared_band(per["player"], per["spring"])
+                    ps = await ink_span(pr, per["player"], psx, band)
+                    ss = await ink_span(pr, per["spring"], ssx, band)
+                    row["shared_rows"] = band
                     if ps and ss:
                         row["ink_p"] = [ps["left_rel"], ps["right_rel"]]
                         row["ink_s"] = [ss["left_rel"], ss["right_rel"]]

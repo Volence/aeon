@@ -1,7 +1,7 @@
 A = master  (SOLID_TOUCH_W = absent)
 B = branch  (SOLID_TOUCH_W = 21)
 subject: side spring at world (360,584), collision box 16x28, launch vector (-4096,0); the player approaches its launching face on the floor at y=573
-drawn geometry (identical in both builds): spring inked -8..+7 against its 16px box; standing player inked -17..+13 against a 19px box
+drawn geometry (identical in both builds): spring inked -8..+7 against its 16px box; standing player inked -13..+13 against a 19px box
 
   contact band -- the |dx| between centres at which the side launch fires
     STANDING (box 19)       A: |dx| <= 16      B: |dx| <= 17      delta +1px

@@ -2,7 +2,7 @@
   left debug-fly with B: y 256 -> 265
   live springs after settle: (x=112,y=584 box 32x16 sub=$02 vec=(0,-2560)), (x=160,y=584 box 32x16 sub=$00 vec=(0,-4096)), (x=360,y=584 box 16x28 sub=$50 vec=(-4096,0)), (x=430,y=478 box 32x16 sub=$20 vec=(0,4096)), (x=440,y=584 box 32x16 sub=$00 vec=(0,-4096)), (x=520,y=536 box 16x28 sub=$10 vec=(4096,0))
   [master] side spring at (x=360,y=584) box 16x28 launch vector (-4096,0); player rests at y=573 with the standing box 19x39
-  [master] DRAWN standing: anim 5 — player SPRITE FRAME -18..+13 (32px, 3 pieces) but INKED -17..+13 (31px) against a 19px collision box; spring frame -8..+7 (16px) inked -8..+7 (16px) against a 16px box. VISIBLE PIXELS FIRST TOUCH at |dx| = 21 (sprite frames at 21)
+  [master] DRAWN standing: anim 5 — player SPRITE FRAME -18..+13 (32px, 3 pieces) but INKED -13..+13 (27px) against a 19px collision box; spring frame -8..+7 (16px) inked -8..+7 (16px) against a 16px box. VISIBLE PIXELS FIRST TOUCH at |dx| = 21 (sprite frames at 21)
   [master] STANDING: box 19x39, launching side - -- launch fires for |dx| <= 16
   [master] CURLED (box poked to 15x29): box 15x29, launching side - -- launch fires for |dx| <= 14
   left debug-fly with B: y 256 -> 265
