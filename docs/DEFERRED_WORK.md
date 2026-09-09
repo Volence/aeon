@@ -31458,3 +31458,55 @@ does. Re-derive our own numbers; do not quote theirs as though they were ours.
 
 **Why this is written down at all:** it arrived in a message, and a claim that lives only in mail has
 no reader in any tree and cannot meet its own contradiction. This row is that artifact.
+
+## SP-6's LANDING IS A PAIRED GOLDEN REFREEZE, NOT A PIN EDIT — AND AEON MERGES FIRST (2026-09-09)
+
+**I asked sigil for a two-line change. It is not one, and the correction is theirs.** Everything
+below was verified firsthand in their tree before being written here.
+
+**WHAT I GOT WRONG:** I told them "no golden refreeze on your side that I know of". The hedge was
+there and the shape was still asserted. **The whole-blob gates build the blob from our tree and
+compare it byte-for-byte against sigil's frozen `crates/sigil-harness/golden/s4.bin`** — a committed
+**820,229-byte** binary (confirmed by `git cat-file -s`) whose provenance tip names `aeon_rev
+ec640bcf`. SP-6 changes the blob's **CONTENT**, not merely its length, so those comparisons fail
+whatever the length pin says. **Re-pinning the length would MOVE the failure, not remove it.**
+*(Method note on my own check: my first `stat golden/s4.bin` printed nothing because the path is
+`crates/sigil-harness/golden/s4.bin`. An absence produced by looking in the wrong place is
+indistinguishable from an absence in the world — I re-asked with `git ls-files` instead of concluding.)*
+
+**A THIRD SITE I HAD NOT FOUND, and it is the one that makes the red unconditional:**
+`crates/sigil-cli/tests/seam1_native_link.rs`, `blob_lengths_are_canonical`, asserts
+`BLOB_LEN_PLAIN == 0x1820` as a **literal**. Verified from that file's own module docstring at
+`:16-20`: every other test in that binary SKIPS without a reference tree, and this one is
+*"reference-free and always runs"*. So it reds on any machine with nothing configured.
+
+**THE ORDER, ruled by sigil and accepted here — AEON MERGES FIRST:**
+1. `parcel/sp6-sfx-voice-change` (`b230ab24`) merges to aeon master.
+2. **We send sigil one message saying it landed.** *(Standing commitment, recorded here because it
+   was made in mail and mail does not survive a `/clear`.)*
+3. Sigil advances its provenance `aeon_rev`, refreezes the goldens, and moves both `BLOB_LEN` pins
+   **and the third literal inside that same refreeze.**
+
+**Swapping the pins first is a broken-master window** — their master goes red the moment the const
+changes and stays red until our merge, for a reason that outlives its own cause. Do not offer them a
+PR-shaped branch: the work is a refreeze in their chain, and splitting it across two repos is the
+half-state the single-writer rule exists to prevent.
+
+**THE TRIPWIRE STAYS AS IT IS — I asked whether it should compare the PADDED length; the answer is
+no, and it is the better argument.** Padding to even makes **every odd-sized one-byte change
+invisible**, and a one-byte CONTENT change is precisely the thing most worth hearing about. Our
+parcel is the argument FOR the current design: it moved a byte, the gate said so, and the cost was
+one message. **Do not weaken it, and do not re-open this.**
+
+**A COST THIS CREATES FOR THE OWNER'S OPEN CONTENT CALL, and it changes the prices on that card:**
+any landing that moves ROM bytes needs a golden refreeze. So landing the mechanism now and the
+spring's donor later is **two** refreezes on sigil's chain rather than one. `land-both` is therefore
+cheaper than it was priced; `mechanism-only` does not avoid a refreeze, it only defers a second one.
+The `SP6-SPRING-DONOR` card has been superseded with these prices rather than left to be answered
+against stale ones.
+
+**Corroboration worth recording rather than the agreement itself:** sigil re-derived the
+even-rounding mirror argument from the rounding rule, where I derived it from the emitted listing.
+Different enumeration parameters, same answer — which is corroboration rather than echo. My separate
+doc finding (their mirror instruction reads as unconditional and over-fires) landed at sigil
+`2483c6a5`, verified reachable from their `origin/master`.
