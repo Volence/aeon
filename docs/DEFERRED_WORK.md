@@ -30575,10 +30575,65 @@ boot RAM**, and a third run reading 0 because the runs were sequential and the p
 stopped against the level's end — a confound of the harness's own making. Ask what a GREEN would
 have ruled out, before trusting the number.
 
-**PROPOSED, NOT TAKEN (needs its own parcel and four-shape verification):** a `DEBUG == 1` refusal
-on the drop branch. It converts an invisible failure into a loud one for exactly the cost of a
-debug-shape branch, and this tree already knows a DEBUG-only addition can move bytes in shapes you
-did not expect (LS-22a), so it is a measured parcel and not a one-liner.
+**~~PROPOSED, NOT TAKEN~~ — TAKEN 2026-09-09, `parcel/plane-buf-assert`. THE COLUMN WRITER'S
+OVERFLOW DROP NOW REFUSES IN THE DEBUG SHAPE, AND THE PARCEL FOUND THAT THE DROP IS UNREACHABLE
+FROM EVERY CALLER IN THE TREE — which changes what the refusal MEANS.** `Draw_TileColumn` carries
+`assert.w d2, ls, #PLANE_BUFFER_SIZE - 2`, the exact complement of its own release `bhi`, inside
+`if DEBUG == 1`. Release is byte-identical (`s4.bin` and `demo.bin` md5s unchanged against a
+control built from this branch's own base); the debug shapes pay **116 bytes** of code at the head of
+the proc — 12 for the repeated window gate (the design call), 24 for the assert's compare/branch/raise
+tail, 78 for its auto-message, 2 for the pass-path SR restore. **The debug ROMs grew by 60, not 116,
+and not where the code is:** `EndOfRom` is the SAME address in base and subject for both debug shapes
+(s4.debug `$C15E2`, demo.debug `$1121A`, confirmed by the deb2 magic's offset in the images), because
+the 116 bytes fit inside the slack the frozen placement tables already leave — the assembled image
+changed 25005 bytes across 704 ranges without changing LENGTH. The +60 is entirely the deb2 symbol
+appendix (54897 → 54957, and 33037 → 33097 — the same +60 twice), from the new `overflow_ok`/`diag*`
+names and the Huffman recompression they cause. That is LS-22a's channel, and it moved only the two
+debug shapes because those names exist only in the debug listings.
+
+**THE DESIGN CALL, because the naive placement fires on a NON-defect.** The overflow guard runs
+FIRST in release, before the two cache-range guards, so a column the window gate was going to drop
+harmlessly takes the overflow bail instead whenever the buffer happens to be full. An assert at the
+release site would therefore shout on a correct frame. Two ways out: reorder the release guards
+(correct, and it moves release bytes — the same instructions in a different order is a different
+ROM), or re-ask the window question inside the DEBUG block, before the release guard, in the order
+that makes the answer meaningful. Took the second: **release is not reordered and does not move**,
+and the 12 bytes of repeated `cmp`/branch are the entire price of the ordering fix.
+
+**WHY IT IS A DRIFT TRIPWIRE AND NOT A MEASUREMENT — the finding, stated where a green would
+otherwise be over-read.** `Draw_TileColumn` has exactly two call sites, both in
+`Section_UpdateColumns` (`.right_loop` and `.left_loop`), and **both reserve the callee's worst case
+before calling, with the exact algebraic complement of the callee's own guard**: the caller stops
+the loop on `Plane_Buffer_Ptr > SIZE-2-136`, the callee drops on `Plane_Buffer_Ptr+136 > SIZE-2`,
+and nothing writes the cursor between them. Enumerated by call site, not by name search. So the
+release overflow bail is **unreachable today, not merely unhit** — a quiet debug session says the
+two predicates still agree and no unreserved caller has appeared, and says **nothing whatever about
+buffer headroom**. The 272 B peak above remains the only headroom measurement, and **its two scope
+limits survive unchanged: only HORIZONTAL motion was ever driven, and vertical/diagonal motion (row
+entries), BG column entries at 132 B each, section transitions and teleports are UNMEASURED.** The
+assert does not extend that coverage by one frame; it watches a source-level relation, not the
+buffer.
+
+**GATED, hermetically, in the lane that already exists:** `tools/test_plane_buffer_overflow_assert.py`
+(7 tests, build.sh's build-fatal pre-build `pytest tools` lane). It reads the assert's threshold and
+condition OUT OF the release guard rather than pinning either, and reconstructs the caller's reserve
+expression from the callee's own two operands — so the caller/callee drift that would make the
+overflow reachable again fails at build time instead of waiting for the runtime assert to see it.
+No numeric literal for the buffer size appears in that file.
+
+**WHAT WAS DELIBERATELY LEFT SILENT, and it is a ruling not an oversight.** `Draw_TileRow_FromCache`
+and the zero-caller `Draw_BG_TileColumn` carry the identical guard and the identical silent drop.
+Untouched: the measurement that licenses "this must never fire" covers columns only. Asserting on
+the row writer would be asserting over exactly the motion this entry records as unmeasured, and an
+assert that CAN legitimately fire turns a working debug shape into a crashing one on the first
+vertical scroll. Book it, do not guess it.
+
+**STILL NOT DEMONSTRATED, and it is the one thing a build cannot show: that the assert fires on a
+live overflow.** The refusal was verified statically — the emitted debug bytes disassemble to the
+window gate, `cmp.w #$5FE, d2`, `bls` past the raise tail, and the release guards unchanged after it
+— but nothing has driven the engine into an overflow, because from the two callers nothing can. A
+runtime witness needs a deliberately-shrunk `PLANE_BUFFER_SIZE` or a synthetic unreserved caller,
+plus an emulator. TAGGED, not done.
 
 **ADJACENCY, OFFERED AS A HYPOTHESIS WITH ITS TEST, NEVER AS A CAUSE.** A silent dropped column
 produces a visible gap, and the canopy gap is an unexplained visible gap whose ruled plan is

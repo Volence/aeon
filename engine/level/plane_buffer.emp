@@ -53,7 +53,12 @@ pub proc Plane_Buffer_Reset () {
 // Column entries use word-level data (VInt_DrawLevel drains with move.w).
 // In:  d0.w = target VDP nametable column (0–63)
 //      d1.w = world tile column
-// Out: none (silently drops if buffer full)
+// Out: none. TWO KINDS OF DECLINE, and only one of them is correct. A column
+//      outside the tile cache's DECLARED window is an EXPECTED drop (the
+//      cache-range gate; engine/system/constants.emp's TILE_CACHE_COLS ensure
+//      names it). A column dropped because the plane buffer is full is a DEFECT
+//      — the caller records it as written, so it is never redrawn. Release
+//      still drops it silently; the DEBUG shape now refuses. See .overflow_ok.
 // PRECONDITION (caller's, not checked in release): d1 must be a FILLED column,
 //      not merely one inside the cache's declared window — i.e. d1 !=
 //      Cache_Fill_Resume_Col. Section_UpdateColumns' loops enforce it; the
@@ -66,6 +71,44 @@ pub proc Draw_TileColumn (d0: u16, d1: u16) clobbers(d0-d5/a0-a2) {
         // worst case: 2 headers (8 bytes) + 64 data words (128 bytes) = 136
         move.w  Plane_Buffer_Ptr, d2
         addi.w  #8 + PLANE_V_CELLS*2, d2
+    if DEBUG == 1 {
+        // OVERFLOW IS A DEFECT; A COLUMN OUTSIDE THE CACHE WINDOW IS NOT. Three bails
+        // below reach the same `.done`, and only one of them is a fault. Dropping a
+        // column because the buffer is full leaves a strip of level undrawn AND
+        // unredrawable, because the caller records it in Section_Right_Col_Written
+        // whether or not this routine wrote anything — the identical argument the
+        // Cache_Fill_Resume_Col assert twenty lines down is built on. The other two
+        // bails are the cache-range gate, which constants.emp's TILE_CACHE_COLS ensure
+        // names as an expected drop; shouting on those would shout on correct frames.
+        //
+        // WHY THE WINDOW TEST IS REPEATED HERE INSTEAD OF THE RELEASE GUARDS BEING
+        // REORDERED. In release the overflow guard runs FIRST, so a column the window
+        // gate was going to drop harmlessly takes the overflow bail instead whenever
+        // the buffer happens to be full: an assert at the release site would fire on a
+        // non-defect. Reordering release fixes that and moves release BYTES — the same
+        // instructions in a different order is a different ROM — and this parcel's
+        // contract is that release does not move at all. So the DEBUG shape re-asks the
+        // window question in the order that makes the answer meaningful and pays for it
+        // in the shape that can afford it: zero release bytes, no release reordering.
+        //
+        // EXPECTED NEVER TO FIRE TODAY, WHICH IS THE POINT — read it as a drift
+        // tripwire, not as a measurement. Draw_TileColumn has exactly two call sites
+        // (Section_UpdateColumns' .right_loop and .left_loop) and BOTH reserve this
+        // proc's worst case before calling, with the exact algebraic complement of the
+        // predicate below (`Plane_Buffer_Ptr > SIZE-2-136` stops the loop; here
+        // `Plane_Buffer_Ptr+136 > SIZE-2` drops the column). So no caller in the tree
+        // can reach the overflow bail, and the release guard is unreachable rather than
+        // merely unhit. A green therefore says the two predicates still agree and no
+        // unreserved caller has appeared; it says NOTHING about how close the buffer
+        // runs to full. That number is a separate measurement — 272 B peak, horizontal
+        // motion only — in docs/DEFERRED_WORK.md's plane-buffer-overflow entry.
+        cmp.w   Cache_Left_Col, d1
+        blt     .overflow_ok                    // out of window: an expected drop, not this defect
+        cmp.w   Cache_Head_Col, d1
+        bgt     .overflow_ok
+        assert.w d2, ls, #PLANE_BUFFER_SIZE - 2 // complement of the `bhi` below — same threshold
+    .overflow_ok:
+    }
         cmpi.w  #PLANE_BUFFER_SIZE - 2, d2
         bhi     .done
 
