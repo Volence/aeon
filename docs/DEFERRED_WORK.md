@@ -27757,9 +27757,11 @@ in debug tags. Full coverage is ENFORCED by `gen_vram_map.py`, so "full" means f
 ACCOUNTED FOR, not physically exhausted.
 
 Levers, largest first, none of them taken here:
-* **`fg_art_pool` = 768 tiles = 37% of VRAM.** Never re-measured against what OJZ
-  act 1 actually pages in. If 12 frames is more than the act needs, this is where an
-  object neighbourhood comes from. Wants a page-in-pressure measurement first.
+* **`fg_art_pool` = 768 tiles = 37% of VRAM.** ⚠ **THE MEASUREMENT THIS BULLET ASKED
+  FOR EXISTS NOW — see WORKING-SET below. Short version: 8-9 frames, not 12, and
+  the thing standing in the way is the PINNING POLICY, not the art.** (This bullet
+  read "Never re-measured against what OJZ act 1 actually pages in ... wants a
+  page-in-pressure measurement first" until 2026-09-09.)
 * **Plane size.** `PLANE_H_CELLS` / `PLANE_V_CELLS` are 64x64 = 8 KB each = 512
   tiles for the pair. `engine/system/epilogue.emp` already pins `H*V <= 4096`. Going
   64x32 returns 256 tiles at the cost of vertical scroll headroom (32 rows against 28
@@ -27770,6 +27772,100 @@ Levers, largest first, none of them taken here:
 
 Do this as a deliberate re-cut with a measurement behind it, not one scavenge per
 object.
+
+#### WORKING-SET — the `fg_art_pool` measurement, DONE (2026-09-09, `measure/fg-working-set`)
+
+**Tool:** `tools/fg_working_set.py` (`report`, `--json`), tested by
+`tools/test_fg_working_set.py` in build.sh's pre-build pytest lane.
+**Full findings:** `docs/research/2026-09-09-fg-working-set.md`.
+
+**⚠ FIRST, THE MISREADING TO REFUSE.** This is a measurement over BAKED DATA, not
+an observation of the engine. OJZ act 1 has 10 pool pages against `PAGE_FRAMES`
+= 12, so `Level_LoadArt` bulk-loads everything and latches
+`PageCache_Direct_Map`; **steady-state page streaming has never run on a shipped
+act**, and there is no runtime behaviour to record. The numbers say what a
+SMALLER cache would have to hold. "The engine was measured holding 8 pages" is
+false; "a screen's nametable words reference at most 8 distinct pool pages" is
+the claim.
+
+**THE FINDING THAT REFRAMES THE QUESTION: the residency window is the TILE
+CACHE, not the screen.** `page_cache.emp`'s own header — "`pf_refcount` counts
+nametable words currently in the tile cache that reference the frame" — so a
+page stays pinned in a frame for as long as any of the 80x60 = 4800 cache cells
+names it, 4.3x the screen's area. Anyone reasoning from "the screen is 40x28"
+is reasoning about the wrong rectangle.
+
+Peaks over EVERY camera placement the act allows (an upper bound: unreachable
+placements included):
+
+| window | size | peak pages | + today's pinned set |
+|---|---|---|---|
+| the screen | 41x29 | **8** | 10 |
+| plane fill | 42x30 | 8 | 10 |
+| the tile cache | 80x60 | **9** | 10 |
+
+**PINNING IS THE BINDING CONSTRAINT, NOT THE ART.** Five of ten pages are pinned
+(`tools/ojz_strip_gen.py` `PIN_SECTION_FRACTION = 0.75`; page 0 unconditionally,
+because global slot 0 is the blank tile every air cell renders — that one is
+STRUCTURAL and must survive any policy change). Union any peak-8 screen with the
+other four and you get all ten pages, so under today's policy the frame
+requirement is the whole pool whatever a screen needs.
+
+**Second lever, worth exactly one frame: the tile-cache margin.** The 9th page
+exists only because an 80-column cache can straddle the section 6/7 boundary
+(the peak-9 placements are confined to x 1472..2664, y 4200..4352, all at
+sec6 ∪ sec7's page sets). `constants.emp` fixes the smallest legal cache at a
+given margin, and at `TILE_CACHE_MARGIN_H/V` = 10/8 (52x38) the peak is back to
+8. **NOT PRICED HERE:** what that margin buys the fill in streaming lead.
+
+**Churn is NOT the constraint — the peak is.** Per candidate frame count, with
+`pages/frame` taken from the WORST single traverse (both axes, pinning off) at
+the `CAM_MAX_*_STEP` 16 px/frame cap:
+
+| frames | pool tiles | to objects | fits (unpinned) | fits (as pinned) | % idle CPU | % DMA |
+|---|---|---|---|---|---|---|
+| 4 | 256 | 512 | no | no | 29.5 | 9.3 |
+| 6 | 384 | 384 | no | no | 21.2 | 6.7 |
+| 8 | 512 | **256** | screen yes, 80-col cache no | no | 6.3 | 2.0 |
+| 9 | 576 | **192** | **yes** | no | 3.4 | 1.1 |
+| 10 | 640 | **128** | yes | **yes** | 3.1 | 1.0 |
+| 12 (today) | 768 | 0 | yes | yes | 3.1 | 1.0 |
+
+Even a 2-frame cache costs only 36% of idle CPU and 11% of `DMA_BUDGET_NTSC`.
+"Does not fit" is not a quality knob: below the instantaneous peak
+`PageCache_AllocFrame` reaches `.thrash` — DEBUG `raise_error`s, release returns
+the `PAGE_NOT_RESIDENT` sentinel and `PageIn_Process` takes `.alloc_fail`, so
+the page never lands and the screen draws stale art.
+
+**THE OWNER'S OTHER PROPOSAL, PRICED.** *"can't we just have the same amount of
+pages decompressed (12?) but not have it all loaded to vram at the same time?"*
+— keeping decompressed pages in work RAM so a re-entry costs a 2 KB DMA instead
+of a second decode. Re-entry share of page-ins, pinning off: **85% at 2 frames,
+63%/68% (h/v) at 6, 8%/26% at 8, ~0% at 9+.** So the lever is worth roughly 80%
+of the streaming CPU at the aggressive end and **worthless for a modest 12 -> 10
+trim**. Vertical churn runs ~2.3x horizontal throughout; a horizontal-only
+figure would have understated it.
+
+**WHAT IS NOT GROUNDED, and what it would take:**
+* The ZX0 decode rate (~45 K cycles/page) and idle budget (~42.5 K cycles/frame)
+  are CITED from ARCH §9.7's 2026-08-05 measurement, not re-measured — that
+  needs an emulator this lane could not run. **TAGGED for a runtime check.** They
+  enter only the lookahead derivation and the `% idle CPU` column; the peak and
+  the `fits` columns do not depend on them.
+* **Whether frame 0 must hold page 0.** A blank word is literal `$0000` and
+  displays VRAM tile 0, so page 0 must live in frame 0 for air to render as air.
+  Nothing asserts it; it holds today because the free list starts at frame 0,
+  `Level_LoadArt` loads in order, and page 0 is pinned. **If the pinning policy
+  is lifted, page 0's pin must be kept for this reason** and an `ensure` is worth
+  adding. Observation, not proven invariant.
+
+**LIMITS — ONE SMALL, UNUSUAL ACT.** 79% air (per-section air-block fractions
+0.656 .. 0.812), 612 pool tiles in 10 pages, and six of nine sections cloned from
+section 0 (`act_descriptor.emp`'s grid comment) — sections 2/4/5/6 all reference
+exactly the pinned set, so the act supplies about FOUR independent samples, not
+nine. A denser act, a deliberately vertical act, or one with more distinct art
+per screen would all raise the peak. **Re-run the tool on act 2 when there is
+one; do not carry 8 forward.**
 
 **⚠ AURORA IS A NAMED CONSUMER AND WE OWE THEM NOTICE BEFORE THE RE-CUT LANDS — a
 COMMITMENT this lane made 2026-09-08, banked here because it was made in MAIL and would
