@@ -31966,3 +31966,57 @@ while the memory of why is not. So a gate that over-refuses does not merely anno
 itself into a disabled gate** by a path nobody records."* **That is the mechanism by which "ease
 up on the tests" becomes the rational response — the owner's instinct is the bar this file
 already wrote.**
+
+### ⚠ CORRECTION, SAME DAY — THE COUNT WAS 19 AND IS 30, AND THE WORST HIT IS ENGINE-SIDE
+
+**The entry above was written before a dedicated `ensure` sweep of all 1,317 non-poison comptime
+sites finished. It undercounted the comptime layer by eleven sites (4 -> 15).** Revised totals:
+**30 PINS-CONTENT check sites** (15 comptime, 10 pytest, 5 gate), **29 AMBIGUOUS**, across
+**8 `.emp` files, 9 pytest files and 3 gate scripts**; **29 of the 30 are build-fatal**.
+
+**The error was not arithmetic — I declared a population closed on the strength of an operator
+census.** The census was right about where the *mass* sits (offsets, sizes, range bounds) and
+structurally incapable of finding a hit, **because a census of operators cannot see what an
+operand MEANS.** It also happened to be the flattering answer: it made the comptime layer look
+clean and pushed the whole problem onto Python. Both halves of that were wrong.
+
+**THREE SEAMS I HAD NOT LOOKED IN:** engine-side DSL population guards
+(`scene_dsl.emp:2456`, `:3131`); donor-fidelity animation and palette pins in character data
+(`knuckles_data.emp`, `ring_sparkle.emp`, `player_instashield.emp`, `knuckles.emp`); and
+degenerate-input guards in the effects DSLs (`raster_dsl.emp`, `palette_dsl.emp`) that duplicate
+safety nets the runtime already carries. Also a **direct correction to the audit's own D2**: the
+8-px perceptual visibility floor is enforced **twice** — post-sigil in `row_remap_gate.py:727`
+*and* at comptime in `ojz_scenes.emp:372`, pinned to `Scene_OJZ_Underwater` by name. Repairing
+only the gate leaves the comptime wall standing.
+
+**THE NEW TOP-RANKED FIX, PROMOTED ABOVE THE EXIT-CODE COLLAPSE, because it is the only hit with
+a cost already demonstrably paid.** `engine/level/scene_dsl.emp:2456` refuses `scenes.len == 0`,
+though folding an empty array is a correct no-op returning 0. `games/demo/config/game.emp:15-20`
+says, verbatim: *"Nothing to derive and nothing to verify: **`fold_caps()` REFUSES an empty
+registry rather than folding it to 0, so the demo deliberately has no scene registry to check
+this against**, and this binding is the whole statement."* **The demo game — the permanent proof
+the engine is game-agnostic — has a hand-asserted, unverified `SCANLINE_CAPS` because a guard
+refuses the legitimate zero case.** Fixing it *restores a verification the project does not
+currently have*, rather than merely removing an annoyance.
+
+**AND IT MOVES THE QUESTION-2 VERDICT TOWARD THE OWNER.** The entry above reports "0 WORKED
+AROUND" from a commit sample, and that stands **for commits**. This is a route-around no
+commit-diff instrument could see, **because it is a permanent state rather than an edit**: a
+whole game's capability declaration is unverified today as the direct result of an over-strict
+check. **The 5.2% figure is blind to that entire category**, and this instance was findable only
+because someone wrote down why. The commit record understates his impression.
+
+**ALSO UPGRADED:** `games/sonic4/test/scene_equiv_proof.emp` moves from "friction, not over-reach"
+to **AMBIGUOUS**. My original reasoning — deleting a scene yields an unresolved-name compile
+error, not a false assertion — holds for **deletion** and misses **tuning**: its 93
+`ensure(EQ_… == -1)` sites hold 20 live scenes against a hand-transcribed snapshot in the same
+file, which the file's own banner declares **PERMANENT**. Changing any authored number on any of
+those 20 scenes requires hand-updating the witness in the same commit, forever, for a proof whose
+stated job was a one-time migration.
+
+**ONE REPORTED TRAP BOOKED AS UNREPRODUCED:** the sweep reported that this shell's `grep` alias
+silently under-recurses and drops `games/sonic4/test/poison/` from whole-tree searches. **It does
+not reproduce** — alias and `command grep` both return 1398 sites, and the alias returns the
+subtree's 81 when asked. Every count in the audit was taken with the alias and is unaffected.
+Recorded as unreproduced rather than as a fact, given this file already carries one retracted
+grep-behaviour claim.

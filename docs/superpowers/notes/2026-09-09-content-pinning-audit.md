@@ -119,6 +119,41 @@ build-fatally asserts that this debug fixture must remain authored, forever. Tha
 | A4 | `games/sonic4/data/effects/scene_registry.emp:567` | `SceneRegistry_CapsFolded == SceneRegistry_CapsExpected` | **PINS-CONTENT** (stronger) | An equality pin over the whole fold. It re-fires on *every* A1-A3 case and on any capability a scene stops raising. Its banner defends itself well — "a pin nobody has to touch is a pin nobody is checking" — and that argument is about a capability *landing*, which is the safe direction. It is doing double duty as a content-existence pin in the unsafe one. |
 | A5 | `games/sonic4/data/effects/scene_registry.emp:578` | `(SceneRegistry_CapsFolded & CAP_MULTI_DEFORM_TABLE) == 0` | **PINS-CONTENT BY DESIGN — out of scope** | This forbids *adopting* `deform: Own(..)` until the owner approves. It refuses a content decision on purpose and says so ("PARK-1, owner-gated"). Listed so it is not mistaken for a defect; it is a policy the owner set. |
 
+### A2. Comptime `ensure` — the three seams I missed, found by the dedicated sweep
+
+**All quotations below were re-read at source by me before booking.** Population: 1,317 non-poison
+`ensure` sites across 89 files (81 sites in `games/sonic4/test/poison/` are deliberate expect-fail
+fixtures and are excluded).
+
+| # | site | condition | class | note |
+|---|---|---|---|---|
+| A6 | `engine/level/scene_dsl.emp:2456` | `ensure(scenes.len >= 1, "fold_caps(): an empty scene registry has no capabilities to fold — a game with no scenes should not be declaring a cap mask")` | **PINS-CONTENT — and the most consequential hit in the audit** | Folding an empty array is a correct no-op returning 0. **This guard has already caused a shipped route-around, and the route-around is written into the source.** See the box below. |
+| A7 | `engine/level/scene_dsl.emp:3131` | `ensure(scenes.len >= 1, "scene_budget_enforce(): an empty scene registry has no budget to check …")` | **PINS-CONTENT** | A6's twin on the budget fold, same consequence. |
+| A8 | `games/sonic4/data/effects/ojz_scenes.emp:372` | `ensure(OJZ_UNDERWATER_REMAP_PX >= REMAP_VISIBLE_MIN_PX, "… the effect is ON but NOBODY CAN SEE IT")` | **PINS-CONTENT** | **A direct correction to my D2 entry, which said the 8-px perceptual floor was gate-only.** It is enforced *twice* — once post-sigil in `row_remap_gate.py:727`, and once at comptime here, **pinned to `Scene_OJZ_Underwater` by name**. The message concedes "the floor itself is an observation, not a derivation." Fixing D2 without this leaves the wall standing — the BGANIM lesson again. |
+| A9 | `games/sonic4/data/characters/knuckles_data.emp:174` | `ensure(((_pal_sonic_tails[18]<<8)\|…) != ((_pal_knux[18]<<8)\|…), "slot 9 now AGREES … the forced $0444/$0080 hole is closed …")` | **PINS-CONTENT — the sharpest instance found** | **It requires a documented colour *bug* to remain present.** An artist who closes the hole — an unambiguous improvement — fails the build. In fairness its message is constructive ("Delete them and tighten the mismatch count to 3"), which is the tell: **this is a notification implemented as a refusal.** |
+| A10 | `knuckles_data.emp:191,193,195,197,199,201` (6 sites) | `ensure((_pal_*[N]<<8 \| …) == DUST_GRAY_IDX{4,6,7}, …)` | **AMBIGUOUS** (the sweep called it PINS-CONTENT; I downgrade it) | It pins literal authored colours — but **it names what breaks and the break is real**: shared line-0 art (dust, insta-shield, spring) is drawn through a per-character palette line, so re-exporting both palettes in lockstep passes every agreement check while the dust turns the wrong colour for everyone. That is the 2026-08-12 red-dust bug. **This is the "say what breaks" test being passed.** Settled by: whether recolouring the dust is a decision the owner wants to make by editing the three adjacent `const`s (cheap) or expects to make in the art alone. |
+| A11 | `games/sonic4/objects/ring_sparkle.emp:131`; `games/sonic4/player/player_instashield.emp:412`, `:414` | `script_display_frames(…) == S3K_SPARKLE_FRAMES * (…)`; the two donor-timing equalities | **PINS-CONTENT** | Donor-fidelity locks on **cosmetic** animation timing — `ring_sparkle.emp`'s own header says the effect "is purely cosmetic … its absence changes no gameplay state." Both messages read "re-derive the script, do not retune the reference", which forbids a legitimate feel decision by policy rather than by consequence. |
+| A12 | `games/sonic4/player/knuckles.emp:138` | `ensure(KNUX_JUMP_FORCE < PHYS_JUMP_FORCE, "…that difference is the only reason this row exists")` | **PINS-CONTENT** | A **balance** value pinned by strict inequality. Its own remedy is "delete the row", i.e. nothing mechanically breaks — it is a tidiness rule refusing a retune. |
+| A13 | `engine/effects/raster_dsl.emp:362`, `:524`; `engine/effects/palette_dsl.emp:44`, `:95` (the `count >= 2` half) | `fire: a fire with no ops`; `compose: nothing to compose`; `variant: lines mask selects no level line`; `count >= 2` | **PINS-CONTENT** | Degenerate-input guards that **duplicate safety nets the runtime already has** — `raster.emp` handles an op-count-0 fire as a documented priming record (`bmi .priming`); `palette.emp` leaves uncovered lines as-is; `Palette_RotateSpan` carries its own live `count < 2 is a no-op` branch. Each forbids an author expressing "nothing here", which is a normal thing to want while building content up. **Note the contrast with their real siblings** — `raster_dsl.emp:257/327` (`colours.len >= 1`) and `raster.emp:509/778` (`lines >= 1`) are **REAL-INVARIANT**: count 0 underflows to `$FFFF` in a `dbf` inside the HBlank handler. Same file, same shape, opposite verdict — which is exactly why this has to be judged per site. |
+
+> **⚠ THE ROUTE-AROUND IS ALREADY SHIPPED, AND IT IS IN THE SOURCE IN PLAIN WORDS.**
+> `games/demo/config/game.emp:15-20`, verbatim:
+>
+> > "*Nothing to derive and nothing to verify: **`fold_caps()` REFUSES an empty registry rather
+> > than folding it to 0, so the demo deliberately has no scene registry to check this
+> > against**, and this binding is the whole statement.*"
+>
+> The demo game — **the permanent proof that the engine is game-agnostic** — cannot use the
+> capability-folding mechanism at all, because a guard refuses the legitimate zero case. Its
+> `SCANLINE_CAPS = 0` is therefore **hand-asserted and unverified**, where every other game's is
+> derived and checked.
+>
+> **This is not a hypothetical cost. It is `docs/OVERSEER-LOG.md:1131` happening, in the tree,
+> already:** *"a refusal that fires on correct work trains a route-around … the route-around is
+> permanent while the memory of why is not … a gate that over-refuses **converts itself into a
+> disabled gate** by a path nobody records."* Here the path *was* recorded — which is the only
+> reason this audit can see it, and a reason to think other instances were not.
+
 ### B. Comptime `ensure` — the safe siblings, listed so the contrast is on the record
 
 | site | condition | class |
@@ -135,9 +170,19 @@ Of 1,398 `ensure` sites, the operator census is 921 `==`, 204 `<=`, 145 `>=`, 13
 `ensure(SOME_CONST == <literal>)` guarding a value inlined in two places (`scene_dsl.emp:77-126`
 is a block of them). The `<=`/`>=`/`<` mass is **range checks** bounding an authored value into
 what the hardware or the format allows, which is the correctness direction and cannot refuse a
-removal. **Content-existence pinning in `.emp` is confined to the four `SceneRegistry_CapsFolded`
-arms above.** That is a genuinely good result for the comptime layer, and it makes the Python
-layer, not the language, where this problem lives.
+removal. **⚠ CORRECTED — I FIRST WROTE THAT CONTENT-EXISTENCE PINNING IN `.emp` WAS CONFINED TO
+THE FOUR `SceneRegistry_CapsFolded` ARMS. THAT WAS WRONG, AND WRONG IN MY FAVOUR** — it made the
+comptime layer look clean and pushed the whole problem onto Python. A dedicated `ensure` sweep of
+all 1,317 non-poison sites found **17**, in three seams I had not looked in: engine-side DSL
+population guards, donor-fidelity animation/palette pins in character data, and degenerate-input
+guards in the effects DSLs. **The operator-census reasoning below is still sound and is kept
+verbatim — it correctly describes where the *mass* sits. What it could not do is find a hit,
+because a census of operators cannot see what an operand MEANS.** That is the method failure
+worth keeping: I generalised from a shape distribution to an absence. The original sentence
+read: "Content-existence pinning in `.emp` is confined to the four `SceneRegistry_CapsFolded`
+arms above. That is a genuinely good result for the comptime layer, and it makes the Python
+layer, not the language, where this problem lives."* **Both sentences are false.** See section
+A2 below for the thirteen sites I missed.
 
 **AND THE DSL CONSTRUCTORS ARE ALREADY WRITTEN THE RIGHT WAY — this is the model to copy.**
 Every guard in `layer()` / `scene()` / `band()` is variant-gated:
@@ -220,7 +265,7 @@ only).
 
 | site | what | why it is not the defect |
 |---|---|---|
-| `games/sonic4/test/scene_equiv_proof.emp` (~50 `ensure`s) | names every scene and band index literally (`EQ_OJZ_Windy_b0`, …) | The *assertion* is a correctness claim (two lowering spellings agree). Deleting a scene produces an **unresolved-name compile error**, not a false assertion. Real maintenance tax; not a check asserting the wrong thing. |
+| ~~`games/sonic4/test/scene_equiv_proof.emp`~~ — **MOVED TO AMBIGUOUS, see below** | names every scene and band index literally (`EQ_OJZ_Windy_b0`, …) | I first filed this here on the ground that deleting a scene yields an unresolved-name **compile error**, not a false assertion. **That reasoning holds for DELETION and misses the larger case: TUNING.** The 93 `ensure(EQ_… == -1)` sites compare 20 live scenes against a **hand-transcribed snapshot frozen in the same file**, and the file's own banner declares itself **PERMANENT** ("deleting this module is a spec change, not a cleanup"). So changing *any* authored number on *any* of those 20 scenes — a band factor, a drift rate, a `v_center` — requires hand-updating this witness in the same commit, **forever**, for a proof whose stated job was a one-time migration. **What would settle it:** whether "permanent" was meant to outlive the DSL migration it exists to prove. If not, this is the single largest standing tax on scene tuning in the tree. |
 | `act_descriptor.emp:363` | `ensure(GRID_W * GRID_H == 9)` | Pins a literal `[Sec; 9]` array length. Real invariant *as written*; the better shape is `[Sec; GRID_W*GRID_H]`, which would delete the pin. |
 | `act_descriptor.emp:132` ↔ `scene_registry.emp:658` | `SCENE_ACT_SPAN_Y == (GRID_H << SECTION_SIZE_SHIFT)` | A two-species mirror pin — a number written twice must agree. Resizing the act touches two files; that is the documented cost of the mirror, taken to avoid an import cycle. |
 | `ojz_effects.emp:2232` | `ensure(REEL_COLS_PER_BAND == 4, …)` | **The contrast case, and worth reading beside D2 and A1.** It has the exact shape of a content pin — a literal equality on an authored-looking design number — and it is a **REAL-INVARIANT**, because `OJZ_Reels_Fill`'s column→band map is a hard-coded `lsr.b #2`. Change the constant without the shift and the loop addresses the wrong band. **This is what "say what breaks" looks like when there is an answer**; A1-A4 and D2 are the same shape with no such answer. |
@@ -232,18 +277,30 @@ only).
 
 | classification | count | unit |
 |---|---|---|
-| **PINS-CONTENT** | **19** | **check sites** — 4 comptime `ensure` (A1-A4) + 10 pytest assertion sites (C1-C9; C9 is two sites in one file) + 5 gate sites (D1, D2, D3, D5, D7) |
-| **AMBIGUOUS** | **14** | check sites — 12 in the pytest suite, 2 in the gates (D4, D6) |
+| **PINS-CONTENT** | **30** | **check sites** — **15 comptime `ensure`** (A1-A4, A6-A9, A11 ×3, A12, A13 ×4) + 10 pytest assertion sites (C1-C9; C9 is two sites in one file) + 5 gate sites (D1, D2, D3, D5, D7) |
+| **AMBIGUOUS** | **29** | check sites — 12 pytest, 2 gates (D4, D6), **15 comptime** (A10 ×6 and 9 more the sweep raised, incl. `scene_equiv_proof.emp` counted as ONE mechanism spanning **93 sites**) |
 | **REAL-INVARIANT** (in the swept candidate set — checks that *look* like content pins and are not) | **~20** | check sites, incl. the 4 `BAND_*_N` pairs, the two subset arms, the `CAP_DENSE_TIER` family, C10, and `REEL_COLS_PER_BAND` |
 | **PINS-CONTENT BY DESIGN** (owner-set park, out of scope) | **1** | check site (A5) |
 
-**No site is counted twice: D4 is AMBIGUOUS only, and is not in the 19.**
+**No site is counted twice: D4 and A10 are AMBIGUOUS only, and are not in the 30.**
 
-**Files affected: 9 pytest files, 3 gate scripts, 1 `.emp` file.** Of the **19** PINS-CONTENT
-sites, **18 are build-fatal today**; the single exception is **D7**, a standalone witness that
-`build.sh` does not call. **Against populations of 1,398 `ensure` sites, 2,217 test functions and
-157 tool scripts, this is a small and highly concentrated defect** — which is the good news, and
-the reason a fix is tractable rather than a rewrite.
+**⚠ THE FIRST VERSION OF THIS TABLE SAID 19, AND THAT NUMBER IS SUPERSEDED.** It was built before
+the dedicated `ensure` sweep and undercounted the comptime layer by eleven sites (4 → 15). The
+error was not arithmetic; it was **a population I declared closed on the strength of an operator
+census** — see the correction in §WHAT WAS SWEPT.
+
+**Files affected: 9 pytest files, 3 gate scripts, and 8 `.emp` files** (`scene_dsl.emp`,
+`scene_registry.emp`, `ojz_scenes.emp`, `knuckles_data.emp`, `ring_sparkle.emp`,
+`player_instashield.emp`, `knuckles.emp`, `raster_dsl.emp`/`palette_dsl.emp`). Of the **30**
+PINS-CONTENT sites, **29 are build-fatal today** — every comptime `ensure` is, by construction —
+and the single exception is **D7**, a standalone witness `build.sh` does not call.
+
+**Against populations of 1,398 `ensure` sites, 2,217 test functions and 157 tool scripts this is
+still a small and concentrated defect (~1.3% of `ensure` sites), and a fix is still tractable
+rather than a rewrite.** But **two of the three worst hits are engine-side, not game-side**
+(A6/A7), and one of them has **already cost the demo game its capability verification** — so the
+"it is only Python, and only the effects seam" reading I reached first was comfortable and wrong
+in both halves.
 
 ---
 
@@ -373,6 +430,18 @@ routinely surfaces two or three previously-unmodelled cases before it can land �
 real hours even when every individual fix is legitimate.** That is a different problem from the
 one he named, and it is a more tractable one.
 
+**⚠ WITH ONE EXCEPTION THAT LANDED AFTER I WROTE THE ABOVE, AND IT MOVES THE VERDICT TOWARD HIM.**
+I wrote "0 WORKED AROUND" from a sample of commits, and that finding stands *for commits*. But the
+`ensure` sweep found a route-around that **no commit-diff instrument could ever have seen, because
+it is a permanent state rather than an edit**: `games/demo/config/game.emp` hand-asserts
+`SCANLINE_CAPS = 0` and skips the capability-folding mechanism entirely, because `fold_caps()`
+refuses an empty registry (A6). **A whole game's capability declaration is unverified today as a
+direct result of an over-strict check.** That is a *worked-around* gate in the fullest sense —
+just worked around once, structurally, rather than repeatedly in diffs. **My 5.2% instrument is
+blind to this entire category**, and I do not know how many more there are; this one was findable
+only because someone wrote down why. **Weigh his impression accordingly: the commit record
+understates it, and I said so having first reported the opposite.**
+
 ### The repo already holds the bar it is breaking
 
 `docs/OVERSEER-LOG.md:1131-1136`, written before tonight:
@@ -395,6 +464,14 @@ owner's instinct is the bar the repo already wrote.
 ---
 
 ## RANKED SHORTLIST — worth fixing first, and why each earns its place
+
+**0. `engine/level/scene_dsl.emp:2456` and `:3131` — `scenes.len >= 1`.** *(A6, A7)*
+**Promoted above everything else on evidence that arrived last.** It is the only hit in the audit
+with a **demonstrated cost already paid**: the demo game's `SCANLINE_CAPS = 0` is hand-asserted
+and unverified *because* `fold_caps()` refuses the empty registry, and the source says so in
+those words. Two engine-side sites; the fix is to fold an empty array to 0, which is what it
+mathematically is. **It restores a verification the project currently does not have, rather than
+merely removing an annoyance** — the only item here that makes the check suite *stronger*.
 
 **1. The `build.sh` exit-code collapse.** *(§Exit codes)*
 Ranked first because it is **one change that de-fangs a whole class, including cases not yet
@@ -422,11 +499,19 @@ fires on the same edit, so repairing A1-A3 alone moves the wall one line down, w
 the BGANIM lesson. A2's prescribed retreat is additionally **stale** by its own banner's
 admission, which is a second reason to touch it.
 
-**4. `tools/row_remap_gate.py:727` — the 8-px visibility floor.** *(D2)*
-The clearest *principled* case in the audit: a **perceptual threshold enforced build-fatally**.
-Its own constant's comment says such a bar "can only be calibrated against someone looking at
-the screen" — and the person looking at the screen is the one the build is refusing. Should be a
-loud report, never `exit 1`. Ranked fourth only because it bites less often than 1-3.
+**4. The 8-px visibility floor — `tools/row_remap_gate.py:727` AND `ojz_scenes.emp:372`.**
+*(D2 + A8)* The clearest *principled* case in the audit: a **perceptual threshold enforced
+build-fatally**. Its own constant's comment says such a bar "can only be calibrated against
+someone looking at the screen" — and the person looking at the screen is the one the build is
+refusing. Should be a loud report, never `exit 1`. **Fix both or neither:** it is enforced twice,
+once post-sigil and once at comptime pinned to `Scene_OJZ_Underwater` by name, and repairing only
+the gate leaves the comptime wall standing — the BGANIM lesson, for the third time in this list.
+
+**4b. `knuckles_data.emp:174` — the pin that requires a bug to stay.** *(A9)*
+Cheap and worth doing for what it signals as much as what it costs: it fails the build if an
+artist *fixes* a documented palette hole. Its message already tells the reader exactly what to
+delete, which means **it wants to be a notification and was written as a refusal** — the
+one-line summary of this whole audit.
 
 **5. `tools/test_anchor_sweep_band.py` C5/C6/C7 and `tools/band_drift_golden.py:72` D3.**
 Grouped because they share one fix and one reason: each holds an **n=1 population** build-fatally,
@@ -465,6 +550,21 @@ is the first.
 
 ## WHAT THIS AUDIT DID NOT ESTABLISH
 
+- **WHICH `ensure` SITES ARE ACTUALLY ELABORATED.** This tree's own comments record that
+  `ensure(1 == 0)` inside an unreferenced module builds green — sigil does not always elaborate a
+  module nothing imports (`reference_emp_guard_reachability`). This audit was textual. **Some
+  fraction of the 15 comptime PINS-CONTENT sites may be unreachable and therefore inert**, and
+  nothing here distinguishes them. A6/A7/A8/A9 are reachable by inspection (they sit in modules
+  the build's own errors and the demo's comment prove are elaborated); the rest are not
+  established either way.
+- **⚠ A REPORTED TOOLING TRAP THAT I COULD NOT REPRODUCE, recorded because acting on it would
+  have been wrong.** The `ensure` sweep reported that this shell's `grep` alias silently
+  under-recurses, dropping `games/sonic4/test/poison/` from a whole-tree search with no error.
+  **It does not reproduce here:** alias and `command grep` both return **1398** sites, and the
+  alias returns the poison subtree's **81** when asked. Every count in this document was taken
+  with the alias and is unaffected. **Booked as unreproduced, not as a fact** — this repo has one
+  retracted grep-behaviour claim on the books already, and a confident mechanism written into
+  three places before testing it.
 - **That any hit actually fires.** No build was run. The five-refusal chain is derived from
   source; a build with the `rowRemap:` removed would confirm the set and, more usefully, might
   reveal a **sixth** wall behind them — which is exactly what BGANIM-DECOUPLE teaches to expect.
