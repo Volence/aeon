@@ -31929,3 +31929,72 @@ finding of this shape: A WORKAROUND ALWAYS CITES THE DEFECT IT WORKS AROUND.** `
 names the donor copy as its reason in its own words. So on finding a defect, **grep for prose naming it** —
 whoever met it first probably left a workaround and said why. That is a cheap search nobody was running, and it
 is how you find the sites that a diff-based or symbol-based sweep structurally cannot.
+
+---
+
+## THE PALETTE HAD TWO WRITERS AND NEITHER WAS THE EDITOR — FIXED, AND THE THIRD SITE WAS ONLY REASONING (2026-09-09)
+
+Parcel `parcel/palette-authored-seed`. **For six months the owner's palette edits never reached the
+ROM.** `tools/ojz_strip_gen.py` `shutil.copy`-ed the sonic_hack donor `art/palettes/OJZ.bin` over the
+generated `ojz_palette.bin` on **every build**, while `project.json`'s `zones[0].palette` pointed the
+**editor at that same generated file**. The editor wrote a file the next build overwrote. The donor is
+dated 2026-04-16 and had not moved since.
+
+**All three surfaces reported success honestly, and that is the finding worth keeping.** The save
+saved. The build genuinely did regenerate the palette. And the emulator **did** show the new colour,
+because the editor's live preview pushes CRAM directly and never goes near the build. **The live path
+working is what hid it** — any check aimed at the preview would have passed throughout. The new
+`tools/test_palette_authored_source.py` therefore follows the bytes from the authored file to the
+generated artifact and touches no preview at all.
+
+**Shape now shipped:** `games/sonic4/data/editor/ojz/act1/palette.bin` is the authored source (and is
+what `zones[0].palette` names); the donor is a **one-time seed** used only when that file is absent;
+the build **mirrors** authored → generated each bake so `ojz_palette.bin` keeps existing where the
+assembler expects it and the ROM layout does not move. `data/editor/` is not cosmetic:
+`tools/level_staleness.py`'s `editor_sources()` covers that whole tree, so a palette edit there makes
+the staleness gate **see** the change and re-bake. Anywhere else and the build cannot tell.
+
+**THE SECOND WRITER IS WHY THE PARCEL WAS BIGGER THAN THE SEED.** `tools/inject_editor_bg.py` stamped
+a BG palette line straight into the *generated* file, and its own comment gave the reason: *"strip_gen
+copies ojz_palette.bin from sonic_hack every build, so a palette that matches the injected art must be
+written HERE (inject runs after strip_gen) or the colours revert."* That was **a workaround for this
+exact defect**, not a feature. Fixing only the seed would have left it writing the generated file — the
+authored palette would flow to generated and then be stamped over, so **CRAM line 2 alone stayed
+unauthorable**: the same bug at one-line blast radius, shipped by its own fix. It now writes the
+authored file and re-mirrors (`stamp_palette_line`, lifted out of `main()` so the survival of a stamp
+across a re-bake is an executable assertion rather than a source-spelling one).
+
+**THE THIRD SITE ONLY REASONED FROM THE DEFECT, AND THE CONCLUSION SURVIVED A RE-DERIVATION.**
+`tools/png_to_bg_override.py` argued its lock-mode drift refusal from *"GEN_PALETTE, which
+ojz_strip_gen.py re-copies from sonic_hack on every build"*. **That premise is dead.** The refusal is
+kept because the live premise is *stronger*: GEN_PALETTE now mirrors the palette the **owner edits**, so
+a retained `palette` goes stale the moment he picks a colour, and inject would stamp the stale copy back
+over his edit. The old risk was carrying a donor-reverted value; the new one is **destroying an
+authoring act**. `tools/test_bg_override_no_clobber.py` carried the same dead premise in a docstring and
+was corrected the same way. Both keep the original text beneath the correction.
+
+**KNOWN WINDOW, deliberately left loud rather than silently closed.** Between an editor palette save and
+the next build, the generated mirror is behind the authored file, so `png_to_bg_override.py` lock mode
+refuses and the remedy is to build. Quantising against the mirror is the deliberate choice — the art is
+fitted to the colours the VDP actually loads, not to a file the ROM has not embedded yet. If that
+refusal proves annoying in practice the alternative is to quantise against the authored file; **it was
+not changed here because it is a behaviour change with its own blast radius and no evidence yet.**
+
+**THE SEARCH THAT FOUND THE SECOND WRITER IS THE ONE BOOKED IN THE SECTION-0 ROW ABOVE, AND IT PAID
+AGAIN: A WORKAROUND ALWAYS CITES THE DEFECT IT WORKS AROUND.** Grepping *prose* — comments, docstrings —
+for `sonic_hack`, "every build", "re-copies", "reverts" found the second writer and the two reasoners in
+one command. A symbol-based or diff-based sweep structurally cannot: the second writer shares no symbol
+with the copy it works around, and the reasoners write no bytes at all. The full `ojz_palette` census
+run for this parcel was 10 tool/doc files; **exactly one was a writer, two were reasoners, and the rest
+were readers** — so the prose grep found 100% of the sites a byte-level sweep would have missed.
+
+**Still open, and NOT done here:**
+- `tools/synth_scroll_test_gen.py` writes `ojz_palette.bin` into the **real** generated act1 directory
+  with synthetic values. It is a standalone dev fixture generator that nothing in `build.sh` or
+  `tools/regenerate-level.sh` calls, so it is not a build-path second writer — **but running it
+  clobbers the mirror**, and the next re-bake restores it, so the damage is transient and invisible.
+  Not repointed here; it wants an `--out-dir` and a refusal to aim at the committed tree.
+- `docs/LEVEL_EDITOR_SPEC.md` said the palette was **128 bytes**; it is **96** (3 CRAM lines), as
+  `docs/ART_PIPELINE_CONTRACT.md:287` already said. Corrected in passing — worth noting that two docs
+  disagreed for the file's whole life and neither had a gate.
+- `paletteRef` was deliberately not touched: the editor lane is striking it on their side.

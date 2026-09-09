@@ -1059,7 +1059,7 @@ address error. `sigil` does not auto-align data declarations.
 |---|---|---|
 | `tools/import_sk_collision.py` | out-of-repo `skdisasm` (`AEON_SKDISASM_DIR`) | `data/collision/base/*.bin` + defaults in `data/collision/` |
 | `tools/gen_collision_data.py` | the attr-set pipeline | the five `data/collision/*.bin` tables |
-| `tools/ojz_strip_gen.py` | editor `section_N.{tiles,collattr,collattrb}.bin`, sonic_hack donor | `sec{N}_strips_a.bin`, `act_pool_page{N}.bin`, the pool manifest, `zone_bg.bin`, `ojz_palette.bin`, `sec{N}_local_map.bin` |
+| `tools/ojz_strip_gen.py` | editor `section_N.{tiles,collattr,collattrb}.bin`, editor `<zone>/<act>/palette.bin`, sonic_hack donor | `sec{N}_strips_a.bin`, `act_pool_page{N}.bin`, the pool manifest, `zone_bg.bin`, `ojz_palette.bin` (a MIRROR of the authored palette — the donor only SEEDS it when absent), `sec{N}_local_map.bin` |
 | `tools/ojz_block_gen.py` | the strip files | `sec{N}_blocks.bin`, `sec_block_dicts.emp` |
 | `tools/ojz_entity_gen.py` | editor `section_N.{rings,objects}.json`, `data/editor/objects.json` | `entity_data.emp` |
 | `tools/png_to_bg_override.py` | a PNG | `editor_bg_override.json` |

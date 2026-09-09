@@ -270,15 +270,29 @@ def main():
         out["palette_line"] = args.pal_line & 3
     else:
         # Lock mode stamps nothing, so a palette an earlier EXTRACT run wrote
-        # must survive: inject_editor_bg.py stamps it into ojz_palette.bin every
-        # build, and dropping it here silently reverts the BG colours.
+        # must survive: inject_editor_bg.py stamps it every build, and dropping
+        # it here silently reverts the BG colours.
         #
         # But retaining it is only SAFE if it still matches what this run
-        # quantised against. Lock mode quantises to GEN_PALETTE, which
-        # ojz_strip_gen.py re-copies from sonic_hack on every build. Carrying a
-        # palette that disagrees with GEN_PALETTE would restamp colours the new
-        # art was never quantised against -- the same silent-wrongness class as
-        # the loss, just pointing the other way. So verify, and refuse on drift.
+        # quantised against, and the REASON that can drift changed on 2026-09-09.
+        # This comment used to argue it from "ojz_strip_gen.py re-copies
+        # GEN_PALETTE from sonic_hack on every build" -- i.e. from the six-month
+        # defect (see ojz_common's "EXACTLY ONE WRITER" block), which is now fixed.
+        # THAT PREMISE IS DEAD. The conclusion survives on a live premise, and a
+        # sharper one: GEN_PALETTE is now a MIRROR of the authored palette at
+        # data/editor/<zone>/<act>/palette.bin, which the OWNER edits. So a
+        # retained `palette` goes stale whenever he picks a new colour -- and
+        # inject_editor_bg.py would then stamp this stale copy back over his edit.
+        # Before the fix the risk was carrying a value the donor copy had already
+        # reverted; now it is DESTROYING AN AUTHORING ACT. Verify, and refuse on
+        # drift.
+        #
+        # KNOWN WINDOW, and it is why the refusal is loud rather than a silent
+        # re-quantise: between an editor palette save and the next build the
+        # mirror is behind the authored file, so this check refuses and the
+        # remedy is to build. Quantising against a mirror the runtime will
+        # actually show is the deliberate choice -- the art is fitted to the
+        # colours the VDP loads, not to a file the ROM has not embedded yet.
         if "palette_line" in existing:
             out["palette_line"] = existing["palette_line"]   # safe on its own
         if "palette" in existing:

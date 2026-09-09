@@ -6,7 +6,7 @@
       "id": "ojz",
       "name": "Oracle Jungle Zone",
       "tileset": "games/sonic4/data/editor/ojz_tiles.bin",
-      "palette": "games/sonic4/data/generated/ojz/act1/ojz_palette.bin",
+      "palette": "games/sonic4/data/editor/ojz/act1/palette.bin",
       "acts": [
         {
           "id": "act1",

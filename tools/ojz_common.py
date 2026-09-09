@@ -34,6 +34,124 @@ LAYOUT_DIR = os.path.join(SONIC_HACK, "level/layout")
 CHUNK_MAP_PATH = os.path.join(SONIC_HACK, "mappings/128x128/OJZ.bin")
 BLOCK_MAP_PATH = os.path.join(SONIC_HACK, "mappings/16x16/OJZ.bin")
 
+# ---------------------------------------------------------------------------
+# THE ACT PALETTE: EXACTLY ONE WRITER, AND IT IS THE EDITOR.
+#
+# INVARIANT. `games/<game>/data/editor/<zone>/<act>/palette.bin` is the ONLY
+# authored copy of an act's palette. The generated `ojz_palette.bin` is a pure
+# MIRROR of it, written by `sync_palette_to_generated()` and by nothing else.
+# The sonic_hack donor is a ONE-TIME SEED (`seed_authored_palette()`), used only
+# when the authored file does not yet exist.
+#
+# WHY data/editor/ AND NOT SOMEWHERE ELSE. tools/level_staleness.py's
+# `editor_sources()` covers that whole tree (`games/<game>/data/editor`), so an
+# authored palette there makes the staleness gate SEE a palette edit and re-bake.
+# Anywhere else and the build cannot tell a palette changed at all.
+#
+# THE DEFECT THIS REPLACES (six months live; fixed 2026-09-09). ojz_strip_gen's
+# generate() used to `shutil.copy` the donor `art/palettes/OJZ.bin` straight over
+# the generated `ojz_palette.bin` on EVERY build, while project.json's
+# `zones[0].palette` pointed the EDITOR at that same generated file. So every
+# colour the owner picked was overwritten by a 2026-04-16 donor before it could
+# reach the ROM. Nothing reported a failure: the save saved, the build genuinely
+# did regenerate the palette, and the editor's live preview pushes CRAM directly,
+# so the emulator DID show the new colour. THE LIVE PATH WORKING IS WHAT HID IT —
+# a check that only exercises the live preview would have passed throughout.
+#
+# DO NOT REINTRODUCE A PER-BUILD DONOR COPY, and do not add a second writer of
+# the generated file: tools/inject_editor_bg.py's BG-palette stamp used to write
+# the GENERATED file precisely because this copy kept reverting it (its own
+# comment said so), which left one CRAM line unauthorable. It now writes the
+# authored file and mirrors, like everything else.
+# ---------------------------------------------------------------------------
+DONOR_PALETTE_PATH = os.path.join(SONIC_HACK, "art", "palettes", "OJZ.bin")
+
+#: The authored palette's basename inside `data/editor/<zone>/<act>/`. Not
+#: `ojz_palette.bin`: the authored file is act-scoped by its directory, and a
+#: distinct basename makes "which of these two is the source" unambiguous in a
+#: grep, a diff, and a `git status` line.
+AUTHORED_PALETTE_NAME = "palette.bin"
+
+
+def authored_palette_for(generated_dir: str) -> str:
+    """The authored palette that mirrors into `generated_dir`.
+
+    Derived FROM the generated directory (…/data/generated/<zone>/<act>) rather
+    than from a module-level repo root ON PURPOSE: a test that redirects the
+    generated dir into a tmpdir then redirects the authored file with it. The
+    alternative — an absolute path off REPO — writes straight past such a
+    redirect into the committed tree, which is exactly how ojz_strip_gen's
+    Pass 8 turned its own smoke test into a producer of committed data
+    (tools lens sweep D8).
+    """
+    gen = os.path.normpath(generated_dir)
+    parts = gen.split(os.sep)
+    # LOUD ON UNMEASURABLE. Deriving by walking three levels up would silently
+    # produce a path OUTSIDE the repo for any dir that is not shaped like
+    # …/data/generated/<zone>/<act> — e.g. the bare tmpdir tools/test_bg_emit.py
+    # rebinds OUT_DIR to, which would resolve to `/editor/…`. Swap the named
+    # component instead, and refuse when it is not there.
+    try:
+        i = len(parts) - 1 - parts[::-1].index("generated")
+    except ValueError:
+        raise ValueError(
+            f"authored_palette_for({generated_dir!r}): no 'generated' path component, "
+            f"so the authored palette's location cannot be derived. Pass a directory "
+            f"shaped like <root>/games/<game>/data/generated/<zone>/<act>."
+        )
+    if len(parts) - i != 3:
+        raise ValueError(
+            f"authored_palette_for({generated_dir!r}): expected "
+            f"…/generated/<zone>/<act>, got {len(parts) - i - 1} component(s) below "
+            f"'generated'."
+        )
+    parts[i] = "editor"
+    return os.path.join(os.sep.join(parts), AUTHORED_PALETTE_NAME)
+
+
+def seed_authored_palette(authored_path: str, donor_path: str = None) -> bool:
+    """ONE-TIME seed of the authored palette from the sonic_hack donor.
+
+    Returns True iff it CREATED the file. If the authored palette already
+    exists this does nothing at all — that is the whole point, and the reason
+    this is not a `shutil.copy` at the top of a build.
+
+    Loud on unmeasurable: an absent authored file AND an absent donor is a
+    RuntimeError naming both paths, not a silent empty palette.
+    """
+    if os.path.exists(authored_path):
+        return False
+    donor = donor_path or DONOR_PALETTE_PATH
+    if not os.path.exists(donor):
+        raise RuntimeError(
+            f"no authored palette at {authored_path} and no donor to seed it from "
+            f"at {donor}. Set AEON_SONIC_HACK_DIR, or commit an authored palette."
+        )
+    os.makedirs(os.path.dirname(authored_path), exist_ok=True)
+    with open(donor, "rb") as src, open(authored_path, "wb") as dst:
+        dst.write(src.read())
+    return True
+
+
+def sync_palette_to_generated(authored_path: str, generated_path: str) -> bytes:
+    """Mirror the authored palette into the generated tree. THE ONLY WRITER of
+    the generated palette. Returns the bytes written."""
+    with open(authored_path, "rb") as f:
+        pal = f.read()
+    os.makedirs(os.path.dirname(generated_path), exist_ok=True)
+    with open(generated_path, "wb") as f:
+        f.write(pal)
+    return pal
+
+
+def refresh_act_palette(generated_dir: str, generated_name: str = "ojz_palette.bin",
+                        donor_path: str = None) -> tuple:
+    """seed-if-missing then mirror, for one act. Returns (seeded, bytes)."""
+    authored = authored_palette_for(generated_dir)
+    seeded = seed_authored_palette(authored, donor_path)
+    pal = sync_palette_to_generated(authored, os.path.join(generated_dir, generated_name))
+    return seeded, pal
+
 
 def skdisasm_root() -> str:
     """The skdisasm donor checkout root — the SECOND out-of-repo donor.
