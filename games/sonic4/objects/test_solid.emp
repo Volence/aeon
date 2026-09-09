@@ -410,6 +410,27 @@ pub proc Spring_Launched (a2: *Sst, a3: *Sst) clobbers(d0-d2/a0-a2) {
         // uncurl y-shift PHook_EnsureStanding would otherwise apply on top of
         // the seat Touch_Spring just wrote. Same one-decision shape as
         // Ground_DetachState (player_ground.emp).
+        // THE TUMBLE. S3K seeds its flip state right here, in the spring's own
+        // launch handler (sub_22F98's flip block, sonic3k.asm:47739-47752) — the
+        // spring is what knows a launch happened, and the player frame only ever
+        // steps and ends what this seeds. Same split for us: the seed is one call,
+        // the mechanism lives with the animation it drives
+        // (Player_StartSpringFlip / Player_StepFlip, games/sonic4/player/player_common.emp).
+        //
+        // ON THE VERTICAL ARM ONLY, and that is the scope, not an oversight: this
+        // arm is the one that puts the player in the AIR, which is the whole
+        // premise of a rotation. The `.horizontal` arm below deliberately leaves a
+        // grounded player grounded, and a running player spinning end-over-end
+        // along the floor would be a worse look than no rotation at all. S3K's
+        // horizontal spring does carry the same block (:47920) — but it also parks
+        // the player at ground_vel ±1 first, which ours does not do. Booked in
+        // docs/DEFERRED_WORK.md rather than guessed at.
+        //
+        // BEFORE the state pick, so d0 is still free: the helper clobbers d0 and
+        // nothing else, and preserves a2, which keeps this proc inside its own
+        // declared d0-d2/a0-a2 bound with no save/restore.
+        jbsr    Player_StartSpringFlip
+
         moveq   #PSTATE_AIR, d0
         btst    #ST_ROLLING, Sst.status(a2)
         beq     .set_state
