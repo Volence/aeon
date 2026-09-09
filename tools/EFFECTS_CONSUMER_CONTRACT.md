@@ -50,7 +50,13 @@ aeon-internal and touches nothing here (format-boundary ruling, 2026-08-20).
 
 ---
 
-## 1. `tools/inject_editor_bg.py` — read set (OBSERVED at `08f01b73`)
+## 1. `tools/inject_editor_bg.py` — read set (OBSERVED at `0e00382e`, re-verified 2026-09-08)
+
+> **The pin said `08f01b73` until 2026-09-08, with 20 commits to the observed file behind
+> it** — `axis` alone was added, and the `default_off` refusals were removed, after that
+> SHA. The read set itself was re-derived key-by-key today from the tool's `data.get(...)`
+> and `a.get(...)` sites and needed no change; only the pin was stale. **A provenance SHA
+> on a LIVE document is a claim with a shelf life: re-verify it or move it.**
 
 Input file: `games/sonic4/data/editor_bg_override.json` (path fixed at
 `inject_editor_bg.py:56`).
@@ -60,7 +66,7 @@ Input file: `games/sonic4/data/editor_bg_override.json` (path fixed at
 | Key | Line(s) | Required | Read as |
 |---|---|---|---|
 | `layout` | `:61`, `:162-181` | yes | 2048 (legacy, zero-padded to 64 rows) or 4096 nametable words |
-| `tiles` | `:61`, `:165`, `:185-199` | yes | list of 64-px tiles; `len(tiles) <= BG_TILE_CAPACITY` (448, imported from the vram_map mirror `:24`) |
+| `tiles` | `:61`, `:165`, `:185-199` | yes | list of 64-px tiles; `len(tiles) <= BG_TILE_CAPACITY` (376, imported from the vram_map mirror `:24`) — ⚠ **this number moves; see the note under this table** |
 | `anims` | `:70` | no | list of band objects (§1.2); absent/empty → the disabled stub (`band_count = 0`) |
 | `anim` | `:71-72` | no | LEGACY single-band form, wrapped to `[anim]` only when `anims` is absent. **Writers must not emit it** (read-side compatibility only) |
 | `palette` | `:206-221` | no | exactly 16 CRAM words, stamped into `ojz_palette.bin` |
@@ -68,6 +74,34 @@ Input file: `games/sonic4/data/editor_bg_override.json` (path fixed at
 
 No other top-level key is read. (Aurora already owns `layout`/`tiles` via the BG override
 path; wave 1 adds `anims` authoring — see the wave-1 design doc.)
+
+##### ⚠ `BG_TILE_CAPACITY` MOVES, AND THIS DOCUMENT STATED IT WRONG FOR ITS ENTIRE LIFE (corrected 2026-09-08, BAND-LIVE-BUILD)
+
+**The `tiles` row above said 448 from this file's creation (`7ae610e4`) until 2026-09-08,
+while the live value went 448 -> 400 -> 388 -> 376.** It was wrong by 72 tiles, and **wrong
+in the PERMISSIVE direction**: a consumer sizing an author's canvas from this document
+accepts background blobs that `tools/inject_editor_bg.py`'s own
+`assert len(tiles) <= BG_TILE_CAPACITY` refuses, so the author meets the real ceiling as a
+failed BUILD rather than as an editor notice. That is the same shape, and the same
+direction, as the stale vendored `400` that left aurora's master red for about 18 hours
+(docs/DEFERRED_WORK.md) — this time inside the document the vendoring reads from.
+
+**THE AUTHORITY, so nothing has to trust the literal above:**
+`games/sonic4/vram.toml` `[[region]] bg_region` → `tiles` (capacity) and `band_reserve`,
+mirrored into `tools/vram_map.py` as `BG_TILE_CAPACITY` / `BG_BAND_RESERVE` /
+`BG_STATIC_TILE_BUDGET`. **Vendor the authority, not this sentence.** Measured
+2026-09-08 at master `0e00382e`: capacity 376, band reserve 56, static importer budget
+`tiles - band_reserve` = 320 (the budget has not moved through any carve; every carve so
+far came out of the RESERVE).
+
+**DRIFT-GATED SINCE 2026-09-08.** Every constant this document restates beside its name is
+now checked against the live module by
+`tools/test_bg_emit.py::TestTheContractStatesLiveValues`, which runs in `build.sh`'s
+pre-build tool-suite lane and fails the BUILD. **Nothing parsed this file before that**, which
+is why the 448 survived four carves: `tools/prose_bound_sweep.py` is an AST walk over
+Python, so handed a `.md` it raises and reports `sites: 0` — a reading indistinguishable
+from a clean file — and it excludes comments by construction, which is where this tool's
+own companion restatement of the same stale number sat.
 
 ### 1.2 Per-band keys read (each element of `anims`)
 
