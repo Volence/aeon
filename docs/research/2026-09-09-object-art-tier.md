@@ -724,7 +724,9 @@ the plane drain and the Critical queue: **2,944 B/frame.**
 | a frame where a page landing completes, solo | 2,048 + 928 = 2,976 | **0** (already 32 B over) |
 | a frame where a page landing completes, duo | 4,032 | **0** (1,088 B over) |
 
-One 24-tile blob is **768 B = 26% of the solo steady-state headroom, one frame.** A full
+One 24-tile blob is **768 B = 38% of the 2,016 B solo steady-state headroom, one frame**
+(26% of the 2,944 B residual before DPLC is charged — the smaller figure is the wrong
+denominator and an earlier draft of this line used it). A full
 five-blob envelope changeover is ~3.8 KB — **two frames solo, four duo**, against
 **16 frames** of vertical lead and **24** of horizontal (§1.4). Even if half the frames in
 that window are page-landing frames and yield zero, the margin is roughly 4× .
