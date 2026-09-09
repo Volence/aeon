@@ -99,6 +99,18 @@ struct DictBase { }
 // the same crash screen through the vector table — a release-shape check there
 // would buy a nicer message for real bytes and no new coverage.
 // -----------------------------------------------
+// ⚠ DO NOT NARROW THIS `clobbers` LIST. Its body writes d0 (DEBUG only) and a4, and
+// NOTHING ELSE — so any reader, any lint, and any static analysis will report 8 of the 9
+// declared registers as provably unnecessary. THEY ARE NOT. This proc `falls_into
+// S4LZ_Decompress`, and the fall-through target is what writes them; a caller that trusts
+// a narrowed list here restores registers the fall-through has already destroyed.
+// Measured by the sigil lane 2026-09-09 while pricing a narrowing pass: of their 90-proc
+// residue, 11 declare `falls_into`, which their closure does not model as an edge at all,
+// and THIS PROC is the example they named. Had that pass started from the producer count,
+// a register would have been deleted from a contract that needs it, along with its
+// caller's correct save. Their own conclusion, and the reason it is written here rather
+// than in a doc: the next reader meets a declaration that looks provably unnecessary and
+// is wrong, so the reason has to sit where the temptation is.
 pub proc S4LZ_DecompressDict (a0: *u8, a1: *u8, a4: *DictBase, d4: u16) clobbers(d0-d3/a0-a4) falls_into S4LZ_Decompress {
         if DEBUG == 1 {
             move.w  d4, d0
