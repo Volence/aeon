@@ -939,7 +939,20 @@ def headroom_violations(sweeps, seeds_by_path, amp=None):
     for s in sweeps:
         bands, _why, _has = bands_for_sweep(s, progs, presets, sections)
         if s.channel not in bands:
-            continue                      # already reported by band_violations
+            # UNEVALUATED, not silently skipped (2026-09-09). This was a bare `continue`
+            # commented "already reported by band_violations", which is true of the VIOLATION
+            # and false of this function's second return value — and that second value is what
+            # `test_the_in_band_fixture_is_accepted_with_no_violation_at_all` asserts empty
+            # precisely so its control cannot pass having measured nothing.
+            #
+            # MEASURED, on this tree, 2026-09-09: with `patched: OJZ_TwoChannel` unbound from
+            # OJZ_Preset_Sec0 the in-band fixture resolves to bands {} — 1 sweep scanned, 0
+            # band violations, 0 headroom violations, 0 unevaluated — so the control PASSED
+            # while checking no band at all. The assertion written to catch exactly that
+            # ("the in-band fixture's seed was not reachable, so ... this control is weaker
+            # than it reads") could not fire, because the skip never reached it.
+            unevaluated.append(s)
+            continue
         seed = seeds_by_path.get(s.path, {})
         key = None
         for k in seed:
