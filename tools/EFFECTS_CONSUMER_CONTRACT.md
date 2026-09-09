@@ -482,7 +482,14 @@ DSL constructor arguments 1:1 (`engine/level/scene_dsl.emp` `scene()`/`layer()`)
   (`docs/superpowers/specs/2026-08-29-band-drift-design.md` §7.1 mitigation 2) is
   **Aurora's UI, multiplied by 256 on export**; the generator applies no conversion, so a
   writer that exports px/frame unscaled is 256x slow and one that scales twice is 256x
-  fast. Bounds `-4096 … +4096` and the refusal of `0` are `layer()`'s two `ensure`s in
+  fast.
+  **⚠ THIS IS `drift.rate` ONLY, AND THE UNQUALIFIED FORM IS A TRAP** (scoped 2026-09-09 on
+  aurora's check of their own tree, cite this correction and not their source). **The reels
+  path is signed WHOLE pixels per frame with no fixed point anywhere, and the x256 conversion
+  MUST NOT be applied to it** — their `scene.ts:232` says so in terms, and warns that a panel
+  or converter copied from the drift path **emits 768 for an intended 3**. The only thing
+  catching that today is a `-128..127` bound; there is no magnitude `ensure` on this side.
+  **Read this row as a rule about `drift.rate`, never about px/frame presentation in general.** Bounds `-4096 … +4096` and the refusal of `0` are `layer()`'s two `ensure`s in
   `engine/level/scene_dsl.emp` and are NOT re-checked here, per design §7 row 10 — the
   generator's shape check only requires an integer. This key is only authorable in a game
   whose `SCANLINE_CAPS` raise `CAP_BAND_DRIFT` (`$0080`); in one that does not, the

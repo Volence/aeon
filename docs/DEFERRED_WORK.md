@@ -6451,7 +6451,10 @@ objects), alongside the §3 SST field audit.
 > START + flag-based authoring" block) is: **all-air baseline** (`per_section_coll` seeded
 > from `air_col`) **+ Aurora's editor overlay** (`apply_editor_collision_overlay`, reading
 > `games/sonic4/data/editor/ojz/act1/section_N.collattr.bin` / `.collattrb.bin` — 16-bit
-> big-endian cell words, one plane per file) **baked via `collision_pipeline.bake_plane_cell`
+> big-endian cell words, one plane per file; **the two SUFFIXES are confirmed by aurora
+> 2026-09-09 in two independent places in their loader, the 16-bit-big-endian half is
+> UNVERIFIED by them and stands as our claim alone** — they declined to confirm it without
+> decoding bytes, naming endianness as the class this suite has already misread twice) **baked via `collision_pipeline.bake_plane_cell`
 > against the imported S&K shape/height/angle bank** (`data/collision/base/`, written by
 > `import_sk_collision.py`) **into a shared, sparse interned attr-set** (~~13/255 combos used
 > today, ~242 slots headroom~~ — **re-counted 2026-08-28 at `42e70bea`: 21 used, 235 free**;
@@ -22111,8 +22114,21 @@ The `ensure`'s message now says both things.
 
 **OWED TO THE HUB, NOT DONE HERE (the schema and the editor belong to other lanes).**
 `empyrean` `contract/schema/aurora-effects-preset.schema.json` carries the old number in two places,
-and aurora's editor REGEXES one of them (`/DISPLAYS on top \+ (\d+)/`) into
-`EFFECTS_PRESET_RAMP_VSRAM_DISPLAY_LAG`. The `ramp` description's "value j displays on top + j + 1"
+and aurora's editor REGEXES one of them (`/DISPLAYS on top \+ (\d+)/`) into what this row
+originally called `EFFECTS_PRESET_RAMP_VSRAM_DISPLAY_LAG`.
+**⚠ THAT CONSTANT NO LONGER EXISTS — corrected 2026-09-09 on aurora's check of their own tree,
+cite this and not their source.** The regex is alive and still matches; the constant was
+**SPLIT on 2026-09-03** because two consumers were using one number as two different
+quantities, and it survives only as a past-tense comment at their `preset.ts:1069`. The two
+successors are `EFFECTS_PRESET_RAMP_VSRAM_FIRST_LINE_OFFSET` (2, parsed from the `top`
+sentence — the one THIS row's regex matches) and `EFFECTS_PRESET_RAMP_VSRAM_INDEX_LAG` (1,
+parsed from the ramp key's sentence), each with its own module-load guard and an interlock
+deriving one from the other. **This row means FIRST_LINE_OFFSET**, because the defect it
+books is in the `top` property's sentence.
+**AND THIS IS THE INSTANCE BEHIND THE SPECIFICITY TELL:** of four claims we make about
+aurora's tree, this was the most specific — a named constant plus a literal regex — and the
+only stale one. **Precision reads as evidence of having been checked, and buys unearned trust
+that is indistinguishable from the earned kind.** The `ramp` description's "value j displays on top + j + 1"
 is CORRECT and needs only the `j >= 1` clause; the `top` property's "the first written value
 DISPLAYS on top + 1, not top" is WRONG and must read `top + 2`. Replacement strings are in the
 parcel report. Aurora must not change its constant unilaterally — it is parsed from the schema on
