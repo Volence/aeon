@@ -253,8 +253,152 @@ and it is the one I would put in front of the owner first.** See Part 4.
 
 ## Part 3 — The honest cost of the other direction
 
-*(pending)*
+Both stated reasons fell. The plane size is nonetheless load-bearing — **for a third reason that
+is written down nowhere.**
 
-## Part 4 — Recommendation and its falsifier
+### 3.1 The real consumer: Plane B is a RESIDENT 512-px-tall background
 
-*(pending)*
+`docs/ENGINE_ARCHITECTURE.md:1742`: Plane B is "Drawn once by `Section_RedrawPlanes` at level
+init. Continuous scrolling never rebases or redraws Plane B during play."
+
+`Draw_BG_TileColumn` — the BG streaming producer — exists at `plane_buffer.emp:521` and has
+**zero callers** (grep across `engine/` and `games/` returns the definition and nothing else).
+It was built and never wired up. So the background is not streamed; **the entire background image
+must be resident in the plane at once**, and that is what the 64 rows actually buy.
+
+**Measured, independently** (`games/sonic4/data/generated/ojz/act1/zone_bg.bin`, 8192 B,
+decoded column-major per `blob[col*128 + row*2]`):
+
+| Region | Cells | Non-zero | Unique tile indices |
+|---|---|---|---|
+| rows 0-31 | 2048 | **2048 (100%)** | 121 |
+| rows 32-63 | 2048 | **2048 (100%)** | **248** |
+| rows 48-63 | 1024 | **1024 (100%)** | 121 |
+
+Rows 32-63 carry *more* tile variety than rows 0-31. This is real shipped content, and rows 48-63
+specifically are the perspective-floor placeholder's exclusive target
+(`tools/perspective_floor_gen.py:206`, `PLANE_ROWS = 64`).
+
+**`docs/LEVEL_EDITOR_SPEC.md:256` is STALE** — it still claims "Rows 32-63 are init-only today
+(the injector zero-pads 32-row layouts)". The bytes say otherwise. That line should be corrected
+regardless of what happens to this lever.
+
+Are those rows *reachable*? Yes. `SECTION_SIZE = $0800` (2048 px) over OJZ's 4x3 grid gives a
+6144 px act; camera Y travel is ~5920 px; at `v_factor: 3` (`ojz_scenes.emp:233` — "eight times
+compressed") the BG walks `5920 >> 3 = 740 px` of plane. All 512 rows pass the screen.
+
+**But note what that number means: 740 > 512. The background already wraps mid-act today.**
+64x64 does not solve the background-height problem; it only makes the repeat less frequent. This
+is exactly why `docs/research/2026-08-29-tall-background-map.md` exists.
+
+### 3.2 What concretely breaks
+
+| # | Site | What it assumes | Severity |
+|---|---|---|---|
+| 1 | **`parallax.emp:685`** `PLANE_B_CELL_ROWS = 64`, `PLANE_B_SPAN = 512` | Its comment claims it is "derived from the cell count rather than typed as 512" — **it is not.** It is a second independent literal `64`, referenced against `PLANE_V_CELLS` nowhere in the tree. Its own `ensure(PLANE_B_SPAN == 512, "PLANE_B_SPAN drifted from the 64x64 Plane-B geometry")` **would still pass** after a `PLANE_V_CELLS` edit. | **A guard that cannot fail on the change it names.** The most dangerous site in the inventory — every downstream `and.w #PLANE_B_SPAN-1` wrap mask would silently mask against a plane that no longer exists. |
+| 2 | `boot_data.emp:186` `dc.b $11 // $10: 64x64 scroll planes` | The actual VDP register byte is hand-typed. **No `ensure` ties it to `PLANE_H_CELLS`/`PLANE_V_CELLS`.** | Missing guard: editing only the constants builds clean and desyncs from hardware. |
+| 3 | `bg.emp:51` `BG_LAYOUT_SIZE = 64*64*2` | Literal, not `PLANE_H_CELLS*PLANE_V_CELLS*2`. | Mechanical, but silent. |
+| 4 | The bare `#63` literals in `section.emp` (`:272,319,698,755,806,851` masks; `:708,765,816,861` wrap spans) and `plane_buffer.emp` (`:140,432,434,440`) | **Mixed axes.** `:698,755,708,765` are COLUMN (stay 63); `:806,851,816,861` and `plane_buffer.emp:140` are ROW (must become 31). None follow `PLANE_V_CELLS`. | Real hand-audit. This is the "a site that uses the wrong one is invisible" hazard the constants file warns about at `:845`. |
+| 5 | Rows 32-63 of the shipped OJZ background, incl. the rows-48-63 perspective floor | Real content, deleted by the shrink unless a BG row streamer lands first. | **The blocking cost.** |
+| 6 | `tools/depth_onset_probe.py:478`, `tools/warp_mailbox_gate.py:91,211`, `tools/boot_override_gate.py:317`, `tools/perspective_floor_gen.py:185` | Hardcoded 8192-byte / 64-row plane. | Mechanical, unguarded. (`tools/canopy_record.py` and friends parse `constants.emp` at runtime and auto-follow — no edit needed.) |
+
+### 3.3 What gets BETTER
+
+- **384 tiles returned**, not 256. `plane_a` 256→128 and `plane_b` 256→128 frees 256; and
+  `spare_nametable` (128 tiles at $6000) exists *only* because it is "the only `$2000`-aligned run
+  left and 128 tiles is exactly a 64x32 plane" (`DEFERRED_WORK.md:27511`) — a reservation held to
+  serve as a future plane base. Shrink the planes and that purpose is met by their own freed
+  tails, so the reservation releases. **256 + 128 = 384.**
+- **Object VRAM goes from 128 tiles to over 500.** The object neighbourhood (tiles 896-1023) is
+  fully spent today with 1 free tile — the owner's "we can't have space for 0 objects".
+- **The window plane becomes real.** `vram.toml` declares `window_plane` with
+  `overlay_with = ["plane_b"]` — it aliases Plane B's tail and is unusable. At 64x32 Plane B ends
+  exactly where the window begins and the overlap disappears, for free.
+- **The horizontal streamer gets cheaper** (§1.5): 136 B → 72 B per column entry, and the same
+  64 bytes/column back into the VBlank DMA window.
+- **A column write stops zero-filling.** `Draw_TileColumn` emits `PLANE_V_CELLS` = 64 rows from a
+  60-row cache and **zero-fills the last 4** (`plane_buffer.emp:160-168`, `.pA_zero`). At 32 rows
+  the cache covers the plane entirely and the zero-fill legs become dead code.
+
+---
+
+## Part 4 — Recommendation, and the measurement that would refute it
+
+### The recommendation
+
+**Do not pull the lever today. Sequence it behind one specific piece of work: wire up a Plane B
+row streamer. Then pull it, and take 384 tiles.**
+
+The reasoning, stated so it can be attacked:
+
+1. **Neither documented reason for 64x64 survives measurement.** The vertical buffer is never
+   written (§1.3 — the streamer's stop target is the viewport). The VSRAM range is capped at
+   255 px by the signed-byte table format and no shipped scene asks for more than 31 px (§2).
+   **`docs/ENGINE_ARCHITECTURE.md` §2.3 should be corrected on both counts regardless of the
+   ruling** — right now it justifies a 512-tile spend with two claims the code contradicts.
+2. **But the plane is load-bearing anyway**, for the unwritten third reason: Plane B is a resident
+   512-px background with no row streamer. Shrinking it today deletes shipped, on-screen art.
+   *That* is what 64x64 is actually buying — and it is worth saying plainly that the engine has
+   been paying 512 tiles for a reason nobody could have found in the docs.
+3. **The gate is small and already scoped.** `docs/research/2026-08-29-tall-background-map.md`
+   prices the BG streamer at "one new producer, one scheduler, 4 bytes of RAM, no new VRAM, and
+   ~33 bytes/frame of DMA", with `Draw_BG_TileColumn` already written. And it reframes the whole
+   question the way the owner did: **S3K's planes are 512x256** and S3K got a 2,816-px background
+   out of that 256-px window by streaming. The owner's instinct is the S3K design.
+4. **64x64 does not actually solve the problem it is being kept for.** OJZ already needs 740 px
+   of background against a 512-px plane (§3.1). The background wraps mid-act *today*. Once a row
+   streamer exists, plane height stops mattering almost entirely — which is precisely why the
+   shrink becomes cheap right after that work and expensive before it.
+
+Order of operations: (a) fix the two doc claims and the stale `LEVEL_EDITOR_SPEC.md:256`; (b) wire
+`Draw_BG_TileColumn` into a vertical BG scheduler; (c) fix the `PLANE_B_CELL_ROWS` guard so it
+actually derives from `PLANE_V_CELLS`, and add the missing `ensure` tying `boot_data.emp`'s
+`$11` to the constants — **these two guards must land before the flip, not with it**, because
+both are silent; (d) then flip, and audit the mixed-axis `#63` literals as its own step.
+
+### The derived threshold this rests on
+
+At the camera cap the BG moves `16 >> 3 = 2 px/frame`, so it crosses one tile row **every 4
+frames**. A BG row entry is `4 + PLANE_H_CELLS*2 = 132 B` (plane width is unchanged by this
+lever), i.e. **33 B/frame** against a 1536 B plane buffer and a 6144 B NTSC DMA window — **0.5% of
+the window.** (This derivation, made independently here from `CAM_MAX_Y_STEP` and `v_factor: 3`,
+lands on the same ~33 B/frame the 2026-08-29 doc reports — an agreement between two derivations,
+not a number copied from a neighbouring doc.)
+
+### What would prove me wrong
+
+Name the falsifier precisely, or the recommendation is a preference:
+
+1. **The BG row streamer's real cost exceeds the derived 33 B/frame by more than ~10x.** My case
+   rests on that figure. Measure `Plane_Buffer_Ptr` peak and the VBlank DMA charge under sustained
+   vertical motion *with the streamer wired*, on the DEBUG shape. If sustained diagonal +
+   BG-streaming peak crosses the 1462 B column drop threshold, or the DMA window starves the art
+   streamer, then the resident background is the right design and 64x64 must stay. **This is the
+   single measurement that decides it.**
+2. **A scene requests more than 32 px of per-column deformation.** My §2 result is a fact about
+   *today's* seven scenes, and they clear 32 px by **one pixel**. `deform_sine(amp: 24)` at shift 0
+   would break it. If the owner's authoring plans include stronger vertical deformation, reason 2
+   becomes true prospectively even though it is false today — and the correct response is a
+   `ensure` capping authored deform spread at `PLANE_V_CELLS*8 - SCREEN_HEIGHT`, which does not
+   exist and should regardless of this ruling.
+3. **Rows 32-63 turn out to be reachable only through content that cannot be re-authored.** I
+   showed they are populated and reachable; I did *not* show the perspective-floor placeholder can
+   be reproduced by a streamer. If that feature structurally needs 16 resident rows below the
+   viewport, it is a counter-example to step (b).
+
+### What I could NOT measure — TAGGED for the controller
+
+Everything above is source, baked data and derivation. Two claims would benefit from a runtime
+confirmation I did not run, and neither changes the recommendation:
+
+- **Runtime confirmation that `Section_Bottom_Row_Written` never exceeds `(camY+231)>>3`** during
+  sustained vertical motion. The static case is strong — `d7` is the loop's stop target, and
+  `Draw_TileRow_FromCache` has exactly two callers, both in that loop — so I record this as
+  closed by source, not as a gap.
+- **The §1.5 plane-buffer figures under sustained VERTICAL motion.** The booked 272 B peak covers
+  horizontal motion only. My 264 B vertical / 536 B diagonal figures are *derived* from the entry
+  sizes and the camera cap, not observed. Worth an `ab_runner` pass on the DEBUG shape before the
+  flip, and it is the same run as falsifier 1.
+
+**No gate was added by this parcel** — it is a measurement, and a gate whose red I had not proven
+would be worse than none.
