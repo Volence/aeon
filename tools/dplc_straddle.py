@@ -689,6 +689,47 @@ def tilt_expansion(frames_by_id):
                  f"strides 1<<{walk_shift}/1<<{run_shift}")
 
 
+def tumble_expansion():
+    """Player_ApplyTumble's contribution: the twelve-frame rotation set.
+
+    Unlike every other player contribution this one does NOT depend on the
+    animation scripts. The routine ignores the script's frame byte entirely and
+    writes `Player_TumbleFrames[biased_angle]`, a table whose whole range is
+    `TUMBLE_FRAME_BASE .. +TUMBLE_FRAMES-1` by construction — so the reachable set
+    is exactly those twelve frames, for any anim id that can reach the routine.
+
+    Derived from the constants that build the table, and the three instructions
+    the derivation depends on are re-read so a re-spelled routine fails loud
+    instead of leaving this set stale. In particular the `move.b (a1,d0.w)` is
+    what makes this a TABLE read rather than an add onto the script frame; if that
+    ever became an add, this set would be wrong in the unbounded direction.
+    """
+    P = "games/sonic4/player/player_common.emp"
+    base = local_const(P, "TUMBLE_FRAME_BASE")
+    count = local_const(P, "TUMBLE_FRAMES")
+    per = local_const(P, "TUMBLE_ANGLE_PER")
+    span = local_const(P, "TUMBLE_ANGLE_SPAN")
+
+    require_spelling(P, r'^\s*TUMBLE_FRAME_BASE \+ i / TUMBLE_ANGLE_PER\s*$',
+                     "Player_TumbleFrames' body is what bounds the frame set to "
+                     "TUMBLE_FRAMES entries; re-derive the reachable set")
+    require_spelling(P, r'^\s*move\.b\s+\(a1,d0\.w\),\s*mapping_frame\(a0\)\s*$',
+                     "the tumble frame is a TABLE READ, not an offset added to the "
+                     "script's own frame byte; re-derive the reachable set")
+    require_spelling(P, r'^\s*lea\s+Player_TumbleFrames\(pc\),\s*a1\s*$',
+                     "the table being indexed is Player_TumbleFrames; re-derive the set")
+
+    # Re-derive the table's own range rather than trusting TUMBLE_FRAMES: this is
+    # the number the ROUTINE can actually produce.
+    out = {(base + i // per) & 0xFF for i in range(span)}
+    if out != {(base + n) & 0xFF for n in range(count)}:
+        raise Unmeasurable(
+            f"Player_TumbleFrames spans {sorted(out)}, which is not the "
+            f"{count} frames from {base:#04x} that TUMBLE_FRAMES claims")
+    return out, (f"tumble: {count} frames from {base:#04x}, "
+                 f"{per} angle units each over a {span}-unit revolution")
+
+
 def appendage_bank(frames_by_id):
     """TailsAppendage_Main's roll direction bank: the ball-spin cycle is stored
     four times over, and the bank (a submask of the `andi.b` mask) is added to
@@ -827,6 +868,10 @@ WRITERS = {
     ("games/sonic4/player/player_common.emp", "Player_ApplyTilt"): dict(
         sites=1, art="player", frames="tilt",
         why="the ground-angle tilt banks, walk/run only"),
+    ("games/sonic4/player/player_common.emp", "Player_ApplyTumble"): dict(
+        sites=1, art="player", frames="tumble",
+        why="the spring tumble's twelve-frame rotation set, tail-jumped from "
+            "Player_ApplyTilt inside its walk/run gate"),
     ("games/sonic4/player/player_common.emp", "Player_DebugEnter"): dict(
         sites=1, art="other", frames="none",
         evidence=[(r'move\.l\s+#Map_TestObj,\s*mappings\(a0\)',
@@ -1057,6 +1102,10 @@ def reachable_sets(subs, rom, labels):
             return set()
         if key == "tilt":
             got, note = tilt_expansion(scripts[sub["name"]])
+            notes.append(f"{sub['name']}: {note}")
+            return got
+        if key == "tumble":
+            got, note = tumble_expansion()
             notes.append(f"{sub['name']}: {note}")
             return got
         if key == "appendage":

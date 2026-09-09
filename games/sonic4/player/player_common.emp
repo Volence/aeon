@@ -96,7 +96,15 @@ pub vars PlayerV: Sst.sst_custom {
         status_secondary: u8,           // reserved condition bits (speedshoes etc.) — 0 for now
         move_lock:        u16,          // input-freeze frames (slip/spring channel)
         spindash_charge:  u16,          // spindash rev accumulator (release converts charge→gsp)
-        flip_angle:       u8,           // reserved (visual rotation)
+        flip_angle:       u8,           // LIVE (was "reserved (visual rotation)" — this is
+                                        // that rotation): the spring tumble's angle about
+                                        // the horizontal axis, 256 = 360 deg, exactly S3K's
+                                        // flip_angle. ZERO MEANS NOT TUMBLING, which is why
+                                        // the seed is 1 and not 0 (see TUMBLE_SEED_ANGLE's
+                                        // ensure — a step that could land on 0 mid-spin
+                                        // would end the tumble early and silently).
+                                        // Written by Player_StartSpringFlip / Player_StepFlip;
+                                        // read by Player_ApplyTilt's tumble arm.
         air_left:         u8,           // reserved (no water yet)
         invuln_time:      u8,           // reserved
         stick_convex:     u8,           // flag: full terrain adherence (objects will set)
@@ -200,6 +208,32 @@ pub vars PlayerV: Sst.sst_custom {
         // precedent instead of making one name wrong for two characters. Appended
         // at the TAIL, so no existing overlay offset moves.
         instashield:      u8,           // 0 ready / 1 attacking / 2 spent (per airborne stretch)
+
+        // --- THE SPRING TUMBLE (S3K's flip_angle / flip_speed / flips_remaining,
+        // sonic3k.constants.asm:53/60/59). SONIC-REACHABLE, like `instashield`
+        // above and unlike the ability scratch, so the replay-hash paragraph does
+        // NOT cover them: a recorded fixture moves wherever a tumble actually
+        // happens. That is acceptable on the same terms instashield took —
+        // `Player_StepFlip` clears both on the first grounded frame, so they read
+        // 0 on every tick of a fixture that never launches off a spring, and the
+        // hash folds VALUES.
+        //
+        // APPENDED AT THE TAIL, deliberately, even though they belong beside
+        // `flip_angle` in reading order: `tools/fixtures/*_cut.json` record every
+        // PlayerV field's OFFSET, and an insertion next to flip_angle would move
+        // the eleven fields below it. The tail costs those fixtures nothing.
+        //
+        // `flip_angle` itself is NOT new — it is the "reserved (visual rotation)"
+        // byte declared above, now live and reading its own comment back.
+        flip_step:        u8,           // per-frame angle delta, DIRECTION IN THE SIGN
+                                        // (+SPRING_FLIP_STEP spins forward, -it back).
+                                        // One byte doing S3K's two (flip_speed + the
+                                        // ground_vel sign its Player_JumpFlip reads),
+                                        // because we deliberately do NOT stomp the
+                                        // player's ground speed the way S3K does —
+                                        // see Player_StartSpringFlip's deviation 2.
+        flips_remaining:  u8,           // whole revolutions still owed AFTER the current
+                                        // one; the tumble ends when a wrap borrows past 0
 }
 
 // PlayerV's BUDGET pins. The overlay's own overflow check is what makes an actual
@@ -214,7 +248,7 @@ pub vars PlayerV: Sst.sst_custom {
 // a change has to be acknowledged. Update the number and the guard tells the next
 // author the new headroom.
 const PLAYERV_WINDOW = sizeof(Sst) - offsetof(Sst, sst_custom) - 2   // less SST_interact
-const PLAYERV_SPEND  = 27
+const PLAYERV_SPEND  = 29
 ensure(sizeof(PlayerV) == PLAYERV_SPEND,
        "PlayerV now spends {sizeof(PlayerV)} of the custom window's {PLAYERV_WINDOW} game-usable bytes, not the {PLAYERV_SPEND} the ability-scratch budget note above is written against — headroom is {PLAYERV_WINDOW - sizeof(PlayerV)}, not {PLAYERV_WINDOW - PLAYERV_SPEND}. Move PLAYERV_SPEND to {sizeof(PlayerV)} in the same commit that adds or removes the field. WHAT THIS DOES NOT COVER: it says nothing about whether the new field is Sonic-REACHABLE, which is the replay-hash question the block above turns on, and nothing about the overlay overflowing the window — that is the region lowerer's own always-on check, and the pin below is only a restatement of its bound")
 ensure(sizeof(PlayerV) <= PLAYERV_WINDOW,
@@ -242,6 +276,18 @@ equ _pl_state = offsetof(Sst, sst_custom) + offsetof(PlayerV, player_state)
 // neighbouring field and report a green. Naming it here makes the reorder move
 // the number instead.
 equ _pl_gsp = offsetof(Sst, sst_custom) + offsetof(PlayerV, ground_speed)
+
+// _pl_flip_angle / _pl_flips_remaining — the spring tumble's state, exported for
+// exactly the reason _pl_gsp above is, and on the same terms: no code in either
+// tree reads these names, an `equ` emits no bytes, and both ROMs stay
+// byte-identical with and without them. They exist so the spring witness can ask
+// whether the tumble actually armed, advanced and ENDED, rather than inferring it
+// from the drawn frame alone — which cannot tell "the rotation finished" from
+// "the rotation is still running and happens to be passing through its first
+// frame". flip_step is deliberately NOT exported: nothing outside the two writers
+// has a question about it that the angle does not answer better.
+equ _pl_flip_angle = offsetof(Sst, sst_custom) + offsetof(PlayerV, flip_angle)
+equ _pl_flips_remaining = offsetof(Sst, sst_custom) + offsetof(PlayerV, flips_remaining)
 
 // Sub-field displacement consts — the 16.16 subpixel low words (LevelBound
 // clears them). `Sst.field + N` does not compose inside a displacement, so name
@@ -303,6 +349,86 @@ ensure(1 << TILT_RUN_SHIFT  == TILT_RUN_LEN,  "TILT_RUN_SHIFT no longer encodes 
 // checkable from the four constants alone.
 ensure(TILT_WALK_BASE + TILT_SETS * TILT_WALK_LEN == TILT_RUN_BASE,
        "the WALK blocks no longer end where the RUN blocks begin — the character sheets were re-paged; re-cut TILT_*_BASE/LEN")
+
+// -----------------------------------------------
+// THE SPRING TUMBLE — S3K's Anim_Tumble (sonic3k.asm:24932-24995), the full-360
+// body rotation a spring throws the player into.
+//
+// This is the mechanism Player_ApplyTilt's "DEVIATION 2: NO TUMBLE GATE" note
+// said was missing, and its parenthetical was right on both counts: the art IS
+// already in our sheets, and the selection IS a different one — a counter
+// bucketed by $16, not an octant of the ground angle.
+//
+// ⚠ IT IS NOT ANIM ID $10. Anyone grepping S3K for "the spring animation" lands
+// on `move.b #$10,anim(a1)` (sonic3k.asm:47796) and on AniSonic10
+// (`dc.b $2F,$8E,$FD,0`), which is ONE STATIC FRAME held 48 ticks — the Sonic-1
+// era "spring stretch" pose, not a rotation. Two independent reference sweeps of
+// s2disasm / S.C.E. / sonic_hack / skdisasm each found that path, each concluded
+// "no reference implements a rotation", and each was WRONG: the rotation is the
+// OTHER arm of the same routine, twelve lines below, at sonic3k.asm:47740 —
+//
+//      btst  #0,d0                  ; the spring's subtype bit 0
+//      beq.s loc_23020              ; clear -> the static $10 pose above
+//      move.w #1,ground_vel(a1)
+//      move.b #1,flip_angle(a1)     ; <- THE ROTATION
+//      move.b #0,anim(a1)           ; ... driven from the WALK/RUN anim, not its own
+//      move.b #0,flips_remaining(a1)
+//      move.b #4,flip_speed(a1)
+//
+// — and the horizontal (:47920) and down-diagonal (:48114/:48225) springs carry
+// the same block. Recording it here so the next reader does not re-derive the
+// wrong answer from the obvious grep.
+//
+// The frame set: S3K picks `mapping_frame = $31 + (biased_angle / $16)`, i.e.
+// TWELVE frames spanning one revolution, drawn upright for a right-facing spin
+// and X+Y-flipped with a remapped angle for a left-facing one. Our sheets carry
+// that set at exactly $31, because the sonic_hack donor sheet is paged in S3K's
+// frame order — the ensure below states that as a checkable claim about where the
+// RUN blocks end rather than as a comment, and Tails' and Knuckles' sheets are
+// stock S3K, so one table serves all three characters.
+const TUMBLE_FRAME_BASE  = $31                  // lowest tumble frame (S3K addi.b #$31)
+const TUMBLE_FRAMES      = 12                   // frames spanning the full 360
+const TUMBLE_ANGLE_SPAN  = 256                  // 256 angle units = 360 deg
+const TUMBLE_ANGLE_PER   = $16                  // angle units per frame (S3K divu.w #$16)
+const TUMBLE_BIAS_R      = $0B                  // right-facing bias (S3K loc_12806)
+const TUMBLE_BIAS_L      = $8F                  // left-facing bias, after neg.b (loc_1284E)
+const TUMBLE_SEED_ANGLE  = 1                    // S3K `move.b #1,flip_angle`
+
+// The launch parameters, from S3K's vertical-spring flip block (:47740-47746).
+// SPRING_FLIP_REVS is the `flips_remaining` its bit-1-clear arm installs, i.e. one
+// FURTHER revolution after the one in progress — two in total, 128 frames at
+// step 4, which is what the constants below are pinned against.
+const SPRING_FLIP_STEP   = 4                    // S3K `move.b #4,flip_speed`
+const SPRING_FLIP_REVS   = 1                    // S3K `move.b #1,flips_remaining`
+
+// The tumble block begins where the RUN blocks end. This is the one structural
+// claim about the character sheets the tumble depends on, and — like the WALK/RUN
+// pin above — it is checkable from the constants alone, so a re-paged sheet fails
+// the build instead of rotating the player through unrelated artwork.
+ensure(TILT_RUN_BASE + TILT_SETS * TILT_RUN_LEN == TUMBLE_FRAME_BASE,
+       "the TUMBLE block no longer begins where the RUN blocks end — the character sheets were re-paged; re-cut TUMBLE_FRAME_BASE")
+
+// The bucket width must partition 0..255 into exactly TUMBLE_FRAMES buckets. It
+// does not divide evenly ($16 * 12 = 264 > 256) and it does not need to — what it
+// needs is that the LAST bucket the table can reach is TUMBLE_FRAMES-1, or the
+// generated table would name a frame past the end of the set and the player would
+// rotate into whatever art follows it.
+ensure((TUMBLE_ANGLE_SPAN - 1) / TUMBLE_ANGLE_PER == TUMBLE_FRAMES - 1,
+       "the tumble bucket width no longer partitions 0..{TUMBLE_ANGLE_SPAN - 1} into exactly {TUMBLE_FRAMES} buckets — Player_TumbleFrames would index past frame {TUMBLE_FRAME_BASE + TUMBLE_FRAMES - 1} and the tumble would rotate through unrelated art")
+
+// ZERO MEANS NOT TUMBLING, so the stepped angle must never LAND on zero — if it
+// did, Player_StepFlip would write a 0 that Player_ApplyTilt reads as "no tumble"
+// and the spin would end early, mid-rotation, with no wrap and no borrow. Nothing
+// downstream could detect that: the player would simply snap upright partway
+// round, which reads as a slightly short spin rather than as a bug.
+//
+// It cannot happen for the shipped pair because the step divides the span evenly,
+// so every value the angle takes is congruent to the SEED modulo the step, and the
+// seed is not congruent to 0. Both halves of that argument are the guard.
+ensure(TUMBLE_ANGLE_SPAN % SPRING_FLIP_STEP == 0,
+       "SPRING_FLIP_STEP ({SPRING_FLIP_STEP}) no longer divides the {TUMBLE_ANGLE_SPAN}-unit revolution evenly, so flip_angle's residue drifts and it can land on 0 mid-spin — which Player_ApplyTilt reads as NOT TUMBLING and ends the rotation early and silently")
+ensure(TUMBLE_SEED_ANGLE % SPRING_FLIP_STEP != 0,
+       "TUMBLE_SEED_ANGLE ({TUMBLE_SEED_ANGLE}) is a multiple of SPRING_FLIP_STEP ({SPRING_FLIP_STEP}), so flip_angle steps exactly onto 0 partway through every revolution — which Player_ApplyTilt reads as NOT TUMBLING and ends the rotation early and silently")
 
 // Player_ApplyTilt's gate is a single `cmpi.b #ANIM_RUN / bhi`, and its
 // walk-vs-run stride pick is a bare `tst.b` — both only work while WALK and RUN
@@ -1338,6 +1464,42 @@ pub proc Player_Display (a0: *Sst) clobbers(d0-d6/a1-a3) {
                                                 // AnimateSprite, so Dust_Tick
                                                 // preserves it.
         jbsr    AnimateSprite
+        jbsr    Player_StepFlip                 // the spring tumble's clock. AFTER
+                                                // AnimateSprite only because d3 is
+                                                // dead by here; what it really has
+                                                // to be is BEFORE Player_ApplyTilt,
+                                                // which reads the angle it writes.
+                                                // Runs in every state, grounded
+                                                // included — that is what ends the
+                                                // tumble on landing.
+        // TILT OR TUMBLE, NEVER BOTH — the two pose routines are peers, and the
+        // choice is made here rather than inside Player_ApplyTilt on purpose.
+        // S3K puts the same decision INSIDE Animate_Sonic's walk/run branch
+        // (`move.b flip_angle(a0),d0 / bne.w Anim_Tumble`, :24814), and that was
+        // the first shape written here; two of this tree's own gates rejected it,
+        // for reasons worth keeping:
+        //
+        //   · the mapping_frame writer registry (tools/dplc_straddle.py) keys on
+        //     (file, enclosing routine) and pins each one's write count, so a
+        //     second write inside Player_ApplyTilt would make one registry row
+        //     answer for two unrelated frame sets;
+        //   · the sprite-tilt gate normalises Player_ApplyTilt's instruction
+        //     stream ACROSS BUILD SHAPES, and a cross-routine `jbra` inside it is
+        //     an absolute operand naming no symbol the gate tracks — it compares
+        //     as a raw literal, which differs between shapes by construction.
+        //
+        // Hoisting the test one level up satisfies both and costs nothing: the
+        // tilt routine is left byte-for-byte as it was, and a player who is
+        // tumbling has no ground angle worth reading anyway.
+        //
+        // The WALK/RUN gate S3K gets from the branch's position is NOT lost — it
+        // is restated inside Player_ApplyTumble, which is the only way to keep it
+        // once the routines are peers, and it is pinned there.
+        tst.b   PlayerV.flip_angle(a0)
+        beq     .no_tumble
+        jbsr    Player_ApplyTumble
+        jbra    Player_LoadArt
+.no_tumble:
         jbsr    Player_ApplyTilt                // AFTER AnimateSprite (it owns
                                                 // mapping_frame and the flip pair),
                                                 // BEFORE Player_LoadArt (it streams
@@ -1388,12 +1550,22 @@ pub proc Player_Display (a0: *Sst) clobbers(d0-d6/a1-a3) {
 //    tails_appendage.emp's ball-spin bank already documents — that block is the
 //    house precedent and this follows it.
 //
-// 2. NO TUMBLE GATE. S3K checks flip_type/flip_angle first and diverts to
-//    Anim_Tumble (:24932), the somersault off springs and ramps. We have no
-//    tumble mechanism, so the gate would guard nothing. The full-360 tumble art
-//    IS in our sheets at frames $31/$3D/$49 (519 tiles, referenced by nothing);
-//    it falls out of a DIFFERENT selection (divu #$16 on a counter, not an
-//    octant of the ground angle) and is a follow-up, not part of this.
+// 2. NO TUMBLE GATE — CLOSED 2026-09-09, and this entry is kept because its
+//    parenthetical is what made the follow-up a normal parcel instead of an art
+//    project. It read: "The full-360 tumble art IS in our sheets at frames
+//    $31/$3D/$49 (519 tiles, referenced by nothing); it falls out of a DIFFERENT
+//    selection (divu #$16 on a counter, not an octant of the ground angle) and is
+//    a follow-up, not part of this." Both halves held. The counter is the spring
+//    tumble's flip_angle and the selection is Player_TumbleFrames; the first of
+//    those three sets ($31-$3C) is now live and the other two remain unreferenced
+//    (they are S3K's per-zone `flip_type` variants, which we have no mechanism to
+//    reach — see Player_ApplyTumble).
+//
+//    THE GATE DID NOT LAND HERE, though. S3K puts it inside this routine's
+//    walk/run branch; ours sits one level up in Player_Display, which leaves this
+//    routine byte-for-byte unchanged. Two of this tree's own gates forced that —
+//    the mapping_frame writer registry and the sprite-tilt cut — and the reasoning
+//    is at the Player_Display call site rather than repeated here.
 //
 // 3. PUSH SUPPRESSION IS STRUCTURAL, NOT A TEST. S3K needs `btst #5,status ->
 //    loc_12A72` (:24838) because its Animate_Sonic is reached with the walk/run
@@ -1436,6 +1608,16 @@ pub proc Player_ApplyTilt (a0: *Sst) clobbers(d0-d2/a1) preserves(a0) {
         cmpi.b  #ANIM_RUN, d0
         bhi     .done
 
+        // THE TUMBLE OWNS THE POSE WHEN IT IS RUNNING, and it is tested here —
+        // inside the WALK/RUN gate, ahead of the ground tilt — because that is
+        // exactly where S3K tests it (`move.b flip_angle(a0),d0 / bne.w
+        // Anim_Tumble`, :24814-24815, the two instructions after the same walk/run
+        // branch is entered). Being inside the gate is what makes every other
+        // animation suppress the tumble for free: a curled, hurt, gliding or
+        // flying player took the `bhi .done` above and never reaches this test,
+        // so his own animation plays while the angle keeps ticking underneath.
+        // Being AHEAD of the tilt is what makes the two mutually exclusive — a
+        // player tumbling through the air has no ground angle worth reading.
         // --- angle -> orientation (S3K :24811-24840) ---
         moveq   #0, d1                          // d1 = the half-turn flip delta
         move.b  angle(a0), d2
@@ -1504,6 +1686,75 @@ pub proc Player_ApplyTilt (a0: *Sst) clobbers(d0-d2/a1) preserves(a0) {
         rts
 }
 
+// -----------------------------------------------
+// Player_ApplyTumble — the spring tumble's pose. Player_ApplyTilt's peer: called
+// from Player_Display in its place when flip_angle is live, in the same slot in
+// the frame (after AnimateSprite, which owns mapping_frame and the flip pair;
+// before Player_LoadArt, which streams the art the frame names).
+//
+// In:  a0 = player SST, flip_angle != 0, AnimateSprite already run this frame
+// Out: mapping_frame set to one of the twelve tumble frames, the flip pair
+//      re-derived, the H1 caches refreshed — or everything left exactly as
+//      AnimateSprite set it when the running animation is not walk/run
+// Clobbers: d0-d2, a1 (d2 via RefreshSpritePieceCount) — Player_ApplyTilt's bound
+//           verbatim, since Player_Display calls one or the other in one slot
+// -----------------------------------------------
+pub proc Player_ApplyTumble (a0: *Sst) clobbers(d0-d2/a1) preserves(a0) {
+        // THE WALK/RUN GATE, and it is load-bearing rather than defensive. In S3K
+        // the tumble test sits INSIDE Animate_Sonic's walk/run branch, so every
+        // other animation suppresses it structurally; hoisting the test into
+        // Player_Display (see the note there) gave that up, and this is where it
+        // comes back. Without it, a player who is curled, hurt, gliding or flying
+        // while the angle is still ticking would have his own pose overwritten by
+        // a rotation frame from a sheet position his animation knows nothing about.
+        //
+        // The same single unsigned compare Player_ApplyTilt uses, for the same
+        // reason (ANIM_WALK/ANIM_RUN are 0/1, ensured above) — and it is the gate
+        // that makes a spring hit while ROLLING keep spinning as a ball, which is
+        // exactly what S3K does.
+        move.b  anim(a0), d0
+        cmpi.b  #ANIM_RUN, d0
+        bhi     .not_walk_run
+        // S3K Anim_Tumble / Anim_TumbleLeft (:24932-24995), with the `flip_type`
+        // branches dropped: flip_type is S3K's per-zone tumble VARIANT selector
+        // (the DEZ/FBZ/MHZ special cases and the second and third 12-frame sets at
+        // $3D and $49), it is 0 for every ordinary spring, and we have no mechanism
+        // that would ever set it. Dropping it collapses four arms to two. The
+        // other two sets stay unreferenced — same as before this parcel.
+        moveq   #0, d0                          // keep the index a clean 0..255 word
+        move.b  PlayerV.flip_angle(a0), d0
+
+        // Re-derive the flip pair rather than OR into what AnimateSprite left, the
+        // same reason the tilt arm above does: AnimateSprite rewrites both bits
+        // from `status` on every frame, so anything set before it is already gone.
+        andi.b  #TILT_FLIP_CLEAR, render_flags(a0)
+        btst    #ST_XFLIP, status(a0)
+        bne     .tumble_left
+
+        // Facing RIGHT: the art is drawn in this sense already, so no flips.
+        addi.b  #TUMBLE_BIAS_R, d0              // byte add — wraps, which IS the
+                                                // revolution wrap (S3K loc_12806)
+        jbra    .tumble_frame
+.tumble_left:
+        // Facing LEFT: S3K draws the SAME twelve frames flipped on BOTH axes (a
+        // 180 deg rotation of the sheet) and walks the angle backwards through
+        // them. That is why one 12-frame set covers both directions — the reason
+        // the whole rotation costs no extra art.
+        ori.b   #TILT_FLIP_PAIR, render_flags(a0)
+        neg.b   d0
+        addi.b  #TUMBLE_BIAS_L, d0              // S3K loc_1284E
+.tumble_frame:
+        lea     Player_TumbleFrames(pc), a1
+        move.b  (a1,d0.w), mapping_frame(a0)
+        // mapping_frame moved, so the H1 frame-data cache and the piece count move
+        // with it — identical duty to the tilt arm's call above, and the DEBUG
+        // staleness assert in Render_Sprites is what catches its absence.
+        // Tail-jumped rather than called: nothing follows it here.
+        jbra    RefreshSpritePieceCount
+.not_walk_run:
+        rts
+}
+
 // Glide_Pose_Table8 — S3K's RawAni_Knuckles_GlideTurn (sonic3k.asm:31588) expressed
 // as pose OFFSETS from ANIM_GLIDE_0 rather than as raw mapping frames ($C0..$C4),
 // because our AnimateSprite owns mapping_frame and re-classifies every frame — the
@@ -1512,7 +1763,156 @@ pub proc Player_ApplyTilt (a0: *Sst) clobbers(d0-d2/a1) preserves(a0) {
 // (0 1 2 3 4 3 2 1) and offset 4 is the mirror point the classifier flips facing on.
 // 8 bytes (even) on an even section, so the following code stays word-aligned with no
 // `align` directive — which at this mid-section position would be a provisional pad.
+
 data Glide_Pose_Table8: [u8; 8] = [0, 1, 2, 3, 4, 3, 2, 1]
+
+// -----------------------------------------------
+// Player_TumbleFrames — angle -> mapping frame, S3K's `divu.w #$16 / addi.b #$31`
+// as a 256-byte comptime-derived table.
+//
+// A TABLE AND NOT THE DIVIDE, and the four-point argument (CODING_CONVENTIONS
+// §2.1) is not even needed because the divide is not being made defensible — it is
+// being deleted. `divu.w #$16` costs ~140 cycles and runs once per airborne player
+// per frame; the table is a `move.b (a1,d0.w),d0` at 14. 256 bytes of ROM against
+// ~126 cycles a frame is the same trade Player_ApplyTilt's unconditional
+// RefreshSpritePieceCount already took, an order of magnitude cheaper.
+//
+// DERIVED, NOT TRANSCRIBED: the body below IS S3K's arithmetic, so the table
+// cannot drift from the reference by a typo the way 256 hand-written bytes could,
+// and re-cutting TUMBLE_FRAME_BASE or TUMBLE_ANGLE_PER re-cuts the table with it.
+//
+// Player_TumbleFrames lives HERE, beside Glide_Pose_Table8, and not up with the
+// TUMBLE_* constants that derive it. Placing it there made it the `player_common`
+// section's HEAD LABEL, and the packing walk then demanded a declared alignment
+// for a section that had never needed one -- `[layout.undeclared-alignment]`,
+// measured 2026-09-09. The right answer is not to declare an alignment the layout
+// happens to give; it is to leave the section's head where it was. Mid-section
+// data is the house pattern (Glide_Pose_Table8 immediately above, and the tables
+// in animate.emp), and 256 bytes is even, so nothing after it shifts parity.
+comptime fn tumble_frame_table() -> [u8; TUMBLE_ANGLE_SPAN] {
+    return comptime for i in 0..TUMBLE_ANGLE_SPAN {
+        TUMBLE_FRAME_BASE + i / TUMBLE_ANGLE_PER
+    }
+}
+data Player_TumbleFrames: [u8; TUMBLE_ANGLE_SPAN] = tumble_frame_table()
+
+// -----------------------------------------------
+// Player_StartSpringFlip — seed the tumble. Called from the game's spring-launch
+// hook (Spring_Launched, games/sonic4/objects/test_solid.emp) on the arm that
+// actually puts the player in the air.
+//
+// S3K: sub_22F98's flip block (sonic3k.asm:47739-47752). Seeds the angle to 1,
+// the step to 4, one whole revolution still owed after the current one, and
+// negates the angle and the direction when the player faces left.
+//
+// TWO DELIBERATE DEVIATIONS FROM S3K:
+//
+// 1. NOT GATED ON A SUBTYPE BIT. S3K only tumbles when the spring's subtype bit 0
+//    is set; a plain spring gives the static $10 pose instead. Our springs have no
+//    such bit and every spring in the level data was authored without one, so a
+//    faithful gate would make this feature invisible until the level data is
+//    re-authored — the owner asked to SEE springs spin. Every spring that launches
+//    the player airborne tumbles him. If a static-pose spring is ever wanted, the
+//    subtype has the room and this is the one call site to gate.
+//
+// 2. THE PLAYER'S SPEED IS NOT STOMPED. S3K writes `ground_vel = ±1` here — its
+//    Player_JumpFlip reads that sign every frame to decide which way to spin, so
+//    the write is load-bearing for the ANIMATION and merely a side effect for the
+//    PHYSICS. Copying it would park a running player on landing, which is a
+//    gameplay change nobody asked for and which no gate here could later undo. We
+//    carry the direction in flip_step's sign instead — decided ONCE, at the launch,
+//    which is also strictly better than S3K's read: facing can change in mid-air
+//    (Air_XInput steers it), and a per-frame re-derivation would reverse the spin
+//    mid-flight.
+//
+// In:  a2 = player SST (the hook's register — Spring_Launched holds the player
+//           there, and the engine's Touch_Spring hands it over in a2)
+// Out: flip_angle / flip_step / flips_remaining seeded
+// Clobbers: d0 only — deliberately inside Spring_Launched's declared d0-d2/a0-a2
+//           bound, and a2 is preserved because the caller's whole remaining body
+//           addresses the player through it.
+// -----------------------------------------------
+pub proc Player_StartSpringFlip (a2: *Sst) clobbers(d0) preserves(a2) {
+        moveq   #SPRING_FLIP_STEP, d0
+        move.b  #TUMBLE_SEED_ANGLE, PlayerV.flip_angle(a2)
+        btst    #ST_XFLIP, status(a2)
+        beq     .forward                        // facing right: spin forward
+        // Facing left — S3K negates BOTH the angle and the direction (:47751).
+        neg.b   d0
+        neg.b   PlayerV.flip_angle(a2)
+.forward:
+        move.b  d0, PlayerV.flip_step(a2)
+        move.b  #SPRING_FLIP_REVS, PlayerV.flips_remaining(a2)
+        rts
+}
+
+// -----------------------------------------------
+// Player_StepFlip — advance the tumble one frame, and end it.
+//
+// S3K: Player_JumpFlip (sonic3k.asm:23994-24028) for the advance, plus the
+// `move.b #0,flip_angle / #0,flips_remaining` pair inside Sonic_ResetOnFloor
+// (:24375-24377) for the landing reset.
+//
+// THE TWO ENDINGS ARE BOTH HERE, and that is the one structural difference from
+// S3K, which spends them in two places:
+//
+//   COMPLETION — the angle wraps a whole revolution and `flips_remaining` borrows
+//   past 0. With the shipped constants that is two revolutions over 128 frames
+//   (TUMBLE_ANGLE_SPAN / SPRING_FLIP_STEP = 64 frames each), comfortably inside a
+//   red spring's ~146-frame arc, so a spring launch lands the player upright.
+//
+//   LANDING — S3K clears the pair in Sonic_ResetOnFloor, its landing routine.
+//   Ours tests ST_IN_AIR here instead and clears on the first grounded frame. That
+//   is the same fact asked from the other side, and it is deliberate: S3K's
+//   Player_JumpFlip is only ever CALLED from the airborne mode routine, so its
+//   clear-on-land has to live at the landing site. This runs from the display
+//   tail, which runs in every state, so the state test is already in hand and no
+//   edit to the landing path is needed to hold the invariant. It also self-heals a
+//   boot with a non-zero byte, since the player starts grounded.
+//
+// A HURT, A CEILING, A RING, A ROLL — none of them are special-cased, exactly as
+// in S3K, and that is a feature of where the frame selection sits rather than an
+// omission: the tumble is drawn only from Player_ApplyTilt's WALK/RUN arm, so any
+// state that selects a different animation (hurt, roll/airball, glide, flight)
+// simply stops showing it, while the angle keeps ticking underneath and resumes if
+// the player returns to walk/run in the same airborne stretch. A ceiling hit does
+// not clear ST_IN_AIR, so the spin continues through it — S3K behaves identically.
+//
+// In:  a0 = player SST
+// Out: flip_angle advanced, or the tumble ended (flip_angle = 0)
+// Clobbers: d0-d1; a0 preserved for Player_ApplyTilt / Player_LoadArt behind it
+// -----------------------------------------------
+pub proc Player_StepFlip (a0: *Sst) clobbers(d0-d1) preserves(a0) {
+        move.b  PlayerV.flip_angle(a0), d0
+        beq     .done                           // 0 = not tumbling; the common case
+        btst    #ST_IN_AIR, status(a0)
+        beq     .stop                           // landed (S3K Sonic_ResetOnFloor)
+
+        move.b  PlayerV.flip_step(a0), d1
+        bmi     .backward
+        add.b   d1, d0
+        bcc     .set                            // no wrap: still inside this revolution
+        subq.b  #1, PlayerV.flips_remaining(a0)
+        bcc     .set                            // a revolution spent, more owed
+        jbra    .stop
+.backward:
+        neg.b   d1                              // the sign WAS the direction; magnitude now
+        sub.b   d1, d0
+        bcc     .set
+        subq.b  #1, PlayerV.flips_remaining(a0)
+        bcc     .set
+.stop:
+        // Both bytes, not just the angle: flips_remaining borrowed to $FF on the
+        // completion path, and a stale $FF would give the NEXT spring 256
+        // revolutions instead of two.
+        clr.b   PlayerV.flip_angle(a0)
+        clr.b   PlayerV.flips_remaining(a0)
+        rts
+.set:
+        move.b  d0, PlayerV.flip_angle(a0)
+.done:
+        rts
+}
 
 // -----------------------------------------------
 // Player_Animate — read-only animation classifier. Reads state/status/input and

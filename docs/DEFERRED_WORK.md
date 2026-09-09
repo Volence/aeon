@@ -46,6 +46,81 @@ against the AS-era tree and cite `.asm` paths and line numbers into files that *
 
 ---
 
+## SPRING TUMBLE — SHIPPED 2026-09-09 (`parcel/spring-launch-anim`)
+
+**Closes `Player_ApplyTilt`'s "DEVIATION 2: NO TUMBLE GATE".** A spring launch now throws the
+player into S3K's twelve-frame body rotation. The art needed no work: the tumble set was already
+in all three character sheets at `$31-$3C`, exactly where S3K's `addi.b #$31` puts it, because the
+sonic_hack donor sheet is paged in S3K's frame order and Tails'/Knuckles' sheets are stock S3K.
+Confirmed by rendering the frames out of mappings+DPLC+art before any code was written, and
+independently by `dplc_straddle`, which now derives "12 frames from 0x31" for each character.
+
+**The reference finding, recorded because it is easy to get wrong.** Grepping S3K for the spring
+animation lands on `move.b #$10,anim(a1)` (`sonic3k.asm:47796`) and `AniSonic10` =
+`dc.b $2F,$8E,$FD,0` — ONE STATIC FRAME held 48 ticks, the Sonic-1-era "spring stretch" pose. Two
+independent reference sweeps (skdisasm / s2disasm / S.C.E. / sonic_hack) each found that path and
+each concluded no reference implements a rotation. Both were wrong. The rotation is the other arm
+of the same routine at `:47740` — `flip_angle`/`flip_speed`/`flips_remaining` with `anim = 0`,
+diverted by `Animate_Sonic`'s `bne.w Anim_Tumble` (`:24815`) into
+`mapping_frame = $31 + biased_angle/$16`. The horizontal (`:47920`) and down-diagonal
+(`:48114`/`:48225`) springs carry the same block.
+
+### What ships, and what does NOT
+
+| | |
+|---|---|
+| vertical launch arm (up **and** down springs) | tumbles |
+| horizontal launch arm | **does not** — it leaves the player GROUNDED, and a player spinning end-over-end along the floor is a worse look than none. Held by witness leg C3 |
+| curled launch (`PSTATE_AIRBALL`) | keeps spinning as a ball, exactly as S3K — the walk/run gate in `Player_ApplyTumble` is what does it |
+| all three characters | one table serves them; no per-character work |
+
+### Still open (small, and deliberately not guessed at)
+
+- **The horizontal spring's tumble.** S3K does carry it, but it also parks the player at
+  `ground_vel = ±1` first, which we deliberately do not do (see below). Landing it means deciding
+  what a *grounded* rotation should look like, which is an owner call about the look, not a
+  mechanism gap. C3 is the leg that will have to change if it is ever wanted.
+- **S3K's `flip_type` variants.** The second and third 12-frame sets (`$3D`, `$49`) stay
+  unreferenced. They are S3K's per-zone tumble variants (DEZ/FBZ/MHZ special cases) and we have no
+  mechanism that would set `flip_type`, so the four arms of `Anim_Tumble` collapse to two.
+- **A subtype bit to opt a spring out.** S3K gates the tumble on the spring's subtype bit 0; ours
+  is unconditional on the vertical arm, because a faithful gate would make the feature invisible
+  against level data authored without the bit. `Player_StartSpringFlip` is the one call site if a
+  static-pose spring is ever wanted.
+- **`PlayerV` headroom is now 1 byte** (`PLAYERV_SPEND` 29 of a 30-byte window). The next field to
+  need space should look at the ability-scratch union first — the tumble's two bytes are shared by
+  all three characters and are not candidates for that reuse.
+
+### Deviations from S3K, all argued at their sites
+
+1. Not gated on a subtype bit (above).
+2. **The player's ground speed is NOT stomped.** S3K writes `ground_vel = ±1` so its
+   `Player_JumpFlip` can read that sign every frame for the spin direction. Copying it would park a
+   running player on landing — a gameplay change nobody asked for. Direction rides in `flip_step`'s
+   sign instead, decided once at the launch, which is also strictly better than S3K's read: facing
+   can change in mid-air, and a per-frame re-derivation would reverse the spin mid-flight.
+3. **The landing clear is a state test, not an edit to the landing path.** S3K clears the pair in
+   `Sonic_ResetOnFloor`; `Player_StepFlip` tests `ST_IN_AIR` instead, which is the same fact asked
+   from the side the routine is already on, and self-heals a non-zero boot byte.
+4. **`divu.w #$16` is deleted, not made defensible** — a 256-byte comptime table
+   (`Player_TumbleFrames`) derived from S3K's own arithmetic. ~140 cycles → 14.
+
+**Evidence.** All four shapes green. `tools/spring_launch_witness.py` extended from 9 legs to 11
+(L8 tumble + C3 side-no-tumble) — `RESULT: PASS`, L8 armed on frame 1, tumbled 120 frames drawing
+exactly `$31-$3C` and nothing else, ended frame 121 on landing against a derived 128-frame
+duration. Both new legs proved red-first with mutations on disk (the clock never committing → "THE
+ROTATION DID NOT ROTATE"; the seed hoisted above the arm split → "A SIDE LAUNCH ARMED THE TUMBLE"),
+each restored from the committed baseline and re-verified green.
+
+**One instrument finding worth carrying.** `run_frames(1)` stops at a fixed CYCLE, so a sample can
+land *inside* `Player_Display`. There are two such windows — before `Player_StepFlip` (angle stale,
+frame raw) and between it and `Player_ApplyTumble` (angle FRESH, frame raw) — and the second is
+indistinguishable from a finished frame by any reading of the values, so a value-based filter
+cannot close it. Sample at a fixed PC instead. Also: `run_to` is satisfied by the address it is
+already parked on, so repeating one target runs nothing; alternate two per-frame targets.
+
+---
+
 ## NOW UNBLOCKED — actionable (compiled 2026-08-05)
 
 ### `lst_proc_sizes` MEASURES PLACEMENT AS WELL AS CODE, AND A PIN WENT RED FOR A PROC THAT DID NOT MOVE — booked 2026-09-06 (`parcel/live-effects-hook`)
