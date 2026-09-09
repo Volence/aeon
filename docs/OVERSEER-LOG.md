@@ -1874,3 +1874,40 @@ one stanza earlier.
 **And the part worth keeping about how it was caught: attribution made it cheap.** The stanza said
 which claims were sigil's and unverified here, so they knew exactly which sentences to check
 instead of auditing the lot. **Writing down what you did NOT verify is what lets a peer aim.**
+
+
+## RETIRED TREE — `.aeon-freeze-179` (moved out of the boot read 2026-09-09)
+
+Moved verbatim from `docs/OVERSEER.md` under the protocol's split rule (CLOSED / RETIRED
+blocks belong in the log). Its retirement was already stated in the `.aeon-land-180`
+stanza that remains in the head, so nothing became unfindable.
+
+- **RETIRED — `/home/volence/sonic_hacks/.aeon-freeze-179`.** A clean
+  detached checkout of aeon `4ba7cb92`, the `aeon_rev` chain 179 is frozen at, carrying all four
+  built shapes and both `.lst` listings. It is the tree `AEON_DIR` should point at for anything
+  asking what chain 179 actually froze, and rebuilding four shapes to recreate it is the
+  expensive half of any artifact-dependent run.
+
+
+## CHAIN 180 — the freeze-tree stanza's closed specifics (moved out of the boot read 2026-09-09)
+
+Moved under the protocol's split rule 2: closed history around a live rule goes to the log
+verbatim, the rule stays in the head. The live rules (declare by recreation cost; stand in
+the tree; SIGIL_BUILD; run the mismatch check every time) all remain in `docs/OVERSEER.md`.
+
+  **Freeze worktrees on the SIGIL side are transient and are NOT declared**: `.sigil-pair-180` was
+  created for chain 180's freeze and removed once both halves were pushed, because it held nothing
+  that is not now at `origin/master`. Declare a tree for what it would COST to recreate, not for
+  having existed.
+  **What actually works is simpler than what I wrote: stand in the tree you mean to freeze.**
+  Setting `SIGIL_HARNESS_ROOT` as well is harmless and still fine. **`SIGIL_BUILD` is the one that
+  genuinely must be set** when aiming a prebuilt refreeze at a fresh worktree — it defaults to
+  `<root>/target/release/sigil`, which a new worktree does not have, and `capture_goldens.sh`
+  exits naming the path, so that one is friction rather than silence.
+  **AND THE BINARY ANNOUNCES THE MISMATCH LOUDLY, WHICH IS A FEATURE TO USE RATHER THAN A WARNING
+  TO WAVE PAST** — it prints *built from X, operating on Y … if it predates what you are about to
+  ask it, rebuild it*. The check that discharges it is two commands, not a rebuild: `git log
+  --since=<binary mtime> -- crates/` and `--stat` on whatever it returns. For chain 180 both
+  intervening commits touched `golden/` data only, no Rust source, so the binary was current with
+  its source and the rebuild was correctly skipped. **Run that check every time rather than
+  remembering this result** — it is a fact about one night, not about the binary.

@@ -140,7 +140,8 @@ rulings live in the session memory and the most recent `docs/superpowers/*handof
 
 - **A byte-mover lands with our own gates and asks sigil for nothing:** merge → **assert the
   parcel's content is present** (a failed merge is silent and rebuilds master's numbers) →
-  four shapes, ROMs deleted first → re-verify on the merged tree → effects-gate ritual (only
+  four shapes, each ROM built to a TEMP NAME and renamed into place (never `rm -f` all four
+  up front — see the landing-lane freshness rule) → re-verify on the merged tree → effects-gate ritual (only
   if `engine/effects/*`, `bg_anim.emp` or `buffers.emp` moved) → push. Totals, never a tail.
 - **⚠ The paired-freeze recipe is DELETED, not annotated — do NOT reconstruct it.** `refreeze`
   and `provenance.toml` are sigil's, on sigil's clock. Owner *CUT THE CEREMONY* (1),
@@ -573,8 +574,18 @@ rulings live in the session memory and the most recent `docs/superpowers/*handof
 - **On a byte-neutral parcel, byte identity stops being evidence about the BUILD and is
   only evidence about the SOURCE — freshness needs a separate witness** (lived 2026-08-22,
   caught by one exit code).
-  **Remedy: `rm -f` all four ROMs before the
-  rebuild, so existence proves freshness**, and check mtimes. Note the asymmetry with the
+  **Remedy, CORRECTED 2026-09-09: build each shape to a TEMP NAME, confirm it exists, then
+  rename it into place.** The temp proves freshness as `rm -f` did, and a rename is atomic:
+  a reader sees the old complete ROM or the new one, never a gap. Check mtimes as before.
+  **The `rm -f`-all-four form it replaces blacked out other lanes' inputs for MINUTES** (oracle:
+  `s4.debug.bin` absent 7+ min over three builds; confirmed firsthand here mid-build).
+  **ALL-FOUR-UP-FRONT is the mechanism, not the delete** — each ROM is then missing for every
+  OTHER shape's build too, ~4x the window for no added freshness. **The hazard is not the
+  outage but what a blocked consumer reaches for**: a stale alternate ROM that IS present,
+  yielding findings that look exactly like yours. Absence is loud; the substitute is silent.
+  **⚠ `build.sh` does NOT delete any ROM** (it passes `-o`); the relay named it, but the
+  deletion is THIS RITUAL's. Sigil's `-o` write has its own narrower window (present but
+  incomplete) — theirs, not assumed here. Note the asymmetry with the
   ordinary failure — a missing ROM is loud, a stale one is silent and ships four perfect
   CRCs as proof. **Standing hazard as of `98100905`:** that parcel edited `project.json`, so
   **an in-place `git checkout` into an EXISTING tree** containing it trips the staleness gate on
@@ -1383,9 +1394,8 @@ path, for the same reason the protocol is read that way.
 - **DECLARED TREE — `/home/volence/sonic_hacks/.aeon-land-182`, do not sweep it.** A clean
   detached checkout of aeon `e99a2ca7`, the `aeon_rev` chain 182/183 is frozen at, carrying all
   four built shapes. `AEON_DIR` points here for anything asking what chain 182 actually froze.
-  **`.aeon-land-180` and `.aeon-land-181` are RETIRED by this line** — say so here rather than
-  deleting the line. The sigil-side `.sigil-pair-182` was transient and is removed: it held
-  nothing that is not now at `origin/master`.
+  `.aeon-land-180`/`-181` are retired (see the retired-trees pointer below); the sigil-side
+  `.sigil-pair-182` was transient and is removed.
 
 - **PUSH-BEFORE-ATTEST HAS A COST NOBODY PRICED, AND IT SHOWED UP ON ITS FIRST USE: A RED STRICT
   SUITE NOW LANDS ON MASTER BEFORE YOU KNOW IT IS RED** (added 2026-08-29, chain 182).
@@ -1404,30 +1414,17 @@ path, for the same reason the protocol is read that way.
   standalone scope, and `repin_pins` wanting its per-parcel term), none moving a ROM byte —
   proven independently by `FIXPOINT PASSED` on the supersede.*
 
-- **DECLARED TREE — `/home/volence/sonic_hacks/.aeon-land-180`, do not sweep it.** A clean
-  detached checkout of aeon `03ed1f1c`, the `aeon_rev` chain 180 is frozen at, carrying all four
-  built shapes. It is the tree `AEON_DIR` should point at for anything asking what chain 180
-  actually froze, and rebuilding four shapes to recreate it is the expensive half of any
-  artifact-dependent run. **`.aeon-freeze-179` is RETIRED by this line** (chain 180 supersedes it)
-  — say so here rather than deleting the line, per the rule below.
-  **Freeze worktrees on the SIGIL side are transient and are NOT declared**: `.sigil-pair-180` was
-  created for chain 180's freeze and removed once both halves were pushed, because it held nothing
-  that is not now at `origin/master`. Declare a tree for what it would COST to recreate, not for
-  having existed.
-  **What actually works is simpler than what I wrote: stand in the tree you mean to freeze.**
-  Setting `SIGIL_HARNESS_ROOT` as well is harmless and still fine. **`SIGIL_BUILD` is the one that
-  genuinely must be set** when aiming a prebuilt refreeze at a fresh worktree — it defaults to
-  `<root>/target/release/sigil`, which a new worktree does not have, and `capture_goldens.sh`
-  exits naming the path, so that one is friction rather than silence.
-  **AND THE BINARY ANNOUNCES THE MISMATCH LOUDLY, WHICH IS A FEATURE TO USE RATHER THAN A WARNING
-  TO WAVE PAST** — it prints *built from X, operating on Y … if it predates what you are about to
-  ask it, rebuild it*. The check that discharges it is two commands, not a rebuild: `git log
-  --since=<binary mtime> -- crates/` and `--stat` on whatever it returns. For chain 180 both
-  intervening commits touched `golden/` data only, no Rust source, so the binary was current with
-  its source and the rebuild was correctly skipped. **Run that check every time rather than
-  remembering this result** — it is a fact about one night, not about the binary.
-- **RETIRED — `/home/volence/sonic_hacks/.aeon-freeze-179`.** A clean
-  detached checkout of aeon `4ba7cb92`, the `aeon_rev` chain 179 is frozen at, carrying all four
-  built shapes and both `.lst` listings. It is the tree `AEON_DIR` should point at for anything
-  asking what chain 179 actually froze, and rebuilding four shapes to recreate it is the
-  expensive half of any artifact-dependent run.
+- **FREEZE-TREE RULES** (the `.aeon-land-180` DECLARATION that stood here is RETIRED — the
+  `.aeon-land-182` stanza above retired it and this block still said "do not sweep it", so the
+  file declared and retired the same tree in one read. Corrected 2026-09-09; `.aeon-freeze-179`
+  is retired with it. Both trees still exist on disk and neither is declared by any peer.)
+  **Sigil-side freeze worktrees are transient and NOT declared.** Declare a tree for what it
+  would COST to recreate, not for having existed.
+  **Stand in the tree you mean to freeze** (`SIGIL_HARNESS_ROOT` is harmless but not needed).
+  **`SIGIL_BUILD` genuinely must be set** when aiming a prebuilt refreeze at a fresh worktree:
+  it defaults to `<root>/target/release/sigil`, which a new worktree lacks.
+  **The binary announces a source/build mismatch loudly — use it rather than waving past it.**
+  Two commands discharge it, never a rebuild: `git log --since=<binary mtime> -- crates/` and
+  `--stat` on what that returns. **Run it every time**; the chain-180 result (skip was correct)
+  is a fact about one night, not about the binary, and is in `docs/OVERSEER-LOG.md`.
+- **RETIRED trees are recorded in `docs/OVERSEER-LOG.md`** (search `RETIRED TREE`), not here: `.aeon-freeze-179` (chain 179, aeon `4ba7cb92`) moved there 2026-09-09. A retirement is history the moment it is written, and history is what the log is for.
