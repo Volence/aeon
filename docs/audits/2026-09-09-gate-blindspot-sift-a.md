@@ -412,3 +412,62 @@ was available.
    one). This pass did not re-verify any of the other 30 statements above it, GENERAL-LIMIT
    classifications included — it trusts them at face value the same way item 5 above already flags
    as a real, unclosed limit of this report.
+
+## Independent second-pass addendum (separate session, same branch, same dispatch)
+
+A second session was independently dispatched to this same worktree/branch under the identical
+brief and, unaware of the above until this point, produced its own full 13-file pass by hand,
+converging on the same file path. Rather than overwrite the above (materially more thorough —
+4 controller-verified OCCUPIED findings against this session's 1, with the O-2 finding
+independently re-derived below before this session read the table above and found it already
+there), this addendum records the two places this session's independent work adds something the
+above does not carry, and leaves everything else untouched.
+
+**1. Independent confirmation of O-2's mechanism, reached before reading the table above.**
+Tracing `OJZ_Preset_Sec5` by hand (`games/sonic4/data/effects/ojz_effects.emp:1611-1654`) found
+the SAME contradiction the table's row for lines 84-91/307-321/1397-1403 already documents: an
+older in-file comment block (~1611-1628) says section 5's channel 0 "is derived every frame and
+read by no one" (a "STRUCTURAL GAP AND NOT A CHOICE"), while the very next preset declaration
+(1636-1644, same file, same day, tagged `d-53`) contradicts it directly — `parallax:
+ParallaxConfig_OJZ_Underwater` was added specifically "to give channel 0 a CONSUMER" via
+`SceneAnchor.At(0, 15, 0)`. Traced one level further than the table above does: `SceneAnchor.At`
+reads `Effects_Screen_L[ch]`, which `engine/effects/raster.emp::Effects_LatchWorldLines` computes
+for **every** patch channel **unconditionally, every frame** (gated only on `Effects_Motion_Any`,
+which section 5 sets since it authors a real sweep) — completely independent of whether a
+`patched:` raster program exists for that channel. So the "NO BAND TO FIT" bucket the coverage
+report reports for this sweep is accurate for the RASTER band-fit path specifically, but does not
+mean the value is inert: it is live input to the waterline row-remap perspective calculation on
+whatever section installs `ParallaxConfig_OJZ_Underwater` while channel 0's sweep is active. This
+matches O-2's conclusion (an unverified live value) rather than changing it — flagged here only
+because the mechanism is worth having spelled out at the RAM-write level (`Effects_LatchWorldLines`
+comment block, `engine/effects/raster.emp:2144-2290`) for whoever picks up the "NEEDS AN
+INDEPENDENT DERIVATION" open half of O-2, since the current CLEAR/OCCUPIED split in that section
+does not name `Effects_LatchWorldLines` as the load-bearing proof that the value is live rather
+than merely computed-and-discarded.
+
+**2. A gap in `test_bganim_vprobe.py:25-29`'s CLEAR verdict (row above) and in "what this audit
+does not cover" item 2: neither checked whether `tools/bganim_vprobe_witness.py` is actually
+invoked by anything automated, only that it exists with the right contract.** It is not:
+
+```
+$ grep -n "bganim_vprobe_witness" build.sh
+(no output)
+$ grep -rl "bganim_vprobe_witness" . --include="*.py" --include="*.sh" --include="*.yml" \
+    --include="*.yaml" --include="*.timer" --include="*.service"
+tools/test_bganim_vprobe.py
+tools/bganim_vprobe_witness.py
+```
+It is referenced nowhere outside its own file and the file naming it in prose (plus narrative
+prose in `docs/DEFERRED_WORK.md:25271,28699` describing one-off manual runs over the headless
+Aether bus). Unlike `tools/effects_gates.py` → `demo_specialization_witness.py` (row 274 above,
+confirmed by both sessions as a real `subprocess` call, itself scheduled via the enabled
+`aeon-effects-gates.timer` — confirmed running, last fired ~90 min before this session's check),
+`bganim_vprobe_witness.py` has **no caller anywhere in the tree** — build.sh, CI, or a timer. The
+docstring's claim ("that runs after a build with the ROM named on its command line") reads as a
+standing guarantee; it describes a tool that is real and correctly shaped but is invoked, today,
+only when a person remembers to type the command by hand. This downgrades the existing CLEAR to,
+at minimum, a CLEAR-with-caveat: the delegate's *existence* is confirmed, its *execution* is not
+automated by anything, and nothing in this tree would notice if it were never run again.
+
+Nothing above was fixed. Both notes are additions to the existing record, not corrections to a
+wrong verdict on O-1 through O-4.
