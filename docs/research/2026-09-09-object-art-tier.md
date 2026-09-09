@@ -475,6 +475,21 @@ the same class of bug the FG tier's "published but not yet ref'd" demand-protect
 invariant exists to prevent (`page_cache.emp:243-249`); the lesson transfers even though
 none of the code does.
 
+**Good news, read out of the queue rather than assumed: once an entry is ACCEPTED, delivery
+is guaranteed.** `Drain_Budgeted_Queue` (`engine/system/dma_queue.emp:461-492`) tests each
+entry against `DMA_Budget_Remaining` and, on a miss, **leaves it and everything after it
+queued, compacting the survivors to the queue base for the next frame's fresh budget** — the
+comment says so at `:468` ("entry does not fit — leave it (+ the rest) queued for next
+frame's fresh budget; no overshoot"). So the loader enqueues **once**; the only failure is
+carry-set at *enqueue* time (queue full), which is a synchronous, testable result.
+
+**And that gives a cheap completion signal with no new mechanism:** an entry is delivered
+once the Deferrable slot pointer has returned to the queue base (`.loop` exit writes
+`move.w a3, (a2)` with `a3` = base only on a full drain). A loader that flips its `pending`
+slots to `resident` on any frame where the Deferrable queue drained empty is correct,
+conservative, and costs one `cmp` per frame. **This is the mechanism to use — do not invent
+a per-entry completion callback the queue does not have.**
+
 **(iv) An object can leave the area that pinned its art.** A badnik launched by a spring, a
 projectile, a follower. The refcount handles it correctly (a live SST holds a reference
 wherever it is) and `ENTITY_DESPAWN_BUFFER` removes it by distance, releasing the reference.
