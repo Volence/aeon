@@ -1911,3 +1911,50 @@ the tree; SIGIL_BUILD; run the mismatch check every time) all remain in `docs/OV
   intervening commits touched `golden/` data only, no Rust source, so the binary was current with
   its source and the rebuild was correctly skipped. **Run that check every time rather than
   remembering this result** — it is a fact about one night, not about the binary.
+
+## CWD SAYS IDLE — the liveness check that guards a peer's tree, measured blind (2026-09-09T09:45Z)
+
+**Moved out of the boot read the same hour it was written**, under the growth ratchet: the RULE went
+to the shared protocol (empyrean `d980ba7`), the DECLARATION stayed in `OVERSEER.md`, and this is the
+narrative. That is the split procedure working on a stanza barely an hour old.
+
+**The measurement.** Checking whether anything could disturb three sift agents reading the main
+tree's ROM artifacts, this lane found `sigil` running and traced its ownership before assuming
+anything. It was sigil's own: their binary at `sigil/.target-land/release/sigil`, their target dir,
+cwd in `sigil/crates/sigil-cli`, output to `/tmp/sigil_extra_entry_3107957.bin`, invoked as
+
+```
+sigil build --aeon /home/volence/sonic_hacks/.aeon-sigil-ref --native --game sonic4 \
+  -o /tmp/... --extra-entry games/sonic4/test/poison/poison_band_nested.emp
+```
+
+pid 3162306, ppid 3107957, started 09:44:12Z. It could not touch this tree, which was the question.
+
+**Then the finding, which was not the question.** This file carried aurora's rule — banked after they
+removed a fixture directory the owner's live Aurora window had open — that you check `/proc/<pid>/cwd`
+or `lsof` before removing a directory. **Run at 09:45Z it reported `.aeon-sigil-ref` as having NO
+process in it, while the assembler above was actively reading it.** The probe was correct and
+answering a different question: sigil never chdir'd near that tree, it passed the path as an
+argument.
+
+**Why this is the common case rather than an exotic one:** reading a path without chdir'ing into it
+is the normal shape of every `--aeon`-style flag in the suite. So the standing check was blind to the
+normal case, and blind in the permissive direction — **an empty result from a liveness probe reads as
+permission to delete.** Same family as the other absence findings here (`ls`-aliased-to-`eza` read as
+an empty directory, `2>/dev/null` deleting the correcting signal), arriving in the one place where the
+cost is a peer's work rather than a wrong number. Sigil lost a reference tree to exactly this sweep on
+2026-08-27.
+
+**The discriminator:** `for p in /proc/[0-9]*; do tr '\0' ' ' < $p/cmdline; done | grep <path>`.
+A cmdline hit is live even when `cwd` says otherwise.
+
+**AND THE PROCESS MISS, recorded because it is the more embarrassing half.** This lane wrote the
+original stanza into `OVERSEER.md` and **pushed it twice without running
+`tools/test_overseer_bound.py`, the build-fatal ratchet that guards the very file being edited.**
+The gate went red at +1,640 bytes past the ratchet and master sat red between the two pushes and the
+repair. **Nothing about editing a doc feels like it needs a gate run**, which is exactly the
+completion-signal failure this repo keeps re-finding: the edit was correct, the citation verified
+firsthand, the fork removed on principle — and the one cheap command that tests the file's own
+constraint went unrun because the work felt finished. **Run the gate that guards the file you are
+editing, including when the file is prose.** The ratchet was NOT raised to accommodate the growth;
+raising it is the repair-by-another-route this repo has already ruled against.

@@ -1379,36 +1379,18 @@ path, for the same reason the protocol is read that way.
   **AEON OWNS THE END CONDITION.** Sigil will ask before moving it and will not move it until we
   answer. If a sweep or a disk-space pass meets it, the answer is to ask this lane, not to reclaim.
 
-- **DECLARED TREES — `/home/volence/sonic_hacks/.aeon-relayout-freeze` (aeon `5875e60e`, all four
-  shapes built) and `/home/volence/sonic_hacks/.aeon-attest-201` (aeon `4f5ad5a1`). DO NOT SWEEP
-  EITHER.** They are **sigil's** reference worktrees for the parked ROM re-layout freeze (sigil
-  `parcel/relayout-refreeze-held`), relayed by the hub 2026-09-04 and **verified firsthand here:
-  both directories exist at those SHAs and both APPEAR IN AEON'S OWN `git worktree list`**, which
-  is the whole hazard — they are aeon worktrees by construction, so any prune driven by this
-  repo's worktree list matches another lane's reference trees. Sigil lost a reference tree to
-  exactly that sweep on 2026-08-27. Keep them until sigil says the freeze has landed or been
-  discarded. *(This is the "a shared directory is not a shared namespace" rule arriving from the
-  other side: previously this lane had to grep peers' docs before removing; here the peer
-  declared it first, which is the cheaper direction.)*
-
-- **⚠ THREE MORE SIGIL-SIDE TREES SIT IN AEON'S WORKTREE LIST UNDECLARED, AND THE LIVENESS CHECK
-  THIS FILE PRESCRIBES REPORTS THE LIVE ONE AS IDLE** (measured here 2026-09-09T09:45Z, firsthand;
-  sigil asked the same hour, answer pending — do not sweep any of the three until they reply).
-  `/home/volence/sonic_hacks/.aeon-sigil-ref` (`ec640bcf`), `.aeon-sigil-gates` (`f4d17d9b`) and
-  `.sigil-ref-197-mine` (`8dd28114`). All three appear in **aeon's** `git worktree list`, so the
-  2026-09-04 stanza's hazard applies to them identically and its declared set does not cover them.
-  **THE RULE IS NOW SHARED PROTOCOL — read it there, do not restate it here** (empyrean `d980ba7`,
-  `docs/OVERSEER-PROTOCOL.md` "Shared-machine cautions", verified reachable at `origin/main` and read
-  firsthand out of that blob). Both bullets went up: grep live process **cmdlines** before pruning a
-  directory, and *a worktree in your own `git worktree list` is not necessarily yours*.
-  **Deliberately NOT copied back down**, because a private copy of a shared safety rule is the fork
-  the protocol's preamble forbids, and this is the one rule where a drifted copy gets a peer's work
-  deleted.
-  **Aeon's precedent, which is what stays local:** run here 2026-09-09, the standing `cwd`/`lsof`
-  check reported `.aeon-sigil-ref` as having no process in it **while sigil's assembler was building
-  from it** — pid 3162306, `sigil build --aeon /home/volence/sonic_hacks/.aeon-sigil-ref …`, its own
-  cwd in `sigil/crates/sigil-cli`, output in `/tmp`. The command that discriminates:
-  `for p in /proc/[0-9]*; do tr '\0' ' ' < $p/cmdline; done | grep <path>`.
+- **DECLARED SIGIL-SIDE TREES — DO NOT SWEEP ANY OF THESE FIVE.** `.aeon-relayout-freeze`
+  (aeon `5875e60e`, all four shapes built) and `.aeon-attest-201` (`4f5ad5a1`), sigil's reference
+  worktrees for the parked ROM re-layout freeze (sigil `parcel/relayout-refreeze-held`), relayed by
+  the hub 2026-09-04; plus `.aeon-sigil-ref` (`ec640bcf`), `.aeon-sigil-gates` (`f4d17d9b`) and
+  `.sigil-ref-197-mine` (`8dd28114`), declared 2026-09-09 pending sigil's answer
+  on which are live. **All five appear in AEON'S OWN `git worktree list`** (verified
+  firsthand) — the whole hazard: a prune driven by this repo's list takes all five alike, and
+  sigil lost one to exactly that on 2026-08-27.
+  **Liveness rule is SHARED PROTOCOL, read it there** (`OVERSEER-PROTOCOL.md` "Shared-machine
+  cautions", empyrean `d980ba7`): grep live process **cmdlines**; `cwd`/`lsof` is not sufficient.
+  Not restated here on purpose: a private copy of a shared safety rule is a fork. Measurement in
+  `docs/OVERSEER-LOG.md`, `CWD SAYS IDLE`.
 
 - **DECLARED TREE — `/home/volence/sonic_hacks/.aeon-land-182`, do not sweep it.** A clean
   detached checkout of aeon `e99a2ca7`, the `aeon_rev` chain 182/183 is frozen at, carrying all
