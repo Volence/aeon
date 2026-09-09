@@ -31654,3 +31654,33 @@ of each blob's own indices — not by name:
 Not on line 0 and therefore not exposed: rings and the ring sparkle (`vram_art(…, 1, 1)`), the player
 marker, the debug water-line stamp and BG-anim tag. The Tails appendage rides line 0 only while Tails
 is active, and Tails shares Sonic's palette file, so it cannot differ.
+
+## ⚠ CORRECTION — THE PLANT-AND-COUNT "DEFECTS" ARE COVERAGE HOLES, NOT LIVE BUGS (2026-09-09)
+
+**I told the hub the mutation study found "two memory corruptions" in the DMA queue. That is WRONG
+and it was minutes from reaching the owner as a live defect in his own engine.** Corrected on the
+hub's own question — *"tell me if I have mischaracterised either"* — which is the only reason it was
+caught, since nothing in my sentence was checkable by them.
+
+**THE SHIPPING CODE IS CORRECT, read at master:** `engine/system/dma_queue.emp:235` is
+`bhs .split_reject`; `engine/system/buffers.emp:54` is `beq .drop`. **The study MUTATED those to
+`bhi` and the suite did not notice.** So the true claim is *"if either branch were ever wrong it
+would corrupt memory and nothing would tell us"* — a statement about our **detection**, not about our
+**bytes**.
+
+**THE MECHANISM, and it is this file's most-booked failure arriving on my own summary of someone
+else's precise work.** The agent wrote *"survivors that are real holes"* and described each by its
+CONSEQUENCE IF TRUE. I compressed *"would corrupt memory if this branch were wrong, and nothing would
+notice"* into *"is memory corruption"*. **The compression step is where the over-read happened** —
+not the reading, not the measurement, both of which were sound. A narrow true claim became a bigger
+false one at exactly the moment I was relaying it onward.
+
+**AND THE CORRECTION HAS TO GO BOTH WAYS, which is the harder half.** Having over-sold it, the
+temptation is to now under-sell it. **The finding is real and serious as a COVERAGE result:** 0 of 13
+correcting-code mutations killed, and these two are the sharpest illustrations of what that zero
+costs, because their failure modes are severe and structurally invisible to every test we have. **The
+framing for the owner is "we cannot currently detect this class", never "we have this bug."**
+
+**Standing consequence for this lane: when relaying an agent's finding onward, carry the CONDITIONAL
+if the finding is conditional.** "Would, if" and "does" are one word apart in a summary and a world
+apart on the owner's console, and the reader at the far end cannot recover the difference.
