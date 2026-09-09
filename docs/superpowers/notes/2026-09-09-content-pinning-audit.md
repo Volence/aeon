@@ -139,6 +139,18 @@ removal. **Content-existence pinning in `.emp` is confined to the four `SceneReg
 arms above.** That is a genuinely good result for the comptime layer, and it makes the Python
 layer, not the language, where this problem lives.
 
+**AND THE DSL CONSTRUCTORS ARE ALREADY WRITTEN THE RIGHT WAY — this is the model to copy.**
+Every guard in `layer()` / `scene()` / `band()` is variant-gated:
+`ensure(is_curve == 0 || …)`, `ensure(remap_none == 1 || …)`, `ensure(drift_none == 1 || …)`,
+`ensure(is_own == 0 || …)`. Each reads *"if you authored this, it must be valid"* — the
+`authored ⇒ correct` direction, which **cannot fire on a removal**. `scene_dsl.emp:2009`, the
+"a `rowRemap:` layer needs something to vary" guard, is one of these: **it plays no part in
+tonight's refusal**, because deleting the `rowRemap:` deletes its antecedent. Worth saying
+plainly, since `row_remap_gate.py` cited that guard as its authority for a stricter rule it does
+not support — the defect ruled on 2026-09-05 in
+`docs/witness/rowremap-gate-vs-guard-2026-09-05.md`, whose lesson was **"a gate that quotes an
+authority should be tested against that authority."**
+
 **The engine/game wall holds.** Exactly one `ensure` in all of `engine/` names anything
 waterline-shaped — `engine/level/bg_anim.emp:407`, and it is a RAM-region size pin
 (`Waterline_Art_State_End - Waterline_Art_Buffer == WATERLINE_DST_BYTES`), a real invariant.
