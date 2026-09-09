@@ -66,9 +66,10 @@ RECORD_FILES = (
     # ("Keep the original text beneath"), and its header already warns readers not
     # to chase its file:line citations blind. It is a record by its own rules.
     "docs/DEFERRED_WORK.md",
-    # "docs/BUGS.md's hits are historical bug records and were left alone" —
+    # docs/BUGS.md was ARCHIVED 2026-09-09 to docs/2026-09-09-BUGS-archived.md, which the
+    # dated docs/YYYY-MM-DD-* rule below already covers as a RECORD. The explicit entry was
+    # removed with it: leaving it would have silently exempted a RECREATED docs/BUGS.md.
     # docs/DEFERRED_WORK.md, the parcel that swept the rest of the docs.
-    "docs/BUGS.md",
     "docs/OVERSEER-LOG.md",
     "docs/QUEUE-ARCHIVE.md",
     "docs/CHARACTER_BOX_AUDIT.md",              # "**Date:** 2026-08-28 ... Verdict:"
@@ -343,8 +344,7 @@ def test_records_are_excluded_and_live_files_are_not():
     for p in (
         "docs/superpowers/notes/anything.md",
         "docs/DEFERRED_WORK.md",
-        "docs/BUGS.md",
-        "docs/research/2026-08-07-mdsdrv/core.md",
+            "docs/research/2026-08-07-mdsdrv/core.md",
         "docs/2026-09-06-live-effects-ram-surface.md",
         "docs/decisions.jsonl",
         "docs/specs/boot-ym-keyoff-race.md",
