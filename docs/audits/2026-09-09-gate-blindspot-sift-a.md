@@ -17,9 +17,13 @@ finding rather than relaying it (per the repo's own "verify at dispatch" discipl
 
 ## LEADING: OCCUPIED findings
 
-Three distinct occupied holes, none of them in the severity class of sigil's instance (a silent live
-defect behind a diligent note). All three are **disclosed or already-booked**, which is stated here
-so the class is not over-read.
+Four distinct occupied holes, none of them in the severity class of sigil's instance (a silent live
+defect behind a diligent note). O-1 through O-3 are **disclosed or already-booked**, which is stated
+here so the class is not over-read. **O-4 was added in a follow-up pass** (below) that fills in
+`tools/test_effects_gen.py`, which this report's own table left as "see the section below (audited
+by a separate lane)" with no such section ever landing — that lane's output was never merged into
+this file. O-4 is not disclosed anywhere else in this tree and is the one finding in this batch
+closer to sigil's original shape: its safety today depends on an untracked cross-file agreement.
 
 ### O-1 — `tools/test_citation_form.py:19-28` — a MOVED citation resolving to real, plausible, WRONG text
 
@@ -97,6 +101,54 @@ BLOCKER.**"* The booking exists; what the booking did not do is reach the test f
 where the sentence still reads as a live justification. This is a distribution failure, not an
 undiscovered hole.
 
+### O-4 — `tools/test_effects_gen.py:3054-3059` — a `pal_region` band streams from a variant slot the document never authors, and the assumed hand-authored survivor is a real but untracked cross-file agreement
+
+Declared gap (`_check_cleared_slot_is_not_streamed`, `tools/effects_gen.py:1664-1708`, "Ruling Q6's
+narrow half"): a `pal_region` band naming a slot the document's `variants` array does not REACH
+(absent, not explicitly `null`) is not refused — *"absent means 'the hand `preset()` call's value is
+still there', which the generator cannot see, and that is the majority case."* Confirmed by reading
+the function: `slots = preset.get("variants"); cleared = {i for i, v in enumerate(slots) if v is
+None}; if not cleared: return` — an empty `variants` array has no `None` entries, so the whole check
+no-ops.
+
+**The case is present right now, in shipping content:**
+
+```
+$ python3 -c "
+import json
+for f in ['games/sonic4/data/editor/effects/presets/ojz_sec3_shimmer.json',
+          'games/sonic4/data/editor/effects/presets/ojz_sec5_showcase.json']:
+    d = json.load(open(f)); variants = d.get('variants', [])
+    for b in d.get('bands', []):
+        pr = (b.get('on') or {}).get('pal_region')
+        if pr:
+            slot = pr.get('slot')
+            print(f, 'slot', slot, 'absent?', slot is None or slot >= len(variants),
+                  '(variants', variants, ')')"
+games/sonic4/data/editor/effects/presets/ojz_sec3_shimmer.json slot 0 absent? False (variants [{'shift_g': 1, 'shift_r': 1}, None] )
+games/sonic4/data/editor/effects/presets/ojz_sec5_showcase.json slot 0 absent? True (variants [] )
+games/sonic4/data/editor/effects/presets/ojz_sec5_showcase.json slot 0 absent? True (variants [] )
+games/sonic4/data/editor/effects/presets/ojz_sec5_showcase.json slot 0 absent? True (variants [] )
+```
+
+`ojz_sec5_showcase.json` carries THREE `pal_region` bands naming variant slot 0 while its own
+`variants` array is empty — the exact "absent" case the gate declares it does not refuse.
+
+**Whether the assumption it rests on is actually true today was traced, not assumed.**
+`games/sonic4/data/effects/ojz_effects.emp:1634-1646` declares the HAND-authored, section-5-
+installed `OJZ_Preset_Sec5` with `variants: [Variant_Water_Deep, 0]` explicit — slot 0 IS populated.
+The adjacent comment block (lines 1369-1394) already names this exact failure mode in its own words:
+*"A preset with an empty variants array would CLEAR the slot under total binding, silently dropping
+the water tint act-wide the moment a section crossing installs it — a real regression dressed up as
+'the preset said nothing'."* So: today the two authoring surfaces (the editor JSON feeding
+`effects_gen.py`, and the hand `.emp` preset in `ojz_effects.emp`) agree, and the agreement is
+correct — but **nothing in the build graph checks that they agree**, and nothing would report it the
+day they stop.
+
+**Severity note, stated so this is not over-read:** this is not a currently-wrong ROM. It is a live,
+named case of the declared gap, sitting in shipping content, whose only protection is a hand-
+maintained coincidence between two files that do not reference each other.
+
 ---
 
 ## Table — every extracted statement
@@ -141,7 +193,14 @@ undiscovered hole.
 | test_lab_index_lint.py | 33-34 | "The acknowledged limit is the same: this reads SOURCE, not the ROM." | GENERAL-LIMIT | n/a | Open-ended "the assembler could be wrong" class |
 | test_lab_index_lint.py | 304-305 | "`.lab_index`'s own absolute address is a link-time fact this text lint cannot see" | SPECIFIC | CLEAR | `.lab_index` at `$0BEB74` — even; 79 of 3105 labels are odd, so the check discriminates |
 
-`tools/test_effects_gen.py` — see the section below (audited by a separate lane).
+| test_effects_gen.py | 2420-2431 | "Ruling Q6's narrow half... A slot the variants array does not REACH is not refused" (boundary arm) | SPECIFIC | CLEAR | No real preset document uses the `boundary` key at all — vacuously clear |
+| test_effects_gen.py | 3054-3059 | same ruling, `pal_region`/narrow-slot arm: "absent means... which the generator cannot see" | SPECIFIC | **OCCUPIED** | O-4 |
+| test_effects_gen.py | 3813-3816 | same ruling, anchor/sweep arm: "absent means the section's hand-authored anchor is still there, and the generator cannot see it" | SPECIFIC | CLEAR | The one real sweep document (`ojz_sec5_showcase.json`) authors `patch_world_ys[0]` explicitly, not absent |
+| test_effects_gen.py | 4488-4489 | "a compiled `lsr.b #2` the JSON cannot see" | FALSE POSITIVE | — | Enforced by the very next assertion (document order preserved verbatim) |
+
+`tools/test_effects_gen.py` was left as "see the section below (audited by a separate lane)" in the
+version of this file first committed — that lane's output never landed here. **Filled in above** in
+a follow-up pass (same audit, same branch); see the O-4 control below for the full derivation.
 
 ---
 
@@ -215,10 +274,23 @@ days. Aurora `docs/ROADMAP.md` row 55 read directly (not relayed) → `DELIVERED
 agree (aurora's own ROADMAP, and aeon's `DEFERRED_WORK.md:19022-19030` which strikes the identical
 sentence). Controller-verified the DEFERRED_WORK booking directly.
 
+### O-4 control — `test_effects_gen.py` (follow-up pass)
+
+Full command, output and cross-file trace are in the O-4 section above. **Positive control:** the
+same absent/cleared-slot detector correctly flags a constructed absent case
+(`pwy=[2272]; pm=[{'sweep':{}}, {'sweep':{}}]` → index 1 flagged `absent? True`, index 0 `False`),
+so the real-data scan finding zero occurrences on the `boundary` arm and one occurrence (3 bands) on
+the `pal_region` arm is a discriminating result, not a search that could never match. The companion
+`boundary`-arm statement (2420-2431) and anchor/sweep-arm statement (3813-3816) were run with the
+same method and came back CLEAR — no real document uses `boundary` at all, and the one real sweep
+document authors its anchor explicitly rather than leaving it absent.
+
 ### CLEAR controls (condensed — each was run with its command, output and a positive control)
 
 | Statement | Control | Positive control |
 |---|---|---|
+| `test_effects_gen.py:2420-2431` | `grep -l '"boundary"' games/sonic4/data/editor/effects/presets/*.json` → no output | The same key IS matched inside `tools/effects_gen.py`'s own `BOUNDARY_KEYS`/`"boundary" in preset` checks, confirming the term is real and searchable |
+| `test_effects_gen.py:3813-3816` | Only real sweep doc (`ojz_sec5_showcase.json`) has explicit `patch_world_ys[0] = 2272`, not absent | Same absent-detector flags a synthetic out-of-range sweep as absent (see O-4 control) |
 | `test_bg_emit.py:3-9` | Every `s4*.lst` mention resolves to a `tempfile.mkdtemp` tree except one `@needs_build` reader (L2281) | The method surfaced that one genuine reader among ~29 hermetic uses |
 | `test_bg_emit.py:191` | `engine/ram.emp:752` still spells `[u16; BGANIM_MAX_BANDS]` | Same substring check against a synthetic literal `[u16; 6]` fails as designed |
 | `test_bg_emit.py:579` | The class it heads is 15 tests, 12 referencing `"vertical"` directly | DEFERRED_WORK independently records the same mutation class (up to 9 tests red on one mutation) |
@@ -249,18 +321,20 @@ out to carry no genuine non-coverage claim.
 | Files examined | 13 |
 | Files carrying ≥1 genuine non-coverage statement | 12 |
 | Files carrying **zero** (`test_gate_fixtures.py`) | 1 |
-| **Genuine statements extracted** | **30** (+ effects_gen, below) |
-| — SPECIFIC-CONSTRUCTIBLE | 19 |
+| **Genuine statements extracted** | **33** (30 original + 3 effects_gen, filled in below) |
+| — SPECIFIC-CONSTRUCTIBLE | 22 |
 | — GENERAL-LIMIT | 11 |
-| **Grep false positives** (matched the population regex but are not non-coverage claims) | **15** |
-| Verdicts on the 19 SPECIFIC statements: OCCUPIED | 5 statements / **3 distinct findings** |
-| — CLEAR | 14 |
+| **Grep false positives** (matched the population regex but are not non-coverage claims) | **16** (15 original + 1 effects_gen) |
+| Verdicts on the 22 SPECIFIC statements: OCCUPIED | 6 statements / **4 distinct findings** |
+| — CLEAR | 16 |
 | — UNRUN | 0 (one GENERAL-LIMIT, extern_guard H2, carries a full-form UNRUN with a narrow sub-case run CLEAR) |
 
 Per-file statement counts: anchor_sweep_band 4 (+1 fp) · anim_frame_bound 3 (+2 fp) · bg_emit 5 (+7
 fp) · bganim_vprobe 1 (+1 fp) · citation_form 2 (+1 fp) · deb2_appendix 4 · demo_specialization
 _witness 1 · drift_record 1 (+1 fp) · extern_guard_reachability 5 · freeze_preflight 2 ·
-gate_fixtures 0 (+2 fp) · lab_index_lint 2 · effects_gen (see below).
+gate_fixtures 0 (+2 fp) · lab_index_lint 2 · **effects_gen 3 (+1 fp) — filled in by the follow-up
+pass below; the original commit deferred this file to "a separate lane" whose output never
+landed.**
 
 ---
 
@@ -331,3 +405,10 @@ was available.
    afterwards** and is empty at the time of this commit.
 7. **It audits 13 of the ~38+ files in the population.** No claim is made about the other 25, and
    per contradiction 2 above, the true population is larger than 38.
+8. **The `test_effects_gen.py` section (O-4, and its table/control rows) was added in a separate,
+   later pass on this same branch, by a session that could not tell whether the original "separate
+   lane" had already run and simply failed to land, or had never run at all.** No `SIGIL_BUILD`/
+   `SIGIL_EMIT`-dependent control was attempted for this file (none of its three statements needed
+   one). This pass did not re-verify any of the other 30 statements above it, GENERAL-LIMIT
+   classifications included — it trusts them at face value the same way item 5 above already flags
+   as a real, unclosed limit of this report.
