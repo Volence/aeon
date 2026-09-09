@@ -12,9 +12,10 @@ two-voice spring. That splits into two very different answers:
   (b) the click is a BUG in HOW we perform the switch — we write something S&K
       does not, or write it differently.
 
-There is NO audio instrument in this suite (re-verified on the branch: the running
-oracle server answers `[-32601] no such method` for every vgm_*/audio_* name in its
-bus schema), so the click cannot be rendered or measured. What CAN be established,
+There is NO audio instrument in this suite: the running oracle server answers
+`[-32601] no such method` for every vgm_*/audio_* name in its bus schema. That is
+b230ab24's measurement and the controller's, carried forward here rather than
+restated as this file's own. So the click cannot be rendered. What CAN be established,
 and what decides (a) vs (b), is the REGISTER WRITE SET. This file derives both
 drivers' write sets from their own sources and diffs them.
 
@@ -83,7 +84,29 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-SKDISASM = Path("/home/volence/sonic_hacks/skdisasm")
+
+
+def find_skdisasm():
+    """-> the S&K reference checkout, or None.
+
+    It is a SIBLING of the aeon checkout, not a fixed path, so this file carries no
+    baked home path (tools/test_no_baked_home_paths.py enforces that and it caught
+    the first draft of this line). A fixed number of `.parent` hops would be wrong
+    too: a git worktree sits several levels deeper than the main checkout, so the
+    search WALKS UP from here and takes the first ancestor holding a `skdisasm`
+    directory. `SKDISASM_DIR` overrides it. A tree that is not found is
+    Unmeasurable at the call site, never a pass."""
+    env = os.environ.get("SKDISASM_DIR")
+    if env:
+        return Path(env)
+    for anc in [REPO, *REPO.parents]:
+        cand = anc / "skdisasm"
+        if cand.is_dir():
+            return cand
+    return None
+
+
+SKDISASM = find_skdisasm()
 
 
 class Unmeasurable(RuntimeError):
@@ -377,6 +400,11 @@ def main():
     ours = [our_writes(blob[voice_ptr + i * patch_len: voice_ptr + (i + 1) * patch_len],
                        layout, bases) for i in range(vcount)]
 
+    if SKDISASM is None:
+        raise Unmeasurable(
+            "no `skdisasm` checkout found in any ancestor of this repo and SKDISASM_DIR "
+            "is unset — the S&K reference half of the comparison cannot run, and a "
+            "one-sided run is not a pass")
     drv = SKDISASM / "Sound/Z80 Sound Driver.asm"
     don = SKDISASM / "Sound/SFX" / a.sk_sfx
     for p in (drv, don):

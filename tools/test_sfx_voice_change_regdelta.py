@@ -32,7 +32,13 @@ from pathlib import Path
 import pytest
 
 TOOL = Path(__file__).resolve().parent / "sfx_voice_change_regdelta.py"
-SKDISASM = Path("/home/volence/sonic_hacks/skdisasm")
+
+sys.path.insert(0, str(TOOL.parent))
+from sfx_voice_change_regdelta import find_skdisasm  # noqa: E402
+
+# The reference-tree lookup is IMPORTED rather than re-spelled: two copies of an
+# ancestor walk is exactly how a runner ends up skipping for a reason the tool
+# would not have had.
 
 
 def _run():
@@ -47,8 +53,9 @@ def test_our_voice_change_writes_sk_values():
     reference tree is a sibling checkout that a fresh clone need not have, and a
     check that could not ask its question must never read as green. The skip
     reason carries the tool's own stderr so the cause is visible in the run."""
-    if not SKDISASM.is_dir():
-        pytest.skip(f"S&K reference tree {SKDISASM} is absent — no reference half")
+    sk = find_skdisasm()
+    if sk is None or not sk.is_dir():
+        pytest.skip("no `skdisasm` reference checkout found — no reference half")
     r = _run()
     if r.returncode == 2:
         pytest.skip(f"UNMEASURABLE (exit 2), not a pass:\n{r.stderr.strip()}")
