@@ -254,8 +254,19 @@ changed the population of writers while the refusal did not change.** Ruled (b) 
 the owner's place, 2026-09-06, overturnable.
 
 **WHAT THIS MEANS FOR A WRITER, in one line: nothing you can put in `anims` fails the build over
-`default_off` any more.** The disclosure at `Promote` that was covering authors until this landed
-is **retired** — there is no longer a wall to announce.
+`default_off` any more.**
+
+**⚠ THE SENTENCE THAT STOOD HERE — *"the disclosure at `Promote` … is retired"* — IS REFUTED BY THE
+LANE IT DESCRIBED, 2026-09-09.** Aurora checked their own tree and reports `Promote` is **live**: an
+enabled chip with a reason string and a slot control beside it, its disabled state driven by a real
+verb reason rather than hidden. **There is no disclosure element on that panel at all**, so if the
+sentence meant a disclosure specifically, it described something that never existed there rather
+than something they removed. **Cite this correction, not their tree — the next reader of this
+document cannot check theirs**, which is the whole reason the wrong sentence survived here.
+
+*This is the cross-repo claim class arriving in the one file whose job is to be current: a statement
+about a sibling repo, living in ours, that no reader here could ever have contradicted. It sat two
+sections from a value that was also wrong for this document's entire life.*
 
 ##### ⚠ THAT ONE LINE WAS ONLY TRUE OF THE REFUSAL, AND A SECOND WALL STOOD BEHIND IT UNTIL 2026-09-06 (BAND-LIVE-BUILD)
 
