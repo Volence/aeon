@@ -16,17 +16,27 @@ and the design says why in the same words: `lo`/`hi` live in the raster program'
 call, `amp_shift` lives in the preset, and the two are associated by a POINTER at runtime.
 There is no comptime scope in which both numbers exist. This file is that scope.
 
-RED-FIRST, and the mutation is on disk rather than described: lowering
-`games/sonic4/data/effects/ojz_effects.emp` `OJZ_Preset_Sec7`'s `anchor_sweep(amp_shift: 5,
-...)` to `amp_shift: 1` makes `test_every_authored_sweep_fits_its_channels_patchable_band`
-fail with `channel 2: peak-to-peak 256 px does not fit band 3..160 (158 lines)`, and raising
-it back makes it pass. Measured 2026-09-09.
+RED-FIRST, and the mutations are on disk rather than described. Both re-measured 2026-09-09
+against the tree as it now stands, each applied alone and restored from a committed baseline:
 
-(That paragraph named `OJZ_Preset_Sec0` channel 0 until 2026-09-09, when the owner turned the
-section-0 waterline off for a video and its `patch_motion` became `ANCHOR_MOTION_NONE`. The
-mutation moved to the sweep that is still authored; the bound did not change. THE FACT THAT
-THIS PARAGRAPH HAD TO MOVE IS THE POINT OF THE 2026-09-09 PARCEL — see "INSTRUMENT HEALTH vs
-CONTENT STATE" below.)
+  BAND FIT — writing `anchor_sweep(amp_shift: 7, period_shift: 1)` into `OJZ_Preset_Sec0`'s
+  `patch_motion` slot 1 fails `test_every_authored_sweep_fits_its_channels_patchable_band`
+  with `OJZ_Preset_Sec0 channel 1: peak-to-peak 4 px does not fit band 222..223 (2 lines)`.
+  Slot 1 and not slot 0 because channel 0's band is 218 lines and NO legal rung of
+  `anchor_sweep()`'s own ladder can overflow it — see the last bullet of the generated-arm
+  block below, which re-derives that every run.
+
+  SEEDED HEADROOM — restoring the retired sweep into slot 0 (`amp_shift: 4, period_shift: 1`)
+  with `patch_world_ys[0]` at 150 instead of its retired 224 fails
+  `test_every_authored_sweep_leaves_headroom_at_its_seeded_position` with `the seeded line is
+  6 and the sweep's peak takes it to -10, below the band floor 3`. An amplitude that fits the
+  band, at a position where it does not fit: the whole reason the second bound exists.
+
+(This paragraph named `OJZ_Preset_Sec0` channel 0's shipped `amp_shift: 4` until 2026-09-09,
+when the owner turned the section-0 waterline off for a video. The mutation had to move
+because the content it named stopped existing — and A DOC PARAGRAPH GOING STALE IS THE RIGHT
+COST. A TEST going red for the same reason was not, which is the whole point of the 2026-09-09
+parcel; see "INSTRUMENT HEALTH vs CONTENT STATE" below.)
 
 Runner: the `pytest tools` lane in build.sh (`python3 -m pytest tools -q`), which is
 build-fatal on the canonical path and skipped under FAST=1.

@@ -31896,3 +31896,137 @@ invert it by overlapping two rectangles on purpose, and watch the build go red. 
 produce a scalar an `ensure` can read, the checks fall to the generator and a pytest — which is
 strictly weaker, and act 1's table is HAND-WRITTEN until the generator lands.** That is the window
 where a hand-authored arch would have no comptime check at all.
+
+---
+
+## A CHECK MAY REQUIRE THAT CONTENT IS CORRECT; IT MAY NOT REQUIRE THAT CONTENT EXISTS (2026-09-09)
+
+**Owner ruling, stated here because it generalises past the one gate that provoked it:**
+
+> A check may require that authored content is **CORRECT**. It may not require that particular
+> content **EXISTS**, unless something real breaks without it.
+
+The provocation: `tools/test_anchor_sweep_band.py`'s seeded-headroom bound ended with
+`assertGreater(judged, 0)`, and the message it failed with named **two** causes in one breath:
+
+> "...which means **either the spawn-section sweep was removed**, or **`section_presets()`
+> stopped resolving** the preset names."
+
+The first is a content decision the owner is entitled to make. The second is the instrument going
+blind. **The gate failed on both, which punished the first for the second's sake** — and it made
+OJZ act 1's level design load-bearing for the build. The owner hit it turning the section-0
+waterline off for a video and was blocked by a test that had no business having an opinion.
+
+**The instinct behind the guard was right and is kept.** A bound that measures nothing must not
+report success; this suite has booked that failure mode more than once and it is the reason the
+coverage report exists at all. Deleting the guard would have swapped one defect for the worse one
+it existed to prevent.
+
+### The fix is a partition, and the partition is the reusable part
+
+| | asks | answered by | zero is |
+|---|---|---|---|
+| **INSTRUMENT HEALTH** | can the reader see the source it reads? | a disagreement between a READER and the PLAIN TEXT of its own file | a **hard failure** |
+| **CONTENT STATE** | how much is authored, and where? | a count | **legitimate**, and reported |
+
+`instrument_blindness()` in that file is the worked example. Two probes, neither of which can be
+answered by how much content happens to exist, and — the property that makes it a partition rather
+than a loosening — **neither gets weaker as content is removed**:
+
+* **RESOLUTION** — `section_presets()` must resolve one entry per `ojz_sec(` **call site the
+  descriptor textually contains**, contiguous from 0, with the spawn section among them. Stated as
+  ACCOUNTING, never as a pinned count: the predecessor asserted `sorted(sections) == list(range(9))`
+  and thereby made the act's SECTION COUNT a build requirement too.
+* **PARSE** — `authored_sweeps()`, the reader the bound actually uses, must agree with
+  `scan_module()` on the array-shaped sweeps of the same file, and `scan_module()` raises on any
+  `anchor_sweep(` occurrence it can neither classify nor refuse. N sweeps read as zero fires; zero
+  read as zero passes.
+
+**Two traps, both hit while building it, both worth carrying forward:**
+
+1. **A probe that matches the reader's own pattern can never disagree with it.** The occurrence
+   count runs over the bare `ojz_sec(` spelling, not over `ojz_sec(sec: <digits>`. Had it used the
+   reader's pattern it would have been a tautology wearing a probe's clothes.
+2. **Counting the spelling is not counting the population.** The first draft counted 10 `ojz_sec(`
+   occurrences against 9 resolved and declared a healthy reader blind — the tenth is the
+   `comptime fn ojz_sec(sec: int, ..)` **declaration**, whose argument list carries no literal
+   `sec:`. Caught only because the probe was run against the **unmutated** tree first. *Establish
+   the control before you trust the instrument.*
+
+### Where else this rule has teeth, unswept
+
+The population was not enumerated. Anything of the shape *"assert that the tree contains at least
+one X"* is a candidate, and the two found here were both in this one file
+(`test_there_is_at_least_one_authored_sweep`, `test_the_live_generated_population_is_not_empty`,
+both now converted). **A sweep for the pattern across `tools/*.py` has not been run** and is the
+open work. The discriminator to sweep for is not the word `assertTrue` — it is *whose decision
+turns this red*: if the answer is "an author's, by authoring nothing", it is this defect.
+
+---
+
+## `headroom_violations()` HAD A VACUOUS CONTROL, FOUND BY RUNNING THE REJECTED ALTERNATIVE (2026-09-09)
+
+Rider on the entry above, and the more interesting half, because it was found by **running the
+option the parcel rejected** rather than by reading the code that shipped.
+
+Turning the section-0 waterline off had two candidate shapes: retire channel 0's **anchor** to
+`PATCH_ANCHOR_NONE`, or unbind **`patched: OJZ_TwoChannel`** from `OJZ_Preset_Sec0`. The anchor won
+(see the comment above `OJZ_Preset_Sec0` in `games/sonic4/data/effects/ojz_effects.emp` for why).
+The rejected one was then run anyway, to price it — and it exposed a live defect:
+
+**All four refuse-fixtures in `tools/fixtures/anchor_sweep/` guard on `sec == 0` and resolve their
+bands through that preset.** With the binding gone, three of them go red, correctly. The fourth —
+`test_the_in_band_fixture_is_accepted_with_no_violation_at_all`, **the control**, the one whose job
+is to distinguish "the arm checks the band" from "the arm refuses everything" — went **vacuously
+green**:
+
+```
+sweeps scanned: 1
+band_violations: 0   headroom_violations: 0   unevaluated: 0
+bands resolved for it: {}
+```
+
+`headroom_violations()` carried a bare `continue` for a channel with no band, commented *"already
+reported by band_violations"*. True of the **violation**; false of the function's **second return
+value** — and that second value is exactly what the control asserts empty so that it cannot pass
+having measured nothing. **The assertion written to catch this could not fire, because the skip
+never reached it.** Fixed: a bandless channel is now recorded as UNEVALUATED. The same mutation now
+turns that control red (3 failed becomes 4).
+
+**The transferable part:** a control that can be satisfied by the *absence* of its subject is not a
+control. When a check's message says "…so this control is weaker than it reads", verify that the
+path it is guarding can actually **reach** it — here, a `continue` three branches earlier meant it
+never could. And: **the alternative you rejected is a free mutation.** Running it cost one command
+and found a defect that reading had not.
+
+**Live-tree side effect, stated because a number moves:** the coverage report's *"NOT CHECKED:
+seeded headroom for N of the M generated sweep(s)"* goes 0 -> 1. Section 5's generated sweep reaches
+channel 0 through the d-53 `parallax:` loan and has no patchable band, so it never was evaluated —
+the report now says so instead of silently counting it as covered.
+
+---
+
+## OJZ ACT 1 SECTION 0's WATERLINE IS OFF, AND THE RESTORE IS TWO TOKENS (2026-09-09)
+
+Owner: *"I just want it off because it's dark and distracting right now."* Both halves are off — the
+sweep (distracting) and the tint band (dark).
+
+```
+patch_world_ys[0]   224                                         ->  PATCH_ANCHOR_NONE
+patch_motion[0]     anchor_sweep(amp_shift: 4, period_shift: 1) ->  ANCHOR_MOTION_NONE
+```
+
+**It is off for a video, not necessarily forever.** The exact original values and the derivation of
+each are kept verbatim in the comment above `OJZ_Preset_Sec0` in
+`games/sonic4/data/effects/ojz_effects.emp`; putting the two tokens back restores the picture
+exactly. Nothing else moved — `patched: OJZ_TwoChannel` stays bound, channel 1's vscroll split stays
+live, and `parallax: ParallaxConfig_OJZ_Underwater` stays bound (it reads the same latched line, so
+its band split goes off-screen with the anchor).
+
+**NOT VERIFIED, and it is the one thing to check before this is called done:** the emulator-backed
+arm of `tools/effects_gates.py`. No emulator was run from the parcel. The argument that it is
+unaffected is that its four scenes **poke `Effects_World_Y` themselves** before capturing, so a
+change to the preset's SEED should not reach their expectations, and its bands are read from the
+`patchable(ch:, lo:, hi:)` calls, which did not move. **That is an argument, not a measurement.**
+The two listing-only gates (`scanline_spans`, `demo_witness`) were run and pass, which tests none of
+the above.
