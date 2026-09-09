@@ -43,6 +43,42 @@ module engine.zx0_resume in zx0_resume
 // Clobbers: d0-d2, a2 (NOT movem-preserved — the resumable contract forbids the
 //      stack save; the caller owns these registers)
 //
+// WHY THIS DECODER CARRIES NO RELEASE-SHAPE FAULT CHECK (LS-17, 2026-09-09)
+// -------------------------------------------------------------------------
+// The LS-17 ruling put engine/compression/ in scope and this file has neither an
+// `ensure` nor an `assert`, so the obvious reading is "give it one too". It got
+// none, and the reason is structural rather than a judgement call about cost:
+//
+//   1. A deliberate fault cannot be raised from inside this proc AT ALL. The
+//      crash path is `raise_error`, which lowers to the MD Debugger frame
+//      `pea *(pc)` + `move.w sr, -(sp)` + `jsr (MDDBG__ErrorHandler).l`. The
+//      first two touch sp, and `@resumable` makes any sp-touching op BUILD-FATAL
+//      here (that is the whole point of the attribute — an interrupt must be
+//      able to snapshot the live state from registers alone). Measured, not
+//      reasoned: a probe `raise_error` planted at this proc's `.done` fails the
+//      build with THREE `[resumable.stack-op]` errors, one per sp-touching op of
+//      the raise frame -- `pea`, the `-(sp)` push, and `jsr`. The rule was "if a
+//      check cannot reach the
+//      existing crash path, stop and report rather than inventing one" — there
+//      is no second failure mode to invent here, so it reports.
+//   2. The check worth having is an OUTPUT BOUND (this decoder writes into a
+//      fixed staging buffer and nothing stops a corrupt stream walking past it),
+//      and that needs a live limit register. There is none: the resumable
+//      contract pins the live set to exactly d0-d2/a0-a3, which is exactly what
+//      the VBlank bookmark banks (`PageIn_BankRegs`, engine/level/page_in.emp,
+//      driven by the PC-range hook in engine/system/vblank.emp). Widening it
+//      means editing vblank.emp — the file the LS-17 ruling explicitly excludes.
+//   3. What is left — a per-loop bound tested inside the elias/copy loops — is
+//      per-BYTE cost in the tightest loop in the engine, running in the gaps
+//      between frames. That is precisely the cost the ruling's rejected `full`
+//      option was priced on.
+//
+// So the gap is real and stays open, and the follow-up is recorded in
+// docs/DEFERRED_WORK.md rather than closed here: it wants a dest-extent
+// parameter plus a bookmark widening, which is a design change, not a check.
+// The blocking sibling S4LZ (engine/compression/s4lz.emp) DID take its three
+// release-shape checks under the same ruling; see its header.
+//
 // Algorithm from unzx0_68000.S (Emmanuel Marty), restructured for the resumable
 // contract.
 //
