@@ -31549,8 +31549,11 @@ colour→pixel-count histogram identical across the change, byte length unchange
 differ only at the four character-specific slots 2/3/5/9.
 
 It subsumes the 2026-08-12 dust-only 4/6/7 swap (now one consequence of a general rule rather than a
-special case) and closes a LATENT instance nobody had reported: **the insta-shield** draws on line 0
-at 0/6/7/8, and index 8 was in the gap too.
+special case) and closes a structural exposure nobody had reported: **the insta-shield** draws on
+line 0 at 0/6/7/8, and index 8 was in the gap too. ⚠ **Not a live bug, and the distinction matters:**
+the insta-shield is bound to `CharDef_Sonic.cd_ability` (`player_instashield.emp`), so only Sonic
+ever fires it and index 8 was never actually rendered under Knuckles' line. It was one ability
+binding away from being one — which is the reason to state it, not to claim it was breaking.
 
 ### ⚠ OPEN — "Spring index 9". A LOOK DECISION, FOR THE OWNER
 
@@ -31601,7 +31604,7 @@ of each blob's own indices — not by name:
 |---|---|---|
 | the player itself (`VRAM_TEST_SONIC`, `cd_vrambase`) | all 16 | by definition fine — it IS the line |
 | effect dust — `DustPuff` / `DustSpindash` (`art_dust.bin`) | 0, 4, 6, 7 | fixed 2026-08-12; still agrees |
-| insta-shield (`Art_InstaShield`) | 0, 6, 7, 8 | **was latently broken at index 8**; fixed here |
+| insta-shield (`Art_InstaShield`) | 0, 6, 7, 8 | index 8 was in the gap, but the ability is `CharDef_Sonic`-only so it never rendered on his line — structural exposure, not a live bug; closed here |
 | spring (`Art_Spring`) | 0, 1, 6, 7, 8, 9, 12, 13 | fixed except index 9 (above) |
 | `VRAM_TEST_OBJ` / `VRAM_DEMO_OBJ` test placeholders | synthesised, not character art | not shipped content |
 
